@@ -41,3 +41,15 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # Error handling
 anyhow = "1"
 thiserror = "2"
+
+# Auth
+argon2 = "0.5"
+jsonwebtoken = "9"
+password-hash = "0.5"
+
+# Utilities
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+
+# DB migration
+sea-orm-migration = { version = "1.1", features = ["sqlx-sqlite", "runtime-tokio-rustls"] }

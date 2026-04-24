@@ -31,9 +31,17 @@ enum Commands {
         /// Path to SSH host key
         #[arg(long)]
         host_key: Option<String>,
+
+        /// SQLite database URL (e.g. sqlite:///tmp/ironforge/db.sqlite?mode=rwc)
+        #[arg(long, default_value = "sqlite://./ironforge.db?mode=rwc")]
+        db_url: String,
+
+        /// JWT secret key (use a long random string in production)
+        #[arg(long, default_value = "change-me-in-production")]
+        jwt_secret: String,
     },
 
-    /// Create a new bare repository
+    /// Create a new bare repository (no DB record — for quick testing)
     CreateRepo {
         /// Owner username
         owner: String,
@@ -49,7 +57,6 @@ enum Commands {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Initialize tracing
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env()
@@ -66,16 +73,27 @@ async fn main() -> anyhow::Result<()> {
             http_addr,
             ssh_addr,
             host_key,
+            db_url,
+            jwt_secret,
         } => {
             let repo_root = PathBuf::from(&repo_root);
             std::fs::create_dir_all(&repo_root)?;
 
-            // Start HTTP and SSH servers concurrently
+            // ── Database ──────────────────────────────────────────────────
+            tracing::info!("Connecting to database: {}", db_url);
+            let db = rg_db::connect(&db_url).await?;
+            rg_db::run_migrations(&db).await?;
+            tracing::info!("Database ready");
+
+            // ── HTTP server ───────────────────────────────────────────────
             let http_config = rg_http::HttpServerConfig {
                 listen_addr: http_addr,
                 repo_root: repo_root.clone(),
+                db: db.clone(),
+                jwt_secret: jwt_secret.clone(),
             };
 
+            // ── SSH server ────────────────────────────────────────────────
             let host_key_path = host_key.unwrap_or_else(|| {
                 let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
                 format!("{}/.ssh/id_ed25519", home)
@@ -85,6 +103,7 @@ async fn main() -> anyhow::Result<()> {
                 host_key_path: PathBuf::from(&host_key_path),
                 listen_addr: ssh_addr,
                 repo_root: repo_root.clone(),
+                db: Some(db.clone()),
             };
 
             let http_handle = tokio::spawn(async move {
@@ -99,9 +118,8 @@ async fn main() -> anyhow::Result<()> {
                 }
             });
 
-            tracing::info!("IronForge server started");
+            tracing::info!("IronForge server started (Phase 2)");
 
-            // Wait for either server to fail
             tokio::select! {
                 _ = http_handle => {},
                 _ = ssh_handle => {},

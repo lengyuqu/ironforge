@@ -12,7 +12,7 @@
 
 - **二进制名**: `ironforge`（crate `rg-cli` 的 bin target）
 - **目标**: 内存 <50MB、单二进制部署、全功能（仓库/Issue/PR/Wiki/CI）
-- **当前阶段**: **Phase 1 已完成**（SSH + HTTP git clone/push 全部可用）
+- **当前阶段**: **Phase 3 已完成**（SSH + HTTP git clone/push + 用户系统 + Issue + PR）
 
 ---
 
@@ -28,11 +28,11 @@ ironforge/
 │   └── git-protocol.md     # Git 协议实现细节与踩坑记录
 └── crates/
     ├── rg-cli/             # 主二进制入口（bin = "ironforge"）
-    ├── rg-core/            # 核心业务逻辑（⏳ stub，待 Phase 2 实现）
+    ├── rg-core/            # 核心业务逻辑（✅ auth/user/repo/issue/pr）
     ├── rg-git/             # Git 协议层（✅ 完整实现）
     ├── rg-ssh/             # SSH 服务端 russh（✅ 完整实现）
-    ├── rg-http/            # HTTP 服务端 Axum（✅ 完整实现）
-    ├── rg-db/              # 数据库层 SeaORM（⏳ stub）
+    ├── rg-http/            # HTTP 服务端 + REST API（✅ 完整实现）
+    ├── rg-db/              # 数据库层 SeaORM（✅ 实体+迁移+ops）
     └── rg-ci/              # CI/CD 引擎（⏳ stub）
 ```
 
@@ -85,27 +85,34 @@ git clone http://localhost:8080/git/testuser/testrepo /tmp/if_http
 
 ---
 
-## 实现现状（Phase 1 完成，2026-04-24）
+## 实现现状（Phase 3 Issue + PR 完成，2026-04-24）
 
-### ✅ 已完成
+### ✅ 已完成（Phase 1 + Phase 2 + Phase 3）
 
 | 模块 | 文件 | 说明 |
 |------|------|------|
-| pkt-line 协议 | `rg-git/src/pkt_line.rs` | 完整编解码，`read_pkt_line` / `write_pkt_line` / `write_flush` |
-| sideband-64k | `rg-git/src/sideband.rs` | band 1/2/3，`write_sideband_data` / `write_sideband_flush` |
-| git-upload-pack | `rg-git/src/protocol/upload_pack.rs` | SSH 模式 + HTTP 模式，want/have 协商，pack-objects |
-| git-receive-pack | `rg-git/src/protocol/receive_pack.rs` | SSH 模式 + HTTP 模式，index-pack，report-status |
-| SSH 服务端 | `rg-ssh/src/lib.rs` | russh 0.51，exec_request 路由，exit-status + stream.shutdown() |
-| HTTP 服务端 | `rg-http/src/lib.rs` | Axum 0.8，/git/ 路由，duplex pipe 桥接 |
-| CLI | `rg-cli/src/main.rs` | clap 4，`serve` / `create-repo` 命令 |
+| pkt-line 协议 | `rg-git/src/pkt_line.rs` | 完整编解码 |
+| sideband-64k | `rg-git/src/sideband.rs` | band 1/2/3 |
+| git-upload-pack | `rg-git/src/protocol/upload_pack.rs` | SSH + HTTP 模式 |
+| git-receive-pack | `rg-git/src/protocol/receive_pack.rs` | SSH + HTTP 模式 |
+| SSH 服务端 | `rg-ssh/src/lib.rs` | russh 0.51，auth_publickey/auth_password 查 DB |
+| HTTP 服务端 | `rg-http/src/lib.rs` | Axum 0.8，/git/ 路由 |
+| REST API | `rg-http/src/api/` | Users + Repos + Issues + PRs |
+| 数据库实体 | `rg-db/src/entities/` | users / repositories / ssh_keys / access_tokens / **issues / issue_comments / pull_requests / milestones** |
+| DB 迁移 | `rg-db/src/migrations/` | m20260424_000001~000005，自动 up on start |
+| 用户认证 | `rg-core/src/auth/` | argon2 password hash + JWT HS256 |
+| 用户服务 | `rg-core/src/user/service.rs` | register / login |
+| 仓库服务 | `rg-core/src/repo/service.rs` | create_repo + can_read/can_write |
+| **Issue 服务** | `rg-core/src/issue/service.rs` | CRUD + labels + milestone + comments |
+| **PR 服务** | `rg-core/src/pull_request/service.rs` | create + diff(git CLI) + merge(3策略) |
+| CLI | `rg-cli/src/main.rs` | clap 4，`serve`（含 --db-url, --jwt-secret）/ `create-repo` |
 
-### ⏳ 待实现（Phase 2+）
+### ⏳ 待实现（Phase 4+）
 
-- `rg-core`：用户认证（argon2 + JWT）、仓库权限（Public/Private）、SSH Key 管理
-- `rg-db`：SeaORM 实体（users / repositories / issues / ...）+ 迁移文件
-- `rg-http`：REST API（`/api/v1/...`）、用户注册登录端点
 - Web UI（SvelteKit，独立前端）
-- Issue、PR、Wiki、CI/CD（Phase 3-5）
+- Wiki + LFS + 高级功能 —— Phase 4
+- CI/CD 引擎 —— Phase 5
+- 仓库权限：git 协议入口调用 `rg_core::repo::service::can_read/can_write`
 
 ---
 
@@ -205,15 +212,15 @@ let salt = SaltString::generate(&mut rng()); // ❌
 6. 端到端测试验证（见 README.md 中的测试脚本）
 7. 更新本文件中的"实现现状"表格
 
-### Phase 2 开发起点建议
+### Phase 4 开发起点建议
 
-下一个要实现的是用户系统和真正的权限控制：
+下一步是 Wiki + LFS + 高级功能：
 
-1. **`rg-db`**：实现 SeaORM 实体（`users`、`ssh_keys`、`access_tokens`、`repositories`）+ 迁移
-2. **`rg-core/auth`**：实现 argon2 密码哈希 + JWT Token 生成/校验
-3. **`rg-ssh`**：`auth_publickey` 从数据库查询用户 SSH Key
-4. **`rg-http`**：添加 `/api/v1/users/register`、`/api/v1/users/login` 端点
-5. 仓库权限：在 git 协议处理入口校验用户是否有权限访问仓库
+1. **`rg-db`**：新增 `wiki_pages` SeaORM 实体和迁移
+2. **`rg-core/wiki`**：Wiki 引擎（`.wiki.git` 裸仓库后端）+ Markdown 渲染
+3. **`rg-core/lfs`**：LFS 协议实现（对象存储 + 批量 API）
+4. **`rg-http/api`**：`/api/v1/repos/:owner/:name/wiki/*`、LFS 端点
+5. **Web UI（SvelteKit）**：基础页面：仓库列表、文件浏览、Issue/PR 列表
 
 ---
 

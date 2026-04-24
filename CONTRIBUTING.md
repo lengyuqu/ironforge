@@ -21,7 +21,7 @@
 ### 必要工具
 
 ```bash
-# Rust stable (1.75+)
+# Rust stable (1.95+)
 rustup update stable
 
 # 代码格式化
@@ -101,7 +101,7 @@ rg-ci   (独立，未来集成到 rg-core)
 **允许**：
 - russh 服务端实现
 - exec_request 路由到 `rg-git`
-- SSH 认证（Phase 1 全放行，Phase 2 对接 `rg-core::auth`）
+- SSH 认证（公钥/密码查 DB，对接 `rg-core::auth` + `rg-db::ops`）
 
 **禁止**：
 - 不能包含 Git 协议解析逻辑（委托给 `rg-git`）
@@ -112,7 +112,7 @@ rg-ci   (独立，未来集成到 rg-core)
 **允许**：
 - Axum 路由定义
 - Git Smart HTTP 端点实现
-- REST API 端点（Phase 2+）
+- REST API 端点（Users / Repos / Issues / PRs）
 - 中间件（认证、CORS、限流）
 
 **禁止**：
@@ -369,15 +369,20 @@ PR 合并到 `main` 前要求：
 - SSH 服务端（russh）
 - HTTP 服务端（Axum）
 
-### ⏳ Phase 2：用户系统（下一步）
-- `rg-db`：SeaORM 实体 + SQLite 迁移
+### ✅ Phase 2：用户系统（已完成，2026-04-24）
+- `rg-db`：SeaORM 实体 + SQLite 迁移（users / repositories / ssh_keys / access_tokens）
 - `rg-core/auth`：用户注册/登录（argon2 + JWT）
 - SSH Key 管理 + 公钥认证
 - 仓库权限（Public/Private）
 - REST API 基础（`/api/v1/...`）
 
-### ⏳ Phase 3：Issue + Pull Request
-### ⏳ Phase 4：Wiki + LFS + Webhook
+### ✅ Phase 3：Issue + Pull Request（已完成，2026-04-24）
+- `rg-db`：issues / issue_comments / pull_requests / milestones 实体 + 迁移
+- `rg-core/issue`：Issue CRUD + 标签 + 里程碑 + 评论
+- `rg-core/pull_request`：PR 创建 + diff（git CLI）+ 合并（merge/squash/rebase 三策略）
+- REST API：`/api/v1/repos/:owner/:name/issues/*` + `/api/v1/repos/:owner/:name/pulls/*`
+
+### ⏳ Phase 4：Wiki + LFS + Webhook（下一步）
 ### ⏳ Phase 5：CI/CD 引擎
 
 完整计划见 [ARCHITECTURE.md](ARCHITECTURE.md)。

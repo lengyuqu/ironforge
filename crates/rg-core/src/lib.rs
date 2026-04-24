@@ -1,10 +1,17 @@
 //! IronForge core business logic.
 //!
-//! Handles users, repositories, issues, pull requests, wikis, and webhooks.
+//! Handles users, repositories, authentication, access control,
+//! issues, and pull requests.
+
+pub mod auth;
+pub mod user;
+pub mod repo;
+pub mod issue;
+pub mod pull_request;
 
 use anyhow::Result;
 
-/// Check if a username is valid.
+/// Check if a username is valid (alphanumeric + hyphen + underscore, max 39).
 pub fn validate_username(username: &str) -> Result<()> {
     if username.is_empty() {
         anyhow::bail!("username cannot be empty");

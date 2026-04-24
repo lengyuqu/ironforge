@@ -1,22 +1,35 @@
 //! IronForge HTTP server implementation using Axum.
 //!
-//! Provides the Git Smart HTTP protocol endpoints for clone/push.
+//! Provides:
+//!  - Git Smart HTTP protocol endpoints (`/git/...`)
+//!  - REST API (`/api/v1/...`)
+//!  - Health check (`/health`)
+
+pub mod api;
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use axum::body::Body;
-use axum::extract::Query;
+use axum::extract::{Query, State};
 use axum::http::header;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::Router;
+use sea_orm::DatabaseConnection;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
-use tracing;
+
+/// Shared application state injected into every Axum handler via `State<AppState>`.
+#[derive(Clone)]
+pub struct AppState {
+    pub repo_root: Arc<PathBuf>,
+    pub db: DatabaseConnection,
+    pub jwt_secret: Arc<String>,
+}
 
 /// HTTP server configuration.
 pub struct HttpServerConfig {
@@ -24,12 +37,21 @@ pub struct HttpServerConfig {
     pub listen_addr: String,
     /// Root directory for git repositories.
     pub repo_root: PathBuf,
+    /// Database connection.
+    pub db: DatabaseConnection,
+    /// JWT secret key.
+    pub jwt_secret: String,
 }
 
 /// Start the HTTP server and run forever.
 pub async fn run(config: HttpServerConfig) -> Result<()> {
-    let repo_root = Arc::new(config.repo_root);
-    let app = create_router(repo_root);
+    let state = AppState {
+        repo_root: Arc::new(config.repo_root),
+        db: config.db,
+        jwt_secret: Arc::new(config.jwt_secret),
+    };
+
+    let app = create_router(state);
 
     let listener = tokio::net::TcpListener::bind(&config.listen_addr)
         .await
@@ -44,56 +66,67 @@ pub async fn run(config: HttpServerConfig) -> Result<()> {
     Ok(())
 }
 
-/// Create the Axum router.
-fn create_router(repo_root: Arc<PathBuf>) -> Router {
-    let info_refs_repo = repo_root.clone();
-    let info_refs = move |axum::extract::Path((owner, repo)): axum::extract::Path<(String, String)>,
-                         Query(params): Query<std::collections::HashMap<String, String>>| {
-        let repo_root = info_refs_repo.clone();
-        async move { handle_info_refs(repo_root, owner, repo, params).await }
-    };
-
-    let upload_repo = repo_root.clone();
-    let git_upload_pack = move |axum::extract::Path((owner, repo)): axum::extract::Path<(String, String)>,
-                                body: axum::body::Bytes| {
-        let repo_root = upload_repo.clone();
-        async move { handle_git_upload_pack(repo_root, owner, repo, body).await }
-    };
-
-    let receive_repo = repo_root.clone();
-    let git_receive_pack = move |axum::extract::Path((owner, repo)): axum::extract::Path<(String, String)>,
-                                 body: axum::body::Bytes| {
-        let repo_root = receive_repo.clone();
-        async move { handle_git_receive_pack(repo_root, owner, repo, body).await }
-    };
-
+/// Create the Axum router (Git + REST API + health).
+fn create_router(state: AppState) -> Router {
+    // ── Git Smart HTTP routes ──────────────────────────────────────────────
     let git_routes = Router::new()
-        .route("/{owner}/{repo}/info/refs", get(info_refs))
-        .route("/{owner}/{repo}/git-upload-pack", axum::routing::post(git_upload_pack))
-        .route("/{owner}/{repo}/git-receive-pack", axum::routing::post(git_receive_pack));
+        .route(
+            "/{owner}/{repo}/info/refs",
+            get(handle_info_refs),
+        )
+        .route(
+            "/{owner}/{repo}/git-upload-pack",
+            post(handle_git_upload_pack),
+        )
+        .route(
+            "/{owner}/{repo}/git-receive-pack",
+            post(handle_git_receive_pack),
+        );
+
+    // ── REST API routes ───────────────────────────────────────────────────
+    let api_v1 = Router::new()
+        // Users
+        .route("/users/register", post(api::users::register))
+        .route("/users/login", post(api::users::login))
+        .route("/users/me", get(api::users::me))
+        // Repos
+        .route("/repos", post(api::repos::create_repo))
+        .route("/repos/:owner", get(api::repos::list_repos))
+        .route("/repos/:owner/:name", get(api::repos::get_repo))
+        // Issues
+        .route("/repos/:owner/:name/issues", get(api::issues::list_issues).post(api::issues::create_issue))
+        .route("/repos/:owner/:name/issues/:number", get(api::issues::get_issue).patch(api::issues::update_issue))
+        .route("/repos/:owner/:name/issues/:number/comments", get(api::issues::list_comments).post(api::issues::add_comment))
+        // Pull Requests
+        .route("/repos/:owner/:name/pulls", get(api::pulls::list_prs).post(api::pulls::create_pr))
+        .route("/repos/:owner/:name/pulls/:number", get(api::pulls::get_pr).patch(api::pulls::update_pr))
+        .route("/repos/:owner/:name/pulls/:number/diff", get(api::pulls::get_diff))
+        .route("/repos/:owner/:name/pulls/:number/merge", post(api::pulls::merge_pr));
 
     Router::new()
         .nest("/git", git_routes)
+        .nest("/api/v1", api_v1)
         .route("/health", get(health))
         .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
+        .with_state(state)
 }
 
 async fn health() -> impl IntoResponse {
     axum::Json(serde_json::json!({
         "status": "ok",
         "version": "0.1.0",
+        "phase": "3",
     }))
 }
 
 async fn handle_info_refs(
-    repo_root: Arc<PathBuf>,
-    owner: String,
-    repo: String,
-    params: std::collections::HashMap<String, String>,
+    State(state): State<AppState>,
+    axum::extract::Path((owner, repo)): axum::extract::Path<(String, String)>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
 ) -> impl IntoResponse {
     let service = params.get("service").map(|s| s.as_str()).unwrap_or("");
-    let repo_path = repo_root.join(format!("{}/{}.git", owner, repo));
+    let repo_path = state.repo_root.join(format!("{}/{}.git", owner, repo));
 
     if !repo_path.exists() {
         return (
@@ -151,7 +184,6 @@ fn build_info_refs(repo_path: &std::path::Path, service: &str) -> Result<String>
         }
     }
 
-    // Try to resolve HEAD
     let head_sha = Command::new("git")
         .arg("-C")
         .arg(repo_path)
@@ -178,11 +210,23 @@ fn build_info_refs(repo_path: &std::path::Path, service: &str) -> Result<String>
     };
 
     if let Some((sha, refname)) = ref_list.first() {
-        let line = format!("{:04x}{} {}\0{}\n", sha.len() + refname.len() + caps.len() + 6, sha, refname, caps);
+        let line = format!(
+            "{:04x}{} {}\0{}\n",
+            sha.len() + refname.len() + caps.len() + 6,
+            sha,
+            refname,
+            caps
+        );
         buf.push_str(&line);
     } else {
         let null_sha = "0000000000000000000000000000000000000000";
-        let line = format!("{:04x}{} capabilities^{}\0{}\n", null_sha.len() + 15 + caps.len() + 1, null_sha, service, caps);
+        let line = format!(
+            "{:04x}{} capabilities^{}\0{}\n",
+            null_sha.len() + 15 + caps.len() + 1,
+            null_sha,
+            service,
+            caps
+        );
         buf.push_str(&line);
     }
 
@@ -196,12 +240,11 @@ fn build_info_refs(repo_path: &std::path::Path, service: &str) -> Result<String>
 }
 
 async fn handle_git_upload_pack(
-    repo_root: Arc<PathBuf>,
-    owner: String,
-    repo: String,
+    State(state): State<AppState>,
+    axum::extract::Path((owner, repo)): axum::extract::Path<(String, String)>,
     body: axum::body::Bytes,
 ) -> impl IntoResponse {
-    let repo_path = repo_root.join(format!("{}/{}.git", owner, repo));
+    let repo_path = state.repo_root.join(format!("{}/{}.git", owner, repo));
 
     if !repo_path.exists() {
         return (
@@ -211,15 +254,11 @@ async fn handle_git_upload_pack(
         );
     }
 
-    // Use in-memory pipe: write input bytes to a pipe, handle_upload_pack_http reads from it
     let (mut pipe_read, mut pipe_write) = tokio::io::duplex(body.len() + 1024);
-
-    // Write input to pipe in background
     tokio::spawn(async move {
         let _ = pipe_write.write_all(&body).await;
     });
 
-    // Collect output from handler into a buffer
     let (mut buf_reader, mut buf_writer) = tokio::io::duplex(64 * 1024);
 
     match rg_git::protocol::upload_pack::handle_upload_pack_http(
@@ -231,7 +270,7 @@ async fn handle_git_upload_pack(
     {
         Ok(()) => {
             let _ = buf_writer.flush().await;
-            drop(buf_writer); // Close the write end
+            drop(buf_writer);
             let mut output = Vec::new();
             let _ = buf_reader.read_to_end(&mut output).await;
             (
@@ -249,12 +288,11 @@ async fn handle_git_upload_pack(
 }
 
 async fn handle_git_receive_pack(
-    repo_root: Arc<PathBuf>,
-    owner: String,
-    repo: String,
+    State(state): State<AppState>,
+    axum::extract::Path((owner, repo)): axum::extract::Path<(String, String)>,
     body: axum::body::Bytes,
 ) -> impl IntoResponse {
-    let repo_path = repo_root.join(format!("{}/{}.git", owner, repo));
+    let repo_path = state.repo_root.join(format!("{}/{}.git", owner, repo));
 
     if !repo_path.exists() {
         return (

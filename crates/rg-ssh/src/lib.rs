@@ -1,4 +1,7 @@
 //! IronForge SSH server implementation using russh.
+//!
+//! Phase 2: auth_publickey queries the database for matching SSH keys.
+//! auth_password queries the database and verifies via Argon2.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -7,6 +10,7 @@ use anyhow::{Context, Result};
 use russh::keys::load_secret_key;
 use russh::server::{Auth, Config, Handler, Msg, Server as _, Session};
 use russh::{Channel, ChannelId, ChannelStream};
+use sea_orm::DatabaseConnection;
 use tokio::io::AsyncWriteExt;
 
 use rg_git::protocol::receive_pack::handle_receive_pack_stream;
@@ -44,12 +48,20 @@ pub struct SshServerConfig {
     pub listen_addr: String,
     /// Root directory for git repositories.
     pub repo_root: PathBuf,
+    /// Database connection (None = open access, Phase 1 compat).
+    pub db: Option<DatabaseConnection>,
+}
+
+/// Shared state passed to every SshHandler.
+struct SharedState {
+    repo_root: Arc<PathBuf>,
+    db: Option<Arc<DatabaseConnection>>,
 }
 
 /// The IronForge SSH server — implements `russh::server::Server`.
 struct SshServer {
     config: Arc<Config>,
-    repo_root: Arc<PathBuf>,
+    shared: Arc<SharedState>,
     id: usize,
 }
 
@@ -65,9 +77,14 @@ impl SshServer {
             ..Default::default()
         };
 
+        let shared = Arc::new(SharedState {
+            repo_root: Arc::new(ssh_config.repo_root),
+            db: ssh_config.db.map(Arc::new),
+        });
+
         Ok(Self {
             config: Arc::new(config),
-            repo_root: Arc::new(ssh_config.repo_root),
+            shared,
             id: 0,
         })
     }
@@ -89,11 +106,13 @@ impl SshServer {
 impl russh::server::Server for SshServer {
     type Handler = SshHandler;
 
-    fn new_client(&mut self, _: Option<std::net::SocketAddr>) -> Self::Handler {
+    fn new_client(&mut self, peer: Option<std::net::SocketAddr>) -> Self::Handler {
         let handler = SshHandler {
-            repo_root: self.repo_root.clone(),
+            shared: self.shared.clone(),
             id: self.id,
+            peer,
             channel: None,
+            authenticated_user_id: None,
         };
         self.id += 1;
         handler
@@ -107,10 +126,13 @@ impl russh::server::Server for SshServer {
 /// russh Handler implementation for IronForge.
 /// One SshHandler per client connection.
 struct SshHandler {
-    repo_root: Arc<PathBuf>,
+    shared: Arc<SharedState>,
     id: usize,
+    peer: Option<std::net::SocketAddr>,
     /// The channel opened by the client for this session.
     channel: Option<Channel<Msg>>,
+    /// User id resolved during authentication (None if auth not DB-backed).
+    authenticated_user_id: Option<i64>,
 }
 
 impl Handler for SshHandler {
@@ -119,15 +141,71 @@ impl Handler for SshHandler {
     async fn auth_publickey(
         &mut self,
         _user: &str,
-        _public_key: &russh::keys::PublicKey,
+        public_key: &russh::keys::PublicKey,
     ) -> Result<Auth, Self::Error> {
-        // Phase 1: accept any auth
-        Ok(Auth::Accept)
+        let Some(db) = &self.shared.db else {
+            // Phase 1 compat: no DB, accept all
+            return Ok(Auth::Accept);
+        };
+
+        // Compute SHA-256 fingerprint. ssh_key is a transitive dep of russh via
+        // internal-russh-forked-ssh-key. The fingerprint() method returns a
+        // Fingerprint that implements Display as "SHA256:<base64>".
+        use russh::keys::ssh_key;
+        let fp = public_key.fingerprint(ssh_key::HashAlg::Sha256);
+        let fp_str = fp.to_string();
+        tracing::debug!(fingerprint = %fp_str, "SSH pubkey auth attempt");
+
+        match rg_db::ops::ssh_key_ops::find_by_fingerprint(db, &fp_str).await {
+            Ok(Some(key)) => {
+                self.authenticated_user_id = Some(key.user_id);
+                tracing::info!(user_id = key.user_id, "SSH pubkey auth accepted");
+                Ok(Auth::Accept)
+            }
+            Ok(None) => {
+                tracing::warn!(fingerprint = %fp_str, "SSH pubkey not found");
+                Ok(Auth::Reject { proceed_with_methods: None, partial_success: false })
+            }
+            Err(e) => {
+                tracing::error!(error = %e, "DB error during pubkey lookup");
+                Ok(Auth::Reject { proceed_with_methods: None, partial_success: false })
+            }
+        }
     }
 
-    async fn auth_password(&mut self, _user: &str, _password: &str) -> Result<Auth, Self::Error> {
-        // Phase 1: accept any auth
-        Ok(Auth::Accept)
+    async fn auth_password(&mut self, username: &str, password: &str) -> Result<Auth, Self::Error> {
+        let Some(db) = &self.shared.db else {
+            // Phase 1 compat
+            return Ok(Auth::Accept);
+        };
+
+        match rg_db::ops::user_ops::find_by_username(db, username).await {
+            Ok(Some(user)) => {
+                match rg_core::auth::password::verify_password(password, &user.password_hash) {
+                    Ok(true) => {
+                        self.authenticated_user_id = Some(user.id);
+                        tracing::info!(username, "SSH password auth accepted");
+                        Ok(Auth::Accept)
+                    }
+                    Ok(false) => {
+                        tracing::warn!(username, "SSH password auth rejected");
+                        Ok(Auth::Reject { proceed_with_methods: None, partial_success: false })
+                    }
+                    Err(e) => {
+                        tracing::error!(error = %e, "password verify error");
+                        Ok(Auth::Reject { proceed_with_methods: None, partial_success: false })
+                    }
+                }
+            }
+            Ok(None) => {
+                tracing::warn!(username, "SSH password auth: user not found");
+                Ok(Auth::Reject { proceed_with_methods: None, partial_success: false })
+            }
+            Err(e) => {
+                tracing::error!(error = %e, "DB error during password auth");
+                Ok(Auth::Reject { proceed_with_methods: None, partial_success: false })
+            }
+        }
     }
 
     async fn auth_keyboard_interactive(
@@ -136,8 +214,7 @@ impl Handler for SshHandler {
         _submethods: &str,
         _response: Option<russh::server::Response<'_>>,
     ) -> Result<Auth, Self::Error> {
-        // Phase 1: accept any auth
-        Ok(Auth::Accept)
+        Ok(Auth::Reject { proceed_with_methods: None, partial_success: false })
     }
 
     async fn channel_open_session(
@@ -162,12 +239,11 @@ impl Handler for SshHandler {
         let (service, repo_path) = parse_git_command(&command)?;
 
         let repo_full_path = {
-            // Try path as-is first, then with .git suffix.
-            let p = self.repo_root.join(&repo_path);
+            let p = self.shared.repo_root.join(&repo_path);
             if p.exists() {
                 p
             } else {
-                let with_git = self.repo_root.join(format!("{}.git", repo_path));
+                let with_git = self.shared.repo_root.join(format!("{}.git", repo_path));
                 if with_git.exists() {
                     with_git
                 } else {
@@ -179,7 +255,6 @@ impl Handler for SshHandler {
             }
         };
 
-        // Take the stored Channel so we can call into_stream() on it.
         let ch = match self.channel.take() {
             Some(ch) => ch,
             None => {
@@ -190,21 +265,14 @@ impl Handler for SshHandler {
             }
         };
 
-        // Signal the client that the exec request was accepted.
         session.channel_success(channel_id)?;
 
-        // Obtain a Handle so we can send exit-status from the spawned task.
-        // Handle::exit_status_request(channel_id, code) is the server-side API.
         let handle = session.handle();
         let service_name = service.clone();
 
         tokio::spawn(async move {
             tracing::info!(%service_name, path = %repo_full_path.display(), "Starting git SSH session");
 
-            // Keep `stream` owned here so we control when EOF is sent.
-            // We run the git handler with &mut stream, then:
-            //   1. Send exit-status (channel must still be open)
-            //   2. Shutdown stream → sends SSH EOF to client (channel close follows)
             let mut stream: ChannelStream<Msg> = ch.into_stream();
 
             let result = match service_name.as_str() {
@@ -220,21 +288,13 @@ impl Handler for SshHandler {
                 Err(e) => tracing::error!(error = %e, %service_name, "Git SSH session failed"),
             }
 
-            // Step 1: Send exit-status while channel is still alive.
-            // Must happen BEFORE EOF / channel close.
             if let Err(e) = handle.exit_status_request(channel_id, exit_code).await {
                 tracing::warn!(error = ?e, "failed to send exit_status to client");
             }
 
-            // Step 2: Shutdown the stream (sends SSH channel EOF).
-            // This is critical: it signals the client that we have finished sending
-            // ALL data (including the report-status pkt-lines). Without this explicit
-            // shutdown, data still buffered in russh may be lost when stream is dropped.
             if let Err(e) = stream.shutdown().await {
                 tracing::warn!(error = ?e, "failed to shutdown SSH stream");
             }
-
-            // Step 3: stream drops here → channel close.
         });
 
         Ok(())
@@ -255,7 +315,6 @@ fn parse_git_command(command: &str) -> Result<(String, String)> {
         anyhow::bail!("unsupported git command: {}", service);
     }
 
-    // Strip surrounding quotes and leading slashes from the repo path.
     let raw_path = parts[1].trim();
     let repo_path = raw_path
         .trim_start_matches('\'')

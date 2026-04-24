@@ -5,8 +5,11 @@ edition = "2021"
 
 [dependencies]
 rg-git = { path = "../rg-git" }
+rg-core = { path = "../rg-core" }
+rg-db = { path = "../rg-db" }
 tokio = { workspace = true }
 russh = { workspace = true }
 russh-keys = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
+sea-orm = { workspace = true }
