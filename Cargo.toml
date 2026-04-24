@@ -1,0 +1,43 @@
+[workspace]
+members = [
+    "crates/rg-cli",
+    "crates/rg-core",
+    "crates/rg-git",
+    "crates/rg-ssh",
+    "crates/rg-http",
+    "crates/rg-db",
+    "crates/rg-ci",
+]
+resolver = "2"
+
+[workspace.dependencies]
+# HTTP
+axum = "0.8"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+
+# SSH
+russh = "0.51"
+russh-keys = "0.45"
+
+# Database
+sea-orm = { version = "1.1", features = ["sqlx-sqlite", "runtime-tokio-rustls", "macros"] }
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Async
+tokio = { version = "1", features = ["full"] }
+futures = "0.3"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Error handling
+anyhow = "1"
+thiserror = "2"

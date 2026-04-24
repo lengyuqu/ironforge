@@ -1,0 +1,40 @@
+# Rust build artifacts
+/target
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+*.sqlite-shm
+*.sqlite-wal
+
+# Environment / secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*_host_key
+*_host_key.pub
+config/local.toml
+
+# IDE / editor
+.idea/
+.vscode/
+*.iml
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# Test artifacts
+/tmp/
+
+# Node.js (for future SvelteKit frontend)
+web/node_modules/
+web/.svelte-kit/
+web/build/
+web/dist/

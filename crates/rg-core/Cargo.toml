@@ -1,0 +1,10 @@
+[package]
+name = "rg-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rg-db = { path = "../rg-db" }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+serde = { workspace = true }

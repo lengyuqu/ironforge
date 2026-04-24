@@ -1,0 +1,20 @@
+[package]
+name = "rg-cli"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "ironforge"
+path = "src/main.rs"
+
+[dependencies]
+rg-core = { path = "../rg-core" }
+rg-git = { path = "../rg-git" }
+rg-ssh = { path = "../rg-ssh" }
+rg-http = { path = "../rg-http" }
+rg-db = { path = "../rg-db" }
+tokio = { workspace = true }
+clap = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }

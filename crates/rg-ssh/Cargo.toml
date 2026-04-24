@@ -1,0 +1,12 @@
+[package]
+name = "rg-ssh"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rg-git = { path = "../rg-git" }
+tokio = { workspace = true }
+russh = { workspace = true }
+russh-keys = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
