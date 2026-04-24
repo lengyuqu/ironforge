@@ -12,7 +12,7 @@
 
 - **二进制名**: `ironforge`（crate `rg-cli` 的 bin target）
 - **目标**: 内存 <50MB、单二进制部署、全功能（仓库/Issue/PR/Wiki/CI）
-- **当前阶段**: **Phase 9 已完成**（SSH + HTTP git clone/push + 用户系统 + Issue + PR + Wiki + LFS + Webhook + CI/CD + 权限鉴权 + 代码审查 + 分支保护 + 协作者 + 文件浏览 + SvelteKit Web UI + Docker Runner + 组织/团队 + 通知 + Rate Limiting + WebSocket 实时推送 + 邮件通知 + 组织仓库 + 权限鉴权完善）
+- **当前阶段**: **Phase 10 已完成**（全部 10 个 Phase 完成：Git 协议 + 用户系统 + Issue/PR + Wiki/LFS/Webhook + CI/CD + 代码审查 + Web UI + 组织/通知 + WebSocket/邮件 + TLS/配置/分页/GPG）
 
 ---
 
@@ -31,10 +31,10 @@ ironforge/
     ├── rg-core/            # 核心业务逻辑（✅ auth/user/repo/issue/pr/wiki/lfs/webhook/review/branch_protection/collaborator/org/notification/email）
     ├── rg-git/             # Git 协议层（✅ 完整实现，RefUpdate 返回 push 信息）
     ├── rg-ssh/             # SSH 服务端 russh（✅ 完整实现）
-    ├── rg-http/            # HTTP 服务端 + REST API（✅ 完整实现 + Git 协议鉴权 + 文件浏览 + 静态资源 + WebSocket + Rate Limit）
+    ├── rg-http/            # HTTP 服务端 + REST API（✅ 完整实现 + Git 协议鉴权 + 文件浏览 + 静态资源 + WebSocket + Rate Limit + 分页 + GPG）
     ├── rg-db/              # 数据库层 SeaORM（✅ 实体+迁移+ops）
     ├── rg-ci/              # CI/CD 引擎（✅ YAML 解析 + Pipeline 执行器 + Docker Runner）
-    └── web/                # SvelteKit 前端（✅ 登录/仓库/Issue/PR/Wiki/CI/代码审查）
+    └── web/                # SvelteKit 前端（✅ 登录/仓库/Issue/PR/Wiki/CI/代码审查/组织/通知）
 ```
 
 ---
@@ -86,9 +86,9 @@ git clone http://localhost:8080/git/testuser/testrepo /tmp/if_http
 
 ---
 
-## 实现现状（Phase 9 WebSocket + 邮件 + 组织仓库 + 权限完善 完成，2026-04-24）
+## 实现现状（Phase 10 完成，2026-04-24）
 
-### ✅ 已完成（Phase 1 ~ Phase 9）
+### ✅ 已完成（Phase 1 ~ Phase 10）
 
 | 模块 | 文件 | 说明 |
 |------|------|------|
@@ -100,7 +100,7 @@ git clone http://localhost:8080/git/testuser/testrepo /tmp/if_http
 | HTTP 服务端 | `rg-http/src/lib.rs` | Axum 0.8，/git/ 路由 + **Git 协议权限鉴权** + 分支保护审计 + **SvelteKit 静态资源** |
 | REST API | `rg-http/src/api/` | Users + Repos + Issues + PRs + Wiki + LFS + Webhooks + CI/CD + **Reviews + Branch Protection + Collaborators + Repo Content** |
 | 数据库实体 | `rg-db/src/entities/` | users / repositories / ssh_keys / access_tokens / issues / issue_comments / pull_requests / milestones / wiki_pages / lfs_objects / webhooks / webhook_deliveries / pipelines / pipeline_stages / pipeline_jobs / **pr_reviews / review_comments / protected_branches / repo_collaborators** |
-| DB 迁移 | `rg-db/src/migrations/` | m20260424_000001~000008，自动 up on start |
+| DB 迁移 | `rg-db/src/migrations/` | m20260424_000001~000009，自动 up on start |
 | 用户认证 | `rg-core/src/auth/` | argon2 password hash + JWT HS256 |
 | 用户服务 | `rg-core/src/user/service.rs` | register / login |
 | 仓库服务 | `rg-core/src/repo/service.rs` | create_repo + can_read/can_write（**集成 collaborator 权限**） |
@@ -127,15 +127,21 @@ git clone http://localhost:8080/git/testuser/testrepo /tmp/if_http
 | **邮件通知** | `rg-core/src/email/mod.rs` | SMTP 邮件（lettre + HTML 模板） |
 | **组织仓库** | `rg-core/src/repo/service.rs` | org_id 关联 + find_repo_by_owner_name |
 | **权限鉴权完善** | `rg-core/src/repo/service.rs` | org member + team permission → can_read/can_write |
-| CLI | `rg-cli/src/main.rs` | clap 4，`serve`（含 --db-url, --jwt-secret, --docker, --rate-limit-*, --smtp-*）/ `create-repo` |
+| **TLS/HTTPS** | `rg-http/src/lib.rs` | axum-server + rustls，CLI --tls-cert/--tls-key |
+| **TOML 配置** | `rg-cli/src/main.rs` | 优先级 CLI > config > defaults，ironforge.example.toml |
+| **日志轮转** | `rg-cli/src/main.rs` | tracing-appender RollingFileAppender (DAILY + non-blocking) |
+| **API 分页** | `rg-http/src/pagination.rs` | PaginationParams + PaginatedResponse\<T\>，5 个 list API |
+| **GPG 签名** | `rg-http/src/api/repo_content.rs` | GET /repos/:owner/:name/commits/:sha/signature |
+| CLI | `rg-cli/src/main.rs` | clap 4，`serve`（含 --db-url, --jwt-secret, --docker, --rate-limit-*, --smtp-*, --tls-*, --config, --log-*）/ `create-repo` |
 
-### ⏳ 待实现（Phase 10+）
+### ✅ Phase 10 已完成（TLS + 配置文件 + 日志轮转 + API 分页 + GPG 签名）
 
-- TLS/HTTPS 支持
-- 配置文件（TOML）
-- 日志轮转
-- API 分页
-- GPG 签名验证
+所有 10 个 Phase 全部完成。后续可考虑：
+- 性能优化（数据库层分页替代应用层分页）
+- 更多 Git 协议支持（Smart Protocol V2、protocol.inforefs）
+- 国际化（i18n）
+- 嵌入式搜索（全文检索代码/Issue/Wiki）
+- API 文档（OpenAPI/Swagger）
 
 ---
 
@@ -221,6 +227,16 @@ let salt = SaltString::generate(&mut rng()); // ❌
 `Router::nest()` 要求前后 Router 的 State 类型一致。
 推荐做法：把所有 route handler 先组成一个完整 Router，再统一加 `.with_state(state)`。
 
+### 9. axum TLS 必须用 axum-server
+
+- ❌ `tokio-rustls::TlsAcceptor` + `axum::serve(TcpStream)`：`TlsStream` 无法转 `TcpStream`
+- ❌ `hyper` 直接处理：`Router` 不实现 `Service<Request<Incoming>>`
+- ✅ `axum-server::bind_rustls()` + `RustlsConfig::from_config()`
+
+### 10. serde default 函数类型匹配
+
+`#[serde(default = "fn_name")]` 的函数返回类型必须与字段完全匹配。`Option<String>` 字段不能用返回 `String` 的函数，改用 `#[serde(default)]`（Option 自动 None）。
+
 ---
 
 ## 开发工作流
@@ -235,15 +251,15 @@ let salt = SaltString::generate(&mut rng()); // ❌
 6. 端到端测试验证（见 README.md 中的测试脚本）
 7. 更新本文件中的"实现现状"表格
 
-### Phase 10 开发起点建议
+### 后续开发建议
 
-下一步是生产化和完善：
+所有 10 个 Phase 已完成，后续优化方向：
 
-1. **TLS/HTTPS 支持**：rustls + axum
-2. **配置文件**：TOML 配置替代大量 CLI 参数
-3. **日志轮转**：tracing-appender
-4. **API 分页**：统一分页查询参数
-5. **GPG 签名验证**：git commit 签名
+1. **数据库层分页**：当前分页是应用层 skip/take，改为 SeaORM Paginator 真正数据库分页
+2. **Git Smart Protocol V2**：支持 V2 协议提升性能
+3. **全文搜索**：代码/Issue/Wiki 搜索
+4. **API 文档**：OpenAPI/Swagger 自动生成
+5. **国际化**：前端 i18n
 
 ---
 
@@ -251,8 +267,9 @@ let salt = SaltString::generate(&mut rng()); // ❌
 
 ```toml
 axum            = "0.8"
+axum-server     = "0.7"      # features: tls-rustls
 tower           = "0.5"
-tower-http      = "0.6"      # features: cors, trace
+tower-http      = "0.6"      # features: cors, trace, fs
 russh           = "0.51"
 russh-keys      = "0.45"
 sea-orm         = "1.1"      # features: sqlx-sqlite, runtime-tokio-rustls, macros
@@ -260,8 +277,13 @@ clap            = "4"        # features: derive
 tokio           = "1"        # features: full
 serde           = "1"        # features: derive
 serde_json      = "1"
+toml            = "0.8"
 tracing         = "0.1"
 tracing-subscriber = "0.3"   # features: env-filter
+tracing-appender = "0.2"
+rustls-pemfile  = "2"
+tokio-rustls    = "0.26"
+lettre          = "0.11"     # default-features = false, features: tokio1-rustls-tls, builder, smtp-transport
 anyhow          = "1"
 thiserror       = "2"
 ```
