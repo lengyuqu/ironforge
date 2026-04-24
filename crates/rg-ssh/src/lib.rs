@@ -275,9 +275,9 @@ impl Handler for SshHandler {
 
             let mut stream: ChannelStream<Msg> = ch.into_stream();
 
-            let result = match service_name.as_str() {
-                "git-upload-pack" => handle_upload_pack_stream(&repo_full_path, &mut stream).await,
-                "git-receive-pack" => handle_receive_pack_stream(&repo_full_path, &mut stream).await,
+            let result: Result<(), anyhow::Error> = match service_name.as_str() {
+                "git-upload-pack" => handle_upload_pack_stream(&repo_full_path, &mut stream).await.map(|_| ()),
+                "git-receive-pack" => handle_receive_pack_stream(&repo_full_path, &mut stream).await.map(|_| ()),
                 _ => Err(anyhow::anyhow!("Unknown git service: {}", service_name)),
             };
 

@@ -10,18 +10,55 @@ use rg_db::{
     ops::{repo_ops, user_ops},
 };
 
+/// Resolve an "owner" string to either a user ID or an org ID.
+/// Returns (owner_id, org_id, owner_name_for_path).
+/// - If owner is a username: returns (user_id, None, username)
+/// - If owner is an org name: returns (org_owner_id, Some(org_id), org_name)
+async fn resolve_owner(
+    db: &DatabaseConnection,
+    owner: &str,
+) -> Result<(i64, Option<i64>, String)> {
+    // Try user first
+    if let Some(user) = user_ops::find_by_username(db, owner).await? {
+        return Ok((user.id, None, user.username.clone()));
+    }
+
+    // Try organization
+    if let Some(org) = rg_db::ops::org_ops::get_org_by_name(db, owner).await? {
+        return Ok((org.owner_id, Some(org.id), org.name.clone()));
+    }
+
+    bail!("owner '{}' not found (neither user nor organization)", owner)
+}
+
+/// Find a repository by owner name (user or org) and repo name.
+pub async fn find_repo_by_owner_name(
+    db: &DatabaseConnection,
+    owner: &str,
+    repo_name: &str,
+) -> Result<Option<rg_db::entities::repository::Model>> {
+    // Try as user
+    if let Some(user) = user_ops::find_by_username(db, owner).await? {
+        return repo_ops::find_by_owner_and_name(db, user.id, repo_name).await;
+    }
+
+    // Try as organization
+    if let Some(org) = rg_db::ops::org_ops::get_org_by_name(db, owner).await? {
+        return repo_ops::find_by_org_and_name(db, org.id, repo_name).await;
+    }
+
+    Ok(None)
+}
+
 /// Check whether `actor_id` (None = anonymous) can read `owner/repo`.
+/// Takes into account: public repos, private repos (owner + collaborators + org members).
 pub async fn can_read(
     db: &DatabaseConnection,
     owner: &str,
     repo_name: &str,
     actor_id: Option<i64>,
 ) -> Result<bool> {
-    let owner_user = user_ops::find_by_username(db, owner)
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("user '{}' not found", owner))?;
-
-    let repo = repo_ops::find_by_owner_and_name(db, owner_user.id, repo_name)
+    let repo = find_repo_by_owner_name(db, owner, repo_name)
         .await?
         .ok_or_else(|| anyhow::anyhow!("repository '{}/{}' not found", owner, repo_name))?;
 
@@ -29,32 +66,87 @@ pub async fn can_read(
         return Ok(true);
     }
 
-    // Private repo: actor must be the owner (or an admin — TODO: collaborators Phase 4)
+    // Private repo: check owner + collaborators + org members
     match actor_id {
-        Some(id) => Ok(id == owner_user.id),
+        Some(id) => {
+            // Owner always has access
+            if id == repo.owner_id {
+                return Ok(true);
+            }
+
+            // Check collaborator permission
+            let perm = rg_db::ops::repo_collaborator_ops::get_permission(db, repo.id, id).await?;
+            if perm.is_some() {
+                return Ok(true);
+            }
+
+            // Check org membership (if repo belongs to an org)
+            if let Some(org_id) = repo.org_id {
+                if rg_db::ops::org_ops::is_org_member(db, org_id, id).await? {
+                    return Ok(true);
+                }
+            }
+
+            Ok(false)
+        }
         None => Ok(false),
     }
 }
 
 /// Check whether `actor_id` can write to `owner/repo`.
-/// Currently only the owner can write.
+/// Owner always has write. Collaborators with "write" or "admin" can write.
+/// Org admins/members with write team permission can write.
 pub async fn can_write(
     db: &DatabaseConnection,
     owner: &str,
     repo_name: &str,
     actor_id: Option<i64>,
 ) -> Result<bool> {
-    let owner_user = user_ops::find_by_username(db, owner)
+    let repo = find_repo_by_owner_name(db, owner, repo_name)
         .await?
-        .ok_or_else(|| anyhow::anyhow!("user '{}' not found", owner))?;
+        .ok_or_else(|| anyhow::anyhow!("repository '{}/{}' not found", owner, repo_name))?;
 
     match actor_id {
-        Some(id) => Ok(id == owner_user.id),
+        Some(id) => {
+            // Owner always has write
+            if id == repo.owner_id {
+                return Ok(true);
+            }
+
+            // Check collaborator permission (write/admin can write)
+            let perm = rg_db::ops::repo_collaborator_ops::get_permission(db, repo.id, id).await?;
+            match perm.as_deref() {
+                Some("write") | Some("admin") => return Ok(true),
+                _ => {}
+            }
+
+            // Check org membership with write/admin role
+            if let Some(org_id) = repo.org_id {
+                if let Some(member) = rg_db::ops::org_ops::find_org_member(db, org_id, id).await? {
+                    if member.role == "owner" || member.role == "admin" {
+                        return Ok(true);
+                    }
+                }
+
+                // Check team permissions for this repo's org
+                let teams = rg_db::ops::org_ops::list_org_teams(db, org_id).await?;
+                for team in teams {
+                    if team.permission == "write" || team.permission == "admin" {
+                        if rg_db::ops::org_ops::is_team_member(db, team.id, id).await? {
+                            return Ok(true);
+                        }
+                    }
+                }
+            }
+
+            Ok(false)
+        }
         None => Ok(false),
     }
 }
 
 /// Create a new repository (bare git init + DB record).
+/// If org_id is Some, the repo belongs to the organization.
 pub async fn create_repo(
     db: &DatabaseConnection,
     owner_id: i64,
@@ -62,18 +154,28 @@ pub async fn create_repo(
     description: Option<&str>,
     is_private: bool,
     repo_root: &PathBuf,
+    org_id: Option<i64>,
 ) -> Result<rg_db::entities::repository::Model> {
-    // Check name conflict
+    // Check name conflict (per owner)
     if repo_ops::find_by_owner_and_name(db, owner_id, name).await?.is_some() {
         bail!("repository '{}' already exists", name);
     }
 
-    // Create bare git repo on disk
-    let owner_user = rg_db::ops::user_ops::find_by_id(db, owner_id)
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("owner not found"))?;
+    // Determine path prefix: org name or user name
+    let path_prefix = if let Some(oid) = org_id {
+        let org = rg_db::ops::org_ops::get_org(db, oid)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("organization not found"))?;
+        org.name
+    } else {
+        let owner_user = rg_db::ops::user_ops::find_by_id(db, owner_id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("owner not found"))?;
+        owner_user.username
+    };
 
-    let git_path = repo_root.join(format!("{}/{}.git", owner_user.username, name));
+    // Create bare git repo on disk
+    let git_path = repo_root.join(format!("{}/{}.git", path_prefix, name));
     std::fs::create_dir_all(&git_path)
         .with_context(|| format!("failed to create directory: {:?}", git_path))?;
 
@@ -101,6 +203,7 @@ pub async fn create_repo(
         default_branch: Set("main".to_string()),
         stars_count: Set(0),
         forks_count: Set(0),
+        org_id: Set(org_id),
         created_at: Set(now),
         updated_at: Set(now),
         ..Default::default()

@@ -14,16 +14,18 @@ use crate::pkt_line::{write_pkt_line, write_flush, read_pkt_line, PktLine};
 use crate::sideband;
 
 /// Result of processing a push for a single ref update.
-struct RefUpdate {
-    old_sha: String,
-    new_sha: String,
-    refname: String,
-    status: String,
-    message: String,
+#[derive(Clone, Debug)]
+pub struct RefUpdate {
+    pub old_sha: String,
+    pub new_sha: String,
+    pub refname: String,
+    pub status: String,
+    pub message: String,
 }
 
 /// Handle receive-pack with separate reader and writer (HTTP mode).
-pub async fn handle_receive_pack<R, W>(repo_path: &Path, reader: R, writer: W) -> Result<()>
+/// Returns the list of ref updates that were processed.
+pub async fn handle_receive_pack<R, W>(repo_path: &Path, reader: R, writer: W) -> Result<Vec<RefUpdate>>
 where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
@@ -43,12 +45,14 @@ where
     let results = process_push(repo_path, &mut reader).await?;
 
     // Send response
-    send_response(&mut writer, &results).await
+    send_response(&mut writer, &results).await?;
+    Ok(results)
 }
 
 /// Handle receive-pack with a single bidirectional stream (SSH mode).
 /// Takes a mutable reference so the caller can send exit-status before dropping the stream.
-pub async fn handle_receive_pack_stream<S>(repo_path: &Path, stream: &mut S) -> Result<()>
+/// Returns the list of ref updates that were processed.
+pub async fn handle_receive_pack_stream<S>(repo_path: &Path, stream: &mut S) -> Result<Vec<RefUpdate>>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
@@ -56,7 +60,8 @@ where
 }
 
 /// Handle receive-pack for HTTP mode where ref advertisement is already sent.
-pub async fn handle_receive_pack_http<R, W>(repo_path: &Path, reader: R, mut writer: W) -> Result<()>
+/// Returns the list of ref updates that were processed.
+pub async fn handle_receive_pack_http<R, W>(repo_path: &Path, reader: R, mut writer: W) -> Result<Vec<RefUpdate>>
 where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
@@ -64,11 +69,12 @@ where
     let mut reader = BufReader::new(reader);
 
     let results = process_push(repo_path, &mut reader).await?;
-    send_response(&mut writer, &results).await
+    send_response(&mut writer, &results).await?;
+    Ok(results)
 }
 
 /// Internal: SSH mode implementation with single stream type.
-async fn do_receive_pack_stream<S>(repo_path: &Path, stream: &mut S) -> Result<()>
+async fn do_receive_pack_stream<S>(repo_path: &Path, stream: &mut S) -> Result<Vec<RefUpdate>>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
@@ -86,7 +92,8 @@ where
     };
 
     // Phase 2: Write response (BufReader is dropped, stream is available again)
-    send_response(stream, &results).await
+    send_response(stream, &results).await?;
+    Ok(results)
 }
 
 /// Build the list of refs with their SHAs for advertisement.

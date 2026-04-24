@@ -78,7 +78,8 @@ rg-cli
   │     └── rg-core
   └── rg-db
 
-rg-ci   (独立，未来集成到 rg-core)
+rg-ci
+  └── rg-db
 ```
 
 ### 各 crate 边界规则
@@ -112,7 +113,7 @@ rg-ci   (独立，未来集成到 rg-core)
 **允许**：
 - Axum 路由定义
 - Git Smart HTTP 端点实现
-- REST API 端点（Users / Repos / Issues / PRs）
+- REST API 端点（Users / Repos / Issues / PRs / Wiki / LFS / Webhooks / CI/CD）
 - 中间件（认证、CORS、限流）
 
 **禁止**：
@@ -382,7 +383,21 @@ PR 合并到 `main` 前要求：
 - `rg-core/pull_request`：PR 创建 + diff（git CLI）+ 合并（merge/squash/rebase 三策略）
 - REST API：`/api/v1/repos/:owner/:name/issues/*` + `/api/v1/repos/:owner/:name/pulls/*`
 
-### ⏳ Phase 4：Wiki + LFS + Webhook（下一步）
-### ⏳ Phase 5：CI/CD 引擎
+### ✅ Phase 4：Wiki + LFS + Webhook（已完成，2026-04-24）
+- `rg-db`：wiki_pages / lfs_objects / webhooks / webhook_deliveries 实体 + 迁移
+- `rg-core/wiki`：Wiki 页面 CRUD
+- `rg-core/lfs`：LFS batch API + 对象上传/下载（磁盘存储）
+- `rg-core/webhook`：Webhook 注册/触发/投递 + HMAC-SHA256 签名
+- REST API：wiki / lfs / webhooks 端点
+
+### ✅ Phase 5：CI/CD + 权限鉴权（已完成，2026-04-24）
+- `rg-db`：pipelines / pipeline_stages / pipeline_jobs 实体 + 迁移
+- `rg-ci`：.ironforge-ci.yml 解析 + Pipeline 执行器（Stage/Job 串行执行）
+- `rg-http/api/ci`：Pipeline REST API（list / trigger / retry / cancel / job detail）
+- Push 自动触发 CI（receive-pack 后台触发）
+- Push 自动触发 Webhook（push 事件 payload）
+- HTTP Git 协议权限鉴权（Bearer Token → can_read/can_write）
+
+### ⏳ Phase 6：Web UI + 高级功能（下一步）
 
 完整计划见 [ARCHITECTURE.md](ARCHITECTURE.md)。

@@ -18,6 +18,8 @@ pub struct Model {
     pub fork_id: Option<i64>,
     pub stars_count: i64,
     pub forks_count: i64,
+    /// Organization ID (if repo belongs to an org instead of a user)
+    pub org_id: Option<i64>,
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,
 }
@@ -30,11 +32,23 @@ pub enum Relation {
         to = "super::user::Column::Id"
     )]
     Owner,
+    #[sea_orm(
+        belongs_to = "super::organization::Entity",
+        from = "Column::OrgId",
+        to = "super::organization::Column::Id"
+    )]
+    Organization,
 }
 
 impl Related<super::user::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Owner.def()
+    }
+}
+
+impl Related<super::organization::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Organization.def()
     }
 }
 

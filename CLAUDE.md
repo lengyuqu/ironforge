@@ -12,7 +12,7 @@
 
 - **二进制名**: `ironforge`（crate `rg-cli` 的 bin target）
 - **目标**: 内存 <50MB、单二进制部署、全功能（仓库/Issue/PR/Wiki/CI）
-- **当前阶段**: **Phase 3 已完成**（SSH + HTTP git clone/push + 用户系统 + Issue + PR）
+- **当前阶段**: **Phase 9 已完成**（SSH + HTTP git clone/push + 用户系统 + Issue + PR + Wiki + LFS + Webhook + CI/CD + 权限鉴权 + 代码审查 + 分支保护 + 协作者 + 文件浏览 + SvelteKit Web UI + Docker Runner + 组织/团队 + 通知 + Rate Limiting + WebSocket 实时推送 + 邮件通知 + 组织仓库 + 权限鉴权完善）
 
 ---
 
@@ -28,12 +28,13 @@ ironforge/
 │   └── git-protocol.md     # Git 协议实现细节与踩坑记录
 └── crates/
     ├── rg-cli/             # 主二进制入口（bin = "ironforge"）
-    ├── rg-core/            # 核心业务逻辑（✅ auth/user/repo/issue/pr）
-    ├── rg-git/             # Git 协议层（✅ 完整实现）
+    ├── rg-core/            # 核心业务逻辑（✅ auth/user/repo/issue/pr/wiki/lfs/webhook/review/branch_protection/collaborator/org/notification/email）
+    ├── rg-git/             # Git 协议层（✅ 完整实现，RefUpdate 返回 push 信息）
     ├── rg-ssh/             # SSH 服务端 russh（✅ 完整实现）
-    ├── rg-http/            # HTTP 服务端 + REST API（✅ 完整实现）
+    ├── rg-http/            # HTTP 服务端 + REST API（✅ 完整实现 + Git 协议鉴权 + 文件浏览 + 静态资源 + WebSocket + Rate Limit）
     ├── rg-db/              # 数据库层 SeaORM（✅ 实体+迁移+ops）
-    └── rg-ci/              # CI/CD 引擎（⏳ stub）
+    ├── rg-ci/              # CI/CD 引擎（✅ YAML 解析 + Pipeline 执行器 + Docker Runner）
+    └── web/                # SvelteKit 前端（✅ 登录/仓库/Issue/PR/Wiki/CI/代码审查）
 ```
 
 ---
@@ -85,34 +86,56 @@ git clone http://localhost:8080/git/testuser/testrepo /tmp/if_http
 
 ---
 
-## 实现现状（Phase 3 Issue + PR 完成，2026-04-24）
+## 实现现状（Phase 9 WebSocket + 邮件 + 组织仓库 + 权限完善 完成，2026-04-24）
 
-### ✅ 已完成（Phase 1 + Phase 2 + Phase 3）
+### ✅ 已完成（Phase 1 ~ Phase 9）
 
 | 模块 | 文件 | 说明 |
 |------|------|------|
 | pkt-line 协议 | `rg-git/src/pkt_line.rs` | 完整编解码 |
 | sideband-64k | `rg-git/src/sideband.rs` | band 1/2/3 |
 | git-upload-pack | `rg-git/src/protocol/upload_pack.rs` | SSH + HTTP 模式 |
-| git-receive-pack | `rg-git/src/protocol/receive_pack.rs` | SSH + HTTP 模式 |
+| git-receive-pack | `rg-git/src/protocol/receive_pack.rs` | SSH + HTTP 模式，返回 `Vec<RefUpdate>` |
 | SSH 服务端 | `rg-ssh/src/lib.rs` | russh 0.51，auth_publickey/auth_password 查 DB |
-| HTTP 服务端 | `rg-http/src/lib.rs` | Axum 0.8，/git/ 路由 |
-| REST API | `rg-http/src/api/` | Users + Repos + Issues + PRs |
-| 数据库实体 | `rg-db/src/entities/` | users / repositories / ssh_keys / access_tokens / **issues / issue_comments / pull_requests / milestones** |
-| DB 迁移 | `rg-db/src/migrations/` | m20260424_000001~000005，自动 up on start |
+| HTTP 服务端 | `rg-http/src/lib.rs` | Axum 0.8，/git/ 路由 + **Git 协议权限鉴权** + 分支保护审计 + **SvelteKit 静态资源** |
+| REST API | `rg-http/src/api/` | Users + Repos + Issues + PRs + Wiki + LFS + Webhooks + CI/CD + **Reviews + Branch Protection + Collaborators + Repo Content** |
+| 数据库实体 | `rg-db/src/entities/` | users / repositories / ssh_keys / access_tokens / issues / issue_comments / pull_requests / milestones / wiki_pages / lfs_objects / webhooks / webhook_deliveries / pipelines / pipeline_stages / pipeline_jobs / **pr_reviews / review_comments / protected_branches / repo_collaborators** |
+| DB 迁移 | `rg-db/src/migrations/` | m20260424_000001~000008，自动 up on start |
 | 用户认证 | `rg-core/src/auth/` | argon2 password hash + JWT HS256 |
 | 用户服务 | `rg-core/src/user/service.rs` | register / login |
-| 仓库服务 | `rg-core/src/repo/service.rs` | create_repo + can_read/can_write |
-| **Issue 服务** | `rg-core/src/issue/service.rs` | CRUD + labels + milestone + comments |
-| **PR 服务** | `rg-core/src/pull_request/service.rs` | create + diff(git CLI) + merge(3策略) |
-| CLI | `rg-cli/src/main.rs` | clap 4，`serve`（含 --db-url, --jwt-secret）/ `create-repo` |
+| 仓库服务 | `rg-core/src/repo/service.rs` | create_repo + can_read/can_write（**集成 collaborator 权限**） |
+| Issue 服务 | `rg-core/src/issue/service.rs` | CRUD + labels + milestone + comments |
+| PR 服务 | `rg-core/src/pull_request/service.rs` | create + diff(git CLI) + merge(3策略) + **分支保护检查** |
+| Wiki 服务 | `rg-core/src/wiki/service.rs` | 页面 CRUD（DB 存储） |
+| LFS 服务 | `rg-core/src/lfs/service.rs` | batch API + 对象上传/下载（磁盘存储） |
+| Webhook 服务 | `rg-core/src/webhook/service.rs` | 注册/触发/投递/HMAC-SHA256 签名 |
+| CI/CD 引擎 | `rg-ci/src/` | YAML 解析 + Pipeline 执行器 + 后台运行 |
+| Git 鉴权 | `rg-http/src/lib.rs` | HTTP git 协议 Bearer Token 认证 + can_read/can_write |
+| **代码审查** | `rg-core/src/review/service.rs` | submit review (comment/approve/request_changes/dismiss) + inline comments |
+| **分支保护** | `rg-core/src/branch_protection/service.rs` | protected branches + require PR + require approval + required status checks |
+| **协作者** | `rg-core/src/collaborator/service.rs` | repo collaborators + read/write/admin permission |
+| **文件浏览** | `rg-http/src/api/repo_content.rs` | tree/blob/log/branches/tags API (git CLI) |
+| **Web UI** | `web/src/routes/` | SvelteKit 5 + SPA mode（登录/注册/Dashboard/仓库/Issue/PR/Wiki/CI） |
+| **前端组件** | `web/src/lib/components/` | Navbar / Layout / RepoHeader / PipelineBadge |
+| **API 客户端** | `web/src/lib/api/client.ts` | REST API 全量 TypeScript 封装 |
+| **认证 Store** | `web/src/lib/stores/auth.ts` | JWT 状态管理（Svelte 5 runes） |
+| **Docker Runner** | `rg-ci/src/runner.rs` | CI Job Docker 容器化执行（`docker run --rm` + volume mount） |
+| **组织系统** | `rg-core/src/org/mod.rs` + `rg-http/src/api/orgs.rs` | CRUD + 成员管理 + 团队 + 权限 |
+| **通知系统** | `rg-core/src/notification/mod.rs` + `rg-http/src/api/notifications.rs` | 创建/列表/已读/批量已读/删除 |
+| **Rate Limiting** | `rg-http/src/rate_limit.rs` | Token Bucket 中间件（IP 限流 + 可配置窗口） |
+| **WebSocket 通知** | `rg-http/src/ws.rs` | 实时通知推送（broadcast channel + JWT 认证） |
+| **邮件通知** | `rg-core/src/email/mod.rs` | SMTP 邮件（lettre + HTML 模板） |
+| **组织仓库** | `rg-core/src/repo/service.rs` | org_id 关联 + find_repo_by_owner_name |
+| **权限鉴权完善** | `rg-core/src/repo/service.rs` | org member + team permission → can_read/can_write |
+| CLI | `rg-cli/src/main.rs` | clap 4，`serve`（含 --db-url, --jwt-secret, --docker, --rate-limit-*, --smtp-*）/ `create-repo` |
 
-### ⏳ 待实现（Phase 4+）
+### ⏳ 待实现（Phase 10+）
 
-- Web UI（SvelteKit，独立前端）
-- Wiki + LFS + 高级功能 —— Phase 4
-- CI/CD 引擎 —— Phase 5
-- 仓库权限：git 协议入口调用 `rg_core::repo::service::can_read/can_write`
+- TLS/HTTPS 支持
+- 配置文件（TOML）
+- 日志轮转
+- API 分页
+- GPG 签名验证
 
 ---
 
@@ -212,15 +235,15 @@ let salt = SaltString::generate(&mut rng()); // ❌
 6. 端到端测试验证（见 README.md 中的测试脚本）
 7. 更新本文件中的"实现现状"表格
 
-### Phase 4 开发起点建议
+### Phase 10 开发起点建议
 
-下一步是 Wiki + LFS + 高级功能：
+下一步是生产化和完善：
 
-1. **`rg-db`**：新增 `wiki_pages` SeaORM 实体和迁移
-2. **`rg-core/wiki`**：Wiki 引擎（`.wiki.git` 裸仓库后端）+ Markdown 渲染
-3. **`rg-core/lfs`**：LFS 协议实现（对象存储 + 批量 API）
-4. **`rg-http/api`**：`/api/v1/repos/:owner/:name/wiki/*`、LFS 端点
-5. **Web UI（SvelteKit）**：基础页面：仓库列表、文件浏览、Issue/PR 列表
+1. **TLS/HTTPS 支持**：rustls + axum
+2. **配置文件**：TOML 配置替代大量 CLI 参数
+3. **日志轮转**：tracing-appender
+4. **API 分页**：统一分页查询参数
+5. **GPG 签名验证**：git commit 签名
 
 ---
 

@@ -17,3 +17,8 @@ argon2 = { workspace = true }
 password-hash = { workspace = true }
 jsonwebtoken = { workspace = true }
 sea-orm = { workspace = true }
+reqwest = { workspace = true }
+hmac = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+lettre = { workspace = true }

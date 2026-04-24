@@ -1,0 +1,128 @@
+//! Git LFS REST API endpoints.
+//!
+//! Implements the LFS batch API and object upload/download endpoints.
+
+use axum::body::Bytes;
+use axum::extract::{Path, State};
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::IntoResponse;
+use axum::Json;
+use sea_orm::DatabaseConnection;
+
+use crate::AppState;
+
+/// LFS batch API: POST /repos/:owner/:name/lfs/objects/batch
+pub async fn batch(
+    State(state): State<AppState>,
+    Path((owner, repo)): Path<(String, String)>,
+    headers: HeaderMap,
+    Json(req): Json<rg_core::lfs::service::LfsBatchRequest>,
+) -> impl IntoResponse {
+    // LFS client sends Accept: application/vnd.git-lfs+json
+    let repo_id = match resolve_repo_id(&state.db, &owner, &repo).await {
+        Some(id) => id,
+        None => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({
+                    "message": "repository not found"
+                })),
+            );
+        }
+    };
+
+    let lfs_root = rg_core::lfs::service::lfs_root(&state.repo_root, &owner, &repo);
+
+    // Build base URL from request headers
+    let base_url = headers
+        .get("host")
+        .and_then(|v| v.to_str().ok())
+        .map(|h| format!("http://{}", h))
+        .unwrap_or_else(|| "http://localhost:8080".to_string());
+
+    match rg_core::lfs::service::batch(
+        &state.db,
+        repo_id,
+        &lfs_root,
+        &base_url,
+        &owner,
+        &repo,
+        &req,
+    )
+    .await
+    {
+        Ok(resp) => (StatusCode::OK, Json(serde_json::json!(resp))),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({"message": format!("{:#}", e)})),
+        ),
+    }
+}
+
+/// Upload an LFS object: PUT /repos/:owner/:name/lfs/objects/:oid
+pub async fn upload_object(
+    State(state): State<AppState>,
+    Path((owner, repo, oid)): Path<(String, String, String)>,
+    _headers: HeaderMap,
+    body: Bytes,
+) -> impl IntoResponse {
+    let repo_id = match resolve_repo_id(&state.db, &owner, &repo).await {
+        Some(id) => id,
+        None => return (StatusCode::NOT_FOUND, "repository not found".to_string()),
+    };
+
+    let lfs_root = rg_core::lfs::service::lfs_root(&state.repo_root, &owner, &repo);
+
+    match rg_core::lfs::service::store_object(
+        &state.db,
+        repo_id,
+        &lfs_root,
+        &oid,
+        &body,
+    )
+    .await
+    {
+        Ok(()) => (StatusCode::OK, String::new()),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("error: {:#}", e)),
+    }
+}
+
+/// Download an LFS object: GET /repos/:owner/:name/lfs/objects/:oid
+pub async fn download_object(
+    State(state): State<AppState>,
+    Path((owner, repo, oid)): Path<(String, String, String)>,
+    _headers: HeaderMap,
+) -> impl IntoResponse {
+    let lfs_root = rg_core::lfs::service::lfs_root(&state.repo_root, &owner, &repo);
+
+    match rg_core::lfs::service::read_object(&lfs_root, &oid).await {
+        Ok(data) => (
+            StatusCode::OK,
+            [(axum::http::header::CONTENT_TYPE, "application/octet-stream")],
+            data,
+        ),
+        Err(e) => (
+            StatusCode::NOT_FOUND,
+            [(axum::http::header::CONTENT_TYPE, "text/plain")],
+            format!("error: {:#}", e).into_bytes(),
+        ),
+    }
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+
+async fn resolve_repo_id(
+    db: &DatabaseConnection,
+    owner: &str,
+    repo_name: &str,
+) -> Option<i64> {
+    let user = rg_db::ops::user_ops::find_by_username(db, owner)
+        .await
+        .ok()
+        .flatten()?;
+    let repo = rg_db::ops::repo_ops::find_by_owner_and_name(db, user.id, repo_name)
+        .await
+        .ok()
+        .flatten()?;
+    Some(repo.id)
+}

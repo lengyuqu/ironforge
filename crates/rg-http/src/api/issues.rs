@@ -7,6 +7,7 @@ use axum::Json;
 use serde::Deserialize;
 
 use crate::AppState;
+use crate::pagination::{PaginationParams, PaginatedResponse};
 
 // ── Request / Response types ────────────────────────────────────────────
 
@@ -45,6 +46,8 @@ pub struct CreateCommentRequest {
 #[derive(Deserialize)]
 pub struct ListQuery {
     pub state: Option<String>,
+    #[serde(flatten)]
+    pub pagination: PaginationParams,
 }
 
 // ── Issue handlers ──────────────────────────────────────────────────────
@@ -55,8 +58,15 @@ pub async fn list_issues(
     Query(params): Query<ListQuery>,
 ) -> impl IntoResponse {
     let state_filter = params.state.as_deref();
+    let pagination = params.pagination.clamp();
     match rg_core::issue::list_issues(&state.db, &owner, &repo, state_filter).await {
-        Ok(issues) => (StatusCode::OK, Json(issues)).into_response(),
+        Ok(issues) => {
+            let total = issues.len() as u64;
+            let offset = pagination.offset() as usize;
+            let limit = pagination.limit() as usize;
+            let data: Vec<_> = issues.into_iter().skip(offset).take(limit).collect();
+            (StatusCode::OK, Json(PaginatedResponse::new(data, &pagination, total))).into_response()
+        }
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({"error": format!("{:#}", e)})),

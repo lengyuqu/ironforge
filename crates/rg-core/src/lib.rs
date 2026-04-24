@@ -1,13 +1,23 @@
 //! IronForge core business logic.
 //!
 //! Handles users, repositories, authentication, access control,
-//! issues, and pull requests.
+//! issues, pull requests, wiki, LFS, webhooks, code reviews,
+//! branch protection, collaborators, organizations, and notifications.
 
 pub mod auth;
 pub mod user;
 pub mod repo;
 pub mod issue;
 pub mod pull_request;
+pub mod wiki;
+pub mod lfs;
+pub mod webhook;
+pub mod review;
+pub mod branch_protection;
+pub mod collaborator;
+pub mod org;
+pub mod notification;
+pub mod email;
 
 use anyhow::Result;
 

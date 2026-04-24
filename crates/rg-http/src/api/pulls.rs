@@ -7,6 +7,7 @@ use axum::Json;
 use serde::Deserialize;
 
 use crate::AppState;
+use crate::pagination::{PaginationParams, PaginatedResponse};
 
 // ── Request / Response types ────────────────────────────────────────────
 
@@ -38,6 +39,8 @@ pub struct MergePrRequest {
 #[derive(Deserialize)]
 pub struct ListQuery {
     pub state: Option<String>,
+    #[serde(flatten)]
+    pub pagination: PaginationParams,
 }
 
 // ── PR handlers ─────────────────────────────────────────────────────────
@@ -48,8 +51,15 @@ pub async fn list_prs(
     Query(params): Query<ListQuery>,
 ) -> impl IntoResponse {
     let state_filter = params.state.as_deref();
+    let pagination = params.pagination.clamp();
     match rg_core::pull_request::list_prs(&state.db, &owner, &repo, state_filter).await {
-        Ok(prs) => (StatusCode::OK, Json(prs)).into_response(),
+        Ok(prs) => {
+            let total = prs.len() as u64;
+            let offset = pagination.offset() as usize;
+            let limit = pagination.limit() as usize;
+            let data: Vec<_> = prs.into_iter().skip(offset).take(limit).collect();
+            (StatusCode::OK, Json(PaginatedResponse::new(data, &pagination, total))).into_response()
+        }
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({"error": format!("{:#}", e)})),
@@ -194,6 +204,21 @@ pub async fn merge_pr(
                 .into_response()
         }
     };
+
+    // Check branch protection before merging
+    if let Some(repo_id) = resolve_repo_id(&state.db, &owner, &repo).await {
+        if let Ok(pr) = rg_core::pull_request::get_pr(&state.db, &owner, &repo, number).await {
+            if let Err(e) = rg_core::branch_protection::service::check_merge_allowed(
+                &state.db, repo_id, &pr.base_branch, pr.id,
+            ).await {
+                return (
+                    StatusCode::FORBIDDEN,
+                    Json(serde_json::json!({"error": format!("{:#}", e)})),
+                )
+                    .into_response();
+            }
+        }
+    }
 
     match rg_core::pull_request::merge_pr(
         &state.db,
