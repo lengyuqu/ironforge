@@ -2,6 +2,7 @@
   import '$lib/app.css';
   import Navbar from '$lib/components/Navbar.svelte';
   import { fetchUser } from '$lib/stores/auth';
+  import { locale } from '$lib/i18n';
   import type { Snippet } from 'svelte';
 
   interface Props {
@@ -10,7 +11,8 @@
 
   let { children }: Props = $props();
 
-  // Fetch user on first load
+  // Initialize i18n and fetch user on first load
+  locale.init();
   fetchUser();
 </script>
 

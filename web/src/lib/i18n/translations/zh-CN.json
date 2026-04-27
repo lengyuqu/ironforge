@@ -1,0 +1,290 @@
+{
+  "common": {
+    "sign_in": "登录",
+    "sign_out": "退出登录",
+    "cancel": "取消",
+    "save": "保存",
+    "edit": "编辑",
+    "create": "创建",
+    "submit": "提交",
+    "delete": "删除",
+    "loading": "加载中...",
+    "error": "错误",
+    "success": "成功",
+    "optional": "（可选）",
+    "unknown": "未知",
+    "created": "创建于 {date}",
+    "no_description": "暂无描述"
+  },
+
+  "nav": {
+    "dashboard": "仪表盘",
+    "notifications": "通知",
+    "organizations": "组织",
+    "settings": "设置",
+    "live": "在线",
+    "offline": "离线"
+  },
+
+  "home": {
+    "tagline": "用 Rust 构建的自托管 Git 平台",
+    "features": {
+      "secure": "安全",
+      "secure_desc": "Argon2 + JWT 身份验证",
+      "fast": "快速",
+      "fast_desc": "Rust 驱动的 HTTP 和 SSH",
+      "code_review": "代码审查",
+      "code_review_desc": "PR 审查与分支保护",
+      "cicd": "CI/CD",
+      "cicd_desc": "内置流水线引擎"
+    },
+    "cta": {
+      "go_dashboard": "前往仪表盘",
+      "create_account": "创建账户"
+    }
+  },
+
+  "auth": {
+    "login": {
+      "title": "登录 IronForge",
+      "username": "用户名",
+      "password": "密码",
+      "submit": "登录",
+      "submitting": "登录中...",
+      "footer": "第一次使用 IronForge？{link}",
+      "footer_link": "创建账户",
+      "failed": "登录失败"
+    },
+    "register": {
+      "title": "创建账户",
+      "username": "用户名",
+      "email": "邮箱",
+      "password": "密码",
+      "submit": "创建账户",
+      "submitting": "创建中...",
+      "footer": "已有账户？{link}",
+      "footer_link": "登录",
+      "failed": "注册失败"
+    }
+  },
+
+  "dashboard": {
+    "title": "仪表盘",
+    "new_repo": "新建仓库",
+    "create_form": {
+      "title": "创建新仓库",
+      "name": "仓库名称",
+      "name_placeholder": "my-project",
+      "desc": "描述",
+      "private": "私有仓库",
+      "submit": "创建仓库",
+      "cancel": "取消"
+    },
+    "empty": {
+      "no_repos": "暂无仓库",
+      "get_started": "创建你的第一个仓库吧！"
+    },
+    "repo": {
+      "private": "私有"
+    }
+  },
+
+  "notifications": {
+    "title": "通知",
+    "unread_only": "仅显示未读",
+    "mark_all_read": "全部标为已读",
+    "mark_read": "标为已读",
+    "empty": "暂无通知",
+    "hint": "实时更新已启用——新通知将即时显示。"
+  },
+
+  "orgs": {
+    "create_title": "创建组织",
+    "name": "名称",
+    "name_placeholder": "例如：acme-corp",
+    "display_name": "显示名称",
+    "display_name_placeholder": "例如：Acme 公司",
+    "description": "描述",
+    "description_placeholder": "这个组织是做什么的？",
+    "visibility": "可见性",
+    "visibility_public": "公开",
+    "visibility_private": "私有",
+    "submit": "创建组织",
+    "submitting": "创建中...",
+    "repositories": "仓库 ({count})",
+    "teams": "团队 ({count})",
+    "members": "成员 ({count})",
+    "no_repos": "暂无仓库",
+    "no_teams": "暂无团队",
+    "no_members": "暂无成员",
+    "new_repo": "新仓库名称",
+    "private": "私有",
+    "new_team": "新团队名称",
+    "create_repo": "创建仓库",
+    "create_team": "创建",
+    "permission": {
+      "read": "读取",
+      "write": "写入",
+      "admin": "管理员"
+    }
+  },
+
+  "repo": {
+    "tabs": {
+      "code": "代码",
+      "issues": "问题",
+      "pulls": "拉取请求",
+      "wiki": "Wiki",
+      "pipelines": "CI/CD"
+    },
+    "browser": {
+      "branch": "分支",
+      "default_branch": "（默认）",
+      "recent_commits": "最近提交",
+      "no_diff": "暂无差异。"
+    },
+    "file_size": {
+      "b": "B",
+      "kb": "KB",
+      "mb": "MB"
+    }
+  },
+
+  "issues": {
+    "title": "问题",
+    "tabs": {
+      "open": "● 开放",
+      "closed": "✓ 已关闭",
+      "all": "全部"
+    },
+    "new": "新建问题",
+    "create_form": {
+      "title": "标题",
+      "title_placeholder": "问题标题",
+      "body": "正文",
+      "body_hint": "（支持 Markdown）",
+      "body_placeholder": "描述这个问题...",
+      "labels": "标签",
+      "labels_hint": "（逗号分隔）",
+      "labels_placeholder": "bug, enhancement",
+      "submit": "提交问题",
+      "cancel": "取消"
+    },
+    "empty": "没有{state}的问题。",
+    "meta": "#{number} 于 {date} 由 {author} 开启",
+    "state": {
+      "open": "● 开放",
+      "closed": "✓ 已关闭"
+    },
+    "close_issue": "关闭问题",
+    "reopen_issue": "重新打开问题",
+    "comment": "评论",
+    "comment_placeholder": "添加评论..."
+  },
+
+  "pulls": {
+    "title": "拉取请求",
+    "tabs": {
+      "open": "● 开放",
+      "closed": "✓ 已关闭",
+      "merged": "⊛ 已合并"
+    },
+    "new": "新建拉取请求",
+    "create_form": {
+      "title": "创建拉取请求",
+      "from": "源分支（head）",
+      "into": "目标分支（base）",
+      "select_branch": "选择分支",
+      "description": "描述",
+      "description_hint": "（支持 Markdown）",
+      "description_placeholder": "描述你的更改...",
+      "submit": "创建拉取请求",
+      "cancel": "取消"
+    },
+    "empty": "没有{state}的拉取请求。",
+    "meta": "#{number} 于 {date} 由 {author} 开启",
+    "state": {
+      "open": "⑂ 开放",
+      "closed": "✓ 已关闭",
+      "merged": "⊛ 已合并"
+    },
+    "merge": {
+      "strategy": {
+        "merge": "合并提交",
+        "squash": "压缩合并",
+        "rebase": "变基合并"
+      },
+      "button": "合并拉取请求",
+      "merging": "合并中..."
+    },
+    "tabs": {
+      "conversation": "对话",
+      "changes": "更改",
+      "reviews": "审查"
+    },
+    "verdict": {
+      "approved": "✓ 已批准",
+      "changes_requested": "✗ 请求更改",
+      "commented": "● 已评论"
+    },
+    "review": {
+      "title": "提交审查",
+      "verdict_comment": "评论",
+      "verdict_approve": "批准",
+      "verdict_changes": "请求更改",
+      "placeholder": "留下审查意见...",
+      "submit": "提交审查"
+    }
+  },
+
+  "wiki": {
+    "title": "Wiki",
+    "pages": "Wiki 页面",
+    "new": "新建页面",
+    "create_form": {
+      "title": "标题",
+      "title_placeholder": "页面标题",
+      "content": "内容（Markdown）",
+      "content_placeholder": "编写你的 Wiki 内容...",
+      "submit": "创建页面",
+      "cancel": "取消"
+    },
+    "empty": "暂无 Wiki 页面。",
+    "edit": "编辑",
+    "save": "保存",
+    "cancel": "取消"
+  },
+
+  "pipeline": {
+    "status": {
+      "pending": "等待中",
+      "running": "运行中",
+      "success": "通过",
+      "failed": "失败",
+      "canceled": "已取消"
+    },
+    "retry": "↻ 重试",
+    "cancel": "✗ 取消",
+    "no_pipelines": "暂无流水线。",
+    "hint": "推送包含 {file} 的提交以触发流水线。",
+    "file": ".ironforge-ci.yml",
+    "detail_title": "流水线 #{id}",
+    "commit": "提交",
+    "branch": "分支",
+    "duration": "耗时",
+    "stages": "阶段",
+    "jobs": "作业",
+    "select_detail": "选择一个流水线查看详情。"
+  },
+
+  "errors": {
+    "login_failed": "登录失败",
+    "register_failed": "注册失败",
+    "repo_not_found": "仓库未找到",
+    "org_not_found": "组织未找到",
+    "unauthorized": "未授权",
+    "network_error": "网络错误",
+    "load_failed": "加载失败",
+    "create_failed": "创建失败"
+  }
+}

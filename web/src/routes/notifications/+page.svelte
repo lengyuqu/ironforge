@@ -1,6 +1,9 @@
 <script lang="ts">
   import { notifications, connectNotificationWebSocket } from '$lib/api/client';
   import { getUser, isLoggedIn } from '$lib/stores/auth';
+  import { createT, formatDateTime } from '$lib/i18n';
+
+  const t = createT();
 
   let notifs = $state<any[]>([]);
   let unreadCount = $state(0);
@@ -53,15 +56,12 @@
     }
   }
 
-  // Setup WebSocket for real-time notifications
   function setupWebSocket() {
     if (!isLoggedIn()) return;
     const ws = connectNotificationWebSocket(
       (event) => {
-        // Real-time notification received
         if (event.event_type === 'push' || event.event_type === 'ci_triggered') {
           unreadCount++;
-          // Reload to show the new notification
           load();
         }
       },
@@ -82,28 +82,28 @@
 
 <div class="container">
   <div class="header">
-    <h1>Notifications {unreadCount > 0 ? `(${unreadCount})` : ''}</h1>
+    <h1>{$t('notifications.title')} {unreadCount > 0 ? `(${unreadCount})` : ''}</h1>
     <div class="actions">
       <span class="ws-status" class:connected={wsConnected}>
-        {wsConnected ? '🟢 Live' : '🔴 Offline'}
+        {wsConnected ? `🟢 ${$t('nav.live')}` : `🔴 ${$t('nav.offline')}`}
       </span>
       <label class="filter">
         <input type="checkbox" bind:checked={filterUnread} onchange={load} />
-        Unread only
+        {$t('notifications.unread_only')}
       </label>
       {#if unreadCount > 0}
-        <button class="btn-sm" onclick={markAllRead}>Mark all read</button>
+        <button class="btn-sm" onclick={markAllRead}>{$t('notifications.mark_all_read')}</button>
       {/if}
     </div>
   </div>
 
   {#if loading}
-    <p>Loading...</p>
+    <p>{$t('common.loading')}</p>
   {:else if notifs.length === 0}
     <div class="empty-state">
-      <p>No notifications</p>
+      <p>{$t('notifications.empty')}</p>
       {#if wsConnected}
-        <p class="hint">Real-time updates are active — new notifications will appear instantly.</p>
+        <p class="hint">{$t('notifications.hint')}</p>
       {/if}
     </div>
   {:else}
@@ -116,12 +116,12 @@
             {#if notif.body}<div class="notif-body">{notif.body}</div>{/if}
             <div class="notif-meta">
               <span class="notif-type">{notif.event_type}</span>
-              <span class="notif-time">{new Date(notif.created_at).toLocaleString()}</span>
+              <span class="notif-time">{formatDateTime(notif.created_at)}</span>
             </div>
           </div>
           <div class="notif-actions">
             {#if !notif.is_read}
-              <button class="btn-xs" onclick={() => markRead(notif.id)}>Mark read</button>
+              <button class="btn-xs" onclick={() => markRead(notif.id)}>{$t('notifications.mark_read')}</button>
             {/if}
           </div>
         </div>

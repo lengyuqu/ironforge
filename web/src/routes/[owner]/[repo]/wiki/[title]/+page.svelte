@@ -2,6 +2,9 @@
   import { page } from '$app/stores';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
   import { wiki } from '$lib/api/client';
+  import { createT } from '$lib/i18n';
+
+  const t = createT();
 
   let owner = $derived($page.params.owner);
   let repo = $derived($page.params.repo);
@@ -53,20 +56,20 @@
   {/if}
 
   {#if loading}
-    <p class="text-secondary">Loading...</p>
+    <p class="text-secondary">{$t('common.loading')}</p>
   {:else if wikiPage}
     <div class="wiki-page">
       <div class="wiki-header">
         <h1>{title}</h1>
-        <button class="btn-outline" onclick={startEditing}>Edit</button>
+        <button class="btn-outline" onclick={startEditing}>{$t('wiki.edit')}</button>
       </div>
 
       {#if editing}
         <div class="edit-area">
           <textarea bind:value={editContent} rows="16"></textarea>
           <div class="form-actions">
-            <button class="btn-primary" onclick={handleSave}>Save</button>
-            <button class="btn-secondary" onclick={() => editing = false}>Cancel</button>
+            <button class="btn-primary" onclick={handleSave}>{$t('wiki.save')}</button>
+            <button class="btn-secondary" onclick={() => editing = false}>{$t('wiki.cancel')}</button>
           </div>
         </div>
       {:else}

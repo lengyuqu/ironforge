@@ -2,6 +2,9 @@
   import { page } from '$app/stores';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
   import { issues } from '$lib/api/client';
+  import { createT, formatDate } from '$lib/i18n';
+
+  const t = createT();
 
   let owner = $derived($page.params.owner);
   let repo = $derived($page.params.repo);
@@ -52,10 +55,6 @@
       error = e.message;
     }
   }
-
-  function formatDate(dateStr: string) {
-    return new Date(dateStr).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
-  }
 </script>
 
 <svelte:head>
@@ -70,7 +69,7 @@
   {/if}
 
   {#if loading}
-    <p class="text-secondary">Loading issue...</p>
+    <p class="text-secondary">{$t('common.loading')}</p>
   {:else if issue}
     <div class="issue-detail">
       <div class="issue-header">
@@ -80,10 +79,10 @@
         </div>
         <div class="issue-meta">
           <span class="state-badge" class:open={issue.state === 'open'} class:closed={issue.state === 'closed'}>
-            {issue.state === 'open' ? '● Open' : '✓ Closed'}
+            {$t(`issues.state.${issue.state}`)}
           </span>
           <span class="text-secondary">
-            opened {formatDate(issue.created_at)} by <strong>{issue.author || 'unknown'}</strong>
+            opened {formatDate(issue.created_at)} by <strong>{issue.author || $t('common.unknown')}</strong>
           </span>
           {#if issue.labels?.length}
             {#each issue.labels as label}
@@ -96,7 +95,7 @@
       {#if issue.body}
         <div class="issue-body">
           <div class="comment-header">
-            <strong>{issue.author || 'unknown'}</strong> commented {formatDate(issue.created_at)}
+            <strong>{issue.author || $t('common.unknown')}</strong> commented {formatDate(issue.created_at)}
           </div>
           <div class="comment-body">{issue.body}</div>
         </div>
@@ -106,7 +105,7 @@
       {#each commentList as comment}
         <div class="comment">
           <div class="comment-header">
-            <strong>{comment.author || 'unknown'}</strong> commented {formatDate(comment.created_at)}
+            <strong>{comment.author || $t('common.unknown')}</strong> commented {formatDate(comment.created_at)}
           </div>
           <div class="comment-body">{comment.body}</div>
         </div>
@@ -114,11 +113,11 @@
 
       <!-- Add comment -->
       <form onsubmit={handleComment} class="comment-form">
-        <textarea bind:value={newComment} rows="4" placeholder="Add a comment..."></textarea>
+        <textarea bind:value={newComment} rows="4" placeholder={$t('issues.comment_placeholder')}></textarea>
         <div class="form-actions">
-          <button type="submit" class="btn-primary" disabled={!newComment.trim()}>Comment</button>
+          <button type="submit" class="btn-primary" disabled={!newComment.trim()}>{$t('issues.comment')}</button>
           <button type="button" class="btn-close" onclick={toggleState}>
-            {issue.state === 'open' ? 'Close Issue' : 'Reopen Issue'}
+            {issue.state === 'open' ? $t('issues.close_issue') : $t('issues.reopen_issue')}
           </button>
         </div>
       </form>

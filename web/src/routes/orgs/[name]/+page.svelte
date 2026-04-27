@@ -1,6 +1,9 @@
 <script lang="ts">
   import { page } from '$app/state';
   import { orgs, repos } from '$lib/api/client';
+  import { createT, formatDate } from '$lib/i18n';
+
+  const t = createT();
 
   let org = $state<any>(null);
   let teams = $state<any[]>([]);
@@ -23,7 +26,7 @@
       teams = await orgs.listTeams(name);
       orgRepos = (await repos.list(name)).data;
     } catch (e: any) {
-      error = e.message || 'Failed to load organization';
+      error = e.message || $t('errors.load_failed');
     } finally {
       loading = false;
     }
@@ -56,7 +59,7 @@
 
 <div class="container">
   {#if loading}
-    <p>Loading...</p>
+    <p>{$t('common.loading')}</p>
   {:else if error && !org}
     <div class="error">{error}</div>
   {:else if org}
@@ -64,7 +67,7 @@
       <div class="org-avatar">{org.name[0]?.toUpperCase() || '?'}</div>
       <div>
         <h1>{org.display_name || org.name}</h1>
-        <p class="org-meta">@{org.name} · {org.visibility} · Created {new Date(org.created_at).toLocaleDateString()}</p>
+        <p class="org-meta">@{org.name} · {$t(`orgs.visibility_${org.visibility}`)} · {$t('common.created', { date: formatDate(org.created_at) })}</p>
         {#if org.description}<p class="org-desc">{org.description}</p>{/if}
       </div>
     </div>
@@ -75,17 +78,17 @@
 
     <!-- Organization Repositories -->
     <div class="section" style="margin-bottom: 1.5rem;">
-      <h2>Repositories ({orgRepos.length})</h2>
+      <h2>{$t('orgs.repositories', { count: String(orgRepos.length) })}</h2>
       <div class="create-form">
-        <input type="text" bind:value={newRepoName} placeholder="New repository name" />
+        <input type="text" bind:value={newRepoName} placeholder={$t('orgs.new_repo')} />
         <label class="checkbox-label">
           <input type="checkbox" bind:checked={newRepoPrivate} />
-          Private
+          {$t('orgs.private')}
         </label>
-        <button class="btn-sm" onclick={createOrgRepo}>Create Repo</button>
+        <button class="btn-sm" onclick={createOrgRepo}>{$t('orgs.create_repo')}</button>
       </div>
       {#if orgRepos.length === 0}
-        <p class="empty">No repositories yet</p>
+        <p class="empty">{$t('orgs.no_repos')}</p>
       {:else}
         <div class="repo-list">
           {#each orgRepos as repo}
@@ -102,23 +105,23 @@
     <div class="grid">
       <!-- Teams -->
       <div class="section">
-        <h2>Teams ({teams.length})</h2>
+        <h2>{$t('orgs.teams', { count: String(teams.length) })}</h2>
         <div class="create-form">
-          <input type="text" bind:value={newTeamName} placeholder="New team name" />
+          <input type="text" bind:value={newTeamName} placeholder={$t('orgs.new_team')} />
           <select bind:value={newTeamPermission}>
-            <option value="read">Read</option>
-            <option value="write">Write</option>
-            <option value="admin">Admin</option>
+            <option value="read">{$t('orgs.permission.read')}</option>
+            <option value="write">{$t('orgs.permission.write')}</option>
+            <option value="admin">{$t('orgs.permission.admin')}</option>
           </select>
-          <button class="btn-sm" onclick={createTeam}>Create</button>
+          <button class="btn-sm" onclick={createTeam}>{$t('orgs.create_team')}</button>
         </div>
         {#if teams.length === 0}
-          <p class="empty">No teams yet</p>
+          <p class="empty">{$t('orgs.no_teams')}</p>
         {:else}
           {#each teams as team}
             <div class="item">
               <span class="item-name">{team.name}</span>
-              <span class="badge">{team.permission}</span>
+              <span class="badge">{$t(`orgs.permission.${team.permission}`)}</span>
             </div>
           {/each}
         {/if}
@@ -126,9 +129,9 @@
 
       <!-- Members -->
       <div class="section">
-        <h2>Members ({members.length})</h2>
+        <h2>{$t('orgs.members', { count: String(members.length) })}</h2>
         {#if members.length === 0}
-          <p class="empty">No members</p>
+          <p class="empty">{$t('orgs.no_members')}</p>
         {:else}
           {#each members as member}
             <div class="item">

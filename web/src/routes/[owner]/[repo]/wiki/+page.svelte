@@ -2,6 +2,9 @@
   import { page } from '$app/stores';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
   import { wiki } from '$lib/api/client';
+  import { createT, formatDate } from '$lib/i18n';
+
+  const t = createT();
 
   let owner = $derived($page.params.owner);
   let repo = $derived($page.params.repo);
@@ -47,24 +50,24 @@
   <RepoHeader {owner} {repo} activeTab="wiki" />
 
   <div class="toolbar">
-    <h2>Wiki Pages</h2>
-    <button class="btn-primary" onclick={() => showCreate = !showCreate}>New Page</button>
+    <h2>{$t('wiki.pages')}</h2>
+    <button class="btn-primary" onclick={() => showCreate = !showCreate}>{$t('wiki.new')}</button>
   </div>
 
   {#if showCreate}
     <div class="create-form">
       <form onsubmit={handleCreate}>
         <label>
-          Title
-          <input type="text" bind:value={newTitle} required placeholder="Page title" />
+          {$t('wiki.create_form.title')}
+          <input type="text" bind:value={newTitle} required placeholder={$t('wiki.create_form.title_placeholder')} />
         </label>
         <label>
-          Content (Markdown)
-          <textarea bind:value={newContent} rows="8" required placeholder="Write your wiki content..."></textarea>
+          {$t('wiki.create_form.content')}
+          <textarea bind:value={newContent} rows="8" required placeholder={$t('wiki.create_form.content_placeholder')}></textarea>
         </label>
         <div class="form-actions">
-          <button type="submit" class="btn-primary">Create Page</button>
-          <button type="button" class="btn-secondary" onclick={() => showCreate = false}>Cancel</button>
+          <button type="submit" class="btn-primary">{$t('wiki.create_form.submit')}</button>
+          <button type="button" class="btn-secondary" onclick={() => showCreate = false}>{$t('wiki.create_form.cancel')}</button>
         </div>
       </form>
     </div>
@@ -75,15 +78,15 @@
   {/if}
 
   {#if loading}
-    <p class="text-secondary">Loading wiki...</p>
+    <p class="text-secondary">{$t('common.loading')}</p>
   {:else if pageList.length === 0}
-    <div class="empty"><p>No wiki pages yet.</p></div>
+    <div class="empty"><p>{$t('wiki.empty')}</p></div>
   {:else}
     <div class="page-list">
       {#each pageList as p}
         <a href="/{owner}/{repo}/wiki/{encodeURIComponent(p.title)}" class="wiki-item">
           📄 {p.title}
-          <span class="text-secondary text-sm">{new Date(p.updated_at).toLocaleDateString()}</span>
+          <span class="text-secondary text-sm">{formatDate(p.updated_at)}</span>
         </a>
       {/each}
     </div>

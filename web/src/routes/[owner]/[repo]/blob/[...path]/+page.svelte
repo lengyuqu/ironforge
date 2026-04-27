@@ -2,6 +2,9 @@
   import { page } from '$app/stores';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
   import { repos } from '$lib/api/client';
+  import { createT } from '$lib/i18n';
+
+  const t = createT();
 
   let owner = $derived($page.params.owner);
   let repo = $derived($page.params.repo);
@@ -27,10 +30,10 @@
     }
   }
 
-  function formatSize(size: number) {
-    if (size < 1024) return size + ' B';
-    if (size < 1024 * 1024) return (size / 1024).toFixed(1) + ' KB';
-    return (size / (1024 * 1024)).toFixed(1) + ' MB';
+  function formatFileSize(size: number) {
+    if (size < 1024) return size + $t('repo.file_size.b');
+    if (size < 1024 * 1024) return (size / 1024).toFixed(1) + $t('repo.file_size.kb');
+    return (size / (1024 * 1024)).toFixed(1) + $t('repo.file_size.mb');
   }
 </script>
 
@@ -46,14 +49,14 @@
   {/if}
 
   {#if loading}
-    <p class="text-secondary">Loading file...</p>
+    <p class="text-secondary">{$t('common.loading')}</p>
   {:else if blobData}
     <div class="file-header">
       <div class="file-path">
         <span>{filePath}</span>
       </div>
       <div class="file-meta">
-        <span>{formatSize(blobData.size)}</span>
+        <span>{formatFileSize(blobData.size)}</span>
       </div>
     </div>
 

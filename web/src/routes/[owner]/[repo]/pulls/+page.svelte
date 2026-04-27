@@ -2,6 +2,9 @@
   import { page } from '$app/stores';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
   import { pulls, repos } from '$lib/api/client';
+  import { createT, formatDate } from '$lib/i18n';
+
+  const t = createT();
 
   let owner = $derived($page.params.owner);
   let repo = $derived($page.params.repo);
@@ -55,10 +58,6 @@
       error = e.message;
     }
   }
-
-  function formatDate(dateStr: string) {
-    return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  }
 </script>
 
 <svelte:head>
@@ -71,29 +70,29 @@
   <div class="toolbar">
     <div class="filter-tabs">
       <button class="filter-btn" class:active={filterState === 'open'} onclick={() => { filterState = 'open'; loadPRs(); }}>
-        ● Open
+        {$t('pulls.tabs.open')}
       </button>
       <button class="filter-btn" class:active={filterState === 'closed'} onclick={() => { filterState = 'closed'; loadPRs(); }}>
-        ✓ Closed
+        {$t('pulls.tabs.closed')}
       </button>
       <button class="filter-btn" class:active={filterState === 'merged'} onclick={() => { filterState = 'merged'; loadPRs(); }}>
-        ⊛ Merged
+        {$t('pulls.tabs.merged')}
       </button>
     </div>
     <button class="btn-primary" onclick={() => showCreate = !showCreate}>
-      New Pull Request
+      {$t('pulls.new')}
     </button>
   </div>
 
   {#if showCreate}
     <div class="create-form">
-      <h2>Create Pull Request</h2>
+      <h2>{$t('pulls.create_form.title')}</h2>
       <form onsubmit={handleCreate}>
         <div class="branch-row">
           <label>
-            From (head)
+            {$t('pulls.create_form.from')}
             <select bind:value={newHead} required>
-              <option value="" disabled selected>Select branch</option>
+              <option value="" disabled selected>{$t('pulls.create_form.select_branch')}</option>
               {#each branches as b}
                 <option value={b.name}>{b.name}</option>
               {/each}
@@ -101,25 +100,25 @@
           </label>
           <span class="arrow">→</span>
           <label>
-            Into (base)
+            {$t('pulls.create_form.into')}
             <select bind:value={newBase} required>
               {#each branches as b}
-                <option value={b.name}>{b.name} {b.is_default ? '(default)' : ''}</option>
+                <option value={b.name}>{b.name} {b.is_default ? $t('repo.browser.default_branch') : ''}</option>
               {/each}
             </select>
           </label>
         </div>
         <label>
-          Title
-          <input type="text" bind:value={newTitle} required placeholder="PR title" />
+          {$t('pulls.create_form.description')}
+          <input type="text" bind:value={newTitle} required placeholder={$t('pulls.create_form.description_placeholder')} />
         </label>
         <label>
-          Description <span class="optional">(Markdown supported)</span>
-          <textarea bind:value={newBody} rows="4" placeholder="Describe your changes..."></textarea>
+          {$t('pulls.create_form.description')} <span class="optional">{$t('pulls.create_form.description_hint')}</span>
+          <textarea bind:value={newBody} rows="4" placeholder={$t('pulls.create_form.description_placeholder')}></textarea>
         </label>
         <div class="form-actions">
-          <button type="submit" class="btn-primary" disabled={!newHead}>Create Pull Request</button>
-          <button type="button" class="btn-secondary" onclick={() => showCreate = false}>Cancel</button>
+          <button type="submit" class="btn-primary" disabled={!newHead}>{$t('pulls.create_form.submit')}</button>
+          <button type="button" class="btn-secondary" onclick={() => showCreate = false}>{$t('pulls.create_form.cancel')}</button>
         </div>
       </form>
     </div>
@@ -130,9 +129,9 @@
   {/if}
 
   {#if loading}
-    <p class="text-secondary">Loading pull requests...</p>
+    <p class="text-secondary">{$t('common.loading')}</p>
   {:else if prList.length === 0}
-    <div class="empty"><p>No {filterState} pull requests.</p></div>
+    <div class="empty"><p>{$t('pulls.empty', { state: filterState === 'all' ? '' : filterState })}</p></div>
   {:else}
     <div class="pr-list">
       {#each prList as pr}
@@ -143,7 +142,7 @@
           <div class="pr-info">
             <div class="pr-title">{pr.title}</div>
             <div class="pr-meta">
-              #{pr.number} opened {formatDate(pr.created_at)} by {pr.author || 'unknown'}
+              #{pr.number} opened {formatDate(pr.created_at)} by {pr.author || $t('common.unknown')}
               <span class="branch-label">{pr.head_branch}</span> → <span class="branch-label">{pr.base_branch}</span>
             </div>
           </div>

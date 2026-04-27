@@ -1,4 +1,8 @@
 <script lang="ts">
+  import { createT } from '$lib/i18n';
+
+  const t = createT();
+
   interface Props {
     owner: string;
     repo: string;
@@ -7,13 +11,13 @@
 
   let { owner, repo, activeTab = 'code' }: Props = $props();
 
-  const tabs = [
-    { id: 'code', label: 'Code', icon: '📁' },
-    { id: 'issues', label: 'Issues', icon: '◉' },
-    { id: 'pulls', label: 'Pull Requests', icon: '⑂' },
-    { id: 'wiki', label: 'Wiki', icon: '📖' },
-    { id: 'pipelines', label: 'CI/CD', icon: '▶' },
-  ];
+  const tabs = $derived([
+    { id: 'code', label: $t('repo.tabs.code'), icon: '📁' },
+    { id: 'issues', label: $t('repo.tabs.issues'), icon: '◉' },
+    { id: 'pulls', label: $t('repo.tabs.pulls'), icon: '⑂' },
+    { id: 'wiki', label: $t('repo.tabs.wiki'), icon: '📖' },
+    { id: 'pipelines', label: $t('repo.tabs.pipelines'), icon: '▶' },
+  ]);
 </script>
 
 <div class="repo-header">

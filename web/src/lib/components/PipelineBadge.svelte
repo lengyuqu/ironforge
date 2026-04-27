@@ -1,16 +1,20 @@
 <script lang="ts">
+  import { createT } from '$lib/i18n';
+
+  const t = createT();
+
   interface Props {
     status: string;
   }
 
   let { status }: Props = $props();
 
-  const statusConfig: Record<string, { label: string; color: string; bg: string }> = {
-    pending:  { label: 'Pending',  color: 'var(--yellow)',  bg: 'rgba(210, 153, 34, 0.15)' },
-    running:  { label: 'Running',  color: 'var(--accent)',  bg: 'rgba(88, 166, 255, 0.15)' },
-    success:  { label: 'Passed',   color: 'var(--green)',   bg: 'rgba(63, 185, 80, 0.15)' },
-    failed:   { label: 'Failed',   color: 'var(--red)',     bg: 'rgba(248, 81, 73, 0.15)' },
-    canceled: { label: 'Canceled', color: 'var(--text-muted)', bg: 'rgba(110, 118, 129, 0.15)' },
+  const statusConfig: Record<string, { color: string; bg: string }> = {
+    pending:  { color: 'var(--yellow)',  bg: 'rgba(210, 153, 34, 0.15)' },
+    running:  { color: 'var(--accent)',  bg: 'rgba(88, 166, 255, 0.15)' },
+    success:  { color: 'var(--green)',   bg: 'rgba(63, 185, 80, 0.15)' },
+    failed:   { color: 'var(--red)',     bg: 'rgba(248, 81, 73, 0.15)' },
+    canceled: { color: 'var(--text-muted)', bg: 'rgba(110, 118, 129, 0.15)' },
   };
 
   const cfg = $derived(statusConfig[status] || statusConfig.pending);
@@ -26,7 +30,7 @@
   {:else}
     ●
   {/if}
-  {cfg.label}
+  {$t(`pipeline.status.${status}`)}
 </span>
 
 <style>

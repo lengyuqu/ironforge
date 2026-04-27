@@ -1,0 +1,290 @@
+{
+  "common": {
+    "sign_in": "Sign in",
+    "sign_out": "Sign out",
+    "cancel": "Cancel",
+    "save": "Save",
+    "edit": "Edit",
+    "create": "Create",
+    "submit": "Submit",
+    "delete": "Delete",
+    "loading": "Loading...",
+    "error": "Error",
+    "success": "Success",
+    "optional": "(optional)",
+    "unknown": "unknown",
+    "created": "Created {date}",
+    "no_description": "No description"
+  },
+
+  "nav": {
+    "dashboard": "Dashboard",
+    "notifications": "Notifications",
+    "organizations": "Organizations",
+    "settings": "Settings",
+    "live": "Live",
+    "offline": "Offline"
+  },
+
+  "home": {
+    "tagline": "Self-hosted Git platform built with Rust",
+    "features": {
+      "secure": "Secure",
+      "secure_desc": "Argon2 + JWT authentication",
+      "fast": "Fast",
+      "fast_desc": "Rust-powered HTTP & SSH",
+      "code_review": "Code Review",
+      "code_review_desc": "PR reviews & branch protection",
+      "cicd": "CI/CD",
+      "cicd_desc": "Built-in pipeline engine"
+    },
+    "cta": {
+      "go_dashboard": "Go to Dashboard",
+      "create_account": "Create account"
+    }
+  },
+
+  "auth": {
+    "login": {
+      "title": "Sign in to IronForge",
+      "username": "Username",
+      "password": "Password",
+      "submit": "Sign in",
+      "submitting": "Signing in...",
+      "footer": "New to IronForge? {link}",
+      "footer_link": "Create an account",
+      "failed": "Login failed"
+    },
+    "register": {
+      "title": "Create your account",
+      "username": "Username",
+      "email": "Email",
+      "password": "Password",
+      "submit": "Create account",
+      "submitting": "Creating account...",
+      "footer": "Already have an account? {link}",
+      "footer_link": "Sign in",
+      "failed": "Registration failed"
+    }
+  },
+
+  "dashboard": {
+    "title": "Dashboard",
+    "new_repo": "New Repository",
+    "create_form": {
+      "title": "Create a new repository",
+      "name": "Repository name",
+      "name_placeholder": "my-project",
+      "desc": "Description",
+      "private": "Private repository",
+      "submit": "Create repository",
+      "cancel": "Cancel"
+    },
+    "empty": {
+      "no_repos": "No repositories yet",
+      "get_started": "Create your first repository to get started!"
+    },
+    "repo": {
+      "private": "Private"
+    }
+  },
+
+  "notifications": {
+    "title": "Notifications",
+    "unread_only": "Unread only",
+    "mark_all_read": "Mark all read",
+    "mark_read": "Mark read",
+    "empty": "No notifications",
+    "hint": "Real-time updates are active — new notifications will appear instantly."
+  },
+
+  "orgs": {
+    "create_title": "Create Organization",
+    "name": "Name",
+    "name_placeholder": "e.g. acme-corp",
+    "display_name": "Display Name",
+    "display_name_placeholder": "e.g. Acme Corporation",
+    "description": "Description",
+    "description_placeholder": "What is this organization about?",
+    "visibility": "Visibility",
+    "visibility_public": "Public",
+    "visibility_private": "Private",
+    "submit": "Create Organization",
+    "submitting": "Creating...",
+    "repositories": "Repositories ({count})",
+    "teams": "Teams ({count})",
+    "members": "Members ({count})",
+    "no_repos": "No repositories yet",
+    "no_teams": "No teams yet",
+    "no_members": "No members",
+    "new_repo": "New repository name",
+    "private": "Private",
+    "new_team": "New team name",
+    "create_repo": "Create Repo",
+    "create_team": "Create",
+    "permission": {
+      "read": "Read",
+      "write": "Write",
+      "admin": "Admin"
+    }
+  },
+
+  "repo": {
+    "tabs": {
+      "code": "Code",
+      "issues": "Issues",
+      "pulls": "Pull Requests",
+      "wiki": "Wiki",
+      "pipelines": "CI/CD"
+    },
+    "browser": {
+      "branch": "Branch",
+      "default_branch": "(default)",
+      "recent_commits": "Recent commits",
+      "no_diff": "No diff available."
+    },
+    "file_size": {
+      "b": "B",
+      "kb": "KB",
+      "mb": "MB"
+    }
+  },
+
+  "issues": {
+    "title": "Issues",
+    "tabs": {
+      "open": "● Open",
+      "closed": "✓ Closed",
+      "all": "All"
+    },
+    "new": "New Issue",
+    "create_form": {
+      "title": "Title",
+      "title_placeholder": "Issue title",
+      "body": "Body",
+      "body_hint": "(Markdown supported)",
+      "body_placeholder": "Describe the issue...",
+      "labels": "Labels",
+      "labels_hint": "(comma-separated)",
+      "labels_placeholder": "bug, enhancement",
+      "submit": "Submit Issue",
+      "cancel": "Cancel"
+    },
+    "empty": "No {state} issues.",
+    "meta": "#{number} opened {date} by {author}",
+    "state": {
+      "open": "● Open",
+      "closed": "✓ Closed"
+    },
+    "close_issue": "Close Issue",
+    "reopen_issue": "Reopen Issue",
+    "comment": "Comment",
+    "comment_placeholder": "Add a comment..."
+  },
+
+  "pulls": {
+    "title": "Pull Requests",
+    "tabs": {
+      "open": "● Open",
+      "closed": "✓ Closed",
+      "merged": "⊛ Merged"
+    },
+    "new": "New Pull Request",
+    "create_form": {
+      "title": "Create Pull Request",
+      "from": "From (head)",
+      "into": "Into (base)",
+      "select_branch": "Select branch",
+      "description": "Description",
+      "description_hint": "(Markdown supported)",
+      "description_placeholder": "Describe your changes...",
+      "submit": "Create Pull Request",
+      "cancel": "Cancel"
+    },
+    "empty": "No {state} pull requests.",
+    "meta": "#{number} opened {date} by {author}",
+    "state": {
+      "open": "⑂ Open",
+      "closed": "✓ Closed",
+      "merged": "⊛ Merged"
+    },
+    "merge": {
+      "strategy": {
+        "merge": "Merge commit",
+        "squash": "Squash and merge",
+        "rebase": "Rebase and merge"
+      },
+      "button": "Merge pull request",
+      "merging": "Merging..."
+    },
+    "tabs": {
+      "conversation": "Conversation",
+      "changes": "Changes",
+      "reviews": "Reviews"
+    },
+    "verdict": {
+      "approved": "✓ Approved",
+      "changes_requested": "✗ Requested changes",
+      "commented": "● Commented"
+    },
+    "review": {
+      "title": "Submit a Review",
+      "verdict_comment": "Comment",
+      "verdict_approve": "Approve",
+      "verdict_changes": "Request Changes",
+      "placeholder": "Leave a review comment...",
+      "submit": "Submit Review"
+    }
+  },
+
+  "wiki": {
+    "title": "Wiki",
+    "pages": "Wiki Pages",
+    "new": "New Page",
+    "create_form": {
+      "title": "Title",
+      "title_placeholder": "Page title",
+      "content": "Content (Markdown)",
+      "content_placeholder": "Write your wiki content...",
+      "submit": "Create Page",
+      "cancel": "Cancel"
+    },
+    "empty": "No wiki pages yet.",
+    "edit": "Edit",
+    "save": "Save",
+    "cancel": "Cancel"
+  },
+
+  "pipeline": {
+    "status": {
+      "pending": "Pending",
+      "running": "Running",
+      "success": "Passed",
+      "failed": "Failed",
+      "canceled": "Canceled"
+    },
+    "retry": "↻ Retry",
+    "cancel": "✗ Cancel",
+    "no_pipelines": "No pipelines yet.",
+    "hint": "Push a commit with {file} to trigger a pipeline.",
+    "file": ".ironforge-ci.yml",
+    "detail_title": "Pipeline #{id}",
+    "commit": "Commit",
+    "branch": "Branch",
+    "duration": "Duration",
+    "stages": "Stages",
+    "jobs": "Jobs",
+    "select_detail": "Select a pipeline to view details."
+  },
+
+  "errors": {
+    "login_failed": "Login failed",
+    "register_failed": "Registration failed",
+    "repo_not_found": "Repository not found",
+    "org_not_found": "Organization not found",
+    "unauthorized": "Unauthorized",
+    "network_error": "Network error",
+    "load_failed": "Failed to load",
+    "create_failed": "Failed to create"
+  }
+}

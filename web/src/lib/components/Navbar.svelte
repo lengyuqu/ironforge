@@ -1,7 +1,9 @@
 <script lang="ts">
   import { getUser, isLoggedIn, logout } from '$lib/stores/auth';
+  import { locale, type Locale } from '$lib/i18n';
 
   let showUserMenu = $state(false);
+  let showLangMenu = $state(false);
 
   function handleLogout() {
     logout();
@@ -13,6 +15,14 @@
     if (showUserMenu && !(e.target as HTMLElement).closest('.user-menu-container')) {
       showUserMenu = false;
     }
+    if (showLangMenu && !(e.target as HTMLElement).closest('.lang-menu-container')) {
+      showLangMenu = false;
+    }
+  }
+
+  function setLocale(newLocale: Locale) {
+    locale.set(newLocale);
+    showLangMenu = false;
   }
 </script>
 
@@ -32,6 +42,20 @@
     {#if isLoggedIn()}
       <a href="/notifications" class="nav-icon" title="Notifications">🔔</a>
       <a href="/orgs" class="nav-icon" title="Organizations">🏢</a>
+
+      <!-- Language Switcher -->
+      <div class="lang-menu-container" style="position:relative">
+        <button class="lang-btn" onclick={() => showLangMenu = !showLangMenu}>
+          {$locale === 'zh-CN' ? '中文' : 'EN'}
+        </button>
+        {#if showLangMenu}
+          <div class="dropdown">
+            <button onclick={() => setLocale('en')} class:active={$locale === 'en'}>English</button>
+            <button onclick={() => setLocale('zh-CN')} class:active={$locale === 'zh-CN'}>中文</button>
+          </div>
+        {/if}
+      </div>
+
       <div class="user-menu-container" style="position:relative">
         <button class="user-btn" onclick={() => showUserMenu = !showUserMenu}>
           <div class="avatar">
@@ -164,4 +188,21 @@
     opacity: 0.8;
   }
   .nav-icon:hover { opacity: 1; text-decoration: none; }
+
+  .lang-btn {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 4px 10px;
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+  }
+  .lang-btn:hover { background: var(--bg-hover); }
+
+  .dropdown button.active {
+    font-weight: 600;
+    color: var(--accent);
+  }
 </style>

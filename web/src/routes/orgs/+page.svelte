@@ -1,6 +1,9 @@
 <script lang="ts">
   import { orgs } from '$lib/api/client';
   import { goto } from '$app/navigation';
+  import { createT } from '$lib/i18n';
+
+  const t = createT();
 
   let name = $state('');
   let displayName = $state('');
@@ -10,14 +13,14 @@
   let loading = $state(false);
 
   async function handleCreate() {
-    if (!name.trim()) { error = 'Organization name is required'; return; }
+    if (!name.trim()) { error = $t('errors.create_failed'); return; }
     loading = true;
     error = '';
     try {
       const result = await orgs.create(name, displayName || undefined, description || undefined, visibility);
       goto(`/orgs/${result.name}`);
     } catch (e: any) {
-      error = e.message || 'Failed to create organization';
+      error = e.message || $t('errors.create_failed');
     } finally {
       loading = false;
     }
@@ -25,7 +28,7 @@
 </script>
 
 <div class="container">
-  <h1>Create Organization</h1>
+  <h1>{$t('orgs.create_title')}</h1>
 
   {#if error}
     <div class="error">{error}</div>
@@ -33,30 +36,30 @@
 
   <form on:submit|preventDefault={handleCreate} class="form">
     <div class="field">
-      <label for="name">Name *</label>
-      <input id="name" type="text" bind:value={name} placeholder="e.g. acme-corp" required />
+      <label for="name">{$t('orgs.name')} *</label>
+      <input id="name" type="text" bind:value={name} placeholder={$t('orgs.name_placeholder')} required />
     </div>
 
     <div class="field">
-      <label for="displayName">Display Name</label>
-      <input id="displayName" type="text" bind:value={displayName} placeholder="e.g. Acme Corporation" />
+      <label for="displayName">{$t('orgs.display_name')}</label>
+      <input id="displayName" type="text" bind:value={displayName} placeholder={$t('orgs.display_name_placeholder')} />
     </div>
 
     <div class="field">
-      <label for="description">Description</label>
-      <textarea id="description" bind:value={description} placeholder="What is this organization about?" rows="3"></textarea>
+      <label for="description">{$t('orgs.description')}</label>
+      <textarea id="description" bind:value={description} placeholder={$t('orgs.description_placeholder')} rows="3"></textarea>
     </div>
 
     <div class="field">
-      <label for="visibility">Visibility</label>
+      <label for="visibility">{$t('orgs.visibility')}</label>
       <select id="visibility" bind:value={visibility}>
-        <option value="public">Public</option>
-        <option value="private">Private</option>
+        <option value="public">{$t('orgs.visibility_public')}</option>
+        <option value="private">{$t('orgs.visibility_private')}</option>
       </select>
     </div>
 
     <button type="submit" class="btn-primary" disabled={loading}>
-      {loading ? 'Creating...' : 'Create Organization'}
+      {loading ? $t('orgs.submitting') : $t('orgs.submit')}
     </button>
   </form>
 </div>
