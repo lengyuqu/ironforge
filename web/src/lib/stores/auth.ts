@@ -6,6 +6,8 @@ interface User {
   id: number;
   username: string;
   email: string;
+  is_admin: boolean;
+  display_name?: string;
 }
 
 let currentUser = $state<User | null>(null);
@@ -18,6 +20,10 @@ export function getUser() {
 
 export function isLoggedIn() {
   return currentUser !== null;
+}
+
+export function isAdmin() {
+  return currentUser?.is_admin === true;
 }
 
 export function getAuthError() {
@@ -34,7 +40,15 @@ export async function login(username: string, password: string) {
   try {
     const res = await auth.login(username, password);
     setToken(res.token);
-    currentUser = res.user;
+    // Fetch full profile to get is_admin
+    const me = await auth.me();
+    currentUser = {
+      id: me.id,
+      username: me.username,
+      email: me.email,
+      is_admin: me.is_admin ?? false,
+      display_name: me.display_name,
+    };
     return true;
   } catch (e: any) {
     error = e.message || 'Login failed';
@@ -66,7 +80,14 @@ export async function fetchUser() {
     return;
   }
   try {
-    currentUser = await auth.me();
+    const me = await auth.me();
+    currentUser = {
+      id: me.id,
+      username: me.username,
+      email: me.email,
+      is_admin: me.is_admin ?? false,
+      display_name: me.display_name,
+    };
   } catch {
     setToken(null);
     currentUser = null;

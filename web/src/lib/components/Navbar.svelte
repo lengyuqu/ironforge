@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { getUser, isLoggedIn, logout } from '$lib/stores/auth';
+  import { getUser, isLoggedIn, isAdmin, logout } from '$lib/stores/auth';
   import { locale, type Locale } from '$lib/i18n';
 
   let showUserMenu = $state(false);
@@ -71,6 +71,9 @@
             <a href="/dashboard">Dashboard</a>
             <a href="/notifications">Notifications</a>
             <a href="/orgs">Organizations</a>
+            {#if isAdmin()}
+              <a href="/admin" class="admin-link">⚙ Admin Panel</a>
+            {/if}
             <button onclick={handleLogout}>Sign out</button>
           </div>
         {/if}

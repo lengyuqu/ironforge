@@ -2837,6 +2837,7 @@ dependencies = [
  "jsonwebtoken",
  "lettre",
  "password-hash 0.5.0",
+ "rand_core 0.6.4",
  "reqwest",
  "rg-db",
  "sea-orm",

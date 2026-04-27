@@ -52,6 +52,22 @@ pub async fn get_org_by_name(db: &DatabaseConnection, name: &str) -> Result<Opti
         .context("db: get org by name")
 }
 
+/// List all organizations with pagination (admin use).
+pub async fn list_all_orgs(
+    db: &DatabaseConnection,
+    offset: u64,
+    limit: u64,
+) -> Result<(Vec<organization::Model>, i64)> {
+    let paginator = organization::Entity::find()
+        .order_by_desc(organization::Column::CreatedAt)
+        .paginate(db, limit);
+
+    let total = paginator.num_items().await.context("db: count orgs")?;
+    let orgs = paginator.fetch_page(offset).await.context("db: list all orgs")?;
+
+    Ok((orgs, total as i64))
+}
+
 /// List organizations owned by or belonging to a user.
 pub async fn list_user_orgs(db: &DatabaseConnection, user_id: i64) -> Result<Vec<organization::Model>> {
     // Find org IDs where the user is a member

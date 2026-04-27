@@ -291,6 +291,60 @@ export const notifications = {
     request<any>(`/notifications/${id}`, { method: 'DELETE' }),
 };
 
+// ── Admin ────────────────────────────────────────────
+export interface AdminUser {
+  id: number;
+  username: string;
+  email: string;
+  display_name: string | null;
+  avatar_url: string | null;
+  bio: string | null;
+  is_admin: boolean;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface AdminOrg {
+  id: number;
+  name: string;
+  display_name: string | null;
+  description: string | null;
+  owner_id: number;
+  visibility: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UpdateUserData {
+  display_name?: string;
+  bio?: string;
+  is_admin?: boolean;
+  is_active?: boolean;
+}
+
+export const admin = {
+  // Users
+  listUsers: (page?: number, perPage?: number) =>
+    request<PaginatedResponse<AdminUser>>(`/admin/users${qs({ page, per_page: perPage })}`),
+  getUser: (id: number) =>
+    request<AdminUser>(`/admin/users/${id}`),
+  updateUser: (id: number, data: UpdateUserData) =>
+    request<AdminUser>(`/admin/users/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+  deleteUser: (id: number) =>
+    request<{ deleted: boolean }>(`/admin/users/${id}`, { method: 'DELETE' }),
+
+  // Organizations
+  listOrgs: (page?: number, perPage?: number) =>
+    request<PaginatedResponse<AdminOrg>>(`/admin/orgs${qs({ page, per_page: perPage })}`),
+  getOrg: (name: string) =>
+    request<AdminOrg>(`/admin/orgs/${name}`),
+  deleteOrg: (name: string) =>
+    request<{ deleted: boolean }>(`/admin/orgs/${name}`, { method: 'DELETE' }),
+};
+
 // ── WebSocket ────────────────────────────────────────
 export function connectNotificationWebSocket(
   onMessage: (event: { event_type: string; data: any }) => void,

@@ -286,5 +286,28 @@
     "network_error": "Network error",
     "load_failed": "Failed to load",
     "create_failed": "Failed to create"
+  },
+
+  "admin": {
+    "title": "Admin Panel",
+    "subtitle": "Site administration and user management",
+    "back": "Back to Admin",
+    "users": {
+      "title": "User Management",
+      "desc": "View and manage all users on this instance",
+      "total": "users total",
+      "edit": "Edit User: {username}",
+      "is_admin": "Site Admin",
+      "is_active": "Active",
+      "delete_confirm": "Delete User",
+      "delete_warning": "Are you sure you want to delete user \"{username}\"? This action cannot be undone."
+    },
+    "orgs": {
+      "title": "Organization Management",
+      "desc": "View and manage all organizations",
+      "total": "organizations total",
+      "delete_confirm": "Delete Organization",
+      "delete_warning": "Are you sure you want to delete organization \"{name}\"? All associated data will be lost."
+    }
   }
 }

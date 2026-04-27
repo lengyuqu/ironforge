@@ -12,3 +12,4 @@ pub mod collaborators;
 pub mod repo_content;
 pub mod orgs;
 pub mod notifications;
+pub mod admin;

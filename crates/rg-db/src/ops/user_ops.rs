@@ -31,6 +31,22 @@ pub async fn find_by_id(db: &DatabaseConnection, id: i64) -> Result<Option<User>
         .context("db: find user by id")
 }
 
+/// List all users with optional pagination.
+pub async fn list_users(
+    db: &DatabaseConnection,
+    page: u64,
+    per_page: u64,
+) -> Result<(Vec<User>, i64)> {
+    let paginator = UserEntity::find()
+        .order_by_desc(user::Column::CreatedAt)
+        .paginate(db, per_page);
+
+    let total = paginator.num_items().await.context("db: count users")?;
+    let users = paginator.fetch_page(page).await.context("db: list users")?;
+
+    Ok((users, total as i64))
+}
+
 /// Create a new user and return the persisted model.
 pub async fn create(db: &DatabaseConnection, model: ActiveModel) -> Result<User> {
     model
@@ -45,4 +61,53 @@ pub async fn update(db: &DatabaseConnection, model: ActiveModel) -> Result<User>
         .update(db)
         .await
         .context("db: update user")
+}
+
+/// Update user fields by ID (used by admin).
+/// Returns the updated user.
+pub async fn update_by_id(
+    db: &DatabaseConnection,
+    id: i64,
+    display_name: Option<Option<String>>,
+    bio: Option<Option<String>>,
+    is_admin: Option<bool>,
+    is_active: Option<bool>,
+) -> Result<User> {
+    let model = UserEntity::find_by_id(id)
+        .one(db)
+        .await
+        .context("db: find user for update")?
+        .ok_or_else(|| anyhow::anyhow!("user {} not found", id))?;
+
+    let mut active: ActiveModel = model.into();
+
+    if let Some(dn) = display_name {
+        active.display_name = Set(dn);
+    }
+    if let Some(b) = bio {
+        active.bio = Set(b);
+    }
+    if let Some(admin) = is_admin {
+        active.is_admin = Set(admin);
+    }
+    if let Some(active_flag) = is_active {
+        active.is_active = Set(active_flag);
+    }
+
+    active
+        .update(db)
+        .await
+        .context("db: update user by admin")
+}
+
+/// Delete a user by ID.
+pub async fn delete_by_id(db: &DatabaseConnection, id: i64) -> Result<()> {
+    let model = UserEntity::find_by_id(id)
+        .one(db)
+        .await
+        .context("db: find user for delete")?
+        .ok_or_else(|| anyhow::anyhow!("user {} not found", id))?;
+
+    model.delete(db).await.context("db: delete user")?;
+    Ok(())
 }

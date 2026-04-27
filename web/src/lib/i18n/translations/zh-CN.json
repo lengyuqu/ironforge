@@ -286,5 +286,28 @@
     "network_error": "网络错误",
     "load_failed": "加载失败",
     "create_failed": "创建失败"
+  },
+
+  "admin": {
+    "title": "管理面板",
+    "subtitle": "站点管理与用户管理",
+    "back": "返回管理面板",
+    "users": {
+      "title": "用户管理",
+      "desc": "查看和管理所有用户",
+      "total": "位用户",
+      "edit": "编辑用户：{username}",
+      "is_admin": "站点管理员",
+      "is_active": "活跃",
+      "delete_confirm": "删除用户",
+      "delete_warning": "确定要删除用户「{username}」吗？此操作不可撤销。"
+    },
+    "orgs": {
+      "title": "组织管理",
+      "desc": "查看和管理所有组织",
+      "total": "个组织",
+      "delete_confirm": "删除组织",
+      "delete_warning": "确定要删除组织「{name}」吗？所有相关数据将丢失。"
+    }
   }
 }

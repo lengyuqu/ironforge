@@ -136,6 +136,7 @@ git clone http://localhost:8080/git/testuser/testrepo /tmp/if_http
 | **GPG 签名** | `rg-http/src/api/repo_content.rs` | GET /repos/:owner/:name/commits/:sha/signature |
 | **Git V2** | `rg-git/src/protocol/v2.rs` | Protocol V2 HTTP 支持（ls-refs/fetch 命令） |
 | **前端 i18n** | `web/src/lib/i18n/` | locale store + localStorage + 中/英翻译（199 key） |
+| **代码覆盖率** | `cargo-llvm-cov` | LLVM 覆盖率工具，支持 HTML/LCOV/JSON 输出 |
 | CLI | `rg-cli/src/main.rs` | clap 4，`serve`（含 --db-url, --jwt-secret, --docker, --rate-limit-*, --smtp-*, --tls-*, --config, --log-*）/ `create-repo` |
 
 ### ✅ Phase 10 已完成（TLS + 配置文件 + 日志轮转 + API 分页 + GPG 签名 + Protocol V2）
@@ -146,6 +147,13 @@ git clone http://localhost:8080/git/testuser/testrepo /tmp/if_http
 - 自动检测浏览器语言（zh → 中文，en → 英文）
 - 199 个翻译 key（中/英双语）
 - 后端统一英文，无 i18n 需求
+
+### ✅ Phase 12 已完成（代码覆盖率集成，2026-04-27）
+
+- cargo-llvm-cov 覆盖率工具（v0.8.5）
+- HTML/LCOV/JSON 多格式输出
+- 配置文件 cargo-llvm-cov.toml
+- macOS Xcode Command Line Tools 兼容
 
 所有 10 个 Phase 全部完成 + V2 + 前端 i18n。后续可考虑：
 - 性能优化（数据库层分页替代应用层分页）

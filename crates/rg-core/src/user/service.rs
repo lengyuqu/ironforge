@@ -1,4 +1,4 @@
-//! User service — business logic for user registration, login, and profile management.
+//! User service — business logic for user registration, login, profile, and admin management.
 
 use anyhow::{bail, Context, Result};
 use chrono::Utc;
@@ -10,6 +10,26 @@ use rg_db::{
 };
 
 use crate::auth::{jwt, password};
+
+/// A paginated list of users with total count.
+pub struct PaginatedUsers {
+    pub users: Vec<UserInfo>,
+    pub total: i64,
+}
+
+/// Public user information (safe to return to clients).
+#[derive(Debug, serde::Serialize)]
+pub struct UserInfo {
+    pub id: i64,
+    pub username: String,
+    pub email: String,
+    pub display_name: Option<String>,
+    pub avatar_url: Option<String>,
+    pub bio: Option<String>,
+    pub is_admin: bool,
+    pub is_active: bool,
+    pub created_at: chrono::DateTime<Utc>,
+}
 
 /// Response after a successful login or registration.
 #[derive(Debug, serde::Serialize)]
@@ -102,4 +122,67 @@ pub async fn login(
         user_id: user.id,
         username: user.username,
     })
+}
+
+// ── Admin user management ───────────────────────────────────────
+
+impl From<rg_db::entities::user::Model> for UserInfo {
+    fn from(u: rg_db::entities::user::Model) -> Self {
+        Self {
+            id: u.id,
+            username: u.username,
+            email: u.email,
+            display_name: u.display_name,
+            avatar_url: u.avatar_url,
+            bio: u.bio,
+            is_admin: u.is_admin,
+            is_active: u.is_active,
+            created_at: u.created_at,
+        }
+    }
+}
+
+/// List all users with pagination (admin only).
+pub async fn list_users_admin(
+    db: &DatabaseConnection,
+    page: u64,
+    per_page: u64,
+) -> Result<PaginatedUsers> {
+    let (users, total) = user_ops::list_users(db, page, per_page).await?;
+    Ok(PaginatedUsers {
+        users: users.into_iter().map(Into::into).collect(),
+        total,
+    })
+}
+
+/// Update any user's profile fields (admin only).
+pub async fn update_user_admin(
+    db: &DatabaseConnection,
+    target_user_id: i64,
+    display_name: Option<Option<String>>,
+    bio: Option<Option<String>>,
+    is_admin: Option<bool>,
+    is_active: Option<bool>,
+) -> Result<UserInfo> {
+    let updated = user_ops::update_by_id(
+        db,
+        target_user_id,
+        display_name,
+        bio,
+        is_admin,
+        is_active,
+    )
+    .await?;
+    Ok(updated.into())
+}
+
+/// Delete a user (admin only).
+pub async fn delete_user(db: &DatabaseConnection, user_id: i64) -> Result<()> {
+    user_ops::delete_by_id(db, user_id).await
+}
+
+/// Get a single user by ID (admin view).
+pub async fn get_user_by_id(db: &DatabaseConnection, user_id: i64) -> Result<Option<UserInfo>> {
+    let user = user_ops::find_by_id(db, user_id).await?;
+    Ok(user.map(Into::into))
 }

@@ -297,6 +297,29 @@ mod tests {
 }
 ```
 
+### 覆盖率
+
+项目使用 `cargo-llvm-cov` 进行代码覆盖率分析：
+
+```bash
+# 安装（首次）
+cargo install cargo-llvm-cov
+
+# macOS: 需要设置 LLVM 工具路径（Xcode Command Line Tools）
+export LLVM_COV=/Library/Developer/CommandLineTools/usr/bin/llvm-cov
+export LLVM_PROFDATA=/Library/Developer/CommandLineTools/usr/bin/llvm-profdata
+
+# 生成覆盖率报告
+cargo llvm-cov --lib                    # 文本报告
+cargo llvm-cov --html --open            # HTML 报告（自动打开浏览器）
+cargo llvm-cov --lcov --output-path target/coverage.lcov  # LCOV（Codecov/Coveralls）
+
+# 运行测试 + 覆盖率
+cargo llvm-cov
+```
+
+配置见 `cargo-llvm-cov.toml`。
+
 ### 集成测试（端到端）
 
 集成测试以 shell 脚本形式维护在 `scripts/e2e_test.sh`（待创建）：
