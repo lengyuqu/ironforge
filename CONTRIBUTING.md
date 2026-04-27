@@ -398,6 +398,6 @@ PR 合并到 `main` 前要求：
 - Push 自动触发 Webhook（push 事件 payload）
 - HTTP Git 协议权限鉴权（Bearer Token → can_read/can_write）
 
-### ⏳ Phase 6：Web UI + 高级功能（下一步）
+### ✅ Phase 6：Web UI + 高级功能（已完成，2026-04-24）
 
 完整计划见 [ARCHITECTURE.md](ARCHITECTURE.md)。

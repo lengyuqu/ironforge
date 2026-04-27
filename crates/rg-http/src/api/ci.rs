@@ -85,6 +85,8 @@ pub async fn list_pipelines(
     Query(params): Query<ListPipelinesQuery>,
 ) -> impl IntoResponse {
     let pagination = params.pagination.clamp();
+    let offset = pagination.offset();
+    let limit = pagination.limit();
 
     let repo = match find_repo(&state.db, &owner, &name).await {
         Ok(Some(r)) => r,
@@ -92,15 +94,10 @@ pub async fn list_pipelines(
         Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response(),
     };
 
-    match rg_db::ops::pipeline_ops::list_pipelines_by_repo(&state.db, repo.id).await {
-        Ok(pipelines) => {
-            let total = pipelines.len() as u64;
-            let offset = pagination.offset() as usize;
-            let limit = pagination.limit() as usize;
+    match rg_db::ops::pipeline_ops::list_pipelines_by_repo_paginated(&state.db, repo.id, offset, limit).await {
+        Ok((pipelines, total)) => {
             let resp: Vec<PipelineResponse> = pipelines
                 .into_iter()
-                .skip(offset)
-                .take(limit)
                 .map(|p| PipelineResponse {
                     id: p.id,
                     repo_id: p.repo_id,
@@ -114,7 +111,7 @@ pub async fn list_pipelines(
                     created_at: p.created_at.to_string(),
                 })
                 .collect();
-            Json(PaginatedResponse::new(resp, &pagination, total)).into_response()
+            Json(PaginatedResponse::new(resp, &pagination, total as u64)).into_response()
         }
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,

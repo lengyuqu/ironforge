@@ -1,14 +1,14 @@
 //! REST API handlers for notifications.
 
 use axum::extract::{Path, Query, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::Json;
 use serde::{Deserialize, Serialize};
 
 use crate::AppState;
+use crate::pagination::{PaginatedResponse, PaginationParams};
 use crate::ws;
-use crate::pagination::{PaginationParams, PaginatedResponse};
 
 // ── Response types ───────────────────────────────────────────
 
@@ -26,38 +26,39 @@ struct NotificationResponse {
 
 #[derive(Deserialize)]
 pub struct ListNotificationsQuery {
-    user_id: Option<i64>,
     unread_only: Option<bool>,
     #[serde(flatten)]
     pagination: PaginationParams,
 }
 
-#[derive(Deserialize)]
-pub struct UserQuery {
-    user_id: Option<i64>,
-}
-
 // ── Handlers ─────────────────────────────────────────────────
 
 /// GET /api/v1/notifications
-/// List notifications for a user.
+/// List notifications for the authenticated user.
 pub async fn list_notifications(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Query(params): Query<ListNotificationsQuery>,
 ) -> impl IntoResponse {
-    let user_id = params.user_id.unwrap_or(1); // TODO: extract from JWT
+    let user_id = match extract_user_id(&state, &headers) {
+        Some(id) => id,
+        None => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({"error": "authentication required"})),
+            )
+                .into_response()
+        }
+    };
     let unread_only = params.unread_only.unwrap_or(false);
     let pagination = params.pagination.clamp();
+    let offset = pagination.offset();
+    let limit = pagination.limit();
 
-    match rg_core::notification::list_notifications(&state.db, user_id, unread_only).await {
-        Ok(notifications) => {
-            let total = notifications.len() as u64;
-            let offset = pagination.offset() as usize;
-            let limit = pagination.limit() as usize;
+    match rg_core::notification::list_notifications_paginated(&state.db, user_id, unread_only, offset, limit).await {
+        Ok((notifications, total)) => {
             let resp: Vec<NotificationResponse> = notifications
                 .into_iter()
-                .skip(offset)
-                .take(limit)
                 .map(|n| NotificationResponse {
                     id: n.id,
                     user_id: n.user_id,
@@ -69,7 +70,7 @@ pub async fn list_notifications(
                     created_at: n.created_at.to_string(),
                 })
                 .collect();
-            Json(PaginatedResponse::new(resp, &pagination, total)).into_response()
+            Json(PaginatedResponse::new(resp, &pagination, total as u64)).into_response()
         }
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -82,9 +83,18 @@ pub async fn list_notifications(
 /// GET /api/v1/notifications/unread-count
 pub async fn unread_count(
     State(state): State<AppState>,
-    Query(params): Query<UserQuery>,
+    headers: HeaderMap,
 ) -> impl IntoResponse {
-    let user_id = params.user_id.unwrap_or(1); // TODO: extract from JWT
+    let user_id = match extract_user_id(&state, &headers) {
+        Some(id) => id,
+        None => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({"error": "authentication required"})),
+            )
+                .into_response()
+        }
+    };
 
     match rg_core::notification::unread_count(&state.db, user_id).await {
         Ok(count) => Json(serde_json::json!({"unread_count": count})).into_response(),
@@ -114,9 +124,18 @@ pub async fn mark_read(
 /// POST /api/v1/notifications/mark-all-read
 pub async fn mark_all_read(
     State(state): State<AppState>,
-    Query(params): Query<UserQuery>,
+    headers: HeaderMap,
 ) -> impl IntoResponse {
-    let user_id = params.user_id.unwrap_or(1); // TODO: extract from JWT
+    let user_id = match extract_user_id(&state, &headers) {
+        Some(id) => id,
+        None => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({"error": "authentication required"})),
+            )
+                .into_response()
+        }
+    };
 
     match rg_core::notification::mark_all_read(&state.db, user_id).await {
         Ok(count) => Json(serde_json::json!({"marked_read": count})).into_response(),
@@ -141,4 +160,13 @@ pub async fn delete_notification(
         )
             .into_response(),
     }
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+fn extract_user_id(state: &AppState, headers: &HeaderMap) -> Option<i64> {
+    let auth = headers.get("authorization")?.to_str().ok()?;
+    let token = auth.strip_prefix("Bearer ")?;
+    let claims = rg_core::auth::jwt::validate_token(token, &state.jwt_secret)?;
+    claims.sub.parse().ok()
 }

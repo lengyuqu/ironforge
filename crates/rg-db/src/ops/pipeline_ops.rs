@@ -54,6 +54,28 @@ pub async fn list_pipelines_by_repo(
         .context("db: list pipelines by repo")
 }
 
+/// Paginated list of pipelines for a repo. Returns (data, total).
+pub async fn list_pipelines_by_repo_paginated(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    offset: u64,
+    limit: u64,
+) -> Result<(Vec<pipeline::Model>, i64)> {
+    let base = pipeline::Entity::find()
+        .filter(pipeline::Column::RepoId.eq(repo_id))
+        .order_by_desc(pipeline::Column::CreatedAt);
+
+    let total = base.clone().count(db).await.context("db: count pipelines by repo")? as i64;
+    let pipelines = base
+        .offset(offset)
+        .limit(limit)
+        .all(db)
+        .await
+        .context("db: list pipelines by repo (paginated)")?;
+
+    Ok((pipelines, total))
+}
+
 /// Update pipeline status.
 pub async fn update_pipeline_status(
     db: &DatabaseConnection,
@@ -239,4 +261,21 @@ pub async fn list_jobs_by_pipeline(
         .all(db)
         .await
         .context("db: list jobs by pipeline")
+}
+
+/// Find the latest pipeline for a repo + commit SHA.
+/// Used by branch protection status checks to verify CI passed.
+pub async fn find_latest_by_repo_and_commit(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    commit_sha: &str,
+) -> Result<Option<pipeline::Model>> {
+    pipeline::Entity::find()
+        .filter(pipeline::Column::RepoId.eq(repo_id))
+        .filter(pipeline::Column::CommitSha.eq(commit_sha))
+        .order_by_desc(pipeline::Column::CreatedAt)
+        .limit(1)
+        .one(db)
+        .await
+        .context("db: find latest pipeline by repo and commit")
 }

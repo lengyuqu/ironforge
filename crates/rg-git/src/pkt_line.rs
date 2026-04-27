@@ -11,11 +11,15 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 /// Maximum payload size per pkt-line (65516 bytes, per git protocol).
 pub const MAX_PKT_LINE_LEN: usize = 65516;
 
-/// A pkt-line: either data or a flush packet.
+/// A pkt-line: data, flush, or special types for V2 protocol.
 #[derive(Debug, Clone)]
 pub enum PktLine {
     Data(Vec<u8>),
     Flush,
+    /// Delimiter packet (0001) - separates sections in V2
+    Delim,
+    /// Response-end packet (0002) - marks end of response in stateless connections
+    ResponseEnd,
 }
 
 impl PktLine {
@@ -45,6 +49,8 @@ impl fmt::Display for PktLine {
                 }
             }
             PktLine::Flush => write!(f, "Flush"),
+            PktLine::Delim => write!(f, "Delim"),
+            PktLine::ResponseEnd => write!(f, "ResponseEnd"),
         }
     }
 }
@@ -68,13 +74,25 @@ pub async fn write_pkt_line<W: AsyncWrite + Unpin>(writer: &mut W, pkt: &PktLine
         PktLine::Flush => {
             writer.write_all(b"0000").await?;
         }
+        PktLine::Delim => {
+            writer.write_all(b"0001").await?;
+        }
+        PktLine::ResponseEnd => {
+            writer.write_all(b"0002").await?;
+        }
     }
     Ok(())
 }
 
-/// Write a flush packet.
+/// Write a flush packet (0000).
 pub async fn write_flush<W: AsyncWrite + Unpin>(writer: &mut W) -> Result<()> {
     writer.write_all(b"0000").await?;
+    Ok(())
+}
+
+/// Write a delimiter packet (0001) - used in V2 protocol.
+pub async fn write_delim<W: AsyncWrite + Unpin>(writer: &mut W) -> Result<()> {
+    writer.write_all(b"0001").await?;
     Ok(())
 }
 
@@ -93,6 +111,8 @@ pub async fn read_pkt_line<R: AsyncRead + Unpin>(reader: &mut BufReader<R>) -> R
     let header_str = std::str::from_utf8(&header)?;
     let len: usize = match u32::from_str_radix(header_str, 16) {
         Ok(0) => return Ok(PktLine::Flush),
+        Ok(1) => return Ok(PktLine::Delim),  // 0001 = delimiter
+        Ok(2) => return Ok(PktLine::ResponseEnd), // 0002 = response end
         Ok(n) => n as usize,
         Err(_) => bail!("invalid pkt-line header: {:?}", header),
     };
@@ -135,5 +155,7 @@ pub async fn read_text_line<R: AsyncRead + Unpin>(reader: &mut BufReader<R>) -> 
             let text = String::from_utf8(data)?;
             Ok(Some(text))
         }
+        PktLine::Delim => Ok(Some(String::new())), // Treat as empty line
+        PktLine::ResponseEnd => Ok(None),          // End of response
     }
 }

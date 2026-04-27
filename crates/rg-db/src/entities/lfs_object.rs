@@ -16,6 +16,10 @@ pub struct Model {
     pub size: i64,
     /// Whether the object has been uploaded (exists in storage)
     pub uploaded: bool,
+    /// Compression algorithm used (None = uncompressed)
+    pub compression: Option<String>,
+    /// Compressed size in bytes (for compressed objects)
+    pub compressed_size: Option<i64>,
     pub created_at: DateTimeUtc,
 }
 

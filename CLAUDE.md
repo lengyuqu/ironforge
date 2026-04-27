@@ -12,7 +12,7 @@
 
 - **二进制名**: `ironforge`（crate `rg-cli` 的 bin target）
 - **目标**: 内存 <50MB、单二进制部署、全功能（仓库/Issue/PR/Wiki/CI）
-- **当前阶段**: **Phase 10 已完成**（全部 10 个 Phase 完成：Git 协议 + 用户系统 + Issue/PR + Wiki/LFS/Webhook + CI/CD + 代码审查 + Web UI + 组织/通知 + WebSocket/邮件 + TLS/配置/分页/GPG）
+- **当前阶段**: **Phase 10 已完成 + Protocol V2**（全部 10 个 Phase 完成 + Git Smart Protocol V2）
 
 ---
 
@@ -92,10 +92,12 @@ git clone http://localhost:8080/git/testuser/testrepo /tmp/if_http
 
 | 模块 | 文件 | 说明 |
 |------|------|------|
-| pkt-line 协议 | `rg-git/src/pkt_line.rs` | 完整编解码 |
+| pkt-line 协议 | `rg-git/src/pkt_line.rs` | 完整编解码 + **V2 Delim/ResponseEnd** |
 | sideband-64k | `rg-git/src/sideband.rs` | band 1/2/3 |
 | git-upload-pack | `rg-git/src/protocol/upload_pack.rs` | SSH + HTTP 模式 |
 | git-receive-pack | `rg-git/src/protocol/receive_pack.rs` | SSH + HTTP 模式，返回 `Vec<RefUpdate>` |
+| **Git Protocol V2** | `rg-git/src/protocol/v2.rs` | **ls-refs + fetch 命令 + capability advertisement** |
+| **V2 HTTP 集成** | `rg-http/src/git_v2.rs` + `rg-http/src/lib.rs` | **Git-Protocol: version=2 header 检测 + V2 处理** |
 | SSH 服务端 | `rg-ssh/src/lib.rs` | russh 0.51，auth_publickey/auth_password 查 DB |
 | HTTP 服务端 | `rg-http/src/lib.rs` | Axum 0.8，/git/ 路由 + **Git 协议权限鉴权** + 分支保护审计 + **SvelteKit 静态资源** |
 | REST API | `rg-http/src/api/` | Users + Repos + Issues + PRs + Wiki + LFS + Webhooks + CI/CD + **Reviews + Branch Protection + Collaborators + Repo Content** |
@@ -132,13 +134,14 @@ git clone http://localhost:8080/git/testuser/testrepo /tmp/if_http
 | **日志轮转** | `rg-cli/src/main.rs` | tracing-appender RollingFileAppender (DAILY + non-blocking) |
 | **API 分页** | `rg-http/src/pagination.rs` | PaginationParams + PaginatedResponse\<T\>，5 个 list API |
 | **GPG 签名** | `rg-http/src/api/repo_content.rs` | GET /repos/:owner/:name/commits/:sha/signature |
+| **Git V2** | `rg-git/src/protocol/v2.rs` | Protocol V2 HTTP 支持（ls-refs/fetch 命令） |
 | CLI | `rg-cli/src/main.rs` | clap 4，`serve`（含 --db-url, --jwt-secret, --docker, --rate-limit-*, --smtp-*, --tls-*, --config, --log-*）/ `create-repo` |
 
-### ✅ Phase 10 已完成（TLS + 配置文件 + 日志轮转 + API 分页 + GPG 签名）
+### ✅ Phase 10 已完成（TLS + 配置文件 + 日志轮转 + API 分页 + GPG 签名 + Protocol V2）
 
-所有 10 个 Phase 全部完成。后续可考虑：
+所有 10 个 Phase 全部完成 + V2 支持。后续可考虑：
 - 性能优化（数据库层分页替代应用层分页）
-- 更多 Git 协议支持（Smart Protocol V2、protocol.inforefs）
+- SSH 模式的 Protocol V2 完整实现
 - 国际化（i18n）
 - 嵌入式搜索（全文检索代码/Issue/Wiki）
 - API 文档（OpenAPI/Swagger）

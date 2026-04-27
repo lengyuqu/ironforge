@@ -8,6 +8,7 @@
 //!  - API pagination
 
 pub mod api;
+pub mod git_v2;
 pub mod pagination;
 pub mod rate_limit;
 pub mod ws;
@@ -378,8 +379,31 @@ async fn handle_info_refs(
         return resp;
     }
 
+    // Check if client wants Protocol V2
+    let wants_v2 = git_v2::wants_protocol_v2(&headers);
+
     match service {
         "git-upload-pack" | "git-receive-pack" => {
+            if wants_v2 {
+                // Protocol V2: send capability advertisement (refs sent via ls-refs command)
+                return match build_v2_capability_advertisement() {
+                    Ok(data) => {
+                        let content_type = if service == "git-upload-pack" {
+                            "application/x-git-upload-pack-advertisement"
+                        } else {
+                            "application/x-git-receive-pack-advertisement"
+                        };
+                        (StatusCode::OK, [(header::CONTENT_TYPE, content_type)], data)
+                    }
+                    Err(e) => (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        [(header::CONTENT_TYPE, "text/plain")],
+                        format!("error: {:#}", e),
+                    ),
+                };
+            }
+
+            // Protocol V1: send full ref advertisement
             let content_type = if service == "git-upload-pack" {
                 "application/x-git-upload-pack-advertisement"
             } else {
@@ -481,6 +505,36 @@ fn build_info_refs(repo_path: &std::path::Path, service: &str) -> Result<String>
     Ok(buf)
 }
 
+/// Build Protocol V2 capability advertisement.
+/// Format: version 2 + capabilities + flush
+/// Manual pkt-line construction to avoid async in sync context.
+fn build_v2_capability_advertisement() -> Result<String> {
+    use std::io::Write;
+
+    let mut buf = Vec::new();
+
+    // Helper to write pkt-line data
+    let write_pkt = |buf: &mut Vec<u8>, text: &str| {
+        let payload = text.as_bytes();
+        let len = payload.len() + 4; // +4 for header
+        writeln!(buf, "{:04x}{}", len, text)?;
+        Ok::<(), std::io::Error>(())
+    };
+
+    // Protocol version line
+    write_pkt(&mut buf, "version 2")?;
+    write_pkt(&mut buf, "agent=ironforge/0.1")?;
+    write_pkt(&mut buf, "ls-refs")?;
+    write_pkt(&mut buf, "fetch=shallow")?;
+    write_pkt(&mut buf, "object-format=sha1")?;
+    write_pkt(&mut buf, "server-option")?;
+
+    // Flush packet
+    buf.extend_from_slice(b"0000");
+
+    Ok(String::from_utf8(buf)?)
+}
+
 async fn handle_git_upload_pack(
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
@@ -503,36 +557,69 @@ async fn handle_git_upload_pack(
         return (resp.0, resp.1, Body::from(resp.2));
     }
 
-    let (mut pipe_read, mut pipe_write) = tokio::io::duplex(body.len() + 1024);
-    tokio::spawn(async move {
-        let _ = pipe_write.write_all(&body).await;
-    });
+    // Check if client wants Protocol V2
+    let wants_v2 = git_v2::wants_protocol_v2(&headers);
 
-    let (mut buf_reader, mut buf_writer) = tokio::io::duplex(64 * 1024);
+    if wants_v2 {
+        // Protocol V2: use V2 handler
+        let (mut pipe_read, mut pipe_write) = tokio::io::duplex(body.len() + 1024);
+        tokio::spawn(async move {
+            let _ = pipe_write.write_all(&body).await;
+        });
 
-    match rg_git::protocol::upload_pack::handle_upload_pack_http(
-        &repo_path,
-        pipe_read,
-        &mut buf_writer,
-    )
-    .await
-    {
-        Ok(()) => {
-            let _ = buf_writer.flush().await;
-            drop(buf_writer);
-            let mut output = Vec::new();
-            let _ = buf_reader.read_to_end(&mut output).await;
-            (
-                StatusCode::OK,
-                [(header::CONTENT_TYPE, "application/x-git-upload-pack-result")],
-                Body::from(output),
-            )
+        let (mut buf_reader, mut buf_writer) = tokio::io::duplex(64 * 1024);
+
+        match rg_git::protocol::v2::handle_v2(&repo_path, pipe_read, &mut buf_writer).await {
+            Ok(()) => {
+                let _ = buf_writer.flush().await;
+                drop(buf_writer);
+                let mut output = Vec::new();
+                let _ = buf_reader.read_to_end(&mut output).await;
+                (
+                    StatusCode::OK,
+                    [(header::CONTENT_TYPE, "application/x-git-upload-pack-result")],
+                    Body::from(output),
+                )
+            }
+            Err(e) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                [(header::CONTENT_TYPE, "text/plain")],
+                Body::from(format!("error: {:#}", e)),
+            ),
         }
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            [(header::CONTENT_TYPE, "text/plain")],
-            Body::from(format!("error: {:#}", e)),
-        ),
+    } else {
+        // Protocol V1: use V1 handler
+        let (mut pipe_read, mut pipe_write) = tokio::io::duplex(body.len() + 1024);
+        tokio::spawn(async move {
+            let _ = pipe_write.write_all(&body).await;
+        });
+
+        let (mut buf_reader, mut buf_writer) = tokio::io::duplex(64 * 1024);
+
+        match rg_git::protocol::upload_pack::handle_upload_pack_http(
+            &repo_path,
+            pipe_read,
+            &mut buf_writer,
+        )
+        .await
+        {
+            Ok(()) => {
+                let _ = buf_writer.flush().await;
+                drop(buf_writer);
+                let mut output = Vec::new();
+                let _ = buf_reader.read_to_end(&mut output).await;
+                (
+                    StatusCode::OK,
+                    [(header::CONTENT_TYPE, "application/x-git-upload-pack-result")],
+                    Body::from(output),
+                )
+            }
+            Err(e) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                [(header::CONTENT_TYPE, "text/plain")],
+                Body::from(format!("error: {:#}", e)),
+            ),
+        }
     }
 }
 

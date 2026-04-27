@@ -36,6 +36,31 @@ pub async fn list_by_repo(
         .context("db: list PRs by repo")
 }
 
+/// Paginated list of PRs for a repo. Returns (data, total).
+pub async fn list_by_repo_paginated(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    state: Option<&str>,
+    offset: u64,
+    limit: u64,
+) -> Result<(Vec<PullRequest>, i64)> {
+    let mut base = PrEntity::find().filter(pull_request::Column::RepoId.eq(repo_id));
+    if let Some(s) = state {
+        base = base.filter(pull_request::Column::State.eq(s));
+    }
+    let query = base.order_by_desc(pull_request::Column::CreatedAt);
+
+    let total = query.clone().count(db).await.context("db: count PRs by repo")? as i64;
+    let prs = query
+        .offset(offset)
+        .limit(limit)
+        .all(db)
+        .await
+        .context("db: list PRs by repo (paginated)")?;
+
+    Ok((prs, total))
+}
+
 /// Get the next PR number for a repo (max + 1, or 1 if no PRs).
 pub async fn next_number(db: &DatabaseConnection, repo_id: i64) -> Result<i64> {
     let max = PrEntity::find()

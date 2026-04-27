@@ -175,9 +175,11 @@ async fn read_want_have_impl<R: AsyncRead + Unpin>(
         let pkt = read_pkt_line(reader).await?;
 
         // Flush packet ("0000") or EOF → end of negotiation
+        // Delim/ResponseEnd are V2-only and shouldn't appear in V1 protocol
         let raw = match pkt {
             PktLine::Flush => break,
             PktLine::Data(bytes) => bytes,
+            PktLine::Delim | PktLine::ResponseEnd => continue, // Skip in V1 context
         };
 
         // Convert bytes to string (pkt-line payload, no length prefix)

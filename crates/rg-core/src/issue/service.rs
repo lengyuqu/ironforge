@@ -57,6 +57,19 @@ pub async fn list_issues(
     issue_ops::list_by_repo(db, repo.id, state).await
 }
 
+/// Paginated list of issues. Returns (issues, total).
+pub async fn list_issues_paginated(
+    db: &DatabaseConnection,
+    owner: &str,
+    repo_name: &str,
+    state: Option<&str>,
+    offset: u64,
+    limit: u64,
+) -> Result<(Vec<Issue>, i64)> {
+    let repo = resolve_repo(db, owner, repo_name).await?;
+    issue_ops::list_by_repo_paginated(db, repo.id, state, offset, limit).await
+}
+
 /// Get a single issue by repo owner/name and issue number.
 pub async fn get_issue(
     db: &DatabaseConnection,

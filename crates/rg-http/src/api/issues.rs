@@ -59,14 +59,21 @@ pub async fn list_issues(
 ) -> impl IntoResponse {
     let state_filter = params.state.as_deref();
     let pagination = params.pagination.clamp();
-    match rg_core::issue::list_issues(&state.db, &owner, &repo, state_filter).await {
-        Ok(issues) => {
-            let total = issues.len() as u64;
-            let offset = pagination.offset() as usize;
-            let limit = pagination.limit() as usize;
-            let data: Vec<_> = issues.into_iter().skip(offset).take(limit).collect();
-            (StatusCode::OK, Json(PaginatedResponse::new(data, &pagination, total))).into_response()
-        }
+    match rg_core::issue::list_issues_paginated(
+        &state.db,
+        &owner,
+        &repo,
+        state_filter,
+        pagination.offset(),
+        pagination.limit(),
+    )
+    .await
+    {
+        Ok((data, total)) => (
+            StatusCode::OK,
+            Json(PaginatedResponse::new(data, &pagination, total as u64)),
+        )
+            .into_response(),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({"error": format!("{:#}", e)})),

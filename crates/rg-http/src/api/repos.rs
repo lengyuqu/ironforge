@@ -113,6 +113,8 @@ pub async fn list_repos(
     Query(params): Query<ListReposQuery>,
 ) -> impl IntoResponse {
     let pagination = params.pagination.clamp();
+    let offset = pagination.offset();
+    let limit = pagination.limit();
 
     // Try user first
     if let Some(user) = rg_db::ops::user_ops::find_by_username(&state.db, &owner)
@@ -120,13 +122,13 @@ pub async fn list_repos(
         .ok()
         .flatten()
     {
-        match rg_db::ops::repo_ops::list_by_owner(&state.db, user.id).await {
-            Ok(repos) => {
-                let total = repos.len() as u64;
-                let offset = pagination.offset() as usize;
-                let limit = pagination.limit() as usize;
-                let data: Vec<_> = repos.into_iter().skip(offset).take(limit).collect();
-                return (StatusCode::OK, Json(PaginatedResponse::new(data, &pagination, total))).into_response();
+        match rg_db::ops::repo_ops::list_by_owner_paginated(&state.db, user.id, offset, limit).await {
+            Ok((data, total)) => {
+                return (
+                    StatusCode::OK,
+                    Json(PaginatedResponse::new(data, &pagination, total as u64)),
+                )
+                    .into_response()
             }
             Err(e) => {
                 return (
@@ -144,13 +146,13 @@ pub async fn list_repos(
         .ok()
         .flatten()
     {
-        match rg_db::ops::repo_ops::list_by_org(&state.db, org.id).await {
-            Ok(repos) => {
-                let total = repos.len() as u64;
-                let offset = pagination.offset() as usize;
-                let limit = pagination.limit() as usize;
-                let data: Vec<_> = repos.into_iter().skip(offset).take(limit).collect();
-                return (StatusCode::OK, Json(PaginatedResponse::new(data, &pagination, total))).into_response();
+        match rg_db::ops::repo_ops::list_by_org_paginated(&state.db, org.id, offset, limit).await {
+            Ok((data, total)) => {
+                return (
+                    StatusCode::OK,
+                    Json(PaginatedResponse::new(data, &pagination, total as u64)),
+                )
+                    .into_response()
             }
             Err(e) => {
                 return (

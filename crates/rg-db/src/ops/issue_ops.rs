@@ -36,6 +36,32 @@ pub async fn list_by_repo(
         .context("db: list issues by repo")
 }
 
+/// Paginated list of issues for a repo.
+/// Returns (data, total) — SQL LIMIT/OFFSET pushed to the database.
+pub async fn list_by_repo_paginated(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    state: Option<&str>,
+    offset: u64,
+    limit: u64,
+) -> Result<(Vec<Issue>, i64)> {
+    let mut base = IssueEntity::find().filter(issue::Column::RepoId.eq(repo_id));
+    if let Some(s) = state {
+        base = base.filter(issue::Column::State.eq(s));
+    }
+    let query = base.order_by_desc(issue::Column::CreatedAt);
+
+    let total = query.clone().count(db).await.context("db: count issues by repo")? as i64;
+    let issues = query
+        .offset(offset)
+        .limit(limit)
+        .all(db)
+        .await
+        .context("db: list issues by repo (paginated)")?;
+
+    Ok((issues, total))
+}
+
 /// Get the next issue number for a repo (max + 1, or 1 if no issues).
 pub async fn next_number(db: &DatabaseConnection, repo_id: i64) -> Result<i64> {
     let max = IssueEntity::find()

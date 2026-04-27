@@ -29,6 +29,29 @@ pub async fn list_by_owner(db: &DatabaseConnection, owner_id: i64) -> Result<Vec
         .context("db: list repos by owner")
 }
 
+/// Paginated list of repos owned by a user.
+/// Returns (data, total) — SQL LIMIT/OFFSET pushed to the database.
+pub async fn list_by_owner_paginated(
+    db: &DatabaseConnection,
+    owner_id: i64,
+    offset: u64,
+    limit: u64,
+) -> Result<(Vec<Repo>, i64)> {
+    let base = RepoEntity::find()
+        .filter(repository::Column::OwnerId.eq(owner_id))
+        .order_by_asc(repository::Column::Name);
+
+    let total = base.clone().count(db).await.context("db: count repos by owner")? as i64;
+    let repos = base
+        .offset(offset)
+        .limit(limit)
+        .all(db)
+        .await
+        .context("db: list repos by owner (paginated)")?;
+
+    Ok((repos, total))
+}
+
 /// Find a repo by (org_id, name).
 pub async fn find_by_org_and_name(
     db: &DatabaseConnection,
@@ -51,6 +74,29 @@ pub async fn list_by_org(db: &DatabaseConnection, org_id: i64) -> Result<Vec<Rep
         .all(db)
         .await
         .context("db: list repos by org")
+}
+
+/// Paginated list of repos belonging to an organization.
+/// Returns (data, total) — SQL LIMIT/OFFSET pushed to the database.
+pub async fn list_by_org_paginated(
+    db: &DatabaseConnection,
+    org_id: i64,
+    offset: u64,
+    limit: u64,
+) -> Result<(Vec<Repo>, i64)> {
+    let base = RepoEntity::find()
+        .filter(repository::Column::OrgId.eq(org_id))
+        .order_by_asc(repository::Column::Name);
+
+    let total = base.clone().count(db).await.context("db: count repos by org")? as i64;
+    let repos = base
+        .offset(offset)
+        .limit(limit)
+        .all(db)
+        .await
+        .context("db: list repos by org (paginated)")?;
+
+    Ok((repos, total))
 }
 
 /// Create a new repo.

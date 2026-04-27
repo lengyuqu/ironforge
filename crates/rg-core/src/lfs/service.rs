@@ -5,15 +5,30 @@
 //! LFS batch API for upload/download operations.
 //!
 //! Storage layout: `<repo_root>/<owner>/<repo>.lfs/<oid_prefix>/<oid>`
+//!
+//! ## Compression
+//!
+//! LFS objects are compressed using zstd by default. Storage format:
+//! - Compressed: `<oid>.zst` (zstd compressed)
+//! - Uncompressed (legacy): `<oid>` (raw)
+//!
+//! The `compression` field in DB tracks the algorithm used.
 
 use anyhow::{Context, Result};
 use chrono::Utc;
-use sea_orm::DatabaseConnection;
+use sea_orm::{ActiveModelTrait, DatabaseConnection};
 use serde::{Deserialize, Serialize};
+use std::io::Write;
 use std::path::PathBuf;
 
 use rg_db::entities::lfs_object;
 use rg_db::ops::lfs_object_ops;
+
+/// Compression level for zstd (1-22, default 3)
+const ZSTD_LEVEL: i32 = 3;
+
+/// Compression algorithm name
+const COMPRESSION_ALGO: &str = "zstd";
 
 // ── LFS API types ─────────────────────────────────────────────────────────
 
@@ -163,6 +178,8 @@ async fn handle_upload(
             oid: sea_orm::Set(oid.to_string()),
             size: sea_orm::Set(size),
             uploaded: sea_orm::Set(false),
+            compression: sea_orm::Set(None),
+            compressed_size: sea_orm::Set(None),
             created_at: sea_orm::Set(Utc::now()),
         };
         lfs_object_ops::create(db, model).await?;
@@ -251,16 +268,52 @@ pub async fn store_object(
             .with_context(|| format!("create LFS directory {:?}", parent))?;
     }
 
-    // Write file
-    std::fs::write(&obj_path, data)
-        .with_context(|| format!("write LFS object {:?}", obj_path))?;
+    // Find or create the DB record first
+    let existing = lfs_object_ops::find_by_repo_and_oid(db, repo_id, oid).await?;
+    let obj_id = if let Some(obj) = existing {
+        obj.id
+    } else {
+        let model = lfs_object::ActiveModel {
+            id: sea_orm::NotSet,
+            repo_id: sea_orm::Set(repo_id),
+            oid: sea_orm::Set(oid.to_string()),
+            size: sea_orm::Set(data.len() as i64),
+            uploaded: sea_orm::Set(false),
+            compression: sea_orm::Set(None),
+            compressed_size: sea_orm::Set(None),
+            created_at: sea_orm::Set(Utc::now()),
+        };
+        let new_obj = lfs_object_ops::create(db, model).await?;
+        new_obj.id
+    };
 
-    // Mark as uploaded in DB
-    let existing = lfs_object_ops::find_by_repo_and_oid(db, repo_id, oid)
+    // Compress data with zstd
+    let compressed = compress_data(data)?;
+    let compressed_size = compressed.len() as i64;
+
+    // Write compressed file with .zst extension
+    let compressed_path = obj_path.with_extension("zst");
+    std::fs::write(&compressed_path, &compressed)
+        .with_context(|| format!("write compressed LFS object {:?}", compressed_path))?;
+
+    tracing::info!(
+        oid = %oid,
+        original_size = data.len(),
+        compressed_size = compressed_size,
+        ratio = format!("{:.1}%", (compressed_size as f64 / data.len() as f64) * 100.0),
+        "LFS object compressed and stored"
+    );
+
+    // Update DB with compression info and mark as uploaded
+    let obj = lfs_object_ops::find_by_repo_and_oid(db, repo_id, oid)
         .await?
-        .ok_or_else(|| anyhow::anyhow!("LFS object {} not registered", oid))?;
+        .ok_or_else(|| anyhow::anyhow!("LFS object {} not found after create", oid))?;
 
-    lfs_object_ops::mark_uploaded(db, existing.id).await?;
+    let mut model: lfs_object::ActiveModel = obj.into();
+    model.uploaded = sea_orm::Set(true);
+    model.compression = sea_orm::Set(Some(COMPRESSION_ALGO.to_string()));
+    model.compressed_size = sea_orm::Set(Some(compressed_size));
+    model.update(db).await.context("db: update LFS object after store")?;
 
     Ok(())
 }
@@ -271,5 +324,154 @@ pub async fn read_object(
     oid: &str,
 ) -> Result<Vec<u8>> {
     let obj_path = lfs_object_path(lfs_root, oid);
-    std::fs::read(&obj_path).with_context(|| format!("read LFS object {:?}", obj_path))
+
+    // Try compressed version first (.zst)
+    let compressed_path = obj_path.with_extension("zst");
+    if compressed_path.exists() {
+        let compressed = std::fs::read(&compressed_path)
+            .with_context(|| format!("read compressed LFS object {:?}", compressed_path))?;
+        return decompress_data(&compressed);
+    }
+
+    // Fallback to uncompressed (legacy)
+    if obj_path.exists() {
+        return std::fs::read(&obj_path)
+            .with_context(|| format!("read LFS object {:?}", obj_path));
+    }
+
+    anyhow::bail!("LFS object {} not found", oid)
+}
+
+// ── Compression helpers ───────────────────────────────────────────────────────
+
+/// Compress data using zstd.
+fn compress_data(data: &[u8]) -> Result<Vec<u8>> {
+    let mut compressed = Vec::with_capacity(data.len());
+    let mut encoder = zstd::Encoder::new(&mut compressed, ZSTD_LEVEL)
+        .context("failed to create zstd encoder")?;
+    encoder.write_all(data)
+        .context("failed to write data to zstd encoder")?;
+    encoder.finish()
+        .context("failed to finish zstd encoding")?;
+    Ok(compressed)
+}
+
+/// Decompress zstd data.
+fn decompress_data(compressed: &[u8]) -> Result<Vec<u8>> {
+    let mut decompressed = Vec::new();
+    let mut decoder = zstd::Decoder::new(compressed)
+        .context("failed to create zstd decoder")?;
+    std::io::copy(&mut decoder, &mut decompressed)
+        .context("failed to decompress zstd data")?;
+    Ok(decompressed)
+}
+
+// ── Lazy compression utility ──────────────────────────────────────────────────
+
+/// Compress existing uncompressed LFS objects in a repository.
+/// Returns the number of objects compressed.
+pub async fn compress_existing(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    lfs_root: &std::path::Path,
+    batch_size: u64,
+) -> Result<usize> {
+    let uncompressed = lfs_object_ops::list_uncompressed(db, repo_id, batch_size).await?;
+    let mut count = 0;
+
+    for obj in uncompressed {
+        let obj_path = lfs_object_path(lfs_root, &obj.oid);
+
+        // Skip if already compressed
+        if obj_path.with_extension("zst").exists() {
+            continue;
+        }
+
+        // Skip if original file doesn't exist
+        if !obj_path.exists() {
+            tracing::warn!(oid = %obj.oid, "LFS object file not found, skipping");
+            continue;
+        }
+
+        // Read and compress
+        match std::fs::read(&obj_path) {
+            Ok(data) => {
+                let compressed = match compress_data(&data) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        tracing::error!(oid = %obj.oid, err = %e, "failed to compress LFS object");
+                        continue;
+                    }
+                };
+
+                let compressed_path = obj_path.with_extension("zst");
+                if let Err(e) = std::fs::write(&compressed_path, &compressed) {
+                    tracing::error!(oid = %obj.oid, err = %e, "failed to write compressed file");
+                    continue;
+                }
+
+                // Update DB
+                if let Err(e) = lfs_object_ops::update_compression(
+                    db,
+                    obj.id,
+                    COMPRESSION_ALGO,
+                    compressed.len() as i64,
+                ).await {
+                    tracing::error!(oid = %obj.oid, err = %e, "failed to update DB");
+                    // Clean up compressed file on DB error
+                    let _ = std::fs::remove_file(&compressed_path);
+                    continue;
+                }
+
+                // Remove original uncompressed file
+                if let Err(e) = std::fs::remove_file(&obj_path) {
+                    tracing::warn!(oid = %obj.oid, err = %e, "failed to remove original file");
+                }
+
+                tracing::info!(
+                    oid = %obj.oid,
+                    original = data.len(),
+                    compressed = compressed.len(),
+                    ratio = format!("{:.1}%", (compressed.len() as f64 / data.len() as f64) * 100.0),
+                    "compressed existing LFS object"
+                );
+                count += 1;
+            }
+            Err(e) => {
+                tracing::error!(oid = %obj.oid, err = %e, "failed to read original file");
+            }
+        }
+    }
+
+    Ok(count)
+}
+
+/// Delete an LFS object from disk and DB.
+pub async fn delete_object(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    lfs_root: &std::path::Path,
+    oid: &str,
+) -> Result<()> {
+    let obj_path = lfs_object_path(lfs_root, oid);
+
+    // Delete compressed version
+    let compressed_path = obj_path.with_extension("zst");
+    if compressed_path.exists() {
+        std::fs::remove_file(&compressed_path)
+            .with_context(|| format!("delete compressed LFS object {:?}", compressed_path))?;
+    }
+
+    // Delete uncompressed version (legacy)
+    if obj_path.exists() {
+        std::fs::remove_file(&obj_path)
+            .with_context(|| format!("delete LFS object {:?}", obj_path))?;
+    }
+
+    // Delete from DB
+    if let Some(obj) = lfs_object_ops::find_by_repo_and_oid(db, repo_id, oid).await? {
+        lfs_object_ops::delete_by_id(db, obj.id).await?;
+    }
+
+    Ok(())
 }

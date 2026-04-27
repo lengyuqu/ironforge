@@ -47,6 +47,34 @@ pub async fn list_notifications(
         .context("db: list notifications")
 }
 
+/// Paginated list of notifications for a user. Returns (data, total).
+pub async fn list_notifications_paginated(
+    db: &DatabaseConnection,
+    user_id: i64,
+    unread_only: bool,
+    offset: u64,
+    limit: u64,
+) -> Result<(Vec<notification::Model>, i64)> {
+    let mut base = notification::Entity::find()
+        .filter(notification::Column::UserId.eq(user_id));
+
+    if unread_only {
+        base = base.filter(notification::Column::IsRead.eq(false));
+    }
+
+    let query = base.order_by_desc(notification::Column::CreatedAt);
+
+    let total = query.clone().count(db).await.context("db: count notifications")? as i64;
+    let notifications = query
+        .offset(offset)
+        .limit(limit)
+        .all(db)
+        .await
+        .context("db: list notifications (paginated)")?;
+
+    Ok((notifications, total))
+}
+
 /// Mark a notification as read.
 pub async fn mark_notification_read(db: &DatabaseConnection, id: i64) -> Result<()> {
     let model = notification::Entity::find_by_id(id)

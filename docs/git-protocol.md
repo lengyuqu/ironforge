@@ -19,6 +19,43 @@
 
 ## 1. pkt-line 协议格式
 
+### V2 新增的 Packet 类型
+
+Protocol V2 引入了两种新的特殊 packet：
+
+| Packet | 十六进制 | 说明 |
+|--------|----------|------|
+| Flush | `0000` | 结束当前阶段（与 V1 相同） |
+| Delimiter | `0001` | 分隔消息的不同部分（V2 新增） |
+| Response-End | `0002` | 无状态连接中响应的结束（V2 新增） |
+
+### V1 pkt-line 格式
+
+```
+<4 hex digits of total length><payload>
+```
+
+- 4 字节长度头用十六进制表示，**包含自身 4 字节**
+- 所以 payload 最大长度为 `0xffff - 4 = 65531` 字节
+- `0000` 是 flush packet
+
+### 示例
+
+```
+# "hello\n"（6字节 payload）→ 总长 10
+000ahello\n
+
+
+# Flush packet
+0000
+
+# Delimiter packet (V2)
+0001
+
+# Response-End packet (V2)
+0002
+```
+
 pkt-line 是 Git 协议的基础传输单元。
 
 ### 格式
@@ -474,8 +511,135 @@ let clean_line = if line.contains('\0') {
 
 ---
 
+## 8. Git Smart Protocol V2
+
+Protocol V2 是对 V1 的重大改进，提供了更清晰的命令架构和更好的性能。
+
+### 与 V1 的主要区别
+
+| 特性 | V1 | V2 |
+|------|----|----|
+| Ref 广告方式 | 首次请求全部推送 | 按需请求（ls-refs 命令） |
+| 命令复用 | 无 | 支持多命令复用同一连接 |
+| 协议格式 | 固定服务名 | 命令行参数化 |
+| 无状态支持 | 差 | 原生支持 |
+| 浅克隆 | 需额外协商 | 内置支持 |
+
+### V2 协议流程
+
+```
+Client                          Server
+  |                               |
+  | GET /info/refs?service=       |
+  |   Git-Protocol: version=2      |
+  |------------------------------>|
+  |                               |
+  | version 2                     | ← 版本声明
+  | ls-refs                       | ← 支持的能力
+  | fetch=shallow                 |
+  | object-format=sha1            |
+  | 0000                          |
+  |<------------------------------|
+  |                               |
+  | POST /git-upload-pack         |
+  | command=ls-refs               | ← 命令请求
+  | 0001                          | ← 分隔符
+  | ref-prefix refs/heads/         |
+  | peel                           |
+  | 0000                           |
+  |------------------------------>|
+  |                               |
+  | <ref advertisement>           |
+  | 0000                           |
+  |<------------------------------|
+  |                               |
+  | POST /git-upload-pack         |
+  | command=fetch                  | ← fetch 命令
+  | want <sha>                     |
+  | have <sha>                    |
+  | 0001                          |
+  | done                          |
+  | 0000                           |
+  |------------------------------>|
+  |                               |
+  | ACK <sha>                      | ← 确认
+  | <packfile in sideband>        |
+  | 0000                           |
+  |<------------------------------|
+```
+
+### HTTP 模式下的 V2 激活
+
+客户端通过 HTTP 头激活 V2：
+
+```http
+GET /git/owner/repo/info/refs?service=git-upload-pack HTTP/1.1
+Git-Protocol: version=2
+```
+
+服务端响应 V2 capability advertisement，然后客户端发送命令。
+
+### Capability Advertisement 格式
+
+```
+<length>version 2\n
+<length>agent=ironforge/0.1\n
+<length>ls-refs\n
+<length>fetch=shallow\n
+<length>object-format=sha1\n
+<length>server-option\n
+0000
+```
+
+### V2 命令格式
+
+**ls-refs 命令**：
+```
+command=ls-refs\n
+0001
+ref-prefix <prefix>\n
+peel\n
+symrefs\n
+0000
+```
+
+**fetch 命令**：
+```
+command=fetch\n
+want <sha>\n
+have <sha>\n
+0001
+filter blob:none\n
+deepen 10\n
+done\n
+0000
+```
+
+### 实现位置
+
+`crates/rg-git/src/protocol/v2.rs`
+
+关键函数：
+- `handle_v2()` — HTTP 模式 V2 处理器
+- `handle_v2_stream()` — SSH 模式 V2 处理器
+- `send_capability_advertisement()` — 发送能力声明
+- `read_command_request()` — 解析命令请求
+- `handle_ls_refs()` — 处理 ls-refs 命令
+- `handle_fetch()` — 处理 fetch 命令
+
+### 踩坑记录
+
+#### 坑 9：V2 需要处理 Delim/ResponseEnd packet
+
+**现象**：`read_pkt_line()` 在收到 `0001` 或 `0002` 时返回新的枚举变体。  
+**原因**：V2 引入了新的 packet 类型。  
+**修复**：在所有 pkt-line 读取处处理 `PktLine::Delim` 和 `PktLine::ResponseEnd`。
+
+---
+
 ## 参考资料
 
+- [Git Protocol V2 Reference](https://git-scm.com/docs/protocol-v2)
 - [Git Pack Protocol Reference](https://git-scm.com/docs/pack-protocol)
 - [Git HTTP Backend](https://git-scm.com/docs/git-http-backend)
 - [Git Smart HTTP Transfer Protocols](https://git-scm.com/docs/http-protocol)

@@ -67,6 +67,19 @@ pub async fn list_prs(
     pull_request_ops::list_by_repo(db, repo.id, state).await
 }
 
+/// Paginated list of PRs. Returns (prs, total).
+pub async fn list_prs_paginated(
+    db: &DatabaseConnection,
+    owner: &str,
+    repo_name: &str,
+    state: Option<&str>,
+    offset: u64,
+    limit: u64,
+) -> Result<(Vec<PullRequest>, i64)> {
+    let repo = resolve_repo(db, owner, repo_name).await?;
+    pull_request_ops::list_by_repo_paginated(db, repo.id, state, offset, limit).await
+}
+
 /// Get a single PR.
 pub async fn get_pr(
     db: &DatabaseConnection,

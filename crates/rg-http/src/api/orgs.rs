@@ -1,7 +1,7 @@
 //! REST API handlers for organizations and teams.
 
 use axum::extract::{Path, Query, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::Json;
 use sea_orm::DatabaseConnection;
@@ -91,10 +91,19 @@ pub struct AddTeamMemberRequest {
 /// POST /api/v1/orgs
 pub async fn create_org(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(body): Json<CreateOrgRequest>,
 ) -> impl IntoResponse {
-    // TODO: extract user_id from JWT auth header
-    // For now, require owner_id in the request or use a default
+    let user_id = match extract_user_id(&state, &headers) {
+        Some(id) => id,
+        None => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({"error": "authentication required"})),
+            )
+                .into_response()
+        }
+    };
     let visibility = body.visibility.as_deref().unwrap_or("public");
 
     match rg_core::org::create_org(
@@ -102,7 +111,7 @@ pub async fn create_org(
         &body.name,
         body.display_name.as_deref(),
         body.description.as_deref(),
-        1, // TODO: extract from JWT
+        user_id,
         visibility,
     )
     .await
@@ -146,15 +155,21 @@ pub async fn get_org(
 }
 
 /// GET /api/v1/orgs
-/// List organizations for a user (query param: user_id)
+/// List organizations for the authenticated user.
 pub async fn list_orgs(
     State(state): State<AppState>,
-    Query(params): Query<std::collections::HashMap<String, String>>,
+    headers: HeaderMap,
 ) -> impl IntoResponse {
-    let user_id: i64 = params
-        .get("user_id")
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(1); // TODO: extract from JWT
+    let user_id = match extract_user_id(&state, &headers) {
+        Some(id) => id,
+        None => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({"error": "authentication required"})),
+            )
+                .into_response()
+        }
+    };
 
     match rg_core::org::list_user_orgs(&state.db, user_id).await {
         Ok(orgs) => {
@@ -214,8 +229,19 @@ pub async fn update_org(
 /// DELETE /api/v1/orgs/:name
 pub async fn delete_org(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(name): Path<String>,
 ) -> impl IntoResponse {
+    let user_id = match extract_user_id(&state, &headers) {
+        Some(id) => id,
+        None => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({"error": "authentication required"})),
+            )
+                .into_response()
+        }
+    };
     let org = match rg_core::org::get_org_by_name(&state.db, &name).await {
         Ok(Some(o)) => o,
         Ok(None) => {
@@ -234,8 +260,7 @@ pub async fn delete_org(
         }
     };
 
-    match rg_core::org::delete_org(&state.db, org.id, 1).await {
-        // TODO: extract user from JWT
+    match rg_core::org::delete_org(&state.db, org.id, user_id).await {
         Ok(()) => Json(serde_json::json!({"deleted": true})).into_response(),
         Err(e) => (
             StatusCode::FORBIDDEN,
@@ -590,4 +615,11 @@ fn org_to_response(org: &rg_db::entities::organization::Model) -> OrgResponse {
         created_at: org.created_at.to_string(),
         updated_at: org.updated_at.to_string(),
     }
+}
+
+fn extract_user_id(state: &AppState, headers: &HeaderMap) -> Option<i64> {
+    let auth = headers.get("authorization")?.to_str().ok()?;
+    let token = auth.strip_prefix("Bearer ")?;
+    let claims = rg_core::auth::jwt::validate_token(token, &state.jwt_secret)?;
+    claims.sub.parse().ok()
 }

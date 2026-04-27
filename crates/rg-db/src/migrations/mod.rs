@@ -7,6 +7,7 @@ pub mod m20260424_000006_create_wiki_lfs_webhooks;
 pub mod m20260424_000007_create_pipelines;
 pub mod m20260424_000008_create_phase6;
 pub mod m20260424_000009_create_phase8;
+pub mod m20260427_000001_add_lfs_compression;
 
 use sea_orm_migration::prelude::*;
 
@@ -25,6 +26,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260424_000007_create_pipelines::Migration),
             Box::new(m20260424_000008_create_phase6::Migration),
             Box::new(m20260424_000009_create_phase8::Migration),
+            Box::new(m20260427_000001_add_lfs_compression::Migration),
         ]
     }
 }

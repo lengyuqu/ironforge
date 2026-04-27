@@ -26,6 +26,17 @@ pub async fn list_notifications(
     notification_ops::list_notifications(db, user_id, unread_only).await
 }
 
+/// Paginated list of notifications. Returns (data, total).
+pub async fn list_notifications_paginated(
+    db: &DatabaseConnection,
+    user_id: i64,
+    unread_only: bool,
+    offset: u64,
+    limit: u64,
+) -> Result<(Vec<rg_db::entities::notification::Model>, i64)> {
+    notification_ops::list_notifications_paginated(db, user_id, unread_only, offset, limit).await
+}
+
 /// Mark a notification as read.
 pub async fn mark_read(db: &DatabaseConnection, id: i64) -> Result<()> {
     notification_ops::mark_notification_read(db, id).await

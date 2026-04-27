@@ -175,8 +175,10 @@ async fn process_push<R: AsyncRead + Unpin>(
         let pkt = read_pkt_line(reader).await?;
 
         // Flush packet or EOF → end of update commands
+        // Delim/ResponseEnd are V2-only and shouldn't appear in V1 protocol
         match pkt {
             PktLine::Flush => break,
+            PktLine::Delim | PktLine::ResponseEnd => continue,
             PktLine::Data(bytes) => {
                 let line = String::from_utf8_lossy(&bytes);
                 let line = line.trim_end_matches('\n');
