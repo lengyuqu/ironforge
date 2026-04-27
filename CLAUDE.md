@@ -12,7 +12,7 @@
 
 - **二进制名**: `ironforge`（crate `rg-cli` 的 bin target）
 - **目标**: 内存 <50MB、单二进制部署、全功能（仓库/Issue/PR/Wiki/CI）
-- **当前阶段**: **Phase 10 已完成 + Protocol V2**（全部 10 个 Phase 完成 + Git Smart Protocol V2）
+- **当前阶段**: **Phase 10 已完成 + Protocol V2 + 前端 i18n**（全部 10 个 Phase 完成 + Git Smart Protocol V2 + 前端国际化）
 
 ---
 
@@ -34,7 +34,7 @@ ironforge/
     ├── rg-http/            # HTTP 服务端 + REST API（✅ 完整实现 + Git 协议鉴权 + 文件浏览 + 静态资源 + WebSocket + Rate Limit + 分页 + GPG）
     ├── rg-db/              # 数据库层 SeaORM（✅ 实体+迁移+ops）
     ├── rg-ci/              # CI/CD 引擎（✅ YAML 解析 + Pipeline 执行器 + Docker Runner）
-    └── web/                # SvelteKit 前端（✅ 登录/仓库/Issue/PR/Wiki/CI/代码审查/组织/通知）
+    └── web/                # SvelteKit 前端（✅ 登录/仓库/Issue/PR/Wiki/CI/代码审查/组织/通知/国际化）
 ```
 
 ---
@@ -135,14 +135,21 @@ git clone http://localhost:8080/git/testuser/testrepo /tmp/if_http
 | **API 分页** | `rg-http/src/pagination.rs` | PaginationParams + PaginatedResponse\<T\>，5 个 list API |
 | **GPG 签名** | `rg-http/src/api/repo_content.rs` | GET /repos/:owner/:name/commits/:sha/signature |
 | **Git V2** | `rg-git/src/protocol/v2.rs` | Protocol V2 HTTP 支持（ls-refs/fetch 命令） |
+| **前端 i18n** | `web/src/lib/i18n/` | locale store + localStorage + 中/英翻译（199 key） |
 | CLI | `rg-cli/src/main.rs` | clap 4，`serve`（含 --db-url, --jwt-secret, --docker, --rate-limit-*, --smtp-*, --tls-*, --config, --log-*）/ `create-repo` |
 
 ### ✅ Phase 10 已完成（TLS + 配置文件 + 日志轮转 + API 分页 + GPG 签名 + Protocol V2）
 
-所有 10 个 Phase 全部完成 + V2 支持。后续可考虑：
+### ✅ Phase 11 已完成（前端国际化，2026-04-27）
+
+- Svelte 5 locale store + localStorage 持久化
+- 自动检测浏览器语言（zh → 中文，en → 英文）
+- 199 个翻译 key（中/英双语）
+- 后端统一英文，无 i18n 需求
+
+所有 10 个 Phase 全部完成 + V2 + 前端 i18n。后续可考虑：
 - 性能优化（数据库层分页替代应用层分页）
 - SSH 模式的 Protocol V2 完整实现
-- 国际化（i18n）
 - 嵌入式搜索（全文检索代码/Issue/Wiki）
 - API 文档（OpenAPI/Swagger）
 
@@ -256,13 +263,12 @@ let salt = SaltString::generate(&mut rng()); // ❌
 
 ### 后续开发建议
 
-所有 10 个 Phase 已完成，后续优化方向：
+所有 10 个 Phase 已完成 + 前端 i18n，后续优化方向：
 
 1. **数据库层分页**：当前分页是应用层 skip/take，改为 SeaORM Paginator 真正数据库分页
 2. **Git Smart Protocol V2**：支持 V2 协议提升性能
 3. **全文搜索**：代码/Issue/Wiki 搜索
 4. **API 文档**：OpenAPI/Swagger 自动生成
-5. **国际化**：前端 i18n
 
 ---
 

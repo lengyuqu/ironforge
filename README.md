@@ -431,7 +431,9 @@ GIT_TRACE_PACKET=1 GIT_TRACE=1 git push origin main 2>&1
 | 日志 | tracing + tracing-subscriber + tracing-appender | 0.1 |
 | CLI | clap | 4.x |
 | 前端 | SvelteKit 5 + adapter-static | SPA mode |
+| 前端 i18n | Svelte 5 reactive store + localStorage | 中文 + 英文 |
 
+> **关于 i18n**：前端完整国际化（199 个翻译 key），后端统一英文无需 i18n。
 > **关于 gix**：ARCHITECTURE.md 中规划使用 gix (gitoxide)，但当前 Git 对象操作主要通过调用系统 `git` 命令实现（gix 0.66 的 reference/head API 仍不稳定）。后续可逐步替换为 gix API。
 
 ---
@@ -486,6 +488,13 @@ GIT_TRACE_PACKET=1 GIT_TRACE=1 git push origin main 2>&1
 - 日志轮转（tracing-appender RollingFileAppender）
 - API 统一分页（PaginationParams + PaginatedResponse\<T\>）
 - GPG 签名验证（git log --format=%G? + gpgsig header）
+
+### ✅ Phase 11 — 前端国际化（已完成，2026-04-27）
+
+- Svelte 5 locale store + localStorage 持久化
+- 自动检测浏览器语言（zh → 中文，en → 英文）
+- 199 个翻译 key（中/英双语）
+- 后端统一英文，无 i18n 需求
 
 ---
 

@@ -400,4 +400,8 @@ PR 合并到 `main` 前要求：
 
 ### ✅ Phase 6：Web UI + 高级功能（已完成，2026-04-24）
 
+- Web UI（SvelteKit 5，独立前端）
+- 前端国际化（i18n）：中文 + 英文，199 个翻译 key，locale store + localStorage 持久化
+- 代码审查 / 分支保护规则
+
 完整计划见 [ARCHITECTURE.md](ARCHITECTURE.md)。
