@@ -23,3 +23,5 @@ chrono = { workspace = true }
 tokio-rustls = { workspace = true }
 rustls-pemfile = { workspace = true }
 axum-server = { workspace = true }
+utoipa = "5"
+utoipa-swagger-ui = "8"

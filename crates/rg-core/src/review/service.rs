@@ -2,7 +2,7 @@
 
 use anyhow::{bail, Context, Result};
 use chrono::Utc;
-use sea_orm::{ActiveModelTrait, DatabaseConnection, Set};
+use sea_orm::{DatabaseConnection, Set};
 
 use rg_db::entities::pr_review::{self, Model as PrReview};
 use rg_db::entities::review_comment::{self, Model as ReviewComment};

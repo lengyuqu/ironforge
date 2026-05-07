@@ -2,7 +2,7 @@
 
 use anyhow::{bail, Context, Result};
 use chrono::Utc;
-use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
+use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
 
 use rg_db::entities::protected_branch::{self, Model as ProtectedBranch};
 use rg_db::entities::pull_request;

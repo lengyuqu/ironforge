@@ -11,20 +11,51 @@ use axum::{
     Json,
 };
 use serde::Deserialize;
+use utoipa::ToSchema;
 
-use crate::{api::users::extract_bearer_claims, AppState};
+use crate::{api::users::extract_bearer_claims, openapi::PaginatedRepoResponse, AppState};
 use crate::pagination::{PaginationParams, PaginatedResponse};
 
 /// POST /api/v1/repos
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct CreateRepoRequest {
     pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub is_private: Option<bool>,
     /// Organization name — if provided, create repo under this org
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub org: Option<String>,
 }
 
+/// Repository response (matches DB model fields exposed to API).
+#[derive(serde::Serialize, ToSchema)]
+pub struct RepoResponse {
+    pub id: i64,
+    pub owner_id: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub org_id: Option<i64>,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub is_private: bool,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[utoipa::path(
+    post,
+    path = "/repos",
+    tag = "Repositories",
+    request_body = CreateRepoRequest,
+    responses(
+        (status = 201, description = "Repository created", body = RepoResponse),
+        (status = 400, description = "Invalid input", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+        (status = 403, description = "Forbidden (org membership required)", body = serde_json::Value),
+    )
+)]
 pub async fn create_repo(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -99,6 +130,21 @@ pub async fn create_repo(
     }
 }
 
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}",
+    tag = "Repositories",
+    params(
+        ("owner" = String, Path, description = "Username or organization name"),
+        ("page" = Option<u64>, Query, description = "Page number (1-based)"),
+        ("per_page" = Option<u64>, Query, description = "Items per page (1-100)"),
+    ),
+    responses(
+        (status = 200, description = "List of repositories", body = PaginatedRepoResponse),
+        (status = 404, description = "Owner not found", body = serde_json::Value),
+        (status = 500, description = "Internal server error", body = serde_json::Value),
+    )
+)]
 /// GET /api/v1/repos/:owner
 /// Lists repos for either a user or an organization.
 #[derive(Deserialize)]
@@ -171,6 +217,20 @@ pub async fn list_repos(
         .into_response()
 }
 
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}",
+    tag = "Repositories",
+    params(
+        ("owner" = String, Path, description = "Username or organization name"),
+        ("name" = String, Path, description = "Repository name"),
+    ),
+    responses(
+        (status = 200, description = "Repository details", body = RepoResponse),
+        (status = 404, description = "Repository not found", body = serde_json::Value),
+        (status = 500, description = "Internal server error", body = serde_json::Value),
+    )
+)]
 /// GET /api/v1/repos/:owner/:name
 /// Gets a single repo, supporting both user and org owners.
 pub async fn get_repo(

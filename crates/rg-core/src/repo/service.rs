@@ -14,6 +14,7 @@ use rg_db::{
 /// Returns (owner_id, org_id, owner_name_for_path).
 /// - If owner is a username: returns (user_id, None, username)
 /// - If owner is an org name: returns (org_owner_id, Some(org_id), org_name)
+#[allow(dead_code)]
 async fn resolve_owner(
     db: &DatabaseConnection,
     owner: &str,

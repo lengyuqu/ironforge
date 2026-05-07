@@ -1,6 +1,6 @@
 //! SSH public key fingerprint utilities.
 
-use anyhow::{bail, Result};
+use anyhow::Result;
 
 /// Compute the SHA-256 fingerprint from an OpenSSH public key string.
 ///
@@ -15,7 +15,6 @@ pub fn fingerprint_from_openssh(pubkey: &str) -> Result<String> {
     let raw = base64_decode(b64)?;
 
     // SHA-256 hash
-    use std::fmt::Write;
     let digest = sha256(&raw);
 
     // base64url without padding (standard SSH fingerprint format)
@@ -45,7 +44,6 @@ fn sha256(data: &[u8]) -> [u8; 32] {
 
 fn base64_decode(s: &str) -> Result<Vec<u8>> {
     // Simple base64 decoder (standard alphabet, with padding)
-    use std::io::Read;
     let s = s.trim();
     // Add padding if needed
     let padded = match s.len() % 4 {

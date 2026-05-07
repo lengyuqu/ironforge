@@ -4,6 +4,7 @@
 //! Response wraps data in `PaginatedResponse { data, pagination }`.
 
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 /// Default number of items per page.
 const DEFAULT_PER_PAGE: u64 = 20;
@@ -55,7 +56,7 @@ impl PaginationParams {
 }
 
 /// Pagination metadata in response.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct PaginationMeta {
     /// Current page number (1-based).
     pub page: u64,
@@ -92,7 +93,7 @@ impl PaginationMeta {
 }
 
 /// Paginated response wrapper.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct PaginatedResponse<T: Serialize> {
     pub data: Vec<T>,
     pub pagination: PaginationMeta,

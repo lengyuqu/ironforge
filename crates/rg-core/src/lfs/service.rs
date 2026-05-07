@@ -209,7 +209,7 @@ async fn handle_upload(
 async fn handle_download(
     db: &DatabaseConnection,
     repo_id: i64,
-    lfs_root: &std::path::Path,
+    _lfs_root: &std::path::Path,
     base_url: &str,
     owner: &str,
     repo: &str,
@@ -270,7 +270,7 @@ pub async fn store_object(
 
     // Find or create the DB record first
     let existing = lfs_object_ops::find_by_repo_and_oid(db, repo_id, oid).await?;
-    let obj_id = if let Some(obj) = existing {
+    let _obj_id = if let Some(obj) = existing {
         obj.id
     } else {
         let model = lfs_object::ActiveModel {

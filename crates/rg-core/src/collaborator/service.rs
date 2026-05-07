@@ -2,7 +2,7 @@
 
 use anyhow::{bail, Context, Result};
 use chrono::Utc;
-use sea_orm::{ActiveModelTrait, DatabaseConnection, Set};
+use sea_orm::{DatabaseConnection, Set};
 
 use rg_db::entities::repo_collaborator::{self, Model as RepoCollaborator};
 use rg_db::ops::{repo_collaborator_ops, repo_ops};

@@ -2,7 +2,7 @@
 
 use anyhow::{bail, Context, Result};
 use chrono::Utc;
-use sea_orm::{ActiveModelTrait, DatabaseConnection, Set};
+use sea_orm::{DatabaseConnection, Set};
 
 use rg_db::entities::issue::{self, Model as Issue};
 use rg_db::entities::issue_comment::{self, Model as Comment};

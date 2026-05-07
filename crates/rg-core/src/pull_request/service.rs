@@ -2,8 +2,7 @@
 
 use anyhow::{bail, Context, Result};
 use chrono::Utc;
-use sea_orm::{ActiveModelTrait, DatabaseConnection, Set};
-use std::path::PathBuf;
+use sea_orm::{DatabaseConnection, Set};
 use std::process::Command;
 
 use rg_db::entities::pull_request::{self, Model as PullRequest};

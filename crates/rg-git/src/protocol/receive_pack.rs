@@ -259,7 +259,7 @@ async fn process_push<R: AsyncRead + Unpin>(
         }
         stdin.write_all(&buf[..n]).await?;
     }
-    drop(stdin); // Close stdin
+    // stdin is automatically closed when dropped (end of scope)
 
     let status = index_pack.wait().await?;
     if !status.success() {

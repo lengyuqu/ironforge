@@ -9,6 +9,7 @@
 
 pub mod api;
 pub mod git_v2;
+pub mod openapi;
 pub mod pagination;
 pub mod rate_limit;
 pub mod ws;
@@ -249,6 +250,11 @@ fn create_router(state: AppState, rate_limiter: rate_limit::RateLimiter) -> Rout
         .nest("/git", git_routes)
         .nest("/api/v1", api_v1)
         .route("/health", get(health))
+        // ── OpenAPI / Swagger UI ──────────────────────────────────────────
+        .merge(
+            utoipa_swagger_ui::SwaggerUi::new("/api-docs")
+                .url("/api-docs/openapi.json", openapi::ApiDoc::openapi()),
+        )
         // Serve SvelteKit static assets if the build directory exists
         .fallback_service(
             ServeDir::new("web/build").fallback(ServeDir::new("web/build/index.html"))

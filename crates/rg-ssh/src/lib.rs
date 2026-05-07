@@ -110,7 +110,7 @@ impl russh::server::Server for SshServer {
         let handler = SshHandler {
             shared: self.shared.clone(),
             id: self.id,
-            peer,
+            _peer: peer,
             channel: None,
             authenticated_user_id: None,
         };
@@ -128,7 +128,7 @@ impl russh::server::Server for SshServer {
 struct SshHandler {
     shared: Arc<SharedState>,
     id: usize,
-    peer: Option<std::net::SocketAddr>,
+    _peer: Option<std::net::SocketAddr>,
     /// The channel opened by the client for this session.
     channel: Option<Channel<Msg>>,
     /// User id resolved during authentication (None if auth not DB-backed).

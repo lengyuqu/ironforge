@@ -11,17 +11,58 @@ use axum::{
     Json,
 };
 use serde::Deserialize;
+use utoipa::ToSchema;
 
 use crate::AppState;
 
 /// POST /api/v1/users/register
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct RegisterRequest {
     pub username: String,
     pub email: String,
     pub password: String,
 }
 
+/// Login request body.
+#[derive(Deserialize, ToSchema)]
+pub struct LoginRequest {
+    /// Username or email
+    pub login: String,
+    pub password: String,
+}
+
+/// Login/Register success response.
+#[derive(serde::Serialize, ToSchema)]
+pub struct AuthResponse {
+    pub token: String,
+    pub user_id: i64,
+    pub username: String,
+}
+
+/// User profile response.
+#[derive(serde::Serialize, ToSchema)]
+pub struct UserProfile {
+    pub id: i64,
+    pub username: String,
+    pub email: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avatar_url: Option<String>,
+    pub is_admin: bool,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[utoipa::path(
+    post,
+    path = "/users/register",
+    tag = "Users",
+    request_body = RegisterRequest,
+    responses(
+        (status = 201, description = "User registered successfully", body = AuthResponse),
+        (status = 400, description = "Invalid input", body = serde_json::Value),
+    )
+)]
 pub async fn register(
     State(state): State<AppState>,
     Json(body): Json<RegisterRequest>,
@@ -44,14 +85,16 @@ pub async fn register(
     }
 }
 
-/// POST /api/v1/users/login
-#[derive(Deserialize)]
-pub struct LoginRequest {
-    /// Username or email
-    pub login: String,
-    pub password: String,
-}
-
+#[utoipa::path(
+    post,
+    path = "/users/login",
+    tag = "Users",
+    request_body = LoginRequest,
+    responses(
+        (status = 200, description = "Login successful", body = AuthResponse),
+        (status = 401, description = "Invalid credentials", body = serde_json::Value),
+    )
+)]
 pub async fn login(
     State(state): State<AppState>,
     Json(body): Json<LoginRequest>,
@@ -73,6 +116,16 @@ pub async fn login(
     }
 }
 
+#[utoipa::path(
+    get,
+    path = "/users/me",
+    tag = "Users",
+    responses(
+        (status = 200, description = "Current user profile", body = UserProfile),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+        (status = 404, description = "User not found", body = serde_json::Value),
+    )
+)]
 /// GET /api/v1/users/me — returns the current user's profile.
 pub async fn me(
     State(state): State<AppState>,

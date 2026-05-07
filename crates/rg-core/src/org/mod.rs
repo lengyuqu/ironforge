@@ -1,6 +1,6 @@
 //! Organization service — business logic for org/team management.
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use sea_orm::DatabaseConnection;
 
 use rg_db::ops::org_ops;
