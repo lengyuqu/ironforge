@@ -3,8 +3,6 @@
 //! Clients connect to `ws://host/api/v1/ws/notifications?token=<jwt>`
 //! and receive real-time notification events as JSON messages.
 
-use std::sync::Arc;
-
 use axum::{
     extract::{
         ws::{Message, WebSocket},
@@ -32,6 +30,12 @@ pub struct NotificationEvent {
 #[derive(Debug, Clone)]
 pub struct NotificationHub {
     sender: broadcast::Sender<NotificationEvent>,
+}
+
+impl Default for NotificationHub {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl NotificationHub {
@@ -71,8 +75,7 @@ pub async fn ws_notifications_handler(
         .token
         .as_deref()
         .and_then(|t| rg_core::auth::jwt::validate_token(t, &state.jwt_secret))
-        .map(|c| c.sub.parse::<i64>().ok())
-        .flatten();
+        .and_then(|c| c.sub.parse::<i64>().ok());
 
     ws.on_upgrade(move |socket| handle_ws_connection(socket, state.notification_hub.clone(), user_id))
 }
@@ -139,12 +142,11 @@ async fn handle_ws_connection(
     let recv_task = tokio::spawn(async move {
         while let Some(Ok(msg)) = receiver.next().await {
             match msg {
-                Message::Text(text) => {
+                Message::Text(text)
                     // Client can send ping as text
-                    if text == "ping" {
+                    if text == "ping" => {
                         // No-op: keepalive handled
                     }
-                }
                 Message::Close(_) => break,
                 _ => {}
             }

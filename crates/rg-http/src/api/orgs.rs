@@ -1,10 +1,9 @@
 //! REST API handlers for organizations and teams.
 
-use axum::extract::{Path, Query, State};
+use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::Json;
-use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 
 use crate::AppState;

@@ -66,9 +66,9 @@ fn page_to_summary(p: &rg_db::entities::wiki_page::Model) -> WikiPageSummary {
 pub async fn list_pages(
     State(state): State<AppState>,
     Path((owner, repo)): Path<(String, String)>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
 ) -> impl IntoResponse {
-    let user_id = extract_user_id(&state, &headers);
+    let _user_id = extract_user_id(&state, &_headers);
     let repo_id = match resolve_repo_id(&state.db, &owner, &repo).await {
         Some(id) => id,
         None => return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "repository not found"}))),
@@ -86,7 +86,7 @@ pub async fn list_pages(
 pub async fn get_page(
     State(state): State<AppState>,
     Path((owner, repo, title)): Path<(String, String, String)>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
 ) -> impl IntoResponse {
     let repo_id = match resolve_repo_id(&state.db, &owner, &repo).await {
         Some(id) => id,

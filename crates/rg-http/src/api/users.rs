@@ -5,12 +5,12 @@
 //! GET  /api/v1/users/me  (requires Bearer token)
 
 use axum::{
-    extract::{Extension, State},
+    extract::State,
     http::{header, HeaderMap, StatusCode},
     response::IntoResponse,
     Json,
 };
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 use crate::AppState;
 

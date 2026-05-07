@@ -12,7 +12,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 pub const MAX_PKT_LINE_LEN: usize = 65516;
 
 /// A pkt-line: data, flush, or special types for V2 protocol.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum PktLine {
     Data(Vec<u8>),
     Flush,
@@ -157,5 +157,145 @@ pub async fn read_text_line<R: AsyncRead + Unpin>(reader: &mut BufReader<R>) -> 
         }
         PktLine::Delim => Ok(Some(String::new())), // Treat as empty line
         PktLine::ResponseEnd => Ok(None),          // End of response
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Cursor;
+    use super::*;
+    use tokio::io::BufReader;
+
+    /// Helper: encode a pkt-line into bytes (sync version for tests).
+    fn encode_pkt_line_bytes(data: &[u8]) -> Vec<u8> {
+        let len = data.len() + 4;
+        let header = format!("{:04x}", len);
+        let mut out = header.into_bytes();
+        out.extend_from_slice(data);
+        out
+    }
+
+    /// Helper: write multiple pkt-lines into a buffer for reading.
+    fn make_reader(packets: &[PktLine]) -> BufReader<Cursor<Vec<u8>>> {
+        let mut buf = Vec::new();
+        // We use a sync approximation: build the raw bytes directly.
+        for pkt in packets {
+            match pkt {
+                PktLine::Data(data) => {
+                    buf.extend_from_slice(&encode_pkt_line_bytes(data));
+                }
+                PktLine::Flush => buf.extend_from_slice(b"0000"),
+                PktLine::Delim => buf.extend_from_slice(b"0001"),
+                PktLine::ResponseEnd => buf.extend_from_slice(b"0002"),
+            }
+        }
+        BufReader::new(Cursor::new(buf))
+    }
+
+    #[tokio::test]
+    async fn test_read_data_pkt_line() {
+        let mut reader = make_reader(&[
+            PktLine::data(b"hello world\n"),
+            PktLine::Flush,
+        ]);
+        let pkt = read_pkt_line(&mut reader).await.unwrap();
+        match pkt {
+            PktLine::Data(d) => assert_eq!(d, b"hello world\n"),
+            other => panic!("expected Data, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_read_flush_pkt_line() {
+        let mut reader = make_reader(&[PktLine::Flush]);
+        let pkt = read_pkt_line(&mut reader).await.unwrap();
+        assert!(matches!(pkt, PktLine::Flush));
+    }
+
+    #[tokio::test]
+    async fn test_read_delim_pkt_line() {
+        let mut reader = make_reader(&[PktLine::Delim]);
+        let pkt = read_pkt_line(&mut reader).await.unwrap();
+        assert!(matches!(pkt, PktLine::Delim));
+    }
+
+    #[tokio::test]
+    async fn test_read_response_end_pkt_line() {
+        let mut reader = make_reader(&[PktLine::ResponseEnd]);
+        let pkt = read_pkt_line(&mut reader).await.unwrap();
+        assert!(matches!(pkt, PktLine::ResponseEnd));
+    }
+
+    #[tokio::test]
+    async fn test_read_multiple_then_flush() {
+        let mut reader = make_reader(&[
+            PktLine::data(b"line one\n"),
+            PktLine::data(b"line two\n"),
+            PktLine::Flush,
+        ]);
+        let lines = read_pkt_lines_until_flush(&mut reader).await.unwrap();
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0], PktLine::data(b"line one\n"));
+        assert_eq!(lines[1], PktLine::data(b"line two\n"));
+    }
+
+    #[tokio::test]
+    async fn test_read_empty_data_pkt_line() {
+        // A pkt-line with just the 4-byte header (length=4, payload=0) should return empty data.
+        let buf = Vec::from(b"0004".as_slice());
+        let mut reader = BufReader::new(Cursor::new(buf));
+        let pkt = read_pkt_line(&mut reader).await.unwrap();
+        assert!(matches!(pkt, PktLine::Data(ref d) if d.is_empty()));
+    }
+
+    #[tokio::test]
+    async fn test_write_and_read_roundtrip() {
+        use tokio::io::duplex;
+        let (mut writer, read_end) = duplex(1024);
+        let data = PktLine::text("agent=ironforge/0.1");
+        write_pkt_line(&mut writer, &data).await.unwrap();
+        writer.flush().await.unwrap();
+
+        let mut reader = BufReader::new(read_end);
+        let pkt = read_pkt_line(&mut reader).await.unwrap();
+        assert_eq!(pkt, PktLine::text("agent=ironforge/0.1"));
+    }
+
+    #[test]
+    fn test_pkt_line_text_adds_newline() {
+        let pkt = PktLine::text("hello");
+        assert_eq!(pkt, PktLine::data(b"hello\n"));
+    }
+
+    #[test]
+    fn test_pkt_line_text_preserves_newline() {
+        let pkt = PktLine::text("hello\n");
+        assert_eq!(pkt, PktLine::data(b"hello\n"));
+    }
+
+    #[test]
+    fn test_pkt_line_display() {
+        assert_eq!(format!("{}", PktLine::Flush), "Flush");
+        assert_eq!(format!("{}", PktLine::Delim), "Delim");
+        assert_eq!(format!("{}", PktLine::ResponseEnd), "ResponseEnd");
+        assert_eq!(format!("{}", PktLine::data(b"hello\n")), "Data(hello)");
+        assert_eq!(format!("{}", PktLine::data(b"\xff\xfe\xfd")), "Data(3 bytes)");
+    }
+
+    #[tokio::test]
+    async fn test_read_text_line_returns_string() {
+        let mut reader = make_reader(&[
+            PktLine::data(b"some text\n"),
+            PktLine::Flush,
+        ]);
+        let line = read_text_line(&mut reader).await.unwrap();
+        assert_eq!(line, Some("some text\n".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_read_text_line_on_flush_returns_none() {
+        let mut reader = make_reader(&[PktLine::Flush]);
+        let line = read_text_line(&mut reader).await.unwrap();
+        assert!(line.is_none());
     }
 }

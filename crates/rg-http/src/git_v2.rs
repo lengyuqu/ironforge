@@ -7,15 +7,13 @@
 //!
 //! Reference: <https://git-scm.com/docs/protocol-v2>
 
-use std::path::PathBuf;
-
 use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
     Json,
 };
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
 
 use crate::AppState;
 use rg_git::protocol::v2::handle_v2;
@@ -132,8 +130,7 @@ pub async fn handle_git_upload_pack_v2(
         }))).into_response();
     }
 
-    // Create duplex stream for V2 protocol
-    let (mut reader, mut writer) = tokio::io::duplex(body.len() + 4096);
+    let (reader, mut writer) = tokio::io::duplex(body.len() + 4096);
 
     // Write request body to the reader side
     if let Err(e) = writer.write_all(&body).await {
@@ -201,7 +198,7 @@ pub async fn handle_git_receive_pack_v2(
     // For receive-pack over V2, we still use the V1 receive-pack logic
     // because V2's fetch command is primarily for clone/fetch, not push
     // The push negotiation in V2 still uses similar mechanisms
-    let (mut reader, mut writer) = tokio::io::duplex(body.len() + 4096);
+    let (reader, mut writer) = tokio::io::duplex(body.len() + 4096);
 
     if let Err(e) = writer.write_all(&body).await {
         tracing::error!(error = %e, "Failed to write request body");

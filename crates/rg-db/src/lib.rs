@@ -3,8 +3,12 @@
 //! # Usage
 //!
 //! ```rust,no_run
-//! let db = rg_db::connect("sqlite:///tmp/ironforge/ironforge.db?mode=rwc").await?;
-//! rg_db::run_migrations(&db).await?;
+//! #[tokio::main]
+//! async fn main() -> anyhow::Result<()> {
+//!     let db = rg_db::connect("sqlite:///tmp/ironforge/ironforge.db?mode=rwc").await?;
+//!     rg_db::run_migrations(&db).await?;
+//!     Ok(())
+//! }
 //! ```
 
 pub mod entities;

@@ -3,7 +3,6 @@
 //! All list endpoints accept `page` and `per_page` query parameters.
 //! Response wraps data in `PaginatedResponse { data, pagination }`.
 
-use axum::extract::Query;
 use serde::{Deserialize, Serialize};
 
 /// Default number of items per page.
@@ -78,7 +77,7 @@ impl PaginationMeta {
         let total_pages = if total == 0 {
             1
         } else {
-            (total + params.per_page - 1) / params.per_page
+            total.div_ceil(params.per_page)
         };
 
         Self {
@@ -106,5 +105,134 @@ impl<T: Serialize> PaginatedResponse<T> {
             data,
             pagination: PaginationMeta::from_params(params, total),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── PaginationParams tests ──────────────────────────────────────────
+
+    #[test]
+    fn test_default_page() {
+        let params = PaginationParams::new(1, 20);
+        assert_eq!(params.page, 1);
+        assert_eq!(params.per_page, 20);
+    }
+
+    #[test]
+    fn test_page_clamped_to_min_1() {
+        let params = PaginationParams::new(0, 20);
+        assert_eq!(params.page, 1);
+    }
+
+    #[test]
+    fn test_per_page_clamped_to_range() {
+        let params = PaginationParams::new(1, 200);
+        assert_eq!(params.per_page, 100); // MAX_PER_PAGE
+
+        let params = PaginationParams::new(1, 0);
+        assert_eq!(params.per_page, 1); // min 1
+    }
+
+    #[test]
+    fn test_offset_calculation() {
+        let params = PaginationParams::new(1, 20);
+        assert_eq!(params.offset(), 0);
+
+        let params = PaginationParams::new(3, 10);
+        assert_eq!(params.offset(), 20);
+    }
+
+    #[test]
+    fn test_limit_calculation() {
+        let params = PaginationParams::new(1, 50);
+        assert_eq!(params.limit(), 50);
+
+        let params = PaginationParams::new(1, 200);
+        assert_eq!(params.limit(), 100); // clamped to MAX_PER_PAGE
+    }
+
+    #[test]
+    fn test_clamp_method() {
+        let params = PaginationParams { page: 0, per_page: 500 };
+        let clamped = params.clamp();
+        assert_eq!(clamped.page, 1);
+        assert_eq!(clamped.per_page, 100);
+    }
+
+    // ── PaginationMeta tests ────────────────────────────────────────────
+
+    #[test]
+    fn test_meta_first_page() {
+        let params = PaginationParams::new(1, 20);
+        let meta = PaginationMeta::from_params(&params, 55);
+        assert_eq!(meta.page, 1);
+        assert_eq!(meta.per_page, 20);
+        assert_eq!(meta.total, 55);
+        assert_eq!(meta.total_pages, 3); // ceil(55/20) = 3
+        assert!(meta.has_next);
+        assert!(!meta.has_prev);
+    }
+
+    #[test]
+    fn test_meta_last_page() {
+        let params = PaginationParams::new(3, 20);
+        let meta = PaginationMeta::from_params(&params, 55);
+        assert_eq!(meta.page, 3);
+        assert!(!meta.has_next);
+        assert!(meta.has_prev);
+    }
+
+    #[test]
+    fn test_meta_middle_page() {
+        let params = PaginationParams::new(2, 20);
+        let meta = PaginationMeta::from_params(&params, 55);
+        assert!(meta.has_next);
+        assert!(meta.has_prev);
+    }
+
+    #[test]
+    fn test_meta_zero_total() {
+        let params = PaginationParams::new(1, 20);
+        let meta = PaginationMeta::from_params(&params, 0);
+        assert_eq!(meta.total_pages, 1);
+        assert!(!meta.has_next);
+        assert!(!meta.has_prev);
+    }
+
+    #[test]
+    fn test_meta_exact_division() {
+        let params = PaginationParams::new(1, 10);
+        let meta = PaginationMeta::from_params(&params, 20);
+        assert_eq!(meta.total_pages, 2);
+    }
+
+    // ── PaginatedResponse tests ─────────────────────────────────────────
+
+    #[test]
+    fn test_paginated_response_creation() {
+        let params = PaginationParams::new(1, 10);
+        let resp = PaginatedResponse::new(vec!["a", "b"], &params, 50);
+        assert_eq!(resp.data, vec!["a", "b"]);
+        assert_eq!(resp.pagination.page, 1);
+        assert_eq!(resp.pagination.total, 50);
+        assert_eq!(resp.pagination.total_pages, 5);
+    }
+
+    #[test]
+    fn test_paginated_response_empty() {
+        let params = PaginationParams::new(1, 10);
+        let resp: PaginatedResponse<String> = PaginatedResponse::new(vec![], &params, 0);
+        assert!(resp.data.is_empty());
+        assert_eq!(resp.pagination.total, 0);
+        assert_eq!(resp.pagination.total_pages, 1);
+    }
+
+    #[test]
+    fn test_default_per_page_fn() {
+        assert_eq!(default_page(), 1);
+        assert_eq!(default_per_page(), 20);
     }
 }

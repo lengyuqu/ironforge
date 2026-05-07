@@ -21,10 +21,10 @@ use axum::body::Body;
 use axum::extract::{Query, State};
 use axum::http::header;
 use axum::http::StatusCode;
-use axum::response::{IntoResponse, Response};
+use axum::response::IntoResponse;
 use axum::routing::{delete, get, patch, post};
 use axum::Router;
-use sea_orm::{DatabaseConnection, EntityTrait, QueryFilter, ColumnTrait};
+use sea_orm::DatabaseConnection;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
@@ -120,7 +120,7 @@ async fn load_tls_config(
     key_path: &std::path::Path,
 ) -> Result<Arc<tokio_rustls::rustls::ServerConfig>> {
     use std::io::BufReader;
-    use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer};
+    use tokio_rustls::rustls::pki_types::CertificateDer;
     use tokio_rustls::rustls::ServerConfig;
 
     let cert_file = std::fs::File::open(cert_path)
@@ -274,16 +274,14 @@ fn extract_actor_id(headers: &axum::http::HeaderMap, jwt_secret: &str) -> Option
     if let Some(auth) = headers.get(header::AUTHORIZATION) {
         let auth_str = auth.to_str().ok()?;
 
-        if auth_str.starts_with("Bearer ") {
-            let token = &auth_str[7..];
+        if let Some(token) = auth_str.strip_prefix("Bearer ") {
             if let Some(claims) = rg_core::auth::jwt::validate_token(token, jwt_secret) {
-                return Some(claims.sub.parse().ok()?);
+                return claims.sub.parse().ok();
             }
         }
 
         // Try Basic auth
-        if auth_str.starts_with("Basic ") {
-            let encoded = &auth_str[6..];
+        if let Some(encoded) = auth_str.strip_prefix("Basic ") {
             if let Ok(decoded) = base64_decode(encoded) {
                 if let Ok(credentials) = String::from_utf8(decoded) {
                     if let Some((username, _password)) = credentials.split_once(':') {
@@ -330,8 +328,10 @@ fn base64_decode(input: &str) -> Result<Vec<u8>, ()> {
 }
 
 /// Check repository access for git protocol.
+///
 /// - upload-pack (clone/fetch): can_read
 /// - receive-pack (push): can_write
+///
 /// Returns Ok(()) if access is granted, or an error response.
 async fn check_git_access(
     db: &DatabaseConnection,
@@ -570,7 +570,7 @@ async fn handle_git_upload_pack(
 
     if wants_v2 {
         // Protocol V2: use V2 handler
-        let (mut pipe_read, mut pipe_write) = tokio::io::duplex(body.len() + 1024);
+        let (pipe_read, mut pipe_write) = tokio::io::duplex(body.len() + 1024);
         tokio::spawn(async move {
             let _ = pipe_write.write_all(&body).await;
         });
@@ -597,7 +597,7 @@ async fn handle_git_upload_pack(
         }
     } else {
         // Protocol V1: use V1 handler
-        let (mut pipe_read, mut pipe_write) = tokio::io::duplex(body.len() + 1024);
+        let (pipe_read, mut pipe_write) = tokio::io::duplex(body.len() + 1024);
         tokio::spawn(async move {
             let _ = pipe_write.write_all(&body).await;
         });
@@ -653,7 +653,7 @@ async fn handle_git_receive_pack(
         return (resp.0, resp.1, Body::from(resp.2));
     }
 
-    let (mut pipe_read, mut pipe_write) = tokio::io::duplex(body.len() + 1024);
+    let (pipe_read, mut pipe_write) = tokio::io::duplex(body.len() + 1024);
     tokio::spawn(async move {
         let _ = pipe_write.write_all(&body).await;
     });
@@ -683,7 +683,18 @@ async fn handle_git_receive_pack(
             let smtp = state.smtp_config.clone();
 
             tokio::spawn(async move {
-                post_push_hooks(&db, &repo_path_clone, &owner_clone, &repo_clone, &ref_updates, docker_enabled, &hub, &smtp).await;
+                post_push_hooks(
+                    &PostPushParams {
+                        db: &db,
+                        repo_path: &repo_path_clone,
+                        owner: &owner_clone,
+                        repo_name: &repo_clone,
+                        docker_enabled,
+                        notification_hub: &hub,
+                        smtp_config: &smtp,
+                    },
+                    &ref_updates,
+                ).await;
             });
 
             (
@@ -700,17 +711,32 @@ async fn handle_git_receive_pack(
     }
 }
 
+/// Parameters for post-push hooks.
+struct PostPushParams<'a> {
+    db: &'a DatabaseConnection,
+    repo_path: &'a std::path::Path,
+    owner: &'a str,
+    repo_name: &'a str,
+    docker_enabled: bool,
+    notification_hub: &'a ws::NotificationHub,
+    smtp_config: &'a Option<rg_core::email::SmtpConfig>,
+}
+
 /// Post-push hook: trigger CI pipeline and webhook for push events.
 async fn post_push_hooks(
-    db: &DatabaseConnection,
-    repo_path: &std::path::Path,
-    owner: &str,
-    repo_name: &str,
+    params: &PostPushParams<'_>,
     ref_updates: &[rg_git::protocol::receive_pack::RefUpdate],
-    docker_enabled: bool,
-    notification_hub: &ws::NotificationHub,
-    smtp_config: &Option<rg_core::email::SmtpConfig>,
 ) {
+    let PostPushParams {
+        db,
+        repo_path,
+        owner,
+        repo_name,
+        docker_enabled,
+        notification_hub,
+        smtp_config,
+    } = params;
+
     // Find repo_id from DB
     let repo_model = find_repo_by_name(db, owner, repo_name).await;
 
@@ -752,14 +778,14 @@ async fn post_push_hooks(
         // 1. Trigger CI pipeline if .ironforge-ci.yml exists
         if rg_ci::has_ci_config(repo_path, &update.new_sha) {
             match rg_ci::trigger_pipeline(
-                db.clone(),
+                (*db).clone(),
                 repo_path,
                 repo_id,
                 &update.new_sha,
                 &update.refname,
                 "push",
                 None,
-                docker_enabled,
+                *docker_enabled,
             )
             .await
             {

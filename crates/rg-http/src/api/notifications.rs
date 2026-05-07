@@ -8,7 +8,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::AppState;
 use crate::pagination::{PaginatedResponse, PaginationParams};
-use crate::ws;
 
 // ── Response types ───────────────────────────────────────────
 

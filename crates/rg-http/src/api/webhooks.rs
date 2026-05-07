@@ -58,7 +58,7 @@ pub async fn create_webhook(
 /// Get a webhook by id.
 pub async fn get_webhook(
     State(state): State<AppState>,
-    Path((owner, repo, id)): Path<(String, String, i64)>,
+    Path((_owner, _repo, id)): Path<(String, String, i64)>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
     let _user_id = match extract_user_id(&state, &headers) {
@@ -76,7 +76,7 @@ pub async fn get_webhook(
 /// Update a webhook.
 pub async fn update_webhook(
     State(state): State<AppState>,
-    Path((owner, repo, id)): Path<(String, String, i64)>,
+    Path((_owner, _repo, id)): Path<(String, String, i64)>,
     headers: HeaderMap,
     Json(body): Json<rg_core::webhook::service::UpdateWebhookRequest>,
 ) -> impl IntoResponse {
@@ -100,7 +100,7 @@ pub async fn update_webhook(
 /// Delete a webhook.
 pub async fn delete_webhook(
     State(state): State<AppState>,
-    Path((owner, repo, id)): Path<(String, String, i64)>,
+    Path((_owner, _repo, id)): Path<(String, String, i64)>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
     let _user_id = match extract_user_id(&state, &headers) {

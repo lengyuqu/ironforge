@@ -138,7 +138,7 @@ pub async fn list_orgs(
     let params = params.clamp();
     match rg_db::ops::org_ops::list_all_orgs(&state.db, params.offset(), params.limit()).await {
         Ok((orgs, total)) => {
-            let resp: Vec<_> = orgs.iter().map(|o| org_response(o)).collect();
+            let resp: Vec<_> = orgs.iter().map(org_response).collect();
             let page = PaginatedResponse::new(resp, &params, total as u64);
             (StatusCode::OK, Json(serde_json::to_value(page).unwrap()))
         }

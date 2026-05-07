@@ -66,4 +66,50 @@ mod tests {
     fn test_invalid_token() {
         assert!(validate_token("not.a.token", "secret").is_none());
     }
+
+    #[test]
+    fn test_wrong_secret_fails() {
+        let token = generate_token(1, "bob", "secret_a", 7).unwrap();
+        assert!(validate_token(&token, "secret_b").is_none());
+    }
+
+    #[test]
+    fn test_expired_token_fails() {
+        let token = generate_token(1, "charlie", "secret", -1).unwrap(); // already expired
+        assert!(validate_token(&token, "secret").is_none());
+    }
+
+    #[test]
+    fn test_token_claims_fields() {
+        let token = generate_token(99, "testuser", "mykey", 30).unwrap();
+        let claims = validate_token(&token, "mykey").unwrap();
+        assert_eq!(claims.sub, "99");
+        assert_eq!(claims.username, "testuser");
+        assert!(claims.iat > 0);
+        assert!(claims.exp > claims.iat);
+    }
+
+    #[test]
+    fn test_different_user_ids() {
+        let secret = "key";
+        let t1 = generate_token(0, "user0", secret, 7).unwrap();
+        let t2 = generate_token(i64::MAX, "usermax", secret, 7).unwrap();
+
+        let c1 = validate_token(&t1, secret).unwrap();
+        assert_eq!(c1.sub, "0");
+
+        let c2 = validate_token(&t2, secret).unwrap();
+        assert_eq!(c2.sub, i64::MAX.to_string());
+    }
+
+    #[test]
+    fn test_empty_token_fails() {
+        assert!(validate_token("", "secret").is_none());
+    }
+
+    #[test]
+    fn test_malformed_token_fails() {
+        assert!(validate_token("aaa.bbb", "secret").is_none());
+        assert!(validate_token("aaa.bbb.ccc.ddd", "secret").is_none());
+    }
 }

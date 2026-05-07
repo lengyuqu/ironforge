@@ -11,8 +11,9 @@ use tokio::io::{AsyncWrite, AsyncWriteExt};
 
 use crate::pkt_line::{write_flush, write_pkt_line, PktLine};
 
-/// Maximum sideband data size per pkt-line (65519 bytes for sideband-64k).
-const SIDEBAND_MAX: usize = 65519;
+/// Maximum sideband data size per pkt-line (65516 - 1 band byte = 65515 user bytes).
+/// Must not exceed MAX_PKT_LINE_LEN (65516) including the band byte prefix.
+const SIDEBAND_MAX: usize = 65515;
 
 /// Write sideband data (band 1) — used for packfile data.
 pub async fn write_sideband_data<W: AsyncWrite + Unpin>(writer: &mut W, data: &[u8]) -> Result<()> {
@@ -50,4 +51,75 @@ pub async fn write_sideband_error<W: AsyncWrite + Unpin>(
 /// Write the sideband flush packet (signals end of multiplexed data).
 pub async fn write_sideband_flush<W: AsyncWrite + Unpin>(writer: &mut W) -> Result<()> {
     write_flush(writer).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pkt_line::{read_pkt_line, PktLine};
+    use tokio::io::{duplex, BufReader};
+
+    #[tokio::test]
+    async fn test_sideband_data_write_and_read() {
+        let (mut writer, reader) = duplex(1024);
+        write_sideband_data(&mut writer, b"hello pack data").await.unwrap();
+
+        let mut buf_reader = BufReader::new(reader);
+        let pkt = read_pkt_line(&mut buf_reader).await.unwrap();
+        if let PktLine::Data(data) = pkt {
+            assert_eq!(data[0], 1u8); // band 1
+            assert_eq!(&data[1..], b"hello pack data");
+        } else {
+            panic!("expected Data pkt-line");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_sideband_progress_write_and_read() {
+        let (mut writer, reader) = duplex(1024);
+        write_sideband_progress(&mut writer, "counting objects").await.unwrap();
+
+        let mut buf_reader = BufReader::new(reader);
+        let pkt = read_pkt_line(&mut buf_reader).await.unwrap();
+        if let PktLine::Data(data) = pkt {
+            assert_eq!(data[0], 2u8); // band 2
+            assert_eq!(&data[1..], b"counting objects");
+        } else {
+            panic!("expected Data pkt-line");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_sideband_error_write_and_read() {
+        let (mut writer, reader) = duplex(1024);
+        write_sideband_error(&mut writer, "fatal error occurred").await.unwrap();
+
+        let mut buf_reader = BufReader::new(reader);
+        let pkt = read_pkt_line(&mut buf_reader).await.unwrap();
+        if let PktLine::Data(data) = pkt {
+            assert_eq!(data[0], 3u8); // band 3
+            assert_eq!(&data[1..], b"fatal error occurred");
+        } else {
+            panic!("expected Data pkt-line");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_sideband_flush_write_and_read() {
+        let (mut writer, reader) = duplex(1024);
+        write_sideband_flush(&mut writer).await.unwrap();
+
+        let mut buf_reader = BufReader::new(reader);
+        let pkt = read_pkt_line(&mut buf_reader).await.unwrap();
+        assert!(matches!(pkt, PktLine::Flush));
+    }
+
+    #[test]
+    fn test_sideband_chunk_size_within_limit() {
+        // Verify that SIDEBAND_MAX is within the pkt-line limit.
+        // Each sideband packet = 1 byte (band) + SIDEBAND_MAX bytes (data) <= MAX_PKT_LINE_LEN.
+        use crate::pkt_line::MAX_PKT_LINE_LEN;
+        assert!(1 + SIDEBAND_MAX <= MAX_PKT_LINE_LEN,
+            "sideband chunk too large: {} + 1 > {}", SIDEBAND_MAX, MAX_PKT_LINE_LEN);
+    }
 }

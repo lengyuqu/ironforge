@@ -317,7 +317,7 @@ fn get_blob_content(
 
     // Check if binary by looking for null bytes
     let raw = content_output.stdout;
-    let is_binary = raw.iter().any(|&b| b == 0);
+    let is_binary = raw.contains(&0);
 
     let (content, encoding) = if is_binary {
         use std::fmt::Write;
