@@ -130,6 +130,14 @@ pub async fn create_repo(
     }
 }
 
+/// GET /api/v1/repos/:owner
+/// Lists repos for either a user or an organization.
+#[derive(Deserialize)]
+pub struct ListReposQuery {
+    #[serde(flatten)]
+    pub pagination: PaginationParams,
+}
+
 #[utoipa::path(
     get,
     path = "/repos/{owner}",
@@ -145,14 +153,6 @@ pub async fn create_repo(
         (status = 500, description = "Internal server error", body = serde_json::Value),
     )
 )]
-/// GET /api/v1/repos/:owner
-/// Lists repos for either a user or an organization.
-#[derive(Deserialize)]
-pub struct ListReposQuery {
-    #[serde(flatten)]
-    pub pagination: PaginationParams,
-}
-
 pub async fn list_repos(
     State(state): State<AppState>,
     Path(owner): Path<String>,

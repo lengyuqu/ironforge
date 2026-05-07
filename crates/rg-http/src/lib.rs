@@ -250,11 +250,10 @@ fn create_router(state: AppState, rate_limiter: rate_limit::RateLimiter) -> Rout
         .nest("/git", git_routes)
         .nest("/api/v1", api_v1)
         .route("/health", get(health))
-        // ── OpenAPI / Swagger UI ──────────────────────────────────────────
-        .merge(
-            utoipa_swagger_ui::SwaggerUi::new("/api-docs")
-                .url("/api-docs/openapi.json", openapi::ApiDoc::openapi()),
-        )
+        // ── OpenAPI spec endpoint ──────────────────────────────────────────
+        .route("/api-docs/openapi.json", get(openapi_handler))
+        // Swagger UI — serve embedded Swagger UI static files
+        .route("/api-docs/{*tail}", get(swagger_ui_handler))
         // Serve SvelteKit static assets if the build directory exists
         .fallback_service(
             ServeDir::new("web/build").fallback(ServeDir::new("web/build/index.html"))
@@ -271,6 +270,31 @@ async fn health() -> impl IntoResponse {
         "version": "0.1.0",
         "phase": "10",
     }))
+}
+
+/// GET /api-docs/openapi.json — serve the OpenAPI specification.
+async fn openapi_handler() -> impl IntoResponse {
+    (
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, "application/json")],
+        openapi::openapi_spec(),
+    )
+}
+
+/// GET /api-docs/{*tail} — serve Swagger UI static files.
+async fn swagger_ui_handler(axum::extract::Path(tail): axum::extract::Path<String>) -> impl IntoResponse {
+    let config = openapi::swagger_config();
+    let path = if tail.is_empty() { "/" } else { &tail };
+
+    match utoipa_swagger_ui::serve(path, config) {
+        Ok(Some(file)) => (
+            StatusCode::OK,
+            [(header::CONTENT_TYPE, file.content_type)],
+            file.bytes.to_vec(),
+        ),
+        Ok(None) => (StatusCode::NOT_FOUND, [(header::CONTENT_TYPE, "text/plain".to_string())], "Not Found".as_bytes().to_vec()),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, [(header::CONTENT_TYPE, "text/plain".to_string())], format!("Swagger UI error: {e}").into_bytes()),
+    }
 }
 
 /// Extract user ID from HTTP Basic Auth or Bearer token.
