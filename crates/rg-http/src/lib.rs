@@ -23,7 +23,7 @@ use axum::extract::{Query, State};
 use axum::http::header;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use axum::routing::{delete, get, patch, post};
+use axum::routing::{delete, get, patch, post, put};
 use axum::Router;
 use sea_orm::DatabaseConnection;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -170,10 +170,19 @@ fn create_router(state: AppState, rate_limiter: rate_limit::RateLimiter) -> Rout
         .route("/users/register", post(api::users::register))
         .route("/users/login", post(api::users::login))
         .route("/users/me", get(api::users::me))
+        // PAT
+        .route("/users/tokens", get(api::users::list_tokens).post(api::users::create_token))
+        .route("/users/tokens/:id", delete(api::users::delete_token))
         // Repos
         .route("/repos", post(api::repos::create_repo))
         .route("/repos/:owner", get(api::repos::list_repos))
         .route("/repos/:owner/:name", get(api::repos::get_repo))
+        // Milestones (before issues to avoid routing conflicts)
+        .route("/repos/:owner/:name/milestones", get(api::issues::list_milestones).post(api::issues::create_milestone))
+        .route("/repos/:owner/:name/milestones/:id", get(api::issues::get_milestone).patch(api::issues::update_milestone).delete(api::issues::delete_milestone))
+        // Labels
+        .route("/repos/:owner/:name/labels", get(api::labels::list_labels).post(api::labels::create_label))
+        .route("/repos/:owner/:name/labels/:id", get(api::labels::get_label).patch(api::labels::update_label).delete(api::labels::delete_label))
         // Issues
         .route("/repos/:owner/:name/issues", get(api::issues::list_issues).post(api::issues::create_issue))
         .route("/repos/:owner/:name/issues/:number", get(api::issues::get_issue).patch(api::issues::update_issue))
@@ -235,6 +244,20 @@ fn create_router(state: AppState, rate_limiter: rate_limit::RateLimiter) -> Rout
         .route("/notifications/mark-all-read", post(api::notifications::mark_all_read))
         .route("/notifications/:id/read", post(api::notifications::mark_read))
         .route("/notifications/:id", delete(api::notifications::delete_notification))
+        // Star/Watch
+        .route("/repos/:owner/:name/star", put(api::repos::star_repo))
+        .route("/repos/:owner/:name/stargazers", get(api::repos::get_stargazers))
+        .route("/repos/:owner/:name/watch", put(api::repos::watch_repo).delete(api::repos::unwatch_repo))
+        // Repo Delete (combined with GET)
+        .route("/repos/:owner/:name", delete(api::repos::delete_repo_handler))
+        // Releases
+        .route("/repos/:owner/:name/releases", get(api::releases::list_releases).post(api::releases::create_release))
+        .route("/repos/:owner/:name/releases/:id", get(api::releases::get_release).patch(api::releases::update_release).delete(api::releases::delete_release))
+        // Fork
+        .route("/repos/:owner/:name/fork", post(api::repos::fork_repo_handler))
+        .route("/repos/:owner/:name/forks", get(api::repos::list_forks_handler))
+        // Transfer
+        .route("/repos/:owner/:name/transfer", post(api::repos::transfer_repo_handler))
         // Admin
         .route("/admin/users", get(api::admin::list_users))
         .route("/admin/users/:id", get(api::admin::get_user))

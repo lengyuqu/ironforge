@@ -16,3 +16,8 @@ pub mod protected_branch_ops;
 pub mod repo_collaborator_ops;
 pub mod org_ops;
 pub mod notification_ops;
+pub mod repo_star_ops;
+pub mod repo_watch_ops;
+pub mod release_ops;
+pub mod label_ops;
+pub mod issue_label_ops;

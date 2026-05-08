@@ -111,6 +111,34 @@ export const repos = {
   // GPG signature
   commitSignature: (owner: string, repo: string, sha: string) =>
     request<{ verified: boolean; signer_key: string | null; signer_name: string | null; signer_email: string | null; status: string }>(`/repos/${owner}/${repo}/commits/${sha}/signature`),
+  // Star
+  star: (owner: string, repo: string) =>
+    request<{ starred: boolean }>(`/repos/${owner}/${repo}/star`, { method: 'PUT' }),
+  unstar: (owner: string, repo: string) =>
+    request<{ starred: boolean }>(`/repos/${owner}/${repo}/star`, { method: 'DELETE' }),
+  stargazers: (owner: string, repo: string, page?: number, perPage?: number) =>
+    request<PaginatedResponse<any>>(`/repos/${owner}/${repo}/stargazers${qs({ page, per_page: perPage })}`),
+  // Watch
+  watch: (owner: string, repo: string, state: string) =>
+    request<{ watch_state: string }>(`/repos/${owner}/${repo}/watch`, { method: 'PUT', body: JSON.stringify({ state }) }),
+  unwatch: (owner: string, repo: string) =>
+    request<{ watch_state: string }>(`/repos/${owner}/${repo}/watch`, { method: 'DELETE' }),
+  // Delete
+  delete: (owner: string, repo: string) =>
+    request<{ deleted: boolean }>(`/repos/${owner}/${repo}`, { method: 'DELETE' }),
+  // Fork
+  fork: (owner: string, repo: string) =>
+    request<any>(`/repos/${owner}/${repo}/fork`, { method: 'POST' }),
+  forks: (owner: string, repo: string, page?: number, perPage?: number) => {
+    const params = new URLSearchParams();
+    if (page) params.set('page', String(page));
+    if (perPage) params.set('per_page', String(perPage));
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    return request<PaginatedResponse<any>>(`/repos/${owner}/${repo}/forks${qs}`);
+  },
+  // Transfer
+  transfer: (owner: string, repo: string, newOwner: string) =>
+    request<any>(`/repos/${owner}/${repo}/transfer`, { method: 'POST', body: JSON.stringify({ new_owner: newOwner }) }),
 };
 
 // ── Issues ───────────────────────────────────────────
@@ -289,6 +317,83 @@ export const notifications = {
     request<any>(`/notifications/mark-all-read${userId ? `?user_id=${userId}` : ''}`, { method: 'POST' }),
   delete: (id: number) =>
     request<any>(`/notifications/${id}`, { method: 'DELETE' }),
+};
+
+// ── Releases ──────────────────────────────────────
+export const releases = {
+  list: (owner: string, repo: string, page?: number, perPage?: number) =>
+    request<PaginatedResponse<any>>(`/repos/${owner}/${repo}/releases${qs({ page, per_page: perPage })}`),
+  get: (owner: string, repo: string, id: number) =>
+    request<any>(`/repos/${owner}/${repo}/releases/${id}`),
+  create: (owner: string, repo: string, data: { tag_name: string; title: string; body?: string; target_commitish?: string; is_draft?: boolean; is_prerelease?: boolean }) =>
+    request<any>(`/repos/${owner}/${repo}/releases`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  update: (owner: string, repo: string, id: number, data: { title?: string; body?: string; is_draft?: boolean; is_prerelease?: boolean }) =>
+    request<any>(`/repos/${owner}/${repo}/releases/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+  delete: (owner: string, repo: string, id: number) =>
+    request<void>(`/repos/${owner}/${repo}/releases/${id}`, { method: 'DELETE' }),
+};
+
+// Labels
+export const labels = {
+  list: (owner: string, repo: string) =>
+    request<any[]>(`/repos/${owner}/${repo}/labels`),
+  get: (owner: string, repo: string, id: number) =>
+    request<any>(`/repos/${owner}/${repo}/labels/${id}`),
+  create: (owner: string, repo: string, name: string, color: string, description?: string) =>
+    request<any>(`/repos/${owner}/${repo}/labels`, {
+      method: 'POST',
+      body: JSON.stringify({ name, color, description }),
+    }),
+  update: (owner: string, repo: string, id: number, data: { name?: string; color?: string; description?: string }) =>
+    request<any>(`/repos/${owner}/${repo}/labels/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+  delete: (owner: string, repo: string, id: number) =>
+    request<void>(`/repos/${owner}/${repo}/labels/${id}`, { method: 'DELETE' }),
+};
+
+// Milestones
+export const milestones = {
+  list: (owner: string, repo: string, state?: string) => {
+    const params = new URLSearchParams();
+    if (state) params.set('state', state);
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    return request<any[]>(`/repos/${owner}/${repo}/milestones${qs}`);
+  },
+  get: (owner: string, repo: string, id: number) =>
+    request<any>(`/repos/${owner}/${repo}/milestones/${id}`),
+  create: (owner: string, repo: string, data: { title: string; description?: string; due_date?: string; state?: string }) =>
+    request<any>(`/repos/${owner}/${repo}/milestones`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  update: (owner: string, repo: string, id: number, data: { title?: string; description?: string; state?: string; due_date?: string }) =>
+    request<any>(`/repos/${owner}/${repo}/milestones/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+  delete: (owner: string, repo: string, id: number) =>
+    request<void>(`/repos/${owner}/${repo}/milestones/${id}`, { method: 'DELETE' }),
+};
+
+// Tokens (PAT)
+export const tokens = {
+  list: () =>
+    request<any[]>('/users/tokens'),
+  create: (name: string, scopes?: string, expires_at?: string) =>
+    request<{ id: number; name: string; token: string; scopes: string; expires_at?: string; created_at: string }>('/users/tokens', {
+      method: 'POST',
+      body: JSON.stringify({ name, scopes, expires_at }),
+    }),
+  delete: (id: number) =>
+    request<void>(`/users/tokens/${id}`, { method: 'DELETE' }),
 };
 
 // ── Admin ────────────────────────────────────────────

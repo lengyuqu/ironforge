@@ -8,6 +8,10 @@ pub mod m20260424_000007_create_pipelines;
 pub mod m20260424_000008_create_phase6;
 pub mod m20260424_000009_create_phase8;
 pub mod m20260427_000001_add_lfs_compression;
+pub mod m20260508_000001_create_repo_stars_watches;
+pub mod m20260508_000006_add_repo_soft_delete;
+pub mod m20260508_000002_create_releases;
+pub mod m20260508_000003_create_labels;
 
 use sea_orm_migration::prelude::*;
 
@@ -27,6 +31,10 @@ impl MigratorTrait for Migrator {
             Box::new(m20260424_000008_create_phase6::Migration),
             Box::new(m20260424_000009_create_phase8::Migration),
             Box::new(m20260427_000001_add_lfs_compression::Migration),
+            Box::new(m20260508_000001_create_repo_stars_watches::Migration),
+            Box::new(m20260508_000006_add_repo_soft_delete::Migration),
+            Box::new(m20260508_000002_create_releases::Migration),
+            Box::new(m20260508_000003_create_labels::Migration),
         ]
     }
 }

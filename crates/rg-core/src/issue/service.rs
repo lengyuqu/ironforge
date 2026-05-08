@@ -6,7 +6,7 @@ use sea_orm::{DatabaseConnection, Set};
 
 use rg_db::entities::issue::{self, Model as Issue};
 use rg_db::entities::issue_comment::{self, Model as Comment};
-use rg_db::ops::{issue_ops, issue_comment_ops, repo_ops};
+use rg_db::ops::{issue_ops, issue_comment_ops, label_ops, issue_label_ops, repo_ops};
 
 // ── Issue CRUD ──────────────────────────────────────────────────────────
 
@@ -25,7 +25,7 @@ pub async fn create_issue(
     }
 
     let number = issue_ops::next_number(db, repo_id).await?;
-    let labels_json = labels.map(|l| serde_json::to_string(&l).unwrap_or_else(|_| "[]".into()));
+    let labels_json = labels.as_ref().map(|l| serde_json::to_string(l).unwrap_or_else(|_| "[]".into()));
 
     let model = issue::ActiveModel {
         id: sea_orm::NotSet,
@@ -43,7 +43,21 @@ pub async fn create_issue(
         closed_at: Set(None),
     };
 
-    issue_ops::create(db, model).await
+    let issue = issue_ops::create(db, model).await?;
+
+    // Dual-write: sync labels to issue_labels junction table
+    if let Some(ref label_names) = labels {
+        if let Ok(all_labels) = label_ops::list_by_repo(db, repo_id).await {
+            let label_ids: Vec<i64> = all_labels
+                .iter()
+                .filter(|l| label_names.contains(&l.name))
+                .map(|l| l.id)
+                .collect();
+            let _ = issue_label_ops::set_labels(db, issue.id, label_ids).await;
+        }
+    }
+
+    Ok(issue)
 }
 
 /// List issues for a repo, optionally filtered by state.
@@ -120,6 +134,15 @@ pub async fn update_issue(
     }
     if let Some(l) = labels {
         issue.labels = Some(serde_json::to_string(&l).unwrap_or_else(|_| "[]".into()));
+        // Dual-write: sync labels to issue_labels junction table
+        if let Ok(all_labels) = label_ops::list_by_repo(db, issue.repo_id).await {
+            let label_ids: Vec<i64> = all_labels
+                .iter()
+                .filter(|label| l.contains(&label.name))
+                .map(|l| l.id)
+                .collect();
+            let _ = issue_label_ops::set_labels(db, issue.id, label_ids).await;
+        }
     }
     if let Some(a) = assignee_id {
         issue.assignee_id = a;

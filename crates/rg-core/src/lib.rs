@@ -18,6 +18,8 @@ pub mod collaborator;
 pub mod org;
 pub mod notification;
 pub mod email;
+pub mod release;
+pub mod label;
 
 use anyhow::Result;
 

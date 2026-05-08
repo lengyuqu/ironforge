@@ -5,6 +5,14 @@ use sea_orm::*;
 
 use crate::entities::access_token::{self, ActiveModel, Entity as TokenEntity, Model as AccessToken};
 
+/// Find a token by id.
+pub async fn find_by_id(db: &DatabaseConnection, id: i64) -> Result<Option<AccessToken>> {
+    TokenEntity::find_by_id(id)
+        .one(db)
+        .await
+        .context("db: find access token by id")
+}
+
 /// Find a token by its SHA-256 hash.
 pub async fn find_by_hash(db: &DatabaseConnection, hash: &str) -> Result<Option<AccessToken>> {
     TokenEntity::find()

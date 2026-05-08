@@ -22,6 +22,8 @@ pub struct Model {
     pub org_id: Option<i64>,
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,
+    pub deleted_at: Option<DateTimeUtc>,
+    pub origin_repo_id: Option<i64>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

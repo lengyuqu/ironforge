@@ -8,6 +8,7 @@ use serde::Deserialize;
 
 use crate::AppState;
 use crate::pagination::{PaginationParams, PaginatedResponse};
+use crate::api::users::extract_bearer_claims;
 
 // ── Request / Response types ────────────────────────────────────────────
 
@@ -238,4 +239,148 @@ async fn resolve_repo_id(
         .ok()
         .flatten()?;
     Some(repo.id)
+}
+
+// ── Milestone handlers ──────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct ListMilestonesQuery {
+    pub state: Option<String>,
+}
+
+pub async fn list_milestones(
+    State(state): State<AppState>,
+    Path((owner, name)): Path<(String, String)>,
+    Query(params): Query<ListMilestonesQuery>,
+) -> impl IntoResponse {
+    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await {
+        Ok(Some(r)) => r,
+        Ok(None) => { return (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": "repository not found" }))).into_response(); }
+        Err(e) => { return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(); }
+    };
+    match rg_db::ops::milestone_ops::list_by_repo(&state.db, repo.id, params.state.as_deref()).await {
+        Ok(milestones) => (StatusCode::OK, Json(serde_json::json!(milestones))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct CreateMilestoneRequest {
+    pub title: String,
+    pub description: Option<String>,
+    pub due_date: Option<String>,
+    pub state: Option<String>,
+}
+
+pub async fn create_milestone(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Path((owner, name)): Path<(String, String)>,
+    Json(body): Json<CreateMilestoneRequest>,
+) -> impl IntoResponse {
+    let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
+        Some(c) => c,
+        None => { return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "authentication required" }))).into_response(); }
+    };
+    let user_id: i64 = claims.sub.parse().unwrap_or(-1);
+    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await {
+        Ok(Some(r)) => r,
+        Ok(None) => { return (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": "repository not found" }))).into_response(); }
+        Err(e) => { return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(); }
+    };
+    if !rg_core::repo::service::can_write(&state.db, &owner, &name, Some(user_id)).await.unwrap_or(false) {
+        return (StatusCode::FORBIDDEN, Json(serde_json::json!({ "error": "forbidden" }))).into_response();
+    }
+    let now = chrono::Utc::now();
+    let due_date = body.due_date.as_deref().and_then(|d| chrono::DateTime::parse_from_rfc3339(d).ok()).map(|dt| dt.with_timezone(&chrono::Utc));
+    let model = rg_db::entities::milestone::ActiveModel {
+        id: sea_orm::NotSet,
+        repo_id: sea_orm::Set(repo.id),
+        title: sea_orm::Set(body.title),
+        description: sea_orm::Set(body.description),
+        state: sea_orm::Set(body.state.unwrap_or_else(|| "open".to_string())),
+        due_date: sea_orm::Set(due_date),
+        created_at: sea_orm::Set(now),
+        updated_at: sea_orm::Set(now),
+    };
+    match rg_db::ops::milestone_ops::create(&state.db, model).await {
+        Ok(m) => (StatusCode::CREATED, Json(serde_json::json!(m))).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+    }
+}
+
+pub async fn get_milestone(
+    State(state): State<AppState>,
+    Path(((owner, name), id)): Path<((String, String), i64)>,
+) -> impl IntoResponse {
+    let _repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await {
+        Ok(Some(r)) => r,
+        Ok(None) => { return (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": "repository not found" }))).into_response(); }
+        Err(e) => { return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(); }
+    };
+    match rg_db::ops::milestone_ops::find_by_id(&state.db, id).await {
+        Ok(Some(m)) => (StatusCode::OK, Json(serde_json::json!(m))).into_response(),
+        Ok(None) => (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": "milestone not found" }))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct UpdateMilestoneRequest {
+    pub title: Option<String>,
+    pub description: Option<Option<String>>,
+    pub state: Option<String>,
+    pub due_date: Option<Option<String>>,
+}
+
+pub async fn update_milestone(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Path(((owner, name), id)): Path<((String, String), i64)>,
+    Json(body): Json<UpdateMilestoneRequest>,
+) -> impl IntoResponse {
+    let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
+        Some(c) => c,
+        None => { return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "authentication required" }))).into_response(); }
+    };
+    let user_id: i64 = claims.sub.parse().unwrap_or(-1);
+    if !rg_core::repo::service::can_write(&state.db, &owner, &name, Some(user_id)).await.unwrap_or(false) {
+        return (StatusCode::FORBIDDEN, Json(serde_json::json!({ "error": "forbidden" }))).into_response();
+    }
+    let mut m = match rg_db::ops::milestone_ops::find_by_id(&state.db, id).await {
+        Ok(Some(m)) => m,
+        Ok(None) => { return (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": "milestone not found" }))).into_response(); }
+        Err(e) => { return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(); }
+    };
+    if let Some(t) = body.title { m.title = t; }
+    if let Some(d) = body.description { m.description = d; }
+    if let Some(s) = body.state { if s == "open" || s == "closed" { m.state = s; } }
+    if let Some(d) = body.due_date {
+        m.due_date = d.as_deref().and_then(|dt| chrono::DateTime::parse_from_rfc3339(dt).ok()).map(|dt| dt.with_timezone(&chrono::Utc));
+    }
+    m.updated_at = chrono::Utc::now();
+    let active: rg_db::entities::milestone::ActiveModel = m.into();
+    match rg_db::ops::milestone_ops::update(&state.db, active).await {
+        Ok(m) => (StatusCode::OK, Json(serde_json::json!(m))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+    }
+}
+
+pub async fn delete_milestone(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Path(((owner, name), id)): Path<((String, String), i64)>,
+) -> impl IntoResponse {
+    let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
+        Some(c) => c,
+        None => { return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "authentication required" }))).into_response(); }
+    };
+    let user_id: i64 = claims.sub.parse().unwrap_or(-1);
+    if !rg_core::repo::service::can_write(&state.db, &owner, &name, Some(user_id)).await.unwrap_or(false) {
+        return (StatusCode::FORBIDDEN, Json(serde_json::json!({ "error": "forbidden" }))).into_response();
+    }
+    match rg_db::ops::milestone_ops::delete_by_id(&state.db, id).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+    }
 }

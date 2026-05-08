@@ -251,3 +251,337 @@ pub async fn get_repo(
             .into_response(),
     }
 }
+
+// ── Star/Watch/Delete handlers ───────────────────────────────────────────────
+
+/// Request body for watch state.
+#[derive(serde::Deserialize)]
+pub struct WatchRequest {
+    pub state: String,
+}
+
+/// PUT /api/v1/repos/:owner/:name/star
+pub async fn star_repo(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((owner, name)): Path<(String, String)>,
+) -> impl IntoResponse {
+    let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
+        Some(c) => c,
+        None => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({ "error": "authentication required" })),
+            )
+                .into_response()
+        }
+    };
+
+    let user_id: i64 = claims.sub.parse().unwrap_or(-1);
+
+    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await {
+        Ok(Some(r)) => r,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "error": "repository not found" })),
+            )
+                .into_response()
+        }
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+                .into_response()
+        }
+    };
+
+    match rg_core::repo::service::toggle_star(&state.db, user_id, repo.id).await {
+        Ok(starred) => (
+            StatusCode::OK,
+            Json(serde_json::json!({ "starred": starred })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+            .into_response(),
+    }
+}
+
+/// GET /api/v1/repos/:owner/:name/stargazers
+pub async fn get_stargazers(
+    State(state): State<AppState>,
+    Path((owner, name)): Path<(String, String)>,
+    Query(params): Query<PaginationParams>,
+) -> impl IntoResponse {
+    let pagination = params.clamp();
+    let offset = pagination.offset();
+    let limit = pagination.limit();
+
+    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await {
+        Ok(Some(r)) => r,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "error": "repository not found" })),
+            )
+                .into_response()
+        }
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+                .into_response()
+        }
+    };
+
+    match rg_core::repo::service::list_stargazers(&state.db, repo.id, offset, limit).await {
+        Ok((stargazers, total)) => (
+            StatusCode::OK,
+            Json(PaginatedResponse::new(stargazers, &pagination, total as u64)),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+            .into_response(),
+    }
+}
+
+/// PUT /api/v1/repos/:owner/:name/watch
+pub async fn watch_repo(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((owner, name)): Path<(String, String)>,
+    Json(body): Json<WatchRequest>,
+) -> impl IntoResponse {
+    let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
+        Some(c) => c,
+        None => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({ "error": "authentication required" })),
+            )
+                .into_response()
+        }
+    };
+
+    let user_id: i64 = claims.sub.parse().unwrap_or(-1);
+
+    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await {
+        Ok(Some(r)) => r,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "error": "repository not found" })),
+            )
+                .into_response()
+        }
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+                .into_response()
+        }
+    };
+
+    match rg_core::repo::service::set_watch(&state.db, user_id, repo.id, &body.state).await {
+        Ok(watch_state) => (
+            StatusCode::OK,
+            Json(serde_json::json!({ "watch_state": watch_state })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+            .into_response(),
+    }
+}
+
+/// DELETE /api/v1/repos/:owner/:name/watch
+pub async fn unwatch_repo(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((owner, name)): Path<(String, String)>,
+) -> impl IntoResponse {
+    let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
+        Some(c) => c,
+        None => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({ "error": "authentication required" })),
+            )
+                .into_response()
+        }
+    };
+
+    let user_id: i64 = claims.sub.parse().unwrap_or(-1);
+
+    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await {
+        Ok(Some(r)) => r,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "error": "repository not found" })),
+            )
+                .into_response()
+        }
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+                .into_response()
+        }
+    };
+
+    match rg_core::repo::service::set_watch(&state.db, user_id, repo.id, "not_watching").await {
+        Ok(_) => (
+            StatusCode::OK,
+            Json(serde_json::json!({ "watch_state": "not_watching" })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+            .into_response(),
+    }
+}
+
+/// DELETE /api/v1/repos/:owner/:name
+pub async fn delete_repo_handler(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((owner, name)): Path<(String, String)>,
+) -> impl IntoResponse {
+    let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
+        Some(c) => c,
+        None => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({ "error": "authentication required" })),
+            )
+                .into_response()
+        }
+    };
+
+    let user_id: i64 = claims.sub.parse().unwrap_or(-1);
+
+    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await {
+        Ok(Some(r)) => r,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "error": "repository not found" })),
+            )
+                .into_response()
+        }
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+                .into_response()
+        }
+    };
+
+    // Only owner can delete
+    if repo.owner_id != user_id {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({ "error": "only repository owner can delete" })),
+        )
+            .into_response();
+    }
+
+    match rg_core::repo::service::delete_repo(&state.db, repo.id).await {
+        Ok(()) => (StatusCode::OK, Json(serde_json::json!({ "deleted": true }))).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+            .into_response(),
+    }
+}
+
+// ── Fork handlers ──────────────────────────────────────────────────────
+
+#[derive(serde::Deserialize)]
+pub struct ForkRequest {
+    pub org: Option<String>,
+}
+
+/// POST /api/v1/repos/:owner/:name/fork
+pub async fn fork_repo_handler(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((owner, name)): Path<(String, String)>,
+) -> impl IntoResponse {
+    let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
+        Some(c) => c,
+        None => {
+            return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "authentication required" }))).into_response();
+        }
+    };
+    let user_id: i64 = claims.sub.parse().unwrap_or(-1);
+
+    match rg_core::repo::service::fork_repo(&state.db, user_id, &owner, &name, &state.repo_root).await {
+        Ok(repo) => (StatusCode::ACCEPTED, Json(serde_json::json!(repo))).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+    }
+}
+
+/// GET /api/v1/repos/:owner/:name/forks
+pub async fn list_forks_handler(
+    State(state): State<AppState>,
+    Path((owner, name)): Path<(String, String)>,
+    Query(params): Query<PaginationParams>,
+) -> impl IntoResponse {
+    let pagination = params.clamp();
+    let offset = pagination.offset();
+    let limit = pagination.limit();
+
+    match rg_core::repo::service::list_forks(&state.db, &owner, &name, offset, limit).await {
+        Ok((forks, total)) => (
+            StatusCode::OK,
+            Json(PaginatedResponse::new(forks, &pagination, total as u64)),
+        ).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+    }
+}
+
+// ── Transfer handler ──────────────────────────────────────────────────
+
+#[derive(serde::Deserialize)]
+pub struct TransferRequest {
+    pub new_owner: String,
+}
+
+/// POST /api/v1/repos/:owner/:name/transfer
+pub async fn transfer_repo_handler(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((owner, name)): Path<(String, String)>,
+    Json(body): Json<TransferRequest>,
+) -> impl IntoResponse {
+    let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
+        Some(c) => c,
+        None => {
+            return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "authentication required" }))).into_response();
+        }
+    };
+    let user_id: i64 = claims.sub.parse().unwrap_or(-1);
+
+    match rg_core::repo::service::transfer_repo(&state.db, user_id, &owner, &name, &body.new_owner, &state.repo_root).await {
+        Ok(repo) => (StatusCode::OK, Json(serde_json::json!(repo))).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+    }
+}

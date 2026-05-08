@@ -1,9 +1,10 @@
 //! Database operations for repositories.
 
 use anyhow::{Context, Result};
-use sea_orm::*;
+use chrono::Utc;
+use sea_orm::{ActiveValue::Set, *};
 
-use crate::entities::repository::{self, ActiveModel, Entity as RepoEntity, Model as Repo};
+use crate::entities::repository::{self, ActiveModel as RepoActiveModel, Entity as RepoEntity, Model as Repo};
 
 /// Find a repo by (owner_id, name).
 pub async fn find_by_owner_and_name(
@@ -100,7 +101,7 @@ pub async fn list_by_org_paginated(
 }
 
 /// Create a new repo.
-pub async fn create(db: &DatabaseConnection, model: ActiveModel) -> Result<Repo> {
+pub async fn create(db: &DatabaseConnection, model: RepoActiveModel) -> Result<Repo> {
     model.insert(db).await.context("db: create repo")
 }
 
@@ -110,5 +111,88 @@ pub async fn delete_by_id(db: &DatabaseConnection, id: i64) -> Result<()> {
         .exec(db)
         .await
         .context("db: delete repo")?;
+    Ok(())
+}
+
+/// Soft-delete a repository (set deleted_at timestamp).
+pub async fn soft_delete(db: &DatabaseConnection, id: i64) -> Result<()> {
+    let repo = RepoEntity::find_by_id(id)
+        .one(db)
+        .await
+        .context("db: find repo for soft delete")?
+        .ok_or_else(|| anyhow::anyhow!("repository not found"))?;
+
+    let mut model: RepoActiveModel = repo.into();
+    model.deleted_at = Set(Some(Utc::now()));
+    model.update(db).await.context("db: soft delete repo")?;
+
+    Ok(())
+}
+
+/// Update stars_count for a repository based on actual star count.
+pub async fn update_stars_count(db: &DatabaseConnection, id: i64) -> Result<()> {
+    use crate::entities::repo_star;
+
+    let count = repo_star::Entity::find()
+        .filter(repo_star::Column::RepoId.eq(id))
+        .count(db)
+        .await
+        .context("db: count stars")? as i64;
+
+    let repo = RepoEntity::find_by_id(id)
+        .one(db)
+        .await
+        .context("db: find repo for stars count")?
+        .ok_or_else(|| anyhow::anyhow!("repository not found"))?;
+
+    let mut model: RepoActiveModel = repo.into();
+    model.stars_count = Set(count);
+    model.updated_at = Set(Utc::now());
+    model.update(db).await.context("db: update stars count")?;
+
+    Ok(())
+}
+
+/// Update forks_count for a repository based on actual fork count.
+pub async fn update_forks_count(db: &DatabaseConnection, id: i64) -> Result<()> {
+    let count = RepoEntity::find()
+        .filter(repository::Column::OriginRepoId.eq(id))
+        .count(db)
+        .await
+        .context("db: count forks")? as i64;
+
+    let repo = RepoEntity::find_by_id(id)
+        .one(db)
+        .await
+        .context("db: find repo for forks count")?
+        .ok_or_else(|| anyhow::anyhow!("repository not found"))?;
+
+    let mut model: RepoActiveModel = repo.into();
+    model.forks_count = Set(count);
+    model.updated_at = Set(Utc::now());
+    model.update(db).await.context("db: update forks count")?;
+
+    Ok(())
+}
+
+/// List all forks of a repo.
+pub async fn list_forks(db: &DatabaseConnection, origin_repo_id: i64, offset: u64, limit: u64) -> Result<(Vec<Repo>, i64)> {
+    let base = RepoEntity::find()
+        .filter(repository::Column::OriginRepoId.eq(Some(origin_repo_id)))
+        .filter(repository::Column::DeletedAt.is_null())
+        .order_by_asc(repository::Column::CreatedAt);
+    let total = base.clone().count(db).await.context("db: count forks")? as i64;
+    let repos = base.offset(offset).limit(limit).all(db).await.context("db: list forks")?;
+    Ok((repos, total))
+}
+
+/// Update repo owner (for transfer).
+pub async fn update_owner(db: &DatabaseConnection, repo_id: i64, owner_id: i64, org_id: Option<i64>) -> Result<()> {
+    let repo = RepoEntity::find_by_id(repo_id).one(db).await?.context("repo not found")?;
+    let mut active: RepoActiveModel = repo.into();
+    active.owner_id = Set(owner_id);
+    active.org_id = Set(org_id);
+    active.updated_at = Set(Utc::now());
+    active.update(db).await.context("db: update repo owner")?;
     Ok(())
 }

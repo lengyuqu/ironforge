@@ -13,3 +13,5 @@ pub mod repo_content;
 pub mod orgs;
 pub mod notifications;
 pub mod admin;
+pub mod releases;
+pub mod labels;

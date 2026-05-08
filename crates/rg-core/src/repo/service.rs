@@ -14,7 +14,6 @@ use rg_db::{
 /// Returns (owner_id, org_id, owner_name_for_path).
 /// - If owner is a username: returns (user_id, None, username)
 /// - If owner is an org name: returns (org_owner_id, Some(org_id), org_name)
-#[allow(dead_code)]
 async fn resolve_owner(
     db: &DatabaseConnection,
     owner: &str,
@@ -211,4 +210,175 @@ pub async fn create_repo(
     };
 
     repo_ops::create(db, model).await
+}
+
+/// Star a repository. Returns true if newly starred, false if unstarred.
+pub async fn toggle_star(db: &DatabaseConnection, user_id: i64, repo_id: i64) -> Result<bool> {
+    let starred = rg_db::ops::repo_star_ops::toggle_star(db, user_id, repo_id).await?;
+    // Refresh cache count field
+    rg_db::ops::repo_ops::update_stars_count(db, repo_id).await?;
+    Ok(starred)
+}
+
+/// Check if user has starred a repo.
+pub async fn is_starred(db: &DatabaseConnection, user_id: i64, repo_id: i64) -> Result<bool> {
+    rg_db::ops::repo_star_ops::is_starred(db, user_id, repo_id).await
+}
+
+/// List stargazers of a repo.
+pub async fn list_stargazers(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    offset: u64,
+    limit: u64,
+) -> Result<(Vec<rg_db::entities::repo_star::Model>, i64)> {
+    rg_db::ops::repo_star_ops::list_stargazers(db, repo_id, offset, limit).await
+}
+
+/// Set watch state for a repo. Returns new watch_state.
+pub async fn set_watch(
+    db: &DatabaseConnection,
+    user_id: i64,
+    repo_id: i64,
+    state: &str,
+) -> Result<String> {
+    rg_db::ops::repo_watch_ops::set_watch_state(db, user_id, repo_id, state).await
+}
+
+/// Get watch state.
+pub async fn get_watch(
+    db: &DatabaseConnection,
+    user_id: i64,
+    repo_id: i64,
+) -> Result<Option<String>> {
+    rg_db::ops::repo_watch_ops::get_watch_state(db, user_id, repo_id).await
+}
+
+/// Soft-delete a repository.
+pub async fn delete_repo(db: &DatabaseConnection, repo_id: i64) -> Result<()> {
+    rg_db::ops::repo_ops::soft_delete(db, repo_id).await
+}
+
+/// Find repo by owner/name (skip soft-deleted).
+pub async fn find_active_repo_by_owner_name(
+    db: &DatabaseConnection,
+    owner: &str,
+    repo_name: &str,
+) -> Result<Option<rg_db::entities::repository::Model>> {
+    // Reuse find_repo_by_owner_name logic but add deleted_at IS NULL filter
+    // Actually existing find_repo_by_owner_name doesn't check deleted_at,
+    // so we need to query via rg_db::ops and filter
+    let repo = find_repo_by_owner_name(db, owner, repo_name).await?;
+    Ok(repo.filter(|r| r.deleted_at.is_none()))
+}
+
+/// Fork a repository. Returns the forked repo.
+pub async fn fork_repo(
+    db: &DatabaseConnection,
+    user_id: i64,
+    owner: &str,
+    repo_name: &str,
+    repo_root: &PathBuf,
+) -> Result<rg_db::entities::repository::Model> {
+    let source_repo = find_repo_by_owner_name(db, owner, repo_name).await?
+        .ok_or_else(|| anyhow::anyhow!("source repository not found"))?;
+
+    if source_repo.is_private {
+        can_read(db, owner, repo_name, Some(user_id)).await?;
+    }
+
+    let forker = user_ops::find_by_id(db, user_id).await?
+        .ok_or_else(|| anyhow::anyhow!("user not found"))?;
+
+    if repo_ops::find_by_owner_and_name(db, user_id, repo_name).await?.is_some() {
+        bail!("repository '{}' already exists in your account", repo_name);
+    }
+
+    let source_path = repo_root.join(format!("{}/{}.git", owner, repo_name));
+    let target_path = repo_root.join(format!("{}/{}.git", forker.username, repo_name));
+    std::fs::create_dir_all(target_path.parent().unwrap())
+        .with_context(|| format!("failed to create directory: {:?}", target_path.parent()))?;
+
+    let output = std::process::Command::new("git")
+        .arg("clone")
+        .arg("--bare")
+        .arg(&source_path)
+        .arg(&target_path)
+        .output()
+        .context("git clone --bare failed")?;
+
+    if !output.status.success() {
+        bail!("git clone --bare failed: {}", String::from_utf8_lossy(&output.stderr));
+    }
+
+    let now = Utc::now();
+    let model = RepoActiveModel {
+        owner_id: Set(user_id),
+        name: Set(repo_name.to_string()),
+        description: Set(source_repo.description.clone()),
+        is_private: Set(source_repo.is_private),
+        default_branch: Set(source_repo.default_branch.clone()),
+        fork_id: Set(None),
+        stars_count: Set(0),
+        forks_count: Set(0),
+        org_id: Set(None),
+        origin_repo_id: Set(Some(source_repo.id)),
+        created_at: Set(now),
+        updated_at: Set(now),
+        deleted_at: Set(None),
+        ..Default::default()
+    };
+
+    let forked = repo_ops::create(db, model).await?;
+    repo_ops::update_forks_count(db, source_repo.id).await?;
+
+    Ok(forked)
+}
+
+/// List forks of a repository.
+pub async fn list_forks(
+    db: &DatabaseConnection,
+    owner: &str,
+    repo_name: &str,
+    offset: u64,
+    limit: u64,
+) -> Result<(Vec<rg_db::entities::repository::Model>, i64)> {
+    let repo = find_repo_by_owner_name(db, owner, repo_name).await?
+        .ok_or_else(|| anyhow::anyhow!("repository not found"))?;
+    repo_ops::list_forks(db, repo.id, offset, limit).await
+}
+
+/// Transfer a repository to a new owner.
+pub async fn transfer_repo(
+    db: &DatabaseConnection,
+    user_id: i64,
+    owner: &str,
+    repo_name: &str,
+    new_owner: &str,
+    repo_root: &PathBuf,
+) -> Result<rg_db::entities::repository::Model> {
+    let repo = find_repo_by_owner_name(db, owner, repo_name).await?
+        .ok_or_else(|| anyhow::anyhow!("repository not found"))?;
+
+    if repo.owner_id != user_id {
+        bail!("only repository owner can transfer");
+    }
+
+    let (new_owner_id, new_org_id, new_owner_name) = resolve_owner(db, new_owner).await?;
+
+    if repo_ops::find_by_owner_and_name(db, new_owner_id, repo_name).await?.is_some() {
+        bail!("repository '{}' already exists at destination", repo_name);
+    }
+
+    let old_path = repo_root.join(format!("{}/{}.git", owner, repo_name));
+    let new_path = repo_root.join(format!("{}/{}.git", new_owner_name, repo_name));
+    std::fs::create_dir_all(new_path.parent().unwrap())
+        .with_context(|| format!("failed to create directory: {:?}", new_path.parent()))?;
+    std::fs::rename(&old_path, &new_path)
+        .with_context(|| format!("failed to move repository from {:?} to {:?}", old_path, new_path))?;
+
+    repo_ops::update_owner(db, repo.id, new_owner_id, new_org_id).await?;
+
+    repo_ops::find_by_owner_and_name(db, new_owner_id, repo_name).await?
+        .ok_or_else(|| anyhow::anyhow!("repository not found after transfer"))
 }

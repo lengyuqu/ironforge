@@ -5,7 +5,7 @@
 //! GET  /api/v1/users/me  (requires Bearer token)
 
 use axum::{
-    extract::State,
+    extract::{Path, State},
     http::{header, HeaderMap, StatusCode},
     response::IntoResponse,
     Json,
@@ -178,4 +178,121 @@ pub(crate) fn extract_bearer_claims(
     let auth = headers.get(header::AUTHORIZATION)?.to_str().ok()?;
     let token = auth.strip_prefix("Bearer ")?;
     rg_core::auth::jwt::validate_token(token, jwt_secret)
+}
+
+// ── PAT (Personal Access Token) handlers ────────────────────────────────
+
+use sha2::{Sha256, Digest};
+
+#[derive(serde::Deserialize)]
+pub struct CreateTokenRequest {
+    pub name: String,
+    pub scopes: Option<String>,
+    pub expires_at: Option<String>,
+}
+
+fn generate_token() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
+    let entropy: u128 = {
+        let mut buf = [0u8; 16];
+        if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
+            let _ = std::io::Read::read_exact(&mut f, &mut buf);
+            u128::from_le_bytes(buf)
+        } else {
+            let pid = std::process::id() as u128;
+            (nanos << 32) | pid
+        }
+    };
+    format!("ifp_{:016x}{:032x}", nanos, entropy)
+}
+
+fn hash_token(token: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(token.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
+/// GET /api/v1/users/tokens
+pub async fn list_tokens(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
+        Some(c) => c,
+        None => { return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "authentication required" }))).into_response(); }
+    };
+    let user_id: i64 = claims.sub.parse().unwrap_or(-1);
+    match rg_db::ops::token_ops::list_by_user(&state.db, user_id).await {
+        Ok(tokens) => (StatusCode::OK, Json(serde_json::json!(tokens))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+    }
+}
+
+/// POST /api/v1/users/tokens
+pub async fn create_token(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<CreateTokenRequest>,
+) -> impl IntoResponse {
+    let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
+        Some(c) => c,
+        None => { return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "authentication required" }))).into_response(); }
+    };
+    let user_id: i64 = claims.sub.parse().unwrap_or(-1);
+    if body.name.trim().is_empty() {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "token name cannot be empty" }))).into_response();
+    }
+    let raw_token = generate_token();
+    let token_hash = hash_token(&raw_token);
+    let scopes = body.scopes.unwrap_or_else(|| "repo".to_string());
+    let expires_at = body.expires_at.as_deref()
+        .and_then(|d| chrono::DateTime::parse_from_rfc3339(d).ok())
+        .map(|dt| dt.with_timezone(&chrono::Utc));
+    let now = chrono::Utc::now();
+    let model = rg_db::entities::access_token::ActiveModel {
+        id: sea_orm::NotSet,
+        user_id: sea_orm::Set(user_id),
+        name: sea_orm::Set(body.name),
+        token_hash: sea_orm::Set(token_hash),
+        scopes: sea_orm::Set(scopes),
+        expires_at: sea_orm::Set(expires_at),
+        last_used_at: sea_orm::Set(None),
+        created_at: sea_orm::Set(now),
+    };
+    match rg_db::ops::token_ops::create(&state.db, model).await {
+        Ok(token) => (StatusCode::CREATED, Json(serde_json::json!({
+            "id": token.id,
+            "name": token.name,
+            "token": raw_token,
+            "scopes": token.scopes,
+            "expires_at": token.expires_at,
+            "created_at": token.created_at,
+        }))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+    }
+}
+
+/// DELETE /api/v1/users/tokens/:id
+pub async fn delete_token(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+) -> impl IntoResponse {
+    let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
+        Some(c) => c,
+        None => { return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "authentication required" }))).into_response(); }
+    };
+    let user_id: i64 = claims.sub.parse().unwrap_or(-1);
+    let token = match rg_db::ops::token_ops::find_by_id(&state.db, id).await {
+        Ok(Some(t)) => t,
+        _ => { return (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": "token not found" }))).into_response(); }
+    };
+    if token.user_id != user_id {
+        return (StatusCode::FORBIDDEN, Json(serde_json::json!({ "error": "you can only revoke your own tokens" }))).into_response();
+    }
+    match rg_db::ops::token_ops::delete_by_id(&state.db, id).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+    }
 }
