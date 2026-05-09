@@ -47,7 +47,7 @@
 </svelte:head>
 
 <div class="repo-page">
-  <RepoHeader {owner} {repo} activeTab="wiki" />
+  <RepoHeader {owner} {repo} activeTab="wiki" starsCount={0} />
 
   <div class="toolbar">
     <h2>{$t('wiki.pages')}</h2>

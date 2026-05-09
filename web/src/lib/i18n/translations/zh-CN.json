@@ -135,8 +135,21 @@
       "issues": "问题",
       "pulls": "拉取请求",
       "wiki": "Wiki",
-      "pipelines": "CI/CD"
+      "pipelines": "CI/CD",
+      "releases": "发布",
+      "commits": "提交",
+      "settings": "设置"
     },
+    "star": "收藏",
+    "unstar": "取消收藏",
+    "stargazers": "收藏者",
+    "watch": "关注",
+    "watching": "已关注",
+    "not_watching": "关注",
+    "ignoring": "已忽略",
+    "fork": "派生",
+    "forking": "派生中...",
+    "forks": "派生",
     "browser": {
       "branch": "分支",
       "default_branch": "（默认）",
@@ -286,6 +299,96 @@
     "network_error": "网络错误",
     "load_failed": "加载失败",
     "create_failed": "创建失败"
+  },
+
+  "search": {
+    "title": "搜索",
+    "placeholder": "搜索仓库、问题、Wiki...",
+    "all": "全部",
+    "repos": "仓库",
+    "issues": "问题",
+    "wiki": "Wiki",
+    "no_results": "未找到结果。",
+    "results_count": "{total} 条结果",
+    "search_button": "搜索"
+  },
+
+  "releases": {
+    "title": "发布",
+    "new": "新建发布",
+    "no_releases": "暂无发布。",
+    "create_title": "创建新发布",
+    "tag_name": "标签名",
+    "tag_name_placeholder": "v1.0.0",
+    "release_title": "发布标题",
+    "release_title_placeholder": "发布描述",
+    "body": "描述此发布",
+    "body_placeholder": "编写变更说明...",
+    "target_commitish": "目标分支/提交",
+    "is_draft": "保存为草稿",
+    "is_prerelease": "标记为预发布",
+    "submit": "创建发布",
+    "submitting": "创建中...",
+    "latest": "最新",
+    "prerelease": "预发布",
+    "draft": "草稿",
+    "browse_files": "浏览文件",
+    "tag": "标签",
+    "created": "创建于 {date}",
+    "edit": "编辑",
+    "delete": "删除"
+  },
+
+  "settings": {
+    "title": "设置",
+    "general": "常规",
+    "labels": "标签",
+    "danger_zone": "危险区域",
+    "label_name": "标签名称",
+    "label_name_placeholder": "bug",
+    "label_color": "标签颜色",
+    "label_desc": "描述",
+    "label_desc_placeholder": "描述（可选）",
+    "new_label": "新建标签",
+    "edit_label": "编辑标签",
+    "save_label": "保存标签",
+    "create_label": "创建标签",
+    "delete_label": "删除标签",
+    "confirm_delete_label": "确定要删除此标签吗？",
+    "no_labels": "暂无标签。",
+    "preset_colors": "预设颜色",
+    "custom_color": "自定义颜色",
+    "transfer": {
+      "title": "转移所有权",
+      "desc": "将此仓库转移给其他用户或组织。",
+      "new_owner": "新所有者",
+      "new_owner_placeholder": "用户名或组织名",
+      "confirm": "转移仓库",
+      "confirming": "转移中...",
+      "success": "仓库已成功转移。",
+      "warning": "此操作不可撤销。请确认新所有者信息正确。"
+    },
+    "delete": {
+      "title": "删除此仓库",
+      "desc": "一旦删除仓库，将无法恢复。",
+      "confirm_instruction": "输入 <strong>{repo}</strong> 以确认：",
+      "confirm_placeholder": "输入仓库名称",
+      "confirm_button": "删除此仓库",
+      "confirming": "删除中...",
+      "success": "仓库已删除。"
+    }
+  },
+
+  "commit": {
+    "status": "状态检查",
+    "success": "成功",
+    "failure": "失败",
+    "error": "错误",
+    "pending": "等待中",
+    "no_status": "尚无状态检查。",
+    "context": "上下文",
+    "description": "描述",
+    "details": "详情"
   },
 
   "admin": {

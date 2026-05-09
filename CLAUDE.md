@@ -12,7 +12,7 @@
 
 - **二进制名**: `ironforge`（crate `rg-cli` 的 bin target）
 - **目标**: 内存 <50MB、单二进制部署、全功能（仓库/Issue/PR/Wiki/CI）
-- **当前阶段**: **Phase 10 已完成 + Protocol V2 + 前端 i18n**（全部 10 个 Phase 完成 + Git Smart Protocol V2 + 前端国际化）
+- **当前阶段**: **P0/P1 全部完成**（Phase 1~12 + Protocol V2 + 前端 i18n + P0 Gap Analysis 10 项功能 + P1 3 项增强）
 
 ---
 
@@ -86,9 +86,9 @@ git clone http://localhost:8080/git/testuser/testrepo /tmp/if_http
 
 ---
 
-## 实现现状（Phase 10 完成，2026-04-24）
+## 实现现状（2026-05-09）
 
-### ✅ 已完成（Phase 1 ~ Phase 10）
+### ✅ 已完成（Phase 1 ~ Phase 12 + P0 Gap Analysis + P1 增强）
 
 | 模块 | 文件 | 说明 |
 |------|------|------|
@@ -101,8 +101,8 @@ git clone http://localhost:8080/git/testuser/testrepo /tmp/if_http
 | SSH 服务端 | `rg-ssh/src/lib.rs` | russh 0.51，auth_publickey/auth_password 查 DB |
 | HTTP 服务端 | `rg-http/src/lib.rs` | Axum 0.8，/git/ 路由 + **Git 协议权限鉴权** + 分支保护审计 + **SvelteKit 静态资源** |
 | REST API | `rg-http/src/api/` | Users + Repos + Issues + PRs + Wiki + LFS + Webhooks + CI/CD + **Reviews + Branch Protection + Collaborators + Repo Content** |
-| 数据库实体 | `rg-db/src/entities/` | users / repositories / ssh_keys / access_tokens / issues / issue_comments / pull_requests / milestones / wiki_pages / lfs_objects / webhooks / webhook_deliveries / pipelines / pipeline_stages / pipeline_jobs / **pr_reviews / review_comments / protected_branches / repo_collaborators** |
-| DB 迁移 | `rg-db/src/migrations/` | m20260424_000001~000009，自动 up on start |
+| 数据库实体 | `rg-db/src/entities/` | users / repositories / ssh_keys / access_tokens / issues / issue_comments / pull_requests / milestones / wiki_pages / lfs_objects / webhooks / webhook_deliveries / pipelines / pipeline_stages / pipeline_jobs / **pr_reviews / review_comments / protected_branches / repo_collaborators** / **labels / issue_labels / repo_watches / commit_statuses / release_assets** |
+| DB 迁移 | `rg-db/src/migrations/` | m20260424_000001~000009 + m20260508_000001~000005，自动 up on start |
 | 用户认证 | `rg-core/src/auth/` | argon2 password hash + JWT HS256 |
 | 用户服务 | `rg-core/src/user/service.rs` | register / login |
 | 仓库服务 | `rg-core/src/repo/service.rs` | create_repo + can_read/can_write（**集成 collaborator 权限**） |
@@ -137,6 +137,19 @@ git clone http://localhost:8080/git/testuser/testrepo /tmp/if_http
 | **Git V2** | `rg-git/src/protocol/v2.rs` | Protocol V2 HTTP 支持（ls-refs/fetch 命令） |
 | **前端 i18n** | `web/src/lib/i18n/` | locale store + localStorage + 中/英翻译（199 key） |
 | **代码覆盖率** | `cargo-llvm-cov` | LLVM 覆盖率工具，支持 HTML/LCOV/JSON 输出 |
+| **P0: Star/Watch** | `rg-core/src/repo/service.rs` + `rg-http/src/api/repos.rs` | Star 计数 + Watch 三态 + Watch 列表查询 |
+| **P0: 仓库删除** | `rg-core/src/repo/service.rs` | 软删除（deleted_at）+ Git 数据清理 |
+| **P0: Releases/Tags** | `rg-core/src/release/service.rs` + `rg-http/src/api/repos.rs` | 创建/编辑/删除 Release + 关联 Tag + Asset 上传 |
+| **P0: Labels CRUD** | `rg-db/src/entities/label.rs` + `rg-db/src/ops/label_ops.rs` | 独立 labels 表 + issue_labels 关联表 + 颜色/描述 |
+| **P0: Milestones API** | `rg-http/src/api/issues.rs` | list/create/update/delete REST API |
+| **P0: API Tokens/PAT** | `rg-http/src/api/users.rs` | 创建/吊销 PAT + Bearer Token 认证 |
+| **P0: Fork 仓库** | `rg-core/src/repo/service.rs` | 复制 Git 数据 + fork_id 双向关联 |
+| **P0: 仓库转移** | `rg-core/src/repo/service.rs` | POST /transfer，支持用户→用户/组织 |
+| **P0: Commit Status** | `rg-db/src/entities/commit_status.rs` + `rg-core/src/repo/service.rs` | upsert(repo_id,sha,context) + combined status 聚合 |
+| **P0: FTS5 搜索** | `rg-core/src/search/service.rs` + `rg-http/src/api/search.rs` | repos_fts/issues_fts/wiki_pages_fts + 触发器自动同步 |
+| **P1: Labels-Issue 关联** | `rg-db/src/ops/issue_label_ops.rs` + `rg-http/src/api/issues.rs` | ?labels= 过滤 + GET issue labels |
+| **P1: Webhooks 扩展** | `rg-core/src/webhook/service.rs` | 13 个事件（release/branch/tag/issue/PR/milestone）|
+| **P1: Watch 通知** | `rg-core/src/notification/mod.rs` | push/PR/milestone 通知（排除 actor）|
 | CLI | `rg-cli/src/main.rs` | clap 4，`serve`（含 --db-url, --jwt-secret, --docker, --rate-limit-*, --smtp-*, --tls-*, --config, --log-*）/ `create-repo` |
 
 ### ✅ Phase 10 已完成（TLS + 配置文件 + 日志轮转 + API 分页 + GPG 签名 + Protocol V2）
@@ -155,11 +168,21 @@ git clone http://localhost:8080/git/testuser/testrepo /tmp/if_http
 - 配置文件 cargo-llvm-cov.toml
 - macOS Xcode Command Line Tools 兼容
 
-所有 10 个 Phase 全部完成 + V2 + 前端 i18n。后续可考虑：
-- 性能优化（数据库层分页替代应用层分页）
+所有 10 个 Phase 全部完成 + V2 + 前端 i18n + P0/P1。待完成项：
+
+### P2 — Nice to Have
+| # | 功能 | 描述 |
+|---|------|------|
+| R-14 | Fork 合并请求 | Fork 向上游发起 PR（需处理跨仓库 diff）|
+| R-15 | Release 下载统计 | 统计各 Release Asset 下载量 |
+| R-16 | Search API 细分 | GitHub 风格 `/search/code` 和 `/search/issues` 端点 |
+
+### 其他待优化
+- 性能优化（连接池、缓存）
 - SSH 模式的 Protocol V2 完整实现
-- 嵌入式搜索（全文检索代码/Issue/Wiki）
-- API 文档（OpenAPI/Swagger）
+- API 文档（OpenAPI/Swagger 自动生成）
+- 前端 P0/P1 功能 UI 对接（Star/Watch 按钮、Releases 页面、Labels 管理页、Fork 按钮、搜索页面、Commit Status 展示）
+- 端到端集成测试覆盖
 
 ---
 
@@ -271,12 +294,14 @@ let salt = SaltString::generate(&mut rng()); // ❌
 
 ### 后续开发建议
 
-所有 10 个 Phase 已完成 + 前端 i18n，后续优化方向：
+所有 Phase 1~12 + P0 Gap Analysis（R-01~R-10）+ P1（R-11~R-13）已完成。
 
-1. **数据库层分页**：当前分页是应用层 skip/take，改为 SeaORM Paginator 真正数据库分页
-2. **Git Smart Protocol V2**：支持 V2 协议提升性能
-3. **全文搜索**：代码/Issue/Wiki 搜索
-4. **API 文档**：OpenAPI/Swagger 自动生成
+**推荐下一步优先级：**
+1. **前端 P0/P1 功能 UI 对接** — 后端 API 已就绪，前端需要 Star/Watch 按钮、Releases 页面、Labels 管理页、Fork 按钮、全局搜索页面、Commit Status 展示
+2. **P2 功能** — Fork PR（跨仓库 diff）、Release 下载统计、Search API 细分
+3. **API 文档** — OpenAPI/Swagger 自动生成
+4. **端到端测试** — 全流程回归测试覆盖
+5. **性能优化** — 连接池调优、查询缓存、FTS5 索引性能
 
 ---
 

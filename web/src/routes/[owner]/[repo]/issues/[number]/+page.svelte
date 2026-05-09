@@ -62,7 +62,7 @@
 </svelte:head>
 
 <div class="repo-page">
-  <RepoHeader {owner} {repo} activeTab="issues" />
+  <RepoHeader {owner} {repo} activeTab="issues" starsCount={0} />
 
   {#if error}
     <div class="error-banner">{error}</div>

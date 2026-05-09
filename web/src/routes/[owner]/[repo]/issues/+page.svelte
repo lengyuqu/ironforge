@@ -53,7 +53,7 @@
 </svelte:head>
 
 <div class="repo-page">
-  <RepoHeader {owner} {repo} activeTab="issues" />
+  <RepoHeader {owner} {repo} activeTab="issues" starsCount={0} />
 
   <div class="issues-toolbar">
     <div class="filter-tabs">

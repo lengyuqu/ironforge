@@ -135,8 +135,21 @@
       "issues": "Issues",
       "pulls": "Pull Requests",
       "wiki": "Wiki",
-      "pipelines": "CI/CD"
+      "pipelines": "CI/CD",
+      "releases": "Releases",
+      "commits": "Commits",
+      "settings": "Settings"
     },
+    "star": "Star",
+    "unstar": "Unstar",
+    "stargazers": "Stargazers",
+    "watch": "Watch",
+    "watching": "Watching",
+    "not_watching": "Watch",
+    "ignoring": "Ignoring",
+    "fork": "Fork",
+    "forking": "Forking...",
+    "forks": "Forks",
     "browser": {
       "branch": "Branch",
       "default_branch": "(default)",
@@ -286,6 +299,96 @@
     "network_error": "Network error",
     "load_failed": "Failed to load",
     "create_failed": "Failed to create"
+  },
+
+  "search": {
+    "title": "Search",
+    "placeholder": "Search repos, issues, wiki...",
+    "all": "All",
+    "repos": "Repos",
+    "issues": "Issues",
+    "wiki": "Wiki",
+    "no_results": "No results found.",
+    "results_count": "{total} results",
+    "search_button": "Search"
+  },
+
+  "releases": {
+    "title": "Releases",
+    "new": "New release",
+    "no_releases": "No releases yet.",
+    "create_title": "Create a new release",
+    "tag_name": "Tag name",
+    "tag_name_placeholder": "v1.0.0",
+    "release_title": "Release title",
+    "release_title_placeholder": "Release description",
+    "body": "Describe this release",
+    "body_placeholder": "Write a description of the changes...",
+    "target_commitish": "Target branch / commit",
+    "is_draft": "Save as draft",
+    "is_prerelease": "Mark as pre-release",
+    "submit": "Create release",
+    "submitting": "Creating release...",
+    "latest": "Latest",
+    "prerelease": "Pre-release",
+    "draft": "Draft",
+    "browse_files": "Browse files",
+    "tag": "Tag",
+    "created": "Created {date}",
+    "edit": "Edit",
+    "delete": "Delete"
+  },
+
+  "settings": {
+    "title": "Settings",
+    "general": "General",
+    "labels": "Labels",
+    "danger_zone": "Danger Zone",
+    "label_name": "Label name",
+    "label_name_placeholder": "bug",
+    "label_color": "Label color",
+    "label_desc": "Description",
+    "label_desc_placeholder": "Description (optional)",
+    "new_label": "New label",
+    "edit_label": "Edit label",
+    "save_label": "Save label",
+    "create_label": "Create label",
+    "delete_label": "Delete label",
+    "confirm_delete_label": "Are you sure you want to delete this label?",
+    "no_labels": "No labels yet.",
+    "preset_colors": "Preset colors",
+    "custom_color": "Custom color",
+    "transfer": {
+      "title": "Transfer ownership",
+      "desc": "Transfer this repository to another user or organization.",
+      "new_owner": "New owner",
+      "new_owner_placeholder": "username or org name",
+      "confirm": "Transfer repository",
+      "confirming": "Transferring...",
+      "success": "Repository transferred successfully.",
+      "warning": "This is a permanent action. Make sure you have the correct new owner."
+    },
+    "delete": {
+      "title": "Delete this repository",
+      "desc": "Once you delete a repository, there is no going back.",
+      "confirm_instruction": "Type <strong>{repo}</strong> to confirm:",
+      "confirm_placeholder": "Type the repository name",
+      "confirm_button": "Delete this repository",
+      "confirming": "Deleting...",
+      "success": "Repository deleted."
+    }
+  },
+
+  "commit": {
+    "status": "Status checks",
+    "success": "Success",
+    "failure": "Failure",
+    "error": "Error",
+    "pending": "Pending",
+    "no_status": "No status checks reported yet.",
+    "context": "Context",
+    "description": "Description",
+    "details": "Details"
   },
 
   "admin": {
