@@ -139,12 +139,22 @@ export const repos = {
   // Transfer
   transfer: (owner: string, repo: string, newOwner: string) =>
     request<any>(`/repos/${owner}/${repo}/transfer`, { method: 'POST', body: JSON.stringify({ new_owner: newOwner }) }),
+  // Commit Statuses
+  createCommitStatus: (owner: string, repo: string, sha: string, data: { state: string; context: string; description?: string; target_url?: string }) =>
+    request<any>(`/repos/${owner}/${repo}/statuses/${sha}`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  listCommitStatuses: (owner: string, repo: string, sha: string) =>
+    request<any[]>(`/repos/${owner}/${repo}/commits/${sha}/statuses`),
+  getCombinedStatus: (owner: string, repo: string, sha: string) =>
+    request<any>(`/repos/${owner}/${repo}/commits/${sha}/status`),
 };
 
 // ── Issues ───────────────────────────────────────────
 export const issues = {
-  list: (owner: string, repo: string, state?: string, page?: number, perPage?: number) => {
-    return request<PaginatedResponse<any>>(`/repos/${owner}/${repo}/issues${qs({ state, page, per_page: perPage })}`);
+  list: (owner: string, repo: string, state?: string, page?: number, perPage?: number, labels?: string) => {
+    return request<PaginatedResponse<any>>(`/repos/${owner}/${repo}/issues${qs({ state, page, per_page: perPage, labels })}`);
   },
   get: (owner: string, repo: string, number: number) =>
     request<any>(`/repos/${owner}/${repo}/issues/${number}`),
@@ -160,6 +170,9 @@ export const issues = {
     }),
   comments: (owner: string, repo: string, number: number) =>
     request<any[]>(`/repos/${owner}/${repo}/issues/${number}/comments`),
+  // Issue labels
+  labels: (owner: string, repo: string, number: number) =>
+    request<any[]>(`/repos/${owner}/${repo}/issues/${number}/labels`),
   addComment: (owner: string, repo: string, number: number, body: string) =>
     request<any>(`/repos/${owner}/${repo}/issues/${number}/comments`, {
       method: 'POST',
@@ -357,6 +370,9 @@ export const labels = {
     }),
   delete: (owner: string, repo: string, id: number) =>
     request<void>(`/repos/${owner}/${repo}/labels/${id}`, { method: 'DELETE' }),
+  // Issue labels
+  forIssue: (owner: string, repo: string, issueNumber: number) =>
+    request<any[]>(`/repos/${owner}/${repo}/issues/${issueNumber}/labels`),
 };
 
 // Milestones
@@ -451,6 +467,27 @@ export const admin = {
 };
 
 // ── WebSocket ────────────────────────────────────────
+export interface SearchResult {
+  result_type: string;
+  id: number;
+  title: string;
+  excerpt: string | null;
+  repo_owner: string | null;
+  repo_name: string | null;
+}
+
+export interface SearchResponse {
+  results: SearchResult[];
+  total: number;
+  page: number;
+  per_page: number;
+}
+
+export const search = {
+  search: (q: string, type?: string, page?: number, perPage?: number) =>
+    request<SearchResponse>(`/search${qs({ q, type: type || 'all', page, per_page: perPage })}`),
+};
+
 export function connectNotificationWebSocket(
   onMessage: (event: { event_type: string; data: any }) => void,
   onError?: (err: Event) => void,

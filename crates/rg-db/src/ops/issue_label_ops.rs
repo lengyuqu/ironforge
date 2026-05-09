@@ -1,7 +1,7 @@
 //! Database operations for issue labels junction table.
 
 use anyhow::{Context, Result};
-use sea_orm::*;
+use sea_orm::{ConnectionTrait, *};
 
 use crate::entities::issue_label::{self, ActiveModel, Entity as IssueLabelEntity, Model as IssueLabel};
 
@@ -62,4 +62,61 @@ pub async fn delete_by_label_id(db: &DatabaseConnection, label_id: i64) -> Resul
         .await
         .context("db: delete issue labels by label id")?;
     Ok(())
+}
+
+/// Find issue IDs that have ALL of the specified labels.
+/// Returns (matching_issue_ids, total_count).
+pub async fn find_issues_with_all_labels(
+    db: &DatabaseConnection,
+    label_ids: &[i64],
+    offset: u64,
+    limit: u64,
+) -> Result<(Vec<i64>, i64)> {
+    if label_ids.is_empty() {
+        return Ok((Vec::new(), 0));
+    }
+
+    // Find issue IDs that have all specified labels using GROUP BY + HAVING COUNT
+    let mut conditions = Vec::new();
+    for label_id in label_ids {
+        conditions.push(format!("label_id = {}", label_id));
+    }
+    let where_clause = conditions.join(" OR ");
+
+    // Get total count of distinct issue_ids matching all labels
+    let count_sql = format!(
+        "SELECT COUNT(*) FROM (SELECT issue_id FROM issue_labels WHERE {} GROUP BY issue_id HAVING COUNT(DISTINCT label_id) = {})",
+        where_clause, label_ids.len()
+    );
+    let total: i64 = db
+        .query_one(Statement::from_sql_and_values(
+            sea_orm::DatabaseBackend::Sqlite,
+            &count_sql,
+            [],
+        ))
+        .await
+        .context("db: count issues with all labels")?
+        .and_then(|row| row.try_get_by_index(0).ok())
+        .unwrap_or(0);
+
+    // Get paginated issue IDs
+    let sql = format!(
+        "SELECT issue_id FROM issue_labels WHERE {} GROUP BY issue_id HAVING COUNT(DISTINCT label_id) = {} ORDER BY issue_id DESC LIMIT {} OFFSET {}",
+        where_clause, label_ids.len(), limit, offset
+    );
+    let rows = db
+        .query_all(Statement::from_sql_and_values(
+            sea_orm::DatabaseBackend::Sqlite,
+            &sql,
+            [],
+        ))
+        .await
+        .context("db: find issues with all labels")?;
+
+    let issue_ids: Vec<i64> = rows
+        .iter()
+        .filter_map(|row| row.try_get_by_index(0).ok())
+        .collect();
+
+    Ok((issue_ids, total))
 }

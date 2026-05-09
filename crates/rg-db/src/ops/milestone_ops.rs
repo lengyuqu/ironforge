@@ -48,3 +48,15 @@ pub async fn delete_by_id(db: &DatabaseConnection, id: i64) -> Result<()> {
         .context("db: delete milestone")?;
     Ok(())
 }
+
+/// Count open (non-closed) issues in a milestone.
+pub async fn count_open_by_milestone(db: &DatabaseConnection, milestone_id: i64) -> Result<i64> {
+    use crate::entities::issue;
+    let count = issue::Entity::find()
+        .filter(issue::Column::MilestoneId.eq(milestone_id))
+        .filter(issue::Column::State.ne("closed"))
+        .count(db)
+        .await
+        .context("db: count open issues by milestone")?;
+    Ok(count as i64)
+}

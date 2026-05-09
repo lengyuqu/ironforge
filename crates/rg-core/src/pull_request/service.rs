@@ -52,7 +52,35 @@ pub async fn create_pr(
         merged_at: Set(None),
     };
 
-    pull_request_ops::create(db, model).await
+    let pr = pull_request_ops::create(db, model).await?;
+
+    // Trigger pull_request.opened webhook
+    let payload = serde_json::json!({
+        "id": pr.id,
+        "repo_id": pr.repo_id,
+        "number": pr.number,
+        "title": pr.title,
+        "state": pr.state,
+        "head_branch": pr.head_branch,
+        "base_branch": pr.base_branch,
+        "author_id": pr.author_id,
+    });
+    let _ = crate::webhook::service::trigger_pr_opened(db, repo_id, &payload).await;
+
+    Ok(pr)
+}
+
+/// Notify watchers of a PR event.
+pub async fn notify_watchers_pr(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    repo_name: &str,
+    author_name: &str,
+    pr_number: i64,
+    pr_title: &str,
+    action: &str,
+) -> Result<()> {
+    crate::notification::notify_watchers_pr(db, repo_id, repo_name, author_name, pr_number, pr_title, action).await
 }
 
 /// List PRs for a repo, optionally filtered by state.
@@ -116,12 +144,25 @@ pub async fn update_pr(
     if let Some(s) = &state {
         match s.as_str() {
             "open" | "closed" | "merged" => {
+                let was_open = pr.state == "open";
                 pr.state = s.clone();
+                if s == "closed" && pr.closed_at.is_none() {
+                    pr.closed_at = Some(Utc::now());
+                }
+
+                // Trigger pull_request.closed webhook when transitioning to closed
+                if was_open && s == "closed" {
+                    let close_payload = serde_json::json!({
+                        "id": pr.id,
+                        "repo_id": pr.repo_id,
+                        "number": pr.number,
+                        "title": pr.title,
+                        "state": s,
+                    });
+                    let _ = crate::webhook::service::trigger_pr_closed(db, pr.repo_id, &close_payload).await;
+                }
             }
             _ => bail!("invalid PR state: {}", s),
-        }
-        if s == "closed" && pr.closed_at.is_none() {
-            pr.closed_at = Some(Utc::now());
         }
     }
 
@@ -294,7 +335,18 @@ pub async fn merge_pr(
     pr.updated_at = Utc::now();
 
     let active: pull_request::ActiveModel = pr.into();
-    pull_request_ops::update(db, active).await?;
+    let merged_pr = pull_request_ops::update(db, active).await?;
+
+    // Trigger pull_request.merged webhook
+    let merge_payload = serde_json::json!({
+        "id": merged_pr.id,
+        "repo_id": merged_pr.repo_id,
+        "number": merged_pr.number,
+        "title": merged_pr.title,
+        "merge_commit_sha": merge_commit_sha,
+        "strategy": format!("{:?}", strategy).to_lowercase(),
+    });
+    let _ = crate::webhook::service::trigger_pr_merged(db, merged_pr.repo_id, &merge_payload).await;
 
     Ok(MergeResult {
         merge_commit_sha,

@@ -47,6 +47,8 @@ pub struct CreateCommentRequest {
 #[derive(Deserialize)]
 pub struct ListQuery {
     pub state: Option<String>,
+    #[serde(default)]
+    pub labels: Option<String>,
     #[serde(flatten)]
     pub pagination: PaginationParams,
 }
@@ -60,6 +62,39 @@ pub async fn list_issues(
 ) -> impl IntoResponse {
     let state_filter = params.state.as_deref();
     let pagination = params.pagination.clamp();
+
+    // If labels filter is present, use filtered query
+    if let Some(ref labels_str) = params.labels {
+        let label_names: Vec<String> = labels_str.split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        if !label_names.is_empty() {
+            return match rg_core::issue::list_issues_filtered_by_labels(
+                &state.db,
+                &owner,
+                &repo,
+                state_filter,
+                &label_names,
+                pagination.offset(),
+                pagination.limit(),
+            )
+            .await
+            {
+                Ok((data, total)) => (
+                    StatusCode::OK,
+                    Json(PaginatedResponse::new(data, &pagination, total as u64)),
+                )
+                    .into_response(),
+                Err(e) => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"error": format!("{:#}", e)})),
+                )
+                    .into_response(),
+            };
+        }
+    }
+
     match rg_core::issue::list_issues_paginated(
         &state.db,
         &owner,
@@ -382,5 +417,29 @@ pub async fn delete_milestone(
     match rg_db::ops::milestone_ops::delete_by_id(&state.db, id).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+    }
+}
+
+// ── Issue Labels handlers ───────────────────────────────────────────────
+
+/// GET /api/v1/repos/:owner/:name/issues/:number/labels
+pub async fn get_issue_labels(
+    State(state): State<AppState>,
+    Path((owner, repo, number)): Path<(String, String, i64)>,
+) -> impl IntoResponse {
+    match rg_core::issue::get_issue(&state.db, &owner, &repo, number).await {
+        Ok(issue) => {
+            match rg_core::label::service::get_issue_labels(&state.db, issue.id).await {
+                Ok(labels) => (StatusCode::OK, Json(serde_json::json!(labels))).into_response(),
+                Err(e) => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"error": format!("{:#}", e)})),
+                ).into_response(),
+            }
+        }
+        Err(e) => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": format!("{:#}", e)})),
+        ).into_response(),
     }
 }

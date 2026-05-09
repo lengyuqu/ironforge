@@ -15,3 +15,4 @@ pub mod notifications;
 pub mod admin;
 pub mod releases;
 pub mod labels;
+pub mod search;

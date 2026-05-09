@@ -12,6 +12,8 @@ pub mod m20260508_000001_create_repo_stars_watches;
 pub mod m20260508_000006_add_repo_soft_delete;
 pub mod m20260508_000002_create_releases;
 pub mod m20260508_000003_create_labels;
+pub mod m20260508_000004_create_commit_statuses;
+pub mod m20260508_000005_create_fts5_indexes;
 
 use sea_orm_migration::prelude::*;
 
@@ -35,6 +37,8 @@ impl MigratorTrait for Migrator {
             Box::new(m20260508_000006_add_repo_soft_delete::Migration),
             Box::new(m20260508_000002_create_releases::Migration),
             Box::new(m20260508_000003_create_labels::Migration),
+            Box::new(m20260508_000004_create_commit_statuses::Migration),
+            Box::new(m20260508_000005_create_fts5_indexes::Migration),
         ]
     }
 }

@@ -30,3 +30,4 @@ pub mod release;
 pub mod release_asset;
 pub mod label;
 pub mod issue_label;
+pub mod commit_status;

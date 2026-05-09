@@ -186,6 +186,7 @@ fn create_router(state: AppState, rate_limiter: rate_limit::RateLimiter) -> Rout
         // Issues
         .route("/repos/:owner/:name/issues", get(api::issues::list_issues).post(api::issues::create_issue))
         .route("/repos/:owner/:name/issues/:number", get(api::issues::get_issue).patch(api::issues::update_issue))
+        .route("/repos/:owner/:name/issues/:number/labels", get(api::issues::get_issue_labels))
         .route("/repos/:owner/:name/issues/:number/comments", get(api::issues::list_comments).post(api::issues::add_comment))
         // Pull Requests
         .route("/repos/:owner/:name/pulls", get(api::pulls::list_prs).post(api::pulls::create_pr))
@@ -229,6 +230,10 @@ fn create_router(state: AppState, rate_limiter: rate_limit::RateLimiter) -> Rout
         .route("/repos/:owner/:name/tags", get(api::repo_content::list_tags))
         // GPG Signatures
         .route("/repos/:owner/:name/commits/:sha/signature", get(api::repo_content::get_commit_signature))
+        // Commit Statuses
+        .route("/repos/:owner/:name/statuses/:sha", post(api::repos::create_commit_status))
+        .route("/repos/:owner/:name/commits/:sha/statuses", get(api::repos::list_commit_statuses))
+        .route("/repos/:owner/:name/commits/:sha/status", get(api::repos::get_combined_status))
         // Organizations
         .route("/orgs", get(api::orgs::list_orgs).post(api::orgs::create_org))
         .route("/orgs/:name", get(api::orgs::get_org).patch(api::orgs::update_org).delete(api::orgs::delete_org))
@@ -266,6 +271,8 @@ fn create_router(state: AppState, rate_limiter: rate_limit::RateLimiter) -> Rout
         .route("/admin/orgs", get(api::admin::list_orgs))
         .route("/admin/orgs/:name", get(api::admin::get_org))
         .route("/admin/orgs/:name", delete(api::admin::delete_org))
+        // Global Search
+        .route("/search", get(api::search::search))
         // WebSocket
         .route("/ws/notifications", get(ws::ws_notifications_handler));
 
@@ -897,6 +904,25 @@ async fn post_push_hooks(
 
         if let Err(e) = rg_core::webhook::service::trigger_event(db, repo_id, "push", &payload).await {
             tracing::warn!(error = %e, "Failed to trigger push webhook");
+        }
+
+        // 3. Trigger branch/tag-specific webhooks
+        if let Some(branch_name) = update.refname.strip_prefix("refs/heads/") {
+            if update.old_sha.is_empty() || update.old_sha == "0000000000000000000000000000000000000000" {
+                // New branch created
+                let _ = rg_core::webhook::service::trigger_branch_created(db, repo_id, branch_name).await;
+            } else if update.new_sha.is_empty() || update.new_sha == "0000000000000000000000000000000000000000" {
+                // Branch deleted
+                let _ = rg_core::webhook::service::trigger_branch_deleted(db, repo_id, branch_name).await;
+            }
+        } else if let Some(tag_name) = update.refname.strip_prefix("refs/tags/") {
+            if update.old_sha.is_empty() || update.old_sha == "0000000000000000000000000000000000000000" {
+                // New tag created
+                let _ = rg_core::webhook::service::trigger_tag_created(db, repo_id, tag_name).await;
+            } else if update.new_sha.is_empty() || update.new_sha == "0000000000000000000000000000000000000000" {
+                // Tag deleted
+                let _ = rg_core::webhook::service::trigger_tag_deleted(db, repo_id, tag_name).await;
+            }
         }
 
         // Push real-time notification for push event

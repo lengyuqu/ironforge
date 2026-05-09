@@ -2,7 +2,7 @@
 
 use anyhow::{bail, Context, Result};
 use chrono::Utc;
-use sea_orm::{DatabaseConnection, Set};
+use sea_orm::{DatabaseConnection, EntityTrait, Set};
 
 use rg_db::entities::issue::{self, Model as Issue};
 use rg_db::entities::issue_comment::{self, Model as Comment};
@@ -45,6 +45,17 @@ pub async fn create_issue(
 
     let issue = issue_ops::create(db, model).await?;
 
+    // Trigger issue.opened webhook
+    let payload = serde_json::json!({
+        "id": issue.id,
+        "repo_id": issue.repo_id,
+        "number": issue.number,
+        "title": issue.title,
+        "state": issue.state,
+        "author_id": issue.author_id,
+    });
+    let _ = crate::webhook::service::trigger_issue_opened(db, repo_id, &payload).await;
+
     // Dual-write: sync labels to issue_labels junction table
     if let Some(ref label_names) = labels {
         if let Ok(all_labels) = label_ops::list_by_repo(db, repo_id).await {
@@ -82,6 +93,63 @@ pub async fn list_issues_paginated(
 ) -> Result<(Vec<Issue>, i64)> {
     let repo = resolve_repo(db, owner, repo_name).await?;
     issue_ops::list_by_repo_paginated(db, repo.id, state, offset, limit).await
+}
+
+/// Paginated list of issues filtered by labels. Returns issues that have ALL specified labels.
+pub async fn list_issues_filtered_by_labels(
+    db: &DatabaseConnection,
+    owner: &str,
+    repo_name: &str,
+    state: Option<&str>,
+    label_names: &[String],
+    offset: u64,
+    limit: u64,
+) -> Result<(Vec<Issue>, i64)> {
+    let repo = resolve_repo(db, owner, repo_name).await?;
+
+    // Resolve label names to IDs
+    let all_labels = label_ops::list_by_repo(db, repo.id).await?;
+    let required_label_ids: Vec<i64> = all_labels
+        .iter()
+        .filter(|l| label_names.contains(&l.name))
+        .map(|l| l.id)
+        .collect();
+
+    if required_label_ids.is_empty() {
+        return Ok((Vec::new(), 0));
+    }
+
+    // Find issue IDs that have ALL required labels
+    let (matching_issue_ids, total) = issue_label_ops::find_issues_with_all_labels(
+        db,
+        &required_label_ids,
+        offset,
+        limit,
+    )
+    .await?;
+
+    if matching_issue_ids.is_empty() {
+        return Ok((Vec::new(), total));
+    }
+
+    // Fetch the actual issue models
+    let mut issues = Vec::new();
+    for issue_id in matching_issue_ids {
+        if let Some(issue) = issue_ops::find_by_id(db, issue_id).await? {
+            // Apply state filter in-memory
+            if let Some(s) = state {
+                if issue.state != s {
+                    continue;
+                }
+            }
+            // Only include issues from this repo
+            if issue.repo_id == repo.id {
+                issues.push(issue);
+            }
+        }
+    }
+
+    Ok((issues, total))
 }
 
 /// Get a single issue by repo owner/name and issue number.
@@ -125,11 +193,33 @@ pub async fn update_issue(
         if s != "open" && s != "closed" {
             bail!("invalid issue state: {}, must be open or closed", s);
         }
+        let was_open = issue.state == "open";
         issue.state = s.clone();
         if s == "closed" {
             issue.closed_at = Some(Utc::now());
         } else {
             issue.closed_at = None;
+        }
+
+        // Trigger issue.closed webhook when transitioning to closed
+        if was_open && s == "closed" {
+            let close_payload = serde_json::json!({
+                "id": issue.id,
+                "repo_id": issue.repo_id,
+                "number": issue.number,
+                "title": issue.title,
+                "state": s,
+            });
+            let _ = crate::webhook::service::trigger_issue_closed(db, issue.repo_id, &close_payload).await;
+
+            // Check if milestone should be notified (all issues in milestone are closed)
+            if let Some(mid) = issue.milestone_id {
+                if let Ok(remaining) = rg_db::ops::milestone_ops::count_open_by_milestone(db, mid).await {
+                    if remaining == 0 {
+                        let _ = notify_milestone_closed(db, issue.repo_id, mid).await;
+                    }
+                }
+            }
         }
     }
     if let Some(l) = labels {
@@ -183,7 +273,23 @@ pub async fn add_comment(
         updated_at: Set(Utc::now()),
     };
 
-    issue_comment_ops::create(db, model).await
+    let comment = issue_comment_ops::create(db, model).await?;
+
+    // Trigger issue.comment webhook
+    let issue_payload = serde_json::json!({
+        "id": issue.id,
+        "repo_id": issue.repo_id,
+        "number": issue.number,
+        "title": issue.title,
+    });
+    let comment_payload = serde_json::json!({
+        "id": comment.id,
+        "body": comment.body,
+        "author_id": comment.author_id,
+    });
+    let _ = crate::webhook::service::trigger_issue_comment(db, issue.repo_id, &issue_payload, &comment_payload).await;
+
+    Ok(comment)
 }
 
 /// List comments for an issue.
@@ -224,6 +330,32 @@ pub async fn delete_comment(db: &DatabaseConnection, comment_id: i64) -> Result<
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────
+
+/// Notify watchers and trigger webhook when all issues in a milestone are closed.
+async fn notify_milestone_closed(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    milestone_id: i64,
+) -> Result<()> {
+    // Trigger milestone.closed webhook
+    let payload = serde_json::json!({
+        "id": milestone_id,
+        "repo_id": repo_id,
+    });
+    let _ = crate::webhook::service::trigger_milestone_closed(db, repo_id, &payload).await;
+
+    // Notify watchers about milestone completion
+    if let Ok(Some(milestone)) = rg_db::ops::milestone_ops::find_by_id(db, milestone_id).await {
+        // Look up repo name for notification
+        if let Ok(Some(repo)) = rg_db::entities::repository::Entity::find_by_id(repo_id).one(db).await {
+            let _ = crate::notification::notify_watchers_milestone(
+                db, repo_id, &repo.name, &milestone.title, "closed",
+            ).await;
+        }
+    }
+
+    Ok(())
+}
 
 async fn resolve_repo(
     db: &DatabaseConnection,

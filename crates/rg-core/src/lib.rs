@@ -20,6 +20,7 @@ pub mod notification;
 pub mod email;
 pub mod release;
 pub mod label;
+pub mod search;
 
 use anyhow::Result;
 

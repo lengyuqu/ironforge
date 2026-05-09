@@ -585,3 +585,115 @@ pub async fn transfer_repo_handler(
         Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
     }
 }
+
+// ── Commit Status handlers ─────────────────────────────────────────────
+
+#[derive(serde::Deserialize, ToSchema)]
+pub struct CreateCommitStatusRequest {
+    pub state: String,
+    pub context: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_url: Option<String>,
+}
+
+/// POST /api/v1/repos/:owner/:name/statuses/:sha
+pub async fn create_commit_status(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((owner, name, sha)): Path<(String, String, String)>,
+    Json(body): Json<CreateCommitStatusRequest>,
+) -> impl IntoResponse {
+    let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
+        Some(c) => c,
+        None => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({ "error": "authentication required" })),
+            )
+                .into_response()
+        }
+    };
+
+    let user_id: i64 = claims.sub.parse().unwrap_or(-1);
+
+    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await {
+        Ok(Some(r)) => r,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "error": "repository not found" })),
+            )
+                .into_response()
+        }
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+                .into_response()
+        }
+    };
+
+    if !rg_core::repo::service::can_write(&state.db, &owner, &name, Some(user_id))
+        .await
+        .unwrap_or(false)
+    {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({ "error": "forbidden" })),
+        )
+            .into_response();
+    }
+
+    match rg_core::repo::service::create_commit_status(
+        &state.db,
+        repo.id,
+        &sha,
+        &body.state,
+        &body.context,
+        body.description.as_deref(),
+        body.target_url.as_deref(),
+        user_id,
+    )
+    .await
+    {
+        Ok(status) => (StatusCode::CREATED, Json(serde_json::json!(status))).into_response(),
+        Err(e) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+            .into_response(),
+    }
+}
+
+/// GET /api/v1/repos/:owner/:name/commits/:sha/statuses
+pub async fn list_commit_statuses(
+    State(state): State<AppState>,
+    Path((owner, name, sha)): Path<(String, String, String)>,
+) -> impl IntoResponse {
+    match rg_core::repo::service::list_commit_statuses(&state.db, &owner, &name, &sha).await {
+        Ok(statuses) => (StatusCode::OK, Json(serde_json::json!(statuses))).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+            .into_response(),
+    }
+}
+
+/// GET /api/v1/repos/:owner/:name/commits/:sha/status
+pub async fn get_combined_status(
+    State(state): State<AppState>,
+    Path((owner, name, sha)): Path<(String, String, String)>,
+) -> impl IntoResponse {
+    match rg_core::repo::service::get_combined_status(&state.db, &owner, &name, &sha).await {
+        Ok(combined) => (StatusCode::OK, Json(combined)).into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": e.to_string() })),
+        )
+            .into_response(),
+    }
+}

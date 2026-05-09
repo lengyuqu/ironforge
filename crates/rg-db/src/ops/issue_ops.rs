@@ -19,6 +19,14 @@ pub async fn find_by_repo_and_number(
         .context("db: find issue by repo and number")
 }
 
+/// Find an issue by ID.
+pub async fn find_by_id(db: &DatabaseConnection, id: i64) -> Result<Option<Issue>> {
+    IssueEntity::find_by_id(id)
+        .one(db)
+        .await
+        .context("db: find issue by id")
+}
+
 /// List issues for a repo, optionally filtered by state.
 pub async fn list_by_repo(
     db: &DatabaseConnection,

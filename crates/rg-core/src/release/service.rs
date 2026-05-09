@@ -53,7 +53,22 @@ pub async fn create_release(
         ..Default::default()
     };
 
-    rg_db::ops::release_ops::create(db, model).await
+    let release = rg_db::ops::release_ops::create(db, model).await?;
+
+    // Trigger release.created webhook
+    let payload = serde_json::json!({
+        "id": release.id,
+        "repo_id": release.repo_id,
+        "tag_name": release.tag_name,
+        "title": release.title,
+        "body": release.body,
+        "is_draft": release.is_draft,
+        "is_prerelease": release.is_prerelease,
+        "author_id": release.author_id,
+    });
+    let _ = crate::webhook::service::trigger_release_created(db, repo_id, &payload).await;
+
+    Ok(release)
 }
 
 /// List releases for a repository.
@@ -106,7 +121,24 @@ pub async fn update_release(
 
 /// Delete a release.
 pub async fn delete_release(db: &DatabaseConnection, id: i64) -> Result<()> {
-    rg_db::ops::release_ops::delete_by_id(db, id).await
+    // Get release info for webhook before deleting
+    let release = rg_db::ops::release_ops::find_by_id(db, id)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("release not found"))?;
+    let repo_id = release.repo_id;
+
+    rg_db::ops::release_ops::delete_by_id(db, id).await?;
+
+    // Trigger release.deleted webhook
+    let payload = serde_json::json!({
+        "id": release.id,
+        "repo_id": release.repo_id,
+        "tag_name": release.tag_name,
+        "title": release.title,
+    });
+    let _ = crate::webhook::service::trigger_release_deleted(db, repo_id, &payload).await;
+
+    Ok(())
 }
 
 /// Upload a release asset.

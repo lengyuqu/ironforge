@@ -244,3 +244,127 @@ pub async fn redeliver(
 
     Ok(())
 }
+
+// ── Convenience event helpers ───────────────────────────────────────────
+
+/// Trigger a release.created webhook event.
+pub async fn trigger_release_created(db: &DatabaseConnection, repo_id: i64, release: &Value) -> Result<()> {
+    let payload = serde_json::json!({
+        "event": "release.created",
+        "release": release,
+    });
+    trigger_event(db, repo_id, "release.created", &payload).await
+}
+
+/// Trigger a release.deleted webhook event.
+pub async fn trigger_release_deleted(db: &DatabaseConnection, repo_id: i64, release: &Value) -> Result<()> {
+    let payload = serde_json::json!({
+        "event": "release.deleted",
+        "release": release,
+    });
+    trigger_event(db, repo_id, "release.deleted", &payload).await
+}
+
+/// Trigger a branch.created webhook event.
+pub async fn trigger_branch_created(db: &DatabaseConnection, repo_id: i64, branch: &str) -> Result<()> {
+    let payload = serde_json::json!({
+        "event": "branch.created",
+        "ref": branch,
+        "ref_type": "branch",
+    });
+    trigger_event(db, repo_id, "branch.created", &payload).await
+}
+
+/// Trigger a branch.deleted webhook event.
+pub async fn trigger_branch_deleted(db: &DatabaseConnection, repo_id: i64, branch: &str) -> Result<()> {
+    let payload = serde_json::json!({
+        "event": "branch.deleted",
+        "ref": branch,
+        "ref_type": "branch",
+    });
+    trigger_event(db, repo_id, "branch.deleted", &payload).await
+}
+
+/// Trigger a tag.created webhook event.
+pub async fn trigger_tag_created(db: &DatabaseConnection, repo_id: i64, tag: &str) -> Result<()> {
+    let payload = serde_json::json!({
+        "event": "tag.created",
+        "ref": tag,
+        "ref_type": "tag",
+    });
+    trigger_event(db, repo_id, "tag.created", &payload).await
+}
+
+/// Trigger a tag.deleted webhook event.
+pub async fn trigger_tag_deleted(db: &DatabaseConnection, repo_id: i64, tag: &str) -> Result<()> {
+    let payload = serde_json::json!({
+        "event": "tag.deleted",
+        "ref": tag,
+        "ref_type": "tag",
+    });
+    trigger_event(db, repo_id, "tag.deleted", &payload).await
+}
+
+/// Trigger an issue.opened webhook event.
+pub async fn trigger_issue_opened(db: &DatabaseConnection, repo_id: i64, issue: &Value) -> Result<()> {
+    let payload = serde_json::json!({
+        "event": "issue.opened",
+        "issue": issue,
+    });
+    trigger_event(db, repo_id, "issue.opened", &payload).await
+}
+
+/// Trigger an issue.closed webhook event.
+pub async fn trigger_issue_closed(db: &DatabaseConnection, repo_id: i64, issue: &Value) -> Result<()> {
+    let payload = serde_json::json!({
+        "event": "issue.closed",
+        "issue": issue,
+    });
+    trigger_event(db, repo_id, "issue.closed", &payload).await
+}
+
+/// Trigger an issue.comment webhook event.
+pub async fn trigger_issue_comment(db: &DatabaseConnection, repo_id: i64, issue: &Value, comment: &Value) -> Result<()> {
+    let payload = serde_json::json!({
+        "event": "issue.comment",
+        "issue": issue,
+        "comment": comment,
+    });
+    trigger_event(db, repo_id, "issue.comment", &payload).await
+}
+
+/// Trigger a pull_request.opened webhook event.
+pub async fn trigger_pr_opened(db: &DatabaseConnection, repo_id: i64, pr: &Value) -> Result<()> {
+    let payload = serde_json::json!({
+        "event": "pull_request.opened",
+        "pull_request": pr,
+    });
+    trigger_event(db, repo_id, "pull_request.opened", &payload).await
+}
+
+/// Trigger a pull_request.closed webhook event.
+pub async fn trigger_pr_closed(db: &DatabaseConnection, repo_id: i64, pr: &Value) -> Result<()> {
+    let payload = serde_json::json!({
+        "event": "pull_request.closed",
+        "pull_request": pr,
+    });
+    trigger_event(db, repo_id, "pull_request.closed", &payload).await
+}
+
+/// Trigger a pull_request.merged webhook event.
+pub async fn trigger_pr_merged(db: &DatabaseConnection, repo_id: i64, pr: &Value) -> Result<()> {
+    let payload = serde_json::json!({
+        "event": "pull_request.merged",
+        "pull_request": pr,
+    });
+    trigger_event(db, repo_id, "pull_request.merged", &payload).await
+}
+
+/// Trigger a milestone.closed webhook event.
+pub async fn trigger_milestone_closed(db: &DatabaseConnection, repo_id: i64, milestone: &Value) -> Result<()> {
+    let payload = serde_json::json!({
+        "event": "milestone.closed",
+        "milestone": milestone,
+    });
+    trigger_event(db, repo_id, "milestone.closed", &payload).await
+}

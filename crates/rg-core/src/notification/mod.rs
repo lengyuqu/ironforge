@@ -56,3 +56,71 @@ pub async fn unread_count(db: &DatabaseConnection, user_id: i64) -> Result<u64> 
 pub async fn delete_notification(db: &DatabaseConnection, id: i64) -> Result<()> {
     notification_ops::delete_notification(db, id).await
 }
+
+// ── Watch notification helpers ─────────────────────────────────────────
+
+/// Notify all watchers of a repository about a push event.
+pub async fn notify_watchers_push(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    repo_name: &str,
+    pusher_name: &str,
+    ref_name: &str,
+) -> Result<()> {
+    let watchers = rg_db::ops::repo_watch_ops::list_watchers(db, repo_id, 0, 1000).await?.0;
+    for watcher in watchers {
+        // Don't notify the pusher themselves
+        let pusher_opt = rg_db::ops::user_ops::find_by_username(db, pusher_name).await?;
+        if let Some(ref pusher) = pusher_opt {
+            if pusher.id == watcher.user_id {
+                continue;
+            }
+        }
+        let title = format!("New push to {}", repo_name);
+        let body = Some(format!("{} pushed to {}", pusher_name, ref_name));
+        let _ = notification_ops::create_notification(
+            db, watcher.user_id, "push", &title, body.as_deref(), Some(repo_id),
+        ).await;
+    }
+    Ok(())
+}
+
+/// Notify all watchers of a repository about a pull request event.
+pub async fn notify_watchers_pr(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    repo_name: &str,
+    author_name: &str,
+    pr_number: i64,
+    pr_title: &str,
+    action: &str,
+) -> Result<()> {
+    let watchers = rg_db::ops::repo_watch_ops::list_watchers(db, repo_id, 0, 1000).await?.0;
+    for watcher in watchers {
+        let title = format!("PR #{} {} in {}", pr_number, action, repo_name);
+        let body = Some(format!("{} {}: {}", author_name, action, pr_title));
+        let _ = notification_ops::create_notification(
+            db, watcher.user_id, "pull_request", &title, body.as_deref(), Some(repo_id),
+        ).await;
+    }
+    Ok(())
+}
+
+/// Notify all watchers of a repository about a milestone event.
+pub async fn notify_watchers_milestone(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    repo_name: &str,
+    milestone_title: &str,
+    action: &str,
+) -> Result<()> {
+    let watchers = rg_db::ops::repo_watch_ops::list_watchers(db, repo_id, 0, 1000).await?.0;
+    for watcher in watchers {
+        let title = format!("Milestone {} in {}", action, repo_name);
+        let body = Some(format!("Milestone '{}' {}", milestone_title, action));
+        let _ = notification_ops::create_notification(
+            db, watcher.user_id, "milestone", &title, body.as_deref(), Some(repo_id),
+        ).await;
+    }
+    Ok(())
+}

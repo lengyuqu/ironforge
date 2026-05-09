@@ -382,3 +382,108 @@ pub async fn transfer_repo(
     repo_ops::find_by_owner_and_name(db, new_owner_id, repo_name).await?
         .ok_or_else(|| anyhow::anyhow!("repository not found after transfer"))
 }
+
+// ── Commit Status ──────────────────────────────────────────────────────
+
+/// Create a commit status. Validates that state is one of: pending, success, failure, error.
+pub async fn create_commit_status(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    sha: &str,
+    state: &str,
+    context: &str,
+    description: Option<&str>,
+    target_url: Option<&str>,
+    creator_id: i64,
+) -> Result<rg_db::entities::commit_status::Model> {
+    let valid_states = ["pending", "success", "failure", "error"];
+    if !valid_states.contains(&state) {
+        bail!("invalid commit status state: '{}', must be one of: {:?}", state, valid_states);
+    }
+
+    let now = Utc::now();
+    let model = rg_db::entities::commit_status::ActiveModel {
+        repo_id: sea_orm::Set(repo_id),
+        sha: sea_orm::Set(sha.to_string()),
+        state: sea_orm::Set(state.to_string()),
+        context: sea_orm::Set(context.to_string()),
+        description: sea_orm::Set(description.map(str::to_string)),
+        target_url: sea_orm::Set(target_url.map(str::to_string)),
+        creator_id: sea_orm::Set(creator_id),
+        created_at: sea_orm::Set(now),
+        updated_at: sea_orm::Set(now),
+        ..Default::default()
+    };
+
+    rg_db::ops::commit_status_ops::create_or_update(db, repo_id, sha, context, model).await
+}
+
+/// List all statuses for a commit SHA in a repository.
+pub async fn list_commit_statuses(
+    db: &DatabaseConnection,
+    owner: &str,
+    repo_name: &str,
+    sha: &str,
+) -> Result<Vec<rg_db::entities::commit_status::Model>> {
+    let repo = find_repo_by_owner_name(db, owner, repo_name).await?
+        .ok_or_else(|| anyhow::anyhow!("repository not found"))?;
+    rg_db::ops::commit_status_ops::list_by_sha(db, repo.id, sha).await
+}
+
+/// Get the combined status for a commit SHA.
+/// Returns "failure" if any failure, "pending" if any pending, "success" otherwise.
+pub async fn get_combined_status(
+    db: &DatabaseConnection,
+    owner: &str,
+    repo_name: &str,
+    sha: &str,
+) -> Result<serde_json::Value> {
+    let repo = find_repo_by_owner_name(db, owner, repo_name).await?
+        .ok_or_else(|| anyhow::anyhow!("repository not found"))?;
+
+    let counts = rg_db::ops::commit_status_ops::get_combined_status(db, repo.id, sha).await?;
+    let total: i64 = counts.iter().map(|(_, c)| c).sum();
+
+    if total == 0 {
+        return Ok(serde_json::json!({
+            "state": "pending",
+            "sha": sha,
+            "total_count": 0,
+            "statuses": []
+        }));
+    }
+
+    let state_map: std::collections::HashMap<&str, i64> = counts.iter().map(|(k, v)| (k.as_str(), *v)).collect();
+    let combined = if state_map.get("failure").map_or(false, |&c| c > 0) {
+        "failure"
+    } else if state_map.get("error").map_or(false, |&c| c > 0) {
+        "failure"
+    } else if state_map.get("pending").map_or(false, |&c| c > 0) {
+        "pending"
+    } else {
+        "success"
+    };
+
+    let statuses = rg_db::ops::commit_status_ops::list_by_sha(db, repo.id, sha).await?;
+
+    Ok(serde_json::json!({
+        "state": combined,
+        "sha": sha,
+        "total_count": total,
+        "statuses": statuses
+    }))
+}
+
+// ── Watch Notifications ────────────────────────────────────────────────
+
+/// Notify watchers of a push event to a repository.
+/// This should be called from the push handler after a successful push.
+pub async fn notify_watchers_push(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    repo_name: &str,
+    pusher_name: &str,
+    ref_name: &str,
+) -> Result<()> {
+    crate::notification::notify_watchers_push(db, repo_id, repo_name, pusher_name, ref_name).await
+}
