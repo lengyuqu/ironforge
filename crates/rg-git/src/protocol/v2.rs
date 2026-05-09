@@ -9,7 +9,6 @@
 //! Reference: <https://git-scm.com/docs/protocol-v2>
 
 use std::path::Path;
-use std::process::{Command as StdCommand, Stdio};
 
 use anyhow::{bail, Context, Result};
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
@@ -523,26 +522,34 @@ async fn handle_object_info<W: AsyncWrite + Unpin>(
 
 // ─── Git Operations ───────────────────────────────────────────────────────────
 
-/// List refs using git for-each-ref.
+/// List refs using gix API.
 fn list_refs(repo_path: &Path) -> Result<Vec<(String, String)>> {
-    let output = StdCommand::new("git")
-        .arg("-C")
-        .arg(repo_path)
-        .args(["for-each-ref", "--format=%(objectname) %(refname)"])
-        .output()
-        .context("failed to list refs")?;
-
-    if !output.status.success() {
-        bail!("git for-each-ref failed");
-    }
-
-    let stdout = String::from_utf8(output.stdout)?;
+    let repo = gix::open(repo_path).context("failed to open repository")?;
     let mut refs = Vec::new();
 
-    for line in stdout.lines() {
-        let parts: Vec<&str> = line.splitn(2, ' ').collect();
-        if parts.len() == 2 {
-            refs.push((parts[0].to_string(), parts[1].to_string()));
+    let references = repo.references().context("failed to list references")?;
+    let all_refs = references.all()?;
+
+    for reference in all_refs {
+        let reference = match reference {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        let refname = reference.name().as_bstr().to_string();
+        let target = reference.target();
+
+        match target {
+            gix::refs::TargetRef::Object(id) => {
+                refs.push((id.to_string(), refname));
+            }
+            gix::refs::TargetRef::Symbolic(_) => {
+                // For symbolic refs like HEAD, try to resolve to the actual object
+                if refname == "HEAD" {
+                    if let Ok(head_id) = repo.head_id() {
+                        refs.push((head_id.to_string(), refname));
+                    }
+                }
+            }
         }
     }
 
@@ -551,83 +558,52 @@ fn list_refs(repo_path: &Path) -> Result<Vec<(String, String)>> {
 
 /// Resolve HEAD to SHA, or None if unborn.
 fn resolve_head_sha(repo_path: &Path) -> Option<String> {
-    let output = StdCommand::new("git")
-        .arg("-C")
-        .arg(repo_path)
-        .arg("rev-parse")
-        .arg("HEAD")
-        .output()
-        .ok()?;
-
-    if !output.status.success() {
-        return None;
-    }
-
-    let sha = String::from_utf8(output.stdout).ok()?.trim().to_string();
-
-    // Validate it's a SHA
-    if sha.len() == 40 && sha.chars().all(|c| c.is_ascii_hexdigit()) {
-        Some(sha)
-    } else {
-        None
-    }
+    let repo = gix::open(repo_path).ok()?;
+    let head_id = repo.head_id().ok()?;
+    Some(head_id.to_string())
 }
 
-/// Get the peel (dereferenced) SHA of a tag.
+/// Get the peel (dereferenced) SHA of a tag using gix API.
 fn get_tag_peel(repo_path: &Path, sha: &str) -> Option<String> {
-    let output = StdCommand::new("git")
-        .arg("-C")
-        .arg(repo_path)
-        .args(["cat-file", "-t", sha])
-        .output()
-        .ok()?;
+    let repo = gix::open(repo_path).ok()?;
+    let object_id = gix::ObjectId::from_hex(sha.as_bytes()).ok()?;
 
-    if !output.status.success() {
-        return None;
+    // Find the object
+    let object = repo.find_object(object_id).ok()?;
+
+    // Check if it's a tag and get the peeled object
+    if let Ok(tag) = object.try_into_tag() {
+        // The tag points to another object - that's the peeled SHA
+        let target_id = tag.target_id().ok()?;
+        return Some(target_id.to_string());
     }
 
-    let obj_type = String::from_utf8(output.stdout).ok()?.trim().to_string();
-
-    // If it's a tag, get the peel
-    if obj_type == "tag" {
-        let output = StdCommand::new("git")
-            .arg("-C")
-            .arg(repo_path)
-            .args(["rev-parse", &format!("{}^{}", sha, "peel")])
-            .output()
-            .ok()?;
-
-        if output.status.success() {
-            return Some(String::from_utf8(output.stdout).ok()?.trim().to_string());
-        }
-    }
-
-    None
+    // Not a tag or can't peel, return the original SHA
+    Some(sha.to_string())
 }
 
-/// Get the size of a git object.
+/// Get the size of a git object using gix API.
 fn get_object_size(repo_path: &Path, oid: &str) -> Result<u64> {
-    let output = StdCommand::new("git")
-        .arg("-C")
-        .arg(repo_path)
-        .args(["cat-file", "-s", oid])
-        .output()
-        .context("failed to get object size")?;
+    let repo = gix::open(repo_path).context("failed to open repository")?;
+    let object_id = gix::ObjectId::from_hex(oid.as_bytes())
+        .map_err(|e| anyhow::anyhow!("invalid object ID: {}", e))?;
 
-    if !output.status.success() {
-        bail!("object {} not found", oid);
-    }
+    let object = repo
+        .find_object(object_id)
+        .map_err(|_| anyhow::anyhow!("object {} not found", oid))?;
 
-    let size_str = String::from_utf8(output.stdout)?;
-    let size = size_str.trim().parse().context("invalid object size")?;
-
+    // Get the size of the object data
+    let size = object.data.len() as u64;
     Ok(size)
 }
 
 /// Generate a packfile for the given wants (async version).
+/// TODO(gix): Replace with gix pack generation when available.
+/// Currently using git pack-objects CLI as gix doesn't have a direct replacement.
 async fn generate_packfile(repo_path: &Path, _wants: &[String]) -> Result<Vec<u8>> {
     use tokio::io::AsyncReadExt;
     use tokio::process::Command;
+    use std::process::Stdio;
 
     let mut cmd = Command::new("git")
         .arg("-C")

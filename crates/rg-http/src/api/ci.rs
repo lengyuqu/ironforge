@@ -434,39 +434,21 @@ async fn find_repo(
 }
 
 fn resolve_commit_sha(repo_path: &std::path::Path, ref_name: &str) -> Option<String> {
-    let output = std::process::Command::new("git")
-        .arg("-C")
-        .arg(repo_path)
-        .args(["rev-parse", ref_name])
-        .output()
-        .ok()?;
-
-    if !output.status.success() {
-        // Try without refs/heads/ prefix
-        let short = ref_name.strip_prefix("refs/heads/")?;
-        let output2 = std::process::Command::new("git")
-            .arg("-C")
-            .arg(repo_path)
-            .args(["rev-parse", short])
-            .output()
-            .ok()?;
-
-        if !output2.status.success() {
-            return None;
-        }
-
-        let sha = String::from_utf8(output2.stdout).ok()?.trim().to_string();
-        if sha.len() == 40 && sha.chars().all(|c| c.is_ascii_hexdigit()) {
-            Some(sha)
-        } else {
-            None
-        }
+    let repo = gix::open(repo_path).ok()?;
+    
+    // Try to parse the ref directly
+    let ref_name_normalized = if ref_name.starts_with("refs/") {
+        ref_name.to_string()
     } else {
-        let sha = String::from_utf8(output.stdout).ok()?.trim().to_string();
-        if sha.len() == 40 && sha.chars().all(|c| c.is_ascii_hexdigit()) {
-            Some(sha)
-        } else {
-            None
+        format!("refs/heads/{}", ref_name)
+    };
+    
+    match repo.rev_parse_single(ref_name_normalized.as_str()) {
+        Ok(id) => Some(id.to_string()),
+        Err(_) => {
+            // Try without refs/heads/ prefix
+            let short = ref_name.strip_prefix("refs/heads/").unwrap_or(ref_name);
+            repo.rev_parse_single(short).ok().map(|id| id.to_string())
         }
     }
 }

@@ -28,6 +28,8 @@ use axum::Router;
 use sea_orm::DatabaseConnection;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tower_http::cors::CorsLayer;
+
+// gix is used via `gix::open()` etc. — crate available at crate root
 use tower_http::trace::TraceLayer;
 use tower_http::services::ServeDir;
 
@@ -496,42 +498,31 @@ async fn handle_info_refs(
 }
 
 fn build_info_refs(repo_path: &std::path::Path, service: &str) -> Result<String> {
-    use std::process::Command;
-
     let mut buf = String::new();
     buf.push_str(&format!("# service={}\n", service));
     buf.push_str("0000");
 
-    let refs_output = Command::new("git")
-        .arg("-C")
-        .arg(repo_path)
-        .args(["for-each-ref", "--format=%(objectname) %(refname)"])
-        .output()?;
+    let repo = gix::open(repo_path)
+        .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
+    
+    // Get all references (like git for-each-ref)
+    let references = repo.references()?;
+    let mut ref_list: Vec<(String, String)> = references.all()?
+        .filter_map(|r| r.ok())
+        .filter_map(|r| {
+            let oid = r.target().try_id()?.to_owned();
+            let name = String::from_utf8_lossy(r.name().as_bstr()).to_string();
+            Some((oid.to_string(), name))
+        })
+        .collect();
 
-    let stdout = String::from_utf8(refs_output.stdout)?;
-    let mut ref_list: Vec<(String, String)> = Vec::new();
-
-    for line in stdout.lines() {
-        let parts: Vec<&str> = line.splitn(2, ' ').collect();
-        if parts.len() == 2 {
-            ref_list.push((parts[0].to_string(), parts[1].to_string()));
-        }
-    }
-
-    let head_sha = Command::new("git")
-        .arg("-C")
-        .arg(repo_path)
-        .args(["rev-parse", "HEAD"])
-        .output()
-        .ok()
-        .and_then(|o| {
-            let s = String::from_utf8(o.stdout).ok()?.trim().to_string();
-            if s.len() == 40 && s.chars().all(|c| c.is_ascii_hexdigit()) {
-                Some(s)
-            } else {
-                None
-            }
-        });
+    // Get HEAD SHA
+    let head_sha = if let Some(head) = repo.head().ok() {
+        head.try_into_referent()  // Returns Option<Reference>
+            .and_then(|r| r.target().try_id().map(|id| id.to_string()))
+    } else {
+        None
+    };
 
     if let Some(sha) = &head_sha {
         ref_list.insert(0, (sha.clone(), "HEAD".to_string()));

@@ -174,24 +174,14 @@ pub async fn create_repo(
         owner_user.username
     };
 
-    // Create bare git repo on disk
+    // Create bare git repo on disk using gix
     let git_path = repo_root.join(format!("{}/{}.git", path_prefix, name));
     std::fs::create_dir_all(&git_path)
         .with_context(|| format!("failed to create directory: {:?}", git_path))?;
 
-    let output = std::process::Command::new("git")
-        .arg("init")
-        .arg("--bare")
-        .arg(&git_path)
-        .output()
-        .context("git init --bare failed")?;
-
-    if !output.status.success() {
-        bail!(
-            "git init --bare failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
+    // Use gix to create bare repository
+    gix::create::into(&git_path, gix::create::Kind::Bare, gix::create::Options::default())
+        .with_context(|| format!("gix init --bare failed for {:?}", git_path))?;
 
     // Insert DB record
     let now = Utc::now();
@@ -299,6 +289,8 @@ pub async fn fork_repo(
     std::fs::create_dir_all(target_path.parent().unwrap())
         .with_context(|| format!("failed to create directory: {:?}", target_path.parent()))?;
 
+    // TODO(gix): Local bare clone - gix doesn't support local bare clone via prepare_clone_bare
+    // For now, use git CLI for local fork operations
     let output = std::process::Command::new("git")
         .arg("clone")
         .arg("--bare")
@@ -308,7 +300,7 @@ pub async fn fork_repo(
         .context("git clone --bare failed")?;
 
     if !output.status.success() {
-        bail!("git clone --bare failed: {}", String::from_utf8_lossy(&output.stderr));
+        anyhow::bail!("git clone --bare failed: {}", String::from_utf8_lossy(&output.stderr));
     }
 
     let now = Utc::now();

@@ -355,7 +355,8 @@ pub async fn merge_pr(
 }
 
 fn do_merge_commit(repo_path: &std::path::Path, pr: &PullRequest) -> Result<String> {
-    let output = Command::new("git")
+    // TODO(gix): Replace with gix merge API
+    let output = std::process::Command::new("git")
         .arg("-C")
         .arg(repo_path)
         .arg("merge")
@@ -376,8 +377,9 @@ fn do_merge_commit(repo_path: &std::path::Path, pr: &PullRequest) -> Result<Stri
 }
 
 fn do_squash_merge(repo_path: &std::path::Path, pr: &PullRequest) -> Result<String> {
+    // TODO(gix): Replace with gix merge --squash API
     // Squash all commits from head_branch into one
-    let output = Command::new("git")
+    let output = std::process::Command::new("git")
         .arg("-C")
         .arg(repo_path)
         .arg("merge")
@@ -412,8 +414,9 @@ fn do_squash_merge(repo_path: &std::path::Path, pr: &PullRequest) -> Result<Stri
 }
 
 fn do_rebase_merge(repo_path: &std::path::Path, pr: &PullRequest) -> Result<String> {
+    // TODO(gix): Replace with gix rebase API (complex operation)
     // Checkout base branch, rebase head onto it
-    let checkout = Command::new("git")
+    let checkout = std::process::Command::new("git")
         .arg("-C")
         .arg(repo_path)
         .arg("checkout")
@@ -480,18 +483,11 @@ fn do_rebase_merge(repo_path: &std::path::Path, pr: &PullRequest) -> Result<Stri
 }
 
 fn get_head_sha(repo_path: &std::path::Path) -> Result<String> {
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(repo_path)
-        .arg("rev-parse")
-        .arg("HEAD")
-        .output()?;
-
-    if !output.status.success() {
-        bail!("failed to get HEAD SHA after merge");
-    }
-
-    Ok(String::from_utf8(output.stdout)?.trim().to_string())
+    let repo = gix::open(repo_path)
+        .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
+    let head_id = repo.rev_parse_single("HEAD")
+        .map_err(|e| anyhow::anyhow!("failed to parse HEAD: {}", e))?;
+    Ok(head_id.to_string())
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────

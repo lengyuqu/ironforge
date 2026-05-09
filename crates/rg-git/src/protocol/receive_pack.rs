@@ -5,7 +5,7 @@
 //! 2. Single bidirectional stream (SSH mode) — via `handle_receive_pack_stream`
 
 use std::path::Path;
-use std::process::{Command as StdCommand, Stdio};
+use std::process::Stdio;
 
 use anyhow::{bail, Context, Result};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
@@ -100,26 +100,40 @@ where
 fn build_ref_list(repo_path: &Path) -> Vec<(String, String)> {
     let mut refs = Vec::new();
 
-    // Get HEAD
-    if let Some(head_sha) = resolve_head_sha(repo_path) {
-        refs.push((head_sha, "HEAD".to_string()));
-    }
+    // Get all refs using gix API
+    if let Ok(repo) = gix::open(repo_path) {
+        if let Ok(references) = repo.references() {
+            if let Ok(all_refs) = references.all() {
+                for reference in all_refs {
+                    let reference = match reference {
+                        Ok(r) => r,
+                        Err(_) => continue,
+                    };
+                    let refname = reference.name().as_bstr().to_string();
+                    let target = reference.target();
 
-    // Get all refs
-    if let Ok(output) = StdCommand::new("git")
-        .arg("-C")
-        .arg(repo_path)
-        .args(["for-each-ref", "--format=%(objectname) %(refname)"])
-        .output()
-    {
-        if output.status.success() {
-            if let Ok(stdout) = String::from_utf8(output.stdout) {
-                for line in stdout.lines() {
-                    let parts: Vec<&str> = line.splitn(2, ' ').collect();
-                    if parts.len() == 2 {
-                        refs.push((parts[0].to_string(), parts[1].to_string()));
+                    match target {
+                        gix::refs::TargetRef::Object(id) => {
+                            refs.push((id.to_string(), refname));
+                        }
+                        gix::refs::TargetRef::Symbolic(_) => {
+                            // For symbolic refs like HEAD, try to resolve to the actual object
+                            if refname == "HEAD" {
+                                if let Ok(head_id) = repo.head_id() {
+                                    refs.push((head_id.to_string(), refname));
+                                }
+                            }
+                        }
                     }
                 }
+            }
+        }
+
+        // Also add HEAD if we have it
+        if let Ok(head_id) = repo.head_id() {
+            let head_entry = refs.iter().find(|(_, name)| name == "HEAD");
+            if head_entry.is_none() {
+                refs.push((head_id.to_string(), "HEAD".to_string()));
             }
         }
     }
@@ -238,6 +252,8 @@ async fn process_push<R: AsyncRead + Unpin>(
     }
 
     // Receive pack data and pipe to git index-pack
+    // TODO(gix): Replace with gix pack indexing when available.
+    // Currently using git index-pack CLI as gix doesn't have a direct replacement.
     let mut index_pack = tokio::process::Command::new("git")
         .arg("-C")
         .arg(repo_path)
@@ -294,44 +310,23 @@ async fn process_push<R: AsyncRead + Unpin>(
     Ok(updates)
 }
 
-/// Update a ref to point to a new SHA.
+/// Update a ref to point to a new SHA using gix API.
 fn update_ref(repo_path: &Path, refname: &str, new_sha: &str) -> Result<()> {
-    let output = StdCommand::new("git")
-        .arg("-C")
-        .arg(repo_path)
-        .args(["update-ref", refname, new_sha])
-        .output()
-        .context("failed to run git update-ref")?;
+    let repo = gix::open(repo_path).context("failed to open repository")?;
+    let object_id = gix::ObjectId::from_hex(new_sha.as_bytes())
+        .map_err(|e| anyhow::anyhow!("invalid SHA: {}", e))?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        bail!("git update-ref failed for {}: {}", refname, stderr);
-    }
+    // Use repo.reference() to create or update a reference
+    // PreviousValue::Any means set unconditionally (like git update-ref)
+    repo.reference(
+        refname,
+        object_id,
+        gix::refs::transaction::PreviousValue::Any,
+        "update via receive-pack",
+    )
+    .map_err(|e| anyhow::anyhow!("failed to update ref {}: {}", refname, e))?;
 
     Ok(())
-}
-
-/// Resolve HEAD to a SHA, or return None if HEAD doesn't point to a valid commit.
-fn resolve_head_sha(repo_path: &Path) -> Option<String> {
-    let output = StdCommand::new("git")
-        .arg("-C")
-        .arg(repo_path)
-        .args(["rev-parse", "HEAD"])
-        .output()
-        .ok()?;
-
-    if !output.status.success() {
-        return None;
-    }
-
-    let sha = String::from_utf8(output.stdout).ok()?.trim().to_string();
-
-    // Validate it's actually a SHA (not "HEAD" literal from empty repo)
-    if sha.len() == 40 && sha.chars().all(|c| c.is_ascii_hexdigit()) {
-        Some(sha)
-    } else {
-        None
-    }
 }
 
 /// Send the response back to the client using the report-status protocol.

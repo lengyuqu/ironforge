@@ -8,6 +8,7 @@ rg-git = { path = "../rg-git" }
 rg-core = { path = "../rg-core" }
 rg-db = { path = "../rg-db" }
 rg-ci = { path = "../rg-ci" }
+gix = { workspace = true }
 axum = { workspace = true }
 tokio = { workspace = true }
 tower = { workspace = true }

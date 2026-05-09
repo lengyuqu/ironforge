@@ -7,3 +7,4 @@ edition = "2021"
 tokio = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
+gix = { workspace = true }

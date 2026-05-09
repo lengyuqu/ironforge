@@ -5,7 +5,7 @@
 //! 2. Single bidirectional stream (SSH mode) — via `handle_upload_pack_stream`
 
 use std::path::Path;
-use std::process::{Command as StdCommand, Stdio};
+use std::process::Stdio;
 
 use anyhow::{bail, Context, Result};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
@@ -259,22 +259,34 @@ async fn read_want_have_impl<R: AsyncRead + Unpin>(
     Ok((wants, haves, capabilities))
 }
 
-/// List refs in a bare git repository using `git for-each-ref`.
+/// List refs in a bare git repository using gix API.
 fn list_refs(repo_path: &Path) -> Result<Vec<(String, String)>> {
-    let output = StdCommand::new("git")
-        .arg("-C")
-        .arg(repo_path)
-        .args(["for-each-ref", "--format=%(objectname) %(refname)"])
-        .output()
-        .context("failed to list refs")?;
-
-    let stdout = String::from_utf8(output.stdout)?;
+    let repo = gix::open(repo_path).context("failed to open repository")?;
     let mut refs = Vec::new();
 
-    for line in stdout.lines() {
-        let parts: Vec<&str> = line.splitn(2, ' ').collect();
-        if parts.len() == 2 {
-            refs.push((parts[0].to_string(), parts[1].to_string()));
+    let references = repo.references().context("failed to list references")?;
+    let all_refs = references.all()?;
+
+    for reference in all_refs {
+        let reference = match reference {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        let refname = reference.name().as_bstr().to_string();
+        let target = reference.target();
+
+        match target {
+            gix::refs::TargetRef::Object(id) => {
+                refs.push((id.to_string(), refname));
+            }
+            gix::refs::TargetRef::Symbolic(_) => {
+                // For symbolic refs like HEAD, try to resolve to the actual object
+                if refname == "HEAD" {
+                    if let Ok(head_id) = repo.head_id() {
+                        refs.push((head_id.to_string(), refname));
+                    }
+                }
+            }
         }
     }
 
@@ -283,30 +295,9 @@ fn list_refs(repo_path: &Path) -> Result<Vec<(String, String)>> {
 
 /// Resolve HEAD to a SHA, or return None if HEAD doesn't point to a valid commit.
 fn resolve_head_sha(repo_path: &Path) -> Option<String> {
-    let output = StdCommand::new("git")
-        .arg("-C")
-        .arg(repo_path)
-        .args(["rev-parse", "HEAD"])
-        .output()
-        .ok()?;
-
-    if !output.status.success() {
-        return None;
-    }
-
-    let sha = String::from_utf8(output.stdout).ok()?.trim().to_string();
-
-    // Validate it's actually a SHA (not "HEAD" literal from empty repo)
-    if is_valid_sha(&sha) {
-        Some(sha)
-    } else {
-        None
-    }
-}
-
-/// Check if a string looks like a valid SHA-1 hash (40 hex chars).
-fn is_valid_sha(s: &str) -> bool {
-    s.len() == 40 && s.chars().all(|c| c.is_ascii_hexdigit())
+    let repo = gix::open(repo_path).ok()?;
+    let head_id = repo.head_id().ok()?;
+    Some(head_id.to_string())
 }
 
 /// Build ref advertisement from ref list.
@@ -361,6 +352,8 @@ fn build_ref_advertisement(ref_list: &[(String, String)], service: &str) -> Vec<
 }
 
 /// Generate and send the packfile.
+/// TODO(gix): Replace with gix pack generation when available.
+/// Currently using git pack-objects CLI as gix doesn't have a direct replacement.
 async fn send_packfile<W: AsyncWrite + Unpin>(
     repo_path: &Path,
     wants: &[String],

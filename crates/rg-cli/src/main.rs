@@ -1,7 +1,7 @@
 //! IronForge CLI — main entry point.
-
 use std::path::PathBuf;
 
+use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
 
@@ -406,22 +406,12 @@ async fn main() -> anyhow::Result<()> {
             let repo_root = PathBuf::from(&repo_root);
             let repo_dir = repo_root.join(format!("{}/{}.git", owner, name));
             std::fs::create_dir_all(&repo_dir)?;
-
-            let output = tokio::process::Command::new("git")
-                .arg("init")
-                .arg("--bare")
-                .arg(&repo_dir)
-                .output()
-                .await?;
-
-            if output.status.success() {
-                println!("Created repository: {}/{}.git", owner, name);
-            } else {
-                anyhow::bail!(
-                    "failed to create repository: {}",
-                    String::from_utf8_lossy(&output.stderr)
-                );
-            }
+            
+            // Replace git init --bare with gix API
+            gix::create::into(&repo_dir, gix::create::Kind::Bare, gix::create::Options::default())
+                .with_context(|| "failed to create bare repository")?;
+            
+            println!("Created repository: {}/{}.git", owner, name);
         }
     }
 
