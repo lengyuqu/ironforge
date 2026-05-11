@@ -7,8 +7,10 @@ use axum::{
     Json,
 };
 use serde::Deserialize;
+use utoipa::ToSchema;
 
 use crate::AppState;
+use crate::error::AppError;
 use crate::pagination::PaginationParams;
 
 #[derive(Deserialize)]
@@ -25,6 +27,15 @@ fn default_search_type() -> String {
 }
 
 /// GET /api/v1/search?q=keyword&type=all|repos|issues|wiki&page=1&per_page=20
+#[utoipa::path(
+    get,
+    path = "/search",
+    tag = "Search",
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn search(
     State(state): State<AppState>,
     Query(params): Query<SearchQuery>,
@@ -32,28 +43,15 @@ pub async fn search(
     let pagination = params.pagination.clamp();
 
     if params.q.trim().is_empty() {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": "search query 'q' parameter is required",
-                "results": [],
-                "total": 0,
-            })),
-        )
-            .into_response();
+        return AppError::bad_request("search query 'q' parameter is required").into_response();
     }
 
     let valid_types = ["all", "repos", "issues", "wiki"];
     if !valid_types.contains(&params.r#type.as_str()) {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": format!("invalid type '{}', must be one of: {:?}", params.r#type, valid_types),
-                "results": [],
-                "total": 0,
-            })),
-        )
-            .into_response();
+        return AppError::bad_request(format!(
+            "invalid type '{}', must be one of: {:?}",
+            params.r#type, valid_types
+        )).into_response();
     }
 
     match rg_core::search::service::search(
@@ -75,10 +73,6 @@ pub async fn search(
             })),
         )
             .into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        )
-            .into_response(),
+        Err(e) => AppError::internal(e.to_string()).into_response(),
     }
 }

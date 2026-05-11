@@ -19,6 +19,7 @@ pub mod m20260510_000002_alter_pipeline_jobs_add_runner_fields;
 pub mod m20260510_000003_add_pipeline_jobs_updated_at;
 pub mod m20260510_000004_create_artifacts;
 pub mod m20260511_000001_add_pr_head_repo_id;
+pub mod m20260511_000002_add_missing_indexes;
 
 use sea_orm_migration::prelude::*;
 
@@ -48,6 +49,8 @@ impl MigratorTrait for Migrator {
             Box::new(m20260510_000002_alter_pipeline_jobs_add_runner_fields::Migration),
             Box::new(m20260510_000003_add_pipeline_jobs_updated_at::Migration),
             Box::new(m20260510_000004_create_artifacts::Migration),
+            Box::new(m20260511_000001_add_pr_head_repo_id::Migration),
+            Box::new(m20260511_000002_add_missing_indexes::Migration),
         ]
     }
 }

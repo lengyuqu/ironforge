@@ -6,7 +6,9 @@ use axum::response::IntoResponse;
 use axum::Json;
 use serde::Deserialize;
 
+use crate::error::AppError;
 use crate::AppState;
+use utoipa::ToSchema;
 
 // ── Request / Response types ──────────────────────────────────────────
 
@@ -39,22 +41,48 @@ pub struct CreateReviewCommentRequest {
 
 /// List reviews for a PR.
 /// GET /api/v1/repos/:owner/:name/pulls/:number/reviews
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/pulls/{number}/reviews",
+    tag = "Reviews",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("number" = i64, Path, description = "number"),
+    ),
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn list_reviews(
     State(state): State<AppState>,
     Path((owner, repo, number)): Path<(String, String, i64)>,
 ) -> impl IntoResponse {
     match rg_core::review::service::list_reviews(&state.db, &owner, &repo, number).await {
         Ok(reviews) => (StatusCode::OK, Json(reviews)).into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": format!("{:#}", e)})),
-        )
-            .into_response(),
+        Err(e) => AppError::internal(e).into_response(),
     }
 }
 
 /// Submit a review on a PR.
 /// POST /api/v1/repos/:owner/:name/pulls/:number/reviews
+#[utoipa::path(
+    post,
+    path = "/repos/{owner}/{name}/pulls/{number}/reviews",
+    tag = "Reviews",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("number" = i64, Path, description = "number"),
+    ),
+    request_body(content = serde_json::Value),
+    responses(
+        (status = 201, description = "Created", body = serde_json::Value),
+        (status = 400, description = "Bad request", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn submit_review(
     State(state): State<AppState>,
     Path((owner, repo, number)): Path<(String, String, i64)>,
@@ -63,35 +91,17 @@ pub async fn submit_review(
 ) -> impl IntoResponse {
     let user_id = match extract_user_id(&state, &headers) {
         Some(id) => id,
-        None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(serde_json::json!({"error": "authentication required"})),
-            )
-                .into_response()
-        }
+        None => return AppError::unauthorized("authentication required").into_response(),
     };
 
     let repo_id = match resolve_repo_id(&state.db, &owner, &repo).await {
         Some(id) => id,
-        None => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(serde_json::json!({"error": "repository not found"})),
-            )
-                .into_response()
-        }
+        None => return AppError::not_found("repository not found").into_response(),
     };
 
     let action = match rg_core::review::service::ReviewAction::from_str(&req.action) {
         Ok(a) => a,
-        Err(e) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": format!("{:#}", e)})),
-            )
-                .into_response()
-        }
+        Err(e) => return AppError::bad_request(e).into_response(),
     };
 
     match rg_core::review::service::submit_review(
@@ -106,32 +116,56 @@ pub async fn submit_review(
     .await
     {
         Ok(review) => (StatusCode::CREATED, Json(review)).into_response(),
-        Err(e) => (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": format!("{:#}", e)})),
-        )
-            .into_response(),
+        Err(e) => AppError::bad_request(e).into_response(),
     }
 }
 
 /// Get a single review.
 /// GET /api/v1/repos/:owner/:name/pulls/:number/reviews/:id
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/pulls/{number}/reviews/{id}",
+    tag = "Reviews",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("number" = i64, Path, description = "number"),
+        ("id" = i64, Path, description = "id"),
+    ),
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn get_review(
     State(state): State<AppState>,
     Path((_owner, _repo, _number, id)): Path<(String, String, i64, i64)>,
 ) -> impl IntoResponse {
     match rg_core::review::service::get_review(&state.db, id).await {
         Ok(review) => (StatusCode::OK, Json(review)).into_response(),
-        Err(e) => (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": format!("{:#}", e)})),
-        )
-            .into_response(),
+        Err(e) => AppError::not_found(e).into_response(),
     }
 }
 
 /// Dismiss a review.
 /// POST /api/v1/repos/:owner/:name/pulls/:number/reviews/:id/dismiss
+#[utoipa::path(
+    post,
+    path = "/repos/{owner}/{name}/pulls/{number}/reviews/{id}/dismiss",
+    tag = "Reviews",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("number" = i64, Path, description = "number"),
+        ("id" = i64, Path, description = "id"),
+    ),
+    request_body(content = serde_json::Value),
+    responses(
+        (status = 201, description = "Created", body = serde_json::Value),
+        (status = 400, description = "Bad request", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn dismiss_review(
     State(state): State<AppState>,
     Path((_owner, _repo, _number, id)): Path<(String, String, i64, i64)>,
@@ -140,22 +174,12 @@ pub async fn dismiss_review(
 ) -> impl IntoResponse {
     let user_id = match extract_user_id(&state, &headers) {
         Some(id) => id,
-        None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(serde_json::json!({"error": "authentication required"})),
-            )
-                .into_response()
-        }
+        None => return AppError::unauthorized("authentication required").into_response(),
     };
 
     match rg_core::review::service::dismiss_review(&state.db, id, user_id, req.message).await {
         Ok(review) => (StatusCode::OK, Json(review)).into_response(),
-        Err(e) => (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": format!("{:#}", e)})),
-        )
-            .into_response(),
+        Err(e) => AppError::bad_request(e).into_response(),
     }
 }
 
@@ -163,22 +187,48 @@ pub async fn dismiss_review(
 
 /// List review comments for a PR.
 /// GET /api/v1/repos/:owner/:name/pulls/:number/comments
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/pulls/{number}/comments",
+    tag = "Reviews",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("number" = i64, Path, description = "number"),
+    ),
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn list_review_comments(
     State(state): State<AppState>,
     Path((owner, repo, number)): Path<(String, String, i64)>,
 ) -> impl IntoResponse {
     match rg_core::review::service::list_review_comments(&state.db, &owner, &repo, number).await {
         Ok(comments) => (StatusCode::OK, Json(comments)).into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": format!("{:#}", e)})),
-        )
-            .into_response(),
+        Err(e) => AppError::internal(e).into_response(),
     }
 }
 
 /// Create a review comment.
 /// POST /api/v1/repos/:owner/:name/pulls/:number/comments
+#[utoipa::path(
+    post,
+    path = "/repos/{owner}/{name}/pulls/{number}/comments",
+    tag = "Reviews",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("number" = i64, Path, description = "number"),
+    ),
+    request_body(content = serde_json::Value),
+    responses(
+        (status = 201, description = "Created", body = serde_json::Value),
+        (status = 400, description = "Bad request", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn create_review_comment(
     State(state): State<AppState>,
     Path((owner, repo, number)): Path<(String, String, i64)>,
@@ -187,24 +237,12 @@ pub async fn create_review_comment(
 ) -> impl IntoResponse {
     let user_id = match extract_user_id(&state, &headers) {
         Some(id) => id,
-        None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(serde_json::json!({"error": "authentication required"})),
-            )
-                .into_response()
-        }
+        None => return AppError::unauthorized("authentication required").into_response(),
     };
 
     let repo_id = match resolve_repo_id(&state.db, &owner, &repo).await {
         Some(id) => id,
-        None => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(serde_json::json!({"error": "repository not found"})),
-            )
-                .into_response()
-        }
+        None => return AppError::not_found("repository not found").into_response(),
     };
 
     match rg_core::review::service::create_review_comment(
@@ -223,11 +261,7 @@ pub async fn create_review_comment(
     .await
     {
         Ok(comment) => (StatusCode::CREATED, Json(comment)).into_response(),
-        Err(e) => (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": format!("{:#}", e)})),
-        )
-            .into_response(),
+        Err(e) => AppError::bad_request(e).into_response(),
     }
 }
 

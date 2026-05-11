@@ -7,8 +7,10 @@ use axum::Json;
 use sea_orm::{DatabaseConnection, EntityTrait, QueryFilter, ColumnTrait};
 use serde::{Deserialize, Serialize};
 
+use crate::error::AppError;
 use crate::AppState;
 use crate::pagination::{PaginationParams, PaginatedResponse};
+use utoipa::ToSchema;
 
 // ── Response types ───────────────────────────────────────────────
 
@@ -79,6 +81,19 @@ pub struct ListPipelinesQuery {
 
 /// GET /api/v1/repos/:owner/:name/pipelines
 /// List all pipelines for a repository.
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/pipelines",
+    tag = "CI/CD",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+    ),
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn list_pipelines(
     State(state): State<AppState>,
     Path((owner, name)): Path<(String, String)>,
@@ -90,8 +105,8 @@ pub async fn list_pipelines(
 
     let repo = match find_repo(&state.db, &owner, &name).await {
         Ok(Some(r)) => r,
-        Ok(None) => return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "repository not found"}))).into_response(),
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response(),
+        Ok(None) => return AppError::not_found("repository not found").into_response(),
+        Err(e) => return AppError::internal(e).into_response(),
     };
 
     match rg_db::ops::pipeline_ops::list_pipelines_by_repo_paginated(&state.db, repo.id, offset, limit).await {
@@ -113,29 +128,39 @@ pub async fn list_pipelines(
                 .collect();
             Json(PaginatedResponse::new(resp, &pagination, total as u64)).into_response()
         }
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": e.to_string()})),
-        )
-            .into_response(),
+        Err(e) => AppError::internal(e).into_response(),
     }
 }
 
 /// GET /api/v1/repos/:owner/:name/pipelines/:id
 /// Get pipeline detail with stages and jobs.
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/pipelines/{id}",
+    tag = "CI/CD",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("id" = i64, Path, description = "id"),
+    ),
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn get_pipeline(
     State(state): State<AppState>,
     Path((_owner, _name, id)): Path<(String, String, i64)>,
 ) -> impl IntoResponse {
     let pipeline = match rg_db::ops::pipeline_ops::get_pipeline(&state.db, id).await {
         Ok(Some(p)) => p,
-        Ok(None) => return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "pipeline not found"}))).into_response(),
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response(),
+        Ok(None) => return AppError::not_found("pipeline not found").into_response(),
+        Err(e) => return AppError::internal(e).into_response(),
     };
 
     let stages = match rg_db::ops::pipeline_ops::list_stages_by_pipeline(&state.db, id).await {
         Ok(s) => s,
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response(),
+        Err(e) => return AppError::internal(e).into_response(),
     };
 
     let mut stages_with_jobs: Vec<StageWithJobsResponse> = Vec::new();
@@ -143,7 +168,7 @@ pub async fn get_pipeline(
     for stage in stages {
         let jobs = match rg_db::ops::pipeline_ops::list_jobs_by_stage(&state.db, stage.id).await {
             Ok(j) => j,
-            Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response(),
+            Err(e) => return AppError::internal(e).into_response(),
         };
 
         stages_with_jobs.push(StageWithJobsResponse {
@@ -195,6 +220,21 @@ pub async fn get_pipeline(
 
 /// GET /api/v1/repos/:owner/:name/pipelines/:id/jobs/:job_id
 /// Get job detail with log.
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/pipelines/{id}/jobs/{job_id}",
+    tag = "CI/CD",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("id" = i64, Path, description = "id"),
+        ("job_id" = i64, Path, description = "job_id"),
+    ),
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn get_job(
     State(state): State<AppState>,
     Path((_owner, _name, _pipeline_id, job_id)): Path<(String, String, i64, i64)>,
@@ -213,21 +253,28 @@ pub async fn get_job(
             finished_at: j.finished_at.map(|t| t.to_string()),
         })
         .into_response(),
-        Ok(None) => (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "job not found"})),
-        )
-            .into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": e.to_string()})),
-        )
-            .into_response(),
+        Ok(None) => AppError::not_found("job not found").into_response(),
+        Err(e) => AppError::internal(e).into_response(),
     }
 }
 
 /// POST /api/v1/repos/:owner/:name/pipelines
 /// Manually trigger a pipeline.
+#[utoipa::path(
+    post,
+    path = "/repos/{owner}/{name}/pipelines",
+    tag = "CI/CD",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+    ),
+    request_body(content = serde_json::Value),
+    responses(
+        (status = 201, description = "Created", body = serde_json::Value),
+        (status = 400, description = "Bad request", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn trigger_pipeline(
     State(state): State<AppState>,
     Path((owner, name)): Path<(String, String)>,
@@ -235,25 +282,25 @@ pub async fn trigger_pipeline(
 ) -> impl IntoResponse {
     let repo = match find_repo(&state.db, &owner, &name).await {
         Ok(Some(r)) => r,
-        Ok(None) => return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "repository not found"}))).into_response(),
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response(),
+        Ok(None) => return AppError::not_found("repository not found").into_response(),
+        Err(e) => return AppError::internal(e).into_response(),
     };
 
     let repo_path = state.repo_root.join(format!("{}/{}.git", owner, name));
     if !repo_path.exists() {
-        return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "repo path not found"}))).into_response();
+        return AppError::not_found("repo path not found").into_response();
     }
 
     // Resolve HEAD commit SHA
     let ref_name = body.ref_name.unwrap_or_else(|| "refs/heads/main".to_string());
     let commit_sha = match resolve_commit_sha(&repo_path, &ref_name) {
         Some(sha) => sha,
-        None => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "cannot resolve commit SHA for ref"}))).into_response(),
+        None => return AppError::bad_request("cannot resolve commit SHA for ref").into_response(),
     };
 
     // Check if CI config exists
     if !rg_ci::has_ci_config(&repo_path, &commit_sha) {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "no .ironforge-ci.yml found"}))).into_response();
+        return AppError::bad_request("no .ironforge-ci.yml found").into_response();
     }
 
     match rg_ci::trigger_pipeline(
@@ -279,29 +326,40 @@ pub async fn trigger_pipeline(
             })),
         )
             .into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": e.to_string()})),
-        )
-            .into_response(),
+        Err(e) => AppError::internal(e).into_response(),
     }
 }
 
 /// POST /api/v1/repos/:owner/:name/pipelines/:id/retry
 /// Retry a failed pipeline.
+#[utoipa::path(
+    post,
+    path = "/repos/{owner}/{name}/pipelines/{id}/retry",
+    tag = "CI/CD",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("id" = i64, Path, description = "id"),
+    ),
+    responses(
+        (status = 201, description = "Created", body = serde_json::Value),
+        (status = 400, description = "Bad request", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn retry_pipeline(
     State(state): State<AppState>,
     Path((owner, name, id)): Path<(String, String, i64)>,
 ) -> impl IntoResponse {
     let pipeline = match rg_db::ops::pipeline_ops::get_pipeline(&state.db, id).await {
         Ok(Some(p)) => p,
-        Ok(None) => return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "pipeline not found"}))).into_response(),
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response(),
+        Ok(None) => return AppError::not_found("pipeline not found").into_response(),
+        Err(e) => return AppError::internal(e).into_response(),
     };
 
     let repo_path = state.repo_root.join(format!("{}/{}.git", owner, name));
     if !repo_path.exists() {
-        return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "repo path not found"}))).into_response();
+        return AppError::not_found("repo path not found").into_response();
     }
 
     match rg_ci::trigger_pipeline(
@@ -326,32 +384,39 @@ pub async fn retry_pipeline(
             })),
         )
             .into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": e.to_string()})),
-        )
-            .into_response(),
+        Err(e) => AppError::internal(e).into_response(),
     }
 }
 
 /// POST /api/v1/repos/:owner/:name/pipelines/:id/cancel
 /// Cancel a running pipeline.
+#[utoipa::path(
+    post,
+    path = "/repos/{owner}/{name}/pipelines/{id}/cancel",
+    tag = "CI/CD",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("id" = i64, Path, description = "id"),
+    ),
+    responses(
+        (status = 201, description = "Created", body = serde_json::Value),
+        (status = 400, description = "Bad request", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn cancel_pipeline(
     State(state): State<AppState>,
     Path((_owner, _name, id)): Path<(String, String, i64)>,
 ) -> impl IntoResponse {
     let pipeline = match rg_db::ops::pipeline_ops::get_pipeline(&state.db, id).await {
         Ok(Some(p)) => p,
-        Ok(None) => return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "pipeline not found"}))).into_response(),
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response(),
+        Ok(None) => return AppError::not_found("pipeline not found").into_response(),
+        Err(e) => return AppError::internal(e).into_response(),
     };
 
     if pipeline.status != "running" && pipeline.status != "pending" {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": "pipeline is not running or pending"})),
-        )
-            .into_response();
+        return AppError::bad_request("pipeline is not running or pending").into_response();
     }
 
     let now = chrono::Utc::now().naive_utc();
@@ -360,17 +425,13 @@ pub async fn cancel_pipeline(
     if let Err(e) =
         rg_db::ops::pipeline_ops::update_pipeline_status(&state.db, id, "canceled", None, Some(now)).await
     {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": e.to_string()})),
-        )
-            .into_response();
+        return AppError::internal(e).into_response();
     }
 
     // Mark all running stages/jobs as canceled
     let stages = match rg_db::ops::pipeline_ops::list_stages_by_pipeline(&state.db, id).await {
         Ok(s) => s,
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()}))).into_response(),
+        Err(e) => return AppError::internal(e).into_response(),
     };
 
     for stage in stages {

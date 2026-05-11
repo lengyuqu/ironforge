@@ -6,8 +6,10 @@ use axum::response::IntoResponse;
 use axum::Json;
 use serde::Deserialize;
 
+use crate::error::AppError;
 use crate::AppState;
 use crate::pagination::{PaginationParams, PaginatedResponse};
+use utoipa::ToSchema;
 
 // ── Request / Response types ────────────────────────────────────────────
 
@@ -46,6 +48,19 @@ pub struct ListQuery {
 
 // ── PR handlers ─────────────────────────────────────────────────────────
 
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/pulls",
+    tag = "Pull Requests",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+    ),
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn list_prs(
     State(state): State<AppState>,
     Path((owner, repo)): Path<(String, String)>,
@@ -68,28 +83,49 @@ pub async fn list_prs(
             Json(PaginatedResponse::new(data, &pagination, total as u64)),
         )
             .into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": format!("{:#}", e)})),
-        )
-            .into_response(),
+        Err(e) => AppError::InternalError(e.to_string()).into_response(),
     }
 }
 
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/pulls/{number}",
+    tag = "Pull Requests",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("number" = i64, Path, description = "number"),
+    ),
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn get_pr(
     State(state): State<AppState>,
     Path((owner, repo, number)): Path<(String, String, i64)>,
 ) -> impl IntoResponse {
     match rg_core::pull_request::get_pr(&state.db, &owner, &repo, number).await {
         Ok(pr) => (StatusCode::OK, Json(pr)).into_response(),
-        Err(e) => (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": format!("{:#}", e)})),
-        )
-            .into_response(),
+        Err(e) => AppError::NotFound(e.to_string()).into_response(),
     }
 }
 
+#[utoipa::path(
+    post,
+    path = "/repos/{owner}/{name}/pulls",
+    tag = "Pull Requests",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+    ),
+    request_body(content = serde_json::Value),
+    responses(
+        (status = 201, description = "Created", body = serde_json::Value),
+        (status = 400, description = "Bad request", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn create_pr(
     State(state): State<AppState>,
     Path((owner, repo)): Path<(String, String)>,
@@ -98,24 +134,12 @@ pub async fn create_pr(
 ) -> impl IntoResponse {
     let user_id = match extract_user_id(&state, &headers) {
         Some(id) => id,
-        None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(serde_json::json!({"error": "authentication required"})),
-            )
-                .into_response()
-        }
+        None => return AppError::Unauthorized("authentication required".to_string()).into_response(),
     };
 
     let repo_id = match resolve_repo_id(&state.db, &owner, &repo).await {
         Some(id) => id,
-        None => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(serde_json::json!({"error": "repository not found"})),
-            )
-                .into_response()
-        }
+        None => return AppError::NotFound("repository not found".to_string()).into_response(),
     };
 
     match rg_core::pull_request::resolve_head_ref(&state.db, repo_id, &req.head).await {
@@ -133,21 +157,28 @@ pub async fn create_pr(
             .await
             {
                 Ok(pr) => (StatusCode::CREATED, Json(pr)).into_response(),
-                Err(e) => (
-                    StatusCode::BAD_REQUEST,
-                    Json(serde_json::json!({"error": format!("{:#}", e)})),
-                )
-                    .into_response(),
+                Err(e) => AppError::BadRequest(e.to_string()).into_response(),
             }
         }
-        Err(e) => (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": format!("{:#}", e)})),
-        )
-            .into_response(),
+        Err(e) => AppError::BadRequest(e.to_string()).into_response(),
     }
 }
 
+#[utoipa::path(
+    patch,
+    path = "/repos/{owner}/{name}/pulls/{number}",
+    tag = "Pull Requests",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("number" = i64, Path, description = "number"),
+    ),
+    request_body(content = serde_json::Value),
+    responses(
+        (status = 200, description = "Updated", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn update_pr(
     State(state): State<AppState>,
     Path((owner, repo, number)): Path<(String, String, i64)>,
@@ -165,14 +196,24 @@ pub async fn update_pr(
     .await
     {
         Ok(pr) => (StatusCode::OK, Json(pr)).into_response(),
-        Err(e) => (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": format!("{:#}", e)})),
-        )
-            .into_response(),
+        Err(e) => AppError::BadRequest(e.to_string()).into_response(),
     }
 }
 
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/pulls/{number}/diff",
+    tag = "Pull Requests",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("number" = i64, Path, description = "number"),
+    ),
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn get_diff(
     State(state): State<AppState>,
     Path((owner, repo, number)): Path<(String, String, i64)>,
@@ -187,14 +228,26 @@ pub async fn get_diff(
     .await
     {
         Ok(diff) => (StatusCode::OK, Json(diff)).into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": format!("{:#}", e)})),
-        )
-            .into_response(),
+        Err(e) => AppError::InternalError(e.to_string()).into_response(),
     }
 }
 
+#[utoipa::path(
+    post,
+    path = "/repos/{owner}/{name}/pulls/{number}/merge",
+    tag = "Pull Requests",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("number" = i64, Path, description = "number"),
+    ),
+    request_body(content = serde_json::Value),
+    responses(
+        (status = 201, description = "Created", body = serde_json::Value),
+        (status = 400, description = "Bad request", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn merge_pr(
     State(state): State<AppState>,
     Path((owner, repo, number)): Path<(String, String, i64)>,
@@ -203,11 +256,7 @@ pub async fn merge_pr(
 ) -> impl IntoResponse {
     // Require auth
     if extract_user_id(&state, &headers).is_none() {
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(serde_json::json!({"error": "authentication required"})),
-        )
-            .into_response();
+        return AppError::Unauthorized("authentication required".to_string()).into_response();
     }
 
     let strategy = match req.strategy.as_str() {
@@ -215,11 +264,7 @@ pub async fn merge_pr(
         "squash" => rg_core::pull_request::MergeStrategy::Squash,
         "rebase" => rg_core::pull_request::MergeStrategy::Rebase,
         _ => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": "invalid merge strategy, use: merge, squash, rebase"})),
-            )
-                .into_response()
+            return AppError::BadRequest("invalid merge strategy, use: merge, squash, rebase".to_string()).into_response();
         }
     };
 
@@ -229,11 +274,7 @@ pub async fn merge_pr(
             if let Err(e) = rg_core::branch_protection::service::check_merge_allowed(
                 &state.db, repo_id, &pr.base_branch, pr.id,
             ).await {
-                return (
-                    StatusCode::FORBIDDEN,
-                    Json(serde_json::json!({"error": format!("{:#}", e)})),
-                )
-                    .into_response();
+                return AppError::Forbidden(e.to_string()).into_response();
             }
         }
     }
@@ -249,11 +290,7 @@ pub async fn merge_pr(
     .await
     {
         Ok(result) => (StatusCode::OK, Json(result)).into_response(),
-        Err(e) => (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": format!("{:#}", e)})),
-        )
-            .into_response(),
+        Err(e) => AppError::BadRequest(e.to_string()).into_response(),
     }
 }
 

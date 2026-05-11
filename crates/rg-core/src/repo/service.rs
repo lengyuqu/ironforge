@@ -128,14 +128,9 @@ pub async fn can_write(
                     }
                 }
 
-                // Check team permissions for this repo's org
-                let teams = rg_db::ops::org_ops::list_org_teams(db, org_id).await?;
-                for team in teams {
-                    if team.permission == "write" || team.permission == "admin" {
-                        if rg_db::ops::org_ops::is_team_member(db, team.id, id).await? {
-                            return Ok(true);
-                        }
-                    }
+                // Check team permissions — single query instead of N+1 loop
+                if rg_db::ops::org_ops::is_member_of_write_team(db, org_id, id).await? {
+                    return Ok(true);
                 }
             }
 

@@ -10,8 +10,25 @@ use axum::Json;
 use sea_orm::DatabaseConnection;
 
 use crate::AppState;
+use crate::error::AppError;
+use utoipa::ToSchema;
 
 /// LFS batch API: POST /repos/:owner/:name/lfs/objects/batch
+#[utoipa::path(
+    post,
+    path = "/repos/{owner}/{name}/lfs/objects/batch",
+    tag = "LFS",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+    ),
+    request_body(content = serde_json::Value),
+    responses(
+        (status = 201, description = "Created", body = serde_json::Value),
+        (status = 400, description = "Bad request", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn batch(
     State(state): State<AppState>,
     Path((owner, repo)): Path<(String, String)>,
@@ -21,14 +38,7 @@ pub async fn batch(
     // LFS client sends Accept: application/vnd.git-lfs+json
     let repo_id = match resolve_repo_id(&state.db, &owner, &repo).await {
         Some(id) => id,
-        None => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(serde_json::json!({
-                    "message": "repository not found"
-                })),
-            );
-        }
+        None => return AppError::not_found("repository not found").into_response(),
     };
 
     let lfs_root = rg_core::lfs::service::lfs_root(&state.repo_root, &owner, &repo);
@@ -51,15 +61,27 @@ pub async fn batch(
     )
     .await
     {
-        Ok(resp) => (StatusCode::OK, Json(serde_json::json!(resp))),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"message": format!("{:#}", e)})),
-        ),
+        Ok(resp) => (StatusCode::OK, Json(serde_json::json!(resp))).into_response(),
+        Err(e) => AppError::internal(e).into_response(),
     }
 }
 
 /// Upload an LFS object: PUT /repos/:owner/:name/lfs/objects/:oid
+#[utoipa::path(
+    put,
+    path = "/repos/{owner}/{name}/lfs/objects/{oid}",
+    tag = "LFS",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("oid" = String, Path, description = "oid"),
+    ),
+    request_body(content = serde_json::Value),
+    responses(
+        (status = 200, description = "Updated", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn upload_object(
     State(state): State<AppState>,
     Path((owner, repo, oid)): Path<(String, String, String)>,
@@ -68,7 +90,7 @@ pub async fn upload_object(
 ) -> impl IntoResponse {
     let repo_id = match resolve_repo_id(&state.db, &owner, &repo).await {
         Some(id) => id,
-        None => return (StatusCode::NOT_FOUND, "repository not found".to_string()),
+        None => return AppError::not_found("repository not found").into_response(),
     };
 
     let lfs_root = rg_core::lfs::service::lfs_root(&state.repo_root, &owner, &repo);
@@ -82,12 +104,26 @@ pub async fn upload_object(
     )
     .await
     {
-        Ok(()) => (StatusCode::OK, String::new()),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("error: {:#}", e)),
+        Ok(()) => StatusCode::OK.into_response(),
+        Err(e) => AppError::internal(e).into_response(),
     }
 }
 
 /// Download an LFS object: GET /repos/:owner/:name/lfs/objects/:oid
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/lfs/objects/{oid}",
+    tag = "LFS",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("oid" = String, Path, description = "oid"),
+    ),
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn download_object(
     State(state): State<AppState>,
     Path((owner, repo, oid)): Path<(String, String, String)>,
@@ -100,12 +136,12 @@ pub async fn download_object(
             StatusCode::OK,
             [(axum::http::header::CONTENT_TYPE, "application/octet-stream")],
             data,
-        ),
+        ).into_response(),
         Err(e) => (
             StatusCode::NOT_FOUND,
             [(axum::http::header::CONTENT_TYPE, "text/plain")],
-            format!("error: {:#}", e).into_bytes(),
-        ),
+            e.to_string().into_bytes(),
+        ).into_response(),
     }
 }
 

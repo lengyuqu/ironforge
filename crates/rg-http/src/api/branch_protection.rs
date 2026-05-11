@@ -7,6 +7,8 @@ use axum::Json;
 use serde::Deserialize;
 
 use crate::AppState;
+use crate::error::AppError;
+use utoipa::ToSchema;
 
 // ── Request / Response types ──────────────────────────────────────────
 
@@ -51,22 +53,46 @@ pub struct UpdateProtectionRequest {
 
 /// List branch protection rules for a repo.
 /// GET /api/v1/repos/:owner/:name/branches/protection
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/branches/protection",
+    tag = "Branch Protection",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+    ),
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn list_protections(
     State(state): State<AppState>,
     Path((owner, repo)): Path<(String, String)>,
 ) -> impl IntoResponse {
     match rg_core::branch_protection::service::list_protections(&state.db, &owner, &repo).await {
         Ok(protections) => (StatusCode::OK, Json(protections)).into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": format!("{:#}", e)})),
-        )
-            .into_response(),
+        Err(e) => AppError::InternalError(e.to_string()).into_response(),
     }
 }
 
 /// Create a branch protection rule.
 /// POST /api/v1/repos/:owner/:name/branches/protection
+#[utoipa::path(
+    post,
+    path = "/repos/{owner}/{name}/branches/protection",
+    tag = "Branch Protection",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+    ),
+    request_body(content = serde_json::Value),
+    responses(
+        (status = 201, description = "Created", body = serde_json::Value),
+        (status = 400, description = "Bad request", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn create_protection(
     State(state): State<AppState>,
     Path((owner, repo)): Path<(String, String)>,
@@ -74,11 +100,7 @@ pub async fn create_protection(
     Json(req): Json<CreateProtectionRequest>,
 ) -> impl IntoResponse {
     if extract_user_id(&state, &headers).is_none() {
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(serde_json::json!({"error": "authentication required"})),
-        )
-            .into_response();
+        return AppError::Unauthorized("authentication required".to_string()).into_response();
     }
 
     match rg_core::branch_protection::service::create_protection(
@@ -97,32 +119,53 @@ pub async fn create_protection(
     .await
     {
         Ok(protection) => (StatusCode::CREATED, Json(protection)).into_response(),
-        Err(e) => (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": format!("{:#}", e)})),
-        )
-            .into_response(),
+        Err(e) => AppError::BadRequest(e.to_string()).into_response(),
     }
 }
 
 /// Get a branch protection rule by ID.
 /// GET /api/v1/repos/:owner/:name/branches/protection/:id
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/branches/protection/{id}",
+    tag = "Branch Protection",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("id" = i64, Path, description = "id"),
+    ),
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn get_protection(
     State(state): State<AppState>,
     Path((_owner, _repo, id)): Path<(String, String, i64)>,
 ) -> impl IntoResponse {
     match rg_core::branch_protection::service::get_protection(&state.db, id).await {
         Ok(protection) => (StatusCode::OK, Json(protection)).into_response(),
-        Err(e) => (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": format!("{:#}", e)})),
-        )
-            .into_response(),
+        Err(e) => AppError::NotFound(e.to_string()).into_response(),
     }
 }
 
 /// Update a branch protection rule.
 /// PATCH /api/v1/repos/:owner/:name/branches/protection/:id
+#[utoipa::path(
+    patch,
+    path = "/repos/{owner}/{name}/branches/protection/{id}",
+    tag = "Branch Protection",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("id" = i64, Path, description = "id"),
+    ),
+    request_body(content = serde_json::Value),
+    responses(
+        (status = 200, description = "Updated", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn update_protection(
     State(state): State<AppState>,
     Path((_owner, _repo, id)): Path<(String, String, i64)>,
@@ -130,11 +173,7 @@ pub async fn update_protection(
     Json(req): Json<UpdateProtectionRequest>,
 ) -> impl IntoResponse {
     if extract_user_id(&state, &headers).is_none() {
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(serde_json::json!({"error": "authentication required"})),
-        )
-            .into_response();
+        return AppError::Unauthorized("authentication required".to_string()).into_response();
     }
 
     match rg_core::branch_protection::service::update_protection(
@@ -151,36 +190,39 @@ pub async fn update_protection(
     .await
     {
         Ok(protection) => (StatusCode::OK, Json(protection)).into_response(),
-        Err(e) => (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": format!("{:#}", e)})),
-        )
-            .into_response(),
+        Err(e) => AppError::BadRequest(e.to_string()).into_response(),
     }
 }
 
 /// Delete a branch protection rule.
 /// DELETE /api/v1/repos/:owner/:name/branches/protection/:id
+#[utoipa::path(
+    delete,
+    path = "/repos/{owner}/{name}/branches/protection/{id}",
+    tag = "Branch Protection",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("id" = i64, Path, description = "id"),
+    ),
+    responses(
+        (status = 200, description = "Deleted", body = serde_json::Value),
+        (status = 204, description = "No content"),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn delete_protection(
     State(state): State<AppState>,
     Path((_owner, _repo, id)): Path<(String, String, i64)>,
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse {
     if extract_user_id(&state, &headers).is_none() {
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(serde_json::json!({"error": "authentication required"})),
-        )
-            .into_response();
+        return AppError::Unauthorized("authentication required".to_string()).into_response();
     }
 
     match rg_core::branch_protection::service::delete_protection(&state.db, id).await {
         Ok(()) => (StatusCode::NO_CONTENT, Json(serde_json::json!({}))).into_response(),
-        Err(e) => (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": format!("{:#}", e)})),
-        )
-            .into_response(),
+        Err(e) => AppError::BadRequest(e.to_string()).into_response(),
     }
 }
 

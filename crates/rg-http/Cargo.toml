@@ -27,3 +27,10 @@ rustls-pemfile = { workspace = true }
 axum-server = { workspace = true }
 utoipa = { version = "5", features = ["chrono"] }
 utoipa-swagger-ui = "8"
+uuid = { workspace = true }
+
+[dev-dependencies]
+reqwest = { version = "0.12", features = ["json"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+tempfile = "3"
+socket2 = "0.5"

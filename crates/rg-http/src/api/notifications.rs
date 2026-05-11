@@ -7,7 +7,9 @@ use axum::Json;
 use serde::{Deserialize, Serialize};
 
 use crate::AppState;
+use crate::error::AppError;
 use crate::pagination::{PaginatedResponse, PaginationParams};
+use utoipa::ToSchema;
 
 // ── Response types ───────────────────────────────────────────
 
@@ -34,6 +36,15 @@ pub struct ListNotificationsQuery {
 
 /// GET /api/v1/notifications
 /// List notifications for the authenticated user.
+#[utoipa::path(
+    get,
+    path = "/notifications",
+    tag = "Notifications",
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn list_notifications(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -42,11 +53,7 @@ pub async fn list_notifications(
     let user_id = match extract_user_id(&state, &headers) {
         Some(id) => id,
         None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(serde_json::json!({"error": "authentication required"})),
-            )
-                .into_response()
+            return AppError::unauthorized("authentication required").into_response();
         }
     };
     let unread_only = params.unread_only.unwrap_or(false);
@@ -71,15 +78,20 @@ pub async fn list_notifications(
                 .collect();
             Json(PaginatedResponse::new(resp, &pagination, total as u64)).into_response()
         }
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": e.to_string()})),
-        )
-        .into_response(),
+        Err(e) => AppError::internal(e.to_string()).into_response(),
     }
 }
 
 /// GET /api/v1/notifications/unread-count
+#[utoipa::path(
+    get,
+    path = "/notifications/unread-count",
+    tag = "Notifications",
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn unread_count(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -87,40 +99,52 @@ pub async fn unread_count(
     let user_id = match extract_user_id(&state, &headers) {
         Some(id) => id,
         None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(serde_json::json!({"error": "authentication required"})),
-            )
-                .into_response()
+            return AppError::unauthorized("authentication required").into_response();
         }
     };
 
     match rg_core::notification::unread_count(&state.db, user_id).await {
         Ok(count) => Json(serde_json::json!({"unread_count": count})).into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": e.to_string()})),
-        )
-        .into_response(),
+        Err(e) => AppError::internal(e.to_string()).into_response(),
     }
 }
 
 /// POST /api/v1/notifications/:id/read
+#[utoipa::path(
+    post,
+    path = "/notifications/{id}/read",
+    tag = "Notifications",
+    params(
+        ("id" = i64, Path, description = "id"),
+    ),
+    request_body(content = serde_json::Value),
+    responses(
+        (status = 201, description = "Created", body = serde_json::Value),
+        (status = 400, description = "Bad request", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn mark_read(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> impl IntoResponse {
     match rg_core::notification::mark_read(&state.db, id).await {
         Ok(()) => Json(serde_json::json!({"id": id, "is_read": true})).into_response(),
-        Err(e) => (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": e.to_string()})),
-        )
-            .into_response(),
+        Err(e) => AppError::not_found(e.to_string()).into_response(),
     }
 }
 
 /// POST /api/v1/notifications/mark-all-read
+#[utoipa::path(
+    post,
+    path = "/notifications/mark-all-read",
+    tag = "Notifications",
+    responses(
+        (status = 201, description = "Created", body = serde_json::Value),
+        (status = 400, description = "Bad request", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn mark_all_read(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -128,36 +152,37 @@ pub async fn mark_all_read(
     let user_id = match extract_user_id(&state, &headers) {
         Some(id) => id,
         None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(serde_json::json!({"error": "authentication required"})),
-            )
-                .into_response()
+            return AppError::unauthorized("authentication required").into_response();
         }
     };
 
     match rg_core::notification::mark_all_read(&state.db, user_id).await {
         Ok(count) => Json(serde_json::json!({"marked_read": count})).into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": e.to_string()})),
-        )
-        .into_response(),
+        Err(e) => AppError::internal(e.to_string()).into_response(),
     }
 }
 
 /// DELETE /api/v1/notifications/:id
+#[utoipa::path(
+    delete,
+    path = "/notifications/{id}",
+    tag = "Notifications",
+    params(
+        ("id" = i64, Path, description = "id"),
+    ),
+    responses(
+        (status = 200, description = "Deleted", body = serde_json::Value),
+        (status = 204, description = "No content"),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn delete_notification(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> impl IntoResponse {
     match rg_core::notification::delete_notification(&state.db, id).await {
         Ok(()) => Json(serde_json::json!({"deleted": true})).into_response(),
-        Err(e) => (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": e.to_string()})),
-        )
-            .into_response(),
+        Err(e) => AppError::not_found(e.to_string()).into_response(),
     }
 }
 

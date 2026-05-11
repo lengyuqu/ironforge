@@ -16,6 +16,7 @@ use serde::Deserialize;
 use utoipa::ToSchema;
 
 use crate::api::users::extract_bearer_claims;
+use crate::error::AppError;
 use crate::AppState;
 
 /// Request body for creating a label.
@@ -39,36 +40,70 @@ pub struct UpdateLabelRequest {
 }
 
 /// GET /api/v1/repos/:owner/:name/labels
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/labels",
+    tag = "Labels",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+    ),
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn list_labels(
     State(state): State<AppState>,
     Path((owner, name)): Path<(String, String)>,
 ) -> impl IntoResponse {
     match rg_core::label::service::list_labels(&state.db, &owner, &name).await {
         Ok(labels) => (StatusCode::OK, Json(serde_json::json!(labels))).into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        )
-            .into_response(),
+        Err(e) => AppError::internal(e.to_string()).into_response(),
     }
 }
 
 /// GET /api/v1/repos/:owner/:name/labels/:id
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/labels/{id}",
+    tag = "Labels",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("id" = i64, Path, description = "id"),
+    ),
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn get_label(
     State(state): State<AppState>,
     Path((owner, name, id)): Path<(String, String, i64)>,
 ) -> impl IntoResponse {
     match rg_core::label::service::get_label(&state.db, &owner, &name, id).await {
         Ok(label) => (StatusCode::OK, Json(serde_json::json!(label))).into_response(),
-        Err(_) => (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({ "error": "label not found" })),
-        )
-            .into_response(),
+        Err(_) => AppError::not_found("label not found").into_response(),
     }
 }
 
 /// POST /api/v1/repos/:owner/:name/labels
+#[utoipa::path(
+    post,
+    path = "/repos/{owner}/{name}/labels",
+    tag = "Labels",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+    ),
+    request_body(content = serde_json::Value),
+    responses(
+        (status = 201, description = "Created", body = serde_json::Value),
+        (status = 400, description = "Bad request", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn create_label(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -78,11 +113,7 @@ pub async fn create_label(
     let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(serde_json::json!({ "error": "authentication required" })),
-            )
-                .into_response()
+            return AppError::unauthorized("authentication required").into_response();
         }
     };
 
@@ -93,11 +124,7 @@ pub async fn create_label(
         .await
         .unwrap_or(false)
     {
-        return (
-            StatusCode::FORBIDDEN,
-            Json(serde_json::json!({ "error": "forbidden" })),
-        )
-            .into_response();
+        return AppError::forbidden("forbidden").into_response();
     }
 
     match rg_core::label::service::create_label(
@@ -111,15 +138,26 @@ pub async fn create_label(
     .await
     {
         Ok(label) => (StatusCode::CREATED, Json(serde_json::json!(label))).into_response(),
-        Err(e) => (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        )
-            .into_response(),
+        Err(e) => AppError::bad_request(e.to_string()).into_response(),
     }
 }
 
 /// PATCH /api/v1/repos/:owner/:name/labels/:id
+#[utoipa::path(
+    patch,
+    path = "/repos/{owner}/{name}/labels/{id}",
+    tag = "Labels",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("id" = i64, Path, description = "id"),
+    ),
+    request_body(content = serde_json::Value),
+    responses(
+        (status = 200, description = "Updated", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn update_label(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -129,11 +167,7 @@ pub async fn update_label(
     let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(serde_json::json!({ "error": "authentication required" })),
-            )
-                .into_response()
+            return AppError::unauthorized("authentication required").into_response();
         }
     };
 
@@ -144,11 +178,7 @@ pub async fn update_label(
         .await
         .unwrap_or(false)
     {
-        return (
-            StatusCode::FORBIDDEN,
-            Json(serde_json::json!({ "error": "forbidden" })),
-        )
-            .into_response();
+        return AppError::forbidden("forbidden").into_response();
     }
 
     match rg_core::label::service::update_label(
@@ -161,15 +191,26 @@ pub async fn update_label(
     .await
     {
         Ok(label) => (StatusCode::OK, Json(serde_json::json!(label))).into_response(),
-        Err(e) => (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        )
-            .into_response(),
+        Err(e) => AppError::bad_request(e.to_string()).into_response(),
     }
 }
 
 /// DELETE /api/v1/repos/:owner/:name/labels/:id
+#[utoipa::path(
+    delete,
+    path = "/repos/{owner}/{name}/labels/{id}",
+    tag = "Labels",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("id" = i64, Path, description = "id"),
+    ),
+    responses(
+        (status = 200, description = "Deleted", body = serde_json::Value),
+        (status = 204, description = "No content"),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn delete_label(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -178,11 +219,7 @@ pub async fn delete_label(
     let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(serde_json::json!({ "error": "authentication required" })),
-            )
-                .into_response()
+            return AppError::unauthorized("authentication required").into_response();
         }
     };
 
@@ -193,19 +230,11 @@ pub async fn delete_label(
         .await
         .unwrap_or(false)
     {
-        return (
-            StatusCode::FORBIDDEN,
-            Json(serde_json::json!({ "error": "forbidden" })),
-        )
-            .into_response();
+        return AppError::forbidden("forbidden").into_response();
     }
 
     match rg_core::label::service::delete_label(&state.db, id).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(e) => (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        )
-            .into_response(),
+        Err(e) => AppError::bad_request(e.to_string()).into_response(),
     }
 }

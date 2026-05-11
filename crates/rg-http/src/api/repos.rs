@@ -13,6 +13,7 @@ use axum::{
 use serde::Deserialize;
 use utoipa::ToSchema;
 
+use crate::error::AppError;
 use crate::{api::users::extract_bearer_claims, openapi::PaginatedRepoResponse, AppState};
 use crate::pagination::{PaginationParams, PaginatedResponse};
 
@@ -64,11 +65,7 @@ pub async fn create_repo(
     let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(serde_json::json!({ "error": "authentication required" })),
-            )
-                .into_response()
+            return AppError::Unauthorized("authentication required".to_string()).into_response()
         }
     };
 
@@ -83,27 +80,15 @@ pub async fn create_repo(
                     match rg_db::ops::org_ops::is_org_member(&state.db, org.id, owner_id).await {
                         Ok(true) => Some(org.id),
                         _ => {
-                            return (
-                                StatusCode::FORBIDDEN,
-                                Json(serde_json::json!({ "error": "you are not a member of this organization" })),
-                            )
-                                .into_response()
+                            return AppError::Forbidden("you are not a member of this organization".to_string()).into_response()
                         }
                     }
                 }
                 Ok(None) => {
-                    return (
-                        StatusCode::NOT_FOUND,
-                        Json(serde_json::json!({ "error": "organization not found" })),
-                    )
-                        .into_response()
+                    return AppError::NotFound("organization not found".to_string()).into_response()
                 }
                 Err(e) => {
-                    return (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(serde_json::json!({ "error": e.to_string() })),
-                    )
-                        .into_response()
+                    return AppError::InternalError(e.to_string()).into_response()
                 }
             }
         }
@@ -122,11 +107,7 @@ pub async fn create_repo(
     .await
     {
         Ok(repo) => (StatusCode::CREATED, Json(serde_json::json!(repo))).into_response(),
-        Err(e) => (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        )
-            .into_response(),
+        Err(e) => AppError::BadRequest(e.to_string()).into_response(),
     }
 }
 
@@ -177,11 +158,7 @@ pub async fn list_repos(
                     .into_response()
             }
             Err(e) => {
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({ "error": e.to_string() })),
-                )
-                    .into_response()
+                return AppError::InternalError(e.to_string()).into_response()
             }
         }
     }
@@ -201,20 +178,12 @@ pub async fn list_repos(
                     .into_response()
             }
             Err(e) => {
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({ "error": e.to_string() })),
-                )
-                    .into_response()
+                return AppError::InternalError(e.to_string()).into_response()
             }
         }
     }
 
-    (
-        StatusCode::NOT_FOUND,
-        Json(serde_json::json!({ "error": "owner not found (neither user nor organization)" })),
-    )
-        .into_response()
+    AppError::NotFound("owner not found (neither user nor organization)".to_string()).into_response()
 }
 
 #[utoipa::path(
@@ -239,28 +208,33 @@ pub async fn get_repo(
 ) -> impl IntoResponse {
     match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await {
         Ok(Some(repo)) => (StatusCode::OK, Json(serde_json::json!(repo))).into_response(),
-        Ok(None) => (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({ "error": "repository not found" })),
-        )
-            .into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        )
-            .into_response(),
+        Ok(None) => AppError::NotFound("repository not found".to_string()).into_response(),
+        Err(e) => AppError::InternalError(e.to_string()).into_response(),
     }
 }
 
 // ── Star/Watch/Delete handlers ───────────────────────────────────────────────
 
 /// Request body for watch state.
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, ToSchema)]
 pub struct WatchRequest {
     pub state: String,
 }
 
 /// PUT /api/v1/repos/:owner/:name/star
+#[utoipa::path(
+    put,
+    path = "/repos/{owner}/{name}/star",
+    tag = "Repositories",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+    ),
+    responses(
+        (status = 200, description = "Updated", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn star_repo(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -269,11 +243,7 @@ pub async fn star_repo(
     let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(serde_json::json!({ "error": "authentication required" })),
-            )
-                .into_response()
+            return AppError::Unauthorized("authentication required".to_string()).into_response()
         }
     };
 
@@ -282,18 +252,10 @@ pub async fn star_repo(
     let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await {
         Ok(Some(r)) => r,
         Ok(None) => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(serde_json::json!({ "error": "repository not found" })),
-            )
-                .into_response()
+            return AppError::NotFound("repository not found".to_string()).into_response()
         }
         Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            )
-                .into_response()
+            return AppError::InternalError(e.to_string()).into_response()
         }
     };
 
@@ -303,15 +265,24 @@ pub async fn star_repo(
             Json(serde_json::json!({ "starred": starred })),
         )
             .into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        )
-            .into_response(),
+        Err(e) => AppError::InternalError(e.to_string()).into_response(),
     }
 }
 
 /// GET /api/v1/repos/:owner/:name/stargazers
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/stargazers",
+    tag = "Repositories",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+    ),
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn get_stargazers(
     State(state): State<AppState>,
     Path((owner, name)): Path<(String, String)>,
@@ -324,18 +295,10 @@ pub async fn get_stargazers(
     let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await {
         Ok(Some(r)) => r,
         Ok(None) => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(serde_json::json!({ "error": "repository not found" })),
-            )
-                .into_response()
+            return AppError::NotFound("repository not found".to_string()).into_response()
         }
         Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            )
-                .into_response()
+            return AppError::InternalError(e.to_string()).into_response()
         }
     };
 
@@ -345,15 +308,25 @@ pub async fn get_stargazers(
             Json(PaginatedResponse::new(stargazers, &pagination, total as u64)),
         )
             .into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        )
-            .into_response(),
+        Err(e) => AppError::InternalError(e.to_string()).into_response(),
     }
 }
 
 /// PUT /api/v1/repos/:owner/:name/watch
+#[utoipa::path(
+    put,
+    path = "/repos/{owner}/{name}/watch",
+    tag = "Repositories",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+    ),
+    request_body(content = serde_json::Value),
+    responses(
+        (status = 200, description = "Updated", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn watch_repo(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -363,11 +336,7 @@ pub async fn watch_repo(
     let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(serde_json::json!({ "error": "authentication required" })),
-            )
-                .into_response()
+            return AppError::Unauthorized("authentication required".to_string()).into_response()
         }
     };
 
@@ -376,18 +345,10 @@ pub async fn watch_repo(
     let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await {
         Ok(Some(r)) => r,
         Ok(None) => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(serde_json::json!({ "error": "repository not found" })),
-            )
-                .into_response()
+            return AppError::NotFound("repository not found".to_string()).into_response()
         }
         Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            )
-                .into_response()
+            return AppError::InternalError(e.to_string()).into_response()
         }
     };
 
@@ -397,15 +358,25 @@ pub async fn watch_repo(
             Json(serde_json::json!({ "watch_state": watch_state })),
         )
             .into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        )
-            .into_response(),
+        Err(e) => AppError::InternalError(e.to_string()).into_response(),
     }
 }
 
 /// DELETE /api/v1/repos/:owner/:name/watch
+#[utoipa::path(
+    delete,
+    path = "/repos/{owner}/{name}/watch",
+    tag = "Repositories",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+    ),
+    responses(
+        (status = 200, description = "Deleted", body = serde_json::Value),
+        (status = 204, description = "No content"),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn unwatch_repo(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -414,11 +385,7 @@ pub async fn unwatch_repo(
     let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(serde_json::json!({ "error": "authentication required" })),
-            )
-                .into_response()
+            return AppError::Unauthorized("authentication required".to_string()).into_response()
         }
     };
 
@@ -427,18 +394,10 @@ pub async fn unwatch_repo(
     let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await {
         Ok(Some(r)) => r,
         Ok(None) => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(serde_json::json!({ "error": "repository not found" })),
-            )
-                .into_response()
+            return AppError::NotFound("repository not found".to_string()).into_response()
         }
         Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            )
-                .into_response()
+            return AppError::InternalError(e.to_string()).into_response()
         }
     };
 
@@ -448,15 +407,25 @@ pub async fn unwatch_repo(
             Json(serde_json::json!({ "watch_state": "not_watching" })),
         )
             .into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        )
-            .into_response(),
+        Err(e) => AppError::InternalError(e.to_string()).into_response(),
     }
 }
 
 /// DELETE /api/v1/repos/:owner/:name
+#[utoipa::path(
+    delete,
+    path = "/repos/{owner}/{name}",
+    tag = "Repositories",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+    ),
+    responses(
+        (status = 200, description = "Deleted", body = serde_json::Value),
+        (status = 204, description = "No content"),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn delete_repo_handler(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -465,11 +434,7 @@ pub async fn delete_repo_handler(
     let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(serde_json::json!({ "error": "authentication required" })),
-            )
-                .into_response()
+            return AppError::Unauthorized("authentication required".to_string()).into_response()
         }
     };
 
@@ -478,48 +443,46 @@ pub async fn delete_repo_handler(
     let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await {
         Ok(Some(r)) => r,
         Ok(None) => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(serde_json::json!({ "error": "repository not found" })),
-            )
-                .into_response()
+            return AppError::NotFound("repository not found".to_string()).into_response()
         }
         Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            )
-                .into_response()
+            return AppError::InternalError(e.to_string()).into_response()
         }
     };
 
     // Only owner can delete
     if repo.owner_id != user_id {
-        return (
-            StatusCode::FORBIDDEN,
-            Json(serde_json::json!({ "error": "only repository owner can delete" })),
-        )
-            .into_response();
+        return AppError::Forbidden("only repository owner can delete".to_string()).into_response();
     }
 
     match rg_core::repo::service::delete_repo(&state.db, repo.id).await {
         Ok(()) => (StatusCode::OK, Json(serde_json::json!({ "deleted": true }))).into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        )
-            .into_response(),
+        Err(e) => AppError::InternalError(e.to_string()).into_response(),
     }
 }
 
 // ── Fork handlers ──────────────────────────────────────────────────────
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, ToSchema)]
 pub struct ForkRequest {
     pub org: Option<String>,
 }
 
 /// POST /api/v1/repos/:owner/:name/fork
+#[utoipa::path(
+    post,
+    path = "/repos/{owner}/{name}/fork",
+    tag = "Repositories",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+    ),
+    responses(
+        (status = 201, description = "Created", body = serde_json::Value),
+        (status = 400, description = "Bad request", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn fork_repo_handler(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -528,18 +491,31 @@ pub async fn fork_repo_handler(
     let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => {
-            return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "authentication required" }))).into_response();
+            return AppError::Unauthorized("authentication required".to_string()).into_response();
         }
     };
     let user_id: i64 = claims.sub.parse().unwrap_or(-1);
 
     match rg_core::repo::service::fork_repo(&state.db, user_id, &owner, &name, &state.repo_root).await {
         Ok(repo) => (StatusCode::ACCEPTED, Json(serde_json::json!(repo))).into_response(),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+        Err(e) => AppError::BadRequest(e.to_string()).into_response(),
     }
 }
 
 /// GET /api/v1/repos/:owner/:name/forks
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/forks",
+    tag = "Repositories",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+    ),
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn list_forks_handler(
     State(state): State<AppState>,
     Path((owner, name)): Path<(String, String)>,
@@ -554,18 +530,33 @@ pub async fn list_forks_handler(
             StatusCode::OK,
             Json(PaginatedResponse::new(forks, &pagination, total as u64)),
         ).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+        Err(e) => AppError::InternalError(e.to_string()).into_response(),
     }
 }
 
 // ── Transfer handler ──────────────────────────────────────────────────
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, ToSchema)]
 pub struct TransferRequest {
     pub new_owner: String,
 }
 
 /// POST /api/v1/repos/:owner/:name/transfer
+#[utoipa::path(
+    post,
+    path = "/repos/{owner}/{name}/transfer",
+    tag = "Repositories",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+    ),
+    request_body(content = serde_json::Value),
+    responses(
+        (status = 201, description = "Created", body = serde_json::Value),
+        (status = 400, description = "Bad request", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn transfer_repo_handler(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -575,14 +566,14 @@ pub async fn transfer_repo_handler(
     let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => {
-            return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "authentication required" }))).into_response();
+            return AppError::Unauthorized("authentication required".to_string()).into_response();
         }
     };
     let user_id: i64 = claims.sub.parse().unwrap_or(-1);
 
     match rg_core::repo::service::transfer_repo(&state.db, user_id, &owner, &name, &body.new_owner, &state.repo_root).await {
         Ok(repo) => (StatusCode::OK, Json(serde_json::json!(repo))).into_response(),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+        Err(e) => AppError::BadRequest(e.to_string()).into_response(),
     }
 }
 
@@ -599,6 +590,22 @@ pub struct CreateCommitStatusRequest {
 }
 
 /// POST /api/v1/repos/:owner/:name/statuses/:sha
+#[utoipa::path(
+    post,
+    path = "/repos/{owner}/{name}/statuses/{sha}",
+    tag = "Repositories",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("sha" = String, Path, description = "sha"),
+    ),
+    request_body(content = serde_json::Value),
+    responses(
+        (status = 201, description = "Created", body = serde_json::Value),
+        (status = 400, description = "Bad request", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn create_commit_status(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -608,11 +615,7 @@ pub async fn create_commit_status(
     let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(serde_json::json!({ "error": "authentication required" })),
-            )
-                .into_response()
+            return AppError::Unauthorized("authentication required".to_string()).into_response()
         }
     };
 
@@ -621,18 +624,10 @@ pub async fn create_commit_status(
     let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await {
         Ok(Some(r)) => r,
         Ok(None) => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(serde_json::json!({ "error": "repository not found" })),
-            )
-                .into_response()
+            return AppError::NotFound("repository not found".to_string()).into_response()
         }
         Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            )
-                .into_response()
+            return AppError::InternalError(e.to_string()).into_response()
         }
     };
 
@@ -640,11 +635,7 @@ pub async fn create_commit_status(
         .await
         .unwrap_or(false)
     {
-        return (
-            StatusCode::FORBIDDEN,
-            Json(serde_json::json!({ "error": "forbidden" })),
-        )
-            .into_response();
+        return AppError::Forbidden("forbidden".to_string()).into_response();
     }
 
     match rg_core::repo::service::create_commit_status(
@@ -660,40 +651,56 @@ pub async fn create_commit_status(
     .await
     {
         Ok(status) => (StatusCode::CREATED, Json(serde_json::json!(status))).into_response(),
-        Err(e) => (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        )
-            .into_response(),
+        Err(e) => AppError::BadRequest(e.to_string()).into_response(),
     }
 }
 
 /// GET /api/v1/repos/:owner/:name/commits/:sha/statuses
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/commits/{sha}/statuses",
+    tag = "Repositories",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("sha" = String, Path, description = "sha"),
+    ),
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn list_commit_statuses(
     State(state): State<AppState>,
     Path((owner, name, sha)): Path<(String, String, String)>,
 ) -> impl IntoResponse {
     match rg_core::repo::service::list_commit_statuses(&state.db, &owner, &name, &sha).await {
         Ok(statuses) => (StatusCode::OK, Json(serde_json::json!(statuses))).into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        )
-            .into_response(),
+        Err(e) => AppError::InternalError(e.to_string()).into_response(),
     }
 }
 
 /// GET /api/v1/repos/:owner/:name/commits/:sha/status
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/commits/{sha}/status",
+    tag = "Repositories",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("sha" = String, Path, description = "sha"),
+    ),
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn get_combined_status(
     State(state): State<AppState>,
     Path((owner, name, sha)): Path<(String, String, String)>,
 ) -> impl IntoResponse {
     match rg_core::repo::service::get_combined_status(&state.db, &owner, &name, &sha).await {
         Ok(combined) => (StatusCode::OK, Json(combined)).into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        )
-            .into_response(),
+        Err(e) => AppError::InternalError(e.to_string()).into_response(),
     }
 }

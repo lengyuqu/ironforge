@@ -8,7 +8,9 @@
 //!  - API pagination
 
 pub mod api;
+pub mod error;
 pub mod git_v2;
+pub mod middleware;
 pub mod openapi;
 pub mod pagination;
 pub mod rate_limit;
@@ -153,8 +155,60 @@ async fn load_tls_config(
     Ok(Arc::new(server_config))
 }
 
+/// Create the Axum router for testing (no rate limiter, no static file serving).
+pub fn create_router_for_test(state: AppState) -> Router {
+    build_test_router(state)
+}
+
 /// Create the Axum router (Git + REST API + health).
 fn create_router(state: AppState, rate_limiter: rate_limit::RateLimiter) -> Router {
+    build_router(state, rate_limiter)
+}
+
+/// Shared router builder used by both production and test routers.
+fn build_router(state: AppState, rate_limiter: rate_limit::RateLimiter) -> Router {
+    let (api_v1, git_routes) = build_routes(&state);
+
+    Router::new()
+        .nest("/git", git_routes)
+        .nest("/api/v1", api_v1)
+        .route("/health", get(health))
+        // ── OpenAPI spec endpoint ──────────────────────────────────────────
+        .route("/api-docs/openapi.json", get(openapi_handler))
+        // Swagger UI — serve embedded Swagger UI static files
+        .route("/api-docs/{*tail}", get(swagger_ui_handler))
+        // Serve SvelteKit static assets if the build directory exists
+        .fallback_service(
+            ServeDir::new("web/build").fallback(ServeDir::new("web/build/index.html"))
+        )
+        // ── Middleware layers (order: bottom-up, last .layer() runs first) ──
+        .layer(axum::middleware::from_fn(middleware::request_id_middleware))
+        .layer(
+            TraceLayer::new_for_http().make_span_with(|request: &axum::http::Request<axum::body::Body>| {
+                let request_id = request
+                    .headers()
+                    .get("x-request-id")
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or("-");
+                tracing::info_span!(
+                    "http_request",
+                    method = %request.method(),
+                    uri = %request.uri(),
+                    status = tracing::field::Empty,
+                    request_id = %request_id,
+                )
+            }),
+        )
+        .layer(CorsLayer::permissive())
+        .layer(axum::middleware::from_fn_with_state(
+            rate_limiter.clone(),
+            rate_limit::rate_limit_middleware,
+        ))
+        .with_state(state)
+}
+
+/// Build route definitions (shared between production and test routers).
+fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
     // ── Git Smart HTTP routes ──────────────────────────────────────────────
     let git_routes = Router::new()
         .route(
@@ -178,105 +232,105 @@ fn create_router(state: AppState, rate_limiter: rate_limit::RateLimiter) -> Rout
         .route("/users/me", get(api::users::me))
         // PAT
         .route("/users/tokens", get(api::users::list_tokens).post(api::users::create_token))
-        .route("/users/tokens/:id", delete(api::users::delete_token))
+        .route("/users/tokens/{id}", delete(api::users::delete_token))
         // Repos
         .route("/repos", post(api::repos::create_repo))
-        .route("/repos/:owner", get(api::repos::list_repos))
-        .route("/repos/:owner/:name", get(api::repos::get_repo))
+        .route("/repos/{owner}", get(api::repos::list_repos))
+        .route("/repos/{owner}/{name}", get(api::repos::get_repo))
         // Milestones (before issues to avoid routing conflicts)
-        .route("/repos/:owner/:name/milestones", get(api::issues::list_milestones).post(api::issues::create_milestone))
-        .route("/repos/:owner/:name/milestones/:id", get(api::issues::get_milestone).patch(api::issues::update_milestone).delete(api::issues::delete_milestone))
+        .route("/repos/{owner}/{name}/milestones", get(api::issues::list_milestones).post(api::issues::create_milestone))
+        .route("/repos/{owner}/{name}/milestones/{id}", get(api::issues::get_milestone).patch(api::issues::update_milestone).delete(api::issues::delete_milestone))
         // Labels
-        .route("/repos/:owner/:name/labels", get(api::labels::list_labels).post(api::labels::create_label))
-        .route("/repos/:owner/:name/labels/:id", get(api::labels::get_label).patch(api::labels::update_label).delete(api::labels::delete_label))
+        .route("/repos/{owner}/{name}/labels", get(api::labels::list_labels).post(api::labels::create_label))
+        .route("/repos/{owner}/{name}/labels/{id}", get(api::labels::get_label).patch(api::labels::update_label).delete(api::labels::delete_label))
         // Issues
-        .route("/repos/:owner/:name/issues", get(api::issues::list_issues).post(api::issues::create_issue))
-        .route("/repos/:owner/:name/issues/:number", get(api::issues::get_issue).patch(api::issues::update_issue))
-        .route("/repos/:owner/:name/issues/:number/labels", get(api::issues::get_issue_labels))
-        .route("/repos/:owner/:name/issues/:number/comments", get(api::issues::list_comments).post(api::issues::add_comment))
+        .route("/repos/{owner}/{name}/issues", get(api::issues::list_issues).post(api::issues::create_issue))
+        .route("/repos/{owner}/{name}/issues/{number}", get(api::issues::get_issue).patch(api::issues::update_issue))
+        .route("/repos/{owner}/{name}/issues/{number}/labels", get(api::issues::get_issue_labels))
+        .route("/repos/{owner}/{name}/issues/{number}/comments", get(api::issues::list_comments).post(api::issues::add_comment))
         // Pull Requests
-        .route("/repos/:owner/:name/pulls", get(api::pulls::list_prs).post(api::pulls::create_pr))
-        .route("/repos/:owner/:name/pulls/:number", get(api::pulls::get_pr).patch(api::pulls::update_pr))
-        .route("/repos/:owner/:name/pulls/:number/diff", get(api::pulls::get_diff))
-        .route("/repos/:owner/:name/pulls/:number/merge", post(api::pulls::merge_pr))
+        .route("/repos/{owner}/{name}/pulls", get(api::pulls::list_prs).post(api::pulls::create_pr))
+        .route("/repos/{owner}/{name}/pulls/{number}", get(api::pulls::get_pr).patch(api::pulls::update_pr))
+        .route("/repos/{owner}/{name}/pulls/{number}/diff", get(api::pulls::get_diff))
+        .route("/repos/{owner}/{name}/pulls/{number}/merge", post(api::pulls::merge_pr))
         // PR Reviews
-        .route("/repos/:owner/:name/pulls/:number/reviews", get(api::reviews::list_reviews).post(api::reviews::submit_review))
-        .route("/repos/:owner/:name/pulls/:number/reviews/:id", get(api::reviews::get_review))
-        .route("/repos/:owner/:name/pulls/:number/reviews/:id/dismiss", post(api::reviews::dismiss_review))
-        .route("/repos/:owner/:name/pulls/:number/comments", get(api::reviews::list_review_comments).post(api::reviews::create_review_comment))
+        .route("/repos/{owner}/{name}/pulls/{number}/reviews", get(api::reviews::list_reviews).post(api::reviews::submit_review))
+        .route("/repos/{owner}/{name}/pulls/{number}/reviews/{id}", get(api::reviews::get_review))
+        .route("/repos/{owner}/{name}/pulls/{number}/reviews/{id}/dismiss", post(api::reviews::dismiss_review))
+        .route("/repos/{owner}/{name}/pulls/{number}/comments", get(api::reviews::list_review_comments).post(api::reviews::create_review_comment))
         // Wiki
-        .route("/repos/:owner/:name/wiki", get(api::wiki::list_pages).post(api::wiki::create_page))
-        .route("/repos/:owner/:name/wiki/:title", get(api::wiki::get_page).patch(api::wiki::update_page).delete(api::wiki::delete_page))
+        .route("/repos/{owner}/{name}/wiki", get(api::wiki::list_pages).post(api::wiki::create_page))
+        .route("/repos/{owner}/{name}/wiki/{title}", get(api::wiki::get_page).patch(api::wiki::update_page).delete(api::wiki::delete_page))
         // LFS
-        .route("/repos/:owner/:name/lfs/objects/batch", post(api::lfs::batch))
-        .route("/repos/:owner/:name/lfs/objects/:oid", get(api::lfs::download_object).put(api::lfs::upload_object))
+        .route("/repos/{owner}/{name}/lfs/objects/batch", post(api::lfs::batch))
+        .route("/repos/{owner}/{name}/lfs/objects/{oid}", get(api::lfs::download_object).put(api::lfs::upload_object))
         // Webhooks
-        .route("/repos/:owner/:name/hooks", get(api::webhooks::list_webhooks).post(api::webhooks::create_webhook))
-        .route("/repos/:owner/:name/hooks/:id", get(api::webhooks::get_webhook).patch(api::webhooks::update_webhook).delete(api::webhooks::delete_webhook))
-        .route("/repos/:owner/:name/hooks/:id/deliveries", get(api::webhooks::list_deliveries))
-        .route("/repos/:owner/:name/hooks/:id/deliveries/:delivery_id/redeliver", post(api::webhooks::redeliver))
+        .route("/repos/{owner}/{name}/hooks", get(api::webhooks::list_webhooks).post(api::webhooks::create_webhook))
+        .route("/repos/{owner}/{name}/hooks/{id}", get(api::webhooks::get_webhook).patch(api::webhooks::update_webhook).delete(api::webhooks::delete_webhook))
+        .route("/repos/{owner}/{name}/hooks/{id}/deliveries", get(api::webhooks::list_deliveries))
+        .route("/repos/{owner}/{name}/hooks/{id}/deliveries/{delivery_id}/redeliver", post(api::webhooks::redeliver))
         // CI/CD Pipelines
-        .route("/repos/:owner/:name/pipelines", get(api::ci::list_pipelines).post(api::ci::trigger_pipeline))
-        .route("/repos/:owner/:name/pipelines/:id", get(api::ci::get_pipeline))
-        .route("/repos/:owner/:name/pipelines/:id/retry", post(api::ci::retry_pipeline))
-        .route("/repos/:owner/:name/pipelines/:id/cancel", post(api::ci::cancel_pipeline))
-        .route("/repos/:owner/:name/pipelines/:id/jobs/:job_id", get(api::ci::get_job))
+        .route("/repos/{owner}/{name}/pipelines", get(api::ci::list_pipelines).post(api::ci::trigger_pipeline))
+        .route("/repos/{owner}/{name}/pipelines/{id}", get(api::ci::get_pipeline))
+        .route("/repos/{owner}/{name}/pipelines/{id}/retry", post(api::ci::retry_pipeline))
+        .route("/repos/{owner}/{name}/pipelines/{id}/cancel", post(api::ci::cancel_pipeline))
+        .route("/repos/{owner}/{name}/pipelines/{id}/jobs/{job_id}", get(api::ci::get_job))
         // Branch Protection
-        .route("/repos/:owner/:name/branches/protection", get(api::branch_protection::list_protections).post(api::branch_protection::create_protection))
-        .route("/repos/:owner/:name/branches/protection/:id", get(api::branch_protection::get_protection).patch(api::branch_protection::update_protection).delete(api::branch_protection::delete_protection))
+        .route("/repos/{owner}/{name}/branches/protection", get(api::branch_protection::list_protections).post(api::branch_protection::create_protection))
+        .route("/repos/{owner}/{name}/branches/protection/{id}", get(api::branch_protection::get_protection).patch(api::branch_protection::update_protection).delete(api::branch_protection::delete_protection))
         // Collaborators
-        .route("/repos/:owner/:name/collaborators", get(api::collaborators::list_collaborators).post(api::collaborators::add_collaborator))
-        .route("/repos/:owner/:name/collaborators/:id", patch(api::collaborators::update_permission))
-        .route("/repos/:owner/:name/collaborators/:user_id/remove", post(api::collaborators::remove_collaborator))
+        .route("/repos/{owner}/{name}/collaborators", get(api::collaborators::list_collaborators).post(api::collaborators::add_collaborator))
+        .route("/repos/{owner}/{name}/collaborators/{id}", patch(api::collaborators::update_permission))
+        .route("/repos/{owner}/{name}/collaborators/{user_id}/remove", post(api::collaborators::remove_collaborator))
         // Repo Content Browsing
-        .route("/repos/:owner/:name/tree", get(api::repo_content::list_tree))
-        .route("/repos/:owner/:name/blob/*path", get(api::repo_content::get_blob))
-        .route("/repos/:owner/:name/log", get(api::repo_content::get_log))
-        .route("/repos/:owner/:name/branches", get(api::repo_content::list_branches))
-        .route("/repos/:owner/:name/tags", get(api::repo_content::list_tags))
+        .route("/repos/{owner}/{name}/tree", get(api::repo_content::list_tree))
+        .route("/repos/{owner}/{name}/blob/{*path}", get(api::repo_content::get_blob))
+        .route("/repos/{owner}/{name}/log", get(api::repo_content::get_log))
+        .route("/repos/{owner}/{name}/branches", get(api::repo_content::list_branches))
+        .route("/repos/{owner}/{name}/tags", get(api::repo_content::list_tags))
         // GPG Signatures
-        .route("/repos/:owner/:name/commits/:sha/signature", get(api::repo_content::get_commit_signature))
+        .route("/repos/{owner}/{name}/commits/{sha}/signature", get(api::repo_content::get_commit_signature))
         // Commit Statuses
-        .route("/repos/:owner/:name/statuses/:sha", post(api::repos::create_commit_status))
-        .route("/repos/:owner/:name/commits/:sha/statuses", get(api::repos::list_commit_statuses))
-        .route("/repos/:owner/:name/commits/:sha/status", get(api::repos::get_combined_status))
+        .route("/repos/{owner}/{name}/statuses/{sha}", post(api::repos::create_commit_status))
+        .route("/repos/{owner}/{name}/commits/{sha}/statuses", get(api::repos::list_commit_statuses))
+        .route("/repos/{owner}/{name}/commits/{sha}/status", get(api::repos::get_combined_status))
         // Organizations
         .route("/orgs", get(api::orgs::list_orgs).post(api::orgs::create_org))
-        .route("/orgs/:name", get(api::orgs::get_org).patch(api::orgs::update_org).delete(api::orgs::delete_org))
-        .route("/orgs/:name/members", get(api::orgs::list_org_members).post(api::orgs::add_org_member))
-        .route("/orgs/:name/members/:user_id", delete(api::orgs::remove_org_member))
-        .route("/orgs/:name/teams", get(api::orgs::list_org_teams).post(api::orgs::create_team))
-        .route("/orgs/:name/teams/:team_id", get(api::orgs::get_team).delete(api::orgs::delete_team))
-        .route("/orgs/:name/teams/:team_id/members", get(api::orgs::list_team_members).post(api::orgs::add_team_member))
-        .route("/orgs/:name/teams/:team_id/members/:user_id", delete(api::orgs::remove_team_member))
+        .route("/orgs/{name}", get(api::orgs::get_org).patch(api::orgs::update_org).delete(api::orgs::delete_org))
+        .route("/orgs/{name}/members", get(api::orgs::list_org_members).post(api::orgs::add_org_member))
+        .route("/orgs/{name}/members/{user_id}", delete(api::orgs::remove_org_member))
+        .route("/orgs/{name}/teams", get(api::orgs::list_org_teams).post(api::orgs::create_team))
+        .route("/orgs/{name}/teams/{team_id}", get(api::orgs::get_team).delete(api::orgs::delete_team))
+        .route("/orgs/{name}/teams/{team_id}/members", get(api::orgs::list_team_members).post(api::orgs::add_team_member))
+        .route("/orgs/{name}/teams/{team_id}/members/{user_id}", delete(api::orgs::remove_team_member))
         // Notifications
         .route("/notifications", get(api::notifications::list_notifications))
         .route("/notifications/unread-count", get(api::notifications::unread_count))
         .route("/notifications/mark-all-read", post(api::notifications::mark_all_read))
-        .route("/notifications/:id/read", post(api::notifications::mark_read))
-        .route("/notifications/:id", delete(api::notifications::delete_notification))
+        .route("/notifications/{id}/read", post(api::notifications::mark_read))
+        .route("/notifications/{id}", delete(api::notifications::delete_notification))
         // Star/Watch
-        .route("/repos/:owner/:name/star", put(api::repos::star_repo))
-        .route("/repos/:owner/:name/stargazers", get(api::repos::get_stargazers))
-        .route("/repos/:owner/:name/watch", put(api::repos::watch_repo).delete(api::repos::unwatch_repo))
+        .route("/repos/{owner}/{name}/star", put(api::repos::star_repo))
+        .route("/repos/{owner}/{name}/stargazers", get(api::repos::get_stargazers))
+        .route("/repos/{owner}/{name}/watch", put(api::repos::watch_repo).delete(api::repos::unwatch_repo))
         // Repo Delete (combined with GET)
-        .route("/repos/:owner/:name", delete(api::repos::delete_repo_handler))
+        .route("/repos/{owner}/{name}", delete(api::repos::delete_repo_handler))
         // Releases
-        .route("/repos/:owner/:name/releases", get(api::releases::list_releases).post(api::releases::create_release))
-        .route("/repos/:owner/:name/releases/:id", get(api::releases::get_release).patch(api::releases::update_release).delete(api::releases::delete_release))
+        .route("/repos/{owner}/{name}/releases", get(api::releases::list_releases).post(api::releases::create_release))
+        .route("/repos/{owner}/{name}/releases/{id}", get(api::releases::get_release).patch(api::releases::update_release).delete(api::releases::delete_release))
         // Release Assets
-        .route("/repos/:owner/:name/releases/:release_id/assets", get(api::releases::list_assets).post(api::releases::upload_asset))
-        .route("/repos/:owner/:name/releases/assets/:asset_id", get(api::releases::get_asset).delete(api::releases::delete_asset))
-        .route("/repos/:owner/:name/releases/assets/:asset_id/download", get(api::releases::download_asset))
+        .route("/repos/{owner}/{name}/releases/{release_id}/assets", get(api::releases::list_assets).post(api::releases::upload_asset))
+        .route("/repos/{owner}/{name}/releases/assets/{asset_id}", get(api::releases::get_asset).delete(api::releases::delete_asset))
+        .route("/repos/{owner}/{name}/releases/assets/{asset_id}/download", get(api::releases::download_asset))
         // Fork
-        .route("/repos/:owner/:name/fork", post(api::repos::fork_repo_handler))
-        .route("/repos/:owner/:name/forks", get(api::repos::list_forks_handler))
+        .route("/repos/{owner}/{name}/fork", post(api::repos::fork_repo_handler))
+        .route("/repos/{owner}/{name}/forks", get(api::repos::list_forks_handler))
         // Transfer
-        .route("/repos/:owner/:name/transfer", post(api::repos::transfer_repo_handler))
+        .route("/repos/{owner}/{name}/transfer", post(api::repos::transfer_repo_handler))
         // CI/CD Runners
         .route("/runners/register", post(api::runners::register))
         .route(
-            "/runners/:id/heartbeat",
+            "/runners/{id}/heartbeat",
             post(api::runners::heartbeat)
                 .route_layer(axum::middleware::from_fn_with_state(
                     state.clone(),
@@ -284,14 +338,14 @@ fn create_router(state: AppState, rate_limiter: rate_limit::RateLimiter) -> Rout
                 )),
         )
         .route(
-            "/runners/:id/jobs/poll",
+            "/runners/{id}/jobs/poll",
             get(api::runners::poll_job).route_layer(axum::middleware::from_fn_with_state(
                 state.clone(),
                 api::runners::authenticate_runner,
             )),
         )
         .route(
-            "/runners/:id/jobs/:job_id/start",
+            "/runners/{id}/jobs/{job_id}/start",
             post(api::runners::start_job)
                 .route_layer(axum::middleware::from_fn_with_state(
                     state.clone(),
@@ -299,7 +353,7 @@ fn create_router(state: AppState, rate_limiter: rate_limit::RateLimiter) -> Rout
                 )),
         )
         .route(
-            "/runners/:id/jobs/:job_id/log",
+            "/runners/{id}/jobs/{job_id}/log",
             post(api::runners::upload_log)
                 .route_layer(axum::middleware::from_fn_with_state(
                     state.clone(),
@@ -307,7 +361,7 @@ fn create_router(state: AppState, rate_limiter: rate_limit::RateLimiter) -> Rout
                 )),
         )
         .route(
-            "/runners/:id/jobs/:job_id/finish",
+            "/runners/{id}/jobs/{job_id}/finish",
             post(api::runners::finish_job)
                 .route_layer(axum::middleware::from_fn_with_state(
                     state.clone(),
@@ -316,55 +370,106 @@ fn create_router(state: AppState, rate_limiter: rate_limit::RateLimiter) -> Rout
         )
         // Artifacts
         .route(
-            "/runners/:id/jobs/:job_id/artifacts",
+            "/runners/{id}/jobs/{job_id}/artifacts",
             post(api::artifacts::upload_artifact).route_layer(axum::middleware::from_fn_with_state(
                 state.clone(),
                 api::runners::authenticate_runner,
             )),
         )
-        .route("/repos/:owner/:name/pipelines/:id/artifacts", get(api::artifacts::list_pipeline_artifacts))
-        .route("/artifacts/:id", get(api::artifacts::get_artifact))
-        .route("/artifacts/:id", delete(api::artifacts::delete_artifact))
+        .route("/repos/{owner}/{name}/pipelines/{id}/artifacts", get(api::artifacts::list_pipeline_artifacts))
+        .route("/artifacts/{id}", get(api::artifacts::get_artifact))
+        .route("/artifacts/{id}", delete(api::artifacts::delete_artifact))
         // Admin
         .route("/admin/runners", get(api::runners::list_runners_admin))
-        .route("/admin/runners/:id", delete(api::runners::delete_runner_admin))
+        .route("/admin/runners/{id}", delete(api::runners::delete_runner_admin))
         .route("/admin/users", get(api::admin::list_users))
-        .route("/admin/users/:id", get(api::admin::get_user))
-        .route("/admin/users/:id", patch(api::admin::update_user))
-        .route("/admin/users/:id", delete(api::admin::delete_user))
+        .route("/admin/users/{id}", get(api::admin::get_user))
+        .route("/admin/users/{id}", patch(api::admin::update_user))
+        .route("/admin/users/{id}", delete(api::admin::delete_user))
         .route("/admin/orgs", get(api::admin::list_orgs))
-        .route("/admin/orgs/:name", get(api::admin::get_org))
-        .route("/admin/orgs/:name", delete(api::admin::delete_org))
+        .route("/admin/orgs/{name}", get(api::admin::get_org))
+        .route("/admin/orgs/{name}", delete(api::admin::delete_org))
         // Global Search
         .route("/search", get(api::search::search))
         // WebSocket
         .route("/ws/notifications", get(ws::ws_notifications_handler))
-        .route("/ws/job/:job_id", get(ws::ws_job_log_handler));
+        .route("/ws/job/{job_id}", get(ws::ws_job_log_handler));
+
+    (api_v1, git_routes)
+}
+
+/// Build the test router (no rate limiter, no static file serving).
+fn build_test_router(state: AppState) -> Router {
+    let (api_v1, git_routes) = build_routes(&state);
 
     Router::new()
         .nest("/git", git_routes)
         .nest("/api/v1", api_v1)
         .route("/health", get(health))
-        // ── OpenAPI spec endpoint ──────────────────────────────────────────
-        .route("/api-docs/openapi.json", get(openapi_handler))
-        // Swagger UI — serve embedded Swagger UI static files
-        .route("/api-docs/{*tail}", get(swagger_ui_handler))
-        // Serve SvelteKit static assets if the build directory exists
-        .fallback_service(
-            ServeDir::new("web/build").fallback(ServeDir::new("web/build/index.html"))
+        // ── Middleware layers (no rate limiter for tests) ──────────────────
+        .layer(axum::middleware::from_fn(middleware::request_id_middleware))
+        .layer(
+            TraceLayer::new_for_http().make_span_with(|request: &axum::http::Request<axum::body::Body>| {
+                let request_id = request
+                    .headers()
+                    .get("x-request-id")
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or("-");
+                tracing::info_span!(
+                    "http_request",
+                    method = %request.method(),
+                    uri = %request.uri(),
+                    status = tracing::field::Empty,
+                    request_id = %request_id,
+                )
+            }),
         )
-        .layer(TraceLayer::new_for_http())
         .layer(CorsLayer::permissive())
-        .layer(axum::Extension(rate_limiter))
         .with_state(state)
 }
 
-async fn health() -> impl IntoResponse {
-    axum::Json(serde_json::json!({
-        "status": "ok",
-        "version": "0.1.0",
-        "phase": "10",
-    }))
+async fn health(State(state): State<AppState>) -> impl IntoResponse {
+    use sea_orm::{ConnectionTrait, Statement};
+
+    let mut checks = serde_json::Map::new();
+
+    // DB ping
+    let db_ok = state
+        .db
+        .execute(Statement::from_string(
+            sea_orm::DatabaseBackend::Sqlite,
+            "SELECT 1".to_string(),
+        ))
+        .await
+        .is_ok();
+    checks.insert(
+        "database".to_string(),
+        serde_json::json!(if db_ok { "ok" } else { "error" }),
+    );
+
+    // Filesystem check
+    let fs_ok = state.repo_root.exists() && state.repo_root.read_dir().is_ok();
+    checks.insert(
+        "filesystem".to_string(),
+        serde_json::json!(if fs_ok { "ok" } else { "error" }),
+    );
+
+    let overall = if db_ok && fs_ok { "ok" } else { "degraded" };
+    let status_code = if db_ok && fs_ok {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    };
+
+    (
+        status_code,
+        axum::Json(serde_json::json!({
+            "status": overall,
+            "version": env!("CARGO_PKG_VERSION"),
+            "phase": 20,
+            "checks": checks,
+        })),
+    )
 }
 
 /// GET /api-docs/openapi.json — serve the OpenAPI specification.

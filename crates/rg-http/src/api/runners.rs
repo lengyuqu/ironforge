@@ -7,7 +7,9 @@ use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::{Deserialize, Serialize};
 
+use crate::error::AppError;
 use crate::AppState;
+use utoipa::ToSchema;
 
 // ── Request/Response types ─────────────────────────────────
 
@@ -66,6 +68,17 @@ pub struct RunnerInfoResponse {
 
 /// POST /api/v1/runners/register
 /// Register a new runner and receive a token.
+#[utoipa::path(
+    post,
+    path = "/runners/register",
+    tag = "Runners",
+    request_body(content = serde_json::Value),
+    responses(
+        (status = 201, description = "Created", body = serde_json::Value),
+        (status = 400, description = "Bad request", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn register(
     State(state): State<AppState>,
     Json(req): Json<RegisterRunnerRequest>,
@@ -92,11 +105,7 @@ pub async fn register(
             }),
         )
             .into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": e.to_string()})),
-        )
-            .into_response(),
+        Err(e) => AppError::internal(e).into_response(),
     }
 }
 
@@ -196,31 +205,22 @@ pub async fn start_job(
     let job = match rg_db::ops::pipeline_ops::get_job(&state.db, job_id).await {
         Ok(Some(j)) => j,
         Ok(None) => {
-            return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "job not found"}))).into_response();
+            return AppError::not_found("job not found").into_response();
         }
         Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": e.to_string()})),
-            ).into_response();
+            return AppError::internal(e).into_response();
         }
     };
 
     if job.runner_id != Some(runner_id) {
-        return (
-            StatusCode::FORBIDDEN,
-            Json(serde_json::json!({"error": "job not assigned to this runner"})),
-        ).into_response();
+            return AppError::forbidden("job not assigned to this runner").into_response();
     }
 
     let now = Some(chrono::Utc::now().naive_utc());
     if let Err(e) = rg_db::ops::pipeline_ops::update_job_result(
         &state.db, job_id, "running", None, None, now, None,
     ).await {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": e.to_string()})),
-        ).into_response();
+        return AppError::internal(e).into_response();
     }
 
     // Mark runner as busy
@@ -240,21 +240,15 @@ pub async fn upload_log(
     let job = match rg_db::ops::pipeline_ops::get_job(&state.db, job_id).await {
         Ok(Some(j)) => j,
         Ok(None) => {
-            return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "job not found"}))).into_response();
+            return AppError::not_found("job not found").into_response();
         }
         Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": e.to_string()})),
-            ).into_response();
+            return AppError::internal(e).into_response();
         }
     };
 
     if job.runner_id != Some(runner_id) {
-        return (
-            StatusCode::FORBIDDEN,
-            Json(serde_json::json!({"error": "job not assigned to this runner"})),
-        ).into_response();
+            return AppError::forbidden("job not assigned to this runner").into_response();
     }
 
     // Append log (keep existing log + new log)
@@ -271,10 +265,7 @@ pub async fn upload_log(
     if let Err(e) = rg_db::ops::pipeline_ops::update_job_result(
         &state.db, job_id, &job.status, None, Some(&combined), None, None,
     ).await {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": e.to_string()})),
-        ).into_response();
+        return AppError::internal(e).into_response();
     }
 
     (StatusCode::OK, Json(serde_json::json!({"status": "ok"}))).into_response()
@@ -291,21 +282,15 @@ pub async fn finish_job(
     let job = match rg_db::ops::pipeline_ops::get_job(&state.db, job_id).await {
         Ok(Some(j)) => j,
         Ok(None) => {
-            return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "job not found"}))).into_response();
+            return AppError::not_found("job not found").into_response();
         }
         Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": e.to_string()})),
-            ).into_response();
+            return AppError::internal(e).into_response();
         }
     };
 
     if job.runner_id != Some(runner_id) {
-        return (
-            StatusCode::FORBIDDEN,
-            Json(serde_json::json!({"error": "job not assigned to this runner"})),
-        ).into_response();
+            return AppError::forbidden("job not assigned to this runner").into_response();
     }
 
     let now = Some(chrono::Utc::now().naive_utc());
@@ -313,10 +298,7 @@ pub async fn finish_job(
     if let Err(e) = rg_db::ops::pipeline_ops::update_job_result(
         &state.db, job_id, &req.status, Some(req.exit_code), None, None, now,
     ).await {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": e.to_string()})),
-        ).into_response();
+        return AppError::internal(e).into_response();
     }
 
     // Mark runner as online (ready for next job)
@@ -341,6 +323,15 @@ pub struct FinishJobRequest {
 
 /// GET /api/v1/admin/runners
 /// List all runners (admin only).
+#[utoipa::path(
+    get,
+    path = "/admin/runners",
+    tag = "Runners",
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn list_runners_admin(
     State(state): State<AppState>,
     // TODO: authenticate as admin
@@ -362,11 +353,7 @@ pub async fn list_runners_admin(
                 .collect();
             (StatusCode::OK, Json(resp)).into_response()
         }
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": e.to_string()})),
-        )
-            .into_response(),
+        Err(e) => AppError::internal(e).into_response(),
     }
 }
 
@@ -415,27 +402,32 @@ pub async fn authenticate_runner(
             Json(serde_json::json!({"error": "invalid runner token"})),
         )
             .into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": e.to_string()})),
-        )
-            .into_response(),
+        Err(e) => AppError::internal(e).into_response(),
     }
 }
 
 /// DELETE /api/v1/admin/runners/:id
 /// Delete a runner (admin only).
+#[utoipa::path(
+    delete,
+    path = "/admin/runners/{id}",
+    tag = "Runners",
+    params(
+        ("id" = i64, Path, description = "id"),
+    ),
+    responses(
+        (status = 200, description = "Deleted", body = serde_json::Value),
+        (status = 204, description = "No content"),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn delete_runner_admin(
     State(state): State<AppState>,
     Path(runner_id): Path<i64>,
 ) -> impl IntoResponse {
     match rg_db::ops::runner_ops::delete_runner(&state.db, runner_id).await {
         Ok(true) => (StatusCode::NO_CONTENT, Json(serde_json::json!({"deleted": true}))).into_response(),
-        Ok(false) => (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "runner not found"}))).into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": e.to_string()})),
-        )
-            .into_response(),
+        Ok(false) => AppError::not_found("runner not found").into_response(),
+        Err(e) => AppError::internal(e).into_response(),
     }
 }

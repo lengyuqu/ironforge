@@ -146,6 +146,7 @@ enum Commands {
 
 /// TOML configuration file structure.
 #[derive(Debug, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 #[allow(dead_code)]
 struct ConfigFile {
     #[serde(default)]
@@ -228,6 +229,48 @@ fn load_config_file(path: &str) -> anyhow::Result<ConfigFile> {
     let config: ConfigFile = toml::from_str(&content)?;
     tracing::info!(path = %path, "Loaded configuration file");
     Ok(config)
+}
+
+/// Validate critical configuration before starting servers.
+/// Refuses to start with dangerous defaults or invalid settings.
+fn validate_config(
+    jwt_secret: &str,
+    repo_root: &std::path::Path,
+    tls_config: &Option<(PathBuf, PathBuf)>,
+) -> anyhow::Result<()> {
+    // 1. Refuse default JWT secret
+    if jwt_secret == "change-me-in-production" {
+        tracing::error!(
+            "FATAL: jwt_secret is set to the default value. \
+             Set a strong secret via --jwt-secret or config file [auth].jwt_secret"
+        );
+        anyhow::bail!("refusing to start with default jwt_secret");
+    }
+    if jwt_secret.len() < 16 {
+        tracing::warn!(
+            jwt_len = jwt_secret.len(),
+            "jwt_secret is shorter than 16 characters — consider using a stronger secret"
+        );
+    }
+
+    // 2. Verify repo_root is writable
+    let test_file = repo_root.join(".write_test");
+    std::fs::write(&test_file, "test")
+        .with_context(|| format!("repo_root is not writable: {:?}", repo_root))?;
+    std::fs::remove_file(&test_file)?;
+
+    // 3. Verify TLS files exist if configured
+    if let Some((ref cert, ref key)) = tls_config {
+        if !cert.exists() {
+            anyhow::bail!("TLS certificate not found: {:?}", cert);
+        }
+        if !key.exists() {
+            anyhow::bail!("TLS private key not found: {:?}", key);
+        }
+    }
+
+    tracing::info!("Configuration validation passed");
+    Ok(())
 }
 
 #[tokio::main]
@@ -380,6 +423,9 @@ async fn main() -> anyhow::Result<()> {
                 _ => None,
             };
 
+            // ── Configuration validation ─────────────────────────────────
+            validate_config(&resolved_jwt_secret, &repo_root, &tls_config)?;
+
             let http_config = rg_http::HttpServerConfig {
                 listen_addr: resolved_http_addr,
                 repo_root: repo_root.clone(),
@@ -418,7 +464,7 @@ async fn main() -> anyhow::Result<()> {
                 }
             });
 
-            tracing::info!("IronForge server started (Phase 10)");
+            tracing::info!("IronForge server started (Phase 20)");
 
             tokio::select! {
                 _ = http_handle => {},

@@ -21,6 +21,7 @@ use axum::body::Body;
 use serde::Deserialize;
 use utoipa::ToSchema;
 
+use crate::error::AppError;
 use crate::api::users::extract_bearer_claims;
 use crate::pagination::{PaginationParams, PaginatedResponse};
 use crate::AppState;
@@ -54,6 +55,19 @@ pub struct UpdateReleaseRequest {
 }
 
 /// GET /api/v1/repos/:owner/:name/releases
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/releases",
+    tag = "Releases",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+    ),
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn list_releases(
     State(state): State<AppState>,
     Path((owner, name)): Path<(String, String)>,
@@ -67,18 +81,10 @@ pub async fn list_releases(
     let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await {
         Ok(Some(r)) => r,
         Ok(None) => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(serde_json::json!({ "error": "repository not found" })),
-            )
-                .into_response()
+            return AppError::not_found("repository not found").into_response();
         }
         Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            )
-                .into_response()
+            return AppError::internal(e).into_response();
         }
     };
 
@@ -88,15 +94,26 @@ pub async fn list_releases(
             Json(PaginatedResponse::new(releases, &pagination, total as u64)),
         )
             .into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        )
-            .into_response(),
+        Err(e) => AppError::internal(e).into_response(),
     }
 }
 
 /// POST /api/v1/repos/:owner/:name/releases
+#[utoipa::path(
+    post,
+    path = "/repos/{owner}/{name}/releases",
+    tag = "Releases",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+    ),
+    request_body(content = serde_json::Value),
+    responses(
+        (status = 201, description = "Created", body = serde_json::Value),
+        (status = 400, description = "Bad request", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn create_release(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -106,11 +123,7 @@ pub async fn create_release(
     let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(serde_json::json!({ "error": "authentication required" })),
-            )
-                .into_response()
+            return AppError::unauthorized("authentication required").into_response();
         }
     };
 
@@ -120,18 +133,10 @@ pub async fn create_release(
     let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await {
         Ok(Some(r)) => r,
         Ok(None) => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(serde_json::json!({ "error": "repository not found" })),
-            )
-                .into_response()
+            return AppError::not_found("repository not found").into_response();
         }
         Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            )
-                .into_response()
+            return AppError::internal(e).into_response();
         }
     };
 
@@ -139,18 +144,10 @@ pub async fn create_release(
     match rg_core::repo::service::can_write(&state.db, &owner, &name, Some(user_id)).await {
         Ok(true) => {}
         Ok(false) => {
-            return (
-                StatusCode::FORBIDDEN,
-                Json(serde_json::json!({ "error": "permission denied" })),
-            )
-                .into_response()
+            return AppError::forbidden("permission denied").into_response();
         }
         Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            )
-                .into_response()
+            return AppError::internal(e).into_response();
         }
     }
 
@@ -171,15 +168,25 @@ pub async fn create_release(
     .await
     {
         Ok(release) => (StatusCode::CREATED, Json(serde_json::json!(release))).into_response(),
-        Err(e) => (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        )
-            .into_response(),
+        Err(e) => AppError::bad_request(e).into_response(),
     }
 }
 
 /// GET /api/v1/repos/:owner/:name/releases/:id
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/releases/{id}",
+    tag = "Releases",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("id" = i64, Path, description = "id"),
+    ),
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn get_release(
     State(state): State<AppState>,
     Path((owner, name, id)): Path<(String, String, i64)>,
@@ -188,32 +195,35 @@ pub async fn get_release(
     match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await {
         Ok(Some(_)) => {}
         Ok(None) => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(serde_json::json!({ "error": "repository not found" })),
-            )
-                .into_response()
+            return AppError::not_found("repository not found").into_response();
         }
         Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            )
-                .into_response()
+            return AppError::internal(e).into_response();
         }
     }
 
     match rg_core::release::service::get_release(&state.db, id).await {
         Ok(release) => (StatusCode::OK, Json(serde_json::json!(release))).into_response(),
-        Err(_) => (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({ "error": "release not found" })),
-        )
-            .into_response(),
+        Err(_) => AppError::not_found("release not found").into_response(),
     }
 }
 
 /// PATCH /api/v1/repos/:owner/:name/releases/:id
+#[utoipa::path(
+    patch,
+    path = "/repos/{owner}/{name}/releases/{id}",
+    tag = "Releases",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("id" = i64, Path, description = "id"),
+    ),
+    request_body(content = serde_json::Value),
+    responses(
+        (status = 200, description = "Updated", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn update_release(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -223,11 +233,7 @@ pub async fn update_release(
     let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(serde_json::json!({ "error": "authentication required" })),
-            )
-                .into_response()
+            return AppError::unauthorized("authentication required").into_response();
         }
     };
 
@@ -237,18 +243,10 @@ pub async fn update_release(
     match rg_core::repo::service::can_write(&state.db, &owner, &name, Some(user_id)).await {
         Ok(true) => {}
         Ok(false) => {
-            return (
-                StatusCode::FORBIDDEN,
-                Json(serde_json::json!({ "error": "permission denied" })),
-            )
-                .into_response()
+            return AppError::forbidden("permission denied").into_response();
         }
         Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            )
-                .into_response()
+            return AppError::internal(e).into_response();
         }
     }
 
@@ -263,15 +261,26 @@ pub async fn update_release(
     .await
     {
         Ok(release) => (StatusCode::OK, Json(serde_json::json!(release))).into_response(),
-        Err(e) => (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        )
-            .into_response(),
+        Err(e) => AppError::bad_request(e).into_response(),
     }
 }
 
 /// DELETE /api/v1/repos/:owner/:name/releases/:id
+#[utoipa::path(
+    delete,
+    path = "/repos/{owner}/{name}/releases/{id}",
+    tag = "Releases",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("id" = i64, Path, description = "id"),
+    ),
+    responses(
+        (status = 200, description = "Deleted", body = serde_json::Value),
+        (status = 204, description = "No content"),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn delete_release(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -280,11 +289,7 @@ pub async fn delete_release(
     let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(serde_json::json!({ "error": "authentication required" })),
-            )
-                .into_response()
+            return AppError::unauthorized("authentication required").into_response();
         }
     };
 
@@ -294,34 +299,36 @@ pub async fn delete_release(
     match rg_core::repo::service::can_write(&state.db, &owner, &name, Some(user_id)).await {
         Ok(true) => {}
         Ok(false) => {
-            return (
-                StatusCode::FORBIDDEN,
-                Json(serde_json::json!({ "error": "permission denied" })),
-            )
-                .into_response()
+            return AppError::forbidden("permission denied").into_response();
         }
         Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            )
-                .into_response()
+            return AppError::internal(e).into_response();
         }
     }
 
     match rg_core::release::service::delete_release(&state.db, id).await {
         Ok(()) => (StatusCode::NO_CONTENT, Json(serde_json::json!({ "deleted": true }))).into_response(),
-        Err(e) => (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        )
-            .into_response(),
+        Err(e) => AppError::bad_request(e).into_response(),
     }
 }
 
 // ─── Release Assets ────────────────────────────────────────────────────────
 
 /// GET /api/v1/repos/:owner/:name/releases/:release_id/assets
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/releases/{release_id}/assets",
+    tag = "Releases",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("release_id" = i64, Path, description = "release_id"),
+    ),
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn list_assets(
     State(state): State<AppState>,
     Path((owner, name, release_id)): Path<(String, String, i64)>,
@@ -330,28 +337,16 @@ pub async fn list_assets(
     match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await {
         Ok(Some(_)) => {}
         Ok(None) => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(serde_json::json!({ "error": "repository not found" })),
-            )
-                .into_response()
+            return AppError::not_found("repository not found").into_response();
         }
         Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            )
-                .into_response()
+            return AppError::internal(e).into_response();
         }
     }
 
     match rg_core::release::service::list_assets(&state.db, release_id).await {
         Ok(assets) => (StatusCode::OK, Json(serde_json::json!(assets))).into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        )
-            .into_response(),
+        Err(e) => AppError::internal(e).into_response(),
     }
 }
 
@@ -360,6 +355,21 @@ pub async fn list_assets(
 /// Upload a release asset. The request body is the raw file content.
 /// Required headers:
 ///   - `Content-Type`: MIME type of the file (used as asset content_type)
+#[utoipa::path(
+    post,
+    path = "/repos/{owner}/{name}/releases/{release_id}/assets",
+    tag = "Releases",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("release_id" = i64, Path, description = "release_id"),
+    ),
+    responses(
+        (status = 201, description = "Created", body = serde_json::Value),
+        (status = 400, description = "Bad request", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn upload_asset(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -369,11 +379,7 @@ pub async fn upload_asset(
     let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(serde_json::json!({ "error": "authentication required" })),
-            )
-                .into_response()
+            return AppError::unauthorized("authentication required").into_response();
         }
     };
 
@@ -383,18 +389,10 @@ pub async fn upload_asset(
     match rg_core::repo::service::can_write(&state.db, &owner, &name, Some(user_id)).await {
         Ok(true) => {}
         Ok(false) => {
-            return (
-                StatusCode::FORBIDDEN,
-                Json(serde_json::json!({ "error": "permission denied" })),
-            )
-                .into_response()
+            return AppError::forbidden("permission denied").into_response();
         }
         Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            )
-                .into_response()
+            return AppError::internal(e).into_response();
         }
     }
 
@@ -407,13 +405,7 @@ pub async fn upload_asset(
     let filename = match filename {
         Some(f) if !f.is_empty() => f,
         _ => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({
-                    "error": "missing required header: x-asset-filename"
-                })),
-            )
-                .into_response()
+            return AppError::bad_request("missing required header: x-asset-filename").into_response();
         }
     };
 
@@ -428,11 +420,7 @@ pub async fn upload_asset(
         // 512 MB max
         Ok(b) => b,
         Err(e) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({ "error": format!("failed to read body: {}", e) })),
-            )
-                .into_response()
+            return AppError::bad_request(format!("failed to read body: {}", e)).into_response();
         }
     };
 
@@ -453,15 +441,25 @@ pub async fn upload_asset(
     .await
     {
         Ok(asset) => (StatusCode::CREATED, Json(serde_json::json!(asset))).into_response(),
-        Err(e) => (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        )
-            .into_response(),
+        Err(e) => AppError::bad_request(e).into_response(),
     }
 }
 
 /// GET /api/v1/repos/:owner/:name/releases/assets/:asset_id
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/releases/assets/{asset_id}",
+    tag = "Releases",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("asset_id" = i64, Path, description = "asset_id"),
+    ),
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn get_asset(
     State(state): State<AppState>,
     Path((owner, name, asset_id)): Path<(String, String, i64)>,
@@ -470,34 +468,36 @@ pub async fn get_asset(
     match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await {
         Ok(Some(_)) => {}
         Ok(None) => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(serde_json::json!({ "error": "repository not found" })),
-            )
-                .into_response()
+            return AppError::not_found("repository not found").into_response();
         }
         Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            )
-                .into_response()
+            return AppError::internal(e).into_response();
         }
     }
 
     match rg_core::release::service::get_asset(&state.db, asset_id).await {
         Ok(asset) => (StatusCode::OK, Json(serde_json::json!(asset))).into_response(),
-        Err(_) => (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({ "error": "asset not found" })),
-        )
-            .into_response(),
+        Err(_) => AppError::not_found("asset not found").into_response(),
     }
 }
 
 /// GET /api/v1/repos/:owner/:name/releases/assets/:asset_id/download
 ///
 /// Downloads the release asset file and increments the download count.
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/releases/assets/{asset_id}/download",
+    tag = "Releases",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("asset_id" = i64, Path, description = "asset_id"),
+    ),
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn download_asset(
     State(state): State<AppState>,
     Path((owner, name, asset_id)): Path<(String, String, i64)>,
@@ -506,18 +506,10 @@ pub async fn download_asset(
     match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await {
         Ok(Some(_)) => {}
         Ok(None) => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(serde_json::json!({ "error": "repository not found" })),
-            )
-                .into_response()
+            return AppError::not_found("repository not found").into_response();
         }
         Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            )
-                .into_response()
+            return AppError::internal(e).into_response();
         }
     }
 
@@ -544,15 +536,26 @@ pub async fn download_asset(
             );
             response.into_response()
         }
-        Err(e) => (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        )
-            .into_response(),
+        Err(e) => AppError::not_found(e).into_response(),
     }
 }
 
 /// DELETE /api/v1/repos/:owner/:name/releases/assets/:asset_id
+#[utoipa::path(
+    delete,
+    path = "/repos/{owner}/{name}/releases/assets/{asset_id}",
+    tag = "Releases",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("asset_id" = i64, Path, description = "asset_id"),
+    ),
+    responses(
+        (status = 200, description = "Deleted", body = serde_json::Value),
+        (status = 204, description = "No content"),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn delete_asset(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -561,11 +564,7 @@ pub async fn delete_asset(
     let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(serde_json::json!({ "error": "authentication required" })),
-            )
-                .into_response()
+            return AppError::unauthorized("authentication required").into_response();
         }
     };
 
@@ -575,18 +574,10 @@ pub async fn delete_asset(
     match rg_core::repo::service::can_write(&state.db, &owner, &name, Some(user_id)).await {
         Ok(true) => {}
         Ok(false) => {
-            return (
-                StatusCode::FORBIDDEN,
-                Json(serde_json::json!({ "error": "permission denied" })),
-            )
-                .into_response()
+            return AppError::forbidden("permission denied").into_response();
         }
         Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": e.to_string() })),
-            )
-                .into_response()
+            return AppError::internal(e).into_response();
         }
     }
 
@@ -606,10 +597,6 @@ pub async fn delete_asset(
             )
                 .into_response()
         }
-        Err(e) => (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        )
-            .into_response(),
+        Err(e) => AppError::bad_request(e).into_response(),
     }
 }

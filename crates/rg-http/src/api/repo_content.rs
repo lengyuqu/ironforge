@@ -7,7 +7,9 @@ use axum::response::IntoResponse;
 use axum::Json;
 use serde::{Deserialize, Serialize};
 
+use crate::error::AppError;
 use crate::AppState;
+use utoipa::ToSchema;
 
 // ── Request / Response types ──────────────────────────────────────────
 
@@ -79,6 +81,19 @@ pub struct GpgSignature {
 
 /// List tree entries (directory listing) for a repo.
 /// GET /api/v1/repos/:owner/:name/tree
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/tree",
+    tag = "Repository Content",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+    ),
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn list_tree(
     State(state): State<AppState>,
     Path((owner, repo)): Path<(String, String)>,
@@ -86,11 +101,7 @@ pub async fn list_tree(
 ) -> impl IntoResponse {
     let repo_path = state.repo_root.join(format!("{}/{}.git", owner, repo));
     if !repo_path.exists() {
-        return (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "repository not found"})),
-        )
-            .into_response();
+        return AppError::not_found("repository not found").into_response();
     }
 
     let git_ref = params.r#ref.unwrap_or_else(|| "HEAD".to_string());
@@ -100,16 +111,25 @@ pub async fn list_tree(
 
     match result {
         Ok(entries) => (StatusCode::OK, Json(entries)).into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": format!("{:#}", e)})),
-        )
-            .into_response(),
+        Err(e) => AppError::internal(e).into_response(),
     }
 }
 
 /// Get blob (file) content.
 /// GET /api/v1/repos/:owner/:name/blob/:path
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/blob/{*path}",
+    tag = "Repository Content",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+    ),
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn get_blob(
     State(state): State<AppState>,
     Path((owner, repo, path)): Path<(String, String, String)>,
@@ -117,27 +137,32 @@ pub async fn get_blob(
 ) -> impl IntoResponse {
     let repo_path = state.repo_root.join(format!("{}/{}.git", owner, repo));
     if !repo_path.exists() {
-        return (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "repository not found"})),
-        )
-            .into_response();
+        return AppError::not_found("repository not found").into_response();
     }
 
     let git_ref = params.r#ref.unwrap_or_else(|| "HEAD".to_string());
 
     match get_blob_content(&repo_path, &git_ref, &path) {
         Ok(blob) => (StatusCode::OK, Json(blob)).into_response(),
-        Err(e) => (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": format!("{:#}", e)})),
-        )
-            .into_response(),
+        Err(e) => AppError::not_found(e).into_response(),
     }
 }
 
 /// Get commit log for a repo or a specific file.
 /// GET /api/v1/repos/:owner/:name/log
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/log",
+    tag = "Repository Content",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+    ),
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn get_log(
     State(state): State<AppState>,
     Path((owner, repo)): Path<(String, String)>,
@@ -145,11 +170,7 @@ pub async fn get_log(
 ) -> impl IntoResponse {
     let repo_path = state.repo_root.join(format!("{}/{}.git", owner, repo));
     if !repo_path.exists() {
-        return (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "repository not found"})),
-        )
-            .into_response();
+        return AppError::not_found("repository not found").into_response();
     }
 
     let limit = params.limit.unwrap_or(50).min(100);
@@ -157,61 +178,67 @@ pub async fn get_log(
 
     match get_commit_log(&repo_path, &file_path, limit) {
         Ok(log) => (StatusCode::OK, Json(log)).into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": format!("{:#}", e)})),
-        )
-            .into_response(),
+        Err(e) => AppError::internal(e).into_response(),
     }
 }
 
 /// List branches.
 /// GET /api/v1/repos/:owner/:name/branches
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/branches",
+    tag = "Repository Content",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+    ),
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn list_branches(
     State(state): State<AppState>,
     Path((owner, repo)): Path<(String, String)>,
 ) -> impl IntoResponse {
     let repo_path = state.repo_root.join(format!("{}/{}.git", owner, repo));
     if !repo_path.exists() {
-        return (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "repository not found"})),
-        )
-            .into_response();
+        return AppError::not_found("repository not found").into_response();
     }
 
     match list_branch_names(&repo_path) {
         Ok(branches) => (StatusCode::OK, Json(branches)).into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": format!("{:#}", e)})),
-        )
-            .into_response(),
+        Err(e) => AppError::internal(e).into_response(),
     }
 }
 
 /// List tags.
 /// GET /api/v1/repos/:owner/:name/tags
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/tags",
+    tag = "Repository Content",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+    ),
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn list_tags(
     State(state): State<AppState>,
     Path((owner, repo)): Path<(String, String)>,
 ) -> impl IntoResponse {
     let repo_path = state.repo_root.join(format!("{}/{}.git", owner, repo));
     if !repo_path.exists() {
-        return (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "repository not found"})),
-        )
-            .into_response();
+        return AppError::not_found("repository not found").into_response();
     }
 
     match list_tag_names(&repo_path) {
         Ok(tags) => (StatusCode::OK, Json(tags)).into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": format!("{:#}", e)})),
-        )
-            .into_response(),
+        Err(e) => AppError::internal(e).into_response(),
     }
 }
 
@@ -378,17 +405,17 @@ fn get_commit_log(
 ) -> anyhow::Result<Vec<CommitEntry>> {
     let repo = gix::open(repo_path)
         .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
-    
+
     let mut entries = Vec::new();
-    
+
     // Use rev_walk to traverse commit history
     let head_id = match repo.rev_parse_single("HEAD") {
         Ok(id) => id,
         Err(_) => return Ok(entries), // No commits yet
     };
-    
+
     let walk = repo.rev_walk([head_id]);
-    
+
     let mut count = 0;
     // Call all() to get the iterator
     if let Ok(walk_iter) = walk.all() {
@@ -396,34 +423,34 @@ fn get_commit_log(
             if count >= limit {
                 break;
             }
-            
+
             let info = match info {
                 Ok(i) => i,
                 Err(_) => continue,
             };
-            
+
             let commit_id = info.id;
-            
+
             let object = match repo.find_object(commit_id) {
                 Ok(obj) => obj,
                 Err(_) => continue,
             };
-            
+
             let commit = match object.try_into_commit() {
                 Ok(c) => c,
                 Err(_) => continue,
             };
-            
+
             // Get commit message
             let message = commit.message_raw().unwrap_or_default().to_string();
             let first_line = message.lines().next().unwrap_or("").to_string();
-            
+
             // Get author info - access fields directly, not methods
             let author = commit.author().unwrap_or_default();
             let author_name = String::from_utf8_lossy(&author.name).to_string();
             let author_email = String::from_utf8_lossy(&author.email).to_string();
             let author_date = String::new(); // TODO: extract commit time
-            
+
             entries.push(CommitEntry {
                 sha: commit_id.to_string(),
                 author_name,
@@ -432,11 +459,11 @@ fn get_commit_log(
                 message: first_line,
                 gpg_signature: None,
             });
-            
+
             count += 1;
         }
     }
-    
+
     Ok(entries)
 }
 
@@ -486,35 +513,37 @@ fn list_tag_names(repo_path: &std::path::Path) -> anyhow::Result<Vec<String>> {
 
 /// GET /api/v1/repos/:owner/:name/commits/:sha/signature
 /// Get GPG signature verification status for a commit.
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/commits/{sha}/signature",
+    tag = "Repository Content",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("sha" = String, Path, description = "sha"),
+    ),
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn get_commit_signature(
     State(state): State<AppState>,
     Path((owner, repo, sha)): Path<(String, String, String)>,
 ) -> impl IntoResponse {
     let repo_path = state.repo_root.join(format!("{}/{}.git", owner, repo));
     if !repo_path.exists() {
-        return (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "repository not found"})),
-        )
-            .into_response();
+        return AppError::not_found("repository not found").into_response();
     }
 
     // Validate SHA format
     if sha.len() < 7 || !sha.chars().all(|c| c.is_ascii_hexdigit()) {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": "invalid commit SHA format"})),
-        )
-            .into_response();
+        return AppError::bad_request("invalid commit SHA format").into_response();
     }
 
     match verify_commit_signature(&repo_path, &sha) {
         Ok(sig) => (StatusCode::OK, Json(sig)).into_response(),
-        Err(e) => (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": format!("{:#}", e)})),
-        )
-            .into_response(),
+        Err(e) => AppError::not_found(e).into_response(),
     }
 }
 
@@ -525,20 +554,20 @@ fn verify_commit_signature(
 ) -> anyhow::Result<GpgSignature> {
     let repo = gix::open(repo_path)
         .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
-    
+
     // Resolve the commit SHA using gix
     let commit_id = match repo.rev_parse_single(sha) {
         Ok(id) => id,
         Err(_) => anyhow::bail!("commit {} not found", sha),
     };
-    
+
     let full_sha = commit_id.to_string();
 
     // Read commit object to check for gpgsig header
     let _commit_object = repo.find_object(commit_id)?;
     let _commit = _commit_object.try_into_commit()
         .map_err(|_| anyhow::anyhow!("not a commit object"))?;
-    
+
     // Check if commit has GPG signature by looking at the raw commit data
     // gix doesn't easily expose raw commit headers, so use git CLI for this check
     let gpgsig_output = std::process::Command::new("git")

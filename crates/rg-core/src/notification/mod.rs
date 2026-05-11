@@ -68,9 +68,10 @@ pub async fn notify_watchers_push(
     ref_name: &str,
 ) -> Result<()> {
     let watchers = rg_db::ops::repo_watch_ops::list_watchers(db, repo_id, 0, 1000).await?.0;
+    // Resolve pusher once outside the loop to avoid N+1 queries
+    let pusher_opt = rg_db::ops::user_ops::find_by_username(db, pusher_name).await.ok().flatten();
     for watcher in watchers {
         // Don't notify the pusher themselves
-        let pusher_opt = rg_db::ops::user_ops::find_by_username(db, pusher_name).await?;
         if let Some(ref pusher) = pusher_opt {
             if pusher.id == watcher.user_id {
                 continue;

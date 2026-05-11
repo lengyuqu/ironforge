@@ -325,3 +325,28 @@ pub async fn list_user_teams(db: &DatabaseConnection, user_id: i64) -> Result<Ve
         .await
         .context("db: list user teams")
 }
+
+/// Check if a user is a member of any team with write/admin permission in an org.
+/// Single query replacement for the N+1 pattern (list teams + is_team_member per team).
+pub async fn is_member_of_write_team(
+    db: &DatabaseConnection,
+    org_id: i64,
+    user_id: i64,
+) -> Result<bool> {
+    let result = db
+        .query_one(Statement::from_sql_and_values(
+            DatabaseBackend::Sqlite,
+            r#"SELECT COUNT(*) as cnt
+               FROM team_members tm
+               JOIN teams t ON t.id = tm.team_id
+               WHERE t.org_id = ? AND tm.user_id = ? AND t.permission IN ('write', 'admin')"#,
+            [Value::from(org_id), Value::from(user_id)],
+        ))
+        .await
+        .context("db: check write team membership")?;
+
+    let count: i64 = result
+        .and_then(|row| row.try_get::<i64>("", "cnt").ok())
+        .unwrap_or(0);
+    Ok(count > 0)
+}

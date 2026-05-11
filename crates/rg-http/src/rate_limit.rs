@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use axum::extract::Request;
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::HeaderMap;
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use tokio::sync::Mutex;
@@ -102,7 +102,7 @@ fn extract_client_key(headers: &HeaderMap) -> String {
 
 /// Axum middleware for rate limiting.
 pub async fn rate_limit_middleware(
-    axum::extract::Extension(limiter): axum::extract::Extension<RateLimiter>,
+    axum::extract::State(limiter): axum::extract::State<RateLimiter>,
     headers: HeaderMap,
     request: Request,
     next: Next,
@@ -112,13 +112,7 @@ pub async fn rate_limit_middleware(
     if limiter.allow(&key).await {
         next.run(request).await
     } else {
-        (
-            StatusCode::TOO_MANY_REQUESTS,
-            axum::Json(serde_json::json!({
-                "error": "rate limit exceeded",
-                "message": "Too many requests. Please try again later.",
-            })),
-        )
+        crate::error::AppError::rate_limited("Too many requests. Please try again later.")
             .into_response()
     }
 }

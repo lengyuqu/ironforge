@@ -129,49 +129,25 @@ pub async fn soft_delete(db: &DatabaseConnection, id: i64) -> Result<()> {
     Ok(())
 }
 
-/// Update stars_count for a repository based on actual star count.
+/// Update stars_count for a repository based on actual star count (atomic).
 pub async fn update_stars_count(db: &DatabaseConnection, id: i64) -> Result<()> {
-    use crate::entities::repo_star;
-
-    let count = repo_star::Entity::find()
-        .filter(repo_star::Column::RepoId.eq(id))
-        .count(db)
-        .await
-        .context("db: count stars")? as i64;
-
-    let repo = RepoEntity::find_by_id(id)
-        .one(db)
-        .await
-        .context("db: find repo for stars count")?
-        .ok_or_else(|| anyhow::anyhow!("repository not found"))?;
-
-    let mut model: RepoActiveModel = repo.into();
-    model.stars_count = Set(count);
-    model.updated_at = Set(Utc::now());
-    model.update(db).await.context("db: update stars count")?;
-
+    db.execute(Statement::from_sql_and_values(
+        DatabaseBackend::Sqlite,
+        "UPDATE repositories SET stars_count = (SELECT COUNT(*) FROM repo_stars WHERE repo_id = ?), \
+         updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        [Value::from(id), Value::from(id)],
+    )).await.context("db: update stars count")?;
     Ok(())
 }
 
-/// Update forks_count for a repository based on actual fork count.
+/// Update forks_count for a repository based on actual fork count (atomic).
 pub async fn update_forks_count(db: &DatabaseConnection, id: i64) -> Result<()> {
-    let count = RepoEntity::find()
-        .filter(repository::Column::OriginRepoId.eq(id))
-        .count(db)
-        .await
-        .context("db: count forks")? as i64;
-
-    let repo = RepoEntity::find_by_id(id)
-        .one(db)
-        .await
-        .context("db: find repo for forks count")?
-        .ok_or_else(|| anyhow::anyhow!("repository not found"))?;
-
-    let mut model: RepoActiveModel = repo.into();
-    model.forks_count = Set(count);
-    model.updated_at = Set(Utc::now());
-    model.update(db).await.context("db: update forks count")?;
-
+    db.execute(Statement::from_sql_and_values(
+        DatabaseBackend::Sqlite,
+        "UPDATE repositories SET forks_count = (SELECT COUNT(*) FROM repositories WHERE origin_repo_id = ? AND deleted_at IS NULL), \
+         updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        [Value::from(id), Value::from(id)],
+    )).await.context("db: update forks count")?;
     Ok(())
 }
 

@@ -6,7 +6,9 @@ use axum::response::IntoResponse;
 use axum::Json;
 use serde::{Deserialize, Serialize};
 
+use crate::error::AppError;
 use crate::AppState;
+use utoipa::ToSchema;
 
 // ── Response types ───────────────────────────────────────────
 
@@ -88,6 +90,17 @@ pub struct AddTeamMemberRequest {
 // ── Organization handlers ────────────────────────────────────
 
 /// POST /api/v1/orgs
+#[utoipa::path(
+    post,
+    path = "/orgs",
+    tag = "Organizations",
+    request_body(content = serde_json::Value),
+    responses(
+        (status = 201, description = "Created", body = serde_json::Value),
+        (status = 400, description = "Bad request", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn create_org(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -96,11 +109,7 @@ pub async fn create_org(
     let user_id = match extract_user_id(&state, &headers) {
         Some(id) => id,
         None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(serde_json::json!({"error": "authentication required"})),
-            )
-                .into_response()
+            return AppError::unauthorized("authentication required").into_response();
         }
     };
     let visibility = body.visibility.as_deref().unwrap_or("public");
@@ -125,36 +134,45 @@ pub async fn create_org(
             })),
         )
             .into_response(),
-        Err(e) => (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": e.to_string()})),
-        )
-            .into_response(),
+        Err(e) => AppError::bad_request(e).into_response(),
     }
 }
 
 /// GET /api/v1/orgs/:name
+#[utoipa::path(
+    get,
+    path = "/orgs/{name}",
+    tag = "Organizations",
+    params(
+        ("name" = String, Path, description = "name"),
+    ),
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn get_org(
     State(state): State<AppState>,
     Path(name): Path<String>,
 ) -> impl IntoResponse {
     match rg_core::org::get_org_by_name(&state.db, &name).await {
         Ok(Some(org)) => Json(org_to_response(&org)).into_response(),
-        Ok(None) => (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "organization not found"})),
-        )
-            .into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": e.to_string()})),
-        )
-            .into_response(),
+        Ok(None) => AppError::not_found("organization not found").into_response(),
+        Err(e) => AppError::internal(e).into_response(),
     }
 }
 
 /// GET /api/v1/orgs
 /// List organizations for the authenticated user.
+#[utoipa::path(
+    get,
+    path = "/orgs",
+    tag = "Organizations",
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn list_orgs(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -162,11 +180,7 @@ pub async fn list_orgs(
     let user_id = match extract_user_id(&state, &headers) {
         Some(id) => id,
         None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(serde_json::json!({"error": "authentication required"})),
-            )
-                .into_response()
+            return AppError::unauthorized("authentication required").into_response();
         }
     };
 
@@ -175,15 +189,24 @@ pub async fn list_orgs(
             let resp: Vec<OrgResponse> = orgs.iter().map(org_to_response).collect();
             Json(resp).into_response()
         }
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": e.to_string()})),
-        )
-        .into_response(),
+        Err(e) => AppError::internal(e).into_response(),
     }
 }
 
 /// PATCH /api/v1/orgs/:name
+#[utoipa::path(
+    patch,
+    path = "/orgs/{name}",
+    tag = "Organizations",
+    params(
+        ("name" = String, Path, description = "name"),
+    ),
+    request_body(content = serde_json::Value),
+    responses(
+        (status = 200, description = "Updated", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn update_org(
     State(state): State<AppState>,
     Path(name): Path<String>,
@@ -192,18 +215,10 @@ pub async fn update_org(
     let org = match rg_core::org::get_org_by_name(&state.db, &name).await {
         Ok(Some(o)) => o,
         Ok(None) => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(serde_json::json!({"error": "organization not found"})),
-            )
-                .into_response()
+            return AppError::not_found("organization not found").into_response();
         }
         Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": e.to_string()})),
-            )
-                .into_response()
+            return AppError::internal(e).into_response();
         }
     };
 
@@ -217,15 +232,24 @@ pub async fn update_org(
     .await
     {
         Ok(updated) => Json(org_to_response(&updated)).into_response(),
-        Err(e) => (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": e.to_string()})),
-        )
-        .into_response(),
+        Err(e) => AppError::bad_request(e).into_response(),
     }
 }
 
 /// DELETE /api/v1/orgs/:name
+#[utoipa::path(
+    delete,
+    path = "/orgs/{name}",
+    tag = "Organizations",
+    params(
+        ("name" = String, Path, description = "name"),
+    ),
+    responses(
+        (status = 200, description = "Deleted", body = serde_json::Value),
+        (status = 204, description = "No content"),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn delete_org(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -234,44 +258,40 @@ pub async fn delete_org(
     let user_id = match extract_user_id(&state, &headers) {
         Some(id) => id,
         None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(serde_json::json!({"error": "authentication required"})),
-            )
-                .into_response()
+            return AppError::unauthorized("authentication required").into_response();
         }
     };
     let org = match rg_core::org::get_org_by_name(&state.db, &name).await {
         Ok(Some(o)) => o,
         Ok(None) => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(serde_json::json!({"error": "organization not found"})),
-            )
-                .into_response()
+            return AppError::not_found("organization not found").into_response();
         }
         Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": e.to_string()})),
-            )
-                .into_response()
+            return AppError::internal(e).into_response();
         }
     };
 
     match rg_core::org::delete_org(&state.db, org.id, user_id).await {
         Ok(()) => Json(serde_json::json!({"deleted": true})).into_response(),
-        Err(e) => (
-            StatusCode::FORBIDDEN,
-            Json(serde_json::json!({"error": e.to_string()})),
-        )
-            .into_response(),
+        Err(e) => AppError::forbidden(e).into_response(),
     }
 }
 
 // ── Organization Member handlers ────────────────────────────
 
 /// GET /api/v1/orgs/:name/members
+#[utoipa::path(
+    get,
+    path = "/orgs/{name}/members",
+    tag = "Organizations",
+    params(
+        ("name" = String, Path, description = "name"),
+    ),
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn list_org_members(
     State(state): State<AppState>,
     Path(name): Path<String>,
@@ -279,18 +299,10 @@ pub async fn list_org_members(
     let org = match rg_core::org::get_org_by_name(&state.db, &name).await {
         Ok(Some(o)) => o,
         Ok(None) => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(serde_json::json!({"error": "organization not found"})),
-            )
-                .into_response()
+            return AppError::not_found("organization not found").into_response();
         }
         Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": e.to_string()})),
-            )
-                .into_response()
+            return AppError::internal(e).into_response();
         }
     };
 
@@ -308,15 +320,25 @@ pub async fn list_org_members(
                 .collect();
             Json(resp).into_response()
         }
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": e.to_string()})),
-        )
-        .into_response(),
+        Err(e) => AppError::internal(e).into_response(),
     }
 }
 
 /// POST /api/v1/orgs/:name/members
+#[utoipa::path(
+    post,
+    path = "/orgs/{name}/members",
+    tag = "Organizations",
+    params(
+        ("name" = String, Path, description = "name"),
+    ),
+    request_body(content = serde_json::Value),
+    responses(
+        (status = 201, description = "Created", body = serde_json::Value),
+        (status = 400, description = "Bad request", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn add_org_member(
     State(state): State<AppState>,
     Path(name): Path<String>,
@@ -325,18 +347,10 @@ pub async fn add_org_member(
     let org = match rg_core::org::get_org_by_name(&state.db, &name).await {
         Ok(Some(o)) => o,
         Ok(None) => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(serde_json::json!({"error": "organization not found"})),
-            )
-                .into_response()
+            return AppError::not_found("organization not found").into_response();
         }
         Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": e.to_string()})),
-            )
-                .into_response()
+            return AppError::internal(e).into_response();
         }
     };
 
@@ -353,15 +367,25 @@ pub async fn add_org_member(
             })),
         )
             .into_response(),
-        Err(e) => (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": e.to_string()})),
-        )
-            .into_response(),
+        Err(e) => AppError::bad_request(e).into_response(),
     }
 }
 
 /// DELETE /api/v1/orgs/:name/members/:user_id
+#[utoipa::path(
+    delete,
+    path = "/orgs/{name}/members/{user_id}",
+    tag = "Organizations",
+    params(
+        ("name" = String, Path, description = "name"),
+        ("user_id" = i64, Path, description = "user_id"),
+    ),
+    responses(
+        (status = 200, description = "Deleted", body = serde_json::Value),
+        (status = 204, description = "No content"),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn remove_org_member(
     State(state): State<AppState>,
     Path((name, user_id)): Path<(String, i64)>,
@@ -369,34 +393,36 @@ pub async fn remove_org_member(
     let org = match rg_core::org::get_org_by_name(&state.db, &name).await {
         Ok(Some(o)) => o,
         Ok(None) => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(serde_json::json!({"error": "organization not found"})),
-            )
-                .into_response()
+            return AppError::not_found("organization not found").into_response();
         }
         Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": e.to_string()})),
-            )
-                .into_response()
+            return AppError::internal(e).into_response();
         }
     };
 
     match rg_core::org::remove_org_member(&state.db, org.id, user_id).await {
         Ok(()) => Json(serde_json::json!({"removed": true})).into_response(),
-        Err(e) => (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": e.to_string()})),
-        )
-            .into_response(),
+        Err(e) => AppError::bad_request(e).into_response(),
     }
 }
 
 // ── Team handlers ────────────────────────────────────────────
 
 /// POST /api/v1/orgs/:name/teams
+#[utoipa::path(
+    post,
+    path = "/orgs/{name}/teams",
+    tag = "Organizations",
+    params(
+        ("name" = String, Path, description = "name"),
+    ),
+    request_body(content = serde_json::Value),
+    responses(
+        (status = 201, description = "Created", body = serde_json::Value),
+        (status = 400, description = "Bad request", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn create_team(
     State(state): State<AppState>,
     Path(name): Path<String>,
@@ -405,18 +431,10 @@ pub async fn create_team(
     let org = match rg_core::org::get_org_by_name(&state.db, &name).await {
         Ok(Some(o)) => o,
         Ok(None) => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(serde_json::json!({"error": "organization not found"})),
-            )
-                .into_response()
+            return AppError::not_found("organization not found").into_response();
         }
         Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": e.to_string()})),
-            )
-                .into_response()
+            return AppError::internal(e).into_response();
         }
     };
 
@@ -433,15 +451,23 @@ pub async fn create_team(
             })),
         )
             .into_response(),
-        Err(e) => (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": e.to_string()})),
-        )
-            .into_response(),
+        Err(e) => AppError::bad_request(e).into_response(),
     }
 }
 
 /// GET /api/v1/orgs/:name/teams
+#[utoipa::path(
+    get,
+    path = "/orgs/{name}/teams",
+    tag = "Organizations",
+    params(
+        ("name" = String, Path, description = "name"),
+    ),
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn list_org_teams(
     State(state): State<AppState>,
     Path(name): Path<String>,
@@ -449,18 +475,10 @@ pub async fn list_org_teams(
     let org = match rg_core::org::get_org_by_name(&state.db, &name).await {
         Ok(Some(o)) => o,
         Ok(None) => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(serde_json::json!({"error": "organization not found"})),
-            )
-                .into_response()
+            return AppError::not_found("organization not found").into_response();
         }
         Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": e.to_string()})),
-            )
-                .into_response()
+            return AppError::internal(e).into_response();
         }
     };
 
@@ -480,15 +498,24 @@ pub async fn list_org_teams(
                 .collect();
             Json(resp).into_response()
         }
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": e.to_string()})),
-        )
-        .into_response(),
+        Err(e) => AppError::internal(e).into_response(),
     }
 }
 
 /// GET /api/v1/orgs/:name/teams/:team_id
+#[utoipa::path(
+    get,
+    path = "/orgs/{name}/teams/{team_id}",
+    tag = "Organizations",
+    params(
+        ("name" = String, Path, description = "name"),
+        ("team_id" = i64, Path, description = "team_id"),
+    ),
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn get_team(
     State(state): State<AppState>,
     Path((_name, team_id)): Path<(String, i64)>,
@@ -504,35 +531,50 @@ pub async fn get_team(
             updated_at: t.updated_at.to_string(),
         })
         .into_response(),
-        Ok(None) => (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "team not found"})),
-        )
-            .into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": e.to_string()})),
-        )
-            .into_response(),
+        Ok(None) => AppError::not_found("team not found").into_response(),
+        Err(e) => AppError::internal(e).into_response(),
     }
 }
 
 /// DELETE /api/v1/orgs/:name/teams/:team_id
+#[utoipa::path(
+    delete,
+    path = "/orgs/{name}/teams/{team_id}",
+    tag = "Organizations",
+    params(
+        ("name" = String, Path, description = "name"),
+        ("team_id" = i64, Path, description = "team_id"),
+    ),
+    responses(
+        (status = 200, description = "Deleted", body = serde_json::Value),
+        (status = 204, description = "No content"),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn delete_team(
     State(state): State<AppState>,
     Path((_name, team_id)): Path<(String, i64)>,
 ) -> impl IntoResponse {
     match rg_core::org::delete_team(&state.db, team_id).await {
         Ok(()) => Json(serde_json::json!({"deleted": true})).into_response(),
-        Err(e) => (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": e.to_string()})),
-        )
-            .into_response(),
+        Err(e) => AppError::not_found(e).into_response(),
     }
 }
 
 /// GET /api/v1/orgs/:name/teams/:team_id/members
+#[utoipa::path(
+    get,
+    path = "/orgs/{name}/teams/{team_id}/members",
+    tag = "Organizations",
+    params(
+        ("name" = String, Path, description = "name"),
+        ("team_id" = i64, Path, description = "team_id"),
+    ),
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn list_team_members(
     State(state): State<AppState>,
     Path((_name, team_id)): Path<(String, i64)>,
@@ -551,15 +593,26 @@ pub async fn list_team_members(
                 .collect();
             Json(resp).into_response()
         }
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": e.to_string()})),
-        )
-        .into_response(),
+        Err(e) => AppError::internal(e).into_response(),
     }
 }
 
 /// POST /api/v1/orgs/:name/teams/:team_id/members
+#[utoipa::path(
+    post,
+    path = "/orgs/{name}/teams/{team_id}/members",
+    tag = "Organizations",
+    params(
+        ("name" = String, Path, description = "name"),
+        ("team_id" = i64, Path, description = "team_id"),
+    ),
+    request_body(content = serde_json::Value),
+    responses(
+        (status = 201, description = "Created", body = serde_json::Value),
+        (status = 400, description = "Bad request", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn add_team_member(
     State(state): State<AppState>,
     Path((_name, team_id)): Path<(String, i64)>,
@@ -578,26 +631,33 @@ pub async fn add_team_member(
             })),
         )
             .into_response(),
-        Err(e) => (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": e.to_string()})),
-        )
-            .into_response(),
+        Err(e) => AppError::bad_request(e).into_response(),
     }
 }
 
 /// DELETE /api/v1/orgs/:name/teams/:team_id/members/:user_id
+#[utoipa::path(
+    delete,
+    path = "/orgs/{name}/teams/{team_id}/members/{user_id}",
+    tag = "Organizations",
+    params(
+        ("name" = String, Path, description = "name"),
+        ("team_id" = i64, Path, description = "team_id"),
+        ("user_id" = i64, Path, description = "user_id"),
+    ),
+    responses(
+        (status = 200, description = "Deleted", body = serde_json::Value),
+        (status = 204, description = "No content"),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn remove_team_member(
     State(state): State<AppState>,
     Path((_name, team_id, user_id)): Path<(String, i64, i64)>,
 ) -> impl IntoResponse {
     match rg_core::org::remove_team_member(&state.db, team_id, user_id).await {
         Ok(()) => Json(serde_json::json!({"removed": true})).into_response(),
-        Err(e) => (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": e.to_string()})),
-        )
-            .into_response(),
+        Err(e) => AppError::bad_request(e).into_response(),
     }
 }
 

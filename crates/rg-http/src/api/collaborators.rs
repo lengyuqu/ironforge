@@ -7,6 +7,8 @@ use axum::Json;
 use serde::Deserialize;
 
 use crate::AppState;
+use crate::error::AppError;
+use utoipa::ToSchema;
 
 // ── Request / Response types ──────────────────────────────────────────
 
@@ -31,22 +33,46 @@ pub struct UpdatePermissionRequest {
 
 /// List collaborators for a repo.
 /// GET /api/v1/repos/:owner/:name/collaborators
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/collaborators",
+    tag = "Collaborators",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+    ),
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn list_collaborators(
     State(state): State<AppState>,
     Path((owner, repo)): Path<(String, String)>,
 ) -> impl IntoResponse {
     match rg_core::collaborator::service::list_collaborators(&state.db, &owner, &repo).await {
         Ok(collaborators) => (StatusCode::OK, Json(collaborators)).into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": format!("{:#}", e)})),
-        )
-            .into_response(),
+        Err(e) => AppError::internal(e.to_string()).into_response(),
     }
 }
 
 /// Add a collaborator to a repo.
 /// POST /api/v1/repos/:owner/:name/collaborators
+#[utoipa::path(
+    post,
+    path = "/repos/{owner}/{name}/collaborators",
+    tag = "Collaborators",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+    ),
+    request_body(content = serde_json::Value),
+    responses(
+        (status = 201, description = "Created", body = serde_json::Value),
+        (status = 400, description = "Bad request", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn add_collaborator(
     State(state): State<AppState>,
     Path((owner, repo)): Path<(String, String)>,
@@ -54,11 +80,7 @@ pub async fn add_collaborator(
     Json(req): Json<AddCollaboratorRequest>,
 ) -> impl IntoResponse {
     if extract_user_id(&state, &headers).is_none() {
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(serde_json::json!({"error": "authentication required"})),
-        )
-            .into_response();
+        return AppError::unauthorized("authentication required").into_response();
     }
 
     match rg_core::collaborator::service::add_collaborator(
@@ -71,16 +93,27 @@ pub async fn add_collaborator(
     .await
     {
         Ok(collab) => (StatusCode::CREATED, Json(collab)).into_response(),
-        Err(e) => (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": format!("{:#}", e)})),
-        )
-            .into_response(),
+        Err(e) => AppError::bad_request(e.to_string()).into_response(),
     }
 }
 
 /// Update a collaborator's permission.
 /// PATCH /api/v1/repos/:owner/:name/collaborators/:id
+#[utoipa::path(
+    patch,
+    path = "/repos/{owner}/{name}/collaborators/{id}",
+    tag = "Collaborators",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("id" = i64, Path, description = "id"),
+    ),
+    request_body(content = serde_json::Value),
+    responses(
+        (status = 200, description = "Updated", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn update_permission(
     State(state): State<AppState>,
     Path((_owner, _repo, id)): Path<(String, String, i64)>,
@@ -88,45 +121,44 @@ pub async fn update_permission(
     Json(req): Json<UpdatePermissionRequest>,
 ) -> impl IntoResponse {
     if extract_user_id(&state, &headers).is_none() {
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(serde_json::json!({"error": "authentication required"})),
-        )
-            .into_response();
+        return AppError::unauthorized("authentication required").into_response();
     }
 
     match rg_core::collaborator::service::update_permission(&state.db, id, req.permission).await {
         Ok(collab) => (StatusCode::OK, Json(collab)).into_response(),
-        Err(e) => (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": format!("{:#}", e)})),
-        )
-            .into_response(),
+        Err(e) => AppError::bad_request(e.to_string()).into_response(),
     }
 }
 
 /// Remove a collaborator from a repo.
 /// DELETE /api/v1/repos/:owner/:name/collaborators/:user_id
+#[utoipa::path(
+    post,
+    path = "/repos/{owner}/{name}/collaborators/{user_id}/remove",
+    tag = "Collaborators",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("user_id" = i64, Path, description = "user_id"),
+    ),
+    responses(
+        (status = 201, description = "Created", body = serde_json::Value),
+        (status = 400, description = "Bad request", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn remove_collaborator(
     State(state): State<AppState>,
     Path((owner, repo, user_id)): Path<(String, String, i64)>,
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse {
     if extract_user_id(&state, &headers).is_none() {
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(serde_json::json!({"error": "authentication required"})),
-        )
-            .into_response();
+        return AppError::unauthorized("authentication required").into_response();
     }
 
     match rg_core::collaborator::service::remove_collaborator(&state.db, &owner, &repo, user_id).await {
         Ok(()) => (StatusCode::NO_CONTENT, Json(serde_json::json!({}))).into_response(),
-        Err(e) => (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": format!("{:#}", e)})),
-        )
-            .into_response(),
+        Err(e) => AppError::bad_request(e.to_string()).into_response(),
     }
 }
 

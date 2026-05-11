@@ -7,6 +7,8 @@ use axum::Json;
 use serde::{Deserialize, Serialize};
 
 use crate::AppState;
+use crate::error::AppError;
+use utoipa::ToSchema;
 
 // ── Response types ─────────────────────────────────────
 
@@ -39,23 +41,15 @@ pub async fn upload_artifact(
     let job = match rg_db::ops::pipeline_ops::get_job(&state.db, job_id).await {
         Ok(Some(j)) => j,
         Ok(None) => {
-            return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "job not found"}))).into_response();
+            return AppError::not_found("job not found").into_response();
         }
         Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": e.to_string()})),
-            )
-                .into_response();
+            return AppError::internal(e.to_string()).into_response();
         }
     };
 
     if job.runner_id != Some(runner_id) {
-        return (
-            StatusCode::FORBIDDEN,
-            Json(serde_json::json!({"error": "job not assigned to this runner"})),
-        )
-            .into_response();
+        return AppError::forbidden("job not assigned to this runner").into_response();
     }
 
     match rg_db::ops::artifact_ops::create_artifact(
@@ -76,16 +70,26 @@ pub async fn upload_artifact(
             }),
         )
             .into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": e.to_string()})),
-        )
-            .into_response(),
+        Err(e) => AppError::internal(e.to_string()).into_response(),
     }
 }
 
 /// GET /api/v1/repos/:owner/:name/pipelines/:id/artifacts
 /// List all artifacts for a pipeline.
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/pipelines/{id}/artifacts",
+    tag = "Artifacts",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("id" = i64, Path, description = "id"),
+    ),
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn list_pipeline_artifacts(
     State(state): State<AppState>,
     Path((_owner, _name, pipeline_id)): Path<(String, String, i64)>,
@@ -105,16 +109,24 @@ pub async fn list_pipeline_artifacts(
                 .collect();
             (StatusCode::OK, Json(resp)).into_response()
         }
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": e.to_string()})),
-        )
-            .into_response(),
+        Err(e) => AppError::internal(e.to_string()).into_response(),
     }
 }
 
 /// GET /api/v1/artifacts/:id
 /// Get artifact metadata.
+#[utoipa::path(
+    get,
+    path = "/artifacts/{id}",
+    tag = "Artifacts",
+    params(
+        ("id" = i64, Path, description = "id"),
+    ),
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn get_artifact(
     State(state): State<AppState>,
     Path(artifact_id): Path<i64>,
@@ -132,33 +144,34 @@ pub async fn get_artifact(
             }),
         )
             .into_response(),
-        Ok(None) => (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "artifact not found"})),
-        )
-            .into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": e.to_string()})),
-        )
-            .into_response(),
+        Ok(None) => AppError::not_found("artifact not found").into_response(),
+        Err(e) => AppError::internal(e.to_string()).into_response(),
     }
 }
 
 /// DELETE /api/v1/artifacts/:id
 /// Delete an artifact.
+#[utoipa::path(
+    delete,
+    path = "/artifacts/{id}",
+    tag = "Artifacts",
+    params(
+        ("id" = i64, Path, description = "id"),
+    ),
+    responses(
+        (status = 200, description = "Deleted", body = serde_json::Value),
+        (status = 204, description = "No content"),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn delete_artifact(
     State(state): State<AppState>,
     Path(artifact_id): Path<i64>,
 ) -> impl IntoResponse {
     match rg_db::ops::artifact_ops::delete_by_id(&state.db, artifact_id).await {
         Ok(true) => (StatusCode::NO_CONTENT, Json(serde_json::json!({"status": "deleted"}))).into_response(),
-        Ok(false) => (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "artifact not found"}))).into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({"error": e.to_string()})),
-        )
-            .into_response(),
+        Ok(false) => AppError::not_found("artifact not found").into_response(),
+        Err(e) => AppError::internal(e.to_string()).into_response(),
     }
 }
 

@@ -1,12 +1,15 @@
 //! Wiki REST API endpoints.
 
 use axum::extract::{Path, State};
-use axum::http::HeaderMap;
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::IntoResponse;
 use axum::Json;
 use serde::{Deserialize, Serialize};
 use sea_orm::DatabaseConnection;
 
 use crate::AppState;
+use crate::error::AppError;
+use utoipa::ToSchema;
 
 // ── Request / Response types ──────────────────────────────────────────────
 
@@ -63,6 +66,19 @@ fn page_to_summary(p: &rg_db::entities::wiki_page::Model) -> WikiPageSummary {
 
 // ── Handlers ──────────────────────────────────────────────────────────────
 
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/wiki",
+    tag = "Wiki",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+    ),
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn list_pages(
     State(state): State<AppState>,
     Path((owner, repo)): Path<(String, String)>,
@@ -71,18 +87,32 @@ pub async fn list_pages(
     let _user_id = extract_user_id(&state, &_headers);
     let repo_id = match resolve_repo_id(&state.db, &owner, &repo).await {
         Some(id) => id,
-        None => return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "repository not found"}))),
+        None => return AppError::not_found("repository not found").into_response(),
     };
 
     match rg_core::wiki::service::list_pages(&state.db, repo_id).await {
         Ok(pages) => {
             let summaries: Vec<WikiPageSummary> = pages.iter().map(page_to_summary).collect();
-            (StatusCode::OK, Json(serde_json::json!(summaries)))
+            (StatusCode::OK, Json(serde_json::json!(summaries))).into_response()
         }
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": format!("{:#}", e)}))),
+        Err(e) => AppError::internal(e).into_response(),
     }
 }
 
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/wiki/{title}",
+    tag = "Wiki",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("title" = String, Path, description = "title"),
+    ),
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn get_page(
     State(state): State<AppState>,
     Path((owner, repo, title)): Path<(String, String, String)>,
@@ -90,16 +120,31 @@ pub async fn get_page(
 ) -> impl IntoResponse {
     let repo_id = match resolve_repo_id(&state.db, &owner, &repo).await {
         Some(id) => id,
-        None => return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "repository not found"}))),
+        None => return AppError::not_found("repository not found").into_response(),
     };
 
     match rg_core::wiki::service::get_page(&state.db, repo_id, &title).await {
-        Ok(Some(page)) => (StatusCode::OK, Json(serde_json::json!(page_to_response(&page)))),
-        Ok(None) => (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "page not found"}))),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": format!("{:#}", e)}))),
+        Ok(Some(page)) => (StatusCode::OK, Json(serde_json::json!(page_to_response(&page)))).into_response(),
+        Ok(None) => AppError::not_found("page not found").into_response(),
+        Err(e) => AppError::internal(e).into_response(),
     }
 }
 
+#[utoipa::path(
+    post,
+    path = "/repos/{owner}/{name}/wiki",
+    tag = "Wiki",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+    ),
+    request_body(content = serde_json::Value),
+    responses(
+        (status = 201, description = "Created", body = serde_json::Value),
+        (status = 400, description = "Bad request", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn create_page(
     State(state): State<AppState>,
     Path((owner, repo)): Path<(String, String)>,
@@ -108,12 +153,12 @@ pub async fn create_page(
 ) -> impl IntoResponse {
     let user_id = match extract_user_id(&state, &headers) {
         Some(id) => id,
-        None => return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "unauthorized"}))),
+        None => return AppError::unauthorized("unauthorized").into_response(),
     };
 
     let repo_id = match resolve_repo_id(&state.db, &owner, &repo).await {
         Some(id) => id,
-        None => return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "repository not found"}))),
+        None => return AppError::not_found("repository not found").into_response(),
     };
 
     match rg_core::wiki::service::create_page(
@@ -126,11 +171,26 @@ pub async fn create_page(
     )
     .await
     {
-        Ok(page) => (StatusCode::CREATED, Json(serde_json::json!(page_to_response(&page)))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": format!("{:#}", e)}))),
+        Ok(page) => (StatusCode::CREATED, Json(serde_json::json!(page_to_response(&page)))).into_response(),
+        Err(e) => AppError::bad_request(e).into_response(),
     }
 }
 
+#[utoipa::path(
+    patch,
+    path = "/repos/{owner}/{name}/wiki/{title}",
+    tag = "Wiki",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("title" = String, Path, description = "title"),
+    ),
+    request_body(content = serde_json::Value),
+    responses(
+        (status = 200, description = "Updated", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn update_page(
     State(state): State<AppState>,
     Path((owner, repo, title)): Path<(String, String, String)>,
@@ -139,12 +199,12 @@ pub async fn update_page(
 ) -> impl IntoResponse {
     let user_id = match extract_user_id(&state, &headers) {
         Some(id) => id,
-        None => return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "unauthorized"}))),
+        None => return AppError::unauthorized("unauthorized").into_response(),
     };
 
     let repo_id = match resolve_repo_id(&state.db, &owner, &repo).await {
         Some(id) => id,
-        None => return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "repository not found"}))),
+        None => return AppError::not_found("repository not found").into_response(),
     };
 
     match rg_core::wiki::service::update_page(
@@ -157,11 +217,26 @@ pub async fn update_page(
     )
     .await
     {
-        Ok(page) => (StatusCode::OK, Json(serde_json::json!(page_to_response(&page)))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": format!("{:#}", e)}))),
+        Ok(page) => (StatusCode::OK, Json(serde_json::json!(page_to_response(&page)))).into_response(),
+        Err(e) => AppError::bad_request(e).into_response(),
     }
 }
 
+#[utoipa::path(
+    delete,
+    path = "/repos/{owner}/{name}/wiki/{title}",
+    tag = "Wiki",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("title" = String, Path, description = "title"),
+    ),
+    responses(
+        (status = 200, description = "Deleted", body = serde_json::Value),
+        (status = 204, description = "No content"),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn delete_page(
     State(state): State<AppState>,
     Path((owner, repo, title)): Path<(String, String, String)>,
@@ -169,24 +244,21 @@ pub async fn delete_page(
 ) -> impl IntoResponse {
     let _user_id = match extract_user_id(&state, &headers) {
         Some(id) => id,
-        None => return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "unauthorized"}))),
+        None => return AppError::unauthorized("unauthorized").into_response(),
     };
 
     let repo_id = match resolve_repo_id(&state.db, &owner, &repo).await {
         Some(id) => id,
-        None => return (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "repository not found"}))),
+        None => return AppError::not_found("repository not found").into_response(),
     };
 
     match rg_core::wiki::service::delete_page(&state.db, repo_id, &title).await {
-        Ok(()) => (StatusCode::OK, Json(serde_json::json!({"message": "page deleted"}))),
-        Err(e) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": format!("{:#}", e)}))),
+        Ok(()) => (StatusCode::OK, Json(serde_json::json!({"message": "page deleted"}))).into_response(),
+        Err(e) => AppError::bad_request(e).into_response(),
     }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────
-
-use axum::http::StatusCode;
-use axum::response::IntoResponse;
 
 fn extract_user_id(state: &AppState, headers: &axum::http::HeaderMap) -> Option<i64> {
     let auth = headers.get("authorization")?.to_str().ok()?;

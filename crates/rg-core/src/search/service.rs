@@ -11,7 +11,7 @@
 //! Example: `q=bug fix repo:owner/repo state:open`
 
 use anyhow::{Context, Result};
-use sea_orm::{ConnectionTrait, DatabaseConnection, Statement};
+use sea_orm::{ConnectionTrait, DatabaseConnection, Statement, Value};
 use serde::Serialize;
 
 /// A unified search result.
@@ -141,10 +141,12 @@ fn fts_escape(query: &str) -> String {
     format!("\"{}\"", escaped)
 }
 
-/// Build SQL WHERE clauses from filters.
-fn build_filter_clauses(filters: &SearchFilters, table_alias: &str) -> (Vec<String>, Vec<String>) {
+/// Build SQL WHERE clauses from filters (parameterized — no SQL injection).
+/// Returns (clauses, joins, params) where clauses/params must be used with `?` placeholders.
+fn build_filter_clauses(filters: &SearchFilters, table_alias: &str) -> (Vec<String>, Vec<String>, Vec<Value>) {
     let mut clauses = Vec::new();
     let mut joins = Vec::new();
+    let mut params = Vec::new();
 
     if let Some(ref repo) = filters.repo {
         // Parse "owner/name" format
@@ -153,63 +155,56 @@ fn build_filter_clauses(filters: &SearchFilters, table_alias: &str) -> (Vec<Stri
                 "JOIN repositories r_filt ON r_filt.id = {}.repo_id",
                 table_alias
             ));
-            joins.push(format!(
-                "LEFT JOIN users u_filt ON u_filt.id = r_filt.owner_id"
-            ));
-            clauses.push(format!(
-                "u_filt.username = '{}' AND r_filt.name = '{}'",
-                owner.replace('\'', "''"),
-                name.replace('\'', "''")
-            ));
+            joins.push("LEFT JOIN users u_filt ON u_filt.id = r_filt.owner_id".to_string());
+            clauses.push("u_filt.username = ? AND r_filt.name = ?".to_string());
+            params.push(Value::from(owner.to_string()));
+            params.push(Value::from(name.to_string()));
         } else {
             // Just repo name, match by name
             joins.push(format!(
                 "JOIN repositories r_filt ON r_filt.id = {}.repo_id",
                 table_alias
             ));
-            clauses.push(format!(
-                "r_filt.name = '{}'",
-                repo.replace('\'', "''")
-            ));
+            clauses.push("r_filt.name = ?".to_string());
+            params.push(Value::from(repo.to_string()));
         }
     }
 
     if let Some(ref author) = filters.author {
-        joins.push(format!(
-            "LEFT JOIN users u_auth ON u_auth.username = '{}'",
-            author.replace('\'', "''")
-        ));
+        joins.push("LEFT JOIN users u_auth ON u_auth.username = ?".to_string());
+        params.push(Value::from(author.to_string()));
         clauses.push(format!("{}.author_id = u_auth.id", table_alias));
     }
 
-    (clauses, joins)
+    (clauses, joins, params)
 }
 
-/// Build issue-specific filter clauses (state, label).
-fn build_issue_filter_clauses(filters: &SearchFilters) -> (Vec<String>, Vec<String>) {
+/// Build issue-specific filter clauses (state, label) — parameterized.
+fn build_issue_filter_clauses(filters: &SearchFilters) -> (Vec<String>, Vec<String>, Vec<Value>) {
     let mut clauses = Vec::new();
     let mut joins = Vec::new();
+    let mut params = Vec::new();
 
     if let Some(ref state) = filters.state {
         if state != "all" {
-            clauses.push(format!("i.state = '{}'", state.replace('\'', "''")));
+            // Only allow known state values
+            let safe_state = match state.as_str() {
+                "open" | "closed" => state.as_str(),
+                _ => "open", // default fallback
+            };
+            clauses.push("i.state = ?".to_string());
+            params.push(Value::from(safe_state.to_string()));
         }
     }
 
     if let Some(ref label) = filters.label {
-        joins.push(format!(
-            "LEFT JOIN issue_labels il_filt ON il_filt.issue_id = i.id"
-        ));
-        joins.push(format!(
-            "LEFT JOIN labels lbl_filt ON lbl_filt.id = il_filt.label_id"
-        ));
-        clauses.push(format!(
-            "lbl_filt.name = '{}'",
-            label.replace('\'', "''")
-        ));
+        joins.push("LEFT JOIN issue_labels il_filt ON il_filt.issue_id = i.id".to_string());
+        joins.push("LEFT JOIN labels lbl_filt ON lbl_filt.id = il_filt.label_id".to_string());
+        clauses.push("lbl_filt.name = ?".to_string());
+        params.push(Value::from(label.to_string()));
     }
 
-    (clauses, joins)
+    (clauses, joins, params)
 }
 
 /// Search repositories by name and description, with optional filters.
@@ -220,7 +215,7 @@ async fn search_repos(
     offset: u64,
     limit: u64,
 ) -> Result<(Vec<SearchResult>, i64)> {
-    let (filter_clauses, extra_joins) = build_filter_clauses(filters, "r");
+    let (filter_clauses, extra_joins, filter_params) = build_filter_clauses(filters, "r");
 
     // Base query
     let base_where = format!("repos_fts MATCH {}", query);
@@ -228,6 +223,7 @@ async fn search_repos(
     // Add filter clauses
     if !filter_clauses.is_empty() {
         let filter_sql = filter_clauses.join(" AND ");
+        let joins_sql = extra_joins.join("\n");
         let sql = format!(
             r#"
             SELECT r.id, r.name as title, r.description as excerpt, u.username as owner_name
@@ -239,18 +235,14 @@ async fn search_repos(
             ORDER BY rank
             LIMIT {} OFFSET {}
             "#,
-            extra_joins.join("\n"),
-            base_where,
-            filter_sql,
-            limit,
-            offset
+            joins_sql, base_where, filter_sql, limit, offset
         );
 
         let rows = db
             .query_all(Statement::from_sql_and_values(
                 sea_orm::DatabaseBackend::Sqlite,
                 &sql,
-                [],
+                filter_params.clone(),
             ))
             .await
             .context("fts: search repos filtered")?;
@@ -343,10 +335,11 @@ async fn search_issues(
     offset: u64,
     limit: u64,
 ) -> Result<(Vec<SearchResult>, i64)> {
-    let (mut common_clauses, common_joins) = build_filter_clauses(filters, "i");
-    let (issue_clauses, issue_joins) = build_issue_filter_clauses(filters);
+    let (mut common_clauses, common_joins, mut common_params) = build_filter_clauses(filters, "i");
+    let (issue_clauses, issue_joins, issue_params) = build_issue_filter_clauses(filters);
 
     common_clauses.extend(issue_clauses);
+    common_params.extend(issue_params);
     let all_joins = format!("{}\n{}", common_joins.join("\n"), issue_joins.join("\n"));
 
     let base_where = format!("issues_fts MATCH {}", query);
@@ -377,7 +370,7 @@ async fn search_issues(
         .query_all(Statement::from_sql_and_values(
             sea_orm::DatabaseBackend::Sqlite,
             &sql,
-            [],
+            common_params.clone(),
         ))
         .await
         .context("fts: search issues")?;
@@ -444,7 +437,7 @@ async fn search_wiki(
     offset: u64,
     limit: u64,
 ) -> Result<(Vec<SearchResult>, i64)> {
-    let (filter_clauses, extra_joins) = build_filter_clauses(filters, "w");
+    let (filter_clauses, extra_joins, filter_params) = build_filter_clauses(filters, "w");
 
     let base_where = format!("wiki_pages_fts MATCH {}", query);
 
@@ -476,7 +469,7 @@ async fn search_wiki(
         .query_all(Statement::from_sql_and_values(
             sea_orm::DatabaseBackend::Sqlite,
             &sql,
-            [],
+            filter_params,
         ))
         .await
         .context("fts: search wiki")?;

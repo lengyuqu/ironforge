@@ -13,6 +13,7 @@ use axum::{
 use serde::Deserialize;
 use utoipa::ToSchema;
 
+use crate::error::AppError;
 use crate::AppState;
 
 /// POST /api/v1/users/register
@@ -77,11 +78,7 @@ pub async fn register(
     .await
     {
         Ok(resp) => (StatusCode::CREATED, Json(serde_json::json!(resp))).into_response(),
-        Err(e) => (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        )
-            .into_response(),
+        Err(e) => AppError::BadRequest(e.to_string()).into_response(),
     }
 }
 
@@ -108,11 +105,7 @@ pub async fn login(
     .await
     {
         Ok(resp) => (StatusCode::OK, Json(serde_json::json!(resp))).into_response(),
-        Err(e) => (
-            StatusCode::UNAUTHORIZED,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        )
-            .into_response(),
+        Err(e) => AppError::Unauthorized(e.to_string()).into_response(),
     }
 }
 
@@ -134,11 +127,7 @@ pub async fn me(
     let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => {
-            return (
-                StatusCode::UNAUTHORIZED,
-                Json(serde_json::json!({ "error": "missing or invalid token" })),
-            )
-                .into_response()
+            return AppError::Unauthorized("missing or invalid token".to_string()).into_response()
         }
     };
 
@@ -157,16 +146,8 @@ pub async fn me(
             })),
         )
             .into_response(),
-        Ok(None) => (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({ "error": "user not found" })),
-        )
-            .into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": e.to_string() })),
-        )
-            .into_response(),
+        Ok(None) => AppError::NotFound("user not found".to_string()).into_response(),
+        Err(e) => AppError::InternalError(e.to_string()).into_response(),
     }
 }
 
@@ -184,7 +165,7 @@ pub(crate) fn extract_bearer_claims(
 
 use sha2::{Sha256, Digest};
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, ToSchema)]
 pub struct CreateTokenRequest {
     pub name: String,
     pub scopes: Option<String>,
@@ -214,22 +195,42 @@ fn hash_token(token: &str) -> String {
 }
 
 /// GET /api/v1/users/tokens
+#[utoipa::path(
+    get,
+    path = "/users/tokens",
+    tag = "Users",
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn list_tokens(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
     let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
-        None => { return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "authentication required" }))).into_response(); }
+        None => { return AppError::Unauthorized("authentication required".to_string()).into_response(); }
     };
     let user_id: i64 = claims.sub.parse().unwrap_or(-1);
     match rg_db::ops::token_ops::list_by_user(&state.db, user_id).await {
         Ok(tokens) => (StatusCode::OK, Json(serde_json::json!(tokens))).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+        Err(e) => AppError::InternalError(e.to_string()).into_response(),
     }
 }
 
 /// POST /api/v1/users/tokens
+#[utoipa::path(
+    post,
+    path = "/users/tokens",
+    tag = "Users",
+    request_body(content = serde_json::Value),
+    responses(
+        (status = 201, description = "Created", body = serde_json::Value),
+        (status = 400, description = "Bad request", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn create_token(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -237,11 +238,11 @@ pub async fn create_token(
 ) -> impl IntoResponse {
     let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
-        None => { return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "authentication required" }))).into_response(); }
+        None => { return AppError::Unauthorized("authentication required".to_string()).into_response(); }
     };
     let user_id: i64 = claims.sub.parse().unwrap_or(-1);
     if body.name.trim().is_empty() {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "token name cannot be empty" }))).into_response();
+        return AppError::BadRequest("token name cannot be empty".to_string()).into_response();
     }
     let raw_token = generate_token();
     let token_hash = hash_token(&raw_token);
@@ -269,11 +270,24 @@ pub async fn create_token(
             "expires_at": token.expires_at,
             "created_at": token.created_at,
         }))).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+        Err(e) => AppError::InternalError(e.to_string()).into_response(),
     }
 }
 
 /// DELETE /api/v1/users/tokens/:id
+#[utoipa::path(
+    delete,
+    path = "/users/tokens/{id}",
+    tag = "Users",
+    params(
+        ("id" = i64, Path, description = "id"),
+    ),
+    responses(
+        (status = 200, description = "Deleted", body = serde_json::Value),
+        (status = 204, description = "No content"),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn delete_token(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -281,18 +295,18 @@ pub async fn delete_token(
 ) -> impl IntoResponse {
     let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
-        None => { return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "authentication required" }))).into_response(); }
+        None => { return AppError::Unauthorized("authentication required".to_string()).into_response(); }
     };
     let user_id: i64 = claims.sub.parse().unwrap_or(-1);
     let token = match rg_db::ops::token_ops::find_by_id(&state.db, id).await {
         Ok(Some(t)) => t,
-        _ => { return (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": "token not found" }))).into_response(); }
+        _ => { return AppError::NotFound("token not found".to_string()).into_response(); }
     };
     if token.user_id != user_id {
-        return (StatusCode::FORBIDDEN, Json(serde_json::json!({ "error": "you can only revoke your own tokens" }))).into_response();
+        return AppError::Forbidden("you can only revoke your own tokens".to_string()).into_response();
     }
     match rg_db::ops::token_ops::delete_by_id(&state.db, id).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": e.to_string() }))).into_response(),
+        Err(e) => AppError::InternalError(e.to_string()).into_response(),
     }
 }
