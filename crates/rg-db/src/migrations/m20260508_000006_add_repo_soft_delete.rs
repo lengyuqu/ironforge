@@ -1,4 +1,5 @@
 use sea_orm_migration::prelude::*;
+use sea_orm::Statement;
 
 pub struct Migration;
 
@@ -11,41 +12,44 @@ impl MigrationName for Migration {
 #[async_trait::async_trait]
 impl MigrationTrait for Migration {
     async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
-        manager
-            .alter_table(
-                Table::alter()
-                    .table(Repositories::Table)
-                    .add_column(
-                        ColumnDef::new(Repositories::DeletedAt)
-                            .timestamp_with_time_zone()
-                            .null(),
-                    )
-                    .add_column(
-                        ColumnDef::new(Repositories::OriginRepoId)
-                            .big_integer()
-                            .null(),
-                    )
-                    .to_owned(),
-            )
-            .await
+        // SQLite does not support multiple ADD COLUMN in a single ALTER TABLE.
+        // Use raw SQL to add columns one by one.
+        let db = manager.get_connection();
+        let backend = db.get_database_backend();
+
+        db.execute(Statement::from_string(
+            backend,
+            "ALTER TABLE repositories ADD COLUMN deleted_at TIMESTAMP NULL;",
+        ))
+        .await?;
+
+        db.execute(Statement::from_string(
+            backend,
+            "ALTER TABLE repositories ADD COLUMN origin_repo_id BIGINT NULL;",
+        ))
+        .await?;
+
+        Ok(())
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
-        manager
-            .alter_table(
-                Table::alter()
-                    .table(Repositories::Table)
-                    .drop_column(Repositories::DeletedAt)
-                    .drop_column(Repositories::OriginRepoId)
-                    .to_owned(),
-            )
-            .await
-    }
-}
+        // SQLite 3.35+ supports DROP COLUMN.
+        // Drop origin_repo_id first (reverse order of ADD).
+        let db = manager.get_connection();
+        let backend = db.get_database_backend();
 
-#[derive(Iden)]
-enum Repositories {
-    Table,
-    DeletedAt,
-    OriginRepoId,
+        db.execute(Statement::from_string(
+            backend,
+            "ALTER TABLE repositories DROP COLUMN origin_repo_id;",
+        ))
+        .await?;
+
+        db.execute(Statement::from_string(
+            backend,
+            "ALTER TABLE repositories DROP COLUMN deleted_at;",
+        ))
+        .await?;
+
+        Ok(())
+    }
 }

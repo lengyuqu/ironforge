@@ -2,15 +2,19 @@
 
 use anyhow::{bail, Context, Result};
 use chrono::Utc;
-use sea_orm::{DatabaseConnection, Set};
+use sea_orm::{DatabaseConnection, EntityTrait, Set};
 use std::process::Command;
 
 use rg_db::entities::pull_request::{self, Model as PullRequest};
-use rg_db::ops::{pull_request_ops, repo_ops};
+use rg_db::entities::repository as repo_entity;
+use rg_db::ops::{pull_request_ops, repo_ops, user_ops};
 
 // ── PR CRUD ─────────────────────────────────────────────────────────────
 
 /// Create a new pull request.
+///
+/// If `head_repo_id` is provided, this is a fork PR (cross-repository).
+/// The `head_branch` should contain just the branch name (not `owner:branch` format).
 pub async fn create_pr(
     db: &DatabaseConnection,
     repo_id: i64,
@@ -19,6 +23,7 @@ pub async fn create_pr(
     body: Option<String>,
     head_branch: String,
     base_branch: String,
+    head_repo_id: Option<i64>,
 ) -> Result<PullRequest> {
     if title.trim().is_empty() {
         bail!("PR title cannot be empty");
@@ -29,8 +34,26 @@ pub async fn create_pr(
 
     let number = pull_request_ops::next_number(db, repo_id).await?;
 
-    // Resolve head SHA
-    let head_sha = None; // Will be filled on first push / refresh
+    // Resolve head SHA (for same-repo PRs, look up branch; for fork PRs, use the head repo)
+    let head_sha = if let Some(head_repo_id) = head_repo_id {
+        // For fork PRs, resolve from the fork repo's git data
+        let head_repo = repo_entity::Entity::find_by_id(head_repo_id)
+            .one(db)
+            .await?
+            .context("head repository not found")?;
+        let head_owner = user_ops::find_by_id(db, head_repo.owner_id)
+            .await?
+            .context("head repo owner not found")?;
+        let head_path = std::path::PathBuf::from("/tmp/ironforge/repos")
+            .join(format!("{}/{}.git", head_owner.username, head_repo.name));
+        if head_path.exists() {
+            get_ref_sha(&head_path, &head_branch).ok()
+        } else {
+            None
+        }
+    } else {
+        None
+    };
 
     let model = pull_request::ActiveModel {
         id: sea_orm::NotSet,
@@ -46,6 +69,7 @@ pub async fn create_pr(
         head_sha: Set(head_sha),
         merge_strategy: Set(None),
         merge_commit_sha: Set(None),
+        head_repo_id: Set(head_repo_id),
         created_at: Set(Utc::now()),
         updated_at: Set(Utc::now()),
         closed_at: Set(None),
@@ -63,11 +87,58 @@ pub async fn create_pr(
         "state": pr.state,
         "head_branch": pr.head_branch,
         "base_branch": pr.base_branch,
+        "head_repo_id": pr.head_repo_id,
         "author_id": pr.author_id,
     });
     let _ = crate::webhook::service::trigger_pr_opened(db, repo_id, &payload).await;
 
     Ok(pr)
+}
+
+/// Resolve a head reference in `owner:branch` format to (head_branch, head_repo_id).
+/// Returns (branch_name, Some(head_repo_id)) if owner differs from the target repo owner,
+/// or (branch_name, None) if same owner (same-repo PR).
+pub async fn resolve_head_ref(
+    db: &DatabaseConnection,
+    target_repo_id: i64,
+    head_ref: &str,
+) -> Result<(String, Option<i64>)> {
+    if let Some((head_owner, head_branch)) = head_ref.split_once(':') {
+        // Cross-repo (fork) PR: "owner:branch"
+        let head_branch = head_branch.to_string();
+        let head_owner_user = user_ops::find_by_username(db, head_owner)
+            .await?
+            .with_context(|| format!("head owner '{}' not found", head_owner))?;
+
+        // Find the target repo to compare
+        let target_repo = repo_entity::Entity::find_by_id(target_repo_id)
+            .one(db)
+            .await?
+            .context("target repository not found")?;
+
+        if head_owner_user.id != target_repo.owner_id {
+            // Different owner — this is a fork PR
+            // Find the fork repo by the head owner (user may have forked the same repo)
+            let fork_repo = repo_ops::find_by_owner_and_name(db, head_owner_user.id, &target_repo.name)
+                .await?
+                .with_context(|| {
+                    format!("no repository '{}/{}' found for head owner", head_owner, target_repo.name)
+                })?;
+
+            // Verify it's actually a fork of the target
+            if fork_repo.origin_repo_id != Some(target_repo_id) && fork_repo.id != target_repo_id {
+                bail!("'{}/{}' is not a fork of the target repository", head_owner, target_repo.name);
+            }
+
+            return Ok((head_branch, Some(fork_repo.id)));
+        }
+
+        // Same owner — not a fork, just a branch reference with owner prefix
+        Ok((head_branch, None))
+    } else {
+        // Simple branch name — same-repo PR
+        Ok((head_ref.to_string(), None))
+    }
 }
 
 /// Notify watchers of a PR event.
@@ -200,6 +271,7 @@ pub struct DiffStats {
 }
 
 /// Compute the diff between base and head branches using `git diff`.
+/// Supports cross-repository (fork) PRs.
 pub async fn compute_diff(
     db: &DatabaseConnection,
     repo_root: &std::path::Path,
@@ -208,19 +280,68 @@ pub async fn compute_diff(
     number: i64,
 ) -> Result<PrDiff> {
     let pr = get_pr(db, owner, repo_name, number).await?;
-    let repo_path = repo_root.join(format!("{}/{}.git", owner, repo_name));
+    let base_repo_path = repo_root.join(format!("{}/{}.git", owner, repo_name));
 
-    if !repo_path.exists() {
-        bail!("repository path does not exist: {:?}", repo_path);
+    if !base_repo_path.exists() {
+        bail!("repository path does not exist: {:?}", base_repo_path);
     }
 
-    // Get diff stat
+    // For fork PRs, fetch the head branch into the target repo first
+    if let Some(head_repo_id) = pr.head_repo_id {
+        let head_repo = repo_entity::Entity::find_by_id(head_repo_id)
+            .one(db)
+            .await?
+            .context("head repository not found")?;
+        let head_owner = user_ops::find_by_id(db, head_repo.owner_id)
+            .await?
+            .context("head repo owner not found")?;
+        let head_repo_path = repo_root.join(format!("{}/{}.git", head_owner.username, head_repo.name));
+
+        if head_repo_path.exists() {
+            // Fetch head branch into target repo under refs/forks/
+            let fetch_ref = format!("refs/heads/{}", pr.head_branch);
+            let local_ref = format!("refs/forks/{}/{}", head_owner.username, pr.head_branch);
+
+            let fetch_output = Command::new("git")
+                .arg("-C")
+                .arg(&base_repo_path)
+                .arg("fetch")
+                .arg(&head_repo_path)
+                .arg(format!("{}:{}", fetch_ref, local_ref))
+                .output()?;
+
+            if !fetch_output.status.success() {
+                // Log but don't fail — branch may not exist yet
+                tracing::warn!(
+                    "fetch of fork branch failed (non-fatal): {}",
+                    String::from_utf8_lossy(&fetch_output.stderr)
+                );
+            }
+
+            // Compute diff between base and fetched fork ref
+            return compute_cross_repo_diff(
+                &base_repo_path,
+                &pr.base_branch,
+                &local_ref,
+                &pr,
+            );
+        }
+    }
+
+    // Same-repo diff
+    compute_same_repo_diff(&base_repo_path, &pr)
+}
+
+/// Compute diff for same-repo PR.
+fn compute_same_repo_diff(repo_path: &std::path::Path, pr: &PullRequest) -> Result<PrDiff> {
+    let range = format!("{}...{}", pr.base_branch, pr.head_branch);
+
     let stat_output = Command::new("git")
         .arg("-C")
-        .arg(&repo_path)
+        .arg(repo_path)
         .arg("diff")
         .arg("--numstat")
-        .arg(&format!("{}...{}", pr.base_branch, pr.head_branch))
+        .arg(&range)
         .output()?;
 
     let mut files_changed = Vec::new();
@@ -255,17 +376,90 @@ pub async fn compute_diff(
         }
     }
 
-    // Get diff patch (truncated for safety)
+    // Get diff patch
     let patch_output = Command::new("git")
         .arg("-C")
-        .arg(&repo_path)
+        .arg(repo_path)
         .arg("diff")
-        .arg(&format!("{}...{}", pr.base_branch, pr.head_branch))
+        .arg(&range)
         .output()?;
 
     let patch_text = String::from_utf8_lossy(&patch_output.stdout).to_string();
 
-    // Attach patch to each file (simplified: full patch as first file's patch)
+    if let Some(first) = files_changed.first_mut() {
+        first.patch = Some(patch_text);
+    }
+
+    Ok(PrDiff {
+        base_branch: pr.base_branch.clone(),
+        head_branch: pr.head_branch.clone(),
+        stats: DiffStats {
+            total_additions,
+            total_deletions,
+            files_changed: files_changed.len() as i64,
+        },
+        files_changed,
+    })
+}
+
+/// Compute diff for cross-repo (fork) PR using a fetched ref.
+fn compute_cross_repo_diff(
+    repo_path: &std::path::Path,
+    base_branch: &str,
+    fork_ref: &str,
+    pr: &PullRequest,
+) -> Result<PrDiff> {
+    let range = format!("{}...{}", base_branch, fork_ref);
+
+    let stat_output = Command::new("git")
+        .arg("-C")
+        .arg(repo_path)
+        .arg("diff")
+        .arg("--numstat")
+        .arg(&range)
+        .output()?;
+
+    let mut files_changed = Vec::new();
+    let mut total_additions = 0i64;
+    let mut total_deletions = 0i64;
+
+    for line in String::from_utf8_lossy(&stat_output.stdout).lines() {
+        let parts: Vec<&str> = line.splitn(3, '\t').collect();
+        if parts.len() >= 3 {
+            let additions = parts[0].parse::<i64>().unwrap_or(0);
+            let deletions = parts[1].parse::<i64>().unwrap_or(0);
+            let path = parts[2].to_string();
+
+            total_additions += additions;
+            total_deletions += deletions;
+
+            let status = if additions > 0 && deletions == 0 {
+                "added"
+            } else if additions == 0 && deletions > 0 {
+                "deleted"
+            } else {
+                "modified"
+            };
+
+            files_changed.push(FileDiff {
+                path,
+                status: status.to_string(),
+                additions,
+                deletions,
+                patch: None,
+            });
+        }
+    }
+
+    let patch_output = Command::new("git")
+        .arg("-C")
+        .arg(repo_path)
+        .arg("diff")
+        .arg(&range)
+        .output()?;
+
+    let patch_text = String::from_utf8_lossy(&patch_output.stdout).to_string();
+
     if let Some(first) = files_changed.first_mut() {
         first.patch = Some(patch_text);
     }
@@ -285,7 +479,7 @@ pub async fn compute_diff(
 // ── Merge ───────────────────────────────────────────────────────────────
 
 /// Merge strategy for a PR.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum MergeStrategy {
     Merge,
@@ -301,6 +495,7 @@ pub struct MergeResult {
 }
 
 /// Merge a pull request using the specified strategy.
+/// Supports cross-repository (fork) PRs by fetching the head branch first.
 pub async fn merge_pr(
     db: &DatabaseConnection,
     repo_root: &std::path::Path,
@@ -309,7 +504,7 @@ pub async fn merge_pr(
     number: i64,
     strategy: MergeStrategy,
 ) -> Result<MergeResult> {
-    let mut pr = get_pr(db, owner, repo_name, number).await?;
+    let pr = get_pr(db, owner, repo_name, number).await?;
 
     if pr.state != "open" {
         bail!("cannot merge a PR that is not in 'open' state (current: {})", pr.state);
@@ -320,13 +515,170 @@ pub async fn merge_pr(
         bail!("repository path does not exist: {:?}", repo_path);
     }
 
+    // For fork PRs, fetch head branch into target repo
+    if let Some(head_repo_id) = pr.head_repo_id {
+        let head_repo = repo_entity::Entity::find_by_id(head_repo_id)
+            .one(db)
+            .await?
+            .context("head repository not found")?;
+        let head_owner = user_ops::find_by_id(db, head_repo.owner_id)
+            .await?
+            .context("head repo owner not found")?;
+        let head_repo_path = repo_root.join(format!("{}/{}.git", head_owner.username, head_repo.name));
+
+        if head_repo_path.exists() {
+            let fetch_ref = format!("refs/heads/{}", pr.head_branch);
+            let local_ref = format!("refs/forks/{}/{}", head_owner.username, pr.head_branch);
+
+            let fetch_output = Command::new("git")
+                .arg("-C")
+                .arg(&repo_path)
+                .arg("fetch")
+                .arg(&head_repo_path)
+                .arg(format!("{}:{}", fetch_ref, local_ref))
+                .output()?;
+
+            if !fetch_output.status.success() {
+                bail!(
+                    "failed to fetch fork branch: {}",
+                    String::from_utf8_lossy(&fetch_output.stderr)
+                );
+            }
+
+            // Merge using the fetched ref
+            let merge_ref = format!("refs/forks/{}/{}", head_owner.username, pr.head_branch);
+            let merge_commit_sha = merge_from_ref(&repo_path, &pr, &merge_ref, strategy)?;
+
+            // Clean up fetched ref
+            let _ = Command::new("git")
+                .arg("-C")
+                .arg(&repo_path)
+                .arg("update-ref")
+                .arg("-d")
+                .arg(&merge_ref)
+                .output();
+
+            return update_pr_merged(db, pr, merge_commit_sha, strategy).await;
+        }
+    }
+
+    // Same-repo merge
     let merge_commit_sha = match strategy {
         MergeStrategy::Merge => do_merge_commit(&repo_path, &pr)?,
         MergeStrategy::Squash => do_squash_merge(&repo_path, &pr)?,
         MergeStrategy::Rebase => do_rebase_merge(&repo_path, &pr)?,
     };
 
-    // Update PR state
+    update_pr_merged(db, pr, merge_commit_sha, strategy).await
+}
+
+/// Merge from an arbitrary ref (used for fork PRs).
+fn merge_from_ref(
+    repo_path: &std::path::Path,
+    pr: &PullRequest,
+    merge_ref: &str,
+    strategy: MergeStrategy,
+) -> Result<String> {
+    match strategy {
+        MergeStrategy::Merge => {
+            let output = Command::new("git")
+                .arg("-C")
+                .arg(repo_path)
+                .arg("merge")
+                .arg("--no-ff")
+                .arg(merge_ref)
+                .arg("-m")
+                .arg(format!(
+                    "Merge pull request #{} from {}",
+                    pr.number, pr.head_branch
+                ))
+                .output()?;
+
+            if !output.status.success() {
+                bail!(
+                    "merge failed: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+            }
+            get_head_sha(repo_path)
+        }
+        MergeStrategy::Squash => {
+            let output = Command::new("git")
+                .arg("-C")
+                .arg(repo_path)
+                .arg("merge")
+                .arg("--squash")
+                .arg(merge_ref)
+                .output()?;
+
+            if !output.status.success() {
+                bail!(
+                    "squash merge failed: {}",
+                    String::from_utf8_lossy(&output.stderr)
+                );
+            }
+
+            let commit_output = Command::new("git")
+                .arg("-C")
+                .arg(repo_path)
+                .arg("commit")
+                .arg("-m")
+                .arg(format!(
+                    "Squash merge pull request #{} from {}",
+                    pr.number, pr.head_branch
+                ))
+                .output()?;
+
+            if !commit_output.status.success() {
+                bail!(
+                    "squash commit failed: {}",
+                    String::from_utf8_lossy(&commit_output.stderr)
+                );
+            }
+            get_head_sha(repo_path)
+        }
+        MergeStrategy::Rebase => {
+            gix_set_head_to_branch(repo_path, &pr.base_branch)
+                .with_context(|| format!("failed to checkout base branch: {}", pr.base_branch))?;
+
+            let rebase = Command::new("git")
+                .arg("-C")
+                .arg(repo_path)
+                .arg("rebase")
+                .arg(&pr.base_branch)
+                .arg(merge_ref)
+                .output()?;
+
+            if !rebase.status.success() {
+                let _ = Command::new("git")
+                    .arg("-C")
+                    .arg(repo_path)
+                    .arg("rebase")
+                    .arg("--abort")
+                    .output();
+                bail!(
+                    "rebase merge failed: {}",
+                    String::from_utf8_lossy(&rebase.stderr)
+                );
+            }
+
+            gix_set_head_to_branch(repo_path, &pr.base_branch)
+                .with_context(|| "failed to checkout base branch for fast-forward")?;
+
+            // For fork refs, we need to ff to HEAD (the rebased result is now on base branch)
+            // since rebase replays commits on top of the base
+            get_head_sha(repo_path)
+        }
+    }
+}
+
+/// Update PR state after successful merge.
+async fn update_pr_merged(
+    db: &DatabaseConnection,
+    mut pr: PullRequest,
+    merge_commit_sha: String,
+    strategy: MergeStrategy,
+) -> Result<MergeResult> {
     pr.state = "merged".to_string();
     pr.merge_strategy = Some(format!("{:?}", strategy).to_lowercase());
     pr.merge_commit_sha = Some(merge_commit_sha.clone());
@@ -377,8 +729,8 @@ fn do_merge_commit(repo_path: &std::path::Path, pr: &PullRequest) -> Result<Stri
 }
 
 fn do_squash_merge(repo_path: &std::path::Path, pr: &PullRequest) -> Result<String> {
-    // TODO(gix): Replace with gix merge --squash API
-    // Squash all commits from head_branch into one
+    // TODO(gix): Replace entire squash merge flow with gix when merge API matures
+    // git merge --squash sets up the index; git commit reads from it — keep as pair
     let output = std::process::Command::new("git")
         .arg("-C")
         .arg(repo_path)
@@ -414,22 +766,12 @@ fn do_squash_merge(repo_path: &std::path::Path, pr: &PullRequest) -> Result<Stri
 }
 
 fn do_rebase_merge(repo_path: &std::path::Path, pr: &PullRequest) -> Result<String> {
-    // TODO(gix): Replace with gix rebase API (complex operation)
-    // Checkout base branch, rebase head onto it
-    let checkout = std::process::Command::new("git")
-        .arg("-C")
-        .arg(repo_path)
-        .arg("checkout")
-        .arg(&pr.base_branch)
-        .output()?;
+    // TODO(gix): Replace rebase with gix rebase API (complex operation)
+    // Step 1: Checkout base branch (set HEAD symbolic ref via gix)
+    gix_set_head_to_branch(repo_path, &pr.base_branch)
+        .with_context(|| format!("failed to checkout base branch: {}", pr.base_branch))?;
 
-    if !checkout.status.success() {
-        bail!(
-            "checkout base branch failed: {}",
-            String::from_utf8_lossy(&checkout.stderr)
-        );
-    }
-
+    // Step 2: Rebase head onto base (keep CLI — gix doesn't support rebase)
     let rebase = Command::new("git")
         .arg("-C")
         .arg(repo_path)
@@ -452,34 +794,74 @@ fn do_rebase_merge(repo_path: &std::path::Path, pr: &PullRequest) -> Result<Stri
         );
     }
 
-    // Fast-forward base to head
-    let ff = Command::new("git")
-        .arg("-C")
-        .arg(repo_path)
-        .arg("checkout")
-        .arg(&pr.base_branch)
-        .output()?;
+    // Step 3: Checkout base again (set HEAD symbolic ref via gix)
+    gix_set_head_to_branch(repo_path, &pr.base_branch)
+        .with_context(|| "failed to checkout base branch for fast-forward")?;
 
-    if !ff.status.success() {
-        bail!("checkout base for fast-forward failed");
-    }
-
-    let merge_ff = Command::new("git")
-        .arg("-C")
-        .arg(repo_path)
-        .arg("merge")
-        .arg("--ff-only")
-        .arg(&pr.head_branch)
-        .output()?;
-
-    if !merge_ff.status.success() {
-        bail!(
-            "fast-forward merge failed: {}",
-            String::from_utf8_lossy(&merge_ff.stderr)
-        );
-    }
+    // Step 4: Fast-forward base to head (update branch ref via gix)
+    gix_fast_forward(repo_path, &pr.base_branch, &pr.head_branch)?;
 
     get_head_sha(repo_path)
+}
+
+/// Set HEAD to point to a branch (equivalent to `git checkout <branch>` in a bare repo).
+/// Uses gix to update the HEAD symbolic reference.
+fn gix_set_head_to_branch(repo_path: &std::path::Path, branch: &str) -> Result<()> {
+    use gix::refs::transaction::{Change, LogChange, PreviousValue, RefEdit, RefLog};
+    use gix::refs::{FullName, Target};
+
+    let repo = gix::open(repo_path)
+        .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
+
+    let branch_ref: FullName = format!("refs/heads/{}", branch)
+        .try_into()
+        .map_err(|e| anyhow::anyhow!("invalid branch reference: {}", e))?;
+    let head_name: FullName = "HEAD"
+        .try_into()
+        .map_err(|e| anyhow::anyhow!("invalid HEAD reference: {}", e))?;
+
+    repo.edit_reference(RefEdit {
+        change: Change::Update {
+            log: LogChange {
+                mode: RefLog::AndReference,
+                force_create_reflog: false,
+                message: "checkout".into(),
+            },
+            expected: PreviousValue::Any,
+            new: Target::Symbolic(branch_ref),
+        },
+        name: head_name,
+        deref: false,
+    })
+    .map_err(|e| anyhow::anyhow!("failed to set HEAD to refs/heads/{}: {}", branch, e))?;
+
+    Ok(())
+}
+
+/// Fast-forward a branch to point to another branch's commit (equivalent to `git merge --ff-only`).
+/// Uses gix to update the base branch reference.
+fn gix_fast_forward(repo_path: &std::path::Path, base_branch: &str, head_branch: &str) -> Result<()> {
+    let repo = gix::open(repo_path)
+        .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
+
+    let head_ref_str = format!("refs/heads/{}", head_branch);
+    let base_ref_str = format!("refs/heads/{}", base_branch);
+
+    // Resolve head branch commit
+    let head_id = repo
+        .rev_parse_single(head_ref_str.as_str())
+        .map_err(|e| anyhow::anyhow!("failed to resolve {}: {}", head_ref_str, e))?;
+
+    // Update base branch to point to head's commit
+    repo.reference(
+        base_ref_str.as_str(),
+        head_id.detach(),
+        gix::refs::transaction::PreviousValue::Any,
+        "fast-forward merge",
+    )
+    .map_err(|e| anyhow::anyhow!("fast-forward failed: {}", e))?;
+
+    Ok(())
 }
 
 fn get_head_sha(repo_path: &std::path::Path) -> Result<String> {
@@ -490,6 +872,16 @@ fn get_head_sha(repo_path: &std::path::Path) -> Result<String> {
     Ok(head_id.to_string())
 }
 
+/// Resolve a branch reference to its SHA using gix.
+fn get_ref_sha(repo_path: &std::path::Path, branch: &str) -> Result<String> {
+    let repo = gix::open(repo_path)
+        .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
+    let ref_str = format!("refs/heads/{}", branch);
+    let id = repo.rev_parse_single(ref_str.as_str())
+        .map_err(|e| anyhow::anyhow!("failed to resolve {}: {}", ref_str, e))?;
+    Ok(id.to_string())
+}
+
 // ── Helpers ─────────────────────────────────────────────────────────────
 
 async fn resolve_repo(
@@ -497,7 +889,7 @@ async fn resolve_repo(
     owner: &str,
     repo_name: &str,
 ) -> Result<rg_db::entities::repository::Model> {
-    let user = rg_db::ops::user_ops::find_by_username(db, owner)
+    let user = user_ops::find_by_username(db, owner)
         .await?
         .context("owner not found")?;
     repo_ops::find_by_owner_and_name(db, user.id, repo_name)

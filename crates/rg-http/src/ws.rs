@@ -6,7 +6,7 @@
 use axum::{
     extract::{
         ws::{Message, WebSocket},
-        Query, State, WebSocketUpgrade,
+        Path, Query, State, WebSocketUpgrade,
     },
     response::IntoResponse,
 };
@@ -119,8 +119,19 @@ async fn handle_ws_connection(
 
     let send_task = tokio::spawn(async move {
         while let Ok(event) = rx.recv().await {
-            // Filter: only send notifications meant for this user
-            // The event data should contain a `user_id` field
+            // job_log events are broadcast to all connected clients (no user_id filter)
+            if event.event_type == "job_log" {
+                let msg = match serde_json::to_string(&event) {
+                    Ok(s) => s,
+                    Err(_) => continue,
+                };
+                if sender.send(Message::Text(msg.into())).await.is_err() {
+                    break;
+                }
+                continue;
+            }
+
+            // For other events, filter by user_id
             if let Some(event_user_id) = event.data.get("user_id").and_then(|v| v.as_i64()) {
                 if event_user_id != uid {
                     continue;
@@ -177,4 +188,82 @@ pub fn push_notification(
         }),
     };
     hub.broadcast(event);
+}
+
+/// Broadcast a job log update to all WebSocket subscribers.
+///
+/// Frontend clients can listen for `job_log` events and filter by job_id.
+pub fn push_job_log(hub: &NotificationHub, job_id: i64, log: &str) {
+    let event = NotificationEvent {
+        event_type: "job_log".to_string(),
+        data: serde_json::json!({
+            "job_id": job_id,
+            "log": log,
+        }),
+    };
+    hub.broadcast(event);
+}
+
+/// GET /api/v1/ws/job/:job_id — WebSocket for real-time job log streaming.
+///
+/// Does not require JWT auth. Frontend subscribes to receive `job_log` events
+/// filtered by the specified job_id.
+pub async fn ws_job_log_handler(
+    ws: WebSocketUpgrade,
+    Path(job_id): Path<i64>,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    ws.on_upgrade(move |socket| handle_job_log_connection(socket, state.notification_hub.clone(), job_id))
+}
+
+/// Handle a job log WebSocket connection.
+async fn handle_job_log_connection(
+    socket: WebSocket,
+    hub: NotificationHub,
+    job_id: i64,
+) {
+    let (mut sender, mut receiver) = socket.split();
+
+    let mut rx = hub.subscribe();
+
+    // Send confirmation
+    let welcome = serde_json::json!({
+        "type": "connected",
+        "job_id": job_id,
+    });
+    if sender.send(Message::Text(welcome.to_string().into())).await.is_err() {
+        return;
+    }
+
+    let send_task = tokio::spawn(async move {
+        while let Ok(event) = rx.recv().await {
+            // Only forward job_log events for this specific job_id
+            if event.event_type == "job_log" {
+                if let Some(eid) = event.data.get("job_id").and_then(|v| v.as_i64()) {
+                    if eid == job_id {
+                        let msg = match serde_json::to_string(&event) {
+                            Ok(s) => s,
+                            Err(_) => continue,
+                        };
+                        if sender.send(Message::Text(msg.into())).await.is_err() {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    let recv_task = tokio::spawn(async move {
+        while let Some(Ok(msg)) = receiver.next().await {
+            if let Message::Close(_) = msg {
+                break;
+            }
+        }
+    });
+
+    tokio::select! {
+        _ = send_task => {},
+        _ = recv_task => {},
+    }
 }

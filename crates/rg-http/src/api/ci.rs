@@ -265,6 +265,7 @@ pub async fn trigger_pipeline(
         "manual",
         None,
         state.docker_enabled,
+        state.external_runners,
     )
     .await
     {
@@ -312,6 +313,7 @@ pub async fn retry_pipeline(
         "retry",
         pipeline.triggered_by,
         state.docker_enabled,
+        state.external_runners,
     )
     .await
     {

@@ -1,8 +1,10 @@
 //! IronForge CLI — main entry point.
 use std::path::PathBuf;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
+use reqwest::header;
+use serde_json;
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
@@ -44,6 +46,10 @@ enum Commands {
         /// Enable Docker runner for CI jobs with `image` field
         #[arg(long, default_value_t = false)]
         docker: bool,
+
+        /// Use external runners instead of embedded runner for CI jobs
+        #[arg(long, default_value_t = false)]
+        external_runners: bool,
 
         /// Rate limit: max requests per window per IP (0 = disabled)
         #[arg(long, default_value_t = 0)]
@@ -98,6 +104,13 @@ enum Commands {
         log_max_files: usize,
     },
 
+    /// Run database migrations and exit
+    Migrate {
+        /// SQLite database URL (e.g. sqlite://./ironforge.db?mode=rwc)
+        #[arg(long, default_value = "sqlite://./ironforge.db?mode=rwc")]
+        db_url: String,
+    },
+
     /// Create a new bare repository (no DB record — for quick testing)
     CreateRepo {
         /// Owner username
@@ -109,6 +122,25 @@ enum Commands {
         /// Root directory for repositories
         #[arg(long, default_value = "./repos")]
         repo_root: String,
+    },
+
+    /// Run as a CI Runner — polls jobs and executes them
+    Runner {
+        /// IronForge server URL (e.g. http://127.0.0.1:8080)
+        #[arg(long, default_value = "http://127.0.0.1:8080")]
+        server: String,
+
+        /// Runner name (used for registration if not already registered)
+        #[arg(long)]
+        name: Option<String>,
+
+        /// Existing runner ID (skip registration)
+        #[arg(long)]
+        runner_id: Option<i64>,
+
+        /// Existing runner token (skip registration)
+        #[arg(long)]
+        token: Option<String>,
     },
 }
 
@@ -159,6 +191,8 @@ struct AuthConfig {
 struct CiConfig {
     #[serde(default)]
     docker: Option<bool>,
+    #[serde(default)]
+    external_runners: Option<bool>,
 }
 
 #[derive(Debug, serde::Deserialize, Default)]
@@ -210,6 +244,7 @@ async fn main() -> anyhow::Result<()> {
             db_url,
             jwt_secret,
             docker,
+            external_runners,
             rate_limit_max,
             rate_limit_window,
             smtp_host,
@@ -239,6 +274,7 @@ async fn main() -> anyhow::Result<()> {
             let resolved_db_url = db_url;
             let resolved_jwt_secret = jwt_secret;
             let resolved_docker = docker || cfg.as_ref().and_then(|c| c.ci.docker).unwrap_or(false);
+            let resolved_external_runners = external_runners || cfg.as_ref().and_then(|c| c.ci.external_runners).unwrap_or(false);
             let resolved_rate_limit_max = if rate_limit_max > 0 { rate_limit_max } else { cfg.as_ref().and_then(|c| c.rate_limit.max).unwrap_or(0) };
             let resolved_rate_limit_window = if rate_limit_window != 60 { rate_limit_window } else { cfg.as_ref().and_then(|c| c.rate_limit.window_secs).unwrap_or(60) };
 
@@ -350,6 +386,7 @@ async fn main() -> anyhow::Result<()> {
                 db: db.clone(),
                 jwt_secret: resolved_jwt_secret.clone(),
                 docker_enabled: resolved_docker,
+                external_runners: resolved_external_runners,
                 rate_limit_max: resolved_rate_limit_max,
                 rate_limit_window_secs: resolved_rate_limit_window,
                 smtp_config,
@@ -389,6 +426,22 @@ async fn main() -> anyhow::Result<()> {
             }
         }
 
+        Commands::Migrate { db_url } => {
+            tracing_subscriber::fmt()
+                .with_env_filter(
+                    EnvFilter::try_from_default_env()
+                        .unwrap_or_else(|_| EnvFilter::new("info")),
+                )
+                .with_target(false)
+                .init();
+
+            tracing::info!("Connecting to database: {}", db_url);
+            let db = rg_db::connect(&db_url).await?;
+            tracing::info!("Running database migrations...");
+            rg_db::run_migrations(&db).await?;
+            tracing::info!("Migrations complete ✅");
+        }
+
         Commands::CreateRepo {
             owner,
             name,
@@ -413,7 +466,179 @@ async fn main() -> anyhow::Result<()> {
             
             println!("Created repository: {}/{}.git", owner, name);
         }
+
+        Commands::Runner { server, name, runner_id, token } => {
+            use reqwest::header;
+
+            let client = reqwest::Client::new();
+
+            // ── Register or use existing credentials ─────────
+            let (runner_id, token) = match (runner_id, token) {
+                (Some(rid), Some(tok)) => (rid, tok),
+                _ => {
+                    // Register new runner
+                    let name = name.as_deref().unwrap_or("default-runner");
+                    let resp: serde_json::Value = client
+                        .post(&format!("{}/api/v1/runners/register", server))
+                        .json(&serde_json::json!({"name": name}))
+                        .send()
+                        .await
+                        .context("failed to register runner")?
+                        .json()
+                        .await?;
+                    let rid = resp["id"].as_i64()
+                        .ok_or_else(|| anyhow::anyhow!("invalid register response: missing 'id'"))?;
+                    let tok = resp["token"].as_str()
+                        .ok_or_else(|| anyhow::anyhow!("invalid register response: missing 'token'"))?
+                        .to_string();
+                    eprintln!("Runner registered: id={}, token={}", rid, tok);
+                    eprintln!("Save these credentials for future runs!");
+                    (rid, tok)
+                }
+            };
+
+            eprintln!("Runner started: server={}, id={}", server, runner_id);
+
+            // ── Main poll loop ─────────────────────────────
+            let auth_header = format!("Bearer {}", token);
+            loop {
+                // 1. Poll for job
+                let poll_resp = client
+                    .get(&format!("{}/api/v1/runners/{}/jobs/poll?timeout=30", server, runner_id))
+                    .header(header::AUTHORIZATION, &auth_header)
+                    .send()
+                    .await;
+
+                let job: serde_json::Value = match poll_resp {
+                    Ok(r) if r.status() == reqwest::StatusCode::NO_CONTENT => {
+                        continue;
+                    }
+                    Ok(r) => r.json().await?,
+                    Err(e) => {
+                        eprintln!("Poll error: {}, retrying in 5s", e);
+                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                        continue;
+                    }
+                };
+
+                let job_id = job["job_id"].as_i64()
+                    .ok_or_else(|| anyhow::anyhow!("invalid poll response"))?;
+                let script: Vec<&str> = job["script"]
+                    .as_array()
+                    .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
+                    .unwrap_or_default();
+                let image = job["image"].as_str();
+
+                eprintln!("Got job {}: {}", job_id, job["name"].as_str().unwrap_or(""));
+
+                // 2. Start job
+                let _ = client
+                    .post(&format!("{}/api/v1/runners/{}/jobs/{}/start", server, runner_id, job_id))
+                    .header(header::AUTHORIZATION, &auth_header)
+                    .send()
+                    .await;
+
+                // 3. Execute job
+                let script_str = script.join("\n");
+                let (exit_code, log) = if let Some(img) = image {
+                    run_job_docker(img, &script_str).await
+                } else {
+                    run_job_local(&script_str).await
+                };
+
+                // 4. Upload log
+                let _ = client
+                    .post(&format!("{}/api/v1/runners/{}/jobs/{}/log", server, runner_id, job_id))
+                    .header(header::AUTHORIZATION, &auth_header)
+                    .body(log.clone())
+                    .send()
+                    .await;
+
+                // 5. Finish job
+                let status = if exit_code == 0 { "success" } else { "failure" };
+                let _ = client
+                    .post(&format!("{}/api/v1/runners/{}/jobs/{}/finish", server, runner_id, job_id))
+                    .header(header::AUTHORIZATION, &auth_header)
+                    .json(&serde_json::json!({"status": status, "exit_code": exit_code}))
+                    .send()
+                    .await;
+
+                eprintln!("Job {} finished: status={}, exit_code={}", job_id, status, exit_code);
+            }
+        }
     }
 
     Ok(())
+}
+
+/// Execute a job script locally via `sh -c`.
+async fn run_job_local(script: &str) -> (i32, String) {
+    let output = tokio::process::Command::new("sh")
+        .arg("-c")
+        .arg(script)
+        .output()
+        .await;
+
+    match output {
+        Ok(o) => {
+            let code = o.status.code().unwrap_or(-1);
+            let mut log = String::new();
+            if !o.stdout.is_empty() {
+                log.push_str(&String::from_utf8_lossy(&o.stdout));
+            }
+            if !o.stderr.is_empty() {
+                if !log.is_empty() {
+                    log.push('\n');
+                }
+                log.push_str(&String::from_utf8_lossy(&o.stderr));
+            }
+            (code, log)
+        }
+        Err(e) => (-1, format!("Failed to spawn job: {}", e)),
+    }
+}
+
+/// Execute a job script inside a Docker container.
+async fn run_job_docker(image: &str, script: &str) -> (i32, String) {
+    // Check if Docker is available
+    let docker_check = tokio::process::Command::new("docker")
+        .arg("info")
+        .output()
+        .await;
+
+    match docker_check {
+        Ok(check) if !check.status.success() => {
+            return run_job_local(script).await;
+        }
+        Err(_) => {
+            return run_job_local(script).await;
+        }
+        _ => {}
+    }
+
+    let output = tokio::process::Command::new("docker")
+        .args(["run", "--rm", image, "sh", "-c", script])
+        .output()
+        .await;
+
+    match output {
+        Ok(o) => {
+            let code = o.status.code().unwrap_or(-1);
+            let mut log = String::new();
+            if !o.stdout.is_empty() {
+                log.push_str(&String::from_utf8_lossy(&o.stdout));
+            }
+            if !o.stderr.is_empty() {
+                if !log.is_empty() {
+                    log.push('\n');
+                }
+                log.push_str(&String::from_utf8_lossy(&o.stderr));
+            }
+            if code != 0 && log.is_empty() {
+                log = format!("Docker exited with code {}", code);
+            }
+            (code, log)
+        }
+        Err(e) => (-1, format!("Failed to run docker: {}", e)),
+    }
 }

@@ -22,3 +22,5 @@ pub mod release_ops;
 pub mod label_ops;
 pub mod issue_label_ops;
 pub mod commit_status_ops;
+pub mod runner_ops;
+pub mod artifact_ops;

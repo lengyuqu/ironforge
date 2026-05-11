@@ -112,7 +112,7 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        // ── Add org_id column to repositories ──────────────────────
+        // ── Add org_id column to repositories ────────────────────────
         manager
             .alter_table(
                 Table::alter()
@@ -135,8 +135,8 @@ impl MigrationTrait for Migration {
         manager
             .alter_table(
                 Table::alter()
-                    .table(Repositories::Table)
-                    .drop_column(Repositories::OrgId)
+                    .table(RepoAlter::Table)
+                    .drop_column(RepoAlter::OrgId)
                     .to_owned(),
             )
             .await?;
@@ -208,9 +208,9 @@ enum Notification {
     CreatedAt,
 }
 
-// ── Repositories (for ALTER TABLE) ─────────────────────────
+// ── RepoAlter ─────────────────────────────────────────────
 #[derive(Iden)]
-enum Repositories {
+enum RepoAlter {
     Table,
     OrgId,
 }

@@ -4008,6 +4008,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
+ "gix",
  "rg-db",
  "sea-orm",
  "serde",
@@ -4024,6 +4025,7 @@ dependencies = [
  "anyhow",
  "clap",
  "gix",
+ "reqwest",
  "rg-core",
  "rg-db",
  "rg-git",
@@ -4031,6 +4033,7 @@ dependencies = [
  "rg-ssh",
  "rustls-pemfile",
  "serde",
+ "serde_json",
  "tokio",
  "tokio-rustls",
  "toml",
@@ -4072,6 +4075,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
+ "rand 0.8.6",
  "sea-orm",
  "sea-orm-migration",
  "serde",
@@ -4119,6 +4123,21 @@ dependencies = [
  "tracing",
  "utoipa",
  "utoipa-swagger-ui",
+]
+
+[[package]]
+name = "rg-runner"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+ "toml",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

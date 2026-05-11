@@ -16,3 +16,5 @@ pub mod admin;
 pub mod releases;
 pub mod labels;
 pub mod search;
+pub mod runners;
+pub mod artifacts;

@@ -17,8 +17,6 @@ pub mod m20260508_000005_create_fts5_indexes;
 pub mod m20260510_000001_create_runners;
 pub mod m20260510_000002_alter_pipeline_jobs_add_runner_fields;
 pub mod m20260510_000003_add_pipeline_jobs_updated_at;
-pub mod m20260510_000004_create_artifacts;
-pub mod m20260511_000001_add_pr_head_repo_id;
 
 use sea_orm_migration::prelude::*;
 
@@ -44,10 +42,6 @@ impl MigratorTrait for Migrator {
             Box::new(m20260508_000003_create_labels::Migration),
             Box::new(m20260508_000004_create_commit_statuses::Migration),
             Box::new(m20260508_000005_create_fts5_indexes::Migration),
-            Box::new(m20260510_000001_create_runners::Migration),
-            Box::new(m20260510_000002_alter_pipeline_jobs_add_runner_fields::Migration),
-            Box::new(m20260510_000003_add_pipeline_jobs_updated_at::Migration),
-            Box::new(m20260510_000004_create_artifacts::Migration),
         ]
     }
 }

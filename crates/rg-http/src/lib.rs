@@ -40,6 +40,7 @@ pub struct AppState {
     pub db: DatabaseConnection,
     pub jwt_secret: Arc<String>,
     pub docker_enabled: bool,
+    pub external_runners: bool,
     pub rate_limiter: rate_limit::RateLimiter,
     pub notification_hub: ws::NotificationHub,
     pub smtp_config: Option<rg_core::email::SmtpConfig>,
@@ -57,6 +58,8 @@ pub struct HttpServerConfig {
     pub jwt_secret: String,
     /// Whether Docker runner is enabled for CI jobs.
     pub docker_enabled: bool,
+    /// Whether to use external runners instead of embedded runner for CI.
+    pub external_runners: bool,
     /// Rate limit: max requests per window (0 = disabled).
     pub rate_limit_max: u32,
     /// Rate limit: window duration in seconds.
@@ -81,6 +84,7 @@ pub async fn run(config: HttpServerConfig) -> Result<()> {
         db: config.db,
         jwt_secret: Arc::new(config.jwt_secret),
         docker_enabled: config.docker_enabled,
+        external_runners: config.external_runners,
         rate_limiter: rate_limiter.clone(),
         notification_hub: notification_hub.clone(),
         smtp_config: config.smtp_config,
@@ -260,12 +264,70 @@ fn create_router(state: AppState, rate_limiter: rate_limit::RateLimiter) -> Rout
         // Releases
         .route("/repos/:owner/:name/releases", get(api::releases::list_releases).post(api::releases::create_release))
         .route("/repos/:owner/:name/releases/:id", get(api::releases::get_release).patch(api::releases::update_release).delete(api::releases::delete_release))
+        // Release Assets
+        .route("/repos/:owner/:name/releases/:release_id/assets", get(api::releases::list_assets).post(api::releases::upload_asset))
+        .route("/repos/:owner/:name/releases/assets/:asset_id", get(api::releases::get_asset).delete(api::releases::delete_asset))
+        .route("/repos/:owner/:name/releases/assets/:asset_id/download", get(api::releases::download_asset))
         // Fork
         .route("/repos/:owner/:name/fork", post(api::repos::fork_repo_handler))
         .route("/repos/:owner/:name/forks", get(api::repos::list_forks_handler))
         // Transfer
         .route("/repos/:owner/:name/transfer", post(api::repos::transfer_repo_handler))
+        // CI/CD Runners
+        .route("/runners/register", post(api::runners::register))
+        .route(
+            "/runners/:id/heartbeat",
+            post(api::runners::heartbeat)
+                .route_layer(axum::middleware::from_fn_with_state(
+                    state.clone(),
+                    api::runners::authenticate_runner,
+                )),
+        )
+        .route(
+            "/runners/:id/jobs/poll",
+            get(api::runners::poll_job).route_layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                api::runners::authenticate_runner,
+            )),
+        )
+        .route(
+            "/runners/:id/jobs/:job_id/start",
+            post(api::runners::start_job)
+                .route_layer(axum::middleware::from_fn_with_state(
+                    state.clone(),
+                    api::runners::authenticate_runner,
+                )),
+        )
+        .route(
+            "/runners/:id/jobs/:job_id/log",
+            post(api::runners::upload_log)
+                .route_layer(axum::middleware::from_fn_with_state(
+                    state.clone(),
+                    api::runners::authenticate_runner,
+                )),
+        )
+        .route(
+            "/runners/:id/jobs/:job_id/finish",
+            post(api::runners::finish_job)
+                .route_layer(axum::middleware::from_fn_with_state(
+                    state.clone(),
+                    api::runners::authenticate_runner,
+                )),
+        )
+        // Artifacts
+        .route(
+            "/runners/:id/jobs/:job_id/artifacts",
+            post(api::artifacts::upload_artifact).route_layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                api::runners::authenticate_runner,
+            )),
+        )
+        .route("/repos/:owner/:name/pipelines/:id/artifacts", get(api::artifacts::list_pipeline_artifacts))
+        .route("/artifacts/:id", get(api::artifacts::get_artifact))
+        .route("/artifacts/:id", delete(api::artifacts::delete_artifact))
         // Admin
+        .route("/admin/runners", get(api::runners::list_runners_admin))
+        .route("/admin/runners/:id", delete(api::runners::delete_runner_admin))
         .route("/admin/users", get(api::admin::list_users))
         .route("/admin/users/:id", get(api::admin::get_user))
         .route("/admin/users/:id", patch(api::admin::update_user))
@@ -276,7 +338,8 @@ fn create_router(state: AppState, rate_limiter: rate_limit::RateLimiter) -> Rout
         // Global Search
         .route("/search", get(api::search::search))
         // WebSocket
-        .route("/ws/notifications", get(ws::ws_notifications_handler));
+        .route("/ws/notifications", get(ws::ws_notifications_handler))
+        .route("/ws/job/:job_id", get(ws::ws_job_log_handler));
 
     Router::new()
         .nest("/git", git_routes)
@@ -730,6 +793,7 @@ async fn handle_git_receive_pack(
             let owner_clone = owner.clone();
             let repo_clone = repo.clone();
             let docker_enabled = state.docker_enabled;
+            let external_runners = state.external_runners;
             let hub = state.notification_hub.clone();
             let smtp = state.smtp_config.clone();
 
@@ -741,6 +805,7 @@ async fn handle_git_receive_pack(
                         owner: &owner_clone,
                         repo_name: &repo_clone,
                         docker_enabled,
+                        external_runners,
                         notification_hub: &hub,
                         smtp_config: &smtp,
                     },
@@ -769,6 +834,7 @@ struct PostPushParams<'a> {
     owner: &'a str,
     repo_name: &'a str,
     docker_enabled: bool,
+    external_runners: bool,
     notification_hub: &'a ws::NotificationHub,
     smtp_config: &'a Option<rg_core::email::SmtpConfig>,
 }
@@ -784,6 +850,7 @@ async fn post_push_hooks(
         owner,
         repo_name,
         docker_enabled,
+        external_runners,
         notification_hub,
         smtp_config,
     } = params;
@@ -837,6 +904,7 @@ async fn post_push_hooks(
                 "push",
                 None,
                 *docker_enabled,
+                *external_runners,
             )
             .await
             {

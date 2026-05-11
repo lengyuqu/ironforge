@@ -32,7 +32,7 @@
 pub mod config;
 pub mod runner;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use sea_orm::DatabaseConnection;
 
 use config::CiConfig;
@@ -54,6 +54,7 @@ pub async fn trigger_pipeline(
     trigger_type: &str,
     triggered_by: Option<i64>,
     docker_enabled: bool,
+    external_runners: bool,
 ) -> Result<i64> {
     // 1. Read CI config from repo
     let ci_yml = read_ci_config(repo_path, commit_sha)?;
@@ -126,49 +127,60 @@ pub async fn trigger_pipeline(
         .await?;
     }
 
-    // 6. Spawn pipeline runner in background
-    let db_clone = db.clone();
-    let pipeline_id_owned = pipeline_id;
-    let repo_path_owned = repo_path.to_path_buf();
+    // 6. Spawn pipeline runner in background (only if not using external runners)
+    if !external_runners {
+        let db_clone = db.clone();
+        let pipeline_id_owned = pipeline_id;
+        let repo_path_owned = repo_path.to_path_buf();
 
-    tokio::spawn(async move {
-        let runner = if docker_enabled {
-            PipelineRunner::new(db_clone, &repo_path_owned, pipeline_id_owned)
-        } else {
-            PipelineRunner::new_local_only(db_clone, &repo_path_owned, pipeline_id_owned)
-        };
-        if let Err(e) = runner.run().await {
-            tracing::error!(pipeline_id = pipeline_id_owned, "Pipeline runner error: {:#}", e);
-        }
-    });
+        tokio::spawn(async move {
+            let runner = if docker_enabled {
+                PipelineRunner::new(db_clone, &repo_path_owned, pipeline_id_owned)
+            } else {
+                PipelineRunner::new_local_only(db_clone, &repo_path_owned, pipeline_id_owned)
+            };
+            if let Err(e) = runner.run().await {
+                tracing::error!(pipeline_id = pipeline_id_owned, "Pipeline runner error: {:#}", e);
+            }
+        });
+    } else {
+        tracing::info!(
+            pipeline_id = pipeline_id,
+            "Pipeline created with external runner mode — jobs will be picked up by registered runners"
+        );
+    }
 
     Ok(pipeline_id)
 }
 
-/// Read `.ironforge-ci.yml` from the repo at the given commit.
+/// Read `.ironforge-ci.yml` from the repo at the given commit using gix.
 fn read_ci_config(repo_path: &std::path::Path, commit_sha: &str) -> Result<String> {
-    let output = std::process::Command::new("git")
-        .arg("-C")
-        .arg(repo_path)
-        .args(["show", &format!("{}:.ironforge-ci.yml", commit_sha)])
-        .output()
-        .context("failed to run git show for .ironforge-ci.yml")?;
+    let repo = gix::open(repo_path)
+        .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
 
-    if !output.status.success() {
-        // No CI config file — this is fine, just no pipeline
-        bail!("no .ironforge-ci.yml found at commit {}", commit_sha);
-    }
+    let revspec = format!("{}:.ironforge-ci.yml", commit_sha);
+    let object_id = repo
+        .rev_parse_single(revspec.as_str())
+        .map_err(|_| anyhow::anyhow!("no .ironforge-ci.yml found at commit {}", commit_sha))?;
 
-    String::from_utf8(output.stdout).context(".ironforge-ci.yml is not valid UTF-8")
+    let object_id = object_id
+        .object()
+        .context("failed to resolve object")?;
+    let blob = object_id
+        .try_into_blob()
+        .context("expected a blob object for .ironforge-ci.yml")?;
+
+    String::from_utf8(blob.data.to_vec())
+        .context(".ironforge-ci.yml is not valid UTF-8")
 }
 
-/// Check if a repo has a CI config file at the given commit.
+/// Check if a repo has a CI config file at the given commit using gix.
 pub fn has_ci_config(repo_path: &std::path::Path, commit_sha: &str) -> bool {
-    std::process::Command::new("git")
-        .arg("-C")
-        .arg(repo_path)
-        .args(["cat-file", "-e", &format!("{}:.ironforge-ci.yml", commit_sha)])
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+    let repo = match gix::open(repo_path) {
+        Ok(r) => r,
+        Err(_) => return false,
+    };
+
+    let revspec = format!("{}:.ironforge-ci.yml", commit_sha);
+    repo.rev_parse_single(revspec.as_str()).is_ok()
 }

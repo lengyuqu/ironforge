@@ -228,7 +228,9 @@ pub async fn update_job_result(
     let mut active: pipeline_job::ActiveModel = model.into();
     active.status = Set(status.to_string());
     active.exit_code = Set(exit_code);
-    active.log = Set(log.map(|s| s.to_string()));
+    if log.is_some() {
+        active.log = Set(log.map(|s| s.to_string()));
+    }
     if started_at.is_some() {
         active.started_at = Set(started_at);
     }
@@ -237,6 +239,17 @@ pub async fn update_job_result(
     }
     active.update(db).await.context("db: update job result")?;
     Ok(())
+}
+
+/// Get a stage by ID.
+pub async fn get_stage_by_id(
+    db: &DatabaseConnection,
+    id: i64,
+) -> Result<Option<pipeline_stage::Model>> {
+    pipeline_stage::Entity::find_by_id(id)
+        .one(db)
+        .await
+        .context("db: get stage by id")
 }
 
 /// List all jobs for a pipeline (across all stages).
@@ -278,4 +291,98 @@ pub async fn find_latest_by_repo_and_commit(
         .one(db)
         .await
         .context("db: find latest pipeline by repo and commit")
+}
+
+// ── Status cascade helpers ──────────────────────────
+// After a job finishes, check if its stage is done; if so, update stage status.
+// After a stage finishes, check if all stages in the pipeline are done; if so, update pipeline status.
+
+/// Check if all jobs in a stage are finished.
+/// Returns (all_done, any_failure).
+pub async fn check_stage_jobs(
+    db: &DatabaseConnection,
+    stage_id: i64,
+) -> Result<(bool, bool)> {
+    let jobs = list_jobs_by_stage(db, stage_id).await?;
+    if jobs.is_empty() {
+        return Ok((true, false));
+    }
+    let all_done = jobs.iter().all(|j| j.status == "success" || j.status == "failure" || j.status == "error");
+    let any_failure = jobs.iter().any(|j| j.status == "failure" || j.status == "error");
+    Ok((all_done, any_failure))
+}
+
+/// After a job finishes, update stage status if all jobs in the stage are done.
+/// Returns the new stage status if updated, or None if not all done.
+pub async fn try_update_stage(
+    db: &DatabaseConnection,
+    stage_id: i64,
+) -> Result<Option<String>> {
+    let (all_done, any_failure) = check_stage_jobs(db, stage_id).await?;
+    if !all_done {
+        return Ok(None);
+    }
+    let new_status = if any_failure { "failure" } else { "success" };
+    let now = Some(chrono::Utc::now().naive_utc());
+    update_stage_status(db, stage_id, new_status, None, now).await?;
+    Ok(Some(new_status.to_string()))
+}
+
+/// Check if all stages in a pipeline are done.
+/// Returns (all_done, any_failure).
+pub async fn check_pipeline_stages(
+    db: &DatabaseConnection,
+    pipeline_id: i64,
+) -> Result<(bool, bool)> {
+    let stages = list_stages_by_pipeline(db, pipeline_id).await?;
+    if stages.is_empty() {
+        return Ok((true, false));
+    }
+    let all_done = stages.iter().all(|s| s.status == "success" || s.status == "failure");
+    let any_failure = stages.iter().any(|s| s.status == "failure");
+    Ok((all_done, any_failure))
+}
+
+/// After a stage finishes, update pipeline status if all stages are done.
+pub async fn try_update_pipeline(
+    db: &DatabaseConnection,
+    pipeline_id: i64,
+) -> Result<Option<String>> {
+    let (all_done, any_failure) = check_pipeline_stages(db, pipeline_id).await?;
+    if !all_done {
+        return Ok(None);
+    }
+    let new_status = if any_failure { "failure" } else { "success" };
+    let now = Some(chrono::Utc::now().naive_utc());
+    update_pipeline_status(db, pipeline_id, new_status, None, now).await?;
+    Ok(Some(new_status.to_string()))
+}
+
+/// Find a pending job (status = "pending" and runner_id is NULL).
+/// Returns the oldest pending job (by id).
+pub async fn find_pending_job(db: &DatabaseConnection) -> Result<Option<pipeline_job::Model>> {
+    pipeline_job::Entity::find()
+        .filter(pipeline_job::Column::Status.eq("pending"))
+        .filter(pipeline_job::Column::RunnerId.is_null())
+        .order_by_asc(pipeline_job::Column::Id)
+        .one(db)
+        .await
+        .context("db: find pending job")
+}
+
+/// Assign a job to a runner.
+pub async fn assign_job(db: &DatabaseConnection, job_id: i64, runner_id: i64) -> Result<()> {
+    let now = chrono::Utc::now().naive_utc();
+    let model = pipeline_job::Entity::find_by_id(job_id)
+        .one(db)
+        .await
+        .context("db: find job for assign")?
+        .ok_or_else(|| anyhow::anyhow!("job {} not found", job_id))?;
+
+    let mut active: pipeline_job::ActiveModel = model.into();
+    active.status = Set("assigned".to_string());
+    active.runner_id = Set(Some(runner_id));
+    active.updated_at = Set(Some(now));
+    active.update(db).await.context("db: assign job")?;
+    Ok(())
 }

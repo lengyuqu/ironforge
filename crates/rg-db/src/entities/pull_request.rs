@@ -30,6 +30,8 @@ pub struct Model {
     pub merge_strategy: Option<String>,
     /// SHA of the merge commit (null = not yet merged)
     pub merge_commit_sha: Option<String>,
+    /// For fork PRs: the repository where head_branch lives (null = same as repo_id)
+    pub head_repo_id: Option<i64>,
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,
     pub closed_at: Option<DateTimeUtc>,

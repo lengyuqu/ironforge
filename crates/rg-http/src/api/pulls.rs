@@ -16,8 +16,9 @@ pub struct CreatePrRequest {
     pub title: String,
     #[serde(default)]
     pub body: Option<String>,
-    pub head_branch: String,
-    pub base_branch: String,
+    /// Head branch reference. Supports "owner:branch" for fork PRs, or just "branch" for same-repo.
+    pub head: String,
+    pub base: String,
 }
 
 #[derive(Deserialize)]
@@ -117,18 +118,28 @@ pub async fn create_pr(
         }
     };
 
-    match rg_core::pull_request::create_pr(
-        &state.db,
-        repo_id,
-        user_id,
-        req.title,
-        req.body,
-        req.head_branch,
-        req.base_branch,
-    )
-    .await
-    {
-        Ok(pr) => (StatusCode::CREATED, Json(pr)).into_response(),
+    match rg_core::pull_request::resolve_head_ref(&state.db, repo_id, &req.head).await {
+        Ok((head_branch, head_repo_id)) => {
+            match rg_core::pull_request::create_pr(
+                &state.db,
+                repo_id,
+                user_id,
+                req.title,
+                req.body,
+                head_branch,
+                req.base,
+                head_repo_id,
+            )
+            .await
+            {
+                Ok(pr) => (StatusCode::CREATED, Json(pr)).into_response(),
+                Err(e) => (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({"error": format!("{:#}", e)})),
+                )
+                    .into_response(),
+            }
+        }
         Err(e) => (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({"error": format!("{:#}", e)})),

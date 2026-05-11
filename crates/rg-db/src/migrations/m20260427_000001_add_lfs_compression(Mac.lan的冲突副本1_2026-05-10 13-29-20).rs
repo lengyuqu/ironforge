@@ -6,23 +6,18 @@
 
 use sea_orm_migration::prelude::*;
 
+#[derive(DeriveMigrationName)]
 pub struct Migration;
-
-impl MigrationName for Migration {
-    fn name(&self) -> &str {
-        "m20260427_000001_add_lfs_compression"
-    }
-}
 
 #[async_trait::async_trait]
 impl MigrationTrait for Migration {
     async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
-        // Add compression column (separate ALTER TABLE for SQLite)
+        // Add compression column
         manager
             .alter_table(
                 Table::alter()
                     .table(LfsObjects::Table)
-                    .add_column(
+                    .add_column_if_not_exists(
                         ColumnDef::new(Alias::new("compression"))
                             .string()
                             .null(),
@@ -36,7 +31,7 @@ impl MigrationTrait for Migration {
             .alter_table(
                 Table::alter()
                     .table(LfsObjects::Table)
-                    .add_column(
+                    .add_column_if_not_exists(
                         ColumnDef::new(Alias::new("compressed_size"))
                             .big_integer()
                             .null(),
@@ -50,7 +45,7 @@ impl MigrationTrait for Migration {
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
-        // Drop compressed_size column first (separate ALTER TABLE for SQLite)
+        // Drop compressed_size column first
         manager
             .alter_table(
                 Table::alter()

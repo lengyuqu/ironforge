@@ -1,8 +1,9 @@
 //! Release service — business logic for releases.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use chrono::Utc;
 use sea_orm::{ActiveValue::Set, DatabaseConnection};
+use std::path::{Path, PathBuf};
 
 use rg_db::{
     entities::release::{ActiveModel as ReleaseActiveModel, Model as Release},
@@ -141,18 +142,23 @@ pub async fn delete_release(db: &DatabaseConnection, id: i64) -> Result<()> {
     Ok(())
 }
 
-/// Upload a release asset.
+/// Upload a release asset (saves file to disk + creates DB record).
 pub async fn upload_asset(
     db: &DatabaseConnection,
     release_id: i64,
+    repo_root: &Path,
+    owner: &str,
+    repo_name: &str,
     filename: &str,
     size: i64,
     content_type: &str,
     uploader_id: i64,
+    data: &[u8],
 ) -> Result<Asset> {
-    // Verify release exists
-    let _ = get_release(db, release_id).await?;
+    // Verify release exists and get repo info
+    let _release = get_release(db, release_id).await?;
 
+    // Create DB record first to get asset ID
     let model = AssetActiveModel {
         release_id: Set(release_id),
         filename: Set(filename.to_string()),
@@ -163,12 +169,30 @@ pub async fn upload_asset(
         created_at: Set(Utc::now()),
         ..Default::default()
     };
+    let asset = rg_db::ops::release_ops::create_asset(db, model).await?;
 
-    rg_db::ops::release_ops::create_asset(db, model).await
+    // Save file to disk: <repo_root>/<owner>/<name>.releases/assets/<id>/<filename>
+    let asset_dir = asset_storage_dir(repo_root, owner, repo_name)
+        .join(asset.id.to_string());
+    tokio::fs::create_dir_all(&asset_dir)
+        .await
+        .context("failed to create asset directory")?;
+    let file_path = asset_dir.join(filename);
+    tokio::fs::write(&file_path, data)
+        .await
+        .context("failed to write asset file")?;
+
+    Ok(asset)
 }
 
-/// Download a release asset (increments download count).
-pub async fn download_asset(db: &DatabaseConnection, asset_id: i64) -> Result<Asset> {
+/// Download a release asset (increments download count, returns file bytes).
+pub async fn download_asset(
+    db: &DatabaseConnection,
+    asset_id: i64,
+    repo_root: &Path,
+    owner: &str,
+    repo_name: &str,
+) -> Result<(Asset, Vec<u8>)> {
     let asset = rg_db::ops::release_ops::find_asset_by_id(db, asset_id)
         .await?
         .ok_or_else(|| anyhow::anyhow!("asset not found"))?;
@@ -176,7 +200,20 @@ pub async fn download_asset(db: &DatabaseConnection, asset_id: i64) -> Result<As
     // Increment download count
     rg_db::ops::release_ops::increment_download_count(db, asset_id).await?;
 
-    Ok(asset)
+    // Read file from disk
+    let file_path = asset_file_path(repo_root, owner, repo_name, &asset);
+    let data = tokio::fs::read(&file_path)
+        .await
+        .context("failed to read asset file")?;
+
+    Ok((asset, data))
+}
+
+/// Get a release asset by ID (without incrementing download count).
+pub async fn get_asset(db: &DatabaseConnection, asset_id: i64) -> Result<Asset> {
+    rg_db::ops::release_ops::find_asset_by_id(db, asset_id)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("asset not found"))
 }
 
 /// List assets for a release.
@@ -185,4 +222,39 @@ pub async fn list_assets(
     release_id: i64,
 ) -> Result<Vec<Asset>> {
     rg_db::ops::release_ops::list_assets(db, release_id).await
+}
+
+/// Delete a release asset (removes DB record + file from disk).
+pub async fn delete_asset(
+    db: &DatabaseConnection,
+    asset_id: i64,
+    repo_root: &Path,
+    owner: &str,
+    repo_name: &str,
+) -> Result<()> {
+    let asset = get_asset(db, asset_id).await?;
+
+    // Remove file from disk (ignore errors if file doesn't exist)
+    let file_path = asset_file_path(repo_root, owner, repo_name, &asset);
+    let _ = tokio::fs::remove_file(&file_path).await;
+
+    // Remove parent directory if empty
+    let _ = tokio::fs::remove_dir(file_path.parent().unwrap()).await;
+
+    // Delete DB record
+    rg_db::ops::release_ops::delete_asset_by_id(db, asset_id).await?;
+
+    Ok(())
+}
+
+/// Get the storage directory for release assets.
+fn asset_storage_dir(repo_root: &Path, owner: &str, repo_name: &str) -> PathBuf {
+    repo_root.join(format!("{}/{}.releases/assets", owner, repo_name))
+}
+
+/// Get the file path for a specific asset.
+fn asset_file_path(repo_root: &Path, owner: &str, repo_name: &str, asset: &Asset) -> PathBuf {
+    asset_storage_dir(repo_root, owner, repo_name)
+        .join(asset.id.to_string())
+        .join(&asset.filename)
 }

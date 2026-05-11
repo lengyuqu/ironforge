@@ -73,6 +73,8 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(RepoWatches::WatchState).string().not_null().default("not_watching".to_owned()))
                     .col(ColumnDef::new(RepoWatches::CreatedAt).timestamp_with_time_zone().not_null())
                     .col(ColumnDef::new(RepoWatches::UpdatedAt).timestamp_with_time_zone().not_null())
+                    .index(Index::create().unique().col(RepoWatches::UserId).col(RepoWatches::RepoId).name("idx_repo_watches_user_repo_unique"))
+                    .index(Index::create().col(RepoWatches::RepoId).name("idx_repo_watches_repo_id"))
                     .foreign_key(
                         ForeignKey::create()
                             .from(RepoWatches::Table, RepoWatches::UserId)
@@ -85,30 +87,6 @@ impl MigrationTrait for Migration {
                             .to(Repositories::Table, Repositories::Id)
                             .on_delete(ForeignKeyAction::Cascade),
                     )
-                    .to_owned(),
-            )
-            .await?;
-
-        // Create unique index for repo_watches (user_id, repo_id)
-        manager
-            .create_index(
-                Index::create()
-                    .unique()
-                    .name("idx_repo_watches_user_repo_unique")
-                    .table(RepoWatches::Table)
-                    .col(RepoWatches::UserId)
-                    .col(RepoWatches::RepoId)
-                    .to_owned(),
-            )
-            .await?;
-
-        // Create index for repo_watches (repo_id)
-        manager
-            .create_index(
-                Index::create()
-                    .name("idx_repo_watches_repo_id")
-                    .table(RepoWatches::Table)
-                    .col(RepoWatches::RepoId)
                     .to_owned(),
             )
             .await

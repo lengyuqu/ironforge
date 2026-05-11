@@ -16,7 +16,13 @@ impl MigrationTrait for Migration {
                 Table::create()
                     .table(CommitStatuses::Table)
                     .if_not_exists()
-                    .col(ColumnDef::new(CommitStatuses::Id).big_integer().not_null().auto_increment().primary_key())
+                    .col(
+                        ColumnDef::new(CommitStatuses::Id)
+                            .big_integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
                     .col(ColumnDef::new(CommitStatuses::RepoId).big_integer().not_null())
                     .col(ColumnDef::new(CommitStatuses::Sha).string_len(40).not_null())
                     .col(ColumnDef::new(CommitStatuses::State).string_len(20).not_null())
@@ -24,10 +30,25 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(CommitStatuses::Description).string_len(500).null())
                     .col(ColumnDef::new(CommitStatuses::TargetUrl).string_len(500).null())
                     .col(ColumnDef::new(CommitStatuses::CreatorId).big_integer().not_null())
-                    .col(ColumnDef::new(CommitStatuses::CreatedAt).timestamp_with_time_zone().not_null())
-                    .col(ColumnDef::new(CommitStatuses::UpdatedAt).timestamp_with_time_zone().not_null())
-                    .index(Index::create().unique().col(CommitStatuses::RepoId).col(CommitStatuses::Sha).col(CommitStatuses::Context).name("idx_commit_statuses_repo_sha_context_unique"))
-                    .index(Index::create().col(CommitStatuses::RepoId).col(CommitStatuses::Sha).name("idx_commit_statuses_repo_sha"))
+                    .col(
+                        ColumnDef::new(CommitStatuses::CreatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(CommitStatuses::UpdatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null(),
+                    )
+                    // Unique constraint: keep inline (valid SQLite syntax)
+                    .index(
+                        Index::create()
+                            .unique()
+                            .col(CommitStatuses::RepoId)
+                            .col(CommitStatuses::Sha)
+                            .col(CommitStatuses::Context)
+                            .name("idx_commit_statuses_repo_sha_context_unique"),
+                    )
                     .foreign_key(
                         ForeignKey::create()
                             .from(CommitStatuses::Table, CommitStatuses::RepoId)
@@ -40,6 +61,18 @@ impl MigrationTrait for Migration {
                             .to(Users::Table, Users::Id)
                             .on_delete(ForeignKeyAction::Cascade),
                     )
+                    .to_owned(),
+            )
+            .await?;
+
+        // Non-unique index: create separately for SQLite compatibility
+        manager
+            .create_index(
+                Index::create()
+                    .table(CommitStatuses::Table)
+                    .col(CommitStatuses::RepoId)
+                    .col(CommitStatuses::Sha)
+                    .name("idx_commit_statuses_repo_sha")
                     .to_owned(),
             )
             .await
