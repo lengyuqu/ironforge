@@ -20,6 +20,7 @@ pub mod m20260510_000003_add_pipeline_jobs_updated_at;
 pub mod m20260510_000004_create_artifacts;
 pub mod m20260511_000001_add_pr_head_repo_id;
 pub mod m20260511_000002_add_missing_indexes;
+pub mod m20260511_000003_fix_fts5_triggers;
 
 use sea_orm_migration::prelude::*;
 
@@ -51,6 +52,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260510_000004_create_artifacts::Migration),
             Box::new(m20260511_000001_add_pr_head_repo_id::Migration),
             Box::new(m20260511_000002_add_missing_indexes::Migration),
+            Box::new(m20260511_000003_fix_fts5_triggers::Migration),
         ]
     }
 }

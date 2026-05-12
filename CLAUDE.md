@@ -12,7 +12,7 @@
 
 - **二进制名**: `ironforge`（crate `rg-cli` 的 bin target）
 - **目标**: 内存 <50MB、单二进制部署、全功能（仓库/Issue/PR/Wiki/CI）
-- **当前阶段**: **P0/P1 全部完成**（Phase 1~12 + Protocol V2 + 前端 i18n + P0 Gap Analysis 10 项功能 + P1 3 项增强）
+- **当前阶段**: **Phase 1~20 全部完成**（核心功能 + Protocol V2 + 前端 i18n + P0 Gap + P1 增强 + CI/CD Runner + gix 迁移 + P2 功能 + 工程化）
 
 ---
 
@@ -86,9 +86,9 @@ git clone http://localhost:8080/git/testuser/testrepo /tmp/if_http
 
 ---
 
-## 实现现状（2026-05-09）
+## 实现现状（2026-05-11）
 
-### ✅ 已完成（Phase 1 ~ Phase 12 + P0 Gap Analysis + P1 增强）
+### ✅ 已完成（Phase 1 ~ Phase 20 + P0/P1/P2 Gap Analysis + 工程化）
 
 | 模块 | 文件 | 说明 |
 |------|------|------|
@@ -150,39 +150,63 @@ git clone http://localhost:8080/git/testuser/testrepo /tmp/if_http
 | **P1: Labels-Issue 关联** | `rg-db/src/ops/issue_label_ops.rs` + `rg-http/src/api/issues.rs` | ?labels= 过滤 + GET issue labels |
 | **P1: Webhooks 扩展** | `rg-core/src/webhook/service.rs` | 13 个事件（release/branch/tag/issue/PR/milestone）|
 | **P1: Watch 通知** | `rg-core/src/notification/mod.rs` | push/PR/milestone 通知（排除 actor）|
-| CLI | `rg-cli/src/main.rs` | clap 4，`serve`（含 --db-url, --jwt-secret, --docker, --rate-limit-*, --smtp-*, --tls-*, --config, --log-*）/ `create-repo` |
+| CLI | `rg-cli/src/main.rs` | clap 4，`serve`（含 --db-url, --jwt-secret, --docker, --rate-limit-*, --smtp-*, --tls-*, --config, --log-*, --external-runners）/ `create-repo` |
 
-### ✅ Phase 10 已完成（TLS + 配置文件 + 日志轮转 + API 分页 + GPG 签名 + Protocol V2）
+### ✅ Phase 13 已完成（DB 分页 + V2 + Admin，2026-04-27~28）
 
-### ✅ Phase 11 已完成（前端国际化，2026-04-27）
+- PaginatedResponse 统一分页（5 个 list API）
+- Git Protocol V2 HTTP 集成完善
+- Admin API 增强用户管理
 
-- Svelte 5 locale store + localStorage 持久化
-- 自动检测浏览器语言（zh → 中文，en → 英文）
-- 199 个翻译 key（中/英双语）
-- 后端统一英文，无 i18n 需求
+### ✅ Phase 14-15 已完成（P0 Gap 补齐，2026-05-08~09）
 
-### ✅ Phase 12 已完成（代码覆盖率集成，2026-04-27）
+- Star/Watch、仓库删除/转移、Releases/Tags
+- Labels CRUD + Issue 关联、Milestones、PAT
+- Fork 仓库、Commit Status、FTS5 搜索
+- Webhooks 13 事件、Watch 通知
 
-- cargo-llvm-cov 覆盖率工具（v0.8.5）
-- HTML/LCOV/JSON 多格式输出
-- 配置文件 cargo-llvm-cov.toml
-- macOS Xcode Command Line Tools 兼容
+### ✅ Phase 16 已完成（P1 增强，2026-05-09）
 
-所有 10 个 Phase 全部完成 + V2 + 前端 i18n + P0/P1。待完成项：
+- Webhooks 扩展（13 个事件）
+- Watch 通知集成
+- Labels-Issue 关联 API
 
-### P2 — Nice to Have
-| # | 功能 | 描述 |
-|---|------|------|
-| R-14 | Fork 合并请求 | Fork 向上游发起 PR（需处理跨仓库 diff）|
-| R-15 | Release 下载统计 | 统计各 Release Asset 下载量 |
-| R-16 | Search API 细分 | GitHub 风格 `/search/code` 和 `/search/issues` 端点 |
+### ✅ Phase 17 已完成（CI/CD Runner 收尾，2026-05-10）
 
-### 其他待优化
-- 性能优化（连接池、缓存）
-- SSH 模式的 Protocol V2 完整实现
-- API 文档（OpenAPI/Swagger 自动生成）
-- 前端 P0/P1 功能 UI 对接（Star/Watch 按钮、Releases 页面、Labels 管理页、Fork 按钮、搜索页面、Commit Status 展示）
-- 端到端集成测试覆盖
+- Runner Token Bearer 认证中间件（`authenticate_runner`）
+- 外部 Runner 模式（`--external-runners` flag）
+- Runner Agent 独立二进制（`crates/rg-runner/` → `ironforge-runner`）
+- Artifact 管理（DB 迁移 + entity + ops + API 4 端点）
+- Job 日志 WebSocket 实时推送（`/ws/job/:job_id`）
+- Admin Runner 管理前端
+
+### ✅ Phase 18 已完成（gix 迁移，2026-05-10）
+
+- rg-ci CI 配置读取迁移（read_ci_config + has_ci_config → gix）
+- rg-core checkout 迁移（git checkout ×2 → gix edit_reference）
+- rg-core fast-forward 迁移（git merge --ff-only → gix repo.reference）
+- 进度 50% → ~60%（18 → 13 处 git CLI 保留）
+
+### ✅ Phase 19 已完成（P2 功能，2026-05-11）
+
+- R-14: Fork PR 跨仓库支持（DB 迁移 + resolve_head_ref + 跨仓库 compute_diff/merge_pr）
+- R-15: Release Asset HTTP 端点（upload/download/list/get/delete 5 个端点）
+- R-16: Search API 细分（SearchFilters qualifier 解析 + search_issues/search_repos 过滤）
+
+### ✅ Phase 20 已完成（工程化，2026-05-11）
+
+- Step 1: 构建优化（release profile 已有 lto/opt-level/strip）
+- Step 2: 统一错误处理（AppError enum + IntoResponse）
+- Step 3: SQLite 性能调优（WAL + 7 项 PRAGMA 优化 + 连接池配置）
+- Step 4: 配置校验（validate_config 拒绝危险默认值）
+- Step 5: 健康检查增强（/health: DB ping + FS check + version/phase）
+- Step 6: Request-ID 中间件（UUID v4 + tracing span）
+- Step 7: Rate Limiter（Token bucket per-IP）
+- Step 8: SQL 注入防护（参数化三元组 filter_clauses）
+- Step 9: 集成测试（10 个 API 测试，9 passed / 1 ignored）
+- Step 10: OpenAPI 全量覆盖（142 个 utoipa::path 注解 + Swagger UI /api-docs/）
+
+所有 Phase 1~20 全部完成。剩余待完成项见下方。
 
 ---
 
@@ -278,6 +302,18 @@ let salt = SaltString::generate(&mut rng()); // ❌
 
 `#[serde(default = "fn_name")]` 的函数返回类型必须与字段完全匹配。`Option<String>` 字段不能用返回 `String` 的函数，改用 `#[serde(default)]`（Option 自动 None）。
 
+### 11. utoipa OpenAPI 注解注意事项
+
+- `serde_json::Value` **不能**放在 `schemas()` 列表（不实现 ToSchema）；在 path 注解中用 `request_body(content = serde_json::Value)` 代替
+- 通过 `route_layer()` 注册的路由不会被 `.route()` 正则匹配发现，`__path_*` 符号缺失需手动排除
+- 添加 `use utoipa::ToSchema;` 时**不能**插入到 `use axum::{` 块内（导致 proc-macro 解析失败）
+- handler 名冲突（如 `register` 同时在 users 和 runners 模块）需用 `module::handler` 做 key
+
+### 12. SQLite FTS5 触发器的 'delete' 命令
+
+FTS5 的 `INSERT INTO fts_table(fts_table, rowid, ...) VALUES('delete', ...)` 特殊命令**不接受内容列值**，会导致 `SQL logic error`。
+**正确方式**：用标准 SQL `DELETE FROM fts_table WHERE rowid = old.id` 代替。
+
 ---
 
 ## 开发工作流
@@ -294,14 +330,27 @@ let salt = SaltString::generate(&mut rng()); // ❌
 
 ### 后续开发建议
 
-所有 Phase 1~12 + P0 Gap Analysis（R-01~R-10）+ P1（R-11~R-13）已完成。
+所有 Phase 1~20 + P0/P1/P2 Gap Analysis 已完成。
 
 **推荐下一步优先级：**
-1. **前端 P0/P1 功能 UI 对接** — 后端 API 已就绪，前端需要 Star/Watch 按钮、Releases 页面、Labels 管理页、Fork 按钮、全局搜索页面、Commit Status 展示
-2. **P2 功能** — Fork PR（跨仓库 diff）、Release 下载统计、Search API 细分
-3. **API 文档** — OpenAPI/Swagger 自动生成
-4. **端到端测试** — 全流程回归测试覆盖
-5. **性能优化** — 连接池调优、查询缓存、FTS5 索引性能
+
+#### P0 — 核心缺口
+1. **`/search/code` 端点** — 代码内容索引管道（复杂度高）
+2. **Runner 内部端点 OpenAPI** — heartbeat/poll_job/start_job/upload_log/finish_job 6 个端点缺 utoipa 注解
+3. **SSH Protocol V2 完整实现** — ls-refs + fetch 已有，其他能力待补全
+
+#### P1 — 重要功能（预计 7-10 周）
+4. **PR Merge 完整策略** — Squash/Merge/Rebase（依赖 gix 迁移完成）
+5. **包注册表 Docker/OCI** — 容器镜像仓库（完全未实现）
+6. **OAuth2/OIDC 增强** — 完善第三方登录
+7. **Actions Concurrency** — workflow 并发控制
+8. **Least-privilege Token** — Actions token 权限控制
+
+#### 技术债
+9. **gix 迁移继续** — 剩余 13 处 CLI 调用（GPG×2, Pack×3, Rebase×2, Merge×2, Commit×1, Diff×2, Clone×1）
+
+#### P2 — 增强功能
+10. 包注册表扩展（NPM/PyPI/Maven）、Wiki 完善、PR Review 增强、Issue 关联/时间追踪、Webhook 增强、搜索高亮、Subpath 归档下载、CI/CD 增强（Runner 禁用/Re-run/可视化）
 
 ---
 
@@ -326,6 +375,8 @@ tracing-appender = "0.2"
 rustls-pemfile  = "2"
 tokio-rustls    = "0.26"
 lettre          = "0.11"     # default-features = false, features: tokio1-rustls-tls, builder, smtp-transport
+utoipa          = "4"        # features: axum_extras
+utoipa-swagger-ui = "7"      # Swagger UI 嵌入
 anyhow          = "1"
 thiserror       = "2"
 ```

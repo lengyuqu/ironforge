@@ -241,7 +241,7 @@ async fn test_star_repo() {
     let body: serde_json::Value = resp.json().await.unwrap();
     let stargazers = body.get("data").and_then(|d| d.as_array()).unwrap();
     assert_eq!(stargazers.len(), 1);
-    assert_eq!(stargazers[0]["username"], "staruser");
+    assert_eq!(stargazers[0]["user_id"], 1);
 }
 
 
