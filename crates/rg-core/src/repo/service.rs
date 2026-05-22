@@ -50,6 +50,41 @@ pub async fn find_repo_by_owner_name(
     Ok(None)
 }
 
+/// Check whether `actor_id` (None = anonymous) can read the given repo.
+/// Use this when you already have the repo model to avoid duplicate queries.
+/// Takes into account: public repos, private repos (owner + collaborators + org members).
+pub async fn can_read_repo(
+    db: &DatabaseConnection,
+    repo: &rg_db::entities::repository::Model,
+    actor_id: Option<i64>,
+) -> Result<bool> {
+    if !repo.is_private {
+        return Ok(true);
+    }
+
+    match actor_id {
+        Some(id) => {
+            if id == repo.owner_id {
+                return Ok(true);
+            }
+
+            let perm = rg_db::ops::repo_collaborator_ops::get_permission(db, repo.id, id).await?;
+            if perm.is_some() {
+                return Ok(true);
+            }
+
+            if let Some(org_id) = repo.org_id {
+                if rg_db::ops::org_ops::is_org_member(db, org_id, id).await? {
+                    return Ok(true);
+                }
+            }
+
+            Ok(false)
+        }
+        None => Ok(false),
+    }
+}
+
 /// Check whether `actor_id` (None = anonymous) can read `owner/repo`.
 /// Takes into account: public repos, private repos (owner + collaborators + org members).
 pub async fn can_read(
@@ -61,28 +96,38 @@ pub async fn can_read(
     let repo = find_repo_by_owner_name(db, owner, repo_name)
         .await?
         .ok_or_else(|| anyhow::anyhow!("repository '{}/{}' not found", owner, repo_name))?;
+    can_read_repo(db, &repo, actor_id).await
+}
 
-    if !repo.is_private {
-        return Ok(true);
-    }
-
-    // Private repo: check owner + collaborators + org members
+/// Check whether `actor_id` can write to the given repo.
+/// Use this when you already have the repo model to avoid duplicate queries.
+/// Owner always has write. Collaborators with "write" or "admin" can write.
+/// Org admins/members with write team permission can write.
+pub async fn can_write_repo(
+    db: &DatabaseConnection,
+    repo: &rg_db::entities::repository::Model,
+    actor_id: Option<i64>,
+) -> Result<bool> {
     match actor_id {
         Some(id) => {
-            // Owner always has access
             if id == repo.owner_id {
                 return Ok(true);
             }
 
-            // Check collaborator permission
             let perm = rg_db::ops::repo_collaborator_ops::get_permission(db, repo.id, id).await?;
-            if perm.is_some() {
-                return Ok(true);
+            match perm.as_deref() {
+                Some("write") | Some("admin") => return Ok(true),
+                _ => {}
             }
 
-            // Check org membership (if repo belongs to an org)
             if let Some(org_id) = repo.org_id {
-                if rg_db::ops::org_ops::is_org_member(db, org_id, id).await? {
+                if let Some(member) = rg_db::ops::org_ops::find_org_member(db, org_id, id).await? {
+                    if member.role == "owner" || member.role == "admin" {
+                        return Ok(true);
+                    }
+                }
+
+                if rg_db::ops::org_ops::is_member_of_write_team(db, org_id, id).await? {
                     return Ok(true);
                 }
             }
@@ -105,39 +150,7 @@ pub async fn can_write(
     let repo = find_repo_by_owner_name(db, owner, repo_name)
         .await?
         .ok_or_else(|| anyhow::anyhow!("repository '{}/{}' not found", owner, repo_name))?;
-
-    match actor_id {
-        Some(id) => {
-            // Owner always has write
-            if id == repo.owner_id {
-                return Ok(true);
-            }
-
-            // Check collaborator permission (write/admin can write)
-            let perm = rg_db::ops::repo_collaborator_ops::get_permission(db, repo.id, id).await?;
-            match perm.as_deref() {
-                Some("write") | Some("admin") => return Ok(true),
-                _ => {}
-            }
-
-            // Check org membership with write/admin role
-            if let Some(org_id) = repo.org_id {
-                if let Some(member) = rg_db::ops::org_ops::find_org_member(db, org_id, id).await? {
-                    if member.role == "owner" || member.role == "admin" {
-                        return Ok(true);
-                    }
-                }
-
-                // Check team permissions — single query instead of N+1 loop
-                if rg_db::ops::org_ops::is_member_of_write_team(db, org_id, id).await? {
-                    return Ok(true);
-                }
-            }
-
-            Ok(false)
-        }
-        None => Ok(false),
-    }
+    can_write_repo(db, &repo, actor_id).await
 }
 
 /// Create a new repository (bare git init + DB record).
@@ -269,7 +282,9 @@ pub async fn fork_repo(
         .ok_or_else(|| anyhow::anyhow!("source repository not found"))?;
 
     if source_repo.is_private {
-        can_read(db, owner, repo_name, Some(user_id)).await?;
+        if !can_read_repo(db, &source_repo, Some(user_id)).await? {
+            bail!("permission denied: cannot read private repository");
+        }
     }
 
     let forker = user_ops::find_by_id(db, user_id).await?

@@ -268,32 +268,37 @@ git push origin main
 ironforge/
 ├── Cargo.toml              # Workspace 根，统一依赖版本
 ├── ARCHITECTURE.md         # 完整架构方案文档
-├── CLAUDE.md               # AI 协作上下文（Codex / Claude Code / WorkBuddy）
+├── AGENT.md                # AI 助手统一入口（所有 AI 工具必读）
+├── CLAUDE.md               # 完整 AI 协作上下文（Codex / Claude Code / WorkBuddy）
 ├── CONTRIBUTING.md         # 开发指南
 ├── docs/
+│   ├── p0-prd.md           # P0 功能 PRD
+│   ├── p0-system-design.md # P0 系统设计 + 任务分解
 │   └── git-protocol.md     # Git 协议实现细节与踩坑记录
-└── crates/
-    ├── rg-cli/     # 主二进制入口（bin = "ironforge"）
-    ├── rg-core/    # 核心业务逻辑（用户/仓库/Issue/PR）
-    ├── rg-git/     # Git 协议层（pkt-line、upload-pack、receive-pack、sideband）
-    ├── rg-ssh/     # SSH 服务端（russh 0.51）
-    ├── rg-http/    # HTTP 服务端 + REST API（Axum 0.8）
-    ├── rg-db/      # 数据库层（SeaORM 1.1 + SQLite）
-    └── rg-ci/      # CI/CD 引擎（YAML 解析 + Pipeline 执行器）
+├── crates/
+│   ├── rg-cli/     # 主二进制入口（bin = "ironforge"）
+│   ├── rg-core/    # 核心业务逻辑（用户/仓库/Issue/PR）
+│   ├── rg-git/     # Git 协议层（pkt-line、upload-pack、receive-pack、sideband）
+│   ├── rg-ssh/     # SSH 服务端（russh 0.51）
+│   ├── rg-http/    # HTTP 服务端 + REST API（Axum 0.8）
+│   ├── rg-db/      # 数据库层（SeaORM 1.1 + SQLite）
+│   ├── rg-ci/      # CI/CD 引擎（YAML 解析 + Pipeline 执行器）
+│   └── rg-runner/  # Runner Agent 独立二进制（bin = "ironforge-runner"）
+└── web/            # SvelteKit 前端（独立 SPA）
 ```
 
 ### 各 crate 职责
 
 | Crate | 职责 | 状态 |
 |-------|------|------|
-| `rg-cli` | CLI 入口，`serve` / `create-repo` 命令 | ✅ 完成 |
-| `rg-git` | Git Smart Protocol V1：pkt-line 编解码、upload-pack、receive-pack、sideband-64k | ✅ 完成 |
+| `rg-cli` | CLI 入口，`serve` / `create-repo` / `migrate` / `runner` 命令 | ✅ 完成 |
+| `rg-git` | Git Smart Protocol V1/V2：pkt-line 编解码、upload-pack、receive-pack、sideband-64k | ✅ 完成 |
 | `rg-ssh` | russh SSH 服务端，exec_request 路由到 rg-git，公钥/密码认证查 DB | ✅ 完成 |
-| `rg-http` | Axum HTTP 服务端，Git Smart HTTP 端点 + REST API | ✅ 完成 |
-| `rg-core` | 业务逻辑：用户认证（argon2+JWT）、仓库、Issue、Pull Request、Wiki、LFS、Webhook | ✅ Phase 1-4 |
-| `rg-ci` | CI/CD 引擎：YAML 解析 + Pipeline 执行器（Stage/Job 串行执行） | ✅ Phase 5 |
+| `rg-http` | Axum HTTP 服务端，Git Smart HTTP 端点 + REST API + WebSocket | ✅ 完成 |
+| `rg-core` | 业务逻辑：用户认证（argon2+JWT）、仓库、Issue、Pull Request、Wiki、LFS、Webhook、Review、Branch Protection、Collaborator、Org、Notification | ✅ Phase 1-6 |
+| `rg-ci` | CI/CD 引擎：YAML 解析 + Pipeline 执行器（Stage/Job 串行执行）+ Docker Runner | ✅ Phase 5 |
 | `rg-db` | SeaORM 实体 + 迁移（users/repos/ssh_keys/issues/comments/pulls/milestones/wiki/lfs/webhooks/pipelines） | ✅ Phase 1-5 |
-| `rg-ci` | CI/CD Pipeline 引擎（.ironforge-ci.yml 解析 + Stage/Job 执行器） | ✅ Phase 5 |
+| `rg-runner` | Runner Agent 独立二进制：注册、心跳、轮询 Job、执行、上传日志/Artifact | ✅ Phase 17 |
 
 ---
 

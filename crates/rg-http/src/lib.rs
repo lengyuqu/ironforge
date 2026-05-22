@@ -78,6 +78,7 @@ pub async fn run(config: HttpServerConfig) -> Result<()> {
         config.rate_limit_max.max(1),
         config.rate_limit_window_secs.max(1),
     );
+    rate_limiter.spawn_cleanup_task();
 
     let notification_hub = ws::NotificationHub::new();
 
@@ -224,6 +225,20 @@ fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
             post(handle_git_receive_pack),
         );
 
+    // Runner routes that require authentication (single middleware layer)
+    let runners_auth = Router::new()
+        .route("/runners/{id}/heartbeat", post(api::runners::heartbeat))
+        .route("/runners/{id}/jobs/poll", get(api::runners::poll_job))
+        .route("/runners/{id}/jobs/{job_id}/start", post(api::runners::start_job))
+        .route("/runners/{id}/jobs/{job_id}/log", post(api::runners::upload_log))
+        .route("/runners/{id}/jobs/{job_id}/finish", post(api::runners::finish_job))
+        .route("/runners/{id}/jobs/{job_id}/artifacts", post(api::artifacts::upload_artifact))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            api::runners::authenticate_runner,
+        ))
+        .with_state(state.clone());
+
     // ── REST API routes ───────────────────────────────────────────────────
     let api_v1 = Router::new()
         // Users
@@ -329,53 +344,7 @@ fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
         .route("/repos/{owner}/{name}/transfer", post(api::repos::transfer_repo_handler))
         // CI/CD Runners
         .route("/runners/register", post(api::runners::register))
-        .route(
-            "/runners/{id}/heartbeat",
-            post(api::runners::heartbeat)
-                .route_layer(axum::middleware::from_fn_with_state(
-                    state.clone(),
-                    api::runners::authenticate_runner,
-                )),
-        )
-        .route(
-            "/runners/{id}/jobs/poll",
-            get(api::runners::poll_job).route_layer(axum::middleware::from_fn_with_state(
-                state.clone(),
-                api::runners::authenticate_runner,
-            )),
-        )
-        .route(
-            "/runners/{id}/jobs/{job_id}/start",
-            post(api::runners::start_job)
-                .route_layer(axum::middleware::from_fn_with_state(
-                    state.clone(),
-                    api::runners::authenticate_runner,
-                )),
-        )
-        .route(
-            "/runners/{id}/jobs/{job_id}/log",
-            post(api::runners::upload_log)
-                .route_layer(axum::middleware::from_fn_with_state(
-                    state.clone(),
-                    api::runners::authenticate_runner,
-                )),
-        )
-        .route(
-            "/runners/{id}/jobs/{job_id}/finish",
-            post(api::runners::finish_job)
-                .route_layer(axum::middleware::from_fn_with_state(
-                    state.clone(),
-                    api::runners::authenticate_runner,
-                )),
-        )
-        // Artifacts
-        .route(
-            "/runners/{id}/jobs/{job_id}/artifacts",
-            post(api::artifacts::upload_artifact).route_layer(axum::middleware::from_fn_with_state(
-                state.clone(),
-                api::runners::authenticate_runner,
-            )),
-        )
+        .merge(runners_auth)
         .route("/repos/{owner}/{name}/pipelines/{id}/artifacts", get(api::artifacts::list_pipeline_artifacts))
         .route("/artifacts/{id}", get(api::artifacts::get_artifact))
         .route("/artifacts/{id}", delete(api::artifacts::delete_artifact))

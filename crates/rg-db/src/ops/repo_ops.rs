@@ -132,9 +132,10 @@ pub async fn soft_delete(db: &DatabaseConnection, id: i64) -> Result<()> {
 /// Update stars_count for a repository based on actual star count (atomic).
 pub async fn update_stars_count(db: &DatabaseConnection, id: i64) -> Result<()> {
     let count = crate::ops::repo_star_ops::count_by_repo(db, id).await?;
-    db.execute(Statement::from_string(
+    db.execute(Statement::from_sql_and_values(
         DatabaseBackend::Sqlite,
-        format!("UPDATE repositories SET stars_count = {} WHERE id = {}", count, id),
+        "UPDATE repositories SET stars_count = ? WHERE id = ?",
+        [count.into(), id.into()],
     )).await.context("db: update stars count")?;
     Ok(())
 }
@@ -148,9 +149,10 @@ pub async fn update_forks_count(db: &DatabaseConnection, id: i64) -> Result<()> 
         .count(db)
         .await
         .context("db: count forks")? as i64;
-    db.execute(Statement::from_string(
+    db.execute(Statement::from_sql_and_values(
         DatabaseBackend::Sqlite,
-        format!("UPDATE repositories SET forks_count = {} WHERE id = {}", count, id),
+        "UPDATE repositories SET forks_count = ? WHERE id = ?",
+        [count.into(), id.into()],
     )).await.context("db: update forks count")?;
     Ok(())
 }

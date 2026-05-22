@@ -80,6 +80,9 @@ rg-cli
 
 rg-ci
   └── rg-db
+
+rg-runner
+  └── rg-db
 ```
 
 ### 各 crate 边界规则
@@ -150,6 +153,18 @@ rg-ci
 
 **禁止**：
 - 不能包含业务逻辑（全部委托给其他 crate）
+
+#### `rg-runner` — Runner Agent（独立二进制）
+
+**允许**：
+- Runner 注册和心跳
+- 从服务器轮询 Job
+- Job 执行（本地 shell 或 Docker）
+- 日志上传和 Artifact 上传
+
+**禁止**：
+- 不能直接操作 HTTP 路由（只作为 HTTP 客户端调用 rg-http API）
+- 不能包含业务逻辑
 
 ---
 
@@ -426,5 +441,62 @@ PR 合并到 `main` 前要求：
 - Web UI（SvelteKit 5，独立前端）
 - 前端国际化（i18n）：中文 + 英文，199 个翻译 key，locale store + localStorage 持久化
 - 代码审查 / 分支保护规则
+
+### ✅ Phase 7~10：高级功能扩展（已完成，2026-04-24~05-11）
+
+- **Phase 7**: TLS/HTTPS 支持（axum-server + rustls）
+- **Phase 8**: TOML 配置文件 + 日志轮转（tracing-appender）
+- **Phase 9**: API 统一分页 + GPG 签名验证
+- **Phase 10**: 组织/团队系统 + 通知系统 + 邮件通知
+
+### ✅ Phase 11~12：工程化改进（已完成，2026-04-27）
+
+- **Phase 11**: 前端国际化完善（i18n 策略 + 翻译 key 补全）
+- **Phase 12**: 代码覆盖率集成（cargo-llvm-cov）
+
+### ✅ Phase 13：DB 分页 + V2 + Admin（已完成，2026-04-27~28）
+
+- PaginatedResponse 统一分页（5 个 list API）
+- Git Protocol V2 HTTP 集成完善
+- Admin API 增强用户管理
+
+### ✅ Phase 14~16：P0/P1 Gap 补齐（已完成，2026-05-08~09）
+
+- **Phase 14~15**: Star/Watch、仓库删除/转移、Releases/Tags、Labels CRUD、Milestones、PAT、Fork、Commit Status、FTS5 搜索
+- **Phase 16**: Webhooks 13 事件、Watch 通知集成、Labels-Issue 关联 API
+
+### ✅ Phase 17：CI/CD Runner 收尾（已完成，2026-05-10）
+
+- Runner Token Bearer 认证中间件（`authenticate_runner`）
+- 外部 Runner 模式（`--external-runners` flag）
+- Runner Agent 独立二进制（`crates/rg-runner/` → `ironforge-runner`）
+- Artifact 管理（DB 迁移 + entity + ops + API 4 端点）
+- Job 日志 WebSocket 实时推送（`/ws/job/:job_id`）
+- Admin Runner 管理前端
+
+### ✅ Phase 18：gix 迁移（已完成，2026-05-10）
+
+- rg-ci CI 配置读取迁移（read_ci_config + has_ci_config → gix）
+- rg-core checkout 迁移（git checkout ×2 → gix edit_reference）
+- rg-core fast-forward 迁移（git merge --ff-only → gix repo.reference）
+- 进度 ~60%（18 → 13 处 git CLI 保留）
+
+### ✅ Phase 19：P2 功能（已完成，2026-05-11）
+
+- R-14: Fork PR 跨仓库支持（head_repo_id + 跨仓库 diff/merge）
+- R-15: Release Asset HTTP 端点（upload/download/list/get/delete）
+- R-16: Search API 细分（SearchFilters qualifier 解析）
+
+### ✅ Phase 20：工程化收尾（已完成，2026-05-11）
+
+- 构建优化（release profile）
+- 统一错误处理（AppError enum + IntoResponse）
+- SQLite 性能调优（WAL + 7 项 PRAGMA）
+- 配置校验（validate_config）
+- 健康检查增强（DB ping + FS check）
+- Request-ID 中间件 + Rate Limiter
+- SQL 注入防护（参数化查询）
+- 集成测试（10 个 API 测试）
+- OpenAPI 全量覆盖（142 个 utoipa::path 注解 + Swagger UI）
 
 完整计划见 [ARCHITECTURE.md](ARCHITECTURE.md)。

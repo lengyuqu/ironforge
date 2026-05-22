@@ -19,7 +19,7 @@ pub struct ErrorBody {
     pub code: &'static str,
     /// Human-readable error message.
     pub message: String,
-    /// Request ID (populated by request-id middleware when available).
+    /// Request ID (injected by request-id middleware for error responses).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub request_id: Option<String>,
 }

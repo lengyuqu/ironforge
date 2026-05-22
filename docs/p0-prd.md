@@ -7,7 +7,7 @@
 ## 1. 项目信息
 
 - **Language**: 中文
-- **Programming Language**: Rust (Actix-web/SeaORM) + Svelte 5
+- **Programming Language**: Rust (Axum/SeaORM) + Svelte 5
 - **Project Name**: ironforge
 - **项目类型**: 增量功能开发（基于已有 Phase 1~12 的成熟代码库）
 - **原始需求复述**: IronForge 是对标 Gitea/Forgejo 的自托管 Git 托管平台，通过与 Gitea 的 Gap Analysis 识别出 10 个 P0 功能缺失，需要分 5 个 Phase 实施补齐，使平台功能完整度达到生产可用标准。

@@ -67,7 +67,7 @@
 | **异步运行时** | tokio | 1.x | Rust 异步生态事实标准 |
 | **HTTP 框架** | axum | 0.8+ | tokio 官方出品，生态好，性能优秀 |
 | **SSH 服务端** | russh | 0.51+ | 纯 Rust SSH2 实现，支持服务端 |
-| **Git 操作** | gix (gitoxide) | 0.66+ | 纯 Rust Git 实现，零 C 依赖 |
+| **Git 操作** | gix (gitoxide) | 0.83+ | 纯 Rust Git 实现，零 C 依赖 |
 | **ORM** | SeaORM | 1.x | 异步原生，迁移工具成熟，API 友好 |
 | **数据库** | SQLite（默认）/ PostgreSQL（生产） | — | 轻量起步，可切换 |
 | **模板引擎** | Askama | 2.x | 编译时检查，性能极高 |

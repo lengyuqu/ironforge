@@ -4,14 +4,13 @@
 //! Returns 429 Too Many Requests when the limit is exceeded.
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use axum::extract::Request;
 use axum::http::HeaderMap;
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
-use tokio::sync::Mutex;
 
 /// Per-client rate limit state.
 #[derive(Debug)]
@@ -30,6 +29,8 @@ pub struct RateLimiter {
     /// Window duration in seconds.
     window_secs: u64,
     /// Client IP → state mapping.
+    /// std::sync::Mutex is used because critical sections are very short
+    /// (single HashMap lookup/update) and never await.
     clients: Arc<Mutex<HashMap<String, ClientState>>>,
 }
 
@@ -47,8 +48,16 @@ impl RateLimiter {
     }
 
     /// Check if a request is allowed. Returns true if the request should proceed.
-    async fn allow(&self, key: &str) -> bool {
-        let mut clients = self.clients.lock().await;
+    fn allow(&self, key: &str) -> bool {
+        let mut clients = match self.clients.lock() {
+            Ok(guard) => guard,
+            // If the mutex is poisoned, reset the map and continue
+            Err(poisoned) => {
+                let mut guard = poisoned.into_inner();
+                guard.clear();
+                return true;
+            }
+        };
         let now = Instant::now();
 
         let entry = clients.entry(key.to_string()).or_insert_with(|| ClientState {
@@ -70,21 +79,47 @@ impl RateLimiter {
         }
     }
 
-    /// Clean up expired entries (call periodically).
-    pub async fn cleanup(&self) {
-        let mut clients = self.clients.lock().await;
+    /// Clean up expired entries. Called periodically by the background task.
+    fn cleanup(&self) {
+        let mut clients = match self.clients.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                let mut guard = poisoned.into_inner();
+                guard.clear();
+                return;
+            }
+        };
         let now = Instant::now();
         clients.retain(|_, state| now < state.reset_at);
     }
+
+    /// Spawn a background task that periodically cleans up expired entries.
+    pub fn spawn_cleanup_task(&self) {
+        let limiter = self.clone();
+        // Cleanup interval: half the window duration, min 60s, max 600s
+        let interval_secs = (self.window_secs / 2).clamp(60, 600);
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                interval.tick().await;
+                limiter.cleanup();
+            }
+        });
+    }
 }
 
-/// Extract client IP from headers (X-Forwarded-For, X-Real-IP) or connection info.
-fn extract_client_key(headers: &HeaderMap) -> String {
+/// Extract client IP from headers (X-Forwarded-For, X-Real-IP).
+/// Returns `None` if no identifying header is present.
+fn extract_client_key(headers: &HeaderMap) -> Option<String> {
     // Try X-Forwarded-For first (first IP in the list)
     if let Some(xff) = headers.get("x-forwarded-for") {
         if let Ok(val) = xff.to_str() {
             if let Some(ip) = val.split(',').next() {
-                return ip.trim().to_string();
+                let ip = ip.trim();
+                if !ip.is_empty() {
+                    return Some(ip.to_string());
+                }
             }
         }
     }
@@ -92,12 +127,14 @@ fn extract_client_key(headers: &HeaderMap) -> String {
     // Try X-Real-IP
     if let Some(xri) = headers.get("x-real-ip") {
         if let Ok(val) = xri.to_str() {
-            return val.trim().to_string();
+            let val = val.trim();
+            if !val.is_empty() {
+                return Some(val.to_string());
+            }
         }
     }
 
-    // Fallback: use a default key
-    "unknown".to_string()
+    None
 }
 
 /// Axum middleware for rate limiting.
@@ -107,9 +144,14 @@ pub async fn rate_limit_middleware(
     request: Request,
     next: Next,
 ) -> Response {
-    let key = extract_client_key(&headers);
+    let key = match extract_client_key(&headers) {
+        Some(k) => k,
+        // Skip rate limiting if we cannot identify the client.
+        // This avoids having all unidentified clients share a single "unknown" bucket.
+        None => return next.run(request).await,
+    };
 
-    if limiter.allow(&key).await {
+    if limiter.allow(&key) {
         next.run(request).await
     } else {
         crate::error::AppError::rate_limited("Too many requests. Please try again later.")
