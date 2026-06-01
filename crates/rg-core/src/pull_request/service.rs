@@ -44,8 +44,7 @@ pub async fn create_pr(
         let head_owner = user_ops::find_by_id(db, head_repo.owner_id)
             .await?
             .context("head repo owner not found")?;
-        let head_path = std::path::PathBuf::from("/tmp/ironforge/repos")
-            .join(format!("{}/{}.git", head_owner.username, head_repo.name));
+        let head_path = crate::platform::path::repo_path(&head_owner.username, &head_repo.name);
         if head_path.exists() {
             get_ref_sha(&head_path, &head_branch).ok()
         } else {

@@ -7,9 +7,9 @@ use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::{Deserialize, Serialize};
 
+use utoipa::{IntoParams, ToSchema};
 use crate::error::AppError;
 use crate::AppState;
-use utoipa::ToSchema;
 
 // ── Request/Response types ─────────────────────────────────
 
@@ -29,13 +29,13 @@ struct RegisterRunnerResponse {
     message: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 struct HeartbeatResponse {
     status: String,
     server_time: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct PollJobResponse {
     job_id: i64,
     pipeline_id: i64,
@@ -47,12 +47,12 @@ pub struct PollJobResponse {
     timeout: i64,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
 pub struct PollJobQuery {
     pub timeout: Option<u64>, // seconds, default 30
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub struct RunnerInfoResponse {
     id: i64,
     name: String,
@@ -112,6 +112,17 @@ pub async fn register(
 /// POST /api/v1/runners/:id/heartbeat
 /// Update runner heartbeat (called every 30 seconds).
 /// Auth handled by `authenticate_runner` middleware.
+#[utoipa::path(
+    post,
+    path = "/runners/{id}/heartbeat",
+    tag = "Runners",
+    params(
+        ("id" = i64, Path, description = "Runner ID"),
+    ),
+    responses(
+        (status = 200, description = "Success", body = HeartbeatResponse),
+    ),
+)]
 pub async fn heartbeat(
     State(_state): State<AppState>,
     Path(_runner_id): Path<i64>,
@@ -130,6 +141,20 @@ pub async fn heartbeat(
 /// GET /api/v1/runners/:id/jobs/poll?timeout=30
 /// Long-polling endpoint for runners to fetch jobs.
 /// Auth handled by `authenticate_runner` middleware.
+#[utoipa::path(
+    get,
+    path = "/runners/{id}/jobs/poll",
+    tag = "Runners",
+    params(
+        ("id" = i64, Path, description = "Runner ID"),
+        ("timeout" = Option<u64>, Query, description = "Poll timeout in seconds (default: 30, max: 300)"),
+    ),
+    responses(
+        (status = 200, description = "Job assigned", body = PollJobResponse),
+        (status = 204, description = "No job available (timeout)"),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
 pub async fn poll_job(
     State(state): State<AppState>,
     Path(runner_id): Path<i64>,
@@ -197,6 +222,20 @@ pub async fn poll_job(
 
 /// POST /api/v1/runners/:id/jobs/:job_id/start
 /// Notify server that the runner has started executing a job.
+#[utoipa::path(
+    post,
+    path = "/runners/{id}/jobs/{job_id}/start",
+    tag = "Runners",
+    params(
+        ("id" = i64, Path, description = "Runner ID"),
+        ("job_id" = i64, Path, description = "Job ID"),
+    ),
+    responses(
+        (status = 200, description = "Job started", body = serde_json::Value),
+        (status = 403, description = "Forbidden - job not assigned to this runner", body = serde_json::Value),
+        (status = 404, description = "Job not found", body = serde_json::Value),
+    ),
+)]
 pub async fn start_job(
     State(state): State<AppState>,
     Path((runner_id, job_id)): Path<(i64, i64)>,
@@ -231,6 +270,21 @@ pub async fn start_job(
 
 /// POST /api/v1/runners/:id/jobs/:job_id/log
 /// Upload job log (streaming or batch).
+#[utoipa::path(
+    post,
+    path = "/runners/{id}/jobs/{job_id}/log",
+    tag = "Runners",
+    params(
+        ("id" = i64, Path, description = "Runner ID"),
+        ("job_id" = i64, Path, description = "Job ID"),
+    ),
+    request_body(content = String, description = "Log content (plain text)"),
+    responses(
+        (status = 200, description = "Log uploaded", body = serde_json::Value),
+        (status = 403, description = "Forbidden - job not assigned to this runner", body = serde_json::Value),
+        (status = 404, description = "Job not found", body = serde_json::Value),
+    ),
+)]
 pub async fn upload_log(
     State(state): State<AppState>,
     Path((runner_id, job_id)): Path<(i64, i64)>,
@@ -273,6 +327,21 @@ pub async fn upload_log(
 
 /// POST /api/v1/runners/:id/jobs/:job_id/finish
 /// Notify server that the runner has finished executing a job.
+#[utoipa::path(
+    post,
+    path = "/runners/{id}/jobs/{job_id}/finish",
+    tag = "Runners",
+    params(
+        ("id" = i64, Path, description = "Runner ID"),
+        ("job_id" = i64, Path, description = "Job ID"),
+    ),
+    request_body(content = FinishJobRequest, description = "Job completion status"),
+    responses(
+        (status = 200, description = "Job finished", body = serde_json::Value),
+        (status = 403, description = "Forbidden - job not assigned to this runner", body = serde_json::Value),
+        (status = 404, description = "Job not found", body = serde_json::Value),
+    ),
+)]
 pub async fn finish_job(
     State(state): State<AppState>,
     Path((runner_id, job_id)): Path<(i64, i64)>,
@@ -315,7 +384,7 @@ pub async fn finish_job(
     (StatusCode::OK, Json(serde_json::json!({"status": "ok"}))).into_response()
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct FinishJobRequest {
     status: String, // success | failure | error
     exit_code: i32,

@@ -617,14 +617,21 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Execute a job script locally via `sh -c`.
+/// Execute a job script locally via platform-appropriate shell.
 async fn run_job_local(script: &str) -> (i32, String) {
+    #[cfg(unix)]
     let output = tokio::process::Command::new("sh")
         .arg("-c")
         .arg(script)
         .output()
         .await;
-
+    
+    #[cfg(windows)]
+    let output = tokio::process::Command::new("powershell.exe")
+        .args(&["-NoProfile", "-NonInteractive", "-Command", script])
+        .output()
+        .await;
+    
     match output {
         Ok(o) => {
             let code = o.status.code().unwrap_or(-1);

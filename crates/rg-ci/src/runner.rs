@@ -207,11 +207,20 @@ impl PipelineRunner {
         result
     }
 
-    /// Execute script locally via `sh -c`.
+    /// Execute script locally via platform-appropriate shell.
     async fn run_job_local(&self, script: &str) -> Result<(i32, String)> {
+        #[cfg(unix)]
         let output = tokio::process::Command::new("sh")
             .arg("-c")
             .arg(script)
+            .current_dir(&self.repo_path)
+            .output()
+            .await
+            .context("failed to spawn job process")?;
+        
+        #[cfg(windows)]
+        let output = tokio::process::Command::new("powershell.exe")
+            .args(&["-NoProfile", "-NonInteractive", "-Command", script])
             .current_dir(&self.repo_path)
             .output()
             .await

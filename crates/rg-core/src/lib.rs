@@ -21,6 +21,7 @@ pub mod email;
 pub mod release;
 pub mod label;
 pub mod search;
+pub mod platform;  // Cross-platform abstractions
 
 use anyhow::Result;
 

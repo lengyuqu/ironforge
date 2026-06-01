@@ -179,6 +179,12 @@ pub struct PaginatedRepoResponse {
         crate::api::admin::list_orgs,
         crate::api::admin::get_org,
         crate::api::admin::delete_org,
+        // AI Agent endpoints
+        crate::api::ai::ai_repo_summary,
+        crate::api::ai::ai_list_issues,
+        crate::api::ai::ai_list_prs,
+        crate::api::ai::ai_repo_tree,
+        crate::api::ai::ai_search_code,
     ),
     components(
         schemas(
@@ -196,6 +202,9 @@ pub struct PaginatedRepoResponse {
             crate::pagination::PaginationParams,
             crate::pagination::PaginationMeta,
             PaginatedRepoResponse,
+            crate::api::ai::RepoSummary,
+            crate::api::ai::IssueSummary,
+            crate::api::ai::PrSummary,
         )
     ),
     tags(
@@ -219,6 +228,7 @@ pub struct PaginatedRepoResponse {
         (name = "Runners", description = "CI/CD runner management"),
         (name = "Artifacts", description = "CI/CD artifacts"),
         (name = "Admin", description = "Administration"),
+        (name = "AI", description = "AI Agent专用端点，提供AI友好的仓库/Issue/PR数据"),
     )
 )]
 pub struct ApiDoc;

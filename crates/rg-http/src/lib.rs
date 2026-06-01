@@ -360,6 +360,12 @@ fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
         .route("/admin/orgs/{name}", delete(api::admin::delete_org))
         // Global Search
         .route("/search", get(api::search::search))
+        // ── AI Agent endpoints ─────────────────────────────
+        .route("/ai/repos/{owner}/{name}/summary", get(api::ai::ai_repo_summary))
+        .route("/ai/repos/{owner}/{name}/issues", get(api::ai::ai_list_issues))
+        .route("/ai/repos/{owner}/{name}/prs", get(api::ai::ai_list_prs))
+        .route("/ai/repos/{owner}/{name}/tree", get(api::ai::ai_repo_tree))
+        .route("/ai/repos/{owner}/{name}/search/code", get(api::ai::ai_search_code))
         // WebSocket
         .route("/ws/notifications", get(ws::ws_notifications_handler))
         .route("/ws/job/{job_id}", get(ws::ws_job_log_handler));

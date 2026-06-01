@@ -25,3 +25,4 @@ sha2 = { workspace = true }
 hex = { workspace = true }
 lettre = { workspace = true }
 zstd = "0.13"
+home = { workspace = true }

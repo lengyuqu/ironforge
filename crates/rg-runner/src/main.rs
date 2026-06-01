@@ -85,8 +85,25 @@ struct RunnerConfig {
 }
 
 fn config_path(path: &str) -> PathBuf {
-    let p = path.replace("~", &std::env::var("HOME").unwrap_or_else(|_| ".".to_string()));
-    PathBuf::from(p)
+    let expanded = if path.starts_with("~") {
+        match home::home_dir() {
+            Some(home) => {
+                let remainder = &path[1..];
+                let mut result = home;
+                // Remove leading slash if present (Unix-style ~/) 
+                let trimmed = remainder.trim_start_matches('/');
+                if !trimmed.is_empty() {
+                    result.push(trimmed);
+                }
+                result.to_string_lossy().to_string()
+            }
+            None => path.to_string(),
+        }
+    } else {
+        path.to_string()
+    };
+    
+    PathBuf::from(expanded)
 }
 
 fn load_config(path: &str) -> Option<RunnerConfig> {
@@ -207,9 +224,22 @@ async fn finish_job(client: &reqwest::Client, server: &str, runner_id: i64, job_
         .await;
 }
 
-/// Execute a job script locally via `sh -c`.
+/// Execute a job script locally via platform-appropriate shell.
 async fn run_job_local(script: &str) -> (i32, String) {
-    match tokio::process::Command::new("sh").arg("-c").arg(script).output().await {
+    #[cfg(unix)]
+    let output = tokio::process::Command::new("sh")
+        .arg("-c")
+        .arg(script)
+        .output()
+        .await;
+    
+    #[cfg(windows)]
+    let output = tokio::process::Command::new("powershell.exe")
+        .args(&["-NoProfile", "-NonInteractive", "-Command", script])
+        .output()
+        .await;
+    
+    match output {
         Ok(o) => {
             let code = o.status.code().unwrap_or(-1);
             let mut log = String::from_utf8_lossy(&o.stdout).to_string();
