@@ -17,6 +17,7 @@
 | **Codex** | 通常读取项目根目录的 `README.md` | **`AGENT.md`** ⭐（AI 统一入口） |
 | **Trae** | 通常读取 `README.md` | **`AGENT.md`** ⭐（AI 统一入口） |
 | **CodeBuddy** | 通常读取 `README.md` | **`AGENT.md`** ⭐（AI 统一入口） |
+| **AI Agent（.ai/）** | `.ai/README.md` | 按任务类型选读（AGENT.md / CLAUDE.md / ARCHITECTURE.md） |
 
 **如果你是其他 AI 工具且未自动读取本文件**：请先阅读 `AGENT.md`（更轻量的统一入口），然后通读本文件获取完整细节，再按任务类型从「按任务类型选读」中选择延伸阅读。
 
@@ -40,6 +41,7 @@ ironforge/
 ├── ARCHITECTURE.md         # 完整架构方案（必读！包含数据库模型、技术选型）
 ├── CLAUDE.md               # 本文件（AI 协作上下文）
 ├── CONTRIBUTING.md         # 开发规范
+├── .ai/                  # AI Agent 接入规范（README + MCP配置 + prompt模板）
 ├── docs/
 │   ├── p0-prd.md           # P0 功能 PRD
 │   ├── p0-system-design.md # P0 系统设计 + 任务分解
@@ -52,7 +54,8 @@ ironforge/
 │   ├── rg-http/            # HTTP 服务端 + REST API（✅ 完整实现 + Git 协议鉴权 + 文件浏览 + 静态资源 + WebSocket + Rate Limit + 分页 + GPG）
 │   ├── rg-db/              # 数据库层 SeaORM（✅ 实体+迁移+ops）
 │   ├── rg-ci/              # CI/CD 引擎（✅ YAML 解析 + Pipeline 执行器 + Docker Runner）
-│   └── rg-runner/          # Runner Agent 独立二进制（bin = "ironforge-runner"）
+│   ├── rg-runner/          # Runner Agent 独立二进制（bin = "ironforge-runner"）
+│   └── rg-mcp/             # MCP 服务器（bin = "ironforge-mcp"，stdio/SSE，暴露 Tools + Resources 给 AI Agent）
 └── web/                    # SvelteKit 前端（✅ 登录/仓库/Issue/PR/Wiki/CI/代码审查/组织/通知/国际化）
 ```
 
@@ -102,6 +105,59 @@ git clone 示例：
 ```bash
 git clone http://localhost:8080/git/testuser/testrepo /tmp/if_http
 ```
+
+---
+
+## AI Agent 集成（MCP Server）
+
+IronForge 通过 **MCP (Model Context Protocol)** 暴露仓库数据给 AI Agent（Claude Code / Cursor / Continue.dev 等）。
+
+### 二进制
+
+- **`ironforge-mcp`** — `rg-mcp` crate 的 bin target，位于 `target/debug/ironforge-mcp`
+
+### 使用方式
+
+```bash
+# 编译
+cargo build -p rg-mcp
+
+# 作为子进程启动（AI Agent 会自动调用）
+IRONFORGE_URL=http://localhost:8080 IRONFORGE_PAT=<token> ./target/debug/ironforge-mcp
+
+# 测试（手动发送 JSON-RPC 请求）
+echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"0.1"}}}' | ./target/debug/ironforge-mcp
+```
+
+### 暴露的 Tools
+
+| Tool 名称 | 说明 |
+|-----------|------|
+| `list_repos` | 列出当前用户可访问的仓库 |
+| `read_file` | 读取仓库文件内容（UTF-8） |
+| `read_dir` | 列出仓库目录内容 |
+| `get_issue` | 获取单个 Issue 详情 |
+| `get_pr` | 获取单个 PR 详情（含 diff） |
+
+### 暴露的 Resources
+
+| URI 模板 | 说明 |
+|-----------|------|
+| `repo://{owner}/{name}` | 仓库元数据（JSON） |
+| `file://{owner}/{name}/{path}` | 文件内容（text/plain） |
+| `issue://{owner}/{name}/{number}` | Issue 详情（JSON） |
+
+### 环境变量
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `IRONFORGE_URL` | `http://localhost:8080` | IronForge API 地址 |
+| `IRONFORGE_PAT` | _(空)_ | Bearer Token（API 认证） |
+
+### 支持的 Transport
+
+- **stdio**（默认）— 作为 AI Agent 子进程运行
+- **SSE**（`--sse` 标志）— 网页端 Agent（暂未实现）
 
 ---
 

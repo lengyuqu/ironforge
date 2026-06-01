@@ -23,6 +23,7 @@
 | `ARCHITECTURE.md` | 完整架构方案、技术选型决策、数据库模型 | 设计新功能时 |
 | `CONTRIBUTING.md` | 开发规范、crate 边界规则、编码规范、Phase 计划 | 写新代码时 |
 | `README.md` | 快速开始、REST API 示例、E2E 测试脚本 | 首次接触项目时 |
+| `.ai/README.md` | AI Agent 接入指南（MCP + REST API + prompt 模板） | 需要让 AI 工具调用 IronForge 时 |
 
 ---
 
@@ -35,6 +36,7 @@ ironforge/
 ├── CLAUDE.md               # 最完整的 AI 协作上下文 ⭐
 ├── CONTRIBUTING.md         # 开发规范
 ├── AGENT.md                # 本文件（AI 统一入口）
+├── .ai/                   # AI Agent 接入规范（README + MCP配置 + prompt模板）
 ├── README.md               # 项目说明
 ├── docs/
 │   ├── p0-prd.md           # P0 功能 PRD
