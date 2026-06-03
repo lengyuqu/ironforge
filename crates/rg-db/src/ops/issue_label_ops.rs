@@ -13,7 +13,21 @@ pub async fn set_labels(
 ) -> Result<()> {
     let txn = db.begin().await.context("db: begin transaction")?;
 
-    // Delete all existing labels for this issue
+    // CRITICAL: SeaORM batch delete (踩坑经验 #3)
+    //
+    // To delete multiple rows, MUST use:
+    //   Entity::delete_many().filter(...).exec(db)
+    //
+    // WRONG patterns:
+    //   Entity::delete_by_id(id)        — only works for single PK delete
+    //   Entity::update_many()            — for UPDATE, not DELETE
+    //   .delete() without .filter()      — compile error or deletes nothing
+    //
+    // Correct batch delete pattern (used here):
+    //   IssueLabelEntity::delete_many()
+    //       .filter(issue_label::Column::IssueId.eq(issue_id))
+    //       .exec(&txn)
+    //       .await?;
     IssueLabelEntity::delete_many()
         .filter(issue_label::Column::IssueId.eq(issue_id))
         .exec(&txn)

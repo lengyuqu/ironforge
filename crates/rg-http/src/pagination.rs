@@ -93,6 +93,30 @@ impl PaginationMeta {
 }
 
 /// Paginated response wrapper.
+///
+/// CRITICAL: Serialization (踩坑经验 #2)
+///
+/// When returning from Axum handler, MUST wrap with serde_json::to_value():
+///   (StatusCode::OK, Json(serde_json::to_value(resp).unwrap())).into_response()
+/// Without to_value(), the `data` field may be empty in the JSON response.
+///
+/// CRITICAL: Serialization (踩坑经验 #2)
+///
+/// When returning `PaginatedResponse<T>` from an Axum handler,
+/// you MUST wrap it with `serde_json::to_value()` before returning:
+///
+///   OK pattern:
+///     let resp = PaginatedResponse::new(data, &params, total);
+///     (StatusCode::OK, Json(serde_json::to_value(resp).unwrap())).into_response()
+///
+///   WRONG pattern (will compile but produce wrong JSON or empty data field):
+///     (StatusCode::OK, Json(resp)).into_response()
+///     // or
+///     Json(resp).into_response()
+///
+/// Reason: `PaginatedResponse<T>` implements `Serialize`, but Axum's
+/// `Json()` extractor may not correctly serialize generic wrappers
+/// without explicit `to_value()` conversion. Always use `to_value()`.
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct PaginatedResponse<T: Serialize> {
     pub data: Vec<T>,

@@ -138,6 +138,23 @@ struct SshHandler {
 impl Handler for SshHandler {
     type Error = HandlerError;
 
+    // CRITICAL: Auth::Reject must include `partial_success: false` (踩坑经验 #5)
+    //
+    // russh's `Auth::Reject` has a field `partial_success: bool`.
+    // If this is `true`, the server tells the client "you partially succeeded,
+    // try other methods". This can cause:
+    //   - Infinite auth loops
+    //   - Clients reporting "partial success" errors
+    //   - Unexpected behavior where auth should have been a clear reject
+    //
+    // Always use `partial_success: false` unless you specifically implement
+    // multi-method partial auth (which we don't).
+    //
+    // Also: `fingerprint()` REQUIRES `HashAlg::Sha256` argument.
+    // Without it, the method signature doesn't match (it requires the alg).
+    // The returned Fingerprint displays as "SHA256:<base64>" which is
+    // the standard format for authorized_keys.
+
     async fn auth_publickey(
         &mut self,
         _user: &str,
@@ -288,10 +305,23 @@ impl Handler for SshHandler {
                 Err(e) => tracing::error!(error = %e, %service_name, "Git SSH session failed"),
             }
 
+            // CRITICAL: SSH stream shutdown order (踩坑经验)
+            // 
+            // Must send exit_status BEFORE shutting down the stream.
+            // The russh client expects to receive the exit-status message before
+            // the channel is closed. If we shutdown the stream first, the
+            // exit_status message may be lost, causing the client to report
+            // "connection closed unexpectedly" or exit code 255.
+            //
+            // Correct order:
+            //   1. Send exit_status to client
+            //   2. Shutdown the stream (which sends SSH_MSG_CHANNEL_CLOSE)
+            //   3. Drop the channel (happens automatically when tokio::spawn future completes)
             if let Err(e) = handle.exit_status_request(channel_id, exit_code).await {
                 tracing::warn!(error = ?e, "failed to send exit_status to client");
             }
 
+            // Now safe to shutdown the stream - client has received exit_status
             if let Err(e) = stream.shutdown().await {
                 tracing::warn!(error = ?e, "failed to shutdown SSH stream");
             }

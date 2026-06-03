@@ -253,7 +253,30 @@ async fn process_push<R: AsyncRead + Unpin>(
 
     // Receive pack data and pipe to git index-pack
     // TODO(gix): Replace with gix pack indexing when available.
+    //
+    // CRITICAL: --fix-thin is REQUIRED (踩坑经验 #4)
+    //
+    // Thin packs reference base objects NOT in the pack.
+    // Without --fix-thin, git index-pack fails with "pack has delta resolution error".
+    // With --fix-thin, missing bases are resolved from the repo before indexing.
+    // TODO(gix): Replace with gix pack indexing when available.
     // Currently using git index-pack CLI as gix doesn't have a direct replacement.
+    //
+    // CRITICAL: --fix-thin is REQUIRED (踩坑经验 #4)
+    //
+    // A "thin pack" is a packfile that references base objects NOT included in
+    // the pack. Git clients send thin packs during push to reduce network traffic.
+    //
+    // Without --fix-thin:
+    //   git index-pack will fail with "pack has delta resolution error"
+    //   or "missing delta base object"
+    //
+    // With --fix-thin:
+    //   git index-pack resolves missing bases from the repository, adds them
+    //   to the pack, making it "non-thin" before indexing.
+    //
+    // This is a common gotcha when implementing receive-pack. Always use
+    // --fix-thin unless you're absolutely sure the client sends full packs.
     let mut index_pack = tokio::process::Command::new("git")
         .arg("-C")
         .arg(repo_path)

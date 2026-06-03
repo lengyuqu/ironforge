@@ -523,6 +523,28 @@ async fn handle_object_info<W: AsyncWrite + Unpin>(
 // ─── Git Operations ───────────────────────────────────────────────────────────
 
 /// List refs using gix API.
+///
+/// CRITICAL: HEAD reference handling (踩坑经验 #5)
+///
+/// `git for-each-ref` does NOT list HEAD by default.
+/// gix `repo.references().all()` correctly returns ALL references including HEAD.
+/// See CLAUDE.md "常见错误排查" for details.
+///
+/// CRITICAL: HEAD reference handling (踩坑经验 #5)
+///
+/// The `git for-each-ref` command does NOT list HEAD by default.
+/// This is a common gotcha when migrating from git CLI to gix API.
+///
+/// For example:
+///   $ git for-each-ref refs/heads/
+///   Will NOT include HEAD even if HEAD points to refs/heads/main
+///
+/// Our solution: Use gix API (`repo.references().all()`) which correctly
+/// returns ALL references including HEAD. We then handle symbolic refs
+/// (like HEAD) separately by resolving them to their target object ID.
+///
+/// This approach is more reliable than shelling out to `git for-each-ref`
+/// and avoids the HEAD-missing bug.
 fn list_refs(repo_path: &Path) -> Result<Vec<(String, String)>> {
     let repo = gix::open(repo_path).context("failed to open repository")?;
     let mut refs = Vec::new();

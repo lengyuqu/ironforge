@@ -469,6 +469,18 @@ thiserror       = "2"
 | `nul byte found in provided data` | 向 Command::arg() 传了含 NUL 的字符串 | 先用 split('\0').next() 剥离 capabilities |
 | `the feature requires unstable` | 用了需要 nightly 的 gix API | 用系统 git 命令替代 |
 | `--repo-root` not found | CLI 用法错误 | 必须加 `serve` 子命令：`ironforge serve --repo-root ...` |
+| `HEAD` not found in ref list | `git for-each-ref` 不列出 HEAD | 用 gix API (`repo.references().all()`) 替代，它会正确返回 HEAD |
+| `fatal: not a valid ref` (HTTP clone) | Content-Type 不正确 | 确保 `info/refs` 响应使用 `application/x-git-*-advertisement` |
+| `pack has delta resolution error` | thin pack 未加 `--fix-thin` | `git index-pack` 必须加 `--fix-thin` 参数 |
+| handler 返回类型编译错误 | Axum handler 返回类型不一致 | 同一 handler 不能混用 `(StatusCode, Json)` 和 `Html` |
+| JSON 响应 `data` 字段为空 | `PaginatedResponse` 未用 `to_value()` 包装 | 必须用 `serde_json::to_value(resp)` 包装后返回 |
+| Axum TLS 报错 | 用了 `axum::serve()` 而不是 `axum_server` | TLS 必须用 `axum_server::bind_rustls()` |
+| SeaORM 批量删除不生效 | 用了错误的方法 | 必须用 `Entity::delete_many().filter(...).exec(db)` |
+| SeaORM 单行更新失败 | 直接构造 ActiveModel | 必须先 `find_by_id()` 再 `into_active_model()` |
+| russh `fingerprint()` 编译错误 | 缺少 `HashAlg` 参数 | 必须传 `HashAlg::Sha256` |
+| SSH 认证死循环 | `Auth::Reject` 未设 `partial_success: false` | 必须带 `partial_success: false` |
+| FTS5 触发器语法错误 | 用了不正确的 SQL 语法 | 必须用 `DELETE FROM fts WHERE rowid = old.id` |
+| 级联编译错误 | `mod.rs` 缺少子模块声明 | 检查 `mod.rs` 是否列出了所有子模块 |
 
 ---
 

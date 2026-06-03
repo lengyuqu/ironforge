@@ -63,8 +63,23 @@ pub async fn update(db: &DatabaseConnection, model: ActiveModel) -> Result<User>
         .context("db: update user")
 }
 
-/// Update user fields by ID (used by admin).
-/// Returns the updated user.
+///
+/// CRITICAL: SeaORM single-row update (踩坑经验 #11)
+///
+/// To update a single row, you MUST first `find_by_id()` to get the model,
+/// then convert it into an `ActiveModel`, modify fields, and call `update()`.
+///
+/// CORRECT pattern (used here):
+///   let model = UserEntity::find_by_id(id)
+///       .one(db).await?
+///       .ok_or_else(|| anyhow::anyhow!("not found"))?;
+///   let mut active: ActiveModel = model.into();
+///   active.field = Set(value);
+///   active.update(db).await
+///
+/// WRONG patterns:
+///   ActiveModel { id: Set(id), ... }.update(db)  // MAY skip optimistic lock
+///   Entity::update_many().col(...).filter(...).exec(db)  // batch only
 pub async fn update_by_id(
     db: &DatabaseConnection,
     id: i64,

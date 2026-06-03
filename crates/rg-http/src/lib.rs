@@ -95,6 +95,32 @@ pub async fn run(config: HttpServerConfig) -> Result<()> {
 
     let app = create_router(state.clone(), rate_limiter.clone());
 
+    // ── HTTPS mode (axum-server + rustls) ──────────────────
+        //
+        //
+        // To use TLS, you MUST use `axum_server::bind_rustls()` instead.
+        //
+        // Correct pattern (used below):
+        //   let rustls_config = RustlsConfig::from_config(tls_config);
+        //   axum_server::bind_rustls(addr, rustls_config).serve(app).await?;
+        //
+        // Wrong pattern (no TLS support):
+        //   let listener = TcpListener::bind(addr).await?;
+        //   axum::serve(listener, app).await?;  // ERROR: no TLS!
+    // ── HTTPS mode (axum-server + rustls) ──────────────────
+    //
+    // CRITICAL: Axum TLS requires `axum-server`, NOT `axum::serve()` (踩坑经验 #2)
+    //
+    // `axum::serve()` only supports plain TCP (no TLS).
+    // To use TLS, you MUST use `axum_server::bind_rustls()` instead.
+    //
+    // Correct pattern (used below):
+    //   let rustls_config = RustlsConfig::from_config(tls_config);
+    //   axum_server::bind_rustls(addr, rustls_config).serve(app).await?;
+    //
+    // Wrong pattern (no TLS support):
+    //   let listener = TcpListener::bind(addr).await?;
+    //   axum::serve(listener, app).await?;  // ERROR: no TLS!
     if let Some((cert_path, key_path)) = &config.tls_config {
         // ── HTTPS mode (axum-server + rustls) ──────────────────────────
         let tls_config = load_tls_config(cert_path, key_path).await?;
@@ -167,6 +193,22 @@ fn create_router(state: AppState, rate_limiter: rate_limit::RateLimiter) -> Rout
 }
 
 /// Shared router builder used by both production and test routers.
+///
+/// CRITICAL: Axum `nest()` State requirement (踩坑经验 #2)
+///
+/// All nested routers MUST share the same `State<AppState>` type.
+/// If `git_routes` or `api_v1` use a different State type,
+/// Axum will reject the route with a compile-time error.
+///
+/// Correct pattern (used here):
+///   let git_routes = Router::new()...with_state(state.clone());
+///   let api_v1 = Router::new()...with_state(state.clone());
+///   Router::new().nest("/git", git_routes).nest("/api/v1", api_v1)
+///
+/// Wrong pattern (will not compile):
+///   let git_routes = Router::new()...with_state(git_state);  // different type
+///   let api_v1 = Router::new()...with_state(api_state);     // different type
+///   Router::new().nest("/git", git_routes).nest("/api/v1", api_v1)  // ERROR
 fn build_router(state: AppState, rate_limiter: rate_limit::RateLimiter) -> Router {
     let (api_v1, git_routes) = build_routes(&state);
 
@@ -566,6 +608,27 @@ async fn check_git_access(
     }
 }
 
+/// Git Smart HTTP `/info/refs` endpoint.
+///
+/// CRITICAL: Content-Type handling (踩坑经验 #6)
+///
+/// The Git Smart HTTP protocol is VERY sensitive to Content-Type headers.
+/// Incorrect Content-Type will cause `git` client to silently fail or
+/// report "fatal: protocol error: bad line length character".
+///
+/// Correct Content-Types:
+/// - info/refs response:
+///   - upload-pack: `application/x-git-upload-pack-advertisement`
+///   - receive-pack: `application/x-git-receive-pack-advertisement`
+/// - request body (POST):
+///   - upload-pack: `application/x-git-upload-pack-request`
+///   - receive-pack: `application/x-git-receive-pack-request`
+/// - response body (POST):
+///   - upload-pack: `application/x-git-upload-pack-result`
+///   - receive-pack: `application/x-git-receive-pack-result`
+///
+/// Common mistake: Using `text/plain` or wrong subtype will break git clients.
+/// Always verify Content-Type matches the Git Smart HTTP spec exactly.
 async fn handle_info_refs(
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,

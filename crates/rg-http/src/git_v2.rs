@@ -55,6 +55,23 @@ fn build_v2_capability_sync() -> String {
 
 /// Handle GET /git/{owner}/{repo}/info/refs
 /// Protocol V2 negotiation happens on first request with Git-Protocol header.
+/// Git Smart HTTP `/info/refs` endpoint (Protocol V2).
+///
+/// CRITICAL: Content-Type handling (踩坑经验 #6)
+///
+/// Git Smart HTTP is VERY sensitive to Content-Type headers.
+/// Incorrect Content-Type causes `git` client to fail with:
+///   "fatal: protocol error: bad line length character"
+///
+/// Correct Content-Types:
+/// - info/refs response:  `application/x-git-upload-pack-advertisement`
+///                       `application/x-git-receive-pack-advertisement`
+/// - POST request body:   `application/x-git-upload-pack-request`
+///                       `application/x-git-receive-pack-request`
+/// - POST response body:  `application/x-git-upload-pack-result`
+///                       `application/x-git-receive-pack-result`
+///
+/// Common mistake: using `text/plain` or wrong subtype breaks git clients.
 pub async fn handle_info_refs_v2(
     State(state): State<AppState>,
     Path((owner, repo)): Path<(String, String)>,
