@@ -11,7 +11,7 @@
 use std::path::Path;
 
 use anyhow::{bail, Context, Result};
-use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, BufReader, split};
 
 use crate::pkt_line::{write_pkt_line, write_flush, read_pkt_line, PktLine};
 use crate::sideband;
@@ -64,21 +64,104 @@ where
 }
 
 /// Internal: Protocol V2 for single bidirectional stream (SSH mode).
-/// Note: SSH V2 is more complex as it requires state machine handling.
-/// For now, this is a simplified implementation.
-async fn handle_v2_stream_impl<S>(_repo_path: &Path, stream: &mut S) -> Result<()>
+///
+/// Uses tokio::io::split to separate the stream into read/write halves,
+/// so we can use BufReader on the read half for efficient pkt-line parsing
+/// while keeping the write half independent.
+async fn handle_v2_stream_impl<S>(repo_path: &Path, stream: &mut S) -> Result<()>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
-    // Send capability advertisement
-    send_capability_advertisement(stream).await?;
+    // Split the bidirectional stream into independent read/write halves.
+    let (read_half, mut write_half) = split(stream);
 
-    // SSH V2 implementation would require a proper state machine
-    // that can read commands while still being able to write responses.
-    // For this initial implementation, we just send the capabilities
-    // and let the client fall back to V1 if needed.
+    // Send capability advertisement on the write half
+    send_capability_advertisement(&mut write_half).await?;
 
-    tracing::info!("SSH V2: capability advertisement sent");
+    // BufReader on the read half for efficient pkt-line parsing.
+    // We reuse the same BufReader across loop iterations to preserve its buffer.
+    let mut reader = BufReader::new(read_half);
+
+    // Command processing loop - V2 allows command multiplexing.
+    // We read the command first (storing the result), then match on it,
+    // so that the mutable borrow of `reader` ends before the match arms execute.
+    loop {
+        let command = read_command_request(&mut reader).await?;
+
+        match command {
+            CommandRequest::LsRefs {
+                ref_patterns,
+                peel,
+                symrefs,
+                unborn,
+                server_options,
+            } => {
+                tracing::debug!(
+                    patterns = ?ref_patterns,
+                    peel,
+                    symrefs,
+                    "Processing ls-refs command (SSH V2)"
+                );
+                handle_ls_refs(
+                    repo_path,
+                    &mut write_half,
+                    &ref_patterns,
+                    peel,
+                    symrefs,
+                    unborn,
+                    &server_options,
+                )
+                .await?;
+            }
+            CommandRequest::Fetch {
+                wants,
+                haves,
+                shallows,
+                deepen,
+                filter,
+                done,
+                client_caps,
+            } => {
+                tracing::debug!(
+                    wants = wants.len(),
+                    haves = haves.len(),
+                    shallows = shallows.len(),
+                    done,
+                    "Processing fetch command (SSH V2)"
+                );
+                handle_fetch(
+                    repo_path,
+                    &mut write_half,
+                    &wants,
+                    &haves,
+                    &shallows,
+                    deepen,
+                    &filter,
+                    done,
+                    &client_caps,
+                )
+                .await?;
+            }
+            CommandRequest::ObjectInfo { oid, server_options } => {
+                tracing::debug!(oid = %oid, "Processing object-info command (SSH V2)");
+                handle_object_info(repo_path, &mut write_half, &oid, &server_options).await?;
+            }
+            CommandRequest::Flush => {
+                // Empty flush packet signals end of commands
+                tracing::debug!("Received command flush - closing connection (SSH V2)");
+                break;
+            }
+            CommandRequest::Unknown(cmd) => {
+                tracing::warn!(cmd = %cmd, "Unknown command, skipping");
+                // Reuse the existing `reader` (BufReader) to skip until flush.
+                // The borrow of `reader` for `read_command_request` ended
+                // when that function returned, so `reader` is available here.
+                skip_until_flush(&mut reader).await?;
+                write_flush(&mut write_half).await?;
+            }
+        }
+    }
+
     Ok(())
 }
 
@@ -232,7 +315,7 @@ pub enum CommandRequest {
 ///   command-args...
 ///   0000 (flush)
 async fn read_command_request<R: AsyncRead + Unpin>(
-    reader: &mut BufReader<R>,
+    reader: &mut R,
 ) -> Result<CommandRequest> {
     let mut command = None;
     let mut capabilities = Vec::new();
@@ -376,7 +459,9 @@ async fn read_command_request<R: AsyncRead + Unpin>(
 }
 
 /// Skip packets until flush (for unknown commands).
-async fn skip_until_flush<R: AsyncRead + Unpin>(reader: &mut BufReader<R>) -> Result<()> {
+///
+/// Accepts any `AsyncRead + Unpin` directly.
+async fn skip_until_flush<R: AsyncRead + Unpin>(reader: &mut R) -> Result<()> {
     loop {
         let pkt = read_pkt_line(reader).await?;
         if matches!(pkt, PktLine::Flush) {

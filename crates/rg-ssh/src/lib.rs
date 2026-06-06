@@ -15,6 +15,7 @@ use tokio::io::AsyncWriteExt;
 
 use rg_git::protocol::receive_pack::handle_receive_pack_stream;
 use rg_git::protocol::upload_pack::handle_upload_pack_stream;
+use rg_git::protocol::v2::handle_v2_stream;
 
 /// Error type for SSH handler.
 #[derive(Debug)]
@@ -113,6 +114,7 @@ impl russh::server::Server for SshServer {
             _peer: peer,
             channel: None,
             authenticated_user_id: None,
+            git_protocol_version: "1".to_string(),
         };
         self.id += 1;
         handler
@@ -133,6 +135,9 @@ struct SshHandler {
     channel: Option<Channel<Msg>>,
     /// User id resolved during authentication (None if auth not DB-backed).
     authenticated_user_id: Option<i64>,
+    /// Git protocol version requested by the client (default: "1").
+    /// Set to "2" when the client sends GIT_PROTOCOL=version=2 via env_request.
+    git_protocol_version: String,
 }
 
 impl Handler for SshHandler {
@@ -234,6 +239,21 @@ impl Handler for SshHandler {
         Ok(Auth::Reject { proceed_with_methods: None, partial_success: false })
     }
 
+    async fn env_request(
+        &mut self,
+        _channel_id: ChannelId,
+        name: &str,
+        value: &str,
+        _session: &mut Session,
+    ) -> Result<(), Self::Error> {
+        if name == "GIT_PROTOCOL" && value.contains("version=2") {
+            tracing::info!(%value, "SSH client requested Git Protocol V2");
+            self.git_protocol_version = "2".to_string();
+        }
+        // Accept env request (git needs GIT_PROTOCOL)
+        Ok(())
+    }
+
     async fn channel_open_session(
         &mut self,
         channel: Channel<Msg>,
@@ -290,16 +310,22 @@ impl Handler for SshHandler {
 
         let handle = session.handle();
         let service_name = service.clone();
+        let git_protocol_version = self.git_protocol_version.clone();
 
         tokio::spawn(async move {
             tracing::info!(%service_name, path = %repo_full_path.display(), "Starting git SSH session");
 
             let mut stream: ChannelStream<Msg> = ch.into_stream();
 
-            let result: Result<(), anyhow::Error> = match service_name.as_str() {
-                "git-upload-pack" => handle_upload_pack_stream(&repo_full_path, &mut stream).await.map(|_| ()),
-                "git-receive-pack" => handle_receive_pack_stream(&repo_full_path, &mut stream).await.map(|_| ()),
-                _ => Err(anyhow::anyhow!("Unknown git service: {}", service_name)),
+            let result: Result<(), anyhow::Error> = if git_protocol_version == "2" {
+                tracing::info!(%service_name, "Using Protocol V2");
+                handle_v2_stream(&repo_full_path, &mut stream).await
+            } else {
+                match service_name.as_str() {
+                    "git-upload-pack" => handle_upload_pack_stream(&repo_full_path, &mut stream).await.map(|_| ()),
+                    "git-receive-pack" => handle_receive_pack_stream(&repo_full_path, &mut stream).await.map(|_| ()),
+                    _ => Err(anyhow::anyhow!("Unknown git service: {}", service_name)),
+                }
             };
 
             let exit_code: u32 = if result.is_ok() { 0 } else { 1 };

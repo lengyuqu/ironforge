@@ -6,7 +6,7 @@
 use std::fmt;
 
 use anyhow::{bail, Result};
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 /// Maximum payload size per pkt-line (65516 bytes, per git protocol).
 pub const MAX_PKT_LINE_LEN: usize = 65516;
@@ -96,8 +96,12 @@ pub async fn write_delim<W: AsyncWrite + Unpin>(writer: &mut W) -> Result<()> {
     Ok(())
 }
 
-/// Read a single pkt-line from a buffered reader.
-pub async fn read_pkt_line<R: AsyncRead + Unpin>(reader: &mut BufReader<R>) -> Result<PktLine> {
+/// Read a single pkt-line from an async reader.
+///
+/// Accepts any `AsyncRead + Unpin` directly (with or without BufReader).
+/// Using a `BufReader` is recommended for performance when reading many small
+/// pkt-lines over a network stream.
+pub async fn read_pkt_line<R: AsyncRead + Unpin>(reader: &mut R) -> Result<PktLine> {
     let mut header = [0u8; 4];
     match reader.read_exact(&mut header).await {
         Ok(_) => {}
@@ -132,8 +136,10 @@ pub async fn read_pkt_line<R: AsyncRead + Unpin>(reader: &mut BufReader<R>) -> R
 }
 
 /// Read pkt-lines until flush. Returns all data lines (excluding flush).
+///
+/// Accepts any `AsyncRead + Unpin` directly.
 pub async fn read_pkt_lines_until_flush<R: AsyncRead + Unpin>(
-    reader: &mut BufReader<R>,
+    reader: &mut R,
 ) -> Result<Vec<PktLine>> {
     let mut lines = Vec::new();
     loop {
@@ -147,7 +153,9 @@ pub async fn read_pkt_lines_until_flush<R: AsyncRead + Unpin>(
 }
 
 /// Read a single text line (non-flush pkt-line) as a string.
-pub async fn read_text_line<R: AsyncRead + Unpin>(reader: &mut BufReader<R>) -> Result<Option<String>> {
+///
+/// Accepts any `AsyncRead + Unpin` directly.
+pub async fn read_text_line<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Option<String>> {
     let pkt = read_pkt_line(reader).await?;
     match pkt {
         PktLine::Flush => Ok(None),
