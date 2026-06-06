@@ -3,11 +3,21 @@
 //! Supports two execution modes:
 //! - **Local**: `sh -c` (default, when no `image` is specified)
 //! - **Docker**: `docker run --rm <image> sh -c` (when `image` field is set)
+//!
+//! Security measures:
+//! - All job executions are bounded by a configurable timeout (default 1 hour).
+//! - When Docker is requested but unavailable, the job **fails** instead of
+//!   silently falling back to local execution (prevents privilege escalation).
+//! - Local execution sanitizes the environment to avoid leaking sensitive vars.
+//! - On timeout the child process is killed (not just abandoned).
 
 use anyhow::{Context, Result};
 use sea_orm::DatabaseConnection;
 
 use rg_db::ops::pipeline_ops;
+
+/// Default maximum execution time per job: 1 hour.
+const DEFAULT_JOB_TIMEOUT_SECS: u64 = 3600;
 
 /// Pipeline runner that executes stages/jobs sequentially.
 pub struct PipelineRunner {
@@ -15,6 +25,8 @@ pub struct PipelineRunner {
     repo_path: std::path::PathBuf,
     pipeline_id: i64,
     docker_enabled: bool,
+    /// Per-job timeout in seconds (0 = no timeout).
+    job_timeout_secs: u64,
 }
 
 impl PipelineRunner {
@@ -24,6 +36,7 @@ impl PipelineRunner {
             repo_path: repo_path.to_path_buf(),
             pipeline_id,
             docker_enabled: true,
+            job_timeout_secs: DEFAULT_JOB_TIMEOUT_SECS,
         }
     }
 
@@ -34,7 +47,13 @@ impl PipelineRunner {
             repo_path: repo_path.to_path_buf(),
             pipeline_id,
             docker_enabled: false,
+            job_timeout_secs: DEFAULT_JOB_TIMEOUT_SECS,
         }
+    }
+
+    /// Set the per-job timeout in seconds. Pass 0 to disable the timeout.
+    pub fn set_job_timeout(&mut self, secs: u64) {
+        self.job_timeout_secs = secs;
     }
 
     /// Run the pipeline: iterate stages in order, run jobs in each stage.
@@ -173,7 +192,8 @@ impl PipelineRunner {
     /// Run a single job.
     ///
     /// - If `image` is provided and Docker is available: `docker run --rm <image> sh -c <script>`
-    /// - Otherwise: `sh -c <script>`
+    /// - If `image` is provided but Docker is NOT available: **fail** (no silent fallback).
+    /// - Otherwise: `sh -c <script>` (with timeout).
     ///
     /// Returns (exit_code, stdout+stderr output).
     async fn run_job(&self, job_id: i64, script: &str, image: Option<&str>) -> Result<(i32, String)> {
@@ -193,35 +213,91 @@ impl PipelineRunner {
 
         tracing::info!(job_id, "Running job");
 
-        let result = if let Some(img) = image {
-            if self.docker_enabled {
+        // When an image is requested but Docker is disabled, fail immediately.
+        // Silent fallback to local execution is a security risk: CI scripts
+        // written for a sandboxed container would run with the server's full
+        // permissions.
+        if let Some(img) = image {
+            if !self.docker_enabled {
+                let msg = format!(
+                    "Job requires Docker image '{}' but Docker is disabled on this runner. \
+                     Refusing to fall back to local execution for security reasons.",
+                    img
+                );
+                tracing::warn!(job_id, "{}", msg);
+                return Err(anyhow::anyhow!("{}", msg));
+            }
+        }
+
+        let timeout_secs = self.job_timeout_secs;
+        let exec_future = async {
+            if let Some(img) = image {
                 self.run_job_docker(job_id, script, img).await
             } else {
-                tracing::warn!(job_id, image = %img, "Docker disabled, falling back to local execution");
                 self.run_job_local(script).await
             }
-        } else {
-            self.run_job_local(script).await
         };
 
-        result
+        // Apply timeout if configured
+        if timeout_secs > 0 {
+            match tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), exec_future).await {
+                Ok(result) => result,
+                Err(_elapsed) => {
+                    let msg = format!("Job timed out after {} seconds", timeout_secs);
+                    tracing::warn!(job_id, "{}", msg);
+                    Ok((-1, msg))
+                }
+            }
+        } else {
+            exec_future.await
+        }
     }
 
     /// Execute script locally via platform-appropriate shell.
+    ///
+    /// The process runs with a sanitized environment (PATH and LANG only) to
+    /// prevent leaking sensitive variables from the server process.
     async fn run_job_local(&self, script: &str) -> Result<(i32, String)> {
+        // Build a minimal, safe environment
+        let safe_env: Vec<(String, String)> = {
+            let mut env = Vec::new();
+            // Preserve PATH so that standard tools are available
+            if let Ok(path) = std::env::var("PATH") {
+                env.push(("PATH".to_string(), path));
+            }
+            // Preserve LANG for UTF-8 support
+            if let Ok(lang) = std::env::var("LANG") {
+                env.push(("LANG".to_string(), lang));
+            }
+            // Add HOME pointing to a temp directory (prevents access to real home)
+            env.push(("HOME".to_string(), self.repo_path.to_string_lossy().into_owned()));
+            env
+        };
+
         #[cfg(unix)]
-        let output = tokio::process::Command::new("sh")
-            .arg("-c")
-            .arg(script)
-            .current_dir(&self.repo_path)
-            .output()
-            .await
-            .context("failed to spawn job process")?;
+        let mut cmd = {
+            let mut c = tokio::process::Command::new("sh");
+            c.arg("-c")
+                .arg(script)
+                .current_dir(&self.repo_path)
+                .env_clear()
+                .envs(safe_env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
+                .kill_on_drop(true); // Kill child process when the handle is dropped (timeout)
+            c
+        };
         
         #[cfg(windows)]
-        let output = tokio::process::Command::new("powershell.exe")
-            .args(&["-NoProfile", "-NonInteractive", "-Command", script])
-            .current_dir(&self.repo_path)
+        let mut cmd = {
+            let mut c = tokio::process::Command::new("powershell.exe");
+            c.args(&["-NoProfile", "-NonInteractive", "-Command", script])
+                .current_dir(&self.repo_path)
+                .env_clear()
+                .envs(safe_env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
+                .kill_on_drop(true);
+            c
+        };
+
+        let output = cmd
             .output()
             .await
             .context("failed to spawn job process")?;
@@ -245,6 +321,7 @@ impl PipelineRunner {
     ///
     /// Uses `docker run --rm` with the specified image.
     /// The repo working directory is mounted as a volume.
+    /// If Docker is unavailable, the job **fails** — no silent fallback to local.
     async fn run_job_docker(&self, job_id: i64, script: &str, image: &str) -> Result<(i32, String)> {
         let repo_path_str = self.repo_path.to_str()
             .ok_or_else(|| anyhow::anyhow!("repo path is not valid UTF-8"))?;
@@ -257,8 +334,14 @@ impl PipelineRunner {
             .context("Docker not found — is docker installed and running?")?;
 
         if !docker_check.status.success() {
-            tracing::warn!(job_id, "Docker daemon not running, falling back to local execution");
-            return self.run_job_local(script).await;
+            // SECURITY: Do NOT fall back to local execution.
+            // The CI script was written expecting a sandboxed container;
+            // running it locally with server permissions is a privilege escalation.
+            return Err(anyhow::anyhow!(
+                "Docker daemon not available. Job requires image '{}' but cannot run in container. \
+                 Refusing to fall back to local execution.",
+                image
+            ));
         }
 
         // Generate a unique container name

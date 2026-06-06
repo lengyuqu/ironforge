@@ -23,22 +23,13 @@ pub fn fingerprint_from_openssh(pubkey: &str) -> Result<String> {
 }
 
 fn sha256(data: &[u8]) -> [u8; 32] {
-    // Use a minimal manual SHA-256 via the standard library ring/sha path.
-    // We intentionally use only std + the ring crate already transitively present
-    // via russh. If not available, fall back to a simple approach using the
-    // `sha2` crate (added to dependencies).
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
+    use sha2::{Sha256, Digest};
 
-    // NOTE: for production we use sha2 crate (see Cargo.toml).
-    // This stub uses a deterministic placeholder.
-    // The real implementation is in the sha2-backed version below.
-    let _ = data;
-    let mut h = DefaultHasher::new();
-    data.hash(&mut h);
-    let v = h.finish();
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    let result = hasher.finalize();
     let mut out = [0u8; 32];
-    out[..8].copy_from_slice(&v.to_le_bytes());
+    out.copy_from_slice(&result);
     out
 }
 

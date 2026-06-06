@@ -1,7 +1,7 @@
 //! REST API handlers for CI/CD Runners.
 
 use axum::extract::{Path, Query, Request, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
@@ -10,6 +10,20 @@ use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use crate::error::AppError;
 use crate::AppState;
+use super::users::extract_bearer_claims;
+
+/// Verify the current request is from an authenticated admin user.
+/// Returns `Some(user_id)` on success, `None` otherwise.
+async fn require_admin(state: &AppState, headers: &HeaderMap) -> Option<i64> {
+    let claims = extract_bearer_claims(headers, &state.jwt_secret)?;
+    let user_id: i64 = claims.sub.parse().ok()?;
+    let user = rg_db::ops::user_ops::find_by_id(&state.db, user_id).await.ok()??;
+    if user.is_admin {
+        Some(user_id)
+    } else {
+        None
+    }
+}
 
 // ── Request/Response types ─────────────────────────────────
 
@@ -81,8 +95,14 @@ pub struct RunnerInfoResponse {
 )]
 pub async fn register(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(req): Json<RegisterRunnerRequest>,
 ) -> impl IntoResponse {
+    // Require admin authentication to register a runner
+    if require_admin(&state, &headers).await.is_none() {
+        return AppError::unauthorized("admin authentication required to register runners").into_response();
+    }
+
     let labels_json = serde_json::to_string(&req.labels.unwrap_or_default())
         .unwrap_or_else(|_| "[]".to_string());
 
@@ -403,8 +423,11 @@ pub struct FinishJobRequest {
 )]
 pub async fn list_runners_admin(
     State(state): State<AppState>,
-    // TODO: authenticate as admin
+    headers: HeaderMap,
 ) -> impl IntoResponse {
+    if require_admin(&state, &headers).await.is_none() {
+        return AppError::unauthorized("admin authentication required").into_response();
+    }
     match rg_db::ops::runner_ops::list_all(&state.db).await {
         Ok(runners) => {
             let resp: Vec<RunnerInfoResponse> = runners
@@ -492,8 +515,12 @@ pub async fn authenticate_runner(
 )]
 pub async fn delete_runner_admin(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(runner_id): Path<i64>,
 ) -> impl IntoResponse {
+    if require_admin(&state, &headers).await.is_none() {
+        return AppError::unauthorized("admin authentication required").into_response();
+    }
     match rg_db::ops::runner_ops::delete_runner(&state.db, runner_id).await {
         Ok(true) => (StatusCode::NO_CONTENT, Json(serde_json::json!({"deleted": true}))).into_response(),
         Ok(false) => AppError::not_found("runner not found").into_response(),

@@ -206,14 +206,22 @@ pub fn push_job_log(hub: &NotificationHub, job_id: i64, log: &str) {
 
 /// GET /api/v1/ws/job/:job_id — WebSocket for real-time job log streaming.
 ///
-/// Does not require JWT auth. Frontend subscribes to receive `job_log` events
-/// filtered by the specified job_id.
+/// Requires JWT authentication via query parameter: `?token=<jwt>`.
+/// Frontend subscribes to receive `job_log` events filtered by the specified job_id.
 pub async fn ws_job_log_handler(
     ws: WebSocketUpgrade,
     Path(job_id): Path<i64>,
+    Query(query): Query<WsQuery>,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| handle_job_log_connection(socket, state.notification_hub.clone(), job_id))
+    // Authenticate via JWT token in query string
+    let authenticated = query
+        .token
+        .as_deref()
+        .and_then(|t| rg_core::auth::jwt::validate_token(t, &state.jwt_secret))
+        .is_some();
+
+    ws.on_upgrade(move |socket| handle_job_log_connection(socket, state.notification_hub.clone(), job_id, authenticated))
 }
 
 /// Handle a job log WebSocket connection.
@@ -221,8 +229,20 @@ async fn handle_job_log_connection(
     socket: WebSocket,
     hub: NotificationHub,
     job_id: i64,
+    authenticated: bool,
 ) {
     let (mut sender, mut receiver) = socket.split();
+
+    // Reject unauthenticated connections
+    if !authenticated {
+        let _ = sender
+            .send(Message::Text(
+                serde_json::json!({"error": "authentication required"}).to_string().into(),
+            ))
+            .await;
+        let _ = sender.close().await;
+        return;
+    }
 
     let mut rx = hub.subscribe();
 
