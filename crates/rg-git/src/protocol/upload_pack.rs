@@ -72,7 +72,7 @@ where
     W: AsyncWrite + Unpin,
 {
     let refs = list_refs(repo_path)?;
-    let head_sha = resolve_head_sha(repo_path);
+    let head_sha = crate::resolve_head_sha(repo_path);
     let ref_list = build_ref_advertisement_vec(refs, head_sha);
 
     // Send ref advertisement
@@ -105,7 +105,7 @@ where
     S: AsyncRead + AsyncWrite + Unpin,
 {
     let refs = list_refs(repo_path)?;
-    let head_sha = resolve_head_sha(repo_path);
+    let head_sha = crate::resolve_head_sha(repo_path);
     let ref_list = build_ref_advertisement_vec(refs, head_sha);
 
     // Send ref advertisement
@@ -291,13 +291,6 @@ fn list_refs(repo_path: &Path) -> Result<Vec<(String, String)>> {
     }
 
     Ok(refs)
-}
-
-/// Resolve HEAD to a SHA, or return None if HEAD doesn't point to a valid commit.
-fn resolve_head_sha(repo_path: &Path) -> Option<String> {
-    let repo = gix::open(repo_path).ok()?;
-    let head_id = repo.head_id().ok()?;
-    Some(head_id.to_string())
 }
 
 /// Build ref advertisement from ref list.

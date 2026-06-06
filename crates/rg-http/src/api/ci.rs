@@ -436,14 +436,17 @@ pub async fn cancel_pipeline(
 
     for stage in stages {
         if stage.status == "running" || stage.status == "pending" {
-            let _ = rg_db::ops::pipeline_ops::update_stage_status(
+            if let Err(e) = rg_db::ops::pipeline_ops::update_stage_status(
                 &state.db,
                 stage.id,
                 "canceled",
                 None,
                 Some(now),
             )
-            .await;
+            .await
+            {
+                tracing::error!(stage_id = stage.id, error = %e, "Failed to cancel stage");
+            }
 
             let jobs = match rg_db::ops::pipeline_ops::list_jobs_by_stage(&state.db, stage.id).await {
                 Ok(j) => j,
@@ -452,7 +455,7 @@ pub async fn cancel_pipeline(
 
             for job in jobs {
                 if job.status == "running" || job.status == "pending" {
-                    let _ = rg_db::ops::pipeline_ops::update_job_result(
+                    if let Err(e) = rg_db::ops::pipeline_ops::update_job_result(
                         &state.db,
                         job.id,
                         "canceled",
@@ -461,7 +464,10 @@ pub async fn cancel_pipeline(
                         None,
                         Some(now),
                     )
-                    .await;
+                    .await
+                    {
+                        tracing::error!(job_id = job.id, error = %e, "Failed to cancel job");
+                    }
                 }
             }
         }

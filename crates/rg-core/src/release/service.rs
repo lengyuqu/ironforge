@@ -67,7 +67,9 @@ pub async fn create_release(
         "is_prerelease": release.is_prerelease,
         "author_id": release.author_id,
     });
-    let _ = crate::webhook::service::trigger_release_created(db, repo_id, &payload).await;
+    if let Err(e) = crate::webhook::service::trigger_release_created(db, repo_id, &payload).await {
+        tracing::warn!("Failed to trigger release.created webhook: {e}");
+    }
 
     Ok(release)
 }
@@ -137,7 +139,9 @@ pub async fn delete_release(db: &DatabaseConnection, id: i64) -> Result<()> {
         "tag_name": release.tag_name,
         "title": release.title,
     });
-    let _ = crate::webhook::service::trigger_release_deleted(db, repo_id, &payload).await;
+    if let Err(e) = crate::webhook::service::trigger_release_deleted(db, repo_id, &payload).await {
+        tracing::warn!("Failed to trigger release.deleted webhook: {e}");
+    }
 
     Ok(())
 }
@@ -236,11 +240,15 @@ pub async fn delete_asset(
 
     // Remove file from disk (ignore errors if file doesn't exist)
     let file_path = asset_file_path(repo_root, owner, repo_name, &asset);
-    let _ = tokio::fs::remove_file(&file_path).await;
+    if let Err(e) = tokio::fs::remove_file(&file_path).await {
+        tracing::warn!("Failed to remove asset file {}: {e}", file_path.display());
+    }
 
     // Remove parent directory if empty
     if let Some(parent) = file_path.parent() {
-        let _ = tokio::fs::remove_dir(parent).await;
+        if let Err(e) = tokio::fs::remove_dir(parent).await {
+            tracing::warn!("Failed to remove asset directory {}: {e}", parent.display());
+        }
     }
 
     // Delete DB record

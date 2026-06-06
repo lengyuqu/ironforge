@@ -207,7 +207,6 @@ async fn test_list_repos() {
 }
 
 #[tokio::test]
-#[ignore] // TODO: toggle_star returns 500 — application bug, not test issue
 async fn test_star_repo() {
     let base = spawn_test_app().await;
     let token = register_user(&base, "staruser", "star@example.com", "password123").await;

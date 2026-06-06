@@ -79,9 +79,11 @@ pub async fn notify_watchers_push(
         }
         let title = format!("New push to {}", repo_name);
         let body = Some(format!("{} pushed to {}", pusher_name, ref_name));
-        let _ = notification_ops::create_notification(
+        if let Err(e) = notification_ops::create_notification(
             db, watcher.user_id, "push", &title, body.as_deref(), Some(repo_id),
-        ).await;
+        ).await {
+            tracing::warn!("Failed to notify watcher {} about push: {e}", watcher.user_id);
+        }
     }
     Ok(())
 }
@@ -100,9 +102,11 @@ pub async fn notify_watchers_pr(
     for watcher in watchers {
         let title = format!("PR #{} {} in {}", pr_number, action, repo_name);
         let body = Some(format!("{} {}: {}", author_name, action, pr_title));
-        let _ = notification_ops::create_notification(
+        if let Err(e) = notification_ops::create_notification(
             db, watcher.user_id, "pull_request", &title, body.as_deref(), Some(repo_id),
-        ).await;
+        ).await {
+            tracing::warn!("Failed to notify watcher {} about PR: {e}", watcher.user_id);
+        }
     }
     Ok(())
 }
@@ -119,9 +123,11 @@ pub async fn notify_watchers_milestone(
     for watcher in watchers {
         let title = format!("Milestone {} in {}", action, repo_name);
         let body = Some(format!("Milestone '{}' {}", milestone_title, action));
-        let _ = notification_ops::create_notification(
+        if let Err(e) = notification_ops::create_notification(
             db, watcher.user_id, "milestone", &title, body.as_deref(), Some(repo_id),
-        ).await;
+        ).await {
+            tracing::warn!("Failed to notify watcher {} about milestone: {e}", watcher.user_id);
+        }
     }
     Ok(())
 }

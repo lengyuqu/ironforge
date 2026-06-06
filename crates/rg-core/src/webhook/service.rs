@@ -234,13 +234,16 @@ pub async fn redeliver(
     let payload = delivery.request_payload.clone().unwrap_or_default();
 
     // Fire and record a new delivery
-    let _ = trigger_event(
+    if let Err(e) = trigger_event(
         db,
         hook.repo_id,
         &delivery.event,
         &serde_json::from_str(&payload).unwrap_or(Value::Null),
     )
-    .await;
+    .await
+    {
+        tracing::warn!("Failed to redeliver webhook event: {e}");
+    }
 
     Ok(())
 }

@@ -1114,18 +1114,26 @@ async fn post_push_hooks(
         if let Some(branch_name) = update.refname.strip_prefix("refs/heads/") {
             if update.old_sha.is_empty() || update.old_sha == "0000000000000000000000000000000000000000" {
                 // New branch created
-                let _ = rg_core::webhook::service::trigger_branch_created(db, repo_id, branch_name).await;
+                if let Err(e) = rg_core::webhook::service::trigger_branch_created(db, repo_id, branch_name).await {
+                    tracing::warn!("Failed to trigger branch.created webhook for {}: {e}", branch_name);
+                }
             } else if update.new_sha.is_empty() || update.new_sha == "0000000000000000000000000000000000000000" {
                 // Branch deleted
-                let _ = rg_core::webhook::service::trigger_branch_deleted(db, repo_id, branch_name).await;
+                if let Err(e) = rg_core::webhook::service::trigger_branch_deleted(db, repo_id, branch_name).await {
+                    tracing::warn!("Failed to trigger branch.deleted webhook for {}: {e}", branch_name);
+                }
             }
         } else if let Some(tag_name) = update.refname.strip_prefix("refs/tags/") {
             if update.old_sha.is_empty() || update.old_sha == "0000000000000000000000000000000000000000" {
                 // New tag created
-                let _ = rg_core::webhook::service::trigger_tag_created(db, repo_id, tag_name).await;
+                if let Err(e) = rg_core::webhook::service::trigger_tag_created(db, repo_id, tag_name).await {
+                    tracing::warn!("Failed to trigger tag.created webhook for {}: {e}", tag_name);
+                }
             } else if update.new_sha.is_empty() || update.new_sha == "0000000000000000000000000000000000000000" {
                 // Tag deleted
-                let _ = rg_core::webhook::service::trigger_tag_deleted(db, repo_id, tag_name).await;
+                if let Err(e) = rg_core::webhook::service::trigger_tag_deleted(db, repo_id, tag_name).await {
+                    tracing::warn!("Failed to trigger tag.deleted webhook for {}: {e}", tag_name);
+                }
             }
         }
 

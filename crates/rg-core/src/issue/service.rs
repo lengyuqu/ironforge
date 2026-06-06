@@ -54,7 +54,9 @@ pub async fn create_issue(
         "state": issue.state,
         "author_id": issue.author_id,
     });
-    let _ = crate::webhook::service::trigger_issue_opened(db, repo_id, &payload).await;
+    if let Err(e) = crate::webhook::service::trigger_issue_opened(db, repo_id, &payload).await {
+        tracing::warn!("Failed to trigger issue.opened webhook: {e}");
+    }
 
     // Dual-write: sync labels to issue_labels junction table
     if let Some(ref label_names) = labels {
@@ -64,7 +66,9 @@ pub async fn create_issue(
                 .filter(|l| label_names.contains(&l.name))
                 .map(|l| l.id)
                 .collect();
-            let _ = issue_label_ops::set_labels(db, issue.id, label_ids).await;
+            if let Err(e) = issue_label_ops::set_labels(db, issue.id, label_ids).await {
+                tracing::warn!("Failed to set labels for issue {}: {e}", issue.id);
+            }
         }
     }
 
@@ -210,13 +214,17 @@ pub async fn update_issue(
                 "title": issue.title,
                 "state": s,
             });
-            let _ = crate::webhook::service::trigger_issue_closed(db, issue.repo_id, &close_payload).await;
+            if let Err(e) = crate::webhook::service::trigger_issue_closed(db, issue.repo_id, &close_payload).await {
+                tracing::warn!("Failed to trigger issue.closed webhook: {e}");
+            }
 
             // Check if milestone should be notified (all issues in milestone are closed)
             if let Some(mid) = issue.milestone_id {
                 if let Ok(remaining) = rg_db::ops::milestone_ops::count_open_by_milestone(db, mid).await {
                     if remaining == 0 {
-                        let _ = notify_milestone_closed(db, issue.repo_id, mid).await;
+                        if let Err(e) = notify_milestone_closed(db, issue.repo_id, mid).await {
+                            tracing::warn!("Failed to notify milestone {} closed: {e}", mid);
+                        }
                     }
                 }
             }
@@ -231,7 +239,9 @@ pub async fn update_issue(
                 .filter(|label| l.contains(&label.name))
                 .map(|l| l.id)
                 .collect();
-            let _ = issue_label_ops::set_labels(db, issue.id, label_ids).await;
+            if let Err(e) = issue_label_ops::set_labels(db, issue.id, label_ids).await {
+                tracing::warn!("Failed to set labels for issue {}: {e}", issue.id);
+            }
         }
     }
     if let Some(a) = assignee_id {
@@ -287,7 +297,9 @@ pub async fn add_comment(
         "body": comment.body,
         "author_id": comment.author_id,
     });
-    let _ = crate::webhook::service::trigger_issue_comment(db, issue.repo_id, &issue_payload, &comment_payload).await;
+    if let Err(e) = crate::webhook::service::trigger_issue_comment(db, issue.repo_id, &issue_payload, &comment_payload).await {
+        tracing::warn!("Failed to trigger issue.comment webhook: {e}");
+    }
 
     Ok(comment)
 }
@@ -342,15 +354,19 @@ async fn notify_milestone_closed(
         "id": milestone_id,
         "repo_id": repo_id,
     });
-    let _ = crate::webhook::service::trigger_milestone_closed(db, repo_id, &payload).await;
+    if let Err(e) = crate::webhook::service::trigger_milestone_closed(db, repo_id, &payload).await {
+        tracing::warn!("Failed to trigger milestone.closed webhook: {e}");
+    }
 
     // Notify watchers about milestone completion
     if let Ok(Some(milestone)) = rg_db::ops::milestone_ops::find_by_id(db, milestone_id).await {
         // Look up repo name for notification
         if let Ok(Some(repo)) = rg_db::entities::repository::Entity::find_by_id(repo_id).one(db).await {
-            let _ = crate::notification::notify_watchers_milestone(
+            if let Err(e) = crate::notification::notify_watchers_milestone(
                 db, repo_id, &repo.name, &milestone.title, "closed",
-            ).await;
+            ).await {
+                tracing::warn!("Failed to notify watchers about milestone: {e}");
+            }
         }
     }
 

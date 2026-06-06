@@ -195,9 +195,11 @@ pub async fn poll_job(
                     }
                     // Mark job as assigned
                     let now = Some(chrono::Utc::now().naive_utc());
-                    let _ = rg_db::ops::pipeline_ops::update_job_result(
+                    if let Err(e) = rg_db::ops::pipeline_ops::update_job_result(
                         &state.db, job.id, "assigned", None, None, now, None,
-                    ).await;
+                    ).await {
+                        tracing::error!(job_id = job.id, error = %e, "Failed to update job result to assigned");
+                    }
 
                     // Fetch stage to get pipeline_id
                     let mut pipeline_id = 0i64;
@@ -283,7 +285,9 @@ pub async fn start_job(
     }
 
     // Mark runner as busy
-    let _ = rg_db::ops::runner_ops::update_status(&state.db, runner_id, "busy").await;
+    if let Err(e) = rg_db::ops::runner_ops::update_status(&state.db, runner_id, "busy").await {
+        tracing::error!(runner_id, error = %e, "Failed to mark runner as busy");
+    }
 
     (StatusCode::OK, Json(serde_json::json!({"status": "ok"}))).into_response()
 }
@@ -391,13 +395,17 @@ pub async fn finish_job(
     }
 
     // Mark runner as online (ready for next job)
-    let _ = rg_db::ops::runner_ops::update_status(&state.db, runner_id, "online").await;
+    if let Err(e) = rg_db::ops::runner_ops::update_status(&state.db, runner_id, "online").await {
+        tracing::error!(runner_id, error = %e, "Failed to mark runner as online");
+    }
 
     // Cascade: check if stage is done, then if pipeline is done
     if let Ok(Some(_stage_status)) = rg_db::ops::pipeline_ops::try_update_stage(&state.db, job.stage_id).await {
         // Stage is done — get pipeline_id and check pipeline
         if let Ok(Some(stage)) = rg_db::ops::pipeline_ops::get_stage_by_id(&state.db, job.stage_id).await {
-            let _ = rg_db::ops::pipeline_ops::try_update_pipeline(&state.db, stage.pipeline_id).await;
+            if let Err(e) = rg_db::ops::pipeline_ops::try_update_pipeline(&state.db, stage.pipeline_id).await {
+                tracing::error!(pipeline_id = stage.pipeline_id, error = %e, "Failed to update pipeline after stage completion");
+            }
         }
     }
 
@@ -481,7 +489,9 @@ pub async fn authenticate_runner(
     match rg_db::ops::runner_ops::find_by_token(&state.db, token).await {
         Ok(Some(runner)) if runner.id == runner_id => {
             // Valid token — also update heartbeat
-            let _ = rg_db::ops::runner_ops::update_heartbeat(&state.db, runner_id).await;
+            if let Err(e) = rg_db::ops::runner_ops::update_heartbeat(&state.db, runner_id).await {
+                tracing::error!(runner_id, error = %e, "Failed to update runner heartbeat");
+            }
             next.run(request).await
         }
         Ok(Some(_)) => (

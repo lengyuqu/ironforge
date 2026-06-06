@@ -124,7 +124,7 @@ impl PipelineRunner {
                         if exit_code != 0 {
                             stage_failed = true;
                         }
-                        let _ = pipeline_ops::update_job_result(
+                        if let Err(e) = pipeline_ops::update_job_result(
                             &self.db,
                             job.id,
                             status,
@@ -133,12 +133,15 @@ impl PipelineRunner {
                             None,
                             None,
                         )
-                        .await;
+                        .await
+                        {
+                            tracing::error!(job_id = job.id, error = %e, "Failed to update job result");
+                        }
                     }
                     Err(e) => {
                         tracing::error!(job_id = job.id, "Job execution error: {:#}", e);
                         stage_failed = true;
-                        let _ = pipeline_ops::update_job_result(
+                        if let Err(e) = pipeline_ops::update_job_result(
                             &self.db,
                             job.id,
                             "failed",
@@ -147,7 +150,10 @@ impl PipelineRunner {
                             None,
                             None,
                         )
-                        .await;
+                        .await
+                        {
+                            tracing::error!(job_id = job.id, error = %e, "Failed to update job result");
+                        }
                     }
                 }
             }
@@ -200,7 +206,7 @@ impl PipelineRunner {
         let job_start = chrono::Utc::now().naive_utc();
 
         // Mark job as running
-        let _ = pipeline_ops::update_job_result(
+        if let Err(e) = pipeline_ops::update_job_result(
             &self.db,
             job_id,
             "running",
@@ -209,7 +215,10 @@ impl PipelineRunner {
             Some(job_start),
             None,
         )
-        .await;
+        .await
+        {
+            tracing::error!(job_id, error = %e, "Failed to update job status to running");
+        }
 
         tracing::info!(job_id, "Running job");
 

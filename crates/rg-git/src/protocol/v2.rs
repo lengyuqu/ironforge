@@ -399,7 +399,7 @@ async fn handle_ls_refs<W: AsyncWrite + Unpin>(
 ) -> Result<()> {
     // Get all refs
     let refs = list_refs(repo_path)?;
-    let head_sha = resolve_head_sha(repo_path);
+    let head_sha = crate::resolve_head_sha(repo_path);
 
     // Handle unborn HEAD
     if unborn {
@@ -576,13 +576,6 @@ fn list_refs(repo_path: &Path) -> Result<Vec<(String, String)>> {
     }
 
     Ok(refs)
-}
-
-/// Resolve HEAD to SHA, or None if unborn.
-fn resolve_head_sha(repo_path: &Path) -> Option<String> {
-    let repo = gix::open(repo_path).ok()?;
-    let head_id = repo.head_id().ok()?;
-    Some(head_id.to_string())
 }
 
 /// Get the peel (dereferenced) SHA of a tag using gix API.

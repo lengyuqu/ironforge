@@ -49,6 +49,15 @@
 //! - Pack generation and thin-pack indexing use `git` CLI — not pure Rust.
 //!   These are the remaining migration items tracked in Project Memory.
 
+use std::path::Path;
+
 pub mod pkt_line;
 pub mod protocol;
 pub mod sideband;
+
+/// Resolve HEAD to a SHA, or return None if HEAD doesn't point to a valid commit.
+pub(crate) fn resolve_head_sha(repo_path: &Path) -> Option<String> {
+    let repo = gix::open(repo_path).ok()?;
+    let head_id = repo.head_id().ok()?;
+    Some(head_id.to_string())
+}
