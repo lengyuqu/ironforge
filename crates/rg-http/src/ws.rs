@@ -98,7 +98,12 @@ async fn handle_ws_connection(
         return;
     }
 
-    let uid = user_id.unwrap();
+    // user_id is guaranteed Some at this point due to the guard above.
+    // Use if-let to satisfy clippy instead of .unwrap().
+    let Some(uid) = user_id else {
+        tracing::error!("user_id became None after guard check — this is a logic bug");
+        return;
+    };
     tracing::info!(user_id = uid, "WebSocket client connected for notifications");
 
     // Subscribe to the notification hub

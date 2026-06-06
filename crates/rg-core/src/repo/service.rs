@@ -296,8 +296,12 @@ pub async fn fork_repo(
 
     let source_path = repo_root.join(format!("{}/{}.git", owner, repo_name));
     let target_path = repo_root.join(format!("{}/{}.git", forker.username, repo_name));
-    std::fs::create_dir_all(target_path.parent().unwrap())
-        .with_context(|| format!("failed to create directory: {:?}", target_path.parent()))?;
+    std::fs::create_dir_all(
+        target_path
+            .parent()
+            .context("target path has no parent directory")?,
+    )
+    .with_context(|| format!("failed to create directory: {:?}", target_path.parent()))?;
 
     // TODO(gix): Local bare clone - gix doesn't support local bare clone via prepare_clone_bare
     // For now, use git CLI for local fork operations
@@ -374,8 +378,12 @@ pub async fn transfer_repo(
 
     let old_path = repo_root.join(format!("{}/{}.git", owner, repo_name));
     let new_path = repo_root.join(format!("{}/{}.git", new_owner_name, repo_name));
-    std::fs::create_dir_all(new_path.parent().unwrap())
-        .with_context(|| format!("failed to create directory: {:?}", new_path.parent()))?;
+    std::fs::create_dir_all(
+        new_path
+            .parent()
+            .context("new path has no parent directory")?,
+    )
+    .with_context(|| format!("failed to create directory: {:?}", new_path.parent()))?;
     std::fs::rename(&old_path, &new_path)
         .with_context(|| format!("failed to move repository from {:?} to {:?}", old_path, new_path))?;
 

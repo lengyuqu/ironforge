@@ -548,8 +548,10 @@ pub async fn merge_pr(
             let merge_ref = format!("refs/forks/{}/{}", head_owner.username, pr.head_branch);
             let merge_commit_sha = merge_from_ref(&repo_path, &pr, &merge_ref, strategy)?;
 
-            // Clean up fetched ref via gix
-            let _ = gix_delete_ref(&repo_path, &merge_ref);
+            // Clean up fetched ref via gix (non-fatal on failure — just log)
+            if let Err(e) = gix_delete_ref(&repo_path, &merge_ref) {
+                tracing::warn!("failed to clean up fork ref '{}': {}", merge_ref, e);
+            }
 
             return update_pr_merged(db, pr, merge_commit_sha, strategy).await;
         }
@@ -602,12 +604,15 @@ fn merge_from_ref(
                 .output()?;
 
             if !rebase.status.success() {
-                let _ = Command::new("git")
+                if let Err(e) = Command::new("git")
                     .arg("-C")
                     .arg(repo_path)
                     .arg("rebase")
                     .arg("--abort")
-                    .output();
+                    .output()
+                {
+                    tracing::warn!("failed to abort rebase: {}", e);
+                }
                 bail!(
                     "rebase merge failed: {}",
                     String::from_utf8_lossy(&rebase.stderr)
@@ -685,13 +690,16 @@ fn do_rebase_merge(repo_path: &std::path::Path, pr: &PullRequest) -> Result<Stri
         .output()?;
 
     if !rebase.status.success() {
-        // Abort the rebase on failure
-        let _ = Command::new("git")
+        // Abort the rebase on failure — non-fatal, just log if abort itself fails
+        if let Err(e) = Command::new("git")
             .arg("-C")
             .arg(repo_path)
             .arg("rebase")
             .arg("--abort")
-            .output();
+            .output()
+        {
+            tracing::warn!("failed to abort rebase: {}", e);
+        }
         bail!(
             "rebase merge failed: {}",
             String::from_utf8_lossy(&rebase.stderr)

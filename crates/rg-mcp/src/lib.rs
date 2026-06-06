@@ -49,9 +49,11 @@ impl AppState {
                 .unwrap_or(reqwest::header::HeaderValue::from_static(""));
             headers.insert(reqwest::header::AUTHORIZATION, value);
         }
+        // unwrap is acceptable here — build() only fails if native TLS is
+        // entirely unavailable, which means the system is fundamentally broken
         reqwest::Client::builder()
             .default_headers(headers)
             .build()
-            .expect("reqwest client")
+            .expect("reqwest::Client::build() failed: no native TLS backend available")
     }
 }

@@ -239,7 +239,9 @@ pub async fn delete_asset(
     let _ = tokio::fs::remove_file(&file_path).await;
 
     // Remove parent directory if empty
-    let _ = tokio::fs::remove_dir(file_path.parent().unwrap()).await;
+    if let Some(parent) = file_path.parent() {
+        let _ = tokio::fs::remove_dir(parent).await;
+    }
 
     // Delete DB record
     rg_db::ops::release_ops::delete_asset_by_id(db, asset_id).await?;

@@ -130,7 +130,9 @@ pub async fn run(config: HttpServerConfig) -> Result<()> {
 
         let app = app;
         let rustls_config = axum_server::tls_rustls::RustlsConfig::from_config(tls_config);
-        axum_server::bind_rustls(config_clone.parse().unwrap(), rustls_config)
+        axum_server::bind_rustls(config_clone.parse().with_context(|| {
+            format!("invalid TLS listen address: {}", config_clone)
+        })?, rustls_config)
             .serve(app.into_make_service())
             .await
             .context("HTTPS server error")?;

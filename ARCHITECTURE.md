@@ -1,6 +1,6 @@
-# RustGit — 用 Rust 从零造一个 Git 托管平台
+# IronForge（铁匠铺）— 用 Rust 从零造一个 Git 托管平台
 
-> 项目代号：**RustGit**（待定，可改）
+> 项目代号：**IronForge**（已定名，formerly RustGit）
 > 目标：对标 Gitea/Forgejo 的全功能 Git 托管平台，用 Rust 实现极致轻量与高性能
 
 ---
@@ -542,4 +542,4 @@ Web UI:
 
 ---
 
-*此方案为 v1.0，待用户审阅确认后开始 Phase 0 实施。*
+*此方案为 Phase 0 原始设计文档。截至 2026-06，Phase 0-20 已全部完成，实际实现细节见 CLAUDE.md 和项目源码。*

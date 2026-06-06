@@ -1,10 +1,8 @@
 //! IronForge CLI — main entry point.
 use std::path::PathBuf;
 
-use anyhow::{Context, Result};
+use anyhow::Context;
 use clap::{Parser, Subcommand};
-use reqwest::header;
-use serde_json;
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser)]
@@ -525,7 +523,7 @@ async fn main() -> anyhow::Result<()> {
                     // Register new runner
                     let name = name.as_deref().unwrap_or("default-runner");
                     let resp: serde_json::Value = client
-                        .post(&format!("{}/api/v1/runners/register", server))
+                        .post(format!("{}/api/v1/runners/register", server))
                         .json(&serde_json::json!({"name": name}))
                         .send()
                         .await
@@ -550,7 +548,7 @@ async fn main() -> anyhow::Result<()> {
             loop {
                 // 1. Poll for job
                 let poll_resp = client
-                    .get(&format!("{}/api/v1/runners/{}/jobs/poll?timeout=30", server, runner_id))
+                    .get(format!("{}/api/v1/runners/{}/jobs/poll?timeout=30", server, runner_id))
                     .header(header::AUTHORIZATION, &auth_header)
                     .send()
                     .await;
@@ -579,7 +577,7 @@ async fn main() -> anyhow::Result<()> {
 
                 // 2. Start job
                 let _ = client
-                    .post(&format!("{}/api/v1/runners/{}/jobs/{}/start", server, runner_id, job_id))
+                    .post(format!("{}/api/v1/runners/{}/jobs/{}/start", server, runner_id, job_id))
                     .header(header::AUTHORIZATION, &auth_header)
                     .send()
                     .await;
@@ -594,7 +592,7 @@ async fn main() -> anyhow::Result<()> {
 
                 // 4. Upload log
                 let _ = client
-                    .post(&format!("{}/api/v1/runners/{}/jobs/{}/log", server, runner_id, job_id))
+                    .post(format!("{}/api/v1/runners/{}/jobs/{}/log", server, runner_id, job_id))
                     .header(header::AUTHORIZATION, &auth_header)
                     .body(log.clone())
                     .send()
@@ -603,7 +601,7 @@ async fn main() -> anyhow::Result<()> {
                 // 5. Finish job
                 let status = if exit_code == 0 { "success" } else { "failure" };
                 let _ = client
-                    .post(&format!("{}/api/v1/runners/{}/jobs/{}/finish", server, runner_id, job_id))
+                    .post(format!("{}/api/v1/runners/{}/jobs/{}/finish", server, runner_id, job_id))
                     .header(header::AUTHORIZATION, &auth_header)
                     .json(&serde_json::json!({"status": status, "exit_code": exit_code}))
                     .send()
