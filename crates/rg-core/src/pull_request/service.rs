@@ -548,14 +548,8 @@ pub async fn merge_pr(
             let merge_ref = format!("refs/forks/{}/{}", head_owner.username, pr.head_branch);
             let merge_commit_sha = merge_from_ref(&repo_path, &pr, &merge_ref, strategy)?;
 
-            // Clean up fetched ref
-            let _ = Command::new("git")
-                .arg("-C")
-                .arg(&repo_path)
-                .arg("update-ref")
-                .arg("-d")
-                .arg(&merge_ref)
-                .output();
+            // Clean up fetched ref via gix
+            let _ = gix_delete_ref(&repo_path, &merge_ref);
 
             return update_pr_merged(db, pr, merge_commit_sha, strategy).await;
         }
@@ -572,6 +566,7 @@ pub async fn merge_pr(
 }
 
 /// Merge from an arbitrary ref (used for fork PRs).
+/// Uses gix merge APIs for Merge and Squash strategies; Rebase still uses git CLI.
 fn merge_from_ref(
     repo_path: &std::path::Path,
     pr: &PullRequest,
@@ -580,66 +575,24 @@ fn merge_from_ref(
 ) -> Result<String> {
     match strategy {
         MergeStrategy::Merge => {
-            let output = Command::new("git")
-                .arg("-C")
-                .arg(repo_path)
-                .arg("merge")
-                .arg("--no-ff")
-                .arg(merge_ref)
-                .arg("-m")
-                .arg(format!(
-                    "Merge pull request #{} from {}",
-                    pr.number, pr.head_branch
-                ))
-                .output()?;
-
-            if !output.status.success() {
-                bail!(
-                    "merge failed: {}",
-                    String::from_utf8_lossy(&output.stderr)
-                );
-            }
-            get_head_sha(repo_path)
+            let merge_msg = format!(
+                "Merge pull request #{} from {}",
+                pr.number, pr.head_branch
+            );
+            gix_merge_no_ff(repo_path, merge_ref, &merge_msg)
         }
         MergeStrategy::Squash => {
-            let output = Command::new("git")
-                .arg("-C")
-                .arg(repo_path)
-                .arg("merge")
-                .arg("--squash")
-                .arg(merge_ref)
-                .output()?;
-
-            if !output.status.success() {
-                bail!(
-                    "squash merge failed: {}",
-                    String::from_utf8_lossy(&output.stderr)
-                );
-            }
-
-            let commit_output = Command::new("git")
-                .arg("-C")
-                .arg(repo_path)
-                .arg("commit")
-                .arg("-m")
-                .arg(format!(
-                    "Squash merge pull request #{} from {}",
-                    pr.number, pr.head_branch
-                ))
-                .output()?;
-
-            if !commit_output.status.success() {
-                bail!(
-                    "squash commit failed: {}",
-                    String::from_utf8_lossy(&commit_output.stderr)
-                );
-            }
-            get_head_sha(repo_path)
+            let squash_msg = format!(
+                "Squash merge pull request #{} from {}",
+                pr.number, pr.head_branch
+            );
+            gix_squash_merge(repo_path, merge_ref, &squash_msg)
         }
         MergeStrategy::Rebase => {
             gix_set_head_to_branch(repo_path, &pr.base_branch)
                 .with_context(|| format!("failed to checkout base branch: {}", pr.base_branch))?;
 
+            // Rebase still uses git CLI — gix-rebase crate is in "idea" stage
             let rebase = Command::new("git")
                 .arg("-C")
                 .arg(repo_path)
@@ -664,8 +617,6 @@ fn merge_from_ref(
             gix_set_head_to_branch(repo_path, &pr.base_branch)
                 .with_context(|| "failed to checkout base branch for fast-forward")?;
 
-            // For fork refs, we need to ff to HEAD (the rebased result is now on base branch)
-            // since rebase replays commits on top of the base
             get_head_sha(repo_path)
         }
     }
@@ -706,62 +657,16 @@ async fn update_pr_merged(
 }
 
 fn do_merge_commit(repo_path: &std::path::Path, pr: &PullRequest) -> Result<String> {
-    // TODO(gix): Replace with gix merge API
-    let output = std::process::Command::new("git")
-        .arg("-C")
-        .arg(repo_path)
-        .arg("merge")
-        .arg("--no-ff")
-        .arg(&pr.head_branch)
-        .arg("-m")
-        .arg(format!("Merge pull request #{} from {}", pr.number, pr.head_branch))
-        .output()?;
-
-    if !output.status.success() {
-        bail!(
-            "merge failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-
-    get_head_sha(repo_path)
+    let merge_msg = format!("Merge pull request #{} from {}", pr.number, pr.head_branch);
+    gix_merge_no_ff(repo_path, &pr.head_branch, &merge_msg)
 }
 
 fn do_squash_merge(repo_path: &std::path::Path, pr: &PullRequest) -> Result<String> {
-    // TODO(gix): Replace entire squash merge flow with gix when merge API matures
-    // git merge --squash sets up the index; git commit reads from it — keep as pair
-    let output = std::process::Command::new("git")
-        .arg("-C")
-        .arg(repo_path)
-        .arg("merge")
-        .arg("--squash")
-        .arg(&pr.head_branch)
-        .output()?;
-
-    if !output.status.success() {
-        bail!(
-            "squash merge failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-
-    // Commit the squashed changes
-    let commit_output = Command::new("git")
-        .arg("-C")
-        .arg(repo_path)
-        .arg("commit")
-        .arg("-m")
-        .arg(format!("Squash merge pull request #{} from {}", pr.number, pr.head_branch))
-        .output()?;
-
-    if !commit_output.status.success() {
-        bail!(
-            "squash commit failed: {}",
-            String::from_utf8_lossy(&commit_output.stderr)
-        );
-    }
-
-    get_head_sha(repo_path)
+    let squash_msg = format!(
+        "Squash merge pull request #{} from {}",
+        pr.number, pr.head_branch
+    );
+    gix_squash_merge(repo_path, &pr.head_branch, &squash_msg)
 }
 
 fn do_rebase_merge(repo_path: &std::path::Path, pr: &PullRequest) -> Result<String> {
@@ -879,6 +784,126 @@ fn get_ref_sha(repo_path: &std::path::Path, branch: &str) -> Result<String> {
     let id = repo.rev_parse_single(ref_str.as_str())
         .map_err(|e| anyhow::anyhow!("failed to resolve {}: {}", ref_str, e))?;
     Ok(id.to_string())
+}
+
+// ── Gix merge helpers ───────────────────────────────────────────────────
+
+/// Delete a reference using gix (replaces `git update-ref -d <ref>`).
+fn gix_delete_ref(repo_path: &std::path::Path, ref_name: &str) -> Result<()> {
+    let repo = gix::open(repo_path)
+        .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
+
+    use gix::refs::transaction::{Change, PreviousValue, RefEdit, RefLog};
+    use gix::refs::FullName;
+
+    let full_name: FullName = ref_name
+        .try_into()
+        .map_err(|e| anyhow::anyhow!("invalid ref name '{}': {}", ref_name, e))?;
+
+    repo.edit_reference(RefEdit {
+        change: Change::Delete {
+            expected: PreviousValue::Any,
+            log: RefLog::AndReference,
+        },
+        name: full_name,
+        deref: false,
+    })
+    .map_err(|e| anyhow::anyhow!("failed to delete ref '{}': {}", ref_name, e))?;
+
+    Ok(())
+}
+
+/// Perform a `--no-ff` merge using gix merge_commits API.
+/// Creates a merge commit with two parents (current HEAD + `head_ref`).
+fn gix_merge_no_ff(repo_path: &std::path::Path, head_ref: &str, message: &str) -> Result<String> {
+    let repo = gix::open(repo_path)
+        .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
+
+    let our_commit = repo.rev_parse_single("HEAD")
+        .map_err(|e| anyhow::anyhow!("failed to resolve HEAD: {}", e))?;
+    let their_commit = repo.rev_parse_single(head_ref)
+        .with_context(|| format!("failed to resolve merge ref '{}'", head_ref))?;
+
+    let (merged_tree_id, _conflicts) = gix_merge_commits_to_tree(&repo, our_commit, their_commit, head_ref)?;
+
+    // Create merge commit (two parents)
+    let commit_id = repo.commit(
+        "HEAD",
+        message,
+        merged_tree_id.detach(),
+        [our_commit.detach(), their_commit.detach()],
+    )
+    .map_err(|e| anyhow::anyhow!("failed to create merge commit: {}", e))?;
+
+    Ok(commit_id.detach().to_string())
+}
+
+/// Perform a squash merge: merge commits, then create a single-parent commit.
+fn gix_squash_merge(repo_path: &std::path::Path, head_ref: &str, message: &str) -> Result<String> {
+    let repo = gix::open(repo_path)
+        .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
+
+    let our_commit = repo.rev_parse_single("HEAD")
+        .map_err(|e| anyhow::anyhow!("failed to resolve HEAD: {}", e))?;
+    let their_commit = repo.rev_parse_single(head_ref)
+        .with_context(|| format!("failed to resolve merge ref '{}'", head_ref))?;
+
+    let (merged_tree_id, _conflicts) = gix_merge_commits_to_tree(&repo, our_commit, their_commit, head_ref)?;
+
+    // Squash merge: single-parent commit
+    let commit_id = repo.commit(
+        "HEAD",
+        message,
+        merged_tree_id.detach(),
+        [our_commit.detach()],
+    )
+    .map_err(|e| anyhow::anyhow!("failed to create squash commit: {}", e))?;
+
+    Ok(commit_id.detach().to_string())
+}
+
+/// Core merge logic: merge two commits and return the merged tree id + conflicts.
+fn gix_merge_commits_to_tree<'repo>(
+    repo: &'repo gix::Repository,
+    our_commit: gix::Id<'repo>,
+    their_commit: gix::Id<'repo>,
+    their_label: &str,
+) -> Result<(gix::Id<'repo>, Vec<gix::merge::tree::Conflict>)> {
+    use gix::merge::blob::builtin_driver::text::Labels;
+
+    let labels = Labels {
+        current: Some("HEAD".into()),
+        other: Some(their_label.into()),
+        ancestor: None, // auto-determined from merge-base
+    };
+
+    let options: gix::merge::commit::Options = repo
+        .tree_merge_options()
+        .map_err(|e| anyhow::anyhow!("failed to get tree merge options: {}", e))?
+        .into();
+
+    let mut outcome = repo
+        .merge_commits(our_commit, their_commit, labels, options)
+        .map_err(|e| anyhow::anyhow!("merge failed: {}", e))?;
+
+    // Check for unresolved conflicts
+    let conflicts = outcome.tree_merge.conflicts;
+    if !conflicts.is_empty() {
+        tracing::warn!("merge has {} conflict(s)", conflicts.len());
+        bail!(
+            "merge conflict detected: {} files with conflicts",
+            conflicts.len()
+        );
+    }
+
+    // Write the merged tree to the object database
+    let tree_id = outcome
+        .tree_merge
+        .tree
+        .write()
+        .map_err(|e| anyhow::anyhow!("failed to write merged tree: {}", e))?;
+
+    Ok((tree_id, conflicts))
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────
