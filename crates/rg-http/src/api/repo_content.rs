@@ -99,6 +99,14 @@ pub async fn list_tree(
     Path((owner, repo)): Path<(String, String)>,
     Query(params): Query<TreeQuery>,
 ) -> impl IntoResponse {
+    // H-02: Validate owner/repo before constructing repository path
+    if let Err(e) = rg_core::platform::validate_repo_path(&owner) {
+        return AppError::bad_request(e.to_string()).into_response();
+    }
+    if let Err(e) = rg_core::platform::validate_repo_path(&repo) {
+        return AppError::bad_request(e.to_string()).into_response();
+    }
+
     let repo_path = state.repo_root.join(format!("{}/{}.git", owner, repo));
     if !repo_path.exists() {
         return AppError::not_found("repository not found").into_response();
@@ -111,7 +119,10 @@ pub async fn list_tree(
 
     match result {
         Ok(entries) => (StatusCode::OK, Json(entries)).into_response(),
-        Err(e) => AppError::internal(e).into_response(),
+        Err(e) => {
+            tracing::error!(%e, "list_tree failed");
+            AppError::internal(e).into_response()
+        }
     }
 }
 
@@ -135,6 +146,14 @@ pub async fn get_blob(
     Path((owner, repo, path)): Path<(String, String, String)>,
     Query(params): Query<BlobQuery>,
 ) -> impl IntoResponse {
+    // H-02: Validate owner/repo before constructing repository path
+    if let Err(e) = rg_core::platform::validate_repo_path(&owner) {
+        return AppError::bad_request(e.to_string()).into_response();
+    }
+    if let Err(e) = rg_core::platform::validate_repo_path(&repo) {
+        return AppError::bad_request(e.to_string()).into_response();
+    }
+
     let repo_path = state.repo_root.join(format!("{}/{}.git", owner, repo));
     if !repo_path.exists() {
         return AppError::not_found("repository not found").into_response();
@@ -168,6 +187,14 @@ pub async fn get_log(
     Path((owner, repo)): Path<(String, String)>,
     Query(params): Query<LogQuery>,
 ) -> impl IntoResponse {
+    // H-02: Validate owner/repo before constructing repository path
+    if let Err(e) = rg_core::platform::validate_repo_path(&owner) {
+        return AppError::bad_request(e.to_string()).into_response();
+    }
+    if let Err(e) = rg_core::platform::validate_repo_path(&repo) {
+        return AppError::bad_request(e.to_string()).into_response();
+    }
+
     let repo_path = state.repo_root.join(format!("{}/{}.git", owner, repo));
     if !repo_path.exists() {
         return AppError::not_found("repository not found").into_response();
@@ -178,7 +205,10 @@ pub async fn get_log(
 
     match get_commit_log(&repo_path, &file_path, limit) {
         Ok(log) => (StatusCode::OK, Json(log)).into_response(),
-        Err(e) => AppError::internal(e).into_response(),
+        Err(e) => {
+            tracing::error!(%e, "get_log failed");
+            AppError::internal(e).into_response()
+        }
     }
 }
 
@@ -201,6 +231,14 @@ pub async fn list_branches(
     State(state): State<AppState>,
     Path((owner, repo)): Path<(String, String)>,
 ) -> impl IntoResponse {
+    // H-02: Validate owner/repo before constructing repository path
+    if let Err(e) = rg_core::platform::validate_repo_path(&owner) {
+        return AppError::bad_request(e.to_string()).into_response();
+    }
+    if let Err(e) = rg_core::platform::validate_repo_path(&repo) {
+        return AppError::bad_request(e.to_string()).into_response();
+    }
+
     let repo_path = state.repo_root.join(format!("{}/{}.git", owner, repo));
     if !repo_path.exists() {
         return AppError::not_found("repository not found").into_response();
@@ -208,7 +246,10 @@ pub async fn list_branches(
 
     match list_branch_names(&repo_path) {
         Ok(branches) => (StatusCode::OK, Json(branches)).into_response(),
-        Err(e) => AppError::internal(e).into_response(),
+        Err(e) => {
+            tracing::error!(%e, "list_branches failed");
+            AppError::internal(e).into_response()
+        }
     }
 }
 
@@ -231,6 +272,14 @@ pub async fn list_tags(
     State(state): State<AppState>,
     Path((owner, repo)): Path<(String, String)>,
 ) -> impl IntoResponse {
+    // H-02: Validate owner/repo before constructing repository path
+    if let Err(e) = rg_core::platform::validate_repo_path(&owner) {
+        return AppError::bad_request(e.to_string()).into_response();
+    }
+    if let Err(e) = rg_core::platform::validate_repo_path(&repo) {
+        return AppError::bad_request(e.to_string()).into_response();
+    }
+
     let repo_path = state.repo_root.join(format!("{}/{}.git", owner, repo));
     if !repo_path.exists() {
         return AppError::not_found("repository not found").into_response();
@@ -238,7 +287,10 @@ pub async fn list_tags(
 
     match list_tag_names(&repo_path) {
         Ok(tags) => (StatusCode::OK, Json(tags)).into_response(),
-        Err(e) => AppError::internal(e).into_response(),
+        Err(e) => {
+            tracing::error!(%e, "list_tags failed");
+            AppError::internal(e).into_response()
+        }
     }
 }
 
@@ -531,6 +583,14 @@ pub async fn get_commit_signature(
     State(state): State<AppState>,
     Path((owner, repo, sha)): Path<(String, String, String)>,
 ) -> impl IntoResponse {
+    // H-02: Validate owner/repo before constructing repository path
+    if let Err(e) = rg_core::platform::validate_repo_path(&owner) {
+        return AppError::bad_request(e.to_string()).into_response();
+    }
+    if let Err(e) = rg_core::platform::validate_repo_path(&repo) {
+        return AppError::bad_request(e.to_string()).into_response();
+    }
+
     let repo_path = state.repo_root.join(format!("{}/{}.git", owner, repo));
     if !repo_path.exists() {
         return AppError::not_found("repository not found").into_response();

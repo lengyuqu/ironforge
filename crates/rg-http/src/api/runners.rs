@@ -125,7 +125,10 @@ pub async fn register(
             }),
         )
             .into_response(),
-        Err(e) => AppError::internal(e).into_response(),
+        Err(e) => {
+            tracing::error!(%e, "register runner failed");
+            AppError::internal(e).into_response()
+        }
     }
 }
 
@@ -225,11 +228,9 @@ pub async fn poll_job(
                     continue;
                 }
                 Err(e) => {
-                    eprintln!("[poll_job] db error: {}", e);
-                    return Err((
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(serde_json::json!({"error": e.to_string()})),
-                    ).into_response());
+                    // H-05: Log the full error, return sanitized response
+                    tracing::error!(%e, "[poll_job] database error while finding pending job");
+                    return Err(AppError::internal(e).into_response());
                 }
             }
         }
@@ -269,6 +270,7 @@ pub async fn start_job(
             return AppError::not_found("job not found").into_response();
         }
         Err(e) => {
+            tracing::error!(%e, "start_job: get_job failed");
             return AppError::internal(e).into_response();
         }
     };
@@ -281,6 +283,7 @@ pub async fn start_job(
     if let Err(e) = rg_db::ops::pipeline_ops::update_job_result(
         &state.db, job_id, "running", None, None, now, None,
     ).await {
+        tracing::error!(%e, "start_job: update_job_result failed");
         return AppError::internal(e).into_response();
     }
 
@@ -321,6 +324,7 @@ pub async fn upload_log(
             return AppError::not_found("job not found").into_response();
         }
         Err(e) => {
+            tracing::error!(%e, "upload_log: get_job failed");
             return AppError::internal(e).into_response();
         }
     };
@@ -343,6 +347,7 @@ pub async fn upload_log(
     if let Err(e) = rg_db::ops::pipeline_ops::update_job_result(
         &state.db, job_id, &job.status, None, Some(&combined), None, None,
     ).await {
+        tracing::error!(%e, "upload_log: update_job_result failed");
         return AppError::internal(e).into_response();
     }
 
@@ -378,6 +383,7 @@ pub async fn finish_job(
             return AppError::not_found("job not found").into_response();
         }
         Err(e) => {
+            tracing::error!(%e, "finish_job: get_job failed");
             return AppError::internal(e).into_response();
         }
     };
@@ -391,6 +397,7 @@ pub async fn finish_job(
     if let Err(e) = rg_db::ops::pipeline_ops::update_job_result(
         &state.db, job_id, &req.status, Some(req.exit_code), None, None, now,
     ).await {
+        tracing::error!(%e, "finish_job: update_job_result failed");
         return AppError::internal(e).into_response();
     }
 
@@ -453,7 +460,10 @@ pub async fn list_runners_admin(
                 .collect();
             (StatusCode::OK, Json(resp)).into_response()
         }
-        Err(e) => AppError::internal(e).into_response(),
+        Err(e) => {
+            tracing::error!(%e, "list_runners_admin failed");
+            AppError::internal(e).into_response()
+        }
     }
 }
 
@@ -504,7 +514,10 @@ pub async fn authenticate_runner(
             Json(serde_json::json!({"error": "invalid runner token"})),
         )
             .into_response(),
-        Err(e) => AppError::internal(e).into_response(),
+        Err(e) => {
+            tracing::error!(%e, "authenticate_runner: find_by_token failed");
+            AppError::internal(e).into_response()
+        }
     }
 }
 
@@ -534,6 +547,9 @@ pub async fn delete_runner_admin(
     match rg_db::ops::runner_ops::delete_runner(&state.db, runner_id).await {
         Ok(true) => (StatusCode::NO_CONTENT, Json(serde_json::json!({"deleted": true}))).into_response(),
         Ok(false) => AppError::not_found("runner not found").into_response(),
-        Err(e) => AppError::internal(e).into_response(),
+        Err(e) => {
+            tracing::error!(%e, "delete_runner_admin failed");
+            AppError::internal(e).into_response()
+        }
     }
 }

@@ -255,6 +255,10 @@ impl Handler for SshHandler {
 
         let (service, repo_path) = parse_git_command(&command)?;
 
+        // H-02: Validate repo_path before joining with repo_root
+        rg_core::platform::validate_repo_path(&repo_path)
+            .with_context(|| format!("invalid repository path: {}", repo_path))?;
+
         let repo_full_path = {
             let p = self.shared.repo_root.join(&repo_path);
             if p.exists() {

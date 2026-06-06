@@ -74,10 +74,22 @@ impl AppError {
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let status = self.status();
+        let code = self.code();
+
+        // H-05: Never expose internal error details to clients.
+        // Log the original error for operators, return a generic message.
+        let sanitized_message = match &self {
+            Self::InternalError(msg) => {
+                tracing::error!(error = %msg, "Internal server error returned to client");
+                "Internal server error".to_string()
+            }
+            other => other.to_string(),
+        };
+
         let body = ErrorResponse {
             error: ErrorBody {
-                code: self.code(),
-                message: self.to_string(),
+                code,
+                message: sanitized_message,
                 request_id: None,
             },
         };
@@ -87,13 +99,20 @@ impl IntoResponse for AppError {
 
 impl From<anyhow::Error> for AppError {
     fn from(e: anyhow::Error) -> Self {
-        Self::InternalError(e.to_string())
+        // H-05: Log the full error for operators, store a generic message internally.
+        // The IntoResponse impl will also sanitize the client-facing message.
+        let full_msg = e.to_string();
+        tracing::error!(error = %full_msg, "anyhow error converted to AppError");
+        Self::InternalError(full_msg)
     }
 }
 
 impl From<sea_orm::DbErr> for AppError {
     fn from(e: sea_orm::DbErr) -> Self {
-        Self::InternalError(e.to_string())
+        // H-05: Log the database error for operators, never expose to clients.
+        let full_msg = e.to_string();
+        tracing::error!(error = %full_msg, "database error converted to AppError");
+        Self::InternalError(full_msg)
     }
 }
 

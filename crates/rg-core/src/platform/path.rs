@@ -2,6 +2,8 @@
 
 use std::path::PathBuf;
 
+use anyhow::Result;
+
 /// Get the platform-appropriate temp directory.
 ///
 /// # Examples
@@ -9,6 +11,29 @@ use std::path::PathBuf;
 /// - Windows: `C:\Users\Username\AppData\Local\Temp`
 pub fn temp_dir() -> PathBuf {
     std::env::temp_dir()
+}
+
+/// Validate a repository path component to prevent path traversal attacks (H-02).
+///
+/// Rejects strings that contain:
+/// - `..` (parent directory traversal)
+/// - `//` (double-slash traversal)
+/// - Leading `/` (Unix absolute path injection)
+/// - Leading `\` (Windows absolute path injection)
+pub fn validate_repo_path(path: &str) -> Result<()> {
+    if path.contains("..") {
+        anyhow::bail!("repository path contains '..' (path traversal)");
+    }
+    if path.contains("//") {
+        anyhow::bail!("repository path contains '//' (path traversal)");
+    }
+    if path.starts_with('/') {
+        anyhow::bail!("repository path starts with '/' (absolute path)");
+    }
+    if path.starts_with('\\') {
+        anyhow::bail!("repository path starts with '\\' (absolute path)");
+    }
+    Ok(())
 }
 
 /// Create a platform-appropriate PathBuf for repository storage.
@@ -80,5 +105,28 @@ mod tests {
     fn test_expand_home_no_tilde() {
         let result = expand_home("/absolute/path/config.toml");
         assert_eq!(result, "/absolute/path/config.toml");
+    }
+
+    #[test]
+    fn test_validate_repo_path_rejects_dotdot() {
+        assert!(validate_repo_path("../etc").is_err());
+        assert!(validate_repo_path("foo/../bar").is_err());
+    }
+
+    #[test]
+    fn test_validate_repo_path_rejects_absolute() {
+        assert!(validate_repo_path("/etc/passwd").is_err());
+    }
+
+    #[test]
+    fn test_validate_repo_path_rejects_double_slash() {
+        assert!(validate_repo_path("foo//bar").is_err());
+    }
+
+    #[test]
+    fn test_validate_repo_path_accepts_normal() {
+        assert!(validate_repo_path("owner/repo").is_ok());
+        assert!(validate_repo_path("owner/repo.git").is_ok());
+        assert!(validate_repo_path("owner").is_ok());
     }
 }

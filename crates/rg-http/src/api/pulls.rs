@@ -83,7 +83,7 @@ pub async fn list_prs(
             Json(PaginatedResponse::new(data, &pagination, total as u64)),
         )
             .into_response(),
-        Err(e) => AppError::InternalError(e.to_string()).into_response(),
+        Err(e) => { tracing::error!(%e, "handler error"); AppError::internal(e).into_response() },
     }
 }
 
@@ -228,7 +228,7 @@ pub async fn get_diff(
     .await
     {
         Ok(diff) => (StatusCode::OK, Json(diff)).into_response(),
-        Err(e) => AppError::InternalError(e.to_string()).into_response(),
+        Err(e) => { tracing::error!(%e, "handler error"); AppError::internal(e).into_response() },
     }
 }
 

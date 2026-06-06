@@ -646,6 +646,23 @@ async fn handle_info_refs(
     Query(params): Query<std::collections::HashMap<String, String>>,
 ) -> impl IntoResponse {
     let service = params.get("service").map(|s| s.as_str()).unwrap_or("");
+
+    // H-02: Validate owner/repo before constructing repository path
+    if let Err(e) = rg_core::platform::validate_repo_path(&owner) {
+        return (
+            StatusCode::BAD_REQUEST,
+            [(header::CONTENT_TYPE, "text/plain")],
+            e.to_string(),
+        );
+    }
+    if let Err(e) = rg_core::platform::validate_repo_path(&repo) {
+        return (
+            StatusCode::BAD_REQUEST,
+            [(header::CONTENT_TYPE, "text/plain")],
+            e.to_string(),
+        );
+    }
+
     let repo_path = state.repo_root.join(format!("{}/{}.git", owner, repo));
 
     if !repo_path.exists() {
@@ -816,6 +833,22 @@ async fn handle_git_upload_pack(
     axum::extract::Path((owner, repo)): axum::extract::Path<(String, String)>,
     body: axum::body::Bytes,
 ) -> impl IntoResponse {
+    // H-02: Validate owner/repo before constructing repository path
+    if let Err(e) = rg_core::platform::validate_repo_path(&owner) {
+        return (
+            StatusCode::BAD_REQUEST,
+            [(header::CONTENT_TYPE, "text/plain")],
+            Body::from(e.to_string()),
+        );
+    }
+    if let Err(e) = rg_core::platform::validate_repo_path(&repo) {
+        return (
+            StatusCode::BAD_REQUEST,
+            [(header::CONTENT_TYPE, "text/plain")],
+            Body::from(e.to_string()),
+        );
+    }
+
     let repo_path = state.repo_root.join(format!("{}/{}.git", owner, repo));
 
     if !repo_path.exists() {
@@ -904,6 +937,22 @@ async fn handle_git_receive_pack(
     axum::extract::Path((owner, repo)): axum::extract::Path<(String, String)>,
     body: axum::body::Bytes,
 ) -> impl IntoResponse {
+    // H-02: Validate owner/repo before constructing repository path
+    if let Err(e) = rg_core::platform::validate_repo_path(&owner) {
+        return (
+            StatusCode::BAD_REQUEST,
+            [(header::CONTENT_TYPE, "text/plain")],
+            Body::from(e.to_string()),
+        );
+    }
+    if let Err(e) = rg_core::platform::validate_repo_path(&repo) {
+        return (
+            StatusCode::BAD_REQUEST,
+            [(header::CONTENT_TYPE, "text/plain")],
+            Body::from(e.to_string()),
+        );
+    }
+
     let repo_path = state.repo_root.join(format!("{}/{}.git", owner, repo));
 
     if !repo_path.exists() {

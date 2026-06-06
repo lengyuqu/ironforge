@@ -151,6 +151,14 @@ pub async fn create_release(
         }
     }
 
+    // H-02: Validate owner/name before constructing repository path
+    if let Err(e) = rg_core::platform::validate_repo_path(&owner) {
+        return AppError::bad_request(e.to_string()).into_response();
+    }
+    if let Err(e) = rg_core::platform::validate_repo_path(&name) {
+        return AppError::bad_request(e.to_string()).into_response();
+    }
+
     let repo_path = state.repo_root.join(format!("{}/{}.git", owner, name));
 
     match rg_core::release::service::create_release(

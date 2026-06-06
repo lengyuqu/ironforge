@@ -106,7 +106,7 @@ pub async fn list_pipelines(
     let repo = match find_repo(&state.db, &owner, &name).await {
         Ok(Some(r)) => r,
         Ok(None) => return AppError::not_found("repository not found").into_response(),
-        Err(e) => return AppError::internal(e).into_response(),
+        Err(e) => return { tracing::error!(%e, "handler error"); AppError::internal(e).into_response() },
     };
 
     match rg_db::ops::pipeline_ops::list_pipelines_by_repo_paginated(&state.db, repo.id, offset, limit).await {
@@ -128,7 +128,7 @@ pub async fn list_pipelines(
                 .collect();
             Json(PaginatedResponse::new(resp, &pagination, total as u64)).into_response()
         }
-        Err(e) => AppError::internal(e).into_response(),
+        Err(e) => { tracing::error!(%e, "handler error"); AppError::internal(e).into_response() },
     }
 }
 
@@ -155,12 +155,12 @@ pub async fn get_pipeline(
     let pipeline = match rg_db::ops::pipeline_ops::get_pipeline(&state.db, id).await {
         Ok(Some(p)) => p,
         Ok(None) => return AppError::not_found("pipeline not found").into_response(),
-        Err(e) => return AppError::internal(e).into_response(),
+        Err(e) => return { tracing::error!(%e, "handler error"); AppError::internal(e).into_response() },
     };
 
     let stages = match rg_db::ops::pipeline_ops::list_stages_by_pipeline(&state.db, id).await {
         Ok(s) => s,
-        Err(e) => return AppError::internal(e).into_response(),
+        Err(e) => return { tracing::error!(%e, "handler error"); AppError::internal(e).into_response() },
     };
 
     let mut stages_with_jobs: Vec<StageWithJobsResponse> = Vec::new();
@@ -168,7 +168,7 @@ pub async fn get_pipeline(
     for stage in stages {
         let jobs = match rg_db::ops::pipeline_ops::list_jobs_by_stage(&state.db, stage.id).await {
             Ok(j) => j,
-            Err(e) => return AppError::internal(e).into_response(),
+            Err(e) => return { tracing::error!(%e, "handler error"); AppError::internal(e).into_response() },
         };
 
         stages_with_jobs.push(StageWithJobsResponse {
@@ -254,7 +254,7 @@ pub async fn get_job(
         })
         .into_response(),
         Ok(None) => AppError::not_found("job not found").into_response(),
-        Err(e) => AppError::internal(e).into_response(),
+        Err(e) => { tracing::error!(%e, "handler error"); AppError::internal(e).into_response() },
     }
 }
 
@@ -283,10 +283,19 @@ pub async fn trigger_pipeline(
     let repo = match find_repo(&state.db, &owner, &name).await {
         Ok(Some(r)) => r,
         Ok(None) => return AppError::not_found("repository not found").into_response(),
-        Err(e) => return AppError::internal(e).into_response(),
+        Err(e) => return { tracing::error!(%e, "handler error"); AppError::internal(e).into_response() },
     };
 
-    let repo_path = state.repo_root.join(format!("{}/{}.git", owner, name));
+    let repo_path = {
+        // H-02: Validate owner/name before constructing repository path
+        if let Err(e) = rg_core::platform::validate_repo_path(&owner) {
+            return AppError::bad_request(e.to_string()).into_response();
+        }
+        if let Err(e) = rg_core::platform::validate_repo_path(&name) {
+            return AppError::bad_request(e.to_string()).into_response();
+        }
+        state.repo_root.join(format!("{}/{}.git", owner, name))
+    };
     if !repo_path.exists() {
         return AppError::not_found("repo path not found").into_response();
     }
@@ -326,7 +335,7 @@ pub async fn trigger_pipeline(
             })),
         )
             .into_response(),
-        Err(e) => AppError::internal(e).into_response(),
+        Err(e) => { tracing::error!(%e, "handler error"); AppError::internal(e).into_response() },
     }
 }
 
@@ -354,10 +363,19 @@ pub async fn retry_pipeline(
     let pipeline = match rg_db::ops::pipeline_ops::get_pipeline(&state.db, id).await {
         Ok(Some(p)) => p,
         Ok(None) => return AppError::not_found("pipeline not found").into_response(),
-        Err(e) => return AppError::internal(e).into_response(),
+        Err(e) => return { tracing::error!(%e, "handler error"); AppError::internal(e).into_response() },
     };
 
-    let repo_path = state.repo_root.join(format!("{}/{}.git", owner, name));
+    let repo_path = {
+        // H-02: Validate owner/name before constructing repository path
+        if let Err(e) = rg_core::platform::validate_repo_path(&owner) {
+            return AppError::bad_request(e.to_string()).into_response();
+        }
+        if let Err(e) = rg_core::platform::validate_repo_path(&name) {
+            return AppError::bad_request(e.to_string()).into_response();
+        }
+        state.repo_root.join(format!("{}/{}.git", owner, name))
+    };
     if !repo_path.exists() {
         return AppError::not_found("repo path not found").into_response();
     }
@@ -384,7 +402,7 @@ pub async fn retry_pipeline(
             })),
         )
             .into_response(),
-        Err(e) => AppError::internal(e).into_response(),
+        Err(e) => { tracing::error!(%e, "handler error"); AppError::internal(e).into_response() },
     }
 }
 
@@ -412,7 +430,7 @@ pub async fn cancel_pipeline(
     let pipeline = match rg_db::ops::pipeline_ops::get_pipeline(&state.db, id).await {
         Ok(Some(p)) => p,
         Ok(None) => return AppError::not_found("pipeline not found").into_response(),
-        Err(e) => return AppError::internal(e).into_response(),
+        Err(e) => return { tracing::error!(%e, "handler error"); AppError::internal(e).into_response() },
     };
 
     if pipeline.status != "running" && pipeline.status != "pending" {
@@ -425,13 +443,13 @@ pub async fn cancel_pipeline(
     if let Err(e) =
         rg_db::ops::pipeline_ops::update_pipeline_status(&state.db, id, "canceled", None, Some(now)).await
     {
-        return AppError::internal(e).into_response();
+        return { tracing::error!(%e, "handler error"); AppError::internal(e).into_response() };
     }
 
     // Mark all running stages/jobs as canceled
     let stages = match rg_db::ops::pipeline_ops::list_stages_by_pipeline(&state.db, id).await {
         Ok(s) => s,
-        Err(e) => return AppError::internal(e).into_response(),
+        Err(e) => return { tracing::error!(%e, "handler error"); AppError::internal(e).into_response() },
     };
 
     for stage in stages {

@@ -91,6 +91,18 @@ pub async fn handle_info_refs_v2(
             .into_response();
     }
 
+    // H-02: Validate owner/repo before constructing repository path
+    if let Err(e) = rg_core::platform::validate_repo_path(&owner) {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+            "error": e.to_string()
+        }))).into_response();
+    }
+    if let Err(e) = rg_core::platform::validate_repo_path(&repo) {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+            "error": e.to_string()
+        }))).into_response();
+    }
+
     // Build repo path
     let repo_path = state.repo_root.join(&owner).join(format!("{}.git", &repo));
 
@@ -136,6 +148,18 @@ pub async fn handle_git_upload_pack_v2(
             })),
         )
             .into_response();
+    }
+
+    // H-02: Validate owner/repo before constructing repository path
+    if let Err(e) = rg_core::platform::validate_repo_path(&owner) {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+            "error": e.to_string()
+        }))).into_response();
+    }
+    if let Err(e) = rg_core::platform::validate_repo_path(&repo) {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+            "error": e.to_string()
+        }))).into_response();
     }
 
     // Build repo path
@@ -201,6 +225,18 @@ pub async fn handle_git_receive_pack_v2(
             })),
         )
             .into_response();
+    }
+
+    // H-02: Validate owner/repo before constructing repository path
+    if let Err(e) = rg_core::platform::validate_repo_path(&owner) {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+            "error": e.to_string()
+        }))).into_response();
+    }
+    if let Err(e) = rg_core::platform::validate_repo_path(&repo) {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+            "error": e.to_string()
+        }))).into_response();
     }
 
     // Build repo path
