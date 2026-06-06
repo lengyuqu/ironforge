@@ -98,9 +98,9 @@ pub async fn register(
     headers: HeaderMap,
     Json(req): Json<RegisterRunnerRequest>,
 ) -> impl IntoResponse {
-    // Require admin authentication to register a runner
-    if require_admin(&state, &headers).await.is_none() {
-        return AppError::unauthorized("admin authentication required to register runners").into_response();
+    // Require JWT authentication to register a runner (any authenticated user)
+    if extract_bearer_claims(&headers, &state.jwt_secret).is_none() {
+        return AppError::unauthorized("authentication required to register runners").into_response();
     }
 
     let labels_json = serde_json::to_string(&req.labels.unwrap_or_default())

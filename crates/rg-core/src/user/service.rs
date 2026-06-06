@@ -59,6 +59,32 @@ pub async fn register(
         bail!("email '{}' is already registered", email);
     }
 
+    // ── Username validation ──────────────────────────────────────
+    if username.len() < 3 || username.len() > 30 {
+        bail!("username must be between 3 and 30 characters");
+    }
+
+    let first_char = username.chars().next().unwrap(); // len >= 3, safe to unwrap
+    if !first_char.is_ascii_alphanumeric() {
+        bail!("username must start with an alphanumeric character");
+    }
+
+    if !username.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+        bail!("username must only contain alphanumeric characters, hyphens, and underscores");
+    }
+
+    // Path traversal prevention
+    if username.contains("..") || username.contains('/') {
+        bail!("username contains invalid characters");
+    }
+
+    // ── Email validation ─────────────────────────────────────────
+    match email.split_once('@') {
+        Some((local, domain)) if !local.is_empty() && !domain.is_empty() => {}
+        _ => bail!("email must contain '@' with a non-empty local and domain part"),
+    }
+
+    // ── Password validation ──────────────────────────────────────
     if plaintext_password.len() < 8 {
         bail!("password must be at least 8 characters");
     }

@@ -22,8 +22,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use axum::body::Body;
 use axum::extract::{Query, State};
-use axum::http::header;
-use axum::http::StatusCode;
+use axum::http::{header, Method, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::{delete, get, patch, post, put};
 use axum::Router;
@@ -94,6 +93,8 @@ pub async fn run(config: HttpServerConfig) -> Result<()> {
     };
 
     let app = create_router(state.clone(), rate_limiter.clone());
+
+    tracing::info!("CORS permissive mode active — tighten in production");
 
     // ── HTTPS mode (axum-server + rustls) ──────────────────
         //
@@ -244,7 +245,11 @@ fn build_router(state: AppState, rate_limiter: rate_limit::RateLimiter) -> Route
                 )
             }),
         )
-        .layer(CorsLayer::permissive())
+        .layer(
+            CorsLayer::permissive()
+                .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE, Method::PATCH]),
+        )
+        // CORS permissive mode active — tighten in production
         .layer(axum::middleware::from_fn_with_state(
             rate_limiter.clone(),
             rate_limit::rate_limit_middleware,
@@ -443,7 +448,10 @@ fn build_test_router(state: AppState) -> Router {
                 )
             }),
         )
-        .layer(CorsLayer::permissive())
+        .layer(
+            CorsLayer::permissive()
+                .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE, Method::PATCH]),
+        )
         .with_state(state)
 }
 

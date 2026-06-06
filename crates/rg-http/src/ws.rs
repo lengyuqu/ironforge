@@ -220,13 +220,13 @@ pub async fn ws_job_log_handler(
     State(state): State<AppState>,
 ) -> impl IntoResponse {
     // Authenticate via JWT token in query string
-    let authenticated = query
+    let user_id = query
         .token
         .as_deref()
         .and_then(|t| rg_core::auth::jwt::validate_token(t, &state.jwt_secret))
-        .is_some();
+        .and_then(|c| c.sub.parse::<i64>().ok());
 
-    ws.on_upgrade(move |socket| handle_job_log_connection(socket, state.notification_hub.clone(), job_id, authenticated))
+    ws.on_upgrade(move |socket| handle_job_log_connection(socket, state.notification_hub.clone(), job_id, user_id))
 }
 
 /// Handle a job log WebSocket connection.
@@ -234,12 +234,12 @@ async fn handle_job_log_connection(
     socket: WebSocket,
     hub: NotificationHub,
     job_id: i64,
-    authenticated: bool,
+    user_id: Option<i64>,
 ) {
     let (mut sender, mut receiver) = socket.split();
 
     // Reject unauthenticated connections
-    if !authenticated {
+    if user_id.is_none() {
         let _ = sender
             .send(Message::Text(
                 serde_json::json!({"error": "authentication required"}).to_string().into(),
