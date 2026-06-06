@@ -8,7 +8,6 @@ use sea_orm::DatabaseConnection;
 
 use crate::AppState;
 use crate::error::AppError;
-use utoipa::ToSchema;
 
 // ── Handlers ──────────────────────────────────────────────────────────────
 
@@ -31,7 +30,7 @@ pub async fn list_webhooks(
     Path((owner, repo)): Path<(String, String)>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    let _user_id = match extract_user_id(&state, &headers) {
+    let _user_id = match super::auth::extract_user_id(&headers, &state.jwt_secret) {
         Some(id) => id,
         None => return AppError::unauthorized("unauthorized").into_response(),
     };
@@ -69,7 +68,7 @@ pub async fn create_webhook(
     headers: HeaderMap,
     Json(body): Json<rg_core::webhook::service::CreateWebhookRequest>,
 ) -> impl IntoResponse {
-    let _user_id = match extract_user_id(&state, &headers) {
+    let _user_id = match super::auth::extract_user_id(&headers, &state.jwt_secret) {
         Some(id) => id,
         None => return AppError::unauthorized("unauthorized").into_response(),
     };
@@ -105,7 +104,7 @@ pub async fn get_webhook(
     Path((_owner, _repo, id)): Path<(String, String, i64)>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    let _user_id = match extract_user_id(&state, &headers) {
+    let _user_id = match super::auth::extract_user_id(&headers, &state.jwt_secret) {
         Some(id) => id,
         None => return AppError::unauthorized("unauthorized").into_response(),
     };
@@ -139,7 +138,7 @@ pub async fn update_webhook(
     headers: HeaderMap,
     Json(body): Json<rg_core::webhook::service::UpdateWebhookRequest>,
 ) -> impl IntoResponse {
-    let _user_id = match extract_user_id(&state, &headers) {
+    let _user_id = match super::auth::extract_user_id(&headers, &state.jwt_secret) {
         Some(id) => id,
         None => return AppError::unauthorized("unauthorized").into_response(),
     };
@@ -177,7 +176,7 @@ pub async fn delete_webhook(
     Path((_owner, _repo, id)): Path<(String, String, i64)>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    let _user_id = match extract_user_id(&state, &headers) {
+    let _user_id = match super::auth::extract_user_id(&headers, &state.jwt_secret) {
         Some(id) => id,
         None => return AppError::unauthorized("unauthorized").into_response(),
     };
@@ -208,7 +207,7 @@ pub async fn list_deliveries(
     Path((_owner, _repo, id)): Path<(String, String, i64)>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    let _user_id = match extract_user_id(&state, &headers) {
+    let _user_id = match super::auth::extract_user_id(&headers, &state.jwt_secret) {
         Some(id) => id,
         None => return AppError::unauthorized("unauthorized").into_response(),
     };
@@ -241,7 +240,7 @@ pub async fn redeliver(
     Path((_owner, _repo, delivery_id)): Path<(String, String, i64)>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    let _user_id = match extract_user_id(&state, &headers) {
+    let _user_id = match super::auth::extract_user_id(&headers, &state.jwt_secret) {
         Some(id) => id,
         None => return AppError::unauthorized("unauthorized").into_response(),
     };
@@ -254,12 +253,6 @@ pub async fn redeliver(
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
-fn extract_user_id(state: &AppState, headers: &HeaderMap) -> Option<i64> {
-    let auth = headers.get("authorization")?.to_str().ok()?;
-    let token = auth.strip_prefix("Bearer ")?;
-    let claims = rg_core::auth::jwt::validate_token(token, &state.jwt_secret)?;
-    claims.sub.parse().ok()
-}
 
 async fn resolve_repo_id(
     db: &DatabaseConnection,

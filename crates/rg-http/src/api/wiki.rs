@@ -9,7 +9,6 @@ use sea_orm::DatabaseConnection;
 
 use crate::AppState;
 use crate::error::AppError;
-use utoipa::ToSchema;
 
 // ── Request / Response types ──────────────────────────────────────────────
 
@@ -84,7 +83,7 @@ pub async fn list_pages(
     Path((owner, repo)): Path<(String, String)>,
     _headers: HeaderMap,
 ) -> impl IntoResponse {
-    let _user_id = extract_user_id(&state, &_headers);
+    let _user_id = super::auth::extract_user_id(&_headers, &state.jwt_secret);
     let repo_id = match resolve_repo_id(&state.db, &owner, &repo).await {
         Some(id) => id,
         None => return AppError::not_found("repository not found").into_response(),
@@ -151,7 +150,7 @@ pub async fn create_page(
     headers: HeaderMap,
     Json(body): Json<CreateWikiPageRequest>,
 ) -> impl IntoResponse {
-    let user_id = match extract_user_id(&state, &headers) {
+    let user_id = match super::auth::extract_user_id(&headers, &state.jwt_secret) {
         Some(id) => id,
         None => return AppError::unauthorized("unauthorized").into_response(),
     };
@@ -197,7 +196,7 @@ pub async fn update_page(
     headers: HeaderMap,
     Json(body): Json<UpdateWikiPageRequest>,
 ) -> impl IntoResponse {
-    let user_id = match extract_user_id(&state, &headers) {
+    let user_id = match super::auth::extract_user_id(&headers, &state.jwt_secret) {
         Some(id) => id,
         None => return AppError::unauthorized("unauthorized").into_response(),
     };
@@ -242,7 +241,7 @@ pub async fn delete_page(
     Path((owner, repo, title)): Path<(String, String, String)>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    let _user_id = match extract_user_id(&state, &headers) {
+    let _user_id = match super::auth::extract_user_id(&headers, &state.jwt_secret) {
         Some(id) => id,
         None => return AppError::unauthorized("unauthorized").into_response(),
     };
@@ -260,12 +259,6 @@ pub async fn delete_page(
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
-fn extract_user_id(state: &AppState, headers: &axum::http::HeaderMap) -> Option<i64> {
-    let auth = headers.get("authorization")?.to_str().ok()?;
-    let token = auth.strip_prefix("Bearer ")?;
-    let claims = rg_core::auth::jwt::validate_token(token, &state.jwt_secret)?;
-    claims.sub.parse().ok()
-}
 
 async fn resolve_repo_id(
     db: &DatabaseConnection,

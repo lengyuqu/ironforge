@@ -362,9 +362,15 @@ async fn notify_milestone_closed(
     if let Ok(Some(milestone)) = rg_db::ops::milestone_ops::find_by_id(db, milestone_id).await {
         // Look up repo name for notification
         if let Ok(Some(repo)) = rg_db::entities::repository::Entity::find_by_id(repo_id).one(db).await {
-            if let Err(e) = crate::notification::notify_watchers_milestone(
-                db, repo_id, &repo.name, &milestone.title, "closed",
-            ).await {
+            if let Err(e) = crate::notification::notify_watchers(
+                db,
+                repo_id,
+                "",
+                &format!("Milestone {} in {}", "closed", repo.name),
+                "milestone",
+                Some(format!("Milestone '{}' {}", milestone.title, "closed")),
+            )
+            .await {
                 tracing::warn!("Failed to notify watchers about milestone: {e}");
             }
         }

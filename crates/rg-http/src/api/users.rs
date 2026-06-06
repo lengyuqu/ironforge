@@ -6,7 +6,7 @@
 
 use axum::{
     extract::{Path, State},
-    http::{header, HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode},
     response::IntoResponse,
     Json,
 };
@@ -124,7 +124,7 @@ pub async fn me(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
+    let claims = match super::auth::extract_bearer_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => {
             return AppError::Unauthorized("missing or invalid token".to_string()).into_response()
@@ -149,16 +149,6 @@ pub async fn me(
         Ok(None) => AppError::NotFound("user not found".to_string()).into_response(),
         Err(e) => AppError::InternalError(e.to_string()).into_response(),
     }
-}
-
-/// Extract and validate a Bearer JWT from the Authorization header.
-pub(crate) fn extract_bearer_claims(
-    headers: &HeaderMap,
-    jwt_secret: &str,
-) -> Option<rg_core::auth::jwt::Claims> {
-    let auth = headers.get(header::AUTHORIZATION)?.to_str().ok()?;
-    let token = auth.strip_prefix("Bearer ")?;
-    rg_core::auth::jwt::validate_token(token, jwt_secret)
 }
 
 // ── PAT (Personal Access Token) handlers ────────────────────────────────
@@ -208,7 +198,7 @@ pub async fn list_tokens(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
+    let claims = match super::auth::extract_bearer_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => { return AppError::Unauthorized("authentication required".to_string()).into_response(); }
     };
@@ -236,7 +226,7 @@ pub async fn create_token(
     headers: HeaderMap,
     Json(body): Json<CreateTokenRequest>,
 ) -> impl IntoResponse {
-    let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
+    let claims = match super::auth::extract_bearer_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => { return AppError::Unauthorized("authentication required".to_string()).into_response(); }
     };
@@ -293,7 +283,7 @@ pub async fn delete_token(
     headers: HeaderMap,
     Path(id): Path<i64>,
 ) -> impl IntoResponse {
-    let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
+    let claims = match super::auth::extract_bearer_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => { return AppError::Unauthorized("authentication required".to_string()).into_response(); }
     };

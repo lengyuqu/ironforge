@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use crate::error::AppError;
 use crate::AppState;
-use super::users::extract_bearer_claims;
+use super::auth::extract_bearer_claims;
 
 /// Verify the current request is from an authenticated admin user.
 /// Returns `Some(user_id)` on success, `None` otherwise.

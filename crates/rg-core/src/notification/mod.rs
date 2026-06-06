@@ -59,74 +59,33 @@ pub async fn delete_notification(db: &DatabaseConnection, id: i64) -> Result<()>
 
 // ── Watch notification helpers ─────────────────────────────────────────
 
-/// Notify all watchers of a repository about a push event.
-pub async fn notify_watchers_push(
+/// Notify all watchers of a repository about an event.
+pub async fn notify_watchers(
     db: &DatabaseConnection,
     repo_id: i64,
-    repo_name: &str,
-    pusher_name: &str,
-    ref_name: &str,
+    author_name: &str,
+    title: &str,
+    notification_type: &str,
+    body: Option<String>,
 ) -> Result<()> {
     let watchers = rg_db::ops::repo_watch_ops::list_watchers(db, repo_id, 0, 1000).await?.0;
-    // Resolve pusher once outside the loop to avoid N+1 queries
-    let pusher_opt = rg_db::ops::user_ops::find_by_username(db, pusher_name).await.ok().flatten();
+    // Resolve author once outside the loop to avoid N+1 queries
+    let author_opt = if author_name.is_empty() {
+        None
+    } else {
+        rg_db::ops::user_ops::find_by_username(db, author_name).await.ok().flatten()
+    };
     for watcher in watchers {
-        // Don't notify the pusher themselves
-        if let Some(ref pusher) = pusher_opt {
-            if pusher.id == watcher.user_id {
+        // Don't notify the author themselves
+        if let Some(ref author) = author_opt {
+            if author.id == watcher.user_id {
                 continue;
             }
         }
-        let title = format!("New push to {}", repo_name);
-        let body = Some(format!("{} pushed to {}", pusher_name, ref_name));
         if let Err(e) = notification_ops::create_notification(
-            db, watcher.user_id, "push", &title, body.as_deref(), Some(repo_id),
+            db, watcher.user_id, notification_type, title, body.as_deref(), Some(repo_id),
         ).await {
-            tracing::warn!("Failed to notify watcher {} about push: {e}", watcher.user_id);
-        }
-    }
-    Ok(())
-}
-
-/// Notify all watchers of a repository about a pull request event.
-pub async fn notify_watchers_pr(
-    db: &DatabaseConnection,
-    repo_id: i64,
-    repo_name: &str,
-    author_name: &str,
-    pr_number: i64,
-    pr_title: &str,
-    action: &str,
-) -> Result<()> {
-    let watchers = rg_db::ops::repo_watch_ops::list_watchers(db, repo_id, 0, 1000).await?.0;
-    for watcher in watchers {
-        let title = format!("PR #{} {} in {}", pr_number, action, repo_name);
-        let body = Some(format!("{} {}: {}", author_name, action, pr_title));
-        if let Err(e) = notification_ops::create_notification(
-            db, watcher.user_id, "pull_request", &title, body.as_deref(), Some(repo_id),
-        ).await {
-            tracing::warn!("Failed to notify watcher {} about PR: {e}", watcher.user_id);
-        }
-    }
-    Ok(())
-}
-
-/// Notify all watchers of a repository about a milestone event.
-pub async fn notify_watchers_milestone(
-    db: &DatabaseConnection,
-    repo_id: i64,
-    repo_name: &str,
-    milestone_title: &str,
-    action: &str,
-) -> Result<()> {
-    let watchers = rg_db::ops::repo_watch_ops::list_watchers(db, repo_id, 0, 1000).await?.0;
-    for watcher in watchers {
-        let title = format!("Milestone {} in {}", action, repo_name);
-        let body = Some(format!("Milestone '{}' {}", milestone_title, action));
-        if let Err(e) = notification_ops::create_notification(
-            db, watcher.user_id, "milestone", &title, body.as_deref(), Some(repo_id),
-        ).await {
-            tracing::warn!("Failed to notify watcher {} about milestone: {e}", watcher.user_id);
+            tracing::warn!("Failed to notify watcher {} about {notification_type}: {e}", watcher.user_id);
         }
     }
     Ok(())

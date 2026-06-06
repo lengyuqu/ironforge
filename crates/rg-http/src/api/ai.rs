@@ -9,7 +9,7 @@ use axum::Json;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::api::users::extract_bearer_claims;
+use crate::api::auth::extract_bearer_claims;
 use crate::AppState;
 use crate::error::AppError;
 

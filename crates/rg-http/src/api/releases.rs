@@ -22,7 +22,7 @@ use serde::Deserialize;
 use utoipa::ToSchema;
 
 use crate::error::AppError;
-use crate::api::users::extract_bearer_claims;
+use crate::api::auth::extract_bearer_claims;
 use crate::pagination::{PaginationParams, PaginatedResponse};
 use crate::AppState;
 

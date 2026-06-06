@@ -8,7 +8,6 @@ use serde::Deserialize;
 
 use crate::error::AppError;
 use crate::AppState;
-use utoipa::ToSchema;
 
 // ── Request / Response types ──────────────────────────────────────────
 
@@ -89,7 +88,7 @@ pub async fn submit_review(
     headers: axum::http::HeaderMap,
     Json(req): Json<SubmitReviewRequest>,
 ) -> impl IntoResponse {
-    let user_id = match extract_user_id(&state, &headers) {
+    let user_id = match super::auth::extract_user_id(&headers, &state.jwt_secret) {
         Some(id) => id,
         None => return AppError::unauthorized("authentication required").into_response(),
     };
@@ -172,7 +171,7 @@ pub async fn dismiss_review(
     headers: axum::http::HeaderMap,
     Json(req): Json<DismissReviewRequest>,
 ) -> impl IntoResponse {
-    let user_id = match extract_user_id(&state, &headers) {
+    let user_id = match super::auth::extract_user_id(&headers, &state.jwt_secret) {
         Some(id) => id,
         None => return AppError::unauthorized("authentication required").into_response(),
     };
@@ -235,7 +234,7 @@ pub async fn create_review_comment(
     headers: axum::http::HeaderMap,
     Json(req): Json<CreateReviewCommentRequest>,
 ) -> impl IntoResponse {
-    let user_id = match extract_user_id(&state, &headers) {
+    let user_id = match super::auth::extract_user_id(&headers, &state.jwt_secret) {
         Some(id) => id,
         None => return AppError::unauthorized("authentication required").into_response(),
     };
@@ -274,12 +273,6 @@ pub struct DismissReviewRequest {
 
 // ── Helpers ───────────────────────────────────────────────────────────
 
-fn extract_user_id(state: &AppState, headers: &axum::http::HeaderMap) -> Option<i64> {
-    let auth = headers.get("authorization")?.to_str().ok()?;
-    let token = auth.strip_prefix("Bearer ")?;
-    let claims = rg_core::auth::jwt::validate_token(token, &state.jwt_secret)?;
-    claims.sub.parse().ok()
-}
 
 async fn resolve_repo_id(
     db: &sea_orm::DatabaseConnection,

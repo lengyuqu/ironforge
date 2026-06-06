@@ -495,5 +495,13 @@ pub async fn notify_watchers_push(
     pusher_name: &str,
     ref_name: &str,
 ) -> Result<()> {
-    crate::notification::notify_watchers_push(db, repo_id, repo_name, pusher_name, ref_name).await
+    crate::notification::notify_watchers(
+        db,
+        repo_id,
+        pusher_name,
+        &format!("New push to {}", repo_name),
+        "push",
+        Some(format!("{} pushed to {}", pusher_name, ref_name)),
+    )
+    .await
 }

@@ -8,10 +8,9 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::Json;
 
-use crate::api::users::extract_bearer_claims;
+use crate::api::auth::extract_bearer_claims;
 use crate::AppState;
 use crate::error::AppError;
-use utoipa::ToSchema;
 
 /// LFS batch API: POST /repos/:owner/:name/lfs/objects/batch
 #[utoipa::path(

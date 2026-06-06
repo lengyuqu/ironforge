@@ -9,7 +9,6 @@ use serde::Deserialize;
 use crate::error::AppError;
 use crate::AppState;
 use crate::pagination::{PaginationParams, PaginatedResponse};
-use utoipa::ToSchema;
 
 // ── Request / Response types ────────────────────────────────────────────
 
@@ -132,7 +131,7 @@ pub async fn create_pr(
     headers: axum::http::HeaderMap,
     Json(req): Json<CreatePrRequest>,
 ) -> impl IntoResponse {
-    let user_id = match extract_user_id(&state, &headers) {
+    let user_id = match super::auth::extract_user_id(&headers, &state.jwt_secret) {
         Some(id) => id,
         None => return AppError::Unauthorized("authentication required".to_string()).into_response(),
     };
@@ -255,7 +254,7 @@ pub async fn merge_pr(
     Json(req): Json<MergePrRequest>,
 ) -> impl IntoResponse {
     // Require auth
-    if extract_user_id(&state, &headers).is_none() {
+    if super::auth::extract_user_id(&headers, &state.jwt_secret).is_none() {
         return AppError::Unauthorized("authentication required".to_string()).into_response();
     }
 
@@ -296,12 +295,6 @@ pub async fn merge_pr(
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
-fn extract_user_id(state: &AppState, headers: &axum::http::HeaderMap) -> Option<i64> {
-    let auth = headers.get("authorization")?.to_str().ok()?;
-    let token = auth.strip_prefix("Bearer ")?;
-    let claims = rg_core::auth::jwt::validate_token(token, &state.jwt_secret)?;
-    claims.sub.parse().ok()
-}
 
 async fn resolve_repo_id(
     db: &sea_orm::DatabaseConnection,

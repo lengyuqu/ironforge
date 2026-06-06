@@ -7,7 +7,7 @@ use axum::response::IntoResponse;
 use axum::Json;
 use serde::{Deserialize, Serialize};
 
-use crate::api::users::extract_bearer_claims;
+use crate::api::auth::extract_bearer_claims;
 use crate::error::AppError;
 use crate::AppState;
 use utoipa::ToSchema;

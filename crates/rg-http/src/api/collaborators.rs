@@ -8,7 +8,6 @@ use serde::Deserialize;
 
 use crate::AppState;
 use crate::error::AppError;
-use utoipa::ToSchema;
 
 // ── Request / Response types ──────────────────────────────────────────
 
@@ -79,7 +78,7 @@ pub async fn add_collaborator(
     headers: axum::http::HeaderMap,
     Json(req): Json<AddCollaboratorRequest>,
 ) -> impl IntoResponse {
-    if extract_user_id(&state, &headers).is_none() {
+    if super::auth::extract_user_id(&headers, &state.jwt_secret).is_none() {
         return AppError::unauthorized("authentication required").into_response();
     }
 
@@ -120,7 +119,7 @@ pub async fn update_permission(
     headers: axum::http::HeaderMap,
     Json(req): Json<UpdatePermissionRequest>,
 ) -> impl IntoResponse {
-    if extract_user_id(&state, &headers).is_none() {
+    if super::auth::extract_user_id(&headers, &state.jwt_secret).is_none() {
         return AppError::unauthorized("authentication required").into_response();
     }
 
@@ -152,7 +151,7 @@ pub async fn remove_collaborator(
     Path((owner, repo, user_id)): Path<(String, String, i64)>,
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse {
-    if extract_user_id(&state, &headers).is_none() {
+    if super::auth::extract_user_id(&headers, &state.jwt_secret).is_none() {
         return AppError::unauthorized("authentication required").into_response();
     }
 
@@ -162,11 +161,3 @@ pub async fn remove_collaborator(
     }
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────
-
-fn extract_user_id(state: &AppState, headers: &axum::http::HeaderMap) -> Option<i64> {
-    let auth = headers.get("authorization")?.to_str().ok()?;
-    let token = auth.strip_prefix("Bearer ")?;
-    let claims = rg_core::auth::jwt::validate_token(token, &state.jwt_secret)?;
-    claims.sub.parse().ok()
-}

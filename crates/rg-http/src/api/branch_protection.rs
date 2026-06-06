@@ -8,7 +8,6 @@ use serde::Deserialize;
 
 use crate::AppState;
 use crate::error::AppError;
-use utoipa::ToSchema;
 
 // ── Request / Response types ──────────────────────────────────────────
 
@@ -102,7 +101,7 @@ pub async fn create_protection(
     headers: axum::http::HeaderMap,
     Json(req): Json<CreateProtectionRequest>,
 ) -> impl IntoResponse {
-    if extract_user_id(&state, &headers).is_none() {
+    if super::auth::extract_user_id(&headers, &state.jwt_secret).is_none() {
         return AppError::Unauthorized("authentication required".to_string()).into_response();
     }
 
@@ -175,7 +174,7 @@ pub async fn update_protection(
     headers: axum::http::HeaderMap,
     Json(req): Json<UpdateProtectionRequest>,
 ) -> impl IntoResponse {
-    if extract_user_id(&state, &headers).is_none() {
+    if super::auth::extract_user_id(&headers, &state.jwt_secret).is_none() {
         return AppError::Unauthorized("authentication required".to_string()).into_response();
     }
 
@@ -219,7 +218,7 @@ pub async fn delete_protection(
     Path((_owner, _repo, id)): Path<(String, String, i64)>,
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse {
-    if extract_user_id(&state, &headers).is_none() {
+    if super::auth::extract_user_id(&headers, &state.jwt_secret).is_none() {
         return AppError::Unauthorized("authentication required".to_string()).into_response();
     }
 
@@ -229,11 +228,3 @@ pub async fn delete_protection(
     }
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────
-
-fn extract_user_id(state: &AppState, headers: &axum::http::HeaderMap) -> Option<i64> {
-    let auth = headers.get("authorization")?.to_str().ok()?;
-    let token = auth.strip_prefix("Bearer ")?;
-    let claims = rg_core::auth::jwt::validate_token(token, &state.jwt_secret)?;
-    claims.sub.parse().ok()
-}

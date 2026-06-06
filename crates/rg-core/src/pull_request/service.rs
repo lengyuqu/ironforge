@@ -152,7 +152,15 @@ pub async fn notify_watchers_pr(
     pr_title: &str,
     action: &str,
 ) -> Result<()> {
-    crate::notification::notify_watchers_pr(db, repo_id, repo_name, author_name, pr_number, pr_title, action).await
+    crate::notification::notify_watchers(
+        db,
+        repo_id,
+        author_name,
+        &format!("PR #{} {} in {}", pr_number, action, repo_name),
+        "pull_request",
+        Some(format!("{} {}: {}", author_name, action, pr_title)),
+    )
+    .await
 }
 
 /// List PRs for a repo, optionally filtered by state.

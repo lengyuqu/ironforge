@@ -22,7 +22,7 @@ use utoipa::ToSchema;
 use crate::AppState;
 use crate::error::AppError;
 use crate::pagination::{PaginatedResponse, PaginationParams};
-use super::users::extract_bearer_claims;
+use super::auth::extract_bearer_claims;
 
 // ── Request / Response types ────────────────────────────────────────
 

@@ -1,7 +1,7 @@
 //! REST API handlers for notifications.
 
 use axum::extract::{Path, Query, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::HeaderMap;
 use axum::response::IntoResponse;
 use axum::Json;
 use serde::{Deserialize, Serialize};
@@ -9,7 +9,6 @@ use serde::{Deserialize, Serialize};
 use crate::AppState;
 use crate::error::AppError;
 use crate::pagination::{PaginatedResponse, PaginationParams};
-use utoipa::ToSchema;
 
 // ── Response types ───────────────────────────────────────────
 
@@ -50,7 +49,7 @@ pub async fn list_notifications(
     headers: HeaderMap,
     Query(params): Query<ListNotificationsQuery>,
 ) -> impl IntoResponse {
-    let user_id = match extract_user_id(&state, &headers) {
+    let user_id = match super::auth::extract_user_id(&headers, &state.jwt_secret) {
         Some(id) => id,
         None => {
             return AppError::unauthorized("authentication required").into_response();
@@ -96,7 +95,7 @@ pub async fn unread_count(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    let user_id = match extract_user_id(&state, &headers) {
+    let user_id = match super::auth::extract_user_id(&headers, &state.jwt_secret) {
         Some(id) => id,
         None => {
             return AppError::unauthorized("authentication required").into_response();
@@ -149,7 +148,7 @@ pub async fn mark_all_read(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    let user_id = match extract_user_id(&state, &headers) {
+    let user_id = match super::auth::extract_user_id(&headers, &state.jwt_secret) {
         Some(id) => id,
         None => {
             return AppError::unauthorized("authentication required").into_response();
@@ -186,11 +185,3 @@ pub async fn delete_notification(
     }
 }
 
-// ── Helpers ─────────────────────────────────────────────────────────────────
-
-fn extract_user_id(state: &AppState, headers: &HeaderMap) -> Option<i64> {
-    let auth = headers.get("authorization")?.to_str().ok()?;
-    let token = auth.strip_prefix("Bearer ")?;
-    let claims = rg_core::auth::jwt::validate_token(token, &state.jwt_secret)?;
-    claims.sub.parse().ok()
-}

@@ -7,7 +7,6 @@ use axum::{
     Json,
 };
 use serde::Deserialize;
-use utoipa::ToSchema;
 
 use crate::AppState;
 use crate::error::AppError;

@@ -15,7 +15,7 @@ use axum::{
 use serde::Deserialize;
 use utoipa::ToSchema;
 
-use crate::api::users::extract_bearer_claims;
+use crate::api::auth::extract_bearer_claims;
 use crate::error::AppError;
 use crate::AppState;
 

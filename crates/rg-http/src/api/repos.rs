@@ -14,7 +14,7 @@ use serde::Deserialize;
 use utoipa::ToSchema;
 
 use crate::error::AppError;
-use crate::{api::users::extract_bearer_claims, openapi::PaginatedRepoResponse, AppState};
+use crate::{api::auth::extract_bearer_claims, openapi::PaginatedRepoResponse, AppState};
 use crate::pagination::{PaginationParams, PaginatedResponse};
 
 /// POST /api/v1/repos

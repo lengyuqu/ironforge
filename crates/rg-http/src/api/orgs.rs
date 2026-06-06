@@ -106,7 +106,7 @@ pub async fn create_org(
     headers: HeaderMap,
     Json(body): Json<CreateOrgRequest>,
 ) -> impl IntoResponse {
-    let user_id = match extract_user_id(&state, &headers) {
+    let user_id = match super::auth::extract_user_id(&headers, &state.jwt_secret) {
         Some(id) => id,
         None => {
             return AppError::unauthorized("authentication required").into_response();
@@ -177,7 +177,7 @@ pub async fn list_orgs(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    let user_id = match extract_user_id(&state, &headers) {
+    let user_id = match super::auth::extract_user_id(&headers, &state.jwt_secret) {
         Some(id) => id,
         None => {
             return AppError::unauthorized("authentication required").into_response();
@@ -255,7 +255,7 @@ pub async fn delete_org(
     headers: HeaderMap,
     Path(name): Path<String>,
 ) -> impl IntoResponse {
-    let user_id = match extract_user_id(&state, &headers) {
+    let user_id = match super::auth::extract_user_id(&headers, &state.jwt_secret) {
         Some(id) => id,
         None => {
             return AppError::unauthorized("authentication required").into_response();
@@ -676,9 +676,3 @@ fn org_to_response(org: &rg_db::entities::organization::Model) -> OrgResponse {
     }
 }
 
-fn extract_user_id(state: &AppState, headers: &HeaderMap) -> Option<i64> {
-    let auth = headers.get("authorization")?.to_str().ok()?;
-    let token = auth.strip_prefix("Bearer ")?;
-    let claims = rg_core::auth::jwt::validate_token(token, &state.jwt_secret)?;
-    claims.sub.parse().ok()
-}
