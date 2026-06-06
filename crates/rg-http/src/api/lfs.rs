@@ -7,8 +7,8 @@ use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::Json;
-use sea_orm::DatabaseConnection;
 
+use crate::api::users::extract_bearer_claims;
 use crate::AppState;
 use crate::error::AppError;
 use utoipa::ToSchema;
@@ -36,11 +36,34 @@ pub async fn batch(
     Json(req): Json<rg_core::lfs::service::LfsBatchRequest>,
 ) -> impl IntoResponse {
     // LFS client sends Accept: application/vnd.git-lfs+json
-    let repo_id = match resolve_repo_id(&state.db, &owner, &repo).await {
-        Some(id) => id,
-        None => return AppError::not_found("repository not found").into_response(),
+    let repo_model = match rg_core::repo::service::find_repo_by_owner_name(
+        &state.db, &owner, &repo,
+    )
+    .await
+    {
+        Ok(Some(r)) => r,
+        Ok(None) => return AppError::not_found("repository not found").into_response(),
+        Err(e) => return AppError::internal(e).into_response(),
     };
 
+    // H-01: Auth check for private repos
+    if repo_model.is_private {
+        let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
+            Some(c) => c,
+            None => {
+                return AppError::unauthorized("authentication required").into_response()
+            }
+        };
+        let user_id: i64 = claims.sub.parse().unwrap_or(-1);
+        if !rg_core::repo::service::can_read_repo(&state.db, &repo_model, Some(user_id))
+            .await
+            .unwrap_or(false)
+        {
+            return AppError::forbidden("access denied").into_response();
+        }
+    }
+
+    let repo_id = repo_model.id;
     let lfs_root = rg_core::lfs::service::lfs_root(&state.repo_root, &owner, &repo);
 
     // Build base URL from request headers
@@ -85,14 +108,37 @@ pub async fn batch(
 pub async fn upload_object(
     State(state): State<AppState>,
     Path((owner, repo, oid)): Path<(String, String, String)>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     body: Bytes,
 ) -> impl IntoResponse {
-    let repo_id = match resolve_repo_id(&state.db, &owner, &repo).await {
-        Some(id) => id,
-        None => return AppError::not_found("repository not found").into_response(),
+    let repo_model = match rg_core::repo::service::find_repo_by_owner_name(
+        &state.db, &owner, &repo,
+    )
+    .await
+    {
+        Ok(Some(r)) => r,
+        Ok(None) => return AppError::not_found("repository not found").into_response(),
+        Err(e) => return AppError::internal(e).into_response(),
     };
 
+    // H-01: Auth check for private repos
+    if repo_model.is_private {
+        let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
+            Some(c) => c,
+            None => {
+                return AppError::unauthorized("authentication required").into_response()
+            }
+        };
+        let user_id: i64 = claims.sub.parse().unwrap_or(-1);
+        if !rg_core::repo::service::can_read_repo(&state.db, &repo_model, Some(user_id))
+            .await
+            .unwrap_or(false)
+        {
+            return AppError::forbidden("access denied").into_response();
+        }
+    }
+
+    let repo_id = repo_model.id;
     let lfs_root = rg_core::lfs::service::lfs_root(&state.repo_root, &owner, &repo);
 
     match rg_core::lfs::service::store_object(
@@ -127,8 +173,35 @@ pub async fn upload_object(
 pub async fn download_object(
     State(state): State<AppState>,
     Path((owner, repo, oid)): Path<(String, String, String)>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
 ) -> impl IntoResponse {
+    // H-01: Auth check for private repos
+    let repo_model = match rg_core::repo::service::find_repo_by_owner_name(
+        &state.db, &owner, &repo,
+    )
+    .await
+    {
+        Ok(Some(r)) => r,
+        Ok(None) => return AppError::not_found("repository not found").into_response(),
+        Err(e) => return AppError::internal(e).into_response(),
+    };
+
+    if repo_model.is_private {
+        let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
+            Some(c) => c,
+            None => {
+                return AppError::unauthorized("authentication required").into_response()
+            }
+        };
+        let user_id: i64 = claims.sub.parse().unwrap_or(-1);
+        if !rg_core::repo::service::can_read_repo(&state.db, &repo_model, Some(user_id))
+            .await
+            .unwrap_or(false)
+        {
+            return AppError::forbidden("access denied").into_response();
+        }
+    }
+
     let lfs_root = rg_core::lfs::service::lfs_root(&state.repo_root, &owner, &repo);
 
     match rg_core::lfs::service::read_object(&lfs_root, &oid).await {
@@ -146,19 +219,3 @@ pub async fn download_object(
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────
-
-async fn resolve_repo_id(
-    db: &DatabaseConnection,
-    owner: &str,
-    repo_name: &str,
-) -> Option<i64> {
-    let user = rg_db::ops::user_ops::find_by_username(db, owner)
-        .await
-        .ok()
-        .flatten()?;
-    let repo = rg_db::ops::repo_ops::find_by_owner_and_name(db, user.id, repo_name)
-        .await
-        .ok()
-        .flatten()?;
-    Some(repo.id)
-}

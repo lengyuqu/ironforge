@@ -2,11 +2,12 @@
 
 use anyhow::Context;
 use axum::extract::{Path, Query, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::Json;
 use serde::{Deserialize, Serialize};
 
+use crate::api::users::extract_bearer_claims;
 use crate::error::AppError;
 use crate::AppState;
 use utoipa::ToSchema;
@@ -79,6 +80,37 @@ pub struct GpgSignature {
 
 // ── Handlers ──────────────────────────────────────────────────────────
 
+/// Resolve a repo by owner/name and enforce read access.
+/// Returns the repo model. Public repos are always accessible;
+/// private repos require a valid JWT and the user must have read permission.
+async fn resolve_and_check_access(
+    state: &AppState,
+    headers: &HeaderMap,
+    owner: &str,
+    repo: &str,
+) -> Result<rg_db::entities::repository::Model, AppError> {
+    let repo_model = rg_core::repo::service::find_repo_by_owner_name(&state.db, owner, repo)
+        .await
+        .map_err(|e| AppError::internal(e))?
+        .ok_or_else(|| AppError::not_found("repository not found"))?;
+
+    if repo_model.is_private {
+        let claims = extract_bearer_claims(headers, &state.jwt_secret)
+            .ok_or_else(|| AppError::unauthorized("authentication required"))?;
+        let user_id: i64 = claims.sub.parse().unwrap_or(-1);
+        if !rg_core::repo::service::can_read_repo(&state.db, &repo_model, Some(user_id))
+            .await
+            .unwrap_or(false)
+        {
+            return Err(AppError::forbidden("access denied"));
+        }
+    }
+
+    Ok(repo_model)
+}
+
+// ── Individual handlers ─────────────────────────────────────────────────
+
 /// List tree entries (directory listing) for a repo.
 /// GET /api/v1/repos/:owner/:name/tree
 #[utoipa::path(
@@ -97,6 +129,7 @@ pub struct GpgSignature {
 pub async fn list_tree(
     State(state): State<AppState>,
     Path((owner, repo)): Path<(String, String)>,
+    headers: HeaderMap,
     Query(params): Query<TreeQuery>,
 ) -> impl IntoResponse {
     // H-02: Validate owner/repo before constructing repository path
@@ -106,6 +139,12 @@ pub async fn list_tree(
     if let Err(e) = rg_core::platform::validate_repo_path(&repo) {
         return AppError::bad_request(e.to_string()).into_response();
     }
+
+    // H-01: Auth check for private repos
+    let _repo = match resolve_and_check_access(&state, &headers, &owner, &repo).await {
+        Ok(r) => r,
+        Err(e) => return e.into_response(),
+    };
 
     let repo_path = state.repo_root.join(format!("{}/{}.git", owner, repo));
     if !repo_path.exists() {
@@ -144,6 +183,7 @@ pub async fn list_tree(
 pub async fn get_blob(
     State(state): State<AppState>,
     Path((owner, repo, path)): Path<(String, String, String)>,
+    headers: HeaderMap,
     Query(params): Query<BlobQuery>,
 ) -> impl IntoResponse {
     // H-02: Validate owner/repo before constructing repository path
@@ -153,6 +193,12 @@ pub async fn get_blob(
     if let Err(e) = rg_core::platform::validate_repo_path(&repo) {
         return AppError::bad_request(e.to_string()).into_response();
     }
+
+    // H-01: Auth check for private repos
+    let _repo = match resolve_and_check_access(&state, &headers, &owner, &repo).await {
+        Ok(r) => r,
+        Err(e) => return e.into_response(),
+    };
 
     let repo_path = state.repo_root.join(format!("{}/{}.git", owner, repo));
     if !repo_path.exists() {
@@ -185,6 +231,7 @@ pub async fn get_blob(
 pub async fn get_log(
     State(state): State<AppState>,
     Path((owner, repo)): Path<(String, String)>,
+    headers: HeaderMap,
     Query(params): Query<LogQuery>,
 ) -> impl IntoResponse {
     // H-02: Validate owner/repo before constructing repository path
@@ -194,6 +241,12 @@ pub async fn get_log(
     if let Err(e) = rg_core::platform::validate_repo_path(&repo) {
         return AppError::bad_request(e.to_string()).into_response();
     }
+
+    // H-01: Auth check for private repos
+    let _repo = match resolve_and_check_access(&state, &headers, &owner, &repo).await {
+        Ok(r) => r,
+        Err(e) => return e.into_response(),
+    };
 
     let repo_path = state.repo_root.join(format!("{}/{}.git", owner, repo));
     if !repo_path.exists() {
@@ -230,6 +283,7 @@ pub async fn get_log(
 pub async fn list_branches(
     State(state): State<AppState>,
     Path((owner, repo)): Path<(String, String)>,
+    headers: HeaderMap,
 ) -> impl IntoResponse {
     // H-02: Validate owner/repo before constructing repository path
     if let Err(e) = rg_core::platform::validate_repo_path(&owner) {
@@ -238,6 +292,12 @@ pub async fn list_branches(
     if let Err(e) = rg_core::platform::validate_repo_path(&repo) {
         return AppError::bad_request(e.to_string()).into_response();
     }
+
+    // H-01: Auth check for private repos
+    let _repo = match resolve_and_check_access(&state, &headers, &owner, &repo).await {
+        Ok(r) => r,
+        Err(e) => return e.into_response(),
+    };
 
     let repo_path = state.repo_root.join(format!("{}/{}.git", owner, repo));
     if !repo_path.exists() {
@@ -271,6 +331,7 @@ pub async fn list_branches(
 pub async fn list_tags(
     State(state): State<AppState>,
     Path((owner, repo)): Path<(String, String)>,
+    headers: HeaderMap,
 ) -> impl IntoResponse {
     // H-02: Validate owner/repo before constructing repository path
     if let Err(e) = rg_core::platform::validate_repo_path(&owner) {
@@ -279,6 +340,12 @@ pub async fn list_tags(
     if let Err(e) = rg_core::platform::validate_repo_path(&repo) {
         return AppError::bad_request(e.to_string()).into_response();
     }
+
+    // H-01: Auth check for private repos
+    let _repo = match resolve_and_check_access(&state, &headers, &owner, &repo).await {
+        Ok(r) => r,
+        Err(e) => return e.into_response(),
+    };
 
     let repo_path = state.repo_root.join(format!("{}/{}.git", owner, repo));
     if !repo_path.exists() {
@@ -582,6 +649,7 @@ fn list_tag_names(repo_path: &std::path::Path) -> anyhow::Result<Vec<String>> {
 pub async fn get_commit_signature(
     State(state): State<AppState>,
     Path((owner, repo, sha)): Path<(String, String, String)>,
+    headers: HeaderMap,
 ) -> impl IntoResponse {
     // H-02: Validate owner/repo before constructing repository path
     if let Err(e) = rg_core::platform::validate_repo_path(&owner) {
@@ -590,6 +658,12 @@ pub async fn get_commit_signature(
     if let Err(e) = rg_core::platform::validate_repo_path(&repo) {
         return AppError::bad_request(e.to_string()).into_response();
     }
+
+    // H-01: Auth check for private repos
+    let _repo = match resolve_and_check_access(&state, &headers, &owner, &repo).await {
+        Ok(r) => r,
+        Err(e) => return e.into_response(),
+    };
 
     let repo_path = state.repo_root.join(format!("{}/{}.git", owner, repo));
     if !repo_path.exists() {

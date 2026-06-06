@@ -4,11 +4,12 @@
 //! 更适合 AI Agent 消费的高层语义数据。
 
 use axum::extract::{Path, Query, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+use crate::api::users::extract_bearer_claims;
 use crate::AppState;
 use crate::error::AppError;
 
@@ -98,6 +99,28 @@ async fn resolve_repo(
         .ok_or_else(|| AppError::not_found(format!("repository not found: {}/{}", owner, name)))
 }
 
+/// Require read access for a repo. Public repos are always accessible;
+/// private repos require a valid JWT and the user must have read permission.
+async fn require_repo_read_access(
+    state: &AppState,
+    headers: &HeaderMap,
+    repo: &rg_db::entities::repository::Model,
+) -> Result<(), AppError> {
+    if !repo.is_private {
+        return Ok(());
+    }
+    let claims = extract_bearer_claims(headers, &state.jwt_secret)
+        .ok_or_else(|| AppError::unauthorized("authentication required"))?;
+    let user_id: i64 = claims.sub.parse().unwrap_or(-1);
+    if !rg_core::repo::service::can_read_repo(&state.db, repo, Some(user_id))
+        .await
+        .unwrap_or(false)
+    {
+        return Err(AppError::forbidden("access denied"));
+    }
+    Ok(())
+}
+
 // ── Handlers ──────────────────────────────────────
 
 /// GET /api/v1/ai/repos/{owner}/{name}/summary
@@ -117,8 +140,10 @@ async fn resolve_repo(
 pub async fn ai_repo_summary(
     State(state): State<AppState>,
     Path((owner, name)): Path<(String, String)>,
+    headers: HeaderMap,
 ) -> Result<(StatusCode, Json<RepoSummary>), AppError> {
     let repo = resolve_repo(&state, &owner, &name).await?;
+    require_repo_read_access(&state, &headers, &repo).await?;
 
     let summary = RepoSummary {
         full_name: format!("{}/{}", owner, name),
@@ -152,9 +177,11 @@ pub async fn ai_repo_summary(
 pub async fn ai_list_issues(
     State(state): State<AppState>,
     Path((owner, name)): Path<(String, String)>,
+    headers: HeaderMap,
     Query(params): Query<IssueListQuery>,
 ) -> Result<(StatusCode, Json<Vec<IssueSummary>>), AppError> {
     let _repo = resolve_repo(&state, &owner, &name).await?;
+    require_repo_read_access(&state, &headers, &_repo).await?;
 
     let state_filter = params.state.as_deref().unwrap_or("open");
 
@@ -195,9 +222,11 @@ pub async fn ai_list_issues(
 pub async fn ai_list_prs(
     State(state): State<AppState>,
     Path((owner, name)): Path<(String, String)>,
+    headers: HeaderMap,
     Query(params): Query<PrListQuery>,
 ) -> Result<(StatusCode, Json<Vec<PrSummary>>), AppError> {
     let _repo = resolve_repo(&state, &owner, &name).await?;
+    require_repo_read_access(&state, &headers, &_repo).await?;
 
     let state_filter = params.state.as_deref().unwrap_or("open");
 
@@ -241,14 +270,17 @@ pub async fn ai_list_prs(
     tag = "ai",
 )]
 pub async fn ai_repo_tree(
-    State(_state): State<AppState>,
-    Path((_owner, _name)): Path<(String, String)>,
+    State(state): State<AppState>,
+    Path((owner, name)): Path<(String, String)>,
+    headers: HeaderMap,
     Query(_params): Query<TreeQuery>,
-) -> (StatusCode, Json<serde_json::Value>) {
-    (
+) -> Result<(StatusCode, Json<serde_json::Value>), AppError> {
+    let _repo = resolve_repo(&state, &owner, &name).await?;
+    require_repo_read_access(&state, &headers, &_repo).await?;
+    Ok((
         StatusCode::NOT_IMPLEMENTED,
         Json(serde_json::json!({"error": "repo_tree not yet implemented"})),
-    )
+    ))
 }
 
 /// GET /api/v1/ai/repos/{owner}/{name}/search/code
@@ -270,12 +302,15 @@ pub async fn ai_repo_tree(
     tag = "ai",
 )]
 pub async fn ai_search_code(
-    State(_state): State<AppState>,
-    Path((_owner, _name)): Path<(String, String)>,
+    State(state): State<AppState>,
+    Path((owner, name)): Path<(String, String)>,
+    headers: HeaderMap,
     Query(_params): Query<SearchCodeQuery>,
-) -> (StatusCode, Json<serde_json::Value>) {
-    (
+) -> Result<(StatusCode, Json<serde_json::Value>), AppError> {
+    let _repo = resolve_repo(&state, &owner, &name).await?;
+    require_repo_read_access(&state, &headers, &_repo).await?;
+    Ok((
         StatusCode::NOT_IMPLEMENTED,
         Json(serde_json::json!({"error": "search_code not yet implemented"})),
-    )
+    ))
 }
