@@ -21,6 +21,18 @@ pub mod m20260510_000004_create_artifacts;
 pub mod m20260511_000001_add_pr_head_repo_id;
 pub mod m20260511_000002_add_missing_indexes;
 pub mod m20260511_000003_fix_fts5_triggers;
+pub mod m20260512_000001_create_code_fts;
+pub mod m20260607_000001_create_mirrors;
+pub mod m20260607_000002_create_boards;
+pub mod m20260607_000003_create_time_entries;
+pub mod m20260607_000004_create_import_tasks;
+pub mod m20260607_000005_create_package_registry;
+pub mod m20260607_000006_alter_users_auth;
+pub mod m20260607_000007_create_oauth_accounts;
+pub mod m20260607_000008_create_mfa_backup_codes;
+pub mod m20260607_000009_create_login_logs;
+pub mod m20260607_000010_create_sso_providers;
+pub mod m20260607_000011_create_audit_logs;
 
 use sea_orm_migration::prelude::*;
 
@@ -53,6 +65,18 @@ impl MigratorTrait for Migrator {
             Box::new(m20260511_000001_add_pr_head_repo_id::Migration),
             Box::new(m20260511_000002_add_missing_indexes::Migration),
             Box::new(m20260511_000003_fix_fts5_triggers::Migration),
+            Box::new(m20260512_000001_create_code_fts::Migration),
+            Box::new(m20260607_000001_create_mirrors::Migration),
+            Box::new(m20260607_000002_create_boards::Migration),
+            Box::new(m20260607_000003_create_time_entries::Migration),
+            Box::new(m20260607_000004_create_import_tasks::Migration),
+            Box::new(m20260607_000005_create_package_registry::Migration),
+            Box::new(m20260607_000006_alter_users_auth::Migration),
+            Box::new(m20260607_000007_create_oauth_accounts::Migration),
+            Box::new(m20260607_000008_create_mfa_backup_codes::Migration),
+            Box::new(m20260607_000009_create_login_logs::Migration),
+            Box::new(m20260607_000010_create_sso_providers::Migration),
+            Box::new(m20260607_000011_create_audit_logs::Migration),
         ]
     }
 }

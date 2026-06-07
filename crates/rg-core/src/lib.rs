@@ -22,6 +22,12 @@ pub mod release;
 pub mod label;
 pub mod search;
 pub mod platform;  // Cross-platform abstractions
+pub mod mirror;
+pub mod board;
+pub mod time_tracking;
+pub mod import;
+pub mod package_registry;
+pub mod audit;
 
 use anyhow::Result;
 

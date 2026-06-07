@@ -38,6 +38,9 @@ pub struct AuthResponse {
     pub token: String,
     pub user_id: i64,
     pub username: String,
+    /// Whether MFA verification is still required
+    #[serde(default)]
+    pub mfa_required: bool,
 }
 
 /// User profile response.
@@ -96,6 +99,7 @@ pub async fn login(
     State(state): State<AppState>,
     Json(body): Json<LoginRequest>,
 ) -> impl IntoResponse {
+    // First authenticate credentials
     match rg_core::user::service::login(
         &state.db,
         &body.login,
@@ -104,7 +108,26 @@ pub async fn login(
     )
     .await
     {
-        Ok(resp) => (StatusCode::OK, Json(serde_json::json!(resp))).into_response(),
+        Ok(resp) => {
+            // Check if MFA is enabled for this user
+            let mfa_required = match rg_db::ops::user_ops::find_by_id(&state.db, resp.user_id).await {
+                Ok(Some(user)) => user.mfa_enabled,
+                _ => false,
+            };
+
+            if mfa_required {
+                // Don't issue full JWT; client must complete MFA flow
+                let mfa_resp = serde_json::json!({
+                    "token": "",
+                    "user_id": resp.user_id,
+                    "username": resp.username,
+                    "mfa_required": true,
+                });
+                (StatusCode::OK, Json(mfa_resp)).into_response()
+            } else {
+                (StatusCode::OK, Json(serde_json::json!(resp))).into_response()
+            }
+        },
         Err(e) => AppError::Unauthorized(e.to_string()).into_response(),
     }
 }

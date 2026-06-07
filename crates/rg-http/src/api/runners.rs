@@ -27,7 +27,7 @@ async fn require_admin(state: &AppState, headers: &HeaderMap) -> Option<i64> {
 
 // ── Request/Response types ─────────────────────────────────
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct RegisterRunnerRequest {
     pub name: String,
     pub labels: Option<Vec<String>>,
@@ -36,15 +36,15 @@ pub struct RegisterRunnerRequest {
     pub arch: Option<String>,
 }
 
-#[derive(Serialize)]
-struct RegisterRunnerResponse {
+#[derive(Serialize, ToSchema)]
+pub struct RegisterRunnerResponse {
     id: i64,
     token: String,
     message: String,
 }
 
 #[derive(Serialize, ToSchema)]
-struct HeartbeatResponse {
+pub struct HeartbeatResponse {
     status: String,
     server_time: String,
 }
@@ -86,9 +86,9 @@ pub struct RunnerInfoResponse {
     post,
     path = "/runners/register",
     tag = "Runners",
-    request_body(content = serde_json::Value),
+    request_body(content = RegisterRunnerRequest, description = "Runner registration info"),
     responses(
-        (status = 201, description = "Created", body = serde_json::Value),
+        (status = 201, description = "Created", body = RegisterRunnerResponse),
         (status = 400, description = "Bad request", body = serde_json::Value),
         (status = 401, description = "Unauthorized", body = serde_json::Value),
     ),

@@ -8,7 +8,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::AppError;
 use crate::AppState;
-use utoipa::ToSchema;
 
 // ── Response types ───────────────────────────────────────────
 

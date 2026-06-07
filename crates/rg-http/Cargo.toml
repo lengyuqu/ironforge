@@ -28,6 +28,7 @@ axum-server = { workspace = true }
 utoipa = { version = "5", features = ["chrono"] }
 utoipa-swagger-ui = "8"
 uuid = { workspace = true }
+rand = { workspace = true }
 
 [dev-dependencies]
 reqwest = { version = "0.12", features = ["json"] }

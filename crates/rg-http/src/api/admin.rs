@@ -17,7 +17,6 @@ use axum::{
     Json,
 };
 use serde::Deserialize;
-use utoipa::ToSchema;
 
 use crate::AppState;
 use crate::error::AppError;
@@ -38,7 +37,7 @@ pub struct UpdateUserRequest {
 
 /// Extract the current user ID from Bearer token and verify is_admin=true.
 /// Returns None if not authenticated or not an admin.
-async fn require_admin(state: &AppState, headers: &HeaderMap) -> Option<i64> {
+pub(crate) async fn require_admin(state: &AppState, headers: &HeaderMap) -> Option<i64> {
     let claims = extract_bearer_claims(headers, &state.jwt_secret)?;
     let user_id: i64 = claims.sub.parse().ok()?;
     let user = rg_db::ops::user_ops::find_by_id(&state.db, user_id).await.ok()??;

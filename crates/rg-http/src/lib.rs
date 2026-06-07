@@ -23,7 +23,7 @@ use anyhow::{Context, Result};
 use axum::body::Body;
 use axum::extract::{Query, State};
 use axum::http::{header, Method, StatusCode};
-use axum::response::IntoResponse;
+use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post, put};
 use axum::Router;
 use sea_orm::DatabaseConnection;
@@ -297,6 +297,16 @@ fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
         // PAT
         .route("/users/tokens", get(api::users::list_tokens).post(api::users::create_token))
         .route("/users/tokens/{id}", delete(api::users::delete_token))
+        // MFA
+        .route("/users/mfa/setup", post(api::mfa::setup_mfa))
+        .route("/users/mfa/enable", post(api::mfa::enable_mfa))
+        .route("/users/mfa/verify", post(api::mfa::verify_mfa))
+        .route("/users/mfa/backup", get(api::mfa::get_backup_codes))
+        .route("/users/mfa/disable", post(api::mfa::disable_mfa))
+        // SSO
+        .route("/auth/sso/providers", get(api::sso::list_providers))
+        .route("/auth/sso/{slug}", get(api::sso::authorize))
+        .route("/auth/sso/{slug}/callback", get(api::sso::callback))
         // Repos
         .route("/repos", post(api::repos::create_repo))
         .route("/repos/{owner}", get(api::repos::list_repos))
@@ -354,6 +364,25 @@ fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
         .route("/repos/{owner}/{name}/tags", get(api::repo_content::list_tags))
         // GPG Signatures
         .route("/repos/{owner}/{name}/commits/{sha}/signature", get(api::repo_content::get_commit_signature))
+        // Mirror
+        .route("/repos/{owner}/{name}/mirror", get(api::mirrors::get_mirror).post(api::mirrors::create_mirror).patch(api::mirrors::update_mirror).delete(api::mirrors::delete_mirror))
+        .route("/repos/{owner}/{name}/mirror/sync", post(api::mirrors::trigger_mirror_sync))
+        // Imports (GitHub/GitLab migration)
+        .route("/imports", post(api::imports::start_import).get(api::imports::list_imports))
+        .route("/imports/{id}", get(api::imports::get_import_status).delete(api::imports::delete_import))
+        // Project Boards
+        .route("/repos/{owner}/{name}/boards", get(api::boards::list_boards).post(api::boards::create_board))
+        .route("/repos/{owner}/{name}/boards/{id}", get(api::boards::get_board).patch(api::boards::update_board).delete(api::boards::delete_board))
+        .route("/repos/{owner}/{name}/boards/{id}/columns", post(api::boards::create_column))
+        .route("/repos/{owner}/{name}/boards/{id}/columns/{col_id}", patch(api::boards::update_column).delete(api::boards::delete_column))
+        .route("/repos/{owner}/{name}/boards/{id}/columns/{col_id}/cards", post(api::boards::create_card))
+        .route("/repos/{owner}/{name}/boards/{id}/cards/{card_id}", patch(api::boards::update_card).delete(api::boards::delete_card))
+        .route("/repos/{owner}/{name}/boards/{id}/cards/{card_id}/move", post(api::boards::move_card))
+        .route("/repos/{owner}/{name}/boards/{id}/cards/reorder", post(api::boards::reorder_cards))
+        // Time Tracking
+        .route("/repos/{owner}/{name}/issues/{number}/time", get(api::time_tracking::list_time_entries).post(api::time_tracking::add_time))
+        .route("/repos/{owner}/{name}/issues/{number}/time/total", get(api::time_tracking::total_time))
+        .route("/repos/{owner}/{name}/issues/{number}/time/{id}", delete(api::time_tracking::delete_time_entry))
         // Commit Statuses
         .route("/repos/{owner}/{name}/statuses/{sha}", post(api::repos::create_commit_status))
         .route("/repos/{owner}/{name}/commits/{sha}/statuses", get(api::repos::list_commit_statuses))
@@ -391,6 +420,19 @@ fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
         .route("/repos/{owner}/{name}/forks", get(api::repos::list_forks_handler))
         // Transfer
         .route("/repos/{owner}/{name}/transfer", post(api::repos::transfer_repo_handler))
+        // Package Registry — protocol-specific routes first (before generic catch-all)
+        .route("/repos/{owner}/{name}/packages", get(api::packages::list_registries))
+        .route("/repos/{owner}/{name}/packages/{pkg_type}/publish", post(api::packages::publish))
+        .route("/repos/{owner}/{name}/packages/{pkg_type}/list", get(api::packages::list_packages))
+        // Cargo sparse index protocol
+        .route("/repos/{owner}/{name}/packages/cargo/index/{pkg}", get(api::packages::cargo_sparse_index))
+        // npm registry protocol
+        .route("/repos/{owner}/{name}/packages/npm/{pkg_name}", get(api::packages::npm_registry_metadata))
+        .route("/repos/{owner}/{name}/packages/{pkg_type}/{pkg_name}", get(api::packages::get_package))
+        .route("/repos/{owner}/{name}/packages/{pkg_type}/{pkg_name}/versions", get(api::packages::list_versions))
+        .route("/repos/{owner}/{name}/packages/{pkg_type}/{pkg_name}/{version}", get(api::packages::get_version).delete(api::packages::delete_version))
+        .route("/repos/{owner}/{name}/packages/{pkg_type}/{pkg_name}/{version}/yank", patch(api::packages::yank_version))
+        .route("/repos/{owner}/{name}/packages/{pkg_type}/{pkg_name}/{version}/{file}", get(api::packages::download_file))
         // CI/CD Runners
         .route("/runners/register", post(api::runners::register))
         .merge(runners_auth)
@@ -407,6 +449,9 @@ fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
         .route("/admin/orgs", get(api::admin::list_orgs))
         .route("/admin/orgs/{name}", get(api::admin::get_org))
         .route("/admin/orgs/{name}", delete(api::admin::delete_org))
+        // Audit logs (admin only)
+        .route("/admin/audit/logs", get(api::audit::list_audit_logs))
+        .route("/admin/audit/logs/{id}", get(api::audit::get_audit_log))
         // Global Search
         .route("/search", get(api::search::search))
         // ── AI Agent endpoints ─────────────────────────────
@@ -415,6 +460,7 @@ fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
         .route("/ai/repos/{owner}/{name}/prs", get(api::ai::ai_list_prs))
         .route("/ai/repos/{owner}/{name}/tree", get(api::ai::ai_repo_tree))
         .route("/ai/repos/{owner}/{name}/search/code", get(api::ai::ai_search_code))
+        // .route("/ai/repos/{owner}/{name}/index", post(api::ai::ai_index_repository))  // 暂时注释：Axum Handler trait 问题，改用 CLI 命令
         // WebSocket
         .route("/ws/notifications", get(ws::ws_notifications_handler))
         .route("/ws/job/{job_id}", get(ws::ws_job_log_handler));
@@ -832,21 +878,21 @@ async fn handle_git_upload_pack(
     headers: axum::http::HeaderMap,
     axum::extract::Path((owner, repo)): axum::extract::Path<(String, String)>,
     body: axum::body::Bytes,
-) -> impl IntoResponse {
+) -> Response {
     // H-02: Validate owner/repo before constructing repository path
     if let Err(e) = rg_core::platform::validate_repo_path(&owner) {
         return (
             StatusCode::BAD_REQUEST,
             [(header::CONTENT_TYPE, "text/plain")],
             Body::from(e.to_string()),
-        );
+        ).into_response();
     }
     if let Err(e) = rg_core::platform::validate_repo_path(&repo) {
         return (
             StatusCode::BAD_REQUEST,
             [(header::CONTENT_TYPE, "text/plain")],
             Body::from(e.to_string()),
-        );
+        ).into_response();
     }
 
     let repo_path = state.repo_root.join(format!("{}/{}.git", owner, repo));
@@ -856,13 +902,13 @@ async fn handle_git_upload_pack(
             StatusCode::NOT_FOUND,
             [(header::CONTENT_TYPE, "application/x-git-upload-pack-result")],
             Body::from("repository not found"),
-        );
+        ).into_response();
     }
 
     // Check read access
     let actor_id = extract_actor_id(&headers, &state.jwt_secret);
     if let Err(resp) = check_git_access(&state.db, &owner, &repo, actor_id, false).await {
-        return (resp.0, resp.1, Body::from(resp.2));
+        return (resp.0, resp.1, Body::from(resp.2)).into_response();
     }
 
     // Check if client wants Protocol V2
@@ -887,13 +933,13 @@ async fn handle_git_upload_pack(
                     StatusCode::OK,
                     [(header::CONTENT_TYPE, "application/x-git-upload-pack-result")],
                     Body::from(output),
-                )
+                ).into_response()
             }
             Err(e) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 [(header::CONTENT_TYPE, "text/plain")],
                 Body::from(format!("error: {:#}", e)),
-            ),
+            ).into_response(),
         }
     } else {
         // Protocol V1: use V1 handler
@@ -920,13 +966,13 @@ async fn handle_git_upload_pack(
                     StatusCode::OK,
                     [(header::CONTENT_TYPE, "application/x-git-upload-pack-result")],
                     Body::from(output),
-                )
+                ).into_response()
             }
             Err(e) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 [(header::CONTENT_TYPE, "text/plain")],
                 Body::from(format!("error: {:#}", e)),
-            ),
+            ).into_response(),
         }
     }
 }

@@ -115,6 +115,126 @@ pub async fn update_by_id(
         .context("db: update user by admin")
 }
 
+/// Create a user with high-level parameters (used by SSO).
+pub async fn create_user(
+    db: &DatabaseConnection,
+    username: &str,
+    email: &str,
+    password_hash: &str,
+    display_name: &str,
+) -> Result<User> {
+    use crate::entities::user;
+    let now = chrono::Utc::now();
+    let model = user::ActiveModel {
+        id: NotSet,
+        username: Set(username.to_string()),
+        email: Set(email.to_string()),
+        password_hash: Set(if password_hash.is_empty() { "".into() } else { password_hash.to_string() }),
+        display_name: Set(if display_name.is_empty() { None } else { Some(display_name.to_string()) }),
+        avatar_url: Set(None),
+        bio: Set(None),
+        is_admin: Set(false),
+        is_active: Set(true),
+        auth_provider: Set("oauth2".into()),
+        ldap_dn: Set(None),
+        ldap_uid: Set(None),
+        totp_secret: Set(None),
+        mfa_enabled: Set(false),
+        mfa_type: Set(None),
+        backup_codes: Set(None),
+        last_login_at: Set(None),
+        login_attempts: Set(0),
+        locked_until: Set(None),
+        created_at: Set(now),
+        updated_at: Set(now),
+    };
+    create(db, model).await
+}
+
+/// Update the TOTP secret for a user (encrypted).
+pub async fn update_totp_secret(
+    db: &DatabaseConnection,
+    user_id: i64,
+    encrypted_secret: &str,
+) -> Result<User> {
+    let model = UserEntity::find_by_id(user_id)
+        .one(db).await?.ok_or_else(|| anyhow::anyhow!("user {} not found", user_id))?;
+    let mut active: ActiveModel = model.into();
+    active.totp_secret = Set(Some(encrypted_secret.to_string()));
+    active.updated_at = Set(chrono::Utc::now());
+    active.update(db).await.map_err(|e| anyhow::anyhow!("db: {}", e))
+}
+
+/// Enable MFA for a user.
+pub async fn enable_mfa(
+    db: &DatabaseConnection,
+    user_id: i64,
+    mfa_type: &str,
+) -> Result<User> {
+    let model = UserEntity::find_by_id(user_id)
+        .one(db).await?.ok_or_else(|| anyhow::anyhow!("user {} not found", user_id))?;
+    let mut active: ActiveModel = model.into();
+    active.mfa_enabled = Set(true);
+    active.mfa_type = Set(Some(mfa_type.to_string()));
+    active.updated_at = Set(chrono::Utc::now());
+    active.update(db).await.map_err(|e| anyhow::anyhow!("db: {}", e))
+}
+
+/// Disable MFA for a user.
+pub async fn disable_mfa(
+    db: &DatabaseConnection,
+    user_id: i64,
+) -> Result<User> {
+    let model = UserEntity::find_by_id(user_id)
+        .one(db).await?.ok_or_else(|| anyhow::anyhow!("user {} not found", user_id))?;
+    let mut active: ActiveModel = model.into();
+    active.mfa_enabled = Set(false);
+    active.mfa_type = Set(None);
+    active.totp_secret = Set(None);
+    active.backup_codes = Set(None);
+    active.updated_at = Set(chrono::Utc::now());
+    active.update(db).await.map_err(|e| anyhow::anyhow!("db: {}", e))
+}
+
+/// Record a successful login and reset login_attempts/locked_until.
+pub async fn record_successful_login(
+    db: &DatabaseConnection,
+    user_id: i64,
+) -> Result<User> {
+    let model = UserEntity::find_by_id(user_id)
+        .one(db).await?.ok_or_else(|| anyhow::anyhow!("user {} not found", user_id))?;
+    let mut active: ActiveModel = model.into();
+    active.last_login_at = Set(Some(chrono::Utc::now()));
+    active.login_attempts = Set(0);
+    active.locked_until = Set(None);
+    active.update(db).await.map_err(|e| anyhow::anyhow!("db: {}", e))
+}
+
+/// Increment failed login attempts and lock account if threshold exceeded.
+pub async fn record_failed_login(
+    db: &DatabaseConnection,
+    user_id: i64,
+    max_attempts: i32,
+) -> Result<bool> {
+    let model = UserEntity::find_by_id(user_id)
+        .one(db).await?.ok_or_else(|| anyhow::anyhow!("user {} not found", user_id))?;
+
+    let new_attempts = model.login_attempts + 1;
+    let locked = if new_attempts >= max_attempts {
+        Some(chrono::Utc::now() + chrono::Duration::minutes(15))
+    } else {
+        None
+    };
+
+    let mut active: ActiveModel = model.into();
+    active.login_attempts = Set(new_attempts);
+    active.locked_until = Set(locked);
+    active.updated_at = Set(chrono::Utc::now());
+    active.update(db).await.map_err(|e| anyhow::anyhow!("db: {}", e))?;
+
+    Ok(locked.is_some())
+}
+
 /// Delete a user by ID.
 pub async fn delete_by_id(db: &DatabaseConnection, id: i64) -> Result<()> {
     let model = UserEntity::find_by_id(id)

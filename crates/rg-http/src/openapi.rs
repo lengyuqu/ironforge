@@ -162,12 +162,15 @@ pub struct PaginatedRepoResponse {
         crate::api::repo_content::get_commit_signature,
         // Runners
         crate::api::runners::register,
-        // Note: heartbeat, poll_job, start_job, upload_log, finish_job are behind
-        // route_layer(authenticate_runner) and require manual path annotation
+        crate::api::runners::heartbeat,
+        crate::api::runners::poll_job,
+        crate::api::runners::start_job,
+        crate::api::runners::upload_log,
+        crate::api::runners::finish_job,
         crate::api::runners::list_runners_admin,
         crate::api::runners::delete_runner_admin,
         // Artifacts
-        // Note: upload_artifact is behind route_layer and requires manual annotation
+        crate::api::artifacts::upload_artifact,
         crate::api::artifacts::list_pipeline_artifacts,
         crate::api::artifacts::get_artifact,
         crate::api::artifacts::delete_artifact,
@@ -185,6 +188,31 @@ pub struct PaginatedRepoResponse {
         crate::api::ai::ai_list_prs,
         crate::api::ai::ai_repo_tree,
         crate::api::ai::ai_search_code,
+        // Mirrors
+        crate::api::mirrors::create_mirror,
+        crate::api::mirrors::get_mirror,
+        crate::api::mirrors::update_mirror,
+        crate::api::mirrors::delete_mirror,
+        crate::api::mirrors::trigger_mirror_sync,
+        // Boards
+        crate::api::boards::create_board,
+        crate::api::boards::list_boards,
+        crate::api::boards::get_board,
+        crate::api::boards::update_board,
+        crate::api::boards::delete_board,
+        crate::api::boards::create_column,
+        crate::api::boards::update_column,
+        crate::api::boards::delete_column,
+        crate::api::boards::create_card,
+        crate::api::boards::update_card,
+        crate::api::boards::move_card,
+        crate::api::boards::reorder_cards,
+        crate::api::boards::delete_card,
+        // Time Tracking
+        crate::api::time_tracking::add_time,
+        crate::api::time_tracking::list_time_entries,
+        crate::api::time_tracking::total_time,
+        crate::api::time_tracking::delete_time_entry,
     ),
     components(
         schemas(
@@ -202,9 +230,29 @@ pub struct PaginatedRepoResponse {
             crate::pagination::PaginationParams,
             crate::pagination::PaginationMeta,
             PaginatedRepoResponse,
+            crate::api::runners::RegisterRunnerRequest,
+            crate::api::runners::RegisterRunnerResponse,
+            crate::api::runners::HeartbeatResponse,
+            crate::api::runners::PollJobResponse,
+            crate::api::runners::RunnerInfoResponse,
+            crate::api::runners::FinishJobRequest,
+            crate::api::artifacts::ArtifactResponse,
+            crate::api::artifacts::UploadArtifactResponse,
+            crate::api::artifacts::UploadArtifactRequest,
             crate::api::ai::RepoSummary,
             crate::api::ai::IssueSummary,
             crate::api::ai::PrSummary,
+            crate::api::mirrors::CreateMirrorRequest,
+            crate::api::mirrors::UpdateMirrorRequest,
+            crate::api::boards::CreateBoardRequest,
+            crate::api::boards::UpdateBoardRequest,
+            crate::api::boards::CreateColumnRequest,
+            crate::api::boards::UpdateColumnRequest,
+            crate::api::boards::CreateCardRequest,
+            crate::api::boards::UpdateCardRequest,
+            crate::api::boards::MoveCardRequest,
+            crate::api::boards::ReorderCardsRequest,
+            crate::api::time_tracking::AddTimeRequest,
         )
     ),
     tags(
@@ -229,6 +277,9 @@ pub struct PaginatedRepoResponse {
         (name = "Artifacts", description = "CI/CD artifacts"),
         (name = "Admin", description = "Administration"),
         (name = "AI", description = "AI Agent专用端点，提供AI友好的仓库/Issue/PR数据"),
+        (name = "Mirrors", description = "Repository mirroring"),
+        (name = "Boards", description = "Project boards (Kanban)"),
+        (name = "Time Tracking", description = "Issue time tracking"),
     )
 )]
 pub struct ApiDoc;

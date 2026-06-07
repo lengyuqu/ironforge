@@ -12,8 +12,8 @@ use utoipa::ToSchema;
 
 // ── Response types ─────────────────────────────────────
 
-#[derive(Serialize)]
-struct ArtifactResponse {
+#[derive(Serialize, ToSchema)]
+pub struct ArtifactResponse {
     id: i64,
     job_id: i64,
     name: String,
@@ -22,8 +22,8 @@ struct ArtifactResponse {
     expires_at: Option<String>,
 }
 
-#[derive(Serialize)]
-struct UploadArtifactResponse {
+#[derive(Serialize, ToSchema)]
+pub struct UploadArtifactResponse {
     id: i64,
     message: String,
 }
@@ -32,6 +32,22 @@ struct UploadArtifactResponse {
 
 /// POST /api/v1/runners/:id/jobs/:job_id/artifacts
 /// Upload an artifact for a job.
+/// Auth handled by `authenticate_runner` middleware.
+#[utoipa::path(
+    post,
+    path = "/runners/{id}/jobs/{job_id}/artifacts",
+    tag = "Artifacts",
+    params(
+        ("id" = i64, Path, description = "Runner ID"),
+        ("job_id" = i64, Path, description = "Job ID"),
+    ),
+    request_body(content = UploadArtifactRequest, description = "Artifact metadata"),
+    responses(
+        (status = 201, description = "Artifact created", body = UploadArtifactResponse),
+        (status = 403, description = "Forbidden - job not assigned to this runner", body = serde_json::Value),
+        (status = 404, description = "Job not found", body = serde_json::Value),
+    ),
+)]
 pub async fn upload_artifact(
     State(state): State<AppState>,
     Path((runner_id, job_id)): Path<(i64, i64)>,
@@ -177,7 +193,7 @@ pub async fn delete_artifact(
 
 // ── Request types ───────────────────────────────────────
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct UploadArtifactRequest {
     pub name: String,
     pub file_path: String,

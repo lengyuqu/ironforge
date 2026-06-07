@@ -10,7 +10,6 @@ use serde::{Deserialize, Serialize};
 use crate::api::auth::extract_bearer_claims;
 use crate::error::AppError;
 use crate::AppState;
-use utoipa::ToSchema;
 
 // ── Request / Response types ──────────────────────────────────────────
 

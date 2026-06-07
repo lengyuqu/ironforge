@@ -398,32 +398,33 @@ async fn read_command_request<R: AsyncRead + Unpin>(
             })
         }
         "fetch" => {
+            // Protocol V2 fetch: want/have/done are in the ARGS section (after 0001 delimiter),
+            // while capabilities are in the header section (before 0001 delimiter).
+            // Bug note: earlier version incorrectly parsed args from `capabilities`.
             let mut wants = Vec::new();
             let mut haves = Vec::new();
             let mut shallows = Vec::new();
             let mut deepen = None;
             let mut filter = None;
             let mut done = false;
-            let mut client_caps = Vec::new();
 
-            for cap in &capabilities {
-                if let Some(want) = cap.strip_prefix("want ") {
+            for arg in &args {
+                if let Some(want) = arg.strip_prefix("want ") {
                     wants.push(want.to_string());
-                } else if let Some(have) = cap.strip_prefix("have ") {
+                } else if let Some(have) = arg.strip_prefix("have ") {
                     haves.push(have.to_string());
-                } else if let Some(shallow) = cap.strip_prefix("shallow ") {
+                } else if let Some(shallow) = arg.strip_prefix("shallow ") {
                     shallows.push(shallow.to_string());
-                } else if let Some(d) = cap.strip_prefix("deepen ") {
+                } else if let Some(d) = arg.strip_prefix("deepen ") {
                     deepen = d.parse().ok();
-                } else if let Some(f) = cap.strip_prefix("filter ") {
+                } else if let Some(f) = arg.strip_prefix("filter ") {
                     filter = Some(f.to_string());
-                } else if *cap == "done" {
+                } else if *arg == "done" {
                     done = true;
-                } else if !cap.is_empty() {
-                    client_caps.push(cap.to_string());
                 }
             }
 
+            // capabilities remain in the capabilities list (side-band, ofs-delta, etc.)
             Ok(CommandRequest::Fetch {
                 wants,
                 haves,
@@ -431,7 +432,7 @@ async fn read_command_request<R: AsyncRead + Unpin>(
                 deepen,
                 filter,
                 done,
-                client_caps,
+                client_caps: capabilities,
             })
         }
         "object-info" => {
@@ -473,63 +474,162 @@ async fn skip_until_flush<R: AsyncRead + Unpin>(reader: &mut R) -> Result<()> {
 
 /// Handle the ls-refs command.
 /// Sends ref advertisements based on client request.
+///
+/// Protocol V2 ls-refs response format per ref:
+///   `<sha> <refname>[ symref-target:<target>][ peeled:<peeled-sha>]`
+///
+/// Key correctness points:
+/// - ref-prefix filters: only send refs whose name starts with a requested prefix
+/// - symrefs: HEAD needs `symref-target:refs/heads/<branch>` appended
+/// - peel: annotated tags need `peeled:<commit-sha>` appended
+/// - unborn: if HEAD points to a non-existent branch, send `unborn HEAD symref-target:<branch>`
+/// - No duplicate HEAD: `list_refs` already handles HEAD via symbolic ref resolution,
+///   so we don't add a second HEAD entry here
 async fn handle_ls_refs<W: AsyncWrite + Unpin>(
     repo_path: &Path,
     writer: &mut W,
-    _ref_patterns: &[String],
+    ref_patterns: &[String],
     peel: bool,
     symrefs: bool,
     unborn: bool,
     _server_options: &[String],
 ) -> Result<()> {
-    // Get all refs
-    let refs = list_refs(repo_path)?;
-    let head_sha = crate::resolve_head_sha(repo_path);
+    // CRITICAL: gix::Repository is NOT Send (contains RefCell), so all gix operations
+    // MUST complete before any `.await` point. We collect all ref data synchronously first,
+    // then do async I/O with the collected data.
 
-    // Handle unborn HEAD
-    if unborn {
-        // If HEAD points to an unborn branch, we could send that info
-        // For simplicity, we just skip it if HEAD doesn't resolve
+    // --- Synchronous gix section (no .await allowed here) ---
+    struct RefData {
+        entries: Vec<(String, String, Option<String>)>, // (sha, refname, symref_target)
+        unborn_line: Option<String>,
     }
 
-    // Build ref advertisement
-    for (i, (sha, refname)) in refs.iter().enumerate() {
-        let mut line = format!("{} {}", sha, refname);
+    let ref_data: RefData = {
+        let repo = gix::open(repo_path).context("failed to open repository for ls-refs")?;
 
-        // Add symref if requested (simplified - just show direct refs)
-        if symrefs && refname.starts_with("HEAD") {
-            // In real implementation, we'd look up the target
-        }
+        let mut ref_entries: Vec<(String, String, Option<String>)> = Vec::new();
+        let mut unborn_line: Option<String> = None;
 
-        // Add peel info for tags if requested
-        if peel && refname.starts_with("refs/tags/") {
-            if let Some(peel_sha) = get_tag_peel(repo_path, sha) {
-                line.push_str(&format!(" {}", peel_sha));
+        // HEAD first — resolve symref target if client requested symrefs
+        let head_ref = repo.head().ok();
+        let head_target: Option<String> = if symrefs {
+            head_ref.as_ref().and_then(|h| match &h.kind {
+                gix::head::Kind::Symbolic(r) => Some(r.name.as_bstr().to_string()),
+                gix::head::Kind::Unborn(name) => Some(name.as_bstr().to_string()),
+                gix::head::Kind::Detached { .. } => None,
+            })
+        } else {
+            None
+        };
+
+        match repo.head_id() {
+            Ok(head_id) => {
+                ref_entries.push((head_id.to_string(), "HEAD".to_string(), head_target.clone()));
+            }
+            Err(_) => {
+                // HEAD points to unborn branch
+                if unborn {
+                    if let Some(target) = &head_target {
+                        unborn_line = Some(format!("unborn HEAD symref-target:{}", target));
+                    }
+                }
             }
         }
 
-        // First ref can include capabilities (but ls-refs is simpler)
-        if i == 0 && refs.len() == 1 && head_sha.is_none() {
-            // Single ref in empty repo
+        // All non-symbolic refs
+        let references = repo.references().context("failed to list references")?;
+        let all_refs = references.all()?;
+
+        for reference in all_refs {
+            let reference = match reference {
+                Ok(r) => r,
+                Err(_) => continue,
+            };
+            let refname = reference.name().as_bstr().to_string();
+
+            // Skip HEAD — already handled above
+            if refname == "HEAD" {
+                continue;
+            }
+
+            let target = reference.target();
+            match target {
+                gix::refs::TargetRef::Object(id) => {
+                    ref_entries.push((id.to_string(), refname, None));
+                }
+                gix::refs::TargetRef::Symbolic(_) => {
+                    // Other symbolic refs (rare) — resolve to object
+                    if let Ok(mut r) = repo.find_reference(&refname) {
+                        if let Ok(id) = r.peel_to_id() {
+                            ref_entries.push((id.to_string(), refname, None));
+                        }
+                    }
+                }
+            }
+        }
+
+        // repo is dropped here — no longer held across .await
+        RefData { entries: ref_entries, unborn_line }
+    };
+    // --- End synchronous gix section ---
+
+    // Send unborn HEAD if applicable (now safe to .await)
+    if let Some(line) = &ref_data.unborn_line {
+        write_pkt_line(writer, &PktLine::text(line)).await?;
+    }
+
+    // Apply ref-prefix filtering
+    let filtered: Vec<_> = if ref_patterns.is_empty() {
+        ref_data.entries
+    } else {
+        ref_data.entries
+            .into_iter()
+            .filter(|(_, refname, _)| {
+                ref_patterns.iter().any(|prefix| refname.starts_with(prefix.as_str()))
+            })
+            .collect()
+    };
+
+    // Send each ref (all async I/O happens here, after gix objects are dropped)
+    for (sha, refname, symref_target) in &filtered {
+        let mut line = format!("{} {}", sha, refname);
+
+        // Append symref-target if client requested and we have one
+        if symrefs {
+            if let Some(target) = symref_target {
+                line.push_str(&format!(" symref-target:{}", target));
+            }
+        }
+
+        // Append peeled SHA for annotated tags if client requested
+        if peel && refname.starts_with("refs/tags/") {
+            if let Some(peeled) = get_tag_peel(repo_path, &sha) {
+                // Only append if the peeled SHA differs from the tag object SHA
+                // (i.e., it's actually an annotated tag pointing to a commit)
+                if peeled != *sha {
+                    line.push_str(&format!(" peeled:{}", peeled));
+                }
+            }
         }
 
         write_pkt_line(writer, &PktLine::text(&line)).await?;
     }
 
-    // Also send HEAD if we have it
-    if let Some(sha) = &head_sha {
-        write_pkt_line(writer, &PktLine::text(&format!("{} HEAD", sha))).await?;
-    }
-
     // End of refs
     write_flush(writer).await?;
 
-    tracing::debug!(refs = refs.len(), "Sent ls-refs response");
+    tracing::debug!(refs = filtered.len(), "Sent ls-refs response (V2)");
     Ok(())
 }
 
 /// Handle the fetch command.
 /// Negotiates common commits and sends packfile.
+///
+/// Protocol V2 fetch response format:
+///   packfile section with sideband multiplexing:
+///   - Band 1: pack data
+///   - Band 2: progress messages
+///   - Band 3: error messages
 async fn handle_fetch<W: AsyncWrite + Unpin>(
     repo_path: &Path,
     writer: &mut W,
@@ -543,48 +643,92 @@ async fn handle_fetch<W: AsyncWrite + Unpin>(
 ) -> Result<()> {
     use sideband::{write_sideband_data, write_sideband_flush, write_sideband_progress};
 
-    let use_sideband = client_caps.iter().any(|c| c.contains("side-band"));
+    // Check if client supports sideband (Protocol V2 fetch always uses sideband)
+    let use_sideband = client_caps.iter().any(|c| c.contains("side-band"))
+        || true; // V2 fetch always uses sideband per spec
 
     if wants.is_empty() {
+        // Nothing to send
+        write_pkt_line(writer, &PktLine::text("packfile")).await?;
         write_flush(writer).await?;
         return Ok(());
     }
 
-    // Simple negotiation: if client sent "done", we just send packfile
-    // For more complex negotiation, we'd compare haves/wants
-    if done || !haves.is_empty() {
-        // Client is ready for packfile
-        write_pkt_line(writer, &PktLine::data(b"ACK\n")).await?;
-    } else {
-        // Client wants more negotiation
-        write_pkt_line(writer, &PktLine::data(b"NAK")).await?;
+    // Protocol V2 fetch response starts with section headers.
+    // If we have haves/done, send acknowledgements first.
+    if !haves.is_empty() {
+        // Check which haves we have — synchronously, before any .await
+        // CRITICAL: gix::Repository is !Send (contains RefCell), must not cross .await
+        let (acked_oids, any_acked): (Vec<String>, bool) = {
+            let repo = gix::open(repo_path).ok();
+            let mut acked = Vec::new();
+            for have in haves {
+                if let Some(ref r) = repo {
+                    if let Ok(oid) = gix::ObjectId::from_hex(have.as_bytes()) {
+                        if r.find_object(oid).is_ok() {
+                            acked.push(have.clone());
+                        }
+                    }
+                }
+            }
+            let any = !acked.is_empty();
+            (acked, any)
+            // repo dropped here
+        };
+
+        // Now do async I/O with the collected data
+        write_pkt_line(writer, &PktLine::text("acknowledgments")).await?;
+        for have in &acked_oids {
+            write_pkt_line(writer, &PktLine::text(&format!("ACK {}", have))).await?;
+        }
+        if !any_acked {
+            write_pkt_line(writer, &PktLine::text("NAK")).await?;
+        }
+        // Section delimiter
+        write_pkt_line(writer, &PktLine::Delim).await?;
     }
 
-    // Send packfile
-    let pack_data = generate_packfile(repo_path, wants).await?;
+    // Only send packfile if client sent "done" or no haves (fresh clone)
+    if !done && !haves.is_empty() {
+        // Client wants more negotiation rounds — send ready signal
+        write_pkt_line(writer, &PktLine::text("ready")).await?;
+        write_flush(writer).await?;
+        return Ok(());
+    }
+
+    // Send packfile section header
+    write_pkt_line(writer, &PktLine::text("packfile")).await?;
+
+    // Generate packfile for the requested objects, excluding known haves
+    let pack_data = generate_packfile(repo_path, wants, haves).await?;
 
     if use_sideband {
-        // Send progress message
+        // Send progress
         write_sideband_progress(
             writer,
-            &format!("counting {} objects\n", wants.len()),
+            &format!("Enumerating objects: done.\n"),
         )
         .await?;
 
-        // Send packfile through sideband
+        // Send packfile through sideband channel 1
         write_sideband_data(writer, &pack_data).await?;
 
         // Send done progress
         write_sideband_progress(writer, "Done.\n").await?;
 
-        // End sideband
+        // End sideband with flush
         write_sideband_flush(writer).await?;
     } else {
         writer.write_all(&pack_data).await?;
-        writer.flush().await?;
+        write_flush(writer).await?;
     }
 
-    tracing::info!(pack_size = pack_data.len(), objects = wants.len(), "Sent V2 fetch packfile");
+    tracing::info!(
+        pack_size = pack_data.len(),
+        wants = wants.len(),
+        haves = haves.len(),
+        "Sent V2 fetch packfile"
+    );
     Ok(())
 }
 
@@ -606,62 +750,6 @@ async fn handle_object_info<W: AsyncWrite + Unpin>(
 }
 
 // ─── Git Operations ───────────────────────────────────────────────────────────
-
-/// List refs using gix API.
-///
-/// CRITICAL: HEAD reference handling (踩坑经验 #5)
-///
-/// `git for-each-ref` does NOT list HEAD by default.
-/// gix `repo.references().all()` correctly returns ALL references including HEAD.
-/// See CLAUDE.md "常见错误排查" for details.
-///
-/// CRITICAL: HEAD reference handling (踩坑经验 #5)
-///
-/// The `git for-each-ref` command does NOT list HEAD by default.
-/// This is a common gotcha when migrating from git CLI to gix API.
-///
-/// For example:
-///   $ git for-each-ref refs/heads/
-///   Will NOT include HEAD even if HEAD points to refs/heads/main
-///
-/// Our solution: Use gix API (`repo.references().all()`) which correctly
-/// returns ALL references including HEAD. We then handle symbolic refs
-/// (like HEAD) separately by resolving them to their target object ID.
-///
-/// This approach is more reliable than shelling out to `git for-each-ref`
-/// and avoids the HEAD-missing bug.
-fn list_refs(repo_path: &Path) -> Result<Vec<(String, String)>> {
-    let repo = gix::open(repo_path).context("failed to open repository")?;
-    let mut refs = Vec::new();
-
-    let references = repo.references().context("failed to list references")?;
-    let all_refs = references.all()?;
-
-    for reference in all_refs {
-        let reference = match reference {
-            Ok(r) => r,
-            Err(_) => continue,
-        };
-        let refname = reference.name().as_bstr().to_string();
-        let target = reference.target();
-
-        match target {
-            gix::refs::TargetRef::Object(id) => {
-                refs.push((id.to_string(), refname));
-            }
-            gix::refs::TargetRef::Symbolic(_) => {
-                // For symbolic refs like HEAD, try to resolve to the actual object
-                if refname == "HEAD" {
-                    if let Ok(head_id) = repo.head_id() {
-                        refs.push((head_id.to_string(), refname));
-                    }
-                }
-            }
-        }
-    }
-
-    Ok(refs)
-}
 
 /// Get the peel (dereferenced) SHA of a tag using gix API.
 fn get_tag_peel(repo_path: &Path, sha: &str) -> Option<String> {
@@ -697,32 +785,74 @@ fn get_object_size(repo_path: &Path, oid: &str) -> Result<u64> {
     Ok(size)
 }
 
-/// Generate a packfile for the given wants (async version).
+/// Generate a packfile for the given wants, excluding known haves.
+///
+/// Uses `git pack-objects --revs --stdout` which reads revision specs from stdin.
+/// Each want is written as `<sha>`, each have as `^<sha>` (exclude).
+///
 /// TODO(gix): Replace with gix pack generation when available.
-/// Currently using git pack-objects CLI as gix doesn't have a direct replacement.
-async fn generate_packfile(repo_path: &Path, _wants: &[String]) -> Result<Vec<u8>> {
-    use tokio::io::AsyncReadExt;
+/// The `gix` crate does not yet expose a stable pack-objects API,
+/// so we fall back to the git CLI for this step.
+async fn generate_packfile(repo_path: &Path, wants: &[String], haves: &[String]) -> Result<Vec<u8>> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt as _};
     use tokio::process::Command;
     use std::process::Stdio;
+
+    // Build stdin input: wants (positive) + haves (negative/exclude)
+    let mut revs_input = String::new();
+    for want in wants {
+        revs_input.push_str(want);
+        revs_input.push('\n');
+    }
+    for have in haves {
+        // Prefix with '^' to exclude commits reachable from haves
+        revs_input.push('^');
+        revs_input.push_str(have);
+        revs_input.push('\n');
+    }
 
     let mut cmd = Command::new("git")
         .arg("-C")
         .arg(repo_path)
-        .args(["pack-objects", "--all", "--stdout"])
+        .args(["pack-objects", "--revs", "--stdout", "--thin"])
+        .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .context("failed to spawn git pack-objects")?;
 
-    let stdout = cmd.stdout.take().context("no stdout")?;
+    // Write revision list to stdin, then close it
+    if let Some(mut stdin) = cmd.stdin.take() {
+        stdin.write_all(revs_input.as_bytes()).await
+            .context("failed to write revs to pack-objects stdin")?;
+        // stdin is dropped here, closing the pipe
+    }
+
+    let stdout = cmd.stdout.take().context("no stdout from pack-objects")?;
     let mut reader = BufReader::new(stdout);
     let mut pack_data = Vec::new();
-    reader.read_to_end(&mut pack_data).await.context("failed to read packfile")?;
+    reader.read_to_end(&mut pack_data).await
+        .context("failed to read packfile from pack-objects")?;
 
-    let status = cmd.wait().await.context("git pack-objects failed")?;
+    let status = cmd.wait().await.context("git pack-objects wait failed")?;
     if !status.success() {
-        bail!("git pack-objects failed");
+        // Read stderr for diagnostics
+        let stderr_msg = if let Some(mut se) = cmd.stderr.take() {
+            let mut buf = Vec::new();
+            se.read_to_end(&mut buf).await.ok();
+            String::from_utf8_lossy(&buf).into_owned()
+        } else {
+            String::new()
+        };
+        bail!("git pack-objects failed ({}): {}", status, stderr_msg.trim());
     }
+
+    tracing::debug!(
+        pack_bytes = pack_data.len(),
+        wants = wants.len(),
+        haves = haves.len(),
+        "pack-objects complete"
+    );
 
     Ok(pack_data)
 }
