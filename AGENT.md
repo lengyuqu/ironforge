@@ -12,7 +12,7 @@
 **IronForge**（铁匠铺）是一个用 Rust 从零实现的轻量级 Git 托管平台，对标 Gitea/Forgejo。
 
 - **目标**: 内存 <50MB、单二进制部署、全功能（仓库/Issue/PR/Wiki/CI）
-- **阶段**: Phase 1~20 全部完成（核心功能 + Protocol V2 + 前端 i18n + P0/P1/P2 Gap + CI/CD Runner + 工程化）
+- **阶段**: Phase 1~20 全部完成（核心功能 + Protocol V2 + 前端 i18n + P0/P1/P2 Gap + CI/CD Runner + 工程化）+ Phase 21（Package Registry / LDAP/SSO/2FA / Audit Log / Mirror / Board / Tracking / 代码搜索 / SSH V2）
 - **技术栈**: Rust (Axum/SeaORM) + SvelteKit 5，SQLite/PostgreSQL，gix (gitoxide)
 
 ### 关键文件速查
@@ -50,7 +50,8 @@ ironforge/
 │   ├── rg-http/            # HTTP 服务端 + REST API（Axum）
 │   ├── rg-db/              # 数据库层（SeaORM + SQLite）
 │   ├── rg-ci/              # CI/CD 引擎
-│   └── rg-runner/          # Runner Agent（bin = "ironforge-runner"）
+│   ├── rg-runner/          # Runner Agent（bin = "ironforge-runner"）
+│   └── rg-mcp/             # MCP 服务器（bin = "ironforge-mcp"，stdio/SSE）
 └── web/                    # SvelteKit 前端（不在 crates/ 下）
 ```
 
@@ -132,6 +133,8 @@ cargo build --release
 |------|------|---------|
 | `README.md` | 报告索引 + 项目状态总览 | 最新 |
 | `gitea-feature-gap-analysis.md` | vs Gitea 1.26 功能差距 | ⚠️ Phase 17 之前 |
+| `gitea-vs-ironforge-2026.md` | vs Gitea 功能对比（v2.0 全面更新） | 2026-06-07 |
+| `gitea-gap-list.csv` | 功能差距清单（CSV 格式） | 2026-06-07 |
 | `gix-migration-feasibility-analysis.md` | gix 迁移可行性评估 | 参考用 |
 | `gix-migration-status-report.md` | gix 迁移进度 | ⚠️ Phase 18 之前 |
 | `ci-runner-architecture.md` | CI Runner 架构设计 | 最新 |
