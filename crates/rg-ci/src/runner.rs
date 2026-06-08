@@ -19,11 +19,17 @@ use rg_db::ops::pipeline_ops;
 /// Default maximum execution time per job: 1 hour.
 const DEFAULT_JOB_TIMEOUT_SECS: u64 = 3600;
 
+/// Default CI token scopes for jobs.
+/// Grants read access to the triggering repo and packages.
+const DEFAULT_CI_TOKEN_SCOPES: &str = "repo:read packages:read";
+
 /// Pipeline runner that executes stages/jobs sequentially.
 pub struct PipelineRunner {
     db: DatabaseConnection,
     repo_path: std::path::PathBuf,
     pipeline_id: i64,
+    repo_id: i64,
+    jwt_secret: Option<String>,
     docker_enabled: bool,
     /// Per-job timeout in seconds (0 = no timeout).
     job_timeout_secs: u64,
@@ -35,6 +41,8 @@ impl PipelineRunner {
             db,
             repo_path: repo_path.to_path_buf(),
             pipeline_id,
+            repo_id: 0,
+            jwt_secret: None,
             docker_enabled: true,
             job_timeout_secs: DEFAULT_JOB_TIMEOUT_SECS,
         }
@@ -46,9 +54,22 @@ impl PipelineRunner {
             db,
             repo_path: repo_path.to_path_buf(),
             pipeline_id,
+            repo_id: 0,
+            jwt_secret: None,
             docker_enabled: false,
             job_timeout_secs: DEFAULT_JOB_TIMEOUT_SECS,
         }
+    }
+
+    /// Set the repository ID (for CI_JOB_TOKEN generation).
+    pub fn set_repo_id(&mut self, repo_id: i64) {
+        self.repo_id = repo_id;
+    }
+
+    /// Set the JWT secret (for CI_JOB_TOKEN generation).
+    /// If not set, CI_JOB_TOKEN will not be provided.
+    pub fn set_jwt_secret(&mut self, secret: String) {
+        self.jwt_secret = Some(secret);
     }
 
     /// Set the per-job timeout in seconds. Pass 0 to disable the timeout.
@@ -222,6 +243,24 @@ impl PipelineRunner {
 
         tracing::info!(job_id, "Running job");
 
+        // Generate CI_JOB_TOKEN if we have the secret and repo_id
+        let ci_job_token = if let Some(ref secret) = self.jwt_secret {
+            if self.repo_id > 0 {
+                rg_core::auth::ci_token::generate_ci_job_token(
+                    self.repo_id,
+                    self.pipeline_id,
+                    job_id,
+                    DEFAULT_CI_TOKEN_SCOPES,
+                    secret,
+                )
+                .ok()
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         // When an image is requested but Docker is disabled, fail immediately.
         // Silent fallback to local execution is a security risk: CI scripts
         // written for a sandboxed container would run with the server's full
@@ -243,7 +282,7 @@ impl PipelineRunner {
             if let Some(img) = image {
                 self.run_job_docker(job_id, script, img).await
             } else {
-                self.run_job_local(script).await
+                self.run_job_local(script, &ci_job_token).await
             }
         };
 
@@ -264,12 +303,23 @@ impl PipelineRunner {
 
     /// Execute script locally via platform-appropriate shell.
     ///
-    /// The process runs with a sanitized environment (PATH and LANG only) to
-    /// prevent leaking sensitive variables from the server process.
-    async fn run_job_local(&self, script: &str) -> Result<(i32, String)> {
-        // Build a minimal, safe environment
+    /// The process runs with a sanitized environment (standard CI vars + PATH/LANG)
+    /// plus CI_JOB_TOKEN for authenticated API access.
+    async fn run_job_local(&self, script: &str, ci_job_token: &Option<String>) -> Result<(i32, String)> {
+        // Build a safe environment with CI standard variables
         let safe_env: Vec<(String, String)> = {
             let mut env = Vec::new();
+
+            // Standard CI marker variables
+            env.push(("CI".to_string(), "true".to_string()));
+            env.push(("IRONFORGE".to_string(), "true".to_string()));
+            env.push(("CI_PIPELINE_ID".to_string(), self.pipeline_id.to_string()));
+
+            // CI_JOB_TOKEN for authenticated API access
+            if let Some(ref token) = ci_job_token {
+                env.push(("CI_JOB_TOKEN".to_string(), token.clone()));
+            }
+
             // Preserve PATH so that standard tools are available
             if let Ok(path) = std::env::var("PATH") {
                 env.push(("PATH".to_string(), path));

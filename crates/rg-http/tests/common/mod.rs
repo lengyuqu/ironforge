@@ -3,6 +3,8 @@ use std::sync::Arc;
 pub use rg_db;
 pub use rg_http;
 
+use rg_core::package_registry::oci::OciStorage;
+
 /// Create a temporary file-based SQLite database with all migrations applied.
 pub async fn setup_test_db() -> (rg_db::DatabaseConnection, tempfile::TempDir) {
     use sea_orm::{ConnectOptions, Database};
@@ -25,6 +27,7 @@ pub fn build_test_app_state(db: rg_db::DatabaseConnection, repo_root: std::path:
         rate_limiter: rg_http::rate_limit::RateLimiter::new(10000, 60),
         notification_hub: rg_http::ws::NotificationHub::new(),
         smtp_config: None,
+        oci_storage: Arc::new(OciStorage::new(std::path::Path::new("/tmp/test-oci"))),
     }
 }
 

@@ -411,6 +411,23 @@
       "total": "organizations total",
       "delete_confirm": "Delete Organization",
       "delete_warning": "Are you sure you want to delete organization \"{name}\"? All associated data will be lost."
+    },
+    "audit": {
+      "title": "Audit Log",
+      "desc": "View security events and operational history",
+      "total": "records total",
+      "detail_title": "Audit Log #{id}",
+      "filter_all": "All Actions",
+      "no_details": "No additional details",
+      "fields": {
+        "time": "Time",
+        "user": "User",
+        "action": "Action",
+        "resource_type": "Resource Type",
+        "resource": "Resource",
+        "ip": "IP Address",
+        "details": "Details"
+      }
     }
   }
 }

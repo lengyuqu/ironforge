@@ -161,6 +161,43 @@ pub async fn heartbeat(
         .into_response()
 }
 
+/// POST /api/v1/runners/:id/deregister
+/// Deregister a runner — removes it from the pool.
+/// Auth handled by `authenticate_runner` middleware.
+#[utoipa::path(
+    post,
+    path = "/runners/{id}/deregister",
+    tag = "Runners",
+    params(
+        ("id" = i64, Path, description = "Runner ID"),
+    ),
+    responses(
+        (status = 200, description = "Runner deregistered"),
+        (status = 404, description = "Runner not found"),
+    ),
+)]
+pub async fn deregister(
+    State(state): State<AppState>,
+    Path(runner_id): Path<i64>,
+) -> impl IntoResponse {
+    // Reset any jobs assigned to this runner so they can be picked up by others
+    if let Err(e) = rg_db::ops::pipeline_ops::reset_runner_jobs(&state.db, runner_id).await {
+        tracing::warn!(runner_id, error = %e, "Failed to reset runner jobs during deregistration");
+    }
+
+    match rg_db::ops::runner_ops::delete_runner(&state.db, runner_id).await {
+        Ok(true) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"status": "deregistered"})),
+        ).into_response(),
+        Ok(false) => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "runner not found"})),
+        ).into_response(),
+        Err(e) => AppError::internal(e).into_response(),
+    }
+}
+
 /// GET /api/v1/runners/:id/jobs/poll?timeout=30
 /// Long-polling endpoint for runners to fetch jobs.
 /// Auth handled by `authenticate_runner` middleware.
@@ -187,8 +224,16 @@ pub async fn poll_job(
 
     // Use tokio::time::timeout to wrap a polling loop
     let poll_future = async {
+        // Fetch runner labels for tag matching
+        let runner_labels: Vec<String> = match rg_db::ops::runner_ops::find_by_id(&state.db, runner_id).await {
+            Ok(Some(r)) => {
+                serde_json::from_str(&r.labels).unwrap_or_default()
+            }
+            _ => Vec::new(),
+        };
+
         loop {
-            match rg_db::ops::pipeline_ops::find_pending_job(&state.db).await {
+            match rg_db::ops::pipeline_ops::find_pending_job_matching_labels(&state.db, &runner_labels).await {
                 Ok(Some(job)) => {
                     // Found a job — assign it to this runner
                     if let Err(e) = rg_db::ops::pipeline_ops::assign_job(&state.db, job.id, runner_id).await {

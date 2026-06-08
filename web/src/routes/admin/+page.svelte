@@ -40,6 +40,15 @@
       </div>
       <div class="card-arrow">→</div>
     </a>
+
+    <a href="/admin/audit" class="card">
+      <div class="card-icon">📋</div>
+      <div class="card-body">
+        <h2>{$t('admin.audit.title')}</h2>
+        <p>{$t('admin.audit.desc')}</p>
+      </div>
+      <div class="card-arrow">→</div>
+    </a>
   </div>
 </div>
 

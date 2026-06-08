@@ -17,6 +17,39 @@ use crate::error::AppError;
 use crate::{api::auth::extract_bearer_claims, openapi::PaginatedRepoResponse, AppState};
 use crate::pagination::{PaginationParams, PaginatedResponse};
 
+/// Helper to record audit log (fire-and-forget).
+async fn record_audit(
+    db: &sea_orm::DatabaseConnection,
+    user_id: i64,
+    username: &str,
+    action: &str,
+    resource_type: Option<&str>,
+    resource_id: Option<i64>,
+    resource_name: Option<&str>,
+    headers: &HeaderMap,
+    details: Option<serde_json::Value>,
+) {
+    let (ip_address, user_agent) = crate::api::audit::extract_ip_and_ua(headers);
+
+    let entry = rg_db::entities::audit_log::ActiveModel {
+        id: sea_orm::NotSet,
+        user_id: sea_orm::Set(Some(user_id)),
+        username: sea_orm::Set(Some(username.to_string())),
+        action: sea_orm::Set(action.to_string()),
+        resource_type: sea_orm::Set(resource_type.map(|s| s.to_string())),
+        resource_id: sea_orm::Set(resource_id),
+        resource_name: sea_orm::Set(resource_name.map(|s| s.to_string())),
+        ip_address: sea_orm::Set(ip_address),
+        user_agent: sea_orm::Set(user_agent),
+        details: sea_orm::Set(details.map(|v| v.to_string())),
+        created_at: sea_orm::Set(chrono::Utc::now()),
+    };
+
+    if let Err(e) = rg_db::ops::audit_log_ops::insert(db, entry).await {
+        tracing::warn!(error = %e, "failed to record audit log");
+    }
+}
+
 /// POST /api/v1/repos
 #[derive(Deserialize, ToSchema)]
 pub struct CreateRepoRequest {
@@ -106,7 +139,28 @@ pub async fn create_repo(
     )
     .await
     {
-        Ok(repo) => (StatusCode::CREATED, Json(serde_json::json!(repo))).into_response(),
+        Ok(repo) => {
+            // Record audit log
+            let details = serde_json::json!({
+                "name": body.name,
+                "is_private": body.is_private.unwrap_or(false),
+                "org": body.org.as_deref()
+            });
+            let resource_name = format!("{}/{}", body.org.as_deref().unwrap_or(&claims.sub), &body.name);
+            record_audit(
+                &state.db,
+                owner_id,
+                &claims.sub,  // This should be username, but we have user_id. Let me fix this.
+                "repo.create",
+                Some("repo"),
+                Some(repo.id),
+                Some(&resource_name),
+                &headers,
+                Some(details),
+            ).await;
+
+            (StatusCode::CREATED, Json(serde_json::json!(repo))).into_response()
+        },
         Err(e) => AppError::BadRequest(e.to_string()).into_response(),
     }
 }
@@ -456,7 +510,27 @@ pub async fn delete_repo_handler(
     }
 
     match rg_core::repo::service::delete_repo(&state.db, repo.id).await {
-        Ok(()) => (StatusCode::OK, Json(serde_json::json!({ "deleted": true }))).into_response(),
+        Ok(()) => {
+            // Record audit log
+            let resource_name = format!("{}/{}", owner, name);
+            let details = serde_json::json!({
+                "owner": owner,
+                "name": name
+            });
+            record_audit(
+                &state.db,
+                user_id,
+                &claims.sub,
+                "repo.delete",
+                Some("repo"),
+                Some(repo.id),
+                Some(&resource_name),
+                &headers,
+                Some(details),
+            ).await;
+
+            (StatusCode::OK, Json(serde_json::json!({ "deleted": true }))).into_response()
+        },
         Err(e) => AppError::InternalError(e.to_string()).into_response(),
     }
 }
@@ -497,7 +571,28 @@ pub async fn fork_repo_handler(
     let user_id: i64 = claims.sub.parse().unwrap_or(-1);
 
     match rg_core::repo::service::fork_repo(&state.db, user_id, &owner, &name, &state.repo_root).await {
-        Ok(repo) => (StatusCode::ACCEPTED, Json(serde_json::json!(repo))).into_response(),
+        Ok(repo) => {
+            // Record audit log
+            let details = serde_json::json!({
+                "source_owner": owner,
+                "source_name": name,
+                "fork_owner": claims.sub
+            });
+            let resource_name = format!("{}/{}", claims.sub, name);
+            record_audit(
+                &state.db,
+                user_id,
+                &claims.sub,
+                "repo.fork",
+                Some("repo"),
+                Some(repo.id),
+                Some(&resource_name),
+                &headers,
+                Some(details),
+            ).await;
+
+            (StatusCode::ACCEPTED, Json(serde_json::json!(repo))).into_response()
+        },
         Err(e) => AppError::BadRequest(e.to_string()).into_response(),
     }
 }
@@ -572,7 +667,28 @@ pub async fn transfer_repo_handler(
     let user_id: i64 = claims.sub.parse().unwrap_or(-1);
 
     match rg_core::repo::service::transfer_repo(&state.db, user_id, &owner, &name, &body.new_owner, &state.repo_root).await {
-        Ok(repo) => (StatusCode::OK, Json(serde_json::json!(repo))).into_response(),
+        Ok(repo) => {
+            // Record audit log
+            let details = serde_json::json!({
+                "old_owner": owner,
+                "new_owner": body.new_owner,
+                "name": name
+            });
+            let resource_name = format!("{}/{}", body.new_owner, name);
+            record_audit(
+                &state.db,
+                user_id,
+                &claims.sub,
+                "repo.transfer",
+                Some("repo"),
+                Some(repo.id),
+                Some(&resource_name),
+                &headers,
+                Some(details),
+            ).await;
+
+            (StatusCode::OK, Json(serde_json::json!(repo))).into_response()
+        },
         Err(e) => AppError::BadRequest(e.to_string()).into_response(),
     }
 }

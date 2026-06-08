@@ -321,6 +321,7 @@ pub async fn trigger_pipeline(
         None,
         state.docker_enabled,
         state.external_runners,
+        Some(&state.jwt_secret),
     )
     .await
     {
@@ -389,6 +390,7 @@ pub async fn retry_pipeline(
         pipeline.triggered_by,
         state.docker_enabled,
         state.external_runners,
+        Some(&state.jwt_secret),
     )
     .await
     {

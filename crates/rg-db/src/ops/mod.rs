@@ -37,3 +37,4 @@ pub mod login_log_ops;
 pub mod oauth_account_ops;
 pub mod mfa_backup_code_ops;
 pub mod audit_log_ops;
+pub mod oci_ops;

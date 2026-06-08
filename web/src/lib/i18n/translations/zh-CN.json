@@ -411,6 +411,23 @@
       "total": "个组织",
       "delete_confirm": "删除组织",
       "delete_warning": "确定要删除组织「{name}」吗？所有相关数据将丢失。"
+    },
+    "audit": {
+      "title": "审计日志",
+      "desc": "查看安全事件和操作历史记录",
+      "total": "条记录",
+      "detail_title": "审计日志 #{id}",
+      "filter_all": "全部操作",
+      "no_details": "无额外详情",
+      "fields": {
+        "time": "时间",
+        "user": "用户",
+        "action": "操作",
+        "resource_type": "资源类型",
+        "resource": "资源",
+        "ip": "IP 地址",
+        "details": "详情"
+      }
     }
   }
 }

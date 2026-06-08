@@ -16,6 +16,39 @@ use utoipa::ToSchema;
 use crate::error::AppError;
 use crate::AppState;
 
+/// Helper to record audit log (fire-and-forget, does not fail the main operation).
+async fn record_audit(
+    db: &sea_orm::DatabaseConnection,
+    user_id: i64,
+    username: &str,
+    action: &str,
+    resource_type: Option<&str>,
+    resource_id: Option<i64>,
+    resource_name: Option<&str>,
+    headers: &HeaderMap,
+    details: Option<serde_json::Value>,
+) {
+    let (ip_address, user_agent) = crate::api::audit::extract_ip_and_ua(headers);
+
+    let entry = rg_db::entities::audit_log::ActiveModel {
+        id: sea_orm::NotSet,
+        user_id: sea_orm::Set(Some(user_id)),
+        username: sea_orm::Set(Some(username.to_string())),
+        action: sea_orm::Set(action.to_string()),
+        resource_type: sea_orm::Set(resource_type.map(|s| s.to_string())),
+        resource_id: sea_orm::Set(resource_id),
+        resource_name: sea_orm::Set(resource_name.map(|s| s.to_string())),
+        ip_address: sea_orm::Set(ip_address),
+        user_agent: sea_orm::Set(user_agent),
+        details: sea_orm::Set(details.map(|v| v.to_string())),
+        created_at: sea_orm::Set(chrono::Utc::now()),
+    };
+
+    if let Err(e) = rg_db::ops::audit_log_ops::insert(db, entry).await {
+        tracing::warn!(error = %e, "failed to record audit log");
+    }
+}
+
 /// POST /api/v1/users/register
 #[derive(Deserialize, ToSchema)]
 pub struct RegisterRequest {
@@ -69,6 +102,7 @@ pub struct UserProfile {
 )]
 pub async fn register(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(body): Json<RegisterRequest>,
 ) -> impl IntoResponse {
     match rg_core::user::service::register(
@@ -80,7 +114,26 @@ pub async fn register(
     )
     .await
     {
-        Ok(resp) => (StatusCode::CREATED, Json(serde_json::json!(resp))).into_response(),
+        Ok(resp) => {
+            // Record audit log
+            let details = serde_json::json!({
+                "email": body.email,
+                "username": body.username
+            });
+            record_audit(
+                &state.db,
+                resp.user_id,
+                &resp.username,
+                "user.register",
+                Some("user"),
+                Some(resp.user_id),
+                Some(&resp.username),
+                &headers,
+                Some(details),
+            ).await;
+
+            (StatusCode::CREATED, Json(serde_json::json!(resp))).into_response()
+        },
         Err(e) => AppError::BadRequest(e.to_string()).into_response(),
     }
 }
@@ -97,6 +150,7 @@ pub async fn register(
 )]
 pub async fn login(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(body): Json<LoginRequest>,
 ) -> impl IntoResponse {
     // First authenticate credentials
@@ -114,6 +168,23 @@ pub async fn login(
                 Ok(Some(user)) => user.mfa_enabled,
                 _ => false,
             };
+
+            // Record audit log
+            let details = serde_json::json!({
+                "mfa_required": mfa_required,
+                "login_method": "password"
+            });
+            record_audit(
+                &state.db,
+                resp.user_id,
+                &resp.username,
+                "user.login",
+                Some("user"),
+                Some(resp.user_id),
+                Some(&resp.username),
+                &headers,
+                Some(details),
+            ).await;
 
             if mfa_required {
                 // Don't issue full JWT; client must complete MFA flow

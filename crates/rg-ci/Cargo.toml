@@ -13,4 +13,5 @@ serde_yaml = { workspace = true }
 sea-orm = { workspace = true }
 chrono = { workspace = true }
 gix = { workspace = true }
+rg-core = { path = "../rg-core" }
 rg-db = { path = "../rg-db" }

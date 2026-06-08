@@ -11,6 +11,7 @@ pub mod api;
 pub mod error;
 pub mod git_v2;
 pub mod middleware;
+pub mod oci;
 pub mod openapi;
 pub mod pagination;
 pub mod rate_limit;
@@ -26,6 +27,7 @@ use axum::http::{header, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post, put};
 use axum::Router;
+use rg_core::package_registry::oci::OciStorage;
 use sea_orm::DatabaseConnection;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tower_http::cors::CorsLayer;
@@ -45,6 +47,7 @@ pub struct AppState {
     pub rate_limiter: rate_limit::RateLimiter,
     pub notification_hub: ws::NotificationHub,
     pub smtp_config: Option<rg_core::email::SmtpConfig>,
+    pub oci_storage: Arc<OciStorage>,
 }
 
 /// HTTP server configuration.
@@ -67,6 +70,8 @@ pub struct HttpServerConfig {
     pub rate_limit_window_secs: u64,
     /// SMTP configuration for email notifications (None = disabled).
     pub smtp_config: Option<rg_core::email::SmtpConfig>,
+    /// OCI container registry storage path. None = use {repo_root}/oci.
+    pub oci_storage_path: Option<PathBuf>,
     /// TLS configuration: (cert_path, key_path). None = HTTP only.
     pub tls_config: Option<(PathBuf, PathBuf)>,
 }
@@ -81,6 +86,12 @@ pub async fn run(config: HttpServerConfig) -> Result<()> {
 
     let notification_hub = ws::NotificationHub::new();
 
+    let oci_storage_path = config.oci_storage_path.unwrap_or_else(|| config.repo_root.join("oci"));
+    let oci_storage = Arc::new(OciStorage::new(&oci_storage_path));
+
+    // Clone DB before it moves into state
+    let watchdog_db = config.db.clone();
+
     let state = AppState {
         repo_root: Arc::new(config.repo_root),
         db: config.db,
@@ -90,9 +101,15 @@ pub async fn run(config: HttpServerConfig) -> Result<()> {
         rate_limiter: rate_limiter.clone(),
         notification_hub: notification_hub.clone(),
         smtp_config: config.smtp_config,
+        oci_storage,
     };
 
     let app = create_router(state.clone(), rate_limiter.clone());
+
+    // Spawn runner watchdog background task
+    tokio::spawn(async move {
+        run_runner_watchdog(watchdog_db).await;
+    });
 
     tracing::info!("CORS permissive mode active — tighten in production");
 
@@ -214,10 +231,12 @@ fn create_router(state: AppState, rate_limiter: rate_limit::RateLimiter) -> Rout
 ///   Router::new().nest("/git", git_routes).nest("/api/v1", api_v1)  // ERROR
 fn build_router(state: AppState, rate_limiter: rate_limit::RateLimiter) -> Router {
     let (api_v1, git_routes) = build_routes(&state);
+    let v2_routes = build_v2_routes(&state);
 
     Router::new()
         .nest("/git", git_routes)
         .nest("/api/v1", api_v1)
+        .nest("/v2", v2_routes)
         .route("/health", get(health))
         // ── OpenAPI spec endpoint ──────────────────────────────────────────
         .route("/api-docs/openapi.json", get(openapi_handler))
@@ -257,6 +276,25 @@ fn build_router(state: AppState, rate_limiter: rate_limit::RateLimiter) -> Route
         .with_state(state)
 }
 
+/// Build OCI Distribution v2 routes (Docker/OCI container registry).
+fn build_v2_routes(state: &AppState) -> Router<AppState> {
+    Router::new()
+        // API version check
+        .route("/", get(oci::api_version_check))
+        // Token authentication
+        .route("/auth/token", get(oci::get_token))
+        // Tags
+        .route("/{owner}/{repo}/tags/list", get(oci::list_tags))
+        // Manifests
+        .route("/{owner}/{repo}/manifests/{reference}", get(oci::get_manifest).head(oci::head_manifest).put(oci::put_manifest))
+        // Blobs
+        .route("/{owner}/{repo}/blobs/{digest}", get(oci::get_blob).head(oci::head_blob))
+        // Uploads
+        .route("/{owner}/{repo}/blobs/uploads/", post(oci::start_upload))
+        .route("/{owner}/{repo}/blobs/uploads/{uuid}", patch(oci::chunk_upload).put(oci::complete_upload))
+        .with_state(state.clone())
+}
+
 /// Build route definitions (shared between production and test routers).
 fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
     // ── Git Smart HTTP routes ──────────────────────────────────────────────
@@ -277,6 +315,7 @@ fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
     // Runner routes that require authentication (single middleware layer)
     let runners_auth = Router::new()
         .route("/runners/{id}/heartbeat", post(api::runners::heartbeat))
+        .route("/runners/{id}/deregister", post(api::runners::deregister))
         .route("/runners/{id}/jobs/poll", get(api::runners::poll_job))
         .route("/runners/{id}/jobs/{job_id}/start", post(api::runners::start_job))
         .route("/runners/{id}/jobs/{job_id}/log", post(api::runners::upload_log))
@@ -307,6 +346,8 @@ fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
         .route("/auth/sso/providers", get(api::sso::list_providers))
         .route("/auth/sso/{slug}", get(api::sso::authorize))
         .route("/auth/sso/{slug}/callback", get(api::sso::callback))
+        .route("/auth/sso/{slug}/refresh", post(api::sso::refresh_token))
+        .route("/auth/sso/{slug}/unlink", delete(api::sso::unlink_oauth_account))
         // Repos
         .route("/repos", post(api::repos::create_repo))
         .route("/repos/{owner}", get(api::repos::list_repos))
@@ -428,6 +469,19 @@ fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
         .route("/repos/{owner}/{name}/packages/cargo/index/{pkg}", get(api::packages::cargo_sparse_index))
         // npm registry protocol
         .route("/repos/{owner}/{name}/packages/npm/{pkg_name}", get(api::packages::npm_registry_metadata))
+        // PyPI Simple Repository API (PEP 503)
+        .route("/repos/{owner}/{name}/packages/pypi/simple/{pkg_name}", get(api::packages::pypi_simple_index))
+        // Maven metadata endpoint
+        .route("/repos/{owner}/{name}/packages/maven/{group_id}/{artifact_id}/maven-metadata.xml", get(api::packages::maven_metadata))
+        // NuGet protocol endpoints
+        .route("/repos/{owner}/{name}/packages/nuget/index.json", get(api::packages::nuget_service_index))
+        .route("/repos/{owner}/{name}/packages/nuget/registration/{id}/index.json", get(api::packages::nuget_registration_index))
+        .route("/repos/{owner}/{name}/packages/nuget/query", get(api::packages::nuget_search))
+        // RubyGems protocol endpoints
+        .route("/repos/{owner}/{name}/packages/rubygems/api/v1/dependencies", get(api::packages::rubygems_dependencies))
+        .route("/repos/{owner}/{name}/packages/rubygems/api/v1/gems/{gem_name}", get(api::packages::rubygems_gem_info))
+        // Helm repository index
+        .route("/repos/{owner}/{name}/packages/helm/index.yaml", get(api::packages::helm_index))
         .route("/repos/{owner}/{name}/packages/{pkg_type}/{pkg_name}", get(api::packages::get_package))
         .route("/repos/{owner}/{name}/packages/{pkg_type}/{pkg_name}/versions", get(api::packages::list_versions))
         .route("/repos/{owner}/{name}/packages/{pkg_type}/{pkg_name}/{version}", get(api::packages::get_version).delete(api::packages::delete_version))
@@ -449,6 +503,9 @@ fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
         .route("/admin/orgs", get(api::admin::list_orgs))
         .route("/admin/orgs/{name}", get(api::admin::get_org))
         .route("/admin/orgs/{name}", delete(api::admin::delete_org))
+        // Admin SSO
+        .route("/admin/sso/providers", get(api::admin::list_sso_providers).post(api::admin::create_sso_provider))
+        .route("/admin/sso/providers/{id}", get(api::admin::get_sso_provider).patch(api::admin::update_sso_provider).delete(api::admin::delete_sso_provider))
         // Audit logs (admin only)
         .route("/admin/audit/logs", get(api::audit::list_audit_logs))
         .route("/admin/audit/logs/{id}", get(api::audit::get_audit_log))
@@ -1042,6 +1099,7 @@ async fn handle_git_receive_pack(
             let repo_clone = repo.clone();
             let docker_enabled = state.docker_enabled;
             let external_runners = state.external_runners;
+            let jwt_secret = state.jwt_secret.clone();
             let hub = state.notification_hub.clone();
             let smtp = state.smtp_config.clone();
 
@@ -1054,6 +1112,7 @@ async fn handle_git_receive_pack(
                         repo_name: &repo_clone,
                         docker_enabled,
                         external_runners,
+                        jwt_secret: &jwt_secret,
                         notification_hub: &hub,
                         smtp_config: &smtp,
                     },
@@ -1083,6 +1142,7 @@ struct PostPushParams<'a> {
     repo_name: &'a str,
     docker_enabled: bool,
     external_runners: bool,
+    jwt_secret: &'a str,
     notification_hub: &'a ws::NotificationHub,
     smtp_config: &'a Option<rg_core::email::SmtpConfig>,
 }
@@ -1099,6 +1159,7 @@ async fn post_push_hooks(
         repo_name,
         docker_enabled,
         external_runners,
+        jwt_secret,
         notification_hub,
         smtp_config,
     } = params;
@@ -1153,6 +1214,7 @@ async fn post_push_hooks(
                 None,
                 *docker_enabled,
                 *external_runners,
+                Some(jwt_secret),
             )
             .await
             {
@@ -1261,4 +1323,69 @@ async fn find_repo_by_name(
     name: &str,
 ) -> anyhow::Result<Option<rg_db::entities::repository::Model>> {
     rg_core::repo::service::find_repo_by_owner_name(db, owner, name).await
+}
+
+// ── Runner Watchdog ───────────────────────────────────────
+
+/// Background task that periodically checks for:
+/// 1. Stuck jobs (assigned/running for too long) → reset to pending
+/// 2. Offline runners (no heartbeat) → mark as offline
+async fn run_runner_watchdog(db: DatabaseConnection) {
+    // Wait for server to fully start
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+    loop {
+        // Check every 60 seconds
+        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+
+        // 1. Reset stuck jobs (assigned/running > 10 min)
+        match rg_db::ops::pipeline_ops::find_stuck_jobs(&db, 600).await {
+            Ok(stuck) => {
+                for job in &stuck {
+                    let job_id = job.id;
+                    tracing::warn!(
+                        job_id,
+                        status = %job.status,
+                        "Runner watchdog: resetting stuck job"
+                    );
+                    if let Err(e) = rg_db::ops::pipeline_ops::reset_stuck_job(&db, job_id).await {
+                        tracing::error!(job_id, error = %e, "Failed to reset stuck job");
+                    }
+                }
+                if !stuck.is_empty() {
+                    tracing::info!(count = stuck.len(), "Runner watchdog: reset {} stuck jobs", stuck.len());
+                }
+            }
+            Err(e) => {
+                tracing::error!(error = %e, "Runner watchdog: failed to find stuck jobs");
+            }
+        }
+
+        // 2. Mark runners as offline if no heartbeat for 90 seconds
+        match rg_db::ops::pipeline_ops::find_offline_runners(&db, 90).await {
+            Ok(offline) => {
+                for runner in &offline {
+                    tracing::warn!(
+                        runner_id = runner.id,
+                        name = %runner.name,
+                        "Runner watchdog: marking runner as offline"
+                    );
+                    if let Err(e) = rg_db::ops::runner_ops::update_status(&db, runner.id, "offline").await {
+                        tracing::error!(runner_id = runner.id, error = %e, "Failed to mark runner offline");
+                    }
+
+                    // Reset jobs assigned to this offline runner
+                    if let Err(e) = rg_db::ops::pipeline_ops::reset_runner_jobs(&db, runner.id).await {
+                        tracing::error!(runner_id = runner.id, error = %e, "Failed to reset jobs for offline runner");
+                    }
+                }
+                if !offline.is_empty() {
+                    tracing::info!(count = offline.len(), "Runner watchdog: marked {} runners offline", offline.len());
+                }
+            }
+            Err(e) => {
+                tracing::error!(error = %e, "Runner watchdog: failed to find offline runners");
+            }
+        }
+    }
 }

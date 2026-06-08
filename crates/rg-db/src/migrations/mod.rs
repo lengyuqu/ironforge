@@ -33,6 +33,9 @@ pub mod m20260607_000008_create_mfa_backup_codes;
 pub mod m20260607_000009_create_login_logs;
 pub mod m20260607_000010_create_sso_providers;
 pub mod m20260607_000011_create_audit_logs;
+pub mod m20260608_000001_create_oci_tables;
+pub mod m20260608_000002_oauth_accounts_unique;
+pub mod m20260608_000003_add_job_tags;
 
 use sea_orm_migration::prelude::*;
 
@@ -77,6 +80,9 @@ impl MigratorTrait for Migrator {
             Box::new(m20260607_000009_create_login_logs::Migration),
             Box::new(m20260607_000010_create_sso_providers::Migration),
             Box::new(m20260607_000011_create_audit_logs::Migration),
+            Box::new(m20260608_000001_create_oci_tables::Migration),
+            Box::new(m20260608_000002_oauth_accounts_unique::Migration),
+            Box::new(m20260608_000003_add_job_tags::Migration),
         ]
     }
 }

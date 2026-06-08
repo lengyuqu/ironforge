@@ -567,6 +567,7 @@ async fn main() -> anyhow::Result<()> {
                 rate_limit_window_secs: resolved_rate_limit_window,
                 smtp_config,
                 tls_config,
+                oci_storage_path: None, // uses {repo_root}/oci by default
             };
 
             // ── SSH server ────────────────────────────────────────────────

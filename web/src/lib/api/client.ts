@@ -443,6 +443,37 @@ export interface UpdateUserData {
   is_active?: boolean;
 }
 
+// Audit Log
+export interface AuditLogEntry {
+  id: number;
+  user_id: number | null;
+  username: string | null;
+  action: string;
+  resource_type: string | null;
+  resource_id: number | null;
+  resource_name: string | null;
+  ip_address: string | null;
+  details: string | null;
+  created_at: string;
+}
+
+export interface AuditLogResponse {
+  total: number;
+  page: number;
+  page_size: number;
+  logs: AuditLogEntry[];
+}
+
+export interface AuditLogQuery {
+  page?: number;
+  page_size?: number;
+  user_id?: number;
+  action?: string;
+  resource_type?: string;
+  start_time?: string;
+  end_time?: string;
+}
+
 export const admin = {
   // Users
   listUsers: (page?: number, perPage?: number) =>
@@ -464,6 +495,20 @@ export const admin = {
     request<AdminOrg>(`/admin/orgs/${name}`),
   deleteOrg: (name: string) =>
     request<{ deleted: boolean }>(`/admin/orgs/${name}`, { method: 'DELETE' }),
+
+  // Audit Logs
+  listAuditLogs: (query?: AuditLogQuery) =>
+    request<AuditLogResponse>(`/admin/audit/logs${qs({
+      page: query?.page,
+      page_size: query?.page_size,
+      user_id: query?.user_id,
+      action: query?.action,
+      resource_type: query?.resource_type,
+      start_time: query?.start_time,
+      end_time: query?.end_time,
+    })}`),
+  getAuditLog: (id: number) =>
+    request<AuditLogEntry>(`/admin/audit/logs/${id}`),
 };
 
 // ── WebSocket ────────────────────────────────────────

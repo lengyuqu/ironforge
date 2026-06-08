@@ -42,10 +42,8 @@ pub fn execute_script(script: &str) -> std::io::Result<std::process::Output> {
 ///
 /// # Examples
 /// ```rust,no_run
-/// # fn main() -> std::io::Result<()> {
-/// let output = execute_command("git", &["status"])?;
-/// # Ok(())
-/// # }
+/// use rg_core::platform::process::execute_command;
+/// let output = execute_command("git", &["status"]).unwrap();
 /// ```
 pub fn execute_command(program: &str, args: &[&str]) -> std::io::Result<std::process::Output> {
     let mut cmd = Command::new(program);

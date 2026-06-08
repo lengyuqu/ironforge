@@ -1,5 +1,7 @@
 pub mod password;
 pub mod jwt;
+pub mod ci_token;
+pub mod oci_token;
 pub mod ssh_key;
 pub mod encryption;
 pub mod ldap;
