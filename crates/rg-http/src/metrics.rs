@@ -163,10 +163,203 @@ pub fn init_registry() -> Result<(), prometheus::Error> {
     db::register(&registry)?;
     git::register(&registry)?;
     ci::register(&registry)?;
+    business::register(&registry)?;
 
     REGISTRY.set(registry).map_err(|_| prometheus::Error::Msg("Registry already initialized".into()))?;
 
     Ok(())
+}
+
+/// Business-level metrics (Phase 22-C).
+/// Tracks entity counts that matter for the product: users, repos, issues, PRs, etc.
+pub mod business {
+    use prometheus::{IntCounter, IntCounterVec, IntGauge, Opts, Registry};
+    use std::sync::OnceLock;
+
+    /// Counter: total user registrations.
+    pub static USERS_REGISTERED: OnceLock<IntCounter> = OnceLock::new();
+
+    /// Counter: total repositories created.
+    pub static REPOS_CREATED: OnceLock<IntCounter> = OnceLock::new();
+
+    /// Counter: total repositories deleted.
+    pub static REPOS_DELETED: OnceLock<IntCounter> = OnceLock::new();
+
+    /// Counter: total repositories forked.
+    pub static REPOS_FORKED: OnceLock<IntCounter> = OnceLock::new();
+
+    /// Counter: total issues opened.
+    pub static ISSUES_OPENED: OnceLock<IntCounter> = OnceLock::new();
+
+    /// Counter: total issues closed.
+    pub static ISSUES_CLOSED: OnceLock<IntCounter> = OnceLock::new();
+
+    /// Counter: total PRs opened.
+    pub static PRS_OPENED: OnceLock<IntCounter> = OnceLock::new();
+
+    /// Counter: total PRs merged.
+    pub static PRS_MERGED: OnceLock<IntCounter> = OnceLock::new();
+
+    /// Counter: total stars (thumbs up).
+    pub static STARS_GIVEN: OnceLock<IntCounter> = OnceLock::new();
+
+    /// Counter: total webhook deliveries by status.
+    pub static WEBHOOK_DELIVERIES: OnceLock<IntCounterVec> = OnceLock::new();
+
+    /// Gauge: currently active websocket connections.
+    pub static WS_CONNECTIONS: OnceLock<IntGauge> = OnceLock::new();
+
+    /// Gauge: total registered users.
+    pub static USERS_TOTAL: OnceLock<IntGauge> = OnceLock::new();
+
+    /// Gauge: total non-deleted repositories.
+    pub static REPOS_TOTAL: OnceLock<IntGauge> = OnceLock::new();
+
+    /// Register all business metrics with the registry.
+    pub fn register(registry: &Registry) -> Result<(), prometheus::Error> {
+        macro_rules! register_counter {
+            ($static:ident, $name:expr, $help:expr) => {{
+                let c = IntCounter::with_opts(Opts::new($name, $help))?;
+                $static.set(c.clone()).map_err(|_| prometheus::Error::Msg(concat!(stringify!($static), " already set").into()))?;
+                registry.register(Box::new(c))?;
+            }};
+        }
+
+        register_counter!(USERS_REGISTERED, "ironforge_users_registered_total", "Total user registrations");
+        register_counter!(REPOS_CREATED, "ironforge_repos_created_total", "Total repositories created");
+        register_counter!(REPOS_DELETED, "ironforge_repos_deleted_total", "Total repositories deleted");
+        register_counter!(REPOS_FORKED, "ironforge_repos_forked_total", "Total repositories forked");
+        register_counter!(ISSUES_OPENED, "ironforge_issues_opened_total", "Total issues opened");
+        register_counter!(ISSUES_CLOSED, "ironforge_issues_closed_total", "Total issues closed");
+        register_counter!(PRS_OPENED, "ironforge_prs_opened_total", "Total PRs opened");
+        register_counter!(PRS_MERGED, "ironforge_prs_merged_total", "Total PRs merged");
+        register_counter!(STARS_GIVEN, "ironforge_stars_total", "Total stars given");
+
+        let wh = IntCounterVec::new(
+            Opts::new("ironforge_webhook_deliveries_total", "Total webhook deliveries"),
+            &["status"],
+        )?;
+        WEBHOOK_DELIVERIES.set(wh.clone()).map_err(|_| prometheus::Error::Msg("WEBHOOK_DELIVERIES already set".into()))?;
+        registry.register(Box::new(wh))?;
+
+        let ws = IntGauge::with_opts(Opts::new("ironforge_ws_connections", "Active WebSocket connections"))?;
+        WS_CONNECTIONS.set(ws.clone()).map_err(|_| prometheus::Error::Msg("WS_CONNECTIONS already set".into()))?;
+        registry.register(Box::new(ws))?;
+
+        let ut = IntGauge::with_opts(Opts::new("ironforge_users", "Total registered users"))?;
+        USERS_TOTAL.set(ut.clone()).map_err(|_| prometheus::Error::Msg("USERS_TOTAL already set".into()))?;
+        registry.register(Box::new(ut))?;
+
+        let rt = IntGauge::with_opts(Opts::new("ironforge_repositories", "Total non-deleted repositories"))?;
+        REPOS_TOTAL.set(rt.clone()).map_err(|_| prometheus::Error::Msg("REPOS_TOTAL already set".into()))?;
+        registry.register(Box::new(rt))?;
+
+        Ok(())
+    }
+}
+
+/// Helper: record a business event without exposing Prometheus types to callers.
+pub mod recorder {
+    use super::business;
+
+    /// Record a user registration.
+    pub fn user_registered() {
+        if let Some(c) = business::USERS_REGISTERED.get() {
+            c.inc();
+        }
+    }
+
+    /// Record a repository created.
+    pub fn repo_created() {
+        if let Some(c) = business::REPOS_CREATED.get() {
+            c.inc();
+        }
+    }
+
+    /// Record a repository deleted.
+    pub fn repo_deleted() {
+        if let Some(c) = business::REPOS_DELETED.get() {
+            c.inc();
+        }
+    }
+
+    /// Record a repository forked.
+    pub fn repo_forked() {
+        if let Some(c) = business::REPOS_FORKED.get() {
+            c.inc();
+        }
+    }
+
+    /// Record an issue opened.
+    pub fn issue_opened() {
+        if let Some(c) = business::ISSUES_OPENED.get() {
+            c.inc();
+        }
+    }
+
+    /// Record an issue closed.
+    pub fn issue_closed() {
+        if let Some(c) = business::ISSUES_CLOSED.get() {
+            c.inc();
+        }
+    }
+
+    /// Record a PR opened.
+    pub fn pr_opened() {
+        if let Some(c) = business::PRS_OPENED.get() {
+            c.inc();
+        }
+    }
+
+    /// Record a PR merged.
+    pub fn pr_merged() {
+        if let Some(c) = business::PRS_MERGED.get() {
+            c.inc();
+        }
+    }
+
+    /// Record a star given.
+    pub fn star_given() {
+        if let Some(c) = business::STARS_GIVEN.get() {
+            c.inc();
+        }
+    }
+
+    /// Record a webhook delivery by status (success/failed).
+    pub fn webhook_delivery(success: bool) {
+        if let Some(c) = business::WEBHOOK_DELIVERIES.get() {
+            let status = if success { "success" } else { "failed" };
+            let _ = c.with_label_values(&[status]).inc();
+        }
+    }
+
+    /// Increment WebSocket connections gauge.
+    pub fn ws_connected() {
+        if let Some(g) = business::WS_CONNECTIONS.get() {
+            g.inc();
+        }
+    }
+
+    /// Decrement WebSocket connections gauge.
+    pub fn ws_disconnected() {
+        if let Some(g) = business::WS_CONNECTIONS.get() {
+            g.dec();
+        }
+    }
+
+    /// Set total users gauge.
+    pub fn set_users_total(count: i64) {
+        if let Some(g) = business::USERS_TOTAL.get() {
+            g.set(count);
+        }
+    }
+
+    /// Set total repositories gauge.
+    pub fn set_repos_total(count: i64) {
+        if let Some(g) = business::REPOS_TOTAL.get() {
+            g.set(count);
+        }
+    }
 }
 
 /// GET /metrics — return Prometheus-formatted metrics.

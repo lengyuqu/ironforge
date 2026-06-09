@@ -1,16 +1,61 @@
 //! Shared HTTP middleware for IronForge.
 
 use axum::body::{to_bytes, Body};
-use axum::extract::Request;
+use axum::extract::{MatchedPath, Request};
 use axum::http::{header, HeaderName, HeaderValue};
 use axum::middleware::Next;
 use axum::response::Response;
+use std::time::Instant;
 
 /// Per-request unique ID, generated from `X-Request-Id` header or a fresh UUID.
 #[derive(Clone, Debug)]
 pub struct RequestId(pub String);
 
 static X_REQUEST_ID: HeaderName = HeaderName::from_static("x-request-id");
+
+/// HTTP metrics middleware - records request count, duration, and in-flight count.
+///
+/// Uses `MatchedPath` to normalize route templates like `/users/{id}` instead of
+/// concrete paths like `/users/123` to avoid label cardinality explosion.
+pub async fn http_metrics_middleware(request: Request, next: Next) -> Response {
+    use crate::metrics::http_requests::{
+        IN_FLIGHT, REQUEST_COUNT, REQUEST_DURATION,
+    };
+
+    let start = Instant::now();
+
+    // Increment in-flight counter
+    if let Some(g) = IN_FLIGHT.get() {
+        g.inc();
+    }
+
+    let method = request.method().clone();
+    let route = request
+        .extensions()
+        .get::<MatchedPath>()
+        .map(|m| m.as_str().to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+
+    let response = next.run(request).await;
+
+    let elapsed = start.elapsed().as_secs_f64();
+    let status = response.status().as_u16().to_string();
+
+    // Decrement in-flight counter
+    if let Some(g) = IN_FLIGHT.get() {
+        g.dec();
+    }
+
+    // Record metrics
+    if let Some(c) = REQUEST_COUNT.get() {
+        let _ = c.with_label_values(&[method.as_str(), &route, &status]).inc();
+    }
+    if let Some(h) = REQUEST_DURATION.get() {
+        h.observe(elapsed);
+    }
+
+    response
+}
 
 /// Middleware that generates (or propagates) a per-request unique ID.
 ///
