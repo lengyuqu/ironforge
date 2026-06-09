@@ -210,7 +210,7 @@
 <!-- Detail modal -->
 {#if selectedLog}
   <div class="modal-overlay" onclick={closeDetail}>
-    <div class="modal" onclick={(e) => e.stopPropagation()}>
+    <div class="modal" role="dialog" aria-modal="true" onclick={(e) => e.stopPropagation()}>
       <h2>{t('admin.audit.detail_title', { id: selectedLog.id })}</h2>
 
       <div class="detail-grid">

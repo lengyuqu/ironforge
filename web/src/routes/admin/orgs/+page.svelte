@@ -132,7 +132,7 @@
 <!-- Delete confirm -->
 {#if showDeleteConfirm && deleteTarget}
   <div class="modal-overlay" onclick={() => showDeleteConfirm = false}>
-    <div class="modal" onclick={(e) => e.stopPropagation()}>
+    <div class="modal" role="dialog" aria-modal="true" onclick={(e) => e.stopPropagation()}>
       <h2>{t('admin.orgs.delete_confirm')}</h2>
       <p>
         {t('admin.orgs.delete_warning', { name: deleteTarget.name })}

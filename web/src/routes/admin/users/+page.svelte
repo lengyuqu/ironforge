@@ -176,7 +176,7 @@
 <!-- Edit modal -->
 {#if selectedUser}
   <div class="modal-overlay" onclick={closeEdit}>
-    <div class="modal" onclick={(e) => e.stopPropagation()}>
+    <div class="modal" role="dialog" aria-modal="true" onclick={(e) => e.stopPropagation()}>
       <h2>{t('admin.users.edit', { username: selectedUser.username })}</h2>
 
       {#if error}
@@ -217,7 +217,7 @@
 <!-- Delete confirm modal -->
 {#if showDeleteConfirm && deleteTarget}
   <div class="modal-overlay" onclick={() => showDeleteConfirm = false}>
-    <div class="modal" onclick={(e) => e.stopPropagation()}>
+    <div class="modal" role="dialog" aria-modal="true" onclick={(e) => e.stopPropagation()}>
       <h2>{t('admin.users.delete_confirm')}</h2>
       <p>
         {t('admin.users.delete_warning', { username: deleteTarget.username })}

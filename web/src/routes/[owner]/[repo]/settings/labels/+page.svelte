@@ -168,7 +168,7 @@
   
   <!-- Create/Edit Form -->
   {#if showForm}
-    <div class="form-overlay" onclick={closeForm}>
+    <div class="form-overlay" role="presentation" onclick={closeForm}>
       <div class="form-modal" onclick={(e) => e.stopPropagation()}>
         <h2>{editingLabel ? t('settings.edit_label') : t('settings.new_label')}</h2>
         
@@ -246,7 +246,7 @@
   
   <!-- Delete Confirmation -->
   {#if deletingLabel}
-    <div class="form-overlay" onclick={cancelDelete}>
+    <div class="form-overlay" role="presentation" onclick={cancelDelete}>
       <div class="form-modal" onclick={(e) => e.stopPropagation()}>
         <h2>Confirm Delete</h2>
         <p>{t('settings.confirm_delete_label')}</p>

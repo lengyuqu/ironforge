@@ -12,7 +12,8 @@
   let error = $state('');
   let loading = $state(false);
 
-  async function handleCreate() {
+  async function handleCreate(e?: Event) {
+    e?.preventDefault();
     if (!name.trim()) { error = t('errors.create_failed'); return; }
     loading = true;
     error = '';
@@ -34,7 +35,7 @@
     <div class="error">{error}</div>
   {/if}
 
-  <form on:submit|preventDefault={handleCreate} class="form">
+  <form onsubmit={(e) => { e.preventDefault(); handleCreate(e); }} class="form">
     <div class="field">
       <label for="name">{t('orgs.name')} *</label>
       <input id="name" type="text" bind:value={name} placeholder={t('orgs.name_placeholder')} required />

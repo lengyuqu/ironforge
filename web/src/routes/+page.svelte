@@ -67,6 +67,7 @@
     margin: 16px 0 8px;
     background: linear-gradient(135deg, var(--accent), var(--purple));
     -webkit-background-clip: text;
+    background-clip: text;
     -webkit-text-fill-color: transparent;
   }
 

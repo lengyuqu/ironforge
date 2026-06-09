@@ -111,15 +111,15 @@
       <h2>Repository Information</h2>
       <div class="info-grid">
         <div class="info-item">
-          <label>Name</label>
+          <span class="info-label">Name</span>
           <div class="info-value">{repository.name}</div>
         </div>
         <div class="info-item">
-          <label>Description</label>
+          <span class="info-label">Description</span>
           <div class="info-value">{repository.description || '-'}</div>
         </div>
         <div class="info-item">
-          <label>Visibility</label>
+          <span class="info-label">Visibility</span>
           <div class="info-value">
             <span class="badge" class:private={repository.is_private}>
               {repository.is_private ? 'Private' : 'Public'}

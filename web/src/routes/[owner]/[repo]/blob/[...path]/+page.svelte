@@ -72,7 +72,7 @@
   {/if}
 </div>
 
-<script context="module">
+<script module>
   // Simple markdown to HTML (for rendering READMEs)
   function markdownToHtml(md: string): string {
     try {
