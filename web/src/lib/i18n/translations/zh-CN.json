@@ -150,6 +150,66 @@
     "fork": "派生",
     "forking": "派生中...",
     "forks": "派生",
+    "packages": {
+      "title": "软件包",
+      "subtitle": "{format} 软件包注册表",
+      "formats": {
+        "cargo": "Cargo",
+        "npm": "npm",
+        "pypi": "PyPI",
+        "maven": "Maven",
+        "docker": "Docker",
+        "nuget": "NuGet",
+        "rubygems": "RubyGems",
+        "helm": "Helm",
+        "generic": "通用"
+      },
+      "no_packages": "暂无软件包。",
+      "install": "安装",
+      "upload": "上传软件包",
+      "delete": "删除版本",
+      "version": "版本",
+      "format": "格式",
+      "description": "描述",
+      "content_type": "内容类型",
+      "file": "文件",
+      "upload_success": "软件包上传成功。",
+      "delete_confirm": "确定要删除 {name} {version} 吗？",
+      "no_versions": "暂无版本。"
+    },
+    "board": {
+      "title": "看板",
+      "columns": {
+        "open": "开放",
+        "in_progress": "进行中",
+        "closed": "已关闭"
+      },
+      "no_issues": "此列暂无问题。",
+      "drag_hint": "在列之间拖动问题以更新状态。"
+    },
+    "time_tracking": {
+      "title": "时间追踪",
+      "add_entry": "添加时间条目",
+      "duration": "时长（小时）",
+      "note": "备注",
+      "date": "日期",
+      "total_hours": "总计：{hours} 小时",
+      "delete_confirm": "删除此时间条目吗？",
+      "no_entries": "暂无时间条目。"
+    },
+    "runners": {
+      "title": "运行器",
+      "register": "注册运行器",
+      "name": "名称",
+      "labels": "标签（逗号分隔）",
+      "status": "状态",
+      "version": "版本",
+      "delete": "移除",
+      "delete_confirm": "确定要移除运行器 {name} 吗？",
+      "no_runners": "暂无注册的运行器。",
+      "online": "在线",
+      "offline": "离线"
+    },
     "browser": {
       "branch": "分支",
       "default_branch": "（默认）",

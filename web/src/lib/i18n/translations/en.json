@@ -150,6 +150,66 @@
     "fork": "Fork",
     "forking": "Forking...",
     "forks": "Forks",
+    "packages": {
+      "title": "Packages",
+      "subtitle": "Package registry for {format}",
+      "formats": {
+        "cargo": "Cargo",
+        "npm": "npm",
+        "pypi": "PyPI",
+        "maven": "Maven",
+        "docker": "Docker",
+        "nuget": "NuGet",
+        "rubygems": "RubyGems",
+        "helm": "Helm",
+        "generic": "Generic"
+      },
+      "no_packages": "No packages yet.",
+      "install": "Install",
+      "upload": "Upload Package",
+      "delete": "Delete Version",
+      "version": "Version",
+      "format": "Format",
+      "description": "Description",
+      "content_type": "Content Type",
+      "file": "File",
+      "upload_success": "Package uploaded successfully.",
+      "delete_confirm": "Are you sure you want to delete {name} {version}?",
+      "no_versions": "No versions yet."
+    },
+    "board": {
+      "title": "Board",
+      "columns": {
+        "open": "Open",
+        "in_progress": "In Progress",
+        "closed": "Closed"
+      },
+      "no_issues": "No issues in this column.",
+      "drag_hint": "Drag issues between columns to update status."
+    },
+    "time_tracking": {
+      "title": "Time Tracking",
+      "add_entry": "Add Time Entry",
+      "duration": "Duration (hours)",
+      "note": "Note",
+      "date": "Date",
+      "total_hours": "Total: {hours} hours",
+      "delete_confirm": "Delete this time entry?",
+      "no_entries": "No time entries yet."
+    },
+    "runners": {
+      "title": "Runners",
+      "register": "Register Runner",
+      "name": "Name",
+      "labels": "Labels (comma-separated)",
+      "status": "Status",
+      "version": "Version",
+      "delete": "Remove",
+      "delete_confirm": "Are you sure you want to remove runner {name}?",
+      "no_runners": "No runners registered yet.",
+      "online": "Online",
+      "offline": "Offline"
+    },
     "browser": {
       "branch": "Branch",
       "default_branch": "(default)",

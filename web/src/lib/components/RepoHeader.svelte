@@ -127,6 +127,8 @@
     { id: 'wiki', label: $t('repo.tabs.wiki'), icon: '📖' },
     { id: 'pipelines', label: $t('repo.tabs.pipelines'), icon: '▶' },
     { id: 'releases', label: $t('repo.tabs.releases'), icon: '🏷' },
+    { id: 'packages', label: $t('repo.tabs.packages'), icon: '📦' },
+    { id: 'board', label: $t('repo.tabs.board'), icon: '◫' },
     { id: 'commits', label: $t('repo.tabs.commits'), icon: '📜' },
     { id: 'settings', label: $t('repo.tabs.settings'), icon: '⚙' },
   ]);

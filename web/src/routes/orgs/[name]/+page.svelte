@@ -20,7 +20,7 @@
     loading = true;
     error = '';
     try {
-      const name = page.params.name;
+      const name = page.params.name!;
       org = await orgs.get(name);
       members = await orgs.listMembers(name);
       teams = await orgs.listTeams(name);
@@ -35,9 +35,9 @@
   async function createTeam() {
     if (!newTeamName.trim()) return;
     try {
-      await orgs.createTeam(page.params.name, newTeamName, undefined, newTeamPermission);
+      await orgs.createTeam(page.params.name!, newTeamName, undefined, newTeamPermission);
       newTeamName = '';
-      teams = await orgs.listTeams(page.params.name);
+      teams = await orgs.listTeams(page.params.name!);
     } catch (e: any) {
       error = e.message;
     }
@@ -46,9 +46,9 @@
   async function createOrgRepo() {
     if (!newRepoName.trim()) return;
     try {
-      await repos.create(newRepoName, undefined, newRepoPrivate, page.params.name);
+      await repos.create(newRepoName, undefined, newRepoPrivate, page.params.name!);
       newRepoName = '';
-      orgRepos = (await repos.list(page.params.name)).data;
+      orgRepos = (await repos.list(page.params.name!)).data;
     } catch (e: any) {
       error = e.message;
     }
