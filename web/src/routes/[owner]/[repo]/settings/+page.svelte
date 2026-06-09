@@ -10,8 +10,8 @@
 
   let { data } = $props();
 
-  const owner = $derived($page.params.owner);
-  const repo = $derived($page.params.repo);
+  const owner = $derived($page.params.owner!);
+  const repo = $derived($page.params.repo!);
   
   let repository = $state<Repository | null>(null);
   let loading = $state(true);

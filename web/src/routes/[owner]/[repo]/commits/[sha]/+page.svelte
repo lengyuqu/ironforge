@@ -3,8 +3,8 @@
   import { repos } from '$lib/api/client';
 
   // Svelte 5 runes
-  let owner = $derived($page.params.owner);
-  let repo = $derived($page.params.repo);
+  let owner = $derived($page.params.owner!);
+  let repo = $derived($page.params.repo!);
   let sha = $derived(($page.params as any).sha as string);
 
   let loading = $state(true);

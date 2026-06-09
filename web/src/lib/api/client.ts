@@ -78,7 +78,7 @@ export const auth = {
       body: JSON.stringify({ username, password }),
     }),
   me: () =>
-    request<{ id: number; username: string; email: string }>('/users/me'),
+    request<{ id: number; username: string; email: string; is_admin: boolean; display_name: string | null }>('/users/me'),
 };
 
 // ── Repos ────────────────────────────────────────────

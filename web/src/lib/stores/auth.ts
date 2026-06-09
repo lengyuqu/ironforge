@@ -7,7 +7,7 @@ interface User {
   username: string;
   email: string;
   is_admin: boolean;
-  display_name?: string;
+  display_name: string | null;
 }
 
 let currentUser = $state<User | null>(null);
