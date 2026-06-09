@@ -30,8 +30,10 @@ pub async fn connect(db_url: &str) -> Result<DatabaseConnection> {
     tracing::info!(url = %db_url, "Connecting to database");
 
     let mut opt = ConnectOptions::new(db_url.to_string());
-    opt.max_connections(16)
-        .min_connections(2)
+    // SQLite only supports single-write connection.
+    // Using max_connections=1 avoids SQLITE_BUSY errors from lock contention.
+    opt.max_connections(1)
+        .min_connections(1)
         .connect_timeout(Duration::from_secs(10))
         .idle_timeout(Duration::from_secs(600));
 
