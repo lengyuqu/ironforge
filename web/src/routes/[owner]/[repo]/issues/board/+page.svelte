@@ -6,8 +6,8 @@
 
   const t = createT();
 
-  let owner = $derived($page.params.owner);
-  let repo = $derived($page.params.repo);
+  let owner = $derived($page.params.owner!);
+  let repo = $derived($page.params.repo!);
 
   // Board columns
   const columns = [
