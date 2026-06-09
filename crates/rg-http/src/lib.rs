@@ -10,6 +10,7 @@
 pub mod api;
 pub mod error;
 pub mod git_v2;
+pub mod metrics;
 pub mod middleware;
 pub mod oci;
 pub mod openapi;
@@ -85,6 +86,9 @@ pub async fn run(config: HttpServerConfig) -> Result<()> {
     rate_limiter.spawn_cleanup_task();
 
     let notification_hub = ws::NotificationHub::new();
+
+    // ── Initialize Prometheus metrics registry ──────────────────
+    metrics::init_registry().expect("Failed to initialize Prometheus metrics registry");
 
     let oci_storage_path = config.oci_storage_path.unwrap_or_else(|| config.repo_root.join("oci"));
     let oci_storage = Arc::new(OciStorage::new(&oci_storage_path));
@@ -238,6 +242,7 @@ fn build_router(state: AppState, rate_limiter: rate_limit::RateLimiter) -> Route
         .nest("/api/v1", api_v1)
         .nest("/v2", v2_routes)
         .route("/health", get(health))
+        .route("/metrics", get(metrics::metrics_handler))
         // ── OpenAPI spec endpoint ──────────────────────────────────────────
         .route("/api-docs/openapi.json", get(openapi_handler))
         // Swagger UI — serve embedded Swagger UI static files
@@ -591,12 +596,19 @@ async fn health(State(state): State<AppState>) -> impl IntoResponse {
         StatusCode::SERVICE_UNAVAILABLE
     };
 
+    // Prometheus registry check
+    let metrics_ok = crate::metrics::REGISTRY.get().is_some();
+    checks.insert(
+        "metrics".to_string(),
+        serde_json::json!(if metrics_ok { "ok" } else { "not_initialized" }),
+    );
+
     (
         status_code,
         axum::Json(serde_json::json!({
             "status": overall,
             "version": env!("CARGO_PKG_VERSION"),
-            "phase": 20,
+            "phase": 22,
             "checks": checks,
         })),
     )
