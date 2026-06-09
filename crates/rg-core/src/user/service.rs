@@ -85,9 +85,10 @@ pub async fn register(
     }
 
     // ── Password validation ──────────────────────────────────────
-    if plaintext_password.len() < 8 {
-        bail!("password must be at least 8 characters");
-    }
+    let password_validator = password::PasswordValidator::standard();
+    password_validator
+        .validate_with_username(plaintext_password, username)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
 
     let password_hash = password::hash_password(plaintext_password)
         .context("failed to hash password")?;

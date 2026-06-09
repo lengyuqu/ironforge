@@ -3,14 +3,13 @@
 //! Limits requests per IP address. Configurable requests-per-minute.
 //! Returns 429 Too Many Requests when the limit is exceeded.
 
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-use std::time::Instant;
-
 use axum::extract::Request;
 use axum::http::HeaderMap;
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 /// Per-client rate limit state.
 #[derive(Debug)]
@@ -138,6 +137,8 @@ fn extract_client_key(headers: &HeaderMap) -> Option<String> {
 }
 
 /// Axum middleware for rate limiting.
+///
+/// Records a `rate_limit_blocks_total` counter for each blocked request.
 pub async fn rate_limit_middleware(
     axum::extract::State(limiter): axum::extract::State<RateLimiter>,
     headers: HeaderMap,
@@ -154,7 +155,74 @@ pub async fn rate_limit_middleware(
     if limiter.allow(&key) {
         next.run(request).await
     } else {
+        // Record metric for observability
+        if let Some(c) = crate::metrics::rate_limit::BLOCKED.get() {
+            c.inc();
+        }
         crate::error::AppError::rate_limited("Too many requests. Please try again later.")
             .into_response()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_rate_limiter_allows_within_limit() {
+        let limiter = RateLimiter::new(5, 60);
+        for _ in 0..5 {
+            assert!(limiter.allow("client_a"));
+        }
+    }
+
+    #[test]
+    fn test_rate_limiter_blocks_over_limit() {
+        let limiter = RateLimiter::new(3, 60);
+        assert!(limiter.allow("client_a"));
+        assert!(limiter.allow("client_a"));
+        assert!(limiter.allow("client_a"));
+        assert!(!limiter.allow("client_a")); // 4th request blocked
+    }
+
+    #[test]
+    fn test_rate_limiter_per_client() {
+        let limiter = RateLimiter::new(2, 60);
+        assert!(limiter.allow("client_a"));
+        assert!(limiter.allow("client_a"));
+        assert!(!limiter.allow("client_a")); // a blocked
+        // Different client has own bucket
+        assert!(limiter.allow("client_b"));
+        assert!(limiter.allow("client_b"));
+    }
+
+    #[test]
+    fn test_rate_limiter_window_reset() {
+        let limiter = RateLimiter::new(1, 1); // 1 second window
+        assert!(limiter.allow("client_a"));
+        assert!(!limiter.allow("client_a"));
+        // Wait for window to expire
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        assert!(limiter.allow("client_a")); // reset after window
+    }
+
+    #[test]
+    fn test_extract_client_key_xff() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-for", "192.168.1.1, 10.0.0.1".parse().unwrap());
+        assert_eq!(extract_client_key(&headers), Some("192.168.1.1".to_string()));
+    }
+
+    #[test]
+    fn test_extract_client_key_xri() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-real-ip", "10.0.0.1".parse().unwrap());
+        assert_eq!(extract_client_key(&headers), Some("10.0.0.1".to_string()));
+    }
+
+    #[test]
+    fn test_extract_client_key_none() {
+        let headers = HeaderMap::new();
+        assert_eq!(extract_client_key(&headers), None);
     }
 }

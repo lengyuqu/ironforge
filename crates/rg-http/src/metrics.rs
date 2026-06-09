@@ -164,10 +164,61 @@ pub fn init_registry() -> Result<(), prometheus::Error> {
     git::register(&registry)?;
     ci::register(&registry)?;
     business::register(&registry)?;
+    rate_limit::register(&registry)?;
+    security::register(&registry)?;
 
     REGISTRY.set(registry).map_err(|_| prometheus::Error::Msg("Registry already initialized".into()))?;
 
     Ok(())
+}
+
+/// Rate limit metrics (Phase 22-D).
+pub mod rate_limit {
+    use prometheus::{IntCounter, Opts, Registry};
+    use std::sync::OnceLock;
+
+    /// Counter: total rate-limit blocked requests.
+    pub static BLOCKED: OnceLock<IntCounter> = OnceLock::new();
+
+    pub fn register(registry: &Registry) -> Result<(), prometheus::Error> {
+        let c = IntCounter::with_opts(Opts::new(
+            "rate_limit_blocks_total",
+            "Total requests blocked by rate limiter",
+        ))?;
+        BLOCKED.set(c.clone()).map_err(|_| prometheus::Error::Msg("rate_limit::BLOCKED already set".into()))?;
+        registry.register(Box::new(c))?;
+        Ok(())
+    }
+}
+
+/// Security metrics (Phase 22-D).
+pub mod security {
+    use prometheus::{IntCounterVec, Opts, Registry};
+    use std::sync::OnceLock;
+
+    /// Counter: auth-related events by outcome.
+    pub static AUTH_EVENTS: OnceLock<IntCounterVec> = OnceLock::new();
+
+    /// Counter: failed login attempts by reason.
+    pub static FAILED_LOGINS: OnceLock<IntCounterVec> = OnceLock::new();
+
+    pub fn register(registry: &Registry) -> Result<(), prometheus::Error> {
+        let ae = IntCounterVec::new(
+            Opts::new("ironforge_auth_events_total", "Auth events (login/register/logout)"),
+            &["event", "outcome"],
+        )?;
+        AUTH_EVENTS.set(ae.clone()).map_err(|_| prometheus::Error::Msg("AUTH_EVENTS already set".into()))?;
+        registry.register(Box::new(ae))?;
+
+        let fl = IntCounterVec::new(
+            Opts::new("ironforge_failed_logins_total", "Failed login attempts by reason"),
+            &["reason"],
+        )?;
+        FAILED_LOGINS.set(fl.clone()).map_err(|_| prometheus::Error::Msg("FAILED_LOGINS already set".into()))?;
+        registry.register(Box::new(fl))?;
+
+        Ok(())
+    }
 }
 
 /// Business-level metrics (Phase 22-C).

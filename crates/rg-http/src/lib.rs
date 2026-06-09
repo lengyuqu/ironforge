@@ -16,6 +16,7 @@ pub mod oci;
 pub mod openapi;
 pub mod pagination;
 pub mod rate_limit;
+pub mod security;
 pub mod ws;
 
 use std::path::PathBuf;
@@ -253,6 +254,7 @@ fn build_router(state: AppState, rate_limiter: rate_limit::RateLimiter) -> Route
         )
         // ── Middleware layers (order: bottom-up, last .layer() runs first) ──
         .layer(axum::middleware::from_fn(middleware::http_metrics_middleware))
+        .layer(axum::middleware::from_fn(security::security_headers_middleware))
         .layer(axum::middleware::from_fn(middleware::request_id_middleware))
         .layer(
             TraceLayer::new_for_http().make_span_with(|request: &axum::http::Request<axum::body::Body>| {
