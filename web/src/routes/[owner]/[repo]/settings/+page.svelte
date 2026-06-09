@@ -4,9 +4,17 @@
   import { repos } from '$lib/api/client';
   import { getUser } from '$lib/stores/auth';
   import { createT } from '$lib/i18n';
-  import type { Repository } from '$lib/types';
 
-  const { t: $t } = createT();
+  interface Repository {
+    id: number;
+    name: string;
+    description: string | null;
+    is_private: boolean;
+    default_branch: string;
+    created_at: string;
+  }
+
+  const t = createT();
 
   let { data } = $props();
 
@@ -48,7 +56,7 @@
   async   function handleTransfer() {
     if (!newOwner.trim()) return;
 
-    const confirmed = confirm($t('settings.transfer.warning'));
+    const confirmed = confirm(t('settings.transfer.warning'));
     if (!confirmed) return;
     
     try {
@@ -57,7 +65,7 @@
       transferSuccess = '';
       
       await repos.transfer(owner, repo, newOwner.trim());
-      transferSuccess = $t('settings.transfer.success');
+      transferSuccess = t('settings.transfer.success');
       // Redirect to new repo URL
       setTimeout(() => {
         goto(`/${newOwner.trim()}/${repo}`);
@@ -72,7 +80,7 @@
   async function handleDelete() {
     if (deleteConfirm !== repo) return;
     
-    const confirmed = confirm($t('settings.delete.desc'));
+    const confirmed = confirm(t('settings.delete.desc'));
     if (!confirmed) return;
     
     try {
@@ -91,7 +99,7 @@
 </script>
 
 <div class="settings-page">
-  <h1>{$t('settings.general')}</h1>
+  <h1>{t('settings.general')}</h1>
   
   {#if loading}
     <div class="loading">Loading...</div>
@@ -113,8 +121,8 @@
         <div class="info-item">
           <label>Visibility</label>
           <div class="info-value">
-            <span class="badge" class:private={!repository.is_public}>
-              {repository.is_public ? 'Public' : 'Private'}
+            <span class="badge" class:private={repository.is_private}>
+              {repository.is_private ? 'Private' : 'Public'}
             </span>
           </div>
         </div>
@@ -123,12 +131,12 @@
     
     <!-- Transfer Ownership -->
     <section class="section transfer-section">
-      <h2>{$t('settings.transfer.title')}</h2>
-      <p class="section-desc">{$t('settings.transfer.desc')}</p>
+      <h2>{t('settings.transfer.title')}</h2>
+      <p class="section-desc">{t('settings.transfer.desc')}</p>
       
       <div class="warning-box">
         <span class="warning-icon">⚠️</span>
-        <p>{$t('settings.transfer.warning')}</p>
+        <p>{t('settings.transfer.warning')}</p>
       </div>
       
       {#if transferError}
@@ -140,13 +148,13 @@
       {/if}
       
       <div class="form-group">
-        <label for="new-owner">{$t('settings.transfer.new_owner')}</label>
+        <label for="new-owner">{t('settings.transfer.new_owner')}</label>
         <div class="input-row">
           <input 
             id="new-owner"
             type="text" 
             bind:value={newOwner}
-            placeholder={$t('settings.transfer.new_owner_placeholder')}
+            placeholder={t('settings.transfer.new_owner_placeholder')}
             disabled={transferring}
           />
           <button 
@@ -154,7 +162,7 @@
             onclick={handleTransfer}
             disabled={!newOwner.trim() || transferring}
           >
-            {transferring ? 'Transferring...' : $t('settings.transfer.confirm')}
+            {transferring ? 'Transferring...' : t('settings.transfer.confirm')}
           </button>
         </div>
       </div>
@@ -162,23 +170,23 @@
     
     <!-- Danger Zone -->
     <section class="section danger-zone">
-      <h2>{$t('settings.danger_zone')}</h2>
+      <h2>{t('settings.danger_zone')}</h2>
       
       <div class="danger-box">
-        <h3>{$t('settings.delete.title')}</h3>
-        <p>{$t('settings.delete.desc')}</p>
+        <h3>{t('settings.delete.title')}</h3>
+        <p>{t('settings.delete.desc')}</p>
         
         {#if deleteError}
           <div class="error-box">{deleteError}</div>
         {/if}
         
         <div class="form-group">
-          <label for="delete-confirm">{$t('settings.delete.confirm_instruction')}</label>
+          <label for="delete-confirm">{t('settings.delete.confirm_instruction')}</label>
           <input 
             id="delete-confirm"
             type="text" 
             bind:value={deleteConfirm}
-            placeholder={$t('settings.delete.confirm_placeholder')}
+            placeholder={t('settings.delete.confirm_placeholder')}
             disabled={deleting}
           />
         </div>
@@ -188,7 +196,7 @@
           onclick={handleDelete}
           disabled={deleteConfirm !== repo || deleting}
         >
-          {deleting ? 'Deleting...' : $t('settings.delete.confirm_button')}
+          {deleting ? 'Deleting...' : t('settings.delete.confirm_button')}
         </button>
       </div>
     </section>

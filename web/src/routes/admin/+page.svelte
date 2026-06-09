@@ -18,16 +18,16 @@
 
 <div class="container">
   <div class="header">
-    <h1>{$t('admin.title')}</h1>
-    <p class="subtitle">{$t('admin.subtitle')}</p>
+    <h1>{t('admin.title')}</h1>
+    <p class="subtitle">{t('admin.subtitle')}</p>
   </div>
 
   <div class="cards">
     <a href="/admin/users" class="card">
       <div class="card-icon">👥</div>
       <div class="card-body">
-        <h2>{$t('admin.users.title')}</h2>
-        <p>{$t('admin.users.desc')}</p>
+        <h2>{t('admin.users.title')}</h2>
+        <p>{t('admin.users.desc')}</p>
       </div>
       <div class="card-arrow">→</div>
     </a>
@@ -35,8 +35,8 @@
     <a href="/admin/orgs" class="card">
       <div class="card-icon">🏢</div>
       <div class="card-body">
-        <h2>{$t('admin.orgs.title')}</h2>
-        <p>{$t('admin.orgs.desc')}</p>
+        <h2>{t('admin.orgs.title')}</h2>
+        <p>{t('admin.orgs.desc')}</p>
       </div>
       <div class="card-arrow">→</div>
     </a>
@@ -44,8 +44,8 @@
     <a href="/admin/audit" class="card">
       <div class="card-icon">📋</div>
       <div class="card-body">
-        <h2>{$t('admin.audit.title')}</h2>
-        <p>{$t('admin.audit.desc')}</p>
+        <h2>{t('admin.audit.title')}</h2>
+        <p>{t('admin.audit.desc')}</p>
       </div>
       <div class="card-arrow">→</div>
     </a>

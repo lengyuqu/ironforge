@@ -32,7 +32,7 @@
       total = result.pagination.total;
       totalPages = result.pagination.total_pages;
     } catch (e: any) {
-      error = e.message || $t('errors.load_failed');
+      error = e.message || t('errors.load_failed');
     } finally {
       loading = false;
     }
@@ -70,9 +70,9 @@
 
 <div class="container">
   <div class="header">
-    <a href="/admin" class="back">← {$t('admin.back')}</a>
-    <h1>{$t('admin.orgs.title')}</h1>
-    <p class="meta">{total} {$t('admin.orgs.total')}</p>
+    <a href="/admin" class="back">← {t('admin.back')}</a>
+    <h1>{t('admin.orgs.title')}</h1>
+    <p class="meta">{total} {t('admin.orgs.total')}</p>
   </div>
 
   {#if error}
@@ -80,9 +80,9 @@
   {/if}
 
   {#if loading}
-    <p class="loading">{$t('common.loading')}</p>
+    <p class="loading">{t('common.loading')}</p>
   {:else if orgs.length === 0}
-    <p class="empty">{$t('orgs.no_repos')}</p>
+    <p class="empty">{t('orgs.no_repos')}</p>
   {:else}
     <div class="table-wrap">
       <table class="orgs-table">
@@ -111,7 +111,7 @@
               <td class="owner">#{org.owner_id}</td>
               <td class="date">{formatDate(org.created_at)}</td>
               <td class="actions">
-                <button class="btn-danger" onclick={() => confirmDelete(org)}>{$t('common.delete')}</button>
+                <button class="btn-danger" onclick={() => confirmDelete(org)}>{t('common.delete')}</button>
               </td>
             </tr>
           {/each}
@@ -133,18 +133,18 @@
 {#if showDeleteConfirm && deleteTarget}
   <div class="modal-overlay" onclick={() => showDeleteConfirm = false}>
     <div class="modal" onclick={(e) => e.stopPropagation()}>
-      <h2>{$t('admin.orgs.delete_confirm')}</h2>
+      <h2>{t('admin.orgs.delete_confirm')}</h2>
       <p>
-        {$t('admin.orgs.delete_warning', { name: deleteTarget.name })}
+        {t('admin.orgs.delete_warning', { name: deleteTarget.name })}
       </p>
       {#if error}
         <div class="error">{error}</div>
       {/if}
       <div class="modal-actions">
         <button class="btn-danger" onclick={handleDelete} disabled={deleting}>
-          {deleting ? $t('common.loading') : $t('common.delete')}
+          {deleting ? t('common.loading') : t('common.delete')}
         </button>
-        <button class="btn-secondary" onclick={() => showDeleteConfirm = false}>{$t('common.cancel')}</button>
+        <button class="btn-secondary" onclick={() => showDeleteConfirm = false}>{t('common.cancel')}</button>
       </div>
     </div>
   </div>

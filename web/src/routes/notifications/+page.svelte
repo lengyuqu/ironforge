@@ -82,28 +82,28 @@
 
 <div class="container">
   <div class="header">
-    <h1>{$t('notifications.title')} {unreadCount > 0 ? `(${unreadCount})` : ''}</h1>
+    <h1>{t('notifications.title')} {unreadCount > 0 ? `(${unreadCount})` : ''}</h1>
     <div class="actions">
       <span class="ws-status" class:connected={wsConnected}>
-        {wsConnected ? `🟢 ${$t('nav.live')}` : `🔴 ${$t('nav.offline')}`}
+        {wsConnected ? `🟢 ${t('nav.live')}` : `🔴 ${t('nav.offline')}`}
       </span>
       <label class="filter">
         <input type="checkbox" bind:checked={filterUnread} onchange={load} />
-        {$t('notifications.unread_only')}
+        {t('notifications.unread_only')}
       </label>
       {#if unreadCount > 0}
-        <button class="btn-sm" onclick={markAllRead}>{$t('notifications.mark_all_read')}</button>
+        <button class="btn-sm" onclick={markAllRead}>{t('notifications.mark_all_read')}</button>
       {/if}
     </div>
   </div>
 
   {#if loading}
-    <p>{$t('common.loading')}</p>
+    <p>{t('common.loading')}</p>
   {:else if notifs.length === 0}
     <div class="empty-state">
-      <p>{$t('notifications.empty')}</p>
+      <p>{t('notifications.empty')}</p>
       {#if wsConnected}
-        <p class="hint">{$t('notifications.hint')}</p>
+        <p class="hint">{t('notifications.hint')}</p>
       {/if}
     </div>
   {:else}
@@ -121,7 +121,7 @@
           </div>
           <div class="notif-actions">
             {#if !notif.is_read}
-              <button class="btn-xs" onclick={() => markRead(notif.id)}>{$t('notifications.mark_read')}</button>
+              <button class="btn-xs" onclick={() => markRead(notif.id)}>{t('notifications.mark_read')}</button>
             {/if}
           </div>
         </div>

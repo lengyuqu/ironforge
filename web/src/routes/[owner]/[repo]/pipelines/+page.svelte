@@ -7,8 +7,8 @@
 
   const t = createT();
 
-  let owner = $derived($page.params.owner);
-  let repo = $derived($page.params.repo);
+  let owner = $derived($page.params.owner!);
+  let repo = $derived($page.params.repo!);
   let pipelineList = $state<any[]>([]);
   let selectedPipeline = $state<any>(null);
   let loading = $state(true);
@@ -80,17 +80,17 @@
   {/if}
 
   {#if loading}
-    <p class="text-secondary">{$t('common.loading')}</p>
+    <p class="text-secondary">{t('common.loading')}</p>
   {:else if pipelineList.length === 0}
     <div class="empty">
-      <p>{$t('pipeline.no_pipelines')}</p>
-      <p class="text-secondary">{$t('pipeline.hint', { file: $t('pipeline.file') })}</p>
+      <p>{t('pipeline.no_pipelines')}</p>
+      <p class="text-secondary">{t('pipeline.hint', { file: t('pipeline.file') })}</p>
     </div>
   {:else}
     <div class="pipeline-layout">
       <!-- Pipeline list -->
       <div class="pipeline-list">
-        <h3>{$t('repo.tabs.pipelines')}</h3>
+        <h3>{t('repo.tabs.pipelines')}</h3>
         {#each pipelineList as p}
           <div class="pipeline-item" class:active={selectedPipeline?.id === p.id} onclick={() => selectPipeline(p.id)} role="button" tabindex="0">
             <PipelineBadge status={p.status} />
@@ -109,22 +109,22 @@
       <div class="pipeline-detail">
         {#if selectedPipeline}
           <div class="detail-header">
-            <h2>{$t('pipeline.detail_title', { id: String(selectedPipeline.id) })}</h2>
+            <h2>{t('pipeline.detail_title', { id: String(selectedPipeline.id) })}</h2>
             <PipelineBadge status={selectedPipeline.status} />
             <div class="detail-actions">
               {#if selectedPipeline.status === 'failed'}
-                <button class="btn-outline" onclick={() => handleRetry(selectedPipeline.id)}>{$t('pipeline.retry')}</button>
+                <button class="btn-outline" onclick={() => handleRetry(selectedPipeline.id)}>{t('pipeline.retry')}</button>
               {/if}
               {#if selectedPipeline.status === 'running'}
-                <button class="btn-outline btn-danger" onclick={() => handleCancel(selectedPipeline.id)}>{$t('pipeline.cancel')}</button>
+                <button class="btn-outline btn-danger" onclick={() => handleCancel(selectedPipeline.id)}>{t('pipeline.cancel')}</button>
               {/if}
             </div>
           </div>
 
           <div class="detail-info">
-            <div><span class="text-secondary">{$t('pipeline.commit')}:</span> <code>{selectedPipeline.commit_sha?.slice(0, 7)}</code></div>
-            <div><span class="text-secondary">{$t('pipeline.branch')}:</span> {selectedPipeline.ref}</div>
-            <div><span class="text-secondary">{$t('pipeline.duration')}:</span> {duration(selectedPipeline.started_at, selectedPipeline.finished_at)}</div>
+            <div><span class="text-secondary">{t('pipeline.commit')}:</span> <code>{selectedPipeline.commit_sha?.slice(0, 7)}</code></div>
+            <div><span class="text-secondary">{t('pipeline.branch')}:</span> {selectedPipeline.ref}</div>
+            <div><span class="text-secondary">{t('pipeline.duration')}:</span> {duration(selectedPipeline.started_at, selectedPipeline.finished_at)}</div>
           </div>
 
           <!-- Stages -->
@@ -150,7 +150,7 @@
             </div>
           {/if}
         {:else}
-          <p class="text-secondary">{$t('pipeline.select_detail')}</p>
+          <p class="text-secondary">{t('pipeline.select_detail')}</p>
         {/if}
       </div>
     </div>

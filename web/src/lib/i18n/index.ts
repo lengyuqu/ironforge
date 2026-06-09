@@ -77,20 +77,20 @@ export function t(key: string, params?: Record<string, string | number>): string
 }
 
 // Reactive t() for Svelte components
+// Returns a plain function (not a store) for easy usage in both script and template
 export function createT() {
-  return derived(currentTranslations, ($translations) => {
-    return (key: string, params?: Record<string, string | number>): string => {
-      const value = getNestedValue($translations, key);
-      if (typeof value !== 'string') {
-        console.warn(`[i18n] Missing translation: "${key}"`);
-        return key;
-      }
-      if (params) {
-        return interpolate(value, params);
-      }
-      return value;
-    };
-  });
+  return (key: string, params?: Record<string, string | number>): string => {
+    const translations = get(currentTranslations);
+    const value = getNestedValue(translations, key);
+    if (typeof value !== 'string') {
+      console.warn(`[i18n] Missing translation: "${key}"`);
+      return key;
+    }
+    if (params) {
+      return interpolate(value, params);
+    }
+    return value;
+  };
 }
 
 // Date formatting with locale

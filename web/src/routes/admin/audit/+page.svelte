@@ -23,7 +23,7 @@
 
   // Predefined action groups for the filter dropdown
   const actionGroups = [
-    { value: '', label: () => $t('admin.audit.filter_all') },
+    { value: '', label: () => t('admin.audit.filter_all') },
     { value: 'user.login', label: 'user.login' },
     { value: 'user.register', label: 'user.register' },
     { value: 'repo.create', label: 'repo.create' },
@@ -60,7 +60,7 @@
       total = result.total;
       totalPages = Math.max(1, Math.ceil(result.total / result.page_size));
     } catch (e: any) {
-      error = e.message || $t('errors.load_failed');
+      error = e.message || t('errors.load_failed');
     } finally {
       loading = false;
     }
@@ -111,20 +111,20 @@
 
 <div class="container">
   <div class="header">
-    <a href="/admin" class="back">← {$t('admin.back')}</a>
-    <h1>{$t('admin.audit.title')}</h1>
-    <p class="meta">{total} {$t('admin.audit.total')}</p>
+    <a href="/admin" class="back">← {t('admin.back')}</a>
+    <h1>{t('admin.audit.title')}</h1>
+    <p class="meta">{total} {t('admin.audit.total')}</p>
   </div>
 
   <!-- Filters -->
   <div class="filters">
     <select bind:value={actionFilter} onchange={applyFilter}>
       {#each actionGroups as g}
-        <option value={g.value}>{g.label()}</option>
+        <option value={g.value}>{typeof g.label === 'function' ? g.label() : t(g.label)}</option>
       {/each}
     </select>
     <select bind:value={resourceFilter} onchange={applyFilter}>
-      <option value="">{$t('admin.audit.fields.resource_type')}: All</option>
+      <option value="">{t('admin.audit.fields.resource_type')}: All</option>
       <option value="user">User</option>
       <option value="repo">Repository</option>
       <option value="org">Organization</option>
@@ -139,7 +139,7 @@
   {/if}
 
   {#if loading}
-    <p class="loading">{$t('common.loading')}</p>
+    <p class="loading">{t('common.loading')}</p>
   {:else if logs.length === 0}
     <p class="empty">No audit records found.</p>
   {:else}
@@ -147,11 +147,11 @@
       <table class="audit-table">
         <thead>
           <tr>
-            <th>{$t('admin.audit.fields.time')}</th>
-            <th>{$t('admin.audit.fields.user')}</th>
-            <th>{$t('admin.audit.fields.action')}</th>
-            <th>{$t('admin.audit.fields.resource')}</th>
-            <th>{$t('admin.audit.fields.ip')}</th>
+            <th>{t('admin.audit.fields.time')}</th>
+            <th>{t('admin.audit.fields.user')}</th>
+            <th>{t('admin.audit.fields.action')}</th>
+            <th>{t('admin.audit.fields.resource')}</th>
+            <th>{t('admin.audit.fields.ip')}</th>
             <th></th>
           </tr>
         </thead>
@@ -187,7 +187,7 @@
               </td>
               <td class="actions">
                 <button class="btn-sm" onclick={() => openDetail(log)}>
-                  {$t('admin.audit.fields.details')}
+                  {t('admin.audit.fields.details')}
                 </button>
               </td>
             </tr>
@@ -211,15 +211,15 @@
 {#if selectedLog}
   <div class="modal-overlay" onclick={closeDetail}>
     <div class="modal" onclick={(e) => e.stopPropagation()}>
-      <h2>{$t('admin.audit.detail_title', { id: selectedLog.id })}</h2>
+      <h2>{t('admin.audit.detail_title', { id: selectedLog.id })}</h2>
 
       <div class="detail-grid">
         <div class="detail-row">
-          <span class="detail-label">{$t('admin.audit.fields.time')}</span>
+          <span class="detail-label">{t('admin.audit.fields.time')}</span>
           <span class="detail-value">{formatDateTime(selectedLog.created_at)}</span>
         </div>
         <div class="detail-row">
-          <span class="detail-label">{$t('admin.audit.fields.user')}</span>
+          <span class="detail-label">{t('admin.audit.fields.user')}</span>
           <span class="detail-value">
             {#if selectedLog.username}
               {selectedLog.username} (#{selectedLog.user_id})
@@ -229,31 +229,31 @@
           </span>
         </div>
         <div class="detail-row">
-          <span class="detail-label">{$t('admin.audit.fields.action')}</span>
+          <span class="detail-label">{t('admin.audit.fields.action')}</span>
           <span class="detail-value"><span class="action-badge" data-action={selectedLog.action}>{selectedLog.action}</span></span>
         </div>
         <div class="detail-row">
-          <span class="detail-label">{$t('admin.audit.fields.resource_type')}</span>
+          <span class="detail-label">{t('admin.audit.fields.resource_type')}</span>
           <span class="detail-value">{formatResourceType(selectedLog.resource_type)}</span>
         </div>
         {#if selectedLog.resource_name}
           <div class="detail-row">
-            <span class="detail-label">{$t('admin.audit.fields.resource')}</span>
+            <span class="detail-label">{t('admin.audit.fields.resource')}</span>
             <span class="detail-value">{selectedLog.resource_name} (#{selectedLog.resource_id})</span>
           </div>
         {/if}
         <div class="detail-row">
-          <span class="detail-label">{$t('admin.audit.fields.ip')}</span>
+          <span class="detail-label">{t('admin.audit.fields.ip')}</span>
           <span class="detail-value">{selectedLog.ip_address || '—'}</span>
         </div>
         <div class="detail-row detail-row-full">
-          <span class="detail-label">{$t('admin.audit.fields.details')}</span>
-          <span class="detail-value">{selectedLog.details || $t('admin.audit.no_details')}</span>
+          <span class="detail-label">{t('admin.audit.fields.details')}</span>
+          <span class="detail-value">{selectedLog.details || t('admin.audit.no_details')}</span>
         </div>
       </div>
 
       <div class="modal-actions">
-        <button class="btn-secondary" onclick={closeDetail}>{$t('common.cancel')}</button>
+        <button class="btn-secondary" onclick={closeDetail}>{t('common.cancel')}</button>
       </div>
     </div>
   </div>

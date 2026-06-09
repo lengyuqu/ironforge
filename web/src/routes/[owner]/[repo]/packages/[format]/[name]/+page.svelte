@@ -6,10 +6,10 @@
 
   const t = createT();
 
-  let owner = $derived($page.params.owner);
-  let repo = $derived($page.params.repo);
-  let format = $derived($page.params.format);
-  let name = $derived($page.params.name);
+  let owner = $derived($page.params.owner!);
+  let repo = $derived($page.params.repo!);
+  let format = $derived($page.params.format!);
+  let name = $derived($page.params.name!);
 
   let packageInfo = $state<any>(null);
   let versions = $state<string[]>([]);
@@ -96,10 +96,10 @@
   {/if}
 
   {#if loading}
-    <p class="loading-text">{$t('common.loading')}</p>
+    <p class="loading-text">{t('common.loading')}</p>
   {:else if !packageInfo}
     <div class="empty">
-      <p>{$t('packages.no_packages')}</p>
+      <p>{t('packages.no_packages')}</p>
     </div>
   {:else}
     <div class="package-detail">
@@ -116,35 +116,35 @@
 
       <div class="package-meta">
         {#if packageInfo.created_at}
-          <span>{$t('common.created', { date: formatDate(packageInfo.created_at) })}</span>
+          <span>{t('common.created', { date: formatDate(packageInfo.created_at) })}</span>
         {/if}
       </div>
 
       <!-- Version list -->
       <div class="versions-section">
-        <h2>{$t('packages.version') || 'Versions'}</h2>
+        <h2>{t('packages.version') || 'Versions'}</h2>
         {#each versions as ver}
           <div class="version-card">
             <div class="version-header">
               <span class="version-name">v{ver}</span>
               <div class="version-actions">
                 <button class="copy-btn" onclick={() => copyInstall(ver)}>
-                  {$t('common.copy') || 'Copy'} {$t('packages.install') || 'Install'}
+                  {t('common.copy') || 'Copy'} {t('packages.install') || 'Install'}
                 </button>
                 <button class="danger-btn" onclick={() => { deletingVersion = ver; confirmDelete = ver; }}>
-                  {$t('common.delete')}
+                  {t('common.delete')}
                 </button>
               </div>
             </div>
 
             {#if confirmDelete === ver}
               <div class="delete-confirm">
-                <span>{$t('packages.delete_confirm', { name: packageInfo.name, version: ver }) || `Delete ${packageInfo.name} ${ver}?`}</span>
+                <span>{t('packages.delete_confirm', { name: packageInfo.name, version: ver }) || `Delete ${packageInfo.name} ${ver}?`}</span>
                 <button class="danger-btn" onclick={() => handleDeleteVersion(ver)}>
-                  {$t('common.delete')}
+                  {t('common.delete')}
                 </button>
                 <button class="secondary-btn" onclick={() => { confirmDelete = null; deletingVersion = null; }}>
-                  {$t('common.cancel')}
+                  {t('common.cancel')}
                 </button>
               </div>
             {/if}

@@ -11,9 +11,9 @@
 
   // Board columns
   const columns = [
-    { id: 'open', label: $t('board.columns.open') },
-    { id: 'in_progress', label: $t('board.columns.in_progress') },
-    { id: 'closed', label: $t('board.columns.closed') },
+    { id: 'open', label: t('board.columns.open') },
+    { id: 'in_progress', label: t('board.columns.in_progress') },
+    { id: 'closed', label: t('board.columns.closed') },
   ];
 
   // Issues grouped by column
@@ -61,7 +61,7 @@
   <RepoHeader owner={owner!} repo={repo!} activeTab="board" />
 
   <div class="page-header">
-    <h1>{$t('repo.tabs.board')}</h1>
+    <h1>{t('repo.tabs.board')}</h1>
   </div>
 
   {#if error}
@@ -69,7 +69,7 @@
   {/if}
 
   {#if loading}
-    <p class="loading-text">{$t('common.loading')}</p>
+    <p class="loading-text">{t('common.loading')}</p>
   {:else}
     <div class="board-container">
       {#each columns as col}
@@ -81,7 +81,7 @@
 
           <div class="column-body">
             {#if boardIssues[col.id].length === 0}
-              <p class="empty-column">{$t('board.no_issues')}</p>
+              <p class="empty-column">{t('board.no_issues')}</p>
             {:else}
               {#each boardIssues[col.id] as issue (issue.id)}
                 <div class="issue-card">
@@ -99,7 +99,7 @@
       {/each}
     </div>
 
-    <p class="board-hint">{$t('board.drag_hint')}</p>
+    <p class="board-hint">{t('board.drag_hint')}</p>
   {/if}
 </div>
 

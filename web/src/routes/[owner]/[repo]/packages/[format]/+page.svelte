@@ -6,9 +6,9 @@
 
   const t = createT();
 
-  let owner = $derived($page.params.owner);
-  let repo = $derived($page.params.repo);
-  let format = $derived($page.params.format);
+  let owner = $derived($page.params.owner!);
+  let repo = $derived($page.params.repo!);
+  let format = $derived($page.params.format!);
 
   let packageList = $state<any[]>([]);
   let loading = $state(true);
@@ -71,7 +71,7 @@
   <RepoHeader owner={owner!} repo={repo!} activeTab="packages" />
 
   <div class="page-header">
-    <h1>{$t('packages.title')} — {formatLabels[format!] || format}</h1>
+    <h1>{t('packages.title')} — {formatLabels[format!] || format}</h1>
   </div>
 
   {#if error}
@@ -79,10 +79,10 @@
   {/if}
 
   {#if loading}
-    <p class="loading-text">{$t('common.loading')}</p>
+    <p class="loading-text">{t('common.loading')}</p>
   {:else if packageList.length === 0}
     <div class="empty">
-      <p>{$t('packages.no_packages')}</p>
+      <p>{t('packages.no_packages')}</p>
     </div>
   {:else}
     <div class="package-list">
@@ -101,14 +101,14 @@
 
           <div class="package-meta">
             {#if pkg.created_at}
-              <span class="date">{$t('common.created', { date: formatDate(pkg.created_at) })}</span>
+              <span class="date">{t('common.created', { date: formatDate(pkg.created_at) })}</span>
             {/if}
           </div>
 
           <div class="install-section">
             <pre><code>{getInstallCommand(pkg)}</code></pre>
             <button class="copy-btn" onclick={() => navigator.clipboard.writeText(getInstallCommand(pkg))}>
-              {$t('common.copy') || 'Copy'}
+              {t('common.copy') || 'Copy'}
             </button>
           </div>
         </div>

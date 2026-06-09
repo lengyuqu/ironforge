@@ -58,7 +58,7 @@
   }
 
   async function handleDelete(id: number) {
-    if (!confirm($t('runners.delete_confirm', { name: id }))) return;
+    if (!confirm(t('runners.delete_confirm', { name: id }))) return;
     try {
       await runners.delete(id);
       await loadRunners();
@@ -76,7 +76,7 @@
   <RepoHeader owner={owner!} repo={repo!} activeTab="runners" />
 
   <div class="page-header">
-    <h1>{$t('repo.tabs.runners')}</h1>
+    <h1>{t('repo.tabs.runners')}</h1>
   </div>
 
   {#if error}
@@ -85,9 +85,9 @@
 
   <!-- Register new runner -->
   <div class="register-card">
-    <h2>{$t('runners.register')}</h2>
+    <h2>{t('runners.register')}</h2>
     <div class="form-group">
-      <label for="runner-name">{$t('runners.name')}</label>
+      <label for="runner-name">{t('runners.name')}</label>
       <input
         id="runner-name"
         type="text"
@@ -96,7 +96,7 @@
       />
     </div>
     <div class="form-group">
-      <label for="runner-labels">{$t('runners.labels')}</label>
+      <label for="runner-labels">{t('runners.labels')}</label>
       <input
         id="runner-labels"
         type="text"
@@ -109,16 +109,16 @@
       onclick={handleRegister}
       disabled={saving}
     >
-      {saving ? $t('common.loading') : $t('runners.register')}
+      {saving ? t('common.loading') : t('runners.register')}
     </button>
   </div>
 
   <!-- Runner list -->
   {#if loading}
-    <p class="loading-text">{$t('common.loading')}</p>
+    <p class="loading-text">{t('common.loading')}</p>
   {:else if runnerList.length === 0}
     <div class="empty">
-      <p>{$t('runners.no_runners')}</p>
+      <p>{t('runners.no_runners')}</p>
     </div>
   {:else}
     <div class="runner-list">
@@ -139,14 +139,14 @@
           {/if}
           <div class="runner-meta">
             <span>v{runner.version || '?'}</span>
-            <span>{runner.last_seen ? $t('common.last_seen', { time: new Date(runner.last_seen).toLocaleString() }) : $t('common.offline')}</span>
+            <span>{runner.last_seen ? t('common.last_seen', { time: new Date(runner.last_seen).toLocaleString() }) : t('common.offline')}</span>
           </div>
           <div class="runner-actions">
             <button
               class="btn-danger btn-sm"
               onclick={() => handleDelete(runner.id)}
             >
-              {$t('common.delete')}
+              {t('common.delete')}
             </button>
           </div>
         </div>
@@ -160,7 +160,7 @@
           disabled={currentPage <= 1}
           onclick={() => { currentPage = currentPage - 1; loadRunners(); }}
         >
-          {$t('common.previous') || 'Previous'}
+          {t('common.previous') || 'Previous'}
         </button>
         <span class="page-info">Page {currentPage} of {totalPages}</span>
         <button
@@ -168,7 +168,7 @@
           disabled={currentPage >= totalPages}
           onclick={() => { currentPage = currentPage + 1; loadRunners(); }}
         >
-          {$t('common.next') || 'Next'}
+          {t('common.next') || 'Next'}
         </button>
       </div>
     {/if}

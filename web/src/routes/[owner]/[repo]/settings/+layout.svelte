@@ -3,17 +3,17 @@
   import { base } from '$app/paths';
   import { createT } from '$lib/i18n';
 
-  const { t: $t } = createT();
+  const t = createT();
 
   let { children } = $props();
 
-  const owner = $derived($page.params.owner);
-  const repo = $derived($page.params.repo);
+  const owner = $derived($page.params.owner!);
+  const repo = $derived($page.params.repo!);
   const currentPath = $derived($page.url.pathname);
 
   const navItems = $derived([
-    { path: `/${owner}/${repo}/settings`, label: $t('settings.general'), icon: '⚙️' },
-    { path: `/${owner}/${repo}/settings/labels`, label: $t('settings.labels'), icon: '🏷️' }
+    { path: `/${owner}/${repo}/settings`, label: t('settings.general'), icon: '⚙️' },
+    { path: `/${owner}/${repo}/settings/labels`, label: t('settings.labels'), icon: '🏷️' }
   ]);
 </script>
 
@@ -37,10 +37,10 @@
     <div class="breadcrumb">
       <a href="/{owner}/{repo}">{owner}/{repo}</a>
       <span class="separator">/</span>
-      <span>{$t('settings.title')}</span>
+      <span>{t('settings.title')}</span>
       {#if currentPath.includes('/labels')}
         <span class="separator">/</span>
-        <span>{$t('settings.labels')}</span>
+        <span>{t('settings.labels')}</span>
       {/if}
     </div>
     

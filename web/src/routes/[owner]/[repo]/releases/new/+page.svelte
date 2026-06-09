@@ -7,8 +7,8 @@
 
   const t = createT();
 
-  let owner = $derived($page.params.owner);
-  let repo = $derived($page.params.repo);
+  let owner = $derived($page.params.owner!);
+  let repo = $derived($page.params.repo!);
 
   let tagName = $state('');
   let releaseTitle = $state('');
@@ -85,7 +85,7 @@
   <RepoHeader owner={owner!} repo={repo!} activeTab="releases" />
 
   <div class="page-header">
-    <h1>{$t('releases.create_title')}</h1>
+    <h1>{t('releases.create_title')}</h1>
   </div>
 
   {#if error}
@@ -93,16 +93,16 @@
   {/if}
 
   {#if loading}
-    <p class="loading-text">{$t('common.loading')}</p>
+    <p class="loading-text">{t('common.loading')}</p>
   {:else}
     <form class="release-form" onsubmit={handleSubmit}>
       <div class="form-group">
-        <label for="tag-name">{$t('releases.tag_name')} <span class="required">*</span></label>
+        <label for="tag-name">{t('releases.tag_name')} <span class="required">*</span></label>
         <input
           type="text"
           id="tag-name"
           bind:value={tagName}
-          placeholder={$t('releases.tag_name_placeholder')}
+          placeholder={t('releases.tag_name_placeholder')}
           required
           class="input"
         />
@@ -126,30 +126,30 @@
       </div>
 
       <div class="form-group">
-        <label for="release-title">{$t('releases.release_title')} <span class="required">*</span></label>
+        <label for="release-title">{t('releases.release_title')} <span class="required">*</span></label>
         <input
           type="text"
           id="release-title"
           bind:value={releaseTitle}
-          placeholder={$t('releases.release_title_placeholder')}
+          placeholder={t('releases.release_title_placeholder')}
           required
           class="input"
         />
       </div>
 
       <div class="form-group">
-        <label for="body">{$t('releases.body')}</label>
+        <label for="body">{t('releases.body')}</label>
         <textarea
           id="body"
           bind:value={body}
-          placeholder={$t('releases.body_placeholder')}
+          placeholder={t('releases.body_placeholder')}
           rows="8"
           class="textarea"
         ></textarea>
       </div>
 
       <div class="form-group">
-        <label>{$t('releases.target_commitish')}</label>
+        <label>{t('releases.target_commitish')}</label>
         <div class="target-toggle">
           <button
             type="button"
@@ -189,21 +189,21 @@
       <div class="form-group checkbox-group">
         <label class="checkbox-label">
           <input type="checkbox" bind:checked={isDraft} />
-          <span>{$t('releases.is_draft')}</span>
+          <span>{t('releases.is_draft')}</span>
         </label>
       </div>
 
       <div class="form-group checkbox-group">
         <label class="checkbox-label">
           <input type="checkbox" bind:checked={isPrerelease} />
-          <span>{$t('releases.is_prerelease')}</span>
+          <span>{t('releases.is_prerelease')}</span>
         </label>
       </div>
 
       <div class="form-actions">
-        <a href="/{owner}/{repo}/releases" class="btn-secondary">{$t('common.cancel')}</a>
+        <a href="/{owner}/{repo}/releases" class="btn-secondary">{t('common.cancel')}</a>
         <button type="submit" class="btn-primary" disabled={submitting}>
-          {submitting ? $t('releases.submitting') : $t('releases.submit')}
+          {submitting ? t('releases.submitting') : t('releases.submit')}
         </button>
       </div>
     </form>

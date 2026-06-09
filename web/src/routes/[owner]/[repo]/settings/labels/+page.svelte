@@ -1,18 +1,20 @@
 <script lang="ts">
   import { page } from '$app/stores';
   import { labels } from '$lib/api/client';
-  
+  import { createT } from '$lib/i18n';
+
   interface Label {
     id: number;
     name: string;
     color: string;
     description?: string;
   }
-  
+
   let { data } = $props();
+  const t = createT();
   
-  const owner = $derived($page.params.owner);
-  const repo = $derived($page.params.repo);
+  const owner = $derived($page.params.owner!);
+  const repo = $derived($page.params.repo!);
   
   let labelList = $state<Label[]>([]);
   let loading = $state(true);
@@ -97,7 +99,7 @@
           color: formData.color,
           description: formData.description.trim() || undefined
         });
-        success = $t('settings.save_label');
+        success = t('settings.save_label');
       } else {
         await labels.create(
           owner!, 
@@ -106,7 +108,7 @@
           formData.color, 
           formData.description.trim() || undefined
         );
-        success = $t('settings.create_label');
+        success = t('settings.create_label');
       }
       
       closeForm();
@@ -134,7 +136,7 @@
     try {
       deleting = true;
       await labels.delete(owner!, repo!, deletingLabel.id);
-      success = $t('settings.delete_label');
+      success = t('settings.delete_label');
       deletingLabel = null;
       await loadLabels();
       
@@ -146,26 +148,6 @@
     }
   }
   
-  function t(key: string): string {
-    const translations: Record<string, string> = {
-      'settings.labels': 'Labels',
-      'settings.new_label': 'New Label',
-      'settings.edit_label': 'Edit Label',
-      'settings.save_label': 'Label saved successfully!',
-      'settings.create_label': 'Label created successfully!',
-      'settings.delete_label': 'Label deleted successfully!',
-      'settings.confirm_delete_label': 'Are you sure you want to delete this label?',
-      'settings.no_labels': 'No labels yet.',
-      'settings.label_name': 'Label Name',
-      'settings.label_name_placeholder': 'Enter label name',
-      'settings.label_color': 'Color',
-      'settings.label_desc': 'Description',
-      'settings.label_desc_placeholder': 'Optional description',
-      'settings.preset_colors': 'Preset Colors',
-      'settings.custom_color': 'Custom Color'
-    };
-    return translations[key] || key;
-  }
 </script>
 
 <div class="labels-page">
@@ -188,7 +170,7 @@
   {#if showForm}
     <div class="form-overlay" onclick={closeForm}>
       <div class="form-modal" onclick={(e) => e.stopPropagation()}>
-        <h2>{editingLabel ? $t('settings.edit_label') : $t('settings.new_label')}</h2>
+        <h2>{editingLabel ? t('settings.edit_label') : t('settings.new_label')}</h2>
         
         {#if formError}
           <div class="error-box">{formError}</div>
@@ -255,7 +237,7 @@
             Cancel
           </button>
           <button class="btn btn-primary" onclick={handleSave} disabled={saving}>
-            {saving ? 'Saving...' : (editingLabel ? $t('settings.save_label') : $t('settings.create_label'))}
+            {saving ? 'Saving...' : (editingLabel ? t('settings.save_label') : t('settings.create_label'))}
           </button>
         </div>
       </div>

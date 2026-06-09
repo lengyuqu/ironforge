@@ -70,8 +70,8 @@
   <RepoHeader owner={owner!} repo={repo!} activeTab="packages" />
 
   <div class="page-header">
-    <h1>{$t('repo.tabs.packages')}</h1>
-    <a href="/{owner}/{repo}/packages/upload" class="btn-primary">{$t('packages.upload')}</a>
+    <h1>{t('repo.tabs.packages')}</h1>
+    <a href="/{owner}/{repo}/packages/upload" class="btn-primary">{t('packages.upload')}</a>
   </div>
 
   {#if error}
@@ -80,9 +80,9 @@
 
   <div class="filters">
     <div class="filter-group">
-      <label for="format-filter">{$t('packages.format')}:</label>
+      <label for="format-filter">{t('packages.format')}:</label>
       <select id="format-filter" bind:value={formatFilter} onchange={handleFormatChange}>
-        <option value="">{$t('common.all') || 'All'}</option>
+        <option value="">{t('common.all') || 'All'}</option>
         {#each formats as f}
           <option value={f}>{formatLabel(f)}</option>
         {/each}
@@ -92,19 +92,19 @@
     <div class="search-group">
       <input
         type="text"
-        placeholder={$t('common.search') || 'Search...'}
+        placeholder={t('common.search') || 'Search...'}
         bind:value={searchQuery}
         onkeydown={(e) => e.key === 'Enter' && handleSearch()}
       />
-      <button class="btn-secondary" onclick={handleSearch}>{$t('common.search') || 'Search'}</button>
+      <button class="btn-secondary" onclick={handleSearch}>{t('common.search') || 'Search'}</button>
     </div>
   </div>
 
   {#if loading}
-    <p class="loading-text">{$t('common.loading')}</p>
+    <p class="loading-text">{t('common.loading')}</p>
   {:else if packageList.length === 0}
     <div class="empty">
-      <p>{$t('packages.no_packages')}</p>
+      <p>{t('packages.no_packages')}</p>
     </div>
   {:else}
     <div class="package-list">
@@ -118,9 +118,9 @@
             <p class="package-desc">{pkg.description}</p>
           {/if}
           <div class="package-meta">
-            <span class="version">{$t('packages.version')}: {pkg.latest_version}</span>
+            <span class="version">{t('packages.version')}: {pkg.latest_version}</span>
             {#if pkg.created_at}
-              <span class="date">{$t('common.created', { date: formatDate(pkg.created_at) })}</span>
+              <span class="date">{t('common.created', { date: formatDate(pkg.created_at) })}</span>
             {/if}
           </div>
         </div>
@@ -134,7 +134,7 @@
           disabled={currentPage <= 1}
           onclick={() => { currentPage = currentPage - 1; loadPackages(); }}
         >
-          {$t('common.previous') || 'Previous'}
+          {t('common.previous') || 'Previous'}
         </button>
         <span class="page-info">Page {currentPage} of {totalPages}</span>
         <button
@@ -142,7 +142,7 @@
           disabled={currentPage >= totalPages}
           onclick={() => { currentPage = currentPage + 1; loadPackages(); }}
         >
-          {$t('common.next') || 'Next'}
+          {t('common.next') || 'Next'}
         </button>
       </div>
     {/if}

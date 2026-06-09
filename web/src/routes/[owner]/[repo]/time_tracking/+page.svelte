@@ -60,7 +60,7 @@
   }
 
   async function handleDelete(id: number) {
-    if (!confirm($t('time_tracking.delete_confirm') || `Delete entry ${id}?`)) return;
+    if (!confirm(t('time_tracking.delete_confirm') || `Delete entry ${id}?`)) return;
     try {
       await timeTracking.delete(owner!, repo!, id);
       await loadEntries();
@@ -82,7 +82,7 @@
   <RepoHeader owner={owner!} repo={repo!} activeTab="time_tracking" />
 
   <div class="page-header">
-    <h1>{$t('repo.tabs.time_tracking')}</h1>
+    <h1>{t('repo.tabs.time_tracking')}</h1>
   </div>
 
   {#if error}
@@ -91,40 +91,40 @@
 
   <!-- Add Entry Form -->
   <div class="form-card">
-    <h2>{$t('time_tracking.add_entry')}</h2>
+    <h2>{t('time_tracking.add_entry')}</h2>
     <div class="form-row">
       <div class="form-group">
-        <label for="tt-date">{$t('time_tracking.date')}</label>
+        <label for="tt-date">{t('time_tracking.date')}</label>
         <input id="tt-date" type="date" bind:value={entryDate} />
       </div>
       <div class="form-group">
-        <label for="tt-duration">{$t('time_tracking.duration')}</label>
+        <label for="tt-duration">{t('time_tracking.duration')}</label>
         <input id="tt-duration" type="number" min="0.5" step="0.5" bind:value={duration} />
         <span class="unit">hrs</span>
       </div>
       <div class="form-group flex-grow">
-        <label for="tt-note">{$t('time_tracking.note')}</label>
-        <input id="tt-note" type="text" placeholder={$t('common.optional')} bind:value={note} />
+        <label for="tt-note">{t('time_tracking.note')}</label>
+        <input id="tt-note" type="text" placeholder={t('common.optional')} bind:value={note} />
       </div>
       <div class="form-action">
         <button class="btn-primary" onclick={handleAdd} disabled={saving}>
-          {saving ? $t('common.saving') : $t('common.add')}
+          {saving ? t('common.saving') : t('common.add')}
         </button>
       </div>
     </div>
   </div>
 
   {#if loading}
-    <p class="loading-text">{$t('common.loading')}</p>
+    <p class="loading-text">{t('common.loading')}</p>
   {:else if entries.length === 0}
     <div class="empty">
-      <p>{$t('time_tracking.no_entries')}</p>
+      <p>{t('time_tracking.no_entries')}</p>
     </div>
   {:else}
     <div class="entries-list">
       <div class="entries-header">
-        <h2>{$t('time_tracking.entries')}</h2>
-        <p class="total-hours">{$t('time_tracking.total_hours', { hours: calcTotal() })}</p>
+        <h2>{t('time_tracking.entries')}</h2>
+        <p class="total-hours">{t('time_tracking.total_hours', { hours: calcTotal() })}</p>
       </div>
       <table class="entries-table">
         <thead>
@@ -143,7 +143,7 @@
               <td class="note-cell">{entry.note || '—'}</td>
               <td class="actions-cell">
                 <button class="btn-danger btn-sm" onclick={() => handleDelete(entry.id)}>
-                  {$t('common.delete')}
+                  {t('common.delete')}
                 </button>
               </td>
             </tr>
@@ -155,11 +155,11 @@
     {#if totalPages > 1}
       <div class="pagination">
         <button class="btn-outline" disabled={currentPage <= 1} onclick={() => { currentPage--; loadEntries(); }}>
-          {$t('common.previous')}
+          {t('common.previous')}
         </button>
         <span class="page-info">Page {currentPage} of {totalPages}</span>
         <button class="btn-outline" disabled={currentPage >= totalPages} onclick={() => { currentPage++; loadEntries(); }}>
-          {$t('common.next')}
+          {t('common.next')}
         </button>
       </div>
     {/if}

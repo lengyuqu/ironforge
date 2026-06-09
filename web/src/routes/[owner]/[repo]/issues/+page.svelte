@@ -6,8 +6,8 @@
 
   const t = createT();
 
-  let owner = $derived($page.params.owner);
-  let repo = $derived($page.params.repo);
+  let owner = $derived($page.params.owner!);
+  let repo = $derived($page.params.repo!);
   let issueList = $state<any[]>([]);
   let loading = $state(true);
   let error = $state('');
@@ -58,17 +58,17 @@
   <div class="issues-toolbar">
     <div class="filter-tabs">
       <button class="filter-btn" class:active={filterState === 'open'} onclick={() => { filterState = 'open'; loadIssues(); }}>
-        {$t('issues.tabs.open')}
+        {t('issues.tabs.open')}
       </button>
       <button class="filter-btn" class:active={filterState === 'closed'} onclick={() => { filterState = 'closed'; loadIssues(); }}>
-        {$t('issues.tabs.closed')}
+        {t('issues.tabs.closed')}
       </button>
       <button class="filter-btn" class:active={filterState === 'all'} onclick={() => { filterState = 'all'; loadIssues(); }}>
-        {$t('issues.tabs.all')}
+        {t('issues.tabs.all')}
       </button>
     </div>
     <button class="btn-primary" onclick={() => showCreate = !showCreate}>
-      {$t('issues.new')}
+      {t('issues.new')}
     </button>
   </div>
 
@@ -76,20 +76,20 @@
     <div class="create-form">
       <form onsubmit={handleCreate}>
         <label>
-          {$t('issues.create_form.title')}
-          <input type="text" bind:value={newTitle} required placeholder={$t('issues.create_form.title_placeholder')} />
+          {t('issues.create_form.title')}
+          <input type="text" bind:value={newTitle} required placeholder={t('issues.create_form.title_placeholder')} />
         </label>
         <label>
-          {$t('issues.create_form.body')} <span class="optional">{$t('issues.create_form.body_hint')}</span>
-          <textarea bind:value={newBody} rows="6" placeholder={$t('issues.create_form.body_placeholder')}></textarea>
+          {t('issues.create_form.body')} <span class="optional">{t('issues.create_form.body_hint')}</span>
+          <textarea bind:value={newBody} rows="6" placeholder={t('issues.create_form.body_placeholder')}></textarea>
         </label>
         <label>
-          {$t('issues.create_form.labels')} <span class="optional">{$t('issues.create_form.labels_hint')}</span>
-          <input type="text" bind:value={newLabels} placeholder={$t('issues.create_form.labels_placeholder')} />
+          {t('issues.create_form.labels')} <span class="optional">{t('issues.create_form.labels_hint')}</span>
+          <input type="text" bind:value={newLabels} placeholder={t('issues.create_form.labels_placeholder')} />
         </label>
         <div class="form-actions">
-          <button type="submit" class="btn-primary">{$t('issues.create_form.submit')}</button>
-          <button type="button" class="btn-secondary" onclick={() => showCreate = false}>{$t('issues.create_form.cancel')}</button>
+          <button type="submit" class="btn-primary">{t('issues.create_form.submit')}</button>
+          <button type="button" class="btn-secondary" onclick={() => showCreate = false}>{t('issues.create_form.cancel')}</button>
         </div>
       </form>
     </div>
@@ -100,10 +100,10 @@
   {/if}
 
   {#if loading}
-    <p class="text-secondary">{$t('common.loading')}</p>
+    <p class="text-secondary">{t('common.loading')}</p>
   {:else if issueList.length === 0}
     <div class="empty">
-      <p>{$t('issues.empty', { state: filterState === 'all' ? '' : filterState })}</p>
+      <p>{t('issues.empty', { state: filterState === 'all' ? '' : filterState })}</p>
     </div>
   {:else}
     <div class="issue-list">
@@ -115,7 +115,7 @@
           <div class="issue-info">
             <div class="issue-title">{issue.title}</div>
             <div class="issue-meta">
-              #${issue.number} {$t('issues.meta', { date: formatDate(issue.created_at), author: issue.author || $t('common.unknown') })}
+              #${issue.number} {t('issues.meta', { date: formatDate(issue.created_at), author: issue.author || t('common.unknown') })}
               {#if issue.labels?.length}
                 {#each issue.labels as label}
                   <span class="label-badge">{label}</span>

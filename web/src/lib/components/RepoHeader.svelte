@@ -112,25 +112,25 @@
   function getWatchLabel() {
     switch (watchState) {
       case 'watching':
-        return $t('repo.watching');
+        return t('repo.watching');
       case 'ignoring':
-        return $t('repo.ignoring');
+        return t('repo.ignoring');
       default:
-        return $t('repo.watch');
+        return t('repo.watch');
     }
   }
 
   const tabs = $derived([
-    { id: 'code', label: $t('repo.tabs.code'), icon: '📁' },
-    { id: 'issues', label: $t('repo.tabs.issues'), icon: '◉' },
-    { id: 'pulls', label: $t('repo.tabs.pulls'), icon: '⑂' },
-    { id: 'wiki', label: $t('repo.tabs.wiki'), icon: '📖' },
-    { id: 'pipelines', label: $t('repo.tabs.pipelines'), icon: '▶' },
-    { id: 'releases', label: $t('repo.tabs.releases'), icon: '🏷' },
-    { id: 'packages', label: $t('repo.tabs.packages'), icon: '📦' },
-    { id: 'board', label: $t('repo.tabs.board'), icon: '◫' },
-    { id: 'commits', label: $t('repo.tabs.commits'), icon: '📜' },
-    { id: 'settings', label: $t('repo.tabs.settings'), icon: '⚙' },
+    { id: 'code', label: t('repo.tabs.code'), icon: '📁' },
+    { id: 'issues', label: t('repo.tabs.issues'), icon: '◉' },
+    { id: 'pulls', label: t('repo.tabs.pulls'), icon: '⑂' },
+    { id: 'wiki', label: t('repo.tabs.wiki'), icon: '📖' },
+    { id: 'pipelines', label: t('repo.tabs.pipelines'), icon: '▶' },
+    { id: 'releases', label: t('repo.tabs.releases'), icon: '🏷' },
+    { id: 'packages', label: t('repo.tabs.packages'), icon: '📦' },
+    { id: 'board', label: t('repo.tabs.board'), icon: '◫' },
+    { id: 'commits', label: t('repo.tabs.commits'), icon: '📜' },
+    { id: 'settings', label: t('repo.tabs.settings'), icon: '⚙' },
   ]);
 </script>
 
@@ -148,7 +148,7 @@
         class:starred
         class:disabled={!isLoggedIn()}
         onclick={toggleStar}
-        title={isLoggedIn() ? (starred ? $t('repo.unstar') : $t('repo.star')) : 'Login to star'}
+        title={isLoggedIn() ? (starred ? t('repo.unstar') : t('repo.star')) : 'Login to star'}
       >
         <span class="star-icon">{starred ? '⭐' : '☆'}</span>
         <span class="count">{starsLocalCount}</span>
@@ -172,10 +172,10 @@
         class:disabled={!isLoggedIn()}
         onclick={handleFork}
         disabled={forking || !isLoggedIn()}
-        title={isLoggedIn() ? (forking ? $t('repo.forking') : $t('repo.fork')) : 'Login to fork'}
+        title={isLoggedIn() ? (forking ? t('repo.forking') : t('repo.fork')) : 'Login to fork'}
       >
         <span class="fork-icon">⚡</span>
-        <span class="label">{forking ? $t('repo.forking') : $t('repo.fork')}</span>
+        <span class="label">{forking ? t('repo.forking') : t('repo.fork')}</span>
       </button>
     </div>
   </div>
