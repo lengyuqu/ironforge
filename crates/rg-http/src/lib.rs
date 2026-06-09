@@ -603,6 +603,54 @@ async fn health(State(state): State<AppState>) -> impl IntoResponse {
         serde_json::json!(if metrics_ok { "ok" } else { "not_initialized" }),
     );
 
+    // Git availability check (spawn_blocking to avoid blocking)
+    let git_ok = tokio::task::spawn_blocking(|| {
+        std::process::Command::new("git")
+            .arg("--version")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    })
+    .await
+    .unwrap_or(false);
+    checks.insert(
+        "git".to_string(),
+        serde_json::json!(if git_ok { "ok" } else { "error" }),
+    );
+
+    // SMTP connectivity check (TCP connect with timeout)
+    let smtp_ok = if let Some(ref smtp) = state.smtp_config {
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(3),
+            tokio::net::TcpStream::connect((smtp.host.as_str(), smtp.port)),
+        )
+        .await
+        {
+            Ok(Ok(_)) => true,
+            Ok(Err(_)) | Err(_) => false,
+        }
+    } else {
+        true // skipped if not configured
+    };
+    checks.insert(
+        "smtp".to_string(),
+        serde_json::json!(if smtp_ok { "ok" } else { "error" }),
+    );
+
+    // Overall: all critical checks must pass
+    let overall = if db_ok && fs_ok && git_ok && smtp_ok {
+        "ok"
+    } else if db_ok || fs_ok {
+        "degraded"
+    } else {
+        "unhealthy"
+    };
+    let status_code = if db_ok && fs_ok && git_ok && smtp_ok {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    };
+
     (
         status_code,
         axum::Json(serde_json::json!({

@@ -117,7 +117,7 @@ pub mod git {
 
 /// CI/CD metrics.
 pub mod ci {
-    use prometheus::{Histogram, HistogramOpts, IntCounter, IntCounterVec, IntGauge, Opts, Registry};
+    use prometheus::{IntCounterVec, IntGauge, Opts, Registry};
     use std::sync::OnceLock;
 
     /// Counter: total CI pipelines by status.
