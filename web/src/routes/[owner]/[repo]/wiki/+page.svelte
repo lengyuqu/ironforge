@@ -6,8 +6,8 @@
 
   const t = createT();
 
-  let owner = $derived($page.params.owner);
-  let repo = $derived($page.params.repo);
+  let owner = $derived($page.params.owner!);
+  let repo = $derived($page.params.repo!);
   let pageList = $state<any[]>([]);
   let loading = $state(true);
   let error = $state('');
@@ -50,24 +50,24 @@
   <RepoHeader {owner} {repo} activeTab="wiki" starsCount={0} />
 
   <div class="toolbar">
-    <h2>{$t('wiki.pages')}</h2>
-    <button class="btn-primary" onclick={() => showCreate = !showCreate}>{$t('wiki.new')}</button>
+    <h2>{t('wiki.pages')}</h2>
+    <button class="btn-primary" onclick={() => showCreate = !showCreate}>{t('wiki.new')}</button>
   </div>
 
   {#if showCreate}
     <div class="create-form">
       <form onsubmit={handleCreate}>
         <label>
-          {$t('wiki.create_form.title')}
-          <input type="text" bind:value={newTitle} required placeholder={$t('wiki.create_form.title_placeholder')} />
+          {t('wiki.create_form.title')}
+          <input type="text" bind:value={newTitle} required placeholder={t('wiki.create_form.title_placeholder')} />
         </label>
         <label>
-          {$t('wiki.create_form.content')}
-          <textarea bind:value={newContent} rows="8" required placeholder={$t('wiki.create_form.content_placeholder')}></textarea>
+          {t('wiki.create_form.content')}
+          <textarea bind:value={newContent} rows="8" required placeholder={t('wiki.create_form.content_placeholder')}></textarea>
         </label>
         <div class="form-actions">
-          <button type="submit" class="btn-primary">{$t('wiki.create_form.submit')}</button>
-          <button type="button" class="btn-secondary" onclick={() => showCreate = false}>{$t('wiki.create_form.cancel')}</button>
+          <button type="submit" class="btn-primary">{t('wiki.create_form.submit')}</button>
+          <button type="button" class="btn-secondary" onclick={() => showCreate = false}>{t('wiki.create_form.cancel')}</button>
         </div>
       </form>
     </div>
@@ -78,9 +78,9 @@
   {/if}
 
   {#if loading}
-    <p class="text-secondary">{$t('common.loading')}</p>
+    <p class="text-secondary">{t('common.loading')}</p>
   {:else if pageList.length === 0}
-    <div class="empty"><p>{$t('wiki.empty')}</p></div>
+    <div class="empty"><p>{t('wiki.empty')}</p></div>
   {:else}
     <div class="page-list">
       {#each pageList as p}

@@ -6,9 +6,9 @@
 
   const t = createT();
 
-  let owner = $derived($page.params.owner);
-  let repo = $derived($page.params.repo);
-  let number = $derived(parseInt($page.params.number));
+  let owner = $derived($page.params.owner!);
+  let repo = $derived($page.params.repo!);
+  let number = $derived(parseInt($page.params.number!));
   let issue = $state<any>(null);
   let commentList = $state<any[]>([]);
   let loading = $state(true);
@@ -69,7 +69,7 @@
   {/if}
 
   {#if loading}
-    <p class="text-secondary">{$t('common.loading')}</p>
+    <p class="text-secondary">{t('common.loading')}</p>
   {:else if issue}
     <div class="issue-detail">
       <div class="issue-header">
@@ -79,10 +79,10 @@
         </div>
         <div class="issue-meta">
           <span class="state-badge" class:open={issue.state === 'open'} class:closed={issue.state === 'closed'}>
-            {$t(`issues.state.${issue.state}`)}
+            {t(`issues.state.${issue.state}`)}
           </span>
           <span class="text-secondary">
-            opened {formatDate(issue.created_at)} by <strong>{issue.author || $t('common.unknown')}</strong>
+            opened {formatDate(issue.created_at)} by <strong>{issue.author || t('common.unknown')}</strong>
           </span>
           {#if issue.labels?.length}
             {#each issue.labels as label}
@@ -95,7 +95,7 @@
       {#if issue.body}
         <div class="issue-body">
           <div class="comment-header">
-            <strong>{issue.author || $t('common.unknown')}</strong> commented {formatDate(issue.created_at)}
+            <strong>{issue.author || t('common.unknown')}</strong> commented {formatDate(issue.created_at)}
           </div>
           <div class="comment-body">{issue.body}</div>
         </div>
@@ -105,7 +105,7 @@
       {#each commentList as comment}
         <div class="comment">
           <div class="comment-header">
-            <strong>{comment.author || $t('common.unknown')}</strong> commented {formatDate(comment.created_at)}
+            <strong>{comment.author || t('common.unknown')}</strong> commented {formatDate(comment.created_at)}
           </div>
           <div class="comment-body">{comment.body}</div>
         </div>
@@ -113,11 +113,11 @@
 
       <!-- Add comment -->
       <form onsubmit={handleComment} class="comment-form">
-        <textarea bind:value={newComment} rows="4" placeholder={$t('issues.comment_placeholder')}></textarea>
+        <textarea bind:value={newComment} rows="4" placeholder={t('issues.comment_placeholder')}></textarea>
         <div class="form-actions">
-          <button type="submit" class="btn-primary" disabled={!newComment.trim()}>{$t('issues.comment')}</button>
+          <button type="submit" class="btn-primary" disabled={!newComment.trim()}>{t('issues.comment')}</button>
           <button type="button" class="btn-close" onclick={toggleState}>
-            {issue.state === 'open' ? $t('issues.close_issue') : $t('issues.reopen_issue')}
+            {issue.state === 'open' ? t('issues.close_issue') : t('issues.reopen_issue')}
           </button>
         </div>
       </form>

@@ -37,7 +37,7 @@
       total = result.pagination.total;
       totalPages = result.pagination.total_pages;
     } catch (e: any) {
-      error = e.message || $t('errors.load_failed');
+      error = e.message || t('errors.load_failed');
     } finally {
       loading = false;
     }
@@ -110,9 +110,9 @@
 
 <div class="container">
   <div class="header">
-    <a href="/admin" class="back">← {$t('admin.back')}</a>
-    <h1>{$t('admin.users.title')}</h1>
-    <p class="meta">{total} {$t('admin.users.total')}</p>
+    <a href="/admin" class="back">← {t('admin.back')}</a>
+    <h1>{t('admin.users.title')}</h1>
+    <p class="meta">{total} {t('admin.users.total')}</p>
   </div>
 
   {#if error}
@@ -120,7 +120,7 @@
   {/if}
 
   {#if loading}
-    <p class="loading">{$t('common.loading')}</p>
+    <p class="loading">{t('common.loading')}</p>
   {:else}
     <div class="table-wrap">
       <table class="users-table">
@@ -151,9 +151,9 @@
               </td>
               <td class="date">{formatDate(u.created_at)}</td>
               <td class="actions">
-                <button class="btn-sm" onclick={() => openEdit(u)}>{$t('common.edit')}</button>
+                <button class="btn-sm" onclick={() => openEdit(u)}>{t('common.edit')}</button>
                 {#if u.id !== getUser()?.id}
-                  <button class="btn-danger" onclick={() => confirmDelete(u)}>{$t('common.delete')}</button>
+                  <button class="btn-danger" onclick={() => confirmDelete(u)}>{t('common.delete')}</button>
                 {/if}
               </td>
             </tr>
@@ -176,8 +176,8 @@
 <!-- Edit modal -->
 {#if selectedUser}
   <div class="modal-overlay" onclick={closeEdit}>
-    <div class="modal" onclick={(e) => e.stopPropagation()}>
-      <h2>{$t('admin.users.edit', { username: selectedUser.username })}</h2>
+    <div class="modal" role="dialog" aria-modal="true" onclick={(e) => e.stopPropagation()}>
+      <h2>{t('admin.users.edit', { username: selectedUser.username })}</h2>
 
       {#if error}
         <div class="error">{error}</div>
@@ -196,19 +196,19 @@
       <div class="form-group">
         <label class="checkbox-label">
           <input type="checkbox" bind:checked={editIsAdmin} />
-          {$t('admin.users.is_admin')}
+          {t('admin.users.is_admin')}
         </label>
         <label class="checkbox-label">
           <input type="checkbox" bind:checked={editIsActive} />
-          {$t('admin.users.is_active')}
+          {t('admin.users.is_active')}
         </label>
       </div>
 
       <div class="modal-actions">
         <button class="btn-primary" onclick={handleSave} disabled={saving}>
-          {saving ? $t('common.loading') : $t('common.save')}
+          {saving ? t('common.loading') : t('common.save')}
         </button>
-        <button class="btn-secondary" onclick={closeEdit}>{$t('common.cancel')}</button>
+        <button class="btn-secondary" onclick={closeEdit}>{t('common.cancel')}</button>
       </div>
     </div>
   </div>
@@ -217,19 +217,19 @@
 <!-- Delete confirm modal -->
 {#if showDeleteConfirm && deleteTarget}
   <div class="modal-overlay" onclick={() => showDeleteConfirm = false}>
-    <div class="modal" onclick={(e) => e.stopPropagation()}>
-      <h2>{$t('admin.users.delete_confirm')}</h2>
+    <div class="modal" role="dialog" aria-modal="true" onclick={(e) => e.stopPropagation()}>
+      <h2>{t('admin.users.delete_confirm')}</h2>
       <p>
-        {$t('admin.users.delete_warning', { username: deleteTarget.username })}
+        {t('admin.users.delete_warning', { username: deleteTarget.username })}
       </p>
       {#if error}
         <div class="error">{error}</div>
       {/if}
       <div class="modal-actions">
         <button class="btn-danger" onclick={handleDelete} disabled={saving}>
-          {saving ? $t('common.loading') : $t('common.delete')}
+          {saving ? t('common.loading') : t('common.delete')}
         </button>
-        <button class="btn-secondary" onclick={() => showDeleteConfirm = false}>{$t('common.cancel')}</button>
+        <button class="btn-secondary" onclick={() => showDeleteConfirm = false}>{t('common.cancel')}</button>
       </div>
     </div>
   </div>

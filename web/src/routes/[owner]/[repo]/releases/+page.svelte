@@ -6,8 +6,8 @@
 
   const t = createT();
 
-  let owner = $derived($page.params.owner);
-  let repo = $derived($page.params.repo);
+  let owner = $derived($page.params.owner!);
+  let repo = $derived($page.params.repo!);
 
   let releaseList = $state<any[]>([]);
   let loading = $state(true);
@@ -79,8 +79,8 @@
   <RepoHeader owner={owner!} repo={repo!} activeTab="releases" />
 
   <div class="page-header">
-    <h1>{$t('releases.title')}</h1>
-    <a href="/{owner}/{repo}/releases/new" class="btn-primary">{$t('releases.new')}</a>
+    <h1>{t('releases.title')}</h1>
+    <a href="/{owner}/{repo}/releases/new" class="btn-primary">{t('releases.new')}</a>
   </div>
 
   {#if error}
@@ -88,11 +88,11 @@
   {/if}
 
   {#if loading}
-    <p class="loading-text">{$t('common.loading')}</p>
+    <p class="loading-text">{t('common.loading')}</p>
   {:else if releaseList.length === 0}
     <div class="empty">
-      <p>{$t('releases.no_releases')}</p>
-      <a href="/{owner}/{repo}/releases/new" class="btn-primary">{$t('releases.new')}</a>
+      <p>{t('releases.no_releases')}</p>
+      <a href="/{owner}/{repo}/releases/new" class="btn-primary">{t('releases.new')}</a>
     </div>
   {:else}
     <div class="release-list">
@@ -102,13 +102,13 @@
             <div class="tag-section">
               <span class="tag-badge">🏷 {release.tag_name}</span>
               {#if index === 0}
-                <span class="badge latest">{$t('releases.latest')}</span>
+                <span class="badge latest">{t('releases.latest')}</span>
               {/if}
               {#if release.is_prerelease}
-                <span class="badge prerelease">{$t('releases.prerelease')}</span>
+                <span class="badge prerelease">{t('releases.prerelease')}</span>
               {/if}
               {#if release.is_draft}
-                <span class="badge draft">{$t('releases.draft')}</span>
+                <span class="badge draft">{t('releases.draft')}</span>
               {/if}
             </div>
           </div>
@@ -120,23 +120,23 @@
           {/if}
 
           <div class="release-meta">
-            <span class="release-date">{$t('releases.created', { date: relativeTime(release.created_at) })}</span>
+            <span class="release-date">{t('releases.created', { date: relativeTime(release.created_at) })}</span>
           </div>
 
           <div class="release-actions">
-            <a href="/{owner}/{repo}/tree/{release.tag_name}" class="action-link">{$t('releases.browse_files')}</a>
-            <a href="/{owner}/{repo}/releases/edit/{release.id}" class="action-link">{$t('releases.edit')}</a>
+            <a href="/{owner}/{repo}/tree/{release.tag_name}" class="action-link">{t('releases.browse_files')}</a>
+            <a href="/{owner}/{repo}/releases/edit/{release.id}" class="action-link">{t('releases.edit')}</a>
 
             {#if confirmDeleteId === release.id}
               <div class="delete-confirm">
                 <span>Are you sure?</span>
                 <button class="btn-danger" onclick={() => handleDelete(release.id)} disabled={deletingId === release.id}>
-                  {deletingId === release.id ? '...' : $t('common.delete')}
+                  {deletingId === release.id ? '...' : t('common.delete')}
                 </button>
-                <button class="btn-secondary" onclick={cancelDelete}>{$t('common.cancel')}</button>
+                <button class="btn-secondary" onclick={cancelDelete}>{t('common.cancel')}</button>
               </div>
             {:else}
-              <button class="action-link danger" onclick={() => showConfirm(release.id)}>{$t('releases.delete')}</button>
+              <button class="action-link danger" onclick={() => showConfirm(release.id)}>{t('releases.delete')}</button>
             {/if}
           </div>
         </div>

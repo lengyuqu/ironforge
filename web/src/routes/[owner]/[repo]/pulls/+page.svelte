@@ -6,8 +6,8 @@
 
   const t = createT();
 
-  let owner = $derived($page.params.owner);
-  let repo = $derived($page.params.repo);
+  let owner = $derived($page.params.owner!);
+  let repo = $derived($page.params.repo!);
   let prList = $state<any[]>([]);
   let loading = $state(true);
   let error = $state('');
@@ -70,29 +70,29 @@
   <div class="toolbar">
     <div class="filter-tabs">
       <button class="filter-btn" class:active={filterState === 'open'} onclick={() => { filterState = 'open'; loadPRs(); }}>
-        {$t('pulls.tabs.open')}
+        {t('pulls.tabs.open')}
       </button>
       <button class="filter-btn" class:active={filterState === 'closed'} onclick={() => { filterState = 'closed'; loadPRs(); }}>
-        {$t('pulls.tabs.closed')}
+        {t('pulls.tabs.closed')}
       </button>
       <button class="filter-btn" class:active={filterState === 'merged'} onclick={() => { filterState = 'merged'; loadPRs(); }}>
-        {$t('pulls.tabs.merged')}
+        {t('pulls.tabs.merged')}
       </button>
     </div>
     <button class="btn-primary" onclick={() => showCreate = !showCreate}>
-      {$t('pulls.new')}
+      {t('pulls.new')}
     </button>
   </div>
 
   {#if showCreate}
     <div class="create-form">
-      <h2>{$t('pulls.create_form.title')}</h2>
+      <h2>{t('pulls.create_form.title')}</h2>
       <form onsubmit={handleCreate}>
         <div class="branch-row">
           <label>
-            {$t('pulls.create_form.from')}
+            {t('pulls.create_form.from')}
             <select bind:value={newHead} required>
-              <option value="" disabled selected>{$t('pulls.create_form.select_branch')}</option>
+              <option value="" disabled selected>{t('pulls.create_form.select_branch')}</option>
               {#each branches as b}
                 <option value={b.name}>{b.name}</option>
               {/each}
@@ -100,25 +100,25 @@
           </label>
           <span class="arrow">→</span>
           <label>
-            {$t('pulls.create_form.into')}
+            {t('pulls.create_form.into')}
             <select bind:value={newBase} required>
               {#each branches as b}
-                <option value={b.name}>{b.name} {b.is_default ? $t('repo.browser.default_branch') : ''}</option>
+                <option value={b.name}>{b.name} {b.is_default ? t('repo.browser.default_branch') : ''}</option>
               {/each}
             </select>
           </label>
         </div>
         <label>
-          {$t('pulls.create_form.description')}
-          <input type="text" bind:value={newTitle} required placeholder={$t('pulls.create_form.description_placeholder')} />
+          {t('pulls.create_form.description')}
+          <input type="text" bind:value={newTitle} required placeholder={t('pulls.create_form.description_placeholder')} />
         </label>
         <label>
-          {$t('pulls.create_form.description')} <span class="optional">{$t('pulls.create_form.description_hint')}</span>
-          <textarea bind:value={newBody} rows="4" placeholder={$t('pulls.create_form.description_placeholder')}></textarea>
+          {t('pulls.create_form.description')} <span class="optional">{t('pulls.create_form.description_hint')}</span>
+          <textarea bind:value={newBody} rows="4" placeholder={t('pulls.create_form.description_placeholder')}></textarea>
         </label>
         <div class="form-actions">
-          <button type="submit" class="btn-primary" disabled={!newHead}>{$t('pulls.create_form.submit')}</button>
-          <button type="button" class="btn-secondary" onclick={() => showCreate = false}>{$t('pulls.create_form.cancel')}</button>
+          <button type="submit" class="btn-primary" disabled={!newHead}>{t('pulls.create_form.submit')}</button>
+          <button type="button" class="btn-secondary" onclick={() => showCreate = false}>{t('pulls.create_form.cancel')}</button>
         </div>
       </form>
     </div>
@@ -129,9 +129,9 @@
   {/if}
 
   {#if loading}
-    <p class="text-secondary">{$t('common.loading')}</p>
+    <p class="text-secondary">{t('common.loading')}</p>
   {:else if prList.length === 0}
-    <div class="empty"><p>{$t('pulls.empty', { state: filterState === 'all' ? '' : filterState })}</p></div>
+    <div class="empty"><p>{t('pulls.empty', { state: filterState === 'all' ? '' : filterState })}</p></div>
   {:else}
     <div class="pr-list">
       {#each prList as pr}
@@ -142,7 +142,7 @@
           <div class="pr-info">
             <div class="pr-title">{pr.title}</div>
             <div class="pr-meta">
-              #{pr.number} opened {formatDate(pr.created_at)} by {pr.author || $t('common.unknown')}
+              #{pr.number} opened {formatDate(pr.created_at)} by {pr.author || t('common.unknown')}
               <span class="branch-label">{pr.head_branch}</span> → <span class="branch-label">{pr.base_branch}</span>
             </div>
           </div>

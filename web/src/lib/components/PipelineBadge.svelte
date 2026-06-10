@@ -30,7 +30,7 @@
   {:else}
     ●
   {/if}
-  {$t(`pipeline.status.${status}`)}
+  {t(`pipeline.status.${status}`)}
 </span>
 
 <style>

@@ -6,8 +6,8 @@
 
   const t = createT();
 
-  let owner = $derived($page.params.owner);
-  let repo = $derived($page.params.repo);
+  let owner = $derived($page.params.owner!);
+  let repo = $derived($page.params.repo!);
   let ref = $state('');
   let path = $state('');
   let entries = $state<any[]>([]);
@@ -63,9 +63,9 @@
   }
 
   function formatFileSize(size: number) {
-    if (size < 1024) return size + $t('repo.file_size.b');
-    if (size < 1024 * 1024) return (size / 1024).toFixed(1) + $t('repo.file_size.kb');
-    return (size / (1024 * 1024)).toFixed(1) + $t('repo.file_size.mb');
+    if (size < 1024) return size + t('repo.file_size.b');
+    if (size < 1024 * 1024) return (size / 1024).toFixed(1) + t('repo.file_size.kb');
+    return (size / (1024 * 1024)).toFixed(1) + t('repo.file_size.mb');
   }
 </script>
 
@@ -93,7 +93,7 @@
           <div class="dropdown">
             {#each branches as b}
               <button class="dropdown-item" class:active={b.name === ref || (!ref && b.is_default)} onclick={() => selectBranch(b.name)}>
-                {b.name} {b.is_default ? $t('repo.browser.default_branch') : ''}
+                {b.name} {b.is_default ? t('repo.browser.default_branch') : ''}
               </button>
             {/each}
           </div>
@@ -140,7 +140,7 @@
 
       <!-- Recent commits -->
       <div class="commits-panel">
-        <h3>{$t('repo.browser.recent_commits')}</h3>
+        <h3>{t('repo.browser.recent_commits')}</h3>
         {#each commits as commit}
           <div class="commit-item">
             <div class="commit-msg truncate">{commit.message?.split('\n')[0]}</div>

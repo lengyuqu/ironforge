@@ -78,7 +78,7 @@ export const auth = {
       body: JSON.stringify({ username, password }),
     }),
   me: () =>
-    request<{ id: number; username: string; email: string }>('/users/me'),
+    request<{ id: number; username: string; email: string; is_admin: boolean; display_name: string | null }>('/users/me'),
 };
 
 // ── Repos ────────────────────────────────────────────
@@ -443,6 +443,37 @@ export interface UpdateUserData {
   is_active?: boolean;
 }
 
+// Audit Log
+export interface AuditLogEntry {
+  id: number;
+  user_id: number | null;
+  username: string | null;
+  action: string;
+  resource_type: string | null;
+  resource_id: number | null;
+  resource_name: string | null;
+  ip_address: string | null;
+  details: string | null;
+  created_at: string;
+}
+
+export interface AuditLogResponse {
+  total: number;
+  page: number;
+  page_size: number;
+  logs: AuditLogEntry[];
+}
+
+export interface AuditLogQuery {
+  page?: number;
+  page_size?: number;
+  user_id?: number;
+  action?: string;
+  resource_type?: string;
+  start_time?: string;
+  end_time?: string;
+}
+
 export const admin = {
   // Users
   listUsers: (page?: number, perPage?: number) =>
@@ -464,6 +495,20 @@ export const admin = {
     request<AdminOrg>(`/admin/orgs/${name}`),
   deleteOrg: (name: string) =>
     request<{ deleted: boolean }>(`/admin/orgs/${name}`, { method: 'DELETE' }),
+
+  // Audit Logs
+  listAuditLogs: (query?: AuditLogQuery) =>
+    request<AuditLogResponse>(`/admin/audit/logs${qs({
+      page: query?.page,
+      page_size: query?.page_size,
+      user_id: query?.user_id,
+      action: query?.action,
+      resource_type: query?.resource_type,
+      start_time: query?.start_time,
+      end_time: query?.end_time,
+    })}`),
+  getAuditLog: (id: number) =>
+    request<AuditLogEntry>(`/admin/audit/logs/${id}`),
 };
 
 // ── WebSocket ────────────────────────────────────────
@@ -486,6 +531,55 @@ export interface SearchResponse {
 export const search = {
   search: (q: string, type?: string, page?: number, perPage?: number) =>
     request<SearchResponse>(`/search${qs({ q, type: type || 'all', page, per_page: perPage })}`),
+};
+
+// ── Packages ─────────────────────────────────────
+export const packages = {
+  list: (owner: string, repo: string, format?: string, page?: number, perPage?: number) =>
+    request<PaginatedResponse<any>>(`/repos/${owner}/${repo}/packages${qs({ format, page, per_page: perPage })}`),
+  getFormat: (owner: string, repo: string, format: string) =>
+    request<{ format: string; packages: any[] }>(`/repos/${owner}/${repo}/packages/${format}`),
+  get: (owner: string, repo: string, format: string, name: string) =>
+    request<any>(`/repos/${owner}/${repo}/packages/${format}/${name}`),
+  getVersions: (owner: string, repo: string, format: string, name: string) =>
+    request<{ name: string; versions: string[] }>(`/repos/${owner}/${repo}/packages/${format}/${name}/versions`),
+  getVersion: (owner: string, repo: string, format: string, name: string, version: string) =>
+    request<any>(`/repos/${owner}/${repo}/packages/${format}/${name}/versions/${version}`),
+  create: (owner: string, repo: string, format: string, data: { name: string; version: string; description?: string; content_type?: string; file?: File }) =>
+    request<any>(`/repos/${owner}/${repo}/packages/${format}`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  delete: (owner: string, repo: string, format: string, name: string, version: string) =>
+    request<{ deleted: boolean }>(`/repos/${owner}/${repo}/packages/${format}/${name}/versions/${version}`, { method: 'DELETE' }),
+};
+
+// ── Runners ──────────────────────────────────────
+export const runners = {
+  list: (page?: number, perPage?: number) =>
+    request<PaginatedResponse<any>>(`/runners${qs({ page, per_page: perPage })}`),
+  get: (id: number) =>
+    request<any>(`/runners/${id}`),
+  register: (data: { name: string; labels?: string[] }) =>
+    request<any>('/runners', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  delete: (id: number) =>
+    request<{ deleted: boolean }>(`/runners/${id}`, { method: 'DELETE' }),
+};
+
+// ── Time Tracking ─────────────────────────────────
+export const timeTracking = {
+  list: (owner: string, repo: string, page?: number, perPage?: number) =>
+    request<PaginatedResponse<any>>(`/repos/${owner}/${repo}/time-tracking${qs({ page, per_page: perPage })}`),
+  add: (owner: string, repo: string, data: { duration: number; note?: string; date?: string }) =>
+    request<any>(`/repos/${owner}/${repo}/time-tracking`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  delete: (owner: string, repo: string, id: number) =>
+    request<{ deleted: boolean }>(`/repos/${owner}/${repo}/time-tracking/${id}`, { method: 'DELETE' }),
 };
 
 export function connectNotificationWebSocket(

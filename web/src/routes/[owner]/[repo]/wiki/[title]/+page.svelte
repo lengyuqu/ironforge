@@ -6,9 +6,9 @@
 
   const t = createT();
 
-  let owner = $derived($page.params.owner);
-  let repo = $derived($page.params.repo);
-  let title = $derived(decodeURIComponent($page.params.title));
+  let owner = $derived($page.params.owner!);
+  let repo = $derived($page.params.repo!);
+  let title = $derived(decodeURIComponent($page.params.title!));
   let wikiPage = $state<any>(null);
   let loading = $state(true);
   let error = $state('');
@@ -56,20 +56,20 @@
   {/if}
 
   {#if loading}
-    <p class="text-secondary">{$t('common.loading')}</p>
+    <p class="text-secondary">{t('common.loading')}</p>
   {:else if wikiPage}
     <div class="wiki-page">
       <div class="wiki-header">
         <h1>{title}</h1>
-        <button class="btn-outline" onclick={startEditing}>{$t('wiki.edit')}</button>
+        <button class="btn-outline" onclick={startEditing}>{t('wiki.edit')}</button>
       </div>
 
       {#if editing}
         <div class="edit-area">
           <textarea bind:value={editContent} rows="16"></textarea>
           <div class="form-actions">
-            <button class="btn-primary" onclick={handleSave}>{$t('wiki.save')}</button>
-            <button class="btn-secondary" onclick={() => editing = false}>{$t('wiki.cancel')}</button>
+            <button class="btn-primary" onclick={handleSave}>{t('wiki.save')}</button>
+            <button class="btn-secondary" onclick={() => editing = false}>{t('wiki.cancel')}</button>
           </div>
         </div>
       {:else}

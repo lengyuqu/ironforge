@@ -6,9 +6,9 @@
 
   const t = createT();
 
-  let owner = $derived($page.params.owner);
-  let repo = $derived($page.params.repo);
-  let filePath = $derived($page.params.path);
+  let owner = $derived($page.params.owner!);
+  let repo = $derived($page.params.repo!);
+  let filePath = $derived($page.params.path!);
   let blobData = $state<any>(null);
   let loading = $state(true);
   let error = $state('');
@@ -31,9 +31,9 @@
   }
 
   function formatFileSize(size: number) {
-    if (size < 1024) return size + $t('repo.file_size.b');
-    if (size < 1024 * 1024) return (size / 1024).toFixed(1) + $t('repo.file_size.kb');
-    return (size / (1024 * 1024)).toFixed(1) + $t('repo.file_size.mb');
+    if (size < 1024) return size + t('repo.file_size.b');
+    if (size < 1024 * 1024) return (size / 1024).toFixed(1) + t('repo.file_size.kb');
+    return (size / (1024 * 1024)).toFixed(1) + t('repo.file_size.mb');
   }
 </script>
 
@@ -49,7 +49,7 @@
   {/if}
 
   {#if loading}
-    <p class="text-secondary">{$t('common.loading')}</p>
+    <p class="text-secondary">{t('common.loading')}</p>
   {:else if blobData}
     <div class="file-header">
       <div class="file-path">
@@ -72,7 +72,7 @@
   {/if}
 </div>
 
-<script context="module">
+<script module>
   // Simple markdown to HTML (for rendering READMEs)
   function markdownToHtml(md: string): string {
     try {

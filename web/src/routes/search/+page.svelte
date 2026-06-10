@@ -80,7 +80,7 @@
 
 <div class="search-page">
   <div class="search-header">
-    <h1>{$t('search.title')}</h1>
+    <h1>{t('search.title')}</h1>
     <div class="search-box">
       <div class="search-input-wrapper">
         <svg class="search-icon" viewBox="0 0 16 16" width="16" height="16" fill="currentColor">
@@ -91,18 +91,18 @@
           class="search-input"
           bind:value={query}
           onkeydown={handleKeydown}
-          placeholder={$t('search.placeholder')}
+          placeholder={t('search.placeholder')}
         />
-        <button class="search-btn" onclick={doSearch}>{$t('search.search_button')}</button>
+        <button class="search-btn" onclick={doSearch}>{t('search.search_button')}</button>
       </div>
     </div>
 
     <div class="type-tabs">
       {#each [
-        { key: 'all', label: $t('search.all') },
-        { key: 'repo', label: $t('search.repos') },
-        { key: 'issue', label: $t('search.issues') },
-        { key: 'wiki', label: $t('search.wiki') }
+        { key: 'all', label: t('search.all') },
+        { key: 'repo', label: t('search.repos') },
+        { key: 'issue', label: t('search.issues') },
+        { key: 'wiki', label: t('search.wiki') }
       ] as tab}
         <button
           class="type-tab"
@@ -119,22 +119,22 @@
     {#if loading}
       <div class="loading">
         <div class="spinner"></div>
-        <span>{$t('common.loading')}</span>
+        <span>{t('common.loading')}</span>
       </div>
     {:else if !hasSearched}
       <div class="empty-state">
         <svg class="empty-icon" viewBox="0 0 16 16" width="48" height="48" fill="currentColor">
           <path d="M11.5 7a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0Zm-.82 4.74a6 6 0 1 1 1.06-1.06l3.04 3.04a.75.75 0 1 1-1.06 1.06l-3.04-3.04Z"/>
         </svg>
-        <p>{$t('search.placeholder')}</p>
+        <p>{t('search.placeholder')}</p>
       </div>
     {:else if results.length === 0}
       <div class="empty-state">
-        <p>{$t('search.no_results')}</p>
+        <p>{t('search.no_results')}</p>
       </div>
     {:else}
       <div class="results-info">
-        {$t('search.results_count', { total })}
+        {t('search.results_count', { total })}
       </div>
       <div class="results-list">
         {#each results as result (result.result_type + '-' + result.id)}

@@ -53,31 +53,31 @@
 
 <div class="dashboard">
   <div class="dashboard-header">
-    <h1>{$t('dashboard.title')}</h1>
+    <h1>{t('dashboard.title')}</h1>
     <button class="btn-primary" onclick={() => showCreate = !showCreate}>
-      + {$t('dashboard.new_repo')}
+      + {t('dashboard.new_repo')}
     </button>
   </div>
 
   {#if showCreate}
     <div class="create-form">
-      <h2>{$t('dashboard.create_form.title')}</h2>
+      <h2>{t('dashboard.create_form.title')}</h2>
       <form onsubmit={handleCreate}>
         <label>
-          {$t('dashboard.create_form.name')}
-          <input type="text" bind:value={newName} required placeholder={$t('dashboard.create_form.name_placeholder')} />
+          {t('dashboard.create_form.name')}
+          <input type="text" bind:value={newName} required placeholder={t('dashboard.create_form.name_placeholder')} />
         </label>
         <label>
-          {$t('dashboard.create_form.desc')} <span class="optional">{$t('common.optional')}</span>
-          <input type="text" bind:value={newDesc} placeholder={$t('common.no_description')} />
+          {t('dashboard.create_form.desc')} <span class="optional">{t('common.optional')}</span>
+          <input type="text" bind:value={newDesc} placeholder={t('common.no_description')} />
         </label>
         <label class="checkbox-label">
           <input type="checkbox" bind:checked={newPrivate} />
-          {$t('dashboard.create_form.private')}
+          {t('dashboard.create_form.private')}
         </label>
         <div class="form-actions">
-          <button type="submit" class="btn-primary">{$t('dashboard.create_form.submit')}</button>
-          <button type="button" class="btn-secondary" onclick={() => showCreate = false}>{$t('dashboard.create_form.cancel')}</button>
+          <button type="submit" class="btn-primary">{t('dashboard.create_form.submit')}</button>
+          <button type="button" class="btn-secondary" onclick={() => showCreate = false}>{t('dashboard.create_form.cancel')}</button>
         </div>
       </form>
     </div>
@@ -88,11 +88,11 @@
   {/if}
 
   {#if loading}
-    <p class="text-secondary">{$t('common.loading')}</p>
+    <p class="text-secondary">{t('common.loading')}</p>
   {:else if repoList.length === 0}
     <div class="empty">
-      <p>{$t('dashboard.empty.no_repos')}</p>
-      <p class="text-secondary">{$t('dashboard.empty.get_started')}</p>
+      <p>{t('dashboard.empty.no_repos')}</p>
+      <p class="text-secondary">{t('dashboard.empty.get_started')}</p>
     </div>
   {:else}
     <div class="repo-list">
@@ -105,11 +105,11 @@
             <div class="repo-name">
               {owner}/{repo.name}
               {#if repo.is_private}
-                <span class="badge-private">{$t('dashboard.repo.private')}</span>
+                <span class="badge-private">{t('dashboard.repo.private')}</span>
               {/if}
             </div>
-            <div class="repo-desc">{repo.description || $t('common.no_description')}</div>
-            <div class="repo-meta">{$t('common.created', { date: formatDate(repo.created_at) })}</div>
+            <div class="repo-desc">{repo.description || t('common.no_description')}</div>
+            <div class="repo-meta">{t('common.created', { date: formatDate(repo.created_at) })}</div>
           </div>
         </a>
       {/each}

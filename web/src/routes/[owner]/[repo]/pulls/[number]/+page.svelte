@@ -6,9 +6,9 @@
 
   const t = createT();
 
-  let owner = $derived($page.params.owner);
-  let repo = $derived($page.params.repo);
-  let number = $derived(parseInt($page.params.number));
+  let owner = $derived($page.params.owner!);
+  let repo = $derived($page.params.repo!);
+  let number = $derived(parseInt($page.params.number!));
   let pr = $state<any>(null);
   let diffData = $state<string>('');
   let reviewList = $state<any[]>([]);
@@ -78,7 +78,7 @@
   {/if}
 
   {#if loading}
-    <p class="text-secondary">{$t('common.loading')}</p>
+    <p class="text-secondary">{t('common.loading')}</p>
   {:else if pr}
     <div class="pr-detail">
       <!-- Header -->
@@ -86,10 +86,10 @@
         <h1>{pr.title}</h1>
         <div class="pr-meta">
           <span class="state-badge" class:open={pr.state === 'open'} class:closed={pr.state === 'closed'} class:merged={pr.state === 'merged'}>
-            {$t(`pulls.state.${pr.state}`)}
+            {t(`pulls.state.${pr.state}`)}
           </span>
           <span class="text-secondary">
-            opened {formatDate(pr.created_at)} by <strong>{pr.author || $t('common.unknown')}</strong>
+            opened {formatDate(pr.created_at)} by <strong>{pr.author || t('common.unknown')}</strong>
           </span>
           <span class="branch-pair">
             <span class="branch-label">{pr.head_branch}</span>
@@ -102,7 +102,7 @@
       {#if pr.body}
         <div class="pr-body">
           <div class="comment-header">
-            <strong>{pr.author || $t('common.unknown')}</strong> commented
+            <strong>{pr.author || t('common.unknown')}</strong> commented
           </div>
           <div class="comment-body">{pr.body}</div>
         </div>
@@ -111,13 +111,13 @@
       <!-- Tabs -->
       <div class="pr-tabs">
         <button class="tab" class:active={activeTab === 'conversation'} onclick={() => activeTab = 'conversation'}>
-          {$t('pulls.tabs.conversation')}
+          {t('pulls.tabs.conversation')}
         </button>
         <button class="tab" class:active={activeTab === 'diff'} onclick={() => activeTab = 'diff'}>
-          {$t('pulls.tabs.changes')}
+          {t('pulls.tabs.changes')}
         </button>
         <button class="tab" class:active={activeTab === 'review'} onclick={() => activeTab = 'review'}>
-          {$t('pulls.tabs.reviews')} ({reviewList.length})
+          {t('pulls.tabs.reviews')} ({reviewList.length})
         </button>
       </div>
 
@@ -129,12 +129,12 @@
             <div class="merge-box">
               <div class="merge-row">
                 <select bind:value={mergeStrategy} class="merge-select">
-                  <option value="merge">{$t('pulls.merge.strategy.merge')}</option>
-                  <option value="squash">{$t('pulls.merge.strategy.squash')}</option>
-                  <option value="rebase">{$t('pulls.merge.strategy.rebase')}</option>
+                  <option value="merge">{t('pulls.merge.strategy.merge')}</option>
+                  <option value="squash">{t('pulls.merge.strategy.squash')}</option>
+                  <option value="rebase">{t('pulls.merge.strategy.rebase')}</option>
                 </select>
                 <button class="btn-merge" onclick={handleMerge} disabled={merging}>
-                  {merging ? $t('pulls.merge.merging') : $t('pulls.merge.button')}
+                  {merging ? t('pulls.merge.merging') : t('pulls.merge.button')}
                 </button>
               </div>
             </div>
@@ -144,9 +144,9 @@
           {#each reviewList as review}
             <div class="review-item">
               <div class="comment-header">
-                <strong>{review.reviewer || $t('common.unknown')}</strong>
+                <strong>{review.reviewer || t('common.unknown')}</strong>
                 <span class="verdict-badge" class:approved={review.verdict === 'approved'} class:changes={review.verdict === 'request_changes'} class:commented={review.verdict === 'comment'}>
-                  {$t(`pulls.verdict.${review.verdict === 'request_changes' ? 'changes_requested' : review.verdict}`)}
+                  {t(`pulls.verdict.${review.verdict === 'request_changes' ? 'changes_requested' : review.verdict}`)}
                 </span>
               </div>
               {#if review.body}
@@ -163,7 +163,7 @@
           {#if diffData}
             <pre class="diff-content">{diffData}</pre>
           {:else}
-            <p class="text-secondary">{$t('repo.browser.no_diff')}</p>
+            <p class="text-secondary">{t('repo.browser.no_diff')}</p>
           {/if}
         </div>
       {/if}
@@ -171,24 +171,24 @@
       <!-- Review tab -->
       {#if activeTab === 'review'}
         <div class="review-form">
-          <h3>{$t('pulls.review.title')}</h3>
+          <h3>{t('pulls.review.title')}</h3>
           <div class="verdict-select">
             <label class="radio-label">
               <input type="radio" name="verdict" value="comment" bind:group={reviewVerdict} />
-              {$t('pulls.review.verdict_comment')}
+              {t('pulls.review.verdict_comment')}
             </label>
             <label class="radio-label">
               <input type="radio" name="verdict" value="approved" bind:group={reviewVerdict} />
-              {$t('pulls.review.verdict_approve')}
+              {t('pulls.review.verdict_approve')}
             </label>
             <label class="radio-label">
               <input type="radio" name="verdict" value="request_changes" bind:group={reviewVerdict} />
-              {$t('pulls.review.verdict_changes')}
+              {t('pulls.review.verdict_changes')}
             </label>
           </div>
-          <textarea bind:value={reviewBody} rows="4" placeholder={$t('pulls.review.placeholder')}></textarea>
+          <textarea bind:value={reviewBody} rows="4" placeholder={t('pulls.review.placeholder')}></textarea>
           <button class="btn-primary" onclick={handleSubmitReview} disabled={!reviewBody.trim()}>
-            {$t('pulls.review.submit')}
+            {t('pulls.review.submit')}
           </button>
         </div>
       {/if}
