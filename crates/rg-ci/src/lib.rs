@@ -10,6 +10,11 @@
 //!   - test
 //!   - deploy
 //!
+//! # Optional: prevent multiple pipelines from running simultaneously
+//! concurrency:
+//!   group: ${{ branch }}
+//!   cancel_in_progress: true
+//!
 //! build_app:
 //!   stage: build
 //!   script:
@@ -43,8 +48,9 @@ use runner::PipelineRunner;
 /// This function:
 /// 1. Reads `.ironforge-ci.yml` from the repo at the given commit
 /// 2. Parses the CI configuration
-/// 3. Creates pipeline/stage/job records in the DB
-/// 4. Spawns the pipeline runner in a background task
+/// 3. Checks concurrency control (if configured)
+/// 4. Creates pipeline/stage/job records in the DB
+/// 5. Spawns the pipeline runner in a background task, injecting CI_JOB_TOKEN
 pub async fn trigger_pipeline(
     db: DatabaseConnection,
     repo_path: &std::path::Path,
@@ -55,6 +61,7 @@ pub async fn trigger_pipeline(
     triggered_by: Option<i64>,
     docker_enabled: bool,
     external_runners: bool,
+    jwt_secret: Option<&str>,
 ) -> Result<i64> {
     // 1. Read CI config from repo
     let ci_yml = read_ci_config(repo_path, commit_sha)?;
@@ -62,6 +69,42 @@ pub async fn trigger_pipeline(
     // 2. Parse config
     let config: CiConfig = serde_yaml::from_str(&ci_yml)
         .with_context(|| format!("failed to parse .ironforge-ci.yml: {}", ci_yml))?;
+
+    // 2b. Concurrency control
+    if let Some(ref concurrency) = config.concurrency {
+        let group = rg_db::ops::pipeline_ops::resolve_concurrency_group(
+            &concurrency.group,
+            ref_name,
+        );
+        let active = rg_db::ops::pipeline_ops::find_active_pipelines_by_ref(
+            &db,
+            repo_id,
+            ref_name,
+        )
+        .await?;
+
+        if !active.is_empty() {
+            if concurrency.cancel_in_progress {
+                tracing::info!(
+                    concurrency_group = %group,
+                    "Cancelling {} in-progress pipeline(s) for concurrency group",
+                    active.len()
+                );
+                for p in &active {
+                    if let Err(e) = rg_db::ops::pipeline_ops::cancel_pipeline_chain(&db, p.id).await {
+                        tracing::warn!(pipeline_id = p.id, "Failed to cancel pipeline: {:#}", e);
+                    }
+                }
+            } else {
+                return Err(anyhow::anyhow!(
+                    "Concurrency group '{}' has {} active pipeline(s). \
+                     Set cancel_in_progress: true to auto-cancel, or wait for them to finish.",
+                    group,
+                    active.len()
+                ));
+            }
+        }
+    }
 
     // 3. Create pipeline record
     let pipeline = rg_db::ops::pipeline_ops::create_pipeline(
@@ -117,12 +160,16 @@ pub async fn trigger_pipeline(
 
         let script = job_config.script.join("\n");
 
+        // Serialize tags to JSON for storage
+        let tags_json = job_config.tags.as_ref().map(|t| serde_json::to_string(t).unwrap_or_default());
+
         rg_db::ops::pipeline_ops::create_job(
             &db,
             stage_id,
             job_name,
             &script,
             job_config.image.as_deref(),
+            tags_json.as_deref(),
         )
         .await?;
     }
@@ -132,13 +179,18 @@ pub async fn trigger_pipeline(
         let db_clone = db.clone();
         let pipeline_id_owned = pipeline_id;
         let repo_path_owned = repo_path.to_path_buf();
+        let jwt_secret_owned = jwt_secret.map(|s| s.to_string());
 
         tokio::spawn(async move {
-            let runner = if docker_enabled {
+            let mut runner = if docker_enabled {
                 PipelineRunner::new(db_clone, &repo_path_owned, pipeline_id_owned)
             } else {
                 PipelineRunner::new_local_only(db_clone, &repo_path_owned, pipeline_id_owned)
             };
+            runner.set_repo_id(repo_id);
+            if let Some(ref secret) = jwt_secret_owned {
+                runner.set_jwt_secret(secret.clone());
+            }
             if let Err(e) = runner.run().await {
                 tracing::error!(pipeline_id = pipeline_id_owned, "Pipeline runner error: {:#}", e);
             }

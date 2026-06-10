@@ -48,3 +48,7 @@ pub mod package_registry;
 pub mod package;
 pub mod package_version;
 pub mod package_file;
+pub mod oci_repository;
+pub mod oci_manifest;
+pub mod oci_blob;
+pub mod oci_upload;

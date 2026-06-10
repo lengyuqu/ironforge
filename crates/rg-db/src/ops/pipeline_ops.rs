@@ -2,6 +2,7 @@
 
 use anyhow::{Context, Result};
 use sea_orm::*;
+use sea_orm::sea_query::Expr;
 
 use crate::entities::{pipeline, pipeline_stage, pipeline_job};
 
@@ -172,6 +173,7 @@ pub async fn create_job(
     name: &str,
     script: &str,
     image: Option<&str>,
+    tags: Option<&str>,
 ) -> Result<pipeline_job::Model> {
     let model = pipeline_job::ActiveModel {
         stage_id: Set(stage_id),
@@ -179,6 +181,7 @@ pub async fn create_job(
         script: Set(script.to_string()),
         image: Set(image.map(|s| s.to_string())),
         status: Set("pending".to_string()),
+        tags: Set(tags.map(|s| s.to_string())),
         exit_code: Set(None),
         log: Set(None),
         started_at: Set(None),
@@ -370,7 +373,127 @@ pub async fn find_pending_job(db: &DatabaseConnection) -> Result<Option<pipeline
         .context("db: find pending job")
 }
 
-/// Assign a job to a runner.
+/// Find a pending job that matches the given runner labels.
+///
+/// A job matches if:
+/// - It has no tags (any runner can pick it up)
+/// - OR at least one of its tags matches one of the runner's labels
+pub async fn find_pending_job_matching_labels(
+    db: &DatabaseConnection,
+    runner_labels: &[String],
+) -> Result<Option<pipeline_job::Model>> {
+    let all_pending: Vec<pipeline_job::Model> = pipeline_job::Entity::find()
+        .filter(pipeline_job::Column::Status.eq("pending"))
+        .filter(pipeline_job::Column::RunnerId.is_null())
+        .order_by_asc(pipeline_job::Column::Id)
+        .all(db)
+        .await
+        .context("db: find pending jobs")?;
+
+    if runner_labels.is_empty() {
+        return Ok(all_pending.into_iter().next());
+    }
+
+    let labels_lower: Vec<String> = runner_labels.iter().map(|l| l.to_lowercase()).collect();
+
+    for job in all_pending {
+        let job_tags: Vec<String> = job
+            .tags
+            .as_ref()
+            .and_then(|t| serde_json::from_str(t).ok())
+            .unwrap_or_default();
+
+        if job_tags.is_empty() {
+            return Ok(Some(job));
+        }
+
+        if job_tags.iter().any(|t| labels_lower.contains(&t.to_lowercase())) {
+            return Ok(Some(job));
+        }
+    }
+    Ok(None)
+}
+
+/// Find stuck jobs: "assigned"/"running" but not updated within timeout.
+pub async fn find_stuck_jobs(
+    db: &DatabaseConnection,
+    timeout_secs: i64,
+) -> Result<Vec<pipeline_job::Model>> {
+    let cutoff = chrono::Utc::now().naive_utc()
+        - chrono::Duration::seconds(timeout_secs);
+
+    pipeline_job::Entity::find()
+        .filter(
+            pipeline_job::Column::Status.is_in(["assigned", "running"])
+        )
+        .filter(
+            pipeline_job::Column::UpdatedAt.is_not_null()
+                .and(pipeline_job::Column::UpdatedAt.lte(cutoff))
+        )
+        .all(db)
+        .await
+        .context("db: find stuck jobs")
+}
+
+/// Reset a stuck job back to pending, unassigning the runner.
+pub async fn reset_stuck_job(db: &DatabaseConnection, job_id: i64) -> Result<()> {
+    let now = chrono::Utc::now().naive_utc();
+    pipeline_job::Entity::update_many()
+        .filter(pipeline_job::Column::Id.eq(job_id))
+        .col_expr(pipeline_job::Column::Status, Expr::value("pending"))
+        .col_expr(pipeline_job::Column::RunnerId, Expr::value(sea_orm::Value::BigInt(None)))
+        .col_expr(pipeline_job::Column::UpdatedAt, Expr::value(now))
+        .exec(db)
+        .await
+        .context("db: reset stuck job")?;
+    Ok(())
+}
+
+/// Find offline runners: online/busy but no heartbeat within threshold.
+pub async fn find_offline_runners(
+    db: &DatabaseConnection,
+    heartbeat_timeout_secs: i64,
+) -> Result<Vec<crate::entities::runner::Model>> {
+    let cutoff = chrono::Utc::now() - chrono::Duration::seconds(heartbeat_timeout_secs);
+    use crate::entities::runner;
+    runner::Entity::find()
+        .filter(runner::Column::Status.is_in(["online", "busy"]))
+        .filter(runner::Column::LastSeenAt.lt(cutoff))
+        .all(db)
+        .await
+        .context("db: find offline runners")
+}
+
+/// Mark a job as timed out (error status).
+pub async fn mark_job_timeout(db: &DatabaseConnection, job_id: i64) -> Result<()> {
+    let now = chrono::Utc::now().naive_utc();
+    pipeline_job::Entity::update_many()
+        .filter(pipeline_job::Column::Id.eq(job_id))
+        .col_expr(pipeline_job::Column::Status, Expr::value("error"))
+        .col_expr(pipeline_job::Column::ExitCode, Expr::value(-1))
+        .col_expr(pipeline_job::Column::FinishedAt, Expr::value(now))
+        .col_expr(pipeline_job::Column::UpdatedAt, Expr::value(now))
+        .exec(db)
+        .await
+        .context("db: mark job timeout")?;
+    Ok(())
+}
+
+/// Reset all jobs assigned to a runner back to pending (for deregistration).
+pub async fn reset_runner_jobs(db: &DatabaseConnection, runner_id: i64) -> Result<u64> {
+    let now = chrono::Utc::now().naive_utc();
+    let result = pipeline_job::Entity::update_many()
+        .filter(pipeline_job::Column::RunnerId.eq(Some(runner_id)))
+        .filter(pipeline_job::Column::Status.is_in(["assigned", "running"]))
+        .col_expr(pipeline_job::Column::Status, Expr::value("pending"))
+        .col_expr(pipeline_job::Column::RunnerId, Expr::value(sea_orm::Value::BigInt(None)))
+        .col_expr(pipeline_job::Column::UpdatedAt, Expr::value(now))
+        .exec(db)
+        .await
+        .context("db: reset runner jobs")?;
+    Ok(result.rows_affected)
+}
+
 pub async fn assign_job(db: &DatabaseConnection, job_id: i64, runner_id: i64) -> Result<()> {
     let now = chrono::Utc::now().naive_utc();
     let model = pipeline_job::Entity::find_by_id(job_id)
@@ -385,4 +508,98 @@ pub async fn assign_job(db: &DatabaseConnection, job_id: i64, runner_id: i64) ->
     active.updated_at = Set(Some(now));
     active.update(db).await.context("db: assign job")?;
     Ok(())
+}
+
+// ── Concurrency Control ──────────────────────────────────────────
+
+/// Count active (pending + running) pipelines for a repository.
+pub async fn count_active_pipelines(
+    db: &DatabaseConnection,
+    repo_id: i64,
+) -> Result<usize> {
+    let count = pipeline::Entity::find()
+        .filter(pipeline::Column::RepoId.eq(repo_id))
+        .filter(
+            pipeline::Column::Status.is_in(["pending", "running"])
+        )
+        .count(db)
+        .await
+        .context("db: count active pipelines")? as usize;
+    Ok(count)
+}
+
+/// Find active pipelines on a specific git ref (branch/tag).
+/// Used for concurrency control by ref name.
+pub async fn find_active_pipelines_by_ref(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    ref_name: &str,
+) -> Result<Vec<pipeline::Model>> {
+    pipeline::Entity::find()
+        .filter(pipeline::Column::RepoId.eq(repo_id))
+        .filter(pipeline::Column::RefName.eq(ref_name))
+        .filter(
+            pipeline::Column::Status.is_in(["pending", "running"])
+        )
+        .order_by_asc(pipeline::Column::Id)
+        .all(db)
+        .await
+        .context("db: find active pipelines by ref")
+}
+
+/// Cancel a pipeline and all its stages/jobs that are still pending or running.
+/// Returns whether the pipeline was actually transitioned to "canceled".
+pub async fn cancel_pipeline_chain(
+    db: &DatabaseConnection,
+    pipeline_id: i64,
+) -> Result<bool> {
+    let pipeline_model = match get_pipeline(db, pipeline_id).await? {
+        Some(p) => p,
+        None => return Ok(false),
+    };
+
+    // Only cancel if still pending or running
+    if pipeline_model.status != "pending" && pipeline_model.status != "running" {
+        return Ok(false);
+    }
+
+    let now = Some(chrono::Utc::now().naive_utc());
+
+    // Cancel the pipeline
+    update_pipeline_status(db, pipeline_id, "canceled", None, now).await?;
+
+    // Cancel all stages that are not yet finished
+    let stages = list_stages_by_pipeline(db, pipeline_id).await?;
+    for stage in &stages {
+        if stage.status != "success" && stage.status != "failed" && stage.status != "skipped" {
+            update_stage_status(db, stage.id, "canceled", None, now).await?;
+        }
+
+        // Cancel all jobs in this stage
+        let jobs = list_jobs_by_stage(db, stage.id).await?;
+        for job in &jobs {
+            if job.status != "success" && job.status != "failed" && job.status != "skipped" {
+                update_job_result(
+                    db,
+                    job.id,
+                    "canceled",
+                    None,
+                    None,
+                    None,
+                    now,
+                ).await?;
+            }
+        }
+    }
+
+    Ok(true)
+}
+
+/// Resolve concurrency group template variables.
+/// Supports: ${{ ref }}, ${{ branch }}
+pub fn resolve_concurrency_group(template: &str, ref_name: &str) -> String {
+    let branch = ref_name.strip_prefix("refs/heads/").unwrap_or(ref_name);
+    template
+        .replace("${{ ref }}", ref_name)
+        .replace("${{ branch }}", branch)
 }

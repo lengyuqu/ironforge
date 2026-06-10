@@ -19,6 +19,8 @@ pub struct Model {
     pub started_at: Option<DateTime>,
     pub finished_at: Option<DateTime>,
     pub updated_at: Option<DateTime>,
+    #[sea_orm(nullable)]
+    pub tags: Option<String>, // JSON array of runner tag requirements
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

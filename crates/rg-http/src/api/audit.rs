@@ -139,3 +139,27 @@ pub(crate) async fn get_audit_log(
         created_at: log.created_at.to_rfc3339(),
     }))
 }
+
+/// Extract client IP and User-Agent from request headers.
+pub(crate) fn extract_ip_and_ua(headers: &HeaderMap) -> (Option<String>, Option<String>) {
+    use axum::http::header;
+
+    let ip_address = headers
+        .get("X-Forwarded-For")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.split(',').next())
+        .map(|s| s.trim().to_string())
+        .or_else(|| {
+            headers
+                .get("X-Real-IP")
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.to_string())
+        });
+
+    let user_agent = headers
+        .get(header::USER_AGENT)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
+    (ip_address, user_agent)
+}

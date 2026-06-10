@@ -9,6 +9,39 @@ use serde::{Deserialize, Serialize};
 use crate::error::AppError;
 use crate::AppState;
 
+/// Helper to record audit log (fire-and-forget).
+async fn record_audit(
+    db: &sea_orm::DatabaseConnection,
+    user_id: i64,
+    username: &str,
+    action: &str,
+    resource_type: Option<&str>,
+    resource_id: Option<i64>,
+    resource_name: Option<&str>,
+    headers: &HeaderMap,
+    details: Option<serde_json::Value>,
+) {
+    let (ip_address, user_agent) = crate::api::audit::extract_ip_and_ua(headers);
+
+    let entry = rg_db::entities::audit_log::ActiveModel {
+        id: sea_orm::NotSet,
+        user_id: sea_orm::Set(Some(user_id)),
+        username: sea_orm::Set(Some(username.to_string())),
+        action: sea_orm::Set(action.to_string()),
+        resource_type: sea_orm::Set(resource_type.map(|s| s.to_string())),
+        resource_id: sea_orm::Set(resource_id),
+        resource_name: sea_orm::Set(resource_name.map(|s| s.to_string())),
+        ip_address: sea_orm::Set(ip_address),
+        user_agent: sea_orm::Set(user_agent),
+        details: sea_orm::Set(details.map(|v| v.to_string())),
+        created_at: sea_orm::Set(chrono::Utc::now()),
+    };
+
+    if let Err(e) = rg_db::ops::audit_log_ops::insert(db, entry).await {
+        tracing::warn!(error = %e, "failed to record audit log");
+    }
+}
+
 // ── Response types ───────────────────────────────────────────
 
 #[derive(Serialize)]
@@ -123,16 +156,36 @@ pub async fn create_org(
     )
     .await
     {
-        Ok(org) => (
-            StatusCode::CREATED,
-            Json(serde_json::json!({
-                "id": org.id,
-                "name": org.name,
-                "display_name": org.display_name,
-                "visibility": org.visibility,
-            })),
-        )
-            .into_response(),
+        Ok(org) => {
+            // Record audit log
+            let details = serde_json::json!({
+                "name": body.name,
+                "display_name": body.display_name,
+                "visibility": visibility
+            });
+            record_audit(
+                &state.db,
+                user_id,
+                &body.name,  // username not available, use org name
+                "org.create",
+                Some("org"),
+                Some(org.id),
+                Some(&org.name),
+                &headers,
+                Some(details),
+            ).await;
+
+            (
+                StatusCode::CREATED,
+                Json(serde_json::json!({
+                    "id": org.id,
+                    "name": org.name,
+                    "display_name": org.display_name,
+                    "visibility": org.visibility,
+                })),
+            )
+                .into_response()
+        },
         Err(e) => AppError::bad_request(e).into_response(),
     }
 }
@@ -208,9 +261,16 @@ pub async fn list_orgs(
 )]
 pub async fn update_org(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(name): Path<String>,
     Json(body): Json<UpdateOrgRequest>,
 ) -> impl IntoResponse {
+    let user_id = match super::auth::extract_user_id(&headers, &state.jwt_secret) {
+        Some(id) => id,
+        None => {
+            return AppError::unauthorized("authentication required").into_response();
+        }
+    };
     let org = match rg_core::org::get_org_by_name(&state.db, &name).await {
         Ok(Some(o)) => o,
         Ok(None) => {
@@ -230,7 +290,25 @@ pub async fn update_org(
     )
     .await
     {
-        Ok(updated) => Json(org_to_response(&updated)).into_response(),
+        Ok(updated) => {
+            let details = serde_json::json!({
+                "name": org.name,
+                "display_name": body.display_name,
+                "visibility": body.visibility
+            });
+            record_audit(
+                &state.db,
+                user_id,
+                &org.name,
+                "org.update",
+                Some("org"),
+                Some(org.id),
+                Some(&org.name),
+                &headers,
+                Some(details),
+            ).await;
+            Json(org_to_response(&updated)).into_response()
+        },
         Err(e) => AppError::bad_request(e).into_response(),
     }
 }
@@ -271,7 +349,21 @@ pub async fn delete_org(
     };
 
     match rg_core::org::delete_org(&state.db, org.id, user_id).await {
-        Ok(()) => Json(serde_json::json!({"deleted": true})).into_response(),
+        Ok(()) => {
+            let details = serde_json::json!({"name": org.name});
+            record_audit(
+                &state.db,
+                user_id,
+                &org.name,
+                "org.delete",
+                Some("org"),
+                Some(org.id),
+                Some(&org.name),
+                &headers,
+                Some(details),
+            ).await;
+            Json(serde_json::json!({"deleted": true})).into_response()
+        },
         Err(e) => AppError::forbidden(e).into_response(),
     }
 }
@@ -340,9 +432,16 @@ pub async fn list_org_members(
 )]
 pub async fn add_org_member(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(name): Path<String>,
     Json(body): Json<AddOrgMemberRequest>,
 ) -> impl IntoResponse {
+    let actor_id = match super::auth::extract_user_id(&headers, &state.jwt_secret) {
+        Some(id) => id,
+        None => {
+            return AppError::unauthorized("authentication required").into_response();
+        }
+    };
     let org = match rg_core::org::get_org_by_name(&state.db, &name).await {
         Ok(Some(o)) => o,
         Ok(None) => {
@@ -356,16 +455,34 @@ pub async fn add_org_member(
     let role = body.role.as_deref().unwrap_or("member");
 
     match rg_core::org::add_org_member(&state.db, org.id, body.user_id, role).await {
-        Ok(m) => (
-            StatusCode::CREATED,
-            Json(serde_json::json!({
-                "id": m.id,
-                "org_id": m.org_id,
-                "user_id": m.user_id,
-                "role": m.role,
-            })),
-        )
-            .into_response(),
+        Ok(m) => {
+            let details = serde_json::json!({
+                "org_name": org.name,
+                "added_user_id": body.user_id,
+                "role": role
+            });
+            record_audit(
+                &state.db,
+                actor_id,
+                &org.name,
+                "org.add_member",
+                Some("org"),
+                Some(org.id),
+                Some(&org.name),
+                &headers,
+                Some(details),
+            ).await;
+            (
+                StatusCode::CREATED,
+                Json(serde_json::json!({
+                    "id": m.id,
+                    "org_id": m.org_id,
+                    "user_id": m.user_id,
+                    "role": m.role,
+                })),
+            )
+                .into_response()
+        },
         Err(e) => AppError::bad_request(e).into_response(),
     }
 }
@@ -387,8 +504,15 @@ pub async fn add_org_member(
 )]
 pub async fn remove_org_member(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path((name, user_id)): Path<(String, i64)>,
 ) -> impl IntoResponse {
+    let actor_id = match super::auth::extract_user_id(&headers, &state.jwt_secret) {
+        Some(id) => id,
+        None => {
+            return AppError::unauthorized("authentication required").into_response();
+        }
+    };
     let org = match rg_core::org::get_org_by_name(&state.db, &name).await {
         Ok(Some(o)) => o,
         Ok(None) => {
@@ -400,7 +524,24 @@ pub async fn remove_org_member(
     };
 
     match rg_core::org::remove_org_member(&state.db, org.id, user_id).await {
-        Ok(()) => Json(serde_json::json!({"removed": true})).into_response(),
+        Ok(()) => {
+            let details = serde_json::json!({
+                "org_name": org.name,
+                "removed_user_id": user_id
+            });
+            record_audit(
+                &state.db,
+                actor_id,
+                &org.name,
+                "org.remove_member",
+                Some("org"),
+                Some(org.id),
+                Some(&org.name),
+                &headers,
+                Some(details),
+            ).await;
+            Json(serde_json::json!({"removed": true})).into_response()
+        },
         Err(e) => AppError::bad_request(e).into_response(),
     }
 }

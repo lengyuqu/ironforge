@@ -23,6 +23,39 @@ use crate::error::AppError;
 use crate::pagination::{PaginatedResponse, PaginationParams};
 use super::auth::extract_bearer_claims;
 
+/// Helper to record audit log (fire-and-forget).
+async fn record_audit(
+    db: &sea_orm::DatabaseConnection,
+    user_id: i64,
+    username: &str,
+    action: &str,
+    resource_type: Option<&str>,
+    resource_id: Option<i64>,
+    resource_name: Option<&str>,
+    headers: &HeaderMap,
+    details: Option<serde_json::Value>,
+) {
+    let (ip_address, user_agent) = crate::api::audit::extract_ip_and_ua(headers);
+
+    let entry = rg_db::entities::audit_log::ActiveModel {
+        id: sea_orm::NotSet,
+        user_id: sea_orm::Set(Some(user_id)),
+        username: sea_orm::Set(Some(username.to_string())),
+        action: sea_orm::Set(action.to_string()),
+        resource_type: sea_orm::Set(resource_type.map(|s| s.to_string())),
+        resource_id: sea_orm::Set(resource_id),
+        resource_name: sea_orm::Set(resource_name.map(|s| s.to_string())),
+        ip_address: sea_orm::Set(ip_address),
+        user_agent: sea_orm::Set(user_agent),
+        details: sea_orm::Set(details.map(|v| v.to_string())),
+        created_at: sea_orm::Set(chrono::Utc::now()),
+    };
+
+    if let Err(e) = rg_db::ops::audit_log_ops::insert(db, entry).await {
+        tracing::warn!(error = %e, "failed to record audit log");
+    }
+}
+
 // ── Request / Response types ────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
@@ -126,17 +159,40 @@ pub async fn update_user(
     Path(user_id): Path<i64>,
     Json(body): Json<UpdateUserRequest>,
 ) -> impl IntoResponse {
-    if require_admin(&state, &headers).await.is_none() {
-        return AppError::forbidden("admin required").into_response();
-    }
+    let current_id = match require_admin(&state, &headers).await {
+        Some(id) => id,
+        None => return AppError::forbidden("admin required").into_response(),
+    };
+    let display_name_for_audit = body.display_name.clone();
     let display_name = body.display_name.map(Some);
     let bio = body.bio.map(Some);
+    let is_admin = body.is_admin;
+    let is_active = body.is_active;
     match rg_core::user::service::update_user_admin(
-        &state.db, user_id, display_name, bio, body.is_admin, body.is_active,
+        &state.db, user_id, display_name, bio, is_admin, is_active,
     )
     .await
     {
-        Ok(user) => (StatusCode::OK, Json(serde_json::json!(user))).into_response(),
+        Ok(user) => {
+            let details = serde_json::json!({
+                "target_user_id": user_id,
+                "display_name": display_name_for_audit,
+                "is_admin": is_admin,
+                "is_active": is_active
+            });
+            record_audit(
+                &state.db,
+                current_id,
+                "",
+                "admin.update_user",
+                Some("user"),
+                Some(user_id),
+                Some(user.username.as_str()),
+                &headers,
+                Some(details),
+            ).await;
+            (StatusCode::OK, Json(serde_json::json!(user))).into_response()
+        },
         Err(e) => AppError::bad_request(e.to_string()).into_response(),
     }
 }
@@ -168,7 +224,21 @@ pub async fn delete_user(
         return AppError::bad_request("cannot delete your own account").into_response();
     }
     match rg_core::user::service::delete_user(&state.db, user_id).await {
-        Ok(()) => (StatusCode::OK, Json(serde_json::json!({"deleted": true}))).into_response(),
+        Ok(()) => {
+            let details = serde_json::json!({"deleted_user_id": user_id});
+            record_audit(
+                &state.db,
+                current_id,
+                "",
+                "admin.delete_user",
+                Some("user"),
+                Some(user_id),
+                None,
+                &headers,
+                Some(details),
+            ).await;
+            (StatusCode::OK, Json(serde_json::json!({"deleted": true}))).into_response()
+        },
         Err(e) => AppError::internal(e.to_string()).into_response(),
     }
 }
@@ -251,19 +321,280 @@ pub async fn delete_org(
     headers: HeaderMap,
     Path(name): Path<String>,
 ) -> impl IntoResponse {
-    if require_admin(&state, &headers).await.is_none() {
-        return AppError::forbidden("admin required").into_response();
-    }
+    let current_id = match require_admin(&state, &headers).await {
+        Some(id) => id,
+        None => return AppError::forbidden("admin required").into_response(),
+    };
     match rg_core::org::get_org_by_name(&state.db, &name).await {
         Ok(Some(org)) => {
             match rg_core::org::delete_org(&state.db, org.id, org.id).await {
-                Ok(()) => (StatusCode::OK, Json(serde_json::json!({"deleted": true}))).into_response(),
+                Ok(()) => {
+                    let details = serde_json::json!({"org_name": org.name});
+                    record_audit(
+                        &state.db,
+                        current_id,
+                        "",
+                        "admin.delete_org",
+                        Some("org"),
+                        Some(org.id),
+                        Some(&org.name),
+                        &headers,
+                        Some(details),
+                    ).await;
+                    (StatusCode::OK, Json(serde_json::json!({"deleted": true}))).into_response()
+                },
                 Err(e) => AppError::internal(e.to_string()).into_response(),
             }
         }
         Ok(None) => AppError::not_found("organization not found").into_response(),
         Err(e) => AppError::internal(e.to_string()).into_response(),
     }
+}
+
+// ── SSO Provider Management ─────────────────────────────────────
+
+/// GET /api/v1/admin/sso/providers
+#[utoipa::path(
+    get,
+    path = "/admin/sso/providers",
+    tag = "Admin",
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized"),
+    ),
+)]
+pub async fn list_sso_providers(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if require_admin(&state, &headers).await.is_none() {
+        return AppError::forbidden("admin required").into_response();
+    }
+    match rg_db::ops::sso_provider_ops::list_all(&state.db).await {
+        Ok(providers) => {
+            let list: Vec<_> = providers.iter().map(sso_provider_response).collect();
+            (StatusCode::OK, Json(serde_json::json!(list))).into_response()
+        }
+        Err(e) => AppError::internal(e.to_string()).into_response(),
+    }
+}
+
+/// GET /api/v1/admin/sso/providers/{id}
+#[utoipa::path(
+    get,
+    path = "/admin/sso/providers/{id}",
+    tag = "Admin",
+    params(("id" = i64, Path)),
+    responses(
+        (status = 200, description = "Success"),
+        (status = 401, description = "Unauthorized"),
+    ),
+)]
+pub async fn get_sso_provider(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+) -> impl IntoResponse {
+    if require_admin(&state, &headers).await.is_none() {
+        return AppError::forbidden("admin required").into_response();
+    }
+    match rg_db::ops::sso_provider_ops::find_by_id(&state.db, id).await {
+        Ok(Some(p)) => (StatusCode::OK, Json(sso_provider_response(&p))).into_response(),
+        Ok(None) => AppError::not_found("SSO provider not found").into_response(),
+        Err(e) => AppError::internal(e.to_string()).into_response(),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpsertSsoProviderRequest {
+    pub name: String,
+    pub slug: String,
+    #[serde(default)]
+    pub provider_type: String,
+    pub client_id: Option<String>,
+    pub client_secret: Option<String>,
+    pub discovery_url: Option<String>,
+    pub scopes: Option<String>,
+    pub ldap_host: Option<String>,
+    pub ldap_port: Option<i32>,
+    pub ldap_bind_dn: Option<String>,
+    pub ldap_bind_password: Option<String>,
+    pub ldap_base_dn: Option<String>,
+    pub ldap_user_filter: Option<String>,
+    #[serde(default)]
+    pub enabled: bool,
+    pub icon_url: Option<String>,
+}
+
+/// POST /api/v1/admin/sso/providers
+#[utoipa::path(
+    post,
+    path = "/admin/sso/providers",
+    tag = "Admin",
+    request_body(content = serde_json::Value),
+    responses(
+        (status = 201, description = "Created"),
+        (status = 401, description = "Unauthorized"),
+    ),
+)]
+pub async fn create_sso_provider(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<UpsertSsoProviderRequest>,
+) -> impl IntoResponse {
+    if require_admin(&state, &headers).await.is_none() {
+        return AppError::forbidden("admin required").into_response();
+    }
+
+    let pt = if body.provider_type.is_empty() { "oauth2" } else { &body.provider_type };
+
+    // Encrypt secrets before storing
+    let enc_key = rg_core::auth::encryption::derive_key(&state.jwt_secret);
+    let client_secret_enc = body
+        .client_secret
+        .as_ref()
+        .and_then(|s| rg_core::auth::encryption::encrypt(s, &enc_key).ok());
+    let ldap_password_enc = body
+        .ldap_bind_password
+        .as_ref()
+        .and_then(|s| rg_core::auth::encryption::encrypt(s, &enc_key).ok());
+
+    match rg_db::ops::sso_provider_ops::upsert(
+        &state.db,
+        None,
+        &body.name,
+        &body.slug,
+        pt,
+        body.client_id.as_deref(),
+        client_secret_enc.as_deref(),
+        body.discovery_url.as_deref(),
+        body.scopes.as_deref(),
+        body.ldap_host.as_deref(),
+        body.ldap_port,
+        body.ldap_bind_dn.as_deref(),
+        ldap_password_enc.as_deref(),
+        body.ldap_base_dn.as_deref(),
+        body.ldap_user_filter.as_deref(),
+        body.enabled,
+        body.icon_url.as_deref(),
+    )
+    .await
+    {
+        Ok(provider) => (
+            StatusCode::CREATED,
+            Json(sso_provider_response(&provider)),
+        )
+            .into_response(),
+        Err(e) => AppError::bad_request(e.to_string()).into_response(),
+    }
+}
+
+/// PATCH /api/v1/admin/sso/providers/{id}
+#[utoipa::path(
+    patch,
+    path = "/admin/sso/providers/{id}",
+    tag = "Admin",
+    params(("id" = i64, Path)),
+    request_body(content = serde_json::Value),
+    responses(
+        (status = 200, description = "Updated"),
+        (status = 401, description = "Unauthorized"),
+    ),
+)]
+pub async fn update_sso_provider(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+    Json(body): Json<UpsertSsoProviderRequest>,
+) -> impl IntoResponse {
+    if require_admin(&state, &headers).await.is_none() {
+        return AppError::forbidden("admin required").into_response();
+    }
+
+    let pt = if body.provider_type.is_empty() { "oauth2" } else { &body.provider_type };
+
+    let enc_key = rg_core::auth::encryption::derive_key(&state.jwt_secret);
+    let client_secret_enc = body
+        .client_secret
+        .as_ref()
+        .and_then(|s| rg_core::auth::encryption::encrypt(s, &enc_key).ok());
+    let ldap_password_enc = body
+        .ldap_bind_password
+        .as_ref()
+        .and_then(|s| rg_core::auth::encryption::encrypt(s, &enc_key).ok());
+
+    match rg_db::ops::sso_provider_ops::upsert(
+        &state.db,
+        Some(id),
+        &body.name,
+        &body.slug,
+        pt,
+        body.client_id.as_deref(),
+        client_secret_enc.as_deref(),
+        body.discovery_url.as_deref(),
+        body.scopes.as_deref(),
+        body.ldap_host.as_deref(),
+        body.ldap_port,
+        body.ldap_bind_dn.as_deref(),
+        ldap_password_enc.as_deref(),
+        body.ldap_base_dn.as_deref(),
+        body.ldap_user_filter.as_deref(),
+        body.enabled,
+        body.icon_url.as_deref(),
+    )
+    .await
+    {
+        Ok(provider) => (StatusCode::OK, Json(sso_provider_response(&provider))).into_response(),
+        Err(e) => AppError::bad_request(e.to_string()).into_response(),
+    }
+}
+
+/// DELETE /api/v1/admin/sso/providers/{id}
+#[utoipa::path(
+    delete,
+    path = "/admin/sso/providers/{id}",
+    tag = "Admin",
+    params(("id" = i64, Path)),
+    responses(
+        (status = 200, description = "Deleted"),
+        (status = 401, description = "Unauthorized"),
+    ),
+)]
+pub async fn delete_sso_provider(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+) -> impl IntoResponse {
+    if require_admin(&state, &headers).await.is_none() {
+        return AppError::forbidden("admin required").into_response();
+    }
+    match rg_db::ops::sso_provider_ops::delete_by_id(&state.db, id).await {
+        Ok(()) => (StatusCode::OK, Json(serde_json::json!({"deleted": true}))).into_response(),
+        Err(e) => AppError::bad_request(e.to_string()).into_response(),
+    }
+}
+
+// ── SSO Helpers ──────────────────────────────────────────────────
+
+fn sso_provider_response(p: &rg_db::entities::sso_provider::Model) -> serde_json::Value {
+    serde_json::json!({
+        "id": p.id,
+        "name": p.name,
+        "slug": p.slug,
+        "provider_type": p.provider_type,
+        "client_id": p.client_id,
+        "discovery_url": p.discovery_url,
+        "scopes": p.scopes,
+        "ldap_host": p.ldap_host,
+        "ldap_port": p.ldap_port,
+        "ldap_bind_dn": p.ldap_bind_dn,
+        "ldap_base_dn": p.ldap_base_dn,
+        "ldap_user_filter": p.ldap_user_filter,
+        "enabled": p.enabled,
+        "icon_url": p.icon_url,
+        "created_at": p.created_at.to_string(),
+        "updated_at": p.updated_at.to_string(),
+    })
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────

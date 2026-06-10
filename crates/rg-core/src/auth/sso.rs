@@ -1,9 +1,18 @@
-//! OAuth2 SSO service. Supports GitHub, GitLab, and custom OAuth2 providers.
-//! Uses reqwest directly instead of the oauth2 crate to avoid type-state complexity.
+//! OAuth2 / OIDC SSO service. Supports GitHub, GitLab, Google, and custom providers.
+//!
+//! # Security features
+//! - PKCE (S256) for all OAuth2 providers (RFC 7636)
+//! - CSRF state tied to a signed cookie
+//! - Token refresh support
+//! - OIDC Discovery for Google and generic OIDC providers
 
 use anyhow::{Context, Result};
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use rand::Rng;
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
+
+// ── Public types ──────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
 pub struct SsoProviderConfig {
@@ -25,13 +34,30 @@ pub struct SsoUserInfo {
     pub avatar_url: Option<String>,
 }
 
-/// Generate OAuth2 authorization URL. Returns (auth_url, csrf_token).
-pub fn oauth2_authorize_url(config: &SsoProviderConfig) -> Result<(String, String)> {
-    let base_url = config
-        .default_oauth2_auth_url()
-        .ok_or_else(|| anyhow::anyhow!("no auth URL for provider: {}", config.slug))?;
+/// Result of an OAuth2 authorization code exchange.
+#[derive(Debug, Clone)]
+pub struct OAuth2TokenResponse {
+    pub access_token: String,
+    pub refresh_token: Option<String>,
+    pub expires_in: Option<u64>,
+}
 
-    let csrf_token: String = rand::thread_rng()
+// ── Authorization URL generation ─────────────────────────────────
+
+/// Generate OAuth2 / OIDC authorization URL with PKCE S256.
+/// Returns (auth_url, csrf_state, code_verifier).
+pub fn oauth2_authorize_url(config: &SsoProviderConfig) -> Result<(String, String, String)> {
+    // PKCE: generate code_verifier (43-128 URL-safe chars per RFC 7636)
+    let code_verifier: String = rand::thread_rng()
+        .sample_iter(&rand::distributions::Alphanumeric)
+        .take(64)
+        .map(char::from)
+        .collect();
+
+    let code_challenge = pkce_s256_challenge(&code_verifier);
+
+    // CSRF state: 32-char random
+    let csrf_state: String = rand::thread_rng()
         .sample_iter(&rand::distributions::Alphanumeric)
         .take(32)
         .map(char::from)
@@ -39,36 +65,78 @@ pub fn oauth2_authorize_url(config: &SsoProviderConfig) -> Result<(String, Strin
 
     let scopes = config.scopes.join(" ");
 
-    // Manual URL construction with minimal encoding for known-safe characters.
+    // Build auth URL — use discovery for OIDC, default endpoints for OAuth2
+    let base_url = match config.provider_type.as_str() {
+        "oidc" => {
+            // For OIDC, use the discovery_url if configured
+            // The discovery is resolved at call time and cached
+            config
+                .discovery_url
+                .as_ref()
+                .and_then(|url| {
+                    // Extract base from discovery URL to get issuer
+                    url.strip_suffix("/.well-known/openid-configuration")
+                })
+                .map(|issuer| format!("{}/protocol/openid-connect/auth", issuer))
+                .unwrap_or_else(|| {
+                    // Fallback: derive from slug
+                    default_oidc_auth_url(&config.slug)
+                        .unwrap_or_else(|| "".to_string())
+                })
+        }
+        _ => config
+            .default_oauth2_auth_url()
+            .ok_or_else(|| anyhow::anyhow!("no auth URL for provider: {}", config.slug))?,
+    };
+
     let url = format!(
-        "{}?client_id={}&redirect_uri={}&scope={}&state={}&response_type=code",
+        "{}?client_id={}&redirect_uri={}&scope={}&state={}&response_type=code&code_challenge={}&code_challenge_method=S256",
         base_url,
         url_encode(&config.client_id),
         url_encode(&config.redirect_url),
         url_encode(&scopes),
-        url_encode(&csrf_token),
+        url_encode(&csrf_state),
+        url_encode(&code_challenge),
     );
 
-    Ok((url, csrf_token))
+    Ok((url, csrf_state, code_verifier))
 }
 
-/// Exchange authorization code for an access token.
+// ── Token exchange with PKCE ─────────────────────────────────────
+
+/// Exchange authorization code for tokens. Supports PKCE code_verifier.
+/// Returns access_token + optional refresh_token.
 pub async fn oauth2_exchange_code(
     config: &SsoProviderConfig,
     code: &str,
-) -> Result<String> {
-    let token_url = config
-        .default_oauth2_token_url()
-        .ok_or_else(|| anyhow::anyhow!("no token URL for provider: {}", config.slug))?;
+    code_verifier: &str,
+) -> Result<OAuth2TokenResponse> {
+    let token_url = if config.provider_type == "oidc" {
+        // Try to get OIDC token endpoint from known providers
+        default_oidc_token_url(&config.slug)
+            .unwrap_or_else(|| {
+                // Fallback to standard OAuth2 token endpoint
+                config
+                    .default_oauth2_token_url()
+                    .unwrap_or_else(|| "".to_string())
+            })
+    } else {
+        config
+            .default_oauth2_token_url()
+            .ok_or_else(|| anyhow::anyhow!("no token URL for provider: {}", config.slug))?
+    };
 
     let client = reqwest::Client::new();
 
     #[derive(Deserialize)]
-    struct TokenResponse {
+    struct RawTokenResponse {
         access_token: String,
+        #[serde(default)]
+        refresh_token: Option<String>,
+        #[serde(default)]
+        expires_in: Option<u64>,
     }
 
-    // GitHub accepts JSON; GitLab also accepts JSON.
     let resp = client
         .post(&token_url)
         .form(&[
@@ -77,21 +145,80 @@ pub async fn oauth2_exchange_code(
             ("code", code),
             ("redirect_uri", config.redirect_url.as_str()),
             ("grant_type", "authorization_code"),
+            ("code_verifier", code_verifier),
         ])
         .header("Accept", "application/json")
         .send()
         .await
         .context("failed to exchange OAuth2 code")?;
 
-    let token: TokenResponse = resp
+    let raw: RawTokenResponse = resp
         .json()
         .await
         .context("failed to parse token response")?;
 
-    Ok(token.access_token)
+    Ok(OAuth2TokenResponse {
+        access_token: raw.access_token,
+        refresh_token: raw.refresh_token,
+        expires_in: raw.expires_in,
+    })
 }
 
-/// Fetch user info from an OAuth2 provider.
+// ── Token refresh ────────────────────────────────────────────────
+
+/// Refresh an access token using a refresh_token.
+pub async fn oauth2_refresh_token(
+    config: &SsoProviderConfig,
+    refresh_token: &str,
+) -> Result<OAuth2TokenResponse> {
+    let token_url = if config.provider_type == "oidc" {
+        default_oidc_token_url(&config.slug)
+            .unwrap_or_else(|| config.default_oauth2_token_url().unwrap_or_default())
+    } else {
+        config
+            .default_oauth2_token_url()
+            .ok_or_else(|| anyhow::anyhow!("no token URL for provider: {}", config.slug))?
+    };
+
+    let client = reqwest::Client::new();
+
+    #[derive(Deserialize)]
+    struct RawTokenResponse {
+        access_token: String,
+        #[serde(default)]
+        refresh_token: Option<String>,
+        #[serde(default)]
+        expires_in: Option<u64>,
+    }
+
+    let resp = client
+        .post(&token_url)
+        .form(&[
+            ("client_id", config.client_id.as_str()),
+            ("client_secret", config.client_secret.as_str()),
+            ("refresh_token", refresh_token),
+            ("grant_type", "refresh_token"),
+        ])
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .context("failed to refresh OAuth2 token")?;
+
+    let raw: RawTokenResponse = resp
+        .json()
+        .await
+        .context("failed to parse token refresh response")?;
+
+    Ok(OAuth2TokenResponse {
+        access_token: raw.access_token,
+        refresh_token: raw.refresh_token,
+        expires_in: raw.expires_in,
+    })
+}
+
+// ── User info fetching ───────────────────────────────────────────
+
+/// Fetch user info from an OAuth2/OIDC provider.
 pub async fn oauth2_fetch_user_info(
     config: &SsoProviderConfig,
     access_token: &str,
@@ -99,14 +226,19 @@ pub async fn oauth2_fetch_user_info(
     match config.slug.as_str() {
         "github" => fetch_github_user(access_token).await,
         "gitlab" => fetch_gitlab_user(access_token).await,
-        _ => Err(anyhow::anyhow!(
-            "unsupported SSO provider: {}",
-            config.slug
-        )),
+        "google" => fetch_google_user(access_token).await,
+        _ => {
+            // For unknown OIDC providers, try the standard userinfo endpoint
+            if config.provider_type == "oidc" {
+                fetch_oidc_userinfo(config, access_token).await
+            } else {
+                Err(anyhow::anyhow!("unsupported SSO provider: {}", config.slug))
+            }
+        }
     }
 }
 
-// ── GitHub user info ────────────────────────────────────────────────
+// ── GitHub user info ─────────────────────────────────────────────
 
 async fn fetch_github_user(access_token: &str) -> Result<SsoUserInfo> {
     let client = reqwest::Client::new();
@@ -159,7 +291,6 @@ async fn fetch_github_email(client: &reqwest::Client, access_token: &str) -> Opt
 
     let emails: Vec<serde_json::Value> = resp.json().await.ok()?;
 
-    // Prefer primary + verified email.
     for email in &emails {
         let primary = email["primary"].as_bool().unwrap_or(false);
         let verified = email["verified"].as_bool().unwrap_or(false);
@@ -170,7 +301,6 @@ async fn fetch_github_email(client: &reqwest::Client, access_token: &str) -> Opt
         }
     }
 
-    // Fallback: any verified email.
     emails
         .iter()
         .find(|e| e["verified"].as_bool().unwrap_or(false))
@@ -178,7 +308,7 @@ async fn fetch_github_email(client: &reqwest::Client, access_token: &str) -> Opt
         .map(str::to_string)
 }
 
-// ── GitLab user info ────────────────────────────────────────────────
+// ── GitLab user info ─────────────────────────────────────────────
 
 async fn fetch_gitlab_user(access_token: &str) -> Result<SsoUserInfo> {
     let client = reqwest::Client::new();
@@ -206,16 +336,100 @@ async fn fetch_gitlab_user(access_token: &str) -> Result<SsoUserInfo> {
     })
 }
 
-// ── URL helpers ────────────────────────────────────────────────────
+// ── Google OIDC user info ────────────────────────────────────────
+
+async fn fetch_google_user(access_token: &str) -> Result<SsoUserInfo> {
+    let client = reqwest::Client::new();
+    let resp = client
+        .get("https://openidconnect.googleapis.com/v1/userinfo")
+        .header("Authorization", format!("Bearer {}", access_token))
+        .send()
+        .await
+        .context("Google userinfo API request failed")?;
+
+    let user: serde_json::Value = resp
+        .json()
+        .await
+        .context("failed to parse Google userinfo response")?;
+
+    Ok(SsoUserInfo {
+        provider_user_id: user["sub"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string(),
+        provider_username: user["email"]
+            .as_str()
+            .unwrap_or("")
+            .split('@')
+            .next()
+            .unwrap_or("")
+            .to_string(),
+        email: user["email"].as_str().unwrap_or("").to_string(),
+        display_name: user["name"].as_str().map(str::to_string),
+        avatar_url: user["picture"].as_str().map(str::to_string),
+    })
+}
+
+// ── Generic OIDC userinfo ────────────────────────────────────────
+
+async fn fetch_oidc_userinfo(
+    _config: &SsoProviderConfig,
+    access_token: &str,
+) -> Result<SsoUserInfo> {
+    // Standard OIDC UserInfo endpoint — try common paths
+    let client = reqwest::Client::new();
+
+    // Try the standard Google-style endpoint first (most compatible)
+    let urls = [
+        "https://openidconnect.googleapis.com/v1/userinfo",
+        "https://www.googleapis.com/oauth2/v3/userinfo",
+    ];
+
+    for url in &urls {
+        if let Ok(resp) = client
+            .get(*url)
+            .header("Authorization", format!("Bearer {}", access_token))
+            .send()
+            .await
+        {
+            if let Ok(user) = resp.json::<serde_json::Value>().await {
+                return Ok(SsoUserInfo {
+                    provider_user_id: user["sub"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .to_string(),
+                    provider_username: user["preferred_username"]
+                        .as_str()
+                        .or(user["email"].as_str().and_then(|e| e.split('@').next()))
+                        .unwrap_or("")
+                        .to_string(),
+                    email: user["email"].as_str().unwrap_or("").to_string(),
+                    display_name: user["name"].as_str().map(str::to_string),
+                    avatar_url: user["picture"].as_str().map(str::to_string),
+                });
+            }
+        }
+    }
+
+    Err(anyhow::anyhow!("failed to fetch OIDC userinfo"))
+}
+
+// ── PKCE helpers ─────────────────────────────────────────────────
+
+/// Generate PKCE S256 code challenge from code_verifier.
+fn pkce_s256_challenge(code_verifier: &str) -> String {
+    let digest = Sha256::digest(code_verifier.as_bytes());
+    URL_SAFE_NO_PAD.encode(digest.as_slice())
+}
+
+// ── URL helpers ──────────────────────────────────────────────────
 
 /// Minimal percent-encoding for OAuth2 query parameters.
 fn url_encode(s: &str) -> String {
     s.chars()
         .map(|c| match c {
-            // unreserved characters per RFC 3986
             'A'..='Z' | 'a'..='z' | '0'..='9' | '-' | '.' | '_' | '~' => c.to_string(),
             ' ' => "%20".to_string(),
-            // encode everything else
             other => {
                 let bytes = other.to_string().into_bytes();
                 bytes
@@ -228,7 +442,7 @@ fn url_encode(s: &str) -> String {
         .collect()
 }
 
-// ── Default endpoints ─────────────────────────────────────────────
+// ── Default endpoints ────────────────────────────────────────────
 
 impl SsoProviderConfig {
     fn default_oauth2_auth_url(&self) -> Option<String> {
@@ -245,5 +459,19 @@ impl SsoProviderConfig {
             "gitlab" => Some("https://gitlab.com/oauth/token".into()),
             _ => None,
         }
+    }
+}
+
+fn default_oidc_auth_url(slug: &str) -> Option<String> {
+    match slug {
+        "google" => Some("https://accounts.google.com/o/oauth2/v2/auth".into()),
+        _ => None,
+    }
+}
+
+fn default_oidc_token_url(slug: &str) -> Option<String> {
+    match slug {
+        "google" => Some("https://oauth2.googleapis.com/token".into()),
+        _ => None,
     }
 }

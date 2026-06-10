@@ -431,7 +431,598 @@ pub async fn npm_registry_metadata(
     (StatusCode::OK, Json(metadata)).into_response()
 }
 
+// ── PyPI Protocol Endpoints ───────────────────────────────
+
+/// GET /api/v1/repos/{owner}/{name}/packages/pypi/simple/{pkg_name}
+///
+/// PyPI Simple Repository API (PEP 503).
+/// Returns an HTML page with download links for all versions.
+pub async fn pypi_simple_index(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Path((owner, name, pkg_name)): Path<(String, String, String)>,
+) -> axum::response::Response {
+    let versions = match rg_core::package_registry::service::list_versions(
+        &state.db, &owner, &name, "pypi", &pkg_name,
+    ).await {
+        Ok(v) => v,
+        Err(e) => return err(StatusCode::NOT_FOUND, &format!("{e:#}")),
+    };
+
+    let base_url = headers
+        .get(header::HOST)
+        .and_then(|v| v.to_str().ok())
+        .map(|host| {
+            let scheme = if host.starts_with("localhost") || host.starts_with("127.") {
+                "http"
+            } else {
+                "https"
+            };
+            format!("{}://{}", scheme, host)
+        })
+        .unwrap_or_else(|| "http://localhost".into());
+
+    let entries: Vec<rg_core::package_registry::PyPIVersionEntry> = versions
+        .iter()
+        .map(|v| {
+            // Find the primary package file
+            let primary_file = v.files.iter().find(|f| {
+                let fl = f.filename.to_lowercase();
+                fl.ends_with(".whl") || fl.ends_with(".tar.gz") || fl.ends_with(".tgz") || fl.ends_with(".zip")
+            });
+
+            let filename = primary_file
+                .map(|f| f.filename.clone())
+                .unwrap_or_else(|| format!("{}-{}.tar.gz", pkg_name, v.version));
+
+            let download_url = format!(
+                "{}/api/v1/repos/{}/{}/packages/pypi/{}/{}/{}",
+                base_url.trim_end_matches('/'),
+                owner,
+                name,
+                pkg_name,
+                v.version,
+                filename,
+            );
+
+            rg_core::package_registry::PyPIVersionEntry {
+                version: v.version.clone(),
+                filename,
+                sha256: v.sha256.clone(),
+                download_url,
+            }
+        })
+        .collect();
+
+    let html = rg_core::package_registry::build_simple_repository_html(&pkg_name, &entries);
+
+    (
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
+        html,
+    ).into_response()
+}
+
+// ── Maven Protocol Endpoints ──────────────────────────────
+
+/// GET /api/v1/repos/{owner}/{name}/packages/maven/{group_id}/{artifact_id}/maven-metadata.xml
+///
+/// Maven metadata XML endpoint — returns version list in Maven's standard format.
+pub async fn maven_metadata(
+    State(state): State<AppState>,
+    Path((owner, name, group_id, artifact_id)): Path<(String, String, String, String)>,
+) -> axum::response::Response {
+    // Maven package names are stored as "{groupId}:{artifactId}"
+    let pkg_name = format!("{}:{}", group_id, artifact_id);
+
+    let versions = match rg_core::package_registry::service::list_versions(
+        &state.db, &owner, &name, "maven", &pkg_name,
+    ).await {
+        Ok(v) => v,
+        Err(_e) => {
+            // Return empty metadata rather than 404 — Maven/Gradle handle gracefully
+            return (
+                StatusCode::OK,
+                [(header::CONTENT_TYPE, "application/xml; charset=utf-8")],
+                format!(
+                    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<metadata>\n  <groupId>{}</groupId>\n  <artifactId>{}</artifactId>\n  <versioning>\n    <versions/>\n  </versioning>\n</metadata>\n",
+                    escape_xml(&group_id),
+                    escape_xml(&artifact_id),
+                ),
+            ).into_response();
+        }
+    };
+
+    let entries: Vec<rg_core::package_registry::MavenVersionEntry> = versions
+        .iter()
+        .map(|v| rg_core::package_registry::MavenVersionEntry {
+            version: v.version.clone(),
+            is_snapshot: v.version.ends_with("-SNAPSHOT"),
+            updated: v.created_at.clone(),
+        })
+        .collect();
+
+    let xml = rg_core::package_registry::build_maven_metadata_xml(&group_id, &artifact_id, &entries);
+
+    (
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, "application/xml; charset=utf-8")],
+        xml,
+    ).into_response()
+}
+
+// ── NuGet Protocol Endpoints ──────────────────────────────
+
+/// GET /api/v1/repos/{owner}/{name}/packages/nuget/index.json
+///
+/// NuGet Service Index (v3) — returns the list of available API resources.
+pub async fn nuget_service_index(
+    State(_state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Path((owner, name)): Path<(String, String)>,
+) -> axum::response::Response {
+    let base_url = build_base_url(&headers);
+    let json = rg_core::package_registry::build_service_index(&base_url, &owner, &name);
+
+    (
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, "application/json; charset=utf-8")],
+        Json(json),
+    )
+        .into_response()
+}
+
+/// GET /api/v1/repos/{owner}/{name}/packages/nuget/registration/{id}/index.json
+///
+/// NuGet Registration Index — returns the metadata for all versions of a package.
+pub async fn nuget_registration_index(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Path((owner, name, pkg_name)): Path<(String, String, String)>,
+) -> axum::response::Response {
+    let versions = match rg_core::package_registry::service::list_versions(
+        &state.db, &owner, &name, "nuget", &pkg_name,
+    )
+    .await
+    {
+        Ok(v) => v,
+        Err(e) => return err(StatusCode::NOT_FOUND, &format!("{e:#}")),
+    };
+
+    let base_url = build_base_url(&headers);
+
+    let entries: Vec<rg_core::package_registry::NuGetRegistrationEntry> = versions
+        .iter()
+        .map(|v| {
+            let primary_file = v.files.iter().find(|f| {
+                f.filename.to_lowercase().ends_with(".nupkg")
+            });
+
+            let filename = primary_file
+                .map(|f| f.filename.clone())
+                .unwrap_or_else(|| format!("{}.{}.nupkg", pkg_name, v.version));
+
+            let download_url = format!(
+                "{}/api/v1/repos/{}/{}/packages/nuget/{}/{}/{}",
+                base_url.trim_end_matches('/'),
+                owner, name, pkg_name, v.version, filename,
+            );
+
+            let nuspec_url = primary_file.map(|_| {
+                format!(
+                    "{}/api/v1/repos/{}/{}/packages/nuget/{}/{}/{}.nuspec",
+                    base_url.trim_end_matches('/'),
+                    owner, name, pkg_name, v.version, pkg_name,
+                )
+            });
+
+            // Parse NuGet-specific metadata from version JSON if available
+            let (desc, hp, lic, tags) = parse_nuget_metadata(v.metadata.as_deref());
+
+            rg_core::package_registry::NuGetRegistrationEntry {
+                version: v.version.clone(),
+                description: desc,
+                homepage: hp,
+                license: lic,
+                tags,
+                download_url,
+                nuspec_url,
+            }
+        })
+        .collect();
+
+    let json = rg_core::package_registry::build_registration_index(&pkg_name, &entries);
+
+    (
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, "application/json; charset=utf-8")],
+        Json(json),
+    )
+        .into_response()
+}
+
+/// GET /api/v1/repos/{owner}/{name}/packages/nuget/query?q=...
+///
+/// NuGet Search Query API (3.5.0) — search packages by name.
+pub async fn nuget_search(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Path((owner, name)): Path<(String, String)>,
+    Query(params): Query<NuGetSearchParams>,
+) -> axum::response::Response {
+    let query = params.q.as_deref().unwrap_or("");
+    let base_url = build_base_url(&headers);
+
+    // List all nuget packages in the repo
+    let packages = match rg_core::package_registry::service::list_packages(
+        &state.db, &owner, &name, "nuget",
+    )
+    .await
+    {
+        Ok(p) => p,
+        Err(e) => return err(StatusCode::INTERNAL_SERVER_ERROR, &format!("{e:#}")),
+    };
+
+    let mut results: Vec<rg_core::package_registry::NuGetSearchResult> = Vec::new();
+    let query_lower = query.to_lowercase();
+
+    for pkg in &packages {
+        let name_lower = pkg.name.to_lowercase();
+        // Simple substring match
+        if query.is_empty() || name_lower.contains(&query_lower) {
+            let registration_url = format!(
+                "{}/api/v1/repos/{}/{}/packages/nuget/registration/{}/index.json",
+                base_url.trim_end_matches('/'),
+                owner, name, pkg.name,
+            );
+
+            results.push(rg_core::package_registry::NuGetSearchResult {
+                name: pkg.name.clone(),
+                version: pkg.latest_version.clone().unwrap_or_else(|| "0.0.0".into()),
+                description: pkg.description.clone(),
+                tags: pkg.keywords.clone(),
+                registration_url,
+            });
+        }
+    }
+
+    let total_hits = results.len();
+    let json = rg_core::package_registry::build_search_results(&results, total_hits);
+
+    (
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, "application/json; charset=utf-8")],
+        Json(json),
+    )
+        .into_response()
+}
+
+#[derive(Deserialize)]
+pub struct NuGetSearchParams {
+    #[serde(default)]
+    pub q: Option<String>,
+    #[serde(default)]
+    pub skip: Option<usize>,
+    #[serde(default)]
+    pub take: Option<usize>,
+}
+
+// ── RubyGems Protocol Endpoints ───────────────────────────
+
+/// GET /api/v1/repos/{owner}/{name}/packages/rubygems/api/v1/dependencies?gems={name}
+///
+/// RubyGems dependencies API — returns version info for dependency resolution.
+pub async fn rubygems_dependencies(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Path((owner, name)): Path<(String, String)>,
+    Query(params): Query<RubyGemsDepsParams>,
+) -> axum::response::Response {
+    let gem_list: Vec<&str> = params.gems.as_deref().unwrap_or("").split(',').filter(|s| !s.is_empty()).collect();
+    let _base_url = build_base_url(&headers);
+
+    let mut entries: Vec<rg_core::package_registry::RubyGemsDependencyEntry> = Vec::new();
+
+    for gem_name in gem_list {
+        let versions = match rg_core::package_registry::service::list_versions(
+            &state.db, &owner, &name, "rubygems", gem_name,
+        ).await {
+            Ok(v) => v,
+            Err(_e) => continue,
+        };
+
+        for v in &versions {
+            // Parse dependencies from metadata JSON
+            let deps = parse_rubygems_deps(v.metadata.as_deref());
+
+            entries.push(rg_core::package_registry::RubyGemsDependencyEntry {
+                name: gem_name.to_string(),
+                number: v.version.clone(),
+                platform: "ruby".to_string(),
+                dependencies: deps,
+            });
+        }
+    }
+
+    // Return empty array instead of null for unknown gems
+    let json = rg_core::package_registry::build_dependencies_json(&entries);
+
+    (
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, "application/json; charset=utf-8")],
+        Json(json),
+    ).into_response()
+}
+
+/// GET /api/v1/repos/{owner}/{name}/packages/rubygems/api/v1/gems/{gem_name}.json
+///
+/// RubyGems gem info API — returns detailed metadata for all versions.
+pub async fn rubygems_gem_info(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Path((owner, name, gem_name)): Path<(String, String, String)>,
+) -> axum::response::Response {
+    let versions = match rg_core::package_registry::service::list_versions(
+        &state.db, &owner, &name, "rubygems", &gem_name,
+    ).await {
+        Ok(v) => v,
+        Err(e) => return err(StatusCode::NOT_FOUND, &format!("{e:#}")),
+    };
+
+    let base_url = build_base_url(&headers);
+
+    let entries: Vec<rg_core::package_registry::RubyGemsVersionEntry> = versions
+        .iter()
+        .map(|v| {
+            let filename = format!("{}-{}.gem", gem_name, v.version);
+            let download_url = format!(
+                "{}/api/v1/repos/{}/{}/packages/rubygems/{}/{}/{}",
+                base_url.trim_end_matches('/'),
+                owner, name, gem_name, v.version, filename,
+            );
+            let gem_uri = format!(
+                "{}/gems/{}-{}.gem",
+                base_url.trim_end_matches('/'),
+                gem_name, v.version,
+            );
+
+            let (summary, desc, hp, lic) = parse_rubygems_info(v.metadata.as_deref());
+
+            rg_core::package_registry::RubyGemsVersionEntry {
+                number: v.version.clone(),
+                platform: "ruby".to_string(),
+                summary,
+                description: desc,
+                homepage: hp,
+                license: lic,
+                sha256: v.sha256.clone(),
+                download_url,
+                gem_uri,
+                created_at: v.created_at.clone(),
+            }
+        })
+        .collect();
+
+    let json = rg_core::package_registry::build_gem_info_json(&gem_name, &entries);
+
+    (
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, "application/json; charset=utf-8")],
+        Json(json),
+    ).into_response()
+}
+
+#[derive(Deserialize)]
+pub struct RubyGemsDepsParams {
+    #[serde(default)]
+    pub gems: Option<String>,
+}
+
+// ── Helm Protocol Endpoints ───────────────────────────────
+
+/// GET /api/v1/repos/{owner}/{name}/packages/helm/index.yaml
+///
+/// Helm repository index — returns the index.yaml that `helm repo add` expects.
+pub async fn helm_index(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Path((owner, name)): Path<(String, String)>,
+) -> axum::response::Response {
+    let base_url = build_base_url(&headers);
+
+    // List all helm packages in the repo
+    let packages = match rg_core::package_registry::service::list_packages(
+        &state.db, &owner, &name, "helm",
+    )
+    .await
+    {
+        Ok(p) => p,
+        Err(e) => return err(StatusCode::INTERNAL_SERVER_ERROR, &format!("{e:#}")),
+    };
+
+    let mut entries: Vec<rg_core::package_registry::HelmIndexEntry> = Vec::new();
+
+    for pkg in &packages {
+        // Get all versions for this chart
+        let versions = match rg_core::package_registry::service::list_versions(
+            &state.db, &owner, &name, "helm", &pkg.name,
+        )
+        .await
+        {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+
+        for v in &versions {
+            // Build download URL
+            let filename = v.files.first()
+                .map(|f| f.filename.clone())
+                .unwrap_or_else(|| format!("{}-{}.tgz", pkg.name, v.version));
+
+            let download_url = format!(
+                "{}/api/v1/repos/{}/{}/packages/helm/{}/{}/{}",
+                base_url.trim_end_matches('/'),
+                owner, name, pkg.name, v.version, filename,
+            );
+
+            // Parse Helm-specific metadata from version JSON
+            let (app_version, api_version, keywords_list) =
+                parse_helm_metadata(v.metadata.as_deref());
+
+            entries.push(rg_core::package_registry::HelmIndexEntry {
+                name: pkg.name.clone(),
+                version: v.version.clone(),
+                app_version,
+                description: pkg.description.clone(),
+                api_version,
+                home: pkg.homepage.clone(),
+                sources: Vec::new(),
+                keywords: keywords_list,
+                created: v.created_at.clone(),
+                digest: v.sha256.clone(),
+                urls: vec![download_url],
+            });
+        }
+    }
+
+    let yaml = rg_core::package_registry::build_helm_index(&entries);
+
+    (
+        StatusCode::OK,
+        [
+            (header::CONTENT_TYPE, "application/x-yaml; charset=utf-8"),
+            // Some Helm clients also check for text/yaml
+        ],
+        yaml,
+    )
+        .into_response()
+}
+
+/// Parse Helm-specific metadata from version metadata JSON.
+/// Returns (app_version, api_version, keywords).
+fn parse_helm_metadata(
+    metadata_json: Option<&str>,
+) -> (Option<String>, Option<String>, Vec<String>) {
+    let md = match metadata_json {
+        Some(s) => s,
+        None => return (None, None, Vec::new()),
+    };
+    let doc: serde_json::Value = match serde_json::from_str(md) {
+        Ok(v) => v,
+        Err(_) => return (None, None, Vec::new()),
+    };
+    let app_version = doc.get("appVersion").and_then(|v| v.as_str()).map(String::from);
+    let api_version = doc.get("apiVersion").and_then(|v| v.as_str()).map(String::from);
+    let keywords = doc.get("keywords")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|k| k.as_str().map(String::from)).collect())
+        .unwrap_or_default();
+    (app_version, api_version, keywords)
+}
+
 // ── helpers ───────────────────────────────────────────────
+
+fn build_base_url(headers: &axum::http::HeaderMap) -> String {
+    headers
+        .get(header::HOST)
+        .and_then(|v| v.to_str().ok())
+        .map(|host| {
+            let scheme = if host.starts_with("localhost") || host.starts_with("127.") {
+                "http"
+            } else {
+                "https"
+            };
+            format!("{}://{}", scheme, host)
+        })
+        .unwrap_or_else(|| "http://localhost".into())
+}
+
+/// Parse NuGet-specific metadata from a JSON metadata string.
+/// Returns (description, homepage, license, tags).
+fn parse_nuget_metadata(
+    metadata_json: Option<&str>,
+) -> (Option<String>, Option<String>, Option<String>, Option<String>) {
+    let md = match metadata_json {
+        Some(s) => s,
+        None => return (None, None, None, None),
+    };
+
+    let doc: serde_json::Value = match serde_json::from_str(md) {
+        Ok(v) => v,
+        Err(_) => return (None, None, None, None),
+    };
+
+    let description = doc.get("description").and_then(|v| v.as_str()).map(String::from);
+    let homepage = doc.get("projectUrl")
+        .and_then(|v| v.as_str())
+        .or_else(|| doc.get("homepage").and_then(|v| v.as_str()))
+        .map(String::from);
+    let license = doc.get("licenseUrl")
+        .and_then(|v| v.as_str())
+        .or_else(|| doc.get("license").and_then(|v| v.as_str()))
+        .map(String::from);
+    let tags = doc.get("tags").and_then(|v| v.as_str()).map(String::from);
+
+    (description, homepage, license, tags)
+}
+
+/// Parse RubyGems dependencies from version metadata JSON.
+fn parse_rubygems_deps(metadata_json: Option<&str>) -> Vec<rg_core::package_registry::RubyGemsDep> {
+    let md = match metadata_json {
+        Some(s) => s,
+        None => return Vec::new(),
+    };
+    let doc: serde_json::Value = match serde_json::from_str(md) {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
+    };
+    let deps = match doc.get("dependencies").and_then(|v| v.as_array()) {
+        Some(d) => d,
+        None => return Vec::new(),
+    };
+    deps.iter()
+        .filter_map(|d| {
+            let name = d.get("name").and_then(|v| v.as_str())?.to_string();
+            let req = d.get("requirements")
+                .and_then(|v| v.as_str())
+                .unwrap_or(">= 0")
+                .to_string();
+            Some(rg_core::package_registry::RubyGemsDep { name, requirements: req })
+        })
+        .collect()
+}
+
+/// Parse RubyGems gem info from version metadata JSON.
+/// Returns (summary, description, homepage, license).
+fn parse_rubygems_info(
+    metadata_json: Option<&str>,
+) -> (Option<String>, Option<String>, Option<String>, Option<String>) {
+    let md = match metadata_json {
+        Some(s) => s,
+        None => return (None, None, None, None),
+    };
+    let doc: serde_json::Value = match serde_json::from_str(md) {
+        Ok(v) => v,
+        Err(_) => return (None, None, None, None),
+    };
+    let summary = doc.get("summary").and_then(|v| v.as_str()).map(String::from);
+    let description = doc.get("description").and_then(|v| v.as_str()).map(String::from);
+    let homepage = doc.get("homepage").and_then(|v| v.as_str()).map(String::from);
+    let license = doc.get("licenses")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|l| l.as_str()).collect::<Vec<_>>().join(", "))
+        .or_else(|| doc.get("license").and_then(|v| v.as_str()).map(String::from));
+    (summary, description, homepage, license)
+}
+
+/// Simple XML string escaping.
+fn escape_xml(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
 
 fn parse_filename_from_disposition(disposition: &str) -> Option<String> {
     for part in disposition.split(';') {

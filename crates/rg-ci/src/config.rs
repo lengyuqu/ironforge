@@ -3,12 +3,34 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// Concurrency control for CI/CD workflows.
+///
+/// Prevents multiple pipelines from running simultaneously for the same group.
+/// If `cancel_in_progress` is true, any currently running pipeline in the same
+/// group will be cancelled before the new one starts.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConcurrencyConfig {
+    /// Concurrency group name. Pipelines with the same group will be serialized.
+    /// Supports template variables: ${{ ref }}, ${{ branch }}
+    pub group: String,
+
+    /// If true, cancel any in-progress pipeline in the same group
+    /// before starting the new one.
+    #[serde(default)]
+    pub cancel_in_progress: bool,
+}
+
 /// Top-level CI configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CiConfig {
     /// Ordered list of stage names.
     #[serde(default)]
     pub stages: Option<Vec<String>>,
+
+    /// Concurrency control configuration.
+    /// When set, pipelines in the same concurrency group are serialized.
+    #[serde(default)]
+    pub concurrency: Option<ConcurrencyConfig>,
 
     /// Map of job name → job config.
     /// Jobs not listed in `stages` will be placed in a "default" stage.
@@ -43,6 +65,12 @@ pub struct JobConfig {
     /// Allow failure without marking the pipeline as failed.
     #[serde(default)]
     pub allow_failure: Option<bool>,
+
+    /// Runner tags/labels required for this job.
+    /// Jobs with tags will only be picked up by runners matching those tags.
+    /// An empty or missing tags list means any runner can pick up the job.
+    #[serde(default)]
+    pub tags: Option<Vec<String>>,
 }
 
 #[cfg(test)]
@@ -136,6 +164,9 @@ full_job:
     CARGO_HOME: /cargo
   when: manual
   allow_failure: true
+  tags:
+    - docker
+    - linux
 "#;
         let config: CiConfig = serde_yaml::from_str(yml).unwrap();
         let job = config.jobs.get("full_job").unwrap();
@@ -144,6 +175,7 @@ full_job:
         assert_eq!(job.variables.as_ref().unwrap().get("RUST_BACKTRACE").unwrap(), "1");
         assert_eq!(job.when.as_deref(), Some("manual"));
         assert_eq!(job.allow_failure, Some(true));
+        assert_eq!(job.tags.as_ref().unwrap(), &vec!["docker".to_string(), "linux".to_string()]);
     }
 
     #[test]
@@ -195,5 +227,62 @@ build:
         let deserialized: CiConfig = serde_yaml::from_str(&serialized).unwrap();
         assert_eq!(config.stages, deserialized.stages);
         assert_eq!(config.jobs.len(), deserialized.jobs.len());
+    }
+
+    #[test]
+    fn test_parse_with_concurrency() {
+        let yml = r#"
+stages:
+  - deploy
+
+concurrency:
+  group: prod-deploy
+  cancel_in_progress: true
+
+deploy:
+  stage: deploy
+  script:
+    - make deploy
+"#;
+        let config: CiConfig = serde_yaml::from_str(yml).unwrap();
+        let cc = config.concurrency.as_ref().unwrap();
+        assert_eq!(cc.group, "prod-deploy");
+        assert!(cc.cancel_in_progress);
+        assert_eq!(config.jobs.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_concurrency_defaults() {
+        let yml = r#"
+stages:
+  - test
+
+concurrency:
+  group: ${{ branch }}
+
+test:
+  stage: test
+  script:
+    - make test
+"#;
+        let config: CiConfig = serde_yaml::from_str(yml).unwrap();
+        let cc = config.concurrency.as_ref().unwrap();
+        assert_eq!(cc.group, "${{ branch }}");
+        assert!(!cc.cancel_in_progress); // default false
+    }
+
+    #[test]
+    fn test_parse_without_concurrency() {
+        let yml = r#"
+stages:
+  - build
+
+build:
+  stage: build
+  script:
+    - make
+"#;
+        let config: CiConfig = serde_yaml::from_str(yml).unwrap();
+        assert!(config.concurrency.is_none());
     }
 }

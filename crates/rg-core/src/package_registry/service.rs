@@ -69,9 +69,11 @@ pub struct PackageSummary {
     pub id: i64,
     pub name: String,
     pub description: Option<String>,
+    pub homepage: Option<String>,
     pub version_count: i64,
     pub latest_version: Option<String>,
     pub download_count: i64,
+    pub keywords: Option<String>,
 }
 
 /// Details of a specific package version.
@@ -204,9 +206,11 @@ pub async fn list_packages(
             id: pkg.id,
             name: pkg.name.clone(),
             description: pkg.description.clone(),
+            homepage: pkg.homepage.clone(),
             version_count: count,
             latest_version: latest,
             download_count: pkg.download_count,
+            keywords: None, // package DB table doesn't store keywords; extracted from versions
         });
     }
 

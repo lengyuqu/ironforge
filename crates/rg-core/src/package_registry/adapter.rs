@@ -66,7 +66,13 @@ pub fn get_adapter(package_type: &str) -> Option<BoxedAdapter> {
     match package_type {
         "cargo" => Some(Box::new(super::adapters::CargoAdapter)),
         "npm" => Some(Box::new(super::adapters::NpmAdapter)),
+        "nuget" => Some(Box::new(super::adapters::NuGetAdapter)),
+        "pypi" => Some(Box::new(super::adapters::PyPIAdapter)),
+        "rubygems" => Some(Box::new(super::adapters::RubyGemsAdapter)),
+        "maven" => Some(Box::new(super::adapters::MavenAdapter)),
+        "docker" => Some(Box::new(super::adapters::DockerAdapter)),
         "generic" => Some(Box::new(super::adapters::GenericAdapter)),
+        "helm" => Some(Box::new(super::adapters::HelmAdapter)),
         // Other types fall back to generic
         _ => {
             if package_type != "generic" {

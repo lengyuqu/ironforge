@@ -88,8 +88,8 @@ enum Commands {
         db_url: String,
 
         /// JWT secret key (use a long random string in production)
-        #[arg(long, default_value = "change-me-in-production")]
-        jwt_secret: String,
+        #[arg(long)]
+        jwt_secret: Option<String>,
 
         /// Enable Docker runner for CI jobs with `image` field
         #[arg(long, default_value_t = false)]
@@ -361,6 +361,27 @@ fn load_config_file(path: &str) -> anyhow::Result<ConfigFile> {
     Ok(config)
 }
 
+/// Validate JWT secret strength.
+/// Common function used for CLI arg, env var, and config file values.
+fn validate_jwt_secret(jwt_secret: &str, source: &str) -> anyhow::Result<()> {
+    if jwt_secret == "change-me-in-production" {
+        tracing::error!(
+            "FATAL: jwt_secret is set to the default value from {}. \
+             Set a strong secret via IRONFORGE_JWT_SECRET, --jwt-secret, or config file [auth].jwt_secret",
+            source
+        );
+        anyhow::bail!("refusing to start with default jwt_secret");
+    }
+    if jwt_secret.len() < 16 {
+        tracing::warn!(
+            jwt_len = jwt_secret.len(),
+            "jwt_secret from {} is shorter than 16 characters — consider using a stronger secret",
+            source
+        );
+    }
+    Ok(())
+}
+
 /// Validate critical configuration before starting servers.
 /// Refuses to start with dangerous defaults or invalid settings.
 fn validate_config(
@@ -368,20 +389,8 @@ fn validate_config(
     repo_root: &std::path::Path,
     tls_config: &Option<(PathBuf, PathBuf)>,
 ) -> anyhow::Result<()> {
-    // 1. Refuse default JWT secret
-    if jwt_secret == "change-me-in-production" {
-        tracing::error!(
-            "FATAL: jwt_secret is set to the default value. \
-             Set a strong secret via --jwt-secret or config file [auth].jwt_secret"
-        );
-        anyhow::bail!("refusing to start with default jwt_secret");
-    }
-    if jwt_secret.len() < 16 {
-        tracing::warn!(
-            jwt_len = jwt_secret.len(),
-            "jwt_secret is shorter than 16 characters — consider using a stronger secret"
-        );
-    }
+    // 1. Validate JWT secret (refuse default, warn if too short)
+    validate_jwt_secret(jwt_secret, "config")?;
 
     // 2. Verify repo_root is writable
     let test_file = repo_root.join(".write_test");
@@ -439,13 +448,32 @@ async fn main() -> anyhow::Result<()> {
                 None
             };
 
-            // Resolve values: CLI args > config file > defaults
+            // Resolve JWT secret: env var > CLI args > config file > error
+            let resolved_jwt_secret = if let Ok(env_secret) = std::env::var("IRONFORGE_JWT_SECRET") {
+                // Environment variable has highest priority
+                validate_jwt_secret(&env_secret, "environment variable IRONFORGE_JWT_SECRET")?;
+                tracing::info!("Using JWT secret from environment variable IRONFORGE_JWT_SECRET");
+                env_secret
+            } else if let Some(cli_secret) = jwt_secret {
+                // CLI argument is second priority
+                validate_jwt_secret(&cli_secret, "--jwt-secret CLI argument")?;
+                cli_secret
+            } else if let Some(cfg_secret) = cfg.as_ref().and_then(|c| c.auth.jwt_secret.clone()) {
+                // Config file is third priority
+                validate_jwt_secret(&cfg_secret, "config file [auth].jwt_secret")?;
+                cfg_secret
+            } else {
+                anyhow::bail!(
+                    "No JWT secret provided. Set IRONFORGE_JWT_SECRET, use --jwt-secret, or configure [auth].jwt_secret in config file"
+                );
+            };
+
+            // Resolve other values: CLI args > config file
             let resolved_repo_root = repo_root;
             let resolved_http_addr = http_addr;
             let resolved_ssh_addr = ssh_addr;
             let resolved_host_key = host_key.or_else(|| cfg.as_ref().and_then(|c| c.server.host_key.clone()));
             let resolved_db_url = db_url;
-            let resolved_jwt_secret = jwt_secret;
             let resolved_docker = docker || cfg.as_ref().and_then(|c| c.ci.docker).unwrap_or(false);
             let resolved_external_runners = external_runners || cfg.as_ref().and_then(|c| c.ci.external_runners).unwrap_or(false);
             let resolved_rate_limit_max = if rate_limit_max > 0 { rate_limit_max } else { cfg.as_ref().and_then(|c| c.rate_limit.max).unwrap_or(0) };
@@ -567,6 +595,7 @@ async fn main() -> anyhow::Result<()> {
                 rate_limit_window_secs: resolved_rate_limit_window,
                 smtp_config,
                 tls_config,
+                oci_storage_path: None, // uses {repo_root}/oci by default
             };
 
             // ── SSH server ────────────────────────────────────────────────
