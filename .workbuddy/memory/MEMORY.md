@@ -37,10 +37,9 @@ ironforge/
 ## 最新对比文档
 - `ironforge-docs/gitea-vs-ironforge-2026.md` — 2026-06-16 完整对比报告（v3.1，基于代码实际状态修正）
 - `ironforge-docs/gitea-gap-list.csv` — 差距清单 CSV（2026-06-16 同步更新）
-- **核心完成度**: 约 80%
-- **已完成**: 包注册表 11/17 种（含 Docker/OCI/npm/PyPI/Maven/Cargo/NuGet/Helm/RubyGems/Go/Generic）、企业认证（LDAP+OAuth2+TOTP+审计日志）、数据迁移（GitHub/GitLab 导入）、邮件通知（SMTP+lettre）、运维（SQLite WAL/PRAGMA/JWT env/RateLimiting/Prometheus）、Least-privilege Token、前端包注册表页面
-- **最大差距**: 密码重置（P0）、Composer 适配器（P1）、CI/CD 日志写队列（P1）
-- **IronForge 独有优势**: MCP AI Agent 集成（rg-mcp）、纯 Rust 栈、gix 迁移（70%）
+- **核心完成度**: 约 85%
+- **已完成**: 包注册表 11/17 种（含 Docker/OCI/npm/PyPI/Maven/Cargo/NuGet/Helm/RubyGems/Go/Generic）、企业认证（LDAP+OAuth2+TOTP+审计日志）、数据迁移（GitHub/GitLab 导入）、邮件通知（SMTP+lettre）、运维（SQLite WAL/PRAGMA/JWT env/RateLimiting/Prometheus）、Least-privilege Token、前端包注册表页面、密码重置、Composer 适配器、CI/CD 日志写队列、Git CLI 网关、Pipeline 可视化、Wiki Markdown 渲染/TOC/删除、GPG 签名 UI、审计日志归档、软删除统一、Subpath 归档下载
+- **剩余技术债**: gix 迁移 70%（19 处 CLI 待替换）、Git CLI 网关替换余量（14 处未改）
 
 ## gix 迁移状态（2026-06-06 更新）
 - 进度 ~70%（16 处 git CLI 保留，gix API 覆盖其余，已消除 7 处 merge/commit/ref CLI）
