@@ -325,7 +325,11 @@
     "empty": "No wiki pages yet.",
     "edit": "Edit",
     "save": "Save",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "toc": "Table of Contents",
+    "back": "Back to Wiki",
+    "not_found": "Page not found"
   },
 
   "pipeline": {

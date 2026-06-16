@@ -37,6 +37,7 @@ pub mod m20260608_000001_create_oci_tables;
 pub mod m20260608_000002_oauth_accounts_unique;
 pub mod m20260608_000003_add_job_tags;
 pub mod m20260616_000001_create_password_reset_tokens;
+pub mod m20260616_000002_add_soft_delete_columns;
 
 use sea_orm_migration::prelude::*;
 
@@ -85,6 +86,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260608_000002_oauth_accounts_unique::Migration),
             Box::new(m20260608_000003_add_job_tags::Migration),
             Box::new(m20260616_000001_create_password_reset_tokens::Migration),
+            Box::new(m20260616_000002_add_soft_delete_columns::Migration),
         ]
     }
 }

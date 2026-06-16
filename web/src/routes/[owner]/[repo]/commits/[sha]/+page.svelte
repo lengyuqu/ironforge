@@ -12,6 +12,7 @@
   let commitInfo = $state<{ sha: string; message: string; author: string; date: string } | null>(null);
   let combinedStatus = $state<any | null>(null);
   let statuses = $state<any[]>([]);
+  let gpgSignature = $state<{ verified: boolean; signer_key: string | null; signer_name: string | null; signer_email: string | null; status: string } | null>(null);
 
   // Fetch data on mount and when params change
   $effect(() => {
@@ -50,6 +51,11 @@
         // Log endpoint might not support querying by sha, that's okay
         console.warn('Could not fetch commit info from log:', logErr);
       }
+
+      // Fetch GPG signature
+      try {
+        gpgSignature = await repos.commitSignature(owner!, repo!, sha!);
+      } catch { /* GPG not available */ }
 
       // If we couldn't get commit info, create a minimal version from sha
       if (!commitInfo) {
@@ -147,6 +153,21 @@
       <div class="commit-meta">
         <span class="commit-author">{commitInfo.author}</span>
         <span class="commit-date">{formatDate(commitInfo.date)}</span>
+        <!-- GPG Signature Badge -->
+        {#if gpgSignature}
+          <span class="gpg-badge" class:verified={gpgSignature.verified} class:unverified={!gpgSignature.verified && gpgSignature.status !== 'no_signature'} class:no-sig={gpgSignature.status === 'no_signature'} title="GPG: {gpgSignature.status}{gpgSignature.signer_name ? ' · ' + gpgSignature.signer_name : ''}">
+            {#if gpgSignature.verified}
+              <span class="gpg-icon">✓</span> Signed
+              {#if gpgSignature.signer_name}
+                <span class="gpg-signer">by {gpgSignature.signer_name}</span>
+              {/if}
+            {:else if gpgSignature.status === 'no_signature'}
+              <span class="gpg-icon">○</span> Unsigned
+            {:else}
+              <span class="gpg-icon">✗</span> Bad signature
+            {/if}
+          </span>
+        {/if}
       </div>
     </div>
 
@@ -439,4 +460,33 @@
       gap: 0.25rem;
     }
   }
+  /* ── GPG Signature Badge ── */
+  .gpg-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: default;
+    white-space: nowrap;
+  }
+  .gpg-badge.verified {
+    background: rgba(63, 185, 80, 0.12);
+    color: var(--green, #3fb950);
+    border: 1px solid rgba(63, 185, 80, 0.25);
+  }
+  .gpg-badge.unverified {
+    background: rgba(248, 81, 73, 0.1);
+    color: var(--red, #f85149);
+    border: 1px solid rgba(248, 81, 73, 0.2);
+  }
+  .gpg-badge.no-sig {
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+    border: 1px solid var(--border-light);
+  }
+  .gpg-icon { font-size: 12px; }
+  .gpg-signer { font-weight: 400; opacity: 0.85; }
 </style>

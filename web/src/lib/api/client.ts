@@ -264,6 +264,10 @@ export const wiki = {
       method: 'PATCH',
       body: JSON.stringify({ content }),
     }),
+  remove: (owner: string, repo: string, title: string) =>
+    request<any>(`/repos/${owner}/${repo}/wiki/${title}`, {
+      method: 'DELETE',
+    }),
 };
 
 // ── Collaborators ────────────────────────────────────
