@@ -1,5 +1,6 @@
 <script lang="ts">
   import { page } from '$app/stores';
+  import { onDestroy } from 'svelte';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
   import PipelineBadge from '$lib/components/PipelineBadge.svelte';
   import { pipelines } from '$lib/api/client';
@@ -13,15 +14,41 @@
   let selectedPipeline = $state<any>(null);
   let loading = $state(true);
   let error = $state('');
+  let selectedJob = $state<any>(null);
+  let showLogPanel = $state(false);
+  let logContent = $state('');
 
-  $effect(() => { loadPipelines(); });
+  // Auto-refresh for running pipelines
+  let refreshInterval: ReturnType<typeof setInterval> | null = null;
+
+  $effect(() => {
+    loadPipelines();
+    return () => { if (refreshInterval) clearInterval(refreshInterval); };
+  });
+
+  $effect(() => {
+    // Start auto-refresh when a pipeline is running
+    if (selectedPipeline?.status === 'running' || selectedPipeline?.status === 'pending') {
+      if (!refreshInterval) {
+        refreshInterval = setInterval(() => {
+          if (selectedPipeline) {
+            pipelines.get(owner, repo, selectedPipeline.id).then(p => {
+              selectedPipeline = p;
+            });
+          }
+        }, 5000);
+      }
+    } else {
+      if (refreshInterval) { clearInterval(refreshInterval); refreshInterval = null; }
+    }
+  });
 
   async function loadPipelines() {
     try {
       loading = true;
       const pipeResult = await pipelines.list(owner, repo);
       pipelineList = pipeResult.data;
-      if (pipelineList.length > 0) {
+      if (pipelineList.length > 0 && !selectedPipeline) {
         selectedPipeline = await pipelines.get(owner, repo, pipelineList[0].id);
       }
     } catch (e: any) {
@@ -32,6 +59,8 @@
   }
 
   async function selectPipeline(id: number) {
+    selectedJob = null;
+    showLogPanel = false;
     try {
       selectedPipeline = await pipelines.get(owner, repo, id);
     } catch (e: any) {
@@ -51,10 +80,28 @@
   async function handleCancel(id: number) {
     try {
       await pipelines.cancel(owner, repo, id);
-      await loadPipelines();
+      selectedPipeline.status = 'canceled';
     } catch (e: any) {
       error = e.message;
     }
+  }
+
+  async function viewJobLog(jobId: number) {
+    if (!selectedPipeline) return;
+    try {
+      const job = await pipelines.job(owner, repo, selectedPipeline.id, jobId);
+      selectedJob = job;
+      logContent = job.log || '(no log output)';
+      showLogPanel = true;
+    } catch (e: any) {
+      logContent = 'Failed to load log: ' + e.message;
+      showLogPanel = true;
+    }
+  }
+
+  function closeLog() {
+    showLogPanel = false;
+    selectedJob = null;
   }
 
   function duration(start: string, end?: string) {
@@ -66,6 +113,30 @@
     if (sec < 3600) return Math.floor(sec / 60) + 'm ' + (sec % 60) + 's';
     return Math.floor(sec / 3600) + 'h ' + Math.floor((sec % 3600) / 60) + 'm';
   }
+
+  function statusIcon(status: string): string {
+    switch (status) {
+      case 'success': return '✓';
+      case 'failed': case 'error': return '✗';
+      case 'running': return '⟳';
+      case 'canceled': return '−';
+      case 'skipped': return '○';
+      default: return '●';
+    }
+  }
+
+  function statusColor(status: string): string {
+    switch (status) {
+      case 'success': return 'var(--green)';
+      case 'failed': case 'error': return 'var(--red)';
+      case 'running': return 'var(--accent)';
+      case 'canceled': return 'var(--text-muted)';
+      case 'skipped': return 'var(--text-muted)';
+      default: return 'var(--yellow)';
+    }
+  }
+
+  function isRunning(s: string) { return s === 'running' || s === 'pending'; }
 </script>
 
 <svelte:head>
@@ -91,18 +162,20 @@
       <!-- Pipeline list -->
       <div class="pipeline-list">
         <h3>{t('repo.tabs.pipelines')}</h3>
-        {#each pipelineList as p}
-          <div class="pipeline-item" class:active={selectedPipeline?.id === p.id} onclick={() => selectPipeline(p.id)} role="button" tabindex="0">
-            <PipelineBadge status={p.status} />
-            <div class="pipeline-info">
-              <div class="pipeline-msg truncate">{p.commit_message?.split('\n')[0] || '#' + p.id}</div>
-              <div class="pipeline-meta">
-                <span class="mono">{p.commit_sha?.slice(0, 7)}</span>
-                <span>{duration(p.started_at, p.finished_at)}</span>
+        <div class="list-scroll">
+          {#each pipelineList as p}
+            <div class="pipeline-item" class:active={selectedPipeline?.id === p.id} onclick={() => selectPipeline(p.id)} role="button" tabindex="0">
+              <PipelineBadge status={p.status} />
+              <div class="pipeline-info">
+                <div class="pipeline-msg truncate">{p.commit_message?.split('\n')[0] || '#' + p.id}</div>
+                <div class="pipeline-meta">
+                  <span class="mono">{p.commit_sha?.slice(0, 7)}</span>
+                  <span>{duration(p.started_at, p.finished_at)}</span>
+                </div>
               </div>
             </div>
-          </div>
-        {/each}
+          {/each}
+        </div>
       </div>
 
       <!-- Pipeline detail -->
@@ -115,7 +188,7 @@
               {#if selectedPipeline.status === 'failed'}
                 <button class="btn-outline" onclick={() => handleRetry(selectedPipeline.id)}>{t('pipeline.retry')}</button>
               {/if}
-              {#if selectedPipeline.status === 'running'}
+              {#if selectedPipeline.status === 'running' || selectedPipeline.status === 'pending'}
                 <button class="btn-outline btn-danger" onclick={() => handleCancel(selectedPipeline.id)}>{t('pipeline.cancel')}</button>
               {/if}
             </div>
@@ -127,27 +200,54 @@
             <div><span class="text-secondary">{t('pipeline.duration')}:</span> {duration(selectedPipeline.started_at, selectedPipeline.finished_at)}</div>
           </div>
 
-          <!-- Stages -->
-          {#if selectedPipeline.stages}
-            <div class="stages">
-              {#each selectedPipeline.stages as stage}
-                <div class="stage">
-                  <div class="stage-header">
-                    <PipelineBadge status={stage.status} />
+          <!-- Pipeline Flow Visualization -->
+          {#if selectedPipeline.stages?.length > 0}
+            <div class="pipeline-flow">
+              {#each selectedPipeline.stages as stage, si}
+                <div class="flow-stage">
+                  <!-- Stage header -->
+                  <div class="stage-label">
+                    <span class="stage-dot" style="background:{statusColor(stage.status)}"></span>
                     <span class="stage-name">{stage.name}</span>
+                    <span class="stage-dur">{duration(stage.started_at, stage.finished_at)}</span>
                   </div>
-                  <div class="jobs">
+
+                  <!-- Connector arrow between stages -->
+                  {#if si < selectedPipeline.stages.length - 1}
+                    <div class="stage-connector">
+                      <svg width="16" height="24" viewBox="0 0 16 24">
+                        <line x1="8" y1="0" x2="8" y2="20" stroke="var(--border)" stroke-width="2"/>
+                        <polyline points="2,16 8,22 14,16" fill="none" stroke="var(--border)" stroke-width="2"/>
+                      </svg>
+                    </div>
+                  {/if}
+
+                  <!-- Jobs in this stage -->
+                  <div class="jobs-flow">
                     {#each stage.jobs as job}
-                      <div class="job" class:running={job.status === 'running'} class:success={job.status === 'success'} class:failed={job.status === 'failed'}>
-                        <PipelineBadge status={job.status} />
-                        <span class="job-name">{job.name}</span>
-                        <span class="job-duration">{duration(job.started_at, job.finished_at)}</span>
-                      </div>
+                      <button class="job-card" class:running={job.status === 'running'} class:failed={job.status === 'failed'} onclick={() => viewJobLog(job.id)}>
+                        <div class="job-status-icon" style="color:{statusColor(job.status)}">
+                          {#if job.status === 'running'}
+                            <span class="spin">{statusIcon(job.status)}</span>
+                          {:else}
+                            {statusIcon(job.status)}
+                          {/if}
+                        </div>
+                        <div class="job-body">
+                          <span class="job-name">{job.name}</span>
+                          <span class="job-dur">{duration(job.started_at, job.finished_at)}</span>
+                        </div>
+                        {#if job.exit_code !== null}
+                          <span class="exit-code">{job.exit_code}</span>
+                        {/if}
+                      </button>
                     {/each}
                   </div>
                 </div>
               {/each}
             </div>
+          {:else}
+            <p class="text-secondary">{t('pipeline.select_detail')}</p>
           {/if}
         {:else}
           <p class="text-secondary">{t('pipeline.select_detail')}</p>
@@ -156,6 +256,24 @@
     </div>
   {/if}
 </div>
+
+<!-- Log Viewer Modal -->
+{#if showLogPanel}
+  <div class="log-overlay" onclick={closeLog} role="presentation">
+    <div class="log-modal" onclick={(e) => e.stopPropagation()} role="dialog">
+      <div class="log-header">
+        <div>
+          <strong>{selectedJob?.name || 'Job Log'}</strong>
+          {#if selectedJob}
+            <PipelineBadge status={selectedJob.status} />
+          {/if}
+        </div>
+        <button class="btn-close" onclick={closeLog}>✕</button>
+      </div>
+      <pre class="log-content"><code>{logContent}</code></pre>
+    </div>
+  </div>
+{/if}
 
 <style>
   .repo-page { max-width: 1100px; margin: 0 auto; padding: 24px; }
@@ -169,19 +287,19 @@
     grid-template-columns: 320px 1fr;
     gap: 24px;
   }
-
-  @media (max-width: 768px) {
-    .pipeline-layout { grid-template-columns: 1fr; }
-  }
+  @media (max-width: 768px) { .pipeline-layout { grid-template-columns: 1fr; } }
 
   .pipeline-list {
     background: var(--bg-secondary);
     border: 1px solid var(--border);
     border-radius: var(--radius);
     overflow: hidden;
+    display: flex;
+    flex-direction: column;
   }
+  .list-scroll { overflow-y: auto; max-height: 70vh; }
 
-  h3 { padding: 12px 16px; border-bottom: 1px solid var(--border); font-size: 14px; }
+  h3 { padding: 12px 16px; border-bottom: 1px solid var(--border); font-size: 14px; margin: 0; }
 
   .pipeline-item {
     display: flex;
@@ -206,14 +324,8 @@
     padding: 24px;
   }
 
-  .detail-header {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 16px;
-  }
-  h2 { font-size: 20px; }
-
+  .detail-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+  h2 { font-size: 20px; margin: 0; }
   .detail-actions { margin-left: auto; display: flex; gap: 8px; }
 
   .btn-outline {
@@ -224,25 +336,140 @@
   .btn-danger { border-color: var(--red-dim); color: var(--red); }
 
   .detail-info {
-    display: flex; gap: 24px; font-size: 13px; margin-bottom: 24px;
+    display: flex; gap: 24px; font-size: 13px; margin-bottom: 20px;
     padding: 12px 16px; background: var(--bg-primary); border-radius: var(--radius);
+    flex-wrap: wrap;
   }
   .detail-info code { font-size: 12px; background: var(--bg-tertiary); padding: 1px 6px; border-radius: 3px; }
 
-  .stages { display: flex; flex-direction: column; gap: 12px; }
-
-  .stage { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
-  .stage-header { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--bg-tertiary); }
-  .stage-name { font-weight: 600; font-size: 13px; }
-
-  .jobs { padding: 4px 0; }
-
-  .job {
-    display: flex; align-items: center; gap: 8px;
-    padding: 8px 16px; font-size: 13px;
-    border-bottom: 1px solid var(--border-light);
+  /* ── Visual Pipeline Flow ── */
+  .pipeline-flow {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    padding: 8px 0;
   }
-  .job:last-child { border-bottom: none; }
-  .job-name { flex: 1; }
-  .job-duration { font-size: 12px; color: var(--text-muted); font-family: var(--font-mono); }
+
+  .flow-stage {
+    position: relative;
+  }
+
+  .stage-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+    background: var(--bg-tertiary);
+    border-radius: 6px 6px 0 0;
+    border: 1px solid var(--border);
+    border-bottom: none;
+  }
+  .stage-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .stage-name { flex: 1; text-transform: uppercase; letter-spacing: 0.5px; font-size: 11px; }
+  .stage-dur { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); }
+
+  .stage-connector {
+    display: flex;
+    justify-content: center;
+    padding: 2px 0;
+    height: 28px;
+  }
+
+  .jobs-flow {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 4px;
+    border: 1px solid var(--border);
+    border-radius: 0 0 6px 6px;
+    background: var(--bg-primary);
+  }
+
+  .job-card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    border-radius: 4px;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    text-align: left;
+    width: 100%;
+    font-size: 13px;
+    transition: background 0.15s;
+  }
+  .job-card:hover { background: var(--bg-hover); }
+  .job-card.running { background: rgba(88, 166, 255, 0.08); }
+  .job-card.failed { background: rgba(248, 81, 73, 0.06); }
+
+  .job-status-icon { width: 20px; text-align: center; font-size: 14px; flex-shrink: 0; }
+
+  .job-body { flex: 1; display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .job-name { flex: 1; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .job-dur { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); white-space: nowrap; }
+
+  .exit-code {
+    font-size: 11px;
+    font-family: var(--font-mono);
+    padding: 1px 6px;
+    border-radius: 3px;
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+  }
+
+  .spin { display: inline-block; animation: spin 1.5s linear infinite; }
+  @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+  /* ── Log Viewer Modal ── */
+  .log-overlay {
+    position: fixed; inset: 0; z-index: 100;
+    background: rgba(0,0,0,0.5);
+    display: flex; align-items: center; justify-content: center;
+    padding: 40px;
+  }
+  .log-modal {
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    width: 100%;
+    max-width: 800px;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+  }
+  .log-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    font-size: 14px;
+  }
+  .log-header > div { display: flex; align-items: center; gap: 8px; }
+  .btn-close {
+    background: none; border: none;
+    font-size: 18px; cursor: pointer; color: var(--text-muted);
+    padding: 4px 8px; border-radius: 4px;
+  }
+  .btn-close:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+  .log-content {
+    overflow: auto;
+    padding: 16px;
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.5;
+    background: #1a1a2e;
+    color: #e0e0e0;
+    border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 60vh;
+  }
 </style>
