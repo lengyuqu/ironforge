@@ -703,17 +703,16 @@ fn verify_commit_signature(
 
     // Check if commit has GPG signature by looking at the raw commit data
     // gix doesn't easily expose raw commit headers, so use git CLI for this check
-    let gpgsig_output = std::process::Command::new("git")
-        .arg("-C")
-        .arg(repo_path)
-        .args(["cat-file", "commit", &full_sha])
-        .output()?;
+    let git_gateway = rg_git::cli_gateway::global_gateway()
+        .as_ref()
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
 
-    if !gpgsig_output.status.success() {
+    let gpgsig_output = git_gateway
+        .run(&["cat-file", "commit", &full_sha], Some(repo_path))?;
+    if !gpgsig_output.success() {
         anyhow::bail!("failed to read commit object");
     }
-
-    let commit_content = String::from_utf8_lossy(&gpgsig_output.stdout);
+    let commit_content = gpgsig_output.stdout_str();
     let has_gpgsig = commit_content.lines().any(|l| l.starts_with("gpgsig "));
 
     if !has_gpgsig {
@@ -727,13 +726,9 @@ fn verify_commit_signature(
     }
 
     // Verify the signature using git CLI (gix GPG support is incomplete)
-    let verify_output = std::process::Command::new("git")
-        .arg("-C")
-        .arg(repo_path)
-        .args(["log", "--format=%G?%n%GK%n%GN%n%GE", "-1", &full_sha])
-        .output()?;
-
-    if !verify_output.status.success() {
+    let verify_output = git_gateway
+        .run(&["log", "--format=%G?%n%GK%n%GN%n%GE", "-1", &full_sha], Some(repo_path))?;
+    if !verify_output.success() {
         return Ok(GpgSignature {
             verified: false,
             signer_key: None,
@@ -742,8 +737,7 @@ fn verify_commit_signature(
             status: "verification_failed".to_string(),
         });
     }
-
-    let verify_text = String::from_utf8_lossy(&verify_output.stdout);
+    let verify_text = verify_output.stdout_str();
     let lines: Vec<&str> = verify_text.lines().collect();
 
     let status_code: &str = lines.first().map(|l: &&str| l.trim()).unwrap_or("N");

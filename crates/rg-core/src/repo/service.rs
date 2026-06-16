@@ -305,17 +305,15 @@ pub async fn fork_repo(
 
     // TODO(gix): Local bare clone - gix doesn't support local bare clone via prepare_clone_bare
     // For now, use git CLI for local fork operations
-    let output = std::process::Command::new("git")
-        .arg("clone")
-        .arg("--bare")
-        .arg(&source_path)
-        .arg(&target_path)
-        .output()
-        .context("git clone --bare failed")?;
-
-    if !output.status.success() {
-        anyhow::bail!("git clone --bare failed: {}", String::from_utf8_lossy(&output.stderr));
-    }
+    let git = rg_git::cli_gateway::global_gateway()
+        .as_ref()
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let out = git.run(
+        &["clone", "--bare", &source_path.to_string_lossy(), &target_path.to_string_lossy()],
+        None,
+    )
+    .context("git clone --bare failed")?;
+    out.ensure_success()?;
 
     let now = Utc::now();
     let model = RepoActiveModel {

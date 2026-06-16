@@ -9,8 +9,8 @@ use sea_orm::{DatabaseConnection, EntityTrait};
 use sea_orm::ActiveValue::Set;
 use rg_db::entities::mirror::{ActiveModel, Model as Mirror};
 use rg_db::entities::repository;
+use rg_git::cli_gateway::global_gateway;
 use std::path::Path;
-use std::process::Command;
 
 /// Create a new mirror for a repository.
 pub async fn create_mirror(
@@ -168,30 +168,13 @@ fn run_git_clone_mirror(url: &str, path: &Path) -> Result<()> {
     let parent = path.parent().unwrap();
     std::fs::create_dir_all(parent).context("create mirror dir")?;
 
-    let output = Command::new("git")
-        .args(["clone", "--mirror", url])
-        .arg(path)
-        .output()
-        .context("git clone --mirror")?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!("git clone --mirror failed: {stderr}");
-    }
-    Ok(())
+    let git = global_gateway().as_ref().map_err(|e| anyhow::anyhow!("{}", e))?;
+    git.run_or_bail(&["clone", "--mirror", url, &path.to_string_lossy()], None)
+        .context("git clone --mirror")
 }
 
 fn run_git_remote_update(path: &Path) -> Result<()> {
-    let output = Command::new("git")
-        .args(["-C"])
-        .arg(path)
-        .args(["remote", "update", "--prune"])
-        .output()
-        .context("git remote update")?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!("git remote update failed: {stderr}");
-    }
-    Ok(())
+    let git = global_gateway().as_ref().map_err(|e| anyhow::anyhow!("{}", e))?;
+    git.run_or_bail(&["remote", "update", "--prune"], Some(path))
+        .context("git remote update")
 }

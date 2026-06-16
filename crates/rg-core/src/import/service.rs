@@ -12,10 +12,10 @@
 
 use anyhow::{Context, Result};
 use chrono::Utc;
+use rg_git::cli_gateway::global_gateway;
 use sea_orm::{ActiveValue::Set, DatabaseConnection};
 use std::collections::HashMap;
 use std::path::Path;
-use std::process::Command;
 
 use rg_db::entities::import_task::{self, Model as ImportTask};
 use rg_db::entities::{label, milestone};
@@ -454,16 +454,12 @@ fn clone_repo(
 
     std::fs::create_dir_all(target_dir.parent().unwrap())?;
 
-    let output = Command::new("git")
-        .args(["clone", "--bare", source_url])
-        .arg(&target_dir)
-        .output()
-        .context("git clone --bare")?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        anyhow::bail!("git clone --bare failed: {stderr}");
-    }
+    let git = global_gateway().as_ref().map_err(|e| anyhow::anyhow!("{}", e))?;
+    git.run_or_bail(
+        &["clone", "--bare", source_url, &target_dir.to_string_lossy()],
+        None,
+    )
+    .context("git clone --bare")?;
 
     tracing::info!(path = %target_dir.display(), "Repository cloned");
     Ok(())

@@ -4484,6 +4484,7 @@ dependencies = [
  "rand_core 0.6.4",
  "reqwest",
  "rg-db",
+ "rg-git",
  "sea-orm",
  "serde",
  "serde_json",
@@ -4525,6 +4526,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "gix",
+ "thiserror 2.0.18",
  "tokio",
  "tracing",
 ]

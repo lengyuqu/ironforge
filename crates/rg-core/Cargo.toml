@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 rg-db = { path = "../rg-db" }
+rg-git = { path = "../rg-git" }
 gix = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
