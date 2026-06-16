@@ -33,7 +33,7 @@ impl PackageAdapter for ComposerAdapter {
         "composer"
     }
 
-    fn extract_metadata(&self, filename: &str, data: &[u8]) -> anyhow::Result<ExtractedMetadata> {
+    fn extract_metadata(&self, _filename: &str, data: &[u8]) -> anyhow::Result<ExtractedMetadata> {
         // Composer packages are ZIP archives with a composer.json at the root
         // or in a subdirectory named after the package
         let json_str = extract_composer_json(data)?;
@@ -242,13 +242,12 @@ mod tests {
     #[test]
     fn test_extract_metadata_no_composer_json() {
         // Create an empty ZIP archive
-        use std::io::Write;
         let cursor = Cursor::new(Vec::new());
-        let mut zip = zip::ZipWriter::new(cursor);
-        zip.finish().unwrap();
+        let zip = zip::ZipWriter::new(cursor);
+        let finished = zip.finish().unwrap();
 
         let adapter = ComposerAdapter;
-        let data = zip.into_inner();
+        let data = finished.into_inner();
         let err = adapter.extract_metadata("pkg.zip", &data).unwrap_err();
         assert!(err.to_string().contains("composer.json not found"));
     }

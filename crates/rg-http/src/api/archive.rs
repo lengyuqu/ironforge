@@ -15,20 +15,33 @@ use crate::AppState;
 /// GET /api/v1/repos/{owner}/{name}/archive/{sha}.zip
 pub async fn download_archive(
     State(state): State<AppState>,
-    Path((owner, name, sha, ext)): Path<(String, String, String, String)>,
+    Path((owner, name, archive)): Path<(String, String, String)>,
 ) -> impl IntoResponse {
+    // axum 0.8 allows only one parameter per path segment, so the filename
+    // (`<sha>.<ext>`) arrives as a single `{archive}` segment that we split
+    // here. `.tar.gz`/`.tgz` are checked before `.zip`.
+    let (sha, ext) = if let Some(s) = archive.strip_suffix(".tar.gz") {
+        (s.to_string(), "tar.gz")
+    } else if let Some(s) = archive.strip_suffix(".tgz") {
+        (s.to_string(), "tgz")
+    } else if let Some(s) = archive.strip_suffix(".zip") {
+        (s.to_string(), "zip")
+    } else {
+        return (StatusCode::BAD_REQUEST, "Unsupported format").into_response();
+    };
+
     let repo_path = state.repo_root.join(format!("{}/{}.git", owner, name));
     if !repo_path.exists() {
         return (StatusCode::NOT_FOUND, "Repository not found").into_response();
     }
 
-    let format_flag = match ext.as_str() {
+    let format_flag = match ext {
         "zip" => "zip",
         "tar.gz" | "tgz" => "tar.gz",
         _ => return (StatusCode::BAD_REQUEST, "Unsupported format").into_response(),
     };
 
-    let mime = match ext.as_str() {
+    let mime = match ext {
         "zip" => "application/zip",
         _ => "application/gzip",
     };
@@ -44,7 +57,10 @@ pub async fn download_archive(
         Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     };
 
-    let filename = format!("{}-{}.{}", name, &sha[..7], ext);
+    // Truncate by chars (not bytes) so a short ref like `main` or a
+    // multi-byte ref name cannot panic on a non-char-boundary byte slice.
+    let short: String = sha.chars().take(7).collect();
+    let filename = format!("{}-{}.{}", name, short, ext);
 
     (
         StatusCode::OK,

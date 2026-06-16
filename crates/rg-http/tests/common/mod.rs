@@ -20,6 +20,7 @@ pub async fn setup_test_db() -> (rg_db::DatabaseConnection, tempfile::TempDir) {
 }
 
 pub fn build_test_app_state(db: rg_db::DatabaseConnection, repo_root: std::path::PathBuf) -> rg_http::AppState {
+    let db_for_queue = db.clone();
     rg_http::AppState {
         repo_root: Arc::new(repo_root), db,
         jwt_secret: Arc::new("test-secret-key".to_string()),
@@ -28,6 +29,7 @@ pub fn build_test_app_state(db: rg_db::DatabaseConnection, repo_root: std::path:
         notification_hub: rg_http::ws::NotificationHub::new(),
         smtp_config: None,
         oci_storage: Arc::new(OciStorage::new(std::path::Path::new("/tmp/test-oci"))),
+        log_write_queue: rg_core::ci::log_write_queue::LogWriteQueue::spawn(db_for_queue),
     }
 }
 

@@ -3,7 +3,7 @@
 use chrono::Utc;
 use sea_orm::{
     sea_query::Expr, ActiveModelTrait, ActiveValue::Set, ColumnTrait,
-    DatabaseConnection, EntityTrait, QueryFilter, QueryTrait,
+    DatabaseConnection, EntityTrait, QueryFilter,
 };
 
 use crate::entities::password_reset_token;

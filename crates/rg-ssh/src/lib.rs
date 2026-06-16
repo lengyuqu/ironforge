@@ -7,7 +7,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use russh::keys::load_secret_key;
+use rand::rngs::OsRng;
+use russh::keys::ssh_key::LineEnding;
+use russh::keys::{load_secret_key, Algorithm, PrivateKey};
 use russh::server::{Auth, Config, Handler, Msg, Server as _, Session};
 use russh::{Channel, ChannelId, ChannelStream};
 use sea_orm::DatabaseConnection;
@@ -66,8 +68,39 @@ struct SshServer {
     id: usize,
 }
 
+/// Ensure an SSH host key exists at `path`, generating a fresh ed25519 key
+/// (written as a PKCS#8 PEM, mode 0600) on first start when the file is
+/// missing. This makes zero-config startup possible, mirroring Gitea.
+fn ensure_host_key(path: &std::path::Path) -> Result<()> {
+    if path.exists() {
+        return Ok(());
+    }
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("failed to create host key directory: {:?}", parent))?;
+        }
+    }
+    let key = PrivateKey::random(&mut OsRng, Algorithm::Ed25519)
+        .context("failed to generate ed25519 host key")?;
+    let pem = key
+        .to_openssh(LineEnding::LF)
+        .context("failed to encode generated host key")?;
+    std::fs::write(path, pem.as_bytes())
+        .with_context(|| format!("failed to write generated host key: {:?}", path))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+            .with_context(|| format!("failed to set host key permissions: {:?}", path))?;
+    }
+    tracing::info!(path = ?path, "generated new SSH host key (ed25519)");
+    Ok(())
+}
+
 impl SshServer {
     pub fn new(ssh_config: SshServerConfig) -> Result<Self> {
+        ensure_host_key(&ssh_config.host_key_path)?;
         let host_key = load_secret_key(&ssh_config.host_key_path, None)
             .with_context(|| format!("failed to load host key: {:?}", ssh_config.host_key_path))?;
 

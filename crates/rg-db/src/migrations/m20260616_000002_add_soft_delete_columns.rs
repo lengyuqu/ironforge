@@ -17,26 +17,19 @@ impl MigrationTrait for Migration {
         let db = manager.get_connection();
         let backend = db.get_database_backend();
 
-        // Users: add deleted_at for soft delete
-        db.execute(Statement::from_string(
-            backend,
-            "ALTER TABLE users ADD COLUMN deleted_at TIMESTAMP NULL;",
-        ))
-        .await?;
-
-        // Organizations: add deleted_at for soft delete
-        db.execute(Statement::from_string(
-            backend,
-            "ALTER TABLE organizations ADD COLUMN deleted_at TIMESTAMP NULL;",
-        ))
-        .await?;
-
-        // Issues: add deleted_at for soft delete
-        db.execute(Statement::from_string(
-            backend,
-            "ALTER TABLE issues ADD COLUMN deleted_at TIMESTAMP NULL;",
-        ))
-        .await?;
+        // Idempotent: skip tables/columns that already exist. This migration
+        // previously crashed mid-way (the `organizations` table did not yet
+        // exist before m20260616_0000015 renamed it), so on re-run the
+        // `users.deleted_at` column may already be present.
+        for table in ["users", "organizations", "issues"] {
+            if manager.has_table(table).await? && !manager.has_column(table, "deleted_at").await? {
+                db.execute(Statement::from_string(
+                    backend,
+                    format!("ALTER TABLE \"{table}\" ADD COLUMN deleted_at TIMESTAMP NULL;"),
+                ))
+                .await?;
+            }
+        }
 
         Ok(())
     }

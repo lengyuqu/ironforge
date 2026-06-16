@@ -338,8 +338,8 @@ async fn main() -> Result<()> {
             let cfg = load_config(&config);
             let resolved_server = server.as_str();
             let (resolved_id, resolved_token, resolved_name) = match (runner_id, token, name) {
-                (Some(id), Some(tok), _) => (id, tok, cfg.as_ref().and_then(|c| c.name.clone()).unwrap_or_default()),
                 (Some(id), Some(tok), Some(n)) => (id, tok, n),
+                (Some(id), Some(tok), None) => (id, tok, cfg.as_ref().and_then(|c| c.name.clone()).unwrap_or_default()),
                 _ => {
                     // Need to register
                     let cfg_name = cfg.as_ref().and_then(|c| c.name.clone()).unwrap_or_else(|| {

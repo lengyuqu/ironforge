@@ -5,19 +5,16 @@
 
 use std::sync::OnceLock;
 
-use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use prometheus::{Registry, TextEncoder};
-
-use crate::AppState;
 
 /// Global Prometheus registry (lazy-initialized).
 pub static REGISTRY: OnceLock<Registry> = OnceLock::new();
 
 /// HTTP request metrics.
 pub mod http_requests {
-    use prometheus::{Histogram, HistogramOpts, IntCounter, IntCounterVec, IntGauge, Opts, Registry};
+    use prometheus::{Histogram, HistogramOpts, IntCounterVec, IntGauge, Opts, Registry};
     use std::sync::OnceLock;
 
     /// Counter: total HTTP requests by method, route, status.
@@ -55,7 +52,7 @@ pub mod http_requests {
 
 /// Database metrics.
 pub mod db {
-    use prometheus::{Histogram, HistogramOpts, IntCounter, IntCounterVec, Opts, Registry};
+    use prometheus::{Histogram, HistogramOpts, IntCounterVec, Registry};
     use std::sync::OnceLock;
 
     /// Counter: total database queries by operation.
@@ -86,7 +83,7 @@ pub mod db {
 
 /// Git operation metrics.
 pub mod git {
-    use prometheus::{Histogram, HistogramOpts, IntCounter, IntCounterVec, Opts, Registry};
+    use prometheus::{Histogram, HistogramOpts, IntCounterVec, Registry};
     use std::sync::OnceLock;
 
     /// Counter: total Git operations by type (clone, push, pull).

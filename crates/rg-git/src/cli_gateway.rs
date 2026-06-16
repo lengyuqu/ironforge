@@ -17,7 +17,7 @@ use std::sync::OnceLock;
 use std::thread;
 use std::time::Duration;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 
 // ── Errors ──────────────────────────────────────────────────────
 

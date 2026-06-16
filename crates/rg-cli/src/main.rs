@@ -617,17 +617,19 @@ async fn main() -> anyhow::Result<()> {
                 }
             });
 
-            let ssh_handle = tokio::spawn(async move {
+            // SSH runs as an independent background task: a host-key or bind
+            // failure must not take down the HTTP server. The process lifetime
+            // is bound to HTTP (the primary service) only.
+            let _ssh_handle = tokio::spawn(async move {
                 if let Err(e) = rg_ssh::start_ssh_server(ssh_config).await {
-                    tracing::error!("SSH server error: {:#}", e);
+                    tracing::error!("SSH server error (HTTP unaffected): {:#}", e);
                 }
             });
 
             tracing::info!("IronForge server started (Phase 20)");
 
-            tokio::select! {
-                _ = http_handle => {},
-                _ = ssh_handle => {},
+            if let Err(e) = http_handle.await {
+                tracing::error!("HTTP server task terminated: {:#}", e);
             }
         }
 

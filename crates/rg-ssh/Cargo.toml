@@ -13,3 +13,4 @@ russh-keys = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 sea-orm = { workspace = true }
+rand = { workspace = true }

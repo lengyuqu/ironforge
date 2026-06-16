@@ -34,7 +34,7 @@ async fn test_register_success() {
         .json(&serde_json::json!({
             "username": "alice",
             "email": "alice@example.com",
-            "password": "secret123"
+            "password": "Qz7$wRtm"
         }))
         .send()
         .await
@@ -58,7 +58,7 @@ async fn test_register_duplicate_username() {
         .json(&serde_json::json!({
             "username": "bob",
             "email": "bob@example.com",
-            "password": "secret123"
+            "password": "Qz7$wRtm"
         }))
         .send()
         .await
@@ -71,7 +71,7 @@ async fn test_register_duplicate_username() {
         .json(&serde_json::json!({
             "username": "bob",
             "email": "bob2@example.com",
-            "password": "secret123"
+            "password": "Qz7$wRtm"
         }))
         .send()
         .await
@@ -86,13 +86,13 @@ async fn test_login_success() {
     let base = spawn_test_app().await;
     let client = reqwest::Client::new();
 
-    register_user(&base, "charlie", "charlie@example.com", "mypassword").await;
+    register_user(&base, "charlie", "charlie@example.com", "Qz7$wRtm").await;
 
     let resp = client
         .post(format!("{}/api/v1/users/login", base))
         .json(&serde_json::json!({
             "login": "charlie",
-            "password": "mypassword"
+            "password": "Qz7$wRtm"
         }))
         .send()
         .await
@@ -110,7 +110,7 @@ async fn test_login_invalid_credentials() {
     let client = reqwest::Client::new();
 
     // Register first so user exists
-    register_user(&base, "nonexistent", "nonexistent@example.com", "correctpass").await;
+    register_user(&base, "nonexistent", "nonexistent@example.com", "Qz7$wRtm").await;
 
     // Try wrong password
     let resp = client
@@ -131,7 +131,7 @@ async fn test_login_invalid_credentials() {
 #[tokio::test]
 async fn test_me_authenticated() {
     let base = spawn_test_app().await;
-    let token = register_user(&base, "dana_test", "dana@example.com", "password123").await;
+    let token = register_user(&base, "dana_test", "dana@example.com", "Qz7$wRtm").await;
     let client = reqwest::Client::new();
 
     let resp = client
@@ -152,7 +152,7 @@ async fn test_me_authenticated() {
 #[tokio::test]
 async fn test_get_repo() {
     let base = spawn_test_app().await;
-    let token = register_user(&base, "repogetter", "repogetter@example.com", "password123").await;
+    let token = register_user(&base, "repogetter", "repogetter@example.com", "Qz7$wRtm").await;
     let client = reqwest::Client::new();
 
     // Create repo
@@ -179,7 +179,7 @@ async fn test_get_repo() {
 #[tokio::test]
 async fn test_list_repos() {
     let base = spawn_test_app().await;
-    let token = register_user(&base, "listuser", "list@example.com", "password123").await;
+    let token = register_user(&base, "listuser", "list@example.com", "Qz7$wRtm").await;
     let client = reqwest::Client::new();
 
     // Create two repos
@@ -209,7 +209,7 @@ async fn test_list_repos() {
 #[tokio::test]
 async fn test_star_repo() {
     let base = spawn_test_app().await;
-    let token = register_user(&base, "staruser", "star@example.com", "password123").await;
+    let token = register_user(&base, "staruser", "star@example.com", "Qz7$wRtm").await;
     let client = reqwest::Client::new();
 
     // Create repo

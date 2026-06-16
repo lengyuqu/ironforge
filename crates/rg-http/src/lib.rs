@@ -407,7 +407,7 @@ fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
         .route("/repos/{owner}/{name}/pipelines/{id}/cancel", post(api::ci::cancel_pipeline))
         .route("/repos/{owner}/{name}/pipelines/{id}/jobs/{job_id}", get(api::ci::get_job))
         // Repository archive download
-        .route("/repos/{owner}/{name}/archive/{sha}.{ext}", get(api::archive::download_archive))
+        .route("/repos/{owner}/{name}/archive/{archive}", get(api::archive::download_archive))
         // Branch Protection
         .route("/repos/{owner}/{name}/branches/protection", get(api::branch_protection::list_protections).post(api::branch_protection::create_protection))
         .route("/repos/{owner}/{name}/branches/protection/{id}", get(api::branch_protection::get_protection).patch(api::branch_protection::update_protection).delete(api::branch_protection::delete_protection))
@@ -607,13 +607,6 @@ async fn health(State(state): State<AppState>) -> impl IntoResponse {
         "filesystem".to_string(),
         serde_json::json!(if fs_ok { "ok" } else { "error" }),
     );
-
-    let overall = if db_ok && fs_ok { "ok" } else { "degraded" };
-    let status_code = if db_ok && fs_ok {
-        StatusCode::OK
-    } else {
-        StatusCode::SERVICE_UNAVAILABLE
-    };
 
     // Prometheus registry check
     let metrics_ok = crate::metrics::REGISTRY.get().is_some();

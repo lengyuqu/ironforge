@@ -60,7 +60,9 @@ pub struct RegisterRequest {
 /// Login request body.
 #[derive(Deserialize, ToSchema)]
 pub struct LoginRequest {
-    /// Username or email
+    /// Username or email. Accepts `username` as an alias for ergonomics /
+    /// consistency with the register endpoint, which uses `username`.
+    #[serde(alias = "username")]
     pub login: String,
     pub password: String,
 }

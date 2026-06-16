@@ -24,8 +24,6 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 use crate::AppState;
-use crate::error::AppError;
-use super::auth::extract_user_id;
 
 #[derive(Debug, Deserialize)]
 pub struct ExternalCiWebhook {

@@ -145,6 +145,12 @@ rg-runner
 - 不能包含业务逻辑
 - 不能包含 HTTP/SSH 层代码
 
+**迁移规范（必读，曾踩坑）**：
+- ⚠️ `#[derive(Iden)] enum Foo { Table }` 生成的是**单数**表名 `foo`，而实体用复数 `#[sea_orm(table_name = "foos")]`。新增表时务必显式指定表名（`#[sea_orm(iden = "foos")]` 或 raw SQL）并与实体 `table_name` 对齐，否则运行时报 `no such table` 且后续 ALTER 迁移会让服务启动崩溃。
+- 非幂等语句（`ADD COLUMN`/`CREATE` 等）用 `manager.has_table()/has_column()` 守卫，保证半执行后可安全重跑。
+- 新增迁移后用全新库验证：`ironforge migrate` + `sqlite3 .tables` 核对表名。
+- 给 `AppState` 加字段时，同步更新 `crates/rg-http/tests/common/mod.rs::build_test_app_state`。
+
 #### `rg-cli` — 入口
 
 **允许**：

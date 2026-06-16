@@ -188,7 +188,8 @@ pub async fn get_token(
     if let Some(auth_header) = headers.get(header::AUTHORIZATION) {
         if let Ok(auth_str) = auth_header.to_str() {
             if let Some(b64) = auth_str.strip_prefix("Basic ") {
-                if let Ok(decoded) = base64::decode(b64) {
+                use base64::Engine as _;
+                if let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(b64) {
                     if let Ok(creds) = std::str::from_utf8(&decoded) {
                         let parts: Vec<&str> = creds.splitn(2, ':').collect();
                         if parts.len() == 2 {

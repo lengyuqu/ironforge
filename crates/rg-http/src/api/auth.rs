@@ -35,6 +35,8 @@ pub(crate) fn extract_bearer_claims(headers: &HeaderMap, jwt_secret: &str) -> Op
 ///
 /// Returns the job token claims if valid and authorized. Returns None if the token
 /// is missing, invalid, expired, or lacks the required scope/repo access.
+// Reserved for CI-job-scoped endpoints; not yet wired into a route handler.
+#[allow(dead_code)]
 pub(crate) fn extract_ci_job_claims(
     headers: &HeaderMap,
     jwt_secret: &str,
@@ -55,6 +57,8 @@ pub(crate) fn extract_ci_job_claims(
 ///
 /// For operations that require human authorization (admin, user settings,
 /// org management), use `extract_user_id` instead.
+// Reserved for CI-accessible endpoints; not yet wired into a route handler.
+#[allow(dead_code)]
 pub(crate) fn extract_ci_or_user_id(
     headers: &HeaderMap,
     jwt_secret: &str,

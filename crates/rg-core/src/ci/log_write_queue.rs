@@ -77,7 +77,7 @@ impl LogWriteQueue {
         // 1. The consumer processes writes in order
         // 2. A later write for the same job supersedes the dropped one
         // 3. The final complete log is written when the job finishes
-        if let Err(e) = self.tx.try_send(req) {
+        if self.tx.try_send(req).is_err() {
             tracing::debug!(
                 job_id,
                 "log write queue full ({}), dropping old entry",
@@ -93,8 +93,6 @@ impl LogWriteQueue {
 
     /// Background consumer: receives write requests and executes them.
     async fn consumer(db: Arc<DatabaseConnection>, mut rx: mpsc::Receiver<LogWriteRequest>) {
-        use sea_orm::DatabaseConnection;
-
         while let Some(req) = rx.recv().await {
             // Read the current job to get the existing log
             let existing_log = match rg_db::ops::pipeline_ops::get_job(&db, req.job_id).await {

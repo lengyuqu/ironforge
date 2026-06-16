@@ -453,6 +453,24 @@ let salt = SaltString::generate(&mut rng()); // ❌
 FTS5 的 `INSERT INTO fts_table(fts_table, rowid, ...) VALUES('delete', ...)` 特殊命令**不接受内容列值**，会导致 `SQL logic error`。
 **正确方式**：用标准 SQL `DELETE FROM fts_table WHERE rowid = old.id` 代替。
 
+### 13. 迁移 `#[derive(Iden)]` 生成的是**单数**表名 ⚠️（曾导致全功能模块运行时崩溃）
+
+迁移里写 `#[derive(Iden)] enum Organization { Table }`，SeaORM 生成的表名是 **单数** `organization`；但实体声明的是 **复数** `#[sea_orm(table_name = "organizations")]`。两者一旦不一致：
+- 该实体的所有查询在运行时报 `no such table: organizations`（功能静默不可用）；
+- 后续任何 `ALTER TABLE organizations` 的迁移会**让整个服务启动崩溃**（迁移在 `serve` 启动时执行）。
+
+历史教训：phase8（`m20260424_000009`）建出 `organization`/`team`/`notification`（单数），org/team 功能长期不可用却因无集成测试未被发现，最终靠 `m20260616_0000015_rename_org_team_plural` 修正。
+
+**正确方式**：
+1. 新增表时显式指定表名（`#[sea_orm(iden = "things")]` 标注 `Table` 变体，或用 raw SQL），并确认与实体 `table_name`（复数）完全一致；
+2. 用全新库验证：`ironforge migrate --db-url "sqlite:///tmp/x.db?mode=rwc"` 成功后 `sqlite3 /tmp/x.db ".tables"` 核对表名；
+3. 新功能模块务必补 `crates/rg-http/tests/` 集成测试（参考 `org_tests.rs`）。
+
+### 14. 迁移应幂等 + AppState 字段变更要同步测试构造器
+
+- 迁移可能半执行后崩溃再重跑，`ALTER TABLE ... ADD COLUMN` 等非幂等语句要用 `manager.has_table()/has_column()` 守卫（见 `m20260616_000002_add_soft_delete_columns`）。
+- 给 `AppState`（`rg-http/src/lib.rs`）新增字段时，**必须**同步更新 `crates/rg-http/tests/common/mod.rs::build_test_app_state`，否则集成测试无法编译。
+
 ---
 
 ## 开发工作流
@@ -474,6 +492,8 @@ FTS5 的 `INSERT INTO fts_table(fts_table, rowid, ...) VALUES('delete', ...)` �
 **当前剩余 P0/P1 差距（按优先级，2026-06-16 代码验证）：**
 
 > ⚠️ 2026-06-16 已完成项：密码重置、Composer 适配器、CI/CD 日志写队列、Git CLI 统一封装（6/20 处）、Pipeline 可视化、Wiki Markdown+TOC+删除、GPG 签名 UI、审计日志归档、软删除统一、Subpath 归档下载、搜索高亮+快捷键、维护模式+实例横幅、外部 CI Webhook
+
+> 🔧 2026-06-17 回归修复：① org/team 表名单复数错配（fresh DB 启动崩溃 + org/team 运行时不可用）→ 新增 `m20260616_0000015_rename_org_team_plural` 修正；② archive 路由 axum 0.8 非法（启动 panic）+ 切片 panic；③ 软删除迁移幂等化；④ SSH 与 HTTP 生命周期解耦 + host key 缺失自动生成（零配置可用）；⑤ 登录字段 `username` 别名；⑥ 编译警告清零 + runner match 不可达分支修复；⑦ 修复测试编译（composer/AppState）+ 密码策略；⑧ 新增 `org_tests.rs` 回归守护。
 
 #### P0（无 — ✅ 全部完成）
 
