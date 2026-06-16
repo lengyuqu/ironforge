@@ -473,21 +473,22 @@ FTS5 的 `INSERT INTO fts_table(fts_table, rowid, ...) VALUES('delete', ...)` �
 
 **当前剩余 P0/P1 差距（按优先级，2026-06-16 代码验证）：**
 
-> ⚠️ 注意：邮件通知（SMTP+lettre）、SQLite WAL（6 个 PRAGMA）、JWT Secret（env/CLI/config 三层）、Rate Limiting（Token Bucket）、Prometheus /metrics（7 模块）、Least-privilege Token（CiJobClaims）、前端包页面（3 路由）——以上均已在代码中实现，v3.0 文档曾错误标注为缺失。
+> ⚠️ 2026-06-16 已完成项：密码重置、Composer 适配器、CI/CD 日志写队列、Git CLI 统一封装（6/20 处）、Pipeline 可视化、Wiki Markdown+TOC+删除、GPG 签名 UI、审计日志归档、软删除统一、Subpath 归档下载、搜索高亮+快捷键、维护模式+实例横幅、外部 CI Webhook
 
-#### P0（1 项）
-1. **密码重置** — 邮件 token + 重置流程 + 前端页面（2-3 天）
+#### P0（无 — ✅ 全部完成）
 
-#### P1（3 项，预计 2 周）
-2. **Git CLI 统一封装** — `GitCommandGateway` trait 封装 19 处散布 CLI 调用
-3. **Composer 适配器** — PHP 包管理支持
-4. **CI/CD 日志写队列** — tokio::mpsc + 批量 INSERT 避免 `SQLITE_BUSY`
+#### P1 余量（1 项）
+1. **Git CLI 替换余量** — 网关已建（`GitCommandGateway`），剩 `pull_request/service.rs` 12 处 + `rg-git/protocol/` 3 处未改，~1h
 
 #### 技术债
-5. **gix 迁移继续** — 剩余 19 处 CLI 调用（PR diff/rebase/fetch×10, Mirror/Import/GPG 等），进度 ~70%。
+2. **gix 迁移继续** — 进度 ~70%，剩余 19 处 CLI 调用（diff/rebase/fetch/pack/GPG/clone）
 
-#### P2 — 增强功能
-6. Pipeline 可视化、Wiki 完善（TOC/版本对比）、PR Review 增强（Quick Approve/Resolve）、GPG UI、Subpath 归档下载、审计日志归档、软删除统一、看板/时间追踪前端页
+#### 维护增强
+3. OpenAPI 注解补全（部分端点缺 utoipa 注解）
+4. Wiki 版本历史（DB + API + 前端 diff）
+5. 看板/时间追踪前端页（后端已有 JSON 接口）
+6. PostgreSQL 支持（生产级 DB）
+7. Gitea Actions 兼容层
 
 ---
 

@@ -9,7 +9,7 @@
 包注册表,Cargo (Rust),✅,✅ sparse index,100%,-,0,已实现
 包注册表,Generic,✅,✅ 任意文件上传,100%,-,0,已实现
 包注册表,Go Proxy,延长,✅ 适配器已注册,100%,-,0,IronForge 扩展
-包注册表,Composer,✅,⚠️ 常量已定义缺适配器文件,10%,P1,3,PHP 生态
+包注册表,Composer,✅,✅ ZIP composer.json + packages.json,100%,-,0,已实现 2026-06-16
 包注册表,Pub,✅,❌ 未实现,0%,P2,2,Dart/Flutter 生态
 包注册表,Conan,✅,❌ 未实现,0%,P2,3,C++ 包管理
 包注册表,Conda,✅,❌ 未实现,0%,P2,3,数据科学
@@ -19,15 +19,15 @@
 企业认证,OAuth2 SSO (GitHub/GitLab),✅,✅ reqwest 直连,100%,-,0,已实现
 企业认证,2FA/MFA (TOTP),✅,✅ TOTP + AES-256-GCM,100%,-,0,已实现
 企业认证,OIDC RP-Initiated Logout,✅,❌ 未实现,0%,P2,1,SSO 登出规范
-数据安全,审计日志 (Audit Log),✅,✅ append-only + audit! 宏,90%,-,0,已实现
-数据安全,密码重置（邮件）,✅,❌ 未实现,0%,P0,2-3,仅剩的 P0 缺口
+数据安全,审计日志 (Audit Log),✅,✅ append-only + audit! 宏 + 归档,100%,-,0,已实现 + 归档 2026-06-16
+数据安全,密码重置（邮件）,✅,✅ UUID token + SHA256 + 邮件,100%,-,0,已实现 2026-06-16
 数据安全,Least-privilege Token,✅ (1.26),✅ CiJobClaims + scope 层级,100%,-,0,已实现
 数据迁移,从 GitHub 导入,✅,✅ CLI + REST API,100%,-,0,已实现
 数据迁移,从 GitLab 导入,✅,✅ CLI + REST API,100%,-,0,已实现
 数据迁移,Git 裸仓库迁移,✅,✅ CLI 支持,100%,-,0,已实现
 Git 协议,SSH Git Protocol V2,✅,✅ ls-refs/fetch/object-info 全部实现,100%,-,0,已实现
 CI/CD,Gitea Actions 兼容,✅,⚠️ 自研引擎不兼容,30%,P2,6-8周,兼容 GitHub Actions 生态
-CI/CD,Pipeline 可视化,✅,❌ 未实现,0%,P2,2-3周,执行状态可视化
+CI/CD,Pipeline 可视化,✅,✅ Stage 流式布局 + Job 卡片 + 日志弹窗,100%,-,0,已实现 2026-06-16
 CI/CD,Concurrency 控制,✅ (1.26),❌ 未实现,0%,P2,1-2周,Workflow 并发控制
 CI/CD,Re-run 失败 Job,✅ (1.26),❌ 未实现,0%,P2,1,失败任务重试
 CI/CD,日志写队列（避免 SQLITE_BUSY）,✅,❌ tokio::mpsc + 批量 INSERT 未实现,0%,P1,1-2,CI/CD 日志高频写入时触发
@@ -54,3 +54,11 @@ API,GraphQL API,✅,❌ 未实现,0%,P3,4-6周,灵活查询接口
 包注册表,Terraform 状态后端,✅ (1.26),❌ 未实现,0%,P3,2-3周,Terraform 状态存储
 前端,包注册表 Web 界面,✅,✅ 列表/详情/筛选 3 个 Svelte 路由,80%,-,0,已实现（缺上传页）
 前端,看板/时间追踪 Web 界面,✅,❌ JSON 接口已有缺前端,0%,P2,3-5,功能覆盖
+API,外部 CI/CD Webhook,❌,✅ POST /webhooks/external/ci,100%,P1,0,已实现 2026-06-16
+维护,实例公告横幅,❌,✅ InstanceBanner + admin 管理,100%,P2,0,已实现 2026-06-16
+维护,维护模式(只读),❌,✅ 中间件拦截 + admin 开关,100%,P2,0,已实现 2026-06-16
+搜索,搜索结果高亮,❌,✅ <mark> 关键词高亮,100%,P2,0,已实现 2026-06-16
+架构,Git CLI 统一封装,❌,✅ GitCommandGateway(6/20已换),30%,P1,1,余14处待改
+GPG,GPG 签名 UI,✅,✅ commit 详情页徽章,100%,P2,0,已实现 2026-06-16
+Wiki,Wiki Markdown+TOC+删除,✅,✅ marked渲染+TOC侧栏+删除按钮,100%,P2,0,已实现 2026-06-16
+Wiki,Wiki 版本历史,✅,❌ DB/API/前端均未实现,0%,P2,2-3,待实现
