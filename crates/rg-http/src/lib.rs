@@ -341,6 +341,8 @@ fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
         .route("/users/register", post(api::users::register))
         .route("/users/login", post(api::users::login))
         .route("/users/me", get(api::users::me))
+        .route("/users/forgot-password", post(api::users::forgot_password))
+        .route("/users/reset-password", post(api::users::reset_password))
         // PAT
         .route("/users/tokens", get(api::users::list_tokens).post(api::users::create_token))
         .route("/users/tokens/{id}", delete(api::users::delete_token))

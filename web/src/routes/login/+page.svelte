@@ -52,6 +52,8 @@
     <p class="footer">
       {t('auth.login.footer', { link: '' })}
       <a href="/register">{t('auth.login.footer_link')}</a>
+      <span class="separator">·</span>
+      <a href="/forgot-password">Forgot password?</a>
     </p>
   </div>
 </div>

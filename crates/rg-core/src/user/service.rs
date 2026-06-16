@@ -1,7 +1,8 @@
-//! User service — business logic for user registration, login, profile, and admin management.
+//! User service — business logic for user registration, login, profile, admin management,
+//! and password reset.
 
 use anyhow::{bail, Context, Result};
-use chrono::Utc;
+use chrono::{Duration, Utc};
 use sea_orm::{ActiveValue::Set, DatabaseConnection};
 
 use rg_db::{
@@ -212,4 +213,126 @@ pub async fn delete_user(db: &DatabaseConnection, user_id: i64) -> Result<()> {
 pub async fn get_user_by_id(db: &DatabaseConnection, user_id: i64) -> Result<Option<UserInfo>> {
     let user = user_ops::find_by_id(db, user_id).await?;
     Ok(user.map(Into::into))
+}
+
+// ── Password reset ──────────────────────────────────────────────
+
+/// Initiate a password reset. Generates a token and sends an email.
+/// Silently succeeds even if the email is not found (to prevent user enumeration).
+pub async fn forgot_password(
+    db: &DatabaseConnection,
+    email: &str,
+    smtp_config: Option<&crate::email::SmtpConfig>,
+    base_url: &str,
+) -> Result<()> {
+    let user = match user_ops::find_by_email(db, email).await? {
+        Some(u) => u,
+        None => {
+            // Silently succeed to prevent email enumeration
+            return Ok(());
+        }
+    };
+
+    // Only local users can reset via email (LDAP/OAuth users use their provider)
+    if user.auth_provider != "local" {
+        return Ok(());
+    }
+
+    // Invalidate old unused tokens
+    rg_db::ops::password_reset_token_ops::invalidate_user_tokens(db, user.id).await?;
+
+    // Generate a random token
+    let raw_token = uuid::Uuid::new_v4().to_string();
+    use sha2::Digest;
+    let token_hash = hex::encode(sha2::Sha256::digest(raw_token.as_bytes()));
+
+    // Token valid for 15 minutes
+    let expires_at = Utc::now() + Duration::minutes(15);
+
+    rg_db::ops::password_reset_token_ops::create(db, user.id, &token_hash, expires_at).await?;
+
+    // Build reset link
+    let reset_url = format!(
+        "{}/reset-password?token={}",
+        base_url.trim_end_matches('/'),
+        raw_token
+    );
+
+    // Send email
+    if let Some(smtp) = smtp_config {
+        let subject = "Reset your IronForge password";
+        let message = format!(
+            "We received a request to reset the password for your IronForge account ({}). \
+             Click the button below to set a new password. This link expires in 15 minutes.",
+            user.username
+        );
+        let _ = crate::email::send_html_notification(
+            smtp,
+            &user.email,
+            subject,
+            &message,
+            Some(&reset_url),
+        )
+        .await;
+    }
+
+    tracing::info!(
+        user_id = user.id,
+        "password reset requested"
+    );
+
+    Ok(())
+}
+
+/// Reset a password using a valid reset token.
+pub async fn reset_password(
+    db: &DatabaseConnection,
+    raw_token: &str,
+    new_password: &str,
+    jwt_secret: &str,
+) -> Result<AuthResponse> {
+    use sha2::Digest;
+    let token_hash = hex::encode(sha2::Sha256::digest(raw_token.as_bytes()));
+
+    let token_record = rg_db::ops::password_reset_token_ops::find_by_hash(db, &token_hash)
+        .await?;
+    let token = match token_record {
+        Some(t) if !t.used && t.expires_at > Utc::now() => t,
+        _ => bail!("invalid or expired reset token"),
+    };
+
+    // Validate new password
+    let user = user_ops::find_by_id(db, token.user_id)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("user not found"))?;
+
+    let password_validator = password::PasswordValidator::standard();
+    password_validator
+        .validate_with_username(new_password, &user.username)
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+    let new_hash = password::hash_password(new_password)
+        .context("failed to hash new password")?;
+
+    // Update password
+    use sea_orm::ActiveModelTrait;
+    let mut active: UserActiveModel = user.clone().into();
+    active.password_hash = Set(new_hash);
+    active.updated_at = Set(Utc::now());
+    active.update(db).await?;
+
+    // Mark token as used
+    rg_db::ops::password_reset_token_ops::mark_used(db, token.id).await?;
+
+    // Invalidate any other unused tokens for this user
+    rg_db::ops::password_reset_token_ops::invalidate_user_tokens(db, user.id).await?;
+
+    // Generate new JWT
+    let jwt_token = jwt::generate_token(user.id, &user.username, jwt_secret, 7)?;
+
+    Ok(AuthResponse {
+        token: jwt_token,
+        user_id: user.id,
+        username: user.username,
+    })
 }

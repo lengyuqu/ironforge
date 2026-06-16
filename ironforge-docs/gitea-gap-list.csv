@@ -1,57 +1,56 @@
-功能域,功能点,Gitea 1.26,IronForge 状态,完成度,优先级,工作量估计(周),说明
-包注册表,Docker/OCI 容器,✅,❌ 未实现,0%,P0,3-4,最大功能差距
-包注册表,npm,✅,❌ 未实现,0%,P0,2-3,前端生态必备
-包注册表,PyPI,✅,❌ 未实现,0%,P0,2-3,Python 生态必备
-包注册表,Maven,✅,❌ 未实现,0%,P0,2-3,Java 生态必备
-包注册表,NuGet,✅,❌ 未实现,0%,P1,2-3,.NET 生态
-包注册表,Composer,✅,❌ 未实现,0%,P1,1-2,PHP 生态
-包注册表,Helm,✅,❌ 未实现,0%,P1,2-3,Kubernetes 包管理
-包注册表,RubyGems,✅,❌ 未实现,0%,P1,1-2,Ruby 生态
-包注册表,Cargo,✅,❌ 未实现,0%,P1,2-3,Rust 生态
-包注册表,Pub,✅,❌ 未实现,0%,P2,1-2,Dart/Flutter 生态
-包注册表,Conan,✅,❌ 未实现,0%,P2,2-3,C++ 包管理
-包注册表,Conda,✅,❌ 未实现,0%,P2,2-3,数据科学
-包注册表,Chef,✅,❌ 未实现,0%,P2,1-2,DevOps 自动化
-包注册表,Vagrant,✅,❌ 未实现,0%,P2,1-2,虚拟机环境
-包注册表,Generic,✅,❌ 未实现,0%,P1,1-2,通用文件托管
-包注册表,Storage,✅,❌ 未实现,0%,P2,1-2,大文件存储
-企业认证,LDAP/AD,✅,❌ 未实现,0%,P1,2-3,企业用户目录集成
-企业认证,OAuth2/OIDC,✅,⚠️ 部分实现,40%,P1,1-2,第三方 SSO
-企业认证,2FA/MFA (TOTP/WebAuthn),✅,❌ 未实现,0%,P1,2-3,安全合规必备
+功能域,功能点,Gitea 1.26,IronForge 状态,完成度,优先级,工作量估计(天),说明
+包注册表,Docker/OCI 容器,✅,✅ OCI Distribution Spec 完整实现,100%,-,0,已实现
+包注册表,npm,✅,✅ registry metadata + 发布,100%,-,0,已实现
+包注册表,PyPI,✅,✅ PEP 503 Simple Index,100%,-,0,已实现
+包注册表,Maven,✅,✅ maven-metadata.xml,100%,-,0,已实现
+包注册表,NuGet,✅,✅ service/registration/search,100%,-,0,已实现
+包注册表,Helm,✅,✅ index.yaml 构建,100%,-,0,已实现
+包注册表,RubyGems,✅,✅ dependencies + gems info,100%,-,0,已实现
+包注册表,Cargo (Rust),✅,✅ sparse index,100%,-,0,已实现
+包注册表,Generic,✅,✅ 任意文件上传,100%,-,0,已实现
+包注册表,Go Proxy,延长,✅ 适配器已注册,100%,-,0,IronForge 扩展
+包注册表,Composer,✅,⚠️ 常量已定义缺适配器文件,10%,P1,3,PHP 生态
+包注册表,Pub,✅,❌ 未实现,0%,P2,2,Dart/Flutter 生态
+包注册表,Conan,✅,❌ 未实现,0%,P2,3,C++ 包管理
+包注册表,Conda,✅,❌ 未实现,0%,P2,3,数据科学
+包注册表,Chef,✅,❌ 未实现,0%,P2,2,DevOps 自动化
+包注册表,Vagrant,✅,❌ 未实现,0%,P2,2,虚拟机环境
+企业认证,LDAP/AD,✅,✅ ldap3 完整实现,100%,-,0,已实现
+企业认证,OAuth2 SSO (GitHub/GitLab),✅,✅ reqwest 直连,100%,-,0,已实现
+企业认证,2FA/MFA (TOTP),✅,✅ TOTP + AES-256-GCM,100%,-,0,已实现
 企业认证,OIDC RP-Initiated Logout,✅,❌ 未实现,0%,P2,1,SSO 登出规范
-数据安全,审计日志 (Audit Log),✅,❌ 未实现,0%,P1,1-2,企业合规必备
-数据安全,密码重置（邮件）,✅,❌ 未实现,0%,P1,1,用户体验
-数据安全,Least-privilege Token,✅ (1.26),❌ 未实现,0%,P1,1,CI/CD 安全
-数据迁移,从 GitHub 导入,✅,❌ 未实现,0%,P1,2-3,用户迁移工具
-数据迁移,从 GitLab 导入,✅,❌ 未实现,0%,P1,2-3,用户迁移工具
-数据迁移,Git 裸仓库迁移,✅,⚠️ 基础（需手动）,30%,P1,1,数据迁移
-CI/CD,Gitea Actions 兼容,✅,⚠️ 自研引擎不兼容,30%,P2,6-8,兼容 GitHub Actions 生态
-CI/CD,外部 CI/CD 集成 (Jenkins 等),✅,❌ 未实现,0%,P2,2-3,多 CI 系统支持
-CI/CD,Pipeline 可视化,✅,❌ 未实现,0%,P2,2-3,执行状态可视化
-CI/CD,Concurrency 控制,✅ (1.26),❌ 未实现,0%,P2,1-2,Workflow 并发控制
+数据安全,审计日志 (Audit Log),✅,✅ append-only + audit! 宏,90%,-,0,已实现
+数据安全,密码重置（邮件）,✅,❌ 未实现,0%,P0,2-3,仅剩的 P0 缺口
+数据安全,Least-privilege Token,✅ (1.26),✅ CiJobClaims + scope 层级,100%,-,0,已实现
+数据迁移,从 GitHub 导入,✅,✅ CLI + REST API,100%,-,0,已实现
+数据迁移,从 GitLab 导入,✅,✅ CLI + REST API,100%,-,0,已实现
+数据迁移,Git 裸仓库迁移,✅,✅ CLI 支持,100%,-,0,已实现
+Git 协议,SSH Git Protocol V2,✅,✅ ls-refs/fetch/object-info 全部实现,100%,-,0,已实现
+CI/CD,Gitea Actions 兼容,✅,⚠️ 自研引擎不兼容,30%,P2,6-8周,兼容 GitHub Actions 生态
+CI/CD,Pipeline 可视化,✅,❌ 未实现,0%,P2,2-3周,执行状态可视化
+CI/CD,Concurrency 控制,✅ (1.26),❌ 未实现,0%,P2,1-2周,Workflow 并发控制
 CI/CD,Re-run 失败 Job,✅ (1.26),❌ 未实现,0%,P2,1,失败任务重试
-CI/CD,Runner 禁用/暂停,✅ (1.26),❌ 未实现,0%,P2,1,Runner 管理
-通知系统,邮件通知完整集成,✅,⚠️ 模块存在未集成,20%,P1,1-2,邮件通知用户
-通知系统,Webhook 名称字段,✅ (1.26),❌ 未实现,0%,P2,1,Webhook 管理
+CI/CD,日志写队列（避免 SQLITE_BUSY）,✅,❌ tokio::mpsc + 批量 INSERT 未实现,0%,P1,1-2,CI/CD 日志高频写入时触发
+通知系统,邮件通知 (SMTP/lettre/HTML 模板),✅,✅ 完整实现含 CI 事件触发,100%,-,0,已实现（v3.0 错误标注为缺失）
 Wiki,Wiki TOC (目录),✅,❌ 未实现,0%,P2,1,导航体验
 Wiki,Wiki 历史/版本对比,✅,❌ 未实现,0%,P2,1-2,版本管理
 PR 管理,Quick Approve 按钮,✅ (1.26),❌ 未实现,0%,P2,1,快速审批
 PR 管理,Resolve/Unresolve 评论,✅ (1.26),❌ 未实现,0%,P2,1,评论状态管理
-PR 管理,PR 时间线优化,✅ (1.26),⚠️ 基础实现,50%,P2,1,时间线展示
-仓库管理,仓库设置高级功能,✅,⚠️ 基础实现,60%,P2,2-3,完整仓库配置
 仓库管理,Subpath 归档下载,✅ (1.26),❌ 未实现,0%,P2,1,子目录导出
 仓库管理,Git archive --remote,✅ (1.26),❌ 未实现,0%,P2,1,远程归档
-仓库管理,删除目录操作 (UI),✅ (1.26),❌ 未实现,0%,P2,1,UI 批量操作
 仓库管理,OpenAPI 渲染,✅ (1.26),❌ 未实现,0%,P2,1,API 文档展示
-Git 协议,SSH Git Protocol V2,✅,⚠️ HTTP 完整/SSH stub,90%,P2,1-2,SSH V2 完整支持
 搜索功能,搜索结果高亮,✅,❌ 未实现,0%,P2,1,关键词高亮
 搜索功能,键盘快捷键,✅ (1.26),❌ 未实现,0%,P3,1,快捷操作
+管理功能,审计日志 UI 展示,✅,✅ admin API + 需前端页面,80%,P1,0.5,需前端页面
 管理功能,实例信息横幅,✅ (1.26),❌ 未实现,0%,P2,1,管理员公告
 管理功能,维护模式,✅ (1.26),❌ 未实现,0%,P2,1,只读维护模式
-组织管理,组织设置高级功能,✅,⚠️ 基础实现,60%,P2,1-2,组织配置
-组织管理,用户徽章,✅ (1.26),❌ 未实现,0%,P2,1,成就系统
-Issue 管理,Issue 关联 (依赖关系),✅,⚠️ 基础实现,40%,P2,1-2,任务依赖
-Issue 管理,到期时间设置,✅,⚠️ 基础实现,50%,P2,1,截止日期
-GPG,GPG 签名验证 UI 暴露,✅,⚠️ 解析实现未暴露,30%,P2,1,签名可视化
-API,GraphQL API,✅,❌ 未实现,0%,P3,4-6,灵活查询接口
-包注册表,Terraform 状态后端,✅ (1.26),❌ 未实现,0%,P3,2-3,Terraform 状态存储
+GPG,GPG 签名验证 UI 暴露,✅,⚠️ 解析实现未暴露 UI,30%,P2,1,签名可视化
+运维,Rate Limiting (令牌桶),✅,✅ Token Bucket + X-Forwarded-For,100%,-,0,已实现（v3.0 错误标注为缺失）
+运维,Prometheus /metrics,✅,✅ 7 个模块 + /health 结构化 JSON,100%,-,0,已实现（v3.0 错误标注为缺失）
+运维,SQLite WAL/PRAGMA 调优,✅,✅ 6 个 PRAGMA (WAL/busy_timeout 5000),100%,-,0,已实现（v3.0 错误标注为缺失）
+运维,JWT Secret env 优先,✅,✅ 三层优先级 (env/CLI/config),100%,-,0,已实现（v3.0 错误标注为缺失）
+运维,PostgreSQL 可选后端,✅,❌ 未实现,0%,P3,2-3周,生产级数据库
+API,GraphQL API,✅,❌ 未实现,0%,P3,4-6周,灵活查询接口
+包注册表,Terraform 状态后端,✅ (1.26),❌ 未实现,0%,P3,2-3周,Terraform 状态存储
+前端,包注册表 Web 界面,✅,✅ 列表/详情/筛选 3 个 Svelte 路由,80%,-,0,已实现（缺上传页）
+前端,看板/时间追踪 Web 界面,✅,❌ JSON 接口已有缺前端,0%,P2,3-5,功能覆盖

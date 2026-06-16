@@ -288,11 +288,20 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":
 ### ✅ Phase 21 已完成（2026-06-07 — 大规模功能扩展）
 
 #### P0: Package Registry（包注册表）
-- `rg-core/src/package_registry/` — PackageAdapter trait + Cargo/npm/Generic 适配器
+- `rg-core/src/package_registry/` — PackageAdapter trait + 11 种适配器
+  - Cargo (sparse index) / npm (registry metadata) / PyPI (PEP 503 Simple Index)
+  - Maven (maven-metadata.xml) / NuGet (service/registration/search)
+  - Helm (index.yaml) / RubyGems (dependencies API) / Docker (OCI 标记)
+  - Generic (通用文件) / Go Proxy
+- `rg-core/src/package_registry/oci/` — OCI Distribution Spec v1.0 容器镜像仓库
+  - `storage.rs`: 内容寻址 blob 存储
+  - `types.rs`: OCI 类型定义
+  - `manifest.rs`: 镜像清单处理
+- `rg-http/src/oci.rs` — 11 个 `/v2/` 路由处理器（api-version/blob/manifest/tags/upload 全链路）
 - `rg-db` 新增实体：package / package_version / package_file / package_registry
 - `rg-db` 新增 ops：package_ops / package_version_ops / package_file_ops / package_registry_ops
 - `rg-db` 迁移：m20260607_000005_create_package_registry
-- `rg-http/src/api/packages.rs` — REST API + sparse index + npm registry 端点
+- `rg-http/src/api/packages.rs` — REST API + 19 个处理器覆盖所有包协议
 - `rg-cli` — package CLI 命令
 
 #### P1: LDAP / SSO / 2FA 认证增强
@@ -460,24 +469,25 @@ FTS5 的 `INSERT INTO fts_table(fts_table, rowid, ...) VALUES('delete', ...)` �
 
 ### 后续开发建议
 
-所有 Phase 1~21 + P0/P1/P2 Gap Analysis 已完成。
+所有 Phase 1~21 全部完成。Package Registry / LDAP/SSO/2FA / 审计日志 / 数据迁移均已实现。
 
-**推荐下一步优先级：**
+**当前剩余 P0/P1 差距（按优先级，2026-06-16 代码验证）：**
 
-#### P0 — 核心缺口
-1. **Package Registry Docker/OCI** — 容器镜像仓库（当前已实现 Cargo/npm/Generic，Docker/OCI 未实现）
+> ⚠️ 注意：邮件通知（SMTP+lettre）、SQLite WAL（6 个 PRAGMA）、JWT Secret（env/CLI/config 三层）、Rate Limiting（Token Bucket）、Prometheus /metrics（7 模块）、Least-privilege Token（CiJobClaims）、前端包页面（3 路由）——以上均已在代码中实现，v3.0 文档曾错误标注为缺失。
 
-#### P1 — 重要功能（预计 7-10 周）
-2. **PR Merge 完整策略** — Squash/Merge/Rebase（依赖 gix 迁移完成）
-3. **OAuth2/OIDC 增强** — 完善第三方登录流程（当前 SSO 为基础实现）
-4. **Actions Concurrency** — workflow 并发控制
-5. **Least-privilege Token** — Actions token 权限控制
+#### P0（1 项）
+1. **密码重置** — 邮件 token + 重置流程 + 前端页面（2-3 天）
+
+#### P1（3 项，预计 2 周）
+2. **Git CLI 统一封装** — `GitCommandGateway` trait 封装 19 处散布 CLI 调用
+3. **Composer 适配器** — PHP 包管理支持
+4. **CI/CD 日志写队列** — tokio::mpsc + 批量 INSERT 避免 `SQLITE_BUSY`
 
 #### 技术债
-6. **gix 迁移继续** — 剩余 19 处 CLI 调用（PR diff/rebase/fetch×10, Mirror clone/update×2, GPG×2, Repo init×1, Import clone×1, Upload-pack×1, Receive-pack index-pack×1, V2 object-info×1）。2026-06-06 已消除 Merge×4 + Commit×2 + Ref×1，2026-06-07 SSH V2 进一步完善，进度 ~70%。
+5. **gix 迁移继续** — 剩余 19 处 CLI 调用（PR diff/rebase/fetch×10, Mirror/Import/GPG 等），进度 ~70%。
 
 #### P2 — 增强功能
-7. 包注册表扩展（PyPI/Maven）、Wiki 完善、PR Review 增强、Issue 关联/时间追踪增强、Webhook 增强、搜索高亮、Subpath 归档下载、CI/CD 增强（Runner 禁用/Re-run/可视化）
+6. Pipeline 可视化、Wiki 完善（TOC/版本对比）、PR Review 增强（Quick Approve/Resolve）、GPG UI、Subpath 归档下载、审计日志归档、软删除统一、看板/时间追踪前端页
 
 ---
 

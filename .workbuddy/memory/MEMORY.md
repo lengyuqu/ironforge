@@ -18,10 +18,7 @@
 - **rg-ci**: CI/CD 引擎 | **rg-runner**: Runner Agent | **rg-mcp**: MCP 服务器
 
 ## Phase 进度（全部完成 ✅）
-Phase 1-20 全部完成（最后: Phase 20 工程化 ✅，Phase 19 P2 功能 ✅）
-
-## Phase 进度（全部完成 ✅）
-Phase 1-21 全部完成（Phase 21: Package Registry / LDAP/SSO/2FA / Audit / Mirror / Board / Tracking / 代码搜索 / SSH V2）
+Phase 1-21 全部完成（Phase 21: Package Registry 11 种适配器 + OCI、LDAP/SSO/2FA、审计日志、数据迁移、Mirror/Board/Tracking、代码搜索、SSH V2）
 
 ## 文档结构速查
 ```
@@ -38,11 +35,11 @@ ironforge/
 ```
 
 ## 最新对比文档
-- `ironforge-docs/gitea-vs-ironforge-2026.md` — 2026-06-07 完整对比报告（v2.0）
-- `ironforge-docs/gitea-gap-list.csv` — 差距清单 CSV（可用 Excel 打开）
-- **核心完成度**: 约 80%（vs 旧版 40-50%）
-- **最大差距**: Package Registry（16 种包类型，完全缺失，P0）
-- **P1 差距**: 邮件通知完整集成（LDAP/SSO/2FA ✅、数据迁移导入 ✅、审计日志 ✅）
+- `ironforge-docs/gitea-vs-ironforge-2026.md` — 2026-06-16 完整对比报告（v3.1，基于代码实际状态修正）
+- `ironforge-docs/gitea-gap-list.csv` — 差距清单 CSV（2026-06-16 同步更新）
+- **核心完成度**: 约 80%
+- **已完成**: 包注册表 11/17 种（含 Docker/OCI/npm/PyPI/Maven/Cargo/NuGet/Helm/RubyGems/Go/Generic）、企业认证（LDAP+OAuth2+TOTP+审计日志）、数据迁移（GitHub/GitLab 导入）、邮件通知（SMTP+lettre）、运维（SQLite WAL/PRAGMA/JWT env/RateLimiting/Prometheus）、Least-privilege Token、前端包注册表页面
+- **最大差距**: 密码重置（P0）、Composer 适配器（P1）、CI/CD 日志写队列（P1）
 - **IronForge 独有优势**: MCP AI Agent 集成（rg-mcp）、纯 Rust 栈、gix 迁移（70%）
 
 ## gix 迁移状态（2026-06-06 更新）

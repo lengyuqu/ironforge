@@ -394,3 +394,83 @@ pub async fn delete_token(
         Err(e) => AppError::InternalError(e.to_string()).into_response(),
     }
 }
+
+// ── Password Reset ──────────────────────────────────────────────
+
+/// POST /api/v1/users/forgot-password
+///
+/// Request body: { "email": "user@example.com" }
+/// Always returns 200 (to prevent email enumeration).
+#[derive(serde::Deserialize)]
+pub struct ForgotPasswordRequest {
+    pub email: String,
+}
+
+pub async fn forgot_password(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<ForgotPasswordRequest>,
+) -> impl IntoResponse {
+    // Determine base URL from Host header (fallback to localhost)
+    let host = headers
+        .get("host")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("localhost:3000");
+    let scheme = if host.contains("localhost") || host.contains("127.0.0.1") {
+        "http"
+    } else {
+        "https"
+    };
+    let base_url = format!("{}://{}", scheme, host);
+
+    match rg_core::user::service::forgot_password(
+        &state.db,
+        &body.email,
+        state.smtp_config.as_ref(),
+        &base_url,
+    )
+    .await
+    {
+        Ok(()) => {
+            tracing::info!("password reset requested for email: {}", body.email);
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({ "message": "If the email exists, a reset link has been sent" })),
+            )
+                .into_response()
+        }
+        Err(e) => AppError::InternalError(e.to_string()).into_response(),
+    }
+}
+
+/// POST /api/v1/users/reset-password
+///
+/// Request body: { "token": "...", "new_password": "..." }
+#[derive(serde::Deserialize)]
+pub struct ResetPasswordRequest {
+    pub token: String,
+    pub new_password: String,
+}
+
+pub async fn reset_password(
+    State(state): State<AppState>,
+    Json(body): Json<ResetPasswordRequest>,
+) -> impl IntoResponse {
+    match rg_core::user::service::reset_password(
+        &state.db,
+        &body.token,
+        &body.new_password,
+        &state.jwt_secret,
+    )
+    .await
+    {
+        Ok(resp) => {
+            tracing::info!(
+                user_id = resp.user_id,
+                "password reset successful"
+            );
+            (StatusCode::OK, Json(serde_json::json!(resp))).into_response()
+        }
+        Err(e) => AppError::BadRequest(e.to_string()).into_response(),
+    }
+}

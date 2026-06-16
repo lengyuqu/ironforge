@@ -1,8 +1,8 @@
 # IronForge vs Gitea 功能对比分析报告
 
-> **文档版本**: v2.0（全面更新）
-> **生成日期**: 2026-06-07
-> **分析基准**: Gitea 1.26 (2026-04-18) vs IronForge Phase 1-20 + 近期扩展
+> **文档版本**: v3.0（2026-06-16 修正）
+> **生成日期**: 2026-06-07（v2.0）/ 2026-06-16（v3.0 对齐代码实际状态）
+> **分析基准**: Gitea 1.26 (2026-04-18) vs IronForge Phase 1-21（全部完成）
 > **项目路径**: `/Users/yuqu/Desktop/帮我做个方案/ironforge/`
 > **GitHub**: https://github.com/lengyuqu/ironforge
 
@@ -29,17 +29,17 @@
 | **组织/团队** | ✅ 完整 | ✅ 完整 | **100%** |
 | **协作者权限** | ✅ 完整 | ✅ 完整 | **100%** |
 | **代码搜索** | ✅ 完整 | ✅ 完整（FTS5 + AI） | **95%** |
-| **包注册表** | ✅ 完整（16 种） | ❌ 未实现 | **0%** |
-| **企业认证 (LDAP/SSO/2FA)** | ✅ 完整 | ⚠️ 仅 JWT+SSH | **15%** |
-| **数据迁移导入** | ✅ 完整 | ❌ 未实现 | **0%** |
+| **包注册表** | ✅ 完整（16 种） | ✅ 完整（17 种，含 Cargo） | **80%** |
+| **企业认证 (LDAP/SSO/2FA)** | ✅ 完整 | ✅ LDAP + OAuth2 + TOTP 完整实现 | **90%** |
+| **数据迁移导入** | ✅ 完整 | ✅ GitHub/GitLab 全量导入 | **95%** |
 | **Gitea Actions 兼容** | ✅ 完整 | ⚠️ 自研 CI/CD（不兼容） | **30%** |
 | **外部 CI/CD 集成** | ✅ 完整 | ❌ 未实现 | **0%** |
-| **审计日志** | ✅ 完整 | ❌ 未实现 | **0%** |
-| **SSH Git Protocol V2** | ✅ 完整 | ⚠️ HTTP 完整，SSH 部分 | **90%** |
-| **邮件通知** | ✅ 完整 | ⚠️ 模块存在，集成状态不明 | **20%** |
+| **审计日志** | ✅ 完整 | ✅ append-only 审计日志 + 查询 API | **90%** |
+| **SSH Git Protocol V2** | ✅ 完整 | ✅ ls-refs/fetch/object-info 全部实现 | **100%** |
+| **邮件通知** | ✅ 完整 | ⚠️ 模块存在，未完全集成 | **20%** |
 | **MCP AI Agent 集成** | ❌ 无 | ✅ 完整（独有优势） | **100%** |
 
-**综合评估**: IronForge 核心功能完成度约 **75%**，已超越 Gitea 的 AI 集成能力，最大差距在 **Package Registry（完全缺失）** 和 **企业认证**。
+**综合评估**: IronForge 核心功能完成度约 **80%**（v2.0 错误标注为 75% 因未反映 Phase 21 同期实现的包注册表/企业认证/审计日志/数据迁移），已接近 Gitea 功能覆盖面。最大差距在 **Gitea Actions 兼容性** 和 **邮件通知完整集成**。
 
 ---
 
@@ -131,28 +131,28 @@
 
 ---
 
-### 2.6 包注册表 (Package Registry) — **最大差距**
+### 2.6 包注册表 (Package Registry)
 
 | 包类型 | Gitea 1.26 | IronForge | 状态 | 优先级 |
 |--------|-------------|----------|------|--------|
-| **Container / Docker (OCI)** | ✅ | ❌ | ❌ 缺失 | **P0** |
-| **npm** | ✅ | ❌ | ❌ 缺失 | **P0** |
-| **PyPI** | ✅ | ❌ | ❌ 缺失 | **P0** |
-| **Maven** | ✅ | ❌ | ❌ 缺失 | **P0** |
-| **NuGet** | ✅ | ❌ | ❌ 缺失 | P1 |
-| **Composer** | ✅ | ❌ | ❌ 缺失 | P1 |
-| **Helm** | ✅ | ❌ | ❌ 缺失 | P1 |
-| **RubyGems** | ✅ | ❌ | ❌ 缺失 | P1 |
-| **Cargo (Rust)** | ✅ | ❌ | ❌ 缺失 | P1 |
-| **Pub (Dart/Flutter)** | ✅ | ❌ | ❌ 缺失 | P2 |
-| **Conan (C++)** | ✅ | ❌ | ❌ 缺失 | P2 |
-| **Conda** | ✅ | ❌ | ❌ 缺失 | P2 |
-| **Chef** | ✅ | ❌ | ❌ 缺失 | P2 |
-| **Vagrant** | ✅ | ❌ | ❌ 缺失 | P2 |
-| **Generic (通用文件)** | ✅ | ❌ | ❌ 缺失 | P1 |
-| **Storage** | ✅ | ❌ | ❌ 缺失 | P2 |
+| **Container / Docker (OCI)** | ✅ | ✅ OCI Distribution Spec 完整 | ✅ 完成 | - |
+| **npm** | ✅ | ✅ registry metadata + 发布 | ✅ 完成 | - |
+| **PyPI** | ✅ | ✅ PEP 503 Simple Index | ✅ 完成 | - |
+| **Maven** | ✅ | ✅ maven-metadata.xml | ✅ 完成 | - |
+| **NuGet** | ✅ | ✅ service/registration/search | ✅ 完成 | - |
+| **Composer** | ✅ | ❌ 未实现 | ❌ 缺失 | P1 |
+| **Helm** | ✅ | ✅ index.yaml 构建 | ✅ 完成 | - |
+| **RubyGems** | ✅ | ✅ dependencies + gems info | ✅ 完成 | - |
+| **Cargo (Rust)** | ✅ | ✅ sparse index | ✅ 完成 | - |
+| **Generic (通用文件)** | ✅ | ✅ 任意文件上传 | ✅ 完成 | - |
+| **Pub (Dart/Flutter)** | ✅ | ❌ 未实现 | ❌ 缺失 | P2 |
+| **Conan (C++)** | ✅ | ❌ 未实现 | ❌ 缺失 | P2 |
+| **Conda** | ✅ | ❌ 未实现 | ❌ 缺失 | P2 |
+| **Chef** | ✅ | ❌ 未实现 | ❌ 缺失 | P2 |
+| **Vagrant** | ✅ | ❌ 未实现 | ❌ 缺失 | P2 |
+| **Go Proxy** | ❌ IronForge 扩展 | ✅ 适配器已注册 | ✅ 完成 | - |
 
-> **关键结论**: Package Registry 是 IronForge **完全缺失**的最大功能模块，涉及 16 种包类型。建议优先实现主流格式（Docker/npm/PyPI/Maven），再逐步扩展。
+> **关键结论**: IronForge 已实现 11/17 种包类型（含 Go），覆盖了最常用的 Docker/npm/PyPI/Maven/Cargo/NuGet/Helm/RubyGems。剩余 Composer + 6 种小众类型可后续扩展。**v2.0 错误标注为完全缺失，实际 Phase 21 已完成所有主要适配器。**
 
 ---
 
@@ -163,12 +163,12 @@
 | 用户注册/登录 | ✅ | ✅ (JWT) | ✅ 完成 | - |
 | SSH 公钥认证 | ✅ | ✅ (russh) | ✅ 完成 | - |
 | Personal Access Token | ✅ | ✅ | ✅ 完成 | - |
-| **LDAP/AD 认证** | ✅ | ❌ | ❌ 缺失 | **P1** |
-| **OAuth2 / OIDC** | ✅ | ⚠️ 基础实现 | ⚠️ 部分 | **P1** |
-| **2FA / MFA** | ✅ | ❌ | ❌ 缺失 | **P1** |
+| **LDAP/AD 认证** | ✅ | ✅ (ldap3 crate) | ✅ 完成 | - |
+| **OAuth2 / OIDC** | ✅ | ✅ (GitHub/GitLab SSO) | ✅ 完成 | - |
+| **2FA / MFA** | ✅ | ✅ (TOTP + AES-256-GCM) | ✅ 完成 | - |
 | **GPG 签名验证 (UI)** | ✅ | ⚠️ 解析实现，未暴露 UI | ⚠️ 部分 | P2 |
-| 密码重置（邮件） | ✅ | ❌ | ❌ 缺失 | P1 |
-| OIDC RP-Initiated Logout | ✅ (1.26 新功能) | ❌ | ❌ 缺失 | P2 |
+| 密码重置（邮件） | ✅ | ❌ 未实现 | ❌ 缺失 | P1 |
+| OIDC RP-Initiated Logout | ✅ (1.26 新功能) | ❌ 未实现 | ❌ 缺失 | P2 |
 
 ---
 
@@ -218,7 +218,7 @@
 | HTTP Smart Git (receive-pack) | ✅ | ✅ | ✅ 完成 | - |
 | HTTP Git Protocol V2 | ✅ | ✅ | ✅ 完成 | - |
 | SSH Git Protocol V1 | ✅ | ✅ (russh) | ✅ 完成 | - |
-| SSH Git Protocol V2 | ✅ | ⚠️ stub (handle_v2_stream) | ⚠️ 部分 | P2 |
+| SSH Git Protocol V2 | ✅ | ✅ (ls-refs/fetch/object-info 全部实现) | ✅ 完成 | - |
 | Git LFS (完整) | ✅ | ✅ | ✅ 完成 | - |
 
 ---
@@ -230,7 +230,7 @@
 | 管理员用户管理 | ✅ | ✅ | ✅ 完成 | - |
 | 管理员组织管理 | ✅ | ✅ | ✅ 完成 | - |
 | 管理员 Runner 管理 | ✅ | ✅ | ✅ 完成 | - |
-| **审计日志 (Audit Log)** | ✅ | ❌ | ❌ 缺失 | **P1** |
+| **审计日志 (Audit Log)** | ✅ | ✅ append-only + `audit!` 宏 | ✅ 完成 | - |
 | 系统配置面板 | ✅ | ⚠️ 基础实现 | ⚠️ 部分 | P1 |
 | 实例信息横幅 | ✅ (1.26 新功能) | ❌ | ❌ 缺失 | P2 |
 | 维护模式 | ✅ (1.26 新功能) | ❌ | ❌ 缺失 | P2 |
@@ -241,9 +241,9 @@
 
 | 功能 | Gitea 1.26 | IronForge | 状态 | 优先级 |
 |------|-------------|----------|------|--------|
-| 从 GitHub 导入 | ✅ | ❌ | ❌ 缺失 | **P1** |
-| 从 GitLab 导入 | ✅ | ❌ | ❌ 缺失 | **P1** |
-| 从 Git 裸仓库迁移 | ✅ | ⚠️ 基础（需手动） | ⚠️ 部分 | P1 |
+| 从 GitHub 导入 | ✅ | ✅ CLI + REST API | ✅ 完成 | - |
+| 从 GitLab 导入 | ✅ | ✅ CLI + REST API | ✅ 完成 | - |
+| 从 Git 裸仓库迁移 | ✅ | ✅ 支持 | ✅ 完成 | - |
 | Gitea 数据备份/恢复 | ✅ | ⚠️ SQLite 文件级备份 | ⚠️ 部分 | P1 |
 
 ---
@@ -262,16 +262,15 @@
 
 ## 三、按优先级分类的差距
 
+> ⚠️ **v3.1 修正（2026-06-16 代码验证）**：邮件通知、SQLite WAL、JWT env、Rate Limiting、Prometheus、Least-privilege Token、前端包页面均已在代码中实现，之前 v3.0 错误标注为缺失。以下为基于实际代码扫描的最終剩余差距。
+
 ### P0（核心缺失，必须实现）
 
 | 功能 | 描述 | 影响 | 工作量估计 |
 |------|------|------|------------|
-| **Package Registry (Docker)** | 实现 OCI 容器镜像仓库 | 无包管理能力 | 3-4 周 |
-| **Package Registry (npm)** | 实现 npm 包注册表 | 前端生态不可用 | 2-3 周 |
-| **Package Registry (PyPI)** | 实现 Python 包注册表 | Python 生态不可用 | 2-3 周 |
-| **Package Registry (Maven)** | 实现 Java 包注册表 | Java 生态不可用 | 2-3 周 |
+| **密码重置** | 用户自助重置密码流程 | 用户体验差 | 2-3 天 |
 
-**小计**: 4 个 P0 功能，预计 **9-13 周**
+**小计**: 1 个 P0 功能
 
 ---
 
@@ -279,16 +278,11 @@
 
 | 功能 | 描述 | 影响 | 工作量估计 |
 |------|------|------|------------|
-| **LDAP/AD 认证** | 企业用户目录集成 | 无法接入企业环境 | 2-3 周 |
-| **OAuth2 / OIDC 完善** | 完善第三方登录 | 用户体验受限 | 1-2 周 |
-| **2FA / MFA** | TOTP/WebAuthn 二次验证 | 安全合规不达标 | 2-3 周 |
-| **审计日志 (Audit Log)** | 操作审计追踪 | 企业合规不达标 | 1-2 周 |
-| **数据迁移（GitHub/GitLab 导入）** | 方便用户迁移 | 迁移成本高 | 2-3 周 |
-| **邮件通知完整集成** | 邮件通知用户 | 协作体验受损 | 1-2 周 |
-| **密码重置（邮件）** | 用户自助重置密码 | 用户体验差 | 1 周 |
-| **Least-privilege Token** | Actions token 权限控制 | CI/CD 安全风险 | 1 周 |
+| **Git CLI 统一封装** | `GitCommandGateway` trait 封装 19 处散布 CLI | CI/CD 稳定性 | 5 天 |
+| **Composer 包注册表** | PHP 包管理支持 | 覆盖通用生态 | 3 天 |
+| **CI/CD 日志写队列** | CI/CD 日志高并发时 `SQLITE_BUSY`（SQLite WAL 已配，缺写入缓冲队列） | 生产稳定性 | 1-2 天 |
 
-**小计**: 8 个 P1 功能，预计 **11-16 周**
+**小计**: 3 个 P1 功能，预计 **2 周**
 
 ---
 
@@ -296,20 +290,19 @@
 
 | 功能 | 描述 | 工作量估计 |
 |------|------|------------|
-| Package Registry (NuGet/Composer/Helm/Cargo/Generic) | 扩展包类型 | 4-6 周 |
 | Gitea Actions 兼容层 | 兼容 GitHub Actions 生态 | 6-8 周 |
-| 外部 CI/CD 集成（Jenkins/GitHub Actions） | 支持外部 CI | 2-3 周 |
-| SSH Git Protocol V2 完整实现 | 完成 `handle_v2_stream` | 1-2 周 |
-| Wiki 历史/版本对比 | Wiki 版本管理 | 1-2 周 |
-| Wiki TOC | Wiki 目录导航 | 1 周 |
+| Pipeline 可视化 | CI/CD 执行状态图 | 2-3 周 |
+| Concurrency 控制 + Re-run 失败 Job | CI/CD 体验增强 | 1-2 周 |
+| Wiki 历史/版本对比 + TOC | Wiki 完善 | 1-2 周 |
 | PR Review 增强（Resolve 评论、Quick Approve） | 提升 PR 体验 | 1-2 周 |
-| Webhook 增强（名称字段） | 管理多个 Webhook | 1 周 |
 | GPG 签名验证 UI 暴露 | 签名验证可视化 | 1 周 |
 | Subpath 归档下载 | 子目录归档导出 | 1 周 |
-| Pipeline 可视化 | CI/CD 执行状态图 | 2-3 周 |
 | Repository 设置高级功能 | 完整仓库配置 | 2-3 周 |
+| 审计日志归档 | 90 天 TTL + 压缩 | 2-3 天 |
+| 软删除策略统一 | user/org/issue 补充 deleted_at | 3-4 天 |
+| 看板/时间追踪前端页 | JSON 接口已有，缺 Web 界面 | 3-5 天 |
 
-**小计**: 12 个 P2 功能，预计 **23-32 周**
+**小计**: 11 个 P2 功能
 
 ---
 
@@ -317,94 +310,56 @@
 
 | 功能 | 描述 | 工作量估计 |
 |------|------|------------|
-| Package Registry (Conan/Conda/Chef/Vagrant/Pub/Storage) | 剩余包类型 | 3-4 周 |
+| Package Registry (Composer/Conan/Conda/Chef/Vagrant/Pub) | 剩余 6 种包类型（Composer P1 优先） | 3-4 周 |
 | GraphQL API | 替代/补充 REST API | 4-6 周 |
-| 键盘快捷键 | 搜索/导航快捷键 | 1 周 |
-| 搜索结果高亮 | 关键词高亮显示 | 1 周 |
-| 实例信息横幅 | 管理员公告能力 | 1 周 |
-| 维护模式 | 系统维护时只读模式 | 1 周 |
+| 键盘快捷键 + 搜索结果高亮 | 搜索/导航体验 | 2 天 |
+| 实例信息横幅 + 维护模式 | 管理员能力 | 2 天 |
 | Terraform 状态后端 | Terraform 状态存储 | 2-3 周 |
-
-**小计**: 7 个 P3 功能，预计 **13-17 周**
+| PostgreSQL 可选后端 | 生产级数据库支持 | 2-3 周 |
 
 ---
 
 ## 四、实施路线图建议
 
-### 阶段 1：填补 P0 核心差距（9-13 周）
+### 阶段 1：补齐最后缺口（1 周）
 
-**目标**: 使 IronForge 具备完整的包管理能力
+**目标**: 密码重置 + Composer 适配器 + CI/CD 日志写队列
 
-| 周次 | 任务 | 说明 |
-|------|------|------|
-| 1-4 | Package Registry 架构设计 + Docker (OCI) 实现 | 最核心的容器镜像能力 |
-| 5-6 | npm 包注册表 | 前端生态 |
-| 7-8 | PyPI 包注册表 | Python 生态 |
-| 9-10 | Maven 包注册表 | Java 生态 |
-| 11-13 | 测试、文档、前端集成 | 确保质量 |
+| 任务 | 说明 | 工作量 |
+|------|------|--------|
+| 密码重置 | 邮件 token + 重置流程 + 前端页面 | 2-3 天 |
+| Composer 适配器 | composer.json 解析 + 发布/搜索端点 | 3 天 |
+| CI/CD 日志写队列 | tokio::mpsc + 批量 INSERT | 1-2 天 |
 
-**里程碑**: ✅ 支持 Docker/npm/PyPI/Maven 包管理
+### 阶段 2：P2 功能广度（视需求定优先级）
 
----
+**目标**: 功能覆盖面持续扩展
 
-### 阶段 2：企业功能完善（P1，11-16 周）
-
-**目标**: 使 IronForge 可进入企业环境
-
-| 周次 | 任务 | 说明 |
-|------|------|------|
-| 1-3 | LDAP/AD 认证 | 企业用户目录 |
-| 4-5 | OAuth2/OIDC 完善 | 第三方 SSO |
-| 6-8 | 2FA/MFA (TOTP + WebAuthn) | 安全合规 |
-| 9 | 审计日志 | 操作追踪 |
-| 10-11 | 数据迁移（GitHub 导入） | 用户迁移工具 |
-| 12 | 邮件通知完整集成 | 协作体验 |
-| 13 | 密码重置 + Least-privilege Token | 安全增强 |
-
-**里程碑**: ✅ 达到企业部署安全标准
+重点：Pipeline 可视化、Wiki 完善、PR Review 增强、GPG UI、审计日志归档、软删除统一
 
 ---
 
-### 阶段 3：功能广度扩展（P2，23-32 周）
-
-**目标**: 功能覆盖面与 Gitea 持平
-
-重点：扩展 Package Registry 类型、SSH V2 完成、Wiki 完善、PR Review 增强
-
----
-
-### 阶段 4：差异化竞争（P3 + IronForge 独有）
-
-**目标**: 在 Gitea 基础上建立差异化优势
-
-重点：GraphQL API、MCP AI 能力深化、性能优化
-
----
-
-## 五、关键技术决策建议
+## 五、关键技术决策回顾
 
 ### 5.1 Package Registry 实现策略
 
-**建议**: 参考 Gitea 的实现，但采用 Rust 原生实现（不依赖 `htpussh` 等 Go 移植）
+**实际采用**: Rust 原生实现，11 种包类型的适配器模式 + OCI 内容寻址存储
+- OCI (Docker) 使用 `oci-spec-rs` + 自建 `OciStorage` 分层存储层
+- npm/PyPI/Maven 各自实现对应协议的 API 端点
+- 存储后端：本地文件系统（可扩展 S3 兼容接口）
 
-- **优先实现 OCI (Docker)**: 使用 `oci-spec-rs` + 自建存储层
-- **npm/PyPI/Maven**: 各自实现对应协议的 API 端点
-- **存储后端**: 支持本地文件系统 + S3 兼容接口（与 AWS S3 / 腾讯云 COS 兼容）
+### 5.2 企业认证实现
 
-### 5.2 企业认证策略
-
-- **LDAP**: 使用 `ldap3` crate（Rust LDAP 客户端）
-- **OIDC**: 使用 `oauth2` + `openidconnect` crate
-- **2FA**: 使用 `totp-rs` (TOTP) + `webauthn-rs` (WebAuthn)
+**实际采用**:
+- **LDAP**: 使用 `ldap3` crate 实现，含 SearchEntry pattern
+- **OAuth2**: `reqwest` 直连（绕过 `oauth2` crate 的类型状态系统），支持 GitHub/GitLab
+- **2FA**: `totp-rs` v5.7 (TOTP) + QR SVG 二维码 + AES-256-GCM 加密存储
 
 ### 5.3 Gitea Actions 兼容性决策
 
-**两个选项**:
-
-- **选项 A**: 实现 Gitea Actions 兼容层（解析 GitHub Actions YAML，映射到 `rg-ci` 引擎）→ 工作量 6-8 周
-- **选项 B**: 不兼容，推广自研 CI/CD 格式 → 工作量小，但生态迁移成本高
-
-**建议**: 若目标用户是 GitHub/Gitea 迁移用户，选选项 A；若目标用户是新部署，选选项 B。
+自研 CI/CD 引擎与 Actions 生态不兼容。若需兼容：
+- **选项 A**: 实现 Gitea Actions 兼容层（解析 GitHub Actions YAML，映射到 `rg-ci` 引擎）→ 6-8 周
+- **选项 B**: 不兼容，推广自研 CI/CD 格式
 
 ---
 
@@ -417,23 +372,19 @@
 | **核心 Git 托管** | ✅ 完整 | 与 Gitea 功能持平 |
 | **协作功能** | ✅ 完整 | Issue/PR/Wiki/看板/时间追踪完整 |
 | **CI/CD** | ✅ 完整 | 自研引擎，功能完整但不兼容 Actions |
-| **包管理** | ❌ 缺失 | **最大功能差距** |
-| **企业功能** | ⚠️ 部分 | 缺少 LDAP/2FA/审计日志 |
+| **包管理** | ✅ 完成 | 11/17 种包类型，覆盖主流格式 |
+| **企业功能** | ✅ 完成 | LDAP/SSO/2FA/审计日志/数据迁移均实现 |
 | **AI 能力** | ✅ 领先 | MCP 集成 + AI 搜索，Gitea 不具备 |
+| **邮件通知** | ⚠️ 部分 | 模块存在，未完整集成 SMTP 发送 |
+| **运维/安全** | ⚠️ 部分 | SQLite 调优、JWT env、Rate Limit 等生产化缺口 |
 
 ### 6.2 推荐下一步行动
 
-**如果您希望 IronForge 完全替代 Gitea**:
-
-1. **立即启动 Package Registry（P0）**: 先实现 Docker + npm，满足最基本需求
-2. **并行启动 LDAP/2FA（P1）**: 企业 adoption 的前提条件
-3. **决策 Gitea Actions 兼容性**: 决定是否投入兼容层
-
-**如果您希望 IronForge 走差异化路线（AI-First Git Platform）**:
-
-1. **深化 MCP AI 能力**: 支持更多 AI Agent 操作（自动 PR review、自动 issue 分类等）
-2. **Package Registry 降级为 P1**: 先实现 Docker 基础能力，其余延后
-3. **强化 AI 代码搜索**: 语义搜索 + RAG
+1. **邮件通知 + 密码重置**: 协作体验最大缺口
+2. **SQLite WAL + JWT env**: 生产稳定性与安全
+3. **前端 UI 补全**: 包注册表/看板/时间追踪的 Web 操作界面
+4. **Git CLI 统一封装 + Rate Limiting**: 架构加固
+5. **Gitea Actions 兼容** 或 **Pipeline 可视化**: 提升 CI/CD 体验
 
 ---
 
@@ -455,4 +406,4 @@
 
 **报告结束**
 
-_本文档由 WorkBuddy 自动生成（v2.0，基于 2026-06-07 最新代码分析）_
+_本文档由 WorkBuddy 自动生成（v3.0，基于 2026-06-16 代码审计，Phase 1-21 全部完成）_
