@@ -43,9 +43,12 @@ ironforge/
 ├── CONTRIBUTING.md         # 开发规范
 ├── .ai/                  # AI Agent 接入规范（README + MCP配置 + prompt模板）
 ├── docs/
-│   ├── p0-prd.md           # P0 功能 PRD
-│   ├── p0-system-design.md # P0 系统设计 + 任务分解
-│   └── git-protocol.md     # Git 协议实现细节与踩坑记录
+│   ├── p0-prd.md                   # P0 功能 PRD
+│   ├── p0-system-design.md         # P0 系统设计 + 任务分解
+│   ├── p0-completion-plan.md       # P0 完善方案 — 剩余缺口与实施计划
+│   ├── git-protocol.md             # Git 协议实现细节与踩坑记录
+│   ├── ai-agent-integration.md     # AI Agent 集成方案（三层架构）
+│   └── project-audit-2026-06.md    # 项目审计与进度报告（2026-06-06）
 ├── crates/
 │   ├── rg-cli/             # 主二进制入口（bin = "ironforge"）
 │   ├── rg-core/            # 核心业务逻辑（✅ auth/user/repo/issue/pr/wiki/lfs/webhook/review/branch_protection/collaborator/org/notification/email/package_registry/mirror/board/time_tracking/import/audit/search/code_indexer）
@@ -161,7 +164,7 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":
 
 ---
 
-## 实现现状（2026-05-11）
+## 实现现状（2026-06-16）
 
 ### ✅ 已完成（Phase 1 ~ Phase 20 + P0/P1/P2 Gap Analysis + 工程化）
 
@@ -601,12 +604,16 @@ $WORKSPACE/.workbuddy/memory/
 ```
 $WORKSPACE/ironforge-docs/
 ├── README.md                           # 报告索引 + 项目状态总览
-├── gitea-feature-gap-analysis.md       # vs Gitea 1.26 功能差距（⚠️ Phase 17 之前）
-├── gitea-vs-ironforge-2026.md          # vs Gitea 功能对比 v2.0（2026-06-07 全面更新）
+├── gitea-vs-ironforge-2026.md          # vs Gitea 功能对比 v2.0（2026-06-07）
 ├── gitea-gap-list.csv                  # 功能差距清单 CSV（2026-06-07）
-├── gix-migration-feasibility-analysis.md # gix 迁移可行性评估
-├── gix-migration-status-report.md      # gix 迁移进度（⚠️ Phase 18 之前）
-└── ci-runner-architecture.md           # CI Runner 架构设计
+├── ci-runner-architecture.md           # CI Runner 架构设计
+├── ironforge-improvement-analysis-2026-06-09.md # 全方位改进空间分析
+├── p0-update-2026-06-08.md             # P0 包注册表更新
+└── archive/                            # 过时分析报告
+    ├── ARCHIVE.md                      # 归档索引
+    ├── gitea-feature-gap-analysis.md   # (v1, 已由 v2.0 替代)
+    ├── gix-migration-status-report.md  # (数据已过时)
+    └── gix-migration-feasibility-analysis.md # (参考用，已归档)
 ```
 
 ### 项目文档位置
@@ -614,5 +621,14 @@ $WORKSPACE/ironforge-docs/
 $WORKSPACE/ironforge/docs/
 ├── git-protocol.md                     # Git 协议实现细节与踩坑记录
 ├── p0-prd.md                           # P0 功能 PRD（产品需求）
-└── p0-system-design.md                 # P0 系统设计 + 任务分解
+├── p0-system-design.md                 # P0 系统设计 + 任务分解
+├── p0-completion-plan.md               # P0 完善方案 — 剩余缺口与实施计划
+├── ai-agent-integration.md             # AI Agent 集成方案（三层架构）
+└── project-audit-2026-06.md            # 项目审计与进度报告
+
+$WORKSPACE/.ai/
+└── README.md                           # AI Agent 接入指南（MCP + REST API）
+
+$WORKSPACE/deploy/
+└── README.md                           # Observability Stack 部署说明
 ```

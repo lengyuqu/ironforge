@@ -440,7 +440,7 @@ GIT_TRACE_PACKET=1 GIT_TRACE=1 git push origin main 2>&1
 | 代码覆盖率 | cargo-llvm-cov | HTML/LCOV/JSON 输出 |
 
 > **关于 i18n**：前端完整国际化（199 个翻译 key），后端统一英文无需 i18n。
-> **关于 gix**：ARCHITECTURE.md 中规划使用 gix (gitoxide)，但当前 Git 对象操作主要通过调用系统 `git` 命令实现（gix 0.66 的 reference/head API 仍不稳定）。后续可逐步替换为 gix API。
+> **关于 gix**：ARCHITECTURE.md 中规划使用 gix (gitoxide)。当前 Git 对象操作约 70% 已通过 gix 0.83 API 实现（rg-ci/rg-git/rg-cli 已 100% 迁移），剩余 19 处 CLI 调用（rebase/fetch/diff/pack/GPG 等）因 gix API 未成熟而保留。
 
 ---
 

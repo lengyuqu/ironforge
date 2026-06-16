@@ -39,9 +39,12 @@ ironforge/
 ├── .ai/                   # AI Agent 接入规范（README + MCP配置 + prompt模板）
 ├── README.md               # 项目说明
 ├── docs/
-│   ├── p0-prd.md           # P0 功能 PRD
-│   ├── p0-system-design.md # P0 系统设计
-│   └── git-protocol.md     # Git 协议实现细节与踩坑记录
+│   ├── p0-prd.md                   # P0 功能 PRD
+│   ├── p0-system-design.md         # P0 系统设计
+│   ├── p0-completion-plan.md       # P0 完善方案 — 剩余缺口
+│   ├── git-protocol.md             # Git 协议实现细节与踩坑记录
+│   ├── ai-agent-integration.md     # AI Agent 集成方案
+│   └── project-audit-2026-06.md    # 项目审计报告
 ├── crates/
 │   ├── rg-cli/             # 主二进制入口（bin = "ironforge"）
 │   ├── rg-core/            # 核心业务逻辑
@@ -102,8 +105,7 @@ cargo build --release
 → `CONTRIBUTING.md` — 遵循编码规范
 
 ### gix 迁移 / 替换 git CLI 调用
-→ `ironforge-docs/gix-migration-feasibility-analysis.md` — 可行性评估
-→ `ironforge-docs/gix-migration-status-report.md` — 进度报告（⚠️ Phase 18 之前）
+→ `CLAUDE.md` 中「实现现状」表格 — 当前迁移进度和剩余 CLI 调用
 
 ### CI/CD Runner 开发
 → `ironforge-docs/ci-runner-architecture.md` — Runner 调度架构
@@ -129,15 +131,17 @@ cargo build --release
 
 `ironforge-docs/` 目录包含以下分析报告：
 
-| 报告 | 内容 | 时间窗口 |
-|------|------|---------|
+| 报告 | 内容 | 状态 |
+|------|------|------|
 | `README.md` | 报告索引 + 项目状态总览 | 最新 |
-| `gitea-feature-gap-analysis.md` | vs Gitea 1.26 功能差距 | ⚠️ Phase 17 之前 |
-| `gitea-vs-ironforge-2026.md` | vs Gitea 功能对比（v2.0 全面更新） | 2026-06-07 |
-| `gitea-gap-list.csv` | 功能差距清单（CSV 格式） | 2026-06-07 |
-| `gix-migration-feasibility-analysis.md` | gix 迁移可行性评估 | 参考用 |
-| `gix-migration-status-report.md` | gix 迁移进度 | ⚠️ Phase 18 之前 |
-| `ci-runner-architecture.md` | CI Runner 架构设计 | 最新 |
+| `gitea-vs-ironforge-2026.md` | vs Gitea 功能对比（v2.0 全面更新） | 当前 |
+| `gitea-gap-list.csv` | 功能差距清单（CSV 格式） | 当前 |
+| `ci-runner-architecture.md` | CI Runner 架构设计 | 当前 |
+| `ironforge-improvement-analysis-2026-06-09.md` | 全方位改进空间分析 | 当前 |
+| `p0-update-2026-06-08.md` | P0 包注册表更新 | 当前 |
+| `archive/` | 过时分析报告（v1 差距分析、gix 旧报告） | 已归档 |
+
+> 过时分析报告已移至 `archive/` 目录，详阅 `archive/ARCHIVE.md`。
 
 ---
 

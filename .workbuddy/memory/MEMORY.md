@@ -2,7 +2,7 @@
 
 ## 项目概述
 - **名称**: IronForge（铁匠铺）- Rust Git 托管平台
-- **位置**: `/Users/laocai/Desktop/帮我做个方案/ironforge/`
+- **位置**: `/Users/yuqu/vberCodeing/ironforge/`
 - **Rust**: 1.95.0 (stable) | **二进制**: `ironforge`
 - **GitHub**: https://github.com/lengyuqu/ironforge (public)
 
@@ -20,18 +20,22 @@
 ## Phase 进度（全部完成 ✅）
 Phase 1-20 全部完成（最后: Phase 20 工程化 ✅，Phase 19 P2 功能 ✅）
 
-## 待完成（2026-06-07 更新）
-- Mirror / Board / Time Tracking → ✅ 已完成（2026-06-07）
-- /search/code 端点 → ✅ 已完成（FTS5 + CLI `index-repo` 命令）
-- SSH Protocol V2 (HTTP) → ✅ 已完成
-- Runner OpenAPI 注解 → ✅ 已完成
-- **Package Registry（P0）**: ✅ 核心框架 + 协议适配器（2026-06-07 下午），DB+存储+服务+REST API+CLI+PackageAdapter trait + Cargo/npm/Generic 适配器 + sparse index + npm registry 端点
-- **LDAP/SSO/2FA（P1）**: ✅ 完成（2026-06-07），LDAP 认证（ldap3 v0.11 + SearchEntry pattern）、OAuth2 SSO（GitHub/GitLab，reqwest 直连）、TOTP 2FA（totp-rs v5.7 + QR SVG）、AES-256-GCM 加密存储、5 个 DB 迁移 + 4 个实体 + 4 个 ops + 4 个 core 服务 + 8 个 REST API 端点
-- **审计日志（P1）**: ✅ 完成（2026-06-07），append-only 审计日志表 + admin-only 查询 API + `audit!` 宏便捷记录，1 个 DB 迁移 + 1 个实体 + 1 个 ops + 1 个 core 服务 + 2 个 REST API 端点
-- **数据迁移导入（P1）**: ✅ 完成（2026-06-07 晚间），GitHub/GitLab → IronForge 全量导入（repo/label/milestone/issue+comment/PR+review/release），CLI + REST API
-- **Gitea Actions 兼容（P2）**: 自研 CI/CD 不兼容 Actions 生态
-- **SSH Git Protocol V2（P2）**: ✅ 已完成（2026-06-07 确认），rg-ssh exec_request 正确路由到 handle_v2_stream，ls-refs/fetch/object-info 全部实现
-- **邮件通知完整集成（P1）**: 模块存在，未完全集成
+## Phase 进度（全部完成 ✅）
+Phase 1-21 全部完成（Phase 21: Package Registry / LDAP/SSO/2FA / Audit / Mirror / Board / Tracking / 代码搜索 / SSH V2）
+
+## 文档结构速查
+```
+ironforge/
+├── CLAUDE.md              # AI 深度参考（踩坑/依赖/现状）
+├── AGENT.md               # AI 统一入口（轻量概览）
+├── ARCHITECTURE.md        # 架构设计
+├── CONTRIBUTING.md        # 开发规范
+├── README.md              # 项目说明 + 快速开始
+├── docs/                  # 核心设计文档（6 篇）
+├── ironforge-docs/        # 分析报告（当前 5 篇，archive/ 下 3 篇过时报告）
+├── .ai/README.md          # AI Agent 接入指南
+└── deploy/README.md       # Observability 部署说明
+```
 
 ## 最新对比文档
 - `ironforge-docs/gitea-vs-ironforge-2026.md` — 2026-06-07 完整对比报告（v2.0）
@@ -83,12 +87,7 @@ m20260607_000006~000011: alter_users_auth/oauth_accounts/mfa_backup_codes/login_
 
 ### 新增踩坑（2026-06-07）
 16. **gix !Send 陷阱**: `gix::Repository` 含 `RefCell`（`!Send`），async fn 中不得跨 `.await` 持有，必须用同步块 `{ let repo = ...; ...; /* drop */ }` 收集数据后再 async I/O
-18. **oauth2 crate v5 类型状态过于复杂**: v5.0 `BasicClient` builder 返回不同类型状态标记（`EndpointSet`/`EndpointNotSet`），与 `exchange_code()`/`authorize_url()` 的方法签名不兼容。推荐直接用 `reqwest` 实现 OAuth2 流程（手动构造 URL + form POST），避免依赖 oauth2 crate 的类型状态系统。
-19. **aes-gcm Nonce 类型参数**: `Nonce::<Aes256Gcm>` 解析为 `GenericArray<u8, AesGcm<...>>` 而非 `GenericArray<u8, U12>`，导致 `ArrayLength<u8>` 不满足。正确用法：`Nonce::from_slice(&bytes)` 让编译器推断类型。
-20. **SeaORM ops 导入**: `use sea_orm::entity::prelude::*;` 不包含 `Set`/`NotSet`/`QueryOrder`，必须用 `use sea_orm::*;`
-21. **axum 0.8 Host extractor**: 需要 `host` feature，未启用时用 `HeaderMap` + `headers.get("host")` 替代
-
-### 待完成更新（2026-06-07）
-- /search/code 端点 ✅ 已完成（FTS5 + CLI 索引触发）
-- SSH Protocol V2 ✅ 已完成（ls-refs/fetch 全面修复）
-- Runner OpenAPI 注解 ✅ 已完成（6 个 route_layer 端点 + 6 个 ToSchema 类型 + 清理 4 处未使用导入）
+17. **oauth2 crate v5 类型状态过于复杂**: v5.0 `BasicClient` builder 返回不同类型状态标记（`EndpointSet`/`EndpointNotSet`），与 `exchange_code()`/`authorize_url()` 的方法签名不兼容。推荐直接用 `reqwest` 实现 OAuth2 流程（手动构造 URL + form POST），避免依赖 oauth2 crate 的类型状态系统。
+18. **aes-gcm Nonce 类型参数**: `Nonce::<Aes256Gcm>` 解析为 `GenericArray<u8, AesGcm<...>>` 而非 `GenericArray<u8, U12>`，导致 `ArrayLength<u8>` 不满足。正确用法：`Nonce::from_slice(&bytes)` 让编译器推断类型。
+19. **SeaORM ops 导入**: `use sea_orm::entity::prelude::*;` 不包含 `Set`/`NotSet`/`QueryOrder`，必须用 `use sea_orm::*;`
+20. **axum 0.8 Host extractor**: 需要 `host` feature，未启用时用 `HeaderMap` + `headers.get("host")` 替代
