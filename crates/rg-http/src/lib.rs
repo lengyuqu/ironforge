@@ -50,6 +50,7 @@ pub struct AppState {
     pub notification_hub: ws::NotificationHub,
     pub smtp_config: Option<rg_core::email::SmtpConfig>,
     pub oci_storage: Arc<OciStorage>,
+    pub log_write_queue: rg_core::ci::log_write_queue::LogWriteQueue,
 }
 
 /// HTTP server configuration.
@@ -96,6 +97,7 @@ pub async fn run(config: HttpServerConfig) -> Result<()> {
 
     // Clone DB before it moves into state
     let watchdog_db = config.db.clone();
+    let log_queue_db = config.db.clone();
 
     let state = AppState {
         repo_root: Arc::new(config.repo_root),
@@ -107,6 +109,7 @@ pub async fn run(config: HttpServerConfig) -> Result<()> {
         notification_hub: notification_hub.clone(),
         smtp_config: config.smtp_config,
         oci_storage,
+        log_write_queue: rg_core::ci::log_write_queue::LogWriteQueue::spawn(log_queue_db),
     };
 
     let app = create_router(state.clone(), rate_limiter.clone());
@@ -492,6 +495,8 @@ fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
         .route("/repos/{owner}/{name}/packages/rubygems/api/v1/gems/{gem_name}", get(api::packages::rubygems_gem_info))
         // Helm repository index
         .route("/repos/{owner}/{name}/packages/helm/index.yaml", get(api::packages::helm_index))
+        // Composer packages.json
+        .route("/repos/{owner}/{name}/packages/composer/packages.json", get(api::packages::composer_packages_json))
         .route("/repos/{owner}/{name}/packages/{pkg_type}/{pkg_name}", get(api::packages::get_package))
         .route("/repos/{owner}/{name}/packages/{pkg_type}/{pkg_name}/versions", get(api::packages::list_versions))
         .route("/repos/{owner}/{name}/packages/{pkg_type}/{pkg_name}/{version}", get(api::packages::get_version).delete(api::packages::delete_version))

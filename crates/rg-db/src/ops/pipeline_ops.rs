@@ -200,6 +200,27 @@ pub async fn get_job(db: &DatabaseConnection, id: i64) -> Result<Option<pipeline
         .context("db: get job")
 }
 
+/// Update just the log field of a job (lightweight, used by log write queue).
+pub async fn update_job_log(
+    db: &DatabaseConnection,
+    id: i64,
+    log: &str,
+) -> Result<()> {
+    use sea_orm::ActiveModelTrait;
+    let model = pipeline_job::Entity::find_by_id(id)
+        .one(db)
+        .await
+        .context("db: find job for log update")?
+        .ok_or_else(|| anyhow::anyhow!("job {} not found", id))?;
+
+    let mut active: pipeline_job::ActiveModel = model.into();
+    active.log = Set(Some(log.to_string()));
+    active.update(db)
+        .await
+        .context("db: update job log")?;
+    Ok(())
+}
+
 /// List jobs for a stage.
 pub async fn list_jobs_by_stage(
     db: &DatabaseConnection,

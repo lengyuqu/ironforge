@@ -378,23 +378,12 @@ pub async fn upload_log(
             return AppError::forbidden("job not assigned to this runner").into_response();
     }
 
-    // Append log (keep existing log + new log)
-    let existing_log = job.log.unwrap_or_default();
-    let combined = if existing_log.is_empty() {
-        body.clone()
-    } else {
-        format!("{}\n{}", existing_log, body)
-    };
-
     // Broadcast log via WebSocket to frontend
     crate::ws::push_job_log(&state.notification_hub, job_id, &body);
 
-    if let Err(e) = rg_db::ops::pipeline_ops::update_job_result(
-        &state.db, job_id, &job.status, None, Some(&combined), None, None,
-    ).await {
-        tracing::error!(%e, "upload_log: update_job_result failed");
-        return AppError::internal(e).into_response();
-    }
+    // Write log through the queue to serialise concurrent writes and
+    // avoid SQLITE_BUSY under high concurrency.
+    state.log_write_queue.write(job_id, &body).await;
 
     (StatusCode::OK, Json(serde_json::json!({"status": "ok"}))).into_response()
 }

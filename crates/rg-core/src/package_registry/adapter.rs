@@ -73,6 +73,7 @@ pub fn get_adapter(package_type: &str) -> Option<BoxedAdapter> {
         "docker" => Some(Box::new(super::adapters::DockerAdapter)),
         "generic" => Some(Box::new(super::adapters::GenericAdapter)),
         "helm" => Some(Box::new(super::adapters::HelmAdapter)),
+        "composer" => Some(Box::new(super::adapters::ComposerAdapter)),
         // Other types fall back to generic
         _ => {
             if package_type != "generic" {

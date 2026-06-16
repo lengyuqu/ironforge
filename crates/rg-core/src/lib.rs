@@ -28,6 +28,7 @@ pub mod time_tracking;
 pub mod import;
 pub mod package_registry;
 pub mod audit;
+pub mod ci;
 
 use anyhow::Result;
 

@@ -893,7 +893,95 @@ pub async fn helm_index(
             (header::CONTENT_TYPE, "application/x-yaml; charset=utf-8"),
             // Some Helm clients also check for text/yaml
         ],
-        yaml,
+    yaml,
+)
+    .into_response()
+}
+
+// ── Composer Protocol Endpoint ────────────────────────────
+
+/// GET /api/v1/repos/{owner}/{name}/packages/composer/packages.json
+///
+/// Returns a Composer repository `packages.json` compatible with
+/// Composer 2.x SAT solver.
+pub async fn composer_packages_json(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    Path((owner, name)): Path<(String, String)>,
+) -> axum::response::Response {
+    let base_url = build_base_url(&headers);
+
+    let packages = match rg_core::package_registry::service::list_packages(
+        &state.db, &owner, &name, "composer",
+    )
+    .await
+    {
+        Ok(p) => p,
+        Err(e) => return (StatusCode::NOT_FOUND, e.to_string()).into_response(),
+    };
+
+    let mut json_output = String::new();
+    let mut first = true;
+
+    // Start building the combined JSON manually
+    json_output.push_str("{\"packages\":{");
+
+    for pkg in &packages {
+        let versions = match rg_core::package_registry::service::list_versions(
+            &state.db, &owner, &name, "composer", &pkg.name,
+        )
+        .await
+        {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+
+        let composer_versions: Vec<rg_core::package_registry::adapters::composer::ComposerVersionInfo> = versions
+            .iter()
+            .map(|v| {
+                let filename = v
+                    .files
+                    .first()
+                    .map(|f| f.filename.clone())
+                    .unwrap_or_else(|| format!("{}.zip", v.version));
+                rg_core::package_registry::adapters::composer::ComposerVersionInfo {
+                    version: v.version.clone(),
+                    filename,
+                    sha256: v.sha256.clone(),
+                    description: pkg.description.clone(),
+                    license: None, // Composer license is stored in metadata
+                    package_type: None,
+                }
+            })
+            .collect();
+        let name_json = serde_json::json!(pkg.name).to_string();
+        let versions_json = rg_core::package_registry::adapters::composer::build_packages_json(
+            &pkg.name,
+            &composer_versions,
+            &base_url,
+            &owner,
+            &name,
+        );
+        // Extract just the inner version map from the full response
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&versions_json) {
+            if let Some(pkgs) = val.get("packages") {
+                if let Some(inner) = pkgs.get(&pkg.name) {
+                    if !first {
+                        json_output.push(',');
+                    }
+                    first = false;
+                    json_output.push_str(&format!("{}:{}", name_json, inner));
+                }
+            }
+        }
+    }
+
+    json_output.push_str("}}");
+
+    (
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, "application/json; charset=utf-8")],
+        json_output,
     )
         .into_response()
 }
