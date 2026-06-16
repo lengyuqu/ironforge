@@ -597,6 +597,42 @@ fn sso_provider_response(p: &rg_db::entities::sso_provider::Model) -> serde_json
     })
 }
 
+/// GET /api/v1/admin/settings — returns current instance settings.
+pub async fn get_settings(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if require_admin(&state, &headers).await.is_none() {
+        return AppError::forbidden("admin required").into_response();
+    }
+    let settings = crate::instance::get_settings();
+    (StatusCode::OK, Json(serde_json::json!(settings))).into_response()
+}
+
+/// PATCH /api/v1/admin/settings — update instance settings (maintenance mode, banner).
+pub async fn update_settings(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    if require_admin(&state, &headers).await.is_none() {
+        return AppError::forbidden("admin required").into_response();
+    }
+    crate::instance::update_settings(|s| {
+        if let Some(mm) = body.get("maintenance_mode").and_then(|v| v.as_bool()) {
+            s.maintenance_mode = mm;
+        }
+        if let Some(msg) = body.get("banner_message") {
+            s.banner_message = msg.as_str().filter(|m| !m.is_empty()).map(String::from);
+        }
+        if let Some(bt) = body.get("banner_type").and_then(|v| v.as_str()) {
+            s.banner_type = bt.to_string();
+        }
+    });
+    let settings = crate::instance::get_settings();
+    (StatusCode::OK, Json(serde_json::json!(settings))).into_response()
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────
 
 fn org_response(org: &rg_db::entities::organization::Model) -> serde_json::Value {

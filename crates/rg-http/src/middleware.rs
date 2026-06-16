@@ -3,8 +3,9 @@
 use axum::body::{to_bytes, Body};
 use axum::extract::{MatchedPath, Request};
 use axum::http::{header, HeaderName, HeaderValue};
+use axum::http::Method;
 use axum::middleware::Next;
-use axum::response::Response;
+use axum::response::{IntoResponse, Json, Response};
 use std::time::Instant;
 
 /// Per-request unique ID, generated from `X-Request-Id` header or a fresh UUID.
@@ -139,4 +140,33 @@ async fn inject_request_id(response: Response, request_id: &str) -> Response {
         HeaderValue::from_str(&modified.len().to_string()).unwrap_or_else(|_| HeaderValue::from(0)),
     );
     Response::from_parts(parts, Body::from(modified))
+}
+
+/// Maintenance mode middleware — rejects mutating requests when the instance
+/// is in read-only maintenance mode.  Safe methods (GET, HEAD, OPTIONS) and
+/// the admin panel are always allowed.
+pub async fn maintenance_middleware(
+    request: Request,
+    next: Next,
+) -> Response {
+    let settings = crate::instance::get_settings();
+    if settings.maintenance_mode {
+        let method = request.method();
+        let path = request.uri().path();
+
+        // Always allow GET, HEAD, OPTIONS, and admin routes
+        let is_safe_method = method == Method::GET
+            || method == Method::HEAD
+            || method == Method::OPTIONS;
+        let is_admin = path.starts_with("/api/v1/admin/");
+
+        if !is_safe_method && !is_admin {
+            return Json(serde_json::json!({
+                "error": "Instance is in maintenance mode. Read-only access only.",
+                "code": "MAINTENANCE_MODE"
+            }))
+            .into_response();
+        }
+    }
+    next.run(request).await
 }

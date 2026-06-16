@@ -10,6 +10,7 @@
 pub mod api;
 pub mod error;
 pub mod git_v2;
+pub mod instance;
 pub mod metrics;
 pub mod middleware;
 pub mod oci;
@@ -51,11 +52,6 @@ pub struct AppState {
     pub smtp_config: Option<rg_core::email::SmtpConfig>,
     pub oci_storage: Arc<OciStorage>,
     pub log_write_queue: rg_core::ci::log_write_queue::LogWriteQueue,
-    /// Whether the instance is in maintenance (read-only) mode.
-    pub maintenance_mode: bool,
-    /// Instance-wide banner message displayed to all users.
-    pub instance_banner: Option<String>,
-    pub instance_banner_type: String, // "info" | "warning" | "error"
 }
 
 /// HTTP server configuration.
@@ -115,9 +111,6 @@ pub async fn run(config: HttpServerConfig) -> Result<()> {
         smtp_config: config.smtp_config,
         oci_storage,
         log_write_queue: rg_core::ci::log_write_queue::LogWriteQueue::spawn(log_queue_db),
-        maintenance_mode: false,
-        instance_banner: None,
-        instance_banner_type: "info".into(),
     };
 
     let app = create_router(state.clone(), rate_limiter.clone());
@@ -292,6 +285,8 @@ fn build_router(state: AppState, rate_limiter: rate_limit::RateLimiter) -> Route
             rate_limiter.clone(),
             rate_limit::rate_limit_middleware,
         ))
+        // Maintenance mode check (runs early, before most handlers)
+        .layer(axum::middleware::from_fn(middleware::maintenance_middleware))
         .with_state(state)
 }
 
@@ -534,8 +529,12 @@ fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
         // Audit logs (admin only)
         .route("/admin/audit/logs", get(api::audit::list_audit_logs))
         .route("/admin/audit/logs/{id}", get(api::audit::get_audit_log))
+        // Admin instance settings
+        .route("/admin/settings", get(api::admin::get_settings).patch(api::admin::update_settings))
         // Global Search
         .route("/search", get(api::search::search))
+        // External CI/CD Webhook
+        .route("/repos/{owner}/{name}/webhooks/external/ci", post(api::webhooks_external::external_ci_webhook))
         // ── AI Agent endpoints ─────────────────────────────
         .route("/ai/repos/{owner}/{name}/summary", get(api::ai::ai_repo_summary))
         .route("/ai/repos/{owner}/{name}/issues", get(api::ai::ai_list_issues))
