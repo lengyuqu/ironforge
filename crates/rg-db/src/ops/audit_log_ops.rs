@@ -73,3 +73,26 @@ pub async fn count_for_user(
         .count(db)
         .await
 }
+
+/// List audit log entries before a given date (for archival).
+pub async fn list_before(
+    db: &DatabaseConnection,
+    cutoff: chrono::DateTime<chrono::Utc>,
+) -> Result<Vec<Model>, DbErr> {
+    Entity::find()
+        .filter(Column::CreatedAt.lt(cutoff))
+        .all(db)
+        .await
+}
+
+/// Delete audit log entries by their IDs (after archival).
+pub async fn delete_by_ids(
+    db: &DatabaseConnection,
+    ids: &[i64],
+) -> Result<(), DbErr> {
+    Entity::delete_many()
+        .filter(Column::Id.is_in(ids.iter().copied()))
+        .exec(db)
+        .await?;
+    Ok(())
+}

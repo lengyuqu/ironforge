@@ -41,6 +41,7 @@ pub async fn create_issue(
         created_at: Set(Utc::now()),
         updated_at: Set(Utc::now()),
         closed_at: Set(None),
+        deleted_at: Set(None),
     };
 
     let issue = issue_ops::create(db, model).await?;

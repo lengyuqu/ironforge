@@ -147,6 +147,7 @@ pub async fn create_user(
         locked_until: Set(None),
         created_at: Set(now),
         updated_at: Set(now),
+        deleted_at: Set(None),
     };
     create(db, model).await
 }

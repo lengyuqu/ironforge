@@ -10,6 +10,7 @@
 //! ```
 
 mod audit;
+pub mod archiver;
 
 pub use audit::record;
 

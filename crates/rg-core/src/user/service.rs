@@ -103,6 +103,7 @@ pub async fn register(
         is_active: Set(true),
         created_at: Set(now),
         updated_at: Set(now),
+        deleted_at: Set(None),
         ..Default::default()
     };
 

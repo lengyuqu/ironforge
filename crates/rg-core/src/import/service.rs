@@ -742,6 +742,7 @@ async fn import_github_issue(
         created_at: Set(created_at),
         updated_at: Set(parse_datetime_or_now(&issue.updated_at)),
         closed_at: Set(closed_at),
+        deleted_at: Set(None),
     };
 
     let saved = issue_ops::create(db, model).await?;
@@ -1088,6 +1089,7 @@ async fn import_gitlab_issue(
         created_at: Set(parse_datetime_or_now(&issue.created_at)),
         updated_at: Set(parse_datetime_or_now(&issue.updated_at)),
         closed_at: Set(parse_opt_datetime(&issue.closed_at)),
+        deleted_at: Set(None),
     };
 
     let saved = issue_ops::create(db, model).await?;

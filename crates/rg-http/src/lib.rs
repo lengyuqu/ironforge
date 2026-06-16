@@ -403,6 +403,8 @@ fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
         .route("/repos/{owner}/{name}/pipelines/{id}/retry", post(api::ci::retry_pipeline))
         .route("/repos/{owner}/{name}/pipelines/{id}/cancel", post(api::ci::cancel_pipeline))
         .route("/repos/{owner}/{name}/pipelines/{id}/jobs/{job_id}", get(api::ci::get_job))
+        // Repository archive download
+        .route("/repos/{owner}/{name}/archive/{sha}.{ext}", get(api::archive::download_archive))
         // Branch Protection
         .route("/repos/{owner}/{name}/branches/protection", get(api::branch_protection::list_protections).post(api::branch_protection::create_protection))
         .route("/repos/{owner}/{name}/branches/protection/{id}", get(api::branch_protection::get_protection).patch(api::branch_protection::update_protection).delete(api::branch_protection::delete_protection))
