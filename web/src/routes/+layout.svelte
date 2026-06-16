@@ -1,8 +1,11 @@
 <script lang="ts">
   import '$lib/app.css';
   import Navbar from '$lib/components/Navbar.svelte';
+  import InstanceBanner from '$lib/components/InstanceBanner.svelte';
   import { fetchUser } from '$lib/stores/auth';
+  import { registerKeyboardShortcuts } from '$lib/stores/instance';
   import { locale } from '$lib/i18n';
+  import { onMount } from 'svelte';
   import type { Snippet } from 'svelte';
 
   interface Props {
@@ -14,9 +17,15 @@
   // Initialize i18n and fetch user on first load
   locale.init();
   fetchUser();
+
+  // Register global keyboard shortcuts
+  onMount(() => {
+    return registerKeyboardShortcuts();
+  });
 </script>
 
 <div class="app">
+  <InstanceBanner />
   <Navbar />
   <main>
     {@render children()}

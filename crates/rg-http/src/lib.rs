@@ -51,6 +51,11 @@ pub struct AppState {
     pub smtp_config: Option<rg_core::email::SmtpConfig>,
     pub oci_storage: Arc<OciStorage>,
     pub log_write_queue: rg_core::ci::log_write_queue::LogWriteQueue,
+    /// Whether the instance is in maintenance (read-only) mode.
+    pub maintenance_mode: bool,
+    /// Instance-wide banner message displayed to all users.
+    pub instance_banner: Option<String>,
+    pub instance_banner_type: String, // "info" | "warning" | "error"
 }
 
 /// HTTP server configuration.
@@ -110,6 +115,9 @@ pub async fn run(config: HttpServerConfig) -> Result<()> {
         smtp_config: config.smtp_config,
         oci_storage,
         log_write_queue: rg_core::ci::log_write_queue::LogWriteQueue::spawn(log_queue_db),
+        maintenance_mode: false,
+        instance_banner: None,
+        instance_banner_type: "info".into(),
     };
 
     let app = create_router(state.clone(), rate_limiter.clone());

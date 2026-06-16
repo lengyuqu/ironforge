@@ -3,6 +3,7 @@
   import { goto } from '$app/navigation';
   import { createT } from '$lib/i18n';
   import { search, type SearchResult } from '$lib/api/client';
+  import { highlightText } from '$lib/utils/search';
 
   const t = createT();
 
@@ -149,10 +150,10 @@
                   <span class="star-icon">&#9733;</span>
                 </div>
                 {#if result.title}
-                  <div class="result-desc">{result.title}</div>
+                  <div class="result-desc">{@html highlightText(result.title || '', query)}</div>
                 {/if}
                 {#if result.excerpt}
-                  <div class="result-excerpt">{result.excerpt}</div>
+                  <div class="result-excerpt">{@html highlightText(result.excerpt || '', query)}</div>
                 {/if}
               </div>
             </a>
@@ -161,13 +162,13 @@
               <div class="result-body">
                 <div class="issue-header">
                   <span class="issue-badge">#{result.id}</span>
-                  <span class="result-title">{result.title}</span>
+                  <span class="result-title">{@html highlightText(result.title || '', query)}</span>
                 </div>
                 <div class="result-meta">
                   <span class="repo-path">{result.repo_owner}/{result.repo_name}</span>
                 </div>
                 {#if result.excerpt}
-                  <div class="result-excerpt">{result.excerpt}</div>
+                  <div class="result-excerpt">{@html highlightText(result.excerpt || '', query)}</div>
                 {/if}
               </div>
             </a>
@@ -178,13 +179,13 @@
                   <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" class="type-icon">
                     <path d="M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.743 3.743 0 0 1 11.006 1h4.245a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.507a2.25 2.25 0 0 0-1.591.659l-.622.621a.75.75 0 0 1-1.06 0l-.622-.621A2.25 2.25 0 0 0 5.258 13H.75a.75.75 0 0 1-.75-.75Zm7.251 10.324.004-7.073-.002.003A2.25 2.25 0 0 0 5.003 4.5H1.5v7.5h3.757a3.75 3.75 0 0 1 1.994.574Zm.004-8.073-.001.002-.003.002V12.7A3.75 3.75 0 0 1 12.493 12H14.5V4.5h-3.497a2.25 2.25 0 0 0-2.244 2.5Zm-1.504 8.073H1.5v1h3.757a3.75 3.75 0 0 1 1.994.574v-1.574Zm8.254-8.073H14.5v1h-3.497a2.25 2.25 0 0 0-2.244 2.5V4.5Z"/>
                   </svg>
-                  <span class="result-title">{result.title}</span>
+                  <span class="result-title">{@html highlightText(result.title || '', query)}</span>
                 </div>
                 <div class="result-meta">
                   <span class="repo-path">{result.repo_owner}/{result.repo_name}</span>
                 </div>
                 {#if result.excerpt}
-                  <div class="result-excerpt">{result.excerpt}</div>
+                  <div class="result-excerpt">{@html highlightText(result.excerpt || '', query)}</div>
                 {/if}
               </div>
             </a>
@@ -465,5 +466,13 @@
   .page-info {
     font-size: 13px;
     color: var(--text-muted);
+  }
+
+  :global(.search-highlight) {
+    background: #fef08a;
+    color: #1a1a2e;
+    padding: 1px 3px;
+    border-radius: 2px;
+    font-weight: 600;
   }
 </style>
