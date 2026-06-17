@@ -41,6 +41,28 @@ fn set_perm_cache(repo_id: i64, actor_id: Option<i64>, for_write: bool, value: b
     cache.insert((repo_id, actor_id, for_write), (value, Instant::now()));
 }
 
+/// Invalidate cached read+write permission for a specific user on a repo.
+///
+/// Call after a collaborator is added/updated/removed so that granted or
+/// revoked access takes effect immediately instead of after the 30s TTL.
+pub fn invalidate_perm_cache_user(repo_id: i64, user_id: i64) {
+    let mut cache = perm_cache().lock().unwrap();
+    cache.remove(&(repo_id, Some(user_id), false));
+    cache.remove(&(repo_id, Some(user_id), true));
+}
+
+/// Invalidate every cached permission entry for a repo (e.g. owner transfer
+/// or deletion, which changes who can read/write).
+pub fn invalidate_perm_cache_repo(repo_id: i64) {
+    perm_cache().lock().unwrap().retain(|(rid, _, _), _| *rid != repo_id);
+}
+
+/// Clear the entire permission cache. Used for org/team membership changes
+/// that can affect access across many repositories at once.
+pub fn invalidate_perm_cache_all() {
+    perm_cache().lock().unwrap().clear();
+}
+
 /// Resolve an "owner" string to either a user ID or an org ID.
 /// Returns (owner_id, org_id, owner_name_for_path).
 /// - If owner is a username: returns (user_id, None, username)
@@ -296,7 +318,9 @@ pub async fn get_watch(
 
 /// Soft-delete a repository.
 pub async fn delete_repo(db: &DatabaseConnection, repo_id: i64) -> Result<()> {
-    rg_db::ops::repo_ops::soft_delete(db, repo_id).await
+    rg_db::ops::repo_ops::soft_delete(db, repo_id).await?;
+    invalidate_perm_cache_repo(repo_id);
+    Ok(())
 }
 
 /// Find repo by owner/name (skip soft-deleted).
@@ -428,6 +452,8 @@ pub async fn transfer_repo(
         .with_context(|| format!("failed to move repository from {:?} to {:?}", old_path, new_path))?;
 
     repo_ops::update_owner(db, repo.id, new_owner_id, new_org_id).await?;
+    // Ownership (and thus who can read/write) changed — drop cached decisions.
+    invalidate_perm_cache_repo(repo.id);
 
     repo_ops::find_by_owner_and_name(db, new_owner_id, repo_name).await?
         .ok_or_else(|| anyhow::anyhow!("repository not found after transfer"))
@@ -544,4 +570,56 @@ pub async fn notify_watchers_push(
         Some(format!("{} pushed to {}", pusher_name, ref_name)),
     )
     .await
+}
+
+#[cfg(test)]
+mod perm_cache_tests {
+    use super::*;
+
+    // The cache is a process-global static; serialize these tests so the
+    // `invalidate_all` case can't race with the others under parallel runs.
+    static TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn invalidate_user_drops_only_that_user_read_and_write() {
+        let _g = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let (repo, user, other) = (910_001, 42, 43);
+        set_perm_cache(repo, Some(user), false, true);
+        set_perm_cache(repo, Some(user), true, true);
+        set_perm_cache(repo, Some(other), false, true);
+
+        invalidate_perm_cache_user(repo, user);
+
+        assert_eq!(check_perm_cache(repo, Some(user), false), None);
+        assert_eq!(check_perm_cache(repo, Some(user), true), None);
+        // Other users on the same repo are untouched.
+        assert_eq!(check_perm_cache(repo, Some(other), false), Some(true));
+    }
+
+    #[test]
+    fn invalidate_repo_drops_all_entries_for_that_repo_only() {
+        let _g = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let (repo, keep) = (910_002, 910_003);
+        set_perm_cache(repo, None, false, true);
+        set_perm_cache(repo, Some(7), true, true);
+        set_perm_cache(keep, Some(7), true, true);
+
+        invalidate_perm_cache_repo(repo);
+
+        assert_eq!(check_perm_cache(repo, None, false), None);
+        assert_eq!(check_perm_cache(repo, Some(7), true), None);
+        assert_eq!(check_perm_cache(keep, Some(7), true), Some(true));
+    }
+
+    #[test]
+    fn invalidate_all_clears_everything() {
+        let _g = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        set_perm_cache(910_004, Some(1), false, true);
+        set_perm_cache(910_005, Some(2), true, true);
+
+        invalidate_perm_cache_all();
+
+        assert_eq!(check_perm_cache(910_004, Some(1), false), None);
+        assert_eq!(check_perm_cache(910_005, Some(2), true), None);
+    }
 }

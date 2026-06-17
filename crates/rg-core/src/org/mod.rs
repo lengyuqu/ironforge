@@ -92,7 +92,10 @@ pub async fn add_org_member(
     if role != "owner" && role != "admin" && role != "member" {
         anyhow::bail!("role must be 'owner', 'admin', or 'member'");
     }
-    org_ops::add_org_member(db, org_id, user_id, role).await
+    let member = org_ops::add_org_member(db, org_id, user_id, role).await?;
+    // Org membership grants access across all org repos — flush perm cache.
+    crate::repo::service::invalidate_perm_cache_all();
+    Ok(member)
 }
 
 /// Remove a member from an organization.
@@ -101,7 +104,9 @@ pub async fn remove_org_member(
     org_id: i64,
     user_id: i64,
 ) -> Result<()> {
-    org_ops::remove_org_member(db, org_id, user_id).await
+    org_ops::remove_org_member(db, org_id, user_id).await?;
+    crate::repo::service::invalidate_perm_cache_all();
+    Ok(())
 }
 
 /// List organization members.
@@ -176,7 +181,9 @@ pub async fn delete_team(
     db: &DatabaseConnection,
     id: i64,
 ) -> Result<()> {
-    org_ops::delete_team(db, id).await
+    org_ops::delete_team(db, id).await?;
+    crate::repo::service::invalidate_perm_cache_all();
+    Ok(())
 }
 
 /// Add a member to a team.
@@ -189,7 +196,10 @@ pub async fn add_team_member(
     if role != "member" && role != "maintainer" {
         anyhow::bail!("role must be 'member' or 'maintainer'");
     }
-    org_ops::add_team_member(db, team_id, user_id, role).await
+    let member = org_ops::add_team_member(db, team_id, user_id, role).await?;
+    // Team membership can grant repo access — flush perm cache.
+    crate::repo::service::invalidate_perm_cache_all();
+    Ok(member)
 }
 
 /// Remove a member from a team.
@@ -198,7 +208,9 @@ pub async fn remove_team_member(
     team_id: i64,
     user_id: i64,
 ) -> Result<()> {
-    org_ops::remove_team_member(db, team_id, user_id).await
+    org_ops::remove_team_member(db, team_id, user_id).await?;
+    crate::repo::service::invalidate_perm_cache_all();
+    Ok(())
 }
 
 /// List team members.

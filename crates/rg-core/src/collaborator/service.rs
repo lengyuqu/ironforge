@@ -36,7 +36,9 @@ pub async fn add_collaborator(
         created_at: Set(Utc::now()),
     };
 
-    repo_collaborator_ops::create(db, model).await
+    let created = repo_collaborator_ops::create(db, model).await?;
+    crate::repo::service::invalidate_perm_cache_user(repo.id, user_id);
+    Ok(created)
 }
 
 /// List all collaborators for a repo.
@@ -64,9 +66,12 @@ pub async fn update_permission(
         .await?
         .context("collaborator not found")?;
 
+    let (repo_id, user_id) = (collab.repo_id, collab.user_id);
     collab.permission = permission;
     let active: repo_collaborator::ActiveModel = collab.into();
-    repo_collaborator_ops::update(db, active).await
+    let updated = repo_collaborator_ops::update(db, active).await?;
+    crate::repo::service::invalidate_perm_cache_user(repo_id, user_id);
+    Ok(updated)
 }
 
 /// Remove a collaborator from a repo.
@@ -77,7 +82,9 @@ pub async fn remove_collaborator(
     user_id: i64,
 ) -> Result<()> {
     let repo = resolve_repo(db, owner, repo_name).await?;
-    repo_collaborator_ops::delete_by_repo_and_user(db, repo.id, user_id).await
+    repo_collaborator_ops::delete_by_repo_and_user(db, repo.id, user_id).await?;
+    crate::repo::service::invalidate_perm_cache_user(repo.id, user_id);
+    Ok(())
 }
 
 /// Get the effective permission for a user on a repo.
