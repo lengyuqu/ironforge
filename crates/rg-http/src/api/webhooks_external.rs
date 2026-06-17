@@ -22,10 +22,11 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 use crate::AppState;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct ExternalCiWebhook {
     pub context: String,
     pub state: String, // "success", "failure", "pending", "error"
@@ -33,13 +34,29 @@ pub struct ExternalCiWebhook {
     pub target_url: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct ExternalCiResponse {
     pub id: i64,
     pub status: String,
 }
 
 /// POST /api/v1/repos/{owner}/{name}/webhooks/external/ci
+#[utoipa::path(
+    post,
+    path = "/repos/{owner}/{name}/webhooks/external/ci",
+    tag = "Repositories",
+    params(
+        ("owner" = String, Path, description = "Repository owner"),
+        ("name" = String, Path, description = "Repository name"),
+    ),
+    request_body = ExternalCiWebhook,
+    responses(
+        (status = 200, description = "Commit status created", body = ExternalCiResponse),
+        (status = 400, description = "Invalid state or input"),
+        (status = 401, description = "Authentication required"),
+        (status = 404, description = "Repository not found"),
+    ),
+)]
 pub async fn external_ci_webhook(
     State(state): State<AppState>,
     headers: HeaderMap,

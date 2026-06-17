@@ -403,11 +403,21 @@ pub async fn delete_token(
 ///
 /// Request body: { "email": "user@example.com" }
 /// Always returns 200 (to prevent email enumeration).
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, ToSchema)]
 pub struct ForgotPasswordRequest {
     pub email: String,
 }
 
+#[utoipa::path(
+    post,
+    path = "/users/forgot-password",
+    tag = "Users",
+    request_body = ForgotPasswordRequest,
+    responses(
+        (status = 200, description = "If email exists, a reset link has been sent", body = serde_json::Value),
+        (status = 500, description = "Internal server error"),
+    ),
+)]
 pub async fn forgot_password(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -448,12 +458,22 @@ pub async fn forgot_password(
 /// POST /api/v1/users/reset-password
 ///
 /// Request body: { "token": "...", "new_password": "..." }
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, ToSchema)]
 pub struct ResetPasswordRequest {
     pub token: String,
     pub new_password: String,
 }
 
+#[utoipa::path(
+    post,
+    path = "/users/reset-password",
+    tag = "Users",
+    request_body = ResetPasswordRequest,
+    responses(
+        (status = 200, description = "Password reset successfully", body = serde_json::Value),
+        (status = 400, description = "Invalid or expired token, or invalid password"),
+    ),
+)]
 pub async fn reset_password(
     State(state): State<AppState>,
     Json(body): Json<ResetPasswordRequest>,

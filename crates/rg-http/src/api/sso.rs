@@ -15,6 +15,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use tracing;
+use utoipa::ToSchema;
 
 use crate::AppState;
 
@@ -103,8 +104,8 @@ fn get_base_url(headers: &HeaderMap) -> String {
 
 // ── Types ────────────────────────────────────────────────────────
 
-#[derive(Debug, Serialize)]
-pub(crate) struct SsoProviderInfo {
+#[derive(Debug, Serialize, ToSchema)]
+pub struct SsoProviderInfo {
     slug: String,
     name: String,
     provider_type: String,
@@ -112,28 +113,37 @@ pub(crate) struct SsoProviderInfo {
 }
 
 #[derive(Debug, Deserialize)]
-pub(crate) struct SsoCallbackQuery {
+pub struct SsoCallbackQuery {
     code: String,
     state: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
-pub(crate) struct LoginResponse {
+#[derive(Debug, Serialize, ToSchema)]
+pub struct LoginResponse {
     token: String,
     user_id: i64,
     username: String,
     mfa_required: bool,
 }
 
-#[derive(Debug, Deserialize)]
-pub(crate) struct RefreshRequest {
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct RefreshRequest {
     refresh_token: Option<String>,
 }
 
 // ── List providers ───────────────────────────────────────────────
 
 /// GET /auth/sso/providers
-pub(crate) async fn list_providers(
+#[utoipa::path(
+    get,
+    path = "/auth/sso/providers",
+    tag = "SSO",
+    responses(
+        (status = 200, description = "List of enabled SSO providers", body = Vec<SsoProviderInfo>),
+        (status = 500, description = "Internal server error"),
+    ),
+)]
+pub async fn list_providers(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<SsoProviderInfo>>, (StatusCode, String)> {
     let providers = rg_db::ops::sso_provider_ops::list_enabled(&state.db)
@@ -159,7 +169,20 @@ pub(crate) async fn list_providers(
 // ── Authorize (redirect to provider) ─────────────────────────────
 
 /// GET /auth/sso/{slug}
-pub(crate) async fn authorize(
+#[utoipa::path(
+    get,
+    path = "/auth/sso/{slug}",
+    tag = "SSO",
+    params(
+        ("slug" = String, Path, description = "SSO provider slug"),
+    ),
+    responses(
+        (status = 302, description = "Redirect to provider authorization page"),
+        (status = 403, description = "SSO provider is disabled"),
+        (status = 404, description = "SSO provider not found"),
+    ),
+)]
+pub async fn authorize(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(slug): Path<String>,
@@ -233,7 +256,23 @@ pub(crate) async fn authorize(
 // ── Callback ─────────────────────────────────────────────────────
 
 /// GET /auth/sso/{slug}/callback
-pub(crate) async fn callback(
+#[utoipa::path(
+    get,
+    path = "/auth/sso/{slug}/callback",
+    tag = "SSO",
+    params(
+        ("slug" = String, Path, description = "SSO provider slug"),
+        ("code" = String, Query, description = "OAuth authorization code"),
+        ("state" = Option<String>, Query, description = "OAuth state parameter"),
+    ),
+    responses(
+        (status = 200, description = "Login successful", body = LoginResponse),
+        (status = 400, description = "Token exchange failed"),
+        (status = 403, description = "CSRF state mismatch"),
+        (status = 404, description = "SSO provider not found"),
+    ),
+)]
+pub async fn callback(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(slug): Path<String>,
@@ -389,7 +428,21 @@ pub(crate) async fn callback(
 
 /// POST /auth/sso/{slug}/refresh
 /// Refresh an OAuth2 access token using a stored refresh_token.
-pub(crate) async fn refresh_token(
+#[utoipa::path(
+    post,
+    path = "/auth/sso/{slug}/refresh",
+    tag = "SSO",
+    params(
+        ("slug" = String, Path, description = "SSO provider slug"),
+    ),
+    request_body = RefreshRequest,
+    responses(
+        (status = 200, description = "Token refreshed"),
+        (status = 401, description = "Authentication required"),
+        (status = 404, description = "SSO provider not found"),
+    ),
+)]
+pub async fn refresh_token(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(slug): Path<String>,
@@ -511,7 +564,20 @@ pub(crate) async fn refresh_token(
 // ── Unlink OAuth account ─────────────────────────────────────────
 
 /// DELETE /auth/sso/{slug}/unlink
-pub(crate) async fn unlink_oauth_account(
+#[utoipa::path(
+    delete,
+    path = "/auth/sso/{slug}/unlink",
+    tag = "SSO",
+    params(
+        ("slug" = String, Path, description = "SSO provider slug"),
+    ),
+    responses(
+        (status = 200, description = "Account unlinked"),
+        (status = 401, description = "Authentication required"),
+        (status = 404, description = "No OAuth account linked"),
+    ),
+)]
+pub async fn unlink_oauth_account(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(slug): Path<String>,

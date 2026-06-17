@@ -8,11 +8,12 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 use crate::{AppState, api::admin::require_admin};
 
 #[derive(Debug, Deserialize)]
-pub(crate) struct AuditLogQuery {
+pub struct AuditLogQuery {
     page: Option<u64>,
     page_size: Option<u64>,
     user_id: Option<i64>,
@@ -22,8 +23,8 @@ pub(crate) struct AuditLogQuery {
     end_time: Option<String>,   // ISO 8601
 }
 
-#[derive(Debug, Serialize)]
-pub(crate) struct AuditLogEntry {
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AuditLogEntry {
     id: i64,
     user_id: Option<i64>,
     username: Option<String>,
@@ -36,8 +37,8 @@ pub(crate) struct AuditLogEntry {
     created_at: String,
 }
 
-#[derive(Debug, Serialize)]
-pub(crate) struct AuditLogResponse {
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AuditLogResponse {
     total: u64,
     page: u64,
     page_size: u64,
@@ -46,7 +47,25 @@ pub(crate) struct AuditLogResponse {
 
 /// GET /admin/audit/logs
 /// List audit logs with optional filters (admin only).
-pub(crate) async fn list_audit_logs(
+#[utoipa::path(
+    get,
+    path = "/admin/audit/logs",
+    tag = "Audit",
+    params(
+        ("page" = Option<u64>, Query, description = "Page number (0-based)"),
+        ("page_size" = Option<u64>, Query, description = "Items per page (1-100)"),
+        ("user_id" = Option<i64>, Query, description = "Filter by user ID"),
+        ("action" = Option<String>, Query, description = "Filter by action"),
+        ("resource_type" = Option<String>, Query, description = "Filter by resource type"),
+        ("start_time" = Option<String>, Query, description = "Filter after start time (ISO 8601)"),
+        ("end_time" = Option<String>, Query, description = "Filter before end time (ISO 8601)"),
+    ),
+    responses(
+        (status = 200, description = "Paginated audit log entries", body = AuditLogResponse),
+        (status = 401, description = "Admin access required"),
+    ),
+)]
+pub async fn list_audit_logs(
     State(state): State<AppState>,
     headers: HeaderMap,
     Query(q): Query<AuditLogQuery>,
@@ -109,7 +128,20 @@ pub(crate) async fn list_audit_logs(
 
 /// GET /admin/audit/logs/{id}
 /// Fetch a single audit log entry by id (admin only).
-pub(crate) async fn get_audit_log(
+#[utoipa::path(
+    get,
+    path = "/admin/audit/logs/{id}",
+    tag = "Audit",
+    params(
+        ("id" = i64, Path, description = "Audit log entry ID"),
+    ),
+    responses(
+        (status = 200, description = "Audit log entry details", body = AuditLogEntry),
+        (status = 401, description = "Admin access required"),
+        (status = 404, description = "Audit log entry not found"),
+    ),
+)]
+pub async fn get_audit_log(
     State(state): State<AppState>,
     headers: HeaderMap,
     axum::extract::Path(id): axum::extract::Path<i64>,

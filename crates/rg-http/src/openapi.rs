@@ -34,6 +34,20 @@ pub struct PaginatedRepoResponse {
         crate::api::users::list_tokens,
         crate::api::users::create_token,
         crate::api::users::delete_token,
+        crate::api::users::forgot_password,
+        crate::api::users::reset_password,
+        // MFA
+        crate::api::mfa::setup_mfa,
+        crate::api::mfa::enable_mfa,
+        crate::api::mfa::verify_mfa,
+        crate::api::mfa::get_backup_codes,
+        crate::api::mfa::disable_mfa,
+        // SSO
+        crate::api::sso::list_providers,
+        crate::api::sso::authorize,
+        crate::api::sso::callback,
+        crate::api::sso::refresh_token,
+        crate::api::sso::unlink_oauth_account,
         // Repositories
         crate::api::repos::create_repo,
         crate::api::repos::list_repos,
@@ -49,6 +63,10 @@ pub struct PaginatedRepoResponse {
         crate::api::repos::create_commit_status,
         crate::api::repos::list_commit_statuses,
         crate::api::repos::get_combined_status,
+        // Archive
+        crate::api::archive::download_archive,
+        // External CI
+        crate::api::webhooks_external::external_ci_webhook,
         // Issues
         crate::api::issues::list_issues,
         crate::api::issues::get_issue,
@@ -160,6 +178,11 @@ pub struct PaginatedRepoResponse {
         crate::api::repo_content::list_branches,
         crate::api::repo_content::list_tags,
         crate::api::repo_content::get_commit_signature,
+        // Imports
+        crate::api::imports::start_import,
+        crate::api::imports::list_imports,
+        crate::api::imports::get_import_status,
+        crate::api::imports::delete_import,
         // Runners
         crate::api::runners::register,
         crate::api::runners::heartbeat,
@@ -174,6 +197,15 @@ pub struct PaginatedRepoResponse {
         crate::api::artifacts::list_pipeline_artifacts,
         crate::api::artifacts::get_artifact,
         crate::api::artifacts::delete_artifact,
+        // Admin SSO
+        crate::api::admin::list_sso_providers,
+        crate::api::admin::get_sso_provider,
+        crate::api::admin::create_sso_provider,
+        crate::api::admin::update_sso_provider,
+        crate::api::admin::delete_sso_provider,
+        // Audit logs
+        crate::api::audit::list_audit_logs,
+        crate::api::audit::get_audit_log,
         // Admin
         crate::api::admin::list_users,
         crate::api::admin::get_user,
@@ -182,6 +214,9 @@ pub struct PaginatedRepoResponse {
         crate::api::admin::list_orgs,
         crate::api::admin::get_org,
         crate::api::admin::delete_org,
+        // Admin settings
+        crate::api::admin::get_settings,
+        crate::api::admin::update_settings,
         // AI Agent endpoints
         crate::api::ai::ai_repo_summary,
         crate::api::ai::ai_list_issues,
@@ -221,6 +256,21 @@ pub struct PaginatedRepoResponse {
             crate::api::users::AuthResponse,
             crate::api::users::UserProfile,
             crate::api::users::CreateTokenRequest,
+            crate::api::users::ForgotPasswordRequest,
+            crate::api::users::ResetPasswordRequest,
+            crate::api::mfa::SetupMfaResponse,
+            crate::api::mfa::EnableMfaRequest,
+            crate::api::mfa::EnableMfaResponse,
+            crate::api::mfa::VerifyMfaRequest,
+            crate::api::mfa::VerifyMfaResponse,
+            crate::api::mfa::DisableMfaRequest,
+            crate::api::sso::SsoProviderInfo,
+            crate::api::sso::LoginResponse,
+            crate::api::sso::RefreshRequest,
+            crate::api::webhooks_external::ExternalCiWebhook,
+            crate::api::webhooks_external::ExternalCiResponse,
+            crate::api::audit::AuditLogEntry,
+            crate::api::audit::AuditLogResponse,
             crate::api::repos::CreateRepoRequest,
             crate::api::repos::RepoResponse,
             crate::api::repos::WatchRequest,
@@ -253,6 +303,7 @@ pub struct PaginatedRepoResponse {
             crate::api::boards::MoveCardRequest,
             crate::api::boards::ReorderCardsRequest,
             crate::api::time_tracking::AddTimeRequest,
+            crate::api::imports::StartImportRequest,
         )
     ),
     tags(
@@ -280,6 +331,11 @@ pub struct PaginatedRepoResponse {
         (name = "Mirrors", description = "Repository mirroring"),
         (name = "Boards", description = "Project boards (Kanban)"),
         (name = "Time Tracking", description = "Issue time tracking"),
+        (name = "Imports", description = "Repository migration imports"),
+        (name = "SSO", description = "Single Sign-On and OAuth authentication"),
+        (name = "MFA", description = "Multi-Factor Authentication"),
+        (name = "Audit", description = "Audit logs"),
+        (name = "Packages", description = "Package registry"),
     )
 )]
 pub struct ApiDoc;

@@ -11,13 +11,14 @@
 use axum::{extract::State, http::StatusCode, Json};
 use serde::{Deserialize, Serialize};
 use tracing;
+use utoipa::ToSchema;
 
 use crate::AppState;
 use crate::api::auth::extract_user_id;
 use axum::http::HeaderMap;
 
-#[derive(Debug, Serialize)]
-pub(crate) struct SetupMfaResponse {
+#[derive(Debug, Serialize, ToSchema)]
+pub struct SetupMfaResponse {
     secret: String,
     otpauth_url: String,
     qr_svg: String,
@@ -25,7 +26,18 @@ pub(crate) struct SetupMfaResponse {
 
 /// POST /users/mfa/setup
 /// Generate a new TOTP secret and return an otpauth URL + QR code SVG.
-pub(crate) async fn setup_mfa(
+#[utoipa::path(
+    post,
+    path = "/users/mfa/setup",
+    tag = "MFA",
+    responses(
+        (status = 200, description = "TOTP secret and QR code generated", body = SetupMfaResponse),
+        (status = 401, description = "Unauthorized"),
+        (status = 404, description = "User not found"),
+        (status = 500, description = "Internal server error"),
+    ),
+)]
+pub async fn setup_mfa(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<SetupMfaResponse>, (StatusCode, String)> {
@@ -72,20 +84,33 @@ pub(crate) async fn setup_mfa(
     }))
 }
 
-#[derive(Debug, Deserialize)]
-pub(crate) struct EnableMfaRequest {
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct EnableMfaRequest {
     code: String,
 }
 
-#[derive(Debug, Serialize)]
-pub(crate) struct EnableMfaResponse {
+#[derive(Debug, Serialize, ToSchema)]
+pub struct EnableMfaResponse {
     enabled: bool,
     backup_codes: Vec<String>,
 }
 
 /// POST /users/mfa/enable
 /// Verify the setup TOTP code and enable MFA, generating backup codes.
-pub(crate) async fn enable_mfa(
+#[utoipa::path(
+    post,
+    path = "/users/mfa/enable",
+    tag = "MFA",
+    request_body = EnableMfaRequest,
+    responses(
+        (status = 200, description = "MFA enabled successfully with backup codes", body = EnableMfaResponse),
+        (status = 400, description = "Invalid TOTP code or MFA not set up"),
+        (status = 401, description = "Unauthorized"),
+        (status = 404, description = "User not found"),
+        (status = 500, description = "Internal server error"),
+    ),
+)]
+pub async fn enable_mfa(
     State(state): State<AppState>,
     headers: HeaderMap,
     Json(req): Json<EnableMfaRequest>,
@@ -140,8 +165,8 @@ pub(crate) async fn enable_mfa(
     }))
 }
 
-#[derive(Debug, Deserialize)]
-pub(crate) struct VerifyMfaRequest {
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct VerifyMfaRequest {
     username: String,
     code: String,
     /// If true, verify using a backup code instead of TOTP
@@ -149,8 +174,8 @@ pub(crate) struct VerifyMfaRequest {
     backup: bool,
 }
 
-#[derive(Debug, Serialize)]
-pub(crate) struct VerifyMfaResponse {
+#[derive(Debug, Serialize, ToSchema)]
+pub struct VerifyMfaResponse {
     token: String,
     user_id: i64,
     username: String,
@@ -158,7 +183,19 @@ pub(crate) struct VerifyMfaResponse {
 
 /// POST /users/mfa/verify
 /// Second step of login: verify MFA code and issue JWT.
-pub(crate) async fn verify_mfa(
+#[utoipa::path(
+    post,
+    path = "/users/mfa/verify",
+    tag = "MFA",
+    request_body = VerifyMfaRequest,
+    responses(
+        (status = 200, description = "MFA verified and JWT issued", body = VerifyMfaResponse),
+        (status = 400, description = "MFA not enabled"),
+        (status = 401, description = "Invalid credentials or MFA code"),
+        (status = 500, description = "Internal server error"),
+    ),
+)]
+pub async fn verify_mfa(
     State(state): State<AppState>,
     Json(req): Json<VerifyMfaRequest>,
 ) -> Result<Json<VerifyMfaResponse>, (StatusCode, String)> {
@@ -231,7 +268,17 @@ pub(crate) async fn verify_mfa(
 
 /// GET /users/mfa/backup
 /// Get existing backup codes status (does not reveal unused codes).
-pub(crate) async fn get_backup_codes(
+#[utoipa::path(
+    get,
+    path = "/users/mfa/backup",
+    tag = "MFA",
+    responses(
+        (status = 200, description = "Backup codes status summary", body = serde_json::Value),
+        (status = 401, description = "Unauthorized"),
+        (status = 500, description = "Internal server error"),
+    ),
+)]
+pub async fn get_backup_codes(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
@@ -260,14 +307,26 @@ pub(crate) async fn get_backup_codes(
     })))
 }
 
-#[derive(Debug, Deserialize)]
-pub(crate) struct DisableMfaRequest {
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct DisableMfaRequest {
     password: String,
 }
 
 /// POST /users/mfa/disable
 /// Disable MFA (requires current password for security).
-pub(crate) async fn disable_mfa(
+#[utoipa::path(
+    post,
+    path = "/users/mfa/disable",
+    tag = "MFA",
+    request_body = DisableMfaRequest,
+    responses(
+        (status = 200, description = "MFA disabled successfully"),
+        (status = 401, description = "Unauthorized or invalid password"),
+        (status = 404, description = "User not found"),
+        (status = 500, description = "Internal server error"),
+    ),
+)]
+pub async fn disable_mfa(
     State(state): State<AppState>,
     headers: HeaderMap,
     Json(req): Json<DisableMfaRequest>,

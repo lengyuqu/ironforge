@@ -11,6 +11,21 @@ use axum::{
 use crate::AppState;
 
 /// GET /api/v1/repos/{owner}/{name}/archive/{sha}.zip
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/archive/{archive}",
+    tag = "Repositories",
+    params(
+        ("owner" = String, Path, description = "Repository owner"),
+        ("name" = String, Path, description = "Repository name"),
+        ("archive" = String, Path, description = "Archive filename (e.g. main.zip, v1.0.tar.gz)"),
+    ),
+    responses(
+        (status = 200, description = "Archive binary stream", content_type = "application/zip"),
+        (status = 400, description = "Unsupported archive format"),
+        (status = 404, description = "Repository not found"),
+    ),
+)]
 pub async fn download_archive(
     State(state): State<AppState>,
     Path((owner, name, archive)): Path<(String, String, String)>,

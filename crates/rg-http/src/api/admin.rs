@@ -598,6 +598,15 @@ fn sso_provider_response(p: &rg_db::entities::sso_provider::Model) -> serde_json
 }
 
 /// GET /api/v1/admin/settings — returns current instance settings.
+#[utoipa::path(
+    get,
+    path = "/admin/settings",
+    tag = "Admin",
+    responses(
+        (status = 200, description = "Current instance settings", body = serde_json::Value),
+        (status = 401, description = "Admin access required"),
+    ),
+)]
 pub async fn get_settings(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -610,6 +619,16 @@ pub async fn get_settings(
 }
 
 /// PATCH /api/v1/admin/settings — update instance settings (maintenance mode, banner).
+#[utoipa::path(
+    patch,
+    path = "/admin/settings",
+    tag = "Admin",
+    request_body(content = serde_json::Value),
+    responses(
+        (status = 200, description = "Settings updated", body = serde_json::Value),
+        (status = 401, description = "Admin access required"),
+    ),
+)]
 pub async fn update_settings(
     State(state): State<AppState>,
     headers: HeaderMap,
