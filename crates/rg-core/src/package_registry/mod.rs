@@ -1,3 +1,4 @@
+//! Package registry — OCI, npm, PyPI, Maven, Cargo, NuGet, Helm, RubyGems, Go, Composer, Generic.
 pub mod adapter;
 pub mod adapters;
 pub mod oci;

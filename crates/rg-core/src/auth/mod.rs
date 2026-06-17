@@ -1,3 +1,4 @@
+//! Authentication — password hashing, JWT, CI tokens, LDAP, SSO, OCI tokens.
 pub mod password;
 pub mod jwt;
 pub mod ci_token;

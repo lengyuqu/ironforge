@@ -16,7 +16,7 @@ resolver = "2"
 # HTTP
 axum = { version = "0.8", features = ["ws", "macros"] }
 tower = "0.5"
-tower-http = { version = "0.6", features = ["cors", "trace", "fs"] }
+tower-http = { version = "0.6", features = ["cors", "trace", "fs", "limit"] }
 
 # SSH
 russh = "0.51"
@@ -63,10 +63,6 @@ sha2 = "0.10"
 hex = "0.4"
 base64 = "0.22"
 aes-gcm = "0.10"
-
-# OAuth2 / OpenID Connect
-oauth2 = "5"
-openidconnect = "4"
 
 # TOTP / 2FA
 totp-rs = { version = "5", features = ["gen_secret", "otpauth"] }

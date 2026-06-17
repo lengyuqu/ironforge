@@ -13,14 +13,17 @@ use crate::entities::board_column::{
 
 // ── Board ────────────────────────────────────────────────────────────────
 
+/// Create a new board.
 pub async fn create_board(db: &DatabaseConnection, model: BoardAM) -> Result<Board> {
     model.insert(db).await.context("db: create board")
 }
 
+/// Find a board by its ID.
 pub async fn find_board_by_id(db: &DatabaseConnection, id: i64) -> Result<Option<Board>> {
     BoardEntity::find_by_id(id).one(db).await.context("db: find board")
 }
 
+/// List boards belonging to a repository, ordered by name.
 pub async fn list_boards_by_repo(
     db: &DatabaseConnection,
     repo_id: i64,
@@ -33,6 +36,7 @@ pub async fn list_boards_by_repo(
         .context("db: list boards by repo")
 }
 
+/// List boards belonging to an organization.
 pub async fn list_boards_by_org(
     db: &DatabaseConnection,
     org_id: i64,
@@ -45,10 +49,12 @@ pub async fn list_boards_by_org(
         .context("db: list boards by org")
 }
 
+/// Update a board's metadata (name, description).
 pub async fn update_board(db: &DatabaseConnection, model: BoardAM) -> Result<Board> {
     model.update(db).await.context("db: update board")
 }
 
+/// Delete a board by ID.
 pub async fn delete_board_by_id(db: &DatabaseConnection, id: i64) -> Result<()> {
     BoardEntity::delete_by_id(id)
         .exec(db)
@@ -57,16 +63,19 @@ pub async fn delete_board_by_id(db: &DatabaseConnection, id: i64) -> Result<()> 
     Ok(())
 }
 
-// ── Column ───────────────────────────────────────────────────────────────
+// ── Columns ──────────────────────────────────────────────────────────────
 
+/// Create a new column on a board.
 pub async fn create_column(db: &DatabaseConnection, model: ColumnAM) -> Result<Column> {
     model.insert(db).await.context("db: create column")
 }
 
+/// Find a column by its ID.
 pub async fn find_column_by_id(db: &DatabaseConnection, id: i64) -> Result<Option<Column>> {
     ColumnEntity::find_by_id(id).one(db).await.context("db: find column")
 }
 
+/// List columns on a board, ordered by position.
 pub async fn list_columns_by_board(
     db: &DatabaseConnection,
     board_id: i64,
@@ -79,10 +88,12 @@ pub async fn list_columns_by_board(
         .context("db: list columns by board")
 }
 
+/// Update a column's name.
 pub async fn update_column(db: &DatabaseConnection, model: ColumnAM) -> Result<Column> {
     model.update(db).await.context("db: update column")
 }
 
+/// Delete a column by ID.
 pub async fn delete_column_by_id(db: &DatabaseConnection, id: i64) -> Result<()> {
     ColumnEntity::delete_by_id(id)
         .exec(db)
@@ -91,16 +102,19 @@ pub async fn delete_column_by_id(db: &DatabaseConnection, id: i64) -> Result<()>
     Ok(())
 }
 
-// ── Card ─────────────────────────────────────────────────────────────────
+// ── Cards ────────────────────────────────────────────────────────────────
 
+/// Create a new card in a column.
 pub async fn create_card(db: &DatabaseConnection, model: CardAM) -> Result<Card> {
     model.insert(db).await.context("db: create card")
 }
 
+/// Find a card by its ID.
 pub async fn find_card_by_id(db: &DatabaseConnection, id: i64) -> Result<Option<Card>> {
     CardEntity::find_by_id(id).one(db).await.context("db: find card")
 }
 
+/// List cards in a column, ordered by position.
 pub async fn list_cards_by_column(
     db: &DatabaseConnection,
     column_id: i64,
@@ -113,10 +127,12 @@ pub async fn list_cards_by_column(
         .context("db: list cards by column")
 }
 
+/// Update a card's title or note.
 pub async fn update_card(db: &DatabaseConnection, model: CardAM) -> Result<Card> {
     model.update(db).await.context("db: update card")
 }
 
+/// Delete a card by ID.
 pub async fn delete_card_by_id(db: &DatabaseConnection, id: i64) -> Result<()> {
     CardEntity::delete_by_id(id)
         .exec(db)
@@ -125,18 +141,22 @@ pub async fn delete_card_by_id(db: &DatabaseConnection, id: i64) -> Result<()> {
     Ok(())
 }
 
-/// Batch update card positions (for reorder).
+/// Update positions of multiple cards in a single transaction.
+///
+/// Each element in `positions` is a `(card_id, position)` tuple.
 pub async fn update_card_positions(
     db: &DatabaseConnection,
     positions: &[(i64, i32)],
 ) -> Result<()> {
     for (card_id, pos) in positions {
-        CardEntity::update_many()
-            .col_expr(board_card::Column::Position, sea_query::Expr::value(*pos))
-            .filter(board_card::Column::Id.eq(*card_id))
-            .exec(db)
+        let mut am: CardAM = CardEntity::find_by_id(*card_id)
+            .one(db)
             .await
-            .context("db: update card position")?;
+            .context("db: find card for position update")?
+            .ok_or_else(|| anyhow::anyhow!("card {} not found", card_id))?
+            .into();
+        am.position = Set(*pos);
+        am.update(db).await.context("db: update card position")?;
     }
     Ok(())
 }

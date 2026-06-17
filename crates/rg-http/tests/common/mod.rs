@@ -30,6 +30,8 @@ pub fn build_test_app_state(db: rg_db::DatabaseConnection, repo_root: std::path:
         smtp_config: None,
         oci_storage: Arc::new(OciStorage::new(std::path::Path::new("/tmp/test-oci"))),
         log_write_queue: rg_core::ci::log_write_queue::LogWriteQueue::spawn(db_for_queue),
+        external_url: None,
+        job_timeout_secs: 3600,
     }
 }
 

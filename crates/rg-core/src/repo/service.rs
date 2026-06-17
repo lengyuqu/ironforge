@@ -4,11 +4,42 @@ use anyhow::{bail, Context, Result};
 use chrono::Utc;
 use sea_orm::{ActiveValue::Set, DatabaseConnection};
 use std::path::PathBuf;
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use rg_db::{
     entities::repository::ActiveModel as RepoActiveModel,
     ops::{repo_ops, user_ops},
 };
+
+// ── Permission cache (30s TTL) ──────────────────────────────────────────
+
+const PERM_CACHE_TTL: Duration = Duration::from_secs(30);
+
+/// Permission cache key: (repo_id, actor_id, for_write).
+/// for_write=false → read check, for_write=true → write check.
+type PermKey = (i64, Option<i64>, bool);
+type PermEntry = (bool, Instant);
+
+static PERM_CACHE: OnceLock<Mutex<HashMap<PermKey, PermEntry>>> = OnceLock::new();
+
+fn perm_cache() -> &'static Mutex<HashMap<PermKey, PermEntry>> {
+    PERM_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn check_perm_cache(repo_id: i64, actor_id: Option<i64>, for_write: bool) -> Option<bool> {
+    let cache = perm_cache().lock().unwrap();
+    cache.get(&(repo_id, actor_id, for_write))
+        .filter(|(_, ts)| ts.elapsed() < PERM_CACHE_TTL)
+        .map(|(v, _)| *v)
+}
+
+fn set_perm_cache(repo_id: i64, actor_id: Option<i64>, for_write: bool, value: bool) {
+    let mut cache = perm_cache().lock().unwrap();
+    cache.retain(|_, (_, ts)| ts.elapsed() < PERM_CACHE_TTL);
+    cache.insert((repo_id, actor_id, for_write), (value, Instant::now()));
+}
 
 /// Resolve an "owner" string to either a user ID or an org ID.
 /// Returns (owner_id, org_id, owner_name_for_path).
@@ -62,27 +93,31 @@ pub async fn can_read_repo(
         return Ok(true);
     }
 
-    match actor_id {
+    // Check permission cache (30s TTL) to avoid repeated DB queries
+    if let Some(cached) = check_perm_cache(repo.id, actor_id, false) {
+        return Ok(cached);
+    }
+
+    let result = match actor_id {
         Some(id) => {
             if id == repo.owner_id {
-                return Ok(true);
-            }
-
-            let perm = rg_db::ops::repo_collaborator_ops::get_permission(db, repo.id, id).await?;
-            if perm.is_some() {
-                return Ok(true);
-            }
-
-            if let Some(org_id) = repo.org_id {
-                if rg_db::ops::org_ops::is_org_member(db, org_id, id).await? {
-                    return Ok(true);
+                true
+            } else {
+                let perm = rg_db::ops::repo_collaborator_ops::get_permission(db, repo.id, id).await?;
+                if perm.is_some() {
+                    true
+                } else if let Some(org_id) = repo.org_id {
+                    rg_db::ops::org_ops::is_org_member(db, org_id, id).await?
+                } else {
+                    false
                 }
             }
-
-            Ok(false)
         }
-        None => Ok(false),
-    }
+        None => false,
+    };
+
+    set_perm_cache(repo.id, actor_id, false, result);
+    Ok(result)
 }
 
 /// Check whether `actor_id` (None = anonymous) can read `owner/repo`.
@@ -108,34 +143,41 @@ pub async fn can_write_repo(
     repo: &rg_db::entities::repository::Model,
     actor_id: Option<i64>,
 ) -> Result<bool> {
-    match actor_id {
+    // Use a separate cache key prefix pattern: (repo_id, Some(user_id) or None)
+    // We use the same cache key space as can_read_repo to reuse results.
+    if let Some(cached) = check_perm_cache(repo.id, actor_id, true) {
+        return Ok(cached);
+    }
+
+    let result = match actor_id {
         Some(id) => {
             if id == repo.owner_id {
-                return Ok(true);
-            }
-
-            let perm = rg_db::ops::repo_collaborator_ops::get_permission(db, repo.id, id).await?;
-            match perm.as_deref() {
-                Some("write") | Some("admin") => return Ok(true),
-                _ => {}
-            }
-
-            if let Some(org_id) = repo.org_id {
-                if let Some(member) = rg_db::ops::org_ops::find_org_member(db, org_id, id).await? {
-                    if member.role == "owner" || member.role == "admin" {
-                        return Ok(true);
+                true
+            } else {
+                let perm = rg_db::ops::repo_collaborator_ops::get_permission(db, repo.id, id).await?;
+                let can_write_collab = matches!(perm.as_deref(), Some("write") | Some("admin"));
+                if can_write_collab {
+                    true
+                } else if let Some(org_id) = repo.org_id {
+                    if let Some(member) = rg_db::ops::org_ops::find_org_member(db, org_id, id).await? {
+                        if member.role == "owner" || member.role == "admin" {
+                            true
+                        } else {
+                            rg_db::ops::org_ops::is_member_of_write_team(db, org_id, id).await?
+                        }
+                    } else {
+                        false
                     }
-                }
-
-                if rg_db::ops::org_ops::is_member_of_write_team(db, org_id, id).await? {
-                    return Ok(true);
+                } else {
+                    false
                 }
             }
-
-            Ok(false)
         }
-        None => Ok(false),
-    }
+        None => false,
+    };
+
+    set_perm_cache(repo.id, actor_id, true, result);
+    Ok(result)
 }
 
 /// Check whether `actor_id` can write to `owner/repo`.

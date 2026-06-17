@@ -99,6 +99,7 @@ pub fn lfs_root(repo_root: &std::path::Path, owner: &str, repo: &str) -> PathBuf
 }
 
 /// Handle a batch upload/download request.
+/// Processes all objects concurrently using `join_all` to avoid serial DB round-trips.
 pub async fn batch(
     db: &DatabaseConnection,
     repo_id: i64,
@@ -114,30 +115,47 @@ pub async fn batch(
         .and_then(|t| t.first().cloned())
         .unwrap_or_else(|| "basic".to_string());
 
-    let mut objects = Vec::new();
+    let operation = req.operation.clone();
+    let futures: Vec<_> = req
+        .objects
+        .iter()
+        .map(|obj_req| {
+            let db = db;
+            let lfs_root = lfs_root;
+            let base_url = base_url;
+            let owner = owner;
+            let repo = repo;
+            let operation = operation.clone();
+            let oid = obj_req.oid.clone();
+            let size = obj_req.size;
+            async move {
+                match operation.as_str() {
+                    "upload" => {
+                        handle_upload(db, repo_id, lfs_root, base_url, owner, repo, &oid, size)
+                            .await
+                    }
+                    "download" => {
+                        handle_download(db, repo_id, lfs_root, base_url, owner, repo, &oid, size)
+                            .await
+                    }
+                    _ => Ok(LfsObjectResponse {
+                        oid,
+                        size,
+                        actions: None,
+                        error: Some(LfsError {
+                            code: 422,
+                            message: format!("unsupported operation: {}", operation),
+                        }),
+                    }),
+                }
+            }
+        })
+        .collect();
 
-    for obj_req in &req.objects {
-        let obj_resp = match req.operation.as_str() {
-            "upload" => {
-                handle_upload(db, repo_id, lfs_root, base_url, owner, repo, &obj_req.oid, obj_req.size)
-                    .await?
-            }
-            "download" => {
-                handle_download(db, repo_id, lfs_root, base_url, owner, repo, &obj_req.oid, obj_req.size)
-                    .await?
-            }
-            _ => LfsObjectResponse {
-                oid: obj_req.oid.clone(),
-                size: obj_req.size,
-                actions: None,
-                error: Some(LfsError {
-                    code: 422,
-                    message: format!("unsupported operation: {}", req.operation),
-                }),
-            },
-        };
-        objects.push(obj_resp);
-    }
+    let objects = futures::future::join_all(futures)
+        .await
+        .into_iter()
+        .collect::<Result<Vec<_>>>()?;
 
     Ok(LfsBatchResponse { transfer, objects })
 }
@@ -318,6 +336,87 @@ pub async fn store_object(
     Ok(())
 }
 
+/// Store an LFS object from an uncompressed file on disk.
+/// Streams the file through zstd compression—never loads the entire
+/// object into memory.
+pub async fn store_object_from_file(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    lfs_root: &std::path::Path,
+    oid: &str,
+    uncompressed_path: &std::path::Path,
+    original_size: i64,
+) -> Result<()> {
+    let obj_path = lfs_object_path(lfs_root, oid);
+
+    // Create parent directory
+    if let Some(parent) = obj_path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("create LFS directory {:?}", parent))?;
+    }
+
+    // Find or create the DB record first
+    let existing = lfs_object_ops::find_by_repo_and_oid(db, repo_id, oid).await?;
+    let _obj_id = if let Some(_obj) = existing {
+        None
+    } else {
+        let model = lfs_object::ActiveModel {
+            id: sea_orm::NotSet,
+            repo_id: sea_orm::Set(repo_id),
+            oid: sea_orm::Set(oid.to_string()),
+            size: sea_orm::Set(original_size),
+            uploaded: sea_orm::Set(false),
+            compression: sea_orm::Set(None),
+            compressed_size: sea_orm::Set(None),
+            created_at: sea_orm::Set(Utc::now()),
+        };
+        let new_obj = lfs_object_ops::create(db, model).await?;
+        Some(new_obj.id)
+    };
+
+    // Stream-compress from file (uses chunked I/O, not full file read)
+    let compressed_path = obj_path.with_extension("zst");
+    let src_file = std::fs::File::open(uncompressed_path)
+        .with_context(|| format!("open uncompressed file {:?}", uncompressed_path))?;
+    let dst_file = std::fs::File::create(&compressed_path)
+        .with_context(|| format!("create compressed file {:?}", compressed_path))?;
+
+    let mut encoder = zstd::stream::Encoder::new(dst_file, ZSTD_LEVEL)
+        .context("failed to create zstd stream encoder")?;
+    std::io::copy(&mut std::io::BufReader::new(src_file), &mut encoder)
+        .context("failed to stream-compress LFS object")?;
+    let finished = encoder.finish()
+        .context("failed to finish zstd stream encoding")?;
+
+    let compressed_size = finished.metadata()
+        .map(|m| m.len() as i64)
+        .unwrap_or(0);
+
+    // Remove uncompressed temp file
+    let _ = std::fs::remove_file(uncompressed_path);
+
+    tracing::info!(
+        oid = %oid,
+        original_size = original_size,
+        compressed_size = compressed_size,
+        ratio = format!("{:.1}%", if original_size > 0 { (compressed_size as f64 / original_size as f64) * 100.0 } else { 0.0 }),
+        "LFS object stream-compressed and stored"
+    );
+
+    // Update DB with compression info and mark as uploaded
+    let obj = lfs_object_ops::find_by_repo_and_oid(db, repo_id, oid)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("LFS object {} not found after create", oid))?;
+
+    let mut model: lfs_object::ActiveModel = obj.into();
+    model.uploaded = sea_orm::Set(true);
+    model.compression = sea_orm::Set(Some(COMPRESSION_ALGO.to_string()));
+    model.compressed_size = sea_orm::Set(Some(compressed_size));
+    model.update(db).await.context("db: update LFS object after store")?;
+
+    Ok(())
+}
+
 /// Read an LFS object from disk.
 pub async fn read_object(
     lfs_root: &std::path::Path,
@@ -337,6 +436,29 @@ pub async fn read_object(
     if obj_path.exists() {
         return std::fs::read(&obj_path)
             .with_context(|| format!("read LFS object {:?}", obj_path));
+    }
+
+    anyhow::bail!("LFS object {} not found", oid)
+}
+
+/// Get the file paths needed for streaming an LFS object.
+/// Returns `(file_path, is_compressed)` — the caller should stream-decompress
+/// if `is_compressed` is true.
+pub fn read_object_path(
+    lfs_root: &std::path::Path,
+    oid: &str,
+) -> Result<(PathBuf, bool)> {
+    let obj_path = lfs_object_path(lfs_root, oid);
+
+    // Try compressed version first (.zst)
+    let compressed_path = obj_path.with_extension("zst");
+    if compressed_path.exists() {
+        return Ok((compressed_path, true));
+    }
+
+    // Fallback to uncompressed (legacy)
+    if obj_path.exists() {
+        return Ok((obj_path, false));
     }
 
     anyhow::bail!("LFS object {} not found", oid)

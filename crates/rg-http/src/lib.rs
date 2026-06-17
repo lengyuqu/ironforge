@@ -34,6 +34,7 @@ use rg_core::package_registry::oci::OciStorage;
 use sea_orm::DatabaseConnection;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tower_http::cors::CorsLayer;
+use tower_http::limit::RequestBodyLimitLayer;
 
 // gix is used via `gix::open()` etc. — crate available at crate root
 use tower_http::trace::TraceLayer;
@@ -52,6 +53,10 @@ pub struct AppState {
     pub smtp_config: Option<rg_core::email::SmtpConfig>,
     pub oci_storage: Arc<OciStorage>,
     pub log_write_queue: rg_core::ci::log_write_queue::LogWriteQueue,
+    /// External-facing base URL for SSO callbacks (None = detect from request).
+    pub external_url: Option<String>,
+    /// CI job timeout in seconds.
+    pub job_timeout_secs: u64,
 }
 
 /// HTTP server configuration.
@@ -78,6 +83,11 @@ pub struct HttpServerConfig {
     pub oci_storage_path: Option<PathBuf>,
     /// TLS configuration: (cert_path, key_path). None = HTTP only.
     pub tls_config: Option<(PathBuf, PathBuf)>,
+    /// External-facing base URL (e.g., "https://git.example.com").
+    /// Used for SSO callbacks. Defaults to http://localhost:{port}.
+    pub external_url: Option<String>,
+    /// CI job timeout in seconds (default: 3600).
+    pub job_timeout_secs: u64,
 }
 
 /// Start the HTTP server and run forever.
@@ -111,6 +121,8 @@ pub async fn run(config: HttpServerConfig) -> Result<()> {
         smtp_config: config.smtp_config,
         oci_storage,
         log_write_queue: rg_core::ci::log_write_queue::LogWriteQueue::spawn(log_queue_db),
+        external_url: config.external_url,
+        job_timeout_secs: config.job_timeout_secs,
     };
 
     let app = create_router(state.clone(), rate_limiter.clone());
@@ -292,6 +304,15 @@ fn build_router(state: AppState, rate_limiter: rate_limit::RateLimiter) -> Route
 
 /// Build OCI Distribution v2 routes (Docker/OCI container registry).
 fn build_v2_routes(state: &AppState) -> Router<AppState> {
+    // 10 GiB body limit for blob upload requests.
+    let upload_body_limit = RequestBodyLimitLayer::new(10 * 1024 * 1024 * 1024);
+
+    // Upload sub-router with body size limit
+    let upload_routes = Router::new()
+        .route("/", post(oci::start_upload))
+        .route("/{uuid}", patch(oci::chunk_upload).put(oci::complete_upload))
+        .layer(upload_body_limit);
+
     Router::new()
         // API version check
         .route("/", get(oci::api_version_check))
@@ -303,9 +324,8 @@ fn build_v2_routes(state: &AppState) -> Router<AppState> {
         .route("/{owner}/{repo}/manifests/{reference}", get(oci::get_manifest).head(oci::head_manifest).put(oci::put_manifest))
         // Blobs
         .route("/{owner}/{repo}/blobs/{digest}", get(oci::get_blob).head(oci::head_blob))
-        // Uploads
-        .route("/{owner}/{repo}/blobs/uploads/", post(oci::start_upload))
-        .route("/{owner}/{repo}/blobs/uploads/{uuid}", patch(oci::chunk_upload).put(oci::complete_upload))
+        // Uploads (with body size limit)
+        .nest("/{owner}/{repo}/blobs/uploads", upload_routes)
         .with_state(state.clone())
 }
 
@@ -394,9 +414,12 @@ fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
         .route("/repos/{owner}/{name}/wiki/{title}", get(api::wiki::get_page).patch(api::wiki::update_page).delete(api::wiki::delete_page))
         .route("/repos/{owner}/{name}/wiki/{title}/history", get(api::wiki::list_revisions))
         .route("/repos/{owner}/{name}/wiki/{title}/revisions/{rev_id}", get(api::wiki::get_revision))
-        // LFS
+        // LFS (body size limit for object uploads: 10 GiB)
         .route("/repos/{owner}/{name}/lfs/objects/batch", post(api::lfs::batch))
-        .route("/repos/{owner}/{name}/lfs/objects/{oid}", get(api::lfs::download_object).put(api::lfs::upload_object))
+        .route("/repos/{owner}/{name}/lfs/objects/{oid}",
+            get(api::lfs::download_object)
+            .put(api::lfs::upload_object)
+            .layer(RequestBodyLimitLayer::new(10 * 1024 * 1024 * 1024)))
         // Webhooks
         .route("/repos/{owner}/{name}/hooks", get(api::webhooks::list_webhooks).post(api::webhooks::create_webhook))
         .route("/repos/{owner}/{name}/hooks/{id}", get(api::webhooks::get_webhook).patch(api::webhooks::update_webhook).delete(api::webhooks::delete_webhook))

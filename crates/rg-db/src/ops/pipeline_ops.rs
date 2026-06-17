@@ -515,6 +515,7 @@ pub async fn reset_runner_jobs(db: &DatabaseConnection, runner_id: i64) -> Resul
     Ok(result.rows_affected)
 }
 
+/// Assign a CI job to a specific runner.
 pub async fn assign_job(db: &DatabaseConnection, job_id: i64, runner_id: i64) -> Result<()> {
     let now = chrono::Utc::now().naive_utc();
     let model = pipeline_job::Entity::find_by_id(job_id)

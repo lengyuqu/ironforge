@@ -2,11 +2,12 @@
 //!
 //! Implements the LFS batch API and object upload/download endpoints.
 
-use axum::body::Bytes;
+use axum::body::Body;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::Json;
+use tokio::io::AsyncWriteExt;
 
 use crate::api::auth::extract_bearer_claims;
 use crate::AppState;
@@ -89,6 +90,8 @@ pub async fn batch(
 }
 
 /// Upload an LFS object: PUT /repos/:owner/:name/lfs/objects/:oid
+/// Streams the request body directly to a temp file, then stream-compresses
+/// it with zstd — never buffers the entire object in memory.
 #[utoipa::path(
     put,
     path = "/repos/{owner}/{name}/lfs/objects/{oid}",
@@ -108,7 +111,7 @@ pub async fn upload_object(
     State(state): State<AppState>,
     Path((owner, repo, oid)): Path<(String, String, String)>,
     headers: HeaderMap,
-    body: Bytes,
+    body: Body,
 ) -> impl IntoResponse {
     let repo_model = match rg_core::repo::service::find_repo_by_owner_name(
         &state.db, &owner, &repo,
@@ -140,21 +143,36 @@ pub async fn upload_object(
     let repo_id = repo_model.id;
     let lfs_root = rg_core::lfs::service::lfs_root(&state.repo_root, &owner, &repo);
 
-    match rg_core::lfs::service::store_object(
-        &state.db,
-        repo_id,
-        &lfs_root,
-        &oid,
-        &body,
-    )
-    .await
-    {
-        Ok(()) => StatusCode::OK.into_response(),
+    // Stream body to temp file
+    let temp_path = lfs_root.join(format!(".tmp_{}", oid));
+    if let Some(parent) = temp_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+
+    match write_body_to_file(body, &temp_path).await {
+        Ok(written) => {
+            match rg_core::lfs::service::store_object_from_file(
+                &state.db,
+                repo_id,
+                &lfs_root,
+                &oid,
+                &temp_path,
+                written as i64,
+            )
+            .await
+            {
+                Ok(()) => StatusCode::OK.into_response(),
+                Err(e) => AppError::internal(e).into_response(),
+            }
+        }
         Err(e) => AppError::internal(e).into_response(),
     }
 }
 
 /// Download an LFS object: GET /repos/:owner/:name/lfs/objects/:oid
+/// Streams the object, decompressing on the fly if compressed.
+/// For compressed objects, uses spawn_blocking + channel for streaming
+/// zstd decompression without blocking the async runtime.
 #[utoipa::path(
     get,
     path = "/repos/{owner}/{name}/lfs/objects/{oid}",
@@ -165,7 +183,7 @@ pub async fn upload_object(
         ("oid" = String, Path, description = "oid"),
     ),
     responses(
-        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 200, description = "Success", content_type = "application/octet-stream"),
         (status = 401, description = "Unauthorized", body = serde_json::Value),
     ),
 )]
@@ -203,12 +221,84 @@ pub async fn download_object(
 
     let lfs_root = rg_core::lfs::service::lfs_root(&state.repo_root, &owner, &repo);
 
-    match rg_core::lfs::service::read_object(&lfs_root, &oid).await {
-        Ok(data) => (
-            StatusCode::OK,
-            [(axum::http::header::CONTENT_TYPE, "application/octet-stream")],
-            data,
-        ).into_response(),
+    match rg_core::lfs::service::read_object_path(&lfs_root, &oid) {
+        Ok((file_path, is_compressed)) => {
+            if is_compressed {
+                // Stream-decompress via channel: spawn_blocking reads zstd chunks → channel → response body
+                let (tx, rx) = tokio::sync::mpsc::channel::<std::io::Result<axum::body::Bytes>>(8);
+                let path_for_thread = file_path.clone();
+
+                tokio::task::spawn_blocking(move || {
+                    use std::io::Read;
+                    let file = match std::fs::File::open(&path_for_thread) {
+                        Ok(f) => f,
+                        Err(e) => { let _ = tx.blocking_send(Err(e)); return; }
+                    };
+                    let decoder = match zstd::stream::Decoder::new(file) {
+                        Ok(d) => d,
+                        Err(e) => {
+                            let _ = tx.blocking_send(Err(std::io::Error::new(
+                                std::io::ErrorKind::Other, e.to_string()
+                            )));
+                            return;
+                        }
+                    };
+                    let mut reader = std::io::BufReader::with_capacity(64 * 1024, decoder);
+                    let mut buf = vec![0u8; 64 * 1024];
+                    loop {
+                        match reader.read(&mut buf) {
+                            Ok(0) => break,
+                            Ok(n) => {
+                                if tx.blocking_send(Ok(axum::body::Bytes::from(buf[..n].to_vec()))).is_err() {
+                                    break;
+                                }
+                            }
+                            Err(e) => {
+                                let _ = tx.blocking_send(Err(e));
+                                break;
+                            }
+                        }
+                    }
+                });
+
+                let stream = tokio_stream::wrappers::ReceiverStream::new(rx);
+                let frame_stream = futures::StreamExt::map(stream, |item| {
+                    item.map(http_body::Frame::data)
+                });
+                let stream_body = http_body_util::StreamBody::new(frame_stream);
+                (
+                    StatusCode::OK,
+                    [(axum::http::header::CONTENT_TYPE, "application/octet-stream")],
+                    Body::new(stream_body),
+                ).into_response()
+            } else {
+                // Uncompressed file — stream directly
+                match tokio::fs::File::open(&file_path).await {
+                    Ok(file) => {
+                        let stream = tokio_util::io::ReaderStream::new(file);
+                        let frame_stream = futures::StreamExt::map(stream, |item| {
+                            item.map(http_body::Frame::data)
+                        });
+                        let stream_body = http_body_util::StreamBody::new(frame_stream);
+                        let estimated_size = std::fs::metadata(&file_path)
+                            .map(|m| m.len())
+                            .unwrap_or(0);
+                        (
+                            StatusCode::OK,
+                            [
+                                (axum::http::header::CONTENT_TYPE, "application/octet-stream"),
+                                (axum::http::header::CONTENT_LENGTH, estimated_size.to_string().as_str()),
+                            ],
+                            Body::new(stream_body),
+                        ).into_response()
+                    }
+                    Err(_) => (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "failed to open LFS object file",
+                    ).into_response(),
+                }
+            }
+        }
         Err(e) => (
             StatusCode::NOT_FOUND,
             [(axum::http::header::CONTENT_TYPE, "text/plain")],
@@ -218,3 +308,19 @@ pub async fn download_object(
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────
+
+/// Stream an Axum `Body` to a file. Returns the number of bytes written.
+async fn write_body_to_file(body: Body, path: &std::path::Path) -> anyhow::Result<usize> {
+    let mut file = tokio::fs::File::create(path).await?;
+
+    use futures::StreamExt;
+    let mut written: usize = 0;
+    let mut stream = body.into_data_stream();
+    while let Some(chunk) = stream.next().await {
+        let data = chunk.map_err(|e| anyhow::anyhow!("body stream error: {}", e))?;
+        file.write_all(&data).await?;
+        written += data.len();
+    }
+
+    Ok(written)
+}

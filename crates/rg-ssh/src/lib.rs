@@ -99,6 +99,8 @@ fn ensure_host_key(path: &std::path::Path) -> Result<()> {
 }
 
 impl SshServer {
+    /// Create a new SSH server from configuration.
+    /// Loads the host key and validates the key file permissions.
     pub fn new(ssh_config: SshServerConfig) -> Result<Self> {
         ensure_host_key(&ssh_config.host_key_path)?;
         let host_key = load_secret_key(&ssh_config.host_key_path, None)
@@ -123,6 +125,7 @@ impl SshServer {
         })
     }
 
+    /// Run the SSH server on the given address. Blocks until the server stops.
     pub async fn run(&mut self, listen_addr: &str) -> Result<()> {
         let addr: std::net::SocketAddr = listen_addr
             .parse()

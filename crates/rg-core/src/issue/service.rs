@@ -137,22 +137,22 @@ pub async fn list_issues_filtered_by_labels(
         return Ok((Vec::new(), total));
     }
 
-    // Fetch the actual issue models
-    let mut issues = Vec::new();
-    for issue_id in matching_issue_ids {
-        if let Some(issue) = issue_ops::find_by_id(db, issue_id).await? {
+    // Fetch the actual issue models (batch query — avoids N+1)
+    let all_issues = issue_ops::find_by_ids(db, &matching_issue_ids).await?;
+
+    let issues: Vec<Issue> = all_issues
+        .into_iter()
+        .filter(|issue| {
             // Apply state filter in-memory
             if let Some(s) = state {
                 if issue.state != s {
-                    continue;
+                    return false;
                 }
             }
             // Only include issues from this repo
-            if issue.repo_id == repo.id {
-                issues.push(issue);
-            }
-        }
-    }
+            issue.repo_id == repo.id
+        })
+        .collect();
 
     Ok((issues, total))
 }

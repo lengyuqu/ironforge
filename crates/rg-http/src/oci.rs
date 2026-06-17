@@ -11,6 +11,7 @@ use axum::{
     Json,
 };
 use sea_orm::DatabaseConnection;
+use tokio::io::AsyncWriteExt;
 
 use rg_core::auth::oci_token::{
     ParsedScope,
@@ -517,6 +518,7 @@ pub async fn head_blob(
 }
 
 /// `GET /v2/{owner}/{repo}/blobs/{digest}` — pull blob (download layer).
+/// Streams the blob file directly — never loads the entire blob into memory.
 pub async fn get_blob(
     State(state): State<AppState>,
     Path((owner, repo, digest)): Path<(String, String, String)>,
@@ -526,14 +528,21 @@ pub async fn get_blob(
         return oci_not_found(error_codes::BLOB_UNKNOWN, "blob not found");
     }
 
-    match tokio::fs::read(&path).await {
-        Ok(data) => {
-            let size = data.len();
+    match tokio::fs::File::open(&path).await {
+        Ok(file) => {
+            let size = match file.metadata().await {
+                Ok(m) => m.len(),
+                Err(_) => return oci_err(StatusCode::INTERNAL_SERVER_ERROR, "UNKNOWN", "failed to stat blob"),
+            };
+            let stream = tokio_util::io::ReaderStream::new(file);
+            let stream_body = http_body_util::StreamBody::new(
+                futures::StreamExt::map(stream, |item| item.map(http_body::Frame::data))
+            );
             (StatusCode::OK, [
                 (header::CONTENT_TYPE, "application/octet-stream"),
                 (header::CONTENT_LENGTH, size.to_string().as_str()),
                 (DOCKER_CONTENT_DIGEST, digest.as_str()),
-            ], Body::from(data)).into_response()
+            ], Body::new(stream_body)).into_response()
         }
         Err(e) => oci_err(StatusCode::INTERNAL_SERVER_ERROR, "UNKNOWN", &e.to_string()),
     }
@@ -603,34 +612,31 @@ async fn handle_mount(
         return oci_not_found(error_codes::BLOB_UNKNOWN, "mount source blob not found");
     }
 
-    // Read and copy to target
-    match state.oci_storage.read_blob(from_owner, from_repo, mount_digest).await {
-        Ok(data) => {
-            match state.oci_storage.store_blob(owner, repo, mount_digest, &data).await {
-                Ok(_) => {
-                    let location = format!("/v2/{owner}/{repo}/blobs/{mount_digest}");
-                    (
-                        StatusCode::CREATED,
-                        [
-                            (header::LOCATION, location.as_str()),
-                            (DOCKER_CONTENT_DIGEST, mount_digest),
-                        ],
-                        String::new(),
-                    ).into_response()
-                }
-                Err(e) => oci_err(StatusCode::INTERNAL_SERVER_ERROR, "UNKNOWN", &e.to_string()),
-            }
+    // Copy blob file via hardlink (or fallback to streaming copy) — avoids memory copy
+    match state.oci_storage.copy_blob_file(from_owner, from_repo, owner, repo, mount_digest).await {
+        Ok(_) => {
+            let location = format!("/v2/{owner}/{repo}/blobs/{mount_digest}");
+            (
+                StatusCode::CREATED,
+                [
+                    (header::LOCATION, location.as_str()),
+                    (DOCKER_CONTENT_DIGEST, mount_digest),
+                ],
+                String::new(),
+            ).into_response()
         }
         Err(e) => oci_err(StatusCode::INTERNAL_SERVER_ERROR, "UNKNOWN", &e.to_string()),
     }
 }
 
 /// `PATCH /v2/{owner}/{repo}/blobs/uploads/{uuid}` — chunked upload.
+/// Streams the request body directly to the upload file—never buffers
+/// the entire chunk in memory.
 pub async fn chunk_upload(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path((owner, repo, uuid)): Path<(String, String, String)>,
-    body: axum::body::Bytes,
+    body: Body,
 ) -> Response {
     let (authenticated, _user_id) = check_access(&headers, &state.jwt_secret, &owner, &repo, "push");
     if !authenticated {
@@ -643,8 +649,9 @@ pub async fn chunk_upload(
         Err(e) => return oci_err(StatusCode::INTERNAL_SERVER_ERROR, "UNKNOWN", &e.to_string()),
     }
 
-    // Append data
-    match state.oci_storage.append_to_upload(&owner, &repo, &uuid, &body).await {
+    // Stream body to upload file
+    let file_path = state.oci_storage.upload_file(&owner, &repo, &uuid);
+    match stream_body_to_file(body, &file_path).await {
         Ok(total_size) => {
             // Update DB
             let _ = rg_db::ops::oci_ops::update_upload_progress(&state.db, &uuid, total_size).await;
@@ -666,12 +673,13 @@ pub async fn chunk_upload(
 }
 
 /// `PUT /v2/{owner}/{repo}/blobs/uploads/{uuid}?digest=sha256:...` — finalize upload.
+/// If the body contains data (single-chunk upload), streams it to the upload file first.
 pub async fn complete_upload(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path((owner, repo, uuid)): Path<(String, String, String)>,
     Query(params): Query<std::collections::HashMap<String, String>>,
-    body: axum::body::Bytes,
+    body: Body,
 ) -> Response {
     let (authenticated, user_id) = check_access(&headers, &state.jwt_secret, &owner, &repo, "push");
     if !authenticated {
@@ -682,11 +690,11 @@ pub async fn complete_upload(
         None => return oci_err(StatusCode::BAD_REQUEST, error_codes::DIGEST_INVALID, "digest parameter required"),
     };
 
-    // If body is provided (single-chunk upload), append it first
-    if !body.is_empty() {
-        if let Err(e) = state.oci_storage.append_to_upload(&owner, &repo, &uuid, &body).await {
-            return oci_err(StatusCode::INTERNAL_SERVER_ERROR, "UNKNOWN", &e.to_string());
-        }
+    // If body is provided (single-chunk upload), stream it to the upload file first
+    // Check by reading the first frame: if there's data, stream the rest
+    let file_path = state.oci_storage.upload_file(&owner, &repo, &uuid);
+    if let Err(e) = stream_body_to_file(body, &file_path).await {
+        return oci_err(StatusCode::INTERNAL_SERVER_ERROR, "UNKNOWN", &e.to_string());
     }
 
     let oci_repo = match find_or_create_oci_repo(&state.db, &owner, &repo, user_id).await {
@@ -694,7 +702,7 @@ pub async fn complete_upload(
         Err(e) => return oci_err(StatusCode::INTERNAL_SERVER_ERROR, "UNKNOWN", &e.to_string()),
     };
 
-    // Finalize: verify digest, move to blob storage
+    // Finalize: stream-read upload file, verify digest, move to blob storage
     match state.oci_storage.finalize_upload(&owner, &repo, &uuid, &expected_digest).await {
         Ok((digest, size, storage_path)) => {
             // Record blob in DB
@@ -721,6 +729,28 @@ pub async fn complete_upload(
             oci_err(StatusCode::BAD_REQUEST, error_codes::DIGEST_INVALID, &e.to_string())
         }
     }
+}
+
+// ── stream helper ──────────────────────────────────────────────
+
+/// Stream an Axum `Body` to a file, appending to any existing content.
+/// Never buffers the entire body in memory—each frame is written directly.
+/// Returns the total file size after the write.
+async fn stream_body_to_file(body: Body, file_path: &std::path::Path) -> anyhow::Result<i64> {
+    let mut file = tokio::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(file_path).await?;
+
+    use futures::StreamExt;
+    let mut stream = body.into_data_stream();
+    while let Some(chunk) = stream.next().await {
+        let data = chunk.map_err(|e| anyhow::anyhow!("body stream error: {}", e))?;
+        file.write_all(&data).await?;
+    }
+
+    let size = file.metadata().await?.len() as i64;
+    Ok(size)
 }
 
 // ── DB helpers ────────────────────────────────────────────────

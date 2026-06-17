@@ -85,6 +85,7 @@ pub fn list_tools(_state: &AppState, req: &JsonRpcRequest) -> JsonRpcResponse {
 
 // ── public: call tool ─────────────────────────────────────
 
+/// Dispatch a JSON-RPC tool call to the appropriate tool handler.
 pub fn call_tool(state: &AppState, req: &JsonRpcRequest) -> JsonRpcResponse {
     let params = match &req.params {
         Some(v) => v.clone(),

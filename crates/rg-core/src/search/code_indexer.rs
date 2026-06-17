@@ -166,6 +166,15 @@ pub struct CodeIndexer {
     db: DatabaseConnection,
 }
 
+/// Entry for batch FTS insertion.
+struct IndexEntry {
+    repo_id: i64,
+    file_path: String,
+    file_name: String,
+    content: String,
+    language: String,
+}
+
 impl CodeIndexer {
     /// Create a new code indexer.
     pub fn new(db: DatabaseConnection) -> Self {
@@ -212,11 +221,14 @@ impl CodeIndexer {
         // Clear existing index for this repo
         self.clear_index_for_repo(repo_id).await?;
 
-        // Traverse the tree and index files
-        let mut count = 0usize;
+        // Collect file entries first, then batch INSERT (avoids N+1 per-file INSERT)
+        let mut entries: Vec<IndexEntry> = Vec::new();
         let mut visited = HashSet::new();
-        self.index_tree(&repo, &tree, repo_id, PathBuf::new(), &mut count, &mut visited)
+        self.collect_tree_entries(&repo, &tree, repo_id, PathBuf::new(), &mut entries, &mut visited)
             .await?;
+
+        let count = entries.len();
+        self.batch_insert_fts(&entries).await?;
 
         Ok(count)
     }
@@ -236,44 +248,45 @@ impl CodeIndexer {
         Ok(())
     }
 
-    /// Index a Git tree iteratively (non-recursive to avoid async recursion issues).
-    async fn index_tree(
+    /// Collect indexable file entries by traversing the Git tree iteratively.
+    /// Entries are collected into `entries` and later batch-inserted.
+    async fn collect_tree_entries(
         &self,
         repo: &gix::Repository,
         tree: &gix::Tree<'_>,
         repo_id: i64,
         base_path: PathBuf,
-        count: &mut usize,
+        entries: &mut Vec<IndexEntry>,
         visited: &mut HashSet<gix::ObjectId>,
     ) -> Result<()> {
         // Use a work stack for iterative DFS: (tree_oid, base_path)
         let mut stack: Vec<(gix::ObjectId, PathBuf)> = Vec::new();
-        
+
         // Process initial tree
-        self.process_tree_entries(repo, tree, repo_id, base_path, count, visited, &mut stack)
+        self.collect_tree(repo, tree, repo_id, base_path, entries, visited, &mut stack)
             .await?;
-        
+
         // Process remaining trees from the stack
         while let Some((tree_oid, path)) = stack.pop() {
             if let Ok(object) = repo.find_object(tree_oid) {
                 if let Ok(tree) = object.try_into_tree() {
-                    self.process_tree_entries(repo, &tree, repo_id, path, count, visited, &mut stack)
+                    self.collect_tree(repo, &tree, repo_id, path, entries, visited, &mut stack)
                         .await?;
                 }
             }
         }
-        
+
         Ok(())
     }
-    
-    /// Process all entries in a single tree.
-    async fn process_tree_entries(
+
+    /// Collect entries from a single tree into the entries Vec.
+    async fn collect_tree(
         &self,
         repo: &gix::Repository,
         tree: &gix::Tree<'_>,
         repo_id: i64,
         base_path: PathBuf,
-        count: &mut usize,
+        entries: &mut Vec<IndexEntry>,
         visited: &mut HashSet<gix::ObjectId>,
         stack: &mut Vec<(gix::ObjectId, PathBuf)>,
     ) -> Result<()> {
@@ -285,18 +298,15 @@ impl CodeIndexer {
 
             let name = String::from_utf8_lossy(item.filename());
             let path = base_path.join(name.as_ref());
-
             let mode = item.mode();
 
             if mode.is_tree() {
-                // Add subdirectory to stack for later processing
                 let oid = item.oid().to_owned();
                 if !visited.contains(&oid) {
                     visited.insert(oid.clone());
                     stack.push((oid, path));
                 }
             } else if mode.is_blob() || mode.is_executable() {
-                // Index file content
                 let oid = item.oid().to_owned();
                 if let Ok(object) = repo.find_object(oid) {
                     if let Ok(blob) = object.try_into_blob() {
@@ -311,52 +321,59 @@ impl CodeIndexer {
                             let language = infer_language(&path);
                             let content_str = String::from_utf8_lossy(content).to_string();
 
-                            self.insert_into_fts(
+                            entries.push(IndexEntry {
                                 repo_id,
-                                &file_path,
-                                &file_name,
-                                &content_str,
-                                &language,
-                            )
-                            .await?;
-                            *count += 1;
+                                file_path,
+                                file_name,
+                                content: content_str,
+                                language,
+                            });
                         }
                     }
                 }
-            } else {
-                // Skip other entry types (symlink, submodule, etc.)
             }
         }
         Ok(())
     }
 
-    /// Insert a file into the FTS5 index.
-    async fn insert_into_fts(
-        &self,
-        repo_id: i64,
-        file_path: &str,
-        file_name: &str,
-        content: &str,
-        language: &str,
-    ) -> Result<()> {
-        // Escape single quotes in strings for SQL
+    /// Batch-insert index entries into the FTS5 table.
+    /// Uses multi-row INSERT for efficiency — inserts in chunks of 100 rows
+    /// to avoid SQLite's SQL length limit.
+    async fn batch_insert_fts(&self, entries: &[IndexEntry]) -> Result<()> {
+        if entries.is_empty() {
+            return Ok(());
+        }
+
         let escape = |s: &str| s.replace('\'', "''");
 
-        let sql = format!(
-            "INSERT INTO code_fts(repo_id, file_path, file_name, content, language) VALUES({}, '{}', '{}', '{}', '{}')",
-            repo_id,
-            escape(file_path),
-            escape(file_name),
-            escape(content),
-            escape(language)
-        );
+        for chunk in entries.chunks(100) {
+            let mut values = String::new();
+            for (i, entry) in chunk.iter().enumerate() {
+                if i > 0 {
+                    values.push_str(", ");
+                }
+                values.push_str(&format!(
+                    "({}, '{}', '{}', '{}', '{}')",
+                    entry.repo_id,
+                    escape(&entry.file_path),
+                    escape(&entry.file_name),
+                    escape(&entry.content),
+                    escape(&entry.language)
+                ));
+            }
 
-        self.db
-            .execute(Statement::from_string(
-                sea_orm::DatabaseBackend::Sqlite,
-                sql,
-            ))
-            .await?;
+            let sql = format!(
+                "INSERT INTO code_fts(repo_id, file_path, file_name, content, language) VALUES {}",
+                values
+            );
+
+            self.db
+                .execute(Statement::from_string(
+                    sea_orm::DatabaseBackend::Sqlite,
+                    sql,
+                ))
+                .await?;
+        }
 
         Ok(())
     }

@@ -282,6 +282,9 @@ pub struct DiffStats {
 
 /// Compute the diff between base and head branches using `git diff`.
 /// Supports cross-repository (fork) PRs.
+///
+/// Gix tree-diff operations are offloaded to `spawn_blocking` to avoid
+/// blocking the tokio async runtime.
 pub async fn compute_diff(
     db: &DatabaseConnection,
     repo_root: &std::path::Path,
@@ -308,7 +311,6 @@ pub async fn compute_diff(
         let head_repo_path = repo_root.join(format!("{}/{}.git", head_owner.username, head_repo.name));
 
         if head_repo_path.exists() {
-            // Fetch head branch into target repo under refs/forks/
             let fetch_ref = format!("refs/heads/{}", pr.head_branch);
             let local_ref = format!("refs/forks/{}/{}", head_owner.username, pr.head_branch);
 
@@ -327,25 +329,28 @@ pub async fn compute_diff(
                 )?;
 
             if !fetch_output.success() {
-                // Log but don't fail — branch may not exist yet
                 tracing::warn!(
                     "fetch of fork branch failed (non-fatal): {}",
                     String::from_utf8_lossy(&fetch_output.stderr)
                 );
             }
 
-            // Compute diff between base and fetched fork ref
-            return compute_cross_repo_diff(
-                &base_repo_path,
-                &pr.base_branch,
-                &local_ref,
-                &pr,
-            );
+            // Compute diff inside spawn_blocking (CPU-intensive gix tree-diff)
+            let base_path = base_repo_path.clone();
+            let pr_clone = pr.clone();
+            let local_ref = local_ref.clone();
+            return tokio::task::spawn_blocking(move || {
+                compute_cross_repo_diff(&base_path, &pr_clone.base_branch, &local_ref, &pr_clone)
+            }).await?;
         }
     }
 
-    // Same-repo diff
-    compute_same_repo_diff(&base_repo_path, &pr)
+    // Same-repo diff — offload to spawn_blocking
+    let base_path = base_repo_path.clone();
+    let pr_clone = pr.clone();
+    tokio::task::spawn_blocking(move || {
+        compute_same_repo_diff(&base_path, &pr_clone)
+    }).await?
 }
 
 /// Compute diff for same-repo PR.
@@ -532,6 +537,9 @@ pub struct MergeResult {
 
 /// Merge a pull request using the specified strategy.
 /// Supports cross-repository (fork) PRs by fetching the head branch first.
+///
+/// Gix merge operations (tree merge, commit creation) are offloaded to
+/// `spawn_blocking` to avoid blocking the tokio async runtime.
 pub async fn merge_pr(
     db: &DatabaseConnection,
     repo_root: &std::path::Path,
@@ -587,24 +595,37 @@ pub async fn merge_pr(
                 );
             }
 
-            // Merge using the fetched ref
+            // Merge and cleanup in spawn_blocking (CPU-intensive gix merge)
             let merge_ref = format!("refs/forks/{}/{}", head_owner.username, pr.head_branch);
-            let merge_commit_sha = merge_from_ref(&repo_path, &pr, &merge_ref, strategy)?;
-
-            // Clean up fetched ref via gix (non-fatal on failure — just log)
-            if let Err(e) = gix_delete_ref(&repo_path, &merge_ref) {
-                tracing::warn!("failed to clean up fork ref '{}': {}", merge_ref, e);
-            }
+            let merge_commit_sha = {
+                let repo_path = repo_path.clone();
+                let pr = pr.clone();
+                let merge_ref = merge_ref.clone();
+                tokio::task::spawn_blocking(move || -> Result<String> {
+                    let sha = merge_from_ref(&repo_path, &pr, &merge_ref, strategy)?;
+                    // Clean up fetched ref
+                    if let Err(e) = gix_delete_ref(&repo_path, &merge_ref) {
+                        tracing::warn!("failed to clean up fork ref '{}': {}", merge_ref, e);
+                    }
+                    Ok(sha)
+                }).await??
+            };
 
             return update_pr_merged(db, pr, merge_commit_sha, strategy).await;
         }
     }
 
-    // Same-repo merge
-    let merge_commit_sha = match strategy {
-        MergeStrategy::Merge => do_merge_commit(&repo_path, &pr)?,
-        MergeStrategy::Squash => do_squash_merge(&repo_path, &pr)?,
-        MergeStrategy::Rebase => do_rebase_merge(&repo_path, &pr)?,
+    // Same-repo merge — offload gix merge operations to spawn_blocking
+    let merge_commit_sha = {
+        let repo_path = repo_path.clone();
+        let pr = pr.clone();
+        tokio::task::spawn_blocking(move || -> Result<String> {
+            match strategy {
+                MergeStrategy::Merge => do_merge_commit(&repo_path, &pr),
+                MergeStrategy::Squash => do_squash_merge(&repo_path, &pr),
+                MergeStrategy::Rebase => do_rebase_merge(&repo_path, &pr),
+            }
+        }).await??
     };
 
     update_pr_merged(db, pr, merge_commit_sha, strategy).await
@@ -634,7 +655,10 @@ fn merge_from_ref(
             gix_squash_merge(repo_path, merge_ref, &squash_msg)
         }
         MergeStrategy::Rebase => {
-            gix_set_head_to_branch(repo_path, &pr.base_branch)
+            let repo = gix::open(repo_path)
+                .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
+
+            gix_set_head_to_branch_with_repo(&repo, &pr.base_branch)
                 .with_context(|| format!("failed to checkout base branch: {}", pr.base_branch))?;
 
             // TODO(gix): Replace rebase with gix once rebase API is stable (Phase 3)
@@ -645,7 +669,6 @@ fn merge_from_ref(
             let rebase = git.run(&["rebase", &pr.base_branch, merge_ref], Some(repo_path))?;
 
             if !rebase.success() {
-                // Abort the rebase on failure — non-fatal, just log if abort itself fails
                 if let Err(e) = git.run_or_bail(&["rebase", "--abort"], Some(repo_path)) {
                     tracing::warn!("failed to abort rebase: {}", e);
                 }
@@ -655,10 +678,10 @@ fn merge_from_ref(
                 );
             }
 
-            gix_set_head_to_branch(repo_path, &pr.base_branch)
+            gix_set_head_to_branch_with_repo(&repo, &pr.base_branch)
                 .with_context(|| "failed to checkout base branch for fast-forward")?;
 
-            get_head_sha(repo_path)
+            get_head_sha_with_repo(&repo)
         }
     }
 }
@@ -714,8 +737,12 @@ fn do_squash_merge(repo_path: &std::path::Path, pr: &PullRequest) -> Result<Stri
 
 fn do_rebase_merge(repo_path: &std::path::Path, pr: &PullRequest) -> Result<String> {
     // TODO(gix): Replace rebase with gix rebase API (complex operation)
+
+    let repo = gix::open(repo_path)
+        .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
+
     // Step 1: Checkout base branch (set HEAD symbolic ref via gix)
-    gix_set_head_to_branch(repo_path, &pr.base_branch)
+    gix_set_head_to_branch_with_repo(&repo, &pr.base_branch)
         .with_context(|| format!("failed to checkout base branch: {}", pr.base_branch))?;
 
     // Step 2: Rebase head onto base via gateway (TODO(gix): replace when gix rebase is stable)
@@ -726,7 +753,6 @@ fn do_rebase_merge(repo_path: &std::path::Path, pr: &PullRequest) -> Result<Stri
     let rebase = git.run(&["rebase", &pr.base_branch, &pr.head_branch], Some(repo_path))?;
 
     if !rebase.success() {
-        // Abort the rebase on failure — non-fatal, just log if abort itself fails
         if let Err(e) = git.run_or_bail(&["rebase", "--abort"], Some(repo_path)) {
             tracing::warn!("failed to abort rebase: {}", e);
         }
@@ -737,23 +763,28 @@ fn do_rebase_merge(repo_path: &std::path::Path, pr: &PullRequest) -> Result<Stri
     }
 
     // Step 3: Checkout base again (set HEAD symbolic ref via gix)
-    gix_set_head_to_branch(repo_path, &pr.base_branch)
+    gix_set_head_to_branch_with_repo(&repo, &pr.base_branch)
         .with_context(|| "failed to checkout base branch for fast-forward")?;
 
     // Step 4: Fast-forward base to head (update branch ref via gix)
-    gix_fast_forward(repo_path, &pr.base_branch, &pr.head_branch)?;
+    gix_fast_forward_with_repo(&repo, &pr.base_branch, &pr.head_branch)?;
 
-    get_head_sha(repo_path)
+    get_head_sha_with_repo(&repo)
 }
 
 /// Set HEAD to point to a branch (equivalent to `git checkout <branch>` in a bare repo).
 /// Uses gix to update the HEAD symbolic reference.
+#[allow(dead_code)]
 fn gix_set_head_to_branch(repo_path: &std::path::Path, branch: &str) -> Result<()> {
-    use gix::refs::transaction::{Change, LogChange, PreviousValue, RefEdit, RefLog};
-    use gix::refs::{FullName, Target};
-
     let repo = gix::open(repo_path)
         .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
+    gix_set_head_to_branch_with_repo(&repo, branch)
+}
+
+/// Same as `gix_set_head_to_branch` but takes an already-open `Repository`.
+fn gix_set_head_to_branch_with_repo(repo: &gix::Repository, branch: &str) -> Result<()> {
+    use gix::refs::transaction::{Change, LogChange, PreviousValue, RefEdit, RefLog};
+    use gix::refs::{FullName, Target};
 
     let branch_ref: FullName = format!("refs/heads/{}", branch)
         .try_into()
@@ -782,10 +813,15 @@ fn gix_set_head_to_branch(repo_path: &std::path::Path, branch: &str) -> Result<(
 
 /// Fast-forward a branch to point to another branch's commit (equivalent to `git merge --ff-only`).
 /// Uses gix to update the base branch reference.
+#[allow(dead_code)]
 fn gix_fast_forward(repo_path: &std::path::Path, base_branch: &str, head_branch: &str) -> Result<()> {
     let repo = gix::open(repo_path)
         .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
+    gix_fast_forward_with_repo(&repo, base_branch, head_branch)
+}
 
+/// Same as `gix_fast_forward` but takes an already-open `Repository`.
+fn gix_fast_forward_with_repo(repo: &gix::Repository, base_branch: &str, head_branch: &str) -> Result<()> {
     let head_ref_str = format!("refs/heads/{}", head_branch);
     let base_ref_str = format!("refs/heads/{}", base_branch);
 
@@ -806,9 +842,15 @@ fn gix_fast_forward(repo_path: &std::path::Path, base_branch: &str, head_branch:
     Ok(())
 }
 
+#[allow(dead_code)]
 fn get_head_sha(repo_path: &std::path::Path) -> Result<String> {
     let repo = gix::open(repo_path)
         .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
+    get_head_sha_with_repo(&repo)
+}
+
+/// Same as `get_head_sha` but takes an already-open `Repository`.
+fn get_head_sha_with_repo(repo: &gix::Repository) -> Result<String> {
     let head_id = repo.rev_parse_single("HEAD")
         .map_err(|e| anyhow::anyhow!("failed to parse HEAD: {}", e))?;
     Ok(head_id.to_string())

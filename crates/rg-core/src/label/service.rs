@@ -108,16 +108,10 @@ pub async fn delete_label(db: &DatabaseConnection, label_id: i64) -> Result<()> 
     label_ops::delete_by_id(db, label_id).await
 }
 
-/// Get labels for an issue.
+/// Get labels for an issue (batch query — avoids N+1).
 pub async fn get_issue_labels(db: &DatabaseConnection, issue_id: i64) -> Result<Vec<Label>> {
     let label_ids = issue_label_ops::get_label_ids(db, issue_id).await?;
-    let mut labels = Vec::new();
-    for id in label_ids {
-        if let Some(label) = label_ops::find_by_id(db, id).await? {
-            labels.push(label);
-        }
-    }
-    Ok(labels)
+    label_ops::find_by_ids(db, &label_ids).await
 }
 
 /// Set labels for an issue.

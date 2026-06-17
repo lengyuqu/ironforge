@@ -134,6 +134,37 @@ impl OciStorage {
         self.blob_path(owner, repo, digest)
     }
 
+    /// Copy a blob file from another namespace (cross-repo mount).
+    /// Uses hardlink when possible, falls back to `tokio::fs::copy` (streaming copy).
+    pub async fn copy_blob_file(
+        &self,
+        src_owner: &str,
+        src_repo: &str,
+        dst_owner: &str,
+        dst_repo: &str,
+        digest: &str,
+    ) -> anyhow::Result<String> {
+        let src = self.blob_path(src_owner, src_repo, digest);
+        let dst = self.blob_path(dst_owner, dst_repo, digest);
+
+        if dst.exists() {
+            return Ok(dst.to_string_lossy().to_string());
+        }
+
+        // Ensure target directory exists
+        if let Some(parent) = dst.parent() {
+            tokio::fs::create_dir_all(parent).await?;
+        }
+
+        // Try hardlink first (instant, no data copy)
+        if std::fs::hard_link(&src, &dst).is_err() {
+            // Fall back to streaming copy
+            tokio::fs::copy(&src, &dst).await?;
+        }
+
+        Ok(dst.to_string_lossy().to_string())
+    }
+
     // ── manifest operations ─────────────────────────────────────
 
     /// Store manifest JSON.
@@ -209,7 +240,8 @@ impl OciStorage {
             .unwrap_or(0)
     }
 
-    /// Finalize an upload: verify digest, move to blob storage, return storage path.
+    /// Finalize an upload: verify digest, copy to blob storage, return storage path.
+    /// Streams the upload file in chunks—never loads the entire file into memory.
     /// Returns (digest, size, storage_path).
     pub async fn finalize_upload(
         &self,
@@ -219,16 +251,54 @@ impl OciStorage {
         expected_digest: &str,
     ) -> anyhow::Result<(String, i64, String)> {
         let upload_path = self.upload_file_path(owner, repo, uuid);
-        let data = tokio::fs::read(&upload_path).await?;
-        let size = data.len() as i64;
+        let blob_dst = self.blob_path(owner, repo, expected_digest);
 
-        let storage_path = self.store_blob(owner, repo, expected_digest, &data).await?;
+        // Dedup: already exists
+        if blob_dst.exists() {
+            let size = blob_dst.metadata().map(|m| m.len() as i64).unwrap_or(0);
+            let dir = self.upload_dir(owner, repo, uuid);
+            let _ = tokio::fs::remove_dir_all(&dir).await;
+            return Ok((expected_digest.to_string(), size, blob_dst.to_string_lossy().to_string()));
+        }
+
+        // Ensure blob directory exists
+        if let Some(parent) = blob_dst.parent() {
+            tokio::fs::create_dir_all(parent).await?;
+        }
+
+        // Stream copy + hash: read upload file in chunks, pipe to blob file
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let mut src = tokio::fs::File::open(&upload_path).await?;
+        let mut dst = tokio::fs::File::create(&blob_dst).await?;
+        let mut hasher = Sha256::new();
+
+        let mut buf = vec![0u8; 64 * 1024]; // 64 KiB chunks
+        loop {
+            let n = src.read(&mut buf).await?;
+            if n == 0 {
+                break;
+            }
+            hasher.update(&buf[..n]);
+            dst.write_all(&buf[..n]).await?;
+        }
+
+        let size = dst.metadata().await?.len() as i64;
+        let actual = format!("sha256:{}", hex::encode(hasher.finalize()));
+        if actual != expected_digest {
+            // Clean up partial blob on digest mismatch
+            let _ = tokio::fs::remove_file(&blob_dst).await;
+            anyhow::bail!(
+                "digest mismatch: expected {}, got {}",
+                expected_digest, actual
+            );
+        }
 
         // Clean up upload temp
         let dir = self.upload_dir(owner, repo, uuid);
         let _ = tokio::fs::remove_dir_all(&dir).await;
 
-        Ok((expected_digest.to_string(), size, storage_path))
+        Ok((expected_digest.to_string(), size, blob_dst.to_string_lossy().to_string()))
     }
 
     /// Delete upload temp files.
