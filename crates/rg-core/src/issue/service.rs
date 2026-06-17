@@ -183,47 +183,78 @@ pub async fn update_issue(
     assignee_id: Option<Option<i64>>,
     milestone_id: Option<Option<i64>>,
 ) -> Result<Issue> {
-    let mut issue = get_issue(db, owner, repo_name, number).await?;
+    let existing = get_issue(db, owner, repo_name, number).await?;
+    let issue_id = existing.id;
+    let issue_repo_id = existing.repo_id;
+    let issue_milestone_id = existing.milestone_id;
+    let was_open = existing.state == "open";
+
+    // Convert to ActiveModel — all non-PK fields become Unchanged; we Set() only changed fields.
+    let mut active: issue::ActiveModel = existing.into();
 
     if let Some(t) = title {
         if t.trim().is_empty() {
             bail!("issue title cannot be empty");
         }
-        issue.title = t;
+        active.title = Set(t);
     }
     if let Some(b) = body {
-        issue.body = Some(b);
+        active.body = Set(Some(b));
     }
-    if let Some(s) = &state {
+    if let Some(ref s) = state {
         if s != "open" && s != "closed" {
             bail!("invalid issue state: {}, must be open or closed", s);
         }
-        let was_open = issue.state == "open";
-        issue.state = s.clone();
+        active.state = Set(s.clone());
         if s == "closed" {
-            issue.closed_at = Some(Utc::now());
+            active.closed_at = Set(Some(Utc::now()));
         } else {
-            issue.closed_at = None;
+            active.closed_at = Set(None);
         }
+    }
+    if let Some(l) = labels {
+        active.labels = Set(Some(serde_json::to_string(&l).unwrap_or_else(|_| "[]".into())));
+        // Dual-write: sync labels to issue_labels junction table
+        if let Ok(all_labels) = label_ops::list_by_repo(db, issue_repo_id).await {
+            let label_ids: Vec<i64> = all_labels
+                .iter()
+                .filter(|label| l.contains(&label.name))
+                .map(|id| id.id)
+                .collect();
+            if let Err(e) = issue_label_ops::set_labels(db, issue_id, label_ids).await {
+                tracing::warn!("Failed to set labels for issue {}: {e}", issue_id);
+            }
+        }
+    }
+    if let Some(a) = assignee_id {
+        active.assignee_id = Set(a);
+    }
+    if let Some(m) = milestone_id {
+        active.milestone_id = Set(m);
+    }
 
-        // Trigger issue.closed webhook when transitioning to closed
+    active.updated_at = Set(Utc::now());
+
+    let updated = issue_ops::update(db, active).await?;
+
+    // Post-update side effects (non-fatal)
+    if let Some(ref s) = state {
         if was_open && s == "closed" {
             let close_payload = serde_json::json!({
-                "id": issue.id,
-                "repo_id": issue.repo_id,
-                "number": issue.number,
-                "title": issue.title,
+                "id": updated.id,
+                "repo_id": issue_repo_id,
+                "number": updated.number,
+                "title": updated.title,
                 "state": s,
             });
-            if let Err(e) = crate::webhook::service::trigger_issue_closed(db, issue.repo_id, &close_payload).await {
+            if let Err(e) = crate::webhook::service::trigger_issue_closed(db, issue_repo_id, &close_payload).await {
                 tracing::warn!("Failed to trigger issue.closed webhook: {e}");
             }
 
-            // Check if milestone should be notified (all issues in milestone are closed)
-            if let Some(mid) = issue.milestone_id {
+            if let Some(mid) = issue_milestone_id {
                 if let Ok(remaining) = rg_db::ops::milestone_ops::count_open_by_milestone(db, mid).await {
                     if remaining == 0 {
-                        if let Err(e) = notify_milestone_closed(db, issue.repo_id, mid).await {
+                        if let Err(e) = notify_milestone_closed(db, issue_repo_id, mid).await {
                             tracing::warn!("Failed to notify milestone {} closed: {e}", mid);
                         }
                     }
@@ -231,31 +262,8 @@ pub async fn update_issue(
             }
         }
     }
-    if let Some(l) = labels {
-        issue.labels = Some(serde_json::to_string(&l).unwrap_or_else(|_| "[]".into()));
-        // Dual-write: sync labels to issue_labels junction table
-        if let Ok(all_labels) = label_ops::list_by_repo(db, issue.repo_id).await {
-            let label_ids: Vec<i64> = all_labels
-                .iter()
-                .filter(|label| l.contains(&label.name))
-                .map(|l| l.id)
-                .collect();
-            if let Err(e) = issue_label_ops::set_labels(db, issue.id, label_ids).await {
-                tracing::warn!("Failed to set labels for issue {}: {e}", issue.id);
-            }
-        }
-    }
-    if let Some(a) = assignee_id {
-        issue.assignee_id = a;
-    }
-    if let Some(m) = milestone_id {
-        issue.milestone_id = m;
-    }
 
-    issue.updated_at = Utc::now();
-
-    let active: issue::ActiveModel = issue.into();
-    issue_ops::update(db, active).await
+    Ok(updated)
 }
 
 // ── Issue Comments ──────────────────────────────────────────────────────

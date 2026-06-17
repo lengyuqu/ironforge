@@ -392,6 +392,8 @@ fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
         // Wiki
         .route("/repos/{owner}/{name}/wiki", get(api::wiki::list_pages).post(api::wiki::create_page))
         .route("/repos/{owner}/{name}/wiki/{title}", get(api::wiki::get_page).patch(api::wiki::update_page).delete(api::wiki::delete_page))
+        .route("/repos/{owner}/{name}/wiki/{title}/history", get(api::wiki::list_revisions))
+        .route("/repos/{owner}/{name}/wiki/{title}/revisions/{rev_id}", get(api::wiki::get_revision))
         // LFS
         .route("/repos/{owner}/{name}/lfs/objects/batch", post(api::lfs::batch))
         .route("/repos/{owner}/{name}/lfs/objects/{oid}", get(api::lfs::download_object).put(api::lfs::upload_object))

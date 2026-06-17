@@ -9,7 +9,9 @@ use chrono::Utc;
 use sea_orm::DatabaseConnection;
 
 use rg_db::entities::wiki_page;
+use rg_db::entities::wiki_revision;
 use rg_db::ops::wiki_page_ops;
+use rg_db::ops::wiki_revision_ops;
 
 /// Create a new wiki page.
 pub async fn create_page(
@@ -76,6 +78,20 @@ pub async fn update_page(
         .context("find wiki page for update")?
         .ok_or_else(|| anyhow::anyhow!("wiki page '{}' not found", title))?;
 
+    // Save the current content as a revision before overwriting.
+    let next_version = wiki_revision_ops::latest_version(db, existing.id).await
+        .unwrap_or(0) + 1;
+    let rev = wiki_revision::ActiveModel {
+        id: sea_orm::NotSet,
+        wiki_page_id: sea_orm::Set(existing.id),
+        content: sea_orm::Set(existing.content.clone()),
+        message: sea_orm::Set(existing.message.clone()),
+        author_id: sea_orm::Set(existing.author_id),
+        version: sea_orm::Set(next_version),
+        created_at: sea_orm::Set(Utc::now()),
+    };
+    let _ = wiki_revision_ops::create(db, rev).await; // non-fatal: revision save failure doesn't block page update
+
     let model = wiki_page::ActiveModel {
         id: sea_orm::Set(existing.id),
         repo_id: sea_orm::Set(existing.repo_id),
@@ -89,6 +105,27 @@ pub async fn update_page(
     };
 
     wiki_page_ops::update(db, model).await
+}
+
+/// List all revisions for a wiki page (newest first).
+pub async fn list_revisions(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    title: &str,
+) -> Result<Vec<wiki_revision::Model>> {
+    let page = wiki_page_ops::find_by_repo_and_title(db, repo_id, title)
+        .await
+        .context("find wiki page for revisions")?
+        .ok_or_else(|| anyhow::anyhow!("wiki page '{}' not found", title))?;
+    wiki_revision_ops::list_by_page(db, page.id).await
+}
+
+/// Get a specific revision's content.
+pub async fn get_revision(
+    db: &DatabaseConnection,
+    revision_id: i64,
+) -> Result<Option<wiki_revision::Model>> {
+    wiki_revision_ops::find_by_id(db, revision_id).await
 }
 
 /// Delete a wiki page.

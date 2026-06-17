@@ -39,3 +39,4 @@ pub mod mfa_backup_code_ops;
 pub mod audit_log_ops;
 pub mod oci_ops;
 pub mod password_reset_token_ops;
+pub mod wiki_revision_ops;

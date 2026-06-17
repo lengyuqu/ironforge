@@ -53,3 +53,4 @@ pub mod oci_manifest;
 pub mod oci_blob;
 pub mod oci_upload;
 pub mod password_reset_token;
+pub mod wiki_revision;

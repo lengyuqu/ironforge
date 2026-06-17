@@ -257,6 +257,36 @@ pub async fn delete_page(
     }
 }
 
+/// GET /api/v1/repos/{owner}/{name}/wiki/{title}/history
+pub async fn list_revisions(
+    State(state): State<AppState>,
+    Path((owner, repo, title)): Path<(String, String, String)>,
+    _headers: HeaderMap,
+) -> impl IntoResponse {
+    let repo_id = match resolve_repo_id(&state.db, &owner, &repo).await {
+        Some(id) => id,
+        None => return AppError::not_found("repository not found").into_response(),
+    };
+
+    match rg_core::wiki::service::list_revisions(&state.db, repo_id, &title).await {
+        Ok(revisions) => (StatusCode::OK, Json(serde_json::json!(revisions))).into_response(),
+        Err(e) => AppError::not_found(e).into_response(),
+    }
+}
+
+/// GET /api/v1/repos/{owner}/{name}/wiki/{title}/revisions/{rev_id}
+pub async fn get_revision(
+    State(state): State<AppState>,
+    Path((_owner, _repo, _title, rev_id)): Path<(String, String, String, i64)>,
+    _headers: HeaderMap,
+) -> impl IntoResponse {
+    match rg_core::wiki::service::get_revision(&state.db, rev_id).await {
+        Ok(Some(rev)) => (StatusCode::OK, Json(serde_json::json!(rev))).into_response(),
+        Ok(None) => AppError::not_found("revision not found").into_response(),
+        Err(e) => AppError::internal(e).into_response(),
+    }
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────
 
 

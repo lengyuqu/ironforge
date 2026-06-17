@@ -56,3 +56,39 @@ pub async fn register_user(base: &str, username: &str, email: &str, password: &s
     let body: serde_json::Value = resp.json().await.unwrap();
     body["token"].as_str().unwrap().to_string()
 }
+
+/// Register and return (token, user_id).
+pub async fn register_full(base: &str, username: &str, email: &str) -> (String, i64) {
+    let token = register_user(base, username, email, "Qz7$wRtm").await;
+    let client = reqwest::Client::new();
+    let body: serde_json::Value = client
+        .get(format!("{}/api/v1/users/me", base))
+        .bearer_auth(&token)
+        .send().await.unwrap()
+        .json().await.unwrap();
+    (token, body["id"].as_i64().unwrap())
+}
+
+/// Create a repo and return its id.
+pub async fn create_repo(base: &str, token: &str, name: &str) -> i64 {
+    let client = reqwest::Client::new();
+    let resp = client.post(format!("{}/api/v1/repos", base))
+        .bearer_auth(token)
+        .json(&serde_json::json!({"name": name}))
+        .send().await.unwrap();
+    assert_eq!(resp.status(), 201, "create_repo '{}' failed: {}", name, resp.status());
+    resp.json::<serde_json::Value>().await.unwrap()["id"].as_i64().unwrap()
+}
+
+/// Create an issue and return (id, number).
+pub async fn create_issue(base: &str, token: &str, owner: &str, repo: &str, title: &str) -> (i64, i64) {
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(format!("{}/api/v1/repos/{}/{}/issues", base, owner, repo))
+        .bearer_auth(token)
+        .json(&serde_json::json!({"title": title}))
+        .send().await.unwrap();
+    assert_eq!(resp.status(), 201, "create_issue '{}' failed: {}", title, resp.status());
+    let body: serde_json::Value = resp.json().await.unwrap();
+    (body["id"].as_i64().unwrap(), body["number"].as_i64().unwrap())
+}

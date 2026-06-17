@@ -424,7 +424,7 @@ pub async fn create_milestone(
 )]
 pub async fn get_milestone(
     State(state): State<AppState>,
-    Path(((owner, name), id)): Path<((String, String), i64)>,
+    Path((owner, name, id)): Path<(String, String, i64)>,
 ) -> impl IntoResponse {
     let _repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await {
         Ok(Some(r)) => r,
@@ -464,7 +464,7 @@ pub struct UpdateMilestoneRequest {
 pub async fn update_milestone(
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
-    Path(((owner, name), id)): Path<((String, String), i64)>,
+    Path((owner, name, id)): Path<(String, String, i64)>,
     Json(body): Json<UpdateMilestoneRequest>,
 ) -> impl IntoResponse {
     let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
@@ -475,19 +475,21 @@ pub async fn update_milestone(
     if !rg_core::repo::service::can_write(&state.db, &owner, &name, Some(user_id)).await.unwrap_or(false) {
         return AppError::Forbidden("forbidden".to_string()).into_response();
     }
-    let mut m = match rg_db::ops::milestone_ops::find_by_id(&state.db, id).await {
+    let existing = match rg_db::ops::milestone_ops::find_by_id(&state.db, id).await {
         Ok(Some(m)) => m,
         Ok(None) => return AppError::NotFound("milestone not found".to_string()).into_response(),
         Err(e) => return { tracing::error!(%e, "handler error"); AppError::internal(e).into_response() },
     };
-    if let Some(t) = body.title { m.title = t; }
-    if let Some(d) = body.description { m.description = d; }
-    if let Some(s) = body.state { if s == "open" || s == "closed" { m.state = s; } }
+    // Convert to ActiveModel; use Set() for changed fields (Unchanged means "skip in UPDATE")
+    let mut active: rg_db::entities::milestone::ActiveModel = existing.into();
+    if let Some(t) = body.title { active.title = sea_orm::Set(t); }
+    if let Some(d) = body.description { active.description = sea_orm::Set(d); }
+    if let Some(s) = body.state { if s == "open" || s == "closed" { active.state = sea_orm::Set(s); } }
     if let Some(d) = body.due_date {
-        m.due_date = d.as_deref().and_then(|dt| chrono::DateTime::parse_from_rfc3339(dt).ok()).map(|dt| dt.with_timezone(&chrono::Utc));
+        let dt = d.as_deref().and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok()).map(|dt| dt.with_timezone(&chrono::Utc));
+        active.due_date = sea_orm::Set(dt);
     }
-    m.updated_at = chrono::Utc::now();
-    let active: rg_db::entities::milestone::ActiveModel = m.into();
+    active.updated_at = sea_orm::Set(chrono::Utc::now());
     match rg_db::ops::milestone_ops::update(&state.db, active).await {
         Ok(m) => (StatusCode::OK, Json(serde_json::json!(m))).into_response(),
         Err(e) => { tracing::error!(%e, "handler error"); AppError::internal(e).into_response() },
@@ -512,7 +514,7 @@ pub async fn update_milestone(
 pub async fn delete_milestone(
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
-    Path(((owner, name), id)): Path<((String, String), i64)>,
+    Path((owner, name, id)): Path<(String, String, i64)>,
 ) -> impl IntoResponse {
     let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
