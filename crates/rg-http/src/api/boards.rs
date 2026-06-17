@@ -119,7 +119,10 @@ pub async fn create_board(
         Some(c) => c,
         None => return AppError::unauthorized("authentication required").into_response(),
     };
-    let user_id: i64 = claims.sub.parse().unwrap();
+    let user_id: i64 = match claims.sub.parse() {
+        Ok(id) => id,
+        Err(_) => return AppError::unauthorized("invalid token subject").into_response(),
+    };
 
     let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await {
         Ok(Some(r)) => r,

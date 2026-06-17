@@ -19,6 +19,11 @@
   let editContent = $state('');
   let renderedHtml = $state('');
   let toc = $state<{ id: string; text: string; level: number }[]>([]);
+  // History
+  let showHistory = $state(false);
+  let revisions = $state<any[]>([]);
+  let historyLoading = $state(false);
+  let viewingRevision = $state<any | null>(null);
 
   $effect(() => { loadPage(); });
 
@@ -100,6 +105,47 @@
     const el = document.getElementById(id);
     if (el) el.scrollIntoView({ behavior: 'smooth' });
   }
+
+  async function toggleHistory() {
+    showHistory = !showHistory;
+    viewingRevision = null;
+    if (showHistory && revisions.length === 0) {
+      historyLoading = true;
+      try {
+        revisions = await wiki.history(owner, repo, title);
+      } catch {
+        revisions = [];
+      } finally {
+        historyLoading = false;
+      }
+    }
+  }
+
+  async function viewRevision(rev: any) {
+    if (viewingRevision?.id === rev.id) {
+      viewingRevision = null;
+      return;
+    }
+    try {
+      const full = await wiki.revision(owner, repo, title, rev.id);
+      viewingRevision = full;
+    } catch {
+      viewingRevision = rev;
+    }
+  }
+
+  async function restoreRevision(rev: any) {
+    if (!confirm(`Restore version ${rev.version}? Current content will become a revision.`)) return;
+    try {
+      await wiki.update(owner, repo, title, viewingRevision?.content ?? rev.content);
+      showHistory = false;
+      revisions = [];
+      viewingRevision = null;
+      await loadPage();
+    } catch (e: any) {
+      error = e.message;
+    }
+  }
 </script>
 
 <svelte:head>
@@ -157,13 +203,43 @@
             {#if wikiPage.updated_at}
               <span class="text-secondary text-sm">Last edited {formatDate(wikiPage.updated_at)}</span>
             {/if}
-            <a href={`/${owner}/${repo}/wiki/${title}/history`} class="btn-outline">{t('wiki.history')}</a>
+            <button class="btn-outline" onclick={toggleHistory} class:active={showHistory}>History</button>
             <button class="btn-outline" onclick={startEditing}>{t('wiki.edit')}</button>
             <button class="btn-outline btn-danger" onclick={handleDelete}>{t('wiki.delete') || 'Delete'}</button>
           </div>
         </div>
 
-        {#if editing}
+        {#if showHistory}
+          <div class="history-panel">
+            <h3>Revision History</h3>
+            {#if historyLoading}
+              <p class="text-secondary">Loading…</p>
+            {:else if revisions.length === 0}
+              <p class="text-secondary">No revisions yet. Revisions are saved on every edit.</p>
+            {:else}
+              <div class="revision-list">
+                {#each revisions as rev}
+                  <div class="revision-item" class:expanded={viewingRevision?.id === rev.id}>
+                    <button class="revision-header" onclick={() => viewRevision(rev)}>
+                      <span class="rev-version">v{rev.version}</span>
+                      <span class="rev-msg">{rev.message || 'No message'}</span>
+                      <span class="rev-date">{formatDate(rev.created_at)}</span>
+                      <span class="rev-arrow">{viewingRevision?.id === rev.id ? '▲' : '▼'}</span>
+                    </button>
+                    {#if viewingRevision?.id === rev.id}
+                      <div class="revision-content">
+                        <pre class="rev-preview">{viewingRevision.content}</pre>
+                        <button class="btn-primary btn-sm" onclick={() => restoreRevision(rev)}>
+                          Restore this version
+                        </button>
+                      </div>
+                    {/if}
+                  </div>
+                {/each}
+              </div>
+            {/if}
+          </div>
+        {:else if editing}
           <div class="edit-area">
             <textarea bind:value={editContent} rows="20"></textarea>
             <div class="form-actions">
@@ -347,4 +423,30 @@
   .wiki-footer { margin-top: 32px; padding-top: 16px; border-top: 1px solid var(--border-light); }
   .back-link { color: var(--accent); text-decoration: none; font-size: 14px; }
   .back-link:hover { text-decoration: underline; }
+
+  .btn-outline.active { background: var(--bg-tertiary); border-color: var(--accent); color: var(--accent); }
+
+  /* ── History panel ── */
+  .history-panel { margin-top: 8px; }
+  .history-panel h3 { font-size: 16px; font-weight: 600; margin: 0 0 16px; }
+  .revision-list { display: flex; flex-direction: column; gap: 6px; }
+  .revision-item { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  .revision-item.expanded { border-color: var(--accent); }
+  .revision-header {
+    display: flex; align-items: center; gap: 12px; padding: 10px 14px;
+    background: var(--bg-primary); border: none; width: 100%; text-align: left; cursor: pointer;
+  }
+  .revision-header:hover { background: var(--bg-secondary); }
+  .rev-version { font-size: 12px; font-weight: 700; color: var(--accent); min-width: 30px; }
+  .rev-msg { flex: 1; font-size: 13px; color: var(--text-primary); }
+  .rev-date { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
+  .rev-arrow { font-size: 10px; color: var(--text-muted); }
+  .revision-content { padding: 12px 14px; border-top: 1px solid var(--border); background: var(--bg-secondary); }
+  .rev-preview {
+    font-size: 12px; font-family: var(--font-mono); color: var(--text-secondary);
+    max-height: 200px; overflow-y: auto; white-space: pre-wrap; word-break: break-all;
+    background: var(--bg-primary); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 10px; margin-bottom: 10px;
+  }
+  .btn-sm { padding: 4px 10px; font-size: 12px; }
 </style>

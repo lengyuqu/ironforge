@@ -268,10 +268,10 @@ export const wiki = {
     request<any>(`/repos/${owner}/${repo}/wiki/${title}`, {
       method: 'DELETE',
     }),
-  listRevisions: (owner: string, repo: string, title: string) =>
-    request<any[]>(`/repos/${owner}/${repo}/wiki/${title}/history`),
-  getRevision: (owner: string, repo: string, title: string, revId: number) =>
-    request<any>(`/repos/${owner}/${repo}/wiki/${title}/revisions/${revId}`),
+  history: (owner: string, repo: string, title: string) =>
+    request<any[]>(`/repos/${owner}/${repo}/wiki/${encodeURIComponent(title)}/history`),
+  revision: (owner: string, repo: string, title: string, revId: number) =>
+    request<any>(`/repos/${owner}/${repo}/wiki/${encodeURIComponent(title)}/revisions/${revId}`),
 };
 
 // ── Collaborators ────────────────────────────────────
@@ -587,7 +587,7 @@ export const runners = {
     request<{ deleted: boolean }>(`/runners/${id}`, { method: 'DELETE' }),
 };
 
-// ── Time Tracking ─────────────────────────────────
+// ── Time Tracking (issue-scoped) ──────────────────
 export const timeTracking = {
   list: (owner: string, repo: string, issueNumber: number, page?: number, perPage?: number) =>
     request<PaginatedResponse<any>>(`/repos/${owner}/${repo}/issues/${issueNumber}/time${qs({ page, per_page: perPage })}`),
@@ -604,7 +604,6 @@ export const timeTracking = {
 
 // ── Project Boards ─────────────────────────────────
 export const boards = {
-  // Board CRUD
   list: (owner: string, repo: string) =>
     request<any[]>(`/repos/${owner}/${repo}/boards`),
   get: (owner: string, repo: string, id: number) =>

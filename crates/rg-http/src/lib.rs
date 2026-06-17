@@ -731,7 +731,8 @@ fn extract_actor_id(headers: &axum::http::HeaderMap, jwt_secret: &str) -> Option
 
         // Try Basic auth
         if let Some(encoded) = auth_str.strip_prefix("Basic ") {
-            if let Ok(decoded) = base64_decode(encoded) {
+            use base64::Engine as _;
+            if let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(encoded) {
                 if let Ok(credentials) = String::from_utf8(decoded) {
                     if let Some((username, _password)) = credentials.split_once(':') {
                         tracing::debug!(username = %username, "Basic auth in git protocol — use token auth instead");
@@ -742,38 +743,6 @@ fn extract_actor_id(headers: &axum::http::HeaderMap, jwt_secret: &str) -> Option
     }
 
     None
-}
-
-/// Simple base64 decoder (no external crate needed).
-fn base64_decode(input: &str) -> Result<Vec<u8>, ()> {
-    const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut result = Vec::new();
-    let bytes = input.as_bytes();
-    let mut i = 0;
-
-    while i + 3 < bytes.len() + 3 {
-        let mut accum: u32 = 0;
-        let mut bits = 0;
-
-        for j in 0..4 {
-            if i + j < bytes.len() {
-                if let Some(pos) = ALPHABET.iter().position(|&c| c == bytes[i + j]) {
-                    accum = (accum << 6) | pos as u32;
-                    bits += 6;
-                }
-            }
-        }
-
-        for shift in (0..bits - 6).rev().step_by(8) {
-            if shift >= 8 {
-                result.push(((accum >> (shift - 8)) & 0xFF) as u8);
-            }
-        }
-
-        i += 4;
-    }
-
-    Ok(result)
 }
 
 /// Check repository access for git protocol.

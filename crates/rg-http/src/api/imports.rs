@@ -80,7 +80,10 @@ pub async fn start_import(
         Some(c) => c,
         None => return AppError::unauthorized("authentication required").into_response(),
     };
-    let user_id: i64 = claims.sub.parse().unwrap();
+    let user_id: i64 = match claims.sub.parse() {
+        Ok(id) => id,
+        Err(_) => return AppError::unauthorized("invalid token subject").into_response(),
+    };
 
     // Validate platform
     if body.platform != "github" && body.platform != "gitlab" {
@@ -169,7 +172,10 @@ pub async fn list_imports(
         Some(c) => c,
         None => return AppError::unauthorized("authentication required").into_response(),
     };
-    let user_id: i64 = claims.sub.parse().unwrap();
+    let user_id: i64 = match claims.sub.parse() {
+        Ok(id) => id,
+        Err(_) => return AppError::unauthorized("invalid token subject").into_response(),
+    };
 
     match rg_db::ops::import_task_ops::find_by_user(&state.db, user_id, 20).await {
         Ok(tasks) => (StatusCode::OK, Json(serde_json::json!(tasks))).into_response(),
@@ -201,7 +207,10 @@ pub async fn delete_import(
         Some(c) => c,
         None => return AppError::unauthorized("authentication required").into_response(),
     };
-    let _user_id: i64 = claims.sub.parse().unwrap();
+    let _user_id: i64 = match claims.sub.parse() {
+        Ok(id) => id,
+        Err(_) => return AppError::unauthorized("invalid token subject").into_response(),
+    };
 
     match rg_db::ops::import_task_ops::find_by_id(&state.db, id).await {
         Ok(Some(_task)) => {

@@ -24,18 +24,33 @@ use sea_orm_migration::MigratorTrait;
 pub use sea_orm;
 pub use sea_orm::DatabaseConnection;
 
-/// Connect to the SQLite database with connection pool tuning and PRAGMA optimization.
+/// Default DB connect timeout (seconds).
+pub const DEFAULT_CONNECT_TIMEOUT_SECS: u64 = 10;
+/// Default DB idle timeout (seconds).
+pub const DEFAULT_IDLE_TIMEOUT_SECS: u64 = 600;
+
+/// Connect to the SQLite database with default pool timeouts.
 /// URL example: `sqlite:///path/to/db?mode=rwc`
 pub async fn connect(db_url: &str) -> Result<DatabaseConnection> {
-    tracing::info!(url = %db_url, "Connecting to database");
+    connect_with_timeouts(db_url, DEFAULT_CONNECT_TIMEOUT_SECS, DEFAULT_IDLE_TIMEOUT_SECS).await
+}
+
+/// Connect to the SQLite database with configurable connect/idle timeouts plus
+/// connection pool tuning and PRAGMA optimization.
+pub async fn connect_with_timeouts(
+    db_url: &str,
+    connect_secs: u64,
+    idle_secs: u64,
+) -> Result<DatabaseConnection> {
+    tracing::info!(url = %db_url, connect_secs, idle_secs, "Connecting to database");
 
     let mut opt = ConnectOptions::new(db_url.to_string());
     // SQLite only supports single-write connection.
     // Using max_connections=1 avoids SQLITE_BUSY errors from lock contention.
     opt.max_connections(1)
         .min_connections(1)
-        .connect_timeout(Duration::from_secs(10))
-        .idle_timeout(Duration::from_secs(600));
+        .connect_timeout(Duration::from_secs(connect_secs))
+        .idle_timeout(Duration::from_secs(idle_secs));
 
     let db = Database::connect(opt)
         .await
