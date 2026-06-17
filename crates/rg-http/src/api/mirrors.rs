@@ -76,7 +76,10 @@ pub async fn create_mirror(
         Some(c) => c,
         None => return AppError::unauthorized("authentication required").into_response(),
     };
-    let user_id: i64 = claims.sub.parse().unwrap();
+    let user_id: i64 = match claims.sub.parse() {
+        Ok(id) => id,
+        Err(_) => return AppError::unauthorized("invalid token subject").into_response(),
+    };
 
     let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await {
         Ok(Some(r)) => r,
@@ -162,7 +165,10 @@ pub async fn update_mirror(
         Some(c) => c,
         None => return AppError::unauthorized("authentication required").into_response(),
     };
-    let user_id: i64 = claims.sub.parse().unwrap();
+    let user_id: i64 = match claims.sub.parse() {
+        Ok(id) => id,
+        Err(_) => return AppError::unauthorized("invalid token subject").into_response(),
+    };
 
     let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await {
         Ok(Some(r)) => r,
@@ -215,7 +221,10 @@ pub async fn delete_mirror(
         Some(c) => c,
         None => return AppError::unauthorized("authentication required").into_response(),
     };
-    let user_id: i64 = claims.sub.parse().unwrap();
+    let user_id: i64 = match claims.sub.parse() {
+        Ok(id) => id,
+        Err(_) => return AppError::unauthorized("invalid token subject").into_response(),
+    };
 
     let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await {
         Ok(Some(r)) => r,
@@ -260,7 +269,10 @@ pub async fn trigger_mirror_sync(
         Some(c) => c,
         None => return AppError::unauthorized("authentication required").into_response(),
     };
-    let user_id: i64 = claims.sub.parse().unwrap();
+    let user_id: i64 = match claims.sub.parse() {
+        Ok(id) => id,
+        Err(_) => return AppError::unauthorized("invalid token subject").into_response(),
+    };
 
     let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await {
         Ok(Some(r)) => r,

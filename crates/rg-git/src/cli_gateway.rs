@@ -262,6 +262,20 @@ pub fn global_gateway() -> &'static Result<GitCommandGateway> {
     GLOBAL_GATEWAY.get_or_init(|| GitCommandGateway::new())
 }
 
+/// Seed the global gateway with a configured command timeout.
+///
+/// Must be called **before** the first `global_gateway()` access to take
+/// effect (e.g. at server startup). If the global gateway was already
+/// initialized, this is a no-op and the previously configured timeout stays.
+/// Returns an error only if `git` itself is unavailable.
+pub fn init_global_gateway(timeout: Duration) -> Result<()> {
+    GLOBAL_GATEWAY.get_or_init(|| GitCommandGateway::with_timeout(timeout));
+    match global_gateway() {
+        Ok(_) => Ok(()),
+        Err(e) => bail!("failed to initialize git gateway: {e}"),
+    }
+}
+
 // ── Tests ───────────────────────────────────────────────────────
 
 #[cfg(test)]

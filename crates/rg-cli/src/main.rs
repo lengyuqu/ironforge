@@ -143,7 +143,8 @@ enum Commands {
         #[arg(long)]
         log_file: Option<String>,
 
-        /// Log rotation: max log file size in MB before rotation (default: 10)
+        /// Log rotation: nominal max log file size in MB. NOTE: the file
+        /// appender rotates daily, not by size — this value is advisory only.
         #[arg(long, default_value_t = 10)]
         log_max_size_mb: u64,
 
@@ -986,6 +987,7 @@ async fn run_serve(
     // Logging: CLI takes precedence, fallback to config
     let resolved_log_file = log_file.or_else(|| cfg.as_ref().and_then(|c| c.logging.file.clone()));
     let resolved_log_max_files = if log_max_files != 5 { log_max_files } else { cfg.as_ref().and_then(|c| c.logging.max_files).unwrap_or(5) };
+    let resolved_log_max_size_mb = if log_max_size_mb != 10 { log_max_size_mb } else { cfg.as_ref().and_then(|c| c.logging.max_size_mb).unwrap_or(10) };
 
     // External URL: CLI takes precedence, fallback to config
     let resolved_external_url = cfg.as_ref()
@@ -996,6 +998,15 @@ async fn run_serve(
     let resolved_job_timeout = cfg.as_ref()
         .and_then(|c| Some(c.timeouts.job_secs))
         .unwrap_or(3600);
+    let resolved_git_timeout = cfg.as_ref()
+        .map(|c| c.timeouts.git_cmd_secs)
+        .unwrap_or_else(default_git_timeout);
+    let resolved_db_connect_timeout = cfg.as_ref()
+        .map(|c| c.timeouts.db_connect_secs)
+        .unwrap_or_else(default_db_connect_timeout);
+    let resolved_db_idle_timeout = cfg.as_ref()
+        .map(|c| c.timeouts.db_idle_secs)
+        .unwrap_or_else(default_db_idle_timeout);
 
     // ── Initialize logging ─────────────────────────────────────
     if let Some(ref log_path) = resolved_log_file {
@@ -1033,6 +1044,12 @@ async fn run_serve(
         std::mem::forget(_guard);
 
         tracing::info!(file = %log_path, "Logging to file with rotation");
+        if resolved_log_max_size_mb != 10 {
+            tracing::warn!(
+                max_size_mb = resolved_log_max_size_mb,
+                "log_max_size_mb is not enforced: the file appender rotates daily (not by size). Use log_max_files to cap the number of retained files."
+            );
+        }
     } else {
         tracing_subscriber::fmt()
             .with_env_filter(
@@ -1046,9 +1063,23 @@ async fn run_serve(
     let repo_root = PathBuf::from(&resolved_repo_root);
     std::fs::create_dir_all(&repo_root)?;
 
+    // ── Git CLI gateway (seed configured command timeout) ─────────
+    if let Err(e) = rg_git::cli_gateway::init_global_gateway(
+        std::time::Duration::from_secs(resolved_git_timeout),
+    ) {
+        tracing::warn!(%e, "git gateway init failed — git-dependent features may be unavailable");
+    } else {
+        tracing::info!(git_cmd_secs = resolved_git_timeout, "Git CLI gateway ready");
+    }
+
     // ── Database ──────────────────────────────────────────────────
     tracing::info!("Connecting to database: {}", resolved_db_url);
-    let db = rg_db::connect(&resolved_db_url).await?;
+    let db = rg_db::connect_with_timeouts(
+        &resolved_db_url,
+        resolved_db_connect_timeout,
+        resolved_db_idle_timeout,
+    )
+    .await?;
     rg_db::run_migrations(&db).await?;
     tracing::info!("Database ready");
 

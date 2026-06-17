@@ -191,7 +191,11 @@ impl GiteaWorkflow {
                 }
                 "pull_request" => {
                     if let Some(filter) = pull_request {
-                        ref_matches_filter(ref_name, filter, default_branch)
+                        // For pull_request events, GitHub/Gitea `branches` filters
+                        // apply to the PR's base (target) branch, not the head ref.
+                        // The base branch is conveyed via `default_branch`.
+                        let base_ref = format!("refs/heads/{default_branch}");
+                        ref_matches_filter(&base_ref, filter, default_branch)
                     } else {
                         false
                     }
