@@ -1,63 +1,94 @@
 <script lang="ts">
   import { page } from '$app/stores';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
-  import { timeTracking, issues } from '$lib/api/client';
-  import { createT, formatDate } from '$lib/i18n';
+  import { issues, timeTracking } from '$lib/api/client';
+  import { createT } from '$lib/i18n';
 
   const t = createT();
 
   let owner = $derived($page.params.owner!);
   let repo = $derived($page.params.repo!);
 
-  let issueNumber = $state('');
+  // Issue selector
+  let issueList = $state<any[]>([]);
+  let selectedIssue = $state<any | null>(null);
+  let issueLoading = $state(true);
+
+  // Time entries for selected issue
   let entries = $state<any[]>([]);
-  let totalMinutes = $state(0);
   let totalFormatted = $state('');
-  let loading = $state(false);
-  let error = $state('');
+  let totalMinutes = $state(0);
+  let entriesLoading = $state(false);
   let currentPage = $state(1);
   let totalPages = $state(1);
 
-  // Form state
-  let duration = $state<number>(60);
+  // Add entry form
+  let durationHours = $state<number>(1);
   let description = $state('');
   let saving = $state(false);
 
-  async function loadEntries() {
-    if (!issueNumber) return;
-    const num = parseInt(issueNumber);
-    if (isNaN(num)) return;
-    loading = true;
+  let error = $state('');
+
+  $effect(() => { loadIssues(); });
+
+  async function loadIssues() {
+    issueLoading = true;
     error = '';
     try {
-      const res = await timeTracking.list(owner!, repo!, num, currentPage, 20);
-      entries = res.data || [];
-      totalPages = Math.ceil((res.pagination?.total || 0) / 20);
-
-      const totalRes = await timeTracking.total(owner!, repo!, num);
-      totalMinutes = totalRes.total_minutes;
-      totalFormatted = totalRes.total_formatted;
+      const res = await issues.list(owner, repo, 'open', 1, 100);
+      issueList = res.data || [];
     } catch (e: any) {
       error = e.message;
     } finally {
-      loading = false;
+      issueLoading = false;
+    }
+  }
+
+  async function selectIssue(issue: any) {
+    selectedIssue = issue;
+    currentPage = 1;
+    await loadEntries();
+    await loadTotal();
+  }
+
+  async function loadEntries() {
+    if (!selectedIssue) return;
+    entriesLoading = true;
+    try {
+      const res = await timeTracking.list(owner, repo, selectedIssue.number, currentPage, 20);
+      entries = res.data || [];
+      totalPages = res.pagination?.total_pages ?? 1;
+    } catch (e: any) {
+      error = e.message;
+    } finally {
+      entriesLoading = false;
+    }
+  }
+
+  async function loadTotal() {
+    if (!selectedIssue) return;
+    try {
+      const res = await timeTracking.total(owner, repo, selectedIssue.number);
+      totalMinutes = res.total_minutes;
+      totalFormatted = res.total_formatted;
+    } catch {
+      totalFormatted = '';
     }
   }
 
   async function handleAdd() {
-    if (duration <= 0 || !issueNumber) return;
-    const num = parseInt(issueNumber);
-    if (isNaN(num)) return;
+    if (!selectedIssue || durationHours <= 0) return;
     saving = true;
     error = '';
     try {
-      await timeTracking.add(owner!, repo!, num, {
-        duration_minutes: duration,
+      await timeTracking.add(owner, repo, selectedIssue.number, {
+        duration_minutes: Math.round(durationHours * 60),
         description: description || undefined,
       });
+      durationHours = 1;
       description = '';
-      duration = 60;
       await loadEntries();
+      await loadTotal();
     } catch (e: any) {
       error = e.message;
     } finally {
@@ -66,20 +97,22 @@
   }
 
   async function handleDelete(id: number) {
-    if (!issueNumber) return;
-    const num = parseInt(issueNumber);
-    if (isNaN(num)) return;
+    if (!selectedIssue) return;
     if (!confirm('Delete this time entry?')) return;
     try {
-      await timeTracking.delete(owner!, repo!, num, id);
+      await timeTracking.delete(owner, repo, selectedIssue.number, id);
       await loadEntries();
+      await loadTotal();
     } catch (e: any) {
       error = e.message;
     }
   }
 
-  function searchIssue() {
-    if (issueNumber) loadEntries();
+  function fmtMinutes(m: number): string {
+    if (m < 60) return `${m}m`;
+    const h = Math.floor(m / 60);
+    const rem = m % 60;
+    return rem > 0 ? `${h}h ${rem}m` : `${h}h`;
   }
 </script>
 
@@ -94,123 +127,232 @@
     <h1>{t('time_tracking.title')}</h1>
   </div>
 
-  <!-- Issue Selector -->
-  <div class="form-card">
-    <div class="form-row">
-      <div class="form-group">
-        <label for="tt-issue">Issue #</label>
-        <input id="tt-issue" type="number" bind:value={issueNumber} placeholder="Enter issue number..." min="1" />
-      </div>
-      <div class="form-group" style="align-self:flex-end">
-        <button class="btn btn-primary" onclick={searchIssue} disabled={!issueNumber}>{t('common.search')}</button>
-      </div>
-    </div>
-  </div>
-
   {#if error}
     <div class="error-banner">{error}</div>
   {/if}
 
-  {#if issueNumber}
-    <!-- Total -->
-    {#if totalFormatted}
-      <div class="total-bar">
-        {t('time_tracking.total_hours').replace('{hours}', totalFormatted)}
+  <div class="layout">
+    <!-- Issue list sidebar -->
+    <aside class="issue-sidebar">
+      <div class="sidebar-header">
+        <h3>Issues</h3>
       </div>
-    {/if}
-
-    <!-- Add Entry Form -->
-    <div class="form-card">
-      <h2>{t('time_tracking.add_entry')}</h2>
-      <div class="form-row">
-        <div class="form-group">
-          <label for="tt-duration">{t('time_tracking.duration')}</label>
-          <input id="tt-duration" type="number" bind:value={duration} min="1" />
-        </div>
-        <div class="form-group" style="flex:2">
-          <label for="tt-note">{t('time_tracking.note')}</label>
-          <input id="tt-note" type="text" bind:value={description} placeholder="What did you work on?" />
-        </div>
-        <div class="form-group" style="align-self:flex-end">
-          <button class="btn btn-primary" onclick={handleAdd} disabled={saving || duration <= 0}>
-            {saving ? t('common.saving') : t('common.add')}
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Entries Table -->
-    {#if loading}
-      <p class="loading-text">{t('common.loading')}...</p>
-    {:else if entries.length === 0}
-      <p class="empty-text">{t('time_tracking.no_entries')}</p>
-    {:else}
-      <table class="entry-table">
-        <thead>
-          <tr>
-            <th>{t('time_tracking.date')}</th>
-            <th>{t('time_tracking.duration')}</th>
-            <th>{t('time_tracking.note')}</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {#each entries as entry (entry.id)}
-            <tr>
-              <td>{entry.date || formatDate(entry.created_at)}</td>
-              <td>{Math.round((entry.duration_minutes || entry.duration || 0) / 60 * 10) / 10}h</td>
-              <td>{entry.description || entry.note || ''}</td>
-              <td>
-                <button class="btn btn-sm btn-danger" onclick={() => handleDelete(entry.id)}>
-                  {t('common.delete')}
-                </button>
-              </td>
-            </tr>
+      {#if issueLoading}
+        <p class="sidebar-empty">Loading…</p>
+      {:else if issueList.length === 0}
+        <p class="sidebar-empty">No open issues.</p>
+      {:else}
+        <nav class="issue-nav">
+          {#each issueList as issue}
+            <button
+              class="issue-item"
+              class:active={selectedIssue?.id === issue.id}
+              onclick={() => selectIssue(issue)}
+            >
+              <span class="issue-num">#{issue.number}</span>
+              <span class="issue-title">{issue.title}</span>
+            </button>
           {/each}
-        </tbody>
-      </table>
-
-      {#if totalPages > 1}
-        <div class="pagination">
-          <button class="btn btn-sm" onclick={() => { currentPage = Math.max(1, currentPage - 1); loadEntries(); }} disabled={currentPage <= 1}>
-            {t('common.prev')}
-          </button>
-          <span>{currentPage} / {totalPages}</span>
-          <button class="btn btn-sm" onclick={() => { currentPage = Math.min(totalPages, currentPage + 1); loadEntries(); }} disabled={currentPage >= totalPages}>
-            {t('common.next')}
-          </button>
-        </div>
+        </nav>
       {/if}
-    {/if}
-  {/if}
+    </aside>
+
+    <!-- Main panel -->
+    <main class="main-panel">
+      {#if !selectedIssue}
+        <div class="select-hint">
+          <p>← Select an issue to view and log time</p>
+        </div>
+      {:else}
+        <div class="issue-header">
+          <h2>
+            <a href="/{owner}/{repo}/issues/{selectedIssue.number}" class="issue-link">
+              #{selectedIssue.number} {selectedIssue.title}
+            </a>
+          </h2>
+          {#if totalFormatted}
+            <div class="total-badge">Total: {totalFormatted}</div>
+          {/if}
+        </div>
+
+        <!-- Add entry form -->
+        <div class="form-card">
+          <h3>{t('repo.time_tracking.add_entry')}</h3>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="tt-dur">Duration (hours)</label>
+              <input id="tt-dur" type="number" min="0.25" step="0.25" bind:value={durationHours} />
+            </div>
+            <div class="form-group flex-grow">
+              <label for="tt-desc">Note</label>
+              <input id="tt-desc" type="text" placeholder="(optional)" bind:value={description} />
+            </div>
+            <div class="form-action">
+              <button class="btn-primary" onclick={handleAdd} disabled={saving}>
+                {saving ? '…' : 'Add'}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Entries table -->
+        {#if entriesLoading}
+          <p class="loading-text">Loading…</p>
+        {:else if entries.length === 0}
+          <div class="empty">No time entries for this issue yet.</div>
+        {:else}
+          <table class="entries-table">
+            <thead>
+              <tr>
+                <th>Duration</th>
+                <th>Note</th>
+                <th>Logged</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each entries as entry (entry.id)}
+                <tr>
+                  <td class="dur-cell">{fmtMinutes(entry.duration_minutes)}</td>
+                  <td class="note-cell">{entry.description || '—'}</td>
+                  <td class="date-cell">{entry.created_at?.slice(0, 10) || ''}</td>
+                  <td class="act-cell">
+                    <button class="btn-danger btn-sm" onclick={() => handleDelete(entry.id)}>Delete</button>
+                  </td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+
+          {#if totalPages > 1}
+            <div class="pagination">
+              <button class="btn-outline" disabled={currentPage <= 1}
+                onclick={() => { currentPage--; loadEntries(); }}>Previous</button>
+              <span>{currentPage} / {totalPages}</span>
+              <button class="btn-outline" disabled={currentPage >= totalPages}
+                onclick={() => { currentPage++; loadEntries(); }}>Next</button>
+            </div>
+          {/if}
+        {/if}
+      {/if}
+    </main>
+  </div>
 </div>
 
 <style>
-  .repo-page { max-width: 900px; margin: 0 auto; padding: 24px; }
+  .repo-page { max-width: 1100px; margin: 0 auto; padding: 24px; }
+
   .page-header { margin-bottom: 20px; }
-  h1 { font-size: 24px; font-weight: 600; margin: 0; }
-  h2 { font-size: 15px; margin: 0 0 10px; }
+  h1 { font-size: 22px; font-weight: 600; margin: 0; }
 
-  .error-banner { background: rgba(248,81,73,0.1); border:1px solid #dc2626; color:#dc2626; border-radius:8px; padding:10px 14px; font-size:13px; margin-bottom:16px; }
-  .loading-text, .empty-text { text-align:center; padding:48px; color:var(--text-secondary, #666); }
+  .error-banner {
+    background: rgba(248, 81, 73, 0.1); border: 1px solid var(--red-dim);
+    color: var(--red); border-radius: var(--radius); padding: 10px 14px;
+    font-size: 13px; margin-bottom: 16px;
+  }
 
-  .form-card { background:var(--bg-secondary, #f9fafb); border:1px solid var(--border-color, #e5e7eb); border-radius:8px; padding:16px; margin-bottom:16px; }
-  .form-row { display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap; }
-  .form-group { display:flex; flex-direction:column; gap:4px; min-width:100px; }
-  .form-group label { font-size:12px; font-weight:600; color:var(--text-secondary, #666); }
-  .form-group input { padding:6px 10px; border:1px solid var(--border-color, #d1d5db); border-radius:6px; font-size:13px; }
+  /* ── Layout ── */
+  .layout { display: grid; grid-template-columns: 240px 1fr; gap: 20px; align-items: start; }
+  @media (max-width: 640px) { .layout { grid-template-columns: 1fr; } }
 
-  .total-bar { background:var(--accent, #2563eb); color:#fff; border-radius:8px; padding:12px 16px; font-size:15px; font-weight:600; margin-bottom:16px; }
+  /* ── Sidebar ── */
+  .issue-sidebar {
+    background: var(--bg-secondary); border: 1px solid var(--border);
+    border-radius: var(--radius); overflow: hidden; position: sticky; top: 24px;
+  }
+  .sidebar-header {
+    padding: 10px 14px; border-bottom: 1px solid var(--border);
+    background: var(--bg-tertiary);
+  }
+  .sidebar-header h3 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; margin: 0; color: var(--text-muted); }
+  .sidebar-empty { padding: 16px; font-size: 13px; color: var(--text-muted); }
 
-  .entry-table { width:100%; border-collapse:collapse; font-size:13px; }
-  .entry-table th { text-align:left; padding:8px 12px; border-bottom:2px solid var(--border-color, #e5e7eb); color:var(--text-secondary, #666); font-weight:600; }
-  .entry-table td { padding:8px 12px; border-bottom:1px solid var(--border-color, #e5e7eb); }
+  .issue-nav { display: flex; flex-direction: column; max-height: 60vh; overflow-y: auto; }
+  .issue-item {
+    display: flex; flex-direction: column; gap: 2px; padding: 10px 14px;
+    border: none; border-bottom: 1px solid var(--border-light);
+    background: none; text-align: left; cursor: pointer;
+  }
+  .issue-item:hover { background: var(--bg-hover); }
+  .issue-item.active { background: rgba(var(--accent-rgb, 88,166,255), 0.12); }
+  .issue-num { font-size: 11px; color: var(--text-muted); font-weight: 600; }
+  .issue-title { font-size: 13px; color: var(--text-primary); line-height: 1.3; }
 
-  .btn { padding:6px 14px; border:1px solid var(--border-color, #d1d5db); border-radius:6px; background:var(--bg-primary, #fff); cursor:pointer; font-size:13px; color:var(--text-primary, #333); }
-  .btn:hover { background:var(--bg-secondary, #f3f4f6); }
-  .btn-primary { background:var(--accent, #2563eb); color:#fff; border-color:var(--accent, #2563eb); }
-  .btn-sm { padding:4px 10px; font-size:12px; }
-  .btn-danger { color:#dc2626; border-color:#dc2626; }
+  /* ── Main panel ── */
+  .main-panel { min-width: 0; }
 
-  .pagination { display:flex; gap:12px; align-items:center; justify-content:center; margin-top:16px; font-size:13px; color:var(--text-secondary, #666); }
+  .select-hint {
+    padding: 80px 24px; text-align: center; color: var(--text-secondary); font-size: 14px;
+    background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius);
+  }
+
+  .issue-header {
+    display: flex; align-items: center; justify-content: space-between;
+    flex-wrap: wrap; gap: 10px; margin-bottom: 16px;
+  }
+  h2 { font-size: 17px; font-weight: 600; margin: 0; }
+  .issue-link { color: var(--text-primary); text-decoration: none; }
+  .issue-link:hover { color: var(--accent); }
+
+  .total-badge {
+    background: var(--bg-tertiary); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 4px 12px; font-size: 13px;
+    font-weight: 600; color: var(--text-secondary);
+  }
+
+  /* ── Form ── */
+  .form-card {
+    background: var(--bg-secondary); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 16px; margin-bottom: 20px;
+  }
+  h3 { font-size: 14px; font-weight: 600; margin: 0 0 12px; }
+  .form-row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+  .form-group { display: flex; flex-direction: column; gap: 4px; }
+  .form-group label { font-size: 11px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; }
+  .form-group input {
+    padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius);
+    background: var(--bg-primary); color: var(--text-primary); font-size: 14px;
+  }
+  .form-group input[type="number"] { width: 90px; }
+  .flex-grow { flex: 1; }
+  .form-action { display: flex; align-items: flex-end; }
+
+  .loading-text { color: var(--text-secondary); text-align: center; padding: 32px; }
+  .empty {
+    padding: 40px; text-align: center; color: var(--text-secondary); font-size: 14px;
+    background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius);
+  }
+
+  /* ── Table ── */
+  .entries-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  .entries-table th {
+    text-align: left; padding: 6px 12px; border-bottom: 2px solid var(--border);
+    color: var(--text-secondary); font-size: 11px; font-weight: 600; text-transform: uppercase;
+  }
+  .entries-table td { padding: 8px 12px; border-bottom: 1px solid var(--border); }
+  .dur-cell { font-weight: 600; white-space: nowrap; }
+  .note-cell { max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .date-cell { white-space: nowrap; color: var(--text-muted); font-size: 12px; }
+  .act-cell { text-align: right; }
+
+  /* ── Buttons ── */
+  .btn-primary {
+    padding: 6px 14px; background: var(--accent); color: #fff; border: none;
+    border-radius: var(--radius); font-size: 13px; font-weight: 600; cursor: pointer;
+  }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-outline {
+    padding: 5px 12px; background: var(--bg-secondary); border: 1px solid var(--border);
+    border-radius: var(--radius); color: var(--text-primary); font-size: 13px; cursor: pointer;
+  }
+  .btn-outline:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-danger {
+    padding: 4px 10px; background: var(--red-dim); border: 1px solid var(--red);
+    border-radius: var(--radius); color: #fff; font-size: 12px; cursor: pointer;
+  }
+  .btn-danger:hover { background: var(--red); }
+  .btn-sm { padding: 4px 10px; font-size: 12px; }
+
+  .pagination { display: flex; align-items: center; justify-content: center; gap: 16px; margin-top: 20px; }
+  .pagination span { font-size: 13px; color: var(--text-secondary); }
 </style>
