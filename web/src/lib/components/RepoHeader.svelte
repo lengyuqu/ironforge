@@ -128,7 +128,7 @@
     { id: 'pipelines', label: t('repo.tabs.pipelines'), icon: '▶' },
     { id: 'releases', label: t('repo.tabs.releases'), icon: '🏷' },
     { id: 'packages', label: t('repo.tabs.packages'), icon: '📦' },
-    { id: 'board', label: t('repo.tabs.board'), icon: '◫' },
+    { id: 'board', label: t('repo.tabs.board'), icon: '◫', path: 'boards' },
     { id: 'commits', label: t('repo.tabs.commits'), icon: '📜' },
     { id: 'settings', label: t('repo.tabs.settings'), icon: '⚙' },
   ]);
@@ -183,7 +183,7 @@
   <nav class="repo-tabs">
     {#each tabs as tab}
       <a
-        href="/{owner}/{repo}/{tab.id === 'code' ? '' : tab.id}"
+        href="/{owner}/{repo}/{tab.id === 'code' ? '' : (tab.path || tab.id)}"
         class="tab"
         class:active={activeTab === tab.id}
       >

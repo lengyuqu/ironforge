@@ -268,6 +268,10 @@ export const wiki = {
     request<any>(`/repos/${owner}/${repo}/wiki/${title}`, {
       method: 'DELETE',
     }),
+  listRevisions: (owner: string, repo: string, title: string) =>
+    request<any[]>(`/repos/${owner}/${repo}/wiki/${title}/history`),
+  getRevision: (owner: string, repo: string, title: string, revId: number) =>
+    request<any>(`/repos/${owner}/${repo}/wiki/${title}/revisions/${revId}`),
 };
 
 // ── Collaborators ────────────────────────────────────
@@ -585,15 +589,50 @@ export const runners = {
 
 // ── Time Tracking ─────────────────────────────────
 export const timeTracking = {
-  list: (owner: string, repo: string, page?: number, perPage?: number) =>
-    request<PaginatedResponse<any>>(`/repos/${owner}/${repo}/time-tracking${qs({ page, per_page: perPage })}`),
-  add: (owner: string, repo: string, data: { duration: number; note?: string; date?: string }) =>
-    request<any>(`/repos/${owner}/${repo}/time-tracking`, {
+  list: (owner: string, repo: string, issueNumber: number, page?: number, perPage?: number) =>
+    request<PaginatedResponse<any>>(`/repos/${owner}/${repo}/issues/${issueNumber}/time${qs({ page, per_page: perPage })}`),
+  add: (owner: string, repo: string, issueNumber: number, data: { duration_minutes: number; description?: string }) =>
+    request<any>(`/repos/${owner}/${repo}/issues/${issueNumber}/time`, {
       method: 'POST',
       body: JSON.stringify(data),
     }),
+  total: (owner: string, repo: string, issueNumber: number) =>
+    request<{ total_minutes: number; total_formatted: string }>(`/repos/${owner}/${repo}/issues/${issueNumber}/time/total`),
+  delete: (owner: string, repo: string, issueNumber: number, id: number) =>
+    request<{ deleted: boolean }>(`/repos/${owner}/${repo}/issues/${issueNumber}/time/${id}`, { method: 'DELETE' }),
+};
+
+// ── Project Boards ─────────────────────────────────
+export const boards = {
+  // Board CRUD
+  list: (owner: string, repo: string) =>
+    request<any[]>(`/repos/${owner}/${repo}/boards`),
+  get: (owner: string, repo: string, id: number) =>
+    request<any>(`/repos/${owner}/${repo}/boards/${id}`),
+  create: (owner: string, repo: string, data: { name: string; description?: string }) =>
+    request<any>(`/repos/${owner}/${repo}/boards`, { method: 'POST', body: JSON.stringify(data) }),
+  update: (owner: string, repo: string, id: number, data: { name?: string; description?: string }) =>
+    request<any>(`/repos/${owner}/${repo}/boards/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   delete: (owner: string, repo: string, id: number) =>
-    request<{ deleted: boolean }>(`/repos/${owner}/${repo}/time-tracking/${id}`, { method: 'DELETE' }),
+    request<{ deleted: boolean }>(`/repos/${owner}/${repo}/boards/${id}`, { method: 'DELETE' }),
+  // Column CRUD
+  createColumn: (owner: string, repo: string, boardId: number, data: { name: string }) =>
+    request<any>(`/repos/${owner}/${repo}/boards/${boardId}/columns`, { method: 'POST', body: JSON.stringify(data) }),
+  updateColumn: (owner: string, repo: string, boardId: number, colId: number, data: { name?: string }) =>
+    request<any>(`/repos/${owner}/${repo}/boards/${boardId}/columns/${colId}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteColumn: (owner: string, repo: string, boardId: number, colId: number) =>
+    request<{ deleted: boolean }>(`/repos/${owner}/${repo}/boards/${boardId}/columns/${colId}`, { method: 'DELETE' }),
+  // Card CRUD
+  createCard: (owner: string, repo: string, boardId: number, colId: number, data: { title: string; note?: string; issue_id?: number }) =>
+    request<any>(`/repos/${owner}/${repo}/boards/${boardId}/columns/${colId}/cards`, { method: 'POST', body: JSON.stringify(data) }),
+  updateCard: (owner: string, repo: string, boardId: number, cardId: number, data: { title?: string; note?: string }) =>
+    request<any>(`/repos/${owner}/${repo}/boards/${boardId}/cards/${cardId}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  moveCard: (owner: string, repo: string, boardId: number, cardId: number, data: { column_id: number; position?: number }) =>
+    request<any>(`/repos/${owner}/${repo}/boards/${boardId}/cards/${cardId}/move`, { method: 'POST', body: JSON.stringify(data) }),
+  reorderCards: (owner: string, repo: string, boardId: number, data: { cards: [number, number][] }) =>
+    request<{ ok: boolean }>(`/repos/${owner}/${repo}/boards/${boardId}/cards/reorder`, { method: 'POST', body: JSON.stringify(data) }),
+  deleteCard: (owner: string, repo: string, boardId: number, cardId: number) =>
+    request<{ deleted: boolean }>(`/repos/${owner}/${repo}/boards/${boardId}/cards/${cardId}`, { method: 'DELETE' }),
 };
 
 export function connectNotificationWebSocket(

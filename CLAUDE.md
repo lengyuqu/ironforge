@@ -522,9 +522,9 @@ FTS5 的 `INSERT INTO fts_table(fts_table, rowid, ...) VALUES('delete', ...)` �
 复查节奏：每次 `gix` 版本升级（当前 `0.84`）时过一遍本表。
 
 #### 维护增强
-3. OpenAPI 注解补全（部分端点缺 utoipa 注解）
-4. Wiki 版本历史（DB + API + 前端 diff）
-5. 看板/时间追踪前端页（后端已有 JSON 接口）
+3. ~~OpenAPI 注解补全~~ ✅ 2026-06-17 — 30 端点 + 18 schema + 4 tag
+4. ~~Wiki 版本历史~~ ✅ 2026-06-17 — DB + API + 前端历史页面 + diff
+5. ~~看板/时间追踪前端页~~ ✅ 2026-06-17 — Kanban 看板页面 + 时间追踪页面
 6. PostgreSQL 支持（生产级 DB）
 7. Gitea Actions 兼容层
 

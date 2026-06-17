@@ -137,6 +137,8 @@
       "wiki": "Wiki",
       "pipelines": "CI/CD",
       "releases": "发布",
+      "packages": "包",
+      "board": "看板",
       "commits": "提交",
       "settings": "设置"
     },
@@ -178,14 +180,30 @@
       "no_versions": "暂无版本。"
     },
     "board": {
-      "title": "看板",
+      "title": "项目看板",
       "columns": {
         "open": "开放",
         "in_progress": "进行中",
         "closed": "已关闭"
       },
       "no_issues": "此列暂无问题。",
-      "drag_hint": "在列之间拖动问题以更新状态。"
+      "drag_hint": "在列之间拖动问题以更新状态。",
+      "createBoard": "创建看板",
+      "noBoards": "暂无看板，请创建一个。",
+      "confirmDelete": "确定要删除此看板吗？",
+      "namePlaceholder": "看板名称",
+      "descPlaceholder": "描述（选填）",
+      "addColumn": "添加列",
+      "colNamePlaceholder": "列名称",
+      "addCard": "添加卡片",
+      "cardTitlePlaceholder": "卡片标题",
+      "moveTo": "移动到..."
+    },
+    "wiki": {
+      "history": "历史",
+      "noRevisions": "暂无修订历史。",
+      "revisionMessage": "提交信息",
+      "noMessage": "无提交信息"
     },
     "time_tracking": {
       "title": "时间追踪",

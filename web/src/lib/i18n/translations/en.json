@@ -137,6 +137,8 @@
       "wiki": "Wiki",
       "pipelines": "CI/CD",
       "releases": "Releases",
+      "packages": "Packages",
+      "board": "Board",
       "commits": "Commits",
       "settings": "Settings"
     },
@@ -178,14 +180,30 @@
       "no_versions": "No versions yet."
     },
     "board": {
-      "title": "Board",
+      "title": "Project Board",
       "columns": {
         "open": "Open",
         "in_progress": "In Progress",
         "closed": "Closed"
       },
       "no_issues": "No issues in this column.",
-      "drag_hint": "Drag issues between columns to update status."
+      "drag_hint": "Drag issues between columns to update status.",
+      "createBoard": "Create Board",
+      "noBoards": "No boards yet. Create one to get started.",
+      "confirmDelete": "Are you sure you want to delete this board?",
+      "namePlaceholder": "Board name",
+      "descPlaceholder": "Description (optional)",
+      "addColumn": "Add Column",
+      "colNamePlaceholder": "Column name",
+      "addCard": "Add Card",
+      "cardTitlePlaceholder": "Card title",
+      "moveTo": "Move to..."
+    },
+    "wiki": {
+      "history": "History",
+      "noRevisions": "No revision history.",
+      "revisionMessage": "Commit message",
+      "noMessage": "No commit message"
     },
     "time_tracking": {
       "title": "Time Tracking",

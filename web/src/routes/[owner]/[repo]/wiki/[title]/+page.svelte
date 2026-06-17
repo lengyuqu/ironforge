@@ -157,6 +157,7 @@
             {#if wikiPage.updated_at}
               <span class="text-secondary text-sm">Last edited {formatDate(wikiPage.updated_at)}</span>
             {/if}
+            <a href={`/${owner}/${repo}/wiki/${title}/history`} class="btn-outline">{t('wiki.history')}</a>
             <button class="btn-outline" onclick={startEditing}>{t('wiki.edit')}</button>
             <button class="btn-outline btn-danger" onclick={handleDelete}>{t('wiki.delete') || 'Delete'}</button>
           </div>
