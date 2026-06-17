@@ -15,16 +15,20 @@ pub mod entities;
 pub mod migrations;
 pub mod ops;
 
+use std::str::FromStr;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use sea_orm::{ConnectOptions, ConnectionTrait, Database, Statement};
+use sea_orm::sqlx::sqlite::{
+    SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous,
+};
+use sea_orm::SqlxSqliteConnector;
 use sea_orm_migration::MigratorTrait;
 
 pub use sea_orm;
 pub use sea_orm::DatabaseConnection;
 
-/// Default DB connect timeout (seconds).
+/// Default DB connect (acquire) timeout (seconds).
 pub const DEFAULT_CONNECT_TIMEOUT_SECS: u64 = 10;
 /// Default DB idle timeout (seconds).
 pub const DEFAULT_IDLE_TIMEOUT_SECS: u64 = 600;
@@ -37,6 +41,12 @@ pub async fn connect(db_url: &str) -> Result<DatabaseConnection> {
 
 /// Connect to the SQLite database with configurable connect/idle timeouts plus
 /// connection pool tuning and PRAGMA optimization.
+///
+/// PRAGMAs are attached to the sqlx [`SqliteConnectOptions`] so they are applied
+/// to **every** physical connection the pool opens — including reconnections
+/// after an idle timeout. (The previous approach ran the PRAGMAs once after
+/// connect, which silently lost per-connection settings such as `foreign_keys`
+/// and `busy_timeout` whenever the pool re-established a connection.)
 pub async fn connect_with_timeouts(
     db_url: &str,
     connect_secs: u64,
@@ -44,50 +54,31 @@ pub async fn connect_with_timeouts(
 ) -> Result<DatabaseConnection> {
     tracing::info!(url = %db_url, connect_secs, idle_secs, "Connecting to database");
 
-    let mut opt = ConnectOptions::new(db_url.to_string());
-    // SQLite only supports single-write connection.
-    // Using max_connections=1 avoids SQLITE_BUSY errors from lock contention.
-    opt.max_connections(1)
+    // Per-connection options — applied on every connect by sqlx.
+    let conn_opts = SqliteConnectOptions::from_str(db_url)
+        .with_context(|| format!("invalid sqlite url: {db_url}"))?
+        .create_if_missing(true)                 // honour `?mode=rwc`
+        .journal_mode(SqliteJournalMode::Wal)    // WAL for reader/writer concurrency
+        .synchronous(SqliteSynchronous::Normal)  // good balance for WAL
+        .busy_timeout(Duration::from_secs(5))    // wait instead of immediate SQLITE_BUSY
+        .foreign_keys(true)                      // enforce FK constraints
+        .pragma("cache_size", "-64000")          // 64MB page cache
+        .pragma("temp_store", "MEMORY")          // temp tables in RAM
+        .pragma("mmap_size", "268435456");       // 256MB memory-mapped I/O
+
+    // SQLite serialises writers; keep a single connection to avoid lock
+    // contention while WAL + busy_timeout absorb brief overlaps.
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
         .min_connections(1)
-        .connect_timeout(Duration::from_secs(connect_secs))
-        .idle_timeout(Duration::from_secs(idle_secs));
-
-    let db = Database::connect(opt)
+        .acquire_timeout(Duration::from_secs(connect_secs))
+        .idle_timeout(Duration::from_secs(idle_secs))
+        .connect_with(conn_opts)
         .await
-        .with_context(|| format!("failed to connect to database: {}", db_url))?;
+        .with_context(|| format!("failed to connect to database: {db_url}"))?;
 
-    apply_pragmas(&db).await?;
-
-    Ok(db)
-}
-
-/// Apply SQLite performance PRAGMAs for concurrent web server workloads.
-async fn apply_pragmas(db: &DatabaseConnection) -> Result<()> {
-    let backend = sea_orm::DatabaseBackend::Sqlite;
-
-    let pragmas = [
-        ("journal_mode", "WAL"),              // Write-Ahead Logging for better concurrency
-        ("busy_timeout", "5000"),             // 5s busy wait instead of immediate SQLITE_BUSY
-        ("synchronous", "NORMAL"),            // Good balance for WAL mode
-        ("cache_size", "-64000"),             // 64MB page cache
-        ("temp_store", "MEMORY"),             // Temp tables in RAM
-        ("mmap_size", "268435456"),           // 256MB memory-mapped I/O
-        ("foreign_keys", "ON"),               // Enforce FK constraints
-    ];
-
-    for (key, value) in &pragmas {
-        let sql = format!("PRAGMA {} = {}", key, value);
-        db.execute(Statement::from_string(backend, sql))
-            .await
-            .with_context(|| format!("failed to set PRAGMA {} = {}", key, value))?;
-    }
-
-    tracing::info!(
-        pragmas = pragmas.len(),
-        "Applied SQLite performance PRAGMAs"
-    );
-
-    Ok(())
+    tracing::info!("Applied SQLite PRAGMAs via per-connection options");
+    Ok(SqlxSqliteConnector::from_sqlx_sqlite_pool(pool))
 }
 
 /// Run all pending migrations.
@@ -97,4 +88,48 @@ pub async fn run_migrations(db: &DatabaseConnection) -> Result<()> {
         .await
         .context("migration failed")?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+
+    /// Regression guard: every connection handed out by the pool must have the
+    /// per-connection PRAGMAs applied. A `connect()` that loses `foreign_keys`
+    /// (e.g. by running PRAGMAs once instead of per-connection) silently
+    /// disables FK enforcement — this asserts it stays on.
+    #[tokio::test]
+    async fn connect_applies_per_connection_pragmas() {
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!("ironforge_pragma_test_{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let url = format!("sqlite://{}?mode=rwc", path.display());
+
+        let db = connect(&url).await.expect("connect");
+
+        let row = db
+            .query_one(Statement::from_string(
+                DatabaseBackend::Sqlite,
+                "PRAGMA foreign_keys".to_string(),
+            ))
+            .await
+            .expect("query foreign_keys")
+            .expect("one row");
+        let fk: i32 = row.try_get_by_index(0).expect("fk value");
+        assert_eq!(fk, 1, "foreign_keys must be ON for every connection");
+
+        let row = db
+            .query_one(Statement::from_string(
+                DatabaseBackend::Sqlite,
+                "PRAGMA journal_mode".to_string(),
+            ))
+            .await
+            .expect("query journal_mode")
+            .expect("one row");
+        let mode: String = row.try_get_by_index(0).expect("journal mode value");
+        assert_eq!(mode.to_lowercase(), "wal", "journal_mode must be WAL");
+
+        let _ = std::fs::remove_file(&path);
+    }
 }
