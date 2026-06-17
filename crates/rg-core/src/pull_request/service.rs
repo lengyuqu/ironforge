@@ -3,7 +3,6 @@
 use anyhow::{bail, Context, Result};
 use chrono::Utc;
 use sea_orm::{DatabaseConnection, EntityTrait, Set};
-use std::process::Command;
 
 use rg_db::entities::pull_request::{self, Model as PullRequest};
 use rg_db::entities::repository as repo_entity;
@@ -313,15 +312,21 @@ pub async fn compute_diff(
             let fetch_ref = format!("refs/heads/{}", pr.head_branch);
             let local_ref = format!("refs/forks/{}/{}", head_owner.username, pr.head_branch);
 
-            let fetch_output = Command::new("git")
-                .arg("-C")
-                .arg(&base_repo_path)
-                .arg("fetch")
-                .arg(&head_repo_path)
-                .arg(format!("{}:{}", fetch_ref, local_ref))
-                .output()?;
+            let git = rg_git::cli_gateway::global_gateway()
+                .as_ref()
+                .map_err(|e| anyhow::anyhow!("{}", e))?;
 
-            if !fetch_output.status.success() {
+            let fetch_output = git
+                .run(
+                    &[
+                        "fetch",
+                        &head_repo_path.to_string_lossy(),
+                        &format!("{}:{}", fetch_ref, local_ref),
+                    ],
+                    Some(&base_repo_path),
+                )?;
+
+            if !fetch_output.success() {
                 // Log but don't fail — branch may not exist yet
                 tracing::warn!(
                     "fetch of fork branch failed (non-fatal): {}",
@@ -345,71 +350,32 @@ pub async fn compute_diff(
 
 /// Compute diff for same-repo PR.
 fn compute_same_repo_diff(repo_path: &std::path::Path, pr: &PullRequest) -> Result<PrDiff> {
+    // Use gix tree-diff for numstat (files_changed + per-file additions/deletions)
+    let (files_changed, stats) = gix_diff_numstat(
+        repo_path,
+        format!("refs/heads/{}", pr.base_branch),
+        format!("refs/heads/{}", pr.head_branch),
+    )?;
+
+    // Get unified diff patch via gateway (TODO(gix): replace with gix blob-diff
+    // when byte-identical output is achievable — see plan.md Phase 3)
+    let git = rg_git::cli_gateway::global_gateway()
+        .as_ref()
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
     let range = format!("{}...{}", pr.base_branch, pr.head_branch);
+    let patch_output = git.run(&["diff", &range], Some(repo_path))?;
+    let patch_text = patch_output.stdout_str();
 
-    let stat_output = Command::new("git")
-        .arg("-C")
-        .arg(repo_path)
-        .arg("diff")
-        .arg("--numstat")
-        .arg(&range)
-        .output()?;
-
-    let mut files_changed = Vec::new();
-    let mut total_additions = 0i64;
-    let mut total_deletions = 0i64;
-
-    for line in String::from_utf8_lossy(&stat_output.stdout).lines() {
-        let parts: Vec<&str> = line.splitn(3, '\t').collect();
-        if parts.len() >= 3 {
-            let additions = parts[0].parse::<i64>().unwrap_or(0);
-            let deletions = parts[1].parse::<i64>().unwrap_or(0);
-            let path = parts[2].to_string();
-
-            total_additions += additions;
-            total_deletions += deletions;
-
-            let status = if additions > 0 && deletions == 0 {
-                "added"
-            } else if additions == 0 && deletions > 0 {
-                "deleted"
-            } else {
-                "modified"
-            };
-
-            files_changed.push(FileDiff {
-                path,
-                status: status.to_string(),
-                additions,
-                deletions,
-                patch: None,
-            });
-        }
-    }
-
-    // Get diff patch
-    let patch_output = Command::new("git")
-        .arg("-C")
-        .arg(repo_path)
-        .arg("diff")
-        .arg(&range)
-        .output()?;
-
-    let patch_text = String::from_utf8_lossy(&patch_output.stdout).to_string();
-
-    if let Some(first) = files_changed.first_mut() {
+    let mut files = files_changed;
+    if let Some(first) = files.first_mut() {
         first.patch = Some(patch_text);
     }
 
     Ok(PrDiff {
         base_branch: pr.base_branch.clone(),
         head_branch: pr.head_branch.clone(),
-        stats: DiffStats {
-            total_additions,
-            total_deletions,
-            files_changed: files_changed.len() as i64,
-        },
-        files_changed,
+        stats,
+        files_changed: files,
     })
 }
 
@@ -420,71 +386,130 @@ fn compute_cross_repo_diff(
     fork_ref: &str,
     pr: &PullRequest,
 ) -> Result<PrDiff> {
+    // Use gix tree-diff for numstat (files_changed + per-file additions/deletions)
+    let (files_changed, stats) = gix_diff_numstat(
+        repo_path,
+        format!("refs/heads/{}", base_branch),
+        fork_ref.to_string(),
+    )?;
+
+    // Get unified diff patch via gateway (TODO(gix): replace with gix blob-diff when feasible)
+    let git = rg_git::cli_gateway::global_gateway()
+        .as_ref()
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
     let range = format!("{}...{}", base_branch, fork_ref);
+    let patch_output = git.run(&["diff", &range], Some(repo_path))?;
+    let patch_text = patch_output.stdout_str();
 
-    let stat_output = Command::new("git")
-        .arg("-C")
-        .arg(repo_path)
-        .arg("diff")
-        .arg("--numstat")
-        .arg(&range)
-        .output()?;
-
-    let mut files_changed = Vec::new();
-    let mut total_additions = 0i64;
-    let mut total_deletions = 0i64;
-
-    for line in String::from_utf8_lossy(&stat_output.stdout).lines() {
-        let parts: Vec<&str> = line.splitn(3, '\t').collect();
-        if parts.len() >= 3 {
-            let additions = parts[0].parse::<i64>().unwrap_or(0);
-            let deletions = parts[1].parse::<i64>().unwrap_or(0);
-            let path = parts[2].to_string();
-
-            total_additions += additions;
-            total_deletions += deletions;
-
-            let status = if additions > 0 && deletions == 0 {
-                "added"
-            } else if additions == 0 && deletions > 0 {
-                "deleted"
-            } else {
-                "modified"
-            };
-
-            files_changed.push(FileDiff {
-                path,
-                status: status.to_string(),
-                additions,
-                deletions,
-                patch: None,
-            });
-        }
-    }
-
-    let patch_output = Command::new("git")
-        .arg("-C")
-        .arg(repo_path)
-        .arg("diff")
-        .arg(&range)
-        .output()?;
-
-    let patch_text = String::from_utf8_lossy(&patch_output.stdout).to_string();
-
-    if let Some(first) = files_changed.first_mut() {
+    let mut files = files_changed;
+    if let Some(first) = files.first_mut() {
         first.patch = Some(patch_text);
     }
 
     Ok(PrDiff {
         base_branch: pr.base_branch.clone(),
         head_branch: pr.head_branch.clone(),
-        stats: DiffStats {
-            total_additions,
-            total_deletions,
-            files_changed: files_changed.len() as i64,
-        },
-        files_changed,
+        stats,
+        files_changed: files,
     })
+}
+
+/// Compute per-file diff statistics using gix tree-to-tree diff.
+///
+/// Replaces `git diff --numstat` with native gix tree-diff + per-blob line counting.
+/// Returns file-level additions/deletions/status + aggregated totals.
+///
+/// On failure (e.g. missing refs), falls back with a generic error — the caller
+/// should handle gracefully.
+fn gix_diff_numstat(
+    repo_path: &std::path::Path,
+    old_ref: String,
+    new_ref: String,
+) -> Result<(Vec<FileDiff>, DiffStats)> {
+    use gix::bstr::ByteSlice;
+
+    let repo = gix::open(repo_path)
+        .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
+
+    let old_id = repo.rev_parse_single(old_ref.as_str())
+        .with_context(|| format!("ref not found: {}", old_ref))?;
+    let new_id = repo.rev_parse_single(new_ref.as_str())
+        .with_context(|| format!("ref not found: {}", new_ref))?;
+
+    // If refs point to the same tree, there are no changes
+    if old_id == new_id {
+        return Ok((vec![], DiffStats {
+            total_additions: 0,
+            total_deletions: 0,
+            files_changed: 0,
+        }));
+    }
+
+    let old_tree = old_id.object()?.try_into_tree()
+        .map_err(|_| anyhow::anyhow!("{} is not a tree-ish", old_ref))?;
+    let new_tree = new_id.object()?.try_into_tree()
+        .map_err(|_| anyhow::anyhow!("{} is not a tree-ish", new_ref))?;
+
+    let mut platform = old_tree.changes()?;
+    platform.options(|opts| { opts.track_rewrites(None); });
+
+    let mut files = Vec::new();
+    let mut total_additions = 0i64;
+    let mut total_deletions = 0i64;
+
+    let mut resource_cache = repo.diff_resource_cache(
+        gix::diff::blob::pipeline::Mode::ToGit,
+        gix::diff::blob::pipeline::WorktreeRoots::default(),
+    )?;
+
+    let file_count;
+    {
+        let files_ref = &mut files;
+        let total_add_ref = &mut total_additions;
+        let total_del_ref = &mut total_deletions;
+
+        platform.for_each_to_obtain_tree(
+            &new_tree,
+            |change| -> Result<std::ops::ControlFlow<()>, anyhow::Error> {
+                let location = change.location().to_str_lossy().to_string();
+
+                let (additions, deletions) = change
+                    .diff(&mut resource_cache)
+                    .ok()
+                    .and_then(|mut p| p.line_counts().ok().flatten())
+                    .map(|c| (c.insertions as i64, c.removals as i64))
+                    .unwrap_or((0, 0));
+
+                let status = match &change {
+                    gix::object::tree::diff::Change::Addition { .. } => "added",
+                    gix::object::tree::diff::Change::Deletion { .. } => "deleted",
+                    _ => "modified",
+                };
+
+                *total_add_ref += additions;
+                *total_del_ref += deletions;
+
+                files_ref.push(FileDiff {
+                    path: location,
+                    status: status.to_string(),
+                    additions,
+                    deletions,
+                    patch: None,
+                });
+
+                resource_cache.clear_resource_cache_keep_allocation();
+                Ok(std::ops::ControlFlow::Continue(()))
+            },
+        ).map_err(|e| anyhow::anyhow!("tree-diff failed: {e}"))?;
+
+        file_count = files.len() as i64;
+    }
+
+    Ok((files, DiffStats {
+        total_additions,
+        total_deletions,
+        files_changed: file_count,
+    }))
 }
 
 // ── Merge ───────────────────────────────────────────────────────────────
@@ -541,15 +566,21 @@ pub async fn merge_pr(
             let fetch_ref = format!("refs/heads/{}", pr.head_branch);
             let local_ref = format!("refs/forks/{}/{}", head_owner.username, pr.head_branch);
 
-            let fetch_output = Command::new("git")
-                .arg("-C")
-                .arg(&repo_path)
-                .arg("fetch")
-                .arg(&head_repo_path)
-                .arg(format!("{}:{}", fetch_ref, local_ref))
-                .output()?;
+            let git = rg_git::cli_gateway::global_gateway()
+                .as_ref()
+                .map_err(|e| anyhow::anyhow!("{}", e))?;
 
-            if !fetch_output.status.success() {
+            let fetch_output = git
+                .run(
+                    &[
+                        "fetch",
+                        &head_repo_path.to_string_lossy(),
+                        &format!("{}:{}", fetch_ref, local_ref),
+                    ],
+                    Some(&repo_path),
+                )?;
+
+            if !fetch_output.success() {
                 bail!(
                     "failed to fetch fork branch: {}",
                     String::from_utf8_lossy(&fetch_output.stderr)
@@ -606,28 +637,21 @@ fn merge_from_ref(
             gix_set_head_to_branch(repo_path, &pr.base_branch)
                 .with_context(|| format!("failed to checkout base branch: {}", pr.base_branch))?;
 
-            // Rebase still uses git CLI — gix-rebase crate is in "idea" stage
-            let rebase = Command::new("git")
-                .arg("-C")
-                .arg(repo_path)
-                .arg("rebase")
-                .arg(&pr.base_branch)
-                .arg(merge_ref)
-                .output()?;
+            // TODO(gix): Replace rebase with gix once rebase API is stable (Phase 3)
+            let git = rg_git::cli_gateway::global_gateway()
+                .as_ref()
+                .map_err(|e| anyhow::anyhow!("{}", e))?;
 
-            if !rebase.status.success() {
-                if let Err(e) = Command::new("git")
-                    .arg("-C")
-                    .arg(repo_path)
-                    .arg("rebase")
-                    .arg("--abort")
-                    .output()
-                {
+            let rebase = git.run(&["rebase", &pr.base_branch, merge_ref], Some(repo_path))?;
+
+            if !rebase.success() {
+                // Abort the rebase on failure — non-fatal, just log if abort itself fails
+                if let Err(e) = git.run_or_bail(&["rebase", "--abort"], Some(repo_path)) {
                     tracing::warn!("failed to abort rebase: {}", e);
                 }
                 bail!(
                     "rebase merge failed: {}",
-                    String::from_utf8_lossy(&rebase.stderr)
+                    rebase.stderr_str()
                 );
             }
 
@@ -694,29 +718,21 @@ fn do_rebase_merge(repo_path: &std::path::Path, pr: &PullRequest) -> Result<Stri
     gix_set_head_to_branch(repo_path, &pr.base_branch)
         .with_context(|| format!("failed to checkout base branch: {}", pr.base_branch))?;
 
-    // Step 2: Rebase head onto base (keep CLI — gix doesn't support rebase)
-    let rebase = Command::new("git")
-        .arg("-C")
-        .arg(repo_path)
-        .arg("rebase")
-        .arg(&pr.base_branch)
-        .arg(&pr.head_branch)
-        .output()?;
+    // Step 2: Rebase head onto base via gateway (TODO(gix): replace when gix rebase is stable)
+    let git = rg_git::cli_gateway::global_gateway()
+        .as_ref()
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
 
-    if !rebase.status.success() {
+    let rebase = git.run(&["rebase", &pr.base_branch, &pr.head_branch], Some(repo_path))?;
+
+    if !rebase.success() {
         // Abort the rebase on failure — non-fatal, just log if abort itself fails
-        if let Err(e) = Command::new("git")
-            .arg("-C")
-            .arg(repo_path)
-            .arg("rebase")
-            .arg("--abort")
-            .output()
-        {
+        if let Err(e) = git.run_or_bail(&["rebase", "--abort"], Some(repo_path)) {
             tracing::warn!("failed to abort rebase: {}", e);
         }
         bail!(
             "rebase merge failed: {}",
-            String::from_utf8_lossy(&rebase.stderr)
+            rebase.stderr_str()
         );
     }
 

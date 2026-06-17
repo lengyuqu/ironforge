@@ -9,3 +9,6 @@ anyhow = { workspace = true }
 tracing = { workspace = true }
 gix = { workspace = true }
 thiserror = { workspace = true }
+
+[dev-dependencies]
+walkdir = "2"

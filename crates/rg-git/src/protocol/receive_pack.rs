@@ -5,7 +5,6 @@
 //! 2. Single bidirectional stream (SSH mode) — via `handle_receive_pack_stream`
 
 use std::path::Path;
-use std::process::Stdio;
 
 use anyhow::{bail, Context, Result};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
@@ -277,14 +276,11 @@ async fn process_push<R: AsyncRead + Unpin>(
     //
     // This is a common gotcha when implementing receive-pack. Always use
     // --fix-thin unless you're absolutely sure the client sends full packs.
-    let mut index_pack = tokio::process::Command::new("git")
-        .arg("-C")
-        .arg(repo_path)
-        .args(["index-pack", "--fix-thin", "--stdin"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
+    let mut index_pack = crate::cli_gateway::global_gateway()
+        .as_ref()
+        .map_err(|e| anyhow::anyhow!("{}", e))?
+        .spawn_async(&["index-pack", "--fix-thin", "--stdin"], Some(repo_path))
+        .await
         .context("failed to spawn git index-pack")?;
 
     let stdin = index_pack.stdin.as_mut().context("no stdin")?;

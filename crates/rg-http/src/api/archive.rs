@@ -8,8 +8,6 @@ use axum::{
     http::{header, StatusCode},
     response::IntoResponse,
 };
-use std::process::Command;
-
 use crate::AppState;
 
 /// GET /api/v1/repos/{owner}/{name}/archive/{sha}.zip
@@ -46,15 +44,19 @@ pub async fn download_archive(
         _ => "application/gzip",
     };
 
-    let output = match Command::new("git")
-        .arg("-C")
-        .arg(&repo_path)
-        .args(["archive", &format!("--format={}", format_flag), &sha])
-        .output()
-    {
-        Ok(o) if o.status.success() => o.stdout,
-        Ok(_) => return (StatusCode::BAD_REQUEST, "Invalid ref or SHA").into_response(),
+    let git = match rg_git::cli_gateway::global_gateway().as_ref() {
+        Ok(g) => g,
         Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    };
+
+    let git_out = match git.run(&["archive", &format!("--format={}", format_flag), &sha], Some(&repo_path)) {
+        Ok(o) => o,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+    };
+
+    let output = match git_out.ensure_success() {
+        Ok(()) => git_out.stdout,
+        Err(_) => return (StatusCode::BAD_REQUEST, "Invalid ref or SHA").into_response(),
     };
 
     // Truncate by chars (not bytes) so a short ref like `main` or a

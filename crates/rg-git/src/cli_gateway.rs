@@ -308,4 +308,44 @@ mod tests {
             g2.as_ref().unwrap()
         ));
     }
+
+    /// Regression guard: ensure no crates use raw `Command::new("git")` outside this file.
+    #[test]
+    fn test_no_raw_git_command_in_crates() {
+        let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let mut violations = Vec::new();
+
+        for entry in walkdir::WalkDir::new(workspace.join("crates"))
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
+            let path = entry.path();
+            if path.extension().map_or(true, |x| x != "rs") {
+                continue;
+            }
+            // Skip the gateway file itself (the only allowed location)
+            if path.ends_with("cli_gateway.rs") {
+                continue;
+            }
+
+            let content = match std::fs::read_to_string(path) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+
+            for (line_no, line) in content.lines().enumerate() {
+                if line.contains(r#"Command::new("git")"#) || line.contains(r#"process::Command::new("git")"#) {
+                    let relative = path.strip_prefix(workspace).unwrap_or(path);
+                    violations.push(format!("{}:{}  =>  {}", relative.display(), line_no + 1, line.trim()));
+                }
+            }
+        }
+
+        assert!(
+            violations.is_empty(),
+            "found {} raw git Command::new(\"git\") outside cli_gateway.rs:\n{}",
+            violations.len(),
+            violations.join("\n")
+        );
+    }
 }

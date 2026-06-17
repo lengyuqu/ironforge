@@ -795,8 +795,7 @@ fn get_object_size(repo_path: &Path, oid: &str) -> Result<u64> {
 /// so we fall back to the git CLI for this step.
 async fn generate_packfile(repo_path: &Path, wants: &[String], haves: &[String]) -> Result<Vec<u8>> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt as _};
-    use tokio::process::Command;
-    use std::process::Stdio;
+    use crate::cli_gateway::global_gateway;
 
     // Build stdin input: wants (positive) + haves (negative/exclude)
     let mut revs_input = String::new();
@@ -811,14 +810,11 @@ async fn generate_packfile(repo_path: &Path, wants: &[String], haves: &[String])
         revs_input.push('\n');
     }
 
-    let mut cmd = Command::new("git")
-        .arg("-C")
-        .arg(repo_path)
-        .args(["pack-objects", "--revs", "--stdout", "--thin"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
+    let mut cmd = global_gateway()
+        .as_ref()
+        .map_err(|e| anyhow::anyhow!("{}", e))?
+        .spawn_async(&["pack-objects", "--revs", "--stdout", "--thin"], Some(repo_path))
+        .await
         .context("failed to spawn git pack-objects")?;
 
     // Write revision list to stdin, then close it

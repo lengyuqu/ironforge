@@ -497,11 +497,29 @@ FTS5 的 `INSERT INTO fts_table(fts_table, rowid, ...) VALUES('delete', ...)` �
 
 #### P0（无 — ✅ 全部完成）
 
-#### P1 余量（1 项）
-1. **Git CLI 替换余量** — 网关已建（`GitCommandGateway`），剩 `pull_request/service.rs` 12 处 + `rg-git/protocol/` 3 处未改，~1h
+#### P1 余量（已解决 ✅）
+1. ~~**Git CLI 替换余量**~~ — 2026-06-17 完成：全部 raw `Command::new("git")` 已通过 `GitCommandGateway` 统一，增设防回归测试。
 
 #### 技术债
-2. **gix 迁移继续** — 进度 ~70%，剩余 19 处 CLI 调用（diff/rebase/fetch/pack/GPG/clone）
+2. **gix 迁移继续** — 2026-06-17: Phase 1+2 完成，进度 ~85%
+   - ✅ Phase 1: 所有 git 子进程调用统一走 `GitCommandGateway`（防回归测试通过）
+   - ✅ Phase 2A: PR diff numstat 迁移至 gix tree-to-tree diff（per-file 行数统计）
+   - ✅ Phase 2B: commit gpgsig 头读取迁移至 gix `extra_headers()`
+   - ⚠️ PR diff unified patch 仍走网关（gix blob-diff 字节一致性待验证 → Phase 3）
+   - ⚠️ GPG 加密验签仍走 CLI（gix 无验签能力 → Phase 3）
+
+#### Phase 3 — 等待 gix 上游成熟（不执行，仅复查）
+| 待办 | 阻塞原因 | 复查 / 解除条件 |
+|---|---|---|
+| Rebase 合并（PR rebase ×2 路径） | `gix-rebase` 仍处 "idea" 阶段，无 API | gix 发布稳定 rebase API |
+| Pack 生成（upload-pack / v2 fetch） | gix 无高层 pack 协商/生成 API | gix 提供 server 端 pack 生成 |
+| Thin-pack 索引（receive-pack `index-pack --fix-thin`） | gix 缺针对现有 ODB 的 thin 补全解析 | gix `gix-pack` 支持 `--fix-thin` 等价操作 |
+| 加密级 GPG 验签 | gix 无验签；需 gpgme/sequoia | gix 内建验签，或单独引入 `sequoia-openpgp` |
+| 本地 bare clone（fork） | `prepare_clone_bare` 不支持本地路径 | gix 支持 file-transport bare clone |
+| git archive 原生化（可选） | 非 gix 阻塞（可用 gix tree-walk + tar/flate2） | 视需要单独排期 |
+| blob-diff unified patch | gix blob-diff 输出与 git diff 字节一致性待验证 | 对拍测试通过后迁移 |
+
+复查节奏：每次 `gix` 版本升级（当前 `0.84`）时过一遍本表。
 
 #### 维护增强
 3. OpenAPI 注解补全（部分端点缺 utoipa 注解）

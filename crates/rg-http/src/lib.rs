@@ -615,16 +615,8 @@ async fn health(State(state): State<AppState>) -> impl IntoResponse {
         serde_json::json!(if metrics_ok { "ok" } else { "not_initialized" }),
     );
 
-    // Git availability check (spawn_blocking to avoid blocking)
-    let git_ok = tokio::task::spawn_blocking(|| {
-        std::process::Command::new("git")
-            .arg("--version")
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
-    })
-    .await
-    .unwrap_or(false);
+    // Git availability check (gateway already validates git --version at init)
+    let git_ok = rg_git::cli_gateway::global_gateway().is_ok();
     checks.insert(
         "git".to_string(),
         serde_json::json!(if git_ok { "ok" } else { "error" }),

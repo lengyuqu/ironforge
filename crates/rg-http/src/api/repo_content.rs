@@ -696,24 +696,17 @@ fn verify_commit_signature(
 
     let full_sha = commit_id.to_string();
 
-    // Read commit object to check for gpgsig header
-    let _commit_object = repo.find_object(commit_id)?;
-    let _commit = _commit_object.try_into_commit()
+    // Read commit object to check for gpgsig header via gix extra_headers()
+    let commit_object = repo.find_object(commit_id)?;
+    let commit = commit_object.try_into_commit()
         .map_err(|_| anyhow::anyhow!("not a commit object"))?;
 
-    // Check if commit has GPG signature by looking at the raw commit data
-    // gix doesn't easily expose raw commit headers, so use git CLI for this check
-    let git_gateway = rg_git::cli_gateway::global_gateway()
-        .as_ref()
-        .map_err(|e| anyhow::anyhow!("{}", e))?;
-
-    let gpgsig_output = git_gateway
-        .run(&["cat-file", "commit", &full_sha], Some(repo_path))?;
-    if !gpgsig_output.success() {
-        anyhow::bail!("failed to read commit object");
-    }
-    let commit_content = gpgsig_output.stdout_str();
-    let has_gpgsig = commit_content.lines().any(|l| l.starts_with("gpgsig "));
+    // Use gix decode() + extra_headers() to check for gpgsig (replaces git cat-file commit)
+    let has_gpgsig = commit
+        .decode()?
+        .extra_headers()
+        .find("gpgsig")
+        .is_some();
 
     if !has_gpgsig {
         return Ok(GpgSignature {
@@ -725,7 +718,12 @@ fn verify_commit_signature(
         });
     }
 
-    // Verify the signature using git CLI (gix GPG support is incomplete)
+    // TODO(gix): Verify the signature using git CLI — gix doesn't support cryptographic verification (Phase 3)
+    // When gix ships built-in GPG verification (or sequoia-openpgp is introduced), replace this block.
+    let git_gateway = rg_git::cli_gateway::global_gateway()
+        .as_ref()
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+
     let verify_output = git_gateway
         .run(&["log", "--format=%G?%n%GK%n%GN%n%GE", "-1", &full_sha], Some(repo_path))?;
     if !verify_output.success() {

@@ -5,8 +5,6 @@
 //! 2. Single bidirectional stream (SSH mode) — via `handle_upload_pack_stream`
 
 use std::path::Path;
-use std::process::Stdio;
-
 use anyhow::{bail, Context, Result};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tracing;
@@ -354,14 +352,12 @@ async fn send_packfile<W: AsyncWrite + Unpin>(
     writer: &mut W,
     use_sideband: bool,
 ) -> Result<()> {
-    // Use git pack-objects to generate the packfile
-    let mut cmd = tokio::process::Command::new("git")
-        .arg("-C")
-        .arg(repo_path)
-        .args(["pack-objects", "--all", "--stdout"])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
+    // Use git pack-objects to generate the packfile via gateway
+    let mut cmd = crate::cli_gateway::global_gateway()
+        .as_ref()
+        .map_err(|e| anyhow::anyhow!("{}", e))?
+        .spawn_async(&["pack-objects", "--all", "--stdout"], Some(repo_path))
+        .await
         .context("failed to spawn git pack-objects")?;
 
     let stdout = cmd.stdout.take().context("no stdout")?;
