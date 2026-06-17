@@ -716,28 +716,59 @@ async fn swagger_ui_handler(axum::extract::Path(tail): axum::extract::Path<Strin
     }
 }
 
-/// Extract user ID from HTTP Basic Auth or Bearer token.
-/// Returns None for anonymous access.
-fn extract_actor_id(headers: &axum::http::HeaderMap, jwt_secret: &str) -> Option<i64> {
-    // Try Bearer token first
-    if let Some(auth) = headers.get(header::AUTHORIZATION) {
-        let auth_str = auth.to_str().ok()?;
+/// Resolve a Personal Access Token to its owner's user id, honouring expiry.
+async fn resolve_pat(db: &DatabaseConnection, token: &str) -> Option<i64> {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(token.as_bytes());
+    let hash = format!("{:x}", hasher.finalize());
 
-        if let Some(token) = auth_str.strip_prefix("Bearer ") {
-            if let Some(claims) = rg_core::auth::jwt::validate_token(token, jwt_secret) {
+    let tok = rg_db::ops::token_ops::find_by_hash(db, &hash).await.ok()??;
+    if let Some(expires_at) = tok.expires_at {
+        if expires_at < chrono::Utc::now() {
+            return None; // expired
+        }
+    }
+    Some(tok.user_id)
+}
+
+/// Extract the authenticated user id from a git-over-HTTP request.
+///
+/// Supports both JWT session tokens and Personal Access Tokens (PATs),
+/// presented either as `Authorization: Bearer <token>` or HTTP Basic auth
+/// (`git clone https://user:<token>@host/...`). Returns `None` for anonymous
+/// access (public repos still work; private repos are then rejected).
+async fn extract_actor_id(
+    db: &DatabaseConnection,
+    headers: &axum::http::HeaderMap,
+    jwt_secret: &str,
+) -> Option<i64> {
+    let auth_str = headers.get(header::AUTHORIZATION)?.to_str().ok()?;
+
+    if let Some(token) = auth_str.strip_prefix("Bearer ") {
+        // JWT session token first, then fall back to a PAT.
+        if let Some(claims) = rg_core::auth::jwt::validate_token(token, jwt_secret) {
+            return claims.sub.parse().ok();
+        }
+        return resolve_pat(db, token).await;
+    }
+
+    if let Some(encoded) = auth_str.strip_prefix("Basic ") {
+        use base64::Engine as _;
+        let decoded = base64::engine::general_purpose::STANDARD.decode(encoded).ok()?;
+        let credentials = String::from_utf8(decoded).ok()?;
+        let (username, password) = credentials.split_once(':')?;
+        // Git clients carry the token in either the password (`user:token`) or
+        // the username (`token:x-oauth-basic`) field — try both, JWT then PAT.
+        for candidate in [password, username] {
+            if candidate.is_empty() {
+                continue;
+            }
+            if let Some(claims) = rg_core::auth::jwt::validate_token(candidate, jwt_secret) {
                 return claims.sub.parse().ok();
             }
-        }
-
-        // Try Basic auth
-        if let Some(encoded) = auth_str.strip_prefix("Basic ") {
-            use base64::Engine as _;
-            if let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(encoded) {
-                if let Ok(credentials) = String::from_utf8(decoded) {
-                    if let Some((username, _password)) = credentials.split_once(':') {
-                        tracing::debug!(username = %username, "Basic auth in git protocol — use token auth instead");
-                    }
-                }
+            if let Some(uid) = resolve_pat(db, candidate).await {
+                return Some(uid);
             }
         }
     }
@@ -751,6 +782,11 @@ fn extract_actor_id(headers: &axum::http::HeaderMap, jwt_secret: &str) -> Option
 /// - receive-pack (push): can_write
 ///
 /// Returns Ok(()) if access is granted, or an error response.
+///
+/// When access is denied for an **anonymous** request (no valid credentials),
+/// responds `401 Unauthorized` with a `WWW-Authenticate: Basic` challenge so
+/// that `git` prompts for credentials (a username + PAT). An **authenticated**
+/// actor that simply lacks permission gets `403 Forbidden`.
 async fn check_git_access(
     db: &DatabaseConnection,
     owner: &str,
@@ -766,6 +802,14 @@ async fn check_git_access(
 
     match access {
         Ok(true) => Ok(()),
+        // Anonymous + denied → 401 with a Basic challenge so git prompts for
+        // credentials. The String body carries the default text/plain type.
+        Ok(false) if actor_id.is_none() => Err((
+            StatusCode::UNAUTHORIZED,
+            [(header::WWW_AUTHENTICATE, "Basic realm=\"IronForge\"")],
+            "authentication required".to_string(),
+        )),
+        // Authenticated but lacking permission → 403.
         Ok(false) => Err((
             StatusCode::FORBIDDEN,
             [(header::CONTENT_TYPE, "text/plain")],
@@ -835,7 +879,7 @@ async fn handle_info_refs(
     }
 
     // Extract actor from auth header
-    let actor_id = extract_actor_id(&headers, &state.jwt_secret);
+    let actor_id = extract_actor_id(&state.db, &headers, &state.jwt_secret).await;
     let require_write = service == "git-receive-pack";
 
     // Check access
@@ -1021,7 +1065,7 @@ async fn handle_git_upload_pack(
     }
 
     // Check read access
-    let actor_id = extract_actor_id(&headers, &state.jwt_secret);
+    let actor_id = extract_actor_id(&state.db, &headers, &state.jwt_secret).await;
     if let Err(resp) = check_git_access(&state.db, &owner, &repo, actor_id, false).await {
         return (resp.0, resp.1, Body::from(resp.2)).into_response();
     }
@@ -1125,7 +1169,7 @@ async fn handle_git_receive_pack(
     }
 
     // Check write access
-    let actor_id = extract_actor_id(&headers, &state.jwt_secret);
+    let actor_id = extract_actor_id(&state.db, &headers, &state.jwt_secret).await;
     if let Err(resp) = check_git_access(&state.db, &owner, &repo, actor_id, true).await {
         return (resp.0, resp.1, Body::from(resp.2));
     }
