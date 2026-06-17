@@ -526,7 +526,7 @@ FTS5 的 `INSERT INTO fts_table(fts_table, rowid, ...) VALUES('delete', ...)` �
 4. ~~Wiki 版本历史~~ ✅ 2026-06-17 — DB + API + 前端历史页面 + diff
 5. ~~看板/时间追踪前端页~~ ✅ 2026-06-17 — Kanban 看板页面 + 时间追踪页面
 6. PostgreSQL 支持（生产级 DB）
-7. Gitea Actions 兼容层
+7. ~~Gitea Actions 兼容层~~ ✅ 2026-06-17 — 解析器 + 转换层 + 多文件发现
 
 ---
 

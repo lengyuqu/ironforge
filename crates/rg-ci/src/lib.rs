@@ -1,43 +1,40 @@
 //! IronForge CI/CD Engine.
 //!
-//! Parses `.ironforge-ci.yml` from the repository and executes pipelines.
+//! Parses `.ironforge-ci.yml` or `.gitea/workflows/*.yml` (Gitea Actions format)
+//! from the repository and executes pipelines.
 //!
-//! ## Configuration format (`.ironforge-ci.yml`)
+//! ## Native format (`.ironforge-ci.yml`)
 //!
 //! ```yaml
 //! stages:
 //!   - build
 //!   - test
-//!   - deploy
-//!
-//! # Optional: prevent multiple pipelines from running simultaneously
-//! concurrency:
-//!   group: ${{ branch }}
-//!   cancel_in_progress: true
 //!
 //! build_app:
 //!   stage: build
 //!   script:
-//!     - echo "Building..."
-//!     - make build
+//!     - cargo build
+//! ```
 //!
-//! test_unit:
-//!   stage: test
-//!   script:
-//!     - make test
+//! ## Gitea Actions format (`.gitea/workflows/*.yml`)
 //!
-//! deploy_prod:
-//!   stage: deploy
-//!   script:
-//!     - make deploy
-//!   only:
-//!     - main
+//! ```yaml
+//! name: CI
+//! on: push
+//! jobs:
+//!   build:
+//!     runs-on: ubuntu-latest
+//!     steps:
+//!       - uses: actions/checkout@v4
+//!       - run: cargo build
 //! ```
 
 pub mod config;
+pub mod gitea_actions;
 pub mod runner;
 
 use anyhow::{Context, Result};
+use gix::bstr::ByteSlice;
 use sea_orm::DatabaseConnection;
 
 use config::CiConfig;
@@ -64,13 +61,9 @@ pub async fn trigger_pipeline(
     jwt_secret: Option<&str>,
 ) -> Result<i64> {
     // 1. Read CI config from repo
-    let ci_yml = read_ci_config(repo_path, commit_sha)?;
+    let config = read_ci_config(repo_path, commit_sha, ref_name, trigger_type)?;
 
-    // 2. Parse config
-    let config: CiConfig = serde_yaml::from_str(&ci_yml)
-        .with_context(|| format!("failed to parse .ironforge-ci.yml: {}", ci_yml))?;
-
-    // 2b. Concurrency control
+    // 2. Concurrency control
     if let Some(ref concurrency) = config.concurrency {
         let group = rg_db::ops::pipeline_ops::resolve_concurrency_group(
             &concurrency.group,
@@ -205,15 +198,34 @@ pub async fn trigger_pipeline(
     Ok(pipeline_id)
 }
 
-/// Read `.ironforge-ci.yml` from the repo at the given commit using gix.
-fn read_ci_config(repo_path: &std::path::Path, commit_sha: &str) -> Result<String> {
+/// Read CI configuration from the repo at the given commit.
+///
+/// Tries formats in order:
+/// 1. `.gitea/workflows/*.yml` (Gitea Actions format)
+/// 2. `.ironforge-ci.yml` (native format)
+///
+/// For Gitea Actions workflows, multiple files are merged into a single `CiConfig`.
+/// Jobs from different workflow files are placed in separate stages.
+fn read_ci_config(
+    repo_path: &std::path::Path,
+    commit_sha: &str,
+    ref_name: &str,
+    event: &str,
+) -> Result<CiConfig> {
     let repo = gix::open(repo_path)
         .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
 
+    // Try Gitea Actions format first
+    if let Ok(config) = try_read_gitea_workflows(&repo, commit_sha, ref_name, event) {
+        tracing::info!("Using Gitea Actions workflow from .gitea/workflows/");
+        return Ok(config);
+    }
+
+    // Fall back to native .ironforge-ci.yml
     let revspec = format!("{}:.ironforge-ci.yml", commit_sha);
     let object_id = repo
         .rev_parse_single(revspec.as_str())
-        .map_err(|_| anyhow::anyhow!("no .ironforge-ci.yml found at commit {}", commit_sha))?;
+        .map_err(|_| anyhow::anyhow!("no CI config found (.gitea/workflows/*.yml or .ironforge-ci.yml) at commit {}", commit_sha))?;
 
     let object_id = object_id
         .object()
@@ -222,17 +234,145 @@ fn read_ci_config(repo_path: &std::path::Path, commit_sha: &str) -> Result<Strin
         .try_into_blob()
         .context("expected a blob object for .ironforge-ci.yml")?;
 
-    String::from_utf8(blob.data.to_vec())
-        .context(".ironforge-ci.yml is not valid UTF-8")
+    let ci_yml = String::from_utf8(blob.data.to_vec())
+        .context(".ironforge-ci.yml is not valid UTF-8")?;
+
+    let config: CiConfig = serde_yaml::from_str(&ci_yml)
+        .with_context(|| format!("failed to parse .ironforge-ci.yml: {}", ci_yml))?;
+
+    Ok(config)
 }
 
-/// Check if a repo has a CI config file at the given commit using gix.
+/// Try to find and parse Gitea Actions workflow files in `.gitea/workflows/`.
+fn try_read_gitea_workflows(
+    repo: &gix::Repository,
+    commit_sha: &str,
+    ref_name: &str,
+    event: &str,
+) -> Result<CiConfig> {
+    let tree_revspec = format!("{}:.gitea/workflows", commit_sha);
+    let object_id = repo
+        .rev_parse_single(tree_revspec.as_str())
+        .map_err(|_| anyhow::anyhow!("no .gitea/workflows directory"))?;
+
+    let object = object_id.object()?;
+    let tree = object.try_into_tree().map_err(|_| {
+        anyhow::anyhow!(".gitea/workflows is not a directory")
+    })?;
+
+    let default_branch = get_default_branch(repo)?;
+
+    let mut all_jobs: std::collections::HashMap<String, config::JobConfig> = std::collections::HashMap::new();
+    let mut all_stages: Vec<String> = Vec::new();
+
+    // Iterate through .gitea/workflows/*.yml entries
+    for entry in tree.iter() {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => continue,
+        };   
+        let name = entry.filename().to_string();
+        if !name.ends_with(".yml") && !name.ends_with(".yaml") {
+            continue;
+        }
+
+        let entry_id = entry.oid();
+        let entry_object = match repo.find_object(entry_id) {
+            Ok(o) => o,
+            Err(_) => continue,
+        };
+        let blob = match entry_object.try_into_blob() {
+            Ok(b) => b,
+            Err(_) => continue,
+        };
+        let yml = String::from_utf8(blob.data.to_vec())
+            .unwrap_or_default();
+
+        let workflow = match gitea_actions::GiteaWorkflow::parse(&yml) {
+            Ok(w) => w,
+            Err(e) => {
+                tracing::debug!("Skipping .gitea/workflows/{} (parse error: {})", name, e);
+                continue;
+            }
+        };
+
+        // Check if this workflow should be triggered
+        if !workflow.matches_event(event, ref_name, &default_branch) {
+            continue;
+        }
+
+        tracing::info!("Triggering workflow from .gitea/workflows/{}", name);
+
+        let ctx = gitea_actions::WorkflowContext {
+            ref_name: ref_name.to_string(),
+            sha: commit_sha.to_string(),
+            event: event.to_string(),
+            repo_owner: String::new(), // filled later
+            repo_name: String::new(),
+        };
+
+        let mut wf_config = workflow.to_ci_config(&ctx);
+
+        // Prefix job names with workflow filename to avoid collisions
+        let wf_prefix = name.trim_end_matches(".yml").trim_end_matches(".yaml");
+        let mut renamed_jobs = std::collections::HashMap::new();
+        for (job_name, mut job) in wf_config.jobs {
+            let new_name = format!("{}/{}", wf_prefix, job_name);
+            // Prefix stage names too
+            if let Some(ref stage) = job.stage {
+                job.stage = Some(format!("{}/{}", wf_prefix, stage));
+            }
+            renamed_jobs.insert(new_name, job);
+        }
+        wf_config.jobs = renamed_jobs;
+
+        // Add stages
+        if let Some(ref stages) = wf_config.stages {
+            for stage in stages {
+                all_stages.push(format!("{}/{}", wf_prefix, stage));
+            }
+        }
+
+        // Merge jobs
+        all_jobs.extend(wf_config.jobs);
+    }
+
+    if all_jobs.is_empty() {
+        anyhow::bail!("no matching workflows found in .gitea/workflows/");
+    }
+
+    Ok(CiConfig {
+        stages: Some(all_stages),
+        concurrency: None, // per-workflow concurrency not merged
+        jobs: all_jobs,
+    })
+}
+
+/// Get the default branch name of the repository.
+fn get_default_branch(repo: &gix::Repository) -> Result<String> {
+    // Try to read HEAD reference
+    if let Ok(Some(head_ref)) = repo.head_ref() {
+        if let Some(name) = head_ref.name().shorten().to_str().ok() {
+            return Ok(name.to_string());
+        }
+    }
+    Ok("main".to_string())
+}
+
+/// Check if a repo has any CI config at the given commit.
 pub fn has_ci_config(repo_path: &std::path::Path, commit_sha: &str) -> bool {
     let repo = match gix::open(repo_path) {
         Ok(r) => r,
         Err(_) => return false,
     };
 
+    // Check Gitea Actions format
+    let tree_revspec = format!("{}:.gitea/workflows", commit_sha);
+    if repo.rev_parse_single(tree_revspec.as_str()).is_ok() {
+        return true;
+    }
+
+    // Check native format
     let revspec = format!("{}:.ironforge-ci.yml", commit_sha);
     repo.rev_parse_single(revspec.as_str()).is_ok()
 }
