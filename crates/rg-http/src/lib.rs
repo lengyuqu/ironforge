@@ -571,6 +571,13 @@ fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
         .route("/ws/notifications", get(ws::ws_notifications_handler))
         .route("/ws/job/{job_id}", get(ws::ws_job_log_handler));
 
+    // Accept Personal Access Tokens on the REST API by translating them to a
+    // Bearer JWT before the (JWT-only) handlers run.
+    let api_v1 = api_v1.layer(axum::middleware::from_fn_with_state(
+        state.clone(),
+        pat_auth_middleware,
+    ));
+
     (api_v1, git_routes)
 }
 
@@ -730,6 +737,77 @@ async fn resolve_pat(db: &DatabaseConnection, token: &str) -> Option<i64> {
         }
     }
     Some(tok.user_id)
+}
+
+/// Axum middleware: translate a valid Personal Access Token into an equivalent
+/// `Authorization: Bearer <JWT>` so the JWT-only API handlers accept PATs.
+///
+/// Requests already carrying a valid JWT, or no credentials, pass through
+/// unchanged. The PAT may be presented as `Bearer <pat>`, `token <pat>`, or
+/// HTTP Basic auth (`user:pat`).
+async fn pat_auth_middleware(
+    State(state): State<AppState>,
+    mut req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    if let Some(jwt) = pat_to_bearer_jwt(&state, req.headers()).await {
+        if let Ok(value) = format!("Bearer {jwt}").parse() {
+            req.headers_mut().insert(header::AUTHORIZATION, value);
+        }
+    }
+    next.run(req).await
+}
+
+/// If the Authorization header carries a valid PAT (and not already a valid
+/// JWT), return a freshly-minted JWT for the token's owner. Returns the
+/// existing JWT for a Basic-auth request that carries one. Otherwise `None`.
+async fn pat_to_bearer_jwt(state: &AppState, headers: &axum::http::HeaderMap) -> Option<String> {
+    let auth = headers.get(header::AUTHORIZATION)?.to_str().ok()?;
+
+    let candidates: Vec<String> = if let Some(t) = auth
+        .strip_prefix("Bearer ")
+        .or_else(|| auth.strip_prefix("token "))
+    {
+        // A valid JWT bearer needs no translation.
+        if rg_core::auth::jwt::validate_token(t, &state.jwt_secret).is_some() {
+            return None;
+        }
+        vec![t.to_string()]
+    } else if let Some(encoded) = auth.strip_prefix("Basic ") {
+        use base64::Engine as _;
+        let decoded = base64::engine::general_purpose::STANDARD.decode(encoded).ok()?;
+        let creds = String::from_utf8(decoded).ok()?;
+        let (user, pass) = creds.split_once(':')?;
+        // Token may be in either the password (`user:token`) or username field.
+        [pass, user]
+            .into_iter()
+            .filter(|c| !c.is_empty())
+            .map(|c| c.to_string())
+            .collect()
+    } else {
+        return None;
+    };
+
+    for cand in candidates {
+        // A JWT carried via Basic auth: pass it through as a Bearer token.
+        if rg_core::auth::jwt::validate_token(&cand, &state.jwt_secret).is_some() {
+            return Some(cand);
+        }
+        if let Some(user_id) = resolve_pat(&state.db, &cand).await {
+            let username = rg_db::ops::user_ops::find_by_id(&state.db, user_id)
+                .await
+                .ok()
+                .flatten()
+                .map(|u| u.username)
+                .unwrap_or_default();
+            if let Ok(jwt) =
+                rg_core::auth::jwt::generate_token(user_id, &username, &state.jwt_secret, 1)
+            {
+                return Some(jwt);
+            }
+        }
+    }
+    None
 }
 
 /// Extract the authenticated user id from a git-over-HTTP request.
