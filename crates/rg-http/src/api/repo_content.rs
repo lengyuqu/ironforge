@@ -158,9 +158,29 @@ pub async fn list_tree(
     match result {
         Ok(entries) => (StatusCode::OK, Json(entries)).into_response(),
         Err(e) => {
+            // A freshly-created repo with no commits has an unborn HEAD, which
+            // can't be resolved to a tree. That's not an error — return an
+            // empty tree so the UI can render the empty-repo state.
+            if is_empty_repo(&repo_path) {
+                return (StatusCode::OK, Json(Vec::<TreeEntry>::new())).into_response();
+            }
             tracing::error!(%e, "list_tree failed");
             AppError::internal(e).into_response()
         }
+    }
+}
+
+/// Returns true if the repository has no commits yet (unborn HEAD), e.g. a
+/// repo that was just created but never pushed to.
+fn is_empty_repo(repo_path: &std::path::Path) -> bool {
+    match gix::open(repo_path) {
+        Ok(repo) => match repo.head() {
+            // `Head::id()` is None when HEAD points at a branch that doesn't
+            // exist yet (no commits).
+            Ok(head) => head.id().is_none(),
+            Err(_) => true,
+        },
+        Err(_) => false,
     }
 }
 

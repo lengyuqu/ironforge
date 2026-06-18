@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { isLoggedIn, getUser } from '$lib/stores/auth';
-  import { repos } from '$lib/api/client';
+  import { isLoggedIn, getUser } from '$lib/stores/auth.svelte';
+  import { repos } from '$lib/api/client.svelte';
   import { goto } from '$app/navigation';
   import { createT, formatDate } from '$lib/i18n';
 

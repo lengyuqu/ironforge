@@ -1,6 +1,6 @@
 // Auth state store using Svelte 5 runes
 
-import { setToken, getToken, auth } from '$lib/api/client';
+import { setToken, getToken, auth } from '$lib/api/client.svelte';
 
 interface User {
   id: number;

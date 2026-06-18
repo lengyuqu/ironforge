@@ -1,7 +1,7 @@
 <script lang="ts">
   import { page } from '$app/stores';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
-  import { issues, timeTracking } from '$lib/api/client';
+  import { issues, timeTracking } from '$lib/api/client.svelte';
   import { createT } from '$lib/i18n';
 
   const t = createT();

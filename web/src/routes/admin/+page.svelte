@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { isLoggedIn, isAdmin, getUser } from '$lib/stores/auth';
+  import { isLoggedIn, isAdmin, getUser } from '$lib/stores/auth.svelte';
   import { goto } from '$app/navigation';
   import { createT } from '$lib/i18n';
 

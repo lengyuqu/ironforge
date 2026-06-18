@@ -2,7 +2,7 @@
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
-  import { releases, repos } from '$lib/api/client';
+  import { releases, repos } from '$lib/api/client.svelte';
   import { createT } from '$lib/i18n';
 
   const t = createT();

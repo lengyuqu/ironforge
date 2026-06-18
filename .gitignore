@@ -38,3 +38,4 @@ web/node_modules/
 web/.svelte-kit/
 web/build/
 web/dist/
+deploy/docker-compose.override.yml

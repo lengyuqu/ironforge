@@ -1,6 +1,6 @@
 <script lang="ts">
   import { page } from '$app/stores';
-  import { repos } from '$lib/api/client';
+  import { repos } from '$lib/api/client.svelte';
 
   // Svelte 5 runes
   let owner = $derived($page.params.owner!);

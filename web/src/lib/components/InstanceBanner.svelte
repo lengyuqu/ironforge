@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { getBanner, clearBanner } from '$lib/stores/instance';
+  import { getBanner, clearBanner } from '$lib/stores/instance.svelte';
 
   let { message, type } = $derived(getBanner());
 </script>

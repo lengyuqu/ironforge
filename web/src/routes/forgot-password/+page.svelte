@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { auth } from '$lib/api/client';
+  import { auth } from '$lib/api/client.svelte';
   import { createT } from '$lib/i18n';
 
   const t = createT();

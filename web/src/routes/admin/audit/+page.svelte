@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { isLoggedIn, isAdmin } from '$lib/stores/auth';
+  import { isLoggedIn, isAdmin } from '$lib/stores/auth.svelte';
   import { goto } from '$app/navigation';
   import { createT, formatDate, formatDateTime } from '$lib/i18n';
-  import { admin, type AuditLogEntry } from '$lib/api/client';
+  import { admin, type AuditLogEntry } from '$lib/api/client.svelte';
 
   const t = createT();
 

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { auth } from '$lib/api/client';
-  import { setToken } from '$lib/api/client';
+  import { auth } from '$lib/api/client.svelte';
+  import { setToken } from '$lib/api/client.svelte';
 
   let token = $state('');
   let password = $state('');

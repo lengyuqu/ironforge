@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { notifications, connectNotificationWebSocket } from '$lib/api/client';
-  import { getUser, isLoggedIn } from '$lib/stores/auth';
+  import { notifications, connectNotificationWebSocket } from '$lib/api/client.svelte';
+  import { getUser, isLoggedIn } from '$lib/stores/auth.svelte';
   import { createT, formatDateTime } from '$lib/i18n';
 
   const t = createT();

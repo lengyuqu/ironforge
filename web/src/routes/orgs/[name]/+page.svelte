@@ -1,6 +1,6 @@
 <script lang="ts">
   import { page } from '$app/state';
-  import { orgs, repos } from '$lib/api/client';
+  import { orgs, repos } from '$lib/api/client.svelte';
   import { createT, formatDate } from '$lib/i18n';
 
   const t = createT();

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { createT } from '$lib/i18n';
-  import { getUser, isLoggedIn } from '$lib/stores/auth';
-  import { repos } from '$lib/api/client';
+  import { getUser, isLoggedIn } from '$lib/stores/auth.svelte';
+  import { repos } from '$lib/api/client.svelte';
   import { goto } from '$app/navigation';
 
   const t = createT();

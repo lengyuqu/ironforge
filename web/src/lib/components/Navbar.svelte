@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { getUser, isLoggedIn, isAdmin, logout } from '$lib/stores/auth';
+  import { getUser, isLoggedIn, isAdmin, logout } from '$lib/stores/auth.svelte';
   import { locale, type Locale } from '$lib/i18n';
 
   let showUserMenu = $state(false);

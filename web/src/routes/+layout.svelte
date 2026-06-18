@@ -2,8 +2,8 @@
   import '$lib/app.css';
   import Navbar from '$lib/components/Navbar.svelte';
   import InstanceBanner from '$lib/components/InstanceBanner.svelte';
-  import { fetchUser } from '$lib/stores/auth';
-  import { registerKeyboardShortcuts } from '$lib/stores/instance';
+  import { fetchUser } from '$lib/stores/auth.svelte';
+  import { registerKeyboardShortcuts } from '$lib/stores/instance.svelte';
   import { locale } from '$lib/i18n';
   import { onMount } from 'svelte';
   import type { Snippet } from 'svelte';

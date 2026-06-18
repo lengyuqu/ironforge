@@ -3,7 +3,7 @@
   import { onDestroy } from 'svelte';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
   import PipelineBadge from '$lib/components/PipelineBadge.svelte';
-  import { pipelines } from '$lib/api/client';
+  import { pipelines } from '$lib/api/client.svelte';
   import { createT, formatDate } from '$lib/i18n';
 
   const t = createT();

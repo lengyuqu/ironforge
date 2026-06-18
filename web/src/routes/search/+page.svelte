@@ -2,7 +2,7 @@
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
   import { createT } from '$lib/i18n';
-  import { search, type SearchResult } from '$lib/api/client';
+  import { search, type SearchResult } from '$lib/api/client.svelte';
   import { highlightText } from '$lib/utils/search';
 
   const t = createT();

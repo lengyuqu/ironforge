@@ -2,7 +2,7 @@
   import { page } from '$app/stores';
   import { onMount } from 'svelte';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
-  import { wiki } from '$lib/api/client';
+  import { wiki } from '$lib/api/client.svelte';
   import { createT, formatDate } from '$lib/i18n';
   import { marked } from 'marked';
 

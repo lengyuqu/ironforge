@@ -2,7 +2,7 @@
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
   import { createT } from '$lib/i18n';
-  import { setBanner } from '$lib/stores/instance';
+  import { setBanner } from '$lib/stores/instance.svelte';
 
   const t = createT();
 

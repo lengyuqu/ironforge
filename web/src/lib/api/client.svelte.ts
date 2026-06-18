@@ -51,7 +51,14 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `HTTP ${res.status}`);
+    // Backend error envelope is { error: { code, message, request_id } }.
+    // Reading body.error directly yields "[object Object]" in the UI, so pull
+    // out the human-readable message (falling back for older/plain shapes).
+    const msg =
+      (body?.error && typeof body.error === 'object' ? body.error.message : body?.error) ||
+      body?.message ||
+      `HTTP ${res.status}`;
+    throw new Error(msg);
   }
 
   return res.json();

@@ -38,7 +38,7 @@ use tower_http::limit::RequestBodyLimitLayer;
 
 // gix is used via `gix::open()` etc. — crate available at crate root
 use tower_http::trace::TraceLayer;
-use tower_http::services::ServeDir;
+use tower_http::services::{ServeDir, ServeFile};
 
 /// Shared application state injected into every Axum handler via `State<AppState>`.
 #[derive(Clone)]
@@ -266,7 +266,11 @@ fn build_router(state: AppState, rate_limiter: rate_limit::RateLimiter) -> Route
         .route("/api-docs/{*tail}", get(swagger_ui_handler))
         // Serve SvelteKit static assets if the build directory exists
         .fallback_service(
-            ServeDir::new("web/build").fallback(ServeDir::new("web/build/index.html"))
+            // SPA fallback: serve static assets, and for any unmatched path
+            // (client-side routes like /login, /dashboard) return index.html.
+            // Must use ServeFile here — ServeDir treats its arg as a directory,
+            // so pointing it at index.html would 404 every unknown path.
+            ServeDir::new("web/build").fallback(ServeFile::new("web/build/index.html"))
         )
         // ── Middleware layers (order: bottom-up, last .layer() runs first) ──
         .layer(axum::middleware::from_fn(middleware::http_metrics_middleware))

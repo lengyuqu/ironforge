@@ -2,7 +2,7 @@
   import { page } from '$app/stores';
   import { onMount } from 'svelte';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
-  import { boards } from '$lib/api/client';
+  import { boards } from '$lib/api/client.svelte';
   import { createT } from '$lib/i18n';
 
   const t = createT();

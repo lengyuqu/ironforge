@@ -1,8 +1,8 @@
 <script lang="ts">
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
-  import { repos } from '$lib/api/client';
-  import { getUser } from '$lib/stores/auth';
+  import { repos } from '$lib/api/client.svelte';
+  import { getUser } from '$lib/stores/auth.svelte';
   import { createT } from '$lib/i18n';
 
   interface Repository {

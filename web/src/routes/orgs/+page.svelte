@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { orgs } from '$lib/api/client';
+  import { orgs } from '$lib/api/client.svelte';
   import { goto } from '$app/navigation';
   import { createT } from '$lib/i18n';
 

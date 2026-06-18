@@ -1,7 +1,7 @@
 <script lang="ts">
   import { page } from '$app/stores';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
-  import { boards } from '$lib/api/client';
+  import { boards } from '$lib/api/client.svelte';
 
   let owner = $derived($page.params.owner!);
   let repo = $derived($page.params.repo!);

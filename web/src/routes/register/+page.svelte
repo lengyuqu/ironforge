@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { register, getAuthError, getAuthLoading } from '$lib/stores/auth';
+  import { register, getAuthError, getAuthLoading } from '$lib/stores/auth.svelte';
   import { createT } from '$lib/i18n';
 
   const t = createT();
