@@ -14,9 +14,9 @@
     "optional": "(optional)",
     "unknown": "unknown",
     "created": "Created {date}",
-    "no_description": "No description"
+    "no_description": "No description",
+    "updated": "Updated {date}"
   },
-
   "nav": {
     "dashboard": "Dashboard",
     "notifications": "Notifications",
@@ -25,7 +25,6 @@
     "live": "Live",
     "offline": "Offline"
   },
-
   "home": {
     "tagline": "Self-hosted Git platform built with Rust",
     "features": {
@@ -41,9 +40,13 @@
     "cta": {
       "go_dashboard": "Go to Dashboard",
       "create_account": "Create account"
+    },
+    "explore": {
+      "title": "Explore repositories",
+      "view_all": "View all",
+      "empty": "No public repositories yet"
     }
   },
-
   "auth": {
     "login": {
       "title": "Sign in to IronForge",
@@ -67,7 +70,6 @@
       "failed": "Registration failed"
     }
   },
-
   "dashboard": {
     "title": "Dashboard",
     "new_repo": "New Repository",
@@ -77,6 +79,15 @@
       "name_placeholder": "my-project",
       "desc": "Description",
       "private": "Private repository",
+      "private_hint": "Only you and the collaborators you specify can see this repository.",
+      "auto_init": "Initialize repository",
+      "auto_init_hint": "Initialize this repository with template files (README, LICENSE, .gitignore).",
+      "default_branch": "Default branch",
+      "gitignore_template": ".gitignore template",
+      "license_template": "License template",
+      "readme_template": "README template",
+      "label_set": "Default label set",
+      "none": "None",
       "submit": "Create repository",
       "cancel": "Cancel"
     },
@@ -88,7 +99,6 @@
       "private": "Private"
     }
   },
-
   "notifications": {
     "title": "Notifications",
     "unread_only": "Unread only",
@@ -97,7 +107,6 @@
     "empty": "No notifications",
     "hint": "Real-time updates are active — new notifications will appear instantly."
   },
-
   "orgs": {
     "create_title": "Create Organization",
     "name": "Name",
@@ -128,7 +137,6 @@
       "admin": "Admin"
     }
   },
-
   "repo": {
     "tabs": {
       "code": "Code",
@@ -152,6 +160,21 @@
     "fork": "Fork",
     "forking": "Forking...",
     "forks": "Forks",
+    "clone": "Clone",
+    "clone_http": "HTTPS",
+    "clone_ssh": "SSH",
+    "clone_copied": "Copied",
+    "empty": {
+      "title": "Quick setup",
+      "desc": "If you're new here and want to get started quickly, the easiest way is to push an existing repository.",
+      "step_clone": "Clone the repository to your local machine",
+      "step_create": "Create new files or import an existing project",
+      "step_push": "Commit and push to the remote repository",
+      "quick": "Create a new repository",
+      "existing": "Push an existing repository",
+      "copy": "Copy",
+      "copied": "Copied"
+    },
     "packages": {
       "title": "Packages",
       "subtitle": "Package registry for {format}",
@@ -238,9 +261,12 @@
       "b": "B",
       "kb": "KB",
       "mb": "MB"
-    }
+    },
+    "code": "Code",
+    "clone_title": "Clone",
+    "copy_clone_url": "Copy URL to clipboard",
+    "download_zip": "Download ZIP"
   },
-
   "issues": {
     "title": "Issues",
     "tabs": {
@@ -272,13 +298,12 @@
     "comment": "Comment",
     "comment_placeholder": "Add a comment..."
   },
-
   "pulls": {
     "title": "Pull Requests",
     "tabs": {
-      "open": "● Open",
-      "closed": "✓ Closed",
-      "merged": "⊛ Merged"
+      "conversation": "Conversation",
+      "changes": "Changes",
+      "reviews": "Reviews"
     },
     "new": "New Pull Request",
     "create_form": {
@@ -308,11 +333,6 @@
       "button": "Merge pull request",
       "merging": "Merging..."
     },
-    "tabs": {
-      "conversation": "Conversation",
-      "changes": "Changes",
-      "reviews": "Reviews"
-    },
     "verdict": {
       "approved": "✓ Approved",
       "changes_requested": "✗ Requested changes",
@@ -327,7 +347,6 @@
       "submit": "Submit Review"
     }
   },
-
   "wiki": {
     "title": "Wiki",
     "pages": "Wiki Pages",
@@ -349,7 +368,6 @@
     "back": "Back to Wiki",
     "not_found": "Page not found"
   },
-
   "pipeline": {
     "status": {
       "pending": "Pending",
@@ -371,7 +389,6 @@
     "jobs": "Jobs",
     "select_detail": "Select a pipeline to view details."
   },
-
   "errors": {
     "login_failed": "Login failed",
     "register_failed": "Registration failed",
@@ -382,7 +399,6 @@
     "load_failed": "Failed to load",
     "create_failed": "Failed to create"
   },
-
   "search": {
     "title": "Search",
     "placeholder": "Search repos, issues, wiki...",
@@ -394,7 +410,6 @@
     "results_count": "{total} results",
     "search_button": "Search"
   },
-
   "releases": {
     "title": "Releases",
     "new": "New release",
@@ -420,7 +435,6 @@
     "edit": "Edit",
     "delete": "Delete"
   },
-
   "settings": {
     "title": "Settings",
     "general": "General",
@@ -460,7 +474,6 @@
       "success": "Repository deleted."
     }
   },
-
   "commit": {
     "status": "Status checks",
     "success": "Success",
@@ -472,7 +485,6 @@
     "description": "Description",
     "details": "Details"
   },
-
   "admin": {
     "title": "Admin Panel",
     "subtitle": "Site administration and user management",
@@ -511,5 +523,16 @@
         "details": "Details"
       }
     }
+  },
+  "profile": {
+    "no_repos": "This user has no public repositories.",
+    "private": "Private"
+  },
+  "explore": {
+    "title": "Explore",
+    "subtitle": "{count} public repositories",
+    "empty": "No public repositories yet.",
+    "prev": "Previous",
+    "next": "Next"
   }
 }

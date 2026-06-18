@@ -152,7 +152,7 @@
   <title>{title} · {owner}/{repo} Wiki · IronForge</title>
 </svelte:head>
 
-<div class="repo-page">
+<div class="page-container">
   <RepoHeader {owner} {repo} activeTab="wiki" />
 
   {#if error}
@@ -264,10 +264,7 @@
 </div>
 
 <style>
-  .repo-page { max-width: 1100px; margin: 0 auto; padding: 24px; }
-
-  .error-banner { background: rgba(248, 81, 73, 0.1); border: 1px solid var(--red-dim); color: var(--red); border-radius: var(--radius); padding: 10px 14px; font-size: 13px; }
-  .empty { text-align: center; padding: 48px; color: var(--text-secondary); }
+.empty { text-align: center; padding: 48px; color: var(--text-secondary); }
 
   /* ── Layout ── */
   .wiki-layout {
@@ -276,7 +273,7 @@
     gap: 24px;
     align-items: start;
   }
-  @media (max-width: 768px) { .wiki-layout { grid-template-columns: 1fr; } }
+  @media (max-width: 900px) { .wiki-layout { grid-template-columns: 1fr; } }
 
   /* ── Sidebar ── */
   .wiki-sidebar {
@@ -380,45 +377,45 @@
   .form-actions { display: flex; gap: 8px; margin-top: 12px; }
 
   /* ── Markdown Content ── */
-  .markdown-body {
+  :global(.wiki-main .markdown-body) {
     line-height: 1.7;
     font-size: 15px;
     color: var(--text-primary);
     overflow-x: auto;
   }
-  .markdown-body h1, .markdown-body h2, .markdown-body h3,
-  .markdown-body h4, .markdown-body h5, .markdown-body h6 {
+  :global(.wiki-main .markdown-body h1), :global(.wiki-main .markdown-body h2), :global(.wiki-main .markdown-body h3),
+  :global(.wiki-main .markdown-body h4), :global(.wiki-main .markdown-body h5), :global(.wiki-main .markdown-body h6) {
     margin: 1.2em 0 0.6em;
     color: var(--text-primary);
     scroll-margin-top: 24px;
   }
-  .markdown-body h1 { font-size: 1.8em; border-bottom: 1px solid var(--border-light); padding-bottom: 6px; }
-  .markdown-body h2 { font-size: 1.5em; border-bottom: 1px solid var(--border-light); padding-bottom: 4px; }
-  .markdown-body h3 { font-size: 1.25em; }
-  .markdown-body p { margin: 0 0 12px; }
-  .markdown-body a { color: var(--accent); }
-  .markdown-body code {
+  :global(.wiki-main .markdown-body h1) { font-size: 1.8em; border-bottom: 1px solid var(--border-light); padding-bottom: 6px; }
+  :global(.wiki-main .markdown-body h2) { font-size: 1.5em; border-bottom: 1px solid var(--border-light); padding-bottom: 4px; }
+  :global(.wiki-main .markdown-body h3) { font-size: 1.25em; }
+  :global(.wiki-main .markdown-body p) { margin: 0 0 12px; }
+  :global(.wiki-main .markdown-body a) { color: var(--accent); }
+  :global(.wiki-main .markdown-body code) {
     background: var(--bg-tertiary); padding: 2px 6px; border-radius: 3px;
     font-size: 13px; font-family: var(--font-mono);
   }
-  .markdown-body pre {
+  :global(.wiki-main .markdown-body pre) {
     background: #1a1a2e; color: #e0e0e0; padding: 14px; border-radius: 6px;
     overflow-x: auto; font-size: 13px; line-height: 1.5;
   }
-  .markdown-body pre code { background: none; padding: 0; }
-  .markdown-body blockquote {
+  :global(.wiki-main .markdown-body pre code) { background: none; padding: 0; }
+  :global(.wiki-main .markdown-body blockquote) {
     border-left: 4px solid var(--accent); padding: 4px 16px; margin: 12px 0;
     color: var(--text-secondary); background: var(--bg-primary); border-radius: 0 4px 4px 0;
   }
-  .markdown-body table { border-collapse: collapse; width: 100%; margin: 12px 0; }
-  .markdown-body th, .markdown-body td {
+  :global(.wiki-main .markdown-body table) { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  :global(.wiki-main .markdown-body th), :global(.wiki-main .markdown-body td) {
     border: 1px solid var(--border); padding: 8px 12px; text-align: left; font-size: 14px;
   }
-  .markdown-body th { background: var(--bg-tertiary); font-weight: 600; }
-  .markdown-body ul, .markdown-body ol { padding-left: 24px; margin: 8px 0; }
-  .markdown-body li { margin: 4px 0; }
-  .markdown-body img { max-width: 100%; border-radius: 4px; }
-  .markdown-body hr { border: none; border-top: 1px solid var(--border); margin: 24px 0; }
+  :global(.wiki-main .markdown-body th) { background: var(--bg-tertiary); font-weight: 600; }
+  :global(.wiki-main .markdown-body ul), :global(.wiki-main .markdown-body ol) { padding-left: 24px; margin: 8px 0; }
+  :global(.wiki-main .markdown-body li) { margin: 4px 0; }
+  :global(.wiki-main .markdown-body img) { max-width: 100%; border-radius: 4px; }
+  :global(.wiki-main .markdown-body hr) { border: none; border-top: 1px solid var(--border); margin: 24px 0; }
 
   .wiki-footer { margin-top: 32px; padding-top: 16px; border-top: 1px solid var(--border-light); }
   .back-link { color: var(--accent); text-decoration: none; font-size: 14px; }

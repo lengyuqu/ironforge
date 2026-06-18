@@ -1,6 +1,22 @@
 // IronForge API Client
 
-const API_BASE = '/api/v1';
+const configuredApiBase =
+  typeof import.meta !== 'undefined'
+    ? (import.meta as { env?: { VITE_API_BASE?: string } }).env?.VITE_API_BASE
+    : undefined;
+
+function normalizeApiBase(value?: string): string {
+  if (!value) return '/api/v1';
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === '/') return '/api/v1';
+  return trimmed.endsWith('/') ? trimmed.slice(0, -1) : trimmed;
+}
+
+const API_BASE = normalizeApiBase(configuredApiBase);
+
+function withApiBase(path: string): string {
+  return `${API_BASE}${path.startsWith('/') ? path : `/${path}`}`;
+}
 
 let authToken = $state<string | null>(null);
 
@@ -44,7 +60,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await fetch(withApiBase(path), {
     ...options,
     headers,
   });
@@ -104,13 +120,35 @@ export const repos = {
     request<PaginatedResponse<{ id: number; name: string; description: string | null; is_private: boolean; created_at: string }>>(
       `/repos/${owner}${qs({ page, per_page: perPage })}`
     ),
+  explore: (page?: number, perPage?: number) =>
+    request<PaginatedResponse<{ id: number; owner_id: number; name: string; description: string | null; stars_count: number; updated_at: string }>>(
+      `/repos/explore${qs({ page, per_page: perPage })}`
+    ),
   get: (owner: string, name: string) =>
     request<{ id: number; name: string; description: string | null; is_private: boolean; default_branch: string; created_at: string }>(`/repos/${owner}/${name}`),
-  create: (name: string, description?: string, is_private?: boolean, org?: string) =>
+  create: (opts: {
+    name: string;
+    description?: string;
+    is_private?: boolean;
+    org?: string;
+    auto_init?: boolean;
+    default_branch?: string;
+    gitignores?: string;
+    license?: string;
+    readme?: string;
+    issue_labels?: string;
+  }) =>
     request<{ id: number; name: string }>('/repos', {
       method: 'POST',
-      body: JSON.stringify({ name, description, is_private, org }),
+      body: JSON.stringify(opts),
     }),
+  // Template listing
+  templates: {
+    gitignores: () => request<{ data: { key: string; name: string; description: string }[] }>('/repos/templates/gitignores'),
+    licenses: () => request<{ data: { key: string; name: string; description: string }[] }>('/repos/templates/licenses'),
+    readmes: () => request<{ data: { key: string; name: string; description: string }[] }>('/repos/templates/readmes'),
+    labels: () => request<{ data: { key: string; name: string; description: string }[] }>('/repos/templates/labels'),
+  },
   // Content browsing
   tree: (owner: string, repo: string, ref?: string, path?: string) => {
     return request<{ entries: { name: string; kind: string; size?: number }[] }>(`/repos/${owner}/${repo}/tree${qs({ ref, path })}`);
@@ -278,6 +316,10 @@ export const wiki = {
   history: (owner: string, repo: string, title: string) =>
     request<any[]>(`/repos/${owner}/${repo}/wiki/${encodeURIComponent(title)}/history`),
   revision: (owner: string, repo: string, title: string, revId: number) =>
+    request<any>(`/repos/${owner}/${repo}/wiki/${encodeURIComponent(title)}/revisions/${revId}`),
+  listRevisions: (owner: string, repo: string, title: string) =>
+    request<any[]>(`/repos/${owner}/${repo}/wiki/${encodeURIComponent(title)}/history`),
+  getRevision: (owner: string, repo: string, title: string, revId: number) =>
     request<any>(`/repos/${owner}/${repo}/wiki/${encodeURIComponent(title)}/revisions/${revId}`),
 };
 

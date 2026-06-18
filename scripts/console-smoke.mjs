@@ -17,13 +17,17 @@
 // fetch + WebSocket, Node >= 21).
 
 import { spawn } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, relative, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const BASE = process.env.BASE || 'http://localhost:8080';
 const PORT = Number(process.env.CDP_PORT || 9223);
 const WAIT_MS = Number(process.env.WAIT_MS || 4000);
+const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
+const ROOT = join(SCRIPT_DIR, '..');
+const ROUTES_DIR = join(ROOT, 'web', 'src', 'routes');
 // Expected noise while crawling logged-out: the browser logs a generic
 // "Failed to load resource" console.error for every 401/403 fetch.
 const IGNORE = [
@@ -31,13 +35,64 @@ const IGNORE = [
   /the server responded with a status of (401|403)/,
 ];
 
-const ROUTES = process.argv.slice(2).length
-  ? process.argv.slice(2)
-  : [
-      '/', '/login', '/register', '/dashboard', '/notifications',
-      '/search', '/orgs', '/forgot-password',
-      '/admin', '/admin/users', '/admin/orgs', '/admin/audit', '/admin/settings',
-    ];
+const DYNAMIC_SEGMENTS = {
+  owner: 'testuser',
+  repo: 'testrepo',
+  name: 'testorg',
+  id: '1',
+  number: '1',
+  sha: 'main',
+  branch: 'main',
+  path: 'README.md',
+};
+
+function walkRouteFiles(dir, files = []) {
+  if (!existsSync(dir)) return files;
+  for (const entry of readdirSync(dir).sort()) {
+    const fullPath = join(dir, entry);
+    const stat = statSync(fullPath);
+    if (stat.isDirectory()) {
+      walkRouteFiles(fullPath, files);
+    } else if (entry === '+page.svelte') {
+      files.push(fullPath);
+    }
+  }
+  return files;
+}
+
+function segmentValue(segment) {
+  const name = segment.replace(/^\[\[?/, '').replace(/\]?\]$/, '').replace(/^\.\.\./, '');
+  return DYNAMIC_SEGMENTS[name] || 'demo';
+}
+
+function routeFromPageFile(file) {
+  const rel = relative(ROUTES_DIR, dirname(file));
+  if (!rel || rel === '.') return '/';
+  const parts = rel.split(sep).filter(Boolean).map((part) => {
+    if (part.startsWith('(') && part.endsWith(')')) return null;
+    if (part.startsWith('[') && part.endsWith(']')) return segmentValue(part);
+    return part;
+  }).filter(Boolean);
+  return `/${parts.join('/')}`;
+}
+
+function discoverRoutes() {
+  return Array.from(new Set(walkRouteFiles(ROUTES_DIR).map(routeFromPageFile))).sort((a, b) => {
+    if (a === '/') return -1;
+    if (b === '/') return 1;
+    return a.localeCompare(b);
+  });
+}
+
+const cliRoutes = process.argv.slice(2).filter((arg) => arg !== '--list-routes');
+const ROUTES = cliRoutes.length
+  ? cliRoutes
+  : discoverRoutes();
+
+if (process.argv.includes('--list-routes')) {
+  for (const route of ROUTES) console.log(route);
+  process.exit(0);
+}
 
 const CHROME = process.env.CHROME ||
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
@@ -82,9 +137,9 @@ async function checkRoute(path) {
       if (!IGNORE.some((re) => re.test(txt))) problems.push('  ✖ console.error: ' + txt);
     } else if (d.method === 'Network.responseReceived') {
       const { url, status } = d.params.response;
-      // 401/403 on API calls are expected auth-gating while crawling logged-out.
-      const authGate = (status === 401 || status === 403) && url.includes('/api/');
-      if (status >= 400 && !authGate && !IGNORE.some((re) => re.test(url)))
+      // API 4xx responses are expected while crawling logged-out and with sample dynamic route params.
+      const expectedApiClientError = status >= 400 && status < 500 && url.includes('/api/');
+      if (status >= 400 && !expectedApiClientError && !IGNORE.some((re) => re.test(url)))
         problems.push(`  ✖ HTTP ${status}: ${url}`);
     }
   };

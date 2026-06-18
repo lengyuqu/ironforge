@@ -2,7 +2,7 @@
 
 use anyhow::{bail, Context, Result};
 use chrono::Utc;
-use sea_orm::{DatabaseConnection, EntityTrait, Set};
+use sea_orm::{ConnectionTrait, DatabaseConnection, EntityTrait, Set};
 
 use rg_db::entities::issue::{self, Model as Issue};
 use rg_db::entities::issue_comment::{self, Model as Comment};
@@ -45,6 +45,17 @@ pub async fn create_issue(
     };
 
     let issue = issue_ops::create(db, model).await?;
+
+    // Manually update FTS5 index (triggers are disabled)
+    let fts_sql = format!(
+        "INSERT INTO issues_fts(rowid, title, body) VALUES ({}, '{}', '{}')",
+        issue.id,
+        issue.title.replace('\'', "''"),
+        issue.body.as_deref().unwrap_or("").replace('\'', "''")
+    );
+    if let Err(e) = db.execute_unprepared(&fts_sql).await {
+        tracing::warn!(issue_id = issue.id, error = %e, "failed to update issues_fts index");
+    }
 
     // Trigger issue.opened webhook
     let payload = serde_json::json!({
@@ -236,6 +247,24 @@ pub async fn update_issue(
     active.updated_at = Set(Utc::now());
 
     let updated = issue_ops::update(db, active).await?;
+
+    // Update FTS5 index (non-fatal: full-text search will be temporarily stale)
+    let fts_title = updated.title.clone();
+    let fts_body = updated.body.clone().unwrap_or_default();
+    let fts_labels = updated.labels.clone().unwrap_or_default();
+    let issue_id = updated.id;
+    if let Err(e) = db.execute(sea_orm::Statement::from_sql_and_values(
+        sea_orm::DatabaseBackend::Sqlite,
+        r#"INSERT OR REPLACE INTO issues_fts(rowid, title, body, labels) VALUES (?, ?, ?, ?)"#,
+        [
+            issue_id.into(),
+            fts_title.into(),
+            fts_body.into(),
+            fts_labels.into(),
+        ],
+    )).await {
+        tracing::warn!(error = %e, issue_id = %issue_id, "failed to update issues_fts index");
+    }
 
     // Post-update side effects (non-fatal)
     if let Some(ref s) = state {

@@ -66,7 +66,7 @@
   <title>Packages · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
-<div class="repo-page">
+<div class="page-container">
   <RepoHeader owner={owner!} repo={repo!} activeTab="packages" />
 
   <div class="page-header">
@@ -150,11 +150,6 @@
 </div>
 
 <style>
-  .repo-page {
-    max-width: 900px;
-    margin: 0 auto;
-    padding: 24px;
-  }
 
   .page-header {
     display: flex;
@@ -183,18 +178,7 @@
     background: #e09a1e;
     text-decoration: none;
   }
-
-  .error-banner {
-    background: rgba(248, 81, 73, 0.1);
-    border: 1px solid var(--red-dim);
-    color: var(--red);
-    border-radius: var(--radius);
-    padding: 10px 14px;
-    font-size: 13px;
-    margin-bottom: 16px;
-  }
-
-  .filters {
+.filters {
     display: flex;
     gap: 16px;
     margin-bottom: 24px;

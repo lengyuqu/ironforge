@@ -86,6 +86,13 @@
     selectedLog = null;
   }
 
+  function closeDetailByKey(e: KeyboardEvent) {
+    if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      closeDetail();
+    }
+  }
+
   function prevPage() {
     if (page > 0) { page--; loadLogs(); }
   }
@@ -208,9 +215,15 @@
 </div>
 
 <!-- Detail modal -->
-{#if selectedLog}
-  <div class="modal-overlay" onclick={closeDetail}>
-    <div class="modal" role="dialog" aria-modal="true" onclick={(e) => e.stopPropagation()}>
+  {#if selectedLog}
+    <div
+      class="modal-overlay"
+      onclick={closeDetail}
+      role="button"
+      tabindex="0"
+      onkeydown={closeDetailByKey}
+    >
+      <div class="modal" role="dialog" aria-modal="true" tabindex="-1">
       <h2>{t('admin.audit.detail_title', { id: selectedLog.id })}</h2>
 
       <div class="detail-grid">
@@ -260,7 +273,6 @@
 {/if}
 
 <style>
-  .container { max-width: 1200px; margin: 2rem auto; padding: 0 1.5rem; }
   .header { margin-bottom: 1rem; }
   .back { color: var(--text-secondary); text-decoration: none; font-size: 0.9rem; }
   .back:hover { color: var(--accent); text-decoration: none; }

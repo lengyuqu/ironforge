@@ -70,7 +70,7 @@
   <title>PR #{number} · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
-<div class="repo-page">
+<div class="page-container">
   <RepoHeader {owner} {repo} activeTab="pulls" starsCount={0} />
 
   {#if error}
@@ -197,18 +197,7 @@
 </div>
 
 <style>
-  .repo-page { max-width: 1100px; margin: 0 auto; padding: 24px; }
-
-  .error-banner {
-    background: rgba(248, 81, 73, 0.1);
-    border: 1px solid var(--red-dim);
-    color: var(--red);
-    border-radius: var(--radius);
-    padding: 10px 14px;
-    font-size: 13px;
-  }
-
-  .pr-detail { max-width: 900px; }
+.pr-detail { max-width: 900px; }
 
   .pr-header { margin-bottom: 20px; }
   h1 { font-size: 24px; }

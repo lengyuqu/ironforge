@@ -396,6 +396,12 @@ fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
         .route("/auth/sso/{slug}/unlink", delete(api::sso::unlink_oauth_account))
         // Repos
         .route("/repos", post(api::repos::create_repo))
+        // Template listing & explore (must be before /repos/{owner} to avoid route conflict)
+        .route("/repos/templates/gitignores", get(api::repos::list_gitignore_templates))
+        .route("/repos/templates/licenses", get(api::repos::list_license_templates))
+        .route("/repos/templates/readmes", get(api::repos::list_readme_templates))
+        .route("/repos/templates/labels", get(api::repos::list_label_sets))
+        .route("/repos/explore", get(api::repos::explore))
         .route("/repos/{owner}", get(api::repos::list_repos))
         .route("/repos/{owner}/{name}", get(api::repos::get_repo))
         // Milestones (before issues to avoid routing conflicts)

@@ -3,6 +3,7 @@
   import { getUser, isLoggedIn } from '$lib/stores/auth.svelte';
   import { repos } from '$lib/api/client.svelte';
   import { goto } from '$app/navigation';
+  import { browser } from '$app/environment';
 
   const t = createT();
 
@@ -19,7 +20,53 @@
   let starred = $state(false);
   let watchState = $state<'not_watching' | 'watching' | 'ignoring'>('not_watching');
   let forking = $state(false);
-  let starsLocalCount = $state(starsCount);
+  let starsLocalCount = $state(0);
+
+  // Sync when prop changes
+  $effect(() => {
+    starsLocalCount = starsCount;
+  });
+
+  // Clone URLs
+  let showClone = $state(false);
+  let cloneTab = $state<'http' | 'ssh'>('http');
+  let httpCopied = $state(false);
+  let sshCopied = $state(false);
+
+  let httpCloneUrl = $derived(browser ? `${location.protocol}//${location.host}/${owner}/${repo}.git` : '');
+  let sshCloneUrl = $derived(browser ? `git@${location.hostname}:${owner}/${repo}.git` : '');
+
+  function copyUrl(url: string) {
+    navigator.clipboard.writeText(url);
+    if (cloneTab === 'http') {
+      httpCopied = true;
+      setTimeout(() => httpCopied = false, 2000);
+    } else {
+      sshCopied = true;
+      setTimeout(() => sshCopied = false, 2000);
+    }
+  }
+
+  function closeClone() {
+    showClone = false;
+  }
+
+  function handleCloneClick() {
+    showClone = !showClone;
+  }
+
+  function handleCloneKeydown(e: KeyboardEvent) {
+    if (e.key === 'Escape' && showClone) {
+      e.preventDefault();
+      closeClone();
+    }
+  }
+
+  $effect(() => {
+    if (showClone) {
+      document.getElementById('clone-dropdown')?.focus();
+    }
+  });
 
   // Check auth and load initial states
   $effect(() => {
@@ -134,6 +181,8 @@
   ]);
 </script>
 
+<svelte:window onkeydown={handleCloneKeydown} />
+
 <div class="repo-header">
   <div class="repo-top">
     <div class="repo-name">
@@ -144,30 +193,33 @@
 
     <div class="repo-actions">
       <button
-        class="action-btn"
-        class:starred
+        class="action-btn btn btn-outline btn-sm"
+        class:starred={starred}
+        class:btn-primary={starred}
         class:disabled={!isLoggedIn()}
         onclick={toggleStar}
         title={isLoggedIn() ? (starred ? t('repo.unstar') : t('repo.star')) : 'Login to star'}
+        aria-label={isLoggedIn() ? (starred ? t('repo.unstar') : t('repo.star')) : 'Login to star'}
       >
-        <span class="star-icon">{starred ? '⭐' : '☆'}</span>
+        <span class="star-icon" aria-hidden="true">{starred ? '⭐' : '☆'}</span>
         <span class="count">{starsLocalCount}</span>
       </button>
 
       <button
-        class="action-btn"
+        class="action-btn btn btn-outline btn-sm"
         class:watching={watchState !== 'not_watching'}
         class:ignoring={watchState === 'ignoring'}
         class:disabled={!isLoggedIn()}
         onclick={cycleWatch}
         title={isLoggedIn() ? getWatchLabel() : 'Login to watch'}
+        aria-label={isLoggedIn() ? getWatchLabel() : 'Login to watch'}
       >
-        <span class="watch-icon">👁</span>
+        <span class="watch-icon" aria-hidden="true">👁</span>
         <span class="label">{getWatchLabel()}</span>
       </button>
 
       <button
-        class="action-btn fork-btn"
+        class="action-btn btn btn-outline btn-sm fork-btn"
         class:loading={forking}
         class:disabled={!isLoggedIn()}
         onclick={handleFork}
@@ -177,6 +229,94 @@
         <span class="fork-icon">⚡</span>
         <span class="label">{forking ? t('repo.forking') : t('repo.fork')}</span>
       </button>
+
+      <div class="clone-area" style="position:relative">
+        <button
+          class="btn-code btn btn-primary"
+          onclick={handleCloneClick}
+          aria-haspopup="true"
+          aria-expanded={showClone}
+          aria-controls="clone-dropdown"
+          aria-label={t('repo.clone_title')}
+        >
+          <span class="code-icon" aria-hidden="true">⌄</span>
+          <span class="label">{t('repo.code')}</span>
+          <span class="caret" aria-hidden="true">▾</span>
+        </button>
+        {#if showClone}
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <div class="clone-backdrop" onclick={closeClone} role="presentation" tabindex="-1"></div>
+          <div
+            id="clone-dropdown"
+            class="clone-dropdown"
+            role="dialog"
+            aria-label={t('repo.clone_title')}
+            tabindex="-1"
+          >
+            <div class="clone-header">
+              <span class="clone-title">{t('repo.clone_title')}</span>
+            </div>
+
+            <!-- Tab bar -->
+            <div class="clone-tabs" role="tablist">
+              <button
+                class="clone-tab"
+                class:active={cloneTab === 'http'}
+                onclick={() => cloneTab = 'http'}
+                role="tab"
+                aria-selected={cloneTab === 'http'}
+                aria-label="HTTPS clone"
+              >HTTPS</button>
+              <button
+                class="clone-tab"
+                class:active={cloneTab === 'ssh'}
+                onclick={() => cloneTab = 'ssh'}
+                role="tab"
+                aria-selected={cloneTab === 'ssh'}
+                aria-label="SSH clone"
+              >SSH</button>
+            </div>
+
+            <!-- URL input with copy -->
+            <div class="clone-input-row">
+              <input
+                type="text"
+                class="clone-input"
+                readonly
+                value={cloneTab === 'http' ? httpCloneUrl : sshCloneUrl}
+                aria-label={t('repo.clone_url')}
+              />
+              <button
+                class="clone-copy-btn"
+                onclick={() => copyUrl(cloneTab === 'http' ? httpCloneUrl : sshCloneUrl)}
+                aria-label={t('repo.copy_clone_url')}
+                title={t('repo.copy_clone_url')}
+              >
+                {#if (cloneTab === 'http' && httpCopied) || (cloneTab === 'ssh' && sshCopied)}
+                  <span class="copied-check" aria-hidden="true">✓</span>
+                {:else}
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                    <path fill-rule="evenodd" d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 010 1.5h-1.5a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-1.5a.75.75 0 011.5 0v1.5A1.75 1.75 0 019.25 16h-7.5A1.75 1.75 0 010 14.25v-7.5z"></path>
+                    <path fill-rule="evenodd" d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0114.25 11h-7.5A1.75 1.75 0 015 9.25v-7.5zm1.75-.25a.25.25 0 00-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 00.25-.25v-7.5a.25.25 0 00-.25-.25h-7.5z"></path>
+                  </svg>
+                {/if}
+              </button>
+            </div>
+
+            <!-- Download ZIP -->
+            <div class="clone-footer">
+              <a href="/{owner}/{repo}/archive/main.zip" class="clone-footer-link" aria-label={t('repo.download_zip')}>
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                  <path fill-rule="evenodd" d="M2.75 14A1.75 1.75 0 011 12.25v-2.5a.75.75 0 011.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 00.25-.25v-2.5a.75.75 0 011.5 0v2.5A1.75 1.75 0 0113.25 14H2.75z"></path>
+                  <path fill-rule="evenodd" d="M7.25 1.75A.75.75 0 018.75 1v6.69l1.47-1.47a.75.75 0 111.06 1.06l-2.75 2.75a.75.75 0 01-1.06 0L4.72 7.28a.75.75 0 011.06-1.06l1.47 1.47V1.75z"></path>
+                </svg>
+                {t('repo.download_zip')}
+              </a>
+            </div>
+          </div>
+        {/if}
+      </div>
     </div>
   </div>
 
@@ -229,23 +369,11 @@
   }
 
   .action-btn {
-    display: flex;
+    display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 6px 12px;
-    font-size: 14px;
-    font-weight: 500;
-    color: var(--text-primary);
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    cursor: pointer;
-    transition: all 0.15s ease;
-  }
-
-  .action-btn:hover:not(.disabled) {
-    background: var(--bg-hover);
-    border-color: var(--text-muted);
+    line-height: 1.2;
+    white-space: nowrap;
   }
 
   .action-btn.disabled {
@@ -254,22 +382,20 @@
   }
 
   .action-btn.starred {
-    background: linear-gradient(135deg, #fff8e1 0%, #ffecb3 100%);
-    border-color: #ffc107;
-  }
-
-  .action-btn.starred .star-icon {
-    color: #ffc107;
+    background: var(--accent-weak);
+    border-color: var(--accent);
+    color: var(--accent);
   }
 
   .action-btn.watching {
-    background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+    background: var(--accent-weak);
     border-color: var(--accent);
+    color: var(--accent);
   }
 
   .action-btn.ignoring {
-    background: linear-gradient(135deg, #fafafa 0%, #eeeeee 100%);
-    border-color: var(--text-muted);
+    background: var(--bg-secondary);
+    border-color: var(--border);
     color: var(--text-muted);
   }
 
@@ -317,13 +443,164 @@
   .tab.active {
     color: var(--text-primary);
     font-weight: 600;
-    border-bottom-color: var(--orange);
+    border-bottom-color: var(--accent);
   }
   .tab-icon {
     font-size: 14px;
   }
 
-  @media (max-width: 640px) {
+  /* Clone dropdown — GitHub style */
+  .clone-area {
+    position: relative;
+  }
+
+  .btn-code {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 14px;
+    background: var(--green-dim);
+    color: #fff;
+    border: 1px solid rgba(27,31,36,0.15);
+    border-radius: var(--radius);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    line-height: 20px;
+  }
+  .btn-code:hover {
+    background: #1a7f37;
+  }
+
+  .code-icon {
+    font-size: 14px;
+    line-height: 1;
+  }
+
+  .caret {
+    font-size: 10px;
+    margin-left: 2px;
+    opacity: 0.7;
+  }
+
+  .clone-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 299;
+  }
+
+  .clone-dropdown {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 4px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    width: 340px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+    z-index: 300;
+  }
+
+  .clone-header {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .clone-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .clone-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .clone-tab {
+    flex: 1;
+    padding: 8px 12px;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    cursor: pointer;
+  }
+  .clone-tab:hover {
+    color: var(--text-primary);
+    background: var(--bg-secondary);
+  }
+  .clone-tab.active {
+    color: var(--text-primary);
+    font-weight: 600;
+    border-bottom-color: var(--accent);
+  }
+
+  .clone-input-row {
+    display: flex;
+    padding: 8px 12px;
+    gap: 0;
+  }
+
+  .clone-input {
+    flex: 1;
+    padding: 5px 8px;
+    font-size: 12px;
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    line-height: 20px;
+    border: 1px solid var(--border);
+    border-right: none;
+    border-radius: 6px 0 0 6px;
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    outline: none;
+  }
+
+  .clone-copy-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 5px 8px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-left: none;
+    border-radius: 0 6px 6px 0;
+    cursor: pointer;
+    color: var(--text-secondary);
+    min-width: 32px;
+  }
+  .clone-copy-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+
+  .copied-check {
+    color: var(--green);
+    font-size: 14px;
+    font-weight: 700;
+  }
+
+  .clone-footer {
+    padding: 8px 12px;
+    border-top: 1px solid var(--border);
+  }
+
+  .clone-footer-link {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--accent);
+    text-decoration: none;
+  }
+  .clone-footer-link:hover {
+    text-decoration: underline;
+  }
+
+  @media (max-width: 600px) {
     .repo-top {
       flex-direction: column;
     }

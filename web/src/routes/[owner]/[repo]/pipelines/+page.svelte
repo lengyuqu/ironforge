@@ -137,13 +137,27 @@
   }
 
   function isRunning(s: string) { return s === 'running' || s === 'pending'; }
+
+  function selectPipelineByKey(e: KeyboardEvent, id: number) {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      selectPipeline(id);
+    }
+  }
+
+  function closeLogByKey(e: KeyboardEvent) {
+    if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      closeLog();
+    }
+  }
 </script>
 
 <svelte:head>
   <title>CI/CD · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
-<div class="repo-page">
+<div class="page-container">
   <RepoHeader {owner} {repo} activeTab="pipelines" />
 
   {#if error}
@@ -164,7 +178,14 @@
         <h3>{t('repo.tabs.pipelines')}</h3>
         <div class="list-scroll">
           {#each pipelineList as p}
-            <div class="pipeline-item" class:active={selectedPipeline?.id === p.id} onclick={() => selectPipeline(p.id)} role="button" tabindex="0">
+            <div
+              class="pipeline-item"
+              class:active={selectedPipeline?.id === p.id}
+              onclick={() => selectPipeline(p.id)}
+              onkeydown={(e) => selectPipelineByKey(e, p.id)}
+              role="button"
+              tabindex="0"
+            >
               <PipelineBadge status={p.status} />
               <div class="pipeline-info">
                 <div class="pipeline-msg truncate">{p.commit_message?.split('\n')[0] || '#' + p.id}</div>
@@ -259,11 +280,24 @@
 
 <!-- Log Viewer Modal -->
 {#if showLogPanel}
-  <div class="log-overlay" onclick={closeLog} role="presentation">
-    <div class="log-modal" onclick={(e) => e.stopPropagation()} role="dialog">
+  <div class="log-overlay-wrap">
+    <button
+      type="button"
+      class="log-overlay"
+      onclick={closeLog}
+      aria-label={t('common.cancel')}
+    ></button>
+    <div
+      class="log-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="pipeline-log-title"
+      tabindex="-1"
+      onkeydown={closeLogByKey}
+    >
       <div class="log-header">
         <div>
-          <strong>{selectedJob?.name || 'Job Log'}</strong>
+          <strong id="pipeline-log-title">{selectedJob?.name || 'Job Log'}</strong>
           {#if selectedJob}
             <PipelineBadge status={selectedJob.status} />
           {/if}
@@ -276,18 +310,14 @@
 {/if}
 
 <style>
-  .repo-page { max-width: 1100px; margin: 0 auto; padding: 24px; }
-
-  .error-banner { background: rgba(248, 81, 73, 0.1); border: 1px solid var(--red-dim); color: var(--red); border-radius: var(--radius); padding: 10px 14px; font-size: 13px; }
-  .empty { text-align: center; padding: 48px; color: var(--text-secondary); }
-  .empty code { background: var(--bg-tertiary); padding: 2px 6px; border-radius: 3px; }
+.empty { text-align: center; padding: 48px; color: var(--text-secondary); }
 
   .pipeline-layout {
     display: grid;
     grid-template-columns: 320px 1fr;
     gap: 24px;
   }
-  @media (max-width: 768px) { .pipeline-layout { grid-template-columns: 1fr; } }
+  @media (max-width: 900px) { .pipeline-layout { grid-template-columns: 1fr; } }
 
   .pipeline-list {
     background: var(--bg-secondary);
@@ -425,13 +455,29 @@
   @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
   /* ── Log Viewer Modal ── */
-  .log-overlay {
-    position: fixed; inset: 0; z-index: 100;
-    background: rgba(0,0,0,0.5);
-    display: flex; align-items: center; justify-content: center;
+  .log-overlay-wrap {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     padding: 40px;
   }
+
+  .log-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    background: rgba(0,0,0,0.5);
+    border: none;
+    margin: 0;
+    padding: 0;
+    cursor: default;
+  }
   .log-modal {
+    position: relative;
+    z-index: 2;
     background: var(--bg-primary);
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);

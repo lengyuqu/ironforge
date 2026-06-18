@@ -232,7 +232,7 @@
     font-size: 0.9rem;
   }
   
-  .info-grid {
+.info-grid {
     display: flex;
     flex-direction: column;
     gap: 1.25rem;
@@ -243,8 +243,8 @@
     flex-direction: column;
     gap: 0.5rem;
   }
-  
-  .info-item label {
+
+  .info-label {
     font-size: 0.85rem;
     color: var(--text-secondary);
     font-weight: 500;

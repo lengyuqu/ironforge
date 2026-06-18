@@ -6,7 +6,7 @@ use sea_orm::{ActiveValue::Set, *};
 
 use crate::entities::repository::{self, ActiveModel as RepoActiveModel, Entity as RepoEntity, Model as Repo};
 
-/// Find a repo by (owner_id, name).
+/// Find a repo by (owner_id, name). Excludes soft-deleted repos.
 pub async fn find_by_owner_and_name(
     db: &DatabaseConnection,
     owner_id: i64,
@@ -15,23 +15,24 @@ pub async fn find_by_owner_and_name(
     RepoEntity::find()
         .filter(repository::Column::OwnerId.eq(owner_id))
         .filter(repository::Column::Name.eq(name))
+        .filter(repository::Column::DeletedAt.is_null())
         .one(db)
         .await
         .context("db: find repo by owner and name")
 }
 
-/// List all repos owned by a user.
+/// List all non-deleted repos owned by a user.
 pub async fn list_by_owner(db: &DatabaseConnection, owner_id: i64) -> Result<Vec<Repo>> {
     RepoEntity::find()
         .filter(repository::Column::OwnerId.eq(owner_id))
+        .filter(repository::Column::DeletedAt.is_null())
         .order_by_asc(repository::Column::Name)
         .all(db)
         .await
         .context("db: list repos by owner")
 }
 
-/// Paginated list of repos owned by a user.
-/// Returns (data, total) — SQL LIMIT/OFFSET pushed to the database.
+/// Paginated list of non-deleted repos owned by a user.
 pub async fn list_by_owner_paginated(
     db: &DatabaseConnection,
     owner_id: i64,
@@ -40,6 +41,7 @@ pub async fn list_by_owner_paginated(
 ) -> Result<(Vec<Repo>, i64)> {
     let base = RepoEntity::find()
         .filter(repository::Column::OwnerId.eq(owner_id))
+        .filter(repository::Column::DeletedAt.is_null())
         .order_by_asc(repository::Column::Name);
 
     let total = base.clone().count(db).await.context("db: count repos by owner")? as i64;
@@ -53,7 +55,7 @@ pub async fn list_by_owner_paginated(
     Ok((repos, total))
 }
 
-/// Find a repo by (org_id, name).
+/// Find a repo by (org_id, name). Excludes soft-deleted repos.
 pub async fn find_by_org_and_name(
     db: &DatabaseConnection,
     org_id: i64,
@@ -62,23 +64,24 @@ pub async fn find_by_org_and_name(
     RepoEntity::find()
         .filter(repository::Column::OrgId.eq(org_id))
         .filter(repository::Column::Name.eq(name))
+        .filter(repository::Column::DeletedAt.is_null())
         .one(db)
         .await
         .context("db: find repo by org and name")
 }
 
-/// List all repos belonging to an organization.
+/// List all non-deleted repos belonging to an organization.
 pub async fn list_by_org(db: &DatabaseConnection, org_id: i64) -> Result<Vec<Repo>> {
     RepoEntity::find()
         .filter(repository::Column::OrgId.eq(org_id))
+        .filter(repository::Column::DeletedAt.is_null())
         .order_by_asc(repository::Column::Name)
         .all(db)
         .await
         .context("db: list repos by org")
 }
 
-/// Paginated list of repos belonging to an organization.
-/// Returns (data, total) — SQL LIMIT/OFFSET pushed to the database.
+/// Paginated list of non-deleted repos belonging to an organization.
 pub async fn list_by_org_paginated(
     db: &DatabaseConnection,
     org_id: i64,
@@ -87,6 +90,7 @@ pub async fn list_by_org_paginated(
 ) -> Result<(Vec<Repo>, i64)> {
     let base = RepoEntity::find()
         .filter(repository::Column::OrgId.eq(org_id))
+        .filter(repository::Column::DeletedAt.is_null())
         .order_by_asc(repository::Column::Name);
 
     let total = base.clone().count(db).await.context("db: count repos by org")? as i64;
@@ -96,6 +100,28 @@ pub async fn list_by_org_paginated(
         .all(db)
         .await
         .context("db: list repos by org (paginated)")?;
+
+    Ok((repos, total))
+}
+
+/// Paginated list of public, non-deleted repos — ordered by recently updated.
+pub async fn list_public_paginated(
+    db: &DatabaseConnection,
+    offset: u64,
+    limit: u64,
+) -> Result<(Vec<Repo>, i64)> {
+    let base = RepoEntity::find()
+        .filter(repository::Column::IsPrivate.eq(false))
+        .filter(repository::Column::DeletedAt.is_null())
+        .order_by_desc(repository::Column::UpdatedAt);
+
+    let total = base.clone().count(db).await.context("db: count public repos")? as i64;
+    let repos = base
+        .offset(offset)
+        .limit(limit)
+        .all(db)
+        .await
+        .context("db: list public repos (paginated)")?;
 
     Ok((repos, total))
 }

@@ -66,6 +66,13 @@
   function nextPage() {
     if (page < totalPages) { page++; loadOrgs(); }
   }
+
+  function closeDeleteDialogByKey(e: KeyboardEvent) {
+    if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      showDeleteConfirm = false;
+    }
+  }
 </script>
 
 <div class="container">
@@ -130,9 +137,15 @@
 </div>
 
 <!-- Delete confirm -->
-{#if showDeleteConfirm && deleteTarget}
-  <div class="modal-overlay" onclick={() => showDeleteConfirm = false}>
-    <div class="modal" role="dialog" aria-modal="true" onclick={(e) => e.stopPropagation()}>
+  {#if showDeleteConfirm && deleteTarget}
+    <div
+      class="modal-overlay"
+      onclick={() => showDeleteConfirm = false}
+      role="button"
+      tabindex="0"
+      onkeydown={closeDeleteDialogByKey}
+    >
+      <div class="modal" role="dialog" aria-modal="true" tabindex="-1">
       <h2>{t('admin.orgs.delete_confirm')}</h2>
       <p>
         {t('admin.orgs.delete_warning', { name: deleteTarget.name })}
@@ -151,7 +164,6 @@
 {/if}
 
 <style>
-  .container { max-width: 1100px; margin: 2rem auto; padding: 0 1.5rem; }
   .header { margin-bottom: 1.5rem; }
   .back { color: var(--text-secondary); text-decoration: none; font-size: 0.9rem; }
   .back:hover { color: var(--accent); text-decoration: none; }

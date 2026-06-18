@@ -525,3 +525,47 @@ GIT_TRACE_PACKET=1 GIT_TRACE=1 git push origin main 2>&1
 ## License
 
 MIT
+
+## 自动化联调（前后端）
+
+在本机运行前后端联调时，可以用一键脚本检查关键通道是否打通：
+
+```bash
+# 默认：后端 127.0.0.1:8080，前端 127.0.0.1:5173
+node scripts/frontend-backend-smoke.mjs
+
+# 如果你的端口不同：
+BACKEND_URL=http://127.0.0.1:8080 FRONTEND_URL=http://127.0.0.1:3000 node scripts/frontend-backend-smoke.mjs
+
+# 前后端解耦部署时，可直接指定 API 源：
+API_BASE=https://api.example.com/api/v1 BACKEND_URL=https://api.example.com FRONTEND_URL=http://127.0.0.1:5173 node scripts/frontend-backend-smoke.mjs
+```
+
+如果你用 Vite 本地调试前端，建议开启 `VITE_API_BASE`（不在同源时必须）：
+
+```bash
+cd web
+VITE_API_BASE=http://127.0.0.1:8080/api/v1 npm run dev
+```
+
+### 全量接口自动化回归（建议日常执行）
+
+新增自动化脚本（默认路径）：
+
+- `scripts/openapi-interface-smoke.mjs`：自动读取 `/api-docs/openapi.json` 并对全部 OpenAPI 接口做可用性请求（只要无 5xx 即视为通畅）。
+- `scripts/console-smoke.mjs`：自动发现 `web/src/routes/**/+page.svelte` 并用浏览器检查全部前端页面的 console/network 运行态错误。
+- `scripts/full-interface-regression.mjs`：一次性执行后端测试、前端检查、前端构建，并在检测到服务可达时执行运行态联调；默认会探测前端 `4173` 和 `5173`。
+
+```bash
+# 一键全量回归（先启动后端 8080；前端可用 4173 preview 或 5173 dev）
+node scripts/full-interface-regression.mjs
+
+# 仅后端 OpenAPI 全量冒烟（后端可达即可）
+BACKEND_URL=http://127.0.0.1:8080 node scripts/openapi-interface-smoke.mjs
+
+# 仅前端页面运行态冒烟（默认自动发现全部 SvelteKit 页面）
+BASE=http://127.0.0.1:5173 node scripts/console-smoke.mjs
+
+# 查看自动发现到的前端页面列表
+node scripts/console-smoke.mjs --list-routes
+```

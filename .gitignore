@@ -3,10 +3,15 @@
 
 # Database files
 *.db
+*.db-shm
+*.db-wal
 *.sqlite
 *.sqlite3
 *.sqlite-shm
 *.sqlite-wal
+
+# Local test repos (runtime data, not source)
+/repos/
 
 # Environment / secrets
 .env

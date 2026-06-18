@@ -81,7 +81,7 @@
   <title>New Release · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
-<div class="repo-page">
+<div class="page-container">
   <RepoHeader owner={owner!} repo={repo!} activeTab="releases" />
 
   <div class="page-header">
@@ -149,7 +149,7 @@
       </div>
 
       <div class="form-group">
-        <label>{t('releases.target_commitish')}</label>
+        <label for="target-commitish">{t('releases.target_commitish')}</label>
         <div class="target-toggle">
           <button
             type="button"
@@ -169,21 +169,20 @@
           </button>
         </div>
 
+        <select id="target-commitish" bind:value={targetCommitish} class="select">
+
         {#if selectedTargetType === 'tag'}
-          <select bind:value={targetCommitish} class="select">
-            <option value="">-- Select a tag (optional) --</option>
-            {#each tags as tag}
-              <option value={tag}>{tag}</option>
-            {/each}
-          </select>
+          <option value="">-- Select a tag (optional) --</option>
+          {#each tags as tag}
+            <option value={tag}>{tag}</option>
+          {/each}
         {:else}
-          <select bind:value={targetCommitish} class="select">
-            <option value="">-- Select a branch (optional) --</option>
-            {#each branches as branch}
-              <option value={branch}>{branch}</option>
-            {/each}
-          </select>
+          <option value="">-- Select a branch (optional) --</option>
+          {#each branches as branch}
+            <option value={branch}>{branch}</option>
+          {/each}
         {/if}
+        </select>
       </div>
 
       <div class="form-group checkbox-group">
@@ -211,11 +210,6 @@
 </div>
 
 <style>
-  .repo-page {
-    max-width: 800px;
-    margin: 0 auto;
-    padding: 24px;
-  }
 
   .page-header {
     margin-bottom: 24px;
@@ -225,18 +219,7 @@
     font-size: 24px;
     font-weight: 600;
   }
-
-  .error-banner {
-    background: rgba(248, 81, 73, 0.1);
-    border: 1px solid var(--red-dim);
-    color: var(--red);
-    border-radius: var(--radius);
-    padding: 10px 14px;
-    font-size: 13px;
-    margin-bottom: 16px;
-  }
-
-  .loading-text {
+.loading-text {
     color: var(--text-secondary);
     text-align: center;
     padding: 48px;

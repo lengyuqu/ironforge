@@ -66,7 +66,6 @@
 </div>
 
 <style>
-  .container { max-width: 600px; margin: 2rem auto; padding: 0 1rem; }
   h1 { color: var(--text-primary); margin-bottom: 1.5rem; }
   .form { display: flex; flex-direction: column; gap: 1rem; }
   .field { display: flex; flex-direction: column; gap: 0.3rem; }

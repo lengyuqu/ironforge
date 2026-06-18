@@ -1,133 +1,163 @@
 <script lang="ts">
-  import { isLoggedIn, getUser } from '$lib/stores/auth.svelte';
-  import { createT } from '$lib/i18n';
+  import { repos } from '$lib/api/client.svelte';
+  import { createT, formatDate } from '$lib/i18n';
 
   const t = createT();
+
+  let repoList = $state<any[]>([]);
+  let loading = $state(true);
+  let error = $state('');
+
+  $effect(() => {
+    repos.explore(1, 24).then(r => {
+      repoList = r.data;
+    }).catch((e: any) => {
+      error = e.message;
+    }).finally(() => {
+      loading = false;
+    });
+  });
 </script>
 
-<div class="hero">
-  <div class="hero-content">
-    <svg viewBox="0 0 16 16" width="64" height="64" fill="var(--accent)">
-      <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
-    </svg>
-    <h1>IronForge</h1>
-    <p class="tagline">{t('home.tagline')}</p>
+<svelte:head>
+  <title>IronForge · {t('explore.title')}</title>
+</svelte:head>
 
-    <div class="features">
-      <div class="feature">
-        <span class="feature-icon">🔒</span>
-        <strong>{t('home.features.secure')}</strong>
-        <span>{t('home.features.secure_desc')}</span>
-      </div>
-      <div class="feature">
-        <span class="feature-icon">⚡</span>
-        <strong>{t('home.features.fast')}</strong>
-        <span>{t('home.features.fast_desc')}</span>
-      </div>
-      <div class="feature">
-        <span class="feature-icon">🔀</span>
-        <strong>{t('home.features.code_review')}</strong>
-        <span>{t('home.features.code_review_desc')}</span>
-      </div>
-      <div class="feature">
-        <span class="feature-icon">▶️</span>
-        <strong>{t('home.features.cicd')}</strong>
-        <span>{t('home.features.cicd_desc')}</span>
-      </div>
-    </div>
-
-    <div class="cta">
-      {#if isLoggedIn()}
-        <a href="/dashboard" class="btn-primary">{t('home.cta.go_dashboard')} →</a>
-      {:else}
-        <a href="/login" class="btn-primary">{t('common.sign_in')}</a>
-        <a href="/register" class="btn-secondary">{t('home.cta.create_account')}</a>
+<div class="page-container">
+  <div class="page-header">
+    <h1>{t('explore.title')}</h1>
+    <p class="subtitle">
+      {#if !loading}
+        {t('explore.subtitle', { count: repoList.length })}
       {/if}
-    </div>
+    </p>
   </div>
+
+  {#if error}
+    <div class="error-banner">{error}</div>
+  {/if}
+
+  {#if loading}
+    <p class="text-secondary">{t('common.loading')}</p>
+  {:else if repoList.length === 0}
+    <div class="empty">
+      <p>{t('explore.empty')}</p>
+    </div>
+  {:else}
+    <div class="repo-grid">
+      {#each repoList as repo}
+        <a href="/{repo.owner_name}/{repo.name}" class="repo-card">
+          <div class="rc-icon">📂</div>
+          <div class="rc-body">
+            <div class="rc-name">{repo.owner_name}/{repo.name}</div>
+            <div class="rc-desc">{repo.description || t('common.no_description')}</div>
+            <div class="rc-meta">
+              {repo.stars_count || 0} ⭐ · {t('common.updated', { date: formatDate(repo.updated_at) })}
+            </div>
+          </div>
+        </a>
+      {/each}
+    </div>
+
+    <div class="explore-footer">
+      <a href="/explore" class="view-all-btn">{t('home.explore.view_all')} →</a>
+    </div>
+  {/if}
 </div>
 
 <style>
-  .hero {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    min-height: calc(100vh - 62px);
-    padding: 40px 24px;
+  .page-header {
+    margin-bottom: 24px;
   }
 
-  .hero-content {
-    text-align: center;
-    max-width: 600px;
-  }
+  h1 { font-size: 24px; margin-bottom: 4px; }
 
-  h1 {
-    font-size: 42px;
-    font-weight: 800;
-    margin: 16px 0 8px;
-    background: linear-gradient(135deg, var(--accent), var(--purple));
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
-  }
-
-  .tagline {
-    font-size: 18px;
+  .subtitle {
+    font-size: 14px;
     color: var(--text-secondary);
-    margin-bottom: 40px;
+    min-height: 20px;
   }
 
-  .features {
+  .empty {
+    text-align: center;
+    padding: 60px 24px;
+    color: var(--text-secondary);
+  }
+
+  .repo-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 16px;
-    margin-bottom: 40px;
-  }
-
-  .feature {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 4px;
-    padding: 16px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-  }
-  .feature-icon { font-size: 24px; }
-  .feature strong { font-size: 14px; }
-  .feature span:last-child { font-size: 12px; color: var(--text-secondary); }
-
-  .cta {
-    display: flex;
-    justify-content: center;
+    grid-template-columns: repeat(3, 1fr);
     gap: 12px;
   }
 
-  .btn-primary {
-    display: inline-flex;
-    align-items: center;
-    padding: 10px 24px;
-    background: var(--green-dim);
-    color: #fff;
-    border-radius: var(--radius);
-    font-weight: 600;
-    font-size: 16px;
-    text-decoration: none;
+  @media (max-width: 900px) {
+    .repo-grid { grid-template-columns: repeat(2, 1fr); }
   }
-  .btn-primary:hover { background: var(--green); text-decoration: none; }
+  @media (max-width: 600px) {
+    .repo-grid { grid-template-columns: 1fr; }
+  }
 
-  .btn-secondary {
-    display: inline-flex;
-    align-items: center;
-    padding: 10px 24px;
-    background: none;
-    color: var(--text-primary);
+  .repo-card {
+    display: flex;
+    gap: 12px;
+    padding: 16px;
+    background: var(--bg-secondary);
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    font-weight: 600;
-    font-size: 16px;
+    text-decoration: none;
+    color: var(--text-primary);
+    transition: border-color 0.15s;
+  }
+  .repo-card:hover {
+    border-color: var(--accent);
     text-decoration: none;
   }
-  .btn-secondary:hover { background: var(--bg-hover); text-decoration: none; }
+
+  .rc-icon { font-size: 20px; flex-shrink: 0; }
+  .rc-body { flex: 1; min-width: 0; }
+
+  .rc-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--accent);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .rc-desc {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-top: 4px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .rc-meta {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 8px;
+  }
+
+  .explore-footer {
+    text-align: center;
+    margin-top: 32px;
+  }
+
+  .view-all-btn {
+    display: inline-block;
+    padding: 8px 24px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--accent);
+    font-size: 14px;
+    font-weight: 500;
+    text-decoration: none;
+  }
+  .view-all-btn:hover {
+    background: var(--bg-hover);
+    text-decoration: none;
+  }
 </style>

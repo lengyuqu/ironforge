@@ -53,11 +53,6 @@
 </div>
 
 <style>
-  .container {
-    max-width: 800px;
-    margin: 2rem auto;
-    padding: 0 1.5rem;
-  }
 
   .header {
     margin-bottom: 2rem;

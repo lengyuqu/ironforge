@@ -35,6 +35,20 @@
   // Delete state
   let deletingLabel = $state<Label | null>(null);
   let deleting = $state(false);
+
+  function closeCreateModalByKey(e: KeyboardEvent) {
+    if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      closeForm();
+    }
+  }
+
+  function closeDeleteModalByKey(e: KeyboardEvent) {
+    if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      cancelDelete();
+    }
+  }
   
   const presetColors = [
     '#ff0000', '#00ff00', '#0000ff', '#ffff00',
@@ -168,14 +182,20 @@
   
   <!-- Create/Edit Form -->
   {#if showForm}
-    <div class="form-overlay" role="presentation" onclick={closeForm}>
-      <div class="form-modal" onclick={(e) => e.stopPropagation()}>
+    <div
+      class="form-overlay"
+      onclick={closeForm}
+      role="button"
+      tabindex="0"
+      onkeydown={closeCreateModalByKey}
+    >
+      <div class="form-modal" role="dialog" aria-modal="true" tabindex="-1">
         <h2>{editingLabel ? t('settings.edit_label') : t('settings.new_label')}</h2>
         
         {#if formError}
           <div class="error-box">{formError}</div>
         {/if}
-        
+
         <div class="form-group">
           <label for="label-name">{t('settings.label_name')}</label>
           <input 
@@ -186,9 +206,9 @@
             disabled={saving}
           />
         </div>
-        
+
         <div class="form-group">
-          <label>{t('settings.label_color')}</label>
+          <label for="label-color-input">{t('settings.label_color')}</label>
           
           <div class="preset-colors">
             <span class="color-section-label">{t('settings.preset_colors')}</span>
@@ -211,6 +231,7 @@
             <div class="custom-color-input">
               <div class="color-preview" style="background-color: {formData.color}"></div>
               <input 
+                id="label-color-input"
                 type="text" 
                 bind:value={formData.color}
                 placeholder="#000000"
@@ -246,8 +267,14 @@
   
   <!-- Delete Confirmation -->
   {#if deletingLabel}
-    <div class="form-overlay" role="presentation" onclick={cancelDelete}>
-      <div class="form-modal" onclick={(e) => e.stopPropagation()}>
+    <div
+      class="form-overlay"
+      onclick={cancelDelete}
+      role="button"
+      tabindex="0"
+      onkeydown={closeDeleteModalByKey}
+    >
+      <div class="form-modal" role="dialog" aria-modal="true" tabindex="-1">
         <h2>Confirm Delete</h2>
         <p>{t('settings.confirm_delete_label')}</p>
         <p><strong>{deletingLabel.name}</strong></p>

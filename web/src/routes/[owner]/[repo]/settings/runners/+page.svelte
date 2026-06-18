@@ -72,7 +72,7 @@
   <title>Runners · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
-<div class="repo-page">
+<div class="page-container">
   <RepoHeader owner={owner!} repo={repo!} activeTab="runners" />
 
   <div class="page-header">
@@ -176,11 +176,6 @@
 </div>
 
 <style>
-  .repo-page {
-    max-width: 900px;
-    margin: 0 auto;
-    padding: 24px;
-  }
 
   .page-header {
     display: flex;
@@ -193,18 +188,7 @@
     font-size: 24px;
     font-weight: 600;
   }
-
-  .error-banner {
-    background: rgba(248, 81, 73, 0.1);
-    border: 1px solid var(--red-dim);
-    color: var(--red);
-    border-radius: var(--radius);
-    padding: 10px 14px;
-    font-size: 13px;
-    margin-bottom: 16px;
-  }
-
-  .register-card {
+.register-card {
     background: var(--bg-secondary);
     border: 1px solid var(--border);
     border-radius: var(--radius);

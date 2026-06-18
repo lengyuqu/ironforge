@@ -5,6 +5,7 @@ use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::Json;
+use chrono;
 use serde::{Deserialize, Serialize};
 
 use crate::api::auth::extract_bearer_claims;
@@ -59,8 +60,11 @@ pub struct BlobContent {
 #[derive(Serialize)]
 pub struct CommitEntry {
     pub sha: String,
+    #[serde(rename = "author")]
     pub author_name: String,
+    #[serde(skip_serializing)]
     pub author_email: String,
+    #[serde(rename = "date")]
     pub author_date: String,
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -156,13 +160,13 @@ pub async fn list_tree(
     let result = list_tree_entries(&repo_path, &git_ref, &sub_path);
 
     match result {
-        Ok(entries) => (StatusCode::OK, Json(entries)).into_response(),
+        Ok(entries) => (StatusCode::OK, Json(serde_json::json!({ "entries": entries }))).into_response(),
         Err(e) => {
             // A freshly-created repo with no commits has an unborn HEAD, which
             // can't be resolved to a tree. That's not an error — return an
             // empty tree so the UI can render the empty-repo state.
             if is_empty_repo(&repo_path) {
-                return (StatusCode::OK, Json(Vec::<TreeEntry>::new())).into_response();
+                return (StatusCode::OK, Json(serde_json::json!({ "entries": [] }))).into_response();
             }
             tracing::error!(%e, "list_tree failed");
             AppError::internal(e).into_response()
@@ -276,7 +280,7 @@ pub async fn get_log(
     let file_path = params.path.unwrap_or_default();
 
     match get_commit_log(&repo_path, &file_path, limit) {
-        Ok(log) => (StatusCode::OK, Json(log)).into_response(),
+        Ok(log) => (StatusCode::OK, Json(serde_json::json!({ "commits": log }))).into_response(),
         Err(e) => {
             tracing::error!(%e, "get_log failed");
             AppError::internal(e).into_response()
@@ -583,11 +587,16 @@ fn get_commit_log(
             let message = commit.message_raw().unwrap_or_default().to_string();
             let first_line = message.lines().next().unwrap_or("").to_string();
 
-            // Get author info - access fields directly, not methods
+            // Get author info
             let author = commit.author().unwrap_or_default();
             let author_name = String::from_utf8_lossy(&author.name).to_string();
             let author_email = String::from_utf8_lossy(&author.email).to_string();
-            let author_date = String::new(); // TODO: extract commit time
+            // Parse author time from the signature string (format: "timestamp offset")
+            // e.g., "1700000000 +0000"
+            let timestamp = author.time.split_whitespace().next().unwrap_or("0").parse::<i64>().unwrap_or(0);
+            let author_date = chrono::DateTime::<chrono::Utc>::from_timestamp(timestamp, 0)
+                .map(|dt| dt.to_rfc3339())
+                .unwrap_or_default();
 
             entries.push(CommitEntry {
                 sha: commit_id.to_string(),

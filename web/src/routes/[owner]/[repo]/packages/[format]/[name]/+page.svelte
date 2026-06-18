@@ -88,7 +88,7 @@
   <title>{name} · {formatLabels[format!] || format} · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
-<div class="repo-page">
+<div class="page-container">
   <RepoHeader owner={owner!} repo={repo!} activeTab="packages" />
 
   {#if error}
@@ -156,23 +156,7 @@
 </div>
 
 <style>
-  .repo-page {
-    max-width: 900px;
-    margin: 0 auto;
-    padding: 24px;
-  }
-
-  .error-banner {
-    background: rgba(248, 81, 73, 0.1);
-    border: 1px solid var(--red-dim);
-    color: var(--red);
-    border-radius: var(--radius);
-    padding: 10px 14px;
-    font-size: 13px;
-    margin-bottom: 16px;
-  }
-
-  .loading-text {
+.loading-text {
     color: var(--text-secondary);
     text-align: center;
     padding: 48px;

@@ -107,6 +107,60 @@ pub async fn run_migrations(db: &DatabaseConnection) -> Result<()> {
     Ok(())
 }
 
+/// Rebuild FTS5 full-text search indexes from main tables.
+/// This is useful after migrating from triggers to application-level FTS updates,
+/// or when the FTS indexes are out of sync with the main tables.
+pub async fn rebuild_fts_indexes(db: &DatabaseConnection) -> Result<()> {
+    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+
+    tracing::info!("Rebuilding FTS5 indexes...");
+
+    // Rebuild repos_fts
+    tracing::info!("  Rebuilding repos_fts...");
+    db.execute(Statement::from_sql_and_values(
+        DatabaseBackend::Sqlite,
+        "DELETE FROM repos_fts",
+        [],
+    )).await?;
+    db.execute(Statement::from_sql_and_values(
+        DatabaseBackend::Sqlite,
+        "INSERT INTO repos_fts(rowid, name, description) SELECT id, name, description FROM repositories WHERE deleted_at IS NULL",
+        [],
+    )).await?;
+    tracing::info!("  repos_fts: rebuilt");
+
+    // Rebuild issues_fts
+    tracing::info!("  Rebuilding issues_fts...");
+    db.execute(Statement::from_sql_and_values(
+        DatabaseBackend::Sqlite,
+        "DELETE FROM issues_fts",
+        [],
+    )).await?;
+    db.execute(Statement::from_sql_and_values(
+        DatabaseBackend::Sqlite,
+        "INSERT INTO issues_fts(rowid, title, body) SELECT id, title, COALESCE(body, '') FROM issues",
+        [],
+    )).await?;
+    tracing::info!("  issues_fts: rebuilt");
+
+    // Rebuild wiki_pages_fts
+    tracing::info!("  Rebuilding wiki_pages_fts...");
+    db.execute(Statement::from_sql_and_values(
+        DatabaseBackend::Sqlite,
+        "DELETE FROM wiki_pages_fts",
+        [],
+    )).await?;
+    db.execute(Statement::from_sql_and_values(
+        DatabaseBackend::Sqlite,
+        "INSERT INTO wiki_pages_fts(rowid, title, content) SELECT id, title, content FROM wiki_pages",
+        [],
+    )).await?;
+    tracing::info!("  wiki_pages_fts: rebuilt");
+
+    tracing::info!("FTS5 indexes rebuilt successfully");
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

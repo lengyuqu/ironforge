@@ -68,13 +68,6 @@
 </div>
 
 <style>
-  .reset-page {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    min-height: 60vh;
-    padding: 20px;
-  }
   .reset-card {
     background: var(--card-bg, #fff);
     border: 1px solid var(--border, #e5e7eb);
@@ -136,16 +129,7 @@
     font-size: 14px;
     text-decoration: none;
   }
-  .error-banner {
-    background: #fef2f2;
-    border: 1px solid #fecaca;
-    color: #dc2626;
-    padding: 10px 14px;
-    border-radius: 6px;
-    margin-bottom: 16px;
-    font-size: 14px;
-  }
-  .success-banner {
+.success-banner {
     background: #f0fdf4;
     border: 1px solid #bbf7d0;
     color: #16a34a;

@@ -440,7 +440,7 @@
   }
 
   /* Responsive */
-  @media (max-width: 768px) {
+  @media (max-width: 900px) {
     .commit-status-page {
       padding: 1rem;
     }

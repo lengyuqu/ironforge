@@ -46,7 +46,7 @@
   <title>Wiki · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
-<div class="repo-page">
+<div class="page-container">
   <RepoHeader {owner} {repo} activeTab="wiki" starsCount={0} />
 
   <div class="toolbar">
@@ -94,7 +94,6 @@
 </div>
 
 <style>
-  .repo-page { max-width: 1100px; margin: 0 auto; padding: 24px; }
   .toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
   h2 { font-size: 18px; }
 
@@ -107,9 +106,7 @@
   label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600; }
   textarea { font-family: var(--font-mono); font-size: 13px; resize: vertical; }
   .form-actions { display: flex; gap: 8px; margin-top: 8px; }
-
-  .error-banner { background: rgba(248, 81, 73, 0.1); border: 1px solid var(--red-dim); color: var(--red); border-radius: var(--radius); padding: 10px 14px; font-size: 13px; }
-  .empty { text-align: center; padding: 48px; color: var(--text-secondary); }
+.empty { text-align: center; padding: 48px; color: var(--text-secondary); }
 
   .page-list { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
   .wiki-item {

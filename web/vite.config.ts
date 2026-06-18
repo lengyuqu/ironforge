@@ -6,6 +6,7 @@ export default defineConfig({
 	server: {
 		proxy: {
 			'/api/v1': 'http://127.0.0.1:8080',
+			'/health': 'http://127.0.0.1:8080',
 		}
 	}
 });

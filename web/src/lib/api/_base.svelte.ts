@@ -1,6 +1,22 @@
 // IronForge API Client — shared internals
 
-export const API_BASE = '/api/v1';
+const configuredApiBase =
+  typeof import.meta !== 'undefined'
+    ? (import.meta as { env?: { VITE_API_BASE?: string } }).env?.VITE_API_BASE
+    : undefined;
+
+function normalizeApiBase(value?: string): string {
+  if (!value) return '/api/v1';
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === '/') return '/api/v1';
+  return trimmed.endsWith('/') ? trimmed.slice(0, -1) : trimmed;
+}
+
+export const API_BASE = normalizeApiBase(configuredApiBase);
+
+function withApiBase(path: string): string {
+  return `${API_BASE}${path.startsWith('/') ? path : `/${path}`}`;
+}
 
 let authToken = $state<string | null>(null);
 
@@ -29,7 +45,7 @@ export async function request<T>(path: string, options: RequestInit = {}): Promi
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  const res = await fetch(withApiBase(path), { ...options, headers });
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));

@@ -61,6 +61,24 @@ pub struct CreateRepoRequest {
     /// Organization name — if provided, create repo under this org
     #[serde(skip_serializing_if = "Option::is_none")]
     pub org: Option<String>,
+    /// Auto-initialize the repo with template files (README, LICENSE, .gitignore)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto_init: Option<bool>,
+    /// Default branch name (default: "main")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_branch: Option<String>,
+    /// .gitignore template key (e.g., "go", "rust", "python")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gitignores: Option<String>,
+    /// LICENSE template key (e.g., "mit", "apache-2.0", "gpl-3.0")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub license: Option<String>,
+    /// README template key (e.g., "default")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub readme: Option<String>,
+    /// Default issue label set ("none", "default", "scrum")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub issue_labels: Option<String>,
 }
 
 /// Repository response (matches DB model fields exposed to API).
@@ -103,6 +121,7 @@ pub async fn create_repo(
     };
 
     let owner_id: i64 = claims.sub.parse().unwrap_or(-1);
+    let username = claims.username.clone();
 
     // Resolve org_id if org is specified
     let org_id = match &body.org {
@@ -128,14 +147,28 @@ pub async fn create_repo(
         None => None,
     };
 
-    match rg_core::repo::service::create_repo(
-        &state.db,
+    // Get owner display name for template substitution
+    let owner_display = username.clone();
+
+    let opts = rg_core::repo::service::CreateRepoOptions {
         owner_id,
-        &body.name,
-        body.description.as_deref(),
-        body.is_private.unwrap_or(false),
-        &state.repo_root,
+        name: body.name.clone(),
+        description: body.description.clone(),
+        is_private: body.is_private.unwrap_or(false),
         org_id,
+        default_branch: body.default_branch.clone(),
+        auto_init: body.auto_init.unwrap_or(false),
+        gitignores: body.gitignores.clone(),
+        license: body.license.clone(),
+        readme: body.readme.clone(),
+        issue_labels: body.issue_labels.clone(),
+        owner_display_name: owner_display,
+    };
+
+    match rg_core::repo::service::create_repo_with_opts(
+        &state.db,
+        opts,
+        &state.repo_root,
     )
     .await
     {
@@ -144,13 +177,19 @@ pub async fn create_repo(
             let details = serde_json::json!({
                 "name": body.name,
                 "is_private": body.is_private.unwrap_or(false),
-                "org": body.org.as_deref()
+                "org": body.org.as_deref(),
+                "auto_init": body.auto_init.unwrap_or(false),
+                "default_branch": body.default_branch.as_deref(),
+                "gitignores": body.gitignores.as_deref(),
+                "license": body.license.as_deref(),
+                "readme": body.readme.as_deref(),
+                "issue_labels": body.issue_labels.as_deref(),
             });
-            let resource_name = format!("{}/{}", body.org.as_deref().unwrap_or(&claims.sub), &body.name);
+            let resource_name = format!("{}/{}", body.org.as_deref().unwrap_or(&username), &body.name);
             record_audit(
                 &state.db,
                 owner_id,
-                &claims.sub,  // This should be username, but we have user_id. Let me fix this.
+                &username,
                 "repo.create",
                 Some("repo"),
                 Some(repo.id),
@@ -817,6 +856,131 @@ pub async fn get_combined_status(
 ) -> impl IntoResponse {
     match rg_core::repo::service::get_combined_status(&state.db, &owner, &name, &sha).await {
         Ok(combined) => (StatusCode::OK, Json(combined)).into_response(),
+        Err(e) => AppError::InternalError(e.to_string()).into_response(),
+    }
+}
+
+// ── Template listing endpoints ─────────────────────────────────────────
+
+/// GET /api/v1/repos/templates/gitignores
+/// List available .gitignore templates.
+#[utoipa::path(
+    get,
+    path = "/repos/templates/gitignores",
+    tag = "Repositories",
+    responses(
+        (status = 200, description = "List of .gitignore template options", body = serde_json::Value),
+    )
+)]
+pub async fn list_gitignore_templates() -> impl IntoResponse {
+    let options = rg_core::repo::templates::gitignore_options();
+    (StatusCode::OK, Json(serde_json::json!({ "data": options }))).into_response()
+}
+
+/// GET /api/v1/repos/templates/licenses
+/// List available LICENSE templates.
+#[utoipa::path(
+    get,
+    path = "/repos/templates/licenses",
+    tag = "Repositories",
+    responses(
+        (status = 200, description = "List of LICENSE template options", body = serde_json::Value),
+    )
+)]
+pub async fn list_license_templates() -> impl IntoResponse {
+    let options = rg_core::repo::templates::license_options();
+    (StatusCode::OK, Json(serde_json::json!({ "data": options }))).into_response()
+}
+
+/// GET /api/v1/repos/templates/readmes
+/// List available README templates.
+#[utoipa::path(
+    get,
+    path = "/repos/templates/readmes",
+    tag = "Repositories",
+    responses(
+        (status = 200, description = "List of README template options", body = serde_json::Value),
+    )
+)]
+pub async fn list_readme_templates() -> impl IntoResponse {
+    let options = rg_core::repo::templates::readme_options();
+    (StatusCode::OK, Json(serde_json::json!({ "data": options }))).into_response()
+}
+
+/// GET /api/v1/repos/templates/labels
+/// List available default label sets.
+#[utoipa::path(
+    get,
+    path = "/repos/templates/labels",
+    tag = "Repositories",
+    responses(
+        (status = 200, description = "List of label set options", body = serde_json::Value),
+    )
+)]
+pub async fn list_label_sets() -> impl IntoResponse {
+    let options = rg_core::repo::templates::label_set_options();
+    (StatusCode::OK, Json(serde_json::json!({ "data": options }))).into_response()
+}
+
+// ── Public repository listing (Explore) ───────────────────────────────
+
+#[derive(Deserialize)]
+pub struct ExploreQuery {
+    pub page: Option<u64>,
+    pub per_page: Option<u64>,
+}
+
+/// GET /api/v1/repos/explore
+/// List public repositories for the explore page.
+#[utoipa::path(
+    get,
+    path = "/repos/explore",
+    tag = "Repositories",
+    params(
+        ("page" = Option<u64>, Query, description = "Page number (1-based)"),
+        ("per_page" = Option<u64>, Query, description = "Items per page (1-100)"),
+    ),
+    responses(
+        (status = 200, description = "Paginated list of public repositories", body = PaginatedRepoResponse),
+    )
+)]
+pub async fn explore(
+    State(state): State<AppState>,
+    Query(params): Query<ExploreQuery>,
+) -> impl IntoResponse {
+    let pagination = PaginationParams {
+        page: params.page.unwrap_or(1),
+        per_page: params.per_page.unwrap_or(20),
+    }.clamp();
+    let offset = pagination.offset();
+    let limit = pagination.limit();
+
+    match rg_db::ops::repo_ops::list_public_paginated(&state.db, offset, limit).await {
+        Ok((data, total)) => {
+            // Enrich with owner names
+            let enriched: Vec<serde_json::Value> = futures::future::join_all(
+                data.iter().map(|repo| async {
+                    let owner_name = rg_db::ops::user_ops::find_by_id(&state.db, repo.owner_id)
+                        .await
+                        .ok()
+                        .flatten()
+                        .map(|u| u.username)
+                        .unwrap_or_else(|| "unknown".to_string());
+                    serde_json::json!({
+                        "id": repo.id,
+                        "owner_id": repo.owner_id,
+                        "owner_name": owner_name,
+                        "name": repo.name,
+                        "description": repo.description,
+                        "stars_count": repo.stars_count,
+                        "forks_count": repo.forks_count,
+                        "updated_at": repo.updated_at,
+                    })
+                })
+            ).await;
+
+            (StatusCode::OK, Json(PaginatedResponse::new(enriched, &pagination, total as u64))).into_response()
+        }
         Err(e) => AppError::InternalError(e.to_string()).into_response(),
     }
 }

@@ -79,7 +79,7 @@
   }
 </script>
 
-<div class="search-page">
+<div class="page-container search-page">
   <div class="search-header">
     <h1>{t('search.title')}</h1>
     <div class="search-box">
@@ -94,7 +94,7 @@
           onkeydown={handleKeydown}
           placeholder={t('search.placeholder')}
         />
-        <button class="search-btn" onclick={doSearch}>{t('search.search_button')}</button>
+        <button class="search-btn btn btn-primary" onclick={doSearch}>{t('search.search_button')}</button>
       </div>
     </div>
 
@@ -137,10 +137,10 @@
       <div class="results-info">
         {t('search.results_count', { total })}
       </div>
-      <div class="results-list">
+      <div class="results-list gh-list">
         {#each results as result (result.result_type + '-' + result.id)}
           {#if result.result_type === 'repo'}
-            <a href="/{result.repo_owner}/{result.repo_name}" class="result-card repo-card">
+            <a href="/{result.repo_owner}/{result.repo_name}" class="result-card repo-card gh-list-item">
               <div class="result-body">
                 <div class="repo-name-row">
                   <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" class="type-icon">
@@ -158,7 +158,7 @@
               </div>
             </a>
           {:else if result.result_type === 'issue'}
-            <a href="/{result.repo_owner}/{result.repo_name}/issues/{result.id}" class="result-card issue-card">
+            <a href="/{result.repo_owner}/{result.repo_name}/issues/{result.id}" class="result-card issue-card gh-list-item">
               <div class="result-body">
                 <div class="issue-header">
                   <span class="issue-badge">#{result.id}</span>
@@ -173,7 +173,7 @@
               </div>
             </a>
           {:else if result.result_type === 'wiki'}
-            <a href="/{result.repo_owner}/{result.repo_name}/wiki/{encodeURIComponent(result.title)}" class="result-card wiki-card">
+            <a href="/{result.repo_owner}/{result.repo_name}/wiki/{encodeURIComponent(result.title)}" class="result-card wiki-card gh-list-item">
               <div class="result-body">
                 <div class="wiki-header">
                   <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" class="type-icon">
@@ -205,11 +205,6 @@
 </div>
 
 <style>
-  .search-page {
-    max-width: 800px;
-    margin: 0 auto;
-    padding: 32px 24px;
-  }
 
   .search-header {
     margin-bottom: 24px;
@@ -235,7 +230,7 @@
   }
 
   .search-input-wrapper:focus-within {
-    border-color: var(--orange);
+    border-color: var(--accent);
   }
 
   .search-icon {
@@ -260,18 +255,7 @@
 
   .search-btn {
     flex-shrink: 0;
-    padding: 10px 20px;
-    background: var(--orange);
-    color: #fff;
-    border: none;
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
     border-radius: 0 var(--radius) var(--radius) 0;
-  }
-
-  .search-btn:hover {
-    opacity: 0.9;
   }
 
   .type-tabs {
@@ -296,8 +280,8 @@
   }
 
   .type-tab.active {
-    color: var(--orange);
-    border-bottom-color: var(--orange);
+    color: var(--accent);
+    border-bottom-color: var(--accent);
     font-weight: 600;
   }
 
@@ -318,7 +302,7 @@
     width: 20px;
     height: 20px;
     border: 2px solid var(--border);
-    border-top-color: var(--orange);
+    border-top-color: var(--accent);
     border-radius: 50%;
     animation: spin 0.6s linear infinite;
   }
@@ -348,26 +332,16 @@
     margin-bottom: 12px;
   }
 
-  .results-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0;
-  }
+  .results-list { margin-bottom: 16px; }
 
   .result-card {
-    display: block;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 16px 20px;
-    margin-bottom: 8px;
-    text-decoration: none;
+    padding: 14px 16px;
     color: var(--text-primary);
-    transition: border-color 0.15s;
+    text-decoration: none;
   }
 
   .result-card:hover {
-    border-color: var(--accent);
+    background: var(--bg-hover);
     text-decoration: none;
   }
 
@@ -397,7 +371,7 @@
   }
 
   .star-icon {
-    color: var(--orange);
+    color: var(--accent);
     font-size: 14px;
     margin-left: auto;
   }
@@ -432,6 +406,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     display: -webkit-box;
+    line-clamp: 2;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
   }

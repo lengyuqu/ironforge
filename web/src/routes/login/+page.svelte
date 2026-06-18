@@ -67,13 +67,6 @@
 </div>
 
 <style>
-  .login-page {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    min-height: calc(100vh - 62px);
-    padding: 40px 24px;
-  }
 
   .login-card {
     width: 340px;
@@ -124,16 +117,6 @@
   }
   .btn-primary:hover { background: var(--green); }
   .btn-primary:disabled { opacity: 0.6; }
-
-  .error-banner {
-    background: rgba(248, 81, 73, 0.1);
-    border: 1px solid var(--red-dim);
-    color: var(--red);
-    border-radius: var(--radius);
-    padding: 10px 14px;
-    margin-bottom: 16px;
-    font-size: 13px;
-  }
 
   .footer {
     text-align: center;

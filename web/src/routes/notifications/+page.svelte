@@ -131,7 +131,6 @@
 </div>
 
 <style>
-  .container { max-width: 800px; margin: 2rem auto; padding: 0 1rem; }
   .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem; }
   h1 { color: var(--text-primary); margin: 0; }
   .actions { display: flex; align-items: center; gap: 1rem; }

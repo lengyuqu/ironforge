@@ -57,7 +57,7 @@
     if (!newBoardName.trim()) return;
     creatingBoard = true;
     try {
-      const board = await boards.create(owner, repo, newBoardName.trim());
+      const board = await boards.create(owner, repo, { name: newBoardName.trim() });
       newBoardName = '';
       showCreateBoard = false;
       activeBoardId = board.id;
@@ -72,7 +72,7 @@
   async function handleAddColumn() {
     if (!newColumnName.trim()) return;
     try {
-      await boards.createColumn(owner, repo, activeBoardId!, newColumnName.trim());
+      await boards.createColumn(owner, repo, activeBoardId!, { name: newColumnName.trim() });
       newColumnName = '';
       showAddColumn = false;
       await loadBoard(activeBoardId!);
@@ -95,7 +95,7 @@
     const note = (newCardNote[colId] ?? '').trim();
     if (!note) return;
     try {
-      await boards.createCard(owner, repo, activeBoardId!, colId, { note });
+      await boards.createCard(owner, repo, activeBoardId!, colId, { title: note, note });
       newCardNote = { ...newCardNote, [colId]: '' };
       showAddCard = { ...showAddCard, [colId]: false };
       await loadBoard(activeBoardId!);
@@ -143,7 +143,7 @@
     const position = targetCol ? targetCol.cards.length : 0;
 
     try {
-      await boards.moveCard(owner, repo, activeBoardId!, draggingCardId, colId, position);
+      await boards.moveCard(owner, repo, activeBoardId!, draggingCardId, { column_id: colId, position });
       await loadBoard(activeBoardId!);
     } catch (e: any) {
       error = e.message;
@@ -158,7 +158,7 @@
   <title>Board · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
-<div class="repo-page">
+<div class="page-container">
   <RepoHeader {owner} {repo} activeTab="board" starsCount={0} />
 
   {#if error}
@@ -198,7 +198,6 @@
           placeholder="Board name"
           bind:value={newBoardName}
           onkeydown={(e) => e.key === 'Enter' && handleCreateBoard()}
-          autofocus
         />
         <button class="btn-primary btn-sm" onclick={handleCreateBoard} disabled={creatingBoard}>
           {creatingBoard ? '…' : 'Create'}
@@ -214,7 +213,6 @@
           placeholder="Column name"
           bind:value={newColumnName}
           onkeydown={(e) => e.key === 'Enter' && handleAddColumn()}
-          autofocus
         />
         <button class="btn-primary btn-sm" onclick={handleAddColumn}>Add</button>
         <button class="btn-ghost btn-sm" onclick={() => { showAddColumn = false; newColumnName = ''; }}>Cancel</button>
@@ -277,7 +275,6 @@
                     placeholder="Add a note…"
                     bind:value={newCardNote[column.id]}
                     onkeydown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleAddCard(column.id); } }}
-                    autofocus
                   ></textarea>
                   <div class="add-card-actions">
                     <button class="btn-primary btn-xs" onclick={() => handleAddCard(column.id)}>Add</button>
@@ -298,14 +295,7 @@
 </div>
 
 <style>
-  .repo-page { max-width: 1400px; margin: 0 auto; padding: 24px; }
-
-  .error-banner {
-    background: rgba(248, 81, 73, 0.1); border: 1px solid var(--red-dim);
-    color: var(--red); border-radius: var(--radius); padding: 10px 14px;
-    font-size: 13px; margin-bottom: 16px;
-  }
-  .loading-text { color: var(--text-secondary); text-align: center; padding: 48px; }
+.loading-text { color: var(--text-secondary); text-align: center; padding: 48px; }
 
   /* ── Empty state ── */
   .empty-state {

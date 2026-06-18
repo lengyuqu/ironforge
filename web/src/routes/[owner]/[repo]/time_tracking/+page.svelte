@@ -120,7 +120,7 @@
   <title>Time Tracking · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
-<div class="repo-page">
+<div class="page-container">
   <RepoHeader {owner} {repo} activeTab="time_tracking" />
 
   <div class="page-header">
@@ -240,20 +240,12 @@
 </div>
 
 <style>
-  .repo-page { max-width: 1100px; margin: 0 auto; padding: 24px; }
 
   .page-header { margin-bottom: 20px; }
   h1 { font-size: 22px; font-weight: 600; margin: 0; }
-
-  .error-banner {
-    background: rgba(248, 81, 73, 0.1); border: 1px solid var(--red-dim);
-    color: var(--red); border-radius: var(--radius); padding: 10px 14px;
-    font-size: 13px; margin-bottom: 16px;
-  }
-
-  /* ── Layout ── */
+/* ── Layout ── */
   .layout { display: grid; grid-template-columns: 240px 1fr; gap: 20px; align-items: start; }
-  @media (max-width: 640px) { .layout { grid-template-columns: 1fr; } }
+  @media (max-width: 600px) { .layout { grid-template-columns: 1fr; } }
 
   /* ── Sidebar ── */
   .issue-sidebar {

@@ -106,6 +106,20 @@
   function nextPage() {
     if (page < totalPages) { page++; loadUsers(); }
   }
+
+  function closeEditByKey(e: KeyboardEvent) {
+    if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      closeEdit();
+    }
+  }
+
+  function closeDeleteByKey(e: KeyboardEvent) {
+    if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      showDeleteConfirm = false;
+    }
+  }
 </script>
 
 <div class="container">
@@ -175,8 +189,14 @@
 
 <!-- Edit modal -->
 {#if selectedUser}
-  <div class="modal-overlay" onclick={closeEdit}>
-    <div class="modal" role="dialog" aria-modal="true" onclick={(e) => e.stopPropagation()}>
+  <div
+    class="modal-overlay"
+    onclick={closeEdit}
+    role="button"
+    tabindex="0"
+    onkeydown={closeEditByKey}
+  >
+    <div class="modal" role="dialog" aria-modal="true" tabindex="-1">
       <h2>{t('admin.users.edit', { username: selectedUser.username })}</h2>
 
       {#if error}
@@ -184,13 +204,13 @@
       {/if}
 
       <div class="form-group">
-        <label>Display Name</label>
-        <input type="text" bind:value={editDisplayName} />
+        <label for="admin-user-display-name">Display Name</label>
+        <input id="admin-user-display-name" type="text" bind:value={editDisplayName} />
       </div>
 
       <div class="form-group">
-        <label>Bio</label>
-        <textarea bind:value={editBio} rows="3"></textarea>
+        <label for="admin-user-bio">Bio</label>
+        <textarea id="admin-user-bio" bind:value={editBio} rows="3"></textarea>
       </div>
 
       <div class="form-group">
@@ -212,12 +232,18 @@
       </div>
     </div>
   </div>
-{/if}
+  {/if}
 
 <!-- Delete confirm modal -->
 {#if showDeleteConfirm && deleteTarget}
-  <div class="modal-overlay" onclick={() => showDeleteConfirm = false}>
-    <div class="modal" role="dialog" aria-modal="true" onclick={(e) => e.stopPropagation()}>
+  <div
+    class="modal-overlay"
+    onclick={() => showDeleteConfirm = false}
+    role="button"
+    tabindex="0"
+    onkeydown={closeDeleteByKey}
+  >
+    <div class="modal" role="dialog" aria-modal="true" tabindex="-1">
       <h2>{t('admin.users.delete_confirm')}</h2>
       <p>
         {t('admin.users.delete_warning', { username: deleteTarget.username })}
@@ -236,7 +262,6 @@
 {/if}
 
 <style>
-  .container { max-width: 1100px; margin: 2rem auto; padding: 0 1.5rem; }
   .header { margin-bottom: 1.5rem; }
   .back { color: var(--text-secondary); text-decoration: none; font-size: 0.9rem; }
   .back:hover { color: var(--accent); text-decoration: none; }

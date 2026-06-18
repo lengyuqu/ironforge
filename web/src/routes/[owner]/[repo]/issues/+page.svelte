@@ -52,18 +52,30 @@
   <title>Issues · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
-<div class="repo-page">
+<div class="page-container">
   <RepoHeader {owner} {repo} activeTab="issues" starsCount={0} />
 
-  <div class="issues-toolbar">
+  <div class="gh-toolbar issues-toolbar">
     <div class="filter-tabs">
-      <button class="filter-btn" class:active={filterState === 'open'} onclick={() => { filterState = 'open'; loadIssues(); }}>
+      <button
+        class="filter-btn btn btn-outline btn-sm"
+        class:active={filterState === 'open'}
+        onclick={() => { filterState = 'open'; loadIssues(); }}
+      >
         {t('issues.tabs.open')}
       </button>
-      <button class="filter-btn" class:active={filterState === 'closed'} onclick={() => { filterState = 'closed'; loadIssues(); }}>
+      <button
+        class="filter-btn btn btn-outline btn-sm"
+        class:active={filterState === 'closed'}
+        onclick={() => { filterState = 'closed'; loadIssues(); }}
+      >
         {t('issues.tabs.closed')}
       </button>
-      <button class="filter-btn" class:active={filterState === 'all'} onclick={() => { filterState = 'all'; loadIssues(); }}>
+      <button
+        class="filter-btn btn btn-outline btn-sm"
+        class:active={filterState === 'all'}
+        onclick={() => { filterState = 'all'; loadIssues(); }}
+      >
         {t('issues.tabs.all')}
       </button>
     </div>
@@ -73,7 +85,7 @@
   </div>
 
   {#if showCreate}
-    <div class="create-form">
+    <div class="create-form gh-card">
       <form onsubmit={handleCreate}>
         <label>
           {t('issues.create_form.title')}
@@ -106,9 +118,9 @@
       <p>{t('issues.empty', { state: filterState === 'all' ? '' : filterState })}</p>
     </div>
   {:else}
-    <div class="issue-list">
+    <div class="issue-list gh-list">
       {#each issueList as issue}
-        <a href="/{owner}/{repo}/issues/{issue.number}" class="issue-item">
+        <a href="/{owner}/{repo}/issues/{issue.number}" class="issue-item gh-list-item">
           <span class="issue-icon">
             {issue.state === 'closed' ? '✓' : '●'}
           </span>
@@ -130,8 +142,6 @@
 </div>
 
 <style>
-  .repo-page { max-width: 1100px; margin: 0 auto; padding: 24px; }
-
   .issues-toolbar {
     display: flex;
     align-items: center;
@@ -141,36 +151,31 @@
 
   .filter-tabs {
     display: flex;
-    gap: 4px;
+    gap: 6px;
+    flex-wrap: wrap;
   }
 
   .filter-btn {
-    padding: 5px 12px;
-    background: none;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
     color: var(--text-secondary);
-    font-size: 13px;
-    cursor: pointer;
   }
   .filter-btn.active {
-    background: var(--bg-tertiary);
     color: var(--text-primary);
+    background: var(--bg-secondary);
     font-weight: 600;
   }
-  .filter-btn:hover { background: var(--bg-hover); }
+  .filter-btn:hover { background: var(--bg-hover); border-color: var(--text-muted); }
 
   .btn-primary {
     padding: 6px 16px;
-    background: var(--green-dim);
+    background: var(--accent);
     color: #fff;
-    border: none;
+    border: 1px solid var(--accent);
     border-radius: var(--radius);
     font-size: 14px;
     font-weight: 600;
     cursor: pointer;
   }
-  .btn-primary:hover { background: var(--green); }
+  .btn-primary:hover { background: var(--accent-hover); }
 
   .btn-secondary {
     padding: 6px 16px;
@@ -183,10 +188,7 @@
   }
 
   .create-form {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    padding: 24px;
+    padding: 20px;
     margin-bottom: 24px;
   }
 
@@ -195,23 +197,7 @@
   .optional { font-weight: 400; color: var(--text-muted); }
   textarea { font-family: var(--font-mono); font-size: 13px; resize: vertical; }
   .form-actions { display: flex; gap: 8px; margin-top: 8px; }
-
-  .error-banner {
-    background: rgba(248, 81, 73, 0.1);
-    border: 1px solid var(--red-dim);
-    color: var(--red);
-    border-radius: var(--radius);
-    padding: 10px 14px;
-    font-size: 13px;
-  }
-
-  .empty { text-align: center; padding: 48px; color: var(--text-secondary); }
-
-  .issue-list {
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    overflow: hidden;
-  }
+.empty { text-align: center; padding: 48px; color: var(--text-secondary); }
 
   .issue-item {
     display: flex;

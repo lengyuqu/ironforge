@@ -46,7 +46,11 @@
   async function createOrgRepo() {
     if (!newRepoName.trim()) return;
     try {
-      await repos.create(newRepoName, undefined, newRepoPrivate, page.params.name!);
+      await repos.create({
+        name: newRepoName,
+        is_private: newRepoPrivate,
+        org: page.params.name!,
+      });
       newRepoName = '';
       orgRepos = (await repos.list(page.params.name!)).data;
     } catch (e: any) {
@@ -146,7 +150,6 @@
 </div>
 
 <style>
-  .container { max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
   .org-header { display: flex; align-items: center; gap: 1rem; margin-bottom: 2rem; }
   .org-avatar { width: 64px; height: 64px; border-radius: 50%; background: var(--accent); color: white; display: flex; align-items: center; justify-content: center; font-size: 1.5rem; font-weight: 700; }
   h1 { color: var(--text-primary); margin: 0; }
@@ -172,5 +175,5 @@
   .repo-icon { font-size: 1rem; }
   .repo-name { font-weight: 500; }
   .repo-desc { color: var(--text-secondary); font-size: 0.85rem; margin-left: auto; }
-  @media (max-width: 700px) { .grid { grid-template-columns: 1fr; } }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
 </style>

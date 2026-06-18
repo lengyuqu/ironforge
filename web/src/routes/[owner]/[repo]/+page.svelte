@@ -1,6 +1,8 @@
 <script lang="ts">
   import { page } from '$app/stores';
+  import { browser } from '$app/environment';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
+  import Dropdown from '$lib/components/Dropdown.svelte';
   import { repos } from '$lib/api/client.svelte';
   import { createT, formatDate } from '$lib/i18n';
 
@@ -13,9 +15,25 @@
   let entries = $state<any[]>([]);
   let branches = $state<any[]>([]);
   let commits = $state<any[]>([]);
+  let repoInfo = $state<any>(null);
+  let readmeContent = $state<string | null>(null);
+  let readmeLoading = $state(false);
   let loading = $state(true);
   let error = $state('');
-  let showBranches = $state(false);
+
+  // Clone URLs for empty-repo setup
+  let httpCloneUrl = $derived(browser ? `${location.protocol}//${location.host}/${owner}/${repo}.git` : '');
+  let sshCloneUrl = $derived(browser ? `git@${location.hostname}:${owner}/${repo}.git` : '');
+  let httpCopied = $state(false);
+  let sshCopied = $state(false);
+
+  function copyUrl(url: string) {
+    return () => {
+      navigator.clipboard.writeText(url);
+      if (url === httpCloneUrl) { httpCopied = true; setTimeout(() => httpCopied = false, 2000); }
+      else { sshCopied = true; setTimeout(() => sshCopied = false, 2000); }
+    };
+  }
 
   $effect(() => {
     loadData();
@@ -24,19 +42,47 @@
   async function loadData() {
     loading = true;
     error = '';
+    readmeContent = null;
     try {
-      const [treeData, branchData, logData] = await Promise.all([
+      const [treeData, branchData, logData, repoData] = await Promise.all([
         repos.tree(owner, repo, ref || undefined, path || undefined),
         repos.branches(owner, repo),
         repos.log(owner, repo, ref || undefined, path || undefined),
+        repos.get(owner, repo),
       ]);
       entries = treeData.entries || [];
       branches = branchData || [];
       commits = (logData.commits || []).slice(0, 5);
+      repoInfo = repoData;
+
+      // Load README when at root
+      if (!path) {
+        loadReadme();
+      }
     } catch (e: any) {
       error = e.message;
     } finally {
       loading = false;
+    }
+  }
+
+  async function loadReadme() {
+    readmeLoading = true;
+    try {
+      // Try common README filenames
+      const readmeNames = ['README.md', 'README.markdown', 'README', 'readme.md', 'Readme.md'];
+      for (const name of readmeNames) {
+        const entry = entries.find((e: any) => e.name === name);
+        if (entry) {
+          const data = await repos.blob(owner, repo, name, ref || undefined);
+          readmeContent = data.content;
+          break;
+        }
+      }
+    } catch {
+      // No README found — that's OK
+    } finally {
+      readmeLoading = false;
     }
   }
 
@@ -56,9 +102,9 @@
     loadData();
   }
 
-  function selectBranch(branchName: string) {
+  function selectBranch(branchName: string, close: () => void) {
     ref = branchName;
-    showBranches = false;
+    close();
     loadData();
   }
 
@@ -73,7 +119,7 @@
   <title>{owner}/{repo} · IronForge</title>
 </svelte:head>
 
-<div class="repo-page">
+<div class="page-container">
   <RepoHeader {owner} {repo} activeTab="code" starsCount={0} />
 
   {#if error}
@@ -82,22 +128,89 @@
 
   {#if loading}
     <p class="text-secondary">Loading...</p>
+  {:else if commits.length === 0 && entries.length === 0}
+    <!-- Empty repository — setup guidance -->
+    <div class="empty-repo">
+      <div class="empty-icon">📦</div>
+      <h2>{t('repo.empty.title')}</h2>
+      <p>{t('repo.empty.desc')}</p>
+
+      <div class="setup-steps">
+        <div class="step">
+          <span class="step-num">1</span>
+          <span>{t('repo.empty.step_clone')}</span>
+        </div>
+
+        <div class="clone-options">
+          <div class="option-box">
+            <div class="option-header">
+              <strong>HTTPS</strong>
+              <button class="mini-copy" onclick={copyUrl(httpCloneUrl)}>
+                {httpCopied ? '✓ ' + t('repo.empty.copied') : '📋 ' + t('repo.empty.copy')}
+              </button>
+            </div>
+            <code class="cmd">{httpCloneUrl}</code>
+          </div>
+          <div class="option-box">
+            <div class="option-header">
+              <strong>SSH</strong>
+              <button class="mini-copy" onclick={copyUrl(sshCloneUrl)}>
+                {sshCopied ? '✓ ' + t('repo.empty.copied') : '📋 ' + t('repo.empty.copy')}
+              </button>
+            </div>
+            <code class="cmd">{sshCloneUrl}</code>
+          </div>
+        </div>
+
+        <div class="step">
+          <span class="step-num">2</span>
+          <span>{t('repo.empty.step_create')}</span>
+        </div>
+
+        <div class="step">
+          <span class="step-num">3</span>
+          <span>{t('repo.empty.step_push')}</span>
+        </div>
+      </div>
+
+      <div class="quick-commands">
+        <h3>{t('repo.empty.quick')}</h3>
+        <pre><code>git init
+git add README.md
+git commit -m "first commit"
+git branch -M {repoInfo?.default_branch || 'main'}
+git remote add origin {httpCloneUrl}
+git push -u origin {repoInfo?.default_branch || 'main'}</code></pre>
+      </div>
+
+      <div class="or-push">
+        <h3>{t('repo.empty.existing')}</h3>
+        <pre><code>git remote add origin {httpCloneUrl}
+git branch -M {repoInfo?.default_branch || 'main'}
+git push -u origin {repoInfo?.default_branch || 'main'}</code></pre>
+      </div>
+    </div>
   {:else}
     <!-- Branch selector + path breadcrumb -->
-    <div class="toolbar">
-      <div class="branch-selector" style="position:relative">
-        <button class="btn-outline" onclick={() => showBranches = !showBranches}>
-          🌿 {ref || 'main'} ▾
-        </button>
-        {#if showBranches}
-          <div class="dropdown">
+    <div class="repo-toolbar">
+      <div class="branch-selector">
+        <Dropdown ariaLabel={t('repo.select_branch')} triggerClass="btn-outline" placement="left">
+          {#snippet trigger()}
+            🌿 {ref || 'main'} <span aria-hidden="true">▾</span>
+          {/snippet}
+          {#snippet menu(close)}
             {#each branches as b}
-              <button class="dropdown-item" class:active={b.name === ref || (!ref && b.is_default)} onclick={() => selectBranch(b.name)}>
+              <button
+                class="dropdown-item"
+                class:active={b.name === ref || (!ref && b.is_default)}
+                onclick={() => selectBranch(b.name, close)}
+                role="menuitem"
+              >
                 {b.name} {b.is_default ? t('repo.browser.default_branch') : ''}
               </button>
             {/each}
-          </div>
-        {/if}
+          {/snippet}
+        </Dropdown>
       </div>
 
       <div class="breadcrumb">
@@ -113,15 +226,17 @@
 
     <div class="content-grid">
       <!-- File tree -->
-      <div class="tree-panel">
+      <div class="gh-card tree-panel">
         {#if path}
-          <div class="entry" onclick={navigateUp}>
+          <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+          <div class="entry" onclick={navigateUp} role="button" tabindex="0">
             <span class="entry-icon">📁</span>
             <span class="entry-name up">..</span>
           </div>
         {/if}
         {#each entries as entry}
           {#if entry.kind === 'tree' || entry.kind === 'dir'}
+            <!-- svelte-ignore a11y_click_events_have_key_events -->
             <div class="entry" onclick={() => navigateToPath(entry.name)} role="button" tabindex="0">
               <span class="entry-icon">📁</span>
               <span class="entry-name dir">{entry.name}</span>
@@ -139,7 +254,7 @@
       </div>
 
       <!-- Recent commits -->
-      <div class="commits-panel">
+      <div class="gh-card commits-panel">
         <h3>{t('repo.browser.recent_commits')}</h3>
         {#each commits as commit}
           <div class="commit-item">
@@ -153,74 +268,59 @@
         {/each}
       </div>
     </div>
+
+    <!-- README rendering (at repo root) -->
+    {#if !path && readmeContent}
+      <div class="gh-card readme-section">
+        <div class="readme-header">
+          <span>📄 README.md</span>
+        </div>
+        <div class="readme-body">
+          <div class="markdown-body">
+            <!-- Simple markdown rendering -->
+            {#each readmeContent.split('\n') as line}
+              {#if line.startsWith('# ')}
+                <h1 class="md-h1">{line.slice(2)}</h1>
+              {:else if line.startsWith('## ')}
+                <h2 class="md-h2">{line.slice(3)}</h2>
+              {:else if line.startsWith('### ')}
+                <h3 class="md-h3">{line.slice(4)}</h3>
+              {:else if line.startsWith('```')}
+                <hr class="md-hr" />
+              {:else if line.startsWith('- ') || line.startsWith('* ')}
+                <li class="md-li">{line.slice(2)}</li>
+              {:else if line.trim() === ''}
+                <br />
+              {:else}
+                <p class="md-p">
+                  <!-- Handle inline code -->
+                  {@html line
+                    .replace(/`([^`]+)`/g, '<code>$1</code>')
+                    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+                    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+                  }
+                </p>
+              {/if}
+            {/each}
+          </div>
+        </div>
+      </div>
+    {:else if !path && readmeLoading}
+      <div class="gh-card readme-section">
+        <p class="text-secondary">{t('common.loading')}</p>
+      </div>
+    {/if}
   {/if}
 </div>
 
 <style>
-  .repo-page {
-    max-width: 1100px;
-    margin: 0 auto;
-    padding: 24px;
-  }
-
-  .error-banner {
-    background: rgba(248, 81, 73, 0.1);
-    border: 1px solid var(--red-dim);
-    color: var(--red);
-    border-radius: var(--radius);
-    padding: 10px 14px;
-    font-size: 13px;
-  }
-
-  .toolbar {
+  .repo-toolbar {
     display: flex;
     align-items: center;
+    justify-content: space-between;
     gap: 16px;
     margin-bottom: 16px;
   }
-
-  .btn-outline {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 5px 12px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    color: var(--text-primary);
-    font-size: 13px;
-    cursor: pointer;
-  }
-  .btn-outline:hover { background: var(--bg-hover); }
-
-  .dropdown {
-    position: absolute;
-    top: 100%;
-    left: 0;
-    margin-top: 4px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    min-width: 200px;
-    max-height: 300px;
-    overflow-y: auto;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
-    z-index: 200;
-  }
-
-  .dropdown-item {
-    display: block;
-    width: 100%;
-    padding: 8px 12px;
-    background: none;
-    border: none;
-    color: var(--text-primary);
-    font-size: 13px;
-    text-align: left;
-    cursor: pointer;
-  }
-  .dropdown-item:hover { background: var(--bg-hover); }
-  .dropdown-item.active { font-weight: 600; color: var(--accent); }
 
   .breadcrumb {
     display: flex;
@@ -237,15 +337,13 @@
     gap: 16px;
   }
 
-  @media (max-width: 768px) {
+  @media (max-width: 900px) {
     .content-grid { grid-template-columns: 1fr; }
   }
 
   .tree-panel {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
     overflow: hidden;
+    padding: 0;
   }
 
   .entry {
@@ -269,9 +367,6 @@
   .entry-size { font-size: 12px; color: var(--text-muted); font-family: var(--font-mono); }
 
   .commits-panel {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
     padding: 16px;
   }
 
@@ -304,4 +399,211 @@
     border-radius: 4px;
     color: var(--accent);
   }
+
+  /* Empty repo setup guidance */
+  .empty-repo {
+    text-align: center;
+    padding: 48px 24px;
+  }
+
+  .empty-icon {
+    font-size: 48px;
+    margin-bottom: 16px;
+  }
+
+  .empty-repo h2 {
+    font-size: 22px;
+    margin-bottom: 8px;
+  }
+  .empty-repo > p {
+    color: var(--text-secondary);
+    margin-bottom: 32px;
+  }
+
+  .setup-steps {
+    max-width: 640px;
+    margin: 0 auto 32px;
+    text-align: left;
+  }
+
+  .step {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 12px;
+    font-size: 14px;
+  }
+
+  .step-num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+
+  .clone-options {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin: 0 0 24px 36px;
+  }
+
+  @media (max-width: 600px) {
+    .clone-options {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .option-box {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px;
+  }
+
+  .option-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+    font-size: 12px;
+  }
+
+  .mini-copy {
+    padding: 2px 8px;
+    font-size: 11px;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    cursor: pointer;
+    color: var(--text-secondary);
+  }
+  .mini-copy:hover { background: var(--bg-hover); }
+
+  .cmd {
+    font-size: 12px;
+    padding: 8px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-light);
+    border-radius: 4px;
+    display: block;
+    word-break: break-all;
+    user-select: all;
+  }
+
+  .quick-commands, .or-push {
+    max-width: 640px;
+    margin: 0 auto 24px;
+    text-align: left;
+  }
+
+  .quick-commands h3, .or-push h3 {
+    font-size: 14px;
+    margin-bottom: 8px;
+  }
+
+  .quick-commands pre, .or-push pre {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    overflow-x: auto;
+  }
+
+  .quick-commands code, .or-push code {
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--text-primary);
+  }
+
+  /* README section */
+  .readme-section {
+    margin-top: 24px;
+    padding: 0;
+  }
+
+  .readme-header {
+    padding: 10px 16px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-bottom: none;
+    border-radius: var(--radius) var(--radius) 0 0;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .readme-body {
+    background: var(--bg-secondary);
+    border: none;
+    border-radius: 0;
+    padding: 32px;
+    max-height: 80vh;
+    overflow-y: auto;
+  }
+
+  .markdown-body {
+    line-height: 1.7;
+    color: var(--text-primary);
+  }
+
+  .md-h1 {
+    font-size: 28px;
+    font-weight: 700;
+    margin: 0 0 16px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .md-h2 {
+    font-size: 22px;
+    font-weight: 600;
+    margin: 24px 0 12px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border-light);
+  }
+
+  .md-h3 {
+    font-size: 18px;
+    font-weight: 600;
+    margin: 16px 0 8px;
+  }
+
+  .md-p {
+    margin: 0 0 8px;
+    font-size: 14px;
+  }
+
+  .md-li {
+    margin: 2px 0 2px 20px;
+    font-size: 14px;
+  }
+
+  .md-hr {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 12px 0;
+  }
+
+  .markdown-body :global(code) {
+    background: var(--bg-tertiary);
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 13px;
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+
+  .markdown-body :global(a) {
+    color: var(--accent);
+    text-decoration: none;
+  }
+  .markdown-body :global(a:hover) { text-decoration: underline; }
+
+  .markdown-body :global(strong) { font-weight: 700; }
 </style>

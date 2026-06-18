@@ -6,7 +6,7 @@
 
 use anyhow::{Context, Result};
 use chrono::Utc;
-use sea_orm::DatabaseConnection;
+use sea_orm::{ConnectionTrait, DatabaseConnection};
 
 use rg_db::entities::wiki_page;
 use rg_db::entities::wiki_revision;
@@ -44,7 +44,25 @@ pub async fn create_page(
         updated_at: sea_orm::Set(now),
     };
 
-    wiki_page_ops::create(db, model).await
+    let page = wiki_page_ops::create(db, model).await?;
+
+    // Update FTS5 index (non-fatal)
+    let page_id = page.id;
+    let page_title = page.title.clone();
+    let page_content = page.content.clone();
+    if let Err(e) = db.execute(sea_orm::Statement::from_sql_and_values(
+        sea_orm::DatabaseBackend::Sqlite,
+        r#"INSERT INTO wiki_pages_fts(rowid, title, content) VALUES (?, ?, ?)"#,
+        [
+            page_id.into(),
+            page_title.into(),
+            page_content.into(),
+        ],
+    )).await {
+        tracing::warn!(error = %e, page_id = %page_id, "failed to update wiki_pages_fts index");
+    }
+
+    Ok(page)
 }
 
 /// Get a wiki page by repo and title.
@@ -104,7 +122,25 @@ pub async fn update_page(
         updated_at: sea_orm::Set(Utc::now()),
     };
 
-    wiki_page_ops::update(db, model).await
+    let updated = wiki_page_ops::update(db, model).await?;
+
+    // Update FTS5 index (non-fatal)
+    let page_id = updated.id;
+    let page_title = updated.title.clone();
+    let page_content = updated.content.clone();
+    if let Err(e) = db.execute(sea_orm::Statement::from_sql_and_values(
+        sea_orm::DatabaseBackend::Sqlite,
+        r#"INSERT OR REPLACE INTO wiki_pages_fts(rowid, title, content) VALUES (?, ?, ?)"#,
+        [
+            page_id.into(),
+            page_title.into(),
+            page_content.into(),
+        ],
+    )).await {
+        tracing::warn!(error = %e, page_id = %page_id, "failed to update wiki_pages_fts index");
+    }
+
+    Ok(updated)
 }
 
 /// List all revisions for a wiki page (newest first).
@@ -139,5 +175,16 @@ pub async fn delete_page(
         .context("find wiki page for delete")?
         .ok_or_else(|| anyhow::anyhow!("wiki page '{}' not found", title))?;
 
-    wiki_page_ops::delete_by_id(db, existing.id).await
+    let page_id = existing.id;
+
+    // Delete from FTS5 index (non-fatal)
+    if let Err(e) = db.execute(sea_orm::Statement::from_sql_and_values(
+        sea_orm::DatabaseBackend::Sqlite,
+        r#"DELETE FROM wiki_pages_fts WHERE rowid = ?"#,
+        [page_id.into()],
+    )).await {
+        tracing::warn!(error = %e, page_id = %page_id, "failed to delete from wiki_pages_fts index");
+    }
+
+    wiki_page_ops::delete_by_id(db, page_id).await
 }

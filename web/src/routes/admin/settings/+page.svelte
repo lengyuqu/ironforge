@@ -61,6 +61,7 @@
       saving = false;
     }
   }
+
 </script>
 
 <svelte:head>
@@ -79,21 +80,21 @@
   {:else}
     <div class="section">
       <h2>Maintenance Mode</h2>
-      <label class="toggle-row">
-        <input type="checkbox" bind:checked={maintenanceMode} />
-        <span>Enable maintenance mode (read-only, blocks all mutating requests)</span>
-      </label>
+      <div class="toggle-row">
+        <input id="admin-maintenance-mode" type="checkbox" bind:checked={maintenanceMode} />
+        <label for="admin-maintenance-mode">Enable maintenance mode (read-only, blocks all mutating requests)</label>
+      </div>
     </div>
 
     <div class="section">
       <h2>Instance Banner</h2>
       <div class="form-group">
-        <label>Banner Message (leave empty to hide)</label>
-        <input type="text" bind:value={bannerMessage} placeholder="e.g. Scheduled maintenance tonight at 2am" />
+        <label for="admin-banner-message">Banner Message (leave empty to hide)</label>
+        <input id="admin-banner-message" type="text" bind:value={bannerMessage} placeholder="e.g. Scheduled maintenance tonight at 2am" />
       </div>
       <div class="form-group">
-        <label>Banner Type</label>
-        <select bind:value={bannerType}>
+        <label for="admin-banner-type">Banner Type</label>
+        <select id="admin-banner-type" bind:value={bannerType}>
           <option value="info">Info (blue)</option>
           <option value="warning">Warning (yellow)</option>
           <option value="error">Error (red)</option>
@@ -113,8 +114,7 @@
   .settings-page { max-width: 700px; margin: 0 auto; padding: 24px; }
   h1 { font-size: 22px; margin-bottom: 24px; }
   h2 { font-size: 16px; margin: 0 0 12px; }
-  .error-banner { background: rgba(248,81,73,0.1); border: 1px solid var(--red-dim); color: var(--red); border-radius: var(--radius); padding: 10px 14px; font-size: 13px; margin-bottom: 16px; }
-  .section { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 16px; }
+.section { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 16px; }
   .toggle-row { display: flex; align-items: center; gap: 10px; font-size: 14px; cursor: pointer; }
   .toggle-row input[type="checkbox"] { width: 18px; height: 18px; }
   .form-group { margin-top: 12px; }

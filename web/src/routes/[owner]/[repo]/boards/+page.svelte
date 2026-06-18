@@ -158,13 +158,24 @@
       error = e.message;
     }
   }
+
+  function closeCreateModal() {
+    showCreate = false;
+  }
+
+  function selectBoardByKey(e: KeyboardEvent, board: any) {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      selectBoard(board);
+    }
+  }
 </script>
 
 <svelte:head>
   <title>Board · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
-<div class="repo-page">
+<div class="page-container">
   <RepoHeader {owner} {repo} activeTab="boards" />
 
   <div class="page-header">
@@ -179,13 +190,19 @@
   {/if}
 
   {#if showCreate}
-    <div class="modal-overlay" onclick={() => (showCreate = false)}>
-      <div class="modal" onclick={(e) => e.stopPropagation()}>
+    <div class="modal-overlay-wrap">
+      <button
+        class="modal-overlay"
+        type="button"
+        aria-label={t('common.close')}
+        onclick={closeCreateModal}
+      ></button>
+      <div class="modal">
         <h3>{t('board.createBoard')}</h3>
         <input class="input" type="text" bind:value={newBoardName} placeholder={t('board.namePlaceholder')} />
         <input class="input" type="text" bind:value={newBoardDesc} placeholder={t('board.descPlaceholder')} />
         <div class="modal-actions">
-          <button class="btn" onclick={() => (showCreate = false)}>{t('common.cancel')}</button>
+          <button class="btn" onclick={closeCreateModal}>{t('common.cancel')}</button>
           <button class="btn btn-primary" onclick={createBoard}>{t('common.create')}</button>
         </div>
       </div>
@@ -201,14 +218,27 @@
       <!-- Board selector tabs -->
       <div class="board-tabs">
         {#each boardList as b}
-          <button
+          <div
             class="tab"
             class:active={activeBoard?.id === b.id}
             onclick={() => selectBoard(b)}
+            onkeydown={(e) => selectBoardByKey(e, b)}
+            role="button"
+            tabindex="0"
           >
             {b.name}
-            <span class="close" onclick={(e) => { e.stopPropagation(); deleteBoard(b.id); }}>&times;</span>
-          </button>
+            <button
+              type="button"
+              class="close"
+              onclick={(e) => {
+                e.stopPropagation();
+                deleteBoard(b.id);
+              }}
+              aria-label={`${t('board.deleteBoard')} ${b.name}`}
+            >
+              &times;
+            </button>
+          </div>
         {/each}
       </div>
 
@@ -284,20 +314,17 @@
 </div>
 
 <style>
-  .repo-page { max-width: 1200px; margin: 0 auto; padding: 24px; }
   .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
   h1 { font-size: 24px; font-weight: 600; margin: 0; }
   h2 { font-size: 16px; margin: 0; }
   h3 { font-size: 15px; margin: 0 0 12px; }
-
-  .error-banner { background: rgba(248,81,73,0.1); border:1px solid #dc2626; color:#dc2626; border-radius:8px; padding:10px 14px; font-size:13px; margin-bottom:16px; }
-  .loading-text, .empty-text { color: var(--text-secondary, #666); text-align:center; padding:48px; }
+.loading-text, .empty-text { color: var(--text-secondary, #666); text-align:center; padding:48px; }
 
   /* Board tabs */
   .board-tabs { display: flex; gap: 4px; margin-bottom: 16px; flex-wrap: wrap; }
   .tab { padding: 6px 12px; border:1px solid var(--border-color, #d1d5db); border-radius:6px; background:var(--bg-primary, #fff); cursor:pointer; font-size:13px; display:flex; align-items:center; gap:6px; color:var(--text-primary, #333); }
   .tab.active { background: var(--accent, #2563eb); color:#fff; border-color:var(--accent, #2563eb); }
-  .tab .close { font-size:14px; opacity:0.6; }
+  .tab .close { font-size:14px; opacity:0.6; border:none; background:none; color: inherit; line-height:1; padding:0; cursor:pointer; }
   .tab .close:hover { opacity:1; }
 
   .board-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
@@ -320,7 +347,28 @@
   .add-card-btn:hover { background:var(--bg-tertiary, #e5e7eb); }
 
   /* Modal */
-  .modal-overlay { position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.3); display:flex; align-items:center; justify-content:center; z-index:100; }
+  .modal-overlay-wrap {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+  }
+
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.3);
+    border: none;
+    padding: 0;
+    margin: 0;
+    z-index: 99;
+    cursor: default;
+  }
   .modal { background:var(--bg-primary, #fff); padding:20px; border-radius:12px; min-width:300px; max-width:400px; box-shadow:0 4px 24px rgba(0,0,0,0.15); }
   .modal-actions { display:flex; gap:8px; margin-top:12px; justify-content:flex-end; }
 

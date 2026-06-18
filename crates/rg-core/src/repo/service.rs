@@ -2,9 +2,10 @@
 
 use anyhow::{bail, Context, Result};
 use chrono::Utc;
-use sea_orm::{ActiveValue::Set, DatabaseConnection};
+use sea_orm::{ActiveValue::Set, ConnectionTrait, DatabaseConnection};
 use std::path::PathBuf;
 use std::collections::HashMap;
+use std::process::Command;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -12,6 +13,32 @@ use rg_db::{
     entities::repository::ActiveModel as RepoActiveModel,
     ops::{repo_ops, user_ops},
 };
+
+use super::templates;
+
+/// Options for repository creation (aligned with Gitea's CreateRepoOption).
+#[derive(Debug, Clone)]
+pub struct CreateRepoOptions {
+    pub owner_id: i64,
+    pub name: String,
+    pub description: Option<String>,
+    pub is_private: bool,
+    pub org_id: Option<i64>,
+    /// Default branch name (default: "main")
+    pub default_branch: Option<String>,
+    /// Whether to auto-initialize the repo with initial files
+    pub auto_init: bool,
+    /// .gitignore template key (e.g., "go", "rust")
+    pub gitignores: Option<String>,
+    /// LICENSE template key (e.g., "mit", "apache-2.0")
+    pub license: Option<String>,
+    /// README template key (e.g., "default")
+    pub readme: Option<String>,
+    /// Default issue label set (e.g., "default", "scrum", "none")
+    pub issue_labels: Option<String>,
+    /// Owner's display name for license substitution
+    pub owner_display_name: String,
+}
 
 // ── Permission cache (30s TTL) ──────────────────────────────────────────
 
@@ -219,6 +246,8 @@ pub async fn can_write(
 
 /// Create a new repository (bare git init + DB record).
 /// If org_id is Some, the repo belongs to the organization.
+///
+/// Legacy signature — kept for internal callers that don't need template options.
 pub async fn create_repo(
     db: &DatabaseConnection,
     owner_id: i64,
@@ -228,13 +257,43 @@ pub async fn create_repo(
     repo_root: &PathBuf,
     org_id: Option<i64>,
 ) -> Result<rg_db::entities::repository::Model> {
+    create_repo_with_opts(
+        db,
+        CreateRepoOptions {
+            owner_id,
+            name: name.to_string(),
+            description: description.map(str::to_string),
+            is_private,
+            org_id,
+            default_branch: Some("main".to_string()),
+            auto_init: false,
+            gitignores: None,
+            license: None,
+            readme: None,
+            issue_labels: None,
+            owner_display_name: String::new(),
+        },
+        repo_root,
+    ).await
+}
+
+/// Create a new repository with full template/auto-init support.
+pub async fn create_repo_with_opts(
+    db: &DatabaseConnection,
+    opts: CreateRepoOptions,
+    repo_root: &PathBuf,
+) -> Result<rg_db::entities::repository::Model> {
+    let default_branch = opts.default_branch.as_deref().unwrap_or("main");
+    let owner_id = opts.owner_id;
+    let name = &opts.name;
+
     // Check name conflict (per owner)
     if repo_ops::find_by_owner_and_name(db, owner_id, name).await?.is_some() {
         bail!("repository '{}' already exists", name);
     }
 
     // Determine path prefix: org name or user name
-    let path_prefix = if let Some(oid) = org_id {
+    let path_prefix = if let Some(oid) = opts.org_id {
         let org = rg_db::ops::org_ops::get_org(db, oid)
             .await?
             .ok_or_else(|| anyhow::anyhow!("organization not found"))?;
@@ -251,27 +310,242 @@ pub async fn create_repo(
     std::fs::create_dir_all(&git_path)
         .with_context(|| format!("failed to create directory: {:?}", git_path))?;
 
-    // Use gix to create bare repository
     gix::create::into(&git_path, gix::create::Kind::Bare, gix::create::Options::default())
         .with_context(|| format!("gix init --bare failed for {:?}", git_path))?;
+
+    // Auto-initialize with template files if requested
+    if opts.auto_init {
+        let init_result = auto_init_repo(
+            &git_path,
+            name,
+            opts.description.as_deref().unwrap_or(""),
+            default_branch,
+            opts.gitignores.as_deref(),
+            opts.license.as_deref(),
+            opts.readme.as_deref(),
+            &opts.owner_display_name,
+        );
+
+        if let Err(e) = &init_result {
+            // If auto_init fails, clean up the bare repo so we don't leave
+            // an inconsistent state
+            let _ = std::fs::remove_dir_all(&git_path);
+            bail!("auto-initialization failed: {}", e);
+        }
+
+        init_result?;
+    }
 
     // Insert DB record
     let now = Utc::now();
     let model = RepoActiveModel {
         owner_id: Set(owner_id),
         name: Set(name.to_string()),
-        description: Set(description.map(str::to_string)),
-        is_private: Set(is_private),
-        default_branch: Set("main".to_string()),
+        description: Set(opts.description),
+        is_private: Set(opts.is_private),
+        default_branch: Set(default_branch.to_string()),
         stars_count: Set(0),
         forks_count: Set(0),
-        org_id: Set(org_id),
+        org_id: Set(opts.org_id),
         created_at: Set(now),
         updated_at: Set(now),
         ..Default::default()
     };
 
-    repo_ops::create(db, model).await
+    let repo = repo_ops::create(db, model).await?;
+
+    // Manually update FTS5 index (triggers are disabled due to SQLite security restrictions)
+    let fts_sql = format!(
+        "INSERT INTO repos_fts(rowid, name, description) VALUES ({}, '{}', '{}')",
+        repo.id,
+        repo.name.replace('\'', "''"),
+        repo.description.as_deref().unwrap_or("").replace('\'', "''")
+    );
+    if let Err(e) = db.execute_unprepared(&fts_sql).await {
+        tracing::warn!(repo_id = repo.id, error = %e, "failed to update repos_fts index");
+    }
+
+    // Create default issue labels if requested
+    if let Some(ref label_set) = opts.issue_labels {
+        if label_set != "none" {
+            if let Err(e) = create_default_labels(db, repo.id, label_set).await {
+                tracing::warn!(repo_id = repo.id, label_set = %label_set, error = %e,
+                    "failed to create default labels");
+            }
+        }
+    }
+
+    Ok(repo)
+}
+
+/// Auto-initialize a bare repo with initial files (README, LICENSE, .gitignore)
+/// by creating a temp working tree, committing, and pushing to the bare repo.
+fn auto_init_repo(
+    bare_path: &std::path::Path,
+    repo_name: &str,
+    description: &str,
+    default_branch: &str,
+    gitignores_key: Option<&str>,
+    license_key: Option<&str>,
+    readme_key: Option<&str>,
+    owner_name: &str,
+) -> Result<()> {
+    // Canonicalize the bare repo path so git push works from any working directory
+    let bare_path = std::fs::canonicalize(bare_path)
+        .with_context(|| format!("bare repo path does not exist: {:?}", bare_path))?;
+
+    // Create a temp directory for the working tree
+    let tmp = std::env::temp_dir().join(format!("ironforge-init-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&tmp)?;
+
+    // Init a non-bare repo in the temp dir
+    let output = Command::new("git")
+        .args(["init", "-b", default_branch])
+        .current_dir(&tmp)
+        .output()
+        .context("git init failed")?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!("git init failed: {}", stderr);
+    }
+
+    // Write README.md if specified
+    let mut files_written = false;
+
+    // Write .gitignore if specified
+    if let Some(key) = gitignores_key {
+        if !key.is_empty() {
+            if let Some(tmpl) = templates::gitignore_content(key) {
+                std::fs::write(tmp.join(".gitignore"), tmpl.content)
+                    .context("failed to write .gitignore")?;
+                files_written = true;
+            }
+        }
+    }
+
+    // Write LICENSE if specified (with year/author substitution)
+    if let Some(key) = license_key {
+        if !key.is_empty() {
+            if let Some(tmpl) = templates::license_content(key) {
+                let year = Utc::now().format("%Y").to_string();
+                let content = tmpl.content
+                    .replace("{YEAR}", &year)
+                    .replace("{AUTHOR}", owner_name);
+                std::fs::write(tmp.join("LICENSE"), content)
+                    .context("failed to write LICENSE")?;
+                files_written = true;
+            }
+        }
+    }
+
+    // Write README.md if specified (default to "default" if auto_init but no template specified)
+    let readme_key = readme_key.unwrap_or("default");
+    if !readme_key.is_empty() {
+        if let Some(content) = templates::readme_content(readme_key, repo_name, description) {
+            std::fs::write(tmp.join("README.md"), content)
+                .context("failed to write README.md")?;
+            files_written = true;
+        }
+    }
+
+    // If no files were written, skip commit and just clean up
+    if !files_written {
+        let _ = std::fs::remove_dir_all(&tmp);
+        tracing::info!(%repo_name, "auto_init: no template files to commit, skipping");
+        return Ok(());
+    }
+
+    // git add all files
+    let output = Command::new("git")
+        .args(["add", "-A"])
+        .current_dir(&tmp)
+        .output()
+        .context("git add failed")?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!("git add failed: {}", stderr);
+    }
+
+    // git commit
+    let output = Command::new("git")
+        .args(["commit", "-m", "Initial commit"])
+        .current_dir(&tmp)
+        .output()
+        .context("git commit failed")?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!("git commit failed: {}", stderr);
+    }
+
+    // git push to the bare repo
+    let output = Command::new("git")
+        .args([
+            "push",
+            "--quiet",
+            &bare_path.to_string_lossy(),
+            &format!("{}:{}", default_branch, default_branch),
+        ])
+        .current_dir(&tmp)
+        .output()
+        .context("git push failed")?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!("git push to bare repo failed: {}", stderr);
+    }
+
+    // Set HEAD in the bare repo to point to the default branch
+    let head_output = Command::new("git")
+        .args([
+            "--git-dir",
+            &bare_path.to_string_lossy(),
+            "symbolic-ref",
+            "HEAD",
+            &format!("refs/heads/{}", default_branch),
+        ])
+        .output()
+        .context("git symbolic-ref HEAD failed")?;
+    if !head_output.status.success() {
+        let stderr = String::from_utf8_lossy(&head_output.stderr);
+        tracing::warn!(?stderr, "failed to set HEAD in bare repo");
+    }
+
+    // Clean up temp directory
+    let _ = std::fs::remove_dir_all(&tmp);
+
+    tracing::info!(
+        repo = %repo_name,
+        branch = %default_branch,
+        "auto-initialized repository with template files"
+    );
+
+    Ok(())
+}
+
+/// Create default issue labels for a newly created repository.
+async fn create_default_labels(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    label_set: &str,
+) -> Result<()> {
+    let labels = templates::default_labels(label_set);
+
+    for label_def in &labels {
+        let now = Utc::now();
+        let model = rg_db::entities::label::ActiveModel {
+            id: sea_orm::NotSet,
+            repo_id: Set(repo_id),
+            name: Set(label_def.name.clone()),
+            color: Set(label_def.color.clone()),
+            description: Set(Some(label_def.description.clone())),
+            created_at: Set(now),
+            updated_at: Set(now),
+        };
+        rg_db::ops::label_ops::create(db, model).await?;
+    }
+
+    tracing::info!(repo_id = repo_id, count = labels.len(), "created default issue labels");
+
+    Ok(())
 }
 
 /// Star a repository. Returns true if newly starred, false if unstarred.
@@ -319,6 +593,13 @@ pub async fn get_watch(
 /// Soft-delete a repository.
 pub async fn delete_repo(db: &DatabaseConnection, repo_id: i64) -> Result<()> {
     rg_db::ops::repo_ops::soft_delete(db, repo_id).await?;
+
+    // Manually remove from FTS5 index (triggers are disabled)
+    let fts_sql = format!("DELETE FROM repos_fts WHERE rowid = {}", repo_id);
+    if let Err(e) = db.execute_unprepared(&fts_sql).await {
+        tracing::warn!(repo_id = repo_id, error = %e, "failed to remove repo from repos_fts index");
+    }
+
     invalidate_perm_cache_repo(repo_id);
     Ok(())
 }

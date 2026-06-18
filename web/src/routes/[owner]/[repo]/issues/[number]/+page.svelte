@@ -61,7 +61,7 @@
   <title>Issue #{number} · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
-<div class="repo-page">
+<div class="page-container">
   <RepoHeader {owner} {repo} activeTab="issues" starsCount={0} />
 
   {#if error}
@@ -126,18 +126,7 @@
 </div>
 
 <style>
-  .repo-page { max-width: 1100px; margin: 0 auto; padding: 24px; }
-
-  .error-banner {
-    background: rgba(248, 81, 73, 0.1);
-    border: 1px solid var(--red-dim);
-    color: var(--red);
-    border-radius: var(--radius);
-    padding: 10px 14px;
-    font-size: 13px;
-  }
-
-  .issue-detail { max-width: 800px; }
+.issue-detail { max-width: 800px; }
 
   .issue-header { margin-bottom: 24px; }
 

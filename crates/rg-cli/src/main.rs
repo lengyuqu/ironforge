@@ -160,6 +160,13 @@ enum Commands {
         db_url: String,
     },
 
+    /// Rebuild FTS5 full-text search indexes from main tables
+    RebuildFts {
+        /// SQLite database URL (e.g. sqlite://./ironforge.db?mode=rwc)
+        #[arg(long, default_value = "sqlite://./ironforge.db?mode=rwc")]
+        db_url: String,
+    },
+
     /// Create a new bare repository (no DB record — for quick testing)
     CreateRepo {
         /// Owner username
@@ -475,6 +482,23 @@ async fn main() -> anyhow::Result<()> {
             tracing::info!("Running database migrations...");
             rg_db::run_migrations(&db).await?;
             tracing::info!("Migrations complete ✅");
+        }
+
+        Commands::RebuildFts { db_url } => {
+            tracing_subscriber::fmt()
+                .with_env_filter(
+                    EnvFilter::try_from_default_env()
+                        .unwrap_or_else(|_| EnvFilter::new("info")),
+                )
+                .with_target(false)
+                .init();
+
+            tracing::info!("Connecting to database: {}", db_url);
+            let db = rg_db::connect(&db_url).await?;
+
+            rg_db::rebuild_fts_indexes(&db).await?;
+
+            tracing::info!("FTS5 indexes rebuilt successfully ✅");
         }
 
         Commands::CreateRepo {

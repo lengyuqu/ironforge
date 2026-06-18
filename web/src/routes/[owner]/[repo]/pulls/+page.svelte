@@ -64,18 +64,30 @@
   <title>Pull Requests · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
-<div class="repo-page">
+<div class="page-container">
   <RepoHeader {owner} {repo} activeTab="pulls" starsCount={0} />
 
-  <div class="toolbar">
+  <div class="gh-toolbar pulls-toolbar">
     <div class="filter-tabs">
-      <button class="filter-btn" class:active={filterState === 'open'} onclick={() => { filterState = 'open'; loadPRs(); }}>
+      <button
+        class="filter-btn btn btn-outline btn-sm"
+        class:active={filterState === 'open'}
+        onclick={() => { filterState = 'open'; loadPRs(); }}
+      >
         {t('pulls.tabs.open')}
       </button>
-      <button class="filter-btn" class:active={filterState === 'closed'} onclick={() => { filterState = 'closed'; loadPRs(); }}>
+      <button
+        class="filter-btn btn btn-outline btn-sm"
+        class:active={filterState === 'closed'}
+        onclick={() => { filterState = 'closed'; loadPRs(); }}
+      >
         {t('pulls.tabs.closed')}
       </button>
-      <button class="filter-btn" class:active={filterState === 'merged'} onclick={() => { filterState = 'merged'; loadPRs(); }}>
+      <button
+        class="filter-btn btn btn-outline btn-sm"
+        class:active={filterState === 'merged'}
+        onclick={() => { filterState = 'merged'; loadPRs(); }}
+      >
         {t('pulls.tabs.merged')}
       </button>
     </div>
@@ -85,7 +97,7 @@
   </div>
 
   {#if showCreate}
-    <div class="create-form">
+    <div class="create-form gh-card">
       <h2>{t('pulls.create_form.title')}</h2>
       <form onsubmit={handleCreate}>
         <div class="branch-row">
@@ -133,9 +145,9 @@
   {:else if prList.length === 0}
     <div class="empty"><p>{t('pulls.empty', { state: filterState === 'all' ? '' : filterState })}</p></div>
   {:else}
-    <div class="pr-list">
+    <div class="pr-list gh-list">
       {#each prList as pr}
-        <a href="/{owner}/{repo}/pulls/{pr.number}" class="pr-item">
+        <a href="/{owner}/{repo}/pulls/{pr.number}" class="pr-item gh-list-item">
           <span class="pr-icon">
             {pr.state === 'merged' ? '⊛' : pr.state === 'closed' ? '✓' : '⑂'}
           </span>
@@ -153,39 +165,35 @@
 </div>
 
 <style>
-  .repo-page { max-width: 1100px; margin: 0 auto; padding: 24px; }
-
-  .toolbar {
+  .pulls-toolbar {
     display: flex;
     align-items: center;
     justify-content: space-between;
     margin-bottom: 16px;
   }
 
-  .filter-tabs { display: flex; gap: 4px; }
-  .filter-btn {
-    padding: 5px 12px;
-    background: none;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    color: var(--text-secondary);
-    font-size: 13px;
-    cursor: pointer;
+  .filter-tabs {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
   }
-  .filter-btn.active { background: var(--bg-tertiary); color: var(--text-primary); font-weight: 600; }
+  .filter-btn {
+    color: var(--text-secondary);
+  }
+  .filter-btn.active { color: var(--text-primary); background: var(--bg-secondary); font-weight: 600; }
   .filter-btn:hover { background: var(--bg-hover); }
 
   .btn-primary {
     padding: 6px 16px;
-    background: var(--green-dim);
+    background: var(--accent);
     color: #fff;
-    border: none;
+    border: 1px solid var(--accent);
     border-radius: var(--radius);
     font-size: 14px;
     font-weight: 600;
     cursor: pointer;
   }
-  .btn-primary:hover { background: var(--green); }
+  .btn-primary:hover { background: var(--accent-hover); }
   .btn-primary:disabled { opacity: 0.5; }
 
   .btn-secondary {
@@ -199,10 +207,7 @@
   }
 
   .create-form {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
-    padding: 24px;
+    padding: 20px;
     margin-bottom: 24px;
   }
   h2 { font-size: 18px; margin-bottom: 16px; }
@@ -220,23 +225,7 @@
   .arrow { font-size: 20px; color: var(--text-muted); margin-bottom: 8px; }
 
   .form-actions { display: flex; gap: 8px; margin-top: 8px; }
-
-  .error-banner {
-    background: rgba(248, 81, 73, 0.1);
-    border: 1px solid var(--red-dim);
-    color: var(--red);
-    border-radius: var(--radius);
-    padding: 10px 14px;
-    font-size: 13px;
-  }
-
-  .empty { text-align: center; padding: 48px; color: var(--text-secondary); }
-
-  .pr-list {
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    overflow: hidden;
-  }
+.empty { text-align: center; padding: 48px; color: var(--text-secondary); }
 
   .pr-item {
     display: flex;

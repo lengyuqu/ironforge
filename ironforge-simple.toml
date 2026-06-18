@@ -1,0 +1,12 @@
+[server]
+repo_root = "./repos"
+http_addr = "0.0.0.0:8080"
+
+[database]
+url = "sqlite://./ironforge.db?mode=rwc"
+connect_secs = 30
+idle_secs = 600
+max_connections = 10
+
+[auth]
+jwt_secret = "uYT7aF/+zA2Zh6P48xnsuY0IbcHH3WdWA4SAtP/Uv6s="
