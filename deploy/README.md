@@ -1,6 +1,45 @@
-# IronForge Observability Stack (Phase 22-C)
+# IronForge Deployment Guide
 
-## 📊 Overview
+## 🚀 Quick Start — IronForge Application
+
+```bash
+cd deploy
+
+# 1. Copy and edit config
+cp ../ironforge.example.toml ironforge.toml
+# Edit ironforge.toml — at minimum set a secure jwt_secret
+
+# 2. Start IronForge
+docker compose up -d
+
+# 3. Check status
+docker compose ps
+docker compose logs -f
+```
+
+Access: **http://localhost:8080**
+
+### Environment variables (used with default CMD):
+| Variable | Required | Default |
+|----------|----------|---------|
+| `IRONFORGE_JWT_SECRET` | **Yes** | — |
+
+### Volumes
+| Path | Purpose |
+|------|---------|
+| `/data` | Repos, SQLite DB, logs (persistent) |
+
+### Ports
+| Port | Protocol |
+|------|----------|
+| 8080 | HTTP |
+| 2222 | SSH Git |
+
+---
+
+## 📊 Observability Stack (Phase 22-C)
+
+## Overview
 
 This is a production-grade observability stack for IronForge, providing:
 

@@ -1,87 +1,119 @@
-# IronForge - Rust Git Hosting Platform
-# Multi-stage build for minimal image size
+# === IronForge Dockerfile ===
+# Multi-stage build: frontend (SvelteKit) + Rust builder + minimal runtime.
+#
+# Build:
+#   docker build -t ironforge:latest .
+#
+# Run:
+#   docker run -d -p 8080:8080 -p 2222:2222 \
+#     -e IRONFORGE_JWT_SECRET=your-secret \
+#     -v ironforge-data:/data \
+#     ironforge:latest
 
-# ── Stage 1: Builder ──────────────────────────────────
-FROM rust:1.95-bookworm as builder
+# ── Stage 1: Frontend (SvelteKit SPA) ────────────────────────
+FROM node:22-alpine AS frontend-builder
+WORKDIR /build/web
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    pkg-config \
+# Cache npm deps
+COPY web/package.json web/package-lock.json* ./
+RUN npm ci
+
+# Build the SPA (static adapter, output to ./build/)
+COPY web/svelte.config.js web/tsconfig.json web/vite.config.ts ./
+COPY web/src/ ./src/
+COPY web/static/ ./static/
+RUN npm run build
+# Output: /build/web/build/ (static adapter with fallback: index.html)
+
+# ── Stage 2: Rust builder ───────────────────────────────────
+FROM rust:1.95.0-slim-bookworm AS builder
+WORKDIR /build
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
     libsqlite3-dev \
     libssl-dev \
+    pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
-
-# Copy dependency files first (leverage Docker cache)
+# 2a. Copy workspace manifests for dependency caching
 COPY Cargo.toml Cargo.lock ./
-COPY crates/*/Cargo.toml ./
+COPY crates/rg-cli/Cargo.toml    crates/rg-cli/
+COPY crates/rg-core/Cargo.toml   crates/rg-core/
+COPY crates/rg-git/Cargo.toml    crates/rg-git/
+COPY crates/rg-ssh/Cargo.toml    crates/rg-ssh/
+COPY crates/rg-http/Cargo.toml   crates/rg-http/
+COPY crates/rg-db/Cargo.toml     crates/rg-db/
+COPY crates/rg-ci/Cargo.toml     crates/rg-ci/
+COPY crates/rg-runner/Cargo.toml crates/rg-runner/
+COPY crates/rg-mcp/Cargo.toml    crates/rg-mcp/
 
-# Create dummy files to build dependencies (trick to cache dependencies)
-RUN mkdir -p crates/rg-cli/src \
-    && echo 'fn main() {}' > crates/rg-cli/src/main.rs \
-    && cargo build --release 2>&1 || true
+# 2b. Create dummy source files so cargo can resolve all workspace members
+#     Bin crates need main.rs; lib crates need lib.rs
+RUN mkdir -p crates/rg-cli/src && echo 'fn main() {}' > crates/rg-cli/src/main.rs \
+    && mkdir -p crates/rg-mcp/src && echo 'fn main() {}' > crates/rg-mcp/src/main.rs \
+    && mkdir -p crates/rg-runner/src && echo 'fn main() {}' > crates/rg-runner/src/main.rs
+RUN for crate in rg-core rg-git rg-ssh rg-http rg-db rg-ci; do \
+      mkdir -p crates/$crate/src && echo '' > crates/$crate/src/lib.rs; \
+    done
 
-# Copy source code
-COPY . .
-
-# Build the actual project
+# 2c. Cache all crate dependencies (dummy code is valid Rust, will compile)
 RUN cargo build --release
 
-# ── Stage 2: Runtime ───────────────────────────────────
+# 2d. Copy actual source, touch to force rebuild, and compile
+COPY crates/ crates/
+RUN touch crates/rg-cli/src/main.rs \
+    crates/rg-mcp/src/main.rs \
+    crates/rg-runner/src/main.rs \
+    crates/rg-core/src/lib.rs \
+    crates/rg-git/src/lib.rs \
+    crates/rg-ssh/src/lib.rs \
+    crates/rg-http/src/lib.rs \
+    crates/rg-db/src/lib.rs \
+    crates/rg-ci/src/lib.rs \
+    && cargo build --release --bin ironforge
+
+# Strip symbols to reduce binary size
+RUN strip target/release/ironforge
+
+# ── Stage 3: Runtime ────────────────────────────────────────
 FROM debian:bookworm-slim
 
-# Install runtime dependencies
-RUN apt-get update && apt-get install -y \
-    libsqlite3-0 \
-    libssl3 \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     git \
+    curl \
+    libsqlite3-0 \
+    openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /data
-
 # Create non-root user
-RUN useradd -m -u 1000 ironforge && \
-    mkdir -p /data/repos /data/logs && \
-    chown -R ironforge:ironforge /data
+RUN useradd --create-home --shell /bin/bash ironforge
 
+# Copy binary
+COPY --from=builder /build/target/release/ironforge /usr/local/bin/ironforge
+
+# Copy frontend static assets (served at web/build relative to WORKDIR)
+COPY --from=frontend-builder /build/web/build /app/web/build
+
+# Create data directories
+RUN mkdir -p /data/repos /data/config /data/logs \
+    && chown -R ironforge:ironforge /data /app
+
+WORKDIR /app
 USER ironforge
 
-# Copy binary from builder
-COPY --from=builder /app/target/release/ironforge /usr/local/bin/ironforge
-COPY --from=builder /app/target/release/ironforge-runner /usr/local/bin/ironforge-runner
-COPY --from=builder /app/target/release/ironforge-mcp /usr/local/bin/ironforge-mcp
-
 # Expose ports
-# 8080: HTTP
-# 2222: SSH
-# 3000: Runner (internal)
 EXPOSE 8080 2222
 
-# Environment variables (override with docker run -e)
-ENV IRONFORGE_JWT_SECRET=""
-ENV IRONFORGE_REPO_ROOT="/data/repos"
-ENV IRONFORGE_DB_URL="sqlite:///data/ironforge.db?mode=rwc"
-ENV IRONFORGE_HTTP_ADDR="0.0.0.0:8080"
-ENV IRONFORGE_SSH_ADDR="0.0.0.0:2222"
-ENV IRONFORGE_LOG_FILE="/data/logs/ironforge.log"
-ENV IRONFORGE_LOG_MAX_SIZE_MB="100"
-ENV IRONFORGE_LOG_MAX_FILES="7"
-
-# Health check
+# Health check (uses ironforge's built-in /health endpoint)
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:8080/health || exit 1
 
-# Default command
+# Default command: serve with config via env vars.
+# Set IRONFORGE_JWT_SECRET env var before running.
 CMD ["ironforge", "serve", \
-    "--repo-root", "/data/repos", \
-    "--http-addr", "0.0.0.0:8080", \
-    "--ssh-addr", "0.0.0.0:2222", \
-    "--db-url", "sqlite:///data/ironforge.db?mode=rwc"]
-
-# Labels
-LABEL org.opencontainers.image.title="IronForge" \
-      org.opencontainers.image.description="Rust Git Hosting Platform" \
-      org.opencontainers.image.authors="lengyuqu" \
-      org.opencontainers.image.source="https://github.com/lengyuqu/ironforge"
+     "--repo-root", "/data/repos", \
+     "--http-addr", "0.0.0.0:8080", \
+     "--ssh-addr", "0.0.0.0:2222", \
+     "--db-url", "sqlite:///data/ironforge.db?mode=rwc", \
+     "--log-file", "/data/logs/ironforge.log"]
