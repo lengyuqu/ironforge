@@ -55,12 +55,104 @@ where
 }
 
 /// Handle Protocol V2 with separate reader/writer (HTTP mode).
+/// Sends capability advertisement first, then processes commands.
+/// Use this for SSH mode where the full V2 flow starts from scratch.
 pub async fn handle_v2<R, W>(repo_path: &Path, reader: R, writer: W) -> Result<()>
 where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
 {
     handle_v2_impl(repo_path, reader, writer).await
+}
+
+/// Handle Protocol V2 HTTP POST request (command-only, no capability advertisement).
+///
+/// In Smart HTTP mode, the capability advertisement was already sent in the
+/// GET /info/refs response. The POST request only contains the command
+/// (ls-refs or fetch), so we skip sending the advertisement and directly
+/// process the command.
+pub async fn handle_v2_http<R, W>(repo_path: &Path, reader: R, writer: W) -> Result<()>
+where
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin,
+{
+    let mut reader = BufReader::new(reader);
+    let mut writer = writer;
+
+    // No capability advertisement — it was sent in the info/refs GET response.
+    // Directly enter command processing loop.
+    loop {
+        match read_command_request(&mut reader).await? {
+            CommandRequest::LsRefs {
+                ref_patterns,
+                peel,
+                symrefs,
+                unborn,
+                server_options,
+            } => {
+                tracing::debug!(
+                    patterns = ?ref_patterns,
+                    peel,
+                    symrefs,
+                    "Processing ls-refs command (HTTP V2)"
+                );
+                handle_ls_refs(
+                    repo_path,
+                    &mut writer,
+                    &ref_patterns,
+                    peel,
+                    symrefs,
+                    unborn,
+                    &server_options,
+                )
+                .await?;
+            }
+            CommandRequest::Fetch {
+                wants,
+                haves,
+                shallows,
+                deepen,
+                filter,
+                done,
+                client_caps,
+            } => {
+                tracing::debug!(
+                    wants = wants.len(),
+                    haves = haves.len(),
+                    shallows = shallows.len(),
+                    done,
+                    "Processing fetch command (HTTP V2)"
+                );
+                handle_fetch(
+                    repo_path,
+                    &mut writer,
+                    &wants,
+                    &haves,
+                    &shallows,
+                    deepen,
+                    &filter,
+                    done,
+                    &client_caps,
+                )
+                .await?;
+            }
+            CommandRequest::ObjectInfo { oid, server_options } => {
+                tracing::debug!(oid = %oid, "Processing object-info command (HTTP V2)");
+                handle_object_info(repo_path, &mut writer, &oid, &server_options).await?;
+            }
+            CommandRequest::Flush => {
+                tracing::debug!("Received command flush - closing connection (HTTP V2)");
+                break;
+            }
+            CommandRequest::Unknown(cmd) => {
+                tracing::warn!(cmd = %cmd, "Unknown command, skipping");
+                skip_until_flush(&mut reader).await?;
+                write_flush(&mut writer).await?;
+            }
+        }
+    }
+
+    Ok(())
 }
 
 /// Internal: Protocol V2 for single bidirectional stream (SSH mode).

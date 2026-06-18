@@ -16,7 +16,7 @@ use axum::{
 use tokio::io::AsyncWriteExt;
 
 use crate::AppState;
-use rg_git::protocol::v2::handle_v2;
+use rg_git::protocol::v2::handle_v2_http;
 
 /// Check if client wants Protocol V2 based on HTTP headers.
 pub fn wants_protocol_v2(headers: &HeaderMap) -> bool {
@@ -30,27 +30,33 @@ pub fn wants_protocol_v2(headers: &HeaderMap) -> bool {
 
 /// Build V2 capability advertisement synchronously.
 /// Uses the same format as build_v2_capability_advertisement in lib.rs.
-fn build_v2_capability_sync() -> String {
+fn build_v2_capability_sync() -> Vec<u8> {
     use std::io::Write;
 
     let mut buf = Vec::new();
 
+    // Smart HTTP: info/refs response starts with pkt-line wrapped # service= header
+    let service_line = "# service=git-upload-pack\n";
+    let service_len = service_line.len() + 4;
+    buf.extend_from_slice(format!("{:04x}{}", service_len, service_line).as_bytes());
+    buf.extend_from_slice(b"0000"); // flush after service header
+
+    // Helper to write pkt-line data
     let write_pkt = |buf: &mut Vec<u8>, text: &str| {
         let payload = text.as_bytes();
-        let len = payload.len() + 4;
-        writeln!(buf, "{:04x}{}", len, text)?;
-        Ok::<(), std::io::Error>(())
+        let len = payload.len() + 4 + 1; // +4 for hex header, +1 for trailing \n
+        buf.extend_from_slice(format!("{:04x}{}\n", len, text).as_bytes());
     };
 
-    let _ = write_pkt(&mut buf, "version 2");
-    let _ = write_pkt(&mut buf, "agent=ironforge/0.1");
-    let _ = write_pkt(&mut buf, "ls-refs");
-    let _ = write_pkt(&mut buf, "fetch=shallow");
-    let _ = write_pkt(&mut buf, "object-format=sha1");
-    let _ = write_pkt(&mut buf, "server-option");
+    write_pkt(&mut buf, "version 2");
+    write_pkt(&mut buf, "agent=ironforge/0.1");
+    write_pkt(&mut buf, "ls-refs");
+    write_pkt(&mut buf, "fetch=shallow");
+    write_pkt(&mut buf, "object-format=sha1");
+    write_pkt(&mut buf, "server-option");
     buf.extend_from_slice(b"0000");
 
-    String::from_utf8(buf).unwrap_or_default()
+    buf
 }
 
 /// Handle GET /git/{owner}/{repo}/info/refs
@@ -187,13 +193,12 @@ pub async fn handle_git_upload_pack_v2(
     // Process V2 protocol
     let mut response_buf = Vec::new();
 
-    match handle_v2(&repo_path, reader, &mut response_buf).await {
+    match handle_v2_http(&repo_path, reader, &mut response_buf).await {
         Ok(()) => {
-            let body = String::from_utf8(response_buf).unwrap_or_default();
             (
                 StatusCode::OK,
                 [("Content-Type", "application/x-git-upload-pack-result")],
-                body,
+                response_buf,
             )
                 .into_response()
         }

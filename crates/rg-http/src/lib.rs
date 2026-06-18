@@ -256,6 +256,12 @@ fn build_router(state: AppState, rate_limiter: rate_limit::RateLimiter) -> Route
 
     Router::new()
         .nest("/git", git_routes)
+        // ── Root-level Git Smart HTTP routes (standard git client format) ───
+        // Git clients request /{owner}/{repo}.git/info/refs etc.
+        // These must be at root level (no /git prefix) for compatibility.
+        .route("/{owner}/{repo}/info/refs", get(handle_info_refs))
+        .route("/{owner}/{repo}/git-upload-pack", post(handle_git_upload_pack))
+        .route("/{owner}/{repo}/git-receive-pack", post(handle_git_receive_pack))
         .nest("/api/v1", api_v1)
         .nest("/v2", v2_routes)
         .route("/health", get(health))
@@ -591,6 +597,9 @@ fn build_test_router(state: AppState) -> Router {
 
     Router::new()
         .nest("/git", git_routes)
+        .route("/{owner}/{repo}/info/refs", get(handle_info_refs))
+        .route("/{owner}/{repo}/git-upload-pack", post(handle_git_upload_pack))
+        .route("/{owner}/{repo}/git-receive-pack", post(handle_git_receive_pack))
         .nest("/api/v1", api_v1)
         .route("/health", get(health))
         // ── Middleware layers (no rate limiter for tests) ──────────────────
@@ -926,12 +935,21 @@ async fn check_git_access(
 ///
 /// Common mistake: Using `text/plain` or wrong subtype will break git clients.
 /// Always verify Content-Type matches the Git Smart HTTP spec exactly.
+///
+/// Strip `.git` suffix from repo name so both `owner/repo.git` and
+/// `owner/repo` path formats resolve to the same bare repository.
+fn strip_git_suffix(repo: &str) -> String {
+    repo.strip_suffix(".git").map(|s| s.to_string()).unwrap_or_else(|| repo.to_string())
+}
+
 async fn handle_info_refs(
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
     axum::extract::Path((owner, repo)): axum::extract::Path<(String, String)>,
     Query(params): Query<std::collections::HashMap<String, String>>,
 ) -> impl IntoResponse {
+    // Strip .git suffix so both `owner/repo.git` and `owner/repo` work
+    let repo = strip_git_suffix(&repo);
     let service = params.get("service").map(|s| s.as_str()).unwrap_or("");
 
     // H-02: Validate owner/repo before constructing repository path
@@ -1019,7 +1037,10 @@ async fn handle_info_refs(
 
 fn build_info_refs(repo_path: &std::path::Path, service: &str) -> Result<String> {
     let mut buf = String::new();
-    buf.push_str(&format!("# service={}\n", service));
+    // 踩坑 #1: # service= 行必须用 pkt-line 包裹，不能裸写
+    let svc_line = format!("# service={}\n", service);
+    buf.push_str(&format!("{:04x}", svc_line.len() + 4));
+    buf.push_str(&svc_line);
     buf.push_str("0000");
 
     let repo = gix::open(repo_path)
@@ -1055,29 +1076,27 @@ fn build_info_refs(repo_path: &std::path::Path, service: &str) -> Result<String>
     };
 
     if let Some((sha, refname)) = ref_list.first() {
-        let line = format!(
-            "{:04x}{} {}\0{}\n",
-            sha.len() + refname.len() + caps.len() + 6,
-            sha,
-            refname,
-            caps
-        );
+        // First ref line carries capabilities after NUL separator
+        // Format: <SHA> <refname>\0<capabilities>\n
+        let payload = format!("{} {}\0{}\n", sha, refname, caps);
+        let line = format!("{:04x}", payload.len() + 4);
         buf.push_str(&line);
+        buf.push_str(&payload);
     } else {
+        // Empty repository: send a dummy HEAD line with capabilities
+        // Format: <null SHA> HEAD\0<capabilities>\n
         let null_sha = "0000000000000000000000000000000000000000";
-        let line = format!(
-            "{:04x}{} capabilities^{}\0{}\n",
-            null_sha.len() + 15 + caps.len() + 1,
-            null_sha,
-            service,
-            caps
-        );
+        let payload = format!("{} HEAD\0{}\n", null_sha, caps);
+        let line = format!("{:04x}", payload.len() + 4);
         buf.push_str(&line);
+        buf.push_str(&payload);
     }
 
     for (sha, refname) in ref_list.iter().skip(1) {
-        let line = format!("{:04x}{} {}\n", sha.len() + refname.len() + 2, sha, refname);
+        let payload = format!("{} {}\n", sha, refname);
+        let line = format!("{:04x}", payload.len() + 4);
         buf.push_str(&line);
+        buf.push_str(&payload);
     }
 
     buf.push_str("0000");
@@ -1092,11 +1111,19 @@ fn build_v2_capability_advertisement() -> Result<String> {
 
     let mut buf = Vec::new();
 
-    // Helper to write pkt-line data
+    // 踩坑: Smart HTTP 要求 # service= 行用 pkt-line 包裹 + flush
+    let svc_line = format!("# service=git-upload-pack\n");
+    let len = svc_line.len() + 4;
+    write!(buf, "{:04x}", len)?;
+    buf.extend_from_slice(svc_line.as_bytes());
+    buf.extend_from_slice(b"0000");
+
+    // Helper to write pkt-line data (踩坑: pkt-line payload 末尾带 \n,
+    // 长度头 = payload.len() + 4(头) + 1(\n); 用 write! 不是 writeln!)
     let write_pkt = |buf: &mut Vec<u8>, text: &str| {
         let payload = text.as_bytes();
-        let len = payload.len() + 4; // +4 for header
-        writeln!(buf, "{:04x}{}", len, text)?;
+        let len = payload.len() + 4 + 1; // +4 for hex header, +1 for trailing \n
+        write!(buf, "{:04x}{}\n", len, text)?;
         Ok::<(), std::io::Error>(())
     };
 
@@ -1120,6 +1147,8 @@ async fn handle_git_upload_pack(
     axum::extract::Path((owner, repo)): axum::extract::Path<(String, String)>,
     body: axum::body::Bytes,
 ) -> Response {
+    // Strip .git suffix so both `owner/repo.git` and `owner/repo` work
+    let repo = strip_git_suffix(&repo);
     // H-02: Validate owner/repo before constructing repository path
     if let Err(e) = rg_core::platform::validate_repo_path(&owner) {
         return (
@@ -1162,25 +1191,35 @@ async fn handle_git_upload_pack(
             let _ = pipe_write.write_all(&body).await;
         });
 
-        let (mut buf_reader, mut buf_writer) = tokio::io::duplex(64 * 1024);
+        let (buf_reader, mut buf_writer) = tokio::io::duplex(64 * 1024);
+        // Spawn concurrent reader to prevent duplex deadlock when pack > 64KB
+        let reader_task = tokio::spawn(async move {
+            let mut buf_reader = buf_reader;
+            let mut output = Vec::new();
+            let _ = buf_reader.read_to_end(&mut output).await;
+            output
+        });
 
-        match rg_git::protocol::v2::handle_v2(&repo_path, pipe_read, &mut buf_writer).await {
+        match rg_git::protocol::v2::handle_v2_http(&repo_path, pipe_read, &mut buf_writer).await {
             Ok(()) => {
                 let _ = buf_writer.flush().await;
                 drop(buf_writer);
-                let mut output = Vec::new();
-                let _ = buf_reader.read_to_end(&mut output).await;
+                let output = reader_task.await.unwrap_or_default();
                 (
                     StatusCode::OK,
                     [(header::CONTENT_TYPE, "application/x-git-upload-pack-result")],
                     Body::from(output),
                 ).into_response()
             }
-            Err(e) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                [(header::CONTENT_TYPE, "text/plain")],
-                Body::from(format!("error: {:#}", e)),
-            ).into_response(),
+            Err(e) => {
+                drop(buf_writer);
+                reader_task.abort();
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    [(header::CONTENT_TYPE, "text/plain")],
+                    Body::from(format!("error: {:#}", e)),
+                ).into_response()
+            }
         }
     } else {
         // Protocol V1: use V1 handler
@@ -1189,7 +1228,14 @@ async fn handle_git_upload_pack(
             let _ = pipe_write.write_all(&body).await;
         });
 
-        let (mut buf_reader, mut buf_writer) = tokio::io::duplex(64 * 1024);
+        let (buf_reader, mut buf_writer) = tokio::io::duplex(64 * 1024);
+        // Spawn concurrent reader to prevent duplex deadlock when pack > 64KB
+        let reader_task = tokio::spawn(async move {
+            let mut buf_reader = buf_reader;
+            let mut output = Vec::new();
+            let _ = buf_reader.read_to_end(&mut output).await;
+            output
+        });
 
         match rg_git::protocol::upload_pack::handle_upload_pack_http(
             &repo_path,
@@ -1201,19 +1247,22 @@ async fn handle_git_upload_pack(
             Ok(()) => {
                 let _ = buf_writer.flush().await;
                 drop(buf_writer);
-                let mut output = Vec::new();
-                let _ = buf_reader.read_to_end(&mut output).await;
+                let output = reader_task.await.unwrap_or_default();
                 (
                     StatusCode::OK,
                     [(header::CONTENT_TYPE, "application/x-git-upload-pack-result")],
                     Body::from(output),
                 ).into_response()
             }
-            Err(e) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                [(header::CONTENT_TYPE, "text/plain")],
-                Body::from(format!("error: {:#}", e)),
-            ).into_response(),
+            Err(e) => {
+                drop(buf_writer);
+                reader_task.abort();
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    [(header::CONTENT_TYPE, "text/plain")],
+                    Body::from(format!("error: {:#}", e)),
+                ).into_response()
+            }
         }
     }
 }
@@ -1224,6 +1273,8 @@ async fn handle_git_receive_pack(
     axum::extract::Path((owner, repo)): axum::extract::Path<(String, String)>,
     body: axum::body::Bytes,
 ) -> impl IntoResponse {
+    // Strip .git suffix so both `owner/repo.git` and `owner/repo` work
+    let repo = strip_git_suffix(&repo);
     // H-02: Validate owner/repo before constructing repository path
     if let Err(e) = rg_core::platform::validate_repo_path(&owner) {
         return (
@@ -1261,7 +1312,14 @@ async fn handle_git_receive_pack(
         let _ = pipe_write.write_all(&body).await;
     });
 
-    let (mut buf_reader, mut buf_writer) = tokio::io::duplex(64 * 1024);
+    let (buf_reader, mut buf_writer) = tokio::io::duplex(64 * 1024);
+    // Spawn concurrent reader to prevent duplex deadlock when response > 64KB
+    let reader_task = tokio::spawn(async move {
+        let mut buf_reader = buf_reader;
+        let mut output = Vec::new();
+        let _ = buf_reader.read_to_end(&mut output).await;
+        output
+    });
 
     match rg_git::protocol::receive_pack::handle_receive_pack_http(
         &repo_path,
@@ -1273,8 +1331,7 @@ async fn handle_git_receive_pack(
         Ok(ref_updates) => {
             let _ = buf_writer.flush().await;
             drop(buf_writer);
-            let mut output = Vec::new();
-            let _ = buf_reader.read_to_end(&mut output).await;
+            let output = reader_task.await.unwrap_or_default();
 
             // ── Post-push hooks: trigger CI + Webhook ───────────────
             let db = state.db.clone();

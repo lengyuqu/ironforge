@@ -360,6 +360,15 @@ async fn send_packfile<W: AsyncWrite + Unpin>(
         .await
         .context("failed to spawn git pack-objects")?;
 
+    // Close stdin immediately — `--all` packs all objects without stdin input,
+    // but the piped stdin keeps the child waiting for EOF if we don't close it.
+    // 踩坑: Stdio::piped() creates a pipe but git pack-objects blocks reading stdin
+    // until EOF; must take and drop stdin to signal EOF.
+    {
+        let stdin = cmd.stdin.take();
+        drop(stdin); // Close stdin pipe → child sees EOF
+    }
+
     let stdout = cmd.stdout.take().context("no stdout")?;
     let mut pack_reader = BufReader::new(stdout);
 
