@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# push-github.sh — 推送到 GitHub，自动剥离 AI 工具目录
+# push-github.sh — 推送到 GitHub，自动剥离私有目录
 #
 # 用法:
-#   ./scripts/push-github.sh              # 推送当前分支到 github/main
-#   ./scripts/push-github.sh feature-x    # 推送当前分支到 github/指定分支
+#   ./pushscript/push-github.sh              # 推送当前分支到 github/main
+#   ./pushscript/push-github.sh feature-x    # 推送当前分支到 github/指定分支
 #
 # 工作原理:
 #   1. 从当前 HEAD 创建临时分支
-#   2. 在临时分支上 git rm --cached 剥离工具目录（文件保留在工作区）
+#   2. 在临时分支上 git rm --cached 剥离私有目录（文件保留在工作区）
 #   3. force-push 到 GitHub
 #   4. 切回原分支，删除临时分支
 #
-# git233 (origin) 不受影响，工具目录继续跟踪。
+# git233 (origin) 不受影响，私有目录继续跟踪。
 
 set -euo pipefail
 
@@ -24,7 +24,7 @@ TOOL_DIRS=(
     ".trae"
     ".qoder"
     ".codebuddy"
-    "scripts"
+    "pushscript"
 )
 
 GITHUB_REMOTE="github"
@@ -41,7 +41,7 @@ fi
 echo "=== GitHub 同步推送 ==="
 echo "源分支:   $CURRENT_BRANCH"
 echo "目标分支: $GITHUB_REMOTE/$TARGET_BRANCH"
-echo "剥离目录: ${TOOL_DIRS[*]}（含 scripts/ 本身）"
+echo "剥离目录: ${TOOL_DIRS[*]}（含 pushscript/ 本身）"
 echo ""
 
 # 创建临时分支
@@ -49,8 +49,10 @@ TEMP_BRANCH="__github_sync_$$"
 git checkout -b "$TEMP_BRANCH"
 
 # 确保退出时切回原分支并清理临时分支
+# 使用 -f 是因为 git rm --cached 后工作区文件变成 untracked，
+# checkout 回原分支时会冲突，-f 可安全跳过（文件内容一致）
 cleanup() {
-    git checkout "$CURRENT_BRANCH" 2>/dev/null || true
+    git checkout -f "$CURRENT_BRANCH" 2>/dev/null || true
     git branch -D "$TEMP_BRANCH" 2>/dev/null || true
 }
 trap cleanup EXIT
