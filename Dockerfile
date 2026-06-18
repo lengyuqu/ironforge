@@ -33,6 +33,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libsqlite3-dev \
     libssl-dev \
     pkg-config \
+    # curl + ca-certificates are needed at build time: utoipa-swagger-ui's
+    # build script downloads the Swagger UI assets via the curl CLI.
+    curl \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # 2a. Copy workspace manifests for dependency caching
