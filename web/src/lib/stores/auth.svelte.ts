@@ -13,6 +13,7 @@ interface User {
 let currentUser = $state<User | null>(null);
 let isLoading = $state(false);
 let error = $state<string | null>(null);
+let authReady = $state(false); // True after initial fetchUser() completes
 
 export function getUser() {
   return currentUser;
@@ -32,6 +33,10 @@ export function getAuthError() {
 
 export function getAuthLoading() {
   return isLoading;
+}
+
+export function isAuthReady() {
+  return authReady;
 }
 
 export async function login(username: string, password: string) {
@@ -77,6 +82,7 @@ export async function fetchUser() {
   const token = getToken();
   if (!token) {
     currentUser = null;
+    authReady = true;
     return;
   }
   try {
@@ -91,6 +97,8 @@ export async function fetchUser() {
   } catch {
     setToken(null);
     currentUser = null;
+  } finally {
+    authReady = true;
   }
 }
 

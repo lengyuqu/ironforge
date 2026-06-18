@@ -2,7 +2,7 @@
   import '$lib/app.css';
   import Navbar from '$lib/components/Navbar.svelte';
   import InstanceBanner from '$lib/components/InstanceBanner.svelte';
-  import { fetchUser } from '$lib/stores/auth.svelte';
+  import { fetchUser, isAuthReady } from '$lib/stores/auth.svelte';
   import { registerKeyboardShortcuts } from '$lib/stores/instance.svelte';
   import { locale } from '$lib/i18n';
   import { onMount } from 'svelte';
@@ -28,7 +28,11 @@
   <InstanceBanner />
   <Navbar />
   <main>
-    {@render children()}
+    {#if isAuthReady()}
+      {@render children()}
+    {:else}
+      <div class="loading">Loading...</div>
+    {/if}
   </main>
 </div>
 

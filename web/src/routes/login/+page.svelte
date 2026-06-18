@@ -1,12 +1,20 @@
 <script lang="ts">
-  import { login, getAuthError, getAuthLoading } from '$lib/stores/auth.svelte';
+  import { login, getAuthError, getAuthLoading, isLoggedIn } from '$lib/stores/auth.svelte';
   import { createT } from '$lib/i18n';
+  import { goto } from '$app/navigation';
 
   const t = createT();
 
   let username = $state('');
   let password = $state('');
   let localError = $state('');
+
+  // Redirect if already logged in (prevents flash of login form for authenticated users)
+  $effect(() => {
+    if (isLoggedIn()) {
+      goto('/dashboard');
+    }
+  });
 
   async function handleSubmit(e: Event) {
     e.preventDefault();
