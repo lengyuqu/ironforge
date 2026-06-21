@@ -5,9 +5,7 @@ use crate::entities::sso_provider;
 pub use crate::entities::sso_provider::Entity;
 
 /// List all configured SSO providers (admin use).
-pub async fn list_all(
-    db: &DatabaseConnection,
-) -> Result<Vec<sso_provider::Model>, DbErr> {
+pub async fn list_all(db: &DatabaseConnection) -> Result<Vec<sso_provider::Model>, DbErr> {
     Entity::find()
         .order_by_asc(sso_provider::Column::Id)
         .all(db)
@@ -15,9 +13,7 @@ pub async fn list_all(
 }
 
 /// List only enabled providers (for login page).
-pub async fn list_enabled(
-    db: &DatabaseConnection,
-) -> Result<Vec<sso_provider::Model>, DbErr> {
+pub async fn list_enabled(db: &DatabaseConnection) -> Result<Vec<sso_provider::Model>, DbErr> {
     Entity::find()
         .filter(sso_provider::Column::Enabled.eq(true))
         .order_by_asc(sso_provider::Column::Id)
@@ -45,6 +41,7 @@ pub async fn find_by_id(
 }
 
 /// Upsert a provider from admin settings.
+#[allow(clippy::too_many_arguments)]
 pub async fn upsert(
     db: &DatabaseConnection,
     id: Option<i64>,
@@ -66,9 +63,7 @@ pub async fn upsert(
 ) -> Result<sso_provider::Model, DbErr> {
     let now = chrono::Utc::now();
     if let Some(existing_id) = id {
-        let some = Entity::find_by_id(existing_id)
-            .one(db)
-            .await?;
+        let some = Entity::find_by_id(existing_id).one(db).await?;
         if let Some(m) = some {
             let mut am: sso_provider::ActiveModel = m.into();
             am.name = Set(name.to_string());
@@ -115,10 +110,7 @@ pub async fn upsert(
 }
 
 /// Delete a provider by id.
-pub async fn delete_by_id(
-    db: &DatabaseConnection,
-    id: i64,
-) -> Result<(), DbErr> {
+pub async fn delete_by_id(db: &DatabaseConnection, id: i64) -> Result<(), DbErr> {
     Entity::delete_by_id(id).exec(db).await?;
     Ok(())
 }

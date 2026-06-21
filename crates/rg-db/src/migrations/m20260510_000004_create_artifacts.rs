@@ -16,13 +16,36 @@ impl MigrationTrait for Migration {
                 Table::create()
                     .table(Artifacts::Table)
                     .if_not_exists()
-                    .col(ColumnDef::new(Artifacts::Id).big_integer().not_null().auto_increment().primary_key())
+                    .col(
+                        ColumnDef::new(Artifacts::Id)
+                            .big_integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
                     .col(ColumnDef::new(Artifacts::JobId).big_integer().not_null())
                     .col(ColumnDef::new(Artifacts::Name).string_len(255).not_null())
-                    .col(ColumnDef::new(Artifacts::FilePath).string_len(1024).not_null())
-                    .col(ColumnDef::new(Artifacts::Size).big_integer().not_null().default(0))
-                    .col(ColumnDef::new(Artifacts::CreatedAt).timestamp_with_time_zone().not_null())
-                    .col(ColumnDef::new(Artifacts::ExpiresAt).timestamp_with_time_zone().null())
+                    .col(
+                        ColumnDef::new(Artifacts::FilePath)
+                            .string_len(1024)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(Artifacts::Size)
+                            .big_integer()
+                            .not_null()
+                            .default(0),
+                    )
+                    .col(
+                        ColumnDef::new(Artifacts::CreatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(Artifacts::ExpiresAt)
+                            .timestamp_with_time_zone()
+                            .null(),
+                    )
                     .to_owned(),
             )
             .await?;

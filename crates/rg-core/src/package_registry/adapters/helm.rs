@@ -43,9 +43,9 @@ impl PackageAdapter for HelmAdapter {
         // Check for Chart.yaml inside
         let mut decoder = GzDecoder::new(data);
         let mut tar_data = Vec::new();
-        decoder.read_to_end(&mut tar_data).map_err(|e| {
-            anyhow::anyhow!("invalid Helm chart (gzip decode failed): {e}")
-        })?;
+        decoder
+            .read_to_end(&mut tar_data)
+            .map_err(|e| anyhow::anyhow!("invalid Helm chart (gzip decode failed): {e}"))?;
 
         let mut archive = tar::Archive::new(&tar_data[..]);
         let mut found = false;
@@ -101,18 +101,16 @@ fn extract_from_chart(data: &[u8]) -> Result<ExtractedMetadata, anyhow::Error> {
         }
     }
 
-    let yaml_str = chart_yaml.ok_or_else(|| {
-        anyhow::anyhow!("invalid Helm chart: no Chart.yaml found")
-    })?;
+    let yaml_str =
+        chart_yaml.ok_or_else(|| anyhow::anyhow!("invalid Helm chart: no Chart.yaml found"))?;
 
     parse_chart_yaml(&yaml_str)
 }
 
 /// Parse Chart.yaml content.
 fn parse_chart_yaml(yaml: &str) -> Result<ExtractedMetadata, anyhow::Error> {
-    let doc: serde_yaml::Value = serde_yaml::from_str(yaml).map_err(|e| {
-        anyhow::anyhow!("invalid Chart.yaml: {e}")
-    })?;
+    let doc: serde_yaml::Value =
+        serde_yaml::from_str(yaml).map_err(|e| anyhow::anyhow!("invalid Chart.yaml: {e}"))?;
 
     let name = doc
         .get("name")
@@ -124,13 +122,9 @@ fn parse_chart_yaml(yaml: &str) -> Result<ExtractedMetadata, anyhow::Error> {
         .get("version")
         .and_then(|v| {
             // version can be string or number
-            if let Some(s) = v.as_str() {
-                Some(s.to_string())
-            } else if let Some(n) = v.as_f64() {
-                Some(n.to_string())
-            } else {
-                None
-            }
+            v.as_str()
+                .map(str::to_string)
+                .or_else(|| v.as_f64().map(|n| n.to_string()))
         })
         .ok_or_else(|| anyhow::anyhow!("Chart.yaml missing 'version'"))?;
 
@@ -224,18 +218,21 @@ pub fn build_helm_index(entries: &[HelmIndexEntry]) -> String {
                 ver.insert("home".into(), home.clone().into());
             }
             if !entry.sources.is_empty() {
-                let sources: Vec<serde_yaml::Value> = entry.sources.iter().map(|s| s.clone().into()).collect();
+                let sources: Vec<serde_yaml::Value> =
+                    entry.sources.iter().map(|s| s.clone().into()).collect();
                 ver.insert("sources".into(), serde_yaml::Value::Sequence(sources));
             }
             if !entry.keywords.is_empty() {
-                let keywords: Vec<serde_yaml::Value> = entry.keywords.iter().map(|k| k.clone().into()).collect();
+                let keywords: Vec<serde_yaml::Value> =
+                    entry.keywords.iter().map(|k| k.clone().into()).collect();
                 ver.insert("keywords".into(), serde_yaml::Value::Sequence(keywords));
             }
             ver.insert("created".into(), entry.created.clone().into());
             if let Some(ref d) = entry.digest {
                 ver.insert("digest".into(), d.clone().into());
             }
-            let urls: Vec<serde_yaml::Value> = entry.urls.iter().map(|u| u.clone().into()).collect();
+            let urls: Vec<serde_yaml::Value> =
+                entry.urls.iter().map(|u| u.clone().into()).collect();
             ver.insert("urls".into(), serde_yaml::Value::Sequence(urls));
 
             seq.push(serde_yaml::Value::Mapping(ver));
@@ -307,7 +304,10 @@ sources:
         assert_eq!(meta.name, "nginx");
         assert_eq!(meta.version, "1.2.3");
         assert_eq!(meta.description.unwrap(), "A Helm chart for nginx");
-        assert_eq!(meta.homepage.unwrap(), "https://github.com/kubernetes/ingress-nginx");
+        assert_eq!(
+            meta.homepage.unwrap(),
+            "https://github.com/kubernetes/ingress-nginx"
+        );
         assert_eq!(meta.keywords.unwrap(), "nginx, ingress, web");
         assert!(meta.repository_url.is_some());
     }
@@ -365,21 +365,19 @@ sources:
 
     #[test]
     fn test_build_helm_index() {
-        let entries = vec![
-            HelmIndexEntry {
-                name: "nginx".into(),
-                version: "1.2.3".into(),
-                app_version: Some("1.19.0".into()),
-                description: Some("A Helm chart".into()),
-                api_version: Some("v2".into()),
-                home: Some("https://example.com".into()),
-                sources: vec!["https://github.com/x/y".into()],
-                keywords: vec!["web".into(), "proxy".into()],
-                created: "2024-01-01T00:00:00Z".into(),
-                digest: Some("sha256:abc123".into()),
-                urls: vec!["https://example.com/charts/nginx-1.2.3.tgz".into()],
-            },
-        ];
+        let entries = vec![HelmIndexEntry {
+            name: "nginx".into(),
+            version: "1.2.3".into(),
+            app_version: Some("1.19.0".into()),
+            description: Some("A Helm chart".into()),
+            api_version: Some("v2".into()),
+            home: Some("https://example.com".into()),
+            sources: vec!["https://github.com/x/y".into()],
+            keywords: vec!["web".into(), "proxy".into()],
+            created: "2024-01-01T00:00:00Z".into(),
+            digest: Some("sha256:abc123".into()),
+            urls: vec!["https://example.com/charts/nginx-1.2.3.tgz".into()],
+        }];
 
         let yaml = build_helm_index(&entries);
         assert!(yaml.contains("apiVersion: v1"));

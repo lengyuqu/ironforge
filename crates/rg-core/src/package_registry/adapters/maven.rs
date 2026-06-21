@@ -37,7 +37,11 @@ impl PackageAdapter for MavenAdapter {
         "maven"
     }
 
-    fn extract_metadata(&self, filename: &str, data: &[u8]) -> Result<ExtractedMetadata, anyhow::Error> {
+    fn extract_metadata(
+        &self,
+        filename: &str,
+        data: &[u8],
+    ) -> Result<ExtractedMetadata, anyhow::Error> {
         let filename_lower = filename.to_lowercase();
 
         if filename_lower.ends_with(".pom") {
@@ -55,7 +59,8 @@ impl PackageAdapter for MavenAdapter {
             extract_from_tarball(data)
         } else {
             // Try POM XML detection
-            let preview = String::from_utf8_lossy(if data.len() > 200 { &data[..200] } else { data });
+            let preview =
+                String::from_utf8_lossy(if data.len() > 200 { &data[..200] } else { data });
             if preview.contains("<project") || preview.contains("<project ") {
                 extract_from_pom(data)
             } else {
@@ -137,34 +142,26 @@ fn xml_tag_value(xml: &str, tag: &str) -> Option<String> {
 
 /// Extract metadata from a POM (XML) file.
 fn extract_from_pom(data: &[u8]) -> Result<ExtractedMetadata, anyhow::Error> {
-    let xml = String::from_utf8(data.to_vec()).map_err(|e| {
-        anyhow::anyhow!("invalid POM file (not valid UTF-8): {e}")
-    })?;
+    let xml = String::from_utf8(data.to_vec())
+        .map_err(|e| anyhow::anyhow!("invalid POM file (not valid UTF-8): {e}"))?;
 
-    let artifact_id = xml_tag_value(&xml, "artifactId").ok_or_else(|| {
-        anyhow::anyhow!("POM missing <artifactId>")
-    })?;
+    let artifact_id = xml_tag_value(&xml, "artifactId")
+        .ok_or_else(|| anyhow::anyhow!("POM missing <artifactId>"))?;
 
     let group_id = xml_tag_value(&xml, "groupId").unwrap_or_else(|| {
         // Fallback: try from <parent>
-        xml_tag_value(
-            &xml[..xml.find("</parent>").unwrap_or(0)],
-            "groupId",
-        ).unwrap_or_else(|| "unknown".to_string())
+        xml_tag_value(&xml[..xml.find("</parent>").unwrap_or(0)], "groupId")
+            .unwrap_or_else(|| "unknown".to_string())
     });
 
-    let version = xml_tag_value(&xml, "version").or_else(|| {
-        // Try from <parent>
-        xml_tag_value(
-            &xml[..xml.find("</parent>").unwrap_or(0)],
-            "version",
-        )
-    }).ok_or_else(|| {
-        anyhow::anyhow!("POM missing <version>")
-    })?;
+    let version = xml_tag_value(&xml, "version")
+        .or_else(|| {
+            // Try from <parent>
+            xml_tag_value(&xml[..xml.find("</parent>").unwrap_or(0)], "version")
+        })
+        .ok_or_else(|| anyhow::anyhow!("POM missing <version>"))?;
 
-    let _name = xml_tag_value(&xml, "name")
-        .or_else(|| Some(artifact_id.clone()));
+    let _name = xml_tag_value(&xml, "name").or_else(|| Some(artifact_id.clone()));
 
     let description = xml_tag_value(&xml, "description");
     let url = xml_tag_value(&xml, "url");
@@ -202,14 +199,21 @@ fn extract_from_filename(filename: &str) -> Result<ExtractedMetadata, anyhow::Er
     // Try to find the version separator: the last `-{digits}`
     let name_parts: Vec<&str> = stem.rsplitn(2, '-').collect();
     if name_parts.len() < 2 {
-        anyhow::bail!("cannot parse Maven artifact name from '{}': expected {{name}}-{{version}}.{{ext}}", filename);
+        anyhow::bail!(
+            "cannot parse Maven artifact name from '{}': expected {{name}}-{{version}}.{{ext}}",
+            filename
+        );
     }
 
     let version_candidate = name_parts[0];
     let name_candidate = name_parts[1];
 
     // Check if version part looks like a version (starts with digit or contains dots)
-    let looks_like_version = version_candidate.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false)
+    let looks_like_version = version_candidate
+        .chars()
+        .next()
+        .map(|c| c.is_ascii_digit())
+        .unwrap_or(false)
         || version_candidate.contains('.')
         || version_candidate.contains("-SNAPSHOT");
 
@@ -253,9 +257,8 @@ fn extract_from_tarball(data: &[u8]) -> Result<ExtractedMetadata, anyhow::Error>
         }
     }
 
-    let xml = pom_content.ok_or_else(|| {
-        anyhow::anyhow!("no .pom file found in Maven tar.gz bundle")
-    })?;
+    let xml =
+        pom_content.ok_or_else(|| anyhow::anyhow!("no .pom file found in Maven tar.gz bundle"))?;
 
     extract_from_pom(xml.as_bytes())
 }
@@ -275,17 +278,29 @@ pub fn build_maven_metadata_xml(
     xml.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
     xml.push_str("<metadata>\n");
     xml.push_str(&format!("  <groupId>{}</groupId>\n", escape_xml(group_id)));
-    xml.push_str(&format!("  <artifactId>{}</artifactId>\n", escape_xml(artifact_id)));
+    xml.push_str(&format!(
+        "  <artifactId>{}</artifactId>\n",
+        escape_xml(artifact_id)
+    ));
     xml.push_str("  <versioning>\n");
 
     if let Some(latest) = versions.iter().find(|v| !v.is_snapshot) {
-        xml.push_str(&format!("    <latest>{}</latest>\n", escape_xml(&latest.version)));
-        xml.push_str(&format!("    <release>{}</release>\n", escape_xml(&latest.version)));
+        xml.push_str(&format!(
+            "    <latest>{}</latest>\n",
+            escape_xml(&latest.version)
+        ));
+        xml.push_str(&format!(
+            "    <release>{}</release>\n",
+            escape_xml(&latest.version)
+        ));
     }
 
     xml.push_str("    <versions>\n");
     for entry in versions {
-        xml.push_str(&format!("      <version>{}</version>\n", escape_xml(&entry.version)));
+        xml.push_str(&format!(
+            "      <version>{}</version>\n",
+            escape_xml(&entry.version)
+        ));
     }
     xml.push_str("    </versions>\n");
 

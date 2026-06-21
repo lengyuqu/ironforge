@@ -10,8 +10,8 @@ use axum::Json;
 use tokio::io::AsyncWriteExt;
 
 use crate::api::auth::extract_bearer_claims;
-use crate::AppState;
 use crate::error::AppError;
+use crate::AppState;
 
 /// LFS batch API: POST /repos/:owner/:name/lfs/objects/batch
 #[utoipa::path(
@@ -36,23 +36,18 @@ pub async fn batch(
     Json(req): Json<rg_core::lfs::service::LfsBatchRequest>,
 ) -> impl IntoResponse {
     // LFS client sends Accept: application/vnd.git-lfs+json
-    let repo_model = match rg_core::repo::service::find_repo_by_owner_name(
-        &state.db, &owner, &repo,
-    )
-    .await
-    {
-        Ok(Some(r)) => r,
-        Ok(None) => return AppError::not_found("repository not found").into_response(),
-        Err(e) => return AppError::internal(e).into_response(),
-    };
+    let repo_model =
+        match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &repo).await {
+            Ok(Some(r)) => r,
+            Ok(None) => return AppError::not_found("repository not found").into_response(),
+            Err(e) => return AppError::internal(e).into_response(),
+        };
 
     // H-01: Auth check for private repos
     if repo_model.is_private {
         let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
             Some(c) => c,
-            None => {
-                return AppError::unauthorized("authentication required").into_response()
-            }
+            None => return AppError::unauthorized("authentication required").into_response(),
         };
         let user_id: i64 = claims.sub.parse().unwrap_or(-1);
         if !rg_core::repo::service::can_read_repo(&state.db, &repo_model, Some(user_id))
@@ -74,13 +69,7 @@ pub async fn batch(
         .unwrap_or_else(|| "http://localhost:8080".to_string());
 
     match rg_core::lfs::service::batch(
-        &state.db,
-        repo_id,
-        &lfs_root,
-        &base_url,
-        &owner,
-        &repo,
-        &req,
+        &state.db, repo_id, &lfs_root, &base_url, &owner, &repo, &req,
     )
     .await
     {
@@ -113,23 +102,18 @@ pub async fn upload_object(
     headers: HeaderMap,
     body: Body,
 ) -> impl IntoResponse {
-    let repo_model = match rg_core::repo::service::find_repo_by_owner_name(
-        &state.db, &owner, &repo,
-    )
-    .await
-    {
-        Ok(Some(r)) => r,
-        Ok(None) => return AppError::not_found("repository not found").into_response(),
-        Err(e) => return AppError::internal(e).into_response(),
-    };
+    let repo_model =
+        match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &repo).await {
+            Ok(Some(r)) => r,
+            Ok(None) => return AppError::not_found("repository not found").into_response(),
+            Err(e) => return AppError::internal(e).into_response(),
+        };
 
     // H-01: Auth check for private repos
     if repo_model.is_private {
         let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
             Some(c) => c,
-            None => {
-                return AppError::unauthorized("authentication required").into_response()
-            }
+            None => return AppError::unauthorized("authentication required").into_response(),
         };
         let user_id: i64 = claims.sub.parse().unwrap_or(-1);
         if !rg_core::repo::service::can_read_repo(&state.db, &repo_model, Some(user_id))
@@ -193,22 +177,17 @@ pub async fn download_object(
     headers: HeaderMap,
 ) -> impl IntoResponse {
     // H-01: Auth check for private repos
-    let repo_model = match rg_core::repo::service::find_repo_by_owner_name(
-        &state.db, &owner, &repo,
-    )
-    .await
-    {
-        Ok(Some(r)) => r,
-        Ok(None) => return AppError::not_found("repository not found").into_response(),
-        Err(e) => return AppError::internal(e).into_response(),
-    };
+    let repo_model =
+        match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &repo).await {
+            Ok(Some(r)) => r,
+            Ok(None) => return AppError::not_found("repository not found").into_response(),
+            Err(e) => return AppError::internal(e).into_response(),
+        };
 
     if repo_model.is_private {
         let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
             Some(c) => c,
-            None => {
-                return AppError::unauthorized("authentication required").into_response()
-            }
+            None => return AppError::unauthorized("authentication required").into_response(),
         };
         let user_id: i64 = claims.sub.parse().unwrap_or(-1);
         if !rg_core::repo::service::can_read_repo(&state.db, &repo_model, Some(user_id))
@@ -232,14 +211,15 @@ pub async fn download_object(
                     use std::io::Read;
                     let file = match std::fs::File::open(&path_for_thread) {
                         Ok(f) => f,
-                        Err(e) => { let _ = tx.blocking_send(Err(e)); return; }
+                        Err(e) => {
+                            let _ = tx.blocking_send(Err(e));
+                            return;
+                        }
                     };
                     let decoder = match zstd::stream::Decoder::new(file) {
                         Ok(d) => d,
                         Err(e) => {
-                            let _ = tx.blocking_send(Err(std::io::Error::new(
-                                std::io::ErrorKind::Other, e.to_string()
-                            )));
+                            let _ = tx.blocking_send(Err(std::io::Error::other(e.to_string())));
                             return;
                         }
                     };
@@ -249,7 +229,10 @@ pub async fn download_object(
                         match reader.read(&mut buf) {
                             Ok(0) => break,
                             Ok(n) => {
-                                if tx.blocking_send(Ok(axum::body::Bytes::from(buf[..n].to_vec()))).is_err() {
+                                if tx
+                                    .blocking_send(Ok(axum::body::Bytes::from(buf[..n].to_vec())))
+                                    .is_err()
+                                {
                                     break;
                                 }
                             }
@@ -262,15 +245,15 @@ pub async fn download_object(
                 });
 
                 let stream = tokio_stream::wrappers::ReceiverStream::new(rx);
-                let frame_stream = futures::StreamExt::map(stream, |item| {
-                    item.map(http_body::Frame::data)
-                });
+                let frame_stream =
+                    futures::StreamExt::map(stream, |item| item.map(http_body::Frame::data));
                 let stream_body = http_body_util::StreamBody::new(frame_stream);
                 (
                     StatusCode::OK,
                     [(axum::http::header::CONTENT_TYPE, "application/octet-stream")],
                     Body::new(stream_body),
-                ).into_response()
+                )
+                    .into_response()
             } else {
                 // Uncompressed file — stream directly
                 match tokio::fs::File::open(&file_path).await {
@@ -280,22 +263,26 @@ pub async fn download_object(
                             item.map(http_body::Frame::data)
                         });
                         let stream_body = http_body_util::StreamBody::new(frame_stream);
-                        let estimated_size = std::fs::metadata(&file_path)
-                            .map(|m| m.len())
-                            .unwrap_or(0);
+                        let estimated_size =
+                            std::fs::metadata(&file_path).map(|m| m.len()).unwrap_or(0);
                         (
                             StatusCode::OK,
                             [
                                 (axum::http::header::CONTENT_TYPE, "application/octet-stream"),
-                                (axum::http::header::CONTENT_LENGTH, estimated_size.to_string().as_str()),
+                                (
+                                    axum::http::header::CONTENT_LENGTH,
+                                    estimated_size.to_string().as_str(),
+                                ),
                             ],
                             Body::new(stream_body),
-                        ).into_response()
+                        )
+                            .into_response()
                     }
                     Err(_) => (
                         StatusCode::INTERNAL_SERVER_ERROR,
                         "failed to open LFS object file",
-                    ).into_response(),
+                    )
+                        .into_response(),
                 }
             }
         }
@@ -303,7 +290,8 @@ pub async fn download_object(
             StatusCode::NOT_FOUND,
             [(axum::http::header::CONTENT_TYPE, "text/plain")],
             e.to_string().into_bytes(),
-        ).into_response(),
+        )
+            .into_response(),
     }
 }
 

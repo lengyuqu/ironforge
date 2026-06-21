@@ -11,9 +11,9 @@
 use std::path::Path;
 
 use anyhow::{bail, Context, Result};
-use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, BufReader, split};
+use tokio::io::{split, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 
-use crate::pkt_line::{write_pkt_line, write_flush, read_pkt_line, PktLine};
+use crate::pkt_line::{read_pkt_line, write_flush, write_pkt_line, PktLine};
 use crate::sideband;
 
 /// V2 Protocol constants
@@ -136,7 +136,10 @@ where
                 )
                 .await?;
             }
-            CommandRequest::ObjectInfo { oid, server_options } => {
+            CommandRequest::ObjectInfo {
+                oid,
+                server_options,
+            } => {
                 tracing::debug!(oid = %oid, "Processing object-info command (HTTP V2)");
                 handle_object_info(repo_path, &mut writer, &oid, &server_options).await?;
             }
@@ -234,7 +237,10 @@ where
                 )
                 .await?;
             }
-            CommandRequest::ObjectInfo { oid, server_options } => {
+            CommandRequest::ObjectInfo {
+                oid,
+                server_options,
+            } => {
                 tracing::debug!(oid = %oid, "Processing object-info command (SSH V2)");
                 handle_object_info(repo_path, &mut write_half, &oid, &server_options).await?;
             }
@@ -326,7 +332,10 @@ where
                 )
                 .await?;
             }
-            CommandRequest::ObjectInfo { oid, server_options } => {
+            CommandRequest::ObjectInfo {
+                oid,
+                server_options,
+            } => {
                 tracing::debug!(oid = %oid, "Processing object-info command");
                 handle_object_info(repo_path, &mut writer, &oid, &server_options).await?;
             }
@@ -406,9 +415,7 @@ pub enum CommandRequest {
 ///   0001 (delimiter)
 ///   command-args...
 ///   0000 (flush)
-async fn read_command_request<R: AsyncRead + Unpin>(
-    reader: &mut R,
-) -> Result<CommandRequest> {
+async fn read_command_request<R: AsyncRead + Unpin>(reader: &mut R) -> Result<CommandRequest> {
     let mut command = None;
     let mut capabilities = Vec::new();
     let mut args = Vec::new();
@@ -661,7 +668,10 @@ async fn handle_ls_refs<W: AsyncWrite + Unpin>(
         }
 
         // repo is dropped here — no longer held across .await
-        RefData { entries: ref_entries, unborn_line }
+        RefData {
+            entries: ref_entries,
+            unborn_line,
+        }
     };
     // --- End synchronous gix section ---
 
@@ -674,10 +684,13 @@ async fn handle_ls_refs<W: AsyncWrite + Unpin>(
     let filtered: Vec<_> = if ref_patterns.is_empty() {
         ref_data.entries
     } else {
-        ref_data.entries
+        ref_data
+            .entries
             .into_iter()
             .filter(|(_, refname, _)| {
-                ref_patterns.iter().any(|prefix| refname.starts_with(prefix.as_str()))
+                ref_patterns
+                    .iter()
+                    .any(|prefix| refname.starts_with(prefix.as_str()))
             })
             .collect()
     };
@@ -695,10 +708,10 @@ async fn handle_ls_refs<W: AsyncWrite + Unpin>(
 
         // Append peeled SHA for annotated tags if client requested
         if peel && refname.starts_with("refs/tags/") {
-            if let Some(peeled) = get_tag_peel(repo_path, &sha) {
+            if let Some(peeled) = get_tag_peel(repo_path, sha) {
                 // Only append if the peeled SHA differs from the tag object SHA
                 // (i.e., it's actually an annotated tag pointing to a commit)
-                if peeled != *sha {
+                if peeled != sha.as_str() {
                     line.push_str(&format!(" peeled:{}", peeled));
                 }
             }
@@ -722,6 +735,7 @@ async fn handle_ls_refs<W: AsyncWrite + Unpin>(
 ///   - Band 1: pack data
 ///   - Band 2: progress messages
 ///   - Band 3: error messages
+#[allow(clippy::too_many_arguments)]
 async fn handle_fetch<W: AsyncWrite + Unpin>(
     repo_path: &Path,
     writer: &mut W,
@@ -731,13 +745,12 @@ async fn handle_fetch<W: AsyncWrite + Unpin>(
     _deepen: Option<u32>,
     _filter: &Option<String>,
     done: bool,
-    client_caps: &[String],
+    _client_caps: &[String],
 ) -> Result<()> {
     use sideband::{write_sideband_data, write_sideband_flush, write_sideband_progress};
 
     // Check if client supports sideband (Protocol V2 fetch always uses sideband)
-    let use_sideband = client_caps.iter().any(|c| c.contains("side-band"))
-        || true; // V2 fetch always uses sideband per spec
+    let use_sideband = true; // V2 fetch always uses sideband per spec
 
     if wants.is_empty() {
         // Nothing to send
@@ -796,11 +809,7 @@ async fn handle_fetch<W: AsyncWrite + Unpin>(
 
     if use_sideband {
         // Send progress
-        write_sideband_progress(
-            writer,
-            &format!("Enumerating objects: done.\n"),
-        )
-        .await?;
+        write_sideband_progress(writer, "Enumerating objects: done.\n").await?;
 
         // Send packfile through sideband channel 1
         write_sideband_data(writer, &pack_data).await?;
@@ -835,7 +844,11 @@ async fn handle_object_info<W: AsyncWrite + Unpin>(
     let size = get_object_size(repo_path, oid)?;
 
     write_pkt_line(writer, &PktLine::text("size")).await?;
-    write_pkt_line(writer, &PktLine::text(&format!("{} {}", oid, size))).await?;
+    let mut line = String::with_capacity(oid.len() + 22);
+    line.push_str(oid);
+    line.push(' ');
+    line.push_str(&size.to_string());
+    write_pkt_line(writer, &PktLine::text(&line)).await?;
     write_flush(writer).await?;
 
     Ok(())
@@ -885,9 +898,13 @@ fn get_object_size(repo_path: &Path, oid: &str) -> Result<u64> {
 /// TODO(gix): Replace with gix pack generation when available.
 /// The `gix` crate does not yet expose a stable pack-objects API,
 /// so we fall back to the git CLI for this step.
-async fn generate_packfile(repo_path: &Path, wants: &[String], haves: &[String]) -> Result<Vec<u8>> {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt as _};
+async fn generate_packfile(
+    repo_path: &Path,
+    wants: &[String],
+    haves: &[String],
+) -> Result<Vec<u8>> {
     use crate::cli_gateway::global_gateway;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt as _};
 
     // Build stdin input: wants (positive) + haves (negative/exclude)
     let mut revs_input = String::new();
@@ -905,13 +922,18 @@ async fn generate_packfile(repo_path: &Path, wants: &[String], haves: &[String])
     let mut cmd = global_gateway()
         .as_ref()
         .map_err(|e| anyhow::anyhow!("{}", e))?
-        .spawn_async(&["pack-objects", "--revs", "--stdout", "--thin"], Some(repo_path))
+        .spawn_async(
+            &["pack-objects", "--revs", "--stdout", "--thin"],
+            Some(repo_path),
+        )
         .await
         .context("failed to spawn git pack-objects")?;
 
     // Write revision list to stdin, then close it
     if let Some(mut stdin) = cmd.stdin.take() {
-        stdin.write_all(revs_input.as_bytes()).await
+        stdin
+            .write_all(revs_input.as_bytes())
+            .await
             .context("failed to write revs to pack-objects stdin")?;
         // stdin is dropped here, closing the pipe
     }
@@ -919,7 +941,9 @@ async fn generate_packfile(repo_path: &Path, wants: &[String], haves: &[String])
     let stdout = cmd.stdout.take().context("no stdout from pack-objects")?;
     let mut reader = BufReader::new(stdout);
     let mut pack_data = Vec::new();
-    reader.read_to_end(&mut pack_data).await
+    reader
+        .read_to_end(&mut pack_data)
+        .await
         .context("failed to read packfile from pack-objects")?;
 
     let status = cmd.wait().await.context("git pack-objects wait failed")?;
@@ -932,7 +956,11 @@ async fn generate_packfile(repo_path: &Path, wants: &[String], haves: &[String])
         } else {
             String::new()
         };
-        bail!("git pack-objects failed ({}): {}", status, stderr_msg.trim());
+        bail!(
+            "git pack-objects failed ({}): {}",
+            status,
+            stderr_msg.trim()
+        );
     }
 
     tracing::debug!(

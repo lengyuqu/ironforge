@@ -3,7 +3,9 @@
 use anyhow::{Context, Result};
 use sea_orm::*;
 
-use crate::entities::issue_comment::{self, ActiveModel, Entity as CommentEntity, Model as Comment};
+use crate::entities::issue_comment::{
+    self, ActiveModel, Entity as CommentEntity, Model as Comment,
+};
 
 /// Find a comment by id.
 pub async fn find_by_id(db: &DatabaseConnection, id: i64) -> Result<Option<Comment>> {
@@ -14,10 +16,7 @@ pub async fn find_by_id(db: &DatabaseConnection, id: i64) -> Result<Option<Comme
 }
 
 /// List comments for an issue, ordered by creation time.
-pub async fn list_by_issue(
-    db: &DatabaseConnection,
-    issue_id: i64,
-) -> Result<Vec<Comment>> {
+pub async fn list_by_issue(db: &DatabaseConnection, issue_id: i64) -> Result<Vec<Comment>> {
     CommentEntity::find()
         .filter(issue_comment::Column::IssueId.eq(issue_id))
         .order_by_asc(issue_comment::Column::CreatedAt)

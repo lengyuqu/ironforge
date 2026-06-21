@@ -7,17 +7,19 @@ use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::{Deserialize, Serialize};
 
-use utoipa::{IntoParams, ToSchema};
+use super::auth::extract_bearer_claims;
 use crate::error::AppError;
 use crate::AppState;
-use super::auth::extract_bearer_claims;
+use utoipa::{IntoParams, ToSchema};
 
 /// Verify the current request is from an authenticated admin user.
 /// Returns `Some(user_id)` on success, `None` otherwise.
 async fn require_admin(state: &AppState, headers: &HeaderMap) -> Option<i64> {
     let claims = extract_bearer_claims(headers, &state.jwt_secret)?;
     let user_id: i64 = claims.sub.parse().ok()?;
-    let user = rg_db::ops::user_ops::find_by_id(&state.db, user_id).await.ok()??;
+    let user = rg_db::ops::user_ops::find_by_id(&state.db, user_id)
+        .await
+        .ok()??;
     if user.is_admin {
         Some(user_id)
     } else {
@@ -78,6 +80,53 @@ pub struct RunnerInfoResponse {
     arch: Option<String>,
 }
 
+/// GET /api/v1/admin/runners/:id
+/// Get runner details (admin only).
+#[utoipa::path(
+    get,
+    path = "/admin/runners/{id}",
+    tag = "Runners",
+    params(
+        ("id" = i64, Path, description = "id"),
+    ),
+    responses(
+        (status = 200, description = "Success", body = RunnerInfoResponse),
+        (status = 404, description = "Not found", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
+pub async fn get_runner_admin(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(runner_id): Path<i64>,
+) -> impl IntoResponse {
+    if require_admin(&state, &headers).await.is_none() {
+        return AppError::unauthorized("admin authentication required").into_response();
+    }
+
+    match rg_db::ops::runner_ops::find_by_id(&state.db, runner_id).await {
+        Ok(Some(r)) => (
+            StatusCode::OK,
+            Json(RunnerInfoResponse {
+                id: r.id,
+                name: r.name,
+                status: r.status,
+                labels: r.labels,
+                last_seen_at: r.last_seen_at.to_string(),
+                version: r.version,
+                os: r.os,
+                arch: r.arch,
+            }),
+        )
+            .into_response(),
+        Ok(None) => AppError::not_found("runner not found").into_response(),
+        Err(e) => {
+            tracing::error!(%e, "get_runner_admin failed");
+            AppError::internal(e).into_response()
+        }
+    }
+}
+
 // ── Handlers ─────────────────────────────────────────────
 
 /// POST /api/v1/runners/register
@@ -100,11 +149,12 @@ pub async fn register(
 ) -> impl IntoResponse {
     // Require JWT authentication to register a runner (any authenticated user)
     if extract_bearer_claims(&headers, &state.jwt_secret).is_none() {
-        return AppError::unauthorized("authentication required to register runners").into_response();
+        return AppError::unauthorized("authentication required to register runners")
+            .into_response();
     }
 
-    let labels_json = serde_json::to_string(&req.labels.unwrap_or_default())
-        .unwrap_or_else(|_| "[]".to_string());
+    let labels_json =
+        serde_json::to_string(&req.labels.unwrap_or_default()).unwrap_or_else(|_| "[]".to_string());
 
     match rg_db::ops::runner_ops::register_runner(
         &state.db,
@@ -189,11 +239,13 @@ pub async fn deregister(
         Ok(true) => (
             StatusCode::OK,
             Json(serde_json::json!({"status": "deregistered"})),
-        ).into_response(),
+        )
+            .into_response(),
         Ok(false) => (
             StatusCode::NOT_FOUND,
             Json(serde_json::json!({"error": "runner not found"})),
-        ).into_response(),
+        )
+            .into_response(),
         Err(e) => AppError::internal(e).into_response(),
     }
 }
@@ -220,23 +272,29 @@ pub async fn poll_job(
     Path(runner_id): Path<i64>,
     Query(query): Query<PollJobQuery>,
 ) -> impl IntoResponse {
-    let timeout_secs = query.timeout.unwrap_or(30).min(300) as u64;
+    let timeout_secs = query.timeout.unwrap_or(30).min(300);
 
     // Use tokio::time::timeout to wrap a polling loop
     let poll_future = async {
         // Fetch runner labels for tag matching
-        let runner_labels: Vec<String> = match rg_db::ops::runner_ops::find_by_id(&state.db, runner_id).await {
-            Ok(Some(r)) => {
-                serde_json::from_str(&r.labels).unwrap_or_default()
-            }
-            _ => Vec::new(),
-        };
+        let runner_labels: Vec<String> =
+            match rg_db::ops::runner_ops::find_by_id(&state.db, runner_id).await {
+                Ok(Some(r)) => serde_json::from_str(&r.labels).unwrap_or_default(),
+                _ => Vec::new(),
+            };
 
         loop {
-            match rg_db::ops::pipeline_ops::find_pending_job_matching_labels(&state.db, &runner_labels).await {
+            match rg_db::ops::pipeline_ops::find_pending_job_matching_labels(
+                &state.db,
+                &runner_labels,
+            )
+            .await
+            {
                 Ok(Some(job)) => {
                     // Found a job — assign it to this runner
-                    if let Err(e) = rg_db::ops::pipeline_ops::assign_job(&state.db, job.id, runner_id).await {
+                    if let Err(e) =
+                        rg_db::ops::pipeline_ops::assign_job(&state.db, job.id, runner_id).await
+                    {
                         eprintln!("[poll_job] failed to assign job {}: {}", job.id, e);
                         tokio::time::sleep(std::time::Duration::from_secs(3)).await;
                         continue;
@@ -245,13 +303,17 @@ pub async fn poll_job(
                     let now = Some(chrono::Utc::now().naive_utc());
                     if let Err(e) = rg_db::ops::pipeline_ops::update_job_result(
                         &state.db, job.id, "assigned", None, None, now, None,
-                    ).await {
+                    )
+                    .await
+                    {
                         tracing::error!(job_id = job.id, error = %e, "Failed to update job result to assigned");
                     }
 
                     // Fetch stage to get pipeline_id
                     let mut pipeline_id = 0i64;
-                    if let Ok(Some(stage)) = rg_db::ops::pipeline_ops::get_stage_by_id(&state.db, job.stage_id).await {
+                    if let Ok(Some(stage)) =
+                        rg_db::ops::pipeline_ops::get_stage_by_id(&state.db, job.stage_id).await
+                    {
                         pipeline_id = stage.pipeline_id;
                     }
 
@@ -321,13 +383,15 @@ pub async fn start_job(
     };
 
     if job.runner_id != Some(runner_id) {
-            return AppError::forbidden("job not assigned to this runner").into_response();
+        return AppError::forbidden("job not assigned to this runner").into_response();
     }
 
     let now = Some(chrono::Utc::now().naive_utc());
     if let Err(e) = rg_db::ops::pipeline_ops::update_job_result(
         &state.db, job_id, "running", None, None, now, None,
-    ).await {
+    )
+    .await
+    {
         tracing::error!(%e, "start_job: update_job_result failed");
         return AppError::internal(e).into_response();
     }
@@ -375,7 +439,7 @@ pub async fn upload_log(
     };
 
     if job.runner_id != Some(runner_id) {
-            return AppError::forbidden("job not assigned to this runner").into_response();
+        return AppError::forbidden("job not assigned to this runner").into_response();
     }
 
     // Broadcast log via WebSocket to frontend
@@ -423,14 +487,22 @@ pub async fn finish_job(
     };
 
     if job.runner_id != Some(runner_id) {
-            return AppError::forbidden("job not assigned to this runner").into_response();
+        return AppError::forbidden("job not assigned to this runner").into_response();
     }
 
     let now = Some(chrono::Utc::now().naive_utc());
     // log is managed via upload_log; not updated on finish
     if let Err(e) = rg_db::ops::pipeline_ops::update_job_result(
-        &state.db, job_id, &req.status, Some(req.exit_code), None, None, now,
-    ).await {
+        &state.db,
+        job_id,
+        &req.status,
+        Some(req.exit_code),
+        None,
+        None,
+        now,
+    )
+    .await
+    {
         tracing::error!(%e, "finish_job: update_job_result failed");
         return AppError::internal(e).into_response();
     }
@@ -441,10 +513,16 @@ pub async fn finish_job(
     }
 
     // Cascade: check if stage is done, then if pipeline is done
-    if let Ok(Some(_stage_status)) = rg_db::ops::pipeline_ops::try_update_stage(&state.db, job.stage_id).await {
+    if let Ok(Some(_stage_status)) =
+        rg_db::ops::pipeline_ops::try_update_stage(&state.db, job.stage_id).await
+    {
         // Stage is done — get pipeline_id and check pipeline
-        if let Ok(Some(stage)) = rg_db::ops::pipeline_ops::get_stage_by_id(&state.db, job.stage_id).await {
-            if let Err(e) = rg_db::ops::pipeline_ops::try_update_pipeline(&state.db, stage.pipeline_id).await {
+        if let Ok(Some(stage)) =
+            rg_db::ops::pipeline_ops::get_stage_by_id(&state.db, job.stage_id).await
+        {
+            if let Err(e) =
+                rg_db::ops::pipeline_ops::try_update_pipeline(&state.db, stage.pipeline_id).await
+            {
                 tracing::error!(pipeline_id = stage.pipeline_id, error = %e, "Failed to update pipeline after stage completion");
             }
         }
@@ -579,7 +657,11 @@ pub async fn delete_runner_admin(
         return AppError::unauthorized("admin authentication required").into_response();
     }
     match rg_db::ops::runner_ops::delete_runner(&state.db, runner_id).await {
-        Ok(true) => (StatusCode::NO_CONTENT, Json(serde_json::json!({"deleted": true}))).into_response(),
+        Ok(true) => (
+            StatusCode::NO_CONTENT,
+            Json(serde_json::json!({"deleted": true})),
+        )
+            .into_response(),
         Ok(false) => AppError::not_found("runner not found").into_response(),
         Err(e) => {
             tracing::error!(%e, "delete_runner_admin failed");

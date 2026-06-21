@@ -10,7 +10,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::{AppState, api::admin::require_admin};
+use crate::{api::admin::require_admin, AppState};
 
 #[derive(Debug, Deserialize)]
 pub struct AuditLogQuery {

@@ -5,6 +5,7 @@ use crate::entities::login_log;
 pub use crate::entities::login_log::Entity;
 
 /// Log a login attempt.
+#[allow(clippy::too_many_arguments)]
 pub async fn log_attempt(
     db: &DatabaseConnection,
     user_id: Option<i64>,

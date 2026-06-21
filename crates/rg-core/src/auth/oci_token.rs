@@ -75,8 +75,8 @@ pub struct OciTokenClaims {
 /// - `registry:catalog:*`
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParsedScope {
-    pub scope_type: String, // "repository" | "registry"
-    pub name: String,      // "owner/repo" | "catalog"
+    pub scope_type: String,       // "repository" | "registry"
+    pub name: String,             // "owner/repo" | "catalog"
     pub actions: HashSet<String>, // {"pull", "push"} | {"*"}
 }
 
@@ -141,7 +141,11 @@ pub fn generate_oci_token(
         exp: now + ttl_secs as usize,
         nbf: None,
         jti: None,
-        scope: if scope.is_empty() { None } else { Some(scope.to_string()) },
+        scope: if scope.is_empty() {
+            None
+        } else {
+            Some(scope.to_string())
+        },
     };
 
     let key = EncodingKey::from_secret(secret.as_bytes());
@@ -157,7 +161,9 @@ pub fn validate_oci_token(token: &str, secret: &str) -> Option<OciTokenClaims> {
     let key = DecodingKey::from_secret(secret.as_bytes());
     let mut validation = Validation::default();
     validation.iss = Some(std::collections::HashSet::from(["ironforge".to_string()]));
-    validation.aud = Some(std::collections::HashSet::from(["ironforge-registry".to_string()]));
+    validation.aud = Some(std::collections::HashSet::from([
+        "ironforge-registry".to_string()
+    ]));
 
     match decode::<OciTokenClaims>(token, &key, &validation) {
         Ok(data) => Some(data.claims),
@@ -251,7 +257,13 @@ mod tests {
 
     #[test]
     fn test_generate_and_validate_token() {
-        let token = generate_oci_token("alice", "repository:alice/hello:pull,push", TEST_SECRET, 300).unwrap();
+        let token = generate_oci_token(
+            "alice",
+            "repository:alice/hello:pull,push",
+            TEST_SECRET,
+            300,
+        )
+        .unwrap();
         assert!(!token.is_empty());
 
         let claims = validate_oci_token(&token, TEST_SECRET).unwrap();
@@ -268,7 +280,8 @@ mod tests {
 
     #[test]
     fn test_validate_wrong_secret() {
-        let token = generate_oci_token("alice", "repository:alice/hello:pull", TEST_SECRET, 300).unwrap();
+        let token =
+            generate_oci_token("alice", "repository:alice/hello:pull", TEST_SECRET, 300).unwrap();
         let wrong_secret = "wrong-secret";
         let result = validate_oci_token(&token, wrong_secret);
         assert!(result.is_none());
@@ -304,25 +317,67 @@ mod tests {
     fn test_check_repo_access_no_token() {
         let headers = http::HeaderMap::new();
         // No token: public pull allowed
-        assert!(check_repo_access(&headers, TEST_SECRET, "alice", "hello", "pull"));
+        assert!(check_repo_access(
+            &headers,
+            TEST_SECRET,
+            "alice",
+            "hello",
+            "pull"
+        ));
         // No token: push NOT allowed
-        assert!(!check_repo_access(&headers, TEST_SECRET, "alice", "hello", "push"));
+        assert!(!check_repo_access(
+            &headers,
+            TEST_SECRET,
+            "alice",
+            "hello",
+            "push"
+        ));
     }
 
     #[test]
     fn test_check_repo_access_with_token() {
-        let token = generate_oci_token("alice", "repository:alice/hello:pull,push", TEST_SECRET, 300).unwrap();
+        let token = generate_oci_token(
+            "alice",
+            "repository:alice/hello:pull,push",
+            TEST_SECRET,
+            300,
+        )
+        .unwrap();
         let mut headers = http::HeaderMap::new();
         headers.insert(
             http::header::AUTHORIZATION,
             http::HeaderValue::from_str(&format!("Bearer {}", token)).unwrap(),
         );
 
-        assert!(check_repo_access(&headers, TEST_SECRET, "alice", "hello", "pull"));
-        assert!(check_repo_access(&headers, TEST_SECRET, "alice", "hello", "push"));
-        assert!(!check_repo_access(&headers, TEST_SECRET, "alice", "hello", "delete"));
+        assert!(check_repo_access(
+            &headers,
+            TEST_SECRET,
+            "alice",
+            "hello",
+            "pull"
+        ));
+        assert!(check_repo_access(
+            &headers,
+            TEST_SECRET,
+            "alice",
+            "hello",
+            "push"
+        ));
+        assert!(!check_repo_access(
+            &headers,
+            TEST_SECRET,
+            "alice",
+            "hello",
+            "delete"
+        ));
         // Wrong repo
-        assert!(!check_repo_access(&headers, TEST_SECRET, "bob", "hello", "pull"));
+        assert!(!check_repo_access(
+            &headers,
+            TEST_SECRET,
+            "bob",
+            "hello",
+            "pull"
+        ));
     }
 
     #[test]

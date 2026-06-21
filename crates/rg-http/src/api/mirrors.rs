@@ -15,8 +15,8 @@ use axum::{
 use serde::Deserialize;
 use utoipa::ToSchema;
 
-use crate::error::AppError;
 use crate::api::auth::extract_bearer_claims;
+use crate::error::AppError;
 use crate::AppState;
 
 /// Request body for creating/updating a mirror.
@@ -31,7 +31,9 @@ pub struct CreateMirrorRequest {
     pub sync_interval_seconds: i64,
 }
 
-fn default_interval() -> i64 { 86400 }
+fn default_interval() -> i64 {
+    86400
+}
 
 /// Request body for updating a mirror.
 #[derive(Deserialize, ToSchema)]
@@ -81,7 +83,8 @@ pub async fn create_mirror(
         Err(_) => return AppError::unauthorized("invalid token subject").into_response(),
     };
 
-    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await {
+    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
+    {
         Ok(Some(r)) => r,
         Ok(None) => return AppError::not_found("repository not found").into_response(),
         Err(e) => return AppError::internal(e).into_response(),
@@ -127,7 +130,8 @@ pub async fn get_mirror(
     State(state): State<AppState>,
     Path((owner, name)): Path<(String, String)>,
 ) -> impl IntoResponse {
-    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await {
+    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
+    {
         Ok(Some(r)) => r,
         Ok(None) => return AppError::not_found("repository not found").into_response(),
         Err(e) => return AppError::internal(e).into_response(),
@@ -170,7 +174,8 @@ pub async fn update_mirror(
         Err(_) => return AppError::unauthorized("invalid token subject").into_response(),
     };
 
-    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await {
+    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
+    {
         Ok(Some(r)) => r,
         Ok(None) => return AppError::not_found("repository not found").into_response(),
         Err(e) => return AppError::internal(e).into_response(),
@@ -226,7 +231,8 @@ pub async fn delete_mirror(
         Err(_) => return AppError::unauthorized("invalid token subject").into_response(),
     };
 
-    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await {
+    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
+    {
         Ok(Some(r)) => r,
         Ok(None) => return AppError::not_found("repository not found").into_response(),
         Err(e) => return AppError::internal(e).into_response(),
@@ -274,7 +280,8 @@ pub async fn trigger_mirror_sync(
         Err(_) => return AppError::unauthorized("invalid token subject").into_response(),
     };
 
-    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await {
+    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
+    {
         Ok(Some(r)) => r,
         Ok(None) => return AppError::not_found("repository not found").into_response(),
         Err(e) => return AppError::internal(e).into_response(),
@@ -287,9 +294,11 @@ pub async fn trigger_mirror_sync(
     }
 
     match rg_core::mirror::service::trigger_sync(&state.db, repo.id, &state.repo_root).await {
-        Ok(()) => {
-            (StatusCode::OK, Json(serde_json::json!({"status": "sync_triggered"}))).into_response()
-        }
+        Ok(()) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"status": "sync_triggered"})),
+        )
+            .into_response(),
         Err(e) => AppError::internal(e).into_response(),
     }
 }

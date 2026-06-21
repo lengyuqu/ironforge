@@ -1,5 +1,5 @@
-use sea_orm::*;
 use crate::entities::{package, package::Entity as Package};
+use sea_orm::*;
 
 /// Create a new package entry.
 pub async fn create(
@@ -63,13 +63,13 @@ pub async fn list_by_registry(
 
 /// Increment download count.
 pub async fn increment_download_count(db: &DatabaseConnection, id: i64) -> Result<(), DbErr> {
-    use package::ActiveModel;
-    if let Some(pkg) = find_by_id(db, id).await? {
-        let mut am: ActiveModel = pkg.into();
-        am.download_count = Set(am.download_count.unwrap() + 1);
-        am.updated_at = Set(chrono::Utc::now());
-        am.update(db).await?;
-    }
+    use sea_orm::DatabaseBackend;
+    db.execute(Statement::from_sql_and_values(
+        DatabaseBackend::Sqlite,
+        "UPDATE packages SET download_count = download_count + 1 WHERE id = ?",
+        [Value::from(id)],
+    ))
+    .await?;
     Ok(())
 }
 

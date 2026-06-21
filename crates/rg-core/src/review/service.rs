@@ -6,7 +6,7 @@ use sea_orm::{DatabaseConnection, Set};
 
 use rg_db::entities::pr_review::{self, Model as PrReview};
 use rg_db::entities::review_comment::{self, Model as ReviewComment};
-use rg_db::ops::{pull_request_ops, pr_review_ops, review_comment_ops, repo_ops};
+use rg_db::ops::{pr_review_ops, pull_request_ops, repo_ops, review_comment_ops};
 
 // ── Review actions ────────────────────────────────────────────────────
 
@@ -34,7 +34,7 @@ impl ReviewAction {
         }
     }
 
-    pub fn from_str(s: &str) -> Result<Self> {
+    pub fn parse_action(s: &str) -> Result<Self> {
         match s {
             "comment" => Ok(Self::Comment),
             "approve" => Ok(Self::Approve),
@@ -63,7 +63,10 @@ pub async fn submit_review(
         .context("pull request not found")?;
 
     if pr.state != "open" {
-        bail!("cannot review a PR that is not open (current: {})", pr.state);
+        bail!(
+            "cannot review a PR that is not open (current: {})",
+            pr.state
+        );
     }
 
     // For dismiss, body is typically about why the review is dismissed
@@ -97,10 +100,7 @@ pub async fn list_reviews(
 }
 
 /// Get a single review by ID.
-pub async fn get_review(
-    db: &DatabaseConnection,
-    review_id: i64,
-) -> Result<PrReview> {
+pub async fn get_review(db: &DatabaseConnection, review_id: i64) -> Result<PrReview> {
     pr_review_ops::find_by_id(db, review_id)
         .await?
         .context("review not found")
@@ -135,6 +135,7 @@ pub async fn dismiss_review(
 // ── Inline Review Comments ────────────────────────────────────────────
 
 /// Create an inline review comment on a specific diff line.
+#[allow(clippy::too_many_arguments)]
 pub async fn create_review_comment(
     db: &DatabaseConnection,
     repo_id: i64,

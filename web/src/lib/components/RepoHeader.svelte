@@ -25,6 +25,9 @@
   // Sync when prop changes
   $effect(() => {
     starsLocalCount = starsCount;
+    if (!isLoggedIn()) {
+      starred = false;
+    }
   });
 
   // Clone URLs
@@ -33,7 +36,7 @@
   let httpCopied = $state(false);
   let sshCopied = $state(false);
 
-  let httpCloneUrl = $derived(browser ? `${location.protocol}//${location.host}/${owner}/${repo}.git` : '');
+  let httpCloneUrl = $derived(browser ? `${location.protocol}//${location.host}/git/${owner}/${repo}.git` : '');
   let sshCloneUrl = $derived(browser ? `git@${location.hostname}:${owner}/${repo}.git` : '');
 
   function copyUrl(url: string) {
@@ -77,9 +80,8 @@
 
   async function loadStates() {
     try {
-      // Load star state from API
-      const starRes = await repos.star(owner, repo);
-      starred = starRes.starred;
+      const stateRes = await repos.starred(owner, repo);
+      starred = stateRes.starred;
     } catch {
       starred = false;
     }
@@ -306,7 +308,7 @@
 
             <!-- Download ZIP -->
             <div class="clone-footer">
-              <a href="/{owner}/{repo}/archive/main.zip" class="clone-footer-link" aria-label={t('repo.download_zip')}>
+              <a href="/api/v1/repos/{owner}/{repo}/archive/main.zip" class="clone-footer-link" aria-label={t('repo.download_zip')}>
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
                   <path fill-rule="evenodd" d="M2.75 14A1.75 1.75 0 011 12.25v-2.5a.75.75 0 011.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 00.25-.25v-2.5a.75.75 0 011.5 0v2.5A1.75 1.75 0 0113.25 14H2.75z"></path>
                   <path fill-rule="evenodd" d="M7.25 1.75A.75.75 0 018.75 1v6.69l1.47-1.47a.75.75 0 111.06 1.06l-2.75 2.75a.75.75 0 01-1.06 0L4.72 7.28a.75.75 0 011.06-1.06l1.47 1.47V1.75z"></path>

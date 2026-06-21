@@ -22,24 +22,38 @@ pub struct Model {
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
-    #[sea_orm(belongs_to = "super::repository::Entity", from = "Column::RepoId", to = "super::repository::Column::Id")]
+    #[sea_orm(
+        belongs_to = "super::repository::Entity",
+        from = "Column::RepoId",
+        to = "super::repository::Column::Id"
+    )]
     Repository,
-    #[sea_orm(belongs_to = "super::user::Entity", from = "Column::AuthorId", to = "super::user::Column::Id")]
+    #[sea_orm(
+        belongs_to = "super::user::Entity",
+        from = "Column::AuthorId",
+        to = "super::user::Column::Id"
+    )]
     Author,
     #[sea_orm(has_many = "super::release_asset::Entity")]
     ReleaseAsset,
 }
 
 impl Related<super::repository::Entity> for Entity {
-    fn to() -> RelationDef { Relation::Repository.def() }
+    fn to() -> RelationDef {
+        Relation::Repository.def()
+    }
 }
 
 impl Related<super::user::Entity> for Entity {
-    fn to() -> RelationDef { Relation::Author.def() }
+    fn to() -> RelationDef {
+        Relation::Author.def()
+    }
 }
 
 impl Related<super::release_asset::Entity> for Entity {
-    fn to() -> RelationDef { Relation::ReleaseAsset.def() }
+    fn to() -> RelationDef {
+        Relation::ReleaseAsset.def()
+    }
 }
 
 impl ActiveModelBehavior for ActiveModel {}

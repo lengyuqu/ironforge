@@ -385,10 +385,18 @@ struct TimeoutConfig {
     db_idle_secs: u64,
 }
 
-fn default_job_timeout() -> u64 { 3600 }
-fn default_git_timeout() -> u64 { 120 }
-fn default_db_connect_timeout() -> u64 { 10 }
-fn default_db_idle_timeout() -> u64 { 600 }
+fn default_job_timeout() -> u64 {
+    3600
+}
+fn default_git_timeout() -> u64 {
+    120
+}
+fn default_db_connect_timeout() -> u64 {
+    10
+}
+fn default_db_idle_timeout() -> u64 {
+    600
+}
 
 fn load_config_file(path: &str) -> anyhow::Result<ConfigFile> {
     let content = std::fs::read_to_string(path)?;
@@ -455,24 +463,58 @@ async fn main() -> anyhow::Result<()> {
 
     match cli.command {
         Commands::Serve {
-            repo_root, http_addr, ssh_addr, host_key, db_url, jwt_secret,
-            docker, external_runners, rate_limit_max, rate_limit_window,
-            smtp_host, smtp_port, smtp_user, smtp_pass, smtp_from,
-            tls_cert, tls_key, config, log_file, log_max_size_mb, log_max_files,
+            repo_root,
+            http_addr,
+            ssh_addr,
+            host_key,
+            db_url,
+            jwt_secret,
+            docker,
+            external_runners,
+            rate_limit_max,
+            rate_limit_window,
+            smtp_host,
+            smtp_port,
+            smtp_user,
+            smtp_pass,
+            smtp_from,
+            tls_cert,
+            tls_key,
+            config,
+            log_file,
+            log_max_size_mb,
+            log_max_files,
         } => {
             run_serve(
-                repo_root, http_addr, ssh_addr, host_key, db_url, jwt_secret,
-                docker, external_runners, rate_limit_max, rate_limit_window,
-                smtp_host, smtp_port, smtp_user, smtp_pass, smtp_from,
-                tls_cert, tls_key, config, log_file, log_max_size_mb, log_max_files,
-            ).await?;
+                repo_root,
+                http_addr,
+                ssh_addr,
+                host_key,
+                db_url,
+                jwt_secret,
+                docker,
+                external_runners,
+                rate_limit_max,
+                rate_limit_window,
+                smtp_host,
+                smtp_port,
+                smtp_user,
+                smtp_pass,
+                smtp_from,
+                tls_cert,
+                tls_key,
+                config,
+                log_file,
+                log_max_size_mb,
+                log_max_files,
+            )
+            .await?;
         }
 
         Commands::Migrate { db_url } => {
             tracing_subscriber::fmt()
                 .with_env_filter(
-                    EnvFilter::try_from_default_env()
-                        .unwrap_or_else(|_| EnvFilter::new("info")),
+                    EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
                 )
                 .with_target(false)
                 .init();
@@ -487,8 +529,7 @@ async fn main() -> anyhow::Result<()> {
         Commands::RebuildFts { db_url } => {
             tracing_subscriber::fmt()
                 .with_env_filter(
-                    EnvFilter::try_from_default_env()
-                        .unwrap_or_else(|_| EnvFilter::new("info")),
+                    EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
                 )
                 .with_target(false)
                 .init();
@@ -509,8 +550,7 @@ async fn main() -> anyhow::Result<()> {
             // Simple logging for create-repo command
             tracing_subscriber::fmt()
                 .with_env_filter(
-                    EnvFilter::try_from_default_env()
-                        .unwrap_or_else(|_| EnvFilter::new("info")),
+                    EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
                 )
                 .with_target(false)
                 .init();
@@ -518,15 +558,24 @@ async fn main() -> anyhow::Result<()> {
             let repo_root = PathBuf::from(&repo_root);
             let repo_dir = repo_root.join(format!("{}/{}.git", owner, name));
             std::fs::create_dir_all(&repo_dir)?;
-            
+
             // Replace git init --bare with gix API
-            gix::create::into(&repo_dir, gix::create::Kind::Bare, gix::create::Options::default())
-                .with_context(|| "failed to create bare repository")?;
-            
+            gix::create::into(
+                &repo_dir,
+                gix::create::Kind::Bare,
+                gix::create::Options::default(),
+            )
+            .with_context(|| "failed to create bare repository")?;
+
             println!("Created repository: {}/{}.git", owner, name);
         }
 
-        Commands::Runner { server, name, runner_id, token } => {
+        Commands::Runner {
+            server,
+            name,
+            runner_id,
+            token,
+        } => {
             use reqwest::header;
 
             let client = reqwest::Client::new();
@@ -545,10 +594,14 @@ async fn main() -> anyhow::Result<()> {
                         .context("failed to register runner")?
                         .json()
                         .await?;
-                    let rid = resp["id"].as_i64()
-                        .ok_or_else(|| anyhow::anyhow!("invalid register response: missing 'id'"))?;
-                    let tok = resp["token"].as_str()
-                        .ok_or_else(|| anyhow::anyhow!("invalid register response: missing 'token'"))?
+                    let rid = resp["id"].as_i64().ok_or_else(|| {
+                        anyhow::anyhow!("invalid register response: missing 'id'")
+                    })?;
+                    let tok = resp["token"]
+                        .as_str()
+                        .ok_or_else(|| {
+                            anyhow::anyhow!("invalid register response: missing 'token'")
+                        })?
                         .to_string();
                     eprintln!("Runner registered: id={}, token={}", rid, tok);
                     eprintln!("Save these credentials for future runs!");
@@ -563,7 +616,10 @@ async fn main() -> anyhow::Result<()> {
             loop {
                 // 1. Poll for job
                 let poll_resp = client
-                    .get(format!("{}/api/v1/runners/{}/jobs/poll?timeout=30", server, runner_id))
+                    .get(format!(
+                        "{}/api/v1/runners/{}/jobs/poll?timeout=30",
+                        server, runner_id
+                    ))
                     .header(header::AUTHORIZATION, &auth_header)
                     .send()
                     .await;
@@ -580,7 +636,8 @@ async fn main() -> anyhow::Result<()> {
                     }
                 };
 
-                let job_id = job["job_id"].as_i64()
+                let job_id = job["job_id"]
+                    .as_i64()
                     .ok_or_else(|| anyhow::anyhow!("invalid poll response"))?;
                 let script: Vec<&str> = job["script"]
                     .as_array()
@@ -592,7 +649,10 @@ async fn main() -> anyhow::Result<()> {
 
                 // 2. Start job
                 let _ = client
-                    .post(format!("{}/api/v1/runners/{}/jobs/{}/start", server, runner_id, job_id))
+                    .post(format!(
+                        "{}/api/v1/runners/{}/jobs/{}/start",
+                        server, runner_id, job_id
+                    ))
                     .header(header::AUTHORIZATION, &auth_header)
                     .send()
                     .await;
@@ -607,7 +667,10 @@ async fn main() -> anyhow::Result<()> {
 
                 // 4. Upload log
                 let _ = client
-                    .post(format!("{}/api/v1/runners/{}/jobs/{}/log", server, runner_id, job_id))
+                    .post(format!(
+                        "{}/api/v1/runners/{}/jobs/{}/log",
+                        server, runner_id, job_id
+                    ))
                     .header(header::AUTHORIZATION, &auth_header)
                     .body(log.clone())
                     .send()
@@ -616,13 +679,19 @@ async fn main() -> anyhow::Result<()> {
                 // 5. Finish job
                 let status = if exit_code == 0 { "success" } else { "failure" };
                 let _ = client
-                    .post(format!("{}/api/v1/runners/{}/jobs/{}/finish", server, runner_id, job_id))
+                    .post(format!(
+                        "{}/api/v1/runners/{}/jobs/{}/finish",
+                        server, runner_id, job_id
+                    ))
                     .header(header::AUTHORIZATION, &auth_header)
                     .json(&serde_json::json!({"status": status, "exit_code": exit_code}))
                     .send()
                     .await;
 
-                eprintln!("Job {} finished: status={}, exit_code={}", job_id, status, exit_code);
+                eprintln!(
+                    "Job {} finished: status={}, exit_code={}",
+                    job_id, status, exit_code
+                );
             }
         }
 
@@ -644,8 +713,7 @@ async fn main() -> anyhow::Result<()> {
         } => {
             tracing_subscriber::fmt()
                 .with_env_filter(
-                    EnvFilter::try_from_default_env()
-                        .unwrap_or_else(|_| EnvFilter::new("info")),
+                    EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
                 )
                 .with_target(false)
                 .init();
@@ -656,27 +724,44 @@ async fn main() -> anyhow::Result<()> {
                 None => {
                     let url = source_url.trim_end_matches('/').trim_end_matches(".git");
                     url.split('/')
-                        .last()
+                        .next_back()
                         .unwrap_or("imported-repo")
                         .to_string()
                 }
             };
 
             println!("╔══════════════════════════════════════════════════╗");
-            println!("║  IronForge Import — {} → IronForge", platform.to_uppercase());
+            println!(
+                "║  IronForge Import — {} → IronForge",
+                platform.to_uppercase()
+            );
             println!("╠══════════════════════════════════════════════════╣");
             println!("║  Source:     {}", source_url);
             println!("║  Target:     {}/{}", target_owner, target_repo_name);
-            println!("║  Token:      {}", if token.is_some() { "provided" } else { "not provided" });
-            println!("║  Import:     {} {} {} {} {} {}",
+            println!(
+                "║  Token:      {}",
+                if token.is_some() {
+                    "provided"
+                } else {
+                    "not provided"
+                }
+            );
+            println!(
+                "║  Import:     {} {} {} {} {} {}",
                 if !skip_repo { "📦repo" } else { "" },
                 if !skip_labels { "🏷️labels" } else { "" },
-                if !skip_milestones { "🎯milestones" } else { "" },
+                if !skip_milestones {
+                    "🎯milestones"
+                } else {
+                    ""
+                },
                 if !skip_issues { "📝issues" } else { "" },
                 if !skip_prs { "🔄PRs" } else { "" },
                 if !skip_releases { "🚀releases" } else { "" },
             );
-            if import_wiki { println!("║             📚wiki"); }
+            if import_wiki {
+                println!("║             📚wiki");
+            }
             println!("╚══════════════════════════════════════════════════╝");
 
             tracing::info!("Connecting to database: {}", db_url);
@@ -685,7 +770,10 @@ async fn main() -> anyhow::Result<()> {
 
             // Verify platform is valid
             if platform != "github" && platform != "gitlab" {
-                anyhow::bail!("unsupported platform: {}. Use 'github' or 'gitlab'.", platform);
+                anyhow::bail!(
+                    "unsupported platform: {}. Use 'github' or 'gitlab'.",
+                    platform
+                );
             }
 
             let repo_root = PathBuf::from(&repo_root);
@@ -731,7 +819,10 @@ async fn main() -> anyhow::Result<()> {
                         println!("\n✅ Import completed successfully!");
                         if let Some(ref stats) = current.stats {
                             if let Ok(s) = serde_json::from_str::<serde_json::Value>(stats) {
-                                println!("   Stats: {}", serde_json::to_string_pretty(&s).unwrap_or_default());
+                                println!(
+                                    "   Stats: {}",
+                                    serde_json::to_string_pretty(&s).unwrap_or_default()
+                                );
                             }
                         }
                         break;
@@ -750,15 +841,21 @@ async fn main() -> anyhow::Result<()> {
         Commands::Package { cmd } => {
             tracing_subscriber::fmt()
                 .with_env_filter(
-                    EnvFilter::try_from_default_env()
-                        .unwrap_or_else(|_| EnvFilter::new("info")),
+                    EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
                 )
                 .with_target(false)
                 .init();
 
             match cmd {
                 PackageCmd::Publish {
-                    pkg_type, name, version, file, owner, repo, token, server_url,
+                    pkg_type,
+                    name,
+                    version,
+                    file,
+                    owner,
+                    repo,
+                    token,
+                    server_url,
                 } => {
                     if !rg_core::package_registry::package_types::is_valid(&pkg_type) {
                         anyhow::bail!(
@@ -768,7 +865,8 @@ async fn main() -> anyhow::Result<()> {
                         );
                     }
 
-                    let file_data = tokio::fs::read(&file).await
+                    let file_data = tokio::fs::read(&file)
+                        .await
                         .context(format!("Failed to read file: {}", file))?;
                     let filename = std::path::Path::new(&file)
                         .file_name()
@@ -782,12 +880,19 @@ async fn main() -> anyhow::Result<()> {
                         let url = format!(
                             "{}/api/v1/repos/{}/{}/packages/{}/publish?name={}&version={}",
                             server_url.trim_end_matches('/'),
-                            owner, repo, pkg_type, name, version
+                            owner,
+                            repo,
+                            pkg_type,
+                            name,
+                            version
                         );
                         let resp = client
                             .post(&url)
                             .header("Authorization", format!("Bearer {}", bearer))
-                            .header("Content-Disposition", format!("attachment; filename=\"{}\"", filename))
+                            .header(
+                                "Content-Disposition",
+                                format!("attachment; filename=\"{}\"", filename),
+                            )
                             .body(file_data)
                             .send()
                             .await?;
@@ -810,7 +915,10 @@ async fn main() -> anyhow::Result<()> {
                 }
 
                 PackageCmd::List {
-                    owner, repo, pkg_type, db_url,
+                    owner,
+                    repo,
+                    pkg_type,
+                    db_url,
                 } => {
                     if !rg_core::package_registry::package_types::is_valid(&pkg_type) {
                         anyhow::bail!(
@@ -826,14 +934,15 @@ async fn main() -> anyhow::Result<()> {
 
                     match rg_core::package_registry::service::list_packages(
                         &db, &owner, &repo, &pkg_type,
-                    ).await {
+                    )
+                    .await
+                    {
                         Ok(packages) => {
                             println!("Packages ({}) in {}/{}:", pkg_type, owner, repo);
                             for pkg in &packages {
-                                println!("  {} ({} versions, {} downloads)",
-                                    pkg.name,
-                                    pkg.version_count,
-                                    pkg.download_count
+                                println!(
+                                    "  {} ({} versions, {} downloads)",
+                                    pkg.name, pkg.version_count, pkg.download_count
                                 );
                                 if let Some(ref desc) = pkg.description {
                                     println!("    {}", desc);
@@ -852,12 +961,16 @@ async fn main() -> anyhow::Result<()> {
             }
         }
 
-        Commands::IndexRepo { repo_slug, repo_root, db_url, ref_name } => {
+        Commands::IndexRepo {
+            repo_slug,
+            repo_root,
+            db_url,
+            ref_name,
+        } => {
             // Simple logging for index-repo command
             tracing_subscriber::fmt()
                 .with_env_filter(
-                    EnvFilter::try_from_default_env()
-                        .unwrap_or_else(|_| EnvFilter::new("info")),
+                    EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
                 )
                 .with_target(false)
                 .init();
@@ -883,7 +996,9 @@ async fn main() -> anyhow::Result<()> {
             let repo = rg_db::ops::repo_ops::find_by_owner_and_name(&db, owner.id, repo_name)
                 .await
                 .context("Failed to find repository")?
-                .ok_or_else(|| anyhow::anyhow!("Repository not found: {}/{}", owner_username, repo_name))?;
+                .ok_or_else(|| {
+                    anyhow::anyhow!("Repository not found: {}/{}", owner_username, repo_name)
+                })?;
 
             tracing::info!(
                 repo_id = repo.id,
@@ -987,15 +1102,36 @@ async fn run_serve(
     let resolved_repo_root = repo_root;
     let resolved_http_addr = http_addr;
     let resolved_ssh_addr = ssh_addr;
-    let resolved_host_key = host_key.or_else(|| cfg.as_ref().and_then(|c| c.server.host_key.clone()));
+    let resolved_host_key =
+        host_key.or_else(|| cfg.as_ref().and_then(|c| c.server.host_key.clone()));
     let resolved_db_url = db_url;
     let resolved_docker = docker || cfg.as_ref().and_then(|c| c.ci.docker).unwrap_or(false);
-    let resolved_external_runners = external_runners || cfg.as_ref().and_then(|c| c.ci.external_runners).unwrap_or(false);
-    let resolved_rate_limit_max = if rate_limit_max > 0 { rate_limit_max } else { cfg.as_ref().and_then(|c| c.rate_limit.max).unwrap_or(0_u32) };
-    let resolved_rate_limit_window = if rate_limit_window != 60 { rate_limit_window } else { cfg.as_ref().and_then(|c| c.rate_limit.window_secs).unwrap_or(60) };
+    let resolved_external_runners = external_runners
+        || cfg
+            .as_ref()
+            .and_then(|c| c.ci.external_runners)
+            .unwrap_or(false);
+    let resolved_rate_limit_max = if rate_limit_max > 0 {
+        rate_limit_max
+    } else {
+        cfg.as_ref().and_then(|c| c.rate_limit.max).unwrap_or(0_u32)
+    };
+    let resolved_rate_limit_window = if rate_limit_window != 60 {
+        rate_limit_window
+    } else {
+        cfg.as_ref()
+            .and_then(|c| c.rate_limit.window_secs)
+            .unwrap_or(60)
+    };
 
     // SMTP: CLI takes precedence, fallback to config
-    let (resolved_smtp_host, resolved_smtp_port, resolved_smtp_user, resolved_smtp_pass, resolved_smtp_from) = {
+    let (
+        resolved_smtp_host,
+        resolved_smtp_port,
+        resolved_smtp_user,
+        resolved_smtp_pass,
+        resolved_smtp_from,
+    ) = {
         let h = smtp_host.or_else(|| cfg.as_ref().and_then(|c| c.smtp.host.clone()));
         let p = cfg.as_ref().and_then(|c| c.smtp.port).unwrap_or(smtp_port);
         let u = smtp_user.or_else(|| cfg.as_ref().and_then(|c| c.smtp.user.clone()));
@@ -1010,25 +1146,37 @@ async fn run_serve(
 
     // Logging: CLI takes precedence, fallback to config
     let resolved_log_file = log_file.or_else(|| cfg.as_ref().and_then(|c| c.logging.file.clone()));
-    let resolved_log_max_files = if log_max_files != 5 { log_max_files } else { cfg.as_ref().and_then(|c| c.logging.max_files).unwrap_or(5) };
-    let resolved_log_max_size_mb = if log_max_size_mb != 10 { log_max_size_mb } else { cfg.as_ref().and_then(|c| c.logging.max_size_mb).unwrap_or(10) };
+    let resolved_log_max_files = if log_max_files != 5 {
+        log_max_files
+    } else {
+        cfg.as_ref().and_then(|c| c.logging.max_files).unwrap_or(5)
+    };
+    let resolved_log_max_size_mb = if log_max_size_mb != 10 {
+        log_max_size_mb
+    } else {
+        cfg.as_ref()
+            .and_then(|c| c.logging.max_size_mb)
+            .unwrap_or(10)
+    };
 
     // External URL: CLI takes precedence, fallback to config
-    let resolved_external_url = cfg.as_ref()
+    let resolved_external_url = cfg
+        .as_ref()
         .and_then(|c| c.external_url.clone())
         .or_else(|| cfg.as_ref().and_then(|c| c.server.external_url.clone()));
 
     // Timeouts from config (with defaults)
-    let resolved_job_timeout = cfg.as_ref()
-        .and_then(|c| Some(c.timeouts.job_secs))
-        .unwrap_or(3600);
-    let resolved_git_timeout = cfg.as_ref()
+    let resolved_job_timeout = cfg.as_ref().map(|c| c.timeouts.job_secs).unwrap_or(3600);
+    let resolved_git_timeout = cfg
+        .as_ref()
         .map(|c| c.timeouts.git_cmd_secs)
         .unwrap_or_else(default_git_timeout);
-    let resolved_db_connect_timeout = cfg.as_ref()
+    let resolved_db_connect_timeout = cfg
+        .as_ref()
         .map(|c| c.timeouts.db_connect_secs)
         .unwrap_or_else(default_db_connect_timeout);
-    let resolved_db_idle_timeout = cfg.as_ref()
+    let resolved_db_idle_timeout = cfg
+        .as_ref()
         .map(|c| c.timeouts.db_idle_secs)
         .unwrap_or_else(default_db_idle_timeout);
 
@@ -1058,8 +1206,7 @@ async fn run_serve(
 
         tracing_subscriber::fmt()
             .with_env_filter(
-                EnvFilter::try_from_default_env()
-                    .unwrap_or_else(|_| EnvFilter::new("info")),
+                EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
             )
             .with_target(false)
             .with_writer(non_blocking)
@@ -1077,8 +1224,7 @@ async fn run_serve(
     } else {
         tracing_subscriber::fmt()
             .with_env_filter(
-                EnvFilter::try_from_default_env()
-                    .unwrap_or_else(|_| EnvFilter::new("info")),
+                EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
             )
             .with_target(false)
             .init();
@@ -1088,9 +1234,9 @@ async fn run_serve(
     std::fs::create_dir_all(&repo_root)?;
 
     // ── Git CLI gateway (seed configured command timeout) ─────────
-    if let Err(e) = rg_git::cli_gateway::init_global_gateway(
-        std::time::Duration::from_secs(resolved_git_timeout),
-    ) {
+    if let Err(e) = rg_git::cli_gateway::init_global_gateway(std::time::Duration::from_secs(
+        resolved_git_timeout,
+    )) {
         tracing::warn!(%e, "git gateway init failed — git-dependent features may be unavailable");
     } else {
         tracing::info!(git_cmd_secs = resolved_git_timeout, "Git CLI gateway ready");
@@ -1108,12 +1254,18 @@ async fn run_serve(
     tracing::info!("Database ready");
 
     // ── HTTP server ───────────────────────────────────────────────
-    let smtp_config = match (resolved_smtp_host, resolved_smtp_user, resolved_smtp_pass, resolved_smtp_from) {
-        (Some(host), Some(user), Some(pass), Some(from)) => {
-            Some(rg_core::email::SmtpConfig::new(&host, resolved_smtp_port, &user, &pass, &from))
-        }
-        _ => None,
-    };
+    let smtp_config =
+        match (
+            resolved_smtp_host,
+            resolved_smtp_user,
+            resolved_smtp_pass,
+            resolved_smtp_from,
+        ) {
+            (Some(host), Some(user), Some(pass), Some(from)) => Some(
+                rg_core::email::SmtpConfig::new(&host, resolved_smtp_port, &user, &pass, &from),
+            ),
+            _ => None,
+        };
 
     let tls_config = match (resolved_tls_cert, resolved_tls_key) {
         (Some(cert), Some(key)) => {
@@ -1191,13 +1343,13 @@ async fn run_job_local(script: &str) -> (i32, String) {
         .arg(script)
         .output()
         .await;
-    
+
     #[cfg(windows)]
     let output = tokio::process::Command::new("powershell.exe")
         .args(&["-NoProfile", "-NonInteractive", "-Command", script])
         .output()
         .await;
-    
+
     match output {
         Ok(o) => {
             let code = o.status.code().unwrap_or(-1);

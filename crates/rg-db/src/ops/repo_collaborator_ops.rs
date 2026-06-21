@@ -3,13 +3,12 @@
 use anyhow::{Context, Result};
 use sea_orm::*;
 
-use crate::entities::repo_collaborator::{self, ActiveModel, Entity as CollabEntity, Model as RepoCollaborator};
+use crate::entities::repo_collaborator::{
+    self, ActiveModel, Entity as CollabEntity, Model as RepoCollaborator,
+};
 
 /// Find a collaborator by ID.
-pub async fn find_by_id(
-    db: &DatabaseConnection,
-    id: i64,
-) -> Result<Option<RepoCollaborator>> {
+pub async fn find_by_id(db: &DatabaseConnection, id: i64) -> Result<Option<RepoCollaborator>> {
     CollabEntity::find_by_id(id)
         .one(db)
         .await
@@ -31,10 +30,7 @@ pub async fn find_by_repo_and_user(
 }
 
 /// List all collaborators for a repo.
-pub async fn list_by_repo(
-    db: &DatabaseConnection,
-    repo_id: i64,
-) -> Result<Vec<RepoCollaborator>> {
+pub async fn list_by_repo(db: &DatabaseConnection, repo_id: i64) -> Result<Vec<RepoCollaborator>> {
     CollabEntity::find()
         .filter(repo_collaborator::Column::RepoId.eq(repo_id))
         .all(db)

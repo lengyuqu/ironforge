@@ -9,11 +9,7 @@ async fn test_health_endpoint() {
     let base = spawn_test_app().await;
     let client = reqwest::Client::new();
 
-    let resp = client
-        .get(format!("{}/health", base))
-        .send()
-        .await
-        .unwrap();
+    let resp = client.get(format!("{}/health", base)).send().await.unwrap();
 
     assert_eq!(resp.status(), 200);
     let body: serde_json::Value = resp.json().await.unwrap();
@@ -202,7 +198,11 @@ async fn test_list_repos() {
         .unwrap();
     assert_eq!(resp.status(), 200);
     let body: serde_json::Value = resp.json().await.unwrap();
-    let repos = body.get("data").and_then(|d| d.as_array()).or_else(|| body.as_array()).expect("expected array of repos");
+    let repos = body
+        .get("data")
+        .and_then(|d| d.as_array())
+        .or_else(|| body.as_array())
+        .expect("expected array of repos");
     assert_eq!(repos.len(), 2);
 }
 
@@ -223,7 +223,10 @@ async fn test_star_repo() {
 
     // Star
     let resp = client
-        .put(format!("{}/api/v1/repos/staruser/star-me/star", base.clone()))
+        .put(format!(
+            "{}/api/v1/repos/staruser/star-me/star",
+            base.clone()
+        ))
         .bearer_auth(&token)
         .send()
         .await
@@ -242,7 +245,6 @@ async fn test_star_repo() {
     assert_eq!(stargazers.len(), 1);
     assert_eq!(stargazers[0]["user_id"], 1);
 }
-
 
 #[tokio::test]
 async fn test_me_unauthenticated() {

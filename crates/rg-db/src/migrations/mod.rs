@@ -9,11 +9,11 @@ pub mod m20260424_000008_create_phase6;
 pub mod m20260424_000009_create_phase8;
 pub mod m20260427_000001_add_lfs_compression;
 pub mod m20260508_000001_create_repo_stars_watches;
-pub mod m20260508_000006_add_repo_soft_delete;
 pub mod m20260508_000002_create_releases;
 pub mod m20260508_000003_create_labels;
 pub mod m20260508_000004_create_commit_statuses;
 pub mod m20260508_000005_create_fts5_indexes;
+pub mod m20260508_000006_add_repo_soft_delete;
 pub mod m20260510_000001_create_runners;
 pub mod m20260510_000002_alter_pipeline_jobs_add_runner_fields;
 pub mod m20260510_000003_add_pipeline_jobs_updated_at;
@@ -36,11 +36,12 @@ pub mod m20260607_000011_create_audit_logs;
 pub mod m20260608_000001_create_oci_tables;
 pub mod m20260608_000002_oauth_accounts_unique;
 pub mod m20260608_000003_add_job_tags;
-pub mod m20260616_000001_create_password_reset_tokens;
 pub mod m20260616_0000015_rename_org_team_plural;
+pub mod m20260616_000001_create_password_reset_tokens;
 pub mod m20260616_000002_add_soft_delete_columns;
 pub mod m20260617_000001_create_wiki_revisions;
 pub mod m20260617_000002_rename_board_time_tables_plural;
+pub mod m20260621_000001_add_pr_labels_milestone;
 
 use sea_orm_migration::prelude::*;
 
@@ -93,6 +94,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260616_000002_add_soft_delete_columns::Migration),
             Box::new(m20260617_000001_create_wiki_revisions::Migration),
             Box::new(m20260617_000002_rename_board_time_tables_plural::Migration),
+            Box::new(m20260621_000001_add_pr_labels_milestone::Migration),
         ]
     }
 }

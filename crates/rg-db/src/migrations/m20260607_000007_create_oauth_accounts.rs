@@ -20,15 +20,39 @@ impl MigrationTrait for Migration {
                             .primary_key(),
                     )
                     .col(ColumnDef::new(OAuthAccounts::Provider).string().not_null())
-                    .col(ColumnDef::new(OAuthAccounts::ProviderUserId).string().not_null())
-                    .col(ColumnDef::new(OAuthAccounts::ProviderUsername).string().not_null())
+                    .col(
+                        ColumnDef::new(OAuthAccounts::ProviderUserId)
+                            .string()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(OAuthAccounts::ProviderUsername)
+                            .string()
+                            .not_null(),
+                    )
                     .col(ColumnDef::new(OAuthAccounts::Email).string().not_null())
                     .col(ColumnDef::new(OAuthAccounts::AccessToken).text().null())
                     .col(ColumnDef::new(OAuthAccounts::RefreshToken).text().null())
-                    .col(ColumnDef::new(OAuthAccounts::TokenExpiresAt).date_time().null())
-                    .col(ColumnDef::new(OAuthAccounts::UserId).big_integer().not_null())
-                    .col(ColumnDef::new(OAuthAccounts::CreatedAt).date_time().not_null())
-                    .col(ColumnDef::new(OAuthAccounts::UpdatedAt).date_time().not_null())
+                    .col(
+                        ColumnDef::new(OAuthAccounts::TokenExpiresAt)
+                            .date_time()
+                            .null(),
+                    )
+                    .col(
+                        ColumnDef::new(OAuthAccounts::UserId)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(OAuthAccounts::CreatedAt)
+                            .date_time()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(OAuthAccounts::UpdatedAt)
+                            .date_time()
+                            .not_null(),
+                    )
                     .foreign_key(
                         ForeignKey::create()
                             .from(OAuthAccounts::Table, OAuthAccounts::UserId)
@@ -55,7 +79,9 @@ impl MigrationTrait for Migration {
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
-        manager.drop_table(Table::drop().table(OAuthAccounts::Table).to_owned()).await
+        manager
+            .drop_table(Table::drop().table(OAuthAccounts::Table).to_owned())
+            .await
     }
 }
 

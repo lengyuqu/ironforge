@@ -19,12 +19,12 @@ impl MigrationTrait for Migration {
                             .auto_increment()
                             .primary_key(),
                     )
-                    .col(ColumnDef::new(OciRepository::RepoId).big_integer().not_null())
                     .col(
-                        ColumnDef::new(OciRepository::Namespace)
-                            .string()
+                        ColumnDef::new(OciRepository::RepoId)
+                            .big_integer()
                             .not_null(),
                     )
+                    .col(ColumnDef::new(OciRepository::Namespace).string().not_null())
                     .col(
                         ColumnDef::new(OciRepository::OwnerId)
                             .big_integer()
@@ -82,23 +82,15 @@ impl MigrationTrait for Migration {
                     )
                     .col(ColumnDef::new(OciManifest::Digest).string().not_null())
                     .col(ColumnDef::new(OciManifest::Tag).string().null())
-                    .col(
-                        ColumnDef::new(OciManifest::MediaType)
-                            .string()
-                            .not_null(),
-                    )
+                    .col(ColumnDef::new(OciManifest::MediaType).string().not_null())
                     .col(ColumnDef::new(OciManifest::Size).big_integer().not_null())
+                    .col(ColumnDef::new(OciManifest::ManifestJson).text().not_null())
                     .col(
-                        ColumnDef::new(OciManifest::ManifestJson)
-                            .text()
+                        ColumnDef::new(OciManifest::SchemaVersion)
+                            .integer()
                             .not_null(),
                     )
-                    .col(ColumnDef::new(OciManifest::SchemaVersion).integer().not_null())
-                    .col(
-                        ColumnDef::new(OciManifest::PushBy)
-                            .big_integer()
-                            .null(),
-                    )
+                    .col(ColumnDef::new(OciManifest::PushBy).big_integer().null())
                     .col(
                         ColumnDef::new(OciManifest::CreatedAt)
                             .date_time()
@@ -160,22 +152,14 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(OciBlob::Digest).string().not_null())
                     .col(ColumnDef::new(OciBlob::MediaType).string().not_null())
                     .col(ColumnDef::new(OciBlob::Size).big_integer().not_null())
-                    .col(
-                        ColumnDef::new(OciBlob::StoragePath)
-                            .string()
-                            .not_null(),
-                    )
+                    .col(ColumnDef::new(OciBlob::StoragePath).string().not_null())
                     .col(
                         ColumnDef::new(OciBlob::RefCount)
                             .integer()
                             .not_null()
                             .default(0),
                     )
-                    .col(
-                        ColumnDef::new(OciBlob::CreatedAt)
-                            .date_time()
-                            .not_null(),
-                    )
+                    .col(ColumnDef::new(OciBlob::CreatedAt).date_time().not_null())
                     .to_owned(),
             )
             .await?;
@@ -218,21 +202,9 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .default(0),
                     )
-                    .col(
-                        ColumnDef::new(OciUpload::UploadPath)
-                            .string()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(OciUpload::CreatedAt)
-                            .date_time()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(OciUpload::ExpiresAt)
-                            .date_time()
-                            .not_null(),
-                    )
+                    .col(ColumnDef::new(OciUpload::UploadPath).string().not_null())
+                    .col(ColumnDef::new(OciUpload::CreatedAt).date_time().not_null())
+                    .col(ColumnDef::new(OciUpload::ExpiresAt).date_time().not_null())
                     .to_owned(),
             )
             .await?;

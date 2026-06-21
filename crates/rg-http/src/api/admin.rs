@@ -18,12 +18,13 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::AppState;
+use super::auth::extract_bearer_claims;
 use crate::error::AppError;
 use crate::pagination::{PaginatedResponse, PaginationParams};
-use super::auth::extract_bearer_claims;
+use crate::AppState;
 
 /// Helper to record audit log (fire-and-forget).
+#[allow(clippy::too_many_arguments)]
 async fn record_audit(
     db: &sea_orm::DatabaseConnection,
     user_id: i64,
@@ -73,7 +74,9 @@ pub struct UpdateUserRequest {
 pub(crate) async fn require_admin(state: &AppState, headers: &HeaderMap) -> Option<i64> {
     let claims = extract_bearer_claims(headers, &state.jwt_secret)?;
     let user_id: i64 = claims.sub.parse().ok()?;
-    let user = rg_db::ops::user_ops::find_by_id(&state.db, user_id).await.ok()??;
+    let user = rg_db::ops::user_ops::find_by_id(&state.db, user_id)
+        .await
+        .ok()??;
     if user.is_admin {
         Some(user_id)
     } else {
@@ -102,7 +105,8 @@ pub async fn list_users(
         return AppError::forbidden("admin required").into_response();
     }
     let params = params.clamp();
-    match rg_core::user::service::list_users_admin(&state.db, params.offset(), params.limit()).await {
+    match rg_core::user::service::list_users_admin(&state.db, params.offset(), params.limit()).await
+    {
         Ok(paginated) => {
             let resp = PaginatedResponse::new(paginated.users, &params, paginated.total as u64);
             (StatusCode::OK, Json(serde_json::to_value(resp).unwrap())).into_response()
@@ -169,7 +173,12 @@ pub async fn update_user(
     let is_admin = body.is_admin;
     let is_active = body.is_active;
     match rg_core::user::service::update_user_admin(
-        &state.db, user_id, display_name, bio, is_admin, is_active,
+        &state.db,
+        user_id,
+        display_name,
+        bio,
+        is_admin,
+        is_active,
     )
     .await
     {
@@ -190,9 +199,10 @@ pub async fn update_user(
                 Some(user.username.as_str()),
                 &headers,
                 Some(details),
-            ).await;
+            )
+            .await;
             (StatusCode::OK, Json(serde_json::json!(user))).into_response()
-        },
+        }
         Err(e) => AppError::bad_request(e.to_string()).into_response(),
     }
 }
@@ -236,9 +246,10 @@ pub async fn delete_user(
                 None,
                 &headers,
                 Some(details),
-            ).await;
+            )
+            .await;
             (StatusCode::OK, Json(serde_json::json!({"deleted": true}))).into_response()
-        },
+        }
         Err(e) => AppError::internal(e.to_string()).into_response(),
     }
 }
@@ -296,7 +307,9 @@ pub async fn get_org(
         return AppError::forbidden("admin required").into_response();
     }
     match rg_core::org::get_org_by_name(&state.db, &name).await {
-        Ok(Some(org)) => (StatusCode::OK, Json(serde_json::json!(org_response(&org)))).into_response(),
+        Ok(Some(org)) => {
+            (StatusCode::OK, Json(serde_json::json!(org_response(&org)))).into_response()
+        }
         Ok(None) => AppError::not_found("organization not found").into_response(),
         Err(e) => AppError::internal(e.to_string()).into_response(),
     }
@@ -326,26 +339,25 @@ pub async fn delete_org(
         None => return AppError::forbidden("admin required").into_response(),
     };
     match rg_core::org::get_org_by_name(&state.db, &name).await {
-        Ok(Some(org)) => {
-            match rg_core::org::delete_org(&state.db, org.id, org.id).await {
-                Ok(()) => {
-                    let details = serde_json::json!({"org_name": org.name});
-                    record_audit(
-                        &state.db,
-                        current_id,
-                        "",
-                        "admin.delete_org",
-                        Some("org"),
-                        Some(org.id),
-                        Some(&org.name),
-                        &headers,
-                        Some(details),
-                    ).await;
-                    (StatusCode::OK, Json(serde_json::json!({"deleted": true}))).into_response()
-                },
-                Err(e) => AppError::internal(e.to_string()).into_response(),
+        Ok(Some(org)) => match rg_core::org::delete_org(&state.db, org.id, org.id).await {
+            Ok(()) => {
+                let details = serde_json::json!({"org_name": org.name});
+                record_audit(
+                    &state.db,
+                    current_id,
+                    "",
+                    "admin.delete_org",
+                    Some("org"),
+                    Some(org.id),
+                    Some(&org.name),
+                    &headers,
+                    Some(details),
+                )
+                .await;
+                (StatusCode::OK, Json(serde_json::json!({"deleted": true}))).into_response()
             }
-        }
+            Err(e) => AppError::internal(e.to_string()).into_response(),
+        },
         Ok(None) => AppError::not_found("organization not found").into_response(),
         Err(e) => AppError::internal(e.to_string()).into_response(),
     }
@@ -446,7 +458,11 @@ pub async fn create_sso_provider(
         return AppError::forbidden("admin required").into_response();
     }
 
-    let pt = if body.provider_type.is_empty() { "oauth2" } else { &body.provider_type };
+    let pt = if body.provider_type.is_empty() {
+        "oauth2"
+    } else {
+        &body.provider_type
+    };
 
     // Encrypt secrets before storing
     let enc_key = rg_core::auth::encryption::derive_key(&state.jwt_secret);
@@ -480,11 +496,9 @@ pub async fn create_sso_provider(
     )
     .await
     {
-        Ok(provider) => (
-            StatusCode::CREATED,
-            Json(sso_provider_response(&provider)),
-        )
-            .into_response(),
+        Ok(provider) => {
+            (StatusCode::CREATED, Json(sso_provider_response(&provider))).into_response()
+        }
         Err(e) => AppError::bad_request(e.to_string()).into_response(),
     }
 }
@@ -511,7 +525,11 @@ pub async fn update_sso_provider(
         return AppError::forbidden("admin required").into_response();
     }
 
-    let pt = if body.provider_type.is_empty() { "oauth2" } else { &body.provider_type };
+    let pt = if body.provider_type.is_empty() {
+        "oauth2"
+    } else {
+        &body.provider_type
+    };
 
     let enc_key = rg_core::auth::encryption::derive_key(&state.jwt_secret);
     let client_secret_enc = body
@@ -607,10 +625,7 @@ fn sso_provider_response(p: &rg_db::entities::sso_provider::Model) -> serde_json
         (status = 401, description = "Admin access required"),
     ),
 )]
-pub async fn get_settings(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-) -> impl IntoResponse {
+pub async fn get_settings(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
     if require_admin(&state, &headers).await.is_none() {
         return AppError::forbidden("admin required").into_response();
     }

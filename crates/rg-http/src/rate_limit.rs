@@ -59,10 +59,12 @@ impl RateLimiter {
         };
         let now = Instant::now();
 
-        let entry = clients.entry(key.to_string()).or_insert_with(|| ClientState {
-            tokens: self.max_requests,
-            reset_at: now + std::time::Duration::from_secs(self.window_secs),
-        });
+        let entry = clients
+            .entry(key.to_string())
+            .or_insert_with(|| ClientState {
+                tokens: self.max_requests,
+                reset_at: now + std::time::Duration::from_secs(self.window_secs),
+            });
 
         // Reset window if expired
         if now >= entry.reset_at {
@@ -191,7 +193,7 @@ mod tests {
         assert!(limiter.allow("client_a"));
         assert!(limiter.allow("client_a"));
         assert!(!limiter.allow("client_a")); // a blocked
-        // Different client has own bucket
+                                             // Different client has own bucket
         assert!(limiter.allow("client_b"));
         assert!(limiter.allow("client_b"));
     }
@@ -210,7 +212,10 @@ mod tests {
     fn test_extract_client_key_xff() {
         let mut headers = HeaderMap::new();
         headers.insert("x-forwarded-for", "192.168.1.1, 10.0.0.1".parse().unwrap());
-        assert_eq!(extract_client_key(&headers), Some("192.168.1.1".to_string()));
+        assert_eq!(
+            extract_client_key(&headers),
+            Some("192.168.1.1".to_string())
+        );
     }
 
     #[test]

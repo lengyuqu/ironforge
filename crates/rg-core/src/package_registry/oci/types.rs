@@ -83,12 +83,8 @@ pub mod media_types {
     pub const OCI_LAYER_TAR_GZ: &str = "application/vnd.oci.image.layer.v1.tar+gzip";
 
     /// Known manifest media types (for accept header validation).
-    pub const MANIFEST_TYPES: &[&str] = &[
-        MANIFEST_V2,
-        MANIFEST_LIST_V2,
-        OCI_MANIFEST_V1,
-        OCI_INDEX_V1,
-    ];
+    pub const MANIFEST_TYPES: &[&str] =
+        &[MANIFEST_V2, MANIFEST_LIST_V2, OCI_MANIFEST_V1, OCI_INDEX_V1];
 }
 
 /// OCI error codes (per distribution spec).

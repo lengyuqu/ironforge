@@ -44,7 +44,11 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .default(Expr::current_time()),
                     )
-                    .col(ColumnDef::new(Issues::ClosedAt).timestamp_with_time_zone().null())
+                    .col(
+                        ColumnDef::new(Issues::ClosedAt)
+                            .timestamp_with_time_zone()
+                            .null(),
+                    )
                     .to_owned(),
             )
             .await?;
@@ -89,8 +93,16 @@ impl MigrationTrait for Migration {
                             .auto_increment()
                             .primary_key(),
                     )
-                    .col(ColumnDef::new(IssueComments::IssueId).big_integer().not_null())
-                    .col(ColumnDef::new(IssueComments::AuthorId).big_integer().not_null())
+                    .col(
+                        ColumnDef::new(IssueComments::IssueId)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(IssueComments::AuthorId)
+                            .big_integer()
+                            .not_null(),
+                    )
                     .col(ColumnDef::new(IssueComments::Body).string().not_null())
                     .col(
                         ColumnDef::new(IssueComments::CreatedAt)

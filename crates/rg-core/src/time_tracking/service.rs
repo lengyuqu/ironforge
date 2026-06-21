@@ -2,8 +2,8 @@
 
 use anyhow::Result;
 use chrono::Utc;
-use sea_orm::{ActiveValue::Set, DatabaseConnection};
 use rg_db::entities::time_entry::{ActiveModel, Model as TimeEntry};
+use sea_orm::{ActiveValue::Set, DatabaseConnection};
 
 /// Add a time entry to an issue.
 pub async fn add_time(
@@ -41,10 +41,7 @@ pub async fn list_time_entries(
 }
 
 /// Get total tracked time for an issue (in minutes).
-pub async fn total_time_minutes(
-    db: &DatabaseConnection,
-    issue_id: i64,
-) -> Result<i64> {
+pub async fn total_time_minutes(db: &DatabaseConnection, issue_id: i64) -> Result<i64> {
     rg_db::ops::time_entry_ops::total_minutes_by_issue(db, issue_id).await
 }
 

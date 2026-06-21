@@ -49,7 +49,11 @@ impl PipelineRunner {
     }
 
     /// Create a runner with Docker disabled (local-only mode).
-    pub fn new_local_only(db: DatabaseConnection, repo_path: &std::path::Path, pipeline_id: i64) -> Self {
+    pub fn new_local_only(
+        db: DatabaseConnection,
+        repo_path: &std::path::Path,
+        pipeline_id: i64,
+    ) -> Self {
         Self {
             db,
             repo_path: repo_path.to_path_buf(),
@@ -85,8 +89,14 @@ impl PipelineRunner {
         let now = chrono::Utc::now().naive_utc();
 
         // Mark pipeline as running
-        pipeline_ops::update_pipeline_status(&self.db, self.pipeline_id, "running", Some(now), None)
-            .await?;
+        pipeline_ops::update_pipeline_status(
+            &self.db,
+            self.pipeline_id,
+            "running",
+            Some(now),
+            None,
+        )
+        .await?;
 
         // Get stages in order
         let stages = pipeline_ops::list_stages_by_pipeline(&self.db, self.pipeline_id).await?;
@@ -96,26 +106,14 @@ impl PipelineRunner {
         for stage in &stages {
             if pipeline_failed {
                 // Skip remaining stages
-                pipeline_ops::update_stage_status(
-                    &self.db,
-                    stage.id,
-                    "skipped",
-                    None,
-                    None,
-                )
-                .await?;
+                pipeline_ops::update_stage_status(&self.db, stage.id, "skipped", None, None)
+                    .await?;
 
                 // Mark all jobs in this stage as skipped
                 let jobs = pipeline_ops::list_jobs_by_stage(&self.db, stage.id).await?;
                 for job in jobs {
                     pipeline_ops::update_job_result(
-                        &self.db,
-                        job.id,
-                        "skipped",
-                        None,
-                        None,
-                        None,
-                        None,
+                        &self.db, job.id, "skipped", None, None, None, None,
                     )
                     .await?;
                 }
@@ -137,7 +135,9 @@ impl PipelineRunner {
             let jobs = pipeline_ops::list_jobs_by_stage(&self.db, stage.id).await?;
 
             for job in &jobs {
-                let job_result = self.run_job(job.id, &job.script, job.image.as_deref()).await;
+                let job_result = self
+                    .run_job(job.id, &job.script, job.image.as_deref())
+                    .await;
 
                 match job_result {
                     Ok((exit_code, log)) => {
@@ -223,7 +223,12 @@ impl PipelineRunner {
     /// - Otherwise: `sh -c <script>` (with timeout).
     ///
     /// Returns (exit_code, stdout+stderr output).
-    async fn run_job(&self, job_id: i64, script: &str, image: Option<&str>) -> Result<(i32, String)> {
+    async fn run_job(
+        &self,
+        job_id: i64,
+        script: &str,
+        image: Option<&str>,
+    ) -> Result<(i32, String)> {
         let job_start = chrono::Utc::now().naive_utc();
 
         // Mark job as running
@@ -288,7 +293,9 @@ impl PipelineRunner {
 
         // Apply timeout if configured
         if timeout_secs > 0 {
-            match tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), exec_future).await {
+            match tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), exec_future)
+                .await
+            {
                 Ok(result) => result,
                 Err(_elapsed) => {
                     let msg = format!("Job timed out after {} seconds", timeout_secs);
@@ -305,7 +312,11 @@ impl PipelineRunner {
     ///
     /// The process runs with a sanitized environment (standard CI vars + PATH/LANG)
     /// plus CI_JOB_TOKEN for authenticated API access.
-    async fn run_job_local(&self, script: &str, ci_job_token: &Option<String>) -> Result<(i32, String)> {
+    async fn run_job_local(
+        &self,
+        script: &str,
+        ci_job_token: &Option<String>,
+    ) -> Result<(i32, String)> {
         // Build a safe environment with CI standard variables
         let safe_env: Vec<(String, String)> = {
             let mut env = Vec::new();
@@ -329,7 +340,10 @@ impl PipelineRunner {
                 env.push(("LANG".to_string(), lang));
             }
             // Add HOME pointing to a temp directory (prevents access to real home)
-            env.push(("HOME".to_string(), self.repo_path.to_string_lossy().into_owned()));
+            env.push((
+                "HOME".to_string(),
+                self.repo_path.to_string_lossy().into_owned(),
+            ));
             env
         };
 
@@ -344,7 +358,7 @@ impl PipelineRunner {
                 .kill_on_drop(true); // Kill child process when the handle is dropped (timeout)
             c
         };
-        
+
         #[cfg(windows)]
         let mut cmd = {
             let mut c = tokio::process::Command::new("powershell.exe");
@@ -356,10 +370,7 @@ impl PipelineRunner {
             c
         };
 
-        let output = cmd
-            .output()
-            .await
-            .context("failed to spawn job process")?;
+        let output = cmd.output().await.context("failed to spawn job process")?;
 
         let exit_code = output.status.code().unwrap_or(-1);
         let mut log = String::new();
@@ -381,8 +392,15 @@ impl PipelineRunner {
     /// Uses `docker run --rm` with the specified image.
     /// The repo working directory is mounted as a volume.
     /// If Docker is unavailable, the job **fails** — no silent fallback to local.
-    async fn run_job_docker(&self, job_id: i64, script: &str, image: &str) -> Result<(i32, String)> {
-        let repo_path_str = self.repo_path.to_str()
+    async fn run_job_docker(
+        &self,
+        job_id: i64,
+        script: &str,
+        image: &str,
+    ) -> Result<(i32, String)> {
+        let repo_path_str = self
+            .repo_path
+            .to_str()
             .ok_or_else(|| anyhow::anyhow!("repo path is not valid UTF-8"))?;
 
         // Check if Docker is available
@@ -411,9 +429,12 @@ impl PipelineRunner {
             .args([
                 "run",
                 "--rm",
-                "--name", &container_name,
-                "-v", &format!("{}:/workspace", repo_path_str),
-                "-w", "/workspace",
+                "--name",
+                &container_name,
+                "-v",
+                &format!("{}:/workspace", repo_path_str),
+                "-w",
+                "/workspace",
                 image,
                 "sh",
                 "-c",
@@ -437,7 +458,10 @@ impl PipelineRunner {
 
         // If docker run itself failed (e.g. image not found), provide a clear message
         if exit_code != 0 && log.is_empty() {
-            log = format!("Docker container exited with code {} (no output)", exit_code);
+            log = format!(
+                "Docker container exited with code {} (no output)",
+                exit_code
+            );
         }
 
         Ok((exit_code, log))

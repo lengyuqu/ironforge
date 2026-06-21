@@ -85,13 +85,11 @@ struct RunnerConfig {
 }
 
 fn config_path(path: &str) -> PathBuf {
-    let expanded = if path.starts_with("~") {
+    let expanded = if let Some(remain) = path.strip_prefix('~') {
         match home::home_dir() {
             Some(home) => {
-                let remainder = &path[1..];
+                let trimmed = remain.trim_start_matches('/');
                 let mut result = home;
-                // Remove leading slash if present (Unix-style ~/) 
-                let trimmed = remainder.trim_start_matches('/');
                 if !trimmed.is_empty() {
                     result.push(trimmed);
                 }
@@ -102,7 +100,7 @@ fn config_path(path: &str) -> PathBuf {
     } else {
         path.to_string()
     };
-    
+
     PathBuf::from(expanded)
 }
 
@@ -127,7 +125,12 @@ fn save_config(path: &str, config: &RunnerConfig) -> Result<()> {
 }
 
 /// Register a runner with the server.
-async fn register_runner(client: &reqwest::Client, server: &str, name: &str, labels: &[String]) -> Result<(i64, String)> {
+async fn register_runner(
+    client: &reqwest::Client,
+    server: &str,
+    name: &str,
+    labels: &[String],
+) -> Result<(i64, String)> {
     let resp = client
         .post(format!("{}/api/v1/runners/register", server))
         .json(&serde_json::json!({
@@ -148,15 +151,26 @@ async fn register_runner(client: &reqwest::Client, server: &str, name: &str, lab
 
     let data: serde_json::Value = resp.json().await?;
     let runner_id = data["id"].as_i64().context("missing id in response")?;
-    let token = data["token"].as_str().context("missing token in response")?.to_string();
+    let token = data["token"]
+        .as_str()
+        .context("missing token in response")?
+        .to_string();
 
     Ok((runner_id, token))
 }
 
 /// Poll for a pending job (long-polling with 30s timeout).
-async fn poll_job(client: &reqwest::Client, server: &str, runner_id: i64, token: &str) -> Result<Option<PollJobResponse>> {
+async fn poll_job(
+    client: &reqwest::Client,
+    server: &str,
+    runner_id: i64,
+    token: &str,
+) -> Result<Option<PollJobResponse>> {
     let resp = client
-        .get(format!("{}/api/v1/runners/{}/jobs/poll?timeout=30", server, runner_id))
+        .get(format!(
+            "{}/api/v1/runners/{}/jobs/poll?timeout=30",
+            server, runner_id
+        ))
         .header("Authorization", format!("Bearer {}", token))
         .send()
         .await?;
@@ -196,18 +210,37 @@ async fn send_heartbeat(client: &reqwest::Client, server: &str, runner_id: i64, 
 }
 
 /// Notify the server that job execution has started.
-async fn start_job(client: &reqwest::Client, server: &str, runner_id: i64, job_id: i64, token: &str) {
+async fn start_job(
+    client: &reqwest::Client,
+    server: &str,
+    runner_id: i64,
+    job_id: i64,
+    token: &str,
+) {
     let _ = client
-        .post(format!("{}/api/v1/runners/{}/jobs/{}/start", server, runner_id, job_id))
+        .post(format!(
+            "{}/api/v1/runners/{}/jobs/{}/start",
+            server, runner_id, job_id
+        ))
         .header("Authorization", format!("Bearer {}", token))
         .send()
         .await;
 }
 
 /// Upload job log output.
-async fn upload_log(client: &reqwest::Client, server: &str, runner_id: i64, job_id: i64, token: &str, log: &str) {
+async fn upload_log(
+    client: &reqwest::Client,
+    server: &str,
+    runner_id: i64,
+    job_id: i64,
+    token: &str,
+    log: &str,
+) {
     let _ = client
-        .post(format!("{}/api/v1/runners/{}/jobs/{}/log", server, runner_id, job_id))
+        .post(format!(
+            "{}/api/v1/runners/{}/jobs/{}/log",
+            server, runner_id, job_id
+        ))
         .header("Authorization", format!("Bearer {}", token))
         .body(log.to_string())
         .send()
@@ -215,9 +248,20 @@ async fn upload_log(client: &reqwest::Client, server: &str, runner_id: i64, job_
 }
 
 /// Report job completion.
-async fn finish_job(client: &reqwest::Client, server: &str, runner_id: i64, job_id: i64, token: &str, status: &str, exit_code: i32) {
+async fn finish_job(
+    client: &reqwest::Client,
+    server: &str,
+    runner_id: i64,
+    job_id: i64,
+    token: &str,
+    status: &str,
+    exit_code: i32,
+) {
     let _ = client
-        .post(format!("{}/api/v1/runners/{}/jobs/{}/finish", server, runner_id, job_id))
+        .post(format!(
+            "{}/api/v1/runners/{}/jobs/{}/finish",
+            server, runner_id, job_id
+        ))
         .header("Authorization", format!("Bearer {}", token))
         .json(&serde_json::json!({"status": status, "exit_code": exit_code}))
         .send()
@@ -232,20 +276,22 @@ async fn run_job_local(script: &str) -> (i32, String) {
         .arg(script)
         .output()
         .await;
-    
+
     #[cfg(windows)]
     let output = tokio::process::Command::new("powershell.exe")
         .args(&["-NoProfile", "-NonInteractive", "-Command", script])
         .output()
         .await;
-    
+
     match output {
         Ok(o) => {
             let code = o.status.code().unwrap_or(-1);
             let mut log = String::from_utf8_lossy(&o.stdout).to_string();
             let stderr = String::from_utf8_lossy(&o.stderr).to_string();
             if !stderr.is_empty() {
-                if !log.is_empty() { log.push('\n'); }
+                if !log.is_empty() {
+                    log.push('\n');
+                }
                 log.push_str(&stderr);
             }
             (code, log)
@@ -279,7 +325,9 @@ async fn run_job_docker(image: &str, script: &str) -> (i32, String) {
             let mut log = String::from_utf8_lossy(&o.stdout).to_string();
             let stderr = String::from_utf8_lossy(&o.stderr).to_string();
             if !stderr.is_empty() {
-                if !log.is_empty() { log.push('\n'); }
+                if !log.is_empty() {
+                    log.push('\n');
+                }
                 log.push_str(&stderr);
             }
             if code != 0 && log.is_empty() {
@@ -297,7 +345,7 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"))
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
         )
         .with_target(false)
         .init();
@@ -305,7 +353,12 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Register { server, name, labels, save } => {
+        Commands::Register {
+            server,
+            name,
+            labels,
+            save,
+        } => {
             let client = reqwest::Client::new();
             let labels_vec: Vec<String> = labels
                 .map(|s| s.split(',').map(|s| s.trim().to_string()).collect())
@@ -331,7 +384,14 @@ async fn main() -> Result<()> {
             }
         }
 
-        Commands::Run { server, name, labels, token, runner_id, config } => {
+        Commands::Run {
+            server,
+            name,
+            labels,
+            token,
+            runner_id,
+            config,
+        } => {
             let client = reqwest::Client::new();
 
             // Resolve config: CLI args > config file > defaults
@@ -339,19 +399,40 @@ async fn main() -> Result<()> {
             let resolved_server = server.as_str();
             let (resolved_id, resolved_token, resolved_name) = match (runner_id, token, name) {
                 (Some(id), Some(tok), Some(n)) => (id, tok, n),
-                (Some(id), Some(tok), None) => (id, tok, cfg.as_ref().and_then(|c| c.name.clone()).unwrap_or_default()),
+                (Some(id), Some(tok), None) => (
+                    id,
+                    tok,
+                    cfg.as_ref()
+                        .and_then(|c| c.name.clone())
+                        .unwrap_or_default(),
+                ),
                 _ => {
                     // Need to register
-                    let cfg_name = cfg.as_ref().and_then(|c| c.name.clone()).unwrap_or_else(|| {
-                        hostname::get().unwrap_or_else(|_| "unnamed-runner".to_string())
-                    });
-                    let cfg_labels = cfg.as_ref().and_then(|c| c.labels.clone()).unwrap_or_default();
+                    let cfg_name = cfg
+                        .as_ref()
+                        .and_then(|c| c.name.clone())
+                        .unwrap_or_else(|| {
+                            hostname::get().unwrap_or_else(|_| "unnamed-runner".to_string())
+                        });
+                    let cfg_labels = cfg
+                        .as_ref()
+                        .and_then(|c| c.labels.clone())
+                        .unwrap_or_default();
                     let resolved_labels = labels
-                        .map(|s| s.split(',').map(|s| s.trim().to_string()).collect::<Vec<_>>())
+                        .map(|s| {
+                            s.split(',')
+                                .map(|s| s.trim().to_string())
+                                .collect::<Vec<_>>()
+                        })
                         .unwrap_or(cfg_labels);
 
-                    println!("Registering runner '{}' with {}...", cfg_name, resolved_server);
-                    let (id, tok) = register_runner(&client, resolved_server, &cfg_name, &resolved_labels).await?;
+                    println!(
+                        "Registering runner '{}' with {}...",
+                        cfg_name, resolved_server
+                    );
+                    let (id, tok) =
+                        register_runner(&client, resolved_server, &cfg_name, &resolved_labels)
+                            .await?;
                     println!("Registered! ID={}, Token={}", id, tok);
 
                     // Save for future runs
@@ -369,7 +450,10 @@ async fn main() -> Result<()> {
                 }
             };
 
-            println!("Runner {} started (server={})", resolved_name, resolved_server);
+            println!(
+                "Runner {} started (server={})",
+                resolved_name, resolved_server
+            );
 
             // Spawn heartbeat task (every 30s)
             let hb_client = client.clone();
@@ -387,10 +471,22 @@ async fn main() -> Result<()> {
             loop {
                 match poll_job(&client, resolved_server, resolved_id, &resolved_token).await {
                     Ok(Some(job)) => {
-                        println!("→ Job #{}: {} (image={})", job.job_id, job.name, job.image.as_deref().unwrap_or("local"));
+                        println!(
+                            "→ Job #{}: {} (image={})",
+                            job.job_id,
+                            job.name,
+                            job.image.as_deref().unwrap_or("local")
+                        );
 
                         // Start
-                        start_job(&client, resolved_server, resolved_id, job.job_id, &resolved_token).await;
+                        start_job(
+                            &client,
+                            resolved_server,
+                            resolved_id,
+                            job.job_id,
+                            &resolved_token,
+                        )
+                        .await;
 
                         // Execute
                         let script_str = job.script.join("\n");
@@ -401,11 +497,28 @@ async fn main() -> Result<()> {
                         };
 
                         // Upload log
-                        upload_log(&client, resolved_server, resolved_id, job.job_id, &resolved_token, &log).await;
+                        upload_log(
+                            &client,
+                            resolved_server,
+                            resolved_id,
+                            job.job_id,
+                            &resolved_token,
+                            &log,
+                        )
+                        .await;
 
                         // Finish
                         let status = if exit_code == 0 { "success" } else { "failure" };
-                        finish_job(&client, resolved_server, resolved_id, job.job_id, &resolved_token, status, exit_code).await;
+                        finish_job(
+                            &client,
+                            resolved_server,
+                            resolved_id,
+                            job.job_id,
+                            &resolved_token,
+                            status,
+                            exit_code,
+                        )
+                        .await;
 
                         println!("  ✓ {} (exit={})", status, exit_code);
                     }
@@ -432,6 +545,6 @@ mod hostname {
         std::process::Command::new("hostname")
             .output()
             .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+            .map_err(std::io::Error::other)
     }
 }

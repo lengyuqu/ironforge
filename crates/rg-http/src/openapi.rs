@@ -106,6 +106,8 @@ pub struct PaginatedRepoResponse {
         crate::api::wiki::create_page,
         crate::api::wiki::update_page,
         crate::api::wiki::delete_page,
+        crate::api::wiki::list_revisions,
+        crate::api::wiki::get_revision,
         // LFS
         crate::api::lfs::batch,
         crate::api::lfs::upload_object,
@@ -178,6 +180,14 @@ pub struct PaginatedRepoResponse {
         crate::api::repo_content::list_branches,
         crate::api::repo_content::list_tags,
         crate::api::repo_content::get_commit_signature,
+        // Package registry
+        crate::api::packages::publish,
+        crate::api::packages::list_registries,
+        crate::api::packages::list_packages,
+        crate::api::packages::get_package,
+        crate::api::packages::list_versions,
+        crate::api::packages::get_version,
+        crate::api::packages::delete_version,
         // Imports
         crate::api::imports::start_import,
         crate::api::imports::list_imports,
@@ -191,6 +201,7 @@ pub struct PaginatedRepoResponse {
         crate::api::runners::upload_log,
         crate::api::runners::finish_job,
         crate::api::runners::list_runners_admin,
+        crate::api::runners::get_runner_admin,
         crate::api::runners::delete_runner_admin,
         // Artifacts
         crate::api::artifacts::upload_artifact,
@@ -347,7 +358,5 @@ pub fn openapi_spec() -> String {
 
 /// Lazy-initialized Swagger UI config (avoids re-computing on every request).
 pub fn swagger_config() -> Arc<utoipa_swagger_ui::Config<'static>> {
-    Arc::new(utoipa_swagger_ui::Config::from(
-        "/api-docs/openapi.json",
-    ))
+    Arc::new(utoipa_swagger_ui::Config::from("/api-docs/openapi.json"))
 }

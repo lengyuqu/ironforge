@@ -31,8 +31,6 @@ pub fn wants_protocol_v2(headers: &HeaderMap) -> bool {
 /// Build V2 capability advertisement synchronously.
 /// Uses the same format as build_v2_capability_advertisement in lib.rs.
 fn build_v2_capability_sync() -> Vec<u8> {
-    use std::io::Write;
-
     let mut buf = Vec::new();
 
     // Smart HTTP: info/refs response starts with pkt-line wrapped # service= header
@@ -70,12 +68,15 @@ fn build_v2_capability_sync() -> Vec<u8> {
 ///   "fatal: protocol error: bad line length character"
 ///
 /// Correct Content-Types:
-/// - info/refs response:  `application/x-git-upload-pack-advertisement`
-///                       `application/x-git-receive-pack-advertisement`
-/// - POST request body:   `application/x-git-upload-pack-request`
-///                       `application/x-git-receive-pack-request`
-/// - POST response body:  `application/x-git-upload-pack-result`
-///                       `application/x-git-receive-pack-result`
+/// - info/refs response:
+///   `application/x-git-upload-pack-advertisement`
+///   `application/x-git-receive-pack-advertisement`
+/// - POST request body:
+///   `application/x-git-upload-pack-request`
+///   `application/x-git-receive-pack-request`
+/// - POST response body:
+///   `application/x-git-upload-pack-result`
+///   `application/x-git-receive-pack-result`
 ///
 /// Common mistake: using `text/plain` or wrong subtype breaks git clients.
 pub async fn handle_info_refs_v2(
@@ -99,14 +100,22 @@ pub async fn handle_info_refs_v2(
 
     // H-02: Validate owner/repo before constructing repository path
     if let Err(e) = rg_core::platform::validate_repo_path(&owner) {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
-            "error": e.to_string()
-        }))).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": e.to_string()
+            })),
+        )
+            .into_response();
     }
     if let Err(e) = rg_core::platform::validate_repo_path(&repo) {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
-            "error": e.to_string()
-        }))).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": e.to_string()
+            })),
+        )
+            .into_response();
     }
 
     // Build repo path
@@ -129,7 +138,10 @@ pub async fn handle_info_refs_v2(
     (
         StatusCode::OK,
         [
-            ("Content-Type", "application/x-git-upload-pack-advertisement"),
+            (
+                "Content-Type",
+                "application/x-git-upload-pack-advertisement",
+            ),
             ("Cache-Control", "no-cache"),
         ],
         response_body,
@@ -158,23 +170,35 @@ pub async fn handle_git_upload_pack_v2(
 
     // H-02: Validate owner/repo before constructing repository path
     if let Err(e) = rg_core::platform::validate_repo_path(&owner) {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
-            "error": e.to_string()
-        }))).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": e.to_string()
+            })),
+        )
+            .into_response();
     }
     if let Err(e) = rg_core::platform::validate_repo_path(&repo) {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
-            "error": e.to_string()
-        }))).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": e.to_string()
+            })),
+        )
+            .into_response();
     }
 
     // Build repo path
     let repo_path = state.repo_root.join(&owner).join(format!("{}.git", &repo));
 
     if !repo_path.exists() {
-        return (StatusCode::NOT_FOUND, Json(serde_json::json!({
-            "error": "Repository not found"
-        }))).into_response();
+        return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({
+                "error": "Repository not found"
+            })),
+        )
+            .into_response();
     }
 
     let (reader, mut writer) = tokio::io::duplex(body.len() + 4096);
@@ -194,14 +218,12 @@ pub async fn handle_git_upload_pack_v2(
     let mut response_buf = Vec::new();
 
     match handle_v2_http(&repo_path, reader, &mut response_buf).await {
-        Ok(()) => {
-            (
-                StatusCode::OK,
-                [("Content-Type", "application/x-git-upload-pack-result")],
-                response_buf,
-            )
-                .into_response()
-        }
+        Ok(()) => (
+            StatusCode::OK,
+            [("Content-Type", "application/x-git-upload-pack-result")],
+            response_buf,
+        )
+            .into_response(),
         Err(e) => {
             tracing::error!(error = %e, "V2 upload-pack failed");
             (
@@ -234,23 +256,35 @@ pub async fn handle_git_receive_pack_v2(
 
     // H-02: Validate owner/repo before constructing repository path
     if let Err(e) = rg_core::platform::validate_repo_path(&owner) {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
-            "error": e.to_string()
-        }))).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": e.to_string()
+            })),
+        )
+            .into_response();
     }
     if let Err(e) = rg_core::platform::validate_repo_path(&repo) {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
-            "error": e.to_string()
-        }))).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": e.to_string()
+            })),
+        )
+            .into_response();
     }
 
     // Build repo path
     let repo_path = state.repo_root.join(&owner).join(format!("{}.git", &repo));
 
     if !repo_path.exists() {
-        return (StatusCode::NOT_FOUND, Json(serde_json::json!({
-            "error": "Repository not found"
-        }))).into_response();
+        return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({
+                "error": "Repository not found"
+            })),
+        )
+            .into_response();
     }
 
     // For receive-pack over V2, we still use the V1 receive-pack logic

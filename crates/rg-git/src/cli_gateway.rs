@@ -69,10 +69,14 @@ impl GitOutput {
         if self.status.success() {
             Ok(())
         } else {
-            bail!("git {} failed ({}): {}",
+            bail!(
+                "git {} failed ({}): {}",
                 self.command,
-                self.status.code().map_or("signal".into(), |c| c.to_string()),
-                self.stderr_str().trim())
+                self.status
+                    .code()
+                    .map_or("signal".into(), |c| c.to_string()),
+                self.stderr_str().trim()
+            )
         }
     }
 }
@@ -119,7 +123,10 @@ impl GitCommandGateway {
         // Validate git availability (cheap call)
         let version = gateway.run(&["--version"], None)?;
         if !version.stdout_str().starts_with("git version") {
-            bail!("unexpected git --version output: {}", version.stdout_str().trim());
+            bail!(
+                "unexpected git --version output: {}",
+                version.stdout_str().trim()
+            );
         }
         tracing::debug!(?timeout, git_version = %version.stdout_str().trim(), "GitCommandGateway initialized");
         Ok(gateway)
@@ -259,7 +266,7 @@ static GLOBAL_GATEWAY: OnceLock<Result<GitCommandGateway>> = OnceLock::new();
 /// Validates `git --version` on first access.  Returns the cached
 /// `Result` on subsequent calls, so there's no repeated startup check.
 pub fn global_gateway() -> &'static Result<GitCommandGateway> {
-    GLOBAL_GATEWAY.get_or_init(|| GitCommandGateway::new())
+    GLOBAL_GATEWAY.get_or_init(GitCommandGateway::new)
 }
 
 /// Seed the global gateway with a configured command timeout.
@@ -293,7 +300,9 @@ mod tests {
     #[test]
     fn test_successful_command() {
         let gateway = GitCommandGateway::new().unwrap();
-        let out = gateway.run(&["rev-parse", "--git-dir"], Some(Path::new("."))).unwrap();
+        let out = gateway
+            .run(&["rev-parse", "--git-dir"], Some(Path::new(".")))
+            .unwrap();
         // In the project root, this should succeed or fail gracefully
         let _ = out.success();
     }
@@ -317,16 +326,16 @@ mod tests {
     fn test_gateway_cache() {
         let g1 = global_gateway();
         let g2 = global_gateway();
-        assert!(std::ptr::eq(
-            g1.as_ref().unwrap(),
-            g2.as_ref().unwrap()
-        ));
+        assert!(std::ptr::eq(g1.as_ref().unwrap(), g2.as_ref().unwrap()));
     }
 
     /// Regression guard: ensure no crates use raw `Command::new("git")` outside this file.
     #[test]
     fn test_no_raw_git_command_in_crates() {
-        let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+        let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .unwrap();
         let mut violations = Vec::new();
 
         for entry in walkdir::WalkDir::new(workspace.join("crates"))
@@ -334,7 +343,7 @@ mod tests {
             .filter_map(|e| e.ok())
         {
             let path = entry.path();
-            if path.extension().map_or(true, |x| x != "rs") {
+            if path.extension().is_none_or(|x| x != "rs") {
                 continue;
             }
             // Skip the gateway file itself (the only allowed location)
@@ -348,9 +357,16 @@ mod tests {
             };
 
             for (line_no, line) in content.lines().enumerate() {
-                if line.contains(r#"Command::new("git")"#) || line.contains(r#"process::Command::new("git")"#) {
+                if line.contains(r#"Command::new("git")"#)
+                    || line.contains(r#"process::Command::new("git")"#)
+                {
                     let relative = path.strip_prefix(workspace).unwrap_or(path);
-                    violations.push(format!("{}:{}  =>  {}", relative.display(), line_no + 1, line.trim()));
+                    violations.push(format!(
+                        "{}:{}  =>  {}",
+                        relative.display(),
+                        line_no + 1,
+                        line.trim()
+                    ));
                 }
             }
         }

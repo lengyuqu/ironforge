@@ -18,7 +18,11 @@ impl MigrationTrait for Migration {
                             .auto_increment()
                             .primary_key(),
                     )
-                    .col(ColumnDef::new(PackageRegistry::RepoId).big_integer().not_null())
+                    .col(
+                        ColumnDef::new(PackageRegistry::RepoId)
+                            .big_integer()
+                            .not_null(),
+                    )
                     .col(
                         ColumnDef::new(PackageRegistry::PackageType)
                             .string()
@@ -69,7 +73,11 @@ impl MigrationTrait for Migration {
                             .auto_increment()
                             .primary_key(),
                     )
-                    .col(ColumnDef::new(Package::PackageRegistryId).big_integer().not_null())
+                    .col(
+                        ColumnDef::new(Package::PackageRegistryId)
+                            .big_integer()
+                            .not_null(),
+                    )
                     .col(ColumnDef::new(Package::OwnerId).big_integer().not_null())
                     .col(ColumnDef::new(Package::Name).string().not_null())
                     .col(ColumnDef::new(Package::Description).string().null())
@@ -87,16 +95,8 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .default(0),
                     )
-                    .col(
-                        ColumnDef::new(Package::CreatedAt)
-                            .date_time()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(Package::UpdatedAt)
-                            .date_time()
-                            .not_null(),
-                    )
+                    .col(ColumnDef::new(Package::CreatedAt).date_time().not_null())
+                    .col(ColumnDef::new(Package::UpdatedAt).date_time().not_null())
                     .to_owned(),
             )
             .await?;
@@ -126,17 +126,13 @@ impl MigrationTrait for Migration {
                             .auto_increment()
                             .primary_key(),
                     )
-                    .col(ColumnDef::new(PackageVersion::PackageId).big_integer().not_null())
                     .col(
-                        ColumnDef::new(PackageVersion::Version)
-                            .string()
+                        ColumnDef::new(PackageVersion::PackageId)
+                            .big_integer()
                             .not_null(),
                     )
-                    .col(
-                        ColumnDef::new(PackageVersion::Semver)
-                            .string()
-                            .null(),
-                    )
+                    .col(ColumnDef::new(PackageVersion::Version).string().not_null())
+                    .col(ColumnDef::new(PackageVersion::Semver).string().null())
                     .col(ColumnDef::new(PackageVersion::Metadata).text().null())
                     .col(
                         ColumnDef::new(PackageVersion::Size)
@@ -157,7 +153,11 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .default(0),
                     )
-                    .col(ColumnDef::new(PackageVersion::AuthorId).big_integer().null())
+                    .col(
+                        ColumnDef::new(PackageVersion::AuthorId)
+                            .big_integer()
+                            .null(),
+                    )
                     .col(
                         ColumnDef::new(PackageVersion::CreatedAt)
                             .date_time()
@@ -205,11 +205,7 @@ impl MigrationTrait for Migration {
                             .default(0),
                     )
                     .col(ColumnDef::new(PackageFile::Sha256).string().null())
-                    .col(
-                        ColumnDef::new(PackageFile::StoragePath)
-                            .string()
-                            .not_null(),
-                    )
+                    .col(ColumnDef::new(PackageFile::StoragePath).string().not_null())
                     .col(
                         ColumnDef::new(PackageFile::CreatedAt)
                             .date_time()
@@ -249,6 +245,7 @@ impl MigrationTrait for Migration {
     }
 }
 
+#[allow(clippy::enum_variant_names)]
 #[derive(DeriveIden)]
 enum PackageRegistry {
     Table,
@@ -260,6 +257,7 @@ enum PackageRegistry {
     UpdatedAt,
 }
 
+#[allow(clippy::enum_variant_names)]
 #[derive(DeriveIden)]
 enum Package {
     Table,
@@ -276,6 +274,7 @@ enum Package {
     UpdatedAt,
 }
 
+#[allow(clippy::enum_variant_names)]
 #[derive(DeriveIden)]
 enum PackageVersion {
     Table,
@@ -292,6 +291,7 @@ enum PackageVersion {
     CreatedAt,
 }
 
+#[allow(clippy::enum_variant_names)]
 #[derive(DeriveIden)]
 enum PackageFile {
     Table,

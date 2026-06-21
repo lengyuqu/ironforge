@@ -8,9 +8,9 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::AppState;
 use crate::error::AppError;
 use crate::pagination::PaginationParams;
+use crate::AppState;
 
 #[derive(Deserialize)]
 pub struct SearchQuery {
@@ -50,7 +50,8 @@ pub async fn search(
         return AppError::bad_request(format!(
             "invalid type '{}', must be one of: {:?}",
             params.r#type, valid_types
-        )).into_response();
+        ))
+        .into_response();
     }
 
     match rg_core::search::service::search(

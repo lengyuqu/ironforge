@@ -30,21 +30,36 @@ async fn test_add_and_list_time_entries() {
     // Add two entries
     for (mins, desc) in [(90i64, "research"), (30, "fix")] {
         let resp = client
-            .post(format!("{}/api/v1/repos/{}/{}/issues/{}/time", base, owner, repo, number))
+            .post(format!(
+                "{}/api/v1/repos/{}/{}/issues/{}/time",
+                base, owner, repo, number
+            ))
             .bearer_auth(&token)
             .json(&serde_json::json!({"duration_minutes": mins, "description": desc}))
-            .send().await.unwrap();
+            .send()
+            .await
+            .unwrap();
         assert_eq!(resp.status(), 201, "add_time failed: {}", resp.status());
     }
 
     // List entries
     let resp = client
-        .get(format!("{}/api/v1/repos/{}/{}/issues/{}/time", base, owner, repo, number))
-        .send().await.unwrap();
+        .get(format!(
+            "{}/api/v1/repos/{}/{}/issues/{}/time",
+            base, owner, repo, number
+        ))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
     let body: serde_json::Value = resp.json().await.unwrap();
     let entries = body["data"].as_array().unwrap();
-    assert_eq!(entries.len(), 2, "expected 2 time entries, got {}", entries.len());
+    assert_eq!(
+        entries.len(),
+        2,
+        "expected 2 time entries, got {}",
+        entries.len()
+    );
 }
 
 #[tokio::test]
@@ -55,15 +70,25 @@ async fn test_time_tracking_total() {
 
     for mins in [60i64, 90, 30] {
         client
-            .post(format!("{}/api/v1/repos/{}/{}/issues/{}/time", base, owner, repo, number))
+            .post(format!(
+                "{}/api/v1/repos/{}/{}/issues/{}/time",
+                base, owner, repo, number
+            ))
             .bearer_auth(&token)
             .json(&serde_json::json!({"duration_minutes": mins}))
-            .send().await.unwrap();
+            .send()
+            .await
+            .unwrap();
     }
 
     let resp = client
-        .get(format!("{}/api/v1/repos/{}/{}/issues/{}/time/total", base, owner, repo, number))
-        .send().await.unwrap();
+        .get(format!(
+            "{}/api/v1/repos/{}/{}/issues/{}/time/total",
+            base, owner, repo, number
+        ))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
     let body: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(body["total_minutes"], 180, "total should be 60+90+30=180");
@@ -79,25 +104,55 @@ async fn test_time_tracking_delete_entry() {
 
     // Add entry
     let entry_id: i64 = client
-        .post(format!("{}/api/v1/repos/{}/{}/issues/{}/time", base, owner, repo, number))
+        .post(format!(
+            "{}/api/v1/repos/{}/{}/issues/{}/time",
+            base, owner, repo, number
+        ))
         .bearer_auth(&token)
         .json(&serde_json::json!({"duration_minutes": 45}))
-        .send().await.unwrap()
-        .json::<serde_json::Value>().await.unwrap()["id"].as_i64().unwrap();
+        .send()
+        .await
+        .unwrap()
+        .json::<serde_json::Value>()
+        .await
+        .unwrap()["id"]
+        .as_i64()
+        .unwrap();
 
     // Delete
     let resp = client
-        .delete(format!("{}/api/v1/repos/{}/{}/issues/{}/time/{}", base, owner, repo, number, entry_id))
+        .delete(format!(
+            "{}/api/v1/repos/{}/{}/issues/{}/time/{}",
+            base, owner, repo, number, entry_id
+        ))
         .bearer_auth(&token)
-        .send().await.unwrap();
-    assert_eq!(resp.status(), 204, "delete_time_entry failed: {}", resp.status());
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        204,
+        "delete_time_entry failed: {}",
+        resp.status()
+    );
 
     // List should be empty
     let body: serde_json::Value = client
-        .get(format!("{}/api/v1/repos/{}/{}/issues/{}/time", base, owner, repo, number))
-        .send().await.unwrap()
-        .json().await.unwrap();
-    assert_eq!(body["data"].as_array().unwrap().len(), 0, "entry should be deleted");
+        .get(format!(
+            "{}/api/v1/repos/{}/{}/issues/{}/time",
+            base, owner, repo, number
+        ))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        body["data"].as_array().unwrap().len(),
+        0,
+        "entry should be deleted"
+    );
 }
 
 #[tokio::test]
@@ -107,8 +162,13 @@ async fn test_total_time_empty_issue() {
     let client = reqwest::Client::new();
 
     let resp = client
-        .get(format!("{}/api/v1/repos/{}/{}/issues/{}/time/total", base, owner, repo, number))
-        .send().await.unwrap();
+        .get(format!(
+            "{}/api/v1/repos/{}/{}/issues/{}/time/total",
+            base, owner, repo, number
+        ))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
     let body: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(body["total_minutes"], 0);
@@ -121,9 +181,18 @@ async fn test_add_time_requires_auth() {
     let client = reqwest::Client::new();
 
     let resp = client
-        .post(format!("{}/api/v1/repos/{}/{}/issues/{}/time", base, owner, repo, number))
+        .post(format!(
+            "{}/api/v1/repos/{}/{}/issues/{}/time",
+            base, owner, repo, number
+        ))
         // no bearer auth
         .json(&serde_json::json!({"duration_minutes": 30}))
-        .send().await.unwrap();
-    assert_eq!(resp.status(), 401, "unauthenticated add_time should return 401");
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        401,
+        "unauthenticated add_time should return 401"
+    );
 }

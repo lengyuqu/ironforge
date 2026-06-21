@@ -94,10 +94,7 @@ impl MigrationTrait for Migration {
             INSERT INTO wiki_pages_fts(wiki_pages_fts) VALUES('rebuild');
         "#;
 
-        manager
-            .get_connection()
-            .execute_unprepared(sql)
-            .await?;
+        manager.get_connection().execute_unprepared(sql).await?;
 
         Ok(())
     }
@@ -118,10 +115,7 @@ impl MigrationTrait for Migration {
             DROP TABLE IF EXISTS wiki_pages_fts;
         "#;
 
-        manager
-            .get_connection()
-            .execute_unprepared(sql)
-            .await?;
+        manager.get_connection().execute_unprepared(sql).await?;
 
         Ok(())
     }

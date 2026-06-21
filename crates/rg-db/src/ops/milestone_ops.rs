@@ -3,7 +3,9 @@
 use anyhow::{Context, Result};
 use sea_orm::*;
 
-use crate::entities::milestone::{self, ActiveModel, Entity as MilestoneEntity, Model as Milestone};
+use crate::entities::milestone::{
+    self, ActiveModel, Entity as MilestoneEntity, Model as Milestone,
+};
 
 /// Find a milestone by id.
 pub async fn find_by_id(db: &DatabaseConnection, id: i64) -> Result<Option<Milestone>> {

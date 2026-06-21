@@ -9,7 +9,7 @@ use std::path::Path;
 use anyhow::{bail, Context, Result};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 
-use crate::pkt_line::{write_pkt_line, write_flush, read_pkt_line, PktLine};
+use crate::pkt_line::{read_pkt_line, write_flush, write_pkt_line, PktLine};
 use crate::sideband;
 
 /// Result of processing a push for a single ref update.
@@ -24,7 +24,11 @@ pub struct RefUpdate {
 
 /// Handle receive-pack with separate reader and writer (HTTP mode).
 /// Returns the list of ref updates that were processed.
-pub async fn handle_receive_pack<R, W>(repo_path: &Path, reader: R, writer: W) -> Result<Vec<RefUpdate>>
+pub async fn handle_receive_pack<R, W>(
+    repo_path: &Path,
+    reader: R,
+    writer: W,
+) -> Result<Vec<RefUpdate>>
 where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
@@ -51,7 +55,10 @@ where
 /// Handle receive-pack with a single bidirectional stream (SSH mode).
 /// Takes a mutable reference so the caller can send exit-status before dropping the stream.
 /// Returns the list of ref updates that were processed.
-pub async fn handle_receive_pack_stream<S>(repo_path: &Path, stream: &mut S) -> Result<Vec<RefUpdate>>
+pub async fn handle_receive_pack_stream<S>(
+    repo_path: &Path,
+    stream: &mut S,
+) -> Result<Vec<RefUpdate>>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
@@ -60,7 +67,11 @@ where
 
 /// Handle receive-pack for HTTP mode where ref advertisement is already sent.
 /// Returns the list of ref updates that were processed.
-pub async fn handle_receive_pack_http<R, W>(repo_path: &Path, reader: R, mut writer: W) -> Result<Vec<RefUpdate>>
+pub async fn handle_receive_pack_http<R, W>(
+    repo_path: &Path,
+    reader: R,
+    mut writer: W,
+) -> Result<Vec<RefUpdate>>
 where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
@@ -365,10 +376,7 @@ fn update_ref(repo_path: &Path, refname: &str, new_sha: &str) -> Result<()> {
 ///
 /// The git client reads sideband until it gets a sideband flush `0000`.
 /// The band-1 content is then parsed as report-status pkt-lines.
-async fn send_response<W: AsyncWrite + Unpin>(
-    writer: &mut W,
-    results: &[RefUpdate],
-) -> Result<()> {
+async fn send_response<W: AsyncWrite + Unpin>(writer: &mut W, results: &[RefUpdate]) -> Result<()> {
     // Build the report-status pkt-lines into an in-memory buffer.
     // These will be sent as band-1 sideband data in one shot.
     let mut report_buf: Vec<u8> = Vec::new();

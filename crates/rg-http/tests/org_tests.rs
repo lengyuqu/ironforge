@@ -21,7 +21,11 @@ async fn register_full(base: &str, username: &str, email: &str) -> (String, i64)
         .send()
         .await
         .unwrap();
-    assert!(resp.status().is_success(), "register failed: {}", resp.status());
+    assert!(
+        resp.status().is_success(),
+        "register failed: {}",
+        resp.status()
+    );
     let body: serde_json::Value = resp.json().await.unwrap();
     (
         body["token"].as_str().unwrap().to_string(),
@@ -56,8 +60,16 @@ async fn test_create_and_list_org() {
         .unwrap();
     assert_eq!(resp.status(), 200);
     let orgs: serde_json::Value = resp.json().await.unwrap();
-    let names: Vec<&str> = orgs.as_array().unwrap().iter().filter_map(|o| o["name"].as_str()).collect();
-    assert!(names.contains(&"acme"), "list_orgs should include 'acme', got {names:?}");
+    let names: Vec<&str> = orgs
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|o| o["name"].as_str())
+        .collect();
+    assert!(
+        names.contains(&"acme"),
+        "list_orgs should include 'acme', got {names:?}"
+    );
 }
 
 #[tokio::test]
@@ -94,8 +106,16 @@ async fn test_add_org_member() {
         .unwrap();
     assert_eq!(resp.status(), 200);
     let members: serde_json::Value = resp.json().await.unwrap();
-    let ids: Vec<i64> = members.as_array().unwrap().iter().filter_map(|m| m["user_id"].as_i64()).collect();
-    assert!(ids.contains(&member_id), "member list should include {member_id}, got {ids:?}");
+    let ids: Vec<i64> = members
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|m| m["user_id"].as_i64())
+        .collect();
+    assert!(
+        ids.contains(&member_id),
+        "member list should include {member_id}, got {ids:?}"
+    );
 }
 
 #[tokio::test]
@@ -133,6 +153,14 @@ async fn test_create_and_list_team() {
         .unwrap();
     assert_eq!(resp.status(), 200);
     let teams: serde_json::Value = resp.json().await.unwrap();
-    let names: Vec<&str> = teams.as_array().unwrap().iter().filter_map(|t| t["name"].as_str()).collect();
-    assert!(names.contains(&"developers"), "team list should include 'developers', got {names:?}");
+    let names: Vec<&str> = teams
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|t| t["name"].as_str())
+        .collect();
+    assert!(
+        names.contains(&"developers"),
+        "team list should include 'developers', got {names:?}"
+    );
 }

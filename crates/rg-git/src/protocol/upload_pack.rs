@@ -4,12 +4,12 @@
 //! 1. Split reader/writer (HTTP mode) — via `handle_upload_pack`
 //! 2. Single bidirectional stream (SSH mode) — via `handle_upload_pack_stream`
 
-use std::path::Path;
 use anyhow::{bail, Context, Result};
+use std::path::Path;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tracing;
 
-use crate::pkt_line::{write_pkt_line, write_flush, read_pkt_line, PktLine};
+use crate::pkt_line::{read_pkt_line, write_flush, write_pkt_line, PktLine};
 use crate::sideband;
 
 /// Handle upload-pack with separate reader and writer (HTTP mode).
@@ -202,43 +202,43 @@ async fn read_want_have_impl<R: AsyncRead + Unpin>(
         // We handle both by first checking for NUL, then splitting on the second space
         // for commands that start with "want " or "have ".
 
-        let (command, caps_part): (&str, Option<&str>) = if line.contains('\0') {
+        let (command, caps_part): (String, Option<&str>) = if line.contains('\0') {
             // Form A: NUL-separated capabilities
             let mut parts = line.splitn(2, '\0');
             let cmd = parts.next().unwrap_or("");
             let caps = parts.next().unwrap_or("");
-            (cmd, if caps.is_empty() { None } else { Some(caps) })
-        } else if line.starts_with("want ") {
+            (
+                cmd.to_string(),
+                if caps.is_empty() { None } else { Some(caps) },
+            )
+        } else if let Some(after_want) = line.strip_prefix("want ") {
             // Form B: `want <sha1> [cap1 cap2 ...]` — space after sha1
-            // sha1 is 40 hex chars, so caps start at position 5+40+1 = 46
-            let after_want = &line[5..]; // skip "want "
-            if after_want.len() > 40 && after_want.as_bytes()[40] == b' ' {
-                let sha_part = &line[..46]; // "want " + 40-char sha
-                let caps_part = &line[46..]; // everything after "want <sha> "
-                (sha_part, if caps_part.is_empty() { None } else { Some(caps_part) })
+            if let Some((sha, caps)) = after_want.split_once(' ') {
+                let command = format!("want {sha}");
+                (command, if caps.is_empty() { None } else { Some(caps) })
             } else {
-                (line, None)
+                (line.to_string(), None)
             }
         } else {
-            (line, None)
+            (line.to_string(), None)
         };
 
         if let Some(caps) = caps_part {
             // Parse space-separated capabilities
             capabilities = caps
-                .split(|c: char| c == ' ' || c == '\0')
+                .split([' ', '\0'])
                 .map(|s| s.to_string())
                 .filter(|s| !s.is_empty())
                 .collect();
             tracing::debug!(caps = ?capabilities, "Parsed client capabilities");
         }
 
-        if command.starts_with("want ") {
-            let sha = command[5..].trim().to_string();
+        if let Some(sha) = command.strip_prefix("want ") {
+            let sha = sha.trim().to_string();
             tracing::debug!(sha = %sha, "Client wants");
             wants.push(sha);
-        } else if command.starts_with("have ") {
-            let sha = command[5..].trim().to_string();
+        } else if let Some(sha) = command.strip_prefix("have ") {
+            let sha = sha.trim().to_string();
             haves.push(sha);
         } else if command == "done" {
             break;
@@ -329,7 +329,10 @@ fn build_ref_advertisement(ref_list: &[(String, String)], service: &str) -> Vec<
     } else {
         // Empty repo — still need capabilities
         let caps = "side-band-64k ofs-delta agent=ironforge/0.1";
-        let line = format!("0000000000000000000000000000000000000000 capabilities^{}\0{}", service, caps);
+        let line = format!(
+            "0000000000000000000000000000000000000000 capabilities^{}\0{}",
+            service, caps
+        );
         lines.push(PktLine::Data(line.into_bytes()));
     }
 
@@ -410,11 +413,7 @@ async fn send_packfile<W: AsyncWrite + Unpin>(
         writer.flush().await?;
     }
 
-    tracing::info!(
-        pack_size,
-        objects = wants.len(),
-        "Upload-pack complete"
-    );
+    tracing::info!(pack_size, objects = wants.len(), "Upload-pack complete");
 
     Ok(())
 }

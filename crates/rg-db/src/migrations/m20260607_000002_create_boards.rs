@@ -77,7 +77,11 @@ impl MigrationTrait for Migration {
                             .auto_increment()
                             .primary_key(),
                     )
-                    .col(ColumnDef::new(BoardColumn::BoardId).big_integer().not_null())
+                    .col(
+                        ColumnDef::new(BoardColumn::BoardId)
+                            .big_integer()
+                            .not_null(),
+                    )
                     .col(ColumnDef::new(BoardColumn::Name).string().not_null())
                     .col(ColumnDef::new(BoardColumn::Color).string().null())
                     .col(
@@ -114,11 +118,7 @@ impl MigrationTrait for Migration {
                             .auto_increment()
                             .primary_key(),
                     )
-                    .col(
-                        ColumnDef::new(BoardCard::ColumnId)
-                            .big_integer()
-                            .not_null(),
-                    )
+                    .col(ColumnDef::new(BoardCard::ColumnId).big_integer().not_null())
                     .col(ColumnDef::new(BoardCard::IssueId).big_integer().null())
                     .col(ColumnDef::new(BoardCard::Note).text().null())
                     .col(

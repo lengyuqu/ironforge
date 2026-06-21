@@ -4,11 +4,11 @@ use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::Json;
-use serde::{Deserialize, Serialize};
 use sea_orm::DatabaseConnection;
+use serde::{Deserialize, Serialize};
 
-use crate::AppState;
 use crate::error::AppError;
+use crate::AppState;
 
 // ── Request / Response types ──────────────────────────────────────────────
 
@@ -123,7 +123,11 @@ pub async fn get_page(
     };
 
     match rg_core::wiki::service::get_page(&state.db, repo_id, &title).await {
-        Ok(Some(page)) => (StatusCode::OK, Json(serde_json::json!(page_to_response(&page)))).into_response(),
+        Ok(Some(page)) => (
+            StatusCode::OK,
+            Json(serde_json::json!(page_to_response(&page))),
+        )
+            .into_response(),
         Ok(None) => AppError::not_found("page not found").into_response(),
         Err(e) => AppError::internal(e).into_response(),
     }
@@ -170,7 +174,11 @@ pub async fn create_page(
     )
     .await
     {
-        Ok(page) => (StatusCode::CREATED, Json(serde_json::json!(page_to_response(&page)))).into_response(),
+        Ok(page) => (
+            StatusCode::CREATED,
+            Json(serde_json::json!(page_to_response(&page))),
+        )
+            .into_response(),
         Err(e) => AppError::bad_request(e).into_response(),
     }
 }
@@ -216,7 +224,11 @@ pub async fn update_page(
     )
     .await
     {
-        Ok(page) => (StatusCode::OK, Json(serde_json::json!(page_to_response(&page)))).into_response(),
+        Ok(page) => (
+            StatusCode::OK,
+            Json(serde_json::json!(page_to_response(&page))),
+        )
+            .into_response(),
         Err(e) => AppError::bad_request(e).into_response(),
     }
 }
@@ -252,12 +264,31 @@ pub async fn delete_page(
     };
 
     match rg_core::wiki::service::delete_page(&state.db, repo_id, &title).await {
-        Ok(()) => (StatusCode::OK, Json(serde_json::json!({"message": "page deleted"}))).into_response(),
+        Ok(()) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"message": "page deleted"})),
+        )
+            .into_response(),
         Err(e) => AppError::bad_request(e).into_response(),
     }
 }
 
 /// GET /api/v1/repos/{owner}/{name}/wiki/{title}/history
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/wiki/{title}/history",
+    tag = "Wiki",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("title" = String, Path, description = "title"),
+    ),
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+        (status = 404, description = "Not found", body = serde_json::Value),
+    ),
+)]
 pub async fn list_revisions(
     State(state): State<AppState>,
     Path((owner, repo, title)): Path<(String, String, String)>,
@@ -275,6 +306,22 @@ pub async fn list_revisions(
 }
 
 /// GET /api/v1/repos/{owner}/{name}/wiki/{title}/revisions/{rev_id}
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/wiki/{title}/revisions/{rev_id}",
+    tag = "Wiki",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("title" = String, Path, description = "title"),
+        ("rev_id" = i64, Path, description = "revision id"),
+    ),
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+        (status = 404, description = "Not found", body = serde_json::Value),
+    ),
+)]
 pub async fn get_revision(
     State(state): State<AppState>,
     Path((_owner, _repo, _title, rev_id)): Path<(String, String, String, i64)>,
@@ -289,12 +336,7 @@ pub async fn get_revision(
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
-
-async fn resolve_repo_id(
-    db: &DatabaseConnection,
-    owner: &str,
-    repo_name: &str,
-) -> Option<i64> {
+async fn resolve_repo_id(db: &DatabaseConnection, owner: &str, repo_name: &str) -> Option<i64> {
     let user = rg_db::ops::user_ops::find_by_username(db, owner)
         .await
         .ok()

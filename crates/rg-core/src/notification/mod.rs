@@ -68,12 +68,17 @@ pub async fn notify_watchers(
     notification_type: &str,
     body: Option<String>,
 ) -> Result<()> {
-    let watchers = rg_db::ops::repo_watch_ops::list_watchers(db, repo_id, 0, 1000).await?.0;
+    let watchers = rg_db::ops::repo_watch_ops::list_watchers(db, repo_id, 0, 1000)
+        .await?
+        .0;
     // Resolve author once outside the loop to avoid N+1 queries
     let author_opt = if author_name.is_empty() {
         None
     } else {
-        rg_db::ops::user_ops::find_by_username(db, author_name).await.ok().flatten()
+        rg_db::ops::user_ops::find_by_username(db, author_name)
+            .await
+            .ok()
+            .flatten()
     };
     for watcher in watchers {
         // Don't notify the author themselves
@@ -83,9 +88,19 @@ pub async fn notify_watchers(
             }
         }
         if let Err(e) = notification_ops::create_notification(
-            db, watcher.user_id, notification_type, title, body.as_deref(), Some(repo_id),
-        ).await {
-            tracing::warn!("Failed to notify watcher {} about {notification_type}: {e}", watcher.user_id);
+            db,
+            watcher.user_id,
+            notification_type,
+            title,
+            body.as_deref(),
+            Some(repo_id),
+        )
+        .await
+        {
+            tracing::warn!(
+                "Failed to notify watcher {} about {notification_type}: {e}",
+                watcher.user_id
+            );
         }
     }
     Ok(())

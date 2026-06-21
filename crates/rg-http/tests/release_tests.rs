@@ -22,7 +22,14 @@ async fn setup(suffix: &str) -> (String, String, String, String) {
     (base, token, owner, repo)
 }
 
-async fn create_release(base: &str, token: &str, owner: &str, repo: &str, tag: &str, title: &str) -> serde_json::Value {
+async fn create_release(
+    base: &str,
+    token: &str,
+    owner: &str,
+    repo: &str,
+    tag: &str,
+    title: &str,
+) -> serde_json::Value {
     let client = reqwest::Client::new();
     let resp = client
         .post(format!("{}/api/v1/repos/{}/{}/releases", base, owner, repo))
@@ -34,8 +41,16 @@ async fn create_release(base: &str, token: &str, owner: &str, repo: &str, tag: &
             "is_draft": false,
             "is_prerelease": false
         }))
-        .send().await.unwrap();
-    assert_eq!(resp.status(), 201, "create release '{}' failed: {}", tag, resp.status());
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        201,
+        "create release '{}' failed: {}",
+        tag,
+        resp.status()
+    );
     resp.json().await.unwrap()
 }
 
@@ -51,8 +66,13 @@ async fn test_create_and_get_release() {
     let id = release["id"].as_i64().unwrap();
     let client = reqwest::Client::new();
     let resp = client
-        .get(format!("{}/api/v1/repos/{}/{}/releases/{}", base, owner, repo, id))
-        .send().await.unwrap();
+        .get(format!(
+            "{}/api/v1/repos/{}/{}/releases/{}",
+            base, owner, repo, id
+        ))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
     let got: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(got["id"], id);
@@ -63,14 +83,20 @@ async fn test_create_and_get_release() {
 async fn test_list_releases() {
     let (base, token, owner, repo) = setup("2").await;
 
-    for (tag, title) in &[("v0.1.0", "Alpha"), ("v0.2.0", "Beta"), ("v1.0.0", "Stable")] {
+    for (tag, title) in &[
+        ("v0.1.0", "Alpha"),
+        ("v0.2.0", "Beta"),
+        ("v1.0.0", "Stable"),
+    ] {
         create_release(&base, &token, &owner, &repo, tag, title).await;
     }
 
     let client = reqwest::Client::new();
     let resp = client
         .get(format!("{}/api/v1/repos/{}/{}/releases", base, owner, repo))
-        .send().await.unwrap();
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
     let body: serde_json::Value = resp.json().await.unwrap();
     let releases = body["data"].as_array().unwrap();
@@ -80,18 +106,31 @@ async fn test_list_releases() {
 #[tokio::test]
 async fn test_update_release() {
     let (base, token, owner, repo) = setup("3").await;
-    let release = create_release(&base, &token, &owner, &repo, "v2.0.0-draft", "Draft Release").await;
+    let release = create_release(
+        &base,
+        &token,
+        &owner,
+        &repo,
+        "v2.0.0-draft",
+        "Draft Release",
+    )
+    .await;
     let id = release["id"].as_i64().unwrap();
 
     let client = reqwest::Client::new();
     let resp = client
-        .patch(format!("{}/api/v1/repos/{}/{}/releases/{}", base, owner, repo, id))
+        .patch(format!(
+            "{}/api/v1/repos/{}/{}/releases/{}",
+            base, owner, repo, id
+        ))
         .bearer_auth(&token)
         .json(&serde_json::json!({
             "title": "v2.0.0 Final",
             "is_draft": false
         }))
-        .send().await.unwrap();
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200, "update failed: {}", resp.status());
     let updated: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(updated["title"], "v2.0.0 Final");
@@ -106,15 +145,29 @@ async fn test_delete_release() {
 
     let client = reqwest::Client::new();
     let resp = client
-        .delete(format!("{}/api/v1/repos/{}/{}/releases/{}", base, owner, repo, id))
+        .delete(format!(
+            "{}/api/v1/repos/{}/{}/releases/{}",
+            base, owner, repo, id
+        ))
         .bearer_auth(&token)
-        .send().await.unwrap();
-    assert!(resp.status().is_success(), "delete failed: {}", resp.status());
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        resp.status().is_success(),
+        "delete failed: {}",
+        resp.status()
+    );
 
     // List should be empty
     let body: serde_json::Value = client
         .get(format!("{}/api/v1/repos/{}/{}/releases", base, owner, repo))
-        .send().await.unwrap().json().await.unwrap();
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     assert_eq!(body["data"].as_array().unwrap().len(), 0);
 }
 
@@ -126,6 +179,12 @@ async fn test_create_release_requires_auth() {
     let resp = client
         .post(format!("{}/api/v1/repos/{}/{}/releases", base, owner, repo))
         .json(&serde_json::json!({"tag_name": "v0.0.1", "title": "Unauthorized"}))
-        .send().await.unwrap();
-    assert_eq!(resp.status(), 401, "unauthenticated create_release should return 401");
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        401,
+        "unauthenticated create_release should return 401"
+    );
 }

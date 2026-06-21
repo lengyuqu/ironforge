@@ -32,6 +32,10 @@ pub struct Model {
     pub merge_commit_sha: Option<String>,
     /// For fork PRs: the repository where head_branch lives (null = same as repo_id)
     pub head_repo_id: Option<i64>,
+    /// Milestone id (nullable)
+    pub milestone_id: Option<i64>,
+    /// Label names stored as JSON array: ["bug","feature"]
+    pub labels: Option<String>,
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,
     pub closed_at: Option<DateTimeUtc>,

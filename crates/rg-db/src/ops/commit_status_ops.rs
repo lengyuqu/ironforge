@@ -3,7 +3,9 @@
 use anyhow::{Context, Result};
 use sea_orm::*;
 
-use crate::entities::commit_status::{self, ActiveModel, Entity as CommitStatusEntity, Model as CommitStatus};
+use crate::entities::commit_status::{
+    self, ActiveModel, Entity as CommitStatusEntity, Model as CommitStatus,
+};
 
 /// Create or update a commit status (upsert by repo_id + sha + context).
 pub async fn create_or_update(

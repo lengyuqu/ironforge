@@ -20,12 +20,21 @@ pub async fn add_collaborator(
     // Validate permission
     match permission.as_str() {
         "read" | "write" | "admin" => {}
-        _ => bail!("invalid permission: {}, must be read/write/admin", permission),
+        _ => bail!(
+            "invalid permission: {}, must be read/write/admin",
+            permission
+        ),
     }
 
     // Check if already a collaborator
-    if let Some(existing) = repo_collaborator_ops::find_by_repo_and_user(db, repo.id, user_id).await? {
-        bail!("user {} is already a collaborator (permission: {})", user_id, existing.permission);
+    if let Some(existing) =
+        repo_collaborator_ops::find_by_repo_and_user(db, repo.id, user_id).await?
+    {
+        bail!(
+            "user {} is already a collaborator (permission: {})",
+            user_id,
+            existing.permission
+        );
     }
 
     let model = repo_collaborator::ActiveModel {

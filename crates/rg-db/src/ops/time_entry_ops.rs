@@ -29,7 +29,11 @@ pub async fn list_by_issue(
         .filter(time_entry::Column::IssueId.eq(issue_id))
         .order_by_desc(time_entry::Column::CreatedAt);
 
-    let total = base.clone().count(db).await.context("db: count time entries")? as i64;
+    let total = base
+        .clone()
+        .count(db)
+        .await
+        .context("db: count time entries")? as i64;
     let entries = base
         .offset(offset)
         .limit(limit)
@@ -41,10 +45,7 @@ pub async fn list_by_issue(
 }
 
 /// Get total tracked minutes for an issue.
-pub async fn total_minutes_by_issue(
-    db: &DatabaseConnection,
-    issue_id: i64,
-) -> Result<i64> {
+pub async fn total_minutes_by_issue(db: &DatabaseConnection, issue_id: i64) -> Result<i64> {
     use sea_orm::prelude::*;
 
     let result: Option<(Option<i64>,)> = TimeEntryEntity::find()
@@ -58,7 +59,7 @@ pub async fn total_minutes_by_issue(
 
     let total = result
         .map(|(total_or,)| total_or)
-        .flatten()
+        .and_then(|v| v)
         .unwrap_or(0);
     Ok(total)
 }

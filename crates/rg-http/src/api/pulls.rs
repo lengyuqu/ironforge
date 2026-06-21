@@ -7,8 +7,8 @@ use axum::Json;
 use serde::Deserialize;
 
 use crate::error::AppError;
+use crate::pagination::{PaginatedResponse, PaginationParams};
 use crate::AppState;
-use crate::pagination::{PaginationParams, PaginatedResponse};
 
 // ── Request / Response types ────────────────────────────────────────────
 
@@ -82,7 +82,10 @@ pub async fn list_prs(
             Json(PaginatedResponse::new(data, &pagination, total as u64)),
         )
             .into_response(),
-        Err(e) => { tracing::error!(%e, "handler error"); AppError::internal(e).into_response() },
+        Err(e) => {
+            tracing::error!(%e, "handler error");
+            AppError::internal(e).into_response()
+        }
     }
 }
 
@@ -133,7 +136,9 @@ pub async fn create_pr(
 ) -> impl IntoResponse {
     let user_id = match super::auth::extract_user_id(&headers, &state.jwt_secret) {
         Some(id) => id,
-        None => return AppError::Unauthorized("authentication required".to_string()).into_response(),
+        None => {
+            return AppError::Unauthorized("authentication required".to_string()).into_response()
+        }
     };
 
     let repo_id = match resolve_repo_id(&state.db, &owner, &repo).await {
@@ -184,13 +189,7 @@ pub async fn update_pr(
     Json(req): Json<UpdatePrRequest>,
 ) -> impl IntoResponse {
     match rg_core::pull_request::update_pr(
-        &state.db,
-        &owner,
-        &repo,
-        number,
-        req.title,
-        req.body,
-        req.state,
+        &state.db, &owner, &repo, number, req.title, req.body, req.state,
     )
     .await
     {
@@ -217,17 +216,14 @@ pub async fn get_diff(
     State(state): State<AppState>,
     Path((owner, repo, number)): Path<(String, String, i64)>,
 ) -> impl IntoResponse {
-    match rg_core::pull_request::compute_diff(
-        &state.db,
-        &state.repo_root,
-        &owner,
-        &repo,
-        number,
-    )
-    .await
+    match rg_core::pull_request::compute_diff(&state.db, &state.repo_root, &owner, &repo, number)
+        .await
     {
         Ok(diff) => (StatusCode::OK, Json(diff)).into_response(),
-        Err(e) => { tracing::error!(%e, "handler error"); AppError::internal(e).into_response() },
+        Err(e) => {
+            tracing::error!(%e, "handler error");
+            AppError::internal(e).into_response()
+        }
     }
 }
 
@@ -263,7 +259,10 @@ pub async fn merge_pr(
         "squash" => rg_core::pull_request::MergeStrategy::Squash,
         "rebase" => rg_core::pull_request::MergeStrategy::Rebase,
         _ => {
-            return AppError::BadRequest("invalid merge strategy, use: merge, squash, rebase".to_string()).into_response();
+            return AppError::BadRequest(
+                "invalid merge strategy, use: merge, squash, rebase".to_string(),
+            )
+            .into_response();
         }
     };
 
@@ -271,8 +270,13 @@ pub async fn merge_pr(
     if let Some(repo_id) = resolve_repo_id(&state.db, &owner, &repo).await {
         if let Ok(pr) = rg_core::pull_request::get_pr(&state.db, &owner, &repo, number).await {
             if let Err(e) = rg_core::branch_protection::service::check_merge_allowed(
-                &state.db, repo_id, &pr.base_branch, pr.id,
-            ).await {
+                &state.db,
+                repo_id,
+                &pr.base_branch,
+                pr.id,
+            )
+            .await
+            {
                 return AppError::Forbidden(e.to_string()).into_response();
             }
         }
@@ -294,7 +298,6 @@ pub async fn merge_pr(
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────
-
 
 async fn resolve_repo_id(
     db: &sea_orm::DatabaseConnection,

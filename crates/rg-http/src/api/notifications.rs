@@ -6,9 +6,9 @@ use axum::response::IntoResponse;
 use axum::Json;
 use serde::{Deserialize, Serialize};
 
-use crate::AppState;
 use crate::error::AppError;
 use crate::pagination::{PaginatedResponse, PaginationParams};
+use crate::AppState;
 
 // ── Response types ───────────────────────────────────────────
 
@@ -60,7 +60,15 @@ pub async fn list_notifications(
     let offset = pagination.offset();
     let limit = pagination.limit();
 
-    match rg_core::notification::list_notifications_paginated(&state.db, user_id, unread_only, offset, limit).await {
+    match rg_core::notification::list_notifications_paginated(
+        &state.db,
+        user_id,
+        unread_only,
+        offset,
+        limit,
+    )
+    .await
+    {
         Ok((notifications, total)) => {
             let resp: Vec<NotificationResponse> = notifications
                 .into_iter()
@@ -91,10 +99,7 @@ pub async fn list_notifications(
         (status = 401, description = "Unauthorized", body = serde_json::Value),
     ),
 )]
-pub async fn unread_count(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-) -> impl IntoResponse {
+pub async fn unread_count(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
     let user_id = match super::auth::extract_user_id(&headers, &state.jwt_secret) {
         Some(id) => id,
         None => {
@@ -123,10 +128,7 @@ pub async fn unread_count(
         (status = 401, description = "Unauthorized", body = serde_json::Value),
     ),
 )]
-pub async fn mark_read(
-    State(state): State<AppState>,
-    Path(id): Path<i64>,
-) -> impl IntoResponse {
+pub async fn mark_read(State(state): State<AppState>, Path(id): Path<i64>) -> impl IntoResponse {
     match rg_core::notification::mark_read(&state.db, id).await {
         Ok(()) => Json(serde_json::json!({"id": id, "is_read": true})).into_response(),
         Err(e) => AppError::not_found(e.to_string()).into_response(),
@@ -144,10 +146,7 @@ pub async fn mark_read(
         (status = 401, description = "Unauthorized", body = serde_json::Value),
     ),
 )]
-pub async fn mark_all_read(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-) -> impl IntoResponse {
+pub async fn mark_all_read(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
     let user_id = match super::auth::extract_user_id(&headers, &state.jwt_secret) {
         Some(id) => id,
         None => {
@@ -184,4 +183,3 @@ pub async fn delete_notification(
         Err(e) => AppError::not_found(e.to_string()).into_response(),
     }
 }
-

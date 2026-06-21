@@ -22,7 +22,11 @@ impl PackageAdapter for CargoAdapter {
         "cargo"
     }
 
-    fn extract_metadata(&self, _filename: &str, data: &[u8]) -> Result<ExtractedMetadata, anyhow::Error> {
+    fn extract_metadata(
+        &self,
+        _filename: &str,
+        data: &[u8],
+    ) -> Result<ExtractedMetadata, anyhow::Error> {
         let tar = GzDecoder::new(data);
         let mut archive = Archive::new(tar);
 
@@ -46,13 +50,12 @@ impl PackageAdapter for CargoAdapter {
         })?;
 
         // Parse minimal TOML — we only need [package] fields.
-        let doc: toml::Value = toml::from_str(&toml_str).map_err(|e| {
-            anyhow::anyhow!("invalid Cargo.toml: {e}")
-        })?;
+        let doc: toml::Value =
+            toml::from_str(&toml_str).map_err(|e| anyhow::anyhow!("invalid Cargo.toml: {e}"))?;
 
-        let pkg = doc.get("package").ok_or_else(|| {
-            anyhow::anyhow!("Cargo.toml missing [package] section")
-        })?;
+        let pkg = doc
+            .get("package")
+            .ok_or_else(|| anyhow::anyhow!("Cargo.toml missing [package] section"))?;
 
         let name = pkg
             .get("name")
@@ -66,10 +69,22 @@ impl PackageAdapter for CargoAdapter {
             .ok_or_else(|| anyhow::anyhow!("Cargo.toml missing package.version"))?
             .to_string();
 
-        let description = pkg.get("description").and_then(|v| v.as_str()).map(String::from);
-        let homepage = pkg.get("homepage").and_then(|v| v.as_str()).map(String::from);
-        let repository_url = pkg.get("repository").and_then(|v| v.as_str()).map(String::from);
-        let license = pkg.get("license").and_then(|v| v.as_str()).map(String::from);
+        let description = pkg
+            .get("description")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+        let homepage = pkg
+            .get("homepage")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+        let repository_url = pkg
+            .get("repository")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+        let license = pkg
+            .get("license")
+            .and_then(|v| v.as_str())
+            .map(String::from);
         let keywords = pkg.get("keywords").and_then(|v| {
             v.as_array().map(|arr| {
                 arr.iter()
@@ -95,9 +110,9 @@ impl PackageAdapter for CargoAdapter {
         // Check that it's a valid gzip stream
         let mut decoder = GzDecoder::new(data);
         let mut buf = Vec::new();
-        decoder.read_to_end(&mut buf).map_err(|e| {
-            anyhow::anyhow!("invalid .crate file (not valid gzip): {e}")
-        })?;
+        decoder
+            .read_to_end(&mut buf)
+            .map_err(|e| anyhow::anyhow!("invalid .crate file (not valid gzip): {e}"))?;
 
         // Check that Cargo.toml exists
         let tar = GzDecoder::new(data);
@@ -105,7 +120,12 @@ impl PackageAdapter for CargoAdapter {
         let mut found = false;
         for entry in archive.entries()? {
             let entry = entry?;
-            if entry.path()?.file_name().map(|n| n == "Cargo.toml").unwrap_or(false) {
+            if entry
+                .path()?
+                .file_name()
+                .map(|n| n == "Cargo.toml")
+                .unwrap_or(false)
+            {
                 found = true;
                 break;
             }

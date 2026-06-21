@@ -20,10 +20,7 @@ pub async fn find_by_repo_and_oid(
 }
 
 /// List LFS objects for a repo.
-pub async fn list_by_repo(
-    db: &DatabaseConnection,
-    repo_id: i64,
-) -> Result<Vec<LfsObject>> {
+pub async fn list_by_repo(db: &DatabaseConnection, repo_id: i64) -> Result<Vec<LfsObject>> {
     LfsEntity::find()
         .filter(lfs_object::Column::RepoId.eq(repo_id))
         .order_by_desc(lfs_object::Column::CreatedAt)
@@ -47,7 +44,10 @@ pub async fn mark_uploaded(db: &DatabaseConnection, id: i64) -> Result<()> {
 
     let mut model: ActiveModel = obj.into();
     model.uploaded = sea_orm::Set(true);
-    model.update(db).await.context("db: mark LFS object as uploaded")?;
+    model
+        .update(db)
+        .await
+        .context("db: mark LFS object as uploaded")?;
     Ok(())
 }
 
@@ -76,7 +76,10 @@ pub async fn update_compression(
     let mut model: ActiveModel = obj.into();
     model.compression = sea_orm::Set(Some(compression.to_string()));
     model.compressed_size = sea_orm::Set(Some(compressed_size));
-    model.update(db).await.context("db: update LFS object compression")?;
+    model
+        .update(db)
+        .await
+        .context("db: update LFS object compression")?;
     Ok(())
 }
 

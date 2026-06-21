@@ -35,7 +35,11 @@ impl PackageAdapter for PyPIAdapter {
         "pypi"
     }
 
-    fn extract_metadata(&self, filename: &str, data: &[u8]) -> Result<ExtractedMetadata, anyhow::Error> {
+    fn extract_metadata(
+        &self,
+        filename: &str,
+        data: &[u8],
+    ) -> Result<ExtractedMetadata, anyhow::Error> {
         let filename_lower = filename.to_lowercase();
 
         if filename_lower.ends_with(".whl") {
@@ -209,16 +213,15 @@ fn save_field(
 /// Extract metadata from a .whl (ZIP) file.
 fn extract_from_whl(data: &[u8]) -> Result<ExtractedMetadata, anyhow::Error> {
     let cursor = Cursor::new(data);
-    let mut archive = zip::ZipArchive::new(cursor).map_err(|e| {
-        anyhow::anyhow!("invalid .whl file (not a valid ZIP): {e}")
-    })?;
+    let mut archive = zip::ZipArchive::new(cursor)
+        .map_err(|e| anyhow::anyhow!("invalid .whl file (not a valid ZIP): {e}"))?;
 
     let mut metadata_content = None;
 
     for i in 0..archive.len() {
-        let mut entry = archive.by_index(i).map_err(|e| {
-            anyhow::anyhow!("failed to read .whl entry {}: {e}", i)
-        })?;
+        let mut entry = archive
+            .by_index(i)
+            .map_err(|e| anyhow::anyhow!("failed to read .whl entry {}: {e}", i))?;
         let path = entry.name().to_lowercase();
 
         // Look for *.dist-info/METADATA
@@ -230,9 +233,8 @@ fn extract_from_whl(data: &[u8]) -> Result<ExtractedMetadata, anyhow::Error> {
         }
     }
 
-    let content = metadata_content.ok_or_else(|| {
-        anyhow::anyhow!("invalid .whl file: no .dist-info/METADATA found")
-    })?;
+    let content = metadata_content
+        .ok_or_else(|| anyhow::anyhow!("invalid .whl file: no .dist-info/METADATA found"))?;
 
     parse_rfc822_meta(&content)
 }
@@ -257,9 +259,8 @@ fn extract_from_sdist(data: &[u8]) -> Result<ExtractedMetadata, anyhow::Error> {
         }
     }
 
-    let content = pkg_info.ok_or_else(|| {
-        anyhow::anyhow!("invalid source distribution: no PKG-INFO found")
-    })?;
+    let content = pkg_info
+        .ok_or_else(|| anyhow::anyhow!("invalid source distribution: no PKG-INFO found"))?;
 
     parse_rfc822_meta(&content)
 }
@@ -267,15 +268,14 @@ fn extract_from_sdist(data: &[u8]) -> Result<ExtractedMetadata, anyhow::Error> {
 /// Validate a .whl file (check ZIP structure and METADATA presence).
 fn validate_whl(data: &[u8]) -> Result<(), anyhow::Error> {
     let cursor = Cursor::new(data);
-    let mut archive = zip::ZipArchive::new(cursor).map_err(|e| {
-        anyhow::anyhow!("invalid .whl file (not a valid ZIP): {e}")
-    })?;
+    let mut archive = zip::ZipArchive::new(cursor)
+        .map_err(|e| anyhow::anyhow!("invalid .whl file (not a valid ZIP): {e}"))?;
 
     let mut found_metadata = false;
     for i in 0..archive.len() {
-        let entry = archive.by_index(i).map_err(|e| {
-            anyhow::anyhow!("failed to read .whl entry: {e}")
-        })?;
+        let entry = archive
+            .by_index(i)
+            .map_err(|e| anyhow::anyhow!("failed to read .whl entry: {e}"))?;
         let path = entry.name().to_lowercase();
         if path.ends_with(".dist-info/metadata") || path.ends_with(".dist-info\\metadata") {
             found_metadata = true;
@@ -294,9 +294,9 @@ fn validate_sdist(data: &[u8]) -> Result<(), anyhow::Error> {
     // Check gzip
     let mut decoder = GzDecoder::new(data);
     let mut buf = Vec::new();
-    decoder.read_to_end(&mut buf).map_err(|e| {
-        anyhow::anyhow!("invalid source distribution (not valid gzip): {e}")
-    })?;
+    decoder
+        .read_to_end(&mut buf)
+        .map_err(|e| anyhow::anyhow!("invalid source distribution (not valid gzip): {e}"))?;
 
     // Check PKG-INFO presence
     let tar = GzDecoder::new(data);
@@ -321,18 +321,22 @@ fn validate_sdist(data: &[u8]) -> Result<(), anyhow::Error> {
 /// Generate the Simple Repository API HTML page (PEP 503).
 ///
 /// `versions` is a list of (version, filename, sha256, download_url).
-pub fn build_simple_repository_html(
-    package_name: &str,
-    versions: &[PyPIVersionEntry],
-) -> String {
+pub fn build_simple_repository_html(package_name: &str, versions: &[PyPIVersionEntry]) -> String {
     let mut html = String::new();
     html.push_str("<!DOCTYPE html>\n<html>\n<head>\n");
-    html.push_str(&format!("<title>Simple index for {}</title>\n", package_name));
+    html.push_str(&format!(
+        "<title>Simple index for {}</title>\n",
+        package_name
+    ));
     html.push_str("<meta name=\"api-version\" content=\"2\" />\n");
     html.push_str("</head>\n<body>\n");
 
     for entry in versions {
-        let sha_frag = entry.sha256.as_ref().map(|s| format!("#sha256={}", s)).unwrap_or_default();
+        let sha_frag = entry
+            .sha256
+            .as_ref()
+            .map(|s| format!("#sha256={}", s))
+            .unwrap_or_default();
         html.push_str(&format!(
             "  <a href=\"{}{}\">{}</a><br/>\n",
             entry.download_url, sha_frag, entry.filename,

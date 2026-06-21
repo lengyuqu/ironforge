@@ -143,7 +143,10 @@ fn fts_escape(query: &str) -> String {
 
 /// Build SQL WHERE clauses from filters (parameterized — no SQL injection).
 /// Returns (clauses, joins, params) where clauses/params must be used with `?` placeholders.
-fn build_filter_clauses(filters: &SearchFilters, table_alias: &str) -> (Vec<String>, Vec<String>, Vec<Value>) {
+fn build_filter_clauses(
+    filters: &SearchFilters,
+    table_alias: &str,
+) -> (Vec<String>, Vec<String>, Vec<Value>) {
     let mut clauses = Vec::new();
     let mut joins = Vec::new();
     let mut params = Vec::new();
@@ -216,58 +219,18 @@ async fn search_repos(
     limit: u64,
 ) -> Result<(Vec<SearchResult>, i64)> {
     let (filter_clauses, extra_joins, filter_params) = build_filter_clauses(filters, "r");
-
-    // Base query
     let base_where = format!("repos_fts MATCH {}", query);
 
-    // Add filter clauses
-    if !filter_clauses.is_empty() {
-        let filter_sql = filter_clauses.join(" AND ");
-        let joins_sql = extra_joins.join("\n");
-        let sql = format!(
-            r#"
-            SELECT r.id, r.name as title, r.description as excerpt, u.username as owner_name
-            FROM repos_fts f
-            JOIN repositories r ON r.id = f.rowid
-            LEFT JOIN users u ON u.id = r.owner_id
-            {}
-            WHERE {} AND ({})
-            ORDER BY rank
-            LIMIT {} OFFSET {}
-            "#,
-            joins_sql, base_where, filter_sql, limit, offset
-        );
-
-        let rows = db
-            .query_all(Statement::from_sql_and_values(
-                sea_orm::DatabaseBackend::Sqlite,
-                &sql,
-                filter_params.clone(),
-            ))
-            .await
-            .context("fts: search repos filtered")?;
-
-        let count = rows.len() as i64;
-        let mut results = Vec::new();
-        for row in &rows {
-            let id: i64 = row.try_get_by_index(0).unwrap_or(0);
-            let title: String = row.try_get_by_index(1).unwrap_or_default();
-            let excerpt: Option<String> = row.try_get_by_index(2).ok();
-            let owner: Option<String> = row.try_get_by_index(3).ok();
-            results.push(SearchResult {
-                result_type: "repo".to_string(),
-                id,
-                title,
-                excerpt,
-                repo_owner: owner.clone(),
-                repo_name: None,
-                state: None,
-                number: None,
-            });
-        }
-
-        return Ok((results, count));
-    }
+    let where_clause = if filter_clauses.is_empty() {
+        base_where.clone()
+    } else {
+        format!("{} AND ({})", base_where, filter_clauses.join(" AND "))
+    };
+    let joins_sql = if extra_joins.is_empty() {
+        String::new()
+    } else {
+        format!("\n{}", extra_joins.join("\n"))
+    };
 
     let sql = format!(
         r#"
@@ -275,18 +238,19 @@ async fn search_repos(
         FROM repos_fts f
         JOIN repositories r ON r.id = f.rowid
         LEFT JOIN users u ON u.id = r.owner_id
+        {}
         WHERE {}
         ORDER BY rank
         LIMIT {} OFFSET {}
         "#,
-        base_where, limit, offset
+        joins_sql, where_clause, limit, offset
     );
 
     let rows = db
         .query_all(Statement::from_sql_and_values(
             sea_orm::DatabaseBackend::Sqlite,
             &sql,
-            [],
+            filter_params.clone(),
         ))
         .await
         .context("fts: search repos")?;
@@ -309,13 +273,23 @@ async fn search_repos(
         });
     }
 
-    // Count total
-    let count_sql = format!(r#"SELECT COUNT(*) FROM repos_fts WHERE {}"#, base_where);
+    // Count total (with same filters)
+    let count_sql = format!(
+        r#"
+        SELECT COUNT(DISTINCT f.rowid)
+        FROM repos_fts f
+        JOIN repositories r ON r.id = f.rowid
+        LEFT JOIN users u ON u.id = r.owner_id
+        {}
+        WHERE {}
+        "#,
+        joins_sql, where_clause
+    );
     let count_rows = db
         .query_all(Statement::from_sql_and_values(
             sea_orm::DatabaseBackend::Sqlite,
             &count_sql,
-            [],
+            filter_params,
         ))
         .await
         .context("fts: count repos")?;
@@ -405,7 +379,7 @@ async fn search_issues(
     };
     let count_sql = format!(
         r#"
-        SELECT COUNT(*)
+        SELECT COUNT(DISTINCT i.id)
         FROM issues_fts f
         JOIN issues i ON i.id = f.rowid
         {}
@@ -417,7 +391,7 @@ async fn search_issues(
         .query_all(Statement::from_sql_and_values(
             sea_orm::DatabaseBackend::Sqlite,
             &count_sql,
-            [],
+            common_params.clone(),
         ))
         .await
         .context("fts: count issues")?;
@@ -469,7 +443,7 @@ async fn search_wiki(
         .query_all(Statement::from_sql_and_values(
             sea_orm::DatabaseBackend::Sqlite,
             &sql,
-            filter_params,
+            filter_params.clone(),
         ))
         .await
         .context("fts: search wiki")?;
@@ -495,15 +469,29 @@ async fn search_wiki(
     }
 
     // Count total
+    let joins_sql = if extra_joins.is_empty() {
+        String::new()
+    } else {
+        format!("\n{}", extra_joins.join("\n"))
+    };
+
     let count_sql = format!(
-        r#"SELECT COUNT(*) FROM wiki_pages_fts WHERE {}"#,
-        base_where
+        r#"
+        SELECT COUNT(DISTINCT w.id)
+        FROM wiki_pages_fts f
+        JOIN wiki_pages w ON w.id = f.rowid
+        JOIN repositories r ON r.id = w.repo_id
+        LEFT JOIN users u ON u.id = r.owner_id
+        {}
+        WHERE {}
+        "#,
+        joins_sql, where_clause
     );
     let count_rows = db
         .query_all(Statement::from_sql_and_values(
             sea_orm::DatabaseBackend::Sqlite,
             &count_sql,
-            [],
+            filter_params.clone(),
         ))
         .await
         .context("fts: count wiki")?;

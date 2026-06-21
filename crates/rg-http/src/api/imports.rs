@@ -14,8 +14,8 @@ use axum::{
 use serde::Deserialize;
 use utoipa::ToSchema;
 
-use crate::error::AppError;
 use crate::api::auth::extract_bearer_claims;
+use crate::error::AppError;
 use crate::AppState;
 
 /// Request body for starting a new import.
@@ -55,7 +55,9 @@ pub struct StartImportRequest {
     pub import_milestones: bool,
 }
 
-fn default_true() -> bool { true }
+fn default_true() -> bool {
+    true
+}
 
 /// POST /api/v1/imports
 ///
@@ -94,9 +96,12 @@ pub async fn start_import(
     let target_name = match body.target_name {
         Some(ref n) if !n.is_empty() => n.clone(),
         _ => {
-            let url = body.source_url.trim_end_matches('/').trim_end_matches(".git");
+            let url = body
+                .source_url
+                .trim_end_matches('/')
+                .trim_end_matches(".git");
             url.split('/')
-                .last()
+                .next_back()
                 .unwrap_or("imported-repo")
                 .to_string()
         }
@@ -164,10 +169,7 @@ pub async fn get_import_status(
         (status = 401, description = "Unauthorized", body = serde_json::Value),
     ),
 )]
-pub async fn list_imports(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-) -> impl IntoResponse {
+pub async fn list_imports(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
     let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => return AppError::unauthorized("authentication required").into_response(),
@@ -213,12 +215,10 @@ pub async fn delete_import(
     };
 
     match rg_db::ops::import_task_ops::find_by_id(&state.db, id).await {
-        Ok(Some(_task)) => {
-            match rg_db::ops::import_task_ops::delete_by_id(&state.db, id).await {
-                Ok(()) => StatusCode::NO_CONTENT.into_response(),
-                Err(e) => AppError::internal(e).into_response(),
-            }
-        }
+        Ok(Some(_task)) => match rg_db::ops::import_task_ops::delete_by_id(&state.db, id).await {
+            Ok(()) => StatusCode::NO_CONTENT.into_response(),
+            Err(e) => AppError::internal(e).into_response(),
+        },
         Ok(None) => AppError::not_found("import task not found").into_response(),
         Err(e) => AppError::internal(e).into_response(),
     }

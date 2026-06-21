@@ -2,12 +2,10 @@
 //!
 //! Covers oci_repository, oci_manifest, oci_blob, and oci_upload tables.
 
+use crate::entities::{oci_blob, oci_manifest, oci_repository, oci_upload};
 use chrono::Utc;
-use sea_orm::*;
 use sea_orm::sea_query::Expr;
-use crate::entities::{
-    oci_repository, oci_manifest, oci_blob, oci_upload,
-};
+use sea_orm::*;
 
 // ── OCI Repository ─────────────────────────────────────────
 
@@ -24,6 +22,7 @@ pub async fn find_repo_by_id(
 }
 
 /// Find or create an OCI repository.
+#[allow(clippy::too_many_arguments)]
 pub async fn find_or_create_repo(
     db: &DatabaseConnection,
     repo_id: i64,
@@ -77,10 +76,7 @@ pub async fn find_manifest_by_tag(
 }
 
 /// List all tags for an OCI repository.
-pub async fn list_tags(
-    db: &DatabaseConnection,
-    oci_repo_id: i64,
-) -> Result<Vec<String>, DbErr> {
+pub async fn list_tags(db: &DatabaseConnection, oci_repo_id: i64) -> Result<Vec<String>, DbErr> {
     use oci_manifest::Entity as Manifest;
     let manifests = Manifest::find()
         .filter(oci_manifest::Column::OciRepositoryId.eq(oci_repo_id))
@@ -91,6 +87,7 @@ pub async fn list_tags(
 }
 
 /// Insert a new manifest.
+#[allow(clippy::too_many_arguments)]
 pub async fn insert_manifest(
     db: &DatabaseConnection,
     oci_repo_id: i64,
@@ -120,6 +117,7 @@ pub async fn insert_manifest(
 }
 
 /// Update a manifest's tag (move a tag to a new digest).
+#[allow(clippy::too_many_arguments)]
 pub async fn update_manifest_tag(
     db: &DatabaseConnection,
     oci_repo_id: i64,
@@ -135,10 +133,17 @@ pub async fn update_manifest_tag(
     delete_manifest_by_tag(db, oci_repo_id, tag).await?;
     // Insert new manifest
     insert_manifest(
-        db, oci_repo_id, new_digest, Some(tag),
-        new_media_type, new_size, new_manifest_json,
-        new_schema_version, push_by,
-    ).await
+        db,
+        oci_repo_id,
+        new_digest,
+        Some(tag),
+        new_media_type,
+        new_size,
+        new_manifest_json,
+        new_schema_version,
+        push_by,
+    )
+    .await
 }
 
 /// Delete a manifest by tag.
@@ -196,10 +201,7 @@ pub async fn insert_blob(
 }
 
 /// Increment blob reference count.
-pub async fn increment_blob_ref(
-    db: &DatabaseConnection,
-    blob_id: i64,
-) -> Result<(), DbErr> {
+pub async fn increment_blob_ref(db: &DatabaseConnection, blob_id: i64) -> Result<(), DbErr> {
     use oci_blob::Entity as Blob;
     Blob::update_many()
         .col_expr(
@@ -213,10 +215,7 @@ pub async fn increment_blob_ref(
 }
 
 /// Decrement blob reference count.
-pub async fn decrement_blob_ref(
-    db: &DatabaseConnection,
-    blob_id: i64,
-) -> Result<(), DbErr> {
+pub async fn decrement_blob_ref(db: &DatabaseConnection, blob_id: i64) -> Result<(), DbErr> {
     use oci_blob::Entity as Blob;
     Blob::update_many()
         .col_expr(
@@ -299,10 +298,7 @@ pub async fn complete_upload(
 }
 
 /// Delete an upload session.
-pub async fn delete_upload(
-    db: &DatabaseConnection,
-    uuid: &str,
-) -> Result<u64, DbErr> {
+pub async fn delete_upload(db: &DatabaseConnection, uuid: &str) -> Result<u64, DbErr> {
     use oci_upload::Entity as Upload;
     let result = Upload::delete_many()
         .filter(oci_upload::Column::Uuid.eq(uuid))
@@ -312,9 +308,7 @@ pub async fn delete_upload(
 }
 
 /// Clean up expired uploads.
-pub async fn cleanup_expired_uploads(
-    db: &DatabaseConnection,
-) -> Result<u64, DbErr> {
+pub async fn cleanup_expired_uploads(db: &DatabaseConnection) -> Result<u64, DbErr> {
     use oci_upload::Entity as Upload;
     let now = Utc::now();
     let result = Upload::delete_many()

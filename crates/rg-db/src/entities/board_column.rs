@@ -28,10 +28,14 @@ pub enum Relation {
 }
 
 impl Related<super::board::Entity> for Entity {
-    fn to() -> RelationDef { Relation::Board.def() }
+    fn to() -> RelationDef {
+        Relation::Board.def()
+    }
 }
 impl Related<super::board_card::Entity> for Entity {
-    fn to() -> RelationDef { Relation::Cards.def() }
+    fn to() -> RelationDef {
+        Relation::Cards.def()
+    }
 }
 
 impl ActiveModelBehavior for ActiveModel {}

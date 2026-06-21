@@ -14,7 +14,11 @@ impl PackageAdapter for GenericAdapter {
         "generic"
     }
 
-    fn extract_metadata(&self, _filename: &str, _data: &[u8]) -> Result<ExtractedMetadata, anyhow::Error> {
+    fn extract_metadata(
+        &self,
+        _filename: &str,
+        _data: &[u8],
+    ) -> Result<ExtractedMetadata, anyhow::Error> {
         // Generic packages don't have embedded metadata — the caller
         // provides it.  Return empty/defaults so the service falls
         // back to query-param-provided values.

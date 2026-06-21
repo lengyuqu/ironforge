@@ -10,6 +10,7 @@ use crate::error::AppError;
 use crate::AppState;
 
 /// Helper to record audit log (fire-and-forget).
+#[allow(clippy::too_many_arguments)]
 async fn record_audit(
     db: &sea_orm::DatabaseConnection,
     user_id: i64,
@@ -166,14 +167,15 @@ pub async fn create_org(
             record_audit(
                 &state.db,
                 user_id,
-                &body.name,  // username not available, use org name
+                &body.name, // username not available, use org name
                 "org.create",
                 Some("org"),
                 Some(org.id),
                 Some(&org.name),
                 &headers,
                 Some(details),
-            ).await;
+            )
+            .await;
 
             (
                 StatusCode::CREATED,
@@ -185,7 +187,7 @@ pub async fn create_org(
                 })),
             )
                 .into_response()
-        },
+        }
         Err(e) => AppError::bad_request(e).into_response(),
     }
 }
@@ -203,10 +205,7 @@ pub async fn create_org(
         (status = 401, description = "Unauthorized", body = serde_json::Value),
     ),
 )]
-pub async fn get_org(
-    State(state): State<AppState>,
-    Path(name): Path<String>,
-) -> impl IntoResponse {
+pub async fn get_org(State(state): State<AppState>, Path(name): Path<String>) -> impl IntoResponse {
     match rg_core::org::get_org_by_name(&state.db, &name).await {
         Ok(Some(org)) => Json(org_to_response(&org)).into_response(),
         Ok(None) => AppError::not_found("organization not found").into_response(),
@@ -225,10 +224,7 @@ pub async fn get_org(
         (status = 401, description = "Unauthorized", body = serde_json::Value),
     ),
 )]
-pub async fn list_orgs(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-) -> impl IntoResponse {
+pub async fn list_orgs(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
     let user_id = match super::auth::extract_user_id(&headers, &state.jwt_secret) {
         Some(id) => id,
         None => {
@@ -306,9 +302,10 @@ pub async fn update_org(
                 Some(&org.name),
                 &headers,
                 Some(details),
-            ).await;
+            )
+            .await;
             Json(org_to_response(&updated)).into_response()
-        },
+        }
         Err(e) => AppError::bad_request(e).into_response(),
     }
 }
@@ -361,9 +358,10 @@ pub async fn delete_org(
                 Some(&org.name),
                 &headers,
                 Some(details),
-            ).await;
+            )
+            .await;
             Json(serde_json::json!({"deleted": true})).into_response()
-        },
+        }
         Err(e) => AppError::forbidden(e).into_response(),
     }
 }
@@ -471,7 +469,8 @@ pub async fn add_org_member(
                 Some(&org.name),
                 &headers,
                 Some(details),
-            ).await;
+            )
+            .await;
             (
                 StatusCode::CREATED,
                 Json(serde_json::json!({
@@ -482,7 +481,7 @@ pub async fn add_org_member(
                 })),
             )
                 .into_response()
-        },
+        }
         Err(e) => AppError::bad_request(e).into_response(),
     }
 }
@@ -539,9 +538,10 @@ pub async fn remove_org_member(
                 Some(&org.name),
                 &headers,
                 Some(details),
-            ).await;
+            )
+            .await;
             Json(serde_json::json!({"removed": true})).into_response()
-        },
+        }
         Err(e) => AppError::bad_request(e).into_response(),
     }
 }
@@ -580,7 +580,15 @@ pub async fn create_team(
 
     let permission = body.permission.as_deref().unwrap_or("read");
 
-    match rg_core::org::create_team(&state.db, org.id, &body.name, body.description.as_deref(), permission).await {
+    match rg_core::org::create_team(
+        &state.db,
+        org.id,
+        &body.name,
+        body.description.as_deref(),
+        permission,
+    )
+    .await
+    {
         Ok(team) => (
             StatusCode::CREATED,
             Json(serde_json::json!({
@@ -815,4 +823,3 @@ fn org_to_response(org: &rg_db::entities::organization::Model) -> OrgResponse {
         updated_at: org.updated_at.to_string(),
     }
 }
-

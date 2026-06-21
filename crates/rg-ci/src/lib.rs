@@ -40,6 +40,19 @@ use sea_orm::DatabaseConnection;
 use config::CiConfig;
 use runner::PipelineRunner;
 
+pub struct TriggerPipelineParams<'a> {
+    pub db: &'a DatabaseConnection,
+    pub repo_path: &'a std::path::Path,
+    pub repo_id: i64,
+    pub commit_sha: &'a str,
+    pub ref_name: &'a str,
+    pub trigger_type: &'a str,
+    pub triggered_by: Option<i64>,
+    pub docker_enabled: bool,
+    pub external_runners: bool,
+    pub jwt_secret: Option<&'a str>,
+}
+
 /// Trigger a CI pipeline for a push event.
 ///
 /// This function:
@@ -48,33 +61,29 @@ use runner::PipelineRunner;
 /// 3. Checks concurrency control (if configured)
 /// 4. Creates pipeline/stage/job records in the DB
 /// 5. Spawns the pipeline runner in a background task, injecting CI_JOB_TOKEN
-pub async fn trigger_pipeline(
-    db: DatabaseConnection,
-    repo_path: &std::path::Path,
-    repo_id: i64,
-    commit_sha: &str,
-    ref_name: &str,
-    trigger_type: &str,
-    triggered_by: Option<i64>,
-    docker_enabled: bool,
-    external_runners: bool,
-    jwt_secret: Option<&str>,
-) -> Result<i64> {
+pub async fn trigger_pipeline(params: TriggerPipelineParams<'_>) -> Result<i64> {
+    let TriggerPipelineParams {
+        db,
+        repo_path,
+        repo_id,
+        commit_sha,
+        ref_name,
+        trigger_type,
+        triggered_by,
+        docker_enabled,
+        external_runners,
+        jwt_secret,
+    } = params;
+
     // 1. Read CI config from repo
     let config = read_ci_config(repo_path, commit_sha, ref_name, trigger_type)?;
 
     // 2. Concurrency control
     if let Some(ref concurrency) = config.concurrency {
-        let group = rg_db::ops::pipeline_ops::resolve_concurrency_group(
-            &concurrency.group,
-            ref_name,
-        );
-        let active = rg_db::ops::pipeline_ops::find_active_pipelines_by_ref(
-            &db,
-            repo_id,
-            ref_name,
-        )
-        .await?;
+        let group =
+            rg_db::ops::pipeline_ops::resolve_concurrency_group(&concurrency.group, ref_name);
+        let active =
+            rg_db::ops::pipeline_ops::find_active_pipelines_by_ref(db, repo_id, ref_name).await?;
 
         if !active.is_empty() {
             if concurrency.cancel_in_progress {
@@ -84,7 +93,8 @@ pub async fn trigger_pipeline(
                     active.len()
                 );
                 for p in &active {
-                    if let Err(e) = rg_db::ops::pipeline_ops::cancel_pipeline_chain(&db, p.id).await {
+                    if let Err(e) = rg_db::ops::pipeline_ops::cancel_pipeline_chain(db, p.id).await
+                    {
                         tracing::warn!(pipeline_id = p.id, "Failed to cancel pipeline: {:#}", e);
                     }
                 }
@@ -101,7 +111,7 @@ pub async fn trigger_pipeline(
 
     // 3. Create pipeline record
     let pipeline = rg_db::ops::pipeline_ops::create_pipeline(
-        &db,
+        db,
         repo_id,
         commit_sha,
         ref_name,
@@ -117,13 +127,9 @@ pub async fn trigger_pipeline(
     let mut stage_id_map: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
 
     for (order, stage_name) in stage_names.iter().enumerate() {
-        let stage = rg_db::ops::pipeline_ops::create_stage(
-            &db,
-            pipeline_id,
-            stage_name,
-            order as i32,
-        )
-        .await?;
+        let stage =
+            rg_db::ops::pipeline_ops::create_stage(db, pipeline_id, stage_name, order as i32)
+                .await?;
         stage_id_map.insert(stage_name.clone(), stage.id);
     }
 
@@ -132,19 +138,16 @@ pub async fn trigger_pipeline(
         // Filter by `only` — if specified, skip jobs that don't match the ref
         if let Some(only) = &job_config.only {
             let ref_short = ref_name.strip_prefix("refs/heads/").unwrap_or(ref_name);
-            if !only.iter().any(|pattern| {
-                pattern == ref_short || pattern == ref_name
-            }) {
+            if !only
+                .iter()
+                .any(|pattern| pattern == ref_short || pattern == ref_name)
+            {
                 continue;
             }
         }
 
         let stage_name = job_config.stage.as_deref().unwrap_or("default");
-        let stage_id = stage_id_map.get(stage_name).copied().unwrap_or_else(|| {
-            // If stage not in the stages list, create it
-            // This shouldn't normally happen with valid config
-            -1i64
-        });
+        let stage_id = stage_id_map.get(stage_name).copied().unwrap_or(-1);
 
         if stage_id < 0 {
             tracing::warn!(job = %job_name, stage = %stage_name, "Job references unknown stage, skipping");
@@ -154,10 +157,13 @@ pub async fn trigger_pipeline(
         let script = job_config.script.join("\n");
 
         // Serialize tags to JSON for storage
-        let tags_json = job_config.tags.as_ref().map(|t| serde_json::to_string(t).unwrap_or_default());
+        let tags_json = job_config
+            .tags
+            .as_ref()
+            .map(|t| serde_json::to_string(t).unwrap_or_default());
 
         rg_db::ops::pipeline_ops::create_job(
-            &db,
+            db,
             stage_id,
             job_name,
             &script,
@@ -185,7 +191,11 @@ pub async fn trigger_pipeline(
                 runner.set_jwt_secret(secret.clone());
             }
             if let Err(e) = runner.run().await {
-                tracing::error!(pipeline_id = pipeline_id_owned, "Pipeline runner error: {:#}", e);
+                tracing::error!(
+                    pipeline_id = pipeline_id_owned,
+                    "Pipeline runner error: {:#}",
+                    e
+                );
             }
         });
     } else {
@@ -223,19 +233,20 @@ fn read_ci_config(
 
     // Fall back to native .ironforge-ci.yml
     let revspec = format!("{}:.ironforge-ci.yml", commit_sha);
-    let object_id = repo
-        .rev_parse_single(revspec.as_str())
-        .map_err(|_| anyhow::anyhow!("no CI config found (.gitea/workflows/*.yml or .ironforge-ci.yml) at commit {}", commit_sha))?;
+    let object_id = repo.rev_parse_single(revspec.as_str()).map_err(|_| {
+        anyhow::anyhow!(
+            "no CI config found (.gitea/workflows/*.yml or .ironforge-ci.yml) at commit {}",
+            commit_sha
+        )
+    })?;
 
-    let object_id = object_id
-        .object()
-        .context("failed to resolve object")?;
+    let object_id = object_id.object().context("failed to resolve object")?;
     let blob = object_id
         .try_into_blob()
         .context("expected a blob object for .ironforge-ci.yml")?;
 
-    let ci_yml = String::from_utf8(blob.data.to_vec())
-        .context(".ironforge-ci.yml is not valid UTF-8")?;
+    let ci_yml =
+        String::from_utf8(blob.data.to_vec()).context(".ironforge-ci.yml is not valid UTF-8")?;
 
     let config: CiConfig = serde_yaml::from_str(&ci_yml)
         .with_context(|| format!("failed to parse .ironforge-ci.yml: {}", ci_yml))?;
@@ -256,13 +267,14 @@ fn try_read_gitea_workflows(
         .map_err(|_| anyhow::anyhow!("no .gitea/workflows directory"))?;
 
     let object = object_id.object()?;
-    let tree = object.try_into_tree().map_err(|_| {
-        anyhow::anyhow!(".gitea/workflows is not a directory")
-    })?;
+    let tree = object
+        .try_into_tree()
+        .map_err(|_| anyhow::anyhow!(".gitea/workflows is not a directory"))?;
 
     let default_branch = get_default_branch(repo)?;
 
-    let mut all_jobs: std::collections::HashMap<String, config::JobConfig> = std::collections::HashMap::new();
+    let mut all_jobs: std::collections::HashMap<String, config::JobConfig> =
+        std::collections::HashMap::new();
     let mut all_stages: Vec<String> = Vec::new();
 
     // Iterate through .gitea/workflows/*.yml entries
@@ -270,7 +282,7 @@ fn try_read_gitea_workflows(
         let entry = match entry {
             Ok(e) => e,
             Err(_) => continue,
-        };   
+        };
         let name = entry.filename().to_string();
         if !name.ends_with(".yml") && !name.ends_with(".yaml") {
             continue;
@@ -285,8 +297,7 @@ fn try_read_gitea_workflows(
             Ok(b) => b,
             Err(_) => continue,
         };
-        let yml = String::from_utf8(blob.data.to_vec())
-            .unwrap_or_default();
+        let yml = String::from_utf8(blob.data.to_vec()).unwrap_or_default();
 
         let workflow = match gitea_actions::GiteaWorkflow::parse(&yml) {
             Ok(w) => w,
@@ -352,7 +363,7 @@ fn try_read_gitea_workflows(
 fn get_default_branch(repo: &gix::Repository) -> Result<String> {
     // Try to read HEAD reference
     if let Ok(Some(head_ref)) = repo.head_ref() {
-        if let Some(name) = head_ref.name().shorten().to_str().ok() {
+        if let Ok(name) = head_ref.name().shorten().to_str() {
             return Ok(name.to_string());
         }
     }

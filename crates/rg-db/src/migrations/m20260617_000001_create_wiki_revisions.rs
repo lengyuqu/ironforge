@@ -1,7 +1,7 @@
 //! Migration: create wiki_revisions table.
 
-use sea_orm_migration::prelude::*;
 use sea_orm::Statement;
+use sea_orm_migration::prelude::*;
 
 pub struct Migration;
 
@@ -30,14 +30,18 @@ impl MigrationTrait for Migration {
                 "version"      INTEGER NOT NULL DEFAULT 1,
                 "created_at"   TEXT    NOT NULL,
                 FOREIGN KEY ("wiki_page_id") REFERENCES "wiki_pages"("id") ON DELETE CASCADE
-            )"#.to_string(),
-        )).await?;
+            )"#
+            .to_string(),
+        ))
+        .await?;
 
         db.execute(Statement::from_string(
             sea_orm::DatabaseBackend::Sqlite,
             r#"CREATE INDEX IF NOT EXISTS "idx_wiki_revisions_page"
-               ON "wiki_revisions" ("wiki_page_id")"#.to_string(),
-        )).await?;
+               ON "wiki_revisions" ("wiki_page_id")"#
+                .to_string(),
+        ))
+        .await?;
 
         Ok(())
     }
@@ -48,7 +52,8 @@ impl MigrationTrait for Migration {
         db.execute(Statement::from_string(
             sea_orm::DatabaseBackend::Sqlite,
             r#"DROP TABLE IF EXISTS "wiki_revisions""#.to_string(),
-        )).await?;
+        ))
+        .await?;
         Ok(())
     }
 }

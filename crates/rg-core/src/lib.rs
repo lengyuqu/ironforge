@@ -14,38 +14,38 @@
 
 // ── Identity & Auth ─────────────────────────────────
 pub mod auth;
-pub mod user;
 pub mod org;
+pub mod user;
 
 // ── Collaboration ───────────────────────────────────
-pub mod repo;
-pub mod issue;
-pub mod pull_request;
-pub mod wiki;
-pub mod review;
-pub mod collaborator;
-pub mod label;
 pub mod board;
-pub mod time_tracking;
 pub mod branch_protection;
-pub mod webhook;
+pub mod collaborator;
+pub mod issue;
+pub mod label;
 pub mod notification;
+pub mod pull_request;
+pub mod repo;
+pub mod review;
+pub mod time_tracking;
+pub mod webhook;
+pub mod wiki;
 
 // ── Delivery & CI ───────────────────────────────────
 pub mod ci;
-pub mod release;
-pub mod package_registry;
-pub mod mirror;
 pub mod import;
+pub mod mirror;
+pub mod package_registry;
+pub mod release;
 
 // ── Infrastructure ──────────────────────────────────
-pub mod search;
-pub mod lfs;
-pub mod email;
 pub mod audit;
-pub mod platform;  // Cross-platform abstractions
+pub mod email;
+pub mod lfs;
+pub mod platform;
+pub mod search; // Cross-platform abstractions
 
-pub mod error;  // Domain error types (CoreError)
+pub mod error; // Domain error types (CoreError)
 
 use anyhow::Result;
 

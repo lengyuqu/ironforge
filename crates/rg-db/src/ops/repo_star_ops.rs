@@ -7,11 +7,7 @@ use crate::entities::repo_star::{self, ActiveModel, Entity as RepoStarEntity, Mo
 
 /// Toggle a star: if already starred, unstar (delete) and return false.
 /// If not starred, star (insert) and return true.
-pub async fn toggle_star(
-    db: &DatabaseConnection,
-    user_id: i64,
-    repo_id: i64,
-) -> Result<bool> {
+pub async fn toggle_star(db: &DatabaseConnection, user_id: i64, repo_id: i64) -> Result<bool> {
     // Check if already starred
     let existing = RepoStarEntity::find()
         .filter(repo_star::Column::UserId.eq(user_id))
@@ -42,11 +38,7 @@ pub async fn toggle_star(
 }
 
 /// Check if a user has starred a repository.
-pub async fn is_starred(
-    db: &DatabaseConnection,
-    user_id: i64,
-    repo_id: i64,
-) -> Result<bool> {
+pub async fn is_starred(db: &DatabaseConnection, user_id: i64, repo_id: i64) -> Result<bool> {
     let result = RepoStarEntity::find()
         .filter(repo_star::Column::UserId.eq(user_id))
         .filter(repo_star::Column::RepoId.eq(repo_id))
@@ -67,7 +59,8 @@ pub async fn list_stargazers(
         .filter(repo_star::Column::RepoId.eq(repo_id))
         .order_by_desc(repo_star::Column::CreatedAt);
 
-    let total = base.clone()
+    let total = base
+        .clone()
         .count(db)
         .await
         .context("db: count stargazers")? as i64;

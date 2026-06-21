@@ -26,10 +26,7 @@ pub async fn create_artifact(
         expires_at: Set(expires_at),
     };
 
-    active_model
-        .insert(db)
-        .await
-        .context("db: create artifact")
+    active_model.insert(db).await.context("db: create artifact")
 }
 
 /// List artifacts by job ID.

@@ -11,8 +11,7 @@
 
 use anyhow::Result;
 use lettre::{
-    message::header::ContentType, AsyncSmtpTransport, AsyncTransport, Message,
-    Tokio1Executor,
+    message::header::ContentType, AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor,
 };
 use serde::{Deserialize, Serialize};
 

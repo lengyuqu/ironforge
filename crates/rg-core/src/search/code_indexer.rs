@@ -13,7 +13,7 @@
 //! ```
 
 use anyhow::{Context, Result};
-use sea_orm::{ConnectionTrait, DatabaseConnection, Statement};
+use sea_orm::{ConnectionTrait, DatabaseConnection, Statement, Value};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
@@ -126,9 +126,9 @@ fn should_index(path: &Path, content: &[u8]) -> bool {
     // Skip certain file types
     let path_str = path.to_string_lossy().to_lowercase();
     let skip_extensions = [
-        "lock", "min.js", "min.css", "map", "gz", "zip", "tar", "png", "jpg", "jpeg",
-        "gif", "bmp", "ico", "woff", "woff2", "ttf", "eot", "mp3", "mp4", "avi", "mov",
-        "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "exe", "dll", "so", "dylib",
+        "lock", "min.js", "min.css", "map", "gz", "zip", "tar", "png", "jpg", "jpeg", "gif", "bmp",
+        "ico", "woff", "woff2", "ttf", "eot", "mp3", "mp4", "avi", "mov", "pdf", "doc", "docx",
+        "xls", "xlsx", "ppt", "pptx", "exe", "dll", "so", "dylib",
     ];
 
     for ext in skip_extensions.iter() {
@@ -224,8 +224,15 @@ impl CodeIndexer {
         // Collect file entries first, then batch INSERT (avoids N+1 per-file INSERT)
         let mut entries: Vec<IndexEntry> = Vec::new();
         let mut visited = HashSet::new();
-        self.collect_tree_entries(&repo, &tree, repo_id, PathBuf::new(), &mut entries, &mut visited)
-            .await?;
+        self.collect_tree_entries(
+            &repo,
+            &tree,
+            repo_id,
+            PathBuf::new(),
+            &mut entries,
+            &mut visited,
+        )
+        .await?;
 
         let count = entries.len();
         self.batch_insert_fts(&entries).await?;
@@ -235,10 +242,7 @@ impl CodeIndexer {
 
     /// Clear existing index for a repository.
     async fn clear_index_for_repo(&self, repo_id: i64) -> Result<()> {
-        let sql = format!(
-            "DELETE FROM code_fts WHERE repo_id = {}",
-            repo_id
-        );
+        let sql = format!("DELETE FROM code_fts WHERE repo_id = {}", repo_id);
         self.db
             .execute(Statement::from_string(
                 sea_orm::DatabaseBackend::Sqlite,
@@ -280,6 +284,8 @@ impl CodeIndexer {
     }
 
     /// Collect entries from a single tree into the entries Vec.
+    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::clone_on_copy)]
     async fn collect_tree(
         &self,
         repo: &gix::Repository,
@@ -396,22 +402,25 @@ impl CodeIndexer {
         let safe_query = fts_escape(query);
 
         // Build WHERE clause
+        let mut params = vec![Value::from(safe_query)];
         let repo_filter = if let Some(rid) = repo_id {
-            format!("repo_id = {}", rid)
+            params.push(Value::from(rid));
+            "repo_id = ?"
         } else {
-            "1".to_string()
+            "1"
         };
 
         // Get total count
         let count_sql = format!(
-            "SELECT COUNT(*) as cnt FROM code_fts WHERE code_fts MATCH '{}' AND {}",
-            safe_query, repo_filter
+            "SELECT COUNT(*) as cnt FROM code_fts WHERE code_fts MATCH ? AND {}",
+            repo_filter
         );
         let count_result = self
             .db
-            .query_one(Statement::from_string(
+            .query_one(Statement::from_sql_and_values(
                 sea_orm::DatabaseBackend::Sqlite,
                 count_sql,
+                params.clone(),
             ))
             .await?
             .with_context(|| "Failed to get count")?;
@@ -421,16 +430,17 @@ impl CodeIndexer {
         let results_sql = format!(
             "SELECT rank, repo_id, file_path, file_name, language, snippet(code_fts, 3, '<b>', '</b>', '...', 20) as snippet \
              FROM code_fts \
-             WHERE code_fts MATCH '{}' AND {} \
+             WHERE code_fts MATCH ? AND {} \
              ORDER BY rank \
              LIMIT {} OFFSET {}",
-            safe_query, repo_filter, limit, offset
+            repo_filter, limit, offset
         );
         let rows = self
             .db
-            .query_all(Statement::from_string(
+            .query_all(Statement::from_sql_and_values(
                 sea_orm::DatabaseBackend::Sqlite,
                 results_sql,
+                params,
             ))
             .await?;
 

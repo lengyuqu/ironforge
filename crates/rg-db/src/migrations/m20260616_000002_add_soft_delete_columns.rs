@@ -1,7 +1,7 @@
 //! Migration: add `deleted_at` columns to user, org, and issue tables
 //! for soft-delete support.
-use sea_orm_migration::prelude::*;
 use sea_orm::Statement;
+use sea_orm_migration::prelude::*;
 
 pub struct Migration;
 

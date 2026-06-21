@@ -7,16 +7,12 @@ use sea_orm::*;
 use crate::entities::audit_log::{ActiveModel, Column, Entity, Model};
 
 /// Insert a new audit log entry.
-pub async fn insert(
-    db: &DatabaseConnection,
-    entry: ActiveModel,
-) -> Result<Model, DbErr> {
-    Entity::insert(entry)
-        .exec_with_returning(db)
-        .await
+pub async fn insert(db: &DatabaseConnection, entry: ActiveModel) -> Result<Model, DbErr> {
+    Entity::insert(entry).exec_with_returning(db).await
 }
 
 /// List audit logs with pagination, optionally filtered.
+#[allow(clippy::too_many_arguments)]
 pub async fn list_paginated(
     db: &DatabaseConnection,
     page: u64,
@@ -56,18 +52,12 @@ pub async fn list_paginated(
 }
 
 /// Fetch a single audit log by id.
-pub async fn find_by_id(
-    db: &DatabaseConnection,
-    id: i64,
-) -> Result<Option<Model>, DbErr> {
+pub async fn find_by_id(db: &DatabaseConnection, id: i64) -> Result<Option<Model>, DbErr> {
     Entity::find_by_id(id).one(db).await
 }
 
 /// Count audit logs for a specific user (for rate-limiting or dashboard).
-pub async fn count_for_user(
-    db: &DatabaseConnection,
-    user_id: i64,
-) -> Result<u64, DbErr> {
+pub async fn count_for_user(db: &DatabaseConnection, user_id: i64) -> Result<u64, DbErr> {
     Entity::find()
         .filter(Column::UserId.eq(user_id))
         .count(db)
@@ -86,10 +76,7 @@ pub async fn list_before(
 }
 
 /// Delete audit log entries by their IDs (after archival).
-pub async fn delete_by_ids(
-    db: &DatabaseConnection,
-    ids: &[i64],
-) -> Result<(), DbErr> {
+pub async fn delete_by_ids(db: &DatabaseConnection, ids: &[i64]) -> Result<(), DbErr> {
     Entity::delete_many()
         .filter(Column::Id.is_in(ids.iter().copied()))
         .exec(db)

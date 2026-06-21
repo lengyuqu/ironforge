@@ -62,7 +62,9 @@ mod tests {
     #[tokio::test]
     async fn test_sideband_data_write_and_read() {
         let (mut writer, reader) = duplex(1024);
-        write_sideband_data(&mut writer, b"hello pack data").await.unwrap();
+        write_sideband_data(&mut writer, b"hello pack data")
+            .await
+            .unwrap();
 
         let mut buf_reader = BufReader::new(reader);
         let pkt = read_pkt_line(&mut buf_reader).await.unwrap();
@@ -77,7 +79,9 @@ mod tests {
     #[tokio::test]
     async fn test_sideband_progress_write_and_read() {
         let (mut writer, reader) = duplex(1024);
-        write_sideband_progress(&mut writer, "counting objects").await.unwrap();
+        write_sideband_progress(&mut writer, "counting objects")
+            .await
+            .unwrap();
 
         let mut buf_reader = BufReader::new(reader);
         let pkt = read_pkt_line(&mut buf_reader).await.unwrap();
@@ -92,7 +96,9 @@ mod tests {
     #[tokio::test]
     async fn test_sideband_error_write_and_read() {
         let (mut writer, reader) = duplex(1024);
-        write_sideband_error(&mut writer, "fatal error occurred").await.unwrap();
+        write_sideband_error(&mut writer, "fatal error occurred")
+            .await
+            .unwrap();
 
         let mut buf_reader = BufReader::new(reader);
         let pkt = read_pkt_line(&mut buf_reader).await.unwrap();
@@ -114,12 +120,31 @@ mod tests {
         assert!(matches!(pkt, PktLine::Flush));
     }
 
-    #[test]
-    fn test_sideband_chunk_size_within_limit() {
-        // Verify that SIDEBAND_MAX is within the pkt-line limit.
-        // Each sideband packet = 1 byte (band) + SIDEBAND_MAX bytes (data) <= MAX_PKT_LINE_LEN.
-        use crate::pkt_line::MAX_PKT_LINE_LEN;
-        assert!(1 + SIDEBAND_MAX <= MAX_PKT_LINE_LEN,
-            "sideband chunk too large: {} + 1 > {}", SIDEBAND_MAX, MAX_PKT_LINE_LEN);
+    #[tokio::test]
+    async fn test_sideband_chunk_size_within_limit() {
+        // Verify runtime chunking behavior for the maximum-size payload.
+        let payload = vec![b'x'; SIDEBAND_MAX];
+        let (mut writer, reader) = duplex(SIDEBAND_MAX + 1024);
+        write_sideband_data(&mut writer, &payload).await.unwrap();
+
+        drop(writer);
+        let mut reader = BufReader::new(reader);
+        let pkt = read_pkt_line(&mut reader).await.expect("read pkt line");
+        if let PktLine::Data(data) = pkt {
+            assert_eq!(data[0], 1u8, "expected band 1");
+            assert_eq!(
+                data.len() - 1,
+                payload.len(),
+                "expected exactly one data chunk"
+            );
+        } else {
+            panic!("expected Data pkt-line");
+        }
+
+        let eof = read_pkt_line(&mut reader).await;
+        assert!(
+            matches!(eof, Ok(PktLine::Flush)),
+            "expected stream flush at end"
+        );
     }
 }

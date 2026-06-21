@@ -1,6 +1,7 @@
 <script lang="ts">
   import { page } from '$app/stores';
   import { browser } from '$app/environment';
+  import { goto } from '$app/navigation';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
   import Dropdown from '$lib/components/Dropdown.svelte';
   import { repos } from '$lib/api/client.svelte';
@@ -12,6 +13,8 @@
   let repo = $derived($page.params.repo!);
   let ref = $state('');
   let path = $state('');
+  let queryRef = $derived($page.url.searchParams.get('ref') || '');
+  let queryPath = $derived($page.url.searchParams.get('path') || '');
   let entries = $state<any[]>([]);
   let branches = $state<any[]>([]);
   let commits = $state<any[]>([]);
@@ -22,7 +25,7 @@
   let error = $state('');
 
   // Clone URLs for empty-repo setup
-  let httpCloneUrl = $derived(browser ? `${location.protocol}//${location.host}/${owner}/${repo}.git` : '');
+  let httpCloneUrl = $derived(browser ? `${location.protocol}//${location.host}/git/${owner}/${repo}.git` : '');
   let sshCloneUrl = $derived(browser ? `git@${location.hostname}:${owner}/${repo}.git` : '');
   let httpCopied = $state(false);
   let sshCopied = $state(false);
@@ -35,7 +38,38 @@
     };
   }
 
+  function buildRepoQuery(nextRef: string, nextPath: string) {
+    const params = new URLSearchParams();
+    if (nextRef) params.set('ref', nextRef);
+    if (nextPath) params.set('path', nextPath);
+    const qs = params.toString();
+    return qs ? `?${qs}` : '';
+  }
+
+  function syncLocation(nextRef = ref, nextPath = path) {
+    const normalizedPath = nextPath ? nextPath.replace(/\/+/g, '/') : '';
+    ref = nextRef;
+    path = normalizedPath;
+    goto(`/${owner}/${repo}${buildRepoQuery(nextRef, normalizedPath)}`, { replaceState: true });
+  }
+
+  function buildTreeHref(nextRef: string, nextPath: string) {
+    return `/${owner}/${repo}${buildRepoQuery(nextRef, nextPath)}`;
+  }
+
+  function buildCommitHref(sha: string) {
+    return `/${owner}/${repo}/commits/${sha}${buildRepoQuery(ref, '')}`;
+  }
+
+  function buildBlobHref(filePath: string) {
+    return `/${owner}/${repo}/blob/${filePath}${buildRepoQuery(ref, '')}`;
+  }
+
   $effect(() => {
+    if (ref !== queryRef || path !== queryPath) {
+      ref = queryRef;
+      path = queryPath;
+    }
     loadData();
   });
 
@@ -87,25 +121,19 @@
   }
 
   function navigateToPath(entryName: string) {
-    if (path) {
-      path = path + '/' + entryName;
-    } else {
-      path = entryName;
-    }
-    loadData();
+    const nextPath = path ? `${path}/${entryName}` : entryName;
+    syncLocation(ref, nextPath);
   }
 
   function navigateUp() {
     const parts = path.split('/');
     parts.pop();
-    path = parts.join('/');
-    loadData();
+    syncLocation(ref, parts.join('/'));
   }
 
   function selectBranch(branchName: string, close: () => void) {
-    ref = branchName;
+    syncLocation(branchName, path);
     close();
-    loadData();
   }
 
   function formatFileSize(size: number) {
@@ -120,7 +148,7 @@
 </svelte:head>
 
 <div class="page-container">
-  <RepoHeader {owner} {repo} activeTab="code" starsCount={0} />
+  <RepoHeader {owner} {repo} activeTab="code" starsCount={repoInfo?.stars_count || 0} />
 
   {#if error}
     <div class="error-banner">{error}</div>
@@ -220,9 +248,9 @@ git push -u origin {repoInfo?.default_branch || 'main'}</code></pre>
       </div>
 
       <div class="breadcrumb">
-        <a href="/{owner}/{repo}">{repo}</a>
+        <a href={buildTreeHref(ref, '')}>{repo}</a>
         {#if path}
-          {#each path.split('/') as part, i}
+          {#each path.split('/') as part}
             <span class="sep">/</span>
             <span>{part}</span>
           {/each}
@@ -248,7 +276,7 @@ git push -u origin {repoInfo?.default_branch || 'main'}</code></pre>
               <span class="entry-name dir">{entry.name}</span>
             </div>
           {:else}
-            <a href="/{owner}/{repo}/blob/{path ? path + '/' : ''}{entry.name}" class="entry file-entry">
+            <a href={buildBlobHref(path ? path + '/' + entry.name : entry.name)} class="entry file-entry">
               <span class="entry-icon">📄</span>
               <span class="entry-name">{entry.name}</span>
               {#if entry.size}
@@ -263,14 +291,14 @@ git push -u origin {repoInfo?.default_branch || 'main'}</code></pre>
       <div class="gh-card commits-panel">
         <h3>{t('repo.browser.recent_commits')}</h3>
         {#each commits as commit}
-          <div class="commit-item">
+          <a href={buildCommitHref(commit.sha)} class="commit-item">
             <div class="commit-msg truncate">{commit.message?.split('\n')[0]}</div>
             <div class="commit-meta">
               <span class="commit-author">{commit.author}</span>
               <span class="commit-date">{formatDate(commit.date)}</span>
               <code class="commit-sha">{commit.sha?.slice(0, 7)}</code>
             </div>
-          </div>
+          </a>
         {/each}
       </div>
     </div>
@@ -379,8 +407,11 @@ git push -u origin {repoInfo?.default_branch || 'main'}</code></pre>
   h3 { font-size: 14px; margin-bottom: 12px; }
 
   .commit-item {
+    display: block;
     padding: 8px 0;
     border-bottom: 1px solid var(--border-light);
+    color: inherit;
+    text-decoration: none;
   }
   .commit-item:last-child { border-bottom: none; }
 

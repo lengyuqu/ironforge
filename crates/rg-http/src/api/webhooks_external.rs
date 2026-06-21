@@ -79,9 +79,12 @@ pub async fn external_ci_webhook(
     }
 
     // Resolve repo
-    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await {
+    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
+    {
         Ok(Some(r)) => r,
-        Ok(None) => return crate::error::AppError::not_found("repository not found").into_response(),
+        Ok(None) => {
+            return crate::error::AppError::not_found("repository not found").into_response()
+        }
         Err(e) => return crate::error::AppError::internal(e.to_string()).into_response(),
     };
 

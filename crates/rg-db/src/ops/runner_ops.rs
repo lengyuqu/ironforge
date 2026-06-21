@@ -2,8 +2,8 @@
 
 use anyhow::{Context, Result};
 use chrono::Utc;
-use sea_orm::*;
 use sea_orm::sea_query::Expr;
+use sea_orm::*;
 
 use crate::entities::runner::{ActiveModel, Column, Entity as RunnerEntity, Model as Runner};
 
@@ -35,10 +35,7 @@ pub async fn register_runner(
         updated_at: Set(now),
     };
 
-    active_model
-        .insert(db)
-        .await
-        .context("db: register runner")
+    active_model.insert(db).await.context("db: register runner")
 }
 
 /// Update runner heartbeat (last_seen_at).
@@ -57,11 +54,7 @@ pub async fn update_heartbeat(db: &DatabaseConnection, runner_id: i64) -> Result
 }
 
 /// Update runner status.
-pub async fn update_status(
-    db: &DatabaseConnection,
-    runner_id: i64,
-    status: &str,
-) -> Result<()> {
+pub async fn update_status(db: &DatabaseConnection, runner_id: i64, status: &str) -> Result<()> {
     let now = Utc::now().naive_utc();
 
     RunnerEntity::update_many()

@@ -4,7 +4,7 @@
 //! Extracts layer digests for blob reference tracking.
 
 use serde::{Deserialize, Serialize};
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 
 /// Parsed manifest — generic over Docker V2 and OCI spec formats.
 #[derive(Debug, Clone, Serialize, Deserialize)]

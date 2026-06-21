@@ -21,10 +21,10 @@ use rg_db::ops::webhook_ops;
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CreateWebhookRequest {
     pub url: String,
-    pub content_type: Option<String>,  // "json" (default) or "form"
+    pub content_type: Option<String>, // "json" (default) or "form"
     pub secret: Option<String>,
     pub active: Option<bool>,
-    pub events: Vec<String>,  // e.g. ["push", "issues"]
+    pub events: Vec<String>, // e.g. ["push", "issues"]
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -50,7 +50,11 @@ pub async fn create_webhook(
         id: sea_orm::NotSet,
         repo_id: sea_orm::Set(repo_id),
         url: sea_orm::Set(req.url.clone()),
-        content_type: sea_orm::Set(req.content_type.clone().unwrap_or_else(|| "json".to_string())),
+        content_type: sea_orm::Set(
+            req.content_type
+                .clone()
+                .unwrap_or_else(|| "json".to_string()),
+        ),
         secret: sea_orm::Set(req.secret.clone()),
         active: sea_orm::Set(req.active.unwrap_or(true)),
         events: sea_orm::Set(events_str),
@@ -61,18 +65,12 @@ pub async fn create_webhook(
 }
 
 /// List all webhooks for a repository.
-pub async fn list_webhooks(
-    db: &DatabaseConnection,
-    repo_id: i64,
-) -> Result<Vec<webhook::Model>> {
+pub async fn list_webhooks(db: &DatabaseConnection, repo_id: i64) -> Result<Vec<webhook::Model>> {
     webhook_ops::list_by_repo(db, repo_id).await
 }
 
 /// Get a webhook by id.
-pub async fn get_webhook(
-    db: &DatabaseConnection,
-    id: i64,
-) -> Result<Option<webhook::Model>> {
+pub async fn get_webhook(db: &DatabaseConnection, id: i64) -> Result<Option<webhook::Model>> {
     webhook_ops::find_by_id(db, id).await
 }
 
@@ -86,7 +84,11 @@ pub async fn update_webhook(
         id: sea_orm::Set(existing.id),
         repo_id: sea_orm::Set(existing.repo_id),
         url: sea_orm::Set(req.url.clone().unwrap_or_else(|| existing.url.clone())),
-        content_type: sea_orm::Set(req.content_type.clone().unwrap_or_else(|| existing.content_type.clone())),
+        content_type: sea_orm::Set(
+            req.content_type
+                .clone()
+                .unwrap_or_else(|| existing.content_type.clone()),
+        ),
         secret: sea_orm::Set(req.secret.clone().or_else(|| existing.secret.clone())),
         active: sea_orm::Set(req.active.unwrap_or(existing.active)),
         events: sea_orm::Set(
@@ -102,10 +104,7 @@ pub async fn update_webhook(
 }
 
 /// Delete a webhook.
-pub async fn delete_webhook(
-    db: &DatabaseConnection,
-    id: i64,
-) -> Result<()> {
+pub async fn delete_webhook(db: &DatabaseConnection, id: i64) -> Result<()> {
     webhook_ops::delete_webhook_by_id(db, id).await
 }
 
@@ -134,13 +133,14 @@ pub async fn trigger_event(
             let delivery_id = uuid::Uuid::new_v4().to_string();
             let start = std::time::Instant::now();
 
-            let (status, response_body) = match deliver(&url, &content_type, &secret, &payload_str).await {
-                Ok(resp_status) => (Some(resp_status), None::<String>),
-                Err(e) => {
-                    tracing::warn!(webhook_id = hook_id, error = %e, "webhook delivery failed");
-                    (None, Some(format!("delivery error: {:#}", e)))
-                }
-            };
+            let (status, response_body) =
+                match deliver(&url, &content_type, &secret, &payload_str).await {
+                    Ok(resp_status) => (Some(resp_status), None::<String>),
+                    Err(e) => {
+                        tracing::warn!(webhook_id = hook_id, error = %e, "webhook delivery failed");
+                        (None, Some(format!("delivery error: {:#}", e)))
+                    }
+                };
 
             let duration_ms = start.elapsed().as_millis() as i64;
 
@@ -191,8 +191,7 @@ async fn deliver(
         use sha2::Sha256;
         type HmacSha256 = Hmac<Sha256>;
 
-        let mut mac = HmacSha256::new_from_slice(secret.as_bytes())
-            .context("HMAC init failed")?;
+        let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).context("HMAC init failed")?;
         mac.update(payload.as_bytes());
         let sig = hex::encode(mac.finalize().into_bytes());
         builder = builder.header("X-Hub-Signature-256", format!("sha256={}", sig));
@@ -219,10 +218,7 @@ pub async fn get_delivery(
 }
 
 /// Redeliver a webhook (re-post the original payload).
-pub async fn redeliver(
-    db: &DatabaseConnection,
-    delivery_id: i64,
-) -> Result<()> {
+pub async fn redeliver(db: &DatabaseConnection, delivery_id: i64) -> Result<()> {
     let delivery = webhook_ops::find_delivery_by_id(db, delivery_id)
         .await?
         .ok_or_else(|| anyhow::anyhow!("delivery {} not found", delivery_id))?;
@@ -251,7 +247,11 @@ pub async fn redeliver(
 // ── Convenience event helpers ───────────────────────────────────────────
 
 /// Trigger a release.created webhook event.
-pub async fn trigger_release_created(db: &DatabaseConnection, repo_id: i64, release: &Value) -> Result<()> {
+pub async fn trigger_release_created(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    release: &Value,
+) -> Result<()> {
     let payload = serde_json::json!({
         "event": "release.created",
         "release": release,
@@ -260,7 +260,11 @@ pub async fn trigger_release_created(db: &DatabaseConnection, repo_id: i64, rele
 }
 
 /// Trigger a release.deleted webhook event.
-pub async fn trigger_release_deleted(db: &DatabaseConnection, repo_id: i64, release: &Value) -> Result<()> {
+pub async fn trigger_release_deleted(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    release: &Value,
+) -> Result<()> {
     let payload = serde_json::json!({
         "event": "release.deleted",
         "release": release,
@@ -269,7 +273,11 @@ pub async fn trigger_release_deleted(db: &DatabaseConnection, repo_id: i64, rele
 }
 
 /// Trigger a branch.created webhook event.
-pub async fn trigger_branch_created(db: &DatabaseConnection, repo_id: i64, branch: &str) -> Result<()> {
+pub async fn trigger_branch_created(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    branch: &str,
+) -> Result<()> {
     let payload = serde_json::json!({
         "event": "branch.created",
         "ref": branch,
@@ -279,7 +287,11 @@ pub async fn trigger_branch_created(db: &DatabaseConnection, repo_id: i64, branc
 }
 
 /// Trigger a branch.deleted webhook event.
-pub async fn trigger_branch_deleted(db: &DatabaseConnection, repo_id: i64, branch: &str) -> Result<()> {
+pub async fn trigger_branch_deleted(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    branch: &str,
+) -> Result<()> {
     let payload = serde_json::json!({
         "event": "branch.deleted",
         "ref": branch,
@@ -309,7 +321,11 @@ pub async fn trigger_tag_deleted(db: &DatabaseConnection, repo_id: i64, tag: &st
 }
 
 /// Trigger an issue.opened webhook event.
-pub async fn trigger_issue_opened(db: &DatabaseConnection, repo_id: i64, issue: &Value) -> Result<()> {
+pub async fn trigger_issue_opened(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    issue: &Value,
+) -> Result<()> {
     let payload = serde_json::json!({
         "event": "issue.opened",
         "issue": issue,
@@ -318,7 +334,11 @@ pub async fn trigger_issue_opened(db: &DatabaseConnection, repo_id: i64, issue: 
 }
 
 /// Trigger an issue.closed webhook event.
-pub async fn trigger_issue_closed(db: &DatabaseConnection, repo_id: i64, issue: &Value) -> Result<()> {
+pub async fn trigger_issue_closed(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    issue: &Value,
+) -> Result<()> {
     let payload = serde_json::json!({
         "event": "issue.closed",
         "issue": issue,
@@ -327,7 +347,12 @@ pub async fn trigger_issue_closed(db: &DatabaseConnection, repo_id: i64, issue: 
 }
 
 /// Trigger an issue.comment webhook event.
-pub async fn trigger_issue_comment(db: &DatabaseConnection, repo_id: i64, issue: &Value, comment: &Value) -> Result<()> {
+pub async fn trigger_issue_comment(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    issue: &Value,
+    comment: &Value,
+) -> Result<()> {
     let payload = serde_json::json!({
         "event": "issue.comment",
         "issue": issue,
@@ -364,7 +389,11 @@ pub async fn trigger_pr_merged(db: &DatabaseConnection, repo_id: i64, pr: &Value
 }
 
 /// Trigger a milestone.closed webhook event.
-pub async fn trigger_milestone_closed(db: &DatabaseConnection, repo_id: i64, milestone: &Value) -> Result<()> {
+pub async fn trigger_milestone_closed(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    milestone: &Value,
+) -> Result<()> {
     let payload = serde_json::json!({
         "event": "milestone.closed",
         "milestone": milestone,

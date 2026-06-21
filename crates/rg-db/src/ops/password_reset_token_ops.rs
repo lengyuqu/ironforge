@@ -2,8 +2,8 @@
 
 use chrono::Utc;
 use sea_orm::{
-    sea_query::Expr, ActiveModelTrait, ActiveValue::Set, ColumnTrait,
-    DatabaseConnection, EntityTrait, QueryFilter,
+    sea_query::Expr, ActiveModelTrait, ActiveValue::Set, ColumnTrait, DatabaseConnection,
+    EntityTrait, QueryFilter,
 };
 
 use crate::entities::password_reset_token;
@@ -38,15 +38,9 @@ pub async fn find_by_hash(
 }
 
 /// Mark a token as used.
-pub async fn mark_used(
-    db: &DatabaseConnection,
-    token_id: i64,
-) -> Result<(), sea_orm::DbErr> {
+pub async fn mark_used(db: &DatabaseConnection, token_id: i64) -> Result<(), sea_orm::DbErr> {
     password_reset_token::Entity::update_many()
-        .col_expr(
-            password_reset_token::Column::Used,
-            Expr::value(true),
-        )
+        .col_expr(password_reset_token::Column::Used, Expr::value(true))
         .filter(password_reset_token::Column::Id.eq(token_id))
         .exec(db)
         .await?;
@@ -66,9 +60,7 @@ pub async fn invalidate_user_tokens(
 }
 
 /// Clean up expired tokens (can be called periodically).
-pub async fn delete_expired(
-    db: &DatabaseConnection,
-) -> Result<u64, sea_orm::DbErr> {
+pub async fn delete_expired(db: &DatabaseConnection) -> Result<u64, sea_orm::DbErr> {
     let result = password_reset_token::Entity::delete_many()
         .filter(password_reset_token::Column::ExpiresAt.lt(Utc::now()))
         .exec(db)

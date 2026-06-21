@@ -29,6 +29,7 @@ pub async fn find_by_user_id(
 }
 
 /// Upsert an OAuth account (insert or update tokens).
+#[allow(clippy::too_many_arguments)]
 pub async fn upsert(
     db: &DatabaseConnection,
     user_id: i64,
@@ -75,11 +76,7 @@ pub async fn upsert(
 }
 
 /// Delete an OAuth account by id (must belong to user).
-pub async fn delete_by_id(
-    db: &DatabaseConnection,
-    id: i64,
-    user_id: i64,
-) -> Result<(), DbErr> {
+pub async fn delete_by_id(db: &DatabaseConnection, id: i64, user_id: i64) -> Result<(), DbErr> {
     let some = Entity::find()
         .filter(oauth_account::Column::Id.eq(id))
         .filter(oauth_account::Column::UserId.eq(user_id))

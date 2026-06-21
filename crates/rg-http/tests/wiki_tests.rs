@@ -33,15 +33,27 @@ async fn test_wiki_create_and_get() {
         .post(format!("{}/api/v1/repos/{}/{}/wiki", base, owner, repo))
         .bearer_auth(&token)
         .json(&serde_json::json!({"title": "Home", "content": "# Welcome"}))
-        .send().await.unwrap();
-    assert_eq!(resp.status(), 201, "create wiki page failed: {}", resp.status());
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        201,
+        "create wiki page failed: {}",
+        resp.status()
+    );
     let page: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(page["title"], "Home");
     assert_eq!(page["content"], "# Welcome");
 
     let resp = client
-        .get(format!("{}/api/v1/repos/{}/{}/wiki/Home", base, owner, repo))
-        .send().await.unwrap();
+        .get(format!(
+            "{}/api/v1/repos/{}/{}/wiki/Home",
+            base, owner, repo
+        ))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
     let got: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(got["content"], "# Welcome");
@@ -57,12 +69,16 @@ async fn test_wiki_list_pages() {
             .post(format!("{}/api/v1/repos/{}/{}/wiki", base, owner, repo))
             .bearer_auth(&token)
             .json(&serde_json::json!({"title": title, "content": format!("# {}", title)}))
-            .send().await.unwrap();
+            .send()
+            .await
+            .unwrap();
     }
 
     let resp = client
         .get(format!("{}/api/v1/repos/{}/{}/wiki", base, owner, repo))
-        .send().await.unwrap();
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
     let pages: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(pages.as_array().unwrap().len(), 3);
@@ -77,13 +93,20 @@ async fn test_wiki_update_page() {
         .post(format!("{}/api/v1/repos/{}/{}/wiki", base, owner, repo))
         .bearer_auth(&token)
         .json(&serde_json::json!({"title": "Guide", "content": "v1"}))
-        .send().await.unwrap();
+        .send()
+        .await
+        .unwrap();
 
     let resp = client
-        .patch(format!("{}/api/v1/repos/{}/{}/wiki/Guide", base, owner, repo))
+        .patch(format!(
+            "{}/api/v1/repos/{}/{}/wiki/Guide",
+            base, owner, repo
+        ))
         .bearer_auth(&token)
         .json(&serde_json::json!({"content": "v2", "message": "Updated guide"}))
-        .send().await.unwrap();
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200, "update failed: {}", resp.status());
     let page: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(page["content"], "v2");
@@ -99,26 +122,47 @@ async fn test_wiki_revision_history() {
         .post(format!("{}/api/v1/repos/{}/{}/wiki", base, owner, repo))
         .bearer_auth(&token)
         .json(&serde_json::json!({"title": "Changelog", "content": "initial"}))
-        .send().await.unwrap();
+        .send()
+        .await
+        .unwrap();
 
     // History should be empty (no edits yet)
     let resp = client
-        .get(format!("{}/api/v1/repos/{}/{}/wiki/Changelog/history", base, owner, repo))
-        .send().await.unwrap();
+        .get(format!(
+            "{}/api/v1/repos/{}/{}/wiki/Changelog/history",
+            base, owner, repo
+        ))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
     let revs: serde_json::Value = resp.json().await.unwrap();
-    assert_eq!(revs.as_array().unwrap().len(), 0, "no revisions before first update");
+    assert_eq!(
+        revs.as_array().unwrap().len(),
+        0,
+        "no revisions before first update"
+    );
 
     // Update once → revision of the initial content is saved
     client
-        .patch(format!("{}/api/v1/repos/{}/{}/wiki/Changelog", base, owner, repo))
+        .patch(format!(
+            "{}/api/v1/repos/{}/{}/wiki/Changelog",
+            base, owner, repo
+        ))
         .bearer_auth(&token)
         .json(&serde_json::json!({"content": "v2 content", "message": "second"}))
-        .send().await.unwrap();
+        .send()
+        .await
+        .unwrap();
 
     let resp = client
-        .get(format!("{}/api/v1/repos/{}/{}/wiki/Changelog/history", base, owner, repo))
-        .send().await.unwrap();
+        .get(format!(
+            "{}/api/v1/repos/{}/{}/wiki/Changelog/history",
+            base, owner, repo
+        ))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
     let revs: serde_json::Value = resp.json().await.unwrap();
     let arr = revs.as_array().unwrap();
@@ -128,14 +172,24 @@ async fn test_wiki_revision_history() {
 
     // Update again → 2 revisions total
     client
-        .patch(format!("{}/api/v1/repos/{}/{}/wiki/Changelog", base, owner, repo))
+        .patch(format!(
+            "{}/api/v1/repos/{}/{}/wiki/Changelog",
+            base, owner, repo
+        ))
         .bearer_auth(&token)
         .json(&serde_json::json!({"content": "v3 content", "message": "third"}))
-        .send().await.unwrap();
+        .send()
+        .await
+        .unwrap();
 
     let resp = client
-        .get(format!("{}/api/v1/repos/{}/{}/wiki/Changelog/history", base, owner, repo))
-        .send().await.unwrap();
+        .get(format!(
+            "{}/api/v1/repos/{}/{}/wiki/Changelog/history",
+            base, owner, repo
+        ))
+        .send()
+        .await
+        .unwrap();
     let revs2: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(revs2.as_array().unwrap().len(), 2, "expected 2 revisions");
 }
@@ -149,25 +203,44 @@ async fn test_wiki_get_specific_revision() {
         .post(format!("{}/api/v1/repos/{}/{}/wiki", base, owner, repo))
         .bearer_auth(&token)
         .json(&serde_json::json!({"title": "Notes", "content": "original text"}))
-        .send().await.unwrap();
+        .send()
+        .await
+        .unwrap();
 
     client
-        .patch(format!("{}/api/v1/repos/{}/{}/wiki/Notes", base, owner, repo))
+        .patch(format!(
+            "{}/api/v1/repos/{}/{}/wiki/Notes",
+            base, owner, repo
+        ))
         .bearer_auth(&token)
         .json(&serde_json::json!({"content": "updated text"}))
-        .send().await.unwrap();
+        .send()
+        .await
+        .unwrap();
 
     // Fetch history to get revision id
     let revs: serde_json::Value = client
-        .get(format!("{}/api/v1/repos/{}/{}/wiki/Notes/history", base, owner, repo))
-        .send().await.unwrap()
-        .json().await.unwrap();
+        .get(format!(
+            "{}/api/v1/repos/{}/{}/wiki/Notes/history",
+            base, owner, repo
+        ))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     let rev_id = revs[0]["id"].as_i64().unwrap();
 
     // Fetch that specific revision
     let resp = client
-        .get(format!("{}/api/v1/repos/{}/{}/wiki/Notes/revisions/{}", base, owner, repo, rev_id))
-        .send().await.unwrap();
+        .get(format!(
+            "{}/api/v1/repos/{}/{}/wiki/Notes/revisions/{}",
+            base, owner, repo, rev_id
+        ))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
     let rev: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(rev["content"], "original text");
@@ -183,17 +256,33 @@ async fn test_wiki_delete_page() {
         .post(format!("{}/api/v1/repos/{}/{}/wiki", base, owner, repo))
         .bearer_auth(&token)
         .json(&serde_json::json!({"title": "Temp", "content": "delete me"}))
-        .send().await.unwrap();
+        .send()
+        .await
+        .unwrap();
 
     let resp = client
-        .delete(format!("{}/api/v1/repos/{}/{}/wiki/Temp", base, owner, repo))
+        .delete(format!(
+            "{}/api/v1/repos/{}/{}/wiki/Temp",
+            base, owner, repo
+        ))
         .bearer_auth(&token)
-        .send().await.unwrap();
-    assert!(resp.status().is_success(), "delete failed: {}", resp.status());
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        resp.status().is_success(),
+        "delete failed: {}",
+        resp.status()
+    );
 
     // Should be 404 now
     let resp = client
-        .get(format!("{}/api/v1/repos/{}/{}/wiki/Temp", base, owner, repo))
-        .send().await.unwrap();
+        .get(format!(
+            "{}/api/v1/repos/{}/{}/wiki/Temp",
+            base, owner, repo
+        ))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 404);
 }

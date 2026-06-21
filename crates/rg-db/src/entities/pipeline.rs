@@ -11,7 +11,7 @@ pub struct Model {
     pub repo_id: i64,
     pub commit_sha: String,
     pub ref_name: String,
-    pub status: String, // pending, running, success, failed, canceled
+    pub status: String,       // pending, running, success, failed, canceled
     pub trigger_type: String, // push, manual, webhook
     pub triggered_by: Option<i64>,
     pub started_at: Option<DateTime>,

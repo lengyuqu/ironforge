@@ -19,13 +19,13 @@ pub fn set_executable<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        
+
         let metadata = fs::metadata(&path)?;
         let mut perms = metadata.permissions();
         perms.set_mode(0o755); // rwxr-xr-x
         fs::set_permissions(&path, perms)?;
     }
-    
+
     #[cfg(windows)]
     {
         // Windows: executability is determined by file extension
@@ -35,11 +35,11 @@ pub fn set_executable<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
         if !path.as_ref().exists() {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::NotFound,
-                "File not found"
+                "File not found",
             ));
         }
     }
-    
+
     Ok(())
 }
 
@@ -54,13 +54,13 @@ pub fn set_executable<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
 pub fn get_permissions<P: AsRef<Path>>(path: P) -> std::io::Result<u32> {
     let metadata = fs::metadata(&path)?;
     let perms = metadata.permissions();
-    
+
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         Ok(perms.mode())
     }
-    
+
     #[cfg(windows)]
     {
         // Windows doesn't have Unix-style permissions
@@ -80,7 +80,7 @@ pub fn is_executable<P: AsRef<Path>>(path: P) -> bool {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        
+
         if let Ok(metadata) = fs::metadata(&path) {
             let perms = metadata.permissions();
             let mode = perms.mode();
@@ -90,12 +90,15 @@ pub fn is_executable<P: AsRef<Path>>(path: P) -> bool {
             false
         }
     }
-    
+
     #[cfg(windows)]
     {
         if let Some(ext) = path.as_ref().extension() {
             let ext_str = ext.to_string_lossy().to_lowercase();
-            matches!(ext_str.as_str(), "exe" | "bat" | "cmd" | "ps1" | "vbs" | "js")
+            matches!(
+                ext_str.as_str(),
+                "exe" | "bat" | "cmd" | "ps1" | "vbs" | "js"
+            )
         } else {
             false
         }
@@ -111,7 +114,7 @@ pub fn is_executable<P: AsRef<Path>>(path: P) -> bool {
 /// Creates directory normally (Windows doesn't have executable bit for dirs).
 pub fn create_dir_executable<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
     fs::create_dir_all(&path)?;
-    
+
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -119,7 +122,7 @@ pub fn create_dir_executable<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
         perms.set_mode(0o755);
         fs::set_permissions(&path, perms)?;
     }
-    
+
     Ok(())
 }
 
@@ -135,7 +138,7 @@ pub fn copy_preserve_permissions<P: AsRef<Path>, Q: AsRef<Path>>(
     to: Q,
 ) -> std::io::Result<u64> {
     fs::copy(&from, &to)?;
-    
+
     #[cfg(unix)]
     {
         if let Ok(metadata) = fs::metadata(&from) {
@@ -143,7 +146,7 @@ pub fn copy_preserve_permissions<P: AsRef<Path>, Q: AsRef<Path>>(
             fs::set_permissions(&to, perms)?;
         }
     }
-    
+
     Ok(fs::metadata(&from)?.len())
 }
 
@@ -157,7 +160,7 @@ pub fn executable_extension() -> &'static str {
     {
         ""
     }
-    
+
     #[cfg(windows)]
     {
         ".exe"
@@ -175,7 +178,7 @@ pub fn is_absolute(path: &Path) -> bool {
 /// removes `.` and `..` where possible.
 pub fn normalize_path(path: &Path) -> PathBuf {
     let mut components = Vec::new();
-    
+
     for component in path.components() {
         match component {
             std::path::Component::CurDir => {
@@ -193,12 +196,12 @@ pub fn normalize_path(path: &Path) -> PathBuf {
             }
         }
     }
-    
+
     let mut result = PathBuf::new();
     for component in components {
         result.push(component);
     }
-    
+
     result
 }
 
@@ -213,7 +216,7 @@ mod tests {
         let ext = executable_extension();
         #[cfg(unix)]
         assert_eq!(ext, "");
-        
+
         #[cfg(windows)]
         assert_eq!(ext, ".exe");
     }
@@ -222,7 +225,7 @@ mod tests {
     fn test_is_absolute() {
         #[cfg(unix)]
         assert!(is_absolute(Path::new("/tmp/test")));
-        
+
         #[cfg(windows)]
         assert!(is_absolute(Path::new("C:\\test")));
     }
@@ -231,7 +234,7 @@ mod tests {
     fn test_normalize_path() {
         let path = Path::new("/tmp/./test/../other");
         let normalized = normalize_path(path);
-        
+
         #[cfg(unix)]
         assert_eq!(normalized, PathBuf::from("/tmp/other"));
     }

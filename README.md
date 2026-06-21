@@ -555,16 +555,85 @@ VITE_API_BASE=http://127.0.0.1:8080/api/v1 npm run dev
 - `scripts/openapi-interface-smoke.mjs`：自动读取 `/api-docs/openapi.json` 并对全部 OpenAPI 接口做可用性请求（只要无 5xx 即视为通畅）。
 - `scripts/console-smoke.mjs`：自动发现 `web/src/routes/**/+page.svelte` 并用浏览器检查全部前端页面的 console/network 运行态错误。
 - `scripts/full-interface-regression.mjs`：一次性执行后端测试、前端检查、前端构建，并在检测到服务可达时执行运行态联调；默认会探测前端 `4173` 和 `5173`。
+- `scripts/api-client-contract-check.mjs`：对比前端 API client 与 OpenAPI 的路由声明、方法和参数签名是否一致。
 
 ```bash
 # 一键全量回归（先启动后端 8080；前端可用 4173 preview 或 5173 dev）
 node scripts/full-interface-regression.mjs
+
+# 受限环境只跑前端与接口可达性（跳过后端集成测试）
+SKIP_BACKEND_TESTS=1 node scripts/full-interface-regression.mjs
+
+# 受限环境只跑后端可达性+前端静态（跳过 web check/build）
+SKIP_FRONTEND_STATIC=1 node scripts/full-interface-regression.mjs
+
+# 受限环境只跑静态和参数对齐，不跑运行态冒烟（openapi/frontend-backend/console）
+SKIP_RUNTIME_SMOKES=1 node scripts/full-interface-regression.mjs
+
+# 只执行某一类回归（backend / frontend / runtime / all，默认 all）
+FULL_REGRESSION_ONLY=backend node scripts/full-interface-regression.mjs
+FULL_REGRESSION_ONLY=frontend node scripts/full-interface-regression.mjs
+FULL_REGRESSION_ONLY=runtime node scripts/full-interface-regression.mjs
+
+# 设置单命令超时（毫秒），超时将直接失败并退出（默认不设置即不限制）
+REGRESSION_TIMEOUT_MS=120000 FULL_REGRESSION_ONLY=backend node scripts/full-interface-regression.mjs
+
+# 阶段级超时（优先级高于 REGRESSION_TIMEOUT_MS）
+# BACKEND_TEST_TIMEOUT_MS / FRONTEND_STATIC_TIMEOUT_MS / RUNTIME_TIMEOUT_MS
+# 分别控制：后端测试 / 前端静态 check+build / 运行态冒烟
+BACKEND_TEST_TIMEOUT_MS=120000 FRONTEND_STATIC_TIMEOUT_MS=120000 RUNTIME_TIMEOUT_MS=60000 node scripts/full-interface-regression.mjs
+
+# 脚本会输出每次执行的阶段超时配置，便于确认实际生效参数
+
+# 失败重试（按阶段可配置）
+# 默认不重试；全局重试和分阶段重试（后缀 _RETRIES 为优先）
+REGRESSION_RETRIES=1 REGRESSION_RETRY_DELAY_MS=3000 \
+BACKEND_TEST_RETRIES=2 FRONTEND_STATIC_RETRIES=1 RUNTIME_RETRIES=1 \
+node scripts/full-interface-regression.mjs
+
+# 指数退避（可选）
+# 基础重试间隔=REGRESSION_RETRY_DELAY_MS
+# 退避系数=REGRESSION_RETRY_BACKOFF_MS（>=1，1 表示固定间隔）
+# 间隔上限=REGRESSION_RETRY_MAX_DELAY_MS
+REGRESSION_RETRIES=3 REGRESSION_RETRY_DELAY_MS=1000 REGRESSION_RETRY_BACKOFF_MS=2 REGRESSION_RETRY_MAX_DELAY_MS=8000 node scripts/full-interface-regression.mjs
+
+# 步骤级重试覆盖（优先级高于阶段/全局重试）
+# 场景：只给前端 build 做 2 次重试，后端测试保持不重试
+BACKEND_TEST_RETRIES=0 FRONTEND_BUILD_RETRIES=2 \
+node scripts/full-interface-regression.mjs
+
+# 步骤级超时覆盖（优先级高于阶段/全局超时）
+# 场景：给前端 build 放宽到 4 分钟，openapi 冒烟缩短到 15 秒
+FRONTEND_BUILD_TIMEOUT_MS=240000 OPENAPI_SMOKE_TIMEOUT_MS=15000 node scripts/full-interface-regression.mjs
+
+# 步骤级退避覆盖（优先级高于全局退避）
+# 场景：只给前端 build 使用更长退避，console-smoke 使用更短退避
+FRONTEND_BUILD_RETRY_BACKOFF_MS=2.5 FRONTEND_BUILD_RETRY_MAX_DELAY_MS=120000 CONSOLE_SMOKE_RETRY_BACKOFF_MS=1.2 CONSOLE_SMOKE_RETRY_MAX_DELAY_MS=5000 node scripts/full-interface-regression.mjs
+
+# 生成回归执行报告（JSON）
+# 包含每步状态/耗时/重试明细，适合 CI 历史追踪与告警系统落盘
+REGRESSION_REPORT_FILE=/tmp/full-regression-report.json node scripts/full-interface-regression.mjs
+
+# 生成回归执行报告（Markdown）
+REGRESSION_REPORT_FORMAT=md REGRESSION_REPORT_FILE=/tmp/full-regression-report.md node scripts/full-interface-regression.mjs
+
+# 使用 CLI 参数设置格式（可与 env 并用）
+REGRESSION_REPORT_FILE=/tmp/full-regression-report.md node scripts/full-interface-regression.mjs --report-format md
 
 # 仅后端 OpenAPI 全量冒烟（后端可达即可）
 BACKEND_URL=http://127.0.0.1:8080 node scripts/openapi-interface-smoke.mjs
 
 # 仅前端页面运行态冒烟（默认自动发现全部 SvelteKit 页面）
 BASE=http://127.0.0.1:5173 node scripts/console-smoke.mjs
+
+# 仅做前后端接口参数对齐（client vs OpenAPI）
+BACKEND_URL=http://127.0.0.1:8080 node scripts/api-client-contract-check.mjs
+
+# 离线对齐：先把 OpenAPI 规范导出到文件后复用本地检查（适用于 CI/沙箱）
+OPENAPI_SPEC_FILE=/tmp/openapi.json BACKEND_URL=http://127.0.0.1:8080 node scripts/api-client-contract-check.mjs
+
+# 对齐检查只上报告警（CI 中不阻断）
+CLIENT_CONTRACT_STRICT=0 BACKEND_URL=http://127.0.0.1:8080 node scripts/api-client-contract-check.mjs
 
 # 查看自动发现到的前端页面列表
 node scripts/console-smoke.mjs --list-routes

@@ -12,14 +12,33 @@ impl MigrationTrait for Migration {
                 Table::create()
                     .table(Notifications::Table)
                     .if_not_exists()
-                    .col(ColumnDef::new(Notifications::Id).big_integer().not_null().auto_increment().primary_key())
-                    .col(ColumnDef::new(Notifications::UserId).big_integer().not_null())
+                    .col(
+                        ColumnDef::new(Notifications::Id)
+                            .big_integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(
+                        ColumnDef::new(Notifications::UserId)
+                            .big_integer()
+                            .not_null(),
+                    )
                     .col(ColumnDef::new(Notifications::EventType).string().not_null())
                     .col(ColumnDef::new(Notifications::Title).string().not_null())
                     .col(ColumnDef::new(Notifications::Body).string().null())
                     .col(ColumnDef::new(Notifications::RepoId).big_integer().null())
-                    .col(ColumnDef::new(Notifications::IsRead).boolean().not_null().default(false))
-                    .col(ColumnDef::new(Notifications::CreatedAt).timestamp_with_time_zone().not_null())
+                    .col(
+                        ColumnDef::new(Notifications::IsRead)
+                            .boolean()
+                            .not_null()
+                            .default(false),
+                    )
+                    .col(
+                        ColumnDef::new(Notifications::CreatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null(),
+                    )
                     .to_owned(),
             )
             .await?;
@@ -81,10 +100,18 @@ impl MigrationTrait for Migration {
             .drop_index(Index::drop().name("idx_repositories_org_id").to_owned())
             .await?;
         manager
-            .drop_index(Index::drop().name("idx_repositories_origin_repo_id").to_owned())
+            .drop_index(
+                Index::drop()
+                    .name("idx_repositories_origin_repo_id")
+                    .to_owned(),
+            )
             .await?;
         manager
-            .drop_index(Index::drop().name("idx_notifications_user_id_is_read").to_owned())
+            .drop_index(
+                Index::drop()
+                    .name("idx_notifications_user_id_is_read")
+                    .to_owned(),
+            )
             .await?;
         manager
             .drop_index(Index::drop().name("idx_notifications_repo_id").to_owned())

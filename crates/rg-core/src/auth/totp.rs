@@ -5,10 +5,7 @@ use qrcode::QrCode;
 use totp_rs::{Algorithm, Secret, TOTP};
 
 /// Generate a new TOTP secret. Returns (secret_string, otpauth_url, qr_text).
-pub fn generate_secret(
-    username: &str,
-    issuer: &str,
-) -> Result<(String, String, String)> {
+pub fn generate_secret(username: &str, issuer: &str) -> Result<(String, String, String)> {
     // Secret::generate_secret() returns Secret directly in totp-rs v5
     let secret = Secret::generate_secret();
 
@@ -88,7 +85,10 @@ pub fn generate_qr_svg(otpauth_url: &str) -> String {
             let ry = (offset + y as f64 * scale).ceil();
             svg.push_str(&format!(
                 r#"<rect x="{}" y="{}" width="{}" height="{}" fill="black"/>"#,
-                rx, ry, scale.ceil(), scale.ceil()
+                rx,
+                ry,
+                scale.ceil(),
+                scale.ceil()
             ));
         }
     }

@@ -74,9 +74,17 @@ impl MigrationTrait for Migration {
                             .auto_increment()
                             .primary_key(),
                     )
-                    .col(ColumnDef::new(PipelineStages::PipelineId).integer().not_null())
+                    .col(
+                        ColumnDef::new(PipelineStages::PipelineId)
+                            .integer()
+                            .not_null(),
+                    )
                     .col(ColumnDef::new(PipelineStages::Name).string().not_null())
-                    .col(ColumnDef::new(PipelineStages::StageOrder).integer().not_null())
+                    .col(
+                        ColumnDef::new(PipelineStages::StageOrder)
+                            .integer()
+                            .not_null(),
+                    )
                     .col(ColumnDef::new(PipelineStages::Status).string().not_null())
                     .col(ColumnDef::new(PipelineStages::StartedAt).date_time())
                     .col(ColumnDef::new(PipelineStages::FinishedAt).date_time())

@@ -171,13 +171,37 @@ impl MigrationTrait for Migration {
                             .auto_increment()
                             .primary_key(),
                     )
-                    .col(ColumnDef::new(WebhookDeliveries::WebhookId).big_integer().not_null())
+                    .col(
+                        ColumnDef::new(WebhookDeliveries::WebhookId)
+                            .big_integer()
+                            .not_null(),
+                    )
                     .col(ColumnDef::new(WebhookDeliveries::Event).string().not_null())
-                    .col(ColumnDef::new(WebhookDeliveries::DeliveryId).string().not_null())
-                    .col(ColumnDef::new(WebhookDeliveries::ResponseStatus).integer().null())
-                    .col(ColumnDef::new(WebhookDeliveries::RequestPayload).string().null())
-                    .col(ColumnDef::new(WebhookDeliveries::ResponseBody).string().null())
-                    .col(ColumnDef::new(WebhookDeliveries::DurationMs).big_integer().null())
+                    .col(
+                        ColumnDef::new(WebhookDeliveries::DeliveryId)
+                            .string()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(WebhookDeliveries::ResponseStatus)
+                            .integer()
+                            .null(),
+                    )
+                    .col(
+                        ColumnDef::new(WebhookDeliveries::RequestPayload)
+                            .string()
+                            .null(),
+                    )
+                    .col(
+                        ColumnDef::new(WebhookDeliveries::ResponseBody)
+                            .string()
+                            .null(),
+                    )
+                    .col(
+                        ColumnDef::new(WebhookDeliveries::DurationMs)
+                            .big_integer()
+                            .null(),
+                    )
                     .col(
                         ColumnDef::new(WebhookDeliveries::CreatedAt)
                             .timestamp_with_time_zone()

@@ -11,19 +11,19 @@
 //! GET    /api/v1/repos/:owner/:name/releases/assets/:asset_id/download — download asset
 //! DELETE /api/v1/repos/:owner/:name/releases/assets/:asset_id     — delete asset
 
+use axum::body::Body;
 use axum::{
     extract::{Path, Query, State},
     http::{header, HeaderMap, StatusCode},
     response::IntoResponse,
     Json,
 };
-use axum::body::Body;
 use serde::Deserialize;
 use utoipa::ToSchema;
 
-use crate::error::AppError;
 use crate::api::auth::extract_bearer_claims;
-use crate::pagination::{PaginationParams, PaginatedResponse};
+use crate::error::AppError;
+use crate::pagination::{PaginatedResponse, PaginationParams};
 use crate::AppState;
 
 /// Request body for creating a release.
@@ -78,7 +78,8 @@ pub async fn list_releases(
     let limit = pagination.limit();
 
     // Find repo
-    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await {
+    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
+    {
         Ok(Some(r)) => r,
         Ok(None) => {
             return AppError::not_found("repository not found").into_response();
@@ -130,7 +131,8 @@ pub async fn create_release(
     let user_id: i64 = claims.sub.parse().unwrap_or(-1);
 
     // Find repo
-    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await {
+    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
+    {
         Ok(Some(r)) => r,
         Ok(None) => {
             return AppError::not_found("repository not found").into_response();
@@ -315,7 +317,11 @@ pub async fn delete_release(
     }
 
     match rg_core::release::service::delete_release(&state.db, id).await {
-        Ok(()) => (StatusCode::NO_CONTENT, Json(serde_json::json!({ "deleted": true }))).into_response(),
+        Ok(()) => (
+            StatusCode::NO_CONTENT,
+            Json(serde_json::json!({ "deleted": true })),
+        )
+            .into_response(),
         Err(e) => AppError::bad_request(e).into_response(),
     }
 }
@@ -413,7 +419,8 @@ pub async fn upload_asset(
     let filename = match filename {
         Some(f) if !f.is_empty() => f,
         _ => {
-            return AppError::bad_request("missing required header: x-asset-filename").into_response();
+            return AppError::bad_request("missing required header: x-asset-filename")
+                .into_response();
         }
     };
 
@@ -598,13 +605,11 @@ pub async fn delete_asset(
     )
     .await
     {
-        Ok(()) => {
-            (
-                StatusCode::NO_CONTENT,
-                Json(serde_json::json!({ "deleted": true })),
-            )
-                .into_response()
-        }
+        Ok(()) => (
+            StatusCode::NO_CONTENT,
+            Json(serde_json::json!({ "deleted": true })),
+        )
+            .into_response(),
         Err(e) => AppError::bad_request(e).into_response(),
     }
 }

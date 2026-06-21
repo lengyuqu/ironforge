@@ -6,8 +6,8 @@ use axum::response::IntoResponse;
 use axum::Json;
 use serde::Deserialize;
 
-use crate::AppState;
 use crate::error::AppError;
+use crate::AppState;
 
 // ── Request / Response types ──────────────────────────────────────────
 
@@ -227,4 +227,3 @@ pub async fn delete_protection(
         Err(e) => AppError::BadRequest(e.to_string()).into_response(),
     }
 }
-

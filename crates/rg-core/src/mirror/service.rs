@@ -5,11 +5,11 @@
 
 use anyhow::{Context, Result};
 use chrono::Utc;
-use sea_orm::{DatabaseConnection, EntityTrait};
-use sea_orm::ActiveValue::Set;
 use rg_db::entities::mirror::{ActiveModel, Model as Mirror};
 use rg_db::entities::repository;
 use rg_git::cli_gateway::global_gateway;
+use sea_orm::ActiveValue::Set;
+use sea_orm::{DatabaseConnection, EntityTrait};
 use std::path::Path;
 
 /// Create a new mirror for a repository.
@@ -31,7 +31,10 @@ pub async fn create_mirror(
     }
 
     // Check for existing mirror
-    if rg_db::ops::mirror_ops::find_by_repo_id(db, repo_id).await?.is_some() {
+    if rg_db::ops::mirror_ops::find_by_repo_id(db, repo_id)
+        .await?
+        .is_some()
+    {
         anyhow::bail!("mirror already exists for this repository");
     }
 
@@ -77,13 +80,21 @@ pub async fn update_mirror(
         .ok_or_else(|| anyhow::anyhow!("mirror not found"))?;
 
     let mut model: ActiveModel = existing.into();
-    if let Some(v) = url { model.url = Set(v); }
-    if let Some(v) = username { model.username = Set(Some(v)); }
-    if let Some(v) = password { model.password_encrypted = Set(Some(v)); }
+    if let Some(v) = url {
+        model.url = Set(v);
+    }
+    if let Some(v) = username {
+        model.username = Set(Some(v));
+    }
+    if let Some(v) = password {
+        model.password_encrypted = Set(Some(v));
+    }
     if let Some(v) = sync_interval_seconds {
         model.sync_interval_seconds = Set(v);
     }
-    if let Some(v) = status { model.status = Set(v); }
+    if let Some(v) = status {
+        model.status = Set(v);
+    }
     model.updated_at = Set(Utc::now());
 
     rg_db::ops::mirror_ops::update(db, model).await
@@ -100,7 +111,11 @@ pub async fn delete_mirror(db: &DatabaseConnection, repo_id: i64) -> Result<()> 
 /// Sync a single mirror: clone (first time) or fetch (subsequent).
 ///
 /// Returns Ok(true) if synced successfully, Ok(false) if mirror is inactive.
-pub async fn sync_mirror(db: &DatabaseConnection, mirror: &Mirror, repo_root: &Path) -> Result<bool> {
+pub async fn sync_mirror(
+    db: &DatabaseConnection,
+    mirror: &Mirror,
+    repo_root: &Path,
+) -> Result<bool> {
     if mirror.status != "active" {
         return Ok(false);
     }
@@ -140,7 +155,11 @@ pub async fn sync_mirror(db: &DatabaseConnection, mirror: &Mirror, repo_root: &P
 }
 
 /// Sync all due mirrors (called by background task / cron).
-pub async fn sync_due_mirrors(db: &DatabaseConnection, repo_root: &Path, limit: u64) -> Result<usize> {
+pub async fn sync_due_mirrors(
+    db: &DatabaseConnection,
+    repo_root: &Path,
+    limit: u64,
+) -> Result<usize> {
     let mirrors = rg_db::ops::mirror_ops::list_due_sync(db, limit).await?;
     let mut count = 0;
     for mirror in &mirrors {
@@ -168,13 +187,17 @@ fn run_git_clone_mirror(url: &str, path: &Path) -> Result<()> {
     let parent = path.parent().unwrap();
     std::fs::create_dir_all(parent).context("create mirror dir")?;
 
-    let git = global_gateway().as_ref().map_err(|e| anyhow::anyhow!("{}", e))?;
+    let git = global_gateway()
+        .as_ref()
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
     git.run_or_bail(&["clone", "--mirror", url, &path.to_string_lossy()], None)
         .context("git clone --mirror")
 }
 
 fn run_git_remote_update(path: &Path) -> Result<()> {
-    let git = global_gateway().as_ref().map_err(|e| anyhow::anyhow!("{}", e))?;
+    let git = global_gateway()
+        .as_ref()
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
     git.run_or_bail(&["remote", "update", "--prune"], Some(path))
         .context("git remote update")
 }

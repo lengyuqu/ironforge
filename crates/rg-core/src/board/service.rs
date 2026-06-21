@@ -6,10 +6,10 @@
 
 use anyhow::Result;
 use chrono::Utc;
-use sea_orm::{ActiveValue::Set, DatabaseConnection};
 use rg_db::entities::board::{ActiveModel as BoardAM, Model as Board};
 use rg_db::entities::board_card::{ActiveModel as CardAM, Model as Card};
 use rg_db::entities::board_column::{ActiveModel as ColumnAM, Model as Column};
+use sea_orm::{ActiveValue::Set, DatabaseConnection};
 
 // ── Board CRUD ───────────────────────────────────────────────────────────
 
@@ -66,10 +66,7 @@ pub async fn get_board(db: &DatabaseConnection, id: i64) -> Result<Option<BoardF
 
     for col in columns {
         let cards = rg_db::ops::board_ops::list_cards_by_column(db, col.id).await?;
-        columns_full.push(ColumnFull {
-            column: col,
-            cards,
-        });
+        columns_full.push(ColumnFull { column: col, cards });
     }
 
     Ok(Some(BoardFull {
@@ -100,8 +97,12 @@ pub async fn update_board(
         .ok_or_else(|| anyhow::anyhow!("board not found"))?;
 
     let mut model: BoardAM = existing.into();
-    if let Some(v) = name { model.name = Set(v); }
-    if let Some(v) = description { model.description = Set(Some(v)); }
+    if let Some(v) = name {
+        model.name = Set(v);
+    }
+    if let Some(v) = description {
+        model.description = Set(Some(v));
+    }
     model.updated_at = Set(Utc::now());
 
     rg_db::ops::board_ops::update_board(db, model).await
@@ -150,8 +151,12 @@ pub async fn update_column(
         .ok_or_else(|| anyhow::anyhow!("column not found"))?;
 
     let mut model: ColumnAM = existing.into();
-    if let Some(v) = name { model.name = Set(v); }
-    if let Some(v) = color { model.color = Set(Some(v)); }
+    if let Some(v) = name {
+        model.name = Set(v);
+    }
+    if let Some(v) = color {
+        model.color = Set(Some(v));
+    }
     rg_db::ops::board_ops::update_column(db, model).await
 }
 
@@ -198,8 +203,12 @@ pub async fn update_card(
         .ok_or_else(|| anyhow::anyhow!("card not found"))?;
 
     let mut model: CardAM = existing.into();
-    if let Some(v) = note { model.note = Set(Some(v)); }
-    if let Some(v) = issue_id { model.issue_id = Set(v); }
+    if let Some(v) = note {
+        model.note = Set(Some(v));
+    }
+    if let Some(v) = issue_id {
+        model.issue_id = Set(v);
+    }
     model.updated_at = Set(Utc::now());
 
     rg_db::ops::board_ops::update_card(db, model).await
@@ -225,10 +234,7 @@ pub async fn move_card(
 }
 
 /// Reorder cards within a column.
-pub async fn reorder_cards(
-    db: &DatabaseConnection,
-    positions: Vec<(i64, i32)>,
-) -> Result<()> {
+pub async fn reorder_cards(db: &DatabaseConnection, positions: Vec<(i64, i32)>) -> Result<()> {
     rg_db::ops::board_ops::update_card_positions(db, &positions).await
 }
 

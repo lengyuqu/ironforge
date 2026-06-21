@@ -5,10 +5,7 @@ use anyhow::{bail, Context, Result};
 use chrono::{Duration, Utc};
 use sea_orm::{ActiveValue::Set, DatabaseConnection};
 
-use rg_db::{
-    entities::user::ActiveModel as UserActiveModel,
-    ops::user_ops,
-};
+use rg_db::{entities::user::ActiveModel as UserActiveModel, ops::user_ops};
 
 use crate::auth::{jwt, password};
 
@@ -54,7 +51,9 @@ pub async fn register(
     rg_db::ops::user_ops::find_by_username(db, username)
         .await?
         .map(|_| ())
-        .map_or(Ok(()), |_| bail!("username '{}' is already taken", username))?;
+        .map_or(Ok(()), |_| {
+            bail!("username '{}' is already taken", username)
+        })?;
 
     if user_ops::find_by_email(db, email).await?.is_some() {
         bail!("email '{}' is already registered", email);
@@ -70,7 +69,10 @@ pub async fn register(
         bail!("username must start with an alphanumeric character");
     }
 
-    if !username.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+    if !username
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
         bail!("username must only contain alphanumeric characters, hyphens, and underscores");
     }
 
@@ -91,8 +93,8 @@ pub async fn register(
         .validate_with_username(plaintext_password, username)
         .map_err(|e| anyhow::anyhow!("{}", e))?;
 
-    let password_hash = password::hash_password(plaintext_password)
-        .context("failed to hash password")?;
+    let password_hash =
+        password::hash_password(plaintext_password).context("failed to hash password")?;
 
     let now = Utc::now();
     let model = UserActiveModel {
@@ -193,15 +195,8 @@ pub async fn update_user_admin(
     is_admin: Option<bool>,
     is_active: Option<bool>,
 ) -> Result<UserInfo> {
-    let updated = user_ops::update_by_id(
-        db,
-        target_user_id,
-        display_name,
-        bio,
-        is_admin,
-        is_active,
-    )
-    .await?;
+    let updated =
+        user_ops::update_by_id(db, target_user_id, display_name, bio, is_admin, is_active).await?;
     Ok(updated.into())
 }
 
@@ -277,10 +272,7 @@ pub async fn forgot_password(
         .await;
     }
 
-    tracing::info!(
-        user_id = user.id,
-        "password reset requested"
-    );
+    tracing::info!(user_id = user.id, "password reset requested");
 
     Ok(())
 }
@@ -295,8 +287,7 @@ pub async fn reset_password(
     use sha2::Digest;
     let token_hash = hex::encode(sha2::Sha256::digest(raw_token.as_bytes()));
 
-    let token_record = rg_db::ops::password_reset_token_ops::find_by_hash(db, &token_hash)
-        .await?;
+    let token_record = rg_db::ops::password_reset_token_ops::find_by_hash(db, &token_hash).await?;
     let token = match token_record {
         Some(t) if !t.used && t.expires_at > Utc::now() => t,
         _ => bail!("invalid or expired reset token"),
@@ -312,8 +303,7 @@ pub async fn reset_password(
         .validate_with_username(new_password, &user.username)
         .map_err(|e| anyhow::anyhow!("{}", e))?;
 
-    let new_hash = password::hash_password(new_password)
-        .context("failed to hash new password")?;
+    let new_hash = password::hash_password(new_password).context("failed to hash new password")?;
 
     // Update password
     use sea_orm::ActiveModelTrait;

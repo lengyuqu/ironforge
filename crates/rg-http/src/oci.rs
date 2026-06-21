@@ -13,17 +13,14 @@ use axum::{
 use sea_orm::DatabaseConnection;
 use tokio::io::AsyncWriteExt;
 
+use rg_core::auth::jwt;
 use rg_core::auth::oci_token::{
-    ParsedScope,
-    build_www_authenticate, check_repo_access,
-    generate_oci_token, validate_oci_token,
+    build_www_authenticate, check_repo_access, generate_oci_token, validate_oci_token, ParsedScope,
 };
 use rg_core::package_registry::oci::{
-    Reference, ParsedManifest,
-    TagListResponse, ErrorResponse, ErrorDetail,
-    API_VERSION, error_codes, media_types,
+    error_codes, media_types, ErrorDetail, ErrorResponse, ParsedManifest, Reference,
+    TagListResponse, API_VERSION,
 };
-use rg_core::auth::jwt;
 
 use crate::AppState;
 
@@ -36,13 +33,17 @@ const DOCKER_API_VERSION: HeaderName = HeaderName::from_static("docker-distribut
 // ── helpers ──────────────────────────────────────────────────
 
 fn oci_err(status: StatusCode, code: &str, message: &str) -> Response {
-    (status, Json(ErrorResponse {
-        errors: vec![ErrorDetail {
-            code: code.to_string(),
-            message: message.to_string(),
-            detail: None,
-        }],
-    })).into_response()
+    (
+        status,
+        Json(ErrorResponse {
+            errors: vec![ErrorDetail {
+                code: code.to_string(),
+                message: message.to_string(),
+                detail: None,
+            }],
+        }),
+    )
+        .into_response()
 }
 
 fn oci_not_found(code: &str, message: &str) -> Response {
@@ -89,7 +90,8 @@ fn check_access(
 ) -> (bool, Option<i64>) {
     // Try normal JWT first (sub is user_id)
     if let Some(claims) = jwt::validate_token(
-        headers.get(header::AUTHORIZATION)
+        headers
+            .get(header::AUTHORIZATION)
             .and_then(|v| v.to_str().ok())
             .and_then(|v| v.strip_prefix("Bearer "))
             .unwrap_or(""),
@@ -136,10 +138,7 @@ fn www_authenticate(realm: &str, service: &str, scope: &str) -> String {
 /// `GET /v2/` — API version check.
 /// Docker clients call this first to verify the registry is available.
 /// Returns 401 with WWW-Authenticate if authentication is required.
-pub async fn api_version_check(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-) -> Response {
+pub async fn api_version_check(State(state): State<AppState>, headers: HeaderMap) -> Response {
     // Return 401 to trigger Docker auth flow
     let _ = extract_user(&headers, &state.jwt_secret);
 
@@ -155,7 +154,8 @@ pub async fn api_version_check(
                 www_authenticate(&realm, service, "registry:catalog:*").as_str(),
             ),
         ],
-    ).into_response()
+    )
+        .into_response()
 }
 
 // ── Token Endpoint ─────────────────────────────────────
@@ -178,7 +178,10 @@ pub async fn get_token(
     headers: HeaderMap,
     Query(params): Query<std::collections::HashMap<String, String>>,
 ) -> Response {
-    let _service = params.get("service").cloned().unwrap_or_else(|| "ironforge-registry".to_string());
+    let _service = params
+        .get("service")
+        .cloned()
+        .unwrap_or_else(|| "ironforge-registry".to_string());
     let scope = params.get("scope").cloned().unwrap_or_default();
 
     // Default: anonymous token (limited scope)
@@ -196,15 +199,16 @@ pub async fn get_token(
                         if parts.len() == 2 {
                             let (user, pass) = (parts[0], parts[1]);
                             // Validate credentials
-                            match rg_db::ops::user_ops::find_by_username(&state.db, user).await {
-                                Ok(Some(u)) => {
-                                    // Verify password
-                                    if rg_core::auth::password::verify_password(pass, &u.password_hash).unwrap_or(false) {
-                                        username = user.to_string();
-                                        granted_scope = scope.clone(); // Full requested scope
-                                    }
+                            if let Ok(Some(u)) =
+                                rg_db::ops::user_ops::find_by_username(&state.db, user).await
+                            {
+                                // Verify password
+                                if rg_core::auth::password::verify_password(pass, &u.password_hash)
+                                    .unwrap_or(false)
+                                {
+                                    username = user.to_string();
+                                    granted_scope = scope.clone(); // Full requested scope
                                 }
-                                _ => {}
                             }
                         }
                     }
@@ -234,7 +238,11 @@ pub async fn get_token(
         Ok(t) => t,
         Err(e) => {
             tracing::error!("Failed to generate OCI token: {}", e);
-            return oci_err(StatusCode::INTERNAL_SERVER_ERROR, "UNKNOWN", "token generation failed");
+            return oci_err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "UNKNOWN",
+                "token generation failed",
+            );
         }
     };
 
@@ -243,7 +251,8 @@ pub async fn get_token(
         "token": token,
         "expires_in": ttl,
         "issued_at": chrono::Utc::now().to_rfc3339(),
-    })).into_response()
+    }))
+    .into_response()
 }
 
 // ── Tags ─────────────────────────────────────────────────────
@@ -264,10 +273,14 @@ pub async fn list_tags(
         Err(e) => return oci_err(StatusCode::INTERNAL_SERVER_ERROR, "UNKNOWN", &e.to_string()),
     };
 
-    (StatusCode::OK, Json(TagListResponse {
-        name: format!("{owner}/{repo}"),
-        tags,
-    })).into_response()
+    (
+        StatusCode::OK,
+        Json(TagListResponse {
+            name: format!("{owner}/{repo}"),
+            tags,
+        }),
+    )
+        .into_response()
 }
 
 // ── Manifest ─────────────────────────────────────────────────
@@ -321,7 +334,11 @@ async fn get_manifest_impl(
     let docker_digest = format!(
         "{}:{}",
         manifest.digest.split(':').next().unwrap_or("sha256"),
-        manifest.digest.split(':').nth(1).unwrap_or(&manifest.digest)
+        manifest
+            .digest
+            .split(':')
+            .nth(1)
+            .unwrap_or(&manifest.digest)
     );
 
     if head_only {
@@ -333,7 +350,8 @@ async fn get_manifest_impl(
                 (DOCKER_CONTENT_DIGEST, docker_digest.as_str()),
             ],
             String::new(),
-        ).into_response()
+        )
+            .into_response()
     } else {
         (
             StatusCode::OK,
@@ -342,7 +360,8 @@ async fn get_manifest_impl(
                 (DOCKER_CONTENT_DIGEST, docker_digest.as_str()),
             ],
             manifest.manifest_json,
-        ).into_response()
+        )
+            .into_response()
     }
 }
 
@@ -409,7 +428,11 @@ pub async fn put_manifest(
     }
 
     // Store manifest on disk
-    if let Err(e) = state.oci_storage.store_manifest(&owner, &repo, &parsed.digest, &body.as_bytes()).await {
+    if let Err(e) = state
+        .oci_storage
+        .store_manifest(&owner, &repo, &parsed.digest, body.as_bytes())
+        .await
+    {
         return oci_err(StatusCode::INTERNAL_SERVER_ERROR, "UNKNOWN", &e.to_string());
     }
 
@@ -429,31 +452,46 @@ pub async fn put_manifest(
         match rg_db::ops::oci_ops::find_manifest_by_tag(&state.db, oci_repo.id, tag).await {
             Ok(Some(_)) => {
                 rg_db::ops::oci_ops::update_manifest_tag(
-                    &state.db, oci_repo.id, tag,
-                    &parsed.digest, content_type,
-                    parsed.size as i64, &body,
+                    &state.db,
+                    oci_repo.id,
+                    tag,
+                    &parsed.digest,
+                    content_type,
+                    parsed.size as i64,
+                    &body,
                     parsed.manifest.schema_version as i32,
                     user_id,
-                ).await
+                )
+                .await
             }
             _ => {
                 rg_db::ops::oci_ops::insert_manifest(
-                    &state.db, oci_repo.id,
-                    &parsed.digest, Some(tag),
-                    content_type, parsed.size as i64, &body,
+                    &state.db,
+                    oci_repo.id,
+                    &parsed.digest,
+                    Some(tag),
+                    content_type,
+                    parsed.size as i64,
+                    &body,
                     parsed.manifest.schema_version as i32,
                     user_id,
-                ).await
+                )
+                .await
             }
         }
     } else {
         rg_db::ops::oci_ops::insert_manifest(
-            &state.db, oci_repo.id,
-            &parsed.digest, None,
-            content_type, parsed.size as i64, &body,
+            &state.db,
+            oci_repo.id,
+            &parsed.digest,
+            None,
+            content_type,
+            parsed.size as i64,
+            &body,
             parsed.manifest.schema_version as i32,
             user_id,
-        ).await
+        )
+        .await
     };
 
     let _manifest = match result {
@@ -463,12 +501,15 @@ pub async fn put_manifest(
 
     // Increment blob ref counts
     for blob_digest in parsed.referenced_blobs() {
-        if let Ok(Some(blob)) = rg_db::ops::oci_ops::find_blob(&state.db, oci_repo.id, &blob_digest).await {
+        if let Ok(Some(blob)) =
+            rg_db::ops::oci_ops::find_blob(&state.db, oci_repo.id, &blob_digest).await
+        {
             let _ = rg_db::ops::oci_ops::increment_blob_ref(&state.db, blob.id).await;
         }
     }
 
-    let docker_digest = format!("{}:{}",
+    let docker_digest = format!(
+        "{}:{}",
         parsed.digest.split(':').next().unwrap_or("sha256"),
         parsed.digest.split(':').nth(1).unwrap_or(&parsed.digest),
     );
@@ -477,10 +518,18 @@ pub async fn put_manifest(
         StatusCode::CREATED,
         [
             (DOCKER_CONTENT_DIGEST, docker_digest.as_str()),
-            (header::LOCATION, format!("/v2/{owner}/{repo}/manifests/{digest}", digest = parsed.digest).as_str()),
+            (
+                header::LOCATION,
+                format!(
+                    "/v2/{owner}/{repo}/manifests/{digest}",
+                    digest = parsed.digest
+                )
+                .as_str(),
+            ),
         ],
         String::new(),
-    ).into_response()
+    )
+        .into_response()
 }
 
 // ── Blob ─────────────────────────────────────────────────────
@@ -494,16 +543,16 @@ pub async fn head_blob(
     if exists {
         // Get blob size from DB if available
         let size = match find_oci_repo(&state.db, &owner, &repo).await {
-            Ok(Some(oci_repo)) => {
-                rg_db::ops::oci_ops::find_blob(&state.db, oci_repo.id, &digest)
-                    .await
-                    .ok()
-                    .flatten()
-                    .map(|b| b.size)
-            }
+            Ok(Some(oci_repo)) => rg_db::ops::oci_ops::find_blob(&state.db, oci_repo.id, &digest)
+                .await
+                .ok()
+                .flatten()
+                .map(|b| b.size),
             _ => None,
         };
-        let size_hdr = size.map(|s| s.to_string()).unwrap_or_else(|| "0".to_string());
+        let size_hdr = size
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| "0".to_string());
         (
             StatusCode::OK,
             [
@@ -511,7 +560,8 @@ pub async fn head_blob(
                 (DOCKER_CONTENT_DIGEST, digest.as_str()),
             ],
             String::new(),
-        ).into_response()
+        )
+            .into_response()
     } else {
         oci_not_found(error_codes::BLOB_UNKNOWN, "blob not found")
     }
@@ -532,17 +582,29 @@ pub async fn get_blob(
         Ok(file) => {
             let size = match file.metadata().await {
                 Ok(m) => m.len(),
-                Err(_) => return oci_err(StatusCode::INTERNAL_SERVER_ERROR, "UNKNOWN", "failed to stat blob"),
+                Err(_) => {
+                    return oci_err(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "UNKNOWN",
+                        "failed to stat blob",
+                    )
+                }
             };
             let stream = tokio_util::io::ReaderStream::new(file);
-            let stream_body = http_body_util::StreamBody::new(
-                futures::StreamExt::map(stream, |item| item.map(http_body::Frame::data))
-            );
-            (StatusCode::OK, [
-                (header::CONTENT_TYPE, "application/octet-stream"),
-                (header::CONTENT_LENGTH, size.to_string().as_str()),
-                (DOCKER_CONTENT_DIGEST, digest.as_str()),
-            ], Body::new(stream_body)).into_response()
+            let stream_body =
+                http_body_util::StreamBody::new(futures::StreamExt::map(stream, |item| {
+                    item.map(http_body::Frame::data)
+                }));
+            (
+                StatusCode::OK,
+                [
+                    (header::CONTENT_TYPE, "application/octet-stream"),
+                    (header::CONTENT_LENGTH, size.to_string().as_str()),
+                    (DOCKER_CONTENT_DIGEST, digest.as_str()),
+                ],
+                Body::new(stream_body),
+            )
+                .into_response()
         }
         Err(e) => oci_err(StatusCode::INTERNAL_SERVER_ERROR, "UNKNOWN", &e.to_string()),
     }
@@ -575,7 +637,10 @@ pub async fn start_upload(
     match state.oci_storage.create_upload(&owner, &repo).await {
         Ok((uuid, upload_path)) => {
             // Record upload in DB
-            if let Err(e) = rg_db::ops::oci_ops::create_upload(&state.db, oci_repo.id, &uuid, &upload_path).await {
+            if let Err(e) =
+                rg_db::ops::oci_ops::create_upload(&state.db, oci_repo.id, &uuid, &upload_path)
+                    .await
+            {
                 return oci_err(StatusCode::INTERNAL_SERVER_ERROR, "UNKNOWN", &e.to_string());
             }
 
@@ -588,7 +653,8 @@ pub async fn start_upload(
                     (DOCKER_UPLOAD_UUID, uuid.as_str()),
                 ],
                 String::new(),
-            ).into_response()
+            )
+                .into_response()
         }
         Err(e) => oci_err(StatusCode::INTERNAL_SERVER_ERROR, "UNKNOWN", &e.to_string()),
     }
@@ -604,16 +670,29 @@ async fn handle_mount(
 ) -> Response {
     let (from_owner, from_repo) = match parse_namespace(from) {
         Some(p) => p,
-        None => return oci_err(StatusCode::BAD_REQUEST, error_codes::NAME_INVALID, "invalid mount source"),
+        None => {
+            return oci_err(
+                StatusCode::BAD_REQUEST,
+                error_codes::NAME_INVALID,
+                "invalid mount source",
+            )
+        }
     };
 
     // Check source blob exists
-    if !state.oci_storage.blob_exists(from_owner, from_repo, mount_digest) {
+    if !state
+        .oci_storage
+        .blob_exists(from_owner, from_repo, mount_digest)
+    {
         return oci_not_found(error_codes::BLOB_UNKNOWN, "mount source blob not found");
     }
 
     // Copy blob file via hardlink (or fallback to streaming copy) — avoids memory copy
-    match state.oci_storage.copy_blob_file(from_owner, from_repo, owner, repo, mount_digest).await {
+    match state
+        .oci_storage
+        .copy_blob_file(from_owner, from_repo, owner, repo, mount_digest)
+        .await
+    {
         Ok(_) => {
             let location = format!("/v2/{owner}/{repo}/blobs/{mount_digest}");
             (
@@ -623,7 +702,8 @@ async fn handle_mount(
                     (DOCKER_CONTENT_DIGEST, mount_digest),
                 ],
                 String::new(),
-            ).into_response()
+            )
+                .into_response()
         }
         Err(e) => oci_err(StatusCode::INTERNAL_SERVER_ERROR, "UNKNOWN", &e.to_string()),
     }
@@ -638,14 +718,17 @@ pub async fn chunk_upload(
     Path((owner, repo, uuid)): Path<(String, String, String)>,
     body: Body,
 ) -> Response {
-    let (authenticated, _user_id) = check_access(&headers, &state.jwt_secret, &owner, &repo, "push");
+    let (authenticated, _user_id) =
+        check_access(&headers, &state.jwt_secret, &owner, &repo, "push");
     if !authenticated {
         return oci_unauthorized("authentication required");
     };
     // Verify upload session exists
     match rg_db::ops::oci_ops::find_upload(&state.db, &uuid).await {
         Ok(Some(_)) => {}
-        Ok(None) => return oci_not_found(error_codes::BLOB_UPLOAD_UNKNOWN, "upload session not found"),
+        Ok(None) => {
+            return oci_not_found(error_codes::BLOB_UPLOAD_UNKNOWN, "upload session not found")
+        }
         Err(e) => return oci_err(StatusCode::INTERNAL_SERVER_ERROR, "UNKNOWN", &e.to_string()),
     }
 
@@ -666,7 +749,8 @@ pub async fn chunk_upload(
                     (DOCKER_UPLOAD_UUID, uuid.as_str()),
                 ],
                 String::new(),
-            ).into_response()
+            )
+                .into_response()
         }
         Err(e) => oci_err(StatusCode::INTERNAL_SERVER_ERROR, "UNKNOWN", &e.to_string()),
     }
@@ -687,7 +771,13 @@ pub async fn complete_upload(
     };
     let expected_digest = match params.get("digest") {
         Some(d) => d.clone(),
-        None => return oci_err(StatusCode::BAD_REQUEST, error_codes::DIGEST_INVALID, "digest parameter required"),
+        None => {
+            return oci_err(
+                StatusCode::BAD_REQUEST,
+                error_codes::DIGEST_INVALID,
+                "digest parameter required",
+            )
+        }
     };
 
     // If body is provided (single-chunk upload), stream it to the upload file first
@@ -703,14 +793,22 @@ pub async fn complete_upload(
     };
 
     // Finalize: stream-read upload file, verify digest, move to blob storage
-    match state.oci_storage.finalize_upload(&owner, &repo, &uuid, &expected_digest).await {
+    match state
+        .oci_storage
+        .finalize_upload(&owner, &repo, &uuid, &expected_digest)
+        .await
+    {
         Ok((digest, size, storage_path)) => {
             // Record blob in DB
             let _ = rg_db::ops::oci_ops::insert_blob(
-                &state.db, oci_repo.id,
-                &digest, "application/octet-stream",
-                size, &storage_path,
-            ).await;
+                &state.db,
+                oci_repo.id,
+                &digest,
+                "application/octet-stream",
+                size,
+                &storage_path,
+            )
+            .await;
 
             // Clean up upload session
             let _ = rg_db::ops::oci_ops::delete_upload(&state.db, &uuid).await;
@@ -723,11 +821,14 @@ pub async fn complete_upload(
                     (DOCKER_CONTENT_DIGEST, digest.as_str()),
                 ],
                 String::new(),
-            ).into_response()
+            )
+                .into_response()
         }
-        Err(e) => {
-            oci_err(StatusCode::BAD_REQUEST, error_codes::DIGEST_INVALID, &e.to_string())
-        }
+        Err(e) => oci_err(
+            StatusCode::BAD_REQUEST,
+            error_codes::DIGEST_INVALID,
+            &e.to_string(),
+        ),
     }
 }
 
@@ -740,7 +841,8 @@ async fn stream_body_to_file(body: Body, file_path: &std::path::Path) -> anyhow:
     let mut file = tokio::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(file_path).await?;
+        .open(file_path)
+        .await?;
 
     use futures::StreamExt;
     let mut stream = body.into_data_stream();
@@ -757,7 +859,11 @@ async fn stream_body_to_file(body: Body, file_path: &std::path::Path) -> anyhow:
 
 /// Find an OCI repository, auto-creating if it doesn't exist.
 /// Uses the IronForge repo as the owner.
-async fn find_oci_repo(db: &DatabaseConnection, owner: &str, repo: &str) -> anyhow::Result<Option<rg_db::entities::oci_repository::Model>> {
+async fn find_oci_repo(
+    db: &DatabaseConnection,
+    owner: &str,
+    repo: &str,
+) -> anyhow::Result<Option<rg_db::entities::oci_repository::Model>> {
     // Look up the IronForge repository
     let ironforge_repo = rg_core::repo::service::find_repo_by_owner_name(db, owner, repo).await?;
     match ironforge_repo {
@@ -786,9 +892,14 @@ async fn find_or_create_oci_repo(
     };
 
     let namespace = format!("{}/{}", owner, repo);
-    rg_db::ops::oci_ops::find_or_create_repo(db, ironforge_repo.id, &namespace, owner_id.unwrap_or(0))
-        .await
-        .map_err(Into::into)
+    rg_db::ops::oci_ops::find_or_create_repo(
+        db,
+        ironforge_repo.id,
+        &namespace,
+        owner_id.unwrap_or(0),
+    )
+    .await
+    .map_err(Into::into)
 }
 
 fn get_base_url(headers: &HeaderMap) -> String {

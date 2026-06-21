@@ -35,6 +35,77 @@ export interface PaginatedResponse<T> {
   pagination: PaginationMeta;
 }
 
+interface PackageSummaryResponse {
+  id: number;
+  name: string;
+  description: string | null;
+  homepage: string | null;
+  version_count: number;
+  latest_version: string | null;
+  download_count: number;
+  keywords: string | null;
+  format?: string;
+}
+
+interface PackageRegistry {
+  package_type: string;
+  enabled: boolean;
+}
+
+interface PackageListByTypeResponse {
+  packages: PackageSummaryResponse[];
+}
+
+interface PackageVersionResponse {
+  id: number;
+  version: string;
+  semver: string | null;
+  metadata: string | null;
+  size: number;
+  sha256: string | null;
+  is_yanked: boolean;
+  download_count: number;
+  files: any[];
+  created_at: string;
+}
+
+interface VersionListByTypeResponse {
+  versions: PackageVersionResponse[];
+}
+
+interface PublishResponse {
+  package_id: number;
+  version_id: number;
+  existing: boolean;
+}
+
+interface RegistryListResponse {
+  registries: PackageRegistry[];
+}
+
+interface RunnerAdminResponse {
+  id: number;
+  name: string;
+  status: string;
+  labels: string | string[];
+  last_seen_at: string;
+  version: string | null;
+  os: string | null;
+  arch: string | null;
+}
+
+interface RunnerListItem {
+  id: number;
+  name: string;
+  status: string;
+  labels: string[];
+  last_seen: string;
+  last_seen_at: string;
+  version: string | null;
+  os: string | null;
+  arch: string | null;
+}
+
 export function getToken(): string | null {
   if (typeof window === 'undefined') return null;
   return authToken || localStorage.getItem('ironforge_token');
@@ -88,6 +159,64 @@ function qs(params: Record<string, string | number | boolean | undefined | null>
   return parts.length > 0 ? '?' + parts.join('&') : '';
 }
 
+function toPagination(total: number, page?: number, perPage?: number): PaginationMeta {
+  const safePage = Math.max(1, Number(page ?? 1));
+  const safePerPage = Number(perPage ?? 20);
+  const effectivePerPage = safePerPage > 0 ? safePerPage : 20;
+  const totalPages = total === 0 ? 1 : Math.max(1, Math.ceil(total / effectivePerPage));
+  return {
+    page: safePage,
+    per_page: effectivePerPage,
+    total,
+    total_pages: totalPages,
+    has_next: safePage < totalPages,
+    has_prev: safePage > 1,
+  };
+}
+
+function parseRunnerLabels(labels: string | string[] | undefined | null): string[] {
+  if (Array.isArray(labels)) {
+    return labels;
+  }
+
+  if (!labels || typeof labels !== 'string') {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(labels);
+    if (Array.isArray(parsed)) {
+      return parsed
+        .filter((v) => typeof v === 'string')
+        .map((v) => v as string)
+        .map((v) => v.trim())
+        .filter(Boolean);
+    }
+  } catch {
+    // Keep backward compatibility with older plain string storage.
+  }
+
+  return labels
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function normalizeRunner(row: RunnerAdminResponse): RunnerListItem {
+  const parsedLabels = parseRunnerLabels(row.labels);
+  return {
+    id: row.id,
+    name: row.name,
+    status: row.status,
+    labels: parsedLabels,
+    last_seen: row.last_seen_at,
+    last_seen_at: row.last_seen_at,
+    version: row.version,
+    os: row.os,
+    arch: row.arch,
+  };
+}
+
 // ── Auth ─────────────────────────────────────────────
 export const auth = {
   register: (username: string, email: string, password: string) =>
@@ -125,7 +254,15 @@ export const repos = {
       `/repos/explore${qs({ page, per_page: perPage })}`
     ),
   get: (owner: string, name: string) =>
-    request<{ id: number; name: string; description: string | null; is_private: boolean; default_branch: string; created_at: string }>(`/repos/${owner}/${name}`),
+    request<{
+      id: number;
+      name: string;
+      description: string | null;
+      is_private: boolean;
+      default_branch: string;
+      stars_count: number;
+      created_at: string;
+    }>(`/repos/${owner}/${name}`),
   create: (opts: {
     name: string;
     description?: string;
@@ -169,8 +306,10 @@ export const repos = {
   // Star
   star: (owner: string, repo: string) =>
     request<{ starred: boolean }>(`/repos/${owner}/${repo}/star`, { method: 'PUT' }),
+  starred: (owner: string, repo: string) =>
+    request<{ starred: boolean }>(`/repos/${owner}/${repo}/starred`, { method: 'GET' }),
   unstar: (owner: string, repo: string) =>
-    request<{ starred: boolean }>(`/repos/${owner}/${repo}/star`, { method: 'DELETE' }),
+    request<{ starred: boolean }>(`/repos/${owner}/${repo}/star`, { method: 'PUT' }),
   stargazers: (owner: string, repo: string, page?: number, perPage?: number) =>
     request<PaginatedResponse<any>>(`/repos/${owner}/${repo}/stargazers${qs({ page, per_page: perPage })}`),
   // Watch
@@ -541,6 +680,49 @@ export interface AuditLogQuery {
   end_time?: string;
 }
 
+export interface AdminSettings {
+  maintenance_mode: boolean;
+  banner_message: string | null;
+  banner_type: 'info' | 'warning' | 'error';
+}
+
+export interface AdminSsoProvider {
+  id: number;
+  name: string;
+  slug: string;
+  provider_type: string;
+  client_id: string | null;
+  discovery_url: string | null;
+  scopes: string | null;
+  ldap_host: string | null;
+  ldap_port: number | null;
+  ldap_bind_dn: string | null;
+  ldap_base_dn: string | null;
+  ldap_user_filter: string | null;
+  enabled: boolean;
+  icon_url: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SsoProviderPayload {
+  name: string;
+  slug: string;
+  provider_type?: string;
+  client_id?: string;
+  client_secret?: string;
+  discovery_url?: string;
+  scopes?: string;
+  ldap_host?: string;
+  ldap_port?: number;
+  ldap_bind_dn?: string;
+  ldap_bind_password?: string;
+  ldap_base_dn?: string;
+  ldap_user_filter?: string;
+  enabled?: boolean;
+  icon_url?: string;
+}
+
 export const admin = {
   // Users
   listUsers: (page?: number, perPage?: number) =>
@@ -576,6 +758,27 @@ export const admin = {
     })}`),
   getAuditLog: (id: number) =>
     request<AuditLogEntry>(`/admin/audit/logs/${id}`),
+  getSettings: () =>
+    request<AdminSettings>('/admin/settings'),
+  updateSettings: (payload: Partial<AdminSettings>) =>
+    request<AdminSettings>('/admin/settings', {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+  listSsoProviders: () =>
+    request<AdminSsoProvider[]>('/admin/sso/providers'),
+  createSsoProvider: (payload: SsoProviderPayload) =>
+    request<AdminSsoProvider>('/admin/sso/providers', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  updateSsoProvider: (id: number, payload: SsoProviderPayload) =>
+    request<AdminSsoProvider>(`/admin/sso/providers/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+  deleteSsoProvider: (id: number) =>
+    request<{ deleted: boolean }>(`/admin/sso/providers/${id}`, { method: 'DELETE' }),
 };
 
 // ── WebSocket ────────────────────────────────────────
@@ -604,38 +807,104 @@ export const search = {
 
 // ── Packages ─────────────────────────────────────
 export const packages = {
-  list: (owner: string, repo: string, format?: string, page?: number, perPage?: number) =>
-    request<PaginatedResponse<any>>(`/repos/${owner}/${repo}/packages${qs({ format, page, per_page: perPage })}`),
-  getFormat: (owner: string, repo: string, format: string) =>
-    request<{ format: string; packages: any[] }>(`/repos/${owner}/${repo}/packages/${format}`),
-  get: (owner: string, repo: string, format: string, name: string) =>
-    request<any>(`/repos/${owner}/${repo}/packages/${format}/${name}`),
-  getVersions: (owner: string, repo: string, format: string, name: string) =>
-    request<{ name: string; versions: string[] }>(`/repos/${owner}/${repo}/packages/${format}/${name}/versions`),
-  getVersion: (owner: string, repo: string, format: string, name: string, version: string) =>
-    request<any>(`/repos/${owner}/${repo}/packages/${format}/${name}/versions/${version}`),
-  create: (owner: string, repo: string, format: string, data: { name: string; version: string; description?: string; content_type?: string; file?: File }) =>
-    request<any>(`/repos/${owner}/${repo}/packages/${format}`, {
+  list: async (owner: string, repo: string, pkg_type?: string, page?: number, perPage?: number) => {
+    if (pkg_type) {
+      const res = await request<PackageListByTypeResponse>(`/repos/${owner}/${repo}/packages/${encodeURIComponent(pkg_type)}/list`);
+      const list = (res.packages || []).map((item) => ({ ...item, format: pkg_type }));
+      const start = ((page ?? 1) - 1) * (perPage ?? 20);
+      const size = perPage ?? 20;
+      return {
+        data: list.slice(start, start + size),
+        pagination: toPagination(list.length, page, perPage),
+      };
+    }
+
+    const reg = await request<RegistryListResponse>(`/repos/${owner}/${repo}/packages`);
+    const regTypes = reg.registries.filter((r) => r.enabled).map((r) => r.package_type);
+
+    if (regTypes.length === 0) {
+      return {
+        data: [] as PackageSummaryResponse[],
+        pagination: toPagination(0, page, perPage),
+      };
+    }
+
+    const packByType = await Promise.all(
+      regTypes.map((pkg_type) => request<PackageListByTypeResponse>(`/repos/${owner}/${repo}/packages/${encodeURIComponent(pkg_type)}/list`).catch(() => ({ packages: [] })))
+    );
+    const list = packByType.flatMap((group, idx) =>
+      (group.packages || []).map((pkg) => ({ ...pkg, format: regTypes[idx] }))
+    );
+    const start = ((page ?? 1) - 1) * (perPage ?? 20);
+    const size = perPage ?? 20;
+
+    return {
+      data: list.slice(start, start + size),
+      pagination: toPagination(list.length, page, perPage),
+    };
+  },
+  getFormat: (owner: string, repo: string, pkg_type: string) =>
+    request<PackageListByTypeResponse>(`/repos/${owner}/${repo}/packages/${encodeURIComponent(pkg_type)}/list`),
+  get: (owner: string, repo: string, pkg_type: string, pkg_name: string) =>
+    request<any>(`/repos/${owner}/${repo}/packages/${encodeURIComponent(pkg_type)}/${encodeURIComponent(pkg_name)}`),
+  getVersions: (owner: string, repo: string, pkg_type: string, pkg_name: string) =>
+    request<VersionListByTypeResponse>(`/repos/${owner}/${repo}/packages/${encodeURIComponent(pkg_type)}/${encodeURIComponent(pkg_name)}/versions`).then((res) => ({
+      versions: (res.versions || []).map((v) => v.version),
+    })),
+  getVersion: (owner: string, repo: string, pkg_type: string, pkg_name: string, version: string) =>
+    request<any>(`/repos/${owner}/${repo}/packages/${encodeURIComponent(pkg_type)}/${encodeURIComponent(pkg_name)}/${encodeURIComponent(version)}`),
+  publish: (owner: string, repo: string, pkg_type: string, body: Blob | string, metadata?: { name?: string; version?: string; description?: string; homepage?: string; repository_url?: string; semver?: string }) => {
+    const query = qs({
+      name: metadata?.name,
+      version: metadata?.version,
+      description: metadata?.description,
+      homepage: metadata?.homepage,
+      repository_url: metadata?.repository_url,
+      semver: metadata?.semver,
+    });
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/octet-stream',
+    };
+    if (body instanceof Blob && 'name' in body) {
+      const filename = (body as File).name || 'package';
+      headers['Content-Disposition'] = `attachment; filename="${filename}"`;
+    }
+    return request<PublishResponse>(`/repos/${owner}/${repo}/packages/${encodeURIComponent(pkg_type)}/publish${query}`, {
+      method: 'POST',
+      body: body instanceof Blob ? body : (body as string),
+      headers,
+    } as RequestInit);
+  },
+  create: (owner: string, repo: string, pkg_type: string, data: { name: string; version: string; description?: string; content_type?: string; file?: File }) =>
+    request<any>(`/repos/${owner}/${repo}/packages/${encodeURIComponent(pkg_type)}/publish`, {
       method: 'POST',
       body: JSON.stringify(data),
     }),
-  delete: (owner: string, repo: string, format: string, name: string, version: string) =>
-    request<{ deleted: boolean }>(`/repos/${owner}/${repo}/packages/${format}/${name}/versions/${version}`, { method: 'DELETE' }),
+  delete: (owner: string, repo: string, pkg_type: string, pkg_name: string, version: string) =>
+    request<{ deleted: boolean }>(`/repos/${owner}/${repo}/packages/${encodeURIComponent(pkg_type)}/${encodeURIComponent(pkg_name)}/${encodeURIComponent(version)}`, { method: 'DELETE' }),
 };
 
 // ── Runners ──────────────────────────────────────
 export const runners = {
   list: (page?: number, perPage?: number) =>
-    request<PaginatedResponse<any>>(`/runners${qs({ page, per_page: perPage })}`),
+    request<RunnerAdminResponse[]>(`/admin/runners`).then((rows) => {
+      const list = rows.map(normalizeRunner);
+      const start = ((page ?? 1) - 1) * (perPage ?? 20);
+      const size = perPage ?? 20;
+      return {
+        data: list.slice(start, start + size),
+        pagination: toPagination(list.length, page, perPage),
+      } as PaginatedResponse<RunnerListItem>;
+    }),
   get: (id: number) =>
-    request<any>(`/runners/${id}`),
+    request<RunnerAdminResponse>(`/admin/runners/${id}`).then(normalizeRunner),
   register: (data: { name: string; labels?: string[] }) =>
-    request<any>('/runners', {
+    request<any>('/runners/register', {
       method: 'POST',
       body: JSON.stringify(data),
     }),
   delete: (id: number) =>
-    request<{ deleted: boolean }>(`/runners/${id}`, { method: 'DELETE' }),
+    request<{ deleted: boolean }>(`/admin/runners/${id}`, { method: 'DELETE' }),
 };
 
 // ── Time Tracking (issue-scoped) ──────────────────

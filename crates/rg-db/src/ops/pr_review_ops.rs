@@ -6,10 +6,7 @@ use sea_orm::*;
 use crate::entities::pr_review::{self, ActiveModel, Entity as ReviewEntity, Model as PrReview};
 
 /// Find a review by ID.
-pub async fn find_by_id(
-    db: &DatabaseConnection,
-    id: i64,
-) -> Result<Option<PrReview>> {
+pub async fn find_by_id(db: &DatabaseConnection, id: i64) -> Result<Option<PrReview>> {
     ReviewEntity::find_by_id(id)
         .one(db)
         .await
@@ -17,10 +14,7 @@ pub async fn find_by_id(
 }
 
 /// List all reviews for a PR, ordered by creation time.
-pub async fn list_by_pr(
-    db: &DatabaseConnection,
-    pr_id: i64,
-) -> Result<Vec<PrReview>> {
+pub async fn list_by_pr(db: &DatabaseConnection, pr_id: i64) -> Result<Vec<PrReview>> {
     ReviewEntity::find()
         .filter(pr_review::Column::PrId.eq(pr_id))
         .order_by_asc(pr_review::Column::CreatedAt)
@@ -45,10 +39,7 @@ pub async fn list_by_pr_and_reviewer(
 }
 
 /// Count approvals for a PR.
-pub async fn count_approvals(
-    db: &DatabaseConnection,
-    pr_id: i64,
-) -> Result<i64> {
+pub async fn count_approvals(db: &DatabaseConnection, pr_id: i64) -> Result<i64> {
     let count = ReviewEntity::find()
         .filter(pr_review::Column::PrId.eq(pr_id))
         .filter(pr_review::Column::Action.eq("approve"))

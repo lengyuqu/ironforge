@@ -33,6 +33,8 @@ pub struct BlobQuery {
 #[derive(Deserialize)]
 pub struct LogQuery {
     #[serde(default)]
+    pub r#ref: Option<String>,
+    #[serde(default)]
     pub path: Option<String>,
     #[serde(default)]
     pub limit: Option<i64>,
@@ -130,7 +132,7 @@ async fn resolve_and_check_access(
 ) -> Result<rg_db::entities::repository::Model, AppError> {
     let repo_model = rg_core::repo::service::find_repo_by_owner_name(&state.db, owner, repo)
         .await
-        .map_err(|e| AppError::internal(e))?
+        .map_err(AppError::internal)?
         .ok_or_else(|| AppError::not_found("repository not found"))?;
 
     if repo_model.is_private {
@@ -196,13 +198,18 @@ pub async fn list_tree(
     let result = list_tree_entries(&repo_path, &git_ref, &sub_path);
 
     match result {
-        Ok(entries) => (StatusCode::OK, Json(serde_json::json!({ "entries": entries }))).into_response(),
+        Ok(entries) => (
+            StatusCode::OK,
+            Json(serde_json::json!({ "entries": entries })),
+        )
+            .into_response(),
         Err(e) => {
             // A freshly-created repo with no commits has an unborn HEAD, which
             // can't be resolved to a tree. That's not an error — return an
             // empty tree so the UI can render the empty-repo state.
             if is_empty_repo(&repo_path) {
-                return (StatusCode::OK, Json(serde_json::json!({ "entries": [] }))).into_response();
+                return (StatusCode::OK, Json(serde_json::json!({ "entries": [] })))
+                    .into_response();
             }
             tracing::error!(%e, "list_tree failed");
             AppError::internal(e).into_response()
@@ -281,6 +288,9 @@ pub async fn get_blob(
     params(
         ("owner" = String, Path, description = "owner"),
         ("name" = String, Path, description = "name"),
+        ("ref" = Option<String>, Query, description = "Git ref (branch/tag/sha, default: HEAD)"),
+        ("path" = Option<String>, Query, description = "File path filter"),
+        ("limit" = Option<i64>, Query, description = "Max number of commits"),
     ),
     responses(
         (status = 200, description = "Success", body = serde_json::Value),
@@ -312,10 +322,11 @@ pub async fn get_log(
         return AppError::not_found("repository not found").into_response();
     }
 
+    let git_ref = params.r#ref.clone().unwrap_or_else(|| "HEAD".to_string());
     let limit = params.limit.unwrap_or(50).min(100);
     let file_path = params.path.unwrap_or_default();
 
-    match get_commit_log(&repo_path, &file_path, limit) {
+    match get_commit_log(&repo_path, &git_ref, &file_path, limit) {
         Ok(log) => (StatusCode::OK, Json(serde_json::json!({ "commits": log }))).into_response(),
         Err(e) => {
             tracing::error!(%e, "get_log failed");
@@ -431,27 +442,33 @@ fn list_tree_entries(
         .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
 
     // Resolve ref to commit
-    let commit_id = repo.rev_parse_single(git_ref)
+    let commit_id = repo
+        .rev_parse_single(git_ref)
         .map_err(|e| anyhow::anyhow!("failed to resolve ref '{}': {}", git_ref, e))?;
 
-    let commit = repo.find_commit(commit_id)
+    let commit = repo
+        .find_commit(commit_id)
         .map_err(|e| anyhow::anyhow!("failed to find commit: {}", e))?;
 
-    let decoded = commit.decode()
+    let decoded = commit
+        .decode()
         .map_err(|e| anyhow::anyhow!("failed to decode commit: {}", e))?;
 
     let tree_oid = decoded.tree();
-    let mut tree = repo.find_tree(tree_oid)
+    let mut tree = repo
+        .find_tree(tree_oid)
         .map_err(|e| anyhow::anyhow!("failed to get tree: {}", e))?;
 
     // Traverse into sub_path if specified
     if !sub_path.is_empty() {
         for component in sub_path.split('/') {
-            let entry = tree.iter()
+            let entry = tree
+                .iter()
                 .filter_map(|e| e.ok())
                 .find(|e| e.filename() == component);
             let entry = entry.ok_or_else(|| anyhow::anyhow!("path not found: {}", sub_path))?;
-            tree = repo.find_tree(entry.oid())
+            tree = repo
+                .find_tree(entry.oid())
                 .map_err(|e| anyhow::anyhow!("failed to find sub-tree: {}", e))?;
         }
     }
@@ -505,17 +522,20 @@ fn get_blob_content(
     let target = format!("{}:{}", git_ref, path);
 
     // Resolve ref:path to object ID
-    let object_id = repo.rev_parse_single(target.as_str())
+    let object_id = repo
+        .rev_parse_single(target.as_str())
         .map_err(|e| anyhow::anyhow!("path '{}' not found at ref '{}': {}", path, git_ref, e))?;
 
     // Find and decode the blob
-    let object = repo.find_object(object_id)
+    let object = repo
+        .find_object(object_id)
         .map_err(|e| anyhow::anyhow!("failed to find object: {}", e))?;
 
-    let blob = object.try_into_blob()
+    let blob = object
+        .try_into_blob()
         .map_err(|e| anyhow::anyhow!("path '{}' is not a file: {}", path, e))?;
 
-    let data = &blob.data;
+    let data = blob.data.as_slice();
     let size = data.len() as i64;
 
     // Check if binary by looking for null bytes
@@ -547,7 +567,10 @@ fn get_blob_content(
         }
         (s, "base64".to_string())
     } else {
-        (String::from_utf8_lossy(&data).to_string(), "utf-8".to_string())
+        (
+            String::from_utf8_lossy(data).to_string(),
+            "utf-8".to_string(),
+        )
     };
 
     Ok(BlobContent {
@@ -567,10 +590,12 @@ fn get_blob_size(repo_path: &std::path::Path, sha: &str) -> anyhow::Result<i64> 
     let oid = gix::ObjectId::from_hex(sha.as_bytes())
         .map_err(|e| anyhow::anyhow!("invalid SHA: {}", e))?;
 
-    let object = repo.find_object(oid)
+    let object = repo
+        .find_object(oid)
         .map_err(|e| anyhow::anyhow!("object not found: {}", e))?;
 
-    let blob = object.try_into_blob()
+    let blob = object
+        .try_into_blob()
         .map_err(|e| anyhow::anyhow!("not a blob: {}", e))?;
 
     Ok(blob.data.len() as i64)
@@ -578,6 +603,7 @@ fn get_blob_size(repo_path: &std::path::Path, sha: &str) -> anyhow::Result<i64> 
 
 fn get_commit_log(
     repo_path: &std::path::Path,
+    git_ref: &str,
     _path: &str,
     limit: i64,
 ) -> anyhow::Result<Vec<CommitEntry>> {
@@ -587,7 +613,7 @@ fn get_commit_log(
     let mut entries = Vec::new();
 
     // Use rev_walk to traverse commit history
-    let head_id = match repo.rev_parse_single("HEAD") {
+    let head_id = match repo.rev_parse_single(git_ref) {
         Ok(id) => id,
         Err(_) => return Ok(entries), // No commits yet
     };
@@ -625,11 +651,17 @@ fn get_commit_log(
 
             // Get author info
             let author = commit.author().unwrap_or_default();
-            let author_name = String::from_utf8_lossy(&author.name).to_string();
-            let author_email = String::from_utf8_lossy(&author.email).to_string();
+            let author_name = String::from_utf8_lossy(author.name).to_string();
+            let author_email = String::from_utf8_lossy(author.email).to_string();
             // Parse author time from the signature string (format: "timestamp offset")
             // e.g., "1700000000 +0000"
-            let timestamp = author.time.split_whitespace().next().unwrap_or("0").parse::<i64>().unwrap_or(0);
+            let timestamp = author
+                .time
+                .split_whitespace()
+                .next()
+                .unwrap_or("0")
+                .parse::<i64>()
+                .unwrap_or(0);
             let author_date = chrono::DateTime::<chrono::Utc>::from_timestamp(timestamp, 0)
                 .map(|dt| dt.to_rfc3339())
                 .unwrap_or_default();
@@ -655,7 +687,8 @@ fn list_branch_names(repo_path: &std::path::Path) -> anyhow::Result<Vec<String>>
         .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
 
     let references = repo.references()?;
-    let branches: Vec<String> = references.all()?
+    let branches: Vec<String> = references
+        .all()?
         .filter_map(|r| r.ok())
         .filter_map(|r| {
             let name = r.name().as_bstr();
@@ -677,7 +710,8 @@ fn list_tag_names(repo_path: &std::path::Path) -> anyhow::Result<Vec<String>> {
         .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
 
     let references = repo.references()?;
-    let tags: Vec<String> = references.all()?
+    let tags: Vec<String> = references
+        .all()?
         .filter_map(|r| r.ok())
         .filter_map(|r| {
             let name = r.name().as_bstr();
@@ -746,10 +780,7 @@ pub async fn get_commit_signature(
 }
 
 /// Verify a commit's GPG signature using `git log --show-signature`.
-fn verify_commit_signature(
-    repo_path: &std::path::Path,
-    sha: &str,
-) -> anyhow::Result<GpgSignature> {
+fn verify_commit_signature(repo_path: &std::path::Path, sha: &str) -> anyhow::Result<GpgSignature> {
     let repo = gix::open(repo_path)
         .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
 
@@ -763,15 +794,12 @@ fn verify_commit_signature(
 
     // Read commit object to check for gpgsig header via gix extra_headers()
     let commit_object = repo.find_object(commit_id)?;
-    let commit = commit_object.try_into_commit()
+    let commit = commit_object
+        .try_into_commit()
         .map_err(|_| anyhow::anyhow!("not a commit object"))?;
 
     // Use gix decode() + extra_headers() to check for gpgsig (replaces git cat-file commit)
-    let has_gpgsig = commit
-        .decode()?
-        .extra_headers()
-        .find("gpgsig")
-        .is_some();
+    let has_gpgsig = commit.decode()?.extra_headers().find("gpgsig").is_some();
 
     if !has_gpgsig {
         return Ok(GpgSignature {
@@ -789,8 +817,10 @@ fn verify_commit_signature(
         .as_ref()
         .map_err(|e| anyhow::anyhow!("{}", e))?;
 
-    let verify_output = git_gateway
-        .run(&["log", "--format=%G?%n%GK%n%GN%n%GE", "-1", &full_sha], Some(repo_path))?;
+    let verify_output = git_gateway.run(
+        &["log", "--format=%G?%n%GK%n%GN%n%GE", "-1", &full_sha],
+        Some(repo_path),
+    )?;
     if !verify_output.success() {
         return Ok(GpgSignature {
             verified: false,
@@ -804,9 +834,18 @@ fn verify_commit_signature(
     let lines: Vec<&str> = verify_text.lines().collect();
 
     let status_code: &str = lines.first().map(|l: &&str| l.trim()).unwrap_or("N");
-    let signer_key = lines.get(1).map(|l: &&str| l.trim().to_string()).filter(|s| !s.is_empty());
-    let signer_name = lines.get(2).map(|l: &&str| l.trim().to_string()).filter(|s| !s.is_empty());
-    let signer_email = lines.get(3).map(|l: &&str| l.trim().to_string()).filter(|s| !s.is_empty());
+    let signer_key = lines
+        .get(1)
+        .map(|l: &&str| l.trim().to_string())
+        .filter(|s| !s.is_empty());
+    let signer_name = lines
+        .get(2)
+        .map(|l: &&str| l.trim().to_string())
+        .filter(|s| !s.is_empty());
+    let signer_email = lines
+        .get(3)
+        .map(|l: &&str| l.trim().to_string())
+        .filter(|s| !s.is_empty());
 
     let (verified, status): (bool, String) = match status_code {
         "G" => (true, "valid".to_string()),

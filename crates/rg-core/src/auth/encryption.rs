@@ -4,7 +4,7 @@ use aes_gcm::{
     aead::{Aead, OsRng},
     Aes256Gcm, Key, KeyInit, Nonce,
 };
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use rand::RngCore;
 use sha2::{Digest, Sha256};
 

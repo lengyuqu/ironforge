@@ -38,7 +38,11 @@ impl PackageAdapter for NpmAdapter {
         "npm"
     }
 
-    fn extract_metadata(&self, _filename: &str, data: &[u8]) -> Result<ExtractedMetadata, anyhow::Error> {
+    fn extract_metadata(
+        &self,
+        _filename: &str,
+        data: &[u8],
+    ) -> Result<ExtractedMetadata, anyhow::Error> {
         let tar = GzDecoder::new(data);
         let mut archive = Archive::new(tar);
 
@@ -49,13 +53,17 @@ impl PackageAdapter for NpmAdapter {
             let path = entry.path()?.to_path_buf();
 
             // npm packs as `package/package.json`
-            let is_package_json = path
-                .components()
-                .any(|c| c.as_os_str() == "package")
-                && path.file_name().map(|n| n == "package.json").unwrap_or(false);
+            let is_package_json = path.components().any(|c| c.as_os_str() == "package")
+                && path
+                    .file_name()
+                    .map(|n| n == "package.json")
+                    .unwrap_or(false);
 
             // Also support top-level package.json (less common)
-            let is_top_level = path.file_name().map(|n| n == "package.json").unwrap_or(false);
+            let is_top_level = path
+                .file_name()
+                .map(|n| n == "package.json")
+                .unwrap_or(false);
 
             if is_package_json || is_top_level {
                 let mut contents = String::new();
@@ -72,9 +80,8 @@ impl PackageAdapter for NpmAdapter {
             anyhow::anyhow!("invalid npm package: no package.json found in archive")
         })?;
 
-        let doc: serde_json::Value = serde_json::from_str(&json_str).map_err(|e| {
-            anyhow::anyhow!("invalid package.json: {e}")
-        })?;
+        let doc: serde_json::Value = serde_json::from_str(&json_str)
+            .map_err(|e| anyhow::anyhow!("invalid package.json: {e}"))?;
 
         let name = doc
             .get("name")
@@ -88,8 +95,14 @@ impl PackageAdapter for NpmAdapter {
             .ok_or_else(|| anyhow::anyhow!("package.json missing version"))?
             .to_string();
 
-        let description = doc.get("description").and_then(|v| v.as_str()).map(String::from);
-        let homepage = doc.get("homepage").and_then(|v| v.as_str()).map(String::from);
+        let description = doc
+            .get("description")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+        let homepage = doc
+            .get("homepage")
+            .and_then(|v| v.as_str())
+            .map(String::from);
 
         // npm uses `repository` as an object or string
         let repository_url = doc.get("repository").and_then(|v| {
@@ -129,9 +142,9 @@ impl PackageAdapter for NpmAdapter {
         // Check gzip
         let mut decoder = GzDecoder::new(data);
         let mut buf = Vec::new();
-        decoder.read_to_end(&mut buf).map_err(|e| {
-            anyhow::anyhow!("invalid npm package (not valid gzip): {e}")
-        })?;
+        decoder
+            .read_to_end(&mut buf)
+            .map_err(|e| anyhow::anyhow!("invalid npm package (not valid gzip): {e}"))?;
 
         // Check package.json presence
         let tar = GzDecoder::new(data);
@@ -140,7 +153,10 @@ impl PackageAdapter for NpmAdapter {
         for entry in archive.entries()? {
             let entry = entry?;
             let path = entry.path()?;
-            let is_pkg_json = path.file_name().map(|n| n == "package.json").unwrap_or(false);
+            let is_pkg_json = path
+                .file_name()
+                .map(|n| n == "package.json")
+                .unwrap_or(false);
             if is_pkg_json {
                 found = true;
                 break;
@@ -196,7 +212,10 @@ pub fn build_npm_metadata(
         let mut ver_obj = serde_json::Map::new();
         ver_obj.insert("name".into(), name.into());
         ver_obj.insert("version".into(), vi.version.clone().into());
-        ver_obj.insert("description".into(), vi.description.clone().unwrap_or_default().into());
+        ver_obj.insert(
+            "description".into(),
+            vi.description.clone().unwrap_or_default().into(),
+        );
         ver_obj.insert(
             "dist".into(),
             serde_json::json!({

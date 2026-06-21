@@ -17,10 +17,20 @@ impl MigrationTrait for Migration {
                 Table::create()
                     .table(RepoStars::Table)
                     .if_not_exists()
-                    .col(ColumnDef::new(RepoStars::Id).big_integer().not_null().auto_increment().primary_key())
+                    .col(
+                        ColumnDef::new(RepoStars::Id)
+                            .big_integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
                     .col(ColumnDef::new(RepoStars::UserId).big_integer().not_null())
                     .col(ColumnDef::new(RepoStars::RepoId).big_integer().not_null())
-                    .col(ColumnDef::new(RepoStars::CreatedAt).timestamp_with_time_zone().not_null())
+                    .col(
+                        ColumnDef::new(RepoStars::CreatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null(),
+                    )
                     .foreign_key(
                         ForeignKey::create()
                             .from(RepoStars::Table, RepoStars::UserId)
@@ -67,12 +77,31 @@ impl MigrationTrait for Migration {
                 Table::create()
                     .table(RepoWatches::Table)
                     .if_not_exists()
-                    .col(ColumnDef::new(RepoWatches::Id).big_integer().not_null().auto_increment().primary_key())
+                    .col(
+                        ColumnDef::new(RepoWatches::Id)
+                            .big_integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
                     .col(ColumnDef::new(RepoWatches::UserId).big_integer().not_null())
                     .col(ColumnDef::new(RepoWatches::RepoId).big_integer().not_null())
-                    .col(ColumnDef::new(RepoWatches::WatchState).string().not_null().default("not_watching".to_owned()))
-                    .col(ColumnDef::new(RepoWatches::CreatedAt).timestamp_with_time_zone().not_null())
-                    .col(ColumnDef::new(RepoWatches::UpdatedAt).timestamp_with_time_zone().not_null())
+                    .col(
+                        ColumnDef::new(RepoWatches::WatchState)
+                            .string()
+                            .not_null()
+                            .default("not_watching".to_owned()),
+                    )
+                    .col(
+                        ColumnDef::new(RepoWatches::CreatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(RepoWatches::UpdatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null(),
+                    )
                     .foreign_key(
                         ForeignKey::create()
                             .from(RepoWatches::Table, RepoWatches::UserId)
@@ -115,8 +144,12 @@ impl MigrationTrait for Migration {
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
-        manager.drop_table(Table::drop().table(RepoWatches::Table).to_owned()).await?;
-        manager.drop_table(Table::drop().table(RepoStars::Table).to_owned()).await
+        manager
+            .drop_table(Table::drop().table(RepoWatches::Table).to_owned())
+            .await?;
+        manager
+            .drop_table(Table::drop().table(RepoStars::Table).to_owned())
+            .await
     }
 }
 

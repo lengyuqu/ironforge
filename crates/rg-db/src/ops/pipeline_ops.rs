@@ -1,10 +1,10 @@
 //! Database operations for CI/CD pipelines.
 
 use anyhow::{Context, Result};
-use sea_orm::*;
 use sea_orm::sea_query::Expr;
+use sea_orm::*;
 
-use crate::entities::{pipeline, pipeline_stage, pipeline_job};
+use crate::entities::{pipeline, pipeline_job, pipeline_stage};
 
 // ── Pipeline ops ─────────────────────────────────────────────────
 
@@ -66,7 +66,11 @@ pub async fn list_pipelines_by_repo_paginated(
         .filter(pipeline::Column::RepoId.eq(repo_id))
         .order_by_desc(pipeline::Column::CreatedAt);
 
-    let total = base.clone().count(db).await.context("db: count pipelines by repo")? as i64;
+    let total = base
+        .clone()
+        .count(db)
+        .await
+        .context("db: count pipelines by repo")? as i64;
     let pipelines = base
         .offset(offset)
         .limit(limit)
@@ -99,7 +103,10 @@ pub async fn update_pipeline_status(
     if finished_at.is_some() {
         active.finished_at = Set(finished_at);
     }
-    active.update(db).await.context("db: update pipeline status")?;
+    active
+        .update(db)
+        .await
+        .context("db: update pipeline status")?;
     Ok(())
 }
 
@@ -201,11 +208,7 @@ pub async fn get_job(db: &DatabaseConnection, id: i64) -> Result<Option<pipeline
 }
 
 /// Update just the log field of a job (lightweight, used by log write queue).
-pub async fn update_job_log(
-    db: &DatabaseConnection,
-    id: i64,
-    log: &str,
-) -> Result<()> {
+pub async fn update_job_log(db: &DatabaseConnection, id: i64, log: &str) -> Result<()> {
     use sea_orm::ActiveModelTrait;
     let model = pipeline_job::Entity::find_by_id(id)
         .one(db)
@@ -215,9 +218,7 @@ pub async fn update_job_log(
 
     let mut active: pipeline_job::ActiveModel = model.into();
     active.log = Set(Some(log.to_string()));
-    active.update(db)
-        .await
-        .context("db: update job log")?;
+    active.update(db).await.context("db: update job log")?;
     Ok(())
 }
 
@@ -323,25 +324,23 @@ pub async fn find_latest_by_repo_and_commit(
 
 /// Check if all jobs in a stage are finished.
 /// Returns (all_done, any_failure).
-pub async fn check_stage_jobs(
-    db: &DatabaseConnection,
-    stage_id: i64,
-) -> Result<(bool, bool)> {
+pub async fn check_stage_jobs(db: &DatabaseConnection, stage_id: i64) -> Result<(bool, bool)> {
     let jobs = list_jobs_by_stage(db, stage_id).await?;
     if jobs.is_empty() {
         return Ok((true, false));
     }
-    let all_done = jobs.iter().all(|j| j.status == "success" || j.status == "failure" || j.status == "error");
-    let any_failure = jobs.iter().any(|j| j.status == "failure" || j.status == "error");
+    let all_done = jobs
+        .iter()
+        .all(|j| j.status == "success" || j.status == "failure" || j.status == "error");
+    let any_failure = jobs
+        .iter()
+        .any(|j| j.status == "failure" || j.status == "error");
     Ok((all_done, any_failure))
 }
 
 /// After a job finishes, update stage status if all jobs in the stage are done.
 /// Returns the new stage status if updated, or None if not all done.
-pub async fn try_update_stage(
-    db: &DatabaseConnection,
-    stage_id: i64,
-) -> Result<Option<String>> {
+pub async fn try_update_stage(db: &DatabaseConnection, stage_id: i64) -> Result<Option<String>> {
     let (all_done, any_failure) = check_stage_jobs(db, stage_id).await?;
     if !all_done {
         return Ok(None);
@@ -362,7 +361,9 @@ pub async fn check_pipeline_stages(
     if stages.is_empty() {
         return Ok((true, false));
     }
-    let all_done = stages.iter().all(|s| s.status == "success" || s.status == "failure");
+    let all_done = stages
+        .iter()
+        .all(|s| s.status == "success" || s.status == "failure");
     let any_failure = stages.iter().any(|s| s.status == "failure");
     Ok((all_done, any_failure))
 }
@@ -428,7 +429,10 @@ pub async fn find_pending_job_matching_labels(
             return Ok(Some(job));
         }
 
-        if job_tags.iter().any(|t| labels_lower.contains(&t.to_lowercase())) {
+        if job_tags
+            .iter()
+            .any(|t| labels_lower.contains(&t.to_lowercase()))
+        {
             return Ok(Some(job));
         }
     }
@@ -440,16 +444,14 @@ pub async fn find_stuck_jobs(
     db: &DatabaseConnection,
     timeout_secs: i64,
 ) -> Result<Vec<pipeline_job::Model>> {
-    let cutoff = chrono::Utc::now().naive_utc()
-        - chrono::Duration::seconds(timeout_secs);
+    let cutoff = chrono::Utc::now().naive_utc() - chrono::Duration::seconds(timeout_secs);
 
     pipeline_job::Entity::find()
+        .filter(pipeline_job::Column::Status.is_in(["assigned", "running"]))
         .filter(
-            pipeline_job::Column::Status.is_in(["assigned", "running"])
-        )
-        .filter(
-            pipeline_job::Column::UpdatedAt.is_not_null()
-                .and(pipeline_job::Column::UpdatedAt.lte(cutoff))
+            pipeline_job::Column::UpdatedAt
+                .is_not_null()
+                .and(pipeline_job::Column::UpdatedAt.lte(cutoff)),
         )
         .all(db)
         .await
@@ -462,7 +464,10 @@ pub async fn reset_stuck_job(db: &DatabaseConnection, job_id: i64) -> Result<()>
     pipeline_job::Entity::update_many()
         .filter(pipeline_job::Column::Id.eq(job_id))
         .col_expr(pipeline_job::Column::Status, Expr::value("pending"))
-        .col_expr(pipeline_job::Column::RunnerId, Expr::value(sea_orm::Value::BigInt(None)))
+        .col_expr(
+            pipeline_job::Column::RunnerId,
+            Expr::value(sea_orm::Value::BigInt(None)),
+        )
         .col_expr(pipeline_job::Column::UpdatedAt, Expr::value(now))
         .exec(db)
         .await
@@ -507,7 +512,10 @@ pub async fn reset_runner_jobs(db: &DatabaseConnection, runner_id: i64) -> Resul
         .filter(pipeline_job::Column::RunnerId.eq(Some(runner_id)))
         .filter(pipeline_job::Column::Status.is_in(["assigned", "running"]))
         .col_expr(pipeline_job::Column::Status, Expr::value("pending"))
-        .col_expr(pipeline_job::Column::RunnerId, Expr::value(sea_orm::Value::BigInt(None)))
+        .col_expr(
+            pipeline_job::Column::RunnerId,
+            Expr::value(sea_orm::Value::BigInt(None)),
+        )
         .col_expr(pipeline_job::Column::UpdatedAt, Expr::value(now))
         .exec(db)
         .await
@@ -535,15 +543,10 @@ pub async fn assign_job(db: &DatabaseConnection, job_id: i64, runner_id: i64) ->
 // ── Concurrency Control ──────────────────────────────────────────
 
 /// Count active (pending + running) pipelines for a repository.
-pub async fn count_active_pipelines(
-    db: &DatabaseConnection,
-    repo_id: i64,
-) -> Result<usize> {
+pub async fn count_active_pipelines(db: &DatabaseConnection, repo_id: i64) -> Result<usize> {
     let count = pipeline::Entity::find()
         .filter(pipeline::Column::RepoId.eq(repo_id))
-        .filter(
-            pipeline::Column::Status.is_in(["pending", "running"])
-        )
+        .filter(pipeline::Column::Status.is_in(["pending", "running"]))
         .count(db)
         .await
         .context("db: count active pipelines")? as usize;
@@ -560,9 +563,7 @@ pub async fn find_active_pipelines_by_ref(
     pipeline::Entity::find()
         .filter(pipeline::Column::RepoId.eq(repo_id))
         .filter(pipeline::Column::RefName.eq(ref_name))
-        .filter(
-            pipeline::Column::Status.is_in(["pending", "running"])
-        )
+        .filter(pipeline::Column::Status.is_in(["pending", "running"]))
         .order_by_asc(pipeline::Column::Id)
         .all(db)
         .await
@@ -571,10 +572,7 @@ pub async fn find_active_pipelines_by_ref(
 
 /// Cancel a pipeline and all its stages/jobs that are still pending or running.
 /// Returns whether the pipeline was actually transitioned to "canceled".
-pub async fn cancel_pipeline_chain(
-    db: &DatabaseConnection,
-    pipeline_id: i64,
-) -> Result<bool> {
+pub async fn cancel_pipeline_chain(db: &DatabaseConnection, pipeline_id: i64) -> Result<bool> {
     let pipeline_model = match get_pipeline(db, pipeline_id).await? {
         Some(p) => p,
         None => return Ok(false),
@@ -601,15 +599,7 @@ pub async fn cancel_pipeline_chain(
         let jobs = list_jobs_by_stage(db, stage.id).await?;
         for job in &jobs {
             if job.status != "success" && job.status != "failed" && job.status != "skipped" {
-                update_job_result(
-                    db,
-                    job.id,
-                    "canceled",
-                    None,
-                    None,
-                    None,
-                    now,
-                ).await?;
+                update_job_result(db, job.id, "canceled", None, None, None, now).await?;
             }
         }
     }

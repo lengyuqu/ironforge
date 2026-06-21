@@ -6,9 +6,10 @@ use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
 
 use rg_db::entities::protected_branch::{self, Model as ProtectedBranch};
 use rg_db::entities::pull_request;
-use rg_db::ops::{pipeline_ops, protected_branch_ops, pr_review_ops, repo_ops};
+use rg_db::ops::{pipeline_ops, pr_review_ops, protected_branch_ops, repo_ops};
 
 /// Create a branch protection rule.
+#[allow(clippy::too_many_arguments)]
 pub async fn create_protection(
     db: &DatabaseConnection,
     owner: &str,
@@ -38,11 +39,15 @@ pub async fn create_protection(
         branch_name: Set(branch_name),
         require_pr: Set(require_pr),
         require_status_check: Set(require_status_check),
-        required_status_checks: Set(required_status_checks.map(|v| serde_json::to_string(&v).unwrap_or_default())),
+        required_status_checks: Set(
+            required_status_checks.map(|v| serde_json::to_string(&v).unwrap_or_default())
+        ),
         require_approval: Set(require_approval),
         required_approvals: Set(required_approvals),
         allow_force_push: Set(allow_force_push),
-        allowed_push_user_ids: Set(allowed_push_user_ids.map(|v| serde_json::to_string(&v).unwrap_or_default())),
+        allowed_push_user_ids: Set(
+            allowed_push_user_ids.map(|v| serde_json::to_string(&v).unwrap_or_default())
+        ),
         created_at: Set(Utc::now()),
         updated_at: Set(Utc::now()),
     };
@@ -71,6 +76,7 @@ pub async fn get_protection(
 }
 
 /// Update a branch protection rule.
+#[allow(clippy::too_many_arguments)]
 pub async fn update_protection(
     db: &DatabaseConnection,
     protection_id: i64,
@@ -114,10 +120,7 @@ pub async fn update_protection(
 }
 
 /// Delete a branch protection rule.
-pub async fn delete_protection(
-    db: &DatabaseConnection,
-    protection_id: i64,
-) -> Result<()> {
+pub async fn delete_protection(db: &DatabaseConnection, protection_id: i64) -> Result<()> {
     protected_branch_ops::delete_by_id(db, protection_id).await
 }
 
@@ -129,8 +132,8 @@ pub async fn check_push_allowed(
     branch_name: &str,
     user_id: Option<i64>,
 ) -> Result<()> {
-    let protection = protected_branch_ops::find_by_repo_and_branch(db, repo_id, branch_name)
-        .await?;
+    let protection =
+        protected_branch_ops::find_by_repo_and_branch(db, repo_id, branch_name).await?;
 
     let Some(protection) = protection else {
         // Not protected, push is allowed
@@ -149,11 +152,17 @@ pub async fn check_push_allowed(
     }
 
     if protection.require_pr {
-        bail!("push to protected branch '{}' is not allowed; open a pull request instead", branch_name);
+        bail!(
+            "push to protected branch '{}' is not allowed; open a pull request instead",
+            branch_name
+        );
     }
 
     if !protection.allow_force_push {
-        bail!("force push to protected branch '{}' is not allowed", branch_name);
+        bail!(
+            "force push to protected branch '{}' is not allowed",
+            branch_name
+        );
     }
 
     Ok(())
@@ -166,8 +175,8 @@ pub async fn check_merge_allowed(
     target_branch: &str,
     pr_id: i64,
 ) -> Result<()> {
-    let protection = protected_branch_ops::find_by_repo_and_branch(db, repo_id, target_branch)
-        .await?;
+    let protection =
+        protected_branch_ops::find_by_repo_and_branch(db, repo_id, target_branch).await?;
 
     let Some(protection) = protection else {
         return Ok(());

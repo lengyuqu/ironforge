@@ -8,6 +8,8 @@
 		"build": "vite build",
 		"preview": "vite preview",
 		"smoke:integration": "node ../scripts/frontend-backend-smoke.mjs",
+		"smoke:admin-browser": "node ../scripts/browser-admin-smoke.mjs",
+		"smoke:admin": "npm run smoke:integration && npm run smoke:admin-browser",
 		"prepare": "svelte-kit sync || echo ''",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch"

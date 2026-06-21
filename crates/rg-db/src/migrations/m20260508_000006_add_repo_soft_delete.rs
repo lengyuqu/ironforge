@@ -1,5 +1,5 @@
-use sea_orm_migration::prelude::*;
 use sea_orm::Statement;
+use sea_orm_migration::prelude::*;
 
 pub struct Migration;
 

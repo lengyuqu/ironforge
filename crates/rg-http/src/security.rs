@@ -159,7 +159,10 @@ mod tests {
             .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
             .await
             .unwrap();
-        assert!(response.headers().get("strict-transport-security").is_none());
+        assert!(response
+            .headers()
+            .get("strict-transport-security")
+            .is_none());
 
         // HTTPS request — has HSTS
         let response = app
@@ -171,6 +174,9 @@ mod tests {
             )
             .await
             .unwrap();
-        assert!(response.headers().get("strict-transport-security").is_some());
+        assert!(response
+            .headers()
+            .get("strict-transport-security")
+            .is_some());
     }
 }
