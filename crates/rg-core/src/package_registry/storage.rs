@@ -3,8 +3,8 @@
 //! Manages file-system storage for package blobs.
 //! Directory layout: `{root}/{owner}/{repo}/packages/{type}/{name}/{version}/{filename}`
 
+use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
-use sha2::{Sha256, Digest};
 use tokio::io::AsyncWriteExt;
 
 #[derive(Debug, Clone)]
@@ -20,12 +20,7 @@ impl PackageStorage {
     }
 
     /// Build the base path for a package type in a specific repo.
-    pub fn base_path(
-        &self,
-        owner: &str,
-        repo: &str,
-        package_type: &str,
-    ) -> PathBuf {
+    pub fn base_path(&self, owner: &str, repo: &str, package_type: &str) -> PathBuf {
         self.root
             .join(owner)
             .join(repo)
@@ -34,13 +29,7 @@ impl PackageStorage {
     }
 
     /// Build the path for a specific package name.
-    pub fn package_path(
-        &self,
-        owner: &str,
-        repo: &str,
-        package_type: &str,
-        name: &str,
-    ) -> PathBuf {
+    pub fn package_path(&self, owner: &str, repo: &str, package_type: &str, name: &str) -> PathBuf {
         self.base_path(owner, repo, package_type).join(name)
     }
 
@@ -53,10 +42,12 @@ impl PackageStorage {
         name: &str,
         version: &str,
     ) -> PathBuf {
-        self.package_path(owner, repo, package_type, name).join(version)
+        self.package_path(owner, repo, package_type, name)
+            .join(version)
     }
 
     /// Store a file returning its storage path and sha256.
+    #[allow(clippy::too_many_arguments)]
     pub async fn store_file(
         &self,
         owner: &str,

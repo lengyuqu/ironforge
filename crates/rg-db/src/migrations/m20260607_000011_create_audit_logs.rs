@@ -44,7 +44,11 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(AuditLog::Action).string_len(100).not_null())
                     .col(ColumnDef::new(AuditLog::ResourceType).string_len(50).null())
                     .col(ColumnDef::new(AuditLog::ResourceId).big_integer().null())
-                    .col(ColumnDef::new(AuditLog::ResourceName).string_len(255).null())
+                    .col(
+                        ColumnDef::new(AuditLog::ResourceName)
+                            .string_len(255)
+                            .null(),
+                    )
                     .col(ColumnDef::new(AuditLog::IpAddress).string_len(45).null())
                     .col(ColumnDef::new(AuditLog::UserAgent).text().null())
                     .col(ColumnDef::new(AuditLog::Details).text().null())

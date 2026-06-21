@@ -18,7 +18,7 @@ use serde_json::Value;
 #[derive(Serialize, Deserialize)]
 pub struct JsonRpcRequest {
     pub jsonrpc: String, // always "2.0"
-    pub id: Value,             // number | string
+    pub id: Value,       // number | string
     pub method: String,
     pub params: Option<Value>,
 }
@@ -178,9 +178,8 @@ pub fn read_request() -> std::io::Result<Option<String>> {
 pub fn write_response(resp: &JsonRpcResponse) -> std::io::Result<()> {
     let stdout = std::io::stdout();
     let mut handle = stdout.lock();
-    let bytes = serde_json::to_vec(resp).map_err(|e| {
-        std::io::Error::new(std::io::ErrorKind::InvalidData, e)
-    })?;
+    let bytes = serde_json::to_vec(resp)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
     use std::io::Write;
     handle.write_all(&bytes)?;
     handle.write_all(b"\n")?;
@@ -192,9 +191,8 @@ pub fn write_response(resp: &JsonRpcResponse) -> std::io::Result<()> {
 pub fn write_notification(notif: &JsonRpcNotification) -> std::io::Result<()> {
     let stdout = std::io::stdout();
     let mut handle = stdout.lock();
-    let bytes = serde_json::to_vec(notif).map_err(|e| {
-        std::io::Error::new(std::io::ErrorKind::InvalidData, e)
-    })?;
+    let bytes = serde_json::to_vec(notif)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
     use std::io::Write;
     handle.write_all(&bytes)?;
     handle.write_all(b"\n")?;

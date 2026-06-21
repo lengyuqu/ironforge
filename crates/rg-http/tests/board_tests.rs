@@ -35,16 +35,25 @@ async fn create_board(base: &str, token: &str, owner: &str, repo: &str, name: &s
         .post(format!("{}/api/v1/repos/{}/{}/boards", base, owner, repo))
         .bearer_auth(token)
         .json(&serde_json::json!({"name": name}))
-        .send().await.unwrap();
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 201, "create_board failed: {}", resp.status());
-    resp.json::<serde_json::Value>().await.unwrap()["id"].as_i64().unwrap()
+    resp.json::<serde_json::Value>().await.unwrap()["id"]
+        .as_i64()
+        .unwrap()
 }
 
 async fn get_board_full(base: &str, owner: &str, repo: &str, board_id: i64) -> serde_json::Value {
     let client = reqwest::Client::new();
     let resp = client
-        .get(format!("{}/api/v1/repos/{}/{}/boards/{}", base, owner, repo, board_id))
-        .send().await.unwrap();
+        .get(format!(
+            "{}/api/v1/repos/{}/{}/boards/{}",
+            base, owner, repo, board_id
+        ))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
     resp.json().await.unwrap()
 }
@@ -61,11 +70,19 @@ async fn test_create_board_with_default_columns() {
     assert_eq!(board["board"]["name"], "Sprint 1");
     let cols = board["columns"].as_array().unwrap();
     // create_board auto-creates "To Do", "In Progress", "Done"
-    assert_eq!(cols.len(), 3, "expected 3 default columns, got {}", cols.len());
-    let names: Vec<&str> = cols.iter().filter_map(|c| c["column"]["name"].as_str()).collect();
-    assert!(names.contains(&"To Do"),       "missing 'To Do'");
+    assert_eq!(
+        cols.len(),
+        3,
+        "expected 3 default columns, got {}",
+        cols.len()
+    );
+    let names: Vec<&str> = cols
+        .iter()
+        .filter_map(|c| c["column"]["name"].as_str())
+        .collect();
+    assert!(names.contains(&"To Do"), "missing 'To Do'");
     assert!(names.contains(&"In Progress"), "missing 'In Progress'");
-    assert!(names.contains(&"Done"),        "missing 'Done'");
+    assert!(names.contains(&"Done"), "missing 'Done'");
 }
 
 #[tokio::test]
@@ -77,8 +94,13 @@ async fn test_list_boards() {
 
     let client = reqwest::Client::new();
     let resp = client
-        .get(format!("{}/api/v1/repos/{}/{}/boards", &base, &owner, &repo))
-        .send().await.unwrap();
+        .get(format!(
+            "{}/api/v1/repos/{}/{}/boards",
+            &base, &owner, &repo
+        ))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
     let boards: serde_json::Value = resp.json().await.unwrap();
     let arr = boards.as_array().unwrap();
@@ -98,10 +120,15 @@ async fn test_add_card_to_column() {
 
     let client = reqwest::Client::new();
     let resp = client
-        .post(format!("{}/api/v1/repos/{}/{}/boards/{}/columns/{}/cards", &base, &owner, &repo, board_id, col_id))
+        .post(format!(
+            "{}/api/v1/repos/{}/{}/boards/{}/columns/{}/cards",
+            &base, &owner, &repo, board_id, col_id
+        ))
         .bearer_auth(&token)
         .json(&serde_json::json!({"note": "Fix the login bug"}))
-        .send().await.unwrap();
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 201, "create_card failed: {}", resp.status());
     let card: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(card["note"], "Fix the login bug");
@@ -127,18 +154,30 @@ async fn test_move_card_between_columns() {
 
     // Create a card in column 0
     let resp = client
-        .post(format!("{}/api/v1/repos/{}/{}/boards/{}/columns/{}/cards", &base, &owner, &repo, board_id, col0_id))
+        .post(format!(
+            "{}/api/v1/repos/{}/{}/boards/{}/columns/{}/cards",
+            &base, &owner, &repo, board_id, col0_id
+        ))
         .bearer_auth(&token)
         .json(&serde_json::json!({"note": "Move me"}))
-        .send().await.unwrap();
-    let card_id = resp.json::<serde_json::Value>().await.unwrap()["id"].as_i64().unwrap();
+        .send()
+        .await
+        .unwrap();
+    let card_id = resp.json::<serde_json::Value>().await.unwrap()["id"]
+        .as_i64()
+        .unwrap();
 
     // Move to column 1
     let resp = client
-        .post(format!("{}/api/v1/repos/{}/{}/boards/{}/cards/{}/move", &base, &owner, &repo, board_id, card_id))
+        .post(format!(
+            "{}/api/v1/repos/{}/{}/boards/{}/cards/{}/move",
+            &base, &owner, &repo, board_id, card_id
+        ))
         .bearer_auth(&token)
         .json(&serde_json::json!({"column_id": col1_id, "position": 0}))
-        .send().await.unwrap();
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200, "move_card failed: {}", resp.status());
 
     // Verify card is now in column 1, not column 0
@@ -159,17 +198,31 @@ async fn test_delete_card() {
 
     let client = reqwest::Client::new();
     let card_id = client
-        .post(format!("{}/api/v1/repos/{}/{}/boards/{}/columns/{}/cards", &base, &owner, &repo, board_id, col_id))
+        .post(format!(
+            "{}/api/v1/repos/{}/{}/boards/{}/columns/{}/cards",
+            &base, &owner, &repo, board_id, col_id
+        ))
         .bearer_auth(&token)
         .json(&serde_json::json!({"note": "temp"}))
-        .send().await.unwrap()
-        .json::<serde_json::Value>().await.unwrap()["id"].as_i64().unwrap();
+        .send()
+        .await
+        .unwrap()
+        .json::<serde_json::Value>()
+        .await
+        .unwrap()["id"]
+        .as_i64()
+        .unwrap();
 
     // Delete card
     let resp = client
-        .delete(format!("{}/api/v1/repos/{}/{}/boards/{}/cards/{}", &base, &owner, &repo, board_id, card_id))
+        .delete(format!(
+            "{}/api/v1/repos/{}/{}/boards/{}/cards/{}",
+            &base, &owner, &repo, board_id, card_id
+        ))
         .bearer_auth(&token)
-        .send().await.unwrap();
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 204, "delete_card failed: {}", resp.status());
 
     // Verify it's gone
@@ -187,12 +240,24 @@ async fn test_add_and_delete_column() {
 
     // Add a custom column
     let resp = client
-        .post(format!("{}/api/v1/repos/{}/{}/boards/{}/columns", &base, &owner, &repo, board_id))
+        .post(format!(
+            "{}/api/v1/repos/{}/{}/boards/{}/columns",
+            &base, &owner, &repo, board_id
+        ))
         .bearer_auth(&token)
         .json(&serde_json::json!({"name": "Review", "color": "#f59e0b"}))
-        .send().await.unwrap();
-    assert_eq!(resp.status(), 201, "create_column failed: {}", resp.status());
-    let col_id = resp.json::<serde_json::Value>().await.unwrap()["id"].as_i64().unwrap();
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        201,
+        "create_column failed: {}",
+        resp.status()
+    );
+    let col_id = resp.json::<serde_json::Value>().await.unwrap()["id"]
+        .as_i64()
+        .unwrap();
 
     // Should now have 4 columns (3 default + 1 new)
     let board = get_board_full(&base, &owner, &repo, board_id).await;
@@ -200,10 +265,20 @@ async fn test_add_and_delete_column() {
 
     // Delete the custom column
     let resp = client
-        .delete(format!("{}/api/v1/repos/{}/{}/boards/{}/columns/{}", &base, &owner, &repo, board_id, col_id))
+        .delete(format!(
+            "{}/api/v1/repos/{}/{}/boards/{}/columns/{}",
+            &base, &owner, &repo, board_id, col_id
+        ))
         .bearer_auth(&token)
-        .send().await.unwrap();
-    assert_eq!(resp.status(), 204, "delete_column failed: {}", resp.status());
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        204,
+        "delete_column failed: {}",
+        resp.status()
+    );
 
     // Back to 3 columns
     let board2 = get_board_full(&base, &owner, &repo, board_id).await;
@@ -217,15 +292,27 @@ async fn test_delete_board() {
 
     let client = reqwest::Client::new();
     let resp = client
-        .delete(format!("{}/api/v1/repos/{}/{}/boards/{}", &base, &owner, &repo, board_id))
+        .delete(format!(
+            "{}/api/v1/repos/{}/{}/boards/{}",
+            &base, &owner, &repo, board_id
+        ))
         .bearer_auth(&token)
-        .send().await.unwrap();
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 204);
 
     // Board list should now be empty
     let boards: serde_json::Value = client
-        .get(format!("{}/api/v1/repos/{}/{}/boards", &base, &owner, &repo))
-        .send().await.unwrap()
-        .json().await.unwrap();
+        .get(format!(
+            "{}/api/v1/repos/{}/{}/boards",
+            &base, &owner, &repo
+        ))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     assert_eq!(boards.as_array().unwrap().len(), 0);
 }

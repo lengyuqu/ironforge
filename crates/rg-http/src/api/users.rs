@@ -17,6 +17,7 @@ use crate::error::AppError;
 use crate::AppState;
 
 /// Helper to record audit log (fire-and-forget, does not fail the main operation).
+#[allow(clippy::too_many_arguments)]
 async fn record_audit(
     db: &sea_orm::DatabaseConnection,
     user_id: i64,
@@ -132,10 +133,11 @@ pub async fn register(
                 Some(&resp.username),
                 &headers,
                 Some(details),
-            ).await;
+            )
+            .await;
 
             (StatusCode::CREATED, Json(serde_json::json!(resp))).into_response()
-        },
+        }
         Err(e) => AppError::BadRequest(e.to_string()).into_response(),
     }
 }
@@ -156,17 +158,13 @@ pub async fn login(
     Json(body): Json<LoginRequest>,
 ) -> impl IntoResponse {
     // First authenticate credentials
-    match rg_core::user::service::login(
-        &state.db,
-        &body.login,
-        &body.password,
-        &state.jwt_secret,
-    )
-    .await
+    match rg_core::user::service::login(&state.db, &body.login, &body.password, &state.jwt_secret)
+        .await
     {
         Ok(resp) => {
             // Check if MFA is enabled for this user
-            let mfa_required = match rg_db::ops::user_ops::find_by_id(&state.db, resp.user_id).await {
+            let mfa_required = match rg_db::ops::user_ops::find_by_id(&state.db, resp.user_id).await
+            {
                 Ok(Some(user)) => user.mfa_enabled,
                 _ => false,
             };
@@ -186,7 +184,8 @@ pub async fn login(
                 Some(&resp.username),
                 &headers,
                 Some(details),
-            ).await;
+            )
+            .await;
 
             if mfa_required {
                 // Don't issue full JWT; client must complete MFA flow
@@ -200,7 +199,7 @@ pub async fn login(
             } else {
                 (StatusCode::OK, Json(serde_json::json!(resp))).into_response()
             }
-        },
+        }
         Err(e) => AppError::Unauthorized(e.to_string()).into_response(),
     }
 }
@@ -216,10 +215,7 @@ pub async fn login(
     )
 )]
 /// GET /api/v1/users/me — returns the current user's profile.
-pub async fn me(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-) -> impl IntoResponse {
+pub async fn me(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
     let claims = match super::auth::extract_bearer_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => {
@@ -249,7 +245,7 @@ pub async fn me(
 
 // ── PAT (Personal Access Token) handlers ────────────────────────────────
 
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 
 #[derive(serde::Deserialize, ToSchema)]
 pub struct CreateTokenRequest {
@@ -260,7 +256,10 @@ pub struct CreateTokenRequest {
 
 fn generate_token() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
-    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
     let entropy: u128 = {
         let mut buf = [0u8; 16];
         if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
@@ -290,13 +289,12 @@ fn hash_token(token: &str) -> String {
         (status = 401, description = "Unauthorized", body = serde_json::Value),
     ),
 )]
-pub async fn list_tokens(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-) -> impl IntoResponse {
+pub async fn list_tokens(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
     let claims = match super::auth::extract_bearer_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
-        None => { return AppError::Unauthorized("authentication required".to_string()).into_response(); }
+        None => {
+            return AppError::Unauthorized("authentication required".to_string()).into_response();
+        }
     };
     let user_id: i64 = claims.sub.parse().unwrap_or(-1);
     match rg_db::ops::token_ops::list_by_user(&state.db, user_id).await {
@@ -324,7 +322,9 @@ pub async fn create_token(
 ) -> impl IntoResponse {
     let claims = match super::auth::extract_bearer_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
-        None => { return AppError::Unauthorized("authentication required".to_string()).into_response(); }
+        None => {
+            return AppError::Unauthorized("authentication required".to_string()).into_response();
+        }
     };
     let user_id: i64 = claims.sub.parse().unwrap_or(-1);
     if body.name.trim().is_empty() {
@@ -333,7 +333,9 @@ pub async fn create_token(
     let raw_token = generate_token();
     let token_hash = hash_token(&raw_token);
     let scopes = body.scopes.unwrap_or_else(|| "repo".to_string());
-    let expires_at = body.expires_at.as_deref()
+    let expires_at = body
+        .expires_at
+        .as_deref()
         .and_then(|d| chrono::DateTime::parse_from_rfc3339(d).ok())
         .map(|dt| dt.with_timezone(&chrono::Utc));
     let now = chrono::Utc::now();
@@ -348,14 +350,18 @@ pub async fn create_token(
         created_at: sea_orm::Set(now),
     };
     match rg_db::ops::token_ops::create(&state.db, model).await {
-        Ok(token) => (StatusCode::CREATED, Json(serde_json::json!({
-            "id": token.id,
-            "name": token.name,
-            "token": raw_token,
-            "scopes": token.scopes,
-            "expires_at": token.expires_at,
-            "created_at": token.created_at,
-        }))).into_response(),
+        Ok(token) => (
+            StatusCode::CREATED,
+            Json(serde_json::json!({
+                "id": token.id,
+                "name": token.name,
+                "token": raw_token,
+                "scopes": token.scopes,
+                "expires_at": token.expires_at,
+                "created_at": token.created_at,
+            })),
+        )
+            .into_response(),
         Err(e) => AppError::InternalError(e.to_string()).into_response(),
     }
 }
@@ -381,15 +387,20 @@ pub async fn delete_token(
 ) -> impl IntoResponse {
     let claims = match super::auth::extract_bearer_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
-        None => { return AppError::Unauthorized("authentication required".to_string()).into_response(); }
+        None => {
+            return AppError::Unauthorized("authentication required".to_string()).into_response();
+        }
     };
     let user_id: i64 = claims.sub.parse().unwrap_or(-1);
     let token = match rg_db::ops::token_ops::find_by_id(&state.db, id).await {
         Ok(Some(t)) => t,
-        _ => { return AppError::NotFound("token not found".to_string()).into_response(); }
+        _ => {
+            return AppError::NotFound("token not found".to_string()).into_response();
+        }
     };
     if token.user_id != user_id {
-        return AppError::Forbidden("you can only revoke your own tokens".to_string()).into_response();
+        return AppError::Forbidden("you can only revoke your own tokens".to_string())
+            .into_response();
     }
     match rg_db::ops::token_ops::delete_by_id(&state.db, id).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
@@ -487,10 +498,7 @@ pub async fn reset_password(
     .await
     {
         Ok(resp) => {
-            tracing::info!(
-                user_id = resp.user_id,
-                "password reset successful"
-            );
+            tracing::info!(user_id = resp.user_id, "password reset successful");
             (StatusCode::OK, Json(serde_json::json!(resp))).into_response()
         }
         Err(e) => AppError::BadRequest(e.to_string()).into_response(),

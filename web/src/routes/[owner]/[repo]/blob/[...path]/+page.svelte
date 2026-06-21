@@ -3,7 +3,6 @@
   import RepoHeader from '$lib/components/RepoHeader.svelte';
   import { repos } from '$lib/api/client.svelte';
   import { createT } from '$lib/i18n';
-  import { onMount } from 'svelte';
 
   const t = createT();
 
@@ -12,6 +11,7 @@
   let filePath = $derived($page.params.path!);
   let blobData = $state<any>(null);
   let ref = $state('');
+  let queryRef = $derived($page.url.searchParams.get('ref') || '');
   let loading = $state(true);
   let error = $state('');
   let isMarkdown = $derived(filePath?.endsWith('.md') || filePath?.endsWith('.markdown'));
@@ -35,6 +35,18 @@
   
   let langClass = $derived(getLangClass());
 
+  function buildRepoQuery(nextRef: string, nextPath: string) {
+    const params = new URLSearchParams();
+    if (nextRef) params.set('ref', nextRef);
+    if (nextPath) params.set('path', nextPath);
+    const qs = params.toString();
+    return qs ? `?${qs}` : '';
+  }
+
+  function buildRepoHref(nextRef: string, nextPath: string) {
+    return `/${owner}/${repo}${buildRepoQuery(nextRef, nextPath)}`;
+  }
+
   // Helper function to build breadcrumb path
   function getBreadcrumbs(): { name: string; href: string }[] {
     const parts = filePath.split('/');
@@ -42,7 +54,7 @@
     let accumulated = '';
     for (let i = 0; i < parts.length - 1; i++) {
       accumulated = accumulated ? accumulated + '/' + parts[i] : parts[i];
-      crumbs.push({ name: parts[i], href: `/${owner}/${repo}/tree/${accumulated}` });
+      crumbs.push({ name: parts[i], href: buildRepoHref(ref, accumulated) });
     }
     return crumbs;
   }
@@ -50,6 +62,9 @@
   let breadcrumbs = $derived(getBreadcrumbs());
 
   $effect(() => {
+    if (ref !== queryRef) {
+      ref = queryRef;
+    }
     loadBlob();
   });
 
@@ -104,8 +119,8 @@
     <p class="text-secondary">{t('common.loading')}</p>
   {:else if blobData}
     <!-- Breadcrumb -->
-    <div class="blob-breadcrumb">
-      <a href="/{owner}/{repo}" class="crumb-link">{repo}</a>
+      <div class="blob-breadcrumb">
+      <a href={buildRepoHref(ref, '')} class="crumb-link">{repo}</a>
       {#each breadcrumbs as crumb}
         <span class="crumb-sep">/</span>
         <a href={crumb.href} class="crumb-link">{crumb.name}</a>

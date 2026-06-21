@@ -58,9 +58,8 @@ fn run_stdio(state: &AppState) -> io::Result<()> {
 }
 
 fn write_json<W: Write>(w: &mut W, resp: &JsonRpcResponse) -> io::Result<()> {
-    let s = serde_json::to_string(resp).map_err(|e| {
-        io::Error::new(io::ErrorKind::InvalidData, e)
-    })?;
+    let s =
+        serde_json::to_string(resp).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
     writeln!(w, "{}", s)?;
     w.flush()?;
     Ok(())
@@ -69,16 +68,12 @@ fn write_json<W: Write>(w: &mut W, resp: &JsonRpcResponse) -> io::Result<()> {
 fn dispatch(state: &AppState, req: &JsonRpcRequest) -> JsonRpcResponse {
     match req.method.as_str() {
         "initialize" => handle_initialize(state, req),
-        "notifications/initialized" => {
-            make_success(req.id.clone(), serde_json::json!({}))
-        }
+        "notifications/initialized" => make_success(req.id.clone(), serde_json::json!({})),
         "tools/list" => rg_mcp::tools::list_tools(state, req),
         "tools/call" => rg_mcp::tools::call_tool(state, req),
         "resources/list" => rg_mcp::resources::list_resources(state, req),
         "resources/read" => rg_mcp::resources::read_resource(state, req),
-        "notifications/cancelled" => {
-            make_success(req.id.clone(), serde_json::json!({}))
-        }
+        "notifications/cancelled" => make_success(req.id.clone(), serde_json::json!({})),
         _ => make_error(
             req.id.clone(),
             -32601,

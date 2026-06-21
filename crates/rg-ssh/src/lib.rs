@@ -222,11 +222,17 @@ impl Handler for SshHandler {
             }
             Ok(None) => {
                 tracing::warn!(fingerprint = %fp_str, "SSH pubkey not found");
-                Ok(Auth::Reject { proceed_with_methods: None, partial_success: false })
+                Ok(Auth::Reject {
+                    proceed_with_methods: None,
+                    partial_success: false,
+                })
             }
             Err(e) => {
                 tracing::error!(error = %e, "DB error during pubkey lookup");
-                Ok(Auth::Reject { proceed_with_methods: None, partial_success: false })
+                Ok(Auth::Reject {
+                    proceed_with_methods: None,
+                    partial_success: false,
+                })
             }
         }
     }
@@ -247,21 +253,33 @@ impl Handler for SshHandler {
                     }
                     Ok(false) => {
                         tracing::warn!(username, "SSH password auth rejected");
-                        Ok(Auth::Reject { proceed_with_methods: None, partial_success: false })
+                        Ok(Auth::Reject {
+                            proceed_with_methods: None,
+                            partial_success: false,
+                        })
                     }
                     Err(e) => {
                         tracing::error!(error = %e, "password verify error");
-                        Ok(Auth::Reject { proceed_with_methods: None, partial_success: false })
+                        Ok(Auth::Reject {
+                            proceed_with_methods: None,
+                            partial_success: false,
+                        })
                     }
                 }
             }
             Ok(None) => {
                 tracing::warn!(username, "SSH password auth: user not found");
-                Ok(Auth::Reject { proceed_with_methods: None, partial_success: false })
+                Ok(Auth::Reject {
+                    proceed_with_methods: None,
+                    partial_success: false,
+                })
             }
             Err(e) => {
                 tracing::error!(error = %e, "DB error during password auth");
-                Ok(Auth::Reject { proceed_with_methods: None, partial_success: false })
+                Ok(Auth::Reject {
+                    proceed_with_methods: None,
+                    partial_success: false,
+                })
             }
         }
     }
@@ -272,7 +290,10 @@ impl Handler for SshHandler {
         _submethods: &str,
         _response: Option<russh::server::Response<'_>>,
     ) -> Result<Auth, Self::Error> {
-        Ok(Auth::Reject { proceed_with_methods: None, partial_success: false })
+        Ok(Auth::Reject {
+            proceed_with_methods: None,
+            partial_success: false,
+        })
     }
 
     async fn env_request(
@@ -358,8 +379,12 @@ impl Handler for SshHandler {
                 handle_v2_stream(&repo_full_path, &mut stream).await
             } else {
                 match service_name.as_str() {
-                    "git-upload-pack" => handle_upload_pack_stream(&repo_full_path, &mut stream).await.map(|_| ()),
-                    "git-receive-pack" => handle_receive_pack_stream(&repo_full_path, &mut stream).await.map(|_| ()),
+                    "git-upload-pack" => handle_upload_pack_stream(&repo_full_path, &mut stream)
+                        .await
+                        .map(|_| ()),
+                    "git-receive-pack" => handle_receive_pack_stream(&repo_full_path, &mut stream)
+                        .await
+                        .map(|_| ()),
                     _ => Err(anyhow::anyhow!("Unknown git service: {}", service_name)),
                 }
             };
@@ -372,7 +397,7 @@ impl Handler for SshHandler {
             }
 
             // CRITICAL: SSH stream shutdown order (踩坑经验)
-            // 
+            //
             // Must send exit_status BEFORE shutting down the stream.
             // The russh client expects to receive the exit-status message before
             // the channel is closed. If we shutdown the stream first, the

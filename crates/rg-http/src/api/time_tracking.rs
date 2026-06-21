@@ -14,9 +14,9 @@ use axum::{
 use serde::Deserialize;
 use utoipa::ToSchema;
 
-use crate::error::AppError;
 use crate::api::auth::extract_bearer_claims;
-use crate::pagination::{PaginationParams, PaginatedResponse};
+use crate::error::AppError;
+use crate::pagination::{PaginatedResponse, PaginationParams};
 use crate::AppState;
 
 /// Request body for adding a time entry.
@@ -107,7 +107,9 @@ pub async fn list_time_entries(
         Err(_) => return AppError::not_found("issue not found").into_response(),
     };
 
-    match rg_core::time_tracking::service::list_time_entries(&state.db, issue.id, offset, limit).await {
+    match rg_core::time_tracking::service::list_time_entries(&state.db, issue.id, offset, limit)
+        .await
+    {
         Ok((entries, total)) => (
             StatusCode::OK,
             Json(PaginatedResponse::new(entries, &pagination, total as u64)),

@@ -42,16 +42,24 @@ pub enum Relation {
 }
 
 impl Related<super::repository::Entity> for Entity {
-    fn to() -> RelationDef { Relation::Repository.def() }
+    fn to() -> RelationDef {
+        Relation::Repository.def()
+    }
 }
 impl Related<super::organization::Entity> for Entity {
-    fn to() -> RelationDef { Relation::Organization.def() }
+    fn to() -> RelationDef {
+        Relation::Organization.def()
+    }
 }
 impl Related<super::user::Entity> for Entity {
-    fn to() -> RelationDef { Relation::User.def() }
+    fn to() -> RelationDef {
+        Relation::User.def()
+    }
 }
 impl Related<super::board_column::Entity> for Entity {
-    fn to() -> RelationDef { Relation::Columns.def() }
+    fn to() -> RelationDef {
+        Relation::Columns.def()
+    }
 }
 
 impl ActiveModelBehavior for ActiveModel {}

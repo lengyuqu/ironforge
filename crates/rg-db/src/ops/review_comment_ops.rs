@@ -3,13 +3,12 @@
 use anyhow::{Context, Result};
 use sea_orm::*;
 
-use crate::entities::review_comment::{self, ActiveModel, Entity as CommentEntity, Model as ReviewComment};
+use crate::entities::review_comment::{
+    self, ActiveModel, Entity as CommentEntity, Model as ReviewComment,
+};
 
 /// Find a comment by ID.
-pub async fn find_by_id(
-    db: &DatabaseConnection,
-    id: i64,
-) -> Result<Option<ReviewComment>> {
+pub async fn find_by_id(db: &DatabaseConnection, id: i64) -> Result<Option<ReviewComment>> {
     CommentEntity::find_by_id(id)
         .one(db)
         .await
@@ -17,10 +16,7 @@ pub async fn find_by_id(
 }
 
 /// List all comments for a review, ordered by creation time.
-pub async fn list_by_review(
-    db: &DatabaseConnection,
-    review_id: i64,
-) -> Result<Vec<ReviewComment>> {
+pub async fn list_by_review(db: &DatabaseConnection, review_id: i64) -> Result<Vec<ReviewComment>> {
     CommentEntity::find()
         .filter(review_comment::Column::ReviewId.eq(review_id))
         .order_by_asc(review_comment::Column::CreatedAt)
@@ -30,10 +26,7 @@ pub async fn list_by_review(
 }
 
 /// List all comments for a PR (across all reviews).
-pub async fn list_by_pr(
-    db: &DatabaseConnection,
-    pr_id: i64,
-) -> Result<Vec<ReviewComment>> {
+pub async fn list_by_pr(db: &DatabaseConnection, pr_id: i64) -> Result<Vec<ReviewComment>> {
     CommentEntity::find()
         .filter(review_comment::Column::PrId.eq(pr_id))
         .order_by_asc(review_comment::Column::CreatedAt)

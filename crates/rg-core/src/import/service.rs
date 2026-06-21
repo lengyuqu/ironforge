@@ -20,17 +20,16 @@ use std::path::Path;
 use rg_db::entities::import_task::{self, Model as ImportTask};
 use rg_db::entities::{label, milestone};
 use rg_db::ops::{
-    import_task_ops, issue_comment_ops, issue_ops, label_ops, milestone_ops,
-    org_ops, pull_request_ops, pr_review_ops, user_ops,
+    import_task_ops, issue_comment_ops, issue_ops, label_ops, milestone_ops, org_ops,
+    pr_review_ops, pull_request_ops, user_ops,
 };
 
 use crate::import::github_client::{
-    GitHubClient, GitHubComment, GitHubIssue, GitHubLabel, GitHubMilestone,
-    GitHubPR, GitHubRelease, GitHubReview,
+    GitHubClient, GitHubComment, GitHubIssue, GitHubLabel, GitHubMilestone, GitHubPR,
+    GitHubRelease, GitHubReview,
 };
 use crate::import::gitlab_client::{
-    GitLabClient, GitLabIssue, GitLabLabel, GitLabMilestone, GitLabMR,
-    GitLabNote, GitLabRelease,
+    GitLabClient, GitLabIssue, GitLabLabel, GitLabMR, GitLabMilestone, GitLabNote, GitLabRelease,
 };
 
 /// Statistics collected during import.
@@ -64,6 +63,15 @@ pub async fn run_import(
     Ok(stats)
 }
 
+async fn load_milestone_map(db: &DatabaseConnection, repo_id: i64) -> Result<HashMap<String, i64>> {
+    let existing = milestone_ops::list_by_repo(db, repo_id, None).await?;
+    let mut map = HashMap::with_capacity(existing.len());
+    for ms in existing {
+        map.insert(ms.title.clone(), ms.id);
+    }
+    Ok(map)
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // GitHub import
 // ═══════════════════════════════════════════════════════════════════════
@@ -82,8 +90,7 @@ async fn run_github_import(
 
     // Resolve (or create) the target repo in IronForge DB
     let repo_id =
-        resolve_or_create_target_repo(db, &task.target_owner, &task.target_name, repo_root)
-            .await?;
+        resolve_or_create_target_repo(db, &task.target_owner, &task.target_name, repo_root).await?;
 
     // Update task with repo_id
     let _ = import_task_ops::set_repo_id(db, task.id, repo_id).await;
@@ -105,14 +112,15 @@ async fn run_github_import(
     // Build user mapping from all referenced users
     let user_map = build_github_user_map(&client, &gh_owner, &gh_repo, task).await?;
 
+    // Build milestone cache (existing in target repo + newly imported ones when enabled)
+    let mut milestone_map = load_milestone_map(db, repo_id).await?;
+
     // Step 2: Labels
-    let mut milestone_map: HashMap<String, i64> = HashMap::new();
 
     if task.import_labels {
         update_stage(db, task.id, "importing", 15, "Importing labels...").await?;
         let labels = client.list_labels(&gh_owner, &gh_repo).await?;
-        stats.labels_imported =
-            import_github_labels(db, repo_id, &labels).await?;
+        stats.labels_imported = import_github_labels(db, repo_id, &labels).await?;
         update_stage(
             db,
             task.id,
@@ -146,8 +154,9 @@ async fn run_github_import(
         let total = issues.len();
 
         for (i, issue) in issues.iter().enumerate() {
-            let comments =
-                client.list_issue_comments(&gh_owner, &gh_repo, issue.number).await?;
+            let comments = client
+                .list_issue_comments(&gh_owner, &gh_repo, issue.number)
+                .await?;
             import_github_issue(
                 db,
                 repo_id,
@@ -181,12 +190,20 @@ async fn run_github_import(
         let total = prs.len();
 
         for (i, pr) in prs.iter().enumerate() {
-            let comments =
-                client.list_issue_comments(&gh_owner, &gh_repo, pr.number).await?;
-            let reviews =
-                client.list_pr_reviews(&gh_owner, &gh_repo, pr.number).await?;
+            let comments = client
+                .list_issue_comments(&gh_owner, &gh_repo, pr.number)
+                .await?;
+            let reviews = client
+                .list_pr_reviews(&gh_owner, &gh_repo, pr.number)
+                .await?;
             import_github_pr(
-                db, repo_id, pr, &comments, &reviews, &user_map, &milestone_map,
+                db,
+                repo_id,
+                pr,
+                &comments,
+                &reviews,
+                &user_map,
+                &milestone_map,
             )
             .await?;
             stats.prs_imported += 1;
@@ -242,8 +259,7 @@ async fn run_gitlab_import(
 
     // Resolve (or create) the target repo in IronForge DB
     let repo_id =
-        resolve_or_create_target_repo(db, &task.target_owner, &task.target_name, repo_root)
-            .await?;
+        resolve_or_create_target_repo(db, &task.target_owner, &task.target_name, repo_root).await?;
 
     let _ = import_task_ops::set_repo_id(db, task.id, repo_id).await;
 
@@ -263,14 +279,15 @@ async fn run_gitlab_import(
         update_stage(db, task.id, "importing", 10, "Repository cloned").await?;
     }
 
+    // Build milestone cache (existing in target repo + newly imported ones when enabled)
+    let mut milestone_map = load_milestone_map(db, repo_id).await?;
+
     // Step 2: Labels
-    let mut milestone_map: HashMap<String, i64> = HashMap::new();
 
     if task.import_labels {
         update_stage(db, task.id, "importing", 15, "Importing labels...").await?;
         let labels = client.list_labels(&project_path).await?;
-        stats.labels_imported =
-            import_gitlab_labels(db, repo_id, &labels).await?;
+        stats.labels_imported = import_gitlab_labels(db, repo_id, &labels).await?;
         update_stage(
             db,
             task.id,
@@ -342,10 +359,7 @@ async fn run_gitlab_import(
 
         for (i, mr) in mrs.iter().enumerate() {
             let notes = client.list_mr_notes(&project_path, mr.iid).await?;
-            import_gitlab_mr(
-                db, repo_id, mr, &notes, &user_map, &milestone_map,
-            )
-            .await?;
+            import_gitlab_mr(db, repo_id, mr, &notes, &user_map, &milestone_map).await?;
             stats.prs_imported += 1;
             stats.issue_comments_imported += notes.len();
 
@@ -402,27 +416,26 @@ async fn resolve_or_create_target_repo(
     }
 
     // Resolve owner: try user first, then org
-    let (owner_id, org_id) = if let Some(user) =
-        user_ops::find_by_username(db, target_owner).await?
-    {
-        (user.id, None)
-    } else if let Some(org) = org_ops::get_org_by_name(db, target_owner).await? {
-        (org.owner_id, Some(org.id))
-    } else {
-        anyhow::bail!(
-            "target owner '{}' not found (must be an existing IronForge user or organization)",
-            target_owner
-        );
-    };
+    let (owner_id, org_id) =
+        if let Some(user) = user_ops::find_by_username(db, target_owner).await? {
+            (user.id, None)
+        } else if let Some(org) = org_ops::get_org_by_name(db, target_owner).await? {
+            (org.owner_id, Some(org.id))
+        } else {
+            anyhow::bail!(
+                "target owner '{}' not found (must be an existing IronForge user or organization)",
+                target_owner
+            );
+        };
 
     // Create the repo via the repo service
     let repo = crate::repo::service::create_repo(
         db,
         owner_id,
         target_name,
-        None,       // no description — imported repo
-        false,      // public by default
-        &repo_root.to_path_buf(),
+        None,  // no description — imported repo
+        false, // public by default
+        repo_root,
         org_id,
     )
     .await?;
@@ -454,7 +467,9 @@ fn clone_repo(
 
     std::fs::create_dir_all(target_dir.parent().unwrap())?;
 
-    let git = global_gateway().as_ref().map_err(|e| anyhow::anyhow!("{}", e))?;
+    let git = global_gateway()
+        .as_ref()
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
     git.run_or_bail(
         &["clone", "--bare", source_url, &target_dir.to_string_lossy()],
         None,
@@ -582,8 +597,11 @@ fn map_users(
 // ═══════════════════════════════════════════════════════════════════════
 
 fn parse_opt_datetime(s: &Option<String>) -> Option<chrono::DateTime<Utc>> {
-    s.as_ref()
-        .and_then(|v| chrono::DateTime::parse_from_rfc3339(v).ok().map(|d| d.with_timezone(&Utc)))
+    s.as_ref().and_then(|v| {
+        chrono::DateTime::parse_from_rfc3339(v)
+            .ok()
+            .map(|d| d.with_timezone(&Utc))
+    })
 }
 
 fn parse_datetime_or_now(s: &str) -> chrono::DateTime<Utc> {
@@ -686,6 +704,7 @@ async fn import_github_milestones(
     Ok(count)
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn import_github_issue(
     db: &DatabaseConnection,
     repo_id: i64,
@@ -790,15 +809,13 @@ async fn import_github_pr(
         .unwrap_or(1);
 
     let label_names: Vec<String> = pr.labels.iter().map(|l| l.name.clone()).collect();
-    // TODO: PR labels and milestones are not stored in the pull_request entity.
-    // Storing them would require schema changes or a separate table.
-    let _labels_json = if label_names.is_empty() {
+    let labels_json = if label_names.is_empty() {
         None
     } else {
         Some(serde_json::to_string(&label_names).unwrap_or_else(|_| "[]".into()))
     };
 
-    let _milestone_id = pr
+    let milestone_id = pr
         .milestone
         .as_ref()
         .and_then(|m| milestone_map.get(&m.title))
@@ -828,6 +845,8 @@ async fn import_github_pr(
         merge_strategy: Set(None),
         merge_commit_sha: Set(None),
         head_repo_id: Set(None),
+        milestone_id: Set(milestone_id),
+        labels: Set(labels_json),
         created_at: Set(parse_datetime_or_now(&pr.created_at)),
         updated_at: Set(parse_datetime_or_now(&pr.updated_at)),
         closed_at: Set(parse_opt_datetime(&pr.closed_at)),
@@ -884,7 +903,9 @@ async fn import_github_pr(
             action: Set(action.to_string()),
             body: Set(review.body.clone()),
             commit_id: Set(None),
-            created_at: Set(parse_datetime_or_now(review.submitted_at.as_deref().unwrap_or(""))),
+            created_at: Set(parse_datetime_or_now(
+                review.submitted_at.as_deref().unwrap_or(""),
+            )),
         };
 
         if let Err(e) = pr_review_ops::create(db, rv).await {
@@ -931,10 +952,7 @@ async fn import_github_releases(
         {
             Ok(_) => count += 1,
             Err(e) => {
-                tracing::warn!(
-                    "Failed to import release '{}': {e}",
-                    release.tag_name
-                );
+                tracing::warn!("Failed to import release '{}': {e}", release.tag_name);
             }
         }
     }
@@ -1027,10 +1045,7 @@ async fn import_gitlab_milestones(
                 count += 1;
             }
             Err(e) => {
-                tracing::warn!(
-                    "Failed to create milestone '{}': {e}",
-                    gm.title
-                );
+                tracing::warn!("Failed to create milestone '{}': {e}", gm.title);
             }
         }
     }
@@ -1038,6 +1053,7 @@ async fn import_gitlab_milestones(
     Ok(count)
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn import_gitlab_issue(
     db: &DatabaseConnection,
     repo_id: i64,
@@ -1116,10 +1132,7 @@ async fn import_gitlab_issue(
         };
 
         if let Err(e) = issue_comment_ops::create(db, cm).await {
-            tracing::warn!(
-                "Failed to import note on issue !{}: {e}",
-                issue.iid
-            );
+            tracing::warn!("Failed to import note on issue !{}: {e}", issue.iid);
         }
     }
 
@@ -1141,14 +1154,13 @@ async fn import_gitlab_mr(
         .copied()
         .unwrap_or(1);
 
-    // TODO: MR labels and milestones are not stored in the pull_request entity.
-    let _labels_json = if mr.labels.is_empty() {
+    let labels_json = if mr.labels.is_empty() {
         None
     } else {
         Some(serde_json::to_string(&mr.labels).unwrap_or_else(|_| "[]".into()))
     };
 
-    let _milestone_id = mr
+    let milestone_id = mr
         .milestone
         .as_ref()
         .and_then(|m| milestone_map.get(&m.title))
@@ -1178,6 +1190,8 @@ async fn import_gitlab_mr(
         merge_strategy: Set(None),
         merge_commit_sha: Set(None),
         head_repo_id: Set(mr.source_project_id),
+        milestone_id: Set(milestone_id),
+        labels: Set(labels_json),
         created_at: Set(parse_datetime_or_now(&mr.created_at)),
         updated_at: Set(parse_datetime_or_now(&mr.updated_at)),
         closed_at: Set(parse_opt_datetime(&mr.closed_at)),
@@ -1246,10 +1260,7 @@ async fn import_gitlab_releases(
         {
             Ok(_) => count += 1,
             Err(e) => {
-                tracing::warn!(
-                    "Failed to import release '{}': {e}",
-                    release.tag_name
-                );
+                tracing::warn!("Failed to import release '{}': {e}", release.tag_name);
             }
         }
     }
@@ -1277,6 +1288,7 @@ async fn update_stage(
 // ═══════════════════════════════════════════════════════════════════════
 
 /// Create a new import task and start the background import process.
+#[allow(clippy::too_many_arguments)]
 pub async fn start_import(
     db: &DatabaseConnection,
     user_id: i64,
@@ -1332,20 +1344,12 @@ pub async fn start_import(
         match run_import(&db_clone, &task_clone, &repo_root_clone).await {
             Ok(stats) => {
                 let stats_json = serde_json::to_string(&stats).unwrap_or_default();
-                let _ = import_task_ops::mark_completed(
-                    &db_clone,
-                    task_clone.id,
-                    &stats_json,
-                )
-                .await;
+                let _ =
+                    import_task_ops::mark_completed(&db_clone, task_clone.id, &stats_json).await;
             }
             Err(e) => {
-                let _ = import_task_ops::mark_failed(
-                    &db_clone,
-                    task_clone.id,
-                    &format!("{e:#}"),
-                )
-                .await;
+                let _ =
+                    import_task_ops::mark_failed(&db_clone, task_clone.id, &format!("{e:#}")).await;
             }
         }
     });

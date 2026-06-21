@@ -62,11 +62,7 @@ pub async fn get_watch_state(
 }
 
 /// Remove watch (set back to not_watching).
-pub async fn remove_watch(
-    db: &DatabaseConnection,
-    user_id: i64,
-    repo_id: i64,
-) -> Result<()> {
+pub async fn remove_watch(db: &DatabaseConnection, user_id: i64, repo_id: i64) -> Result<()> {
     set_watch_state(db, user_id, repo_id, "not_watching").await?;
     Ok(())
 }
@@ -82,10 +78,7 @@ pub async fn list_watchers(
         .filter(repo_watch::Column::RepoId.eq(repo_id))
         .order_by_desc(repo_watch::Column::UpdatedAt);
 
-    let total = base.clone()
-        .count(db)
-        .await
-        .context("db: count watchers")? as i64;
+    let total = base.clone().count(db).await.context("db: count watchers")? as i64;
 
     let watchers = base
         .offset(offset)

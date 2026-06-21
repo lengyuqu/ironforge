@@ -9,8 +9,12 @@ use anyhow::Result;
 pub fn fingerprint_from_openssh(pubkey: &str) -> Result<String> {
     // Split off the key type and base64 blob
     let mut parts = pubkey.split_whitespace();
-    let _key_type = parts.next().ok_or_else(|| anyhow::anyhow!("empty public key"))?;
-    let b64 = parts.next().ok_or_else(|| anyhow::anyhow!("missing key blob"))?;
+    let _key_type = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("empty public key"))?;
+    let b64 = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("missing key blob"))?;
 
     let raw = base64_decode(b64)?;
 
@@ -23,7 +27,7 @@ pub fn fingerprint_from_openssh(pubkey: &str) -> Result<String> {
 }
 
 fn sha256(data: &[u8]) -> [u8; 32] {
-    use sha2::{Sha256, Digest};
+    use sha2::{Digest, Sha256};
 
     let mut hasher = Sha256::new();
     hasher.update(data);
@@ -52,13 +56,23 @@ fn base64_decode(s: &str) -> Result<Vec<u8>> {
     let chars: Vec<u8> = padded.bytes().filter(|&c| c != b'=').collect();
     for chunk in chars.chunks(4) {
         let b0 = *table.get(chunk[0] as usize).unwrap_or(&0);
-        let b1 = *table.get(chunk.get(1).copied().unwrap_or(0) as usize).unwrap_or(&0);
-        let b2 = *table.get(chunk.get(2).copied().unwrap_or(0) as usize).unwrap_or(&0);
-        let b3 = *table.get(chunk.get(3).copied().unwrap_or(0) as usize).unwrap_or(&0);
+        let b1 = *table
+            .get(chunk.get(1).copied().unwrap_or(0) as usize)
+            .unwrap_or(&0);
+        let b2 = *table
+            .get(chunk.get(2).copied().unwrap_or(0) as usize)
+            .unwrap_or(&0);
+        let b3 = *table
+            .get(chunk.get(3).copied().unwrap_or(0) as usize)
+            .unwrap_or(&0);
 
         out.push((b0 << 2) | (b1 >> 4));
-        if chunk.len() > 2 { out.push((b1 << 4) | (b2 >> 2)); }
-        if chunk.len() > 3 { out.push((b2 << 6) | b3); }
+        if chunk.len() > 2 {
+            out.push((b1 << 4) | (b2 >> 2));
+        }
+        if chunk.len() > 3 {
+            out.push((b2 << 6) | b3);
+        }
     }
     Ok(out)
 }
@@ -72,8 +86,12 @@ fn base64_encode_nopad(data: &[u8]) -> String {
         let b2 = chunk.get(2).copied().unwrap_or(0);
         out.push(CHARS[((b0 >> 2) & 0x3f) as usize] as char);
         out.push(CHARS[(((b0 << 4) | (b1 >> 4)) & 0x3f) as usize] as char);
-        if chunk.len() > 1 { out.push(CHARS[(((b1 << 2) | (b2 >> 6)) & 0x3f) as usize] as char); }
-        if chunk.len() > 2 { out.push(CHARS[(b2 & 0x3f) as usize] as char); }
+        if chunk.len() > 1 {
+            out.push(CHARS[(((b1 << 2) | (b2 >> 6)) & 0x3f) as usize] as char);
+        }
+        if chunk.len() > 2 {
+            out.push(CHARS[(b2 & 0x3f) as usize] as char);
+        }
     }
     out
 }

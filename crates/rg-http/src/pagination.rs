@@ -181,7 +181,10 @@ mod tests {
 
     #[test]
     fn test_clamp_method() {
-        let params = PaginationParams { page: 0, per_page: 500 };
+        let params = PaginationParams {
+            page: 0,
+            per_page: 500,
+        };
         let clamped = params.clamp();
         assert_eq!(clamped.page, 1);
         assert_eq!(clamped.per_page, 100);

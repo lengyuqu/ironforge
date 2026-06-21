@@ -5,14 +5,13 @@
 //! - Docker V2 Schema 2 and OCI Image Spec manifest handling
 //! - Chunked upload support
 
-pub mod types;
-pub mod storage;
 pub mod manifest;
+pub mod storage;
+pub mod types;
 
+pub use manifest::{Manifest, ManifestDescriptor, ManifestLayer, ParsedManifest};
 pub use storage::OciStorage;
-pub use manifest::{Manifest, ManifestLayer, ManifestDescriptor, ParsedManifest};
 pub use types::{
-    Reference, TagListResponse, ErrorResponse, ErrorDetail,
-    media_types, error_codes,
-    API_VERSION, API_VERSION_HEADER,
+    error_codes, media_types, ErrorDetail, ErrorResponse, Reference, TagListResponse, API_VERSION,
+    API_VERSION_HEADER,
 };

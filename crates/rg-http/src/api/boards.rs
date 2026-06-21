@@ -28,8 +28,8 @@ use axum::{
 use serde::Deserialize;
 use utoipa::ToSchema;
 
-use crate::error::AppError;
 use crate::api::auth::extract_bearer_claims;
+use crate::error::AppError;
 use crate::AppState;
 
 // ── Request types ────────────────────────────────────────────────────────
@@ -124,15 +124,23 @@ pub async fn create_board(
         Err(_) => return AppError::unauthorized("invalid token subject").into_response(),
     };
 
-    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await {
+    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
+    {
         Ok(Some(r)) => r,
         Ok(None) => return AppError::not_found("repository not found").into_response(),
         Err(e) => return AppError::internal(e).into_response(),
     };
 
     match rg_core::board::service::create_board(
-        &state.db, body.name, body.description, Some(repo.id), None, user_id,
-    ).await {
+        &state.db,
+        body.name,
+        body.description,
+        Some(repo.id),
+        None,
+        user_id,
+    )
+    .await
+    {
         Ok(board) => (StatusCode::CREATED, Json(serde_json::json!(board))).into_response(),
         Err(e) => AppError::bad_request(e).into_response(),
     }
@@ -155,7 +163,8 @@ pub async fn list_boards(
     State(state): State<AppState>,
     Path((owner, name)): Path<(String, String)>,
 ) -> impl IntoResponse {
-    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await {
+    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
+    {
         Ok(Some(r)) => r,
         Ok(None) => return AppError::not_found("repository not found").into_response(),
         Err(e) => return AppError::internal(e).into_response(),
@@ -429,7 +438,9 @@ pub async fn move_card(
     Path((_owner, _name, _board_id, card_id)): Path<(String, String, i64, i64)>,
     Json(body): Json<MoveCardRequest>,
 ) -> impl IntoResponse {
-    match rg_core::board::service::move_card(&state.db, card_id, body.column_id, body.position).await {
+    match rg_core::board::service::move_card(&state.db, card_id, body.column_id, body.position)
+        .await
+    {
         Ok(card) => (StatusCode::OK, Json(serde_json::json!(card))).into_response(),
         Err(e) => AppError::bad_request(e).into_response(),
     }

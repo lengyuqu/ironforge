@@ -50,7 +50,11 @@ impl PackageAdapter for RubyGemsAdapter {
         for entry in archive.entries()? {
             let entry = entry?;
             let path = entry.path()?;
-            if path.file_name().map(|n| n == "metadata.gz").unwrap_or(false) {
+            if path
+                .file_name()
+                .map(|n| n == "metadata.gz")
+                .unwrap_or(false)
+            {
                 found_metadata = true;
                 break;
             }
@@ -88,7 +92,11 @@ fn extract_from_gem(data: &[u8]) -> Result<ExtractedMetadata, anyhow::Error> {
     for entry in archive.entries()? {
         let mut entry = entry?;
         let path = entry.path()?.to_path_buf();
-        if path.file_name().map(|n| n == "metadata.gz").unwrap_or(false) {
+        if path
+            .file_name()
+            .map(|n| n == "metadata.gz")
+            .unwrap_or(false)
+        {
             let mut buf = Vec::new();
             entry.read_to_end(&mut buf)?;
             metadata_gz = Some(buf);
@@ -96,16 +104,15 @@ fn extract_from_gem(data: &[u8]) -> Result<ExtractedMetadata, anyhow::Error> {
         }
     }
 
-    let gz_data = metadata_gz.ok_or_else(|| {
-        anyhow::anyhow!("invalid .gem: no metadata.gz found")
-    })?;
+    let gz_data =
+        metadata_gz.ok_or_else(|| anyhow::anyhow!("invalid .gem: no metadata.gz found"))?;
 
     // Decompress metadata.gz
     let mut decoder = GzDecoder::new(&gz_data[..]);
     let mut yaml_str = String::new();
-    decoder.read_to_string(&mut yaml_str).map_err(|e| {
-        anyhow::anyhow!("invalid .gem metadata.gz: {e}")
-    })?;
+    decoder
+        .read_to_string(&mut yaml_str)
+        .map_err(|e| anyhow::anyhow!("invalid .gem metadata.gz: {e}"))?;
 
     parse_gemspec_yaml(&yaml_str)
 }
@@ -115,9 +122,8 @@ fn extract_from_gem(data: &[u8]) -> Result<ExtractedMetadata, anyhow::Error> {
 /// The metadata.gz contains a YAML document with keys:
 /// name, version, summary, description, homepage, licenses, authors, etc.
 fn parse_gemspec_yaml(yaml: &str) -> Result<ExtractedMetadata, anyhow::Error> {
-    let doc: serde_yaml::Value = serde_yaml::from_str(yaml).map_err(|e| {
-        anyhow::anyhow!("invalid RubyGems metadata (not valid YAML): {e}")
-    })?;
+    let doc: serde_yaml::Value = serde_yaml::from_str(yaml)
+        .map_err(|e| anyhow::anyhow!("invalid RubyGems metadata (not valid YAML): {e}"))?;
 
     let name = doc
         .get("name")
@@ -129,13 +135,11 @@ fn parse_gemspec_yaml(yaml: &str) -> Result<ExtractedMetadata, anyhow::Error> {
         .get("version")
         .and_then(|v| {
             // version can be a string or a nested object with "version" key
-            if let Some(s) = v.as_str() {
-                Some(s.to_string())
-            } else if let Some(inner) = v.get("version").and_then(|iv| iv.as_str()) {
-                Some(inner.to_string())
-            } else {
-                None
-            }
+            v.as_str().map(str::to_string).or_else(|| {
+                v.get("version")
+                    .and_then(|iv| iv.as_str())
+                    .map(str::to_string)
+            })
         })
         .ok_or_else(|| anyhow::anyhow!("RubyGems metadata missing 'version'"))?;
 
@@ -181,7 +185,11 @@ fn parse_gemspec_yaml(yaml: &str) -> Result<ExtractedMetadata, anyhow::Error> {
                 })
                 .filter(|s| !s.is_empty())
         })
-        .or_else(|| doc.get("license").and_then(|v| v.as_str()).map(String::from));
+        .or_else(|| {
+            doc.get("license")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+        });
 
     let keywords = doc
         .get("metadata")
@@ -239,9 +247,7 @@ pub fn build_dependencies_json(entries: &[RubyGemsDependencyEntry]) -> serde_jso
             let deps_list: Vec<serde_json::Value> = e
                 .dependencies
                 .iter()
-                .map(|d| {
-                    serde_json::json!([d.name, d.requirements])
-                })
+                .map(|d| serde_json::json!([d.name, d.requirements]))
                 .collect();
 
             serde_json::json!({
@@ -271,10 +277,7 @@ pub struct RubyGemsVersionEntry {
 }
 
 /// Build the RubyGems gem info JSON response.
-pub fn build_gem_info_json(
-    name: &str,
-    entries: &[RubyGemsVersionEntry],
-) -> serde_json::Value {
+pub fn build_gem_info_json(name: &str, entries: &[RubyGemsVersionEntry]) -> serde_json::Value {
     let mut version_map = serde_json::Map::new();
     for e in entries {
         let mut ver = serde_json::Map::new();
@@ -426,17 +429,15 @@ description: ""
 
     #[test]
     fn test_build_dependencies_json() {
-        let entries = vec![
-            RubyGemsDependencyEntry {
-                name: "rack".into(),
-                number: "2.2.4".into(),
-                platform: "ruby".into(),
-                dependencies: vec![RubyGemsDep {
-                    name: "activesupport".into(),
-                    requirements: ">= 5.0".into(),
-                }],
-            },
-        ];
+        let entries = vec![RubyGemsDependencyEntry {
+            name: "rack".into(),
+            number: "2.2.4".into(),
+            platform: "ruby".into(),
+            dependencies: vec![RubyGemsDep {
+                name: "activesupport".into(),
+                requirements: ">= 5.0".into(),
+            }],
+        }];
 
         let json = build_dependencies_json(&entries);
         let arr = json.as_array().unwrap();
@@ -450,20 +451,18 @@ description: ""
 
     #[test]
     fn test_build_gem_info_json() {
-        let entries = vec![
-            RubyGemsVersionEntry {
-                number: "1.0.0".into(),
-                platform: "ruby".into(),
-                summary: Some("A gem".into()),
-                description: Some("Full desc".into()),
-                homepage: Some("https://example.com".into()),
-                license: Some("MIT".into()),
-                sha256: Some("abc123".into()),
-                download_url: "https://example.com/dl".into(),
-                gem_uri: "https://example.com/gems/x-1.0.0.gem".into(),
-                created_at: "2024-01-01".into(),
-            },
-        ];
+        let entries = vec![RubyGemsVersionEntry {
+            number: "1.0.0".into(),
+            platform: "ruby".into(),
+            summary: Some("A gem".into()),
+            description: Some("Full desc".into()),
+            homepage: Some("https://example.com".into()),
+            license: Some("MIT".into()),
+            sha256: Some("abc123".into()),
+            download_url: "https://example.com/dl".into(),
+            gem_uri: "https://example.com/gems/x-1.0.0.gem".into(),
+            created_at: "2024-01-01".into(),
+        }];
 
         let json = build_gem_info_json("mygem", &entries);
         assert_eq!(json["name"], "mygem");

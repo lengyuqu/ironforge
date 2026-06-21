@@ -26,17 +26,53 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .unique_key(),
                     )
-                    .col(ColumnDef::new(SsoProviders::ProviderType).string_len(20).not_null())
-                    .col(ColumnDef::new(SsoProviders::ClientId).string_len(512).null())
-                    .col(ColumnDef::new(SsoProviders::ClientSecretEnc).string_len(1024).null())
-                    .col(ColumnDef::new(SsoProviders::DiscoveryUrl).string_len(512).null())
+                    .col(
+                        ColumnDef::new(SsoProviders::ProviderType)
+                            .string_len(20)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(SsoProviders::ClientId)
+                            .string_len(512)
+                            .null(),
+                    )
+                    .col(
+                        ColumnDef::new(SsoProviders::ClientSecretEnc)
+                            .string_len(1024)
+                            .null(),
+                    )
+                    .col(
+                        ColumnDef::new(SsoProviders::DiscoveryUrl)
+                            .string_len(512)
+                            .null(),
+                    )
                     .col(ColumnDef::new(SsoProviders::Scopes).string_len(255).null())
-                    .col(ColumnDef::new(SsoProviders::LdapHost).string_len(255).null())
+                    .col(
+                        ColumnDef::new(SsoProviders::LdapHost)
+                            .string_len(255)
+                            .null(),
+                    )
                     .col(ColumnDef::new(SsoProviders::LdapPort).integer().null())
-                    .col(ColumnDef::new(SsoProviders::LdapBindDn).string_len(512).null())
-                    .col(ColumnDef::new(SsoProviders::LdapBindPasswordEnc).string_len(1024).null())
-                    .col(ColumnDef::new(SsoProviders::LdapBaseDn).string_len(512).null())
-                    .col(ColumnDef::new(SsoProviders::LdapUserFilter).string_len(512).null())
+                    .col(
+                        ColumnDef::new(SsoProviders::LdapBindDn)
+                            .string_len(512)
+                            .null(),
+                    )
+                    .col(
+                        ColumnDef::new(SsoProviders::LdapBindPasswordEnc)
+                            .string_len(1024)
+                            .null(),
+                    )
+                    .col(
+                        ColumnDef::new(SsoProviders::LdapBaseDn)
+                            .string_len(512)
+                            .null(),
+                    )
+                    .col(
+                        ColumnDef::new(SsoProviders::LdapUserFilter)
+                            .string_len(512)
+                            .null(),
+                    )
                     .col(
                         ColumnDef::new(SsoProviders::Enabled)
                             .boolean()
@@ -44,8 +80,16 @@ impl MigrationTrait for Migration {
                             .default(false),
                     )
                     .col(ColumnDef::new(SsoProviders::IconUrl).string_len(512).null())
-                    .col(ColumnDef::new(SsoProviders::CreatedAt).date_time().not_null())
-                    .col(ColumnDef::new(SsoProviders::UpdatedAt).date_time().not_null())
+                    .col(
+                        ColumnDef::new(SsoProviders::CreatedAt)
+                            .date_time()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(SsoProviders::UpdatedAt)
+                            .date_time()
+                            .not_null(),
+                    )
                     .to_owned(),
             )
             .await?;
@@ -54,88 +98,93 @@ impl MigrationTrait for Migration {
         let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
         // GitHub
-        manager.exec_stmt(
-            Query::insert()
-                .into_table(SsoProviders::Table)
-                .columns([
-                    SsoProviders::Name,
-                    SsoProviders::Slug,
-                    SsoProviders::ProviderType,
-                    SsoProviders::Scopes,
-                    SsoProviders::Enabled,
-                    SsoProviders::CreatedAt,
-                    SsoProviders::UpdatedAt,
-                ])
-                .values_panic([
-                    "GitHub".into(),
-                    "github".into(),
-                    "oauth2".into(),
-                    "read:user user:email".into(),
-                    false.into(),
-                    now.clone().into(),
-                    now.clone().into(),
-                ])
-                .to_owned(),
-        )
-        .await?;
+        manager
+            .exec_stmt(
+                Query::insert()
+                    .into_table(SsoProviders::Table)
+                    .columns([
+                        SsoProviders::Name,
+                        SsoProviders::Slug,
+                        SsoProviders::ProviderType,
+                        SsoProviders::Scopes,
+                        SsoProviders::Enabled,
+                        SsoProviders::CreatedAt,
+                        SsoProviders::UpdatedAt,
+                    ])
+                    .values_panic([
+                        "GitHub".into(),
+                        "github".into(),
+                        "oauth2".into(),
+                        "read:user user:email".into(),
+                        false.into(),
+                        now.clone().into(),
+                        now.clone().into(),
+                    ])
+                    .to_owned(),
+            )
+            .await?;
 
         // Google
-        manager.exec_stmt(
-            Query::insert()
-                .into_table(SsoProviders::Table)
-                .columns([
-                    SsoProviders::Name,
-                    SsoProviders::Slug,
-                    SsoProviders::ProviderType,
-                    SsoProviders::Scopes,
-                    SsoProviders::Enabled,
-                    SsoProviders::CreatedAt,
-                    SsoProviders::UpdatedAt,
-                ])
-                .values_panic([
-                    "Google".into(),
-                    "google".into(),
-                    "oidc".into(),
-                    "openid email profile".into(),
-                    false.into(),
-                    now.clone().into(),
-                    now.clone().into(),
-                ])
-                .to_owned(),
-        )
-        .await?;
+        manager
+            .exec_stmt(
+                Query::insert()
+                    .into_table(SsoProviders::Table)
+                    .columns([
+                        SsoProviders::Name,
+                        SsoProviders::Slug,
+                        SsoProviders::ProviderType,
+                        SsoProviders::Scopes,
+                        SsoProviders::Enabled,
+                        SsoProviders::CreatedAt,
+                        SsoProviders::UpdatedAt,
+                    ])
+                    .values_panic([
+                        "Google".into(),
+                        "google".into(),
+                        "oidc".into(),
+                        "openid email profile".into(),
+                        false.into(),
+                        now.clone().into(),
+                        now.clone().into(),
+                    ])
+                    .to_owned(),
+            )
+            .await?;
 
         // GitLab
-        manager.exec_stmt(
-            Query::insert()
-                .into_table(SsoProviders::Table)
-                .columns([
-                    SsoProviders::Name,
-                    SsoProviders::Slug,
-                    SsoProviders::ProviderType,
-                    SsoProviders::Scopes,
-                    SsoProviders::Enabled,
-                    SsoProviders::CreatedAt,
-                    SsoProviders::UpdatedAt,
-                ])
-                .values_panic([
-                    "GitLab".into(),
-                    "gitlab".into(),
-                    "oauth2".into(),
-                    "read_user".into(),
-                    false.into(),
-                    now.clone().into(),
-                    now.into(),
-                ])
-                .to_owned(),
-        )
-        .await?;
+        manager
+            .exec_stmt(
+                Query::insert()
+                    .into_table(SsoProviders::Table)
+                    .columns([
+                        SsoProviders::Name,
+                        SsoProviders::Slug,
+                        SsoProviders::ProviderType,
+                        SsoProviders::Scopes,
+                        SsoProviders::Enabled,
+                        SsoProviders::CreatedAt,
+                        SsoProviders::UpdatedAt,
+                    ])
+                    .values_panic([
+                        "GitLab".into(),
+                        "gitlab".into(),
+                        "oauth2".into(),
+                        "read_user".into(),
+                        false.into(),
+                        now.clone().into(),
+                        now.into(),
+                    ])
+                    .to_owned(),
+            )
+            .await?;
 
         Ok(())
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
-        manager.drop_table(Table::drop().table(SsoProviders::Table).to_owned()).await
+        manager
+            .drop_table(Table::drop().table(SsoProviders::Table).to_owned())
+            .await
     }
 }
 

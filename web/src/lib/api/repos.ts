@@ -27,7 +27,7 @@ export const repos = {
   star: (owner: string, repo: string) =>
     request<{ starred: boolean }>(`/repos/${owner}/${repo}/star`, { method: 'PUT' }),
   unstar: (owner: string, repo: string) =>
-    request<{ starred: boolean }>(`/repos/${owner}/${repo}/star`, { method: 'DELETE' }),
+    request<{ starred: boolean }>(`/repos/${owner}/${repo}/star`, { method: 'PUT' }),
   stargazers: (owner: string, repo: string, page?: number, perPage?: number) =>
     request<PaginatedResponse<any>>(`/repos/${owner}/${repo}/stargazers${qs({ page, per_page: perPage })}`),
   watch: (owner: string, repo: string, state: string) =>

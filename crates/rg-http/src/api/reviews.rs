@@ -98,7 +98,7 @@ pub async fn submit_review(
         None => return AppError::not_found("repository not found").into_response(),
     };
 
-    let action = match rg_core::review::service::ReviewAction::from_str(&req.action) {
+    let action = match rg_core::review::service::ReviewAction::parse_action(&req.action) {
         Ok(a) => a,
         Err(e) => return AppError::bad_request(e).into_response(),
     };
@@ -272,7 +272,6 @@ pub struct DismissReviewRequest {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────
-
 
 async fn resolve_repo_id(
     db: &sea_orm::DatabaseConnection,

@@ -77,21 +77,21 @@ pub async fn ws_notifications_handler(
         .and_then(|t| rg_core::auth::jwt::validate_token(t, &state.jwt_secret))
         .and_then(|c| c.sub.parse::<i64>().ok());
 
-    ws.on_upgrade(move |socket| handle_ws_connection(socket, state.notification_hub.clone(), user_id))
+    ws.on_upgrade(move |socket| {
+        handle_ws_connection(socket, state.notification_hub.clone(), user_id)
+    })
 }
 
 /// Handle an individual WebSocket connection.
-async fn handle_ws_connection(
-    socket: WebSocket,
-    hub: NotificationHub,
-    user_id: Option<i64>,
-) {
+async fn handle_ws_connection(socket: WebSocket, hub: NotificationHub, user_id: Option<i64>) {
     let (mut sender, mut receiver) = socket.split();
 
     if user_id.is_none() {
         let _ = sender
             .send(Message::Text(
-                serde_json::json!({"error": "authentication required"}).to_string().into(),
+                serde_json::json!({"error": "authentication required"})
+                    .to_string()
+                    .into(),
             ))
             .await;
         let _ = sender.close().await;
@@ -104,7 +104,10 @@ async fn handle_ws_connection(
         tracing::error!("user_id became None after guard check — this is a logic bug");
         return;
     };
-    tracing::info!(user_id = uid, "WebSocket client connected for notifications");
+    tracing::info!(
+        user_id = uid,
+        "WebSocket client connected for notifications"
+    );
 
     // Subscribe to the notification hub
     let mut rx = hub.subscribe();
@@ -114,7 +117,11 @@ async fn handle_ws_connection(
         "type": "connected",
         "user_id": uid,
     });
-    if sender.send(Message::Text(welcome.to_string().into())).await.is_err() {
+    if sender
+        .send(Message::Text(welcome.to_string().into()))
+        .await
+        .is_err()
+    {
         return;
     }
 
@@ -226,7 +233,9 @@ pub async fn ws_job_log_handler(
         .and_then(|t| rg_core::auth::jwt::validate_token(t, &state.jwt_secret))
         .and_then(|c| c.sub.parse::<i64>().ok());
 
-    ws.on_upgrade(move |socket| handle_job_log_connection(socket, state.notification_hub.clone(), job_id, user_id))
+    ws.on_upgrade(move |socket| {
+        handle_job_log_connection(socket, state.notification_hub.clone(), job_id, user_id)
+    })
 }
 
 /// Handle a job log WebSocket connection.
@@ -242,7 +251,9 @@ async fn handle_job_log_connection(
     if user_id.is_none() {
         let _ = sender
             .send(Message::Text(
-                serde_json::json!({"error": "authentication required"}).to_string().into(),
+                serde_json::json!({"error": "authentication required"})
+                    .to_string()
+                    .into(),
             ))
             .await;
         let _ = sender.close().await;
@@ -256,7 +267,11 @@ async fn handle_job_log_connection(
         "type": "connected",
         "job_id": job_id,
     });
-    if sender.send(Message::Text(welcome.to_string().into())).await.is_err() {
+    if sender
+        .send(Message::Text(welcome.to_string().into()))
+        .await
+        .is_err()
+    {
         return;
     }
 

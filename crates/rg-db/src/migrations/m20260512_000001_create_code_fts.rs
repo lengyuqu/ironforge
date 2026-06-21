@@ -31,10 +31,7 @@ impl MigrationTrait for Migration {
             -- 3. The service scans Git objects and updates FTS5 directly
         "#;
 
-        manager
-            .get_connection()
-            .execute_unprepared(sql)
-            .await?;
+        manager.get_connection().execute_unprepared(sql).await?;
 
         Ok(())
     }
@@ -44,10 +41,7 @@ impl MigrationTrait for Migration {
             DROP TABLE IF EXISTS code_fts;
         "#;
 
-        manager
-            .get_connection()
-            .execute_unprepared(sql)
-            .await?;
+        manager.get_connection().execute_unprepared(sql).await?;
 
         Ok(())
     }

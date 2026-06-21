@@ -25,7 +25,12 @@ impl MigrationTrait for Migration {
                             .primary_key(),
                     )
                     .col(ColumnDef::new(Runners::Name).string().not_null())
-                    .col(ColumnDef::new(Runners::Token).string().not_null().unique_key())
+                    .col(
+                        ColumnDef::new(Runners::Token)
+                            .string()
+                            .not_null()
+                            .unique_key(),
+                    )
                     .col(
                         ColumnDef::new(Runners::Status)
                             .string()

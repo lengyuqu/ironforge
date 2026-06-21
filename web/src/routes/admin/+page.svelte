@@ -1,11 +1,12 @@
 <script lang="ts">
-  import { isLoggedIn, isAdmin, getUser } from '$lib/stores/auth.svelte';
+  import { isAuthReady, isLoggedIn, isAdmin } from '$lib/stores/auth.svelte';
   import { goto } from '$app/navigation';
   import { createT } from '$lib/i18n';
 
   const t = createT();
 
   $effect(() => {
+    if (!isAuthReady()) return;
     if (!isLoggedIn()) {
       goto('/login');
       return;
@@ -46,6 +47,15 @@
       <div class="card-body">
         <h2>{t('admin.audit.title')}</h2>
         <p>{t('admin.audit.desc')}</p>
+      </div>
+      <div class="card-arrow">→</div>
+    </a>
+
+    <a href="/admin/settings" class="card">
+      <div class="card-icon">⚙️</div>
+      <div class="card-body">
+        <h2>Instance Settings</h2>
+        <p>Instance maintenance and banner configuration</p>
       </div>
       <div class="card-arrow">→</div>
     </a>

@@ -105,7 +105,11 @@ impl MigrationTrait for Migration {
                             .auto_increment()
                             .primary_key(),
                     )
-                    .col(ColumnDef::new(ReleaseAssets::ReleaseId).big_integer().not_null())
+                    .col(
+                        ColumnDef::new(ReleaseAssets::ReleaseId)
+                            .big_integer()
+                            .not_null(),
+                    )
                     .col(ColumnDef::new(ReleaseAssets::Filename).string().not_null())
                     .col(
                         ColumnDef::new(ReleaseAssets::Size)
@@ -125,7 +129,11 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .default(0),
                     )
-                    .col(ColumnDef::new(ReleaseAssets::UploaderId).big_integer().not_null())
+                    .col(
+                        ColumnDef::new(ReleaseAssets::UploaderId)
+                            .big_integer()
+                            .not_null(),
+                    )
                     .col(
                         ColumnDef::new(ReleaseAssets::CreatedAt)
                             .timestamp_with_time_zone()

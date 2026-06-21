@@ -9,10 +9,11 @@
 //!     Some(&ip), Some(&ua), Some("{}".to_string())).await?;
 //! ```
 
-mod audit;
 pub mod archiver;
+#[path = "audit.rs"]
+mod audit_impl;
 
-pub use audit::record;
+pub use audit_impl::record;
 
 /// Shorthand macro so callers don't need to pass `&db` explicitly.
 ///
@@ -26,16 +27,7 @@ macro_rules! audit {
     ($db:expr, $user_id:expr, $username:expr, $action:expr,
      $rt:expr, $rid:expr, $rn:expr, $ip:expr, $ua:expr, $details:expr $(,)?) => {{
         let _ = $crate::audit::record(
-            $db,
-            $user_id,
-            $username,
-            $action,
-            $rt,
-            $rid,
-            $rn,
-            $ip,
-            $ua,
-            $details,
+            $db, $user_id, $username, $action, $rt, $rid, $rn, $ip, $ua, $details,
         )
         .await;
     }};

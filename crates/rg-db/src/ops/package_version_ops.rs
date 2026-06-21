@@ -1,7 +1,8 @@
-use sea_orm::*;
 use crate::entities::{package_version, package_version::Entity as PackageVersion};
+use sea_orm::*;
 
 /// Create a new package version entry.
+#[allow(clippy::too_many_arguments)]
 pub async fn create(
     db: &DatabaseConnection,
     package_id: i64,
@@ -67,12 +68,13 @@ pub async fn list_by_package(
 
 /// Increment download count for a version.
 pub async fn increment_download_count(db: &DatabaseConnection, id: i64) -> Result<(), DbErr> {
-    use package_version::ActiveModel;
-    if let Some(v) = find_by_id(db, id).await? {
-        let mut am: ActiveModel = v.into();
-        am.download_count = Set(am.download_count.unwrap() + 1);
-        am.update(db).await?;
-    }
+    use sea_orm::DatabaseBackend;
+    db.execute(Statement::from_sql_and_values(
+        DatabaseBackend::Sqlite,
+        "UPDATE package_versions SET download_count = download_count + 1 WHERE id = ?",
+        [Value::from(id)],
+    ))
+    .await?;
     Ok(())
 }
 

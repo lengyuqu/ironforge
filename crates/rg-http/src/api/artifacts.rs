@@ -6,8 +6,8 @@ use axum::response::IntoResponse;
 use axum::Json;
 use serde::{Deserialize, Serialize};
 
-use crate::AppState;
 use crate::error::AppError;
+use crate::AppState;
 use utoipa::ToSchema;
 
 // ── Response types ─────────────────────────────────────
@@ -185,7 +185,11 @@ pub async fn delete_artifact(
     Path(artifact_id): Path<i64>,
 ) -> impl IntoResponse {
     match rg_db::ops::artifact_ops::delete_by_id(&state.db, artifact_id).await {
-        Ok(true) => (StatusCode::NO_CONTENT, Json(serde_json::json!({"status": "deleted"}))).into_response(),
+        Ok(true) => (
+            StatusCode::NO_CONTENT,
+            Json(serde_json::json!({"status": "deleted"})),
+        )
+            .into_response(),
         Ok(false) => AppError::not_found("artifact not found").into_response(),
         Err(e) => AppError::internal(e.to_string()).into_response(),
     }

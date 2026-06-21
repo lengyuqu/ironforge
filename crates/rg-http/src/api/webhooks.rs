@@ -6,8 +6,8 @@ use axum::response::IntoResponse;
 use axum::Json;
 use sea_orm::DatabaseConnection;
 
-use crate::AppState;
 use crate::error::AppError;
+use crate::AppState;
 
 // ── Handlers ──────────────────────────────────────────────────────────────
 
@@ -182,7 +182,11 @@ pub async fn delete_webhook(
     };
 
     match rg_core::webhook::service::delete_webhook(&state.db, id).await {
-        Ok(()) => (StatusCode::OK, Json(serde_json::json!({"message": "webhook deleted"}))).into_response(),
+        Ok(()) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"message": "webhook deleted"})),
+        )
+            .into_response(),
         Err(e) => AppError::bad_request(e).into_response(),
     }
 }
@@ -246,19 +250,18 @@ pub async fn redeliver(
     };
 
     match rg_core::webhook::service::redeliver(&state.db, delivery_id).await {
-        Ok(()) => (StatusCode::OK, Json(serde_json::json!({"message": "redelivery triggered"}))).into_response(),
+        Ok(()) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"message": "redelivery triggered"})),
+        )
+            .into_response(),
         Err(e) => AppError::bad_request(e).into_response(),
     }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
-
-async fn resolve_repo_id(
-    db: &DatabaseConnection,
-    owner: &str,
-    repo_name: &str,
-) -> Option<i64> {
+async fn resolve_repo_id(db: &DatabaseConnection, owner: &str, repo_name: &str) -> Option<i64> {
     let user = rg_db::ops::user_ops::find_by_username(db, owner)
         .await
         .ok()

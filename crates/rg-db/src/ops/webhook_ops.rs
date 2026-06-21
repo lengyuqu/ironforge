@@ -3,8 +3,12 @@
 use anyhow::{Context, Result};
 use sea_orm::*;
 
-use crate::entities::webhook::{self, ActiveModel as WebhookActiveModel, Entity as WebhookEntity, Model as Webhook};
-use crate::entities::webhook_delivery::{ActiveModel as DeliveryActiveModel, Entity as DeliveryEntity, Model as WebhookDelivery};
+use crate::entities::webhook::{
+    self, ActiveModel as WebhookActiveModel, Entity as WebhookEntity, Model as Webhook,
+};
+use crate::entities::webhook_delivery::{
+    ActiveModel as DeliveryActiveModel, Entity as DeliveryEntity, Model as WebhookDelivery,
+};
 
 // ── Webhook CRUD ──────────────────────────────────────────────────────────
 
@@ -64,8 +68,14 @@ pub async fn delete_webhook_by_id(db: &DatabaseConnection, id: i64) -> Result<()
 // ── Webhook Delivery ──────────────────────────────────────────────────────
 
 /// Create a new webhook delivery record.
-pub async fn create_delivery(db: &DatabaseConnection, model: DeliveryActiveModel) -> Result<WebhookDelivery> {
-    model.insert(db).await.context("db: create webhook delivery")
+pub async fn create_delivery(
+    db: &DatabaseConnection,
+    model: DeliveryActiveModel,
+) -> Result<WebhookDelivery> {
+    model
+        .insert(db)
+        .await
+        .context("db: create webhook delivery")
 }
 
 /// List deliveries for a webhook.
@@ -83,7 +93,10 @@ pub async fn list_deliveries_by_webhook(
 }
 
 /// Find a delivery by id.
-pub async fn find_delivery_by_id(db: &DatabaseConnection, id: i64) -> Result<Option<WebhookDelivery>> {
+pub async fn find_delivery_by_id(
+    db: &DatabaseConnection,
+    id: i64,
+) -> Result<Option<WebhookDelivery>> {
     DeliveryEntity::find_by_id(id)
         .one(db)
         .await

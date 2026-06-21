@@ -6,10 +6,10 @@ use axum::response::IntoResponse;
 use axum::Json;
 use serde::Deserialize;
 
-use crate::error::AppError;
-use crate::AppState;
-use crate::pagination::{PaginationParams, PaginatedResponse};
 use crate::api::auth::extract_bearer_claims;
+use crate::error::AppError;
+use crate::pagination::{PaginatedResponse, PaginationParams};
+use crate::AppState;
 
 // ── Request / Response types ────────────────────────────────────────────
 
@@ -79,7 +79,8 @@ pub async fn list_issues(
 
     // If labels filter is present, use filtered query
     if let Some(ref labels_str) = params.labels {
-        let label_names: Vec<String> = labels_str.split(',')
+        let label_names: Vec<String> = labels_str
+            .split(',')
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .collect();
@@ -100,7 +101,10 @@ pub async fn list_issues(
                     Json(PaginatedResponse::new(data, &pagination, total as u64)),
                 )
                     .into_response(),
-                Err(e) => { tracing::error!(%e, "handler error"); AppError::internal(e).into_response() },
+                Err(e) => {
+                    tracing::error!(%e, "handler error");
+                    AppError::internal(e).into_response()
+                }
             };
         }
     }
@@ -120,7 +124,10 @@ pub async fn list_issues(
             Json(PaginatedResponse::new(data, &pagination, total as u64)),
         )
             .into_response(),
-        Err(e) => { tracing::error!(%e, "handler error"); AppError::internal(e).into_response() },
+        Err(e) => {
+            tracing::error!(%e, "handler error");
+            AppError::internal(e).into_response()
+        }
     }
 }
 
@@ -171,7 +178,9 @@ pub async fn create_issue(
 ) -> impl IntoResponse {
     let user_id = match super::auth::extract_user_id(&headers, &state.jwt_secret) {
         Some(id) => id,
-        None => return AppError::Unauthorized("authentication required".to_string()).into_response(),
+        None => {
+            return AppError::Unauthorized("authentication required".to_string()).into_response()
+        }
     };
 
     let repo_id = match resolve_repo_id(&state.db, &owner, &repo).await {
@@ -256,7 +265,10 @@ pub async fn list_comments(
 ) -> impl IntoResponse {
     match rg_core::issue::list_comments(&state.db, &owner, &repo, number).await {
         Ok(comments) => (StatusCode::OK, Json(comments)).into_response(),
-        Err(e) => { tracing::error!(%e, "handler error"); AppError::internal(e).into_response() },
+        Err(e) => {
+            tracing::error!(%e, "handler error");
+            AppError::internal(e).into_response()
+        }
     }
 }
 
@@ -284,7 +296,9 @@ pub async fn add_comment(
 ) -> impl IntoResponse {
     let user_id = match super::auth::extract_user_id(&headers, &state.jwt_secret) {
         Some(id) => id,
-        None => return AppError::Unauthorized("authentication required".to_string()).into_response(),
+        None => {
+            return AppError::Unauthorized("authentication required".to_string()).into_response()
+        }
     };
 
     match rg_core::issue::add_comment(&state.db, &owner, &repo, number, user_id, req.body).await {
@@ -294,7 +308,6 @@ pub async fn add_comment(
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────
-
 
 async fn resolve_repo_id(
     db: &sea_orm::DatabaseConnection,
@@ -337,14 +350,24 @@ pub async fn list_milestones(
     Path((owner, name)): Path<(String, String)>,
     Query(params): Query<ListMilestonesQuery>,
 ) -> impl IntoResponse {
-    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await {
+    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
+    {
         Ok(Some(r)) => r,
         Ok(None) => return AppError::NotFound("repository not found".to_string()).into_response(),
-        Err(e) => return { tracing::error!(%e, "handler error"); AppError::internal(e).into_response() },
+        Err(e) => {
+            return {
+                tracing::error!(%e, "handler error");
+                AppError::internal(e).into_response()
+            }
+        }
     };
-    match rg_db::ops::milestone_ops::list_by_repo(&state.db, repo.id, params.state.as_deref()).await {
+    match rg_db::ops::milestone_ops::list_by_repo(&state.db, repo.id, params.state.as_deref()).await
+    {
         Ok(milestones) => (StatusCode::OK, Json(serde_json::json!(milestones))).into_response(),
-        Err(e) => { tracing::error!(%e, "handler error"); AppError::internal(e).into_response() },
+        Err(e) => {
+            tracing::error!(%e, "handler error");
+            AppError::internal(e).into_response()
+        }
     }
 }
 
@@ -379,19 +402,34 @@ pub async fn create_milestone(
 ) -> impl IntoResponse {
     let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
-        None => return AppError::Unauthorized("authentication required".to_string()).into_response(),
+        None => {
+            return AppError::Unauthorized("authentication required".to_string()).into_response()
+        }
     };
     let user_id: i64 = claims.sub.parse().unwrap_or(-1);
-    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await {
+    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
+    {
         Ok(Some(r)) => r,
         Ok(None) => return AppError::NotFound("repository not found".to_string()).into_response(),
-        Err(e) => return { tracing::error!(%e, "handler error"); AppError::internal(e).into_response() },
+        Err(e) => {
+            return {
+                tracing::error!(%e, "handler error");
+                AppError::internal(e).into_response()
+            }
+        }
     };
-    if !rg_core::repo::service::can_write(&state.db, &owner, &name, Some(user_id)).await.unwrap_or(false) {
+    if !rg_core::repo::service::can_write(&state.db, &owner, &name, Some(user_id))
+        .await
+        .unwrap_or(false)
+    {
         return AppError::Forbidden("forbidden".to_string()).into_response();
     }
     let now = chrono::Utc::now();
-    let due_date = body.due_date.as_deref().and_then(|d| chrono::DateTime::parse_from_rfc3339(d).ok()).map(|dt| dt.with_timezone(&chrono::Utc));
+    let due_date = body
+        .due_date
+        .as_deref()
+        .and_then(|d| chrono::DateTime::parse_from_rfc3339(d).ok())
+        .map(|dt| dt.with_timezone(&chrono::Utc));
     let model = rg_db::entities::milestone::ActiveModel {
         id: sea_orm::NotSet,
         repo_id: sea_orm::Set(repo.id),
@@ -426,15 +464,25 @@ pub async fn get_milestone(
     State(state): State<AppState>,
     Path((owner, name, id)): Path<(String, String, i64)>,
 ) -> impl IntoResponse {
-    let _repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await {
+    let _repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name)
+        .await
+    {
         Ok(Some(r)) => r,
         Ok(None) => return AppError::NotFound("repository not found".to_string()).into_response(),
-        Err(e) => return { tracing::error!(%e, "handler error"); AppError::internal(e).into_response() },
+        Err(e) => {
+            return {
+                tracing::error!(%e, "handler error");
+                AppError::internal(e).into_response()
+            }
+        }
     };
     match rg_db::ops::milestone_ops::find_by_id(&state.db, id).await {
         Ok(Some(m)) => (StatusCode::OK, Json(serde_json::json!(m))).into_response(),
         Ok(None) => AppError::NotFound("milestone not found".to_string()).into_response(),
-        Err(e) => { tracing::error!(%e, "handler error"); AppError::internal(e).into_response() },
+        Err(e) => {
+            tracing::error!(%e, "handler error");
+            AppError::internal(e).into_response()
+        }
     }
 }
 
@@ -469,30 +517,54 @@ pub async fn update_milestone(
 ) -> impl IntoResponse {
     let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
-        None => return AppError::Unauthorized("authentication required".to_string()).into_response(),
+        None => {
+            return AppError::Unauthorized("authentication required".to_string()).into_response()
+        }
     };
     let user_id: i64 = claims.sub.parse().unwrap_or(-1);
-    if !rg_core::repo::service::can_write(&state.db, &owner, &name, Some(user_id)).await.unwrap_or(false) {
+    if !rg_core::repo::service::can_write(&state.db, &owner, &name, Some(user_id))
+        .await
+        .unwrap_or(false)
+    {
         return AppError::Forbidden("forbidden".to_string()).into_response();
     }
     let existing = match rg_db::ops::milestone_ops::find_by_id(&state.db, id).await {
         Ok(Some(m)) => m,
         Ok(None) => return AppError::NotFound("milestone not found".to_string()).into_response(),
-        Err(e) => return { tracing::error!(%e, "handler error"); AppError::internal(e).into_response() },
+        Err(e) => {
+            return {
+                tracing::error!(%e, "handler error");
+                AppError::internal(e).into_response()
+            }
+        }
     };
     // Convert to ActiveModel; use Set() for changed fields (Unchanged means "skip in UPDATE")
     let mut active: rg_db::entities::milestone::ActiveModel = existing.into();
-    if let Some(t) = body.title { active.title = sea_orm::Set(t); }
-    if let Some(d) = body.description { active.description = sea_orm::Set(d); }
-    if let Some(s) = body.state { if s == "open" || s == "closed" { active.state = sea_orm::Set(s); } }
+    if let Some(t) = body.title {
+        active.title = sea_orm::Set(t);
+    }
+    if let Some(d) = body.description {
+        active.description = sea_orm::Set(d);
+    }
+    if let Some(s) = body.state {
+        if s == "open" || s == "closed" {
+            active.state = sea_orm::Set(s);
+        }
+    }
     if let Some(d) = body.due_date {
-        let dt = d.as_deref().and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok()).map(|dt| dt.with_timezone(&chrono::Utc));
+        let dt = d
+            .as_deref()
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|dt| dt.with_timezone(&chrono::Utc));
         active.due_date = sea_orm::Set(dt);
     }
     active.updated_at = sea_orm::Set(chrono::Utc::now());
     match rg_db::ops::milestone_ops::update(&state.db, active).await {
         Ok(m) => (StatusCode::OK, Json(serde_json::json!(m))).into_response(),
-        Err(e) => { tracing::error!(%e, "handler error"); AppError::internal(e).into_response() },
+        Err(e) => {
+            tracing::error!(%e, "handler error");
+            AppError::internal(e).into_response()
+        }
     }
 }
 
@@ -518,15 +590,23 @@ pub async fn delete_milestone(
 ) -> impl IntoResponse {
     let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
-        None => return AppError::Unauthorized("authentication required".to_string()).into_response(),
+        None => {
+            return AppError::Unauthorized("authentication required".to_string()).into_response()
+        }
     };
     let user_id: i64 = claims.sub.parse().unwrap_or(-1);
-    if !rg_core::repo::service::can_write(&state.db, &owner, &name, Some(user_id)).await.unwrap_or(false) {
+    if !rg_core::repo::service::can_write(&state.db, &owner, &name, Some(user_id))
+        .await
+        .unwrap_or(false)
+    {
         return AppError::Forbidden("forbidden".to_string()).into_response();
     }
     match rg_db::ops::milestone_ops::delete_by_id(&state.db, id).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(e) => { tracing::error!(%e, "handler error"); AppError::internal(e).into_response() },
+        Err(e) => {
+            tracing::error!(%e, "handler error");
+            AppError::internal(e).into_response()
+        }
     }
 }
 
@@ -552,12 +632,13 @@ pub async fn get_issue_labels(
     Path((owner, repo, number)): Path<(String, String, i64)>,
 ) -> impl IntoResponse {
     match rg_core::issue::get_issue(&state.db, &owner, &repo, number).await {
-        Ok(issue) => {
-            match rg_core::label::service::get_issue_labels(&state.db, issue.id).await {
-                Ok(labels) => (StatusCode::OK, Json(serde_json::json!(labels))).into_response(),
-                Err(e) => { tracing::error!(%e, "handler error"); AppError::internal(e).into_response() },
+        Ok(issue) => match rg_core::label::service::get_issue_labels(&state.db, issue.id).await {
+            Ok(labels) => (StatusCode::OK, Json(serde_json::json!(labels))).into_response(),
+            Err(e) => {
+                tracing::error!(%e, "handler error");
+                AppError::internal(e).into_response()
             }
-        }
+        },
         Err(e) => AppError::NotFound(e.to_string()).into_response(),
     }
 }

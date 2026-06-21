@@ -3,9 +3,8 @@
 use anyhow::{bail, Context, Result};
 use chrono::Utc;
 use sea_orm::{ActiveValue::Set, ConnectionTrait, DatabaseConnection};
-use std::path::PathBuf;
 use std::collections::HashMap;
-use std::process::Command;
+use std::path::Path;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -57,7 +56,8 @@ fn perm_cache() -> &'static Mutex<HashMap<PermKey, PermEntry>> {
 
 fn check_perm_cache(repo_id: i64, actor_id: Option<i64>, for_write: bool) -> Option<bool> {
     let cache = perm_cache().lock().unwrap();
-    cache.get(&(repo_id, actor_id, for_write))
+    cache
+        .get(&(repo_id, actor_id, for_write))
         .filter(|(_, ts)| ts.elapsed() < PERM_CACHE_TTL)
         .map(|(v, _)| *v)
 }
@@ -81,7 +81,10 @@ pub fn invalidate_perm_cache_user(repo_id: i64, user_id: i64) {
 /// Invalidate every cached permission entry for a repo (e.g. owner transfer
 /// or deletion, which changes who can read/write).
 pub fn invalidate_perm_cache_repo(repo_id: i64) {
-    perm_cache().lock().unwrap().retain(|(rid, _, _), _| *rid != repo_id);
+    perm_cache()
+        .lock()
+        .unwrap()
+        .retain(|(rid, _, _), _| *rid != repo_id);
 }
 
 /// Clear the entire permission cache. Used for org/team membership changes
@@ -94,10 +97,7 @@ pub fn invalidate_perm_cache_all() {
 /// Returns (owner_id, org_id, owner_name_for_path).
 /// - If owner is a username: returns (user_id, None, username)
 /// - If owner is an org name: returns (org_owner_id, Some(org_id), org_name)
-async fn resolve_owner(
-    db: &DatabaseConnection,
-    owner: &str,
-) -> Result<(i64, Option<i64>, String)> {
+async fn resolve_owner(db: &DatabaseConnection, owner: &str) -> Result<(i64, Option<i64>, String)> {
     // Try user first
     if let Some(user) = user_ops::find_by_username(db, owner).await? {
         return Ok((user.id, None, user.username.clone()));
@@ -108,7 +108,10 @@ async fn resolve_owner(
         return Ok((org.owner_id, Some(org.id), org.name.clone()));
     }
 
-    bail!("owner '{}' not found (neither user nor organization)", owner)
+    bail!(
+        "owner '{}' not found (neither user nor organization)",
+        owner
+    )
 }
 
 /// Find a repository by owner name (user or org) and repo name.
@@ -152,7 +155,8 @@ pub async fn can_read_repo(
             if id == repo.owner_id {
                 true
             } else {
-                let perm = rg_db::ops::repo_collaborator_ops::get_permission(db, repo.id, id).await?;
+                let perm =
+                    rg_db::ops::repo_collaborator_ops::get_permission(db, repo.id, id).await?;
                 if perm.is_some() {
                     true
                 } else if let Some(org_id) = repo.org_id {
@@ -203,12 +207,15 @@ pub async fn can_write_repo(
             if id == repo.owner_id {
                 true
             } else {
-                let perm = rg_db::ops::repo_collaborator_ops::get_permission(db, repo.id, id).await?;
+                let perm =
+                    rg_db::ops::repo_collaborator_ops::get_permission(db, repo.id, id).await?;
                 let can_write_collab = matches!(perm.as_deref(), Some("write") | Some("admin"));
                 if can_write_collab {
                     true
                 } else if let Some(org_id) = repo.org_id {
-                    if let Some(member) = rg_db::ops::org_ops::find_org_member(db, org_id, id).await? {
+                    if let Some(member) =
+                        rg_db::ops::org_ops::find_org_member(db, org_id, id).await?
+                    {
                         if member.role == "owner" || member.role == "admin" {
                             true
                         } else {
@@ -254,7 +261,7 @@ pub async fn create_repo(
     name: &str,
     description: Option<&str>,
     is_private: bool,
-    repo_root: &PathBuf,
+    repo_root: &Path,
     org_id: Option<i64>,
 ) -> Result<rg_db::entities::repository::Model> {
     create_repo_with_opts(
@@ -274,21 +281,25 @@ pub async fn create_repo(
             owner_display_name: String::new(),
         },
         repo_root,
-    ).await
+    )
+    .await
 }
 
 /// Create a new repository with full template/auto-init support.
 pub async fn create_repo_with_opts(
     db: &DatabaseConnection,
     opts: CreateRepoOptions,
-    repo_root: &PathBuf,
+    repo_root: &Path,
 ) -> Result<rg_db::entities::repository::Model> {
     let default_branch = opts.default_branch.as_deref().unwrap_or("main");
     let owner_id = opts.owner_id;
     let name = &opts.name;
 
     // Check name conflict (per owner)
-    if repo_ops::find_by_owner_and_name(db, owner_id, name).await?.is_some() {
+    if repo_ops::find_by_owner_and_name(db, owner_id, name)
+        .await?
+        .is_some()
+    {
         bail!("repository '{}' already exists", name);
     }
 
@@ -310,8 +321,12 @@ pub async fn create_repo_with_opts(
     std::fs::create_dir_all(&git_path)
         .with_context(|| format!("failed to create directory: {:?}", git_path))?;
 
-    gix::create::into(&git_path, gix::create::Kind::Bare, gix::create::Options::default())
-        .with_context(|| format!("gix init --bare failed for {:?}", git_path))?;
+    gix::create::into(
+        &git_path,
+        gix::create::Kind::Bare,
+        gix::create::Options::default(),
+    )
+    .with_context(|| format!("gix init --bare failed for {:?}", git_path))?;
 
     // Auto-initialize with template files if requested
     if opts.auto_init {
@@ -359,7 +374,10 @@ pub async fn create_repo_with_opts(
         "INSERT INTO repos_fts(rowid, name, description) VALUES ({}, '{}', '{}')",
         repo.id,
         repo.name.replace('\'', "''"),
-        repo.description.as_deref().unwrap_or("").replace('\'', "''")
+        repo.description
+            .as_deref()
+            .unwrap_or("")
+            .replace('\'', "''")
     );
     if let Err(e) = db.execute_unprepared(&fts_sql).await {
         tracing::warn!(repo_id = repo.id, error = %e, "failed to update repos_fts index");
@@ -380,6 +398,7 @@ pub async fn create_repo_with_opts(
 
 /// Auto-initialize a bare repo with initial files (README, LICENSE, .gitignore)
 /// by creating a temp working tree, committing, and pushing to the bare repo.
+#[allow(clippy::too_many_arguments)]
 fn auto_init_repo(
     bare_path: &std::path::Path,
     repo_name: &str,
@@ -399,15 +418,17 @@ fn auto_init_repo(
     std::fs::create_dir_all(&tmp)?;
 
     // Init a non-bare repo in the temp dir
-    let output = Command::new("git")
-        .args(["init", "-b", default_branch])
-        .current_dir(&tmp)
-        .output()
+    let git = rg_git::cli_gateway::global_gateway()
+        .as_ref()
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+    let bare_repo = bare_path.to_string_lossy();
+    let branch_ref = format!("refs/heads/{}", default_branch);
+
+    let out = git
+        .run(&["init", "-b", default_branch], Some(&tmp))
         .context("git init failed")?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        bail!("git init failed: {}", stderr);
-    }
+    out.ensure_success().context("git init failed")?;
 
     // Write README.md if specified
     let mut files_written = false;
@@ -428,11 +449,11 @@ fn auto_init_repo(
         if !key.is_empty() {
             if let Some(tmpl) = templates::license_content(key) {
                 let year = Utc::now().format("%Y").to_string();
-                let content = tmpl.content
+                let content = tmpl
+                    .content
                     .replace("{YEAR}", &year)
                     .replace("{AUTHOR}", owner_name);
-                std::fs::write(tmp.join("LICENSE"), content)
-                    .context("failed to write LICENSE")?;
+                std::fs::write(tmp.join("LICENSE"), content).context("failed to write LICENSE")?;
                 files_written = true;
             }
         }
@@ -442,8 +463,7 @@ fn auto_init_repo(
     let readme_key = readme_key.unwrap_or("default");
     if !readme_key.is_empty() {
         if let Some(content) = templates::readme_content(readme_key, repo_name, description) {
-            std::fs::write(tmp.join("README.md"), content)
-                .context("failed to write README.md")?;
+            std::fs::write(tmp.join("README.md"), content).context("failed to write README.md")?;
             files_written = true;
         }
     }
@@ -456,57 +476,41 @@ fn auto_init_repo(
     }
 
     // git add all files
-    let output = Command::new("git")
-        .args(["add", "-A"])
-        .current_dir(&tmp)
-        .output()
+    let out = git
+        .run(&["add", "-A"], Some(&tmp))
         .context("git add failed")?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        bail!("git add failed: {}", stderr);
-    }
+    out.ensure_success().context("git add failed")?;
 
     // git commit
-    let output = Command::new("git")
-        .args(["commit", "-m", "Initial commit"])
-        .current_dir(&tmp)
-        .output()
+    let out = git
+        .run(&["commit", "-m", "Initial commit"], Some(&tmp))
         .context("git commit failed")?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        bail!("git commit failed: {}", stderr);
-    }
+    out.ensure_success().context("git commit failed")?;
 
     // git push to the bare repo
-    let output = Command::new("git")
-        .args([
-            "push",
-            "--quiet",
-            &bare_path.to_string_lossy(),
-            &format!("{}:{}", default_branch, default_branch),
-        ])
-        .current_dir(&tmp)
-        .output()
+    let out = git
+        .run(
+            &[
+                "push",
+                "--quiet",
+                &bare_repo,
+                &format!("{}:{}", default_branch, default_branch),
+            ],
+            Some(&tmp),
+        )
         .context("git push failed")?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        bail!("git push to bare repo failed: {}", stderr);
-    }
+    out.ensure_success()
+        .context("git push to bare repo failed")?;
 
     // Set HEAD in the bare repo to point to the default branch
-    let head_output = Command::new("git")
-        .args([
-            "--git-dir",
-            &bare_path.to_string_lossy(),
-            "symbolic-ref",
-            "HEAD",
-            &format!("refs/heads/{}", default_branch),
-        ])
-        .output()
+    let head_output = git
+        .run(
+            &["--git-dir", &bare_repo, "symbolic-ref", "HEAD", &branch_ref],
+            None,
+        )
         .context("git symbolic-ref HEAD failed")?;
-    if !head_output.status.success() {
-        let stderr = String::from_utf8_lossy(&head_output.stderr);
-        tracing::warn!(?stderr, "failed to set HEAD in bare repo");
+    if !head_output.success() {
+        tracing::warn!(stderr = %head_output.stderr_str().trim(), "failed to set HEAD in bare repo");
     }
 
     // Clean up temp directory
@@ -543,7 +547,11 @@ async fn create_default_labels(
         rg_db::ops::label_ops::create(db, model).await?;
     }
 
-    tracing::info!(repo_id = repo_id, count = labels.len(), "created default issue labels");
+    tracing::info!(
+        repo_id = repo_id,
+        count = labels.len(),
+        "created default issue labels"
+    );
 
     Ok(())
 }
@@ -623,21 +631,24 @@ pub async fn fork_repo(
     user_id: i64,
     owner: &str,
     repo_name: &str,
-    repo_root: &PathBuf,
+    repo_root: &Path,
 ) -> Result<rg_db::entities::repository::Model> {
-    let source_repo = find_repo_by_owner_name(db, owner, repo_name).await?
+    let source_repo = find_repo_by_owner_name(db, owner, repo_name)
+        .await?
         .ok_or_else(|| anyhow::anyhow!("source repository not found"))?;
 
-    if source_repo.is_private {
-        if !can_read_repo(db, &source_repo, Some(user_id)).await? {
-            bail!("permission denied: cannot read private repository");
-        }
+    if source_repo.is_private && !can_read_repo(db, &source_repo, Some(user_id)).await? {
+        bail!("permission denied: cannot read private repository");
     }
 
-    let forker = user_ops::find_by_id(db, user_id).await?
+    let forker = user_ops::find_by_id(db, user_id)
+        .await?
         .ok_or_else(|| anyhow::anyhow!("user not found"))?;
 
-    if repo_ops::find_by_owner_and_name(db, user_id, repo_name).await?.is_some() {
+    if repo_ops::find_by_owner_and_name(db, user_id, repo_name)
+        .await?
+        .is_some()
+    {
         bail!("repository '{}' already exists in your account", repo_name);
     }
 
@@ -655,11 +666,17 @@ pub async fn fork_repo(
     let git = rg_git::cli_gateway::global_gateway()
         .as_ref()
         .map_err(|e| anyhow::anyhow!("{}", e))?;
-    let out = git.run(
-        &["clone", "--bare", &source_path.to_string_lossy(), &target_path.to_string_lossy()],
-        None,
-    )
-    .context("git clone --bare failed")?;
+    let out = git
+        .run(
+            &[
+                "clone",
+                "--bare",
+                &source_path.to_string_lossy(),
+                &target_path.to_string_lossy(),
+            ],
+            None,
+        )
+        .context("git clone --bare failed")?;
     out.ensure_success()?;
 
     let now = Utc::now();
@@ -694,7 +711,8 @@ pub async fn list_forks(
     offset: u64,
     limit: u64,
 ) -> Result<(Vec<rg_db::entities::repository::Model>, i64)> {
-    let repo = find_repo_by_owner_name(db, owner, repo_name).await?
+    let repo = find_repo_by_owner_name(db, owner, repo_name)
+        .await?
         .ok_or_else(|| anyhow::anyhow!("repository not found"))?;
     repo_ops::list_forks(db, repo.id, offset, limit).await
 }
@@ -706,9 +724,10 @@ pub async fn transfer_repo(
     owner: &str,
     repo_name: &str,
     new_owner: &str,
-    repo_root: &PathBuf,
+    repo_root: &Path,
 ) -> Result<rg_db::entities::repository::Model> {
-    let repo = find_repo_by_owner_name(db, owner, repo_name).await?
+    let repo = find_repo_by_owner_name(db, owner, repo_name)
+        .await?
         .ok_or_else(|| anyhow::anyhow!("repository not found"))?;
 
     if repo.owner_id != user_id {
@@ -717,7 +736,10 @@ pub async fn transfer_repo(
 
     let (new_owner_id, new_org_id, new_owner_name) = resolve_owner(db, new_owner).await?;
 
-    if repo_ops::find_by_owner_and_name(db, new_owner_id, repo_name).await?.is_some() {
+    if repo_ops::find_by_owner_and_name(db, new_owner_id, repo_name)
+        .await?
+        .is_some()
+    {
         bail!("repository '{}' already exists at destination", repo_name);
     }
 
@@ -729,20 +751,26 @@ pub async fn transfer_repo(
             .context("new path has no parent directory")?,
     )
     .with_context(|| format!("failed to create directory: {:?}", new_path.parent()))?;
-    std::fs::rename(&old_path, &new_path)
-        .with_context(|| format!("failed to move repository from {:?} to {:?}", old_path, new_path))?;
+    std::fs::rename(&old_path, &new_path).with_context(|| {
+        format!(
+            "failed to move repository from {:?} to {:?}",
+            old_path, new_path
+        )
+    })?;
 
     repo_ops::update_owner(db, repo.id, new_owner_id, new_org_id).await?;
     // Ownership (and thus who can read/write) changed — drop cached decisions.
     invalidate_perm_cache_repo(repo.id);
 
-    repo_ops::find_by_owner_and_name(db, new_owner_id, repo_name).await?
+    repo_ops::find_by_owner_and_name(db, new_owner_id, repo_name)
+        .await?
         .ok_or_else(|| anyhow::anyhow!("repository not found after transfer"))
 }
 
 // ── Commit Status ──────────────────────────────────────────────────────
 
 /// Create a commit status. Validates that state is one of: pending, success, failure, error.
+#[allow(clippy::too_many_arguments)]
 pub async fn create_commit_status(
     db: &DatabaseConnection,
     repo_id: i64,
@@ -755,7 +783,11 @@ pub async fn create_commit_status(
 ) -> Result<rg_db::entities::commit_status::Model> {
     let valid_states = ["pending", "success", "failure", "error"];
     if !valid_states.contains(&state) {
-        bail!("invalid commit status state: '{}', must be one of: {:?}", state, valid_states);
+        bail!(
+            "invalid commit status state: '{}', must be one of: {:?}",
+            state,
+            valid_states
+        );
     }
 
     let now = Utc::now();
@@ -782,7 +814,8 @@ pub async fn list_commit_statuses(
     repo_name: &str,
     sha: &str,
 ) -> Result<Vec<rg_db::entities::commit_status::Model>> {
-    let repo = find_repo_by_owner_name(db, owner, repo_name).await?
+    let repo = find_repo_by_owner_name(db, owner, repo_name)
+        .await?
         .ok_or_else(|| anyhow::anyhow!("repository not found"))?;
     rg_db::ops::commit_status_ops::list_by_sha(db, repo.id, sha).await
 }
@@ -795,7 +828,8 @@ pub async fn get_combined_status(
     repo_name: &str,
     sha: &str,
 ) -> Result<serde_json::Value> {
-    let repo = find_repo_by_owner_name(db, owner, repo_name).await?
+    let repo = find_repo_by_owner_name(db, owner, repo_name)
+        .await?
         .ok_or_else(|| anyhow::anyhow!("repository not found"))?;
 
     let counts = rg_db::ops::commit_status_ops::get_combined_status(db, repo.id, sha).await?;
@@ -810,12 +844,12 @@ pub async fn get_combined_status(
         }));
     }
 
-    let state_map: std::collections::HashMap<&str, i64> = counts.iter().map(|(k, v)| (k.as_str(), *v)).collect();
-    let combined = if state_map.get("failure").map_or(false, |&c| c > 0) {
+    let state_map: std::collections::HashMap<&str, i64> =
+        counts.iter().map(|(k, v)| (k.as_str(), *v)).collect();
+    let has_status = |key: &str| state_map.get(key).is_some_and(|&c| c > 0);
+    let combined = if has_status("failure") || has_status("error") {
         "failure"
-    } else if state_map.get("error").map_or(false, |&c| c > 0) {
-        "failure"
-    } else if state_map.get("pending").map_or(false, |&c| c > 0) {
+    } else if has_status("pending") {
         "pending"
     } else {
         "success"

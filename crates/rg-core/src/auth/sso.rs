@@ -80,8 +80,7 @@ pub fn oauth2_authorize_url(config: &SsoProviderConfig) -> Result<(String, Strin
                 .map(|issuer| format!("{}/protocol/openid-connect/auth", issuer))
                 .unwrap_or_else(|| {
                     // Fallback: derive from slug
-                    default_oidc_auth_url(&config.slug)
-                        .unwrap_or_else(|| "".to_string())
+                    default_oidc_auth_url(&config.slug).unwrap_or_default()
                 })
         }
         _ => config
@@ -113,13 +112,10 @@ pub async fn oauth2_exchange_code(
 ) -> Result<OAuth2TokenResponse> {
     let token_url = if config.provider_type == "oidc" {
         // Try to get OIDC token endpoint from known providers
-        default_oidc_token_url(&config.slug)
-            .unwrap_or_else(|| {
-                // Fallback to standard OAuth2 token endpoint
-                config
-                    .default_oauth2_token_url()
-                    .unwrap_or_else(|| "".to_string())
-            })
+        default_oidc_token_url(&config.slug).unwrap_or_else(|| {
+            // Fallback to standard OAuth2 token endpoint
+            config.default_oauth2_token_url().unwrap_or_default()
+        })
     } else {
         config
             .default_oauth2_token_url()
@@ -353,10 +349,7 @@ async fn fetch_google_user(access_token: &str) -> Result<SsoUserInfo> {
         .context("failed to parse Google userinfo response")?;
 
     Ok(SsoUserInfo {
-        provider_user_id: user["sub"]
-            .as_str()
-            .unwrap_or_default()
-            .to_string(),
+        provider_user_id: user["sub"].as_str().unwrap_or_default().to_string(),
         provider_username: user["email"]
             .as_str()
             .unwrap_or("")
@@ -394,10 +387,7 @@ async fn fetch_oidc_userinfo(
         {
             if let Ok(user) = resp.json::<serde_json::Value>().await {
                 return Ok(SsoUserInfo {
-                    provider_user_id: user["sub"]
-                        .as_str()
-                        .unwrap_or_default()
-                        .to_string(),
+                    provider_user_id: user["sub"].as_str().unwrap_or_default().to_string(),
                     provider_username: user["preferred_username"]
                         .as_str()
                         .or(user["email"].as_str().and_then(|e| e.split('@').next()))

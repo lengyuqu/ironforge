@@ -50,7 +50,11 @@ pub async fn list_by_repo_paginated(
     }
     let query = base.order_by_desc(pull_request::Column::CreatedAt);
 
-    let total = query.clone().count(db).await.context("db: count PRs by repo")? as i64;
+    let total = query
+        .clone()
+        .count(db)
+        .await
+        .context("db: count PRs by repo")? as i64;
     let prs = query
         .offset(offset)
         .limit(limit)

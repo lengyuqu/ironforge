@@ -55,7 +55,11 @@ async fn pat_authenticates_api_via_basic() {
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), 201, "PAT via Basic auth should authenticate the API");
+    assert_eq!(
+        resp.status(),
+        201,
+        "PAT via Basic auth should authenticate the API"
+    );
 }
 
 /// An invalid/garbage token must NOT authenticate.

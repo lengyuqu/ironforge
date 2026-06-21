@@ -38,8 +38,16 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .default(86400),
                     )
-                    .col(ColumnDef::new(Mirror::NextSyncAt).timestamp_with_time_zone().null())
-                    .col(ColumnDef::new(Mirror::LastSyncAt).timestamp_with_time_zone().null())
+                    .col(
+                        ColumnDef::new(Mirror::NextSyncAt)
+                            .timestamp_with_time_zone()
+                            .null(),
+                    )
+                    .col(
+                        ColumnDef::new(Mirror::LastSyncAt)
+                            .timestamp_with_time_zone()
+                            .null(),
+                    )
                     .col(ColumnDef::new(Mirror::LastSyncError).text().null())
                     .col(
                         ColumnDef::new(Mirror::Status)

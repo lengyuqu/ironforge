@@ -20,14 +20,14 @@ pub async fn create_board(db: &DatabaseConnection, model: BoardAM) -> Result<Boa
 
 /// Find a board by its ID.
 pub async fn find_board_by_id(db: &DatabaseConnection, id: i64) -> Result<Option<Board>> {
-    BoardEntity::find_by_id(id).one(db).await.context("db: find board")
+    BoardEntity::find_by_id(id)
+        .one(db)
+        .await
+        .context("db: find board")
 }
 
 /// List boards belonging to a repository, ordered by name.
-pub async fn list_boards_by_repo(
-    db: &DatabaseConnection,
-    repo_id: i64,
-) -> Result<Vec<Board>> {
+pub async fn list_boards_by_repo(db: &DatabaseConnection, repo_id: i64) -> Result<Vec<Board>> {
     BoardEntity::find()
         .filter(board::Column::RepoId.eq(repo_id))
         .order_by_asc(board::Column::Name)
@@ -37,10 +37,7 @@ pub async fn list_boards_by_repo(
 }
 
 /// List boards belonging to an organization.
-pub async fn list_boards_by_org(
-    db: &DatabaseConnection,
-    org_id: i64,
-) -> Result<Vec<Board>> {
+pub async fn list_boards_by_org(db: &DatabaseConnection, org_id: i64) -> Result<Vec<Board>> {
     BoardEntity::find()
         .filter(board::Column::OrgId.eq(org_id))
         .order_by_asc(board::Column::Name)
@@ -72,14 +69,14 @@ pub async fn create_column(db: &DatabaseConnection, model: ColumnAM) -> Result<C
 
 /// Find a column by its ID.
 pub async fn find_column_by_id(db: &DatabaseConnection, id: i64) -> Result<Option<Column>> {
-    ColumnEntity::find_by_id(id).one(db).await.context("db: find column")
+    ColumnEntity::find_by_id(id)
+        .one(db)
+        .await
+        .context("db: find column")
 }
 
 /// List columns on a board, ordered by position.
-pub async fn list_columns_by_board(
-    db: &DatabaseConnection,
-    board_id: i64,
-) -> Result<Vec<Column>> {
+pub async fn list_columns_by_board(db: &DatabaseConnection, board_id: i64) -> Result<Vec<Column>> {
     ColumnEntity::find()
         .filter(board_column::Column::BoardId.eq(board_id))
         .order_by_asc(board_column::Column::Position)
@@ -111,14 +108,14 @@ pub async fn create_card(db: &DatabaseConnection, model: CardAM) -> Result<Card>
 
 /// Find a card by its ID.
 pub async fn find_card_by_id(db: &DatabaseConnection, id: i64) -> Result<Option<Card>> {
-    CardEntity::find_by_id(id).one(db).await.context("db: find card")
+    CardEntity::find_by_id(id)
+        .one(db)
+        .await
+        .context("db: find card")
 }
 
 /// List cards in a column, ordered by position.
-pub async fn list_cards_by_column(
-    db: &DatabaseConnection,
-    column_id: i64,
-) -> Result<Vec<Card>> {
+pub async fn list_cards_by_column(db: &DatabaseConnection, column_id: i64) -> Result<Vec<Card>> {
     CardEntity::find()
         .filter(board_card::Column::ColumnId.eq(column_id))
         .order_by_asc(board_card::Column::Position)

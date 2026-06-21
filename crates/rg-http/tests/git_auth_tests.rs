@@ -52,7 +52,11 @@ async fn private_repo_info_refs_requires_auth() {
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), 401, "anonymous access to private repo should be 401");
+    assert_eq!(
+        resp.status(),
+        401,
+        "anonymous access to private repo should be 401"
+    );
 }
 
 #[tokio::test]

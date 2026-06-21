@@ -5,7 +5,7 @@
 //! GitLab instances.
 
 use anyhow::{Context, Result};
-use reqwest::{Client, header};
+use reqwest::{header, Client};
 use serde::{Deserialize, Serialize};
 
 /// GitLab API client.
@@ -180,7 +180,10 @@ impl GitLabClient {
             .build()
             .expect("failed to build HTTP client");
 
-        Self { client, base_url: base }
+        Self {
+            client,
+            base_url: base,
+        }
     }
 
     /// Get project metadata.
@@ -264,11 +267,7 @@ impl GitLabClient {
     }
 
     /// List notes (comments) for a merge request.
-    pub async fn list_mr_notes(
-        &self,
-        project_id: &str,
-        mr_iid: i64,
-    ) -> Result<Vec<GitLabNote>> {
+    pub async fn list_mr_notes(&self, project_id: &str, mr_iid: i64) -> Result<Vec<GitLabNote>> {
         let all_notes: Vec<GitLabNote> = Self::paginate_all(
             &self.client,
             &format!(
@@ -310,9 +309,7 @@ impl GitLabClient {
 
     // ── helpers ─────────────────────────────────────────────────────────
 
-    async fn handle_response<T: serde::de::DeserializeOwned>(
-        resp: reqwest::Response,
-    ) -> Result<T> {
+    async fn handle_response<T: serde::de::DeserializeOwned>(resp: reqwest::Response) -> Result<T> {
         let status = resp.status();
         if status.is_success() {
             resp.json().await.context("parse response body")

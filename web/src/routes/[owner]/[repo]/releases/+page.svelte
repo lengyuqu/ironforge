@@ -17,6 +17,13 @@
   let deletingId = $state<number | null>(null);
   let confirmDeleteId = $state<number | null>(null);
 
+  function buildBrowseLink(tag: string) {
+    const params = new URLSearchParams();
+    if (tag) params.set('path', tag);
+    const qs = params.toString();
+    return `/${owner}/${repo}${qs ? `?${qs}` : ''}`;
+  }
+
   $effect(() => {
     loadReleases();
   });
@@ -124,7 +131,7 @@
           </div>
 
           <div class="release-actions">
-            <a href="/{owner}/{repo}/tree/{release.tag_name}" class="action-link">{t('releases.browse_files')}</a>
+            <a href={buildBrowseLink(release.tag_name)} class="action-link">{t('releases.browse_files')}</a>
             <a href="/{owner}/{repo}/releases/edit/{release.id}" class="action-link">{t('releases.edit')}</a>
 
             {#if confirmDeleteId === release.id}

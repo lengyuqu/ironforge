@@ -115,7 +115,7 @@ pub async fn read_pkt_line<R: AsyncRead + Unpin>(reader: &mut R) -> Result<PktLi
     let header_str = std::str::from_utf8(&header)?;
     let len: usize = match u32::from_str_radix(header_str, 16) {
         Ok(0) => return Ok(PktLine::Flush),
-        Ok(1) => return Ok(PktLine::Delim),  // 0001 = delimiter
+        Ok(1) => return Ok(PktLine::Delim), // 0001 = delimiter
         Ok(2) => return Ok(PktLine::ResponseEnd), // 0002 = response end
         Ok(n) => n as usize,
         Err(_) => bail!("invalid pkt-line header: {:?}", header),
@@ -170,8 +170,8 @@ pub async fn read_text_line<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Opti
 
 #[cfg(test)]
 mod tests {
-    use std::io::Cursor;
     use super::*;
+    use std::io::Cursor;
     use tokio::io::BufReader;
 
     /// Helper: encode a pkt-line into bytes (sync version for tests).
@@ -202,10 +202,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_read_data_pkt_line() {
-        let mut reader = make_reader(&[
-            PktLine::data(b"hello world\n"),
-            PktLine::Flush,
-        ]);
+        let mut reader = make_reader(&[PktLine::data(b"hello world\n"), PktLine::Flush]);
         let pkt = read_pkt_line(&mut reader).await.unwrap();
         match pkt {
             PktLine::Data(d) => assert_eq!(d, b"hello world\n"),
@@ -287,15 +284,15 @@ mod tests {
         assert_eq!(format!("{}", PktLine::Delim), "Delim");
         assert_eq!(format!("{}", PktLine::ResponseEnd), "ResponseEnd");
         assert_eq!(format!("{}", PktLine::data(b"hello\n")), "Data(hello)");
-        assert_eq!(format!("{}", PktLine::data(b"\xff\xfe\xfd")), "Data(3 bytes)");
+        assert_eq!(
+            format!("{}", PktLine::data(b"\xff\xfe\xfd")),
+            "Data(3 bytes)"
+        );
     }
 
     #[tokio::test]
     async fn test_read_text_line_returns_string() {
-        let mut reader = make_reader(&[
-            PktLine::data(b"some text\n"),
-            PktLine::Flush,
-        ]);
+        let mut reader = make_reader(&[PktLine::data(b"some text\n"), PktLine::Flush]);
         let line = read_text_line(&mut reader).await.unwrap();
         assert_eq!(line, Some("some text\n".to_string()));
     }

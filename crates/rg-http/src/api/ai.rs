@@ -13,8 +13,8 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::api::auth::extract_bearer_claims;
-use crate::AppState;
 use crate::error::AppError;
+use crate::AppState;
 use sea_orm::{ConnectionTrait, Statement};
 
 // ── Response types ───────────────────────────────────
@@ -99,7 +99,9 @@ async fn resolve_repo(
 ) -> Result<rg_db::entities::repository::Model, AppError> {
     rg_core::repo::service::find_repo_by_owner_name(&state.db, owner, name)
         .await
-        .map_err(|e| AppError::not_found(format!("repository not found: {}/{}: {}", owner, name, e)))?
+        .map_err(|e| {
+            AppError::not_found(format!("repository not found: {}/{}: {}", owner, name, e))
+        })?
         .ok_or_else(|| AppError::not_found(format!("repository not found: {}/{}", owner, name)))
 }
 
@@ -194,15 +196,17 @@ pub async fn ai_list_issues(
         .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
 
     let limit = params.limit.unwrap_or(20) as usize;
-    let summaries = issues.into_iter().take(limit).map(|issue| {
-        IssueSummary {
+    let summaries = issues
+        .into_iter()
+        .take(limit)
+        .map(|issue| IssueSummary {
             number: issue.number,
             title: issue.title,
             state: issue.state,
             author_id: issue.author_id,
             created_at: issue.created_at.to_rfc3339(),
-        }
-    }).collect();
+        })
+        .collect();
 
     Ok((StatusCode::OK, Json(summaries)))
 }
@@ -234,13 +238,16 @@ pub async fn ai_list_prs(
 
     let state_filter = params.state.as_deref().unwrap_or("open");
 
-    let prs = rg_core::pull_request::service::list_prs(&state.db, &owner, &name, Some(state_filter))
-        .await
-        .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
+    let prs =
+        rg_core::pull_request::service::list_prs(&state.db, &owner, &name, Some(state_filter))
+            .await
+            .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
 
     let limit = params.limit.unwrap_or(20) as usize;
-    let summaries = prs.into_iter().take(limit).map(|pr| {
-        PrSummary {
+    let summaries = prs
+        .into_iter()
+        .take(limit)
+        .map(|pr| PrSummary {
             number: pr.number,
             title: pr.title,
             state: pr.state,
@@ -248,8 +255,8 @@ pub async fn ai_list_prs(
             head_branch: pr.head_branch,
             base_branch: pr.base_branch,
             created_at: pr.created_at.to_rfc3339(),
-        }
-    }).collect();
+        })
+        .collect();
 
     Ok((StatusCode::OK, Json(summaries)))
 }
@@ -343,7 +350,8 @@ pub async fn ai_search_code(
         .await
         .map_err(|e| AppError::internal(format!("DB error: {}", e)))?
         .ok_or_else(|| AppError::internal("Failed to check index status".to_string()))?;
-    let indexed_count: i64 = check_result.try_get_by_index(0)
+    let indexed_count: i64 = check_result
+        .try_get_by_index(0)
         .map_err(|e| AppError::internal(format!("DB error: {}", e)))?;
 
     if indexed_count == 0 {
@@ -403,22 +411,31 @@ pub async fn ai_index_repository(
         Ok(r) => r,
         Err(e) => return e.into_response(),
     };
-    
+
     // Check read access
     if let Err(e) = require_repo_read_access(&state, &headers, &repo).await {
         return e.into_response();
     }
-    
+
     let repo_path = state.repo_root.join(format!("{}/{}.git", owner, name));
     if !repo_path.exists() {
         return AppError::not_found("repository not found on disk").into_response();
     }
-    
+
     // Placeholder - will call indexer later
     // Actually call the indexer
     let indexer = rg_core::search::code_indexer::CodeIndexer::new(state.db.clone());
-    match indexer.index_repository(repo.id, &repo_path, &repo.default_branch).await {
-        Ok(count) => (StatusCode::OK, Json(IndexResponse { indexed_files: count })).into_response(),
+    match indexer
+        .index_repository(repo.id, &repo_path, &repo.default_branch)
+        .await
+    {
+        Ok(count) => (
+            StatusCode::OK,
+            Json(IndexResponse {
+                indexed_files: count,
+            }),
+        )
+            .into_response(),
         Err(e) => AppError::internal(format!("Indexing error: {}", e)).into_response(),
     }
 }

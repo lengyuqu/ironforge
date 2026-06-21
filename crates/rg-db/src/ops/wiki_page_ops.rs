@@ -20,10 +20,7 @@ pub async fn find_by_repo_and_title(
 }
 
 /// List all wiki pages for a repo.
-pub async fn list_by_repo(
-    db: &DatabaseConnection,
-    repo_id: i64,
-) -> Result<Vec<WikiPage>> {
+pub async fn list_by_repo(db: &DatabaseConnection, repo_id: i64) -> Result<Vec<WikiPage>> {
     WikiEntity::find()
         .filter(wiki_page::Column::RepoId.eq(repo_id))
         .order_by_asc(wiki_page::Column::Title)

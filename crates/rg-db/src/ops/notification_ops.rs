@@ -33,8 +33,7 @@ pub async fn list_notifications(
     user_id: i64,
     unread_only: bool,
 ) -> Result<Vec<notification::Model>> {
-    let mut query = notification::Entity::find()
-        .filter(notification::Column::UserId.eq(user_id));
+    let mut query = notification::Entity::find().filter(notification::Column::UserId.eq(user_id));
 
     if unread_only {
         query = query.filter(notification::Column::IsRead.eq(false));
@@ -55,8 +54,7 @@ pub async fn list_notifications_paginated(
     offset: u64,
     limit: u64,
 ) -> Result<(Vec<notification::Model>, i64)> {
-    let mut base = notification::Entity::find()
-        .filter(notification::Column::UserId.eq(user_id));
+    let mut base = notification::Entity::find().filter(notification::Column::UserId.eq(user_id));
 
     if unread_only {
         base = base.filter(notification::Column::IsRead.eq(false));
@@ -64,7 +62,11 @@ pub async fn list_notifications_paginated(
 
     let query = base.order_by_desc(notification::Column::CreatedAt);
 
-    let total = query.clone().count(db).await.context("db: count notifications")? as i64;
+    let total = query
+        .clone()
+        .count(db)
+        .await
+        .context("db: count notifications")? as i64;
     let notifications = query
         .offset(offset)
         .limit(limit)
@@ -85,7 +87,10 @@ pub async fn mark_notification_read(db: &DatabaseConnection, id: i64) -> Result<
 
     let mut active: notification::ActiveModel = model.into();
     active.is_read = Set(true);
-    active.update(db).await.context("db: mark notification read")?;
+    active
+        .update(db)
+        .await
+        .context("db: mark notification read")?;
     Ok(())
 }
 
@@ -103,7 +108,10 @@ pub async fn mark_all_read(db: &DatabaseConnection, user_id: i64) -> Result<u64>
     for n in unread {
         let mut active: notification::ActiveModel = n.into();
         active.is_read = Set(true);
-        active.update(db).await.context("db: mark notification read")?;
+        active
+            .update(db)
+            .await
+            .context("db: mark notification read")?;
         count += 1;
     }
 

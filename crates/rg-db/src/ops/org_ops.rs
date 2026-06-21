@@ -44,7 +44,10 @@ pub async fn get_org(db: &DatabaseConnection, id: i64) -> Result<Option<organiza
 }
 
 /// Get an organization by name.
-pub async fn get_org_by_name(db: &DatabaseConnection, name: &str) -> Result<Option<organization::Model>> {
+pub async fn get_org_by_name(
+    db: &DatabaseConnection,
+    name: &str,
+) -> Result<Option<organization::Model>> {
     organization::Entity::find()
         .filter(organization::Column::Name.eq(name))
         .one(db)
@@ -63,13 +66,19 @@ pub async fn list_all_orgs(
         .paginate(db, limit);
 
     let total = paginator.num_items().await.context("db: count orgs")?;
-    let orgs = paginator.fetch_page(offset).await.context("db: list all orgs")?;
+    let orgs = paginator
+        .fetch_page(offset)
+        .await
+        .context("db: list all orgs")?;
 
     Ok((orgs, total as i64))
 }
 
 /// List organizations owned by or belonging to a user.
-pub async fn list_user_orgs(db: &DatabaseConnection, user_id: i64) -> Result<Vec<organization::Model>> {
+pub async fn list_user_orgs(
+    db: &DatabaseConnection,
+    user_id: i64,
+) -> Result<Vec<organization::Model>> {
     // Find org IDs where the user is a member
     let memberships = organization_member::Entity::find()
         .filter(organization_member::Column::UserId.eq(user_id))
@@ -165,7 +174,10 @@ pub async fn remove_org_member(db: &DatabaseConnection, org_id: i64, user_id: i6
 }
 
 /// List members of an organization.
-pub async fn list_org_members(db: &DatabaseConnection, org_id: i64) -> Result<Vec<organization_member::Model>> {
+pub async fn list_org_members(
+    db: &DatabaseConnection,
+    org_id: i64,
+) -> Result<Vec<organization_member::Model>> {
     organization_member::Entity::find()
         .filter(organization_member::Column::OrgId.eq(org_id))
         .all(db)
@@ -286,7 +298,10 @@ pub async fn remove_team_member(db: &DatabaseConnection, team_id: i64, user_id: 
 }
 
 /// List members of a team.
-pub async fn list_team_members(db: &DatabaseConnection, team_id: i64) -> Result<Vec<team_member::Model>> {
+pub async fn list_team_members(
+    db: &DatabaseConnection,
+    team_id: i64,
+) -> Result<Vec<team_member::Model>> {
     team_member::Entity::find()
         .filter(team_member::Column::TeamId.eq(team_id))
         .all(db)

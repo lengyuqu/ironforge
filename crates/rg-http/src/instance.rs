@@ -3,8 +3,8 @@
 //! Uses a process-global `RwLock` so the admin API can toggle settings
 //! without requiring AppState mutations or server restarts.
 
-use std::sync::RwLock;
 use serde::{Deserialize, Serialize};
+use std::sync::RwLock;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct InstanceSettings {

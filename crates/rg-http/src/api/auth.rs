@@ -19,8 +19,7 @@ use rg_core::auth::jwt::Claims;
 /// CI job tokens are intentionally rejected — use `extract_ci_or_user_id` for
 /// repository-scoped operations during CI job execution.
 pub(crate) fn extract_user_id(headers: &HeaderMap, jwt_secret: &str) -> Option<i64> {
-    extract_bearer_claims(headers, jwt_secret)
-        .and_then(|c| c.sub.parse::<i64>().ok())
+    extract_bearer_claims(headers, jwt_secret).and_then(|c| c.sub.parse::<i64>().ok())
 }
 
 /// Extract and validate the Bearer JWT Claims from the Authorization header.
@@ -74,7 +73,9 @@ pub(crate) fn extract_ci_or_user_id(
     }
 
     // Try CI job token
-    if rg_core::auth::ci_token::validate_ci_token(token, jwt_secret, repo_id, required_scope).is_some() {
+    if rg_core::auth::ci_token::validate_ci_token(token, jwt_secret, repo_id, required_scope)
+        .is_some()
+    {
         return Some(0); // machine actor
     }
 

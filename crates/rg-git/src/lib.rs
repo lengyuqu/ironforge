@@ -51,10 +51,10 @@
 
 use std::path::Path;
 
+pub mod cli_gateway;
 pub mod pkt_line;
 pub mod protocol;
 pub mod sideband;
-pub mod cli_gateway;
 
 /// Resolve HEAD to a SHA, or return None if HEAD doesn't point to a valid commit.
 pub(crate) fn resolve_head_sha(repo_path: &Path) -> Option<String> {

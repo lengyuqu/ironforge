@@ -129,7 +129,11 @@ fn xml_tag_value_with_attrs(xml: &str, tag: &str) -> Option<String> {
         if let Some(tag_content_start) = lower[abs_start..].find('>') {
             let content_start = abs_start + tag_content_start + 1;
             if let Some(closing_match) = lower[content_start..].find(&close) {
-                return Some(xml[content_start..content_start + closing_match].trim().to_string());
+                return Some(
+                    xml[content_start..content_start + closing_match]
+                        .trim()
+                        .to_string(),
+                );
             }
         }
         return None;
@@ -140,16 +144,15 @@ fn xml_tag_value_with_attrs(xml: &str, tag: &str) -> Option<String> {
 /// Parse metadata from a .nupkg file (ZIP containing .nuspec).
 fn extract_from_nupkg(data: &[u8]) -> Result<ExtractedMetadata, anyhow::Error> {
     let cursor = Cursor::new(data);
-    let mut archive = zip::ZipArchive::new(cursor).map_err(|e| {
-        anyhow::anyhow!("invalid .nupkg (not a valid ZIP): {e}")
-    })?;
+    let mut archive = zip::ZipArchive::new(cursor)
+        .map_err(|e| anyhow::anyhow!("invalid .nupkg (not a valid ZIP): {e}"))?;
 
     let mut nuspec_content = None;
 
     for i in 0..archive.len() {
-        let mut entry = archive.by_index(i).map_err(|e| {
-            anyhow::anyhow!("failed to read .nupkg entry {}: {e}", i)
-        })?;
+        let mut entry = archive
+            .by_index(i)
+            .map_err(|e| anyhow::anyhow!("failed to read .nupkg entry {}: {e}", i))?;
         let name = entry.name().to_lowercase();
         if name.ends_with(".nuspec") {
             let mut content = String::new();
@@ -159,9 +162,8 @@ fn extract_from_nupkg(data: &[u8]) -> Result<ExtractedMetadata, anyhow::Error> {
         }
     }
 
-    let nuspec = nuspec_content.ok_or_else(|| {
-        anyhow::anyhow!("invalid .nupkg: no .nuspec file found")
-    })?;
+    let nuspec =
+        nuspec_content.ok_or_else(|| anyhow::anyhow!("invalid .nupkg: no .nuspec file found"))?;
 
     extract_from_nuspec(&nuspec)
 }
@@ -172,13 +174,11 @@ fn extract_from_nuspec(xml: &str) -> Result<ExtractedMetadata, anyhow::Error> {
     // <id>, <version>, <title>, <description>, <projectUrl>, <licenseUrl>,
     // <tags>, <authors>, <repository type="git" url="..." />
 
-    let id = xml_tag_value(xml, "id").ok_or_else(|| {
-        anyhow::anyhow!(".nuspec missing <id> element")
-    })?;
+    let id =
+        xml_tag_value(xml, "id").ok_or_else(|| anyhow::anyhow!(".nuspec missing <id> element"))?;
 
-    let version = xml_tag_value(xml, "version").ok_or_else(|| {
-        anyhow::anyhow!(".nuspec missing <version> element")
-    })?;
+    let version = xml_tag_value(xml, "version")
+        .ok_or_else(|| anyhow::anyhow!(".nuspec missing <version> element"))?;
 
     let description = xml_tag_value(xml, "description")
         .or_else(|| xml_tag_value(xml, "summary"))
@@ -186,11 +186,11 @@ fn extract_from_nuspec(xml: &str) -> Result<ExtractedMetadata, anyhow::Error> {
 
     let homepage = xml_tag_value(xml, "projectUrl");
 
-    let repository_url = xml_tag_value(xml, "repository")
-        .or_else(|| extract_repository_url_from_xml(xml));
+    let repository_url =
+        xml_tag_value(xml, "repository").or_else(|| extract_repository_url_from_xml(xml));
 
-    let license = xml_tag_value_with_attrs(xml, "license")
-        .or_else(|| xml_tag_value(xml, "licenseUrl"));
+    let license =
+        xml_tag_value_with_attrs(xml, "license").or_else(|| xml_tag_value(xml, "licenseUrl"));
 
     let keywords = xml_tag_value(xml, "tags");
 
@@ -228,11 +228,7 @@ fn extract_repository_url_from_xml(xml: &str) -> Option<String> {
 /// Build the NuGet Service Index JSON response.
 ///
 /// This advertises all available NuGet API resources for the repository.
-pub fn build_service_index(
-    base_url: &str,
-    owner: &str,
-    repo: &str,
-) -> serde_json::Value {
+pub fn build_service_index(base_url: &str, owner: &str, repo: &str) -> serde_json::Value {
     let prefix = format!(
         "{}/api/v1/repos/{}/{}/packages/nuget",
         base_url.trim_end_matches('/'),
@@ -345,19 +341,19 @@ fn build_catalog_entry(
         entry.insert("licenseUrl".into(), l.into());
     }
     if let Some(t) = tags {
-        entry.insert("tags".into(), t.split(&[',', ' '][..])
-            .filter(|s| !s.is_empty())
-            .collect::<Vec<_>>()
-            .into());
+        entry.insert(
+            "tags".into(),
+            t.split(&[',', ' '][..])
+                .filter(|s| !s.is_empty())
+                .collect::<Vec<_>>()
+                .into(),
+        );
     }
     Some(serde_json::Value::Object(entry))
 }
 
 /// Build the NuGet Search Query response (3.5.0 format).
-pub fn build_search_results(
-    results: &[NuGetSearchResult],
-    total_hits: usize,
-) -> serde_json::Value {
+pub fn build_search_results(results: &[NuGetSearchResult], total_hits: usize) -> serde_json::Value {
     let data: Vec<serde_json::Value> = results
         .iter()
         .map(|r| {
@@ -370,15 +366,16 @@ pub fn build_search_results(
                 item.insert("description".into(), d.clone().into());
             }
             if let Some(ref t) = r.tags {
-                let tags: Vec<&str> = t.split(&[',', ' '][..])
-                    .filter(|s| !s.is_empty())
-                    .collect();
+                let tags: Vec<&str> = t.split(&[',', ' '][..]).filter(|s| !s.is_empty()).collect();
                 item.insert("tags".into(), tags.into());
             }
-            item.insert("versions".into(), serde_json::json!([{
-                "version": r.version,
-                "downloads": 0,
-            }]));
+            item.insert(
+                "versions".into(),
+                serde_json::json!([{
+                    "version": r.version,
+                    "downloads": 0,
+                }]),
+            );
             item.insert("totalDownloads".into(), serde_json::Value::Number(0.into()));
             item.insert("verified".into(), serde_json::Value::Bool(false));
             serde_json::Value::Object(item)
@@ -410,8 +407,8 @@ mod tests {
         let mut buf = std::io::Cursor::new(Vec::new());
         {
             let mut zip = zip::ZipWriter::new(&mut buf);
-            let options =
-                zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+            let options = zip::write::SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Stored);
             zip.start_file("TestPackage.nuspec", options).unwrap();
             zip.write_all(nuspec.as_bytes()).unwrap();
             zip.finish().unwrap();
@@ -435,7 +432,9 @@ mod tests {
         let data = make_nupkg(nuspec);
         let adapter = NuGetAdapter;
 
-        let meta = adapter.extract_metadata("MyLib.1.2.3.nupkg", &data).unwrap();
+        let meta = adapter
+            .extract_metadata("MyLib.1.2.3.nupkg", &data)
+            .unwrap();
         assert_eq!(meta.name, "MyLib");
         assert_eq!(meta.version, "1.2.3");
         assert_eq!(meta.description.unwrap(), "A test library for unit testing");
@@ -473,7 +472,8 @@ mod tests {
         assert_eq!(json["version"], "3.0.0");
 
         // Should have at least the major resource types
-        let types: Vec<&str> = resources.iter()
+        let types: Vec<&str> = resources
+            .iter()
             .map(|r| r["@type"].as_str().unwrap())
             .collect();
         assert!(types.contains(&"PackageBaseAddress/3.0.0"));
@@ -511,7 +511,10 @@ mod tests {
         assert_eq!(items.len(), 2);
 
         // First entry should have packageContent and catalogEntry
-        assert_eq!(items[0]["packageContent"], "https://git.example.com/dl/1.0.0");
+        assert_eq!(
+            items[0]["packageContent"],
+            "https://git.example.com/dl/1.0.0"
+        );
         assert!(items[0]["catalogEntry"].is_object());
         assert_eq!(items[0]["catalogEntry"]["id"], "MyLib");
         assert_eq!(items[0]["catalogEntry"]["version"], "1.0.0");
@@ -519,15 +522,13 @@ mod tests {
 
     #[test]
     fn test_search_results() {
-        let results = vec![
-            NuGetSearchResult {
-                name: "Newtonsoft.Json".into(),
-                version: "13.0.3".into(),
-                description: Some("Json.NET".into()),
-                tags: Some("json serializer".into()),
-                registration_url: "https://example.com/reg".into(),
-            },
-        ];
+        let results = vec![NuGetSearchResult {
+            name: "Newtonsoft.Json".into(),
+            version: "13.0.3".into(),
+            description: Some("Json.NET".into()),
+            tags: Some("json serializer".into()),
+            registration_url: "https://example.com/reg".into(),
+        }];
 
         let json = build_search_results(&results, 1);
         assert_eq!(json["totalHits"], 1);
@@ -552,7 +553,9 @@ mod tests {
 
         let data = make_nupkg(nuspec);
         let adapter = NuGetAdapter;
-        let meta = adapter.extract_metadata("LicensedLib.2.0.0.nupkg", &data).unwrap();
+        let meta = adapter
+            .extract_metadata("LicensedLib.2.0.0.nupkg", &data)
+            .unwrap();
         // <license> tag should be preferred over <licenseUrl>
         assert_eq!(meta.license.as_deref(), Some("MIT"));
     }
@@ -572,4 +575,3 @@ mod tests {
         assert!(err.to_string().contains("missing <id>"));
     }
 }
-

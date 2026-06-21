@@ -4,7 +4,9 @@ use anyhow::{Context, Result};
 use chrono::Utc;
 use sea_orm::{ActiveValue::Set, *};
 
-use crate::entities::repository::{self, ActiveModel as RepoActiveModel, Entity as RepoEntity, Model as Repo};
+use crate::entities::repository::{
+    self, ActiveModel as RepoActiveModel, Entity as RepoEntity, Model as Repo,
+};
 
 /// Find a repo by (owner_id, name). Excludes soft-deleted repos.
 pub async fn find_by_owner_and_name(
@@ -44,7 +46,11 @@ pub async fn list_by_owner_paginated(
         .filter(repository::Column::DeletedAt.is_null())
         .order_by_asc(repository::Column::Name);
 
-    let total = base.clone().count(db).await.context("db: count repos by owner")? as i64;
+    let total = base
+        .clone()
+        .count(db)
+        .await
+        .context("db: count repos by owner")? as i64;
     let repos = base
         .offset(offset)
         .limit(limit)
@@ -93,7 +99,11 @@ pub async fn list_by_org_paginated(
         .filter(repository::Column::DeletedAt.is_null())
         .order_by_asc(repository::Column::Name);
 
-    let total = base.clone().count(db).await.context("db: count repos by org")? as i64;
+    let total = base
+        .clone()
+        .count(db)
+        .await
+        .context("db: count repos by org")? as i64;
     let repos = base
         .offset(offset)
         .limit(limit)
@@ -115,7 +125,11 @@ pub async fn list_public_paginated(
         .filter(repository::Column::DeletedAt.is_null())
         .order_by_desc(repository::Column::UpdatedAt);
 
-    let total = base.clone().count(db).await.context("db: count public repos")? as i64;
+    let total = base
+        .clone()
+        .count(db)
+        .await
+        .context("db: count public repos")? as i64;
     let repos = base
         .offset(offset)
         .limit(limit)
@@ -162,7 +176,9 @@ pub async fn update_stars_count(db: &DatabaseConnection, id: i64) -> Result<()> 
         DatabaseBackend::Sqlite,
         "UPDATE repositories SET stars_count = ? WHERE id = ?",
         [count.into(), id.into()],
-    )).await.context("db: update stars count")?;
+    ))
+    .await
+    .context("db: update stars count")?;
     Ok(())
 }
 
@@ -179,24 +195,44 @@ pub async fn update_forks_count(db: &DatabaseConnection, id: i64) -> Result<()> 
         DatabaseBackend::Sqlite,
         "UPDATE repositories SET forks_count = ? WHERE id = ?",
         [count.into(), id.into()],
-    )).await.context("db: update forks count")?;
+    ))
+    .await
+    .context("db: update forks count")?;
     Ok(())
 }
 
 /// List all forks of a repo.
-pub async fn list_forks(db: &DatabaseConnection, origin_repo_id: i64, offset: u64, limit: u64) -> Result<(Vec<Repo>, i64)> {
+pub async fn list_forks(
+    db: &DatabaseConnection,
+    origin_repo_id: i64,
+    offset: u64,
+    limit: u64,
+) -> Result<(Vec<Repo>, i64)> {
     let base = RepoEntity::find()
         .filter(repository::Column::OriginRepoId.eq(Some(origin_repo_id)))
         .filter(repository::Column::DeletedAt.is_null())
         .order_by_asc(repository::Column::CreatedAt);
     let total = base.clone().count(db).await.context("db: count forks")? as i64;
-    let repos = base.offset(offset).limit(limit).all(db).await.context("db: list forks")?;
+    let repos = base
+        .offset(offset)
+        .limit(limit)
+        .all(db)
+        .await
+        .context("db: list forks")?;
     Ok((repos, total))
 }
 
 /// Update repo owner (for transfer).
-pub async fn update_owner(db: &DatabaseConnection, repo_id: i64, owner_id: i64, org_id: Option<i64>) -> Result<()> {
-    let repo = RepoEntity::find_by_id(repo_id).one(db).await?.context("repo not found")?;
+pub async fn update_owner(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    owner_id: i64,
+    org_id: Option<i64>,
+) -> Result<()> {
+    let repo = RepoEntity::find_by_id(repo_id)
+        .one(db)
+        .await?
+        .context("repo not found")?;
     let mut active: RepoActiveModel = repo.into();
     active.owner_id = Set(owner_id);
     active.org_id = Set(org_id);

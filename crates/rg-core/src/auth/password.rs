@@ -22,8 +22,8 @@ pub fn hash_password(password: &str) -> Result<String> {
 
 /// Verify a plaintext password against a stored PHC hash.
 pub fn verify_password(password: &str, hash: &str) -> Result<bool> {
-    let parsed = PasswordHash::new(hash)
-        .map_err(|e| anyhow::anyhow!("invalid password hash: {}", e))?;
+    let parsed =
+        PasswordHash::new(hash).map_err(|e| anyhow::anyhow!("invalid password hash: {}", e))?;
     Ok(Argon2::default()
         .verify_password(password.as_bytes(), &parsed)
         .is_ok())
@@ -48,14 +48,29 @@ pub enum PasswordError {
 impl std::fmt::Display for PasswordError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::TooShort { min, got } => write!(f, "password must be at least {} characters (got {})", min, got),
-            Self::TooLong { max, got } => write!(f, "password must be at most {} characters (got {})", max, got),
+            Self::TooShort { min, got } => write!(
+                f,
+                "password must be at least {} characters (got {})",
+                min, got
+            ),
+            Self::TooLong { max, got } => write!(
+                f,
+                "password must be at most {} characters (got {})",
+                max, got
+            ),
             Self::NoUppercase => write!(f, "password must contain at least one uppercase letter"),
             Self::NoLowercase => write!(f, "password must contain at least one lowercase letter"),
             Self::NoDigit => write!(f, "password must contain at least one digit"),
-            Self::NoSpecialChar => write!(f, "password must contain at least one special character (!@#$%^&*...)"),
+            Self::NoSpecialChar => write!(
+                f,
+                "password must contain at least one special character (!@#$%^&*...)"
+            ),
             Self::ContainsWhitespace => write!(f, "password must not contain whitespace"),
-            Self::TooCommon(pwd) => write!(f, "password '{}' is too common — please choose a stronger one", pwd),
+            Self::TooCommon(pwd) => write!(
+                f,
+                "password '{}' is too common — please choose a stronger one",
+                pwd
+            ),
             Self::ContainsUsername => write!(f, "password must not contain the username"),
         }
     }
@@ -66,13 +81,54 @@ impl std::error::Error for PasswordError {}
 /// Common/weak passwords to reject. Lowercase for case-insensitive matching.
 /// Top 50 most common passwords from various breach analyses.
 const COMMON_PASSWORDS: &[&str] = &[
-    "password", "123456", "12345678", "qwerty", "abc123", "monkey", "1234567",
-    "letmein", "trustno1", "dragon", "baseball", "iloveyou", "master", "sunshine",
-    "ashley", "michael", "shadow", "123123", "654321", "superman", "qazwsx",
-    "football", "password1", "password123", "welcome", "hello",
-    "charlie", "donald", "admin", "administrator", "root", "toor", "pass",
-    "test", "guest", "info", "mysql", "user", "ftp", "pi", "puppet", "ansible",
-    "ec2-user", "vagrant", "ubuntu", "admin123", "root123", "test123",
+    "password",
+    "123456",
+    "12345678",
+    "qwerty",
+    "abc123",
+    "monkey",
+    "1234567",
+    "letmein",
+    "trustno1",
+    "dragon",
+    "baseball",
+    "iloveyou",
+    "master",
+    "sunshine",
+    "ashley",
+    "michael",
+    "shadow",
+    "123123",
+    "654321",
+    "superman",
+    "qazwsx",
+    "football",
+    "password1",
+    "password123",
+    "welcome",
+    "hello",
+    "charlie",
+    "donald",
+    "admin",
+    "administrator",
+    "root",
+    "toor",
+    "pass",
+    "test",
+    "guest",
+    "info",
+    "mysql",
+    "user",
+    "ftp",
+    "pi",
+    "puppet",
+    "ansible",
+    "ec2-user",
+    "vagrant",
+    "ubuntu",
+    "admin123",
+    "root123",
+    "test123",
 ];
 
 /// Password validator with configurable rules.
@@ -135,10 +191,16 @@ impl PasswordValidator {
     pub fn validate(&self, password: &str) -> Result<(), PasswordError> {
         // Length checks
         if password.len() < self.min_length {
-            return Err(PasswordError::TooShort { min: self.min_length, got: password.len() });
+            return Err(PasswordError::TooShort {
+                min: self.min_length,
+                got: password.len(),
+            });
         }
         if password.len() > self.max_length {
-            return Err(PasswordError::TooLong { max: self.max_length, got: password.len() });
+            return Err(PasswordError::TooLong {
+                max: self.max_length,
+                got: password.len(),
+            });
         }
 
         // Whitespace check
@@ -185,9 +247,16 @@ impl PasswordValidator {
     }
 
     /// Validate a password against a username (must not contain the username).
-    pub fn validate_with_username(&self, password: &str, username: &str) -> Result<(), PasswordError> {
+    pub fn validate_with_username(
+        &self,
+        password: &str,
+        username: &str,
+    ) -> Result<(), PasswordError> {
         self.validate(password)?;
-        if self.reject_username && !username.is_empty() && password.to_lowercase().contains(&username.to_lowercase()) {
+        if self.reject_username
+            && !username.is_empty()
+            && password.to_lowercase().contains(&username.to_lowercase())
+        {
             return Err(PasswordError::ContainsUsername);
         }
         Ok(())
@@ -221,11 +290,26 @@ mod tests {
         let v = PasswordValidator::default();
         assert!(v.validate("Good!Pass1").is_ok());
         // Common passwords with proper char classes should still be rejected
-        assert!(matches!(v.validate("Password1!"), Err(PasswordError::TooCommon(_))));
-        assert!(matches!(v.validate("Admin123!"), Err(PasswordError::TooCommon(_))));
-        assert!(matches!(v.validate("Qwerty1!"), Err(PasswordError::TooCommon(_))));
-        assert!(matches!(v.validate("Welcome1!"), Err(PasswordError::TooCommon(_))));
-        assert!(matches!(v.validate("Test123!"), Err(PasswordError::TooCommon(_))));
+        assert!(matches!(
+            v.validate("Password1!"),
+            Err(PasswordError::TooCommon(_))
+        ));
+        assert!(matches!(
+            v.validate("Admin123!"),
+            Err(PasswordError::TooCommon(_))
+        ));
+        assert!(matches!(
+            v.validate("Qwerty1!"),
+            Err(PasswordError::TooCommon(_))
+        ));
+        assert!(matches!(
+            v.validate("Welcome1!"),
+            Err(PasswordError::TooCommon(_))
+        ));
+        assert!(matches!(
+            v.validate("Test123!"),
+            Err(PasswordError::TooCommon(_))
+        ));
     }
 
     #[test]
@@ -242,7 +326,10 @@ mod tests {
     fn test_password_validator_strict() {
         let v = PasswordValidator::strict();
         assert!(v.validate("VeryStr0ng!Pass").is_ok());
-        assert!(matches!(v.validate("Str0ng!Pass"), Err(PasswordError::TooShort { min: 12, .. })));
+        assert!(matches!(
+            v.validate("Str0ng!Pass"),
+            Err(PasswordError::TooShort { min: 12, .. })
+        ));
     }
 
     #[test]
@@ -255,14 +342,23 @@ mod tests {
     #[test]
     fn test_password_validator_whitespace() {
         let v = PasswordValidator::default();
-        assert!(matches!(v.validate("Str0ng! Pass"), Err(PasswordError::ContainsWhitespace)));
-        assert!(matches!(v.validate("Str0ng\tPass"), Err(PasswordError::ContainsWhitespace)));
+        assert!(matches!(
+            v.validate("Str0ng! Pass"),
+            Err(PasswordError::ContainsWhitespace)
+        ));
+        assert!(matches!(
+            v.validate("Str0ng\tPass"),
+            Err(PasswordError::ContainsWhitespace)
+        ));
     }
 
     #[test]
     fn test_password_validator_length_limits() {
         let v = PasswordValidator::default();
         let long = "A".repeat(200);
-        assert!(matches!(v.validate(&long), Err(PasswordError::TooLong { .. })));
+        assert!(matches!(
+            v.validate(&long),
+            Err(PasswordError::TooLong { .. })
+        ));
     }
 }

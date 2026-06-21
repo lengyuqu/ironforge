@@ -28,8 +28,8 @@ pub mod package_types {
 
     /// All supported package types.
     pub const ALL: &[&str] = &[
-        CARGO, NPM, MAVEN, PYPI, DOCKER, NUGET, RUBYGEMS, GO, HELM,
-        COMPOSER, CONAN, CONDA, ALPINE, DEBIAN, RPM, SWIFT, GENERIC,
+        CARGO, NPM, MAVEN, PYPI, DOCKER, NUGET, RUBYGEMS, GO, HELM, COMPOSER, CONAN, CONDA, ALPINE,
+        DEBIAN, RPM, SWIFT, GENERIC,
     ];
 
     /// Validate a package type string.
@@ -100,16 +100,23 @@ pub struct FileDetail {
 }
 
 /// Publish a package version to the registry.
-pub async fn publish(db: &DatabaseConnection, storage: &PackageStorage, info: PublishInfo) -> Result<PublishResult> {
+pub async fn publish(
+    db: &DatabaseConnection,
+    storage: &PackageStorage,
+    info: PublishInfo,
+) -> Result<PublishResult> {
     // 1. Find or create the package registry for this repo+type
     let repo = crate::repo::service::find_repo_by_owner_name(db, &info.owner, &info.repo)
         .await?
         .ok_or_else(|| anyhow::anyhow!("repository {}/{} not found", info.owner, info.repo))?;
 
-    let registry = rg_db::ops::package_registry_ops::find_or_create(db, repo.id, &info.package_type).await?;
+    let registry =
+        rg_db::ops::package_registry_ops::find_or_create(db, repo.id, &info.package_type).await?;
 
     // 2. Find or create the package
-    let pkg = match rg_db::ops::package_ops::find_by_registry_and_name(db, registry.id, &info.name).await? {
+    let pkg = match rg_db::ops::package_ops::find_by_registry_and_name(db, registry.id, &info.name)
+        .await?
+    {
         Some(p) => p,
         None => {
             rg_db::ops::package_ops::create(
@@ -126,12 +133,18 @@ pub async fn publish(db: &DatabaseConnection, storage: &PackageStorage, info: Pu
     };
 
     // 3. Check if version already exists
-    let existing = rg_db::ops::package_version_ops::find_by_package_and_version(db, pkg.id, &info.version).await?;
+    let existing =
+        rg_db::ops::package_version_ops::find_by_package_and_version(db, pkg.id, &info.version)
+            .await?;
     let existing_version = existing.is_some();
 
     let version = if let Some(v) = existing {
         // Version already exists — allow re-upload? For safety, return existing.
-        tracing::warn!("version {} of package {} already exists, returning existing", info.version, info.name);
+        tracing::warn!(
+            "version {} of package {} already exists, returning existing",
+            info.version,
+            info.name
+        );
         v
     } else {
         // 4. Store files
@@ -141,7 +154,15 @@ pub async fn publish(db: &DatabaseConnection, storage: &PackageStorage, info: Pu
 
         for (filename, data) in &info.files {
             let sf = storage
-                .store_file(&info.owner, &info.repo, &info.package_type, &info.name, &info.version, filename, data)
+                .store_file(
+                    &info.owner,
+                    &info.repo,
+                    &info.package_type,
+                    &info.name,
+                    &info.version,
+                    filename,
+                    data,
+                )
                 .await?;
             stored_files.push(sf);
         }
@@ -166,7 +187,15 @@ pub async fn publish(db: &DatabaseConnection, storage: &PackageStorage, info: Pu
 
         // 6. Create file records
         for sf in &stored_files {
-            rg_db::ops::package_file_ops::create(db, v.id, &sf.filename, sf.size, Some(&sf.sha256), &sf.storage_path).await?;
+            rg_db::ops::package_file_ops::create(
+                db,
+                v.id,
+                &sf.filename,
+                sf.size,
+                Some(&sf.sha256),
+                &sf.storage_path,
+            )
+            .await?;
         }
 
         v
@@ -190,9 +219,12 @@ pub async fn list_packages(
         .await?
         .ok_or_else(|| anyhow::anyhow!("repository not found"))?;
 
-    let registry = rg_db::ops::package_registry_ops::find_by_repo_and_type(db, repo_model.id, package_type)
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("package type '{}' not enabled for this repo", package_type))?;
+    let registry =
+        rg_db::ops::package_registry_ops::find_by_repo_and_type(db, repo_model.id, package_type)
+            .await?
+            .ok_or_else(|| {
+                anyhow::anyhow!("package type '{}' not enabled for this repo", package_type)
+            })?;
 
     let packages = rg_db::ops::package_ops::list_by_registry(db, registry.id).await?;
     let mut summaries = Vec::new();
@@ -229,9 +261,10 @@ pub async fn get_package(
         .await?
         .ok_or_else(|| anyhow::anyhow!("repository not found"))?;
 
-    let registry = rg_db::ops::package_registry_ops::find_by_repo_and_type(db, repo_model.id, package_type)
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("package type not enabled"))?;
+    let registry =
+        rg_db::ops::package_registry_ops::find_by_repo_and_type(db, repo_model.id, package_type)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("package type not enabled"))?;
 
     let pkg = rg_db::ops::package_ops::find_by_registry_and_name(db, registry.id, name)
         .await?
@@ -263,9 +296,10 @@ pub async fn list_versions(
         .await?
         .ok_or_else(|| anyhow::anyhow!("repository not found"))?;
 
-    let registry = rg_db::ops::package_registry_ops::find_by_repo_and_type(db, repo_model.id, package_type)
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("package type not enabled"))?;
+    let registry =
+        rg_db::ops::package_registry_ops::find_by_repo_and_type(db, repo_model.id, package_type)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("package type not enabled"))?;
 
     let pkg = rg_db::ops::package_ops::find_by_registry_and_name(db, registry.id, name)
         .await?
@@ -288,9 +322,10 @@ pub async fn get_version(
         .await?
         .ok_or_else(|| anyhow::anyhow!("repository not found"))?;
 
-    let registry = rg_db::ops::package_registry_ops::find_by_repo_and_type(db, repo_model.id, package_type)
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("package type not enabled"))?;
+    let registry =
+        rg_db::ops::package_registry_ops::find_by_repo_and_type(db, repo_model.id, package_type)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("package type not enabled"))?;
 
     let pkg = rg_db::ops::package_ops::find_by_registry_and_name(db, registry.id, name)
         .await?
@@ -326,6 +361,7 @@ pub async fn get_version(
 }
 
 /// Download a version file.
+#[allow(clippy::too_many_arguments)]
 pub async fn download_file(
     db: &DatabaseConnection,
     storage: &PackageStorage,
@@ -339,8 +375,13 @@ pub async fn download_file(
     // Resolve and increment download count
     let version_detail = get_version(db, owner, repo, package_type, name, version_str).await?;
 
-    let file = version_detail.files.iter().find(|f| f.filename == filename)
-        .ok_or_else(|| anyhow::anyhow!("file '{}' not found in version {}", filename, version_str))?;
+    let file = version_detail
+        .files
+        .iter()
+        .find(|f| f.filename == filename)
+        .ok_or_else(|| {
+            anyhow::anyhow!("file '{}' not found in version {}", filename, version_str)
+        })?;
 
     let file_model = rg_db::ops::package_file_ops::find_by_id(db, file.id)
         .await?
@@ -374,7 +415,10 @@ pub async fn delete_version(
     let v = get_version(db, owner, repo, package_type, name, version_str).await?;
 
     // Delete files from storage
-    storage.delete_version(owner, repo, package_type, name, version_str).await.ok();
+    storage
+        .delete_version(owner, repo, package_type, name, version_str)
+        .await
+        .ok();
 
     // Delete DB records
     rg_db::ops::package_file_ops::delete_by_version(db, v.id).await?;

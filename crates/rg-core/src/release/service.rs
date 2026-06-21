@@ -11,6 +11,7 @@ use rg_db::{
 };
 
 /// Create a new release.
+#[allow(clippy::too_many_arguments)]
 pub async fn create_release(
     db: &DatabaseConnection,
     repo_id: i64,
@@ -92,6 +93,7 @@ pub async fn get_release(db: &DatabaseConnection, id: i64) -> Result<Release> {
 }
 
 /// Update a release.
+#[allow(clippy::too_many_arguments)]
 pub async fn update_release(
     db: &DatabaseConnection,
     id: i64,
@@ -147,6 +149,7 @@ pub async fn delete_release(db: &DatabaseConnection, id: i64) -> Result<()> {
 }
 
 /// Upload a release asset (saves file to disk + creates DB record).
+#[allow(clippy::too_many_arguments)]
 pub async fn upload_asset(
     db: &DatabaseConnection,
     release_id: i64,
@@ -176,8 +179,7 @@ pub async fn upload_asset(
     let asset = rg_db::ops::release_ops::create_asset(db, model).await?;
 
     // Save file to disk: <repo_root>/<owner>/<name>.releases/assets/<id>/<filename>
-    let asset_dir = asset_storage_dir(repo_root, owner, repo_name)
-        .join(asset.id.to_string());
+    let asset_dir = asset_storage_dir(repo_root, owner, repo_name).join(asset.id.to_string());
     tokio::fs::create_dir_all(&asset_dir)
         .await
         .context("failed to create asset directory")?;
@@ -221,10 +223,7 @@ pub async fn get_asset(db: &DatabaseConnection, asset_id: i64) -> Result<Asset> 
 }
 
 /// List assets for a release.
-pub async fn list_assets(
-    db: &DatabaseConnection,
-    release_id: i64,
-) -> Result<Vec<Asset>> {
+pub async fn list_assets(db: &DatabaseConnection, release_id: i64) -> Result<Vec<Asset>> {
     rg_db::ops::release_ops::list_assets(db, release_id).await
 }
 

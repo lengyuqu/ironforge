@@ -18,8 +18,8 @@
 //! support (runner sends lines during execution) can call `write()` for each
 //! chunk without worrying about concurrent-write contention.
 
-use std::sync::Arc;
 use sea_orm::DatabaseConnection;
+use std::sync::Arc;
 use tokio::sync::mpsc;
 
 /// Maximum buffered log writes before the channel exerts back-pressure.
@@ -119,10 +119,8 @@ impl LogWriteQueue {
             };
 
             // Write back
-            if let Err(e) = rg_db::ops::pipeline_ops::update_job_log(
-                &db, req.job_id, &combined,
-            )
-            .await
+            if let Err(e) =
+                rg_db::ops::pipeline_ops::update_job_log(&db, req.job_id, &combined).await
             {
                 tracing::warn!(
                     job_id = req.job_id,

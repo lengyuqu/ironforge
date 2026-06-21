@@ -1,9 +1,9 @@
 //! Audit log archival — periodically exports old audit logs to NDJSON
 //! files and purges them from the database.
 
-use std::path::PathBuf;
 use chrono::{Duration, Utc};
 use sea_orm::DatabaseConnection;
+use std::path::PathBuf;
 use tokio::io::AsyncWriteExt;
 use tokio::time;
 

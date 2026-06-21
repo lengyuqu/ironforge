@@ -34,21 +34,126 @@ pub struct TemplateContent {
 fn gitignore_map() -> BTreeMap<&'static str, (&'static str, &'static str, &'static str)> {
     let mut m = BTreeMap::new();
 
-    m.insert("go", ("Go", "Go language", include_str!("templates/gitignore/go.txt")));
-    m.insert("rust", ("Rust", "Rust language", include_str!("templates/gitignore/rust.txt")));
-    m.insert("python", ("Python", "Python language", include_str!("templates/gitignore/python.txt")));
-    m.insert("node", ("Node.js", "Node.js / JavaScript", include_str!("templates/gitignore/node.txt")));
-    m.insert("java", ("Java", "Java (Maven/Gradle)", include_str!("templates/gitignore/java.txt")));
-    m.insert("cpp", ("C/C++", "C and C++", include_str!("templates/gitignore/cpp.txt")));
-    m.insert("dotnet", (".NET/C#", ".NET and C#", include_str!("templates/gitignore/dotnet.txt")));
-    m.insert("flutter", ("Flutter/Dart", "Flutter and Dart", include_str!("templates/gitignore/flutter.txt")));
-    m.insert("ruby", ("Ruby", "Ruby (Rails)", include_str!("templates/gitignore/ruby.txt")));
-    m.insert("swift", ("Swift", "Swift / iOS", include_str!("templates/gitignore/swift.txt")));
-    m.insert("kotlin", ("Kotlin", "Kotlin / Android", include_str!("templates/gitignore/kotlin.txt")));
-    m.insert("php", ("PHP", "PHP (Laravel/Composer)", include_str!("templates/gitignore/php.txt")));
-    m.insert("vue", ("Vue.js", "Vue.js / Svelte", include_str!("templates/gitignore/vue.txt")));
-    m.insert("terraform", ("Terraform", "Terraform / IaC", include_str!("templates/gitignore/terraform.txt")));
-    m.insert("docker", ("Docker", "Docker", include_str!("templates/gitignore/docker.txt")));
+    m.insert(
+        "go",
+        (
+            "Go",
+            "Go language",
+            include_str!("templates/gitignore/go.txt"),
+        ),
+    );
+    m.insert(
+        "rust",
+        (
+            "Rust",
+            "Rust language",
+            include_str!("templates/gitignore/rust.txt"),
+        ),
+    );
+    m.insert(
+        "python",
+        (
+            "Python",
+            "Python language",
+            include_str!("templates/gitignore/python.txt"),
+        ),
+    );
+    m.insert(
+        "node",
+        (
+            "Node.js",
+            "Node.js / JavaScript",
+            include_str!("templates/gitignore/node.txt"),
+        ),
+    );
+    m.insert(
+        "java",
+        (
+            "Java",
+            "Java (Maven/Gradle)",
+            include_str!("templates/gitignore/java.txt"),
+        ),
+    );
+    m.insert(
+        "cpp",
+        (
+            "C/C++",
+            "C and C++",
+            include_str!("templates/gitignore/cpp.txt"),
+        ),
+    );
+    m.insert(
+        "dotnet",
+        (
+            ".NET/C#",
+            ".NET and C#",
+            include_str!("templates/gitignore/dotnet.txt"),
+        ),
+    );
+    m.insert(
+        "flutter",
+        (
+            "Flutter/Dart",
+            "Flutter and Dart",
+            include_str!("templates/gitignore/flutter.txt"),
+        ),
+    );
+    m.insert(
+        "ruby",
+        (
+            "Ruby",
+            "Ruby (Rails)",
+            include_str!("templates/gitignore/ruby.txt"),
+        ),
+    );
+    m.insert(
+        "swift",
+        (
+            "Swift",
+            "Swift / iOS",
+            include_str!("templates/gitignore/swift.txt"),
+        ),
+    );
+    m.insert(
+        "kotlin",
+        (
+            "Kotlin",
+            "Kotlin / Android",
+            include_str!("templates/gitignore/kotlin.txt"),
+        ),
+    );
+    m.insert(
+        "php",
+        (
+            "PHP",
+            "PHP (Laravel/Composer)",
+            include_str!("templates/gitignore/php.txt"),
+        ),
+    );
+    m.insert(
+        "vue",
+        (
+            "Vue.js",
+            "Vue.js / Svelte",
+            include_str!("templates/gitignore/vue.txt"),
+        ),
+    );
+    m.insert(
+        "terraform",
+        (
+            "Terraform",
+            "Terraform / IaC",
+            include_str!("templates/gitignore/terraform.txt"),
+        ),
+    );
+    m.insert(
+        "docker",
+        (
+            "Docker",
+            "Docker",
+            include_str!("templates/gitignore/docker.txt"),
+        ),
+    );
 
     m
 }
@@ -65,12 +170,14 @@ pub fn gitignore_options() -> Vec<TemplateOption> {
 }
 
 pub fn gitignore_content(key: &str) -> Option<TemplateContent> {
-    gitignore_map().get(key).map(|(name, desc, content)| TemplateContent {
-        key: key.to_string(),
-        name: name.to_string(),
-        description: desc.to_string(),
-        content,
-    })
+    gitignore_map()
+        .get(key)
+        .map(|(name, desc, content)| TemplateContent {
+            key: key.to_string(),
+            name: name.to_string(),
+            description: desc.to_string(),
+            content,
+        })
 }
 
 // ── LICENSE templates ─────────────────────────────────────────────────
@@ -78,13 +185,62 @@ pub fn gitignore_content(key: &str) -> Option<TemplateContent> {
 fn license_map() -> BTreeMap<&'static str, (&'static str, &'static str, &'static str)> {
     let mut m = BTreeMap::new();
 
-    m.insert("mit", ("MIT License", "Permissive — do anything, keep copyright notice", include_str!("templates/licenses/mit.txt")));
-    m.insert("apache-2.0", ("Apache License 2.0", "Permissive with patent grant", include_str!("templates/licenses/apache-2.0.txt")));
-    m.insert("gpl-3.0", ("GNU GPL v3", "Copyleft — derivative works must also be GPL", include_str!("templates/licenses/gpl-3.0.txt")));
-    m.insert("bsd-2-clause", ("BSD 2-Clause", "Short permissive license", include_str!("templates/licenses/bsd-2-clause.txt")));
-    m.insert("bsd-3-clause", ("BSD 3-Clause", "Permissive with no-endorsement clause", include_str!("templates/licenses/bsd-3-clause.txt")));
-    m.insert("unlicense", ("The Unlicense", "Public domain dedication", include_str!("templates/licenses/unlicense.txt")));
-    m.insert("mpl-2.0", ("Mozilla Public License 2.0", "File-level copyleft", include_str!("templates/licenses/mpl-2.0.txt")));
+    m.insert(
+        "mit",
+        (
+            "MIT License",
+            "Permissive — do anything, keep copyright notice",
+            include_str!("templates/licenses/mit.txt"),
+        ),
+    );
+    m.insert(
+        "apache-2.0",
+        (
+            "Apache License 2.0",
+            "Permissive with patent grant",
+            include_str!("templates/licenses/apache-2.0.txt"),
+        ),
+    );
+    m.insert(
+        "gpl-3.0",
+        (
+            "GNU GPL v3",
+            "Copyleft — derivative works must also be GPL",
+            include_str!("templates/licenses/gpl-3.0.txt"),
+        ),
+    );
+    m.insert(
+        "bsd-2-clause",
+        (
+            "BSD 2-Clause",
+            "Short permissive license",
+            include_str!("templates/licenses/bsd-2-clause.txt"),
+        ),
+    );
+    m.insert(
+        "bsd-3-clause",
+        (
+            "BSD 3-Clause",
+            "Permissive with no-endorsement clause",
+            include_str!("templates/licenses/bsd-3-clause.txt"),
+        ),
+    );
+    m.insert(
+        "unlicense",
+        (
+            "The Unlicense",
+            "Public domain dedication",
+            include_str!("templates/licenses/unlicense.txt"),
+        ),
+    );
+    m.insert(
+        "mpl-2.0",
+        (
+            "Mozilla Public License 2.0",
+            "File-level copyleft",
+            include_str!("templates/licenses/mpl-2.0.txt"),
+        ),
+    );
 
     m
 }
@@ -101,12 +257,14 @@ pub fn license_options() -> Vec<TemplateOption> {
 }
 
 pub fn license_content(key: &str) -> Option<TemplateContent> {
-    license_map().get(key).map(|(name, desc, content)| TemplateContent {
-        key: key.to_string(),
-        name: name.to_string(),
-        description: desc.to_string(),
-        content,
-    })
+    license_map()
+        .get(key)
+        .map(|(name, desc, content)| TemplateContent {
+            key: key.to_string(),
+            name: name.to_string(),
+            description: desc.to_string(),
+            content,
+        })
 }
 
 // ── README templates ──────────────────────────────────────────────────
@@ -114,7 +272,14 @@ pub fn license_content(key: &str) -> Option<TemplateContent> {
 fn readme_map() -> BTreeMap<&'static str, (&'static str, &'static str, &'static str)> {
     let mut m = BTreeMap::new();
 
-    m.insert("default", ("Default", "Basic README with project name and description", include_str!("templates/readmes/default.md")));
+    m.insert(
+        "default",
+        (
+            "Default",
+            "Basic README with project name and description",
+            include_str!("templates/readmes/default.md"),
+        ),
+    );
 
     m
 }
@@ -152,25 +317,93 @@ pub struct DefaultLabel {
 pub fn default_labels(label_set: &str) -> Vec<DefaultLabel> {
     match label_set {
         "default" => vec![
-            DefaultLabel { name: "bug".into(), color: "#d73a4a".into(), description: "Something isn't working".into() },
-            DefaultLabel { name: "enhancement".into(), color: "#a2eeef".into(), description: "New feature or request".into() },
-            DefaultLabel { name: "documentation".into(), color: "#0075ca".into(), description: "Improvements or additions to documentation".into() },
-            DefaultLabel { name: "duplicate".into(), color: "#cfd3d7".into(), description: "This issue or pull request already exists".into() },
-            DefaultLabel { name: "good first issue".into(), color: "#7057ff".into(), description: "Good for newcomers".into() },
-            DefaultLabel { name: "help wanted".into(), color: "#008672".into(), description: "Extra attention is needed".into() },
-            DefaultLabel { name: "invalid".into(), color: "#e4e669".into(), description: "This doesn't seem right".into() },
-            DefaultLabel { name: "question".into(), color: "#d876e3".into(), description: "Further information is requested".into() },
-            DefaultLabel { name: "wontfix".into(), color: "#ffffff".into(), description: "This will not be worked on".into() },
+            DefaultLabel {
+                name: "bug".into(),
+                color: "#d73a4a".into(),
+                description: "Something isn't working".into(),
+            },
+            DefaultLabel {
+                name: "enhancement".into(),
+                color: "#a2eeef".into(),
+                description: "New feature or request".into(),
+            },
+            DefaultLabel {
+                name: "documentation".into(),
+                color: "#0075ca".into(),
+                description: "Improvements or additions to documentation".into(),
+            },
+            DefaultLabel {
+                name: "duplicate".into(),
+                color: "#cfd3d7".into(),
+                description: "This issue or pull request already exists".into(),
+            },
+            DefaultLabel {
+                name: "good first issue".into(),
+                color: "#7057ff".into(),
+                description: "Good for newcomers".into(),
+            },
+            DefaultLabel {
+                name: "help wanted".into(),
+                color: "#008672".into(),
+                description: "Extra attention is needed".into(),
+            },
+            DefaultLabel {
+                name: "invalid".into(),
+                color: "#e4e669".into(),
+                description: "This doesn't seem right".into(),
+            },
+            DefaultLabel {
+                name: "question".into(),
+                color: "#d876e3".into(),
+                description: "Further information is requested".into(),
+            },
+            DefaultLabel {
+                name: "wontfix".into(),
+                color: "#ffffff".into(),
+                description: "This will not be worked on".into(),
+            },
         ],
         "scrum" => vec![
-            DefaultLabel { name: "bug".into(), color: "#d73a4a".into(), description: "Something isn't working".into() },
-            DefaultLabel { name: "story".into(), color: "#a2eeef".into(), description: "User story".into() },
-            DefaultLabel { name: "task".into(), color: "#d4c5f9".into(), description: "Smaller task".into() },
-            DefaultLabel { name: "epic".into(), color: "#3E4BF0".into(), description: "Large epic".into() },
-            DefaultLabel { name: "spike".into(), color: "#fbca04".into(), description: "Research spike".into() },
-            DefaultLabel { name: "priority: high".into(), color: "#d93f0b".into(), description: "High priority".into() },
-            DefaultLabel { name: "priority: medium".into(), color: "#fbca04".into(), description: "Medium priority".into() },
-            DefaultLabel { name: "priority: low".into(), color: "#0e8a16".into(), description: "Low priority".into() },
+            DefaultLabel {
+                name: "bug".into(),
+                color: "#d73a4a".into(),
+                description: "Something isn't working".into(),
+            },
+            DefaultLabel {
+                name: "story".into(),
+                color: "#a2eeef".into(),
+                description: "User story".into(),
+            },
+            DefaultLabel {
+                name: "task".into(),
+                color: "#d4c5f9".into(),
+                description: "Smaller task".into(),
+            },
+            DefaultLabel {
+                name: "epic".into(),
+                color: "#3E4BF0".into(),
+                description: "Large epic".into(),
+            },
+            DefaultLabel {
+                name: "spike".into(),
+                color: "#fbca04".into(),
+                description: "Research spike".into(),
+            },
+            DefaultLabel {
+                name: "priority: high".into(),
+                color: "#d93f0b".into(),
+                description: "High priority".into(),
+            },
+            DefaultLabel {
+                name: "priority: medium".into(),
+                color: "#fbca04".into(),
+                description: "Medium priority".into(),
+            },
+            DefaultLabel {
+                name: "priority: low".into(),
+                color: "#0e8a16".into(),
+                description: "Low priority".into(),
+            },
         ],
         _ => default_labels("default"),
     }

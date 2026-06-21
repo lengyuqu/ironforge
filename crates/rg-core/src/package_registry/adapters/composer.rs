@@ -52,39 +52,42 @@ impl PackageAdapter for ComposerAdapter {
             .ok_or_else(|| anyhow::anyhow!("composer.json missing 'version' field"))?
             .to_string();
 
-        let description = json.get("description").and_then(|v| v.as_str()).map(|s| s.to_string());
-        let homepage = json.get("homepage").and_then(|v| v.as_str()).map(|s| s.to_string());
-        let license = json
-            .get("license")
-            .and_then(|v| {
-                if let Some(s) = v.as_str() {
-                    Some(s.to_string())
-                } else if let Some(arr) = v.as_array() {
-                    arr.iter()
-                        .filter_map(|l| l.as_str())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                        .into()
-                } else {
-                    None
-                }
-            });
-        let keywords = json
-            .get("keywords")
-            .and_then(|v| v.as_array())
-            .map(|arr| {
+        let description = json
+            .get("description")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let homepage = json
+            .get("homepage")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let license = json.get("license").and_then(|v| {
+            if let Some(s) = v.as_str() {
+                Some(s.to_string())
+            } else if let Some(arr) = v.as_array() {
                 arr.iter()
-                    .filter_map(|k| k.as_str())
+                    .filter_map(|l| l.as_str())
                     .collect::<Vec<_>>()
                     .join(", ")
-            });
+                    .into()
+            } else {
+                None
+            }
+        });
+        let keywords = json.get("keywords").and_then(|v| v.as_array()).map(|arr| {
+            arr.iter()
+                .filter_map(|k| k.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        });
 
         // Repository URL from composer.json (support string or assoc array)
         let repository_url = json.get("repository").and_then(|v| {
             if let Some(s) = v.as_str() {
                 Some(s.to_string())
             } else if let Some(obj) = v.as_object() {
-                obj.get("url").and_then(|u| u.as_str()).map(|s| s.to_string())
+                obj.get("url")
+                    .and_then(|u| u.as_str())
+                    .map(|s| s.to_string())
             } else {
                 None
             }
@@ -143,7 +146,9 @@ fn extract_composer_json(data: &[u8]) -> anyhow::Result<String> {
 
     // Second try: look in a subdirectory (e.g., vendor/package/composer.json)
     for i in 0..archive.len() {
-        let entry = archive.by_index(i).map_err(|e| anyhow::anyhow!("failed to read ZIP entry: {e}"))?;
+        let entry = archive
+            .by_index(i)
+            .map_err(|e| anyhow::anyhow!("failed to read ZIP entry: {e}"))?;
         let name = entry.name().to_string();
 
         // Match: any path ending with /composer.json
@@ -156,9 +161,7 @@ fn extract_composer_json(data: &[u8]) -> anyhow::Result<String> {
         }
     }
 
-    anyhow::bail!(
-        "composer.json not found in archive (looked at root and subdirectories)"
-    )
+    anyhow::bail!("composer.json not found in archive (looked at root and subdirectories)")
 }
 
 /// Build the packages.json metadata for a list of Composer versions.
@@ -190,17 +193,23 @@ pub fn build_packages_json(
         let mut entry = serde_json::Map::new();
         entry.insert("name".into(), package_name.to_string().into());
         entry.insert("version".into(), v.version.clone().into());
-        entry.insert("dist".into(), serde_json::json!({
-            "type": "zip",
-            "url": download_url,
-            "reference": v.sha256.clone().unwrap_or_default(),
-            "shasum": v.sha256.clone().unwrap_or_default(),
-        }));
+        entry.insert(
+            "dist".into(),
+            serde_json::json!({
+                "type": "zip",
+                "url": download_url,
+                "reference": v.sha256.clone().unwrap_or_default(),
+                "shasum": v.sha256.clone().unwrap_or_default(),
+            }),
+        );
 
         // Include download count as a custom metric
         entry.insert(
             "type".into(),
-            v.package_type.clone().unwrap_or_else(|| "library".to_string()).into(),
+            v.package_type
+                .clone()
+                .unwrap_or_else(|| "library".to_string())
+                .into(),
         );
 
         if let Some(desc) = &v.description {
@@ -254,17 +263,21 @@ mod tests {
 
     #[test]
     fn test_build_packages_json() {
-        let versions = vec![
-            ComposerVersionInfo {
-                version: "1.0.0".into(),
-                filename: "vendor-pkg-1.0.0.zip".into(),
-                sha256: Some("abc123".into()),
-                description: Some("Test package".into()),
-                license: Some("MIT".into()),
-                package_type: Some("library".into()),
-            },
-        ];
-        let json = build_packages_json("vendor/pkg", &versions, "https://forge.example", "owner", "repo");
+        let versions = vec![ComposerVersionInfo {
+            version: "1.0.0".into(),
+            filename: "vendor-pkg-1.0.0.zip".into(),
+            sha256: Some("abc123".into()),
+            description: Some("Test package".into()),
+            license: Some("MIT".into()),
+            package_type: Some("library".into()),
+        }];
+        let json = build_packages_json(
+            "vendor/pkg",
+            &versions,
+            "https://forge.example",
+            "owner",
+            "repo",
+        );
         assert!(json.contains("\"vendor/pkg\""));
         assert!(json.contains("\"1.0.0\""));
         assert!(json.contains("\"zip\""));

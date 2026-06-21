@@ -19,8 +19,16 @@ impl MigrationTrait for Migration {
                             .auto_increment()
                             .primary_key(),
                     )
-                    .col(ColumnDef::new(MfaBackupCodes::UserId).big_integer().not_null())
-                    .col(ColumnDef::new(MfaBackupCodes::CodeHash).string_len(128).not_null())
+                    .col(
+                        ColumnDef::new(MfaBackupCodes::UserId)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(MfaBackupCodes::CodeHash)
+                            .string_len(128)
+                            .not_null(),
+                    )
                     .col(
                         ColumnDef::new(MfaBackupCodes::Used)
                             .boolean()
@@ -28,7 +36,11 @@ impl MigrationTrait for Migration {
                             .default(false),
                     )
                     .col(ColumnDef::new(MfaBackupCodes::UsedAt).date_time().null())
-                    .col(ColumnDef::new(MfaBackupCodes::CreatedAt).date_time().not_null())
+                    .col(
+                        ColumnDef::new(MfaBackupCodes::CreatedAt)
+                            .date_time()
+                            .not_null(),
+                    )
                     .foreign_key(
                         ForeignKey::create()
                             .from(MfaBackupCodes::Table, MfaBackupCodes::UserId)
@@ -54,7 +66,9 @@ impl MigrationTrait for Migration {
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
-        manager.drop_table(Table::drop().table(MfaBackupCodes::Table).to_owned()).await
+        manager
+            .drop_table(Table::drop().table(MfaBackupCodes::Table).to_owned())
+            .await
     }
 }
 

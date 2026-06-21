@@ -21,7 +21,11 @@ impl MigrationTrait for Migration {
                     )
                     .col(ColumnDef::new(PrReviews::PrId).big_integer().not_null())
                     .col(ColumnDef::new(PrReviews::RepoId).big_integer().not_null())
-                    .col(ColumnDef::new(PrReviews::ReviewerId).big_integer().not_null())
+                    .col(
+                        ColumnDef::new(PrReviews::ReviewerId)
+                            .big_integer()
+                            .not_null(),
+                    )
                     // comment / approve / request_changes / dismiss
                     .col(ColumnDef::new(PrReviews::Action).string().not_null())
                     .col(ColumnDef::new(PrReviews::Body).string().null())
@@ -60,16 +64,36 @@ impl MigrationTrait for Migration {
                             .auto_increment()
                             .primary_key(),
                     )
-                    .col(ColumnDef::new(ReviewComments::ReviewId).big_integer().not_null())
-                    .col(ColumnDef::new(ReviewComments::PrId).big_integer().not_null())
-                    .col(ColumnDef::new(ReviewComments::AuthorId).big_integer().not_null())
+                    .col(
+                        ColumnDef::new(ReviewComments::ReviewId)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(ReviewComments::PrId)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(ReviewComments::AuthorId)
+                            .big_integer()
+                            .not_null(),
+                    )
                     .col(ColumnDef::new(ReviewComments::Path).string().not_null())
-                    .col(ColumnDef::new(ReviewComments::Position).big_integer().null())
+                    .col(
+                        ColumnDef::new(ReviewComments::Position)
+                            .big_integer()
+                            .null(),
+                    )
                     .col(ColumnDef::new(ReviewComments::Line).big_integer().null())
                     .col(ColumnDef::new(ReviewComments::Side).string().null()) // LEFT / RIGHT
                     .col(ColumnDef::new(ReviewComments::Body).string().not_null())
                     .col(ColumnDef::new(ReviewComments::CommitId).string().null())
-                    .col(ColumnDef::new(ReviewComments::ReplyToId).big_integer().null())
+                    .col(
+                        ColumnDef::new(ReviewComments::ReplyToId)
+                            .big_integer()
+                            .null(),
+                    )
                     .col(
                         ColumnDef::new(ReviewComments::CreatedAt)
                             .timestamp_with_time_zone()
@@ -121,8 +145,16 @@ impl MigrationTrait for Migration {
                             .auto_increment()
                             .primary_key(),
                     )
-                    .col(ColumnDef::new(ProtectedBranches::RepoId).big_integer().not_null())
-                    .col(ColumnDef::new(ProtectedBranches::BranchName).string().not_null())
+                    .col(
+                        ColumnDef::new(ProtectedBranches::RepoId)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(ProtectedBranches::BranchName)
+                            .string()
+                            .not_null(),
+                    )
                     .col(
                         ColumnDef::new(ProtectedBranches::RequirePr)
                             .boolean()
@@ -135,21 +167,33 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .default(false),
                     )
-                    .col(ColumnDef::new(ProtectedBranches::RequiredStatusChecks).string().null()) // JSON array
+                    .col(
+                        ColumnDef::new(ProtectedBranches::RequiredStatusChecks)
+                            .string()
+                            .null(),
+                    ) // JSON array
                     .col(
                         ColumnDef::new(ProtectedBranches::RequireApproval)
                             .boolean()
                             .not_null()
                             .default(false),
                     )
-                    .col(ColumnDef::new(ProtectedBranches::RequiredApprovals).big_integer().null())
+                    .col(
+                        ColumnDef::new(ProtectedBranches::RequiredApprovals)
+                            .big_integer()
+                            .null(),
+                    )
                     .col(
                         ColumnDef::new(ProtectedBranches::AllowForcePush)
                             .boolean()
                             .not_null()
                             .default(false),
                     )
-                    .col(ColumnDef::new(ProtectedBranches::AllowedPushUserIds).string().null()) // JSON array
+                    .col(
+                        ColumnDef::new(ProtectedBranches::AllowedPushUserIds)
+                            .string()
+                            .null(),
+                    ) // JSON array
                     .col(
                         ColumnDef::new(ProtectedBranches::CreatedAt)
                             .timestamp_with_time_zone()
@@ -192,10 +236,23 @@ impl MigrationTrait for Migration {
                             .auto_increment()
                             .primary_key(),
                     )
-                    .col(ColumnDef::new(RepoCollaborators::RepoId).big_integer().not_null())
-                    .col(ColumnDef::new(RepoCollaborators::UserId).big_integer().not_null())
+                    .col(
+                        ColumnDef::new(RepoCollaborators::RepoId)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(RepoCollaborators::UserId)
+                            .big_integer()
+                            .not_null(),
+                    )
                     // read / write / admin
-                    .col(ColumnDef::new(RepoCollaborators::Permission).string().not_null().default("read"))
+                    .col(
+                        ColumnDef::new(RepoCollaborators::Permission)
+                            .string()
+                            .not_null()
+                            .default("read"),
+                    )
                     .col(
                         ColumnDef::new(RepoCollaborators::CreatedAt)
                             .timestamp_with_time_zone()

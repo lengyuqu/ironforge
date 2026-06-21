@@ -2,8 +2,8 @@
 
 use axum::body::{to_bytes, Body};
 use axum::extract::{MatchedPath, Request};
-use axum::http::{header, HeaderName, HeaderValue};
 use axum::http::Method;
+use axum::http::{header, HeaderName, HeaderValue};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Json, Response};
 use std::time::Instant;
@@ -19,9 +19,7 @@ static X_REQUEST_ID: HeaderName = HeaderName::from_static("x-request-id");
 /// Uses `MatchedPath` to normalize route templates like `/users/{id}` instead of
 /// concrete paths like `/users/123` to avoid label cardinality explosion.
 pub async fn http_metrics_middleware(request: Request, next: Next) -> Response {
-    use crate::metrics::http_requests::{
-        IN_FLIGHT, REQUEST_COUNT, REQUEST_DURATION,
-    };
+    use crate::metrics::http_requests::{IN_FLIGHT, REQUEST_COUNT, REQUEST_DURATION};
 
     let start = Instant::now();
 
@@ -49,7 +47,8 @@ pub async fn http_metrics_middleware(request: Request, next: Next) -> Response {
 
     // Record metrics
     if let Some(c) = REQUEST_COUNT.get() {
-        let _ = c.with_label_values(&[method.as_str(), &route, &status]).inc();
+        c.with_label_values(&[method.as_str(), &route, &status])
+            .inc();
     }
     if let Some(h) = REQUEST_DURATION.get() {
         h.observe(elapsed);
@@ -90,10 +89,10 @@ pub async fn request_id_middleware(mut request: Request, next: Next) -> Response
     }
 
     // Inject request_id into JSON error response bodies
-    if response.status().is_client_error() || response.status().is_server_error() {
-        if is_json_response(&response) {
-            return inject_request_id(response, &request_id).await;
-        }
+    if (response.status().is_client_error() || response.status().is_server_error())
+        && is_json_response(&response)
+    {
+        return inject_request_id(response, &request_id).await;
     }
 
     response
@@ -130,7 +129,10 @@ async fn inject_request_id(response: Response, request_id: &str) -> Response {
     // Inject request_id into error body if present
     if let Some(error_obj) = json.get_mut("error") {
         if let Some(obj) = error_obj.as_object_mut() {
-            obj.insert("request_id".to_string(), serde_json::Value::String(request_id.to_string()));
+            obj.insert(
+                "request_id".to_string(),
+                serde_json::Value::String(request_id.to_string()),
+            );
         }
     }
 
@@ -145,19 +147,15 @@ async fn inject_request_id(response: Response, request_id: &str) -> Response {
 /// Maintenance mode middleware — rejects mutating requests when the instance
 /// is in read-only maintenance mode.  Safe methods (GET, HEAD, OPTIONS) and
 /// the admin panel are always allowed.
-pub async fn maintenance_middleware(
-    request: Request,
-    next: Next,
-) -> Response {
+pub async fn maintenance_middleware(request: Request, next: Next) -> Response {
     let settings = crate::instance::get_settings();
     if settings.maintenance_mode {
         let method = request.method();
         let path = request.uri().path();
 
         // Always allow GET, HEAD, OPTIONS, and admin routes
-        let is_safe_method = method == Method::GET
-            || method == Method::HEAD
-            || method == Method::OPTIONS;
+        let is_safe_method =
+            method == Method::GET || method == Method::HEAD || method == Method::OPTIONS;
         let is_admin = path.starts_with("/api/v1/admin/");
 
         if !is_safe_method && !is_admin {

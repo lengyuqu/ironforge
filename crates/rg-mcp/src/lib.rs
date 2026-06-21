@@ -30,8 +30,8 @@ impl AppState {
     pub fn from_env() -> Result<Self> {
         use std::env;
 
-        let api_base = env::var("IRONFORGE_URL")
-            .unwrap_or_else(|_| "http://localhost:8080".to_string());
+        let api_base =
+            env::var("IRONFORGE_URL").unwrap_or_else(|_| "http://localhost:8080".to_string());
         let pat = env::var("IRONFORGE_PAT").unwrap_or_default();
 
         if pat.is_empty() {

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { isLoggedIn, isAdmin, getUser } from '$lib/stores/auth.svelte';
+  import { isAuthReady, isLoggedIn, isAdmin, getUser } from '$lib/stores/auth.svelte';
   import { goto } from '$app/navigation';
   import { createT, formatDate } from '$lib/i18n';
   import { admin, type AdminUser } from '$lib/api/client.svelte';
@@ -23,6 +23,7 @@
   let deleteTarget = $state<AdminUser | null>(null);
 
   $effect(() => {
+    if (!isAuthReady()) return;
     if (!isLoggedIn()) { goto('/login'); return; }
     if (!isAdmin()) { goto('/dashboard'); return; }
     loadUsers();

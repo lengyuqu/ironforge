@@ -1,31 +1,42 @@
 <script lang="ts">
-  import { page } from '$app/stores';
   import { goto } from '$app/navigation';
-  import { createT } from '$lib/i18n';
-  import { setBanner } from '$lib/stores/instance.svelte';
-
-  const t = createT();
+  import { setBanner, clearBanner } from '$lib/stores/instance.svelte';
+  import { isAuthReady, isLoggedIn, isAdmin } from '$lib/stores/auth.svelte';
+  import { admin, type AdminSettings } from '$lib/api/client.svelte';
 
   let loading = $state(true);
   let saving = $state(false);
   let maintenanceMode = $state(false);
   let bannerMessage = $state('');
-  let bannerType = $state('info');
+  let bannerType = $state<'info' | 'warning' | 'error'>('info');
   let error = $state('');
 
-  $effect(() => { loadSettings(); });
+  $effect(() => {
+    if (!isAuthReady()) return;
+    if (!isLoggedIn()) {
+      goto('/login');
+      return;
+    }
+    if (!isAdmin()) {
+      goto('/dashboard');
+      return;
+    }
+    loadSettings();
+  });
 
   async function loadSettings() {
     try {
       loading = true;
-      const res = await fetch('/api/v1/admin/settings', {
-        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
-      });
-      if (!res.ok) throw new Error('Failed to load settings');
-      const data = await res.json();
+      const data = await admin.getSettings();
       maintenanceMode = data.maintenance_mode;
       bannerMessage = data.banner_message || '';
       bannerType = data.banner_type || 'info';
+
+      if (data.banner_message) {
+        setBanner(data.banner_message, data.banner_type);
+      } else {
+        clearBanner();
+      }
     } catch (e: any) {
       error = e.message;
     } finally {
@@ -37,23 +48,17 @@
     try {
       saving = true;
       error = '';
-      const res = await fetch('/api/v1/admin/settings', {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${localStorage.getItem('token')}`,
-        },
-        body: JSON.stringify({
-          maintenance_mode: maintenanceMode,
-          banner_message: bannerMessage || null,
-          banner_type: bannerType,
-        }),
-      });
-      if (!res.ok) throw new Error('Failed to save settings');
-      const data = await res.json();
+      const payload: Partial<AdminSettings> = {
+        maintenance_mode: maintenanceMode,
+        banner_message: bannerMessage || null,
+        banner_type: bannerType,
+      };
+      const data = await admin.updateSettings(payload);
       // Sync banner to frontend store
       if (data.banner_message) {
-        setBanner(data.banner_message, data.banner_type as any);
+        setBanner(data.banner_message, data.banner_type);
+      } else {
+        clearBanner();
       }
     } catch (e: any) {
       error = e.message;

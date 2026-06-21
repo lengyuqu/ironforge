@@ -6,7 +6,7 @@ use sea_orm::{ConnectionTrait, DatabaseConnection, EntityTrait, Set};
 
 use rg_db::entities::issue::{self, Model as Issue};
 use rg_db::entities::issue_comment::{self, Model as Comment};
-use rg_db::ops::{issue_ops, issue_comment_ops, label_ops, issue_label_ops, repo_ops};
+use rg_db::ops::{issue_comment_ops, issue_label_ops, issue_ops, label_ops, repo_ops};
 
 // ── Issue CRUD ──────────────────────────────────────────────────────────
 
@@ -25,7 +25,9 @@ pub async fn create_issue(
     }
 
     let number = issue_ops::next_number(db, repo_id).await?;
-    let labels_json = labels.as_ref().map(|l| serde_json::to_string(l).unwrap_or_else(|_| "[]".into()));
+    let labels_json = labels
+        .as_ref()
+        .map(|l| serde_json::to_string(l).unwrap_or_else(|_| "[]".into()));
 
     let model = issue::ActiveModel {
         id: sea_orm::NotSet,
@@ -136,13 +138,9 @@ pub async fn list_issues_filtered_by_labels(
     }
 
     // Find issue IDs that have ALL required labels
-    let (matching_issue_ids, total) = issue_label_ops::find_issues_with_all_labels(
-        db,
-        &required_label_ids,
-        offset,
-        limit,
-    )
-    .await?;
+    let (matching_issue_ids, total) =
+        issue_label_ops::find_issues_with_all_labels(db, &required_label_ids, offset, limit)
+            .await?;
 
     if matching_issue_ids.is_empty() {
         return Ok((Vec::new(), total));
@@ -182,6 +180,7 @@ pub async fn get_issue(
 }
 
 /// Update an issue's title, body, state, labels, assignee, or milestone.
+#[allow(clippy::too_many_arguments)]
 pub async fn update_issue(
     db: &DatabaseConnection,
     owner: &str,
@@ -224,7 +223,9 @@ pub async fn update_issue(
         }
     }
     if let Some(l) = labels {
-        active.labels = Set(Some(serde_json::to_string(&l).unwrap_or_else(|_| "[]".into())));
+        active.labels = Set(Some(
+            serde_json::to_string(&l).unwrap_or_else(|_| "[]".into()),
+        ));
         // Dual-write: sync labels to issue_labels junction table
         if let Ok(all_labels) = label_ops::list_by_repo(db, issue_repo_id).await {
             let label_ids: Vec<i64> = all_labels
@@ -253,16 +254,19 @@ pub async fn update_issue(
     let fts_body = updated.body.clone().unwrap_or_default();
     let fts_labels = updated.labels.clone().unwrap_or_default();
     let issue_id = updated.id;
-    if let Err(e) = db.execute(sea_orm::Statement::from_sql_and_values(
-        sea_orm::DatabaseBackend::Sqlite,
-        r#"INSERT OR REPLACE INTO issues_fts(rowid, title, body, labels) VALUES (?, ?, ?, ?)"#,
-        [
-            issue_id.into(),
-            fts_title.into(),
-            fts_body.into(),
-            fts_labels.into(),
-        ],
-    )).await {
+    if let Err(e) = db
+        .execute(sea_orm::Statement::from_sql_and_values(
+            sea_orm::DatabaseBackend::Sqlite,
+            r#"INSERT OR REPLACE INTO issues_fts(rowid, title, body, labels) VALUES (?, ?, ?, ?)"#,
+            [
+                issue_id.into(),
+                fts_title.into(),
+                fts_body.into(),
+                fts_labels.into(),
+            ],
+        ))
+        .await
+    {
         tracing::warn!(error = %e, issue_id = %issue_id, "failed to update issues_fts index");
     }
 
@@ -276,12 +280,17 @@ pub async fn update_issue(
                 "title": updated.title,
                 "state": s,
             });
-            if let Err(e) = crate::webhook::service::trigger_issue_closed(db, issue_repo_id, &close_payload).await {
+            if let Err(e) =
+                crate::webhook::service::trigger_issue_closed(db, issue_repo_id, &close_payload)
+                    .await
+            {
                 tracing::warn!("Failed to trigger issue.closed webhook: {e}");
             }
 
             if let Some(mid) = issue_milestone_id {
-                if let Ok(remaining) = rg_db::ops::milestone_ops::count_open_by_milestone(db, mid).await {
+                if let Ok(remaining) =
+                    rg_db::ops::milestone_ops::count_open_by_milestone(db, mid).await
+                {
                     if remaining == 0 {
                         if let Err(e) = notify_milestone_closed(db, issue_repo_id, mid).await {
                             tracing::warn!("Failed to notify milestone {} closed: {e}", mid);
@@ -335,7 +344,14 @@ pub async fn add_comment(
         "body": comment.body,
         "author_id": comment.author_id,
     });
-    if let Err(e) = crate::webhook::service::trigger_issue_comment(db, issue.repo_id, &issue_payload, &comment_payload).await {
+    if let Err(e) = crate::webhook::service::trigger_issue_comment(
+        db,
+        issue.repo_id,
+        &issue_payload,
+        &comment_payload,
+    )
+    .await
+    {
         tracing::warn!("Failed to trigger issue.comment webhook: {e}");
     }
 
@@ -399,7 +415,10 @@ async fn notify_milestone_closed(
     // Notify watchers about milestone completion
     if let Ok(Some(milestone)) = rg_db::ops::milestone_ops::find_by_id(db, milestone_id).await {
         // Look up repo name for notification
-        if let Ok(Some(repo)) = rg_db::entities::repository::Entity::find_by_id(repo_id).one(db).await {
+        if let Ok(Some(repo)) = rg_db::entities::repository::Entity::find_by_id(repo_id)
+            .one(db)
+            .await
+        {
             if let Err(e) = crate::notification::notify_watchers(
                 db,
                 repo_id,
@@ -408,7 +427,8 @@ async fn notify_milestone_closed(
                 "milestone",
                 Some(format!("Milestone '{}' {}", milestone.title, "closed")),
             )
-            .await {
+            .await
+            {
                 tracing::warn!("Failed to notify watchers about milestone: {e}");
             }
         }

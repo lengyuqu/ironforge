@@ -19,8 +19,16 @@ impl MigrationTrait for Migration {
                             .auto_increment()
                             .primary_key(),
                     )
-                    .col(ColumnDef::new(PullRequests::RepoId).big_integer().not_null())
-                    .col(ColumnDef::new(PullRequests::Number).big_integer().not_null())
+                    .col(
+                        ColumnDef::new(PullRequests::RepoId)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(PullRequests::Number)
+                            .big_integer()
+                            .not_null(),
+                    )
                     .col(ColumnDef::new(PullRequests::Title).string().not_null())
                     .col(ColumnDef::new(PullRequests::Body).string().null())
                     .col(
@@ -29,8 +37,16 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .default("open"),
                     )
-                    .col(ColumnDef::new(PullRequests::AuthorId).big_integer().not_null())
-                    .col(ColumnDef::new(PullRequests::ReviewerId).big_integer().null())
+                    .col(
+                        ColumnDef::new(PullRequests::AuthorId)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(PullRequests::ReviewerId)
+                            .big_integer()
+                            .null(),
+                    )
                     .col(ColumnDef::new(PullRequests::HeadBranch).string().not_null())
                     .col(ColumnDef::new(PullRequests::BaseBranch).string().not_null())
                     .col(ColumnDef::new(PullRequests::HeadSha).string().null())
@@ -48,8 +64,16 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .default(Expr::current_time()),
                     )
-                    .col(ColumnDef::new(PullRequests::ClosedAt).timestamp_with_time_zone().null())
-                    .col(ColumnDef::new(PullRequests::MergedAt).timestamp_with_time_zone().null())
+                    .col(
+                        ColumnDef::new(PullRequests::ClosedAt)
+                            .timestamp_with_time_zone()
+                            .null(),
+                    )
+                    .col(
+                        ColumnDef::new(PullRequests::MergedAt)
+                            .timestamp_with_time_zone()
+                            .null(),
+                    )
                     .to_owned(),
             )
             .await?;
@@ -103,7 +127,11 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .default("open"),
                     )
-                    .col(ColumnDef::new(Milestones::DueDate).timestamp_with_time_zone().null())
+                    .col(
+                        ColumnDef::new(Milestones::DueDate)
+                            .timestamp_with_time_zone()
+                            .null(),
+                    )
                     .col(
                         ColumnDef::new(Milestones::CreatedAt)
                             .timestamp_with_time_zone()

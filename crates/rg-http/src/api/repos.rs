@@ -14,10 +14,11 @@ use serde::Deserialize;
 use utoipa::ToSchema;
 
 use crate::error::AppError;
+use crate::pagination::{PaginatedResponse, PaginationParams};
 use crate::{api::auth::extract_bearer_claims, openapi::PaginatedRepoResponse, AppState};
-use crate::pagination::{PaginationParams, PaginatedResponse};
 
 /// Helper to record audit log (fire-and-forget).
+#[allow(clippy::too_many_arguments)]
 async fn record_audit(
     db: &sea_orm::DatabaseConnection,
     user_id: i64,
@@ -91,6 +92,7 @@ pub struct RepoResponse {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    pub stars_count: i64,
     pub is_private: bool,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
@@ -132,16 +134,17 @@ pub async fn create_repo(
                     match rg_db::ops::org_ops::is_org_member(&state.db, org.id, owner_id).await {
                         Ok(true) => Some(org.id),
                         _ => {
-                            return AppError::Forbidden("you are not a member of this organization".to_string()).into_response()
+                            return AppError::Forbidden(
+                                "you are not a member of this organization".to_string(),
+                            )
+                            .into_response()
                         }
                     }
                 }
                 Ok(None) => {
                     return AppError::NotFound("organization not found".to_string()).into_response()
                 }
-                Err(e) => {
-                    return AppError::InternalError(e.to_string()).into_response()
-                }
+                Err(e) => return AppError::InternalError(e.to_string()).into_response(),
             }
         }
         None => None,
@@ -165,13 +168,7 @@ pub async fn create_repo(
         owner_display_name: owner_display,
     };
 
-    match rg_core::repo::service::create_repo_with_opts(
-        &state.db,
-        opts,
-        &state.repo_root,
-    )
-    .await
-    {
+    match rg_core::repo::service::create_repo_with_opts(&state.db, opts, &state.repo_root).await {
         Ok(repo) => {
             // Record audit log
             let details = serde_json::json!({
@@ -185,7 +182,11 @@ pub async fn create_repo(
                 "readme": body.readme.as_deref(),
                 "issue_labels": body.issue_labels.as_deref(),
             });
-            let resource_name = format!("{}/{}", body.org.as_deref().unwrap_or(&username), &body.name);
+            let resource_name = format!(
+                "{}/{}",
+                body.org.as_deref().unwrap_or(&username),
+                &body.name
+            );
             record_audit(
                 &state.db,
                 owner_id,
@@ -196,10 +197,11 @@ pub async fn create_repo(
                 Some(&resource_name),
                 &headers,
                 Some(details),
-            ).await;
+            )
+            .await;
 
             (StatusCode::CREATED, Json(serde_json::json!(repo))).into_response()
-        },
+        }
         Err(e) => AppError::BadRequest(e.to_string()).into_response(),
     }
 }
@@ -242,7 +244,8 @@ pub async fn list_repos(
         .ok()
         .flatten()
     {
-        match rg_db::ops::repo_ops::list_by_owner_paginated(&state.db, user.id, offset, limit).await {
+        match rg_db::ops::repo_ops::list_by_owner_paginated(&state.db, user.id, offset, limit).await
+        {
             Ok((data, total)) => {
                 return (
                     StatusCode::OK,
@@ -250,9 +253,7 @@ pub async fn list_repos(
                 )
                     .into_response()
             }
-            Err(e) => {
-                return AppError::InternalError(e.to_string()).into_response()
-            }
+            Err(e) => return AppError::InternalError(e.to_string()).into_response(),
         }
     }
 
@@ -270,13 +271,12 @@ pub async fn list_repos(
                 )
                     .into_response()
             }
-            Err(e) => {
-                return AppError::InternalError(e.to_string()).into_response()
-            }
+            Err(e) => return AppError::InternalError(e.to_string()).into_response(),
         }
     }
 
-    AppError::NotFound("owner not found (neither user nor organization)".to_string()).into_response()
+    AppError::NotFound("owner not found (neither user nor organization)".to_string())
+        .into_response()
 }
 
 #[utoipa::path(
@@ -342,17 +342,59 @@ pub async fn star_repo(
 
     let user_id: i64 = claims.sub.parse().unwrap_or(-1);
 
-    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await {
+    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
+    {
         Ok(Some(r)) => r,
-        Ok(None) => {
-            return AppError::NotFound("repository not found".to_string()).into_response()
-        }
-        Err(e) => {
-            return AppError::InternalError(e.to_string()).into_response()
-        }
+        Ok(None) => return AppError::NotFound("repository not found".to_string()).into_response(),
+        Err(e) => return AppError::InternalError(e.to_string()).into_response(),
     };
 
     match rg_core::repo::service::toggle_star(&state.db, user_id, repo.id).await {
+        Ok(starred) => (
+            StatusCode::OK,
+            Json(serde_json::json!({ "starred": starred })),
+        )
+            .into_response(),
+        Err(e) => AppError::InternalError(e.to_string()).into_response(),
+    }
+}
+
+/// GET /api/v1/repos/:owner/:name/starred
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/starred",
+    tag = "Repositories",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+    ),
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
+pub async fn get_starred_status(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((owner, name)): Path<(String, String)>,
+) -> impl IntoResponse {
+    let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
+        Some(c) => c,
+        None => {
+            return AppError::Unauthorized("authentication required".to_string()).into_response()
+        }
+    };
+
+    let user_id: i64 = claims.sub.parse().unwrap_or(-1);
+
+    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
+    {
+        Ok(Some(r)) => r,
+        Ok(None) => return AppError::NotFound("repository not found".to_string()).into_response(),
+        Err(e) => return AppError::InternalError(e.to_string()).into_response(),
+    };
+
+    match rg_core::repo::service::is_starred(&state.db, user_id, repo.id).await {
         Ok(starred) => (
             StatusCode::OK,
             Json(serde_json::json!({ "starred": starred })),
@@ -385,20 +427,21 @@ pub async fn get_stargazers(
     let offset = pagination.offset();
     let limit = pagination.limit();
 
-    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await {
+    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
+    {
         Ok(Some(r)) => r,
-        Ok(None) => {
-            return AppError::NotFound("repository not found".to_string()).into_response()
-        }
-        Err(e) => {
-            return AppError::InternalError(e.to_string()).into_response()
-        }
+        Ok(None) => return AppError::NotFound("repository not found".to_string()).into_response(),
+        Err(e) => return AppError::InternalError(e.to_string()).into_response(),
     };
 
     match rg_core::repo::service::list_stargazers(&state.db, repo.id, offset, limit).await {
         Ok((stargazers, total)) => (
             StatusCode::OK,
-            Json(PaginatedResponse::new(stargazers, &pagination, total as u64)),
+            Json(PaginatedResponse::new(
+                stargazers,
+                &pagination,
+                total as u64,
+            )),
         )
             .into_response(),
         Err(e) => AppError::InternalError(e.to_string()).into_response(),
@@ -435,14 +478,11 @@ pub async fn watch_repo(
 
     let user_id: i64 = claims.sub.parse().unwrap_or(-1);
 
-    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await {
+    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
+    {
         Ok(Some(r)) => r,
-        Ok(None) => {
-            return AppError::NotFound("repository not found".to_string()).into_response()
-        }
-        Err(e) => {
-            return AppError::InternalError(e.to_string()).into_response()
-        }
+        Ok(None) => return AppError::NotFound("repository not found".to_string()).into_response(),
+        Err(e) => return AppError::InternalError(e.to_string()).into_response(),
     };
 
     match rg_core::repo::service::set_watch(&state.db, user_id, repo.id, &body.state).await {
@@ -484,14 +524,11 @@ pub async fn unwatch_repo(
 
     let user_id: i64 = claims.sub.parse().unwrap_or(-1);
 
-    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await {
+    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
+    {
         Ok(Some(r)) => r,
-        Ok(None) => {
-            return AppError::NotFound("repository not found".to_string()).into_response()
-        }
-        Err(e) => {
-            return AppError::InternalError(e.to_string()).into_response()
-        }
+        Ok(None) => return AppError::NotFound("repository not found".to_string()).into_response(),
+        Err(e) => return AppError::InternalError(e.to_string()).into_response(),
     };
 
     match rg_core::repo::service::set_watch(&state.db, user_id, repo.id, "not_watching").await {
@@ -533,14 +570,11 @@ pub async fn delete_repo_handler(
 
     let user_id: i64 = claims.sub.parse().unwrap_or(-1);
 
-    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await {
+    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
+    {
         Ok(Some(r)) => r,
-        Ok(None) => {
-            return AppError::NotFound("repository not found".to_string()).into_response()
-        }
-        Err(e) => {
-            return AppError::InternalError(e.to_string()).into_response()
-        }
+        Ok(None) => return AppError::NotFound("repository not found".to_string()).into_response(),
+        Err(e) => return AppError::InternalError(e.to_string()).into_response(),
     };
 
     // Only owner can delete
@@ -566,10 +600,11 @@ pub async fn delete_repo_handler(
                 Some(&resource_name),
                 &headers,
                 Some(details),
-            ).await;
+            )
+            .await;
 
             (StatusCode::OK, Json(serde_json::json!({ "deleted": true }))).into_response()
-        },
+        }
         Err(e) => AppError::InternalError(e.to_string()).into_response(),
     }
 }
@@ -609,7 +644,9 @@ pub async fn fork_repo_handler(
     };
     let user_id: i64 = claims.sub.parse().unwrap_or(-1);
 
-    match rg_core::repo::service::fork_repo(&state.db, user_id, &owner, &name, &state.repo_root).await {
+    match rg_core::repo::service::fork_repo(&state.db, user_id, &owner, &name, &state.repo_root)
+        .await
+    {
         Ok(repo) => {
             // Record audit log
             let details = serde_json::json!({
@@ -628,10 +665,11 @@ pub async fn fork_repo_handler(
                 Some(&resource_name),
                 &headers,
                 Some(details),
-            ).await;
+            )
+            .await;
 
             (StatusCode::ACCEPTED, Json(serde_json::json!(repo))).into_response()
-        },
+        }
         Err(e) => AppError::BadRequest(e.to_string()).into_response(),
     }
 }
@@ -663,7 +701,8 @@ pub async fn list_forks_handler(
         Ok((forks, total)) => (
             StatusCode::OK,
             Json(PaginatedResponse::new(forks, &pagination, total as u64)),
-        ).into_response(),
+        )
+            .into_response(),
         Err(e) => AppError::InternalError(e.to_string()).into_response(),
     }
 }
@@ -705,7 +744,16 @@ pub async fn transfer_repo_handler(
     };
     let user_id: i64 = claims.sub.parse().unwrap_or(-1);
 
-    match rg_core::repo::service::transfer_repo(&state.db, user_id, &owner, &name, &body.new_owner, &state.repo_root).await {
+    match rg_core::repo::service::transfer_repo(
+        &state.db,
+        user_id,
+        &owner,
+        &name,
+        &body.new_owner,
+        &state.repo_root,
+    )
+    .await
+    {
         Ok(repo) => {
             // Record audit log
             let details = serde_json::json!({
@@ -724,10 +772,11 @@ pub async fn transfer_repo_handler(
                 Some(&resource_name),
                 &headers,
                 Some(details),
-            ).await;
+            )
+            .await;
 
             (StatusCode::OK, Json(serde_json::json!(repo))).into_response()
-        },
+        }
         Err(e) => AppError::BadRequest(e.to_string()).into_response(),
     }
 }
@@ -776,14 +825,11 @@ pub async fn create_commit_status(
 
     let user_id: i64 = claims.sub.parse().unwrap_or(-1);
 
-    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await {
+    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
+    {
         Ok(Some(r)) => r,
-        Ok(None) => {
-            return AppError::NotFound("repository not found".to_string()).into_response()
-        }
-        Err(e) => {
-            return AppError::InternalError(e.to_string()).into_response()
-        }
+        Ok(None) => return AppError::NotFound("repository not found".to_string()).into_response(),
+        Err(e) => return AppError::InternalError(e.to_string()).into_response(),
     };
 
     if !rg_core::repo::service::can_write(&state.db, &owner, &name, Some(user_id))
@@ -951,15 +997,16 @@ pub async fn explore(
     let pagination = PaginationParams {
         page: params.page.unwrap_or(1),
         per_page: params.per_page.unwrap_or(20),
-    }.clamp();
+    }
+    .clamp();
     let offset = pagination.offset();
     let limit = pagination.limit();
 
     match rg_db::ops::repo_ops::list_public_paginated(&state.db, offset, limit).await {
         Ok((data, total)) => {
             // Enrich with owner names
-            let enriched: Vec<serde_json::Value> = futures::future::join_all(
-                data.iter().map(|repo| async {
+            let enriched: Vec<serde_json::Value> =
+                futures::future::join_all(data.iter().map(|repo| async {
                     let owner_name = rg_db::ops::user_ops::find_by_id(&state.db, repo.owner_id)
                         .await
                         .ok()
@@ -976,10 +1023,14 @@ pub async fn explore(
                         "forks_count": repo.forks_count,
                         "updated_at": repo.updated_at,
                     })
-                })
-            ).await;
+                }))
+                .await;
 
-            (StatusCode::OK, Json(PaginatedResponse::new(enriched, &pagination, total as u64))).into_response()
+            (
+                StatusCode::OK,
+                Json(PaginatedResponse::new(enriched, &pagination, total as u64)),
+            )
+                .into_response()
         }
         Err(e) => AppError::InternalError(e.to_string()).into_response(),
     }

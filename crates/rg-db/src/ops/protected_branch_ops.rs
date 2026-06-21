@@ -3,13 +3,12 @@
 use anyhow::{Context, Result};
 use sea_orm::*;
 
-use crate::entities::protected_branch::{self, ActiveModel, Entity as PbEntity, Model as ProtectedBranch};
+use crate::entities::protected_branch::{
+    self, ActiveModel, Entity as PbEntity, Model as ProtectedBranch,
+};
 
 /// Find a protected branch rule by ID.
-pub async fn find_by_id(
-    db: &DatabaseConnection,
-    id: i64,
-) -> Result<Option<ProtectedBranch>> {
+pub async fn find_by_id(db: &DatabaseConnection, id: i64) -> Result<Option<ProtectedBranch>> {
     PbEntity::find_by_id(id)
         .one(db)
         .await
@@ -31,10 +30,7 @@ pub async fn find_by_repo_and_branch(
 }
 
 /// List all protected branch rules for a repo.
-pub async fn list_by_repo(
-    db: &DatabaseConnection,
-    repo_id: i64,
-) -> Result<Vec<ProtectedBranch>> {
+pub async fn list_by_repo(db: &DatabaseConnection, repo_id: i64) -> Result<Vec<ProtectedBranch>> {
     PbEntity::find()
         .filter(protected_branch::Column::RepoId.eq(repo_id))
         .order_by_asc(protected_branch::Column::BranchName)
@@ -55,12 +51,18 @@ pub async fn is_protected(
 
 /// Create a new protected branch rule.
 pub async fn create(db: &DatabaseConnection, model: ActiveModel) -> Result<ProtectedBranch> {
-    model.insert(db).await.context("db: create protected branch")
+    model
+        .insert(db)
+        .await
+        .context("db: create protected branch")
 }
 
 /// Update a protected branch rule.
 pub async fn update(db: &DatabaseConnection, model: ActiveModel) -> Result<ProtectedBranch> {
-    model.update(db).await.context("db: update protected branch")
+    model
+        .update(db)
+        .await
+        .context("db: update protected branch")
 }
 
 /// Delete a protected branch rule by ID.

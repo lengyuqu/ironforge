@@ -34,7 +34,7 @@ const COMPRESSION_ALGO: &str = "zstd";
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct LfsBatchRequest {
-    pub operation: String,  // "upload" or "download"
+    pub operation: String, // "upload" or "download"
     pub objects: Vec<LfsObjectRequest>,
     pub transfers: Option<Vec<String>>, // e.g. ["basic"]
     pub refname: Option<String>,
@@ -115,31 +115,24 @@ pub async fn batch(
         .and_then(|t| t.first().cloned())
         .unwrap_or_else(|| "basic".to_string());
 
-    let operation = req.operation.clone();
+    let operation = req.operation.as_str();
     let futures: Vec<_> = req
         .objects
         .iter()
         .map(|obj_req| {
-            let db = db;
-            let lfs_root = lfs_root;
-            let base_url = base_url;
-            let owner = owner;
-            let repo = repo;
-            let operation = operation.clone();
-            let oid = obj_req.oid.clone();
+            let oid = &obj_req.oid;
             let size = obj_req.size;
             async move {
-                match operation.as_str() {
+                match operation {
                     "upload" => {
-                        handle_upload(db, repo_id, lfs_root, base_url, owner, repo, &oid, size)
-                            .await
+                        handle_upload(db, repo_id, lfs_root, base_url, owner, repo, oid, size).await
                     }
                     "download" => {
-                        handle_download(db, repo_id, lfs_root, base_url, owner, repo, &oid, size)
+                        handle_download(db, repo_id, lfs_root, base_url, owner, repo, oid, size)
                             .await
                     }
                     _ => Ok(LfsObjectResponse {
-                        oid,
+                        oid: oid.to_string(),
                         size,
                         actions: None,
                         error: Some(LfsError {
@@ -160,6 +153,7 @@ pub async fn batch(
     Ok(LfsBatchResponse { transfer, objects })
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn handle_upload(
     db: &DatabaseConnection,
     repo_id: i64,
@@ -224,6 +218,7 @@ async fn handle_upload(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn handle_download(
     db: &DatabaseConnection,
     repo_id: i64,
@@ -331,7 +326,10 @@ pub async fn store_object(
     model.uploaded = sea_orm::Set(true);
     model.compression = sea_orm::Set(Some(COMPRESSION_ALGO.to_string()));
     model.compressed_size = sea_orm::Set(Some(compressed_size));
-    model.update(db).await.context("db: update LFS object after store")?;
+    model
+        .update(db)
+        .await
+        .context("db: update LFS object after store")?;
 
     Ok(())
 }
@@ -385,12 +383,11 @@ pub async fn store_object_from_file(
         .context("failed to create zstd stream encoder")?;
     std::io::copy(&mut std::io::BufReader::new(src_file), &mut encoder)
         .context("failed to stream-compress LFS object")?;
-    let finished = encoder.finish()
+    let finished = encoder
+        .finish()
         .context("failed to finish zstd stream encoding")?;
 
-    let compressed_size = finished.metadata()
-        .map(|m| m.len() as i64)
-        .unwrap_or(0);
+    let compressed_size = finished.metadata().map(|m| m.len() as i64).unwrap_or(0);
 
     // Remove uncompressed temp file
     let _ = std::fs::remove_file(uncompressed_path);
@@ -412,16 +409,16 @@ pub async fn store_object_from_file(
     model.uploaded = sea_orm::Set(true);
     model.compression = sea_orm::Set(Some(COMPRESSION_ALGO.to_string()));
     model.compressed_size = sea_orm::Set(Some(compressed_size));
-    model.update(db).await.context("db: update LFS object after store")?;
+    model
+        .update(db)
+        .await
+        .context("db: update LFS object after store")?;
 
     Ok(())
 }
 
 /// Read an LFS object from disk.
-pub async fn read_object(
-    lfs_root: &std::path::Path,
-    oid: &str,
-) -> Result<Vec<u8>> {
+pub async fn read_object(lfs_root: &std::path::Path, oid: &str) -> Result<Vec<u8>> {
     let obj_path = lfs_object_path(lfs_root, oid);
 
     // Try compressed version first (.zst)
@@ -434,8 +431,7 @@ pub async fn read_object(
 
     // Fallback to uncompressed (legacy)
     if obj_path.exists() {
-        return std::fs::read(&obj_path)
-            .with_context(|| format!("read LFS object {:?}", obj_path));
+        return std::fs::read(&obj_path).with_context(|| format!("read LFS object {:?}", obj_path));
     }
 
     anyhow::bail!("LFS object {} not found", oid)
@@ -444,10 +440,7 @@ pub async fn read_object(
 /// Get the file paths needed for streaming an LFS object.
 /// Returns `(file_path, is_compressed)` — the caller should stream-decompress
 /// if `is_compressed` is true.
-pub fn read_object_path(
-    lfs_root: &std::path::Path,
-    oid: &str,
-) -> Result<(PathBuf, bool)> {
+pub fn read_object_path(lfs_root: &std::path::Path, oid: &str) -> Result<(PathBuf, bool)> {
     let obj_path = lfs_object_path(lfs_root, oid);
 
     // Try compressed version first (.zst)
@@ -469,22 +462,20 @@ pub fn read_object_path(
 /// Compress data using zstd.
 fn compress_data(data: &[u8]) -> Result<Vec<u8>> {
     let mut compressed = Vec::with_capacity(data.len());
-    let mut encoder = zstd::Encoder::new(&mut compressed, ZSTD_LEVEL)
-        .context("failed to create zstd encoder")?;
-    encoder.write_all(data)
+    let mut encoder =
+        zstd::Encoder::new(&mut compressed, ZSTD_LEVEL).context("failed to create zstd encoder")?;
+    encoder
+        .write_all(data)
         .context("failed to write data to zstd encoder")?;
-    encoder.finish()
-        .context("failed to finish zstd encoding")?;
+    encoder.finish().context("failed to finish zstd encoding")?;
     Ok(compressed)
 }
 
 /// Decompress zstd data.
 fn decompress_data(compressed: &[u8]) -> Result<Vec<u8>> {
     let mut decompressed = Vec::new();
-    let mut decoder = zstd::Decoder::new(compressed)
-        .context("failed to create zstd decoder")?;
-    std::io::copy(&mut decoder, &mut decompressed)
-        .context("failed to decompress zstd data")?;
+    let mut decoder = zstd::Decoder::new(compressed).context("failed to create zstd decoder")?;
+    std::io::copy(&mut decoder, &mut decompressed).context("failed to decompress zstd data")?;
     Ok(decompressed)
 }
 
@@ -538,7 +529,9 @@ pub async fn compress_existing(
                     obj.id,
                     COMPRESSION_ALGO,
                     compressed.len() as i64,
-                ).await {
+                )
+                .await
+                {
                     tracing::error!(oid = %obj.oid, err = %e, "failed to update DB");
                     // Clean up compressed file on DB error
                     let _ = std::fs::remove_file(&compressed_path);

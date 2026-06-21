@@ -66,7 +66,9 @@ mod tests {
         use sea_orm::{ConnectOptions, Database, Statement};
         let mut opt = ConnectOptions::new("sqlite::memory:");
         opt.max_connections(1);
-        let db = Database::connect(opt).await.expect("connect to in-memory db");
+        let db = Database::connect(opt)
+            .await
+            .expect("connect to in-memory db");
         crate::run_migrations(&db).await.expect("run migrations");
         // Insert minimal user + repo to satisfy FK constraints on labels
         db.execute(Statement::from_string(
@@ -84,7 +86,12 @@ mod tests {
         db
     }
 
-    async fn create_test_label(db: &DatabaseConnection, repo_id: i64, name: &str, color: &str) -> Label {
+    async fn create_test_label(
+        db: &DatabaseConnection,
+        repo_id: i64,
+        name: &str,
+        color: &str,
+    ) -> Label {
         let model = ActiveModel {
             id: sea_orm::NotSet,
             repo_id: Set(repo_id),

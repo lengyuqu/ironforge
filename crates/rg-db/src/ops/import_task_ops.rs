@@ -20,11 +20,7 @@ pub async fn find_by_id(db: &DatabaseConnection, id: i64) -> Result<Option<Model
 }
 
 /// Find the latest import task for a user.
-pub async fn find_by_user(
-    db: &DatabaseConnection,
-    user_id: i64,
-    limit: u64,
-) -> Result<Vec<Model>> {
+pub async fn find_by_user(db: &DatabaseConnection, user_id: i64, limit: u64) -> Result<Vec<Model>> {
     ImportTaskEntity::find()
         .filter(import_task::Column::UserId.eq(user_id))
         .order_by_desc(import_task::Column::CreatedAt)
@@ -86,11 +82,7 @@ pub async fn update_progress(
 }
 
 /// Mark import as failed with error message.
-pub async fn mark_failed(
-    db: &DatabaseConnection,
-    id: i64,
-    error: &str,
-) -> Result<Model> {
+pub async fn mark_failed(db: &DatabaseConnection, id: i64, error: &str) -> Result<Model> {
     let task = find_by_id(db, id)
         .await?
         .ok_or_else(|| anyhow::anyhow!("import task not found: {id}"))?;
@@ -104,11 +96,7 @@ pub async fn mark_failed(
 }
 
 /// Mark import as completed with final stats.
-pub async fn mark_completed(
-    db: &DatabaseConnection,
-    id: i64,
-    stats_json: &str,
-) -> Result<Model> {
+pub async fn mark_completed(db: &DatabaseConnection, id: i64, stats_json: &str) -> Result<Model> {
     let task = find_by_id(db, id)
         .await?
         .ok_or_else(|| anyhow::anyhow!("import task not found: {id}"))?;
@@ -124,11 +112,7 @@ pub async fn mark_completed(
 }
 
 /// Set repo_id after repository is created.
-pub async fn set_repo_id(
-    db: &DatabaseConnection,
-    id: i64,
-    repo_id: i64,
-) -> Result<Model> {
+pub async fn set_repo_id(db: &DatabaseConnection, id: i64, repo_id: i64) -> Result<Model> {
     let task = find_by_id(db, id)
         .await?
         .ok_or_else(|| anyhow::anyhow!("import task not found: {id}"))?;
@@ -152,13 +136,7 @@ pub async fn delete_by_id(db: &DatabaseConnection, id: i64) -> Result<()> {
 /// List all active (non-completed, non-failed) import tasks.
 pub async fn list_active(db: &DatabaseConnection, limit: u64) -> Result<Vec<Model>> {
     ImportTaskEntity::find()
-        .filter(
-            import_task::Column::Status.is_in([
-                "pending",
-                "cloning",
-                "importing",
-            ]),
-        )
+        .filter(import_task::Column::Status.is_in(["pending", "cloning", "importing"]))
         .order_by_asc(import_task::Column::CreatedAt)
         .limit(limit)
         .all(db)

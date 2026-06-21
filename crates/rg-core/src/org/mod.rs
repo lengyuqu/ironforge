@@ -66,11 +66,7 @@ pub async fn update_org(
 }
 
 /// Delete an organization (only owner can do this).
-pub async fn delete_org(
-    db: &DatabaseConnection,
-    id: i64,
-    requesting_user_id: i64,
-) -> Result<()> {
+pub async fn delete_org(db: &DatabaseConnection, id: i64, requesting_user_id: i64) -> Result<()> {
     let org = org_ops::get_org(db, id)
         .await?
         .ok_or_else(|| anyhow::anyhow!("organization not found"))?;
@@ -99,11 +95,7 @@ pub async fn add_org_member(
 }
 
 /// Remove a member from an organization.
-pub async fn remove_org_member(
-    db: &DatabaseConnection,
-    org_id: i64,
-    user_id: i64,
-) -> Result<()> {
+pub async fn remove_org_member(db: &DatabaseConnection, org_id: i64, user_id: i64) -> Result<()> {
     org_ops::remove_org_member(db, org_id, user_id).await?;
     crate::repo::service::invalidate_perm_cache_all();
     Ok(())
@@ -118,11 +110,7 @@ pub async fn list_org_members(
 }
 
 /// Check if user is a member of the org.
-pub async fn is_org_member(
-    db: &DatabaseConnection,
-    org_id: i64,
-    user_id: i64,
-) -> Result<bool> {
+pub async fn is_org_member(db: &DatabaseConnection, org_id: i64, user_id: i64) -> Result<bool> {
     org_ops::is_org_member(db, org_id, user_id).await
 }
 
@@ -136,11 +124,7 @@ pub async fn find_org_member(
 }
 
 /// Check if a user is a member of a team.
-pub async fn is_team_member(
-    db: &DatabaseConnection,
-    team_id: i64,
-    user_id: i64,
-) -> Result<bool> {
+pub async fn is_team_member(db: &DatabaseConnection, team_id: i64, user_id: i64) -> Result<bool> {
     org_ops::is_team_member(db, team_id, user_id).await
 }
 
@@ -177,10 +161,7 @@ pub async fn get_team(
 }
 
 /// Delete a team.
-pub async fn delete_team(
-    db: &DatabaseConnection,
-    id: i64,
-) -> Result<()> {
+pub async fn delete_team(db: &DatabaseConnection, id: i64) -> Result<()> {
     org_ops::delete_team(db, id).await?;
     crate::repo::service::invalidate_perm_cache_all();
     Ok(())
@@ -203,11 +184,7 @@ pub async fn add_team_member(
 }
 
 /// Remove a member from a team.
-pub async fn remove_team_member(
-    db: &DatabaseConnection,
-    team_id: i64,
-    user_id: i64,
-) -> Result<()> {
+pub async fn remove_team_member(db: &DatabaseConnection, team_id: i64, user_id: i64) -> Result<()> {
     org_ops::remove_team_member(db, team_id, user_id).await?;
     crate::repo::service::invalidate_perm_cache_all();
     Ok(())

@@ -14,6 +14,7 @@ use rg_db::ops::{pull_request_ops, repo_ops, user_ops};
 ///
 /// If `head_repo_id` is provided, this is a fork PR (cross-repository).
 /// The `head_branch` should contain just the branch name (not `owner:branch` format).
+#[allow(clippy::too_many_arguments)]
 pub async fn create_pr(
     db: &DatabaseConnection,
     repo_id: i64,
@@ -68,6 +69,8 @@ pub async fn create_pr(
         merge_strategy: Set(None),
         merge_commit_sha: Set(None),
         head_repo_id: Set(head_repo_id),
+        milestone_id: Set(None),
+        labels: Set(None),
         created_at: Set(Utc::now()),
         updated_at: Set(Utc::now()),
         closed_at: Set(None),
@@ -119,15 +122,23 @@ pub async fn resolve_head_ref(
         if head_owner_user.id != target_repo.owner_id {
             // Different owner — this is a fork PR
             // Find the fork repo by the head owner (user may have forked the same repo)
-            let fork_repo = repo_ops::find_by_owner_and_name(db, head_owner_user.id, &target_repo.name)
-                .await?
-                .with_context(|| {
-                    format!("no repository '{}/{}' found for head owner", head_owner, target_repo.name)
-                })?;
+            let fork_repo =
+                repo_ops::find_by_owner_and_name(db, head_owner_user.id, &target_repo.name)
+                    .await?
+                    .with_context(|| {
+                        format!(
+                            "no repository '{}/{}' found for head owner",
+                            head_owner, target_repo.name
+                        )
+                    })?;
 
             // Verify it's actually a fork of the target
             if fork_repo.origin_repo_id != Some(target_repo_id) && fork_repo.id != target_repo_id {
-                bail!("'{}/{}' is not a fork of the target repository", head_owner, target_repo.name);
+                bail!(
+                    "'{}/{}' is not a fork of the target repository",
+                    head_owner,
+                    target_repo.name
+                );
             }
 
             return Ok((head_branch, Some(fork_repo.id)));
@@ -238,7 +249,10 @@ pub async fn update_pr(
                         "title": pr.title,
                         "state": s,
                     });
-                    if let Err(e) = crate::webhook::service::trigger_pr_closed(db, pr.repo_id, &close_payload).await {
+                    if let Err(e) =
+                        crate::webhook::service::trigger_pr_closed(db, pr.repo_id, &close_payload)
+                            .await
+                    {
                         tracing::warn!("Failed to trigger PR closed webhook: {e}");
                     }
                 }
@@ -308,7 +322,8 @@ pub async fn compute_diff(
         let head_owner = user_ops::find_by_id(db, head_repo.owner_id)
             .await?
             .context("head repo owner not found")?;
-        let head_repo_path = repo_root.join(format!("{}/{}.git", head_owner.username, head_repo.name));
+        let head_repo_path =
+            repo_root.join(format!("{}/{}.git", head_owner.username, head_repo.name));
 
         if head_repo_path.exists() {
             let fetch_ref = format!("refs/heads/{}", pr.head_branch);
@@ -318,15 +333,14 @@ pub async fn compute_diff(
                 .as_ref()
                 .map_err(|e| anyhow::anyhow!("{}", e))?;
 
-            let fetch_output = git
-                .run(
-                    &[
-                        "fetch",
-                        &head_repo_path.to_string_lossy(),
-                        &format!("{}:{}", fetch_ref, local_ref),
-                    ],
-                    Some(&base_repo_path),
-                )?;
+            let fetch_output = git.run(
+                &[
+                    "fetch",
+                    &head_repo_path.to_string_lossy(),
+                    &format!("{}:{}", fetch_ref, local_ref),
+                ],
+                Some(&base_repo_path),
+            )?;
 
             if !fetch_output.success() {
                 tracing::warn!(
@@ -341,16 +355,15 @@ pub async fn compute_diff(
             let local_ref = local_ref.clone();
             return tokio::task::spawn_blocking(move || {
                 compute_cross_repo_diff(&base_path, &pr_clone.base_branch, &local_ref, &pr_clone)
-            }).await?;
+            })
+            .await?;
         }
     }
 
     // Same-repo diff — offload to spawn_blocking
     let base_path = base_repo_path.clone();
     let pr_clone = pr.clone();
-    tokio::task::spawn_blocking(move || {
-        compute_same_repo_diff(&base_path, &pr_clone)
-    }).await?
+    tokio::task::spawn_blocking(move || compute_same_repo_diff(&base_path, &pr_clone)).await?
 }
 
 /// Compute diff for same-repo PR.
@@ -436,27 +449,38 @@ fn gix_diff_numstat(
     let repo = gix::open(repo_path)
         .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
 
-    let old_id = repo.rev_parse_single(old_ref.as_str())
+    let old_id = repo
+        .rev_parse_single(old_ref.as_str())
         .with_context(|| format!("ref not found: {}", old_ref))?;
-    let new_id = repo.rev_parse_single(new_ref.as_str())
+    let new_id = repo
+        .rev_parse_single(new_ref.as_str())
         .with_context(|| format!("ref not found: {}", new_ref))?;
 
     // If refs point to the same tree, there are no changes
     if old_id == new_id {
-        return Ok((vec![], DiffStats {
-            total_additions: 0,
-            total_deletions: 0,
-            files_changed: 0,
-        }));
+        return Ok((
+            vec![],
+            DiffStats {
+                total_additions: 0,
+                total_deletions: 0,
+                files_changed: 0,
+            },
+        ));
     }
 
-    let old_tree = old_id.object()?.try_into_tree()
+    let old_tree = old_id
+        .object()?
+        .try_into_tree()
         .map_err(|_| anyhow::anyhow!("{} is not a tree-ish", old_ref))?;
-    let new_tree = new_id.object()?.try_into_tree()
+    let new_tree = new_id
+        .object()?
+        .try_into_tree()
         .map_err(|_| anyhow::anyhow!("{} is not a tree-ish", new_ref))?;
 
     let mut platform = old_tree.changes()?;
-    platform.options(|opts| { opts.track_rewrites(None); });
+    platform.options(|opts| {
+        opts.track_rewrites(None);
+    });
 
     let mut files = Vec::new();
     let mut total_additions = 0i64;
@@ -473,48 +497,53 @@ fn gix_diff_numstat(
         let total_add_ref = &mut total_additions;
         let total_del_ref = &mut total_deletions;
 
-        platform.for_each_to_obtain_tree(
-            &new_tree,
-            |change| -> Result<std::ops::ControlFlow<()>, anyhow::Error> {
-                let location = change.location().to_str_lossy().to_string();
+        platform
+            .for_each_to_obtain_tree(
+                &new_tree,
+                |change| -> Result<std::ops::ControlFlow<()>, anyhow::Error> {
+                    let location = change.location().to_str_lossy().to_string();
 
-                let (additions, deletions) = change
-                    .diff(&mut resource_cache)
-                    .ok()
-                    .and_then(|mut p| p.line_counts().ok().flatten())
-                    .map(|c| (c.insertions as i64, c.removals as i64))
-                    .unwrap_or((0, 0));
+                    let (additions, deletions) = change
+                        .diff(&mut resource_cache)
+                        .ok()
+                        .and_then(|mut p| p.line_counts().ok().flatten())
+                        .map(|c| (c.insertions as i64, c.removals as i64))
+                        .unwrap_or((0, 0));
 
-                let status = match &change {
-                    gix::object::tree::diff::Change::Addition { .. } => "added",
-                    gix::object::tree::diff::Change::Deletion { .. } => "deleted",
-                    _ => "modified",
-                };
+                    let status = match &change {
+                        gix::object::tree::diff::Change::Addition { .. } => "added",
+                        gix::object::tree::diff::Change::Deletion { .. } => "deleted",
+                        _ => "modified",
+                    };
 
-                *total_add_ref += additions;
-                *total_del_ref += deletions;
+                    *total_add_ref += additions;
+                    *total_del_ref += deletions;
 
-                files_ref.push(FileDiff {
-                    path: location,
-                    status: status.to_string(),
-                    additions,
-                    deletions,
-                    patch: None,
-                });
+                    files_ref.push(FileDiff {
+                        path: location,
+                        status: status.to_string(),
+                        additions,
+                        deletions,
+                        patch: None,
+                    });
 
-                resource_cache.clear_resource_cache_keep_allocation();
-                Ok(std::ops::ControlFlow::Continue(()))
-            },
-        ).map_err(|e| anyhow::anyhow!("tree-diff failed: {e}"))?;
+                    resource_cache.clear_resource_cache_keep_allocation();
+                    Ok(std::ops::ControlFlow::Continue(()))
+                },
+            )
+            .map_err(|e| anyhow::anyhow!("tree-diff failed: {e}"))?;
 
         file_count = files.len() as i64;
     }
 
-    Ok((files, DiffStats {
-        total_additions,
-        total_deletions,
-        files_changed: file_count,
-    }))
+    Ok((
+        files,
+        DiffStats {
+            total_additions,
+            total_deletions,
+            files_changed: file_count,
+        },
+    ))
 }
 
 // ── Merge ───────────────────────────────────────────────────────────────
@@ -551,7 +580,10 @@ pub async fn merge_pr(
     let pr = get_pr(db, owner, repo_name, number).await?;
 
     if pr.state != "open" {
-        bail!("cannot merge a PR that is not in 'open' state (current: {})", pr.state);
+        bail!(
+            "cannot merge a PR that is not in 'open' state (current: {})",
+            pr.state
+        );
     }
 
     let repo_path = repo_root.join(format!("{}/{}.git", owner, repo_name));
@@ -568,7 +600,8 @@ pub async fn merge_pr(
         let head_owner = user_ops::find_by_id(db, head_repo.owner_id)
             .await?
             .context("head repo owner not found")?;
-        let head_repo_path = repo_root.join(format!("{}/{}.git", head_owner.username, head_repo.name));
+        let head_repo_path =
+            repo_root.join(format!("{}/{}.git", head_owner.username, head_repo.name));
 
         if head_repo_path.exists() {
             let fetch_ref = format!("refs/heads/{}", pr.head_branch);
@@ -578,15 +611,14 @@ pub async fn merge_pr(
                 .as_ref()
                 .map_err(|e| anyhow::anyhow!("{}", e))?;
 
-            let fetch_output = git
-                .run(
-                    &[
-                        "fetch",
-                        &head_repo_path.to_string_lossy(),
-                        &format!("{}:{}", fetch_ref, local_ref),
-                    ],
-                    Some(&repo_path),
-                )?;
+            let fetch_output = git.run(
+                &[
+                    "fetch",
+                    &head_repo_path.to_string_lossy(),
+                    &format!("{}:{}", fetch_ref, local_ref),
+                ],
+                Some(&repo_path),
+            )?;
 
             if !fetch_output.success() {
                 bail!(
@@ -608,7 +640,8 @@ pub async fn merge_pr(
                         tracing::warn!("failed to clean up fork ref '{}': {}", merge_ref, e);
                     }
                     Ok(sha)
-                }).await??
+                })
+                .await??
             };
 
             return update_pr_merged(db, pr, merge_commit_sha, strategy).await;
@@ -625,7 +658,8 @@ pub async fn merge_pr(
                 MergeStrategy::Squash => do_squash_merge(&repo_path, &pr),
                 MergeStrategy::Rebase => do_rebase_merge(&repo_path, &pr),
             }
-        }).await??
+        })
+        .await??
     };
 
     update_pr_merged(db, pr, merge_commit_sha, strategy).await
@@ -641,10 +675,7 @@ fn merge_from_ref(
 ) -> Result<String> {
     match strategy {
         MergeStrategy::Merge => {
-            let merge_msg = format!(
-                "Merge pull request #{} from {}",
-                pr.number, pr.head_branch
-            );
+            let merge_msg = format!("Merge pull request #{} from {}", pr.number, pr.head_branch);
             gix_merge_no_ff(repo_path, merge_ref, &merge_msg)
         }
         MergeStrategy::Squash => {
@@ -672,10 +703,7 @@ fn merge_from_ref(
                 if let Err(e) = git.run_or_bail(&["rebase", "--abort"], Some(repo_path)) {
                     tracing::warn!("failed to abort rebase: {}", e);
                 }
-                bail!(
-                    "rebase merge failed: {}",
-                    rebase.stderr_str()
-                );
+                bail!("rebase merge failed: {}", rebase.stderr_str());
             }
 
             gix_set_head_to_branch_with_repo(&repo, &pr.base_branch)
@@ -712,7 +740,9 @@ async fn update_pr_merged(
         "merge_commit_sha": merge_commit_sha,
         "strategy": format!("{:?}", strategy).to_lowercase(),
     });
-    if let Err(e) = crate::webhook::service::trigger_pr_merged(db, merged_pr.repo_id, &merge_payload).await {
+    if let Err(e) =
+        crate::webhook::service::trigger_pr_merged(db, merged_pr.repo_id, &merge_payload).await
+    {
         tracing::warn!("Failed to trigger PR merged webhook: {e}");
     }
 
@@ -750,16 +780,16 @@ fn do_rebase_merge(repo_path: &std::path::Path, pr: &PullRequest) -> Result<Stri
         .as_ref()
         .map_err(|e| anyhow::anyhow!("{}", e))?;
 
-    let rebase = git.run(&["rebase", &pr.base_branch, &pr.head_branch], Some(repo_path))?;
+    let rebase = git.run(
+        &["rebase", &pr.base_branch, &pr.head_branch],
+        Some(repo_path),
+    )?;
 
     if !rebase.success() {
         if let Err(e) = git.run_or_bail(&["rebase", "--abort"], Some(repo_path)) {
             tracing::warn!("failed to abort rebase: {}", e);
         }
-        bail!(
-            "rebase merge failed: {}",
-            rebase.stderr_str()
-        );
+        bail!("rebase merge failed: {}", rebase.stderr_str());
     }
 
     // Step 3: Checkout base again (set HEAD symbolic ref via gix)
@@ -814,14 +844,22 @@ fn gix_set_head_to_branch_with_repo(repo: &gix::Repository, branch: &str) -> Res
 /// Fast-forward a branch to point to another branch's commit (equivalent to `git merge --ff-only`).
 /// Uses gix to update the base branch reference.
 #[allow(dead_code)]
-fn gix_fast_forward(repo_path: &std::path::Path, base_branch: &str, head_branch: &str) -> Result<()> {
+fn gix_fast_forward(
+    repo_path: &std::path::Path,
+    base_branch: &str,
+    head_branch: &str,
+) -> Result<()> {
     let repo = gix::open(repo_path)
         .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
     gix_fast_forward_with_repo(&repo, base_branch, head_branch)
 }
 
 /// Same as `gix_fast_forward` but takes an already-open `Repository`.
-fn gix_fast_forward_with_repo(repo: &gix::Repository, base_branch: &str, head_branch: &str) -> Result<()> {
+fn gix_fast_forward_with_repo(
+    repo: &gix::Repository,
+    base_branch: &str,
+    head_branch: &str,
+) -> Result<()> {
     let head_ref_str = format!("refs/heads/{}", head_branch);
     let base_ref_str = format!("refs/heads/{}", base_branch);
 
@@ -851,7 +889,8 @@ fn get_head_sha(repo_path: &std::path::Path) -> Result<String> {
 
 /// Same as `get_head_sha` but takes an already-open `Repository`.
 fn get_head_sha_with_repo(repo: &gix::Repository) -> Result<String> {
-    let head_id = repo.rev_parse_single("HEAD")
+    let head_id = repo
+        .rev_parse_single("HEAD")
         .map_err(|e| anyhow::anyhow!("failed to parse HEAD: {}", e))?;
     Ok(head_id.to_string())
 }
@@ -861,7 +900,8 @@ fn get_ref_sha(repo_path: &std::path::Path, branch: &str) -> Result<String> {
     let repo = gix::open(repo_path)
         .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
     let ref_str = format!("refs/heads/{}", branch);
-    let id = repo.rev_parse_single(ref_str.as_str())
+    let id = repo
+        .rev_parse_single(ref_str.as_str())
         .map_err(|e| anyhow::anyhow!("failed to resolve {}: {}", ref_str, e))?;
     Ok(id.to_string())
 }
@@ -899,21 +939,25 @@ fn gix_merge_no_ff(repo_path: &std::path::Path, head_ref: &str, message: &str) -
     let repo = gix::open(repo_path)
         .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
 
-    let our_commit = repo.rev_parse_single("HEAD")
+    let our_commit = repo
+        .rev_parse_single("HEAD")
         .map_err(|e| anyhow::anyhow!("failed to resolve HEAD: {}", e))?;
-    let their_commit = repo.rev_parse_single(head_ref)
+    let their_commit = repo
+        .rev_parse_single(head_ref)
         .with_context(|| format!("failed to resolve merge ref '{}'", head_ref))?;
 
-    let (merged_tree_id, _conflicts) = gix_merge_commits_to_tree(&repo, our_commit, their_commit, head_ref)?;
+    let (merged_tree_id, _conflicts) =
+        gix_merge_commits_to_tree(&repo, our_commit, their_commit, head_ref)?;
 
     // Create merge commit (two parents)
-    let commit_id = repo.commit(
-        "HEAD",
-        message,
-        merged_tree_id.detach(),
-        [our_commit.detach(), their_commit.detach()],
-    )
-    .map_err(|e| anyhow::anyhow!("failed to create merge commit: {}", e))?;
+    let commit_id = repo
+        .commit(
+            "HEAD",
+            message,
+            merged_tree_id.detach(),
+            [our_commit.detach(), their_commit.detach()],
+        )
+        .map_err(|e| anyhow::anyhow!("failed to create merge commit: {}", e))?;
 
     Ok(commit_id.detach().to_string())
 }
@@ -923,21 +967,25 @@ fn gix_squash_merge(repo_path: &std::path::Path, head_ref: &str, message: &str) 
     let repo = gix::open(repo_path)
         .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
 
-    let our_commit = repo.rev_parse_single("HEAD")
+    let our_commit = repo
+        .rev_parse_single("HEAD")
         .map_err(|e| anyhow::anyhow!("failed to resolve HEAD: {}", e))?;
-    let their_commit = repo.rev_parse_single(head_ref)
+    let their_commit = repo
+        .rev_parse_single(head_ref)
         .with_context(|| format!("failed to resolve merge ref '{}'", head_ref))?;
 
-    let (merged_tree_id, _conflicts) = gix_merge_commits_to_tree(&repo, our_commit, their_commit, head_ref)?;
+    let (merged_tree_id, _conflicts) =
+        gix_merge_commits_to_tree(&repo, our_commit, their_commit, head_ref)?;
 
     // Squash merge: single-parent commit
-    let commit_id = repo.commit(
-        "HEAD",
-        message,
-        merged_tree_id.detach(),
-        [our_commit.detach()],
-    )
-    .map_err(|e| anyhow::anyhow!("failed to create squash commit: {}", e))?;
+    let commit_id = repo
+        .commit(
+            "HEAD",
+            message,
+            merged_tree_id.detach(),
+            [our_commit.detach()],
+        )
+        .map_err(|e| anyhow::anyhow!("failed to create squash commit: {}", e))?;
 
     Ok(commit_id.detach().to_string())
 }

@@ -15,7 +15,9 @@ impl PackageAdapter for DockerAdapter {
     fn extract_metadata(&self, _filename: &str, _data: &[u8]) -> anyhow::Result<ExtractedMetadata> {
         // Docker images are pushed via OCI Distribution API, not via the package upload flow.
         // This adapter serves as a registry type marker.
-        anyhow::bail!("Docker images must be pushed via the OCI v2 API, not the package upload endpoint")
+        anyhow::bail!(
+            "Docker images must be pushed via the OCI v2 API, not the package upload endpoint"
+        )
     }
 
     fn validate(&self, _data: &[u8]) -> anyhow::Result<()> {

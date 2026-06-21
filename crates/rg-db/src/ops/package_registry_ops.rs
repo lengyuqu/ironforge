@@ -1,5 +1,5 @@
-use sea_orm::*;
 use crate::entities::{package_registry, package_registry::Entity as PackageRegistry};
+use sea_orm::*;
 
 /// Create a package registry entry for a repo and package type.
 pub async fn create(

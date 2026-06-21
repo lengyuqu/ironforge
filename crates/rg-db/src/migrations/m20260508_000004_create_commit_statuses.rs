@@ -23,13 +23,41 @@ impl MigrationTrait for Migration {
                             .auto_increment()
                             .primary_key(),
                     )
-                    .col(ColumnDef::new(CommitStatuses::RepoId).big_integer().not_null())
-                    .col(ColumnDef::new(CommitStatuses::Sha).string_len(40).not_null())
-                    .col(ColumnDef::new(CommitStatuses::State).string_len(20).not_null())
-                    .col(ColumnDef::new(CommitStatuses::Context).string_len(255).not_null())
-                    .col(ColumnDef::new(CommitStatuses::Description).string_len(500).null())
-                    .col(ColumnDef::new(CommitStatuses::TargetUrl).string_len(500).null())
-                    .col(ColumnDef::new(CommitStatuses::CreatorId).big_integer().not_null())
+                    .col(
+                        ColumnDef::new(CommitStatuses::RepoId)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(CommitStatuses::Sha)
+                            .string_len(40)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(CommitStatuses::State)
+                            .string_len(20)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(CommitStatuses::Context)
+                            .string_len(255)
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(CommitStatuses::Description)
+                            .string_len(500)
+                            .null(),
+                    )
+                    .col(
+                        ColumnDef::new(CommitStatuses::TargetUrl)
+                            .string_len(500)
+                            .null(),
+                    )
+                    .col(
+                        ColumnDef::new(CommitStatuses::CreatorId)
+                            .big_integer()
+                            .not_null(),
+                    )
                     .col(
                         ColumnDef::new(CommitStatuses::CreatedAt)
                             .timestamp_with_time_zone()
@@ -79,7 +107,9 @@ impl MigrationTrait for Migration {
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
-        manager.drop_table(Table::drop().table(CommitStatuses::Table).to_owned()).await
+        manager
+            .drop_table(Table::drop().table(CommitStatuses::Table).to_owned())
+            .await
     }
 }
 

@@ -172,10 +172,20 @@ full_job:
         let job = config.jobs.get("full_job").unwrap();
         assert_eq!(job.image.as_deref(), Some("rust:1.75"));
         assert_eq!(job.only.as_ref().unwrap().len(), 2);
-        assert_eq!(job.variables.as_ref().unwrap().get("RUST_BACKTRACE").unwrap(), "1");
+        assert_eq!(
+            job.variables
+                .as_ref()
+                .unwrap()
+                .get("RUST_BACKTRACE")
+                .unwrap(),
+            "1"
+        );
         assert_eq!(job.when.as_deref(), Some("manual"));
         assert_eq!(job.allow_failure, Some(true));
-        assert_eq!(job.tags.as_ref().unwrap(), &vec!["docker".to_string(), "linux".to_string()]);
+        assert_eq!(
+            job.tags.as_ref().unwrap(),
+            &vec!["docker".to_string(), "linux".to_string()]
+        );
     }
 
     #[test]
@@ -206,7 +216,7 @@ integration_tests:
 "#;
         let config: CiConfig = serde_yaml::from_str(yml).unwrap();
         assert_eq!(config.jobs.len(), 2);
-        for (_, job) in &config.jobs {
+        for job in config.jobs.values() {
             assert_eq!(job.stage.as_deref(), Some("test"));
         }
     }

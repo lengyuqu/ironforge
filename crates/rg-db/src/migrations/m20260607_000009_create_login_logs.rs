@@ -30,7 +30,11 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(LoginLogs::IpAddress).string_len(45).null())
                     .col(ColumnDef::new(LoginLogs::UserAgent).string_len(512).null())
                     .col(ColumnDef::new(LoginLogs::Success).boolean().not_null())
-                    .col(ColumnDef::new(LoginLogs::FailureReason).string_len(255).null())
+                    .col(
+                        ColumnDef::new(LoginLogs::FailureReason)
+                            .string_len(255)
+                            .null(),
+                    )
                     .col(ColumnDef::new(LoginLogs::CreatedAt).date_time().not_null())
                     .foreign_key(
                         ForeignKey::create()
@@ -68,7 +72,9 @@ impl MigrationTrait for Migration {
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
-        manager.drop_table(Table::drop().table(LoginLogs::Table).to_owned()).await
+        manager
+            .drop_table(Table::drop().table(LoginLogs::Table).to_owned())
+            .await
     }
 }
 

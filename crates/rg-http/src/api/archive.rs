@@ -3,12 +3,12 @@
 //! GET /api/v1/repos/{owner}/{name}/archive/{sha}.zip
 //! GET /api/v1/repos/{owner}/{name}/archive/{sha}.tar.gz
 
+use crate::AppState;
 use axum::{
     extract::{Path, State},
     http::{header, StatusCode},
     response::IntoResponse,
 };
-use crate::AppState;
 
 /// GET /api/v1/repos/{owner}/{name}/archive/{sha}.zip
 #[utoipa::path(
@@ -64,7 +64,10 @@ pub async fn download_archive(
         Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     };
 
-    let git_out = match git.run(&["archive", &format!("--format={}", format_flag), &sha], Some(&repo_path)) {
+    let git_out = match git.run(
+        &["archive", &format!("--format={}", format_flag), &sha],
+        Some(&repo_path),
+    ) {
         Ok(o) => o,
         Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
     };
@@ -83,7 +86,10 @@ pub async fn download_archive(
         StatusCode::OK,
         [
             (header::CONTENT_TYPE, mime),
-            (header::CONTENT_DISPOSITION, &format!("attachment; filename=\"{}\"", filename)),
+            (
+                header::CONTENT_DISPOSITION,
+                &format!("attachment; filename=\"{}\"", filename),
+            ),
         ],
         output,
     )

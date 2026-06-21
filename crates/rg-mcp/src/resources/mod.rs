@@ -6,8 +6,8 @@
 //! |`resources/list`    | list available resource types  |
 //! |`resources/read`    | read a resource by URI         |
 
-use super::AppState;
 use super::protocol::*;
+use super::AppState;
 use serde_json::Value;
 
 // ── public: list ────────────────────────────────────
@@ -71,18 +71,14 @@ pub fn read_resource(state: &AppState, req: &JsonRpcRequest) -> JsonRpcResponse 
 
 // ── handlers ──────────────────────────────────────────
 
-fn handle_repo_meta(
-    state: &AppState,
-    req: &JsonRpcRequest,
-    uri: &str,
-) -> JsonRpcResponse {
+fn handle_repo_meta(state: &AppState, req: &JsonRpcRequest, uri: &str) -> JsonRpcResponse {
     // parse owner/name from "repo://owner/name"
     let parts: Vec<&str> = uri.trim_start_matches("repo://").splitn(2, '/').collect();
     if parts.len() != 2 {
         return make_error(req.id.clone(), -32602, "invalid repo URI format");
     }
     let owner = parts[0];
-    let name  = parts[1];
+    let name = parts[1];
 
     let client = crate::client::ApiClient::new(state);
     let path = format!("/repos/{}/{}", owner, name);
@@ -99,11 +95,7 @@ fn handle_repo_meta(
     }
 }
 
-fn handle_file_content(
-    state: &AppState,
-    req: &JsonRpcRequest,
-    uri: &str,
-) -> JsonRpcResponse {
+fn handle_file_content(state: &AppState, req: &JsonRpcRequest, uri: &str) -> JsonRpcResponse {
     // parse owner/name/path from "file://owner/name/path/to/file"
     let stripped = uri.trim_start_matches("file://");
     let parts: Vec<&str> = stripped.splitn(3, '/').collect();
@@ -111,8 +103,8 @@ fn handle_file_content(
         return make_error(req.id.clone(), -32602, "invalid file URI format");
     }
     let owner = parts[0];
-    let name  = parts[1];
-    let path  = parts[2];
+    let name = parts[1];
+    let path = parts[2];
 
     let client = crate::client::ApiClient::new(state);
     let api_path = format!("/repos/{}/{}/contents/{}", owner, name, path);
@@ -129,11 +121,7 @@ fn handle_file_content(
     }
 }
 
-fn handle_issue_details(
-    state: &AppState,
-    req: &JsonRpcRequest,
-    uri: &str,
-) -> JsonRpcResponse {
+fn handle_issue_details(state: &AppState, req: &JsonRpcRequest, uri: &str) -> JsonRpcResponse {
     // parse owner/name/number from "issue://owner/name/number"
     let stripped = uri.trim_start_matches("issue://");
     let parts: Vec<&str> = stripped.rsplitn(2, '/').collect();
@@ -153,7 +141,7 @@ fn handle_issue_details(
         return make_error(req.id.clone(), -32602, "invalid issue URI format");
     }
     let owner = on_parts[1];
-    let name  = on_parts[0];
+    let name = on_parts[0];
 
     let client = crate::client::ApiClient::new(state);
     let path = format!("/repos/{}/{}/issues/{}", owner, name, number);

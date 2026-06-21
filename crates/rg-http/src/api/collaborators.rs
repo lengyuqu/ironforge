@@ -6,8 +6,8 @@ use axum::response::IntoResponse;
 use axum::Json;
 use serde::Deserialize;
 
-use crate::AppState;
 use crate::error::AppError;
+use crate::AppState;
 
 // ── Request / Response types ──────────────────────────────────────────
 
@@ -155,9 +155,10 @@ pub async fn remove_collaborator(
         return AppError::unauthorized("authentication required").into_response();
     }
 
-    match rg_core::collaborator::service::remove_collaborator(&state.db, &owner, &repo, user_id).await {
+    match rg_core::collaborator::service::remove_collaborator(&state.db, &owner, &repo, user_id)
+        .await
+    {
         Ok(()) => (StatusCode::NO_CONTENT, Json(serde_json::json!({}))).into_response(),
         Err(e) => AppError::bad_request(e.to_string()).into_response(),
     }
 }
-

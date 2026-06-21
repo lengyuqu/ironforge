@@ -5,8 +5,8 @@ use chrono::Utc;
 use sea_orm::{ActiveValue::Set, DatabaseConnection};
 
 use rg_db::entities::label::{ActiveModel as LabelActiveModel, Model as Label};
-use rg_db::ops::{label_ops, issue_label_ops, repo_ops, user_ops};
 use rg_db::entities::repository;
+use rg_db::ops::{issue_label_ops, label_ops, repo_ops, user_ops};
 
 /// List all labels for a repository.
 pub async fn list_labels(

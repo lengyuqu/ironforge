@@ -85,8 +85,16 @@ impl MigrationTrait for Migration {
                             .auto_increment()
                             .primary_key(),
                     )
-                    .col(ColumnDef::new(IssueLabels::IssueId).big_integer().not_null())
-                    .col(ColumnDef::new(IssueLabels::LabelId).big_integer().not_null())
+                    .col(
+                        ColumnDef::new(IssueLabels::IssueId)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(IssueLabels::LabelId)
+                            .big_integer()
+                            .not_null(),
+                    )
                     .col(
                         ColumnDef::new(IssueLabels::CreatedAt)
                             .timestamp_with_time_zone()

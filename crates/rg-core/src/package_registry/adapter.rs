@@ -77,7 +77,10 @@ pub fn get_adapter(package_type: &str) -> Option<BoxedAdapter> {
         // Other types fall back to generic
         _ => {
             if package_type != "generic" {
-                tracing::debug!("no specific adapter for '{}', falling back to generic", package_type);
+                tracing::debug!(
+                    "no specific adapter for '{}', falling back to generic",
+                    package_type
+                );
             }
             Some(Box::new(super::adapters::GenericAdapter))
         }

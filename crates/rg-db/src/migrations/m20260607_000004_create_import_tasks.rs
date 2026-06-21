@@ -31,19 +31,11 @@ impl MigrationTrait for Migration {
                     )
                     .col(ColumnDef::new(ImportTask::UserId).big_integer().not_null())
                     .col(ColumnDef::new(ImportTask::RepoId).big_integer().null())
-                    .col(
-                        ColumnDef::new(ImportTask::Platform)
-                            .string()
-                            .not_null(),
-                    )
+                    .col(ColumnDef::new(ImportTask::Platform).string().not_null())
                     .col(ColumnDef::new(ImportTask::SourceUrl).string().not_null())
                     .col(ColumnDef::new(ImportTask::TargetOwner).string().not_null())
                     .col(ColumnDef::new(ImportTask::TargetName).string().not_null())
-                    .col(
-                        ColumnDef::new(ImportTask::AuthTokenEncrypted)
-                            .text()
-                            .null(),
-                    )
+                    .col(ColumnDef::new(ImportTask::AuthTokenEncrypted).text().null())
                     .col(
                         ColumnDef::new(ImportTask::Status)
                             .string()

@@ -43,7 +43,12 @@ pub const DEFAULT_MAX_CONNECTIONS: u32 = 5;
 /// Connect to the SQLite database with default pool timeouts and pool size.
 /// URL example: `sqlite:///path/to/db?mode=rwc`
 pub async fn connect(db_url: &str) -> Result<DatabaseConnection> {
-    connect_with_timeouts(db_url, DEFAULT_CONNECT_TIMEOUT_SECS, DEFAULT_IDLE_TIMEOUT_SECS).await
+    connect_with_timeouts(
+        db_url,
+        DEFAULT_CONNECT_TIMEOUT_SECS,
+        DEFAULT_IDLE_TIMEOUT_SECS,
+    )
+    .await
 }
 
 /// Connect with configurable connect/idle timeouts and the default pool size.
@@ -74,14 +79,14 @@ pub async fn connect_with_pool(
     // Per-connection options — applied on every connect by sqlx.
     let conn_opts = SqliteConnectOptions::from_str(db_url)
         .with_context(|| format!("invalid sqlite url: {db_url}"))?
-        .create_if_missing(true)                 // honour `?mode=rwc`
-        .journal_mode(SqliteJournalMode::Wal)    // WAL for reader/writer concurrency
-        .synchronous(SqliteSynchronous::Normal)  // good balance for WAL
-        .busy_timeout(Duration::from_secs(5))    // wait instead of immediate SQLITE_BUSY
-        .foreign_keys(true)                      // enforce FK constraints
-        .pragma("cache_size", "-64000")          // 64MB page cache
-        .pragma("temp_store", "MEMORY")          // temp tables in RAM
-        .pragma("mmap_size", "268435456");       // 256MB memory-mapped I/O
+        .create_if_missing(true) // honour `?mode=rwc`
+        .journal_mode(SqliteJournalMode::Wal) // WAL for reader/writer concurrency
+        .synchronous(SqliteSynchronous::Normal) // good balance for WAL
+        .busy_timeout(Duration::from_secs(5)) // wait instead of immediate SQLITE_BUSY
+        .foreign_keys(true) // enforce FK constraints
+        .pragma("cache_size", "-64000") // 64MB page cache
+        .pragma("temp_store", "MEMORY") // temp tables in RAM
+        .pragma("mmap_size", "268435456"); // 256MB memory-mapped I/O
 
     // WAL allows concurrent readers; writers serialise (busy_timeout absorbs
     // brief overlaps). Keep min_connections low to stay light on idle.
@@ -121,7 +126,8 @@ pub async fn rebuild_fts_indexes(db: &DatabaseConnection) -> Result<()> {
         DatabaseBackend::Sqlite,
         "DELETE FROM repos_fts",
         [],
-    )).await?;
+    ))
+    .await?;
     db.execute(Statement::from_sql_and_values(
         DatabaseBackend::Sqlite,
         "INSERT INTO repos_fts(rowid, name, description) SELECT id, name, description FROM repositories WHERE deleted_at IS NULL",
@@ -135,7 +141,8 @@ pub async fn rebuild_fts_indexes(db: &DatabaseConnection) -> Result<()> {
         DatabaseBackend::Sqlite,
         "DELETE FROM issues_fts",
         [],
-    )).await?;
+    ))
+    .await?;
     db.execute(Statement::from_sql_and_values(
         DatabaseBackend::Sqlite,
         "INSERT INTO issues_fts(rowid, title, body) SELECT id, title, COALESCE(body, '') FROM issues",
@@ -149,7 +156,8 @@ pub async fn rebuild_fts_indexes(db: &DatabaseConnection) -> Result<()> {
         DatabaseBackend::Sqlite,
         "DELETE FROM wiki_pages_fts",
         [],
-    )).await?;
+    ))
+    .await?;
     db.execute(Statement::from_sql_and_values(
         DatabaseBackend::Sqlite,
         "INSERT INTO wiki_pages_fts(rowid, title, content) SELECT id, title, content FROM wiki_pages",
@@ -211,7 +219,10 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn concurrent_reads_and_writes_do_not_error() {
         let dir = std::env::temp_dir();
-        let path = dir.join(format!("ironforge_concurrency_test_{}.db", std::process::id()));
+        let path = dir.join(format!(
+            "ironforge_concurrency_test_{}.db",
+            std::process::id()
+        ));
         for suffix in ["", "-wal", "-shm"] {
             let _ = std::fs::remove_file(format!("{}{}", path.display(), suffix));
         }

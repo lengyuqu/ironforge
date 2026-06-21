@@ -46,16 +46,19 @@ pub enum WorkflowTriggers {
     /// Simple trigger: `on: push`
     Simple(String),
     /// Single event with config: `on: { push: { branches: [main] } }`
-    Single {
-        push: Option<EventFilter>,
-        pull_request: Option<EventFilter>,
-        #[serde(rename = "pull_request_target")]
-        pull_request_target: Option<EventFilter>,
-        schedule: Option<Vec<ScheduleTrigger>>,
-        workflow_dispatch: Option<serde_yaml::Value>,
-    },
+    Single(Box<WorkflowTriggerSingle>),
     /// Array of event names: `on: [push, pull_request]`
     Array(Vec<String>),
+}
+
+#[derive(Debug, Deserialize)]
+pub struct WorkflowTriggerSingle {
+    pub push: Option<EventFilter>,
+    pub pull_request: Option<EventFilter>,
+    #[serde(rename = "pull_request_target")]
+    pub pull_request_target: Option<EventFilter>,
+    pub schedule: Option<Vec<ScheduleTrigger>>,
+    pub workflow_dispatch: Option<serde_yaml::Value>,
 }
 
 /// Event filter with optional branch/tag/path filtering.
@@ -181,27 +184,36 @@ impl GiteaWorkflow {
         match &self.on {
             WorkflowTriggers::Simple(name) => name.as_str() == event,
             WorkflowTriggers::Array(names) => names.iter().any(|n| n.as_str() == event),
-            WorkflowTriggers::Single { push, pull_request, .. } => match event {
-                "push" => {
-                    if let Some(filter) = push {
-                        ref_matches_filter(ref_name, filter, default_branch)
-                    } else {
-                        false
+            WorkflowTriggers::Single(trigger) => {
+                let WorkflowTriggerSingle {
+                    push,
+                    pull_request,
+                    pull_request_target: _,
+                    schedule: _,
+                    workflow_dispatch: _,
+                } = trigger.as_ref();
+                match event {
+                    "push" => {
+                        if let Some(filter) = push {
+                            ref_matches_filter(ref_name, filter, default_branch)
+                        } else {
+                            false
+                        }
                     }
-                }
-                "pull_request" => {
-                    if let Some(filter) = pull_request {
-                        // For pull_request events, GitHub/Gitea `branches` filters
-                        // apply to the PR's base (target) branch, not the head ref.
-                        // The base branch is conveyed via `default_branch`.
-                        let base_ref = format!("refs/heads/{default_branch}");
-                        ref_matches_filter(&base_ref, filter, default_branch)
-                    } else {
-                        false
+                    "pull_request" => {
+                        if let Some(filter) = pull_request {
+                            // For pull_request events, GitHub/Gitea `branches` filters
+                            // apply to the PR's base (target) branch, not the head ref.
+                            // The base branch is conveyed via `default_branch`.
+                            let base_ref = format!("refs/heads/{default_branch}");
+                            ref_matches_filter(&base_ref, filter, default_branch)
+                        } else {
+                            false
+                        }
                     }
+                    _ => false,
                 }
-                _ => false,
-            },
+            }
         }
     }
 
@@ -245,7 +257,11 @@ impl GiteaWorkflow {
                     let s = if deps.is_empty() {
                         0
                     } else {
-                        deps.iter().map(|d| job_stage.get(*d).copied().unwrap_or(0)).max().unwrap_or(0) + 1
+                        deps.iter()
+                            .map(|d| job_stage.get(*d).copied().unwrap_or(0))
+                            .max()
+                            .unwrap_or(0)
+                            + 1
                     };
                     job_stage.insert(name.to_string(), s);
                     max_stage = max_stage.max(s);
@@ -291,7 +307,10 @@ impl GiteaWorkflow {
                         continue;
                     }
                     // For other actions, emit a comment
-                    script.push(format!("# [IronForge] action '{}' is not natively supported; skipping", uses));
+                    script.push(format!(
+                        "# [IronForge] action '{}' is not natively supported; skipping",
+                        uses
+                    ));
                     continue;
                 }
 
@@ -311,7 +330,10 @@ impl GiteaWorkflow {
 
             // If no checkout step was found, add a comment
             if !has_checkout && !script.is_empty() {
-                script.insert(0, "# [IronForge] Repository is already checked out at /workspace".to_string());
+                script.insert(
+                    0,
+                    "# [IronForge] Repository is already checked out at /workspace".to_string(),
+                );
             }
 
             // Determine tags from runs-on
@@ -322,7 +344,11 @@ impl GiteaWorkflow {
                         .iter()
                         .filter_map(|v| v.as_str().map(String::from))
                         .collect();
-                    if tags.is_empty() { None } else { Some(tags) }
+                    if tags.is_empty() {
+                        None
+                    } else {
+                        Some(tags)
+                    }
                 }
                 _ => None,
             };
@@ -338,7 +364,11 @@ impl GiteaWorkflow {
                     script,
                     image: job.container.as_ref().map(|c| c.image.clone()),
                     only: None, // filtering is done at trigger time
-                    variables: if job_vars.is_empty() { None } else { Some(job_vars) },
+                    variables: if job_vars.is_empty() {
+                        None
+                    } else {
+                        Some(job_vars)
+                    },
                     when: None,
                     allow_failure: None,
                     tags,
@@ -364,14 +394,20 @@ fn ref_matches_filter(ref_name: &str, filter: &EventFilter, default_branch: &str
 
     // Check branches filter
     if let Some(ref branches) = filter.branches {
-        if !branches.iter().any(|pattern| match_branch_pattern(branch, pattern, default_branch)) {
+        if !branches
+            .iter()
+            .any(|pattern| match_branch_pattern(branch, pattern, default_branch))
+        {
             return false;
         }
     }
 
     // Check branches-ignore filter
     if let Some(ref ignored) = filter.branches_ignore {
-        if ignored.iter().any(|pattern| match_branch_pattern(branch, pattern, default_branch)) {
+        if ignored
+            .iter()
+            .any(|pattern| match_branch_pattern(branch, pattern, default_branch))
+        {
             return false;
         }
     }

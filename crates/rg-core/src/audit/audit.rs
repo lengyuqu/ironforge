@@ -13,6 +13,7 @@ use rg_db::entities::audit_log;
 /// Any error is logged but never propagated to the caller — audit
 /// failures must not block the primary operation.
 #[tracing::instrument(skip(db, details), fields(action = %action))]
+#[allow(clippy::too_many_arguments)]
 pub async fn record(
     db: &sea_orm::DatabaseConnection,
     user_id: Option<i64>,

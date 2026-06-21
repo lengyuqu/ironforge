@@ -72,7 +72,11 @@ pub async fn list_by_repo_paginated(
     }
     let query = base.order_by_desc(issue::Column::CreatedAt);
 
-    let total = query.clone().count(db).await.context("db: count issues by repo")? as i64;
+    let total = query
+        .clone()
+        .count(db)
+        .await
+        .context("db: count issues by repo")? as i64;
     let issues = query
         .offset(offset)
         .limit(limit)
@@ -124,7 +128,9 @@ mod tests {
         use sea_orm::{ConnectOptions, Database, Statement};
         let mut opt = ConnectOptions::new("sqlite::memory:");
         opt.max_connections(1);
-        let db = Database::connect(opt).await.expect("connect to in-memory db");
+        let db = Database::connect(opt)
+            .await
+            .expect("connect to in-memory db");
         crate::run_migrations(&db).await.expect("run migrations");
         // Insert minimal user + repos to satisfy FK constraints
         db.execute(Statement::from_string(
@@ -142,7 +148,12 @@ mod tests {
         db
     }
 
-    async fn create_test_issue(db: &DatabaseConnection, repo_id: i64, number: i64, title: &str) -> Issue {
+    async fn create_test_issue(
+        db: &DatabaseConnection,
+        repo_id: i64,
+        number: i64,
+        title: &str,
+    ) -> Issue {
         let model = ActiveModel {
             id: sea_orm::NotSet,
             repo_id: Set(repo_id),
@@ -184,7 +195,7 @@ mod tests {
     async fn test_find_by_ids_multiple() {
         let db = setup_test_db().await;
         let i1 = create_test_issue(&db, 1, 1, "issue 1").await;
-        let i2 = create_test_issue(&db, 1, 2, "issue 2").await;
+        let _i2 = create_test_issue(&db, 1, 2, "issue 2").await;
         let i3 = create_test_issue(&db, 2, 1, "other repo").await;
 
         // Query i1 and i3, skip i2

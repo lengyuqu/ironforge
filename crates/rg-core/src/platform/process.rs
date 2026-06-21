@@ -19,13 +19,16 @@ pub fn execute_script(script: &str) -> std::io::Result<std::process::Output> {
         cmd.arg("-c").arg(script);
         cmd.output()
     }
-    
+
     #[cfg(windows)]
     {
         // Try PowerShell first, fall back to cmd.exe
         let mut cmd = Command::new("powershell.exe");
-        cmd.arg("-NoProfile").arg("-NonInteractive").arg("-Command").arg(script);
-        
+        cmd.arg("-NoProfile")
+            .arg("-NonInteractive")
+            .arg("-Command")
+            .arg(script);
+
         match cmd.output() {
             Ok(output) => Ok(output),
             Err(_) => {
@@ -62,11 +65,11 @@ pub fn terminate_process(pid: u32) -> std::io::Result<()> {
     #[cfg(unix)]
     {
         Command::new("kill")
-            .args(&["-9", &pid.to_string()])
+            .args(["-9", &pid.to_string()])
             .output()?;
         Ok(())
     }
-    
+
     #[cfg(windows)]
     {
         Command::new("taskkill")
@@ -87,18 +90,18 @@ pub fn is_process_running(pid: u32) -> bool {
     #[cfg(unix)]
     {
         Command::new("kill")
-            .args(&["-0", &pid.to_string()])
+            .args(["-0", &pid.to_string()])
             .output()
             .map(|output| output.status.success())
             .unwrap_or(false)
     }
-    
+
     #[cfg(windows)]
     {
         let output = Command::new("tasklist")
             .args(&["/FI", &format!("PID eq {}", pid), "/NH"])
             .output();
-        
+
         match output {
             Ok(output) => {
                 let stdout = String::from_utf8_lossy(&output.stdout);
@@ -119,7 +122,7 @@ pub fn get_shell() -> (&'static str, &'static str) {
     {
         ("sh", "-c")
     }
-    
+
     #[cfg(windows)]
     {
         ("cmd.exe", "/C")
@@ -136,7 +139,7 @@ pub fn get_script_shell() -> (&'static str, &'static str) {
     {
         ("bash", "-c")
     }
-    
+
     #[cfg(windows)]
     {
         ("powershell.exe", "-Command")
@@ -165,10 +168,10 @@ mod tests {
     fn test_execute_script_echo() {
         #[cfg(unix)]
         let script = "echo hello";
-        
+
         #[cfg(windows)]
         let script = "Write-Output 'hello'";
-        
+
         let result = execute_script(script);
         assert!(result.is_ok());
     }

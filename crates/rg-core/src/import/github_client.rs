@@ -5,7 +5,7 @@
 //! Enterprise Server instances.
 
 use anyhow::{Context, Result};
-use reqwest::{Client, header};
+use reqwest::{header, Client};
 use serde::{Deserialize, Serialize};
 
 /// GitHub API client.
@@ -167,14 +167,16 @@ impl GitHubClient {
         let mut headers = header::HeaderMap::new();
         headers.insert(
             header::AUTHORIZATION,
-            header::HeaderValue::from_str(&format!("Bearer {token}"))
-                .expect("invalid token"),
+            header::HeaderValue::from_str(&format!("Bearer {token}")).expect("invalid token"),
         );
         headers.insert(
             header::ACCEPT,
             header::HeaderValue::from_static("application/vnd.github.v3+json"),
         );
-        headers.insert("X-GitHub-Api-Version", header::HeaderValue::from_static("2022-11-28"));
+        headers.insert(
+            "X-GitHub-Api-Version",
+            header::HeaderValue::from_static("2022-11-28"),
+        );
 
         let client = Client::builder()
             .default_headers(headers)
@@ -182,32 +184,34 @@ impl GitHubClient {
             .build()
             .expect("failed to build HTTP client");
 
-        Self { client, base_url: base, token }
+        Self {
+            client,
+            base_url: base,
+            token,
+        }
     }
 
     /// Get repository metadata.
     pub async fn get_repo(&self, owner: &str, repo: &str) -> Result<GitHubRepo> {
         let url = format!("{}/repos/{}/{}", self.base_url, owner, repo);
-        let resp = self
-            .client
-            .get(&url)
-            .send()
-            .await
-            .context("get repo")?;
+        let resp = self.client.get(&url).send().await.context("get repo")?;
         Self::handle_response(resp).await
     }
 
     /// List all labels for a repository.
     pub async fn list_labels(&self, owner: &str, repo: &str) -> Result<Vec<GitHubLabel>> {
-        Self::paginate_all(&self.client, &format!("{}/repos/{}/{}/labels?per_page=100", self.base_url, owner, repo)).await
+        Self::paginate_all(
+            &self.client,
+            &format!(
+                "{}/repos/{}/{}/labels?per_page=100",
+                self.base_url, owner, repo
+            ),
+        )
+        .await
     }
 
     /// List milestones for a repository.
-    pub async fn list_milestones(
-        &self,
-        owner: &str,
-        repo: &str,
-    ) -> Result<Vec<GitHubMilestone>> {
+    pub async fn list_milestones(&self, owner: &str, repo: &str) -> Result<Vec<GitHubMilestone>> {
         Self::paginate_all(
             &self.client,
             &format!(
@@ -219,11 +223,7 @@ impl GitHubClient {
     }
 
     /// List all issues (excluding pull requests) for a repository.
-    pub async fn list_issues(
-        &self,
-        owner: &str,
-        repo: &str,
-    ) -> Result<Vec<GitHubIssue>> {
+    pub async fn list_issues(&self, owner: &str, repo: &str) -> Result<Vec<GitHubIssue>> {
         // GitHub's /issues endpoint returns both issues and PRs.
         // We filter out PRs on our side since PRs are fetched separately.
         let raw: Vec<GitHubIssue> = Self::paginate_all(
@@ -235,15 +235,14 @@ impl GitHubClient {
         )
         .await?;
         // Filter out pull requests (they have a pull_request field)
-        Ok(raw.into_iter().filter(|i| i.pull_request.is_none()).collect())
+        Ok(raw
+            .into_iter()
+            .filter(|i| i.pull_request.is_none())
+            .collect())
     }
 
     /// List pull requests for a repository.
-    pub async fn list_pull_requests(
-        &self,
-        owner: &str,
-        repo: &str,
-    ) -> Result<Vec<GitHubPR>> {
+    pub async fn list_pull_requests(&self, owner: &str, repo: &str) -> Result<Vec<GitHubPR>> {
         Self::paginate_all(
             &self.client,
             &format!(
@@ -289,11 +288,7 @@ impl GitHubClient {
     }
 
     /// List releases for a repository.
-    pub async fn list_releases(
-        &self,
-        owner: &str,
-        repo: &str,
-    ) -> Result<Vec<GitHubRelease>> {
+    pub async fn list_releases(&self, owner: &str, repo: &str) -> Result<Vec<GitHubRelease>> {
         Self::paginate_all(
             &self.client,
             &format!(
@@ -314,9 +309,7 @@ impl GitHubClient {
     // ── helpers ─────────────────────────────────────────────────────────
 
     /// Handle a response, returning the parsed body or an error.
-    async fn handle_response<T: serde::de::DeserializeOwned>(
-        resp: reqwest::Response,
-    ) -> Result<T> {
+    async fn handle_response<T: serde::de::DeserializeOwned>(resp: reqwest::Response) -> Result<T> {
         let status = resp.status();
         if status.is_success() {
             resp.json().await.context("parse response body")

@@ -15,6 +15,7 @@
 //! GET    /api/v1/repos/{owner}/{repo}/packages/cargo/index/{pkg}  — Cargo sparse index
 //! GET    /api/v1/repos/{owner}/{repo}/packages/npm/{pkg}          — npm registry metadata
 
+use crate::error::AppError;
 use axum::{
     extract::{Path, Query, State},
     http::{header, StatusCode},
@@ -87,22 +88,35 @@ fn err(status: StatusCode, msg: &str) -> axum::response::Response {
 
 /// Helper: plain-text error response.
 fn err_text(status: StatusCode, msg: &str) -> axum::response::Response {
-    (status, [(header::CONTENT_TYPE, "text/plain; charset=utf-8")], msg.to_string()).into_response()
+    (
+        status,
+        [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+        msg.to_string(),
+    )
+        .into_response()
 }
 
 /// Helper: extract authenticated user from headers.
-fn auth(headers: &axum::http::HeaderMap, secret: &str) -> Result<i64, axum::response::Response> {
-    extract_user_id(headers, secret).ok_or_else(|| {
-        err(StatusCode::UNAUTHORIZED, "authentication required")
-    })
+fn auth(headers: &axum::http::HeaderMap, secret: &str) -> Result<i64, AppError> {
+    extract_user_id(headers, secret)
+        .ok_or_else(|| AppError::unauthorized("authentication required"))
 }
 
 /// Resolve publish metadata: adapter-extracted fields take precedence, then
 /// query-param overrides.
+type PublishPackageTuple = (
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
 fn resolve_publish_info(
     query: &PublishPackageQuery,
     adapter_meta: Option<rg_core::package_registry::ExtractedMetadata>,
-) -> Result<(String, String, Option<String>, Option<String>, Option<String>, Option<String>), String> {
+) -> Result<PublishPackageTuple, String> {
     // If adapter extracted metadata, use it as base; query params override.
     if let Some(meta) = adapter_meta {
         let name = query.name.clone().unwrap_or(meta.name);
@@ -112,7 +126,9 @@ fn resolve_publish_info(
         let repository_url = query.repository_url.clone().or(meta.repository_url);
         let semver = query.semver.clone().or(meta.semver);
         if name.is_empty() || version.is_empty() {
-            return Err("package name and version are required (could not be auto-extracted)".into());
+            return Err(
+                "package name and version are required (could not be auto-extracted)".into(),
+            );
         }
         return Ok((name, version, description, homepage, repository_url, semver));
     }
@@ -135,6 +151,27 @@ fn resolve_publish_info(
 /// POST /api/v1/repos/:owner/:name/packages/:type/publish
 /// Upload a package file.  Name/version are auto-extracted from known
 /// package formats (Cargo, npm) if not provided in query params.
+#[utoipa::path(
+    post,
+    path = "/repos/{owner}/{name}/packages/{pkg_type}/publish",
+    tag = "Packages",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "repo name"),
+        ("pkg_type" = String, Path, description = "package type"),
+    ),
+    request_body(
+        content = String,
+        description = "Package archive/binary payload",
+    ),
+    responses(
+        (status = 201, description = "Created", body = serde_json::Value),
+        (status = 200, description = "Updated existing package", body = serde_json::Value),
+        (status = 400, description = "Bad request", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+        (status = 500, description = "Server error", body = serde_json::Value),
+    ),
+)]
 pub async fn publish(
     State(state): State<AppState>,
     Path((owner, name, pkg_type)): Path<(String, String, String)>,
@@ -144,11 +181,14 @@ pub async fn publish(
 ) -> axum::response::Response {
     let user_id = match auth(&headers, &state.jwt_secret) {
         Ok(id) => id,
-        Err(e) => return e,
+        Err(e) => return e.into_response(),
     };
 
     if !rg_core::package_registry::package_types::is_valid(&pkg_type) {
-        return err(StatusCode::BAD_REQUEST, &format!("unsupported package type: {}", pkg_type));
+        return err(
+            StatusCode::BAD_REQUEST,
+            &format!("unsupported package type: {}", pkg_type),
+        );
     }
 
     let filename = headers
@@ -171,7 +211,7 @@ pub async fn publish(
             Err(msg) => return err(StatusCode::BAD_REQUEST, &msg),
         };
 
-    let storage = rg_core::package_registry::PackageStorage::new(&*state.repo_root);
+    let storage = rg_core::package_registry::PackageStorage::new(&state.repo_root);
 
     let info = rg_core::package_registry::PublishInfo {
         owner,
@@ -190,23 +230,46 @@ pub async fn publish(
 
     match rg_core::package_registry::service::publish(&state.db, &storage, info).await {
         Ok(result) => {
-            let status = if result.existing { StatusCode::OK } else { StatusCode::CREATED };
-            (status, Json(PublishResponse {
-                package_id: result.package_id,
-                version_id: result.version_id,
-                existing: result.existing,
-            })).into_response()
+            let status = if result.existing {
+                StatusCode::OK
+            } else {
+                StatusCode::CREATED
+            };
+            (
+                status,
+                Json(PublishResponse {
+                    package_id: result.package_id,
+                    version_id: result.version_id,
+                    existing: result.existing,
+                }),
+            )
+                .into_response()
         }
         Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, &format!("{e:#}")),
     }
 }
 
 /// GET /api/v1/repos/:owner/:name/packages
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/packages",
+    tag = "Packages",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "repo name"),
+    ),
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 404, description = "Repository not found", body = serde_json::Value),
+        (status = 500, description = "Server error", body = serde_json::Value),
+    ),
+)]
 pub async fn list_registries(
     State(state): State<AppState>,
     Path((owner, name)): Path<(String, String)>,
 ) -> axum::response::Response {
-    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await {
+    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
+    {
         Ok(Some(r)) => r,
         Ok(None) => return err(StatusCode::NOT_FOUND, "repository not found"),
         Err(e) => return err(StatusCode::INTERNAL_SERVER_ERROR, &format!("{e:#}")),
@@ -221,71 +284,180 @@ pub async fn list_registries(
                     enabled: r.enabled,
                 })
                 .collect(),
-        }).into_response(),
+        })
+        .into_response(),
         Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, &format!("{e:#}")),
     }
 }
 
 /// GET /api/v1/repos/:owner/:name/packages/:type/list
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/packages/{pkg_type}/list",
+    tag = "Packages",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "repo name"),
+        ("pkg_type" = String, Path, description = "package type"),
+    ),
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 500, description = "Server error", body = serde_json::Value),
+    ),
+)]
 pub async fn list_packages(
     State(state): State<AppState>,
     Path((owner, name, pkg_type)): Path<(String, String, String)>,
 ) -> axum::response::Response {
-    match rg_core::package_registry::service::list_packages(&state.db, &owner, &name, &pkg_type).await {
+    match rg_core::package_registry::service::list_packages(&state.db, &owner, &name, &pkg_type)
+        .await
+    {
         Ok(packages) => Json(PackageListResponse { packages }).into_response(),
         Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, &format!("{e:#}")),
     }
 }
 
 /// GET /api/v1/repos/:owner/:name/packages/:type/:pkg
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/packages/{pkg_type}/{pkg_name}",
+    tag = "Packages",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "repo name"),
+        ("pkg_type" = String, Path, description = "package type"),
+        ("pkg_name" = String, Path, description = "package name"),
+    ),
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 404, description = "Package not found", body = serde_json::Value),
+        (status = 500, description = "Server error", body = serde_json::Value),
+    ),
+)]
 pub async fn get_package(
     State(state): State<AppState>,
     Path((owner, name, pkg_type, pkg_name)): Path<(String, String, String, String)>,
 ) -> axum::response::Response {
-    match rg_core::package_registry::service::get_package(&state.db, &owner, &name, &pkg_type, &pkg_name).await {
+    match rg_core::package_registry::service::get_package(
+        &state.db, &owner, &name, &pkg_type, &pkg_name,
+    )
+    .await
+    {
         Ok(detail) => Json(detail).into_response(),
         Err(e) => err(StatusCode::NOT_FOUND, &format!("{e:#}")),
     }
 }
 
 /// GET /api/v1/repos/:owner/:name/packages/:type/:pkg/versions
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/packages/{pkg_type}/{pkg_name}/versions",
+    tag = "Packages",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "repo name"),
+        ("pkg_type" = String, Path, description = "package type"),
+        ("pkg_name" = String, Path, description = "package name"),
+    ),
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 404, description = "Package not found", body = serde_json::Value),
+        (status = 500, description = "Server error", body = serde_json::Value),
+    ),
+)]
 pub async fn list_versions(
     State(state): State<AppState>,
     Path((owner, name, pkg_type, pkg_name)): Path<(String, String, String, String)>,
 ) -> axum::response::Response {
-    match rg_core::package_registry::service::list_versions(&state.db, &owner, &name, &pkg_type, &pkg_name).await {
+    match rg_core::package_registry::service::list_versions(
+        &state.db, &owner, &name, &pkg_type, &pkg_name,
+    )
+    .await
+    {
         Ok(versions) => Json(VersionListResponse { versions }).into_response(),
         Err(e) => err(StatusCode::NOT_FOUND, &format!("{e:#}")),
     }
 }
 
 /// GET /api/v1/repos/:owner/:name/packages/:type/:pkg/:ver
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/packages/{pkg_type}/{pkg_name}/{version}",
+    tag = "Packages",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "repo name"),
+        ("pkg_type" = String, Path, description = "package type"),
+        ("pkg_name" = String, Path, description = "package name"),
+        ("version" = String, Path, description = "package version"),
+    ),
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 404, description = "Package version not found", body = serde_json::Value),
+        (status = 500, description = "Server error", body = serde_json::Value),
+    ),
+)]
 pub async fn get_version(
     State(state): State<AppState>,
-    Path((owner, name, pkg_type, pkg_name, version)): Path<(String, String, String, String, String)>,
+    Path((owner, name, pkg_type, pkg_name, version)): Path<(
+        String,
+        String,
+        String,
+        String,
+        String,
+    )>,
 ) -> axum::response::Response {
-    match rg_core::package_registry::service::get_version(&state.db, &owner, &name, &pkg_type, &pkg_name, &version).await {
+    match rg_core::package_registry::service::get_version(
+        &state.db, &owner, &name, &pkg_type, &pkg_name, &version,
+    )
+    .await
+    {
         Ok(detail) => Json(detail).into_response(),
         Err(e) => err(StatusCode::NOT_FOUND, &format!("{e:#}")),
     }
 }
 
 /// DELETE /api/v1/repos/:owner/:name/packages/:type/:pkg/:ver
+#[utoipa::path(
+    delete,
+    path = "/repos/{owner}/{name}/packages/{pkg_type}/{pkg_name}/{version}",
+    tag = "Packages",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "repo name"),
+        ("pkg_type" = String, Path, description = "package type"),
+        ("pkg_name" = String, Path, description = "package name"),
+        ("version" = String, Path, description = "package version"),
+    ),
+    responses(
+        (status = 204, description = "Deleted", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+        (status = 500, description = "Server error", body = serde_json::Value),
+    ),
+)]
 pub async fn delete_version(
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
-    Path((owner, name, pkg_type, pkg_name, version)): Path<(String, String, String, String, String)>,
+    Path((owner, name, pkg_type, pkg_name, version)): Path<(
+        String,
+        String,
+        String,
+        String,
+        String,
+    )>,
 ) -> axum::response::Response {
     let _need_auth = match auth(&headers, &state.jwt_secret) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.into_response(),
     };
 
-    let storage = rg_core::package_registry::PackageStorage::new(&*state.repo_root);
+    let storage = rg_core::package_registry::PackageStorage::new(&state.repo_root);
 
     match rg_core::package_registry::service::delete_version(
         &state.db, &storage, &owner, &name, &pkg_type, &pkg_name, &version,
-    ).await {
+    )
+    .await
+    {
         Ok(_) => (StatusCode::NO_CONTENT,).into_response(),
         Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, &format!("{e:#}")),
     }
@@ -295,18 +467,30 @@ pub async fn delete_version(
 pub async fn yank_version(
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
-    Path((owner, name, pkg_type, pkg_name, version)): Path<(String, String, String, String, String)>,
+    Path((owner, name, pkg_type, pkg_name, version)): Path<(
+        String,
+        String,
+        String,
+        String,
+        String,
+    )>,
     Json(body): Json<YankRequest>,
 ) -> axum::response::Response {
     let _need_auth = match auth(&headers, &state.jwt_secret) {
         Ok(c) => c,
-        Err(e) => return e,
+        Err(e) => return e.into_response(),
     };
 
     match rg_core::package_registry::service::yank_version(
         &state.db, &owner, &name, &pkg_type, &pkg_name, &version, body.yank,
-    ).await {
-        Ok(_) => (StatusCode::OK, Json(serde_json::json!({"yanked": body.yank}))).into_response(),
+    )
+    .await
+    {
+        Ok(_) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"yanked": body.yank})),
+        )
+            .into_response(),
         Err(e) => err(StatusCode::INTERNAL_SERVER_ERROR, &format!("{e:#}")),
     }
 }
@@ -314,26 +498,34 @@ pub async fn yank_version(
 /// GET /api/v1/repos/:owner/:name/packages/:type/:pkg/:ver/:file
 pub async fn download_file(
     State(state): State<AppState>,
-    Path((owner, name, pkg_type, pkg_name, version, filename)): Path<(String, String, String, String, String, String)>,
+    Path((owner, name, pkg_type, pkg_name, version, filename)): Path<(
+        String,
+        String,
+        String,
+        String,
+        String,
+        String,
+    )>,
 ) -> axum::response::Response {
-    let storage = rg_core::package_registry::PackageStorage::new(&*state.repo_root);
+    let storage = rg_core::package_registry::PackageStorage::new(&state.repo_root);
 
     match rg_core::package_registry::service::download_file(
         &state.db, &storage, &owner, &name, &pkg_type, &pkg_name, &version, &filename,
-    ).await {
-        Ok((data, content_type, _size)) => {
-            (
-                StatusCode::OK,
-                [
-                    (header::CONTENT_TYPE, content_type),
-                    (
-                        header::CONTENT_DISPOSITION,
-                        format!("attachment; filename=\"{}\"", filename),
-                    ),
-                ],
-                data,
-            ).into_response()
-        }
+    )
+    .await
+    {
+        Ok((data, content_type, _size)) => (
+            StatusCode::OK,
+            [
+                (header::CONTENT_TYPE, content_type),
+                (
+                    header::CONTENT_DISPOSITION,
+                    format!("attachment; filename=\"{}\"", filename),
+                ),
+            ],
+            data,
+        )
+            .into_response(),
         Err(e) => err(StatusCode::NOT_FOUND, &format!("{e:#}")),
     }
 }
@@ -350,7 +542,9 @@ pub async fn cargo_sparse_index(
 ) -> axum::response::Response {
     let versions = match rg_core::package_registry::service::list_versions(
         &state.db, &owner, &name, "cargo", &pkg_name,
-    ).await {
+    )
+    .await
+    {
         Ok(v) => v,
         Err(e) => return err_text(StatusCode::NOT_FOUND, &format!("{e:#}")),
     };
@@ -369,7 +563,8 @@ pub async fn cargo_sparse_index(
             ("x-cargo-registry-type".parse().unwrap(), "sparse"),
         ],
         body,
-    ).into_response()
+    )
+        .into_response()
 }
 
 /// GET /api/v1/repos/:owner/:name/packages/npm/:pkg_name
@@ -383,7 +578,9 @@ pub async fn npm_registry_metadata(
 ) -> axum::response::Response {
     let versions = match rg_core::package_registry::service::list_versions(
         &state.db, &owner, &name, "npm", &pkg_name,
-    ).await {
+    )
+    .await
+    {
         Ok(v) => v,
         Err(e) => return err(StatusCode::NOT_FOUND, &format!("{e:#}")),
     };
@@ -406,9 +603,10 @@ pub async fn npm_registry_metadata(
         .iter()
         .map(|v| {
             // Find the tgz file
-            let tgz_file = v.files.iter().find(|f| {
-                f.filename.ends_with(".tgz") || f.filename.ends_with(".tar.gz")
-            });
+            let tgz_file = v
+                .files
+                .iter()
+                .find(|f| f.filename.ends_with(".tgz") || f.filename.ends_with(".tar.gz"));
 
             rg_core::package_registry::NpmVersionInfo {
                 version: v.version.clone(),
@@ -444,7 +642,9 @@ pub async fn pypi_simple_index(
 ) -> axum::response::Response {
     let versions = match rg_core::package_registry::service::list_versions(
         &state.db, &owner, &name, "pypi", &pkg_name,
-    ).await {
+    )
+    .await
+    {
         Ok(v) => v,
         Err(e) => return err(StatusCode::NOT_FOUND, &format!("{e:#}")),
     };
@@ -468,7 +668,10 @@ pub async fn pypi_simple_index(
             // Find the primary package file
             let primary_file = v.files.iter().find(|f| {
                 let fl = f.filename.to_lowercase();
-                fl.ends_with(".whl") || fl.ends_with(".tar.gz") || fl.ends_with(".tgz") || fl.ends_with(".zip")
+                fl.ends_with(".whl")
+                    || fl.ends_with(".tar.gz")
+                    || fl.ends_with(".tgz")
+                    || fl.ends_with(".zip")
             });
 
             let filename = primary_file
@@ -500,7 +703,8 @@ pub async fn pypi_simple_index(
         StatusCode::OK,
         [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
         html,
-    ).into_response()
+    )
+        .into_response()
 }
 
 // ── Maven Protocol Endpoints ──────────────────────────────
@@ -517,7 +721,9 @@ pub async fn maven_metadata(
 
     let versions = match rg_core::package_registry::service::list_versions(
         &state.db, &owner, &name, "maven", &pkg_name,
-    ).await {
+    )
+    .await
+    {
         Ok(v) => v,
         Err(_e) => {
             // Return empty metadata rather than 404 — Maven/Gradle handle gracefully
@@ -542,13 +748,15 @@ pub async fn maven_metadata(
         })
         .collect();
 
-    let xml = rg_core::package_registry::build_maven_metadata_xml(&group_id, &artifact_id, &entries);
+    let xml =
+        rg_core::package_registry::build_maven_metadata_xml(&group_id, &artifact_id, &entries);
 
     (
         StatusCode::OK,
         [(header::CONTENT_TYPE, "application/xml; charset=utf-8")],
         xml,
-    ).into_response()
+    )
+        .into_response()
 }
 
 // ── NuGet Protocol Endpoints ──────────────────────────────
@@ -594,9 +802,10 @@ pub async fn nuget_registration_index(
     let entries: Vec<rg_core::package_registry::NuGetRegistrationEntry> = versions
         .iter()
         .map(|v| {
-            let primary_file = v.files.iter().find(|f| {
-                f.filename.to_lowercase().ends_with(".nupkg")
-            });
+            let primary_file = v
+                .files
+                .iter()
+                .find(|f| f.filename.to_lowercase().ends_with(".nupkg"));
 
             let filename = primary_file
                 .map(|f| f.filename.clone())
@@ -605,14 +814,22 @@ pub async fn nuget_registration_index(
             let download_url = format!(
                 "{}/api/v1/repos/{}/{}/packages/nuget/{}/{}/{}",
                 base_url.trim_end_matches('/'),
-                owner, name, pkg_name, v.version, filename,
+                owner,
+                name,
+                pkg_name,
+                v.version,
+                filename,
             );
 
             let nuspec_url = primary_file.map(|_| {
                 format!(
                     "{}/api/v1/repos/{}/{}/packages/nuget/{}/{}/{}.nuspec",
                     base_url.trim_end_matches('/'),
-                    owner, name, pkg_name, v.version, pkg_name,
+                    owner,
+                    name,
+                    pkg_name,
+                    v.version,
+                    pkg_name,
                 )
             });
 
@@ -654,14 +871,13 @@ pub async fn nuget_search(
     let base_url = build_base_url(&headers);
 
     // List all nuget packages in the repo
-    let packages = match rg_core::package_registry::service::list_packages(
-        &state.db, &owner, &name, "nuget",
-    )
-    .await
-    {
-        Ok(p) => p,
-        Err(e) => return err(StatusCode::INTERNAL_SERVER_ERROR, &format!("{e:#}")),
-    };
+    let packages =
+        match rg_core::package_registry::service::list_packages(&state.db, &owner, &name, "nuget")
+            .await
+        {
+            Ok(p) => p,
+            Err(e) => return err(StatusCode::INTERNAL_SERVER_ERROR, &format!("{e:#}")),
+        };
 
     let mut results: Vec<rg_core::package_registry::NuGetSearchResult> = Vec::new();
     let query_lower = query.to_lowercase();
@@ -673,7 +889,9 @@ pub async fn nuget_search(
             let registration_url = format!(
                 "{}/api/v1/repos/{}/{}/packages/nuget/registration/{}/index.json",
                 base_url.trim_end_matches('/'),
-                owner, name, pkg.name,
+                owner,
+                name,
+                pkg.name,
             );
 
             results.push(rg_core::package_registry::NuGetSearchResult {
@@ -718,7 +936,13 @@ pub async fn rubygems_dependencies(
     Path((owner, name)): Path<(String, String)>,
     Query(params): Query<RubyGemsDepsParams>,
 ) -> axum::response::Response {
-    let gem_list: Vec<&str> = params.gems.as_deref().unwrap_or("").split(',').filter(|s| !s.is_empty()).collect();
+    let gem_list: Vec<&str> = params
+        .gems
+        .as_deref()
+        .unwrap_or("")
+        .split(',')
+        .filter(|s| !s.is_empty())
+        .collect();
     let _base_url = build_base_url(&headers);
 
     let mut entries: Vec<rg_core::package_registry::RubyGemsDependencyEntry> = Vec::new();
@@ -726,7 +950,9 @@ pub async fn rubygems_dependencies(
     for gem_name in gem_list {
         let versions = match rg_core::package_registry::service::list_versions(
             &state.db, &owner, &name, "rubygems", gem_name,
-        ).await {
+        )
+        .await
+        {
             Ok(v) => v,
             Err(_e) => continue,
         };
@@ -751,7 +977,8 @@ pub async fn rubygems_dependencies(
         StatusCode::OK,
         [(header::CONTENT_TYPE, "application/json; charset=utf-8")],
         Json(json),
-    ).into_response()
+    )
+        .into_response()
 }
 
 /// GET /api/v1/repos/{owner}/{name}/packages/rubygems/api/v1/gems/{gem_name}.json
@@ -764,7 +991,9 @@ pub async fn rubygems_gem_info(
 ) -> axum::response::Response {
     let versions = match rg_core::package_registry::service::list_versions(
         &state.db, &owner, &name, "rubygems", &gem_name,
-    ).await {
+    )
+    .await
+    {
         Ok(v) => v,
         Err(e) => return err(StatusCode::NOT_FOUND, &format!("{e:#}")),
     };
@@ -778,12 +1007,17 @@ pub async fn rubygems_gem_info(
             let download_url = format!(
                 "{}/api/v1/repos/{}/{}/packages/rubygems/{}/{}/{}",
                 base_url.trim_end_matches('/'),
-                owner, name, gem_name, v.version, filename,
+                owner,
+                name,
+                gem_name,
+                v.version,
+                filename,
             );
             let gem_uri = format!(
                 "{}/gems/{}-{}.gem",
                 base_url.trim_end_matches('/'),
-                gem_name, v.version,
+                gem_name,
+                v.version,
             );
 
             let (summary, desc, hp, lic) = parse_rubygems_info(v.metadata.as_deref());
@@ -809,7 +1043,8 @@ pub async fn rubygems_gem_info(
         StatusCode::OK,
         [(header::CONTENT_TYPE, "application/json; charset=utf-8")],
         Json(json),
-    ).into_response()
+    )
+        .into_response()
 }
 
 #[derive(Deserialize)]
@@ -831,14 +1066,13 @@ pub async fn helm_index(
     let base_url = build_base_url(&headers);
 
     // List all helm packages in the repo
-    let packages = match rg_core::package_registry::service::list_packages(
-        &state.db, &owner, &name, "helm",
-    )
-    .await
-    {
-        Ok(p) => p,
-        Err(e) => return err(StatusCode::INTERNAL_SERVER_ERROR, &format!("{e:#}")),
-    };
+    let packages =
+        match rg_core::package_registry::service::list_packages(&state.db, &owner, &name, "helm")
+            .await
+        {
+            Ok(p) => p,
+            Err(e) => return err(StatusCode::INTERNAL_SERVER_ERROR, &format!("{e:#}")),
+        };
 
     let mut entries: Vec<rg_core::package_registry::HelmIndexEntry> = Vec::new();
 
@@ -855,14 +1089,20 @@ pub async fn helm_index(
 
         for v in &versions {
             // Build download URL
-            let filename = v.files.first()
+            let filename = v
+                .files
+                .first()
                 .map(|f| f.filename.clone())
                 .unwrap_or_else(|| format!("{}-{}.tgz", pkg.name, v.version));
 
             let download_url = format!(
                 "{}/api/v1/repos/{}/{}/packages/helm/{}/{}/{}",
                 base_url.trim_end_matches('/'),
-                owner, name, pkg.name, v.version, filename,
+                owner,
+                name,
+                pkg.name,
+                v.version,
+                filename,
             );
 
             // Parse Helm-specific metadata from version JSON
@@ -893,9 +1133,9 @@ pub async fn helm_index(
             (header::CONTENT_TYPE, "application/x-yaml; charset=utf-8"),
             // Some Helm clients also check for text/yaml
         ],
-    yaml,
-)
-    .into_response()
+        yaml,
+    )
+        .into_response()
 }
 
 // ── Composer Protocol Endpoint ────────────────────────────
@@ -936,7 +1176,9 @@ pub async fn composer_packages_json(
             Err(_) => continue,
         };
 
-        let composer_versions: Vec<rg_core::package_registry::adapters::composer::ComposerVersionInfo> = versions
+        let composer_versions: Vec<
+            rg_core::package_registry::adapters::composer::ComposerVersionInfo,
+        > = versions
             .iter()
             .map(|v| {
                 let filename = v
@@ -999,11 +1241,22 @@ fn parse_helm_metadata(
         Ok(v) => v,
         Err(_) => return (None, None, Vec::new()),
     };
-    let app_version = doc.get("appVersion").and_then(|v| v.as_str()).map(String::from);
-    let api_version = doc.get("apiVersion").and_then(|v| v.as_str()).map(String::from);
-    let keywords = doc.get("keywords")
+    let app_version = doc
+        .get("appVersion")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    let api_version = doc
+        .get("apiVersion")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    let keywords = doc
+        .get("keywords")
         .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().filter_map(|k| k.as_str().map(String::from)).collect())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|k| k.as_str().map(String::from))
+                .collect()
+        })
         .unwrap_or_default();
     (app_version, api_version, keywords)
 }
@@ -1029,7 +1282,12 @@ fn build_base_url(headers: &axum::http::HeaderMap) -> String {
 /// Returns (description, homepage, license, tags).
 fn parse_nuget_metadata(
     metadata_json: Option<&str>,
-) -> (Option<String>, Option<String>, Option<String>, Option<String>) {
+) -> (
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+) {
     let md = match metadata_json {
         Some(s) => s,
         None => return (None, None, None, None),
@@ -1040,12 +1298,17 @@ fn parse_nuget_metadata(
         Err(_) => return (None, None, None, None),
     };
 
-    let description = doc.get("description").and_then(|v| v.as_str()).map(String::from);
-    let homepage = doc.get("projectUrl")
+    let description = doc
+        .get("description")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    let homepage = doc
+        .get("projectUrl")
         .and_then(|v| v.as_str())
         .or_else(|| doc.get("homepage").and_then(|v| v.as_str()))
         .map(String::from);
-    let license = doc.get("licenseUrl")
+    let license = doc
+        .get("licenseUrl")
         .and_then(|v| v.as_str())
         .or_else(|| doc.get("license").and_then(|v| v.as_str()))
         .map(String::from);
@@ -1071,11 +1334,15 @@ fn parse_rubygems_deps(metadata_json: Option<&str>) -> Vec<rg_core::package_regi
     deps.iter()
         .filter_map(|d| {
             let name = d.get("name").and_then(|v| v.as_str())?.to_string();
-            let req = d.get("requirements")
+            let req = d
+                .get("requirements")
                 .and_then(|v| v.as_str())
                 .unwrap_or(">= 0")
                 .to_string();
-            Some(rg_core::package_registry::RubyGemsDep { name, requirements: req })
+            Some(rg_core::package_registry::RubyGemsDep {
+                name,
+                requirements: req,
+            })
         })
         .collect()
 }
@@ -1084,7 +1351,12 @@ fn parse_rubygems_deps(metadata_json: Option<&str>) -> Vec<rg_core::package_regi
 /// Returns (summary, description, homepage, license).
 fn parse_rubygems_info(
     metadata_json: Option<&str>,
-) -> (Option<String>, Option<String>, Option<String>, Option<String>) {
+) -> (
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+) {
     let md = match metadata_json {
         Some(s) => s,
         None => return (None, None, None, None),
@@ -1093,13 +1365,32 @@ fn parse_rubygems_info(
         Ok(v) => v,
         Err(_) => return (None, None, None, None),
     };
-    let summary = doc.get("summary").and_then(|v| v.as_str()).map(String::from);
-    let description = doc.get("description").and_then(|v| v.as_str()).map(String::from);
-    let homepage = doc.get("homepage").and_then(|v| v.as_str()).map(String::from);
-    let license = doc.get("licenses")
+    let summary = doc
+        .get("summary")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    let description = doc
+        .get("description")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    let homepage = doc
+        .get("homepage")
+        .and_then(|v| v.as_str())
+        .map(String::from);
+    let license = doc
+        .get("licenses")
         .and_then(|v| v.as_array())
-        .map(|arr| arr.iter().filter_map(|l| l.as_str()).collect::<Vec<_>>().join(", "))
-        .or_else(|| doc.get("license").and_then(|v| v.as_str()).map(String::from));
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|l| l.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
+        .or_else(|| {
+            doc.get("license")
+                .and_then(|v| v.as_str())
+                .map(String::from)
+        });
     (summary, description, homepage, license)
 }
 

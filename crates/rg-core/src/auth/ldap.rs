@@ -24,11 +24,7 @@ pub struct LdapUser {
     pub uid: Option<String>,
 }
 
-pub async fn authenticate(
-    config: &LdapConfig,
-    username: &str,
-    password: &str,
-) -> Result<LdapUser> {
+pub async fn authenticate(config: &LdapConfig, username: &str, password: &str) -> Result<LdapUser> {
     let url = if config.use_tls {
         format!("ldaps://{}:{}", config.host, config.port)
     } else {

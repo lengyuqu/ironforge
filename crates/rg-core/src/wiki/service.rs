@@ -50,15 +50,14 @@ pub async fn create_page(
     let page_id = page.id;
     let page_title = page.title.clone();
     let page_content = page.content.clone();
-    if let Err(e) = db.execute(sea_orm::Statement::from_sql_and_values(
-        sea_orm::DatabaseBackend::Sqlite,
-        r#"INSERT INTO wiki_pages_fts(rowid, title, content) VALUES (?, ?, ?)"#,
-        [
-            page_id.into(),
-            page_title.into(),
-            page_content.into(),
-        ],
-    )).await {
+    if let Err(e) = db
+        .execute(sea_orm::Statement::from_sql_and_values(
+            sea_orm::DatabaseBackend::Sqlite,
+            r#"INSERT INTO wiki_pages_fts(rowid, title, content) VALUES (?, ?, ?)"#,
+            [page_id.into(), page_title.into(), page_content.into()],
+        ))
+        .await
+    {
         tracing::warn!(error = %e, page_id = %page_id, "failed to update wiki_pages_fts index");
     }
 
@@ -75,10 +74,7 @@ pub async fn get_page(
 }
 
 /// List all wiki pages for a repo (title + updated_at only for index).
-pub async fn list_pages(
-    db: &DatabaseConnection,
-    repo_id: i64,
-) -> Result<Vec<wiki_page::Model>> {
+pub async fn list_pages(db: &DatabaseConnection, repo_id: i64) -> Result<Vec<wiki_page::Model>> {
     wiki_page_ops::list_by_repo(db, repo_id).await
 }
 
@@ -97,8 +93,10 @@ pub async fn update_page(
         .ok_or_else(|| anyhow::anyhow!("wiki page '{}' not found", title))?;
 
     // Save the current content as a revision before overwriting.
-    let next_version = wiki_revision_ops::latest_version(db, existing.id).await
-        .unwrap_or(0) + 1;
+    let next_version = wiki_revision_ops::latest_version(db, existing.id)
+        .await
+        .unwrap_or(0)
+        + 1;
     let rev = wiki_revision::ActiveModel {
         id: sea_orm::NotSet,
         wiki_page_id: sea_orm::Set(existing.id),
@@ -128,15 +126,14 @@ pub async fn update_page(
     let page_id = updated.id;
     let page_title = updated.title.clone();
     let page_content = updated.content.clone();
-    if let Err(e) = db.execute(sea_orm::Statement::from_sql_and_values(
-        sea_orm::DatabaseBackend::Sqlite,
-        r#"INSERT OR REPLACE INTO wiki_pages_fts(rowid, title, content) VALUES (?, ?, ?)"#,
-        [
-            page_id.into(),
-            page_title.into(),
-            page_content.into(),
-        ],
-    )).await {
+    if let Err(e) = db
+        .execute(sea_orm::Statement::from_sql_and_values(
+            sea_orm::DatabaseBackend::Sqlite,
+            r#"INSERT OR REPLACE INTO wiki_pages_fts(rowid, title, content) VALUES (?, ?, ?)"#,
+            [page_id.into(), page_title.into(), page_content.into()],
+        ))
+        .await
+    {
         tracing::warn!(error = %e, page_id = %page_id, "failed to update wiki_pages_fts index");
     }
 
@@ -165,11 +162,7 @@ pub async fn get_revision(
 }
 
 /// Delete a wiki page.
-pub async fn delete_page(
-    db: &DatabaseConnection,
-    repo_id: i64,
-    title: &str,
-) -> Result<()> {
+pub async fn delete_page(db: &DatabaseConnection, repo_id: i64, title: &str) -> Result<()> {
     let existing = wiki_page_ops::find_by_repo_and_title(db, repo_id, title)
         .await
         .context("find wiki page for delete")?
@@ -178,11 +171,14 @@ pub async fn delete_page(
     let page_id = existing.id;
 
     // Delete from FTS5 index (non-fatal)
-    if let Err(e) = db.execute(sea_orm::Statement::from_sql_and_values(
-        sea_orm::DatabaseBackend::Sqlite,
-        r#"DELETE FROM wiki_pages_fts WHERE rowid = ?"#,
-        [page_id.into()],
-    )).await {
+    if let Err(e) = db
+        .execute(sea_orm::Statement::from_sql_and_values(
+            sea_orm::DatabaseBackend::Sqlite,
+            r#"DELETE FROM wiki_pages_fts WHERE rowid = ?"#,
+            [page_id.into()],
+        ))
+        .await
+    {
         tracing::warn!(error = %e, page_id = %page_id, "failed to delete from wiki_pages_fts index");
     }
 

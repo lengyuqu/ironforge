@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { isLoggedIn, isAdmin } from '$lib/stores/auth.svelte';
+  import { isAuthReady, isLoggedIn, isAdmin } from '$lib/stores/auth.svelte';
   import { goto } from '$app/navigation';
   import { createT, formatDate, formatDateTime } from '$lib/i18n';
   import { admin, type AuditLogEntry } from '$lib/api/client.svelte';
@@ -41,6 +41,7 @@
   ];
 
   $effect(() => {
+    if (!isAuthReady()) return;
     if (!isLoggedIn()) { goto('/login'); return; }
     if (!isAdmin()) { goto('/dashboard'); return; }
     loadLogs();

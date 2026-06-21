@@ -11,8 +11,8 @@
 //! Blob paths use the first two chars of the hex digest as a sharding prefix:
 //! sha256:abc123... → _blobs/sha256/ab/abc123...
 
+use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
-use sha2::{Sha256, Digest};
 use uuid::Uuid;
 
 #[derive(Debug, Clone)]
@@ -22,7 +22,9 @@ pub struct OciStorage {
 
 impl OciStorage {
     pub fn new(root: &Path) -> Self {
-        Self { root: root.to_path_buf() }
+        Self {
+            root: root.to_path_buf(),
+        }
     }
 
     // ── path helpers ────────────────────────────────────────────
@@ -68,9 +70,7 @@ impl OciStorage {
 
     /// Upload temp directory: _uploads/{uuid}/
     fn upload_dir(&self, owner: &str, repo: &str, uuid: &str) -> PathBuf {
-        self.namespace_base(owner, repo)
-            .join("_uploads")
-            .join(uuid)
+        self.namespace_base(owner, repo).join("_uploads").join(uuid)
     }
 
     /// Upload temp file: _uploads/{uuid}/data
@@ -96,10 +96,7 @@ impl OciStorage {
         // Verify digest matches
         let actual = format!("sha256:{}", hex::encode(Sha256::digest(data)));
         if actual != digest {
-            anyhow::bail!(
-                "digest mismatch: expected {}, got {}",
-                digest, actual
-            );
+            anyhow::bail!("digest mismatch: expected {}, got {}", digest, actual);
         }
 
         let dir = self.blob_dir(owner, repo, digest);
@@ -197,11 +194,7 @@ impl OciStorage {
     // ── upload operations ───────────────────────────────────────
 
     /// Create a new upload session, returning the UUID and temp file path.
-    pub async fn create_upload(
-        &self,
-        owner: &str,
-        repo: &str,
-    ) -> anyhow::Result<(String, String)> {
+    pub async fn create_upload(&self, owner: &str, repo: &str) -> anyhow::Result<(String, String)> {
         let uuid = Uuid::new_v4().to_string();
         let dir = self.upload_dir(owner, repo, &uuid);
         tokio::fs::create_dir_all(&dir).await?;
@@ -258,7 +251,11 @@ impl OciStorage {
             let size = blob_dst.metadata().map(|m| m.len() as i64).unwrap_or(0);
             let dir = self.upload_dir(owner, repo, uuid);
             let _ = tokio::fs::remove_dir_all(&dir).await;
-            return Ok((expected_digest.to_string(), size, blob_dst.to_string_lossy().to_string()));
+            return Ok((
+                expected_digest.to_string(),
+                size,
+                blob_dst.to_string_lossy().to_string(),
+            ));
         }
 
         // Ensure blob directory exists
@@ -290,7 +287,8 @@ impl OciStorage {
             let _ = tokio::fs::remove_file(&blob_dst).await;
             anyhow::bail!(
                 "digest mismatch: expected {}, got {}",
-                expected_digest, actual
+                expected_digest,
+                actual
             );
         }
 
@@ -298,7 +296,11 @@ impl OciStorage {
         let dir = self.upload_dir(owner, repo, uuid);
         let _ = tokio::fs::remove_dir_all(&dir).await;
 
-        Ok((expected_digest.to_string(), size, blob_dst.to_string_lossy().to_string()))
+        Ok((
+            expected_digest.to_string(),
+            size,
+            blob_dst.to_string_lossy().to_string(),
+        ))
     }
 
     /// Delete upload temp files.

@@ -3,14 +3,12 @@
 use anyhow::{Context, Result};
 use sea_orm::{ConnectionTrait, *};
 
-use crate::entities::issue_label::{self, ActiveModel, Entity as IssueLabelEntity, Model as IssueLabel};
+use crate::entities::issue_label::{
+    self, ActiveModel, Entity as IssueLabelEntity, Model as IssueLabel,
+};
 
 /// Set labels for an issue (replace all existing labels).
-pub async fn set_labels(
-    db: &DatabaseConnection,
-    issue_id: i64,
-    label_ids: Vec<i64>,
-) -> Result<()> {
+pub async fn set_labels(db: &DatabaseConnection, issue_id: i64, label_ids: Vec<i64>) -> Result<()> {
     let txn = db.begin().await.context("db: begin transaction")?;
 
     // CRITICAL: SeaORM batch delete (踩坑经验 #3)

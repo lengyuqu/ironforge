@@ -3,7 +3,9 @@
 use anyhow::{Context, Result};
 use sea_orm::*;
 
-use crate::entities::access_token::{self, ActiveModel, Entity as TokenEntity, Model as AccessToken};
+use crate::entities::access_token::{
+    self, ActiveModel, Entity as TokenEntity, Model as AccessToken,
+};
 
 /// Find a token by id.
 pub async fn find_by_id(db: &DatabaseConnection, id: i64) -> Result<Option<AccessToken>> {
