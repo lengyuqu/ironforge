@@ -181,7 +181,7 @@
         {/if}
         
         <div class="form-group">
-          <label for="delete-confirm">{t('settings.delete.confirm_instruction')}</label>
+          <label for="delete-confirm">{@html t('settings.delete.confirm_instruction', { repo })}</label>
           <input 
             id="delete-confirm"
             type="text" 

@@ -124,6 +124,11 @@
         <span class="file-lines">{getLineNumbers(blobData.content).length} lines</span>
         <span class="file-size">({formatFileSize(blobData.size)})</span>
       </div>
+      <div class="file-actions">
+        <a href="/{owner}/{repo}/edit/{filePath}?sha={blobData.sha}" class="btn-outline btn-sm">
+          ✏️ {t('repo.edit_file') || 'Edit'}
+        </a>
+      </div>
     </div>
 
     <!-- File content -->

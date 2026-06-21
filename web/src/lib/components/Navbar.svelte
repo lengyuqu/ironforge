@@ -1,11 +1,10 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { getUser, isLoggedIn, isAdmin, logout } from '$lib/stores/auth.svelte';
-  import { locale, type Locale } from '$lib/i18n';
+  import { locale, createT, type Locale } from '$lib/i18n';
   import Dropdown from './Dropdown.svelte';
 
-  const searchPlaceholder = 'Search or jump to...';
-  const tSearch = 'Search';
+  const t = createT();
 
   let search = $state('');
 
@@ -48,9 +47,9 @@
         <span class="logo-text">IronForge</span>
       </a>
 
-      <a href="/dashboard" class="nav-link">Dashboard</a>
-      <a href="/explore" class="nav-link">Explore</a>
-      <a href="/search" class="nav-link">Search</a>
+      <a href="/dashboard" class="nav-link">{t('nav.dashboard')}</a>
+      <a href="/explore" class="nav-link">{t('nav.explore')}</a>
+      <a href="/search" class="nav-link">{t('nav.search')}</a>
     </div>
 
     <div class="navbar-search">
@@ -61,28 +60,28 @@
         type="search"
         class="search-input"
         bind:value={search}
-        placeholder={searchPlaceholder}
-        aria-label={tSearch}
+        placeholder={t('nav.search_placeholder', 'Search or jump to...')}
+        aria-label={t('nav.search')}
         onkeydown={onSearchKeydown}
       />
-      <button class="search-btn" type="button" onclick={performSearch} aria-label="Search">
-        Go
+      <button class="search-btn" type="button" onclick={performSearch} aria-label={t('nav.search')}>
+        {t('nav.search_go', 'Go')}
       </button>
     </div>
 
     <div class="navbar-right">
       {#if isLoggedIn()}
-        <a href="/notifications" class="nav-link">Notifications</a>
-        <a href="/orgs" class="nav-link">Organizations</a>
+        <a href="/notifications" class="nav-link">{t('nav.notifications')}</a>
+        <a href="/orgs" class="nav-link">{t('nav.organizations')}</a>
 
         <div class="lang-menu-container">
-          <Dropdown ariaLabel="Change language" triggerClass="lang-btn">
+          <Dropdown ariaLabel={t('nav.change_language', 'Change language')} triggerClass="lang-btn">
             {#snippet trigger()}
-              {$locale === 'zh-CN' ? '中文' : 'EN'}
+              {$locale === 'zh-CN' ? t('nav.chinese', '中文') : t('nav.english', 'EN')}
             {/snippet}
             {#snippet menu(close)}
-              <button onclick={() => { setLocale('en'); close(); }} class:active={$locale === 'en'} role="menuitem">English</button>
-              <button onclick={() => { setLocale('zh-CN'); close(); }} class:active={$locale === 'zh-CN'} role="menuitem">中文</button>
+              <button onclick={() => { setLocale('en'); close(); }} class:active={$locale === 'en'} role="menuitem">{t('nav.english', 'English')}</button>
+              <button onclick={() => { setLocale('zh-CN'); close(); }} class:active={$locale === 'zh-CN'} role="menuitem">{t('nav.chinese', '中文')}</button>
             {/snippet}
           </Dropdown>
         </div>
@@ -99,19 +98,19 @@
               </svg>
             {/snippet}
             {#snippet menu(close)}
-              <a href="/dashboard" onclick={close} role="menuitem">Dashboard</a>
-              <a href="/notifications" onclick={close} role="menuitem">Notifications</a>
-              <a href="/orgs" onclick={close} role="menuitem">Organizations</a>
+              <a href="/dashboard" onclick={close} role="menuitem">{t('nav.dashboard')}</a>
+              <a href="/notifications" onclick={close} role="menuitem">{t('nav.notifications')}</a>
+              <a href="/orgs" onclick={close} role="menuitem">{t('nav.organizations')}</a>
               {#if isAdmin()}
-                <a href="/admin" class="admin-link" onclick={close} role="menuitem">Admin Panel</a>
+                <a href="/admin" class="admin-link" onclick={close} role="menuitem">{t('nav.admin_panel')}</a>
               {/if}
-              <button onclick={() => { handleLogout(); close(); }} role="menuitem">Sign out</button>
+              <button onclick={() => { handleLogout(); close(); }} role="menuitem">{t('nav.sign_out')}</button>
             {/snippet}
           </Dropdown>
         </div>
       {:else}
-        <a href="/register" class="btn-outline">Sign up</a>
-        <a href="/login" class="btn-outline">Sign in</a>
+        <a href="/register" class="btn-outline">{t('nav.sign_up')}</a>
+        <a href="/login" class="btn-outline">{t('nav.sign_in')}</a>
       {/if}
     </div>
   </div>

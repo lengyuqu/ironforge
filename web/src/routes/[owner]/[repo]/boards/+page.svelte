@@ -52,6 +52,7 @@
 
   async function createBoard() {
     if (!newBoardName.trim()) return;
+    error = '';
     try {
       const b = await boards.create(owner, repo, {
         name: newBoardName.trim(),
@@ -63,7 +64,8 @@
       newBoardDesc = '';
       await selectBoard(b);
     } catch (e: any) {
-      error = e.message;
+      error = e.message || 'Failed to create board';
+      console.error('createBoard error:', e);
     }
   }
 

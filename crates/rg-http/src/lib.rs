@@ -464,6 +464,8 @@ fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
         .route("/repos/{owner}/{name}/tags", get(api::repo_content::list_tags))
         // GPG Signatures
         .route("/repos/{owner}/{name}/commits/{sha}/signature", get(api::repo_content::get_commit_signature))
+        // File creation/update/deletion
+        .route("/repos/{owner}/{name}/contents/{*path}", post(api::repo_content::create_or_update_file).delete(api::repo_content::delete_file))
         // Mirror
         .route("/repos/{owner}/{name}/mirror", get(api::mirrors::get_mirror).post(api::mirrors::create_mirror).patch(api::mirrors::update_mirror).delete(api::mirrors::delete_mirror))
         .route("/repos/{owner}/{name}/mirror/sync", post(api::mirrors::trigger_mirror_sync))

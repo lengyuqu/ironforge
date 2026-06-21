@@ -4,6 +4,7 @@
   import { createT } from '$lib/i18n';
   import { search, type SearchResult } from '$lib/api/client.svelte';
   import { highlightText } from '$lib/utils/search';
+  import { onMount } from 'svelte';
 
   const t = createT();
 
@@ -15,6 +16,7 @@
   let currentPage = $state(1);
   let perPage = 20;
   let hasSearched = $state(false);
+  let showHelp = $state(false);
 
   let totalPages = $derived(Math.ceil(total / perPage) || 1);
   let hasNext = $derived(currentPage < totalPages);
@@ -35,6 +37,19 @@
         performSearch(q, type, pg);
       }
     }
+  });
+
+  // Keyboard shortcut: Ctrl+K or Cmd+K to focus search
+  onMount(() => {
+    function handleKeyboard(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        const input = document.querySelector('.search-input') as HTMLInputElement;
+        if (input) input.focus();
+      }
+    }
+    window.addEventListener('keydown', handleKeyboard);
+    return () => window.removeEventListener('keydown', handleKeyboard);
   });
 
   async function performSearch(q: string, type: string, pg: number) {
@@ -77,6 +92,19 @@
       doSearch();
     }
   }
+
+  function toggleHelp() {
+    showHelp = !showHelp;
+  }
+
+  // Get issue state badge color
+  function getStateBadgeClass(state: string | null | undefined): string {
+    if (!state) return '';
+    if (state === 'open') return 'state-badge-open';
+    if (state === 'closed') return 'state-badge-closed';
+    if (state === 'merged') return 'state-badge-merged';
+    return '';
+  }
 </script>
 
 <div class="page-container search-page">
@@ -96,7 +124,36 @@
         />
         <button class="search-btn btn btn-primary" onclick={doSearch}>{t('search.search_button')}</button>
       </div>
+      <button class="help-btn" onclick={toggleHelp} title={t('search.help_title') || 'Search help'}>
+        ?
+      </button>
     </div>
+
+    {#if showHelp}
+      <div class="search-help">
+        <h3>{t('search.help_title') || 'Search Tips'}</h3>
+        <p>{t('search.help_desc') || 'Use qualifiers to refine your search:'}</p>
+        <div class="help-qualifiers">
+          <div class="help-item">
+            <code>repo:owner/name</code>
+            <span>{t('search.help_repo') || 'Search in a specific repository'}</span>
+          </div>
+          <div class="help-item">
+            <code>author:username</code>
+            <span>{t('search.help_author') || 'Search by author'}</span>
+          </div>
+          <div class="help-item">
+            <code>state:open|closed|all</code>
+            <span>{t('search.help_state') || 'Filter by issue state'}</span>
+          </div>
+          <div class="help-item">
+            <code>label:name</code>
+            <span>{t('search.help_label') || 'Filter by label'}</span>
+          </div>
+        </div>
+        <p class="help-tip">{t('search.help_tip') || 'Example: bug fix repo:owner/name state:open'}</p>
+      </div>
+    {/if}
 
     <div class="type-tabs">
       {#each [
@@ -158,10 +215,13 @@
               </div>
             </a>
           {:else if result.result_type === 'issue'}
-            <a href="/{result.repo_owner}/{result.repo_name}/issues/{result.id}" class="result-card issue-card gh-list-item">
+            <a href="/{result.repo_owner}/{result.repo_name}/issues/{result.number}" class="result-card issue-card gh-list-item">
               <div class="result-body">
                 <div class="issue-header">
-                  <span class="issue-badge">#{result.id}</span>
+                  {#if result.state}
+                    <span class="issue-state-badge {getStateBadgeClass(result.state)}">{result.state}</span>
+                  {/if}
+                  <span class="issue-badge">#{result.number}</span>
                   <span class="result-title">{@html highlightText(result.title || '', query)}</span>
                 </div>
                 <div class="result-meta">
@@ -202,6 +262,10 @@
       {/if}
     {/if}
   </div>
+
+<div class="keyboard-hint">
+  {@html t('search.keyboard_hint')?.replace(/Ctrl\+K/g, '<kbd>Ctrl+K</kbd>') || 'Tip: Press Ctrl+K to focus search'}
+</div>
 </div>
 
 <style>
@@ -256,6 +320,130 @@
   .search-btn {
     flex-shrink: 0;
     border-radius: 0 var(--radius) var(--radius) 0;
+  }
+
+  .help-btn {
+    width: 36px;
+    height: 36px;
+    margin-left: 8px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 50%;
+    color: var(--text-secondary);
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .help-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+    border-color: var(--accent);
+  }
+
+  .search-help {
+    margin-top: 16px;
+    padding: 16px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
+
+  .search-help h3 {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 8px;
+  }
+
+  .search-help p {
+    margin-bottom: 12px;
+    line-height: 1.5;
+  }
+
+  .help-qualifiers {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+
+  .help-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .help-item code {
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 12px;
+    color: var(--accent);
+    white-space: nowrap;
+  }
+
+  .help-item span {
+    color: var(--text-secondary);
+  }
+
+  .help-tip {
+    font-size: 12px;
+    color: var(--text-muted);
+    padding: 8px;
+    background: var(--bg-primary);
+    border-radius: 4px;
+  }
+
+  .issue-state-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+    flex-shrink: 0;
+  }
+
+  .state-badge-open {
+    background: #2da44e20;
+    color: #2da44e;
+    border: 1px solid #2da44e40;
+  }
+
+  .state-badge-closed {
+    background: #8250df20;
+    color: #8250df;
+    border: 1px solid #8250df40;
+  }
+
+  .state-badge-merged {
+    background: #826b0020;
+    color: #826b00;
+    border: 1px solid #826b0040;
+  }
+
+  .keyboard-hint {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 8px;
+    text-align: center;
+  }
+
+  .keyboard-hint kbd {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 11px;
+    font-family: monospace;
   }
 
   .type-tabs {

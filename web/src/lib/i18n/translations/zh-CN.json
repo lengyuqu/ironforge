@@ -1,7 +1,7 @@
 {
   "common": {
     "sign_in": "登录",
-    "sign_out": "退出登录",
+    "sign_out": "退出",
     "cancel": "取消",
     "save": "保存",
     "edit": "编辑",
@@ -14,37 +14,85 @@
     "optional": "（可选）",
     "unknown": "未知",
     "created": "创建于 {date}",
+    "no_description": "无描述",
     "updated": "更新于 {date}",
-    "no_description": "暂无描述"
+    "all": "全部",
+    "search": "搜索",
+    "close": "关闭",
+    "add": "添加",
+    "previous": "上一页",
+    "next": "下一页",
+    "copy": "复制",
+    "offline": "离线",
+    "date": "日期",
+    "view": "查看"
   },
   "nav": {
-    "dashboard": "仪表盘",
+    "dashboard": "仪表板",
     "notifications": "通知",
     "organizations": "组织",
     "settings": "设置",
     "live": "在线",
-    "offline": "离线"
+    "offline": "离线",
+    "explore": "探索",
+    "search": "搜索",
+    "sign_up": "注册",
+    "sign_in": "登录",
+    "sign_out": "退出",
+    "admin_panel": "管理后台",
+    "search_placeholder": "搜索或跳转到...",
+    "search_go": "搜索",
+    "change_language": "切换语言",
+    "english": "English",
+    "chinese": "中文"
   },
   "home": {
-    "tagline": "用 Rust 构建的自托管 Git 平台",
+    "tagline": "轻量级自托管 Git 服务",
+    "description": "IronForge 是用 Rust 构建的轻量级 Git 托管平台，作为 Gitea 的现代替代品。单二进制部署，内存高效，功能完整。",
+    "sign_up": "注册",
+    "sign_in": "登录",
     "features": {
-      "secure": "安全",
-      "secure_desc": "Argon2 + JWT 身份验证",
-      "fast": "快速",
-      "fast_desc": "Rust 驱动的 HTTP 和 SSH",
-      "code_review": "代码审查",
-      "code_review_desc": "PR 审查与分支保护",
-      "cicd": "CI/CD",
-      "cicd_desc": "内置流水线引擎"
+      "title": "为什么选择 IronForge？",
+      "lightweight": {
+        "title": "轻量级",
+        "desc": "内存占用 <50MB，最小化资源消耗"
+      },
+      "all_in_one": {
+        "title": "一站式",
+        "desc": "仓库、问题、PR、Wiki、CI/CD、包管理"
+      },
+      "security": {
+        "title": "安全",
+        "desc": "Argon2 + JWT 认证，企业级安全"
+      },
+      "self_hosted": {
+        "title": "自托管",
+        "desc": "完全掌控您的数据，任意部署"
+      },
+      "fast": {
+        "title": "快速",
+        "desc": "用 Rust 构建，性能卓越"
+      },
+      "extensible": {
+        "title": "可扩展",
+        "desc": "MCP 服务器支持，AI Agent 集成"
+      }
     },
-    "cta": {
-      "go_dashboard": "前往仪表盘",
-      "create_account": "创建账户"
+    "stats": {
+      "memory": "内存占用",
+      "binary": "单二进制",
+      "compatible": "Git 兼容",
+      "language": "构建语言"
     },
+    "public_repos": "公开仓库",
     "explore": {
-      "title": "探索仓库",
-      "view_all": "查看全部",
-      "empty": "暂无公开仓库"
+      "view_all": "查看全部"
+    },
+    "footer": {
+      "github": "GitHub",
+      "explore": "探索",
+      "help": "帮助",
+      "built_with": "用 Rust 和 SvelteKit 构建"
     }
   },
   "auth": {
@@ -54,24 +102,24 @@
       "password": "密码",
       "submit": "登录",
       "submitting": "登录中...",
-      "footer": "第一次使用 IronForge？{link}",
-      "footer_link": "创建账户",
+      "footer": "新用户？{link}",
+      "footer_link": "创建账号",
       "failed": "登录失败"
     },
     "register": {
-      "title": "创建账户",
+      "title": "创建您的账号",
       "username": "用户名",
       "email": "邮箱",
       "password": "密码",
-      "submit": "创建账户",
+      "submit": "创建账号",
       "submitting": "创建中...",
-      "footer": "已有账户？{link}",
+      "footer": "已有账号？{link}",
       "footer_link": "登录",
       "failed": "注册失败"
     }
   },
   "dashboard": {
-    "title": "仪表盘",
+    "title": "仪表板",
     "new_repo": "新建仓库",
     "create_form": {
       "title": "创建新仓库",
@@ -79,7 +127,7 @@
       "name_placeholder": "my-project",
       "desc": "描述",
       "private": "私有仓库",
-      "private_hint": "仅你和指定的协作者可见。",
+      "private_hint": "只有您和您指定的协作者可以看到此仓库。",
       "auto_init": "初始化仓库",
       "auto_init_hint": "使用模板文件（README、LICENSE、.gitignore）初始化此仓库。",
       "default_branch": "默认分支",
@@ -93,19 +141,15 @@
     },
     "empty": {
       "no_repos": "暂无仓库",
-      "get_started": "创建你的第一个仓库吧！"
+      "get_started": "创建您的第一个仓库开始使用！"
     },
     "repo": {
       "private": "私有"
     }
   },
-  "profile": {
-    "no_repos": "此用户暂无公开仓库。",
-    "private": "私有"
-  },
   "notifications": {
     "title": "通知",
-    "unread_only": "仅显示未读",
+    "unread_only": "仅未读",
     "mark_all_read": "全部标为已读",
     "mark_read": "标为已读",
     "empty": "暂无通知",
@@ -152,7 +196,8 @@
       "packages": "包",
       "board": "看板",
       "commits": "提交",
-      "settings": "设置"
+      "settings": "设置",
+      "runners": "Runner"
     },
     "star": "收藏",
     "unstar": "取消收藏",
@@ -160,32 +205,50 @@
     "watch": "关注",
     "watching": "已关注",
     "not_watching": "关注",
-    "ignoring": "已忽略",
-    "fork": "派生",
-    "forking": "派生中...",
-    "forks": "派生",
-    "code": "代码",
-    "clone_title": "克隆仓库",
-    "copy_clone_url": "复制仓库地址",
-    "download_zip": "下载 ZIP",
+    "ignoring": "忽略",
+    "fork": "复刻",
+    "forking": "复刻中...",
+    "forks": "复刻",
     "clone": "克隆",
+    "clone_title": "克隆",
     "clone_http": "HTTPS",
     "clone_ssh": "SSH",
     "clone_copied": "已复制",
+    "code": "代码",
+    "copy_clone_url": "复制 URL 到剪贴板",
+    "download_zip": "下载 ZIP",
+    "select_branch": "选择分支",
+    "description": "描述",
+    "description_hint": "（支持 Markdown）",
+    "no_diff": "无差异。",
+    "recent_commits": "最近提交",
+    "commits_empty": "暂无提交。",
+    "file_size": {
+      "b": " B",
+      "kb": " KB",
+      "mb": " MB"
+    },
     "empty": {
-      "title": "快速设置",
-      "desc": "如果这是你第一次来这里，并且想要快速开始，最简单的方式是推送一个已有的仓库。",
-      "step_clone": "克隆仓库到本地",
-      "step_create": "创建新文件或导入已有项目",
+      "title": "这是一个空仓库",
+      "step_create": "创建新文件或导入现有项目",
       "step_push": "提交并推送到远程仓库",
-      "quick": "从头创建新仓库",
-      "existing": "推送已有仓库",
+      "quick": "快速命令",
+      "desc": "如果您是新手，想要快速开始，最简单的方法是推送现有仓库。",
+      "step_one": "将仓库克隆到本地机器",
       "copy": "复制",
-      "copied": "已复制"
+      "copied": "已复制",
+      "step_clone": "克隆此仓库",
+      "existing": "已有仓库？"
+    },
+    "browser": {
+      "branch": "分支",
+      "default_branch": "（默认）",
+      "recent_commits": "最近提交",
+      "no_diff": "无差异可用。"
     },
     "packages": {
-      "title": "软件包",
-      "subtitle": "{format} 软件包注册表",
+      "title": "包",
+      "subtitle": "{format} 的包注册表",
       "formats": {
         "cargo": "Cargo",
         "npm": "npm",
@@ -197,16 +260,16 @@
         "helm": "Helm",
         "generic": "通用"
       },
-      "no_packages": "暂无软件包。",
+      "no_packages": "暂无包。",
       "install": "安装",
-      "upload": "上传软件包",
+      "upload": "上传包",
       "delete": "删除版本",
       "version": "版本",
       "format": "格式",
       "description": "描述",
       "content_type": "内容类型",
       "file": "文件",
-      "upload_success": "软件包上传成功。",
+      "upload_success": "包上传成功。",
       "delete_confirm": "确定要删除 {name} {version} 吗？",
       "no_versions": "暂无版本。"
     },
@@ -218,12 +281,12 @@
         "closed": "已关闭"
       },
       "no_issues": "此列暂无问题。",
-      "drag_hint": "在列之间拖动问题以更新状态。",
+      "drag_hint": "在不同列之间拖拽问题以更新状态。",
       "createBoard": "创建看板",
-      "noBoards": "暂无看板，请创建一个。",
+      "noBoards": "暂无看板。创建一个开始使用。",
       "confirmDelete": "确定要删除此看板吗？",
       "namePlaceholder": "看板名称",
-      "descPlaceholder": "描述（选填）",
+      "descPlaceholder": "描述（可选）",
       "addColumn": "添加列",
       "colNamePlaceholder": "列名称",
       "addCard": "添加卡片",
@@ -232,44 +295,34 @@
     },
     "wiki": {
       "history": "历史",
-      "noRevisions": "暂无修订历史。",
-      "revisionMessage": "提交信息",
-      "noMessage": "无提交信息"
+      "noRevisions": "无修订历史。",
+      "revisionMessage": "提交消息",
+      "noMessage": "无提交消息"
     },
     "time_tracking": {
-      "title": "时间追踪",
+      "title": "时间跟踪",
       "add_entry": "添加时间条目",
-      "duration": "时长（小时）",
+      "duration": "持续时间（小时）",
       "note": "备注",
       "date": "日期",
       "total_hours": "总计：{hours} 小时",
-      "delete_confirm": "删除此时间条目吗？",
+      "delete_confirm": "删除此时间条目？",
       "no_entries": "暂无时间条目。"
     },
     "runners": {
-      "title": "运行器",
-      "register": "注册运行器",
+      "title": "Runner",
+      "register": "注册 Runner",
       "name": "名称",
       "labels": "标签（逗号分隔）",
       "status": "状态",
       "version": "版本",
       "delete": "移除",
-      "delete_confirm": "确定要移除运行器 {name} 吗？",
-      "no_runners": "暂无注册的运行器。",
+      "delete_confirm": "确定要移除 runner {name} 吗？",
+      "no_runners": "暂无注册的 runner。",
       "online": "在线",
       "offline": "离线"
     },
-    "browser": {
-      "branch": "分支",
-      "default_branch": "（默认）",
-      "recent_commits": "最近提交",
-      "no_diff": "暂无差异。"
-    },
-    "file_size": {
-      "b": "B",
-      "kb": "KB",
-      "mb": "MB"
-    }
+    "clone_url": "克隆 URL"
   },
   "issues": {
     "title": "问题",
@@ -278,21 +331,21 @@
       "closed": "✓ 已关闭",
       "all": "全部"
     },
-    "new": "新建问题",
+    "new": "新问题",
     "create_form": {
       "title": "标题",
       "title_placeholder": "问题标题",
-      "body": "正文",
+      "body": "内容",
       "body_hint": "（支持 Markdown）",
-      "body_placeholder": "描述这个问题...",
+      "body_placeholder": "描述问题...",
       "labels": "标签",
       "labels_hint": "（逗号分隔）",
       "labels_placeholder": "bug, enhancement",
       "submit": "提交问题",
       "cancel": "取消"
     },
-    "empty": "没有{state}的问题。",
-    "meta": "#{number} 于 {date} 由 {author} 开启",
+    "empty": "暂无 {state} 问题。",
+    "meta": "#{number} 由 {author} 于 {date} 创建",
     "state": {
       "open": "● 开放",
       "closed": "✓ 已关闭"
@@ -306,23 +359,26 @@
     "title": "拉取请求",
     "tabs": {
       "conversation": "对话",
-      "changes": "更改",
-      "reviews": "审查"
+      "changes": "变更",
+      "reviews": "审查",
+      "open": "开放",
+      "closed": "已关闭",
+      "merged": "已合并"
     },
     "new": "新建拉取请求",
     "create_form": {
       "title": "创建拉取请求",
-      "from": "源分支（head）",
-      "into": "目标分支（base）",
+      "from": "从（head）",
+      "into": "并入（base）",
       "select_branch": "选择分支",
       "description": "描述",
       "description_hint": "（支持 Markdown）",
-      "description_placeholder": "描述你的更改...",
+      "description_placeholder": "描述您的变更...",
       "submit": "创建拉取请求",
       "cancel": "取消"
     },
-    "empty": "没有{state}的拉取请求。",
-    "meta": "#{number} 于 {date} 由 {author} 开启",
+    "empty": "暂无 {state} 拉取请求。",
+    "meta": "#{number} 由 {author} 于 {date} 创建",
     "state": {
       "open": "⑂ 开放",
       "closed": "✓ 已关闭",
@@ -331,23 +387,23 @@
     "merge": {
       "strategy": {
         "merge": "合并提交",
-        "squash": "压缩合并",
-        "rebase": "变基合并"
+        "squash": "压缩并合并",
+        "rebase": "变基并合并"
       },
       "button": "合并拉取请求",
       "merging": "合并中..."
     },
     "verdict": {
       "approved": "✓ 已批准",
-      "changes_requested": "✗ 请求更改",
+      "changes_requested": "✗ 已请求变更",
       "commented": "● 已评论"
     },
     "review": {
       "title": "提交审查",
       "verdict_comment": "评论",
       "verdict_approve": "批准",
-      "verdict_changes": "请求更改",
-      "placeholder": "留下审查意见...",
+      "verdict_changes": "请求变更",
+      "placeholder": "留下审查评论...",
       "submit": "提交审查"
     }
   },
@@ -359,7 +415,7 @@
       "title": "标题",
       "title_placeholder": "页面标题",
       "content": "内容（Markdown）",
-      "content_placeholder": "编写你的 Wiki 内容...",
+      "content_placeholder": "编写 Wiki 内容...",
       "submit": "创建页面",
       "cancel": "取消"
     },
@@ -370,7 +426,11 @@
     "delete": "删除",
     "toc": "目录",
     "back": "返回 Wiki",
-    "not_found": "页面未找到"
+    "not_found": "页面未找到",
+    "history": "历史",
+    "revisionMessage": "版本消息",
+    "noMessage": "无消息",
+    "noRevisions": "暂无版本"
   },
   "pipeline": {
     "status": {
@@ -388,10 +448,10 @@
     "detail_title": "流水线 #{id}",
     "commit": "提交",
     "branch": "分支",
-    "duration": "耗时",
+    "duration": "持续时间",
     "stages": "阶段",
-    "jobs": "作业",
-    "select_detail": "选择一个流水线查看详情。"
+    "jobs": "任务",
+    "select_detail": "选择流水线以查看详情。"
   },
   "errors": {
     "login_failed": "登录失败",
@@ -411,25 +471,33 @@
     "issues": "问题",
     "wiki": "Wiki",
     "no_results": "未找到结果。",
-    "results_count": "{total} 条结果",
-    "search_button": "搜索"
+    "results_count": "{total} 个结果",
+    "search_button": "搜索",
+    "help_title": "搜索提示",
+    "help_desc": "使用限定符来优化搜索：",
+    "help_repo": "在特定仓库中搜索",
+    "help_author": "按作者搜索",
+    "help_state": "按问题状态筛选",
+    "help_label": "按标签筛选",
+    "help_tip": "示例：bug fix repo:owner/name state:open",
+    "keyboard_hint": "提示：按 Ctrl+K 聚焦搜索框"
   },
   "releases": {
     "title": "发布",
-    "new": "新建发布",
+    "new": "新发布",
     "no_releases": "暂无发布。",
     "create_title": "创建新发布",
-    "tag_name": "标签名",
+    "tag_name": "标签名称",
     "tag_name_placeholder": "v1.0.0",
     "release_title": "发布标题",
     "release_title_placeholder": "发布描述",
     "body": "描述此发布",
-    "body_placeholder": "编写变更说明...",
-    "target_commitish": "目标分支/提交",
+    "body_placeholder": "描述变更...",
+    "target_commitish": "目标分支 / 提交",
     "is_draft": "保存为草稿",
     "is_prerelease": "标记为预发布",
     "submit": "创建发布",
-    "submitting": "创建中...",
+    "submitting": "创建发布中...",
     "latest": "最新",
     "prerelease": "预发布",
     "draft": "草稿",
@@ -449,7 +517,7 @@
     "label_color": "标签颜色",
     "label_desc": "描述",
     "label_desc_placeholder": "描述（可选）",
-    "new_label": "新建标签",
+    "new_label": "新标签",
     "edit_label": "编辑标签",
     "save_label": "保存标签",
     "create_label": "创建标签",
@@ -460,13 +528,13 @@
     "custom_color": "自定义颜色",
     "transfer": {
       "title": "转移所有权",
-      "desc": "将此仓库转移给其他用户或组织。",
+      "desc": "将此仓库转移到另一个用户或组织。",
       "new_owner": "新所有者",
       "new_owner_placeholder": "用户名或组织名",
       "confirm": "转移仓库",
       "confirming": "转移中...",
-      "success": "仓库已成功转移。",
-      "warning": "此操作不可撤销。请确认新所有者信息正确。"
+      "success": "仓库转移成功。",
+      "warning": "这是永久性操作。请确保您有正确的新所有者。"
     },
     "delete": {
       "title": "删除此仓库",
@@ -484,38 +552,38 @@
     "failure": "失败",
     "error": "错误",
     "pending": "等待中",
-    "no_status": "尚无状态检查。",
+    "no_status": "暂无状态检查报告。",
     "context": "上下文",
     "description": "描述",
     "details": "详情"
   },
   "admin": {
     "title": "管理面板",
-    "subtitle": "站点管理与用户管理",
-    "back": "返回管理面板",
+    "subtitle": "站点管理和用户管理",
+    "back": "返回管理",
     "users": {
       "title": "用户管理",
-      "desc": "查看和管理所有用户",
-      "total": "位用户",
+      "desc": "查看和管理此实例上的所有用户",
+      "total": "用户总数",
       "edit": "编辑用户：{username}",
       "is_admin": "站点管理员",
       "is_active": "活跃",
       "delete_confirm": "删除用户",
-      "delete_warning": "确定要删除用户「{username}」吗？此操作不可撤销。"
+      "delete_warning": "确定要删除用户 \"{username}\" 吗？此操作无法撤销。"
     },
     "orgs": {
       "title": "组织管理",
       "desc": "查看和管理所有组织",
-      "total": "个组织",
+      "total": "组织总数",
       "delete_confirm": "删除组织",
-      "delete_warning": "确定要删除组织「{name}」吗？所有相关数据将丢失。"
+      "delete_warning": "确定要删除组织 \"{name}\" 吗？所有关联数据将丢失。"
     },
     "audit": {
       "title": "审计日志",
-      "desc": "查看安全事件和操作历史记录",
-      "total": "条记录",
+      "desc": "查看安全事件和操作历史",
+      "total": "记录总数",
       "detail_title": "审计日志 #{id}",
-      "filter_all": "全部操作",
+      "filter_all": "所有操作",
       "no_details": "无额外详情",
       "fields": {
         "time": "时间",
@@ -528,11 +596,46 @@
       }
     }
   },
+  "profile": {
+    "no_repos": "此用户暂无公开仓库。",
+    "private": "私有"
+  },
   "explore": {
-    "title": "探索仓库",
-    "subtitle": "共 {count} 个公开仓库",
+    "title": "探索",
+    "subtitle": "{count} 个仓库",
     "empty": "暂无公开仓库。",
     "prev": "上一页",
     "next": "下一页"
+  },
+  "board": {
+    "confirmDelete": "删除此看板？",
+    "title": "看板",
+    "createBoard": "创建看板",
+    "namePlaceholder": "看板名称",
+    "descPlaceholder": "看板描述（可选）",
+    "noBoards": "暂无看板",
+    "deleteBoard": "删除看板",
+    "addColumn": "添加列",
+    "colNamePlaceholder": "列名称",
+    "moveTo": "移动到",
+    "cardTitlePlaceholder": "卡片标题",
+    "addCard": "添加卡片"
+  },
+  "packages": {
+    "upload": "上传包",
+    "format": "格式",
+    "no_packages": "暂无包",
+    "version": "版本",
+    "title": "包",
+    "install": "安装"
+  },
+  "runners": {
+    "register": "注册 Runner",
+    "name": "名称",
+    "labels": "标签",
+    "no_runners": "暂无注册的 Runner"
+  },
+  "time_tracking": {
+    "title": "时间跟踪"
   }
 }

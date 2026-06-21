@@ -30,7 +30,7 @@
     try {
       const res = await runners.list(currentPage, 20);
       runnerList = res.data;
-      totalPages = res.pagination.total_pages;
+      totalPages = res.pagination?.total_pages ?? 1;
     } catch (e: any) {
       error = e.message;
     } finally {

@@ -34,8 +34,8 @@
     try {
       const result = await admin.listUsers(page, perPage);
       users = result.data;
-      total = result.pagination.total;
-      totalPages = result.pagination.total_pages;
+      total = result.pagination?.total ?? 0;
+      totalPages = result.pagination?.total_pages ?? 1;
     } catch (e: any) {
       error = e.message || t('errors.load_failed');
     } finally {

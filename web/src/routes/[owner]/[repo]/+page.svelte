@@ -213,6 +213,12 @@ git push -u origin {repoInfo?.default_branch || 'main'}</code></pre>
         </Dropdown>
       </div>
 
+      <div class="toolbar-actions">
+        <a href="/{owner}/{repo}/new" class="btn-outline btn-sm">
+          ➕ {t('repo.new_file') || 'New file'}
+        </a>
+      </div>
+
       <div class="breadcrumb">
         <a href="/{owner}/{repo}">{repo}</a>
         {#if path}

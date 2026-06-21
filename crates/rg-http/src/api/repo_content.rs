@@ -38,6 +38,42 @@ pub struct LogQuery {
     pub limit: Option<i64>,
 }
 
+/// Request body for creating/updating a file.
+#[derive(Deserialize, utoipa::ToSchema)]
+pub struct CreateOrUpdateFileRequest {
+    /// Branch name (default: repo's default branch)
+    #[serde(default)]
+    pub branch: Option<String>,
+    /// File content (UTF-8 string, not base64)
+    pub content: String,
+    /// Commit message
+    pub message: String,
+    /// Blob SHA of the file being updated (required for updates, omit for creates)
+    #[serde(default)]
+    pub sha: Option<String>,
+}
+
+/// Query parameters for deleting a file.
+#[derive(Deserialize, utoipa::ToSchema)]
+pub struct DeleteFileQuery {
+    /// Branch name (default: repo's default branch)
+    #[serde(default)]
+    pub branch: Option<String>,
+    /// Commit message
+    pub message: String,
+    /// Blob SHA of the file (required to prevent accidental deletes)
+    pub sha: String,
+}
+
+/// Response for file creation/update/deletion.
+#[derive(Serialize, Deserialize, utoipa::ToSchema)]
+pub struct FileOperationResponse {
+    pub success: bool,
+    pub file_path: String,
+    pub commit_sha: String,
+    pub message: String,
+}
+
 #[derive(Serialize)]
 pub struct TreeEntry {
     pub name: String,
@@ -791,4 +827,204 @@ fn verify_commit_signature(
         signer_email,
         status,
     })
+}
+
+// ── Write access helper ─────────────────────────────────────────────
+/// Resolve a repo by owner/name and enforce write access.
+/// Returns the repo model. User must have write permission (owner, collaborator with write/admin, or org member with write).
+async fn resolve_and_check_write_access(
+    state: &AppState,
+    headers: &HeaderMap,
+    owner: &str,
+    repo: &str,
+) -> Result<rg_db::entities::repository::Model, AppError> {
+    let claims = extract_bearer_claims(headers, &state.jwt_secret)
+        .ok_or_else(|| AppError::unauthorized("authentication required"))?;
+    
+    let user_id: i64 = claims.sub.parse().unwrap_or(-1);
+    if user_id <= 0 {
+        return Err(AppError::unauthorized("invalid token"));
+    }
+    
+    let repo_model = rg_core::repo::service::find_repo_by_owner_name(&state.db, owner, repo)
+        .await
+        .map_err(|e| AppError::internal(e))?
+        .ok_or_else(|| AppError::not_found("repository not found"))?;
+    
+    if !rg_core::repo::service::can_write_repo(&state.db, &repo_model, Some(user_id))
+        .await
+        .unwrap_or(false)
+    {
+        return Err(AppError::forbidden("write access denied"));
+    }
+    
+    Ok(repo_model)
+}
+
+// ── File creation/update/delete handlers ──────────────────────────
+
+/// Create or update a file in a repository.
+/// POST /api/v1/repos/:owner/:name/contents/:path
+#[utoipa::path(
+    post,
+    path = "/repos/{owner}/{name}/contents/{*path}",
+    tag = "Repository Content",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+    ),
+    request_body = CreateOrUpdateFileRequest,
+    responses(
+        (status = 200, description = "Success", body = FileOperationResponse),
+        (status = 400, description = "Bad request", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+        (status = 403, description = "Forbidden", body = serde_json::Value),
+        (status = 404, description = "Not found", body = serde_json::Value),
+        (status = 409, description = "Conflict (SHA mismatch)", body = serde_json::Value),
+    ),
+)]
+pub async fn create_or_update_file(
+    State(state): State<AppState>,
+    Path((owner, repo, path)): Path<(String, String, String)>,
+    headers: HeaderMap,
+    Json(req): Json<CreateOrUpdateFileRequest>,
+) -> impl IntoResponse {
+    // Validate owner/repo
+    if let Err(e) = rg_core::platform::validate_repo_path(&owner) {
+        return AppError::bad_request(e.to_string()).into_response();
+    }
+    if let Err(e) = rg_core::platform::validate_repo_path(&repo) {
+        return AppError::bad_request(e.to_string()).into_response();
+    }
+    
+    // Check write access
+    let repo_model = match resolve_and_check_write_access(&state, &headers, &owner, &repo).await {
+        Ok(r) => r,
+        Err(e) => return e.into_response(),
+    };
+    
+    let branch = req.branch.unwrap_or(repo_model.default_branch.clone());
+    
+    // Call business logic
+    match rg_core::repo::service::create_or_update_file(
+        &state.db,
+        repo_model.id,
+        &owner,
+        &repo,
+        &path,
+        &req.content,
+        &req.message,
+        &branch,
+        req.sha.as_deref(),
+        &state.repo_root,
+    ).await {
+        Ok(_) => {
+            // Get the new commit SHA
+            let repo_path = state.repo_root.join(format!("{}/{}.git", owner, repo));
+            let new_sha = get_latest_commit_sha(&repo_path, &branch).unwrap_or_default();
+            
+            (StatusCode::OK, Json(FileOperationResponse {
+                success: true,
+                file_path: path,
+                commit_sha: new_sha,
+                message: "File created/updated successfully".to_string(),
+            })).into_response()
+        }
+        Err(e) => {
+            // Check if it's a SHA mismatch (conflict)
+            if e.to_string().contains("SHA mismatch") {
+                AppError::conflict(e.to_string()).into_response()
+            } else {
+                AppError::bad_request(e.to_string()).into_response()
+            }
+        }
+    }
+}
+
+/// Delete a file from a repository.
+/// DELETE /api/v1/repos/:owner/:name/contents/:path
+#[utoipa::path(
+    delete,
+    path = "/repos/{owner}/{name}/contents/{*path}",
+    tag = "Repository Content",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+    ),
+    responses(
+        (status = 200, description = "Success", body = FileOperationResponse),
+        (status = 400, description = "Bad request", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+        (status = 403, description = "Forbidden", body = serde_json::Value),
+        (status = 404, description = "Not found", body = serde_json::Value),
+        (status = 409, description = "Conflict (SHA mismatch)", body = serde_json::Value),
+    ),
+)]
+pub async fn delete_file(
+    State(state): State<AppState>,
+    Path((owner, repo, path)): Path<(String, String, String)>,
+    headers: HeaderMap,
+    Query(params): Query<DeleteFileQuery>,
+) -> impl IntoResponse {
+    // Validate owner/repo
+    if let Err(e) = rg_core::platform::validate_repo_path(&owner) {
+        return AppError::bad_request(e.to_string()).into_response();
+    }
+    if let Err(e) = rg_core::platform::validate_repo_path(&repo) {
+        return AppError::bad_request(e.to_string()).into_response();
+    }
+    
+    // Check write access
+    let repo_model = match resolve_and_check_write_access(&state, &headers, &owner, &repo).await {
+        Ok(r) => r,
+        Err(e) => return e.into_response(),
+    };
+    
+    let branch = params.branch.unwrap_or(repo_model.default_branch.clone());
+    
+    // Call business logic
+    match rg_core::repo::service::delete_file(
+        &state.db,
+        repo_model.id,
+        &owner,
+        &repo,
+        &path,
+        &params.message,
+        &branch,
+        &params.sha,
+        &state.repo_root,
+    ).await {
+        Ok(_) => {
+            // Get the new commit SHA
+            let repo_path = state.repo_root.join(format!("{}/{}.git", owner, repo));
+            let new_sha = get_latest_commit_sha(&repo_path, &branch).unwrap_or_default();
+            
+            (StatusCode::OK, Json(FileOperationResponse {
+                success: true,
+                file_path: path,
+                commit_sha: new_sha,
+                message: "File deleted successfully".to_string(),
+            })).into_response()
+        }
+        Err(e) => {
+            // Check if it's a SHA mismatch (conflict)
+            if e.to_string().contains("SHA mismatch") {
+                AppError::conflict(e.to_string()).into_response()
+            } else {
+                AppError::bad_request(e.to_string()).into_response()
+            }
+        }
+    }
+}
+
+/// Get the latest commit SHA on a branch.
+fn get_latest_commit_sha(repo_path: &std::path::Path, branch: &str) -> anyhow::Result<String> {
+    let repo = gix::open(repo_path)
+        .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
+    
+    let reference = format!("refs/heads/{}", branch);
+    let oid = repo.rev_parse_single(reference.as_str())
+        .map_err(|e| anyhow::anyhow!("failed to resolve branch '{}': {}", branch, e))?;
+    
+    Ok(oid.to_string())
 }

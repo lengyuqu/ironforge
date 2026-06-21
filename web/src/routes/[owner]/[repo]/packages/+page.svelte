@@ -27,8 +27,24 @@
     error = '';
     try {
       const res = await packages.list(owner!, repo!, formatFilter || undefined, currentPage, 20);
-      packageList = res.data;
-      totalPages = res.pagination.total_pages;
+      // 后端可能返回 { registries: [...] } 或 { packages: [...] }，需要兼容
+      let items: any[] = [];
+      if (Array.isArray(res)) {
+        items = res;
+      } else if (res?.data) {
+        items = res.data;
+      } else if (res?.packages) {
+        items = res.packages;
+      } else if (res?.registries) {
+        items = res.registries;
+      }
+      packageList = items;
+      // 只有在响应包含分页信息时才更新总页数
+      if (res?.pagination?.total_pages) {
+        totalPages = res.pagination.total_pages;
+      } else {
+        totalPages = 1;
+      }
     } catch (e: any) {
       error = e.message;
     } finally {

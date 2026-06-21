@@ -27,7 +27,7 @@
     try {
       const res = await releases.list(owner!, repo!, currentPage, 20);
       releaseList = res.data;
-      totalPages = res.pagination.total_pages;
+      totalPages = res.pagination?.total_pages ?? 1;
     } catch (e: any) {
       error = e.message;
     } finally {

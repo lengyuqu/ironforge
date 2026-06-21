@@ -15,7 +15,15 @@
     "unknown": "unknown",
     "created": "Created {date}",
     "no_description": "No description",
-    "updated": "Updated {date}"
+    "updated": "Updated {date}",
+    "close": "Close",
+    "add": "Add",
+    "previous": "Previous",
+    "next": "Next",
+    "copy": "Copy",
+    "offline": "Offline",
+    "date": "Date",
+    "view": "View"
   },
   "nav": {
     "dashboard": "Dashboard",
@@ -23,10 +31,21 @@
     "organizations": "Organizations",
     "settings": "Settings",
     "live": "Live",
-    "offline": "Offline"
+    "offline": "Offline",
+    "explore": "Explore",
+    "search": "Search",
+    "sign_up": "Sign up",
+    "sign_in": "Sign in",
+    "sign_out": "Sign out",
+    "admin_panel": "Admin Panel",
+    "search_placeholder": "Search or jump to...",
+    "search_go": "Go",
+    "change_language": "Change language",
+    "english": "English",
+    "chinese": "Chinese"
   },
   "home": {
-    "tagline": "Self-hosted Git platform built with Rust",
+    "tagline": "A lightweight, self-hosted Git service",
     "features": {
       "secure": "Secure",
       "secure_desc": "Argon2 + JWT authentication",
@@ -35,7 +54,28 @@
       "code_review": "Code Review",
       "code_review_desc": "PR reviews & branch protection",
       "cicd": "CI/CD",
-      "cicd_desc": "Built-in pipeline engine"
+      "cicd_desc": "Built-in pipeline engine",
+      "title": "Why choose IronForge?",
+      "lightweight": {
+        "title": "Lightweight",
+        "desc": "Memory usage <50MB, minimal resource footprint"
+      },
+      "all_in_one": {
+        "title": "All-in-One",
+        "desc": "Repositories, Issues, PRs, Wiki, CI/CD, Packages"
+      },
+      "security": {
+        "title": "Security",
+        "desc": "Argon2 + JWT authentication, enterprise-ready"
+      },
+      "self_hosted": {
+        "title": "Self-Hosted",
+        "desc": "Full control over your data, deploy anywhere"
+      },
+      "extensible": {
+        "title": "Extensible",
+        "desc": "MCP server support, AI Agent integration"
+      }
     },
     "cta": {
       "go_dashboard": "Go to Dashboard",
@@ -45,6 +85,22 @@
       "title": "Explore repositories",
       "view_all": "View all",
       "empty": "No public repositories yet"
+    },
+    "description": "IronForge is a lightweight Git hosting platform built in Rust, designed as a modern alternative to Gitea. Single binary deployment, memory efficient, full-featured.",
+    "sign_up": "Sign up",
+    "sign_in": "Sign in",
+    "stats": {
+      "memory": "Memory Usage",
+      "binary": "Single Binary",
+      "compatible": "Git Compatible",
+      "language": "Built with"
+    },
+    "public_repos": "Public Repositories",
+    "footer": {
+      "github": "GitHub",
+      "explore": "Explore",
+      "help": "Help",
+      "built_with": "Built with Rust and SvelteKit"
     }
   },
   "auth": {
@@ -148,7 +204,9 @@
       "packages": "Packages",
       "board": "Board",
       "commits": "Commits",
-      "settings": "Settings"
+      "commits_empty": "No commits yet.",
+      "settings": "Settings",
+      "runners": "Runners"
     },
     "star": "Star",
     "unstar": "Unstar",
@@ -164,14 +222,16 @@
     "clone_http": "HTTPS",
     "clone_ssh": "SSH",
     "clone_copied": "Copied",
+    "new_file": "New File",
+    "edit_file": "Edit File",
     "empty": {
       "title": "Quick setup",
       "desc": "If you're new here and want to get started quickly, the easiest way is to push an existing repository.",
-      "step_clone": "Clone the repository to your local machine",
+      "step_clone": "Clone this repository",
       "step_create": "Create new files or import an existing project",
       "step_push": "Commit and push to the remote repository",
       "quick": "Create a new repository",
-      "existing": "Push an existing repository",
+      "existing": "Existing repository?",
       "copy": "Copy",
       "copied": "Copied"
     },
@@ -265,7 +325,9 @@
     "code": "Code",
     "clone_title": "Clone",
     "copy_clone_url": "Copy URL to clipboard",
-    "download_zip": "Download ZIP"
+    "download_zip": "Download ZIP",
+    "clone_url": "Clone URL",
+    "select_branch": "Select branch"
   },
   "issues": {
     "title": "Issues",
@@ -303,7 +365,10 @@
     "tabs": {
       "conversation": "Conversation",
       "changes": "Changes",
-      "reviews": "Reviews"
+      "reviews": "Reviews",
+      "open": "Open",
+      "closed": "Closed",
+      "merged": "Merged"
     },
     "new": "New Pull Request",
     "create_form": {
@@ -366,7 +431,11 @@
     "delete": "Delete",
     "toc": "Table of Contents",
     "back": "Back to Wiki",
-    "not_found": "Page not found"
+    "not_found": "Page not found",
+    "history": "History",
+    "revisionMessage": "Revision Message",
+    "noMessage": "No message",
+    "noRevisions": "No revisions yet"
   },
   "pipeline": {
     "status": {
@@ -408,7 +477,15 @@
     "wiki": "Wiki",
     "no_results": "No results found.",
     "results_count": "{total} results",
-    "search_button": "Search"
+    "search_button": "Search",
+    "help_title": "Search Tips",
+    "help_desc": "Use qualifiers to refine your search:",
+    "help_repo": "Search in a specific repository",
+    "help_author": "Search by author",
+    "help_state": "Filter by issue state",
+    "help_label": "Filter by label",
+    "help_tip": "Example: bug fix repo:owner/name state:open",
+    "keyboard_hint": "Tip: Press Ctrl+K to focus search"
   },
   "releases": {
     "title": "Releases",
@@ -534,5 +611,36 @@
     "empty": "No public repositories yet.",
     "prev": "Previous",
     "next": "Next"
+  },
+  "board": {
+    "confirmDelete": "Delete this board?",
+    "title": "Boards",
+    "createBoard": "Create Board",
+    "namePlaceholder": "Board name",
+    "descPlaceholder": "Board description (optional)",
+    "noBoards": "No boards yet",
+    "deleteBoard": "Delete Board",
+    "addColumn": "Add Column",
+    "colNamePlaceholder": "Column name",
+    "moveTo": "Move to",
+    "cardTitlePlaceholder": "Card title",
+    "addCard": "Add Card"
+  },
+  "packages": {
+    "upload": "Upload Package",
+    "format": "Format",
+    "no_packages": "No packages yet",
+    "version": "Version",
+    "title": "Packages",
+    "install": "Install"
+  },
+  "runners": {
+    "register": "Register Runner",
+    "name": "Name",
+    "labels": "Labels",
+    "no_runners": "No runners registered"
+  },
+  "time_tracking": {
+    "title": "Time Tracking"
   }
 }

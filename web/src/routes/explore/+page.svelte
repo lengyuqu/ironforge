@@ -22,8 +22,8 @@
     try {
       const result = await repos.explore(p, perPage);
       repoList = result.data;
-      totalPages = result.pagination.total_pages;
-      totalCount = result.pagination.total;
+      totalPages = result.pagination?.total_pages ?? 1;
+      totalCount = result.pagination?.total ?? 0;
       page = p;
     } catch (e: any) {
       error = e.message;

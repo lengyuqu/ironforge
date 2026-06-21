@@ -378,6 +378,31 @@ pub async fn create_repo_with_opts(
     Ok(repo)
 }
 
+/// Convert a local path to a git-compatible URL format.
+/// On Windows, converts "D:\path\to\repo" to "file:///D:/path/to/repo".
+/// On Unix, converts "/path/to/repo" to "file:///path/to/repo".
+fn path_to_git_url(path: &std::path::Path) -> Result<String> {
+    let canonical = std::fs::canonicalize(path)
+        .with_context(|| format!("failed to canonicalize path: {:?}", path))?;
+    
+    let path_str = canonical.to_string_lossy().to_string();
+    
+    // On Windows, convert "D:\path" to "file:///D:/path"
+    // On Unix, convert "/path" to "file:///path"
+    if cfg!(windows) {
+        // Windows path like "D:\path\to\repo"
+        // Step 1: Replace backslashes with forward slashes
+        let with_forward_slash = path_str.replace('\\', "/");
+        // Step 2: Ensure drive letter is followed by colon and slash
+        // "D:/path/to/repo" -> "file:///D:/path/to/repo"
+        Ok(format!("file:///{}", with_forward_slash))
+    } else {
+        // Unix path like "/path/to/repo"
+        // "file:///path/to/repo"
+        Ok(format!("file://{}", path_str))
+    }
+}
+
 /// Auto-initialize a bare repo with initial files (README, LICENSE, .gitignore)
 /// by creating a temp working tree, committing, and pushing to the bare repo.
 fn auto_init_repo(
@@ -478,11 +503,14 @@ fn auto_init_repo(
     }
 
     // git push to the bare repo
+    let push_url = path_to_git_url(&bare_path)
+        .context("failed to convert bare repo path to git URL")?;
+    
     let output = Command::new("git")
         .args([
             "push",
             "--quiet",
-            &bare_path.to_string_lossy(),
+            &push_url,
             &format!("{}:{}", default_branch, default_branch),
         ])
         .current_dir(&tmp)
@@ -494,10 +522,11 @@ fn auto_init_repo(
     }
 
     // Set HEAD in the bare repo to point to the default branch
+    // Use --git-dir with file:// URL format
     let head_output = Command::new("git")
         .args([
             "--git-dir",
-            &bare_path.to_string_lossy(),
+            &push_url,  // Use the same URL format as push
             "symbolic-ref",
             "HEAD",
             &format!("refs/heads/{}", default_branch),
@@ -655,8 +684,15 @@ pub async fn fork_repo(
     let git = rg_git::cli_gateway::global_gateway()
         .as_ref()
         .map_err(|e| anyhow::anyhow!("{}", e))?;
+    
+    // Convert paths to git-compatible URL format to avoid Windows path issues
+    let source_url = path_to_git_url(&source_path)
+        .context("failed to convert source path to git URL")?;
+    let target_url = path_to_git_url(&target_path)
+        .context("failed to convert target path to git URL")?;
+    
     let out = git.run(
-        &["clone", "--bare", &source_path.to_string_lossy(), &target_path.to_string_lossy()],
+        &["clone", "--bare", &source_url, &target_url],
         None,
     )
     .context("git clone --bare failed")?;
@@ -851,6 +887,261 @@ pub async fn notify_watchers_push(
         Some(format!("{} pushed to {}", pusher_name, ref_name)),
     )
     .await
+}
+
+/// Create or update a file in a repository.
+///
+/// This function:
+/// 1. Creates a temp working directory
+/// 2. Clones the bare repo
+/// 3. Creates/updates the file
+/// 4. Commits the change
+/// 5. Pushes back to the bare repo
+/// 6. Cleans up the temp directory
+///
+/// - `file_path`: Path within the repo (e.g., "README.md" or "docs/api.md")
+/// - `content`: File content (UTF-8 string)
+/// - `message`: Commit message
+/// - `branch`: Target branch (default: repo's default branch)
+/// - `sha`: Blob SHA of the file being updated (required for updates to prevent overwrites)
+pub async fn create_or_update_file(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    owner: &str,
+    repo_name: &str,
+    file_path: &str,
+    content: &str,
+    message: &str,
+    branch: &str,
+    sha: Option<&str>,
+    repo_root: &PathBuf,
+) -> Result<()> {
+    let repo_path = repo_root.join(format!("{}/{}.git", owner, repo_name));
+    
+    if !repo_path.exists() {
+        bail!("repository path not found: {:?}", repo_path);
+    }
+    
+    // Verify the file SHA if this is an update (not a create)
+    if let Some(expected_sha) = sha {
+        // Check if the file exists and its current SHA matches
+        let current_sha = get_file_sha(&repo_path, branch, file_path).ok();
+        if current_sha.is_none() {
+            bail!("file does not exist: {}", file_path);
+        }
+        if let Some(current) = current_sha {
+            if current != expected_sha {
+                bail!("file SHA mismatch: expected {}, got {}", expected_sha, current);
+            }
+        }
+    } else {
+        // This is a create operation - check if file already exists
+        let current_sha = get_file_sha(&repo_path, branch, file_path).ok();
+        if current_sha.is_some() {
+            bail!("file already exists: {} (use update with sha)", file_path);
+        }
+    }
+    
+    // Create temp working directory
+    let tmp = std::env::temp_dir().join(format!("ironforge-file-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&tmp)?;
+    
+    // Clone the repo
+    let clone_url = path_to_git_url(&repo_path)
+        .context("failed to convert repo path to git URL")?;
+    
+    let output = Command::new("git")
+        .args(["clone", "-b", branch, &clone_url, &tmp.to_string_lossy()])
+        .output()
+        .context("git clone failed")?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        // If branch doesn't exist yet (new repo), clone with --no-checkout
+        if !output.status.success() {
+            let output2 = Command::new("git")
+                .args(["clone", "--no-checkout", &clone_url, &tmp.to_string_lossy()])
+                .output()
+                .context("git clone (no-checkout) failed")?;
+            if !output2.status.success() {
+                let _ = std::fs::remove_dir_all(&tmp);
+                bail!("git clone failed: {}", String::from_utf8_lossy(&output2.stderr));
+            }
+            // Checkout the branch or create it
+            let output3 = Command::new("git")
+                .args(["checkout", "-b", branch])
+                .current_dir(&tmp)
+                .output()
+                .context("git checkout failed")?;
+            if !output3.status.success() {
+                let _ = std::fs::remove_dir_all(&tmp);
+                bail!("git checkout failed: {}", String::from_utf8_lossy(&output3.stderr));
+            }
+        }
+    }
+    
+    // Write the file
+    let full_path = tmp.join(file_path);
+    if let Some(parent) = full_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&full_path, content)?;
+    
+    // Git add
+    let output = Command::new("git")
+        .args(["add", file_path])
+        .current_dir(&tmp)
+        .output()
+        .context("git add failed")?;
+    if !output.status.success() {
+        let _ = std::fs::remove_dir_all(&tmp);
+        bail!("git add failed: {}", String::from_utf8_lossy(&output.stderr));
+    }
+    
+    // Git commit
+    let output = Command::new("git")
+        .args(["commit", "-m", message])
+        .current_dir(&tmp)
+        .output()
+        .context("git commit failed")?;
+    if !output.status.success() {
+        let _ = std::fs::remove_dir_all(&tmp);
+        bail!("git commit failed: {}", String::from_utf8_lossy(&output.stderr));
+    }
+    
+    // Git push
+    let push_url = path_to_git_url(&repo_path)
+        .context("failed to convert repo path to git URL")?;
+    
+    let output = Command::new("git")
+        .args(["push", &push_url, branch])
+        .current_dir(&tmp)
+        .output()
+        .context("git push failed")?;
+    if !output.status.success() {
+        let _ = std::fs::remove_dir_all(&tmp);
+        bail!("git push failed: {}", String::from_utf8_lossy(&output.stderr));
+    }
+    
+    // Clean up
+    let _ = std::fs::remove_dir_all(&tmp);
+    
+    tracing::info!(
+        repo = %repo_name,
+        file = %file_path,
+        branch = %branch,
+        "file created/updated successfully"
+    );
+    
+    Ok(())
+}
+
+/// Delete a file from a repository.
+///
+/// Similar to `create_or_update_file()`, but removes the file instead.
+pub async fn delete_file(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    owner: &str,
+    repo_name: &str,
+    file_path: &str,
+    message: &str,
+    branch: &str,
+    sha: &str,
+    repo_root: &PathBuf,
+) -> Result<()> {
+    let repo_path = repo_root.join(format!("{}/{}.git", owner, repo_name));
+    
+    if !repo_path.exists() {
+        bail!("repository path not found: {:?}", repo_path);
+    }
+    
+    // Verify the file SHA to prevent accidental deletes
+    let current_sha = get_file_sha(&repo_path, branch, file_path).ok();
+    if current_sha.is_none() {
+        bail!("file does not exist: {}", file_path);
+    }
+    if let Some(current) = current_sha {
+        if current != sha {
+            bail!("file SHA mismatch: expected {}, got {}", sha, current);
+        }
+    }
+    
+    // Create temp working directory
+    let tmp = std::env::temp_dir().join(format!("ironforge-file-del-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&tmp)?;
+    
+    // Clone the repo
+    let clone_url = path_to_git_url(&repo_path)
+        .context("failed to convert repo path to git URL")?;
+    
+    let output = Command::new("git")
+        .args(["clone", "-b", branch, &clone_url, &tmp.to_string_lossy()])
+        .output()
+        .context("git clone failed")?;
+    if !output.status.success() {
+        let _ = std::fs::remove_dir_all(&tmp);
+        bail!("git clone failed: {}", String::from_utf8_lossy(&output.stderr));
+    }
+    
+    // Delete the file
+    let output = Command::new("git")
+        .args(["rm", file_path])
+        .current_dir(&tmp)
+        .output()
+        .context("git rm failed")?;
+    if !output.status.success() {
+        let _ = std::fs::remove_dir_all(&tmp);
+        bail!("git rm failed: {}", String::from_utf8_lossy(&output.stderr));
+    }
+    
+    // Git commit
+    let output = Command::new("git")
+        .args(["commit", "-m", message])
+        .current_dir(&tmp)
+        .output()
+        .context("git commit failed")?;
+    if !output.status.success() {
+        let _ = std::fs::remove_dir_all(&tmp);
+        bail!("git commit failed: {}", String::from_utf8_lossy(&output.stderr));
+    }
+    
+    // Git push
+    let push_url = path_to_git_url(&repo_path)
+        .context("failed to convert repo path to git URL")?;
+    
+    let output = Command::new("git")
+        .args(["push", &push_url, branch])
+        .current_dir(&tmp)
+        .output()
+        .context("git push failed")?;
+    if !output.status.success() {
+        let _ = std::fs::remove_dir_all(&tmp);
+        bail!("git push failed: {}", String::from_utf8_lossy(&output.stderr));
+    }
+    
+    // Clean up
+    let _ = std::fs::remove_dir_all(&tmp);
+    
+    tracing::info!(
+        repo = %repo_name,
+        file = %file_path,
+        branch = %branch,
+        "file deleted successfully"
+    );
+    
+    Ok(())
+}
+
+/// Get the blob SHA of a file at a given ref.
+fn get_file_sha(repo_path: &std::path::Path, git_ref: &str, file_path: &str) -> Result<String> {
+    let repo = gix::open(repo_path)
+        .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
+    
+    let target = format!("{}:{}", git_ref, file_path);
+    let object_id = repo.rev_parse_single(target.as_str())
+        .map_err(|e| anyhow::anyhow!("file '{}' not found at ref '{}': {}", file_path, git_ref, e))?;
+    
+    Ok(object_id.to_string())
 }
 
 #[cfg(test)]

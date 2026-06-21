@@ -586,6 +586,8 @@ export interface SearchResult {
   excerpt: string | null;
   repo_owner: string | null;
   repo_name: string | null;
+  state?: string | null;
+  number?: number | null;
 }
 
 export interface SearchResponse {
