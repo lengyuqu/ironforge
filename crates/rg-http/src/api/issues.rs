@@ -406,7 +406,11 @@ pub async fn create_milestone(
             return AppError::Unauthorized("authentication required".to_string()).into_response()
         }
     };
-    let user_id: i64 = claims.sub.parse().unwrap_or(-1);
+    let user_id: i64 = match claims.sub.parse::<i64>() {
+        Ok(id) => id,
+        Err(_) => return AppError::Unauthorized("invalid token subject".to_string()).into_response(),
+    };
+
     let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
     {
         Ok(Some(r)) => r,
@@ -521,7 +525,11 @@ pub async fn update_milestone(
             return AppError::Unauthorized("authentication required".to_string()).into_response()
         }
     };
-    let user_id: i64 = claims.sub.parse().unwrap_or(-1);
+    let user_id: i64 = match claims.sub.parse::<i64>() {
+        Ok(id) => id,
+        Err(_) => return AppError::Unauthorized("invalid token subject".to_string()).into_response(),
+    };
+
     if !rg_core::repo::service::can_write(&state.db, &owner, &name, Some(user_id))
         .await
         .unwrap_or(false)
@@ -594,7 +602,11 @@ pub async fn delete_milestone(
             return AppError::Unauthorized("authentication required".to_string()).into_response()
         }
     };
-    let user_id: i64 = claims.sub.parse().unwrap_or(-1);
+    let user_id: i64 = match claims.sub.parse::<i64>() {
+        Ok(id) => id,
+        Err(_) => return AppError::Unauthorized("invalid token subject".to_string()).into_response(),
+    };
+
     if !rg_core::repo::service::can_write(&state.db, &owner, &name, Some(user_id))
         .await
         .unwrap_or(false)

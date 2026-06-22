@@ -49,7 +49,11 @@ pub async fn batch(
             Some(c) => c,
             None => return AppError::unauthorized("authentication required").into_response(),
         };
-        let user_id: i64 = claims.sub.parse().unwrap_or(-1);
+        let user_id: i64 = match claims.sub.parse::<i64>() {
+            Ok(id) => id,
+            Err(_) => return AppError::Unauthorized("invalid token subject".to_string()).into_response(),
+        };
+
         if !rg_core::repo::service::can_read_repo(&state.db, &repo_model, Some(user_id))
             .await
             .unwrap_or(false)
@@ -115,7 +119,11 @@ pub async fn upload_object(
             Some(c) => c,
             None => return AppError::unauthorized("authentication required").into_response(),
         };
-        let user_id: i64 = claims.sub.parse().unwrap_or(-1);
+        let user_id: i64 = match claims.sub.parse::<i64>() {
+            Ok(id) => id,
+            Err(_) => return AppError::Unauthorized("invalid token subject".to_string()).into_response(),
+        };
+
         if !rg_core::repo::service::can_read_repo(&state.db, &repo_model, Some(user_id))
             .await
             .unwrap_or(false)
@@ -189,7 +197,11 @@ pub async fn download_object(
             Some(c) => c,
             None => return AppError::unauthorized("authentication required").into_response(),
         };
-        let user_id: i64 = claims.sub.parse().unwrap_or(-1);
+        let user_id: i64 = match claims.sub.parse::<i64>() {
+            Ok(id) => id,
+            Err(_) => return AppError::Unauthorized("invalid token subject".to_string()).into_response(),
+        };
+
         if !rg_core::repo::service::can_read_repo(&state.db, &repo_model, Some(user_id))
             .await
             .unwrap_or(false)

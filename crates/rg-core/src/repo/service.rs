@@ -254,7 +254,7 @@ pub async fn create_repo(
     name: &str,
     description: Option<&str>,
     is_private: bool,
-    repo_root: &PathBuf,
+    repo_root: &std::path::Path,
     org_id: Option<i64>,
 ) -> Result<rg_db::entities::repository::Model> {
     create_repo_with_opts(
@@ -281,11 +281,15 @@ pub async fn create_repo(
 pub async fn create_repo_with_opts(
     db: &DatabaseConnection,
     opts: CreateRepoOptions,
-    repo_root: &PathBuf,
+    repo_root: &std::path::Path,
 ) -> Result<rg_db::entities::repository::Model> {
     let default_branch = opts.default_branch.as_deref().unwrap_or("main");
     let owner_id = opts.owner_id;
     let name = &opts.name;
+
+    // Validate repo name (prevents path traversal via repo name)
+    crate::validate_repo_name(name)
+        .with_context(|| format!("invalid repository name: {}", name))?;
 
     // Check name conflict (per owner)
     if repo_ops::find_by_owner_and_name(db, owner_id, name).await?.is_some() {
@@ -355,13 +359,20 @@ pub async fn create_repo_with_opts(
     let repo = repo_ops::create(db, model).await?;
 
     // Manually update FTS5 index (triggers are disabled due to SQLite security restrictions)
-    let fts_sql = format!(
-        "INSERT INTO repos_fts(rowid, name, description) VALUES ({}, '{}', '{}')",
-        repo.id,
-        repo.name.replace('\'', "''"),
-        repo.description.as_deref().unwrap_or("").replace('\'', "''")
-    );
-    if let Err(e) = db.execute_unprepared(&fts_sql).await {
+    // Use parameterized query to prevent SQL injection
+    let fts_sql = "INSERT INTO repos_fts(rowid, name, description) VALUES (?, ?, ?)";
+    let description = repo.description.as_deref().unwrap_or("");
+    if let Err(e) = db.execute(
+        sea_orm::Statement::from_sql_and_values(
+            db.get_database_backend(),
+            fts_sql,
+            [
+                repo.id.into(),
+                repo.name.as_str().into(),
+                description.into(),
+            ],
+        )
+    ).await {
         tracing::warn!(repo_id = repo.id, error = %e, "failed to update repos_fts index");
     }
 
@@ -424,15 +435,12 @@ fn auto_init_repo(
     std::fs::create_dir_all(&tmp)?;
 
     // Init a non-bare repo in the temp dir
-    let output = Command::new("git")
-        .args(["init", "-b", default_branch])
-        .current_dir(&tmp)
-        .output()
-        .context("git init failed")?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        bail!("git init failed: {}", stderr);
-    }
+    let gateway = rg_git::cli_gateway::GitCommandGateway::new()
+        .with_context(|| "git CLI not available")?;
+    let output = gateway.run(&["init", "-b", default_branch], Some(&tmp))
+        .with_context(|| format!("git init failed in {:?}", tmp))?;
+    output.ensure_success()
+        .with_context(|| format!("git init failed in {:?}", tmp))?;
 
     // Write README.md if specified
     let mut files_written = false;
@@ -481,15 +489,10 @@ fn auto_init_repo(
     }
 
     // git add all files
-    let output = Command::new("git")
-        .args(["add", "-A"])
-        .current_dir(&tmp)
-        .output()
+    let output = gateway.run(&["add", "-A"], Some(&tmp))
         .context("git add failed")?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        bail!("git add failed: {}", stderr);
-    }
+    output.ensure_success()
+        .context("git add failed")?;
 
     // git commit
     let output = Command::new("git")
@@ -905,8 +908,8 @@ pub async fn notify_watchers_push(
 /// - `branch`: Target branch (default: repo's default branch)
 /// - `sha`: Blob SHA of the file being updated (required for updates to prevent overwrites)
 pub async fn create_or_update_file(
-    db: &DatabaseConnection,
-    repo_id: i64,
+    _db: &DatabaseConnection,
+    _repo_id: i64,
     owner: &str,
     repo_name: &str,
     file_path: &str,
@@ -955,7 +958,7 @@ pub async fn create_or_update_file(
         .output()
         .context("git clone failed")?;
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
+        let _stderr = String::from_utf8_lossy(&output.stderr);
         // If branch doesn't exist yet (new repo), clone with --no-checkout
         if !output.status.success() {
             let output2 = Command::new("git")
@@ -1039,8 +1042,8 @@ pub async fn create_or_update_file(
 ///
 /// Similar to `create_or_update_file()`, but removes the file instead.
 pub async fn delete_file(
-    db: &DatabaseConnection,
-    repo_id: i64,
+    _db: &DatabaseConnection,
+    _repo_id: i64,
     owner: &str,
     repo_name: &str,
     file_path: &str,

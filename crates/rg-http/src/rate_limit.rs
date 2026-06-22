@@ -4,10 +4,12 @@
 //! Returns 429 Too Many Requests when the limit is exceeded.
 
 use axum::extract::Request;
+use axum::extract::connect_info::ConnectInfo;
 use axum::http::HeaderMap;
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -144,15 +146,12 @@ fn extract_client_key(headers: &HeaderMap) -> Option<String> {
 pub async fn rate_limit_middleware(
     axum::extract::State(limiter): axum::extract::State<RateLimiter>,
     headers: HeaderMap,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     request: Request,
     next: Next,
 ) -> Response {
-    let key = match extract_client_key(&headers) {
-        Some(k) => k,
-        // Skip rate limiting if we cannot identify the client.
-        // This avoids having all unidentified clients share a single "unknown" bucket.
-        None => return next.run(request).await,
-    };
+    let key = extract_client_key(&headers)
+        .unwrap_or_else(|| addr.to_string());
 
     if limiter.allow(&key) {
         next.run(request).await

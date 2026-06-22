@@ -26,7 +26,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use axum::body::Body;
 use axum::extract::{Query, State};
-use axum::http::{header, Method, StatusCode};
+use axum::http::{header, HeaderValue, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post, put};
 use axum::Router;
@@ -253,6 +253,7 @@ fn create_router(state: AppState, rate_limiter: rate_limit::RateLimiter) -> Rout
 fn build_router(state: AppState, rate_limiter: rate_limit::RateLimiter) -> Router {
     let (api_v1, git_routes) = build_routes(&state);
     let v2_routes = build_v2_routes(&state);
+    let docs_routes = build_docs_routes(&state);
 
     Router::new()
         .nest("/git", git_routes)
@@ -266,10 +267,7 @@ fn build_router(state: AppState, rate_limiter: rate_limit::RateLimiter) -> Route
         .nest("/v2", v2_routes)
         .route("/health", get(health))
         .route("/metrics", get(metrics::metrics_handler))
-        // ── OpenAPI spec endpoint ──────────────────────────────────────────
-        .route("/api-docs/openapi.json", get(openapi_handler))
-        // Swagger UI — serve embedded Swagger UI static files
-        .route("/api-docs/{*tail}", get(swagger_ui_handler))
+        .merge(docs_routes)
         // Serve SvelteKit static assets if the build directory exists
         .fallback_service(
             // SPA fallback: serve static assets, and for any unmatched path
@@ -303,6 +301,7 @@ fn build_router(state: AppState, rate_limiter: rate_limit::RateLimiter) -> Route
                 .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE, Method::PATCH]),
         )
         // CORS permissive mode active — tighten in production
+        .layer(axum::middleware::from_extractor::<axum::extract::ConnectInfo<std::net::SocketAddr>>())
         .layer(axum::middleware::from_fn_with_state(
             rate_limiter.clone(),
             rate_limit::rate_limit_middleware,
@@ -336,6 +335,22 @@ fn build_v2_routes(state: &AppState) -> Router<AppState> {
         .route("/{owner}/{repo}/blobs/{digest}", get(oci::get_blob).head(oci::head_blob))
         // Uploads (with body size limit)
         .nest("/{owner}/{repo}/blobs/uploads", upload_routes)
+        .with_state(state.clone())
+}
+
+/// Build API docs routes with authentication required.
+fn build_docs_routes(state: &AppState) -> Router<AppState> {
+    Router::new()
+        .route("/api-docs/openapi.json", get(openapi_handler))
+        .route("/api-docs/{*tail}", get(swagger_ui_handler))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            docs_auth_middleware,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            pat_auth_middleware,
+        ))
         .with_state(state.clone())
 }
 
@@ -602,6 +617,7 @@ fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
 /// Build the test router (no rate limiter, no static file serving).
 fn build_test_router(state: AppState) -> Router {
     let (api_v1, git_routes) = build_routes(&state);
+    let docs_routes = build_docs_routes(&state);
 
     Router::new()
         .nest("/git", git_routes)
@@ -609,6 +625,7 @@ fn build_test_router(state: AppState) -> Router {
         .route("/{owner}/{repo}/git-upload-pack", post(handle_git_upload_pack))
         .route("/{owner}/{repo}/git-receive-pack", post(handle_git_receive_pack))
         .nest("/api/v1", api_v1)
+        .merge(docs_routes)
         .route("/health", get(health))
         // ── Middleware layers (no rate limiter for tests) ──────────────────
         .layer(axum::middleware::from_fn(middleware::request_id_middleware))
@@ -742,6 +759,22 @@ async fn swagger_ui_handler(axum::extract::Path(tail): axum::extract::Path<Strin
         Ok(None) => (StatusCode::NOT_FOUND, [(header::CONTENT_TYPE, "text/plain".to_string())], "Not Found".as_bytes().to_vec()),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, [(header::CONTENT_TYPE, "text/plain".to_string())], format!("Swagger UI error: {e}").into_bytes()),
     }
+}
+
+/// API docs endpoint access requires an authenticated JWT/PAT bearer token.
+async fn docs_auth_middleware(
+    State(state): State<AppState>,
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    if api::auth::extract_bearer_claims(req.headers(), &state.jwt_secret).is_none() {
+        let mut response = (StatusCode::UNAUTHORIZED, "api docs requires authentication").into_response();
+        if let Ok(challenge) = HeaderValue::from_str("Bearer") {
+            response.headers_mut().insert(header::WWW_AUTHENTICATE, challenge);
+        }
+        return response;
+    }
+    next.run(req).await
 }
 
 /// Resolve a Personal Access Token to its owner's user id, honouring expiry.
@@ -1453,18 +1486,18 @@ async fn post_push_hooks(
 
         // 1. Trigger CI pipeline if .ironforge-ci.yml exists
         if rg_ci::has_ci_config(repo_path, &update.new_sha) {
-            match rg_ci::trigger_pipeline(
-                (*db).clone(),
+            match rg_ci::trigger_pipeline(rg_ci::TriggerPipelineParams {
+                db: &**db,
                 repo_path,
                 repo_id,
-                &update.new_sha,
-                &update.refname,
-                "push",
-                None,
-                *docker_enabled,
-                *external_runners,
-                Some(jwt_secret),
-            )
+                commit_sha: &update.new_sha,
+                ref_name: &update.refname,
+                trigger_type: "push",
+                triggered_by: None,
+                docker_enabled: *docker_enabled,
+                external_runners: *external_runners,
+                jwt_secret: Some(&jwt_secret),
+            })
             .await
             {
                 Ok(pipeline_id) => {

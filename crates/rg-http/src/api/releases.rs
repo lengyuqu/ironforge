@@ -128,7 +128,14 @@ pub async fn create_release(
         }
     };
 
-    let user_id: i64 = claims.sub.parse().unwrap_or(-1);
+    let user_id: i64 = match claims.sub.parse::<i64>() {
+
+        Ok(id) => id,
+
+        Err(_) => return AppError::Unauthorized("invalid token subject".to_string()).into_response(),
+
+    };
+
 
     // Find repo
     let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
@@ -247,7 +254,14 @@ pub async fn update_release(
         }
     };
 
-    let user_id: i64 = claims.sub.parse().unwrap_or(-1);
+    let user_id: i64 = match claims.sub.parse::<i64>() {
+
+        Ok(id) => id,
+
+        Err(_) => return AppError::Unauthorized("invalid token subject".to_string()).into_response(),
+
+    };
+
 
     // Check write permission
     match rg_core::repo::service::can_write(&state.db, &owner, &name, Some(user_id)).await {
@@ -303,7 +317,14 @@ pub async fn delete_release(
         }
     };
 
-    let user_id: i64 = claims.sub.parse().unwrap_or(-1);
+    let user_id: i64 = match claims.sub.parse::<i64>() {
+
+        Ok(id) => id,
+
+        Err(_) => return AppError::Unauthorized("invalid token subject".to_string()).into_response(),
+
+    };
+
 
     // Check write permission
     match rg_core::repo::service::can_write(&state.db, &owner, &name, Some(user_id)).await {
@@ -397,7 +418,14 @@ pub async fn upload_asset(
         }
     };
 
-    let user_id: i64 = claims.sub.parse().unwrap_or(-1);
+    let user_id: i64 = match claims.sub.parse::<i64>() {
+
+        Ok(id) => id,
+
+        Err(_) => return AppError::Unauthorized("invalid token subject".to_string()).into_response(),
+
+    };
+
 
     // Check write permission
     match rg_core::repo::service::can_write(&state.db, &owner, &name, Some(user_id)).await {
@@ -583,7 +611,14 @@ pub async fn delete_asset(
         }
     };
 
-    let user_id: i64 = claims.sub.parse().unwrap_or(-1);
+    let user_id: i64 = match claims.sub.parse::<i64>() {
+
+        Ok(id) => id,
+
+        Err(_) => return AppError::Unauthorized("invalid token subject".to_string()).into_response(),
+
+    };
+
 
     // Check write permission
     match rg_core::repo::service::can_write(&state.db, &owner, &name, Some(user_id)).await {

@@ -117,7 +117,9 @@ async fn require_repo_read_access(
     }
     let claims = extract_bearer_claims(headers, &state.jwt_secret)
         .ok_or_else(|| AppError::unauthorized("authentication required"))?;
-    let user_id: i64 = claims.sub.parse().unwrap_or(-1);
+    let user_id = claims.sub.parse::<i64>()
+        .map_err(|_| AppError::Unauthorized("invalid token subject".to_string()))?;
+
     if !rg_core::repo::service::can_read_repo(&state.db, repo, Some(user_id))
         .await
         .unwrap_or(false)
