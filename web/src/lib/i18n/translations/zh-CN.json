@@ -104,7 +104,12 @@
       "submitting": "登录中...",
       "footer": "新用户？{link}",
       "footer_link": "创建账号",
-      "failed": "登录失败"
+      "failed": "登录失败",
+      "mfa_code": "验证码",
+      "use_backup_code": "使用备用码",
+      "verify": "验证",
+      "verifying": "验证中...",
+      "mfa_failed": "验证失败"
     },
     "register": {
       "title": "创建您的账号",

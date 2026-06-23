@@ -83,6 +83,12 @@ interface RegistryListResponse {
   registries: PackageRegistry[];
 }
 
+interface FileOperationResponse {
+  success: boolean;
+  file_path: string;
+  commit_sha: string;
+}
+
 interface RunnerAdminResponse {
   id: number;
   name: string;
@@ -104,6 +110,24 @@ interface RunnerListItem {
   version: string | null;
   os: string | null;
   arch: string | null;
+}
+
+export interface ReleaseAsset {
+  id: number;
+  release_id: number;
+  filename: string;
+  size: number;
+  content_type: string;
+  download_count: number;
+  uploader_id: number;
+  created_at: string;
+}
+
+export interface AuthLoginResponse {
+  token: string;
+  user_id: number;
+  username: string;
+  mfa_required?: boolean;
 }
 
 export function getToken(): string | null {
@@ -148,7 +172,16 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     throw new Error(msg);
   }
 
-  return res.json();
+  if (res.status === 204) {
+    return undefined as T;
+  }
+
+  const text = await res.text();
+  if (!text.trim()) {
+    return undefined as T;
+  }
+
+  return JSON.parse(text) as T;
 }
 
 /// Build query string from key-value pairs, skipping nullish values.
@@ -202,6 +235,37 @@ function parseRunnerLabels(labels: string | string[] | undefined | null): string
     .filter(Boolean);
 }
 
+function parseIssueLabels(labels: string | string[] | undefined | null): string[] {
+  if (Array.isArray(labels)) {
+    return labels;
+  }
+
+  if (!labels || typeof labels !== 'string') {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(labels);
+    if (Array.isArray(parsed)) {
+      return parsed.filter((value) => typeof value === 'string');
+    }
+  } catch {
+    // Older rows may contain comma-separated label names.
+  }
+
+  return labels
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function normalizeIssue<T extends { labels?: string | string[] | null }>(issue: T): Omit<T, 'labels'> & { labels: string[] } {
+  return {
+    ...issue,
+    labels: parseIssueLabels(issue.labels),
+  };
+}
+
 function normalizeRunner(row: RunnerAdminResponse): RunnerListItem {
   const parsedLabels = parseRunnerLabels(row.labels);
   return {
@@ -225,9 +289,14 @@ export const auth = {
       body: JSON.stringify({ username, email, password }),
     }),
   login: (username: string, password: string) =>
-    request<{ token: string; user: { id: number; username: string; email: string } }>('/users/login', {
+    request<AuthLoginResponse>('/users/login', {
       method: 'POST',
       body: JSON.stringify({ username, password }),
+    }),
+  verifyMfa: (username: string, code: string, backup = false) =>
+    request<AuthLoginResponse>('/users/mfa/verify', {
+      method: 'POST',
+      body: JSON.stringify({ username, code, backup }),
     }),
   me: () =>
     request<{ id: number; username: string; email: string; is_admin: boolean; display_name: string | null }>('/users/me'),
@@ -293,6 +362,16 @@ export const repos = {
   blob: (owner: string, repo: string, path: string, ref?: string) => {
     return request<{ content: string; size: number; name: string }>(`/repos/${owner}/${repo}/blob/${path}${qs({ ref })}`);
   },
+  saveContent: (
+    owner: string,
+    repo: string,
+    path: string,
+    data: { branch?: string; content: string; message: string; sha?: string }
+  ) =>
+    request<FileOperationResponse>(`/repos/${owner}/${repo}/contents/${path}`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
   log: (owner: string, repo: string, ref?: string, path?: string) => {
     return request<{ commits: { sha: string; message: string; author: string; date: string }[] }>(`/repos/${owner}/${repo}/log${qs({ ref, path })}`);
   },
@@ -308,13 +387,18 @@ export const repos = {
     request<{ starred: boolean }>(`/repos/${owner}/${repo}/star`, { method: 'PUT' }),
   starred: (owner: string, repo: string) =>
     request<{ starred: boolean }>(`/repos/${owner}/${repo}/starred`, { method: 'GET' }),
-  unstar: (owner: string, repo: string) =>
-    request<{ starred: boolean }>(`/repos/${owner}/${repo}/star`, { method: 'PUT' }),
+  unstar: async (owner: string, repo: string) => {
+    const status = await repos.starred(owner, repo);
+    if (!status.starred) return { starred: false };
+    return repos.star(owner, repo);
+  },
   stargazers: (owner: string, repo: string, page?: number, perPage?: number) =>
     request<PaginatedResponse<any>>(`/repos/${owner}/${repo}/stargazers${qs({ page, per_page: perPage })}`),
   // Watch
   watch: (owner: string, repo: string, state: string) =>
     request<{ watch_state: string }>(`/repos/${owner}/${repo}/watch`, { method: 'PUT', body: JSON.stringify({ state }) }),
+  watchStatus: (owner: string, repo: string) =>
+    request<{ watch_state: 'not_watching' | 'watching' | 'ignoring' }>(`/repos/${owner}/${repo}/watch`, { method: 'GET' }),
   unwatch: (owner: string, repo: string) =>
     request<{ watch_state: string }>(`/repos/${owner}/${repo}/watch`, { method: 'DELETE' }),
   // Delete
@@ -348,20 +432,24 @@ export const repos = {
 // ── Issues ───────────────────────────────────────────
 export const issues = {
   list: (owner: string, repo: string, state?: string, page?: number, perPage?: number, labels?: string) => {
-    return request<PaginatedResponse<any>>(`/repos/${owner}/${repo}/issues${qs({ state, page, per_page: perPage, labels })}`);
+    return request<PaginatedResponse<any>>(`/repos/${owner}/${repo}/issues${qs({ state, page, per_page: perPage, labels })}`)
+      .then((response) => ({
+        ...response,
+        data: response.data.map(normalizeIssue),
+      }));
   },
   get: (owner: string, repo: string, number: number) =>
-    request<any>(`/repos/${owner}/${repo}/issues/${number}`),
+    request<any>(`/repos/${owner}/${repo}/issues/${number}`).then(normalizeIssue),
   create: (owner: string, repo: string, title: string, body?: string, labels?: string[]) =>
     request<any>(`/repos/${owner}/${repo}/issues`, {
       method: 'POST',
       body: JSON.stringify({ title, body, labels }),
-    }),
+    }).then(normalizeIssue),
   update: (owner: string, repo: string, number: number, data: Record<string, any>) =>
     request<any>(`/repos/${owner}/${repo}/issues/${number}`, {
       method: 'PATCH',
       body: JSON.stringify(data),
-    }),
+    }).then(normalizeIssue),
   comments: (owner: string, repo: string, number: number) =>
     request<any[]>(`/repos/${owner}/${repo}/issues/${number}/comments`),
   // Issue labels
@@ -384,7 +472,12 @@ export const pulls = {
   create: (owner: string, repo: string, data: { title: string; body?: string; head_branch: string; base_branch: string }) =>
     request<any>(`/repos/${owner}/${repo}/pulls`, {
       method: 'POST',
-      body: JSON.stringify(data),
+      body: JSON.stringify({
+        title: data.title,
+        body: data.body,
+        head: data.head_branch,
+        base: data.base_branch,
+      }),
     }),
   diff: (owner: string, repo: string, number: number) =>
     request<{ diff: string }>(`/repos/${owner}/${repo}/pulls/${number}/diff`),
@@ -402,7 +495,7 @@ export const reviews = {
   submit: (owner: string, repo: string, number: number, body: string, verdict: string) =>
     request<any>(`/repos/${owner}/${repo}/pulls/${number}/reviews`, {
       method: 'POST',
-      body: JSON.stringify({ body, verdict }),
+      body: JSON.stringify({ body, action: verdict }),
     }),
   comments: (owner: string, repo: string, number: number) =>
     request<any[]>(`/repos/${owner}/${repo}/pulls/${number}/comments`),
@@ -556,6 +649,23 @@ export const releases = {
     }),
   delete: (owner: string, repo: string, id: number) =>
     request<void>(`/repos/${owner}/${repo}/releases/${id}`, { method: 'DELETE' }),
+  listAssets: (owner: string, repo: string, releaseId: number) =>
+    request<ReleaseAsset[]>(`/repos/${owner}/${repo}/releases/${releaseId}/assets`),
+  uploadAsset: (owner: string, repo: string, releaseId: number, file: File) =>
+    request<ReleaseAsset>(`/repos/${owner}/${repo}/releases/${releaseId}/assets`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': file.type || 'application/octet-stream',
+        'x-asset-filename': file.name,
+      },
+      body: file,
+    }),
+  getAsset: (owner: string, repo: string, assetId: number) =>
+    request<ReleaseAsset>(`/repos/${owner}/${repo}/releases/assets/${assetId}`),
+  assetDownloadUrl: (owner: string, repo: string, assetId: number) =>
+    `${API_BASE}/repos/${owner}/${repo}/releases/assets/${assetId}/download`,
+  deleteAsset: (owner: string, repo: string, assetId: number) =>
+    request<void>(`/repos/${owner}/${repo}/releases/assets/${assetId}`, { method: 'DELETE' }),
 };
 
 // Labels
@@ -806,11 +916,34 @@ export const search = {
 };
 
 // ── Packages ─────────────────────────────────────
+function filterPackagesByQuery(packages: PackageSummaryResponse[], query?: string): PackageSummaryResponse[] {
+  const needle = (query || '').trim().toLowerCase();
+  if (!needle) return packages;
+
+  return packages.filter((pkg) => {
+    const haystack = [
+      pkg.name,
+      pkg.description,
+      pkg.latest_version,
+      pkg.keywords,
+      pkg.format,
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+
+    return haystack.includes(needle);
+  });
+}
+
 export const packages = {
-  list: async (owner: string, repo: string, pkg_type?: string, page?: number, perPage?: number) => {
+  list: async (owner: string, repo: string, pkg_type?: string, page?: number, perPage?: number, query?: string) => {
     if (pkg_type) {
       const res = await request<PackageListByTypeResponse>(`/repos/${owner}/${repo}/packages/${encodeURIComponent(pkg_type)}/list`);
-      const list = (res.packages || []).map((item) => ({ ...item, format: pkg_type }));
+      const list = filterPackagesByQuery(
+        (res.packages || []).map((item) => ({ ...item, format: pkg_type })),
+        query,
+      );
       const start = ((page ?? 1) - 1) * (perPage ?? 20);
       const size = perPage ?? 20;
       return {
@@ -835,12 +968,13 @@ export const packages = {
     const list = packByType.flatMap((group, idx) =>
       (group.packages || []).map((pkg) => ({ ...pkg, format: regTypes[idx] }))
     );
+    const filteredList = filterPackagesByQuery(list, query);
     const start = ((page ?? 1) - 1) * (perPage ?? 20);
     const size = perPage ?? 20;
 
     return {
-      data: list.slice(start, start + size),
-      pagination: toPagination(list.length, page, perPage),
+      data: filteredList.slice(start, start + size),
+      pagination: toPagination(filteredList.length, page, perPage),
     };
   },
   getFormat: (owner: string, repo: string, pkg_type: string) =>
@@ -881,7 +1015,7 @@ export const packages = {
       body: JSON.stringify(data),
     }),
   delete: (owner: string, repo: string, pkg_type: string, pkg_name: string, version: string) =>
-    request<{ deleted: boolean }>(`/repos/${owner}/${repo}/packages/${encodeURIComponent(pkg_type)}/${encodeURIComponent(pkg_name)}/${encodeURIComponent(version)}`, { method: 'DELETE' }),
+    request<void>(`/repos/${owner}/${repo}/packages/${encodeURIComponent(pkg_type)}/${encodeURIComponent(pkg_name)}/${encodeURIComponent(version)}`, { method: 'DELETE' }),
 };
 
 // ── Runners ──────────────────────────────────────
@@ -919,7 +1053,7 @@ export const timeTracking = {
   total: (owner: string, repo: string, issueNumber: number) =>
     request<{ total_minutes: number; total_formatted: string }>(`/repos/${owner}/${repo}/issues/${issueNumber}/time/total`),
   delete: (owner: string, repo: string, issueNumber: number, id: number) =>
-    request<{ deleted: boolean }>(`/repos/${owner}/${repo}/issues/${issueNumber}/time/${id}`, { method: 'DELETE' }),
+    request<void>(`/repos/${owner}/${repo}/issues/${issueNumber}/time/${id}`, { method: 'DELETE' }),
 };
 
 // ── Project Boards ─────────────────────────────────

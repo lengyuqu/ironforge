@@ -589,6 +589,21 @@ for (const group of PARAM_EQUIVALENT_GROUPS) {
   }
 }
 
+const KNOWN_BODY_CONTRACTS = [
+  {
+    method: 'post',
+    path: '/repos/{owner}/{repo}/pulls',
+    required: ['title', 'head', 'base'],
+    forbidden: ['head_branch', 'base_branch'],
+  },
+  {
+    method: 'post',
+    path: '/repos/{owner}/{repo}/pulls/{number}/reviews',
+    required: ['action'],
+    forbidden: ['verdict'],
+  },
+];
+
 function equivalentParam(left, right) {
   const a = toSnakeCase(left);
   const b = toSnakeCase(right);
@@ -704,6 +719,26 @@ function inspectBodyAlignment(operation, bodyKeys) {
   return { ok: false, details: `缺少 required body 字段: ${missing.join(',')}` };
 }
 
+function inspectKnownBodyContracts(method, targetPath, bodyKeys) {
+  const contract = KNOWN_BODY_CONTRACTS.find((entry) => {
+    return entry.method === method && matchPathPattern(targetPath, entry.path);
+  });
+  if (!contract) return { ok: true, details: null };
+
+  if (!bodyKeys.present) {
+    return { ok: false, details: `未检测到 body，接口需要字段: ${contract.required.join(', ')}` };
+  }
+  if (bodyKeys.dynamic) return { ok: true, details: null };
+
+  const missing = contract.required.filter((name) => !bodyKeys.keys.includes(name));
+  const forbidden = contract.forbidden.filter((name) => bodyKeys.keys.includes(name));
+  const details = [];
+  if (missing.length > 0) details.push(`缺少字段: ${missing.join(', ')}`);
+  if (forbidden.length > 0) details.push(`发送了后端不接收的旧字段: ${forbidden.join(', ')}`);
+
+  return details.length === 0 ? { ok: true, details: null } : { ok: false, details: details.join('；') };
+}
+
 function parseMethod(source, start) {
   if (source[start] !== '<') return start;
 
@@ -802,6 +837,124 @@ function dedupeCalls(calls) {
   return out;
 }
 
+function inspectFrontendFlowContracts() {
+  const packageDetailFile = path.resolve(
+    process.cwd(),
+    'web/src/routes/[owner]/[repo]/packages/[format]/[name]/+page.svelte',
+  );
+  const authStoreFile = path.resolve(process.cwd(), 'web/src/lib/stores/auth.svelte.ts');
+  const loginPageFile = path.resolve(process.cwd(), 'web/src/routes/login/+page.svelte');
+  const repoHeaderFile = path.resolve(process.cwd(), 'web/src/lib/components/RepoHeader.svelte');
+  const reposApiFile = path.resolve(process.cwd(), 'crates/rg-http/src/api/repos.rs');
+
+  let packageDetailSource = '';
+  try {
+    packageDetailSource = readFileSync(packageDetailFile, 'utf8');
+  } catch (error) {
+    ISSUE.count += 1;
+    ISSUE.lines.push(`❌ 前端流程缺失: 无法读取包详情页（${packageDetailFile}）`);
+    return;
+  }
+
+  const loadPackageMatch = packageDetailSource.match(/async function loadPackage\(\)\s*\{([\s\S]*?)\n  \}/);
+  if (!loadPackageMatch) {
+    ISSUE.count += 1;
+    ISSUE.lines.push(`❌ 前端流程缺失: 包详情页未找到 loadPackage()（来源: ${packageDetailFile}）`);
+    return;
+  }
+
+  if (!/\bpackages\.getVersions\(/.test(loadPackageMatch[1]) && !/\bloadVersions\(\)/.test(loadPackageMatch[1])) {
+    ISSUE.count += 1;
+    ISSUE.lines.push(`❌ 前端流程未加载版本: 包详情页 loadPackage() 没有调用版本列表接口（来源: ${packageDetailFile}）`);
+  }
+
+  let authStoreSource = '';
+  let loginPageSource = '';
+  try {
+    authStoreSource = readFileSync(authStoreFile, 'utf8');
+    loginPageSource = readFileSync(loginPageFile, 'utf8');
+  } catch (error) {
+    ISSUE.count += 1;
+    ISSUE.lines.push(`❌ 前端流程缺失: 无法读取登录/MFA 流程文件（${authStoreFile}, ${loginPageFile}）`);
+    return;
+  }
+
+  const loginFunctionMatch = authStoreSource.match(/export async function login\(username: string, password: string\)\s*\{([\s\S]*?)\n\}/);
+  if (!loginFunctionMatch) {
+    ISSUE.count += 1;
+    ISSUE.lines.push(`❌ 前端流程缺失: auth store 未找到 login(username, password)（来源: ${authStoreFile}）`);
+  } else {
+    const loginBody = loginFunctionMatch[1];
+    if (!/res\.mfa_required/.test(loginBody)) {
+      ISSUE.count += 1;
+      ISSUE.lines.push(`❌ 登录契约未处理 MFA: /users/login 可返回 mfa_required=true，但 auth store 未分支处理（来源: ${authStoreFile}）`);
+    }
+    const mfaIndex = loginBody.indexOf('res.mfa_required');
+    const tokenIndex = loginBody.indexOf('setToken(res.token)');
+    if (mfaIndex === -1 || tokenIndex === -1 || tokenIndex < mfaIndex) {
+      ISSUE.count += 1;
+      ISSUE.lines.push(`❌ 登录契约会保存空 MFA token: setToken(res.token) 必须发生在 mfa_required 分支之后（来源: ${authStoreFile}）`);
+    }
+  }
+
+  if (!/export async function verifyMfa\(/.test(authStoreSource) || !/\bauth\.verifyMfa\(/.test(authStoreSource)) {
+    ISSUE.count += 1;
+    ISSUE.lines.push(`❌ MFA 流程缺失: auth store 未调用 /users/mfa/verify（来源: ${authStoreFile}）`);
+  }
+
+  if (!/\bisMfaRequired\(\)/.test(loginPageSource) || !/\bverifyMfa\(/.test(loginPageSource)) {
+    ISSUE.count += 1;
+    ISSUE.lines.push(`❌ MFA UI 缺失: 登录页没有展示并提交二步验证码（来源: ${loginPageFile}）`);
+  }
+
+  let repoHeaderSource = '';
+  try {
+    repoHeaderSource = readFileSync(repoHeaderFile, 'utf8');
+  } catch (error) {
+    ISSUE.count += 1;
+    ISSUE.lines.push(`❌ 前端流程缺失: 无法读取仓库头部组件（${repoHeaderFile}）`);
+    return;
+  }
+
+  if (/archive\/main\.zip/.test(repoHeaderSource)) {
+    ISSUE.count += 1;
+    ISSUE.lines.push(`❌ 仓库归档链接硬编码 main: RepoHeader 必须使用仓库 default_branch 或后端返回值（来源: ${repoHeaderFile}）`);
+  }
+
+  if (!/\bdefaultBranch\b/.test(repoHeaderSource) || !/\brepos\.get\(/.test(repoHeaderSource)) {
+    ISSUE.count += 1;
+    ISSUE.lines.push(`❌ 仓库归档链接未对齐默认分支: RepoHeader 应从 props 或 /repos/{owner}/{repo} 获取 default_branch（来源: ${repoHeaderFile}）`);
+  }
+
+  if (!/\bAPI_BASE\b/.test(repoHeaderSource) || !/archive\/\$\{encodeURIComponent\(archiveRef\)\}\.zip/.test(repoHeaderSource)) {
+    ISSUE.count += 1;
+    ISSUE.lines.push(`❌ 仓库归档链接未使用 API base/ref 编码: RepoHeader 下载地址应对齐后端 /archive/{ref}.zip（来源: ${repoHeaderFile}）`);
+  }
+
+  let reposApiSource = '';
+  try {
+    reposApiSource = readFileSync(reposApiFile, 'utf8');
+  } catch (error) {
+    ISSUE.count += 1;
+    ISSUE.lines.push(`❌ 后端契约缺失: 无法读取仓库 API 文件（${reposApiFile}）`);
+    return;
+  }
+
+  const repoResponseMatch = reposApiSource.match(/pub struct RepoResponse\s*\{([\s\S]*?)\n\}/);
+  if (!repoResponseMatch) {
+    ISSUE.count += 1;
+    ISSUE.lines.push(`❌ 后端契约缺失: RepoResponse schema 未定义（来源: ${reposApiFile}）`);
+    return;
+  }
+
+  for (const field of ['default_branch', 'stars_count', 'forks_count', 'fork_id']) {
+    if (!new RegExp(`\\bpub\\s+${field}\\s*:`).test(repoResponseMatch[1])) {
+      ISSUE.count += 1;
+      ISSUE.lines.push(`❌ 仓库详情响应 schema 漂移: 前端仓库页依赖 ${field}，RepoResponse 未声明（来源: ${reposApiFile}）`);
+    }
+  }
+}
+
 async function main() {
   let openapi = readLocalOpenApi();
   if (!openapi) {
@@ -883,7 +1036,15 @@ async function main() {
       ISSUE.count += 1;
       ISSUE.lines.push(`⚠️ 请求体参数缺失: ${method.toUpperCase()} ${targetPath} -> ${bodyCheck.details}（来源: ${call.file})`);
     }
+
+    const knownBodyCheck = inspectKnownBodyContracts(method, targetPath, call.body || {});
+    if (!knownBodyCheck.ok) {
+      ISSUE.count += 1;
+      ISSUE.lines.push(`⚠️ 已知请求体契约不一致: ${method.toUpperCase()} ${targetPath} -> ${knownBodyCheck.details}（来源: ${call.file})`);
+    }
   }
+
+  inspectFrontendFlowContracts();
 
   for (const line of ISSUE.lines) {
     console.log(line);

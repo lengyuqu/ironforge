@@ -26,7 +26,15 @@
     docker: 'Docker',
     nuget: 'NuGet',
     rubygems: 'RubyGems',
+    go: 'Go',
     helm: 'Helm',
+    composer: 'Composer',
+    conan: 'Conan',
+    conda: 'Conda',
+    alpine: 'Alpine',
+    debian: 'Debian',
+    rpm: 'RPM',
+    swift: 'Swift',
     generic: 'Generic',
   };
 
@@ -38,8 +46,12 @@
     loading = true;
     error = '';
     try {
-      const res = await packages.get(owner!, repo!, format!, name!);
-      packageInfo = res;
+      const [info, versionRes] = await Promise.all([
+        packages.get(owner!, repo!, format!, name!),
+        packages.getVersions(owner!, repo!, format!, name!),
+      ]);
+      packageInfo = info;
+      versions = versionRes.versions || [];
     } catch (e: any) {
       error = e.message;
     } finally {
@@ -75,7 +87,9 @@
     if (f === 'docker') return `docker pull ${owner}/${repo}:${ver}`;
     if (f === 'nuget') return `dotnet add package ${name!} --version ${ver}`;
     if (f === 'rubygems') return `gem install ${name!} --version ${ver}`;
+    if (f === 'go') return `GOPROXY=<IronForge URL>/api/v1/repos/${owner}/${repo}/packages/go go get ${name!}@${ver}`;
     if (f === 'helm') return `helm install my-release ${name!} --version ${ver}`;
+    if (f === 'composer') return `composer require ${name!}:${ver}`;
     return `# install ${name!} ${ver}`;
   }
 

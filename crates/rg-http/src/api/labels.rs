@@ -118,13 +118,12 @@ pub async fn create_label(
     };
 
     let user_id: i64 = match claims.sub.parse::<i64>() {
-
         Ok(id) => id,
 
-        Err(_) => return AppError::Unauthorized("invalid token subject".to_string()).into_response(),
-
+        Err(_) => {
+            return AppError::Unauthorized("invalid token subject".to_string()).into_response()
+        }
     };
-
 
     // Check write permission
     if !rg_core::repo::service::can_write(&state.db, &owner, &name, Some(user_id))
@@ -179,13 +178,12 @@ pub async fn update_label(
     };
 
     let user_id: i64 = match claims.sub.parse::<i64>() {
-
         Ok(id) => id,
 
-        Err(_) => return AppError::Unauthorized("invalid token subject".to_string()).into_response(),
-
+        Err(_) => {
+            return AppError::Unauthorized("invalid token subject".to_string()).into_response()
+        }
     };
-
 
     // Check write permission
     if !rg_core::repo::service::can_write(&state.db, &owner, &name, Some(user_id))
@@ -238,13 +236,12 @@ pub async fn delete_label(
     };
 
     let user_id: i64 = match claims.sub.parse::<i64>() {
-
         Ok(id) => id,
 
-        Err(_) => return AppError::Unauthorized("invalid token subject".to_string()).into_response(),
-
+        Err(_) => {
+            return AppError::Unauthorized("invalid token subject".to_string()).into_response()
+        }
     };
-
 
     // Check write permission
     if !rg_core::repo::service::can_write(&state.db, &owner, &name, Some(user_id))

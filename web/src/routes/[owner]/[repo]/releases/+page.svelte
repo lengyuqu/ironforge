@@ -16,10 +16,11 @@
   let totalPages = $state(1);
   let deletingId = $state<number | null>(null);
   let confirmDeleteId = $state<number | null>(null);
+  let releaseAssets = $state<Record<number, any[]>>({});
 
   function buildBrowseLink(tag: string) {
     const params = new URLSearchParams();
-    if (tag) params.set('path', tag);
+    if (tag) params.set('ref', tag);
     const qs = params.toString();
     return `/${owner}/${repo}${qs ? `?${qs}` : ''}`;
   }
@@ -35,6 +36,7 @@
       const res = await releases.list(owner!, repo!, currentPage, 20);
       releaseList = res.data;
       totalPages = res.pagination?.total_pages ?? 1;
+      await loadReleaseAssets(releaseList);
     } catch (e: any) {
       error = e.message;
     } finally {
@@ -42,14 +44,31 @@
     }
   }
 
+  async function loadReleaseAssets(items: any[]) {
+    const entries = await Promise.all(
+      items.map(async (release) => {
+        try {
+          const assets = await releases.listAssets(owner!, repo!, release.id);
+          return [release.id, assets] as const;
+        } catch {
+          return [release.id, []] as const;
+        }
+      })
+    );
+
+    releaseAssets = Object.fromEntries(entries);
+  }
+
   async function handleDelete(id: number) {
     try {
+      deletingId = id;
       await releases.delete(owner!, repo!, id);
       confirmDeleteId = null;
       deletingId = null;
       await loadReleases();
     } catch (e: any) {
       error = e.message;
+      deletingId = null;
     }
   }
 
@@ -75,6 +94,12 @@
     if (diffHours > 0) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
     if (diffMins > 0) return `${diffMins} minute${diffMins > 1 ? 's' : ''} ago`;
     return 'just now';
+  }
+
+  function formatBytes(size: number): string {
+    if (size < 1024) return `${size} B`;
+    if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+    return `${(size / (1024 * 1024)).toFixed(1)} MB`;
   }
 </script>
 
@@ -129,6 +154,17 @@
           <div class="release-meta">
             <span class="release-date">{t('releases.created', { date: relativeTime(release.created_at) })}</span>
           </div>
+
+          {#if releaseAssets[release.id]?.length}
+            <div class="asset-list" aria-label="Release assets">
+              {#each releaseAssets[release.id] as asset}
+                <a class="asset-link" href={releases.assetDownloadUrl(owner!, repo!, asset.id)}>
+                  <span class="asset-name">{asset.filename}</span>
+                  <span class="asset-meta">{formatBytes(asset.size)} · {asset.download_count || 0} downloads</span>
+                </a>
+              {/each}
+            </div>
+          {/if}
 
           <div class="release-actions">
             <a href={buildBrowseLink(release.tag_name)} class="action-link">{t('releases.browse_files')}</a>
@@ -326,6 +362,44 @@
     font-size: 13px;
     color: var(--text-muted);
     margin-bottom: 12px;
+  }
+
+  .asset-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 12px;
+    padding: 10px 12px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+
+  .asset-link {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    color: var(--text-primary);
+    text-decoration: none;
+    font-size: 13px;
+  }
+
+  .asset-link:hover .asset-name {
+    color: var(--accent);
+    text-decoration: underline;
+  }
+
+  .asset-name {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    font-weight: 500;
+  }
+
+  .asset-meta {
+    flex-shrink: 0;
+    color: var(--text-muted);
+    font-size: 12px;
   }
 
   .release-actions {

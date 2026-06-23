@@ -224,11 +224,11 @@ pub async fn me(State(state): State<AppState>, headers: HeaderMap) -> impl IntoR
     };
 
     let user_id: i64 = match claims.sub.parse::<i64>() {
-
         Ok(id) => id,
 
-        Err(_) => return AppError::Unauthorized("invalid token subject".to_string()).into_response(),
-
+        Err(_) => {
+            return AppError::Unauthorized("invalid token subject".to_string()).into_response()
+        }
     };
 
     match rg_db::ops::user_ops::find_by_id(&state.db, user_id).await {
@@ -305,7 +305,9 @@ pub async fn list_tokens(State(state): State<AppState>, headers: HeaderMap) -> i
     };
     let user_id: i64 = match claims.sub.parse::<i64>() {
         Ok(id) => id,
-        Err(_) => return AppError::Unauthorized("invalid token subject".to_string()).into_response(),
+        Err(_) => {
+            return AppError::Unauthorized("invalid token subject".to_string()).into_response()
+        }
     };
 
     match rg_db::ops::token_ops::list_by_user(&state.db, user_id).await {
@@ -339,7 +341,9 @@ pub async fn create_token(
     };
     let user_id: i64 = match claims.sub.parse::<i64>() {
         Ok(id) => id,
-        Err(_) => return AppError::Unauthorized("invalid token subject".to_string()).into_response(),
+        Err(_) => {
+            return AppError::Unauthorized("invalid token subject".to_string()).into_response()
+        }
     };
 
     if body.name.trim().is_empty() {
@@ -408,7 +412,9 @@ pub async fn delete_token(
     };
     let user_id: i64 = match claims.sub.parse::<i64>() {
         Ok(id) => id,
-        Err(_) => return AppError::Unauthorized("invalid token subject".to_string()).into_response(),
+        Err(_) => {
+            return AppError::Unauthorized("invalid token subject".to_string()).into_response()
+        }
     };
 
     let token = match rg_db::ops::token_ops::find_by_id(&state.db, id).await {

@@ -16,6 +16,11 @@ export const repos = {
     request<{ entries: { name: string; kind: string; size?: number }[] }>(`/repos/${owner}/${repo}/tree${qs({ ref, path })}`),
   blob: (owner: string, repo: string, path: string, ref?: string) =>
     request<{ content: string; size: number; name: string }>(`/repos/${owner}/${repo}/blob/${path}${qs({ ref })}`),
+  saveContent: (owner: string, repo: string, path: string, data: { branch?: string; content: string; message: string; sha?: string }) =>
+    request<{ success: boolean; file_path: string; commit_sha: string }>(`/repos/${owner}/${repo}/contents/${path}`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
   log: (owner: string, repo: string, ref?: string, path?: string) =>
     request<{ commits: { sha: string; message: string; author: string; date: string }[] }>(`/repos/${owner}/${repo}/log${qs({ ref, path })}`),
   branches: (owner: string, repo: string) =>
@@ -26,12 +31,19 @@ export const repos = {
     request<{ verified: boolean; signer_key: string | null; signer_name: string | null; signer_email: string | null; status: string }>(`/repos/${owner}/${repo}/commits/${sha}/signature`),
   star: (owner: string, repo: string) =>
     request<{ starred: boolean }>(`/repos/${owner}/${repo}/star`, { method: 'PUT' }),
-  unstar: (owner: string, repo: string) =>
-    request<{ starred: boolean }>(`/repos/${owner}/${repo}/star`, { method: 'PUT' }),
+  starred: (owner: string, repo: string) =>
+    request<{ starred: boolean }>(`/repos/${owner}/${repo}/starred`, { method: 'GET' }),
+  unstar: async (owner: string, repo: string) => {
+    const status = await repos.starred(owner, repo);
+    if (!status.starred) return { starred: false };
+    return repos.star(owner, repo);
+  },
   stargazers: (owner: string, repo: string, page?: number, perPage?: number) =>
     request<PaginatedResponse<any>>(`/repos/${owner}/${repo}/stargazers${qs({ page, per_page: perPage })}`),
   watch: (owner: string, repo: string, state: string) =>
     request<{ watch_state: string }>(`/repos/${owner}/${repo}/watch`, { method: 'PUT', body: JSON.stringify({ state }) }),
+  watchStatus: (owner: string, repo: string) =>
+    request<{ watch_state: 'not_watching' | 'watching' | 'ignoring' }>(`/repos/${owner}/${repo}/watch`, { method: 'GET' }),
   unwatch: (owner: string, repo: string) =>
     request<{ watch_state: string }>(`/repos/${owner}/${repo}/watch`, { method: 'DELETE' }),
   delete: (owner: string, repo: string) =>

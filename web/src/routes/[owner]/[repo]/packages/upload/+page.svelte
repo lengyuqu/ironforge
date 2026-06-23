@@ -10,7 +10,25 @@
   let owner = $derived($page.params.owner!);
   let repo = $derived($page.params.repo!);
 
-  const formats = ['cargo', 'npm', 'pypi', 'maven', 'docker', 'nuget', 'rubygems', 'helm', 'generic'];
+  const formats = [
+    'cargo',
+    'npm',
+    'pypi',
+    'maven',
+    'docker',
+    'nuget',
+    'rubygems',
+    'go',
+    'helm',
+    'composer',
+    'conan',
+    'conda',
+    'alpine',
+    'debian',
+    'rpm',
+    'swift',
+    'generic',
+  ];
 
   let format = $state('cargo');
   let packageFile = $state<File | null>(null);

@@ -3,8 +3,8 @@
 //! Limits requests per IP address. Configurable requests-per-minute.
 //! Returns 429 Too Many Requests when the limit is exceeded.
 
-use axum::extract::Request;
 use axum::extract::connect_info::ConnectInfo;
+use axum::extract::Request;
 use axum::http::HeaderMap;
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
@@ -150,8 +150,7 @@ pub async fn rate_limit_middleware(
     request: Request,
     next: Next,
 ) -> Response {
-    let key = extract_client_key(&headers)
-        .unwrap_or_else(|| addr.to_string());
+    let key = extract_client_key(&headers).unwrap_or_else(|| addr.to_string());
 
     if limiter.allow(&key) {
         next.run(request).await

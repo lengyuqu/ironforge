@@ -1,5 +1,12 @@
 <script lang="ts">
-  import { login, getAuthError, getAuthLoading, isLoggedIn } from '$lib/stores/auth.svelte';
+  import {
+    login,
+    verifyMfa,
+    getAuthError,
+    getAuthLoading,
+    isLoggedIn,
+    isMfaRequired,
+  } from '$lib/stores/auth.svelte';
   import { createT } from '$lib/i18n';
   import { goto } from '$app/navigation';
 
@@ -7,6 +14,8 @@
 
   let username = $state('');
   let password = $state('');
+  let mfaCode = $state('');
+  let useBackupCode = $state(false);
   let localError = $state('');
 
   // Redirect if already logged in (prevents flash of login form for authenticated users)
@@ -22,8 +31,21 @@
     const ok = await login(username, password);
     if (ok) {
       window.location.href = '/dashboard';
+    } else if (isMfaRequired()) {
+      localError = '';
     } else {
       localError = getAuthError() || t('auth.login.failed');
+    }
+  }
+
+  async function handleMfaSubmit(e: Event) {
+    e.preventDefault();
+    localError = '';
+    const ok = await verifyMfa(mfaCode.trim(), useBackupCode);
+    if (ok) {
+      window.location.href = '/dashboard';
+    } else {
+      localError = getAuthError() || t('auth.login.mfa_failed');
     }
   }
 </script>
@@ -41,21 +63,45 @@
       <div class="error-banner">{localError}</div>
     {/if}
 
-    <form onsubmit={handleSubmit}>
-      <label>
-        {t('auth.login.username')}
-        <input type="text" bind:value={username} required autocomplete="username" />
-      </label>
+    {#if isMfaRequired()}
+      <form onsubmit={handleMfaSubmit}>
+        <label>
+          {t('auth.login.mfa_code')}
+          <input
+            type="text"
+            bind:value={mfaCode}
+            required
+            inputmode="numeric"
+            autocomplete="one-time-code"
+          />
+        </label>
 
-      <label>
-        {t('auth.login.password')}
-        <input type="password" bind:value={password} required autocomplete="current-password" />
-      </label>
+        <label class="checkbox-label">
+          <input type="checkbox" bind:checked={useBackupCode} />
+          {t('auth.login.use_backup_code')}
+        </label>
 
-      <button type="submit" class="btn-primary" disabled={getAuthLoading()}>
-        {getAuthLoading() ? t('auth.login.submitting') : t('auth.login.submit')}
-      </button>
-    </form>
+        <button type="submit" class="btn-primary" disabled={getAuthLoading() || !mfaCode.trim()}>
+          {getAuthLoading() ? t('auth.login.verifying') : t('auth.login.verify')}
+        </button>
+      </form>
+    {:else}
+      <form onsubmit={handleSubmit}>
+        <label>
+          {t('auth.login.username')}
+          <input type="text" bind:value={username} required autocomplete="username" />
+        </label>
+
+        <label>
+          {t('auth.login.password')}
+          <input type="password" bind:value={password} required autocomplete="current-password" />
+        </label>
+
+        <button type="submit" class="btn-primary" disabled={getAuthLoading()}>
+          {getAuthLoading() ? t('auth.login.submitting') : t('auth.login.submit')}
+        </button>
+      </form>
+    {/if}
 
     <p class="footer">
       {t('auth.login.footer', { link: '' })}
@@ -103,6 +149,16 @@
 
   input {
     padding: 8px 12px;
+  }
+
+  .checkbox-label {
+    flex-direction: row;
+    align-items: center;
+    font-weight: 500;
+  }
+
+  .checkbox-label input {
+    width: auto;
   }
 
   .btn-primary {

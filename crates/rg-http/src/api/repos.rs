@@ -87,15 +87,23 @@ pub struct CreateRepoRequest {
 pub struct RepoResponse {
     pub id: i64,
     pub owner_id: i64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub org_id: Option<i64>,
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    pub stars_count: i64,
     pub is_private: bool,
+    pub default_branch: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fork_id: Option<i64>,
+    pub stars_count: i64,
+    pub forks_count: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub org_id: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub origin_repo_id: Option<i64>,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deleted_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[utoipa::path(
@@ -173,7 +181,9 @@ pub async fn create_repo(
         owner_display_name: owner_display,
     };
 
-    match rg_core::repo::service::create_repo_with_opts(&state.db, opts, state.repo_root.as_path()).await {
+    match rg_core::repo::service::create_repo_with_opts(&state.db, opts, state.repo_root.as_path())
+        .await
+    {
         Ok(repo) => {
             // Record audit log
             let details = serde_json::json!({
@@ -346,13 +356,12 @@ pub async fn star_repo(
     };
 
     let user_id: i64 = match claims.sub.parse::<i64>() {
-
         Ok(id) => id,
 
-        Err(_) => return AppError::Unauthorized("invalid token subject".to_string()).into_response(),
-
+        Err(_) => {
+            return AppError::Unauthorized("invalid token subject".to_string()).into_response()
+        }
     };
-
 
     let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
     {
@@ -398,13 +407,12 @@ pub async fn get_starred_status(
     };
 
     let user_id: i64 = match claims.sub.parse::<i64>() {
-
         Ok(id) => id,
 
-        Err(_) => return AppError::Unauthorized("invalid token subject".to_string()).into_response(),
-
+        Err(_) => {
+            return AppError::Unauthorized("invalid token subject".to_string()).into_response()
+        }
     };
-
 
     let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
     {
@@ -467,6 +475,58 @@ pub async fn get_stargazers(
     }
 }
 
+/// GET /api/v1/repos/:owner/:name/watch
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/watch",
+    tag = "Repositories",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+    ),
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
+pub async fn get_watch_status(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((owner, name)): Path<(String, String)>,
+) -> impl IntoResponse {
+    let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
+        Some(c) => c,
+        None => {
+            return AppError::Unauthorized("authentication required".to_string()).into_response()
+        }
+    };
+
+    let user_id: i64 = match claims.sub.parse::<i64>() {
+        Ok(id) => id,
+        Err(_) => {
+            return AppError::Unauthorized("invalid token subject".to_string()).into_response()
+        }
+    };
+
+    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
+    {
+        Ok(Some(r)) => r,
+        Ok(None) => return AppError::NotFound("repository not found".to_string()).into_response(),
+        Err(e) => return AppError::InternalError(e.to_string()).into_response(),
+    };
+
+    match rg_core::repo::service::get_watch(&state.db, user_id, repo.id).await {
+        Ok(watch_state) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "watch_state": watch_state.unwrap_or_else(|| "not_watching".to_string())
+            })),
+        )
+            .into_response(),
+        Err(e) => AppError::InternalError(e.to_string()).into_response(),
+    }
+}
+
 /// PUT /api/v1/repos/:owner/:name/watch
 #[utoipa::path(
     put,
@@ -496,13 +556,12 @@ pub async fn watch_repo(
     };
 
     let user_id: i64 = match claims.sub.parse::<i64>() {
-
         Ok(id) => id,
 
-        Err(_) => return AppError::Unauthorized("invalid token subject".to_string()).into_response(),
-
+        Err(_) => {
+            return AppError::Unauthorized("invalid token subject".to_string()).into_response()
+        }
     };
-
 
     let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
     {
@@ -549,13 +608,12 @@ pub async fn unwatch_repo(
     };
 
     let user_id: i64 = match claims.sub.parse::<i64>() {
-
         Ok(id) => id,
 
-        Err(_) => return AppError::Unauthorized("invalid token subject".to_string()).into_response(),
-
+        Err(_) => {
+            return AppError::Unauthorized("invalid token subject".to_string()).into_response()
+        }
     };
-
 
     let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
     {
@@ -602,13 +660,12 @@ pub async fn delete_repo_handler(
     };
 
     let user_id: i64 = match claims.sub.parse::<i64>() {
-
         Ok(id) => id,
 
-        Err(_) => return AppError::Unauthorized("invalid token subject".to_string()).into_response(),
-
+        Err(_) => {
+            return AppError::Unauthorized("invalid token subject".to_string()).into_response()
+        }
     };
-
 
     let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
     {
@@ -684,9 +741,10 @@ pub async fn fork_repo_handler(
     };
     let user_id: i64 = match claims.sub.parse::<i64>() {
         Ok(id) => id,
-        Err(_) => return AppError::Unauthorized("invalid token subject".to_string()).into_response(),
+        Err(_) => {
+            return AppError::Unauthorized("invalid token subject".to_string()).into_response()
+        }
     };
-
 
     match rg_core::repo::service::fork_repo(&state.db, user_id, &owner, &name, &state.repo_root)
         .await
@@ -788,9 +846,10 @@ pub async fn transfer_repo_handler(
     };
     let user_id: i64 = match claims.sub.parse::<i64>() {
         Ok(id) => id,
-        Err(_) => return AppError::Unauthorized("invalid token subject".to_string()).into_response(),
+        Err(_) => {
+            return AppError::Unauthorized("invalid token subject".to_string()).into_response()
+        }
     };
-
 
     match rg_core::repo::service::transfer_repo(
         &state.db,
@@ -872,13 +931,12 @@ pub async fn create_commit_status(
     };
 
     let user_id: i64 = match claims.sub.parse::<i64>() {
-
         Ok(id) => id,
 
-        Err(_) => return AppError::Unauthorized("invalid token subject".to_string()).into_response(),
-
+        Err(_) => {
+            return AppError::Unauthorized("invalid token subject".to_string()).into_response()
+        }
     };
-
 
     let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
     {

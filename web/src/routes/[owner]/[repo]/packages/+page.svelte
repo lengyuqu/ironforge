@@ -16,7 +16,25 @@
   let currentPage = $state(1);
   let totalPages = $state(1);
 
-  const formats = ['cargo', 'npm', 'pypi', 'maven', 'docker', 'nuget', 'rubygems', 'helm', 'generic'];
+  const formats = [
+    'cargo',
+    'npm',
+    'pypi',
+    'maven',
+    'docker',
+    'nuget',
+    'rubygems',
+    'go',
+    'helm',
+    'composer',
+    'conan',
+    'conda',
+    'alpine',
+    'debian',
+    'rpm',
+    'swift',
+    'generic',
+  ];
 
   $effect(() => {
     loadPackages();
@@ -26,25 +44,16 @@
     loading = true;
     error = '';
     try {
-      const res = await packages.list(owner!, repo!, formatFilter || undefined, currentPage, 20);
-      // 后端可能返回 { registries: [...] } 或 { packages: [...] }，需要兼容
-      let items: any[] = [];
-      if (Array.isArray(res)) {
-        items = res;
-      } else if (res?.data) {
-        items = res.data;
-      } else if (res?.packages) {
-        items = res.packages;
-      } else if (res?.registries) {
-        items = res.registries;
-      }
-      packageList = items;
-      // 只有在响应包含分页信息时才更新总页数
-      if (res?.pagination?.total_pages) {
-        totalPages = res.pagination.total_pages;
-      } else {
-        totalPages = 1;
-      }
+      const res = await packages.list(
+        owner!,
+        repo!,
+        formatFilter || undefined,
+        currentPage,
+        20,
+        searchQuery,
+      );
+      packageList = res.data;
+      totalPages = res.pagination.total_pages;
     } catch (e: any) {
       error = e.message;
     } finally {
@@ -61,7 +70,15 @@
       docker: 'Docker',
       nuget: 'NuGet',
       rubygems: 'RubyGems',
+      go: 'Go',
       helm: 'Helm',
+      composer: 'Composer',
+      conan: 'Conan',
+      conda: 'Conda',
+      alpine: 'Alpine',
+      debian: 'Debian',
+      rpm: 'RPM',
+      swift: 'Swift',
       generic: 'Generic',
     };
     return labels[f] || f;
@@ -75,6 +92,10 @@
   function handleSearch() {
     currentPage = 1;
     loadPackages();
+  }
+
+  function packageHref(pkg: { format: string; name: string }): string {
+    return `/${owner}/${repo}/packages/${encodeURIComponent(pkg.format)}/${encodeURIComponent(pkg.name)}`;
   }
 </script>
 
@@ -127,7 +148,7 @@
       {#each packageList as pkg}
         <div class="package-card">
           <div class="package-header">
-            <a href="/{owner}/{repo}/packages/{pkg.format}/{pkg.name}" class="package-name">{pkg.name}</a>
+            <a href={packageHref(pkg)} class="package-name">{pkg.name}</a>
             <span class="format-badge">{formatLabel(pkg.format)}</span>
           </div>
           {#if pkg.description}

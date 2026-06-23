@@ -166,7 +166,7 @@
       {:else}
         <div class="issue-header">
           <h2>
-            <a href="/{owner}/{repo}/issues/{selectedIssue.number}" class="issue-link">
+            <a href={`/${owner}/${repo}/issues/${selectedIssue.number}`} class="issue-link">
               #{selectedIssue.number} {selectedIssue.title}
             </a>
           </h2>

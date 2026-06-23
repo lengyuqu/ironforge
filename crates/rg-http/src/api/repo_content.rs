@@ -138,7 +138,9 @@ async fn resolve_and_check_access(
     if repo_model.is_private {
         let claims = extract_bearer_claims(headers, &state.jwt_secret)
             .ok_or_else(|| AppError::unauthorized("authentication required"))?;
-        let user_id = claims.sub.parse::<i64>()
+        let user_id = claims
+            .sub
+            .parse::<i64>()
             .map_err(|_| AppError::Unauthorized("invalid token subject".to_string()))?;
 
         if !rg_core::repo::service::can_read_repo(&state.db, &repo_model, Some(user_id))
@@ -881,26 +883,28 @@ async fn resolve_and_check_write_access(
 ) -> Result<rg_db::entities::repository::Model, AppError> {
     let claims = extract_bearer_claims(headers, &state.jwt_secret)
         .ok_or_else(|| AppError::unauthorized("authentication required"))?;
-    
-    let user_id = claims.sub.parse::<i64>()
+
+    let user_id = claims
+        .sub
+        .parse::<i64>()
         .map_err(|_| AppError::Unauthorized("invalid token subject".to_string()))?;
 
     if user_id <= 0 {
         return Err(AppError::unauthorized("invalid token"));
     }
-    
+
     let repo_model = rg_core::repo::service::find_repo_by_owner_name(&state.db, owner, repo)
         .await
         .map_err(|e| AppError::internal(e))?
         .ok_or_else(|| AppError::not_found("repository not found"))?;
-    
+
     if !rg_core::repo::service::can_write_repo(&state.db, &repo_model, Some(user_id))
         .await
         .unwrap_or(false)
     {
         return Err(AppError::forbidden("write access denied"));
     }
-    
+
     Ok(repo_model)
 }
 
@@ -939,15 +943,15 @@ pub async fn create_or_update_file(
     if let Err(e) = rg_core::platform::validate_repo_path(&repo) {
         return AppError::bad_request(e.to_string()).into_response();
     }
-    
+
     // Check write access
     let repo_model = match resolve_and_check_write_access(&state, &headers, &owner, &repo).await {
         Ok(r) => r,
         Err(e) => return e.into_response(),
     };
-    
+
     let branch = req.branch.unwrap_or(repo_model.default_branch.clone());
-    
+
     // Call business logic
     match rg_core::repo::service::create_or_update_file(
         &state.db,
@@ -960,18 +964,24 @@ pub async fn create_or_update_file(
         &branch,
         req.sha.as_deref(),
         &state.repo_root,
-    ).await {
+    )
+    .await
+    {
         Ok(_) => {
             // Get the new commit SHA
             let repo_path = state.repo_root.join(format!("{}/{}.git", owner, repo));
             let new_sha = get_latest_commit_sha(&repo_path, &branch).unwrap_or_default();
-            
-            (StatusCode::OK, Json(FileOperationResponse {
-                success: true,
-                file_path: path,
-                commit_sha: new_sha,
-                message: "File created/updated successfully".to_string(),
-            })).into_response()
+
+            (
+                StatusCode::OK,
+                Json(FileOperationResponse {
+                    success: true,
+                    file_path: path,
+                    commit_sha: new_sha,
+                    message: "File created/updated successfully".to_string(),
+                }),
+            )
+                .into_response()
         }
         Err(e) => {
             // Check if it's a SHA mismatch (conflict)
@@ -1016,15 +1026,15 @@ pub async fn delete_file(
     if let Err(e) = rg_core::platform::validate_repo_path(&repo) {
         return AppError::bad_request(e.to_string()).into_response();
     }
-    
+
     // Check write access
     let repo_model = match resolve_and_check_write_access(&state, &headers, &owner, &repo).await {
         Ok(r) => r,
         Err(e) => return e.into_response(),
     };
-    
+
     let branch = params.branch.unwrap_or(repo_model.default_branch.clone());
-    
+
     // Call business logic
     match rg_core::repo::service::delete_file(
         &state.db,
@@ -1036,18 +1046,24 @@ pub async fn delete_file(
         &branch,
         &params.sha,
         &state.repo_root,
-    ).await {
+    )
+    .await
+    {
         Ok(_) => {
             // Get the new commit SHA
             let repo_path = state.repo_root.join(format!("{}/{}.git", owner, repo));
             let new_sha = get_latest_commit_sha(&repo_path, &branch).unwrap_or_default();
-            
-            (StatusCode::OK, Json(FileOperationResponse {
-                success: true,
-                file_path: path,
-                commit_sha: new_sha,
-                message: "File deleted successfully".to_string(),
-            })).into_response()
+
+            (
+                StatusCode::OK,
+                Json(FileOperationResponse {
+                    success: true,
+                    file_path: path,
+                    commit_sha: new_sha,
+                    message: "File deleted successfully".to_string(),
+                }),
+            )
+                .into_response()
         }
         Err(e) => {
             // Check if it's a SHA mismatch (conflict)
@@ -1064,10 +1080,11 @@ pub async fn delete_file(
 fn get_latest_commit_sha(repo_path: &std::path::Path, branch: &str) -> anyhow::Result<String> {
     let repo = gix::open(repo_path)
         .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
-    
+
     let reference = format!("refs/heads/{}", branch);
-    let oid = repo.rev_parse_single(reference.as_str())
+    let oid = repo
+        .rev_parse_single(reference.as_str())
         .map_err(|e| anyhow::anyhow!("failed to resolve branch '{}': {}", branch, e))?;
-    
+
     Ok(oid.to_string())
 }

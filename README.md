@@ -235,6 +235,30 @@ curl -X POST http://localhost:8080/api/v1/repos/testuser/myrepo/pulls/1/merge \
 
 ---
 
+### API 文档鉴权（建议默认开启）
+
+`/api-docs/*` 默认受保护，需要有效 JWT 或 PAT 才能访问。
+
+```bash
+# 登录拿 token
+TOKEN="$(curl -s http://localhost:8080/api/v1/users/login \
+  -H 'Content-Type: application/json' \
+  -d '{"login":"testuser","password":"secret123"}' \
+  | jq -r '.token')"
+
+# OpenAPI JSON
+curl -H "Authorization: Bearer ${TOKEN}" http://localhost:8080/api-docs/openapi.json
+
+# Swagger UI
+curl -H "Authorization: Bearer ${TOKEN}" http://localhost:8080/api-docs/
+```
+
+配合 OpenAPI 冒烟脚本可自动补 token 并校验鉴权行为：
+
+```bash
+OPENAPI_REQUIRE_AUTH=1 BACKEND_URL=http://127.0.0.1:8080 node scripts/openapi-interface-smoke.mjs
+```
+
 ## Git 操作
 
 ### SSH
@@ -552,7 +576,7 @@ VITE_API_BASE=http://127.0.0.1:8080/api/v1 npm run dev
 
 新增自动化脚本（默认路径）：
 
-- `scripts/openapi-interface-smoke.mjs`：自动读取 `/api-docs/openapi.json` 并对全部 OpenAPI 接口做可用性请求（只要无 5xx 即视为通畅）。
+- `scripts/openapi-interface-smoke.mjs`：自动读取 `/api-docs/openapi.json` 并对全部 OpenAPI 接口做可用性请求，默认要求文档鉴权（未鉴权必须为 401；通过后继续复测）。
 - `scripts/console-smoke.mjs`：自动发现 `web/src/routes/**/+page.svelte` 并用浏览器检查全部前端页面的 console/network 运行态错误。
 - `scripts/full-interface-regression.mjs`：一次性执行后端测试、前端检查、前端构建，并在检测到服务可达时执行运行态联调；默认会探测前端 `4173` 和 `5173`。
 - `scripts/api-client-contract-check.mjs`：对比前端 API client 与 OpenAPI 的路由声明、方法和参数签名是否一致。

@@ -3,8 +3,8 @@
 use anyhow::{bail, Context, Result};
 use chrono::Utc;
 use sea_orm::{ActiveValue::Set, ConnectionTrait, DatabaseConnection};
-use std::path::PathBuf;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::process::Command;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
@@ -57,7 +57,8 @@ fn perm_cache() -> &'static Mutex<HashMap<PermKey, PermEntry>> {
 
 fn check_perm_cache(repo_id: i64, actor_id: Option<i64>, for_write: bool) -> Option<bool> {
     let cache = perm_cache().lock().unwrap();
-    cache.get(&(repo_id, actor_id, for_write))
+    cache
+        .get(&(repo_id, actor_id, for_write))
         .filter(|(_, ts)| ts.elapsed() < PERM_CACHE_TTL)
         .map(|(v, _)| *v)
 }
@@ -81,7 +82,10 @@ pub fn invalidate_perm_cache_user(repo_id: i64, user_id: i64) {
 /// Invalidate every cached permission entry for a repo (e.g. owner transfer
 /// or deletion, which changes who can read/write).
 pub fn invalidate_perm_cache_repo(repo_id: i64) {
-    perm_cache().lock().unwrap().retain(|(rid, _, _), _| *rid != repo_id);
+    perm_cache()
+        .lock()
+        .unwrap()
+        .retain(|(rid, _, _), _| *rid != repo_id);
 }
 
 /// Clear the entire permission cache. Used for org/team membership changes
@@ -94,10 +98,7 @@ pub fn invalidate_perm_cache_all() {
 /// Returns (owner_id, org_id, owner_name_for_path).
 /// - If owner is a username: returns (user_id, None, username)
 /// - If owner is an org name: returns (org_owner_id, Some(org_id), org_name)
-async fn resolve_owner(
-    db: &DatabaseConnection,
-    owner: &str,
-) -> Result<(i64, Option<i64>, String)> {
+async fn resolve_owner(db: &DatabaseConnection, owner: &str) -> Result<(i64, Option<i64>, String)> {
     // Try user first
     if let Some(user) = user_ops::find_by_username(db, owner).await? {
         return Ok((user.id, None, user.username.clone()));
@@ -108,7 +109,10 @@ async fn resolve_owner(
         return Ok((org.owner_id, Some(org.id), org.name.clone()));
     }
 
-    bail!("owner '{}' not found (neither user nor organization)", owner)
+    bail!(
+        "owner '{}' not found (neither user nor organization)",
+        owner
+    )
 }
 
 /// Find a repository by owner name (user or org) and repo name.
@@ -152,7 +156,8 @@ pub async fn can_read_repo(
             if id == repo.owner_id {
                 true
             } else {
-                let perm = rg_db::ops::repo_collaborator_ops::get_permission(db, repo.id, id).await?;
+                let perm =
+                    rg_db::ops::repo_collaborator_ops::get_permission(db, repo.id, id).await?;
                 if perm.is_some() {
                     true
                 } else if let Some(org_id) = repo.org_id {
@@ -203,12 +208,15 @@ pub async fn can_write_repo(
             if id == repo.owner_id {
                 true
             } else {
-                let perm = rg_db::ops::repo_collaborator_ops::get_permission(db, repo.id, id).await?;
+                let perm =
+                    rg_db::ops::repo_collaborator_ops::get_permission(db, repo.id, id).await?;
                 let can_write_collab = matches!(perm.as_deref(), Some("write") | Some("admin"));
                 if can_write_collab {
                     true
                 } else if let Some(org_id) = repo.org_id {
-                    if let Some(member) = rg_db::ops::org_ops::find_org_member(db, org_id, id).await? {
+                    if let Some(member) =
+                        rg_db::ops::org_ops::find_org_member(db, org_id, id).await?
+                    {
                         if member.role == "owner" || member.role == "admin" {
                             true
                         } else {
@@ -274,7 +282,8 @@ pub async fn create_repo(
             owner_display_name: String::new(),
         },
         repo_root,
-    ).await
+    )
+    .await
 }
 
 /// Create a new repository with full template/auto-init support.
@@ -292,7 +301,10 @@ pub async fn create_repo_with_opts(
         .with_context(|| format!("invalid repository name: {}", name))?;
 
     // Check name conflict (per owner)
-    if repo_ops::find_by_owner_and_name(db, owner_id, name).await?.is_some() {
+    if repo_ops::find_by_owner_and_name(db, owner_id, name)
+        .await?
+        .is_some()
+    {
         bail!("repository '{}' already exists", name);
     }
 
@@ -314,8 +326,12 @@ pub async fn create_repo_with_opts(
     std::fs::create_dir_all(&git_path)
         .with_context(|| format!("failed to create directory: {:?}", git_path))?;
 
-    gix::create::into(&git_path, gix::create::Kind::Bare, gix::create::Options::default())
-        .with_context(|| format!("gix init --bare failed for {:?}", git_path))?;
+    gix::create::into(
+        &git_path,
+        gix::create::Kind::Bare,
+        gix::create::Options::default(),
+    )
+    .with_context(|| format!("gix init --bare failed for {:?}", git_path))?;
 
     // Auto-initialize with template files if requested
     if opts.auto_init {
@@ -362,8 +378,8 @@ pub async fn create_repo_with_opts(
     // Use parameterized query to prevent SQL injection
     let fts_sql = "INSERT INTO repos_fts(rowid, name, description) VALUES (?, ?, ?)";
     let description = repo.description.as_deref().unwrap_or("");
-    if let Err(e) = db.execute(
-        sea_orm::Statement::from_sql_and_values(
+    if let Err(e) = db
+        .execute(sea_orm::Statement::from_sql_and_values(
             db.get_database_backend(),
             fts_sql,
             [
@@ -371,8 +387,9 @@ pub async fn create_repo_with_opts(
                 repo.name.as_str().into(),
                 description.into(),
             ],
-        )
-    ).await {
+        ))
+        .await
+    {
         tracing::warn!(repo_id = repo.id, error = %e, "failed to update repos_fts index");
     }
 
@@ -395,9 +412,9 @@ pub async fn create_repo_with_opts(
 fn path_to_git_url(path: &std::path::Path) -> Result<String> {
     let canonical = std::fs::canonicalize(path)
         .with_context(|| format!("failed to canonicalize path: {:?}", path))?;
-    
+
     let path_str = canonical.to_string_lossy().to_string();
-    
+
     // On Windows, convert "D:\path" to "file:///D:/path"
     // On Unix, convert "/path" to "file:///path"
     if cfg!(windows) {
@@ -435,11 +452,13 @@ fn auto_init_repo(
     std::fs::create_dir_all(&tmp)?;
 
     // Init a non-bare repo in the temp dir
-    let gateway = rg_git::cli_gateway::GitCommandGateway::new()
-        .with_context(|| "git CLI not available")?;
-    let output = gateway.run(&["init", "-b", default_branch], Some(&tmp))
+    let gateway =
+        rg_git::cli_gateway::GitCommandGateway::new().with_context(|| "git CLI not available")?;
+    let output = gateway
+        .run(&["init", "-b", default_branch], Some(&tmp))
         .with_context(|| format!("git init failed in {:?}", tmp))?;
-    output.ensure_success()
+    output
+        .ensure_success()
         .with_context(|| format!("git init failed in {:?}", tmp))?;
 
     // Write README.md if specified
@@ -461,11 +480,11 @@ fn auto_init_repo(
         if !key.is_empty() {
             if let Some(tmpl) = templates::license_content(key) {
                 let year = Utc::now().format("%Y").to_string();
-                let content = tmpl.content
+                let content = tmpl
+                    .content
                     .replace("{YEAR}", &year)
                     .replace("{AUTHOR}", owner_name);
-                std::fs::write(tmp.join("LICENSE"), content)
-                    .context("failed to write LICENSE")?;
+                std::fs::write(tmp.join("LICENSE"), content).context("failed to write LICENSE")?;
                 files_written = true;
             }
         }
@@ -475,8 +494,7 @@ fn auto_init_repo(
     let readme_key = readme_key.unwrap_or("default");
     if !readme_key.is_empty() {
         if let Some(content) = templates::readme_content(readme_key, repo_name, description) {
-            std::fs::write(tmp.join("README.md"), content)
-                .context("failed to write README.md")?;
+            std::fs::write(tmp.join("README.md"), content).context("failed to write README.md")?;
             files_written = true;
         }
     }
@@ -489,10 +507,10 @@ fn auto_init_repo(
     }
 
     // git add all files
-    let output = gateway.run(&["add", "-A"], Some(&tmp))
+    let output = gateway
+        .run(&["add", "-A"], Some(&tmp))
         .context("git add failed")?;
-    output.ensure_success()
-        .context("git add failed")?;
+    output.ensure_success().context("git add failed")?;
 
     // git commit
     let output = Command::new("git")
@@ -506,9 +524,9 @@ fn auto_init_repo(
     }
 
     // git push to the bare repo
-    let push_url = path_to_git_url(&bare_path)
-        .context("failed to convert bare repo path to git URL")?;
-    
+    let push_url =
+        path_to_git_url(&bare_path).context("failed to convert bare repo path to git URL")?;
+
     let output = Command::new("git")
         .args([
             "push",
@@ -529,7 +547,7 @@ fn auto_init_repo(
     let head_output = Command::new("git")
         .args([
             "--git-dir",
-            &push_url,  // Use the same URL format as push
+            &push_url, // Use the same URL format as push
             "symbolic-ref",
             "HEAD",
             &format!("refs/heads/{}", default_branch),
@@ -575,7 +593,11 @@ async fn create_default_labels(
         rg_db::ops::label_ops::create(db, model).await?;
     }
 
-    tracing::info!(repo_id = repo_id, count = labels.len(), "created default issue labels");
+    tracing::info!(
+        repo_id = repo_id,
+        count = labels.len(),
+        "created default issue labels"
+    );
 
     Ok(())
 }
@@ -657,7 +679,8 @@ pub async fn fork_repo(
     repo_name: &str,
     repo_root: &PathBuf,
 ) -> Result<rg_db::entities::repository::Model> {
-    let source_repo = find_repo_by_owner_name(db, owner, repo_name).await?
+    let source_repo = find_repo_by_owner_name(db, owner, repo_name)
+        .await?
         .ok_or_else(|| anyhow::anyhow!("source repository not found"))?;
 
     if source_repo.is_private {
@@ -666,10 +689,14 @@ pub async fn fork_repo(
         }
     }
 
-    let forker = user_ops::find_by_id(db, user_id).await?
+    let forker = user_ops::find_by_id(db, user_id)
+        .await?
         .ok_or_else(|| anyhow::anyhow!("user not found"))?;
 
-    if repo_ops::find_by_owner_and_name(db, user_id, repo_name).await?.is_some() {
+    if repo_ops::find_by_owner_and_name(db, user_id, repo_name)
+        .await?
+        .is_some()
+    {
         bail!("repository '{}' already exists in your account", repo_name);
     }
 
@@ -687,18 +714,16 @@ pub async fn fork_repo(
     let git = rg_git::cli_gateway::global_gateway()
         .as_ref()
         .map_err(|e| anyhow::anyhow!("{}", e))?;
-    
+
     // Convert paths to git-compatible URL format to avoid Windows path issues
-    let source_url = path_to_git_url(&source_path)
-        .context("failed to convert source path to git URL")?;
-    let target_url = path_to_git_url(&target_path)
-        .context("failed to convert target path to git URL")?;
-    
-    let out = git.run(
-        &["clone", "--bare", &source_url, &target_url],
-        None,
-    )
-    .context("git clone --bare failed")?;
+    let source_url =
+        path_to_git_url(&source_path).context("failed to convert source path to git URL")?;
+    let target_url =
+        path_to_git_url(&target_path).context("failed to convert target path to git URL")?;
+
+    let out = git
+        .run(&["clone", "--bare", &source_url, &target_url], None)
+        .context("git clone --bare failed")?;
     out.ensure_success()?;
 
     let now = Utc::now();
@@ -733,7 +758,8 @@ pub async fn list_forks(
     offset: u64,
     limit: u64,
 ) -> Result<(Vec<rg_db::entities::repository::Model>, i64)> {
-    let repo = find_repo_by_owner_name(db, owner, repo_name).await?
+    let repo = find_repo_by_owner_name(db, owner, repo_name)
+        .await?
         .ok_or_else(|| anyhow::anyhow!("repository not found"))?;
     repo_ops::list_forks(db, repo.id, offset, limit).await
 }
@@ -747,7 +773,8 @@ pub async fn transfer_repo(
     new_owner: &str,
     repo_root: &PathBuf,
 ) -> Result<rg_db::entities::repository::Model> {
-    let repo = find_repo_by_owner_name(db, owner, repo_name).await?
+    let repo = find_repo_by_owner_name(db, owner, repo_name)
+        .await?
         .ok_or_else(|| anyhow::anyhow!("repository not found"))?;
 
     if repo.owner_id != user_id {
@@ -756,7 +783,10 @@ pub async fn transfer_repo(
 
     let (new_owner_id, new_org_id, new_owner_name) = resolve_owner(db, new_owner).await?;
 
-    if repo_ops::find_by_owner_and_name(db, new_owner_id, repo_name).await?.is_some() {
+    if repo_ops::find_by_owner_and_name(db, new_owner_id, repo_name)
+        .await?
+        .is_some()
+    {
         bail!("repository '{}' already exists at destination", repo_name);
     }
 
@@ -768,14 +798,19 @@ pub async fn transfer_repo(
             .context("new path has no parent directory")?,
     )
     .with_context(|| format!("failed to create directory: {:?}", new_path.parent()))?;
-    std::fs::rename(&old_path, &new_path)
-        .with_context(|| format!("failed to move repository from {:?} to {:?}", old_path, new_path))?;
+    std::fs::rename(&old_path, &new_path).with_context(|| {
+        format!(
+            "failed to move repository from {:?} to {:?}",
+            old_path, new_path
+        )
+    })?;
 
     repo_ops::update_owner(db, repo.id, new_owner_id, new_org_id).await?;
     // Ownership (and thus who can read/write) changed — drop cached decisions.
     invalidate_perm_cache_repo(repo.id);
 
-    repo_ops::find_by_owner_and_name(db, new_owner_id, repo_name).await?
+    repo_ops::find_by_owner_and_name(db, new_owner_id, repo_name)
+        .await?
         .ok_or_else(|| anyhow::anyhow!("repository not found after transfer"))
 }
 
@@ -794,7 +829,11 @@ pub async fn create_commit_status(
 ) -> Result<rg_db::entities::commit_status::Model> {
     let valid_states = ["pending", "success", "failure", "error"];
     if !valid_states.contains(&state) {
-        bail!("invalid commit status state: '{}', must be one of: {:?}", state, valid_states);
+        bail!(
+            "invalid commit status state: '{}', must be one of: {:?}",
+            state,
+            valid_states
+        );
     }
 
     let now = Utc::now();
@@ -821,7 +860,8 @@ pub async fn list_commit_statuses(
     repo_name: &str,
     sha: &str,
 ) -> Result<Vec<rg_db::entities::commit_status::Model>> {
-    let repo = find_repo_by_owner_name(db, owner, repo_name).await?
+    let repo = find_repo_by_owner_name(db, owner, repo_name)
+        .await?
         .ok_or_else(|| anyhow::anyhow!("repository not found"))?;
     rg_db::ops::commit_status_ops::list_by_sha(db, repo.id, sha).await
 }
@@ -834,7 +874,8 @@ pub async fn get_combined_status(
     repo_name: &str,
     sha: &str,
 ) -> Result<serde_json::Value> {
-    let repo = find_repo_by_owner_name(db, owner, repo_name).await?
+    let repo = find_repo_by_owner_name(db, owner, repo_name)
+        .await?
         .ok_or_else(|| anyhow::anyhow!("repository not found"))?;
 
     let counts = rg_db::ops::commit_status_ops::get_combined_status(db, repo.id, sha).await?;
@@ -849,7 +890,8 @@ pub async fn get_combined_status(
         }));
     }
 
-    let state_map: std::collections::HashMap<&str, i64> = counts.iter().map(|(k, v)| (k.as_str(), *v)).collect();
+    let state_map: std::collections::HashMap<&str, i64> =
+        counts.iter().map(|(k, v)| (k.as_str(), *v)).collect();
     let combined = if state_map.get("failure").map_or(false, |&c| c > 0) {
         "failure"
     } else if state_map.get("error").map_or(false, |&c| c > 0) {
@@ -920,11 +962,11 @@ pub async fn create_or_update_file(
     repo_root: &PathBuf,
 ) -> Result<()> {
     let repo_path = repo_root.join(format!("{}/{}.git", owner, repo_name));
-    
+
     if !repo_path.exists() {
         bail!("repository path not found: {:?}", repo_path);
     }
-    
+
     // Verify the file SHA if this is an update (not a create)
     if let Some(expected_sha) = sha {
         // Check if the file exists and its current SHA matches
@@ -934,7 +976,11 @@ pub async fn create_or_update_file(
         }
         if let Some(current) = current_sha {
             if current != expected_sha {
-                bail!("file SHA mismatch: expected {}, got {}", expected_sha, current);
+                bail!(
+                    "file SHA mismatch: expected {}, got {}",
+                    expected_sha,
+                    current
+                );
             }
         }
     } else {
@@ -944,15 +990,15 @@ pub async fn create_or_update_file(
             bail!("file already exists: {} (use update with sha)", file_path);
         }
     }
-    
+
     // Create temp working directory
     let tmp = std::env::temp_dir().join(format!("ironforge-file-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&tmp)?;
-    
+
     // Clone the repo
-    let clone_url = path_to_git_url(&repo_path)
-        .context("failed to convert repo path to git URL")?;
-    
+    let clone_url =
+        path_to_git_url(&repo_path).context("failed to convert repo path to git URL")?;
+
     let output = Command::new("git")
         .args(["clone", "-b", branch, &clone_url, &tmp.to_string_lossy()])
         .output()
@@ -967,7 +1013,10 @@ pub async fn create_or_update_file(
                 .context("git clone (no-checkout) failed")?;
             if !output2.status.success() {
                 let _ = std::fs::remove_dir_all(&tmp);
-                bail!("git clone failed: {}", String::from_utf8_lossy(&output2.stderr));
+                bail!(
+                    "git clone failed: {}",
+                    String::from_utf8_lossy(&output2.stderr)
+                );
             }
             // Checkout the branch or create it
             let output3 = Command::new("git")
@@ -977,18 +1026,21 @@ pub async fn create_or_update_file(
                 .context("git checkout failed")?;
             if !output3.status.success() {
                 let _ = std::fs::remove_dir_all(&tmp);
-                bail!("git checkout failed: {}", String::from_utf8_lossy(&output3.stderr));
+                bail!(
+                    "git checkout failed: {}",
+                    String::from_utf8_lossy(&output3.stderr)
+                );
             }
         }
     }
-    
+
     // Write the file
     let full_path = tmp.join(file_path);
     if let Some(parent) = full_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
     std::fs::write(&full_path, content)?;
-    
+
     // Git add
     let output = Command::new("git")
         .args(["add", file_path])
@@ -997,9 +1049,12 @@ pub async fn create_or_update_file(
         .context("git add failed")?;
     if !output.status.success() {
         let _ = std::fs::remove_dir_all(&tmp);
-        bail!("git add failed: {}", String::from_utf8_lossy(&output.stderr));
+        bail!(
+            "git add failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
-    
+
     // Git commit
     let output = Command::new("git")
         .args(["commit", "-m", message])
@@ -1008,13 +1063,15 @@ pub async fn create_or_update_file(
         .context("git commit failed")?;
     if !output.status.success() {
         let _ = std::fs::remove_dir_all(&tmp);
-        bail!("git commit failed: {}", String::from_utf8_lossy(&output.stderr));
+        bail!(
+            "git commit failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
-    
+
     // Git push
-    let push_url = path_to_git_url(&repo_path)
-        .context("failed to convert repo path to git URL")?;
-    
+    let push_url = path_to_git_url(&repo_path).context("failed to convert repo path to git URL")?;
+
     let output = Command::new("git")
         .args(["push", &push_url, branch])
         .current_dir(&tmp)
@@ -1022,19 +1079,22 @@ pub async fn create_or_update_file(
         .context("git push failed")?;
     if !output.status.success() {
         let _ = std::fs::remove_dir_all(&tmp);
-        bail!("git push failed: {}", String::from_utf8_lossy(&output.stderr));
+        bail!(
+            "git push failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
-    
+
     // Clean up
     let _ = std::fs::remove_dir_all(&tmp);
-    
+
     tracing::info!(
         repo = %repo_name,
         file = %file_path,
         branch = %branch,
         "file created/updated successfully"
     );
-    
+
     Ok(())
 }
 
@@ -1053,11 +1113,11 @@ pub async fn delete_file(
     repo_root: &PathBuf,
 ) -> Result<()> {
     let repo_path = repo_root.join(format!("{}/{}.git", owner, repo_name));
-    
+
     if !repo_path.exists() {
         bail!("repository path not found: {:?}", repo_path);
     }
-    
+
     // Verify the file SHA to prevent accidental deletes
     let current_sha = get_file_sha(&repo_path, branch, file_path).ok();
     if current_sha.is_none() {
@@ -1068,24 +1128,27 @@ pub async fn delete_file(
             bail!("file SHA mismatch: expected {}, got {}", sha, current);
         }
     }
-    
+
     // Create temp working directory
     let tmp = std::env::temp_dir().join(format!("ironforge-file-del-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&tmp)?;
-    
+
     // Clone the repo
-    let clone_url = path_to_git_url(&repo_path)
-        .context("failed to convert repo path to git URL")?;
-    
+    let clone_url =
+        path_to_git_url(&repo_path).context("failed to convert repo path to git URL")?;
+
     let output = Command::new("git")
         .args(["clone", "-b", branch, &clone_url, &tmp.to_string_lossy()])
         .output()
         .context("git clone failed")?;
     if !output.status.success() {
         let _ = std::fs::remove_dir_all(&tmp);
-        bail!("git clone failed: {}", String::from_utf8_lossy(&output.stderr));
+        bail!(
+            "git clone failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
-    
+
     // Delete the file
     let output = Command::new("git")
         .args(["rm", file_path])
@@ -1096,7 +1159,7 @@ pub async fn delete_file(
         let _ = std::fs::remove_dir_all(&tmp);
         bail!("git rm failed: {}", String::from_utf8_lossy(&output.stderr));
     }
-    
+
     // Git commit
     let output = Command::new("git")
         .args(["commit", "-m", message])
@@ -1105,13 +1168,15 @@ pub async fn delete_file(
         .context("git commit failed")?;
     if !output.status.success() {
         let _ = std::fs::remove_dir_all(&tmp);
-        bail!("git commit failed: {}", String::from_utf8_lossy(&output.stderr));
+        bail!(
+            "git commit failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
-    
+
     // Git push
-    let push_url = path_to_git_url(&repo_path)
-        .context("failed to convert repo path to git URL")?;
-    
+    let push_url = path_to_git_url(&repo_path).context("failed to convert repo path to git URL")?;
+
     let output = Command::new("git")
         .args(["push", &push_url, branch])
         .current_dir(&tmp)
@@ -1119,19 +1184,22 @@ pub async fn delete_file(
         .context("git push failed")?;
     if !output.status.success() {
         let _ = std::fs::remove_dir_all(&tmp);
-        bail!("git push failed: {}", String::from_utf8_lossy(&output.stderr));
+        bail!(
+            "git push failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
-    
+
     // Clean up
     let _ = std::fs::remove_dir_all(&tmp);
-    
+
     tracing::info!(
         repo = %repo_name,
         file = %file_path,
         branch = %branch,
         "file deleted successfully"
     );
-    
+
     Ok(())
 }
 
@@ -1139,11 +1207,12 @@ pub async fn delete_file(
 fn get_file_sha(repo_path: &std::path::Path, git_ref: &str, file_path: &str) -> Result<String> {
     let repo = gix::open(repo_path)
         .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
-    
+
     let target = format!("{}:{}", git_ref, file_path);
-    let object_id = repo.rev_parse_single(target.as_str())
-        .map_err(|e| anyhow::anyhow!("file '{}' not found at ref '{}': {}", file_path, git_ref, e))?;
-    
+    let object_id = repo.rev_parse_single(target.as_str()).map_err(|e| {
+        anyhow::anyhow!("file '{}' not found at ref '{}': {}", file_path, git_ref, e)
+    })?;
+
     Ok(object_id.to_string())
 }
 

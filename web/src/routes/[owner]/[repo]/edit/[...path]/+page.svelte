@@ -1,11 +1,16 @@
 <script lang="ts">
+  import { page } from '$app/stores';
+  import { repos } from '$lib/api/client.svelte';
   import { createT } from '$lib/i18n';
   import { onMount } from 'svelte';
   
   const t = createT();
   
-  let { data } = $props();
-  let { owner, repo, path, branch = 'main', sha = '', content = '', message = '' } = $derived(data);
+  let owner = $derived($page.params.owner!);
+  let repo = $derived($page.params.repo!);
+  let path = $derived($page.params.path!);
+  let branch = $derived($page.url.searchParams.get('ref') || 'main');
+  let sha = $derived($page.url.searchParams.get('sha') || '');
   
   let fileContent = $state('');
   let commitMessage = $state('');
@@ -22,14 +27,13 @@
     if (!isNew) {
       // Load existing file content
       try {
-        const response = await fetch(`/api/v1/repos/${owner}/${repo}/blob/${path}?ref=${branch}`);
-        const data = await response.json();
+        const data = await repos.blob(owner, repo, path, branch);
         if (data.content) {
           fileContent = data.content;
           commitMessage = `Update ${path}`;
         }
       } catch (err) {
-        error = `Failed to load file: ${err.message}`;
+        error = `Failed to load file: ${err instanceof Error ? err.message : String(err)}`;
       }
     } else {
       commitMessage = `Create ${path || 'new file'}`;
@@ -60,26 +64,13 @@
         ...(isNew ? {} : { sha }),
       };
       
-      const response = await fetch(`/api/v1/repos/${owner}/${repo}/contents/${path}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('jwt_token') || ''}`,
-        },
-        body: JSON.stringify(payload),
-      });
-      
-      if (response.ok) {
-        success = true;
-        setTimeout(() => {
-          window.location.href = `/${owner}/${repo}/blob/${path}`;
-        }, 1500);
-      } else {
-        const errData = await response.json();
-        error = errData.message || 'Failed to save file';
-      }
+      await repos.saveContent(owner, repo, path, payload);
+      success = true;
+      setTimeout(() => {
+        window.location.href = `/${owner}/${repo}/blob/${path}`;
+      }, 1500);
     } catch (err) {
-      error = `Error: ${err.message}`;
+      error = `Error: ${err instanceof Error ? err.message : String(err)}`;
     } finally {
       saving = false;
     }

@@ -24,7 +24,15 @@
     docker: 'Docker',
     nuget: 'NuGet',
     rubygems: 'RubyGems',
+    go: 'Go',
     helm: 'Helm',
+    composer: 'Composer',
+    conan: 'Conan',
+    conda: 'Conda',
+    alpine: 'Alpine',
+    debian: 'Debian',
+    rpm: 'RPM',
+    swift: 'Swift',
     generic: 'Generic',
   };
 
@@ -58,8 +66,14 @@
     if (f === 'docker') return `docker pull ${owner}/${repo}:${version}`;
     if (f === 'nuget') return `dotnet add package ${name}`;
     if (f === 'rubygems') return `gem install ${name}`;
+    if (f === 'go') return `GOPROXY=<IronForge URL>/api/v1/repos/${owner}/${repo}/packages/go go get ${name}`;
     if (f === 'helm') return `helm install my-release ${name}`;
+    if (f === 'composer') return `composer require ${name}`;
     return `# install ${name}`;
+  }
+
+  function packageHref(pkg: { name: string }): string {
+    return `/${owner}/${repo}/packages/${encodeURIComponent(format!)}/${encodeURIComponent(pkg.name)}`;
   }
 </script>
 
@@ -89,7 +103,7 @@
       {#each packageList as pkg}
         <div class="package-card">
           <div class="package-header">
-            <a href="/{owner}/{repo}/packages/{format}/{pkg.name}" class="package-name">{pkg.name}</a>
+            <a href={packageHref(pkg)} class="package-name">{pkg.name}</a>
             {#if pkg.latest_version}
               <span class="version-badge">v{pkg.latest_version}</span>
             {/if}

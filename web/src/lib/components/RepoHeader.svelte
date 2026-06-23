@@ -2,6 +2,7 @@
   import { createT } from '$lib/i18n';
   import { getUser, isLoggedIn } from '$lib/stores/auth.svelte';
   import { repos } from '$lib/api/client.svelte';
+  import { API_BASE } from '$lib/api/_base';
   import { goto } from '$app/navigation';
   import { browser } from '$app/environment';
 
@@ -12,15 +13,17 @@
     repo: string;
     activeTab?: string;
     starsCount?: number;
+    defaultBranch?: string;
   }
 
-  let { owner, repo, activeTab = 'code', starsCount = 0 }: Props = $props();
+  let { owner, repo, activeTab = 'code', starsCount = 0, defaultBranch }: Props = $props();
 
   // Action button states
   let starred = $state(false);
   let watchState = $state<'not_watching' | 'watching' | 'ignoring'>('not_watching');
   let forking = $state(false);
   let starsLocalCount = $state(0);
+  let archiveRef = $state('main');
 
   // Sync when prop changes
   $effect(() => {
@@ -38,6 +41,7 @@
 
   let httpCloneUrl = $derived(browser ? `${location.protocol}//${location.host}/git/${owner}/${repo}.git` : '');
   let sshCloneUrl = $derived(browser ? `git@${location.hostname}:${owner}/${repo}.git` : '');
+  let archiveUrl = $derived(`${API_BASE}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/archive/${encodeURIComponent(archiveRef)}.zip`);
 
   function copyUrl(url: string) {
     navigator.clipboard.writeText(url);
@@ -78,6 +82,26 @@
     }
   });
 
+  $effect(() => {
+    archiveRef = defaultBranch || 'main';
+    if (!defaultBranch) {
+      loadArchiveRef();
+    }
+  });
+
+  async function loadArchiveRef() {
+    const expectedOwner = owner;
+    const expectedRepo = repo;
+    try {
+      const repoInfo = await repos.get(expectedOwner, expectedRepo);
+      if (owner === expectedOwner && repo === expectedRepo && repoInfo.default_branch) {
+        archiveRef = repoInfo.default_branch;
+      }
+    } catch {
+      archiveRef = defaultBranch || 'main';
+    }
+  }
+
   async function loadStates() {
     try {
       const stateRes = await repos.starred(owner, repo);
@@ -86,9 +110,8 @@
       starred = false;
     }
     try {
-      // Load watch state - need to check via a different approach
-      // For now default to not_watching
-      watchState = 'not_watching';
+      const watchRes = await repos.watchStatus(owner, repo);
+      watchState = watchRes.watch_state;
     } catch {
       watchState = 'not_watching';
     }
@@ -308,7 +331,7 @@
 
             <!-- Download ZIP -->
             <div class="clone-footer">
-              <a href="/api/v1/repos/{owner}/{repo}/archive/main.zip" class="clone-footer-link" aria-label={t('repo.download_zip')}>
+              <a href={archiveUrl} class="clone-footer-link" aria-label={t('repo.download_zip')}>
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
                   <path fill-rule="evenodd" d="M2.75 14A1.75 1.75 0 011 12.25v-2.5a.75.75 0 011.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 00.25-.25v-2.5a.75.75 0 011.5 0v2.5A1.75 1.75 0 0113.25 14H2.75z"></path>
                   <path fill-rule="evenodd" d="M7.25 1.75A.75.75 0 018.75 1v6.69l1.47-1.47a.75.75 0 111.06 1.06l-2.75 2.75a.75.75 0 01-1.06 0L4.72 7.28a.75.75 0 011.06-1.06l1.47 1.47V1.75z"></path>

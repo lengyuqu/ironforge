@@ -198,6 +198,20 @@ await expectStatus(
   [401, 403],
 );
 
+await expectStatus(
+  'Backend repo starred state without auth should deny',
+  `${API_BASE}/repos/smoke-owner/smoke-repo/starred`,
+  undefined,
+  [401, 403],
+);
+
+await expectStatus(
+  'Backend repo watch state without auth should deny',
+  `${API_BASE}/repos/smoke-owner/smoke-repo/watch`,
+  undefined,
+  [401, 403],
+);
+
 if (ADMIN_TOKEN) {
   await expectJson(
     'Backend /admin/users with admin token should allow',

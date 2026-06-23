@@ -148,7 +148,7 @@
 </svelte:head>
 
 <div class="page-container">
-  <RepoHeader {owner} {repo} activeTab="code" starsCount={repoInfo?.stars_count || 0} />
+  <RepoHeader {owner} {repo} activeTab="code" starsCount={repoInfo?.stars_count || 0} defaultBranch={repoInfo?.default_branch} />
 
   {#if error}
     <div class="error-banner">{error}</div>

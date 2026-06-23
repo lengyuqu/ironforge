@@ -3,6 +3,8 @@
 const BACKEND_URL = (process.env.BACKEND_URL || 'http://127.0.0.1:8080').replace(/\/$/, '');
 const API_BASE = `${BACKEND_URL}/api/v1`;
 const OPENAPI_URL = `${BACKEND_URL}/api-docs/openapi.json`;
+const OPENAPI_TOKEN = process.env.OPENAPI_TOKEN || null;
+const OPENAPI_REQUIRE_AUTH = String(process.env.OPENAPI_REQUIRE_AUTH || '1') === '1';
 
 const SAMPLE_BY_NAME = {
   owner: 'testuser',
@@ -381,9 +383,38 @@ console.log('接口全量冒烟开始');
 console.log(`backend: ${BACKEND_URL}`);
 console.log(`openapi: ${OPENAPI_URL}`);
 
-const response = await requestWithTimeout(OPENAPI_URL, { method: 'GET' });
-if (!response.ok) {
-  console.log(`❌ 读取 OpenAPI 规范失败: ${response.error?.message || `HTTP ${response.response?.status}`}`);
+let token = OPENAPI_TOKEN;
+let response = await requestWithTimeout(OPENAPI_URL, {
+  method: 'GET',
+  ...(OPENAPI_TOKEN ? { headers: { authorization: `Bearer ${OPENAPI_TOKEN}` } } : {}),
+});
+
+const openapiStatus = response.response?.status ?? 0;
+if (response.ok && response.response) {
+  checks.push(`❌ /api-docs/openapi.json 未启用鉴权即可访问（HTTP ${openapiStatus}）`);
+  if (OPENAPI_REQUIRE_AUTH) {
+    process.exit(1);
+  }
+  checks.push('ℹ️ 未开启文档鉴权，继续使用匿名状态复测');
+}
+
+const unauthorized = !response.ok && response.response?.status === 401;
+if (unauthorized) {
+  checks.push('✅ /api-docs/openapi.json 返回 401，符合文档鉴权预期');
+  checks.push('⚠️ 尝试自动生成鉴权 Token 继续重试');
+  token = await ensureToken();
+  if (!token) {
+    console.log('❌ OpenAPI 文档需鉴权，但未能生成可用 Token');
+    process.exit(1);
+  }
+  response = await requestWithTimeout(OPENAPI_URL, {
+    method: 'GET',
+    headers: { authorization: `Bearer ${token}` },
+  });
+}
+
+if (!response.ok || !response.response) {
+  console.log(`❌ 读取 OpenAPI 规范失败: ${response.error?.message || `HTTP ${response.response?.status || 'network error'}`}`);
   process.exit(1);
 }
 
@@ -392,12 +423,29 @@ if (!response.response.ok) {
   process.exit(1);
 }
 
+const uiUnauthResp = await requestWithTimeout(`${BACKEND_URL}/api-docs/`, { method: 'GET' });
+if (OPENAPI_REQUIRE_AUTH) {
+  if (!uiUnauthResp.ok && uiUnauthResp.response?.status !== 401) {
+    console.log(`❌ /api-docs/ 鉴权行为异常: HTTP ${uiUnauthResp.response?.status || 'network error'}`);
+    process.exit(1);
+  }
+  if (uiUnauthResp.ok) {
+    checks.push('⚠️ /api-docs/ 未启用鉴权限制；请确认是否故意公开');
+  } else {
+    checks.push('✅ /api-docs/ 返回 401，符合鉴权预期');
+  }
+} else if (uiUnauthResp.ok && uiUnauthResp.response) {
+  checks.push(`ℹ️ /api-docs/ 可直接访问（HTTP ${uiUnauthResp.response.status}）`);
+}
+
 const openapi = await response.response.json().catch(() => ({}));
 const paths = openapi.paths || {};
 const components = openapi.components || {};
 const openapiDoc = { ...openapi, components };
 
-const token = await ensureToken();
+if (!token) {
+  token = await ensureToken();
+}
 if (token) {
   checks.push('✅ 已生成 JWT token，受保护接口将带鉴权头重放');
 } else {

@@ -112,7 +112,12 @@
       "submitting": "Signing in...",
       "footer": "New to IronForge? {link}",
       "footer_link": "Create an account",
-      "failed": "Login failed"
+      "failed": "Login failed",
+      "mfa_code": "Authentication code",
+      "use_backup_code": "Use a backup code",
+      "verify": "Verify",
+      "verifying": "Verifying...",
+      "mfa_failed": "Verification failed"
     },
     "register": {
       "title": "Create your account",

@@ -1,11 +1,14 @@
 <script lang="ts">
+  import { page } from '$app/stores';
+  import { repos } from '$lib/api/client.svelte';
   import { createT } from '$lib/i18n';
   import { onMount } from 'svelte';
   
   const t = createT();
   
-  let { data } = $props();
-  let { owner, repo, path = '' } = $derived(data);
+  let owner = $derived($page.params.owner!);
+  let repo = $derived($page.params.repo!);
+  let path = $derived($page.url.searchParams.get('path') || '');
   
   let fileContent = $state('');
   let commitMessage = $state('');
@@ -47,26 +50,13 @@
         message: commitMessage,
       };
       
-      const response = await fetch(`/api/v1/repos/${owner}/${repo}/contents/${filePath}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('jwt_token') || ''}`,
-        },
-        body: JSON.stringify(payload),
-      });
-      
-      if (response.ok) {
-        success = true;
-        setTimeout(() => {
-          window.location.href = `/${owner}/${repo}/blob/${filePath}`;
-        }, 1500);
-      } else {
-        const errData = await response.json();
-        error = errData.message || 'Failed to create file';
-      }
+      await repos.saveContent(owner, repo, filePath, payload);
+      success = true;
+      setTimeout(() => {
+        window.location.href = `/${owner}/${repo}/blob/${filePath}`;
+      }, 1500);
     } catch (err) {
-      error = `Error: ${err.message}`;
+      error = `Error: ${err instanceof Error ? err.message : String(err)}`;
     } finally {
       saving = false;
     }
