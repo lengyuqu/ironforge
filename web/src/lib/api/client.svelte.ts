@@ -18,6 +18,17 @@ function withApiBase(path: string): string {
   return `${API_BASE}${path.startsWith('/') ? path : `/${path}`}`;
 }
 
+function withWebSocketApiBase(path: string): string {
+  const apiUrl = new URL(API_BASE, window.location.origin);
+  const protocol = apiUrl.protocol === 'https:' ? 'wss:' : 'ws:';
+  const basePath = apiUrl.pathname.replace(/\/+$/g, '');
+  return `${protocol}//${apiUrl.host}${basePath}${path.startsWith('/') ? path : `/${path}`}`;
+}
+
+function encodeRepoPath(path: string): string {
+  return path.split('/').map(encodeURIComponent).join('/');
+}
+
 let authToken = $state<string | null>(null);
 
 // ── Pagination types ─────────────────────────────────
@@ -65,8 +76,15 @@ interface PackageVersionResponse {
   sha256: string | null;
   is_yanked: boolean;
   download_count: number;
-  files: any[];
+  files: PackageFileResponse[];
   created_at: string;
+}
+
+interface PackageFileResponse {
+  id: number;
+  filename: string;
+  size: number;
+  sha256: string | null;
 }
 
 interface VersionListByTypeResponse {
@@ -87,6 +105,19 @@ interface FileOperationResponse {
   success: boolean;
   file_path: string;
   commit_sha: string;
+}
+
+type BranchRefResponse = string | { name: string; is_default?: boolean };
+type TagRefResponse = string | { name: string };
+
+function normalizeBranchRef(branch: BranchRefResponse): { name: string; is_default: boolean } {
+  if (typeof branch === 'string') return { name: branch, is_default: false };
+  return { name: branch.name, is_default: Boolean(branch.is_default) };
+}
+
+function normalizeTagRef(tag: TagRefResponse): { name: string } {
+  if (typeof tag === 'string') return { name: tag };
+  return { name: tag.name };
 }
 
 interface RunnerAdminResponse {
@@ -110,6 +141,12 @@ interface RunnerListItem {
   version: string | null;
   os: string | null;
   arch: string | null;
+}
+
+export interface RegisterRunnerResponse {
+  id: number;
+  token: string;
+  message: string;
 }
 
 export interface ReleaseAsset {
@@ -182,6 +219,55 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   }
 
   return JSON.parse(text) as T;
+}
+
+function filenameFromContentDisposition(value: string | null): string | null {
+  if (!value) return null;
+
+  const encoded = value.match(/filename\*=UTF-8''([^;]+)/i);
+  if (encoded?.[1]) {
+    try {
+      return decodeURIComponent(encoded[1]);
+    } catch {
+      return encoded[1];
+    }
+  }
+
+  const quoted = value.match(/filename="([^"]+)"/i);
+  if (quoted?.[1]) return quoted[1];
+
+  const plain = value.match(/filename=([^;]+)/i);
+  return plain?.[1]?.trim() || null;
+}
+
+async function downloadApiFile(path: string, fallbackFilename: string): Promise<void> {
+  const token = getToken();
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const res = await fetch(withApiBase(path), { headers });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    const msg =
+      (body?.error && typeof body.error === 'object' ? body.error.message : body?.error) ||
+      body?.message ||
+      `HTTP ${res.status}`;
+    throw new Error(msg);
+  }
+
+  const blob = await res.blob();
+  const filename = filenameFromContentDisposition(res.headers.get('content-disposition')) || fallbackFilename;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 /// Build query string from key-value pairs, skipping nullish values.
@@ -281,6 +367,10 @@ function normalizeRunner(row: RunnerAdminResponse): RunnerListItem {
   };
 }
 
+function contentDispositionAttachment(filename: string): string {
+  return `attachment; filename*=UTF-8''${encodeURIComponent(filename || 'package')}`;
+}
+
 // ── Auth ─────────────────────────────────────────────
 export const auth = {
   register: (username: string, email: string, password: string) =>
@@ -360,7 +450,7 @@ export const repos = {
     return request<{ entries: { name: string; kind: string; size?: number }[] }>(`/repos/${owner}/${repo}/tree${qs({ ref, path })}`);
   },
   blob: (owner: string, repo: string, path: string, ref?: string) => {
-    return request<{ content: string; size: number; name: string }>(`/repos/${owner}/${repo}/blob/${path}${qs({ ref })}`);
+    return request<{ path: string; content: string; size: number; name: string; sha: string; encoding: string; is_binary: boolean }>(`/repos/${owner}/${repo}/blob/${encodeRepoPath(path)}${qs({ ref })}`);
   },
   saveContent: (
     owner: string,
@@ -368,17 +458,30 @@ export const repos = {
     path: string,
     data: { branch?: string; content: string; message: string; sha?: string }
   ) =>
-    request<FileOperationResponse>(`/repos/${owner}/${repo}/contents/${path}`, {
+    request<FileOperationResponse>(`/repos/${owner}/${repo}/contents/${encodeRepoPath(path)}`, {
       method: 'POST',
       body: JSON.stringify(data),
+    }),
+  deleteContent: (
+    owner: string,
+    repo: string,
+    path: string,
+    data: { branch?: string; message: string; sha: string }
+  ) =>
+    request<FileOperationResponse>(`/repos/${owner}/${repo}/contents/${encodeRepoPath(path)}${qs({
+      branch: data.branch,
+      message: data.message,
+      sha: data.sha,
+    })}`, {
+      method: 'DELETE',
     }),
   log: (owner: string, repo: string, ref?: string, path?: string) => {
     return request<{ commits: { sha: string; message: string; author: string; date: string }[] }>(`/repos/${owner}/${repo}/log${qs({ ref, path })}`);
   },
   branches: (owner: string, repo: string) =>
-    request<{ name: string; is_default: boolean }[]>(`/repos/${owner}/${repo}/branches`),
+    request<BranchRefResponse[]>(`/repos/${owner}/${repo}/branches`).then((branches) => branches.map(normalizeBranchRef)),
   tags: (owner: string, repo: string) =>
-    request<{ name: string }[]>(`/repos/${owner}/${repo}/tags`),
+    request<TagRefResponse[]>(`/repos/${owner}/${repo}/tags`).then((tags) => tags.map(normalizeTagRef)),
   // GPG signature
   commitSignature: (owner: string, repo: string, sha: string) =>
     request<{ verified: boolean; signer_key: string | null; signer_name: string | null; signer_email: string | null; status: string }>(`/repos/${owner}/${repo}/commits/${sha}/signature`),
@@ -530,19 +633,19 @@ export const wiki = {
   list: (owner: string, repo: string) =>
     request<any[]>(`/repos/${owner}/${repo}/wiki`),
   get: (owner: string, repo: string, title: string) =>
-    request<any>(`/repos/${owner}/${repo}/wiki/${title}`),
+    request<any>(`/repos/${owner}/${repo}/wiki/${encodeURIComponent(title)}`),
   create: (owner: string, repo: string, title: string, content: string) =>
     request<any>(`/repos/${owner}/${repo}/wiki`, {
       method: 'POST',
       body: JSON.stringify({ title, content }),
     }),
   update: (owner: string, repo: string, title: string, content: string) =>
-    request<any>(`/repos/${owner}/${repo}/wiki/${title}`, {
+    request<any>(`/repos/${owner}/${repo}/wiki/${encodeURIComponent(title)}`, {
       method: 'PATCH',
       body: JSON.stringify({ content }),
     }),
   remove: (owner: string, repo: string, title: string) =>
-    request<any>(`/repos/${owner}/${repo}/wiki/${title}`, {
+    request<any>(`/repos/${owner}/${repo}/wiki/${encodeURIComponent(title)}`, {
       method: 'DELETE',
     }),
   history: (owner: string, repo: string, title: string) =>
@@ -564,8 +667,142 @@ export const collaborators = {
       method: 'POST',
       body: JSON.stringify({ user_id: userId, permission }),
     }),
+  updatePermission: (owner: string, repo: string, id: number, permission: string) =>
+    request<any>(`/repos/${owner}/${repo}/collaborators/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ permission }),
+    }),
   remove: (owner: string, repo: string, userId: number) =>
-    request(`/repos/${owner}/${repo}/collaborators/${userId}/remove`, { method: 'POST' }),
+    request<void>(`/repos/${owner}/${repo}/collaborators/${userId}`, { method: 'DELETE' }),
+};
+
+// ── Branch Protection ───────────────────────────────
+export interface BranchProtectionRule {
+  id: number;
+  repo_id: number;
+  branch_name: string;
+  require_pr: boolean;
+  require_status_check: boolean;
+  required_status_checks: string | null;
+  require_approval: boolean;
+  required_approvals: number | null;
+  allow_force_push: boolean;
+  allowed_push_user_ids: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BranchProtectionPayload {
+  branch_name?: string;
+  require_pr?: boolean;
+  require_status_check?: boolean;
+  required_status_checks?: string[];
+  require_approval?: boolean;
+  required_approvals?: number;
+  allow_force_push?: boolean;
+  allowed_push_user_ids?: number[];
+}
+
+export const branchProtections = {
+  list: (owner: string, repo: string) =>
+    request<BranchProtectionRule[]>(`/repos/${owner}/${repo}/branches/protection`),
+  create: (owner: string, repo: string, payload: BranchProtectionPayload & { branch_name: string }) =>
+    request<BranchProtectionRule>(`/repos/${owner}/${repo}/branches/protection`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  update: (owner: string, repo: string, id: number, payload: Omit<BranchProtectionPayload, 'branch_name'>) =>
+    request<BranchProtectionRule>(`/repos/${owner}/${repo}/branches/protection/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+  remove: (owner: string, repo: string, id: number) =>
+    request<void>(`/repos/${owner}/${repo}/branches/protection/${id}`, { method: 'DELETE' }),
+};
+
+// ── Repository Mirror ────────────────────────────────
+export interface RepositoryMirror {
+  id: number;
+  repo_id: number;
+  url: string;
+  username: string | null;
+  sync_interval_seconds: number;
+  next_sync_at: string | null;
+  last_sync_at: string | null;
+  last_sync_error: string | null;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MirrorPayload {
+  url: string;
+  username?: string;
+  password?: string;
+  sync_interval_seconds: number;
+}
+
+export const mirrors = {
+  get: (owner: string, repo: string) =>
+    request<RepositoryMirror>(`/repos/${owner}/${repo}/mirror`),
+  create: (owner: string, repo: string, payload: MirrorPayload) =>
+    request<RepositoryMirror>(`/repos/${owner}/${repo}/mirror`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  update: (owner: string, repo: string, payload: Partial<MirrorPayload> & { status?: string }) =>
+    request<RepositoryMirror>(`/repos/${owner}/${repo}/mirror`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+  remove: (owner: string, repo: string) =>
+    request<void>(`/repos/${owner}/${repo}/mirror`, { method: 'DELETE' }),
+  sync: (owner: string, repo: string) =>
+    request<{ status: string }>(`/repos/${owner}/${repo}/mirror/sync`, { method: 'POST' }),
+};
+
+// ── Repository Imports ───────────────────────────────
+export interface StartImportPayload {
+  platform: 'github' | 'gitlab';
+  source_url: string;
+  target_owner: string;
+  target_name?: string;
+  auth_token?: string;
+  import_repo?: boolean;
+  import_issues?: boolean;
+  import_pull_requests?: boolean;
+  import_wiki?: boolean;
+  import_releases?: boolean;
+  import_labels?: boolean;
+  import_milestones?: boolean;
+}
+
+export interface ImportTask {
+  id: number;
+  user_id: number;
+  platform: string;
+  source_url: string;
+  target_owner: string;
+  target_name: string;
+  status: string;
+  progress: number;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export const imports = {
+  list: () =>
+    request<ImportTask[]>('/imports'),
+  start: (payload: StartImportPayload) =>
+    request<ImportTask>('/imports', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  get: (id: number) =>
+    request<ImportTask>(`/imports/${id}`),
+  remove: (id: number) =>
+    request<void>(`/imports/${id}`, { method: 'DELETE' }),
 };
 
 // ── Organizations ────────────────────────────────────
@@ -656,14 +893,19 @@ export const releases = {
       method: 'POST',
       headers: {
         'Content-Type': file.type || 'application/octet-stream',
-        'x-asset-filename': file.name,
+        'Content-Disposition': contentDispositionAttachment(file.name || 'asset'),
       },
       body: file,
     }),
   getAsset: (owner: string, repo: string, assetId: number) =>
     request<ReleaseAsset>(`/repos/${owner}/${repo}/releases/assets/${assetId}`),
   assetDownloadUrl: (owner: string, repo: string, assetId: number) =>
-    `${API_BASE}/repos/${owner}/${repo}/releases/assets/${assetId}/download`,
+    `${API_BASE}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/releases/assets/${assetId}/download`,
+  downloadAsset: (owner: string, repo: string, assetId: number, filename: string) =>
+    downloadApiFile(
+      `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/releases/assets/${assetId}/download`,
+      filename || 'asset'
+    ),
   deleteAsset: (owner: string, repo: string, assetId: number) =>
     request<void>(`/repos/${owner}/${repo}/releases/assets/${assetId}`, { method: 'DELETE' }),
 };
@@ -718,7 +960,14 @@ export const milestones = {
 // Tokens (PAT)
 export const tokens = {
   list: () =>
-    request<any[]>('/users/tokens'),
+    request<Array<{
+      id: number;
+      name: string;
+      scopes: string;
+      expires_at?: string | null;
+      last_used_at?: string | null;
+      created_at: string;
+    }>>('/users/tokens'),
   create: (name: string, scopes?: string, expires_at?: string) =>
     request<{ id: number; name: string; token: string; scopes: string; expires_at?: string; created_at: string }>('/users/tokens', {
       method: 'POST',
@@ -726,6 +975,40 @@ export const tokens = {
     }),
   delete: (id: number) =>
     request<void>(`/users/tokens/${id}`, { method: 'DELETE' }),
+};
+
+export interface MfaSetupResponse {
+  secret: string;
+  otpauth_url: string;
+  qr_svg: string;
+}
+
+export interface MfaEnableResponse {
+  enabled: boolean;
+  backup_codes: string[];
+}
+
+export interface MfaBackupStatus {
+  total: number;
+  unused: number;
+  codes: { used: boolean; used_at?: string | null; created_at: string }[];
+}
+
+export const mfa = {
+  setup: () =>
+    request<MfaSetupResponse>('/users/mfa/setup', { method: 'POST' }),
+  enable: (code: string) =>
+    request<MfaEnableResponse>('/users/mfa/enable', {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    }),
+  backup: () =>
+    request<MfaBackupStatus>('/users/mfa/backup'),
+  disable: (password: string) =>
+    request<void>('/users/mfa/disable', {
+      method: 'POST',
+      body: JSON.stringify({ password }),
+    }),
 };
 
 // ── Admin ────────────────────────────────────────────
@@ -982,11 +1265,11 @@ export const packages = {
   get: (owner: string, repo: string, pkg_type: string, pkg_name: string) =>
     request<any>(`/repos/${owner}/${repo}/packages/${encodeURIComponent(pkg_type)}/${encodeURIComponent(pkg_name)}`),
   getVersions: (owner: string, repo: string, pkg_type: string, pkg_name: string) =>
-    request<VersionListByTypeResponse>(`/repos/${owner}/${repo}/packages/${encodeURIComponent(pkg_type)}/${encodeURIComponent(pkg_name)}/versions`).then((res) => ({
-      versions: (res.versions || []).map((v) => v.version),
-    })),
+    request<VersionListByTypeResponse>(`/repos/${owner}/${repo}/packages/${encodeURIComponent(pkg_type)}/${encodeURIComponent(pkg_name)}/versions`),
   getVersion: (owner: string, repo: string, pkg_type: string, pkg_name: string, version: string) =>
     request<any>(`/repos/${owner}/${repo}/packages/${encodeURIComponent(pkg_type)}/${encodeURIComponent(pkg_name)}/${encodeURIComponent(version)}`),
+  downloadUrl: (owner: string, repo: string, pkg_type: string, pkg_name: string, version: string, filename: string) =>
+    withApiBase(`/repos/${owner}/${repo}/packages/${encodeURIComponent(pkg_type)}/${encodeURIComponent(pkg_name)}/${encodeURIComponent(version)}/${encodeRepoPath(filename)}`),
   publish: (owner: string, repo: string, pkg_type: string, body: Blob | string, metadata?: { name?: string; version?: string; description?: string; homepage?: string; repository_url?: string; semver?: string }) => {
     const query = qs({
       name: metadata?.name,
@@ -1001,7 +1284,7 @@ export const packages = {
     };
     if (body instanceof Blob && 'name' in body) {
       const filename = (body as File).name || 'package';
-      headers['Content-Disposition'] = `attachment; filename="${filename}"`;
+      headers['Content-Disposition'] = contentDispositionAttachment(filename);
     }
     return request<PublishResponse>(`/repos/${owner}/${repo}/packages/${encodeURIComponent(pkg_type)}/publish${query}`, {
       method: 'POST',
@@ -1033,7 +1316,7 @@ export const runners = {
   get: (id: number) =>
     request<RunnerAdminResponse>(`/admin/runners/${id}`).then(normalizeRunner),
   register: (data: { name: string; labels?: string[] }) =>
-    request<any>('/runners/register', {
+    request<RegisterRunnerResponse>('/runners/register', {
       method: 'POST',
       body: JSON.stringify(data),
     }),
@@ -1076,14 +1359,14 @@ export const boards = {
   deleteColumn: (owner: string, repo: string, boardId: number, colId: number) =>
     request<{ deleted: boolean }>(`/repos/${owner}/${repo}/boards/${boardId}/columns/${colId}`, { method: 'DELETE' }),
   // Card CRUD
-  createCard: (owner: string, repo: string, boardId: number, colId: number, data: { title: string; note?: string; issue_id?: number }) =>
+  createCard: (owner: string, repo: string, boardId: number, colId: number, data: { note?: string; issue_id?: number }) =>
     request<any>(`/repos/${owner}/${repo}/boards/${boardId}/columns/${colId}/cards`, { method: 'POST', body: JSON.stringify(data) }),
-  updateCard: (owner: string, repo: string, boardId: number, cardId: number, data: { title?: string; note?: string }) =>
+  updateCard: (owner: string, repo: string, boardId: number, cardId: number, data: { note?: string; issue_id?: number | null }) =>
     request<any>(`/repos/${owner}/${repo}/boards/${boardId}/cards/${cardId}`, { method: 'PATCH', body: JSON.stringify(data) }),
-  moveCard: (owner: string, repo: string, boardId: number, cardId: number, data: { column_id: number; position?: number }) =>
+  moveCard: (owner: string, repo: string, boardId: number, cardId: number, data: { column_id: number; position: number }) =>
     request<any>(`/repos/${owner}/${repo}/boards/${boardId}/cards/${cardId}/move`, { method: 'POST', body: JSON.stringify(data) }),
-  reorderCards: (owner: string, repo: string, boardId: number, data: { cards: [number, number][] }) =>
-    request<{ ok: boolean }>(`/repos/${owner}/${repo}/boards/${boardId}/cards/reorder`, { method: 'POST', body: JSON.stringify(data) }),
+  reorderCards: (owner: string, repo: string, boardId: number, data: { positions: [number, number][] }) =>
+    request<{ status: string }>(`/repos/${owner}/${repo}/boards/${boardId}/cards/reorder`, { method: 'POST', body: JSON.stringify(data) }),
   deleteCard: (owner: string, repo: string, boardId: number, cardId: number) =>
     request<{ deleted: boolean }>(`/repos/${owner}/${repo}/boards/${boardId}/cards/${cardId}`, { method: 'DELETE' }),
 };
@@ -1095,8 +1378,7 @@ export function connectNotificationWebSocket(
   const token = getToken();
   if (!token) return null;
 
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const wsUrl = `${protocol}//${window.location.host}/api/v1/ws/notifications?token=${encodeURIComponent(token)}`;
+  const wsUrl = `${withWebSocketApiBase('/ws/notifications')}?token=${encodeURIComponent(token)}`;
 
   const ws = new WebSocket(wsUrl);
 

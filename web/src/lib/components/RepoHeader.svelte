@@ -2,7 +2,7 @@
   import { createT } from '$lib/i18n';
   import { getUser, isLoggedIn } from '$lib/stores/auth.svelte';
   import { repos } from '$lib/api/client.svelte';
-  import { API_BASE } from '$lib/api/_base';
+  import { downloadApiFile, withBackendBase } from '$lib/api/_base';
   import { goto } from '$app/navigation';
   import { browser } from '$app/environment';
 
@@ -24,6 +24,7 @@
   let forking = $state(false);
   let starsLocalCount = $state(0);
   let archiveRef = $state('main');
+  let downloadingArchive = $state(false);
 
   // Sync when prop changes
   $effect(() => {
@@ -39,9 +40,8 @@
   let httpCopied = $state(false);
   let sshCopied = $state(false);
 
-  let httpCloneUrl = $derived(browser ? `${location.protocol}//${location.host}/git/${owner}/${repo}.git` : '');
+  let httpCloneUrl = $derived(withBackendBase(`/git/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`));
   let sshCloneUrl = $derived(browser ? `git@${location.hostname}:${owner}/${repo}.git` : '');
-  let archiveUrl = $derived(`${API_BASE}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/archive/${encodeURIComponent(archiveRef)}.zip`);
 
   function copyUrl(url: string) {
     navigator.clipboard.writeText(url);
@@ -114,6 +114,18 @@
       watchState = watchRes.watch_state;
     } catch {
       watchState = 'not_watching';
+    }
+  }
+
+  async function downloadArchive() {
+    try {
+      downloadingArchive = true;
+      await downloadApiFile(
+        `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/archive/${encodeURIComponent(archiveRef)}.zip`,
+        `${repo}-${archiveRef || 'archive'}.zip`
+      );
+    } finally {
+      downloadingArchive = false;
     }
   }
 
@@ -201,9 +213,15 @@
     { id: 'releases', label: t('repo.tabs.releases'), icon: '🏷' },
     { id: 'packages', label: t('repo.tabs.packages'), icon: '📦' },
     { id: 'board', label: t('repo.tabs.board'), icon: '◫', path: 'boards' },
+    { id: 'time_tracking', label: t('repo.tabs.time_tracking'), icon: '⏱' },
     { id: 'commits', label: t('repo.tabs.commits'), icon: '📜' },
     { id: 'settings', label: t('repo.tabs.settings'), icon: '⚙' },
   ]);
+
+  function tabHref(tab: { id: string; path?: string }) {
+    const suffix = tab.id === 'code' ? '' : `/${tab.path || tab.id}`;
+    return `/${owner}/${repo}${suffix}`;
+  }
 </script>
 
 <svelte:window onkeydown={handleCloneKeydown} />
@@ -211,9 +229,9 @@
 <div class="repo-header">
   <div class="repo-top">
     <div class="repo-name">
-      <a href="/{owner}">{owner}</a>
+      <a href={`/${owner}`}>{owner}</a>
       <span class="separator">/</span>
-      <a href="/{owner}/{repo}">{repo}</a>
+      <a href={`/${owner}/${repo}`}>{repo}</a>
     </div>
 
     <div class="repo-actions">
@@ -331,13 +349,19 @@
 
             <!-- Download ZIP -->
             <div class="clone-footer">
-              <a href={archiveUrl} class="clone-footer-link" aria-label={t('repo.download_zip')}>
+              <button
+                type="button"
+                class="clone-footer-link"
+                aria-label={t('repo.download_zip')}
+                onclick={downloadArchive}
+                disabled={downloadingArchive}
+              >
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
                   <path fill-rule="evenodd" d="M2.75 14A1.75 1.75 0 011 12.25v-2.5a.75.75 0 011.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 00.25-.25v-2.5a.75.75 0 011.5 0v2.5A1.75 1.75 0 0113.25 14H2.75z"></path>
                   <path fill-rule="evenodd" d="M7.25 1.75A.75.75 0 018.75 1v6.69l1.47-1.47a.75.75 0 111.06 1.06l-2.75 2.75a.75.75 0 01-1.06 0L4.72 7.28a.75.75 0 011.06-1.06l1.47 1.47V1.75z"></path>
                 </svg>
                 {t('repo.download_zip')}
-              </a>
+              </button>
             </div>
           </div>
         {/if}
@@ -348,7 +372,7 @@
   <nav class="repo-tabs">
     {#each tabs as tab}
       <a
-        href="/{owner}/{repo}/{tab.id === 'code' ? '' : (tab.path || tab.id)}"
+        href={tabHref(tab)}
         class="tab"
         class:active={activeTab === tab.id}
       >
@@ -617,12 +641,20 @@
     display: flex;
     align-items: center;
     gap: 6px;
+    padding: 0;
+    border: 0;
+    background: none;
     font-size: 12px;
     color: var(--accent);
     text-decoration: none;
+    cursor: pointer;
   }
   .clone-footer-link:hover {
     text-decoration: underline;
+  }
+  .clone-footer-link:disabled {
+    cursor: wait;
+    opacity: 0.65;
   }
 
   @media (max-width: 600px) {

@@ -17,6 +17,8 @@ const mainClient = read('web/src/lib/api/client.svelte.ts');
 const splitClient = read('web/src/lib/api/issues.ts');
 const issuesListPage = read('web/src/routes/[owner]/[repo]/issues/+page.svelte');
 const issueDetailPage = read('web/src/routes/[owner]/[repo]/issues/[number]/+page.svelte');
+const enTranslations = JSON.parse(read('web/src/lib/i18n/translations/en.json'));
+const zhTranslations = JSON.parse(read('web/src/lib/i18n/translations/zh-CN.json'));
 
 check(
   /pub labels:\s*Option<String>/.test(backendIssueEntity),
@@ -48,6 +50,15 @@ for (const [name, source] of [
 check(
   /issue\.labels\?\.length/.test(issuesListPage) && /\{#each issue\.labels as label\}/.test(issuesListPage),
   'issue list page renders issue.labels as an iterable array',
+);
+check(
+  /t\('issues\.meta',\s*\{\s*number:\s*issue\.number/.test(issuesListPage)
+    && enTranslations.issues?.meta?.includes('#{number}')
+    && zhTranslations.issues?.meta?.includes('#{number}')
+    && !/#\$\{issue\.number\}/.test(issuesListPage)
+    && !enTranslations.issues?.meta?.includes('#${number}')
+    && !zhTranslations.issues?.meta?.includes('#${number}'),
+  'issue list page renders translated issue numbers without a stray dollar sign',
 );
 check(
   /issue\.labels\?\.length/.test(issueDetailPage) && /\{#each issue\.labels as label\}/.test(issueDetailPage),

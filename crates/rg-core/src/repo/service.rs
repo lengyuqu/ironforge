@@ -38,6 +38,10 @@ pub struct CreateRepoOptions {
     pub issue_labels: Option<String>,
     /// Owner's display name for license substitution
     pub owner_display_name: String,
+    /// Git author name used for auto-initialization commits.
+    pub git_author_name: Option<String>,
+    /// Git author email used for auto-initialization commits.
+    pub git_author_email: Option<String>,
 }
 
 // ── Permission cache (30s TTL) ──────────────────────────────────────────
@@ -280,6 +284,8 @@ pub async fn create_repo(
             readme: None,
             issue_labels: None,
             owner_display_name: String::new(),
+            git_author_name: None,
+            git_author_email: None,
         },
         repo_root,
     )
@@ -344,6 +350,20 @@ pub async fn create_repo_with_opts(
             opts.license.as_deref(),
             opts.readme.as_deref(),
             &opts.owner_display_name,
+            opts.git_author_name
+                .as_deref()
+                .filter(|name| !name.trim().is_empty())
+                .unwrap_or_else(|| {
+                    if opts.owner_display_name.trim().is_empty() {
+                        "IronForge"
+                    } else {
+                        opts.owner_display_name.as_str()
+                    }
+                }),
+            opts.git_author_email
+                .as_deref()
+                .filter(|email| !email.trim().is_empty())
+                .unwrap_or("ironforge@example.invalid"),
         );
 
         if let Err(e) = &init_result {
@@ -442,6 +462,8 @@ fn auto_init_repo(
     license_key: Option<&str>,
     readme_key: Option<&str>,
     owner_name: &str,
+    git_author_name: &str,
+    git_author_email: &str,
 ) -> Result<()> {
     // Canonicalize the bare repo path so git push works from any working directory
     let bare_path = std::fs::canonicalize(bare_path)
@@ -513,7 +535,9 @@ fn auto_init_repo(
     output.ensure_success().context("git add failed")?;
 
     // git commit
-    let output = Command::new("git")
+    let mut commit_cmd = Command::new("git");
+    apply_git_identity(&mut commit_cmd, git_author_name, git_author_email);
+    let output = commit_cmd
         .args(["commit", "-m", "Initial commit"])
         .current_dir(&tmp)
         .output()
@@ -569,6 +593,14 @@ fn auto_init_repo(
     );
 
     Ok(())
+}
+
+fn apply_git_identity(command: &mut Command, author_name: &str, author_email: &str) {
+    command
+        .env("GIT_AUTHOR_NAME", author_name)
+        .env("GIT_AUTHOR_EMAIL", author_email)
+        .env("GIT_COMMITTER_NAME", author_name)
+        .env("GIT_COMMITTER_EMAIL", author_email);
 }
 
 /// Create default issue labels for a newly created repository.
@@ -959,6 +991,8 @@ pub async fn create_or_update_file(
     message: &str,
     branch: &str,
     sha: Option<&str>,
+    author_name: &str,
+    author_email: &str,
     repo_root: &PathBuf,
 ) -> Result<()> {
     let repo_path = repo_root.join(format!("{}/{}.git", owner, repo_name));
@@ -1056,7 +1090,9 @@ pub async fn create_or_update_file(
     }
 
     // Git commit
-    let output = Command::new("git")
+    let mut commit_cmd = Command::new("git");
+    apply_git_identity(&mut commit_cmd, author_name, author_email);
+    let output = commit_cmd
         .args(["commit", "-m", message])
         .current_dir(&tmp)
         .output()
@@ -1110,6 +1146,8 @@ pub async fn delete_file(
     message: &str,
     branch: &str,
     sha: &str,
+    author_name: &str,
+    author_email: &str,
     repo_root: &PathBuf,
 ) -> Result<()> {
     let repo_path = repo_root.join(format!("{}/{}.git", owner, repo_name));
@@ -1161,7 +1199,9 @@ pub async fn delete_file(
     }
 
     // Git commit
-    let output = Command::new("git")
+    let mut commit_cmd = Command::new("git");
+    apply_git_identity(&mut commit_cmd, author_name, author_email);
+    let output = commit_cmd
         .args(["commit", "-m", message])
         .current_dir(&tmp)
         .output()

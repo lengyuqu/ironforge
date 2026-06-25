@@ -163,8 +163,19 @@ pub async fn create_repo(
         None => None,
     };
 
-    // Get owner display name for template substitution
-    let owner_display = username.clone();
+    // Get owner identity for template substitution and initial commit author.
+    let owner_user = match rg_db::ops::user_ops::find_by_id(&state.db, owner_id).await {
+        Ok(Some(user)) => user,
+        Ok(None) => {
+            return AppError::Unauthorized("invalid token subject".to_string()).into_response()
+        }
+        Err(e) => return AppError::InternalError(e.to_string()).into_response(),
+    };
+    let owner_display = owner_user
+        .display_name
+        .clone()
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or_else(|| username.clone());
 
     let opts = rg_core::repo::service::CreateRepoOptions {
         owner_id,
@@ -179,6 +190,8 @@ pub async fn create_repo(
         readme: body.readme.clone(),
         issue_labels: body.issue_labels.clone(),
         owner_display_name: owner_display,
+        git_author_name: Some(username.clone()),
+        git_author_email: Some(owner_user.email.clone()),
     };
 
     match rg_core::repo::service::create_repo_with_opts(&state.db, opts, state.repo_root.as_path())
@@ -591,7 +604,6 @@ pub async fn watch_repo(
     ),
     responses(
         (status = 200, description = "Deleted", body = serde_json::Value),
-        (status = 204, description = "No content"),
         (status = 401, description = "Unauthorized", body = serde_json::Value),
     ),
 )]
@@ -643,7 +655,6 @@ pub async fn unwatch_repo(
     ),
     responses(
         (status = 200, description = "Deleted", body = serde_json::Value),
-        (status = 204, description = "No content"),
         (status = 401, description = "Unauthorized", body = serde_json::Value),
     ),
 )]

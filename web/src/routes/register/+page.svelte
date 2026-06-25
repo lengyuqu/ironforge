@@ -21,6 +21,10 @@
   }
 </script>
 
+<svelte:head>
+  <title>{t('auth.register.title')} · IronForge</title>
+</svelte:head>
+
 <div class="login-page">
   <div class="login-card">
     <div class="login-header">

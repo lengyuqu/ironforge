@@ -3,6 +3,7 @@
   import RepoHeader from '$lib/components/RepoHeader.svelte';
   import { packages } from '$lib/api/client.svelte';
   import { createT, formatDate } from '$lib/i18n';
+  import { PACKAGE_FORMATS, packageFormatLabel } from '$lib/packageFormats';
 
   const t = createT();
 
@@ -15,26 +16,6 @@
   let error = $state('');
   let currentPage = $state(1);
   let totalPages = $state(1);
-
-  const formats = [
-    'cargo',
-    'npm',
-    'pypi',
-    'maven',
-    'docker',
-    'nuget',
-    'rubygems',
-    'go',
-    'helm',
-    'composer',
-    'conan',
-    'conda',
-    'alpine',
-    'debian',
-    'rpm',
-    'swift',
-    'generic',
-  ];
 
   $effect(() => {
     loadPackages();
@@ -61,29 +42,6 @@
     }
   }
 
-  function formatLabel(f: string): string {
-    const labels: Record<string, string> = {
-      cargo: 'Cargo',
-      npm: 'npm',
-      pypi: 'PyPI',
-      maven: 'Maven',
-      docker: 'Docker',
-      nuget: 'NuGet',
-      rubygems: 'RubyGems',
-      go: 'Go',
-      helm: 'Helm',
-      composer: 'Composer',
-      conan: 'Conan',
-      conda: 'Conda',
-      alpine: 'Alpine',
-      debian: 'Debian',
-      rpm: 'RPM',
-      swift: 'Swift',
-      generic: 'Generic',
-    };
-    return labels[f] || f;
-  }
-
   function handleFormatChange() {
     currentPage = 1;
     loadPackages();
@@ -108,7 +66,7 @@
 
   <div class="page-header">
     <h1>{t('repo.tabs.packages')}</h1>
-    <a href="/{owner}/{repo}/packages/upload" class="btn-primary">{t('packages.upload')}</a>
+    <a href={`/${owner}/${repo}/packages/upload`} class="btn-primary">{t('packages.upload')}</a>
   </div>
 
   {#if error}
@@ -120,8 +78,8 @@
       <label for="format-filter">{t('packages.format')}:</label>
       <select id="format-filter" bind:value={formatFilter} onchange={handleFormatChange}>
         <option value="">{t('common.all') || 'All'}</option>
-        {#each formats as f}
-          <option value={f}>{formatLabel(f)}</option>
+        {#each PACKAGE_FORMATS as f}
+          <option value={f}>{packageFormatLabel(f)}</option>
         {/each}
       </select>
     </div>
@@ -149,7 +107,7 @@
         <div class="package-card">
           <div class="package-header">
             <a href={packageHref(pkg)} class="package-name">{pkg.name}</a>
-            <span class="format-badge">{formatLabel(pkg.format)}</span>
+            <span class="format-badge">{packageFormatLabel(pkg.format)}</span>
           </div>
           {#if pkg.description}
             <p class="package-desc">{pkg.description}</p>

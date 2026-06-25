@@ -6,9 +6,12 @@
 use crate::AppState;
 use axum::{
     extract::{Path, State},
-    http::{header, StatusCode},
+    http::{header, HeaderMap, StatusCode},
     response::IntoResponse,
 };
+
+use crate::api::auth::extract_user_id;
+use crate::error::AppError;
 
 /// GET /api/v1/repos/{owner}/{name}/archive/{sha}.zip
 #[utoipa::path(
@@ -28,6 +31,7 @@ use axum::{
 )]
 pub async fn download_archive(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path((owner, name, archive)): Path<(String, String, String)>,
 ) -> impl IntoResponse {
     // axum 0.8 allows only one parameter per path segment, so the filename
@@ -43,9 +47,34 @@ pub async fn download_archive(
         return (StatusCode::BAD_REQUEST, "Unsupported format").into_response();
     };
 
+    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
+    {
+        Ok(Some(repo)) => repo,
+        Ok(None) => {
+            return AppError::not_found("repository not found").into_response();
+        }
+        Err(e) => {
+            return AppError::internal(e).into_response();
+        }
+    };
+
+    let actor_id = extract_user_id(&headers, &state.jwt_secret);
+    match rg_core::repo::service::can_read_repo(&state.db, &repo, actor_id).await {
+        Ok(true) => {}
+        Ok(false) if repo.is_private && actor_id.is_none() => {
+            return AppError::unauthorized("authentication required").into_response();
+        }
+        Ok(false) => {
+            return AppError::forbidden("access denied").into_response();
+        }
+        Err(e) => {
+            return AppError::internal(e).into_response();
+        }
+    }
+
     let repo_path = state.repo_root.join(format!("{}/{}.git", owner, name));
     if !repo_path.exists() {
-        return (StatusCode::NOT_FOUND, "Repository not found").into_response();
+        return AppError::not_found("repository data not found").into_response();
     }
 
     let format_flag = match ext {

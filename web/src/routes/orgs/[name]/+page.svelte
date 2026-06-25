@@ -96,7 +96,7 @@
       {:else}
         <div class="repo-list">
           {#each orgRepos as repo}
-            <a href="/{org.name}/{repo.name}" class="repo-item">
+            <a href={`/${org.name}/${repo.name}`} class="repo-item">
               <span class="repo-icon">{repo.is_private ? '🔒' : '📖'}</span>
               <span class="repo-name">{repo.name}</span>
               {#if repo.description}<span class="repo-desc">{repo.description}</span>{/if}

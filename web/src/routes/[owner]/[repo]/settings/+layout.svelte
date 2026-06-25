@@ -13,8 +13,13 @@
 
   const navItems = $derived([
     { path: `/${owner}/${repo}/settings`, label: t('settings.general'), icon: '⚙️' },
-    { path: `/${owner}/${repo}/settings/labels`, label: t('settings.labels'), icon: '🏷️' }
+    { path: `/${owner}/${repo}/settings/labels`, label: t('settings.labels'), icon: '🏷️' },
+    { path: `/${owner}/${repo}/settings/branches`, label: t('settings.branch_protection.title'), icon: '🛡️' },
+    { path: `/${owner}/${repo}/settings/mirror`, label: t('settings.mirror.title'), icon: '🔁' },
+    { path: `/${owner}/${repo}/settings/collaborators`, label: t('settings.collaborators.title'), icon: '👥' }
   ]);
+
+  const currentSection = $derived(navItems.find((item) => item.path === currentPath));
 </script>
 
 <div class="settings-layout">
@@ -35,12 +40,12 @@
   
   <main class="content">
     <div class="breadcrumb">
-      <a href="/{owner}/{repo}">{owner}/{repo}</a>
+      <a href={`/${owner}/${repo}`}>{owner}/{repo}</a>
       <span class="separator">/</span>
       <span>{t('settings.title')}</span>
-      {#if currentPath.includes('/labels')}
+      {#if currentSection && currentSection.path !== `/${owner}/${repo}/settings`}
         <span class="separator">/</span>
-        <span>{t('settings.labels')}</span>
+        <span>{currentSection.label}</span>
       {/if}
     </div>
     

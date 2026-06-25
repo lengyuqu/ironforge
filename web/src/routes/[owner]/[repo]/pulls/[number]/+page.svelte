@@ -64,6 +64,20 @@
       error = e.message;
     }
   }
+
+  function reviewAction(review: any): string {
+    return review.action || review.verdict || 'comment';
+  }
+
+  function reviewVerdictKey(action: string): string {
+    if (action === 'approve' || action === 'approved') return 'approved';
+    if (action === 'request_changes') return 'changes_requested';
+    return 'commented';
+  }
+
+  function reviewAuthor(review: any): string {
+    return review.reviewer || review.author || (review.reviewer_id ? `#${review.reviewer_id}` : t('common.unknown'));
+  }
 </script>
 
 <svelte:head>
@@ -142,11 +156,12 @@
 
           <!-- Reviews in conversation -->
           {#each reviewList as review}
+            {@const action = reviewAction(review)}
             <div class="review-item">
               <div class="comment-header">
-                <strong>{review.reviewer || t('common.unknown')}</strong>
-                <span class="verdict-badge" class:approved={review.verdict === 'approved'} class:changes={review.verdict === 'request_changes'} class:commented={review.verdict === 'comment'}>
-                  {t(`pulls.verdict.${review.verdict === 'request_changes' ? 'changes_requested' : review.verdict}`)}
+                <strong>{reviewAuthor(review)}</strong>
+                <span class="verdict-badge" class:approved={action === 'approve' || action === 'approved'} class:changes={action === 'request_changes'} class:commented={action === 'comment'}>
+                  {t(`pulls.verdict.${reviewVerdictKey(action)}`)}
                 </span>
               </div>
               {#if review.body}
@@ -178,7 +193,7 @@
               {t('pulls.review.verdict_comment')}
             </label>
             <label class="radio-label">
-              <input type="radio" name="verdict" value="approved" bind:group={reviewVerdict} />
+              <input type="radio" name="verdict" value="approve" bind:group={reviewVerdict} />
               {t('pulls.review.verdict_approve')}
             </label>
             <label class="radio-label">

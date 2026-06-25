@@ -56,7 +56,7 @@
   {:else}
     <div class="repo-grid">
       {#each repoList as repo}
-        <a href="/{repo.owner_name}/{repo.name}" class="repo-card">
+        <a href={`/${repo.owner_name}/${repo.name}`} class="repo-card">
           <div class="rc-icon">📂</div>
           <div class="rc-body">
             <div class="rc-name">{repo.owner_name}/{repo.name}</div>

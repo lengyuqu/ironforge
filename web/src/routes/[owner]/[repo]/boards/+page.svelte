@@ -31,6 +31,15 @@
 
   onMount(() => loadBoards());
 
+  function normalizeColumns(board: any) {
+    return (board?.columns || []).map((entry: any) => {
+      if (entry.column) {
+        return { ...entry.column, cards: entry.cards || [] };
+      }
+      return { ...entry, cards: entry.cards || [] };
+    });
+  }
+
   async function loadBoards() {
     try {
       loading = true;
@@ -46,8 +55,9 @@
   }
 
   async function selectBoard(board: any) {
-    activeBoard = board;
-    columns = board.columns || [];
+    const b = await boards.get(owner, repo, board.id);
+    activeBoard = b.board || b;
+    columns = normalizeColumns(b);
   }
 
   async function createBoard() {
@@ -74,8 +84,9 @@
     try {
       await boards.delete(owner, repo, id);
       boardList = boardList.filter(b => b.id !== id);
-      activeBoard = boardList.length > 0 ? boardList[0] : null;
-      if (activeBoard) await refreshBoard();
+      activeBoard = null;
+      columns = [];
+      if (boardList.length > 0) await selectBoard(boardList[0]);
     } catch (e: any) {
       error = e.message;
     }
@@ -109,7 +120,7 @@
     if (!newCardTitle.trim() || !activeBoard) return;
     try {
       const card = await boards.createCard(owner, repo, activeBoard.id, colId, {
-        title: newCardTitle.trim(),
+        note: newCardTitle.trim(),
       });
       const col = columns.find(c => c.id === colId);
       if (col) {
@@ -140,9 +151,12 @@
 
   async function moveCard(cardId: number, fromColId: number, toColId: number) {
     if (!activeBoard || fromColId === toColId) return;
+    const targetCol = columns.find(c => c.id === toColId);
+    const position = targetCol ? (targetCol.cards || []).length : 0;
     try {
       await boards.moveCard(owner, repo, activeBoard.id, cardId, {
         column_id: toColId,
+        position,
       });
       await refreshBoard();
     } catch (e: any) {
@@ -154,8 +168,8 @@
     if (!activeBoard) return;
     try {
       const b = await boards.get(owner, repo, activeBoard.id);
-      activeBoard = b;
-      columns = b.columns || [];
+      activeBoard = b.board || b;
+      columns = normalizeColumns(b);
     } catch (e: any) {
       error = e.message;
     }
@@ -273,7 +287,7 @@
                 {#each (col.cards || []) as card (card.id)}
                   <div class="card">
                     <div class="card-header">
-                      <span>{card.title}</span>
+                      <span>{card.note || card.issue?.title || `#${card.issue_id}`}</span>
                       <button class="btn-icon btn-icon-sm" onclick={() => deleteCard(card.id, col.id)}>&times;</button>
                     </div>
                     {#if card.issue}

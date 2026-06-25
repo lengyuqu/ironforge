@@ -5,8 +5,8 @@
 
   const t = createT();
   
-  let owner = $derived($page.params.owner);
-  let repo = $derived($page.params.repo);
+  let owner = $derived($page.params.owner!);
+  let repo = $derived($page.params.repo!);
   let branch = $state('main');
   
   let commits = $state<any[]>([]);
@@ -14,23 +14,20 @@
   let error = $state('');
 
   $effect(() => {
+    if (!owner || !repo) return;
+
     loading = true;
     error = '';
     
-    console.log('Fetching commits for:', owner, repo, branch);
-    
     repos.log(owner, repo, branch)
       .then(r => {
-        console.log('Commits API response:', r);
         if (r && r.commits && Array.isArray(r.commits)) {
           commits = r.commits;
         } else {
-          console.error('Invalid commits response format:', r);
           error = 'Invalid response format from server';
         }
       })
       .catch((e: any) => {
-        console.error('Commits API error:', e);
         error = e.message || 'Failed to load commits';
       })
       .finally(() => {
@@ -66,7 +63,7 @@
           <div class="commit-icon">📝</div>
           <div class="commit-body">
             <div class="commit-message">
-              <a href="/{owner}/{repo}/commit/{commit.sha}">{commit.message}</a>
+              <a href={`/${owner}/${repo}/commits/${commit.sha}`}>{commit.message}</a>
             </div>
             <div class="commit-meta">
               <span class="commit-author">{commit.author}</span>

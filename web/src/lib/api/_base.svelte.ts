@@ -18,6 +18,11 @@ function withApiBase(path: string): string {
   return `${API_BASE}${path.startsWith('/') ? path : `/${path}`}`;
 }
 
+export function withBackendBase(path: string): string {
+  const backendBase = API_BASE.replace(/\/api\/v1$/, '');
+  return `${backendBase}${path.startsWith('/') ? path : `/${path}`}`;
+}
+
 let authToken = $state<string | null>(null);
 
 export function getToken(): string | null {
@@ -69,6 +74,55 @@ export async function request<T>(path: string, options: RequestInit = {}): Promi
   }
 
   return JSON.parse(text) as T;
+}
+
+function filenameFromContentDisposition(value: string | null): string | null {
+  if (!value) return null;
+
+  const encoded = value.match(/filename\*=UTF-8''([^;]+)/i);
+  if (encoded?.[1]) {
+    try {
+      return decodeURIComponent(encoded[1]);
+    } catch {
+      return encoded[1];
+    }
+  }
+
+  const quoted = value.match(/filename="([^"]+)"/i);
+  if (quoted?.[1]) return quoted[1];
+
+  const plain = value.match(/filename=([^;]+)/i);
+  return plain?.[1]?.trim() || null;
+}
+
+export async function downloadApiFile(path: string, fallbackFilename: string): Promise<void> {
+  const token = getToken();
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const res = await fetch(withApiBase(path), { headers });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    const msg =
+      (body?.error && typeof body.error === 'object' ? body.error.message : body?.error) ||
+      body?.message ||
+      `HTTP ${res.status}`;
+    throw new Error(msg);
+  }
+
+  const blob = await res.blob();
+  const filename = filenameFromContentDisposition(res.headers.get('content-disposition')) || fallbackFilename;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.style.display = 'none';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 export function qs(params: Record<string, string | number | boolean | undefined | null>): string {

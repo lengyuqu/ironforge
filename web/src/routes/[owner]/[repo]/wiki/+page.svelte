@@ -1,5 +1,6 @@
 <script lang="ts">
   import { page } from '$app/stores';
+  import { goto } from '$app/navigation';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
   import { wiki } from '$lib/api/client.svelte';
   import { createT, formatDate } from '$lib/i18n';
@@ -31,11 +32,12 @@
   async function handleCreate(e: Event) {
     e.preventDefault();
     try {
-      await wiki.create(owner, repo, newTitle, newContent);
+      const createdTitle = newTitle;
+      await wiki.create(owner, repo, createdTitle, newContent);
       showCreate = false;
       newTitle = '';
       newContent = '';
-      await loadPages();
+      await goto(`/${owner}/${repo}/wiki/${encodeURIComponent(createdTitle)}`);
     } catch (e: any) {
       error = e.message;
     }
@@ -84,7 +86,7 @@
   {:else}
     <div class="page-list">
       {#each pageList as p}
-        <a href="/{owner}/{repo}/wiki/{encodeURIComponent(p.title)}" class="wiki-item">
+        <a href={`/${owner}/${repo}/wiki/${encodeURIComponent(p.title)}`} class="wiki-item">
           📄 {p.title}
           <span class="text-secondary text-sm">{formatDate(p.updated_at)}</span>
         </a>

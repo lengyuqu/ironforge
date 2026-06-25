@@ -308,6 +308,7 @@ function unwrapParamExpression(expression) {
     'String',
     'Number',
     'encodeURIComponent',
+    'encodeRepoPath',
     'decodeURIComponent',
     'normalize',
   ]);
@@ -926,9 +927,9 @@ function inspectFrontendFlowContracts() {
     ISSUE.lines.push(`❌ 仓库归档链接未对齐默认分支: RepoHeader 应从 props 或 /repos/{owner}/{repo} 获取 default_branch（来源: ${repoHeaderFile}）`);
   }
 
-  if (!/\bAPI_BASE\b/.test(repoHeaderSource) || !/archive\/\$\{encodeURIComponent\(archiveRef\)\}\.zip/.test(repoHeaderSource)) {
+  if (!/\bdownloadApiFile\(/.test(repoHeaderSource) || !/archive\/\$\{encodeURIComponent\(archiveRef\)\}\.zip/.test(repoHeaderSource)) {
     ISSUE.count += 1;
-    ISSUE.lines.push(`❌ 仓库归档链接未使用 API base/ref 编码: RepoHeader 下载地址应对齐后端 /archive/{ref}.zip（来源: ${repoHeaderFile}）`);
+    ISSUE.lines.push(`❌ 仓库归档下载未使用认证 API helper/ref 编码: RepoHeader 下载应对齐后端 /archive/{ref}.zip 并携带 Bearer auth（来源: ${repoHeaderFile}）`);
   }
 
   let reposApiSource = '';

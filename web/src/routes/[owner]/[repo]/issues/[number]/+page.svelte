@@ -3,6 +3,7 @@
   import RepoHeader from '$lib/components/RepoHeader.svelte';
   import { issues } from '$lib/api/client.svelte';
   import { createT, formatDate } from '$lib/i18n';
+  import { renderMarkdown as renderMarkdownSafe } from '$lib/utils/markdown';
 
   const t = createT();
 
@@ -55,10 +56,15 @@
       error = e.message;
     }
   }
+
+  function renderMarkdown(content: string | null | undefined): string {
+    if (!content) return '';
+    return renderMarkdownSafe(content);
+  }
 </script>
 
 <svelte:head>
-  <title>Issue #{number} · {owner}/{repo} · IronForge</title>
+  <title>{issue?.title || `${t('issues.title')} #${number}`} · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
 <div class="page-container">
@@ -82,7 +88,7 @@
             {t(`issues.state.${issue.state}`)}
           </span>
           <span class="text-secondary">
-            opened {formatDate(issue.created_at)} by <strong>{issue.author || t('common.unknown')}</strong>
+            {t('issues.opened_by', { date: formatDate(issue.created_at), author: issue.author || t('common.unknown') })}
           </span>
           {#if issue.labels?.length}
             {#each issue.labels as label}
@@ -95,9 +101,9 @@
       {#if issue.body}
         <div class="issue-body">
           <div class="comment-header">
-            <strong>{issue.author || t('common.unknown')}</strong> commented {formatDate(issue.created_at)}
+            {t('issues.commented', { author: issue.author || t('common.unknown'), date: formatDate(issue.created_at) })}
           </div>
-          <div class="comment-body">{issue.body}</div>
+          <div class="comment-body markdown-body">{@html renderMarkdown(issue.body)}</div>
         </div>
       {/if}
 
@@ -105,9 +111,9 @@
       {#each commentList as comment}
         <div class="comment">
           <div class="comment-header">
-            <strong>{comment.author || t('common.unknown')}</strong> commented {formatDate(comment.created_at)}
+            {t('issues.commented', { author: comment.author || t('common.unknown'), date: formatDate(comment.created_at) })}
           </div>
-          <div class="comment-body">{comment.body}</div>
+          <div class="comment-body markdown-body">{@html renderMarkdown(comment.body)}</div>
         </div>
       {/each}
 
@@ -182,7 +188,33 @@
     padding: 16px;
     font-size: 14px;
     line-height: 1.6;
-    white-space: pre-wrap;
+  }
+
+  .comment-body :global(p) {
+    margin: 0 0 12px;
+  }
+
+  .comment-body :global(p:last-child) {
+    margin-bottom: 0;
+  }
+
+  .comment-body :global(ul),
+  .comment-body :global(ol) {
+    padding-left: 24px;
+    margin: 8px 0 12px;
+  }
+
+  .comment-body :global(pre) {
+    overflow-x: auto;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px;
+  }
+
+  .comment-body :global(code) {
+    font-family: var(--font-mono);
+    font-size: 12px;
   }
 
   .comment-form {

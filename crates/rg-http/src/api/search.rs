@@ -17,12 +17,32 @@ pub struct SearchQuery {
     pub q: String,
     #[serde(default = "default_search_type")]
     pub r#type: String,
-    #[serde(flatten)]
-    pub pagination: PaginationParams,
+    #[serde(default = "default_page")]
+    pub page: u64,
+    #[serde(default = "default_per_page")]
+    pub per_page: u64,
 }
 
 fn default_search_type() -> String {
     "all".to_string()
+}
+
+fn default_page() -> u64 {
+    1
+}
+
+fn default_per_page() -> u64 {
+    20
+}
+
+fn normalize_search_type(raw: &str) -> Option<&'static str> {
+    match raw {
+        "all" => Some("all"),
+        "repo" | "repos" => Some("repos"),
+        "issue" | "issues" => Some("issues"),
+        "wiki" => Some("wiki"),
+        _ => None,
+    }
 }
 
 /// GET /api/v1/search?q=keyword&type=all|repos|issues|wiki&page=1&per_page=20
@@ -39,25 +59,23 @@ pub async fn search(
     State(state): State<AppState>,
     Query(params): Query<SearchQuery>,
 ) -> impl IntoResponse {
-    let pagination = params.pagination.clamp();
+    let pagination = PaginationParams::new(params.page, params.per_page);
 
     if params.q.trim().is_empty() {
         return AppError::bad_request("search query 'q' parameter is required").into_response();
     }
 
-    let valid_types = ["all", "repos", "issues", "wiki"];
-    if !valid_types.contains(&params.r#type.as_str()) {
-        return AppError::bad_request(format!(
-            "invalid type '{}', must be one of: {:?}",
-            params.r#type, valid_types
-        ))
+    let Some(search_type) = normalize_search_type(&params.r#type) else {
+        return AppError::bad_request(
+            "invalid type, must be one of: all, repo/repos, issue/issues, wiki",
+        )
         .into_response();
-    }
+    };
 
     match rg_core::search::service::search(
         &state.db,
         &params.q,
-        &params.r#type,
+        search_type,
         pagination.page,
         pagination.per_page,
     )
@@ -74,5 +92,21 @@ pub async fn search(
         )
             .into_response(),
         Err(e) => AppError::internal(e.to_string()).into_response(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_search_type;
+
+    #[test]
+    fn normalizes_search_type_aliases() {
+        assert_eq!(normalize_search_type("all"), Some("all"));
+        assert_eq!(normalize_search_type("repo"), Some("repos"));
+        assert_eq!(normalize_search_type("repos"), Some("repos"));
+        assert_eq!(normalize_search_type("issue"), Some("issues"));
+        assert_eq!(normalize_search_type("issues"), Some("issues"));
+        assert_eq!(normalize_search_type("wiki"), Some("wiki"));
+        assert_eq!(normalize_search_type("unknown"), None);
     }
 }

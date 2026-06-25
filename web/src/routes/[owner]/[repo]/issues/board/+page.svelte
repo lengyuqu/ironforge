@@ -95,7 +95,7 @@
     const note = (newCardNote[colId] ?? '').trim();
     if (!note) return;
     try {
-      await boards.createCard(owner, repo, activeBoardId!, colId, { title: note, note });
+      await boards.createCard(owner, repo, activeBoardId!, colId, { note });
       newCardNote = { ...newCardNote, [colId]: '' };
       showAddCard = { ...showAddCard, [colId]: false };
       await loadBoard(activeBoardId!);
@@ -251,9 +251,9 @@
                   tabindex="0"
                 >
                   <div class="card-content">
-                    {#if card.issue_id}
-                      <a href="/{owner}/{repo}/issues/{card.issue_id}" class="card-issue-link">
-                        #{card.issue_id}
+                    {#if card.issue}
+                      <a href={`/${owner}/${repo}/issues/${card.issue.number}`} class="card-issue-link">
+                        #{card.issue.number}
                       </a>
                     {/if}
                     <span class="card-note">{card.note || ''}</span>

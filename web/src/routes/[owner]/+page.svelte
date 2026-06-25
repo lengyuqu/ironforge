@@ -54,7 +54,7 @@
   {:else}
     <div class="repo-list">
       {#each repoList as repo}
-        <a href="/{owner}/{repo.name}" class="repo-item">
+        <a href={`/${owner}/${repo.name}`} class="repo-item">
           <div class="repo-icon">
             {repo.is_private ? '🔒' : '📂'}
           </div>

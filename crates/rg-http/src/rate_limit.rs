@@ -25,6 +25,8 @@ struct ClientState {
 /// Shared rate limiter state.
 #[derive(Debug, Clone)]
 pub struct RateLimiter {
+    /// Whether request limiting is active.
+    enabled: bool,
     /// Maximum requests per window.
     max_requests: u32,
     /// Window duration in seconds.
@@ -42,14 +44,19 @@ impl RateLimiter {
     /// - `window_secs`: duration of the rate limit window in seconds.
     pub fn new(max_requests: u32, window_secs: u64) -> Self {
         Self {
-            max_requests,
-            window_secs,
+            enabled: max_requests > 0,
+            max_requests: max_requests.max(1),
+            window_secs: window_secs.max(1),
             clients: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
     /// Check if a request is allowed. Returns true if the request should proceed.
     fn allow(&self, key: &str) -> bool {
+        if !self.enabled {
+            return true;
+        }
+
         let mut clients = match self.clients.lock() {
             Ok(guard) => guard,
             // If the mutex is poisoned, reset the map and continue
@@ -98,6 +105,10 @@ impl RateLimiter {
 
     /// Spawn a background task that periodically cleans up expired entries.
     pub fn spawn_cleanup_task(&self) {
+        if !self.enabled {
+            return;
+        }
+
         let limiter = self.clone();
         // Cleanup interval: half the window duration, min 60s, max 600s
         let interval_secs = (self.window_secs / 2).clamp(60, 600);
@@ -172,6 +183,14 @@ mod tests {
     fn test_rate_limiter_allows_within_limit() {
         let limiter = RateLimiter::new(5, 60);
         for _ in 0..5 {
+            assert!(limiter.allow("client_a"));
+        }
+    }
+
+    #[test]
+    fn test_rate_limiter_disabled_when_max_is_zero() {
+        let limiter = RateLimiter::new(0, 60);
+        for _ in 0..100 {
             assert!(limiter.allow("client_a"));
         }
     }

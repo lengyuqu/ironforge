@@ -46,10 +46,15 @@
       error = e.message;
     }
   }
+
+  function emptyStateLabel(): string {
+    if (filterState === 'all') return t('common.all');
+    return t(`issues.state_label.${filterState}`, filterState);
+  }
 </script>
 
 <svelte:head>
-  <title>Issues · {owner}/{repo} · IronForge</title>
+  <title>{t('issues.title')} · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
 <div class="page-container">
@@ -115,19 +120,19 @@
     <p class="text-secondary">{t('common.loading')}</p>
   {:else if issueList.length === 0}
     <div class="empty">
-      <p>{t('issues.empty', { state: filterState === 'all' ? '' : filterState })}</p>
+      <p>{t('issues.empty', { state: emptyStateLabel() })}</p>
     </div>
   {:else}
     <div class="issue-list gh-list">
       {#each issueList as issue}
-        <a href="/{owner}/{repo}/issues/{issue.number}" class="issue-item gh-list-item">
+        <a href={`/${owner}/${repo}/issues/${issue.number}`} class="issue-item gh-list-item">
           <span class="issue-icon">
             {issue.state === 'closed' ? '✓' : '●'}
           </span>
           <div class="issue-info">
             <div class="issue-title">{issue.title}</div>
             <div class="issue-meta">
-              #${issue.number} {t('issues.meta', { date: formatDate(issue.created_at), author: issue.author || t('common.unknown') })}
+              {t('issues.meta', { number: issue.number, date: formatDate(issue.created_at), author: issue.author || t('common.unknown') })}
               {#if issue.labels?.length}
                 {#each issue.labels as label}
                   <span class="label-badge">{label}</span>

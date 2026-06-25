@@ -35,6 +35,7 @@
   let deleteConfirm = $state('');
   let deleting = $state(false);
   let deleteError = $state('');
+  let repositoryPath = $derived(`${owner}/${repo}`);
   
   $effect(() => {
     loadRepository();
@@ -78,7 +79,7 @@
   }
   
   async function handleDelete() {
-    if (deleteConfirm !== repo) return;
+    if (deleteConfirm !== repositoryPath) return;
     
     const confirmed = confirm(t('settings.delete.desc'));
     if (!confirmed) return;
@@ -98,31 +99,35 @@
 }
 </script>
 
+<svelte:head>
+  <title>{t('settings.general')} · {owner}/{repo} · IronForge</title>
+</svelte:head>
+
 <div class="settings-page">
   <h1>{t('settings.general')}</h1>
   
   {#if loading}
-    <div class="loading">Loading...</div>
+    <div class="loading">{t('common.loading')}</div>
   {:else if error}
     <div class="error">{error}</div>
   {:else if repository}
     <!-- Repository Info -->
     <section class="section">
-      <h2>Repository Information</h2>
+      <h2>{t('settings.repository_info.title', 'Repository Information')}</h2>
       <div class="info-grid">
         <div class="info-item">
-          <span class="info-label">Name</span>
+          <span class="info-label">{t('settings.repository_info.name', 'Name')}</span>
           <div class="info-value">{repository.name}</div>
         </div>
         <div class="info-item">
-          <span class="info-label">Description</span>
+          <span class="info-label">{t('settings.repository_info.description', 'Description')}</span>
           <div class="info-value">{repository.description || '-'}</div>
         </div>
         <div class="info-item">
-          <span class="info-label">Visibility</span>
+          <span class="info-label">{t('settings.repository_info.visibility', 'Visibility')}</span>
           <div class="info-value">
             <span class="badge" class:private={repository.is_private}>
-              {repository.is_private ? 'Private' : 'Public'}
+              {repository.is_private ? t('settings.repository_info.private', 'Private') : t('settings.repository_info.public', 'Public')}
             </span>
           </div>
         </div>
@@ -162,7 +167,7 @@
             onclick={handleTransfer}
             disabled={!newOwner.trim() || transferring}
           >
-            {transferring ? 'Transferring...' : t('settings.transfer.confirm')}
+            {transferring ? t('settings.transfer.confirming') : t('settings.transfer.confirm')}
           </button>
         </div>
       </div>
@@ -181,7 +186,7 @@
         {/if}
         
         <div class="form-group">
-          <label for="delete-confirm">{@html t('settings.delete.confirm_instruction', { repo })}</label>
+          <label for="delete-confirm">{@html t('settings.delete.confirm_instruction', { repo: repositoryPath })}</label>
           <input 
             id="delete-confirm"
             type="text" 
@@ -194,9 +199,9 @@
         <button 
           class="btn btn-danger"
           onclick={handleDelete}
-          disabled={deleteConfirm !== repo || deleting}
+          disabled={deleteConfirm !== repositoryPath || deleting}
         >
-          {deleting ? 'Deleting...' : t('settings.delete.confirm_button')}
+          {deleting ? t('settings.delete.confirming') : t('settings.delete.confirm_button')}
         </button>
       </div>
     </section>

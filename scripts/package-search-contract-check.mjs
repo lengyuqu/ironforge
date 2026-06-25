@@ -8,13 +8,19 @@ const clientPath = path.join(root, 'web/src/lib/api/client.svelte.ts');
 const pagePath = path.join(root, 'web/src/routes/[owner]/[repo]/packages/+page.svelte');
 const formatPagePath = path.join(root, 'web/src/routes/[owner]/[repo]/packages/[format]/+page.svelte');
 const uploadPath = path.join(root, 'web/src/routes/[owner]/[repo]/packages/upload/+page.svelte');
+const packageFormatsPath = path.join(root, 'web/src/lib/packageFormats.ts');
 const backendPackageServicePath = path.join(root, 'crates/rg-core/src/package_registry/service.rs');
+const httpLibPath = path.join(root, 'crates/rg-http/src/lib.rs');
 
 const client = readFileSync(clientPath, 'utf8');
 const page = readFileSync(pagePath, 'utf8');
 const formatPage = readFileSync(formatPagePath, 'utf8');
 const uploadPage = readFileSync(uploadPath, 'utf8');
+const detailPagePath = path.join(root, 'web/src/routes/[owner]/[repo]/packages/[format]/[name]/+page.svelte');
+const detailPage = readFileSync(detailPagePath, 'utf8');
+const packageFormats = readFileSync(packageFormatsPath, 'utf8');
 const backendPackageService = readFileSync(backendPackageServicePath, 'utf8');
+const httpLib = readFileSync(httpLibPath, 'utf8');
 
 const failures = [];
 
@@ -57,6 +63,22 @@ if (/delete:\s*\([^)]*version[^)]*\)\s*=>\s*\n?\s*request<\{\s*deleted:\s*boolea
   failures.push('packages.delete must not expect a JSON deleted envelope from the backend 204 response');
 }
 
+if (!/interface\s+PackageFileResponse[\s\S]*filename:\s*string[\s\S]*size:\s*number/.test(client)) {
+  failures.push('API client must type package version files returned by the backend');
+}
+
+if (/getVersions:[\s\S]*versions:\s*\(res\.versions\s*\|\|\s*\[\]\)\.map\(\(v\)\s*=>\s*v\.version\)/.test(client)) {
+  failures.push('packages.getVersions must preserve backend version file metadata');
+}
+
+if (!/downloadUrl:\s*\([^)]*filename:\s*string[\s\S]*\/packages\/\$\{encodeURIComponent\(pkg_type\)\}\/\$\{encodeURIComponent\(pkg_name\)\}\/\$\{encodeURIComponent\(version\)\}\/\$\{encodeRepoPath\(filename\)\}/.test(client)) {
+  failures.push('API client must expose a package file download URL builder for the backend download route');
+}
+
+if (!/\/repos\/\{owner\}\/\{name\}\/packages\/\{pkg_type\}\/\{pkg_name\}\/\{version\}\/\{\*file\}/.test(httpLib)) {
+  failures.push('Backend package download route must use Axum rest capture so filenames with subpaths can be downloaded');
+}
+
 const filteredIndex = client.indexOf('filteredList');
 const sliceIndex = client.indexOf('filteredList.slice');
 if (filteredIndex === -1 || sliceIndex === -1 || filteredIndex > sliceIndex) {
@@ -71,6 +93,14 @@ if (!/function\s+packageHref\s*\([\s\S]*encodeURIComponent\(pkg\.format\)[\s\S]*
   failures.push('Packages page must encode package format and name in detail links');
 }
 
+if (/href="\/\{owner\}\/\{repo\}\/packages\/upload"/.test(page)) {
+  failures.push('Packages page upload link must interpolate the current owner/repo route params');
+}
+
+if (!/href=\{`\/\$\{owner\}\/\$\{repo\}\/packages\/upload`\}/.test(page)) {
+  failures.push('Packages page upload link must point to the current repository upload route');
+}
+
 if (!/function\s+packageHref\s*\([\s\S]*encodeURIComponent\(format!\)[\s\S]*encodeURIComponent\(pkg\.name\)/.test(formatPage)) {
   failures.push('Package format page must encode package names in detail links');
 }
@@ -79,33 +109,45 @@ if (/href="\/\{owner\}\/\{repo\}\/packages\/\{[^"]*\}\//.test(page + formatPage)
   failures.push('Package list pages must not interpolate raw package names into href attributes');
 }
 
+if (!/packageDownloadUrl\(version\.version,\s*file\.filename\)/.test(detailPage)) {
+  failures.push('Package detail page must link version files to the backend package download route');
+}
+
+if (!/version\.files[\s\S]*file\.filename/.test(detailPage)) {
+  failures.push('Package detail page must render backend package version files');
+}
+
 const backendTypes = extractBackendPackageTypes(backendPackageService);
-const pageTypes = extractQuotedArray(page, 'formats');
-const uploadTypes = extractQuotedArray(uploadPage, 'formats');
+const sharedTypes = extractQuotedArray(packageFormats, 'PACKAGE_FORMATS');
 
 if (!backendTypes || backendTypes.length === 0) {
   failures.push('Could not extract backend package_types::ALL');
 }
 
-if (!pageTypes || pageTypes.length === 0) {
-  failures.push('Could not extract package list page format filter');
+if (!sharedTypes || sharedTypes.length === 0) {
+  failures.push('Could not extract shared package format list');
 }
 
-if (!uploadTypes || uploadTypes.length === 0) {
-  failures.push('Could not extract package upload page format selector');
+if (!/PACKAGE_FORMATS/.test(page)) {
+  failures.push('Packages page must use the shared package format list');
 }
 
-if (backendTypes && pageTypes) {
-  const missingFromFilter = backendTypes.filter((type) => !pageTypes.includes(type));
-  if (missingFromFilter.length > 0) {
-    failures.push(`Packages page format filter is missing backend package types: ${missingFromFilter.join(', ')}`);
+if (!/PACKAGE_FORMATS/.test(uploadPage)) {
+  failures.push('Package upload selector must use the shared package format list');
+}
+
+if (!/packageFormatLabel/.test(page + formatPage + uploadPage)) {
+  failures.push('Package pages must use shared package format labels');
+}
+
+if (backendTypes && sharedTypes) {
+  const missingFromShared = backendTypes.filter((type) => !sharedTypes.includes(type));
+  const extraInShared = sharedTypes.filter((type) => !backendTypes.includes(type));
+  if (missingFromShared.length > 0) {
+    failures.push(`Shared package format list is missing backend package types: ${missingFromShared.join(', ')}`);
   }
-}
-
-if (backendTypes && uploadTypes) {
-  const missingFromUpload = backendTypes.filter((type) => !uploadTypes.includes(type));
-  if (missingFromUpload.length > 0) {
-    failures.push(`Package upload selector is missing backend package types: ${missingFromUpload.join(', ')}`);
+  if (extraInShared.length > 0) {
+    failures.push(`Shared package format list contains types absent from backend: ${extraInShared.join(', ')}`);
   }
 }
 

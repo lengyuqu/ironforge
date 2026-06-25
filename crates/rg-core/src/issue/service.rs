@@ -6,7 +6,7 @@ use sea_orm::{ConnectionTrait, DatabaseConnection, EntityTrait, Set};
 
 use rg_db::entities::issue::{self, Model as Issue};
 use rg_db::entities::issue_comment::{self, Model as Comment};
-use rg_db::ops::{issue_comment_ops, issue_label_ops, issue_ops, label_ops, repo_ops};
+use rg_db::ops::{issue_comment_ops, issue_label_ops, issue_ops, label_ops};
 
 // ── Issue CRUD ──────────────────────────────────────────────────────────
 
@@ -442,10 +442,7 @@ async fn resolve_repo(
     owner: &str,
     repo_name: &str,
 ) -> Result<rg_db::entities::repository::Model> {
-    let user = rg_db::ops::user_ops::find_by_username(db, owner)
-        .await?
-        .context("owner not found")?;
-    repo_ops::find_by_owner_and_name(db, user.id, repo_name)
+    crate::repo::service::find_repo_by_owner_name(db, owner, repo_name)
         .await?
         .context("repository not found")
 }

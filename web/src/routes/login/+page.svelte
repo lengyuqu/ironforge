@@ -50,6 +50,10 @@
   }
 </script>
 
+<svelte:head>
+  <title>{t('auth.login.title')} · IronForge</title>
+</svelte:head>
+
 <div class="login-page">
   <div class="login-card">
     <div class="login-header">

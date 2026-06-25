@@ -4,7 +4,7 @@
   import RepoHeader from '$lib/components/RepoHeader.svelte';
   import { wiki } from '$lib/api/client.svelte';
   import { createT, formatDate } from '$lib/i18n';
-  import { marked } from 'marked';
+  import { renderMarkdown } from '$lib/utils/markdown';
 
   const t = createT();
 
@@ -47,12 +47,6 @@
   function renderContent(content: string) {
     if (!content) { renderedHtml = ''; toc = []; return; }
 
-    // Configure marked
-    marked.setOptions({
-      gfm: true,
-      breaks: true,
-    });
-
     // Extract headings for TOC before rendering
     const headingRegex = /^(#{1,6})\s+(.+)$/gm;
     const headings: { id: string; text: string; level: number }[] = [];
@@ -65,7 +59,7 @@
     toc = headings;
 
     // Add IDs to headings in rendered HTML
-    const html = marked.parse(content) as string;
+    const html = renderMarkdown(content);
     // Inject IDs into heading tags
     let idIndex = 0;
     renderedHtml = html.replace(/<(h[1-6])>(.*?)<\/h[1-6]>/g, (_match, tag, text) => {
@@ -169,7 +163,7 @@
           <h3>{t('wiki.pages')}</h3>
           <nav class="page-nav">
             {#each allPages as p}
-              <a href="/{owner}/{repo}/wiki/{encodeURIComponent(p.title)}" class="page-link" class:active={p.title === title}>
+              <a href={`/${owner}/${repo}/wiki/${encodeURIComponent(p.title)}`} class="page-link" class:active={p.title === title}>
                 <span class="page-icon">📄</span>
                 <span>{p.title}</span>
               </a>
@@ -254,7 +248,7 @@
         {/if}
 
         <div class="wiki-footer">
-          <a href="/{owner}/{repo}/wiki" class="back-link">← {t('wiki.back') || 'Back to Wiki'}</a>
+          <a href={`/${owner}/${repo}/wiki`} class="back-link">← {t('wiki.back') || 'Back to Wiki'}</a>
         </div>
       </main>
     </div>

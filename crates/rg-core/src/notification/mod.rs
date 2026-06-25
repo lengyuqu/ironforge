@@ -42,6 +42,11 @@ pub async fn mark_read(db: &DatabaseConnection, id: i64) -> Result<()> {
     notification_ops::mark_notification_read(db, id).await
 }
 
+/// Mark a notification as read for its owning user.
+pub async fn mark_read_for_user(db: &DatabaseConnection, id: i64, user_id: i64) -> Result<()> {
+    notification_ops::mark_notification_read_for_user(db, id, user_id).await
+}
+
 /// Mark all notifications as read for a user.
 pub async fn mark_all_read(db: &DatabaseConnection, user_id: i64) -> Result<u64> {
     notification_ops::mark_all_read(db, user_id).await
@@ -55,6 +60,15 @@ pub async fn unread_count(db: &DatabaseConnection, user_id: i64) -> Result<u64> 
 /// Delete a notification.
 pub async fn delete_notification(db: &DatabaseConnection, id: i64) -> Result<()> {
     notification_ops::delete_notification(db, id).await
+}
+
+/// Delete a notification for its owning user.
+pub async fn delete_notification_for_user(
+    db: &DatabaseConnection,
+    id: i64,
+    user_id: i64,
+) -> Result<()> {
+    notification_ops::delete_notification_for_user(db, id, user_id).await
 }
 
 // ── Watch notification helpers ─────────────────────────────────────────

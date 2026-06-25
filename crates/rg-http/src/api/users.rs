@@ -261,6 +261,16 @@ pub struct CreateTokenRequest {
     pub expires_at: Option<String>,
 }
 
+#[derive(serde::Serialize, ToSchema)]
+pub struct AccessTokenResponse {
+    pub id: i64,
+    pub name: String,
+    pub scopes: String,
+    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub last_used_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
 fn generate_token() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let nanos = SystemTime::now()
@@ -311,7 +321,21 @@ pub async fn list_tokens(State(state): State<AppState>, headers: HeaderMap) -> i
     };
 
     match rg_db::ops::token_ops::list_by_user(&state.db, user_id).await {
-        Ok(tokens) => (StatusCode::OK, Json(serde_json::json!(tokens))).into_response(),
+        Ok(tokens) => {
+            let tokens: Vec<AccessTokenResponse> = tokens
+                .into_iter()
+                .map(|token| AccessTokenResponse {
+                    id: token.id,
+                    name: token.name,
+                    scopes: token.scopes,
+                    expires_at: token.expires_at,
+                    last_used_at: token.last_used_at,
+                    created_at: token.created_at,
+                })
+                .collect();
+
+            (StatusCode::OK, Json(tokens)).into_response()
+        }
         Err(e) => AppError::InternalError(e.to_string()).into_response(),
     }
 }

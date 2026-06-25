@@ -4,31 +4,12 @@
   import RepoHeader from '$lib/components/RepoHeader.svelte';
   import { packages } from '$lib/api/client.svelte';
   import { createT } from '$lib/i18n';
+  import { PACKAGE_FORMATS, packageFormatLabel } from '$lib/packageFormats';
 
   const t = createT();
 
   let owner = $derived($page.params.owner!);
   let repo = $derived($page.params.repo!);
-
-  const formats = [
-    'cargo',
-    'npm',
-    'pypi',
-    'maven',
-    'docker',
-    'nuget',
-    'rubygems',
-    'go',
-    'helm',
-    'composer',
-    'conan',
-    'conda',
-    'alpine',
-    'debian',
-    'rpm',
-    'swift',
-    'generic',
-  ];
 
   let format = $state('cargo');
   let packageFile = $state<File | null>(null);
@@ -111,8 +92,8 @@
     <div class="form-group">
       <label for="format">{t('packages.format')}</label>
       <select id="format" bind:value={format} class="select">
-        {#each formats as f}
-          <option value={f}>{f}</option>
+        {#each PACKAGE_FORMATS as f}
+          <option value={f}>{packageFormatLabel(f)}</option>
         {/each}
       </select>
     </div>

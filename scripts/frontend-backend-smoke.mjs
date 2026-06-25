@@ -121,7 +121,11 @@ console.log(`frontend: ${FRONTEND_URL}`);
 console.log(`api: ${API_BASE}`);
 
 const health = await requestJson('GET /health', `${BACKEND_URL}/health`);
-if (health.ok && health.body && health.body.status !== 'healthy') {
+if (
+  health.ok &&
+  health.body &&
+  !['healthy', 'ok'].includes(String(health.body.status || ''))
+) {
   checks.push(`❌ /health: status=${health.body.status}`);
   failed += 1;
 } else if (health.ok) {

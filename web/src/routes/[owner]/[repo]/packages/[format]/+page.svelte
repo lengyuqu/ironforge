@@ -3,6 +3,7 @@
   import RepoHeader from '$lib/components/RepoHeader.svelte';
   import { packages } from '$lib/api/client.svelte';
   import { createT, formatDate } from '$lib/i18n';
+  import { packageFormatLabel } from '$lib/packageFormats';
 
   const t = createT();
 
@@ -15,26 +16,6 @@
   let error = $state('');
   let currentPage = $state(1);
   let totalPages = $state(1);
-
-  const formatLabels: Record<string, string> = {
-    cargo: 'Cargo',
-    npm: 'npm',
-    pypi: 'PyPI',
-    maven: 'Maven',
-    docker: 'Docker',
-    nuget: 'NuGet',
-    rubygems: 'RubyGems',
-    go: 'Go',
-    helm: 'Helm',
-    composer: 'Composer',
-    conan: 'Conan',
-    conda: 'Conda',
-    alpine: 'Alpine',
-    debian: 'Debian',
-    rpm: 'RPM',
-    swift: 'Swift',
-    generic: 'Generic',
-  };
 
   $effect(() => {
     loadPackages();
@@ -78,14 +59,14 @@
 </script>
 
 <svelte:head>
-  <title>{formatLabels[format!] || format} · {owner}/{repo} · IronForge</title>
+  <title>{packageFormatLabel(format!)} · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
 <div class="page-container">
   <RepoHeader owner={owner!} repo={repo!} activeTab="packages" />
 
   <div class="page-header">
-    <h1>{t('packages.title')} — {formatLabels[format!] || format}</h1>
+    <h1>{t('packages.title')} — {packageFormatLabel(format!)}</h1>
   </div>
 
   {#if error}

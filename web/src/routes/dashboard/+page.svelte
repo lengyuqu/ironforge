@@ -82,9 +82,10 @@
         readme: autoInit && !selectedGitignore && !selectedLicense ? selectedReadme : autoInit ? selectedReadme : undefined,
         issue_labels: autoInit ? selectedLabels : undefined,
       });
+      const createdName = newName;
       showCreate = false;
       resetForm();
-      await loadRepos();
+      await goto(`/${owner}/${createdName}`);
     } catch (e: any) {
       error = e.message;
     }
@@ -107,6 +108,10 @@
     resetForm();
   }
 </script>
+
+<svelte:head>
+  <title>{t('dashboard.title')} · IronForge</title>
+</svelte:head>
 
 <div class="dashboard">
   <div class="dashboard-header">
@@ -226,7 +231,7 @@
   {:else}
     <div class="repo-list">
       {#each repoList as repo}
-        <a href="/{owner}/{repo.name}" class="repo-item">
+        <a href={`/${owner}/${repo.name}`} class="repo-item">
           <div class="repo-icon">
             {repo.is_private ? '🔒' : '📂'}
           </div>

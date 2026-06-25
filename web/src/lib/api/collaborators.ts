@@ -8,6 +8,11 @@ export const collaborators = {
       method: 'POST',
       body: JSON.stringify({ user_id: userId, permission }),
     }),
+  updatePermission: (owner: string, repo: string, id: number, permission: string) =>
+    request<any>(`/repos/${owner}/${repo}/collaborators/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ permission }),
+    }),
   remove: (owner: string, repo: string, userId: number) =>
-    request(`/repos/${owner}/${repo}/collaborators/${userId}/remove`, { method: 'POST' }),
+    request<void>(`/repos/${owner}/${repo}/collaborators/${userId}`, { method: 'DELETE' }),
 };

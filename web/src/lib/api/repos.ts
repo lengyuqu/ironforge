@@ -1,5 +1,22 @@
 import { request, qs, type PaginatedResponse } from './_base';
 
+type BranchRefResponse = string | { name: string; is_default?: boolean };
+type TagRefResponse = string | { name: string };
+
+function encodeRepoPath(path: string): string {
+  return path.split('/').map(encodeURIComponent).join('/');
+}
+
+function normalizeBranchRef(branch: BranchRefResponse): { name: string; is_default: boolean } {
+  if (typeof branch === 'string') return { name: branch, is_default: false };
+  return { name: branch.name, is_default: Boolean(branch.is_default) };
+}
+
+function normalizeTagRef(tag: TagRefResponse): { name: string } {
+  if (typeof tag === 'string') return { name: tag };
+  return { name: tag.name };
+}
+
 export const repos = {
   list: (owner: string, page?: number, perPage?: number) =>
     request<PaginatedResponse<{ id: number; name: string; description: string | null; is_private: boolean; created_at: string }>>(
@@ -15,18 +32,23 @@ export const repos = {
   tree: (owner: string, repo: string, ref?: string, path?: string) =>
     request<{ entries: { name: string; kind: string; size?: number }[] }>(`/repos/${owner}/${repo}/tree${qs({ ref, path })}`),
   blob: (owner: string, repo: string, path: string, ref?: string) =>
-    request<{ content: string; size: number; name: string }>(`/repos/${owner}/${repo}/blob/${path}${qs({ ref })}`),
+    request<{ path: string; content: string; size: number; name: string; sha: string; encoding: string; is_binary: boolean }>(`/repos/${owner}/${repo}/blob/${encodeRepoPath(path)}${qs({ ref })}`),
   saveContent: (owner: string, repo: string, path: string, data: { branch?: string; content: string; message: string; sha?: string }) =>
-    request<{ success: boolean; file_path: string; commit_sha: string }>(`/repos/${owner}/${repo}/contents/${path}`, {
+    request<{ success: boolean; file_path: string; commit_sha: string }>(`/repos/${owner}/${repo}/contents/${encodeRepoPath(path)}`, {
       method: 'POST',
       body: JSON.stringify(data),
     }),
+  deleteContent: (owner: string, repo: string, path: string, data: { branch?: string; message: string; sha: string }) =>
+    request<{ success: boolean; file_path: string; commit_sha: string; message: string }>(
+      `/repos/${owner}/${repo}/contents/${encodeRepoPath(path)}${qs({ branch: data.branch, message: data.message, sha: data.sha })}`,
+      { method: 'DELETE' }
+    ),
   log: (owner: string, repo: string, ref?: string, path?: string) =>
     request<{ commits: { sha: string; message: string; author: string; date: string }[] }>(`/repos/${owner}/${repo}/log${qs({ ref, path })}`),
   branches: (owner: string, repo: string) =>
-    request<{ name: string; is_default: boolean }[]>(`/repos/${owner}/${repo}/branches`),
+    request<BranchRefResponse[]>(`/repos/${owner}/${repo}/branches`).then((branches) => branches.map(normalizeBranchRef)),
   tags: (owner: string, repo: string) =>
-    request<{ name: string }[]>(`/repos/${owner}/${repo}/tags`),
+    request<TagRefResponse[]>(`/repos/${owner}/${repo}/tags`).then((tags) => tags.map(normalizeTagRef)),
   commitSignature: (owner: string, repo: string, sha: string) =>
     request<{ verified: boolean; signer_key: string | null; signer_name: string | null; signer_email: string | null; status: string }>(`/repos/${owner}/${repo}/commits/${sha}/signature`),
   star: (owner: string, repo: string) =>

@@ -390,7 +390,7 @@ let response = await requestWithTimeout(OPENAPI_URL, {
 });
 
 const openapiStatus = response.response?.status ?? 0;
-if (response.ok && response.response) {
+if (response.ok && response.response?.ok) {
   checks.push(`❌ /api-docs/openapi.json 未启用鉴权即可访问（HTTP ${openapiStatus}）`);
   if (OPENAPI_REQUIRE_AUTH) {
     process.exit(1);
@@ -398,7 +398,7 @@ if (response.ok && response.response) {
   checks.push('ℹ️ 未开启文档鉴权，继续使用匿名状态复测');
 }
 
-const unauthorized = !response.ok && response.response?.status === 401;
+const unauthorized = response.ok && response.response?.status === 401;
 if (unauthorized) {
   checks.push('✅ /api-docs/openapi.json 返回 401，符合文档鉴权预期');
   checks.push('⚠️ 尝试自动生成鉴权 Token 继续重试');
@@ -424,16 +424,13 @@ if (!response.response.ok) {
 }
 
 const uiUnauthResp = await requestWithTimeout(`${BACKEND_URL}/api-docs/`, { method: 'GET' });
+const uiUnauthStatus = uiUnauthResp.response?.status ?? 0;
 if (OPENAPI_REQUIRE_AUTH) {
-  if (!uiUnauthResp.ok && uiUnauthResp.response?.status !== 401) {
-    console.log(`❌ /api-docs/ 鉴权行为异常: HTTP ${uiUnauthResp.response?.status || 'network error'}`);
+  if (!uiUnauthResp.ok || uiUnauthStatus !== 401) {
+    console.log(`❌ /api-docs/ 鉴权行为异常: HTTP ${uiUnauthStatus || 'network error'}`);
     process.exit(1);
   }
-  if (uiUnauthResp.ok) {
-    checks.push('⚠️ /api-docs/ 未启用鉴权限制；请确认是否故意公开');
-  } else {
-    checks.push('✅ /api-docs/ 返回 401，符合鉴权预期');
-  }
+  checks.push('✅ /api-docs/ 返回 401，符合鉴权预期');
 } else if (uiUnauthResp.ok && uiUnauthResp.response) {
   checks.push(`ℹ️ /api-docs/ 可直接访问（HTTP ${uiUnauthResp.response.status}）`);
 }

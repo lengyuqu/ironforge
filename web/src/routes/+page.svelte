@@ -67,7 +67,7 @@
     {:else}
       <div class="repo-grid">
         {#each repoList as repo}
-          <a href="/{repo.owner_name || 'unknown'}/{repo.name}" class="repo-card">
+          <a href={`/${repo.owner_name || 'unknown'}/${repo.name}`} class="repo-card">
             <div class="rc-icon">{repo.is_private ? '🔒' : '📂'}</div>
             <div class="rc-body">
               <div class="rc-name">{repo.owner_name || 'unknown'}/{repo.name}</div>
@@ -196,7 +196,7 @@
         {:else}
           <div class="repo-list">
             {#each repoList as repo}
-              <a href="/{repo.owner_name || 'unknown'}/{repo.name}" class="repo-item">
+              <a href={`/${repo.owner_name || 'unknown'}/${repo.name}`} class="repo-item">
                 <div class="repo-icon">{repo.is_private ? '🔒' : '📂'}</div>
                 <div class="repo-info">
                   <div class="repo-name">

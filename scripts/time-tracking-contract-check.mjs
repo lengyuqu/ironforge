@@ -7,10 +7,16 @@ const root = process.cwd();
 const clientPath = path.join(root, 'web/src/lib/api/client.svelte.ts');
 const pagePath = path.join(root, 'web/src/routes/[owner]/[repo]/time_tracking/+page.svelte');
 const backendPath = path.join(root, 'crates/rg-http/src/api/time_tracking.rs');
+const repoHeaderPath = path.join(root, 'web/src/lib/components/RepoHeader.svelte');
+const enTranslationsPath = path.join(root, 'web/src/lib/i18n/translations/en.json');
+const zhTranslationsPath = path.join(root, 'web/src/lib/i18n/translations/zh-CN.json');
 
 const client = readFileSync(clientPath, 'utf8');
 const page = readFileSync(pagePath, 'utf8');
 const backend = readFileSync(backendPath, 'utf8');
+const repoHeader = readFileSync(repoHeaderPath, 'utf8');
+const enTranslations = JSON.parse(readFileSync(enTranslationsPath, 'utf8'));
+const zhTranslations = JSON.parse(readFileSync(zhTranslationsPath, 'utf8'));
 
 const failures = [];
 
@@ -50,6 +56,22 @@ if (!/href=\{`\/\$\{owner\}\/\$\{repo\}\/issues\/\$\{selectedIssue\.number\}`\}/
 
 if (/href="\/\{owner\}\/\{repo\}\/issues\/\{selectedIssue\.number\}"/.test(page)) {
   failures.push('Time tracking selected issue link still uses literal Svelte braces');
+}
+
+if (!/\{\s*id:\s*'time_tracking'[\s\S]*label:\s*t\('repo\.tabs\.time_tracking'\)/.test(repoHeader)) {
+  failures.push('Repo header must expose a time-tracking tab for the implemented page/API flow');
+}
+
+if (!repoHeader.includes("activeTab === tab.id")) {
+  failures.push('Repo header tabs must continue using activeTab ids so time_tracking can be highlighted');
+}
+
+if (enTranslations?.repo?.tabs?.time_tracking !== 'Time') {
+  failures.push('English repo tab translations must include repo.tabs.time_tracking');
+}
+
+if (zhTranslations?.repo?.tabs?.time_tracking !== '工时') {
+  failures.push('Chinese repo tab translations must include repo.tabs.time_tracking');
 }
 
 if (failures.length > 0) {

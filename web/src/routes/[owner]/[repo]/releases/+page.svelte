@@ -17,12 +17,21 @@
   let deletingId = $state<number | null>(null);
   let confirmDeleteId = $state<number | null>(null);
   let releaseAssets = $state<Record<number, any[]>>({});
+  let downloadingAssetId = $state<number | null>(null);
 
   function buildBrowseLink(tag: string) {
     const params = new URLSearchParams();
     if (tag) params.set('ref', tag);
     const qs = params.toString();
     return `/${owner}/${repo}${qs ? `?${qs}` : ''}`;
+  }
+
+  function buildNewReleaseLink() {
+    return `/${owner}/${repo}/releases/new`;
+  }
+
+  function buildEditReleaseLink(id: number) {
+    return `/${owner}/${repo}/releases/edit/${id}`;
   }
 
   $effect(() => {
@@ -72,6 +81,17 @@
     }
   }
 
+  async function handleAssetDownload(asset: any) {
+    try {
+      downloadingAssetId = asset.id;
+      await releases.downloadAsset(owner!, repo!, asset.id, asset.filename);
+    } catch (e: any) {
+      error = e.message;
+    } finally {
+      downloadingAssetId = null;
+    }
+  }
+
   function showConfirm(id: number) {
     confirmDeleteId = id;
   }
@@ -112,7 +132,7 @@
 
   <div class="page-header">
     <h1>{t('releases.title')}</h1>
-    <a href="/{owner}/{repo}/releases/new" class="btn-primary">{t('releases.new')}</a>
+    <a href={buildNewReleaseLink()} class="btn-primary">{t('releases.new')}</a>
   </div>
 
   {#if error}
@@ -124,7 +144,7 @@
   {:else if releaseList.length === 0}
     <div class="empty">
       <p>{t('releases.no_releases')}</p>
-      <a href="/{owner}/{repo}/releases/new" class="btn-primary">{t('releases.new')}</a>
+      <a href={buildNewReleaseLink()} class="btn-primary">{t('releases.new')}</a>
     </div>
   {:else}
     <div class="release-list">
@@ -158,17 +178,22 @@
           {#if releaseAssets[release.id]?.length}
             <div class="asset-list" aria-label="Release assets">
               {#each releaseAssets[release.id] as asset}
-                <a class="asset-link" href={releases.assetDownloadUrl(owner!, repo!, asset.id)}>
+                <button
+                  type="button"
+                  class="asset-link"
+                  onclick={() => handleAssetDownload(asset)}
+                  disabled={downloadingAssetId === asset.id}
+                >
                   <span class="asset-name">{asset.filename}</span>
                   <span class="asset-meta">{formatBytes(asset.size)} · {asset.download_count || 0} downloads</span>
-                </a>
+                </button>
               {/each}
             </div>
           {/if}
 
           <div class="release-actions">
             <a href={buildBrowseLink(release.tag_name)} class="action-link">{t('releases.browse_files')}</a>
-            <a href="/{owner}/{repo}/releases/edit/{release.id}" class="action-link">{t('releases.edit')}</a>
+            <a href={buildEditReleaseLink(release.id)} class="action-link">{t('releases.edit')}</a>
 
             {#if confirmDeleteId === release.id}
               <div class="delete-confirm">
@@ -380,14 +405,25 @@
     align-items: center;
     justify-content: space-between;
     gap: 16px;
+    width: 100%;
+    padding: 0;
+    border: 0;
+    background: none;
     color: var(--text-primary);
     text-decoration: none;
     font-size: 13px;
+    cursor: pointer;
+    text-align: left;
   }
 
   .asset-link:hover .asset-name {
     color: var(--accent);
     text-decoration: underline;
+  }
+
+  .asset-link:disabled {
+    cursor: wait;
+    opacity: 0.65;
   }
 
   .asset-name {

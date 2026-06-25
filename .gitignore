@@ -44,3 +44,4 @@ web/.svelte-kit/
 web/build/
 web/dist/
 deploy/docker-compose.override.yml
+.playwright-cli/

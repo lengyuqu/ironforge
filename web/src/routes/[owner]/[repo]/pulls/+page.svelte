@@ -147,7 +147,7 @@
   {:else}
     <div class="pr-list gh-list">
       {#each prList as pr}
-        <a href="/{owner}/{repo}/pulls/{pr.number}" class="pr-item gh-list-item">
+        <a href={`/${owner}/${repo}/pulls/${pr.number}`} class="pr-item gh-list-item">
           <span class="pr-icon">
             {pr.state === 'merged' ? '⊛' : pr.state === 'closed' ? '✓' : '⑂'}
           </span>

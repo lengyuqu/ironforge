@@ -3,6 +3,7 @@
   import RepoHeader from '$lib/components/RepoHeader.svelte';
   import { packages } from '$lib/api/client.svelte';
   import { createT, formatDate } from '$lib/i18n';
+  import { packageFormatLabel } from '$lib/packageFormats';
 
   const t = createT();
 
@@ -11,32 +12,23 @@
   let format = $derived($page.params.format!);
   let name = $derived($page.params.name!);
 
+  type PackageFile = {
+    filename: string;
+    size?: number;
+    sha256?: string | null;
+  };
+
+  type PackageVersion = {
+    version: string;
+    files?: PackageFile[];
+  };
+
   let packageInfo = $state<any>(null);
-  let versions = $state<string[]>([]);
+  let versions = $state<PackageVersion[]>([]);
   let loading = $state(true);
   let error = $state('');
   let deletingVersion = $state<string | null>(null);
   let confirmDelete = $state<string | null>(null);
-
-  const formatLabels: Record<string, string> = {
-    cargo: 'Cargo',
-    npm: 'npm',
-    pypi: 'PyPI',
-    maven: 'Maven',
-    docker: 'Docker',
-    nuget: 'NuGet',
-    rubygems: 'RubyGems',
-    go: 'Go',
-    helm: 'Helm',
-    composer: 'Composer',
-    conan: 'Conan',
-    conda: 'Conda',
-    alpine: 'Alpine',
-    debian: 'Debian',
-    rpm: 'RPM',
-    swift: 'Swift',
-    generic: 'Generic',
-  };
 
   $effect(() => {
     loadPackage();
@@ -96,10 +88,26 @@
   function copyInstall(ver: string) {
     navigator.clipboard.writeText(getInstallCommand(ver));
   }
+
+  function formatSize(size?: number): string {
+    if (!Number.isFinite(size)) return '';
+    const units = ['B', 'KB', 'MB', 'GB'];
+    let value = Number(size);
+    let unit = 0;
+    while (value >= 1024 && unit < units.length - 1) {
+      value /= 1024;
+      unit += 1;
+    }
+    return `${value >= 10 || unit === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[unit]}`;
+  }
+
+  function packageDownloadUrl(ver: string, filename: string): string {
+    return packages.downloadUrl(owner!, repo!, format!, name!, ver, filename);
+  }
 </script>
 
 <svelte:head>
-  <title>{name} · {formatLabels[format!] || format} · {owner}/{repo} · IronForge</title>
+  <title>{name} · {packageFormatLabel(format!)} · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
 <div class="page-container">
@@ -137,24 +145,37 @@
       <!-- Version list -->
       <div class="versions-section">
         <h2>{t('packages.version') || 'Versions'}</h2>
-        {#each versions as ver}
+        {#each versions as version}
           <div class="version-card">
             <div class="version-header">
-              <span class="version-name">v{ver}</span>
+              <span class="version-name">v{version.version}</span>
               <div class="version-actions">
-                <button class="copy-btn" onclick={() => copyInstall(ver)}>
+                <button class="copy-btn" onclick={() => copyInstall(version.version)}>
                   {t('common.copy') || 'Copy'} {t('packages.install') || 'Install'}
                 </button>
-                <button class="danger-btn" onclick={() => { deletingVersion = ver; confirmDelete = ver; }}>
+                <button class="danger-btn" onclick={() => { deletingVersion = version.version; confirmDelete = version.version; }}>
                   {t('common.delete')}
                 </button>
               </div>
             </div>
 
-            {#if confirmDelete === ver}
+            {#if version.files && version.files.length > 0}
+              <div class="version-files">
+                {#each version.files as file}
+                  <a class="file-link" href={packageDownloadUrl(version.version, file.filename)}>
+                    <span>{file.filename}</span>
+                    {#if file.size !== undefined}
+                      <span class="file-size">{formatSize(file.size)}</span>
+                    {/if}
+                  </a>
+                {/each}
+              </div>
+            {/if}
+
+            {#if confirmDelete === version.version}
               <div class="delete-confirm">
-                <span>{t('packages.delete_confirm', { name: packageInfo.name, version: ver }) || `Delete ${packageInfo.name} ${ver}?`}</span>
-                <button class="danger-btn" onclick={() => handleDeleteVersion(ver)}>
+                <span>{t('packages.delete_confirm', { name: packageInfo.name, version: version.version }) || `Delete ${packageInfo.name} ${version.version}?`}</span>
+                <button class="danger-btn" onclick={() => handleDeleteVersion(version.version)}>
                   {t('common.delete')}
                 </button>
                 <button class="secondary-btn" onclick={() => { confirmDelete = null; deletingVersion = null; }}>
@@ -258,6 +279,36 @@
   .version-actions {
     display: flex;
     gap: 8px;
+  }
+
+  .version-files {
+    margin-top: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .file-link {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 10px;
+    color: var(--text-primary);
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    text-decoration: none;
+    font-size: 13px;
+  }
+
+  .file-link:hover {
+    background: var(--bg-hover);
+  }
+
+  .file-size {
+    flex-shrink: 0;
+    color: var(--text-muted);
   }
 
   .copy-btn {

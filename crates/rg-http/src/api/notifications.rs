@@ -128,8 +128,19 @@ pub async fn unread_count(State(state): State<AppState>, headers: HeaderMap) -> 
         (status = 401, description = "Unauthorized", body = serde_json::Value),
     ),
 )]
-pub async fn mark_read(State(state): State<AppState>, Path(id): Path<i64>) -> impl IntoResponse {
-    match rg_core::notification::mark_read(&state.db, id).await {
+pub async fn mark_read(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+) -> impl IntoResponse {
+    let user_id = match super::auth::extract_user_id(&headers, &state.jwt_secret) {
+        Some(id) => id,
+        None => {
+            return AppError::unauthorized("authentication required").into_response();
+        }
+    };
+
+    match rg_core::notification::mark_read_for_user(&state.db, id, user_id).await {
         Ok(()) => Json(serde_json::json!({"id": id, "is_read": true})).into_response(),
         Err(e) => AppError::not_found(e.to_string()).into_response(),
     }
@@ -176,9 +187,17 @@ pub async fn mark_all_read(State(state): State<AppState>, headers: HeaderMap) ->
 )]
 pub async fn delete_notification(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(id): Path<i64>,
 ) -> impl IntoResponse {
-    match rg_core::notification::delete_notification(&state.db, id).await {
+    let user_id = match super::auth::extract_user_id(&headers, &state.jwt_secret) {
+        Some(id) => id,
+        None => {
+            return AppError::unauthorized("authentication required").into_response();
+        }
+    };
+
+    match rg_core::notification::delete_notification_for_user(&state.db, id, user_id).await {
         Ok(()) => Json(serde_json::json!({"deleted": true})).into_response(),
         Err(e) => AppError::not_found(e.to_string()).into_response(),
     }

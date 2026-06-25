@@ -1,4 +1,4 @@
-import { API_BASE, request, qs, type PaginatedResponse } from './_base';
+import { API_BASE, downloadApiFile, request, qs, type PaginatedResponse } from './_base';
 
 export interface ReleaseAsset {
   id: number;
@@ -9,6 +9,10 @@ export interface ReleaseAsset {
   download_count: number;
   uploader_id: number;
   created_at: string;
+}
+
+function contentDispositionAttachment(filename: string): string {
+  return `attachment; filename*=UTF-8''${encodeURIComponent(filename || 'asset')}`;
 }
 
 export const releases = {
@@ -29,14 +33,19 @@ export const releases = {
       method: 'POST',
       headers: {
         'Content-Type': file.type || 'application/octet-stream',
-        'x-asset-filename': file.name,
+        'Content-Disposition': contentDispositionAttachment(file.name || 'asset'),
       },
       body: file,
     }),
   getAsset: (owner: string, repo: string, assetId: number) =>
     request<ReleaseAsset>(`/repos/${owner}/${repo}/releases/assets/${assetId}`),
   assetDownloadUrl: (owner: string, repo: string, assetId: number) =>
-    `${API_BASE}/repos/${owner}/${repo}/releases/assets/${assetId}/download`,
+    `${API_BASE}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/releases/assets/${assetId}/download`,
+  downloadAsset: (owner: string, repo: string, assetId: number, filename: string) =>
+    downloadApiFile(
+      `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/releases/assets/${assetId}/download`,
+      filename || 'asset'
+    ),
   deleteAsset: (owner: string, repo: string, assetId: number) =>
     request<void>(`/repos/${owner}/${repo}/releases/assets/${assetId}`, { method: 'DELETE' }),
 };

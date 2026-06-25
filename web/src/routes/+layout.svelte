@@ -9,6 +9,7 @@ import { locale } from '$lib/i18n';
 import { onMount } from 'svelte';
 import type { Snippet } from 'svelte';
 import { setBanner } from '$lib/stores/instance.svelte';
+import { withBackendBase } from '$lib/api/_base';
 
   interface Props {
     children: Snippet;
@@ -29,13 +30,13 @@ import { setBanner } from '$lib/stores/instance.svelte';
 
   async function checkBackendReadiness() {
     try {
-      const res = await fetch('/health', { cache: 'no-store' });
+      const res = await fetch(withBackendBase('/health'), { cache: 'no-store' });
       if (!res.ok) {
         setBanner(`后端健康检查失败（HTTP ${res.status}）`, 'error');
         return;
       }
       const body = await res.json().catch(() => null);
-      if (!body || body.status !== 'healthy') {
+      if (!body || !['healthy', 'ok'].includes(String(body.status || ''))) {
         setBanner('后端状态异常，部分接口可能不可用', 'warning');
         return;
       }

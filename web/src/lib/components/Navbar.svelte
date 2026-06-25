@@ -73,6 +73,7 @@
       {#if isLoggedIn()}
         <a href="/notifications" class="nav-link">{t('nav.notifications')}</a>
         <a href="/orgs" class="nav-link">{t('nav.organizations')}</a>
+        <a href="/imports" class="nav-link">{t('nav.imports', 'Imports')}</a>
 
         <div class="lang-menu-container">
           <Dropdown ariaLabel={t('nav.change_language', 'Change language')} triggerClass="lang-btn">
@@ -101,6 +102,9 @@
               <a href="/dashboard" onclick={close} role="menuitem">{t('nav.dashboard')}</a>
               <a href="/notifications" onclick={close} role="menuitem">{t('nav.notifications')}</a>
               <a href="/orgs" onclick={close} role="menuitem">{t('nav.organizations')}</a>
+              <a href="/imports" onclick={close} role="menuitem">{t('nav.imports', 'Imports')}</a>
+              <a href="/settings/security" onclick={close} role="menuitem">{t('nav.security', 'Security')}</a>
+              <a href="/settings/tokens" onclick={close} role="menuitem">{t('nav.access_tokens', 'Access tokens')}</a>
               {#if isAdmin()}
                 <a href="/admin" class="admin-link" onclick={close} role="menuitem">{t('nav.admin_panel')}</a>
               {/if}

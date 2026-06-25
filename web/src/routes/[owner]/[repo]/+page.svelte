@@ -4,6 +4,7 @@
   import { goto } from '$app/navigation';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
   import Dropdown from '$lib/components/Dropdown.svelte';
+  import { withBackendBase } from '$lib/api/_base';
   import { repos } from '$lib/api/client.svelte';
   import { createT, formatDate } from '$lib/i18n';
 
@@ -25,7 +26,7 @@
   let error = $state('');
 
   // Clone URLs for empty-repo setup
-  let httpCloneUrl = $derived(browser ? `${location.protocol}//${location.host}/git/${owner}/${repo}.git` : '');
+  let httpCloneUrl = $derived(withBackendBase(`/git/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`));
   let sshCloneUrl = $derived(browser ? `git@${location.hostname}:${owner}/${repo}.git` : '');
   let httpCopied = $state(false);
   let sshCopied = $state(false);
@@ -61,8 +62,12 @@
     return `/${owner}/${repo}/commits/${sha}${buildRepoQuery(ref, '')}`;
   }
 
+  function encodeRepoPath(pathValue: string): string {
+    return pathValue.split('/').map(encodeURIComponent).join('/');
+  }
+
   function buildBlobHref(filePath: string) {
-    return `/${owner}/${repo}/blob/${filePath}${buildRepoQuery(ref, '')}`;
+    return `/${owner}/${repo}/blob/${encodeRepoPath(filePath)}${buildRepoQuery(ref, '')}`;
   }
 
   $effect(() => {
@@ -242,7 +247,7 @@ git push -u origin {repoInfo?.default_branch || 'main'}</code></pre>
       </div>
 
       <div class="toolbar-actions">
-        <a href="/{owner}/{repo}/new" class="btn-outline btn-sm">
+        <a href={`/${owner}/${repo}/new`} class="btn-outline btn-sm">
           ➕ {t('repo.new_file') || 'New file'}
         </a>
       </div>

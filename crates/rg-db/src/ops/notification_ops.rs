@@ -94,6 +94,29 @@ pub async fn mark_notification_read(db: &DatabaseConnection, id: i64) -> Result<
     Ok(())
 }
 
+/// Mark a notification as read for its owning user.
+pub async fn mark_notification_read_for_user(
+    db: &DatabaseConnection,
+    id: i64,
+    user_id: i64,
+) -> Result<()> {
+    let model = notification::Entity::find()
+        .filter(notification::Column::Id.eq(id))
+        .filter(notification::Column::UserId.eq(user_id))
+        .one(db)
+        .await
+        .context("db: find notification for user")?
+        .ok_or_else(|| anyhow::anyhow!("notification {} not found", id))?;
+
+    let mut active: notification::ActiveModel = model.into();
+    active.is_read = Set(true);
+    active
+        .update(db)
+        .await
+        .context("db: mark notification read")?;
+    Ok(())
+}
+
 /// Mark all notifications as read for a user.
 pub async fn mark_all_read(db: &DatabaseConnection, user_id: i64) -> Result<u64> {
     // Find all unread notifications for this user, then update each one
@@ -136,6 +159,24 @@ pub async fn delete_notification(db: &DatabaseConnection, id: i64) -> Result<()>
         .one(db)
         .await
         .context("db: find notification for delete")?
+        .ok_or_else(|| anyhow::anyhow!("notification {} not found", id))?;
+
+    model.delete(db).await.context("db: delete notification")?;
+    Ok(())
+}
+
+/// Delete a notification for its owning user.
+pub async fn delete_notification_for_user(
+    db: &DatabaseConnection,
+    id: i64,
+    user_id: i64,
+) -> Result<()> {
+    let model = notification::Entity::find()
+        .filter(notification::Column::Id.eq(id))
+        .filter(notification::Column::UserId.eq(user_id))
+        .one(db)
+        .await
+        .context("db: find notification for user delete")?
         .ok_or_else(|| anyhow::anyhow!("notification {} not found", id))?;
 
     model.delete(db).await.context("db: delete notification")?;

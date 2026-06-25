@@ -132,7 +132,7 @@ pub async fn create_release(
         Ok(id) => id,
 
         Err(_) => {
-            return AppError::Unauthorized("invalid token subject".to_string()).into_response()
+            return AppError::Unauthorized("invalid token subject".to_string()).into_response();
         }
     };
 
@@ -257,7 +257,7 @@ pub async fn update_release(
         Ok(id) => id,
 
         Err(_) => {
-            return AppError::Unauthorized("invalid token subject".to_string()).into_response()
+            return AppError::Unauthorized("invalid token subject".to_string()).into_response();
         }
     };
 
@@ -319,7 +319,7 @@ pub async fn delete_release(
         Ok(id) => id,
 
         Err(_) => {
-            return AppError::Unauthorized("invalid token subject".to_string()).into_response()
+            return AppError::Unauthorized("invalid token subject".to_string()).into_response();
         }
     };
 
@@ -386,6 +386,7 @@ pub async fn list_assets(
 ///
 /// Upload a release asset. The request body is the raw file content.
 /// Required headers:
+///   - `Content-Disposition`: `attachment; filename*=UTF-8''...`
 ///   - `Content-Type`: MIME type of the file (used as asset content_type)
 #[utoipa::path(
     post,
@@ -419,7 +420,7 @@ pub async fn upload_asset(
         Ok(id) => id,
 
         Err(_) => {
-            return AppError::Unauthorized("invalid token subject".to_string()).into_response()
+            return AppError::Unauthorized("invalid token subject".to_string()).into_response();
         }
     };
 
@@ -434,17 +435,21 @@ pub async fn upload_asset(
         }
     }
 
-    // Extract filename from query param or Content-Disposition header
     let filename = headers
-        .get("x-asset-filename")
+        .get(header::CONTENT_DISPOSITION)
         .and_then(|v| v.to_str().ok())
-        .map(String::from);
+        .and_then(parse_filename_from_disposition)
+        .or_else(|| {
+            headers
+                .get("x-asset-filename")
+                .and_then(|v| v.to_str().ok())
+                .map(String::from)
+        });
 
     let filename = match filename {
         Some(f) if !f.is_empty() => f,
         _ => {
-            return AppError::bad_request("missing required header: x-asset-filename")
-                .into_response();
+            return AppError::bad_request("missing required asset filename").into_response();
         }
     };
 
@@ -481,6 +486,50 @@ pub async fn upload_asset(
     {
         Ok(asset) => (StatusCode::CREATED, Json(serde_json::json!(asset))).into_response(),
         Err(e) => AppError::bad_request(e).into_response(),
+    }
+}
+
+fn parse_filename_from_disposition(disposition: &str) -> Option<String> {
+    for part in disposition.split(';') {
+        let part = part.trim();
+        if let Some(val) = part.strip_prefix("filename*=") {
+            if let Some(idx) = val.find("''") {
+                let encoded = &val[idx + 2..];
+                if let Ok(decoded) = percent_decode(encoded) {
+                    return Some(decoded);
+                }
+            }
+        }
+        if let Some(val) = part.strip_prefix("filename=") {
+            return Some(val.trim_matches('"').to_string());
+        }
+    }
+    None
+}
+
+fn percent_decode(s: &str) -> Result<String, ()> {
+    let mut result = Vec::with_capacity(s.len());
+    let mut chars = s.bytes();
+    while let Some(b) = chars.next() {
+        if b == b'%' {
+            let hi = chars.next().ok_or(())?;
+            let lo = chars.next().ok_or(())?;
+            let hi = hex_val(hi)?;
+            let lo = hex_val(lo)?;
+            result.push((hi << 4) | lo);
+        } else {
+            result.push(b);
+        }
+    }
+    String::from_utf8(result).map_err(|_| ())
+}
+
+fn hex_val(b: u8) -> Result<u8, ()> {
+    match b {
+        b'0'..=b'9' => Ok(b - b'0'),
+        b'A'..=b'F' => Ok(b - b'A' + 10),
+        b'a'..=b'f' => Ok(b - b'a' + 10),
+        _ => Err(()),
     }
 }
 
@@ -539,13 +588,29 @@ pub async fn get_asset(
 )]
 pub async fn download_asset(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path((owner, name, asset_id)): Path<(String, String, i64)>,
 ) -> impl IntoResponse {
     // Verify repo exists
-    match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await {
-        Ok(Some(_)) => {}
+    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
+    {
+        Ok(Some(repo)) => repo,
         Ok(None) => {
             return AppError::not_found("repository not found").into_response();
+        }
+        Err(e) => {
+            return AppError::internal(e).into_response();
+        }
+    };
+
+    let actor_id = crate::api::auth::extract_user_id(&headers, &state.jwt_secret);
+    match rg_core::repo::service::can_read_repo(&state.db, &repo, actor_id).await {
+        Ok(true) => {}
+        Ok(false) if repo.is_private && actor_id.is_none() => {
+            return AppError::unauthorized("authentication required").into_response();
+        }
+        Ok(false) => {
+            return AppError::forbidden("access denied").into_response();
         }
         Err(e) => {
             return AppError::internal(e).into_response();
@@ -611,7 +676,7 @@ pub async fn delete_asset(
         Ok(id) => id,
 
         Err(_) => {
-            return AppError::Unauthorized("invalid token subject".to_string()).into_response()
+            return AppError::Unauthorized("invalid token subject".to_string()).into_response();
         }
     };
 

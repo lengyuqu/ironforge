@@ -880,7 +880,13 @@ async fn resolve_and_check_write_access(
     headers: &HeaderMap,
     owner: &str,
     repo: &str,
-) -> Result<rg_db::entities::repository::Model, AppError> {
+) -> Result<
+    (
+        rg_db::entities::repository::Model,
+        rg_db::entities::user::Model,
+    ),
+    AppError,
+> {
     let claims = extract_bearer_claims(headers, &state.jwt_secret)
         .ok_or_else(|| AppError::unauthorized("authentication required"))?;
 
@@ -905,7 +911,12 @@ async fn resolve_and_check_write_access(
         return Err(AppError::forbidden("write access denied"));
     }
 
-    Ok(repo_model)
+    let user = rg_db::ops::user_ops::find_by_id(&state.db, user_id)
+        .await
+        .map_err(AppError::internal)?
+        .ok_or_else(|| AppError::unauthorized("invalid token"))?;
+
+    Ok((repo_model, user))
 }
 
 // ── File creation/update/delete handlers ──────────────────────────
@@ -945,10 +956,11 @@ pub async fn create_or_update_file(
     }
 
     // Check write access
-    let repo_model = match resolve_and_check_write_access(&state, &headers, &owner, &repo).await {
-        Ok(r) => r,
-        Err(e) => return e.into_response(),
-    };
+    let (repo_model, user) =
+        match resolve_and_check_write_access(&state, &headers, &owner, &repo).await {
+            Ok(r) => r,
+            Err(e) => return e.into_response(),
+        };
 
     let branch = req.branch.unwrap_or(repo_model.default_branch.clone());
 
@@ -963,6 +975,8 @@ pub async fn create_or_update_file(
         &req.message,
         &branch,
         req.sha.as_deref(),
+        &user.username,
+        &user.email,
         &state.repo_root,
     )
     .await
@@ -1028,10 +1042,11 @@ pub async fn delete_file(
     }
 
     // Check write access
-    let repo_model = match resolve_and_check_write_access(&state, &headers, &owner, &repo).await {
-        Ok(r) => r,
-        Err(e) => return e.into_response(),
-    };
+    let (repo_model, user) =
+        match resolve_and_check_write_access(&state, &headers, &owner, &repo).await {
+            Ok(r) => r,
+            Err(e) => return e.into_response(),
+        };
 
     let branch = params.branch.unwrap_or(repo_model.default_branch.clone());
 
@@ -1045,6 +1060,8 @@ pub async fn delete_file(
         &params.message,
         &branch,
         &params.sha,
+        &user.username,
+        &user.email,
         &state.repo_root,
     )
     .await

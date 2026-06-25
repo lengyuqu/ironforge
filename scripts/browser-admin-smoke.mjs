@@ -26,6 +26,10 @@ const ADMIN_ROUTES = ['/admin', '/admin/users', '/admin/orgs', '/admin/audit', '
 const IGNORE_LOG = [
   /Failed to load resource.*\b(401|403)\b/,
   /the server responded with a status of (401|403)/,
+  // The unauthenticated guard smoke can run with only the Vite dev server.
+  // In that mode the app-level /health probe may produce Vite proxy 502 noise.
+  /Failed to load resource.*\b502\b/,
+  /the server responded with a status of 502 \(Bad Gateway\)/,
   /NotAllowedError: Failed to execute 'localStorage'|DOMException/,
   /net::ERR_FILE_NOT_FOUND/,
 ];
@@ -183,7 +187,14 @@ function createSession(tabId, wsUrl) {
 }
 
 async function openTab(url) {
-  const target = await (await fetch(`${cdpRoot}/json/new?${encodeURIComponent(url)}`)).json();
+  const res = await fetch(`${cdpRoot}/json/new?${encodeURIComponent(url)}`, { method: 'PUT' });
+  const text = await res.text();
+  let target;
+  try {
+    target = JSON.parse(text);
+  } catch {
+    throw new Error(`failed to open debug tab: Chrome returned ${res.status} ${text.slice(0, 120)}`);
+  }
   if (!target || !target.webSocketDebuggerUrl || !target.id) {
     throw new Error(`failed to open debug tab for ${url}`);
   }
@@ -191,13 +202,33 @@ async function openTab(url) {
   return { id: target.id, ...session };
 }
 
+async function currentPath(tab) {
+  const loc = await tab.send('Runtime.evaluate', {
+    expression: 'window.location.pathname',
+    returnByValue: true,
+  });
+  return normalizePath(loc?.result?.value || '');
+}
+
+async function waitForPath(tab, predicate) {
+  const deadline = Date.now() + WAIT_MS;
+  let path = await currentPath(tab);
+  while (Date.now() < deadline) {
+    if (predicate(path)) return path;
+    await sleep(100);
+    path = await currentPath(tab);
+  }
+  return path;
+}
+
 async function checkAdminRoute(route, hasToken) {
   const routeName = hasToken ? 'authenticated' : 'unauthenticated';
-  const tab = await openTab(FRONTEND_URL);
+  const tab = await openTab(`${FRONTEND_URL}/login`);
 
   try {
-    // Ensure origin is loaded first so localStorage is writeable.
-    await tab.send('Page.navigate', { url: FRONTEND_URL });
+    // Ensure origin is loaded first so localStorage is writeable without
+    // triggering unrelated logged-out dashboard API calls.
+    await tab.send('Page.navigate', { url: `${FRONTEND_URL}/login` });
     await tab.waitForLoad();
     await sleep(300);
 
@@ -211,15 +242,10 @@ async function checkAdminRoute(route, hasToken) {
 
     await tab.send('Page.navigate', { url: `${FRONTEND_URL}${route}` });
     await tab.waitForLoad();
-    await sleep(600);
-
-    const loc = await tab.send('Runtime.evaluate', {
-      expression: 'window.location.pathname',
-      returnByValue: true,
+    const pathNormalized = await waitForPath(tab, (path) => {
+      if (hasToken) return path === normalizePath(route);
+      return path === '/login' || path.startsWith('/login');
     });
-
-    const path = String(loc?.result?.value || '');
-    const pathNormalized = normalizePath(path);
 
     if (hasToken) {
       if (pathNormalized !== normalizePath(route)) {

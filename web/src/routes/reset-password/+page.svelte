@@ -10,6 +10,10 @@
   let success = $state(false);
   let localError = $state('');
 
+  const specialChars = /[!@#$%^&*()_+\-=[\]{}|;:,.<>?/~`'"\\]/;
+  const passwordPattern =
+    "(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[!@#$%^&*()_+\\-=\\[\\]{}|;:,.<>?/~`'\\\"\\\\])\\S{8,128}";
+
   onMount(() => {
     const params = new URLSearchParams(window.location.search);
     const t = params.get('token');
@@ -24,8 +28,10 @@
       localError = 'Passwords do not match';
       return;
     }
-    if (password.length < 8) {
-      localError = 'Password must be at least 8 characters';
+
+    const passwordError = validatePassword(password);
+    if (passwordError) {
+      localError = passwordError;
       return;
     }
 
@@ -39,6 +45,17 @@
     } finally {
       loading = false;
     }
+  }
+
+  function validatePassword(value: string): string {
+    if (value.length < 8) return 'Password must be at least 8 characters';
+    if (value.length > 128) return 'Password must be at most 128 characters';
+    if (/\s/.test(value)) return 'Password must not contain spaces';
+    if (!/[A-Z]/.test(value)) return 'Password must contain an uppercase letter';
+    if (!/[a-z]/.test(value)) return 'Password must contain a lowercase letter';
+    if (!/[0-9]/.test(value)) return 'Password must contain a number';
+    if (!specialChars.test(value)) return 'Password must contain a special character';
+    return '';
   }
 </script>
 
@@ -76,6 +93,8 @@
             bind:value={password}
             required
             minlength={8}
+            maxlength={128}
+            pattern={passwordPattern}
             placeholder="At least 8 characters"
             autocomplete="new-password"
           />

@@ -264,10 +264,10 @@ async fn search_repos(
         results.push(SearchResult {
             result_type: "repo".to_string(),
             id,
-            title,
+            title: title.clone(),
             excerpt,
             repo_owner: owner.clone(),
-            repo_name: None,
+            repo_name: Some(title),
             state: None,
             number: None,
         });

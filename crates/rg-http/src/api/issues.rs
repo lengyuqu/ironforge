@@ -1,10 +1,11 @@
 //! REST API handlers for Issues and Issue Comments.
 
 use axum::extract::{Path, Query, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::Json;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 use crate::api::auth::extract_bearer_claims;
 use crate::error::AppError;
@@ -54,6 +55,20 @@ pub struct ListQuery {
     pub pagination: PaginationParams,
 }
 
+#[derive(Serialize)]
+pub struct IssueResponse {
+    #[serde(flatten)]
+    pub issue: rg_db::entities::issue::Model,
+    pub author: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct CommentResponse {
+    #[serde(flatten)]
+    pub comment: rg_db::entities::issue_comment::Model,
+    pub author: Option<String>,
+}
+
 // ── Issue handlers ──────────────────────────────────────────────────────
 
 #[utoipa::path(
@@ -72,8 +87,13 @@ pub struct ListQuery {
 pub async fn list_issues(
     State(state): State<AppState>,
     Path((owner, repo)): Path<(String, String)>,
+    headers: HeaderMap,
     Query(params): Query<ListQuery>,
 ) -> impl IntoResponse {
+    if let Err(e) = resolve_and_check_read_access(&state, &headers, &owner, &repo).await {
+        return e.into_response();
+    }
+
     let state_filter = params.state.as_deref();
     let pagination = params.pagination.clamp();
 
@@ -96,11 +116,14 @@ pub async fn list_issues(
             )
             .await
             {
-                Ok((data, total)) => (
-                    StatusCode::OK,
-                    Json(PaginatedResponse::new(data, &pagination, total as u64)),
-                )
-                    .into_response(),
+                Ok((data, total)) => {
+                    let data = issues_with_authors(&state.db, data).await;
+                    (
+                        StatusCode::OK,
+                        Json(PaginatedResponse::new(data, &pagination, total as u64)),
+                    )
+                        .into_response()
+                }
                 Err(e) => {
                     tracing::error!(%e, "handler error");
                     AppError::internal(e).into_response()
@@ -119,11 +142,14 @@ pub async fn list_issues(
     )
     .await
     {
-        Ok((data, total)) => (
-            StatusCode::OK,
-            Json(PaginatedResponse::new(data, &pagination, total as u64)),
-        )
-            .into_response(),
+        Ok((data, total)) => {
+            let data = issues_with_authors(&state.db, data).await;
+            (
+                StatusCode::OK,
+                Json(PaginatedResponse::new(data, &pagination, total as u64)),
+            )
+                .into_response()
+        }
         Err(e) => {
             tracing::error!(%e, "handler error");
             AppError::internal(e).into_response()
@@ -148,9 +174,17 @@ pub async fn list_issues(
 pub async fn get_issue(
     State(state): State<AppState>,
     Path((owner, repo, number)): Path<(String, String, i64)>,
+    headers: HeaderMap,
 ) -> impl IntoResponse {
+    if let Err(e) = resolve_and_check_read_access(&state, &headers, &owner, &repo).await {
+        return e.into_response();
+    }
+
     match rg_core::issue::get_issue(&state.db, &owner, &repo, number).await {
-        Ok(issue) => (StatusCode::OK, Json(issue)).into_response(),
+        Ok(issue) => {
+            let issue = issue_with_author(&state.db, issue).await;
+            (StatusCode::OK, Json(issue)).into_response()
+        }
         Err(e) => AppError::NotFound(e.to_string()).into_response(),
     }
 }
@@ -173,7 +207,7 @@ pub async fn get_issue(
 pub async fn create_issue(
     State(state): State<AppState>,
     Path((owner, repo)): Path<(String, String)>,
-    headers: axum::http::HeaderMap,
+    headers: HeaderMap,
     Json(req): Json<CreateIssueRequest>,
 ) -> impl IntoResponse {
     let user_id = match super::auth::extract_user_id(&headers, &state.jwt_secret) {
@@ -183,14 +217,14 @@ pub async fn create_issue(
         }
     };
 
-    let repo_id = match resolve_repo_id(&state.db, &owner, &repo).await {
-        Some(id) => id,
-        None => return AppError::NotFound("repository not found".to_string()).into_response(),
+    let repo_model = match resolve_and_check_read_access(&state, &headers, &owner, &repo).await {
+        Ok(repo) => repo,
+        Err(e) => return e.into_response(),
     };
 
     match rg_core::issue::create_issue(
         &state.db,
-        repo_id,
+        repo_model.id,
         user_id,
         req.title,
         req.body,
@@ -199,7 +233,10 @@ pub async fn create_issue(
     )
     .await
     {
-        Ok(issue) => (StatusCode::CREATED, Json(issue)).into_response(),
+        Ok(issue) => {
+            let issue = issue_with_author(&state.db, issue).await;
+            (StatusCode::CREATED, Json(issue)).into_response()
+        }
         Err(e) => AppError::BadRequest(e.to_string()).into_response(),
     }
 }
@@ -222,8 +259,46 @@ pub async fn create_issue(
 pub async fn update_issue(
     State(state): State<AppState>,
     Path((owner, repo, number)): Path<(String, String, i64)>,
+    headers: HeaderMap,
     Json(req): Json<UpdateIssueRequest>,
 ) -> impl IntoResponse {
+    let user_id = match super::auth::extract_user_id(&headers, &state.jwt_secret) {
+        Some(id) => id,
+        None => {
+            return AppError::Unauthorized("authentication required".to_string()).into_response()
+        }
+    };
+
+    let existing = match rg_core::issue::get_issue(&state.db, &owner, &repo, number).await {
+        Ok(issue) => issue,
+        Err(e) => return AppError::NotFound(e.to_string()).into_response(),
+    };
+
+    let repo_model = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &repo)
+        .await
+    {
+        Ok(Some(repo)) => repo,
+        Ok(None) => return AppError::NotFound("repository not found".to_string()).into_response(),
+        Err(e) => return AppError::internal(e).into_response(),
+    };
+
+    let can_write = rg_core::repo::service::can_write_repo(&state.db, &repo_model, Some(user_id))
+        .await
+        .unwrap_or(false);
+    let can_read = rg_core::repo::service::can_read_repo(&state.db, &repo_model, Some(user_id))
+        .await
+        .unwrap_or(false);
+    let touches_management_fields =
+        req.labels.is_some() || req.assignee_id.is_some() || req.milestone_id.is_some();
+
+    if !can_read {
+        return AppError::forbidden("access denied").into_response();
+    }
+
+    if !can_write && (existing.author_id != user_id || touches_management_fields) {
+        return AppError::forbidden("write access required").into_response();
+    }
+
     match rg_core::issue::update_issue(
         &state.db,
         &owner,
@@ -238,7 +313,10 @@ pub async fn update_issue(
     )
     .await
     {
-        Ok(issue) => (StatusCode::OK, Json(issue)).into_response(),
+        Ok(issue) => {
+            let issue = issue_with_author(&state.db, issue).await;
+            (StatusCode::OK, Json(issue)).into_response()
+        }
         Err(e) => AppError::BadRequest(e.to_string()).into_response(),
     }
 }
@@ -262,9 +340,17 @@ pub async fn update_issue(
 pub async fn list_comments(
     State(state): State<AppState>,
     Path((owner, repo, number)): Path<(String, String, i64)>,
+    headers: HeaderMap,
 ) -> impl IntoResponse {
+    if let Err(e) = resolve_and_check_read_access(&state, &headers, &owner, &repo).await {
+        return e.into_response();
+    }
+
     match rg_core::issue::list_comments(&state.db, &owner, &repo, number).await {
-        Ok(comments) => (StatusCode::OK, Json(comments)).into_response(),
+        Ok(comments) => {
+            let comments = comments_with_authors(&state.db, comments).await;
+            (StatusCode::OK, Json(comments)).into_response()
+        }
         Err(e) => {
             tracing::error!(%e, "handler error");
             AppError::internal(e).into_response()
@@ -291,7 +377,7 @@ pub async fn list_comments(
 pub async fn add_comment(
     State(state): State<AppState>,
     Path((owner, repo, number)): Path<(String, String, i64)>,
-    headers: axum::http::HeaderMap,
+    headers: HeaderMap,
     Json(req): Json<CreateCommentRequest>,
 ) -> impl IntoResponse {
     let user_id = match super::auth::extract_user_id(&headers, &state.jwt_secret) {
@@ -301,28 +387,111 @@ pub async fn add_comment(
         }
     };
 
+    if let Err(e) = resolve_and_check_read_access(&state, &headers, &owner, &repo).await {
+        return e.into_response();
+    }
+
     match rg_core::issue::add_comment(&state.db, &owner, &repo, number, user_id, req.body).await {
-        Ok(comment) => (StatusCode::CREATED, Json(comment)).into_response(),
+        Ok(comment) => {
+            let comment = comment_with_author(&state.db, comment).await;
+            (StatusCode::CREATED, Json(comment)).into_response()
+        }
         Err(e) => AppError::BadRequest(e.to_string()).into_response(),
     }
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
-async fn resolve_repo_id(
+async fn author_name(
     db: &sea_orm::DatabaseConnection,
+    cache: &mut HashMap<i64, Option<String>>,
+    user_id: i64,
+) -> Option<String> {
+    if let Some(cached) = cache.get(&user_id) {
+        return cached.clone();
+    }
+
+    let name = rg_db::ops::user_ops::find_by_id(db, user_id)
+        .await
+        .ok()
+        .flatten()
+        .map(|user| user.username);
+    cache.insert(user_id, name.clone());
+    name
+}
+
+async fn issue_with_author(
+    db: &sea_orm::DatabaseConnection,
+    issue: rg_db::entities::issue::Model,
+) -> IssueResponse {
+    let mut cache = HashMap::new();
+    let author = author_name(db, &mut cache, issue.author_id).await;
+    IssueResponse { issue, author }
+}
+
+async fn issues_with_authors(
+    db: &sea_orm::DatabaseConnection,
+    issues: Vec<rg_db::entities::issue::Model>,
+) -> Vec<IssueResponse> {
+    let mut cache = HashMap::new();
+    let mut responses = Vec::with_capacity(issues.len());
+    for issue in issues {
+        let author = author_name(db, &mut cache, issue.author_id).await;
+        responses.push(IssueResponse { issue, author });
+    }
+    responses
+}
+
+async fn comment_with_author(
+    db: &sea_orm::DatabaseConnection,
+    comment: rg_db::entities::issue_comment::Model,
+) -> CommentResponse {
+    let mut cache = HashMap::new();
+    let author = author_name(db, &mut cache, comment.author_id).await;
+    CommentResponse { comment, author }
+}
+
+async fn comments_with_authors(
+    db: &sea_orm::DatabaseConnection,
+    comments: Vec<rg_db::entities::issue_comment::Model>,
+) -> Vec<CommentResponse> {
+    let mut cache = HashMap::new();
+    let mut responses = Vec::with_capacity(comments.len());
+    for comment in comments {
+        let author = author_name(db, &mut cache, comment.author_id).await;
+        responses.push(CommentResponse { comment, author });
+    }
+    responses
+}
+
+async fn resolve_and_check_read_access(
+    state: &AppState,
+    headers: &HeaderMap,
     owner: &str,
     repo_name: &str,
-) -> Option<i64> {
-    let user = rg_db::ops::user_ops::find_by_username(db, owner)
+) -> Result<rg_db::entities::repository::Model, AppError> {
+    let repo = rg_core::repo::service::find_repo_by_owner_name(&state.db, owner, repo_name)
         .await
-        .ok()
-        .flatten()?;
-    let repo = rg_db::ops::repo_ops::find_by_owner_and_name(db, user.id, repo_name)
-        .await
-        .ok()
-        .flatten()?;
-    Some(repo.id)
+        .map_err(AppError::internal)?
+        .ok_or_else(|| AppError::not_found("repository not found"))?;
+
+    if repo.is_private {
+        let claims = extract_bearer_claims(headers, &state.jwt_secret)
+            .ok_or_else(|| AppError::unauthorized("authentication required"))?;
+        let user_id = claims
+            .sub
+            .parse::<i64>()
+            .map_err(|_| AppError::Unauthorized("invalid token subject".to_string()))?;
+
+        if !rg_core::repo::service::can_read_repo(&state.db, &repo, Some(user_id))
+            .await
+            .unwrap_or(false)
+        {
+            return Err(AppError::forbidden("access denied"));
+        }
+    }
+
+    Ok(repo)
 }
 
 // ── Milestone handlers ──────────────────────────────────────────────────

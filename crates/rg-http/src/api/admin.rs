@@ -469,10 +469,12 @@ pub async fn create_sso_provider(
     let client_secret_enc = body
         .client_secret
         .as_ref()
+        .filter(|s| !s.is_empty())
         .and_then(|s| rg_core::auth::encryption::encrypt(s, &enc_key).ok());
     let ldap_password_enc = body
         .ldap_bind_password
         .as_ref()
+        .filter(|s| !s.is_empty())
         .and_then(|s| rg_core::auth::encryption::encrypt(s, &enc_key).ok());
 
     match rg_db::ops::sso_provider_ops::upsert(
@@ -531,15 +533,25 @@ pub async fn update_sso_provider(
         &body.provider_type
     };
 
+    let existing_provider = match rg_db::ops::sso_provider_ops::find_by_id(&state.db, id).await {
+        Ok(Some(provider)) => provider,
+        Ok(None) => return AppError::not_found("SSO provider not found").into_response(),
+        Err(e) => return AppError::internal(e.to_string()).into_response(),
+    };
+
     let enc_key = rg_core::auth::encryption::derive_key(&state.jwt_secret);
     let client_secret_enc = body
         .client_secret
         .as_ref()
-        .and_then(|s| rg_core::auth::encryption::encrypt(s, &enc_key).ok());
+        .filter(|s| !s.is_empty())
+        .and_then(|s| rg_core::auth::encryption::encrypt(s, &enc_key).ok())
+        .or(existing_provider.client_secret_enc);
     let ldap_password_enc = body
         .ldap_bind_password
         .as_ref()
-        .and_then(|s| rg_core::auth::encryption::encrypt(s, &enc_key).ok());
+        .filter(|s| !s.is_empty())
+        .and_then(|s| rg_core::auth::encryption::encrypt(s, &enc_key).ok())
+        .or(existing_provider.ldap_bind_password_enc);
 
     match rg_db::ops::sso_provider_ops::upsert(
         &state.db,

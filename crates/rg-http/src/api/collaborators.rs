@@ -132,8 +132,8 @@ pub async fn update_permission(
 /// Remove a collaborator from a repo.
 /// DELETE /api/v1/repos/:owner/:name/collaborators/:user_id
 #[utoipa::path(
-    post,
-    path = "/repos/{owner}/{name}/collaborators/{user_id}/remove",
+    delete,
+    path = "/repos/{owner}/{name}/collaborators/{user_id}",
     tag = "Collaborators",
     params(
         ("owner" = String, Path, description = "owner"),
@@ -141,7 +141,7 @@ pub async fn update_permission(
         ("user_id" = i64, Path, description = "user_id"),
     ),
     responses(
-        (status = 201, description = "Created", body = serde_json::Value),
+        (status = 204, description = "Removed"),
         (status = 400, description = "Bad request", body = serde_json::Value),
         (status = 401, description = "Unauthorized", body = serde_json::Value),
     ),
@@ -158,7 +158,7 @@ pub async fn remove_collaborator(
     match rg_core::collaborator::service::remove_collaborator(&state.db, &owner, &repo, user_id)
         .await
     {
-        Ok(()) => (StatusCode::NO_CONTENT, Json(serde_json::json!({}))).into_response(),
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(e) => AppError::bad_request(e.to_string()).into_response(),
     }
 }

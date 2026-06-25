@@ -92,10 +92,8 @@ pub struct HttpServerConfig {
 
 /// Start the HTTP server and run forever.
 pub async fn run(config: HttpServerConfig) -> Result<()> {
-    let rate_limiter = rate_limit::RateLimiter::new(
-        config.rate_limit_max.max(1),
-        config.rate_limit_window_secs.max(1),
-    );
+    let rate_limiter =
+        rate_limit::RateLimiter::new(config.rate_limit_max, config.rate_limit_window_secs);
     rate_limiter.spawn_cleanup_task();
 
     let notification_hub = ws::NotificationHub::new();
@@ -177,7 +175,7 @@ pub async fn run(config: HttpServerConfig) -> Result<()> {
                 .with_context(|| format!("invalid TLS listen address: {}", config_clone))?,
             rustls_config,
         )
-        .serve(app.into_make_service())
+        .serve(app.into_make_service_with_connect_info::<std::net::SocketAddr>())
         .await
         .context("HTTPS server error")?;
     } else {
@@ -188,9 +186,12 @@ pub async fn run(config: HttpServerConfig) -> Result<()> {
 
         tracing::info!(addr = %config.listen_addr, "HTTP server listening");
 
-        axum::serve(listener, app)
-            .await
-            .context("HTTP server error")?;
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
+        .await
+        .context("HTTP server error")?;
     }
 
     Ok(())
@@ -375,6 +376,8 @@ fn build_v2_routes(state: &AppState) -> Router<AppState> {
 fn build_docs_routes(state: &AppState) -> Router<AppState> {
     Router::new()
         .route("/api-docs/openapi.json", get(openapi_handler))
+        .route("/api-docs", get(swagger_ui_root_handler))
+        .route("/api-docs/", get(swagger_ui_root_handler))
         .route("/api-docs/{*tail}", get(swagger_ui_handler))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
@@ -643,11 +646,8 @@ fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
         )
         .route(
             "/repos/{owner}/{name}/collaborators/{id}",
-            patch(api::collaborators::update_permission),
-        )
-        .route(
-            "/repos/{owner}/{name}/collaborators/{user_id}/remove",
-            post(api::collaborators::remove_collaborator),
+            patch(api::collaborators::update_permission)
+                .delete(api::collaborators::remove_collaborator),
         )
         // Repo Content Browsing
         .route(
@@ -956,7 +956,7 @@ fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
             patch(api::packages::yank_version),
         )
         .route(
-            "/repos/{owner}/{name}/packages/{pkg_type}/{pkg_name}/{version}/{file}",
+            "/repos/{owner}/{name}/packages/{pkg_type}/{pkg_name}/{version}/{*file}",
             get(api::packages::download_file),
         )
         // CI/CD Runners
@@ -1178,11 +1178,18 @@ async fn openapi_handler() -> impl IntoResponse {
 }
 
 /// GET /api-docs/{*tail} — serve Swagger UI static files.
-async fn swagger_ui_handler(
-    axum::extract::Path(tail): axum::extract::Path<String>,
-) -> impl IntoResponse {
-    let config = openapi::swagger_config();
+async fn swagger_ui_handler(axum::extract::Path(tail): axum::extract::Path<String>) -> Response {
     let path = if tail.is_empty() { "/" } else { &tail };
+    swagger_ui_response(path)
+}
+
+/// GET /api-docs[/] — serve Swagger UI index.
+async fn swagger_ui_root_handler() -> Response {
+    swagger_ui_response("/")
+}
+
+fn swagger_ui_response(path: &str) -> Response {
+    let config = openapi::swagger_config();
 
     match utoipa_swagger_ui::serve(path, config) {
         Ok(Some(file)) => (
@@ -1201,6 +1208,7 @@ async fn swagger_ui_handler(
             format!("Swagger UI error: {e}").into_bytes(),
         ),
     }
+    .into_response()
 }
 
 /// API docs endpoint access requires an authenticated JWT/PAT bearer token.

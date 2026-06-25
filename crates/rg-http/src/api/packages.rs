@@ -495,7 +495,7 @@ pub async fn yank_version(
     }
 }
 
-/// GET /api/v1/repos/:owner/:name/packages/:type/:pkg/:ver/:file
+/// GET /api/v1/repos/:owner/:name/packages/:type/:pkg/:ver/*file
 pub async fn download_file(
     State(state): State<AppState>,
     Path((owner, name, pkg_type, pkg_name, version, filename)): Path<(

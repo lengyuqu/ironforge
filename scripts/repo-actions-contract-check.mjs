@@ -9,18 +9,21 @@ const clientPaths = [
   path.join(root, 'web/src/lib/api/repos.ts'),
 ];
 const headerPath = path.join(root, 'web/src/lib/components/RepoHeader.svelte');
+const repoPagePath = path.join(root, 'web/src/routes/[owner]/[repo]/+page.svelte');
 const backendPath = path.join(root, 'crates/rg-http/src/api/repos.rs');
 const routerPath = path.join(root, 'crates/rg-http/src/lib.rs');
 
 const backend = readFileSync(backendPath, 'utf8');
 const router = readFileSync(routerPath, 'utf8');
 const header = readFileSync(headerPath, 'utf8');
+const repoPage = readFileSync(repoPagePath, 'utf8');
 const failures = [];
 
 for (const route of [
   'path = "/repos/{owner}/{name}/star"',
   'path = "/repos/{owner}/{name}/starred"',
   'path = "/repos/{owner}/{name}/watch"',
+  'path = "/repos/{owner}/{name}"',
 ]) {
   if (!backend.includes(route)) {
     failures.push(`Backend repo action OpenAPI annotation missing: ${route}`);
@@ -33,10 +36,29 @@ for (const [label, pattern] of [
   ['GET /watch', /"\/repos\/\{owner\}\/\{name\}\/watch"[\s\S]*get\(api::repos::get_watch_status\)/],
   ['PUT /watch', /"\/repos\/\{owner\}\/\{name\}\/watch"[\s\S]*\.put\(api::repos::watch_repo\)/],
   ['DELETE /watch', /"\/repos\/\{owner\}\/\{name\}\/watch"[\s\S]*\.delete\(api::repos::unwatch_repo\)/],
+  ['DELETE /repos/{owner}/{name}', /"\/repos\/\{owner\}\/\{name\}"[\s\S]*delete\(api::repos::delete_repo_handler\)/],
 ]) {
   if (!pattern.test(router)) {
     failures.push(`Backend repo action router binding missing: ${label}`);
   }
+}
+
+const deleteHandlerBlock = backend.match(/pub async fn delete_repo_handler[\s\S]*?\n\}/);
+if (!deleteHandlerBlock) {
+  failures.push('Backend repo delete handler missing');
+} else {
+  if (!/StatusCode::OK[\s\S]*"deleted": true/.test(deleteHandlerBlock[0])) {
+    failures.push('Backend repo delete handler must return the JSON deleted envelope used by the frontend');
+  }
+  if (/StatusCode::NO_CONTENT/.test(deleteHandlerBlock[0])) {
+    failures.push('Backend repo delete handler must not return 204 while the frontend expects JSON');
+  }
+}
+
+const deleteAnnotationBlock = backend.match(/pub async fn delete_repo_handler[\s\S]*?responses\([\s\S]*?\)\s*,\s*\)\]/)
+  || backend.match(/\/\/\/ DELETE \/api\/v1\/repos\/:owner\/:name[\s\S]*?pub async fn delete_repo_handler/);
+if (deleteAnnotationBlock && /status = 204/.test(deleteAnnotationBlock[0])) {
+  failures.push('Backend repo delete OpenAPI annotation must not advertise an unused 204 response');
 }
 
 for (const clientPath of clientPaths) {
@@ -49,6 +71,10 @@ for (const clientPath of clientPaths) {
 
   if (!/watchStatus:\s*\([^)]*\)\s*=>\s*\n?\s*request<\{\s*watch_state:\s*'not_watching'\s*\|\s*'watching'\s*\|\s*'ignoring'\s*\}>/.test(source)) {
     failures.push(`${name} must expose repos.watchStatus with the backend watch-state union`);
+  }
+
+  if (!/delete:\s*\([^)]*\)\s*=>\s*\n?\s*request<\{\s*deleted:\s*boolean\s*\}>\(`\/repos\/\$\{owner\}\/\$\{repo\}`,\s*\{\s*method:\s*'DELETE'\s*\}/.test(source)) {
+    failures.push(`${name} must model repo delete as the backend JSON deleted envelope`);
   }
 
   const unstarBlock = source.match(/unstar:\s*async\s*\([^)]*\)\s*=>\s*\{[\s\S]*?\n\s*\},/);
@@ -72,6 +98,42 @@ if (!/repos\.starred\(owner,\s*repo\)/.test(header)) {
 
 if (!/repos\.watchStatus\(owner,\s*repo\)/.test(header)) {
   failures.push('RepoHeader must load watch status from the backend before rendering the watch action');
+}
+
+if (!/import\s+\{\s*API_BASE,\s*withBackendBase\s*\}\s+from '\$lib\/api\/_base'/.test(header)) {
+  failures.push('RepoHeader must import withBackendBase so clone URLs use the configured backend origin');
+}
+
+if (!/httpCloneUrl\s*=\s*\$derived\(withBackendBase\(`\/git\/\$\{encodeURIComponent\(owner\)\}\/\$\{encodeURIComponent\(repo\)\}`\)\)/.test(header)) {
+  failures.push('RepoHeader HTTP clone URL must target backend /git/{owner}/{repo}, not the frontend origin');
+}
+
+const httpCloneLine = header.match(/httpCloneUrl\s*=\s*\$derived\([^\n]+\)/)?.[0] || '';
+
+if (/location\.(protocol|host)/.test(httpCloneLine)) {
+  failures.push('RepoHeader HTTP clone URL must not use the frontend location origin');
+}
+
+if (/\.git/.test(httpCloneLine)) {
+  failures.push('RepoHeader HTTP clone URL must not append .git to the backend /git/{owner}/{repo} path');
+}
+
+if (!/import\s+\{\s*withBackendBase\s*\}\s+from '\$lib\/api\/_base'/.test(repoPage)) {
+  failures.push('Repository page must import withBackendBase for empty-repo HTTP clone instructions');
+}
+
+if (!/httpCloneUrl\s*=\s*\$derived\(withBackendBase\(`\/git\/\$\{encodeURIComponent\(owner\)\}\/\$\{encodeURIComponent\(repo\)\}`\)\)/.test(repoPage)) {
+  failures.push('Repository empty state HTTP clone URL must target backend /git/{owner}/{repo}, not the frontend origin');
+}
+
+const repoPageHttpCloneLine = repoPage.match(/httpCloneUrl\s*=\s*\$derived\([^\n]+\)/)?.[0] || '';
+
+if (/location\.(protocol|host)/.test(repoPageHttpCloneLine)) {
+  failures.push('Repository empty state HTTP clone URL must not use the frontend location origin');
+}
+
+if (/\.git/.test(repoPageHttpCloneLine)) {
+  failures.push('Repository empty state HTTP clone URL must not append .git to the backend /git/{owner}/{repo} path');
 }
 
 if (failures.length > 0) {

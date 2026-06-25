@@ -14,6 +14,7 @@
   let results = $state<SearchResult[]>([]);
   let total = $state(0);
   let currentPage = $state(1);
+  let searchError = $state('');
   let perPage = 20;
   let hasSearched = $state(false);
   let showHelp = $state(false);
@@ -22,11 +23,18 @@
   let hasNext = $derived(currentPage < totalPages);
   let hasPrev = $derived(currentPage > 1);
 
+  function normalizeSearchType(type: string | null): string {
+    if (type === 'repo') return 'repos';
+    if (type === 'issue') return 'issues';
+    if (type === 'repos' || type === 'issues' || type === 'wiki' || type === 'all') return type;
+    return 'all';
+  }
+
   // Sync from URL on mount and on URL changes
   $effect(() => {
     const url = $page.url;
     const q = url.searchParams.get('q') || '';
-    const type = url.searchParams.get('type') || 'all';
+    const type = normalizeSearchType(url.searchParams.get('type'));
     const pg = parseInt(url.searchParams.get('page') || '1', 10);
 
     if (q !== query || type !== activeType || pg !== currentPage) {
@@ -56,6 +64,7 @@
     try {
       loading = true;
       hasSearched = true;
+      searchError = '';
       const response = await search.search(q, type, pg, perPage);
       results = response.results;
       total = response.total;
@@ -63,6 +72,7 @@
     } catch (err: any) {
       results = [];
       total = 0;
+      searchError = err?.message || t('search.load_failed', 'Search failed');
     } finally {
       loading = false;
     }
@@ -97,6 +107,22 @@
     showHelp = !showHelp;
   }
 
+  function keyboardHintParts() {
+    const hint = t('search.keyboard_hint', 'Tip: Press Ctrl+K to focus search');
+    const shortcut = 'Ctrl+K';
+    const index = hint.indexOf(shortcut);
+
+    if (index === -1) {
+      return { before: hint, shortcut: '', after: '' };
+    }
+
+    return {
+      before: hint.slice(0, index),
+      shortcut,
+      after: hint.slice(index + shortcut.length)
+    };
+  }
+
   // Get issue state badge color
   function getStateBadgeClass(state: string | null | undefined): string {
     if (!state) return '';
@@ -105,7 +131,23 @@
     if (state === 'merged') return 'state-badge-merged';
     return '';
   }
+
+  function resultRepoName(result: SearchResult): string {
+    return result.repo_name || result.title || '';
+  }
+
+  function repoHref(result: SearchResult): string {
+    return `/${result.repo_owner || ''}/${resultRepoName(result)}`;
+  }
+
+  function stateLabel(state: string | null | undefined): string {
+    return state ? t(`issues.state.${state}`, state) : '';
+  }
 </script>
+
+<svelte:head>
+  <title>{query ? `${query} · ` : ''}{t('search.title')} · IronForge</title>
+</svelte:head>
 
 <div class="page-container search-page">
   <div class="search-header">
@@ -158,8 +200,8 @@
     <div class="type-tabs">
       {#each [
         { key: 'all', label: t('search.all') },
-        { key: 'repo', label: t('search.repos') },
-        { key: 'issue', label: t('search.issues') },
+        { key: 'repos', label: t('search.repos') },
+        { key: 'issues', label: t('search.issues') },
         { key: 'wiki', label: t('search.wiki') }
       ] as tab}
         <button
@@ -179,6 +221,10 @@
         <div class="spinner"></div>
         <span>{t('common.loading')}</span>
       </div>
+    {:else if searchError}
+      <div class="error-state">
+        <p>{searchError}</p>
+      </div>
     {:else if !hasSearched}
       <div class="empty-state">
         <svg class="empty-icon" viewBox="0 0 16 16" width="48" height="48" fill="currentColor">
@@ -197,29 +243,26 @@
       <div class="results-list gh-list">
         {#each results as result (result.result_type + '-' + result.id)}
           {#if result.result_type === 'repo'}
-            <a href="/{result.repo_owner}/{result.repo_name}" class="result-card repo-card gh-list-item">
+            <a href={repoHref(result)} class="result-card repo-card gh-list-item">
               <div class="result-body">
                 <div class="repo-name-row">
                   <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" class="type-icon">
                     <path d="M2 2.5A2.5 2.5 0 0 1 4.5 0h8.75a.75.75 0 0 1 .75.75v12.5a.75.75 0 0 1-.75.75h-2.5a.75.75 0 0 1 0-1.5h1.75v-2h-8a1 1 0 0 0-.714 1.7.75.75 0 1 1-1.072 1.05A2.495 2.495 0 0 1 2 11.5Zm10.5-1h-8a1 1 0 0 0-1 1v6.708A2.486 2.486 0 0 1 4.5 9h8ZM5 12.25a.25.25 0 0 1 .25-.25h3.5a.25.25 0 0 1 .25.25v3.25a.25.25 0 0 1-.4.2l-1.45-1.087a.25.25 0 0 0-.3 0L5.4 15.7a.25.25 0 0 1-.4-.2Z"/>
                   </svg>
-                  <span class="result-title">{result.repo_owner}/{result.repo_name}</span>
-                  <span class="star-icon">&#9733;</span>
+                  <span class="result-title">{result.repo_owner}/{resultRepoName(result)}</span>
+                  <span class="result-kind">{t('search.repo_result')}</span>
                 </div>
-                {#if result.title}
-                  <div class="result-desc">{@html highlightText(result.title || '', query)}</div>
-                {/if}
                 {#if result.excerpt}
                   <div class="result-excerpt">{@html highlightText(result.excerpt || '', query)}</div>
                 {/if}
               </div>
             </a>
           {:else if result.result_type === 'issue'}
-            <a href="/{result.repo_owner}/{result.repo_name}/issues/{result.number}" class="result-card issue-card gh-list-item">
+            <a href={`/${result.repo_owner}/${result.repo_name}/issues/${result.number}`} class="result-card issue-card gh-list-item">
               <div class="result-body">
                 <div class="issue-header">
                   {#if result.state}
-                    <span class="issue-state-badge {getStateBadgeClass(result.state)}">{result.state}</span>
+                    <span class="issue-state-badge {getStateBadgeClass(result.state)}">{stateLabel(result.state)}</span>
                   {/if}
                   <span class="issue-badge">#{result.number}</span>
                   <span class="result-title">{@html highlightText(result.title || '', query)}</span>
@@ -233,7 +276,7 @@
               </div>
             </a>
           {:else if result.result_type === 'wiki'}
-            <a href="/{result.repo_owner}/{result.repo_name}/wiki/{encodeURIComponent(result.title)}" class="result-card wiki-card gh-list-item">
+            <a href={`/${result.repo_owner}/${result.repo_name}/wiki/${encodeURIComponent(result.title)}`} class="result-card wiki-card gh-list-item">
               <div class="result-body">
                 <div class="wiki-header">
                   <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" class="type-icon">
@@ -255,16 +298,16 @@
 
       {#if totalPages > 1}
         <div class="pagination">
-          <button class="page-btn" disabled={!hasPrev} onclick={() => goPage(currentPage - 1)}>&larr; Prev</button>
-          <span class="page-info">Page {currentPage} of {totalPages}</span>
-          <button class="page-btn" disabled={!hasNext} onclick={() => goPage(currentPage + 1)}>Next &rarr;</button>
+          <button class="page-btn" disabled={!hasPrev} onclick={() => goPage(currentPage - 1)}>&larr; {t('common.previous')}</button>
+          <span class="page-info">{t('search.page_info', { page: currentPage, total: totalPages })}</span>
+          <button class="page-btn" disabled={!hasNext} onclick={() => goPage(currentPage + 1)}>{t('common.next')} &rarr;</button>
         </div>
       {/if}
     {/if}
   </div>
 
 <div class="keyboard-hint">
-  {@html t('search.keyboard_hint')?.replace(/Ctrl\+K/g, '<kbd>Ctrl+K</kbd>') || 'Tip: Press Ctrl+K to focus search'}
+  {keyboardHintParts().before}{#if keyboardHintParts().shortcut}<kbd>{keyboardHintParts().shortcut}</kbd>{/if}{keyboardHintParts().after}
 </div>
 </div>
 
@@ -514,6 +557,19 @@
     font-size: 15px;
   }
 
+  .error-state {
+    padding: 16px;
+    color: var(--red);
+    background: color-mix(in srgb, var(--red) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--red) 30%, transparent);
+    border-radius: var(--radius);
+  }
+
+  .error-state p {
+    margin: 0;
+    font-size: 14px;
+  }
+
   .results-info {
     font-size: 13px;
     color: var(--text-muted);
@@ -558,9 +614,14 @@
     color: var(--accent);
   }
 
-  .star-icon {
-    color: var(--accent);
-    font-size: 14px;
+  .result-kind {
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 18px;
+    padding: 0 7px;
     margin-left: auto;
   }
 

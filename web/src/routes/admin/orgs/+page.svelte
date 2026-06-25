@@ -108,7 +108,7 @@
           {#each orgs as org}
             <tr>
               <td class="name">
-                <a href="/orgs/{org.name}">{org.name}</a>
+                <a href={`/orgs/${org.name}`}>{org.name}</a>
               </td>
               <td class="display-name">{org.display_name || '—'}</td>
               <td>

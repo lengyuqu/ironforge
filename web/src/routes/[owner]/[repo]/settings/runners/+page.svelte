@@ -19,6 +19,7 @@
   let newRunnerName = $state('');
   let newRunnerLabels = $state('');
   let saving = $state(false);
+  let registeredRunner = $state<{ id: number; token: string; name: string } | null>(null);
 
   $effect(() => {
     loadRunners();
@@ -43,10 +44,14 @@
     saving = true;
     error = '';
     try {
-      await runners.register({
+      const labels = newRunnerLabels
+        ? newRunnerLabels.split(',').map((s: string) => s.trim()).filter(Boolean)
+        : undefined;
+      const res = await runners.register({
         name: newRunnerName,
-        labels: newRunnerLabels ? newRunnerLabels.split(',').map((s: string) => s.trim()) : undefined,
+        labels,
       });
+      registeredRunner = { id: res.id, token: res.token, name: newRunnerName };
       newRunnerName = '';
       newRunnerLabels = '';
       await loadRunners();
@@ -55,6 +60,11 @@
     } finally {
       saving = false;
     }
+  }
+
+  async function copyRunnerToken() {
+    if (!registeredRunner) return;
+    await navigator.clipboard.writeText(registeredRunner.token);
   }
 
   async function handleDelete(id: number) {
@@ -81,6 +91,19 @@
 
   {#if error}
     <div class="error-banner">{error}</div>
+  {/if}
+
+  {#if registeredRunner}
+    <div class="token-banner">
+      <div>
+        <strong>Runner token for {registeredRunner.name}</strong>
+        <p>Copy this token now. It is needed to connect the runner agent.</p>
+        <code>{registeredRunner.token}</code>
+      </div>
+      <button class="btn-secondary" type="button" onclick={copyRunnerToken}>
+        {t('common.copy') || 'Copy'}
+      </button>
+    </div>
   {/if}
 
   <!-- Register new runner -->
@@ -238,6 +261,45 @@
   }
   .btn-primary:hover { background: #e09a1e; text-decoration: none; }
   .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-secondary {
+    padding: 6px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 14px;
+    cursor: pointer;
+  }
+
+  .token-banner {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 14px 16px;
+    margin-bottom: 16px;
+    border: 1px solid color-mix(in srgb, var(--green) 35%, var(--border));
+    border-radius: var(--radius);
+    background: color-mix(in srgb, var(--green) 10%, var(--bg-secondary));
+  }
+
+  .token-banner p {
+    margin: 4px 0 8px;
+    color: var(--text-secondary);
+    font-size: 13px;
+  }
+
+  .token-banner code {
+    display: block;
+    max-width: min(620px, 100%);
+    padding: 8px 10px;
+    overflow-wrap: anywhere;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 13px;
+  }
 
   .loading-text {
     color: var(--text-secondary);

@@ -200,7 +200,7 @@
       </div>
 
       <div class="form-actions">
-        <a href="/{owner}/{repo}/releases" class="btn-secondary">{t('common.cancel')}</a>
+        <a href={`/${owner}/${repo}/releases`} class="btn-secondary">{t('common.cancel')}</a>
         <button type="submit" class="btn-primary" disabled={submitting}>
           {submitting ? t('releases.submitting') : t('releases.submit')}
         </button>
