@@ -4,7 +4,7 @@
   import { goto } from '$app/navigation';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
   import Dropdown from '$lib/components/Dropdown.svelte';
-  import { withBackendBase } from '$lib/api/_base';
+  import { buildSshCloneUrl, withBackendBase } from '$lib/api/_base';
   import { repos } from '$lib/api/client.svelte';
   import { createT, formatDate } from '$lib/i18n';
 
@@ -24,10 +24,11 @@
   let readmeLoading = $state(false);
   let loading = $state(true);
   let error = $state('');
+  let currentRefLabel = $derived(ref || repoInfo?.default_branch || branches.find((b: any) => b.is_default)?.name || 'main');
 
   // Clone URLs for empty-repo setup
   let httpCloneUrl = $derived(withBackendBase(`/git/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`));
-  let sshCloneUrl = $derived(browser ? `git@${location.hostname}:${owner}/${repo}.git` : '');
+  let sshCloneUrl = $derived(browser ? buildSshCloneUrl(owner, repo, location.hostname) : '');
   let httpCopied = $state(false);
   let sshCopied = $state(false);
 
@@ -146,6 +147,32 @@
     if (size < 1024 * 1024) return (size / 1024).toFixed(1) + t('repo.file_size.kb');
     return (size / (1024 * 1024)).toFixed(1) + t('repo.file_size.mb');
   }
+
+  function escapeHtml(value: string): string {
+    return value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function safeMarkdownHref(value: string): string {
+    const href = value.trim();
+    if (/^(https?:|mailto:|#|\/|\.\/|\.\.\/)/i.test(href)) {
+      return href;
+    }
+    return '#';
+  }
+
+  function renderInlineMarkdown(line: string): string {
+    return escapeHtml(line)
+      .replace(/`([^`]+)`/g, '<code>$1</code>')
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, label, href) => {
+        return `<a href='${safeMarkdownHref(href)}' target='_blank' rel='noopener'>${label}</a>`;
+      });
+  }
 </script>
 
 <svelte:head>
@@ -229,7 +256,7 @@ git push -u origin {repoInfo?.default_branch || 'main'}</code></pre>
       <div class="branch-selector">
         <Dropdown ariaLabel={t('repo.select_branch')} triggerClass="btn-outline" placement="left">
           {#snippet trigger()}
-            🌿 {ref || 'main'} <span aria-hidden="true">▾</span>
+            🌿 {currentRefLabel} <span aria-hidden="true">▾</span>
           {/snippet}
           {#snippet menu(close)}
             {#each branches as b}
@@ -332,12 +359,7 @@ git push -u origin {repoInfo?.default_branch || 'main'}</code></pre>
                 <br />
               {:else}
                 <p class="md-p">
-                  <!-- Handle inline code -->
-                  {@html line
-                    .replace(/`([^`]+)`/g, '<code>$1</code>')
-                    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-                    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
-                  }
+                  {@html renderInlineMarkdown(line)}
                 </p>
               {/if}
             {/each}

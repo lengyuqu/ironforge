@@ -20,6 +20,7 @@
 
   // Detail modal
   let selectedLog = $state<AuditLogEntry | null>(null);
+  let detailLoading = $state(false);
 
   // Predefined action groups for the filter dropdown
   const actionGroups = [
@@ -79,12 +80,22 @@
     loadLogs();
   }
 
-  function openDetail(log: AuditLogEntry) {
+  async function openDetail(log: AuditLogEntry) {
+    detailLoading = true;
+    error = '';
     selectedLog = log;
+    try {
+      selectedLog = await admin.getAuditLog(log.id);
+    } catch (e: any) {
+      error = e.message || t('errors.load_failed');
+    } finally {
+      detailLoading = false;
+    }
   }
 
   function closeDetail() {
     selectedLog = null;
+    detailLoading = false;
   }
 
   function closeDetailByKey(e: KeyboardEvent) {
@@ -262,7 +273,9 @@
         </div>
         <div class="detail-row detail-row-full">
           <span class="detail-label">{t('admin.audit.fields.details')}</span>
-          <span class="detail-value">{selectedLog.details || t('admin.audit.no_details')}</span>
+          <span class="detail-value">
+            {detailLoading ? t('common.loading') : selectedLog.details || t('admin.audit.no_details')}
+          </span>
         </div>
       </div>
 

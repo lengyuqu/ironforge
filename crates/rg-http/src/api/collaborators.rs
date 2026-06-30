@@ -13,7 +13,9 @@ use crate::AppState;
 
 #[derive(Deserialize)]
 pub struct AddCollaboratorRequest {
-    pub user_id: i64,
+    pub user_id: Option<i64>,
+    pub username: Option<String>,
+    pub email: Option<String>,
     /// read / write / admin
     #[serde(default = "default_permission")]
     pub permission: String,
@@ -82,11 +84,16 @@ pub async fn add_collaborator(
         return AppError::unauthorized("authentication required").into_response();
     }
 
+    let user_id = match resolve_collaborator_user_id(&state.db, &req).await {
+        Ok(id) => id,
+        Err(e) => return AppError::bad_request(e.to_string()).into_response(),
+    };
+
     match rg_core::collaborator::service::add_collaborator(
         &state.db,
         &owner,
         &repo,
-        req.user_id,
+        user_id,
         req.permission,
     )
     .await
@@ -94,6 +101,34 @@ pub async fn add_collaborator(
         Ok(collab) => (StatusCode::CREATED, Json(collab)).into_response(),
         Err(e) => AppError::bad_request(e.to_string()).into_response(),
     }
+}
+
+async fn resolve_collaborator_user_id(
+    db: &rg_db::DatabaseConnection,
+    req: &AddCollaboratorRequest,
+) -> anyhow::Result<i64> {
+    if let Some(user_id) = req.user_id {
+        if user_id > 0 {
+            return Ok(user_id);
+        }
+        anyhow::bail!("user_id must be a positive integer");
+    }
+
+    if let Some(username) = req.username.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        return rg_db::ops::user_ops::find_by_username(db, username)
+            .await?
+            .map(|user| user.id)
+            .ok_or_else(|| anyhow::anyhow!("user '{}' not found", username));
+    }
+
+    if let Some(email) = req.email.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        return rg_db::ops::user_ops::find_by_email(db, email)
+            .await?
+            .map(|user| user.id)
+            .ok_or_else(|| anyhow::anyhow!("user '{}' not found", email));
+    }
+
+    anyhow::bail!("user_id, username, or email is required");
 }
 
 /// Update a collaborator's permission.

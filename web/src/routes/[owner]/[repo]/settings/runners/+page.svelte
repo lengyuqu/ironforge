@@ -1,435 +1,66 @@
 <script lang="ts">
   import { page } from '$app/stores';
-  import RepoHeader from '$lib/components/RepoHeader.svelte';
-  import { runners } from '$lib/api/client.svelte';
   import { createT } from '$lib/i18n';
 
   const t = createT();
 
   let owner = $derived($page.params.owner!);
   let repo = $derived($page.params.repo!);
-
-  let runnerList = $state<any[]>([]);
-  let loading = $state(true);
-  let error = $state('');
-  let currentPage = $state(1);
-  let totalPages = $state(1);
-
-  // Form state
-  let newRunnerName = $state('');
-  let newRunnerLabels = $state('');
-  let saving = $state(false);
-  let registeredRunner = $state<{ id: number; token: string; name: string } | null>(null);
-
-  $effect(() => {
-    loadRunners();
-  });
-
-  async function loadRunners() {
-    loading = true;
-    error = '';
-    try {
-      const res = await runners.list(currentPage, 20);
-      runnerList = res.data;
-      totalPages = res.pagination?.total_pages ?? 1;
-    } catch (e: any) {
-      error = e.message;
-    } finally {
-      loading = false;
-    }
-  }
-
-  async function handleRegister() {
-    if (!newRunnerName.trim()) return;
-    saving = true;
-    error = '';
-    try {
-      const labels = newRunnerLabels
-        ? newRunnerLabels.split(',').map((s: string) => s.trim()).filter(Boolean)
-        : undefined;
-      const res = await runners.register({
-        name: newRunnerName,
-        labels,
-      });
-      registeredRunner = { id: res.id, token: res.token, name: newRunnerName };
-      newRunnerName = '';
-      newRunnerLabels = '';
-      await loadRunners();
-    } catch (e: any) {
-      error = e.message;
-    } finally {
-      saving = false;
-    }
-  }
-
-  async function copyRunnerToken() {
-    if (!registeredRunner) return;
-    await navigator.clipboard.writeText(registeredRunner.token);
-  }
-
-  async function handleDelete(id: number) {
-    if (!confirm(t('runners.delete_confirm', { name: id }))) return;
-    try {
-      await runners.delete(id);
-      await loadRunners();
-    } catch (e: any) {
-      error = e.message;
-    }
-  }
 </script>
 
 <svelte:head>
-  <title>Runners · {owner}/{repo} · IronForge</title>
+  <title>{t('admin.runners.title')} · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
-<div class="page-container">
-  <RepoHeader owner={owner!} repo={repo!} activeTab="runners" />
-
-  <div class="page-header">
-    <h1>{t('repo.tabs.runners')}</h1>
+<section class="panel">
+  <div>
+    <h1>{t('admin.runners.title')}</h1>
+    <p>{t('admin.runners.repo_handoff')}</p>
   </div>
-
-  {#if error}
-    <div class="error-banner">{error}</div>
-  {/if}
-
-  {#if registeredRunner}
-    <div class="token-banner">
-      <div>
-        <strong>Runner token for {registeredRunner.name}</strong>
-        <p>Copy this token now. It is needed to connect the runner agent.</p>
-        <code>{registeredRunner.token}</code>
-      </div>
-      <button class="btn-secondary" type="button" onclick={copyRunnerToken}>
-        {t('common.copy') || 'Copy'}
-      </button>
-    </div>
-  {/if}
-
-  <!-- Register new runner -->
-  <div class="register-card">
-    <h2>{t('runners.register')}</h2>
-    <div class="form-group">
-      <label for="runner-name">{t('runners.name')}</label>
-      <input
-        id="runner-name"
-        type="text"
-        bind:value={newRunnerName}
-        placeholder="my-runner"
-      />
-    </div>
-    <div class="form-group">
-      <label for="runner-labels">{t('runners.labels')}</label>
-      <input
-        id="runner-labels"
-        type="text"
-        bind:value={newRunnerLabels}
-        placeholder="linux,x86_64"
-      />
-    </div>
-    <button
-      class="btn-primary"
-      onclick={handleRegister}
-      disabled={saving}
-    >
-      {saving ? t('common.loading') : t('runners.register')}
-    </button>
-  </div>
-
-  <!-- Runner list -->
-  {#if loading}
-    <p class="loading-text">{t('common.loading')}</p>
-  {:else if runnerList.length === 0}
-    <div class="empty">
-      <p>{t('runners.no_runners')}</p>
-    </div>
-  {:else}
-    <div class="runner-list">
-      {#each runnerList as runner (runner.id)}
-        <div class="runner-card">
-          <div class="runner-header">
-            <span class="runner-name">{runner.name}</span>
-            <span class="runner-status" class:online={runner.status === 'online'}>
-              {runner.status}
-            </span>
-          </div>
-          {#if runner.labels && runner.labels.length > 0}
-            <div class="runner-labels">
-              {#each runner.labels as label}
-                <span class="label-badge">{label}</span>
-              {/each}
-            </div>
-          {/if}
-          <div class="runner-meta">
-            <span>v{runner.version || '?'}</span>
-            <span>{runner.last_seen ? t('common.last_seen', { time: new Date(runner.last_seen).toLocaleString() }) : t('common.offline')}</span>
-          </div>
-          <div class="runner-actions">
-            <button
-              class="btn-danger btn-sm"
-              onclick={() => handleDelete(runner.id)}
-            >
-              {t('common.delete')}
-            </button>
-          </div>
-        </div>
-      {/each}
-    </div>
-
-    {#if totalPages > 1}
-      <div class="pagination">
-        <button
-          class="btn-outline"
-          disabled={currentPage <= 1}
-          onclick={() => { currentPage = currentPage - 1; loadRunners(); }}
-        >
-          {t('common.previous') || 'Previous'}
-        </button>
-        <span class="page-info">Page {currentPage} of {totalPages}</span>
-        <button
-          class="btn-outline"
-          disabled={currentPage >= totalPages}
-          onclick={() => { currentPage = currentPage + 1; loadRunners(); }}
-        >
-          {t('common.next') || 'Next'}
-        </button>
-      </div>
-    {/if}
-  {/if}
-</div>
+  <a class="btn-primary" href="/admin/runners">{t('admin.runners.open_admin')}</a>
+</section>
 
 <style>
-
-  .page-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 24px;
-  }
-
-  h1 {
-    font-size: 24px;
-    font-weight: 600;
-  }
-.register-card {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 20px;
-    margin-bottom: 24px;
-  }
-
-  h2 {
-    font-size: 18px;
-    font-weight: 600;
-    margin: 0 0 16px 0;
-  }
-
-  .form-group {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    margin-bottom: 12px;
-  }
-
-  .form-group label {
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--text-secondary);
-    text-transform: uppercase;
-  }
-
-  .form-group input {
-    padding: 6px 12px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--bg-primary);
-    color: var(--text-primary);
-    font-size: 14px;
-  }
-
-  .btn-primary {
-    padding: 6px 16px;
-    background: var(--orange);
-    color: #fff;
-    border: none;
-    border-radius: var(--radius);
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-    text-decoration: none;
-  }
-  .btn-primary:hover { background: #e09a1e; text-decoration: none; }
-  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
-  .btn-secondary {
-    padding: 6px 12px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--bg-primary);
-    color: var(--text-primary);
-    font-size: 14px;
-    cursor: pointer;
-  }
-
-  .token-banner {
+  .panel {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
-    gap: 16px;
-    padding: 14px 16px;
-    margin-bottom: 16px;
-    border: 1px solid color-mix(in srgb, var(--green) 35%, var(--border));
-    border-radius: var(--radius);
-    background: color-mix(in srgb, var(--green) 10%, var(--bg-secondary));
-  }
-
-  .token-banner p {
-    margin: 4px 0 8px;
-    color: var(--text-secondary);
-    font-size: 13px;
-  }
-
-  .token-banner code {
-    display: block;
-    max-width: min(620px, 100%);
-    padding: 8px 10px;
-    overflow-wrap: anywhere;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--bg-primary);
-    color: var(--text-primary);
-    font-size: 13px;
-  }
-
-  .loading-text {
-    color: var(--text-secondary);
-    text-align: center;
-    padding: 48px;
-  }
-
-  .empty {
-    text-align: center;
-    padding: 48px;
-    color: var(--text-secondary);
+    gap: 1rem;
+    padding: 1rem;
     background: var(--bg-secondary);
     border: 1px solid var(--border);
-    border-radius: var(--radius);
+    border-radius: 8px;
   }
 
-  .runner-list {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
+  h1 {
+    margin: 0 0 0.5rem;
+    font-size: 1.25rem;
   }
 
-  .runner-card {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 16px;
+  p {
+    margin: 0;
+    color: var(--text-secondary);
+    line-height: 1.5;
   }
 
-  .runner-header {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 8px;
-  }
-
-  .runner-name {
-    font-size: 16px;
-    font-weight: 600;
-    color: var(--text-primary);
-  }
-
-  .runner-status {
-    padding: 2px 8px;
-    border-radius: 10px;
-    font-size: 12px;
-    font-weight: 600;
-    background: var(--bg-tertiary);
-    color: var(--text-muted);
-  }
-  .runner-status.online {
-    background: var(--green-dim);
+  .btn-primary {
+    flex-shrink: 0;
+    padding: 0.5rem 0.75rem;
+    background: var(--accent);
     color: #fff;
-  }
-
-  .runner-labels {
-    display: flex;
-    gap: 6px;
-    flex-wrap: wrap;
-    margin-bottom: 8px;
-  }
-
-  .label-badge {
-    padding: 2px 8px;
-    border-radius: 10px;
-    font-size: 12px;
+    border-radius: 6px;
+    text-decoration: none;
     font-weight: 600;
-    background: var(--bg-tertiary);
-    color: var(--text-secondary);
   }
 
-  .runner-meta {
-    display: flex;
-    gap: 16px;
-    font-size: 13px;
-    color: var(--text-muted);
-    margin-bottom: 12px;
+  .btn-primary:hover {
+    text-decoration: none;
+    filter: brightness(1.05);
   }
 
-  .runner-actions {
-    display: flex;
-    gap: 8px;
-  }
-
-  .btn-danger {
-    padding: 5px 12px;
-    background: var(--red-dim);
-    border: 1px solid var(--red);
-    border-radius: var(--radius);
-    color: #fff;
-    font-size: 13px;
-    cursor: pointer;
-  }
-  .btn-danger:hover { background: var(--red); }
-
-  .btn-sm {
-    padding: 4px 10px;
-    font-size: 12px;
-  }
-
-  .pagination {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 16px;
-    margin-top: 24px;
-  }
-
-  .btn-outline {
-    padding: 5px 12px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    color: var(--text-primary);
-    font-size: 13px;
-    cursor: pointer;
-  }
-  .btn-outline:hover { background: var(--bg-hover); }
-  .btn-outline:disabled { opacity: 0.5; cursor: not-allowed; }
-
-  .page-info {
-    font-size: 14px;
-    color: var(--text-secondary);
-  }
-
-  @media (max-width: 600px) {
-    .page-header {
+  @media (max-width: 640px) {
+    .panel {
       flex-direction: column;
-      align-items: flex-start;
-      gap: 12px;
     }
   }
 </style>

@@ -2,6 +2,7 @@
   import { repos } from '$lib/api/client.svelte';
   import { createT, formatDate } from '$lib/i18n';
   import { page } from '$app/stores';
+  import RepoHeader from '$lib/components/RepoHeader.svelte';
 
   const t = createT();
   
@@ -41,6 +42,8 @@
 </svelte:head>
 
 <div class="page-container">
+  <RepoHeader {owner} {repo} activeTab="commits" />
+
   <h1>{t('repo.tabs.commits')}</h1>
   
   {#if error}

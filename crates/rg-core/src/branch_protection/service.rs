@@ -75,6 +75,21 @@ pub async fn get_protection(
         .context("protection rule not found")
 }
 
+/// Get a branch protection rule by ID, scoped to a repository route.
+pub async fn get_protection_for_repo(
+    db: &DatabaseConnection,
+    owner: &str,
+    repo_name: &str,
+    protection_id: i64,
+) -> Result<ProtectedBranch> {
+    let repo = resolve_repo(db, owner, repo_name).await?;
+    let protection = get_protection(db, protection_id).await?;
+    if protection.repo_id != repo.id {
+        bail!("protection rule not found");
+    }
+    Ok(protection)
+}
+
 /// Update a branch protection rule.
 #[allow(clippy::too_many_arguments)]
 pub async fn update_protection(
@@ -119,9 +134,50 @@ pub async fn update_protection(
     protected_branch_ops::update(db, active).await
 }
 
+/// Update a branch protection rule, scoped to a repository route.
+#[allow(clippy::too_many_arguments)]
+pub async fn update_protection_for_repo(
+    db: &DatabaseConnection,
+    owner: &str,
+    repo_name: &str,
+    protection_id: i64,
+    require_pr: Option<bool>,
+    require_status_check: Option<bool>,
+    required_status_checks: Option<Vec<String>>,
+    require_approval: Option<bool>,
+    required_approvals: Option<i64>,
+    allow_force_push: Option<bool>,
+    allowed_push_user_ids: Option<Vec<i64>>,
+) -> Result<ProtectedBranch> {
+    get_protection_for_repo(db, owner, repo_name, protection_id).await?;
+    update_protection(
+        db,
+        protection_id,
+        require_pr,
+        require_status_check,
+        required_status_checks,
+        require_approval,
+        required_approvals,
+        allow_force_push,
+        allowed_push_user_ids,
+    )
+    .await
+}
+
 /// Delete a branch protection rule.
 pub async fn delete_protection(db: &DatabaseConnection, protection_id: i64) -> Result<()> {
     protected_branch_ops::delete_by_id(db, protection_id).await
+}
+
+/// Delete a branch protection rule, scoped to a repository route.
+pub async fn delete_protection_for_repo(
+    db: &DatabaseConnection,
+    owner: &str,
+    repo_name: &str,
+    protection_id: i64,
+) -> Result<()> {
+    get_protection_for_repo(db, owner, repo_name, protection_id).await?;
+    delete_protection(db, protection_id).await
 }
 
 /// Check if a push to a branch is allowed.

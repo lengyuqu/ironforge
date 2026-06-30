@@ -16,7 +16,7 @@ const client = readFileSync(clientPath, 'utf8');
 const page = readFileSync(pagePath, 'utf8');
 const formatPage = readFileSync(formatPagePath, 'utf8');
 const uploadPage = readFileSync(uploadPath, 'utf8');
-const detailPagePath = path.join(root, 'web/src/routes/[owner]/[repo]/packages/[format]/[name]/+page.svelte');
+const detailPagePath = path.join(root, 'web/src/routes/[owner]/[repo]/packages/[format]/[...name]/+page.svelte');
 const detailPage = readFileSync(detailPagePath, 'utf8');
 const packageFormats = readFileSync(packageFormatsPath, 'utf8');
 const backendPackageService = readFileSync(backendPackageServicePath, 'utf8');
@@ -89,8 +89,12 @@ if (!/packages\.list\([\s\S]*searchQuery[\s\S]*\)/.test(page)) {
   failures.push('Packages page must pass searchQuery into packages.list');
 }
 
-if (!/function\s+packageHref\s*\([\s\S]*encodeURIComponent\(pkg\.format\)[\s\S]*encodeURIComponent\(pkg\.name\)/.test(page)) {
-  failures.push('Packages page must encode package format and name in detail links');
+if (!/function\s+encodePackageRouteName\s*\(\s*name:\s*string\s*\)[\s\S]*name\.split\(['"]\/['"]\)\.map\(encodeURIComponent\)\.join\(['"]\/['"]\)/.test(page)) {
+  failures.push('Packages page must encode package name segments while preserving slash separators for scoped names');
+}
+
+if (!/function\s+packageHref\s*\([\s\S]*encodeURIComponent\(pkg\.format\)[\s\S]*encodePackageRouteName\(pkg\.name\)/.test(page)) {
+  failures.push('Packages page must use catch-all-safe package name links');
 }
 
 if (/href="\/\{owner\}\/\{repo\}\/packages\/upload"/.test(page)) {
@@ -101,8 +105,20 @@ if (!/href=\{`\/\$\{owner\}\/\$\{repo\}\/packages\/upload`\}/.test(page)) {
   failures.push('Packages page upload link must point to the current repository upload route');
 }
 
-if (!/function\s+packageHref\s*\([\s\S]*encodeURIComponent\(format!\)[\s\S]*encodeURIComponent\(pkg\.name\)/.test(formatPage)) {
-  failures.push('Package format page must encode package names in detail links');
+if (!/function\s+encodePackageRouteName\s*\(\s*name:\s*string\s*\)[\s\S]*name\.split\(['"]\/['"]\)\.map\(encodeURIComponent\)\.join\(['"]\/['"]\)/.test(formatPage)) {
+  failures.push('Package format page must encode package name segments while preserving slash separators for scoped names');
+}
+
+if (!/function\s+packageHref\s*\([\s\S]*encodeURIComponent\(format!\)[\s\S]*encodePackageRouteName\(pkg\.name\)/.test(formatPage)) {
+  failures.push('Package format page must use catch-all-safe package name links');
+}
+
+if (/encodeURIComponent\(pkg\.name\)/.test(page + formatPage)) {
+  failures.push('Package list pages must not encode scoped package names into one path segment');
+}
+
+if (!detailPagePath.includes('[...name]')) {
+  failures.push('Package detail route must use a rest parameter so scoped package names containing slashes are routable');
 }
 
 if (/href="\/\{owner\}\/\{repo\}\/packages\/\{[^"]*\}\//.test(page + formatPage)) {
@@ -115,6 +131,10 @@ if (!/packageDownloadUrl\(version\.version,\s*file\.filename\)/.test(detailPage)
 
 if (!/version\.files[\s\S]*file\.filename/.test(detailPage)) {
   failures.push('Package detail page must render backend package version files');
+}
+
+if (!/handleDeleteVersion[\s\S]*packages\.delete\([\s\S]*await\s+loadPackage\(\)/.test(detailPage)) {
+  failures.push('Package detail page must reload package detail after deleting a version so latest_version stays in sync');
 }
 
 const backendTypes = extractBackendPackageTypes(backendPackageService);

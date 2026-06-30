@@ -1,6 +1,7 @@
 <script lang="ts">
   import { page } from '$app/stores';
   import { repos } from '$lib/api/client.svelte';
+  import RepoHeader from '$lib/components/RepoHeader.svelte';
 
   // Svelte 5 runes
   let owner = $derived($page.params.owner!);
@@ -130,7 +131,10 @@
   }
 </script>
 
-<div class="commit-status-page">
+<div class="page-container">
+  <RepoHeader {owner} {repo} activeTab="commits" />
+
+  <div class="commit-status-page">
   {#if loading}
     <div class="loading-container">
       <div class="spinner"></div>
@@ -217,13 +221,11 @@
       {/if}
     </div>
   {/if}
+  </div>
 </div>
 
 <style>
   .commit-status-page {
-    max-width: 1200px;
-    margin: 0 auto;
-    padding: 2rem;
     color: var(--text-primary);
   }
 
@@ -441,10 +443,6 @@
 
   /* Responsive */
   @media (max-width: 900px) {
-    .commit-status-page {
-      padding: 1rem;
-    }
-
     .commit-header {
       flex-direction: column;
       gap: 0.5rem;

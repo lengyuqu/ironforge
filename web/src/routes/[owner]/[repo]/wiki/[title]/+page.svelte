@@ -10,7 +10,7 @@
 
   let owner = $derived($page.params.owner!);
   let repo = $derived($page.params.repo!);
-  let title = $derived(decodeURIComponent($page.params.title!));
+  let title = $derived($page.params.title!);
   let wikiPage = $state<any>(null);
   let allPages = $state<any[]>([]);
   let loading = $state(true);

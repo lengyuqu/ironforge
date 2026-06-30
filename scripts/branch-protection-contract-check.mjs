@@ -45,6 +45,20 @@ if (!/settings\/branches/.test(settingsLayout)) {
   failures.push('Repository settings nav must expose the branch protection page');
 }
 
+if (!/Path\(\(owner,\s*repo,\s*id\)\):\s*Path<\(String,\s*String,\s*i64\)>/.test(backend)) {
+  failures.push('Branch protection get/update/delete handlers must destructure owner, repo, and rule id from the route.');
+}
+
+for (const call of [
+  'get_protection_for_repo(',
+  'update_protection_for_repo(',
+  'delete_protection_for_repo(',
+]) {
+  if (!backend.includes(call)) {
+    failures.push(`Branch protection backend must scope routed rule ids with ${call}`);
+  }
+}
+
 for (const call of [
   'branchProtections.list(',
   'branchProtections.create(',

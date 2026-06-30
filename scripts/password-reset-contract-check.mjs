@@ -44,6 +44,8 @@ expect(resetPage, /\[a-z\]/, 'Reset page must require a lowercase letter before 
 expect(resetPage, /\[0-9\]/, 'Reset page must require a digit before submitting');
 expect(resetPage, /specialChars\.test\(value\)/, 'Reset page must require a special character before submitting');
 expect(resetPage, /auth\.resetPassword\(token,\s*password\)/, 'Reset page must still call the reset-password API after validation');
+expect(resetPage, /import\s*\{\s*fetchUser\s*\}\s*from\s*['"]\$lib\/stores\/auth\.svelte['"]/, 'Reset page must import the auth-store profile refresh helper');
+expect(resetPage, /setToken\(res\.token\)[\s\S]*await\s+fetchUser\(\)/, 'Reset page must refresh the auth store after storing the reset JWT');
 expect(loginPage, /href="\/forgot-password"/, 'Login page must link to the password reset request page');
 expect(forgotPage, /auth\.forgotPassword\(/, 'Forgot password page must call the forgot-password API');
 expect(forgotPage, /type="email"/, 'Forgot password page must collect an email address');

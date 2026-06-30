@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { auth } from '$lib/api/client.svelte';
   import { setToken } from '$lib/api/client.svelte';
+  import { fetchUser } from '$lib/stores/auth.svelte';
 
   let token = $state('');
   let password = $state('');
@@ -39,6 +40,7 @@
     try {
       const res = await auth.resetPassword(token, password);
       setToken(res.token);
+      await fetchUser();
       success = true;
     } catch (e: any) {
       localError = e.message || 'Failed to reset password';

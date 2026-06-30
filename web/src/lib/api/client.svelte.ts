@@ -167,6 +167,13 @@ export interface AuthLoginResponse {
   mfa_required?: boolean;
 }
 
+export interface PublicSsoProvider {
+  slug: string;
+  name: string;
+  provider_type: string;
+  icon_url: string | null;
+}
+
 export function getToken(): string | null {
   if (typeof window === 'undefined') return null;
   return authToken || localStorage.getItem('ironforge_token');
@@ -400,6 +407,10 @@ export const auth = {
       method: 'POST',
       body: JSON.stringify({ token, new_password: newPassword }),
     }),
+  listSsoProviders: () =>
+    request<PublicSsoProvider[]>('/auth/sso/providers'),
+  ssoAuthorizeUrl: (slug: string) =>
+    withApiBase(`/auth/sso/${encodeURIComponent(slug)}`),
 };
 
 // ── Repos ────────────────────────────────────────────
@@ -662,11 +673,20 @@ export const wiki = {
 export const collaborators = {
   list: (owner: string, repo: string) =>
     request<any[]>(`/repos/${owner}/${repo}/collaborators`),
-  add: (owner: string, repo: string, userId: number, permission: string) =>
-    request<any>(`/repos/${owner}/${repo}/collaborators`, {
+  add: (owner: string, repo: string, userIdentifier: number | string, permission: string) => {
+    const raw = String(userIdentifier).trim();
+    const numericId = typeof userIdentifier === 'number' || /^\d+$/.test(raw) ? Number(raw) : null;
+    const payload =
+      numericId && Number.isInteger(numericId) && numericId > 0
+        ? { user_id: numericId, permission }
+        : raw.includes('@')
+          ? { email: raw, permission }
+          : { username: raw, permission };
+    return request<any>(`/repos/${owner}/${repo}/collaborators`, {
       method: 'POST',
-      body: JSON.stringify({ user_id: userId, permission }),
-    }),
+      body: JSON.stringify(payload),
+    });
+  },
   updatePermission: (owner: string, repo: string, id: number, permission: string) =>
     request<any>(`/repos/${owner}/${repo}/collaborators/${id}`, {
       method: 'PATCH',
@@ -761,9 +781,65 @@ export const mirrors = {
     request<{ status: string }>(`/repos/${owner}/${repo}/mirror/sync`, { method: 'POST' }),
 };
 
+// ── Repository Webhooks ──────────────────────────────
+export interface RepositoryWebhook {
+  id: number;
+  repo_id: number;
+  url: string;
+  content_type: 'json' | 'form' | string;
+  secret: string | null;
+  active: boolean;
+  events: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WebhookDelivery {
+  id: number;
+  webhook_id: number;
+  event: string;
+  delivery_id: string;
+  response_status: number | null;
+  request_payload: string | null;
+  response_body: string | null;
+  duration_ms: number | null;
+  created_at: string;
+}
+
+export interface WebhookPayload {
+  url: string;
+  content_type?: 'json' | 'form';
+  secret?: string;
+  active?: boolean;
+  events: string[];
+}
+
+export const webhooks = {
+  list: (owner: string, repo: string) =>
+    request<RepositoryWebhook[]>(`/repos/${owner}/${repo}/hooks`),
+  create: (owner: string, repo: string, payload: WebhookPayload) =>
+    request<RepositoryWebhook>(`/repos/${owner}/${repo}/hooks`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  get: (owner: string, repo: string, id: number) =>
+    request<RepositoryWebhook>(`/repos/${owner}/${repo}/hooks/${id}`),
+  update: (owner: string, repo: string, id: number, payload: Partial<WebhookPayload>) =>
+    request<RepositoryWebhook>(`/repos/${owner}/${repo}/hooks/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+  remove: (owner: string, repo: string, id: number) =>
+    request<void>(`/repos/${owner}/${repo}/hooks/${id}`, { method: 'DELETE' }),
+  deliveries: (owner: string, repo: string, id: number) =>
+    request<WebhookDelivery[]>(`/repos/${owner}/${repo}/hooks/${id}/deliveries`),
+  redeliver: (owner: string, repo: string, id: number, deliveryId: number) =>
+    request<{ message: string }>(`/repos/${owner}/${repo}/hooks/${id}/deliveries/${deliveryId}/redeliver`, { method: 'POST' }),
+};
+
 // ── Repository Imports ───────────────────────────────
 export interface StartImportPayload {
-  platform: 'github' | 'gitlab';
+  platform: 'github' | 'gitlab' | 'gitea' | 'git';
   source_url: string;
   target_owner: string;
   target_name?: string;
@@ -780,13 +856,16 @@ export interface StartImportPayload {
 export interface ImportTask {
   id: number;
   user_id: number;
+  repo_id: number | null;
   platform: string;
   source_url: string;
   target_owner: string;
   target_name: string;
   status: string;
   progress: number;
-  error_message: string | null;
+  stage: string | null;
+  error: string | null;
+  stats: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -1292,11 +1371,19 @@ export const packages = {
       headers,
     } as RequestInit);
   },
-  create: (owner: string, repo: string, pkg_type: string, data: { name: string; version: string; description?: string; content_type?: string; file?: File }) =>
-    request<any>(`/repos/${owner}/${repo}/packages/${encodeURIComponent(pkg_type)}/publish`, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    }),
+  create: (owner: string, repo: string, pkg_type: string, data: { name: string; version: string; description?: string; homepage?: string; repository_url?: string; semver?: string; file?: File }) => {
+    if (!data.file) {
+      throw new Error('Package file is required');
+    }
+    return packages.publish(owner, repo, pkg_type, data.file, {
+      name: data.name,
+      version: data.version,
+      description: data.description,
+      homepage: data.homepage,
+      repository_url: data.repository_url,
+      semver: data.semver,
+    });
+  },
   delete: (owner: string, repo: string, pkg_type: string, pkg_name: string, version: string) =>
     request<void>(`/repos/${owner}/${repo}/packages/${encodeURIComponent(pkg_type)}/${encodeURIComponent(pkg_name)}/${encodeURIComponent(version)}`, { method: 'DELETE' }),
 };
@@ -1350,14 +1437,14 @@ export const boards = {
   update: (owner: string, repo: string, id: number, data: { name?: string; description?: string }) =>
     request<any>(`/repos/${owner}/${repo}/boards/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   delete: (owner: string, repo: string, id: number) =>
-    request<{ deleted: boolean }>(`/repos/${owner}/${repo}/boards/${id}`, { method: 'DELETE' }),
+    request<void>(`/repos/${owner}/${repo}/boards/${id}`, { method: 'DELETE' }),
   // Column CRUD
   createColumn: (owner: string, repo: string, boardId: number, data: { name: string }) =>
     request<any>(`/repos/${owner}/${repo}/boards/${boardId}/columns`, { method: 'POST', body: JSON.stringify(data) }),
   updateColumn: (owner: string, repo: string, boardId: number, colId: number, data: { name?: string }) =>
     request<any>(`/repos/${owner}/${repo}/boards/${boardId}/columns/${colId}`, { method: 'PATCH', body: JSON.stringify(data) }),
   deleteColumn: (owner: string, repo: string, boardId: number, colId: number) =>
-    request<{ deleted: boolean }>(`/repos/${owner}/${repo}/boards/${boardId}/columns/${colId}`, { method: 'DELETE' }),
+    request<void>(`/repos/${owner}/${repo}/boards/${boardId}/columns/${colId}`, { method: 'DELETE' }),
   // Card CRUD
   createCard: (owner: string, repo: string, boardId: number, colId: number, data: { note?: string; issue_id?: number }) =>
     request<any>(`/repos/${owner}/${repo}/boards/${boardId}/columns/${colId}/cards`, { method: 'POST', body: JSON.stringify(data) }),
@@ -1368,7 +1455,7 @@ export const boards = {
   reorderCards: (owner: string, repo: string, boardId: number, data: { positions: [number, number][] }) =>
     request<{ status: string }>(`/repos/${owner}/${repo}/boards/${boardId}/cards/reorder`, { method: 'POST', body: JSON.stringify(data) }),
   deleteCard: (owner: string, repo: string, boardId: number, cardId: number) =>
-    request<{ deleted: boolean }>(`/repos/${owner}/${repo}/boards/${boardId}/cards/${cardId}`, { method: 'DELETE' }),
+    request<void>(`/repos/${owner}/${repo}/boards/${boardId}/cards/${cardId}`, { method: 'DELETE' }),
 };
 
 export function connectNotificationWebSocket(

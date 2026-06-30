@@ -125,7 +125,7 @@
   function highlightCode() {
     try {
       import('highlight.js').then((hljs) => {
-        const blocks = document.querySelectorAll('pre code.hljs-code');
+        const blocks = document.querySelectorAll('.code-view code.hljs-code');
         blocks.forEach((block) => {
           hljs.default.highlightElement(block as HTMLElement);
         });

@@ -2,7 +2,7 @@
   import { createT } from '$lib/i18n';
   import { getUser, isLoggedIn } from '$lib/stores/auth.svelte';
   import { repos } from '$lib/api/client.svelte';
-  import { downloadApiFile, withBackendBase } from '$lib/api/_base';
+  import { buildSshCloneUrl, downloadApiFile, withBackendBase } from '$lib/api/_base';
   import { goto } from '$app/navigation';
   import { browser } from '$app/environment';
 
@@ -25,6 +25,10 @@
   let starsLocalCount = $state(0);
   let archiveRef = $state('main');
   let downloadingArchive = $state(false);
+  let forkError = $state('');
+  let forkSuccess = $state('');
+  let currentUsername = $derived(getUser()?.username || '');
+  let isOwnRepo = $derived(Boolean(currentUsername) && currentUsername === owner);
 
   // Sync when prop changes
   $effect(() => {
@@ -41,7 +45,7 @@
   let sshCopied = $state(false);
 
   let httpCloneUrl = $derived(withBackendBase(`/git/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`));
-  let sshCloneUrl = $derived(browser ? `git@${location.hostname}:${owner}/${repo}.git` : '');
+  let sshCloneUrl = $derived(browser ? buildSshCloneUrl(owner, repo, location.hostname) : '');
 
   function copyUrl(url: string) {
     navigator.clipboard.writeText(url);
@@ -174,23 +178,39 @@
   }
 
   async function handleFork() {
-    if (!isLoggedIn()) return;
+    forkError = '';
+    forkSuccess = '';
 
-    const prevForking = forking;
+    if (!isLoggedIn()) {
+      forkError = '请先登录后再复刻仓库。';
+      return;
+    }
+
+    if (isOwnRepo) {
+      forkError = '不能复刻自己名下的同名仓库。';
+      return;
+    }
+
     forking = true;
 
     try {
       const result = await repos.fork(owner, repo);
-      // Fork returns 202, navigate to the new repo
-      // The result should contain the new repo info
-      const user = getUser();
-      if (user?.username) {
-        goto(`/${user.username}/${repo}`);
+      const forkOwner = result?.owner?.username || result?.owner_name || result?.owner || getUser()?.username;
+      const forkName = result?.name || repo;
+      forkSuccess = '仓库复刻成功，正在跳转...';
+      if (forkOwner) {
+        goto(`/${forkOwner}/${forkName}`);
       }
-    } catch {
-      // Revert on error
+    } catch (e: any) {
+      forkError = e?.message || '复刻仓库失败。';
       forking = false;
     }
+  }
+
+  function getForkTitle() {
+    if (!isLoggedIn()) return 'Login to fork';
+    if (isOwnRepo) return '不能复刻自己名下的同名仓库';
+    return forking ? t('repo.forking') : t('repo.fork');
   }
 
   function getWatchLabel() {
@@ -264,10 +284,11 @@
       <button
         class="action-btn btn btn-outline btn-sm fork-btn"
         class:loading={forking}
-        class:disabled={!isLoggedIn()}
+        class:disabled={!isLoggedIn() || isOwnRepo}
         onclick={handleFork}
         disabled={forking || !isLoggedIn()}
-        title={isLoggedIn() ? (forking ? t('repo.forking') : t('repo.fork')) : 'Login to fork'}
+        title={getForkTitle()}
+        aria-label={getForkTitle()}
       >
         <span class="fork-icon">⚡</span>
         <span class="label">{forking ? t('repo.forking') : t('repo.fork')}</span>
@@ -369,6 +390,12 @@
     </div>
   </div>
 
+  {#if forkError}
+    <div class="repo-action-message error" role="alert">{forkError}</div>
+  {:else if forkSuccess}
+    <div class="repo-action-message success" role="status">{forkSuccess}</div>
+  {/if}
+
   <nav class="repo-tabs">
     {#each tabs as tab}
       <a
@@ -453,6 +480,25 @@
     cursor: wait;
   }
 
+  .repo-action-message {
+    margin: 4px 0 12px;
+    padding: 8px 12px;
+    border-radius: var(--radius);
+    font-size: 13px;
+  }
+
+  .repo-action-message.error {
+    background: rgba(248, 81, 73, 0.12);
+    border: 1px solid var(--red-dim);
+    color: var(--red);
+  }
+
+  .repo-action-message.success {
+    background: rgba(63, 185, 80, 0.12);
+    border: 1px solid rgba(63, 185, 80, 0.25);
+    color: var(--green);
+  }
+
   .star-icon,
   .watch-icon,
   .fork-icon {
@@ -470,8 +516,9 @@
 
   .repo-tabs {
     display: flex;
+    flex-wrap: wrap;
     gap: 0;
-    overflow-x: auto;
+    overflow: visible;
   }
 
   .tab {

@@ -17,6 +17,8 @@ const backend = readFileSync(backendPath, 'utf8');
 const router = readFileSync(routerPath, 'utf8');
 const header = readFileSync(headerPath, 'utf8');
 const repoPage = readFileSync(repoPagePath, 'utf8');
+const basePath = path.join(root, 'web/src/lib/api/_base.svelte.ts');
+const base = readFileSync(basePath, 'utf8');
 const failures = [];
 
 for (const route of [
@@ -100,7 +102,7 @@ if (!/repos\.watchStatus\(owner,\s*repo\)/.test(header)) {
   failures.push('RepoHeader must load watch status from the backend before rendering the watch action');
 }
 
-if (!/import\s+\{\s*API_BASE,\s*withBackendBase\s*\}\s+from '\$lib\/api\/_base'/.test(header)) {
+if (!/import\s+\{[^}]*withBackendBase[^}]*\}\s+from '\$lib\/api\/_base'/.test(header)) {
   failures.push('RepoHeader must import withBackendBase so clone URLs use the configured backend origin');
 }
 
@@ -118,7 +120,21 @@ if (/\.git/.test(httpCloneLine)) {
   failures.push('RepoHeader HTTP clone URL must not append .git to the backend /git/{owner}/{repo} path');
 }
 
-if (!/import\s+\{\s*withBackendBase\s*\}\s+from '\$lib\/api\/_base'/.test(repoPage)) {
+if (!/import\s+\{[^}]*buildSshCloneUrl[^}]*\}\s+from '\$lib\/api\/_base'/.test(header)) {
+  failures.push('RepoHeader must use the shared SSH clone URL helper');
+}
+
+if (!/sshCloneUrl\s*=\s*\$derived\(browser\s*\?\s*buildSshCloneUrl\(owner,\s*repo,\s*location\.hostname\)\s*:\s*''\)/.test(header)) {
+  failures.push('RepoHeader SSH clone URL must use ssh://git@host:port/{owner}/{repo}');
+}
+
+const sshCloneLine = header.match(/sshCloneUrl\s*=\s*\$derived\([^\n]+\)/)?.[0] || '';
+
+if (/git@[^`]*:\$\{owner\}\/\$\{repo\}\.git/.test(sshCloneLine)) {
+  failures.push('RepoHeader SSH clone URL must not use scp-like default-port syntax with .git suffix');
+}
+
+if (!/import\s+\{[^}]*withBackendBase[^}]*\}\s+from '\$lib\/api\/_base'/.test(repoPage)) {
   failures.push('Repository page must import withBackendBase for empty-repo HTTP clone instructions');
 }
 
@@ -134,6 +150,32 @@ if (/location\.(protocol|host)/.test(repoPageHttpCloneLine)) {
 
 if (/\.git/.test(repoPageHttpCloneLine)) {
   failures.push('Repository empty state HTTP clone URL must not append .git to the backend /git/{owner}/{repo} path');
+}
+
+if (!/import\s+\{[^}]*buildSshCloneUrl[^}]*\}\s+from '\$lib\/api\/_base'/.test(repoPage)) {
+  failures.push('Repository page must use the shared SSH clone URL helper');
+}
+
+if (!/sshCloneUrl\s*=\s*\$derived\(browser\s*\?\s*buildSshCloneUrl\(owner,\s*repo,\s*location\.hostname\)\s*:\s*''\)/.test(repoPage)) {
+  failures.push('Repository empty state SSH clone URL must use ssh://git@host:port/{owner}/{repo}');
+}
+
+const repoPageSshCloneLine = repoPage.match(/sshCloneUrl\s*=\s*\$derived\([^\n]+\)/)?.[0] || '';
+
+if (/git@[^`]*:\$\{owner\}\/\$\{repo\}\.git/.test(repoPageSshCloneLine)) {
+  failures.push('Repository empty state SSH clone URL must not use scp-like default-port syntax with .git suffix');
+}
+
+if (!/VITE_SSH_HOST/.test(base) || !/VITE_SSH_PORT/.test(base)) {
+  failures.push('Shared API base must expose configurable SSH clone host and port');
+}
+
+if (!/configuredSshPort\s*\|\|\s*'2222'/.test(base)) {
+  failures.push('Shared SSH clone URL helper must default to IronForge SSH port 2222');
+}
+
+if (!/ssh:\/\/git@/.test(base) || /\.git/.test(base.match(/buildSshCloneUrl[\s\S]*?\n\}/)?.[0] || '')) {
+  failures.push('Shared SSH clone URL helper must emit ssh:// URLs without appending .git');
 }
 
 if (failures.length > 0) {

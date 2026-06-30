@@ -9,7 +9,7 @@
 
   let owner = $derived($page.params.owner!);
   let repo = $derived($page.params.repo!);
-  let title = $derived(decodeURIComponent($page.params.title!));
+  let title = $derived($page.params.title!);
   let revisions = $state<any[]>([]);
   let currentRev = $state<any>(null);
   let loading = $state(true);
@@ -51,7 +51,7 @@
     <div class="breadcrumb">
       <a href={`/${owner}/${repo}/wiki`} class="link">{t('wiki.title')}</a>
       <span class="sep">/</span>
-      <a href={`/${owner}/${repo}/wiki/${title}`} class="link">{title}</a>
+      <a href={`/${owner}/${repo}/wiki/${encodeURIComponent(title)}`} class="link">{title}</a>
       <span class="sep">/</span>
       <span class="current">{t('wiki.history')}</span>
     </div>

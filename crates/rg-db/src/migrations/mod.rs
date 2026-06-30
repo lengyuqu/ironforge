@@ -42,6 +42,7 @@ pub mod m20260616_000002_add_soft_delete_columns;
 pub mod m20260617_000001_create_wiki_revisions;
 pub mod m20260617_000002_rename_board_time_tables_plural;
 pub mod m20260621_000001_add_pr_labels_milestone;
+pub mod m20260629_000001_rename_import_task_plural;
 
 use sea_orm_migration::prelude::*;
 
@@ -95,6 +96,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260617_000001_create_wiki_revisions::Migration),
             Box::new(m20260617_000002_rename_board_time_tables_plural::Migration),
             Box::new(m20260621_000001_add_pr_labels_milestone::Migration),
+            Box::new(m20260629_000001_rename_import_task_plural::Migration),
         ]
     }
 }

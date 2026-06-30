@@ -841,7 +841,7 @@ function dedupeCalls(calls) {
 function inspectFrontendFlowContracts() {
   const packageDetailFile = path.resolve(
     process.cwd(),
-    'web/src/routes/[owner]/[repo]/packages/[format]/[name]/+page.svelte',
+    'web/src/routes/[owner]/[repo]/packages/[format]/[...name]/+page.svelte',
   );
   const authStoreFile = path.resolve(process.cwd(), 'web/src/lib/stores/auth.svelte.ts');
   const loginPageFile = path.resolve(process.cwd(), 'web/src/routes/login/+page.svelte');

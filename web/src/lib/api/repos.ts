@@ -3,6 +3,19 @@ import { request, qs, type PaginatedResponse } from './_base';
 type BranchRefResponse = string | { name: string; is_default?: boolean };
 type TagRefResponse = string | { name: string };
 
+interface CreateRepoOptions {
+  name: string;
+  description?: string;
+  is_private?: boolean;
+  org?: string;
+  auto_init?: boolean;
+  default_branch?: string;
+  gitignores?: string;
+  license?: string;
+  readme?: string;
+  issue_labels?: string;
+}
+
 function encodeRepoPath(path: string): string {
   return path.split('/').map(encodeURIComponent).join('/');
 }
@@ -24,10 +37,10 @@ export const repos = {
     ),
   get: (owner: string, name: string) =>
     request<{ id: number; name: string; description: string | null; is_private: boolean; default_branch: string; created_at: string }>(`/repos/${owner}/${name}`),
-  create: (name: string, description?: string, is_private?: boolean, org?: string) =>
+  create: (opts: CreateRepoOptions) =>
     request<{ id: number; name: string }>('/repos', {
       method: 'POST',
-      body: JSON.stringify({ name, description, is_private, org }),
+      body: JSON.stringify(opts),
     }),
   tree: (owner: string, repo: string, ref?: string, path?: string) =>
     request<{ entries: { name: string; kind: string; size?: number }[] }>(`/repos/${owner}/${repo}/tree${qs({ ref, path })}`),

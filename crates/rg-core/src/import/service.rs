@@ -7,6 +7,8 @@
 //! - Pull/Merge requests with reviews/comments
 //! - Releases
 //!
+//! Generic Git and Gitea imports currently clone the repository only.
+//!
 //! The import runs asynchronously and updates progress in the
 //! import_tasks database table.
 
@@ -57,10 +59,41 @@ pub async fn run_import(
     match task.platform.as_str() {
         "github" => run_github_import(db, task, repo_root, &mut stats).await?,
         "gitlab" => run_gitlab_import(db, task, repo_root, &mut stats).await?,
+        "gitea" | "git" => run_git_import(db, task, repo_root, &mut stats).await?,
         other => anyhow::bail!("unsupported platform: {other}"),
     }
 
     Ok(stats)
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// Generic Git / Gitea import
+// ═══════════════════════════════════════════════════════════════════════
+
+async fn run_git_import(
+    db: &DatabaseConnection,
+    task: &ImportTask,
+    repo_root: &Path,
+    stats: &mut ImportStats,
+) -> Result<()> {
+    let repo_id =
+        resolve_or_create_target_repo(db, &task.target_owner, &task.target_name, repo_root).await?;
+    let _ = import_task_ops::set_repo_id(db, task.id, repo_id).await;
+
+    if task.import_repo {
+        update_stage(db, task.id, "cloning", 0, "Cloning repository...").await?;
+        clone_repo(
+            &task.source_url,
+            repo_root,
+            &task.target_owner,
+            &task.target_name,
+            task.auth_token_encrypted.as_deref().unwrap_or(""),
+        )?;
+        stats.repo_cloned = true;
+        update_stage(db, task.id, "importing", 90, "Repository cloned").await?;
+    }
+
+    Ok(())
 }
 
 async fn load_milestone_map(db: &DatabaseConnection, repo_id: i64) -> Result<HashMap<String, i64>> {
@@ -1307,6 +1340,7 @@ pub async fn start_import(
     repo_root: &Path,
 ) -> Result<ImportTask> {
     let now = Utc::now();
+    let supports_metadata = matches!(platform.as_str(), "github" | "gitlab");
 
     let model = import_task::ActiveModel {
         user_id: Set(user_id),
@@ -1322,12 +1356,12 @@ pub async fn start_import(
         error: Set(None),
         user_mapping: Set(None),
         import_repo: Set(import_repo),
-        import_issues: Set(import_issues),
-        import_pull_requests: Set(import_pull_requests),
-        import_wiki: Set(import_wiki),
-        import_releases: Set(import_releases),
-        import_labels: Set(import_labels),
-        import_milestones: Set(import_milestones),
+        import_issues: Set(supports_metadata && import_issues),
+        import_pull_requests: Set(supports_metadata && import_pull_requests),
+        import_wiki: Set(supports_metadata && import_wiki),
+        import_releases: Set(supports_metadata && import_releases),
+        import_labels: Set(supports_metadata && import_labels),
+        import_milestones: Set(supports_metadata && import_milestones),
         stats: Set(None),
         created_at: Set(now),
         updated_at: Set(now),

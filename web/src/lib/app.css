@@ -57,6 +57,49 @@ code, pre {
   font-size: 13px;
 }
 
+.hljs-keyword,
+.hljs-built_in,
+.hljs-type,
+.hljs-literal,
+.hljs-selector-tag {
+  color: #ff7b72;
+}
+
+.hljs-string,
+.hljs-regexp,
+.hljs-addition,
+.hljs-attribute {
+  color: #a5d6ff;
+}
+
+.hljs-number,
+.hljs-symbol,
+.hljs-variable,
+.hljs-template-variable {
+  color: #79c0ff;
+}
+
+.hljs-comment,
+.hljs-quote {
+  color: #8b949e;
+  font-style: italic;
+}
+
+.hljs-title,
+.hljs-function,
+.hljs-section {
+  color: #d2a8ff;
+}
+
+.hljs-meta,
+.hljs-preprocessor {
+  color: #79c0ff;
+}
+
+.hljs-deletion {
+  color: #ffa198;
+}
+
 pre {
   background: var(--bg-secondary);
   border: 1px solid var(--border);

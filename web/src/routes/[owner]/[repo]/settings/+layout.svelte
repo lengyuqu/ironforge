@@ -1,7 +1,7 @@
 <script lang="ts">
   import { page } from '$app/stores';
-  import { base } from '$app/paths';
   import { createT } from '$lib/i18n';
+  import RepoHeader from '$lib/components/RepoHeader.svelte';
 
   const t = createT();
 
@@ -16,51 +16,54 @@
     { path: `/${owner}/${repo}/settings/labels`, label: t('settings.labels'), icon: '🏷️' },
     { path: `/${owner}/${repo}/settings/branches`, label: t('settings.branch_protection.title'), icon: '🛡️' },
     { path: `/${owner}/${repo}/settings/mirror`, label: t('settings.mirror.title'), icon: '🔁' },
-    { path: `/${owner}/${repo}/settings/collaborators`, label: t('settings.collaborators.title'), icon: '👥' }
+    { path: `/${owner}/${repo}/settings/webhooks`, label: t('settings.webhooks.title', 'Webhooks'), icon: '🔔' },
+    { path: `/${owner}/${repo}/settings/collaborators`, label: t('settings.collaborators.title'), icon: '👥' },
+    { path: `/${owner}/${repo}/settings/runners`, label: t('admin.runners.title'), icon: '🏃' }
   ]);
 
   const currentSection = $derived(navItems.find((item) => item.path === currentPath));
 </script>
 
-<div class="settings-layout">
-  <aside class="sidebar">
-    <nav>
-      {#each navItems as item}
-        <a 
-          href={item.path} 
-          class="nav-item"
-          class:active={currentPath === item.path}
-        >
-          <span class="nav-icon">{item.icon}</span>
-          <span class="nav-label">{item.label}</span>
-        </a>
-      {/each}
-    </nav>
-  </aside>
-  
-  <main class="content">
-    <div class="breadcrumb">
-      <a href={`/${owner}/${repo}`}>{owner}/{repo}</a>
-      <span class="separator">/</span>
-      <span>{t('settings.title')}</span>
-      {#if currentSection && currentSection.path !== `/${owner}/${repo}/settings`}
+<div class="page-container">
+  <RepoHeader {owner} {repo} activeTab="settings" />
+
+  <div class="settings-layout">
+    <aside class="sidebar">
+      <nav>
+        {#each navItems as item}
+          <a
+            href={item.path}
+            class="nav-item"
+            class:active={currentPath === item.path}
+          >
+            <span class="nav-icon">{item.icon}</span>
+            <span class="nav-label">{item.label}</span>
+          </a>
+        {/each}
+      </nav>
+    </aside>
+
+    <main class="content">
+      <div class="breadcrumb">
+        <a href={`/${owner}/${repo}`}>{owner}/{repo}</a>
         <span class="separator">/</span>
-        <span>{currentSection.label}</span>
-      {/if}
-    </div>
-    
-    {@render children()}
-  </main>
+        <span>{t('settings.title')}</span>
+        {#if currentSection && currentSection.path !== `/${owner}/${repo}/settings`}
+          <span class="separator">/</span>
+          <span>{currentSection.label}</span>
+        {/if}
+      </div>
+
+      {@render children()}
+    </main>
+  </div>
 </div>
 
 <style>
   .settings-layout {
     display: flex;
     gap: 2rem;
-    max-width: 1200px;
-    margin: 0 auto;
-    padding: 2rem;
-    min-height: calc(100vh - 60px);
+    min-height: calc(100vh - 220px);
   }
   
   .sidebar {
@@ -130,5 +133,21 @@
   
   .separator {
     color: var(--text-muted);
+  }
+
+  @media (max-width: 760px) {
+    .settings-layout {
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .sidebar {
+      width: 100%;
+    }
+
+    .sidebar nav {
+      flex-direction: row;
+      flex-wrap: wrap;
+    }
   }
 </style>

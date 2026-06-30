@@ -50,8 +50,13 @@
   let error = $state('');
   let conflict = $state(false);
   let initialized = $state(false);
+  let editorTextarea = $state<HTMLTextAreaElement | null>(null);
+  let highlightBackdrop = $state<HTMLPreElement | null>(null);
+  let highlightedContent = $state('');
+  let highlightRequestId = 0;
 
   let isMarkdown = $derived(/\.(md|markdown)$/i.test(filePath));
+  let highlightLanguage = $derived(languageFromPath(filePath));
   let renderedPreview = $derived(isMarkdown ? renderMarkdown(fileContent) : '');
   let diffLines = $derived(buildLineDiff(initialContent, fileContent));
   let changed = $derived(mode === 'create' || initialContent !== fileContent);
@@ -67,6 +72,94 @@
     targetBranch = branch;
     initialized = true;
   });
+
+  $effect(() => {
+    filePath;
+    fileContent;
+    void updateHighlightedContent();
+  });
+
+  function languageFromPath(path: string): string {
+    const ext = path.split('.').pop()?.toLowerCase() || '';
+    const map: Record<string, string> = {
+      c: 'c',
+      h: 'c',
+      cpp: 'cpp',
+      cc: 'cpp',
+      cxx: 'cpp',
+      hpp: 'cpp',
+      rs: 'rust',
+      go: 'go',
+      py: 'python',
+      js: 'javascript',
+      mjs: 'javascript',
+      cjs: 'javascript',
+      ts: 'typescript',
+      jsx: 'javascript',
+      tsx: 'typescript',
+      java: 'java',
+      rb: 'ruby',
+      php: 'php',
+      swift: 'swift',
+      kt: 'kotlin',
+      dart: 'dart',
+      html: 'xml',
+      css: 'css',
+      scss: 'scss',
+      json: 'json',
+      xml: 'xml',
+      yaml: 'yaml',
+      yml: 'yaml',
+      toml: 'ini',
+      sh: 'bash',
+      bash: 'bash',
+      zsh: 'bash',
+      sql: 'sql',
+      dockerfile: 'dockerfile',
+      md: 'markdown',
+      markdown: 'markdown',
+    };
+    return map[ext] || '';
+  }
+
+  function escapeHtml(value: string): string {
+    return value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  async function updateHighlightedContent() {
+    const requestId = ++highlightRequestId;
+    const content = fileContent || ' ';
+    const language = highlightLanguage;
+
+    try {
+      const hljs = await import('highlight.js');
+      if (requestId !== highlightRequestId) return;
+
+      const highlighter = hljs.default;
+      if (language && highlighter.getLanguage(language)) {
+        highlightedContent = highlighter.highlight(content, { language }).value;
+      } else {
+        highlightedContent = highlighter.highlightAuto(content).value;
+      }
+    } catch {
+      if (requestId === highlightRequestId) {
+        highlightedContent = escapeHtml(content);
+      }
+    } finally {
+      syncEditorScroll();
+    }
+  }
+
+  function syncEditorScroll() {
+    if (!editorTextarea || !highlightBackdrop) return;
+    highlightBackdrop.scrollTop = editorTextarea.scrollTop;
+    highlightBackdrop.scrollLeft = editorTextarea.scrollLeft;
+  }
 
   function validatePath(value: string): string {
     const normalized = value.trim();
@@ -192,14 +285,27 @@
     </div>
 
     {#if activeTab === 'edit'}
-      <textarea
-        id="file-content"
-        bind:value={fileContent}
-        class="file-editor"
-        rows="22"
-        placeholder={t('repo.editor.content_placeholder')}
-        disabled={Boolean(disabledReason)}
-      ></textarea>
+      <div class="code-editor-wrap">
+        <pre
+          class="highlight-backdrop"
+          aria-hidden="true"
+          bind:this={highlightBackdrop}
+        ><code class="hljs language-{highlightLanguage}">{@html highlightedContent}</code></pre>
+        <textarea
+          id="file-content"
+          bind:this={editorTextarea}
+          bind:value={fileContent}
+          class="file-editor"
+          rows="22"
+          spellcheck="false"
+          autocapitalize="off"
+          autocomplete="off"
+          autocorrect="off"
+          placeholder={t('repo.editor.content_placeholder')}
+          disabled={Boolean(disabledReason)}
+          onscroll={syncEditorScroll}
+        ></textarea>
+      </div>
     {:else if activeTab === 'preview'}
       <div class="preview-pane">
         {#if isMarkdown}
@@ -365,18 +471,63 @@
     color: var(--text-primary);
   }
 
+  .code-editor-wrap {
+    position: relative;
+    min-height: 520px;
+    background: var(--bg-primary);
+  }
+
+  .highlight-backdrop,
   .file-editor {
     width: 100%;
     min-height: 520px;
     padding: 14px;
+    margin: 0;
     border: none;
-    resize: vertical;
-    background: var(--bg-primary);
-    color: var(--text-primary);
     font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
     font-size: 13px;
     line-height: 1.55;
     tab-size: 4;
+    white-space: pre;
+  }
+
+  .highlight-backdrop {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    color: var(--text-primary);
+    pointer-events: none;
+    user-select: none;
+  }
+
+  .highlight-backdrop code {
+    font-family: inherit;
+    font-size: inherit;
+    line-height: inherit;
+    white-space: pre;
+  }
+
+  .file-editor {
+    position: relative;
+    z-index: 1;
+    resize: vertical;
+    background: transparent;
+    color: transparent;
+    caret-color: var(--text-primary);
+    overflow: auto;
+  }
+
+  .file-editor::selection {
+    background: color-mix(in srgb, var(--accent) 28%, transparent);
+    color: transparent;
+  }
+
+  .file-editor::placeholder {
+    color: var(--text-muted);
+  }
+
+  .file-editor:disabled {
+    opacity: 0.72;
   }
 
   .file-editor:focus,

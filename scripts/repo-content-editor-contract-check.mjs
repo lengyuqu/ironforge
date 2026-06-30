@@ -66,6 +66,14 @@ if (!/blob\/\$\{encodeRepoPath\(filePath\)\}/.test(repoPage)) {
   failures.push('Repository browser blob links must encode file paths before navigating to the blob route.');
 }
 
+if (/ref\s*\|\|\s*['"]main['"]/.test(repoPage)) {
+  failures.push('Repository browser branch selector must not hardcode main when no ref query is selected.');
+}
+
+if (!/currentRefLabel[\s\S]*repoInfo\?\.default_branch[\s\S]*branches\.find\(\(b: any\) => b\.is_default\)\?\.name/.test(repoPage)) {
+  failures.push('Repository browser must display the backend default branch when no ref query is selected.');
+}
+
 if (/href="\/\{owner\}\/\{repo\}\/edit\/\{filePath\}/.test(blobPage)) {
   failures.push('Blob page must not render a literal owner/repo/filePath edit href.');
 }

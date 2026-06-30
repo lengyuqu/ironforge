@@ -4,6 +4,14 @@ const configuredApiBase =
   typeof import.meta !== 'undefined'
     ? (import.meta as { env?: { VITE_API_BASE?: string } }).env?.VITE_API_BASE
     : undefined;
+const configuredSshHost =
+  typeof import.meta !== 'undefined'
+    ? (import.meta as { env?: { VITE_SSH_HOST?: string } }).env?.VITE_SSH_HOST
+    : undefined;
+const configuredSshPort =
+  typeof import.meta !== 'undefined'
+    ? (import.meta as { env?: { VITE_SSH_PORT?: string } }).env?.VITE_SSH_PORT
+    : undefined;
 
 function normalizeApiBase(value?: string): string {
   if (!value) return '/api/v1';
@@ -21,6 +29,22 @@ function withApiBase(path: string): string {
 export function withBackendBase(path: string): string {
   const backendBase = API_BASE.replace(/\/api\/v1$/, '');
   return `${backendBase}${path.startsWith('/') ? path : `/${path}`}`;
+}
+
+function normalizeSshHost(host: string): string {
+  if (host.includes(':') && !host.startsWith('[')) {
+    return `[${host}]`;
+  }
+  return host;
+}
+
+export function buildSshCloneUrl(owner: string, repo: string, fallbackHost?: string): string {
+  const host = (configuredSshHost || fallbackHost || '').trim();
+  if (!host) return '';
+
+  const port = (configuredSshPort || '2222').trim();
+  const portPart = port ? `:${port}` : '';
+  return `ssh://git@${normalizeSshHost(host)}${portPart}/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
 }
 
 let authToken = $state<string | null>(null);

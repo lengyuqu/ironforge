@@ -52,8 +52,12 @@
     loadPackages();
   }
 
+  function encodePackageRouteName(name: string): string {
+    return name.split('/').map(encodeURIComponent).join('/');
+  }
+
   function packageHref(pkg: { format: string; name: string }): string {
-    return `/${owner}/${repo}/packages/${encodeURIComponent(pkg.format)}/${encodeURIComponent(pkg.name)}`;
+    return `/${owner}/${repo}/packages/${encodeURIComponent(pkg.format)}/${encodePackageRouteName(pkg.name)}`;
   }
 </script>
 

@@ -5,12 +5,14 @@ import path from 'node:path';
 
 const root = process.cwd();
 const backendPath = path.join(root, 'crates/rg-http/src/api/imports.rs');
+const entityPath = path.join(root, 'crates/rg-db/src/entities/import_task.rs');
 const routerPath = path.join(root, 'crates/rg-http/src/lib.rs');
 const clientPath = path.join(root, 'web/src/lib/api/client.svelte.ts');
 const navbarPath = path.join(root, 'web/src/lib/components/Navbar.svelte');
 const pagePath = path.join(root, 'web/src/routes/imports/+page.svelte');
 
 const backend = readFileSync(backendPath, 'utf8');
+const entity = readFileSync(entityPath, 'utf8');
 const router = readFileSync(routerPath, 'utf8');
 const client = readFileSync(clientPath, 'utf8');
 const navbar = readFileSync(navbarPath, 'utf8');
@@ -72,6 +74,28 @@ for (const field of [
 ]) {
   if (!client.includes(field) || !page.includes(field)) {
     failures.push(`Import frontend must preserve backend field ${field}`);
+  }
+}
+
+for (const field of ['repo_id', 'stage', 'error', 'stats']) {
+  if (!client.includes(field)) {
+    failures.push(`ImportTask client model must expose backend field ${field}`);
+  }
+}
+
+for (const field of ['task.error', 'task.stage']) {
+  if (!page.includes(field)) {
+    failures.push(`Imports page must render ${field}`);
+  }
+}
+
+if (client.includes('error_message') || page.includes('error_message')) {
+  failures.push('Import frontend must render backend ImportTask.error, not non-existent error_message');
+}
+
+for (const backendField of ['pub repo_id: Option<i64>', 'pub stage: Option<String>', 'pub error: Option<String>', 'pub stats: Option<String>']) {
+  if (!entity.includes(backendField)) {
+    failures.push(`Backend import task contract check could not find ${backendField}`);
   }
 }
 

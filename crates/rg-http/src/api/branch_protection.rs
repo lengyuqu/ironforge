@@ -143,9 +143,13 @@ pub async fn create_protection(
 )]
 pub async fn get_protection(
     State(state): State<AppState>,
-    Path((_owner, _repo, id)): Path<(String, String, i64)>,
+    Path((owner, repo, id)): Path<(String, String, i64)>,
 ) -> impl IntoResponse {
-    match rg_core::branch_protection::service::get_protection(&state.db, id).await {
+    match rg_core::branch_protection::service::get_protection_for_repo(
+        &state.db, &owner, &repo, id,
+    )
+    .await
+    {
         Ok(protection) => (StatusCode::OK, Json(protection)).into_response(),
         Err(e) => AppError::NotFound(e.to_string()).into_response(),
     }
@@ -170,7 +174,7 @@ pub async fn get_protection(
 )]
 pub async fn update_protection(
     State(state): State<AppState>,
-    Path((_owner, _repo, id)): Path<(String, String, i64)>,
+    Path((owner, repo, id)): Path<(String, String, i64)>,
     headers: axum::http::HeaderMap,
     Json(req): Json<UpdateProtectionRequest>,
 ) -> impl IntoResponse {
@@ -178,8 +182,10 @@ pub async fn update_protection(
         return AppError::Unauthorized("authentication required".to_string()).into_response();
     }
 
-    match rg_core::branch_protection::service::update_protection(
+    match rg_core::branch_protection::service::update_protection_for_repo(
         &state.db,
+        &owner,
+        &repo,
         id,
         req.require_pr,
         req.require_status_check,
@@ -215,14 +221,18 @@ pub async fn update_protection(
 )]
 pub async fn delete_protection(
     State(state): State<AppState>,
-    Path((_owner, _repo, id)): Path<(String, String, i64)>,
+    Path((owner, repo, id)): Path<(String, String, i64)>,
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse {
     if super::auth::extract_user_id(&headers, &state.jwt_secret).is_none() {
         return AppError::Unauthorized("authentication required".to_string()).into_response();
     }
 
-    match rg_core::branch_protection::service::delete_protection(&state.db, id).await {
+    match rg_core::branch_protection::service::delete_protection_for_repo(
+        &state.db, &owner, &repo, id,
+    )
+    .await
+    {
         Ok(()) => (StatusCode::NO_CONTENT, Json(serde_json::json!({}))).into_response(),
         Err(e) => AppError::BadRequest(e.to_string()).into_response(),
     }

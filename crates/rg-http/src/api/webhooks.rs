@@ -101,7 +101,7 @@ pub async fn create_webhook(
 )]
 pub async fn get_webhook(
     State(state): State<AppState>,
-    Path((_owner, _repo, id)): Path<(String, String, i64)>,
+    Path((owner, repo, id)): Path<(String, String, i64)>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
     let _user_id = match super::auth::extract_user_id(&headers, &state.jwt_secret) {
@@ -109,10 +109,9 @@ pub async fn get_webhook(
         None => return AppError::unauthorized("unauthorized").into_response(),
     };
 
-    match rg_core::webhook::service::get_webhook(&state.db, id).await {
-        Ok(Some(hook)) => (StatusCode::OK, Json(serde_json::json!(hook))).into_response(),
-        Ok(None) => AppError::not_found("webhook not found").into_response(),
-        Err(e) => AppError::internal(e).into_response(),
+    match resolve_webhook_in_repo(&state.db, &owner, &repo, id).await {
+        Ok(hook) => (StatusCode::OK, Json(serde_json::json!(hook))).into_response(),
+        Err(e) => e.into_response(),
     }
 }
 
@@ -134,7 +133,7 @@ pub async fn get_webhook(
 )]
 pub async fn update_webhook(
     State(state): State<AppState>,
-    Path((_owner, _repo, id)): Path<(String, String, i64)>,
+    Path((owner, repo, id)): Path<(String, String, i64)>,
     headers: HeaderMap,
     Json(body): Json<rg_core::webhook::service::UpdateWebhookRequest>,
 ) -> impl IntoResponse {
@@ -143,10 +142,9 @@ pub async fn update_webhook(
         None => return AppError::unauthorized("unauthorized").into_response(),
     };
 
-    let existing = match rg_core::webhook::service::get_webhook(&state.db, id).await {
-        Ok(Some(h)) => h,
-        Ok(None) => return AppError::not_found("webhook not found").into_response(),
-        Err(e) => return AppError::internal(e).into_response(),
+    let existing = match resolve_webhook_in_repo(&state.db, &owner, &repo, id).await {
+        Ok(hook) => hook,
+        Err(e) => return e.into_response(),
     };
 
     match rg_core::webhook::service::update_webhook(&state.db, &existing, &body).await {
@@ -173,13 +171,17 @@ pub async fn update_webhook(
 )]
 pub async fn delete_webhook(
     State(state): State<AppState>,
-    Path((_owner, _repo, id)): Path<(String, String, i64)>,
+    Path((owner, repo, id)): Path<(String, String, i64)>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
     let _user_id = match super::auth::extract_user_id(&headers, &state.jwt_secret) {
         Some(id) => id,
         None => return AppError::unauthorized("unauthorized").into_response(),
     };
+
+    if let Err(e) = resolve_webhook_in_repo(&state.db, &owner, &repo, id).await {
+        return e.into_response();
+    }
 
     match rg_core::webhook::service::delete_webhook(&state.db, id).await {
         Ok(()) => (
@@ -208,13 +210,17 @@ pub async fn delete_webhook(
 )]
 pub async fn list_deliveries(
     State(state): State<AppState>,
-    Path((_owner, _repo, id)): Path<(String, String, i64)>,
+    Path((owner, repo, id)): Path<(String, String, i64)>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
     let _user_id = match super::auth::extract_user_id(&headers, &state.jwt_secret) {
         Some(id) => id,
         None => return AppError::unauthorized("unauthorized").into_response(),
     };
+
+    if let Err(e) = resolve_webhook_in_repo(&state.db, &owner, &repo, id).await {
+        return e.into_response();
+    }
 
     match rg_core::webhook::service::list_deliveries(&state.db, id).await {
         Ok(deliveries) => (StatusCode::OK, Json(serde_json::json!(deliveries))).into_response(),
@@ -241,13 +247,24 @@ pub async fn list_deliveries(
 )]
 pub async fn redeliver(
     State(state): State<AppState>,
-    Path((_owner, _repo, delivery_id)): Path<(String, String, i64)>,
+    Path((owner, repo, id, delivery_id)): Path<(String, String, i64, i64)>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
     let _user_id = match super::auth::extract_user_id(&headers, &state.jwt_secret) {
         Some(id) => id,
         None => return AppError::unauthorized("unauthorized").into_response(),
     };
+
+    let hook = match resolve_webhook_in_repo(&state.db, &owner, &repo, id).await {
+        Ok(hook) => hook,
+        Err(e) => return e.into_response(),
+    };
+
+    match rg_core::webhook::service::get_delivery(&state.db, delivery_id).await {
+        Ok(Some(delivery)) if delivery.webhook_id == hook.id => {}
+        Ok(Some(_)) | Ok(None) => return AppError::not_found("delivery not found").into_response(),
+        Err(e) => return AppError::internal(e).into_response(),
+    }
 
     match rg_core::webhook::service::redeliver(&state.db, delivery_id).await {
         Ok(()) => (
@@ -271,4 +288,21 @@ async fn resolve_repo_id(db: &DatabaseConnection, owner: &str, repo_name: &str) 
         .ok()
         .flatten()?;
     Some(repo.id)
+}
+
+async fn resolve_webhook_in_repo(
+    db: &DatabaseConnection,
+    owner: &str,
+    repo_name: &str,
+    webhook_id: i64,
+) -> Result<rg_db::entities::webhook::Model, AppError> {
+    let repo_id = resolve_repo_id(db, owner, repo_name)
+        .await
+        .ok_or_else(|| AppError::not_found("repository not found"))?;
+
+    match rg_core::webhook::service::get_webhook(db, webhook_id).await {
+        Ok(Some(hook)) if hook.repo_id == repo_id => Ok(hook),
+        Ok(Some(_)) | Ok(None) => Err(AppError::not_found("webhook not found")),
+        Err(e) => Err(AppError::internal(e)),
+    }
 }

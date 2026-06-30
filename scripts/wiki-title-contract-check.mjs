@@ -6,10 +6,14 @@ import path from 'node:path';
 const root = process.cwd();
 const clientPath = path.join(root, 'web/src/lib/api/client.svelte.ts');
 const splitClientPath = path.join(root, 'web/src/lib/api/wiki.ts');
+const wikiPagePath = path.join(root, 'web/src/routes/[owner]/[repo]/wiki/[title]/+page.svelte');
+const wikiHistoryPath = path.join(root, 'web/src/routes/[owner]/[repo]/wiki/[title]/history/+page.svelte');
 const backendPath = path.join(root, 'crates/rg-http/src/api/wiki.rs');
 
 const client = readFileSync(clientPath, 'utf8');
 const splitClient = readFileSync(splitClientPath, 'utf8');
+const wikiPage = readFileSync(wikiPagePath, 'utf8');
+const wikiHistory = readFileSync(wikiHistoryPath, 'utf8');
 const backend = readFileSync(backendPath, 'utf8');
 const failures = [];
 
@@ -52,6 +56,21 @@ for (const [label, source] of [
     failures.push(`${label} must not interpolate raw wiki titles into route path segments`);
   }
 }
+
+for (const [label, source] of [
+  ['wiki page route', wikiPage],
+  ['wiki history route', wikiHistory],
+]) {
+  if (/decodeURIComponent\(\$page\.params\.title!\)/.test(source)) {
+    failures.push(`${label} must not decode SvelteKit title params a second time`);
+  }
+}
+
+expect(
+  wikiHistory,
+  /wiki\/\$\{encodeURIComponent\(title\)\}`/,
+  'Wiki history breadcrumb must encode the title when linking back to the page',
+);
 
 if (failures.length > 0) {
   console.error('Wiki title frontend/backend contract failed:');

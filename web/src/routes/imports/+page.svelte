@@ -10,7 +10,9 @@
   let error = $state('');
   let success = $state('');
 
-  let platform = $state<'github' | 'gitlab'>('github');
+  type ImportPlatform = 'github' | 'gitlab' | 'gitea' | 'git';
+
+  let platform = $state<ImportPlatform>('github');
   let sourceUrl = $state('');
   let targetOwner = $state('');
   let targetName = $state('');
@@ -23,6 +25,23 @@
   let importLabels = $state(true);
   let importMilestones = $state(true);
 
+  function supportsMetadataImport(value = platform): boolean {
+    return value === 'github' || value === 'gitlab';
+  }
+
+  function sourcePlaceholder(): string {
+    switch (platform) {
+      case 'gitlab':
+        return 'https://gitlab.com/example/project';
+      case 'gitea':
+        return 'https://gitea.example.com/example/project.git';
+      case 'git':
+        return 'https://git.example.com/example/project.git';
+      default:
+        return 'https://github.com/example/project';
+    }
+  }
+
   $effect(() => {
     if (!isLoggedIn()) {
       goto('/login');
@@ -34,6 +53,17 @@
     }
 
     loadImports();
+  });
+
+  $effect(() => {
+    if (!supportsMetadataImport(platform)) {
+      importIssues = false;
+      importPullRequests = false;
+      importWiki = false;
+      importReleases = false;
+      importLabels = false;
+      importMilestones = false;
+    }
   });
 
   async function loadImports() {
@@ -110,7 +140,7 @@
   <div class="page-header">
     <div>
       <h1>Imports</h1>
-      <p class="subtitle">Migrate repositories and project data from GitHub or GitLab.</p>
+      <p class="subtitle">Migrate repositories and project data from GitHub, GitLab, Gitea, or Git remotes.</p>
     </div>
     <button class="btn-secondary" type="button" onclick={loadImports} disabled={loading}>Refresh</button>
   </div>
@@ -130,12 +160,14 @@
         <select bind:value={platform}>
           <option value="github">GitHub</option>
           <option value="gitlab">GitLab</option>
+          <option value="gitea">Gitea</option>
+          <option value="git">Git</option>
         </select>
       </label>
 
       <label class="wide">
         Source repository URL
-        <input type="url" bind:value={sourceUrl} placeholder="https://github.com/example/project" required />
+        <input type="url" bind:value={sourceUrl} placeholder={sourcePlaceholder()} required />
       </label>
 
       <label>
@@ -156,12 +188,12 @@
       <fieldset class="wide options">
         <legend>Content</legend>
         <label><input type="checkbox" bind:checked={importRepo} /> Repository</label>
-        <label><input type="checkbox" bind:checked={importIssues} /> Issues</label>
-        <label><input type="checkbox" bind:checked={importPullRequests} /> Pull requests</label>
-        <label><input type="checkbox" bind:checked={importWiki} /> Wiki</label>
-        <label><input type="checkbox" bind:checked={importReleases} /> Releases</label>
-        <label><input type="checkbox" bind:checked={importLabels} /> Labels</label>
-        <label><input type="checkbox" bind:checked={importMilestones} /> Milestones</label>
+        <label><input type="checkbox" bind:checked={importIssues} disabled={!supportsMetadataImport()} /> Issues</label>
+        <label><input type="checkbox" bind:checked={importPullRequests} disabled={!supportsMetadataImport()} /> Pull requests</label>
+        <label><input type="checkbox" bind:checked={importWiki} disabled={!supportsMetadataImport()} /> Wiki</label>
+        <label><input type="checkbox" bind:checked={importReleases} disabled={!supportsMetadataImport()} /> Releases</label>
+        <label><input type="checkbox" bind:checked={importLabels} disabled={!supportsMetadataImport()} /> Labels</label>
+        <label><input type="checkbox" bind:checked={importMilestones} disabled={!supportsMetadataImport()} /> Milestones</label>
       </fieldset>
 
       <div class="actions wide">
@@ -199,13 +231,18 @@
                     <span class="platform">{task.platform}</span>
                     <a href={task.source_url} target="_blank" rel="noreferrer">{task.source_url}</a>
                   </div>
-                  {#if task.error_message}
-                    <div class="task-error">{task.error_message}</div>
+                  {#if task.error}
+                    <div class="task-error">{task.error}</div>
                   {/if}
                 </td>
                 <td><a href={taskHref(task)}>{task.target_owner}/{task.target_name}</a></td>
                 <td><span class="status">{task.status}</span></td>
-                <td>{task.progress}%</td>
+                <td>
+                  {task.progress}%
+                  {#if task.stage}
+                    <div class="muted small">{task.stage}</div>
+                  {/if}
+                </td>
                 <td>{formatDateTime(task.updated_at || task.created_at)}</td>
                 <td class="row-actions">
                   <button class="btn-danger" type="button" onclick={() => deleteImport(task.id)}>Delete</button>
@@ -399,6 +436,11 @@
   .task-error {
     margin-top: 6px;
     color: #f85149;
+  }
+
+  .small {
+    margin-top: 4px;
+    font-size: 12px;
   }
 
   .row-actions {

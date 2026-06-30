@@ -192,7 +192,7 @@
 </svelte:head>
 
 <div class="page-container">
-  <RepoHeader {owner} {repo} activeTab="boards" />
+  <RepoHeader {owner} {repo} activeTab="board" />
 
   <div class="page-header">
     <h1>{t('board.title')}</h1>
@@ -385,7 +385,16 @@
     z-index: 99;
     cursor: default;
   }
-  .modal { background:var(--bg-primary, #fff); padding:20px; border-radius:12px; min-width:300px; max-width:400px; box-shadow:0 4px 24px rgba(0,0,0,0.15); }
+  .modal {
+    position: relative;
+    z-index: 101;
+    background:var(--bg-primary, #fff);
+    padding:20px;
+    border-radius:12px;
+    min-width:300px;
+    max-width:400px;
+    box-shadow:0 4px 24px rgba(0,0,0,0.15);
+  }
   .modal-actions { display:flex; gap:8px; margin-top:12px; justify-content:flex-end; }
 
   /* Shared */

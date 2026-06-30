@@ -7,6 +7,7 @@
     isLoggedIn,
     isMfaRequired,
   } from '$lib/stores/auth.svelte';
+  import { auth, type PublicSsoProvider } from '$lib/api/client.svelte';
   import { createT } from '$lib/i18n';
   import { goto } from '$app/navigation';
 
@@ -17,6 +18,8 @@
   let mfaCode = $state('');
   let useBackupCode = $state(false);
   let localError = $state('');
+  let ssoProviders = $state<PublicSsoProvider[]>([]);
+  let ssoLoading = $state(true);
 
   // Redirect if already logged in (prevents flash of login form for authenticated users)
   $effect(() => {
@@ -24,6 +27,21 @@
       goto('/dashboard');
     }
   });
+
+  $effect(() => {
+    loadSsoProviders();
+  });
+
+  async function loadSsoProviders() {
+    try {
+      ssoLoading = true;
+      ssoProviders = await auth.listSsoProviders();
+    } catch {
+      ssoProviders = [];
+    } finally {
+      ssoLoading = false;
+    }
+  }
 
   async function handleSubmit(e: Event) {
     e.preventDefault();
@@ -105,6 +123,22 @@
           {getAuthLoading() ? t('auth.login.submitting') : t('auth.login.submit')}
         </button>
       </form>
+
+      {#if !ssoLoading && ssoProviders.length > 0}
+        <div class="sso-section">
+          <div class="divider"><span>or</span></div>
+          <div class="sso-buttons">
+            {#each ssoProviders as provider (provider.slug)}
+              <a class="sso-button" href={auth.ssoAuthorizeUrl(provider.slug)}>
+                {#if provider.icon_url}
+                  <img src={provider.icon_url} alt="" />
+                {/if}
+                <span>Continue with {provider.name}</span>
+              </a>
+            {/each}
+          </div>
+        </div>
+      {/if}
     {/if}
 
     <p class="footer">
@@ -177,6 +211,68 @@
   }
   .btn-primary:hover { background: var(--green); }
   .btn-primary:disabled { opacity: 0.6; }
+
+  .sso-section {
+    margin-top: 20px;
+  }
+
+  .divider {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 14px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    text-transform: uppercase;
+  }
+
+  .divider::before,
+  .divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  .sso-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .sso-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 36px;
+    padding: 7px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text-primary);
+    background: var(--bg-primary);
+    font-size: 14px;
+    font-weight: 600;
+    text-decoration: none;
+  }
+
+  .sso-button:hover {
+    border-color: var(--accent);
+    background: var(--bg-hover);
+    text-decoration: none;
+  }
+
+  .sso-button img {
+    width: 18px;
+    height: 18px;
+    object-fit: contain;
+    flex-shrink: 0;
+  }
+
+  .sso-button span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
 
   .footer {
     text-align: center;

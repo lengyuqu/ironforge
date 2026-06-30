@@ -174,6 +174,10 @@
     "hint": "Real-time updates are active — new notifications will appear instantly."
   },
   "orgs": {
+    "title": "Organizations",
+    "subtitle": "View and manage organizations you belong to.",
+    "list_title": "My organizations ({count})",
+    "create_action": "New organization",
     "create_title": "Create Organization",
     "name": "Name",
     "name_placeholder": "e.g. acme-corp",
@@ -186,6 +190,8 @@
     "visibility_private": "Private",
     "submit": "Create Organization",
     "submitting": "Creating...",
+    "no_orgs": "No organizations yet",
+    "no_orgs_desc": "Create an organization to manage repositories, teams, and members together.",
     "repositories": "Repositories ({count})",
     "teams": "Teams ({count})",
     "members": "Members ({count})",
@@ -621,6 +627,31 @@
       "sync_failed": "Failed to trigger mirror sync",
       "delete_failed": "Failed to delete mirror"
     },
+    "webhooks": {
+      "title": "Webhooks",
+      "desc": "Send repository events to external services over HTTP.",
+      "create_title": "Add webhook",
+      "url": "Payload URL",
+      "content_type": "Content type",
+      "secret": "Secret",
+      "events": "Events",
+      "active": "Active",
+      "create": "Add webhook",
+      "current": "Configured webhooks",
+      "empty": "No webhooks configured yet.",
+      "enabled": "Enabled",
+      "disabled": "Disabled",
+      "created": "Webhook created.",
+      "updated": "Webhook updated.",
+      "deleted": "Webhook deleted.",
+      "delete_confirm": "Delete webhook {url}?",
+      "url_required": "Enter a payload URL.",
+      "events_required": "Select at least one event.",
+      "load_failed": "Failed to load webhooks",
+      "create_failed": "Failed to create webhook",
+      "update_failed": "Failed to update webhook",
+      "delete_failed": "Failed to delete webhook"
+    },
     "branch_protection": {
       "title": "Branch protection",
       "desc": "Require pull requests, approvals, and passing checks before protected branches change.",
@@ -652,9 +683,11 @@
     },
     "collaborators": {
       "title": "Collaborators",
-      "desc": "Grant repository access to existing users by user ID.",
+      "desc": "Grant repository access to existing users by username, email, or user ID.",
       "add_title": "Add collaborator",
       "user_id": "User ID",
+      "user_identifier": "Username, email, or user ID",
+      "user_placeholder": "octocat or octocat@example.com",
       "permission": "Permission",
       "add": "Add collaborator",
       "adding": "Adding...",
@@ -667,6 +700,7 @@
       "removed": "Collaborator removed.",
       "remove_confirm": "Remove user {userId} from this repository?",
       "user_id_required": "Enter a valid numeric user ID.",
+      "user_required": "Enter a username, email, or numeric user ID.",
       "load_failed": "Failed to load collaborators",
       "add_failed": "Failed to add collaborator",
       "update_failed": "Failed to update permission",
@@ -755,6 +789,24 @@
         "ip": "IP Address",
         "details": "Details"
       }
+    },
+    "runners": {
+      "title": "Runner Management",
+      "desc": "Register and manage CI/CD runners",
+      "total": "runners total",
+      "register": "Register Runner",
+      "name": "Name",
+      "labels": "Labels",
+      "status": "Status",
+      "version": "Version",
+      "last_seen": "Last Seen",
+      "empty": "No runners registered yet.",
+      "token_title": "Runner token for {name}",
+      "token_help": "Copy this token now. It is needed to connect the runner agent.",
+      "repo_handoff": "Runners are managed instance-wide by administrators, not per repository.",
+      "open_admin": "Open runner management",
+      "delete_confirm": "Delete Runner",
+      "delete_warning": "Are you sure you want to delete runner \"{name}\"?"
     }
   },
   "profile": {

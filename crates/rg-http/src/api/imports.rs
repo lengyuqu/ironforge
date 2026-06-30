@@ -1,4 +1,4 @@
-//! Import REST API — GitHub/GitLab data migration endpoints.
+//! Import REST API — repository migration endpoints.
 //!
 //! POST   /api/v1/imports       — start a new import
 //! GET    /api/v1/imports/{id}   — check import status
@@ -21,7 +21,7 @@ use crate::AppState;
 /// Request body for starting a new import.
 #[derive(Deserialize, ToSchema)]
 pub struct StartImportRequest {
-    /// Source platform: "github" or "gitlab"
+    /// Source platform: "github", "gitlab", "gitea", or "git"
     pub platform: String,
     /// Source repository URL (e.g., https://github.com/user/repo)
     pub source_url: String,
@@ -61,7 +61,7 @@ fn default_true() -> bool {
 
 /// POST /api/v1/imports
 ///
-/// Start a new import from GitHub or GitLab.
+/// Start a new import from GitHub, GitLab, Gitea, or a generic Git remote.
 #[utoipa::path(
     post,
     path = "/imports",
@@ -88,8 +88,12 @@ pub async fn start_import(
     };
 
     // Validate platform
-    if body.platform != "github" && body.platform != "gitlab" {
-        return AppError::bad_request("platform must be 'github' or 'gitlab'").into_response();
+    if !matches!(
+        body.platform.as_str(),
+        "github" | "gitlab" | "gitea" | "git"
+    ) {
+        return AppError::bad_request("platform must be 'github', 'gitlab', 'gitea', or 'git'")
+            .into_response();
     }
 
     // Resolve target name

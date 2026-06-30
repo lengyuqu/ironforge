@@ -176,6 +176,10 @@
     "hint": "实时更新已启用——新通知将即时显示。"
   },
   "orgs": {
+    "title": "组织",
+    "subtitle": "查看和管理你所属的组织。",
+    "list_title": "我的组织 ({count})",
+    "create_action": "新建组织",
     "create_title": "创建组织",
     "name": "名称",
     "name_placeholder": "例如：acme-corp",
@@ -188,6 +192,8 @@
     "visibility_private": "私有",
     "submit": "创建组织",
     "submitting": "创建中...",
+    "no_orgs": "暂无组织",
+    "no_orgs_desc": "创建组织后，可以在组织下管理仓库、团队和成员。",
     "repositories": "仓库 ({count})",
     "teams": "团队 ({count})",
     "members": "成员 ({count})",
@@ -629,6 +635,31 @@
       "sync_failed": "触发镜像同步失败",
       "delete_failed": "删除镜像失败"
     },
+    "webhooks": {
+      "title": "Webhooks",
+      "desc": "通过 HTTP 将仓库事件发送到外部服务。",
+      "create_title": "添加 Webhook",
+      "url": "Payload URL",
+      "content_type": "内容类型",
+      "secret": "密钥",
+      "events": "事件",
+      "active": "启用",
+      "create": "添加 Webhook",
+      "current": "已配置的 Webhooks",
+      "empty": "暂未配置 Webhook。",
+      "enabled": "已启用",
+      "disabled": "已停用",
+      "created": "Webhook 已创建。",
+      "updated": "Webhook 已更新。",
+      "deleted": "Webhook 已删除。",
+      "delete_confirm": "删除 Webhook {url}？",
+      "url_required": "请输入 Payload URL。",
+      "events_required": "请至少选择一个事件。",
+      "load_failed": "加载 Webhooks 失败",
+      "create_failed": "创建 Webhook 失败",
+      "update_failed": "更新 Webhook 失败",
+      "delete_failed": "删除 Webhook 失败"
+    },
     "branch_protection": {
       "title": "分支保护",
       "desc": "要求通过 PR、审批和状态检查后才能变更受保护分支。",
@@ -660,9 +691,11 @@
     },
     "collaborators": {
       "title": "协作者",
-      "desc": "通过用户 ID 授予现有用户仓库访问权限。",
+      "desc": "通过用户名、邮箱或用户 ID 授予现有用户仓库访问权限。",
       "add_title": "添加协作者",
       "user_id": "用户 ID",
+      "user_identifier": "用户名、邮箱或用户 ID",
+      "user_placeholder": "octocat 或 octocat@example.com",
       "permission": "权限",
       "add": "添加协作者",
       "adding": "添加中...",
@@ -675,6 +708,7 @@
       "removed": "协作者已移除。",
       "remove_confirm": "从此仓库移除用户 {userId}？",
       "user_id_required": "请输入有效的数字用户 ID。",
+      "user_required": "请输入用户名、邮箱或数字用户 ID。",
       "load_failed": "加载协作者失败",
       "add_failed": "添加协作者失败",
       "update_failed": "更新权限失败",
@@ -763,6 +797,24 @@
         "ip": "IP 地址",
         "details": "详情"
       }
+    },
+    "runners": {
+      "title": "Runner 管理",
+      "desc": "注册和管理 CI/CD Runner",
+      "total": "Runner 总数",
+      "register": "注册 Runner",
+      "name": "名称",
+      "labels": "标签",
+      "status": "状态",
+      "version": "版本",
+      "last_seen": "最后在线",
+      "empty": "暂无注册的 Runner。",
+      "token_title": "{name} 的 Runner Token",
+      "token_help": "请立即复制此 Token。连接 Runner Agent 时需要使用。",
+      "repo_handoff": "Runner 由管理员按实例统一管理，不按单个仓库管理。",
+      "open_admin": "打开 Runner 管理",
+      "delete_confirm": "删除 Runner",
+      "delete_warning": "确定要删除 Runner \"{name}\" 吗？"
     }
   },
   "profile": {

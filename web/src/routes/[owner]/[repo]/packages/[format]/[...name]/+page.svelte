@@ -61,12 +61,15 @@
   }
 
   async function handleDeleteVersion(version: string) {
+    deletingVersion = version;
     try {
       await packages.delete(owner!, repo!, format!, name!, version);
       confirmDelete = null;
-      await loadVersions();
+      await loadPackage();
     } catch (e: any) {
       error = e.message;
+    } finally {
+      deletingVersion = null;
     }
   }
 

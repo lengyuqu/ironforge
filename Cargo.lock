@@ -4335,6 +4335,7 @@ dependencies = [
  "sea-orm",
  "serde",
  "serde_json",
+ "serde_urlencoded",
  "sha2",
  "socket2 0.5.10",
  "tempfile",

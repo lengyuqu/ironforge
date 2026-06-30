@@ -19,7 +19,7 @@
   let loading = $state(true);
   let error = $state('');
   let success = $state('');
-  let userId = $state('');
+  let userIdentifier = $state('');
   let permission = $state<'read' | 'write' | 'admin'>('read');
   let adding = $state(false);
   let busyId = $state<number | null>(null);
@@ -46,18 +46,16 @@
     }
   }
 
-  function parsedUserId(): number | null {
-    const parsed = Number(userId);
-    if (!Number.isInteger(parsed) || parsed <= 0) return null;
-    return parsed;
+  function normalizedUserIdentifier(): string {
+    return userIdentifier.trim();
   }
 
   async function handleAdd(event: SubmitEvent) {
     event.preventDefault();
 
-    const parsed = parsedUserId();
-    if (!parsed) {
-      error = t('settings.collaborators.user_id_required');
+    const identifier = normalizedUserIdentifier();
+    if (!identifier) {
+      error = t('settings.collaborators.user_required');
       return;
     }
 
@@ -65,8 +63,8 @@
       adding = true;
       error = '';
       success = '';
-      await collaborators.add(owner, repo, parsed, permission);
-      userId = '';
+      await collaborators.add(owner, repo, identifier, permission);
+      userIdentifier = '';
       permission = 'read';
       success = t('settings.collaborators.added');
       await loadCollaborators();
@@ -130,13 +128,12 @@
     <h2>{t('settings.collaborators.add_title')}</h2>
     <form class="add-form" onsubmit={handleAdd}>
       <div class="form-group">
-        <label for="collaborator-user-id">{t('settings.collaborators.user_id')}</label>
+        <label for="collaborator-user">{t('settings.collaborators.user_identifier')}</label>
         <input
-          id="collaborator-user-id"
-          type="number"
-          min="1"
-          bind:value={userId}
-          placeholder="42"
+          id="collaborator-user"
+          type="text"
+          bind:value={userIdentifier}
+          placeholder={t('settings.collaborators.user_placeholder')}
           disabled={adding}
         />
       </div>
@@ -150,7 +147,7 @@
         </select>
       </div>
 
-      <button class="btn btn-primary" type="submit" disabled={adding || !parsedUserId()}>
+      <button class="btn btn-primary" type="submit" disabled={adding || !normalizedUserIdentifier()}>
         {adding ? t('settings.collaborators.adding') : t('settings.collaborators.add')}
       </button>
     </form>

@@ -32,6 +32,18 @@ const checks = [
     ok: /moveCard:[\s\S]*data: \{ column_id: number; position: number \}/.test(source.client),
   },
   {
+    name: 'API client board deletes model backend 204 responses as void',
+    ok:
+      /delete:\s*\(owner: string, repo: string, id: number\)\s*=>\s*\n?\s*request<void>\(`\/repos\/\$\{owner\}\/\$\{repo\}\/boards\/\$\{id\}`,\s*\{ method: 'DELETE' \}\)/.test(source.client) &&
+      /deleteColumn:\s*\(owner: string, repo: string, boardId: number, colId: number\)\s*=>\s*\n?\s*request<void>\(`\/repos\/\$\{owner\}\/\$\{repo\}\/boards\/\$\{boardId\}\/columns\/\$\{colId\}`,\s*\{ method: 'DELETE' \}\)/.test(source.client) &&
+      /deleteCard:\s*\(owner: string, repo: string, boardId: number, cardId: number\)\s*=>\s*\n?\s*request<void>\(`\/repos\/\$\{owner\}\/\$\{repo\}\/boards\/\$\{boardId\}\/cards\/\$\{cardId\}`,\s*\{ method: 'DELETE' \}\)/.test(source.client) &&
+      !/request<\{\s*deleted:\s*boolean\s*\}>\(`\/repos\/\$\{owner\}\/\$\{repo\}\/boards\//.test(source.client),
+  },
+  {
+    name: 'backend board delete handlers return 204 No Content',
+    ok: (source.backend.match(/StatusCode::NO_CONTENT\.into_response\(\)/g) || []).length >= 3,
+  },
+  {
     name: 'standalone board page fetches full board before rendering columns',
     ok:
       /async function selectBoard\(board: any\)[\s\S]*boards\.get\(owner, repo, board\.id\)/.test(source.boardsPage) &&

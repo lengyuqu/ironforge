@@ -53,8 +53,12 @@
     return `# install ${name}`;
   }
 
+  function encodePackageRouteName(name: string): string {
+    return name.split('/').map(encodeURIComponent).join('/');
+  }
+
   function packageHref(pkg: { name: string }): string {
-    return `/${owner}/${repo}/packages/${encodeURIComponent(format!)}/${encodeURIComponent(pkg.name)}`;
+    return `/${owner}/${repo}/packages/${encodeURIComponent(format!)}/${encodePackageRouteName(pkg.name)}`;
   }
 </script>
 

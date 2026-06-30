@@ -51,6 +51,15 @@
       <div class="card-arrow">→</div>
     </a>
 
+    <a href="/admin/runners" class="card">
+      <div class="card-icon">▶</div>
+      <div class="card-body">
+        <h2>{t('admin.runners.title')}</h2>
+        <p>{t('admin.runners.desc')}</p>
+      </div>
+      <div class="card-arrow">→</div>
+    </a>
+
     <a href="/admin/settings" class="card">
       <div class="card-icon">⚙️</div>
       <div class="card-body">
