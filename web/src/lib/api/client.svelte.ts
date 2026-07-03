@@ -277,6 +277,11 @@ export const auth = {
       method: 'POST',
       body: JSON.stringify({ token, new_password: newPassword }),
     }),
+  // M-4: Backend clears the HttpOnly auth cookie
+  logout: () =>
+    request<{ logged_out: boolean }>('/users/logout', {
+      method: 'POST',
+    }),
   listSsoProviders: () =>
     request<PublicSsoProvider[]>('/auth/sso/providers'),
   ssoAuthorizeUrl: (slug: string) =>
@@ -1332,11 +1337,10 @@ export function connectNotificationWebSocket(
   onMessage: (event: { event_type: string; data: any }) => void,
   onError?: (err: Event) => void,
 ): WebSocket | null {
-  const token = getToken();
-  if (!token) return null;
-
-  const wsUrl = `${withWebSocketApiBase('/ws/notifications')}?token=${encodeURIComponent(token)}`;
-
+  // M-4: WebSocket auth via HttpOnly cookie — the browser sends the cookie
+  // automatically for same-origin WebSocket connections. No token needed in JS.
+  // The backend checks the cookie header before upgrading.
+  const wsUrl = `${withWebSocketApiBase('/ws/notifications')}`;
   const ws = new WebSocket(wsUrl);
 
   ws.onmessage = (event) => {

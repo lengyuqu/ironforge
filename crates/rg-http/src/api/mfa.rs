@@ -8,15 +8,19 @@
 //!   GET    /users/mfa/backup   — Get backup codes
 //!   POST   /users/mfa/backup   — Verify and use a backup code
 
-use axum::{extract::State, Json};
+use axum::{
+    extract::State,
+    http::{HeaderMap, StatusCode},
+    response::IntoResponse,
+    Json,
+};
 use serde::{Deserialize, Serialize};
 use tracing;
 use utoipa::ToSchema;
 
-use crate::api::auth::extract_user_id;
+use crate::api::auth::{extract_user_id, AUTH_COOKIE_NAME};
 use crate::error::AppError;
 use crate::AppState;
-use axum::http::HeaderMap;
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct SetupMfaResponse {
@@ -189,8 +193,9 @@ pub struct VerifyMfaResponse {
 )]
 pub async fn verify_mfa(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(req): Json<VerifyMfaRequest>,
-) -> Result<Json<VerifyMfaResponse>, AppError> {
+) -> Result<impl IntoResponse, AppError> {
     // Find user by username
     let user = rg_db::ops::user_ops::find_by_username(&state.db, &req.username)
         .await
@@ -237,11 +242,28 @@ pub async fn verify_mfa(
     let token = rg_core::auth::jwt::generate_token(user.id, &user.username, &state.jwt_secret, 7)
         .map_err(AppError::from)?;
 
-    Ok(Json(VerifyMfaResponse {
+    // M-4: Set HttpOnly cookie for browser-based auth
+    let is_https = headers
+        .get("x-forwarded-proto")
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v == "https")
+        .unwrap_or(false);
+    let cookie_value = format!(
+        "{}={}; HttpOnly; Path=/; SameSite=Strict; Max-Age=604800{}",
+        AUTH_COOKIE_NAME,
         token,
-        user_id: user.id,
-        username: user.username,
-    }))
+        if is_https { "; Secure" } else { "" }
+    );
+
+    Ok((
+        StatusCode::OK,
+        [(axum::http::header::SET_COOKIE, cookie_value)],
+        Json(VerifyMfaResponse {
+            token,
+            user_id: user.id,
+            username: user.username,
+        }),
+    ))
 }
 
 /// GET /users/mfa/backup

@@ -52,12 +52,38 @@ impl FromRequestParts<crate::AppState> for AuthUser {
     }
 }
 
-/// Extract authenticated user_id from the Authorization: Bearer header.
+/// Cookie name used for HttpOnly JWT storage (M-4).
+pub(crate) const AUTH_COOKIE_NAME: &str = "ironforge_token";
+
+/// Extract a JWT from the `Cookie` header (M-4: HttpOnly cookie auth).
+///
+/// Returns the raw token string if a valid `ironforge_token` cookie is present.
+fn extract_token_from_cookie(headers: &HeaderMap) -> Option<String> {
+    let cookie_header = headers.get("cookie")?.to_str().ok()?;
+    for cookie in cookie_header.split(';') {
+        let cookie = cookie.trim();
+        if let Some(token) = cookie.strip_prefix(&format!("{}=", AUTH_COOKIE_NAME)) {
+            if !token.is_empty() {
+                return Some(token.to_string());
+            }
+        }
+    }
+    None
+}
+
+/// Extract authenticated user_id from either the HttpOnly cookie (M-4, preferred)
+/// or the `Authorization: Bearer` header (fallback for API clients / Git).
 /// Returns Some(user_id) if the JWT is a valid **user token**, None otherwise.
 ///
 /// CI job tokens are intentionally rejected — use `extract_ci_or_user_id` for
 /// repository-scoped operations during CI job execution.
 pub(crate) fn extract_user_id(headers: &HeaderMap, jwt_secret: &str) -> Option<i64> {
+    // M-4: Check HttpOnly cookie first, then fall back to Bearer header
+    if let Some(token) = extract_token_from_cookie(headers) {
+        if let Some(claims) = rg_core::auth::jwt::validate_token(&token, jwt_secret) {
+            return claims.sub.parse::<i64>().ok();
+        }
+    }
     extract_bearer_claims(headers, jwt_secret).and_then(|c| c.sub.parse::<i64>().ok())
 }
 
