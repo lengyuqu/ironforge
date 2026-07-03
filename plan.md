@@ -3,6 +3,12 @@
 > 本文件是交给开发智能体执行的任务说明。范围：**Phase 1 + Phase 2 执行**，Phase 3 仅记录待办。
 > 约束：`cargo build` 0 警告、`cargo test` 全绿；**PR diff 迁移要求与 git CLI 字节级一致**。
 
+> **执行状态（2026-07-04）**
+> - **Phase 1 ✅ 完成**：所有 raw `Command::new("git")` 已统一到 `GitCommandGateway`。原盘点遗漏的 `repo/service.rs` 13 处（`auto_init` / `create_or_update_file` / `delete_file`）已迁移；网关新增 `run_with_env` 支持 commit 身份 env；防回归守卫 `test_no_raw_git_command_in_crates` 移除 `repo/service.rs` 豁免后通过；`/health` 已用 `global_gateway().is_ok()`。
+> - **Phase 2A ✅ 完成（按回退条款）**：numstat 已 gix 化（`gix_diff_numstat`）；unified patch 字节级一致性无法在合理工作量内达成，按回退条款保留网关-CLI + `TODO(gix)` 标注，登记 Phase 3。
+> - **Phase 2B ✅ 完成**：commit gpgsig 头读取已用 gix `extra_headers()`（`repo_content.rs`）；加密级验签留 Phase 3。
+> - **Phase 3 ✅ 已登记**：`CLAUDE.md` 已记录 rebase / pack / thin-pack / GPG 验签 / bare clone 待办与复查条件。
+
 ## Context（背景）
 
 IronForge 把 git 操作分两层逐步收敛：
@@ -25,7 +31,7 @@ IronForge 把 git 操作分两层逐步收敛：
 | `crates/rg-http/src/lib.rs:620` | `git --version`（健康检查，spawn_blocking） | Phase 1 → 复用网关版本校验 |
 | `crates/rg-http/src/api/repo_content.rs:706` | `git cat-file commit`（读 gpgsig 头） | Phase 2 → gix `extra_headers()` |
 
-`repo/service.rs`(clone)、`import/service.rs`、`mirror/service.rs`、`repo_content.rs`(大部分) **已走网关**，无需改。
+`import/service.rs`、`mirror/service.rs`、`repo_content.rs`(大部分) **已走网关**。`repo/service.rs` 原盘点误标为"已走网关"——实际 `auto_init` / `create_or_update_file` / `delete_file` 共 13 处 raw `Command::new("git")`，本轮（2026-07-04）已全部迁移至网关。
 
 **网关 API（`crates/rg-git/src/cli_gateway.rs`，已存在，复用）**：
 - `cli_gateway::global_gateway() -> &'static Result<GitCommandGateway>`（懒初始化 + 版本校验）

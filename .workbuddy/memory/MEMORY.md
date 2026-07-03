@@ -39,12 +39,13 @@ ironforge/
 - `ironforge-docs/gitea-gap-list.csv` — 差距清单 CSV（2026-06-16 同步更新）
 - **核心完成度**: 约 85%
 - **已完成**: 包注册表 11/17 种（含 Docker/OCI/npm/PyPI/Maven/Cargo/NuGet/Helm/RubyGems/Go/Generic）、企业认证（LDAP+OAuth2+TOTP+审计日志）、数据迁移（GitHub/GitLab 导入）、邮件通知（SMTP+lettre）、运维（SQLite WAL/PRAGMA/JWT env/RateLimiting/Prometheus）、Least-privilege Token、前端包注册表页面、密码重置、Composer 适配器、CI/CD 日志写队列、Git CLI 网关、Pipeline 可视化、Wiki Markdown 渲染/TOC/删除、GPG 签名 UI、审计日志归档、软删除统一、Subpath 归档下载
-- **剩余技术债**: gix 迁移 70%（19 处 CLI 待替换）、Git CLI 网关替换余量（14 处未改）
+- **剩余技术债**: gix 迁移 70%（19 处 CLI 待替换，均经 GitCommandGateway）；raw `Command::new("git")` 已全部消除（2026-07-04，防回归守卫 `test_no_raw_git_command_in_crates` 无豁免通过）
 
-## gix 迁移状态（2026-06-06 更新）
+## gix 迁移状态（2026-07-04 更新）
 - 进度 ~70%（16 处 git CLI 保留，gix API 覆盖其余，已消除 7 处 merge/commit/ref CLI）
 - 2026-06-06: 完成 merge×4, commit×2, ref-delete×1 的 gix 替换（pull_request/service.rs）
-- 剩余 CLI: Diff×4（可尝试 blob-diff）, Fetch×2（需 pack transfer）, Rebase×4（gix-rebase 是 "idea"）, Pack×3, GPG×2, Clone×1
+- 2026-07-04: raw `Command::new("git")` 全部消除——`repo/service.rs` 13 处（auto_init/create_or_update_file/delete_file）迁移至网关；网关新增 `run_with_env` 支持 commit 身份 env；防回归守卫移除 `repo/service.rs` 豁免后通过。⚠️ 这些仍走 CLI（经网关），gix 原生进度不变。
+- 剩余 CLI（经网关，gix 原生待 Phase 3）: Diff×4（patch 字节对齐难，按回退条款保留）, Fetch×2, Rebase×4（gix-rebase 是 "idea"）, Pack×3, GPG×2, Clone×1
 - gix 版本 0.83（最新 0.84，仅 SHA256 + edition 提升，无功能变化）
 
 ## 踩坑经验（完整版 — 代码注释已补充）

@@ -138,6 +138,31 @@ impl GitCommandGateway {
     /// - Enforces the configured timeout; kills the child on timeout.
     /// - Returns `GitOutput` with the captured stdout, stderr, and status.
     pub fn run(&self, args: &[&str], repo_path: Option<&Path>) -> Result<GitOutput> {
+        self.run_inner(args, repo_path, None)
+    }
+
+    /// Run a git command with extra environment variables.
+    ///
+    /// Like [`run`], but additionally sets the provided environment variables
+    /// on the spawned process. Used for commands that need git identity
+    /// (`GIT_AUTHOR_NAME` / `GIT_COMMITTER_EMAIL` etc.) without polluting the
+    /// caller's environment.
+    pub fn run_with_env(
+        &self,
+        args: &[&str],
+        repo_path: Option<&Path>,
+        env: &[(&str, &str)],
+    ) -> Result<GitOutput> {
+        self.run_inner(args, repo_path, Some(env))
+    }
+
+    /// Core implementation shared by [`run`] and [`run_with_env`].
+    fn run_inner(
+        &self,
+        args: &[&str],
+        repo_path: Option<&Path>,
+        env: Option<&[(&str, &str)]>,
+    ) -> Result<GitOutput> {
         let full_cmd = self.build_command_line(args, repo_path);
         let command_str = full_cmd.join(" ");
 
@@ -146,8 +171,14 @@ impl GitCommandGateway {
         // Use a shared child so we can kill it on timeout
         use std::sync::{Arc, Mutex};
 
-        let child = Command::new("git")
-            .args(&full_cmd)
+        let mut builder = Command::new("git");
+        builder.args(&full_cmd);
+        if let Some(envs) = env {
+            for (k, v) in envs {
+                builder.env(k, v);
+            }
+        }
+        let child = builder
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
@@ -348,10 +379,6 @@ mod tests {
             }
             // Skip the gateway file itself (the only allowed location)
             if path.ends_with("cli_gateway.rs") {
-                continue;
-            }
-            // TODO: refactor repo/service.rs to use GitCommandGateway (tracked in #XX)
-            if path.ends_with("repo/service.rs") {
                 continue;
             }
 

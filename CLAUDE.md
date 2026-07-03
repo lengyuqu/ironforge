@@ -498,7 +498,7 @@ FTS5 的 `INSERT INTO fts_table(fts_table, rowid, ...) VALUES('delete', ...)` �
 #### P0（无 — ✅ 全部完成）
 
 #### P1 余量（已解决 ✅）
-1. ~~**Git CLI 替换余量**~~ — 2026-06-17 完成：全部 raw `Command::new("git")` 已通过 `GitCommandGateway` 统一，增设防回归测试。
+1. ~~**Git CLI 替换余量**~~ — 2026-07-04 完成：全部 raw `Command::new("git")` 已通过 `GitCommandGateway` 统一（最后收尾 `repo/service.rs` 13 处：`auto_init`/`create_or_update_file`/`delete_file`；网关新增 `run_with_env` 支持 commit 身份 env），防回归守卫 `test_no_raw_git_command_in_crates` 无豁免通过。
 
 #### 技术债
 2. **gix 迁移继续** — 2026-06-17: Phase 1+2 完成，进度 ~85%

@@ -5,7 +5,6 @@ use chrono::Utc;
 use sea_orm::{ActiveValue::Set, ConnectionTrait, DatabaseConnection};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::process::Command;
 use std::sync::{RwLock, OnceLock};
 #[cfg(test)]
 use std::sync::Mutex;
@@ -536,53 +535,35 @@ fn auto_init_repo(
         .context("git add failed")?;
     output.ensure_success().context("git add failed")?;
 
-    // git commit
-    let mut commit_cmd = Command::new("git");
-    apply_git_identity(&mut commit_cmd, git_author_name, git_author_email);
-    let output = commit_cmd
-        .args(["commit", "-m", "Initial commit"])
-        .current_dir(&tmp)
-        .output()
+    // git commit (identity env via gateway)
+    let identity = git_identity_env(git_author_name, git_author_email);
+    let output = gateway
+        .run_with_env(&["commit", "-m", "Initial commit"], Some(&tmp), &identity)
         .context("git commit failed")?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        bail!("git commit failed: {}", stderr);
+    if !output.success() {
+        bail!("git commit failed: {}", output.stderr_str());
     }
 
     // git push to the bare repo
     let push_url =
         path_to_git_url(&bare_path).context("failed to convert bare repo path to git URL")?;
+    let refspec = format!("{}:{}", default_branch, default_branch);
 
-    let output = Command::new("git")
-        .args([
-            "push",
-            "--quiet",
-            &push_url,
-            &format!("{}:{}", default_branch, default_branch),
-        ])
-        .current_dir(&tmp)
-        .output()
+    let output = gateway
+        .run(&["push", "--quiet", &push_url, &refspec], Some(&tmp))
         .context("git push failed")?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        bail!("git push to bare repo failed: {}", stderr);
+    if !output.success() {
+        bail!("git push to bare repo failed: {}", output.stderr_str());
     }
 
-    // Set HEAD in the bare repo to point to the default branch
-    // Use --git-dir with file:// URL format
-    let head_output = Command::new("git")
-        .args([
-            "--git-dir",
-            &push_url, // Use the same URL format as push
-            "symbolic-ref",
-            "HEAD",
-            &format!("refs/heads/{}", default_branch),
-        ])
-        .output()
+    // Set HEAD in the bare repo to point to the default branch.
+    // Use --git-dir (cannot combine with the gateway's `-C`, so repo_path=None).
+    let head_ref = format!("refs/heads/{}", default_branch);
+    let head_output = gateway
+        .run(&["--git-dir", &push_url, "symbolic-ref", "HEAD", &head_ref], None)
         .context("git symbolic-ref HEAD failed")?;
-    if !head_output.status.success() {
-        let stderr = String::from_utf8_lossy(&head_output.stderr);
-        tracing::warn!(?stderr, "failed to set HEAD in bare repo");
+    if !head_output.success() {
+        tracing::warn!(stderr = %head_output.stderr_str(), "failed to set HEAD in bare repo");
     }
 
     // Clean up temp directory
@@ -597,12 +578,18 @@ fn auto_init_repo(
     Ok(())
 }
 
-fn apply_git_identity(command: &mut Command, author_name: &str, author_email: &str) {
-    command
-        .env("GIT_AUTHOR_NAME", author_name)
-        .env("GIT_AUTHOR_EMAIL", author_email)
-        .env("GIT_COMMITTER_NAME", author_name)
-        .env("GIT_COMMITTER_EMAIL", author_email);
+/// Build git identity env vars for commit commands run via `GitCommandGateway`.
+///
+/// Returns a borrowed array suitable for `gateway.run_with_env(...)`. Used
+/// instead of setting env on a raw `Command` now that commits go through the
+/// gateway rather than spawning git directly.
+fn git_identity_env<'a>(name: &'a str, email: &'a str) -> [(&'a str, &'a str); 4] {
+    [
+        ("GIT_AUTHOR_NAME", name),
+        ("GIT_AUTHOR_EMAIL", email),
+        ("GIT_COMMITTER_NAME", name),
+        ("GIT_COMMITTER_EMAIL", email),
+    ]
 }
 
 /// Create default issue labels for a newly created repository.
@@ -1041,39 +1028,30 @@ pub async fn create_or_update_file(
     // Clone the repo
     let clone_url =
         path_to_git_url(&repo_path).context("failed to convert repo path to git URL")?;
+    let tmp_str = tmp.to_string_lossy();
+    let gateway = rg_git::cli_gateway::global_gateway()
+        .as_ref()
+        .map_err(|e| anyhow::anyhow!("git CLI not available: {e}"))?;
 
-    let output = Command::new("git")
-        .args(["clone", "-b", branch, &clone_url, &tmp.to_string_lossy()])
-        .output()
+    // Try cloning with the target branch; fall back to --no-checkout for new repos
+    // where the branch does not exist yet, then create the branch via checkout -b.
+    let clone_out = gateway
+        .run(&["clone", "-b", branch, &clone_url, &tmp_str], None)
         .context("git clone failed")?;
-    if !output.status.success() {
-        let _stderr = String::from_utf8_lossy(&output.stderr);
-        // If branch doesn't exist yet (new repo), clone with --no-checkout
-        if !output.status.success() {
-            let output2 = Command::new("git")
-                .args(["clone", "--no-checkout", &clone_url, &tmp.to_string_lossy()])
-                .output()
-                .context("git clone (no-checkout) failed")?;
-            if !output2.status.success() {
-                let _ = std::fs::remove_dir_all(&tmp);
-                bail!(
-                    "git clone failed: {}",
-                    String::from_utf8_lossy(&output2.stderr)
-                );
-            }
-            // Checkout the branch or create it
-            let output3 = Command::new("git")
-                .args(["checkout", "-b", branch])
-                .current_dir(&tmp)
-                .output()
-                .context("git checkout failed")?;
-            if !output3.status.success() {
-                let _ = std::fs::remove_dir_all(&tmp);
-                bail!(
-                    "git checkout failed: {}",
-                    String::from_utf8_lossy(&output3.stderr)
-                );
-            }
+    if !clone_out.success() {
+        let nc_out = gateway
+            .run(&["clone", "--no-checkout", &clone_url, &tmp_str], None)
+            .context("git clone (no-checkout) failed")?;
+        if !nc_out.success() {
+            let _ = std::fs::remove_dir_all(&tmp);
+            bail!("git clone failed: {}", nc_out.stderr_str());
+        }
+        let co_out = gateway
+            .run(&["checkout", "-b", branch], Some(&tmp))
+            .context("git checkout failed")?;
+        if !co_out.success() {
+            let _ = std::fs::remove_dir_all(&tmp);
+            bail!("git checkout failed: {}", co_out.stderr_str());
         }
     }
 
@@ -1085,49 +1063,33 @@ pub async fn create_or_update_file(
     std::fs::write(&full_path, content)?;
 
     // Git add
-    let output = Command::new("git")
-        .args(["add", file_path])
-        .current_dir(&tmp)
-        .output()
+    let output = gateway
+        .run(&["add", file_path], Some(&tmp))
         .context("git add failed")?;
-    if !output.status.success() {
+    if !output.success() {
         let _ = std::fs::remove_dir_all(&tmp);
-        bail!(
-            "git add failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
+        bail!("git add failed: {}", output.stderr_str());
     }
 
     // Git commit
-    let mut commit_cmd = Command::new("git");
-    apply_git_identity(&mut commit_cmd, author_name, author_email);
-    let output = commit_cmd
-        .args(["commit", "-m", message])
-        .current_dir(&tmp)
-        .output()
+    let identity = git_identity_env(author_name, author_email);
+    let output = gateway
+        .run_with_env(&["commit", "-m", message], Some(&tmp), &identity)
         .context("git commit failed")?;
-    if !output.status.success() {
+    if !output.success() {
         let _ = std::fs::remove_dir_all(&tmp);
-        bail!(
-            "git commit failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
+        bail!("git commit failed: {}", output.stderr_str());
     }
 
     // Git push
     let push_url = path_to_git_url(&repo_path).context("failed to convert repo path to git URL")?;
 
-    let output = Command::new("git")
-        .args(["push", &push_url, branch])
-        .current_dir(&tmp)
-        .output()
+    let output = gateway
+        .run(&["push", &push_url, branch], Some(&tmp))
         .context("git push failed")?;
-    if !output.status.success() {
+    if !output.success() {
         let _ = std::fs::remove_dir_all(&tmp);
-        bail!(
-            "git push failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
+        bail!("git push failed: {}", output.stderr_str());
     }
 
     // Clean up
@@ -1183,60 +1145,47 @@ pub async fn delete_file(
     // Clone the repo
     let clone_url =
         path_to_git_url(&repo_path).context("failed to convert repo path to git URL")?;
+    let tmp_str = tmp.to_string_lossy();
+    let gateway = rg_git::cli_gateway::global_gateway()
+        .as_ref()
+        .map_err(|e| anyhow::anyhow!("git CLI not available: {e}"))?;
 
-    let output = Command::new("git")
-        .args(["clone", "-b", branch, &clone_url, &tmp.to_string_lossy()])
-        .output()
+    let output = gateway
+        .run(&["clone", "-b", branch, &clone_url, &tmp_str], None)
         .context("git clone failed")?;
-    if !output.status.success() {
+    if !output.success() {
         let _ = std::fs::remove_dir_all(&tmp);
-        bail!(
-            "git clone failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
+        bail!("git clone failed: {}", output.stderr_str());
     }
 
     // Delete the file
-    let output = Command::new("git")
-        .args(["rm", file_path])
-        .current_dir(&tmp)
-        .output()
+    let output = gateway
+        .run(&["rm", file_path], Some(&tmp))
         .context("git rm failed")?;
-    if !output.status.success() {
+    if !output.success() {
         let _ = std::fs::remove_dir_all(&tmp);
-        bail!("git rm failed: {}", String::from_utf8_lossy(&output.stderr));
+        bail!("git rm failed: {}", output.stderr_str());
     }
 
     // Git commit
-    let mut commit_cmd = Command::new("git");
-    apply_git_identity(&mut commit_cmd, author_name, author_email);
-    let output = commit_cmd
-        .args(["commit", "-m", message])
-        .current_dir(&tmp)
-        .output()
+    let identity = git_identity_env(author_name, author_email);
+    let output = gateway
+        .run_with_env(&["commit", "-m", message], Some(&tmp), &identity)
         .context("git commit failed")?;
-    if !output.status.success() {
+    if !output.success() {
         let _ = std::fs::remove_dir_all(&tmp);
-        bail!(
-            "git commit failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
+        bail!("git commit failed: {}", output.stderr_str());
     }
 
     // Git push
     let push_url = path_to_git_url(&repo_path).context("failed to convert repo path to git URL")?;
 
-    let output = Command::new("git")
-        .args(["push", &push_url, branch])
-        .current_dir(&tmp)
-        .output()
+    let output = gateway
+        .run(&["push", &push_url, branch], Some(&tmp))
         .context("git push failed")?;
-    if !output.status.success() {
+    if !output.success() {
         let _ = std::fs::remove_dir_all(&tmp);
-        bail!(
-            "git push failed: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
+        bail!("git push failed: {}", output.stderr_str());
     }
 
     // Clean up
