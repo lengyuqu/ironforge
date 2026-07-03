@@ -378,7 +378,7 @@
 ## 七、修复追踪（2026-07-03 修复批次）
 
 **修复时间**: 2026-07-03
-**修复范围**: 全部 33 个缺陷中的 28 个（C-1/C-2, H-1~H-11, M-6~M-14, L-1/L-3/L-4）
+**修复范围**: 全部 33 个缺陷中的 31 个（C-1/C-2, H-1~H-11, M-1~M-3/M-5/M-6~M-14, L-1~L-6）
 
 ### 修复清单
 
@@ -409,15 +409,24 @@
 | L-3 | 🔵 | SQLite WAL + Mutex 冲突 | ✅ 已修复 | H-4 RwLock 修复覆盖 |
 | L-4 | 🔵 | API 分页不一致 | ✅ 已修复 | audit.rs page_size→per_page + 1-based; search.rs 统一默认值 |
 
-### 未修复项（5 个，留待下迭代）
+### 未修复项（2 个，留待下迭代）
 
 | 编号 | 级别 | 描述 | 原因 |
 |------|------|------|------|
 | H-2 | 🟠 | CSP unsafe-inline 完全移除 | 需要 SvelteKit nonce 构建管线支持 |
-| L-2 | 🔵 | 架构文档同步 | 文档工程任务，非代码修复 |
-| L-5 | 🔵 | SvelteKit SSR 声明矛盾 | 文档修正，待 L-2 一起处理 |
-| L-6 | 🔵 | AuthLoginResponse MFA 字段 | 待验证前端 strict 模式 |
-| M-1~M-5 | 🟡 | 架构文档/前端超时/Token安全等 | 下迭代规划 |
+| M-4 | 🟡 | JWT Token 存储在 localStorage | 需要 HttpOnly cookie 架构变更 |
+
+### 已修复追加项（2026-07-04 补充修复）
+
+| 编号 | 级别 | 描述 | 状态 | 修复方式 |
+|------|------|------|------|---------|
+| L-2 | 🔵 | 架构文档同步 | ✅ 已修复 | ARCHITECTURE.md 已对齐 api/ 结构、ironforge.toml、Phase 1-21 状态 |
+| L-5 | 🔵 | SvelteKit SSR 声明矛盾 | ✅ 已修复 | 文档明确标注 SPA 模式（adapter-static） |
+| L-6 | 🔵 | AuthLoginResponse MFA 字段 | ✅ 已修复 | mfa_required?: boolean 已存在于类型定义中 |
+| M-1 | 🟡 | 架构文档 PostgreSQL 声明 | ✅ 已修复 | ARCHITECTURE.md 已移除 PostgreSQL 声明，仅保留 SQLite |
+| M-2 | 🟡 | gix 迁移完成度文档 | ✅ 已修复 | 文档已标注 "~70%，12 处 git CLI fallback 待替换" |
+| M-3 | 🟡 | 前端 API 无超时/重试 | ✅ 已修复 | request() 添加 AbortSignal.timeout(30s)；downloadApiFile(5min) |
+| M-5 | 🟡 | WebSocket 认证 via query param | ✅ 已修复 | 前端使用 Sec-WebSocket-Protocol subprotocol；后端支持双模式（subprotocol + query fallback） |
 
 ### 编译验证
 
@@ -425,5 +434,5 @@
 cargo build --release → Finished, 0 warnings, 0 errors
 ```
 
-*修复完成时间: 2026-07-03*
+*修复完成时间: 2026-07-04*
 *审计人: 齐活林（交付总监） / 软件开发团队*

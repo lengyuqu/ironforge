@@ -1,7 +1,9 @@
 //! WebSocket real-time notification push.
 //!
-//! Clients connect to `ws://host/api/v1/ws/notifications?token=<jwt>`
-//! and receive real-time notification events as JSON messages.
+//! Clients connect to `ws://host/api/v1/ws/notifications` and authenticate
+//! via the `Sec-WebSocket-Protocol` subprotocol header (`bearer.<jwt>`).
+//! Query-parameter fallback (`?token=<jwt>`) is retained for backward
+//! compatibility but should not be used by new clients.
 //!
 //! Security: per-user channels ensure each client only receives their own
 //! notifications. Job-log events use a separate global channel (public).
@@ -11,6 +13,7 @@ use axum::{
         ws::{Message, WebSocket},
         Path, Query, State, WebSocketUpgrade,
     },
+    http::HeaderMap,
     response::IntoResponse,
 };
 use futures::{SinkExt, StreamExt};
@@ -123,11 +126,31 @@ impl NotificationHub {
     }
 }
 
-/// Query params for WebSocket upgrade.
+/// Query params for WebSocket upgrade (backward-compatible token fallback).
 #[derive(Deserialize)]
 pub struct WsQuery {
-    /// JWT token for authentication.
+    /// JWT token for authentication (legacy — prefer Sec-WebSocket-Protocol).
     token: Option<String>,
+}
+
+/// Extract a Bearer token from the `Sec-WebSocket-Protocol` header.
+///
+/// The browser WebSocket API does not allow setting custom headers, so the
+/// subprotocol field is the only way to pass a token without exposing it in
+/// the URL (query params leak into server logs, browser history, and the
+/// Referer header).
+///
+/// Returns `Some((protocol_string, token))` if a `bearer.` prefixed protocol
+/// is found, `None` otherwise.
+fn extract_bearer_from_protocol(headers: &HeaderMap) -> Option<(String, String)> {
+    let raw = headers.get("sec-websocket-protocol")?.to_str().ok()?;
+    for proto in raw.split(',') {
+        let trimmed = proto.trim();
+        if let Some(token) = trimmed.strip_prefix("bearer.") {
+            return Some((trimmed.to_string(), token.to_string()));
+        }
+    }
+    None
 }
 
 /// GET /api/v1/ws/notifications — WebSocket upgrade handler.
@@ -135,15 +158,27 @@ pub async fn ws_notifications_handler(
     ws: WebSocketUpgrade,
     Query(query): Query<WsQuery>,
     State(state): State<AppState>,
+    headers: HeaderMap,
 ) -> impl IntoResponse {
-    // Authenticate via JWT token in query string
-    let user_id = query
-        .token
+    // M-5: Authenticate via Sec-WebSocket-Protocol subprotocol (preferred),
+    // falling back to query parameter for backward compatibility.
+    let (proto_echo, token) = match extract_bearer_from_protocol(&headers) {
+        Some((proto, token)) => (Some(proto), Some(token)),
+        None => (None, query.token),
+    };
+
+    let user_id = token
         .as_deref()
         .and_then(|t| rg_core::auth::jwt::validate_token(t, &state.jwt_secret))
         .and_then(|c| c.sub.parse::<i64>().ok());
 
-    ws.on_upgrade(move |socket| {
+    let upgrade = if let Some(proto) = proto_echo {
+        ws.protocols([proto])
+    } else {
+        ws
+    };
+
+    upgrade.on_upgrade(move |socket| {
         handle_ws_connection(socket, state.notification_hub.clone(), user_id)
     })
 }
@@ -275,22 +310,34 @@ pub fn push_job_log(hub: &NotificationHub, job_id: i64, log: &str) {
 
 /// GET /api/v1/ws/job/:job_id — WebSocket for real-time job log streaming.
 ///
-/// Requires JWT authentication via query parameter: `?token=<jwt>`.
+/// Authenticates via `Sec-WebSocket-Protocol: bearer.<jwt>` subprotocol
+/// (preferred) or `?token=<jwt>` query parameter (legacy fallback).
 /// Frontend subscribes to receive `job_log` events filtered by the specified job_id.
 pub async fn ws_job_log_handler(
     ws: WebSocketUpgrade,
     Path(job_id): Path<i64>,
     Query(query): Query<WsQuery>,
     State(state): State<AppState>,
+    headers: HeaderMap,
 ) -> impl IntoResponse {
-    // Authenticate via JWT token in query string
-    let user_id = query
-        .token
+    // M-5: Authenticate via subprotocol header (preferred) or query param (fallback)
+    let (proto_echo, token) = match extract_bearer_from_protocol(&headers) {
+        Some((proto, token)) => (Some(proto), Some(token)),
+        None => (None, query.token),
+    };
+
+    let user_id = token
         .as_deref()
         .and_then(|t| rg_core::auth::jwt::validate_token(t, &state.jwt_secret))
         .and_then(|c| c.sub.parse::<i64>().ok());
 
-    ws.on_upgrade(move |socket| {
+    let upgrade = if let Some(proto) = proto_echo {
+        ws.protocols([proto])
+    } else {
+        ws
+    };
+
+    upgrade.on_upgrade(move |socket| {
         handle_job_log_connection(socket, state.notification_hub.clone(), job_id, user_id)
     })
 }

@@ -40,6 +40,9 @@ export function setToken(token: string | null) {
   }
 }
 
+/** Default request timeout: 30 seconds. */
+const DEFAULT_TIMEOUT_MS = 30_000;
+
 export async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = getToken();
   const headers: Record<string, string> = {
@@ -50,7 +53,15 @@ export async function request<T>(path: string, options: RequestInit = {}): Promi
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const res = await fetch(withApiBase(path), { ...options, headers });
+  // M-3: Add timeout via AbortSignal to prevent indefinite hangs.
+  // If the caller already provided a signal, respect it.
+  const timeoutMs = (options as { timeoutMs?: number }).timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  let signal = options.signal;
+  if (!signal && timeoutMs > 0) {
+    signal = AbortSignal.timeout(timeoutMs);
+  }
+
+  const res = await fetch(withApiBase(path), { ...options, headers, signal });
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -102,7 +113,11 @@ export async function downloadApiFile(path: string, fallbackFilename: string): P
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const res = await fetch(withApiBase(path), { headers });
+  // M-3: 5-minute timeout for file downloads (large artifacts).
+  const res = await fetch(withApiBase(path), {
+    headers,
+    signal: AbortSignal.timeout(300_000),
+  });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     const msg =

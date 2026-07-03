@@ -1249,7 +1249,10 @@ export function connectNotificationWebSocket(
   const token = getToken();
   if (!token) return null;
 
-  const wsUrl = `${withWebSocketApiBase('/ws/notifications')}?token=${encodeURIComponent(token)}`;
+  // M-5: Use Sec-WebSocket-Protocol subprotocol instead of query parameter
+  // to avoid token leakage in server logs, browser history, and Referer header.
+  const wsUrl = `${withWebSocketApiBase('/ws/notifications')}`;
+  const ws = new WebSocket(wsUrl, [`bearer.${token}`]);
 
   const ws = new WebSocket(wsUrl);
 
