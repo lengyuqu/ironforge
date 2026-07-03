@@ -15,6 +15,41 @@ use utoipa::ToSchema;
 
 use crate::error::AppError;
 use crate::AppState;
+use crate::api::auth::AUTH_COOKIE_NAME;
+
+/// M-4: Build a `Set-Cookie` header value for the HttpOnly auth cookie.
+fn build_auth_cookie(token: &str, is_https: bool) -> String {
+    let mut cookie = format!(
+        "{}={}; HttpOnly; Path=/; SameSite=Strict; Max-Age=604800",
+        AUTH_COOKIE_NAME,
+        token
+    );
+    if is_https {
+        cookie.push_str("; Secure");
+    }
+    cookie
+}
+
+/// M-4: Build a `Set-Cookie` header value that clears the auth cookie.
+fn build_clear_cookie(is_https: bool) -> String {
+    let mut cookie = format!(
+        "{}=; HttpOnly; Path=/; SameSite=Strict; Max-Age=0",
+        AUTH_COOKIE_NAME
+    );
+    if is_https {
+        cookie.push_str("; Secure");
+    }
+    cookie
+}
+
+/// Check if the request was made over HTTPS (for Secure cookie flag).
+fn is_https_request(headers: &HeaderMap) -> bool {
+    headers
+        .get("x-forwarded-proto")
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v == "https")
+        .unwrap_or(false)
+}
 
 /// Helper to record audit log (fire-and-forget, does not fail the main operation).
 #[allow(clippy::too_many_arguments)]
@@ -197,11 +232,34 @@ pub async fn login(
                 });
                 (StatusCode::OK, Json(mfa_resp)).into_response()
             } else {
-                (StatusCode::OK, Json(serde_json::json!(resp))).into_response()
+                // M-4: Set HttpOnly cookie with JWT for browser-based auth
+                let is_https = is_https_request(&headers);
+                let cookie = build_auth_cookie(&resp.token, is_https);
+                (
+                    StatusCode::OK,
+                    [(axum::http::header::SET_COOKIE, cookie)],
+                    Json(serde_json::json!(resp)),
+                )
+                    .into_response()
             }
         }
         Err(e) => AppError::unauthorized(e.to_string()).into_response(),
     }
+}
+
+/// POST /api/v1/users/logout — clears the HttpOnly auth cookie (M-4).
+///
+/// The frontend calls this on logout to invalidate the cookie.
+/// The JWT itself remains valid until expiry (stateless JWT), but the
+/// browser will no longer send it.
+pub async fn logout(headers: HeaderMap) -> impl IntoResponse {
+    let is_https = is_https_request(&headers);
+    let cookie = build_clear_cookie(is_https);
+    (
+        StatusCode::OK,
+        [(axum::http::header::SET_COOKIE, cookie)],
+        Json(serde_json::json!({"logged_out": true})),
+    )
 }
 
 #[utoipa::path(
@@ -536,6 +594,7 @@ pub struct ResetPasswordRequest {
 )]
 pub async fn reset_password(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(body): Json<ResetPasswordRequest>,
 ) -> impl IntoResponse {
     match rg_core::user::service::reset_password(
@@ -548,7 +607,15 @@ pub async fn reset_password(
     {
         Ok(resp) => {
             tracing::info!(user_id = resp.user_id, "password reset successful");
-            (StatusCode::OK, Json(serde_json::json!(resp))).into_response()
+            // M-4: Set HttpOnly cookie so the user stays logged in after reset
+            let is_https = is_https_request(&headers);
+            let cookie = build_auth_cookie(&resp.token, is_https);
+            (
+                StatusCode::OK,
+                [(axum::http::header::SET_COOKIE, cookie)],
+                Json(serde_json::json!(resp)),
+            )
+                .into_response()
         }
         Err(e) => AppError::bad_request(e.to_string()).into_response(),
     }

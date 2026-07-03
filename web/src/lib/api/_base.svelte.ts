@@ -25,19 +25,30 @@ export function withBackendBase(path: string): string {
 
 let authToken = $state<string | null>(null);
 
+/**
+ * M-4: Returns the in-memory token if set (e.g., from login response for
+ * WebSocket subprotocol). localStorage is no longer used for token storage.
+ * Browser API calls rely on the HttpOnly cookie set by the backend.
+ */
 export function getToken(): string | null {
   if (typeof window === 'undefined') return null;
-  return authToken || localStorage.getItem('ironforge_token');
+  // M-4: Clean up legacy localStorage tokens on first access
+  const legacy = localStorage.getItem('ironforge_token');
+  if (legacy) {
+    localStorage.removeItem('ironforge_token');
+  }
+  return authToken;
 }
 
+/**
+ * M-4: Sets the in-memory token. localStorage is no longer used.
+ * The HttpOnly cookie is set by the backend and cannot be read by JS.
+ */
 export function setToken(token: string | null) {
   authToken = token;
   if (typeof window === 'undefined') return;
-  if (token) {
-    localStorage.setItem('ironforge_token', token);
-  } else {
-    localStorage.removeItem('ironforge_token');
-  }
+  // M-4: Clean up legacy localStorage tokens
+  localStorage.removeItem('ironforge_token');
 }
 
 /** Default request timeout: 30 seconds. */
@@ -61,7 +72,7 @@ export async function request<T>(path: string, options: RequestInit = {}): Promi
     signal = AbortSignal.timeout(timeoutMs);
   }
 
-  const res = await fetch(withApiBase(path), { ...options, headers, signal });
+  const res = await fetch(withApiBase(path), { ...options, headers, signal, credentials: 'include' });
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -114,9 +125,11 @@ export async function downloadApiFile(path: string, fallbackFilename: string): P
   }
 
   // M-3: 5-minute timeout for file downloads (large artifacts).
+  // M-4: credentials: 'include' sends the HttpOnly auth cookie.
   const res = await fetch(withApiBase(path), {
     headers,
     signal: AbortSignal.timeout(300_000),
+    credentials: 'include',
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));

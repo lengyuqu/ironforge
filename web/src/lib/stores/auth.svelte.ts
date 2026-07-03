@@ -121,12 +121,8 @@ export async function register(username: string, email: string, password: string
 }
 
 export async function fetchUser() {
-  const token = getToken();
-  if (!token) {
-    currentUser = null;
-    authReady = true;
-    return;
-  }
+  // M-4: Always try to fetch user profile — the HttpOnly cookie is sent
+  // automatically. If the cookie is absent or invalid, the API returns 401.
   try {
     const me = await auth.me();
     currentUser = {
@@ -144,7 +140,13 @@ export async function fetchUser() {
   }
 }
 
-export function logout() {
+export async function logout() {
+  // M-4: Call backend to clear the HttpOnly cookie (JS cannot clear it directly)
+  try {
+    await auth.logout();
+  } catch {
+    // Ignore errors — cookie may already be cleared
+  }
   setToken(null);
   currentUser = null;
   pendingMfaUsername = null;

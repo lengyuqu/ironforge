@@ -378,7 +378,7 @@
 ## 七、修复追踪（2026-07-03 修复批次）
 
 **修复时间**: 2026-07-03
-**修复范围**: 全部 33 个缺陷中的 31 个（C-1/C-2, H-1~H-11, M-1~M-3/M-5/M-6~M-14, L-1~L-6）
+**修复范围**: 全部 33 个缺陷（C-1/C-2, H-1~H-11, M-1~M-14, L-1~L-6）
 
 ### 修复清单
 
@@ -387,7 +387,7 @@
 | C-1 | 🔴 | WebSocket 通知广播无用户隔离 | ✅ 已修复 | per-user broadcast channel + user_id 路由 |
 | C-2 | 🔴 | validate_username 交叉校验缺失 | ✅ 已修复 | register() 中调用 validate_username() |
 | H-1 | 🟠 | CORS permissive | ✅ 已修复 | build_cors_layer() + IRONFORGE_CORS_ORIGINS 环境变量 |
-| H-2 | 🟠 | CSP unsafe-inline | ✅ 已修复 | 文档化 SvelteKit nonce 限制 + 添加 CSP 配置说明 |
+| H-2 | 🟠 | CSP unsafe-inline | ✅ 已修复 | per-request nonce + `spa_index_handler` 注入 + `script-src 'self' 'nonce-<value>'`（详见追加修复） |
 | H-3 | 🟠 | 认证函数碎片化 | ✅ 已修复 | AuthUser FromRequestParts extractor + 文档化分离关注点 |
 | H-4 | 🟠 | std::sync::Mutex 在 async | ✅ 已修复 | PermissionCache 改用 tokio::sync::RwLock |
 | H-5 | 🟠 | 密码重置时序侧信道 | ✅ 已修复 | forgot_password 添加 100ms 延迟归一化 |
@@ -409,12 +409,9 @@
 | L-3 | 🔵 | SQLite WAL + Mutex 冲突 | ✅ 已修复 | H-4 RwLock 修复覆盖 |
 | L-4 | 🔵 | API 分页不一致 | ✅ 已修复 | audit.rs page_size→per_page + 1-based; search.rs 统一默认值 |
 
-### 未修复项（2 个，留待下迭代）
+### 未修复项
 
-| 编号 | 级别 | 描述 | 原因 |
-|------|------|------|------|
-| H-2 | 🟠 | CSP unsafe-inline 完全移除 | 需要 SvelteKit nonce 构建管线支持 |
-| M-4 | 🟡 | JWT Token 存储在 localStorage | 需要 HttpOnly cookie 架构变更 |
+**全部 33 项缺陷已修复（100%）。**
 
 ### 已修复追加项（2026-07-04 补充修复）
 
@@ -427,11 +424,14 @@
 | M-2 | 🟡 | gix 迁移完成度文档 | ✅ 已修复 | 文档已标注 "~70%，12 处 git CLI fallback 待替换" |
 | M-3 | 🟡 | 前端 API 无超时/重试 | ✅ 已修复 | request() 添加 AbortSignal.timeout(30s)；downloadApiFile(5min) |
 | M-5 | 🟡 | WebSocket 认证 via query param | ✅ 已修复 | 前端使用 Sec-WebSocket-Protocol subprotocol；后端支持双模式（subprotocol + query fallback） |
+| H-2 | 🟠 | CSP unsafe-inline 完全移除 | ✅ 已修复 | per-request nonce 生成 + `spa_index_handler` 注入 nonce 到 `<script>` 标签 + CSP `script-src 'self' 'nonce-<value>'` |
+| M-4 | 🟡 | JWT Token 存储在 localStorage | ✅ 已修复 | 后端 `Set-Cookie: ironforge_token` HttpOnly + `extract_user_id` 支持 cookie 认证 + 前端 `credentials: 'include'` + `/users/logout` 端点 + WebSocket cookie 认证 |
 
 ### 编译验证
 
 ```
-cargo build --release → Finished, 0 warnings, 0 errors
+cargo check → Finished, 0 warnings, 0 errors
+npm run build → ✓ built in 2.07s, 0 errors
 ```
 
 *修复完成时间: 2026-07-04*

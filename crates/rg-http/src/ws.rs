@@ -153,6 +153,22 @@ fn extract_bearer_from_protocol(headers: &HeaderMap) -> Option<(String, String)>
     None
 }
 
+/// Extract a Bearer token from the `Cookie` header (M-4: HttpOnly cookie auth).
+///
+/// Returns the raw token string if a valid `ironforge_token` cookie is present.
+fn extract_token_from_cookie(headers: &HeaderMap) -> Option<String> {
+    let cookie_header = headers.get("cookie")?.to_str().ok()?;
+    for cookie in cookie_header.split(';') {
+        let cookie = cookie.trim();
+        if let Some(token) = cookie.strip_prefix("ironforge_token=") {
+            if !token.is_empty() {
+                return Some(token.to_string());
+            }
+        }
+    }
+    None
+}
+
 /// GET /api/v1/ws/notifications — WebSocket upgrade handler.
 pub async fn ws_notifications_handler(
     ws: WebSocketUpgrade,
@@ -160,11 +176,14 @@ pub async fn ws_notifications_handler(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    // M-5: Authenticate via Sec-WebSocket-Protocol subprotocol (preferred),
-    // falling back to query parameter for backward compatibility.
-    let (proto_echo, token) = match extract_bearer_from_protocol(&headers) {
-        Some((proto, token)) => (Some(proto), Some(token)),
-        None => (None, query.token),
+    // M-4/M-5: Authenticate via HttpOnly cookie (preferred for browsers),
+    // then Sec-WebSocket-Protocol subprotocol, then query parameter (legacy).
+    let (proto_echo, token) = match extract_token_from_cookie(&headers) {
+        Some(t) => (None, Some(t)),
+        None => match extract_bearer_from_protocol(&headers) {
+            Some((proto, token)) => (Some(proto), Some(token)),
+            None => (None, query.token),
+        },
     };
 
     let user_id = token
@@ -320,10 +339,13 @@ pub async fn ws_job_log_handler(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    // M-5: Authenticate via subprotocol header (preferred) or query param (fallback)
-    let (proto_echo, token) = match extract_bearer_from_protocol(&headers) {
-        Some((proto, token)) => (Some(proto), Some(token)),
-        None => (None, query.token),
+    // M-4/M-5: Authenticate via cookie (preferred), subprotocol, or query param
+    let (proto_echo, token) = match extract_token_from_cookie(&headers) {
+        Some(t) => (None, Some(t)),
+        None => match extract_bearer_from_protocol(&headers) {
+            Some((proto, token)) => (Some(proto), Some(token)),
+            None => (None, query.token),
+        },
     };
 
     let user_id = token

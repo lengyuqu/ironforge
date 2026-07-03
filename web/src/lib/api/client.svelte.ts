@@ -271,6 +271,11 @@ export const auth = {
       method: 'POST',
       body: JSON.stringify({ token, new_password: newPassword }),
     }),
+  // M-4: Backend clears the HttpOnly auth cookie
+  logout: () =>
+    request<{ logged_out: boolean }>('/users/logout', {
+      method: 'POST',
+    }),
 };
 
 // ── Repos ────────────────────────────────────────────
@@ -1246,14 +1251,10 @@ export function connectNotificationWebSocket(
   onMessage: (event: { event_type: string; data: any }) => void,
   onError?: (err: Event) => void,
 ): WebSocket | null {
-  const token = getToken();
-  if (!token) return null;
-
-  // M-5: Use Sec-WebSocket-Protocol subprotocol instead of query parameter
-  // to avoid token leakage in server logs, browser history, and Referer header.
+  // M-4: WebSocket auth via HttpOnly cookie — the browser sends the cookie
+  // automatically for same-origin WebSocket connections. No token needed in JS.
+  // The backend checks the cookie header before upgrading.
   const wsUrl = `${withWebSocketApiBase('/ws/notifications')}`;
-  const ws = new WebSocket(wsUrl, [`bearer.${token}`]);
-
   const ws = new WebSocket(wsUrl);
 
   ws.onmessage = (event) => {

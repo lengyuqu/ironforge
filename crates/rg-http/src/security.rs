@@ -3,11 +3,22 @@
 //! Phase 22-D: Adds defense-in-depth HTTP security headers to all responses.
 //! These headers protect against common web vulnerabilities (XSS, clickjacking,
 //! MIME sniffing, etc.) without affecting functionality.
+//!
+//! H-2: CSP uses per-request nonces instead of 'unsafe-inline' for script-src.
+//! The nonce is generated here and stored in request extensions for the SPA
+//! handler to inject into `<script>` tags.
 
 use axum::extract::Request;
 use axum::http::{header, HeaderValue, Uri};
 use axum::middleware::Next;
 use axum::response::Response;
+
+/// Per-request CSP nonce, stored in request extensions.
+///
+/// The SPA fallback handler reads this to inject `nonce="<value>"` into
+/// all `<script>` tags in `index.html`.
+#[derive(Clone, Debug)]
+pub struct CspNonce(pub String);
 
 /// Middleware that adds security headers to all responses.
 ///
@@ -29,6 +40,12 @@ pub async fn security_headers_middleware(request: Request, next: Next) -> Respon
             .and_then(|v| v.to_str().ok())
             .map(|v| v == "https")
             .unwrap_or(false);
+
+    // H-2: Generate a per-request nonce for CSP.
+    // 128 bits of entropy (16 bytes → 32 hex chars) — sufficient for CSP nonce.
+    let nonce = uuid::Uuid::new_v4().simple().to_string();
+    let mut request = request;
+    request.extensions_mut().insert(CspNonce(nonce.clone()));
 
     let mut response = next.run(request).await;
     let headers = response.headers_mut();
@@ -65,27 +82,28 @@ pub async fn security_headers_middleware(request: Request, next: Next) -> Respon
         );
     }
 
-    // Content Security Policy — restrictive default
-    // Allow self for scripts/styles/images; allow data: for images; inline styles OK.
+    // Content Security Policy — nonce-based (H-2)
     //
-    // NOTE: `script-src 'unsafe-inline'` is currently required because SvelteKit's
-    // built output embeds an inline <script> for hydration data (__sveltekit_xxx).
-    // Removing 'unsafe-inline' would break frontend hydration.
-    // TODO: Implement nonce-based CSP (generate per-request nonce, inject into
-    // served HTML, replace 'unsafe-inline' with 'nonce-<value>') for full CSP hardening.
+    // `script-src 'self' 'nonce-<value>'` replaces the previous `'unsafe-inline'`.
+    // The SPA handler injects the nonce into all inline `<script>` tags so
+    // SvelteKit hydration works without weakening CSP.
+    // `style-src 'unsafe-inline'` is retained because SvelteKit inlines styles
+    // and there is no runtime mechanism to nonce them in static-build mode.
+    let csp = format!(
+        "default-src 'self'; \
+         script-src 'self' 'nonce-{}'; \
+         style-src 'self' 'unsafe-inline'; \
+         img-src 'self' data: https:; \
+         font-src 'self' data:; \
+         connect-src 'self'; \
+         frame-ancestors 'none'; \
+         base-uri 'self'; \
+         form-action 'self'",
+        nonce
+    );
     headers.insert(
         header::HeaderName::from_static("content-security-policy"),
-        HeaderValue::from_static(
-            "default-src 'self'; \
-             script-src 'self' 'unsafe-inline'; \
-             style-src 'self' 'unsafe-inline'; \
-             img-src 'self' data: https:; \
-             font-src 'self' data:; \
-             connect-src 'self'; \
-             frame-ancestors 'none'; \
-             base-uri 'self'; \
-             form-action 'self'",
-        ),
+        HeaderValue::from_str(&csp).expect("CSP header is valid ASCII"),
     );
 
     // Permissions Policy — disable unused browser features
