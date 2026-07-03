@@ -4,18 +4,20 @@ use std::str::FromStr;
 
 use axum::{
     extract::{Query, State},
-    http::{HeaderMap, StatusCode},
+    http::HeaderMap,
     Json,
 };
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::{api::admin::require_admin, AppState};
+use crate::{api::admin::require_admin, error::AppError, AppState};
 
 #[derive(Debug, Deserialize)]
 pub struct AuditLogQuery {
     page: Option<u64>,
-    page_size: Option<u64>,
+    /// L-4: Standardized to `per_page` (alias `page_size` for backward compat).
+    #[serde(default, alias = "page_size")]
+    per_page: Option<u64>,
     user_id: Option<i64>,
     action: Option<String>,
     resource_type: Option<String>,
@@ -41,7 +43,7 @@ pub struct AuditLogEntry {
 pub struct AuditLogResponse {
     total: u64,
     page: u64,
-    page_size: u64,
+    per_page: u64,
     logs: Vec<AuditLogEntry>,
 }
 
@@ -52,8 +54,8 @@ pub struct AuditLogResponse {
     path = "/admin/audit/logs",
     tag = "Audit",
     params(
-        ("page" = Option<u64>, Query, description = "Page number (0-based)"),
-        ("page_size" = Option<u64>, Query, description = "Items per page (1-100)"),
+        ("page" = Option<u64>, Query, description = "Page number (1-based, default 1)"),
+        ("per_page" = Option<u64>, Query, description = "Items per page (1-100, default 20)"),
         ("user_id" = Option<i64>, Query, description = "Filter by user ID"),
         ("action" = Option<String>, Query, description = "Filter by action"),
         ("resource_type" = Option<String>, Query, description = "Filter by resource type"),
@@ -69,13 +71,16 @@ pub async fn list_audit_logs(
     State(state): State<AppState>,
     headers: HeaderMap,
     Query(q): Query<AuditLogQuery>,
-) -> Result<Json<AuditLogResponse>, (StatusCode, String)> {
+) -> Result<Json<AuditLogResponse>, AppError> {
     if require_admin(&state, &headers).await.is_none() {
-        return Err((StatusCode::UNAUTHORIZED, "admin required".into()));
+        return Err(AppError::unauthorized("admin required"));
     }
 
-    let page = q.page.unwrap_or(0);
-    let page_size = q.page_size.unwrap_or(20).clamp(1, 100);
+    // L-4: Standardized to 1-based page numbering (consistent with PaginationParams).
+    let page = q.page.unwrap_or(1).max(1);
+    let per_page = q.per_page.unwrap_or(20).clamp(1, 100);
+    // sea_orm paginator is 0-based internally.
+    let page_index = page - 1;
 
     let start_time = q
         .start_time
@@ -88,8 +93,8 @@ pub async fn list_audit_logs(
 
     let (logs, total) = rg_db::ops::audit_log_ops::list_paginated(
         &state.db,
-        page,
-        page_size,
+        page_index,
+        per_page,
         q.user_id,
         q.action.as_deref(),
         q.resource_type.as_deref(),
@@ -98,9 +103,9 @@ pub async fn list_audit_logs(
     )
     .await
     .map_err(|e| {
-        tracing::error!("audit list error: {}", e);
-        (StatusCode::INTERNAL_SERVER_ERROR, "database error".into())
-    })?;
+            tracing::error!("audit list error: {}", e);
+            AppError::internal("database error")
+        })?;
 
     let logs = logs
         .into_iter()
@@ -121,7 +126,7 @@ pub async fn list_audit_logs(
     Ok(Json(AuditLogResponse {
         total,
         page,
-        page_size,
+        per_page,
         logs,
     }))
 }
@@ -145,18 +150,18 @@ pub async fn get_audit_log(
     State(state): State<AppState>,
     headers: HeaderMap,
     axum::extract::Path(id): axum::extract::Path<i64>,
-) -> Result<Json<AuditLogEntry>, (StatusCode, String)> {
+) -> Result<Json<AuditLogEntry>, AppError> {
     if require_admin(&state, &headers).await.is_none() {
-        return Err((StatusCode::UNAUTHORIZED, "admin required".into()));
+        return Err(AppError::unauthorized("admin required"));
     }
 
     let log = rg_db::ops::audit_log_ops::find_by_id(&state.db, id)
         .await
         .map_err(|e| {
             tracing::error!("audit get error: {}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, "database error".into())
+            AppError::internal("database error")
         })?
-        .ok_or((StatusCode::NOT_FOUND, "audit log not found".into()))?;
+        .ok_or_else(|| AppError::not_found("audit log not found"))?;
 
     Ok(Json(AuditLogEntry {
         id: log.id,

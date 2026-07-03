@@ -109,7 +109,7 @@ pub async fn get_pr(
 ) -> impl IntoResponse {
     match rg_core::pull_request::get_pr(&state.db, &owner, &repo, number).await {
         Ok(pr) => (StatusCode::OK, Json(pr)).into_response(),
-        Err(e) => AppError::NotFound(e.to_string()).into_response(),
+        Err(e) => AppError::not_found(e.to_string()).into_response(),
     }
 }
 
@@ -137,13 +137,13 @@ pub async fn create_pr(
     let user_id = match super::auth::extract_user_id(&headers, &state.jwt_secret) {
         Some(id) => id,
         None => {
-            return AppError::Unauthorized("authentication required".to_string()).into_response()
+            return AppError::unauthorized("authentication required".to_string()).into_response()
         }
     };
 
     let repo_id = match resolve_repo_id(&state.db, &owner, &repo).await {
         Some(id) => id,
-        None => return AppError::NotFound("repository not found".to_string()).into_response(),
+        None => return AppError::not_found("repository not found".to_string()).into_response(),
     };
 
     match rg_core::pull_request::resolve_head_ref(&state.db, repo_id, &req.head).await {
@@ -161,10 +161,10 @@ pub async fn create_pr(
             .await
             {
                 Ok(pr) => (StatusCode::CREATED, Json(pr)).into_response(),
-                Err(e) => AppError::BadRequest(e.to_string()).into_response(),
+                Err(e) => AppError::bad_request(e.to_string()).into_response(),
             }
         }
-        Err(e) => AppError::BadRequest(e.to_string()).into_response(),
+        Err(e) => AppError::bad_request(e.to_string()).into_response(),
     }
 }
 
@@ -194,7 +194,7 @@ pub async fn update_pr(
     .await
     {
         Ok(pr) => (StatusCode::OK, Json(pr)).into_response(),
-        Err(e) => AppError::BadRequest(e.to_string()).into_response(),
+        Err(e) => AppError::bad_request(e.to_string()).into_response(),
     }
 }
 
@@ -251,7 +251,7 @@ pub async fn merge_pr(
 ) -> impl IntoResponse {
     // Require auth
     if super::auth::extract_user_id(&headers, &state.jwt_secret).is_none() {
-        return AppError::Unauthorized("authentication required".to_string()).into_response();
+        return AppError::unauthorized("authentication required".to_string()).into_response();
     }
 
     let strategy = match req.strategy.as_str() {
@@ -259,7 +259,7 @@ pub async fn merge_pr(
         "squash" => rg_core::pull_request::MergeStrategy::Squash,
         "rebase" => rg_core::pull_request::MergeStrategy::Rebase,
         _ => {
-            return AppError::BadRequest(
+            return AppError::bad_request(
                 "invalid merge strategy, use: merge, squash, rebase".to_string(),
             )
             .into_response();
@@ -277,7 +277,7 @@ pub async fn merge_pr(
             )
             .await
             {
-                return AppError::Forbidden(e.to_string()).into_response();
+                return AppError::forbidden(e.to_string()).into_response();
             }
         }
     }
@@ -293,7 +293,7 @@ pub async fn merge_pr(
     .await
     {
         Ok(result) => (StatusCode::OK, Json(result)).into_response(),
-        Err(e) => AppError::BadRequest(e.to_string()).into_response(),
+        Err(e) => AppError::bad_request(e.to_string()).into_response(),
     }
 }
 

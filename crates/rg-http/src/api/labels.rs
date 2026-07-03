@@ -121,7 +121,7 @@ pub async fn create_label(
         Ok(id) => id,
 
         Err(_) => {
-            return AppError::Unauthorized("invalid token subject".to_string()).into_response()
+            return AppError::unauthorized("invalid token subject".to_string()).into_response()
         }
     };
 
@@ -181,7 +181,7 @@ pub async fn update_label(
         Ok(id) => id,
 
         Err(_) => {
-            return AppError::Unauthorized("invalid token subject".to_string()).into_response()
+            return AppError::unauthorized("invalid token subject".to_string()).into_response()
         }
     };
 
@@ -239,7 +239,7 @@ pub async fn delete_label(
         Ok(id) => id,
 
         Err(_) => {
-            return AppError::Unauthorized("invalid token subject".to_string()).into_response()
+            return AppError::unauthorized("invalid token subject".to_string()).into_response()
         }
     };
 

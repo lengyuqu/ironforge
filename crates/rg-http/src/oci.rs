@@ -54,8 +54,10 @@ fn oci_unauthorized(message: &str) -> Response {
     oci_err(StatusCode::UNAUTHORIZED, error_codes::UNAUTHORIZED, message)
 }
 
-/// Extract Bearer JWT token, returning user_id.
-/// Supports both normal user JWTs and OCI Bearer tokens.
+/// H-3: Extract Bearer JWT token, returning user_id.
+/// Intentionally separate from `auth::extract_user_id` because OCI endpoints
+/// also accept OCI-scoped bearer tokens (not just user JWTs).
+/// For standard user auth, use `auth::AuthUser` extractor or `auth::extract_user_id`.
 fn extract_user(headers: &HeaderMap, jwt_secret: &str) -> Option<i64> {
     let auth = headers.get(header::AUTHORIZATION)?.to_str().ok()?;
     let token = auth.strip_prefix("Bearer ")?;

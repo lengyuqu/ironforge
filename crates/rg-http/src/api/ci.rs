@@ -344,11 +344,13 @@ pub async fn trigger_pipeline(
     };
 
     // Check if CI config exists
-    if !rg_ci::has_ci_config(&repo_path, &commit_sha) {
+    if !state.ci_engine.has_ci_config(&repo_path, &commit_sha) {
         return AppError::bad_request("no .ironforge-ci.yml found").into_response();
     }
 
-    match rg_ci::trigger_pipeline(rg_ci::TriggerPipelineParams {
+    match state
+        .ci_engine
+        .trigger_pipeline(rg_core::ci::TriggerPipelineParams {
         db: &state.db,
         repo_path: &repo_path,
         repo_id: repo.id,
@@ -425,18 +427,20 @@ pub async fn retry_pipeline(
         return AppError::not_found("repo path not found").into_response();
     }
 
-    match rg_ci::trigger_pipeline(rg_ci::TriggerPipelineParams {
-        db: &state.db,
-        repo_path: &repo_path,
-        repo_id: pipeline.repo_id,
-        commit_sha: &pipeline.commit_sha,
-        ref_name: &pipeline.ref_name,
-        trigger_type: "retry",
-        triggered_by: pipeline.triggered_by,
-        docker_enabled: state.docker_enabled,
-        external_runners: state.external_runners,
-        jwt_secret: Some(&state.jwt_secret),
-    })
+    match state
+        .ci_engine
+        .trigger_pipeline(rg_core::ci::TriggerPipelineParams {
+            db: &state.db,
+            repo_path: &repo_path,
+            repo_id: pipeline.repo_id,
+            commit_sha: &pipeline.commit_sha,
+            ref_name: &pipeline.ref_name,
+            trigger_type: "retry",
+            triggered_by: pipeline.triggered_by,
+            docker_enabled: state.docker_enabled,
+            external_runners: state.external_runners,
+            jwt_secret: Some(&state.jwt_secret),
+        })
     .await
     {
         Ok(new_id) => (

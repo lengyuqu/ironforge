@@ -81,9 +81,19 @@ pub struct RegistryEntry {
     pub enabled: bool,
 }
 
-/// Helper: generate a JSON error response.
+/// Helper: generate a standardized JSON error response via AppError.
 fn err(status: StatusCode, msg: &str) -> axum::response::Response {
-    (status, Json(serde_json::json!({"error": msg}))).into_response()
+    let error = match status {
+        StatusCode::BAD_REQUEST => AppError::bad_request(msg),
+        StatusCode::NOT_FOUND => AppError::not_found(msg),
+        StatusCode::UNAUTHORIZED => AppError::unauthorized(msg),
+        StatusCode::FORBIDDEN => AppError::forbidden(msg),
+        StatusCode::CONFLICT => AppError::conflict(msg),
+        StatusCode::TOO_MANY_REQUESTS => AppError::rate_limited(msg),
+        StatusCode::INTERNAL_SERVER_ERROR => AppError::internal(msg),
+        _ => AppError::internal(msg),
+    };
+    error.into_response()
 }
 
 /// Helper: plain-text error response.
@@ -96,7 +106,9 @@ fn err_text(status: StatusCode, msg: &str) -> axum::response::Response {
         .into_response()
 }
 
-/// Helper: extract authenticated user from headers.
+/// H-3: Thin wrapper over the unified `extract_user_id` from `auth.rs`.
+/// New handlers should prefer the `AuthUser` extractor for compile-time auth.
+/// This wrapper is retained because packages.rs returns `AppError` (not bare tuples).
 fn auth(headers: &axum::http::HeaderMap, secret: &str) -> Result<i64, AppError> {
     extract_user_id(headers, secret)
         .ok_or_else(|| AppError::unauthorized("authentication required"))

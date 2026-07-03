@@ -40,6 +40,72 @@ use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::services::{ServeDir, ServeFile};
 use tower_http::trace::TraceLayer;
 
+/// Build a restrictive CORS layer.
+///
+/// If `IRONFORGE_CORS_ORIGINS` is set (comma-separated URLs), only those
+/// origins are allowed. Otherwise, all origins are reflected (for development
+/// convenience) with a warning logged.
+///
+/// Replaces `CorsLayer::permissive()` — restricts allowed methods and headers
+/// to only what IronForge needs.
+fn build_cors_layer() -> CorsLayer {
+    use std::time::Duration;
+
+    let methods = [
+        Method::GET,
+        Method::POST,
+        Method::PUT,
+        Method::DELETE,
+        Method::PATCH,
+        Method::OPTIONS,
+    ];
+
+    let headers_list = [
+        header::AUTHORIZATION,
+        header::CONTENT_TYPE,
+        header::ACCEPT,
+    ];
+
+    match std::env::var("IRONFORGE_CORS_ORIGINS") {
+        Ok(origins_str) if !origins_str.is_empty() => {
+            let origins: Vec<HeaderValue> = origins_str
+                .split(',')
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .filter_map(|s| HeaderValue::from_str(s).ok())
+                .collect();
+
+            if origins.is_empty() {
+                tracing::warn!(
+                    "IRONFORGE_CORS_ORIGINS set but no valid origins parsed — CORS disabled"
+                );
+                CorsLayer::new()
+                    .allow_methods(methods)
+                    .allow_headers(headers_list)
+            } else {
+                tracing::info!(origins = ?origins, "CORS: allowing configured origins");
+                CorsLayer::new()
+                    .allow_origin(origins)
+                    .allow_methods(methods)
+                    .allow_headers(headers_list)
+                    .allow_credentials(true)
+                    .max_age(Duration::from_secs(3600))
+            }
+        }
+        _ => {
+            tracing::warn!(
+                "IRONFORGE_CORS_ORIGINS not set — CORS allows all origins (not recommended for production)"
+            );
+            CorsLayer::new()
+                .allow_origin(tower_http::cors::AllowOrigin::mirror_request())
+                .allow_methods(methods)
+                .allow_headers(headers_list)
+                .allow_credentials(true)
+                .max_age(Duration::from_secs(3600))
+        }
+    }
+}
+
 /// Shared application state injected into every Axum handler via `State<AppState>`.
 #[derive(Clone)]
 pub struct AppState {
@@ -57,6 +123,8 @@ pub struct AppState {
     pub external_url: Option<String>,
     /// CI job timeout in seconds.
     pub job_timeout_secs: u64,
+    /// CI engine (M-14: trait object decouples rg-http from rg-ci).
+    pub ci_engine: Arc<dyn rg_core::ci::CiTrigger + Send + Sync>,
 }
 
 /// HTTP server configuration.
@@ -88,6 +156,8 @@ pub struct HttpServerConfig {
     pub external_url: Option<String>,
     /// CI job timeout in seconds (default: 3600).
     pub job_timeout_secs: u64,
+    /// CI engine implementation (M-14: injected from rg-cli, decouples rg-http from rg-ci).
+    pub ci_engine: Arc<dyn rg_core::ci::CiTrigger + Send + Sync>,
 }
 
 /// Start the HTTP server and run forever.
@@ -123,6 +193,7 @@ pub async fn run(config: HttpServerConfig) -> Result<()> {
         log_write_queue: rg_core::ci::log_write_queue::LogWriteQueue::spawn(log_queue_db),
         external_url: config.external_url,
         job_timeout_secs: config.job_timeout_secs,
+        ci_engine: config.ci_engine,
     };
 
     let app = create_router(state.clone(), rate_limiter.clone());
@@ -312,14 +383,7 @@ fn build_router(state: AppState, rate_limiter: rate_limit::RateLimiter) -> Route
                 )
             },
         ))
-        .layer(CorsLayer::permissive().allow_methods([
-            Method::GET,
-            Method::POST,
-            Method::PUT,
-            Method::DELETE,
-            Method::PATCH,
-        ]))
-        // CORS permissive mode active — tighten in production
+        .layer(build_cors_layer())
         .layer(axum::middleware::from_extractor::<
             axum::extract::ConnectInfo<std::net::SocketAddr>,
         >())
@@ -1074,13 +1138,7 @@ fn build_test_router(state: AppState) -> Router {
                 )
             },
         ))
-        .layer(CorsLayer::permissive().allow_methods([
-            Method::GET,
-            Method::POST,
-            Method::PUT,
-            Method::DELETE,
-            Method::PATCH,
-        ]))
+        .layer(build_cors_layer())
         .with_state(state)
 }
 
@@ -1856,6 +1914,7 @@ async fn handle_git_receive_pack(
             let jwt_secret = state.jwt_secret.clone();
             let hub = state.notification_hub.clone();
             let smtp = state.smtp_config.clone();
+            let ci_engine = state.ci_engine.clone();
 
             tokio::spawn(async move {
                 post_push_hooks(
@@ -1869,6 +1928,7 @@ async fn handle_git_receive_pack(
                         jwt_secret: &jwt_secret,
                         notification_hub: &hub,
                         smtp_config: &smtp,
+                        ci_engine: &*ci_engine,
                     },
                     &ref_updates,
                 )
@@ -1903,6 +1963,7 @@ struct PostPushParams<'a> {
     jwt_secret: &'a str,
     notification_hub: &'a ws::NotificationHub,
     smtp_config: &'a Option<rg_core::email::SmtpConfig>,
+    ci_engine: &'a dyn rg_core::ci::CiTrigger,
 }
 
 /// Post-push hook: trigger CI pipeline and webhook for push events.
@@ -1920,6 +1981,7 @@ async fn post_push_hooks(
         jwt_secret,
         notification_hub,
         smtp_config,
+        ci_engine,
     } = params;
 
     // Find repo_id from DB
@@ -1967,8 +2029,9 @@ async fn post_push_hooks(
         }
 
         // 1. Trigger CI pipeline if .ironforge-ci.yml exists
-        if rg_ci::has_ci_config(repo_path, &update.new_sha) {
-            match rg_ci::trigger_pipeline(rg_ci::TriggerPipelineParams {
+        if ci_engine.has_ci_config(repo_path, &update.new_sha) {
+            match ci_engine
+                .trigger_pipeline(rg_core::ci::TriggerPipelineParams {
                 db: &**db,
                 repo_path,
                 repo_id,

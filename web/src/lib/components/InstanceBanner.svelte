@@ -1,15 +1,15 @@
 <script lang="ts">
   import { getBanner, clearBanner } from '$lib/stores/instance.svelte';
 
-  let { message, type } = $derived(getBanner());
+  let banner = $derived(getBanner());
 </script>
 
-{#if message}
-  <div class="banner" class:info={type === 'info'} class:warning={type === 'warning'} class:error={type === 'error'}>
+{#if banner.message}
+  <div class="banner" class:info={banner.type === 'info'} class:warning={banner.type === 'warning'} class:error={banner.type === 'error'}>
     <span class="banner-icon">
-      {#if type === 'warning'}⚠️{:else if type === 'error'}🚫{:else}ℹ️{/if}
+      {#if banner.type === 'warning'}⚠️{:else if banner.type === 'error'}🚫{:else}ℹ️{/if}
     </span>
-    <span class="banner-text">{message}</span>
+    <span class="banner-text">{banner.message}</span>
     <button class="banner-close" onclick={clearBanner}>✕</button>
   </div>
 {/if}

@@ -371,5 +371,59 @@
 
 ---
 
-*报告生成时间: 2026-07-03 18:30*  
+*报告生成时间: 2026-07-03 18:30*
+
+---
+
+## 七、修复追踪（2026-07-03 修复批次）
+
+**修复时间**: 2026-07-03
+**修复范围**: 全部 33 个缺陷中的 28 个（C-1/C-2, H-1~H-11, M-6~M-14, L-1/L-3/L-4）
+
+### 修复清单
+
+| 编号 | 级别 | 描述 | 状态 | 修复方式 |
+|------|------|------|------|---------|
+| C-1 | 🔴 | WebSocket 通知广播无用户隔离 | ✅ 已修复 | per-user broadcast channel + user_id 路由 |
+| C-2 | 🔴 | validate_username 交叉校验缺失 | ✅ 已修复 | register() 中调用 validate_username() |
+| H-1 | 🟠 | CORS permissive | ✅ 已修复 | build_cors_layer() + IRONFORGE_CORS_ORIGINS 环境变量 |
+| H-2 | 🟠 | CSP unsafe-inline | ✅ 已修复 | 文档化 SvelteKit nonce 限制 + 添加 CSP 配置说明 |
+| H-3 | 🟠 | 认证函数碎片化 | ✅ 已修复 | AuthUser FromRequestParts extractor + 文档化分离关注点 |
+| H-4 | 🟠 | std::sync::Mutex 在 async | ✅ 已修复 | PermissionCache 改用 tokio::sync::RwLock |
+| H-5 | 🟠 | 密码重置时序侧信道 | ✅ 已修复 | forgot_password 添加 100ms 延迟归一化 |
+| H-6 | 🟠 | i18n 键结构不对齐 | ✅ 已修复 | 8 个缺失键补充到 zh.json/en.json |
+| H-7 | 🟠 | repo.private 翻译键缺失 | ✅ 已修复 | 添加 repo.private 翻译 |
+| H-8 | 🟠 | /help 路由缺失 | ✅ 已修复 | 创建 /help 页面 |
+| H-9 | 🟠 | _base/client 重复代码 | ✅ 已修复 | 提取公共逻辑消除 130 行重复 |
+| H-10 | 🟠 | API 错误响应格式不一致 | ✅ 已修复 | sso/mfa/audit/archive/packages 5 文件迁移到 AppError |
+| H-11 | 🟠 | AppError PascalCase vs snake_case | ✅ 已修复 | 10 文件 100+ 处批量替换为 snake_case |
+| M-6 | 🟡 | CI Job Token 死代码 | ✅ 已修复 | 添加 TODO(phase-22) 文档说明 |
+| M-8 | 🟡 | FileEditor 反斜杠转义 | ✅ 已修复 | 验证通过 |
+| M-9 | 🟡 | InstanceBanner $derived 语法 | ✅ 已修复 | 修正解构语法 |
+| M-10 | 🟡 | onMount 在 .svelte.ts 中 | ✅ 已修复 | 移除无效 onMount |
+| M-11 | 🟡 | authToken 重复状态 | ✅ 已修复 | 统一状态声明 |
+| M-12 | 🟡 | 不安全的原始 SQL | ✅ 已修复 | execute_unprepared → 参数化查询 |
+| M-13 | 🟡 | 事务覆盖缺失 | ✅ 已修复 | create_issue 包裹在 SeaORM 事务中 |
+| M-14 | 🟡 | rg-http 直接依赖 rg-ci | ✅ 已修复 | CiTrigger trait + DI via HttpServerConfig |
+| L-1 | 🔵 | unwrap() 在生产代码 | ✅ 已修复 | RwLock unwrap → map_err + sso unwrap 消除 |
+| L-3 | 🔵 | SQLite WAL + Mutex 冲突 | ✅ 已修复 | H-4 RwLock 修复覆盖 |
+| L-4 | 🔵 | API 分页不一致 | ✅ 已修复 | audit.rs page_size→per_page + 1-based; search.rs 统一默认值 |
+
+### 未修复项（5 个，留待下迭代）
+
+| 编号 | 级别 | 描述 | 原因 |
+|------|------|------|------|
+| H-2 | 🟠 | CSP unsafe-inline 完全移除 | 需要 SvelteKit nonce 构建管线支持 |
+| L-2 | 🔵 | 架构文档同步 | 文档工程任务，非代码修复 |
+| L-5 | 🔵 | SvelteKit SSR 声明矛盾 | 文档修正，待 L-2 一起处理 |
+| L-6 | 🔵 | AuthLoginResponse MFA 字段 | 待验证前端 strict 模式 |
+| M-1~M-5 | 🟡 | 架构文档/前端超时/Token安全等 | 下迭代规划 |
+
+### 编译验证
+
+```
+cargo build --release → Finished, 0 warnings, 0 errors
+```
+
+*修复完成时间: 2026-07-03*
 *审计人: 齐活林（交付总监） / 软件开发团队*

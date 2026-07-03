@@ -1,22 +1,21 @@
 // IronForge API Client
+// Shared internals (API_BASE, getToken, setToken, request, etc.) live in _base.svelte.ts.
+// This file imports them and adds API-specific methods on top.
 
-const configuredApiBase =
-  typeof import.meta !== 'undefined'
-    ? (import.meta as { env?: { VITE_API_BASE?: string } }).env?.VITE_API_BASE
-    : undefined;
+import {
+  API_BASE,
+  withApiBase,
+  getToken,
+  setToken,
+  request,
+  downloadApiFile,
+  qs,
+  type PaginationMeta,
+  type PaginatedResponse,
+} from './_base.svelte';
 
-function normalizeApiBase(value?: string): string {
-  if (!value) return '/api/v1';
-  const trimmed = value.trim();
-  if (!trimmed || trimmed === '/') return '/api/v1';
-  return trimmed.endsWith('/') ? trimmed.slice(0, -1) : trimmed;
-}
-
-const API_BASE = normalizeApiBase(configuredApiBase);
-
-function withApiBase(path: string): string {
-  return `${API_BASE}${path.startsWith('/') ? path : `/${path}`}`;
-}
+// Re-export for backward compatibility — many route files import these from client.
+export { API_BASE, getToken, setToken, type PaginationMeta, type PaginatedResponse };
 
 function withWebSocketApiBase(path: string): string {
   const apiUrl = new URL(API_BASE, window.location.origin);
@@ -27,23 +26,6 @@ function withWebSocketApiBase(path: string): string {
 
 function encodeRepoPath(path: string): string {
   return path.split('/').map(encodeURIComponent).join('/');
-}
-
-let authToken = $state<string | null>(null);
-
-// ── Pagination types ─────────────────────────────────
-export interface PaginationMeta {
-  page: number;
-  per_page: number;
-  total: number;
-  total_pages: number;
-  has_next: boolean;
-  has_prev: boolean;
-}
-
-export interface PaginatedResponse<T> {
-  data: T[];
-  pagination: PaginationMeta;
 }
 
 interface PackageSummaryResponse {
@@ -165,117 +147,6 @@ export interface AuthLoginResponse {
   user_id: number;
   username: string;
   mfa_required?: boolean;
-}
-
-export function getToken(): string | null {
-  if (typeof window === 'undefined') return null;
-  return authToken || localStorage.getItem('ironforge_token');
-}
-
-export function setToken(token: string | null) {
-  authToken = token;
-  if (typeof window === 'undefined') return;
-  if (token) {
-    localStorage.setItem('ironforge_token', token);
-  } else {
-    localStorage.removeItem('ironforge_token');
-  }
-}
-
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const token = getToken();
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(options.headers as Record<string, string> || {}),
-  };
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-
-  const res = await fetch(withApiBase(path), {
-    ...options,
-    headers,
-  });
-
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    // Backend error envelope is { error: { code, message, request_id } }.
-    // Reading body.error directly yields "[object Object]" in the UI, so pull
-    // out the human-readable message (falling back for older/plain shapes).
-    const msg =
-      (body?.error && typeof body.error === 'object' ? body.error.message : body?.error) ||
-      body?.message ||
-      `HTTP ${res.status}`;
-    throw new Error(msg);
-  }
-
-  if (res.status === 204) {
-    return undefined as T;
-  }
-
-  const text = await res.text();
-  if (!text.trim()) {
-    return undefined as T;
-  }
-
-  return JSON.parse(text) as T;
-}
-
-function filenameFromContentDisposition(value: string | null): string | null {
-  if (!value) return null;
-
-  const encoded = value.match(/filename\*=UTF-8''([^;]+)/i);
-  if (encoded?.[1]) {
-    try {
-      return decodeURIComponent(encoded[1]);
-    } catch {
-      return encoded[1];
-    }
-  }
-
-  const quoted = value.match(/filename="([^"]+)"/i);
-  if (quoted?.[1]) return quoted[1];
-
-  const plain = value.match(/filename=([^;]+)/i);
-  return plain?.[1]?.trim() || null;
-}
-
-async function downloadApiFile(path: string, fallbackFilename: string): Promise<void> {
-  const token = getToken();
-  const headers: Record<string, string> = {};
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-
-  const res = await fetch(withApiBase(path), { headers });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    const msg =
-      (body?.error && typeof body.error === 'object' ? body.error.message : body?.error) ||
-      body?.message ||
-      `HTTP ${res.status}`;
-    throw new Error(msg);
-  }
-
-  const blob = await res.blob();
-  const filename = filenameFromContentDisposition(res.headers.get('content-disposition')) || fallbackFilename;
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.style.display = 'none';
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-}
-
-/// Build query string from key-value pairs, skipping nullish values.
-function qs(params: Record<string, string | number | boolean | undefined | null>): string {
-  const parts = Object.entries(params)
-    .filter(([, v]) => v !== undefined && v !== null && v !== '')
-    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`);
-  return parts.length > 0 ? '?' + parts.join('&') : '';
 }
 
 function toPagination(total: number, page?: number, perPage?: number): PaginationMeta {
@@ -1059,13 +930,13 @@ export interface AuditLogEntry {
 export interface AuditLogResponse {
   total: number;
   page: number;
-  page_size: number;
+  per_page: number;
   logs: AuditLogEntry[];
 }
 
 export interface AuditLogQuery {
   page?: number;
-  page_size?: number;
+  per_page?: number;
   user_id?: number;
   action?: string;
   resource_type?: string;
@@ -1142,7 +1013,7 @@ export const admin = {
   listAuditLogs: (query?: AuditLogQuery) =>
     request<AuditLogResponse>(`/admin/audit/logs${qs({
       page: query?.page,
-      page_size: query?.page_size,
+      per_page: query?.per_page,
       user_id: query?.user_id,
       action: query?.action,
       resource_type: query?.resource_type,

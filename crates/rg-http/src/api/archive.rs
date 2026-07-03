@@ -44,7 +44,7 @@ pub async fn download_archive(
     } else if let Some(s) = archive.strip_suffix(".zip") {
         (s.to_string(), "zip")
     } else {
-        return (StatusCode::BAD_REQUEST, "Unsupported format").into_response();
+        return AppError::bad_request("Unsupported format").into_response();
     };
 
     let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
@@ -80,7 +80,7 @@ pub async fn download_archive(
     let format_flag = match ext {
         "zip" => "zip",
         "tar.gz" | "tgz" => "tar.gz",
-        _ => return (StatusCode::BAD_REQUEST, "Unsupported format").into_response(),
+        _ => return AppError::bad_request("Unsupported format").into_response(),
     };
 
     let mime = match ext {
@@ -90,7 +90,7 @@ pub async fn download_archive(
 
     let git = match rg_git::cli_gateway::global_gateway().as_ref() {
         Ok(g) => g,
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        Err(e) => return AppError::internal(e.to_string()).into_response(),
     };
 
     let git_out = match git.run(
@@ -98,12 +98,12 @@ pub async fn download_archive(
         Some(&repo_path),
     ) {
         Ok(o) => o,
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response(),
+        Err(e) => return AppError::internal(e.to_string()).into_response(),
     };
 
     let output = match git_out.ensure_success() {
         Ok(()) => git_out.stdout,
-        Err(_) => return (StatusCode::BAD_REQUEST, "Invalid ref or SHA").into_response(),
+        Err(_) => return AppError::bad_request("Invalid ref or SHA").into_response(),
     };
 
     // Truncate by chars (not bytes) so a short ref like `main` or a

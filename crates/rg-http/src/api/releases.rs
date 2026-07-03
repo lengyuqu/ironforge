@@ -132,7 +132,7 @@ pub async fn create_release(
         Ok(id) => id,
 
         Err(_) => {
-            return AppError::Unauthorized("invalid token subject".to_string()).into_response();
+            return AppError::unauthorized("invalid token subject".to_string()).into_response();
         }
     };
 
@@ -257,7 +257,7 @@ pub async fn update_release(
         Ok(id) => id,
 
         Err(_) => {
-            return AppError::Unauthorized("invalid token subject".to_string()).into_response();
+            return AppError::unauthorized("invalid token subject".to_string()).into_response();
         }
     };
 
@@ -319,7 +319,7 @@ pub async fn delete_release(
         Ok(id) => id,
 
         Err(_) => {
-            return AppError::Unauthorized("invalid token subject".to_string()).into_response();
+            return AppError::unauthorized("invalid token subject".to_string()).into_response();
         }
     };
 
@@ -420,7 +420,7 @@ pub async fn upload_asset(
         Ok(id) => id,
 
         Err(_) => {
-            return AppError::Unauthorized("invalid token subject".to_string()).into_response();
+            return AppError::unauthorized("invalid token subject".to_string()).into_response();
         }
     };
 
@@ -676,7 +676,7 @@ pub async fn delete_asset(
         Ok(id) => id,
 
         Err(_) => {
-            return AppError::Unauthorized("invalid token subject".to_string()).into_response();
+            return AppError::unauthorized("invalid token subject".to_string()).into_response();
         }
     };
 

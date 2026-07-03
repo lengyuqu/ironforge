@@ -52,14 +52,14 @@
     error = '';
     try {
       const result = await admin.listAuditLogs({
-        page,
-        page_size: perPage,
+        page: page + 1, // L-4: Backend now uses 1-based page numbering
+        per_page: perPage,
         action: actionFilter || undefined,
         resource_type: resourceFilter || undefined,
       });
       logs = result.logs;
       total = result.total;
-      totalPages = Math.max(1, Math.ceil(result.total / result.page_size));
+      totalPages = Math.max(1, Math.ceil(result.total / result.per_page));
     } catch (e: any) {
       error = e.message || t('errors.load_failed');
     } finally {

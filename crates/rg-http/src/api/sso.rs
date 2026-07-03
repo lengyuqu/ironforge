@@ -9,7 +9,7 @@
 
 use axum::{
     extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode},
+    http::HeaderMap,
     response::{IntoResponse, Redirect},
     Json,
 };
@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use tracing;
 use utoipa::ToSchema;
 
+use crate::error::AppError;
 use crate::AppState;
 
 // ── Cookie helpers ───────────────────────────────────────────────
@@ -41,9 +42,14 @@ fn set_state_cookie(
         "{}={}; Path=/auth/sso; HttpOnly; SameSite=Lax; Max-Age=600",
         name, cookie_value
     );
-    response
-        .headers_mut()
-        .insert("Set-Cookie", cookie.parse().unwrap());
+    // L-1: Use unwrap_or_else to avoid panic on malformed cookie value
+    if let Ok(header_value) = cookie.parse() {
+        response
+            .headers_mut()
+            .insert("Set-Cookie", header_value);
+    } else {
+        tracing::warn!("Failed to parse Set-Cookie header value");
+    }
 }
 
 /// Verify and extract a signed cookie value. Returns None if missing or invalid.
@@ -78,7 +84,8 @@ fn sign_cookie_value(value: &str, secret: &str) -> String {
     let mut hex = String::with_capacity(64);
     for byte in &result {
         use std::fmt::Write;
-        write!(hex, "{byte:02x}").unwrap();
+        // write! to a String never fails, so unwrap is safe here
+        let _ = write!(hex, "{byte:02x}");
     }
     hex
 }
@@ -141,12 +148,12 @@ pub struct RefreshRequest {
 )]
 pub async fn list_providers(
     State(state): State<AppState>,
-) -> Result<Json<Vec<SsoProviderInfo>>, (StatusCode, String)> {
+) -> Result<Json<Vec<SsoProviderInfo>>, AppError> {
     let providers = rg_db::ops::sso_provider_ops::list_enabled(&state.db)
         .await
         .map_err(|e| {
             tracing::error!("DB error: {}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, "database error".into())
+            AppError::internal("database error")
         })?;
 
     let infos: Vec<SsoProviderInfo> = providers
@@ -182,20 +189,17 @@ pub async fn authorize(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(slug): Path<String>,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
+) -> Result<impl IntoResponse, AppError> {
     let provider = rg_db::ops::sso_provider_ops::find_by_slug(&state.db, &slug)
         .await
         .map_err(|e| {
             tracing::error!("DB error: {}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, "database error".into())
+            AppError::internal("database error")
         })?
-        .ok_or((
-            StatusCode::NOT_FOUND,
-            format!("SSO provider '{}' not found", slug),
-        ))?;
+        .ok_or_else(|| AppError::not_found(format!("SSO provider '{}' not found", slug)))?;
 
     if !provider.enabled {
-        return Err((StatusCode::FORBIDDEN, "SSO provider is disabled".into()));
+        return Err(AppError::forbidden("SSO provider is disabled"));
     }
 
     let base_url = get_base_url(&headers);
@@ -213,10 +217,7 @@ pub async fn authorize(
         .transpose()
         .map_err(|e| {
             tracing::error!("Decryption error: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "decryption failed".into(),
-            )
+            AppError::internal("decryption failed")
         })?
         .unwrap_or_default();
 
@@ -238,12 +239,9 @@ pub async fn authorize(
 
     let (auth_url, csrf_state, code_verifier) = rg_core::auth::sso::oauth2_authorize_url(&config)
         .map_err(|e| {
-        tracing::error!("SSO authorize error: {}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "SSO authorization failed".into(),
-        )
-    })?;
+            tracing::error!("SSO authorize error: {}", e);
+            AppError::internal("SSO authorization failed")
+        })?;
 
     // Build a redirect response with CSRF & PKCE cookies
     let mut redirect = Redirect::temporary(&auth_url).into_response();
@@ -287,7 +285,7 @@ pub async fn callback(
     headers: HeaderMap,
     Path(slug): Path<String>,
     Query(query): Query<SsoCallbackQuery>,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
+) -> Result<impl IntoResponse, AppError> {
     // ── CSRF state validation ────────────────────────────────────
     let expected_state = verify_state_cookie(&headers, SSO_STATE_COOKIE, &state.jwt_secret);
     let code_verifier = verify_state_cookie(&headers, SSO_VERIFIER_COOKIE, &state.jwt_secret);
@@ -302,14 +300,13 @@ pub async fn callback(
                 expected,
                 returned
             );
-            return Err((
-                StatusCode::FORBIDDEN,
-                "CSRF state mismatch — possible attack".into(),
+            return Err(AppError::forbidden(
+                "CSRF state mismatch — possible attack",
             ));
         }
         (Some(_), None) => {
             tracing::warn!("SSO CSRF: no expected state cookie found");
-            return Err((StatusCode::FORBIDDEN, "missing CSRF state cookie".into()));
+            return Err(AppError::forbidden("missing CSRF state cookie"));
         }
         (None, _) => {
             // Continue without state check for backward compatibility
@@ -324,15 +321,12 @@ pub async fn callback(
         .await
         .map_err(|e| {
             tracing::error!("DB error: {}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, "database error".into())
+            AppError::internal("database error")
         })?
-        .ok_or((
-            StatusCode::NOT_FOUND,
-            format!("SSO provider '{}' not found", slug),
-        ))?;
+        .ok_or_else(|| AppError::not_found(format!("SSO provider '{}' not found", slug)))?;
 
     if !provider.enabled {
-        return Err((StatusCode::FORBIDDEN, "SSO provider is disabled".into()));
+        return Err(AppError::forbidden("SSO provider is disabled"));
     }
 
     let base_url = get_base_url(&headers);
@@ -349,10 +343,8 @@ pub async fn callback(
         .map(|s| rg_core::auth::encryption::decrypt(s, &enc_key))
         .transpose()
         .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("decryption: {}", e),
-            )
+            tracing::error!("Decryption error: {}", e);
+            AppError::internal("decryption failed")
         })?
         .unwrap_or_default();
 
@@ -378,10 +370,7 @@ pub async fn callback(
             .await
             .map_err(|e| {
                 tracing::error!("SSO token exchange error: {}", e);
-                (
-                    StatusCode::BAD_REQUEST,
-                    "failed to exchange authorization code".into(),
-                )
+                AppError::bad_request("failed to exchange authorization code")
             })?;
 
     // ── Fetch user info ──────────────────────────────────────────
@@ -390,7 +379,7 @@ pub async fn callback(
             .await
             .map_err(|e| {
                 tracing::error!("SSO user info error: {}", e);
-                (StatusCode::BAD_REQUEST, "failed to fetch user info".into())
+                AppError::bad_request("failed to fetch user info")
             })?;
 
     // ── Find or create user ──────────────────────────────────────
@@ -399,11 +388,8 @@ pub async fn callback(
 
     let user = rg_db::ops::user_ops::find_by_id(&state.db, user_id)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-        .ok_or((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "user not found after creation".into(),
-        ))?;
+        .map_err(AppError::from)?
+        .ok_or_else(|| AppError::internal("user not found after creation"))?;
 
     // ── Log successful login ─────────────────────────────────────
     let _ = rg_db::ops::login_log_ops::log_attempt(
@@ -430,7 +416,7 @@ pub async fn callback(
 
     // ── Issue JWT ────────────────────────────────────────────────
     let token = rg_core::auth::jwt::generate_token(user.id, &user.username, &state.jwt_secret, 7)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(AppError::from)?;
 
     Ok(Json(LoginResponse {
         token,
@@ -463,21 +449,21 @@ pub async fn refresh_token(
     headers: HeaderMap,
     Path(slug): Path<String>,
     Json(body): Json<RefreshRequest>,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
+) -> Result<impl IntoResponse, AppError> {
     use crate::api::auth::extract_bearer_claims;
 
     // Require authenticated user
     let claims = extract_bearer_claims(&headers, &state.jwt_secret)
-        .ok_or((StatusCode::UNAUTHORIZED, "authentication required".into()))?;
+        .ok_or_else(|| AppError::unauthorized("authentication required"))?;
     let user_id: i64 = claims
         .sub
         .parse()
-        .map_err(|_| (StatusCode::UNAUTHORIZED, "invalid token".into()))?;
+        .map_err(|_| AppError::unauthorized("invalid token"))?;
 
     let provider = rg_db::ops::sso_provider_ops::find_by_slug(&state.db, &slug)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-        .ok_or((StatusCode::NOT_FOUND, "SSO provider not found".into()))?;
+        .map_err(AppError::from)?
+        .ok_or_else(|| AppError::not_found("SSO provider not found"))?;
 
     let enc_key = rg_core::auth::encryption::derive_key(&state.jwt_secret);
     let client_secret = provider
@@ -511,23 +497,21 @@ pub async fn refresh_token(
         // Look up the user's OAuth account for stored refresh_token
         let accounts = rg_db::ops::oauth_account_ops::find_by_user_id(&state.db, user_id)
             .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            .map_err(AppError::from)?;
 
         let account = accounts
             .iter()
             .find(|a| a.provider == slug)
-            .ok_or((StatusCode::NOT_FOUND, "no OAuth account linked".into()))?;
+            .ok_or_else(|| AppError::not_found("no OAuth account linked"))?;
 
         let stored_rt = account
             .refresh_token
             .as_ref()
-            .ok_or((StatusCode::NOT_FOUND, "no refresh token available".into()))?;
+            .ok_or_else(|| AppError::not_found("no refresh token available"))?;
 
         rg_core::auth::encryption::decrypt(stored_rt, &enc_key).map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("decryption: {}", e),
-            )
+            tracing::error!("Decryption error: {}", e);
+            AppError::internal("decryption failed")
         })?
     };
 
@@ -535,7 +519,7 @@ pub async fn refresh_token(
         .await
         .map_err(|e| {
             tracing::error!("SSO token refresh error: {}", e);
-            (StatusCode::BAD_REQUEST, "failed to refresh token".into())
+            AppError::bad_request("failed to refresh token")
         })?;
 
     // Store updated tokens
@@ -600,29 +584,29 @@ pub async fn unlink_oauth_account(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(slug): Path<String>,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
+) -> Result<impl IntoResponse, AppError> {
     use crate::api::auth::extract_bearer_claims;
 
     let claims = extract_bearer_claims(&headers, &state.jwt_secret)
-        .ok_or((StatusCode::UNAUTHORIZED, "authentication required".into()))?;
+        .ok_or_else(|| AppError::unauthorized("authentication required"))?;
     let user_id: i64 = claims
         .sub
         .parse()
-        .map_err(|_| (StatusCode::UNAUTHORIZED, "invalid token".into()))?;
+        .map_err(|_| AppError::unauthorized("invalid token"))?;
 
     // Find and delete the OAuth account link
     let accounts = rg_db::ops::oauth_account_ops::find_by_user_id(&state.db, user_id)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(AppError::from)?;
 
     let account = accounts
         .iter()
         .find(|a| a.provider == slug)
-        .ok_or((StatusCode::NOT_FOUND, "no OAuth account linked".into()))?;
+        .ok_or_else(|| AppError::not_found("no OAuth account linked"))?;
 
     rg_db::ops::oauth_account_ops::delete_by_id(&state.db, account.id, user_id)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(AppError::from)?;
 
     Ok(Json(serde_json::json!({"unlinked": true})))
 }
@@ -634,7 +618,7 @@ async fn find_or_create_sso_user(
     provider_slug: &str,
     user_info: &rg_core::auth::sso::SsoUserInfo,
     token_response: &rg_core::auth::sso::OAuth2TokenResponse,
-) -> Result<i64, (StatusCode, String)> {
+) -> Result<i64, AppError> {
     let db = &state.db;
 
     // Check if OAuth account already exists
@@ -644,7 +628,7 @@ async fn find_or_create_sso_user(
         &user_info.provider_user_id,
     )
     .await
-    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "DB error".into()))?
+    .map_err(|_| AppError::internal("database error"))?
     {
         // Update stored tokens
         let enc_key = rg_core::auth::encryption::derive_key(&state.jwt_secret);
@@ -677,18 +661,16 @@ async fn find_or_create_sso_user(
     // Check if user with this email already exists
     let user_id = if let Some(existing) = rg_db::ops::user_ops::find_by_email(db, &user_info.email)
         .await
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "DB error".into()))?
+        .map_err(|_| AppError::internal("database error"))?
     {
         existing.id
     } else {
         // Create new user
         let username = generate_unique_username(db, &user_info.provider_username)
             .await
-            .map_err(|_| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "failed to generate username".into(),
-                )
+            .map_err(|e| {
+                tracing::error!("Failed to generate username: {}", e);
+                AppError::internal("failed to generate username")
             })?;
 
         rg_db::ops::user_ops::create_user(
@@ -701,10 +683,7 @@ async fn find_or_create_sso_user(
         .await
         .map_err(|e| {
             tracing::error!("Failed to create SSO user: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("user creation failed: {}", e),
-            )
+            AppError::internal("user creation failed")
         })?
         .id
     };
@@ -734,12 +713,7 @@ async fn find_or_create_sso_user(
         expires_at,
     )
     .await
-    .map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "failed to link OAuth account".into(),
-        )
-    })?;
+    .map_err(|_| AppError::internal("failed to link OAuth account"))?;
 
     Ok(user_id)
 }

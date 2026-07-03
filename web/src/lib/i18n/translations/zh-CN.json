@@ -46,7 +46,9 @@
     "search_go": "搜索",
     "change_language": "切换语言",
     "english": "English",
-    "chinese": "中文"
+    "chinese": "中文",
+    "security": "安全",
+    "access_tokens": "访问令牌"
   },
   "home": {
     "tagline": "轻量级自托管 Git 服务",
@@ -221,6 +223,7 @@
       "settings": "设置",
       "runners": "Runner"
     },
+    "private": "私有",
     "star": "收藏",
     "unstar": "取消收藏",
     "stargazers": "收藏者",

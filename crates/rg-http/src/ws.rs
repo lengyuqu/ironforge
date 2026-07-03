@@ -2,6 +2,9 @@
 //!
 //! Clients connect to `ws://host/api/v1/ws/notifications?token=<jwt>`
 //! and receive real-time notification events as JSON messages.
+//!
+//! Security: per-user channels ensure each client only receives their own
+//! notifications. Job-log events use a separate global channel (public).
 
 use axum::{
     extract::{
@@ -12,7 +15,9 @@ use axum::{
 };
 use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
-use tokio::sync::broadcast;
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::{broadcast, RwLock};
 
 use crate::AppState;
 
@@ -26,10 +31,23 @@ pub struct NotificationEvent {
     pub data: serde_json::Value,
 }
 
-/// Global notification hub shared across all connections.
+/// Internal state for the notification hub.
+#[derive(Debug)]
+struct NotificationHubInner {
+    /// Per-user notification channels. Only the owning user receives
+    /// messages pushed via `push_notification`.
+    user_channels: RwLock<HashMap<i64, broadcast::Sender<NotificationEvent>>>,
+    /// Global channel for public events (e.g. job_log) that all
+    /// connected clients should receive.
+    global_sender: broadcast::Sender<NotificationEvent>,
+}
+
+/// Global notification hub with per-user isolation.
+///
+/// Wrapped in `Arc` so it can be cheaply cloned into `AppState`.
 #[derive(Debug, Clone)]
 pub struct NotificationHub {
-    sender: broadcast::Sender<NotificationEvent>,
+    inner: Arc<NotificationHubInner>,
 }
 
 impl Default for NotificationHub {
@@ -41,19 +59,67 @@ impl Default for NotificationHub {
 impl NotificationHub {
     /// Create a new notification hub.
     pub fn new() -> Self {
-        let (sender, _) = broadcast::channel(NOTIFICATION_CHANNEL_CAPACITY);
-        Self { sender }
+        let (global_sender, _) = broadcast::channel(NOTIFICATION_CHANNEL_CAPACITY);
+        Self {
+            inner: Arc::new(NotificationHubInner {
+                user_channels: RwLock::new(HashMap::new()),
+                global_sender,
+            }),
+        }
     }
 
-    /// Broadcast a notification event to all connected clients.
-    pub fn broadcast(&self, event: NotificationEvent) {
-        // It's OK if there are no receivers — the channel just drops the message.
-        let _ = self.sender.send(event);
+    /// Push a notification to a **specific user's** channel.
+    /// Creates the channel if it doesn't exist yet.
+    pub async fn push_notification(
+        &self,
+        user_id: i64,
+        event_type: &str,
+        data: serde_json::Value,
+    ) {
+        let event = NotificationEvent {
+            event_type: event_type.to_string(),
+            data: serde_json::json!({
+                "user_id": user_id,
+                "payload": data,
+            }),
+        };
+
+        let channels = self.inner.user_channels.read().await;
+        if let Some(sender) = channels.get(&user_id) {
+            let _ = sender.send(event);
+        }
+        // If the user has no active channel, the notification is silently
+        // dropped. The REST API /notifications endpoint will still serve
+        // persisted notifications when the user comes online.
     }
 
-    /// Subscribe to notification events.
-    pub fn subscribe(&self) -> broadcast::Receiver<NotificationEvent> {
-        self.sender.subscribe()
+    /// Subscribe to a specific user's notification channel.
+    /// Creates the channel if it doesn't exist.
+    async fn subscribe_user(&self, user_id: i64) -> broadcast::Receiver<NotificationEvent> {
+        let mut channels = self.inner.user_channels.write().await;
+        let sender = channels
+            .entry(user_id)
+            .or_insert_with(|| broadcast::channel(NOTIFICATION_CHANNEL_CAPACITY).0);
+        sender.subscribe()
+    }
+
+    /// Subscribe to the global event channel (job logs, etc.).
+    fn subscribe_global(&self) -> broadcast::Receiver<NotificationEvent> {
+        self.inner.global_sender.subscribe()
+    }
+
+    /// Broadcast a job log update to **all** WebSocket subscribers.
+    ///
+    /// Frontend clients can listen for `job_log` events and filter by job_id.
+    pub fn push_job_log(&self, job_id: i64, log: &str) {
+        let event = NotificationEvent {
+            event_type: "job_log".to_string(),
+            data: serde_json::json!({
+                "job_id": job_id,
+                "log": log,
+            }),
+        };
+        let _ = self.inner.global_sender.send(event);
     }
 }
 
@@ -99,7 +165,6 @@ async fn handle_ws_connection(socket: WebSocket, hub: NotificationHub, user_id: 
     }
 
     // user_id is guaranteed Some at this point due to the guard above.
-    // Use if-let to satisfy clippy instead of .unwrap().
     let Some(uid) = user_id else {
         tracing::error!("user_id became None after guard check — this is a logic bug");
         return;
@@ -109,8 +174,9 @@ async fn handle_ws_connection(socket: WebSocket, hub: NotificationHub, user_id: 
         "WebSocket client connected for notifications"
     );
 
-    // Subscribe to the notification hub
-    let mut rx = hub.subscribe();
+    // Subscribe to per-user and global channels
+    let mut user_rx = hub.subscribe_user(uid).await;
+    let mut global_rx = hub.subscribe_global();
 
     // Send initial connection confirmation
     let welcome = serde_json::json!({
@@ -125,38 +191,35 @@ async fn handle_ws_connection(socket: WebSocket, hub: NotificationHub, user_id: 
         return;
     }
 
-    // Split into two tasks:
-    // 1. Read from broadcast channel and forward to WebSocket
-    // 2. Read from WebSocket for client commands (ping/pong, etc.)
-
+    // Forward events from both channels to the WebSocket.
+    // - user_rx: only this user's notifications (per-user isolation)
+    // - global_rx: public events like job_log
     let send_task = tokio::spawn(async move {
-        while let Ok(event) = rx.recv().await {
-            // job_log events are broadcast to all connected clients (no user_id filter)
-            if event.event_type == "job_log" {
-                let msg = match serde_json::to_string(&event) {
-                    Ok(s) => s,
-                    Err(_) => continue,
-                };
-                if sender.send(Message::Text(msg.into())).await.is_err() {
-                    break;
+        loop {
+            tokio::select! {
+                Ok(event) = user_rx.recv() => {
+                    let msg = match serde_json::to_string(&event) {
+                        Ok(s) => s,
+                        Err(_) => continue,
+                    };
+                    if sender.send(Message::Text(msg.into())).await.is_err() {
+                        break;
+                    }
                 }
-                continue;
-            }
-
-            // For other events, filter by user_id
-            if let Some(event_user_id) = event.data.get("user_id").and_then(|v| v.as_i64()) {
-                if event_user_id != uid {
-                    continue;
+                Ok(event) = global_rx.recv() => {
+                    // Only forward job_log events from the global channel
+                    if event.event_type != "job_log" {
+                        continue;
+                    }
+                    let msg = match serde_json::to_string(&event) {
+                        Ok(s) => s,
+                        Err(_) => continue,
+                    };
+                    if sender.send(Message::Text(msg.into())).await.is_err() {
+                        break;
+                    }
                 }
-            }
-
-            let msg = match serde_json::to_string(&event) {
-                Ok(s) => s,
-                Err(_) => continue,
-            };
-
-            if sender.send(Message::Text(msg.into())).await.is_err() {
-                break;
+                else => { break; }
             }
         }
     });
@@ -186,34 +249,28 @@ async fn handle_ws_connection(socket: WebSocket, hub: NotificationHub, user_id: 
 }
 
 /// Push a notification to the WebSocket hub for real-time delivery.
+///
+/// Spawns an async task to send to the user's channel without blocking
+/// the caller. The notification is also persisted in the database, so
+/// offline users will see it via the REST API on next fetch.
 pub fn push_notification(
     hub: &NotificationHub,
     user_id: i64,
     event_type: &str,
     data: serde_json::Value,
 ) {
-    let event = NotificationEvent {
-        event_type: event_type.to_string(),
-        data: serde_json::json!({
-            "user_id": user_id,
-            "payload": data,
-        }),
-    };
-    hub.broadcast(event);
+    let hub = hub.clone();
+    let event_type = event_type.to_string();
+    tokio::spawn(async move {
+        hub.push_notification(user_id, &event_type, data).await;
+    });
 }
 
 /// Broadcast a job log update to all WebSocket subscribers.
 ///
 /// Frontend clients can listen for `job_log` events and filter by job_id.
 pub fn push_job_log(hub: &NotificationHub, job_id: i64, log: &str) {
-    let event = NotificationEvent {
-        event_type: "job_log".to_string(),
-        data: serde_json::json!({
-            "job_id": job_id,
-            "log": log,
-        }),
-    };
-    hub.broadcast(event);
+    hub.push_job_log(job_id, log);
 }
 
 /// GET /api/v1/ws/job/:job_id — WebSocket for real-time job log streaming.
@@ -260,7 +317,8 @@ async fn handle_job_log_connection(
         return;
     }
 
-    let mut rx = hub.subscribe();
+    // Job log connections only need the global channel
+    let mut rx = hub.subscribe_global();
 
     // Send confirmation
     let welcome = serde_json::json!({

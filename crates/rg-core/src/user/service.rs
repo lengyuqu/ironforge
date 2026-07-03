@@ -37,6 +37,40 @@ pub struct AuthResponse {
     pub username: String,
 }
 
+/// Validate a username according to IronForge rules.
+///
+/// Rules:
+/// - Length: 3–30 characters
+/// - Must start with an alphanumeric character
+/// - May only contain alphanumeric characters, hyphens, and underscores
+/// - Must not contain path traversal sequences (`..` or `/`)
+///
+/// Returns `Ok(())` if valid, `Err` with a descriptive message otherwise.
+pub fn validate_username(username: &str) -> Result<()> {
+    if username.len() < 3 || username.len() > 30 {
+        bail!("username must be between 3 and 30 characters");
+    }
+
+    let first_char = username.chars().next().unwrap(); // len >= 3, safe to unwrap
+    if !first_char.is_ascii_alphanumeric() {
+        bail!("username must start with an alphanumeric character");
+    }
+
+    if !username
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        bail!("username must only contain alphanumeric characters, hyphens, and underscores");
+    }
+
+    // Path traversal prevention
+    if username.contains("..") || username.contains('/') {
+        bail!("username contains invalid characters");
+    }
+
+    Ok(())
+}
+
 /// Register a new user.
 ///
 /// Returns an `AuthResponse` with a JWT token.
@@ -60,26 +94,7 @@ pub async fn register(
     }
 
     // ── Username validation ──────────────────────────────────────
-    if username.len() < 3 || username.len() > 30 {
-        bail!("username must be between 3 and 30 characters");
-    }
-
-    let first_char = username.chars().next().unwrap(); // len >= 3, safe to unwrap
-    if !first_char.is_ascii_alphanumeric() {
-        bail!("username must start with an alphanumeric character");
-    }
-
-    if !username
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
-    {
-        bail!("username must only contain alphanumeric characters, hyphens, and underscores");
-    }
-
-    // Path traversal prevention
-    if username.contains("..") || username.contains('/') {
-        bail!("username contains invalid characters");
-    }
+    validate_username(username)?;
 
     // ── Email validation ─────────────────────────────────────────
     match email.split_once('@') {
@@ -215,6 +230,7 @@ pub async fn get_user_by_id(db: &DatabaseConnection, user_id: i64) -> Result<Opt
 
 /// Initiate a password reset. Generates a token and sends an email.
 /// Silently succeeds even if the email is not found (to prevent user enumeration).
+/// H-5: All code paths perform similar work to prevent timing-based email enumeration.
 pub async fn forgot_password(
     db: &DatabaseConnection,
     email: &str,
@@ -224,13 +240,17 @@ pub async fn forgot_password(
     let user = match user_ops::find_by_email(db, email).await? {
         Some(u) => u,
         None => {
-            // Silently succeed to prevent email enumeration
+            // H-5: Perform dummy token generation + delay to normalize timing
+            let _ = uuid::Uuid::new_v4();
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
             return Ok(());
         }
     };
 
     // Only local users can reset via email (LDAP/OAuth users use their provider)
     if user.auth_provider != "local" {
+        // H-5: Same delay as the "not found" path to prevent timing-based enumeration
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         return Ok(());
     }
 

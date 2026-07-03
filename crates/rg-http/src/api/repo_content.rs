@@ -141,7 +141,7 @@ async fn resolve_and_check_access(
         let user_id = claims
             .sub
             .parse::<i64>()
-            .map_err(|_| AppError::Unauthorized("invalid token subject".to_string()))?;
+            .map_err(|_| AppError::unauthorized("invalid token subject".to_string()))?;
 
         if !rg_core::repo::service::can_read_repo(&state.db, &repo_model, Some(user_id))
             .await
@@ -893,7 +893,7 @@ async fn resolve_and_check_write_access(
     let user_id = claims
         .sub
         .parse::<i64>()
-        .map_err(|_| AppError::Unauthorized("invalid token subject".to_string()))?;
+        .map_err(|_| AppError::unauthorized("invalid token subject".to_string()))?;
 
     if user_id <= 0 {
         return Err(AppError::unauthorized("invalid token"));

@@ -1,8 +1,6 @@
 /// Global instance state store — maintenance mode, banner, keyboard shortcuts.
 /// Uses Svelte 5 runes ($state).
 
-import { onMount } from 'svelte';
-
 // ── Instance Banner ─────────────────────────────────────
 
 let bannerMessage = $state('');

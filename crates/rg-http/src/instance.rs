@@ -30,11 +30,11 @@ static SETTINGS: RwLock<InstanceSettings> = RwLock::new(InstanceSettings {
 
 /// Read the current instance settings.
 pub fn get_settings() -> InstanceSettings {
-    SETTINGS.read().unwrap().clone()
+    SETTINGS.read().unwrap_or_else(|e| e.into_inner()).clone()
 }
 
 /// Update instance settings (e.g. from admin API).
 pub fn update_settings(f: impl FnOnce(&mut InstanceSettings)) {
-    let mut guard = SETTINGS.write().unwrap();
+    let mut guard = SETTINGS.write().unwrap_or_else(|e| e.into_inner());
     f(&mut guard);
 }

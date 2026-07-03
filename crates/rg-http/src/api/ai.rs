@@ -120,7 +120,7 @@ async fn require_repo_read_access(
     let user_id = claims
         .sub
         .parse::<i64>()
-        .map_err(|_| AppError::Unauthorized("invalid token subject".to_string()))?;
+        .map_err(|_| AppError::unauthorized("invalid token subject".to_string()))?;
 
     if !rg_core::repo::service::can_read_repo(&state.db, repo, Some(user_id))
         .await
