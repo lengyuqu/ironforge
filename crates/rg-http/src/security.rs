@@ -66,8 +66,13 @@ pub async fn security_headers_middleware(request: Request, next: Next) -> Respon
     }
 
     // Content Security Policy — restrictive default
-    // Allow self for scripts/styles/images; allow data: for images; inline styles OK
-    // This is a baseline — adjust as needed for specific features
+    // Allow self for scripts/styles/images; allow data: for images; inline styles OK.
+    //
+    // NOTE: `script-src 'unsafe-inline'` is currently required because SvelteKit's
+    // built output embeds an inline <script> for hydration data (__sveltekit_xxx).
+    // Removing 'unsafe-inline' would break frontend hydration.
+    // TODO: Implement nonce-based CSP (generate per-request nonce, inject into
+    // served HTML, replace 'unsafe-inline' with 'nonce-<value>') for full CSP hardening.
     headers.insert(
         header::HeaderName::from_static("content-security-policy"),
         HeaderValue::from_static(

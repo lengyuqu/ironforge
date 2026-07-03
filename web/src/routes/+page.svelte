@@ -226,7 +226,7 @@
         <div class="footer-links">
           <a href="https://github.com/lengyuqu/ironforge" target="_blank">{t('home.footer.github')}</a>
           <a href="/explore">{t('home.footer.explore')}</a>
-          <a href="/help">{t('home.footer.help')}</a>
+          <a href="https://github.com/lengyuqu/ironforge#readme" target="_blank">{t('home.footer.help')}</a>
         </div>
         <div class="footer-copyright">
           © 2026 IronForge. {t('home.footer.built_with')}

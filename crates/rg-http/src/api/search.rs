@@ -17,22 +17,15 @@ pub struct SearchQuery {
     pub q: String,
     #[serde(default = "default_search_type")]
     pub r#type: String,
-    #[serde(default = "default_page")]
+    // L-4: Use standard PaginationParams defaults instead of duplicate functions.
+    #[serde(default = "crate::pagination::default_page")]
     pub page: u64,
-    #[serde(default = "default_per_page")]
+    #[serde(default = "crate::pagination::default_per_page")]
     pub per_page: u64,
 }
 
 fn default_search_type() -> String {
     "all".to_string()
-}
-
-fn default_page() -> u64 {
-    1
-}
-
-fn default_per_page() -> u64 {
-    20
 }
 
 fn normalize_search_type(raw: &str) -> Option<&'static str> {

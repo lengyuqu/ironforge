@@ -242,11 +242,11 @@ impl CodeIndexer {
 
     /// Clear existing index for a repository.
     async fn clear_index_for_repo(&self, repo_id: i64) -> Result<()> {
-        let sql = format!("DELETE FROM code_fts WHERE repo_id = {}", repo_id);
         self.db
-            .execute(Statement::from_string(
+            .execute(Statement::from_sql_and_values(
                 sea_orm::DatabaseBackend::Sqlite,
-                sql,
+                "DELETE FROM code_fts WHERE repo_id = ?",
+                [repo_id.into()],
             ))
             .await?;
         Ok(())

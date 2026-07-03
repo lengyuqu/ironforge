@@ -1299,6 +1299,8 @@ async fn run_serve(
         oci_storage_path: None,
         external_url: resolved_external_url,
         job_timeout_secs: resolved_job_timeout,
+        // M-14: Inject CiEngine via trait object, decoupling rg-http from rg-ci.
+        ci_engine: std::sync::Arc::new(rg_ci::CiEngine),
     };
 
     // ── SSH server ────────────────────────────────────────────────

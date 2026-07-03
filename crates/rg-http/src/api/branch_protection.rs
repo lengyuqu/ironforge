@@ -102,7 +102,7 @@ pub async fn create_protection(
     Json(req): Json<CreateProtectionRequest>,
 ) -> impl IntoResponse {
     if super::auth::extract_user_id(&headers, &state.jwt_secret).is_none() {
-        return AppError::Unauthorized("authentication required".to_string()).into_response();
+        return AppError::unauthorized("authentication required".to_string()).into_response();
     }
 
     match rg_core::branch_protection::service::create_protection(
@@ -121,7 +121,7 @@ pub async fn create_protection(
     .await
     {
         Ok(protection) => (StatusCode::CREATED, Json(protection)).into_response(),
-        Err(e) => AppError::BadRequest(e.to_string()).into_response(),
+        Err(e) => AppError::bad_request(e.to_string()).into_response(),
     }
 }
 
@@ -151,7 +151,7 @@ pub async fn get_protection(
     .await
     {
         Ok(protection) => (StatusCode::OK, Json(protection)).into_response(),
-        Err(e) => AppError::NotFound(e.to_string()).into_response(),
+        Err(e) => AppError::not_found(e.to_string()).into_response(),
     }
 }
 
@@ -179,7 +179,7 @@ pub async fn update_protection(
     Json(req): Json<UpdateProtectionRequest>,
 ) -> impl IntoResponse {
     if super::auth::extract_user_id(&headers, &state.jwt_secret).is_none() {
-        return AppError::Unauthorized("authentication required".to_string()).into_response();
+        return AppError::unauthorized("authentication required".to_string()).into_response();
     }
 
     match rg_core::branch_protection::service::update_protection_for_repo(
@@ -198,7 +198,7 @@ pub async fn update_protection(
     .await
     {
         Ok(protection) => (StatusCode::OK, Json(protection)).into_response(),
-        Err(e) => AppError::BadRequest(e.to_string()).into_response(),
+        Err(e) => AppError::bad_request(e.to_string()).into_response(),
     }
 }
 
@@ -225,7 +225,7 @@ pub async fn delete_protection(
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse {
     if super::auth::extract_user_id(&headers, &state.jwt_secret).is_none() {
-        return AppError::Unauthorized("authentication required".to_string()).into_response();
+        return AppError::unauthorized("authentication required".to_string()).into_response();
     }
 
     match rg_core::branch_protection::service::delete_protection_for_repo(
@@ -234,6 +234,6 @@ pub async fn delete_protection(
     .await
     {
         Ok(()) => (StatusCode::NO_CONTENT, Json(serde_json::json!({}))).into_response(),
-        Err(e) => AppError::BadRequest(e.to_string()).into_response(),
+        Err(e) => AppError::bad_request(e.to_string()).into_response(),
     }
 }

@@ -35,22 +35,31 @@ pub mod runner;
 
 use anyhow::{Context, Result};
 use gix::bstr::ByteSlice;
-use sea_orm::DatabaseConnection;
 
 use config::CiConfig;
 use runner::PipelineRunner;
 
-pub struct TriggerPipelineParams<'a> {
-    pub db: &'a DatabaseConnection,
-    pub repo_path: &'a std::path::Path,
-    pub repo_id: i64,
-    pub commit_sha: &'a str,
-    pub ref_name: &'a str,
-    pub trigger_type: &'a str,
-    pub triggered_by: Option<i64>,
-    pub docker_enabled: bool,
-    pub external_runners: bool,
-    pub jwt_secret: Option<&'a str>,
+// M-14: TriggerPipelineParams and has_ci_config are now defined in rg-core.
+// Re-export for backward compatibility with any code that still imports from rg_ci.
+pub use rg_core::ci::{has_ci_config, TriggerPipelineParams};
+
+/// CI engine implementation. Implements `rg_core::ci::CiTrigger` so that
+/// `rg-http` can trigger pipelines without a direct dependency on `rg-ci`.
+///
+/// M-14: This struct decouples the HTTP layer from the CI engine crate.
+pub struct CiEngine;
+
+impl rg_core::ci::CiTrigger for CiEngine {
+    fn has_ci_config(&self, repo_path: &std::path::Path, commit_sha: &str) -> bool {
+        rg_core::ci::has_ci_config(repo_path, commit_sha)
+    }
+
+    fn trigger_pipeline<'a>(
+        &'a self,
+        params: rg_core::ci::TriggerPipelineParams<'a>,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<i64>> + Send + 'a>> {
+        Box::pin(trigger_pipeline(params))
+    }
 }
 
 /// Trigger a CI pipeline for a push event.
@@ -370,20 +379,4 @@ fn get_default_branch(repo: &gix::Repository) -> Result<String> {
     Ok("main".to_string())
 }
 
-/// Check if a repo has any CI config at the given commit.
-pub fn has_ci_config(repo_path: &std::path::Path, commit_sha: &str) -> bool {
-    let repo = match gix::open(repo_path) {
-        Ok(r) => r,
-        Err(_) => return false,
-    };
-
-    // Check Gitea Actions format
-    let tree_revspec = format!("{}:.gitea/workflows", commit_sha);
-    if repo.rev_parse_single(tree_revspec.as_str()).is_ok() {
-        return true;
-    }
-
-    // Check native format
-    let revspec = format!("{}:.ironforge-ci.yml", commit_sha);
-    repo.rev_parse_single(revspec.as_str()).is_ok()
-}
+// M-14: has_ci_config moved to rg_core::ci::has_ci_config and re-exported above.

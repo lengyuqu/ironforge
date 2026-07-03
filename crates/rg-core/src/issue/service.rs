@@ -2,7 +2,7 @@
 
 use anyhow::{bail, Context, Result};
 use chrono::Utc;
-use sea_orm::{ConnectionTrait, DatabaseConnection, EntityTrait, Set};
+use sea_orm::{ActiveModelTrait, ConnectionTrait, DatabaseConnection, EntityTrait, Set, TransactionTrait};
 
 use rg_db::entities::issue::{self, Model as Issue};
 use rg_db::entities::issue_comment::{self, Model as Comment};
@@ -46,18 +46,24 @@ pub async fn create_issue(
         deleted_at: Set(None),
     };
 
-    let issue = issue_ops::create(db, model).await?;
+    // M-13: Wrap issue creation + FTS5 index in a transaction for atomicity.
+    // If FTS insert fails, the issue creation is rolled back.
+    let txn = db.begin().await.context("db: begin transaction")?;
 
-    // Manually update FTS5 index (triggers are disabled)
+    let issue = model.insert(&txn).await.context("db: create issue")?;
+
     let fts_sql = format!(
         "INSERT INTO issues_fts(rowid, title, body) VALUES ({}, '{}', '{}')",
         issue.id,
         issue.title.replace('\'', "''"),
         issue.body.as_deref().unwrap_or("").replace('\'', "''")
     );
-    if let Err(e) = db.execute_unprepared(&fts_sql).await {
-        tracing::warn!(issue_id = issue.id, error = %e, "failed to update issues_fts index");
-    }
+    txn.execute_unprepared(&fts_sql).await.map_err(|e| {
+        tracing::error!(issue_id = issue.id, error = %e, "FTS index update failed, rolling back issue creation");
+        e
+    }).context("db: update issues_fts index")?;
+
+    txn.commit().await.context("db: commit transaction")?;
 
     // Trigger issue.opened webhook
     let payload = serde_json::json!({

@@ -9,9 +9,48 @@
 //! - **CI Job tokens** (`CI_JOB_TOKEN`): Least-privilege tokens scoped to a
 //!   specific repository. Validated by `extract_ci_job_claims` and
 //!   `extract_ci_or_user_id`. Used by CI jobs to call the IronForge API.
+//!
+//! ## H-3: Unified Axum Extractor
+//!
+//! `AuthenticatedUser` implements `FromRequestParts<AppState>`, allowing handlers
+//! to declare authentication at the signature level:
+//!
+//! ```ignore
+//! pub async fn handler(
+//!     State(state): State<AppState>,
+//!     AuthUser(user_id): AuthUser,
+//! ) -> impl IntoResponse { ... }
+//! ```
+//!
+//! This provides compile-time auth guarantees — handlers that need auth simply
+//! include `AuthUser` in their signature. The legacy `extract_user_id()` helper
+//! remains for cases where conditional auth is needed (e.g., anonymous-read repos).
 
-use axum::http::HeaderMap;
+use axum::extract::FromRequestParts;
+use axum::http::{HeaderMap, StatusCode};
+use axum::http::request::Parts;
 use rg_core::auth::jwt::Claims;
+
+/// H-3: Unified auth extractor — handlers include this in their signature
+/// to get compile-time authentication guarantees.
+///
+/// Extracts user_id from the `Authorization: Bearer <jwt>` header.
+/// Returns 401 if the token is missing, invalid, or not a user token.
+#[derive(Debug, Clone, Copy)]
+pub struct AuthUser(pub i64);
+
+impl FromRequestParts<crate::AppState> for AuthUser {
+    type Rejection = (StatusCode, &'static str);
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &crate::AppState,
+    ) -> Result<Self, Self::Rejection> {
+        let user_id = extract_user_id(&parts.headers, &state.jwt_secret)
+            .ok_or((StatusCode::UNAUTHORIZED, "authentication required"))?;
+        Ok(AuthUser(user_id))
+    }
+}
 
 /// Extract authenticated user_id from the Authorization: Bearer header.
 /// Returns Some(user_id) if the JWT is a valid **user token**, None otherwise.
@@ -34,7 +73,9 @@ pub(crate) fn extract_bearer_claims(headers: &HeaderMap, jwt_secret: &str) -> Op
 ///
 /// Returns the job token claims if valid and authorized. Returns None if the token
 /// is missing, invalid, expired, or lacks the required scope/repo access.
-// Reserved for CI-job-scoped endpoints; not yet wired into a route handler.
+// TODO(phase-22): Wire CI job token validation into CI-scoped route handlers.
+// The ci_token module in rg-core is functional and rg-ci/runner.rs already generates
+// tokens. These extractors are reserved for the HTTP-side validation layer.
 #[allow(dead_code)]
 pub(crate) fn extract_ci_job_claims(
     headers: &HeaderMap,
@@ -56,7 +97,7 @@ pub(crate) fn extract_ci_job_claims(
 ///
 /// For operations that require human authorization (admin, user settings,
 /// org management), use `extract_user_id` instead.
-// Reserved for CI-accessible endpoints; not yet wired into a route handler.
+// TODO(phase-22): Wire CI job token validation into CI-scoped route handlers.
 #[allow(dead_code)]
 pub(crate) fn extract_ci_or_user_id(
     headers: &HeaderMap,

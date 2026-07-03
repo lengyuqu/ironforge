@@ -126,14 +126,14 @@ pub async fn create_repo(
     let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => {
-            return AppError::Unauthorized("authentication required".to_string()).into_response()
+            return AppError::unauthorized("authentication required".to_string()).into_response()
         }
     };
 
     let owner_id: i64 = match claims.sub.parse::<i64>() {
         Ok(id) => id,
         Err(_) => {
-            return AppError::Unauthorized("invalid token subject".to_string()).into_response()
+            return AppError::unauthorized("invalid token subject".to_string()).into_response()
         }
     };
     let username = claims.username.clone();
@@ -147,7 +147,7 @@ pub async fn create_repo(
                     match rg_db::ops::org_ops::is_org_member(&state.db, org.id, owner_id).await {
                         Ok(true) => Some(org.id),
                         _ => {
-                            return AppError::Forbidden(
+                            return AppError::forbidden(
                                 "you are not a member of this organization".to_string(),
                             )
                             .into_response()
@@ -155,9 +155,9 @@ pub async fn create_repo(
                     }
                 }
                 Ok(None) => {
-                    return AppError::NotFound("organization not found".to_string()).into_response()
+                    return AppError::not_found("organization not found".to_string()).into_response()
                 }
-                Err(e) => return AppError::InternalError(e.to_string()).into_response(),
+                Err(e) => return AppError::internal(e.to_string()).into_response(),
             }
         }
         None => None,
@@ -167,9 +167,9 @@ pub async fn create_repo(
     let owner_user = match rg_db::ops::user_ops::find_by_id(&state.db, owner_id).await {
         Ok(Some(user)) => user,
         Ok(None) => {
-            return AppError::Unauthorized("invalid token subject".to_string()).into_response()
+            return AppError::unauthorized("invalid token subject".to_string()).into_response()
         }
-        Err(e) => return AppError::InternalError(e.to_string()).into_response(),
+        Err(e) => return AppError::internal(e.to_string()).into_response(),
     };
     let owner_display = owner_user
         .display_name
@@ -230,7 +230,7 @@ pub async fn create_repo(
 
             (StatusCode::CREATED, Json(serde_json::json!(repo))).into_response()
         }
-        Err(e) => AppError::BadRequest(e.to_string()).into_response(),
+        Err(e) => AppError::bad_request(e.to_string()).into_response(),
     }
 }
 
@@ -281,7 +281,7 @@ pub async fn list_repos(
                 )
                     .into_response()
             }
-            Err(e) => return AppError::InternalError(e.to_string()).into_response(),
+            Err(e) => return AppError::internal(e.to_string()).into_response(),
         }
     }
 
@@ -299,11 +299,11 @@ pub async fn list_repos(
                 )
                     .into_response()
             }
-            Err(e) => return AppError::InternalError(e.to_string()).into_response(),
+            Err(e) => return AppError::internal(e.to_string()).into_response(),
         }
     }
 
-    AppError::NotFound("owner not found (neither user nor organization)".to_string())
+    AppError::not_found("owner not found (neither user nor organization)".to_string())
         .into_response()
 }
 
@@ -329,8 +329,8 @@ pub async fn get_repo(
 ) -> impl IntoResponse {
     match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await {
         Ok(Some(repo)) => (StatusCode::OK, Json(serde_json::json!(repo))).into_response(),
-        Ok(None) => AppError::NotFound("repository not found".to_string()).into_response(),
-        Err(e) => AppError::InternalError(e.to_string()).into_response(),
+        Ok(None) => AppError::not_found("repository not found".to_string()).into_response(),
+        Err(e) => AppError::internal(e.to_string()).into_response(),
     }
 }
 
@@ -364,7 +364,7 @@ pub async fn star_repo(
     let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => {
-            return AppError::Unauthorized("authentication required".to_string()).into_response()
+            return AppError::unauthorized("authentication required".to_string()).into_response()
         }
     };
 
@@ -372,15 +372,15 @@ pub async fn star_repo(
         Ok(id) => id,
 
         Err(_) => {
-            return AppError::Unauthorized("invalid token subject".to_string()).into_response()
+            return AppError::unauthorized("invalid token subject".to_string()).into_response()
         }
     };
 
     let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
     {
         Ok(Some(r)) => r,
-        Ok(None) => return AppError::NotFound("repository not found".to_string()).into_response(),
-        Err(e) => return AppError::InternalError(e.to_string()).into_response(),
+        Ok(None) => return AppError::not_found("repository not found".to_string()).into_response(),
+        Err(e) => return AppError::internal(e.to_string()).into_response(),
     };
 
     match rg_core::repo::service::toggle_star(&state.db, user_id, repo.id).await {
@@ -389,7 +389,7 @@ pub async fn star_repo(
             Json(serde_json::json!({ "starred": starred })),
         )
             .into_response(),
-        Err(e) => AppError::InternalError(e.to_string()).into_response(),
+        Err(e) => AppError::internal(e.to_string()).into_response(),
     }
 }
 
@@ -415,7 +415,7 @@ pub async fn get_starred_status(
     let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => {
-            return AppError::Unauthorized("authentication required".to_string()).into_response()
+            return AppError::unauthorized("authentication required".to_string()).into_response()
         }
     };
 
@@ -423,15 +423,15 @@ pub async fn get_starred_status(
         Ok(id) => id,
 
         Err(_) => {
-            return AppError::Unauthorized("invalid token subject".to_string()).into_response()
+            return AppError::unauthorized("invalid token subject".to_string()).into_response()
         }
     };
 
     let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
     {
         Ok(Some(r)) => r,
-        Ok(None) => return AppError::NotFound("repository not found".to_string()).into_response(),
-        Err(e) => return AppError::InternalError(e.to_string()).into_response(),
+        Ok(None) => return AppError::not_found("repository not found".to_string()).into_response(),
+        Err(e) => return AppError::internal(e.to_string()).into_response(),
     };
 
     match rg_core::repo::service::is_starred(&state.db, user_id, repo.id).await {
@@ -440,7 +440,7 @@ pub async fn get_starred_status(
             Json(serde_json::json!({ "starred": starred })),
         )
             .into_response(),
-        Err(e) => AppError::InternalError(e.to_string()).into_response(),
+        Err(e) => AppError::internal(e.to_string()).into_response(),
     }
 }
 
@@ -470,8 +470,8 @@ pub async fn get_stargazers(
     let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
     {
         Ok(Some(r)) => r,
-        Ok(None) => return AppError::NotFound("repository not found".to_string()).into_response(),
-        Err(e) => return AppError::InternalError(e.to_string()).into_response(),
+        Ok(None) => return AppError::not_found("repository not found".to_string()).into_response(),
+        Err(e) => return AppError::internal(e.to_string()).into_response(),
     };
 
     match rg_core::repo::service::list_stargazers(&state.db, repo.id, offset, limit).await {
@@ -484,7 +484,7 @@ pub async fn get_stargazers(
             )),
         )
             .into_response(),
-        Err(e) => AppError::InternalError(e.to_string()).into_response(),
+        Err(e) => AppError::internal(e.to_string()).into_response(),
     }
 }
 
@@ -510,22 +510,22 @@ pub async fn get_watch_status(
     let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => {
-            return AppError::Unauthorized("authentication required".to_string()).into_response()
+            return AppError::unauthorized("authentication required".to_string()).into_response()
         }
     };
 
     let user_id: i64 = match claims.sub.parse::<i64>() {
         Ok(id) => id,
         Err(_) => {
-            return AppError::Unauthorized("invalid token subject".to_string()).into_response()
+            return AppError::unauthorized("invalid token subject".to_string()).into_response()
         }
     };
 
     let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
     {
         Ok(Some(r)) => r,
-        Ok(None) => return AppError::NotFound("repository not found".to_string()).into_response(),
-        Err(e) => return AppError::InternalError(e.to_string()).into_response(),
+        Ok(None) => return AppError::not_found("repository not found".to_string()).into_response(),
+        Err(e) => return AppError::internal(e.to_string()).into_response(),
     };
 
     match rg_core::repo::service::get_watch(&state.db, user_id, repo.id).await {
@@ -536,7 +536,7 @@ pub async fn get_watch_status(
             })),
         )
             .into_response(),
-        Err(e) => AppError::InternalError(e.to_string()).into_response(),
+        Err(e) => AppError::internal(e.to_string()).into_response(),
     }
 }
 
@@ -564,7 +564,7 @@ pub async fn watch_repo(
     let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => {
-            return AppError::Unauthorized("authentication required".to_string()).into_response()
+            return AppError::unauthorized("authentication required".to_string()).into_response()
         }
     };
 
@@ -572,15 +572,15 @@ pub async fn watch_repo(
         Ok(id) => id,
 
         Err(_) => {
-            return AppError::Unauthorized("invalid token subject".to_string()).into_response()
+            return AppError::unauthorized("invalid token subject".to_string()).into_response()
         }
     };
 
     let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
     {
         Ok(Some(r)) => r,
-        Ok(None) => return AppError::NotFound("repository not found".to_string()).into_response(),
-        Err(e) => return AppError::InternalError(e.to_string()).into_response(),
+        Ok(None) => return AppError::not_found("repository not found".to_string()).into_response(),
+        Err(e) => return AppError::internal(e.to_string()).into_response(),
     };
 
     match rg_core::repo::service::set_watch(&state.db, user_id, repo.id, &body.state).await {
@@ -589,7 +589,7 @@ pub async fn watch_repo(
             Json(serde_json::json!({ "watch_state": watch_state })),
         )
             .into_response(),
-        Err(e) => AppError::InternalError(e.to_string()).into_response(),
+        Err(e) => AppError::internal(e.to_string()).into_response(),
     }
 }
 
@@ -615,7 +615,7 @@ pub async fn unwatch_repo(
     let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => {
-            return AppError::Unauthorized("authentication required".to_string()).into_response()
+            return AppError::unauthorized("authentication required".to_string()).into_response()
         }
     };
 
@@ -623,15 +623,15 @@ pub async fn unwatch_repo(
         Ok(id) => id,
 
         Err(_) => {
-            return AppError::Unauthorized("invalid token subject".to_string()).into_response()
+            return AppError::unauthorized("invalid token subject".to_string()).into_response()
         }
     };
 
     let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
     {
         Ok(Some(r)) => r,
-        Ok(None) => return AppError::NotFound("repository not found".to_string()).into_response(),
-        Err(e) => return AppError::InternalError(e.to_string()).into_response(),
+        Ok(None) => return AppError::not_found("repository not found".to_string()).into_response(),
+        Err(e) => return AppError::internal(e.to_string()).into_response(),
     };
 
     match rg_core::repo::service::set_watch(&state.db, user_id, repo.id, "not_watching").await {
@@ -640,7 +640,7 @@ pub async fn unwatch_repo(
             Json(serde_json::json!({ "watch_state": "not_watching" })),
         )
             .into_response(),
-        Err(e) => AppError::InternalError(e.to_string()).into_response(),
+        Err(e) => AppError::internal(e.to_string()).into_response(),
     }
 }
 
@@ -666,7 +666,7 @@ pub async fn delete_repo_handler(
     let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => {
-            return AppError::Unauthorized("authentication required".to_string()).into_response()
+            return AppError::unauthorized("authentication required".to_string()).into_response()
         }
     };
 
@@ -674,20 +674,20 @@ pub async fn delete_repo_handler(
         Ok(id) => id,
 
         Err(_) => {
-            return AppError::Unauthorized("invalid token subject".to_string()).into_response()
+            return AppError::unauthorized("invalid token subject".to_string()).into_response()
         }
     };
 
     let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
     {
         Ok(Some(r)) => r,
-        Ok(None) => return AppError::NotFound("repository not found".to_string()).into_response(),
-        Err(e) => return AppError::InternalError(e.to_string()).into_response(),
+        Ok(None) => return AppError::not_found("repository not found".to_string()).into_response(),
+        Err(e) => return AppError::internal(e.to_string()).into_response(),
     };
 
     // Only owner can delete
     if repo.owner_id != user_id {
-        return AppError::Forbidden("only repository owner can delete".to_string()).into_response();
+        return AppError::forbidden("only repository owner can delete".to_string()).into_response();
     }
 
     match rg_core::repo::service::delete_repo(&state.db, repo.id).await {
@@ -713,7 +713,7 @@ pub async fn delete_repo_handler(
 
             (StatusCode::OK, Json(serde_json::json!({ "deleted": true }))).into_response()
         }
-        Err(e) => AppError::InternalError(e.to_string()).into_response(),
+        Err(e) => AppError::internal(e.to_string()).into_response(),
     }
 }
 
@@ -747,13 +747,13 @@ pub async fn fork_repo_handler(
     let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => {
-            return AppError::Unauthorized("authentication required".to_string()).into_response();
+            return AppError::unauthorized("authentication required".to_string()).into_response();
         }
     };
     let user_id: i64 = match claims.sub.parse::<i64>() {
         Ok(id) => id,
         Err(_) => {
-            return AppError::Unauthorized("invalid token subject".to_string()).into_response()
+            return AppError::unauthorized("invalid token subject".to_string()).into_response()
         }
     };
 
@@ -783,7 +783,7 @@ pub async fn fork_repo_handler(
 
             (StatusCode::ACCEPTED, Json(serde_json::json!(repo))).into_response()
         }
-        Err(e) => AppError::BadRequest(e.to_string()).into_response(),
+        Err(e) => AppError::bad_request(e.to_string()).into_response(),
     }
 }
 
@@ -816,7 +816,7 @@ pub async fn list_forks_handler(
             Json(PaginatedResponse::new(forks, &pagination, total as u64)),
         )
             .into_response(),
-        Err(e) => AppError::InternalError(e.to_string()).into_response(),
+        Err(e) => AppError::internal(e.to_string()).into_response(),
     }
 }
 
@@ -852,13 +852,13 @@ pub async fn transfer_repo_handler(
     let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => {
-            return AppError::Unauthorized("authentication required".to_string()).into_response();
+            return AppError::unauthorized("authentication required".to_string()).into_response();
         }
     };
     let user_id: i64 = match claims.sub.parse::<i64>() {
         Ok(id) => id,
         Err(_) => {
-            return AppError::Unauthorized("invalid token subject".to_string()).into_response()
+            return AppError::unauthorized("invalid token subject".to_string()).into_response()
         }
     };
 
@@ -895,7 +895,7 @@ pub async fn transfer_repo_handler(
 
             (StatusCode::OK, Json(serde_json::json!(repo))).into_response()
         }
-        Err(e) => AppError::BadRequest(e.to_string()).into_response(),
+        Err(e) => AppError::bad_request(e.to_string()).into_response(),
     }
 }
 
@@ -937,7 +937,7 @@ pub async fn create_commit_status(
     let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => {
-            return AppError::Unauthorized("authentication required".to_string()).into_response()
+            return AppError::unauthorized("authentication required".to_string()).into_response()
         }
     };
 
@@ -945,22 +945,22 @@ pub async fn create_commit_status(
         Ok(id) => id,
 
         Err(_) => {
-            return AppError::Unauthorized("invalid token subject".to_string()).into_response()
+            return AppError::unauthorized("invalid token subject".to_string()).into_response()
         }
     };
 
     let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
     {
         Ok(Some(r)) => r,
-        Ok(None) => return AppError::NotFound("repository not found".to_string()).into_response(),
-        Err(e) => return AppError::InternalError(e.to_string()).into_response(),
+        Ok(None) => return AppError::not_found("repository not found".to_string()).into_response(),
+        Err(e) => return AppError::internal(e.to_string()).into_response(),
     };
 
     if !rg_core::repo::service::can_write(&state.db, &owner, &name, Some(user_id))
         .await
         .unwrap_or(false)
     {
-        return AppError::Forbidden("forbidden".to_string()).into_response();
+        return AppError::forbidden("forbidden".to_string()).into_response();
     }
 
     match rg_core::repo::service::create_commit_status(
@@ -976,7 +976,7 @@ pub async fn create_commit_status(
     .await
     {
         Ok(status) => (StatusCode::CREATED, Json(serde_json::json!(status))).into_response(),
-        Err(e) => AppError::BadRequest(e.to_string()).into_response(),
+        Err(e) => AppError::bad_request(e.to_string()).into_response(),
     }
 }
 
@@ -1001,7 +1001,7 @@ pub async fn list_commit_statuses(
 ) -> impl IntoResponse {
     match rg_core::repo::service::list_commit_statuses(&state.db, &owner, &name, &sha).await {
         Ok(statuses) => (StatusCode::OK, Json(serde_json::json!(statuses))).into_response(),
-        Err(e) => AppError::InternalError(e.to_string()).into_response(),
+        Err(e) => AppError::internal(e.to_string()).into_response(),
     }
 }
 
@@ -1026,7 +1026,7 @@ pub async fn get_combined_status(
 ) -> impl IntoResponse {
     match rg_core::repo::service::get_combined_status(&state.db, &owner, &name, &sha).await {
         Ok(combined) => (StatusCode::OK, Json(combined)).into_response(),
-        Err(e) => AppError::InternalError(e.to_string()).into_response(),
+        Err(e) => AppError::internal(e.to_string()).into_response(),
     }
 }
 
@@ -1156,6 +1156,6 @@ pub async fn explore(
             )
                 .into_response()
         }
-        Err(e) => AppError::InternalError(e.to_string()).into_response(),
+        Err(e) => AppError::internal(e.to_string()).into_response(),
     }
 }

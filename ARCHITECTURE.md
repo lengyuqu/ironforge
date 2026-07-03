@@ -50,8 +50,8 @@
 ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐
 │  Git 数据层   │  │  持久化层    │  │    CI/CD 引擎         │
 │ (gix/gitoxide)│  │  (SeaORM)   │  │  (Pipeline Runner)   │
-│  对象存储      │  │  PostgreSQL  │  │  Job调度/日志/产物   │
-│  引用管理      │  │  SQLite     │  │                      │
+│  对象存储      │  │   SQLite    │  │  Job调度/日志/产物   │
+│  引用管理      │  │             │  │                      │
 │  Pack 文件     │  │             │  │                      │
 └──────────────┘  └──────────────┘  └──────────────────────┘
 ```
@@ -67,9 +67,9 @@
 | **异步运行时** | tokio | 1.x | Rust 异步生态事实标准 |
 | **HTTP 框架** | axum | 0.8+ | tokio 官方出品，生态好，性能优秀 |
 | **SSH 服务端** | russh | 0.51+ | 纯 Rust SSH2 实现，支持服务端 |
-| **Git 操作** | gix (gitoxide) | 0.83+ | 纯 Rust Git 实现，零 C 依赖 |
+| **Git 操作** | gix (gitoxide) | 0.83+ | 纯 Rust Git 实现，零 C 依赖（当前迁移进度 ~70%，12 处 git CLI fallback 待替换） |
 | **ORM** | SeaORM | 1.x | 异步原生，迁移工具成熟，API 友好 |
-| **数据库** | SQLite（默认）/ PostgreSQL（生产） | — | 轻量起步，可切换 |
+| **数据库** | SQLite（默认） | — | 轻量起步，内置 WAL 模式 |
 | **模板引擎** | Askama | 2.x | 编译时检查，性能极高 |
 | **序列化** | serde + serde_json | 1.x | Rust 事实标准 |
 | **配置** | config | 0.14+ | 支持 TOML/YAML/ENV 多格式 |
@@ -95,7 +95,7 @@
 
 | 维度 | gix (gitoxide) | git2 (libgit2) |
 |------|----------------|----------------|
-| 纯 Rust | ✅ 100% | ❌ C 依赖 |
+| 纯 Rust | ✅ ~70%（核心对象操作已完成，部分协议操作使用 git CLI fallback） | ❌ C 依赖 |
 | 编译速度 | 快 | 慢（需链接 C） |
 | 服务端协议 | ❌ 尚未支持 | ❌ 不支持 |
 | 对象操作 | ✅ 成熟 | ✅ 非常成熟 |
@@ -109,10 +109,10 @@
 |------|-----------|------------|-----------------|
 | 编译体积 | 极小 (~10KB) | 小 (~30KB) | 大 (~40KB+) |
 | 学习曲线 | 低 | 低 | 中 |
-| SSR 支持 | ✅ | ✅ | ✅ |
+| SSR 支持 | ❌（SPA 模式） | ✅ | ✅ |
 | Rust 集成 | 无特殊依赖 | 无特殊依赖 | 无特殊依赖 |
 
-**选择 SvelteKit**：编译产物最小，适合内嵌到二进制中或作为独立前端部署。
+**选择 SvelteKit**：当前阶段使用 SPA 模式（编译为静态文件，adapter-static），编译产物最小，适合内嵌到二进制中或作为独立前端部署。
 
 ---
 
@@ -121,7 +121,7 @@
 ### 4.1 Cargo Workspace 结构
 
 ```
-rustgit/
+ironforge/
 ├── Cargo.toml                    # workspace 根
 ├── crates/
 │   ├── rg-core/                  # 核心业务逻辑
@@ -165,29 +165,31 @@ rustgit/
 │   │   │   └── session.rs        # 会话管理
 │   │   └── Cargo.toml
 │   │
-│   ├── rg-http/                  # HTTP 服务端
+│   ├── rg-http/                  # HTTP 服务端 + REST API
 │   │   ├── src/
 │   │   │   ├── lib.rs
-│   │   │   ├── server.rs         # Axum 服务
-│   │   │   ├── routes/           # API 路由
-│   │   │   │   ├── mod.rs
-│   │   │   │   ├── repo.rs
-│   │   │   │   ├── user.rs
-│   │   │   │   ├── issue.rs
-│   │   │   │   ├── pull_request.rs
+│   │   │   ├── api/              # REST API handlers（扁平结构）
+│   │   │   │   ├── repos.rs
+│   │   │   │   ├── users.rs
+│   │   │   │   ├── issues.rs
+│   │   │   │   ├── pulls.rs
 │   │   │   │   ├── wiki.rs
-│   │   │   │   └── admin.rs
-│   │   │   ├── middleware/        # 中间件
+│   │   │   │   ├── releases.rs
+│   │   │   │   ├── admin.rs
 │   │   │   │   ├── auth.rs
-│   │   │   │   ├── cors.rs
-│   │   │   │   └── rate_limit.rs
-│   │   │   └── git_http.rs       # Git HTTP 智能协议
+│   │   │   │   ├── mfa.rs
+│   │   │   │   ├── sso.rs
+│   │   │   │   └── ...
+│   │   │   ├── git_v2.rs         # Git Protocol V2 handler
+│   │   │   ├── security.rs       # CORS/CSP/security headers
+│   │   │   ├── ws.rs             # WebSocket handler
+│   │   │   └── oci.rs            # OCI container registry
 │   │   └── Cargo.toml
 │   │
 │   ├── rg-db/                    # 数据库层
 │   │   ├── src/
 │   │   │   ├── lib.rs
-│   │   │   ├── models/           # SeaORM 实体
+│   │   │   ├── entities/         # SeaORM 实体
 │   │   │   │   ├── user.rs
 │   │   │   │   ├── repo.rs
 │   │   │   │   ├── issue.rs
@@ -195,7 +197,7 @@ rustgit/
 │   │   │   │   ├── wiki.rs
 │   │   │   │   ├── access_token.rs
 │   │   │   │   └── ci_pipeline.rs
-│   │   │   └── migration/        # 数据库迁移
+│   │   │   └── migrations/       # 数据库迁移
 │   │   └── Cargo.toml
 │   │
 │   ├── rg-ci/                    # CI/CD 引擎
@@ -221,8 +223,8 @@ rustgit/
 │   ├── package.json
 │   └── svelte.config.js
 │
-├── configs/
-│   └── default.toml              # 默认配置
+├── ironforge.toml                # 默认配置
+├── ironforge.example.toml        # 配置示例
 │
 ├── docker/
 │   ├── Dockerfile
@@ -435,78 +437,80 @@ Web UI:
 
 ## 六、分阶段开发计划
 
+> ✅ **状态：全部完成（Phase 1-21）。** 以下为原始开发计划的回顾，所有 Phase 0-5 的功能已实现。实际实现细节见 CLAUDE.md。
+
 ### Phase 0：项目基建（1-2 周）
 
-- [ ] Cargo workspace 初始化
-- [ ] crate 结构搭建
-- [ ] 配置管理（config + TOML）
-- [ ] 日志系统（tracing）
-- [ ] SQLite 数据库初始化 + SeaORM 迁移
-- [ ] 基础 CLI 参数解析（clap）
-- [ ] Docker 构建脚本
+- [x] Cargo workspace 初始化
+- [x] crate 结构搭建
+- [x] 配置管理（config + TOML）
+- [x] 日志系统（tracing）
+- [x] SQLite 数据库初始化 + SeaORM 迁移
+- [x] 基础 CLI 参数解析（clap）
+- [x] Docker 构建脚本
 
 **交付物**：能跑起来的空壳程序，显示欢迎页面
 
 ### Phase 1：核心 Git 协议（3-4 周）⭐ 最难
 
-- [ ] pkt-line 协议解析器
-- [ ] Git Smart Protocol V1 引用协商
-- [ ] git-upload-pack（clone/fetch）实现
-- [ ] git-receive-pack（push）实现
-- [ ] packfile 编解码（含 ofs-delta）
-- [ ] SSH 服务端（russh）+ 公钥认证
-- [ ] HTTP Git 智能协议
-- [ ] 仓库 CRUD（创建/删除/列表）
+- [x] pkt-line 协议解析器
+- [x] Git Smart Protocol V1 引用协商
+- [x] git-upload-pack（clone/fetch）实现
+- [x] git-receive-pack（push）实现
+- [x] packfile 编解码（含 ofs-delta）
+- [x] SSH 服务端（russh）+ 公钥认证
+- [x] HTTP Git 智能协议
+- [x] 仓库 CRUD（创建/删除/列表）
 
 **交付物**：`git clone/push` 能正常工作
 
 ### Phase 2：用户系统 + Web UI 基础（2-3 周）
 
-- [ ] 用户注册/登录
-- [ ] SSH Key 管理
-- [ ] Access Token 管理
-- [ ] 仓库权限（Public/Private）
-- [ ] 前端框架搭建（SvelteKit）
-- [ ] 仓库列表页 + 代码浏览页
-- [ ] 文件历史/Blame
+- [x] 用户注册/登录
+- [x] SSH Key 管理
+- [x] Access Token 管理
+- [x] 仓库权限（Public/Private）
+- [x] 前端框架搭建（SvelteKit）
+- [x] 仓库列表页 + 代码浏览页
+- [x] 文件历史/Blame
 
 **交付物**：能注册登录、浏览代码的 Web 界面
 
 ### Phase 3：Issue + Pull Request（3-4 周）
 
-- [ ] Issue CRUD + 状态管理
-- [ ] Issue 标签 + 里程碑
-- [ ] Issue 评论
-- [ ] PR 创建（基于分支）
-- [ ] PR diff 计算 + 在线 review
-- [ ] PR 合并（三种策略）
-- [ ] PR 状态机 + Webhook
-- [ ] 通知系统（基础版）
+- [x] Issue CRUD + 状态管理
+- [x] Issue 标签 + 里程碑
+- [x] Issue 评论
+- [x] PR 创建（基于分支）
+- [x] PR diff 计算 + 在线 review
+- [x] PR 合并（三种策略）
+- [x] PR 状态机 + Webhook
+- [x] 通知系统（基础版）
 
 **交付物**：完整的协作功能
 
 ### Phase 4：Wiki + LFS + 高级功能（2-3 周）
 
-- [ ] Wiki 引擎（Git 仓库后端）
-- [ ] Markdown 渲染 + 目录生成
-- [ ] LFS 协议实现
-- [ ] Webhook 系统
-- [ ] API Token 认证
-- [ ] 组织/团队概念
-- [ ] 活动流（Timeline）
+- [x] Wiki 引擎（Git 仓库后端）
+- [x] Markdown 渲染 + 目录生成
+- [x] LFS 协议实现
+- [x] Webhook 系统
+- [x] API Token 认证
+- [x] 组织/团队概念
+- [x] 活动流（Timeline）
 
 **交付物**：功能对齐 Gitea
 
 ### Phase 5：CI/CD 引擎（3-4 周）
 
-- [ ] Pipeline YAML 解析
-- [ ] Job 调度器
-- [ ] Runner 执行引擎
-- [ ] 构建日志流式输出
-- [ ] 产物管理
-- [ ] CI 状态徽章
-- [ ] 触发规则配置
-- [ ] CI 设置页面
+- [x] Pipeline YAML 解析
+- [x] Job 调度器
+- [x] Runner 执行引擎
+- [x] 构建日志流式输出
+- [x] 产物管理
+- [x] CI 状态徽章
+- [x] 触发规则配置
+- [x] CI 设置页面
 
 **交付物**：内置 CI/CD，对标 Gitea Actions
 

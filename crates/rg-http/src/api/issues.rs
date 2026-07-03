@@ -185,7 +185,7 @@ pub async fn get_issue(
             let issue = issue_with_author(&state.db, issue).await;
             (StatusCode::OK, Json(issue)).into_response()
         }
-        Err(e) => AppError::NotFound(e.to_string()).into_response(),
+        Err(e) => AppError::not_found(e.to_string()).into_response(),
     }
 }
 
@@ -213,7 +213,7 @@ pub async fn create_issue(
     let user_id = match super::auth::extract_user_id(&headers, &state.jwt_secret) {
         Some(id) => id,
         None => {
-            return AppError::Unauthorized("authentication required".to_string()).into_response()
+            return AppError::unauthorized("authentication required".to_string()).into_response()
         }
     };
 
@@ -237,7 +237,7 @@ pub async fn create_issue(
             let issue = issue_with_author(&state.db, issue).await;
             (StatusCode::CREATED, Json(issue)).into_response()
         }
-        Err(e) => AppError::BadRequest(e.to_string()).into_response(),
+        Err(e) => AppError::bad_request(e.to_string()).into_response(),
     }
 }
 
@@ -265,20 +265,20 @@ pub async fn update_issue(
     let user_id = match super::auth::extract_user_id(&headers, &state.jwt_secret) {
         Some(id) => id,
         None => {
-            return AppError::Unauthorized("authentication required".to_string()).into_response()
+            return AppError::unauthorized("authentication required".to_string()).into_response()
         }
     };
 
     let existing = match rg_core::issue::get_issue(&state.db, &owner, &repo, number).await {
         Ok(issue) => issue,
-        Err(e) => return AppError::NotFound(e.to_string()).into_response(),
+        Err(e) => return AppError::not_found(e.to_string()).into_response(),
     };
 
     let repo_model = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &repo)
         .await
     {
         Ok(Some(repo)) => repo,
-        Ok(None) => return AppError::NotFound("repository not found".to_string()).into_response(),
+        Ok(None) => return AppError::not_found("repository not found".to_string()).into_response(),
         Err(e) => return AppError::internal(e).into_response(),
     };
 
@@ -317,7 +317,7 @@ pub async fn update_issue(
             let issue = issue_with_author(&state.db, issue).await;
             (StatusCode::OK, Json(issue)).into_response()
         }
-        Err(e) => AppError::BadRequest(e.to_string()).into_response(),
+        Err(e) => AppError::bad_request(e.to_string()).into_response(),
     }
 }
 
@@ -383,7 +383,7 @@ pub async fn add_comment(
     let user_id = match super::auth::extract_user_id(&headers, &state.jwt_secret) {
         Some(id) => id,
         None => {
-            return AppError::Unauthorized("authentication required".to_string()).into_response()
+            return AppError::unauthorized("authentication required".to_string()).into_response()
         }
     };
 
@@ -396,7 +396,7 @@ pub async fn add_comment(
             let comment = comment_with_author(&state.db, comment).await;
             (StatusCode::CREATED, Json(comment)).into_response()
         }
-        Err(e) => AppError::BadRequest(e.to_string()).into_response(),
+        Err(e) => AppError::bad_request(e.to_string()).into_response(),
     }
 }
 
@@ -481,7 +481,7 @@ async fn resolve_and_check_read_access(
         let user_id = claims
             .sub
             .parse::<i64>()
-            .map_err(|_| AppError::Unauthorized("invalid token subject".to_string()))?;
+            .map_err(|_| AppError::unauthorized("invalid token subject".to_string()))?;
 
         if !rg_core::repo::service::can_read_repo(&state.db, &repo, Some(user_id))
             .await
@@ -522,7 +522,7 @@ pub async fn list_milestones(
     let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
     {
         Ok(Some(r)) => r,
-        Ok(None) => return AppError::NotFound("repository not found".to_string()).into_response(),
+        Ok(None) => return AppError::not_found("repository not found".to_string()).into_response(),
         Err(e) => {
             return {
                 tracing::error!(%e, "handler error");
@@ -572,20 +572,20 @@ pub async fn create_milestone(
     let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => {
-            return AppError::Unauthorized("authentication required".to_string()).into_response()
+            return AppError::unauthorized("authentication required".to_string()).into_response()
         }
     };
     let user_id: i64 = match claims.sub.parse::<i64>() {
         Ok(id) => id,
         Err(_) => {
-            return AppError::Unauthorized("invalid token subject".to_string()).into_response()
+            return AppError::unauthorized("invalid token subject".to_string()).into_response()
         }
     };
 
     let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
     {
         Ok(Some(r)) => r,
-        Ok(None) => return AppError::NotFound("repository not found".to_string()).into_response(),
+        Ok(None) => return AppError::not_found("repository not found".to_string()).into_response(),
         Err(e) => {
             return {
                 tracing::error!(%e, "handler error");
@@ -597,7 +597,7 @@ pub async fn create_milestone(
         .await
         .unwrap_or(false)
     {
-        return AppError::Forbidden("forbidden".to_string()).into_response();
+        return AppError::forbidden("forbidden".to_string()).into_response();
     }
     let now = chrono::Utc::now();
     let due_date = body
@@ -617,7 +617,7 @@ pub async fn create_milestone(
     };
     match rg_db::ops::milestone_ops::create(&state.db, model).await {
         Ok(m) => (StatusCode::CREATED, Json(serde_json::json!(m))).into_response(),
-        Err(e) => AppError::BadRequest(e.to_string()).into_response(),
+        Err(e) => AppError::bad_request(e.to_string()).into_response(),
     }
 }
 
@@ -643,7 +643,7 @@ pub async fn get_milestone(
         .await
     {
         Ok(Some(r)) => r,
-        Ok(None) => return AppError::NotFound("repository not found".to_string()).into_response(),
+        Ok(None) => return AppError::not_found("repository not found".to_string()).into_response(),
         Err(e) => {
             return {
                 tracing::error!(%e, "handler error");
@@ -653,7 +653,7 @@ pub async fn get_milestone(
     };
     match rg_db::ops::milestone_ops::find_by_id(&state.db, id).await {
         Ok(Some(m)) => (StatusCode::OK, Json(serde_json::json!(m))).into_response(),
-        Ok(None) => AppError::NotFound("milestone not found".to_string()).into_response(),
+        Ok(None) => AppError::not_found("milestone not found".to_string()).into_response(),
         Err(e) => {
             tracing::error!(%e, "handler error");
             AppError::internal(e).into_response()
@@ -693,13 +693,13 @@ pub async fn update_milestone(
     let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => {
-            return AppError::Unauthorized("authentication required".to_string()).into_response()
+            return AppError::unauthorized("authentication required".to_string()).into_response()
         }
     };
     let user_id: i64 = match claims.sub.parse::<i64>() {
         Ok(id) => id,
         Err(_) => {
-            return AppError::Unauthorized("invalid token subject".to_string()).into_response()
+            return AppError::unauthorized("invalid token subject".to_string()).into_response()
         }
     };
 
@@ -707,11 +707,11 @@ pub async fn update_milestone(
         .await
         .unwrap_or(false)
     {
-        return AppError::Forbidden("forbidden".to_string()).into_response();
+        return AppError::forbidden("forbidden".to_string()).into_response();
     }
     let existing = match rg_db::ops::milestone_ops::find_by_id(&state.db, id).await {
         Ok(Some(m)) => m,
-        Ok(None) => return AppError::NotFound("milestone not found".to_string()).into_response(),
+        Ok(None) => return AppError::not_found("milestone not found".to_string()).into_response(),
         Err(e) => {
             return {
                 tracing::error!(%e, "handler error");
@@ -772,13 +772,13 @@ pub async fn delete_milestone(
     let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => {
-            return AppError::Unauthorized("authentication required".to_string()).into_response()
+            return AppError::unauthorized("authentication required".to_string()).into_response()
         }
     };
     let user_id: i64 = match claims.sub.parse::<i64>() {
         Ok(id) => id,
         Err(_) => {
-            return AppError::Unauthorized("invalid token subject".to_string()).into_response()
+            return AppError::unauthorized("invalid token subject".to_string()).into_response()
         }
     };
 
@@ -786,7 +786,7 @@ pub async fn delete_milestone(
         .await
         .unwrap_or(false)
     {
-        return AppError::Forbidden("forbidden".to_string()).into_response();
+        return AppError::forbidden("forbidden".to_string()).into_response();
     }
     match rg_db::ops::milestone_ops::delete_by_id(&state.db, id).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
@@ -826,6 +826,6 @@ pub async fn get_issue_labels(
                 AppError::internal(e).into_response()
             }
         },
-        Err(e) => AppError::NotFound(e.to_string()).into_response(),
+        Err(e) => AppError::not_found(e.to_string()).into_response(),
     }
 }

@@ -8,12 +8,13 @@
 //!   GET    /users/mfa/backup   — Get backup codes
 //!   POST   /users/mfa/backup   — Verify and use a backup code
 
-use axum::{extract::State, http::StatusCode, Json};
+use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
 use tracing;
 use utoipa::ToSchema;
 
 use crate::api::auth::extract_user_id;
+use crate::error::AppError;
 use crate::AppState;
 use axum::http::HeaderMap;
 
@@ -40,26 +41,23 @@ pub struct SetupMfaResponse {
 pub async fn setup_mfa(
     State(state): State<AppState>,
     headers: HeaderMap,
-) -> Result<Json<SetupMfaResponse>, (StatusCode, String)> {
+) -> Result<Json<SetupMfaResponse>, AppError> {
     let user_id = extract_user_id(&headers, &state.jwt_secret)
-        .ok_or((StatusCode::UNAUTHORIZED, "unauthorized".into()))?;
+        .ok_or_else(|| AppError::unauthorized("unauthorized"))?;
 
     // Get username to include in TOTP label
     let user = rg_db::ops::user_ops::find_by_id(&state.db, user_id)
         .await
         .map_err(|e| {
             tracing::error!("DB error: {}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, "database error".into())
+            AppError::internal("database error")
         })?
-        .ok_or((StatusCode::NOT_FOUND, "user not found".into()))?;
+        .ok_or_else(|| AppError::not_found("user not found"))?;
 
     let (secret, otpauth_url, _qr_text) =
         rg_core::auth::totp::generate_secret(&user.username, "IronForge").map_err(|e| {
             tracing::error!("TOTP error: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "TOTP generation failed".into(),
-            )
+            AppError::internal("TOTP generation failed")
         })?;
 
     let qr_svg = rg_core::auth::totp::generate_qr_svg(&otpauth_url);
@@ -68,17 +66,14 @@ pub async fn setup_mfa(
     let enc_key = rg_core::auth::encryption::derive_key(&state.jwt_secret);
     let enc_secret = rg_core::auth::encryption::encrypt(&secret, &enc_key).map_err(|e| {
         tracing::error!("Encryption error: {}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "encryption failed".into(),
-        )
+        AppError::internal("encryption failed")
     })?;
 
     rg_db::ops::user_ops::update_totp_secret(&state.db, user_id, &enc_secret)
         .await
         .map_err(|e| {
             tracing::error!("DB error: {}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, "database error".into())
+            AppError::internal("database error")
         })?;
 
     Ok(Json(SetupMfaResponse {
@@ -118,45 +113,43 @@ pub async fn enable_mfa(
     State(state): State<AppState>,
     headers: HeaderMap,
     Json(req): Json<EnableMfaRequest>,
-) -> Result<Json<EnableMfaResponse>, (StatusCode, String)> {
+) -> Result<Json<EnableMfaResponse>, AppError> {
     let user_id = extract_user_id(&headers, &state.jwt_secret)
-        .ok_or((StatusCode::UNAUTHORIZED, "unauthorized".into()))?;
+        .ok_or_else(|| AppError::unauthorized("unauthorized"))?;
 
     let user = rg_db::ops::user_ops::find_by_id(&state.db, user_id)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-        .ok_or((StatusCode::NOT_FOUND, "user not found".into()))?;
+        .map_err(AppError::from)?
+        .ok_or_else(|| AppError::not_found("user not found"))?;
 
     // Decrypt the TOTP secret
     let enc_key = rg_core::auth::encryption::derive_key(&state.jwt_secret);
     let totp_secret = match &user.totp_secret {
         Some(s) => rg_core::auth::encryption::decrypt(s, &enc_key).map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("decryption failed: {}", e),
-            )
+            tracing::error!("Decryption error: {}", e);
+            AppError::internal("decryption failed")
         })?,
-        None => return Err((StatusCode::BAD_REQUEST, "MFA not set up yet".into())),
+        None => return Err(AppError::bad_request("MFA not set up yet")),
     };
 
     // Verify the TOTP code
     let valid = rg_core::auth::totp::verify_code(&totp_secret, &req.code)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(AppError::from)?;
 
     if !valid {
-        return Err((StatusCode::BAD_REQUEST, "invalid TOTP code".into()));
+        return Err(AppError::bad_request("invalid TOTP code"));
     }
 
     // Enable MFA and store re-encrypted secret
     rg_db::ops::user_ops::enable_mfa(&state.db, user_id, "totp")
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(AppError::from)?;
 
     // Generate backup codes
     let backup_codes = rg_db::ops::mfa_backup_code_ops::generate_codes(8);
     rg_db::ops::mfa_backup_code_ops::set_codes(&state.db, user_id, &backup_codes)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(AppError::from)?;
 
     Ok(Json(EnableMfaResponse {
         enabled: true,
@@ -197,18 +190,18 @@ pub struct VerifyMfaResponse {
 pub async fn verify_mfa(
     State(state): State<AppState>,
     Json(req): Json<VerifyMfaRequest>,
-) -> Result<Json<VerifyMfaResponse>, (StatusCode, String)> {
+) -> Result<Json<VerifyMfaResponse>, AppError> {
     // Find user by username
     let user = rg_db::ops::user_ops::find_by_username(&state.db, &req.username)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .map_err(AppError::from)?
         .ok_or_else(|| {
             tracing::warn!(username = %req.username, "MFA verify: user not found");
-            (StatusCode::UNAUTHORIZED, "invalid credentials".into())
+            AppError::unauthorized("invalid credentials")
         })?;
 
     if !user.mfa_enabled {
-        return Err((StatusCode::BAD_REQUEST, "MFA not enabled".into()));
+        return Err(AppError::bad_request("MFA not enabled"));
     }
 
     if req.backup {
@@ -216,33 +209,33 @@ pub async fn verify_mfa(
         let valid =
             rg_db::ops::mfa_backup_code_ops::verify_and_consume(&state.db, user.id, &req.code)
                 .await
-                .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+                .map_err(AppError::from)?;
 
         if !valid {
-            return Err((StatusCode::UNAUTHORIZED, "invalid backup code".into()));
+            return Err(AppError::unauthorized("invalid backup code"));
         }
     } else {
         // Verify TOTP code
         let enc_key = rg_core::auth::encryption::derive_key(&state.jwt_secret);
-        let totp_secret = user.totp_secret.as_ref().ok_or((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "MFA secret missing".into(),
-        ))?;
+        let totp_secret = user
+            .totp_secret
+            .as_ref()
+            .ok_or_else(|| AppError::internal("MFA secret missing"))?;
 
         let secret = rg_core::auth::encryption::decrypt(totp_secret, &enc_key)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            .map_err(AppError::from)?;
 
         let valid = rg_core::auth::totp::verify_code(&secret, &req.code)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+            .map_err(AppError::from)?;
 
         if !valid {
-            return Err((StatusCode::UNAUTHORIZED, "invalid TOTP code".into()));
+            return Err(AppError::unauthorized("invalid TOTP code"));
         }
     }
 
     // Issue JWT
     let token = rg_core::auth::jwt::generate_token(user.id, &user.username, &state.jwt_secret, 7)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(AppError::from)?;
 
     Ok(Json(VerifyMfaResponse {
         token,
@@ -266,13 +259,13 @@ pub async fn verify_mfa(
 pub async fn get_backup_codes(
     State(state): State<AppState>,
     headers: HeaderMap,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+) -> Result<Json<serde_json::Value>, AppError> {
     let user_id = extract_user_id(&headers, &state.jwt_secret)
-        .ok_or((StatusCode::UNAUTHORIZED, "unauthorized".into()))?;
+        .ok_or_else(|| AppError::unauthorized("unauthorized"))?;
 
     let codes = rg_db::ops::mfa_backup_code_ops::list_codes(&state.db, user_id)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(AppError::from)?;
 
     let summary: Vec<serde_json::Value> = codes
         .iter()
@@ -315,22 +308,22 @@ pub async fn disable_mfa(
     State(state): State<AppState>,
     headers: HeaderMap,
     Json(req): Json<DisableMfaRequest>,
-) -> Result<StatusCode, (StatusCode, String)> {
+) -> Result<Json<serde_json::Value>, AppError> {
     let user_id = extract_user_id(&headers, &state.jwt_secret)
-        .ok_or((StatusCode::UNAUTHORIZED, "unauthorized".into()))?;
+        .ok_or_else(|| AppError::unauthorized("unauthorized"))?;
 
     let user = rg_db::ops::user_ops::find_by_id(&state.db, user_id)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-        .ok_or((StatusCode::NOT_FOUND, "user not found".into()))?;
+        .map_err(AppError::from)?
+        .ok_or_else(|| AppError::not_found("user not found"))?;
 
     // Verify password before disabling MFA
     rg_core::auth::password::verify_password(&req.password, &user.password_hash)
-        .map_err(|_| (StatusCode::UNAUTHORIZED, "invalid password".into()))?;
+        .map_err(|_| AppError::unauthorized("invalid password"))?;
 
     rg_db::ops::user_ops::disable_mfa(&state.db, user_id)
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        .map_err(AppError::from)?;
 
-    Ok(StatusCode::OK)
+    Ok(Json(serde_json::json!({"disabled": true})))
 }

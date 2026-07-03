@@ -138,7 +138,7 @@ pub async fn register(
 
             (StatusCode::CREATED, Json(serde_json::json!(resp))).into_response()
         }
-        Err(e) => AppError::BadRequest(e.to_string()).into_response(),
+        Err(e) => AppError::bad_request(e.to_string()).into_response(),
     }
 }
 
@@ -200,7 +200,7 @@ pub async fn login(
                 (StatusCode::OK, Json(serde_json::json!(resp))).into_response()
             }
         }
-        Err(e) => AppError::Unauthorized(e.to_string()).into_response(),
+        Err(e) => AppError::unauthorized(e.to_string()).into_response(),
     }
 }
 
@@ -219,7 +219,7 @@ pub async fn me(State(state): State<AppState>, headers: HeaderMap) -> impl IntoR
     let claims = match super::auth::extract_bearer_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => {
-            return AppError::Unauthorized("missing or invalid token".to_string()).into_response()
+            return AppError::unauthorized("missing or invalid token".to_string()).into_response()
         }
     };
 
@@ -227,7 +227,7 @@ pub async fn me(State(state): State<AppState>, headers: HeaderMap) -> impl IntoR
         Ok(id) => id,
 
         Err(_) => {
-            return AppError::Unauthorized("invalid token subject".to_string()).into_response()
+            return AppError::unauthorized("invalid token subject".to_string()).into_response()
         }
     };
 
@@ -245,8 +245,8 @@ pub async fn me(State(state): State<AppState>, headers: HeaderMap) -> impl IntoR
             })),
         )
             .into_response(),
-        Ok(None) => AppError::NotFound("user not found".to_string()).into_response(),
-        Err(e) => AppError::InternalError(e.to_string()).into_response(),
+        Ok(None) => AppError::not_found("user not found".to_string()).into_response(),
+        Err(e) => AppError::internal(e.to_string()).into_response(),
     }
 }
 
@@ -310,13 +310,13 @@ pub async fn list_tokens(State(state): State<AppState>, headers: HeaderMap) -> i
     let claims = match super::auth::extract_bearer_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => {
-            return AppError::Unauthorized("authentication required".to_string()).into_response();
+            return AppError::unauthorized("authentication required".to_string()).into_response();
         }
     };
     let user_id: i64 = match claims.sub.parse::<i64>() {
         Ok(id) => id,
         Err(_) => {
-            return AppError::Unauthorized("invalid token subject".to_string()).into_response()
+            return AppError::unauthorized("invalid token subject".to_string()).into_response()
         }
     };
 
@@ -336,7 +336,7 @@ pub async fn list_tokens(State(state): State<AppState>, headers: HeaderMap) -> i
 
             (StatusCode::OK, Json(tokens)).into_response()
         }
-        Err(e) => AppError::InternalError(e.to_string()).into_response(),
+        Err(e) => AppError::internal(e.to_string()).into_response(),
     }
 }
 
@@ -360,18 +360,18 @@ pub async fn create_token(
     let claims = match super::auth::extract_bearer_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => {
-            return AppError::Unauthorized("authentication required".to_string()).into_response();
+            return AppError::unauthorized("authentication required".to_string()).into_response();
         }
     };
     let user_id: i64 = match claims.sub.parse::<i64>() {
         Ok(id) => id,
         Err(_) => {
-            return AppError::Unauthorized("invalid token subject".to_string()).into_response()
+            return AppError::unauthorized("invalid token subject".to_string()).into_response()
         }
     };
 
     if body.name.trim().is_empty() {
-        return AppError::BadRequest("token name cannot be empty".to_string()).into_response();
+        return AppError::bad_request("token name cannot be empty".to_string()).into_response();
     }
     let raw_token = generate_token();
     let token_hash = hash_token(&raw_token);
@@ -405,7 +405,7 @@ pub async fn create_token(
             })),
         )
             .into_response(),
-        Err(e) => AppError::InternalError(e.to_string()).into_response(),
+        Err(e) => AppError::internal(e.to_string()).into_response(),
     }
 }
 
@@ -431,29 +431,29 @@ pub async fn delete_token(
     let claims = match super::auth::extract_bearer_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => {
-            return AppError::Unauthorized("authentication required".to_string()).into_response();
+            return AppError::unauthorized("authentication required".to_string()).into_response();
         }
     };
     let user_id: i64 = match claims.sub.parse::<i64>() {
         Ok(id) => id,
         Err(_) => {
-            return AppError::Unauthorized("invalid token subject".to_string()).into_response()
+            return AppError::unauthorized("invalid token subject".to_string()).into_response()
         }
     };
 
     let token = match rg_db::ops::token_ops::find_by_id(&state.db, id).await {
         Ok(Some(t)) => t,
         _ => {
-            return AppError::NotFound("token not found".to_string()).into_response();
+            return AppError::not_found("token not found".to_string()).into_response();
         }
     };
     if token.user_id != user_id {
-        return AppError::Forbidden("you can only revoke your own tokens".to_string())
+        return AppError::forbidden("you can only revoke your own tokens".to_string())
             .into_response();
     }
     match rg_db::ops::token_ops::delete_by_id(&state.db, id).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(e) => AppError::InternalError(e.to_string()).into_response(),
+        Err(e) => AppError::internal(e.to_string()).into_response(),
     }
 }
 
@@ -511,7 +511,7 @@ pub async fn forgot_password(
             )
                 .into_response()
         }
-        Err(e) => AppError::InternalError(e.to_string()).into_response(),
+        Err(e) => AppError::internal(e.to_string()).into_response(),
     }
 }
 
@@ -550,6 +550,6 @@ pub async fn reset_password(
             tracing::info!(user_id = resp.user_id, "password reset successful");
             (StatusCode::OK, Json(serde_json::json!(resp))).into_response()
         }
-        Err(e) => AppError::BadRequest(e.to_string()).into_response(),
+        Err(e) => AppError::bad_request(e.to_string()).into_response(),
     }
 }

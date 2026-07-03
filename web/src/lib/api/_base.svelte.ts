@@ -22,7 +22,7 @@ function normalizeApiBase(value?: string): string {
 
 export const API_BASE = normalizeApiBase(configuredApiBase);
 
-function withApiBase(path: string): string {
+export function withApiBase(path: string): string {
   return `${API_BASE}${path.startsWith('/') ? path : `/${path}`}`;
 }
 

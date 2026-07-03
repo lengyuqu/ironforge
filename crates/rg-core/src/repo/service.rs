@@ -6,7 +6,9 @@ use sea_orm::{ActiveValue::Set, ConnectionTrait, DatabaseConnection};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Command;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{RwLock, OnceLock};
+#[cfg(test)]
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use rg_db::{
@@ -53,14 +55,14 @@ const PERM_CACHE_TTL: Duration = Duration::from_secs(30);
 type PermKey = (i64, Option<i64>, bool);
 type PermEntry = (bool, Instant);
 
-static PERM_CACHE: OnceLock<Mutex<HashMap<PermKey, PermEntry>>> = OnceLock::new();
+static PERM_CACHE: OnceLock<RwLock<HashMap<PermKey, PermEntry>>> = OnceLock::new();
 
-fn perm_cache() -> &'static Mutex<HashMap<PermKey, PermEntry>> {
-    PERM_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+fn perm_cache() -> &'static RwLock<HashMap<PermKey, PermEntry>> {
+    PERM_CACHE.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
 fn check_perm_cache(repo_id: i64, actor_id: Option<i64>, for_write: bool) -> Option<bool> {
-    let cache = perm_cache().lock().unwrap();
+    let cache = perm_cache().read().unwrap_or_else(|e| e.into_inner());
     cache
         .get(&(repo_id, actor_id, for_write))
         .filter(|(_, ts)| ts.elapsed() < PERM_CACHE_TTL)
@@ -68,7 +70,7 @@ fn check_perm_cache(repo_id: i64, actor_id: Option<i64>, for_write: bool) -> Opt
 }
 
 fn set_perm_cache(repo_id: i64, actor_id: Option<i64>, for_write: bool, value: bool) {
-    let mut cache = perm_cache().lock().unwrap();
+    let mut cache = perm_cache().write().unwrap_or_else(|e| e.into_inner());
     cache.retain(|_, (_, ts)| ts.elapsed() < PERM_CACHE_TTL);
     cache.insert((repo_id, actor_id, for_write), (value, Instant::now()));
 }
@@ -78,7 +80,7 @@ fn set_perm_cache(repo_id: i64, actor_id: Option<i64>, for_write: bool, value: b
 /// Call after a collaborator is added/updated/removed so that granted or
 /// revoked access takes effect immediately instead of after the 30s TTL.
 pub fn invalidate_perm_cache_user(repo_id: i64, user_id: i64) {
-    let mut cache = perm_cache().lock().unwrap();
+    let mut cache = perm_cache().write().unwrap_or_else(|e| e.into_inner());
     cache.remove(&(repo_id, Some(user_id), false));
     cache.remove(&(repo_id, Some(user_id), true));
 }
@@ -87,15 +89,15 @@ pub fn invalidate_perm_cache_user(repo_id: i64, user_id: i64) {
 /// or deletion, which changes who can read/write).
 pub fn invalidate_perm_cache_repo(repo_id: i64) {
     perm_cache()
-        .lock()
-        .unwrap()
+        .write()
+        .unwrap_or_else(|e| e.into_inner())
         .retain(|(rid, _, _), _| *rid != repo_id);
 }
 
 /// Clear the entire permission cache. Used for org/team membership changes
 /// that can affect access across many repositories at once.
 pub fn invalidate_perm_cache_all() {
-    perm_cache().lock().unwrap().clear();
+    perm_cache().write().unwrap_or_else(|e| e.into_inner()).clear();
 }
 
 /// Resolve an "owner" string to either a user ID or an org ID.
@@ -681,8 +683,15 @@ pub async fn delete_repo(db: &DatabaseConnection, repo_id: i64) -> Result<()> {
     rg_db::ops::repo_ops::soft_delete(db, repo_id).await?;
 
     // Manually remove from FTS5 index (triggers are disabled)
-    let fts_sql = format!("DELETE FROM repos_fts WHERE rowid = {}", repo_id);
-    if let Err(e) = db.execute_unprepared(&fts_sql).await {
+    // Use parameterized query to prevent SQL injection
+    if let Err(e) = db
+        .execute(sea_orm::Statement::from_sql_and_values(
+            db.get_database_backend(),
+            "DELETE FROM repos_fts WHERE rowid = ?",
+            [repo_id.into()],
+        ))
+        .await
+    {
         tracing::warn!(repo_id = repo_id, error = %e, "failed to remove repo from repos_fts index");
     }
 

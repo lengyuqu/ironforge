@@ -27,11 +27,11 @@ pub struct PaginationParams {
     pub per_page: u64,
 }
 
-fn default_page() -> u64 {
+pub fn default_page() -> u64 {
     1
 }
 
-fn default_per_page() -> u64 {
+pub fn default_per_page() -> u64 {
     DEFAULT_PER_PAGE
 }
 
