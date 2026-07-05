@@ -1,11 +1,16 @@
 //! REST API handlers for CI Artifacts.
 
+use axum::body::Bytes;
 use axum::extract::{Path, State};
-use axum::http::StatusCode;
+use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::Json;
+use sea_orm::EntityTrait;
 use serde::{Deserialize, Serialize};
+use std::path::{Path as FsPath, PathBuf};
+use uuid::Uuid;
 
+use crate::api::auth::extract_user_id;
 use crate::error::AppError;
 use crate::AppState;
 use utoipa::ToSchema;
@@ -17,6 +22,7 @@ pub struct ArtifactResponse {
     id: i64,
     job_id: i64,
     name: String,
+    file_path: String,
     size: i64,
     created_at: String,
     expires_at: Option<String>,
@@ -51,7 +57,8 @@ pub struct UploadArtifactResponse {
 pub async fn upload_artifact(
     State(state): State<AppState>,
     Path((runner_id, job_id)): Path<(i64, i64)>,
-    Json(req): Json<UploadArtifactRequest>,
+    headers: HeaderMap,
+    body: Bytes,
 ) -> impl IntoResponse {
     // Verify job belongs to this runner
     let job = match rg_db::ops::pipeline_ops::get_job(&state.db, job_id).await {
@@ -68,12 +75,17 @@ pub async fn upload_artifact(
         return AppError::forbidden("job not assigned to this runner").into_response();
     }
 
+    let upload = match parse_artifact_upload(&state, job_id, &headers, &body).await {
+        Ok(upload) => upload,
+        Err(e) => return e.into_response(),
+    };
+
     match rg_db::ops::artifact_ops::create_artifact(
         &state.db,
         job_id,
-        &req.name,
-        &req.file_path,
-        req.size.unwrap_or(0),
+        &upload.name,
+        upload.file_path.to_string_lossy().as_ref(),
+        upload.size,
         None,
     )
     .await
@@ -108,8 +120,13 @@ pub async fn upload_artifact(
 )]
 pub async fn list_pipeline_artifacts(
     State(state): State<AppState>,
-    Path((_owner, _name, pipeline_id)): Path<(String, String, i64)>,
+    headers: HeaderMap,
+    Path((owner, name, pipeline_id)): Path<(String, String, i64)>,
 ) -> impl IntoResponse {
+    if let Err(e) = require_pipeline_read(&state, &headers, &owner, &name, pipeline_id).await {
+        return e.into_response();
+    }
+
     match rg_db::ops::artifact_ops::list_by_pipeline(&state.db, pipeline_id).await {
         Ok(artifacts) => {
             let resp: Vec<ArtifactResponse> = artifacts
@@ -118,6 +135,7 @@ pub async fn list_pipeline_artifacts(
                     id: a.id,
                     job_id: a.job_id,
                     name: a.name,
+                    file_path: a.file_path,
                     size: a.size,
                     created_at: a.created_at.to_string(),
                     expires_at: a.expires_at.map(|t| t.to_string()),
@@ -145,24 +163,80 @@ pub async fn list_pipeline_artifacts(
 )]
 pub async fn get_artifact(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(artifact_id): Path<i64>,
 ) -> impl IntoResponse {
-    match rg_db::ops::artifact_ops::get_by_id(&state.db, artifact_id).await {
-        Ok(Some(a)) => (
-            StatusCode::OK,
-            Json(ArtifactResponse {
-                id: a.id,
-                job_id: a.job_id,
-                name: a.name,
-                size: a.size,
-                created_at: a.created_at.to_string(),
-                expires_at: a.expires_at.map(|t| t.to_string()),
-            }),
-        )
-            .into_response(),
-        Ok(None) => AppError::not_found("artifact not found").into_response(),
-        Err(e) => AppError::internal(e.to_string()).into_response(),
+    let artifact = match require_artifact_read(&state, &headers, artifact_id).await {
+        Ok(artifact) => artifact,
+        Err(e) => return e.into_response(),
+    };
+
+    (
+        StatusCode::OK,
+        Json(ArtifactResponse {
+            id: artifact.id,
+            job_id: artifact.job_id,
+            name: artifact.name,
+            file_path: artifact.file_path,
+            size: artifact.size,
+            created_at: artifact.created_at.to_string(),
+            expires_at: artifact.expires_at.map(|t| t.to_string()),
+        }),
+    )
+        .into_response()
+}
+
+/// GET /api/v1/artifacts/:id/download
+/// Download artifact file bytes.
+#[utoipa::path(
+    get,
+    path = "/artifacts/{id}/download",
+    tag = "Artifacts",
+    params(
+        ("id" = i64, Path, description = "id"),
+    ),
+    responses(
+        (status = 200, description = "Artifact binary stream", content_type = "application/octet-stream"),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+        (status = 404, description = "Artifact file not found", body = serde_json::Value),
+    ),
+)]
+pub async fn download_artifact(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(artifact_id): Path<i64>,
+) -> impl IntoResponse {
+    let artifact = match require_artifact_read(&state, &headers, artifact_id).await {
+        Ok(artifact) => artifact,
+        Err(e) => return e.into_response(),
+    };
+
+    let file_path = PathBuf::from(&artifact.file_path);
+    if !is_path_under(&file_path, &artifact_root(&state)) {
+        return AppError::forbidden("artifact path is outside artifact storage").into_response();
     }
+
+    let bytes = match tokio::fs::read(&file_path).await {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return AppError::not_found("artifact file not found").into_response();
+        }
+        Err(e) => return AppError::internal(e).into_response(),
+    };
+
+    let disposition = format!(
+        "attachment; filename=\"{}\"",
+        artifact.name.replace('"', "")
+    );
+    (
+        StatusCode::OK,
+        [
+            (header::CONTENT_TYPE, "application/octet-stream"),
+            (header::CONTENT_DISPOSITION, disposition.as_str()),
+        ],
+        bytes,
+    )
+        .into_response()
 }
 
 /// DELETE /api/v1/artifacts/:id
@@ -182,14 +256,22 @@ pub async fn get_artifact(
 )]
 pub async fn delete_artifact(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(artifact_id): Path<i64>,
 ) -> impl IntoResponse {
+    let artifact = match require_artifact_read(&state, &headers, artifact_id).await {
+        Ok(artifact) => artifact,
+        Err(e) => return e.into_response(),
+    };
+
     match rg_db::ops::artifact_ops::delete_by_id(&state.db, artifact_id).await {
-        Ok(true) => (
-            StatusCode::NO_CONTENT,
-            Json(serde_json::json!({"status": "deleted"})),
-        )
-            .into_response(),
+        Ok(true) => {
+            let file_path = PathBuf::from(&artifact.file_path);
+            if is_path_under(&file_path, &artifact_root(&state)) {
+                let _ = tokio::fs::remove_file(file_path).await;
+            }
+            StatusCode::NO_CONTENT.into_response()
+        }
         Ok(false) => AppError::not_found("artifact not found").into_response(),
         Err(e) => AppError::internal(e.to_string()).into_response(),
     }
@@ -202,4 +284,168 @@ pub struct UploadArtifactRequest {
     pub name: String,
     pub file_path: String,
     pub size: Option<i64>,
+}
+
+struct ParsedArtifactUpload {
+    name: String,
+    file_path: PathBuf,
+    size: i64,
+}
+
+async fn parse_artifact_upload(
+    state: &AppState,
+    job_id: i64,
+    headers: &HeaderMap,
+    body: &Bytes,
+) -> Result<ParsedArtifactUpload, AppError> {
+    let content_type = headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+
+    if content_type.starts_with("application/json") {
+        let req: UploadArtifactRequest =
+            serde_json::from_slice(body).map_err(|e| AppError::bad_request(e.to_string()))?;
+        return Ok(ParsedArtifactUpload {
+            name: req.name,
+            file_path: PathBuf::from(req.file_path),
+            size: req.size.unwrap_or(0),
+        });
+    }
+
+    if body.is_empty() {
+        return Err(AppError::bad_request("artifact upload body is empty"));
+    }
+
+    let name = artifact_name_from_headers(headers).unwrap_or_else(|| "artifact.bin".to_string());
+    let safe_name = sanitize_artifact_name(&name);
+    let dir = artifact_root(state).join("jobs").join(job_id.to_string());
+    tokio::fs::create_dir_all(&dir)
+        .await
+        .map_err(AppError::internal)?;
+    let file_path = dir.join(format!("{}-{}", Uuid::new_v4(), safe_name));
+    tokio::fs::write(&file_path, body)
+        .await
+        .map_err(AppError::internal)?;
+
+    Ok(ParsedArtifactUpload {
+        name: safe_name,
+        file_path,
+        size: body.len() as i64,
+    })
+}
+
+fn artifact_root(state: &AppState) -> PathBuf {
+    state.repo_root.join("_artifacts")
+}
+
+fn artifact_name_from_headers(headers: &HeaderMap) -> Option<String> {
+    if let Some(name) = headers
+        .get("x-artifact-name")
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        return Some(name.to_string());
+    }
+
+    headers
+        .get(header::CONTENT_DISPOSITION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(parse_filename_from_disposition)
+}
+
+fn parse_filename_from_disposition(value: &str) -> Option<String> {
+    value.split(';').find_map(|part| {
+        let part = part.trim();
+        let filename = part.strip_prefix("filename=")?;
+        Some(filename.trim_matches('"').to_string())
+    })
+}
+
+fn sanitize_artifact_name(name: &str) -> String {
+    let sanitized: String = name
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
+        .collect();
+    if sanitized.is_empty() {
+        "artifact.bin".to_string()
+    } else {
+        sanitized
+    }
+}
+
+fn is_path_under(path: &FsPath, root: &FsPath) -> bool {
+    match (path.canonicalize(), root.canonicalize()) {
+        (Ok(path), Ok(root)) => path.starts_with(root),
+        _ => false,
+    }
+}
+
+async fn require_pipeline_read(
+    state: &AppState,
+    headers: &HeaderMap,
+    owner: &str,
+    name: &str,
+    pipeline_id: i64,
+) -> Result<rg_db::entities::pipeline::Model, AppError> {
+    let repo = rg_core::repo::service::find_repo_by_owner_name(&state.db, owner, name)
+        .await
+        .map_err(AppError::internal)?
+        .ok_or_else(|| AppError::not_found("repository not found"))?;
+    let pipeline = rg_db::ops::pipeline_ops::get_pipeline(&state.db, pipeline_id)
+        .await
+        .map_err(AppError::internal)?
+        .ok_or_else(|| AppError::not_found("pipeline not found"))?;
+    if pipeline.repo_id != repo.id {
+        return Err(AppError::not_found("pipeline not found"));
+    }
+    require_repo_read(state, headers, &repo).await?;
+    Ok(pipeline)
+}
+
+async fn require_artifact_read(
+    state: &AppState,
+    headers: &HeaderMap,
+    artifact_id: i64,
+) -> Result<rg_db::entities::artifact::Model, AppError> {
+    let artifact = rg_db::ops::artifact_ops::get_by_id(&state.db, artifact_id)
+        .await
+        .map_err(AppError::internal)?
+        .ok_or_else(|| AppError::not_found("artifact not found"))?;
+    let job = rg_db::ops::pipeline_ops::get_job(&state.db, artifact.job_id)
+        .await
+        .map_err(AppError::internal)?
+        .ok_or_else(|| AppError::not_found("job not found"))?;
+    let stage = rg_db::ops::pipeline_ops::get_stage_by_id(&state.db, job.stage_id)
+        .await
+        .map_err(AppError::internal)?
+        .ok_or_else(|| AppError::not_found("stage not found"))?;
+    let pipeline = rg_db::ops::pipeline_ops::get_pipeline(&state.db, stage.pipeline_id)
+        .await
+        .map_err(AppError::internal)?
+        .ok_or_else(|| AppError::not_found("pipeline not found"))?;
+    let repo = rg_db::entities::repository::Entity::find_by_id(pipeline.repo_id)
+        .one(&state.db)
+        .await
+        .map_err(AppError::internal)?
+        .ok_or_else(|| AppError::not_found("repository not found"))?;
+    require_repo_read(state, headers, &repo).await?;
+    Ok(artifact)
+}
+
+async fn require_repo_read(
+    state: &AppState,
+    headers: &HeaderMap,
+    repo: &rg_db::entities::repository::Model,
+) -> Result<(), AppError> {
+    let actor_id = extract_user_id(headers, &state.jwt_secret);
+    match rg_core::repo::service::can_read_repo(&state.db, repo, actor_id).await {
+        Ok(true) => Ok(()),
+        Ok(false) if repo.is_private && actor_id.is_none() => {
+            Err(AppError::unauthorized("authentication required"))
+        }
+        Ok(false) => Err(AppError::forbidden("access denied")),
+        Err(e) => Err(AppError::internal(e)),
+    }
 }

@@ -12,12 +12,12 @@
 
 | AI 工具 | 自动读取的文件 | 建议补充读取 |
 |---------|-------------|------------|
-| **Claude Code** | `CLAUDE.md`（本文件） | `AGENT.md` + 按任务类型从「按任务类型选读」中选 |
-| **WorkBuddy** | `.workbuddy/memory/MEMORY.md` + 每日日志 | `AGENT.md` + `CLAUDE.md` + `ARCHITECTURE.md` |
+| **Claude Code** | `CLAUDE.md`（本文件） | `AGENT.md` + 2026-07 架构文档 + 按任务类型从「按任务类型选读」中选 |
+| **WorkBuddy** | `.workbuddy/memory/MEMORY.md` + 每日日志 | `AGENT.md` + `CLAUDE.md` + 2026-07 架构文档 |
 | **Codex** | 通常读取项目根目录的 `README.md` | **`AGENT.md`** ⭐（AI 统一入口） |
 | **Trae** | 通常读取 `README.md` | **`AGENT.md`** ⭐（AI 统一入口） |
 | **CodeBuddy** | 通常读取 `README.md` | **`AGENT.md`** ⭐（AI 统一入口） |
-| **AI Agent（.ai/）** | `.ai/README.md` | 按任务类型选读（AGENT.md / CLAUDE.md / ARCHITECTURE.md） |
+| **AI Agent（.ai/）** | `.ai/README.md` | 按任务类型选读（AGENT.md / CLAUDE.md / 2026-07 架构文档） |
 
 **如果你是其他 AI 工具且未自动读取本文件**：请先阅读 `AGENT.md`（更轻量的统一入口），然后通读本文件获取完整细节，再按任务类型从「按任务类型选读」中选择延伸阅读。
 
@@ -38,10 +38,14 @@
 ```
 ironforge/
 ├── Cargo.toml              # Workspace 根（统一依赖版本）
-├── ARCHITECTURE.md         # 完整架构方案（必读！包含数据库模型、技术选型）
+├── ARCHITECTURE.md         # 历史架构方案（当前事实以 2026-07 架构文档为准）
 ├── CLAUDE.md               # 本文件（AI 协作上下文）
 ├── CONTRIBUTING.md         # 开发规范
 ├── .ai/                  # AI Agent 接入规范（README + MCP配置 + prompt模板）
+├── ironforge-docs/         # 架构重盘、前后端结构、差异与待办
+│   ├── project-architecture-2026-07.md
+│   ├── frontend-backend-structure-2026-07.md
+│   └── architecture-followups-2026-07.md
 ├── docs/
 │   ├── p0-prd.md                   # P0 功能 PRD
 │   ├── p0-system-design.md         # P0 系统设计 + 任务分解
@@ -58,7 +62,7 @@ ironforge/
 │   ├── rg-db/              # 数据库层 SeaORM（✅ 实体+迁移+ops）
 │   ├── rg-ci/              # CI/CD 引擎（✅ YAML 解析 + Pipeline 执行器 + Docker Runner）
 │   ├── rg-runner/          # Runner Agent 独立二进制（bin = "ironforge-runner"）
-│   └── rg-mcp/             # MCP 服务器（bin = "ironforge-mcp"，stdio/SSE，暴露 Tools + Resources 给 AI Agent）
+│   └── rg-mcp/             # MCP 服务器（bin = "ironforge-mcp"，stdio-only，暴露 Tools + Resources 给 AI Agent）
 └── web/                    # SvelteKit 前端（✅ 登录/仓库/Issue/PR/Wiki/CI/代码审查/组织/通知/国际化）
 ```
 
@@ -159,8 +163,8 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":
 
 ### 支持的 Transport
 
-- **stdio**（默认）— 作为 AI Agent 子进程运行
-- **SSE**（`--sse` 标志）— 网页端 Agent（暂未实现）
+- **stdio** — 作为 AI Agent 子进程运行
+- **SSE** — 未实现；不要把 `--sse` 写成可用 transport
 
 ---
 
@@ -477,13 +481,14 @@ FTS5 的 `INSERT INTO fts_table(fts_table, rowid, ...) VALUES('delete', ...)` �
 
 ### 新功能开发流程
 
-1. 阅读 `ARCHITECTURE.md` 对应章节了解设计意图
-2. 确认要修改的 crate 和文件
-3. 先写单元测试（或端到端测试脚本）
-4. 实现功能
-5. `cargo build --release` 验证编译
-6. 端到端测试验证（见 README.md 中的测试脚本）
-7. 更新本文件中的"实现现状"表格
+1. 阅读 `ironforge-docs/project-architecture-2026-07.md` 和对应前后端结构文档确认当前代码事实
+2. 必要时阅读 `ARCHITECTURE.md` 了解历史设计意图
+3. 确认要修改的 crate 和文件
+4. 先写单元测试（或端到端测试脚本）
+5. 实现功能
+6. `cargo build --release` 验证编译
+7. 端到端测试验证（见 README.md 中的测试脚本）
+8. 更新本文件中的"实现现状"表格
 
 ### 后续开发建议
 
@@ -555,7 +560,7 @@ utoipa          = "5"        # features: chrono（⚠️ 未纳入 workspace，�
 utoipa-swagger-ui = "8"      # Swagger UI 嵌入（⚠️ 未纳入 workspace）
 anyhow          = "1"
 thiserror       = "2"
-gix             = "0.83"     # features: blocking-http-transport-curl, max-performance, blob-diff, pack-cache-lru-dynamic, merge
+gix             = "0.84"     # features: blocking-http-transport-curl, max-performance, blob-diff, pack-cache-lru-dynamic, merge
 chrono          = "0.4"      # features: serde
 uuid            = "1"        # features: v4, serde
 # Auth / Crypto
@@ -623,7 +628,10 @@ home            = "0.5"
 |------|------|---------|
 | `AGENT.md` | **所有 AI 工具的轻量统一入口** | 快速了解项目概览、技术栈、关键文件速查 |
 | `CLAUDE.md` | **Claude Code 默认入口 + 所有 AI 的深度参考** | 完整的踩坑记录、依赖版本、常见错误排查、实现现状清单 |
-| `ARCHITECTURE.md` | 架构设计文档 | 设计新功能时了解技术选型和模块设计 |
+| `ironforge-docs/project-architecture-2026-07.md` | 当前代码事实架构总览 | 设计新功能、核验模块边界和运行模型 |
+| `ironforge-docs/frontend-backend-structure-2026-07.md` | 当前前后端结构分布 | 修改前端页面、API client、HTTP handler 时 |
+| `ironforge-docs/architecture-followups-2026-07.md` | 已修复项、P2 长期方向和旧口径修正 | 判断风险、技术债和后续方向 |
+| `ARCHITECTURE.md` | 历史架构设计文档 | 了解技术选型和早期设计背景；当前事实以 2026-07 架构文档为准 |
 | `CONTRIBUTING.md` | 开发规范 | 写新代码时遵循编码规范 |
 
 ### Claude Code
@@ -638,7 +646,7 @@ home            = "0.5"
 
 ### WorkBuddy（本项目的主要 AI 协作工具）
 - **自动读取**: `.workbuddy/memory/MEMORY.md`（长期经验） + `.workbuddy/memory/YYYY-MM-DD.md`（每日日志）
-- **建议补充**: `AGENT.md` + `CLAUDE.md`（本文件）+ `ARCHITECTURE.md`（架构设计）
+- **建议补充**: `AGENT.md` + `CLAUDE.md`（本文件）+ 2026-07 架构文档
 - WorkBuddy 在每次会话开始时会自动读取记忆文件，保持跨会话的上下文连续性
 
 ### 记忆文件位置
@@ -653,6 +661,10 @@ $WORKSPACE/.workbuddy/memory/
 ```
 $WORKSPACE/ironforge-docs/
 ├── README.md                           # 报告索引 + 项目状态总览
+├── project-architecture-2026-07.md      # 当前项目架构总览
+├── frontend-backend-structure-2026-07.md # 当前前后端结构分布
+├── architecture-followups-2026-07.md    # 已修复项、P2 长期方向和旧口径修正
+├── architecture-remediation-plan-2026-07.md # P0/P1 修复执行过程记录
 ├── gitea-vs-ironforge-2026.md          # vs Gitea 功能对比 v2.0（2026-06-07）
 ├── gitea-gap-list.csv                  # 功能差距清单 CSV（2026-06-07）
 ├── ci-runner-architecture.md           # CI Runner 架构设计

@@ -50,6 +50,30 @@ async fn admin_sso_requires_admin() {
 }
 
 #[tokio::test]
+async fn admin_sso_accepts_httponly_cookie_without_bearer() {
+    let (base, db) = spawn_test_app_with_db().await;
+    let client = reqwest::Client::new();
+    let (admin_token, admin_id) =
+        register_full(&base, "sso_cookie", "sso_cookie@example.com").await;
+
+    rg_db::ops::user_ops::update_by_id(&db, admin_id, None, None, Some(true), None)
+        .await
+        .unwrap();
+
+    let resp = client
+        .get(format!("{}/api/v1/admin/sso/providers", base))
+        .header(
+            reqwest::header::COOKIE,
+            format!("ironforge_token={}", admin_token),
+        )
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 200);
+}
+
+#[tokio::test]
 async fn admin_sso_create_get_update_delete() {
     let (base, db) = spawn_test_app_with_db().await;
     let client = reqwest::Client::new();

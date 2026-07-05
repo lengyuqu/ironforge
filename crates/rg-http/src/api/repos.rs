@@ -155,7 +155,8 @@ pub async fn create_repo(
                     }
                 }
                 Ok(None) => {
-                    return AppError::not_found("organization not found".to_string()).into_response()
+                    return AppError::not_found("organization not found".to_string())
+                        .into_response()
                 }
                 Err(e) => return AppError::internal(e.to_string()).into_response(),
             }

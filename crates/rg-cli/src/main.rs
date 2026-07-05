@@ -1,4 +1,5 @@
 //! IronForge CLI — main entry point.
+use std::net::IpAddr;
 use std::path::PathBuf;
 
 use anyhow::Context;
@@ -107,6 +108,10 @@ enum Commands {
         #[arg(long, default_value_t = 60)]
         rate_limit_window: u64,
 
+        /// Comma-separated proxy IPs whose X-Forwarded-For / X-Real-IP headers are trusted
+        #[arg(long, value_delimiter = ',')]
+        rate_limit_trusted_proxies: Vec<String>,
+
         /// SMTP server host (enables email notifications)
         #[arg(long)]
         smtp_host: Option<String>,
@@ -167,6 +172,34 @@ enum Commands {
         db_url: String,
     },
 
+    /// Create a consistent SQLite database backup.
+    BackupDb {
+        /// SQLite database URL (e.g. sqlite://./ironforge.db?mode=rwc)
+        #[arg(long, default_value = "sqlite://./ironforge.db?mode=rwc")]
+        db_url: String,
+
+        /// Output backup file path.
+        output: String,
+
+        /// Overwrite output if it already exists.
+        #[arg(long, default_value_t = false)]
+        force: bool,
+    },
+
+    /// Restore a SQLite database file from a backup.
+    RestoreDb {
+        /// SQLite database URL to restore into.
+        #[arg(long, default_value = "sqlite://./ironforge.db?mode=rwc")]
+        db_url: String,
+
+        /// Backup file path to restore from.
+        input: String,
+
+        /// Overwrite existing target DB and sidecar WAL/SHM files.
+        #[arg(long, default_value_t = false)]
+        force: bool,
+    },
+
     /// Create a new bare repository (no DB record — for quick testing)
     CreateRepo {
         /// Owner username
@@ -197,6 +230,10 @@ enum Commands {
         /// Existing runner token (skip registration)
         #[arg(long)]
         token: Option<String>,
+
+        /// Admin user JWT used only when this command needs to register a runner
+        #[arg(long)]
+        auth_token: Option<String>,
     },
 
     /// Import a repository from GitHub or GitLab
@@ -345,6 +382,8 @@ struct CiConfig {
 struct RateLimitConfig {
     max: Option<u32>,
     window_secs: Option<u64>,
+    #[serde(default)]
+    trusted_proxies: Vec<String>,
 }
 
 #[derive(Debug, serde::Deserialize, Default)]
@@ -403,6 +442,117 @@ fn load_config_file(path: &str) -> anyhow::Result<ConfigFile> {
     let config: ConfigFile = toml::from_str(&content)?;
     tracing::info!(path = %path, "Loaded configuration file");
     Ok(config)
+}
+
+fn parse_rate_limit_trusted_proxies(values: &[String]) -> anyhow::Result<Vec<IpAddr>> {
+    values
+        .iter()
+        .map(|value| {
+            value
+                .parse::<IpAddr>()
+                .with_context(|| format!("invalid rate_limit trusted proxy IP: {value}"))
+        })
+        .collect()
+}
+
+async fn backup_sqlite_db(db_url: &str, output: &PathBuf, force: bool) -> anyhow::Result<()> {
+    if output.exists() && !force {
+        anyhow::bail!(
+            "backup output already exists: {} (use --force to overwrite)",
+            output.display()
+        );
+    }
+    if let Some(parent) = output.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent).with_context(|| {
+                format!("failed to create backup directory: {}", parent.display())
+            })?;
+        }
+    }
+    if output.exists() {
+        std::fs::remove_file(output)
+            .with_context(|| format!("failed to remove existing backup: {}", output.display()))?;
+    }
+
+    tracing::info!(db_url = %db_url, output = %output.display(), "Creating SQLite backup");
+    let db = rg_db::connect(db_url).await?;
+    let output_str = output
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("backup output path is not valid UTF-8"))?;
+
+    use rg_db::sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+    db.execute(Statement::from_sql_and_values(
+        DatabaseBackend::Sqlite,
+        "VACUUM INTO ?",
+        [output_str.into()],
+    ))
+    .await
+    .context("SQLite VACUUM INTO backup failed")?;
+
+    tracing::info!(output = %output.display(), "SQLite backup complete");
+    println!("Backup written to {}", output.display());
+    Ok(())
+}
+
+fn restore_sqlite_db(db_url: &str, input: &PathBuf, force: bool) -> anyhow::Result<()> {
+    if !input.exists() {
+        anyhow::bail!("backup input does not exist: {}", input.display());
+    }
+    if !input.is_file() {
+        anyhow::bail!("backup input is not a file: {}", input.display());
+    }
+
+    let target = sqlite_db_path_from_url(db_url)?;
+    if target.exists() && !force {
+        anyhow::bail!(
+            "target database already exists: {} (stop IronForge and use --force to overwrite)",
+            target.display()
+        );
+    }
+    if let Some(parent) = target.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent).with_context(|| {
+                format!("failed to create database directory: {}", parent.display())
+            })?;
+        }
+    }
+
+    if force {
+        remove_sqlite_sidecar_files(&target)?;
+    }
+    std::fs::copy(input, &target).with_context(|| {
+        format!(
+            "failed to restore backup {} to {}",
+            input.display(),
+            target.display()
+        )
+    })?;
+
+    tracing::info!(input = %input.display(), target = %target.display(), "SQLite restore complete");
+    println!("Restored {} to {}", input.display(), target.display());
+    Ok(())
+}
+
+fn remove_sqlite_sidecar_files(db_path: &PathBuf) -> anyhow::Result<()> {
+    for suffix in ["", "-wal", "-shm"] {
+        let path = PathBuf::from(format!("{}{}", db_path.display(), suffix));
+        if path.exists() {
+            std::fs::remove_file(&path)
+                .with_context(|| format!("failed to remove {}", path.display()))?;
+        }
+    }
+    Ok(())
+}
+
+fn sqlite_db_path_from_url(db_url: &str) -> anyhow::Result<PathBuf> {
+    let rest = db_url
+        .strip_prefix("sqlite://")
+        .ok_or_else(|| anyhow::anyhow!("only sqlite:// database URLs are supported"))?;
+    let path_part = rest.split_once('?').map(|(path, _)| path).unwrap_or(rest);
+    if path_part.is_empty() || path_part == ":memory:" || path_part == "/:memory:" {
+        anyhow::bail!("restore requires a file-backed SQLite database URL");
+    }
+    Ok(PathBuf::from(path_part))
 }
 
 /// Validate JWT secret strength.
@@ -473,6 +623,7 @@ async fn main() -> anyhow::Result<()> {
             external_runners,
             rate_limit_max,
             rate_limit_window,
+            rate_limit_trusted_proxies,
             smtp_host,
             smtp_port,
             smtp_user,
@@ -496,6 +647,7 @@ async fn main() -> anyhow::Result<()> {
                 external_runners,
                 rate_limit_max,
                 rate_limit_window,
+                rate_limit_trusted_proxies,
                 smtp_host,
                 smtp_port,
                 smtp_user,
@@ -542,6 +694,36 @@ async fn main() -> anyhow::Result<()> {
             tracing::info!("FTS5 indexes rebuilt successfully ✅");
         }
 
+        Commands::BackupDb {
+            db_url,
+            output,
+            force,
+        } => {
+            tracing_subscriber::fmt()
+                .with_env_filter(
+                    EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+                )
+                .with_target(false)
+                .init();
+
+            backup_sqlite_db(&db_url, &PathBuf::from(output), force).await?;
+        }
+
+        Commands::RestoreDb {
+            db_url,
+            input,
+            force,
+        } => {
+            tracing_subscriber::fmt()
+                .with_env_filter(
+                    EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+                )
+                .with_target(false)
+                .init();
+
+            restore_sqlite_db(&db_url, &PathBuf::from(input), force)?;
+        }
+
         Commands::CreateRepo {
             owner,
             name,
@@ -575,6 +757,7 @@ async fn main() -> anyhow::Result<()> {
             name,
             runner_id,
             token,
+            auth_token,
         } => {
             use reqwest::header;
 
@@ -586,8 +769,15 @@ async fn main() -> anyhow::Result<()> {
                 _ => {
                     // Register new runner
                     let name = name.as_deref().unwrap_or("default-runner");
+                    let auth_token = auth_token
+                        .or_else(|| std::env::var("IRONFORGE_AUTH_TOKEN").ok())
+                        .context(
+                            "runner auto-registration requires --auth-token or \
+                             IRONFORGE_AUTH_TOKEN; alternatively pass --runner-id and --token",
+                        )?;
                     let resp: serde_json::Value = client
                         .post(format!("{}/api/v1/runners/register", server))
+                        .bearer_auth(auth_token)
                         .json(&serde_json::json!({"name": name}))
                         .send()
                         .await
@@ -1062,6 +1252,7 @@ async fn run_serve(
     external_runners: bool,
     rate_limit_max: u32,
     rate_limit_window: u64,
+    rate_limit_trusted_proxies: Vec<String>,
     smtp_host: Option<String>,
     smtp_port: u16,
     smtp_user: Option<String>,
@@ -1123,6 +1314,15 @@ async fn run_serve(
             .and_then(|c| c.rate_limit.window_secs)
             .unwrap_or(60)
     };
+    let resolved_rate_limit_trusted_proxy_values = if !rate_limit_trusted_proxies.is_empty() {
+        rate_limit_trusted_proxies
+    } else {
+        cfg.as_ref()
+            .map(|c| c.rate_limit.trusted_proxies.clone())
+            .unwrap_or_default()
+    };
+    let resolved_rate_limit_trusted_proxies =
+        parse_rate_limit_trusted_proxies(&resolved_rate_limit_trusted_proxy_values)?;
 
     // SMTP: CLI takes precedence, fallback to config
     let (
@@ -1294,6 +1494,7 @@ async fn run_serve(
         external_runners: resolved_external_runners,
         rate_limit_max: resolved_rate_limit_max,
         rate_limit_window_secs: resolved_rate_limit_window,
+        rate_limit_trusted_proxies: resolved_rate_limit_trusted_proxies,
         smtp_config,
         tls_config,
         oci_storage_path: None,

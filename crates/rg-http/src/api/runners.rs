@@ -7,7 +7,7 @@ use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::{Deserialize, Serialize};
 
-use super::auth::extract_bearer_claims;
+use super::auth::extract_user_id;
 use crate::error::AppError;
 use crate::AppState;
 use utoipa::{IntoParams, ToSchema};
@@ -15,8 +15,7 @@ use utoipa::{IntoParams, ToSchema};
 /// Verify the current request is from an authenticated admin user.
 /// Returns `Some(user_id)` on success, `None` otherwise.
 async fn require_admin(state: &AppState, headers: &HeaderMap) -> Option<i64> {
-    let claims = extract_bearer_claims(headers, &state.jwt_secret)?;
-    let user_id: i64 = claims.sub.parse().ok()?;
+    let user_id = extract_user_id(headers, &state.jwt_secret)?;
     let user = rg_db::ops::user_ops::find_by_id(&state.db, user_id)
         .await
         .ok()??;
@@ -147,9 +146,8 @@ pub async fn register(
     headers: HeaderMap,
     Json(req): Json<RegisterRunnerRequest>,
 ) -> impl IntoResponse {
-    // Require JWT authentication to register a runner (any authenticated user)
-    if extract_bearer_claims(&headers, &state.jwt_secret).is_none() {
-        return AppError::unauthorized("authentication required to register runners")
+    if require_admin(&state, &headers).await.is_none() {
+        return AppError::forbidden("admin authentication required to register runners")
             .into_response();
     }
 
@@ -588,10 +586,20 @@ pub async fn list_runners_admin(
 /// Also updates heartbeat on every authenticated request.
 pub async fn authenticate_runner(
     State(state): State<AppState>,
-    Path(runner_id): Path<i64>,
     request: Request,
     next: Next,
 ) -> Response {
+    let runner_id = match extract_runner_id_from_path(request.uri().path()) {
+        Some(id) => id,
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": "missing runner ID in path"})),
+            )
+                .into_response();
+        }
+    };
+
     let auth_header = request
         .headers()
         .get("authorization")
@@ -631,6 +639,16 @@ pub async fn authenticate_runner(
             AppError::internal(e).into_response()
         }
     }
+}
+
+fn extract_runner_id_from_path(path: &str) -> Option<i64> {
+    let mut parts = path.split('/').filter(|part| !part.is_empty());
+    while let Some(part) = parts.next() {
+        if part == "runners" {
+            return parts.next()?.parse::<i64>().ok();
+        }
+    }
+    None
 }
 
 /// DELETE /api/v1/admin/runners/:id

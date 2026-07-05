@@ -9,7 +9,7 @@
 
 use axum::{
     extract::{Path, Query, State},
-    http::HeaderMap,
+    http::{header, HeaderMap, HeaderValue},
     response::{IntoResponse, Redirect},
     Json,
 };
@@ -26,6 +26,16 @@ use crate::AppState;
 const SSO_STATE_COOKIE: &str = "ironforge_sso_state";
 const SSO_VERIFIER_COOKIE: &str = "ironforge_sso_code_verifier";
 
+fn append_set_cookie(response: &mut axum::response::Response, cookie: String) {
+    if let Ok(header_value) = HeaderValue::from_str(&cookie) {
+        response
+            .headers_mut()
+            .append(header::SET_COOKIE, header_value);
+    } else {
+        tracing::warn!("Failed to parse Set-Cookie header value");
+    }
+}
+
 /// Set a short-lived signed cookie for CSRF/PKCE state.
 fn set_state_cookie(
     response: &mut axum::response::Response,
@@ -39,17 +49,53 @@ fn set_state_cookie(
 
     // Max-Age: 600 seconds (10 min) — matches typical OAuth2 code expiry
     let cookie = format!(
-        "{}={}; Path=/auth/sso; HttpOnly; SameSite=Lax; Max-Age=600",
+        "{}={}; Path=/; HttpOnly; SameSite=Lax; Max-Age=600",
         name, cookie_value
     );
-    // L-1: Use unwrap_or_else to avoid panic on malformed cookie value
-    if let Ok(header_value) = cookie.parse() {
-        response
-            .headers_mut()
-            .insert("Set-Cookie", header_value);
-    } else {
-        tracing::warn!("Failed to parse Set-Cookie header value");
+    append_set_cookie(response, cookie);
+}
+
+fn clear_state_cookie(response: &mut axum::response::Response, name: &str) {
+    append_set_cookie(
+        response,
+        format!("{}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0", name),
+    );
+}
+
+fn build_auth_cookie(token: &str, is_https: bool) -> String {
+    let mut cookie = format!(
+        "{}={}; HttpOnly; Path=/; SameSite=Strict; Max-Age=604800",
+        crate::api::auth::AUTH_COOKIE_NAME,
+        token
+    );
+    if is_https {
+        cookie.push_str("; Secure");
     }
+    cookie
+}
+
+fn is_https_request(headers: &HeaderMap) -> bool {
+    headers
+        .get("x-forwarded-proto")
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v == "https")
+        .unwrap_or(false)
+}
+
+fn encode_query_component(value: &str) -> String {
+    let mut out = String::new();
+    for byte in value.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                out.push(byte as char)
+            }
+            _ => {
+                use std::fmt::Write;
+                let _ = write!(out, "%{byte:02X}");
+            }
+        }
+    }
+    out
 }
 
 /// Verify and extract a signed cookie value. Returns None if missing or invalid.
@@ -103,6 +149,15 @@ fn get_base_url(headers: &HeaderMap) -> String {
         "http"
     };
     format!("{}://{}", scheme, host)
+}
+
+fn get_api_base_url(state: &AppState, headers: &HeaderMap) -> String {
+    let base = state
+        .external_url
+        .as_ref()
+        .map(|url| url.trim_end_matches('/').to_string())
+        .unwrap_or_else(|| get_base_url(headers));
+    format!("{}/api/v1", base.trim_end_matches('/'))
 }
 
 // ── Types ────────────────────────────────────────────────────────
@@ -202,12 +257,8 @@ pub async fn authorize(
         return Err(AppError::forbidden("SSO provider is disabled"));
     }
 
-    let base_url = get_base_url(&headers);
-    let redirect_url = format!(
-        "{}/auth/sso/{}/callback",
-        base_url.trim_end_matches('/'),
-        slug
-    );
+    let base_url = get_api_base_url(&state, &headers);
+    let redirect_url = format!("{}/auth/sso/{}/callback", base_url, slug);
 
     let enc_key = rg_core::auth::encryption::derive_key(&state.jwt_secret);
     let client_secret = provider
@@ -239,9 +290,9 @@ pub async fn authorize(
 
     let (auth_url, csrf_state, code_verifier) = rg_core::auth::sso::oauth2_authorize_url(&config)
         .map_err(|e| {
-            tracing::error!("SSO authorize error: {}", e);
-            AppError::internal("SSO authorization failed")
-        })?;
+        tracing::error!("SSO authorize error: {}", e);
+        AppError::internal("SSO authorization failed")
+    })?;
 
     // Build a redirect response with CSRF & PKCE cookies
     let mut redirect = Redirect::temporary(&auth_url).into_response();
@@ -300,17 +351,15 @@ pub async fn callback(
                 expected,
                 returned
             );
-            return Err(AppError::forbidden(
-                "CSRF state mismatch — possible attack",
-            ));
+            return Err(AppError::forbidden("CSRF state mismatch — possible attack"));
         }
         (Some(_), None) => {
             tracing::warn!("SSO CSRF: no expected state cookie found");
             return Err(AppError::forbidden("missing CSRF state cookie"));
         }
         (None, _) => {
-            // Continue without state check for backward compatibility
             tracing::warn!("SSO callback without state parameter");
+            return Err(AppError::forbidden("missing CSRF state parameter"));
         }
     }
 
@@ -329,12 +378,8 @@ pub async fn callback(
         return Err(AppError::forbidden("SSO provider is disabled"));
     }
 
-    let base_url = get_base_url(&headers);
-    let redirect_url = format!(
-        "{}/auth/sso/{}/callback",
-        base_url.trim_end_matches('/'),
-        slug
-    );
+    let base_url = get_api_base_url(&state, &headers);
+    let redirect_url = format!("{}/auth/sso/{}/callback", base_url, slug);
 
     let enc_key = rg_core::auth::encryption::derive_key(&state.jwt_secret);
     let client_secret = provider
@@ -406,24 +451,28 @@ pub async fn callback(
 
     // ── If MFA enabled, require second factor ────────────────────
     if user.mfa_enabled {
-        return Ok(Json(LoginResponse {
-            token: String::new(),
-            user_id: user.id,
-            username: user.username,
-            mfa_required: true,
-        }));
+        let target = format!(
+            "/login?sso_mfa_required=1&username={}",
+            encode_query_component(&user.username)
+        );
+        let mut redirect = Redirect::temporary(&target).into_response();
+        clear_state_cookie(&mut redirect, SSO_STATE_COOKIE);
+        clear_state_cookie(&mut redirect, SSO_VERIFIER_COOKIE);
+        return Ok(redirect);
     }
 
     // ── Issue JWT ────────────────────────────────────────────────
     let token = rg_core::auth::jwt::generate_token(user.id, &user.username, &state.jwt_secret, 7)
         .map_err(AppError::from)?;
 
-    Ok(Json(LoginResponse {
-        token,
-        user_id: user.id,
-        username: user.username,
-        mfa_required: false,
-    }))
+    let mut redirect = Redirect::temporary("/dashboard").into_response();
+    append_set_cookie(
+        &mut redirect,
+        build_auth_cookie(&token, is_https_request(&headers)),
+    );
+    clear_state_cookie(&mut redirect, SSO_STATE_COOKIE);
+    clear_state_cookie(&mut redirect, SSO_VERIFIER_COOKIE);
+    Ok(redirect)
 }
 
 // ── Refresh token ────────────────────────────────────────────────
@@ -450,15 +499,11 @@ pub async fn refresh_token(
     Path(slug): Path<String>,
     Json(body): Json<RefreshRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    use crate::api::auth::extract_bearer_claims;
+    use crate::api::auth::extract_user_id;
 
     // Require authenticated user
-    let claims = extract_bearer_claims(&headers, &state.jwt_secret)
+    let user_id = extract_user_id(&headers, &state.jwt_secret)
         .ok_or_else(|| AppError::unauthorized("authentication required"))?;
-    let user_id: i64 = claims
-        .sub
-        .parse()
-        .map_err(|_| AppError::unauthorized("invalid token"))?;
 
     let provider = rg_db::ops::sso_provider_ops::find_by_slug(&state.db, &slug)
         .await
@@ -585,14 +630,10 @@ pub async fn unlink_oauth_account(
     headers: HeaderMap,
     Path(slug): Path<String>,
 ) -> Result<impl IntoResponse, AppError> {
-    use crate::api::auth::extract_bearer_claims;
+    use crate::api::auth::extract_user_id;
 
-    let claims = extract_bearer_claims(&headers, &state.jwt_secret)
+    let user_id = extract_user_id(&headers, &state.jwt_secret)
         .ok_or_else(|| AppError::unauthorized("authentication required"))?;
-    let user_id: i64 = claims
-        .sub
-        .parse()
-        .map_err(|_| AppError::unauthorized("invalid token"))?;
 
     // Find and delete the OAuth account link
     let accounts = rg_db::ops::oauth_account_ops::find_by_user_id(&state.db, user_id)
@@ -743,4 +784,96 @@ async fn generate_unique_username(
         .map(|c| c as char)
         .collect();
     Ok(format!("{}_{}", base, suffix))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        build_auth_cookie, encode_query_component, set_state_cookie, verify_state_cookie,
+        SSO_STATE_COOKIE, SSO_VERIFIER_COOKIE,
+    };
+    use axum::http::{header, HeaderMap};
+    use axum::response::IntoResponse;
+
+    #[test]
+    fn sso_state_and_pkce_cookies_are_both_set() {
+        let mut response = axum::response::Response::new(axum::body::Body::empty());
+
+        set_state_cookie(&mut response, SSO_STATE_COOKIE, "state-1", "secret");
+        set_state_cookie(&mut response, SSO_VERIFIER_COOKIE, "verifier-1", "secret");
+
+        let cookies: Vec<_> = response
+            .headers()
+            .get_all(header::SET_COOKIE)
+            .iter()
+            .collect();
+        assert_eq!(cookies.len(), 2);
+        assert!(cookies[0]
+            .to_str()
+            .unwrap()
+            .starts_with("ironforge_sso_state="));
+        assert!(cookies[1]
+            .to_str()
+            .unwrap()
+            .starts_with("ironforge_sso_code_verifier="));
+    }
+
+    #[test]
+    fn sso_state_cookie_round_trips_with_signature() {
+        let mut response = axum::response::Response::new(axum::body::Body::empty());
+        set_state_cookie(&mut response, SSO_STATE_COOKIE, "state-1", "secret");
+
+        let cookie = response
+            .headers()
+            .get(header::SET_COOKIE)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .split(';')
+            .next()
+            .unwrap()
+            .to_string();
+        let mut headers = HeaderMap::new();
+        headers.insert(header::COOKIE, cookie.parse().unwrap());
+
+        assert_eq!(
+            verify_state_cookie(&headers, SSO_STATE_COOKIE, "secret"),
+            Some("state-1".to_string())
+        );
+        assert_eq!(
+            verify_state_cookie(&headers, SSO_STATE_COOKIE, "wrong"),
+            None
+        );
+    }
+
+    #[test]
+    fn sso_auth_cookie_uses_secure_flag_only_for_https() {
+        assert!(!build_auth_cookie("token", false).contains("; Secure"));
+        assert!(build_auth_cookie("token", true).contains("; Secure"));
+    }
+
+    #[test]
+    fn sso_mfa_redirect_username_is_query_encoded() {
+        assert_eq!(encode_query_component("alice"), "alice");
+        assert_eq!(
+            encode_query_component("alice bob+root"),
+            "alice%20bob%2Broot"
+        );
+    }
+
+    #[test]
+    fn redirect_response_can_carry_multiple_set_cookie_headers() {
+        let mut response = axum::response::Redirect::temporary("/dashboard").into_response();
+        set_state_cookie(&mut response, SSO_STATE_COOKIE, "state-1", "secret");
+        set_state_cookie(&mut response, SSO_VERIFIER_COOKIE, "verifier-1", "secret");
+
+        assert_eq!(
+            response
+                .headers()
+                .get_all(header::SET_COOKIE)
+                .iter()
+                .count(),
+            2
+        );
+    }
 }

@@ -15,7 +15,7 @@ use tokio::io::AsyncWriteExt;
 
 use rg_core::auth::jwt;
 use rg_core::auth::oci_token::{
-    build_www_authenticate, check_repo_access, generate_oci_token, validate_oci_token, ParsedScope,
+    build_www_authenticate, generate_oci_token, validate_oci_token, ParsedScope,
 };
 use rg_core::package_registry::oci::{
     error_codes, media_types, ErrorDetail, ErrorResponse, ParsedManifest, Reference,
@@ -77,19 +77,25 @@ fn extract_user(headers: &HeaderMap, jwt_secret: &str) -> Option<i64> {
     None
 }
 
-/// Check if the request has OCI Bearer token access for a repo action.
-/// Returns (authenticated: bool, user_id: Option<i64>)
-/// - If normal JWT: returns (true, Some(user_id))
-/// - If OCI token with scope: returns (true, None)
-/// - If no token but action=="pull": returns (true, None) [anonymous pull]
-/// - Otherwise: returns (false, None)
-fn check_access(
+/// Check if the request has access to perform an OCI repo action.
+///
+/// Normal IronForge JWTs are checked against repo `can_read_repo`/`can_write_repo`.
+/// OCI scoped tokens are trusted only for the exact signed scope they carry;
+/// token issuance is constrained by the same repo permission checks below.
+/// Anonymous pull is allowed only when the backing IronForge repo is public.
+async fn check_access(
+    state: &AppState,
     headers: &HeaderMap,
-    jwt_secret: &str,
     owner: &str,
     repo: &str,
     required_action: &str,
-) -> (bool, Option<i64>) {
+) -> anyhow::Result<(bool, Option<i64>)> {
+    let repo_model =
+        match rg_core::repo::service::find_repo_by_owner_name(&state.db, owner, repo).await? {
+            Some(repo) => repo,
+            None => return Ok((false, None)),
+        };
+
     // Try normal JWT first (sub is user_id)
     if let Some(claims) = jwt::validate_token(
         headers
@@ -97,26 +103,69 @@ fn check_access(
             .and_then(|v| v.to_str().ok())
             .and_then(|v| v.strip_prefix("Bearer "))
             .unwrap_or(""),
-        jwt_secret,
+        &state.jwt_secret,
     ) {
         if let Ok(uid) = claims.sub.parse::<i64>() {
             if uid > 0 {
-                return (true, Some(uid));
+                let allowed = match required_action {
+                    "pull" => {
+                        rg_core::repo::service::can_read_repo(&state.db, &repo_model, Some(uid))
+                            .await?
+                    }
+                    "push" => {
+                        rg_core::repo::service::can_write_repo(&state.db, &repo_model, Some(uid))
+                            .await?
+                    }
+                    _ => false,
+                };
+                return Ok((allowed, allowed.then_some(uid)));
             }
         }
     }
 
-    // Try OCI Bearer token (scope-based)
-    if check_repo_access(headers, jwt_secret, owner, repo, required_action) {
-        return (true, None);
+    // Try OCI Bearer token (scope-based).
+    if let Some(claims) = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .and_then(|token| validate_oci_token(token, &state.jwt_secret))
+    {
+        if let Some(scope_str) = claims.scope {
+            for single_scope in scope_str.split_whitespace() {
+                if let Some(parsed) = ParsedScope::parse(single_scope) {
+                    if parsed.matches_repo(owner, repo) && parsed.has_action(required_action) {
+                        return Ok((true, None));
+                    }
+                }
+            }
+        }
     }
 
-    // For pull, allow anonymous (public repo)
+    // For pull, allow anonymous only when the backing IronForge repo is public.
     if required_action == "pull" {
-        return (true, None);
+        let allowed = rg_core::repo::service::can_read_repo(&state.db, &repo_model, None).await?;
+        return Ok((allowed, None));
     }
 
-    (false, None)
+    Ok((false, None))
+}
+
+async fn require_access(
+    state: &AppState,
+    headers: &HeaderMap,
+    owner: &str,
+    repo: &str,
+    required_action: &str,
+) -> Result<Option<i64>, Response> {
+    match check_access(state, headers, owner, repo, required_action).await {
+        Ok((true, user_id)) => Ok(user_id),
+        Ok((false, _)) => Err(oci_unauthorized("authentication required")),
+        Err(e) => Err(oci_err(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "UNKNOWN",
+            &e.to_string(),
+        )),
+    }
 }
 
 /// Resolve owner/repo from OCI namespace string.
@@ -188,7 +237,7 @@ pub async fn get_token(
 
     // Default: anonymous token (limited scope)
     let mut username = "anonymous".to_string();
-    let mut granted_scope = String::new();
+    let mut authenticated_user_id = None;
 
     // Check for Basic Auth (Docker login)
     if let Some(auth_header) = headers.get(header::AUTHORIZATION) {
@@ -209,7 +258,7 @@ pub async fn get_token(
                                     .unwrap_or(false)
                                 {
                                     username = user.to_string();
-                                    granted_scope = scope.clone(); // Full requested scope
+                                    authenticated_user_id = Some(u.id);
                                 }
                             }
                         }
@@ -219,20 +268,71 @@ pub async fn get_token(
         }
     }
 
-    // If not authenticated, grant only public pull scopes
-    if username == "anonymous" && !scope.is_empty() {
-        // Parse requested scope and only allow pull on public repos
-        // For simplicity, we'll allow pull-only tokens for anonymous
-        let mut public_scopes = Vec::new();
-        for scope_part in scope.split_whitespace() {
-            if let Some(parsed) = ParsedScope::parse(scope_part) {
-                if parsed.has_action("pull") && !parsed.has_action("push") {
-                    public_scopes.push(scope_part.to_string());
+    let mut granted_scopes = Vec::new();
+    for scope_part in scope.split_whitespace() {
+        let Some(parsed) = ParsedScope::parse(scope_part) else {
+            continue;
+        };
+
+        if parsed.scope_type == "repository" {
+            let Some((scope_owner, scope_repo)) = parse_namespace(&parsed.name) else {
+                continue;
+            };
+            let repo_model = match rg_core::repo::service::find_repo_by_owner_name(
+                &state.db,
+                scope_owner,
+                scope_repo,
+            )
+            .await
+            {
+                Ok(Some(repo)) => repo,
+                _ => continue,
+            };
+
+            let mut allowed_actions = Vec::new();
+            if parsed.has_action("pull") {
+                let can_pull = rg_core::repo::service::can_read_repo(
+                    &state.db,
+                    &repo_model,
+                    authenticated_user_id,
+                )
+                .await
+                .unwrap_or(false);
+                if can_pull {
+                    allowed_actions.push("pull");
                 }
             }
+            if parsed.has_action("push") {
+                if let Some(user_id) = authenticated_user_id {
+                    let can_push = rg_core::repo::service::can_write_repo(
+                        &state.db,
+                        &repo_model,
+                        Some(user_id),
+                    )
+                    .await
+                    .unwrap_or(false);
+                    if can_push {
+                        allowed_actions.push("push");
+                    }
+                }
+            }
+
+            if !allowed_actions.is_empty() {
+                granted_scopes.push(format!(
+                    "repository:{}:{}",
+                    parsed.name,
+                    allowed_actions.join(",")
+                ));
+            }
+        } else if parsed.scope_type == "registry"
+            && parsed.name == "catalog"
+            && authenticated_user_id.is_some()
+        {
+            granted_scopes.push(scope_part.to_string());
         }
-        granted_scope = public_scopes.join(" ");
     }
+
+    let granted_scope = granted_scopes.join(" ");
 
     // Generate token (TTL: 300s for normal, 60s for anonymous)
     let ttl = if username == "anonymous" { 60 } else { 300 };
@@ -262,8 +362,13 @@ pub async fn get_token(
 /// `GET /v2/{owner}/{repo}/tags/list` — list tags.
 pub async fn list_tags(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path((owner, repo)): Path<(String, String)>,
 ) -> Response {
+    if let Err(resp) = require_access(&state, &headers, &owner, &repo, "pull").await {
+        return resp;
+    }
+
     let oci_repo = match find_oci_repo(&state.db, &owner, &repo).await {
         Ok(Some(r)) => r,
         Ok(None) => return oci_not_found(error_codes::NAME_UNKNOWN, "repository not found"),
@@ -290,24 +395,31 @@ pub async fn list_tags(
 /// `HEAD /v2/{owner}/{repo}/manifests/{reference}` — check manifest existence.
 pub async fn head_manifest(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path((owner, repo, reference)): Path<(String, String, String)>,
 ) -> Response {
-    get_manifest_impl(State(state), Path((owner, repo, reference)), true).await
+    get_manifest_impl(State(state), headers, Path((owner, repo, reference)), true).await
 }
 
 /// `GET /v2/{owner}/{repo}/manifests/{reference}` — pull manifest.
 pub async fn get_manifest(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path((owner, repo, reference)): Path<(String, String, String)>,
 ) -> Response {
-    get_manifest_impl(State(state), Path((owner, repo, reference)), false).await
+    get_manifest_impl(State(state), headers, Path((owner, repo, reference)), false).await
 }
 
 async fn get_manifest_impl(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path((owner, repo, reference)): Path<(String, String, String)>,
     head_only: bool,
 ) -> Response {
+    if let Err(resp) = require_access(&state, &headers, &owner, &repo, "pull").await {
+        return resp;
+    }
+
     let oci_repo = match find_oci_repo(&state.db, &owner, &repo).await {
         Ok(Some(r)) => r,
         Ok(None) => return oci_not_found(error_codes::NAME_UNKNOWN, "repository not found"),
@@ -374,10 +486,10 @@ pub async fn put_manifest(
     Path((owner, repo, reference)): Path<(String, String, String)>,
     body: String,
 ) -> Response {
-    let (authenticated, user_id) = check_access(&headers, &state.jwt_secret, &owner, &repo, "push");
-    if !authenticated {
-        return oci_unauthorized("authentication required");
-    }
+    let user_id = match require_access(&state, &headers, &owner, &repo, "push").await {
+        Ok(user_id) => user_id,
+        Err(resp) => return resp,
+    };
 
     let oci_repo = match find_oci_repo(&state.db, &owner, &repo).await {
         Ok(Some(r)) => r,
@@ -539,8 +651,13 @@ pub async fn put_manifest(
 /// `HEAD /v2/{owner}/{repo}/blobs/{digest}` — check blob existence.
 pub async fn head_blob(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path((owner, repo, digest)): Path<(String, String, String)>,
 ) -> Response {
+    if let Err(resp) = require_access(&state, &headers, &owner, &repo, "pull").await {
+        return resp;
+    }
+
     let exists = state.oci_storage.blob_exists(&owner, &repo, &digest);
     if exists {
         // Get blob size from DB if available
@@ -573,8 +690,13 @@ pub async fn head_blob(
 /// Streams the blob file directly — never loads the entire blob into memory.
 pub async fn get_blob(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path((owner, repo, digest)): Path<(String, String, String)>,
 ) -> Response {
+    if let Err(resp) = require_access(&state, &headers, &owner, &repo, "pull").await {
+        return resp;
+    }
+
     let path = state.oci_storage.blob_file_path(&owner, &repo, &digest);
     if !path.exists() {
         return oci_not_found(error_codes::BLOB_UNKNOWN, "blob not found");
@@ -589,7 +711,7 @@ pub async fn get_blob(
                         StatusCode::INTERNAL_SERVER_ERROR,
                         "UNKNOWN",
                         "failed to stat blob",
-                    )
+                    );
                 }
             };
             let stream = tokio_util::io::ReaderStream::new(file);
@@ -621,14 +743,14 @@ pub async fn start_upload(
     Path((owner, repo)): Path<(String, String)>,
     Query(params): Query<std::collections::HashMap<String, String>>,
 ) -> Response {
-    let (authenticated, user_id) = check_access(&headers, &state.jwt_secret, &owner, &repo, "push");
-    if !authenticated {
-        return oci_unauthorized("authentication required");
-    }
+    let user_id = match require_access(&state, &headers, &owner, &repo, "push").await {
+        Ok(user_id) => user_id,
+        Err(resp) => return resp,
+    };
 
     // Check for cross-repo mount
     if let (Some(mount), Some(from)) = (params.get("mount"), params.get("from")) {
-        return handle_mount(&state, &owner, &repo, mount, from).await;
+        return handle_mount(&state, &headers, &owner, &repo, mount, from).await;
     }
 
     let oci_repo = match find_or_create_oci_repo(&state.db, &owner, &repo, user_id).await {
@@ -665,6 +787,7 @@ pub async fn start_upload(
 /// Handle cross-repository blob mount.
 async fn handle_mount(
     state: &AppState,
+    headers: &HeaderMap,
     owner: &str,
     repo: &str,
     mount_digest: &str,
@@ -677,9 +800,16 @@ async fn handle_mount(
                 StatusCode::BAD_REQUEST,
                 error_codes::NAME_INVALID,
                 "invalid mount source",
-            )
+            );
         }
     };
+
+    if let Err(resp) = require_access(state, headers, from_owner, from_repo, "pull").await {
+        return resp;
+    }
+    if let Err(resp) = require_access(state, headers, owner, repo, "push").await {
+        return resp;
+    }
 
     // Check source blob exists
     if !state
@@ -720,16 +850,15 @@ pub async fn chunk_upload(
     Path((owner, repo, uuid)): Path<(String, String, String)>,
     body: Body,
 ) -> Response {
-    let (authenticated, _user_id) =
-        check_access(&headers, &state.jwt_secret, &owner, &repo, "push");
-    if !authenticated {
-        return oci_unauthorized("authentication required");
-    };
+    if let Err(resp) = require_access(&state, &headers, &owner, &repo, "push").await {
+        return resp;
+    }
+
     // Verify upload session exists
     match rg_db::ops::oci_ops::find_upload(&state.db, &uuid).await {
         Ok(Some(_)) => {}
         Ok(None) => {
-            return oci_not_found(error_codes::BLOB_UPLOAD_UNKNOWN, "upload session not found")
+            return oci_not_found(error_codes::BLOB_UPLOAD_UNKNOWN, "upload session not found");
         }
         Err(e) => return oci_err(StatusCode::INTERNAL_SERVER_ERROR, "UNKNOWN", &e.to_string()),
     }
@@ -767,9 +896,9 @@ pub async fn complete_upload(
     Query(params): Query<std::collections::HashMap<String, String>>,
     body: Body,
 ) -> Response {
-    let (authenticated, user_id) = check_access(&headers, &state.jwt_secret, &owner, &repo, "push");
-    if !authenticated {
-        return oci_unauthorized("authentication required");
+    let user_id = match require_access(&state, &headers, &owner, &repo, "push").await {
+        Ok(user_id) => user_id,
+        Err(resp) => return resp,
     };
     let expected_digest = match params.get("digest") {
         Some(d) => d.clone(),
@@ -778,7 +907,7 @@ pub async fn complete_upload(
                 StatusCode::BAD_REQUEST,
                 error_codes::DIGEST_INVALID,
                 "digest parameter required",
-            )
+            );
         }
     };
 

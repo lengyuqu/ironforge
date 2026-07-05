@@ -5,9 +5,9 @@ use chrono::Utc;
 use sea_orm::{ActiveValue::Set, ConnectionTrait, DatabaseConnection};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{RwLock, OnceLock};
 #[cfg(test)]
 use std::sync::Mutex;
+use std::sync::{OnceLock, RwLock};
 use std::time::{Duration, Instant};
 
 use rg_db::{
@@ -96,7 +96,10 @@ pub fn invalidate_perm_cache_repo(repo_id: i64) {
 /// Clear the entire permission cache. Used for org/team membership changes
 /// that can affect access across many repositories at once.
 pub fn invalidate_perm_cache_all() {
-    perm_cache().write().unwrap_or_else(|e| e.into_inner()).clear();
+    perm_cache()
+        .write()
+        .unwrap_or_else(|e| e.into_inner())
+        .clear();
 }
 
 /// Resolve an "owner" string to either a user ID or an org ID.

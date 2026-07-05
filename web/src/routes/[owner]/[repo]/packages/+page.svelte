@@ -3,7 +3,13 @@
   import RepoHeader from '$lib/components/RepoHeader.svelte';
   import { packages } from '$lib/api/client.svelte';
   import { createT, formatDate } from '$lib/i18n';
-  import { PACKAGE_FORMATS, packageFormatLabel } from '$lib/packageFormats';
+  import {
+    PACKAGE_FORMATS,
+    packageFormatLabel,
+    packageFormatOptionLabel,
+    packageFormatSupportLabel,
+    packageFormatUsesGenericFallback,
+  } from '$lib/packageFormats';
 
   const t = createT();
 
@@ -79,7 +85,7 @@
       <select id="format-filter" bind:value={formatFilter} onchange={handleFormatChange}>
         <option value="">{t('common.all') || 'All'}</option>
         {#each PACKAGE_FORMATS as f}
-          <option value={f}>{packageFormatLabel(f)}</option>
+          <option value={f}>{packageFormatOptionLabel(f)}</option>
         {/each}
       </select>
     </div>
@@ -107,7 +113,13 @@
         <div class="package-card">
           <div class="package-header">
             <a href={packageHref(pkg)} class="package-name">{pkg.name}</a>
-            <span class="format-badge">{packageFormatLabel(pkg.format)}</span>
+            <span
+              class="format-badge"
+              class:fallback={packageFormatUsesGenericFallback(pkg.format)}
+              title={packageFormatSupportLabel(pkg.format)}
+            >
+              {packageFormatLabel(pkg.format)}
+            </span>
           </div>
           {#if pkg.description}
             <p class="package-desc">{pkg.description}</p>
@@ -278,6 +290,10 @@
     font-weight: 600;
     background: var(--bg-tertiary);
     color: var(--text-secondary);
+  }
+  .format-badge.fallback {
+    border: 1px solid var(--border);
+    color: var(--text-muted);
   }
 
   .package-desc {

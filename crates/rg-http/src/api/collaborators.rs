@@ -96,6 +96,44 @@ pub async fn add_collaborator(
     }
 }
 
+async fn resolve_collaborator_user_id(
+    db: &rg_db::DatabaseConnection,
+    req: &AddCollaboratorRequest,
+) -> anyhow::Result<i64> {
+    if let Some(user_id) = req.user_id {
+        if user_id > 0 {
+            return Ok(user_id);
+        }
+        anyhow::bail!("user_id must be a positive integer");
+    }
+
+    if let Some(username) = req
+        .username
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        return rg_db::ops::user_ops::find_by_username(db, username)
+            .await?
+            .map(|user| user.id)
+            .ok_or_else(|| anyhow::anyhow!("user '{}' not found", username));
+    }
+
+    if let Some(email) = req
+        .email
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        return rg_db::ops::user_ops::find_by_email(db, email)
+            .await?
+            .map(|user| user.id)
+            .ok_or_else(|| anyhow::anyhow!("user '{}' not found", email));
+    }
+
+    anyhow::bail!("user_id, username, or email is required");
+}
+
 /// Update a collaborator's permission.
 /// PATCH /api/v1/repos/:owner/:name/collaborators/:id
 #[utoipa::path(

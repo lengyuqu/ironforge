@@ -291,10 +291,14 @@ git push origin main
 ```
 ironforge/
 ├── Cargo.toml              # Workspace 根，统一依赖版本
-├── ARCHITECTURE.md         # 完整架构方案文档
+├── ARCHITECTURE.md         # 历史架构方案文档
 ├── AGENT.md                # AI 助手统一入口（所有 AI 工具必读）
 ├── CLAUDE.md               # 完整 AI 协作上下文（Codex / Claude Code / WorkBuddy）
 ├── CONTRIBUTING.md         # 开发指南
+├── ironforge-docs/
+│   ├── project-architecture-2026-07.md       # 当前架构总览
+│   ├── frontend-backend-structure-2026-07.md # 当前前后端结构分布
+│   └── architecture-followups-2026-07.md     # 已修复项和后续方向
 ├── docs/
 │   ├── p0-prd.md           # P0 功能 PRD
 │   ├── p0-system-design.md # P0 系统设计 + 任务分解
@@ -401,36 +405,26 @@ cargo build          # debug 构建
 cargo build --release  # release 构建
 ```
 
-### 端到端测试脚本
+### 回归测试入口
+
+日常回归优先使用现有自动化脚本，而不是维护一次性的 shell 片段：
 
 ```bash
-# 停旧进程 + 重建测试环境
-pkill -f "target/release/ironforge" 2>/dev/null; sleep 0.5
-rm -rf /tmp/ironforge/repos/testuser/testrepo.git /tmp/if_e2e
+# 全量回归：后端测试、前端静态检查/构建、运行态 smoke
+node scripts/full-interface-regression.mjs
 
-# 初始化裸仓库（从本地已有的 repo 克隆）
-git clone --bare /path/to/your/repo /tmp/ironforge/repos/testuser/testrepo.git
+# 后端 OpenAPI 冒烟
+BACKEND_URL=http://127.0.0.1:8080 node scripts/openapi-interface-smoke.mjs
 
-# 启动服务器（后台）
-./target/release/ironforge serve \
-  --repo-root /tmp/ironforge/repos \
-  --host-key /tmp/ironforge_host_key \
-  --db-url sqlite:///tmp/ironforge/ironforge.db?mode=rwc \
-  --jwt-secret test-secret \
-  > /tmp/ironforge.log 2>&1 &
+# 前端页面 console/network 冒烟
+BASE=http://127.0.0.1:5173 node scripts/console-smoke.mjs
 
-sleep 2
-
-# 测试 SSH clone + push
-GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" \
-  git clone ssh://git@localhost:2222/testuser/testrepo /tmp/if_e2e
-cd /tmp/if_e2e
-echo "hello" > test.txt
-git add test.txt && git commit -m "test commit"
-GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" \
-  git push origin main
-echo "Push exit: $?"
+# 前端 API client 与 OpenAPI 参数对齐
+BACKEND_URL=http://127.0.0.1:8080 node scripts/api-client-contract-check.mjs
 ```
+
+Git 协议问题需要手动定位时，可以单独执行 SSH/HTTP clone/push 调试；命令模板见
+`AGENTS.md` 的 Git 协议测试约定。
 
 ### 日志调试
 
@@ -464,7 +458,7 @@ GIT_TRACE_PACKET=1 GIT_TRACE=1 git push origin main 2>&1
 | 代码覆盖率 | cargo-llvm-cov | HTML/LCOV/JSON 输出 |
 
 > **关于 i18n**：前端完整国际化（199 个翻译 key），后端统一英文无需 i18n。
-> **关于 gix**：ARCHITECTURE.md 中规划使用 gix (gitoxide)。当前 Git 对象操作约 70% 已通过 gix 0.83 API 实现（rg-ci/rg-git/rg-cli 已 100% 迁移），剩余 19 处 CLI 调用（rebase/fetch/diff/pack/GPG 等）因 gix API 未成熟而保留。
+> **关于 gix**：当前 workspace 使用 gix 0.84。Git 对象操作采用 gix + `GitCommandGateway` 混合模式；pack、rebase、archive、部分 unified diff/GPG 等能力仍依赖 Git CLI 或等待 gix 上游能力成熟。
 
 ---
 
@@ -537,12 +531,13 @@ GIT_TRACE_PACKET=1 GIT_TRACE=1 git push origin main 2>&1
 
 ## 架构文档
 
-详细设计请见 [ARCHITECTURE.md](ARCHITECTURE.md)，包含：
-- 整体三层架构图
-- 技术选型决策分析（ORM / Git 库 / 前端对比）
-- 数据库模型设计（ER 图）
-- 各子系统设计（Git 协议层、PR 引擎、CI/CD、Wiki）
-- Phase 0-5 开发计划
+当前架构事实请优先阅读：
+
+- [项目架构总览](ironforge-docs/project-architecture-2026-07.md)
+- [前后端结构分布](ironforge-docs/frontend-backend-structure-2026-07.md)
+- [架构差异与后续待办](ironforge-docs/architecture-followups-2026-07.md)
+
+[ARCHITECTURE.md](ARCHITECTURE.md) 保留为历史设计文档，可用于了解早期技术选型和设计意图；当前模块边界、部署状态和风险口径以 2026-07 架构文档为准。
 
 ---
 
@@ -570,6 +565,15 @@ API_BASE=https://api.example.com/api/v1 BACKEND_URL=https://api.example.com FRON
 ```bash
 cd web
 VITE_API_BASE=http://127.0.0.1:8080/api/v1 npm run dev
+```
+
+跨域前后端部署时，后端也需要允许浏览器 origin，并让 CSP `connect-src`
+覆盖 API 与 WebSocket：
+
+```bash
+IRONFORGE_CORS_ORIGINS=http://127.0.0.1:5173
+# 如有额外 API/WS origin，可补：
+# IRONFORGE_CSP_CONNECT_SRC=https://api.example.com,wss://api.example.com
 ```
 
 ### 全量接口自动化回归（建议日常执行）

@@ -1,4 +1,4 @@
-import { request, qs, type PaginatedResponse } from './_base';
+import { request, qs, type PaginatedResponse } from './_base.svelte';
 
 export const pipelines = {
   list: (owner: string, repo: string, page?: number, perPage?: number) =>
@@ -6,7 +6,10 @@ export const pipelines = {
   get: (owner: string, repo: string, id: number) =>
     request<any>(`/repos/${owner}/${repo}/pipelines/${id}`),
   trigger: (owner: string, repo: string, ref?: string) =>
-    request<any>(`/repos/${owner}/${repo}/pipelines`, { method: 'POST', body: JSON.stringify({ ref }) }),
+    request<any>(`/repos/${owner}/${repo}/pipelines`, {
+      method: 'POST',
+      body: JSON.stringify({ ref }),
+    }),
   retry: (owner: string, repo: string, id: number) =>
     request<any>(`/repos/${owner}/${repo}/pipelines/${id}/retry`, { method: 'POST' }),
   cancel: (owner: string, repo: string, id: number) =>

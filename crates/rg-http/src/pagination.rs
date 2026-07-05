@@ -15,7 +15,10 @@ const MAX_PER_PAGE: u64 = 100;
 #[derive(Debug, Clone, Deserialize, utoipa::ToSchema)]
 pub struct PaginationParams {
     /// Page number (1-based). Default: 1
-    #[serde(default = "default_page")]
+    #[serde(
+        default = "default_page",
+        deserialize_with = "deserialize_u64_from_query"
+    )]
     pub page: u64,
     /// Items per page. Default: 20, Max: 100
     #[serde(default = "default_per_page")]

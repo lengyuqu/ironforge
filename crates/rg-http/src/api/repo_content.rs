@@ -8,7 +8,7 @@ use axum::Json;
 use chrono;
 use serde::{Deserialize, Serialize};
 
-use crate::api::auth::extract_bearer_claims;
+use crate::api::auth::{extract_bearer_claims, extract_ci_job_claims, extract_user_id};
 use crate::error::AppError;
 use crate::AppState;
 
@@ -135,20 +135,25 @@ async fn resolve_and_check_access(
         .map_err(AppError::internal)?
         .ok_or_else(|| AppError::not_found("repository not found"))?;
 
-    if repo_model.is_private {
-        let claims = extract_bearer_claims(headers, &state.jwt_secret)
-            .ok_or_else(|| AppError::unauthorized("authentication required"))?;
-        let user_id = claims
-            .sub
-            .parse::<i64>()
-            .map_err(|_| AppError::unauthorized("invalid token subject".to_string()))?;
-
-        if !rg_core::repo::service::can_read_repo(&state.db, &repo_model, Some(user_id))
-            .await
-            .unwrap_or(false)
-        {
+    let actor_id = extract_user_id(headers, &state.jwt_secret);
+    match rg_core::repo::service::can_read_repo(&state.db, &repo_model, actor_id).await {
+        Ok(true) => {}
+        Ok(false)
+            if actor_id.is_none()
+                && extract_ci_job_claims(
+                    headers,
+                    &state.jwt_secret,
+                    repo_model.id,
+                    "repo:read",
+                )
+                .is_some() => {}
+        Ok(false) if repo_model.is_private && actor_id.is_none() => {
+            return Err(AppError::unauthorized("authentication required"));
+        }
+        Ok(false) => {
             return Err(AppError::forbidden("access denied"));
         }
+        Err(e) => return Err(AppError::internal(e)),
     }
 
     Ok(repo_model)

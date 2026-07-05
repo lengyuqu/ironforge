@@ -103,9 +103,9 @@ pub async fn list_audit_logs(
     )
     .await
     .map_err(|e| {
-            tracing::error!("audit list error: {}", e);
-            AppError::internal("database error")
-        })?;
+        tracing::error!("audit list error: {}", e);
+        AppError::internal("database error")
+    })?;
 
     let logs = logs
         .into_iter()

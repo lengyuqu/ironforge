@@ -1,4 +1,4 @@
-import { request, qs, type PaginatedResponse } from './_base';
+import { request, qs, type PaginatedResponse } from './_base.svelte';
 
 export const notifications = {
   list: (userId?: number, unreadOnly?: boolean, page?: number, perPage?: number) =>

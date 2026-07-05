@@ -73,12 +73,7 @@ impl NotificationHub {
 
     /// Push a notification to a **specific user's** channel.
     /// Creates the channel if it doesn't exist yet.
-    pub async fn push_notification(
-        &self,
-        user_id: i64,
-        event_type: &str,
-        data: serde_json::Value,
-    ) {
+    pub async fn push_notification(&self, user_id: i64, event_type: &str, data: serde_json::Value) {
         let event = NotificationEvent {
             event_type: event_type.to_string(),
             data: serde_json::json!({

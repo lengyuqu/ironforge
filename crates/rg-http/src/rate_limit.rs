@@ -9,7 +9,7 @@ use axum::http::HeaderMap;
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use std::collections::HashMap;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -31,6 +31,8 @@ pub struct RateLimiter {
     max_requests: u32,
     /// Window duration in seconds.
     window_secs: u64,
+    /// Proxy IPs whose X-Forwarded-For / X-Real-IP headers are trusted.
+    trusted_proxies: Arc<Vec<IpAddr>>,
     /// Client IP → state mapping.
     /// std::sync::Mutex is used because critical sections are very short
     /// (single HashMap lookup/update) and never await.
@@ -47,8 +49,21 @@ impl RateLimiter {
             enabled: max_requests > 0,
             max_requests: max_requests.max(1),
             window_secs: window_secs.max(1),
+            trusted_proxies: Arc::new(Vec::new()),
             clients: Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+
+    /// Create a new rate limiter that trusts proxy headers only from the
+    /// provided proxy source IPs.
+    pub fn with_trusted_proxies(
+        max_requests: u32,
+        window_secs: u64,
+        trusted_proxies: Vec<IpAddr>,
+    ) -> Self {
+        let mut limiter = Self::new(max_requests, window_secs);
+        limiter.trusted_proxies = Arc::new(trusted_proxies);
+        limiter
     }
 
     /// Check if a request is allowed. Returns true if the request should proceed.
@@ -121,11 +136,20 @@ impl RateLimiter {
             }
         });
     }
+
+    fn client_key(&self, headers: &HeaderMap, addr: SocketAddr) -> String {
+        if self.trusted_proxies.contains(&addr.ip()) {
+            if let Some(forwarded) = extract_forwarded_client_key(headers) {
+                return forwarded;
+            }
+        }
+        addr.ip().to_string()
+    }
 }
 
-/// Extract client IP from headers (X-Forwarded-For, X-Real-IP).
+/// Extract client IP from trusted proxy headers (X-Forwarded-For, X-Real-IP).
 /// Returns `None` if no identifying header is present.
-fn extract_client_key(headers: &HeaderMap) -> Option<String> {
+fn extract_forwarded_client_key(headers: &HeaderMap) -> Option<String> {
     // Try X-Forwarded-For first (first IP in the list)
     if let Some(xff) = headers.get("x-forwarded-for") {
         if let Ok(val) = xff.to_str() {
@@ -161,7 +185,7 @@ pub async fn rate_limit_middleware(
     request: Request,
     next: Next,
 ) -> Response {
-    let key = extract_client_key(&headers).unwrap_or_else(|| addr.to_string());
+    let key = limiter.client_key(&headers, addr);
 
     if limiter.allow(&key) {
         next.run(request).await
@@ -226,25 +250,49 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_client_key_xff() {
+    fn test_extract_forwarded_client_key_xff() {
         let mut headers = HeaderMap::new();
         headers.insert("x-forwarded-for", "192.168.1.1, 10.0.0.1".parse().unwrap());
         assert_eq!(
-            extract_client_key(&headers),
+            extract_forwarded_client_key(&headers),
             Some("192.168.1.1".to_string())
         );
     }
 
     #[test]
-    fn test_extract_client_key_xri() {
+    fn test_extract_forwarded_client_key_xri() {
         let mut headers = HeaderMap::new();
         headers.insert("x-real-ip", "10.0.0.1".parse().unwrap());
-        assert_eq!(extract_client_key(&headers), Some("10.0.0.1".to_string()));
+        assert_eq!(
+            extract_forwarded_client_key(&headers),
+            Some("10.0.0.1".to_string())
+        );
     }
 
     #[test]
-    fn test_extract_client_key_none() {
+    fn test_extract_forwarded_client_key_none() {
         let headers = HeaderMap::new();
-        assert_eq!(extract_client_key(&headers), None);
+        assert_eq!(extract_forwarded_client_key(&headers), None);
+    }
+
+    #[test]
+    fn test_client_key_ignores_forwarded_headers_by_default() {
+        let limiter = RateLimiter::new(10, 60);
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-for", "203.0.113.10".parse().unwrap());
+        let addr: SocketAddr = "198.51.100.2:12345".parse().unwrap();
+
+        assert_eq!(limiter.client_key(&headers, addr), "198.51.100.2");
+    }
+
+    #[test]
+    fn test_client_key_uses_forwarded_headers_from_trusted_proxy() {
+        let limiter =
+            RateLimiter::with_trusted_proxies(10, 60, vec!["198.51.100.2".parse().unwrap()]);
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-for", "203.0.113.10".parse().unwrap());
+        let addr: SocketAddr = "198.51.100.2:12345".parse().unwrap();
+
+        assert_eq!(limiter.client_key(&headers, addr), "203.0.113.10");
     }
 }

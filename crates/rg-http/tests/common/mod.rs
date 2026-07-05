@@ -5,6 +5,21 @@ pub use rg_http;
 
 use rg_core::package_registry::oci::OciStorage;
 
+struct NoopCiEngine;
+
+impl rg_core::ci::CiTrigger for NoopCiEngine {
+    fn has_ci_config(&self, _repo_path: &std::path::Path, _commit_sha: &str) -> bool {
+        false
+    }
+
+    fn trigger_pipeline<'a>(
+        &'a self,
+        _params: rg_core::ci::TriggerPipelineParams<'a>,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<i64>> + Send + 'a>> {
+        Box::pin(async { Ok(0) })
+    }
+}
+
 /// Create a temporary file-based SQLite database with all migrations applied.
 pub async fn setup_test_db() -> (rg_db::DatabaseConnection, tempfile::TempDir) {
     use sea_orm::{ConnectOptions, Database};
@@ -44,6 +59,7 @@ pub fn build_test_app_state(
         log_write_queue: rg_core::ci::log_write_queue::LogWriteQueue::spawn(db_for_queue),
         external_url: None,
         job_timeout_secs: 3600,
+        ci_engine: Arc::new(NoopCiEngine),
     }
 }
 

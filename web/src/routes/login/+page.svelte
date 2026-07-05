@@ -6,6 +6,7 @@
     getAuthLoading,
     isLoggedIn,
     isMfaRequired,
+    beginMfa,
   } from '$lib/stores/auth.svelte';
   import { createT } from '$lib/i18n';
   import { goto } from '$app/navigation';
@@ -24,6 +25,29 @@
       goto('/dashboard');
     }
   });
+
+  $effect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('sso_mfa_required') === '1') {
+      const usernameParam = params.get('username');
+      if (usernameParam) {
+        beginMfa(usernameParam);
+        window.history.replaceState({}, '', '/login');
+      }
+    }
+    loadSsoProviders();
+  });
+
+  async function loadSsoProviders() {
+    try {
+      ssoLoading = true;
+      ssoProviders = await auth.listSsoProviders();
+    } catch {
+      ssoProviders = [];
+    } finally {
+      ssoLoading = false;
+    }
+  }
 
   async function handleSubmit(e: Event) {
     e.preventDefault();

@@ -2,7 +2,7 @@
 
 use anyhow::{bail, Context, Result};
 use chrono::Utc;
-use sea_orm::{ActiveModelTrait, ConnectionTrait, DatabaseConnection, EntityTrait, Set, TransactionTrait};
+use sea_orm::{ActiveModelTrait, DatabaseConnection, EntityTrait, Set, TransactionTrait};
 
 use rg_db::entities::issue::{self, Model as Issue};
 use rg_db::entities::issue_comment::{self, Model as Comment};
@@ -46,23 +46,10 @@ pub async fn create_issue(
         deleted_at: Set(None),
     };
 
-    // M-13: Wrap issue creation + FTS5 index in a transaction for atomicity.
-    // If FTS insert fails, the issue creation is rolled back.
+    // FTS sync is handled by database triggers created in the migration chain.
     let txn = db.begin().await.context("db: begin transaction")?;
 
     let issue = model.insert(&txn).await.context("db: create issue")?;
-
-    let fts_sql = format!(
-        "INSERT INTO issues_fts(rowid, title, body) VALUES ({}, '{}', '{}')",
-        issue.id,
-        issue.title.replace('\'', "''"),
-        issue.body.as_deref().unwrap_or("").replace('\'', "''")
-    );
-    txn.execute_unprepared(&fts_sql).await.map_err(|e| {
-        tracing::error!(issue_id = issue.id, error = %e, "FTS index update failed, rolling back issue creation");
-        e
-    }).context("db: update issues_fts index")?;
-
     txn.commit().await.context("db: commit transaction")?;
 
     // Trigger issue.opened webhook
@@ -255,26 +242,7 @@ pub async fn update_issue(
 
     let updated = issue_ops::update(db, active).await?;
 
-    // Update FTS5 index (non-fatal: full-text search will be temporarily stale)
-    let fts_title = updated.title.clone();
-    let fts_body = updated.body.clone().unwrap_or_default();
-    let fts_labels = updated.labels.clone().unwrap_or_default();
-    let issue_id = updated.id;
-    if let Err(e) = db
-        .execute(sea_orm::Statement::from_sql_and_values(
-            sea_orm::DatabaseBackend::Sqlite,
-            r#"INSERT OR REPLACE INTO issues_fts(rowid, title, body, labels) VALUES (?, ?, ?, ?)"#,
-            [
-                issue_id.into(),
-                fts_title.into(),
-                fts_body.into(),
-                fts_labels.into(),
-            ],
-        ))
-        .await
-    {
-        tracing::warn!(error = %e, issue_id = %issue_id, "failed to update issues_fts index");
-    }
+    // FTS sync is handled by database triggers created in the migration chain.
 
     // Post-update side effects (non-fatal)
     if let Some(ref s) = state {
