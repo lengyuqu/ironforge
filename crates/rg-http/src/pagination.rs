@@ -3,7 +3,7 @@
 //! All list endpoints accept `page` and `per_page` query parameters.
 //! Response wraps data in `PaginatedResponse { data, pagination }`.
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use utoipa::ToSchema;
 
 /// Default number of items per page.
@@ -31,6 +31,17 @@ pub fn default_page() -> u64 {
 
 pub fn default_per_page() -> u64 {
     DEFAULT_PER_PAGE
+}
+
+pub fn deserialize_u64_from_query<'de, D>(deserializer: D) -> Result<u64, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::<String>::deserialize(deserializer)?;
+    match value.as_deref().map(str::trim) {
+        Some("") | None => Ok(default_page()),
+        Some(raw) => raw.parse::<u64>().map_err(serde::de::Error::custom),
+    }
 }
 
 impl PaginationParams {

@@ -13,7 +13,9 @@ use crate::AppState;
 
 #[derive(Deserialize)]
 pub struct AddCollaboratorRequest {
-    pub user_id: i64,
+    pub user_id: Option<i64>,
+    pub username: Option<String>,
+    pub email: Option<String>,
     /// read / write / admin
     #[serde(default = "default_permission")]
     pub permission: String,
@@ -82,11 +84,16 @@ pub async fn add_collaborator(
         return AppError::unauthorized("authentication required").into_response();
     }
 
+    let user_id = match resolve_collaborator_user_id(&state.db, &req).await {
+        Ok(user_id) => user_id,
+        Err(e) => return AppError::bad_request(e.to_string()).into_response(),
+    };
+
     match rg_core::collaborator::service::add_collaborator(
         &state.db,
         &owner,
         &repo,
-        req.user_id,
+        user_id,
         req.permission,
     )
     .await

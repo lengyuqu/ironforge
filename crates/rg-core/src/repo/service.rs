@@ -563,7 +563,10 @@ fn auto_init_repo(
     // Use --git-dir (cannot combine with the gateway's `-C`, so repo_path=None).
     let head_ref = format!("refs/heads/{}", default_branch);
     let head_output = gateway
-        .run(&["--git-dir", &push_url, "symbolic-ref", "HEAD", &head_ref], None)
+        .run(
+            &["--git-dir", &push_url, "symbolic-ref", "HEAD", &head_ref],
+            None,
+        )
         .context("git symbolic-ref HEAD failed")?;
     if !head_output.success() {
         tracing::warn!(stderr = %head_output.stderr_str(), "failed to set HEAD in bare repo");

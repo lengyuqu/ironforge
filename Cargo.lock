@@ -4396,6 +4396,7 @@ dependencies = [
  "russh",
  "russh-keys",
  "sea-orm",
+ "serde_json",
  "tokio",
  "tracing",
 ]
