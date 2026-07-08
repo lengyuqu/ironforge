@@ -26,9 +26,9 @@
 
 | 文档 | 建议文件名 | 内容边界 |
 |------|------------|----------|
-| 项目架构总览 | `ironforge-docs/project-architecture-2026-07.md` | 系统分层、运行入口、服务边界、数据流、核心模块职责、部署与运行模型 |
-| 前后端结构分布 | `ironforge-docs/frontend-backend-structure-2026-07.md` | Rust crates、HTTP API、DB、SvelteKit routes、前端 API client、状态管理、页面与后端能力映射 |
-| 架构差异与待办 | `ironforge-docs/architecture-followups-2026-07.md` | 旧文档与代码差异、命名不一致、缺测区域、技术债、建议后续任务 |
+| 项目架构总览 | `ironforge-docs/architecture/project-architecture-2026-07.md` | 系统分层、运行入口、服务边界、数据流、核心模块职责、部署与运行模型 |
+| 前后端结构分布 | `ironforge-docs/architecture/frontend-backend-structure-2026-07.md` | Rust crates、HTTP API、DB、SvelteKit routes、前端 API client、状态管理、页面与后端能力映射 |
+| 架构差异与待办 | `ironforge-docs/architecture/architecture-followups-2026-07.md` | 旧文档与代码差异、命名不一致、缺测区域、技术债、建议后续任务 |
 
 ---
 

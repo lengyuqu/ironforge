@@ -394,9 +394,9 @@ curl -fsS http://localhost:8080/metrics
 
 代码修复完成后同步更新：
 
-- `ironforge-docs/architecture-followups-2026-07.md`：把已修复项从 P0/P1 移到“已修复”或标注完成日期。
-- `ironforge-docs/project-architecture-2026-07.md`：把认证、权限、Runner、部署章节的风险提示改为当前事实。
-- `ironforge-docs/frontend-backend-structure-2026-07.md`：如 API client 或页面接入发生变化，更新前后端映射。
+- `ironforge-docs/architecture/architecture-followups-2026-07.md`：把已修复项从 P0/P1 移到“已修复”或标注完成日期。
+- `ironforge-docs/architecture/project-architecture-2026-07.md`：把认证、权限、Runner、部署章节的风险提示改为当前事实。
+- `ironforge-docs/architecture/frontend-backend-structure-2026-07.md`：如 API client 或页面接入发生变化，更新前后端映射。
 - `AGENTS.md` / `AGENT.md`：只同步长期约定和踩坑，不把临时计划塞入入口文档。
 
 ---

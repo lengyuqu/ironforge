@@ -2725,9 +2725,9 @@ SSH
 
 | 文档 | 文件 | 内容边界 |
 |------|------|----------|
-| 项目架构总览 | `ironforge-docs/project-architecture-2026-07.md` | 系统定位、顶层架构、运行入口、crate 边界、数据模型、HTTP/Git/SSH、安全、CI/Package/MCP、测试部署 |
-| 前后端结构分布 | `ironforge-docs/frontend-backend-structure-2026-07.md` | 后端 crates/API/领域模块、前端 routes/API client/stores/components、页面与后端能力映射 |
-| 架构差异与待办 | `ironforge-docs/architecture-followups-2026-07.md` | P0/P1/P2 followups、文档口径修正、建议执行顺序 |
+| 项目架构总览 | `ironforge-docs/architecture/project-architecture-2026-07.md` | 系统定位、顶层架构、运行入口、crate 边界、数据模型、HTTP/Git/SSH、安全、CI/Package/MCP、测试部署 |
+| 前后端结构分布 | `ironforge-docs/architecture/frontend-backend-structure-2026-07.md` | 后端 crates/API/领域模块、前端 routes/API client/stores/components、页面与后端能力映射 |
+| 架构差异与待办 | `ironforge-docs/architecture/architecture-followups-2026-07.md` | P0/P1/P2 followups、文档口径修正、建议执行顺序 |
 
 ### 收敛原则
 
