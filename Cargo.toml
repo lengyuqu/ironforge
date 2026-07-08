@@ -22,8 +22,13 @@ tower-http = { version = "0.6", features = ["cors", "trace", "fs", "limit"] }
 russh = "0.51"
 russh-keys = "0.45"
 
-# Database
-sea-orm = { version = "1.1", features = ["sqlx-sqlite", "runtime-tokio-rustls", "macros"] }
+# Database — SeaORM's default features already bundle all three sqlx backends
+# (sqlite + postgres + mysql) plus with-chrono/with-uuid, so IronForge can select
+# the backend at runtime via the `database_url` scheme without a feature rebuild.
+# Database — keep SeaORM default features (with-chrono/with-uuid/…) and enable
+# all three sqlx backends so the backend is chosen at runtime via the
+# `database_url` scheme (sqlite:// / postgres:// / mysql://).
+sea-orm = { version = "1.1", features = ["sqlx-sqlite", "sqlx-postgres", "sqlx-mysql", "runtime-tokio-rustls", "macros"] }
 
 # CLI
 clap = { version = "4", features = ["derive"] }
@@ -103,7 +108,7 @@ uuid = { version = "1", features = ["v4", "serde"] }
 home = "0.5"
 
 # DB migration
-sea-orm-migration = { version = "1.1", features = ["sqlx-sqlite", "runtime-tokio-rustls"] }
+sea-orm-migration = { version = "1.1", features = ["sqlx-sqlite", "sqlx-postgres", "sqlx-mysql", "runtime-tokio-rustls"] }
 
 [profile.release]
 lto = true

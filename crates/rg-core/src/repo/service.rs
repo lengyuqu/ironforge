@@ -10,6 +10,7 @@ use std::sync::Mutex;
 use std::sync::{OnceLock, RwLock};
 use std::time::{Duration, Instant};
 
+use crate::search::dialect::metadata_fts_upsert_sql;
 use rg_db::{
     entities::repository::ActiveModel as RepoActiveModel,
     ops::{repo_ops, user_ops},

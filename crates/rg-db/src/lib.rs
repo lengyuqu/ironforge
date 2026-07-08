@@ -28,6 +28,35 @@ use sea_orm_migration::MigratorTrait;
 pub use sea_orm;
 pub use sea_orm::DatabaseConnection;
 
+/// Which database backend a `database_url` selects, inferred from its scheme.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DbBackend {
+    /// SQLite (embedded, zero-dependency, default).
+    Sqlite,
+    /// PostgreSQL.
+    Postgres,
+    /// MySQL / MariaDB.
+    MySql,
+}
+
+/// Infer the backend from a `database_url` scheme.
+///
+/// Accepted schemes: `sqlite://` (`sqlite3://`), `postgres://` / `postgresql://`,
+/// `mysql://`. Anything else fails loudly so misconfiguration is caught early.
+pub fn detect_backend(db_url: &str) -> Result<DbBackend> {
+    if db_url.starts_with("sqlite:") || db_url.starts_with("sqlite3:") {
+        Ok(DbBackend::Sqlite)
+    } else if db_url.starts_with("postgres:") || db_url.starts_with("postgresql:") {
+        Ok(DbBackend::Postgres)
+    } else if db_url.starts_with("mysql:") {
+        Ok(DbBackend::MySql)
+    } else {
+        anyhow::bail!(
+            "unsupported database_url scheme in '{db_url}': expected sqlite://, postgres://, or mysql://"
+        )
+    }
+}
+
 /// Default DB connect (acquire) timeout (seconds).
 pub const DEFAULT_CONNECT_TIMEOUT_SECS: u64 = 10;
 /// Default DB idle timeout (seconds).
@@ -38,10 +67,12 @@ pub const DEFAULT_IDLE_TIMEOUT_SECS: u64 = 600;
 /// writer, so a small pool lets read-heavy API/UI traffic run in parallel
 /// instead of serialising on one connection. Writers still serialise at the
 /// SQLite level; `busy_timeout` (set per connection) absorbs brief overlaps.
+/// For Postgres/MySQL the pool is shared by a single server, so a small pool
+/// is still appropriate for an embedded-style deployment.
 pub const DEFAULT_MAX_CONNECTIONS: u32 = 5;
 
-/// Connect to the SQLite database with default pool timeouts and pool size.
-/// URL example: `sqlite:///path/to/db?mode=rwc`
+/// Connect to the database selected by `db_url`'s scheme (SQLite / Postgres / MySQL).
+/// URL example: `sqlite:///path/to/db?mode=rwc`, `postgres://user@localhost/ironforge`.
 pub async fn connect(db_url: &str) -> Result<DatabaseConnection> {
     connect_with_timeouts(
         db_url,
@@ -60,13 +91,11 @@ pub async fn connect_with_timeouts(
     connect_with_pool(db_url, connect_secs, idle_secs, DEFAULT_MAX_CONNECTIONS).await
 }
 
-/// Connect to the SQLite database with full pool control plus PRAGMA optimization.
+/// Connect to the database with full pool control, dispatching on the URL scheme.
 ///
-/// PRAGMAs are attached to the sqlx [`SqliteConnectOptions`] so they are applied
-/// to **every** physical connection the pool opens — including reconnections
-/// after an idle timeout. (The previous approach ran the PRAGMAs once after
-/// connect, which silently lost per-connection settings such as `foreign_keys`
-/// and `busy_timeout` whenever the pool re-established a connection.)
+/// SQLite applies per-connection PRAGMAs (see [`connect_sqlite`]). Postgres/MySQL
+/// use their own connect options, gated behind the `db-postgres` / `db-mysql`
+/// cargo features so the default binary stays SQLite-only.
 pub async fn connect_with_pool(
     db_url: &str,
     connect_secs: u64,
@@ -74,8 +103,33 @@ pub async fn connect_with_pool(
     max_connections: u32,
 ) -> Result<DatabaseConnection> {
     let max_connections = max_connections.max(1);
-    tracing::info!(url = %db_url, connect_secs, idle_secs, max_connections, "Connecting to database");
+    let backend = detect_backend(db_url)?;
+    tracing::info!(url = %db_url, ?backend, connect_secs, idle_secs, max_connections, "Connecting to database");
 
+    match backend {
+        DbBackend::Sqlite => {
+            connect_sqlite(db_url, connect_secs, idle_secs, max_connections).await
+        }
+        DbBackend::Postgres => {
+            connect_postgres(db_url, connect_secs, idle_secs, max_connections).await
+        }
+        DbBackend::MySql => connect_mysql(db_url, connect_secs, idle_secs, max_connections).await,
+    }
+}
+
+/// Connect to SQLite with PRAGMA optimization.
+///
+/// PRAGMAs are attached to the sqlx [`SqliteConnectOptions`] so they are applied
+/// to **every** physical connection the pool opens — including reconnections
+/// after an idle timeout. (The previous approach ran the PRAGMAs once after
+/// connect, which silently lost per-connection settings such as `foreign_keys`
+/// and `busy_timeout` whenever the pool re-established a connection.)
+async fn connect_sqlite(
+    db_url: &str,
+    connect_secs: u64,
+    idle_secs: u64,
+    max_connections: u32,
+) -> Result<DatabaseConnection> {
     // Per-connection options — applied on every connect by sqlx.
     let conn_opts = SqliteConnectOptions::from_str(db_url)
         .with_context(|| format!("invalid sqlite url: {db_url}"))?
@@ -103,6 +157,58 @@ pub async fn connect_with_pool(
     Ok(SqlxSqliteConnector::from_sqlx_sqlite_pool(pool))
 }
 
+/// Connect to PostgreSQL. The sqlx Postgres driver is always linked (SeaORM's
+/// default features include it), so no cargo feature gate is required.
+async fn connect_postgres(
+    db_url: &str,
+    connect_secs: u64,
+    idle_secs: u64,
+    max_connections: u32,
+) -> Result<DatabaseConnection> {
+    use sea_orm::sqlx::postgres::{PgConnectOptions, PgPoolOptions};
+    use sea_orm::SqlxPostgresConnector;
+
+    let conn_opts = PgConnectOptions::from_str(db_url)
+        .with_context(|| format!("invalid postgres url: {db_url}"))?
+        .connect_timeout(Duration::from_secs(connect_secs));
+    let pool = PgPoolOptions::new()
+        .max_connections(max_connections)
+        .min_connections(1)
+        .acquire_timeout(Duration::from_secs(connect_secs))
+        .idle_timeout(Duration::from_secs(idle_secs))
+        .connect_with(conn_opts)
+        .await
+        .with_context(|| format!("failed to connect to postgres: {db_url}"))?;
+    tracing::info!("Connected to PostgreSQL");
+    Ok(SqlxPostgresConnector::from_sqlx_postgres_pool(pool))
+}
+
+/// Connect to MySQL / MariaDB. The sqlx MySQL driver is always linked (SeaORM's
+/// default features include it), so no cargo feature gate is required.
+async fn connect_mysql(
+    db_url: &str,
+    connect_secs: u64,
+    idle_secs: u64,
+    max_connections: u32,
+) -> Result<DatabaseConnection> {
+    use sea_orm::sqlx::mysql::{MySqlConnectOptions, MySqlPoolOptions};
+    use sea_orm::SqlxMySqlConnector;
+
+    let conn_opts = MySqlConnectOptions::from_str(db_url)
+        .with_context(|| format!("invalid mysql url: {db_url}"))?
+        .connect_timeout(Duration::from_secs(connect_secs));
+    let pool = MySqlPoolOptions::new()
+        .max_connections(max_connections)
+        .min_connections(1)
+        .acquire_timeout(Duration::from_secs(connect_secs))
+        .idle_timeout(Duration::from_secs(idle_secs))
+        .connect_with(conn_opts)
+        .await
+        .with_context(|| format!("failed to connect to mysql: {db_url}"))?;
+    tracing::info!("Connected to MySQL");
+    Ok(SqlxMySqlConnector::from_sqlx_mysql_pool(pool))
+}
+
 /// Run all pending migrations.
 pub async fn run_migrations(db: &DatabaseConnection) -> Result<()> {
     tracing::info!("Running database migrations");
@@ -112,60 +218,79 @@ pub async fn run_migrations(db: &DatabaseConnection) -> Result<()> {
     Ok(())
 }
 
-/// Rebuild FTS5 full-text search indexes from main tables.
-/// This is useful after migrating from triggers to application-level FTS updates,
-/// or when the FTS indexes are out of sync with the main tables.
+/// Rebuild full-text search indexes from the main tables.
+///
+/// * **SQLite** — the FTS5 tables are independent virtual tables, so we
+///   `DELETE` + re-`INSERT` from the source rows (mirroring the original FTS5
+///   `rebuild` command).
+/// * **Postgres / MySQL** — the FTS columns/tables are maintained
+///   automatically (generated `tsvector` column / `FULLTEXT` index), so a
+///   manual rebuild is unnecessary; we just refresh statistics.
 pub async fn rebuild_fts_indexes(db: &DatabaseConnection) -> Result<()> {
     use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 
-    tracing::info!("Rebuilding FTS5 indexes...");
+    let backend = db.get_database_backend();
+    tracing::info!(?backend, "Rebuilding FTS indexes...");
 
-    // Rebuild repos_fts
-    tracing::info!("  Rebuilding repos_fts...");
-    db.execute(Statement::from_sql_and_values(
-        DatabaseBackend::Sqlite,
-        "DELETE FROM repos_fts",
-        [],
-    ))
-    .await?;
-    db.execute(Statement::from_sql_and_values(
-        DatabaseBackend::Sqlite,
-        "INSERT INTO repos_fts(rowid, name, description) SELECT id, name, description FROM repositories WHERE deleted_at IS NULL",
-        [],
-    )).await?;
-    tracing::info!("  repos_fts: rebuilt");
+    match backend {
+        DatabaseBackend::Sqlite => {
+            tracing::info!("  Rebuilding repos_fts...");
+            db.execute(Statement::from_sql_and_values(
+                backend,
+                "DELETE FROM repos_fts",
+                [],
+            ))
+            .await?;
+            db.execute(Statement::from_sql_and_values(
+                backend,
+                "INSERT INTO repos_fts(rowid, name, description) SELECT id, name, description FROM repositories WHERE deleted_at IS NULL",
+                [],
+            )).await?;
 
-    // Rebuild issues_fts
-    tracing::info!("  Rebuilding issues_fts...");
-    db.execute(Statement::from_sql_and_values(
-        DatabaseBackend::Sqlite,
-        "DELETE FROM issues_fts",
-        [],
-    ))
-    .await?;
-    db.execute(Statement::from_sql_and_values(
-        DatabaseBackend::Sqlite,
-        "INSERT INTO issues_fts(rowid, title, body) SELECT id, title, COALESCE(body, '') FROM issues",
-        [],
-    )).await?;
-    tracing::info!("  issues_fts: rebuilt");
+            tracing::info!("  Rebuilding issues_fts...");
+            db.execute(Statement::from_sql_and_values(
+                backend,
+                "DELETE FROM issues_fts",
+                [],
+            ))
+            .await?;
+            db.execute(Statement::from_sql_and_values(
+                backend,
+                "INSERT INTO issues_fts(rowid, title, body) SELECT id, title, COALESCE(body, '') FROM issues",
+                [],
+            )).await?;
 
-    // Rebuild wiki_pages_fts
-    tracing::info!("  Rebuilding wiki_pages_fts...");
-    db.execute(Statement::from_sql_and_values(
-        DatabaseBackend::Sqlite,
-        "DELETE FROM wiki_pages_fts",
-        [],
-    ))
-    .await?;
-    db.execute(Statement::from_sql_and_values(
-        DatabaseBackend::Sqlite,
-        "INSERT INTO wiki_pages_fts(rowid, title, content) SELECT id, title, content FROM wiki_pages",
-        [],
-    )).await?;
-    tracing::info!("  wiki_pages_fts: rebuilt");
+            tracing::info!("  Rebuilding wiki_pages_fts...");
+            db.execute(Statement::from_sql_and_values(
+                backend,
+                "DELETE FROM wiki_pages_fts",
+                [],
+            ))
+            .await?;
+            db.execute(Statement::from_sql_and_values(
+                backend,
+                "INSERT INTO wiki_pages_fts(rowid, title, content) SELECT id, title, content FROM wiki_pages",
+                [],
+            )).await?;
 
-    tracing::info!("FTS5 indexes rebuilt successfully");
+            tracing::info!("FTS5 indexes rebuilt successfully");
+        }
+        DatabaseBackend::Postgres => {
+            for t in ["repos_fts", "issues_fts", "wiki_pages_fts"] {
+                db.execute(Statement::from_string(backend, format!("ANALYZE {t}")))
+                    .await?;
+            }
+            tracing::info!("Postgres FTS columns are generated and self-maintaining; statistics refreshed.");
+        }
+        DatabaseBackend::MySql => {
+            db.execute(Statement::from_string(
+                backend,
+                "OPTIMIZE TABLE repos_fts, issues_fts, wiki_pages_fts",
+            ))
+            .await?;
+            tracing::info!("MySQL FULLTEXT indexes optimized.");
+        }
+    }
     Ok(())
 }
 

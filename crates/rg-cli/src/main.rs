@@ -456,6 +456,12 @@ fn parse_rate_limit_trusted_proxies(values: &[String]) -> anyhow::Result<Vec<IpA
 }
 
 async fn backup_sqlite_db(db_url: &str, output: &PathBuf, force: bool) -> anyhow::Result<()> {
+    if !db_url.starts_with("sqlite:") {
+        anyhow::bail!(
+            "database backup is only supported for the SQLite backend in this version; \
+             use your PostgreSQL/MySQL server's native dump tool (pg_dump / mysqldump) for other backends"
+        );
+    }
     if output.exists() && !force {
         anyhow::bail!(
             "backup output already exists: {} (use --force to overwrite)",
