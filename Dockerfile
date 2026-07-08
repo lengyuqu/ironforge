@@ -74,10 +74,12 @@ RUN touch crates/rg-cli/src/main.rs \
     crates/rg-http/src/lib.rs \
     crates/rg-db/src/lib.rs \
     crates/rg-ci/src/lib.rs \
-    && cargo build --release --bin ironforge
+    && cargo build --release --bin ironforge --bin ironforge-runner --bin ironforge-mcp
 
 # Strip symbols to reduce binary size
-RUN strip target/release/ironforge
+RUN strip target/release/ironforge \
+    target/release/ironforge-runner \
+    target/release/ironforge-mcp
 
 # ── Stage 3: Runtime ────────────────────────────────────────
 FROM debian:bookworm-slim
@@ -93,8 +95,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Create non-root user
 RUN useradd --create-home --shell /bin/bash ironforge
 
-# Copy binary
+# Copy binaries
 COPY --from=builder /build/target/release/ironforge /usr/local/bin/ironforge
+COPY --from=builder /build/target/release/ironforge-runner /usr/local/bin/ironforge-runner
+COPY --from=builder /build/target/release/ironforge-mcp /usr/local/bin/ironforge-mcp
 
 # Copy frontend static assets (served at web/build relative to WORKDIR)
 COPY --from=frontend-builder /build/web/build /app/web/build

@@ -40,6 +40,11 @@ export function isMfaRequired() {
   return pendingMfaUsername !== null;
 }
 
+export function beginMfa(username: string) {
+  pendingMfaUsername = username;
+  error = null;
+}
+
 export function isAuthReady() {
   return authReady;
 }

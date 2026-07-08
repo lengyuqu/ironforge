@@ -19,6 +19,10 @@ docker = false
 [rate_limit]
 max = 0          # 0 = disabled
 window_secs = 60
+# Only these proxy source IPs may supply X-Forwarded-For / X-Real-IP for rate limiting.
+# Leave empty when IronForge is directly exposed.
+trusted_proxies = []
+# trusted_proxies = ["127.0.0.1", "::1", "10.0.0.10"]
 
 [smtp]
 # host = "smtp.example.com"

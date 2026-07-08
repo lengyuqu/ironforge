@@ -3,7 +3,7 @@
   import { onDestroy } from 'svelte';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
   import PipelineBadge from '$lib/components/PipelineBadge.svelte';
-  import { pipelines } from '$lib/api/client.svelte';
+  import { connectJobLogWebSocket, pipelines } from '$lib/api/client.svelte';
   import { createT, formatDate } from '$lib/i18n';
 
   const t = createT();
@@ -17,6 +17,10 @@
   let selectedJob = $state<any>(null);
   let showLogPanel = $state(false);
   let logContent = $state('');
+  let logStreamStatus = $state<'idle' | 'connected' | 'closed' | 'error'>('idle');
+  let logStreamError = $state('');
+  let logContentEl = $state<HTMLPreElement | null>(null);
+  let logSocket: WebSocket | null = null;
 
   // Auto-refresh for running pipelines
   let refreshInterval: ReturnType<typeof setInterval> | null = null;
@@ -59,6 +63,7 @@
   }
 
   async function selectPipeline(id: number) {
+    disconnectJobLogSocket();
     selectedJob = null;
     showLogPanel = false;
     try {
@@ -89,19 +94,61 @@
   async function viewJobLog(jobId: number) {
     if (!selectedPipeline) return;
     try {
+      disconnectJobLogSocket();
       const job = await pipelines.job(owner, repo, selectedPipeline.id, jobId);
       selectedJob = job;
-      logContent = job.log || '(no log output)';
+      logContent = job.log || '';
       showLogPanel = true;
+      startJobLogStream(jobId);
     } catch (e: any) {
+      disconnectJobLogSocket();
       logContent = 'Failed to load log: ' + e.message;
+      logStreamStatus = 'error';
       showLogPanel = true;
     }
   }
 
   function closeLog() {
+    disconnectJobLogSocket();
     showLogPanel = false;
     selectedJob = null;
+  }
+
+  function startJobLogStream(jobId: number) {
+    logStreamStatus = 'idle';
+    logStreamError = '';
+    logSocket = connectJobLogWebSocket(
+      jobId,
+      (chunk) => appendLogChunk(jobId, chunk),
+      (status) => {
+        if (selectedJob?.id !== jobId) return;
+        logStreamStatus = status;
+      },
+      () => {
+        if (selectedJob?.id !== jobId) return;
+        logStreamStatus = 'error';
+        logStreamError = 'Live log connection failed';
+      },
+    );
+  }
+
+  function appendLogChunk(jobId: number, chunk: string) {
+    if (!chunk || selectedJob?.id !== jobId) return;
+    logContent += chunk;
+    requestAnimationFrame(() => {
+      if (logContentEl) {
+        logContentEl.scrollTop = logContentEl.scrollHeight;
+      }
+    });
+  }
+
+  function disconnectJobLogSocket() {
+    if (logSocket) {
+      logSocket.close();
+      logSocket = null;
+    }
+    logStreamStatus = 'idle';
+    logStreamError = '';
   }
 
   function duration(start: string, end?: string) {
@@ -137,6 +184,11 @@
   }
 
   function isRunning(s: string) { return s === 'running' || s === 'pending'; }
+
+  onDestroy(() => {
+    if (refreshInterval) clearInterval(refreshInterval);
+    disconnectJobLogSocket();
+  });
 
   function selectPipelineByKey(e: KeyboardEvent, id: number) {
     if (e.key === 'Enter' || e.key === ' ') {
@@ -301,10 +353,17 @@
           {#if selectedJob}
             <PipelineBadge status={selectedJob.status} />
           {/if}
+          {#if logStreamStatus === 'connected'}
+            <span class="log-live connected">Live</span>
+          {:else if logStreamStatus === 'closed'}
+            <span class="log-live">Closed</span>
+          {:else if logStreamStatus === 'error'}
+            <span class="log-live error">{logStreamError || 'Offline'}</span>
+          {/if}
         </div>
         <button class="btn-close" onclick={closeLog}>✕</button>
       </div>
-      <pre class="log-content"><code>{logContent}</code></pre>
+      <pre class="log-content" bind:this={logContentEl}><code>{logContent || '(no log output)'}</code></pre>
     </div>
   </div>
 {/if}
@@ -498,6 +557,15 @@
     font-size: 14px;
   }
   .log-header > div { display: flex; align-items: center; gap: 8px; }
+  .log-live {
+    font-size: 11px;
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 2px 8px;
+  }
+  .log-live.connected { color: var(--green); border-color: color-mix(in srgb, var(--green) 45%, var(--border)); }
+  .log-live.error { color: var(--red); border-color: color-mix(in srgb, var(--red) 45%, var(--border)); }
   .btn-close {
     background: none; border: none;
     font-size: 18px; cursor: pointer; color: var(--text-muted);

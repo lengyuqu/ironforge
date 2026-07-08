@@ -1,10 +1,9 @@
 //! REST API handlers for CI/CD pipelines.
 
 use axum::extract::{Path, Query, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::Json;
-use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 use serde::{Deserialize, Serialize};
 
 use crate::error::AppError;
@@ -95,6 +94,7 @@ pub struct ListPipelinesQuery {
 )]
 pub async fn list_pipelines(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path((owner, name)): Path<(String, String)>,
     Query(params): Query<ListPipelinesQuery>,
 ) -> impl IntoResponse {
@@ -102,15 +102,9 @@ pub async fn list_pipelines(
     let offset = pagination.offset();
     let limit = pagination.limit();
 
-    let repo = match find_repo(&state.db, &owner, &name).await {
-        Ok(Some(r)) => r,
-        Ok(None) => return AppError::not_found("repository not found").into_response(),
-        Err(e) => {
-            return {
-                tracing::error!(%e, "handler error");
-                AppError::internal(e).into_response()
-            }
-        }
+    let repo = match resolve_repo_with_read_access(&state, &headers, &owner, &name).await {
+        Ok(repo) => repo,
+        Err(e) => return e.into_response(),
     };
 
     match rg_db::ops::pipeline_ops::list_pipelines_by_repo_paginated(
@@ -161,8 +155,14 @@ pub async fn list_pipelines(
 )]
 pub async fn get_pipeline(
     State(state): State<AppState>,
-    Path((_owner, _name, id)): Path<(String, String, i64)>,
+    headers: HeaderMap,
+    Path((owner, name, id)): Path<(String, String, i64)>,
 ) -> impl IntoResponse {
+    let repo = match resolve_repo_with_read_access(&state, &headers, &owner, &name).await {
+        Ok(repo) => repo,
+        Err(e) => return e.into_response(),
+    };
+
     let pipeline = match rg_db::ops::pipeline_ops::get_pipeline(&state.db, id).await {
         Ok(Some(p)) => p,
         Ok(None) => return AppError::not_found("pipeline not found").into_response(),
@@ -170,9 +170,12 @@ pub async fn get_pipeline(
             return {
                 tracing::error!(%e, "handler error");
                 AppError::internal(e).into_response()
-            }
+            };
         }
     };
+    if pipeline.repo_id != repo.id {
+        return AppError::not_found("pipeline not found").into_response();
+    }
 
     let stages = match rg_db::ops::pipeline_ops::list_stages_by_pipeline(&state.db, id).await {
         Ok(s) => s,
@@ -180,7 +183,7 @@ pub async fn get_pipeline(
             return {
                 tracing::error!(%e, "handler error");
                 AppError::internal(e).into_response()
-            }
+            };
         }
     };
 
@@ -193,7 +196,7 @@ pub async fn get_pipeline(
                 return {
                     tracing::error!(%e, "handler error");
                     AppError::internal(e).into_response()
-                }
+                };
             }
         };
 
@@ -263,22 +266,42 @@ pub async fn get_pipeline(
 )]
 pub async fn get_job(
     State(state): State<AppState>,
-    Path((_owner, _name, _pipeline_id, job_id)): Path<(String, String, i64, i64)>,
+    headers: HeaderMap,
+    Path((owner, name, pipeline_id, job_id)): Path<(String, String, i64, i64)>,
 ) -> impl IntoResponse {
+    let repo = match resolve_repo_with_read_access(&state, &headers, &owner, &name).await {
+        Ok(repo) => repo,
+        Err(e) => return e.into_response(),
+    };
+
+    let pipeline = match rg_db::ops::pipeline_ops::get_pipeline(&state.db, pipeline_id).await {
+        Ok(Some(p)) if p.repo_id == repo.id => p,
+        Ok(Some(_)) | Ok(None) => return AppError::not_found("pipeline not found").into_response(),
+        Err(e) => {
+            tracing::error!(%e, "handler error");
+            return AppError::internal(e).into_response();
+        }
+    };
+
     match rg_db::ops::pipeline_ops::get_job(&state.db, job_id).await {
-        Ok(Some(j)) => Json(JobResponse {
-            id: j.id,
-            stage_id: j.stage_id,
-            name: j.name,
-            image: j.image,
-            script: j.script,
-            status: j.status,
-            exit_code: j.exit_code,
-            log: j.log,
-            started_at: j.started_at.map(|t| t.to_string()),
-            finished_at: j.finished_at.map(|t| t.to_string()),
-        })
-        .into_response(),
+        Ok(Some(j)) => {
+            if !job_belongs_to_pipeline(&state, pipeline.id, j.stage_id).await {
+                return AppError::not_found("job not found").into_response();
+            }
+            Json(JobResponse {
+                id: j.id,
+                stage_id: j.stage_id,
+                name: j.name,
+                image: j.image,
+                script: j.script,
+                status: j.status,
+                exit_code: j.exit_code,
+                log: j.log,
+                started_at: j.started_at.map(|t| t.to_string()),
+                finished_at: j.finished_at.map(|t| t.to_string()),
+            })
+            .into_response()
+        }
         Ok(None) => AppError::not_found("job not found").into_response(),
         Err(e) => {
             tracing::error!(%e, "handler error");
@@ -306,18 +329,19 @@ pub async fn get_job(
 )]
 pub async fn trigger_pipeline(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path((owner, name)): Path<(String, String)>,
     Json(body): Json<TriggerPipelineRequest>,
 ) -> impl IntoResponse {
-    let repo = match find_repo(&state.db, &owner, &name).await {
-        Ok(Some(r)) => r,
-        Ok(None) => return AppError::not_found("repository not found").into_response(),
-        Err(e) => {
-            return {
-                tracing::error!(%e, "handler error");
-                AppError::internal(e).into_response()
-            }
-        }
+    let (repo, actor_id) =
+        match resolve_repo_with_write_access(&state, &headers, &owner, &name).await {
+            Ok(access) => access,
+            Err(e) => return e.into_response(),
+        };
+
+    let owner_display = match resolve_repo_storage_owner(&state, &repo, &owner).await {
+        Ok(owner) => owner,
+        Err(e) => return e.into_response(),
     };
 
     let repo_path = {
@@ -328,7 +352,9 @@ pub async fn trigger_pipeline(
         if let Err(e) = rg_core::platform::validate_repo_path(&name) {
             return AppError::bad_request(e.to_string()).into_response();
         }
-        state.repo_root.join(format!("{}/{}.git", owner, name))
+        state
+            .repo_root
+            .join(format!("{}/{}.git", owner_display, name))
     };
     if !repo_path.exists() {
         return AppError::not_found("repo path not found").into_response();
@@ -351,18 +377,18 @@ pub async fn trigger_pipeline(
     match state
         .ci_engine
         .trigger_pipeline(rg_core::ci::TriggerPipelineParams {
-        db: &state.db,
-        repo_path: &repo_path,
-        repo_id: repo.id,
-        commit_sha: &commit_sha,
-        ref_name: &ref_name,
-        trigger_type: "manual",
-        triggered_by: None,
-        docker_enabled: state.docker_enabled,
-        external_runners: state.external_runners,
-        jwt_secret: Some(&state.jwt_secret),
-    })
-    .await
+            db: &state.db,
+            repo_path: &repo_path,
+            repo_id: repo.id,
+            commit_sha: &commit_sha,
+            ref_name: &ref_name,
+            trigger_type: "manual",
+            triggered_by: Some(actor_id),
+            docker_enabled: state.docker_enabled,
+            external_runners: state.external_runners,
+            jwt_secret: Some(&state.jwt_secret),
+        })
+        .await
     {
         Ok(pipeline_id) => (
             StatusCode::CREATED,
@@ -400,8 +426,15 @@ pub async fn trigger_pipeline(
 )]
 pub async fn retry_pipeline(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path((owner, name, id)): Path<(String, String, i64)>,
 ) -> impl IntoResponse {
+    let (repo, actor_id) =
+        match resolve_repo_with_write_access(&state, &headers, &owner, &name).await {
+            Ok(access) => access,
+            Err(e) => return e.into_response(),
+        };
+
     let pipeline = match rg_db::ops::pipeline_ops::get_pipeline(&state.db, id).await {
         Ok(Some(p)) => p,
         Ok(None) => return AppError::not_found("pipeline not found").into_response(),
@@ -409,8 +442,16 @@ pub async fn retry_pipeline(
             return {
                 tracing::error!(%e, "handler error");
                 AppError::internal(e).into_response()
-            }
+            };
         }
+    };
+    if pipeline.repo_id != repo.id {
+        return AppError::not_found("pipeline not found").into_response();
+    }
+
+    let owner_display = match resolve_repo_storage_owner(&state, &repo, &owner).await {
+        Ok(owner) => owner,
+        Err(e) => return e.into_response(),
     };
 
     let repo_path = {
@@ -421,7 +462,9 @@ pub async fn retry_pipeline(
         if let Err(e) = rg_core::platform::validate_repo_path(&name) {
             return AppError::bad_request(e.to_string()).into_response();
         }
-        state.repo_root.join(format!("{}/{}.git", owner, name))
+        state
+            .repo_root
+            .join(format!("{}/{}.git", owner_display, name))
     };
     if !repo_path.exists() {
         return AppError::not_found("repo path not found").into_response();
@@ -436,12 +479,12 @@ pub async fn retry_pipeline(
             commit_sha: &pipeline.commit_sha,
             ref_name: &pipeline.ref_name,
             trigger_type: "retry",
-            triggered_by: pipeline.triggered_by,
+            triggered_by: Some(actor_id),
             docker_enabled: state.docker_enabled,
             external_runners: state.external_runners,
             jwt_secret: Some(&state.jwt_secret),
         })
-    .await
+        .await
     {
         Ok(new_id) => (
             StatusCode::CREATED,
@@ -478,8 +521,14 @@ pub async fn retry_pipeline(
 )]
 pub async fn cancel_pipeline(
     State(state): State<AppState>,
-    Path((_owner, _name, id)): Path<(String, String, i64)>,
+    headers: HeaderMap,
+    Path((owner, name, id)): Path<(String, String, i64)>,
 ) -> impl IntoResponse {
+    let (repo, _) = match resolve_repo_with_write_access(&state, &headers, &owner, &name).await {
+        Ok(access) => access,
+        Err(e) => return e.into_response(),
+    };
+
     let pipeline = match rg_db::ops::pipeline_ops::get_pipeline(&state.db, id).await {
         Ok(Some(p)) => p,
         Ok(None) => return AppError::not_found("pipeline not found").into_response(),
@@ -487,9 +536,12 @@ pub async fn cancel_pipeline(
             return {
                 tracing::error!(%e, "handler error");
                 AppError::internal(e).into_response()
-            }
+            };
         }
     };
+    if pipeline.repo_id != repo.id {
+        return AppError::not_found("pipeline not found").into_response();
+    }
 
     if pipeline.status != "running" && pipeline.status != "pending" {
         return AppError::bad_request("pipeline is not running or pending").into_response();
@@ -515,7 +567,7 @@ pub async fn cancel_pipeline(
             return {
                 tracing::error!(%e, "handler error");
                 AppError::internal(e).into_response()
-            }
+            };
         }
     };
 
@@ -564,28 +616,77 @@ pub async fn cancel_pipeline(
 
 // ── Helpers ──────────────────────────────────────────────────────
 
-async fn find_repo(
-    db: &DatabaseConnection,
+async fn resolve_repo(
+    state: &AppState,
     owner: &str,
     name: &str,
-) -> Result<Option<rg_db::entities::repository::Model>, anyhow::Error> {
-    // Find user by owner name
-    let user = rg_db::entities::user::Entity::find()
-        .filter(rg_db::entities::user::Column::Username.eq(owner))
-        .one(db)
-        .await?;
+) -> Result<rg_db::entities::repository::Model, AppError> {
+    rg_core::repo::service::find_repo_by_owner_name(&state.db, owner, name)
+        .await
+        .map_err(AppError::internal)?
+        .ok_or_else(|| AppError::not_found("repository not found"))
+}
 
-    let Some(user) = user else {
-        return Ok(None);
-    };
+async fn resolve_repo_with_read_access(
+    state: &AppState,
+    headers: &HeaderMap,
+    owner: &str,
+    name: &str,
+) -> Result<rg_db::entities::repository::Model, AppError> {
+    let repo = resolve_repo(state, owner, name).await?;
+    let actor_id = crate::api::auth::extract_user_id(headers, &state.jwt_secret);
 
-    let repo = rg_db::entities::repository::Entity::find()
-        .filter(rg_db::entities::repository::Column::OwnerId.eq(user.id))
-        .filter(rg_db::entities::repository::Column::Name.eq(name))
-        .one(db)
-        .await?;
+    match rg_core::repo::service::can_read_repo(&state.db, &repo, actor_id).await {
+        Ok(true) => Ok(repo),
+        Ok(false) if repo.is_private && actor_id.is_none() => {
+            Err(AppError::unauthorized("authentication required"))
+        }
+        Ok(false) => Err(AppError::forbidden("access denied")),
+        Err(e) => Err(AppError::internal(e)),
+    }
+}
 
-    Ok(repo)
+async fn resolve_repo_with_write_access(
+    state: &AppState,
+    headers: &HeaderMap,
+    owner: &str,
+    name: &str,
+) -> Result<(rg_db::entities::repository::Model, i64), AppError> {
+    let actor_id = crate::api::auth::extract_user_id(headers, &state.jwt_secret)
+        .ok_or_else(|| AppError::unauthorized("authentication required"))?;
+    let repo = resolve_repo(state, owner, name).await?;
+
+    match rg_core::repo::service::can_write_repo(&state.db, &repo, Some(actor_id)).await {
+        Ok(true) => Ok((repo, actor_id)),
+        Ok(false) => Err(AppError::forbidden("write access denied")),
+        Err(e) => Err(AppError::internal(e)),
+    }
+}
+
+async fn resolve_repo_storage_owner(
+    state: &AppState,
+    repo: &rg_db::entities::repository::Model,
+    route_owner: &str,
+) -> Result<String, AppError> {
+    if repo.org_id.is_some() {
+        return Ok(route_owner.to_string());
+    }
+
+    rg_db::ops::user_ops::find_by_id(&state.db, repo.owner_id)
+        .await
+        .map_err(AppError::internal)?
+        .map(|user| user.username)
+        .ok_or_else(|| AppError::internal("repository owner not found"))
+}
+
+async fn job_belongs_to_pipeline(state: &AppState, pipeline_id: i64, stage_id: i64) -> bool {
+    match rg_db::ops::pipeline_ops::list_stages_by_pipeline(&state.db, pipeline_id).await {
+        Ok(stages) => stages.iter().any(|stage| stage.id == stage_id),
+        Err(e) => {
+            tracing::error!(%e, pipeline_id, stage_id, "failed to verify job pipeline ownership");
+            false
+        }
+    }
 }
 
 fn resolve_commit_sha(repo_path: &std::path::Path, ref_name: &str) -> Option<String> {

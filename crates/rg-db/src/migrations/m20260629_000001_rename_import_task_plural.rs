@@ -1,6 +1,9 @@
-//! Corrective migration: m20260607_000004_create_import_tasks originally used
-//! `#[derive(Iden)] enum ImportTask { Table, ... }`, which created the singular
-//! table `import_task` while the SeaORM entity maps to `import_tasks`.
+//! Corrective migration: rename `import_task` to `import_tasks`.
+//!
+//! The original import task migration used `#[derive(Iden)] enum ImportTask`
+//! for the table identifier, which resolves to the singular table name
+//! `import_task`. The entity maps to `import_tasks`, so fresh databases need
+//! this compatibility rename when the singular table exists.
 
 use sea_orm::Statement;
 use sea_orm_migration::prelude::*;
@@ -16,11 +19,13 @@ impl MigrationName for Migration {
 #[async_trait::async_trait]
 impl MigrationTrait for Migration {
     async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        let db = manager.get_connection();
+        let backend = db.get_database_backend();
+
         if manager.has_table("import_task").await? && !manager.has_table("import_tasks").await? {
-            let db = manager.get_connection();
             db.execute(Statement::from_string(
-                db.get_database_backend(),
-                "ALTER TABLE \"import_task\" RENAME TO \"import_tasks\";".to_string(),
+                backend,
+                "ALTER TABLE \"import_task\" RENAME TO \"import_tasks\";".to_owned(),
             ))
             .await?;
         }
@@ -29,11 +34,13 @@ impl MigrationTrait for Migration {
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        let db = manager.get_connection();
+        let backend = db.get_database_backend();
+
         if manager.has_table("import_tasks").await? && !manager.has_table("import_task").await? {
-            let db = manager.get_connection();
             db.execute(Statement::from_string(
-                db.get_database_backend(),
-                "ALTER TABLE \"import_tasks\" RENAME TO \"import_task\";".to_string(),
+                backend,
+                "ALTER TABLE \"import_tasks\" RENAME TO \"import_task\";".to_owned(),
             ))
             .await?;
         }

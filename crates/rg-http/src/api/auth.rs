@@ -7,8 +7,8 @@
 //! - **User tokens**: Full-access tokens with username claim, issued at login.
 //!   Validated by `extract_user_id` and `extract_bearer_claims`.
 //! - **CI Job tokens** (`CI_JOB_TOKEN`): Least-privilege tokens scoped to a
-//!   specific repository. Validated by `extract_ci_job_claims` and
-//!   `extract_ci_or_user_id`. Used by CI jobs to call the IronForge API.
+//!   specific repository. Validated by `extract_ci_job_claims`. Used by CI jobs
+//!   to call selected read-only IronForge APIs.
 //!
 //! ## H-3: Unified Axum Extractor
 //!
@@ -27,14 +27,14 @@
 //! remains for cases where conditional auth is needed (e.g., anonymous-read repos).
 
 use axum::extract::FromRequestParts;
-use axum::http::{HeaderMap, StatusCode};
 use axum::http::request::Parts;
+use axum::http::{HeaderMap, StatusCode};
 use rg_core::auth::jwt::Claims;
 
 /// H-3: Unified auth extractor — handlers include this in their signature
 /// to get compile-time authentication guarantees.
 ///
-/// Extracts user_id from the `Authorization: Bearer <jwt>` header.
+/// Extracts user_id from the HttpOnly auth cookie or `Authorization: Bearer <jwt>` header.
 /// Returns 401 if the token is missing, invalid, or not a user token.
 #[derive(Debug, Clone, Copy)]
 pub struct AuthUser(pub i64);
@@ -99,10 +99,6 @@ pub(crate) fn extract_bearer_claims(headers: &HeaderMap, jwt_secret: &str) -> Op
 ///
 /// Returns the job token claims if valid and authorized. Returns None if the token
 /// is missing, invalid, expired, or lacks the required scope/repo access.
-// TODO(phase-22): Wire CI job token validation into CI-scoped route handlers.
-// The ci_token module in rg-core is functional and rg-ci/runner.rs already generates
-// tokens. These extractors are reserved for the HTTP-side validation layer.
-#[allow(dead_code)]
 pub(crate) fn extract_ci_job_claims(
     headers: &HeaderMap,
     jwt_secret: &str,
@@ -112,39 +108,4 @@ pub(crate) fn extract_ci_job_claims(
     let auth = headers.get("authorization")?.to_str().ok()?;
     let token = auth.strip_prefix("Bearer ")?;
     rg_core::auth::ci_token::validate_ci_token(token, jwt_secret, repo_id, required_scope)
-}
-
-/// Extract an authenticated actor for repo-scoped operations.
-///
-/// This function accepts **both** user tokens (returns user_id) and
-/// CI job tokens (returns 0 = machine actor). Use this for operations
-/// that should be accessible from CI jobs (e.g., status checks, file reads,
-/// package downloads).
-///
-/// For operations that require human authorization (admin, user settings,
-/// org management), use `extract_user_id` instead.
-// TODO(phase-22): Wire CI job token validation into CI-scoped route handlers.
-#[allow(dead_code)]
-pub(crate) fn extract_ci_or_user_id(
-    headers: &HeaderMap,
-    jwt_secret: &str,
-    repo_id: i64,
-    required_scope: &str,
-) -> Option<i64> {
-    let auth = headers.get("authorization")?.to_str().ok()?;
-    let token = auth.strip_prefix("Bearer ")?;
-
-    // Try user token first
-    if let Some(claims) = rg_core::auth::jwt::validate_token(token, jwt_secret) {
-        return claims.sub.parse::<i64>().ok();
-    }
-
-    // Try CI job token
-    if rg_core::auth::ci_token::validate_ci_token(token, jwt_secret, repo_id, required_scope)
-        .is_some()
-    {
-        return Some(0); // machine actor
-    }
-
-    None
 }

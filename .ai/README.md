@@ -9,14 +9,13 @@
 
 ### 1. MCP Server（推荐方式）
 
-IronForge 内置 **MCP Server**（`rg-mcp` crate），提供结构化的仓库/Issue/PR 数据访问。
+IronForge 内置 **MCP Server**（`rg-mcp` crate，二进制 `ironforge-mcp`），提供结构化的仓库/Issue/PR 数据访问。
 
 ```bash
 # 启动 MCP Server（stdio 模式，直接对接 AI 工具）
-ironforge mcp --repo /path/to/your/repo
+IRONFORGE_URL=http://localhost:8080 IRONFORGE_PAT=<token> ironforge-mcp
 
-# SSE 模式（HTTP 长连接，适合远程 AI 工具）
-ironforge mcp --transport sse --port 4000
+# SSE transport 当前未实现；不要使用 --sse 作为可用模式
 ```
 
 **Claude Code / Cline 配置**（`~/.claude/mcp.json` 或项目 `.claude/mcp.json`）：
@@ -25,9 +24,12 @@ ironforge mcp --transport sse --port 4000
 {
   "mcpServers": {
     "ironforge": {
-      "command": "ironforge",
-      "args": ["mcp", "--repo", ".", "--transport", "stdio"],
-      "env": {}
+      "command": "ironforge-mcp",
+      "args": [],
+      "env": {
+        "IRONFORGE_URL": "http://localhost:8080",
+        "IRONFORGE_PAT": "<token>"
+      }
     }
   }
 }
@@ -39,8 +41,12 @@ ironforge mcp --transport sse --port 4000
 {
   "mcpServers": {
     "ironforge": {
-      "command": "ironforge",
-      "args": ["mcp", "--repo", ".", "--transport", "stdio"]
+      "command": "ironforge-mcp",
+      "args": [],
+      "env": {
+        "IRONFORGE_URL": "http://localhost:8080",
+        "IRONFORGE_PAT": "<token>"
+      }
     }
   }
 }
@@ -92,10 +98,12 @@ AI Agent **必须**在阅读代码前先读取以下文件：
 
 | 文件 | 用途 | 优先级 |
 |------|------|--------|
+| `AGENT.md` | Agent 轻量入口（适合快速上手） | ⭐ 最高 |
 | `CLAUDE.md` | AI 统一入口：项目结构、关键约定、已实现功能清单、踩坑清单 | ⭐ 最高 |
-| `ARCHITECTURE.md` | 完整架构方案：技术选型、模块设计、数据库模型 | ⭐ 高 |
+| `ironforge-docs/project-architecture-2026-07.md` | 当前代码事实架构总览 | ⭐ 高 |
+| `ironforge-docs/frontend-backend-structure-2026-07.md` | 当前前后端结构与页面/API 映射 | ⭐ 高 |
+| `ARCHITECTURE.md` | 历史架构方案：技术选型、模块设计、数据库模型 | 中 |
 | `CONTRIBUTING.md` | 开发规范：crate 边界规则、编码规范、提交规范 | ⭐ 高 |
-| `AGENT.md` | Agent 轻量入口（适合快速上手） | 中 |
 
 ---
 
@@ -115,27 +123,23 @@ AI Agent **必须**在阅读代码前先读取以下文件：
 
 通过 MCP Server，AI Agent 可调用以下工具：
 
-### Repository
-- `list_repos(owner)` — 列出用户所有仓库
-- `get_repo(owner, name)` — 获取仓库详情
-- `create_repo(name, description, private)` — 创建新仓库
+| Tool | 说明 |
+|------|------|
+| `list_repos` | 列出当前 token 可访问的仓库 |
+| `read_file` | 读取仓库文件内容 |
+| `read_dir` | 列出仓库目录内容 |
+| `get_issue` | 获取单个 Issue 详情 |
+| `get_pr` | 获取单个 Pull Request 详情 |
 
-### Issue
-- `list_issues(owner, repo, state)` — 列出 Issue（open/closed/all）
-- `get_issue(owner, repo, number)` — 获取 Issue 详情
-- `create_issue(owner, repo, title, body, labels)` — 创建 Issue
-- `update_issue(owner, repo, number, title, body, state)` — 更新 Issue
-- `create_comment(owner, repo, number, body)` — 添加 Issue 评论
+可读取的 Resources：
 
-### Pull Request
-- `list_prs(owner, repo, state)` — 列出 PR
-- `get_pr(owner, repo, number)` — 获取 PR 详情
-- `create_pr(owner, repo, title, body, head, base)` — 创建 PR
-- `merge_pr(owner, repo, number, method)` — 合并 PR
+| Resource URI | 说明 |
+|--------------|------|
+| `repo://{owner}/{name}` | 仓库元数据 |
+| `file://{owner}/{name}/{path}` | 文件内容 |
+| `issue://{owner}/{name}/{number}` | Issue 详情 |
 
-### File Content
-- `list_tree(owner, repo, ref, path)` — 浏览文件树
-- `get_file(owner, repo, ref, path)` — 读取文件内容
+当前 MCP server 是只读能力面；创建仓库、创建/更新 Issue、创建/合并 PR 等写操作请走 REST API 或后续扩展。
 
 ---
 
@@ -158,4 +162,4 @@ AI Agent **必须**在阅读代码前先读取以下文件：
 
 ---
 
-*本文件由 WorkBuddy 生成，最后更新：2026-05-26*
+*本文件由 WorkBuddy 生成，最后更新：2026-07-05*

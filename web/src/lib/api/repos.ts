@@ -1,24 +1,17 @@
-import { request, qs, type PaginatedResponse } from './_base';
-
-type BranchRefResponse = string | { name: string; is_default?: boolean };
-type TagRefResponse = string | { name: string };
-
-interface CreateRepoOptions {
-  name: string;
-  description?: string;
-  is_private?: boolean;
-  org?: string;
-  auto_init?: boolean;
-  default_branch?: string;
-  gitignores?: string;
-  license?: string;
-  readme?: string;
-  issue_labels?: string;
-}
+import { request, qs, type PaginatedResponse } from './_base.svelte';
 
 function encodeRepoPath(path: string): string {
   return path.split('/').map(encodeURIComponent).join('/');
 }
+
+interface FileOperationResponse {
+  success: boolean;
+  file_path: string;
+  commit_sha: string;
+}
+
+type BranchRefResponse = string | { name: string; is_default?: boolean };
+type TagRefResponse = string | { name: string };
 
 function normalizeBranchRef(branch: BranchRefResponse): { name: string; is_default: boolean } {
   if (typeof branch === 'string') return { name: branch, is_default: false };
@@ -35,29 +28,74 @@ export const repos = {
     request<PaginatedResponse<{ id: number; name: string; description: string | null; is_private: boolean; created_at: string }>>(
       `/repos/${owner}${qs({ page, per_page: perPage })}`
     ),
+  explore: (page?: number, perPage?: number) =>
+    request<PaginatedResponse<{ id: number; owner_id: number; name: string; description: string | null; stars_count: number; updated_at: string }>>(
+      `/repos/explore${qs({ page, per_page: perPage })}`
+    ),
   get: (owner: string, name: string) =>
-    request<{ id: number; name: string; description: string | null; is_private: boolean; default_branch: string; created_at: string }>(`/repos/${owner}/${name}`),
-  create: (opts: CreateRepoOptions) =>
+    request<{
+      id: number;
+      name: string;
+      description: string | null;
+      is_private: boolean;
+      default_branch: string;
+      stars_count: number;
+      created_at: string;
+    }>(`/repos/${owner}/${name}`),
+  create: (opts: {
+    name: string;
+    description?: string;
+    is_private?: boolean;
+    org?: string;
+    auto_init?: boolean;
+    default_branch?: string;
+    gitignores?: string;
+    license?: string;
+    readme?: string;
+    issue_labels?: string;
+  }) =>
     request<{ id: number; name: string }>('/repos', {
       method: 'POST',
       body: JSON.stringify(opts),
     }),
-  tree: (owner: string, repo: string, ref?: string, path?: string) =>
-    request<{ entries: { name: string; kind: string; size?: number }[] }>(`/repos/${owner}/${repo}/tree${qs({ ref, path })}`),
-  blob: (owner: string, repo: string, path: string, ref?: string) =>
-    request<{ path: string; content: string; size: number; name: string; sha: string; encoding: string; is_binary: boolean }>(`/repos/${owner}/${repo}/blob/${encodeRepoPath(path)}${qs({ ref })}`),
-  saveContent: (owner: string, repo: string, path: string, data: { branch?: string; content: string; message: string; sha?: string }) =>
-    request<{ success: boolean; file_path: string; commit_sha: string }>(`/repos/${owner}/${repo}/contents/${encodeRepoPath(path)}`, {
+  templates: {
+    gitignores: () => request<{ data: { key: string; name: string; description: string }[] }>('/repos/templates/gitignores'),
+    licenses: () => request<{ data: { key: string; name: string; description: string }[] }>('/repos/templates/licenses'),
+    readmes: () => request<{ data: { key: string; name: string; description: string }[] }>('/repos/templates/readmes'),
+    labels: () => request<{ data: { key: string; name: string; description: string }[] }>('/repos/templates/labels'),
+  },
+  tree: (owner: string, repo: string, ref?: string, path?: string) => {
+    return request<{ entries: { name: string; kind: string; size?: number }[] }>(`/repos/${owner}/${repo}/tree${qs({ ref, path })}`);
+  },
+  blob: (owner: string, repo: string, path: string, ref?: string) => {
+    return request<{ path: string; content: string; size: number; name: string; sha: string; encoding: string; is_binary: boolean }>(`/repos/${owner}/${repo}/blob/${encodeRepoPath(path)}${qs({ ref })}`);
+  },
+  saveContent: (
+    owner: string,
+    repo: string,
+    path: string,
+    data: { branch?: string; content: string; message: string; sha?: string }
+  ) =>
+    request<FileOperationResponse>(`/repos/${owner}/${repo}/contents/${encodeRepoPath(path)}`, {
       method: 'POST',
       body: JSON.stringify(data),
     }),
-  deleteContent: (owner: string, repo: string, path: string, data: { branch?: string; message: string; sha: string }) =>
-    request<{ success: boolean; file_path: string; commit_sha: string; message: string }>(
-      `/repos/${owner}/${repo}/contents/${encodeRepoPath(path)}${qs({ branch: data.branch, message: data.message, sha: data.sha })}`,
-      { method: 'DELETE' }
-    ),
-  log: (owner: string, repo: string, ref?: string, path?: string) =>
-    request<{ commits: { sha: string; message: string; author: string; date: string }[] }>(`/repos/${owner}/${repo}/log${qs({ ref, path })}`),
+  deleteContent: (
+    owner: string,
+    repo: string,
+    path: string,
+    data: { branch?: string; message: string; sha: string }
+  ) =>
+    request<FileOperationResponse>(`/repos/${owner}/${repo}/contents/${encodeRepoPath(path)}${qs({
+      branch: data.branch,
+      message: data.message,
+      sha: data.sha,
+    })}`, {
+      method: 'DELETE',
+    }),
+  log: (owner: string, repo: string, ref?: string, path?: string) => {
+    return request<{ commits: { sha: string; message: string; author: string; date: string }[] }>(`/repos/${owner}/${repo}/log${qs({ ref, path })}`);
+  },
   branches: (owner: string, repo: string) =>
     request<BranchRefResponse[]>(`/repos/${owner}/${repo}/branches`).then((branches) => branches.map(normalizeBranchRef)),
   tags: (owner: string, repo: string) =>
@@ -95,7 +133,10 @@ export const repos = {
   transfer: (owner: string, repo: string, newOwner: string) =>
     request<any>(`/repos/${owner}/${repo}/transfer`, { method: 'POST', body: JSON.stringify({ new_owner: newOwner }) }),
   createCommitStatus: (owner: string, repo: string, sha: string, data: { state: string; context: string; description?: string; target_url?: string }) =>
-    request<any>(`/repos/${owner}/${repo}/statuses/${sha}`, { method: 'POST', body: JSON.stringify(data) }),
+    request<any>(`/repos/${owner}/${repo}/statuses/${sha}`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
   listCommitStatuses: (owner: string, repo: string, sha: string) =>
     request<any[]>(`/repos/${owner}/${repo}/commits/${sha}/statuses`),
   getCombinedStatus: (owner: string, repo: string, sha: string) =>

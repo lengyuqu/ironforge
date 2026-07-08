@@ -1,6 +1,6 @@
 mod common;
 
-use common::{register_user, spawn_test_app};
+use common::{register_full, register_user, spawn_test_app, spawn_test_app_with_db};
 
 // ── Health endpoint ──────────────────────────────────────────────
 
@@ -141,6 +141,70 @@ async fn test_me_authenticated() {
     let body: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(body["username"], "dana_test");
     assert_eq!(body["email"], "dana@example.com");
+}
+
+#[tokio::test]
+async fn test_me_accepts_httponly_cookie_without_bearer() {
+    let base = spawn_test_app().await;
+    register_user(&base, "cookie_user", "cookie_user@example.com", "Qz7$wRtm").await;
+    let client = reqwest::Client::new();
+
+    let login_resp = client
+        .post(format!("{}/api/v1/users/login", base))
+        .json(&serde_json::json!({
+            "login": "cookie_user",
+            "password": "Qz7$wRtm"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(login_resp.status(), 200);
+    let auth_cookie = login_resp
+        .headers()
+        .get(reqwest::header::SET_COOKIE)
+        .expect("login should set auth cookie")
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_string();
+
+    let resp = client
+        .get(format!("{}/api/v1/users/me", base))
+        .header(reqwest::header::COOKIE, auth_cookie)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(body["username"], "cookie_user");
+}
+
+#[tokio::test]
+async fn test_disable_mfa_rejects_wrong_password() {
+    let (base, db) = spawn_test_app_with_db().await;
+    let (token, user_id) = register_full(&base, "mfa_user", "mfa_user@example.com").await;
+    rg_db::ops::user_ops::enable_mfa(&db, user_id, "totp")
+        .await
+        .unwrap();
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .post(format!("{}/api/v1/users/mfa/disable", base))
+        .bearer_auth(&token)
+        .json(&serde_json::json!({ "password": "wrong-password" }))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 401);
+    let user = rg_db::ops::user_ops::find_by_id(&db, user_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(user.mfa_enabled);
 }
 
 // ── Repo CRUD ────────────────────────────────────────────────────

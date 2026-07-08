@@ -13,14 +13,17 @@
 
 - **目标**: 内存 <50MB、单二进制部署、全功能（仓库/Issue/PR/Wiki/CI）
 - **阶段**: Phase 1~20 全部完成（核心功能 + Protocol V2 + 前端 i18n + P0/P1/P2 Gap + CI/CD Runner + 工程化）+ Phase 21（Package Registry / LDAP/SSO/2FA / Audit Log / Mirror / Board / Tracking / 代码搜索 / SSH V2）
-- **技术栈**: Rust (Axum/SeaORM) + SvelteKit 5，SQLite/PostgreSQL，gix (gitoxide)
+- **技术栈**: Rust (Axum/SeaORM) + SvelteKit 5，SQLite，gix (gitoxide) + Git CLI gateway
 
 ### 关键文件速查
 
 | 文件 | 用途 | 何时读取 |
 |------|------|---------|
 | `CLAUDE.md` | 最完整的 AI 协作上下文（踩坑记录、依赖版本、常见错误、实现现状清单） | **每次开始工作前必读** |
-| `ARCHITECTURE.md` | 完整架构方案、技术选型决策、数据库模型 | 设计新功能时 |
+| `ironforge-docs/project-architecture-2026-07.md` | 当前代码事实架构总览 | 设计新功能、核验模块边界时 |
+| `ironforge-docs/frontend-backend-structure-2026-07.md` | 当前前后端结构和页面/API 映射 | 修改前端页面、API client 或 HTTP handler 时 |
+| `ironforge-docs/architecture-followups-2026-07.md` | 当前已修复项、P2 长期方向和旧口径修正 | 判断风险、技术债和后续方向时 |
+| `ARCHITECTURE.md` | 历史架构方案、技术选型决策、数据库模型 | 了解设计背景；当前事实以 2026-07 架构文档为准 |
 | `CONTRIBUTING.md` | 开发规范、crate 边界规则、编码规范、Phase 计划 | 写新代码时 |
 | `README.md` | 快速开始、REST API 示例、E2E 测试脚本 | 首次接触项目时 |
 | `.ai/README.md` | AI Agent 接入指南（MCP + REST API + prompt 模板） | 需要让 AI 工具调用 IronForge 时 |
@@ -32,7 +35,7 @@
 ```
 ironforge/
 ├── Cargo.toml              # Workspace 根（统一依赖版本）
-├── ARCHITECTURE.md         # 完整架构方案
+├── ARCHITECTURE.md         # 历史架构方案
 ├── CLAUDE.md               # 最完整的 AI 协作上下文 ⭐
 ├── CONTRIBUTING.md         # 开发规范
 ├── AGENT.md                # 本文件（AI 统一入口）
@@ -45,6 +48,10 @@ ironforge/
 │   ├── git-protocol.md             # Git 协议实现细节与踩坑记录
 │   ├── ai-agent-integration.md     # AI Agent 集成方案
 │   └── project-audit-2026-06.md    # 项目审计报告
+├── ironforge-docs/
+│   ├── project-architecture-2026-07.md          # 当前架构总览
+│   ├── frontend-backend-structure-2026-07.md    # 前后端结构分布
+│   └── architecture-followups-2026-07.md        # 架构差异与后续方向
 ├── crates/
 │   ├── rg-cli/             # 主二进制入口（bin = "ironforge"）
 │   ├── rg-core/            # 核心业务逻辑
@@ -54,7 +61,7 @@ ironforge/
 │   ├── rg-db/              # 数据库层（SeaORM + SQLite）
 │   ├── rg-ci/              # CI/CD 引擎
 │   ├── rg-runner/          # Runner Agent（bin = "ironforge-runner"）
-│   └── rg-mcp/             # MCP 服务器（bin = "ironforge-mcp"，stdio/SSE）
+│   └── rg-mcp/             # MCP 服务器（bin = "ironforge-mcp"，stdio-only）
 └── web/                    # SvelteKit 前端（不在 crates/ 下）
 ```
 
@@ -66,9 +73,9 @@ ironforge/
 |------|------|------|
 | HTTP 框架 | axum + axum-server | 0.8 / 0.7 |
 | SSH 服务端 | russh | 0.51 |
-| Git 操作 | gix (gitoxide) + git CLI fallback | 0.83 |
+| Git 操作 | gix (gitoxide) + git CLI fallback | 0.84 |
 | ORM | SeaORM | 1.1 |
-| 数据库 | SQLite（默认）/ PostgreSQL（生产） | — |
+| 数据库 | SQLite | — |
 | 前端 | SvelteKit 5 SPA | — |
 | 认证 | argon2 + JWT HS256 | — |
 | TLS | rustls + axum-server | — |
@@ -101,7 +108,9 @@ cargo build --release
 
 ### 开发新功能 / 规划下一步
 → `CLAUDE.md` 中「实现现状」表格 — 确认功能是否已实现
-→ `ARCHITECTURE.md` — 了解设计意图
+→ `ironforge-docs/project-architecture-2026-07.md` — 核验当前架构事实
+→ `ironforge-docs/architecture-followups-2026-07.md` — 查看已修复项和长期方向
+→ `ARCHITECTURE.md` — 了解历史设计意图
 → `CONTRIBUTING.md` — 遵循编码规范
 
 ### gix 迁移 / 替换 git CLI 调用
@@ -121,7 +130,7 @@ cargo build --release
 |---------|-------------|---------|
 | **Claude Code** | `CLAUDE.md`（默认）+ `AGENT.md` | 本文件提供概览，`CLAUDE.md` 提供最完整细节 |
 | **Codex / Trae / CodeBuddy** | `AGENT.md`（优先）+ `CLAUDE.md` | 本文件提供概览，`CLAUDE.md` 提供踩坑记录和依赖版本 |
-| **WorkBuddy** | `.workbuddy/memory/MEMORY.md` | `AGENT.md` + `CLAUDE.md` + `ARCHITECTURE.md` |
+| **WorkBuddy** | `.workbuddy/memory/MEMORY.md` | `AGENT.md` + `CLAUDE.md` + 2026-07 架构文档 |
 
 > 💡 **设计意图**: `AGENT.md` 是轻量级统一入口（适合所有 AI 工具快速上手），`CLAUDE.md` 是深度上下文（包含完整的踩坑记录、依赖版本、常见错误排查）。两者互补，建议搭配使用。
 
@@ -134,6 +143,9 @@ cargo build --release
 | 报告 | 内容 | 状态 |
 |------|------|------|
 | `README.md` | 报告索引 + 项目状态总览 | 最新 |
+| `project-architecture-2026-07.md` | 当前项目架构总览 | 最新 |
+| `frontend-backend-structure-2026-07.md` | 当前前后端结构分布 | 最新 |
+| `architecture-followups-2026-07.md` | 已修复项、P2 长期方向和旧口径修正 | 最新 |
 | `gitea-vs-ironforge-2026.md` | vs Gitea 功能对比（v2.0 全面更新） | 当前 |
 | `gitea-gap-list.csv` | 功能差距清单（CSV 格式） | 当前 |
 | `ci-runner-architecture.md` | CI Runner 架构设计 | 当前 |

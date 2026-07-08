@@ -4,9 +4,10 @@
 //! MCP (Model Context Protocol) server that exposes IronForge
 //! repository data as Tools and Resources to AI agents.
 //!
-//! Supported transports:
-//! - **stdio** (default): for Claude Code, Cursor, Continue.dev
-//! - **sse** (--sse flag): for web-based agents
+//! Supported transport:
+//! - **stdio**: run as a subprocess of an MCP-capable agent.
+//!
+//! HTTP SSE transport is intentionally not advertised until implemented.
 
 pub mod client;
 pub mod error;

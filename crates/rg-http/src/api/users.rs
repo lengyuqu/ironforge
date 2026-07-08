@@ -2,7 +2,7 @@
 //!
 //! POST /api/v1/users/register
 //! POST /api/v1/users/login
-//! GET  /api/v1/users/me  (requires Bearer token)
+//! GET  /api/v1/users/me  (requires authenticated user cookie or Bearer token)
 
 use axum::{
     extract::{Path, State},
@@ -13,16 +13,15 @@ use axum::{
 use serde::Deserialize;
 use utoipa::ToSchema;
 
+use crate::api::auth::AUTH_COOKIE_NAME;
 use crate::error::AppError;
 use crate::AppState;
-use crate::api::auth::AUTH_COOKIE_NAME;
 
 /// M-4: Build a `Set-Cookie` header value for the HttpOnly auth cookie.
 fn build_auth_cookie(token: &str, is_https: bool) -> String {
     let mut cookie = format!(
         "{}={}; HttpOnly; Path=/; SameSite=Strict; Max-Age=604800",
-        AUTH_COOKIE_NAME,
-        token
+        AUTH_COOKIE_NAME, token
     );
     if is_https {
         cookie.push_str("; Secure");
@@ -274,19 +273,9 @@ pub async fn logout(headers: HeaderMap) -> impl IntoResponse {
 )]
 /// GET /api/v1/users/me — returns the current user's profile.
 pub async fn me(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
-    let claims = match super::auth::extract_bearer_claims(&headers, &state.jwt_secret) {
-        Some(c) => c,
-        None => {
-            return AppError::unauthorized("missing or invalid token".to_string()).into_response()
-        }
-    };
-
-    let user_id: i64 = match claims.sub.parse::<i64>() {
-        Ok(id) => id,
-
-        Err(_) => {
-            return AppError::unauthorized("invalid token subject".to_string()).into_response()
-        }
+    let user_id = match super::auth::extract_user_id(&headers, &state.jwt_secret) {
+        Some(id) => id,
+        None => return AppError::unauthorized("missing or invalid token").into_response(),
     };
 
     match rg_db::ops::user_ops::find_by_id(&state.db, user_id).await {
@@ -365,16 +354,10 @@ fn hash_token(token: &str) -> String {
     ),
 )]
 pub async fn list_tokens(State(state): State<AppState>, headers: HeaderMap) -> impl IntoResponse {
-    let claims = match super::auth::extract_bearer_claims(&headers, &state.jwt_secret) {
-        Some(c) => c,
+    let user_id = match super::auth::extract_user_id(&headers, &state.jwt_secret) {
+        Some(id) => id,
         None => {
             return AppError::unauthorized("authentication required".to_string()).into_response();
-        }
-    };
-    let user_id: i64 = match claims.sub.parse::<i64>() {
-        Ok(id) => id,
-        Err(_) => {
-            return AppError::unauthorized("invalid token subject".to_string()).into_response()
         }
     };
 
@@ -415,16 +398,10 @@ pub async fn create_token(
     headers: HeaderMap,
     Json(body): Json<CreateTokenRequest>,
 ) -> impl IntoResponse {
-    let claims = match super::auth::extract_bearer_claims(&headers, &state.jwt_secret) {
-        Some(c) => c,
+    let user_id = match super::auth::extract_user_id(&headers, &state.jwt_secret) {
+        Some(id) => id,
         None => {
             return AppError::unauthorized("authentication required".to_string()).into_response();
-        }
-    };
-    let user_id: i64 = match claims.sub.parse::<i64>() {
-        Ok(id) => id,
-        Err(_) => {
-            return AppError::unauthorized("invalid token subject".to_string()).into_response()
         }
     };
 
@@ -486,16 +463,10 @@ pub async fn delete_token(
     headers: HeaderMap,
     Path(id): Path<i64>,
 ) -> impl IntoResponse {
-    let claims = match super::auth::extract_bearer_claims(&headers, &state.jwt_secret) {
-        Some(c) => c,
+    let user_id = match super::auth::extract_user_id(&headers, &state.jwt_secret) {
+        Some(id) => id,
         None => {
             return AppError::unauthorized("authentication required".to_string()).into_response();
-        }
-    };
-    let user_id: i64 = match claims.sub.parse::<i64>() {
-        Ok(id) => id,
-        Err(_) => {
-            return AppError::unauthorized("invalid token subject".to_string()).into_response()
         }
     };
 

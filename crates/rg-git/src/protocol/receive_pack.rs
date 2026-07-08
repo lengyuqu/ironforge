@@ -65,6 +65,22 @@ where
     do_receive_pack_stream(repo_path, stream).await
 }
 
+/// Handle receive-pack with a caller-provided pre-receive validator.
+///
+/// The validator receives the parsed ref update commands before pack indexing
+/// and before any ref is written. It can mark individual updates as `error`
+/// while leaving allowed updates as `ok`.
+pub async fn handle_receive_pack_stream_with_rejections<S>(
+    repo_path: &Path,
+    stream: &mut S,
+    rejected_refs: Vec<(String, String)>,
+) -> Result<Vec<RefUpdate>>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    do_receive_pack_stream_with_rejections(repo_path, stream, rejected_refs).await
+}
+
 /// Handle receive-pack for HTTP mode where ref advertisement is already sent.
 /// Returns the list of ref updates that were processed.
 pub async fn handle_receive_pack_http<R, W>(
@@ -79,6 +95,24 @@ where
     let mut reader = BufReader::new(reader);
 
     let results = process_push(repo_path, &mut reader).await?;
+    send_response(&mut writer, &results).await?;
+    Ok(results)
+}
+
+/// Handle receive-pack for HTTP mode with a caller-provided pre-receive validator.
+pub async fn handle_receive_pack_http_with_rejections<R, W>(
+    repo_path: &Path,
+    reader: R,
+    mut writer: W,
+    rejected_refs: Vec<(String, String)>,
+) -> Result<Vec<RefUpdate>>
+where
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin,
+{
+    let mut reader = BufReader::new(reader);
+
+    let results = process_push_with_rejections(repo_path, &mut reader, &rejected_refs).await?;
     send_response(&mut writer, &results).await?;
     Ok(results)
 }
@@ -102,6 +136,30 @@ where
     };
 
     // Phase 2: Write response (BufReader is dropped, stream is available again)
+    send_response(stream, &results).await?;
+    Ok(results)
+}
+
+async fn do_receive_pack_stream_with_rejections<S>(
+    repo_path: &Path,
+    stream: &mut S,
+    rejected_refs: Vec<(String, String)>,
+) -> Result<Vec<RefUpdate>>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    let ref_list = build_ref_list(repo_path);
+    let ad = build_ref_advertisement(&ref_list, "git-receive-pack");
+    for pkt in &ad {
+        write_pkt_line(stream, pkt).await?;
+    }
+    write_flush(stream).await?;
+
+    let results = {
+        let mut reader = BufReader::new(&mut *stream);
+        process_push_with_rejections(repo_path, &mut reader, &rejected_refs).await?
+    };
+
     send_response(stream, &results).await?;
     Ok(results)
 }
@@ -190,6 +248,17 @@ async fn process_push<R: AsyncRead + Unpin>(
     repo_path: &Path,
     reader: &mut BufReader<R>,
 ) -> Result<Vec<RefUpdate>> {
+    process_push_with_rejections(repo_path, reader, &[]).await
+}
+
+async fn process_push_with_rejections<R>(
+    repo_path: &Path,
+    reader: &mut BufReader<R>,
+    rejected_refs: &[(String, String)],
+) -> Result<Vec<RefUpdate>>
+where
+    R: AsyncRead + Unpin,
+{
     let mut updates = Vec::new();
 
     // Read update commands using proper pkt-line parsing.
@@ -258,6 +327,25 @@ async fn process_push<R: AsyncRead + Unpin>(
     }
 
     if updates.is_empty() {
+        return Ok(updates);
+    }
+
+    for update in &mut updates {
+        if update.status != "ok" {
+            continue;
+        }
+
+        if let Some((_, message)) = rejected_refs
+            .iter()
+            .find(|(refname, _)| refname == &update.refname)
+        {
+            update.status = "error".to_string();
+            update.message = message.clone();
+        }
+    }
+
+    if !updates.iter().any(|update| update.status == "ok") {
+        drain_pack(reader).await?;
         return Ok(updates);
     }
 
@@ -338,6 +426,16 @@ async fn process_push<R: AsyncRead + Unpin>(
     }
 
     Ok(updates)
+}
+
+async fn drain_pack<R: AsyncRead + Unpin>(reader: &mut BufReader<R>) -> Result<()> {
+    let mut buf = [0u8; 8192];
+    loop {
+        let n = reader.read(&mut buf).await?;
+        if n == 0 {
+            return Ok(());
+        }
+    }
 }
 
 /// Update a ref to point to a new SHA using gix API.

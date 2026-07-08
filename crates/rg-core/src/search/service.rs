@@ -1,4 +1,4 @@
-//! FTS5 global search service.
+//! Global search service — cross-backend full-text search.
 //!
 //! Supports GitHub-style search qualifiers:
 //!   - `repo:owner/name` — filter by repository
@@ -9,10 +9,15 @@
 //!   - `language:rust` — filter by primary language (future)
 //!
 //! Example: `q=bug fix repo:owner/repo state:open`
+//!
+//! The actual FTS predicate / ordering is produced per-backend by
+//! [`crate::search::dialect`]; this module stays dialect-agnostic.
 
 use anyhow::{Context, Result};
 use sea_orm::{ConnectionTrait, DatabaseConnection, Statement, Value};
 use serde::Serialize;
+
+use crate::search::dialect::{fts_match, ISSUES_FTS_COLS, REPOS_FTS_COLS, WIKI_FTS_COLS};
 
 /// A unified search result.
 #[derive(Debug, Serialize)]
@@ -80,7 +85,7 @@ impl SearchFilters {
     }
 }
 
-/// Search across repositories, issues, and/or wiki pages using FTS5.
+/// Search across repositories, issues, and/or wiki pages.
 /// Supports qualifier-based filtering via `q` parameter.
 pub async fn search(
     db: &DatabaseConnection,
@@ -93,31 +98,25 @@ pub async fn search(
     let limit = per_page.min(100);
 
     let filters = SearchFilters::parse(raw_query);
+    let raw_text = filters.query.as_str();
 
     let mut results = Vec::new();
     let mut total = 0i64;
 
-    // Sanitize FTS query (escape special characters)
-    let safe_query = if filters.query.is_empty() {
-        "*".to_string() // match everything if no text query
-    } else {
-        fts_escape(&filters.query)
-    };
-
     if search_type == "all" || search_type == "repos" {
-        let (repos, count) = search_repos(db, &safe_query, &filters, offset, limit).await?;
+        let (repos, count) = search_repos(db, raw_text, &filters, offset, limit).await?;
         total += count;
         results.extend(repos);
     }
 
     if search_type == "all" || search_type == "issues" {
-        let (issues, count) = search_issues(db, &safe_query, &filters, offset, limit).await?;
+        let (issues, count) = search_issues(db, raw_text, &filters, offset, limit).await?;
         total += count;
         results.extend(issues);
     }
 
     if search_type == "all" || search_type == "wiki" {
-        let (wiki, count) = search_wiki(db, &safe_query, &filters, offset, limit).await?;
+        let (wiki, count) = search_wiki(db, raw_text, &filters, offset, limit).await?;
         total += count;
         results.extend(wiki);
     }
@@ -133,14 +132,6 @@ pub async fn search(
     Ok((results, total))
 }
 
-/// Escape FTS5 special characters in query for safe inclusion in a phrase-search MATCH.
-/// Wraps the query in double quotes for FTS5 phrase-search mode (literal matching).
-/// Escapes embedded double-quotes by doubling them (`"` → `""`) per FTS5 spec.
-fn fts_escape(query: &str) -> String {
-    let escaped = query.replace('"', "\"\"");
-    format!("\"{}\"", escaped)
-}
-
 /// Build SQL WHERE clauses from filters (parameterized — no SQL injection).
 /// Returns (clauses, joins, params) where clauses/params must be used with `?` placeholders.
 fn build_filter_clauses(
@@ -152,7 +143,6 @@ fn build_filter_clauses(
     let mut params = Vec::new();
 
     if let Some(ref repo) = filters.repo {
-        // Parse "owner/name" format
         if let Some((owner, name)) = repo.split_once('/') {
             joins.push(format!(
                 "JOIN repositories r_filt ON r_filt.id = {}.repo_id",
@@ -163,7 +153,6 @@ fn build_filter_clauses(
             params.push(Value::from(owner.to_string()));
             params.push(Value::from(name.to_string()));
         } else {
-            // Just repo name, match by name
             joins.push(format!(
                 "JOIN repositories r_filt ON r_filt.id = {}.repo_id",
                 table_alias
@@ -190,10 +179,9 @@ fn build_issue_filter_clauses(filters: &SearchFilters) -> (Vec<String>, Vec<Stri
 
     if let Some(ref state) = filters.state {
         if state != "all" {
-            // Only allow known state values
             let safe_state = match state.as_str() {
                 "open" | "closed" => state.as_str(),
-                _ => "open", // default fallback
+                _ => "open",
             };
             clauses.push("i.state = ?".to_string());
             params.push(Value::from(safe_state.to_string()));
@@ -210,22 +198,41 @@ fn build_issue_filter_clauses(filters: &SearchFilters) -> (Vec<String>, Vec<Stri
     (clauses, joins, params)
 }
 
+/// Combine the FTS predicate + filter clauses into a single WHERE clause and the
+/// parameter list (query values first, then filter values).
+fn combine_where(
+    match_pred: &str,
+    filter_clauses: &[String],
+) -> (String, Vec<Value>) {
+    match (match_pred.is_empty(), filter_clauses.is_empty()) {
+        (true, true) => ("1=1".to_string(), Vec::new()),
+        (true, false) => (filter_clauses.join(" AND "), Vec::new()),
+        (false, true) => (match_pred.to_string(), Vec::new()),
+        (false, false) => (
+            format!("{} AND ({})", match_pred, filter_clauses.join(" AND ")),
+            Vec::new(),
+        ),
+    }
+}
+
 /// Search repositories by name and description, with optional filters.
 async fn search_repos(
     db: &DatabaseConnection,
-    query: &str,
+    raw_query: &str,
     filters: &SearchFilters,
     offset: u64,
     limit: u64,
 ) -> Result<(Vec<SearchResult>, i64)> {
+    let backend = db.get_database_backend();
     let (filter_clauses, extra_joins, filter_params) = build_filter_clauses(filters, "r");
-    let base_where = format!("repos_fts MATCH {}", query);
 
-    let where_clause = if filter_clauses.is_empty() {
-        base_where.clone()
+    let (match_pred, order_clause, query_values) = if raw_query.is_empty() {
+        (String::new(), String::new(), Vec::new())
     } else {
-        format!("{} AND ({})", base_where, filter_clauses.join(" AND "))
+        fts_match(backend, "repos_fts", REPOS_FTS_COLS, raw_query)
     };
+
+    let (where_clause, _) = combine_where(&match_pred, &filter_clauses);
     let joins_sql = if extra_joins.is_empty() {
         String::new()
     } else {
@@ -240,18 +247,21 @@ async fn search_repos(
         LEFT JOIN users u ON u.id = r.owner_id
         {}
         WHERE {}
-        ORDER BY rank
+        {}
         LIMIT {} OFFSET {}
         "#,
-        joins_sql, where_clause, limit, offset
+        joins_sql, where_clause, order_clause, limit, offset
     );
 
+    let params: Vec<Value> = query_values
+        .iter()
+        .cloned()
+        .map(Value::from)
+        .chain(filter_params.iter().cloned())
+        .collect();
+
     let rows = db
-        .query_all(Statement::from_sql_and_values(
-            sea_orm::DatabaseBackend::Sqlite,
-            &sql,
-            filter_params.clone(),
-        ))
+        .query_all(Statement::from_sql_and_values(backend, &sql, params))
         .await
         .context("fts: search repos")?;
 
@@ -273,7 +283,6 @@ async fn search_repos(
         });
     }
 
-    // Count total (with same filters)
     let count_sql = format!(
         r#"
         SELECT COUNT(DISTINCT f.rowid)
@@ -285,12 +294,14 @@ async fn search_repos(
         "#,
         joins_sql, where_clause
     );
+    let count_params: Vec<Value> = query_values
+        .iter()
+        .cloned()
+        .map(Value::from)
+        .chain(filter_params.iter().cloned())
+        .collect();
     let count_rows = db
-        .query_all(Statement::from_sql_and_values(
-            sea_orm::DatabaseBackend::Sqlite,
-            &count_sql,
-            filter_params,
-        ))
+        .query_all(Statement::from_sql_and_values(backend, &count_sql, count_params))
         .await
         .context("fts: count repos")?;
     let total: i64 = count_rows
@@ -304,11 +315,12 @@ async fn search_repos(
 /// Search issues by title and body, with optional filters (repo, state, author, label).
 async fn search_issues(
     db: &DatabaseConnection,
-    query: &str,
+    raw_query: &str,
     filters: &SearchFilters,
     offset: u64,
     limit: u64,
 ) -> Result<(Vec<SearchResult>, i64)> {
+    let backend = db.get_database_backend();
     let (mut common_clauses, common_joins, mut common_params) = build_filter_clauses(filters, "i");
     let (issue_clauses, issue_joins, issue_params) = build_issue_filter_clauses(filters);
 
@@ -316,14 +328,13 @@ async fn search_issues(
     common_params.extend(issue_params);
     let all_joins = format!("{}\n{}", common_joins.join("\n"), issue_joins.join("\n"));
 
-    let base_where = format!("issues_fts MATCH {}", query);
-
-    // Build WHERE clause
-    let where_clause = if common_clauses.is_empty() {
-        base_where.clone()
+    let (match_pred, order_clause, query_values) = if raw_query.is_empty() {
+        (String::new(), String::new(), Vec::new())
     } else {
-        format!("{} AND ({})", base_where, common_clauses.join(" AND "))
+        fts_match(backend, "issues_fts", ISSUES_FTS_COLS, raw_query)
     };
+
+    let (where_clause, _) = combine_where(&match_pred, &common_clauses);
 
     let sql = format!(
         r#"
@@ -334,18 +345,21 @@ async fn search_issues(
         LEFT JOIN users u ON u.id = r.owner_id
         {}
         WHERE {}
-        ORDER BY rank
+        {}
         LIMIT {} OFFSET {}
         "#,
-        all_joins, where_clause, limit, offset
+        all_joins, where_clause, order_clause, limit, offset
     );
 
+    let params: Vec<Value> = query_values
+        .iter()
+        .cloned()
+        .map(Value::from)
+        .chain(common_params.iter().cloned())
+        .collect();
+
     let rows = db
-        .query_all(Statement::from_sql_and_values(
-            sea_orm::DatabaseBackend::Sqlite,
-            &sql,
-            common_params.clone(),
-        ))
+        .query_all(Statement::from_sql_and_values(backend, &sql, params))
         .await
         .context("fts: search issues")?;
 
@@ -371,12 +385,6 @@ async fn search_issues(
         });
     }
 
-    // Count total (with same filters)
-    let count_where = if common_clauses.is_empty() {
-        base_where
-    } else {
-        format!("{} AND ({})", base_where, common_clauses.join(" AND "))
-    };
     let count_sql = format!(
         r#"
         SELECT COUNT(DISTINCT i.id)
@@ -385,14 +393,16 @@ async fn search_issues(
         {}
         WHERE {}
         "#,
-        all_joins, count_where
+        all_joins, where_clause
     );
+    let count_params: Vec<Value> = query_values
+        .iter()
+        .cloned()
+        .map(Value::from)
+        .chain(common_params.iter().cloned())
+        .collect();
     let count_rows = db
-        .query_all(Statement::from_sql_and_values(
-            sea_orm::DatabaseBackend::Sqlite,
-            &count_sql,
-            common_params.clone(),
-        ))
+        .query_all(Statement::from_sql_and_values(backend, &count_sql, count_params))
         .await
         .context("fts: count issues")?;
     let total: i64 = count_rows
@@ -406,20 +416,21 @@ async fn search_issues(
 /// Search wiki pages by title and content, with optional filters.
 async fn search_wiki(
     db: &DatabaseConnection,
-    query: &str,
+    raw_query: &str,
     filters: &SearchFilters,
     offset: u64,
     limit: u64,
 ) -> Result<(Vec<SearchResult>, i64)> {
+    let backend = db.get_database_backend();
     let (filter_clauses, extra_joins, filter_params) = build_filter_clauses(filters, "w");
 
-    let base_where = format!("wiki_pages_fts MATCH {}", query);
-
-    let where_clause = if filter_clauses.is_empty() {
-        base_where.clone()
+    let (match_pred, order_clause, query_values) = if raw_query.is_empty() {
+        (String::new(), String::new(), Vec::new())
     } else {
-        format!("{} AND ({})", base_where, filter_clauses.join(" AND "))
+        fts_match(backend, "wiki_pages_fts", WIKI_FTS_COLS, raw_query)
     };
+
+    let (where_clause, _) = combine_where(&match_pred, &filter_clauses);
 
     let sql = format!(
         r#"
@@ -430,21 +441,25 @@ async fn search_wiki(
         LEFT JOIN users u ON u.id = r.owner_id
         {}
         WHERE {}
-        ORDER BY rank
+        {}
         LIMIT {} OFFSET {}
         "#,
         extra_joins.join("\n"),
         where_clause,
+        order_clause,
         limit,
         offset
     );
 
+    let params: Vec<Value> = query_values
+        .iter()
+        .cloned()
+        .map(Value::from)
+        .chain(filter_params.iter().cloned())
+        .collect();
+
     let rows = db
-        .query_all(Statement::from_sql_and_values(
-            sea_orm::DatabaseBackend::Sqlite,
-            &sql,
-            filter_params.clone(),
-        ))
+        .query_all(Statement::from_sql_and_values(backend, &sql, params))
         .await
         .context("fts: search wiki")?;
 
@@ -468,7 +483,6 @@ async fn search_wiki(
         });
     }
 
-    // Count total
     let joins_sql = if extra_joins.is_empty() {
         String::new()
     } else {
@@ -487,12 +501,14 @@ async fn search_wiki(
         "#,
         joins_sql, where_clause
     );
+    let count_params: Vec<Value> = query_values
+        .iter()
+        .cloned()
+        .map(Value::from)
+        .chain(filter_params.iter().cloned())
+        .collect();
     let count_rows = db
-        .query_all(Statement::from_sql_and_values(
-            sea_orm::DatabaseBackend::Sqlite,
-            &count_sql,
-            filter_params.clone(),
-        ))
+        .query_all(Statement::from_sql_and_values(backend, &count_sql, count_params))
         .await
         .context("fts: count wiki")?;
     let total: i64 = count_rows

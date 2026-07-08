@@ -1,4 +1,4 @@
-import { API_BASE, downloadApiFile, request, qs, type PaginatedResponse } from './_base';
+import { API_BASE, downloadApiFile, request, qs, type PaginatedResponse } from './_base.svelte';
 
 export interface ReleaseAsset {
   id: number;
@@ -12,7 +12,7 @@ export interface ReleaseAsset {
 }
 
 function contentDispositionAttachment(filename: string): string {
-  return `attachment; filename*=UTF-8''${encodeURIComponent(filename || 'asset')}`;
+  return `attachment; filename*=UTF-8''${encodeURIComponent(filename || 'package')}`;
 }
 
 export const releases = {
@@ -21,9 +21,15 @@ export const releases = {
   get: (owner: string, repo: string, id: number) =>
     request<any>(`/repos/${owner}/${repo}/releases/${id}`),
   create: (owner: string, repo: string, data: { tag_name: string; title: string; body?: string; target_commitish?: string; is_draft?: boolean; is_prerelease?: boolean }) =>
-    request<any>(`/repos/${owner}/${repo}/releases`, { method: 'POST', body: JSON.stringify(data) }),
+    request<any>(`/repos/${owner}/${repo}/releases`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
   update: (owner: string, repo: string, id: number, data: { title?: string; body?: string; is_draft?: boolean; is_prerelease?: boolean }) =>
-    request<any>(`/repos/${owner}/${repo}/releases/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    request<any>(`/repos/${owner}/${repo}/releases/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
   delete: (owner: string, repo: string, id: number) =>
     request<void>(`/repos/${owner}/${repo}/releases/${id}`, { method: 'DELETE' }),
   listAssets: (owner: string, repo: string, releaseId: number) =>

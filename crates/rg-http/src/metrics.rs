@@ -504,7 +504,14 @@ pub mod recorder {
 
 /// GET /metrics — return Prometheus-formatted metrics.
 pub async fn metrics_handler() -> impl IntoResponse {
-    let registry = REGISTRY.get().expect("Metrics registry not initialized");
+    let Some(registry) = REGISTRY.get() else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            [(axum::http::header::CONTENT_TYPE, "text/plain")],
+            "Metrics registry not initialized".to_string(),
+        )
+            .into_response();
+    };
 
     let encoder = TextEncoder::new();
     let metric_families = registry.gather();
@@ -525,5 +532,23 @@ pub async fn metrics_handler() -> impl IntoResponse {
             format!("Error encoding metrics: {e}"),
         )
             .into_response(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::Response;
+
+    #[tokio::test]
+    async fn metrics_handler_returns_503_when_registry_is_uninitialized() {
+        if REGISTRY.get().is_some() {
+            return;
+        }
+
+        let response: Response<Body> = metrics_handler().await.into_response();
+
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
     }
 }

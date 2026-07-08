@@ -85,7 +85,7 @@ pub async fn add_collaborator(
     }
 
     let user_id = match resolve_collaborator_user_id(&state.db, &req).await {
-        Ok(id) => id,
+        Ok(user_id) => user_id,
         Err(e) => return AppError::bad_request(e.to_string()).into_response(),
     };
 
@@ -114,14 +114,24 @@ async fn resolve_collaborator_user_id(
         anyhow::bail!("user_id must be a positive integer");
     }
 
-    if let Some(username) = req.username.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+    if let Some(username) = req
+        .username
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         return rg_db::ops::user_ops::find_by_username(db, username)
             .await?
             .map(|user| user.id)
             .ok_or_else(|| anyhow::anyhow!("user '{}' not found", username));
     }
 
-    if let Some(email) = req.email.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+    if let Some(email) = req
+        .email
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         return rg_db::ops::user_ops::find_by_email(db, email)
             .await?
             .map(|user| user.id)

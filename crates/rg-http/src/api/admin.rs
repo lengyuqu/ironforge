@@ -18,7 +18,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-use super::auth::extract_bearer_claims;
+use super::auth::extract_user_id;
 use crate::error::AppError;
 use crate::pagination::{PaginatedResponse, PaginationParams};
 use crate::AppState;
@@ -69,11 +69,10 @@ pub struct UpdateUserRequest {
 
 // ── Admin middleware: require is_admin ────────────────────────────────
 
-/// Extract the current user ID from Bearer token and verify is_admin=true.
+/// Extract the current user ID from cookie or Bearer token and verify is_admin=true.
 /// Returns None if not authenticated or not an admin.
 pub(crate) async fn require_admin(state: &AppState, headers: &HeaderMap) -> Option<i64> {
-    let claims = extract_bearer_claims(headers, &state.jwt_secret)?;
-    let user_id: i64 = claims.sub.parse().ok()?;
+    let user_id = extract_user_id(headers, &state.jwt_secret)?;
     let user = rg_db::ops::user_ops::find_by_id(&state.db, user_id)
         .await
         .ok()??;

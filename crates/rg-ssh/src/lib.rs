@@ -15,7 +15,9 @@ use russh::{Channel, ChannelId, ChannelStream};
 use sea_orm::DatabaseConnection;
 use tokio::io::AsyncWriteExt;
 
-use rg_git::protocol::receive_pack::handle_receive_pack_stream;
+use rg_git::protocol::receive_pack::{
+    handle_receive_pack_stream, handle_receive_pack_stream_with_rejections,
+};
 use rg_git::protocol::upload_pack::handle_upload_pack_stream;
 use rg_git::protocol::v2::handle_v2_stream;
 
@@ -336,6 +338,41 @@ impl Handler for SshHandler {
         rg_core::platform::validate_repo_path(&repo_path)
             .with_context(|| format!("invalid repository path: {}", repo_path))?;
 
+        if let Some(db) = &self.shared.db {
+            if let Err(e) =
+                authorize_git_service(db, &service, &repo_path, self.authenticated_user_id).await
+            {
+                tracing::warn!(
+                    error = %e,
+                    user_id = ?self.authenticated_user_id,
+                    %service,
+                    %repo_path,
+                    "SSH git repository access denied"
+                );
+                session.channel_failure(channel_id)?;
+                return Err(HandlerError(format!(
+                    "repository access denied: {}",
+                    repo_path
+                )));
+            }
+        }
+
+        let receive_pack_context = if service == "git-receive-pack" {
+            if let Some(db) = &self.shared.db {
+                let (owner, repo_name) = parse_repo_owner_name(&repo_path)?;
+                let repo = rg_core::repo::service::find_repo_by_owner_name(db, &owner, &repo_name)
+                    .await?
+                    .ok_or_else(|| anyhow::anyhow!("repository not found"))?;
+                let protection_rules =
+                    rg_db::ops::protected_branch_ops::list_by_repo(db, repo.id).await?;
+                Some((protection_rules, self.authenticated_user_id))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         let repo_full_path = {
             let p = self.shared.repo_root.join(&repo_path);
             if p.exists() {
@@ -382,9 +419,21 @@ impl Handler for SshHandler {
                     "git-upload-pack" => handle_upload_pack_stream(&repo_full_path, &mut stream)
                         .await
                         .map(|_| ()),
-                    "git-receive-pack" => handle_receive_pack_stream(&repo_full_path, &mut stream)
-                        .await
-                        .map(|_| ()),
+                    "git-receive-pack" => {
+                        if let Some((protection_rules, actor_id)) = receive_pack_context {
+                            handle_receive_pack_stream_with_rejections(
+                                &repo_full_path,
+                                &mut stream,
+                                branch_protection_rejected_refs(protection_rules, actor_id),
+                            )
+                            .await
+                            .map(|_| ())
+                        } else {
+                            handle_receive_pack_stream(&repo_full_path, &mut stream)
+                                .await
+                                .map(|_| ())
+                        }
+                    }
                     _ => Err(anyhow::anyhow!("Unknown git service: {}", service_name)),
                 }
             };
@@ -422,6 +471,53 @@ impl Handler for SshHandler {
     }
 }
 
+fn branch_protection_rejected_refs(
+    protections: Vec<rg_db::entities::protected_branch::Model>,
+    actor_id: Option<i64>,
+) -> Vec<(String, String)> {
+    protections
+        .into_iter()
+        .filter_map(|protection| {
+            if direct_push_allowed_by_rule(&protection, actor_id) {
+                return None;
+            }
+
+            let message = if protection.require_pr {
+                format!(
+                    "push to protected branch '{}' is not allowed; open a pull request instead",
+                    protection.branch_name
+                )
+            } else if !protection.allow_force_push {
+                format!(
+                    "force push to protected branch '{}' is not allowed",
+                    protection.branch_name
+                )
+            } else {
+                return None;
+            };
+
+            Some((format!("refs/heads/{}", protection.branch_name), message))
+        })
+        .collect()
+}
+
+fn direct_push_allowed_by_rule(
+    protection: &rg_db::entities::protected_branch::Model,
+    actor_id: Option<i64>,
+) -> bool {
+    if let Some(uid) = actor_id {
+        if let Some(allowed_json) = &protection.allowed_push_user_ids {
+            if let Ok(allowed_ids) = serde_json::from_str::<Vec<i64>>(allowed_json) {
+                if allowed_ids.contains(&uid) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    false
+}
+
 /// Parse a git SSH command string like:
 ///   `git-upload-pack '/owner/repo'`
 ///   `git-receive-pack '/owner/repo.git'`
@@ -448,9 +544,90 @@ fn parse_git_command(command: &str) -> Result<(String, String)> {
     Ok((service, repo_path))
 }
 
+fn parse_repo_owner_name(repo_path: &str) -> Result<(String, String)> {
+    let normalized = repo_path
+        .trim_start_matches('/')
+        .trim_end_matches('/')
+        .strip_suffix(".git")
+        .unwrap_or(repo_path.trim_start_matches('/').trim_end_matches('/'));
+
+    let mut parts = normalized.split('/');
+    let owner = parts.next().unwrap_or_default();
+    let repo_name = parts.next().unwrap_or_default();
+
+    if owner.is_empty() || repo_name.is_empty() || parts.next().is_some() {
+        anyhow::bail!("repository path must be owner/repo: {}", repo_path);
+    }
+
+    Ok((owner.to_string(), repo_name.to_string()))
+}
+
+async fn authorize_git_service(
+    db: &DatabaseConnection,
+    service: &str,
+    repo_path: &str,
+    actor_id: Option<i64>,
+) -> Result<()> {
+    let actor_id = actor_id.ok_or_else(|| anyhow::anyhow!("authentication required"))?;
+    let (owner, repo_name) = parse_repo_owner_name(repo_path)?;
+    let repo = rg_core::repo::service::find_repo_by_owner_name(db, &owner, &repo_name)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("repository not found"))?;
+
+    let allowed = match service {
+        "git-upload-pack" => {
+            rg_core::repo::service::can_read_repo(db, &repo, Some(actor_id)).await?
+        }
+        "git-receive-pack" => {
+            rg_core::repo::service::can_write_repo(db, &repo, Some(actor_id)).await?
+        }
+        _ => false,
+    };
+
+    if !allowed {
+        anyhow::bail!("insufficient repository permission");
+    }
+
+    Ok(())
+}
+
 /// Public entry point to start the SSH server.
 pub async fn start_ssh_server(config: SshServerConfig) -> Result<()> {
     let addr = config.listen_addr.clone();
     let mut server = SshServer::new(config)?;
     server.run(&addr).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_git_command, parse_repo_owner_name};
+
+    #[test]
+    fn parses_git_command_with_quoted_repo_path() {
+        let (service, path) = parse_git_command("git-upload-pack '/alice/project.git'").unwrap();
+
+        assert_eq!(service, "git-upload-pack");
+        assert_eq!(path, "alice/project.git");
+    }
+
+    #[test]
+    fn parses_repo_owner_name_without_git_suffix() {
+        let (owner, repo) = parse_repo_owner_name("alice/project").unwrap();
+
+        assert_eq!(owner, "alice");
+        assert_eq!(repo, "project");
+    }
+
+    #[test]
+    fn parses_repo_owner_name_with_git_suffix() {
+        let (owner, repo) = parse_repo_owner_name("alice/project.git").unwrap();
+
+        assert_eq!(owner, "alice");
+        assert_eq!(repo, "project");
+    }
+
+    #[test]
+    fn rejects_nested_repo_paths_for_db_permission_lookup() {
+        assert!(parse_repo_owner_name("alice/team/project").is_err());
+    }
 }

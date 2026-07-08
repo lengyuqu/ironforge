@@ -341,44 +341,26 @@ cargo llvm-cov
 
 配置见 `cargo-llvm-cov.toml`。
 
-### 集成测试（端到端）
+### 集成测试与运行态回归
 
-集成测试以 shell 脚本形式维护在 `scripts/e2e_test.sh`（待创建）：
+集成测试入口统一维护在 `scripts/` 下。不要再新增一次性端到端 shell
+脚本，避免测试口径漂移。
 
 ```bash
-#!/usr/bin/env bash
-set -e
+# 全量回归：后端测试、前端静态检查/构建、运行态 smoke
+node scripts/full-interface-regression.mjs
 
-# 重建测试环境
-pkill -f "target/release/ironforge" 2>/dev/null || true
-sleep 0.3
+# 仅后端 OpenAPI 冒烟
+BACKEND_URL=http://127.0.0.1:8080 node scripts/openapi-interface-smoke.mjs
 
-# 创建裸仓库
-rm -rf /tmp/if_test_repos
-mkdir -p /tmp/if_test_repos
-git init --bare /tmp/if_test_repos/testuser/testrepo.git
+# 仅前端页面 console/network 冒烟
+BASE=http://127.0.0.1:5173 node scripts/console-smoke.mjs
 
-# 启动服务器
-./target/release/ironforge serve \
-  --repo-root /tmp/if_test_repos \
-  --host-key /tmp/ironforge_host_key \
-  > /tmp/if_test.log 2>&1 &
-SERVER_PID=$!
-sleep 1.5
-
-# SSH Clone + Push
-SSH_OPT="ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
-rm -rf /tmp/if_clone
-GIT_SSH_COMMAND="$SSH_OPT" git clone ssh://git@localhost:2222/testuser/testrepo /tmp/if_clone
-cd /tmp/if_clone
-git config user.email "test@test.com" && git config user.name "Test"
-echo "hello ironforge" > test.txt
-git add test.txt && git commit -m "test commit"
-GIT_SSH_COMMAND="$SSH_OPT" git push origin main
-echo "✅ SSH push: exit $?"
-
-kill $SERVER_PID
+# 前端 API client 与 OpenAPI 参数对齐
+BACKEND_URL=http://127.0.0.1:8080 node scripts/api-client-contract-check.mjs
 ```
+
+Git 协议专项问题可以按 `AGENTS.md` 中的 SSH/HTTP clone/push 命令模板手动复现。
 
 ---
 
@@ -394,7 +376,7 @@ fix/ssh-eof   ← Bug 修复分支（示例）
 PR 合并到 `main` 前要求：
 1. `cargo build --release` 通过
 2. `cargo clippy` 无 error
-3. 端到端 SSH + HTTP clone/push 测试通过
+3. `node scripts/full-interface-regression.mjs` 或对应子集回归通过
 
 ---
 

@@ -1,8 +1,13 @@
-import { request, qs, type PaginatedResponse } from './_base';
+import { request, qs, type PaginatedResponse } from './_base.svelte';
 
 function parseIssueLabels(labels: string | string[] | undefined | null): string[] {
-  if (Array.isArray(labels)) return labels;
-  if (!labels || typeof labels !== 'string') return [];
+  if (Array.isArray(labels)) {
+    return labels;
+  }
+
+  if (!labels || typeof labels !== 'string') {
+    return [];
+  }
 
   try {
     const parsed = JSON.parse(labels);
@@ -27,12 +32,13 @@ function normalizeIssue<T extends { labels?: string | string[] | null }>(issue: 
 }
 
 export const issues = {
-  list: (owner: string, repo: string, state?: string, page?: number, perPage?: number, labels?: string) =>
-    request<PaginatedResponse<any>>(`/repos/${owner}/${repo}/issues${qs({ state, page, per_page: perPage, labels })}`)
+  list: (owner: string, repo: string, state?: string, page?: number, perPage?: number, labels?: string) => {
+    return request<PaginatedResponse<any>>(`/repos/${owner}/${repo}/issues${qs({ state, page, per_page: perPage, labels })}`)
       .then((response) => ({
         ...response,
         data: response.data.map(normalizeIssue),
-      })),
+      }));
+  },
   get: (owner: string, repo: string, number: number) =>
     request<any>(`/repos/${owner}/${repo}/issues/${number}`).then(normalizeIssue),
   create: (owner: string, repo: string, title: string, body?: string, labels?: string[]) =>

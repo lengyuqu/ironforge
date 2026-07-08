@@ -1,8 +1,6 @@
 # IronForge Observability Stack (Phase 22-C)
 # Prometheus + Alertmanager + Grafana
 
-version: "3.9"
-
 services:
   # ── Prometheus (Metrics Storage) ──
   prometheus:
@@ -91,4 +89,5 @@ volumes:
 
 networks:
   ironforge-net:
+    name: ironforge-net
     driver: bridge

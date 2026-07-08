@@ -5,9 +5,11 @@
 ```bash
 cd deploy
 
-# 1. Copy and edit config
-cp ../ironforge.example.toml ironforge.toml
-# Edit ironforge.toml — at minimum set a secure jwt_secret
+# 1. Create runtime environment file
+cp .env.example .env
+secret="$(openssl rand -hex 32)"
+sed -i.bak "s/^IRONFORGE_JWT_SECRET=.*/IRONFORGE_JWT_SECRET=${secret}/" .env
+rm -f .env.bak
 
 # 2. Start IronForge
 docker compose up -d
@@ -22,12 +24,53 @@ Access: **http://localhost:8080**
 ### Environment variables (used with default CMD):
 | Variable | Required | Default |
 |----------|----------|---------|
-| `IRONFORGE_JWT_SECRET` | **Yes** | — |
+| `IRONFORGE_JWT_SECRET` | **Yes** | set in `deploy/.env` |
+| `IRONFORGE_CORS_ORIGINS` | No | unset |
+| `IRONFORGE_CSP_CONNECT_SRC` | No | unset |
+
+For a separately hosted frontend, set `IRONFORGE_CORS_ORIGINS` to the browser
+origin. IronForge also adds those origins, plus matching `ws://` or `wss://`
+origins, to CSP `connect-src`. Use `IRONFORGE_CSP_CONNECT_SRC` only for extra
+API/WebSocket origins not covered by CORS.
 
 ### Volumes
 | Path | Purpose |
 |------|---------|
 | `/data` | Repos, SQLite DB, logs (persistent) |
+
+### Runtime Binaries
+
+The Docker image includes all runtime binaries:
+
+| Binary | Purpose |
+|--------|---------|
+| `ironforge` | Main server and admin CLI |
+| `ironforge-runner` | Standalone CI runner agent |
+| `ironforge-mcp` | MCP stdio server |
+
+### SQLite Backup / Restore
+
+Backups use SQLite `VACUUM INTO`, so they can be taken while IronForge is
+running:
+
+```bash
+docker compose exec ironforge sh -lc \
+  'mkdir -p /data/backups && ironforge backup-db \
+    --db-url "sqlite:///data/ironforge.db?mode=rw" \
+    "/data/backups/ironforge-$(date +%Y%m%d-%H%M%S).db"'
+```
+
+Restore requires the main service to be stopped so the database file is not in
+use:
+
+```bash
+docker compose stop ironforge
+docker compose run --rm ironforge restore-db \
+  --db-url "sqlite:///data/ironforge.db?mode=rwc" \
+  --force \
+  /data/backups/ironforge-YYYYMMDD-HHMMSS.db
+docker compose up -d ironforge
+```
 
 ### Ports
 | Port | Protocol |
@@ -66,6 +109,9 @@ docker compose -f docker-compose.observability.yml ps
 # View logs
 docker compose -f docker-compose.observability.yml logs -f
 ```
+
+Prometheus scrapes the app at `ironforge:8080` through the shared Docker
+network `ironforge-net`; start the main IronForge compose service first.
 
 ## 📈 Available Metrics
 

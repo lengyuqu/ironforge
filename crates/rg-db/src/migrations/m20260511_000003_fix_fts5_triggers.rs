@@ -1,8 +1,14 @@
+use sea_orm::DatabaseBackend;
 use sea_orm_migration::prelude::*;
 
 /// Fix FTS5 triggers: the 'delete' command in FTS5 only accepts (rowid),
 /// not content columns. The original triggers incorrectly passed column values
 /// like VALUES('delete', old.id, old.name, ...) which causes "SQL logic error".
+///
+/// This fix only applies to SQLite (FTS5). For Postgres / MySQL the triggers
+/// were already created correctly in `m20260508_000005_create_fts5_indexes`
+/// (using `DELETE FROM ... WHERE rowid = ...`) and there is no FTS5 `rebuild`
+/// command, so this migration is a no-op on those backends.
 pub struct Migration;
 
 impl MigrationName for Migration {
@@ -14,6 +20,12 @@ impl MigrationName for Migration {
 #[async_trait::async_trait]
 impl MigrationTrait for Migration {
     async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        let backend = manager.get_database_backend();
+        if !matches!(backend, DatabaseBackend::Sqlite) {
+            // Postgres / MySQL: nothing to fix — triggers are already correct.
+            return Ok(());
+        }
+
         let sql = r#"
             -- Drop all existing FTS triggers (old triggers used FTS5 'delete' command
             -- which requires special VALUES syntax that doesn't work reliably)

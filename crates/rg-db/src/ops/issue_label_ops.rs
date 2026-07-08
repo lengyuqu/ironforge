@@ -102,7 +102,7 @@ pub async fn find_issues_with_all_labels(
     );
     let total: i64 = db
         .query_one(Statement::from_sql_and_values(
-            sea_orm::DatabaseBackend::Sqlite,
+            db.get_database_backend(),
             &count_sql,
             [],
         ))
@@ -118,7 +118,7 @@ pub async fn find_issues_with_all_labels(
     );
     let rows = db
         .query_all(Statement::from_sql_and_values(
-            sea_orm::DatabaseBackend::Sqlite,
+            db.get_database_backend(),
             &sql,
             [],
         ))

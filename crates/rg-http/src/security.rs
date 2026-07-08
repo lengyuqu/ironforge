@@ -12,6 +12,7 @@ use axum::extract::Request;
 use axum::http::{header, HeaderValue, Uri};
 use axum::middleware::Next;
 use axum::response::Response;
+use std::collections::BTreeSet;
 
 /// Per-request CSP nonce, stored in request extensions.
 ///
@@ -89,18 +90,7 @@ pub async fn security_headers_middleware(request: Request, next: Next) -> Respon
     // SvelteKit hydration works without weakening CSP.
     // `style-src 'unsafe-inline'` is retained because SvelteKit inlines styles
     // and there is no runtime mechanism to nonce them in static-build mode.
-    let csp = format!(
-        "default-src 'self'; \
-         script-src 'self' 'nonce-{}'; \
-         style-src 'self' 'unsafe-inline'; \
-         img-src 'self' data: https:; \
-         font-src 'self' data:; \
-         connect-src 'self'; \
-         frame-ancestors 'none'; \
-         base-uri 'self'; \
-         form-action 'self'",
-        nonce
-    );
+    let csp = build_content_security_policy(&nonce);
     headers.insert(
         header::HeaderName::from_static("content-security-policy"),
         HeaderValue::from_str(&csp).expect("CSP header is valid ASCII"),
@@ -130,6 +120,83 @@ pub async fn security_headers_middleware(request: Request, next: Next) -> Respon
 /// Check if the request URI scheme is HTTPS.
 fn is_https_uri(uri: &Uri) -> bool {
     uri.scheme().map(|s| s == "https").unwrap_or(false)
+}
+
+fn build_content_security_policy(nonce: &str) -> String {
+    let cors_origins = std::env::var("IRONFORGE_CORS_ORIGINS").ok();
+    let explicit_connect_src = std::env::var("IRONFORGE_CSP_CONNECT_SRC").ok();
+    let connect_src = build_connect_src(cors_origins.as_deref(), explicit_connect_src.as_deref());
+
+    format!(
+        "default-src 'self'; \
+         script-src 'self' 'nonce-{}'; \
+         style-src 'self' 'unsafe-inline'; \
+         img-src 'self' data: https:; \
+         font-src 'self' data:; \
+         connect-src {}; \
+         frame-ancestors 'none'; \
+         base-uri 'self'; \
+         form-action 'self'",
+        nonce, connect_src
+    )
+}
+
+fn build_connect_src(cors_origins: Option<&str>, explicit_sources: Option<&str>) -> String {
+    let mut sources = BTreeSet::from(["'self'".to_string()]);
+
+    if let Some(origins) = cors_origins {
+        for origin in split_source_list(origins) {
+            add_connect_source(&mut sources, origin);
+        }
+    }
+
+    if let Some(explicit) = explicit_sources {
+        for source in split_source_list(explicit) {
+            add_connect_source(&mut sources, source);
+        }
+    }
+
+    sources.into_iter().collect::<Vec<_>>().join(" ")
+}
+
+fn split_source_list(value: &str) -> impl Iterator<Item = &str> {
+    value
+        .split([',', ' ', '\n', '\t'])
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+}
+
+fn add_connect_source(sources: &mut BTreeSet<String>, source: &str) {
+    if source == "*" || source == "'self'" {
+        sources.insert(source.to_string());
+        return;
+    }
+
+    let Ok(uri) = source.parse::<Uri>() else {
+        sources.insert(source.to_string());
+        return;
+    };
+
+    let Some(scheme) = uri.scheme_str() else {
+        sources.insert(source.to_string());
+        return;
+    };
+    let Some(authority) = uri.authority() else {
+        sources.insert(source.to_string());
+        return;
+    };
+
+    sources.insert(format!("{}://{}", scheme, authority));
+
+    let ws_scheme = match scheme {
+        "http" => Some("ws"),
+        "https" => Some("wss"),
+        "ws" | "wss" => None,
+        _ => None,
+    };
+    if let Some(ws_scheme) = ws_scheme {
+        sources.insert(format!("{}://{}", ws_scheme, authority));
+    }
 }
 
 #[cfg(test)]
@@ -201,5 +268,27 @@ mod tests {
             .headers()
             .get("strict-transport-security")
             .is_some());
+    }
+
+    #[test]
+    fn connect_src_includes_cors_origins_and_websocket_equivalents() {
+        let connect_src =
+            build_connect_src(Some("https://app.example.com,http://127.0.0.1:5173"), None);
+
+        assert!(connect_src.contains("'self'"));
+        assert!(connect_src.contains("https://app.example.com"));
+        assert!(connect_src.contains("wss://app.example.com"));
+        assert!(connect_src.contains("http://127.0.0.1:5173"));
+        assert!(connect_src.contains("ws://127.0.0.1:5173"));
+    }
+
+    #[test]
+    fn connect_src_accepts_explicit_sources() {
+        let connect_src =
+            build_connect_src(None, Some("https://api.example.com wss://api.example.com"));
+
+        assert!(connect_src.contains("'self'"));
+        assert!(connect_src.contains("https://api.example.com"));
+        assert!(connect_src.contains("wss://api.example.com"));
     }
 }

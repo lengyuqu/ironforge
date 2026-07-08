@@ -20,6 +20,7 @@ pub mod rate_limit;
 pub mod security;
 pub mod ws;
 
+use std::net::IpAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -60,11 +61,7 @@ fn build_cors_layer() -> CorsLayer {
         Method::OPTIONS,
     ];
 
-    let headers_list = [
-        header::AUTHORIZATION,
-        header::CONTENT_TYPE,
-        header::ACCEPT,
-    ];
+    let headers_list = [header::AUTHORIZATION, header::CONTENT_TYPE, header::ACCEPT];
 
     match std::env::var("IRONFORGE_CORS_ORIGINS") {
         Ok(origins_str) if !origins_str.is_empty() => {
@@ -145,6 +142,8 @@ pub struct HttpServerConfig {
     pub rate_limit_max: u32,
     /// Rate limit: window duration in seconds.
     pub rate_limit_window_secs: u64,
+    /// Proxy source IPs whose forwarding headers are trusted for rate limiting.
+    pub rate_limit_trusted_proxies: Vec<IpAddr>,
     /// SMTP configuration for email notifications (None = disabled).
     pub smtp_config: Option<rg_core::email::SmtpConfig>,
     /// OCI container registry storage path. None = use {repo_root}/oci.
@@ -162,8 +161,11 @@ pub struct HttpServerConfig {
 
 /// Start the HTTP server and run forever.
 pub async fn run(config: HttpServerConfig) -> Result<()> {
-    let rate_limiter =
-        rate_limit::RateLimiter::new(config.rate_limit_max, config.rate_limit_window_secs);
+    let rate_limiter = rate_limit::RateLimiter::with_trusted_proxies(
+        config.rate_limit_max,
+        config.rate_limit_window_secs,
+        config.rate_limit_trusted_proxies,
+    );
     rate_limiter.spawn_cleanup_task();
 
     let notification_hub = ws::NotificationHub::new();
@@ -1031,6 +1033,10 @@ fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
             get(api::artifacts::list_pipeline_artifacts),
         )
         .route("/artifacts/{id}", get(api::artifacts::get_artifact))
+        .route(
+            "/artifacts/{id}/download",
+            get(api::artifacts::download_artifact),
+        )
         .route("/artifacts/{id}", delete(api::artifacts::delete_artifact))
         // Admin
         .route("/admin/runners", get(api::runners::list_runners_admin))
@@ -1104,6 +1110,7 @@ fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
 /// Build the test router (no rate limiter, no static file serving).
 fn build_test_router(state: AppState) -> Router {
     let (api_v1, git_routes) = build_routes(&state);
+    let v2_routes = build_v2_routes(&state);
     let docs_routes = build_docs_routes(&state);
 
     Router::new()
@@ -1118,6 +1125,7 @@ fn build_test_router(state: AppState) -> Router {
             post(handle_git_receive_pack),
         )
         .nest("/api/v1", api_v1)
+        .nest("/v2", v2_routes)
         .merge(docs_routes)
         .route("/health", get(health))
         // ── Middleware layers (no rate limiter for tests) ──────────────────
@@ -1149,9 +1157,7 @@ fn build_test_router(state: AppState) -> Router {
 /// request extensions. This handler reads it and injects `nonce="<value>"`
 /// into every `<script>` tag so the browser allows inline scripts under
 /// the strict `script-src 'self' 'nonce-<value>'` CSP.
-async fn spa_index_handler(
-    Extension(nonce): Extension<security::CspNonce>,
-) -> Response {
+async fn spa_index_handler(Extension(nonce): Extension<security::CspNonce>) -> Response {
     match tokio::fs::read("web/build/index.html").await {
         Ok(html_bytes) => {
             let html = String::from_utf8_lossy(&html_bytes).into_owned();
@@ -1907,6 +1913,44 @@ async fn handle_git_receive_pack(
         return (resp.0, resp.1, Body::from(resp.2));
     }
 
+    let repo_model = match find_repo_by_name(&state.db, &owner, &repo).await {
+        Ok(Some(repo_model)) => repo_model,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                [(
+                    header::CONTENT_TYPE,
+                    "application/x-git-receive-pack-result",
+                )],
+                Body::from("repository not found"),
+            );
+        }
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                [(
+                    header::CONTENT_TYPE,
+                    "application/x-git-receive-pack-result",
+                )],
+                Body::from(format!("failed to load repository: {:#}", e)),
+            );
+        }
+    };
+    let protection_rules =
+        match rg_db::ops::protected_branch_ops::list_by_repo(&state.db, repo_model.id).await {
+            Ok(rules) => rules,
+            Err(e) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    [(
+                        header::CONTENT_TYPE,
+                        "application/x-git-receive-pack-result",
+                    )],
+                    Body::from(format!("failed to load branch protections: {:#}", e)),
+                );
+            }
+        };
+
     let (pipe_read, mut pipe_write) = tokio::io::duplex(body.len() + 1024);
     tokio::spawn(async move {
         let _ = pipe_write.write_all(&body).await;
@@ -1921,10 +1965,12 @@ async fn handle_git_receive_pack(
         output
     });
 
-    match rg_git::protocol::receive_pack::handle_receive_pack_http(
+    let rejected_refs = branch_protection_rejected_refs(protection_rules, actor_id);
+    match rg_git::protocol::receive_pack::handle_receive_pack_http_with_rejections(
         &repo_path,
         pipe_read,
         &mut buf_writer,
+        rejected_refs,
     )
     .await
     {
@@ -1995,6 +2041,53 @@ struct PostPushParams<'a> {
     ci_engine: &'a dyn rg_core::ci::CiTrigger,
 }
 
+fn branch_protection_rejected_refs(
+    protections: Vec<rg_db::entities::protected_branch::Model>,
+    actor_id: Option<i64>,
+) -> Vec<(String, String)> {
+    protections
+        .into_iter()
+        .filter_map(|protection| {
+            if direct_push_allowed_by_rule(&protection, actor_id) {
+                return None;
+            }
+
+            let message = if protection.require_pr {
+                format!(
+                    "push to protected branch '{}' is not allowed; open a pull request instead",
+                    protection.branch_name
+                )
+            } else if !protection.allow_force_push {
+                format!(
+                    "force push to protected branch '{}' is not allowed",
+                    protection.branch_name
+                )
+            } else {
+                return None;
+            };
+
+            Some((format!("refs/heads/{}", protection.branch_name), message))
+        })
+        .collect()
+}
+
+fn direct_push_allowed_by_rule(
+    protection: &rg_db::entities::protected_branch::Model,
+    actor_id: Option<i64>,
+) -> bool {
+    if let Some(uid) = actor_id {
+        if let Some(allowed_json) = &protection.allowed_push_user_ids {
+            if let Ok(allowed_ids) = serde_json::from_str::<Vec<i64>>(allowed_json) {
+                if allowed_ids.contains(&uid) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    false
+}
+
 /// Post-push hook: trigger CI pipeline and webhook for push events.
 async fn post_push_hooks(
     params: &PostPushParams<'_>,
@@ -2045,9 +2138,9 @@ async fn post_push_hooks(
             .await
             {
                 Ok(Some(_protection)) => {
-                    tracing::warn!(
+                    tracing::info!(
                         branch = %branch_name,
-                        "Post-push: push to protected branch detected (should be enforced by pre-receive hook)"
+                        "Post-push: protected branch update accepted by pre-receive rules"
                     );
                 }
                 Err(e) => {
@@ -2061,18 +2154,18 @@ async fn post_push_hooks(
         if ci_engine.has_ci_config(repo_path, &update.new_sha) {
             match ci_engine
                 .trigger_pipeline(rg_core::ci::TriggerPipelineParams {
-                db: &**db,
-                repo_path,
-                repo_id,
-                commit_sha: &update.new_sha,
-                ref_name: &update.refname,
-                trigger_type: "push",
-                triggered_by: None,
-                docker_enabled: *docker_enabled,
-                external_runners: *external_runners,
-                jwt_secret: Some(&jwt_secret),
-            })
-            .await
+                    db: &**db,
+                    repo_path,
+                    repo_id,
+                    commit_sha: &update.new_sha,
+                    ref_name: &update.refname,
+                    trigger_type: "push",
+                    triggered_by: None,
+                    docker_enabled: *docker_enabled,
+                    external_runners: *external_runners,
+                    jwt_secret: Some(&jwt_secret),
+                })
+                .await
             {
                 Ok(pipeline_id) => {
                     tracing::info!(pipeline_id, "CI pipeline triggered");

@@ -209,6 +209,7 @@ pub struct PaginatedRepoResponse {
         crate::api::artifacts::upload_artifact,
         crate::api::artifacts::list_pipeline_artifacts,
         crate::api::artifacts::get_artifact,
+        crate::api::artifacts::download_artifact,
         crate::api::artifacts::delete_artifact,
         // Admin SSO
         crate::api::admin::list_sso_providers,

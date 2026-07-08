@@ -1,4 +1,4 @@
-import { request } from './_base';
+import { request } from './_base.svelte';
 
 export const collaborators = {
   list: (owner: string, repo: string) =>

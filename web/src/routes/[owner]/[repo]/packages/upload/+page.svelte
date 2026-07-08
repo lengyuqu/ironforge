@@ -4,7 +4,12 @@
   import RepoHeader from '$lib/components/RepoHeader.svelte';
   import { packages } from '$lib/api/client.svelte';
   import { createT } from '$lib/i18n';
-  import { PACKAGE_FORMATS, packageFormatLabel } from '$lib/packageFormats';
+  import {
+    PACKAGE_FORMATS,
+    packageFormatOptionLabel,
+    packageFormatSupportLabel,
+    packageFormatUsesGenericFallback,
+  } from '$lib/packageFormats';
 
   const t = createT();
 
@@ -93,9 +98,12 @@
       <label for="format">{t('packages.format')}</label>
       <select id="format" bind:value={format} class="select">
         {#each PACKAGE_FORMATS as f}
-          <option value={f}>{packageFormatLabel(f)}</option>
+          <option value={f}>{packageFormatOptionLabel(f)}</option>
         {/each}
       </select>
+      <p class="format-note" class:fallback={packageFormatUsesGenericFallback(format)}>
+        {packageFormatSupportLabel(format)}
+      </p>
     </div>
 
       <div class="form-group">
@@ -166,6 +174,16 @@
 
   .form-group {
     margin-bottom: 18px;
+  }
+
+  .format-note {
+    margin: 6px 0 0;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .format-note.fallback {
+    color: var(--yellow);
   }
 
   .form-group label {

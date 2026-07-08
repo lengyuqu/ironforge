@@ -63,9 +63,8 @@ pub async fn list_by_registry(
 
 /// Increment download count.
 pub async fn increment_download_count(db: &DatabaseConnection, id: i64) -> Result<(), DbErr> {
-    use sea_orm::DatabaseBackend;
     db.execute(Statement::from_sql_and_values(
-        DatabaseBackend::Sqlite,
+        db.get_database_backend(),
         "UPDATE packages SET download_count = download_count + 1 WHERE id = ?",
         [Value::from(id)],
     ))

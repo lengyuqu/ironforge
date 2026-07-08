@@ -1,7 +1,7 @@
 //! Code indexing service for code search.
 //!
 //! This module provides functionality to index Git repository contents
-//! into the `code_fts` FTS5 virtual table for fast full-text search.
+//! into the `code_fts` table for fast full-text search across all backends.
 //!
 //! # Usage
 //!
@@ -16,6 +16,8 @@ use anyhow::{Context, Result};
 use sea_orm::{ConnectionTrait, DatabaseConnection, Statement, Value};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+
+use crate::search::dialect::{code_fts_snippet_expr, fts_match, CODE_FTS_COLS};
 
 /// Map file extensions to programming languages.
 const EXTENSION_TO_LANGUAGE: &[(&str, &str)] = &[
@@ -93,7 +95,6 @@ fn infer_language(path: &Path) -> String {
         }
     }
 
-    // Check for files without extension but with known names
     let file_name = path
         .file_name()
         .and_then(|n| n.to_str())
@@ -113,17 +114,13 @@ fn infer_language(path: &Path) -> String {
 
 /// Check if a file should be indexed (not binary, not too large).
 fn should_index(path: &Path, content: &[u8]) -> bool {
-    // Skip files that are too large (> 1MB)
     if content.len() > 1_048_576 {
         return false;
     }
-
-    // Skip binary files (check for null bytes)
     if content.contains(&0u8) {
         return false;
     }
 
-    // Skip certain file types
     let path_str = path.to_string_lossy().to_lowercase();
     let skip_extensions = [
         "lock", "min.js", "min.css", "map", "gz", "zip", "tar", "png", "jpg", "jpeg", "gif", "bmp",
@@ -137,7 +134,6 @@ fn should_index(path: &Path, content: &[u8]) -> bool {
         }
     }
 
-    // Skip hidden files and directories
     for component in path.components() {
         if let std::path::Component::Normal(name) = component {
             if let Some(name_str) = name.to_str() {
@@ -182,12 +178,6 @@ impl CodeIndexer {
     }
 
     /// Index a repository by traversing its Git tree.
-    ///
-    /// # Arguments
-    ///
-    /// * `repo_id` - The repository ID in the database
-    /// * `repo_path` - Path to the bare Git repository on disk
-    /// * `ref_name` - The ref to index (e.g., "main", "master")
     pub async fn index_repository(
         &self,
         repo_id: i64,
@@ -197,42 +187,29 @@ impl CodeIndexer {
         let repo = gix::open(repo_path)
             .with_context(|| format!("Failed to open repository: {}", repo_path.display()))?;
 
-        // Resolve the ref to a commit OID
         let commit_id = repo
             .rev_parse_single(ref_name)
             .with_context(|| format!("Failed to resolve ref: {}", ref_name))?;
 
-        // Find the commit
         let commit = repo
             .find_commit(commit_id)
             .with_context(|| format!("Failed to find commit: {}", commit_id))?;
 
-        // Get the tree OID from the commit
         let decoded = commit
             .decode()
             .with_context(|| "Failed to decode commit".to_string())?;
         let tree_oid = decoded.tree();
 
-        // Find the tree
         let tree = repo
             .find_tree(tree_oid)
             .with_context(|| format!("Failed to find tree: {}", tree_oid))?;
 
-        // Clear existing index for this repo
         self.clear_index_for_repo(repo_id).await?;
 
-        // Collect file entries first, then batch INSERT (avoids N+1 per-file INSERT)
         let mut entries: Vec<IndexEntry> = Vec::new();
         let mut visited = HashSet::new();
-        self.collect_tree_entries(
-            &repo,
-            &tree,
-            repo_id,
-            PathBuf::new(),
-            &mut entries,
-            &mut visited,
-        )
-        .await?;
+        self.collect_tree_entries(&repo, &tree, repo_id, PathBuf::new(), &mut entries, &mut visited)
+            .await?;
 
         let count = entries.len();
         self.batch_insert_fts(&entries).await?;
@@ -244,7 +221,7 @@ impl CodeIndexer {
     async fn clear_index_for_repo(&self, repo_id: i64) -> Result<()> {
         self.db
             .execute(Statement::from_sql_and_values(
-                sea_orm::DatabaseBackend::Sqlite,
+                self.db.get_database_backend(),
                 "DELETE FROM code_fts WHERE repo_id = ?",
                 [repo_id.into()],
             ))
@@ -253,7 +230,6 @@ impl CodeIndexer {
     }
 
     /// Collect indexable file entries by traversing the Git tree iteratively.
-    /// Entries are collected into `entries` and later batch-inserted.
     async fn collect_tree_entries(
         &self,
         repo: &gix::Repository,
@@ -263,14 +239,9 @@ impl CodeIndexer {
         entries: &mut Vec<IndexEntry>,
         visited: &mut HashSet<gix::ObjectId>,
     ) -> Result<()> {
-        // Use a work stack for iterative DFS: (tree_oid, base_path)
         let mut stack: Vec<(gix::ObjectId, PathBuf)> = Vec::new();
-
-        // Process initial tree
         self.collect_tree(repo, tree, repo_id, base_path, entries, visited, &mut stack)
             .await?;
-
-        // Process remaining trees from the stack
         while let Some((tree_oid, path)) = stack.pop() {
             if let Ok(object) = repo.find_object(tree_oid) {
                 if let Ok(tree) = object.try_into_tree() {
@@ -279,7 +250,6 @@ impl CodeIndexer {
                 }
             }
         }
-
         Ok(())
     }
 
@@ -342,56 +312,40 @@ impl CodeIndexer {
         Ok(())
     }
 
-    /// Batch-insert index entries into the FTS5 table.
-    /// Uses multi-row INSERT for efficiency — inserts in chunks of 100 rows
-    /// to avoid SQLite's SQL length limit.
+    /// Batch-insert index entries into the `code_fts` table using parameterized
+    /// multi-row INSERT. Backend-agnostic: SeaORM translates `?` placeholders
+    /// per backend and binds values safely (no manual string escaping).
     async fn batch_insert_fts(&self, entries: &[IndexEntry]) -> Result<()> {
         if entries.is_empty() {
             return Ok(());
         }
-
-        let escape = |s: &str| s.replace('\'', "''");
-
+        let backend = self.db.get_database_backend();
         for chunk in entries.chunks(100) {
-            let mut values = String::new();
+            let mut placeholders = String::new();
+            let mut params: Vec<Value> = Vec::with_capacity(chunk.len() * 5);
             for (i, entry) in chunk.iter().enumerate() {
                 if i > 0 {
-                    values.push_str(", ");
+                    placeholders.push_str(", ");
                 }
-                values.push_str(&format!(
-                    "({}, '{}', '{}', '{}', '{}')",
-                    entry.repo_id,
-                    escape(&entry.file_path),
-                    escape(&entry.file_name),
-                    escape(&entry.content),
-                    escape(&entry.language)
-                ));
+                placeholders.push_str("(?, ?, ?, ?, ?)");
+                params.push(Value::from(entry.repo_id));
+                params.push(Value::from(entry.file_path.clone()));
+                params.push(Value::from(entry.file_name.clone()));
+                params.push(Value::from(entry.content.clone()));
+                params.push(Value::from(entry.language.clone()));
             }
-
             let sql = format!(
                 "INSERT INTO code_fts(repo_id, file_path, file_name, content, language) VALUES {}",
-                values
+                placeholders
             );
-
             self.db
-                .execute(Statement::from_string(
-                    sea_orm::DatabaseBackend::Sqlite,
-                    sql,
-                ))
+                .execute(Statement::from_sql_and_values(backend, &sql, params))
                 .await?;
         }
-
         Ok(())
     }
 
-    /// Search code using FTS5.
-    ///
-    /// # Arguments
-    ///
-    /// * `query` - The search query (supports FTS5 syntax)
-    /// * `repo_id` - Optional repository ID to filter by
-    /// * `limit` - Maximum number of results
-    /// * `offset` - Offset for pagination
+    /// Search code using backend-appropriate full-text search.
     pub async fn search_code(
         &self,
         query: &str,
@@ -399,74 +353,72 @@ impl CodeIndexer {
         limit: u64,
         offset: u64,
     ) -> Result<(Vec<CodeSearchResult>, i64)> {
-        let safe_query = fts_escape(query);
+        let backend = self.db.get_database_backend();
+        let raw = query.trim();
+        let has_query = !raw.is_empty();
 
-        // Build WHERE clause
-        let mut params = vec![Value::from(safe_query)];
-        let repo_filter = if let Some(rid) = repo_id {
-            params.push(Value::from(rid));
-            "repo_id = ?"
+        let (match_pred, order_clause, query_values) = if raw.is_empty() {
+            (String::new(), String::new(), Vec::new())
         } else {
-            "1"
+            fts_match(backend, "code_fts", CODE_FTS_COLS, raw)
         };
 
-        // Get total count
-        let count_sql = format!(
-            "SELECT COUNT(*) as cnt FROM code_fts WHERE code_fts MATCH ? AND {}",
-            repo_filter
-        );
+        let snippet_expr = code_fts_snippet_expr(backend, "code_fts", has_query);
+
+        let where_body = match (match_pred.is_empty(), repo_id.is_some()) {
+            (true, true) => "1=1".to_string(),
+            (true, false) => "repo_id = ?".to_string(),
+            (false, true) => match_pred,
+            (false, false) => format!("{} AND repo_id = ?", match_pred),
+        };
+
+        // Parameters: query value(s) first, then optional repo id.
+        let mut params: Vec<Value> = query_values.iter().cloned().map(Value::from).collect();
+        if let Some(rid) = repo_id {
+            params.push(Value::from(rid));
+        }
+        let count_params: Vec<Value> = query_values
+            .iter()
+            .cloned()
+            .map(Value::from)
+            .chain(repo_id.map(Value::from))
+            .collect();
+
+        let count_sql = format!("SELECT COUNT(*) as cnt FROM code_fts WHERE {}", where_body);
         let count_result = self
             .db
-            .query_one(Statement::from_sql_and_values(
-                sea_orm::DatabaseBackend::Sqlite,
-                count_sql,
-                params.clone(),
-            ))
+            .query_one(Statement::from_sql_and_values(backend, &count_sql, count_params))
             .await?
             .with_context(|| "Failed to get count")?;
         let total: i64 = count_result.try_get_by_index(0)?;
 
-        // Get results with snippet
         let results_sql = format!(
-            "SELECT rank, repo_id, file_path, file_name, language, snippet(code_fts, 3, '<b>', '</b>', '...', 20) as snippet \
+            "SELECT repo_id, file_path, file_name, language, {} as snippet \
              FROM code_fts \
-             WHERE code_fts MATCH ? AND {} \
-             ORDER BY rank \
+             WHERE {} {} \
              LIMIT {} OFFSET {}",
-            repo_filter, limit, offset
+            snippet_expr, where_body, order_clause, limit, offset
         );
         let rows = self
             .db
-            .query_all(Statement::from_sql_and_values(
-                sea_orm::DatabaseBackend::Sqlite,
-                results_sql,
-                params,
-            ))
+            .query_all(Statement::from_sql_and_values(backend, &results_sql, params))
             .await?;
 
         let results = rows
             .into_iter()
             .map(|row| {
                 Ok(CodeSearchResult {
-                    repo_id: row.try_get_by_index(1)?,
-                    file_path: row.try_get_by_index(2)?,
-                    file_name: row.try_get_by_index(3)?,
-                    language: row.try_get_by_index(4)?,
-                    snippet: row.try_get_by_index(5)?,
+                    repo_id: row.try_get_by_index(0)?,
+                    file_path: row.try_get_by_index(1)?,
+                    file_name: row.try_get_by_index(2)?,
+                    language: row.try_get_by_index(3)?,
+                    snippet: row.try_get_by_index(4)?,
                 })
             })
             .collect::<Result<Vec<_>>>()?;
 
         Ok((results, total))
     }
-}
-
-/// Escape a query string for FTS5.
-///
-/// Wraps the query in double quotes and escapes embedded double quotes.
-fn fts_escape(query: &str) -> String {
-    let escaped = query.replace('"', "\"\"");
-    format!("\"{}\"", escaped)
 }
 
 #[cfg(test)]
@@ -490,7 +442,11 @@ mod tests {
 
     #[test]
     fn test_fts_escape() {
-        assert_eq!(fts_escape("hello world"), "\"hello world\"");
-        assert_eq!(fts_escape("say \"hello\""), "\"say \"\"hello\"\"\"");
+        use crate::search::dialect::fts_phrase_escape;
+        assert_eq!(fts_phrase_escape("hello world"), "\"hello world\"");
+        assert_eq!(
+            fts_phrase_escape("say \"hello\""),
+            "\"say \"\"hello\"\"\""
+        );
     }
 }

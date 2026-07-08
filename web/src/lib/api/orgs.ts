@@ -1,4 +1,4 @@
-import { request } from './_base';
+import { request } from './_base.svelte';
 
 export const orgs = {
   list: (userId?: number) =>
@@ -11,7 +11,10 @@ export const orgs = {
       body: JSON.stringify({ name, display_name: displayName, description, visibility }),
     }),
   update: (name: string, data: { display_name?: string; description?: string; visibility?: string }) =>
-    request<any>(`/orgs/${name}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    request<any>(`/orgs/${name}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
   delete: (name: string) =>
     request<any>(`/orgs/${name}`, { method: 'DELETE' }),
   listMembers: (name: string) =>

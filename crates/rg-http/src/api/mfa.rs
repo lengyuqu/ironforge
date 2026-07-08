@@ -137,8 +137,8 @@ pub async fn enable_mfa(
     };
 
     // Verify the TOTP code
-    let valid = rg_core::auth::totp::verify_code(&totp_secret, &req.code)
-        .map_err(AppError::from)?;
+    let valid =
+        rg_core::auth::totp::verify_code(&totp_secret, &req.code).map_err(AppError::from)?;
 
     if !valid {
         return Err(AppError::bad_request("invalid TOTP code"));
@@ -227,11 +227,10 @@ pub async fn verify_mfa(
             .as_ref()
             .ok_or_else(|| AppError::internal("MFA secret missing"))?;
 
-        let secret = rg_core::auth::encryption::decrypt(totp_secret, &enc_key)
-            .map_err(AppError::from)?;
+        let secret =
+            rg_core::auth::encryption::decrypt(totp_secret, &enc_key).map_err(AppError::from)?;
 
-        let valid = rg_core::auth::totp::verify_code(&secret, &req.code)
-            .map_err(AppError::from)?;
+        let valid = rg_core::auth::totp::verify_code(&secret, &req.code).map_err(AppError::from)?;
 
         if !valid {
             return Err(AppError::unauthorized("invalid TOTP code"));
@@ -340,8 +339,11 @@ pub async fn disable_mfa(
         .ok_or_else(|| AppError::not_found("user not found"))?;
 
     // Verify password before disabling MFA
-    rg_core::auth::password::verify_password(&req.password, &user.password_hash)
+    let password_ok = rg_core::auth::password::verify_password(&req.password, &user.password_hash)
         .map_err(|_| AppError::unauthorized("invalid password"))?;
+    if !password_ok {
+        return Err(AppError::unauthorized("invalid password"));
+    }
 
     rg_db::ops::user_ops::disable_mfa(&state.db, user_id)
         .await

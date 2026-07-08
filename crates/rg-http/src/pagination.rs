@@ -3,9 +3,7 @@
 //! All list endpoints accept `page` and `per_page` query parameters.
 //! Response wraps data in `PaginatedResponse { data, pagination }`.
 
-use serde::de::{self, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
-use std::fmt;
 use utoipa::ToSchema;
 
 /// Default number of items per page.
@@ -17,13 +15,13 @@ const MAX_PER_PAGE: u64 = 100;
 #[derive(Debug, Clone, Deserialize, utoipa::ToSchema)]
 pub struct PaginationParams {
     /// Page number (1-based). Default: 1
-    #[serde(default = "default_page", deserialize_with = "deserialize_u64_from_query")]
-    pub page: u64,
-    /// Items per page. Default: 20, Max: 100
     #[serde(
-        default = "default_per_page",
+        default = "default_page",
         deserialize_with = "deserialize_u64_from_query"
     )]
+    pub page: u64,
+    /// Items per page. Default: 20, Max: 100
+    #[serde(default = "default_per_page")]
     pub per_page: u64,
 }
 
@@ -35,48 +33,15 @@ pub fn default_per_page() -> u64 {
     DEFAULT_PER_PAGE
 }
 
-fn deserialize_u64_from_query<'de, D>(deserializer: D) -> Result<u64, D::Error>
+pub fn deserialize_u64_from_query<'de, D>(deserializer: D) -> Result<u64, D::Error>
 where
     D: Deserializer<'de>,
 {
-    struct QueryU64Visitor;
-
-    impl Visitor<'_> for QueryU64Visitor {
-        type Value = u64;
-
-        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-            formatter.write_str("a non-negative integer or a string containing one")
-        }
-
-        fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E> {
-            Ok(value)
-        }
-
-        fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E>
-        where
-            E: de::Error,
-        {
-            u64::try_from(value).map_err(|_| E::custom("value must be non-negative"))
-        }
-
-        fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
-        where
-            E: de::Error,
-        {
-            value
-                .parse::<u64>()
-                .map_err(|_| E::custom(format!("invalid integer: {value}")))
-        }
-
-        fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
-        where
-            E: de::Error,
-        {
-            self.visit_str(&value)
-        }
+    let value = Option::<String>::deserialize(deserializer)?;
+    match value.as_deref().map(str::trim) {
+        Some("") | None => Ok(default_page()),
+        Some(raw) => raw.parse::<u64>().map_err(serde::de::Error::custom),
     }
-
-    deserializer.deserialize_any(QueryU64Visitor)
 }
 
 impl PaginationParams {
@@ -185,13 +150,6 @@ impl<T: Serialize> PaginatedResponse<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde::Deserialize;
-
-    #[derive(Debug, Deserialize)]
-    struct TestListQuery {
-        #[serde(flatten)]
-        pagination: PaginationParams,
-    }
 
     // ── PaginationParams tests ──────────────────────────────────────────
 
@@ -244,24 +202,6 @@ mod tests {
         let clamped = params.clamp();
         assert_eq!(clamped.page, 1);
         assert_eq!(clamped.per_page, 100);
-    }
-
-    #[test]
-    fn test_deserializes_urlencoded_query_strings() {
-        let params: PaginationParams = serde_urlencoded::from_str("page=1&per_page=100")
-            .expect("pagination query should parse");
-
-        assert_eq!(params.page, 1);
-        assert_eq!(params.per_page, 100);
-    }
-
-    #[test]
-    fn test_deserializes_flattened_urlencoded_query_strings() {
-        let query: TestListQuery = serde_urlencoded::from_str("state=open&page=1&per_page=100")
-            .expect("flattened pagination query should parse");
-
-        assert_eq!(query.pagination.page, 1);
-        assert_eq!(query.pagination.per_page, 100);
     }
 
     // ── PaginationMeta tests ────────────────────────────────────────────

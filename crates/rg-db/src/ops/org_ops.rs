@@ -350,7 +350,7 @@ pub async fn is_member_of_write_team(
 ) -> Result<bool> {
     let result = db
         .query_one(Statement::from_sql_and_values(
-            DatabaseBackend::Sqlite,
+            db.get_database_backend(),
             r#"SELECT COUNT(*) as cnt
                FROM team_members tm
                JOIN teams t ON t.id = tm.team_id

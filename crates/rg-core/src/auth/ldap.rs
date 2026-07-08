@@ -9,6 +9,10 @@ pub struct LdapConfig {
     pub host: String,
     pub port: u16,
     pub use_tls: bool,
+    /// Disable TLS certificate verification for LDAPS connections.
+    /// This must stay false in production and should only be enabled for tests
+    /// against throwaway LDAP servers with self-signed certificates.
+    pub insecure_skip_tls_verify: bool,
     pub bind_dn: String,
     pub bind_password: String,
     pub base_dn: String,
@@ -24,6 +28,15 @@ pub struct LdapUser {
     pub uid: Option<String>,
 }
 
+fn connection_settings(config: &LdapConfig) -> LdapConnSettings {
+    let settings = LdapConnSettings::new();
+    if config.use_tls && config.insecure_skip_tls_verify {
+        settings.set_no_tls_verify(true)
+    } else {
+        settings
+    }
+}
+
 pub async fn authenticate(config: &LdapConfig, username: &str, password: &str) -> Result<LdapUser> {
     let url = if config.use_tls {
         format!("ldaps://{}:{}", config.host, config.port)
@@ -31,7 +44,7 @@ pub async fn authenticate(config: &LdapConfig, username: &str, password: &str) -
         format!("ldap://{}:{}", config.host, config.port)
     };
 
-    let settings = LdapConnSettings::new().set_no_tls_verify(true);
+    let settings = connection_settings(config);
     let (conn, mut ldap) = LdapConnAsync::with_settings(settings, &url)
         .await
         .context("failed to connect to LDAP")?;
@@ -88,7 +101,7 @@ pub async fn authenticate(config: &LdapConfig, username: &str, password: &str) -
     ldap.unbind().await.ok();
 
     // Step 4: rebind with user DN + password to verify
-    let settings2 = LdapConnSettings::new().set_no_tls_verify(true);
+    let settings2 = connection_settings(config);
     let (conn2, mut ldap2) = LdapConnAsync::with_settings(settings2, &url)
         .await
         .context("failed to reconnect to LDAP for user auth")?;
@@ -123,7 +136,7 @@ pub async fn test_connection(config: &LdapConfig) -> Result<()> {
         format!("ldap://{}:{}", config.host, config.port)
     };
 
-    let settings = LdapConnSettings::new().set_no_tls_verify(true);
+    let settings = connection_settings(config);
     let (conn, mut ldap) = LdapConnAsync::with_settings(settings, &url)
         .await
         .context("failed to connect to LDAP")?;
@@ -138,4 +151,38 @@ pub async fn test_connection(config: &LdapConfig) -> Result<()> {
 
     ldap.unbind().await.ok();
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::LdapConfig;
+
+    fn config(use_tls: bool, insecure_skip_tls_verify: bool) -> LdapConfig {
+        LdapConfig {
+            host: "ldap.example.com".to_string(),
+            port: if use_tls { 636 } else { 389 },
+            use_tls,
+            insecure_skip_tls_verify,
+            bind_dn: "cn=service,dc=example,dc=com".to_string(),
+            bind_password: "secret".to_string(),
+            base_dn: "dc=example,dc=com".to_string(),
+            user_filter: "(uid={username})".to_string(),
+        }
+    }
+
+    #[test]
+    fn ldap_tls_verification_is_not_skipped_by_default() {
+        let cfg = config(true, false);
+
+        assert!(cfg.use_tls);
+        assert!(!cfg.insecure_skip_tls_verify);
+    }
+
+    #[test]
+    fn ldap_tls_verification_skip_requires_explicit_insecure_flag() {
+        let cfg = config(true, true);
+
+        assert!(cfg.use_tls);
+        assert!(cfg.insecure_skip_tls_verify);
+    }
 }

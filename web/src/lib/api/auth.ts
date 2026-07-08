@@ -1,10 +1,17 @@
-import { request } from './_base';
+import { request, withApiBase } from './_base.svelte';
 
 export interface AuthLoginResponse {
   token: string;
   user_id: number;
   username: string;
   mfa_required?: boolean;
+}
+
+export interface PublicSsoProvider {
+  slug: string;
+  name: string;
+  provider_type: string;
+  icon_url: string | null;
 }
 
 export const auth = {
@@ -35,4 +42,12 @@ export const auth = {
       method: 'POST',
       body: JSON.stringify({ token, new_password: newPassword }),
     }),
+  logout: () =>
+    request<{ logged_out: boolean }>('/users/logout', {
+      method: 'POST',
+    }),
+  listSsoProviders: () =>
+    request<PublicSsoProvider[]>('/auth/sso/providers'),
+  ssoAuthorizeUrl: (slug: string) =>
+    withApiBase(`/auth/sso/${encodeURIComponent(slug)}`),
 };

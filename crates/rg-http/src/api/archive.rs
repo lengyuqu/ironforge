@@ -10,7 +10,7 @@ use axum::{
     response::IntoResponse,
 };
 
-use crate::api::auth::extract_user_id;
+use crate::api::auth::{extract_ci_job_claims, extract_user_id};
 use crate::error::AppError;
 
 /// GET /api/v1/repos/{owner}/{name}/archive/{sha}.zip
@@ -61,6 +61,10 @@ pub async fn download_archive(
     let actor_id = extract_user_id(&headers, &state.jwt_secret);
     match rg_core::repo::service::can_read_repo(&state.db, &repo, actor_id).await {
         Ok(true) => {}
+        Ok(false)
+            if actor_id.is_none()
+                && extract_ci_job_claims(&headers, &state.jwt_secret, repo.id, "repo:read")
+                    .is_some() => {}
         Ok(false) if repo.is_private && actor_id.is_none() => {
             return AppError::unauthorized("authentication required").into_response();
         }

@@ -12,6 +12,9 @@
 //! # Register only (get token for later use)
 //! ironforge-runner register --server http://127.0.0.1:8080 --name my-runner
 //! ```
+//!
+//! Jobs that specify a container image fail closed when Docker is unavailable.
+//! They are never silently re-run as local shell jobs.
 
 use std::path::PathBuf;
 
@@ -44,6 +47,10 @@ enum Commands {
         /// Save token to config file
         #[arg(long)]
         save: bool,
+
+        /// Admin user JWT used only for runner registration
+        #[arg(long)]
+        auth_token: Option<String>,
     },
 
     /// Start the runner (register if needed, then poll and execute jobs)
@@ -67,6 +74,10 @@ enum Commands {
         /// Existing runner ID (used with --token)
         #[arg(long)]
         runner_id: Option<i64>,
+
+        /// Admin user JWT used only when this command needs to register a runner
+        #[arg(long)]
+        auth_token: Option<String>,
 
         /// Path to config file
         #[arg(long, default_value = "~/.ironforge/runner.toml")]
@@ -124,15 +135,21 @@ fn save_config(path: &str, config: &RunnerConfig) -> Result<()> {
     Ok(())
 }
 
+fn resolve_auth_token(auth_token: Option<String>) -> Option<String> {
+    auth_token.or_else(|| std::env::var("IRONFORGE_AUTH_TOKEN").ok())
+}
+
 /// Register a runner with the server.
 async fn register_runner(
     client: &reqwest::Client,
     server: &str,
     name: &str,
     labels: &[String],
+    auth_token: &str,
 ) -> Result<(i64, String)> {
     let resp = client
         .post(format!("{}/api/v1/runners/register", server))
+        .bearer_auth(auth_token)
         .json(&serde_json::json!({
             "name": name,
             "labels": labels,
@@ -311,8 +328,9 @@ async fn run_job_docker(image: &str, script: &str) -> (i32, String) {
         .unwrap_or(false);
 
     if !docker_ok {
-        tracing::warn!("Docker not available, falling back to local execution");
-        return run_job_local(script).await;
+        let msg = docker_unavailable_message(image);
+        tracing::warn!("{}", msg);
+        return (-1, msg);
     }
 
     match tokio::process::Command::new("docker")
@@ -339,6 +357,27 @@ async fn run_job_docker(image: &str, script: &str) -> (i32, String) {
     }
 }
 
+fn docker_unavailable_message(image: &str) -> String {
+    format!(
+        "Docker daemon not available. Job requires image '{}' but cannot run in container. \
+         Refusing to fall back to local execution.",
+        image
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn docker_unavailable_message_is_fail_closed() {
+        let msg = docker_unavailable_message("alpine:3.20");
+
+        assert!(msg.contains("alpine:3.20"));
+        assert!(msg.contains("Refusing to fall back to local execution"));
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     // Initialize tracing
@@ -358,14 +397,18 @@ async fn main() -> Result<()> {
             name,
             labels,
             save,
+            auth_token,
         } => {
             let client = reqwest::Client::new();
             let labels_vec: Vec<String> = labels
                 .map(|s| s.split(',').map(|s| s.trim().to_string()).collect())
                 .unwrap_or_default();
+            let auth_token = resolve_auth_token(auth_token)
+                .context("runner registration requires --auth-token or IRONFORGE_AUTH_TOKEN")?;
 
             println!("Registering runner '{}' with {}...", name, server);
-            let (runner_id, token) = register_runner(&client, &server, &name, &labels_vec).await?;
+            let (runner_id, token) =
+                register_runner(&client, &server, &name, &labels_vec, &auth_token).await?;
             println!("Runner registered successfully!");
             println!("  ID:    {}", runner_id);
             println!("  Token: {}", token);
@@ -390,6 +433,7 @@ async fn main() -> Result<()> {
             labels,
             token,
             runner_id,
+            auth_token,
             config,
         } => {
             let client = reqwest::Client::new();
@@ -430,9 +474,18 @@ async fn main() -> Result<()> {
                         "Registering runner '{}' with {}...",
                         cfg_name, resolved_server
                     );
-                    let (id, tok) =
-                        register_runner(&client, resolved_server, &cfg_name, &resolved_labels)
-                            .await?;
+                    let auth_token = resolve_auth_token(auth_token).context(
+                        "runner auto-registration requires --auth-token or IRONFORGE_AUTH_TOKEN; \
+                         alternatively pass --runner-id and --token",
+                    )?;
+                    let (id, tok) = register_runner(
+                        &client,
+                        resolved_server,
+                        &cfg_name,
+                        &resolved_labels,
+                        &auth_token,
+                    )
+                    .await?;
                     println!("Registered! ID={}, Token={}", id, tok);
 
                     // Save for future runs

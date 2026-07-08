@@ -1,8 +1,10 @@
 //! `ironforge-mcp` – MCP server entry point.
 //!
 //! # Transports
-//! - **stdio** (default) – run as subprocess of an AI agent.
-//! - **sse** (`--sse` flag) – HTTP SSE for web-based agents.
+//! - **stdio** – run as subprocess of an AI agent.
+//!
+//! HTTP SSE transport is not implemented yet. Passing `--sse` exits with an
+//! error instead of silently starting a partial server.
 //!
 //! # Environment
 //! | Variable        | Default                 | Notes                     |
@@ -98,6 +100,16 @@ fn handle_initialize(_state: &AppState, req: &JsonRpcRequest) -> JsonRpcResponse
 }
 
 fn main() -> anyhow::Result<()> {
+    // Tools/resources are dispatched synchronously but perform async reqwest
+    // calls via `Handle::current().block_on(...)`. Create and enter a runtime
+    // for the whole stdio loop so those handlers never panic due to a missing
+    // Tokio context.
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(1)
+        .enable_all()
+        .build()?;
+    let _runtime_guard = runtime.enter();
+
     // 日志打到 stderr，不污染 stdio JSON-RPC 通道
     let _ = tracing_subscriber::fmt()
         .with_writer(io::stderr)
@@ -107,8 +119,9 @@ fn main() -> anyhow::Result<()> {
     let app_state = AppState::from_env()?;
 
     if std::env::args().any(|a| a == "--sse") {
-        eprintln!("SSE transport not yet implemented; use stdio (default).");
-        return Ok(());
+        anyhow::bail!(
+            "SSE transport is not implemented; use stdio by running ironforge-mcp without --sse"
+        );
     }
 
     run_stdio(&app_state)?;
