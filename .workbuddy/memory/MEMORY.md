@@ -8,7 +8,7 @@
 
 ## 技术栈
 - HTTP: Axum 0.8 + axum-server(tls-rustls) | SSH: russh 0.51
-- Git: gix 0.83 + git CLI fallback | ORM: SeaORM 1.1（SQLite）
+- Git: gix 0.84 + git CLI gateway（raw git 已全消除）| ORM: SeaORM 1.1（SQLite）
 - 认证: Argon2 + JWT HS256 | CI/CD: serde_yaml + sh/docker
 - 前端: SvelteKit 5 SPA | i18n: 中英双语（199 key）
 
@@ -18,7 +18,7 @@
 - **rg-ci**: CI/CD 引擎 | **rg-runner**: Runner Agent | **rg-mcp**: MCP 服务器
 
 ## Phase 进度（全部完成 ✅）
-Phase 1-21 全部完成（Phase 21: Package Registry 11 种适配器 + OCI、LDAP/SSO/2FA、审计日志、数据迁移、Mirror/Board/Tracking、代码搜索、SSH V2）
+Phase 1-21 全部完成（Phase 21: Package Registry 10 种适配器（9 native + generic）+ OCI、LDAP/SSO/2FA、审计日志、数据迁移、Mirror/Board/Tracking、代码搜索、SSH V2）
 
 ## 文档结构速查
 ```
@@ -29,24 +29,24 @@ ironforge/
 ├── CONTRIBUTING.md        # 开发规范
 ├── README.md              # 项目说明 + 快速开始
 ├── docs/                  # 核心设计文档（6 篇）
-├── ironforge-docs/        # 分析报告（当前 5 篇，archive/ 下 3 篇过时报告）
+├── ironforge-docs/        # 分析报告（architecture/analysis/comparison/ci/testing + archive/）
 ├── .ai/README.md          # AI Agent 接入指南
 └── deploy/README.md       # Observability 部署说明
 ```
 
 ## 最新对比文档
-- `ironforge-docs/gitea-vs-ironforge-2026.md` — 2026-06-16 完整对比报告（v3.1，基于代码实际状态修正）
-- `ironforge-docs/gitea-gap-list.csv` — 差距清单 CSV（2026-06-16 同步更新）
+- `ironforge-docs/comparison/gitea-vs-ironforge-2026.md` — 2026-06-16 完整对比报告（v3.1，2026-07-09 数据对齐）
+- `ironforge-docs/comparison/gitea-gap-list.csv` — 差距清单 CSV（2026-06-16 同步更新）
 - **核心完成度**: 约 85%
-- **已完成**: 包注册表 11/17 种（含 Docker/OCI/npm/PyPI/Maven/Cargo/NuGet/Helm/RubyGems/Go/Generic）、企业认证（LDAP+OAuth2+TOTP+审计日志）、数据迁移（GitHub/GitLab 导入）、邮件通知（SMTP+lettre）、运维（SQLite WAL/PRAGMA/JWT env/RateLimiting/Prometheus）、Least-privilege Token、前端包注册表页面、密码重置、Composer 适配器、CI/CD 日志写队列、Git CLI 网关、Pipeline 可视化、Wiki Markdown 渲染/TOC/删除、GPG 签名 UI、审计日志归档、软删除统一、Subpath 归档下载
-- **剩余技术债**: gix 迁移 70%（19 处 CLI 待替换，均经 GitCommandGateway）；raw `Command::new("git")` 已全部消除（2026-07-04，防回归守卫 `test_no_raw_git_command_in_crates` 无豁免通过）
+- **已完成**: 包注册表 10 种适配器（9 native: Docker/OCI/npm/PyPI/Maven/Cargo/NuGet/Helm/RubyGems/Composer + generic fallback；Go 等走 generic）、企业认证（LDAP+OAuth2+TOTP+审计日志）、数据迁移（GitHub/GitLab 导入）、邮件通知（SMTP+lettre）、运维（SQLite WAL/PRAGMA/JWT env/RateLimiting/Prometheus）、Least-privilege Token、前端包注册表页面、密码重置、Composer 适配器、CI/CD 日志写队列、Git CLI 网关、Pipeline 可视化、Wiki Markdown 渲染/TOC/删除、GPG 签名 UI、审计日志归档、软删除统一、Subpath 归档下载
+- **剩余技术债**: gix 原生迁移 70%（16 处 CLI 经 GitCommandGateway 保留：Diff×4/Fetch×2/Rebase×4/Pack×3/GPG×2/Clone×1）；raw `Command::new("git")` 已全部消除（2026-07-04，防回归守卫 `test_no_raw_git_command_in_crates` 无豁免通过）
 
 ## gix 迁移状态（2026-07-04 更新）
 - 进度 ~70%（16 处 git CLI 保留，gix API 覆盖其余，已消除 7 处 merge/commit/ref CLI）
 - 2026-06-06: 完成 merge×4, commit×2, ref-delete×1 的 gix 替换（pull_request/service.rs）
 - 2026-07-04: raw `Command::new("git")` 全部消除——`repo/service.rs` 13 处（auto_init/create_or_update_file/delete_file）迁移至网关；网关新增 `run_with_env` 支持 commit 身份 env；防回归守卫移除 `repo/service.rs` 豁免后通过。⚠️ 这些仍走 CLI（经网关），gix 原生进度不变。
 - 剩余 CLI（经网关，gix 原生待 Phase 3）: Diff×4（patch 字节对齐难，按回退条款保留）, Fetch×2, Rebase×4（gix-rebase 是 "idea"）, Pack×3, GPG×2, Clone×1
-- gix 版本 0.83（最新 0.84，仅 SHA256 + edition 提升，无功能变化）
+- gix 版本 0.84（Cargo.lock 锁定 0.84.0）
 
 ## 踩坑经验（完整版 — 代码注释已补充）
 1. **pkt-line**: 用 `read_pkt_line`，注意 flush=0000

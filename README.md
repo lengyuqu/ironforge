@@ -296,9 +296,13 @@ ironforge/
 ├── CLAUDE.md               # 完整 AI 协作上下文（Codex / Claude Code / WorkBuddy）
 ├── CONTRIBUTING.md         # 开发指南
 ├── ironforge-docs/
-│   ├── project-architecture-2026-07.md       # 当前架构总览
-│   ├── frontend-backend-structure-2026-07.md # 当前前后端结构分布
-│   └── architecture-followups-2026-07.md     # 已修复项和后续方向
+│   ├── README.md                             # 文档索引（单一事实来源）
+│   ├── architecture/                         # 架构总览/前后端结构/后续/followups/分模块/DB多后端
+│   ├── analysis/                             # 改进与优化整合报告
+│   ├── comparison/                           # Gitea 对比 + 差距清单
+│   ├── ci/                                   # CI Runner 架构
+│   ├── testing/                              # 功能测试 + 审计
+│   └── archive/                              # 过程文档与过时报告（追溯）
 ├── docs/
 │   ├── p0-prd.md           # P0 功能 PRD
 │   ├── p0-system-design.md # P0 系统设计 + 任务分解
@@ -445,7 +449,7 @@ GIT_TRACE_PACKET=1 GIT_TRACE=1 git push origin main 2>&1
 | 异步运行时 | tokio | 1.x |
 | HTTP 框架 | axum + axum-server | 0.8 / 0.7 |
 | SSH 服务端 | russh | 0.51 |
-| Git 操作 | gix + git CLI fallback | 0.66 |
+| Git 操作 | gix + git CLI gateway | 0.84 |
 | ORM | SeaORM | 1.1 |
 | 认证 | argon2 + JWT | 0.5 |
 | TLS | rustls + tokio-rustls | 0.23 / 0.26 |
@@ -533,9 +537,10 @@ GIT_TRACE_PACKET=1 GIT_TRACE=1 git push origin main 2>&1
 
 当前架构事实请优先阅读：
 
-- [项目架构总览](ironforge-docs/project-architecture-2026-07.md)
-- [前后端结构分布](ironforge-docs/frontend-backend-structure-2026-07.md)
-- [架构差异与后续待办](ironforge-docs/architecture-followups-2026-07.md)
+- [项目架构总览](ironforge-docs/architecture/project-architecture-2026-07.md)
+- [前后端结构分布](ironforge-docs/architecture/frontend-backend-structure-2026-07.md)
+- [架构差异与后续待办](ironforge-docs/architecture/architecture-followups-2026-07.md)
+- [文档索引](ironforge-docs/README.md)（完整导航）
 
 [ARCHITECTURE.md](ARCHITECTURE.md) 保留为历史设计文档，可用于了解早期技术选型和设计意图；当前模块边界、部署状态和风险口径以 2026-07 架构文档为准。
 

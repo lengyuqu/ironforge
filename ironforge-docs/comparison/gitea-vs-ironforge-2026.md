@@ -29,7 +29,7 @@
 | **组织/团队** | ✅ 完整 | ✅ 完整 | **100%** |
 | **协作者权限** | ✅ 完整 | ✅ 完整 | **100%** |
 | **代码搜索** | ✅ 完整 | ✅ 完整（FTS5 + AI） | **95%** |
-| **包注册表** | ✅ 完整（16 种） | ✅ 完整（17 种，含 Cargo） | **80%** |
+| **包注册表** | ✅ 完整（16 种） | ✅ 9 native + generic fallback | **60%** |
 | **企业认证 (LDAP/SSO/2FA)** | ✅ 完整 | ✅ LDAP + OAuth2 + TOTP 完整实现 | **90%** |
 | **数据迁移导入** | ✅ 完整 | ✅ GitHub/GitLab 全量导入 | **95%** |
 | **Gitea Actions 兼容** | ✅ 完整 | ⚠️ 自研 CI/CD（不兼容） | **30%** |
@@ -140,7 +140,7 @@
 | **PyPI** | ✅ | ✅ PEP 503 Simple Index | ✅ 完成 | - |
 | **Maven** | ✅ | ✅ maven-metadata.xml | ✅ 完成 | - |
 | **NuGet** | ✅ | ✅ service/registration/search | ✅ 完成 | - |
-| **Composer** | ✅ | ❌ 未实现 | ❌ 缺失 | P1 |
+| **Composer** | ✅ | ✅ packagist metadata | ✅ 完成 | - |
 | **Helm** | ✅ | ✅ index.yaml 构建 | ✅ 完成 | - |
 | **RubyGems** | ✅ | ✅ dependencies + gems info | ✅ 完成 | - |
 | **Cargo (Rust)** | ✅ | ✅ sparse index | ✅ 完成 | - |
@@ -150,9 +150,9 @@
 | **Conda** | ✅ | ❌ 未实现 | ❌ 缺失 | P2 |
 | **Chef** | ✅ | ❌ 未实现 | ❌ 缺失 | P2 |
 | **Vagrant** | ✅ | ❌ 未实现 | ❌ 缺失 | P2 |
-| **Go Proxy** | ❌ IronForge 扩展 | ✅ 适配器已注册 | ✅ 完成 | - |
+| **Go Proxy** | ❌ IronForge 扩展 | ⚠️ 走 generic fallback（无 native 适配器） | ⚠️ 部分 | P2 |
 
-> **关键结论**: IronForge 已实现 11/17 种包类型（含 Go），覆盖了最常用的 Docker/npm/PyPI/Maven/Cargo/NuGet/Helm/RubyGems。剩余 Composer + 6 种小众类型可后续扩展。**v2.0 错误标注为完全缺失，实际 Phase 21 已完成所有主要适配器。**
+> **关键结论**: IronForge 已实现 10 种包适配器（9 native: Docker/npm/PyPI/Maven/Cargo/NuGet/Helm/RubyGems/Composer + generic fallback）。Go 等其他类型走 generic fallback。剩余 Pub/Conan/Conda/Chef/Vagrant 5 种小众类型未实现（走 generic 兜底）。**v2.0 错误标注为完全缺失，实际 Phase 21 已完成所有主要适配器。**
 
 ---
 
@@ -321,6 +321,8 @@
 
 ## 四、实施路线图建议
 
+> 📌 **状态更新（2026-07-09）**：阶段 1 全部已完成（密码重置、Composer 适配器、CI/CD 日志写队列）；阶段 2 重点项（Pipeline 可视化、Wiki 完善、GPG UI、审计归档、软删除统一）亦已完成。本节保留为历史规划记录。
+
 ### 阶段 1：补齐最后缺口（1 周）
 
 **目标**: 密码重置 + Composer 适配器 + CI/CD 日志写队列
@@ -343,7 +345,7 @@
 
 ### 5.1 Package Registry 实现策略
 
-**实际采用**: Rust 原生实现，11 种包类型的适配器模式 + OCI 内容寻址存储
+**实际采用**: Rust 原生实现，10 种包适配器（9 native + generic）+ OCI 内容寻址存储
 - OCI (Docker) 使用 `oci-spec-rs` + 自建 `OciStorage` 分层存储层
 - npm/PyPI/Maven 各自实现对应协议的 API 端点
 - 存储后端：本地文件系统（可扩展 S3 兼容接口）

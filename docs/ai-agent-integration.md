@@ -156,8 +156,8 @@ Claude: "IronForge 是一个 Rust 实现的 Git 托管平台，workspace 依赖�
       {"path": "Cargo.toml", "type": "manifest", "description": "Workspace root"},
       {"path": "AGENT.md", "type": "ai_context", "description": "AI quick entry guide"},
       {"path": "CLAUDE.md", "type": "ai_context", "description": "Deep AI collaboration guide"},
-      {"path": "ironforge-docs/project-architecture-2026-07.md", "type": "docs", "description": "Current architecture overview"},
-      {"path": "ironforge-docs/frontend-backend-structure-2026-07.md", "type": "docs", "description": "Current frontend/backend mapping"}
+      {"path": "ironforge-docs/architecture/project-architecture-2026-07.md", "type": "docs", "description": "Current architecture overview"},
+      {"path": "ironforge-docs/architecture/frontend-backend-structure-2026-07.md", "type": "docs", "description": "Current frontend/backend mapping"}
     ]
   },
   "recent_activity": {
@@ -177,7 +177,7 @@ Claude: "IronForge 是一个 Rust 实现的 Git 托管平台，workspace 依赖�
     "russh": "0.51"
   },
   "ai_metadata": {
-    "agent_instructions": "Read AGENT.md, CLAUDE.md, and ironforge-docs/project-architecture-2026-07.md before architectural modifications",
+    "agent_instructions": "Read AGENT.md, CLAUDE.md, and ironforge-docs/architecture/project-architecture-2026-07.md before architectural modifications",
     "test_command": "cargo test --all",
     "build_command": "cargo build --release"
   }
@@ -261,8 +261,8 @@ Claude: "IronForge 是一个 Rust 实现的 Git 托管平台，workspace 依赖�
     {"path": "Cargo.toml", "type": "manifest", "importance": 1.0},
     {"path": "AGENT.md", "type": "ai_context", "importance": 0.98},
     {"path": "CLAUDE.md", "type": "ai_context", "importance": 0.95},
-    {"path": "ironforge-docs/project-architecture-2026-07.md", "type": "docs", "importance": 0.94},
-    {"path": "ironforge-docs/frontend-backend-structure-2026-07.md", "type": "docs", "importance": 0.92},
+    {"path": "ironforge-docs/architecture/project-architecture-2026-07.md", "type": "docs", "importance": 0.94},
+    {"path": "ironforge-docs/architecture/frontend-backend-structure-2026-07.md", "type": "docs", "importance": 0.92},
     {"path": "crates/rg-http/src/lib.rs", "type": "source", "importance": 0.85, "language": "rust"},
     {"path": "web/src/lib/api/client.ts", "type": "source", "importance": 0.7, "language": "typescript"}
   ],
@@ -295,9 +295,9 @@ repo/
 │       └── api-guide.md      # API 使用指南
 ├── CLAUDE.md                 # 现有：Claude Code 专用
 ├── ARCHITECTURE.md           # 现有：历史架构设计
-├── ironforge-docs/           # 现有：2026-07 当前架构与前后端结构文档
-│   ├── project-architecture-2026-07.md
-│   └── frontend-backend-structure-2026-07.md
+├── ironforge-docs/           # 现有：分析报告（索引见 README.md）
+│   ├── README.md
+│   └── architecture/         # 架构总览 + 前后端结构 + 后续待办
 └── README.md                 # 现有：项目说明
 ```
 
@@ -316,7 +316,7 @@ IronForge 是一个 Rust 实现的 Git 托管平台，对标 Gitea。
 - 数据库：SQLite；PostgreSQL 是后续生产化方向
 
 ## 开发规范
-1. 修改代码前，先阅读 `AGENT.md`、`CLAUDE.md` 和 `ironforge-docs/project-architecture-2026-07.md`
+1. 修改代码前，先阅读 `AGENT.md`、`CLAUDE.md` 和 `ironforge-docs/architecture/project-architecture-2026-07.md`
 2. 新增模块需要在 `rg-core/src/lib.rs` 中导出
 3. API 变更需同步更新 OpenAPI 注解和前端 client.ts
 4. 测试命令：`cargo test --all`
@@ -359,7 +359,7 @@ IronForge 是一个 Rust 实现的 Git 托管平台，对标 Gitea。
 |---------|--------|------|
 | `CLAUDE.md` | Claude Code 专用入口 | 保留，同时在 `.ai/agent.md` 中引用 |
 | `AGENT.md` | 通用 AI 轻量入口 | 保留，作为 `.ai/agent.md` 的简化版 |
-| `ironforge-docs/project-architecture-2026-07.md` | 当前架构事实 | 优先引用，作为 `.ai/context/architecture.md` 的内容来源 |
+| `ironforge-docs/architecture/project-architecture-2026-07.md` | 当前架构事实 | 优先引用，作为 `.ai/context/architecture.md` 的内容来源 |
 | `ARCHITECTURE.md` | 历史架构设计 | 保留作为设计背景，不作为当前事实唯一来源 |
 | `CONTRIBUTING.md` | 贡献指南 | 保留，`.ai/agent.md` 中引用 |
 

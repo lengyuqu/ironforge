@@ -5,9 +5,9 @@
 **事实来源**: 当前代码、配置、迁移、前端路由、测试、部署文件和架构修复回填  
 **配套文档**:
 
-- `ironforge-docs/project-architecture-analysis-notes-2026-07.md`
-- `ironforge-docs/frontend-backend-structure-2026-07.md`
-- `ironforge-docs/architecture-followups-2026-07.md`
+- `ironforge-docs/archive/project-architecture-analysis-notes-2026-07.md`（过程记录，已归档）
+- `ironforge-docs/architecture/frontend-backend-structure-2026-07.md`
+- `ironforge-docs/architecture/architecture-followups-2026-07.md`
 
 ---
 

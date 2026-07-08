@@ -20,9 +20,10 @@
 | 文件 | 用途 | 何时读取 |
 |------|------|---------|
 | `CLAUDE.md` | 最完整的 AI 协作上下文（踩坑记录、依赖版本、常见错误、实现现状清单） | **每次开始工作前必读** |
-| `ironforge-docs/project-architecture-2026-07.md` | 当前代码事实架构总览 | 设计新功能、核验模块边界时 |
-| `ironforge-docs/frontend-backend-structure-2026-07.md` | 当前前后端结构和页面/API 映射 | 修改前端页面、API client 或 HTTP handler 时 |
-| `ironforge-docs/architecture-followups-2026-07.md` | 当前已修复项、P2 长期方向和旧口径修正 | 判断风险、技术债和后续方向时 |
+| `ironforge-docs/README.md` | 文档索引（单一事实来源） | 找任何分析报告时先读 |
+| `ironforge-docs/architecture/project-architecture-2026-07.md` | 当前代码事实架构总览 | 设计新功能、核验模块边界时 |
+| `ironforge-docs/architecture/frontend-backend-structure-2026-07.md` | 当前前后端结构和页面/API 映射 | 修改前端页面、API client 或 HTTP handler 时 |
+| `ironforge-docs/architecture/architecture-followups-2026-07.md` | 当前已修复项、P2 长期方向和旧口径修正 | 判断风险、技术债和后续方向时 |
 | `ARCHITECTURE.md` | 历史架构方案、技术选型决策、数据库模型 | 了解设计背景；当前事实以 2026-07 架构文档为准 |
 | `CONTRIBUTING.md` | 开发规范、crate 边界规则、编码规范、Phase 计划 | 写新代码时 |
 | `README.md` | 快速开始、REST API 示例、E2E 测试脚本 | 首次接触项目时 |
@@ -49,9 +50,13 @@ ironforge/
 │   ├── ai-agent-integration.md     # AI Agent 集成方案
 │   └── project-audit-2026-06.md    # 项目审计报告
 ├── ironforge-docs/
-│   ├── project-architecture-2026-07.md          # 当前架构总览
-│   ├── frontend-backend-structure-2026-07.md    # 前后端结构分布
-│   └── architecture-followups-2026-07.md        # 架构差异与后续方向
+│   ├── README.md                               # 文档索引（单一事实来源）
+│   ├── architecture/                           # 架构总览/前后端结构/后续/followups/分模块/DB多后端
+│   ├── analysis/                               # 改进与优化整合报告
+│   ├── comparison/                             # Gitea 对比 + 差距清单
+│   ├── ci/                                     # CI Runner 架构
+│   ├── testing/                                # 功能测试 + 审计
+│   └── archive/                                # 过程文档与过时报告（追溯）
 ├── crates/
 │   ├── rg-cli/             # 主二进制入口（bin = "ironforge"）
 │   ├── rg-core/            # 核心业务逻辑
@@ -108,8 +113,8 @@ cargo build --release
 
 ### 开发新功能 / 规划下一步
 → `CLAUDE.md` 中「实现现状」表格 — 确认功能是否已实现
-→ `ironforge-docs/project-architecture-2026-07.md` — 核验当前架构事实
-→ `ironforge-docs/architecture-followups-2026-07.md` — 查看已修复项和长期方向
+→ `ironforge-docs/architecture/project-architecture-2026-07.md` — 核验当前架构事实
+→ `ironforge-docs/architecture/architecture-followups-2026-07.md` — 查看已修复项和长期方向
 → `ARCHITECTURE.md` — 了解历史设计意图
 → `CONTRIBUTING.md` — 遵循编码规范
 
@@ -117,7 +122,7 @@ cargo build --release
 → `CLAUDE.md` 中「实现现状」表格 — 当前迁移进度和剩余 CLI 调用
 
 ### CI/CD Runner 开发
-→ `ironforge-docs/ci-runner-architecture.md` — Runner 调度架构
+→ `ironforge-docs/ci/ci-runner-architecture.md` — Runner 调度架构
 
 ### 前端开发（SvelteKit）
 → `CLAUDE.md` 中「前端技术要点」— i18n 策略、Svelte 5 runes 用法
@@ -138,22 +143,18 @@ cargo build --release
 
 ## 分析报告索引
 
-`ironforge-docs/` 目录包含以下分析报告：
+`ironforge-docs/` 已按主题分子目录整理，完整索引见 [`ironforge-docs/README.md`](ironforge-docs/README.md)：
 
-| 报告 | 内容 | 状态 |
-|------|------|------|
-| `README.md` | 报告索引 + 项目状态总览 | 最新 |
-| `project-architecture-2026-07.md` | 当前项目架构总览 | 最新 |
-| `frontend-backend-structure-2026-07.md` | 当前前后端结构分布 | 最新 |
-| `architecture-followups-2026-07.md` | 已修复项、P2 长期方向和旧口径修正 | 最新 |
-| `gitea-vs-ironforge-2026.md` | vs Gitea 功能对比（v2.0 全面更新） | 当前 |
-| `gitea-gap-list.csv` | 功能差距清单（CSV 格式） | 当前 |
-| `ci-runner-architecture.md` | CI Runner 架构设计 | 当前 |
-| `ironforge-improvement-analysis-2026-06-09.md` | 全方位改进空间分析 | 当前 |
-| `p0-update-2026-06-08.md` | P0 包注册表更新 | 当前 |
-| `archive/` | 过时分析报告（v1 差距分析、gix 旧报告） | 已归档 |
+| 子目录 | 内容 |
+|------|------|
+| `architecture/` | 架构总览、前后端结构、后续待办、分模块分析、DB 多后端 |
+| `analysis/` | 改进与优化整合报告（2026-06-09 规划 + 2026-06-17 落地） |
+| `comparison/` | Gitea 功能对比 + 差距清单 |
+| `ci/` | CI Runner 架构 |
+| `testing/` | 功能测试指南 + 前后端审计 |
+| `archive/` | 过程文档与过时报告（仅供追溯） |
 
-> 过时分析报告已移至 `archive/` 目录，详阅 `archive/ARCHIVE.md`。
+> 过时分析报告已移至 `archive/`，详阅 `archive/ARCHIVE.md`。
 
 ---
 

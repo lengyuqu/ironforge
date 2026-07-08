@@ -42,10 +42,14 @@ ironforge/
 ├── CLAUDE.md               # 本文件（AI 协作上下文）
 ├── CONTRIBUTING.md         # 开发规范
 ├── .ai/                  # AI Agent 接入规范（README + MCP配置 + prompt模板）
-├── ironforge-docs/         # 架构重盘、前后端结构、差异与待办
-│   ├── project-architecture-2026-07.md
-│   ├── frontend-backend-structure-2026-07.md
-│   └── architecture-followups-2026-07.md
+├── ironforge-docs/         # 分析报告（按主题分子目录，索引见 README.md）
+│   ├── README.md                       # 文档索引（单一事实来源）
+│   ├── architecture/                   # 架构总览/前后端结构/后续/followups/分模块/DB多后端
+│   ├── analysis/                       # 改进与优化整合报告
+│   ├── comparison/                     # Gitea 对比 + 差距清单
+│   ├── ci/                             # CI Runner 架构
+│   ├── testing/                        # 功能测试 + 审计
+│   └── archive/                        # 过程文档与过时报告（追溯）
 ├── docs/
 │   ├── p0-prd.md                   # P0 功能 PRD
 │   ├── p0-system-design.md         # P0 系统设计 + 任务分解
@@ -292,11 +296,11 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":
 ### ✅ Phase 21 已完成（2026-06-07 — 大规模功能扩展）
 
 #### P0: Package Registry（包注册表）
-- `rg-core/src/package_registry/` — PackageAdapter trait + 11 种适配器
+- `rg-core/src/package_registry/` — PackageAdapter trait + 10 种适配器（9 native + generic fallback）
   - Cargo (sparse index) / npm (registry metadata) / PyPI (PEP 503 Simple Index)
   - Maven (maven-metadata.xml) / NuGet (service/registration/search)
   - Helm (index.yaml) / RubyGems (dependencies API) / Docker (OCI 标记)
-  - Generic (通用文件) / Go Proxy
+  - Composer (packagist metadata) / Generic (通用文件，其他类型 fallback)
 - `rg-core/src/package_registry/oci/` — OCI Distribution Spec v1.0 容器镜像仓库
   - `storage.rs`: 内容寻址 blob 存储
   - `types.rs`: OCI 类型定义
@@ -481,7 +485,7 @@ FTS5 的 `INSERT INTO fts_table(fts_table, rowid, ...) VALUES('delete', ...)` �
 
 ### 新功能开发流程
 
-1. 阅读 `ironforge-docs/project-architecture-2026-07.md` 和对应前后端结构文档确认当前代码事实
+1. 阅读 `ironforge-docs/architecture/project-architecture-2026-07.md` 和对应前后端结构文档确认当前代码事实
 2. 必要时阅读 `ARCHITECTURE.md` 了解历史设计意图
 3. 确认要修改的 crate 和文件
 4. 先写单元测试（或端到端测试脚本）
@@ -506,7 +510,7 @@ FTS5 的 `INSERT INTO fts_table(fts_table, rowid, ...) VALUES('delete', ...)` �
 1. ~~**Git CLI 替换余量**~~ — 2026-07-04 完成：全部 raw `Command::new("git")` 已通过 `GitCommandGateway` 统一（最后收尾 `repo/service.rs` 13 处：`auto_init`/`create_or_update_file`/`delete_file`；网关新增 `run_with_env` 支持 commit 身份 env），防回归守卫 `test_no_raw_git_command_in_crates` 无豁免通过。
 
 #### 技术债
-2. **gix 迁移继续** — 2026-06-17: Phase 1+2 完成，进度 ~85%
+2. **gix 迁移继续** — 2026-07-04: raw git 全消除（经 GitCommandGateway），gix 原生覆盖率 ~70%，16 处 CLI 经网关保留（Diff×4/Fetch×2/Rebase×4/Pack×3/GPG×2/Clone×1）
    - ✅ Phase 1: 所有 git 子进程调用统一走 `GitCommandGateway`（防回归测试通过）
    - ✅ Phase 2A: PR diff numstat 迁移至 gix tree-to-tree diff（per-file 行数统计）
    - ✅ Phase 2B: commit gpgsig 头读取迁移至 gix `extra_headers()`
@@ -628,9 +632,9 @@ home            = "0.5"
 |------|------|---------|
 | `AGENT.md` | **所有 AI 工具的轻量统一入口** | 快速了解项目概览、技术栈、关键文件速查 |
 | `CLAUDE.md` | **Claude Code 默认入口 + 所有 AI 的深度参考** | 完整的踩坑记录、依赖版本、常见错误排查、实现现状清单 |
-| `ironforge-docs/project-architecture-2026-07.md` | 当前代码事实架构总览 | 设计新功能、核验模块边界和运行模型 |
-| `ironforge-docs/frontend-backend-structure-2026-07.md` | 当前前后端结构分布 | 修改前端页面、API client、HTTP handler 时 |
-| `ironforge-docs/architecture-followups-2026-07.md` | 已修复项、P2 长期方向和旧口径修正 | 判断风险、技术债和后续方向 |
+| `ironforge-docs/architecture/project-architecture-2026-07.md` | 当前代码事实架构总览 | 设计新功能、核验模块边界和运行模型 |
+| `ironforge-docs/architecture/frontend-backend-structure-2026-07.md` | 当前前后端结构分布 | 修改前端页面、API client、HTTP handler 时 |
+| `ironforge-docs/architecture/architecture-followups-2026-07.md` | 已修复项、P2 长期方向和旧口径修正 | 判断风险、技术债和后续方向 |
 | `ARCHITECTURE.md` | 历史架构设计文档 | 了解技术选型和早期设计背景；当前事实以 2026-07 架构文档为准 |
 | `CONTRIBUTING.md` | 开发规范 | 写新代码时遵循编码规范 |
 
@@ -660,21 +664,29 @@ $WORKSPACE/.workbuddy/memory/
 ### 分析报告位置
 ```
 $WORKSPACE/ironforge-docs/
-├── README.md                           # 报告索引 + 项目状态总览
-├── project-architecture-2026-07.md      # 当前项目架构总览
-├── frontend-backend-structure-2026-07.md # 当前前后端结构分布
-├── architecture-followups-2026-07.md    # 已修复项、P2 长期方向和旧口径修正
-├── architecture-remediation-plan-2026-07.md # P0/P1 修复执行过程记录
-├── gitea-vs-ironforge-2026.md          # vs Gitea 功能对比 v2.0（2026-06-07）
-├── gitea-gap-list.csv                  # 功能差距清单 CSV（2026-06-07）
-├── ci-runner-architecture.md           # CI Runner 架构设计
-├── ironforge-improvement-analysis-2026-06-09.md # 全方位改进空间分析
-├── p0-update-2026-06-08.md             # P0 包注册表更新
-└── archive/                            # 过时分析报告
-    ├── ARCHIVE.md                      # 归档索引
-    ├── gitea-feature-gap-analysis.md   # (v1, 已由 v2.0 替代)
-    ├── gix-migration-status-report.md  # (数据已过时)
-    └── gix-migration-feasibility-analysis.md # (参考用，已归档)
+├── README.md                                  # 文档索引（单一事实来源）
+├── architecture/                              # 架构总览/前后端结构/followups/分模块/DB多后端
+│   ├── project-architecture-2026-07.md
+│   ├── frontend-backend-structure-2026-07.md
+│   ├── architecture-followups-2026-07.md
+│   ├── system-analysis-by-module-2026-07.md
+│   └── db-multi-backend-design-2026-07.md
+├── analysis/improvement-analysis.md            # 改进与优化整合报告
+├── comparison/                                 # Gitea 对比 + 差距清单
+├── ci/ci-runner-architecture.md                # CI Runner 架构
+├── testing/                                    # 功能测试 + 审计
+└── archive/                                    # 过程文档与过时报告（追溯）
+    ├── ARCHIVE.md                              # 归档索引
+    ├── project-architecture-analysis-notes-2026-07.md  # 架构重盘过程记录
+    ├── project-architecture-analysis-plan-2026-07.md   # 架构重盘分析步骤
+    ├── architecture-remediation-plan-2026-07.md        # P0/P1 修复执行过程
+    ├── ironforge-improvement-analysis-2026-06-09.md    # 全方位改进空间分析
+    ├── source-optimization-analysis-2026-06-17.md      # 源码优化空间分析
+    ├── p0-update-2026-06-08.md                         # P0 包注册表更新
+    ├── frontend-layout-audit.md / plan.md / defect-*.md # 散落文件归位
+    ├── gitea-feature-gap-analysis.md                   # (v1, 已由 v2.0 替代)
+    ├── gix-migration-status-report.md                  # (数据已过时)
+    └── gix-migration-feasibility-analysis.md           # (参考用，已归档)
 ```
 
 ### 项目文档位置

@@ -8,7 +8,7 @@
 包注册表,RubyGems,✅,✅ dependencies + gems info,100%,-,0,已实现
 包注册表,Cargo (Rust),✅,✅ sparse index,100%,-,0,已实现
 包注册表,Generic,✅,✅ 任意文件上传,100%,-,0,已实现
-包注册表,Go Proxy,延长,✅ 适配器已注册,100%,-,0,IronForge 扩展
+包注册表,Go Proxy,延长,⚠️ 走 generic fallback（无 native 适配器）,60%,P2,2,IronForge 扩展
 包注册表,Composer,✅,✅ ZIP composer.json + packages.json,100%,-,0,已实现 2026-06-16
 包注册表,Pub,✅,❌ 未实现,0%,P2,2,Dart/Flutter 生态
 包注册表,Conan,✅,❌ 未实现,0%,P2,3,C++ 包管理
