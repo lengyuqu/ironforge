@@ -5,7 +5,7 @@
 **报告日期**: 2026-05-10  
 **分析人**: 软件开发团队（齐活林 - 交付总监）  
 **Gitea 版本**: 1.26.0 (2026-04-18 发布)  
-**项目路径**: `/Users/yuqu/Desktop/帮我做个方案/ironforge/`
+**项目路径**: `/Users/yuqu/Vbercodeing/ironforge/`
 
 ---
 
@@ -416,9 +416,9 @@ IronForge 当前完成度：**40-50%**（相对于 Gitea 1.26）
 
 - **Gitea 官网**: https://gitea.com/
 - **Gitea 1.26 发布说明**: https://blog.gitea.com/release-of-1.26.0/
-- **IronForge 架构文档**: `/Users/yuqu/Desktop/帮我做个方案/ironforge/ARCHITECTURE.md`
-- **gix 迁移分析报告**: `/Users/yuqu/Desktop/帮我做个方案/ironforge-docs/gix-migration-feasibility-analysis.md`
-- **gix 迁移进度报告**: `/Users/yuqu/Desktop/帮我做个方案/ironforge-docs/gix-migration-status-report.md`
+- **IronForge 架构文档**: `/Users/yuqu/Vbercodeing/ironforge/ARCHITECTURE.md`
+- **gix 迁移分析报告**: `/Users/yuqu/Vbercodeing/ironforge-docs/gix-migration-feasibility-analysis.md`
+- **gix 迁移进度报告**: `/Users/yuqu/Vbercodeing/ironforge-docs/gix-migration-status-report.md`
 
 ### B. 功能差距详细清单
 

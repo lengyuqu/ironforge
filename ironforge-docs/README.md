@@ -14,6 +14,7 @@
 | `AGENTS.md` | Codex 等工具入口（指针，指向 `CLAUDE.md`） |
 | `ARCHITECTURE.md` | 历史架构方案（当前事实以 `architecture/` 为准） |
 | `CONTRIBUTING.md` | 开发规范、crate 边界、编码规范 |
+| `contributor-quickstart.md` | 贡献者快速上手（5 分钟跑起来 + 提 PR） |
 
 ---
 

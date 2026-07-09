@@ -8,7 +8,7 @@ import re
 import os
 import sys
 
-BASE = "/Users/yuqu/Desktop/帮我做个方案/ironforge/crates/rg-http/src/api"
+BASE = "/Users/yuqu/Vbercodeing/ironforge/crates/rg-http/src/api"
 
 # Module → Tag mapping
 MODULE_TAGS = {

@@ -4,7 +4,7 @@
 
 **报告日期**: 2026-05-10  
 **检查人**: 软件开发团队（齐活林 - 交付总监）  
-**项目路径**: `/Users/yuqu/Desktop/帮我做个方案/ironforge/`
+**项目路径**: `/Users/yuqu/Vbercodeing/ironforge/`
 
 ---
 
@@ -423,10 +423,10 @@ let verify_output = std::process::Command::new("git")...
 
 ```bash
 # 检查 gix 使用情况
-grep -rn "gix::" --include="*.rs" /Users/yuqu/Desktop/帮我做个方案/ironforge/ | grep -v "target/" | wc -l
+grep -rn "gix::" --include="*.rs" /Users/yuqu/Vbercodeing/ironforge/ | grep -v "target/" | wc -l
 
 # 检查 git CLI 使用情况
-grep -rn "Command::new(\"git\")" --include="*.rs" /Users/yuqu/Desktop/帮我做个方案/ironforge/ | grep -v "target/"
+grep -rn "Command::new(\"git\")" --include="*.rs" /Users/yuqu/Vbercodeing/ironforge/ | grep -v "target/"
 
 # 对比已迁移和未迁移
 echo "gix 调用次数:" && grep -rn "gix::" --include="*.rs" . | grep -v "target/" | wc -l
@@ -440,5 +440,5 @@ echo "CLI 调用次数:" && grep -rn "Command::new(\"git\")" --include="*.rs" . 
 _本文档由软件开发团队自动生成，如有疑问请联系交付总监齐活林（Qi）_
 
 **附件**:
-- 可行性分析报告: `/Users/yuqu/Desktop/帮我做个方案/ironforge-docs/gix-migration-feasibility-analysis.md`
-- 今日工作记录: `/Users/yuqu/Desktop/帮我做个方案/.workbuddy/memory/2026-05-09.md`
+- 可行性分析报告: `/Users/yuqu/Vbercodeing/ironforge-docs/gix-migration-feasibility-analysis.md`
+- 今日工作记录: `/Users/yuqu/Vbercodeing/.workbuddy/memory/2026-05-09.md`

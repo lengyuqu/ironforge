@@ -3,7 +3,7 @@
 > **文档版本**: v3.1（2026-06-16 最终修正）
 > **生成日期**: 2026-06-07（v2.0）/ 2026-06-16（v3.1 代码实际状态对齐 + 批量增强完成）
 > **分析基准**: Gitea 1.26 (2026-04-18) vs IronForge Phase 1-21（全部完成）
-> **项目路径**: `/Users/yuqu/Desktop/帮我做个方案/ironforge/`
+> **项目路径**: `/Users/yuqu/Vbercodeing/ironforge/`
 > **GitHub**: https://github.com/lengyuqu/ironforge
 
 ---
@@ -167,7 +167,7 @@
 | **OAuth2 / OIDC** | ✅ | ✅ (GitHub/GitLab SSO) | ✅ 完成 | - |
 | **2FA / MFA** | ✅ | ✅ (TOTP + AES-256-GCM) | ✅ 完成 | - |
 | **GPG 签名验证 (UI)** | ✅ | ⚠️ 解析实现，未暴露 UI | ⚠️ 部分 | P2 |
-| 密码重置（邮件） | ✅ | ❌ 未实现 | ❌ 缺失 | P1 |
+| 密码重置（邮件） | ✅ | ✅ 已完成（2026-06-16） | ✅ 完成 | - |
 | OIDC RP-Initiated Logout | ✅ (1.26 新功能) | ❌ 未实现 | ❌ 缺失 | P2 |
 
 ---
@@ -397,7 +397,7 @@
 - **Gitea 官网**: https://gitea.io/
 - **Gitea 文档**: https://docs.gitea.com/
 - **Gitea Package Registry 文档**: https://docs.gitea.com/zh-cn/packages/usage/packages/overview
-- **IronForge 架构文档**: `/Users/yuqu/Desktop/帮我做个方案/ironforge/ARCHITECTURE.md`
+- **IronForge 架构文档**: `/Users/yuqu/Vbercodeing/ironforge/ARCHITECTURE.md`
 - **IronForge GitHub**: https://github.com/lengyuqu/ironforge
 
 ### B. 功能差距清单（机器可读格式）

@@ -378,7 +378,7 @@ pub fn do_merge_commit(repo_path: &Path, pr: &PullRequest) -> Result<String> {
 - **gitoxide 官网**: https://github.com/Byron/gitoxide
 - **gix API 文档**: https://docs.rs/gix/
 - **安装指南**: https://cn.x-cmd.com/install/gitoxide
-- **IronForge 项目**: `/Users/yuqu/Desktop/帮我做个方案/ironforge/`
+- **IronForge 项目**: `/Users/yuqu/Vbercodeing/ironforge/`
 
 ### B. 相关 Issue/PR
 

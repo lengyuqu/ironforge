@@ -488,3 +488,5 @@ PR 合并到 `main` 前要求：
 - OpenAPI 全量覆盖（142 个 utoipa::path 注解 + Swagger UI）
 
 完整计划见 [ARCHITECTURE.md](ARCHITECTURE.md)。
+
+> **Phase 21（包注册表 / LDAP·SSO·2FA 企业认证 / 审计日志 / 数据迁移 / 镜像 / 看板 / 时间追踪 / 代码搜索 / SSH V2）也已完成**（2026-06-07 大规模功能扩展）。完整功能清单见 [CLAUDE.md](CLAUDE.md) 的「实现现状」。

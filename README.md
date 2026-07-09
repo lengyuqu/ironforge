@@ -541,6 +541,7 @@ GIT_TRACE_PACKET=1 GIT_TRACE=1 git push origin main 2>&1
 - [前后端结构分布](ironforge-docs/architecture/frontend-backend-structure-2026-07.md)
 - [架构差异与后续待办](ironforge-docs/architecture/architecture-followups-2026-07.md)
 - [文档索引](ironforge-docs/README.md)（完整导航）
+- [贡献者快速上手](ironforge-docs/contributor-quickstart.md)（5 分钟跑起来）
 
 [ARCHITECTURE.md](ARCHITECTURE.md) 保留为历史设计文档，可用于了解早期技术选型和设计意图；当前模块边界、部署状态和风险口径以 2026-07 架构文档为准。
 
