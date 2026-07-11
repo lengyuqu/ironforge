@@ -241,7 +241,12 @@ pub async fn check_merge_allowed(
     // Check required approvals
     if protection.require_approval {
         let required = protection.required_approvals.unwrap_or(1);
-        let approval_count = pr_review_ops::count_approvals(db, pr_id).await?;
+        let pr = pull_request::Entity::find_by_id(pr_id)
+            .one(db)
+            .await?
+            .context("pull request not found")?;
+        let approval_count =
+            pr_review_ops::count_current_approvals(db, pr_id, pr.head_sha.as_deref()).await?;
         if approval_count < required {
             bail!(
                 "merging into protected branch '{}' requires at least {} approval(s), got {}",

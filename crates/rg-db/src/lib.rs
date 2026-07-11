@@ -57,6 +57,52 @@ pub fn detect_backend(db_url: &str) -> Result<DbBackend> {
     }
 }
 
+/// Convert portable `?` bind markers in raw SQL to the backend's syntax.
+///
+/// SeaORM does not rewrite placeholders in `Statement::from_sql_and_values`:
+/// PostgreSQL requires `$1`, `$2`, ... while SQLite and MySQL use `?`. Keep
+/// raw SQL readable and portable by passing it through this helper first.
+/// Question marks inside quoted strings or identifiers are left untouched.
+pub fn prepare_sql(backend: sea_orm::DatabaseBackend, sql: &str) -> String {
+    if backend != sea_orm::DatabaseBackend::Postgres {
+        return sql.to_string();
+    }
+
+    let mut result = String::with_capacity(sql.len());
+    let mut chars = sql.chars().peekable();
+    let mut quote = None;
+    let mut parameter = 1;
+
+    while let Some(ch) = chars.next() {
+        if let Some(active_quote) = quote {
+            result.push(ch);
+            if ch == active_quote {
+                if chars.peek() == Some(&active_quote) {
+                    result.push(chars.next().unwrap());
+                } else {
+                    quote = None;
+                }
+            }
+            continue;
+        }
+
+        match ch {
+            '\'' | '"' | '`' => {
+                quote = Some(ch);
+                result.push(ch);
+            }
+            '?' => {
+                result.push('$');
+                result.push_str(&parameter.to_string());
+                parameter += 1;
+            }
+            _ => result.push(ch),
+        }
+    }
+
+    result
+}
+
 /// Default DB connect (acquire) timeout (seconds).
 pub const DEFAULT_CONNECT_TIMEOUT_SECS: u64 = 10;
 /// Default DB idle timeout (seconds).
@@ -107,9 +153,7 @@ pub async fn connect_with_pool(
     tracing::info!(url = %db_url, ?backend, connect_secs, idle_secs, max_connections, "Connecting to database");
 
     match backend {
-        DbBackend::Sqlite => {
-            connect_sqlite(db_url, connect_secs, idle_secs, max_connections).await
-        }
+        DbBackend::Sqlite => connect_sqlite(db_url, connect_secs, idle_secs, max_connections).await,
         DbBackend::Postgres => {
             connect_postgres(db_url, connect_secs, idle_secs, max_connections).await
         }
@@ -278,7 +322,9 @@ pub async fn rebuild_fts_indexes(db: &DatabaseConnection) -> Result<()> {
                 db.execute(Statement::from_string(backend, format!("ANALYZE {t}")))
                     .await?;
             }
-            tracing::info!("Postgres FTS columns are generated and self-maintaining; statistics refreshed.");
+            tracing::info!(
+                "Postgres FTS columns are generated and self-maintaining; statistics refreshed."
+            );
         }
         DatabaseBackend::MySql => {
             db.execute(Statement::from_string(
@@ -296,6 +342,21 @@ pub async fn rebuild_fts_indexes(db: &DatabaseConnection) -> Result<()> {
 mod tests {
     use super::*;
     use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+
+    #[test]
+    fn postgres_raw_sql_placeholders_are_numbered() {
+        assert_eq!(
+            prepare_sql(
+                DatabaseBackend::Postgres,
+                "SELECT '?' AS literal, id FROM t WHERE a = ? AND b = ?"
+            ),
+            "SELECT '?' AS literal, id FROM t WHERE a = $1 AND b = $2"
+        );
+        assert_eq!(
+            prepare_sql(DatabaseBackend::MySql, "SELECT * FROM t WHERE id = ?"),
+            "SELECT * FROM t WHERE id = ?"
+        );
+    }
 
     /// Regression guard: every connection handed out by the pool must have the
     /// per-connection PRAGMAs applied. A `connect()` that loses `foreign_keys`

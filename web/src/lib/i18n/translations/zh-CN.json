@@ -48,7 +48,36 @@
     "english": "English",
     "chinese": "中文",
     "security": "安全",
+    "ssh_keys": "SSH 密钥",
     "access_tokens": "访问令牌"
+  },
+  "ssh_keys": {
+    "title": "SSH 密钥",
+    "description": "添加公钥，以通过 SSH 认证 Git 操作。",
+    "add_title": "添加 SSH 密钥",
+    "name": "标题",
+    "name_placeholder": "工作电脑",
+    "public_key": "公钥",
+    "public_key_placeholder": "以 ssh-ed25519、ssh-rsa 或 ecdsa-sha2-... 开头",
+    "add": "添加密钥",
+    "adding": "添加中...",
+    "existing": "你的 SSH 密钥",
+    "fingerprint": "指纹",
+    "created": "创建时间",
+    "last_used": "上次使用",
+    "never": "从未",
+    "loading": "加载中...",
+    "empty": "尚未添加 SSH 密钥。",
+    "delete": "删除",
+    "deleting": "删除中...",
+    "added": "SSH 密钥已添加。",
+    "deleted": "SSH 密钥已删除。",
+    "title_required": "请输入密钥标题。",
+    "key_required": "请粘贴 SSH 公钥。",
+    "delete_confirm": "删除 SSH 密钥“{title}”？",
+    "load_failed": "加载 SSH 密钥失败",
+    "add_failed": "添加 SSH 密钥失败",
+    "delete_failed": "删除 SSH 密钥失败"
   },
   "home": {
     "tagline": "轻量级自托管 Git 服务",
@@ -126,7 +155,10 @@
       "use_backup_code": "使用备用码",
       "verify": "验证",
       "verifying": "验证中...",
-      "mfa_failed": "验证失败"
+      "mfa_failed": "验证失败",
+      "sso_loading": "正在加载单点登录选项...",
+      "sso_or": "或使用以下方式继续",
+      "sso_continue": "使用 {provider} 继续"
     },
     "register": {
       "title": "创建您的账号",
@@ -463,11 +495,15 @@
       "description": "描述",
       "description_hint": "（支持 Markdown）",
       "description_placeholder": "描述您的变更...",
+      "draft": "创建为草稿",
       "submit": "创建拉取请求",
       "cancel": "取消"
     },
     "empty": "暂无 {state} 拉取请求。",
     "meta": "#{number} 由 {author} 于 {date} 创建",
+    "draft": "草稿",
+    "mark_ready": "标记为可审查",
+    "convert_draft": "转为草稿",
     "state": {
       "open": "⑂ 开放",
       "closed": "✓ 已关闭",
@@ -480,7 +516,19 @@
         "rebase": "变基并合并"
       },
       "button": "合并拉取请求",
-      "merging": "合并中..."
+      "merging": "合并中...",
+      "draft_blocked": "此草稿在标记为可审查前不能合并。",
+      "enable_auto": "满足条件后自动合并",
+      "enabling_auto": "正在启用...",
+      "disable_auto": "取消自动合并",
+      "auto_enabled": "已启用自动合并",
+      "auto_waiting": "等待保护规则满足后使用 {strategy} 合并。",
+      "join_queue": "加入合并队列",
+      "joining_queue": "正在排队...",
+      "leave_queue": "退出队列",
+      "queue_title": "仓库合并队列",
+      "queue_position": "当前位于合并队列第 {position} 位",
+      "queue_waiting": "轮到此请求且保护规则满足后使用 {strategy} 合并。"
     },
     "verdict": {
       "approved": "✓ 已批准",
@@ -494,6 +542,58 @@
       "verdict_changes": "请求变更",
       "placeholder": "留下审查评论...",
       "submit": "提交审查"
+    },
+    "reviewers": {
+      "title": "已请求的审查者",
+      "empty": "尚未请求审查者。",
+      "placeholder": "审查者用户名",
+      "request": "请求审查",
+      "remove": "移除 {username}"
+    },
+    "threads": {
+      "title": "审查线程",
+      "open": "未解决",
+      "resolved": "已解决",
+      "resolve": "解决对话",
+      "reopen": "重新打开对话"
+    },
+    "timeline": {
+      "title": "审查时间线",
+      "system": "IronForge",
+      "pull_request_opened": "创建了此拉取请求",
+      "review_comment": "发表了评论",
+      "review_reply": "回复了审查线程",
+      "review_approve": "批准了这些变更",
+      "review_request_changes": "请求了变更",
+      "review_dismiss": "驳回了一次审查",
+      "code_suggestion": "提出了代码建议",
+      "suggestion_applied": "应用了代码建议",
+      "thread_resolved": "解决了审查线程",
+      "reviewer_requested": "请求 {reviewer} 进行审查",
+      "auto_merge_enabled": "启用了 {strategy} 自动合并",
+      "merge_queue_enqueued": "使用 {strategy} 将此拉取请求加入合并队列",
+      "merge_queue_merged": "通过合并队列合并了此拉取请求",
+      "merge_queue_failed": "将合并队列条目标记为失败",
+      "merge_queue_canceled": "取消了合并队列条目",
+      "pull_request_merged": "合并了此拉取请求",
+      "pull_request_closed": "关闭了此拉取请求"
+    },
+    "diff": {
+      "add_comment": "在此行添加评论",
+      "comment_placeholder": "留下行级评论...",
+      "submit_comment": "提交评论"
+    },
+    "suggestion": {
+      "propose": "将此评论作为代码建议",
+      "placeholder": "建议替换后的代码...",
+      "line_count": "从当前行起替换行数",
+      "delete_range": "删除选中范围",
+      "select": "选择以批量应用",
+      "batch_selected": "已选择 {count} 条建议",
+      "apply_selected": "在一个提交中应用所选建议",
+      "applying_selected": "正在应用建议...",
+      "apply": "应用建议",
+      "applied": "建议已应用"
     }
   },
   "wiki": {

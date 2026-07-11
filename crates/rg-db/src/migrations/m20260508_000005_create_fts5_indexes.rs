@@ -42,12 +42,12 @@ impl MigrationTrait for Migration {
                 "DROP TABLE IF EXISTS wiki_pages_fts".into(),
             ],
             DatabaseBackend::Postgres => vec![
-                "DROP TRIGGER IF EXISTS repos_fts_ai".into(),
-                "DROP TRIGGER IF EXISTS repos_fts_ad".into(),
-                "DROP TRIGGER IF EXISTS issues_fts_ai".into(),
-                "DROP TRIGGER IF EXISTS issues_fts_ad".into(),
-                "DROP TRIGGER IF EXISTS wiki_pages_fts_ai".into(),
-                "DROP TRIGGER IF EXISTS wiki_pages_fts_ad".into(),
+                "DROP TRIGGER IF EXISTS repos_fts_ai ON repositories".into(),
+                "DROP TRIGGER IF EXISTS repos_fts_ad ON repositories".into(),
+                "DROP TRIGGER IF EXISTS issues_fts_ai ON issues".into(),
+                "DROP TRIGGER IF EXISTS issues_fts_ad ON issues".into(),
+                "DROP TRIGGER IF EXISTS wiki_pages_fts_ai ON wiki_pages".into(),
+                "DROP TRIGGER IF EXISTS wiki_pages_fts_ad ON wiki_pages".into(),
                 "DROP FUNCTION IF EXISTS ironforge_sync_repos_fts".into(),
                 "DROP FUNCTION IF EXISTS ironforge_sync_issues_fts".into(),
                 "DROP FUNCTION IF EXISTS ironforge_sync_wiki_fts".into(),
@@ -157,7 +157,8 @@ fn sqlite_stmts() -> Vec<String> {
         INSERT INTO repos_fts(repos_fts) VALUES('rebuild');
         INSERT INTO issues_fts(issues_fts) VALUES('rebuild');
         INSERT INTO wiki_pages_fts(wiki_pages_fts) VALUES('rebuild');
-    "#.into()]
+    "#
+    .into()]
 }
 
 /// Postgres: regular tables with a `tsvector` generated column + GIN index,

@@ -77,6 +77,8 @@ pub struct GitLabMR {
     pub description: Option<String>,
     pub state: String,
     pub merged_at: Option<String>,
+    #[serde(default)]
+    pub draft: bool,
     pub author: Option<GitLabUser>,
     pub source_branch: String,
     pub target_branch: String,

@@ -68,6 +68,8 @@ pub struct GitHubPR {
     pub state: String,
     pub merged: Option<bool>,
     pub merged_at: Option<String>,
+    #[serde(default)]
+    pub draft: bool,
     pub user: Option<GitHubUser>,
     pub head: GitHubRef,
     pub base: GitHubRef,

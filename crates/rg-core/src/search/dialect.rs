@@ -54,13 +54,15 @@ pub fn fts_match(
         ),
         DatabaseBackend::Postgres => (
             format!("{table}.tsv @@ plainto_tsquery('simple', ?)"),
-            format!(
-                "ORDER BY ts_rank_cd({table}.tsv, plainto_tsquery('simple', ?)) DESC"
-            ),
+            format!("ORDER BY ts_rank_cd({table}.tsv, plainto_tsquery('simple', ?)) DESC"),
             vec![raw_query.to_string(), raw_query.to_string()],
         ),
         DatabaseBackend::MySql => {
-            let cols = columns.join(", ");
+            let cols = columns
+                .iter()
+                .map(|column| format!("{table}.{column}"))
+                .collect::<Vec<_>>()
+                .join(", ");
             (
                 format!("MATCH({cols}) AGAINST (? IN NATIVE LANGUAGE MODE)"),
                 format!("ORDER BY MATCH({cols}) AGAINST (? IN NATIVE LANGUAGE MODE) DESC"),
@@ -141,5 +143,23 @@ pub fn metadata_fts_upsert_sql(
                 "INSERT INTO {table}(rowid, {non_key_cols}) VALUES ({placeholders}) ON DUPLICATE KEY UPDATE {set}"
             )
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mysql_fts_columns_are_qualified_to_avoid_join_ambiguity() {
+        let (predicate, order, values) = fts_match(
+            DatabaseBackend::MySql,
+            "issues_fts",
+            ISSUES_FTS_COLS,
+            "needle",
+        );
+        assert!(predicate.contains("issues_fts.title, issues_fts.body"));
+        assert!(order.contains("issues_fts.title, issues_fts.body"));
+        assert_eq!(values, ["needle", "needle"]);
     }
 }

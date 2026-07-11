@@ -100,10 +100,11 @@ pub async fn find_issues_with_all_labels(
         "SELECT COUNT(*) FROM (SELECT issue_id FROM issue_labels WHERE {} GROUP BY issue_id HAVING COUNT(DISTINCT label_id) = {})",
         where_clause, label_ids.len()
     );
+    let backend = db.get_database_backend();
     let total: i64 = db
         .query_one(Statement::from_sql_and_values(
-            db.get_database_backend(),
-            &count_sql,
+            backend,
+            crate::prepare_sql(backend, &count_sql),
             [],
         ))
         .await
@@ -118,8 +119,8 @@ pub async fn find_issues_with_all_labels(
     );
     let rows = db
         .query_all(Statement::from_sql_and_values(
-            db.get_database_backend(),
-            &sql,
+            backend,
+            crate::prepare_sql(backend, &sql),
             [],
         ))
         .await

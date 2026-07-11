@@ -300,7 +300,6 @@
           spellcheck="false"
           autocapitalize="off"
           autocomplete="off"
-          autocorrect="off"
           placeholder={t('repo.editor.content_placeholder')}
           disabled={Boolean(disabledReason)}
           onscroll={syncEditorScroll}

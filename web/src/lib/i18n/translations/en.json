@@ -48,7 +48,36 @@
     "english": "English",
     "chinese": "Chinese",
     "security": "Security",
+    "ssh_keys": "SSH Keys",
     "access_tokens": "Access Tokens"
+  },
+  "ssh_keys": {
+    "title": "SSH Keys",
+    "description": "Add public keys to authenticate Git operations over SSH.",
+    "add_title": "Add SSH Key",
+    "name": "Title",
+    "name_placeholder": "Work laptop",
+    "public_key": "Public key",
+    "public_key_placeholder": "Begins with ssh-ed25519, ssh-rsa, or ecdsa-sha2-...",
+    "add": "Add key",
+    "adding": "Adding...",
+    "existing": "Your SSH Keys",
+    "fingerprint": "Fingerprint",
+    "created": "Created",
+    "last_used": "Last used",
+    "never": "Never",
+    "loading": "Loading...",
+    "empty": "No SSH keys have been added yet.",
+    "delete": "Delete",
+    "deleting": "Deleting...",
+    "added": "SSH key added.",
+    "deleted": "SSH key deleted.",
+    "title_required": "Enter a title for this key.",
+    "key_required": "Paste an SSH public key.",
+    "delete_confirm": "Delete SSH key \"{title}\"?",
+    "load_failed": "Failed to load SSH keys",
+    "add_failed": "Failed to add SSH key",
+    "delete_failed": "Failed to delete SSH key"
   },
   "home": {
     "tagline": "A lightweight, self-hosted Git service",
@@ -126,7 +155,10 @@
       "use_backup_code": "Use a backup code",
       "verify": "Verify",
       "verifying": "Verifying...",
-      "mfa_failed": "Verification failed"
+      "mfa_failed": "Verification failed",
+      "sso_loading": "Loading single sign-on options...",
+      "sso_or": "or continue with",
+      "sso_continue": "Continue with {provider}"
     },
     "register": {
       "title": "Create your account",
@@ -463,11 +495,15 @@
       "description": "Description",
       "description_hint": "(Markdown supported)",
       "description_placeholder": "Describe your changes...",
+      "draft": "Create as draft",
       "submit": "Create Pull Request",
       "cancel": "Cancel"
     },
     "empty": "No {state} pull requests.",
     "meta": "#{number} opened {date} by {author}",
+    "draft": "Draft",
+    "mark_ready": "Mark ready for review",
+    "convert_draft": "Convert to draft",
     "state": {
       "open": "⑂ Open",
       "closed": "✓ Closed",
@@ -480,7 +516,19 @@
         "rebase": "Rebase and merge"
       },
       "button": "Merge pull request",
-      "merging": "Merging..."
+      "merging": "Merging...",
+      "draft_blocked": "This draft cannot be merged until it is marked ready for review.",
+      "enable_auto": "Auto-merge when ready",
+      "enabling_auto": "Enabling...",
+      "disable_auto": "Disable auto-merge",
+      "auto_enabled": "Auto-merge is enabled",
+      "auto_waiting": "Waiting for protection rules, then merge with {strategy}.",
+      "join_queue": "Join merge queue",
+      "joining_queue": "Joining queue...",
+      "leave_queue": "Leave queue",
+      "queue_title": "Repository merge queue",
+      "queue_position": "Position {position} in the merge queue",
+      "queue_waiting": "Merge with {strategy} when this request reaches the head and protection rules pass."
     },
     "verdict": {
       "approved": "✓ Approved",
@@ -494,6 +542,58 @@
       "verdict_changes": "Request Changes",
       "placeholder": "Leave a review comment...",
       "submit": "Submit Review"
+    },
+    "reviewers": {
+      "title": "Requested reviewers",
+      "empty": "No reviewers requested yet.",
+      "placeholder": "Reviewer username",
+      "request": "Request review",
+      "remove": "Remove {username}"
+    },
+    "threads": {
+      "title": "Review threads",
+      "open": "Open",
+      "resolved": "Resolved",
+      "resolve": "Resolve conversation",
+      "reopen": "Reopen conversation"
+    },
+    "timeline": {
+      "title": "Review timeline",
+      "system": "IronForge",
+      "pull_request_opened": "opened this pull request",
+      "review_comment": "commented",
+      "review_reply": "replied to a review thread",
+      "review_approve": "approved these changes",
+      "review_request_changes": "requested changes",
+      "review_dismiss": "dismissed a review",
+      "code_suggestion": "suggested a code change",
+      "suggestion_applied": "applied a code suggestion",
+      "thread_resolved": "resolved a review thread",
+      "reviewer_requested": "requested a review from {reviewer}",
+      "auto_merge_enabled": "enabled auto-merge with {strategy}",
+      "merge_queue_enqueued": "added this pull request to the merge queue with {strategy}",
+      "merge_queue_merged": "merged this pull request from the merge queue",
+      "merge_queue_failed": "marked the merge queue entry as failed",
+      "merge_queue_canceled": "canceled the merge queue entry",
+      "pull_request_merged": "merged this pull request",
+      "pull_request_closed": "closed this pull request"
+    },
+    "diff": {
+      "add_comment": "Add a comment on this line",
+      "comment_placeholder": "Leave an inline comment...",
+      "submit_comment": "Submit comment"
+    },
+    "suggestion": {
+      "propose": "Propose this as a code suggestion",
+      "placeholder": "Suggested replacement code...",
+      "line_count": "Lines to replace from here",
+      "delete_range": "Delete the selected range",
+      "select": "Select for batch application",
+      "batch_selected": "{count} suggestion(s) selected",
+      "apply_selected": "Apply selected in one commit",
+      "applying_selected": "Applying suggestions...",
+      "apply": "Apply suggestion",
+      "applied": "Suggestion applied"
     }
   },
   "wiki": {

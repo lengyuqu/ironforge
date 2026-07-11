@@ -44,6 +44,11 @@ pub mod m20260617_000002_rename_board_time_tables_plural;
 pub mod m20260621_000001_add_pr_labels_milestone;
 pub mod m20260629_000001_rename_import_task_plural;
 pub mod m20260705_000001_rename_package_tables_plural;
+pub mod m20260711_000001_pr_review_workflow;
+pub mod m20260711_000002_pr_auto_merge;
+pub mod m20260711_000003_merge_queue;
+pub mod m20260711_000004_review_suggestions;
+pub mod m20260711_000005_review_comment_ranges;
 
 use sea_orm_migration::prelude::*;
 
@@ -99,6 +104,11 @@ impl MigratorTrait for Migrator {
             Box::new(m20260621_000001_add_pr_labels_milestone::Migration),
             Box::new(m20260629_000001_rename_import_task_plural::Migration),
             Box::new(m20260705_000001_rename_package_tables_plural::Migration),
+            Box::new(m20260711_000001_pr_review_workflow::Migration),
+            Box::new(m20260711_000002_pr_auto_merge::Migration),
+            Box::new(m20260711_000003_merge_queue::Migration),
+            Box::new(m20260711_000004_review_suggestions::Migration),
+            Box::new(m20260711_000005_review_comment_ranges::Migration),
         ]
     }
 }

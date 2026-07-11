@@ -17,9 +17,6 @@ impl MigrationName for Migration {
 #[async_trait::async_trait]
 impl MigrationTrait for Migration {
     async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
-        let db = manager.get_connection();
-        use sea_orm::ConnectionTrait;
-
         // board_cards must be renamed before board_columns (FK dependency)
         // board_columns before boards; wiki_revision → wiki_revisions
         for (old, new) in &[
@@ -30,30 +27,20 @@ impl MigrationTrait for Migration {
             ("wiki_revision", "wiki_revisions"),
         ] {
             // Skip if the old table doesn't exist (e.g. already renamed on a prior run)
-            let check: Vec<_> = db
-                .query_all(sea_orm::Statement::from_string(
-                    sea_orm::DatabaseBackend::Sqlite,
-                    format!(
-                        "SELECT name FROM sqlite_master WHERE type='table' AND name='{}'",
-                        old
-                    ),
-                ))
-                .await?;
-            if check.is_empty() {
-                continue; // already renamed (or never existed under this name)
+            if manager.has_table(*old).await? && !manager.has_table(*new).await? {
+                manager
+                    .rename_table(
+                        Table::rename()
+                            .table(Alias::new(*old), Alias::new(*new))
+                            .to_owned(),
+                    )
+                    .await?;
             }
-            db.execute(sea_orm::Statement::from_string(
-                sea_orm::DatabaseBackend::Sqlite,
-                format!("ALTER TABLE \"{}\" RENAME TO \"{}\"", old, new),
-            ))
-            .await?;
         }
         Ok(())
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
-        let db = manager.get_connection();
-        use sea_orm::ConnectionTrait;
         for (old, new) in &[
             ("board_cards", "board_card"),
             ("board_columns", "board_column"),
@@ -61,23 +48,15 @@ impl MigrationTrait for Migration {
             ("time_entries", "time_entry"),
             ("wiki_revisions", "wiki_revision"),
         ] {
-            let check: Vec<_> = db
-                .query_all(sea_orm::Statement::from_string(
-                    sea_orm::DatabaseBackend::Sqlite,
-                    format!(
-                        "SELECT name FROM sqlite_master WHERE type='table' AND name='{}'",
-                        old
-                    ),
-                ))
-                .await?;
-            if check.is_empty() {
-                continue;
+            if manager.has_table(*old).await? && !manager.has_table(*new).await? {
+                manager
+                    .rename_table(
+                        Table::rename()
+                            .table(Alias::new(*old), Alias::new(*new))
+                            .to_owned(),
+                    )
+                    .await?;
             }
-            db.execute(sea_orm::Statement::from_string(
-                sea_orm::DatabaseBackend::Sqlite,
-                format!("ALTER TABLE \"{}\" RENAME TO \"{}\"", old, new),
-            ))
-            .await?;
         }
         Ok(())
     }

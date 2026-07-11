@@ -11,7 +11,6 @@
 //! when) the singular table exists and the plural one does not yet. This is
 //! idempotent and safe on both fresh databases (phase8 just created the
 //! singular tables) and any database already carrying the broken schema.
-use sea_orm::Statement;
 use sea_orm_migration::prelude::*;
 
 pub struct Migration;
@@ -32,43 +31,39 @@ const RENAMES: &[(&str, &str)] = &[
 #[async_trait::async_trait]
 impl MigrationTrait for Migration {
     async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
-        let db = manager.get_connection();
-        let backend = db.get_database_backend();
-
         for (old, new) in RENAMES {
             if manager.has_table(*old).await? && !manager.has_table(*new).await? {
-                db.execute(Statement::from_string(
-                    backend,
-                    format!("ALTER TABLE \"{old}\" RENAME TO \"{new}\";"),
-                ))
-                .await?;
+                manager
+                    .rename_table(
+                        Table::rename()
+                            .table(Alias::new(*old), Alias::new(*new))
+                            .to_owned(),
+                    )
+                    .await?;
             }
         }
 
         // Drop the dead singular `notification` table left over from phase8;
         // the live plural `notifications` table is created by m20260511_000002.
         if manager.has_table("notification").await? && manager.has_table("notifications").await? {
-            db.execute(Statement::from_string(
-                backend,
-                "DROP TABLE \"notification\";".to_string(),
-            ))
-            .await?;
+            manager
+                .drop_table(Table::drop().table(Alias::new("notification")).to_owned())
+                .await?;
         }
 
         Ok(())
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
-        let db = manager.get_connection();
-        let backend = db.get_database_backend();
-
         for (old, new) in RENAMES {
             if manager.has_table(*new).await? && !manager.has_table(*old).await? {
-                db.execute(Statement::from_string(
-                    backend,
-                    format!("ALTER TABLE \"{new}\" RENAME TO \"{old}\";"),
-                ))
-                .await?;
+                manager
+                    .rename_table(
+                        Table::rename()
+                            .table(Alias::new(*new), Alias::new(*old))
+                            .to_owned(),
+                    )
+                    .await?;
             }
         }
 

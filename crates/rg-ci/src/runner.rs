@@ -207,6 +207,34 @@ impl PipelineRunner {
         )
         .await?;
 
+        if pipeline_status == "success" {
+            if let (Some(repo_root), Some(pipeline)) = (
+                self.repo_path.parent().and_then(std::path::Path::parent),
+                pipeline_ops::get_pipeline(&self.db, self.pipeline_id).await?,
+            ) {
+                if let Err(error) = rg_core::pull_request::try_auto_merges_for_head_commit(
+                    &self.db,
+                    repo_root,
+                    pipeline.repo_id,
+                    &pipeline.commit_sha,
+                )
+                .await
+                {
+                    tracing::warn!(pipeline_id = self.pipeline_id, %error, "auto-merge evaluation after local CI failed");
+                }
+                if let Err(error) = rg_core::pull_request::merge_queue::process_for_head_commit(
+                    &self.db,
+                    repo_root,
+                    pipeline.repo_id,
+                    &pipeline.commit_sha,
+                )
+                .await
+                {
+                    tracing::warn!(pipeline_id = self.pipeline_id, %error, "merge queue evaluation after local CI failed");
+                }
+            }
+        }
+
         tracing::info!(
             pipeline_id = self.pipeline_id,
             status = pipeline_status,

@@ -511,6 +511,15 @@ fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
             get(api::users::list_tokens).post(api::users::create_token),
         )
         .route("/users/tokens/{id}", delete(api::users::delete_token))
+        // SSH keys
+        .route(
+            "/users/ssh-keys",
+            get(api::ssh_keys::list_ssh_keys).post(api::ssh_keys::create_ssh_key),
+        )
+        .route(
+            "/users/ssh-keys/{id}",
+            delete(api::ssh_keys::delete_ssh_key),
+        )
         // MFA
         .route("/users/mfa/setup", post(api::mfa::setup_mfa))
         .route("/users/mfa/enable", post(api::mfa::enable_mfa))
@@ -601,6 +610,18 @@ fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
             "/repos/{owner}/{name}/pulls/{number}/merge",
             post(api::pulls::merge_pr),
         )
+        .route(
+            "/repos/{owner}/{name}/pulls/{number}/auto-merge",
+            put(api::pulls::enable_auto_merge).delete(api::pulls::disable_auto_merge),
+        )
+        .route(
+            "/repos/{owner}/{name}/merge-queue",
+            get(api::pulls::list_merge_queue),
+        )
+        .route(
+            "/repos/{owner}/{name}/pulls/{number}/merge-queue",
+            put(api::pulls::enqueue_merge_queue).delete(api::pulls::cancel_merge_queue),
+        )
         // PR Reviews
         .route(
             "/repos/{owner}/{name}/pulls/{number}/reviews",
@@ -617,6 +638,30 @@ fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
         .route(
             "/repos/{owner}/{name}/pulls/{number}/comments",
             get(api::reviews::list_review_comments).post(api::reviews::create_review_comment),
+        )
+        .route(
+            "/repos/{owner}/{name}/pulls/{number}/timeline",
+            get(api::reviews::get_review_timeline),
+        )
+        .route(
+            "/repos/{owner}/{name}/pulls/{number}/comments/{id}/resolution",
+            patch(api::reviews::set_thread_resolution),
+        )
+        .route(
+            "/repos/{owner}/{name}/pulls/{number}/comments/{id}/suggestion/apply",
+            post(api::reviews::apply_review_suggestion),
+        )
+        .route(
+            "/repos/{owner}/{name}/pulls/{number}/suggestions/apply",
+            post(api::reviews::apply_review_suggestions),
+        )
+        .route(
+            "/repos/{owner}/{name}/pulls/{number}/reviewers",
+            get(api::reviews::list_requested_reviewers).post(api::reviews::request_reviewer),
+        )
+        .route(
+            "/repos/{owner}/{name}/pulls/{number}/reviewers/{username}",
+            delete(api::reviews::remove_requested_reviewer),
         )
         // Wiki
         .route(
@@ -1186,7 +1231,7 @@ async fn health(State(state): State<AppState>) -> impl IntoResponse {
     let db_ok = state
         .db
         .execute(Statement::from_string(
-            sea_orm::DatabaseBackend::Sqlite,
+            state.db.get_database_backend(),
             "SELECT 1".to_string(),
         ))
         .await
@@ -1323,8 +1368,11 @@ async fn docs_auth_middleware(
     next.run(req).await
 }
 
-/// Resolve a Personal Access Token to its owner's user id, honouring expiry.
-async fn resolve_pat(db: &DatabaseConnection, token: &str) -> Option<i64> {
+/// Resolve a Personal Access Token, honouring expiry.
+async fn resolve_pat(
+    db: &DatabaseConnection,
+    token: &str,
+) -> Option<rg_db::entities::access_token::Model> {
     use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
     hasher.update(token.as_bytes());
@@ -1338,7 +1386,31 @@ async fn resolve_pat(db: &DatabaseConnection, token: &str) -> Option<i64> {
             return None; // expired
         }
     }
-    Some(tok.user_id)
+    Some(tok)
+}
+
+/// Scope required when a PAT is used for a REST request.
+///
+/// A scope only controls which API family the token may enter. Normal user,
+/// repository and administrator authorization is still enforced by handlers.
+fn required_pat_scope(path: &str) -> Option<&'static str> {
+    if path.starts_with("/api-docs") {
+        return None;
+    }
+    // Axum may expose either the original URI or the path with the nested
+    // `/api/v1` prefix stripped, depending on which router layer is running.
+    let path = path.strip_prefix("/api/v1").unwrap_or(path);
+    if path.starts_with("/admin") || path == "/runners/register" {
+        return Some("admin");
+    }
+    if path.starts_with("/users")
+        || path.starts_with("/notifications")
+        || path.starts_with("/auth")
+        || path == "/ws/notifications"
+    {
+        return Some("user");
+    }
+    Some("repo")
 }
 
 /// Axum middleware: translate a valid Personal Access Token into an equivalent
@@ -1352,9 +1424,16 @@ async fn pat_auth_middleware(
     mut req: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> Response {
-    if let Some(jwt) = pat_to_bearer_jwt(&state, req.headers()).await {
-        if let Ok(value) = format!("Bearer {jwt}").parse() {
-            req.headers_mut().insert(header::AUTHORIZATION, value);
+    let required_scope = required_pat_scope(req.uri().path());
+    match pat_to_bearer_jwt(&state, req.headers(), required_scope).await {
+        Ok(Some(jwt)) => {
+            if let Ok(value) = format!("Bearer {jwt}").parse() {
+                req.headers_mut().insert(header::AUTHORIZATION, value);
+            }
+        }
+        Ok(None) => {}
+        Err(()) => {
+            return error::AppError::forbidden("personal access token scope denied").into_response()
         }
     }
     next.run(req).await
@@ -1363,8 +1442,17 @@ async fn pat_auth_middleware(
 /// If the Authorization header carries a valid PAT (and not already a valid
 /// JWT), return a freshly-minted JWT for the token's owner. Returns the
 /// existing JWT for a Basic-auth request that carries one. Otherwise `None`.
-async fn pat_to_bearer_jwt(state: &AppState, headers: &axum::http::HeaderMap) -> Option<String> {
-    let auth = headers.get(header::AUTHORIZATION)?.to_str().ok()?;
+async fn pat_to_bearer_jwt(
+    state: &AppState,
+    headers: &axum::http::HeaderMap,
+    required_scope: Option<&str>,
+) -> Result<Option<String>, ()> {
+    let Some(auth) = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+    else {
+        return Ok(None);
+    };
 
     let candidates: Vec<String> = if let Some(t) = auth
         .strip_prefix("Bearer ")
@@ -1372,16 +1460,20 @@ async fn pat_to_bearer_jwt(state: &AppState, headers: &axum::http::HeaderMap) ->
     {
         // A valid JWT bearer needs no translation.
         if rg_core::auth::jwt::validate_token(t, &state.jwt_secret).is_some() {
-            return None;
+            return Ok(None);
         }
         vec![t.to_string()]
     } else if let Some(encoded) = auth.strip_prefix("Basic ") {
         use base64::Engine as _;
-        let decoded = base64::engine::general_purpose::STANDARD
-            .decode(encoded)
-            .ok()?;
-        let creds = String::from_utf8(decoded).ok()?;
-        let (user, pass) = creds.split_once(':')?;
+        let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(encoded) else {
+            return Ok(None);
+        };
+        let Ok(creds) = String::from_utf8(decoded) else {
+            return Ok(None);
+        };
+        let Some((user, pass)) = creds.split_once(':') else {
+            return Ok(None);
+        };
         // Token may be in either the password (`user:token`) or username field.
         [pass, user]
             .into_iter()
@@ -1389,29 +1481,34 @@ async fn pat_to_bearer_jwt(state: &AppState, headers: &axum::http::HeaderMap) ->
             .map(|c| c.to_string())
             .collect()
     } else {
-        return None;
+        return Ok(None);
     };
 
     for cand in candidates {
         // A JWT carried via Basic auth: pass it through as a Bearer token.
         if rg_core::auth::jwt::validate_token(&cand, &state.jwt_secret).is_some() {
-            return Some(cand);
+            return Ok(Some(cand));
         }
-        if let Some(user_id) = resolve_pat(&state.db, &cand).await {
-            let username = rg_db::ops::user_ops::find_by_id(&state.db, user_id)
+        if let Some(pat) = resolve_pat(&state.db, &cand).await {
+            if required_scope
+                .is_some_and(|scope| !rg_core::auth::pat_scope::has_scope(&pat.scopes, scope))
+            {
+                return Err(());
+            }
+            let username = rg_db::ops::user_ops::find_by_id(&state.db, pat.user_id)
                 .await
                 .ok()
                 .flatten()
                 .map(|u| u.username)
                 .unwrap_or_default();
             if let Ok(jwt) =
-                rg_core::auth::jwt::generate_token(user_id, &username, &state.jwt_secret, 1)
+                rg_core::auth::jwt::generate_token(pat.user_id, &username, &state.jwt_secret, 1)
             {
-                return Some(jwt);
+                return Ok(Some(jwt));
             }
         }
     }
-    None
+    Ok(None)
 }
 
 /// Extract the authenticated user id from a git-over-HTTP request.
@@ -1432,7 +1529,10 @@ async fn extract_actor_id(
         if let Some(claims) = rg_core::auth::jwt::validate_token(token, jwt_secret) {
             return claims.sub.parse().ok();
         }
-        return resolve_pat(db, token).await;
+        return resolve_pat(db, token)
+            .await
+            .filter(|pat| rg_core::auth::pat_scope::has_scope(&pat.scopes, "repo"))
+            .map(|pat| pat.user_id);
     }
 
     if let Some(encoded) = auth_str.strip_prefix("Basic ") {
@@ -1451,8 +1551,10 @@ async fn extract_actor_id(
             if let Some(claims) = rg_core::auth::jwt::validate_token(candidate, jwt_secret) {
                 return claims.sub.parse().ok();
             }
-            if let Some(uid) = resolve_pat(db, candidate).await {
-                return Some(uid);
+            if let Some(pat) = resolve_pat(db, candidate).await {
+                if rg_core::auth::pat_scope::has_scope(&pat.scopes, "repo") {
+                    return Some(pat.user_id);
+                }
             }
         }
     }
@@ -1982,6 +2084,7 @@ async fn handle_git_receive_pack(
             // ── Post-push hooks: trigger CI + Webhook ───────────────
             let db = state.db.clone();
             let repo_path_clone = repo_path.clone();
+            let repo_root = state.repo_root.clone();
             let owner_clone = owner.clone();
             let repo_clone = repo.clone();
             let docker_enabled = state.docker_enabled;
@@ -1996,6 +2099,7 @@ async fn handle_git_receive_pack(
                     &PostPushParams {
                         db: &db,
                         repo_path: &repo_path_clone,
+                        repo_root: &repo_root,
                         owner: &owner_clone,
                         repo_name: &repo_clone,
                         docker_enabled,
@@ -2031,6 +2135,7 @@ async fn handle_git_receive_pack(
 struct PostPushParams<'a> {
     db: &'a DatabaseConnection,
     repo_path: &'a std::path::Path,
+    repo_root: &'a std::path::Path,
     owner: &'a str,
     repo_name: &'a str,
     docker_enabled: bool,
@@ -2096,6 +2201,7 @@ async fn post_push_hooks(
     let PostPushParams {
         db,
         repo_path,
+        repo_root,
         owner,
         repo_name,
         docker_enabled,
@@ -2130,6 +2236,43 @@ async fn post_push_hooks(
 
         // 0. Branch protection audit: log if push targets a protected branch
         if let Some(branch_name) = update.refname.strip_prefix("refs/heads/") {
+            if !update.new_sha.chars().all(|character| character == '0') {
+                match rg_db::ops::pull_request_ops::update_open_head_sha(
+                    db,
+                    repo_id,
+                    branch_name,
+                    &update.new_sha,
+                )
+                .await
+                {
+                    Ok(_) => {
+                        if let Err(error) = rg_core::pull_request::try_auto_merges_for_head_commit(
+                            db,
+                            repo_root,
+                            repo_id,
+                            &update.new_sha,
+                        )
+                        .await
+                        {
+                            tracing::warn!(%error, "auto-merge evaluation after push failed");
+                        }
+                        if let Err(error) =
+                            rg_core::pull_request::merge_queue::process_for_head_commit(
+                                db,
+                                repo_root,
+                                repo_id,
+                                &update.new_sha,
+                            )
+                            .await
+                        {
+                            tracing::warn!(%error, "merge queue evaluation after push failed");
+                        }
+                    }
+                    Err(error) => {
+                        tracing::warn!(%error, "failed to refresh PR head SHA after push")
+                    }
+                }
+            }
             match rg_db::ops::protected_branch_ops::find_by_repo_and_branch(
                 db,
                 repo_id,

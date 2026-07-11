@@ -7,7 +7,6 @@
 //! This mirrors the org/team corrective migration: rename the broken singular
 //! table only when it exists and the plural table does not.
 
-use sea_orm::Statement;
 use sea_orm_migration::prelude::*;
 
 pub struct Migration;
@@ -27,16 +26,15 @@ const RENAMES: &[(&str, &str)] = &[
 #[async_trait::async_trait]
 impl MigrationTrait for Migration {
     async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
-        let db = manager.get_connection();
-        let backend = db.get_database_backend();
-
         for (old, new) in RENAMES {
             if manager.has_table(*old).await? && !manager.has_table(*new).await? {
-                db.execute(Statement::from_string(
-                    backend,
-                    format!("ALTER TABLE \"{old}\" RENAME TO \"{new}\";"),
-                ))
-                .await?;
+                manager
+                    .rename_table(
+                        Table::rename()
+                            .table(Alias::new(*old), Alias::new(*new))
+                            .to_owned(),
+                    )
+                    .await?;
             }
         }
 
@@ -44,16 +42,15 @@ impl MigrationTrait for Migration {
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
-        let db = manager.get_connection();
-        let backend = db.get_database_backend();
-
         for (old, new) in RENAMES {
             if manager.has_table(*new).await? && !manager.has_table(*old).await? {
-                db.execute(Statement::from_string(
-                    backend,
-                    format!("ALTER TABLE \"{new}\" RENAME TO \"{old}\";"),
-                ))
-                .await?;
+                manager
+                    .rename_table(
+                        Table::rename()
+                            .table(Alias::new(*new), Alias::new(*old))
+                            .to_owned(),
+                    )
+                    .await?;
             }
         }
 

@@ -5,6 +5,7 @@ pub mod jwt;
 pub mod ldap;
 pub mod oci_token;
 pub mod password;
+pub mod pat_scope;
 pub mod ssh_key;
 pub mod sso;
 pub mod totp;

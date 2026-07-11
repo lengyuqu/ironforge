@@ -4,8 +4,12 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::Json;
-use serde::Deserialize;
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
+use utoipa::ToSchema;
 
+use super::repo_access::{require_authenticated_read, require_read, require_write};
 use crate::error::AppError;
 use crate::AppState;
 
@@ -23,17 +27,204 @@ pub struct SubmitReviewRequest {
 
 #[derive(Deserialize)]
 pub struct CreateReviewCommentRequest {
-    pub review_id: i64,
+    #[serde(default)]
+    pub review_id: Option<i64>,
     pub path: String,
     #[serde(default)]
     pub line: Option<i64>,
     #[serde(default)]
+    pub start_line: Option<i64>,
+    #[serde(default)]
     pub side: Option<String>,
+    #[serde(default)]
+    pub start_side: Option<String>,
     pub body: String,
+    #[serde(default)]
+    pub suggestion: Option<String>,
     #[serde(default)]
     pub commit_id: Option<String>,
     #[serde(default)]
     pub reply_to_id: Option<i64>,
+}
+
+#[derive(Deserialize)]
+pub struct RequestReviewerRequest {
+    pub username: String,
+}
+
+#[derive(Serialize)]
+pub struct RequestedReviewerResponse {
+    pub id: i64,
+    pub reviewer_id: i64,
+    pub username: String,
+    pub requested_by_id: i64,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Deserialize)]
+pub struct SetThreadResolutionRequest {
+    pub resolved: bool,
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct ApplySuggestionsRequest {
+    pub comment_ids: Vec<i64>,
+}
+
+#[derive(Serialize)]
+pub struct TimelineActor {
+    pub id: i64,
+    pub username: String,
+}
+
+#[derive(Serialize)]
+pub struct ReviewTimelineEvent {
+    pub id: String,
+    pub kind: String,
+    pub actor: Option<TimelineActor>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub body: Option<String>,
+    pub metadata: serde_json::Value,
+}
+
+async fn require_pr_manager(
+    state: &AppState,
+    headers: &axum::http::HeaderMap,
+    owner: &str,
+    repo: &str,
+    number: i64,
+) -> Result<
+    (
+        rg_db::entities::repository::Model,
+        i64,
+        rg_db::entities::pull_request::Model,
+    ),
+    AppError,
+> {
+    let (repo_model, actor_id) = require_authenticated_read(state, headers, owner, repo).await?;
+    let pr = rg_core::pull_request::get_pr(&state.db, owner, repo, number)
+        .await
+        .map_err(|_| AppError::not_found("pull request not found"))?;
+    let can_write = rg_core::repo::service::can_write_repo(&state.db, &repo_model, Some(actor_id))
+        .await
+        .unwrap_or(false);
+    if pr.author_id != actor_id && !can_write {
+        return Err(AppError::forbidden(
+            "only the PR author or a repository writer may manage reviewers",
+        ));
+    }
+    Ok((repo_model, actor_id, pr))
+}
+
+async fn require_suggestion_source(
+    state: &AppState,
+    headers: &axum::http::HeaderMap,
+    owner: &str,
+    repo: &str,
+    number: i64,
+) -> Result<
+    (
+        i64,
+        rg_db::entities::user::Model,
+        rg_db::entities::pull_request::Model,
+        rg_db::entities::repository::Model,
+        String,
+    ),
+    AppError,
+> {
+    let (_, actor_id) = require_authenticated_read(state, headers, owner, repo).await?;
+    let pr = rg_core::pull_request::get_pr(&state.db, owner, repo, number)
+        .await
+        .map_err(|error| AppError::not_found(error.to_string()))?;
+    if pr.state != "open" {
+        return Err(AppError::conflict("pull request is not open"));
+    }
+    let source_repo_id = pr.head_repo_id.unwrap_or(pr.repo_id);
+    let source_repo = rg_db::entities::repository::Entity::find_by_id(source_repo_id)
+        .one(&state.db)
+        .await
+        .map_err(AppError::internal)?
+        .ok_or_else(|| AppError::not_found("source repository not found"))?;
+    let can_write = rg_core::repo::service::can_write_repo(&state.db, &source_repo, Some(actor_id))
+        .await
+        .unwrap_or(false);
+    if !can_write {
+        return Err(AppError::forbidden(
+            "write access to the PR source repository is required",
+        ));
+    }
+    let actor = rg_db::ops::user_ops::find_by_id(&state.db, actor_id)
+        .await
+        .map_err(AppError::internal)?
+        .ok_or_else(|| AppError::unauthorized("user not found"))?;
+    let source_namespace = if let Some(org_id) = source_repo.org_id {
+        rg_db::ops::org_ops::get_org(&state.db, org_id)
+            .await
+            .map_err(AppError::internal)?
+            .ok_or_else(|| AppError::not_found("source repository organization not found"))?
+            .name
+    } else {
+        rg_db::ops::user_ops::find_by_id(&state.db, source_repo.owner_id)
+            .await
+            .map_err(AppError::internal)?
+            .ok_or_else(|| AppError::not_found("source repository owner not found"))?
+            .username
+    };
+    Ok((actor_id, actor, pr, source_repo, source_namespace))
+}
+
+async fn after_suggestions_applied(
+    state: &AppState,
+    actor_id: i64,
+    pr: &rg_db::entities::pull_request::Model,
+    source_repo: &rg_db::entities::repository::Model,
+    source_namespace: &str,
+    commit_sha: &str,
+) {
+    let source_repo_path = state
+        .repo_root
+        .join(format!("{source_namespace}/{}.git", source_repo.name));
+    if state.ci_engine.has_ci_config(&source_repo_path, commit_sha) {
+        let ref_name = format!("refs/heads/{}", pr.head_branch);
+        if let Err(error) = state
+            .ci_engine
+            .trigger_pipeline(rg_core::ci::TriggerPipelineParams {
+                db: &state.db,
+                repo_path: &source_repo_path,
+                repo_id: source_repo.id,
+                commit_sha,
+                ref_name: &ref_name,
+                trigger_type: "suggestion",
+                triggered_by: Some(actor_id),
+                docker_enabled: state.docker_enabled,
+                external_runners: state.external_runners,
+                jwt_secret: Some(&state.jwt_secret),
+            })
+            .await
+        {
+            tracing::warn!(pr_id = pr.id, %error, "CI trigger after suggestion failed");
+        }
+    }
+    if let Err(error) = rg_core::pull_request::try_auto_merges_for_head_commit(
+        &state.db,
+        &state.repo_root,
+        source_repo.id,
+        commit_sha,
+    )
+    .await
+    {
+        tracing::warn!(pr_id = pr.id, %error, "auto-merge evaluation after suggestion failed");
+    }
+    if let Err(error) = rg_core::pull_request::merge_queue::process_for_head_commit(
+        &state.db,
+        &state.repo_root,
+        source_repo.id,
+        commit_sha,
+    )
+    .await
+    {
+        tracing::warn!(pr_id = pr.id, %error, "merge queue evaluation after suggestion failed");
+    }
 }
 
 // ── Review handlers ───────────────────────────────────────────────────
@@ -57,7 +248,12 @@ pub struct CreateReviewCommentRequest {
 pub async fn list_reviews(
     State(state): State<AppState>,
     Path((owner, repo, number)): Path<(String, String, i64)>,
+    headers: axum::http::HeaderMap,
 ) -> impl IntoResponse {
+    if let Err(e) = require_read(&state, &headers, &owner, &repo).await {
+        return e.into_response();
+    }
+
     match rg_core::review::service::list_reviews(&state.db, &owner, &repo, number).await {
         Ok(reviews) => (StatusCode::OK, Json(reviews)).into_response(),
         Err(e) => AppError::internal(e).into_response(),
@@ -88,24 +284,31 @@ pub async fn submit_review(
     headers: axum::http::HeaderMap,
     Json(req): Json<SubmitReviewRequest>,
 ) -> impl IntoResponse {
-    let user_id = match super::auth::extract_user_id(&headers, &state.jwt_secret) {
-        Some(id) => id,
-        None => return AppError::unauthorized("authentication required").into_response(),
-    };
-
-    let repo_id = match resolve_repo_id(&state.db, &owner, &repo).await {
-        Some(id) => id,
-        None => return AppError::not_found("repository not found").into_response(),
+    let (repo_model, user_id) =
+        match require_authenticated_read(&state, &headers, &owner, &repo).await {
+            Ok(access) => access,
+            Err(e) => return e.into_response(),
+        };
+    let pr = match rg_core::pull_request::get_pr(&state.db, &owner, &repo, number).await {
+        Ok(pr) => pr,
+        Err(e) => return AppError::not_found(e.to_string()).into_response(),
     };
 
     let action = match rg_core::review::service::ReviewAction::parse_action(&req.action) {
         Ok(a) => a,
         Err(e) => return AppError::bad_request(e).into_response(),
     };
+    if matches!(action.as_str(), "approve" | "request_changes") && pr.author_id == user_id {
+        return AppError::bad_request(
+            "a PR author cannot approve or request changes on their own PR",
+        )
+        .into_response();
+    }
+    let should_attempt_auto_merge = action.as_str() == "approve";
 
     match rg_core::review::service::submit_review(
         &state.db,
-        repo_id,
+        repo_model.id,
         number,
         user_id,
         action,
@@ -114,7 +317,36 @@ pub async fn submit_review(
     )
     .await
     {
-        Ok(review) => (StatusCode::CREATED, Json(review)).into_response(),
+        Ok(review) => {
+            if should_attempt_auto_merge {
+                match rg_core::pull_request::try_auto_merge(
+                    &state.db,
+                    &state.repo_root,
+                    &owner,
+                    &repo,
+                    number,
+                )
+                .await
+                {
+                    Ok(outcome) => {
+                        tracing::info!(pr_id = pr.id, status = %outcome.status, "auto-merge evaluated after approval")
+                    }
+                    Err(error) => {
+                        tracing::warn!(pr_id = pr.id, %error, "auto-merge attempt after approval failed")
+                    }
+                }
+                if let Err(error) = rg_core::pull_request::merge_queue::process_repository(
+                    &state.db,
+                    &state.repo_root,
+                    &repo_model,
+                )
+                .await
+                {
+                    tracing::warn!(repo_id = repo_model.id, %error, "merge queue evaluation after approval failed");
+                }
+            }
+            (StatusCode::CREATED, Json(review)).into_response()
+        }
         Err(e) => AppError::bad_request(e).into_response(),
     }
 }
@@ -138,10 +370,22 @@ pub async fn submit_review(
 )]
 pub async fn get_review(
     State(state): State<AppState>,
-    Path((_owner, _repo, _number, id)): Path<(String, String, i64, i64)>,
+    Path((owner, repo, number, id)): Path<(String, String, i64, i64)>,
+    headers: axum::http::HeaderMap,
 ) -> impl IntoResponse {
+    let repo_model = match require_read(&state, &headers, &owner, &repo).await {
+        Ok(repo) => repo,
+        Err(e) => return e.into_response(),
+    };
+    let pr = match rg_core::pull_request::get_pr(&state.db, &owner, &repo, number).await {
+        Ok(pr) => pr,
+        Err(e) => return AppError::not_found(e.to_string()).into_response(),
+    };
     match rg_core::review::service::get_review(&state.db, id).await {
-        Ok(review) => (StatusCode::OK, Json(review)).into_response(),
+        Ok(review) if review.repo_id == repo_model.id && review.pr_id == pr.id => {
+            (StatusCode::OK, Json(review)).into_response()
+        }
+        Ok(_) => AppError::not_found("review not found").into_response(),
         Err(e) => AppError::not_found(e).into_response(),
     }
 }
@@ -167,16 +411,26 @@ pub async fn get_review(
 )]
 pub async fn dismiss_review(
     State(state): State<AppState>,
-    Path((_owner, _repo, _number, id)): Path<(String, String, i64, i64)>,
+    Path((owner, repo, number, id)): Path<(String, String, i64, i64)>,
     headers: axum::http::HeaderMap,
     Json(req): Json<DismissReviewRequest>,
 ) -> impl IntoResponse {
-    let user_id = match super::auth::extract_user_id(&headers, &state.jwt_secret) {
-        Some(id) => id,
-        None => return AppError::unauthorized("authentication required").into_response(),
+    let (repo_model, user_id) = match require_write(&state, &headers, &owner, &repo).await {
+        Ok(access) => access,
+        Err(e) => return e.into_response(),
+    };
+    let pr = match rg_core::pull_request::get_pr(&state.db, &owner, &repo, number).await {
+        Ok(pr) => pr,
+        Err(e) => return AppError::not_found(e.to_string()).into_response(),
+    };
+    let review = match rg_core::review::service::get_review(&state.db, id).await {
+        Ok(review) if review.repo_id == repo_model.id && review.pr_id == pr.id => review,
+        Ok(_) => return AppError::not_found("review not found").into_response(),
+        Err(e) => return AppError::not_found(e).into_response(),
     };
 
-    match rg_core::review::service::dismiss_review(&state.db, id, user_id, req.message).await {
+    match rg_core::review::service::dismiss_review(&state.db, review.id, user_id, req.message).await
+    {
         Ok(review) => (StatusCode::OK, Json(review)).into_response(),
         Err(e) => AppError::bad_request(e).into_response(),
     }
@@ -203,11 +457,229 @@ pub async fn dismiss_review(
 pub async fn list_review_comments(
     State(state): State<AppState>,
     Path((owner, repo, number)): Path<(String, String, i64)>,
+    headers: axum::http::HeaderMap,
 ) -> impl IntoResponse {
+    if let Err(e) = require_read(&state, &headers, &owner, &repo).await {
+        return e.into_response();
+    }
+
     match rg_core::review::service::list_review_comments(&state.db, &owner, &repo, number).await {
         Ok(comments) => (StatusCode::OK, Json(comments)).into_response(),
         Err(e) => AppError::internal(e).into_response(),
     }
+}
+
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/pulls/{number}/timeline",
+    tag = "Reviews",
+    params(
+        ("owner" = String, Path),
+        ("name" = String, Path),
+        ("number" = i64, Path),
+    ),
+    responses((status = 200, body = serde_json::Value))
+)]
+pub async fn get_review_timeline(
+    State(state): State<AppState>,
+    Path((owner, repo, number)): Path<(String, String, i64)>,
+    headers: axum::http::HeaderMap,
+) -> impl IntoResponse {
+    if let Err(error) = require_read(&state, &headers, &owner, &repo).await {
+        return error.into_response();
+    }
+    let pr = match rg_core::pull_request::get_pr(&state.db, &owner, &repo, number).await {
+        Ok(pr) => pr,
+        Err(error) => return AppError::not_found(error.to_string()).into_response(),
+    };
+    let reviews = match rg_db::ops::pr_review_ops::list_by_pr(&state.db, pr.id).await {
+        Ok(reviews) => reviews,
+        Err(error) => return AppError::internal(error).into_response(),
+    };
+    let comments = match rg_db::ops::review_comment_ops::list_by_pr(&state.db, pr.id).await {
+        Ok(comments) => comments,
+        Err(error) => return AppError::internal(error).into_response(),
+    };
+    let reviewer_requests =
+        match rg_db::ops::pr_reviewer_request_ops::list_by_pr(&state.db, pr.id).await {
+            Ok(requests) => requests,
+            Err(error) => return AppError::internal(error).into_response(),
+        };
+    let queue_entry = match rg_db::ops::merge_queue_ops::find_by_pr(&state.db, pr.id).await {
+        Ok(entry) => entry,
+        Err(error) => return AppError::internal(error).into_response(),
+    };
+
+    let mut actor_ids = HashSet::from([pr.author_id]);
+    actor_ids.extend(reviews.iter().map(|review| review.reviewer_id));
+    for comment in &comments {
+        actor_ids.insert(comment.author_id);
+        actor_ids.extend(comment.suggestion_applied_by_id);
+        actor_ids.extend(comment.resolved_by_id);
+    }
+    for request in &reviewer_requests {
+        actor_ids.insert(request.reviewer_id);
+        actor_ids.insert(request.requested_by_id);
+    }
+    actor_ids.extend(pr.auto_merge_enabled_by_id);
+    if let Some(entry) = &queue_entry {
+        actor_ids.insert(entry.enqueued_by_id);
+    }
+    let users = match rg_db::entities::user::Entity::find()
+        .filter(rg_db::entities::user::Column::Id.is_in(actor_ids))
+        .all(&state.db)
+        .await
+    {
+        Ok(users) => users
+            .into_iter()
+            .map(|user| (user.id, user.username))
+            .collect::<HashMap<_, _>>(),
+        Err(error) => return AppError::internal(error).into_response(),
+    };
+    let actor = |id: i64| {
+        users.get(&id).map(|username| TimelineActor {
+            id,
+            username: username.clone(),
+        })
+    };
+
+    let mut timeline = vec![ReviewTimelineEvent {
+        id: format!("pr:{}:opened", pr.id),
+        kind: "pull_request_opened".to_string(),
+        actor: actor(pr.author_id),
+        created_at: pr.created_at,
+        body: pr.body.clone(),
+        metadata: serde_json::json!({"title": pr.title, "head_sha": pr.head_sha}),
+    }];
+    for review in reviews {
+        timeline.push(ReviewTimelineEvent {
+            id: format!("review:{}", review.id),
+            kind: format!("review_{}", review.action),
+            actor: actor(review.reviewer_id),
+            created_at: review.created_at,
+            body: review.body,
+            metadata: serde_json::json!({"commit_id": review.commit_id}),
+        });
+    }
+    for comment in comments {
+        timeline.push(ReviewTimelineEvent {
+            id: format!("comment:{}", comment.id),
+            kind: if comment.reply_to_id.is_some() {
+                "review_reply".to_string()
+            } else if comment.suggestion.is_some() {
+                "code_suggestion".to_string()
+            } else {
+                "review_comment".to_string()
+            },
+            actor: actor(comment.author_id),
+            created_at: comment.created_at,
+            body: Some(comment.body.clone()),
+            metadata: serde_json::json!({
+                "comment_id": comment.id,
+                "path": comment.path,
+                "start_line": comment.start_line,
+                "line": comment.line,
+                "side": comment.side,
+                "reply_to_id": comment.reply_to_id
+            }),
+        });
+        if let (Some(applied_at), Some(applied_by_id)) = (
+            comment.suggestion_applied_at,
+            comment.suggestion_applied_by_id,
+        ) {
+            timeline.push(ReviewTimelineEvent {
+                id: format!("comment:{}:applied", comment.id),
+                kind: "suggestion_applied".to_string(),
+                actor: actor(applied_by_id),
+                created_at: applied_at,
+                body: None,
+                metadata: serde_json::json!({
+                    "comment_id": comment.id,
+                    "commit_sha": comment.suggestion_commit_sha
+                }),
+            });
+        }
+        if let (Some(resolved_at), Some(resolved_by_id)) =
+            (comment.resolved_at, comment.resolved_by_id)
+        {
+            timeline.push(ReviewTimelineEvent {
+                id: format!("comment:{}:resolved", comment.id),
+                kind: "thread_resolved".to_string(),
+                actor: actor(resolved_by_id),
+                created_at: resolved_at,
+                body: None,
+                metadata: serde_json::json!({"comment_id": comment.id}),
+            });
+        }
+    }
+    for request in reviewer_requests {
+        timeline.push(ReviewTimelineEvent {
+            id: format!("reviewer-request:{}", request.id),
+            kind: "reviewer_requested".to_string(),
+            actor: actor(request.requested_by_id),
+            created_at: request.created_at,
+            body: None,
+            metadata: serde_json::json!({
+                "reviewer_id": request.reviewer_id,
+                "reviewer": users.get(&request.reviewer_id)
+            }),
+        });
+    }
+    if let (Some(enabled_at), Some(enabled_by_id)) =
+        (pr.auto_merge_enabled_at, pr.auto_merge_enabled_by_id)
+    {
+        timeline.push(ReviewTimelineEvent {
+            id: format!("pr:{}:auto-merge", pr.id),
+            kind: "auto_merge_enabled".to_string(),
+            actor: actor(enabled_by_id),
+            created_at: enabled_at,
+            body: None,
+            metadata: serde_json::json!({"strategy": pr.auto_merge_strategy}),
+        });
+    }
+    if let Some(entry) = queue_entry {
+        timeline.push(ReviewTimelineEvent {
+            id: format!("queue:{}:enqueued", entry.id),
+            kind: "merge_queue_enqueued".to_string(),
+            actor: actor(entry.enqueued_by_id),
+            created_at: entry.created_at,
+            body: None,
+            metadata: serde_json::json!({"strategy": entry.strategy}),
+        });
+        if let Some(finished_at) = entry.finished_at {
+            timeline.push(ReviewTimelineEvent {
+                id: format!("queue:{}:{}", entry.id, entry.status),
+                kind: format!("merge_queue_{}", entry.status),
+                actor: None,
+                created_at: finished_at,
+                body: entry.failure_reason,
+                metadata: serde_json::json!({}),
+            });
+        }
+    }
+    if let Some(closed_at) = pr.closed_at {
+        timeline.push(ReviewTimelineEvent {
+            id: format!("pr:{}:{}", pr.id, pr.state),
+            kind: if pr.state == "merged" {
+                "pull_request_merged".to_string()
+            } else {
+                "pull_request_closed".to_string()
+            },
+            actor: None,
+            created_at: closed_at,
+            body: None,
+            metadata: serde_json::json!({
+                "strategy": pr.merge_strategy,
+                "commit_sha": pr.merge_commit_sha
+            }),
+        });
+    }
+    timeline.sort_by(|left, right| {
+        left.created_at
+            .cmp(&right.created_at)
+            .then_with(|| left.id.cmp(&right.id))
+    });
+    (StatusCode::OK, Json(timeline)).into_response()
 }
 
 /// Create a review comment.
@@ -234,26 +706,50 @@ pub async fn create_review_comment(
     headers: axum::http::HeaderMap,
     Json(req): Json<CreateReviewCommentRequest>,
 ) -> impl IntoResponse {
-    let user_id = match super::auth::extract_user_id(&headers, &state.jwt_secret) {
-        Some(id) => id,
-        None => return AppError::unauthorized("authentication required").into_response(),
+    let (repo_model, user_id) =
+        match require_authenticated_read(&state, &headers, &owner, &repo).await {
+            Ok(access) => access,
+            Err(e) => return e.into_response(),
+        };
+    let pr = match rg_core::pull_request::get_pr(&state.db, &owner, &repo, number).await {
+        Ok(pr) => pr,
+        Err(e) => return AppError::not_found(e.to_string()).into_response(),
     };
-
-    let repo_id = match resolve_repo_id(&state.db, &owner, &repo).await {
-        Some(id) => id,
-        None => return AppError::not_found("repository not found").into_response(),
+    let review = match req.review_id {
+        Some(review_id) => match rg_core::review::service::get_review(&state.db, review_id).await {
+            Ok(review) if review.repo_id == repo_model.id && review.pr_id == pr.id => review,
+            Ok(_) => return AppError::not_found("review not found").into_response(),
+            Err(e) => return AppError::not_found(e).into_response(),
+        },
+        None => match rg_core::review::service::submit_review(
+            &state.db,
+            repo_model.id,
+            number,
+            user_id,
+            rg_core::review::service::ReviewAction::Comment,
+            None,
+            req.commit_id.clone(),
+        )
+        .await
+        {
+            Ok(review) => review,
+            Err(e) => return AppError::bad_request(e).into_response(),
+        },
     };
 
     match rg_core::review::service::create_review_comment(
         &state.db,
-        repo_id,
+        repo_model.id,
         number,
-        req.review_id,
+        review.id,
         user_id,
         req.path,
         req.line,
+        req.start_line,
         req.side,
+        req.start_side,
         req.body,
+        req.suggestion,
         req.commit_id,
         req.reply_to_id,
     )
@@ -264,27 +760,341 @@ pub async fn create_review_comment(
     }
 }
 
+#[utoipa::path(
+    post,
+    path = "/repos/{owner}/{name}/pulls/{number}/comments/{id}/suggestion/apply",
+    tag = "Reviews",
+    params(
+        ("owner" = String, Path),
+        ("name" = String, Path),
+        ("number" = i64, Path),
+        ("id" = i64, Path),
+    ),
+    responses((status = 200, body = serde_json::Value), (status = 409, body = serde_json::Value))
+)]
+pub async fn apply_review_suggestion(
+    State(state): State<AppState>,
+    Path((owner, repo, number, id)): Path<(String, String, i64, i64)>,
+    headers: axum::http::HeaderMap,
+) -> impl IntoResponse {
+    let (actor_id, actor, pr, source_repo, source_namespace) =
+        match require_suggestion_source(&state, &headers, &owner, &repo, number).await {
+            Ok(access) => access,
+            Err(error) => return error.into_response(),
+        };
+
+    match rg_core::review::service::apply_suggestion(
+        &state.db,
+        &state.repo_root,
+        &source_repo,
+        &source_namespace,
+        &pr,
+        id,
+        &actor,
+    )
+    .await
+    {
+        Ok(applied) => {
+            after_suggestions_applied(
+                &state,
+                actor_id,
+                &pr,
+                &source_repo,
+                &source_namespace,
+                &applied.commit_sha,
+            )
+            .await;
+            (StatusCode::OK, Json(applied)).into_response()
+        }
+        Err(error)
+            if error.to_string().contains("outdated")
+                || error.to_string().contains("branch head changed") =>
+        {
+            AppError::conflict(error.to_string()).into_response()
+        }
+        Err(error) => AppError::bad_request(error).into_response(),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/repos/{owner}/{name}/pulls/{number}/suggestions/apply",
+    tag = "Reviews",
+    params(
+        ("owner" = String, Path),
+        ("name" = String, Path),
+        ("number" = i64, Path),
+    ),
+    request_body = ApplySuggestionsRequest,
+    responses((status = 200, body = serde_json::Value), (status = 409, body = serde_json::Value))
+)]
+pub async fn apply_review_suggestions(
+    State(state): State<AppState>,
+    Path((owner, repo, number)): Path<(String, String, i64)>,
+    headers: axum::http::HeaderMap,
+    Json(request): Json<ApplySuggestionsRequest>,
+) -> impl IntoResponse {
+    let (actor_id, actor, pr, source_repo, source_namespace) =
+        match require_suggestion_source(&state, &headers, &owner, &repo, number).await {
+            Ok(access) => access,
+            Err(error) => return error.into_response(),
+        };
+    match rg_core::review::service::apply_suggestions(
+        &state.db,
+        &state.repo_root,
+        &source_repo,
+        &source_namespace,
+        &pr,
+        &request.comment_ids,
+        &actor,
+    )
+    .await
+    {
+        Ok(applied) => {
+            after_suggestions_applied(
+                &state,
+                actor_id,
+                &pr,
+                &source_repo,
+                &source_namespace,
+                &applied.commit_sha,
+            )
+            .await;
+            (StatusCode::OK, Json(applied)).into_response()
+        }
+        Err(error)
+            if error.to_string().contains("outdated")
+                || error.to_string().contains("branch head changed") =>
+        {
+            AppError::conflict(error.to_string()).into_response()
+        }
+        Err(error) => AppError::bad_request(error).into_response(),
+    }
+}
+
+// ── Requested reviewers ──────────────────────────────────────────────
+
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/pulls/{number}/reviewers",
+    tag = "Reviews",
+    params(
+        ("owner" = String, Path),
+        ("name" = String, Path),
+        ("number" = i64, Path),
+    ),
+    responses((status = 200, body = serde_json::Value))
+)]
+pub async fn list_requested_reviewers(
+    State(state): State<AppState>,
+    Path((owner, repo, number)): Path<(String, String, i64)>,
+    headers: axum::http::HeaderMap,
+) -> impl IntoResponse {
+    if let Err(error) = require_read(&state, &headers, &owner, &repo).await {
+        return error.into_response();
+    }
+    let pr = match rg_core::pull_request::get_pr(&state.db, &owner, &repo, number).await {
+        Ok(pr) => pr,
+        Err(_) => return AppError::not_found("pull request not found").into_response(),
+    };
+    let requests = match rg_db::ops::pr_reviewer_request_ops::list_by_pr(&state.db, pr.id).await {
+        Ok(requests) => requests,
+        Err(error) => return AppError::internal(error).into_response(),
+    };
+
+    let mut response = Vec::with_capacity(requests.len());
+    for request in requests {
+        let username = match rg_db::ops::user_ops::find_by_id(&state.db, request.reviewer_id).await
+        {
+            Ok(Some(user)) => user.username,
+            Ok(None) => continue,
+            Err(error) => return AppError::internal(error).into_response(),
+        };
+        response.push(RequestedReviewerResponse {
+            id: request.id,
+            reviewer_id: request.reviewer_id,
+            username,
+            requested_by_id: request.requested_by_id,
+            created_at: request.created_at,
+        });
+    }
+    (StatusCode::OK, Json(response)).into_response()
+}
+
+#[utoipa::path(
+    post,
+    path = "/repos/{owner}/{name}/pulls/{number}/reviewers",
+    tag = "Reviews",
+    request_body(content = serde_json::Value),
+    params(
+        ("owner" = String, Path),
+        ("name" = String, Path),
+        ("number" = i64, Path),
+    ),
+    responses(
+        (status = 201, body = serde_json::Value),
+        (status = 403, body = serde_json::Value),
+        (status = 409, body = serde_json::Value),
+    )
+)]
+pub async fn request_reviewer(
+    State(state): State<AppState>,
+    Path((owner, repo, number)): Path<(String, String, i64)>,
+    headers: axum::http::HeaderMap,
+    Json(body): Json<RequestReviewerRequest>,
+) -> impl IntoResponse {
+    let (repo_model, actor_id, pr) =
+        match require_pr_manager(&state, &headers, &owner, &repo, number).await {
+            Ok(result) => result,
+            Err(error) => return error.into_response(),
+        };
+    let username = body.username.trim();
+    if username.is_empty() {
+        return AppError::bad_request("reviewer username is required").into_response();
+    }
+    let reviewer = match rg_db::ops::user_ops::find_by_username(&state.db, username).await {
+        Ok(Some(user)) if user.is_active && user.deleted_at.is_none() => user,
+        Ok(_) => return AppError::not_found("reviewer not found").into_response(),
+        Err(error) => return AppError::internal(error).into_response(),
+    };
+    if reviewer.id == pr.author_id {
+        return AppError::bad_request("the PR author cannot be requested as a reviewer")
+            .into_response();
+    }
+    let reviewer_can_read =
+        rg_core::repo::service::can_read_repo(&state.db, &repo_model, Some(reviewer.id))
+            .await
+            .unwrap_or(false);
+    if !reviewer_can_read {
+        return AppError::bad_request("reviewer does not have access to this repository")
+            .into_response();
+    }
+    match rg_db::ops::pr_reviewer_request_ops::find(&state.db, pr.id, reviewer.id).await {
+        Ok(Some(_)) => return AppError::conflict("reviewer is already requested").into_response(),
+        Ok(None) => {}
+        Err(error) => return AppError::internal(error).into_response(),
+    }
+
+    let model = rg_db::entities::pr_reviewer_request::ActiveModel {
+        id: sea_orm::NotSet,
+        pr_id: sea_orm::Set(pr.id),
+        reviewer_id: sea_orm::Set(reviewer.id),
+        requested_by_id: sea_orm::Set(actor_id),
+        created_at: sea_orm::Set(chrono::Utc::now()),
+    };
+    match rg_db::ops::pr_reviewer_request_ops::create(&state.db, model).await {
+        Ok(request) => (
+            StatusCode::CREATED,
+            Json(RequestedReviewerResponse {
+                id: request.id,
+                reviewer_id: request.reviewer_id,
+                username: reviewer.username,
+                requested_by_id: request.requested_by_id,
+                created_at: request.created_at,
+            }),
+        )
+            .into_response(),
+        Err(error) if error.to_string().to_ascii_lowercase().contains("unique") => {
+            AppError::conflict("reviewer is already requested").into_response()
+        }
+        Err(error) => AppError::internal(error).into_response(),
+    }
+}
+
+#[utoipa::path(
+    delete,
+    path = "/repos/{owner}/{name}/pulls/{number}/reviewers/{username}",
+    tag = "Reviews",
+    params(
+        ("owner" = String, Path),
+        ("name" = String, Path),
+        ("number" = i64, Path),
+        ("username" = String, Path),
+    ),
+    responses((status = 204), (status = 404, body = serde_json::Value))
+)]
+pub async fn remove_requested_reviewer(
+    State(state): State<AppState>,
+    Path((owner, repo, number, username)): Path<(String, String, i64, String)>,
+    headers: axum::http::HeaderMap,
+) -> impl IntoResponse {
+    let (_, _, pr) = match require_pr_manager(&state, &headers, &owner, &repo, number).await {
+        Ok(result) => result,
+        Err(error) => return error.into_response(),
+    };
+    let reviewer = match rg_db::ops::user_ops::find_by_username(&state.db, &username).await {
+        Ok(Some(user)) => user,
+        Ok(None) => return AppError::not_found("requested reviewer not found").into_response(),
+        Err(error) => return AppError::internal(error).into_response(),
+    };
+    match rg_db::ops::pr_reviewer_request_ops::delete(&state.db, pr.id, reviewer.id).await {
+        Ok(0) => AppError::not_found("requested reviewer not found").into_response(),
+        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Err(error) => AppError::internal(error).into_response(),
+    }
+}
+
+// ── Review thread resolution ─────────────────────────────────────────
+
+#[utoipa::path(
+    patch,
+    path = "/repos/{owner}/{name}/pulls/{number}/comments/{id}/resolution",
+    tag = "Reviews",
+    request_body(content = serde_json::Value),
+    params(
+        ("owner" = String, Path),
+        ("name" = String, Path),
+        ("number" = i64, Path),
+        ("id" = i64, Path),
+    ),
+    responses((status = 200, body = serde_json::Value), (status = 403, body = serde_json::Value))
+)]
+pub async fn set_thread_resolution(
+    State(state): State<AppState>,
+    Path((owner, repo, number, comment_id)): Path<(String, String, i64, i64)>,
+    headers: axum::http::HeaderMap,
+    Json(body): Json<SetThreadResolutionRequest>,
+) -> impl IntoResponse {
+    let (repo_model, actor_id) =
+        match require_authenticated_read(&state, &headers, &owner, &repo).await {
+            Ok(result) => result,
+            Err(error) => return error.into_response(),
+        };
+    let pr = match rg_core::pull_request::get_pr(&state.db, &owner, &repo, number).await {
+        Ok(pr) => pr,
+        Err(_) => return AppError::not_found("pull request not found").into_response(),
+    };
+    let root = match rg_core::review::service::get_thread_root(&state.db, pr.id, comment_id).await {
+        Ok(root) => root,
+        Err(_) => return AppError::not_found("review thread not found").into_response(),
+    };
+    let can_write = rg_core::repo::service::can_write_repo(&state.db, &repo_model, Some(actor_id))
+        .await
+        .unwrap_or(false);
+    if root.author_id != actor_id && pr.author_id != actor_id && !can_write {
+        return AppError::forbidden(
+            "only the thread author, PR author, or a repository writer may resolve this thread",
+        )
+        .into_response();
+    }
+
+    match rg_core::review::service::set_thread_resolved(
+        &state.db,
+        pr.id,
+        root.id,
+        actor_id,
+        body.resolved,
+    )
+    .await
+    {
+        Ok(comment) => (StatusCode::OK, Json(comment)).into_response(),
+        Err(error) => AppError::bad_request(error).into_response(),
+    }
+}
+
 // ── Extra request types ───────────────────────────────────────────────
 
 #[derive(Deserialize)]
 pub struct DismissReviewRequest {
     pub message: String,
-}
-
-// ── Helpers ───────────────────────────────────────────────────────────
-
-async fn resolve_repo_id(
-    db: &sea_orm::DatabaseConnection,
-    owner: &str,
-    repo_name: &str,
-) -> Option<i64> {
-    let user = rg_db::ops::user_ops::find_by_username(db, owner)
-        .await
-        .ok()
-        .flatten()?;
-    let repo = rg_db::ops::repo_ops::find_by_owner_and_name(db, user.id, repo_name)
-        .await
-        .ok()
-        .flatten()?;
-    Some(repo.id)
 }

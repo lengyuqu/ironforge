@@ -1,22 +1,55 @@
 //! SSH public key fingerprint utilities.
 
-use anyhow::Result;
+use anyhow::{bail, Context, Result};
+use base64::Engine as _;
 
 /// Compute the SHA-256 fingerprint from an OpenSSH public key string.
 ///
 /// Input format: `"ssh-ed25519 AAAA... comment"`
 /// Output: `"SHA256:base64url..."` (matches `ssh-keygen -l -E sha256`)
 pub fn fingerprint_from_openssh(pubkey: &str) -> Result<String> {
+    if pubkey.contains('\r') || pubkey.contains('\n') {
+        bail!("public key must be a single line");
+    }
+
     // Split off the key type and base64 blob
     let mut parts = pubkey.split_whitespace();
-    let _key_type = parts
+    let key_type = parts
         .next()
         .ok_or_else(|| anyhow::anyhow!("empty public key"))?;
     let b64 = parts
         .next()
         .ok_or_else(|| anyhow::anyhow!("missing key blob"))?;
 
-    let raw = base64_decode(b64)?;
+    if !matches!(
+        key_type,
+        "ssh-ed25519"
+            | "ssh-rsa"
+            | "ecdsa-sha2-nistp256"
+            | "ecdsa-sha2-nistp384"
+            | "ecdsa-sha2-nistp521"
+            | "sk-ssh-ed25519@openssh.com"
+            | "sk-ecdsa-sha2-nistp256@openssh.com"
+    ) {
+        bail!("unsupported SSH public key type: {key_type}");
+    }
+
+    let raw = base64::engine::general_purpose::STANDARD
+        .decode(b64)
+        .or_else(|_| base64::engine::general_purpose::STANDARD_NO_PAD.decode(b64))
+        .context("invalid base64 key blob")?;
+    if raw.len() < 4 {
+        bail!("invalid SSH public key blob");
+    }
+    let algorithm_len = u32::from_be_bytes(raw[0..4].try_into().unwrap()) as usize;
+    if raw.len() < 4 + algorithm_len {
+        bail!("invalid SSH public key blob");
+    }
+    let encoded_type = std::str::from_utf8(&raw[4..4 + algorithm_len])
+        .context("invalid SSH public key algorithm")?;
+    if encoded_type != key_type {
+        bail!("SSH public key type does not match encoded key blob");
+    }
 
     // SHA-256 hash
     let digest = sha256(&raw);
@@ -37,46 +70,6 @@ fn sha256(data: &[u8]) -> [u8; 32] {
     out
 }
 
-fn base64_decode(s: &str) -> Result<Vec<u8>> {
-    // Simple base64 decoder (standard alphabet, with padding)
-    let s = s.trim();
-    // Add padding if needed
-    let padded = match s.len() % 4 {
-        2 => format!("{}==", s),
-        3 => format!("{}=", s),
-        _ => s.to_string(),
-    };
-    let alphabet = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut table = [0u8; 256];
-    for (i, &c) in alphabet.iter().enumerate() {
-        table[c as usize] = i as u8;
-    }
-
-    let mut out = Vec::new();
-    let chars: Vec<u8> = padded.bytes().filter(|&c| c != b'=').collect();
-    for chunk in chars.chunks(4) {
-        let b0 = *table.get(chunk[0] as usize).unwrap_or(&0);
-        let b1 = *table
-            .get(chunk.get(1).copied().unwrap_or(0) as usize)
-            .unwrap_or(&0);
-        let b2 = *table
-            .get(chunk.get(2).copied().unwrap_or(0) as usize)
-            .unwrap_or(&0);
-        let b3 = *table
-            .get(chunk.get(3).copied().unwrap_or(0) as usize)
-            .unwrap_or(&0);
-
-        out.push((b0 << 2) | (b1 >> 4));
-        if chunk.len() > 2 {
-            out.push((b1 << 4) | (b2 >> 2));
-        }
-        if chunk.len() > 3 {
-            out.push((b2 << 6) | b3);
-        }
-    }
-    Ok(out)
-}
-
 fn base64_encode_nopad(data: &[u8]) -> String {
     const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::new();
@@ -94,4 +87,28 @@ fn base64_encode_nopad(data: &[u8]) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const ED25519_KEY: &str =
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA test";
+
+    #[test]
+    fn fingerprints_valid_openssh_key() {
+        let fingerprint = fingerprint_from_openssh(ED25519_KEY).unwrap();
+        assert!(fingerprint.starts_with("SHA256:"));
+    }
+
+    #[test]
+    fn rejects_invalid_or_mismatched_key_blob() {
+        assert!(fingerprint_from_openssh("ssh-ed25519 !!!").is_err());
+        assert!(fingerprint_from_openssh(
+            "ssh-rsa AAAAC3NzaC1lZDI1NTE5AAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        )
+        .is_err());
+        assert!(fingerprint_from_openssh("ssh-dss AAAA").is_err());
+    }
 }

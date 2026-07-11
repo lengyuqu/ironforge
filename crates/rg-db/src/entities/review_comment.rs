@@ -20,14 +20,25 @@ pub struct Model {
     pub position: Option<i64>,
     /// Line number in the file
     pub line: Option<i64>,
+    /// Start of a multi-line range; null means the range starts at `line`.
+    pub start_line: Option<i64>,
     /// LEFT (base) or RIGHT (head)
     pub side: Option<String>,
+    pub start_side: Option<String>,
     /// Comment text
     pub body: String,
+    /// Replacement text for the commented head-side line.
+    pub suggestion: Option<String>,
+    pub suggestion_applied_at: Option<DateTimeUtc>,
+    pub suggestion_applied_by_id: Option<i64>,
+    pub suggestion_commit_sha: Option<String>,
     /// Commit SHA
     pub commit_id: Option<String>,
     /// ID of the comment this is replying to (nullable for top-level)
     pub reply_to_id: Option<i64>,
+    /// Resolution state lives on the top-level comment of a thread.
+    pub resolved_at: Option<DateTimeUtc>,
+    pub resolved_by_id: Option<i64>,
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,
 }

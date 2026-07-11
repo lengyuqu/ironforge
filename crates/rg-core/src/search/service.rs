@@ -144,14 +144,21 @@ fn build_filter_clauses(
 
     if let Some(ref repo) = filters.repo {
         if let Some((owner, name)) = repo.split_once('/') {
-            joins.push(format!(
-                "JOIN repositories r_filt ON r_filt.id = {}.repo_id",
-                table_alias
-            ));
-            joins.push("LEFT JOIN users u_filt ON u_filt.id = r_filt.owner_id".to_string());
-            clauses.push("u_filt.username = ? AND r_filt.name = ?".to_string());
+            if table_alias == "r" {
+                clauses.push("u.username = ? AND r.name = ?".to_string());
+            } else {
+                joins.push(format!(
+                    "JOIN repositories r_filt ON r_filt.id = {}.repo_id",
+                    table_alias
+                ));
+                joins.push("LEFT JOIN users u_filt ON u_filt.id = r_filt.owner_id".to_string());
+                clauses.push("u_filt.username = ? AND r_filt.name = ?".to_string());
+            }
             params.push(Value::from(owner.to_string()));
             params.push(Value::from(name.to_string()));
+        } else if table_alias == "r" {
+            clauses.push("r.name = ?".to_string());
+            params.push(Value::from(repo.to_string()));
         } else {
             joins.push(format!(
                 "JOIN repositories r_filt ON r_filt.id = {}.repo_id",
@@ -163,9 +170,17 @@ fn build_filter_clauses(
     }
 
     if let Some(ref author) = filters.author {
-        joins.push("LEFT JOIN users u_auth ON u_auth.username = ?".to_string());
+        let user_id_column = if table_alias == "r" {
+            "owner_id"
+        } else {
+            "author_id"
+        };
+        joins.push(format!(
+            "LEFT JOIN users u_auth ON u_auth.id = {}.{}",
+            table_alias, user_id_column
+        ));
+        clauses.push("u_auth.username = ?".to_string());
         params.push(Value::from(author.to_string()));
-        clauses.push(format!("{}.author_id = u_auth.id", table_alias));
     }
 
     (clauses, joins, params)
@@ -200,10 +215,7 @@ fn build_issue_filter_clauses(filters: &SearchFilters) -> (Vec<String>, Vec<Stri
 
 /// Combine the FTS predicate + filter clauses into a single WHERE clause and the
 /// parameter list (query values first, then filter values).
-fn combine_where(
-    match_pred: &str,
-    filter_clauses: &[String],
-) -> (String, Vec<Value>) {
+fn combine_where(match_pred: &str, filter_clauses: &[String]) -> (String, Vec<Value>) {
     match (match_pred.is_empty(), filter_clauses.is_empty()) {
         (true, true) => ("1=1".to_string(), Vec::new()),
         (true, false) => (filter_clauses.join(" AND "), Vec::new()),
@@ -213,6 +225,27 @@ fn combine_where(
             Vec::new(),
         ),
     }
+}
+
+/// Bind values in the order their placeholders appear in the generated SQL:
+/// FTS predicate, ordinary filters, then the repeated FTS ranking expression.
+fn search_params(
+    query_values: &[String],
+    filter_params: &[Value],
+    include_order_value: bool,
+) -> Vec<Value> {
+    query_values
+        .first()
+        .cloned()
+        .map(Value::from)
+        .into_iter()
+        .chain(filter_params.iter().cloned())
+        .chain(
+            include_order_value
+                .then(|| query_values.get(1).cloned().map(Value::from))
+                .flatten(),
+        )
+        .collect()
 }
 
 /// Search repositories by name and description, with optional filters.
@@ -242,8 +275,8 @@ async fn search_repos(
     let sql = format!(
         r#"
         SELECT r.id, r.name as title, r.description as excerpt, u.username as owner_name
-        FROM repos_fts f
-        JOIN repositories r ON r.id = f.rowid
+        FROM repos_fts
+        JOIN repositories r ON r.id = repos_fts.rowid
         LEFT JOIN users u ON u.id = r.owner_id
         {}
         WHERE {}
@@ -253,12 +286,8 @@ async fn search_repos(
         joins_sql, where_clause, order_clause, limit, offset
     );
 
-    let params: Vec<Value> = query_values
-        .iter()
-        .cloned()
-        .map(Value::from)
-        .chain(filter_params.iter().cloned())
-        .collect();
+    let params = search_params(&query_values, &filter_params, true);
+    let sql = rg_db::prepare_sql(backend, &sql);
 
     let rows = db
         .query_all(Statement::from_sql_and_values(backend, &sql, params))
@@ -285,23 +314,23 @@ async fn search_repos(
 
     let count_sql = format!(
         r#"
-        SELECT COUNT(DISTINCT f.rowid)
-        FROM repos_fts f
-        JOIN repositories r ON r.id = f.rowid
+        SELECT COUNT(DISTINCT repos_fts.rowid)
+        FROM repos_fts
+        JOIN repositories r ON r.id = repos_fts.rowid
         LEFT JOIN users u ON u.id = r.owner_id
         {}
         WHERE {}
         "#,
         joins_sql, where_clause
     );
-    let count_params: Vec<Value> = query_values
-        .iter()
-        .cloned()
-        .map(Value::from)
-        .chain(filter_params.iter().cloned())
-        .collect();
+    let count_params = search_params(&query_values, &filter_params, false);
+    let count_sql = rg_db::prepare_sql(backend, &count_sql);
     let count_rows = db
-        .query_all(Statement::from_sql_and_values(backend, &count_sql, count_params))
+        .query_all(Statement::from_sql_and_values(
+            backend,
+            &count_sql,
+            count_params,
+        ))
         .await
         .context("fts: count repos")?;
     let total: i64 = count_rows
@@ -339,8 +368,8 @@ async fn search_issues(
     let sql = format!(
         r#"
         SELECT i.id, i.title, i.body as excerpt, i.repo_id, r.name as repo_name, u.username as owner_name, i.state, i.number
-        FROM issues_fts f
-        JOIN issues i ON i.id = f.rowid
+        FROM issues_fts
+        JOIN issues i ON i.id = issues_fts.rowid
         JOIN repositories r ON r.id = i.repo_id
         LEFT JOIN users u ON u.id = r.owner_id
         {}
@@ -351,12 +380,8 @@ async fn search_issues(
         all_joins, where_clause, order_clause, limit, offset
     );
 
-    let params: Vec<Value> = query_values
-        .iter()
-        .cloned()
-        .map(Value::from)
-        .chain(common_params.iter().cloned())
-        .collect();
+    let params = search_params(&query_values, &common_params, true);
+    let sql = rg_db::prepare_sql(backend, &sql);
 
     let rows = db
         .query_all(Statement::from_sql_and_values(backend, &sql, params))
@@ -388,21 +413,21 @@ async fn search_issues(
     let count_sql = format!(
         r#"
         SELECT COUNT(DISTINCT i.id)
-        FROM issues_fts f
-        JOIN issues i ON i.id = f.rowid
+        FROM issues_fts
+        JOIN issues i ON i.id = issues_fts.rowid
         {}
         WHERE {}
         "#,
         all_joins, where_clause
     );
-    let count_params: Vec<Value> = query_values
-        .iter()
-        .cloned()
-        .map(Value::from)
-        .chain(common_params.iter().cloned())
-        .collect();
+    let count_params = search_params(&query_values, &common_params, false);
+    let count_sql = rg_db::prepare_sql(backend, &count_sql);
     let count_rows = db
-        .query_all(Statement::from_sql_and_values(backend, &count_sql, count_params))
+        .query_all(Statement::from_sql_and_values(
+            backend,
+            &count_sql,
+            count_params,
+        ))
         .await
         .context("fts: count issues")?;
     let total: i64 = count_rows
@@ -435,8 +460,8 @@ async fn search_wiki(
     let sql = format!(
         r#"
         SELECT w.id, w.title, SUBSTR(w.content, 1, 200) as excerpt, w.repo_id, r.name as repo_name, u.username as owner_name
-        FROM wiki_pages_fts f
-        JOIN wiki_pages w ON w.id = f.rowid
+        FROM wiki_pages_fts
+        JOIN wiki_pages w ON w.id = wiki_pages_fts.rowid
         JOIN repositories r ON r.id = w.repo_id
         LEFT JOIN users u ON u.id = r.owner_id
         {}
@@ -451,12 +476,8 @@ async fn search_wiki(
         offset
     );
 
-    let params: Vec<Value> = query_values
-        .iter()
-        .cloned()
-        .map(Value::from)
-        .chain(filter_params.iter().cloned())
-        .collect();
+    let params = search_params(&query_values, &filter_params, true);
+    let sql = rg_db::prepare_sql(backend, &sql);
 
     let rows = db
         .query_all(Statement::from_sql_and_values(backend, &sql, params))
@@ -492,8 +513,8 @@ async fn search_wiki(
     let count_sql = format!(
         r#"
         SELECT COUNT(DISTINCT w.id)
-        FROM wiki_pages_fts f
-        JOIN wiki_pages w ON w.id = f.rowid
+        FROM wiki_pages_fts
+        JOIN wiki_pages w ON w.id = wiki_pages_fts.rowid
         JOIN repositories r ON r.id = w.repo_id
         LEFT JOIN users u ON u.id = r.owner_id
         {}
@@ -501,14 +522,14 @@ async fn search_wiki(
         "#,
         joins_sql, where_clause
     );
-    let count_params: Vec<Value> = query_values
-        .iter()
-        .cloned()
-        .map(Value::from)
-        .chain(filter_params.iter().cloned())
-        .collect();
+    let count_params = search_params(&query_values, &filter_params, false);
+    let count_sql = rg_db::prepare_sql(backend, &count_sql);
     let count_rows = db
-        .query_all(Statement::from_sql_and_values(backend, &count_sql, count_params))
+        .query_all(Statement::from_sql_and_values(
+            backend,
+            &count_sql,
+            count_params,
+        ))
         .await
         .context("fts: count wiki")?;
     let total: i64 = count_rows

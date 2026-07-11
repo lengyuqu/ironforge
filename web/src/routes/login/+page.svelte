@@ -9,6 +9,7 @@
     beginMfa,
   } from '$lib/stores/auth.svelte';
   import { createT } from '$lib/i18n';
+  import { auth, type PublicSsoProvider } from '$lib/api/client.svelte';
   import { goto } from '$app/navigation';
 
   const t = createT();
@@ -18,6 +19,8 @@
   let mfaCode = $state('');
   let useBackupCode = $state(false);
   let localError = $state('');
+  let ssoProviders = $state<PublicSsoProvider[]>([]);
+  let ssoLoading = $state(true);
 
   // Redirect if already logged in (prevents flash of login form for authenticated users)
   $effect(() => {
@@ -41,7 +44,9 @@
   async function loadSsoProviders() {
     try {
       ssoLoading = true;
-      ssoProviders = await auth.listSsoProviders();
+      ssoProviders = (await auth.listSsoProviders()).filter(
+        (provider) => provider.provider_type !== 'ldap',
+      );
     } catch {
       ssoProviders = [];
     } finally {
@@ -131,6 +136,22 @@
       </form>
     {/if}
 
+    {#if ssoLoading}
+      <p class="sso-loading">{t('auth.login.sso_loading')}</p>
+    {:else if ssoProviders.length > 0 && !isMfaRequired()}
+      <div class="sso-divider"><span>{t('auth.login.sso_or')}</span></div>
+      <div class="sso-providers">
+        {#each ssoProviders as provider (provider.slug)}
+          <a class="sso-button" href={auth.ssoAuthorizeUrl(provider.slug)}>
+            {#if provider.icon_url}
+              <img src={provider.icon_url} alt="" width="20" height="20" />
+            {/if}
+            {t('auth.login.sso_continue', { provider: provider.name })}
+          </a>
+        {/each}
+      </div>
+    {/if}
+
     <p class="footer">
       {t('auth.login.footer', { link: '' })}
       <a href="/register">{t('auth.login.footer_link')}</a>
@@ -201,6 +222,46 @@
   }
   .btn-primary:hover { background: var(--green); }
   .btn-primary:disabled { opacity: 0.6; }
+
+  .sso-loading {
+    margin: 18px 0 0;
+    color: var(--text-secondary);
+    font-size: 13px;
+    text-align: center;
+  }
+
+  .sso-divider {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 20px 0 14px;
+    color: var(--text-secondary);
+    font-size: 12px;
+  }
+
+  .sso-divider::before,
+  .sso-divider::after {
+    content: '';
+    flex: 1;
+    border-top: 1px solid var(--border);
+  }
+
+  .sso-providers { display: grid; gap: 10px; }
+
+  .sso-button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text-primary);
+    text-decoration: none;
+  }
+
+  .sso-button:hover { background: var(--bg-tertiary); }
+  .sso-button img { object-fit: contain; }
 
   .footer {
     text-align: center;

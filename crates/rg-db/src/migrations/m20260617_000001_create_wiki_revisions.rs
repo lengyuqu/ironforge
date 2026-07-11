@@ -1,6 +1,5 @@
 //! Migration: create wiki_revisions table.
 
-use sea_orm::Statement;
 use sea_orm_migration::prelude::*;
 
 pub struct Migration;
@@ -17,43 +16,85 @@ impl MigrationTrait for Migration {
         if manager.has_table("wiki_revisions").await? {
             return Ok(());
         }
-        let db = manager.get_connection();
-        use sea_orm::ConnectionTrait;
-        db.execute(Statement::from_string(
-            sea_orm::DatabaseBackend::Sqlite,
-            r#"CREATE TABLE IF NOT EXISTS "wiki_revisions" (
-                "id"           INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-                "wiki_page_id" INTEGER NOT NULL,
-                "content"      TEXT    NOT NULL,
-                "message"      TEXT,
-                "author_id"    INTEGER,
-                "version"      INTEGER NOT NULL DEFAULT 1,
-                "created_at"   TEXT    NOT NULL,
-                FOREIGN KEY ("wiki_page_id") REFERENCES "wiki_pages"("id") ON DELETE CASCADE
-            )"#
-            .to_string(),
-        ))
-        .await?;
-
-        db.execute(Statement::from_string(
-            sea_orm::DatabaseBackend::Sqlite,
-            r#"CREATE INDEX IF NOT EXISTS "idx_wiki_revisions_page"
-               ON "wiki_revisions" ("wiki_page_id")"#
-                .to_string(),
-        ))
-        .await?;
+        manager
+            .create_table(
+                Table::create()
+                    .table(WikiRevisions::Table)
+                    .if_not_exists()
+                    .col(
+                        ColumnDef::new(WikiRevisions::Id)
+                            .big_integer()
+                            .not_null()
+                            .auto_increment()
+                            .primary_key(),
+                    )
+                    .col(
+                        ColumnDef::new(WikiRevisions::WikiPageId)
+                            .big_integer()
+                            .not_null(),
+                    )
+                    .col(ColumnDef::new(WikiRevisions::Content).text().not_null())
+                    .col(ColumnDef::new(WikiRevisions::Message).text().null())
+                    .col(ColumnDef::new(WikiRevisions::AuthorId).big_integer().null())
+                    .col(
+                        ColumnDef::new(WikiRevisions::Version)
+                            .integer()
+                            .not_null()
+                            .default(1),
+                    )
+                    .col(
+                        ColumnDef::new(WikiRevisions::CreatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null(),
+                    )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .from(WikiRevisions::Table, WikiRevisions::WikiPageId)
+                            .to(WikiPages::Table, WikiPages::Id)
+                            .on_delete(ForeignKeyAction::Cascade),
+                    )
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_wiki_revisions_page")
+                    .table(WikiRevisions::Table)
+                    .col(WikiRevisions::WikiPageId)
+                    .to_owned(),
+            )
+            .await?;
 
         Ok(())
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
-        let db = manager.get_connection();
-        use sea_orm::ConnectionTrait;
-        db.execute(Statement::from_string(
-            sea_orm::DatabaseBackend::Sqlite,
-            r#"DROP TABLE IF EXISTS "wiki_revisions""#.to_string(),
-        ))
-        .await?;
-        Ok(())
+        manager
+            .drop_table(
+                Table::drop()
+                    .table(WikiRevisions::Table)
+                    .if_exists()
+                    .to_owned(),
+            )
+            .await
     }
+}
+
+#[derive(Iden)]
+enum WikiRevisions {
+    Table,
+    Id,
+    WikiPageId,
+    Content,
+    Message,
+    AuthorId,
+    Version,
+    CreatedAt,
+}
+
+#[derive(Iden)]
+enum WikiPages {
+    Table,
+    Id,
 }

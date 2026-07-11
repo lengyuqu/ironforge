@@ -55,7 +55,8 @@ fn sqlite_stmts() -> Vec<String> {
             content,
             language
         );
-    "#.into()]
+    "#
+    .into()]
 }
 
 /// Postgres: a regular table with a `tsvector` generated column + GIN index.
@@ -75,7 +76,8 @@ fn postgres_stmts() -> Vec<String> {
             tsv tsvector GENERATED ALWAYS AS (to_tsvector('simple', \
                 coalesce(content,'') || ' ' || coalesce(file_path,'') || ' ' || \
                 coalesce(file_name,'') || ' ' || coalesce(language,''))) STORED\
-        )".into(),
+        )"
+        .into(),
         "CREATE INDEX code_fts_tsv_idx ON code_fts USING GIN(tsv)".into(),
         "CREATE INDEX code_fts_repo_id_idx ON code_fts(repo_id)".into(),
     ]
@@ -94,7 +96,8 @@ fn mysql_stmts() -> Vec<String> {
             content LONGTEXT, \
             language TEXT, \
             FULLTEXT(content, file_path, file_name, language)\
-        ) ENGINE=InnoDB".into(),
+        ) ENGINE=InnoDB"
+            .into(),
         "CREATE INDEX code_fts_repo_id_idx ON code_fts(repo_id)".into(),
     ]
 }

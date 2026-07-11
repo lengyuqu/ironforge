@@ -23,6 +23,7 @@ export { webhooks, type RepositoryWebhook, type WebhookDelivery, type WebhookPay
 export { imports, type ImportTask, type StartImportPayload } from './imports';
 export { milestones } from './milestones';
 export { tokens } from './tokens';
+export { sshKeys, type SshKey } from './sshKeys';
 export { mfa, type MfaBackupStatus, type MfaEnableResponse, type MfaSetupResponse } from './mfa';
 export {
   admin,

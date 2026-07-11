@@ -3,7 +3,7 @@
 use anyhow::{bail, Context, Result};
 use chrono::Utc;
 use sea_orm::{ActiveValue::Set, ConnectionTrait, DatabaseConnection};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 #[cfg(test)]
 use std::sync::Mutex;
@@ -398,14 +398,16 @@ pub async fn create_repo_with_opts(
 
     let repo = repo_ops::create(db, model).await?;
 
-    // Manually update FTS5 index (triggers are disabled due to SQLite security restrictions)
-    // Use parameterized query to prevent SQL injection
-    let fts_sql = "INSERT INTO repos_fts(rowid, name, description) VALUES (?, ?, ?)";
+    // Keep the metadata FTS table in sync. Triggers also maintain it; use an
+    // upsert so the explicit write is safe on SQLite, PostgreSQL and MySQL.
+    let backend = db.get_database_backend();
+    let fts_sql =
+        crate::search::dialect::metadata_fts_upsert_sql(backend, "repos_fts", "name, description");
     let description = repo.description.as_deref().unwrap_or("");
     if let Err(e) = db
         .execute(sea_orm::Statement::from_sql_and_values(
-            db.get_database_backend(),
-            fts_sql,
+            backend,
+            rg_db::prepare_sql(backend, &fts_sql),
             [
                 repo.id.into(),
                 repo.name.as_str().into(),
@@ -675,12 +677,12 @@ pub async fn get_watch(
 pub async fn delete_repo(db: &DatabaseConnection, repo_id: i64) -> Result<()> {
     rg_db::ops::repo_ops::soft_delete(db, repo_id).await?;
 
-    // Manually remove from FTS5 index (triggers are disabled)
-    // Use parameterized query to prevent SQL injection
+    // Manually remove from the metadata FTS table as a defensive fallback.
+    let backend = db.get_database_backend();
     if let Err(e) = db
         .execute(sea_orm::Statement::from_sql_and_values(
-            db.get_database_backend(),
-            "DELETE FROM repos_fts WHERE rowid = ?",
+            backend,
+            rg_db::prepare_sql(backend, "DELETE FROM repos_fts WHERE rowid = ?"),
             [repo_id.into()],
         ))
         .await
@@ -711,7 +713,7 @@ pub async fn fork_repo(
     user_id: i64,
     owner: &str,
     repo_name: &str,
-    repo_root: &PathBuf,
+    repo_root: &std::path::Path,
 ) -> Result<rg_db::entities::repository::Model> {
     let source_repo = find_repo_by_owner_name(db, owner, repo_name)
         .await?
@@ -805,7 +807,7 @@ pub async fn transfer_repo(
     owner: &str,
     repo_name: &str,
     new_owner: &str,
-    repo_root: &PathBuf,
+    repo_root: &std::path::Path,
 ) -> Result<rg_db::entities::repository::Model> {
     let repo = find_repo_by_owner_name(db, owner, repo_name)
         .await?
@@ -995,7 +997,7 @@ pub async fn create_or_update_file(
     sha: Option<&str>,
     author_name: &str,
     author_email: &str,
-    repo_root: &PathBuf,
+    repo_root: &std::path::Path,
 ) -> Result<()> {
     let repo_path = repo_root.join(format!("{}/{}.git", owner, repo_name));
 
@@ -1109,6 +1111,133 @@ pub async fn create_or_update_file(
     );
 
     Ok(())
+}
+
+#[derive(Debug, Clone)]
+pub struct FileUpdate {
+    pub path: String,
+    pub content: String,
+    pub expected_blob_sha: String,
+}
+
+/// Update multiple existing files and publish them as one commit.
+///
+/// The branch head and every touched blob are checked before writing. The
+/// normal fast-forward push is the final concurrency guard if the branch moves
+/// after those checks.
+pub fn update_files_in_commit(
+    owner: &str,
+    repo_name: &str,
+    branch: &str,
+    expected_head_sha: &str,
+    updates: &[FileUpdate],
+    message: &str,
+    author_name: &str,
+    author_email: &str,
+    repo_root: &std::path::Path,
+) -> Result<String> {
+    if updates.is_empty() {
+        bail!("at least one file update is required");
+    }
+    let repo_path = repo_root.join(format!("{owner}/{repo_name}.git"));
+    if !repo_path.exists() {
+        bail!("repository path not found: {:?}", repo_path);
+    }
+
+    let mut unique_paths = HashSet::new();
+    for update in updates {
+        let path = std::path::Path::new(&update.path);
+        if path.as_os_str().is_empty()
+            || path.is_absolute()
+            || path
+                .components()
+                .any(|part| !matches!(part, std::path::Component::Normal(_)))
+        {
+            bail!("invalid repository file path: {}", update.path);
+        }
+        if !unique_paths.insert(update.path.as_str()) {
+            bail!("duplicate file update: {}", update.path);
+        }
+    }
+
+    let tmp = std::env::temp_dir().join(format!("ironforge-files-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&tmp)?;
+    let result = (|| -> Result<String> {
+        let clone_url = path_to_git_url(&repo_path)?;
+        let tmp_str = tmp.to_string_lossy();
+        let gateway = rg_git::cli_gateway::global_gateway()
+            .as_ref()
+            .map_err(|error| anyhow::anyhow!("git CLI not available: {error}"))?;
+        let clone = gateway.run(
+            &[
+                "clone",
+                "--branch",
+                branch,
+                "--single-branch",
+                "--",
+                &clone_url,
+                &tmp_str,
+            ],
+            None,
+        )?;
+        clone.ensure_success()?;
+
+        let head = gateway.run(&["rev-parse", "HEAD"], Some(&tmp))?;
+        head.ensure_success()?;
+        let actual_head = head.stdout_str().trim().to_string();
+        if actual_head != expected_head_sha {
+            bail!("branch head changed: expected {expected_head_sha}, got {actual_head}");
+        }
+
+        for update in updates {
+            let object = format!("HEAD:{}", update.path);
+            let blob = gateway.run(&["rev-parse", &object], Some(&tmp))?;
+            blob.ensure_success()?;
+            let actual_blob = blob.stdout_str().trim().to_string();
+            if actual_blob != update.expected_blob_sha {
+                bail!(
+                    "file SHA mismatch for {}: expected {}, got {}",
+                    update.path,
+                    update.expected_blob_sha,
+                    actual_blob
+                );
+            }
+
+            let mut full_path = tmp.clone();
+            for component in std::path::Path::new(&update.path).components() {
+                let std::path::Component::Normal(component) = component else {
+                    unreachable!("path was validated above")
+                };
+                full_path.push(component);
+                if let Ok(metadata) = std::fs::symlink_metadata(&full_path) {
+                    if metadata.file_type().is_symlink() {
+                        bail!("refusing to update symlink path: {}", update.path);
+                    }
+                }
+            }
+            if let Some(parent) = full_path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::write(&full_path, &update.content)?;
+            let add = gateway.run(&["add", "--", &update.path], Some(&tmp))?;
+            add.ensure_success()?;
+        }
+
+        let identity = git_identity_env(author_name, author_email);
+        let commit = gateway.run_with_env(&["commit", "-m", message], Some(&tmp), &identity)?;
+        commit.ensure_success()?;
+        let commit_sha = gateway.run(&["rev-parse", "HEAD"], Some(&tmp))?;
+        commit_sha.ensure_success()?;
+        let commit_sha = commit_sha.stdout_str().trim().to_string();
+
+        let push_url = path_to_git_url(&repo_path)?;
+        let destination = format!("HEAD:refs/heads/{branch}");
+        let push = gateway.run(&["push", &push_url, &destination], Some(&tmp))?;
+        push.ensure_success()?;
+        Ok(commit_sha)
+    })();
+    let _ = std::fs::remove_dir_all(&tmp);
+    result
 }
 
 /// Delete a file from a repository.

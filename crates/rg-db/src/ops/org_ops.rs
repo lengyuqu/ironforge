@@ -242,6 +242,19 @@ pub async fn get_team(db: &DatabaseConnection, id: i64) -> Result<Option<team::M
         .context("db: get team")
 }
 
+pub async fn find_team_by_name(
+    db: &DatabaseConnection,
+    org_id: i64,
+    name: &str,
+) -> Result<Option<team::Model>> {
+    team::Entity::find()
+        .filter(team::Column::OrgId.eq(org_id))
+        .filter(team::Column::Name.eq(name))
+        .one(db)
+        .await
+        .context("db: find team by name")
+}
+
 /// List teams for an organization.
 pub async fn list_org_teams(db: &DatabaseConnection, org_id: i64) -> Result<Vec<team::Model>> {
     team::Entity::find()
@@ -348,13 +361,17 @@ pub async fn is_member_of_write_team(
     org_id: i64,
     user_id: i64,
 ) -> Result<bool> {
+    let backend = db.get_database_backend();
     let result = db
         .query_one(Statement::from_sql_and_values(
-            db.get_database_backend(),
-            r#"SELECT COUNT(*) as cnt
+            backend,
+            crate::prepare_sql(
+                backend,
+                r#"SELECT COUNT(*) as cnt
                FROM team_members tm
                JOIN teams t ON t.id = tm.team_id
                WHERE t.org_id = ? AND tm.user_id = ? AND t.permission IN ('write', 'admin')"#,
+            ),
             [Value::from(org_id), Value::from(user_id)],
         ))
         .await

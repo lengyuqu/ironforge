@@ -3,6 +3,7 @@
 use anyhow::{bail, Context, Result};
 use chrono::Utc;
 use sea_orm::{DatabaseConnection, EntityTrait, Set};
+use std::collections::HashMap;
 
 use rg_db::entities::pull_request::{self, Model as PullRequest};
 use rg_db::entities::repository as repo_entity;
@@ -17,6 +18,7 @@ use rg_db::ops::{pull_request_ops, repo_ops, user_ops};
 #[allow(clippy::too_many_arguments)]
 pub async fn create_pr(
     db: &DatabaseConnection,
+    repo_root: &std::path::Path,
     repo_id: i64,
     author_id: i64,
     title: String,
@@ -24,6 +26,7 @@ pub async fn create_pr(
     head_branch: String,
     base_branch: String,
     head_repo_id: Option<i64>,
+    is_draft: bool,
 ) -> Result<PullRequest> {
     if title.trim().is_empty() {
         bail!("PR title cannot be empty");
@@ -34,6 +37,13 @@ pub async fn create_pr(
 
     let number = pull_request_ops::next_number(db, repo_id).await?;
 
+    let target_repo = repo_entity::Entity::find_by_id(repo_id)
+        .one(db)
+        .await?
+        .context("target repository not found")?;
+    let target_namespace = repository_namespace(db, &target_repo).await?;
+    let target_path = repo_root.join(format!("{target_namespace}/{}.git", target_repo.name));
+
     // Resolve head SHA (for same-repo PRs, look up branch; for fork PRs, use the head repo)
     let head_sha = if let Some(head_repo_id) = head_repo_id {
         // For fork PRs, resolve from the fork repo's git data
@@ -41,15 +51,15 @@ pub async fn create_pr(
             .one(db)
             .await?
             .context("head repository not found")?;
-        let head_owner = user_ops::find_by_id(db, head_repo.owner_id)
-            .await?
-            .context("head repo owner not found")?;
-        let head_path = crate::platform::path::repo_path(&head_owner.username, &head_repo.name);
+        let head_namespace = repository_namespace(db, &head_repo).await?;
+        let head_path = repo_root.join(format!("{head_namespace}/{}.git", head_repo.name));
         if head_path.exists() {
             get_ref_sha(&head_path, &head_branch).ok()
         } else {
             None
         }
+    } else if target_path.exists() {
+        get_ref_sha(&target_path, &head_branch).ok()
     } else {
         None
     };
@@ -61,6 +71,11 @@ pub async fn create_pr(
         title: Set(title),
         body: Set(body),
         state: Set("open".to_string()),
+        is_draft: Set(is_draft),
+        auto_merge_enabled: Set(false),
+        auto_merge_strategy: Set(None),
+        auto_merge_enabled_by_id: Set(None),
+        auto_merge_enabled_at: Set(None),
         author_id: Set(author_id),
         reviewer_id: Set(None),
         head_branch: Set(head_branch),
@@ -152,6 +167,22 @@ pub async fn resolve_head_ref(
     }
 }
 
+pub(super) async fn repository_namespace(
+    db: &DatabaseConnection,
+    repository: &repo_entity::Model,
+) -> Result<String> {
+    if let Some(org_id) = repository.org_id {
+        return rg_db::ops::org_ops::get_org(db, org_id)
+            .await?
+            .map(|org| org.name)
+            .context("repository organization not found");
+    }
+    user_ops::find_by_id(db, repository.owner_id)
+        .await?
+        .map(|user| user.username)
+        .context("repository owner not found")
+}
+
 /// Notify watchers of a PR event.
 pub async fn notify_watchers_pr(
     db: &DatabaseConnection,
@@ -219,6 +250,7 @@ pub async fn update_pr(
     title: Option<String>,
     body: Option<String>,
     state: Option<String>,
+    is_draft: Option<bool>,
 ) -> Result<PullRequest> {
     let mut pr = get_pr(db, owner, repo_name, number).await?;
 
@@ -231,11 +263,20 @@ pub async fn update_pr(
     if let Some(b) = body {
         pr.body = Some(b);
     }
+    if let Some(draft) = is_draft {
+        if pr.state != "open" {
+            bail!("only an open pull request can change draft status");
+        }
+        pr.is_draft = draft;
+    }
     if let Some(s) = &state {
         match s.as_str() {
             "open" | "closed" | "merged" => {
                 let was_open = pr.state == "open";
                 pr.state = s.clone();
+                if s != "open" {
+                    pr.auto_merge_enabled = false;
+                }
                 if s == "closed" && pr.closed_at.is_none() {
                     pr.closed_at = Some(Utc::now());
                 }
@@ -263,7 +304,23 @@ pub async fn update_pr(
 
     pr.updated_at = Utc::now();
 
-    let active: pull_request::ActiveModel = pr.into();
+    // `Model -> ActiveModel` marks fields as `Unchanged`; explicitly mark the
+    // mutable PR metadata so SeaORM actually emits an UPDATE.
+    let final_title = pr.title.clone();
+    let final_body = pr.body.clone();
+    let final_state = pr.state.clone();
+    let final_is_draft = pr.is_draft;
+    let final_auto_merge_enabled = pr.auto_merge_enabled;
+    let final_closed_at = pr.closed_at;
+    let final_updated_at = pr.updated_at;
+    let mut active: pull_request::ActiveModel = pr.into();
+    active.title = Set(final_title);
+    active.body = Set(final_body);
+    active.state = Set(final_state);
+    active.is_draft = Set(final_is_draft);
+    active.auto_merge_enabled = Set(final_auto_merge_enabled);
+    active.closed_at = Set(final_closed_at);
+    active.updated_at = Set(final_updated_at);
     pull_request_ops::update(db, active).await
 }
 
@@ -285,6 +342,16 @@ pub struct FileDiff {
     pub additions: i64,
     pub deletions: i64,
     pub patch: Option<String>,
+    pub lines: Vec<DiffLine>,
+}
+
+#[derive(Debug, serde::Serialize, PartialEq, Eq)]
+pub struct DiffLine {
+    /// meta / context / addition / deletion
+    pub kind: String,
+    pub content: String,
+    pub old_line: Option<i64>,
+    pub new_line: Option<i64>,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -381,13 +448,22 @@ fn compute_same_repo_diff(repo_path: &std::path::Path, pr: &PullRequest) -> Resu
         .as_ref()
         .map_err(|e| anyhow::anyhow!("{}", e))?;
     let range = format!("{}...{}", pr.base_branch, pr.head_branch);
-    let patch_output = git.run(&["diff", &range], Some(repo_path))?;
+    let patch_output = git.run(
+        &[
+            "-c",
+            "core.quotePath=false",
+            "diff",
+            "--no-ext-diff",
+            "--find-renames",
+            &range,
+        ],
+        Some(repo_path),
+    )?;
+    patch_output.ensure_success()?;
     let patch_text = patch_output.stdout_str();
 
     let mut files = files_changed;
-    if let Some(first) = files.first_mut() {
-        first.patch = Some(patch_text);
-    }
+    attach_patches(&mut files, &patch_text);
 
     Ok(PrDiff {
         base_branch: pr.base_branch.clone(),
@@ -416,13 +492,22 @@ fn compute_cross_repo_diff(
         .as_ref()
         .map_err(|e| anyhow::anyhow!("{}", e))?;
     let range = format!("{}...{}", base_branch, fork_ref);
-    let patch_output = git.run(&["diff", &range], Some(repo_path))?;
+    let patch_output = git.run(
+        &[
+            "-c",
+            "core.quotePath=false",
+            "diff",
+            "--no-ext-diff",
+            "--find-renames",
+            &range,
+        ],
+        Some(repo_path),
+    )?;
+    patch_output.ensure_success()?;
     let patch_text = patch_output.stdout_str();
 
     let mut files = files_changed;
-    if let Some(first) = files.first_mut() {
-        first.patch = Some(patch_text);
-    }
+    attach_patches(&mut files, &patch_text);
 
     Ok(PrDiff {
         base_branch: pr.base_branch.clone(),
@@ -430,6 +515,119 @@ fn compute_cross_repo_diff(
         stats,
         files_changed: files,
     })
+}
+
+fn attach_patches(files: &mut [FileDiff], unified_diff: &str) {
+    let patches = split_unified_diff(unified_diff);
+    for file in files {
+        if let Some(patch) = patches.get(&file.path) {
+            file.lines = parse_diff_lines(patch);
+            file.patch = Some(patch.clone());
+        }
+    }
+}
+
+fn split_unified_diff(unified_diff: &str) -> HashMap<String, String> {
+    let mut patches = HashMap::new();
+    let mut current_path: Option<String> = None;
+    let mut current_patch = String::new();
+
+    let flush =
+        |path: &mut Option<String>, patch: &mut String, patches: &mut HashMap<String, String>| {
+            if let Some(path) = path.take() {
+                patches.insert(path, std::mem::take(patch));
+            }
+        };
+
+    for line in unified_diff.split_inclusive('\n') {
+        if line.starts_with("diff --git ") {
+            flush(&mut current_path, &mut current_patch, &mut patches);
+            let header = line.trim_end();
+            current_path = header
+                .split_whitespace()
+                .nth(3)
+                .map(|path| path.trim_start_matches("b/").trim_matches('"').to_string());
+        } else if let Some(path) = line.strip_prefix("+++ ").map(str::trim) {
+            if path != "/dev/null" {
+                current_path = Some(path.trim_start_matches("b/").trim_matches('"').to_string());
+            }
+        }
+        if current_path.is_some() {
+            current_patch.push_str(line);
+        }
+    }
+    flush(&mut current_path, &mut current_patch, &mut patches);
+    patches
+}
+
+fn parse_diff_lines(patch: &str) -> Vec<DiffLine> {
+    let mut lines = Vec::new();
+    let mut old_line = None;
+    let mut new_line = None;
+
+    for raw_line in patch.lines() {
+        if raw_line.starts_with("@@ ") {
+            if let Some((old, new)) = parse_hunk_header(raw_line) {
+                old_line = Some(old);
+                new_line = Some(new);
+            }
+            lines.push(DiffLine {
+                kind: "meta".into(),
+                content: raw_line.into(),
+                old_line: None,
+                new_line: None,
+            });
+        } else if old_line.is_some() && raw_line.starts_with('+') && !raw_line.starts_with("+++") {
+            let line_number = new_line;
+            new_line = new_line.map(|line| line + 1);
+            lines.push(DiffLine {
+                kind: "addition".into(),
+                content: raw_line[1..].into(),
+                old_line: None,
+                new_line: line_number,
+            });
+        } else if old_line.is_some() && raw_line.starts_with('-') && !raw_line.starts_with("---") {
+            let line_number = old_line;
+            old_line = old_line.map(|line| line + 1);
+            lines.push(DiffLine {
+                kind: "deletion".into(),
+                content: raw_line[1..].into(),
+                old_line: line_number,
+                new_line: None,
+            });
+        } else if old_line.is_some() && raw_line.starts_with(' ') {
+            let previous_old = old_line;
+            let previous_new = new_line;
+            old_line = old_line.map(|line| line + 1);
+            new_line = new_line.map(|line| line + 1);
+            lines.push(DiffLine {
+                kind: "context".into(),
+                content: raw_line[1..].into(),
+                old_line: previous_old,
+                new_line: previous_new,
+            });
+        } else {
+            lines.push(DiffLine {
+                kind: "meta".into(),
+                content: raw_line.into(),
+                old_line: None,
+                new_line: None,
+            });
+        }
+    }
+    lines
+}
+
+fn parse_hunk_header(header: &str) -> Option<(i64, i64)> {
+    let mut fields = header.split_whitespace();
+    (fields.next()? == "@@").then_some(())?;
+    let old = fields.next()?.strip_prefix('-')?;
+    let new = fields.next()?.strip_prefix('+')?;
+    Some((parse_range_start(old)?, parse_range_start(new)?))
+}
+
+fn parse_range_start(range: &str) -> Option<i64> {
+    range.split(',').next()?.parse().ok()
 }
 
 /// Compute per-file diff statistics using gix tree-to-tree diff.
@@ -470,11 +668,11 @@ fn gix_diff_numstat(
 
     let old_tree = old_id
         .object()?
-        .try_into_tree()
+        .peel_to_tree()
         .map_err(|_| anyhow::anyhow!("{} is not a tree-ish", old_ref))?;
     let new_tree = new_id
         .object()?
-        .try_into_tree()
+        .peel_to_tree()
         .map_err(|_| anyhow::anyhow!("{} is not a tree-ish", new_ref))?;
 
     let mut platform = old_tree.changes()?;
@@ -525,6 +723,7 @@ fn gix_diff_numstat(
                         additions,
                         deletions,
                         patch: None,
+                        lines: Vec::new(),
                     });
 
                     resource_cache.clear_resource_cache_keep_allocation();
@@ -546,6 +745,41 @@ fn gix_diff_numstat(
     ))
 }
 
+#[cfg(test)]
+mod diff_tests {
+    use super::*;
+
+    #[test]
+    fn splits_patch_by_file_and_parses_line_numbers() {
+        let diff = concat!(
+            "diff --git a/src/a.rs b/src/a.rs\n",
+            "index 111..222 100644\n",
+            "--- a/src/a.rs\n",
+            "+++ b/src/a.rs\n",
+            "@@ -2,2 +2,3 @@\n",
+            " same\n",
+            "-old\n",
+            "+new\n",
+            "+extra\n",
+            "diff --git a/README.md b/README.md\n",
+            "--- a/README.md\n",
+            "+++ b/README.md\n",
+            "@@ -1 +1 @@\n",
+            "-before\n",
+            "+after\n",
+        );
+        let patches = split_unified_diff(diff);
+        assert_eq!(patches.len(), 2);
+        let lines = parse_diff_lines(&patches["src/a.rs"]);
+        assert!(lines.iter().any(|line| {
+            line.kind == "deletion" && line.old_line == Some(3) && line.content == "old"
+        }));
+        assert!(lines.iter().any(|line| {
+            line.kind == "addition" && line.new_line == Some(4) && line.content == "extra"
+        }));
+    }
+}
+
 // ── Merge ───────────────────────────────────────────────────────────────
 
 /// Merge strategy for a PR.
@@ -555,6 +789,173 @@ pub enum MergeStrategy {
     Merge,
     Squash,
     Rebase,
+}
+
+impl MergeStrategy {
+    pub fn parse(value: &str) -> Result<Self> {
+        match value {
+            "merge" => Ok(Self::Merge),
+            "squash" => Ok(Self::Squash),
+            "rebase" => Ok(Self::Rebase),
+            _ => bail!("invalid merge strategy, use: merge, squash, rebase"),
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Merge => "merge",
+            Self::Squash => "squash",
+            Self::Rebase => "rebase",
+        }
+    }
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct AutoMergeOutcome {
+    /// disabled / pending / merged
+    pub status: String,
+    pub reason: Option<String>,
+    pub merge: Option<MergeResult>,
+}
+
+pub async fn enable_auto_merge(
+    db: &DatabaseConnection,
+    owner: &str,
+    repo_name: &str,
+    number: i64,
+    strategy: MergeStrategy,
+    actor_id: i64,
+) -> Result<PullRequest> {
+    let pr = get_pr(db, owner, repo_name, number).await?;
+    if pr.state != "open" {
+        bail!("auto-merge can only be enabled for an open pull request");
+    }
+    if pr.is_draft {
+        bail!("auto-merge cannot be enabled for a draft pull request");
+    }
+    if let Some(entry) = rg_db::ops::merge_queue_ops::find_by_pr(db, pr.id).await? {
+        if entry.status == "running" {
+            bail!("cannot enable auto-merge while the merge queue is processing this PR");
+        }
+        if entry.status == "queued" {
+            rg_db::ops::merge_queue_ops::cancel(db, pr.id).await?;
+        }
+    }
+    let mut active: pull_request::ActiveModel = pr.into();
+    active.auto_merge_enabled = Set(true);
+    active.auto_merge_strategy = Set(Some(strategy.as_str().to_string()));
+    active.auto_merge_enabled_by_id = Set(Some(actor_id));
+    active.auto_merge_enabled_at = Set(Some(Utc::now()));
+    active.updated_at = Set(Utc::now());
+    pull_request_ops::update(db, active).await
+}
+
+pub async fn disable_auto_merge(
+    db: &DatabaseConnection,
+    owner: &str,
+    repo_name: &str,
+    number: i64,
+) -> Result<PullRequest> {
+    let pr = get_pr(db, owner, repo_name, number).await?;
+    let mut active: pull_request::ActiveModel = pr.into();
+    active.auto_merge_enabled = Set(false);
+    active.auto_merge_strategy = Set(None);
+    active.auto_merge_enabled_by_id = Set(None);
+    active.auto_merge_enabled_at = Set(None);
+    active.updated_at = Set(Utc::now());
+    pull_request_ops::update(db, active).await
+}
+
+/// Attempt an enabled auto-merge. Unsatisfied protection rules are returned as
+/// a pending outcome, while actual Git/DB failures remain errors.
+pub async fn try_auto_merge(
+    db: &DatabaseConnection,
+    repo_root: &std::path::Path,
+    owner: &str,
+    repo_name: &str,
+    number: i64,
+) -> Result<AutoMergeOutcome> {
+    let pr = get_pr(db, owner, repo_name, number).await?;
+    if !pr.auto_merge_enabled {
+        return Ok(AutoMergeOutcome {
+            status: "disabled".into(),
+            reason: None,
+            merge: None,
+        });
+    }
+    if pr.state != "open" || pr.is_draft {
+        return Ok(AutoMergeOutcome {
+            status: "pending".into(),
+            reason: Some("pull request is not open and ready for review".into()),
+            merge: None,
+        });
+    }
+    if let Err(error) = crate::branch_protection::service::check_merge_allowed(
+        db,
+        pr.repo_id,
+        &pr.base_branch,
+        pr.id,
+    )
+    .await
+    {
+        return Ok(AutoMergeOutcome {
+            status: "pending".into(),
+            reason: Some(error.to_string()),
+            merge: None,
+        });
+    }
+
+    let strategy = MergeStrategy::parse(
+        pr.auto_merge_strategy
+            .as_deref()
+            .context("auto-merge strategy is missing")?,
+    )?;
+    if !pull_request_ops::claim_auto_merge(db, pr.id).await? {
+        return Ok(AutoMergeOutcome {
+            status: "pending".into(),
+            reason: Some("another automatic merge attempt is already running".into()),
+            merge: None,
+        });
+    }
+    let merge = match merge_pr(db, repo_root, owner, repo_name, number, strategy).await {
+        Ok(merge) => merge,
+        Err(error) => {
+            if let Err(restore_error) = pull_request_ops::restore_auto_merge(db, pr.id).await {
+                tracing::error!(pr_id = pr.id, %restore_error, "failed to restore auto-merge after merge error");
+            }
+            return Err(error);
+        }
+    };
+    Ok(AutoMergeOutcome {
+        status: "merged".into(),
+        reason: None,
+        merge: Some(merge),
+    })
+}
+
+/// Attempt every enabled PR whose source now points at this commit. Used by
+/// push and CI-completion hooks for same-repository and fork pull requests.
+pub async fn try_auto_merges_for_head_commit(
+    db: &DatabaseConnection,
+    repo_root: &std::path::Path,
+    source_repo_id: i64,
+    commit_sha: &str,
+) -> Result<Vec<AutoMergeOutcome>> {
+    let prs =
+        pull_request_ops::list_auto_merge_for_head_commit(db, source_repo_id, commit_sha).await?;
+    let mut outcomes = Vec::with_capacity(prs.len());
+    for pr in prs {
+        let repository = repo_entity::Entity::find_by_id(pr.repo_id)
+            .one(db)
+            .await?
+            .context("auto-merge target repository not found")?;
+        let namespace = repository_namespace(db, &repository).await?;
+        match try_auto_merge(db, repo_root, &namespace, &repository.name, pr.number).await {
+            Ok(outcome) => outcomes.push(outcome),
+            Err(error) => tracing::warn!(pr_id = pr.id, %error, "automatic merge attempt failed"),
+        }
+    }
+    Ok(outcomes)
 }
 
 /// Result of a merge operation.
@@ -577,7 +978,18 @@ pub async fn merge_pr(
     number: i64,
     strategy: MergeStrategy,
 ) -> Result<MergeResult> {
-    let pr = get_pr(db, owner, repo_name, number).await?;
+    let mut pr = get_pr(db, owner, repo_name, number).await?;
+
+    if pr.state == "merging"
+        && pull_request_ops::recover_stale_merge_claim(
+            db,
+            pr.id,
+            Utc::now() - chrono::Duration::minutes(30),
+        )
+        .await?
+    {
+        pr = get_pr(db, owner, repo_name, number).await?;
+    }
 
     if pr.state != "open" {
         bail!(
@@ -585,7 +997,31 @@ pub async fn merge_pr(
             pr.state
         );
     }
+    if pr.is_draft {
+        bail!("draft pull requests cannot be merged");
+    }
 
+    if !pull_request_ops::claim_merge(db, pr.id).await? {
+        bail!("another merge attempt is already in progress");
+    }
+
+    let result = merge_claimed_pr(db, repo_root, owner, repo_name, pr.clone(), strategy).await;
+    if result.is_err() {
+        if let Err(error) = pull_request_ops::restore_merge_claim(db, pr.id).await {
+            tracing::error!(pr_id = pr.id, %error, "failed to restore PR merge state");
+        }
+    }
+    result
+}
+
+async fn merge_claimed_pr(
+    db: &DatabaseConnection,
+    repo_root: &std::path::Path,
+    owner: &str,
+    repo_name: &str,
+    pr: PullRequest,
+    strategy: MergeStrategy,
+) -> Result<MergeResult> {
     let repo_path = repo_root.join(format!("{}/{}.git", owner, repo_name));
     if !repo_path.exists() {
         bail!("repository path does not exist: {:?}", repo_path);
@@ -597,15 +1033,12 @@ pub async fn merge_pr(
             .one(db)
             .await?
             .context("head repository not found")?;
-        let head_owner = user_ops::find_by_id(db, head_repo.owner_id)
-            .await?
-            .context("head repo owner not found")?;
-        let head_repo_path =
-            repo_root.join(format!("{}/{}.git", head_owner.username, head_repo.name));
+        let head_namespace = repository_namespace(db, &head_repo).await?;
+        let head_repo_path = repo_root.join(format!("{}/{}.git", head_namespace, head_repo.name));
 
         if head_repo_path.exists() {
             let fetch_ref = format!("refs/heads/{}", pr.head_branch);
-            let local_ref = format!("refs/forks/{}/{}", head_owner.username, pr.head_branch);
+            let local_ref = format!("refs/forks/{}/{}", head_namespace, pr.head_branch);
 
             let git = rg_git::cli_gateway::global_gateway()
                 .as_ref()
@@ -628,7 +1061,7 @@ pub async fn merge_pr(
             }
 
             // Merge and cleanup in spawn_blocking (CPU-intensive gix merge)
-            let merge_ref = format!("refs/forks/{}/{}", head_owner.username, pr.head_branch);
+            let merge_ref = format!("refs/forks/{}/{}", head_namespace, pr.head_branch);
             let merge_commit_sha = {
                 let repo_path = repo_path.clone();
                 let pr = pr.clone();
@@ -728,7 +1161,20 @@ async fn update_pr_merged(
     pr.closed_at = Some(Utc::now());
     pr.updated_at = Utc::now();
 
-    let active: pull_request::ActiveModel = pr.into();
+    let final_state = pr.state.clone();
+    let final_strategy = pr.merge_strategy.clone();
+    let final_commit_sha = pr.merge_commit_sha.clone();
+    let final_merged_at = pr.merged_at;
+    let final_closed_at = pr.closed_at;
+    let final_updated_at = pr.updated_at;
+    let mut active: pull_request::ActiveModel = pr.into();
+    active.state = Set(final_state);
+    active.merge_strategy = Set(final_strategy);
+    active.merge_commit_sha = Set(final_commit_sha);
+    active.auto_merge_enabled = Set(false);
+    active.merged_at = Set(final_merged_at);
+    active.closed_at = Set(final_closed_at);
+    active.updated_at = Set(final_updated_at);
     let merged_pr = pull_request_ops::update(db, active).await?;
 
     // Trigger pull_request.merged webhook

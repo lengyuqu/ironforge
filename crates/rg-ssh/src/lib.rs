@@ -219,6 +219,9 @@ impl Handler for SshHandler {
         match rg_db::ops::ssh_key_ops::find_by_fingerprint(db, &fp_str).await {
             Ok(Some(key)) => {
                 self.authenticated_user_id = Some(key.user_id);
+                if let Err(error) = rg_db::ops::ssh_key_ops::touch_last_used(db, key.id).await {
+                    tracing::warn!(key_id = key.id, error = %error, "failed to update SSH key usage time");
+                }
                 tracing::info!(user_id = key.user_id, "SSH pubkey auth accepted");
                 Ok(Auth::Accept)
             }

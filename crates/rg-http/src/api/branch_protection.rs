@@ -145,10 +145,8 @@ pub async fn get_protection(
     State(state): State<AppState>,
     Path((owner, repo, id)): Path<(String, String, i64)>,
 ) -> impl IntoResponse {
-    match rg_core::branch_protection::service::get_protection_for_repo(
-        &state.db, &owner, &repo, id,
-    )
-    .await
+    match rg_core::branch_protection::service::get_protection_for_repo(&state.db, &owner, &repo, id)
+        .await
     {
         Ok(protection) => (StatusCode::OK, Json(protection)).into_response(),
         Err(e) => AppError::not_found(e.to_string()).into_response(),

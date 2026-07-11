@@ -13,6 +13,8 @@ use rg_db::entities::wiki_revision;
 use rg_db::ops::wiki_page_ops;
 use rg_db::ops::wiki_revision_ops;
 
+use crate::search::dialect::metadata_fts_upsert_sql;
+
 /// Create a new wiki page.
 pub async fn create_page(
     db: &DatabaseConnection,
@@ -46,14 +48,17 @@ pub async fn create_page(
 
     let page = wiki_page_ops::create(db, model).await?;
 
-    // Update FTS5 index (non-fatal)
+    // Keep the metadata FTS table in sync (non-fatal). Database triggers also
+    // maintain it; the upsert makes the explicit write safe on every backend.
     let page_id = page.id;
     let page_title = page.title.clone();
     let page_content = page.content.clone();
+    let backend = db.get_database_backend();
+    let sql = metadata_fts_upsert_sql(backend, "wiki_pages_fts", "title, content");
     if let Err(e) = db
         .execute(sea_orm::Statement::from_sql_and_values(
-            sea_orm::DatabaseBackend::Sqlite,
-            r#"INSERT INTO wiki_pages_fts(rowid, title, content) VALUES (?, ?, ?)"#,
+            backend,
+            rg_db::prepare_sql(backend, &sql),
             [page_id.into(), page_title.into(), page_content.into()],
         ))
         .await
@@ -122,14 +127,16 @@ pub async fn update_page(
 
     let updated = wiki_page_ops::update(db, model).await?;
 
-    // Update FTS5 index (non-fatal)
+    // Update the cross-backend metadata FTS index (non-fatal).
     let page_id = updated.id;
     let page_title = updated.title.clone();
     let page_content = updated.content.clone();
+    let backend = db.get_database_backend();
+    let sql = metadata_fts_upsert_sql(backend, "wiki_pages_fts", "title, content");
     if let Err(e) = db
         .execute(sea_orm::Statement::from_sql_and_values(
-            sea_orm::DatabaseBackend::Sqlite,
-            r#"INSERT OR REPLACE INTO wiki_pages_fts(rowid, title, content) VALUES (?, ?, ?)"#,
+            backend,
+            rg_db::prepare_sql(backend, &sql),
             [page_id.into(), page_title.into(), page_content.into()],
         ))
         .await
@@ -170,11 +177,12 @@ pub async fn delete_page(db: &DatabaseConnection, repo_id: i64, title: &str) -> 
 
     let page_id = existing.id;
 
-    // Delete from FTS5 index (non-fatal)
+    // Delete from the cross-backend metadata FTS index (non-fatal).
+    let backend = db.get_database_backend();
     if let Err(e) = db
         .execute(sea_orm::Statement::from_sql_and_values(
-            sea_orm::DatabaseBackend::Sqlite,
-            r#"DELETE FROM wiki_pages_fts WHERE rowid = ?"#,
+            backend,
+            rg_db::prepare_sql(backend, "DELETE FROM wiki_pages_fts WHERE rowid = ?"),
             [page_id.into()],
         ))
         .await

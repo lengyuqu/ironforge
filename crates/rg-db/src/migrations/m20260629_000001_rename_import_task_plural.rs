@@ -5,7 +5,6 @@
 //! `import_task`. The entity maps to `import_tasks`, so fresh databases need
 //! this compatibility rename when the singular table exists.
 
-use sea_orm::Statement;
 use sea_orm_migration::prelude::*;
 
 pub struct Migration;
@@ -19,30 +18,28 @@ impl MigrationName for Migration {
 #[async_trait::async_trait]
 impl MigrationTrait for Migration {
     async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
-        let db = manager.get_connection();
-        let backend = db.get_database_backend();
-
         if manager.has_table("import_task").await? && !manager.has_table("import_tasks").await? {
-            db.execute(Statement::from_string(
-                backend,
-                "ALTER TABLE \"import_task\" RENAME TO \"import_tasks\";".to_owned(),
-            ))
-            .await?;
+            manager
+                .rename_table(
+                    Table::rename()
+                        .table(Alias::new("import_task"), Alias::new("import_tasks"))
+                        .to_owned(),
+                )
+                .await?;
         }
 
         Ok(())
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
-        let db = manager.get_connection();
-        let backend = db.get_database_backend();
-
         if manager.has_table("import_tasks").await? && !manager.has_table("import_task").await? {
-            db.execute(Statement::from_string(
-                backend,
-                "ALTER TABLE \"import_tasks\" RENAME TO \"import_task\";".to_owned(),
-            ))
-            .await?;
+            manager
+                .rename_table(
+                    Table::rename()
+                        .table(Alias::new("import_tasks"), Alias::new("import_task"))
+                        .to_owned(),
+                )
+                .await?;
         }
 
         Ok(())

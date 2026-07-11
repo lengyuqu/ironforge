@@ -410,7 +410,12 @@ pub async fn create_token(
     }
     let raw_token = generate_token();
     let token_hash = hash_token(&raw_token);
-    let scopes = body.scopes.unwrap_or_else(|| "repo".to_string());
+    let scopes = match rg_core::auth::pat_scope::normalize_scopes(
+        body.scopes.as_deref().unwrap_or("repo"),
+    ) {
+        Ok(scopes) => scopes,
+        Err(e) => return AppError::bad_request(e.to_string()).into_response(),
+    };
     let expires_at = body
         .expires_at
         .as_deref()

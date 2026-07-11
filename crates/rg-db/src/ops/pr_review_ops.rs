@@ -40,13 +40,33 @@ pub async fn list_by_pr_and_reviewer(
 
 /// Count approvals for a PR.
 pub async fn count_approvals(db: &DatabaseConnection, pr_id: i64) -> Result<i64> {
-    let count = ReviewEntity::find()
-        .filter(pr_review::Column::PrId.eq(pr_id))
-        .filter(pr_review::Column::Action.eq("approve"))
-        .count(db)
-        .await
-        .context("db: count PR approvals")?;
-    Ok(count as i64)
+    count_current_approvals(db, pr_id, None).await
+}
+
+/// Count at most one latest approval per reviewer for the current head commit.
+/// A later `request_changes` from the same reviewer supersedes their approval.
+pub async fn count_current_approvals(
+    db: &DatabaseConnection,
+    pr_id: i64,
+    head_sha: Option<&str>,
+) -> Result<i64> {
+    let reviews = list_by_pr(db, pr_id).await?;
+    let mut latest = std::collections::HashMap::new();
+    for review in reviews {
+        if matches!(review.action.as_str(), "approve" | "request_changes") {
+            latest.insert(review.reviewer_id, review);
+        }
+    }
+    Ok(latest
+        .values()
+        .filter(|review| {
+            review.action == "approve"
+                && match head_sha {
+                    Some(sha) => review.commit_id.as_deref() == Some(sha),
+                    None => review.commit_id.is_none(),
+                }
+        })
+        .count() as i64)
 }
 
 /// Create a new review.

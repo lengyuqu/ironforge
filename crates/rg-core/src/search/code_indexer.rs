@@ -208,8 +208,15 @@ impl CodeIndexer {
 
         let mut entries: Vec<IndexEntry> = Vec::new();
         let mut visited = HashSet::new();
-        self.collect_tree_entries(&repo, &tree, repo_id, PathBuf::new(), &mut entries, &mut visited)
-            .await?;
+        self.collect_tree_entries(
+            &repo,
+            &tree,
+            repo_id,
+            PathBuf::new(),
+            &mut entries,
+            &mut visited,
+        )
+        .await?;
 
         let count = entries.len();
         self.batch_insert_fts(&entries).await?;
@@ -219,10 +226,11 @@ impl CodeIndexer {
 
     /// Clear existing index for a repository.
     async fn clear_index_for_repo(&self, repo_id: i64) -> Result<()> {
+        let backend = self.db.get_database_backend();
         self.db
             .execute(Statement::from_sql_and_values(
-                self.db.get_database_backend(),
-                "DELETE FROM code_fts WHERE repo_id = ?",
+                backend,
+                rg_db::prepare_sql(backend, "DELETE FROM code_fts WHERE repo_id = ?"),
                 [repo_id.into()],
             ))
             .await?;
@@ -312,9 +320,9 @@ impl CodeIndexer {
         Ok(())
     }
 
-    /// Batch-insert index entries into the `code_fts` table using parameterized
-    /// multi-row INSERT. Backend-agnostic: SeaORM translates `?` placeholders
-    /// per backend and binds values safely (no manual string escaping).
+    /// Batch-insert index entries into the `code_fts` table using a
+    /// parameterized multi-row INSERT. `rg_db::prepare_sql` converts portable
+    /// bind markers to PostgreSQL's numbered form before execution.
     async fn batch_insert_fts(&self, entries: &[IndexEntry]) -> Result<()> {
         if entries.is_empty() {
             return Ok(());
@@ -334,9 +342,12 @@ impl CodeIndexer {
                 params.push(Value::from(entry.content.clone()));
                 params.push(Value::from(entry.language.clone()));
             }
-            let sql = format!(
+            let sql = rg_db::prepare_sql(
+                backend,
+                &format!(
                 "INSERT INTO code_fts(repo_id, file_path, file_name, content, language) VALUES {}",
                 placeholders
+            ),
             );
             self.db
                 .execute(Statement::from_sql_and_values(backend, &sql, params))
@@ -366,42 +377,66 @@ impl CodeIndexer {
         let snippet_expr = code_fts_snippet_expr(backend, "code_fts", has_query);
 
         let where_body = match (match_pred.is_empty(), repo_id.is_some()) {
-            (true, true) => "1=1".to_string(),
-            (true, false) => "repo_id = ?".to_string(),
-            (false, true) => match_pred,
-            (false, false) => format!("{} AND repo_id = ?", match_pred),
+            (true, true) => "repo_id = ?".to_string(),
+            (true, false) => "1=1".to_string(),
+            (false, true) => format!("{} AND repo_id = ?", match_pred),
+            (false, false) => match_pred,
         };
 
-        // Parameters: query value(s) first, then optional repo id.
-        let mut params: Vec<Value> = query_values.iter().cloned().map(Value::from).collect();
+        // Parameter order follows SQL order: match predicate, repo filter,
+        // then the repeated ranking expression.
+        let mut params: Vec<Value> = query_values
+            .first()
+            .cloned()
+            .map(Value::from)
+            .into_iter()
+            .collect();
         if let Some(rid) = repo_id {
             params.push(Value::from(rid));
         }
+        if let Some(order_value) = query_values.get(1) {
+            params.push(Value::from(order_value.clone()));
+        }
         let count_params: Vec<Value> = query_values
-            .iter()
+            .first()
             .cloned()
             .map(Value::from)
+            .into_iter()
             .chain(repo_id.map(Value::from))
             .collect();
 
-        let count_sql = format!("SELECT COUNT(*) as cnt FROM code_fts WHERE {}", where_body);
+        let count_sql = rg_db::prepare_sql(
+            backend,
+            &format!("SELECT COUNT(*) as cnt FROM code_fts WHERE {}", where_body),
+        );
         let count_result = self
             .db
-            .query_one(Statement::from_sql_and_values(backend, &count_sql, count_params))
+            .query_one(Statement::from_sql_and_values(
+                backend,
+                &count_sql,
+                count_params,
+            ))
             .await?
             .with_context(|| "Failed to get count")?;
         let total: i64 = count_result.try_get_by_index(0)?;
 
-        let results_sql = format!(
-            "SELECT repo_id, file_path, file_name, language, {} as snippet \
+        let results_sql = rg_db::prepare_sql(
+            backend,
+            &format!(
+                "SELECT repo_id, file_path, file_name, language, {} as snippet \
              FROM code_fts \
              WHERE {} {} \
              LIMIT {} OFFSET {}",
-            snippet_expr, where_body, order_clause, limit, offset
+                snippet_expr, where_body, order_clause, limit, offset
+            ),
         );
         let rows = self
             .db
-            .query_all(Statement::from_sql_and_values(backend, &results_sql, params))
+            .query_all(Statement::from_sql_and_values(
+                backend,
+                &results_sql,
+                params,
+            ))
             .await?;
 
         let results = rows
@@ -444,9 +479,6 @@ mod tests {
     fn test_fts_escape() {
         use crate::search::dialect::fts_phrase_escape;
         assert_eq!(fts_phrase_escape("hello world"), "\"hello world\"");
-        assert_eq!(
-            fts_phrase_escape("say \"hello\""),
-            "\"say \"\"hello\"\"\""
-        );
+        assert_eq!(fts_phrase_escape("say \"hello\""), "\"say \"\"hello\"\"\"");
     }
 }

@@ -341,15 +341,17 @@ pub async fn ai_search_code(
     let indexer = rg_core::search::code_indexer::CodeIndexer::new(state.db.clone());
 
     // Check if repo is indexed
-    let check_sql = format!(
-        "SELECT COUNT(*) as cnt FROM code_fts WHERE repo_id = {}",
-        repo.id
+    let backend = state.db.get_database_backend();
+    let check_sql = rg_db::prepare_sql(
+        backend,
+        "SELECT COUNT(*) as cnt FROM code_fts WHERE repo_id = ?",
     );
     let check_result = state
         .db
-        .query_one(Statement::from_string(
-            sea_orm::DatabaseBackend::Sqlite,
+        .query_one(Statement::from_sql_and_values(
+            backend,
             check_sql,
+            [repo.id.into()],
         ))
         .await
         .map_err(|e| AppError::internal(format!("DB error: {}", e)))?

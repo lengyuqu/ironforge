@@ -14,8 +14,15 @@ pub struct Model {
     pub number: i64,
     pub title: String,
     pub body: Option<String>,
-    /// open / closed / merged
+    /// open / merging (transient) / closed / merged
     pub state: String,
+    /// Whether the PR is still a draft and cannot be merged.
+    pub is_draft: bool,
+    /// Merge automatically once branch protection requirements are satisfied.
+    pub auto_merge_enabled: bool,
+    pub auto_merge_strategy: Option<String>,
+    pub auto_merge_enabled_by_id: Option<i64>,
+    pub auto_merge_enabled_at: Option<DateTimeUtc>,
     /// User who opened the PR
     pub author_id: i64,
     /// Assigned reviewer (nullable)

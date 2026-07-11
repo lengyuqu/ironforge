@@ -44,6 +44,73 @@ jobs:
           db_path="${RUNNER_TEMP}/ironforge-ci-migration.db"
           cargo run -p rg-cli -- migrate --db-url "sqlite://${db_path}?mode=rwc"
 
+  postgres-smoke:
+    name: PostgreSQL migration, CRUD and FTS smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: ironforge
+          POSTGRES_PASSWORD: ironforge
+          POSTGRES_DB: ironforge
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ironforge -d ironforge"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      IRONFORGE_TEST_DATABASE_URL: postgres://ironforge:ironforge@127.0.0.1:5432/ironforge
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run PostgreSQL runtime smoke
+        run: cargo test -p rg-core --test multi_backend_smoke -- --ignored --nocapture
+
+  mysql-smoke:
+    name: MySQL migration, CRUD and FTS smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: ironforge
+          MYSQL_USER: ironforge
+          MYSQL_PASSWORD: ironforge
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uironforge -pironforge"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
+    env:
+      IRONFORGE_TEST_DATABASE_URL: mysql://ironforge:ironforge@127.0.0.1:3306/ironforge
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run MySQL runtime smoke
+        run: cargo test -p rg-core --test multi_backend_smoke -- --ignored --nocapture
+
   frontend:
     name: Frontend check and build
     runs-on: ubuntu-latest

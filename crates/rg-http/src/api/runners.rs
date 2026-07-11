@@ -518,10 +518,39 @@ pub async fn finish_job(
         if let Ok(Some(stage)) =
             rg_db::ops::pipeline_ops::get_stage_by_id(&state.db, job.stage_id).await
         {
-            if let Err(e) =
-                rg_db::ops::pipeline_ops::try_update_pipeline(&state.db, stage.pipeline_id).await
+            match rg_db::ops::pipeline_ops::try_update_pipeline(&state.db, stage.pipeline_id).await
             {
-                tracing::error!(pipeline_id = stage.pipeline_id, error = %e, "Failed to update pipeline after stage completion");
+                Ok(Some(status)) if status == "success" => {
+                    if let Ok(Some(pipeline)) =
+                        rg_db::ops::pipeline_ops::get_pipeline(&state.db, stage.pipeline_id).await
+                    {
+                        if let Err(error) = rg_core::pull_request::try_auto_merges_for_head_commit(
+                            &state.db,
+                            &state.repo_root,
+                            pipeline.repo_id,
+                            &pipeline.commit_sha,
+                        )
+                        .await
+                        {
+                            tracing::warn!(pipeline_id = pipeline.id, %error, "auto-merge evaluation after CI failed");
+                        }
+                        if let Err(error) =
+                            rg_core::pull_request::merge_queue::process_for_head_commit(
+                                &state.db,
+                                &state.repo_root,
+                                pipeline.repo_id,
+                                &pipeline.commit_sha,
+                            )
+                            .await
+                        {
+                            tracing::warn!(pipeline_id = pipeline.id, %error, "merge queue evaluation after CI failed");
+                        }
+                    }
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    tracing::error!(pipeline_id = stage.pipeline_id, error = %e, "Failed to update pipeline after stage completion");
+                }
             }
         }
     }

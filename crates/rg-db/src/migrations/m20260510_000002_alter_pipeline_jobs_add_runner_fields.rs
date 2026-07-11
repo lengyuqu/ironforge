@@ -1,4 +1,3 @@
-use sea_orm::Statement;
 use sea_orm_migration::prelude::*;
 
 pub struct Migration;
@@ -12,40 +11,31 @@ impl MigrationName for Migration {
 #[async_trait::async_trait]
 impl MigrationTrait for Migration {
     async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
-        let db = manager.get_connection();
-        let backend = db.get_database_backend();
-
-        // Columns to add: (name, definition)
-        let cols = [
-            ("runner_id", "bigint NULL"),
-            ("started_at", "TIMESTAMP NULL"),
-            ("finished_at", "TIMESTAMP NULL"),
-        ];
-
-        for (col_name, col_def) in cols.iter() {
-            // Check existence via pragma_table_info
-            let check_sql = format!(
-                "SELECT 1 FROM pragma_table_info('pipeline_jobs') WHERE name='{}'",
-                col_name
-            );
-            let exists = db
-                .query_one(Statement::from_string(backend, check_sql))
-                .await
-                .ok()
-                .flatten()
-                .is_some();
-
-            if exists {
-                tracing::info!("Column '{}' already exists, skipping", col_name);
-                continue;
-            }
-
-            let alter_sql = format!(
-                "ALTER TABLE \"pipeline_jobs\" ADD COLUMN \"{}\" {}",
-                col_name, col_def
-            );
-            db.execute(Statement::from_string(backend, alter_sql))
+        if !manager.has_column("pipeline_jobs", "runner_id").await? {
+            manager
+                .alter_table(
+                    Table::alter()
+                        .table(Alias::new("pipeline_jobs"))
+                        .add_column(ColumnDef::new(Alias::new("runner_id")).big_integer().null())
+                        .to_owned(),
+                )
                 .await?;
+        }
+        for column in ["started_at", "finished_at"] {
+            if !manager.has_column("pipeline_jobs", column).await? {
+                manager
+                    .alter_table(
+                        Table::alter()
+                            .table(Alias::new("pipeline_jobs"))
+                            .add_column(
+                                ColumnDef::new(Alias::new(column))
+                                    .timestamp_with_time_zone()
+                                    .null(),
+                            )
+                            .to_owned(),
+                    )
+                    .await?;
+            }
         }
         Ok(())
     }

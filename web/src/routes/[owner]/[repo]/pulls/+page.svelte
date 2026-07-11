@@ -17,6 +17,7 @@
   let newBody = $state('');
   let newHead = $state('');
   let newBase = $state('main');
+  let newDraft = $state(false);
   let branches = $state<any[]>([]);
 
   $effect(() => {
@@ -49,10 +50,12 @@
         body: newBody || undefined,
         head_branch: newHead,
         base_branch: newBase,
+        draft: newDraft,
       });
       showCreate = false;
       newTitle = '';
       newBody = '';
+      newDraft = false;
       await loadPRs();
     } catch (e: any) {
       error = e.message;
@@ -128,6 +131,10 @@
           {t('pulls.create_form.description')} <span class="optional">{t('pulls.create_form.description_hint')}</span>
           <textarea bind:value={newBody} rows="4" placeholder={t('pulls.create_form.description_placeholder')}></textarea>
         </label>
+        <label class="draft-option">
+          <input type="checkbox" bind:checked={newDraft} />
+          <span>{t('pulls.create_form.draft')}</span>
+        </label>
         <div class="form-actions">
           <button type="submit" class="btn-primary" disabled={!newHead}>{t('pulls.create_form.submit')}</button>
           <button type="button" class="btn-secondary" onclick={() => showCreate = false}>{t('pulls.create_form.cancel')}</button>
@@ -152,7 +159,10 @@
             {pr.state === 'merged' ? '⊛' : pr.state === 'closed' ? '✓' : '⑂'}
           </span>
           <div class="pr-info">
-            <div class="pr-title">{pr.title}</div>
+            <div class="pr-title">
+              {pr.title}
+              {#if pr.is_draft}<span class="draft-badge">{t('pulls.draft')}</span>{/if}
+            </div>
             <div class="pr-meta">
               #{pr.number} opened {formatDate(pr.created_at)} by {pr.author || t('common.unknown')}
               <span class="branch-label">{pr.head_branch}</span> → <span class="branch-label">{pr.base_branch}</span>
@@ -214,6 +224,8 @@
   form { display: flex; flex-direction: column; gap: 14px; }
   label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600; }
   .optional { font-weight: 400; color: var(--text-muted); }
+  .draft-option { flex-direction: row; align-items: center; font-weight: 500; }
+  .draft-option input { width: auto; }
   select { padding: 6px 10px; }
   textarea { font-family: var(--font-mono); font-size: 13px; resize: vertical; }
 
@@ -242,6 +254,7 @@
   .pr-icon { font-size: 14px; margin-top: 3px; color: var(--green); }
 
   .pr-title { font-weight: 600; font-size: 15px; }
+  .draft-badge { margin-left: 6px; padding: 1px 6px; border: 1px solid var(--border); border-radius: 10px; color: var(--text-secondary); font-size: 11px; }
   .pr-meta { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
 
   .branch-label {
