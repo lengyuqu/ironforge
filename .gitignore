@@ -31,6 +31,9 @@ config/local.toml
 *~
 .DS_Store
 
+# AI assistant workspace (local memory, not project source)
+.workbuddy/
+
 # Logs
 *.log
 logs/
