@@ -1159,6 +1159,7 @@ fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
         .route("/admin/users/{id}", get(api::admin::get_user))
         .route("/admin/users/{id}", patch(api::admin::update_user))
         .route("/admin/users/{id}", delete(api::admin::delete_user))
+        .route("/admin/users/{id}/unlock", post(api::admin::unlock_user))
         .route("/admin/orgs", get(api::admin::list_orgs))
         .route("/admin/orgs/{name}", get(api::admin::get_org))
         .route("/admin/orgs/{name}", delete(api::admin::delete_org))
@@ -1180,6 +1181,10 @@ fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
         // Audit logs (admin only)
         .route("/admin/audit/logs", get(api::audit::list_audit_logs))
         .route("/admin/audit/logs/{id}", get(api::audit::get_audit_log))
+        .route(
+            "/admin/login-attempts",
+            get(api::audit::list_login_attempts),
+        )
         // Admin instance settings
         .route(
             "/admin/settings",

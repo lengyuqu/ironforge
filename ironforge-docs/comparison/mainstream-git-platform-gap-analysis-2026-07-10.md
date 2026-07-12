@@ -37,6 +37,8 @@
 - 2026-07-12：LDAP 已进入主登录链路：启用 Provider 可认证既有目录用户并在首次成功 bind 后自动建号；本地账号不回退、目录密码不落库、LDAP 身份绑定 Provider、过滤值按 RFC 4515 转义、唯一结果/空密码/超时/TLS 校验均 fail closed，并复用 MFA 与登录审计；管理员可使用脱敏的连接测试入口验证 service bind。
 - 2026-07-12：修复 MFA 第一因素未绑定问题：密码/LDAP/SSO 成功后只签发五分钟、HttpOnly、签名域隔离的 MFA challenge，MFA API 校验 challenge 后才签发用户会话；登录成功/失败进入专用日志，已知账户连续五次失败锁定 15 分钟。
 - 2026-07-12：修复 OAuth account 历史迁移表名 `o_auth_accounts` 与实体 `oauth_accounts` 不一致导致的运行时 500；兼容迁移仅在检测到旧表且目标表不存在时改名。
+- 2026-07-12：认证事件进入管理员查询界面：密码、LDAP、SSO、MFA 的成功/失败记录可按用户名、Provider、结果和时间分页筛选，并展示来源 IP、User-Agent 与规范化失败原因。
+- 2026-07-12：管理员用户列表展示认证来源、失败次数、锁定时间与最近登录，并提供带审计事件的账号解锁入口，误锁不再需要直接修改数据库。
 - 2026-07-12：补齐受保护部署环境：原生/Actions `environment` 解析与 job 持久化、仓库管理员环境规则 API/UI、审批人白名单与 1-10 票阈值、重复审批去重、`waiting_approval` 状态、内置/外部 Runner 恢复及多 gate 阶段级防并发恢复。审批历史关联的环境禁止删除。
 - 2026-07-12：补齐 CI workload OIDC：公开 discovery/JWKS、由实例密钥确定性派生的 Ed25519 非对称签名、5 分钟 audience-bound token，以及 repo/pipeline/job/ref/SHA claims；exchange 只能使用有效 `CI_JOB_TOKEN`，并再次绑定数据库资源关系与 assigned/running 状态。配置 `external_url` 后两类 Runner 均注入 `CI_OIDC_TOKEN_URL`。
 - 2026-07-12：补齐 CI Artifact/Cache retention：仓库管理员可配置 1-3650 天保留期；Artifact 上传写入实际过期时间，Cache 建立仓库隔离元数据并按最后访问滑动续期；内置、Docker、外部 Runner 共用策略。后台每小时和手动 API/UI 执行文件感知清理，先验证受管根目录并删除磁盘，再删除 DB，避免旧实现只删记录造成泄漏。
@@ -177,7 +179,7 @@ GitHub Code Security/Secret Protection 和 GitLab Application Security 已形成
 
 ### 6.3 企业 IAM 与合规
 
-GitHub/GitLab 均提供 SAML SSO、SCIM、企业托管用户、团队/群组同步和企业审计能力。IronForge 当前 OAuth2/OIDC 已有完整流程，但 LDAP 主登录、SAML/SCIM 和生命周期治理未闭环。
+GitHub/GitLab 均提供 SAML SSO、SCIM、企业托管用户、团队/群组同步和企业审计能力。IronForge 当前 OAuth2/OIDC、LDAP 主登录和管理员认证事件查询已闭环，但 SAML/SCIM 和目录生命周期治理仍未实现。
 
 ### 6.4 规划、社区和开发环境
 

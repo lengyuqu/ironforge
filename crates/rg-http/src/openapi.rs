@@ -258,11 +258,13 @@ pub struct PaginatedRepoResponse {
         // Audit logs
         crate::api::audit::list_audit_logs,
         crate::api::audit::get_audit_log,
+        crate::api::audit::list_login_attempts,
         // Admin
         crate::api::admin::list_users,
         crate::api::admin::get_user,
         crate::api::admin::update_user,
         crate::api::admin::delete_user,
+        crate::api::admin::unlock_user,
         crate::api::admin::list_orgs,
         crate::api::admin::get_org,
         crate::api::admin::delete_org,
@@ -327,6 +329,8 @@ pub struct PaginatedRepoResponse {
             crate::api::webhooks_external::ExternalCiResponse,
             crate::api::audit::AuditLogEntry,
             crate::api::audit::AuditLogResponse,
+            crate::api::audit::LoginAttemptEntry,
+            crate::api::audit::LoginAttemptResponse,
             crate::api::repos::CreateRepoRequest,
             crate::api::repos::RepoResponse,
             crate::api::repos::WatchRequest,

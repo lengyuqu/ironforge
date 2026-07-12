@@ -206,6 +206,62 @@ pub async fn update_user(
     }
 }
 
+/// POST /api/v1/admin/users/:id/unlock
+#[utoipa::path(
+    post,
+    path = "/admin/users/{id}/unlock",
+    tag = "Admin",
+    params(("id" = i64, Path, description = "User ID")),
+    responses(
+        (status = 200, description = "Login failures and lock cleared", body = serde_json::Value),
+        (status = 403, description = "Admin required", body = serde_json::Value),
+        (status = 404, description = "User not found", body = serde_json::Value),
+    ),
+)]
+pub async fn unlock_user(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(user_id): Path<i64>,
+) -> impl IntoResponse {
+    let current_id = match require_admin(&state, &headers).await {
+        Some(id) => id,
+        None => return AppError::forbidden("admin required").into_response(),
+    };
+    let target = match rg_db::ops::user_ops::find_by_id(&state.db, user_id).await {
+        Ok(Some(user)) => user,
+        Ok(None) => return AppError::not_found("user not found").into_response(),
+        Err(error) => return AppError::internal(error).into_response(),
+    };
+    let actor_username = rg_db::ops::user_ops::find_by_id(&state.db, current_id)
+        .await
+        .ok()
+        .flatten()
+        .map(|user| user.username)
+        .unwrap_or_default();
+    match rg_db::ops::user_ops::reset_login_failures(&state.db, user_id).await {
+        Ok(updated) => {
+            record_audit(
+                &state.db,
+                current_id,
+                &actor_username,
+                "admin.unlock_user",
+                Some("user"),
+                Some(user_id),
+                Some(&target.username),
+                &headers,
+                Some(serde_json::json!({
+                    "previous_login_attempts": target.login_attempts,
+                    "previous_locked_until": target.locked_until,
+                })),
+            )
+            .await;
+            let response: rg_core::user::service::UserInfo = updated.into();
+            (StatusCode::OK, Json(serde_json::json!(response))).into_response()
+        }
+        Err(error) => AppError::internal(error).into_response(),
+    }
+}
+
 /// DELETE /api/v1/admin/users/:id
 #[utoipa::path(
     delete,

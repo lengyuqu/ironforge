@@ -223,6 +223,7 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":
 | **签名提交强制** | `protected_branches.require_signed_commits` + receive-pack | pack 入库后、ref 更新前验证本次引入的所有 commit；HTTP/SSH 共用策略 |
 | **LDAP / MFA 登录** | `rg-core/src/auth/ldap.rs` + `user::service::login_with_configured_auth` + MFA challenge cookie | LDAP 首次建号、Provider 身份绑定与管理员连接测试；RFC4515 转义/超时/TLS；MFA 必须持有五分钟第一因素挑战，失败日志与五次锁定覆盖本地/LDAP |
 | **OAuth 账户表兼容** | migration `000015` | 将历史派生名 `o_auth_accounts` 安全迁移为实体使用的 `oauth_accounts`，恢复 OAuth account 查询/关联保护 |
+| **登录事件与解锁** | `/api/v1/admin/login-attempts` + `/admin/users/{id}/unlock` + Admin UI | 管理员筛选密码/LDAP/SSO/MFA 登录事件、IP、UA 与失败原因；用户页显示锁定/失败计数并可审计地解锁 |
 | **组织系统** | `rg-core/src/org/mod.rs` + `rg-http/src/api/orgs.rs` | CRUD + 成员管理 + 团队 + 权限 |
 | **通知系统** | `rg-core/src/notification/mod.rs` + `rg-http/src/api/notifications.rs` | 创建/列表/已读/批量已读/删除 |
 | **Rate Limiting** | `rg-http/src/rate_limit.rs` | Token Bucket 中间件（IP 限流 + 可配置窗口） |

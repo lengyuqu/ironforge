@@ -6,6 +6,7 @@
     admin,
     type AdminSettings,
     type AdminSsoProvider,
+    type LoginAttemptEntry,
     type SsoProviderPayload,
   } from '$lib/api/client.svelte';
 
@@ -19,6 +20,17 @@
   let ssoSaving = $state(false);
   let testingSsoId = $state<number | null>(null);
   let ssoTestResult = $state<{ ok: boolean; message: string } | null>(null);
+  let loginAttempts = $state<LoginAttemptEntry[]>([]);
+  let loginAttemptsTotal = $state(0);
+  let loginAttemptsPage = $state(1);
+  const loginAttemptsPerPage = 20;
+  let loginAttemptsPages = $derived(Math.max(1, Math.ceil(loginAttemptsTotal / loginAttemptsPerPage)));
+  let loginAttemptsLoading = $state(false);
+  let loginUsernameFilter = $state('');
+  let loginProviderFilter = $state('');
+  let loginStatusFilter = $state<'all' | 'success' | 'failure'>('all');
+  let loginStartTime = $state('');
+  let loginEndTime = $state('');
   let editingSsoId = $state<number | null>(null);
   let ssoForm = $state<SsoProviderPayload>(emptySsoProviderForm());
 
@@ -58,14 +70,18 @@
   async function loadSettings() {
     try {
       loading = true;
-      const [data, providers] = await Promise.all([
+      const [data, providers, loginAttemptResult] = await Promise.all([
         admin.getSettings(),
         admin.listSsoProviders(),
+        admin.listLoginAttempts({ page: 1, per_page: 20 }),
       ]);
       maintenanceMode = data.maintenance_mode;
       bannerMessage = data.banner_message || '';
       bannerType = data.banner_type || 'info';
       ssoProviders = providers;
+      loginAttempts = loginAttemptResult.attempts;
+      loginAttemptsTotal = loginAttemptResult.total;
+      loginAttemptsPage = loginAttemptResult.page;
 
       if (data.banner_message) {
         setBanner(data.banner_message, data.banner_type);
@@ -220,6 +236,33 @@
     } finally {
       testingSsoId = null;
     }
+  }
+
+  async function loadLoginAttempts(page = 1) {
+    try {
+      loginAttemptsLoading = true;
+      error = '';
+      const result = await admin.listLoginAttempts({
+        page,
+        per_page: loginAttemptsPerPage,
+        username: loginUsernameFilter.trim() || undefined,
+        auth_provider: loginProviderFilter.trim() || undefined,
+        success: loginStatusFilter === 'all' ? undefined : loginStatusFilter === 'success',
+        start_time: loginStartTime ? new Date(loginStartTime).toISOString() : undefined,
+        end_time: loginEndTime ? new Date(loginEndTime).toISOString() : undefined,
+      });
+      loginAttempts = result.attempts;
+      loginAttemptsTotal = result.total;
+      loginAttemptsPage = result.page;
+    } catch (e: any) {
+      error = e.message;
+    } finally {
+      loginAttemptsLoading = false;
+    }
+  }
+
+  function formatLoginTime(value: string) {
+    return new Date(value).toLocaleString();
   }
 
 </script>
@@ -384,6 +427,52 @@
         </div>
       </div>
     </div>
+
+    <div class="section">
+      <div class="section-heading">
+        <div>
+          <h2>Login Attempts</h2>
+          <span class="text-secondary">{loginAttemptsTotal} matching events</span>
+        </div>
+        <button class="btn-secondary" type="button" disabled={loginAttemptsLoading} onclick={() => loadLoginAttempts(loginAttemptsPage)}>
+          {loginAttemptsLoading ? 'Loading...' : 'Refresh'}
+        </button>
+      </div>
+      <div class="login-filters">
+        <input aria-label="Filter login attempts by username" placeholder="Username" bind:value={loginUsernameFilter} />
+        <input aria-label="Filter login attempts by provider" placeholder="Provider (password, ldap...)" bind:value={loginProviderFilter} />
+        <select aria-label="Filter login attempts by status" bind:value={loginStatusFilter}>
+          <option value="all">All results</option>
+          <option value="failure">Failed only</option>
+          <option value="success">Successful only</option>
+        </select>
+        <input aria-label="Login attempts start time" type="datetime-local" bind:value={loginStartTime} />
+        <input aria-label="Login attempts end time" type="datetime-local" bind:value={loginEndTime} />
+        <button class="btn-secondary" type="button" disabled={loginAttemptsLoading} onclick={() => loadLoginAttempts(1)}>Apply</button>
+      </div>
+      {#if loginAttempts.length === 0}
+        <p class="text-secondary">No matching login attempts.</p>
+      {:else}
+        <div class="login-attempt-list">
+          {#each loginAttempts as attempt (attempt.id)}
+            <div class="login-attempt-row">
+              <span class="attempt-status" class:success={attempt.success}>{attempt.success ? 'Success' : 'Failed'}</span>
+              <div class="attempt-identity">
+                <strong>{attempt.username}</strong>
+                <span>{attempt.auth_provider}{attempt.failure_reason ? ` · ${attempt.failure_reason}` : ''}</span>
+              </div>
+              <span title={attempt.user_agent || ''}>{attempt.ip_address || 'Unknown IP'}</span>
+              <time datetime={attempt.created_at}>{formatLoginTime(attempt.created_at)}</time>
+            </div>
+          {/each}
+        </div>
+        <div class="login-pagination">
+          <button class="btn-secondary" type="button" disabled={loginAttemptsLoading || loginAttemptsPage <= 1} onclick={() => loadLoginAttempts(loginAttemptsPage - 1)}>Previous</button>
+          <span>Page {loginAttemptsPage} of {loginAttemptsPages}</span>
+          <button class="btn-secondary" type="button" disabled={loginAttemptsLoading || loginAttemptsPage >= loginAttemptsPages} onclick={() => loadLoginAttempts(loginAttemptsPage + 1)}>Next</button>
+        </div>
+      {/if}
+    </div>
   {/if}
 </div>
 
@@ -417,6 +506,18 @@
   .provider-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
   .connection-result { margin-bottom: 12px; padding: 8px 10px; border: 1px solid #cf222e; border-radius: var(--radius); color: #cf222e; font-size: 13px; }
   .connection-result.success { border-color: #1a7f37; color: #1a7f37; }
+  .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .section-heading h2 { margin-bottom: 2px; }
+  .login-filters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 14px 0; }
+  .login-filters input, .login-filters select { padding: 7px 9px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-primary); color: var(--text-primary); }
+  .login-attempt-list { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  .login-attempt-row { display: grid; grid-template-columns: 64px minmax(150px, 1fr) minmax(110px, .6fr) auto; align-items: center; gap: 12px; padding: 9px 10px; border-bottom: 1px solid var(--border); font-size: 12px; }
+  .login-attempt-row:last-child { border-bottom: 0; }
+  .attempt-status { color: #cf222e; font-weight: 600; }
+  .attempt-status.success { color: #1a7f37; }
+  .attempt-identity { display: flex; flex-direction: column; min-width: 0; }
+  .attempt-identity span, .login-attempt-row time { color: var(--text-secondary); }
+  .login-pagination { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: 10px; color: var(--text-secondary); font-size: 12px; }
   .provider-row {
     display: flex;
     align-items: center;
@@ -435,5 +536,7 @@
     .provider-row { align-items: stretch; flex-direction: column; }
     .provider-actions { justify-content: flex-start; }
     .form-grid { grid-template-columns: 1fr; }
+    .login-filters { grid-template-columns: 1fr; }
+    .login-attempt-row { grid-template-columns: 64px 1fr; }
   }
 </style>

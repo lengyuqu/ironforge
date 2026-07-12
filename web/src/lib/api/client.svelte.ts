@@ -39,6 +39,9 @@ export {
   type AuditLogEntry,
   type AuditLogQuery,
   type AuditLogResponse,
+  type LoginAttemptEntry,
+  type LoginAttemptQuery,
+  type LoginAttemptResponse,
   type SsoProviderPayload,
   type UpdateUserData,
 } from './admin';

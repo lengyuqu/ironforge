@@ -9,6 +9,10 @@ export interface AdminUser {
   bio: string | null;
   is_admin: boolean;
   is_active: boolean;
+  auth_provider: string;
+  last_login_at: string | null;
+  login_attempts: number;
+  locked_until: string | null;
   created_at: string;
 }
 
@@ -56,6 +60,35 @@ export interface AuditLogQuery {
   user_id?: number;
   action?: string;
   resource_type?: string;
+  start_time?: string;
+  end_time?: string;
+}
+
+export interface LoginAttemptEntry {
+  id: number;
+  user_id: number | null;
+  username: string;
+  auth_provider: string;
+  ip_address: string | null;
+  user_agent: string | null;
+  success: boolean;
+  failure_reason: string | null;
+  created_at: string;
+}
+
+export interface LoginAttemptResponse {
+  total: number;
+  page: number;
+  per_page: number;
+  attempts: LoginAttemptEntry[];
+}
+
+export interface LoginAttemptQuery {
+  page?: number;
+  per_page?: number;
+  username?: string;
+  auth_provider?: string;
+  success?: boolean;
   start_time?: string;
   end_time?: string;
 }
@@ -113,6 +146,8 @@ export const admin = {
       method: 'PATCH',
       body: JSON.stringify(data),
     }),
+  unlockUser: (id: number) =>
+    request<AdminUser>(`/admin/users/${id}/unlock`, { method: 'POST' }),
   deleteUser: (id: number) =>
     request<{ deleted: boolean }>(`/admin/users/${id}`, { method: 'DELETE' }),
   listOrgs: (page?: number, perPage?: number) =>
@@ -133,6 +168,16 @@ export const admin = {
     })}`),
   getAuditLog: (id: number) =>
     request<AuditLogEntry>(`/admin/audit/logs/${id}`),
+  listLoginAttempts: (query?: LoginAttemptQuery) =>
+    request<LoginAttemptResponse>(`/admin/login-attempts${qs({
+      page: query?.page,
+      per_page: query?.per_page,
+      username: query?.username,
+      auth_provider: query?.auth_provider,
+      success: query?.success,
+      start_time: query?.start_time,
+      end_time: query?.end_time,
+    })}`),
   getSettings: () =>
     request<AdminSettings>('/admin/settings'),
   updateSettings: (payload: Partial<AdminSettings>) =>

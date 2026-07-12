@@ -21,6 +21,7 @@
   let saving = $state(false);
   let showDeleteConfirm = $state(false);
   let deleteTarget = $state<AdminUser | null>(null);
+  let unlockingUserId = $state<number | null>(null);
 
   $effect(() => {
     if (!isAuthReady()) return;
@@ -100,6 +101,23 @@
     }
   }
 
+  function isLocked(user: AdminUser) {
+    return !!user.locked_until && new Date(user.locked_until).getTime() > Date.now();
+  }
+
+  async function handleUnlock(user: AdminUser) {
+    try {
+      unlockingUserId = user.id;
+      error = '';
+      await admin.unlockUser(user.id);
+      await loadUsers();
+    } catch (e: any) {
+      error = e.message;
+    } finally {
+      unlockingUserId = null;
+    }
+  }
+
   function prevPage() {
     if (page > 1) { page--; loadUsers(); }
   }
@@ -145,6 +163,8 @@
             <th>Email</th>
             <th>Admin</th>
             <th>Active</th>
+            <th>Provider</th>
+            <th>Login</th>
             <th>Created</th>
             <th></th>
           </tr>
@@ -164,8 +184,23 @@
                   {u.is_active ? '✓' : '✗'}
                 </span>
               </td>
+              <td><span class="badge">{u.auth_provider}</span></td>
+              <td class="login-state">
+                {#if isLocked(u)}
+                  <span class="badge locked" title={`Locked until ${formatDate(u.locked_until || '')}`}>Locked</span>
+                {:else if u.login_attempts > 0}
+                  <span class="badge warning">{u.login_attempts} failed</span>
+                {:else}
+                  <span class="badge active" title={u.last_login_at ? `Last login ${formatDate(u.last_login_at)}` : 'No completed login recorded'}>OK</span>
+                {/if}
+              </td>
               <td class="date">{formatDate(u.created_at)}</td>
               <td class="actions">
+                {#if isLocked(u) || u.login_attempts > 0}
+                  <button class="btn-sm" disabled={unlockingUserId === u.id} onclick={() => handleUnlock(u)}>
+                    {unlockingUserId === u.id ? 'Unlocking...' : 'Unlock'}
+                  </button>
+                {/if}
                 <button class="btn-sm" onclick={() => openEdit(u)}>{t('common.edit')}</button>
                 {#if u.id !== getUser()?.id}
                   <button class="btn-danger" onclick={() => confirmDelete(u)}>{t('common.delete')}</button>
@@ -280,11 +315,14 @@
   .email { color: var(--text-secondary); font-size: 0.85rem; }
   .date { color: var(--text-secondary); font-size: 0.85rem; white-space: nowrap; }
   .actions { display: flex; gap: 0.5rem; }
+  .login-state { white-space: nowrap; }
 
   .badge { display: inline-block; padding: 0.1rem 0.4rem; border-radius: 8px; font-size: 0.8rem; background: var(--bg-secondary); border: 1px solid var(--border); }
   .badge.admin { background: rgba(255, 213, 0, 0.15); border-color: #ffd500; color: #ffd500; }
   .badge.active { color: #3fb950; border-color: #3fb950; }
   .badge.inactive { color: #f85149; border-color: #f85149; }
+  .badge.locked { color: #f85149; border-color: #f85149; background: rgba(248, 81, 73, 0.1); }
+  .badge.warning { color: #d29922; border-color: #d29922; }
 
   .pagination { display: flex; align-items: center; gap: 1rem; margin-top: 1rem; }
   .pagination button { background: var(--bg-secondary); border: 1px solid var(--border); color: var(--text-primary); border-radius: 6px; padding: 0.4rem 0.8rem; cursor: pointer; }
@@ -293,6 +331,7 @@
 
   .btn-sm { background: var(--bg-secondary); border: 1px solid var(--border); color: var(--text-primary); border-radius: 4px; padding: 0.25rem 0.6rem; font-size: 0.8rem; cursor: pointer; }
   .btn-sm:hover { background: var(--bg-hover); }
+  .btn-sm:disabled { opacity: 0.6; cursor: wait; }
   .btn-danger { background: rgba(248, 81, 73, 0.15); border: 1px solid #f85149; color: #f85149; border-radius: 4px; padding: 0.25rem 0.6rem; font-size: 0.8rem; cursor: pointer; }
   .btn-danger:hover { background: rgba(248, 81, 73, 0.25); }
 

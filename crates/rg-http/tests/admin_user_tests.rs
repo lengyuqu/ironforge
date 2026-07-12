@@ -133,3 +133,78 @@ async fn admin_users_delete_target() {
         .unwrap();
     assert_eq!(get_after.status(), 404);
 }
+
+#[tokio::test]
+async fn admin_can_unlock_user_and_action_is_audited() {
+    let (base, db) = spawn_test_app_with_db().await;
+    let client = reqwest::Client::new();
+    let (admin_token, admin_id) =
+        register_full(&base, "unlock_admin", "unlock_admin@example.com").await;
+    let (user_token, target_id) =
+        register_full(&base, "locked_target", "locked_target@example.com").await;
+    promote_user_to_admin(&db, admin_id).await;
+
+    let (first, second, third, fourth, fifth) = tokio::join!(
+        rg_db::ops::user_ops::record_failed_login(&db, target_id, 5),
+        rg_db::ops::user_ops::record_failed_login(&db, target_id, 5),
+        rg_db::ops::user_ops::record_failed_login(&db, target_id, 5),
+        rg_db::ops::user_ops::record_failed_login(&db, target_id, 5),
+        rg_db::ops::user_ops::record_failed_login(&db, target_id, 5),
+    );
+    for result in [first, second, third, fourth, fifth] {
+        result.unwrap();
+    }
+    let locked = rg_db::ops::user_ops::find_by_id(&db, target_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(locked.login_attempts, 5);
+    assert!(locked.locked_until.is_some());
+
+    let forbidden = client
+        .post(format!("{}/api/v1/admin/users/{}/unlock", base, target_id))
+        .bearer_auth(&user_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(forbidden.status(), 403);
+
+    let unlocked = client
+        .post(format!("{}/api/v1/admin/users/{}/unlock", base, target_id))
+        .bearer_auth(&admin_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(unlocked.status(), 200);
+    let body: serde_json::Value = unlocked.json().await.unwrap();
+    assert_eq!(body["login_attempts"], 0);
+    assert!(body["locked_until"].is_null());
+    let target = rg_db::ops::user_ops::find_by_id(&db, target_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(target.login_attempts, 0);
+    assert!(target.locked_until.is_none());
+
+    let audit = client
+        .get(format!(
+            "{}/api/v1/admin/audit/logs?action=admin.unlock_user",
+            base
+        ))
+        .bearer_auth(&admin_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(audit.status(), 200);
+    let audit_body: serde_json::Value = audit.json().await.unwrap();
+    assert_eq!(audit_body["total"], 1);
+    assert_eq!(audit_body["logs"][0]["resource_id"], target_id);
+
+    let missing = client
+        .post(format!("{}/api/v1/admin/users/999999/unlock", base))
+        .bearer_auth(&admin_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(missing.status(), 404);
+}

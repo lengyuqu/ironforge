@@ -431,3 +431,117 @@ async fn admin_audit_get_not_found() {
 
     assert_eq!(resp.status(), 404);
 }
+
+#[tokio::test]
+async fn admin_login_attempts_are_protected_paginated_and_filterable() {
+    let (base, db) = spawn_test_app_with_db().await;
+    let client = reqwest::Client::new();
+    let unauthenticated = client
+        .get(format!("{}/api/v1/admin/login-attempts", base))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(unauthenticated.status(), 401);
+
+    let (admin_token, admin_id) =
+        register_full(&base, "login_auditor", "login_auditor@example.com").await;
+    rg_db::ops::user_ops::update_by_id(&db, admin_id, None, None, Some(true), None)
+        .await
+        .unwrap();
+    rg_db::ops::login_log_ops::log_attempt(
+        &db,
+        Some(admin_id),
+        "login_auditor",
+        "password",
+        Some("192.0.2.1"),
+        Some("test-agent"),
+        false,
+        Some("invalid_credentials"),
+    )
+    .await
+    .unwrap();
+    rg_db::ops::login_log_ops::log_attempt(
+        &db,
+        Some(admin_id),
+        "login_auditor",
+        "password",
+        Some("192.0.2.1"),
+        Some("test-agent"),
+        true,
+        None,
+    )
+    .await
+    .unwrap();
+    let bounded = rg_db::ops::login_log_ops::log_attempt(
+        &db,
+        Some(admin_id),
+        &"u".repeat(300),
+        &"provider".repeat(10),
+        Some(&"1".repeat(80)),
+        Some(&"agent".repeat(200)),
+        false,
+        Some(&"reason".repeat(100)),
+    )
+    .await
+    .unwrap();
+    assert_eq!(bounded.username.chars().count(), 255);
+    assert_eq!(bounded.auth_provider.chars().count(), 20);
+    assert_eq!(bounded.ip_address.as_deref().unwrap().chars().count(), 45);
+    assert_eq!(bounded.user_agent.as_deref().unwrap().chars().count(), 512);
+    assert_eq!(
+        bounded.failure_reason.as_deref().unwrap().chars().count(),
+        255
+    );
+
+    let response = client
+        .get(format!(
+            "{}/api/v1/admin/login-attempts?page=1&per_page=1&username=login_auditor&auth_provider=password&success=false",
+            base
+        ))
+        .bearer_auth(&admin_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let body: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(body["page"], 1);
+    assert_eq!(body["per_page"], 1);
+    assert_eq!(body["total"], 1);
+    assert_eq!(body["attempts"].as_array().unwrap().len(), 1);
+    let attempt = &body["attempts"][0];
+    assert_eq!(attempt["username"], "login_auditor");
+    assert_eq!(attempt["success"], false);
+    assert_eq!(attempt["failure_reason"], "invalid_credentials");
+    assert_eq!(attempt["ip_address"], "192.0.2.1");
+    assert_eq!(attempt["user_agent"], "test-agent");
+
+    let invalid_time = client
+        .get(format!("{}/api/v1/admin/login-attempts", base))
+        .bearer_auth(&admin_token)
+        .query(&[("start_time", "not-a-time")])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(invalid_time.status(), 400);
+
+    let reversed_time = client
+        .get(format!("{}/api/v1/admin/login-attempts", base))
+        .bearer_auth(&admin_token)
+        .query(&[
+            ("start_time", "2026-07-12T12:00:00Z"),
+            ("end_time", "2026-07-12T11:00:00Z"),
+        ])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(reversed_time.status(), 400);
+
+    let oversized_provider = client
+        .get(format!("{}/api/v1/admin/login-attempts", base))
+        .bearer_auth(&admin_token)
+        .query(&[("auth_provider", "x".repeat(21))])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(oversized_provider.status(), 400);
+}

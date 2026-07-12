@@ -37,6 +37,10 @@ pub struct UserInfo {
     pub bio: Option<String>,
     pub is_admin: bool,
     pub is_active: bool,
+    pub auth_provider: String,
+    pub last_login_at: Option<chrono::DateTime<Utc>>,
+    pub login_attempts: i32,
+    pub locked_until: Option<chrono::DateTime<Utc>>,
     pub created_at: chrono::DateTime<Utc>,
 }
 
@@ -462,6 +466,10 @@ impl From<rg_db::entities::user::Model> for UserInfo {
             bio: u.bio,
             is_admin: u.is_admin,
             is_active: u.is_active,
+            auth_provider: u.auth_provider,
+            last_login_at: u.last_login_at,
+            login_attempts: u.login_attempts,
+            locked_until: u.locked_until,
             created_at: u.created_at,
         }
     }

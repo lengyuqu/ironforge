@@ -1,6 +1,7 @@
 //! Database operations for users.
 
 use anyhow::{Context, Result};
+use sea_orm::sea_query::Expr;
 use sea_orm::*;
 
 use crate::entities::user::{self, ActiveModel, Entity as UserEntity, Model as User};
@@ -79,9 +80,11 @@ pub async fn update(db: &DatabaseConnection, model: ActiveModel) -> Result<User>
 ///   active.field = Set(value);
 ///   active.update(db).await
 ///
-/// WRONG patterns:
+/// WRONG pattern for ordinary admin/profile field updates:
 ///   ActiveModel { id: Set(id), ... }.update(db)  // MAY skip optimistic lock
-///   Entity::update_many().col(...).filter(...).exec(db)  // batch only
+///
+/// `update_many().col_expr(...)` is still appropriate for atomic counters where
+/// a read-modify-write ActiveModel cycle would lose concurrent increments.
 pub async fn update_by_id(
     db: &DatabaseConnection,
     id: i64,
@@ -318,28 +321,40 @@ pub async fn record_failed_login(
     user_id: i64,
     max_attempts: i32,
 ) -> Result<bool> {
-    let model = UserEntity::find_by_id(user_id)
-        .one(db)
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("user {} not found", user_id))?;
-
-    let new_attempts = model.login_attempts + 1;
-    let locked = if new_attempts >= max_attempts {
-        Some(chrono::Utc::now() + chrono::Duration::minutes(15))
-    } else {
-        None
-    };
-
-    let mut active: ActiveModel = model.into();
-    active.login_attempts = Set(new_attempts);
-    active.locked_until = Set(locked);
-    active.updated_at = Set(chrono::Utc::now());
-    active
-        .update(db)
+    let now = chrono::Utc::now();
+    let threshold = max_attempts.max(1);
+    let locked_until = now + chrono::Duration::minutes(15);
+    let result = UserEntity::update_many()
+        // Keep this assignment before LoginAttempts. MySQL evaluates UPDATE
+        // assignments left-to-right, while PostgreSQL/SQLite use the old row;
+        // this ordering therefore makes the threshold expression portable.
+        .col_expr(
+            user::Column::LockedUntil,
+            Expr::case(
+                Expr::col(user::Column::LoginAttempts).gte(threshold - 1),
+                Expr::value(locked_until),
+            )
+            .finally(Expr::col(user::Column::LockedUntil))
+            .into(),
+        )
+        .col_expr(
+            user::Column::LoginAttempts,
+            Expr::col(user::Column::LoginAttempts).add(1),
+        )
+        .col_expr(user::Column::UpdatedAt, Expr::value(now))
+        .filter(user::Column::Id.eq(user_id))
+        .exec(db)
         .await
-        .map_err(|e| anyhow::anyhow!("db: {}", e))?;
-
-    Ok(locked.is_some())
+        .context("db: atomically record failed login")?;
+    if result.rows_affected == 0 {
+        anyhow::bail!("user {} not found", user_id);
+    }
+    let updated = find_by_id(db, user_id)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("user {} not found after failed login update", user_id))?;
+    Ok(updated
+        .locked_until
+        .is_some_and(|locked_until| locked_until > now))
 }
 
 /// Delete a user by ID.

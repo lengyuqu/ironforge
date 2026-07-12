@@ -47,6 +47,39 @@ pub struct AuditLogResponse {
     logs: Vec<AuditLogEntry>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct LoginAttemptQuery {
+    page: Option<u64>,
+    #[serde(default, alias = "page_size")]
+    per_page: Option<u64>,
+    username: Option<String>,
+    auth_provider: Option<String>,
+    success: Option<bool>,
+    start_time: Option<String>,
+    end_time: Option<String>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct LoginAttemptEntry {
+    id: i64,
+    user_id: Option<i64>,
+    username: String,
+    auth_provider: String,
+    ip_address: Option<String>,
+    user_agent: Option<String>,
+    success: bool,
+    failure_reason: Option<String>,
+    created_at: String,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct LoginAttemptResponse {
+    total: u64,
+    page: u64,
+    per_page: u64,
+    attempts: Vec<LoginAttemptEntry>,
+}
+
 /// GET /admin/audit/logs
 /// List audit logs with optional filters (admin only).
 #[utoipa::path(
@@ -131,6 +164,110 @@ pub async fn list_audit_logs(
     }))
 }
 
+/// GET /admin/login-attempts
+#[utoipa::path(
+    get,
+    path = "/admin/login-attempts",
+    tag = "Audit",
+    params(
+        ("page" = Option<u64>, Query, description = "Page number (1-based)"),
+        ("per_page" = Option<u64>, Query, description = "Items per page (1-100)"),
+        ("username" = Option<String>, Query, description = "Exact username/login filter"),
+        ("auth_provider" = Option<String>, Query, description = "Authentication provider filter"),
+        ("success" = Option<bool>, Query, description = "Success/failure filter"),
+        ("start_time" = Option<String>, Query, description = "ISO 8601 lower bound"),
+        ("end_time" = Option<String>, Query, description = "ISO 8601 upper bound"),
+    ),
+    responses(
+        (status = 200, description = "Paginated login attempts", body = LoginAttemptResponse),
+        (status = 401, description = "Admin access required"),
+    ),
+)]
+pub async fn list_login_attempts(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<LoginAttemptQuery>,
+) -> Result<Json<LoginAttemptResponse>, AppError> {
+    if require_admin(&state, &headers).await.is_none() {
+        return Err(AppError::unauthorized("admin required"));
+    }
+    let page = q.page.unwrap_or(1).max(1);
+    let per_page = q.per_page.unwrap_or(20).clamp(1, 100);
+    let parse_time = |value: Option<&str>, name: &str| {
+        value
+            .map(|value| {
+                chrono::DateTime::<chrono::Utc>::from_str(value)
+                    .map_err(|_| AppError::bad_request(format!("{name} must be ISO 8601")))
+            })
+            .transpose()
+    };
+    let start_time = parse_time(q.start_time.as_deref(), "start_time")?;
+    let end_time = parse_time(q.end_time.as_deref(), "end_time")?;
+    if start_time
+        .as_ref()
+        .zip(end_time.as_ref())
+        .is_some_and(|(start, end)| start > end)
+    {
+        return Err(AppError::bad_request(
+            "start_time must be earlier than or equal to end_time",
+        ));
+    }
+    let username = q
+        .username
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let auth_provider = q
+        .auth_provider
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if username.is_some_and(|value| value.chars().count() > 255) {
+        return Err(AppError::bad_request(
+            "username filter must not exceed 255 characters",
+        ));
+    }
+    if auth_provider.is_some_and(|value| value.chars().count() > 20) {
+        return Err(AppError::bad_request(
+            "auth_provider filter must not exceed 20 characters",
+        ));
+    }
+    let (attempts, total) = rg_db::ops::login_log_ops::list_paginated(
+        &state.db,
+        page - 1,
+        per_page,
+        username,
+        auth_provider,
+        q.success,
+        start_time,
+        end_time,
+    )
+    .await
+    .map_err(|error| {
+        tracing::error!(%error, "login attempt list failed");
+        AppError::internal("database error")
+    })?;
+    Ok(Json(LoginAttemptResponse {
+        total,
+        page,
+        per_page,
+        attempts: attempts
+            .into_iter()
+            .map(|attempt| LoginAttemptEntry {
+                id: attempt.id,
+                user_id: attempt.user_id,
+                username: attempt.username,
+                auth_provider: attempt.auth_provider,
+                ip_address: attempt.ip_address,
+                user_agent: attempt.user_agent,
+                success: attempt.success,
+                failure_reason: attempt.failure_reason,
+                created_at: attempt.created_at.to_rfc3339(),
+            })
+            .collect(),
+    }))
+}
+
 /// GET /admin/audit/logs/{id}
 /// Fetch a single audit log entry by id (admin only).
 #[utoipa::path(
@@ -185,18 +322,43 @@ pub(crate) fn extract_ip_and_ua(headers: &HeaderMap) -> (Option<String>, Option<
         .get("X-Forwarded-For")
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.split(',').next())
-        .map(|s| s.trim().to_string())
+        .and_then(|s| s.trim().parse::<std::net::IpAddr>().ok())
+        .map(|address| address.to_string())
         .or_else(|| {
             headers
                 .get("X-Real-IP")
                 .and_then(|v| v.to_str().ok())
-                .map(|s| s.to_string())
+                .and_then(|s| s.trim().parse::<std::net::IpAddr>().ok())
+                .map(|address| address.to_string())
         });
 
     let user_agent = headers
         .get(header::USER_AGENT)
         .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string());
+        .map(|s| s.chars().take(512).collect());
 
     (ip_address, user_agent)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::extract_ip_and_ua;
+    use axum::http::{HeaderMap, HeaderValue};
+
+    #[test]
+    fn login_metadata_rejects_fake_ips_and_bounds_user_agents() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-forwarded-for",
+            HeaderValue::from_static("not-an-ip, 192.0.2.1"),
+        );
+        headers.insert("x-real-ip", HeaderValue::from_static("2001:db8::1"));
+        headers.insert(
+            "user-agent",
+            HeaderValue::from_str(&"a".repeat(600)).unwrap(),
+        );
+        let (ip, user_agent) = extract_ip_and_ua(&headers);
+        assert_eq!(ip.as_deref(), Some("2001:db8::1"));
+        assert_eq!(user_agent.unwrap().len(), 512);
+    }
 }
