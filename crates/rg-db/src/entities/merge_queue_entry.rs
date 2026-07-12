@@ -19,6 +19,10 @@ pub struct Model {
     pub updated_at: DateTimeUtc,
     pub started_at: Option<DateTimeUtc>,
     pub finished_at: Option<DateTimeUtc>,
+    pub merge_group_sha: Option<String>,
+    pub merge_group_base_sha: Option<String>,
+    pub merge_group_head_sha: Option<String>,
+    pub merge_group_pipeline_id: Option<i64>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

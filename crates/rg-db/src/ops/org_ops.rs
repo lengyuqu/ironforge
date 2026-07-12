@@ -382,3 +382,30 @@ pub async fn is_member_of_write_team(
         .unwrap_or(0);
     Ok(count > 0)
 }
+
+/// Check whether a user belongs to an admin-permission team in an organization.
+pub async fn is_member_of_admin_team(
+    db: &DatabaseConnection,
+    org_id: i64,
+    user_id: i64,
+) -> Result<bool> {
+    let backend = db.get_database_backend();
+    let result = db
+        .query_one(Statement::from_sql_and_values(
+            backend,
+            crate::prepare_sql(
+                backend,
+                r#"SELECT COUNT(*) as cnt
+               FROM team_members tm
+               JOIN teams t ON t.id = tm.team_id
+               WHERE t.org_id = ? AND tm.user_id = ? AND t.permission = 'admin'"#,
+            ),
+            [Value::from(org_id), Value::from(user_id)],
+        ))
+        .await
+        .context("db: check admin team membership")?;
+    let count: i64 = result
+        .and_then(|row| row.try_get::<i64>("", "cnt").ok())
+        .unwrap_or(0);
+    Ok(count > 0)
+}

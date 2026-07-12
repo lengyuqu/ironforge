@@ -16,4 +16,8 @@ export const pipelines = {
     request<any>(`/repos/${owner}/${repo}/pipelines/${id}/cancel`, { method: 'POST' }),
   job: (owner: string, repo: string, pipelineId: number, jobId: number) =>
     request<any>(`/repos/${owner}/${repo}/pipelines/${pipelineId}/jobs/${jobId}`),
+  play: (owner: string, repo: string, pipelineId: number, jobId: number) =>
+    request<any>(`/repos/${owner}/${repo}/pipelines/${pipelineId}/jobs/${jobId}/play`, { method: 'POST' }),
+  approve: (owner: string, repo: string, pipelineId: number, jobId: number) =>
+    request<any>(`/repos/${owner}/${repo}/pipelines/${pipelineId}/jobs/${jobId}/approve`, { method: 'POST' }),
 };

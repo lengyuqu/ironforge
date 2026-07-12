@@ -33,6 +33,11 @@ pub async fn create_artifact(
 pub async fn list_by_job(db: &DatabaseConnection, job_id: i64) -> Result<Vec<Artifact>> {
     ArtifactEntity::find()
         .filter(Column::JobId.eq(job_id))
+        .filter(
+            Condition::any()
+                .add(Column::ExpiresAt.is_null())
+                .add(Column::ExpiresAt.gt(Utc::now())),
+        )
         .order_by_desc(Column::CreatedAt)
         .all(db)
         .await
@@ -57,6 +62,11 @@ pub async fn list_by_pipeline(db: &DatabaseConnection, pipeline_id: i64) -> Resu
 
     ArtifactEntity::find()
         .filter(Column::JobId.is_in(job_ids))
+        .filter(
+            Condition::any()
+                .add(Column::ExpiresAt.is_null())
+                .add(Column::ExpiresAt.gt(Utc::now())),
+        )
         .order_by_desc(Column::CreatedAt)
         .all(db)
         .await
@@ -77,14 +87,11 @@ pub async fn delete_by_id(db: &DatabaseConnection, id: i64) -> Result<bool> {
     Ok(result.rows_affected > 0)
 }
 
-/// Delete expired artifacts.
-pub async fn delete_expired(db: &DatabaseConnection) -> Result<u64> {
-    let result = ArtifactEntity::delete_many()
+pub async fn list_expired(db: &DatabaseConnection) -> Result<Vec<Artifact>> {
+    ArtifactEntity::find()
         .filter(Column::ExpiresAt.is_not_null())
-        .filter(Column::ExpiresAt.lt(Utc::now()))
-        .exec(db)
+        .filter(Column::ExpiresAt.lte(Utc::now()))
+        .all(db)
         .await
-        .context("db: delete expired artifacts")?;
-
-    Ok(result.rows_affected)
+        .context("db: list expired artifacts")
 }

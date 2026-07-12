@@ -151,7 +151,7 @@ impl russh::server::Server for SshServer {
             id: self.id,
             _peer: peer,
             channel: None,
-            authenticated_user_id: None,
+            authenticated_identity: None,
             git_protocol_version: "1".to_string(),
         };
         self.id += 1;
@@ -171,11 +171,26 @@ struct SshHandler {
     _peer: Option<std::net::SocketAddr>,
     /// The channel opened by the client for this session.
     channel: Option<Channel<Msg>>,
-    /// User id resolved during authentication (None if auth not DB-backed).
-    authenticated_user_id: Option<i64>,
+    /// Repository-scoped identity resolved during authentication.
+    authenticated_identity: Option<AuthenticatedIdentity>,
     /// Git protocol version requested by the client (default: "1").
     /// Set to "2" when the client sends GIT_PROTOCOL=version=2 via env_request.
     git_protocol_version: String,
+}
+
+#[derive(Clone, Debug)]
+enum AuthenticatedIdentity {
+    User(i64),
+    DeployKey { repo_id: i64, read_only: bool },
+}
+
+impl AuthenticatedIdentity {
+    fn user_id(&self) -> Option<i64> {
+        match self {
+            Self::User(user_id) => Some(*user_id),
+            Self::DeployKey { .. } => None,
+        }
+    }
 }
 
 impl Handler for SshHandler {
@@ -218,20 +233,46 @@ impl Handler for SshHandler {
 
         match rg_db::ops::ssh_key_ops::find_by_fingerprint(db, &fp_str).await {
             Ok(Some(key)) => {
-                self.authenticated_user_id = Some(key.user_id);
+                self.authenticated_identity = Some(AuthenticatedIdentity::User(key.user_id));
                 if let Err(error) = rg_db::ops::ssh_key_ops::touch_last_used(db, key.id).await {
                     tracing::warn!(key_id = key.id, error = %error, "failed to update SSH key usage time");
                 }
                 tracing::info!(user_id = key.user_id, "SSH pubkey auth accepted");
                 Ok(Auth::Accept)
             }
-            Ok(None) => {
-                tracing::warn!(fingerprint = %fp_str, "SSH pubkey not found");
-                Ok(Auth::Reject {
-                    proceed_with_methods: None,
-                    partial_success: false,
-                })
-            }
+            Ok(None) => match rg_db::ops::deploy_key_ops::find_by_fingerprint(db, &fp_str).await {
+                Ok(Some(key)) => {
+                    self.authenticated_identity = Some(AuthenticatedIdentity::DeployKey {
+                        repo_id: key.repo_id,
+                        read_only: key.read_only,
+                    });
+                    if let Err(error) =
+                        rg_db::ops::deploy_key_ops::touch_last_used(db, key.id).await
+                    {
+                        tracing::warn!(key_id = key.id, error = %error, "failed to update deploy key usage time");
+                    }
+                    tracing::info!(
+                        repo_id = key.repo_id,
+                        read_only = key.read_only,
+                        "SSH deploy key auth accepted"
+                    );
+                    Ok(Auth::Accept)
+                }
+                Ok(None) => {
+                    tracing::warn!(fingerprint = %fp_str, "SSH pubkey not found");
+                    Ok(Auth::Reject {
+                        proceed_with_methods: None,
+                        partial_success: false,
+                    })
+                }
+                Err(error) => {
+                    tracing::error!(%error, "DB error during deploy-key lookup");
+                    Ok(Auth::Reject {
+                        proceed_with_methods: None,
+                        partial_success: false,
+                    })
+                }
+            },
             Err(e) => {
                 tracing::error!(error = %e, "DB error during pubkey lookup");
                 Ok(Auth::Reject {
@@ -252,7 +293,7 @@ impl Handler for SshHandler {
             Ok(Some(user)) => {
                 match rg_core::auth::password::verify_password(password, &user.password_hash) {
                     Ok(true) => {
-                        self.authenticated_user_id = Some(user.id);
+                        self.authenticated_identity = Some(AuthenticatedIdentity::User(user.id));
                         tracing::info!(username, "SSH password auth accepted");
                         Ok(Auth::Accept)
                     }
@@ -342,12 +383,17 @@ impl Handler for SshHandler {
             .with_context(|| format!("invalid repository path: {}", repo_path))?;
 
         if let Some(db) = &self.shared.db {
-            if let Err(e) =
-                authorize_git_service(db, &service, &repo_path, self.authenticated_user_id).await
+            if let Err(e) = authorize_git_service(
+                db,
+                &service,
+                &repo_path,
+                self.authenticated_identity.as_ref(),
+            )
+            .await
             {
                 tracing::warn!(
                     error = %e,
-                    user_id = ?self.authenticated_user_id,
+                    identity = ?self.authenticated_identity,
                     %service,
                     %repo_path,
                     "SSH git repository access denied"
@@ -368,7 +414,15 @@ impl Handler for SshHandler {
                     .ok_or_else(|| anyhow::anyhow!("repository not found"))?;
                 let protection_rules =
                     rg_db::ops::protected_branch_ops::list_by_repo(db, repo.id).await?;
-                Some((protection_rules, self.authenticated_user_id))
+                let tag_protection_rules =
+                    rg_db::ops::protected_tag_ops::list_by_repo(db, repo.id).await?;
+                Some((
+                    protection_rules,
+                    tag_protection_rules,
+                    self.authenticated_identity
+                        .as_ref()
+                        .and_then(AuthenticatedIdentity::user_id),
+                ))
             } else {
                 None
             }
@@ -423,11 +477,22 @@ impl Handler for SshHandler {
                         .await
                         .map(|_| ()),
                     "git-receive-pack" => {
-                        if let Some((protection_rules, actor_id)) = receive_pack_context {
+                        if let Some((protection_rules, tag_protection_rules, actor_id)) =
+                            receive_pack_context
+                        {
+                            let require_signed_refs =
+                                signed_commit_required_refs(&protection_rules);
+                            let mut rejected_refs =
+                                branch_protection_rejected_refs(protection_rules, actor_id);
+                            rejected_refs.extend(tag_protection_rejected_refs(
+                                tag_protection_rules,
+                                actor_id,
+                            ));
                             handle_receive_pack_stream_with_rejections(
                                 &repo_full_path,
                                 &mut stream,
-                                branch_protection_rejected_refs(protection_rules, actor_id),
+                                rejected_refs,
+                                require_signed_refs,
                             )
                             .await
                             .map(|_| ())
@@ -521,6 +586,43 @@ fn direct_push_allowed_by_rule(
     false
 }
 
+fn signed_commit_required_refs(
+    protections: &[rg_db::entities::protected_branch::Model],
+) -> Vec<String> {
+    protections
+        .iter()
+        .filter(|rule| rule.require_signed_commits)
+        .map(|rule| format!("refs/heads/{}", rule.branch_name))
+        .collect()
+}
+
+fn tag_protection_rejected_refs(
+    protections: Vec<rg_db::entities::protected_tag::Model>,
+    actor_id: Option<i64>,
+) -> Vec<(String, String)> {
+    protections
+        .into_iter()
+        .filter_map(|protection| {
+            let allowed = actor_id.is_some_and(|uid| {
+                protection
+                    .allowed_user_ids
+                    .as_deref()
+                    .and_then(|json| serde_json::from_str::<Vec<i64>>(json).ok())
+                    .is_some_and(|ids| ids.contains(&uid))
+            });
+            (!allowed).then(|| {
+                (
+                    format!("refs/tags/{}", protection.pattern),
+                    format!(
+                        "creation or update of protected tag pattern '{}' is not allowed",
+                        protection.pattern
+                    ),
+                )
+            })
+        })
+        .collect()
+}
+
 /// Parse a git SSH command string like:
 ///   `git-upload-pack '/owner/repo'`
 ///   `git-receive-pack '/owner/repo.git'`
@@ -569,22 +671,27 @@ async fn authorize_git_service(
     db: &DatabaseConnection,
     service: &str,
     repo_path: &str,
-    actor_id: Option<i64>,
+    identity: Option<&AuthenticatedIdentity>,
 ) -> Result<()> {
-    let actor_id = actor_id.ok_or_else(|| anyhow::anyhow!("authentication required"))?;
+    let identity = identity.ok_or_else(|| anyhow::anyhow!("authentication required"))?;
     let (owner, repo_name) = parse_repo_owner_name(repo_path)?;
     let repo = rg_core::repo::service::find_repo_by_owner_name(db, &owner, &repo_name)
         .await?
         .ok_or_else(|| anyhow::anyhow!("repository not found"))?;
 
-    let allowed = match service {
-        "git-upload-pack" => {
-            rg_core::repo::service::can_read_repo(db, &repo, Some(actor_id)).await?
+    let allowed = match identity {
+        AuthenticatedIdentity::User(actor_id) => match service {
+            "git-upload-pack" => {
+                rg_core::repo::service::can_read_repo(db, &repo, Some(*actor_id)).await?
+            }
+            "git-receive-pack" => {
+                rg_core::repo::service::can_write_repo(db, &repo, Some(*actor_id)).await?
+            }
+            _ => false,
+        },
+        AuthenticatedIdentity::DeployKey { repo_id, read_only } => {
+            deploy_key_allows(*repo_id, *read_only, repo.id, service)
         }
-        "git-receive-pack" => {
-            rg_core::repo::service::can_write_repo(db, &repo, Some(actor_id)).await?
-        }
-        _ => false,
     };
 
     if !allowed {
@@ -592,6 +699,16 @@ async fn authorize_git_service(
     }
 
     Ok(())
+}
+
+fn deploy_key_allows(
+    key_repo_id: i64,
+    read_only: bool,
+    requested_repo_id: i64,
+    service: &str,
+) -> bool {
+    key_repo_id == requested_repo_id
+        && (service == "git-upload-pack" || (service == "git-receive-pack" && !read_only))
 }
 
 /// Public entry point to start the SSH server.
@@ -603,7 +720,7 @@ pub async fn start_ssh_server(config: SshServerConfig) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_git_command, parse_repo_owner_name};
+    use super::{deploy_key_allows, parse_git_command, parse_repo_owner_name};
 
     #[test]
     fn parses_git_command_with_quoted_repo_path() {
@@ -632,5 +749,14 @@ mod tests {
     #[test]
     fn rejects_nested_repo_paths_for_db_permission_lookup() {
         assert!(parse_repo_owner_name("alice/team/project").is_err());
+    }
+
+    #[test]
+    fn deploy_keys_are_repository_scoped_and_respect_read_only() {
+        assert!(deploy_key_allows(7, true, 7, "git-upload-pack"));
+        assert!(!deploy_key_allows(7, true, 7, "git-receive-pack"));
+        assert!(deploy_key_allows(7, false, 7, "git-receive-pack"));
+        assert!(!deploy_key_allows(7, false, 8, "git-upload-pack"));
+        assert!(!deploy_key_allows(7, false, 8, "git-receive-pack"));
     }
 }

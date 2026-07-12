@@ -21,6 +21,7 @@ pub async fn create_protection(
     require_approval: bool,
     required_approvals: Option<i64>,
     allow_force_push: bool,
+    require_signed_commits: bool,
     allowed_push_user_ids: Option<Vec<i64>>,
 ) -> Result<ProtectedBranch> {
     let repo = resolve_repo(db, owner, repo_name).await?;
@@ -45,6 +46,7 @@ pub async fn create_protection(
         require_approval: Set(require_approval),
         required_approvals: Set(required_approvals),
         allow_force_push: Set(allow_force_push),
+        require_signed_commits: Set(require_signed_commits),
         allowed_push_user_ids: Set(
             allowed_push_user_ids.map(|v| serde_json::to_string(&v).unwrap_or_default())
         ),
@@ -101,6 +103,7 @@ pub async fn update_protection(
     require_approval: Option<bool>,
     required_approvals: Option<i64>,
     allow_force_push: Option<bool>,
+    require_signed_commits: Option<bool>,
     allowed_push_user_ids: Option<Vec<i64>>,
 ) -> Result<ProtectedBranch> {
     let mut protection = protected_branch_ops::find_by_id(db, protection_id)
@@ -125,6 +128,9 @@ pub async fn update_protection(
     if let Some(v) = allow_force_push {
         protection.allow_force_push = v;
     }
+    if let Some(v) = require_signed_commits {
+        protection.require_signed_commits = v;
+    }
     if let Some(v) = allowed_push_user_ids {
         protection.allowed_push_user_ids = Some(serde_json::to_string(&v).unwrap_or_default());
     }
@@ -147,6 +153,7 @@ pub async fn update_protection_for_repo(
     require_approval: Option<bool>,
     required_approvals: Option<i64>,
     allow_force_push: Option<bool>,
+    require_signed_commits: Option<bool>,
     allowed_push_user_ids: Option<Vec<i64>>,
 ) -> Result<ProtectedBranch> {
     get_protection_for_repo(db, owner, repo_name, protection_id).await?;
@@ -159,6 +166,7 @@ pub async fn update_protection_for_repo(
         require_approval,
         required_approvals,
         allow_force_push,
+        require_signed_commits,
         allowed_push_user_ids,
     )
     .await
@@ -237,6 +245,13 @@ pub async fn check_merge_allowed(
     let Some(protection) = protection else {
         return Ok(());
     };
+
+    if protection.require_signed_commits {
+        bail!(
+            "branch '{}' requires cryptographically signed commits; server-side PR merge commits are not signed, so create and push a signed commit with an allowed identity",
+            target_branch
+        );
+    }
 
     // Check required approvals
     if protection.require_approval {

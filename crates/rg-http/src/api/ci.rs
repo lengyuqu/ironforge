@@ -44,6 +44,11 @@ struct JobResponse {
     name: String,
     image: Option<String>,
     script: String,
+    when_condition: String,
+    allow_failure: bool,
+    timeout_seconds: Option<i64>,
+    environment_id: Option<i64>,
+    environment_name: Option<String>,
     status: String,
     exit_code: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -218,6 +223,11 @@ pub async fn get_pipeline(
                     name: j.name,
                     image: j.image,
                     script: j.script,
+                    when_condition: j.when_condition,
+                    allow_failure: j.allow_failure,
+                    timeout_seconds: j.timeout_seconds,
+                    environment_id: j.environment_id,
+                    environment_name: j.environment_name,
                     status: j.status,
                     exit_code: j.exit_code,
                     log: j.log,
@@ -294,6 +304,11 @@ pub async fn get_job(
                 name: j.name,
                 image: j.image,
                 script: j.script,
+                when_condition: j.when_condition,
+                allow_failure: j.allow_failure,
+                timeout_seconds: j.timeout_seconds,
+                environment_id: j.environment_id,
+                environment_name: j.environment_name,
                 status: j.status,
                 exit_code: j.exit_code,
                 log: j.log,
@@ -308,6 +323,94 @@ pub async fn get_job(
             AppError::internal(e).into_response()
         }
     }
+}
+
+/// POST /api/v1/repos/:owner/:name/pipelines/:id/jobs/:job_id/play
+/// Release a manual job and resume its persisted pipeline.
+#[utoipa::path(
+    post,
+    path = "/repos/{owner}/{name}/pipelines/{id}/jobs/{job_id}/play",
+    tag = "CI/CD",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("id" = i64, Path, description = "pipeline id"),
+        ("job_id" = i64, Path, description = "manual job id"),
+    ),
+    responses(
+        (status = 200, description = "Manual job released", body = serde_json::Value),
+        (status = 400, description = "Job is not awaiting manual action", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+    ),
+)]
+pub async fn play_job(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((owner, name, pipeline_id, job_id)): Path<(String, String, i64, i64)>,
+) -> impl IntoResponse {
+    let (repo, _) = match resolve_repo_with_write_access(&state, &headers, &owner, &name).await {
+        Ok(access) => access,
+        Err(error) => return error.into_response(),
+    };
+    let pipeline = match rg_db::ops::pipeline_ops::get_pipeline(&state.db, pipeline_id).await {
+        Ok(Some(pipeline)) if pipeline.repo_id == repo.id => pipeline,
+        Ok(Some(_)) | Ok(None) => return AppError::not_found("pipeline not found").into_response(),
+        Err(error) => return AppError::internal(error).into_response(),
+    };
+    let job = match rg_db::ops::pipeline_ops::get_job(&state.db, job_id).await {
+        Ok(Some(job)) if job_belongs_to_pipeline(&state, pipeline_id, job.stage_id).await => job,
+        Ok(Some(_)) | Ok(None) => return AppError::not_found("job not found").into_response(),
+        Err(error) => return AppError::internal(error).into_response(),
+    };
+    if pipeline.status != "manual" || job.status != "manual" || job.when_condition != "manual" {
+        return AppError::bad_request("job is not awaiting manual action").into_response();
+    }
+    let released = match rg_db::ops::pipeline_ops::play_manual_job(&state.db, job.id).await {
+        Ok(released) => released,
+        Err(error) => return AppError::internal(error).into_response(),
+    };
+    if !released {
+        return AppError::bad_request("manual job was already released").into_response();
+    }
+    if let Err(error) =
+        rg_db::ops::pipeline_ops::resume_pipeline_chain(&state.db, pipeline_id, job.stage_id).await
+    {
+        return AppError::internal(error).into_response();
+    }
+
+    let owner_display = match resolve_repo_storage_owner(&state, &repo, &owner).await {
+        Ok(owner) => owner,
+        Err(error) => return error.into_response(),
+    };
+    let repo_path = state
+        .repo_root
+        .join(format!("{}/{}.git", owner_display, name));
+    if !repo_path.exists() {
+        return AppError::not_found("repo path not found").into_response();
+    }
+    if let Err(error) = state
+        .ci_engine
+        .resume_pipeline(rg_core::ci::ResumePipelineParams {
+            db: &state.db,
+            repo_path: &repo_path,
+            repo_id: repo.id,
+            pipeline_id,
+            docker_enabled: state.docker_enabled,
+            external_runners: state.external_runners,
+            jwt_secret: Some(&state.jwt_secret),
+            external_url: state.external_url.as_deref(),
+        })
+        .await
+    {
+        return AppError::internal(error).into_response();
+    }
+
+    Json(serde_json::json!({
+        "id": job_id,
+        "pipeline_id": pipeline_id,
+        "status": "pending"
+    }))
+    .into_response()
 }
 
 /// POST /api/v1/repos/:owner/:name/pipelines
@@ -387,6 +490,7 @@ pub async fn trigger_pipeline(
             docker_enabled: state.docker_enabled,
             external_runners: state.external_runners,
             jwt_secret: Some(&state.jwt_secret),
+            external_url: state.external_url.as_deref(),
         })
         .await
     {
@@ -483,6 +587,7 @@ pub async fn retry_pipeline(
             docker_enabled: state.docker_enabled,
             external_runners: state.external_runners,
             jwt_secret: Some(&state.jwt_secret),
+            external_url: state.external_url.as_deref(),
         })
         .await
     {
@@ -543,8 +648,12 @@ pub async fn cancel_pipeline(
         return AppError::not_found("pipeline not found").into_response();
     }
 
-    if pipeline.status != "running" && pipeline.status != "pending" {
-        return AppError::bad_request("pipeline is not running or pending").into_response();
+    if pipeline.status != "running"
+        && pipeline.status != "pending"
+        && pipeline.status != "manual"
+        && pipeline.status != "waiting_approval"
+    {
+        return AppError::bad_request("pipeline is not active").into_response();
     }
 
     let now = chrono::Utc::now().naive_utc();
@@ -572,7 +681,10 @@ pub async fn cancel_pipeline(
     };
 
     for stage in stages {
-        if stage.status == "running" || stage.status == "pending" {
+        if matches!(
+            stage.status.as_str(),
+            "running" | "pending" | "manual" | "waiting_approval"
+        ) {
             if let Err(e) = rg_db::ops::pipeline_ops::update_stage_status(
                 &state.db,
                 stage.id,
@@ -592,7 +704,10 @@ pub async fn cancel_pipeline(
             };
 
             for job in jobs {
-                if job.status == "running" || job.status == "pending" {
+                if matches!(
+                    job.status.as_str(),
+                    "running" | "pending" | "manual" | "waiting_approval"
+                ) {
                     if let Err(e) = rg_db::ops::pipeline_ops::update_job_result(
                         &state.db,
                         job.id,

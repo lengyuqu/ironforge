@@ -211,8 +211,9 @@ struct PollJobResponse {
     name: String,
     script: Vec<String>,
     image: Option<String>,
-    #[allow(dead_code)]
     variables: Option<serde_json::Value>,
+    cache_key: Option<String>,
+    cache_paths: Option<Vec<String>>,
     #[allow(dead_code)]
     timeout: i64,
 }
@@ -264,6 +265,171 @@ async fn upload_log(
         .await;
 }
 
+async fn download_workspace(
+    client: &reqwest::Client,
+    server: &str,
+    runner_id: i64,
+    job_id: i64,
+    token: &str,
+) -> Result<PathBuf> {
+    let response = client
+        .get(format!(
+            "{server}/api/v1/runners/{runner_id}/jobs/{job_id}/workspace"
+        ))
+        .bearer_auth(token)
+        .send()
+        .await?;
+    if !response.status().is_success() {
+        let status = response.status();
+        anyhow::bail!(
+            "workspace download failed ({status}): {}",
+            response.text().await.unwrap_or_default()
+        );
+    }
+    let archive = response.bytes().await?;
+    let workspace = std::env::temp_dir()
+        .join("ironforge-runner")
+        .join("jobs")
+        .join(job_id.to_string());
+    let unpack_path = workspace.clone();
+    tokio::task::spawn_blocking(move || -> Result<()> {
+        if unpack_path.exists() {
+            std::fs::remove_dir_all(&unpack_path).context("remove stale runner workspace")?;
+        }
+        std::fs::create_dir_all(&unpack_path).context("create runner workspace")?;
+        tar::Archive::new(std::io::Cursor::new(archive))
+            .unpack(&unpack_path)
+            .context("unpack runner workspace")?;
+        Ok(())
+    })
+    .await??;
+    Ok(workspace)
+}
+
+fn resolved_cache(
+    job: &PollJobResponse,
+    variables: &[(String, String)],
+) -> Result<Option<(String, Vec<String>)>> {
+    let (Some(template), Some(paths)) = (&job.cache_key, &job.cache_paths) else {
+        return Ok(None);
+    };
+    let mut key = template.clone();
+    for (name, value) in variables {
+        key = key
+            .replace(&format!("${{{name}}}"), value)
+            .replace(&format!("${name}"), value);
+    }
+    if key.is_empty() || key.len() > 512 {
+        anyhow::bail!("cache key must contain 1-512 bytes");
+    }
+    if paths.is_empty() || paths.len() > 64 {
+        anyhow::bail!("cache requires 1-64 paths");
+    }
+    for path in paths {
+        let candidate = std::path::Path::new(path);
+        if candidate.is_absolute()
+            || candidate.components().any(|component| {
+                matches!(
+                    component,
+                    std::path::Component::ParentDir
+                        | std::path::Component::RootDir
+                        | std::path::Component::Prefix(_)
+                )
+            })
+        {
+            anyhow::bail!("cache path must stay within workspace: {path}");
+        }
+    }
+    Ok(Some((key, paths.clone())))
+}
+
+async fn restore_cache(
+    client: &reqwest::Client,
+    server: &str,
+    runner_id: i64,
+    job_id: i64,
+    token: &str,
+    key: &str,
+    workspace: &std::path::Path,
+) -> Result<bool> {
+    let response = client
+        .get(format!(
+            "{server}/api/v1/runners/{runner_id}/jobs/{job_id}/cache"
+        ))
+        .bearer_auth(token)
+        .header("x-cache-key", key)
+        .send()
+        .await?;
+    if response.status() == reqwest::StatusCode::NOT_FOUND {
+        return Ok(false);
+    }
+    if !response.status().is_success() {
+        anyhow::bail!(
+            "cache restore failed: {}",
+            response.text().await.unwrap_or_default()
+        );
+    }
+    let archive = response.bytes().await?;
+    let workspace = workspace.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        tar::Archive::new(std::io::Cursor::new(archive))
+            .unpack(workspace)
+            .context("unpack job cache")
+    })
+    .await??;
+    Ok(true)
+}
+
+async fn save_cache(
+    client: &reqwest::Client,
+    server: &str,
+    runner_id: i64,
+    job_id: i64,
+    token: &str,
+    key: &str,
+    paths: &[String],
+    workspace: &std::path::Path,
+) -> Result<()> {
+    let paths = paths.to_vec();
+    let workspace = workspace.to_path_buf();
+    let archive = tokio::task::spawn_blocking(move || -> Result<Vec<u8>> {
+        let mut bytes = Vec::new();
+        {
+            let mut builder = tar::Builder::new(&mut bytes);
+            for path in paths {
+                let source = workspace.join(&path);
+                if source.is_dir() {
+                    builder.append_dir_all(&path, source)?;
+                } else if source.is_file() {
+                    builder.append_path_with_name(source, &path)?;
+                }
+            }
+            builder.finish()?;
+        }
+        Ok(bytes)
+    })
+    .await??;
+    if archive.is_empty() {
+        return Ok(());
+    }
+    let response = client
+        .put(format!(
+            "{server}/api/v1/runners/{runner_id}/jobs/{job_id}/cache"
+        ))
+        .bearer_auth(token)
+        .header("x-cache-key", key)
+        .body(archive)
+        .send()
+        .await?;
+    if !response.status().is_success() {
+        anyhow::bail!(
+            "cache upload failed: {}",
+            response.text().await.unwrap_or_default()
+        );
+    }
+    Ok(())
+}
+
 /// Report job completion.
 async fn finish_job(
     client: &reqwest::Client,
@@ -286,19 +452,39 @@ async fn finish_job(
 }
 
 /// Execute a job script locally via platform-appropriate shell.
-async fn run_job_local(script: &str) -> (i32, String) {
+async fn run_job_local(
+    script: &str,
+    variables: &[(String, String)],
+    workspace: &std::path::Path,
+) -> (i32, String) {
     #[cfg(unix)]
-    let output = tokio::process::Command::new("sh")
-        .arg("-c")
-        .arg(script)
-        .output()
-        .await;
+    let output = {
+        let mut command = tokio::process::Command::new("sh");
+        command
+            .arg("-c")
+            .arg(script)
+            .current_dir(workspace)
+            .env_clear()
+            .kill_on_drop(true);
+        for (key, value) in variables {
+            command.env(key, value);
+        }
+        command.output().await
+    };
 
     #[cfg(windows)]
-    let output = tokio::process::Command::new("powershell.exe")
-        .args(&["-NoProfile", "-NonInteractive", "-Command", script])
-        .output()
-        .await;
+    let output = {
+        let mut command = tokio::process::Command::new("powershell.exe");
+        command
+            .args(&["-NoProfile", "-NonInteractive", "-Command", script])
+            .current_dir(workspace)
+            .env_clear()
+            .kill_on_drop(true);
+        for (key, value) in variables {
+            command.env(key, value);
+        }
+        command.output().await
+    };
 
     match output {
         Ok(o) => {
@@ -318,7 +504,13 @@ async fn run_job_local(script: &str) -> (i32, String) {
 }
 
 /// Execute a job script inside a Docker container.
-async fn run_job_docker(image: &str, script: &str) -> (i32, String) {
+async fn run_job_docker(
+    image: &str,
+    script: &str,
+    variables: &[(String, String)],
+    workspace: &std::path::Path,
+    job_id: i64,
+) -> (i32, String) {
     // Check if Docker daemon is running
     let docker_ok = tokio::process::Command::new("docker")
         .arg("info")
@@ -333,11 +525,20 @@ async fn run_job_docker(image: &str, script: &str) -> (i32, String) {
         return (-1, msg);
     }
 
-    match tokio::process::Command::new("docker")
-        .args(["run", "--rm", image, "sh", "-c", script])
-        .output()
-        .await
-    {
+    let mut command = tokio::process::Command::new("docker");
+    let container_name = format!("ironforge-runner-job-{job_id}");
+    command.args(["run", "--rm", "--name", &container_name, "-v"]);
+    command.arg(format!("{}:/workspace", workspace.to_string_lossy()));
+    command.args(["-w", "/workspace"]);
+    for (key, _) in variables {
+        command.arg("-e").arg(key);
+    }
+    command.args([image, "sh", "-c", script]);
+    for (key, value) in variables {
+        command.env(key, value);
+    }
+    command.kill_on_drop(true);
+    match command.output().await {
         Ok(o) => {
             let code = o.status.code().unwrap_or(-1);
             let mut log = String::from_utf8_lossy(&o.stdout).to_string();
@@ -376,6 +577,69 @@ mod tests {
         assert!(msg.contains("alpine:3.20"));
         assert!(msg.contains("Refusing to fall back to local execution"));
     }
+
+    #[tokio::test]
+    async fn local_executor_injects_polled_variables_with_a_clean_environment() {
+        let variables = vec![("RUNNER_MESSAGE".into(), "hello".into())];
+        let (code, log) = run_job_local(
+            "test \"$RUNNER_MESSAGE\" = hello && test -z \"$IRONFORGE_HOST_SECRET\" && echo ok",
+            &variables,
+            std::path::Path::new("."),
+        )
+        .await;
+        assert_eq!(code, 0, "{log}");
+        assert!(log.contains("ok"));
+    }
+
+    #[test]
+    fn resolves_cache_key_from_polled_environment_and_rejects_escape() {
+        let job = PollJobResponse {
+            job_id: 1,
+            name: "cache".into(),
+            script: vec![],
+            image: None,
+            variables: None,
+            cache_key: Some("build-${CI_SHA}".into()),
+            cache_paths: Some(vec!["target".into()]),
+            timeout: 60,
+        };
+        let cache = resolved_cache(&job, &[("CI_SHA".into(), "abc".into())])
+            .unwrap()
+            .unwrap();
+        assert_eq!(cache.0, "build-abc");
+        let invalid = PollJobResponse {
+            cache_paths: Some(vec!["../outside".into()]),
+            ..job
+        };
+        assert!(resolved_cache(&invalid, &[]).is_err());
+    }
+}
+
+fn job_variables(value: Option<&serde_json::Value>) -> Vec<(String, String)> {
+    let mut variables = value
+        .and_then(serde_json::Value::as_object)
+        .map(|object| {
+            object
+                .iter()
+                .filter_map(|(key, value)| {
+                    let value = match value {
+                        serde_json::Value::String(value) => value.clone(),
+                        serde_json::Value::Number(value) => value.to_string(),
+                        serde_json::Value::Bool(value) => value.to_string(),
+                        _ => return None,
+                    };
+                    Some((key.clone(), value))
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    if let Ok(path) = std::env::var("PATH") {
+        variables.push(("PATH".into(), path));
+    }
+    if let Ok(lang) = std::env::var("LANG") {
+        variables.push(("LANG".into(), lang));
+    }
+    variables
 }
 
 #[tokio::main]
@@ -541,13 +805,137 @@ async fn main() -> Result<()> {
                         )
                         .await;
 
-                        // Execute
-                        let script_str = job.script.join("\n");
-                        let (exit_code, log) = if let Some(img) = &job.image {
-                            run_job_docker(img, &script_str).await
-                        } else {
-                            run_job_local(&script_str).await
+                        let workspace = match download_workspace(
+                            &client,
+                            resolved_server,
+                            resolved_id,
+                            job.job_id,
+                            &resolved_token,
+                        )
+                        .await
+                        {
+                            Ok(workspace) => workspace,
+                            Err(error) => {
+                                let log = format!("Failed to prepare job workspace: {error}");
+                                upload_log(
+                                    &client,
+                                    resolved_server,
+                                    resolved_id,
+                                    job.job_id,
+                                    &resolved_token,
+                                    &log,
+                                )
+                                .await;
+                                finish_job(
+                                    &client,
+                                    resolved_server,
+                                    resolved_id,
+                                    job.job_id,
+                                    &resolved_token,
+                                    "failure",
+                                    -1,
+                                )
+                                .await;
+                                continue;
+                            }
                         };
+
+                        // Execute in the exact commit snapshot assigned by the server.
+                        let script_str = job.script.join("\n");
+                        let mut variables = job_variables(job.variables.as_ref());
+                        variables.push(("HOME".into(), workspace.to_string_lossy().into_owned()));
+                        let cache = match resolved_cache(&job, &variables) {
+                            Ok(cache) => cache,
+                            Err(error) => {
+                                let log = format!("Invalid cache configuration: {error}");
+                                upload_log(
+                                    &client,
+                                    resolved_server,
+                                    resolved_id,
+                                    job.job_id,
+                                    &resolved_token,
+                                    &log,
+                                )
+                                .await;
+                                finish_job(
+                                    &client,
+                                    resolved_server,
+                                    resolved_id,
+                                    job.job_id,
+                                    &resolved_token,
+                                    "failure",
+                                    -1,
+                                )
+                                .await;
+                                let _ = tokio::fs::remove_dir_all(&workspace).await;
+                                continue;
+                            }
+                        };
+                        if let Some((key, _)) = &cache {
+                            if let Err(error) = restore_cache(
+                                &client,
+                                resolved_server,
+                                resolved_id,
+                                job.job_id,
+                                &resolved_token,
+                                key,
+                                &workspace,
+                            )
+                            .await
+                            {
+                                tracing::warn!(job_id = job.job_id, %error, "cache restore failed; continuing");
+                            }
+                        }
+                        let execution = async {
+                            if let Some(img) = &job.image {
+                                run_job_docker(img, &script_str, &variables, &workspace, job.job_id)
+                                    .await
+                            } else {
+                                run_job_local(&script_str, &variables, &workspace).await
+                            }
+                        };
+                        let timeout_seconds =
+                            u64::try_from(job.timeout).unwrap_or(3600).clamp(1, 86_400);
+                        let (exit_code, log) = match tokio::time::timeout(
+                            std::time::Duration::from_secs(timeout_seconds),
+                            execution,
+                        )
+                        .await
+                        {
+                            Ok(result) => result,
+                            Err(_) => {
+                                if job.image.is_some() {
+                                    let _ = tokio::process::Command::new("docker")
+                                        .args([
+                                            "rm",
+                                            "-f",
+                                            &format!("ironforge-runner-job-{}", job.job_id),
+                                        ])
+                                        .output()
+                                        .await;
+                                }
+                                (-1, format!("Job timed out after {timeout_seconds} seconds"))
+                            }
+                        };
+
+                        if exit_code == 0 {
+                            if let Some((key, paths)) = &cache {
+                                if let Err(error) = save_cache(
+                                    &client,
+                                    resolved_server,
+                                    resolved_id,
+                                    job.job_id,
+                                    &resolved_token,
+                                    key,
+                                    paths,
+                                    &workspace,
+                                )
+                                .await
+                                {
+                                    tracing::warn!(job_id = job.job_id, %error, "cache save failed; job remains successful");
+                                }
+                            }
+                        }
 
                         // Upload log
                         upload_log(
@@ -572,6 +960,10 @@ async fn main() -> Result<()> {
                             exit_code,
                         )
                         .await;
+
+                        if let Err(error) = tokio::fs::remove_dir_all(&workspace).await {
+                            tracing::warn!(job_id = job.job_id, %error, "failed to clean runner workspace");
+                        }
 
                         println!("  ✓ {} (exit={})", status, exit_code);
                     }

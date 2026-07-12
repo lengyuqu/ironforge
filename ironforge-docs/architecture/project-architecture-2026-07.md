@@ -157,9 +157,9 @@ rg-mcp -> no local crate deps
 |------|----------|
 | 身份与认证 | `users`、`ssh_keys`、`access_tokens`、`password_reset_tokens`、`oauth_accounts`、`mfa_backup_codes`、`login_logs`、`sso_providers` |
 | 仓库 | `repositories`、`repo_collaborators`、`repo_stars`、`repo_watches`、`protected_branches` |
-| Issue / PR / Review | `issues`、`issue_comments`、`labels`、`issue_labels`、`milestones`、`pull_requests`、`pr_reviews`、`review_comments` |
+| Issue / PR / Review | `issues`、`issue_comments`、`labels`、`issue_labels`、`milestones`、`pull_requests`、`pr_reviews`、`review_comments`、`pr_events`、`merge_queue_entries` |
 | Wiki / Release / LFS | `wiki_pages`、`wiki_revisions`、`releases`、`release_assets`、`lfs_objects` |
-| CI/CD | `pipelines`、`pipeline_stages`、`pipeline_jobs`、`runners`、`artifacts`、`commit_statuses` |
+| CI/CD | `pipelines`、`pipeline_stages`、`pipeline_jobs`（含 variables）、`runners`、`artifacts`、`commit_statuses` |
 | 组织与通知 | `organizations`、`teams`、`team_members`、`organization_members`、`notifications` |
 | Package / OCI | `package_registries`、`packages`、`package_versions`、`package_files`、`oci_repositories`、`oci_blobs`、`oci_manifests`、`oci_uploads` |
 | 扩展能力 | `webhooks`、`webhook_deliveries`、`mirrors`、`boards`、`board_columns`、`board_cards`、`time_entries`、`import_tasks`、`audit_logs` |
@@ -273,6 +273,7 @@ SSH Git
 | LDAP | LDAP bind 能力，登录集成需继续核验 |
 | Runner Token | 外部 runner API |
 | CI Job Token | CI job 最小权限 token，已接入 repo/package 读路径 |
+| Deploy Key | 仓库级 SSH 身份；只允许绑定仓库，读写由 `read_only` 控制 |
 | OCI Token | `/v2` registry bearer token |
 
 安全中间件包括 CSP、安全 headers、CORS、Request-ID、Rate Limit、维护模式和审计日志。
@@ -303,6 +304,21 @@ CI 支持：
 - job log queue；
 - runner labels/tags；
 - CI job token 生成。
+- job variables 持久化并注入内置/外部 Runner；保留变量不能被工作流覆盖；
+- Merge Queue speculative merge-group pipeline；
+- Gitea Actions 为有限 adapter：`checkout` 隐式支持，其他 `uses:` fail closed，完整能力使用原生 `.ironforge-ci.yml`。
+- 仓库级 CI Secrets 使用 AES-256-GCM 加密，仅管理员可管理；值注入内置、Docker 和外部 Runner，日志在执行端/服务端持久化前脱敏。
+- 原生 `matrix` 与 Gitea Actions `strategy.matrix` 在建流水线时展开为独立 job，采用 256 变体硬上限。
+- Tag 保护以通配 pattern 存储，由 HTTP/SSH 共用的 receive-pack 拒绝模式匹配执行。
+- 受保护分支可要求密码学签名：receive-pack 完成 pack 索引后、写 ref 前，对新提交逐一执行 `verify-commit`；失败只拒绝对应 ref。当前服务端没有签名密钥，因此平台生成的 PR merge/auto-merge/merge queue commit 在该策略下明确拒绝，不生成不符合规则的提交。
+- Actions adapter 对 step 级未知 action 和 job 级 Reusable Workflow 均 fail closed，不允许空 job 假成功。
+- 内置 Runner 为 pipeline 创建精确 commit 的 detached worktree；独立 Runner 从分配校验后的 workspace API 下载同一 commit 的 tar 快照，本地与 Docker executor 都在隔离目录执行。
+- CI Cache 按 `repo_id + SHA-256(resolved key)` 隔离，路径限定在 workspace 内；原生 `cache` 和 `actions/cache@v4` 统一映射，内置/外部 Runner 均在成功 job 后原子保存。
+- Reusable Workflow 仅解析同一 commit 的 `.gitea/workflows` 本地文件：展开后重写 root/leaf `needs`，inputs 映射为 `INPUT_*`，支持 `secrets: inherit`；深度超过 4、循环、远程目标和命名 Secret 重映射 fail closed。
+- `allow_failure`、per-job timeout 与 `when_condition` 是持久化执行策略：内置 Runner 和外部 Runner 都消费相同字段，允许失败的 job 保留失败状态但不使 stage 失败；timeout 取 1-86400 秒并终止执行；`when: manual` 将 job/stage/pipeline 暂停为 `manual`，仓库写权限用户通过 play API 原子释放，Runner 从精确提交工作区恢复且跳过已完成 job。外部 Runner 的 pending job 选择同时执行前置 stage 门控，避免绕过 manual gate。复杂 `if` 仍在 pipeline 创建前 fail closed。
+- 原生 `environment` 与 Actions job `environment` 会持久化至 pipeline job。命中受保护环境时状态机暂停为 `waiting_approval`；管理员或显式审批人按配置票数审批，同一用户对同一 job 只计一票。一个 stage 含多个受保护 job 时，全部 gate 释放后才恢复 Runner，防止并发恢复；环境一旦被 pipeline 历史引用便禁止删除，以保留审批记录。
+- CI workload identity 提供 OIDC discovery、Ed25519 JWKS 与 token exchange。运行中的 job 使用 `Authorization: Bearer $CI_JOB_TOKEN` 请求 `$CI_OIDC_TOKEN_URL?audience=<provider>`，获得 5 分钟、不可复用到其他 audience 的 JWT；服务端同时校验签名中的 repo/pipeline/job 与数据库关系和 job 运行态。配置 `external_url` 时内置与外部 Runner 都注入稳定的 `CI_OIDC_TOKEN_URL`。
+- CI 存储保留由仓库级 `ci_retention_policies` 控制（Artifact 默认 30 天、Cache 默认最后访问后 7 天，范围 1-3650 天）。Artifact 上传即固化 `expires_at`；本地/Docker/外部 Runner 的 Cache 都写入 `ci_cache_entries` 并在命中时滑动续期。后台每小时及管理员手动入口按“受管根目录校验 → 文件删除 → DB 删除”回收，路径异常只记录失败而不会越界删除。
 
 ### 9.2 Package Registry
 

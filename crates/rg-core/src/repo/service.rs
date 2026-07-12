@@ -245,6 +245,37 @@ pub async fn can_write_repo(
     Ok(result)
 }
 
+/// Check whether an actor may administer repository-scoped credentials and settings.
+pub async fn can_admin_repo(
+    db: &DatabaseConnection,
+    repo: &rg_db::entities::repository::Model,
+    actor_id: Option<i64>,
+) -> Result<bool> {
+    let Some(actor_id) = actor_id else {
+        return Ok(false);
+    };
+    if actor_id == repo.owner_id {
+        return Ok(true);
+    }
+    if rg_db::ops::repo_collaborator_ops::get_permission(db, repo.id, actor_id)
+        .await?
+        .as_deref()
+        == Some("admin")
+    {
+        return Ok(true);
+    }
+    let Some(org_id) = repo.org_id else {
+        return Ok(false);
+    };
+    let Some(member) = rg_db::ops::org_ops::find_org_member(db, org_id, actor_id).await? else {
+        return Ok(false);
+    };
+    if matches!(member.role.as_str(), "owner" | "admin") {
+        return Ok(true);
+    }
+    rg_db::ops::org_ops::is_member_of_admin_team(db, org_id, actor_id).await
+}
+
 /// Check whether `actor_id` can write to `owner/repo`.
 /// Owner always has write. Collaborators with "write" or "admin" can write.
 /// Org admins/members with write team permission can write.

@@ -99,6 +99,7 @@ AI Agent
 | `issues.rs` | Issue CRUD、comments、labels、milestones |
 | `pulls.rs` | PR CRUD、diff、merge |
 | `reviews.rs` | PR review 与 inline comments |
+| `deploy_keys.rs` | 仓库 Deploy Key CRUD（admin） |
 | `wiki.rs` | Wiki pages、history、diff |
 | `releases.rs` | Release 与 release assets |
 | `ci.rs` | pipelines、jobs、retry、cancel |
@@ -202,6 +203,7 @@ web/src/lib/api/_base.svelte.ts
 | branches/tags | `/{owner}/{repo}/branches`、`tags` | branches/tags API |
 | Issues | `/{owner}/{repo}/issues` | issues、labels、milestones |
 | Pull Requests | `/{owner}/{repo}/pulls` | pulls、reviews、merge |
+| Deploy Keys | `/{owner}/{repo}/settings/deploy-keys` | `/repos/{owner}/{name}/keys` |
 | Wiki | `/{owner}/{repo}/wiki` | wiki pages/history/diff |
 | Pipelines | `/{owner}/{repo}/pipelines` | ci pipelines/jobs |
 | Packages | `/{owner}/{repo}/packages` | package registry REST |

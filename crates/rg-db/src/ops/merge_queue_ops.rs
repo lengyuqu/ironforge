@@ -14,6 +14,20 @@ pub async fn find_by_pr(db: &DatabaseConnection, pr_id: i64) -> Result<Option<Qu
         .context("db: find merge-queue entry by PR")
 }
 
+pub async fn find_by_merge_group_sha(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    sha: &str,
+) -> Result<Option<QueueEntry>> {
+    QueueEntity::find()
+        .filter(merge_queue_entry::Column::RepoId.eq(repo_id))
+        .filter(merge_queue_entry::Column::MergeGroupSha.eq(sha))
+        .filter(merge_queue_entry::Column::Status.is_in(["queued", "running"]))
+        .one(db)
+        .await
+        .context("db: find merge-queue entry by merge-group SHA")
+}
+
 pub async fn list_by_repo(db: &DatabaseConnection, repo_id: i64) -> Result<Vec<QueueEntry>> {
     QueueEntity::find()
         .filter(merge_queue_entry::Column::RepoId.eq(repo_id))
@@ -45,6 +59,10 @@ pub async fn enqueue(
         active.updated_at = Set(now);
         active.started_at = Set(None);
         active.finished_at = Set(None);
+        active.merge_group_sha = Set(None);
+        active.merge_group_base_sha = Set(None);
+        active.merge_group_head_sha = Set(None);
+        active.merge_group_pipeline_id = Set(None);
         return active.update(db).await.context("db: re-enqueue PR");
     }
 
@@ -60,6 +78,10 @@ pub async fn enqueue(
         updated_at: Set(now),
         started_at: Set(None),
         finished_at: Set(None),
+        merge_group_sha: Set(None),
+        merge_group_base_sha: Set(None),
+        merge_group_head_sha: Set(None),
+        merge_group_pipeline_id: Set(None),
     }
     .insert(db)
     .await;
@@ -74,6 +96,44 @@ pub async fn enqueue(
             }
         }
     }
+}
+
+pub async fn set_merge_group(
+    db: &DatabaseConnection,
+    entry_id: i64,
+    group_sha: &str,
+    base_sha: &str,
+    head_sha: &str,
+    pipeline_id: i64,
+) -> Result<QueueEntry> {
+    let entry = QueueEntity::find_by_id(entry_id)
+        .one(db)
+        .await?
+        .context("merge-queue entry not found")?;
+    let mut active: merge_queue_entry::ActiveModel = entry.into();
+    active.merge_group_sha = Set(Some(group_sha.to_string()));
+    active.merge_group_base_sha = Set(Some(base_sha.to_string()));
+    active.merge_group_head_sha = Set(Some(head_sha.to_string()));
+    active.merge_group_pipeline_id = Set(Some(pipeline_id));
+    active.updated_at = Set(Utc::now());
+    active
+        .update(db)
+        .await
+        .context("db: set merge-group pipeline")
+}
+
+pub async fn clear_merge_group(db: &DatabaseConnection, entry_id: i64) -> Result<QueueEntry> {
+    let entry = QueueEntity::find_by_id(entry_id)
+        .one(db)
+        .await?
+        .context("merge-queue entry not found")?;
+    let mut active: merge_queue_entry::ActiveModel = entry.into();
+    active.merge_group_sha = Set(None);
+    active.merge_group_base_sha = Set(None);
+    active.merge_group_head_sha = Set(None);
+    active.merge_group_pipeline_id = Set(None);
+    active.updated_at = Set(Utc::now());
+    active.update(db).await.context("db: clear merge group")
 }
 
 pub async fn claim(db: &DatabaseConnection, entry_id: i64) -> Result<bool> {

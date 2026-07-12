@@ -625,12 +625,17 @@
     "status": {
       "pending": "等待中",
       "running": "运行中",
+      "manual": "等待手动运行",
+      "waiting_approval": "等待部署审批",
       "success": "通过",
       "failed": "失败",
       "canceled": "已取消"
     },
     "retry": "↻ 重试",
     "cancel": "✗ 取消",
+    "play_manual": "▶ 运行",
+    "approve_environment": "批准部署",
+    "approval_recorded": "已记录审批",
     "no_pipelines": "暂无流水线。",
     "hint": "推送包含 {file} 的提交以触发流水线。",
     "file": ".ironforge-ci.yml",
@@ -710,6 +715,24 @@
       "private": "私有",
       "public": "公开"
     },
+    "deploy_keys": {
+      "title": "部署密钥",
+      "desc": "授予自动化密钥仅访问此仓库的权限。",
+      "add": "添加部署密钥",
+      "name": "标题",
+      "public_key": "公钥",
+      "read_only": "只读权限",
+      "read_write": "读写权限",
+      "current": "已配置的部署密钥",
+      "empty": "暂无部署密钥。",
+      "required": "标题和公钥不能为空。",
+      "created": "部署密钥已添加。",
+      "deleted": "部署密钥已移除。",
+      "delete_confirm": "移除部署密钥 {title}？",
+      "load_failed": "加载部署密钥失败",
+      "create_failed": "添加部署密钥失败",
+      "delete_failed": "移除部署密钥失败"
+    },
     "mirror": {
       "title": "镜像",
       "desc": "从外部 Git 远端同步此仓库。",
@@ -774,6 +797,7 @@
       "require_approval": "要求审批",
       "require_status_check": "要求状态检查",
       "allow_force_push": "允许强制推送",
+      "require_signed_commits": "要求提交通过密码学签名验证",
       "required_checks": "必需检查项",
       "allowed_pushers": "允许直接推送的用户 ID",
       "current": "当前保护规则",
@@ -790,7 +814,8 @@
       "delete_failed": "删除分支保护规则失败",
       "approvals_count": "{count} 个审批",
       "status_checks_enabled": "状态检查",
-      "force_push_allowed": "允许强制推送"
+      "force_push_allowed": "允许强制推送",
+      "signed_commits_required": "要求签名提交"
     },
     "collaborators": {
       "title": "协作者",

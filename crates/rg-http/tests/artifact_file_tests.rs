@@ -1,6 +1,7 @@
 mod common;
 
 use common::{register_full, spawn_test_app_with_db};
+use sea_orm::{ActiveModelTrait, Set};
 
 async fn create_private_repo(base: &str, token: &str, name: &str) -> i64 {
     let client = reqwest::Client::new();
@@ -38,9 +39,11 @@ async fn create_assigned_job(
     let stage = rg_db::ops::pipeline_ops::create_stage(db, pipeline.id, "test", 0)
         .await
         .unwrap();
-    let job = rg_db::ops::pipeline_ops::create_job(db, stage.id, "unit", "echo ok", None, None)
-        .await
-        .unwrap();
+    let job = rg_db::ops::pipeline_ops::create_job(
+        db, stage.id, "unit", "echo ok", None, None, None, None, None, false, None, None,
+    )
+    .await
+    .unwrap();
     rg_db::ops::pipeline_ops::assign_job(db, job.id, runner_id)
         .await
         .unwrap();
@@ -60,6 +63,31 @@ async fn artifact_raw_upload_persists_file_and_download_respects_repo_read() {
             .unwrap();
     let (pipeline_id, job_id) = create_assigned_job(&db, repo_id, runner.id).await;
 
+    let policy_url =
+        format!("{base}/api/v1/repos/artifact_owner/private-artifacts/actions/retention");
+    let default_policy = client
+        .get(&policy_url)
+        .bearer_auth(&owner_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(default_policy.status(), 200);
+    assert_eq!(
+        default_policy.json::<serde_json::Value>().await.unwrap()["artifact_retention_days"],
+        30
+    );
+    assert_eq!(
+        client
+            .put(&policy_url)
+            .bearer_auth(&owner_token)
+            .json(&serde_json::json!({"artifact_retention_days": 1, "cache_retention_days": 2}))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+
     let upload_resp = client
         .post(format!(
             "{}/api/v1/runners/{}/jobs/{}/artifacts",
@@ -76,6 +104,11 @@ async fn artifact_raw_upload_persists_file_and_download_respects_repo_read() {
     assert_eq!(upload_status, 201, "upload failed: {upload_body}");
     let uploaded: serde_json::Value = serde_json::from_str(&upload_body).unwrap();
     let artifact_id = uploaded["id"].as_i64().unwrap();
+    let stored = rg_db::ops::artifact_ops::get_by_id(&db, artifact_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(stored.expires_at.is_some());
 
     let anon_download = client
         .get(format!(
@@ -114,4 +147,23 @@ async fn artifact_raw_upload_persists_file_and_download_respects_repo_read() {
     assert_eq!(list_resp.status(), 200);
     let listed: serde_json::Value = list_resp.json().await.unwrap();
     assert_eq!(listed.as_array().unwrap().len(), 1);
+
+    let mut expired: rg_db::entities::artifact::ActiveModel = stored.into();
+    expired.expires_at = Set(Some(chrono::Utc::now() - chrono::Duration::minutes(1)));
+    expired.update(&db).await.unwrap();
+    let cleanup = client
+        .delete(format!("{policy_url}/expired"))
+        .bearer_auth(&owner_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(cleanup.status(), 200);
+    assert_eq!(
+        cleanup.json::<serde_json::Value>().await.unwrap()["artifacts_deleted"],
+        1
+    );
+    assert!(rg_db::ops::artifact_ops::get_by_id(&db, artifact_id)
+        .await
+        .unwrap()
+        .is_none());
 }

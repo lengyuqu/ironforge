@@ -21,9 +21,19 @@
   let logStreamError = $state('');
   let logContentEl = $state<HTMLPreElement | null>(null);
   let logSocket: WebSocket | null = null;
+  let approvedJobs = $state<number[]>([]);
 
   // Auto-refresh for running pipelines
   let refreshInterval: ReturnType<typeof setInterval> | null = null;
+
+  function normalizePipelineDetail(detail: any) {
+    if (!detail?.pipeline) return detail;
+    return {
+      ...detail.pipeline,
+      ref: detail.pipeline.ref_name,
+      stages: (detail.stages || []).map((entry: any) => ({ ...entry.stage, jobs: entry.jobs || [] })),
+    };
+  }
 
   $effect(() => {
     loadPipelines();
@@ -37,7 +47,7 @@
         refreshInterval = setInterval(() => {
           if (selectedPipeline) {
             pipelines.get(owner, repo, selectedPipeline.id).then(p => {
-              selectedPipeline = p;
+              selectedPipeline = normalizePipelineDetail(p);
             });
           }
         }, 5000);
@@ -53,7 +63,7 @@
       const pipeResult = await pipelines.list(owner, repo);
       pipelineList = pipeResult.data;
       if (pipelineList.length > 0 && !selectedPipeline) {
-        selectedPipeline = await pipelines.get(owner, repo, pipelineList[0].id);
+        selectedPipeline = normalizePipelineDetail(await pipelines.get(owner, repo, pipelineList[0].id));
       }
     } catch (e: any) {
       error = e.message;
@@ -67,7 +77,7 @@
     selectedJob = null;
     showLogPanel = false;
     try {
-      selectedPipeline = await pipelines.get(owner, repo, id);
+      selectedPipeline = normalizePipelineDetail(await pipelines.get(owner, repo, id));
     } catch (e: any) {
       error = e.message;
     }
@@ -86,6 +96,27 @@
     try {
       await pipelines.cancel(owner, repo, id);
       selectedPipeline.status = 'canceled';
+    } catch (e: any) {
+      error = e.message;
+    }
+  }
+
+  async function handlePlay(jobId: number) {
+    if (!selectedPipeline) return;
+    try {
+      await pipelines.play(owner, repo, selectedPipeline.id, jobId);
+      selectedPipeline = normalizePipelineDetail(await pipelines.get(owner, repo, selectedPipeline.id));
+    } catch (e: any) {
+      error = e.message;
+    }
+  }
+
+  async function handleApprove(jobId: number) {
+    if (!selectedPipeline) return;
+    try {
+      const result = await pipelines.approve(owner, repo, selectedPipeline.id, jobId);
+      if (!result.released && !approvedJobs.includes(jobId)) approvedJobs = [...approvedJobs, jobId];
+      selectedPipeline = normalizePipelineDetail(await pipelines.get(owner, repo, selectedPipeline.id));
     } catch (e: any) {
       error = e.message;
     }
@@ -166,6 +197,8 @@
       case 'success': return '✓';
       case 'failed': case 'error': return '✗';
       case 'running': return '⟳';
+      case 'manual': return '▶';
+      case 'waiting_approval': return '⏳';
       case 'canceled': return '−';
       case 'skipped': return '○';
       default: return '●';
@@ -184,6 +217,13 @@
   }
 
   function isRunning(s: string) { return s === 'running' || s === 'pending'; }
+
+  function openJobByKey(e: KeyboardEvent, jobId: number) {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      viewJobLog(jobId);
+    }
+  }
 
   onDestroy(() => {
     if (refreshInterval) clearInterval(refreshInterval);
@@ -261,7 +301,7 @@
               {#if selectedPipeline.status === 'failed'}
                 <button class="btn-outline" onclick={() => handleRetry(selectedPipeline.id)}>{t('pipeline.retry')}</button>
               {/if}
-              {#if selectedPipeline.status === 'running' || selectedPipeline.status === 'pending'}
+              {#if selectedPipeline.status === 'running' || selectedPipeline.status === 'pending' || selectedPipeline.status === 'manual' || selectedPipeline.status === 'waiting_approval'}
                 <button class="btn-outline btn-danger" onclick={() => handleCancel(selectedPipeline.id)}>{t('pipeline.cancel')}</button>
               {/if}
             </div>
@@ -298,7 +338,7 @@
                   <!-- Jobs in this stage -->
                   <div class="jobs-flow">
                     {#each stage.jobs as job}
-                      <button class="job-card" class:running={job.status === 'running'} class:failed={job.status === 'failed'} onclick={() => viewJobLog(job.id)}>
+                      <div class="job-card" class:running={job.status === 'running'} class:failed={job.status === 'failed'} onclick={() => viewJobLog(job.id)} onkeydown={(e) => openJobByKey(e, job.id)} role="button" tabindex="0">
                         <div class="job-status-icon" style="color:{statusColor(job.status)}">
                           {#if job.status === 'running'}
                             <span class="spin">{statusIcon(job.status)}</span>
@@ -308,12 +348,19 @@
                         </div>
                         <div class="job-body">
                           <span class="job-name">{job.name}</span>
+                          {#if job.environment_name}<span class="environment-name">🚀 {job.environment_name}</span>{/if}
                           <span class="job-dur">{duration(job.started_at, job.finished_at)}</span>
                         </div>
                         {#if job.exit_code !== null}
                           <span class="exit-code">{job.exit_code}</span>
                         {/if}
-                      </button>
+                        {#if job.status === 'manual'}
+                          <button class="play-job" onclick={(event) => { event.stopPropagation(); handlePlay(job.id); }}>{t('pipeline.play_manual')}</button>
+                        {/if}
+                        {#if job.status === 'waiting_approval'}
+                          <button class="play-job" disabled={approvedJobs.includes(job.id)} onclick={(event) => { event.stopPropagation(); handleApprove(job.id); }}>{approvedJobs.includes(job.id) ? t('pipeline.approval_recorded') : t('pipeline.approve_environment')}</button>
+                        {/if}
+                      </div>
                     {/each}
                   </div>
                 </div>
@@ -499,6 +546,7 @@
 
   .job-body { flex: 1; display: flex; align-items: center; gap: 8px; min-width: 0; }
   .job-name { flex: 1; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .environment-name { color: var(--text-secondary); font-size: 11px; white-space: nowrap; }
   .job-dur { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); white-space: nowrap; }
 
   .exit-code {
@@ -509,6 +557,12 @@
     background: var(--bg-tertiary);
     color: var(--text-muted);
   }
+  .play-job {
+    padding: 3px 9px; border: 1px solid var(--accent); border-radius: 4px;
+    color: var(--accent); background: transparent; cursor: pointer; font-size: 11px;
+  }
+  .play-job:hover { background: rgba(88, 166, 255, 0.1); }
+  .play-job:disabled { opacity: .6; cursor: default; }
 
   .spin { display: inline-block; animation: spin 1.5s linear infinite; }
   @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }

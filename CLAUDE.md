@@ -200,6 +200,7 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":
 | CI/CD 引擎 | `rg-ci/src/` | YAML 解析 + Pipeline 执行器 + 后台运行 |
 | Git 鉴权 | `rg-http/src/lib.rs` | HTTP git 协议 Bearer Token 认证 + can_read/can_write |
 | **代码审查** | `rg-core/src/review/service.rs` | submit review (comment/approve/request_changes/dismiss) + inline comments |
+| **PR 不可变事件流** | `rg-db/src/entities/pr_event.rs` + `rg-http/src/api/reviews.rs` | append-only 时间线，保留 Reviewer/线程/Draft/Auto-merge/Queue 历史状态 |
 | **分支保护** | `rg-core/src/branch_protection/service.rs` | protected branches + require PR + require approval + required status checks |
 | **协作者** | `rg-core/src/collaborator/service.rs` | repo collaborators + read/write/admin permission |
 | **文件浏览** | `rg-http/src/api/repo_content.rs` | tree/blob/log/branches/tags API (git CLI) |
@@ -208,6 +209,18 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":
 | **API 客户端** | `web/src/lib/api/client.ts` | REST API 全量 TypeScript 封装 |
 | **认证 Store** | `web/src/lib/stores/auth.ts` | JWT 状态管理（Svelte 5 runes） |
 | **Docker Runner** | `rg-ci/src/runner.rs` | CI Job Docker 容器化执行（`docker run --rm` + volume mount） |
+| **Merge-group CI** | `rg-core/src/pull_request/merge_queue.rs` | FIFO 队首生成 speculative merge commit，CI 成功后才合并 |
+| **Deploy Key** | `rg-http/src/api/deploy_keys.rs` + `rg-ssh/src/lib.rs` | 仓库级只读/读写 SSH Key、admin CRUD、仓库隔离与使用时间记录 |
+| **CI Variables / Actions 边界** | `rg-ci/src/runner.rs` + `gitea_actions.rs` | 变量注入内置/外部 Runner；不支持的 `uses:` 显式拒绝，不静默跳过 |
+| **CI Secrets / Matrix** | `ci_secrets` + `rg-ci` runner/config | 仓库 Secret 加密存储、三类 Runner 注入与日志脱敏；原生/Actions Matrix 最多展开 256 个 job |
+| **CI 工作区 / Cache** | `rg-ci` + `rg-runner` + runner workspace/cache API | 精确 commit 隔离工作区；仓库隔离 tar Cache；原生与 `actions/cache@v4`；本地/Docker/外部 Runner restore-save |
+| **本地 Reusable Workflow** | `rg-ci/src/gitea_actions.rs` | 同 commit 下 `workflow_call` 递归展开、inputs、继承 Secrets、needs 依赖重写；循环/远程调用 fail closed |
+| **CI 执行策略** | `pipeline_jobs.allow_failure/timeout_seconds/when_condition` + 两类 Runner | `continue-on-error`、Job timeout、`when: manual` 可恢复执行；复杂条件表达式在创建 pipeline 前 fail closed |
+| **受保护 Environment** | `ci_environments` / `ci_environment_approvals` + Job environment gate | 原生与 Actions environment、管理员规则、指定审批人/审批数、去重审批、内置与外部 Runner 可恢复部署 |
+| **CI Workload OIDC** | `/api/v1/ci/oidc/*` + Ed25519 JWKS | `CI_JOB_TOKEN` 换取 5 分钟 audience-bound 身份令牌；repo/pipeline/job/ref/SHA 声明与运行态数据库绑定 |
+| **CI Retention** | `ci_retention_policies` / `ci_cache_entries` + hourly cleanup | 仓库级 Artifact/Cache 保留期、滑动 Cache 过期、磁盘与 DB 一致清理、管理员 API/UI 与手动回收 |
+| **Tag 保护** | `protected_tags` + HTTP/SSH receive-pack | 通配 Tag 规则、允许用户白名单、仓库管理员 API/UI、HTTP/SSH 统一执行 |
+| **签名提交强制** | `protected_branches.require_signed_commits` + receive-pack | pack 入库后、ref 更新前验证本次引入的所有 commit；HTTP/SSH 共用策略 |
 | **组织系统** | `rg-core/src/org/mod.rs` + `rg-http/src/api/orgs.rs` | CRUD + 成员管理 + 团队 + 权限 |
 | **通知系统** | `rg-core/src/notification/mod.rs` + `rg-http/src/api/notifications.rs` | 创建/列表/已读/批量已读/删除 |
 | **Rate Limiting** | `rg-http/src/rate_limit.rs` | Token Bucket 中间件（IP 限流 + 可配置窗口） |

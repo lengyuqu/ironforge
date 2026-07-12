@@ -200,6 +200,8 @@ pub async fn run(config: HttpServerConfig) -> Result<()> {
 
     let app = create_router(state.clone(), rate_limiter.clone());
 
+    tokio::spawn(api::ci_retention::run_cleanup_loop(state.clone()));
+
     // Spawn runner watchdog background task
     tokio::spawn(async move {
         run_runner_watchdog(watchdog_db).await;
@@ -483,6 +485,16 @@ fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
             post(api::runners::upload_log),
         )
         .route(
+            "/runners/{id}/jobs/{job_id}/workspace",
+            get(api::runners::download_workspace),
+        )
+        .route(
+            "/runners/{id}/jobs/{job_id}/cache",
+            get(api::runners::download_cache)
+                .put(api::runners::upload_cache)
+                .layer(RequestBodyLimitLayer::new(1024 * 1024 * 1024)),
+        )
+        .route(
             "/runners/{id}/jobs/{job_id}/finish",
             post(api::runners::finish_job),
         )
@@ -519,6 +531,14 @@ fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
         .route(
             "/users/ssh-keys/{id}",
             delete(api::ssh_keys::delete_ssh_key),
+        )
+        .route(
+            "/repos/{owner}/{name}/keys",
+            get(api::deploy_keys::list_deploy_keys).post(api::deploy_keys::create_deploy_key),
+        )
+        .route(
+            "/repos/{owner}/{name}/keys/{id}",
+            delete(api::deploy_keys::delete_deploy_key),
         )
         // MFA
         .route("/users/mfa/setup", post(api::mfa::setup_mfa))
@@ -733,6 +753,44 @@ fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
             "/repos/{owner}/{name}/pipelines/{id}/jobs/{job_id}",
             get(api::ci::get_job),
         )
+        .route(
+            "/repos/{owner}/{name}/pipelines/{id}/jobs/{job_id}/play",
+            post(api::ci::play_job),
+        )
+        .route(
+            "/repos/{owner}/{name}/pipelines/{pipeline_id}/jobs/{job_id}/approve",
+            post(api::ci_environments::approve),
+        )
+        .route(
+            "/repos/{owner}/{name}/actions/environments",
+            get(api::ci_environments::list).post(api::ci_environments::create),
+        )
+        .route(
+            "/repos/{owner}/{name}/actions/environments/{id}",
+            axum::routing::put(api::ci_environments::update).delete(api::ci_environments::delete),
+        )
+        .route(
+            "/ci/oidc/.well-known/openid-configuration",
+            get(api::ci_oidc::discovery),
+        )
+        .route("/ci/oidc/jwks", get(api::ci_oidc::jwks))
+        .route("/ci/oidc/token", get(api::ci_oidc::token))
+        .route(
+            "/repos/{owner}/{name}/actions/retention",
+            get(api::ci_retention::get_policy).put(api::ci_retention::update_policy),
+        )
+        .route(
+            "/repos/{owner}/{name}/actions/retention/expired",
+            axum::routing::delete(api::ci_retention::cleanup),
+        )
+        .route(
+            "/repos/{owner}/{name}/actions/secrets",
+            get(api::ci_secrets::list),
+        )
+        .route(
+            "/repos/{owner}/{name}/actions/secrets/{secret_name}",
+            axum::routing::put(api::ci_secrets::put).delete(api::ci_secrets::delete),
+        )
         // Repository archive download
         .route(
             "/repos/{owner}/{name}/archive/{archive}",
@@ -749,6 +807,14 @@ fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
             get(api::branch_protection::get_protection)
                 .patch(api::branch_protection::update_protection)
                 .delete(api::branch_protection::delete_protection),
+        )
+        .route(
+            "/repos/{owner}/{name}/tags/protection",
+            get(api::tag_protection::list).post(api::tag_protection::create),
+        )
+        .route(
+            "/repos/{owner}/{name}/tags/protection/{id}",
+            patch(api::tag_protection::update).delete(api::tag_protection::delete),
         )
         // Collaborators
         .route(
@@ -2052,6 +2118,20 @@ async fn handle_git_receive_pack(
                 );
             }
         };
+    let tag_protection_rules =
+        match rg_db::ops::protected_tag_ops::list_by_repo(&state.db, repo_model.id).await {
+            Ok(rules) => rules,
+            Err(e) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    [(
+                        header::CONTENT_TYPE,
+                        "application/x-git-receive-pack-result",
+                    )],
+                    Body::from(format!("failed to load tag protections: {:#}", e)),
+                );
+            }
+        };
 
     let (pipe_read, mut pipe_write) = tokio::io::duplex(body.len() + 1024);
     tokio::spawn(async move {
@@ -2067,12 +2147,15 @@ async fn handle_git_receive_pack(
         output
     });
 
-    let rejected_refs = branch_protection_rejected_refs(protection_rules, actor_id);
+    let require_signed_refs = signed_commit_required_refs(&protection_rules);
+    let mut rejected_refs = branch_protection_rejected_refs(protection_rules, actor_id);
+    rejected_refs.extend(tag_protection_rejected_refs(tag_protection_rules, actor_id));
     match rg_git::protocol::receive_pack::handle_receive_pack_http_with_rejections(
         &repo_path,
         pipe_read,
         &mut buf_writer,
         rejected_refs,
+        require_signed_refs,
     )
     .await
     {
@@ -2093,6 +2176,7 @@ async fn handle_git_receive_pack(
             let hub = state.notification_hub.clone();
             let smtp = state.smtp_config.clone();
             let ci_engine = state.ci_engine.clone();
+            let external_url = state.external_url.clone();
 
             tokio::spawn(async move {
                 post_push_hooks(
@@ -2108,6 +2192,7 @@ async fn handle_git_receive_pack(
                         notification_hub: &hub,
                         smtp_config: &smtp,
                         ci_engine: &*ci_engine,
+                        external_url: external_url.as_deref(),
                     },
                     &ref_updates,
                 )
@@ -2144,6 +2229,7 @@ struct PostPushParams<'a> {
     notification_hub: &'a ws::NotificationHub,
     smtp_config: &'a Option<rg_core::email::SmtpConfig>,
     ci_engine: &'a dyn rg_core::ci::CiTrigger,
+    external_url: Option<&'a str>,
 }
 
 fn branch_protection_rejected_refs(
@@ -2193,6 +2279,43 @@ fn direct_push_allowed_by_rule(
     false
 }
 
+fn signed_commit_required_refs(
+    protections: &[rg_db::entities::protected_branch::Model],
+) -> Vec<String> {
+    protections
+        .iter()
+        .filter(|rule| rule.require_signed_commits)
+        .map(|rule| format!("refs/heads/{}", rule.branch_name))
+        .collect()
+}
+
+fn tag_protection_rejected_refs(
+    protections: Vec<rg_db::entities::protected_tag::Model>,
+    actor_id: Option<i64>,
+) -> Vec<(String, String)> {
+    protections
+        .into_iter()
+        .filter_map(|protection| {
+            let allowed = actor_id.is_some_and(|uid| {
+                protection
+                    .allowed_user_ids
+                    .as_deref()
+                    .and_then(|json| serde_json::from_str::<Vec<i64>>(json).ok())
+                    .is_some_and(|ids| ids.contains(&uid))
+            });
+            (!allowed).then(|| {
+                (
+                    format!("refs/tags/{}", protection.pattern),
+                    format!(
+                        "creation or update of protected tag pattern '{}' is not allowed",
+                        protection.pattern
+                    ),
+                )
+            })
+        })
+        .collect()
+}
+
 /// Post-push hook: trigger CI pipeline and webhook for push events.
 async fn post_push_hooks(
     params: &PostPushParams<'_>,
@@ -2210,6 +2333,7 @@ async fn post_push_hooks(
         notification_hub,
         smtp_config,
         ci_engine,
+        external_url,
     } = params;
 
     // Find repo_id from DB
@@ -2257,11 +2381,18 @@ async fn post_push_hooks(
                             tracing::warn!(%error, "auto-merge evaluation after push failed");
                         }
                         if let Err(error) =
-                            rg_core::pull_request::merge_queue::process_for_head_commit(
+                            rg_core::pull_request::merge_queue::process_for_head_commit_with_ci(
                                 db,
                                 repo_root,
                                 repo_id,
                                 &update.new_sha,
+                                &rg_core::pull_request::merge_queue::MergeQueueCi {
+                                    trigger: params.ci_engine,
+                                    docker_enabled: params.docker_enabled,
+                                    external_runners: params.external_runners,
+                                    jwt_secret: Some(params.jwt_secret),
+                                    external_url: params.external_url,
+                                },
                             )
                             .await
                         {
@@ -2297,7 +2428,7 @@ async fn post_push_hooks(
         if ci_engine.has_ci_config(repo_path, &update.new_sha) {
             match ci_engine
                 .trigger_pipeline(rg_core::ci::TriggerPipelineParams {
-                    db: &**db,
+                    db,
                     repo_path,
                     repo_id,
                     commit_sha: &update.new_sha,
@@ -2306,7 +2437,8 @@ async fn post_push_hooks(
                     triggered_by: None,
                     docker_enabled: *docker_enabled,
                     external_runners: *external_runners,
-                    jwt_secret: Some(&jwt_secret),
+                    jwt_secret: Some(jwt_secret),
+                    external_url: *external_url,
                 })
                 .await
             {

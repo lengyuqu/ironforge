@@ -41,7 +41,7 @@ use runner::PipelineRunner;
 
 // M-14: TriggerPipelineParams and has_ci_config are now defined in rg-core.
 // Re-export for backward compatibility with any code that still imports from rg_ci.
-pub use rg_core::ci::{has_ci_config, TriggerPipelineParams};
+pub use rg_core::ci::{has_ci_config, ResumePipelineParams, TriggerPipelineParams};
 
 /// CI engine implementation. Implements `rg_core::ci::CiTrigger` so that
 /// `rg-http` can trigger pipelines without a direct dependency on `rg-ci`.
@@ -60,6 +60,36 @@ impl rg_core::ci::CiTrigger for CiEngine {
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<i64>> + Send + 'a>> {
         Box::pin(trigger_pipeline(params))
     }
+
+    fn resume_pipeline<'a>(
+        &'a self,
+        params: rg_core::ci::ResumePipelineParams<'a>,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + 'a>> {
+        Box::pin(resume_pipeline(params))
+    }
+}
+
+/// Resume an already-created pipeline. External runners only need the job to
+/// be moved back to `pending`; an internal runner is recreated from persisted
+/// pipeline state and skips terminal jobs.
+pub async fn resume_pipeline(params: ResumePipelineParams<'_>) -> Result<()> {
+    if params.external_runners {
+        tracing::info!(
+            pipeline_id = params.pipeline_id,
+            "manual pipeline released for external runners"
+        );
+        return Ok(());
+    }
+    spawn_internal_runner(
+        params.db,
+        params.repo_path,
+        params.repo_id,
+        params.pipeline_id,
+        params.docker_enabled,
+        params.jwt_secret,
+        params.external_url,
+    );
+    Ok(())
 }
 
 /// Trigger a CI pipeline for a push event.
@@ -82,10 +112,12 @@ pub async fn trigger_pipeline(params: TriggerPipelineParams<'_>) -> Result<i64> 
         docker_enabled,
         external_runners,
         jwt_secret,
+        external_url,
     } = params;
 
     // 1. Read CI config from repo
     let config = read_ci_config(repo_path, commit_sha, ref_name, trigger_type)?;
+    validate_execution_semantics(&config)?;
 
     // 2. Concurrency control
     if let Some(ref concurrency) = config.concurrency {
@@ -163,51 +195,72 @@ pub async fn trigger_pipeline(params: TriggerPipelineParams<'_>) -> Result<i64> 
             continue;
         }
 
-        let script = job_config.script.join("\n");
-
         // Serialize tags to JSON for storage
         let tags_json = job_config
             .tags
             .as_ref()
             .map(|t| serde_json::to_string(t).unwrap_or_default());
-
-        rg_db::ops::pipeline_ops::create_job(
-            db,
-            stage_id,
-            job_name,
-            &script,
-            job_config.image.as_deref(),
-            tags_json.as_deref(),
-        )
-        .await?;
+        for variant in expand_matrix(job_name, job_config)? {
+            let variables_json = if variant.variables.is_empty() {
+                None
+            } else {
+                Some(serde_json::to_string(&variant.variables)?)
+            };
+            let cache_paths_json = job_config
+                .cache
+                .as_ref()
+                .map(|cache| serde_json::to_string(&cache.paths))
+                .transpose()?;
+            let job = rg_db::ops::pipeline_ops::create_job(
+                db,
+                stage_id,
+                &variant.name,
+                &job_config.script.join("\n"),
+                job_config.image.as_deref(),
+                tags_json.as_deref(),
+                variables_json.as_deref(),
+                job_config.cache.as_ref().map(|cache| cache.key.as_str()),
+                cache_paths_json.as_deref(),
+                job_config.allow_failure.unwrap_or(false),
+                job_config.timeout_seconds.map(|seconds| seconds as i64),
+                job_config.when.as_deref(),
+            )
+            .await?;
+            if let Some(environment_name) = job_config.environment.as_deref() {
+                let environment =
+                    rg_db::ops::ci_environment_ops::find_by_name(db, repo_id, environment_name)
+                        .await?;
+                rg_db::ops::ci_environment_ops::attach_job(
+                    db,
+                    job.id,
+                    environment.as_ref(),
+                    environment_name,
+                )
+                .await?;
+            }
+        }
     }
 
     // 6. Spawn pipeline runner in background (only if not using external runners)
     if !external_runners {
-        let db_clone = db.clone();
-        let pipeline_id_owned = pipeline_id;
-        let repo_path_owned = repo_path.to_path_buf();
-        let jwt_secret_owned = jwt_secret.map(|s| s.to_string());
-
-        tokio::spawn(async move {
-            let mut runner = if docker_enabled {
-                PipelineRunner::new(db_clone, &repo_path_owned, pipeline_id_owned)
-            } else {
-                PipelineRunner::new_local_only(db_clone, &repo_path_owned, pipeline_id_owned)
-            };
-            runner.set_repo_id(repo_id);
-            if let Some(ref secret) = jwt_secret_owned {
-                runner.set_jwt_secret(secret.clone());
-            }
-            if let Err(e) = runner.run().await {
-                tracing::error!(
-                    pipeline_id = pipeline_id_owned,
-                    "Pipeline runner error: {:#}",
-                    e
-                );
-            }
-        });
+        spawn_internal_runner(
+            db,
+            repo_path,
+            repo_id,
+            pipeline_id,
+            docker_enabled,
+            jwt_secret,
+            external_url,
+        );
     } else {
+        if let Some(first_stage) =
+            rg_db::ops::pipeline_ops::list_stages_by_pipeline(db, pipeline_id)
+                .await?
+                .into_iter()
+                .next()
+        {
+            rg_db::ops::pipeline_ops::try_pause_stage_at_manual(db, first_stage.id).await?;
+        }
         tracing::info!(
             pipeline_id = pipeline_id,
             "Pipeline created with external runner mode — jobs will be picked up by registered runners"
@@ -215,6 +268,125 @@ pub async fn trigger_pipeline(params: TriggerPipelineParams<'_>) -> Result<i64> 
     }
 
     Ok(pipeline_id)
+}
+
+fn spawn_internal_runner(
+    db: &sea_orm::DatabaseConnection,
+    repo_path: &std::path::Path,
+    repo_id: i64,
+    pipeline_id: i64,
+    docker_enabled: bool,
+    jwt_secret: Option<&str>,
+    external_url: Option<&str>,
+) {
+    let db_clone = db.clone();
+    let repo_path_owned = repo_path.to_path_buf();
+    let jwt_secret_owned = jwt_secret.map(str::to_string);
+    let oidc_token_url =
+        external_url.map(|url| format!("{}/api/v1/ci/oidc/token", url.trim_end_matches('/')));
+    tokio::spawn(async move {
+        let mut runner = if docker_enabled {
+            PipelineRunner::new(db_clone, &repo_path_owned, pipeline_id)
+        } else {
+            PipelineRunner::new_local_only(db_clone, &repo_path_owned, pipeline_id)
+        };
+        runner.set_repo_id(repo_id);
+        if let Some(secret) = jwt_secret_owned {
+            runner.set_jwt_secret(secret);
+        }
+        if let Some(url) = oidc_token_url {
+            runner.set_oidc_token_url(url);
+        }
+        if let Err(error) = runner.run().await {
+            tracing::error!(pipeline_id, %error, "pipeline runner error");
+        }
+    });
+}
+
+fn validate_execution_semantics(config: &CiConfig) -> Result<()> {
+    for (name, job) in &config.jobs {
+        if let Some(when) = job.when.as_deref() {
+            if when != "on_success" && when != "manual" {
+                anyhow::bail!("job '{name}' uses unsupported when: '{when}'; supported values are 'on_success' and 'manual'");
+            }
+        }
+        if job.timeout_seconds == Some(0) || job.timeout_seconds.is_some_and(|value| value > 86_400)
+        {
+            anyhow::bail!("job '{name}' timeout_seconds must be between 1 and 86400");
+        }
+        if let Some(environment) = job.environment.as_deref() {
+            if environment.is_empty()
+                || environment.len() > 255
+                || environment.chars().any(char::is_control)
+            {
+                anyhow::bail!("job '{name}' has an invalid environment name");
+            }
+        }
+    }
+    Ok(())
+}
+
+#[derive(Debug)]
+struct MatrixVariant {
+    name: String,
+    variables: std::collections::BTreeMap<String, String>,
+}
+
+fn expand_matrix(job_name: &str, config: &config::JobConfig) -> Result<Vec<MatrixVariant>> {
+    let base: std::collections::BTreeMap<String, String> = config
+        .variables
+        .clone()
+        .unwrap_or_default()
+        .into_iter()
+        .collect();
+    let Some(matrix) = &config.matrix else {
+        return Ok(vec![MatrixVariant {
+            name: job_name.to_owned(),
+            variables: base,
+        }]);
+    };
+    if matrix.values().any(Vec::is_empty) {
+        anyhow::bail!("job '{job_name}' has an empty matrix dimension");
+    }
+    let count = matrix
+        .values()
+        .try_fold(1usize, |total, values| total.checked_mul(values.len()))
+        .context("matrix size overflow")?;
+    if count > 256 {
+        anyhow::bail!("job '{job_name}' matrix expands to {count} variants; maximum is 256");
+    }
+    let mut variants = vec![(Vec::<(String, String)>::new(), base)];
+    for (key, values) in matrix {
+        let mut next = Vec::new();
+        for (labels, variables) in variants {
+            for value in values {
+                let mut labels = labels.clone();
+                labels.push((key.clone(), value.clone()));
+                let mut variables = variables.clone();
+                variables.insert(key.clone(), value.clone());
+                variables.insert(
+                    format!("MATRIX_{}", key.to_ascii_uppercase().replace('-', "_")),
+                    value.clone(),
+                );
+                next.push((labels, variables));
+            }
+        }
+        variants = next;
+    }
+    Ok(variants
+        .into_iter()
+        .map(|(labels, variables)| MatrixVariant {
+            name: format!(
+                "{job_name} [{}]",
+                labels
+                    .into_iter()
+                    .map(|(k, v)| format!("{k}={v}"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            variables,
+        })
+        .collect())
 }
 
 /// Read CI configuration from the repo at the given commit.
@@ -285,8 +457,10 @@ fn try_read_gitea_workflows(
     let mut all_jobs: std::collections::HashMap<String, config::JobConfig> =
         std::collections::HashMap::new();
     let mut all_stages: Vec<String> = Vec::new();
+    let mut workflow_sources = std::collections::HashMap::new();
 
-    // Iterate through .gitea/workflows/*.yml entries
+    // Load all workflow sources first so callers can resolve repository-local
+    // reusable workflows from the same immutable commit tree.
     for entry in tree.iter() {
         let entry = match entry {
             Ok(e) => e,
@@ -307,7 +481,10 @@ fn try_read_gitea_workflows(
             Err(_) => continue,
         };
         let yml = String::from_utf8(blob.data.to_vec()).unwrap_or_default();
+        workflow_sources.insert(name, yml);
+    }
 
+    for (name, yml) in &workflow_sources {
         let workflow = match gitea_actions::GiteaWorkflow::parse(&yml) {
             Ok(w) => w,
             Err(e) => {
@@ -320,6 +497,12 @@ fn try_read_gitea_workflows(
         if !workflow.matches_event(event, ref_name, &default_branch) {
             continue;
         }
+        let workflow = workflow
+            .expand_local_reusable_workflows(&workflow_sources)
+            .with_context(|| format!("failed to expand .gitea/workflows/{name}"))?;
+        workflow
+            .validate_supported_actions()
+            .with_context(|| format!("unsupported workflow .gitea/workflows/{name}"))?;
 
         tracing::info!("Triggering workflow from .gitea/workflows/{}", name);
 
@@ -380,3 +563,131 @@ fn get_default_branch(repo: &gix::Repository) -> Result<String> {
 }
 
 // M-14: has_ci_config moved to rg_core::ci::has_ci_config and re-exported above.
+
+#[cfg(test)]
+mod matrix_tests {
+    use super::*;
+    use std::collections::{BTreeMap, HashMap};
+
+    fn config(matrix: BTreeMap<String, Vec<String>>) -> config::JobConfig {
+        config::JobConfig {
+            stage: Some("test".into()),
+            script: vec!["echo ok".into()],
+            image: None,
+            only: None,
+            variables: Some(HashMap::from([("BASE".into(), "yes".into())])),
+            when: None,
+            environment: None,
+            allow_failure: None,
+            timeout_seconds: None,
+            tags: None,
+            matrix: Some(matrix),
+            cache: None,
+        }
+    }
+
+    #[test]
+    fn expands_cartesian_matrix_with_deterministic_names_and_variables() {
+        let variants = expand_matrix(
+            "test",
+            &config(BTreeMap::from([
+                ("os".into(), vec!["linux".into(), "macos".into()]),
+                ("rust".into(), vec!["stable".into(), "beta".into()]),
+            ])),
+        )
+        .unwrap();
+        assert_eq!(variants.len(), 4);
+        assert_eq!(variants[0].name, "test [os=linux, rust=stable]");
+        assert_eq!(variants[0].variables["MATRIX_OS"], "linux");
+        assert_eq!(variants[0].variables["BASE"], "yes");
+    }
+
+    #[test]
+    fn rejects_excessive_matrix() {
+        let error = expand_matrix(
+            "huge",
+            &config(BTreeMap::from([
+                ("a".into(), (0..17).map(|v| v.to_string()).collect()),
+                ("b".into(), (0..17).map(|v| v.to_string()).collect()),
+            ])),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("maximum is 256"));
+    }
+
+    #[test]
+    fn repository_reader_expands_local_reusable_workflow_at_commit() {
+        let temp = tempfile::tempdir().unwrap();
+        let workflows = temp.path().join(".gitea/workflows");
+        std::fs::create_dir_all(&workflows).unwrap();
+        std::fs::write(
+            workflows.join("main.yml"),
+            "on: push\njobs:\n  shared:\n    uses: ./.gitea/workflows/shared.yml\n    with:\n      target: staging\n",
+        ).unwrap();
+        std::fs::write(
+            workflows.join("shared.yml"),
+            "on: workflow_call\njobs:\n  build:\n    steps:\n      - run: echo '${{ inputs.target }}'\n",
+        ).unwrap();
+        let git = rg_git::cli_gateway::global_gateway().as_ref().unwrap();
+        assert!(git.run(&["init"], Some(temp.path())).unwrap().success());
+        assert!(git
+            .run(&["config", "user.name", "CI"], Some(temp.path()))
+            .unwrap()
+            .success());
+        assert!(git
+            .run(
+                &["config", "user.email", "ci@example.com"],
+                Some(temp.path())
+            )
+            .unwrap()
+            .success());
+        assert!(git
+            .run(&["add", ".gitea/workflows"], Some(temp.path()))
+            .unwrap()
+            .success());
+        assert!(git
+            .run(&["commit", "-m", "workflows"], Some(temp.path()))
+            .unwrap()
+            .success());
+        let sha = git
+            .run(&["rev-parse", "HEAD"], Some(temp.path()))
+            .unwrap()
+            .stdout_str()
+            .trim()
+            .to_owned();
+        let config = read_ci_config(temp.path(), &sha, "refs/heads/main", "push").unwrap();
+        let job = config.jobs.get("main/shared/build").unwrap();
+        assert!(job
+            .script
+            .iter()
+            .any(|line| line.contains("${INPUT_TARGET}")));
+        assert_eq!(job.variables.as_ref().unwrap()["INPUT_TARGET"], "staging");
+    }
+
+    #[test]
+    fn manual_jobs_are_supported_and_invalid_execution_policies_fail_closed() {
+        let mut job = config(BTreeMap::new());
+        job.when = Some("manual".into());
+        let config = CiConfig {
+            stages: Some(vec!["test".into()]),
+            concurrency: None,
+            jobs: HashMap::from([("deploy".into(), job.clone())]),
+        };
+        validate_execution_semantics(&config).unwrap();
+        job.when = Some("delayed".into());
+        let invalid_when = CiConfig {
+            stages: Some(vec!["test".into()]),
+            concurrency: None,
+            jobs: HashMap::from([("deploy".into(), job.clone())]),
+        };
+        assert!(validate_execution_semantics(&invalid_when).is_err());
+        job.when = None;
+        job.timeout_seconds = Some(0);
+        let config = CiConfig {
+            stages: Some(vec!["test".into()]),
+            concurrency: None,
+            jobs: HashMap::from([("deploy".into(), job)]),
+        };
+        assert!(validate_execution_semantics(&config).is_err());
+    }
+}

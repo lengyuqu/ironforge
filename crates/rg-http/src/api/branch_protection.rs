@@ -27,6 +27,8 @@ pub struct CreateProtectionRequest {
     #[serde(default)]
     pub allow_force_push: bool,
     #[serde(default)]
+    pub require_signed_commits: bool,
+    #[serde(default)]
     pub allowed_push_user_ids: Option<Vec<i64>>,
 }
 
@@ -44,6 +46,8 @@ pub struct UpdateProtectionRequest {
     pub required_approvals: Option<i64>,
     #[serde(default)]
     pub allow_force_push: Option<bool>,
+    #[serde(default)]
+    pub require_signed_commits: Option<bool>,
     #[serde(default)]
     pub allowed_push_user_ids: Option<Vec<i64>>,
 }
@@ -68,7 +72,11 @@ pub struct UpdateProtectionRequest {
 pub async fn list_protections(
     State(state): State<AppState>,
     Path((owner, repo)): Path<(String, String)>,
+    headers: axum::http::HeaderMap,
 ) -> impl IntoResponse {
+    if let Err(error) = super::repo_access::require_read(&state, &headers, &owner, &repo).await {
+        return error.into_response();
+    }
     match rg_core::branch_protection::service::list_protections(&state.db, &owner, &repo).await {
         Ok(protections) => (StatusCode::OK, Json(protections)).into_response(),
         Err(e) => {
@@ -101,8 +109,8 @@ pub async fn create_protection(
     headers: axum::http::HeaderMap,
     Json(req): Json<CreateProtectionRequest>,
 ) -> impl IntoResponse {
-    if super::auth::extract_user_id(&headers, &state.jwt_secret).is_none() {
-        return AppError::unauthorized("authentication required".to_string()).into_response();
+    if let Err(error) = super::repo_access::require_admin(&state, &headers, &owner, &repo).await {
+        return error.into_response();
     }
 
     match rg_core::branch_protection::service::create_protection(
@@ -116,6 +124,7 @@ pub async fn create_protection(
         req.require_approval,
         req.required_approvals,
         req.allow_force_push,
+        req.require_signed_commits,
         req.allowed_push_user_ids,
     )
     .await
@@ -144,7 +153,11 @@ pub async fn create_protection(
 pub async fn get_protection(
     State(state): State<AppState>,
     Path((owner, repo, id)): Path<(String, String, i64)>,
+    headers: axum::http::HeaderMap,
 ) -> impl IntoResponse {
+    if let Err(error) = super::repo_access::require_read(&state, &headers, &owner, &repo).await {
+        return error.into_response();
+    }
     match rg_core::branch_protection::service::get_protection_for_repo(&state.db, &owner, &repo, id)
         .await
     {
@@ -176,8 +189,8 @@ pub async fn update_protection(
     headers: axum::http::HeaderMap,
     Json(req): Json<UpdateProtectionRequest>,
 ) -> impl IntoResponse {
-    if super::auth::extract_user_id(&headers, &state.jwt_secret).is_none() {
-        return AppError::unauthorized("authentication required".to_string()).into_response();
+    if let Err(error) = super::repo_access::require_admin(&state, &headers, &owner, &repo).await {
+        return error.into_response();
     }
 
     match rg_core::branch_protection::service::update_protection_for_repo(
@@ -191,6 +204,7 @@ pub async fn update_protection(
         req.require_approval,
         req.required_approvals,
         req.allow_force_push,
+        req.require_signed_commits,
         req.allowed_push_user_ids,
     )
     .await
@@ -222,8 +236,8 @@ pub async fn delete_protection(
     Path((owner, repo, id)): Path<(String, String, i64)>,
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse {
-    if super::auth::extract_user_id(&headers, &state.jwt_secret).is_none() {
-        return AppError::unauthorized("authentication required".to_string()).into_response();
+    if let Err(error) = super::repo_access::require_admin(&state, &headers, &owner, &repo).await {
+        return error.into_response();
     }
 
     match rg_core::branch_protection::service::delete_protection_for_repo(

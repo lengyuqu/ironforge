@@ -157,7 +157,7 @@ pub async fn request_codeowners(
                 continue;
             }
 
-            pr_reviewer_request_ops::create(
+            let request = pr_reviewer_request_ops::create(
                 db,
                 pr_reviewer_request::ActiveModel {
                     id: NotSet,
@@ -166,6 +166,21 @@ pub async fn request_codeowners(
                     requested_by_id: Set(requested_by_id),
                     created_at: Set(Utc::now()),
                 },
+            )
+            .await?;
+            rg_db::ops::pr_event_ops::record(
+                db,
+                repository.id,
+                pr_id,
+                Some(requested_by_id),
+                "reviewer_requested",
+                None,
+                serde_json::json!({
+                    "request_id": request.id,
+                    "reviewer_id": user.id,
+                    "reviewer": user.username.clone(),
+                    "source": "codeowners"
+                }),
             )
             .await?;
             requested.push(user.username);

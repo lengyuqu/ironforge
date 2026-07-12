@@ -7,20 +7,21 @@
 //! - `on: push`, `on: pull_request` triggers with branch filtering
 //! - `jobs.<id>.runs-on` → runner tags
 //! - `jobs.<id>.steps[].run` → script commands
-//! - `jobs.<id>.steps[].uses` → `actions/checkout` is implicit, others ignored
+//! - `jobs.<id>.steps[].uses` → `actions/checkout` is implicit; other actions are rejected
 //! - `jobs.<id>.container.image` → Docker image
 //! - `jobs.<id>.env` → environment variables
 //! - `jobs.<id>.needs` → stage ordering (implicit via dependency graph)
+//! - Repository-local reusable workflows with `on: workflow_call`, inputs, inherited secrets, and dependency rewriting
 //! - Basic `${{ }}` expression substitution
 
 use anyhow::Result;
 use serde::Deserialize;
 use std::collections::HashMap;
 
-use crate::config::{CiConfig, ConcurrencyConfig, JobConfig};
+use crate::config::{CacheConfig, CiConfig, ConcurrencyConfig, JobConfig};
 
 /// A parsed Gitea Actions workflow file.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct GiteaWorkflow {
     /// Workflow name (optional, defaults to filename).
     pub name: Option<String>,
@@ -40,7 +41,7 @@ pub struct GiteaWorkflow {
 }
 
 /// Workflow trigger definitions.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
 pub enum WorkflowTriggers {
     /// Simple trigger: `on: push`
@@ -51,7 +52,7 @@ pub enum WorkflowTriggers {
     Array(Vec<String>),
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct WorkflowTriggerSingle {
     pub push: Option<EventFilter>,
     pub pull_request: Option<EventFilter>,
@@ -59,10 +60,12 @@ pub struct WorkflowTriggerSingle {
     pub pull_request_target: Option<EventFilter>,
     pub schedule: Option<Vec<ScheduleTrigger>>,
     pub workflow_dispatch: Option<serde_yaml::Value>,
+    #[serde(default, deserialize_with = "deserialize_present_yaml")]
+    pub workflow_call: Option<serde_yaml::Value>,
 }
 
 /// Event filter with optional branch/tag/path filtering.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct EventFilter {
     pub branches: Option<Vec<String>>,
     #[serde(rename = "branches-ignore")]
@@ -76,14 +79,25 @@ pub struct EventFilter {
 }
 
 /// Schedule trigger with cron expression.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct ScheduleTrigger {
     pub cron: String,
 }
 
 /// A Gitea Actions job definition.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct GiteaJob {
+    /// Reusable workflow invocation. Repository-local workflow files are
+    /// expanded before conversion; remote targets remain unsupported.
+    pub uses: Option<String>,
+
+    /// Inputs passed to a local reusable workflow.
+    #[serde(default)]
+    pub with: HashMap<String, String>,
+
+    /// Reusable-workflow secret declaration (`inherit` is accepted implicitly
+    /// because repository secrets are already scoped to every job).
+    pub secrets: Option<serde_yaml::Value>,
     /// Runner label (e.g., `ubuntu-latest`, `self-hosted`).
     #[serde(rename = "runs-on")]
     pub runs_on: Option<serde_yaml::Value>,
@@ -100,7 +114,7 @@ pub struct GiteaJob {
     pub env: HashMap<String, String>,
 
     /// Dependencies (job names that must complete before this job).
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_optional_string_or_vec")]
     pub needs: Option<Vec<String>>,
 
     /// Job condition (if expression).
@@ -110,10 +124,25 @@ pub struct GiteaJob {
     /// Job timeout in minutes.
     #[serde(rename = "timeout-minutes")]
     pub timeout_minutes: Option<u64>,
+
+    #[serde(rename = "continue-on-error", default)]
+    pub continue_on_error: bool,
+
+    /// Deployment environment, either a name or `{ name, url }` mapping.
+    pub environment: Option<serde_yaml::Value>,
+
+    /// Matrix expansion compatible with `strategy.matrix`.
+    pub strategy: Option<GiteaStrategy>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct GiteaStrategy {
+    #[serde(default)]
+    pub matrix: std::collections::BTreeMap<String, Vec<serde_yaml::Value>>,
 }
 
 /// A step within a Gitea Actions job.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct GiteaStep {
     /// Step name (optional).
     pub name: Option<String>,
@@ -142,7 +171,7 @@ pub struct GiteaStep {
 }
 
 /// Container specification for a job.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct GiteaContainer {
     /// Docker image.
     pub image: String,
@@ -156,7 +185,7 @@ pub struct GiteaContainer {
 }
 
 /// Concurrency configuration (Gitea Actions format).
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct GiteaConcurrency {
     pub group: String,
     #[serde(rename = "cancel-in-progress")]
@@ -179,6 +208,73 @@ impl GiteaWorkflow {
         Ok(wf)
     }
 
+    pub fn expand_local_reusable_workflows(
+        &self,
+        sources: &HashMap<String, String>,
+    ) -> Result<Self> {
+        let mut stack = Vec::new();
+        let mut expanded = self.clone();
+        expanded.jobs = expand_reusable_jobs(self, sources, 0, &mut stack)?;
+        Ok(expanded)
+    }
+
+    fn is_reusable(&self) -> bool {
+        match &self.on {
+            WorkflowTriggers::Simple(name) => name == "workflow_call",
+            WorkflowTriggers::Array(names) => names.iter().any(|name| name == "workflow_call"),
+            WorkflowTriggers::Single(trigger) => trigger.workflow_call.is_some(),
+        }
+    }
+
+    /// Reject workflows that would otherwise appear successful after silently
+    /// dropping an action step. IronForge's native `.ironforge-ci.yml` format
+    /// is the supported escape hatch for commands that do not have an Actions
+    /// runtime.
+    pub fn validate_supported_actions(&self) -> Result<()> {
+        let mut unsupported = self
+            .jobs
+            .iter()
+            .flat_map(|(job_name, job)| {
+                job.steps.iter().filter_map(move |step| {
+                    step.uses
+                        .as_deref()
+                        .filter(|uses| {
+                            !uses.starts_with("actions/checkout@")
+                                && !uses.starts_with("actions/cache@")
+                        })
+                        .map(|uses| format!("{job_name}: {uses}"))
+                })
+            })
+            .collect::<Vec<_>>();
+        unsupported.extend(self.jobs.iter().filter_map(|(job_name, job)| {
+            job.uses
+                .as_ref()
+                .map(|uses| format!("{job_name}: reusable workflow {uses}"))
+        }));
+        unsupported.extend(self.jobs.iter().flat_map(|(job_name, job)| {
+            let job_condition = job
+                .condition
+                .as_deref()
+                .filter(|condition| !supported_condition(condition))
+                .map(|condition| format!("{job_name}: unsupported job condition {condition}"));
+            let step_conditions = job.steps.iter().filter_map(move |step| {
+                step.condition
+                    .as_deref()
+                    .filter(|condition| !supported_condition(condition))
+                    .map(|condition| format!("{job_name}: unsupported step condition {condition}"))
+            });
+            job_condition.into_iter().chain(step_conditions)
+        }));
+        if unsupported.is_empty() {
+            Ok(())
+        } else {
+            anyhow::bail!(
+                "unsupported action step(s): {}. Convert them to run: commands or use .ironforge-ci.yml",
+                unsupported.join(", ")
+            )
+        }
+    }
+
     /// Check if this workflow should be triggered for the given event and ref.
     pub fn matches_event(&self, event: &str, ref_name: &str, default_branch: &str) -> bool {
         match &self.on {
@@ -191,6 +287,7 @@ impl GiteaWorkflow {
                     pull_request_target: _,
                     schedule: _,
                     workflow_dispatch: _,
+                    workflow_call: _,
                 } = trigger.as_ref();
                 match event {
                     "push" => {
@@ -200,7 +297,7 @@ impl GiteaWorkflow {
                             false
                         }
                     }
-                    "pull_request" => {
+                    "pull_request" | "merge_group" => {
                         if let Some(filter) = pull_request {
                             // For pull_request events, GitHub/Gitea `branches` filters
                             // apply to the PR's base (target) branch, not the head ref.
@@ -287,14 +384,22 @@ impl GiteaWorkflow {
         for (name, job) in &self.jobs {
             let mut script: Vec<String> = Vec::new();
             let mut job_vars: HashMap<String, String> = HashMap::new();
+            let mut cache = None;
 
             // Copy workflow-level env
             for (k, v) in &self.env {
-                job_vars.insert(k.clone(), v.clone());
+                job_vars.insert(k.clone(), substitute_expr(v, name, &self.env, &job.env));
             }
             // Copy job-level env
             for (k, v) in &job.env {
-                job_vars.insert(k.clone(), v.clone());
+                job_vars.insert(k.clone(), substitute_expr(v, name, &self.env, &job.env));
+            }
+
+            if let Some(uses) = &job.uses {
+                script.push(format!(
+                    "echo \"IronForge does not support reusable workflow '{}'; use explicit jobs or .ironforge-ci.yml\" >&2; exit 78",
+                    uses
+                ));
             }
 
             // Process steps
@@ -306,9 +411,29 @@ impl GiteaWorkflow {
                         has_checkout = true;
                         continue;
                     }
-                    // For other actions, emit a comment
+                    if uses.starts_with("actions/cache@") {
+                        if let (Some(path), Some(key)) =
+                            (step.with.get("path"), step.with.get("key"))
+                        {
+                            let paths = path
+                                .lines()
+                                .map(str::trim)
+                                .filter(|path| !path.is_empty())
+                                .map(str::to_owned)
+                                .collect::<Vec<_>>();
+                            cache = Some(CacheConfig {
+                                key: substitute_expr(key, name, &self.env, &job_vars),
+                                paths,
+                            });
+                        } else {
+                            script.push("echo \"actions/cache requires both 'path' and 'key'\" >&2; exit 78".into());
+                        }
+                        continue;
+                    }
+                    // Direct callers should still fail visibly even if they
+                    // skipped `validate_supported_actions`.
                     script.push(format!(
-                        "# [IronForge] action '{}' is not natively supported; skipping",
+                        "echo \"IronForge does not support action '{}'; use run: or .ironforge-ci.yml\" >&2; exit 78",
                         uses
                     ));
                     continue;
@@ -370,8 +495,23 @@ impl GiteaWorkflow {
                         Some(job_vars)
                     },
                     when: None,
-                    allow_failure: None,
+                    environment: job.environment.as_ref().and_then(environment_name),
+                    allow_failure: Some(job.continue_on_error),
+                    timeout_seconds: job
+                        .timeout_minutes
+                        .map(|minutes| minutes.saturating_mul(60)),
                     tags,
+                    matrix: job.strategy.as_ref().map(|strategy| {
+                        strategy
+                            .matrix
+                            .iter()
+                            .map(|(key, values)| {
+                                let values = values.iter().filter_map(yaml_scalar_string).collect();
+                                (key.clone(), values)
+                            })
+                            .collect()
+                    }),
+                    cache,
                 },
             );
         }
@@ -385,6 +525,156 @@ impl GiteaWorkflow {
             jobs: job_configs,
         }
     }
+}
+
+fn environment_name(value: &serde_yaml::Value) -> Option<String> {
+    match value {
+        serde_yaml::Value::String(name) => Some(name.clone()),
+        serde_yaml::Value::Mapping(mapping) => mapping
+            .get(serde_yaml::Value::String("name".into()))
+            .and_then(serde_yaml::Value::as_str)
+            .map(str::to_string),
+        _ => None,
+    }
+}
+
+fn expand_reusable_jobs(
+    workflow: &GiteaWorkflow,
+    sources: &HashMap<String, String>,
+    depth: usize,
+    stack: &mut Vec<String>,
+) -> Result<HashMap<String, GiteaJob>> {
+    if depth > 4 {
+        anyhow::bail!("reusable workflow nesting exceeds the maximum depth of 4");
+    }
+    let mut jobs = HashMap::new();
+    let mut expansion: HashMap<String, Vec<String>> = HashMap::new();
+
+    for (name, original) in &workflow.jobs {
+        let Some(uses) = original.uses.as_deref() else {
+            let mut job = original.clone();
+            for (key, value) in &workflow.env {
+                job.env.entry(key.clone()).or_insert_with(|| value.clone());
+            }
+            jobs.insert(name.clone(), job);
+            expansion.insert(name.clone(), vec![name.clone()]);
+            continue;
+        };
+
+        let target = uses
+            .strip_prefix("./.gitea/workflows/")
+            .ok_or_else(|| anyhow::anyhow!("only repository-local reusable workflows under .gitea/workflows/ are supported: {uses}"))?;
+        if target.is_empty() || target.contains('/') || target.contains("..") {
+            anyhow::bail!("invalid local reusable workflow path: {uses}");
+        }
+        if stack.iter().any(|entry| entry == target) {
+            anyhow::bail!(
+                "reusable workflow cycle detected: {} -> {target}",
+                stack.join(" -> ")
+            );
+        }
+        if let Some(secrets) = &original.secrets {
+            if secrets.as_str() != Some("inherit") {
+                anyhow::bail!("reusable workflow '{name}' supports only `secrets: inherit`; named secret remapping is not supported");
+            }
+        }
+        let source = sources
+            .get(target)
+            .ok_or_else(|| anyhow::anyhow!("local reusable workflow not found: {uses}"))?;
+        let called = GiteaWorkflow::parse(source).map_err(|error| {
+            anyhow::anyhow!("failed to parse reusable workflow {target}: {error}")
+        })?;
+        if !called.is_reusable() {
+            anyhow::bail!("workflow {target} is not reusable; declare `on: workflow_call`");
+        }
+        stack.push(target.to_owned());
+        let called_jobs = expand_reusable_jobs(&called, sources, depth + 1, stack)?;
+        stack.pop();
+
+        let depended_on = called_jobs
+            .values()
+            .flat_map(|job| job.needs.clone().unwrap_or_default())
+            .collect::<std::collections::HashSet<_>>();
+        let leaves = called_jobs
+            .keys()
+            .filter(|job_name| !depended_on.contains(*job_name))
+            .cloned()
+            .collect::<Vec<_>>();
+        let roots = called_jobs
+            .iter()
+            .filter(|(_, job)| job.needs.as_ref().is_none_or(Vec::is_empty))
+            .map(|(job_name, _)| job_name.clone())
+            .collect::<std::collections::HashSet<_>>();
+
+        for (child_name, mut child) in called_jobs {
+            child.needs = child.needs.map(|needs| {
+                needs
+                    .into_iter()
+                    .map(|dependency| format!("{name}/{dependency}"))
+                    .collect()
+            });
+            if roots.contains(&child_name) {
+                child.needs = original.needs.clone();
+            }
+            for (input, value) in &original.with {
+                let env_name = format!("INPUT_{}", input.to_ascii_uppercase().replace('-', "_"));
+                child.env.insert(env_name, value.clone());
+            }
+            jobs.insert(format!("{name}/{child_name}"), child);
+        }
+        expansion.insert(
+            name.clone(),
+            leaves
+                .into_iter()
+                .map(|leaf| format!("{name}/{leaf}"))
+                .collect(),
+        );
+    }
+
+    for job in jobs.values_mut() {
+        if let Some(needs) = job.needs.take() {
+            let mut rewritten = Vec::new();
+            for dependency in needs {
+                if let Some(leaves) = expansion.get(&dependency) {
+                    rewritten.extend(leaves.clone());
+                } else {
+                    rewritten.push(dependency);
+                }
+            }
+            rewritten.sort();
+            rewritten.dedup();
+            job.needs = (!rewritten.is_empty()).then_some(rewritten);
+        }
+    }
+    Ok(jobs)
+}
+
+fn deserialize_optional_string_or_vec<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Option<Vec<String>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum StringOrVec {
+        String(String),
+        Vec(Vec<String>),
+    }
+    Ok(match Option::<StringOrVec>::deserialize(deserializer)? {
+        Some(StringOrVec::String(value)) => Some(vec![value]),
+        Some(StringOrVec::Vec(values)) => Some(values),
+        None => None,
+    })
+}
+
+fn deserialize_present_yaml<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Option<serde_yaml::Value>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    serde_yaml::Value::deserialize(deserializer).map(Some)
 }
 
 /// Check if a ref matches an event filter.
@@ -464,6 +754,13 @@ fn match_glob(s: &str, pattern: &str) -> bool {
     s == pattern
 }
 
+fn supported_condition(condition: &str) -> bool {
+    matches!(
+        condition.trim(),
+        "success()" | "${{ success() }}" | "true" | "${{ true }}"
+    )
+}
+
 /// Basic `${{ expression }}` substitution.
 fn substitute_expr(
     input: &str,
@@ -486,7 +783,48 @@ fn substitute_expr(
     result = result.replace("${{ github.sha }}", "${CI_SHA}");
     result = result.replace("${{ github.event_name }}", "${CI_EVENT}");
 
+    result = replace_context_expression(result, "secrets", |name| format!("${{{name}}}"));
+    result = replace_context_expression(result, "matrix", |name| {
+        format!(
+            "${{MATRIX_{}}}",
+            name.to_ascii_uppercase().replace('-', "_")
+        )
+    });
+    result = replace_context_expression(result, "inputs", |name| {
+        format!("${{INPUT_{}}}", name.to_ascii_uppercase().replace('-', "_"))
+    });
+
     result
+}
+
+fn yaml_scalar_string(value: &serde_yaml::Value) -> Option<String> {
+    match value {
+        serde_yaml::Value::String(v) => Some(v.clone()),
+        serde_yaml::Value::Bool(v) => Some(v.to_string()),
+        serde_yaml::Value::Number(v) => Some(v.to_string()),
+        _ => None,
+    }
+}
+
+fn replace_context_expression(
+    mut input: String,
+    context: &str,
+    replacement: impl Fn(&str) -> String,
+) -> String {
+    let prefix = format!("${{{{ {context}.");
+    while let Some(start) = input.find(&prefix) {
+        let name_start = start + prefix.len();
+        let Some(relative_end) = input[name_start..].find(" }}") else {
+            break;
+        };
+        let end = name_start + relative_end;
+        let name = input[name_start..end].trim();
+        if name.is_empty() {
+            break;
+        }
+        input.replace_range(start..end + 3, &replacement(name));
+    }
+    input
 }
 
 #[cfg(test)]
@@ -501,6 +839,9 @@ on: push
 jobs:
   build:
     runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://example.invalid
     steps:
       - uses: actions/checkout@v4
       - name: Build
@@ -509,6 +850,7 @@ jobs:
         run: cargo test
 "#;
         let wf = GiteaWorkflow::parse(yml).unwrap();
+        wf.validate_supported_actions().unwrap();
         assert_eq!(wf.name.as_deref(), Some("CI"));
         assert!(wf.matches_event("push", "refs/heads/main", "main"));
 
@@ -524,11 +866,187 @@ jobs:
 
         let build = ci_config.jobs.get("build").unwrap();
         assert_eq!(build.image, None);
+        assert_eq!(build.environment.as_deref(), Some("production"));
         assert!(build.script.len() > 1);
         // checkout should be skipped, build and test run commands present
         let script_str = build.script.join("\n");
         assert!(script_str.contains("cargo build --release"));
         assert!(script_str.contains("cargo test"));
+    }
+
+    #[test]
+    fn unsupported_actions_are_rejected_instead_of_silently_skipped() {
+        let yml = r#"
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+"#;
+        let workflow = GiteaWorkflow::parse(yml).unwrap();
+        let error = workflow.validate_supported_actions().unwrap_err();
+        assert!(error.to_string().contains("actions/setup-node@v4"));
+        assert!(error.to_string().contains(".ironforge-ci.yml"));
+    }
+
+    #[test]
+    fn reusable_workflow_jobs_are_rejected_instead_of_becoming_empty_successes() {
+        let wf = GiteaWorkflow::parse(
+            r#"
+on: push
+jobs:
+  delegated:
+    uses: ./.gitea/workflows/reusable.yml
+"#,
+        )
+        .unwrap();
+        let error = wf.validate_supported_actions().unwrap_err().to_string();
+        assert!(error.contains("reusable workflow"));
+        assert!(error.contains("delegated"));
+    }
+
+    #[test]
+    fn actions_cache_maps_to_native_cache_without_executing_an_unknown_action() {
+        let wf = GiteaWorkflow::parse(
+            r#"
+on: push
+jobs:
+  test:
+    steps:
+      - uses: actions/cache@v4
+        with:
+          path: |
+            target
+            .cargo/registry
+          key: build-${{ github.sha }}
+      - run: cargo test
+"#,
+        )
+        .unwrap();
+        wf.validate_supported_actions().unwrap();
+        let ci = wf.to_ci_config(&WorkflowContext {
+            ref_name: "refs/heads/main".into(),
+            sha: "abc".into(),
+            event: "push".into(),
+            repo_owner: "o".into(),
+            repo_name: "r".into(),
+        });
+        let cache = ci.jobs["test"].cache.as_ref().unwrap();
+        assert_eq!(cache.key, "build-${CI_SHA}");
+        assert_eq!(cache.paths, vec!["target", ".cargo/registry"]);
+    }
+
+    #[test]
+    fn expands_local_reusable_workflow_jobs_inputs_and_dependencies() {
+        let caller = GiteaWorkflow::parse(
+            r#"
+on: push
+jobs:
+  shared:
+    uses: ./.gitea/workflows/shared.yml
+    with:
+      target: production
+    secrets: inherit
+  publish:
+    needs: shared
+    steps:
+      - run: echo publish
+"#,
+        )
+        .unwrap();
+        let sources = HashMap::from([(
+            "shared.yml".into(),
+            r#"
+on:
+  workflow_call:
+env:
+  SHARED: yes
+jobs:
+  build:
+    steps:
+      - run: echo "${{ inputs.target }} $SHARED"
+  verify:
+    needs: build
+    steps:
+      - run: echo verify
+"#
+            .into(),
+        )]);
+        let expanded = caller.expand_local_reusable_workflows(&sources).unwrap();
+        assert!(expanded.jobs.contains_key("shared/build"));
+        assert_eq!(
+            expanded.jobs["shared/verify"].needs.as_ref().unwrap(),
+            &vec!["shared/build"]
+        );
+        assert_eq!(
+            expanded.jobs["publish"].needs.as_ref().unwrap(),
+            &vec!["shared/verify"]
+        );
+        assert_eq!(
+            expanded.jobs["shared/build"].env["INPUT_TARGET"],
+            "production"
+        );
+        let ci = expanded.to_ci_config(&WorkflowContext {
+            ref_name: "refs/heads/main".into(),
+            sha: "abc".into(),
+            event: "push".into(),
+            repo_owner: "o".into(),
+            repo_name: "r".into(),
+        });
+        assert!(ci.jobs["shared/build"]
+            .script
+            .iter()
+            .any(|line| line.contains("${INPUT_TARGET} $SHARED")));
+        assert_eq!(ci.jobs["shared/build"].stage.as_deref(), Some("stage-0"));
+        assert_eq!(ci.jobs["shared/verify"].stage.as_deref(), Some("stage-1"));
+        assert_eq!(ci.jobs["publish"].stage.as_deref(), Some("stage-2"));
+    }
+
+    #[test]
+    fn reusable_workflow_cycles_and_remote_targets_fail_closed() {
+        let remote = GiteaWorkflow::parse(
+            "on: push\njobs:\n  call:\n    uses: owner/repo/.gitea/workflows/x.yml@main\n",
+        )
+        .unwrap();
+        assert!(remote
+            .expand_local_reusable_workflows(&HashMap::new())
+            .is_err());
+        let caller =
+            GiteaWorkflow::parse("on: push\njobs:\n  call:\n    uses: ./.gitea/workflows/a.yml\n")
+                .unwrap();
+        let sources = HashMap::from([(
+            "a.yml".into(),
+            "on: workflow_call\njobs:\n  again:\n    uses: ./.gitea/workflows/a.yml\n".into(),
+        )]);
+        assert!(caller.expand_local_reusable_workflows(&sources).is_err());
+    }
+
+    #[test]
+    fn maps_continue_on_error_and_timeout_and_rejects_ignored_conditions() {
+        let workflow = GiteaWorkflow::parse(
+            "on: push\njobs:\n  test:\n    continue-on-error: true\n    timeout-minutes: 3\n    steps:\n      - run: exit 1\n",
+        ).unwrap();
+        workflow.validate_supported_actions().unwrap();
+        let ci = workflow.to_ci_config(&WorkflowContext {
+            ref_name: "refs/heads/main".into(),
+            sha: "abc".into(),
+            event: "push".into(),
+            repo_owner: "o".into(),
+            repo_name: "r".into(),
+        });
+        assert_eq!(ci.jobs["test"].allow_failure, Some(true));
+        assert_eq!(ci.jobs["test"].timeout_seconds, Some(180));
+
+        let unsupported = GiteaWorkflow::parse(
+            "on: push\njobs:\n  test:\n    if: github.ref == 'refs/heads/main'\n    steps:\n      - run: echo no\n",
+        ).unwrap();
+        assert!(unsupported
+            .validate_supported_actions()
+            .unwrap_err()
+            .to_string()
+            .contains("unsupported job condition"));
     }
 
     #[test]
@@ -688,5 +1206,36 @@ jobs:
         let cc = ci.concurrency.as_ref().unwrap();
         assert_eq!(cc.group, "deploy-group");
         assert!(cc.cancel_in_progress);
+    }
+
+    #[test]
+    fn converts_actions_matrix_and_secret_expressions() {
+        let yml = r#"
+on: push
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [linux, macos]
+        version: [1, 2]
+    steps:
+      - run: echo "${{ matrix.os }} ${{ secrets.DEPLOY_TOKEN }}"
+"#;
+        let wf = GiteaWorkflow::parse(yml).unwrap();
+        let ci = wf.to_ci_config(&WorkflowContext {
+            ref_name: "refs/heads/main".into(),
+            sha: "abc".into(),
+            event: "push".into(),
+            repo_owner: "o".into(),
+            repo_name: "r".into(),
+        });
+        let job = ci.jobs.get("test").unwrap();
+        let matrix = job.matrix.as_ref().unwrap();
+        assert_eq!(matrix["os"], vec!["linux", "macos"]);
+        assert_eq!(matrix["version"], vec!["1", "2"]);
+        assert!(job
+            .script
+            .iter()
+            .any(|line| line.contains("${MATRIX_OS} ${DEPLOY_TOKEN}")));
     }
 }

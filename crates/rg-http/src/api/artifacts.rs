@@ -75,6 +75,15 @@ pub async fn upload_artifact(
         return AppError::forbidden("job not assigned to this runner").into_response();
     }
 
+    let repo_id = match repo_id_for_job(&state, &job).await {
+        Ok(repo_id) => repo_id,
+        Err(error) => return error.into_response(),
+    };
+    let policy = match rg_db::ops::ci_retention_ops::get_policy(&state.db, repo_id).await {
+        Ok(policy) => policy,
+        Err(error) => return AppError::internal(error).into_response(),
+    };
+
     let upload = match parse_artifact_upload(&state, job_id, &headers, &body).await {
         Ok(upload) => upload,
         Err(e) => return e.into_response(),
@@ -86,7 +95,9 @@ pub async fn upload_artifact(
         &upload.name,
         upload.file_path.to_string_lossy().as_ref(),
         upload.size,
-        None,
+        Some(rg_db::ops::ci_retention_ops::expires_after(
+            policy.artifact_retention_days,
+        )),
     )
     .await
     {
@@ -98,7 +109,12 @@ pub async fn upload_artifact(
             }),
         )
             .into_response(),
-        Err(e) => AppError::internal(e.to_string()).into_response(),
+        Err(e) => {
+            if is_path_under(&upload.file_path, &artifact_root(&state)) {
+                let _ = tokio::fs::remove_file(&upload.file_path).await;
+            }
+            AppError::internal(e.to_string()).into_response()
+        }
     }
 }
 
@@ -186,6 +202,31 @@ pub async fn get_artifact(
         .into_response()
 }
 
+async fn require_artifact_write(
+    state: &AppState,
+    headers: &HeaderMap,
+    artifact_id: i64,
+) -> Result<rg_db::entities::artifact::Model, AppError> {
+    let artifact = require_artifact_read(state, headers, artifact_id).await?;
+    let job = rg_db::ops::pipeline_ops::get_job(&state.db, artifact.job_id)
+        .await
+        .map_err(AppError::internal)?
+        .ok_or_else(|| AppError::not_found("job not found"))?;
+    let repo_id = repo_id_for_job(state, &job).await?;
+    let repo = rg_db::entities::repository::Entity::find_by_id(repo_id)
+        .one(&state.db)
+        .await
+        .map_err(AppError::internal)?
+        .ok_or_else(|| AppError::not_found("repository not found"))?;
+    let actor_id = extract_user_id(headers, &state.jwt_secret)
+        .ok_or_else(|| AppError::unauthorized("authentication required"))?;
+    match rg_core::repo::service::can_write_repo(&state.db, &repo, Some(actor_id)).await {
+        Ok(true) => Ok(artifact),
+        Ok(false) => Err(AppError::forbidden("write access denied")),
+        Err(error) => Err(AppError::internal(error)),
+    }
+}
+
 /// GET /api/v1/artifacts/:id/download
 /// Download artifact file bytes.
 #[utoipa::path(
@@ -259,7 +300,7 @@ pub async fn delete_artifact(
     headers: HeaderMap,
     Path(artifact_id): Path<i64>,
 ) -> impl IntoResponse {
-    let artifact = match require_artifact_read(&state, &headers, artifact_id).await {
+    let artifact = match require_artifact_write(&state, &headers, artifact_id).await {
         Ok(artifact) => artifact,
         Err(e) => return e.into_response(),
     };
@@ -306,10 +347,21 @@ async fn parse_artifact_upload(
     if content_type.starts_with("application/json") {
         let req: UploadArtifactRequest =
             serde_json::from_slice(body).map_err(|e| AppError::bad_request(e.to_string()))?;
+        let file_path = PathBuf::from(req.file_path);
+        let job_root = artifact_root(state).join("jobs").join(job_id.to_string());
+        if !is_path_under(&file_path, &job_root) {
+            return Err(AppError::bad_request(
+                "artifact metadata path must reference an existing file in this job's storage",
+            ));
+        }
+        let size = tokio::fs::metadata(&file_path)
+            .await
+            .map_err(|_| AppError::bad_request("artifact metadata file does not exist"))?
+            .len() as i64;
         return Ok(ParsedArtifactUpload {
-            name: req.name,
-            file_path: PathBuf::from(req.file_path),
-            size: req.size.unwrap_or(0),
+            name: sanitize_artifact_name(&req.name),
+            file_path,
+            size,
         });
     }
 
@@ -413,6 +465,12 @@ async fn require_artifact_read(
         .await
         .map_err(AppError::internal)?
         .ok_or_else(|| AppError::not_found("artifact not found"))?;
+    if artifact
+        .expires_at
+        .is_some_and(|expires| expires <= chrono::Utc::now())
+    {
+        return Err(AppError::not_found("artifact expired"));
+    }
     let job = rg_db::ops::pipeline_ops::get_job(&state.db, artifact.job_id)
         .await
         .map_err(AppError::internal)?
@@ -448,4 +506,19 @@ async fn require_repo_read(
         Ok(false) => Err(AppError::forbidden("access denied")),
         Err(e) => Err(AppError::internal(e)),
     }
+}
+
+async fn repo_id_for_job(
+    state: &AppState,
+    job: &rg_db::entities::pipeline_job::Model,
+) -> Result<i64, AppError> {
+    let stage = rg_db::ops::pipeline_ops::get_stage_by_id(&state.db, job.stage_id)
+        .await
+        .map_err(AppError::internal)?
+        .ok_or_else(|| AppError::not_found("stage not found"))?;
+    let pipeline = rg_db::ops::pipeline_ops::get_pipeline(&state.db, stage.pipeline_id)
+        .await
+        .map_err(AppError::internal)?
+        .ok_or_else(|| AppError::not_found("pipeline not found"))?;
+    Ok(pipeline.repo_id)
 }

@@ -122,6 +122,14 @@ pub async fn create_ssh_key(
         Ok(None) => {}
         Err(error) => return AppError::internal(error).into_response(),
     }
+    match rg_db::ops::deploy_key_ops::find_by_fingerprint(&state.db, &fingerprint).await {
+        Ok(Some(_)) => {
+            return AppError::conflict("this SSH key is already registered as a deploy key")
+                .into_response()
+        }
+        Ok(None) => {}
+        Err(error) => return AppError::internal(error).into_response(),
+    }
 
     let model = rg_db::entities::ssh_key::ActiveModel {
         id: sea_orm::NotSet,

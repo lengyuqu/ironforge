@@ -93,6 +93,22 @@ pub async fn create_pr(
     };
 
     let pr = pull_request_ops::create(db, model).await?;
+    rg_db::ops::pr_event_ops::record(
+        db,
+        pr.repo_id,
+        pr.id,
+        Some(author_id),
+        "pull_request_opened",
+        pr.body.clone(),
+        serde_json::json!({
+            "title": pr.title,
+            "head_sha": pr.head_sha,
+            "head_branch": pr.head_branch,
+            "base_branch": pr.base_branch,
+            "draft": pr.is_draft
+        }),
+    )
+    .await?;
 
     // Trigger pull_request.opened webhook
     let payload = serde_json::json!({
@@ -242,6 +258,7 @@ pub async fn get_pr(
 }
 
 /// Update PR metadata (title, body, state).
+#[allow(clippy::too_many_arguments)]
 pub async fn update_pr(
     db: &DatabaseConnection,
     owner: &str,
@@ -251,8 +268,11 @@ pub async fn update_pr(
     body: Option<String>,
     state: Option<String>,
     is_draft: Option<bool>,
+    actor_id: i64,
 ) -> Result<PullRequest> {
     let mut pr = get_pr(db, owner, repo_name, number).await?;
+    let previous_state = pr.state.clone();
+    let previous_draft = pr.is_draft;
 
     if let Some(t) = title {
         if t.trim().is_empty() {
@@ -321,7 +341,41 @@ pub async fn update_pr(
     active.auto_merge_enabled = Set(final_auto_merge_enabled);
     active.closed_at = Set(final_closed_at);
     active.updated_at = Set(final_updated_at);
-    pull_request_ops::update(db, active).await
+    let updated = pull_request_ops::update(db, active).await?;
+    if previous_draft != updated.is_draft {
+        rg_db::ops::pr_event_ops::record(
+            db,
+            updated.repo_id,
+            updated.id,
+            Some(actor_id),
+            if updated.is_draft {
+                "pull_request_converted_to_draft"
+            } else {
+                "pull_request_marked_ready"
+            },
+            None,
+            serde_json::json!({}),
+        )
+        .await?;
+    }
+    if previous_state != updated.state {
+        let event_type = match updated.state.as_str() {
+            "open" => "pull_request_reopened",
+            "closed" => "pull_request_closed",
+            _ => "pull_request_state_changed",
+        };
+        rg_db::ops::pr_event_ops::record(
+            db,
+            updated.repo_id,
+            updated.id,
+            Some(actor_id),
+            event_type,
+            None,
+            serde_json::json!({"from": previous_state, "to": updated.state}),
+        )
+        .await?;
+    }
+    Ok(updated)
 }
 
 // ── Diff ────────────────────────────────────────────────────────────────
@@ -847,7 +901,18 @@ pub async fn enable_auto_merge(
     active.auto_merge_enabled_by_id = Set(Some(actor_id));
     active.auto_merge_enabled_at = Set(Some(Utc::now()));
     active.updated_at = Set(Utc::now());
-    pull_request_ops::update(db, active).await
+    let updated = pull_request_ops::update(db, active).await?;
+    rg_db::ops::pr_event_ops::record(
+        db,
+        updated.repo_id,
+        updated.id,
+        Some(actor_id),
+        "auto_merge_enabled",
+        None,
+        serde_json::json!({"strategy": strategy.as_str()}),
+    )
+    .await?;
+    Ok(updated)
 }
 
 pub async fn disable_auto_merge(
@@ -855,15 +920,30 @@ pub async fn disable_auto_merge(
     owner: &str,
     repo_name: &str,
     number: i64,
+    actor_id: i64,
 ) -> Result<PullRequest> {
     let pr = get_pr(db, owner, repo_name, number).await?;
+    let was_enabled = pr.auto_merge_enabled;
     let mut active: pull_request::ActiveModel = pr.into();
     active.auto_merge_enabled = Set(false);
     active.auto_merge_strategy = Set(None);
     active.auto_merge_enabled_by_id = Set(None);
     active.auto_merge_enabled_at = Set(None);
     active.updated_at = Set(Utc::now());
-    pull_request_ops::update(db, active).await
+    let updated = pull_request_ops::update(db, active).await?;
+    if was_enabled {
+        rg_db::ops::pr_event_ops::record(
+            db,
+            updated.repo_id,
+            updated.id,
+            Some(actor_id),
+            "auto_merge_disabled",
+            None,
+            serde_json::json!({}),
+        )
+        .await?;
+    }
+    Ok(updated)
 }
 
 /// Attempt an enabled auto-merge. Unsatisfied protection rules are returned as
@@ -1176,6 +1256,19 @@ async fn update_pr_merged(
     active.closed_at = Set(final_closed_at);
     active.updated_at = Set(final_updated_at);
     let merged_pr = pull_request_ops::update(db, active).await?;
+    rg_db::ops::pr_event_ops::record(
+        db,
+        merged_pr.repo_id,
+        merged_pr.id,
+        None,
+        "pull_request_merged",
+        None,
+        serde_json::json!({
+            "strategy": merged_pr.merge_strategy,
+            "commit_sha": merge_commit_sha
+        }),
+    )
+    .await?;
 
     // Trigger pull_request.merged webhook
     let merge_payload = serde_json::json!({

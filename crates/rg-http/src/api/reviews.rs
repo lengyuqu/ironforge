@@ -199,6 +199,7 @@ async fn after_suggestions_applied(
                 docker_enabled: state.docker_enabled,
                 external_runners: state.external_runners,
                 jwt_secret: Some(&state.jwt_secret),
+                external_url: state.external_url.as_deref(),
             })
             .await
         {
@@ -215,11 +216,19 @@ async fn after_suggestions_applied(
     {
         tracing::warn!(pr_id = pr.id, %error, "auto-merge evaluation after suggestion failed");
     }
-    if let Err(error) = rg_core::pull_request::merge_queue::process_for_head_commit(
+    let ci = rg_core::pull_request::merge_queue::MergeQueueCi {
+        trigger: &*state.ci_engine,
+        docker_enabled: state.docker_enabled,
+        external_runners: state.external_runners,
+        jwt_secret: Some(&state.jwt_secret),
+        external_url: state.external_url.as_deref(),
+    };
+    if let Err(error) = rg_core::pull_request::merge_queue::process_for_head_commit_with_ci(
         &state.db,
         &state.repo_root,
         source_repo.id,
         commit_sha,
+        &ci,
     )
     .await
     {
@@ -335,10 +344,18 @@ pub async fn submit_review(
                         tracing::warn!(pr_id = pr.id, %error, "auto-merge attempt after approval failed")
                     }
                 }
-                if let Err(error) = rg_core::pull_request::merge_queue::process_repository(
+                let ci = rg_core::pull_request::merge_queue::MergeQueueCi {
+                    trigger: &*state.ci_engine,
+                    docker_enabled: state.docker_enabled,
+                    external_runners: state.external_runners,
+                    jwt_secret: Some(&state.jwt_secret),
+                    external_url: state.external_url.as_deref(),
+                };
+                if let Err(error) = rg_core::pull_request::merge_queue::process_repository_with_ci(
                     &state.db,
                     &state.repo_root,
                     &repo_model,
+                    &ci,
                 )
                 .await
                 {
@@ -492,6 +509,18 @@ pub async fn get_review_timeline(
         Ok(pr) => pr,
         Err(error) => return AppError::not_found(error.to_string()).into_response(),
     };
+    let persisted_events = match rg_db::ops::pr_event_ops::list_by_pr(&state.db, pr.id).await {
+        Ok(events) => events,
+        Err(error) => return AppError::internal(error).into_response(),
+    };
+    let persisted_events = persisted_events
+        .into_iter()
+        .map(|event| {
+            let metadata =
+                serde_json::from_str(&event.metadata).unwrap_or_else(|_| serde_json::json!({}));
+            (event, metadata)
+        })
+        .collect::<Vec<_>>();
     let reviews = match rg_db::ops::pr_review_ops::list_by_pr(&state.db, pr.id).await {
         Ok(reviews) => reviews,
         Err(error) => return AppError::internal(error).into_response(),
@@ -511,6 +540,11 @@ pub async fn get_review_timeline(
     };
 
     let mut actor_ids = HashSet::from([pr.author_id]);
+    actor_ids.extend(
+        persisted_events
+            .iter()
+            .filter_map(|(event, _)| event.actor_id),
+    );
     actor_ids.extend(reviews.iter().map(|review| review.reviewer_id));
     for comment in &comments {
         actor_ids.insert(comment.author_id);
@@ -543,18 +577,36 @@ pub async fn get_review_timeline(
         })
     };
 
-    let mut timeline = vec![ReviewTimelineEvent {
-        id: format!("pr:{}:opened", pr.id),
-        kind: "pull_request_opened".to_string(),
-        actor: actor(pr.author_id),
-        created_at: pr.created_at,
-        body: pr.body.clone(),
-        metadata: serde_json::json!({"title": pr.title, "head_sha": pr.head_sha}),
-    }];
+    let has_event = |kind: &str| {
+        persisted_events
+            .iter()
+            .any(|(event, _)| event.event_type == kind)
+    };
+    let has_resource_event = |kind: &str, field: &str, id: i64| {
+        persisted_events.iter().any(|(event, metadata)| {
+            event.event_type == kind
+                && metadata.get(field).and_then(|value| value.as_i64()) == Some(id)
+        })
+    };
+    let mut timeline = Vec::new();
+    if !has_event("pull_request_opened") {
+        timeline.push(ReviewTimelineEvent {
+            id: format!("pr:{}:opened", pr.id),
+            kind: "pull_request_opened".to_string(),
+            actor: actor(pr.author_id),
+            created_at: pr.created_at,
+            body: pr.body.clone(),
+            metadata: serde_json::json!({"title": pr.title, "head_sha": pr.head_sha}),
+        });
+    }
     for review in reviews {
+        let kind = format!("review_{}", review.action);
+        if has_resource_event(&kind, "review_id", review.id) {
+            continue;
+        }
         timeline.push(ReviewTimelineEvent {
             id: format!("review:{}", review.id),
-            kind: format!("review_{}", review.action),
+            kind,
             actor: actor(review.reviewer_id),
             created_at: review.created_at,
             body: review.body,
@@ -562,57 +614,67 @@ pub async fn get_review_timeline(
         });
     }
     for comment in comments {
-        timeline.push(ReviewTimelineEvent {
-            id: format!("comment:{}", comment.id),
-            kind: if comment.reply_to_id.is_some() {
-                "review_reply".to_string()
-            } else if comment.suggestion.is_some() {
-                "code_suggestion".to_string()
-            } else {
-                "review_comment".to_string()
-            },
-            actor: actor(comment.author_id),
-            created_at: comment.created_at,
-            body: Some(comment.body.clone()),
-            metadata: serde_json::json!({
-                "comment_id": comment.id,
-                "path": comment.path,
-                "start_line": comment.start_line,
-                "line": comment.line,
-                "side": comment.side,
-                "reply_to_id": comment.reply_to_id
-            }),
-        });
+        let comment_kind = if comment.reply_to_id.is_some() {
+            "review_reply"
+        } else if comment.suggestion.is_some() {
+            "code_suggestion"
+        } else {
+            "review_comment"
+        };
+        if !has_resource_event(comment_kind, "comment_id", comment.id) {
+            timeline.push(ReviewTimelineEvent {
+                id: format!("comment:{}", comment.id),
+                kind: comment_kind.to_string(),
+                actor: actor(comment.author_id),
+                created_at: comment.created_at,
+                body: Some(comment.body.clone()),
+                metadata: serde_json::json!({
+                    "comment_id": comment.id,
+                    "path": comment.path,
+                    "start_line": comment.start_line,
+                    "line": comment.line,
+                    "side": comment.side,
+                    "reply_to_id": comment.reply_to_id
+                }),
+            });
+        }
         if let (Some(applied_at), Some(applied_by_id)) = (
             comment.suggestion_applied_at,
             comment.suggestion_applied_by_id,
         ) {
-            timeline.push(ReviewTimelineEvent {
-                id: format!("comment:{}:applied", comment.id),
-                kind: "suggestion_applied".to_string(),
-                actor: actor(applied_by_id),
-                created_at: applied_at,
-                body: None,
-                metadata: serde_json::json!({
-                    "comment_id": comment.id,
-                    "commit_sha": comment.suggestion_commit_sha
-                }),
-            });
+            if !has_resource_event("suggestion_applied", "comment_id", comment.id) {
+                timeline.push(ReviewTimelineEvent {
+                    id: format!("comment:{}:applied", comment.id),
+                    kind: "suggestion_applied".to_string(),
+                    actor: actor(applied_by_id),
+                    created_at: applied_at,
+                    body: None,
+                    metadata: serde_json::json!({
+                        "comment_id": comment.id,
+                        "commit_sha": comment.suggestion_commit_sha
+                    }),
+                });
+            }
         }
         if let (Some(resolved_at), Some(resolved_by_id)) =
             (comment.resolved_at, comment.resolved_by_id)
         {
-            timeline.push(ReviewTimelineEvent {
-                id: format!("comment:{}:resolved", comment.id),
-                kind: "thread_resolved".to_string(),
-                actor: actor(resolved_by_id),
-                created_at: resolved_at,
-                body: None,
-                metadata: serde_json::json!({"comment_id": comment.id}),
-            });
+            if !has_resource_event("thread_resolved", "comment_id", comment.id) {
+                timeline.push(ReviewTimelineEvent {
+                    id: format!("comment:{}:resolved", comment.id),
+                    kind: "thread_resolved".to_string(),
+                    actor: actor(resolved_by_id),
+                    created_at: resolved_at,
+                    body: None,
+                    metadata: serde_json::json!({"comment_id": comment.id}),
+                });
+            }
         }
     }
     for request in reviewer_requests {
+        if has_resource_event("reviewer_requested", "request_id", request.id) {
+            continue;
+        }
         timeline.push(ReviewTimelineEvent {
             id: format!("reviewer-request:{}", request.id),
             kind: "reviewer_requested".to_string(),
@@ -628,50 +690,70 @@ pub async fn get_review_timeline(
     if let (Some(enabled_at), Some(enabled_by_id)) =
         (pr.auto_merge_enabled_at, pr.auto_merge_enabled_by_id)
     {
-        timeline.push(ReviewTimelineEvent {
-            id: format!("pr:{}:auto-merge", pr.id),
-            kind: "auto_merge_enabled".to_string(),
-            actor: actor(enabled_by_id),
-            created_at: enabled_at,
-            body: None,
-            metadata: serde_json::json!({"strategy": pr.auto_merge_strategy}),
-        });
-    }
-    if let Some(entry) = queue_entry {
-        timeline.push(ReviewTimelineEvent {
-            id: format!("queue:{}:enqueued", entry.id),
-            kind: "merge_queue_enqueued".to_string(),
-            actor: actor(entry.enqueued_by_id),
-            created_at: entry.created_at,
-            body: None,
-            metadata: serde_json::json!({"strategy": entry.strategy}),
-        });
-        if let Some(finished_at) = entry.finished_at {
+        if !has_event("auto_merge_enabled") {
             timeline.push(ReviewTimelineEvent {
-                id: format!("queue:{}:{}", entry.id, entry.status),
-                kind: format!("merge_queue_{}", entry.status),
-                actor: None,
-                created_at: finished_at,
-                body: entry.failure_reason,
-                metadata: serde_json::json!({}),
+                id: format!("pr:{}:auto-merge", pr.id),
+                kind: "auto_merge_enabled".to_string(),
+                actor: actor(enabled_by_id),
+                created_at: enabled_at,
+                body: None,
+                metadata: serde_json::json!({"strategy": pr.auto_merge_strategy}),
             });
         }
     }
+    if let Some(entry) = queue_entry {
+        if !has_resource_event("merge_queue_enqueued", "entry_id", entry.id) {
+            timeline.push(ReviewTimelineEvent {
+                id: format!("queue:{}:enqueued", entry.id),
+                kind: "merge_queue_enqueued".to_string(),
+                actor: actor(entry.enqueued_by_id),
+                created_at: entry.created_at,
+                body: None,
+                metadata: serde_json::json!({"strategy": entry.strategy}),
+            });
+        }
+        if let Some(finished_at) = entry.finished_at {
+            let kind = format!("merge_queue_{}", entry.status);
+            if !has_resource_event(&kind, "entry_id", entry.id) {
+                timeline.push(ReviewTimelineEvent {
+                    id: format!("queue:{}:{}", entry.id, entry.status),
+                    kind,
+                    actor: None,
+                    created_at: finished_at,
+                    body: entry.failure_reason,
+                    metadata: serde_json::json!({}),
+                });
+            }
+        }
+    }
     if let Some(closed_at) = pr.closed_at {
+        let kind = if pr.state == "merged" {
+            "pull_request_merged"
+        } else {
+            "pull_request_closed"
+        };
+        if !has_event(kind) {
+            timeline.push(ReviewTimelineEvent {
+                id: format!("pr:{}:{}", pr.id, pr.state),
+                kind: kind.to_string(),
+                actor: None,
+                created_at: closed_at,
+                body: None,
+                metadata: serde_json::json!({
+                    "strategy": pr.merge_strategy,
+                    "commit_sha": pr.merge_commit_sha
+                }),
+            });
+        }
+    }
+    for (event, metadata) in persisted_events {
         timeline.push(ReviewTimelineEvent {
-            id: format!("pr:{}:{}", pr.id, pr.state),
-            kind: if pr.state == "merged" {
-                "pull_request_merged".to_string()
-            } else {
-                "pull_request_closed".to_string()
-            },
-            actor: None,
-            created_at: closed_at,
-            body: None,
-            metadata: serde_json::json!({
-                "strategy": pr.merge_strategy,
-                "commit_sha": pr.merge_commit_sha
-            }),
+            id: format!("event:{}", event.id),
+            kind: event.event_type,
+            actor: event.actor_id.and_then(&actor),
+            created_at: event.created_at,
+            body: event.body,
+            metadata,
         });
     }
     timeline.sort_by(|left, right| {
@@ -983,17 +1065,36 @@ pub async fn request_reviewer(
         created_at: sea_orm::Set(chrono::Utc::now()),
     };
     match rg_db::ops::pr_reviewer_request_ops::create(&state.db, model).await {
-        Ok(request) => (
-            StatusCode::CREATED,
-            Json(RequestedReviewerResponse {
-                id: request.id,
-                reviewer_id: request.reviewer_id,
-                username: reviewer.username,
-                requested_by_id: request.requested_by_id,
-                created_at: request.created_at,
-            }),
-        )
-            .into_response(),
+        Ok(request) => {
+            if let Err(error) = rg_db::ops::pr_event_ops::record(
+                &state.db,
+                repo_model.id,
+                pr.id,
+                Some(actor_id),
+                "reviewer_requested",
+                None,
+                serde_json::json!({
+                    "request_id": request.id,
+                    "reviewer_id": request.reviewer_id,
+                    "reviewer": reviewer.username
+                }),
+            )
+            .await
+            {
+                return AppError::internal(error).into_response();
+            }
+            (
+                StatusCode::CREATED,
+                Json(RequestedReviewerResponse {
+                    id: request.id,
+                    reviewer_id: request.reviewer_id,
+                    username: reviewer.username,
+                    requested_by_id: request.requested_by_id,
+                    created_at: request.created_at,
+                }),
+            )
+                .into_response()
+        }
         Err(error) if error.to_string().to_ascii_lowercase().contains("unique") => {
             AppError::conflict("reviewer is already requested").into_response()
         }
@@ -1018,10 +1119,11 @@ pub async fn remove_requested_reviewer(
     Path((owner, repo, number, username)): Path<(String, String, i64, String)>,
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse {
-    let (_, _, pr) = match require_pr_manager(&state, &headers, &owner, &repo, number).await {
-        Ok(result) => result,
-        Err(error) => return error.into_response(),
-    };
+    let (repo_model, actor_id, pr) =
+        match require_pr_manager(&state, &headers, &owner, &repo, number).await {
+            Ok(result) => result,
+            Err(error) => return error.into_response(),
+        };
     let reviewer = match rg_db::ops::user_ops::find_by_username(&state.db, &username).await {
         Ok(Some(user)) => user,
         Ok(None) => return AppError::not_found("requested reviewer not found").into_response(),
@@ -1029,7 +1131,25 @@ pub async fn remove_requested_reviewer(
     };
     match rg_db::ops::pr_reviewer_request_ops::delete(&state.db, pr.id, reviewer.id).await {
         Ok(0) => AppError::not_found("requested reviewer not found").into_response(),
-        Ok(_) => StatusCode::NO_CONTENT.into_response(),
+        Ok(_) => {
+            if let Err(error) = rg_db::ops::pr_event_ops::record(
+                &state.db,
+                repo_model.id,
+                pr.id,
+                Some(actor_id),
+                "reviewer_removed",
+                None,
+                serde_json::json!({
+                    "reviewer_id": reviewer.id,
+                    "reviewer": reviewer.username
+                }),
+            )
+            .await
+            {
+                return AppError::internal(error).into_response();
+            }
+            StatusCode::NO_CONTENT.into_response()
+        }
         Err(error) => AppError::internal(error).into_response(),
     }
 }

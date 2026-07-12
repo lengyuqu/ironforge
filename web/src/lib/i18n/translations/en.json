@@ -625,12 +625,17 @@
     "status": {
       "pending": "Pending",
       "running": "Running",
+      "manual": "Manual",
+      "waiting_approval": "Waiting for approval",
       "success": "Passed",
       "failed": "Failed",
       "canceled": "Canceled"
     },
     "retry": "↻ Retry",
     "cancel": "✗ Cancel",
+    "play_manual": "▶ Run",
+    "approve_environment": "Approve deployment",
+    "approval_recorded": "Approval recorded",
     "no_pipelines": "No pipelines yet.",
     "hint": "Push a commit with {file} to trigger a pipeline.",
     "file": ".ironforge-ci.yml",
@@ -710,6 +715,24 @@
       "private": "Private",
       "public": "Public"
     },
+    "deploy_keys": {
+      "title": "Deploy keys",
+      "desc": "Grant an automation key access to this repository only.",
+      "add": "Add deploy key",
+      "name": "Title",
+      "public_key": "Public key",
+      "read_only": "Read-only access",
+      "read_write": "Read/write access",
+      "current": "Configured deploy keys",
+      "empty": "No deploy keys configured.",
+      "required": "Title and public key are required.",
+      "created": "Deploy key added.",
+      "deleted": "Deploy key removed.",
+      "delete_confirm": "Remove deploy key {title}?",
+      "load_failed": "Failed to load deploy keys",
+      "create_failed": "Failed to add deploy key",
+      "delete_failed": "Failed to remove deploy key"
+    },
     "mirror": {
       "title": "Mirror",
       "desc": "Keep this repository synchronized from an external Git remote.",
@@ -774,6 +797,7 @@
       "require_approval": "Require approval",
       "require_status_check": "Require status checks",
       "allow_force_push": "Allow force push",
+      "require_signed_commits": "Require cryptographically signed commits",
       "required_checks": "Required checks",
       "allowed_pushers": "Allowed direct push user IDs",
       "current": "Current protection rules",
@@ -790,7 +814,8 @@
       "delete_failed": "Failed to delete branch protection rule",
       "approvals_count": "{count} approval(s)",
       "status_checks_enabled": "Status checks",
-      "force_push_allowed": "Force push allowed"
+      "force_push_allowed": "Force push allowed",
+      "signed_commits_required": "Signed commits required"
     },
     "collaborators": {
       "title": "Collaborators",

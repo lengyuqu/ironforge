@@ -1,6 +1,7 @@
 //! CI configuration types for `.ironforge-ci.yml`.
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::collections::HashMap;
 
 /// Concurrency control for CI/CD workflows.
@@ -62,15 +63,36 @@ pub struct JobConfig {
     #[serde(default)]
     pub when: Option<String>,
 
+    /// Deployment environment name. Protected environments pause for approval.
+    #[serde(default)]
+    pub environment: Option<String>,
+
     /// Allow failure without marking the pipeline as failed.
     #[serde(default)]
     pub allow_failure: Option<bool>,
+
+    /// Per-job timeout in seconds.
+    #[serde(default)]
+    pub timeout_seconds: Option<u64>,
 
     /// Runner tags/labels required for this job.
     /// Jobs with tags will only be picked up by runners matching those tags.
     /// An empty or missing tags list means any runner can pick up the job.
     #[serde(default)]
     pub tags: Option<Vec<String>>,
+
+    /// Cartesian-product job matrix. At most 256 variants are allowed.
+    #[serde(default)]
+    pub matrix: Option<BTreeMap<String, Vec<String>>>,
+
+    #[serde(default)]
+    pub cache: Option<CacheConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CacheConfig {
+    pub key: String,
+    pub paths: Vec<String>,
 }
 
 #[cfg(test)]
@@ -163,6 +185,7 @@ full_job:
     RUST_BACKTRACE: "1"
     CARGO_HOME: /cargo
   when: manual
+  environment: production
   allow_failure: true
   tags:
     - docker
@@ -181,6 +204,7 @@ full_job:
             "1"
         );
         assert_eq!(job.when.as_deref(), Some("manual"));
+        assert_eq!(job.environment.as_deref(), Some("production"));
         assert_eq!(job.allow_failure, Some(true));
         assert_eq!(
             job.tags.as_ref().unwrap(),

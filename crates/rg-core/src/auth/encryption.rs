@@ -53,6 +53,20 @@ pub fn decrypt(encoded: &str, key: &[u8; 32]) -> Result<String, anyhow::Error> {
     String::from_utf8(plaintext).map_err(|e| anyhow::anyhow!("invalid UTF-8: {}", e))
 }
 
+/// Replace sensitive values in output before it is persisted or streamed.
+pub fn mask_values(input: &str, secrets: &[String]) -> String {
+    let mut masked = input.to_owned();
+    let mut values = secrets
+        .iter()
+        .filter(|value| value.len() >= 4)
+        .collect::<Vec<_>>();
+    values.sort_by_key(|value| std::cmp::Reverse(value.len()));
+    for value in values {
+        masked = masked.replace(value.as_str(), "***");
+    }
+    masked
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

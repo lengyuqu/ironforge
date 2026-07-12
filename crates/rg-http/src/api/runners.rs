@@ -1,10 +1,12 @@
 //! REST API handlers for CI/CD Runners.
 
+use axum::body::Bytes;
 use axum::extract::{Path, Query, Request, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
+use sea_orm::EntityTrait;
 use serde::{Deserialize, Serialize};
 
 use super::auth::extract_user_id;
@@ -59,6 +61,8 @@ pub struct PollJobResponse {
     script: Vec<String>,
     image: Option<String>,
     variables: Option<serde_json::Value>,
+    cache_key: Option<String>,
+    cache_paths: Option<Vec<String>>,
     timeout: i64,
 }
 
@@ -309,10 +313,88 @@ pub async fn poll_job(
 
                     // Fetch stage to get pipeline_id
                     let mut pipeline_id = 0i64;
+                    let mut pipeline = None;
                     if let Ok(Some(stage)) =
                         rg_db::ops::pipeline_ops::get_stage_by_id(&state.db, job.stage_id).await
                     {
                         pipeline_id = stage.pipeline_id;
+                        pipeline = rg_db::ops::pipeline_ops::get_pipeline(&state.db, pipeline_id)
+                            .await
+                            .ok()
+                            .flatten();
+                    }
+
+                    let mut variables = job
+                        .variables
+                        .as_deref()
+                        .and_then(|json| {
+                            serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(json)
+                                .ok()
+                        })
+                        .unwrap_or_default();
+                    for reserved in [
+                        "CI",
+                        "IRONFORGE",
+                        "CI_PIPELINE_ID",
+                        "CI_COMMIT_SHA",
+                        "CI_SHA",
+                        "CI_REF",
+                        "CI_EVENT",
+                        "CI_JOB_TOKEN",
+                        "CI_OIDC_TOKEN_URL",
+                    ] {
+                        variables.remove(reserved);
+                    }
+                    if let Some(pipeline) = &pipeline {
+                        match decrypted_repo_secrets(&state, pipeline.repo_id).await {
+                            Ok(secrets) => {
+                                for (name, value) in secrets {
+                                    variables.insert(name, serde_json::json!(value));
+                                }
+                            }
+                            Err(error) => {
+                                tracing::error!(pipeline_id, %error, "failed to load CI secrets for external runner");
+                                return Err(AppError::internal(
+                                    "failed to prepare job environment",
+                                )
+                                .into_response());
+                            }
+                        }
+                    }
+                    variables.insert("CI".into(), serde_json::json!("true"));
+                    variables.insert("IRONFORGE".into(), serde_json::json!("true"));
+                    variables.insert("CI_PIPELINE_ID".into(), serde_json::json!(pipeline_id));
+                    if let Some(pipeline) = &pipeline {
+                        variables.insert(
+                            "CI_COMMIT_SHA".into(),
+                            serde_json::json!(pipeline.commit_sha),
+                        );
+                        variables.insert("CI_SHA".into(), serde_json::json!(pipeline.commit_sha));
+                        variables.insert("CI_REF".into(), serde_json::json!(pipeline.ref_name));
+                        variables
+                            .insert("CI_EVENT".into(), serde_json::json!(pipeline.trigger_type));
+                        if let Ok(token) = rg_core::auth::ci_token::generate_ci_job_token_with_ttl(
+                            pipeline.repo_id,
+                            pipeline.id,
+                            job.id,
+                            "repo:read packages:read",
+                            &state.jwt_secret,
+                            job.timeout_seconds
+                                .unwrap_or(state.job_timeout_secs as i64)
+                                .clamp(60, 86_400)
+                                + 300,
+                        ) {
+                            variables.insert("CI_JOB_TOKEN".into(), serde_json::json!(token));
+                        }
+                        if let Some(url) = state.external_url.as_deref() {
+                            variables.insert(
+                                "CI_OIDC_TOKEN_URL".into(),
+                                serde_json::json!(format!(
+                                    "{}/api/v1/ci/oidc/token",
+                                    url.trim_end_matches('/')
+                                )),
+                            );
+                        }
                     }
 
                     let resp = PollJobResponse {
@@ -322,8 +404,16 @@ pub async fn poll_job(
                         name: job.name,
                         script: job.script.lines().map(|s| s.to_string()).collect(),
                         image: job.image,
-                        variables: None,
-                        timeout: 3600,
+                        variables: Some(serde_json::Value::Object(variables)),
+                        cache_key: job.cache_key,
+                        cache_paths: job
+                            .cache_paths
+                            .as_deref()
+                            .and_then(|json| serde_json::from_str(json).ok()),
+                        timeout: job
+                            .timeout_seconds
+                            .unwrap_or(state.job_timeout_secs as i64)
+                            .clamp(1, 86_400),
                     };
                     return Ok((StatusCode::OK, Json(resp)));
                 }
@@ -440,7 +530,15 @@ pub async fn upload_log(
         return AppError::forbidden("job not assigned to this runner").into_response();
     }
 
-    // Broadcast log via WebSocket to frontend
+    let body = match secrets_for_job(&state, job.stage_id).await {
+        Ok(secrets) => rg_core::auth::encryption::mask_values(&body, &secrets),
+        Err(error) => {
+            tracing::error!(job_id, %error, "failed to load secrets while masking runner log");
+            return AppError::internal("failed to sanitize job log").into_response();
+        }
+    };
+
+    // Broadcast only the server-sanitized log via WebSocket to frontend.
     crate::ws::push_job_log(&state.notification_hub, job_id, &body);
 
     // Write log through the queue to serialise concurrent writes and
@@ -448,6 +546,275 @@ pub async fn upload_log(
     state.log_write_queue.write(job_id, &body).await;
 
     (StatusCode::OK, Json(serde_json::json!({"status": "ok"}))).into_response()
+}
+
+/// Download a tar snapshot of the exact commit assigned to an external job.
+pub async fn download_workspace(
+    State(state): State<AppState>,
+    Path((runner_id, job_id)): Path<(i64, i64)>,
+) -> impl IntoResponse {
+    let job = match rg_db::ops::pipeline_ops::get_job(&state.db, job_id).await {
+        Ok(Some(job)) if job.runner_id == Some(runner_id) => job,
+        Ok(Some(_)) => {
+            return AppError::forbidden("job not assigned to this runner").into_response()
+        }
+        Ok(None) => return AppError::not_found("job not found").into_response(),
+        Err(error) => return AppError::internal(error).into_response(),
+    };
+    let stage = match rg_db::ops::pipeline_ops::get_stage_by_id(&state.db, job.stage_id).await {
+        Ok(Some(stage)) => stage,
+        Ok(None) => return AppError::not_found("pipeline stage not found").into_response(),
+        Err(error) => return AppError::internal(error).into_response(),
+    };
+    let pipeline = match rg_db::ops::pipeline_ops::get_pipeline(&state.db, stage.pipeline_id).await
+    {
+        Ok(Some(pipeline)) => pipeline,
+        Ok(None) => return AppError::not_found("pipeline not found").into_response(),
+        Err(error) => return AppError::internal(error).into_response(),
+    };
+    let repository = match rg_db::entities::repository::Entity::find_by_id(pipeline.repo_id)
+        .one(&state.db)
+        .await
+    {
+        Ok(Some(repository)) => repository,
+        Ok(None) => return AppError::not_found("repository not found").into_response(),
+        Err(error) => return AppError::internal(error).into_response(),
+    };
+    let namespace = if let Some(org_id) = repository.org_id {
+        match rg_db::ops::org_ops::get_org(&state.db, org_id).await {
+            Ok(Some(org)) => org.name,
+            Ok(None) => {
+                return AppError::not_found("repository organization not found").into_response()
+            }
+            Err(error) => return AppError::internal(error).into_response(),
+        }
+    } else {
+        match rg_db::ops::user_ops::find_by_id(&state.db, repository.owner_id).await {
+            Ok(Some(user)) => user.username,
+            Ok(None) => return AppError::not_found("repository owner not found").into_response(),
+            Err(error) => return AppError::internal(error).into_response(),
+        }
+    };
+    let repo_path = state
+        .repo_root
+        .join(namespace)
+        .join(format!("{}.git", repository.name));
+    let commit_sha = pipeline.commit_sha.clone();
+    let archive = match tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<u8>> {
+        let gateway = rg_git::cli_gateway::global_gateway()
+            .as_ref()
+            .map_err(|error| anyhow::anyhow!("{error}"))?;
+        let output = gateway.run(&["archive", "--format=tar", &commit_sha], Some(&repo_path))?;
+        if !output.success() {
+            anyhow::bail!("git archive failed: {}", output.stderr_str().trim());
+        }
+        Ok(output.stdout)
+    })
+    .await
+    {
+        Ok(Ok(bytes)) => bytes,
+        Ok(Err(error)) => return AppError::internal(error).into_response(),
+        Err(error) => return AppError::internal(error).into_response(),
+    };
+    (
+        StatusCode::OK,
+        [(axum::http::header::CONTENT_TYPE, "application/x-tar")],
+        archive,
+    )
+        .into_response()
+}
+
+pub async fn download_cache(
+    State(state): State<AppState>,
+    Path((runner_id, job_id)): Path<(i64, i64)>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    let (job, repo_id) = match assigned_job_repo(&state, runner_id, job_id).await {
+        Ok(value) => value,
+        Err(error) => return error.into_response(),
+    };
+    if job.cache_key.is_none() {
+        return AppError::not_found("job has no cache configuration").into_response();
+    }
+    let key = match cache_key_header(&headers) {
+        Ok(key) => key,
+        Err(error) => return error.into_response(),
+    };
+    let path = cache_archive_path(&state, repo_id, key);
+    let key_hash = cache_key_hash(key);
+    if let Ok(Some(entry)) =
+        rg_db::ops::ci_retention_ops::find_cache_entry(&state.db, repo_id, &key_hash).await
+    {
+        if entry.expires_at <= chrono::Utc::now() {
+            let _ = tokio::fs::remove_file(&path).await;
+            let _ = rg_db::ops::ci_retention_ops::delete_cache_entry(&state.db, entry.id).await;
+            return AppError::not_found("cache entry expired").into_response();
+        }
+    }
+    match tokio::fs::read(&path).await {
+        Ok(bytes) => {
+            let policy = match rg_db::ops::ci_retention_ops::get_policy(&state.db, repo_id).await {
+                Ok(policy) => policy,
+                Err(error) => return AppError::internal(error).into_response(),
+            };
+            if let Err(error) = rg_db::ops::ci_retention_ops::upsert_cache_entry(
+                &state.db,
+                repo_id,
+                &key_hash,
+                path.to_string_lossy().as_ref(),
+                bytes.len() as i64,
+                policy.cache_retention_days,
+            )
+            .await
+            {
+                return AppError::internal(error).into_response();
+            }
+            (
+                StatusCode::OK,
+                [(axum::http::header::CONTENT_TYPE, "application/x-tar")],
+                bytes,
+            )
+                .into_response()
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            AppError::not_found("cache entry not found").into_response()
+        }
+        Err(error) => AppError::internal(error).into_response(),
+    }
+}
+
+pub async fn upload_cache(
+    State(state): State<AppState>,
+    Path((runner_id, job_id)): Path<(i64, i64)>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> impl IntoResponse {
+    let (job, repo_id) = match assigned_job_repo(&state, runner_id, job_id).await {
+        Ok(value) => value,
+        Err(error) => return error.into_response(),
+    };
+    if job.cache_key.is_none() {
+        return AppError::bad_request("job has no cache configuration").into_response();
+    }
+    if body.is_empty() || body.len() > 1024 * 1024 * 1024 {
+        return AppError::bad_request("cache archive must contain 1 byte to 1 GiB").into_response();
+    }
+    let key = match cache_key_header(&headers) {
+        Ok(key) => key,
+        Err(error) => return error.into_response(),
+    };
+    let path = cache_archive_path(&state, repo_id, key);
+    if let Some(parent) = path.parent() {
+        if let Err(error) = tokio::fs::create_dir_all(parent).await {
+            return AppError::internal(error).into_response();
+        }
+    }
+    let temporary = path.with_extension("tar.tmp");
+    if let Err(error) = tokio::fs::write(&temporary, body).await {
+        return AppError::internal(error).into_response();
+    }
+    if let Err(error) = tokio::fs::rename(&temporary, &path).await {
+        return AppError::internal(error).into_response();
+    }
+    let policy = match rg_db::ops::ci_retention_ops::get_policy(&state.db, repo_id).await {
+        Ok(policy) => policy,
+        Err(error) => return AppError::internal(error).into_response(),
+    };
+    let size = match tokio::fs::metadata(&path).await {
+        Ok(meta) => meta.len() as i64,
+        Err(error) => return AppError::internal(error).into_response(),
+    };
+    if let Err(error) = rg_db::ops::ci_retention_ops::upsert_cache_entry(
+        &state.db,
+        repo_id,
+        &cache_key_hash(key),
+        path.to_string_lossy().as_ref(),
+        size,
+        policy.cache_retention_days,
+    )
+    .await
+    {
+        let _ = tokio::fs::remove_file(&path).await;
+        return AppError::internal(error).into_response();
+    }
+    StatusCode::NO_CONTENT.into_response()
+}
+
+async fn assigned_job_repo(
+    state: &AppState,
+    runner_id: i64,
+    job_id: i64,
+) -> Result<(rg_db::entities::pipeline_job::Model, i64), AppError> {
+    let job = rg_db::ops::pipeline_ops::get_job(&state.db, job_id)
+        .await
+        .map_err(AppError::internal)?
+        .ok_or_else(|| AppError::not_found("job not found"))?;
+    if job.runner_id != Some(runner_id) {
+        return Err(AppError::forbidden("job not assigned to this runner"));
+    }
+    let stage = rg_db::ops::pipeline_ops::get_stage_by_id(&state.db, job.stage_id)
+        .await
+        .map_err(AppError::internal)?
+        .ok_or_else(|| AppError::not_found("pipeline stage not found"))?;
+    let pipeline = rg_db::ops::pipeline_ops::get_pipeline(&state.db, stage.pipeline_id)
+        .await
+        .map_err(AppError::internal)?
+        .ok_or_else(|| AppError::not_found("pipeline not found"))?;
+    Ok((job, pipeline.repo_id))
+}
+
+fn cache_key_header(headers: &HeaderMap) -> Result<&str, AppError> {
+    let key = headers
+        .get("x-cache-key")
+        .and_then(|value| value.to_str().ok())
+        .ok_or_else(|| AppError::bad_request("missing x-cache-key header"))?;
+    if key.is_empty() || key.len() > 512 {
+        return Err(AppError::bad_request("cache key must contain 1-512 bytes"));
+    }
+    Ok(key)
+}
+
+fn cache_archive_path(state: &AppState, repo_id: i64, key: &str) -> std::path::PathBuf {
+    let name = cache_key_hash(key);
+    state
+        .repo_root
+        .join("_ci_cache")
+        .join(repo_id.to_string())
+        .join(format!("{name}.tar"))
+}
+
+fn cache_key_hash(key: &str) -> String {
+    use sha2::{Digest, Sha256};
+    hex::encode(Sha256::digest(key.as_bytes()))
+}
+
+async fn decrypted_repo_secrets(
+    state: &AppState,
+    repo_id: i64,
+) -> anyhow::Result<Vec<(String, String)>> {
+    let key = rg_core::auth::encryption::derive_key(&state.jwt_secret);
+    let mut values = Vec::new();
+    for secret in rg_db::ops::ci_secret_ops::list_by_repo(&state.db, repo_id).await? {
+        values.push((
+            secret.name,
+            rg_core::auth::encryption::decrypt(&secret.encrypted_value, &key)?,
+        ));
+    }
+    Ok(values)
+}
+
+async fn secrets_for_job(state: &AppState, stage_id: i64) -> anyhow::Result<Vec<String>> {
+    let stage = rg_db::ops::pipeline_ops::get_stage_by_id(&state.db, stage_id)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("pipeline stage not found"))?;
+    let pipeline = rg_db::ops::pipeline_ops::get_pipeline(&state.db, stage.pipeline_id)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("pipeline not found"))?;
+    Ok(decrypted_repo_secrets(state, pipeline.repo_id)
+        .await?
+        .into_iter()
+        .map(|(_, value)| value)
+        .collect())
 }
 
 /// POST /api/v1/runners/:id/jobs/:job_id/finish
@@ -535,11 +902,18 @@ pub async fn finish_job(
                             tracing::warn!(pipeline_id = pipeline.id, %error, "auto-merge evaluation after CI failed");
                         }
                         if let Err(error) =
-                            rg_core::pull_request::merge_queue::process_for_head_commit(
+                            rg_core::pull_request::merge_queue::process_for_head_commit_with_ci(
                                 &state.db,
                                 &state.repo_root,
                                 pipeline.repo_id,
                                 &pipeline.commit_sha,
+                                &rg_core::pull_request::merge_queue::MergeQueueCi {
+                                    trigger: &*state.ci_engine,
+                                    docker_enabled: state.docker_enabled,
+                                    external_runners: state.external_runners,
+                                    jwt_secret: Some(&state.jwt_secret),
+                                    external_url: state.external_url.as_deref(),
+                                },
                             )
                             .await
                         {

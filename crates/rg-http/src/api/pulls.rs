@@ -286,7 +286,7 @@ pub async fn update_pr(
     }
 
     match rg_core::pull_request::update_pr(
-        &state.db, &owner, &repo, number, req.title, req.body, req.state, req.draft,
+        &state.db, &owner, &repo, number, req.title, req.body, req.state, req.draft, actor_id,
     )
     .await
     {
@@ -450,10 +450,13 @@ pub async fn disable_auto_merge(
     Path((owner, repo, number)): Path<(String, String, i64)>,
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse {
-    if let Err(error) = require_write(&state, &headers, &owner, &repo).await {
-        return error.into_response();
-    }
-    match rg_core::pull_request::disable_auto_merge(&state.db, &owner, &repo, number).await {
+    let (_, actor_id) = match require_write(&state, &headers, &owner, &repo).await {
+        Ok(access) => access,
+        Err(error) => return error.into_response(),
+    };
+    match rg_core::pull_request::disable_auto_merge(&state.db, &owner, &repo, number, actor_id)
+        .await
+    {
         Ok(pr) => (StatusCode::OK, Json(pr)).into_response(),
         Err(error) => AppError::bad_request(error).into_response(),
     }
@@ -542,10 +545,18 @@ pub async fn enqueue_merge_queue(
         Ok(entry) => entry,
         Err(error) => return AppError::bad_request(error).into_response(),
     };
-    let process = match rg_core::pull_request::merge_queue::process_repository(
+    let ci = rg_core::pull_request::merge_queue::MergeQueueCi {
+        trigger: &*state.ci_engine,
+        docker_enabled: state.docker_enabled,
+        external_runners: state.external_runners,
+        jwt_secret: Some(&state.jwt_secret),
+        external_url: state.external_url.as_deref(),
+    };
+    let process = match rg_core::pull_request::merge_queue::process_repository_with_ci(
         &state.db,
         &state.repo_root,
         &repository,
+        &ci,
     )
     .await
     {
@@ -571,14 +582,23 @@ pub async fn cancel_merge_queue(
     Path((owner, repo, number)): Path<(String, String, i64)>,
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse {
-    if let Err(error) = require_write(&state, &headers, &owner, &repo).await {
-        return error.into_response();
-    }
+    let (repository, actor_id) = match require_write(&state, &headers, &owner, &repo).await {
+        Ok(access) => access,
+        Err(error) => return error.into_response(),
+    };
     let pr = match rg_core::pull_request::get_pr(&state.db, &owner, &repo, number).await {
         Ok(pr) => pr,
         Err(error) => return AppError::not_found(error.to_string()).into_response(),
     };
-    match rg_core::pull_request::merge_queue::cancel(&state.db, pr.id).await {
+    match rg_core::pull_request::merge_queue::cancel(
+        &state.db,
+        &state.repo_root,
+        &repository,
+        &pr,
+        actor_id,
+    )
+    .await
+    {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => AppError::not_found("pull request is not queued").into_response(),
         Err(error) => AppError::internal(error).into_response(),

@@ -49,6 +49,18 @@ pub mod m20260711_000002_pr_auto_merge;
 pub mod m20260711_000003_merge_queue;
 pub mod m20260711_000004_review_suggestions;
 pub mod m20260711_000005_review_comment_ranges;
+pub mod m20260712_000001_create_pr_events;
+pub mod m20260712_000002_create_deploy_keys;
+pub mod m20260712_000003_add_pipeline_job_variables;
+pub mod m20260712_000004_merge_queue_groups;
+pub mod m20260712_000005_create_ci_secrets;
+pub mod m20260712_000006_create_protected_tags;
+pub mod m20260712_000007_require_signed_commits;
+pub mod m20260712_000008_add_pipeline_job_cache;
+pub mod m20260712_000009_add_pipeline_job_execution_policy;
+pub mod m20260712_000010_add_pipeline_job_when;
+pub mod m20260712_000011_create_ci_environments;
+pub mod m20260712_000012_create_ci_retention;
 
 use sea_orm_migration::prelude::*;
 
@@ -109,6 +121,18 @@ impl MigratorTrait for Migrator {
             Box::new(m20260711_000003_merge_queue::Migration),
             Box::new(m20260711_000004_review_suggestions::Migration),
             Box::new(m20260711_000005_review_comment_ranges::Migration),
+            Box::new(m20260712_000001_create_pr_events::Migration),
+            Box::new(m20260712_000002_create_deploy_keys::Migration),
+            Box::new(m20260712_000003_add_pipeline_job_variables::Migration),
+            Box::new(m20260712_000004_merge_queue_groups::Migration),
+            Box::new(m20260712_000005_create_ci_secrets::Migration),
+            Box::new(m20260712_000006_create_protected_tags::Migration),
+            Box::new(m20260712_000007_require_signed_commits::Migration),
+            Box::new(m20260712_000008_add_pipeline_job_cache::Migration),
+            Box::new(m20260712_000009_add_pipeline_job_execution_policy::Migration),
+            Box::new(m20260712_000010_add_pipeline_job_when::Migration),
+            Box::new(m20260712_000011_create_ci_environments::Migration),
+            Box::new(m20260712_000012_create_ci_retention::Migration),
         ]
     }
 }

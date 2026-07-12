@@ -13,7 +13,18 @@ pub struct Model {
     pub name: String,
     pub image: Option<String>, // container image (future: Docker runner)
     pub script: String,        // shell commands (newline separated)
-    pub status: String,        // pending, running, success, failed, skipped
+    /// JSON object of non-secret variables captured when the pipeline is created.
+    pub variables: Option<String>,
+    pub cache_key: Option<String>,
+    /// JSON array of workspace-relative cache paths.
+    pub cache_paths: Option<String>,
+    pub allow_failure: bool,
+    pub timeout_seconds: Option<i64>,
+    /// Execution policy captured from CI config (`on_success` or `manual`).
+    pub when_condition: String,
+    pub environment_id: Option<i64>,
+    pub environment_name: Option<String>,
+    pub status: String, // pending, running, success, failed, skipped
     pub exit_code: Option<i32>,
     pub log: Option<String>,
     pub started_at: Option<DateTime>,

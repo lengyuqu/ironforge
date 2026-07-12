@@ -40,6 +40,7 @@ totp-rs = { workspace = true }
 qrcode = { workspace = true }
 ldap3 = { workspace = true }
 aes-gcm = { workspace = true }
+ed25519-dalek = { workspace = true }
 rand = { workspace = true }
 urlencoding = "2.1"
 http = "1"

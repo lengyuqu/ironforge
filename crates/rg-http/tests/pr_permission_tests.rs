@@ -68,6 +68,23 @@ async fn draft_pr_cannot_be_merged_and_can_be_marked_ready() {
             .as_bool()
             .unwrap()
     );
+
+    let timeline = client
+        .get(format!("{pr_url}/timeline"))
+        .bearer_auth(&owner_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(timeline.status(), 200);
+    let kinds = timeline
+        .json::<Vec<serde_json::Value>>()
+        .await
+        .unwrap()
+        .into_iter()
+        .filter_map(|event| event["kind"].as_str().map(str::to_string))
+        .collect::<Vec<_>>();
+    assert!(kinds.contains(&"pull_request_converted_to_draft".to_string()));
+    assert!(kinds.contains(&"pull_request_marked_ready".to_string()));
 }
 
 #[tokio::test]
@@ -177,6 +194,16 @@ async fn reviewer_requests_and_thread_resolution_enforce_permissions() {
     assert_eq!(resolved.status(), 200);
     assert!(resolved.json::<serde_json::Value>().await.unwrap()["resolved_at"].is_string());
 
+    let reopened = client
+        .patch(&resolution_url)
+        .bearer_auth(&reviewer_token)
+        .json(&serde_json::json!({"resolved": false}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(reopened.status(), 200);
+    assert!(reopened.json::<serde_json::Value>().await.unwrap()["resolved_at"].is_null());
+
     let removed = client
         .delete(format!("{reviewers_url}/flow-reviewer"))
         .bearer_auth(&owner_token)
@@ -184,6 +211,30 @@ async fn reviewer_requests_and_thread_resolution_enforce_permissions() {
         .await
         .unwrap();
     assert_eq!(removed.status(), 204);
+
+    let timeline = client
+        .get(format!(
+            "{base}/api/v1/repos/flow-owner/review-workflow/pulls/1/timeline"
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(timeline.status(), 200);
+    let kinds = timeline
+        .json::<Vec<serde_json::Value>>()
+        .await
+        .unwrap()
+        .into_iter()
+        .filter_map(|event| event["kind"].as_str().map(str::to_string))
+        .collect::<Vec<_>>();
+    for expected in [
+        "reviewer_requested",
+        "reviewer_removed",
+        "thread_resolved",
+        "thread_reopened",
+    ] {
+        assert!(kinds.contains(&expected.to_string()), "missing {expected}");
+    }
 }
 
 async fn insert_pr(

@@ -74,11 +74,13 @@ pub async fn handle_receive_pack_stream_with_rejections<S>(
     repo_path: &Path,
     stream: &mut S,
     rejected_refs: Vec<(String, String)>,
+    require_signed_refs: Vec<String>,
 ) -> Result<Vec<RefUpdate>>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
-    do_receive_pack_stream_with_rejections(repo_path, stream, rejected_refs).await
+    do_receive_pack_stream_with_rejections(repo_path, stream, rejected_refs, require_signed_refs)
+        .await
 }
 
 /// Handle receive-pack for HTTP mode where ref advertisement is already sent.
@@ -105,6 +107,7 @@ pub async fn handle_receive_pack_http_with_rejections<R, W>(
     reader: R,
     mut writer: W,
     rejected_refs: Vec<(String, String)>,
+    require_signed_refs: Vec<String>,
 ) -> Result<Vec<RefUpdate>>
 where
     R: AsyncRead + Unpin,
@@ -112,7 +115,9 @@ where
 {
     let mut reader = BufReader::new(reader);
 
-    let results = process_push_with_rejections(repo_path, &mut reader, &rejected_refs).await?;
+    let results =
+        process_push_with_rejections(repo_path, &mut reader, &rejected_refs, &require_signed_refs)
+            .await?;
     send_response(&mut writer, &results).await?;
     Ok(results)
 }
@@ -144,6 +149,7 @@ async fn do_receive_pack_stream_with_rejections<S>(
     repo_path: &Path,
     stream: &mut S,
     rejected_refs: Vec<(String, String)>,
+    require_signed_refs: Vec<String>,
 ) -> Result<Vec<RefUpdate>>
 where
     S: AsyncRead + AsyncWrite + Unpin,
@@ -157,7 +163,8 @@ where
 
     let results = {
         let mut reader = BufReader::new(&mut *stream);
-        process_push_with_rejections(repo_path, &mut reader, &rejected_refs).await?
+        process_push_with_rejections(repo_path, &mut reader, &rejected_refs, &require_signed_refs)
+            .await?
     };
 
     send_response(stream, &results).await?;
@@ -248,13 +255,14 @@ async fn process_push<R: AsyncRead + Unpin>(
     repo_path: &Path,
     reader: &mut BufReader<R>,
 ) -> Result<Vec<RefUpdate>> {
-    process_push_with_rejections(repo_path, reader, &[]).await
+    process_push_with_rejections(repo_path, reader, &[], &[]).await
 }
 
 async fn process_push_with_rejections<R>(
     repo_path: &Path,
     reader: &mut BufReader<R>,
     rejected_refs: &[(String, String)],
+    require_signed_refs: &[String],
 ) -> Result<Vec<RefUpdate>>
 where
     R: AsyncRead + Unpin,
@@ -337,7 +345,7 @@ where
 
         if let Some((_, message)) = rejected_refs
             .iter()
-            .find(|(refname, _)| refname == &update.refname)
+            .find(|(pattern, _)| ref_matches_rejection_pattern(&update.refname, pattern))
         {
             update.status = "error".to_string();
             update.message = message.clone();
@@ -409,6 +417,8 @@ where
         bail!("git index-pack failed with status {}", status);
     }
 
+    enforce_signed_commit_policies(repo_path, &mut updates, require_signed_refs);
+
     // Update the refs
     for update in &mut updates {
         if update.status != "ok" {
@@ -426,6 +436,171 @@ where
     }
 
     Ok(updates)
+}
+
+fn enforce_signed_commit_policies(
+    repo_path: &Path,
+    updates: &mut [RefUpdate],
+    patterns: &[String],
+) {
+    let gateway = match crate::cli_gateway::global_gateway().as_ref() {
+        Ok(gateway) => gateway,
+        Err(error) => {
+            for update in updates.iter_mut().filter(|update| {
+                update.status == "ok"
+                    && patterns
+                        .iter()
+                        .any(|pattern| ref_matches_rejection_pattern(&update.refname, pattern))
+            }) {
+                update.status = "error".into();
+                update.message = format!("unable to verify required commit signatures: {error}");
+            }
+            return;
+        }
+    };
+
+    for update in updates.iter_mut().filter(|update| {
+        update.status == "ok"
+            && patterns
+                .iter()
+                .any(|pattern| ref_matches_rejection_pattern(&update.refname, pattern))
+    }) {
+        let mut args = vec!["rev-list", update.new_sha.as_str()];
+        let old_exclusion;
+        if !update.old_sha.starts_with("0000000") {
+            old_exclusion = format!("^{}", update.old_sha);
+            args.push(&old_exclusion);
+        }
+        let commits = match gateway.run(&args, Some(repo_path)) {
+            Ok(output) if output.success() => output.stdout_str(),
+            Ok(output) => {
+                update.status = "error".into();
+                update.message = format!(
+                    "failed to enumerate commits for signature verification: {}",
+                    output.stderr_str().trim()
+                );
+                continue;
+            }
+            Err(error) => {
+                update.status = "error".into();
+                update.message =
+                    format!("failed to enumerate commits for signature verification: {error}");
+                continue;
+            }
+        };
+        if let Some(unsigned) = commits.lines().find(|sha| {
+            gateway
+                .run(&["verify-commit", sha], Some(repo_path))
+                .map(|output| !output.success())
+                .unwrap_or(true)
+        }) {
+            update.status = "error".into();
+            update.message =
+                format!("commit {unsigned} does not have a cryptographically valid signature");
+        }
+    }
+}
+
+/// Match a full ref against a rejection pattern. `*` matches any sequence;
+/// patterns without wildcards retain exact-match behavior.
+pub fn ref_matches_rejection_pattern(refname: &str, pattern: &str) -> bool {
+    if !pattern.contains('*') {
+        return refname == pattern;
+    }
+    let value = refname.as_bytes();
+    let pattern = pattern.as_bytes();
+    let mut dp = vec![vec![false; value.len() + 1]; pattern.len() + 1];
+    dp[0][0] = true;
+    for i in 1..=pattern.len() {
+        if pattern[i - 1] == b'*' {
+            dp[i][0] = dp[i - 1][0];
+        }
+        for j in 1..=value.len() {
+            dp[i][j] = if pattern[i - 1] == b'*' {
+                dp[i - 1][j] || dp[i][j - 1]
+            } else {
+                dp[i - 1][j - 1] && pattern[i - 1] == value[j - 1]
+            };
+        }
+    }
+    dp[pattern.len()][value.len()]
+}
+
+#[cfg(test)]
+mod rejection_pattern_tests {
+    use super::{enforce_signed_commit_policies, ref_matches_rejection_pattern, RefUpdate};
+    #[test]
+    fn matches_exact_branches_and_wildcard_tags() {
+        assert!(ref_matches_rejection_pattern(
+            "refs/heads/main",
+            "refs/heads/main"
+        ));
+        assert!(!ref_matches_rejection_pattern(
+            "refs/heads/feature",
+            "refs/heads/main"
+        ));
+        assert!(ref_matches_rejection_pattern(
+            "refs/tags/v1.2.3",
+            "refs/tags/v*"
+        ));
+        assert!(ref_matches_rejection_pattern(
+            "refs/tags/release/2026/07",
+            "refs/tags/release/**"
+        ));
+        assert!(!ref_matches_rejection_pattern(
+            "refs/tags/test-1",
+            "refs/tags/v*"
+        ));
+    }
+
+    #[test]
+    fn signed_commit_policy_rejects_unsigned_commit_on_matching_branch() {
+        let temp = tempfile::tempdir().unwrap();
+        let gateway = crate::cli_gateway::global_gateway().as_ref().unwrap();
+        assert!(gateway.run(&["init"], Some(temp.path())).unwrap().success());
+        assert!(gateway
+            .run(&["config", "user.name", "Test"], Some(temp.path()))
+            .unwrap()
+            .success());
+        assert!(gateway
+            .run(
+                &["config", "user.email", "test@example.com"],
+                Some(temp.path())
+            )
+            .unwrap()
+            .success());
+        assert!(gateway
+            .run(&["config", "commit.gpgsign", "false"], Some(temp.path()))
+            .unwrap()
+            .success());
+        std::fs::write(temp.path().join("README.md"), "unsigned").unwrap();
+        assert!(gateway
+            .run(&["add", "README.md"], Some(temp.path()))
+            .unwrap()
+            .success());
+        assert!(gateway
+            .run(&["commit", "-m", "unsigned"], Some(temp.path()))
+            .unwrap()
+            .success());
+        let sha = gateway
+            .run(&["rev-parse", "HEAD"], Some(temp.path()))
+            .unwrap()
+            .stdout_str()
+            .trim()
+            .to_owned();
+        let mut updates = vec![RefUpdate {
+            old_sha: "0".repeat(40),
+            new_sha: sha,
+            refname: "refs/heads/main".into(),
+            status: "ok".into(),
+            message: String::new(),
+        }];
+        enforce_signed_commit_policies(temp.path(), &mut updates, &["refs/heads/main".into()]);
+        assert_eq!(updates[0].status, "error");
+        assert!(updates[0]
+            .message
+            .contains("cryptographically valid signature"));
+    }
 }
 
 async fn drain_pack<R: AsyncRead + Unpin>(reader: &mut BufReader<R>) -> Result<()> {

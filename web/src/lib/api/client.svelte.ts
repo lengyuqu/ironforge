@@ -24,6 +24,11 @@ export { imports, type ImportTask, type StartImportPayload } from './imports';
 export { milestones } from './milestones';
 export { tokens } from './tokens';
 export { sshKeys, type SshKey } from './sshKeys';
+export { deployKeys, type DeployKey } from './deployKeys';
+export { ciSecrets, type CiSecret } from './ciSecrets';
+export { tagProtections, type TagProtection } from './tagProtections';
+export { ciEnvironments, type CiEnvironment, type CiEnvironmentPayload } from './ciEnvironments';
+export { ciRetention, type CiRetentionPolicy, type CiCleanupResult } from './ciRetention';
 export { mfa, type MfaBackupStatus, type MfaEnableResponse, type MfaSetupResponse } from './mfa';
 export {
   admin,

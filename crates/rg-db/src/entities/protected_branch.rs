@@ -24,6 +24,8 @@ pub struct Model {
     pub required_approvals: Option<i64>,
     /// Whether force push is allowed
     pub allow_force_push: bool,
+    /// Require every newly introduced commit to pass `git verify-commit`.
+    pub require_signed_commits: bool,
     /// JSON array of user IDs allowed to push directly
     pub allowed_push_user_ids: Option<String>,
     pub created_at: DateTimeUtc,

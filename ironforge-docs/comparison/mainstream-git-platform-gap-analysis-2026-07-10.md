@@ -23,7 +23,19 @@
 - Merge Queue 已支持仓库级 FIFO、merge/squash/rebase、排队/取消/列表 API、前端队列位置，以及审批/push/CI 事件驱动；队首通过保护规则后原子合并，失败项会记录原因并继续队列。
 - 结构化代码建议已支持单行/连续多行 replacement 与范围删除、同仓/Fork 源仓库权限校验、一键应用并生成提交；建议绑定 PR `head_sha`，越界、过期或已应用建议会被拒绝。
 - 批量代码建议已支持选择 1—100 条建议在单个提交中原子应用；同文件按原始行号倒序处理，重叠范围、重复 ID、无效路径、symlink 路径及并发分支更新会被拒绝，成功后只触发一次 CI/Auto-merge/Merge Queue 评估。
-- PR 会话页已增加统一审查时间线 API/UI，按时间汇总 PR 创建、Review、评论/回复、代码建议及应用、线程解决、Reviewer 请求、Auto-merge、Merge Queue 和最终合并/关闭事件；既有表未保留的 Reviewer 移除、线程重开等历史状态仍需后续不可变事件表补齐。
+- 2026-07-11 阶段，PR 会话页已增加统一审查时间线 API/UI；当时仍依赖既有状态表，Reviewer 移除、线程重开等历史尚未保留（该项已由下一条 2026-07-12 更新闭环）。
+- 2026-07-12：新增 append-only `pr_events`，Reviewer 请求/移除、线程解决/重开、Draft/Ready、Review/评论/建议、Auto-merge、Merge Queue 与合并状态变更均持久化；时间线对新事件使用不可变记录，对迁移前 PR 保留兼容回放。
+- 2026-07-12：Merge Queue 新增 speculative merge-group commit；当前 base/head 组合先生成隐藏 ref 并运行 `merge_group` CI，流水线成功后才更新目标分支，base/head 变化会自动使旧结果失效。
+- 2026-07-12：仓库 Deploy Key 已完成 CRUD、前端设置页、全局指纹冲突检查、仓库强隔离、只读/读写 SSH 授权和使用时间记录；管理操作要求仓库 admin 权限。
+- 2026-07-12：CI job variables 已持久化并注入内置/外部 Runner；Gitea Actions adapter 对非 `actions/checkout` 的 `uses:` 改为显式拒绝，避免静默跳过后产生假成功。完整 Actions runtime 仍不在当前兼容范围。
+- 2026-07-12：补齐仓库级加密 CI Secrets（AES-256-GCM、管理员 API/UI、本地/Docker/外部 Runner 注入、服务端日志脱敏）、原生与 Actions `strategy.matrix` 笛卡尔展开（上限 256），以及 Tag 通配保护规则（管理员 API/UI、HTTP/SSH 推送统一拒绝）。
+- 2026-07-12：受保护分支新增“要求签名提交”，在 pack 入库、ref 更新之前对本次引入的每个 commit 执行密码学 `verify-commit`，HTTP/SSH 推送共用；由于当前没有服务端签名密钥，平台 PR/Auto-merge/Merge Queue 在该规则下 fail closed。Actions job 级 `uses:`（Reusable Workflow）改为 fail closed，避免空 job 假成功。
+- 2026-07-12：修复 Runner 执行基础：内置 Runner 使用精确 commit 的 detached worktree，独立 Runner 通过受认证 tar 快照获取同一提交，Variables/Secrets 真正进入独立 Runner 本地/Docker executor。补齐仓库隔离 CI Cache，原生 `cache` 与 `actions/cache@v4` 共用 key/path 模型，并覆盖内置、Docker、外部 Runner restore/save。
+- 2026-07-12：支持仓库内 Reusable Workflow：`./.gitea/workflows/*.yml`、`on: workflow_call`、最多 4 层递归、inputs、`secrets: inherit`、单值/数组 needs 和调用前后依赖重写；远程 workflow、命名 Secret 重映射、outputs 与循环引用 fail closed。
+- 2026-07-12：修复 CI 执行策略假支持：`allow_failure` / Actions `continue-on-error` 已影响内置与外部 Runner 的 stage/pipeline 结果；原生 `timeout_seconds` / Actions `timeout-minutes` 已进入数据库与两类 Runner 的强制超时；原生 `when: manual` 已具备持久化暂停、写权限 play API/UI、幂等释放、服务重启后恢复及独立 Runner 前置阶段门控。非平凡 Actions `if:` 仍在 pipeline 创建前 fail closed。
+- 2026-07-12：补齐受保护部署环境：原生/Actions `environment` 解析与 job 持久化、仓库管理员环境规则 API/UI、审批人白名单与 1-10 票阈值、重复审批去重、`waiting_approval` 状态、内置/外部 Runner 恢复及多 gate 阶段级防并发恢复。审批历史关联的环境禁止删除。
+- 2026-07-12：补齐 CI workload OIDC：公开 discovery/JWKS、由实例密钥确定性派生的 Ed25519 非对称签名、5 分钟 audience-bound token，以及 repo/pipeline/job/ref/SHA claims；exchange 只能使用有效 `CI_JOB_TOKEN`，并再次绑定数据库资源关系与 assigned/running 状态。配置 `external_url` 后两类 Runner 均注入 `CI_OIDC_TOKEN_URL`。
+- 2026-07-12：补齐 CI Artifact/Cache retention：仓库管理员可配置 1-3650 天保留期；Artifact 上传写入实际过期时间，Cache 建立仓库隔离元数据并按最后访问滑动续期；内置、Docker、外部 Runner 共用策略。后台每小时和手动 API/UI 执行文件感知清理，先验证受管根目录并删除磁盘，再删除 DB，避免旧实现只删记录造成泄漏。
 
 因此，第 4.1—4.3 节记录的是修复前基线；第 4.4 节的代码与 CI 缺口已进入验证阶段，不再是“完全未闭环”状态。
 
@@ -37,7 +49,7 @@ IronForge 已具备小团队自托管 Git 平台的主要骨架，功能广度�
 - 以单机/小团队部署为主要场景；
 - 以 MCP/AI Agent 集成为差异化优势；
 - 暂不应宣传为 GitHub/GitLab 的直接替代品；
-- PR 授权、PAT scope、SSH Key 管理等本轮 P0 已闭环；生产就绪判断仍需结合真实 CI 数据库矩阵、备份恢复和安全审计结果。
+- PR 授权、PAT scope、SSH Key 管理等本轮 P0 已闭环；按 2026-07-12 决策，PostgreSQL/MySQL 实库 P0 验证暂缓。生产就绪判断仍需结合后续数据库矩阵、备份恢复和安全审计结果。
 
 ## 2. 当前已经具备的能力
 
@@ -59,9 +71,9 @@ IronForge 已具备小团队自托管 Git 平台的主要骨架，功能广度�
 
 | 领域 | IronForge 当前情况 | 与主流平台的差距 |
 |---|---|---|
-| Git/仓库治理 | Clone/Push、Fork、Mirror、LFS、基础分支保护、用户/团队 CODEOWNERS、Auto-merge 和基础 FIFO Merge Queue 已具备 | 缺 Deploy Key 自助管理、Tag 保护、签名提交强制策略、规则集，以及 merge-group 合成提交 CI/批量队列等高级能力；大仓库 pack 性能未充分验证 |
-| PR 与代码审查 | 支持三种合并、Review、Draft PR、Reviewer 请求、逐文件行级 Diff/评论、单行/多行及批量代码建议、统一审查时间线、线程 Resolve、提交级审批失效、用户/团队 CODEOWNERS、Auto-merge 和基础 Merge Queue | 时间线尚缺不可变状态变更存储；Merge Queue 尚缺 merge-group CI 等高级能力 |
-| CI/CD | 原生 YAML、Docker/外部 Runner、Artifact、日志、重试、并发控制 | Actions 兼容层除 `checkout` 外会跳过其他 `uses:`；缺完整 Actions 运行时、缓存、Matrix、可复用 Workflow、环境审批、OIDC、服务容器和多项目流水线 |
+| Git/仓库治理 | Clone/Push、Fork、Mirror、LFS、分支/Tag 保护、签名提交强制、Deploy Key、用户/团队 CODEOWNERS、Auto-merge 和 merge-group CI FIFO Merge Queue 已具备 | 缺统一规则集和批量队列；大仓库 pack 性能未充分验证 |
+| PR 与代码审查 | 支持三种合并、Review、Draft PR、Reviewer 请求、逐文件行级 Diff/评论、单行/多行及批量代码建议、append-only 审查时间线、线程 Resolve、提交级审批失效、用户/团队 CODEOWNERS、Auto-merge 和 Merge Queue | 尚缺批量 Merge Queue、复杂规则集等高级能力 |
+| CI/CD | 原生 YAML、隔离提交工作区、Docker/外部 Runner、Artifact、Cache、保留/清理策略、日志、重试、并发控制、加密 Secrets/Variables、Matrix、本地 Reusable Workflow、受保护 Environment、workload OIDC、merge-group CI；Actions adapter 对不支持的 `uses:` fail closed | 明确不提供完整 Actions runtime；缺远程 Reusable Workflow/outputs、服务容器和多项目流水线 |
 | DevSecOps | 有 GPG 验签和审计日志 | 缺 Dependency Graph、依赖更新、SAST/DAST、Secret Scanning、Push Protection、SBOM、容器漏洞扫描、安全公告和漏洞修复工作流 |
 | Package Registry | OCI 加 Cargo/npm/Maven/PyPI/NuGet/RubyGems/Helm/Composer 等原生适配 | 约 10 个原生 adapter，其余声明类型落到 Generic；缺更完整的协议覆盖、清理规则、配额、保留策略和供应链证明 |
 | 企业身份与治理 | OAuth2/OIDC、TOTP、LDAP 模块、审计查询 | LDAP 尚未进入主登录调用链；缺 SAML、SCIM、自动开通/回收、团队同步、IP Allowlist、审计流式导出等 |
@@ -135,7 +147,7 @@ IronForge 已具备小团队自托管 Git 平台的主要骨架，功能广度�
 
 ### 5.1 CI 生态
 
-Gitea Actions 已用于其自身生产仓库；Forgejo Actions 有独立 Runner、日志/Artifact 保留、缓存和多 Runner 分发。IronForge 当前是 Actions YAML 到内部 `CiConfig` 的有限转换：除 `actions/checkout` 外，其他 `uses:` 会生成“skipping”注释。
+Gitea Actions 已用于其自身生产仓库；Forgejo Actions 有独立 Runner、日志/Artifact 保留、缓存和多 Runner 分发。IronForge 当前是 Actions YAML 到内部 `CiConfig` 的有限转换：`actions/checkout` 视为隐式完成，step 级其他 `uses:` 和 job 级 Reusable Workflow `uses:` 都会在创建 pipeline 前明确报错，并引导改写为显式 job/`run:` 或原生 `.ironforge-ci.yml`，不再静默跳过。
 
 ### 5.2 Package Registry
 
@@ -187,6 +199,8 @@ GitHub/GitLab 均有 GraphQL API；GitHub Apps 提供细粒度权限、短期安
 2. Secrets/Variables、Cache、Matrix、Reusable Workflow、环境审批和 OIDC；
 3. merge-group 合成提交 CI/批量队列；
 4. 为 Reviewer 移除、线程重开、Draft/Ready 切换等补充不可变审查事件存储。
+
+状态（2026-07-12）：第 3、4 项已完成；第 1 项已明确采用“有限 adapter + 不支持能力 fail closed + 原生格式”边界；第 2 项已完成加密 Secrets、Variables、Cache、Matrix、仓库内 Reusable Workflow、环境审批和 workload OIDC，远程 Reusable Workflow/outputs 仍为后续独立阶段。
 
 ### 第三波：生产化
 

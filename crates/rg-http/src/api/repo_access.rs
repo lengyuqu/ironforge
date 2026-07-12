@@ -72,3 +72,20 @@ pub(crate) async fn require_write(
         Err(e) => Err(AppError::internal(e)),
     }
 }
+
+/// Require an authenticated repository administrator.
+pub(crate) async fn require_admin(
+    state: &AppState,
+    headers: &HeaderMap,
+    owner: &str,
+    name: &str,
+) -> Result<(rg_db::entities::repository::Model, i64), AppError> {
+    let actor_id = super::auth::extract_user_id(headers, &state.jwt_secret)
+        .ok_or_else(|| AppError::unauthorized("authentication required"))?;
+    let repo = resolve_repo(state, owner, name).await?;
+    match rg_core::repo::service::can_admin_repo(&state.db, &repo, Some(actor_id)).await {
+        Ok(true) => Ok((repo, actor_id)),
+        Ok(false) => Err(AppError::forbidden("repository admin access required")),
+        Err(error) => Err(AppError::internal(error)),
+    }
+}

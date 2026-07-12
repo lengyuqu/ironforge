@@ -18,6 +18,13 @@ impl rg_core::ci::CiTrigger for NoopCiEngine {
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<i64>> + Send + 'a>> {
         Box::pin(async { Ok(0) })
     }
+
+    fn resume_pipeline<'a>(
+        &'a self,
+        _params: rg_core::ci::ResumePipelineParams<'a>,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<()>> + Send + 'a>> {
+        Box::pin(async { Ok(()) })
+    }
 }
 
 /// Create a temporary file-based SQLite database with all migrations applied.

@@ -10,6 +10,7 @@ export interface BranchProtectionRule {
   require_approval: boolean;
   required_approvals: number | null;
   allow_force_push: boolean;
+  require_signed_commits: boolean;
   allowed_push_user_ids: string | null;
   created_at: string;
   updated_at: string;
@@ -23,6 +24,7 @@ export interface BranchProtectionPayload {
   require_approval?: boolean;
   required_approvals?: number;
   allow_force_push?: boolean;
+  require_signed_commits?: boolean;
   allowed_push_user_ids?: number[];
 }
 

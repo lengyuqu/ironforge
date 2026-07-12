@@ -181,13 +181,32 @@ pub async fn create_job(
     script: &str,
     image: Option<&str>,
     tags: Option<&str>,
+    variables: Option<&str>,
+    cache_key: Option<&str>,
+    cache_paths: Option<&str>,
+    allow_failure: bool,
+    timeout_seconds: Option<i64>,
+    when_condition: Option<&str>,
 ) -> Result<pipeline_job::Model> {
+    let when_condition = when_condition.unwrap_or("on_success");
     let model = pipeline_job::ActiveModel {
         stage_id: Set(stage_id),
         name: Set(name.to_string()),
         script: Set(script.to_string()),
+        variables: Set(variables.map(str::to_string)),
+        cache_key: Set(cache_key.map(str::to_string)),
+        cache_paths: Set(cache_paths.map(str::to_string)),
+        allow_failure: Set(allow_failure),
+        timeout_seconds: Set(timeout_seconds),
+        when_condition: Set(when_condition.to_string()),
+        environment_id: Set(None),
+        environment_name: Set(None),
         image: Set(image.map(|s| s.to_string())),
-        status: Set("pending".to_string()),
+        status: Set(if when_condition == "manual" {
+            "manual".to_string()
+        } else {
+            "pending".to_string()
+        }),
         tags: Set(tags.map(|s| s.to_string())),
         exit_code: Set(None),
         log: Set(None),
@@ -197,6 +216,80 @@ pub async fn create_job(
     };
     let result = model.insert(db).await.context("db: create job")?;
     Ok(result)
+}
+
+/// Atomically release a manual job for execution. Returns false if another
+/// request already released it or the job is not manual.
+pub async fn play_manual_job(db: &DatabaseConnection, id: i64) -> Result<bool> {
+    let now = chrono::Utc::now().naive_utc();
+    let result = pipeline_job::Entity::update_many()
+        .filter(pipeline_job::Column::Id.eq(id))
+        .filter(pipeline_job::Column::Status.eq("manual"))
+        .filter(pipeline_job::Column::WhenCondition.eq("manual"))
+        .col_expr(pipeline_job::Column::Status, Expr::value("pending"))
+        .col_expr(
+            pipeline_job::Column::RunnerId,
+            Expr::value(sea_orm::Value::BigInt(None)),
+        )
+        .col_expr(pipeline_job::Column::UpdatedAt, Expr::value(now))
+        .exec(db)
+        .await
+        .context("db: play manual job")?;
+    Ok(result.rows_affected == 1)
+}
+
+/// Put a stage and pipeline back into schedulable state after a manual job is
+/// released. Existing start timestamps are retained for duration accounting.
+pub async fn resume_pipeline_chain(
+    db: &DatabaseConnection,
+    pipeline_id: i64,
+    stage_id: i64,
+) -> Result<()> {
+    pipeline_stage::Entity::update_many()
+        .filter(pipeline_stage::Column::Id.eq(stage_id))
+        .filter(pipeline_stage::Column::Status.eq("manual"))
+        .col_expr(pipeline_stage::Column::Status, Expr::value("pending"))
+        .col_expr(
+            pipeline_stage::Column::FinishedAt,
+            Expr::value(sea_orm::Value::ChronoDateTime(None)),
+        )
+        .exec(db)
+        .await
+        .context("db: resume manual stage")?;
+    pipeline::Entity::update_many()
+        .filter(pipeline::Column::Id.eq(pipeline_id))
+        .filter(pipeline::Column::Status.eq("manual"))
+        .col_expr(pipeline::Column::Status, Expr::value("pending"))
+        .col_expr(
+            pipeline::Column::FinishedAt,
+            Expr::value(sea_orm::Value::ChronoDateTime(None)),
+        )
+        .exec(db)
+        .await
+        .context("db: resume manual pipeline")?;
+    Ok(())
+}
+
+pub async fn resume_approval_chain(
+    db: &DatabaseConnection,
+    pipeline_id: i64,
+    stage_id: i64,
+) -> Result<()> {
+    pipeline_stage::Entity::update_many()
+        .filter(pipeline_stage::Column::Id.eq(stage_id))
+        .filter(pipeline_stage::Column::Status.eq("waiting_approval"))
+        .col_expr(pipeline_stage::Column::Status, Expr::value("pending"))
+        .exec(db)
+        .await
+        .context("db: resume approved stage")?;
+    pipeline::Entity::update_many()
+        .filter(pipeline::Column::Id.eq(pipeline_id))
+        .filter(pipeline::Column::Status.eq("waiting_approval"))
+        .col_expr(pipeline::Column::Status, Expr::value("pending"))
+        .exec(db)
+        .await
+        .context("db: resume approved pipeline")?;
+    Ok(())
 }
 
 /// Get a job by ID.
@@ -232,6 +325,20 @@ pub async fn list_jobs_by_stage(
         .all(db)
         .await
         .context("db: list jobs by stage")
+}
+
+pub async fn stage_has_job_status(
+    db: &DatabaseConnection,
+    stage_id: i64,
+    status: &str,
+) -> Result<bool> {
+    Ok(pipeline_job::Entity::find()
+        .filter(pipeline_job::Column::StageId.eq(stage_id))
+        .filter(pipeline_job::Column::Status.eq(status))
+        .count(db)
+        .await
+        .context("db: count jobs by stage status")?
+        > 0)
 }
 
 /// Update job result.
@@ -329,18 +436,58 @@ pub async fn check_stage_jobs(db: &DatabaseConnection, stage_id: i64) -> Result<
     if jobs.is_empty() {
         return Ok((true, false));
     }
-    let all_done = jobs
-        .iter()
-        .all(|j| j.status == "success" || j.status == "failure" || j.status == "error");
-    let any_failure = jobs
-        .iter()
-        .any(|j| j.status == "failure" || j.status == "error");
+    let all_done = jobs.iter().all(|j| {
+        matches!(
+            j.status.as_str(),
+            "success" | "failure" | "failed" | "error"
+        )
+    });
+    let any_failure = jobs.iter().any(|j| {
+        (j.status == "failure" || j.status == "error" || j.status == "failed") && !j.allow_failure
+    });
     Ok((all_done, any_failure))
+}
+
+/// If every non-manual job in a stage has finished and a manual job remains,
+/// expose the persisted gate on both the stage and pipeline.
+pub async fn try_pause_stage_at_manual(db: &DatabaseConnection, stage_id: i64) -> Result<bool> {
+    let jobs = list_jobs_by_stage(db, stage_id).await?;
+    let gate_status = if jobs.iter().any(|job| job.status == "waiting_approval") {
+        Some("waiting_approval")
+    } else if jobs.iter().any(|job| job.status == "manual") {
+        Some("manual")
+    } else {
+        None
+    };
+    let automatic_done = jobs
+        .iter()
+        .filter(|job| !matches!(job.status.as_str(), "manual" | "waiting_approval"))
+        .all(|job| {
+            matches!(
+                job.status.as_str(),
+                "success" | "failure" | "failed" | "error" | "skipped" | "canceled"
+            )
+        });
+    let Some(gate_status) = gate_status else {
+        return Ok(false);
+    };
+    if !automatic_done {
+        return Ok(false);
+    }
+    let stage = get_stage_by_id(db, stage_id)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("stage {} not found", stage_id))?;
+    update_stage_status(db, stage_id, gate_status, None, None).await?;
+    update_pipeline_status(db, stage.pipeline_id, gate_status, None, None).await?;
+    Ok(true)
 }
 
 /// After a job finishes, update stage status if all jobs in the stage are done.
 /// Returns the new stage status if updated, or None if not all done.
 pub async fn try_update_stage(db: &DatabaseConnection, stage_id: i64) -> Result<Option<String>> {
+    if try_pause_stage_at_manual(db, stage_id).await? {
+        return Ok(Some("manual".to_string()));
+    }
     let (all_done, any_failure) = check_stage_jobs(db, stage_id).await?;
     if !all_done {
         return Ok(None);
@@ -386,13 +533,19 @@ pub async fn try_update_pipeline(
 /// Find a pending job (status = "pending" and runner_id is NULL).
 /// Returns the oldest pending job (by id).
 pub async fn find_pending_job(db: &DatabaseConnection) -> Result<Option<pipeline_job::Model>> {
-    pipeline_job::Entity::find()
+    let jobs = pipeline_job::Entity::find()
         .filter(pipeline_job::Column::Status.eq("pending"))
         .filter(pipeline_job::Column::RunnerId.is_null())
         .order_by_asc(pipeline_job::Column::Id)
-        .one(db)
+        .all(db)
         .await
-        .context("db: find pending job")
+        .context("db: find pending job")?;
+    for job in jobs {
+        if job_is_schedulable(db, &job).await? {
+            return Ok(Some(job));
+        }
+    }
+    Ok(None)
 }
 
 /// Find a pending job that matches the given runner labels.
@@ -419,6 +572,9 @@ pub async fn find_pending_job_matching_labels(
     let labels_lower: Vec<String> = runner_labels.iter().map(|l| l.to_lowercase()).collect();
 
     for job in all_pending {
+        if !job_is_schedulable(db, &job).await? {
+            continue;
+        }
         let job_tags: Vec<String> = job
             .tags
             .as_ref()
@@ -437,6 +593,29 @@ pub async fn find_pending_job_matching_labels(
         }
     }
     Ok(None)
+}
+
+async fn job_is_schedulable(db: &DatabaseConnection, job: &pipeline_job::Model) -> Result<bool> {
+    let Some(stage) = get_stage_by_id(db, job.stage_id).await? else {
+        return Ok(false);
+    };
+    if matches!(
+        stage.status.as_str(),
+        "manual" | "waiting_approval" | "canceled"
+    ) {
+        return Ok(false);
+    }
+    let Some(pipeline) = get_pipeline(db, stage.pipeline_id).await? else {
+        return Ok(false);
+    };
+    if !matches!(pipeline.status.as_str(), "pending" | "running") {
+        return Ok(false);
+    }
+    let stages = list_stages_by_pipeline(db, stage.pipeline_id).await?;
+    Ok(stages
+        .iter()
+        .filter(|candidate| candidate.stage_order < stage.stage_order)
+        .all(|candidate| candidate.status == "success"))
 }
 
 /// Find stuck jobs: "assigned"/"running" but not updated within timeout.
@@ -546,7 +725,12 @@ pub async fn assign_job(db: &DatabaseConnection, job_id: i64, runner_id: i64) ->
 pub async fn count_active_pipelines(db: &DatabaseConnection, repo_id: i64) -> Result<usize> {
     let count = pipeline::Entity::find()
         .filter(pipeline::Column::RepoId.eq(repo_id))
-        .filter(pipeline::Column::Status.is_in(["pending", "running"]))
+        .filter(pipeline::Column::Status.is_in([
+            "pending",
+            "running",
+            "manual",
+            "waiting_approval",
+        ]))
         .count(db)
         .await
         .context("db: count active pipelines")? as usize;
@@ -563,7 +747,12 @@ pub async fn find_active_pipelines_by_ref(
     pipeline::Entity::find()
         .filter(pipeline::Column::RepoId.eq(repo_id))
         .filter(pipeline::Column::RefName.eq(ref_name))
-        .filter(pipeline::Column::Status.is_in(["pending", "running"]))
+        .filter(pipeline::Column::Status.is_in([
+            "pending",
+            "running",
+            "manual",
+            "waiting_approval",
+        ]))
         .order_by_asc(pipeline::Column::Id)
         .all(db)
         .await
@@ -579,7 +768,11 @@ pub async fn cancel_pipeline_chain(db: &DatabaseConnection, pipeline_id: i64) ->
     };
 
     // Only cancel if still pending or running
-    if pipeline_model.status != "pending" && pipeline_model.status != "running" {
+    if pipeline_model.status != "pending"
+        && pipeline_model.status != "running"
+        && pipeline_model.status != "manual"
+        && pipeline_model.status != "waiting_approval"
+    {
         return Ok(false);
     }
 

@@ -26,6 +26,7 @@
     require_approval: true,
     required_approvals: 1,
     allow_force_push: false,
+    require_signed_commits: false,
     allowed_push_user_ids: ''
   });
 
@@ -78,6 +79,7 @@
       require_approval: form.require_approval,
       required_approvals: form.require_approval ? Number(form.required_approvals || 1) : undefined,
       allow_force_push: form.allow_force_push,
+      require_signed_commits: form.require_signed_commits,
       allowed_push_user_ids: parseNumberList(form.allowed_push_user_ids)
     };
   }
@@ -92,6 +94,7 @@
       require_approval: true,
       required_approvals: 1,
       allow_force_push: false,
+      require_signed_commits: false,
       allowed_push_user_ids: ''
     };
   }
@@ -118,6 +121,7 @@
       require_approval: rule.require_approval,
       required_approvals: rule.required_approvals || 1,
       allow_force_push: rule.allow_force_push,
+      require_signed_commits: rule.require_signed_commits,
       allowed_push_user_ids: parseJsonNumberArray(rule.allowed_push_user_ids)
     };
   }
@@ -218,6 +222,11 @@
           <input type="checkbox" bind:checked={form.allow_force_push} disabled={saving} />
           <span>{t('settings.branch_protection.allow_force_push')}</span>
         </label>
+
+        <label class="check-row">
+          <input type="checkbox" bind:checked={form.require_signed_commits} disabled={saving} />
+          <span>{t('settings.branch_protection.require_signed_commits', 'Require cryptographically signed commits')}</span>
+        </label>
       </div>
 
       <div class="form-group">
@@ -271,6 +280,7 @@
                     {#if rule.require_approval}<span>{t('settings.branch_protection.approvals_count', { count: rule.required_approvals || 1 })}</span>{/if}
                     {#if rule.require_status_check}<span>{t('settings.branch_protection.status_checks_enabled')}</span>{/if}
                     {#if rule.allow_force_push}<span>{t('settings.branch_protection.force_push_allowed')}</span>{/if}
+                    {#if rule.require_signed_commits}<span>{t('settings.branch_protection.signed_commits_required', 'Signed commits required')}</span>{/if}
                   </div>
                 </td>
                 <td>{new Date(rule.updated_at).toLocaleDateString()}</td>

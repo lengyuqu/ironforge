@@ -83,7 +83,18 @@ pub async fn submit_review(
         created_at: Set(Utc::now()),
     };
 
-    pr_review_ops::create(db, model).await
+    let review = pr_review_ops::create(db, model).await?;
+    rg_db::ops::pr_event_ops::record(
+        db,
+        repo_id,
+        pr.id,
+        Some(reviewer_id),
+        &format!("review_{}", review.action),
+        review.body.clone(),
+        serde_json::json!({"review_id": review.id, "commit_id": review.commit_id}),
+    )
+    .await?;
+    Ok(review)
 }
 
 /// List all reviews for a PR.
@@ -131,7 +142,18 @@ pub async fn dismiss_review(
         created_at: Set(Utc::now()),
     };
 
-    pr_review_ops::create(db, model).await
+    let dismissal = pr_review_ops::create(db, model).await?;
+    rg_db::ops::pr_event_ops::record(
+        db,
+        dismissal.repo_id,
+        dismissal.pr_id,
+        Some(dismissor_id),
+        "review_dismiss",
+        dismissal.body.clone(),
+        serde_json::json!({"review_id": review_id, "commit_id": dismissal.commit_id}),
+    )
+    .await?;
+    Ok(dismissal)
 }
 
 // ── Inline Review Comments ────────────────────────────────────────────
@@ -216,7 +238,32 @@ pub async fn create_review_comment(
         updated_at: Set(Utc::now()),
     };
 
-    review_comment_ops::create(db, model).await
+    let comment = review_comment_ops::create(db, model).await?;
+    let event_type = if comment.reply_to_id.is_some() {
+        "review_reply"
+    } else if comment.suggestion.is_some() {
+        "code_suggestion"
+    } else {
+        "review_comment"
+    };
+    rg_db::ops::pr_event_ops::record(
+        db,
+        repo_id,
+        pr.id,
+        Some(author_id),
+        event_type,
+        Some(comment.body.clone()),
+        serde_json::json!({
+            "comment_id": comment.id,
+            "path": comment.path,
+            "start_line": comment.start_line,
+            "line": comment.line,
+            "side": comment.side,
+            "reply_to_id": comment.reply_to_id
+        }),
+    )
+    .await?;
+    Ok(comment)
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -418,6 +465,21 @@ pub async fn apply_suggestions(
         }
     }
     transaction.commit().await?;
+    for comment in &comments {
+        rg_db::ops::pr_event_ops::record(
+            db,
+            pr.repo_id,
+            pr.id,
+            Some(actor.id),
+            "suggestion_applied",
+            None,
+            serde_json::json!({
+                "comment_id": comment.id,
+                "commit_sha": commit_sha
+            }),
+        )
+        .await?;
+    }
     comments.sort_by_key(|comment| {
         comment_ids
             .iter()
@@ -444,7 +506,27 @@ pub async fn set_thread_resolved(
     active.resolved_at = Set(resolved.then(Utc::now));
     active.resolved_by_id = Set(resolved.then_some(actor_id));
     active.updated_at = Set(Utc::now());
-    review_comment_ops::update(db, active).await
+    let updated = review_comment_ops::update(db, active).await?;
+    rg_db::ops::pr_event_ops::record(
+        db,
+        // The repository is recovered from the PR to keep the event scoped.
+        pull_request::Entity::find_by_id(pr_id)
+            .one(db)
+            .await?
+            .context("pull request not found")?
+            .repo_id,
+        pr_id,
+        Some(actor_id),
+        if resolved {
+            "thread_resolved"
+        } else {
+            "thread_reopened"
+        },
+        None,
+        serde_json::json!({"comment_id": updated.id}),
+    )
+    .await?;
+    Ok(updated)
 }
 
 /// Find and validate the top-level comment for a review thread.

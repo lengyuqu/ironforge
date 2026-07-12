@@ -24,6 +24,19 @@ pub struct TriggerPipelineParams<'a> {
     pub docker_enabled: bool,
     pub external_runners: bool,
     pub jwt_secret: Option<&'a str>,
+    pub external_url: Option<&'a str>,
+}
+
+/// Parameters for resuming an existing pipeline after a manual gate.
+pub struct ResumePipelineParams<'a> {
+    pub db: &'a DatabaseConnection,
+    pub repo_path: &'a Path,
+    pub repo_id: i64,
+    pub pipeline_id: i64,
+    pub docker_enabled: bool,
+    pub external_runners: bool,
+    pub jwt_secret: Option<&'a str>,
+    pub external_url: Option<&'a str>,
 }
 
 /// Trait for CI pipeline triggering, implemented by `rg-ci`.
@@ -39,6 +52,12 @@ pub trait CiTrigger: Send + Sync {
         &'a self,
         params: TriggerPipelineParams<'a>,
     ) -> Pin<Box<dyn Future<Output = Result<i64>> + Send + 'a>>;
+
+    /// Resume an existing pipeline whose manual job has been released.
+    fn resume_pipeline<'a>(
+        &'a self,
+        params: ResumePipelineParams<'a>,
+    ) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>>;
 }
 
 /// Check if a repo has any CI config at the given commit.
