@@ -103,6 +103,17 @@ async fn admin_sso_create_get_update_delete() {
     assert_eq!(created["slug"], "gitea-login-1");
     let provider_id = created["id"].as_i64().unwrap();
 
+    let unsupported_test = client
+        .post(format!(
+            "{}/api/v1/admin/sso/providers/{}/test",
+            base, provider_id
+        ))
+        .bearer_auth(&admin_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(unsupported_test.status(), 400);
+
     let list_resp = client
         .get(format!("{}/api/v1/admin/sso/providers", base))
         .bearer_auth(&admin_token)
@@ -147,6 +158,40 @@ async fn admin_sso_create_get_update_delete() {
     assert_eq!(updated["name"], "Gitea Login Updated");
     assert_eq!(updated["enabled"], false);
 
+    let linked_account = rg_db::ops::oauth_account_ops::upsert(
+        &db,
+        admin_id,
+        "gitea-login-1",
+        "provider-user-1",
+        "sso_crud",
+        "sso_crud@example.com",
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        rg_db::ops::oauth_account_ops::count_by_provider(&db, "gitea-login-1")
+            .await
+            .unwrap(),
+        1
+    );
+
+    let linked_delete = client
+        .delete(format!(
+            "{}/api/v1/admin/sso/providers/{}",
+            base, provider_id
+        ))
+        .bearer_auth(&admin_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(linked_delete.status(), 400);
+    rg_db::ops::oauth_account_ops::delete_by_id(&db, linked_account.id, admin_id)
+        .await
+        .unwrap();
+
     let del_resp = client
         .delete(format!(
             "{}/api/v1/admin/sso/providers/{}",
@@ -156,8 +201,10 @@ async fn admin_sso_create_get_update_delete() {
         .send()
         .await
         .unwrap();
-    assert_eq!(del_resp.status(), 200);
-    let body: serde_json::Value = del_resp.json().await.unwrap();
+    let delete_status = del_resp.status();
+    let delete_body = del_resp.text().await.unwrap();
+    assert_eq!(delete_status, 200, "{delete_body}");
+    let body: serde_json::Value = serde_json::from_str(&delete_body).unwrap();
     assert_eq!(body["deleted"], true);
 
     let get_after = client
@@ -170,6 +217,128 @@ async fn admin_sso_create_get_update_delete() {
         .await
         .unwrap();
     assert_eq!(get_after.status(), 404);
+}
+
+#[tokio::test]
+async fn enabled_ldap_provider_requires_safe_complete_configuration() {
+    let (base, db) = spawn_test_app_with_db().await;
+    let client = reqwest::Client::new();
+    let (admin_token, admin_id) =
+        register_full(&base, "ldap_admin", "ldap_admin@example.com").await;
+    rg_db::ops::user_ops::update_by_id(&db, admin_id, None, None, Some(true), None)
+        .await
+        .unwrap();
+
+    let incomplete = client
+        .post(format!("{}/api/v1/admin/sso/providers", base))
+        .bearer_auth(&admin_token)
+        .json(&serde_json::json!({
+            "name": "Directory",
+            "slug": "directory",
+            "provider_type": "ldap",
+            "enabled": true
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(incomplete.status(), 400);
+
+    let invalid_filter = client
+        .post(format!("{}/api/v1/admin/sso/providers", base))
+        .bearer_auth(&admin_token)
+        .json(&serde_json::json!({
+            "name": "Directory",
+            "slug": "directory",
+            "provider_type": "ldap",
+            "enabled": true,
+            "ldap_host": "ldap://127.0.0.1",
+            "ldap_port": 1,
+            "ldap_bind_dn": "cn=service,dc=example,dc=com",
+            "ldap_bind_password": "bind-secret",
+            "ldap_base_dn": "dc=example,dc=com",
+            "ldap_user_filter": "(objectClass=person)"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(invalid_filter.status(), 400);
+
+    let valid = client
+        .post(format!("{}/api/v1/admin/sso/providers", base))
+        .bearer_auth(&admin_token)
+        .json(&serde_json::json!({
+            "name": "Directory",
+            "slug": "directory",
+            "provider_type": "ldap",
+            "enabled": true,
+            "ldap_host": "ldap://127.0.0.1",
+            "ldap_port": 1,
+            "ldap_bind_dn": "cn=service,dc=example,dc=com",
+            "ldap_bind_password": "bind-secret",
+            "ldap_base_dn": "dc=example,dc=com",
+            "ldap_user_filter": "(uid={username})"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(valid.status(), 201);
+    let response: serde_json::Value = valid.json().await.unwrap();
+    assert!(response.get("ldap_bind_password").is_none());
+    let stored = rg_db::ops::sso_provider_ops::find_by_slug(&db, "directory")
+        .await
+        .unwrap()
+        .unwrap();
+    let encrypted = stored.ldap_bind_password_enc.unwrap();
+    assert_ne!(encrypted, "bind-secret");
+    let key = rg_core::auth::encryption::derive_key("test-secret-key");
+    assert_eq!(
+        rg_core::auth::encryption::decrypt(&encrypted, &key).unwrap(),
+        "bind-secret"
+    );
+
+    let unauthenticated_test = client
+        .post(format!(
+            "{}/api/v1/admin/sso/providers/{}/test",
+            base, stored.id
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(unauthenticated_test.status(), 403);
+
+    let failed_test = client
+        .post(format!(
+            "{}/api/v1/admin/sso/providers/{}/test",
+            base, stored.id
+        ))
+        .bearer_auth(&admin_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(failed_test.status(), 400);
+    let failed_body = failed_test.text().await.unwrap();
+    assert!(failed_body.contains("LDAP connection test failed"));
+    assert!(!failed_body.contains("127.0.0.1"));
+    assert!(!failed_body.contains("bind-secret"));
+
+    rg_db::ops::user_ops::create_ldap_user(
+        &db,
+        stored.id,
+        "directory_user",
+        "directory_user@example.com",
+        Some("Directory User"),
+        "uid=directory_user,dc=example,dc=com",
+        Some("directory_user"),
+    )
+    .await
+    .unwrap();
+    let delete_linked = client
+        .delete(format!("{}/api/v1/admin/sso/providers/{}", base, stored.id))
+        .bearer_auth(&admin_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(delete_linked.status(), 400);
 }
 
 #[tokio::test]

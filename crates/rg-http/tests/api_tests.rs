@@ -207,6 +207,210 @@ async fn test_disable_mfa_rejects_wrong_password() {
     assert!(user.mfa_enabled);
 }
 
+#[tokio::test]
+async fn test_mfa_verify_requires_a_primary_factor_challenge() {
+    let (base, db) = spawn_test_app_with_db().await;
+    let (_token, user_id) =
+        register_full(&base, "mfa_challenge", "mfa_challenge@example.com").await;
+    rg_db::ops::user_ops::enable_mfa(&db, user_id, "totp")
+        .await
+        .unwrap();
+    rg_db::ops::mfa_backup_code_ops::set_codes(&db, user_id, &["123456".to_string()])
+        .await
+        .unwrap();
+    let client = reqwest::Client::new();
+
+    let direct = client
+        .post(format!("{}/api/v1/users/mfa/verify", base))
+        .json(&serde_json::json!({
+            "username": "mfa_challenge",
+            "code": "000000"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(direct.status(), 401);
+
+    let login = client
+        .post(format!("{}/api/v1/users/login", base))
+        .json(&serde_json::json!({
+            "login": "mfa_challenge",
+            "password": "Qz7$wRtm"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(login.status(), 200);
+    let challenge_cookie_header = login
+        .headers()
+        .get(reqwest::header::SET_COOKIE)
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string();
+    assert!(challenge_cookie_header.starts_with("ironforge_mfa_challenge="));
+    assert!(challenge_cookie_header.contains("HttpOnly"));
+    let challenge_cookie = challenge_cookie_header
+        .split(';')
+        .next()
+        .unwrap()
+        .to_string();
+    let body: serde_json::Value = login.json().await.unwrap();
+    assert_eq!(body["mfa_required"], true);
+    assert_eq!(body["token"], "");
+
+    let verified = client
+        .post(format!("{}/api/v1/users/mfa/verify", base))
+        .header(reqwest::header::COOKIE, &challenge_cookie)
+        .json(&serde_json::json!({
+            "username": "mfa_challenge",
+            "code": "123456",
+            "backup": true
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(verified.status(), 200);
+    let set_cookies: Vec<_> = verified
+        .headers()
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .map(|value| value.to_str().unwrap().to_string())
+        .collect();
+    assert!(set_cookies
+        .iter()
+        .any(|cookie| cookie.starts_with("ironforge_token=")));
+    assert!(set_cookies.iter().any(|cookie| {
+        cookie.starts_with("ironforge_mfa_challenge=") && cookie.contains("Max-Age=0")
+    }));
+}
+
+#[tokio::test]
+async fn test_password_failures_are_logged_and_lock_known_accounts() {
+    let (base, db) = spawn_test_app_with_db().await;
+    let (_token, user_id) = register_full(&base, "lock_user", "lock_user@example.com").await;
+    let client = reqwest::Client::new();
+
+    for _ in 0..5 {
+        let response = client
+            .post(format!("{}/api/v1/users/login", base))
+            .json(&serde_json::json!({
+                "login": "lock_user",
+                "password": "wrong-password"
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 401);
+    }
+
+    let locked = rg_db::ops::user_ops::find_by_id(&db, user_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(locked.login_attempts, 5);
+    assert!(locked.locked_until.is_some());
+    assert!(
+        rg_db::ops::login_log_ops::count_failed_since(
+            &db,
+            "lock_user",
+            chrono::Utc::now() - chrono::Duration::minutes(1),
+        )
+        .await
+        .unwrap()
+            >= 5
+    );
+
+    let blocked = client
+        .post(format!("{}/api/v1/users/login", base))
+        .json(&serde_json::json!({
+            "login": "lock_user",
+            "password": "Qz7$wRtm"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(blocked.status(), 401);
+
+    rg_db::ops::user_ops::reset_login_failures(&db, user_id)
+        .await
+        .unwrap();
+    let recovered = client
+        .post(format!("{}/api/v1/users/login", base))
+        .json(&serde_json::json!({
+            "login": "lock_user",
+            "password": "Qz7$wRtm"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(recovered.status(), 200);
+}
+
+#[tokio::test]
+async fn test_new_primary_factor_challenge_does_not_reset_mfa_failures() {
+    let (base, db) = spawn_test_app_with_db().await;
+    let (_token, user_id) =
+        register_full(&base, "mfa_lock_user", "mfa_lock_user@example.com").await;
+    rg_db::ops::user_ops::enable_mfa(&db, user_id, "totp")
+        .await
+        .unwrap();
+    let client = reqwest::Client::new();
+
+    async fn login_challenge(client: &reqwest::Client, base: &str) -> String {
+        let response = client
+            .post(format!("{}/api/v1/users/login", base))
+            .json(&serde_json::json!({
+                "login": "mfa_lock_user",
+                "password": "Qz7$wRtm"
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        response
+            .headers()
+            .get_all(reqwest::header::SET_COOKIE)
+            .iter()
+            .find_map(|value| {
+                let value = value.to_str().ok()?;
+                value
+                    .starts_with("ironforge_mfa_challenge=")
+                    .then(|| value.split(';').next().unwrap().to_string())
+            })
+            .unwrap()
+    }
+
+    async fn fail_mfa(client: &reqwest::Client, base: &str, cookie: &str) -> reqwest::StatusCode {
+        client
+            .post(format!("{}/api/v1/users/mfa/verify", base))
+            .header(reqwest::header::COOKIE, cookie)
+            .json(&serde_json::json!({
+                "username": "mfa_lock_user",
+                "code": "not-a-code",
+                "backup": true
+            }))
+            .send()
+            .await
+            .unwrap()
+            .status()
+    }
+
+    let first_challenge = login_challenge(&client, &base).await;
+    for _ in 0..4 {
+        assert_eq!(fail_mfa(&client, &base, &first_challenge).await, 401);
+    }
+    let refreshed_challenge = login_challenge(&client, &base).await;
+    assert_eq!(fail_mfa(&client, &base, &refreshed_challenge).await, 401);
+
+    let user = rg_db::ops::user_ops::find_by_id(&db, user_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(user.login_attempts, 5);
+    assert!(user.locked_until.is_some());
+}
+
 // ── Repo CRUD ────────────────────────────────────────────────────
 
 #[tokio::test]

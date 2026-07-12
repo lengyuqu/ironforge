@@ -74,6 +74,14 @@ fn build_auth_cookie(token: &str, is_https: bool) -> String {
     cookie
 }
 
+fn build_clear_auth_cookie(is_https: bool) -> String {
+    format!(
+        "{}=; HttpOnly; Path=/; SameSite=Strict; Max-Age=0{}",
+        crate::api::auth::AUTH_COOKIE_NAME,
+        if is_https { "; Secure" } else { "" }
+    )
+}
+
 fn is_https_request(headers: &HeaderMap) -> bool {
     headers
         .get("x-forwarded-proto")
@@ -435,6 +443,15 @@ pub async fn callback(
         .await
         .map_err(AppError::from)?
         .ok_or_else(|| AppError::internal("user not found after creation"))?;
+    if !user.is_active {
+        return Err(AppError::unauthorized("account is disabled"));
+    }
+    if user
+        .locked_until
+        .is_some_and(|locked_until| locked_until > chrono::Utc::now())
+    {
+        return Err(AppError::unauthorized("account is temporarily locked"));
+    }
 
     // ── Log successful login ─────────────────────────────────────
     let _ = rg_db::ops::login_log_ops::log_attempt(
@@ -451,14 +468,33 @@ pub async fn callback(
 
     // ── If MFA enabled, require second factor ────────────────────
     if user.mfa_enabled {
+        let challenge = rg_core::auth::jwt::generate_mfa_challenge(
+            user.id,
+            &user.username,
+            &provider.slug,
+            &state.jwt_secret,
+        )
+        .map_err(AppError::from)?;
         let target = format!(
             "/login?sso_mfa_required=1&username={}",
             encode_query_component(&user.username)
         );
         let mut redirect = Redirect::temporary(&target).into_response();
+        append_set_cookie(
+            &mut redirect,
+            crate::api::mfa::build_mfa_challenge_cookie(&challenge, is_https_request(&headers)),
+        );
+        append_set_cookie(
+            &mut redirect,
+            build_clear_auth_cookie(is_https_request(&headers)),
+        );
         clear_state_cookie(&mut redirect, SSO_STATE_COOKIE);
         clear_state_cookie(&mut redirect, SSO_VERIFIER_COOKIE);
         return Ok(redirect);
+    }
+
+    if let Err(error) = rg_db::ops::user_ops::record_successful_login(&state.db, user.id).await {
+        tracing::warn!(user_id = user.id, %error, "failed to record successful SSO login");
     }
 
     // ── Issue JWT ────────────────────────────────────────────────

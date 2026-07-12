@@ -154,4 +154,8 @@ export const admin = {
     }),
   deleteSsoProvider: (id: number) =>
     request<{ deleted: boolean }>(`/admin/sso/providers/${id}`, { method: 'DELETE' }),
+  testSsoProvider: (id: number) =>
+    request<{ ok: boolean; message: string }>(`/admin/sso/providers/${id}/test`, {
+      method: 'POST',
+    }),
 };

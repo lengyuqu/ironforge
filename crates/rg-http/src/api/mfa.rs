@@ -22,6 +22,76 @@ use crate::api::auth::{extract_user_id, AUTH_COOKIE_NAME};
 use crate::error::AppError;
 use crate::AppState;
 
+pub(crate) const MFA_CHALLENGE_COOKIE: &str = "ironforge_mfa_challenge";
+
+pub(crate) fn build_mfa_challenge_cookie(token: &str, is_https: bool) -> String {
+    format!(
+        "{}={}; HttpOnly; Path=/; SameSite=Strict; Max-Age=300{}",
+        MFA_CHALLENGE_COOKIE,
+        token,
+        if is_https { "; Secure" } else { "" }
+    )
+}
+
+fn clear_mfa_challenge_cookie(is_https: bool) -> String {
+    format!(
+        "{}=; HttpOnly; Path=/; SameSite=Strict; Max-Age=0{}",
+        MFA_CHALLENGE_COOKIE,
+        if is_https { "; Secure" } else { "" }
+    )
+}
+
+fn extract_mfa_challenge(headers: &HeaderMap) -> Option<&str> {
+    headers
+        .get(axum::http::header::COOKIE)?
+        .to_str()
+        .ok()?
+        .split(';')
+        .map(str::trim)
+        .find_map(|cookie| cookie.strip_prefix(&format!("{}=", MFA_CHALLENGE_COOKIE)))
+        .filter(|token| !token.is_empty())
+}
+
+async fn record_mfa_attempt(
+    state: &AppState,
+    headers: &HeaderMap,
+    user: &rg_db::entities::user::Model,
+    auth_provider: &str,
+    success: bool,
+) -> bool {
+    let locked = if success {
+        if let Err(error) = rg_db::ops::user_ops::record_successful_login(&state.db, user.id).await
+        {
+            tracing::warn!(user_id = user.id, %error, "failed to record completed MFA login");
+        }
+        false
+    } else {
+        rg_db::ops::user_ops::record_failed_login(&state.db, user.id, 5)
+            .await
+            .unwrap_or(false)
+    };
+    let (ip_address, user_agent) = crate::api::audit::extract_ip_and_ua(headers);
+    if let Err(error) = rg_db::ops::login_log_ops::log_attempt(
+        &state.db,
+        Some(user.id),
+        &user.username,
+        auth_provider,
+        ip_address.as_deref(),
+        user_agent.as_deref(),
+        success,
+        (!success).then_some(if locked {
+            "mfa_account_locked"
+        } else {
+            "invalid_mfa_code"
+        }),
+    )
+    .await
+    {
+        tracing::warn!(user_id = user.id, %error, "failed to record MFA login attempt");
+    }
+    locked
+}
+
 #[derive(Debug, Serialize, ToSchema)]
 pub struct SetupMfaResponse {
     secret: String,
@@ -196,14 +266,32 @@ pub async fn verify_mfa(
     headers: HeaderMap,
     Json(req): Json<VerifyMfaRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    // Find user by username
-    let user = rg_db::ops::user_ops::find_by_username(&state.db, &req.username)
+    let challenge = extract_mfa_challenge(&headers)
+        .and_then(|token| rg_core::auth::jwt::validate_mfa_challenge(token, &state.jwt_secret))
+        .ok_or_else(|| AppError::unauthorized("MFA login challenge is missing or expired"))?;
+    if challenge.username != req.username {
+        return Err(AppError::unauthorized("invalid MFA login challenge"));
+    }
+    let user_id = challenge
+        .sub
+        .parse::<i64>()
+        .map_err(|_| AppError::unauthorized("invalid MFA login challenge"))?;
+    let user = rg_db::ops::user_ops::find_by_id(&state.db, user_id)
         .await
         .map_err(AppError::from)?
         .ok_or_else(|| {
-            tracing::warn!(username = %req.username, "MFA verify: user not found");
+            tracing::warn!(user_id, "MFA verify: user not found");
             AppError::unauthorized("invalid credentials")
         })?;
+    if user.username != challenge.username || !user.is_active {
+        return Err(AppError::unauthorized("invalid credentials"));
+    }
+    if user
+        .locked_until
+        .is_some_and(|locked_until| locked_until > chrono::Utc::now())
+    {
+        return Err(AppError::unauthorized("account is temporarily locked"));
+    }
 
     if !user.mfa_enabled {
         return Err(AppError::bad_request("MFA not enabled"));
@@ -217,7 +305,13 @@ pub async fn verify_mfa(
                 .map_err(AppError::from)?;
 
         if !valid {
-            return Err(AppError::unauthorized("invalid backup code"));
+            let locked =
+                record_mfa_attempt(&state, &headers, &user, &challenge.auth_provider, false).await;
+            return Err(AppError::unauthorized(if locked {
+                "account is temporarily locked"
+            } else {
+                "invalid backup code"
+            }));
         }
     } else {
         // Verify TOTP code
@@ -233,9 +327,17 @@ pub async fn verify_mfa(
         let valid = rg_core::auth::totp::verify_code(&secret, &req.code).map_err(AppError::from)?;
 
         if !valid {
-            return Err(AppError::unauthorized("invalid TOTP code"));
+            let locked =
+                record_mfa_attempt(&state, &headers, &user, &challenge.auth_provider, false).await;
+            return Err(AppError::unauthorized(if locked {
+                "account is temporarily locked"
+            } else {
+                "invalid TOTP code"
+            }));
         }
     }
+
+    record_mfa_attempt(&state, &headers, &user, &challenge.auth_provider, true).await;
 
     // Issue JWT
     let token = rg_core::auth::jwt::generate_token(user.id, &user.username, &state.jwt_secret, 7)
@@ -254,7 +356,7 @@ pub async fn verify_mfa(
         if is_https { "; Secure" } else { "" }
     );
 
-    Ok((
+    let mut response = (
         StatusCode::OK,
         [(axum::http::header::SET_COOKIE, cookie_value)],
         Json(VerifyMfaResponse {
@@ -262,7 +364,14 @@ pub async fn verify_mfa(
             user_id: user.id,
             username: user.username,
         }),
-    ))
+    )
+        .into_response();
+    if let Ok(value) = axum::http::HeaderValue::from_str(&clear_mfa_challenge_cookie(is_https)) {
+        response
+            .headers_mut()
+            .append(axum::http::header::SET_COOKIE, value);
+    }
+    Ok(response)
 }
 
 /// GET /users/mfa/backup

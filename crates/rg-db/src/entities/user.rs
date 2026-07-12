@@ -28,6 +28,8 @@ pub struct Model {
     pub ldap_dn: Option<String>,
     /// LDAP uid (for lookup)
     pub ldap_uid: Option<String>,
+    /// SSO provider that owns this LDAP identity.
+    pub ldap_provider_id: Option<i64>,
     /// Encrypted TOTP secret (AES-GCM), base64 encoded
     pub totp_secret: Option<String>,
     /// Whether MFA is enforced for this user

@@ -282,6 +282,11 @@ SSH Git
 
 - 浏览器用户 API 优先使用 cookie-aware 的 `AuthUser` / `extract_user_id`，避免新增 Bearer-only handler。
 - PAT、Git HTTP、Runner token、CI job token 和 OCI token 保持各自语义，不混用为同一个认证入口。
+- 启用的 LDAP Provider 进入 `/users/login` 主链路：本地账号只校验本地密码且绝不回退到 LDAP；目录用户成功 bind 后才首次建号，密码不落库，后续按 `ldap_provider_id + ldap_uid` 绑定来源。历史未绑定 Provider 的 LDAP 用户仅在实例恰有一个启用 LDAP 源时允许完成首次绑定。LDAP 查询值按 RFC 4515 转义、搜索结果必须唯一、空密码拒绝、连接与认证限时 10 秒，未显式声明 `ldap://` 时默认使用证书校验的 LDAPS 636。
+- 本地密码、LDAP 和 SSO 第一因素通过后，如用户启用 MFA，服务端只设置使用独立签名域的五分钟 HttpOnly challenge cookie，不签发用户 JWT；`/users/mfa/verify` 必须校验 challenge 的用户、期限和认证来源，成功后清除 challenge 并签发会话。已存在的用户名直调 MFA 接口不再可用。密码/MFA 成功与失败写入 `login_logs`，已知账户连续五次失败锁定 15 分钟；仅完整登录成功才重置失败计数并更新 `last_login_at`，重新完成第一因素不能清空 MFA 失败次数。
+- 已被 LDAP 用户或 OAuth account 引用的 SSO Provider 禁止删除，管理员需先禁用或迁移关联身份，避免目录用户被静默遗留为无法登录的悬挂账号。
+- 管理员可对已保存 LDAP Provider 调用连接测试；服务端解密绑定密码后按同一 TLS/端口/10 秒超时策略执行 service bind，详细连接错误仅写服务日志，HTTP/UI 只返回脱敏结果。
+- 历史迁移中 `OAuthAccounts` 的自动标识符曾生成 `o_auth_accounts`，与实体使用的 `oauth_accounts` 不一致；兼容迁移检测旧名后原子改名，已有正确表名的实例保持不变。
 - 仓库关联资源继续通过 `can_read_repo` / `can_write_repo` 做 repo-scoped 授权。
 - LDAP TLS 默认校验证书，只有显式 insecure 配置才跳过校验。
 - Rate limit 默认只信任 socket IP，只有配置可信代理后才读取转发头。

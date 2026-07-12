@@ -28,8 +28,28 @@ pub struct LdapUser {
     pub uid: Option<String>,
 }
 
+/// Escape a value embedded in an LDAP search filter (RFC 4515).
+fn escape_filter_value(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for byte in value.as_bytes() {
+        match byte {
+            b'\0' => escaped.push_str("\\00"),
+            b'(' => escaped.push_str("\\28"),
+            b')' => escaped.push_str("\\29"),
+            b'*' => escaped.push_str("\\2a"),
+            b'\\' => escaped.push_str("\\5c"),
+            byte if !byte.is_ascii() => {
+                use std::fmt::Write;
+                let _ = write!(escaped, "\\{byte:02x}");
+            }
+            byte => escaped.push(*byte as char),
+        }
+    }
+    escaped
+}
+
 fn connection_settings(config: &LdapConfig) -> LdapConnSettings {
-    let settings = LdapConnSettings::new();
+    let settings = LdapConnSettings::new().set_conn_timeout(std::time::Duration::from_secs(10));
     if config.use_tls && config.insecure_skip_tls_verify {
         settings.set_no_tls_verify(true)
     } else {
@@ -38,6 +58,12 @@ fn connection_settings(config: &LdapConfig) -> LdapConnSettings {
 }
 
 pub async fn authenticate(config: &LdapConfig, username: &str, password: &str) -> Result<LdapUser> {
+    if username.trim().is_empty() || password.is_empty() {
+        anyhow::bail!("invalid LDAP credentials");
+    }
+    if !config.user_filter.contains("{username}") {
+        anyhow::bail!("LDAP user filter must contain '{{username}}'");
+    }
     let url = if config.use_tls {
         format!("ldaps://{}:{}", config.host, config.port)
     } else {
@@ -59,7 +85,9 @@ pub async fn authenticate(config: &LdapConfig, username: &str, password: &str) -
         .map_err(|e| anyhow::anyhow!("LDAP service bind rejected: {:?}", e))?;
 
     // Step 2: search for user
-    let filter = config.user_filter.replace("{username}", username);
+    let filter = config
+        .user_filter
+        .replace("{username}", &escape_filter_value(username));
     let (results, _) = ldap
         .search(
             &config.base_dn,
@@ -74,6 +102,9 @@ pub async fn authenticate(config: &LdapConfig, username: &str, password: &str) -
 
     if results.is_empty() {
         anyhow::bail!("user '{}' not found in LDAP directory", username);
+    }
+    if results.len() != 1 {
+        anyhow::bail!("LDAP user filter returned multiple entries");
     }
 
     // ldap3 v0.11: SearchResultEntry has (dn, attrs) pattern
@@ -155,7 +186,7 @@ pub async fn test_connection(config: &LdapConfig) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::LdapConfig;
+    use super::{escape_filter_value, LdapConfig};
 
     fn config(use_tls: bool, insecure_skip_tls_verify: bool) -> LdapConfig {
         LdapConfig {
@@ -184,5 +215,15 @@ mod tests {
 
         assert!(cfg.use_tls);
         assert!(cfg.insecure_skip_tls_verify);
+    }
+
+    #[test]
+    fn ldap_filter_values_are_rfc4515_escaped() {
+        assert_eq!(escape_filter_value("alice"), "alice");
+        assert_eq!(
+            escape_filter_value("*)(uid=*)\\\0"),
+            "\\2a\\29\\28uid=\\2a\\29\\5c\\00"
+        );
+        assert_eq!(escape_filter_value("é"), "\\c3\\a9");
     }
 }

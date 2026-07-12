@@ -17,6 +17,8 @@
   let error = $state('');
   let ssoProviders = $state<AdminSsoProvider[]>([]);
   let ssoSaving = $state(false);
+  let testingSsoId = $state<number | null>(null);
+  let ssoTestResult = $state<{ ok: boolean; message: string } | null>(null);
   let editingSsoId = $state<number | null>(null);
   let ssoForm = $state<SsoProviderPayload>(emptySsoProviderForm());
 
@@ -206,6 +208,20 @@
     }
   }
 
+  async function testSsoProvider(provider: AdminSsoProvider) {
+    try {
+      testingSsoId = provider.id;
+      error = '';
+      ssoTestResult = null;
+      const result = await admin.testSsoProvider(provider.id);
+      ssoTestResult = result;
+    } catch (e: any) {
+      ssoTestResult = { ok: false, message: e.message || 'LDAP connection test failed' };
+    } finally {
+      testingSsoId = null;
+    }
+  }
+
 </script>
 
 <svelte:head>
@@ -254,6 +270,11 @@
 
     <div class="section">
       <h2>SSO Providers</h2>
+      {#if ssoTestResult}
+        <div class="connection-result" class:success={ssoTestResult.ok}>
+          {ssoTestResult.message}
+        </div>
+      {/if}
 
       {#if ssoProviders.length === 0}
         <p class="text-secondary">No SSO providers configured.</p>
@@ -270,6 +291,11 @@
                 </div>
               </div>
               <div class="provider-actions">
+                {#if provider.provider_type === 'ldap'}
+                  <button class="btn-secondary" type="button" disabled={testingSsoId === provider.id} onclick={() => testSsoProvider(provider)}>
+                    {testingSsoId === provider.id ? 'Testing...' : 'Test connection'}
+                  </button>
+                {/if}
                 <button class="btn-secondary" type="button" onclick={() => toggleSsoProvider(provider)}>
                   {provider.enabled ? 'Disable' : 'Enable'}
                 </button>
@@ -321,7 +347,7 @@
           </div>
           <div class="form-group">
             <label for="sso-ldap-host">LDAP Host</label>
-            <input id="sso-ldap-host" type="text" bind:value={ssoForm.ldap_host} />
+            <input id="sso-ldap-host" type="text" bind:value={ssoForm.ldap_host} placeholder="ldap.example.com (LDAPS by default)" />
           </div>
           <div class="form-group">
             <label for="sso-ldap-port">LDAP Port</label>
@@ -376,6 +402,7 @@
   .inline-actions { display: flex; gap: 8px; margin-top: 16px; }
   .btn-primary { padding: 8px 20px; background: var(--accent); color: #fff; border: none; border-radius: var(--radius); font-size: 14px; cursor: pointer; }
   .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+  .btn-secondary:disabled { opacity: 0.6; cursor: wait; }
   .btn-secondary,
   .btn-danger {
     padding: 6px 10px;
@@ -388,6 +415,8 @@
   }
   .btn-danger { color: #cf222e; }
   .provider-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+  .connection-result { margin-bottom: 12px; padding: 8px 10px; border: 1px solid #cf222e; border-radius: var(--radius); color: #cf222e; font-size: 13px; }
+  .connection-result.success { border-color: #1a7f37; color: #1a7f37; }
   .provider-row {
     display: flex;
     align-items: center;

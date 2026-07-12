@@ -62,6 +62,8 @@ pub mod m20260712_000010_add_pipeline_job_when;
 pub mod m20260712_000011_create_ci_environments;
 pub mod m20260712_000012_create_ci_retention;
 pub mod m20260712_000013_add_pipeline_job_condition;
+pub mod m20260712_000014_add_ldap_provider_identity;
+pub mod m20260712_000015_fix_oauth_accounts_table_name;
 
 use sea_orm_migration::prelude::*;
 
@@ -135,6 +137,8 @@ impl MigratorTrait for Migrator {
             Box::new(m20260712_000011_create_ci_environments::Migration),
             Box::new(m20260712_000012_create_ci_retention::Migration),
             Box::new(m20260712_000013_add_pipeline_job_condition::Migration),
+            Box::new(m20260712_000014_add_ldap_provider_identity::Migration),
+            Box::new(m20260712_000015_fix_oauth_accounts_table_name::Migration),
         ]
     }
 }

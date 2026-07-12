@@ -191,11 +191,22 @@ pub async fn login(
     headers: HeaderMap,
     Json(body): Json<LoginRequest>,
 ) -> impl IntoResponse {
+    let (ip_address, user_agent) = crate::api::audit::extract_ip_and_ua(&headers);
     // First authenticate credentials
-    match rg_core::user::service::login(&state.db, &body.login, &body.password, &state.jwt_secret)
-        .await
+    match rg_core::user::service::login_with_configured_auth(
+        &state.db,
+        &body.login,
+        &body.password,
+        &state.jwt_secret,
+    )
+    .await
     {
-        Ok(resp) => {
+        Ok(outcome) => {
+            let resp = outcome.response;
+            let login_method = match outcome.method {
+                rg_core::user::service::LoginMethod::Password => "password",
+                rg_core::user::service::LoginMethod::Ldap => "ldap",
+            };
             // Check if MFA is enabled for this user
             let mfa_required = match rg_db::ops::user_ops::find_by_id(&state.db, resp.user_id).await
             {
@@ -206,7 +217,7 @@ pub async fn login(
             // Record audit log
             let details = serde_json::json!({
                 "mfa_required": mfa_required,
-                "login_method": "password"
+                "login_method": login_method
             });
             record_audit(
                 &state.db,
@@ -221,15 +232,62 @@ pub async fn login(
             )
             .await;
 
+            if let Err(error) = rg_db::ops::login_log_ops::log_attempt(
+                &state.db,
+                Some(resp.user_id),
+                &resp.username,
+                login_method,
+                ip_address.as_deref(),
+                user_agent.as_deref(),
+                true,
+                None,
+            )
+            .await
+            {
+                tracing::warn!(%error, "failed to record successful login attempt");
+            }
+            if !mfa_required {
+                if let Err(error) =
+                    rg_db::ops::user_ops::record_successful_login(&state.db, resp.user_id).await
+                {
+                    tracing::warn!(user_id = resp.user_id, %error, "failed to update login state");
+                }
+            }
+
             if mfa_required {
-                // Don't issue full JWT; client must complete MFA flow
+                // Prove the first factor with a short-lived, HttpOnly challenge
+                // cookie. The MFA endpoint refuses username-only verification.
+                let challenge = match rg_core::auth::jwt::generate_mfa_challenge(
+                    resp.user_id,
+                    &resp.username,
+                    login_method,
+                    &state.jwt_secret,
+                ) {
+                    Ok(challenge) => challenge,
+                    Err(error) => return AppError::internal(error).into_response(),
+                };
+                let is_https = is_https_request(&headers);
+                let challenge_cookie =
+                    crate::api::mfa::build_mfa_challenge_cookie(&challenge, is_https);
                 let mfa_resp = serde_json::json!({
                     "token": "",
                     "user_id": resp.user_id,
                     "username": resp.username,
                     "mfa_required": true,
                 });
-                (StatusCode::OK, Json(mfa_resp)).into_response()
+                let mut response = (
+                    StatusCode::OK,
+                    [(axum::http::header::SET_COOKIE, challenge_cookie)],
+                    Json(mfa_resp),
+                )
+                    .into_response();
+                if let Ok(value) = axum::http::HeaderValue::from_str(&build_clear_cookie(is_https))
+                {
+                    response
+                        .headers_mut()
+                        .append(axum::http::header::SET_COOKIE, value);
+                }
+                response
             } else {
                 // M-4: Set HttpOnly cookie with JWT for browser-based auth
                 let is_https = is_https_request(&headers);
@@ -242,7 +300,55 @@ pub async fn login(
                     .into_response()
             }
         }
-        Err(e) => AppError::unauthorized(e.to_string()).into_response(),
+        Err(error) => {
+            let user = if body.login.contains('@') {
+                rg_db::ops::user_ops::find_by_email(&state.db, &body.login)
+                    .await
+                    .ok()
+                    .flatten()
+            } else {
+                rg_db::ops::user_ops::find_by_username(&state.db, &body.login)
+                    .await
+                    .ok()
+                    .flatten()
+            };
+            let mut locked = error.to_string() == "account is temporarily locked";
+            if !locked && error.to_string() == "invalid credentials" {
+                if let Some(user) = &user {
+                    locked = rg_db::ops::user_ops::record_failed_login(&state.db, user.id, 5)
+                        .await
+                        .unwrap_or(false);
+                }
+            }
+            let auth_provider = user
+                .as_ref()
+                .map(|user| user.auth_provider.as_str())
+                .unwrap_or("unknown");
+            if let Err(log_error) = rg_db::ops::login_log_ops::log_attempt(
+                &state.db,
+                user.as_ref().map(|user| user.id),
+                &body.login,
+                auth_provider,
+                ip_address.as_deref(),
+                user_agent.as_deref(),
+                false,
+                Some(if locked {
+                    "account_locked"
+                } else {
+                    "invalid_credentials"
+                }),
+            )
+            .await
+            {
+                tracing::warn!(%log_error, "failed to record unsuccessful login attempt");
+            }
+            AppError::unauthorized(if locked {
+                "account is temporarily locked"
+            } else {
+                "invalid credentials"
+            })
+            .into_response()
+        }
     }
 }
 

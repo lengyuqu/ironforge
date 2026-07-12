@@ -20,6 +20,19 @@ pub struct Claims {
     pub exp: i64,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct MfaChallengeClaims {
+    pub sub: String,
+    pub username: String,
+    pub auth_provider: String,
+    pub iat: i64,
+    pub exp: i64,
+}
+
+fn mfa_challenge_key(secret: &str) -> String {
+    format!("ironforge:mfa-challenge:{secret}")
+}
+
 /// Generate a signed JWT for a user.
 pub fn generate_token(user_id: i64, username: &str, secret: &str, ttl_days: i64) -> Result<String> {
     let now = Utc::now();
@@ -47,6 +60,41 @@ pub fn validate_token(token: &str, secret: &str) -> Option<Claims> {
     )
     .ok()
     .map(|d| d.claims)
+}
+
+/// Generate a five-minute token proving that the primary login factor passed.
+/// A domain-separated signing key prevents this token from being accepted as a
+/// normal user session JWT.
+pub fn generate_mfa_challenge(
+    user_id: i64,
+    username: &str,
+    auth_provider: &str,
+    secret: &str,
+) -> Result<String> {
+    let now = Utc::now();
+    let claims = MfaChallengeClaims {
+        sub: user_id.to_string(),
+        username: username.to_string(),
+        auth_provider: auth_provider.to_string(),
+        iat: now.timestamp(),
+        exp: (now + Duration::minutes(5)).timestamp(),
+    };
+    encode(
+        &Header::default(),
+        &claims,
+        &EncodingKey::from_secret(mfa_challenge_key(secret).as_bytes()),
+    )
+    .context("MFA challenge encode failed")
+}
+
+pub fn validate_mfa_challenge(token: &str, secret: &str) -> Option<MfaChallengeClaims> {
+    decode::<MfaChallengeClaims>(
+        token,
+        &DecodingKey::from_secret(mfa_challenge_key(secret).as_bytes()),
+        &Validation::default(),
+    )
+    .ok()
+    .map(|decoded| decoded.claims)
 }
 
 #[cfg(test)]
@@ -111,5 +159,19 @@ mod tests {
     fn test_malformed_token_fails() {
         assert!(validate_token("aaa.bbb", "secret").is_none());
         assert!(validate_token("aaa.bbb.ccc.ddd", "secret").is_none());
+    }
+
+    #[test]
+    fn mfa_challenge_is_short_lived_and_cannot_be_used_as_a_session() {
+        let challenge = generate_mfa_challenge(42, "alice", "ldap", "secret").unwrap();
+        assert!(validate_token(&challenge, "secret").is_none());
+        let claims = validate_mfa_challenge(&challenge, "secret").unwrap();
+        assert_eq!(claims.sub, "42");
+        assert_eq!(claims.username, "alice");
+        assert_eq!(claims.auth_provider, "ldap");
+        assert!(claims.exp - claims.iat <= 300);
+
+        let session = generate_token(42, "alice", "secret", 7).unwrap();
+        assert!(validate_mfa_challenge(&session, "secret").is_none());
     }
 }

@@ -31,6 +31,14 @@ pub async fn find_by_id(db: &DatabaseConnection, id: i64) -> Result<Option<User>
         .context("db: find user by id")
 }
 
+pub async fn count_by_ldap_provider(db: &DatabaseConnection, provider_id: i64) -> Result<u64> {
+    UserEntity::find()
+        .filter(user::Column::LdapProviderId.eq(provider_id))
+        .count(db)
+        .await
+        .context("db: count users by LDAP provider")
+}
+
 /// List all users with optional pagination.
 pub async fn list_users(
     db: &DatabaseConnection,
@@ -137,6 +145,7 @@ pub async fn create_user(
         auth_provider: Set("oauth2".into()),
         ldap_dn: Set(None),
         ldap_uid: Set(None),
+        ldap_provider_id: Set(None),
         totp_secret: Set(None),
         mfa_enabled: Set(false),
         mfa_type: Set(None),
@@ -149,6 +158,72 @@ pub async fn create_user(
         deleted_at: Set(None),
     };
     create(db, model).await
+}
+
+/// Create a directory-backed user after successful LDAP authentication.
+pub async fn create_ldap_user(
+    db: &DatabaseConnection,
+    ldap_provider_id: i64,
+    username: &str,
+    email: &str,
+    display_name: Option<&str>,
+    ldap_dn: &str,
+    ldap_uid: Option<&str>,
+) -> Result<User> {
+    let now = chrono::Utc::now();
+    create(
+        db,
+        user::ActiveModel {
+            id: NotSet,
+            username: Set(username.to_string()),
+            email: Set(email.to_string()),
+            password_hash: Set(String::new()),
+            display_name: Set(display_name.map(str::to_string)),
+            avatar_url: Set(None),
+            bio: Set(None),
+            is_admin: Set(false),
+            is_active: Set(true),
+            auth_provider: Set("ldap".into()),
+            ldap_dn: Set(Some(ldap_dn.to_string())),
+            ldap_uid: Set(ldap_uid.map(str::to_string)),
+            ldap_provider_id: Set(Some(ldap_provider_id)),
+            totp_secret: Set(None),
+            mfa_enabled: Set(false),
+            mfa_type: Set(None),
+            backup_codes: Set(None),
+            last_login_at: Set(None),
+            login_attempts: Set(0),
+            locked_until: Set(None),
+            created_at: Set(now),
+            updated_at: Set(now),
+            deleted_at: Set(None),
+        },
+    )
+    .await
+}
+
+/// Refresh non-authoritative LDAP identity metadata after a successful bind.
+/// Email is deliberately not changed here because it is globally unique and
+/// may require an administrator to resolve a directory collision.
+pub async fn sync_ldap_identity(
+    db: &DatabaseConnection,
+    user_id: i64,
+    ldap_provider_id: i64,
+    display_name: Option<&str>,
+    ldap_dn: &str,
+    ldap_uid: Option<&str>,
+) -> Result<User> {
+    let model = UserEntity::find_by_id(user_id)
+        .one(db)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("user {} not found", user_id))?;
+    let mut active: ActiveModel = model.into();
+    active.display_name = Set(display_name.map(str::to_string));
+    active.ldap_dn = Set(Some(ldap_dn.to_string()));
+    active.ldap_uid = Set(ldap_uid.map(str::to_string));
+    active.ldap_provider_id = Set(Some(ldap_provider_id));
+    active.updated_at = Set(chrono::Utc::now());
+    update(db, active).await
 }
 
 /// Update the TOTP secret for a user (encrypted).
@@ -214,6 +289,23 @@ pub async fn record_successful_login(db: &DatabaseConnection, user_id: i64) -> R
     active.last_login_at = Set(Some(chrono::Utc::now()));
     active.login_attempts = Set(0);
     active.locked_until = Set(None);
+    active
+        .update(db)
+        .await
+        .map_err(|e| anyhow::anyhow!("db: {}", e))
+}
+
+/// Reset primary-factor failures while MFA is still pending. This deliberately
+/// does not update `last_login_at`, which represents a completed login.
+pub async fn reset_login_failures(db: &DatabaseConnection, user_id: i64) -> Result<User> {
+    let model = UserEntity::find_by_id(user_id)
+        .one(db)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("user {} not found", user_id))?;
+    let mut active: ActiveModel = model.into();
+    active.login_attempts = Set(0);
+    active.locked_until = Set(None);
+    active.updated_at = Set(chrono::Utc::now());
     active
         .update(db)
         .await

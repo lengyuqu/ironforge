@@ -1173,6 +1173,10 @@ fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
                 .patch(api::admin::update_sso_provider)
                 .delete(api::admin::delete_sso_provider),
         )
+        .route(
+            "/admin/sso/providers/{id}/test",
+            post(api::admin::test_sso_provider_connection),
+        )
         // Audit logs (admin only)
         .route("/admin/audit/logs", get(api::audit::list_audit_logs))
         .route("/admin/audit/logs/{id}", get(api::audit::get_audit_log))

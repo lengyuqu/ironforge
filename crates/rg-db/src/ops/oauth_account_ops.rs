@@ -28,6 +28,13 @@ pub async fn find_by_user_id(
         .await
 }
 
+pub async fn count_by_provider(db: &DatabaseConnection, provider: &str) -> Result<u64, DbErr> {
+    Entity::find()
+        .filter(oauth_account::Column::Provider.eq(provider))
+        .count(db)
+        .await
+}
+
 /// Upsert an OAuth account (insert or update tokens).
 #[allow(clippy::too_many_arguments)]
 pub async fn upsert(

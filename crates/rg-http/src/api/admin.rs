@@ -437,6 +437,50 @@ pub struct UpsertSsoProviderRequest {
     pub icon_url: Option<String>,
 }
 
+fn validate_ldap_provider_request(
+    body: &UpsertSsoProviderRequest,
+    has_stored_password: bool,
+) -> Result<(), String> {
+    if body.provider_type != "ldap" {
+        return Ok(());
+    }
+    if body
+        .ldap_port
+        .is_some_and(|port| !(1..=65_535).contains(&port))
+    {
+        return Err("LDAP port must be between 1 and 65535".into());
+    }
+    if body
+        .ldap_user_filter
+        .as_deref()
+        .is_some_and(|filter| !filter.contains("{username}"))
+    {
+        return Err("LDAP user filter must contain '{username}'".into());
+    }
+    if !body.enabled {
+        return Ok(());
+    }
+    for (value, name) in [
+        (body.ldap_host.as_deref(), "host"),
+        (body.ldap_bind_dn.as_deref(), "bind DN"),
+        (body.ldap_base_dn.as_deref(), "base DN"),
+    ] {
+        if value.is_none_or(|value| value.trim().is_empty()) {
+            return Err(format!(
+                "LDAP {name} is required when the provider is enabled"
+            ));
+        }
+    }
+    let supplied_password = body
+        .ldap_bind_password
+        .as_deref()
+        .is_some_and(|password| !password.is_empty());
+    if !has_stored_password && !supplied_password {
+        return Err("LDAP bind password is required when the provider is enabled".into());
+    }
+    Ok(())
+}
+
 /// POST /api/v1/admin/sso/providers
 #[utoipa::path(
     post,
@@ -462,19 +506,32 @@ pub async fn create_sso_provider(
     } else {
         &body.provider_type
     };
+    if let Err(error) = validate_ldap_provider_request(&body, false) {
+        return AppError::bad_request(error).into_response();
+    }
 
     // Encrypt secrets before storing
     let enc_key = rg_core::auth::encryption::derive_key(&state.jwt_secret);
-    let client_secret_enc = body
+    let client_secret_enc = match body
         .client_secret
         .as_ref()
         .filter(|s| !s.is_empty())
-        .and_then(|s| rg_core::auth::encryption::encrypt(s, &enc_key).ok());
-    let ldap_password_enc = body
+        .map(|s| rg_core::auth::encryption::encrypt(s, &enc_key))
+        .transpose()
+    {
+        Ok(secret) => secret,
+        Err(error) => return AppError::internal(error).into_response(),
+    };
+    let ldap_password_enc = match body
         .ldap_bind_password
         .as_ref()
         .filter(|s| !s.is_empty())
-        .and_then(|s| rg_core::auth::encryption::encrypt(s, &enc_key).ok());
+        .map(|s| rg_core::auth::encryption::encrypt(s, &enc_key))
+        .transpose()
+    {
+        Ok(secret) => secret,
+        Err(error) => return AppError::internal(error).into_response(),
+    };
 
     match rg_db::ops::sso_provider_ops::upsert(
         &state.db,
@@ -537,20 +594,33 @@ pub async fn update_sso_provider(
         Ok(None) => return AppError::not_found("SSO provider not found").into_response(),
         Err(e) => return AppError::internal(e.to_string()).into_response(),
     };
+    if let Err(error) =
+        validate_ldap_provider_request(&body, existing_provider.ldap_bind_password_enc.is_some())
+    {
+        return AppError::bad_request(error).into_response();
+    }
 
     let enc_key = rg_core::auth::encryption::derive_key(&state.jwt_secret);
-    let client_secret_enc = body
+    let client_secret_enc = match body
         .client_secret
         .as_ref()
         .filter(|s| !s.is_empty())
-        .and_then(|s| rg_core::auth::encryption::encrypt(s, &enc_key).ok())
-        .or(existing_provider.client_secret_enc);
-    let ldap_password_enc = body
+        .map(|s| rg_core::auth::encryption::encrypt(s, &enc_key))
+        .transpose()
+    {
+        Ok(secret) => secret.or(existing_provider.client_secret_enc),
+        Err(error) => return AppError::internal(error).into_response(),
+    };
+    let ldap_password_enc = match body
         .ldap_bind_password
         .as_ref()
         .filter(|s| !s.is_empty())
-        .and_then(|s| rg_core::auth::encryption::encrypt(s, &enc_key).ok())
-        .or(existing_provider.ldap_bind_password_enc);
+        .map(|s| rg_core::auth::encryption::encrypt(s, &enc_key))
+        .transpose()
+    {
+        Ok(secret) => secret.or(existing_provider.ldap_bind_password_enc),
+        Err(error) => return AppError::internal(error).into_response(),
+    };
 
     match rg_db::ops::sso_provider_ops::upsert(
         &state.db,
@@ -578,6 +648,50 @@ pub async fn update_sso_provider(
     }
 }
 
+/// POST /api/v1/admin/sso/providers/{id}/test
+#[utoipa::path(
+    post,
+    path = "/admin/sso/providers/{id}/test",
+    tag = "Admin",
+    params(("id" = i64, Path)),
+    responses(
+        (status = 200, description = "Provider connection succeeded", body = serde_json::Value),
+        (status = 400, description = "Provider is not LDAP or connection failed", body = serde_json::Value),
+        (status = 403, description = "Admin required", body = serde_json::Value),
+    ),
+)]
+pub async fn test_sso_provider_connection(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+) -> impl IntoResponse {
+    if require_admin(&state, &headers).await.is_none() {
+        return AppError::forbidden("admin required").into_response();
+    }
+    let provider = match rg_db::ops::sso_provider_ops::find_by_id(&state.db, id).await {
+        Ok(Some(provider)) => provider,
+        Ok(None) => return AppError::not_found("SSO provider not found").into_response(),
+        Err(error) => return AppError::internal(error).into_response(),
+    };
+    if provider.provider_type != "ldap" {
+        return AppError::bad_request("connection testing is only supported for LDAP providers")
+            .into_response();
+    }
+    match rg_core::user::service::test_ldap_provider_connection(&provider, &state.jwt_secret).await
+    {
+        Ok(()) => Json(serde_json::json!({
+            "ok": true,
+            "message": "LDAP connection and service bind succeeded"
+        }))
+        .into_response(),
+        Err(error) => {
+            tracing::warn!(provider_id = provider.id, %error, "LDAP provider connection test failed");
+            AppError::bad_request("LDAP connection test failed; check server logs for details")
+                .into_response()
+        }
+    }
+}
+
 /// DELETE /api/v1/admin/sso/providers/{id}
 #[utoipa::path(
     delete,
@@ -596,6 +710,28 @@ pub async fn delete_sso_provider(
 ) -> impl IntoResponse {
     if require_admin(&state, &headers).await.is_none() {
         return AppError::forbidden("admin required").into_response();
+    }
+    let provider = match rg_db::ops::sso_provider_ops::find_by_id(&state.db, id).await {
+        Ok(Some(provider)) => provider,
+        Ok(None) => return AppError::not_found("SSO provider not found").into_response(),
+        Err(error) => return AppError::internal(error).into_response(),
+    };
+    let linked_identities = if provider.provider_type == "ldap" {
+        rg_db::ops::user_ops::count_by_ldap_provider(&state.db, id).await
+    } else {
+        rg_db::ops::oauth_account_ops::count_by_provider(&state.db, &provider.slug)
+            .await
+            .map_err(anyhow::Error::from)
+    };
+    match linked_identities {
+        Ok(0) => {}
+        Ok(_) => {
+            return AppError::bad_request(
+                "provider has linked identities; disable it instead of deleting it",
+            )
+            .into_response();
+        }
+        Err(error) => return AppError::internal(error).into_response(),
     }
     match rg_db::ops::sso_provider_ops::delete_by_id(&state.db, id).await {
         Ok(()) => (StatusCode::OK, Json(serde_json::json!({"deleted": true}))).into_response(),

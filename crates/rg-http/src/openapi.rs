@@ -254,6 +254,7 @@ pub struct PaginatedRepoResponse {
         crate::api::admin::create_sso_provider,
         crate::api::admin::update_sso_provider,
         crate::api::admin::delete_sso_provider,
+        crate::api::admin::test_sso_provider_connection,
         // Audit logs
         crate::api::audit::list_audit_logs,
         crate::api::audit::get_audit_log,
