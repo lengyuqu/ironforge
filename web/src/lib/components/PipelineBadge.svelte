@@ -12,9 +12,14 @@
   const statusConfig: Record<string, { color: string; bg: string }> = {
     pending:  { color: 'var(--yellow)',  bg: 'rgba(210, 153, 34, 0.15)' },
     running:  { color: 'var(--accent)',  bg: 'rgba(88, 166, 255, 0.15)' },
+    manual:   { color: 'var(--yellow)',  bg: 'rgba(210, 153, 34, 0.15)' },
+    waiting_approval: { color: 'var(--yellow)', bg: 'rgba(210, 153, 34, 0.15)' },
     success:  { color: 'var(--green)',   bg: 'rgba(63, 185, 80, 0.15)' },
     failed:   { color: 'var(--red)',     bg: 'rgba(248, 81, 73, 0.15)' },
+    failure:  { color: 'var(--red)',     bg: 'rgba(248, 81, 73, 0.15)' },
+    error:    { color: 'var(--red)',     bg: 'rgba(248, 81, 73, 0.15)' },
     canceled: { color: 'var(--text-muted)', bg: 'rgba(110, 118, 129, 0.15)' },
+    skipped:  { color: 'var(--text-muted)', bg: 'rgba(110, 118, 129, 0.15)' },
   };
 
   const cfg = $derived(statusConfig[status] || statusConfig.pending);
@@ -25,8 +30,16 @@
     <span class="spinner"></span>
   {:else if status === 'success'}
     ✓
-  {:else if status === 'failed'}
+  {:else if status === 'failed' || status === 'failure' || status === 'error'}
     ✗
+  {:else if status === 'manual'}
+    ▶
+  {:else if status === 'waiting_approval'}
+    ◷
+  {:else if status === 'canceled'}
+    −
+  {:else if status === 'skipped'}
+    ○
   {:else}
     ●
   {/if}

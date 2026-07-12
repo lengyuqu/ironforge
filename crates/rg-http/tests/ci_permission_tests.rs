@@ -153,6 +153,7 @@ async fn manual_job_play_requires_write_access_and_is_atomic() {
         false,
         None,
         Some("manual"),
+        None,
     )
     .await
     .unwrap();
@@ -263,6 +264,7 @@ async fn protected_environment_requires_authorized_approval_before_release() {
         None,
         None,
         false,
+        None,
         None,
         None,
     )

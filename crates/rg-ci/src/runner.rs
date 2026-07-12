@@ -90,8 +90,7 @@ impl PipelineRunner {
 
     /// Run the pipeline: iterate stages in order, run jobs in each stage.
     ///
-    /// If any job in a stage fails, subsequent stages are skipped
-    /// (unless `allow_failure` is set — but that's a future feature).
+    /// If a non-allowed job in a stage fails, subsequent stages are skipped.
     pub async fn run(&self) -> Result<()> {
         if let Err(error) = self.prepare_workspace().await {
             let now = chrono::Utc::now().naive_utc();
@@ -1133,6 +1132,7 @@ mod tests {
             false,
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -1147,6 +1147,7 @@ mod tests {
             None,
             None,
             true,
+            None,
             None,
             None,
         )
@@ -1164,6 +1165,7 @@ mod tests {
             None,
             true,
             Some(1),
+            None,
             None,
         )
         .await
@@ -1242,6 +1244,7 @@ mod tests {
             false,
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -1258,6 +1261,7 @@ mod tests {
             false,
             None,
             Some("manual"),
+            None,
         )
         .await
         .unwrap();

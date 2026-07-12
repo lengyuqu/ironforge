@@ -255,12 +255,12 @@ impl GiteaWorkflow {
             let job_condition = job
                 .condition
                 .as_deref()
-                .filter(|condition| !supported_condition(condition))
+                .filter(|condition| !supported_condition(condition, true))
                 .map(|condition| format!("{job_name}: unsupported job condition {condition}"));
             let step_conditions = job.steps.iter().filter_map(move |step| {
                 step.condition
                     .as_deref()
-                    .filter(|condition| !supported_condition(condition))
+                    .filter(|condition| !supported_condition(condition, false))
                     .map(|condition| format!("{job_name}: unsupported step condition {condition}"))
             });
             job_condition.into_iter().chain(step_conditions)
@@ -321,7 +321,7 @@ impl GiteaWorkflow {
     /// - Extracts `run` commands from steps into `script`
     /// - Maps `runs-on` labels to `tags`
     /// - Translates `container.image` to `image`
-    pub fn to_ci_config(&self, _ctx: &WorkflowContext) -> CiConfig {
+    pub fn to_ci_config(&self, ctx: &WorkflowContext) -> CiConfig {
         let mut job_configs: HashMap<String, JobConfig> = HashMap::new();
         let mut stages: Vec<String> = Vec::new();
 
@@ -382,7 +382,9 @@ impl GiteaWorkflow {
 
         // Convert each job
         for (name, job) in &self.jobs {
-            let mut script: Vec<String> = Vec::new();
+            // GitHub's default bash invocation is fail-fast; preserving this
+            // prevents a later successful step from masking an earlier failure.
+            let mut script: Vec<String> = vec!["set -e".into()];
             let mut job_vars: HashMap<String, String> = HashMap::new();
             let mut cache = None;
 
@@ -405,6 +407,19 @@ impl GiteaWorkflow {
             // Process steps
             let mut has_checkout = false;
             for step in &job.steps {
+                if let Some(condition) = step.condition.as_deref() {
+                    let mut condition_variables = job_vars.clone();
+                    for (name, value) in &step.env {
+                        condition_variables.insert(
+                            name.clone(),
+                            substitute_expr(value, name, &self.env, &job.env),
+                        );
+                    }
+                    let context = actions_condition_context(ctx, &condition_variables);
+                    if !crate::condition::evaluate_condition(condition, &context).unwrap_or(false) {
+                        continue;
+                    }
+                }
                 // Handle `uses: actions/checkout@vX` — implicit in IronForge, skip
                 if let Some(ref uses) = step.uses {
                     if uses.starts_with("actions/checkout") {
@@ -495,6 +510,7 @@ impl GiteaWorkflow {
                         Some(job_vars)
                     },
                     when: None,
+                    condition: job.condition.clone(),
                     environment: job.environment.as_ref().and_then(environment_name),
                     allow_failure: Some(job.continue_on_error),
                     timeout_seconds: job
@@ -754,11 +770,32 @@ fn match_glob(s: &str, pattern: &str) -> bool {
     s == pattern
 }
 
-fn supported_condition(condition: &str) -> bool {
-    matches!(
-        condition.trim(),
-        "success()" | "${{ success() }}" | "true" | "${{ true }}"
-    )
+fn supported_condition(condition: &str, allow_matrix: bool) -> bool {
+    crate::condition::validate_condition(condition).is_ok()
+        && (allow_matrix || !condition.contains("matrix."))
+}
+
+fn actions_condition_context(
+    ctx: &WorkflowContext,
+    variables: &HashMap<String, String>,
+) -> HashMap<String, String> {
+    let mut context = HashMap::from([
+        ("github.ref".into(), ctx.ref_name.clone()),
+        (
+            "github.ref_name".into(),
+            ctx.ref_name
+                .strip_prefix("refs/heads/")
+                .or_else(|| ctx.ref_name.strip_prefix("refs/tags/"))
+                .unwrap_or(&ctx.ref_name)
+                .to_string(),
+        ),
+        ("github.event_name".into(), ctx.event.clone()),
+        ("github.sha".into(), ctx.sha.clone()),
+    ]);
+    for (name, value) in variables {
+        context.insert(format!("env.{name}"), value.clone());
+    }
+    context
 }
 
 /// Basic `${{ expression }}` substitution.
@@ -1024,7 +1061,7 @@ jobs:
     }
 
     #[test]
-    fn maps_continue_on_error_and_timeout_and_rejects_ignored_conditions() {
+    fn maps_execution_policy_and_evaluates_static_conditions() {
         let workflow = GiteaWorkflow::parse(
             "on: push\njobs:\n  test:\n    continue-on-error: true\n    timeout-minutes: 3\n    steps:\n      - run: exit 1\n",
         ).unwrap();
@@ -1039,8 +1076,26 @@ jobs:
         assert_eq!(ci.jobs["test"].allow_failure, Some(true));
         assert_eq!(ci.jobs["test"].timeout_seconds, Some(180));
 
+        let conditional = GiteaWorkflow::parse(
+            "on: push\njobs:\n  test:\n    if: github.ref == 'refs/heads/main'\n    steps:\n      - if: startsWith(github.ref, 'refs/heads/')\n        run: echo yes\n      - if: github.event_name == 'schedule'\n        run: echo no\n",
+        ).unwrap();
+        conditional.validate_supported_actions().unwrap();
+        let ci = conditional.to_ci_config(&WorkflowContext {
+            ref_name: "refs/heads/main".into(),
+            sha: "abc".into(),
+            event: "push".into(),
+            repo_owner: "o".into(),
+            repo_name: "r".into(),
+        });
+        assert_eq!(
+            ci.jobs["test"].condition.as_deref(),
+            Some("github.ref == 'refs/heads/main'")
+        );
+        assert!(ci.jobs["test"].script.iter().any(|line| line == "echo yes"));
+        assert!(!ci.jobs["test"].script.iter().any(|line| line == "echo no"));
+
         let unsupported = GiteaWorkflow::parse(
-            "on: push\njobs:\n  test:\n    if: github.ref == 'refs/heads/main'\n    steps:\n      - run: echo no\n",
+            "on: push\njobs:\n  test:\n    if: secrets.TOKEN == 'x'\n    steps:\n      - run: echo no\n",
         ).unwrap();
         assert!(unsupported
             .validate_supported_actions()

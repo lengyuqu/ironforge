@@ -63,6 +63,10 @@ pub struct JobConfig {
     #[serde(default)]
     pub when: Option<String>,
 
+    /// Static job condition evaluated against CI context before scheduling.
+    #[serde(default, rename = "if", alias = "condition")]
+    pub condition: Option<String>,
+
     /// Deployment environment name. Protected environments pause for approval.
     #[serde(default)]
     pub environment: Option<String>,

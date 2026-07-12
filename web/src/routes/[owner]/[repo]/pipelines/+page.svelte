@@ -298,7 +298,7 @@
             <h2>{t('pipeline.detail_title', { id: String(selectedPipeline.id) })}</h2>
             <PipelineBadge status={selectedPipeline.status} />
             <div class="detail-actions">
-              {#if selectedPipeline.status === 'failed'}
+              {#if selectedPipeline.status === 'failed' || selectedPipeline.status === 'failure' || selectedPipeline.status === 'error'}
                 <button class="btn-outline" onclick={() => handleRetry(selectedPipeline.id)}>{t('pipeline.retry')}</button>
               {/if}
               {#if selectedPipeline.status === 'running' || selectedPipeline.status === 'pending' || selectedPipeline.status === 'manual' || selectedPipeline.status === 'waiting_approval'}
@@ -349,6 +349,13 @@
                         <div class="job-body">
                           <span class="job-name">{job.name}</span>
                           {#if job.environment_name}<span class="environment-name">🚀 {job.environment_name}</span>{/if}
+                          {#if job.if_condition}
+                            <span
+                              class="job-condition"
+                              class:condition-skipped={job.status === 'skipped'}
+                              title={`${job.status === 'skipped' ? t('pipeline.condition_skipped') : t('pipeline.condition')}: ${job.if_condition}`}
+                            >if</span>
+                          {/if}
                           <span class="job-dur">{duration(job.started_at, job.finished_at)}</span>
                         </div>
                         {#if job.exit_code !== null}
@@ -410,6 +417,12 @@
         </div>
         <button class="btn-close" onclick={closeLog}>✕</button>
       </div>
+      {#if selectedJob?.if_condition}
+        <div class="log-condition">
+          <span>{selectedJob.status === 'skipped' ? t('pipeline.condition_skipped') : t('pipeline.condition')}</span>
+          <code>{selectedJob.if_condition}</code>
+        </div>
+      {/if}
       <pre class="log-content" bind:this={logContentEl}><code>{logContent || '(no log output)'}</code></pre>
     </div>
   </div>
@@ -547,6 +560,17 @@
   .job-body { flex: 1; display: flex; align-items: center; gap: 8px; min-width: 0; }
   .job-name { flex: 1; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .environment-name { color: var(--text-secondary); font-size: 11px; white-space: nowrap; }
+  .job-condition {
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--text-secondary);
+    cursor: help;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    line-height: 16px;
+    padding: 0 5px;
+  }
+  .job-condition.condition-skipped { border-color: var(--text-muted); color: var(--text-muted); }
   .job-dur { font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); white-space: nowrap; }
 
   .exit-code {
@@ -611,6 +635,17 @@
     font-size: 14px;
   }
   .log-header > div { display: flex; align-items: center; gap: 8px; }
+  .log-condition {
+    align-items: baseline;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border);
+    color: var(--text-secondary);
+    display: flex;
+    font-size: 12px;
+    gap: 10px;
+    padding: 8px 16px;
+  }
+  .log-condition code { color: var(--text-primary); overflow-wrap: anywhere; }
   .log-live {
     font-size: 11px;
     color: var(--text-muted);

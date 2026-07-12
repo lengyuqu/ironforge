@@ -215,7 +215,7 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":
 | **CI Secrets / Matrix** | `ci_secrets` + `rg-ci` runner/config | 仓库 Secret 加密存储、三类 Runner 注入与日志脱敏；原生/Actions Matrix 最多展开 256 个 job |
 | **CI 工作区 / Cache** | `rg-ci` + `rg-runner` + runner workspace/cache API | 精确 commit 隔离工作区；仓库隔离 tar Cache；原生与 `actions/cache@v4`；本地/Docker/外部 Runner restore-save |
 | **本地 Reusable Workflow** | `rg-ci/src/gitea_actions.rs` | 同 commit 下 `workflow_call` 递归展开、inputs、继承 Secrets、needs 依赖重写；循环/远程调用 fail closed |
-| **CI 执行策略** | `pipeline_jobs.allow_failure/timeout_seconds/when_condition` + 两类 Runner | `continue-on-error`、Job timeout、`when: manual` 可恢复执行；复杂条件表达式在创建 pipeline 前 fail closed |
+| **CI 执行策略** | `pipeline_jobs.allow_failure/timeout_seconds/when_condition/if_condition` + 两类 Runner | `continue-on-error`、Job timeout、`when: manual`；静态 `if` 支持 ref/event/SHA、env/matrix、布尔/比较/字符串函数；外部 Runner 统一前置阶段门控与失败下游跳过，运行时状态条件 fail closed |
 | **受保护 Environment** | `ci_environments` / `ci_environment_approvals` + Job environment gate | 原生与 Actions environment、管理员规则、指定审批人/审批数、去重审批、内置与外部 Runner 可恢复部署 |
 | **CI Workload OIDC** | `/api/v1/ci/oidc/*` + Ed25519 JWKS | `CI_JOB_TOKEN` 换取 5 分钟 audience-bound 身份令牌；repo/pipeline/job/ref/SHA 声明与运行态数据库绑定 |
 | **CI Retention** | `ci_retention_policies` / `ci_cache_entries` + hourly cleanup | 仓库级 Artifact/Cache 保留期、滑动 Cache 过期、磁盘与 DB 一致清理、管理员 API/UI 与手动回收 |

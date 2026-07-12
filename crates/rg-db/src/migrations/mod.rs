@@ -61,6 +61,7 @@ pub mod m20260712_000009_add_pipeline_job_execution_policy;
 pub mod m20260712_000010_add_pipeline_job_when;
 pub mod m20260712_000011_create_ci_environments;
 pub mod m20260712_000012_create_ci_retention;
+pub mod m20260712_000013_add_pipeline_job_condition;
 
 use sea_orm_migration::prelude::*;
 
@@ -133,6 +134,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260712_000010_add_pipeline_job_when::Migration),
             Box::new(m20260712_000011_create_ci_environments::Migration),
             Box::new(m20260712_000012_create_ci_retention::Migration),
+            Box::new(m20260712_000013_add_pipeline_job_condition::Migration),
         ]
     }
 }

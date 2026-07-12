@@ -29,6 +29,7 @@
 //!       - run: cargo build
 //! ```
 
+pub mod condition;
 pub mod config;
 pub mod gitea_actions;
 pub mod runner;
@@ -224,9 +225,36 @@ pub async fn trigger_pipeline(params: TriggerPipelineParams<'_>) -> Result<i64> 
                 job_config.allow_failure.unwrap_or(false),
                 job_config.timeout_seconds.map(|seconds| seconds as i64),
                 job_config.when.as_deref(),
+                job_config.condition.as_deref(),
             )
             .await?;
-            if let Some(environment_name) = job_config.environment.as_deref() {
+            let should_run = if let Some(condition) = job_config.condition.as_deref() {
+                condition::evaluate_condition(
+                    condition,
+                    &job_condition_context(
+                        ref_name,
+                        trigger_type,
+                        commit_sha,
+                        &variant.variables,
+                        job_config,
+                    ),
+                )?
+            } else {
+                true
+            };
+            if !should_run {
+                let now = chrono::Utc::now().naive_utc();
+                rg_db::ops::pipeline_ops::update_job_result(
+                    db,
+                    job.id,
+                    "skipped",
+                    None,
+                    None,
+                    None,
+                    Some(now),
+                )
+                .await?;
+            } else if let Some(environment_name) = job_config.environment.as_deref() {
                 let environment =
                     rg_db::ops::ci_environment_ops::find_by_name(db, repo_id, environment_name)
                         .await?;
@@ -239,6 +267,29 @@ pub async fn trigger_pipeline(params: TriggerPipelineParams<'_>) -> Result<i64> 
                 .await?;
             }
         }
+    }
+
+    for stage in rg_db::ops::pipeline_ops::list_stages_by_pipeline(db, pipeline_id).await? {
+        rg_db::ops::pipeline_ops::try_update_stage(db, stage.id).await?;
+    }
+    rg_db::ops::pipeline_ops::try_update_pipeline(db, pipeline_id).await?;
+
+    if rg_db::ops::pipeline_ops::get_pipeline(db, pipeline_id)
+        .await?
+        .is_some_and(|pipeline| pipeline.status == "success")
+    {
+        evaluate_initial_success(
+            db,
+            repo_path,
+            repo_id,
+            commit_sha,
+            docker_enabled,
+            external_runners,
+            jwt_secret,
+            external_url,
+        )
+        .await;
+        return Ok(pipeline_id);
     }
 
     // 6. Spawn pipeline runner in background (only if not using external runners)
@@ -268,6 +319,45 @@ pub async fn trigger_pipeline(params: TriggerPipelineParams<'_>) -> Result<i64> 
     }
 
     Ok(pipeline_id)
+}
+
+async fn evaluate_initial_success(
+    db: &sea_orm::DatabaseConnection,
+    repo_path: &std::path::Path,
+    repo_id: i64,
+    commit_sha: &str,
+    docker_enabled: bool,
+    external_runners: bool,
+    jwt_secret: Option<&str>,
+    external_url: Option<&str>,
+) {
+    let Some(repo_root) = repo_path.parent().and_then(std::path::Path::parent) else {
+        return;
+    };
+    if let Err(error) =
+        rg_core::pull_request::try_auto_merges_for_head_commit(db, repo_root, repo_id, commit_sha)
+            .await
+    {
+        tracing::warn!(repo_id, %error, "auto-merge evaluation after conditional CI failed");
+    }
+    let ci_engine = CiEngine;
+    if let Err(error) = rg_core::pull_request::merge_queue::process_for_head_commit_with_ci(
+        db,
+        repo_root,
+        repo_id,
+        commit_sha,
+        &rg_core::pull_request::merge_queue::MergeQueueCi {
+            trigger: &ci_engine,
+            docker_enabled,
+            external_runners,
+            jwt_secret,
+            external_url,
+        },
+    )
+    .await
+    {
+        tracing::warn!(repo_id, %error, "merge queue evaluation after conditional CI failed");
+    }
 }
 
 fn spawn_internal_runner(
@@ -322,8 +412,45 @@ fn validate_execution_semantics(config: &CiConfig) -> Result<()> {
                 anyhow::bail!("job '{name}' has an invalid environment name");
             }
         }
+        if let Some(condition) = job.condition.as_deref() {
+            crate::condition::validate_condition(condition)
+                .with_context(|| format!("job '{name}' has an unsupported if condition"))?;
+        }
     }
     Ok(())
+}
+
+fn job_condition_context(
+    ref_name: &str,
+    event: &str,
+    sha: &str,
+    variables: &std::collections::BTreeMap<String, String>,
+    config: &config::JobConfig,
+) -> std::collections::HashMap<String, String> {
+    let mut context = std::collections::HashMap::from([
+        ("github.ref".into(), ref_name.to_string()),
+        (
+            "github.ref_name".into(),
+            ref_name
+                .strip_prefix("refs/heads/")
+                .or_else(|| ref_name.strip_prefix("refs/tags/"))
+                .unwrap_or(ref_name)
+                .to_string(),
+        ),
+        ("github.event_name".into(), event.to_string()),
+        ("github.sha".into(), sha.to_string()),
+    ]);
+    for (name, value) in variables {
+        context.insert(format!("env.{name}"), value.clone());
+    }
+    if let Some(matrix) = &config.matrix {
+        for name in matrix.keys() {
+            if let Some(value) = variables.get(name) {
+                context.insert(format!("matrix.{name}"), value.clone());
+            }
+        }
+    }
+    context
 }
 
 #[derive(Debug)]
@@ -567,6 +694,7 @@ fn get_default_branch(repo: &gix::Repository) -> Result<String> {
 #[cfg(test)]
 mod matrix_tests {
     use super::*;
+    use sea_orm::{NotSet, Set};
     use std::collections::{BTreeMap, HashMap};
 
     fn config(matrix: BTreeMap<String, Vec<String>>) -> config::JobConfig {
@@ -577,6 +705,7 @@ mod matrix_tests {
             only: None,
             variables: Some(HashMap::from([("BASE".into(), "yes".into())])),
             when: None,
+            condition: None,
             environment: None,
             allow_failure: None,
             timeout_seconds: None,
@@ -613,6 +742,204 @@ mod matrix_tests {
         )
         .unwrap_err();
         assert!(error.to_string().contains("maximum is 256"));
+    }
+
+    #[tokio::test]
+    async fn matrix_job_conditions_persist_and_skip_only_false_variants() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            temp.path().join(".ironforge-ci.yml"),
+            "stages: [test, deploy]\nconditional:\n  stage: test\n  if: matrix.os == 'linux' && github.ref_name == 'main'\n  script: [echo ok]\n  matrix:\n    os: [linux, macos]\ndeploy:\n  stage: deploy\n  if: github.ref_name == 'main'\n  script: [echo deploy]\n",
+        ).unwrap();
+        let git = rg_git::cli_gateway::global_gateway().as_ref().unwrap();
+        assert!(git.run(&["init"], Some(temp.path())).unwrap().success());
+        assert!(git
+            .run(&["config", "user.name", "CI"], Some(temp.path()))
+            .unwrap()
+            .success());
+        assert!(git
+            .run(
+                &["config", "user.email", "ci@example.com"],
+                Some(temp.path())
+            )
+            .unwrap()
+            .success());
+        assert!(git
+            .run(&["add", ".ironforge-ci.yml"], Some(temp.path()))
+            .unwrap()
+            .success());
+        assert!(git
+            .run(&["commit", "-m", "conditional"], Some(temp.path()))
+            .unwrap()
+            .success());
+        let sha = git
+            .run(&["rev-parse", "HEAD"], Some(temp.path()))
+            .unwrap()
+            .stdout_str()
+            .trim()
+            .to_string();
+        let db = rg_db::connect(&format!(
+            "sqlite://{}?mode=rwc",
+            temp.path().join("conditions.db").display()
+        ))
+        .await
+        .unwrap();
+        rg_db::run_migrations(&db).await.unwrap();
+        let user = rg_db::ops::user_ops::create_user(
+            &db,
+            "condition-owner",
+            "condition@example.com",
+            "unused",
+            "Condition Owner",
+        )
+        .await
+        .unwrap();
+        let now = chrono::Utc::now();
+        let repo = rg_db::ops::repo_ops::create(
+            &db,
+            rg_db::entities::repository::ActiveModel {
+                id: NotSet,
+                owner_id: Set(user.id),
+                name: Set("conditions".into()),
+                description: Set(None),
+                is_private: Set(true),
+                default_branch: Set("main".into()),
+                fork_id: Set(None),
+                stars_count: Set(0),
+                forks_count: Set(0),
+                org_id: Set(None),
+                created_at: Set(now),
+                updated_at: Set(now),
+                deleted_at: Set(None),
+                origin_repo_id: Set(None),
+            },
+        )
+        .await
+        .unwrap();
+        let pipeline_id = trigger_pipeline(TriggerPipelineParams {
+            db: &db,
+            repo_path: temp.path(),
+            repo_id: repo.id,
+            commit_sha: &sha,
+            ref_name: "refs/heads/main",
+            trigger_type: "push",
+            triggered_by: Some(user.id),
+            docker_enabled: false,
+            external_runners: true,
+            jwt_secret: Some("secret"),
+            external_url: None,
+        })
+        .await
+        .unwrap();
+        let jobs = rg_db::ops::pipeline_ops::list_jobs_by_pipeline(&db, pipeline_id)
+            .await
+            .unwrap();
+        assert_eq!(jobs.len(), 3);
+        let runnable = jobs
+            .iter()
+            .find(|job| job.name.contains("os=linux"))
+            .unwrap();
+        assert_eq!(runnable.status, "pending");
+        let skipped = jobs
+            .iter()
+            .find(|job| job.name.contains("os=macos"))
+            .unwrap();
+        assert_eq!(skipped.status, "skipped");
+        assert!(skipped
+            .if_condition
+            .as_deref()
+            .unwrap()
+            .contains("matrix.os"));
+
+        rg_db::ops::pipeline_ops::update_job_result(
+            &db,
+            runnable.id,
+            "assigned",
+            None,
+            None,
+            Some(chrono::Utc::now().naive_utc()),
+            None,
+        )
+        .await
+        .unwrap();
+        assert!(
+            rg_db::ops::pipeline_ops::find_pending_job_matching_labels(&db, &[])
+                .await
+                .unwrap()
+                .is_none()
+        );
+        rg_db::ops::pipeline_ops::update_job_result(
+            &db,
+            runnable.id,
+            "failed",
+            Some(1),
+            None,
+            None,
+            Some(chrono::Utc::now().naive_utc()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            rg_db::ops::pipeline_ops::try_update_stage(&db, runnable.stage_id)
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("failed")
+        );
+        assert_eq!(
+            rg_db::ops::pipeline_ops::try_update_pipeline(&db, pipeline_id)
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("failed")
+        );
+        assert_eq!(
+            rg_db::ops::pipeline_ops::get_pipeline(&db, pipeline_id)
+                .await
+                .unwrap()
+                .unwrap()
+                .status,
+            "failed"
+        );
+        assert_eq!(
+            rg_db::ops::pipeline_ops::list_jobs_by_pipeline(&db, pipeline_id)
+                .await
+                .unwrap()
+                .into_iter()
+                .find(|job| job.name == "deploy")
+                .unwrap()
+                .status,
+            "skipped"
+        );
+
+        let all_skipped_pipeline_id = trigger_pipeline(TriggerPipelineParams {
+            db: &db,
+            repo_path: temp.path(),
+            repo_id: repo.id,
+            commit_sha: &sha,
+            ref_name: "refs/heads/dev",
+            trigger_type: "push",
+            triggered_by: Some(user.id),
+            docker_enabled: false,
+            external_runners: true,
+            jwt_secret: Some("secret"),
+            external_url: None,
+        })
+        .await
+        .unwrap();
+        let all_skipped_pipeline =
+            rg_db::ops::pipeline_ops::get_pipeline(&db, all_skipped_pipeline_id)
+                .await
+                .unwrap()
+                .unwrap();
+        assert_eq!(all_skipped_pipeline.status, "success");
+        assert!(
+            rg_db::ops::pipeline_ops::list_jobs_by_pipeline(&db, all_skipped_pipeline_id)
+                .await
+                .unwrap()
+                .iter()
+                .all(|job| job.status == "skipped")
+        );
     }
 
     #[test]

@@ -22,6 +22,7 @@ pub struct Model {
     pub timeout_seconds: Option<i64>,
     /// Execution policy captured from CI config (`on_success` or `manual`).
     pub when_condition: String,
+    pub if_condition: Option<String>,
     pub environment_id: Option<i64>,
     pub environment_name: Option<String>,
     pub status: String, // pending, running, success, failed, skipped

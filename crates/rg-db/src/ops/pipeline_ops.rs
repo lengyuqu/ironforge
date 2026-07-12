@@ -187,6 +187,7 @@ pub async fn create_job(
     allow_failure: bool,
     timeout_seconds: Option<i64>,
     when_condition: Option<&str>,
+    if_condition: Option<&str>,
 ) -> Result<pipeline_job::Model> {
     let when_condition = when_condition.unwrap_or("on_success");
     let model = pipeline_job::ActiveModel {
@@ -199,6 +200,7 @@ pub async fn create_job(
         allow_failure: Set(allow_failure),
         timeout_seconds: Set(timeout_seconds),
         when_condition: Set(when_condition.to_string()),
+        if_condition: Set(if_condition.map(str::to_string)),
         environment_id: Set(None),
         environment_name: Set(None),
         image: Set(image.map(|s| s.to_string())),
@@ -439,7 +441,7 @@ pub async fn check_stage_jobs(db: &DatabaseConnection, stage_id: i64) -> Result<
     let all_done = jobs.iter().all(|j| {
         matches!(
             j.status.as_str(),
-            "success" | "failure" | "failed" | "error"
+            "success" | "failure" | "failed" | "error" | "skipped"
         )
     });
     let any_failure = jobs.iter().any(|j| {
@@ -492,10 +494,48 @@ pub async fn try_update_stage(db: &DatabaseConnection, stage_id: i64) -> Result<
     if !all_done {
         return Ok(None);
     }
-    let new_status = if any_failure { "failure" } else { "success" };
+    let new_status = if any_failure { "failed" } else { "success" };
     let now = Some(chrono::Utc::now().naive_utc());
     update_stage_status(db, stage_id, new_status, None, now).await?;
+    if any_failure {
+        skip_downstream_stages(db, stage_id).await?;
+    }
     Ok(Some(new_status.to_string()))
+}
+
+async fn skip_downstream_stages(db: &DatabaseConnection, failed_stage_id: i64) -> Result<()> {
+    let Some(failed_stage) = get_stage_by_id(db, failed_stage_id).await? else {
+        return Ok(());
+    };
+    let now = Some(chrono::Utc::now().naive_utc());
+    for stage in list_stages_by_pipeline(db, failed_stage.pipeline_id)
+        .await?
+        .into_iter()
+        .filter(|stage| stage.stage_order > failed_stage.stage_order)
+    {
+        let jobs = list_jobs_by_stage(db, stage.id).await?;
+        if jobs
+            .iter()
+            .any(|job| matches!(job.status.as_str(), "assigned" | "running"))
+        {
+            continue;
+        }
+        for job in jobs {
+            if !matches!(
+                job.status.as_str(),
+                "success" | "failure" | "failed" | "error" | "skipped" | "canceled"
+            ) {
+                update_job_result(db, job.id, "skipped", None, None, None, now).await?;
+            }
+        }
+        if !matches!(
+            stage.status.as_str(),
+            "success" | "failure" | "failed" | "error" | "skipped" | "canceled"
+        ) {
+            update_stage_status(db, stage.id, "skipped", None, now).await?;
+        }
+    }
+    Ok(())
 }
 
 /// Check if all stages in a pipeline are done.
@@ -508,10 +548,15 @@ pub async fn check_pipeline_stages(
     if stages.is_empty() {
         return Ok((true, false));
     }
-    let all_done = stages
+    let all_done = stages.iter().all(|stage| {
+        matches!(
+            stage.status.as_str(),
+            "success" | "failure" | "failed" | "error" | "skipped" | "canceled"
+        )
+    });
+    let any_failure = stages
         .iter()
-        .all(|s| s.status == "success" || s.status == "failure");
-    let any_failure = stages.iter().any(|s| s.status == "failure");
+        .any(|stage| matches!(stage.status.as_str(), "failure" | "failed" | "error"));
     Ok((all_done, any_failure))
 }
 
@@ -524,7 +569,7 @@ pub async fn try_update_pipeline(
     if !all_done {
         return Ok(None);
     }
-    let new_status = if any_failure { "failure" } else { "success" };
+    let new_status = if any_failure { "failed" } else { "success" };
     let now = Some(chrono::Utc::now().naive_utc());
     update_pipeline_status(db, pipeline_id, new_status, None, now).await?;
     Ok(Some(new_status.to_string()))
@@ -565,15 +610,14 @@ pub async fn find_pending_job_matching_labels(
         .await
         .context("db: find pending jobs")?;
 
-    if runner_labels.is_empty() {
-        return Ok(all_pending.into_iter().next());
-    }
-
     let labels_lower: Vec<String> = runner_labels.iter().map(|l| l.to_lowercase()).collect();
 
     for job in all_pending {
         if !job_is_schedulable(db, &job).await? {
             continue;
+        }
+        if runner_labels.is_empty() {
+            return Ok(Some(job));
         }
         let job_tags: Vec<String> = job
             .tags
