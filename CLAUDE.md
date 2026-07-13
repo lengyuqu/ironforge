@@ -224,6 +224,7 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":
 | **LDAP / MFA 登录** | `rg-core/src/auth/ldap.rs` + `user::service::login_with_configured_auth` + MFA challenge cookie | LDAP 首次建号、Provider 身份绑定与管理员连接测试；RFC4515 转义/超时/TLS；MFA 必须持有五分钟第一因素挑战，失败日志与五次锁定覆盖本地/LDAP |
 | **OAuth 账户表兼容** | migration `000015` | 将历史派生名 `o_auth_accounts` 安全迁移为实体使用的 `oauth_accounts`，恢复 OAuth account 查询/关联保护 |
 | **登录事件与解锁** | `/api/v1/admin/login-attempts` + `/admin/users/{id}/unlock` + Admin UI | 管理员筛选密码/LDAP/SSO/MFA 登录事件、IP、UA 与失败原因；用户页显示锁定/失败计数并可审计地解锁 |
+| **多数据库后端** | `rg-db::connect_with_pool` + backend-aware migrations/FTS + `multi_backend_smoke` | SQLite/PostgreSQL/MySQL scheme 分流；2026-07-13 在真实 PostgreSQL/MySQL 上通过迁移、CRUD、计数器、FTS、并发登录锁定及服务启动 `/health` 验证；连接诊断统一隐藏 URL 密码 |
 | **组织系统** | `rg-core/src/org/mod.rs` + `rg-http/src/api/orgs.rs` | CRUD + 成员管理 + 团队 + 权限 |
 | **通知系统** | `rg-core/src/notification/mod.rs` + `rg-http/src/api/notifications.rs` | 创建/列表/已读/批量已读/删除 |
 | **Rate Limiting** | `rg-http/src/rate_limit.rs` | Token Bucket 中间件（IP 限流 + 可配置窗口） |
@@ -550,7 +551,7 @@ FTS5 的 `INSERT INTO fts_table(fts_table, rowid, ...) VALUES('delete', ...)` �
 3. ~~OpenAPI 注解补全~~ ✅ 2026-06-17 — 30 端点 + 18 schema + 4 tag
 4. ~~Wiki 版本历史~~ ✅ 2026-06-17 — DB + API + 前端历史页面 + diff
 5. ~~看板/时间追踪前端页~~ ✅ 2026-06-17 — Kanban 看板页面 + 时间追踪页面
-6. PostgreSQL 支持（生产级 DB）
+6. ~~PostgreSQL/MySQL 可选后端与实库 smoke~~ ✅ 2026-07-13 — 真实服务完成 migration/CRUD/counter/FTS/认证并发验证；HA、备份恢复和长期压测仍属生产化后续
 7. ~~Gitea Actions 兼容层~~ ✅ 2026-06-17 — 解析器 + 转换层 + 多文件发现
 
 ---

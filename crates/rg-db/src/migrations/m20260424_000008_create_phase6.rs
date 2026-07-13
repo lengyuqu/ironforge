@@ -34,7 +34,7 @@ impl MigrationTrait for Migration {
                         ColumnDef::new(PrReviews::CreatedAt)
                             .timestamp_with_time_zone()
                             .not_null()
-                            .default(Expr::current_time()),
+                            .default(Expr::current_timestamp()),
                     )
                     .to_owned(),
             )
@@ -98,13 +98,13 @@ impl MigrationTrait for Migration {
                         ColumnDef::new(ReviewComments::CreatedAt)
                             .timestamp_with_time_zone()
                             .not_null()
-                            .default(Expr::current_time()),
+                            .default(Expr::current_timestamp()),
                     )
                     .col(
                         ColumnDef::new(ReviewComments::UpdatedAt)
                             .timestamp_with_time_zone()
                             .not_null()
-                            .default(Expr::current_time()),
+                            .default(Expr::current_timestamp()),
                     )
                     .to_owned(),
             )
@@ -198,13 +198,13 @@ impl MigrationTrait for Migration {
                         ColumnDef::new(ProtectedBranches::CreatedAt)
                             .timestamp_with_time_zone()
                             .not_null()
-                            .default(Expr::current_time()),
+                            .default(Expr::current_timestamp()),
                     )
                     .col(
                         ColumnDef::new(ProtectedBranches::UpdatedAt)
                             .timestamp_with_time_zone()
                             .not_null()
-                            .default(Expr::current_time()),
+                            .default(Expr::current_timestamp()),
                     )
                     .to_owned(),
             )
@@ -257,7 +257,7 @@ impl MigrationTrait for Migration {
                         ColumnDef::new(RepoCollaborators::CreatedAt)
                             .timestamp_with_time_zone()
                             .not_null()
-                            .default(Expr::current_time()),
+                            .default(Expr::current_timestamp()),
                     )
                     .to_owned(),
             )

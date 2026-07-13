@@ -36,13 +36,13 @@ impl MigrationTrait for Migration {
                         ColumnDef::new(Issues::CreatedAt)
                             .timestamp_with_time_zone()
                             .not_null()
-                            .default(Expr::current_time()),
+                            .default(Expr::current_timestamp()),
                     )
                     .col(
                         ColumnDef::new(Issues::UpdatedAt)
                             .timestamp_with_time_zone()
                             .not_null()
-                            .default(Expr::current_time()),
+                            .default(Expr::current_timestamp()),
                     )
                     .col(
                         ColumnDef::new(Issues::ClosedAt)
@@ -108,13 +108,13 @@ impl MigrationTrait for Migration {
                         ColumnDef::new(IssueComments::CreatedAt)
                             .timestamp_with_time_zone()
                             .not_null()
-                            .default(Expr::current_time()),
+                            .default(Expr::current_timestamp()),
                     )
                     .col(
                         ColumnDef::new(IssueComments::UpdatedAt)
                             .timestamp_with_time_zone()
                             .not_null()
-                            .default(Expr::current_time()),
+                            .default(Expr::current_timestamp()),
                     )
                     .to_owned(),
             )

@@ -82,12 +82,12 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(SsoProviders::IconUrl).string_len(512).null())
                     .col(
                         ColumnDef::new(SsoProviders::CreatedAt)
-                            .date_time()
+                            .timestamp_with_time_zone()
                             .not_null(),
                     )
                     .col(
                         ColumnDef::new(SsoProviders::UpdatedAt)
-                            .date_time()
+                            .timestamp_with_time_zone()
                             .not_null(),
                     )
                     .to_owned(),
@@ -95,7 +95,9 @@ impl MigrationTrait for Migration {
             .await?;
 
         // Seed built-in providers (disabled by default)
-        let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        // Keep this as a typed timestamp value. PostgreSQL does not implicitly
+        // cast a bound TEXT parameter into a timestamp column.
+        let now = chrono::Utc::now();
 
         // GitHub
         manager

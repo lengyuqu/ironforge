@@ -9,8 +9,10 @@
 //!
 //! Strategy: rename the singular table to its plural name when (and only
 //! when) the singular table exists and the plural one does not yet. This is
-//! idempotent and safe on both fresh databases (phase8 just created the
-//! singular tables) and any database already carrying the broken schema.
+//! idempotent and safe on databases carrying the historical broken schema.
+//! Fresh databases now create the plural names directly, making this a no-op.
+//! The migrator registers this correction before the first migration that
+//! references `organizations`, so strict-FK backends can migrate from scratch.
 use sea_orm_migration::prelude::*;
 
 pub struct Migration;

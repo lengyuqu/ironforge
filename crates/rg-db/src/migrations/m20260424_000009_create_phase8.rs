@@ -278,6 +278,7 @@ impl MigrationTrait for Migration {
 // ── Organization ──────────────────────────────────────────
 #[derive(Iden)]
 enum Organization {
+    #[iden = "organizations"]
     Table,
     Id,
     Name,
@@ -292,6 +293,7 @@ enum Organization {
 // ── OrganizationMember ────────────────────────────────────
 #[derive(Iden)]
 enum OrganizationMember {
+    #[iden = "organization_members"]
     Table,
     Id,
     OrgId,
@@ -303,6 +305,7 @@ enum OrganizationMember {
 // ── Team ──────────────────────────────────────────────────
 #[derive(Iden)]
 enum Team {
+    #[iden = "teams"]
     Table,
     Id,
     OrgId,
@@ -316,6 +319,7 @@ enum Team {
 // ── TeamMember ────────────────────────────────────────────
 #[derive(Iden)]
 enum TeamMember {
+    #[iden = "team_members"]
     Table,
     Id,
     TeamId,
@@ -327,6 +331,7 @@ enum TeamMember {
 // ── Notification ──────────────────────────────────────────
 #[derive(Iden)]
 enum Notification {
+    #[iden = "notifications"]
     Table,
     Id,
     UserId,

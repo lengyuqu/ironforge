@@ -440,7 +440,7 @@ node frontend build
 相对旧 `ARCHITECTURE.md` 和历史 Phase 文档，当前应采用以下新口径：
 
 - 系统当前不是“纯核心 Git 平台”，而是带 CI、Package、SSO/MFA、审计、导入、看板、工时、MCP 的平台型服务。
-- 数据库仍是 SQLite-only，PostgreSQL 是后续方向，不是当前能力。
+- 数据库默认仍为 SQLite，同时支持 PostgreSQL/MySQL URL；2026-07-13 已在真实服务完成迁移、CRUD、计数器、FTS 与并发认证 smoke。HA、备份恢复和长期压测不在该首轮兼容验证范围内。
 - 前端是静态 SPA，不是 SSR 应用。
 - `client.svelte.ts` 当前是 38 行纯 re-export 兼容入口；API 真实实现已按领域拆到独立模块。
 - Docker runtime 镜像包含 `ironforge`、`ironforge-runner`、`ironforge-mcp` 三个二进制。

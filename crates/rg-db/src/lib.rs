@@ -39,6 +39,35 @@ pub enum DbBackend {
     MySql,
 }
 
+/// Redact a password embedded in a database URL before logging or returning
+/// the URL in an error. Usernames, hosts, ports, database names and query
+/// options remain visible for diagnostics.
+pub fn redact_database_url(db_url: &str) -> String {
+    let Some(scheme_end) = db_url.find("://") else {
+        return "<invalid database URL>".to_string();
+    };
+    let authority_start = scheme_end + 3;
+    let authority_end = db_url[authority_start..]
+        .find(|ch| matches!(ch, '/' | '?' | '#'))
+        .map(|offset| authority_start + offset)
+        .unwrap_or(db_url.len());
+    let authority = &db_url[authority_start..authority_end];
+    let Some(at) = authority.rfind('@') else {
+        return db_url.to_string();
+    };
+    let user_info = &authority[..at];
+    let Some(password_separator) = user_info.find(':') else {
+        return db_url.to_string();
+    };
+
+    format!(
+        "{}{}:***@{}",
+        &db_url[..authority_start],
+        &user_info[..password_separator],
+        &db_url[authority_start + at + 1..]
+    )
+}
+
 /// Infer the backend from a `database_url` scheme.
 ///
 /// Accepted schemes: `sqlite://` (`sqlite3://`), `postgres://` / `postgresql://`,
@@ -52,7 +81,8 @@ pub fn detect_backend(db_url: &str) -> Result<DbBackend> {
         Ok(DbBackend::MySql)
     } else {
         anyhow::bail!(
-            "unsupported database_url scheme in '{db_url}': expected sqlite://, postgres://, or mysql://"
+            "unsupported database_url scheme in '{}': expected sqlite://, postgres://, or mysql://",
+            redact_database_url(db_url)
         )
     }
 }
@@ -150,7 +180,7 @@ pub async fn connect_with_pool(
 ) -> Result<DatabaseConnection> {
     let max_connections = max_connections.max(1);
     let backend = detect_backend(db_url)?;
-    tracing::info!(url = %db_url, ?backend, connect_secs, idle_secs, max_connections, "Connecting to database");
+    tracing::info!(url = %redact_database_url(db_url), ?backend, connect_secs, idle_secs, max_connections, "Connecting to database");
 
     match backend {
         DbBackend::Sqlite => connect_sqlite(db_url, connect_secs, idle_secs, max_connections).await,
@@ -213,7 +243,7 @@ async fn connect_postgres(
     use sea_orm::SqlxPostgresConnector;
 
     let conn_opts = PgConnectOptions::from_str(db_url)
-        .with_context(|| format!("invalid postgres url: {db_url}"))?;
+        .with_context(|| format!("invalid postgres url: {}", redact_database_url(db_url)))?;
     let pool = PgPoolOptions::new()
         .max_connections(max_connections)
         .min_connections(1)
@@ -221,7 +251,12 @@ async fn connect_postgres(
         .idle_timeout(Duration::from_secs(idle_secs))
         .connect_with(conn_opts)
         .await
-        .with_context(|| format!("failed to connect to postgres: {db_url}"))?;
+        .with_context(|| {
+            format!(
+                "failed to connect to postgres: {}",
+                redact_database_url(db_url)
+            )
+        })?;
     tracing::info!("Connected to PostgreSQL");
     Ok(SqlxPostgresConnector::from_sqlx_postgres_pool(pool))
 }
@@ -238,7 +273,7 @@ async fn connect_mysql(
     use sea_orm::SqlxMySqlConnector;
 
     let conn_opts = MySqlConnectOptions::from_str(db_url)
-        .with_context(|| format!("invalid mysql url: {db_url}"))?;
+        .with_context(|| format!("invalid mysql url: {}", redact_database_url(db_url)))?;
     let pool = MySqlPoolOptions::new()
         .max_connections(max_connections)
         .min_connections(1)
@@ -246,7 +281,12 @@ async fn connect_mysql(
         .idle_timeout(Duration::from_secs(idle_secs))
         .connect_with(conn_opts)
         .await
-        .with_context(|| format!("failed to connect to mysql: {db_url}"))?;
+        .with_context(|| {
+            format!(
+                "failed to connect to mysql: {}",
+                redact_database_url(db_url)
+            )
+        })?;
     tracing::info!("Connected to MySQL");
     Ok(SqlxMySqlConnector::from_sqlx_mysql_pool(pool))
 }
@@ -342,6 +382,34 @@ pub async fn rebuild_fts_indexes(db: &DatabaseConnection) -> Result<()> {
 mod tests {
     use super::*;
     use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+
+    #[test]
+    fn database_urls_are_redacted_before_diagnostics() {
+        assert_eq!(
+            redact_database_url(
+                "postgres://ironforge:super-secret@db.internal:5432/ironforge?sslmode=require"
+            ),
+            "postgres://ironforge:***@db.internal:5432/ironforge?sslmode=require"
+        );
+        assert_eq!(
+            redact_database_url("mysql://root:p%40ss%3Aword@127.0.0.1:3306/ironforge"),
+            "mysql://root:***@127.0.0.1:3306/ironforge"
+        );
+        assert_eq!(
+            redact_database_url("postgres://ironforge@db.internal/ironforge"),
+            "postgres://ironforge@db.internal/ironforge"
+        );
+        assert_eq!(
+            redact_database_url("sqlite:///tmp/ironforge.db?mode=rwc"),
+            "sqlite:///tmp/ironforge.db?mode=rwc"
+        );
+
+        let error = detect_backend("custom://root:top-secret@db/ironforge")
+            .expect_err("unsupported scheme")
+            .to_string();
+        assert!(!error.contains("top-secret"));
+        assert!(error.contains("root:***@db"));
+    }
 
     #[test]
     fn postgres_raw_sql_placeholders_are_numbered() {

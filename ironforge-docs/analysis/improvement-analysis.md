@@ -50,7 +50,7 @@ IronForge 已完成 21 个迭代阶段，功能完备度达到轻量级 Git 托�
 | 数据库 | 审计日志归档（TTL + 压缩） | P2 | 📋 待处理 | 改进 |
 | 运维 | Docker 多阶段构建 + compose | P2 | ✅ 已解决（Dockerfile + compose） | 改进 |
 | 前端 | i18n key 覆盖率 CI 自动检查 | P3 | 📋 待处理 | 改进 |
-| 性能 | PostgreSQL 可选后端 | P3 | 📋 待处理（需迁移改造） | 改进/优化 |
+| 性能 | PostgreSQL/MySQL 可选后端 | P3 | ✅ 已完成首轮实库验证（2026-07-13；HA/恢复/压测另行推进） | 改进/优化 |
 | CI/CD | Runner Watchdog 间隔 60s → 15s | P3 | ✅ 已优化（自适应心跳） | 改进 |
 | 性能 | 大文件非流式处理 → OOM 风险 | P0 | ✅ 已修复（OCI/LFS 流式化 + 10GiB 限制） | 优化 |
 | 性能 | async 中 CPU 密集操作阻塞 runtime | P0 | ✅ 已修复（merge/compute_diff 包 spawn_blocking） | 优化 |
@@ -129,7 +129,7 @@ IronForge 已完成 21 个迭代阶段，功能完备度达到轻量级 Git 托�
 | P2 | 12 | 硬编码配置值 | ✅ 已修复 |
 | P3 | 13 | 文档覆盖率 75% | 📋 待处理 |
 | P3 | 14 | 前端 API client 671 行 | ✅ 已修复 |
-| P3 | 15 | PostgreSQL 支持 | 📋 待处理 |
+| P3 | 15 | PostgreSQL/MySQL 支持 | ✅ 已完成首轮实库 migration/CRUD/FTS/并发认证 smoke |
 | P3 | 16 | gix 迁移余量 | 🔒 阻塞（被上游阻塞） |
 
 ### 4.2 关键修复详情

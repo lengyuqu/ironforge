@@ -89,7 +89,9 @@ impl MigrationTrait for Migration {
                     )
                     .col(
                         ColumnDef::new(CiEnvironmentApprovals::JobId)
-                            .big_integer()
+                            // pipeline_jobs.id is INTEGER in the original CI
+                            // schema; MySQL requires exact FK type parity.
+                            .integer()
                             .not_null(),
                     )
                     .col(

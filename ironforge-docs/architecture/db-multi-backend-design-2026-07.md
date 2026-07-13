@@ -4,6 +4,8 @@
 > 日期：2026-07-08
 > 范围：为 IronForge 增加 PostgreSQL / MySQL 可选后端支持，对标 Gitea 双后端能力。
 
+> **2026-07-13 实施验证更新**：连接分流、后端感知迁移/FTS 和 CI smoke 已落地，并在真实 PostgreSQL、MySQL 服务上通过 migration、CRUD、counter、Wiki/仓库 FTS、并发登录锁定及完整服务启动 `/health` 验证。验证过程中修复了时间默认值、严格外键顺序/类型、MySQL TEXT 默认值、`NATURAL LANGUAGE MODE` 语法及 PostgreSQL UTC timestamp 类型问题；CLI/数据库层连接诊断不会再输出 URL 密码。
+
 ## 1. 目标与范围（已与用户确认）
 
 | 决策点 | 结论 |
@@ -21,7 +23,7 @@
 3. 作为运维，我可以通过 `database_url` 的 scheme（sqlite:// / postgres:// / mysql://）切换后端而无需改代码。
 4. 作为用户，我在 PG/MySQL 后端下仍可使用仓库/Issue/Wiki/代码的全局全文检索。
 
-## 2. 现状约束（代码实测）
+## 2. 实施前约束（2026-07-08 历史基线）
 
 1. `Cargo.toml` 中 `sea-orm` / `sea-orm-migration` 仅开 `sqlx-sqlite`，PG/MySQL 驱动未编入。
 2. `rg-db/src/lib.rs::connect()` 仅构造 SQLite connector + PRAGMA，无 scheme 分流。
@@ -50,7 +52,7 @@
 |------|-----------|----------|------|----------|
 | SQLite | `CREATE VIRTUAL TABLE x USING fts5(...)` | `x MATCH ?` | `ORDER BY rank` | `snippet(x,col,'<b>','</b>','...',20)` |
 | Postgres | `tsv tsvector GENERATED ALWAYS AS (to_tsvector('simple', ...)) STORED` + GIN 索引 | `x.tsv @@ plainto_tsquery('simple', ?)` | `ORDER BY ts_rank_cd(x.tsv, plainto_tsquery('simple', ?)) DESC` | 用 `ts_headline` |
-| MySQL | `FULLTEXT(col1, col2)`（InnoDB） | `MATCH(col1,col2) AGAINST (? IN NATIVE LANGUAGE MODE)` | 默认相关度 | 无内建高亮（返回 content 前 200 字符） |
+| MySQL | `FULLTEXT(col1, col2)`（InnoDB） | `MATCH(col1,col2) AGAINST (? IN NATURAL LANGUAGE MODE)` | 默认相关度 | 无内建高亮（返回 content 前 200 字符） |
 
 - PG/MySQL 的 FTS 列由数据库自动维护（PG 生成列 / MySQL FULLTEXT 索引），无需应用层触发器；SQLite 维持现有应用层同步。
 - `search/service.rs` 与 `code_indexer.rs` 改为调用 `dialect` 生成 SQL。
@@ -96,7 +98,7 @@
 
 ## 6. 风险与待明确
 
-- **无法本地 runtime 验证 PG/MySQL**：本环境无 PG/MySQL 服务，PG/MySQL 的 FTS SQL 为标准写法但需用户在真实库验证。
+- **实库 smoke 已完成**：2026-07-13 PostgreSQL/MySQL 均通过迁移、CRUD、计数器、FTS 与并发认证验证；这不替代 HA、故障恢复和长期压力测试。
 - **驱动体积**：启用 `db-postgres`/`db-mysql` 会显著增大二进制（sqlx-postgres 体量较大），故默认构建仅含 sqlite。
 - **FTS 语义差异**：SQLite `rank` 与 PG `ts_rank_cd` / MySQL 相关度排序口径不同，排序结果近似而非完全一致；高亮在 MySQL 下退化为 content 前 N 字符。
 - **触发器 vs 生成列**：SQLite 维持应用层同步；PG/MySQL 由 DB 自动维护，应用层写入对 FTS 列无害。
@@ -106,4 +108,4 @@
 - `cargo check --workspace`（默认）零错误，且 SQLite 既有行为不变。
 - `cargo check -p rg-db --features db-postgres,db-mysql` 可编译（驱动编入）。
 - 连接层能据 `database_url` scheme 选后端；非法组合给出明确错误。
-- FTS 查询层在三后端下生成语义正确的 SQL（SQLite 经单测验证；PG/MySQL 需真实库验证）。
+- FTS 查询层在三后端下生成语义正确的 SQL；SQLite 由本地测试覆盖，PostgreSQL/MySQL 已通过真实服务 smoke。

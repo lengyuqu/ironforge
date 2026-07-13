@@ -35,7 +35,11 @@ impl MigrationTrait for Migration {
                             .string_len(255)
                             .null(),
                     )
-                    .col(ColumnDef::new(LoginLogs::CreatedAt).date_time().not_null())
+                    .col(
+                        ColumnDef::new(LoginLogs::CreatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null(),
+                    )
                     .foreign_key(
                         ForeignKey::create()
                             .from(LoginLogs::Table, LoginLogs::UserId)

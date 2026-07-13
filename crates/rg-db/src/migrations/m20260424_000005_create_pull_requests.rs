@@ -56,13 +56,13 @@ impl MigrationTrait for Migration {
                         ColumnDef::new(PullRequests::CreatedAt)
                             .timestamp_with_time_zone()
                             .not_null()
-                            .default(Expr::current_time()),
+                            .default(Expr::current_timestamp()),
                     )
                     .col(
                         ColumnDef::new(PullRequests::UpdatedAt)
                             .timestamp_with_time_zone()
                             .not_null()
-                            .default(Expr::current_time()),
+                            .default(Expr::current_timestamp()),
                     )
                     .col(
                         ColumnDef::new(PullRequests::ClosedAt)
@@ -136,13 +136,13 @@ impl MigrationTrait for Migration {
                         ColumnDef::new(Milestones::CreatedAt)
                             .timestamp_with_time_zone()
                             .not_null()
-                            .default(Expr::current_time()),
+                            .default(Expr::current_timestamp()),
                     )
                     .col(
                         ColumnDef::new(Milestones::UpdatedAt)
                             .timestamp_with_time_zone()
                             .not_null()
-                            .default(Expr::current_time()),
+                            .default(Expr::current_timestamp()),
                     )
                     .to_owned(),
             )

@@ -50,7 +50,7 @@ enum PackageCmd {
         /// Package type to list
         pkg_type: String,
 
-        /// SQLite database URL for direct DB access
+        /// Database URL for direct DB access (SQLite, PostgreSQL, or MySQL)
         #[arg(long, default_value = "sqlite://./ironforge.db?mode=rwc")]
         db_url: String,
     },
@@ -84,7 +84,7 @@ enum Commands {
         #[arg(long)]
         host_key: Option<String>,
 
-        /// SQLite database URL (e.g. sqlite:///tmp/ironforge/db.sqlite?mode=rwc)
+        /// Database URL (sqlite://, postgres://, or mysql://)
         #[arg(long, default_value = "sqlite://./ironforge.db?mode=rwc")]
         db_url: String,
 
@@ -160,14 +160,14 @@ enum Commands {
 
     /// Run database migrations and exit
     Migrate {
-        /// SQLite database URL (e.g. sqlite://./ironforge.db?mode=rwc)
+        /// Database URL (sqlite://, postgres://, or mysql://)
         #[arg(long, default_value = "sqlite://./ironforge.db?mode=rwc")]
         db_url: String,
     },
 
-    /// Rebuild FTS5 full-text search indexes from main tables
+    /// Rebuild or refresh full-text search indexes from main tables
     RebuildFts {
-        /// SQLite database URL (e.g. sqlite://./ironforge.db?mode=rwc)
+        /// Database URL (sqlite://, postgres://, or mysql://)
         #[arg(long, default_value = "sqlite://./ironforge.db?mode=rwc")]
         db_url: String,
     },
@@ -261,7 +261,7 @@ enum Commands {
         #[arg(long, default_value = "./repos")]
         repo_root: String,
 
-        /// SQLite database URL
+        /// Database URL (sqlite://, postgres://, or mysql://)
         #[arg(long, default_value = "sqlite://./ironforge.db?mode=rwc")]
         db_url: String,
 
@@ -303,7 +303,7 @@ enum Commands {
         #[arg(long, default_value = "./repos")]
         repo_root: String,
 
-        /// SQLite database URL (e.g. sqlite://./ironforge.db?mode=rwc)
+        /// Database URL (sqlite://, postgres://, or mysql://)
         #[arg(long, default_value = "sqlite://./ironforge.db?mode=rwc")]
         db_url: String,
 
@@ -480,7 +480,7 @@ async fn backup_sqlite_db(db_url: &str, output: &PathBuf, force: bool) -> anyhow
             .with_context(|| format!("failed to remove existing backup: {}", output.display()))?;
     }
 
-    tracing::info!(db_url = %db_url, output = %output.display(), "Creating SQLite backup");
+    tracing::info!(db_url = %rg_db::redact_database_url(db_url), output = %output.display(), "Creating SQLite backup");
     let db = rg_db::connect(db_url).await?;
     let output_str = output
         .to_str()
@@ -677,7 +677,10 @@ async fn main() -> anyhow::Result<()> {
                 .with_target(false)
                 .init();
 
-            tracing::info!("Connecting to database: {}", db_url);
+            tracing::info!(
+                "Connecting to database: {}",
+                rg_db::redact_database_url(&db_url)
+            );
             let db = rg_db::connect(&db_url).await?;
             tracing::info!("Running database migrations...");
             rg_db::run_migrations(&db).await?;
@@ -692,12 +695,15 @@ async fn main() -> anyhow::Result<()> {
                 .with_target(false)
                 .init();
 
-            tracing::info!("Connecting to database: {}", db_url);
+            tracing::info!(
+                "Connecting to database: {}",
+                rg_db::redact_database_url(&db_url)
+            );
             let db = rg_db::connect(&db_url).await?;
 
             rg_db::rebuild_fts_indexes(&db).await?;
 
-            tracing::info!("FTS5 indexes rebuilt successfully ✅");
+            tracing::info!("Full-text search indexes refreshed successfully ✅");
         }
 
         Commands::BackupDb {
@@ -960,7 +966,10 @@ async fn main() -> anyhow::Result<()> {
             }
             println!("╚══════════════════════════════════════════════════╝");
 
-            tracing::info!("Connecting to database: {}", db_url);
+            tracing::info!(
+                "Connecting to database: {}",
+                rg_db::redact_database_url(&db_url)
+            );
             let db = rg_db::connect(&db_url).await?;
             rg_db::run_migrations(&db).await?;
 
@@ -1124,7 +1133,10 @@ async fn main() -> anyhow::Result<()> {
                         );
                     }
 
-                    tracing::info!("Connecting to database: {}", db_url);
+                    tracing::info!(
+                        "Connecting to database: {}",
+                        rg_db::redact_database_url(&db_url)
+                    );
                     let db = rg_db::connect(&db_url).await?;
                     rg_db::run_migrations(&db).await?;
 
@@ -1179,7 +1191,10 @@ async fn main() -> anyhow::Result<()> {
             let owner_username = parts[0];
             let repo_name = parts[1];
 
-            tracing::info!("Connecting to database: {}", db_url);
+            tracing::info!(
+                "Connecting to database: {}",
+                rg_db::redact_database_url(&db_url)
+            );
             let db = rg_db::connect(&db_url).await?;
 
             // Find owner by username
@@ -1449,7 +1464,10 @@ async fn run_serve(
     }
 
     // ── Database ──────────────────────────────────────────────────
-    tracing::info!("Connecting to database: {}", resolved_db_url);
+    tracing::info!(
+        "Connecting to database: {}",
+        rg_db::redact_database_url(&resolved_db_url)
+    );
     let db = rg_db::connect_with_timeouts(
         &resolved_db_url,
         resolved_db_connect_timeout,

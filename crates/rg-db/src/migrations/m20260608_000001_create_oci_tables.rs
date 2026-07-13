@@ -38,12 +38,12 @@ impl MigrationTrait for Migration {
                     )
                     .col(
                         ColumnDef::new(OciRepository::CreatedAt)
-                            .date_time()
+                            .timestamp_with_time_zone()
                             .not_null(),
                     )
                     .col(
                         ColumnDef::new(OciRepository::UpdatedAt)
-                            .date_time()
+                            .timestamp_with_time_zone()
                             .not_null(),
                     )
                     .to_owned(),
@@ -93,12 +93,12 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(OciManifest::PushBy).big_integer().null())
                     .col(
                         ColumnDef::new(OciManifest::CreatedAt)
-                            .date_time()
+                            .timestamp_with_time_zone()
                             .not_null(),
                     )
                     .col(
                         ColumnDef::new(OciManifest::UpdatedAt)
-                            .date_time()
+                            .timestamp_with_time_zone()
                             .not_null(),
                     )
                     .to_owned(),
@@ -159,7 +159,11 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .default(0),
                     )
-                    .col(ColumnDef::new(OciBlob::CreatedAt).date_time().not_null())
+                    .col(
+                        ColumnDef::new(OciBlob::CreatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null(),
+                    )
                     .to_owned(),
             )
             .await?;
@@ -203,8 +207,16 @@ impl MigrationTrait for Migration {
                             .default(0),
                     )
                     .col(ColumnDef::new(OciUpload::UploadPath).string().not_null())
-                    .col(ColumnDef::new(OciUpload::CreatedAt).date_time().not_null())
-                    .col(ColumnDef::new(OciUpload::ExpiresAt).date_time().not_null())
+                    .col(
+                        ColumnDef::new(OciUpload::CreatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(OciUpload::ExpiresAt)
+                            .timestamp_with_time_zone()
+                            .not_null(),
+                    )
                     .to_owned(),
             )
             .await?;

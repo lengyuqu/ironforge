@@ -33,12 +33,10 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(PrEvents::ActorId).big_integer().null())
                     .col(ColumnDef::new(PrEvents::EventType).string().not_null())
                     .col(ColumnDef::new(PrEvents::Body).text().null())
-                    .col(
-                        ColumnDef::new(PrEvents::Metadata)
-                            .text()
-                            .not_null()
-                            .default("{}"),
-                    )
+                    // Writers always persist an explicit JSON object. Avoid a
+                    // TEXT default because older MySQL/MariaDB variants reject
+                    // defaults on BLOB/TEXT columns.
+                    .col(ColumnDef::new(PrEvents::Metadata).text().not_null())
                     .col(
                         ColumnDef::new(PrEvents::CreatedAt)
                             .timestamp_with_time_zone()

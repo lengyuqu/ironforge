@@ -64,6 +64,7 @@ pub mod m20260712_000012_create_ci_retention;
 pub mod m20260712_000013_add_pipeline_job_condition;
 pub mod m20260712_000014_add_ldap_provider_identity;
 pub mod m20260712_000015_fix_oauth_accounts_table_name;
+pub mod m20260713_000001_fix_postgres_utc_timestamps;
 
 use sea_orm_migration::prelude::*;
 
@@ -97,6 +98,9 @@ impl MigratorTrait for Migrator {
             Box::new(m20260511_000002_add_missing_indexes::Migration),
             Box::new(m20260511_000003_fix_fts5_triggers::Migration),
             Box::new(m20260512_000001_create_code_fts::Migration),
+            // Must precede migrations that reference plural org/team tables.
+            // It is a no-op on fresh schemas created with the corrected names.
+            Box::new(m20260616_0000015_rename_org_team_plural::Migration),
             Box::new(m20260607_000001_create_mirrors::Migration),
             Box::new(m20260607_000002_create_boards::Migration),
             Box::new(m20260607_000003_create_time_entries::Migration),
@@ -112,7 +116,6 @@ impl MigratorTrait for Migrator {
             Box::new(m20260608_000002_oauth_accounts_unique::Migration),
             Box::new(m20260608_000003_add_job_tags::Migration),
             Box::new(m20260616_000001_create_password_reset_tokens::Migration),
-            Box::new(m20260616_0000015_rename_org_team_plural::Migration),
             Box::new(m20260616_000002_add_soft_delete_columns::Migration),
             Box::new(m20260617_000001_create_wiki_revisions::Migration),
             Box::new(m20260617_000002_rename_board_time_tables_plural::Migration),
@@ -139,6 +142,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260712_000013_add_pipeline_job_condition::Migration),
             Box::new(m20260712_000014_add_ldap_provider_identity::Migration),
             Box::new(m20260712_000015_fix_oauth_accounts_table_name::Migration),
+            Box::new(m20260713_000001_fix_postgres_utc_timestamps::Migration),
         ]
     }
 }

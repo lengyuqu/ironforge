@@ -35,10 +35,14 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .default(false),
                     )
-                    .col(ColumnDef::new(MfaBackupCodes::UsedAt).date_time().null())
+                    .col(
+                        ColumnDef::new(MfaBackupCodes::UsedAt)
+                            .timestamp_with_time_zone()
+                            .null(),
+                    )
                     .col(
                         ColumnDef::new(MfaBackupCodes::CreatedAt)
-                            .date_time()
+                            .timestamp_with_time_zone()
                             .not_null(),
                     )
                     .foreign_key(

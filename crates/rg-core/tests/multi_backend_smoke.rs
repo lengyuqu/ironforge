@@ -31,6 +31,26 @@ async fn migrations_crud_counters_and_fts_work_on_server_database() {
     .await
     .expect("create user");
 
+    let (first, second, third, fourth, fifth) = tokio::join!(
+        rg_db::ops::user_ops::record_failed_login(&db, user.id, 5),
+        rg_db::ops::user_ops::record_failed_login(&db, user.id, 5),
+        rg_db::ops::user_ops::record_failed_login(&db, user.id, 5),
+        rg_db::ops::user_ops::record_failed_login(&db, user.id, 5),
+        rg_db::ops::user_ops::record_failed_login(&db, user.id, 5),
+    );
+    for result in [first, second, third, fourth, fifth] {
+        result.expect("atomically record concurrent failed login");
+    }
+    let locked_user = rg_db::ops::user_ops::find_by_id(&db, user.id)
+        .await
+        .expect("read locked user")
+        .expect("locked user exists");
+    assert_eq!(locked_user.login_attempts, 5);
+    assert!(locked_user.locked_until.is_some());
+    rg_db::ops::user_ops::reset_login_failures(&db, user.id)
+        .await
+        .expect("reset failed logins");
+
     let now = chrono::Utc::now();
     let repo = rg_db::ops::repo_ops::create(
         &db,
@@ -106,4 +126,30 @@ async fn migrations_crud_counters_and_fts_work_on_server_database() {
     rg_core::wiki::service::delete_page(&db, repo.id, "Home")
         .await
         .expect("delete wiki page and FTS row");
+    let (_, wiki_total_after_delete) = rg_core::search::service::search(
+        &db,
+        &format!("{wiki_term} repo:{username}/{repo_name}"),
+        "wiki",
+        1,
+        20,
+    )
+    .await
+    .expect("verify wiki FTS deletion");
+    assert_eq!(wiki_total_after_delete, 0);
+
+    assert!(
+        !rg_db::ops::repo_star_ops::toggle_star(&db, user.id, repo.id)
+            .await
+            .expect("remove smoke-test star")
+    );
+    rg_db::ops::repo_ops::delete_by_id(&db, repo.id)
+        .await
+        .expect("delete smoke-test repository");
+    rg_db::ops::user_ops::delete_by_id(&db, user.id)
+        .await
+        .expect("delete smoke-test user");
+    assert!(rg_db::ops::user_ops::find_by_id(&db, user.id)
+        .await
+        .expect("verify smoke-test user cleanup")
+        .is_none());
 }

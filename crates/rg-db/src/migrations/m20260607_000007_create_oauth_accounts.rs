@@ -35,7 +35,7 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(OAuthAccounts::RefreshToken).text().null())
                     .col(
                         ColumnDef::new(OAuthAccounts::TokenExpiresAt)
-                            .date_time()
+                            .timestamp_with_time_zone()
                             .null(),
                     )
                     .col(
@@ -45,12 +45,12 @@ impl MigrationTrait for Migration {
                     )
                     .col(
                         ColumnDef::new(OAuthAccounts::CreatedAt)
-                            .date_time()
+                            .timestamp_with_time_zone()
                             .not_null(),
                     )
                     .col(
                         ColumnDef::new(OAuthAccounts::UpdatedAt)
-                            .date_time()
+                            .timestamp_with_time_zone()
                             .not_null(),
                     )
                     .foreign_key(

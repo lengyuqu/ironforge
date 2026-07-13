@@ -64,8 +64,8 @@ pub fn fts_match(
                 .collect::<Vec<_>>()
                 .join(", ");
             (
-                format!("MATCH({cols}) AGAINST (? IN NATIVE LANGUAGE MODE)"),
-                format!("ORDER BY MATCH({cols}) AGAINST (? IN NATIVE LANGUAGE MODE) DESC"),
+                format!("MATCH({cols}) AGAINST (? IN NATURAL LANGUAGE MODE)"),
+                format!("ORDER BY MATCH({cols}) AGAINST (? IN NATURAL LANGUAGE MODE) DESC"),
                 vec![raw_query.to_string(), raw_query.to_string()],
             )
         }
@@ -160,6 +160,8 @@ mod tests {
         );
         assert!(predicate.contains("issues_fts.title, issues_fts.body"));
         assert!(order.contains("issues_fts.title, issues_fts.body"));
+        assert!(predicate.ends_with("AGAINST (? IN NATURAL LANGUAGE MODE)"));
+        assert!(order.ends_with("AGAINST (? IN NATURAL LANGUAGE MODE) DESC"));
         assert_eq!(values, ["needle", "needle"]);
     }
 }

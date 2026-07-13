@@ -29,13 +29,13 @@ impl MigrationTrait for Migration {
                         ColumnDef::new(WikiPages::CreatedAt)
                             .timestamp_with_time_zone()
                             .not_null()
-                            .default(Expr::current_time()),
+                            .default(Expr::current_timestamp()),
                     )
                     .col(
                         ColumnDef::new(WikiPages::UpdatedAt)
                             .timestamp_with_time_zone()
                             .not_null()
-                            .default(Expr::current_time()),
+                            .default(Expr::current_timestamp()),
                     )
                     .to_owned(),
             )
@@ -81,7 +81,7 @@ impl MigrationTrait for Migration {
                         ColumnDef::new(LfsObjects::CreatedAt)
                             .timestamp_with_time_zone()
                             .not_null()
-                            .default(Expr::current_time()),
+                            .default(Expr::current_timestamp()),
                     )
                     .to_owned(),
             )
@@ -134,13 +134,13 @@ impl MigrationTrait for Migration {
                         ColumnDef::new(Webhooks::CreatedAt)
                             .timestamp_with_time_zone()
                             .not_null()
-                            .default(Expr::current_time()),
+                            .default(Expr::current_timestamp()),
                     )
                     .col(
                         ColumnDef::new(Webhooks::UpdatedAt)
                             .timestamp_with_time_zone()
                             .not_null()
-                            .default(Expr::current_time()),
+                            .default(Expr::current_timestamp()),
                     )
                     .to_owned(),
             )
@@ -206,7 +206,7 @@ impl MigrationTrait for Migration {
                         ColumnDef::new(WebhookDeliveries::CreatedAt)
                             .timestamp_with_time_zone()
                             .not_null()
-                            .default(Expr::current_time()),
+                            .default(Expr::current_timestamp()),
                     )
                     .to_owned(),
             )

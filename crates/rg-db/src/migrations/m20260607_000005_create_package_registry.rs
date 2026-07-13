@@ -36,12 +36,12 @@ impl MigrationTrait for Migration {
                     )
                     .col(
                         ColumnDef::new(PackageRegistry::CreatedAt)
-                            .date_time()
+                            .timestamp_with_time_zone()
                             .not_null(),
                     )
                     .col(
                         ColumnDef::new(PackageRegistry::UpdatedAt)
-                            .date_time()
+                            .timestamp_with_time_zone()
                             .not_null(),
                     )
                     .to_owned(),
@@ -95,8 +95,16 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .default(0),
                     )
-                    .col(ColumnDef::new(Package::CreatedAt).date_time().not_null())
-                    .col(ColumnDef::new(Package::UpdatedAt).date_time().not_null())
+                    .col(
+                        ColumnDef::new(Package::CreatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(Package::UpdatedAt)
+                            .timestamp_with_time_zone()
+                            .not_null(),
+                    )
                     .to_owned(),
             )
             .await?;
@@ -160,7 +168,7 @@ impl MigrationTrait for Migration {
                     )
                     .col(
                         ColumnDef::new(PackageVersion::CreatedAt)
-                            .date_time()
+                            .timestamp_with_time_zone()
                             .not_null(),
                     )
                     .to_owned(),
@@ -208,7 +216,7 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(PackageFile::StoragePath).string().not_null())
                     .col(
                         ColumnDef::new(PackageFile::CreatedAt)
-                            .date_time()
+                            .timestamp_with_time_zone()
                             .not_null(),
                     )
                     .to_owned(),

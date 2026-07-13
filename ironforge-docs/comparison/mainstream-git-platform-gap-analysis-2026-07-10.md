@@ -12,7 +12,7 @@
 - PAT `repo` / `user` / `admin` scope 已在 REST 与 Git HTTP 强制执行；
 - SSH Key 用户 CRUD、设置页、唯一性/所有权校验及使用时间记录已完成；
 - PostgreSQL/MySQL 运行时 SQLite 硬编码、PostgreSQL 原始 SQL 占位符、MySQL 表重命名，以及 Wiki revision/Runner 字段跨后端迁移已修复；
-- 主 CI 已增加 PostgreSQL 17 与 MySQL 8.4 的真实 migration + CRUD + counter + FTS smoke；本地 SQLite 同一 smoke 已通过，服务器数据库结果以首次 CI 运行记录为准。
+- 主 CI 已增加 PostgreSQL 17 与 MySQL 8.4 的真实 migration + CRUD + counter + FTS smoke；2026-07-13 又在独立 PostgreSQL/MySQL 服务上完成 migration、CRUD、counter、FTS 与并发认证实测。
 - 前端 `svelte-check` 基线已恢复为 0 error / 0 warning，并补齐登录页 OAuth2/OIDC SSO provider 入口。
 - Draft PR、多人 Reviewer 请求/移除、评论线程 Resolve/Reopen 已完成后端权限、OpenAPI、前端与集成测试闭环。
 - CODEOWNERS 已支持标准文件位置、通配符/覆盖规则，以及用户和 `@org/team` 自动 Reviewer 请求；团队仅限仓库所属组织且要求 write/admin 权限，展开后按用户去重。
@@ -55,7 +55,7 @@ IronForge 已具备小团队自托管 Git 平台的主要骨架，功能广度�
 - 以单机/小团队部署为主要场景；
 - 以 MCP/AI Agent 集成为差异化优势；
 - 暂不应宣传为 GitHub/GitLab 的直接替代品；
-- PR 授权、PAT scope、SSH Key 管理等本轮 P0 已闭环；按 2026-07-12 决策，PostgreSQL/MySQL 实库 P0 验证暂缓。生产就绪判断仍需结合后续数据库矩阵、备份恢复和安全审计结果。
+- PR 授权、PAT scope、SSH Key 管理及 PostgreSQL/MySQL 首轮实库 P0 验证已闭环。生产就绪判断仍需结合后续版本矩阵、备份恢复、长期压测和安全审计结果。
 
 ## 2. 当前已经具备的能力
 
@@ -131,16 +131,11 @@ IronForge 已具备小团队自托管 Git 平台的主要骨架，功能广度�
 - `crates/rg-db/src/ops/ssh_key_ops.rs`
 - `crates/rg-ssh/src/lib.rs`
 
-### 4.4 PostgreSQL/MySQL 仍属于实验性支持
+### 4.4 PostgreSQL/MySQL 首轮实库兼容已闭环
 
-2026-07-08 的代码已经增加 PostgreSQL/MySQL 连接、迁移和 FTS 方言，但：
+2026-07-13 已在独立 PostgreSQL/MySQL 服务完成 migration、CRUD、stars counter、Wiki/仓库 FTS、并发登录锁定及完整服务启动 `/health` 验证。实测修复包括跨后端时间默认值、严格外键顺序与类型、MySQL TEXT 默认值和 FTS 语法、PostgreSQL `TIMESTAMPTZ`/`DateTimeUtc` 对齐，以及数据库 URL 密码日志脱敏；主 CI 也保留 PostgreSQL 17/MySQL 8.4 service smoke。
 
-- 设计文档明确说明没有真实 PostgreSQL/MySQL runtime 验证；
-- Wiki FTS 写路径仍写死 `DatabaseBackend::Sqlite`；
-- repo stars/forks count 更新仍写死 SQLite statement backend；
-- 主 CI 只运行 SQLite fresh migration smoke。
-
-因此当前应写成“代码已接入、生产兼容性未闭环”，而不是生产级多数据库支持。
+当前可描述为“首轮运行时兼容已闭环”，但完整生产级仍需要更多数据库版本矩阵、备份恢复、升级演练、HA 和长期压力测试。
 
 主要代码：
 
@@ -210,8 +205,8 @@ GitHub/GitLab 均有 GraphQL API；GitHub Apps 提供细粒度权限、短期安
 
 ### 第三波：生产化
 
-1. PostgreSQL/MySQL 实库 migration + CRUD + FTS smoke；
-2. 全量消除 runtime 路径中的 SQLite backend 硬编码；
+1. ~~PostgreSQL/MySQL 实库 migration + CRUD + FTS smoke~~（✅ 2026-07-13，并扩展认证并发计数）；
+2. ~~全量消除 runtime 路径中的 SQLite backend 硬编码~~（✅ 已完成关键运行路径与回归守卫）；
 3. 对象存储、后台任务队列、全实例备份恢复；
 4. 多节点/HA/升级与恢复演练；
 5. 大仓库 clone/fetch/push 性能和兼容矩阵。

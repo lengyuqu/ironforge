@@ -54,7 +54,7 @@ impl MigrationTrait for Migration {
                     .col(ColumnDef::new(AuditLog::Details).text().null())
                     .col(
                         ColumnDef::new(AuditLog::CreatedAt)
-                            .date_time()
+                            .timestamp_with_time_zone()
                             .not_null()
                             .default(Expr::current_timestamp()),
                     )

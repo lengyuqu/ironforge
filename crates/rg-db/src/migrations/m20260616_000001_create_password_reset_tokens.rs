@@ -31,7 +31,7 @@ impl MigrationTrait for Migration {
                     )
                     .col(
                         ColumnDef::new(PasswordResetTokens::ExpiresAt)
-                            .date_time()
+                            .timestamp_with_time_zone()
                             .not_null(),
                     )
                     .col(
@@ -42,7 +42,7 @@ impl MigrationTrait for Migration {
                     )
                     .col(
                         ColumnDef::new(PasswordResetTokens::CreatedAt)
-                            .date_time()
+                            .timestamp_with_time_zone()
                             .not_null(),
                     )
                     .foreign_key(

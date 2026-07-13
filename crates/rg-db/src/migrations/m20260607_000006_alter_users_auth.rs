@@ -88,7 +88,11 @@ impl MigrationTrait for Migration {
             .alter_table(
                 Table::alter()
                     .table(Users::Table)
-                    .add_column(ColumnDef::new(UsersCol::LastLoginAt).date_time().null())
+                    .add_column(
+                        ColumnDef::new(UsersCol::LastLoginAt)
+                            .timestamp_with_time_zone()
+                            .null(),
+                    )
                     .to_owned(),
             )
             .await?;
@@ -111,7 +115,11 @@ impl MigrationTrait for Migration {
             .alter_table(
                 Table::alter()
                     .table(Users::Table)
-                    .add_column(ColumnDef::new(UsersCol::LockedUntil).date_time().null())
+                    .add_column(
+                        ColumnDef::new(UsersCol::LockedUntil)
+                            .timestamp_with_time_zone()
+                            .null(),
+                    )
                     .to_owned(),
             )
             .await?;
