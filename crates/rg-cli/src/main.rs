@@ -341,6 +341,8 @@ struct ConfigFile {
     #[serde(default)]
     logging: LoggingConfig,
     #[serde(default)]
+    audit: AuditConfig,
+    #[serde(default)]
     timeouts: TimeoutConfig,
     /// Server external URL (e.g., "https://git.example.com"). Used for SSO callbacks.
     #[serde(default)]
@@ -409,6 +411,15 @@ struct LoggingConfig {
 }
 
 #[derive(Debug, serde::Deserialize, Default)]
+struct AuditConfig {
+    enabled: Option<bool>,
+    archive_dir: Option<String>,
+    archive_after_days: Option<i64>,
+    interval_minutes: Option<u64>,
+    batch_size: Option<u64>,
+}
+
+#[derive(Debug, serde::Deserialize, Default)]
 struct TimeoutConfig {
     /// CI job timeout in seconds (default: 3600 = 1 hour).
     #[serde(default = "default_job_timeout")]
@@ -435,6 +446,21 @@ fn default_db_connect_timeout() -> u64 {
 }
 fn default_db_idle_timeout() -> u64 {
     600
+}
+
+#[cfg(test)]
+mod config_tests {
+    use super::ConfigFile;
+
+    #[test]
+    fn example_config_includes_valid_audit_archive_settings() {
+        let config: ConfigFile =
+            toml::from_str(include_str!("../../../ironforge.example.toml")).unwrap();
+        assert_eq!(config.audit.enabled, Some(true));
+        assert_eq!(config.audit.archive_after_days, Some(90));
+        assert_eq!(config.audit.interval_minutes, Some(60));
+        assert_eq!(config.audit.batch_size, Some(1_000));
+    }
 }
 
 fn load_config_file(path: &str) -> anyhow::Result<ConfigFile> {
@@ -1476,6 +1502,36 @@ async fn run_serve(
     .await?;
     rg_db::run_migrations(&db).await?;
     tracing::info!("Database ready");
+
+    let audit_config = cfg.as_ref().map(|config| &config.audit);
+    let _audit_archiver_handle = if audit_config
+        .and_then(|config| config.enabled)
+        .unwrap_or(true)
+    {
+        let archive_config = rg_core::audit::archiver::AuditArchiveConfig {
+            archive_dir: PathBuf::from(
+                audit_config
+                    .and_then(|config| config.archive_dir.as_deref())
+                    .unwrap_or("./data/audit-archive"),
+            ),
+            archive_after_days: audit_config
+                .and_then(|config| config.archive_after_days)
+                .unwrap_or(90),
+            interval_minutes: audit_config
+                .and_then(|config| config.interval_minutes)
+                .unwrap_or(60),
+            batch_size: audit_config
+                .and_then(|config| config.batch_size)
+                .unwrap_or(1_000),
+        };
+        Some(rg_core::audit::archiver::spawn_archiver_with_config(
+            db.clone(),
+            archive_config,
+        )?)
+    } else {
+        tracing::info!("Audit log archival disabled by configuration");
+        None
+    };
 
     // ── HTTP server ───────────────────────────────────────────────
     let smtp_config =

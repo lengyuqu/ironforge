@@ -16,8 +16,10 @@
 
 use anyhow::{Context, Result};
 use chrono::Utc;
+use hmac::{Hmac, Mac};
 use sea_orm::{ActiveModelTrait, DatabaseConnection};
 use serde::{Deserialize, Serialize};
+use sha2::Sha256;
 use std::io::Write;
 use std::path::PathBuf;
 
@@ -29,6 +31,103 @@ const ZSTD_LEVEL: i32 = 3;
 
 /// Compression algorithm name
 const COMPRESSION_ALGO: &str = "zstd";
+
+/// Signed download URLs are deliberately short-lived to limit leakage.
+pub const DOWNLOAD_URL_TTL_SECONDS: i64 = 60 * 60;
+/// Upload URLs allow enough time for large objects on slow connections.
+pub const UPLOAD_URL_TTL_SECONDS: i64 = 6 * 60 * 60;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LfsActionKind {
+    Download,
+    Upload,
+}
+
+impl LfsActionKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Download => "download",
+            Self::Upload => "upload",
+        }
+    }
+
+    fn ttl_seconds(self) -> i64 {
+        match self {
+            Self::Download => DOWNLOAD_URL_TTL_SECONDS,
+            Self::Upload => UPLOAD_URL_TTL_SECONDS,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum LfsActionSignatureError {
+    #[error("LFS action URL has expired")]
+    Expired,
+    #[error("invalid LFS action URL signature")]
+    Invalid,
+}
+
+type HmacSha256 = Hmac<Sha256>;
+
+fn action_signature_payload(
+    action: LfsActionKind,
+    repo_id: i64,
+    oid: &str,
+    expires_at: i64,
+) -> String {
+    format!(
+        "ironforge-lfs-v1:{}:{}:{}:{}",
+        action.as_str(),
+        repo_id,
+        oid,
+        expires_at
+    )
+}
+
+/// Sign an LFS action URL. The signature is bound to action, repository,
+/// object and expiry so a URL cannot be reused for another purpose.
+pub fn sign_action_url(
+    secret: &[u8],
+    action: LfsActionKind,
+    repo_id: i64,
+    oid: &str,
+    expires_at: i64,
+) -> String {
+    let mut mac = HmacSha256::new_from_slice(secret)
+        .expect("HMAC-SHA256 accepts keys of any non-negative length");
+    mac.update(action_signature_payload(action, repo_id, oid, expires_at).as_bytes());
+    hex::encode(mac.finalize().into_bytes())
+}
+
+/// Verify a signed LFS action URL at a caller-provided timestamp.
+/// Supplying `now` keeps expiry behavior deterministic in tests.
+pub fn verify_action_url(
+    secret: &[u8],
+    action: LfsActionKind,
+    repo_id: i64,
+    oid: &str,
+    expires_at: i64,
+    signature: &str,
+    now: i64,
+) -> std::result::Result<(), LfsActionSignatureError> {
+    if expires_at <= now {
+        return Err(LfsActionSignatureError::Expired);
+    }
+    let signature = hex::decode(signature).map_err(|_| LfsActionSignatureError::Invalid)?;
+    let mut mac = HmacSha256::new_from_slice(secret)
+        .expect("HMAC-SHA256 accepts keys of any non-negative length");
+    mac.update(action_signature_payload(action, repo_id, oid, expires_at).as_bytes());
+    mac.verify_slice(&signature)
+        .map_err(|_| LfsActionSignatureError::Invalid)
+}
+
+/// Git LFS SHA-256 object identifiers are exactly 64 lowercase hex bytes.
+pub fn is_valid_oid(oid: &str) -> bool {
+    oid.len() == 64
+        && oid
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
 
 // ── LFS API types ─────────────────────────────────────────────────────────
 
@@ -108,6 +207,7 @@ pub async fn batch(
     owner: &str,
     repo: &str,
     req: &LfsBatchRequest,
+    signing_secret: &[u8],
 ) -> Result<LfsBatchResponse> {
     let transfer = req
         .transfers
@@ -123,13 +223,45 @@ pub async fn batch(
             let oid = &obj_req.oid;
             let size = obj_req.size;
             async move {
+                if !is_valid_oid(oid) || size < 0 {
+                    return Ok(LfsObjectResponse {
+                        oid: oid.to_string(),
+                        size,
+                        actions: None,
+                        error: Some(LfsError {
+                            code: 422,
+                            message: "invalid LFS object identifier or size".to_string(),
+                        }),
+                    });
+                }
                 match operation {
                     "upload" => {
-                        handle_upload(db, repo_id, lfs_root, base_url, owner, repo, oid, size).await
+                        handle_upload(
+                            db,
+                            repo_id,
+                            lfs_root,
+                            base_url,
+                            owner,
+                            repo,
+                            oid,
+                            size,
+                            signing_secret,
+                        )
+                        .await
                     }
                     "download" => {
-                        handle_download(db, repo_id, lfs_root, base_url, owner, repo, oid, size)
-                            .await
+                        handle_download(
+                            db,
+                            repo_id,
+                            lfs_root,
+                            base_url,
+                            owner,
+                            repo,
+                            oid,
+                            size,
+                            signing_secret,
+                        )
+                        .await
                     }
                     _ => Ok(LfsObjectResponse {
                         oid: oid.to_string(),
@@ -163,6 +295,7 @@ async fn handle_upload(
     repo: &str,
     oid: &str,
     size: i64,
+    signing_secret: &[u8],
 ) -> Result<LfsObjectResponse> {
     // Check if object already exists
     let existing = lfs_object_ops::find_by_repo_and_oid(db, repo_id, oid).await?;
@@ -198,9 +331,17 @@ async fn handle_upload(
     }
 
     // Return upload URL
+    let expires_at = Utc::now().timestamp() + LfsActionKind::Upload.ttl_seconds();
+    let signature = sign_action_url(
+        signing_secret,
+        LfsActionKind::Upload,
+        repo_id,
+        oid,
+        expires_at,
+    );
     let upload_href = format!(
-        "{}/api/v1/repos/{}/{}/lfs/objects/{}",
-        base_url, owner, repo, oid
+        "{}/api/v1/repos/{}/{}/lfs/objects/{}?expires={}&signature={}",
+        base_url, owner, repo, oid, expires_at, signature
     );
 
     Ok(LfsObjectResponse {
@@ -211,7 +352,7 @@ async fn handle_upload(
             upload: Some(LfsAction {
                 href: upload_href,
                 header: None,
-                expires_in: None,
+                expires_in: Some(UPLOAD_URL_TTL_SECONDS),
             }),
         }),
         error: None,
@@ -228,6 +369,7 @@ async fn handle_download(
     repo: &str,
     oid: &str,
     size: i64,
+    signing_secret: &[u8],
 ) -> Result<LfsObjectResponse> {
     let existing = lfs_object_ops::find_by_repo_and_oid(db, repo_id, oid)
         .await?
@@ -245,9 +387,17 @@ async fn handle_download(
         });
     }
 
+    let expires_at = Utc::now().timestamp() + LfsActionKind::Download.ttl_seconds();
+    let signature = sign_action_url(
+        signing_secret,
+        LfsActionKind::Download,
+        repo_id,
+        oid,
+        expires_at,
+    );
     let download_href = format!(
-        "{}/api/v1/repos/{}/{}/lfs/objects/{}",
-        base_url, owner, repo, oid
+        "{}/api/v1/repos/{}/{}/lfs/objects/{}?expires={}&signature={}",
+        base_url, owner, repo, oid, expires_at, signature
     );
 
     Ok(LfsObjectResponse {
@@ -257,7 +407,7 @@ async fn handle_download(
             download: Some(LfsAction {
                 href: download_href,
                 header: None,
-                expires_in: None,
+                expires_in: Some(DOWNLOAD_URL_TTL_SECONDS),
             }),
             upload: None,
         }),

@@ -38,6 +38,8 @@ pub enum AppError {
     #[error("{0}")]
     Conflict(String),
     #[error("{0}")]
+    Gone(String),
+    #[error("{0}")]
     InternalError(String),
     #[error("{0}")]
     TooManyRequests(String),
@@ -52,6 +54,7 @@ impl AppError {
             Self::Unauthorized(_) => "UNAUTHORIZED",
             Self::Forbidden(_) => "FORBIDDEN",
             Self::Conflict(_) => "CONFLICT",
+            Self::Gone(_) => "GONE",
             Self::InternalError(_) => "INTERNAL_ERROR",
             Self::TooManyRequests(_) => "RATE_LIMITED",
         }
@@ -65,6 +68,7 @@ impl AppError {
             Self::Unauthorized(_) => StatusCode::UNAUTHORIZED,
             Self::Forbidden(_) => StatusCode::FORBIDDEN,
             Self::Conflict(_) => StatusCode::CONFLICT,
+            Self::Gone(_) => StatusCode::GONE,
             Self::InternalError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Self::TooManyRequests(_) => StatusCode::TOO_MANY_REQUESTS,
         }
@@ -136,6 +140,10 @@ impl AppError {
 
     pub fn conflict(msg: impl std::fmt::Display) -> Self {
         Self::Conflict(msg.to_string())
+    }
+
+    pub fn gone(msg: impl std::fmt::Display) -> Self {
+        Self::Gone(msg.to_string())
     }
 
     pub fn internal(msg: impl std::fmt::Display) -> Self {

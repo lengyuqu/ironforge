@@ -75,6 +75,21 @@ pub async fn list_before(
         .await
 }
 
+/// List a bounded oldest-first batch of audit entries before a cutoff.
+pub async fn list_before_limit(
+    db: &DatabaseConnection,
+    cutoff: chrono::DateTime<chrono::Utc>,
+    limit: u64,
+) -> Result<Vec<Model>, DbErr> {
+    Entity::find()
+        .filter(Column::CreatedAt.lt(cutoff))
+        .order_by_asc(Column::CreatedAt)
+        .order_by_asc(Column::Id)
+        .limit(limit)
+        .all(db)
+        .await
+}
+
 /// Delete audit log entries by their IDs (after archival).
 pub async fn delete_by_ids(db: &DatabaseConnection, ids: &[i64]) -> Result<(), DbErr> {
     Entity::delete_many()

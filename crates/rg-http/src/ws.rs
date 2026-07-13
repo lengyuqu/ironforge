@@ -5,8 +5,8 @@
 //! Query-parameter fallback (`?token=<jwt>`) is retained for backward
 //! compatibility but should not be used by new clients.
 //!
-//! Security: per-user channels ensure each client only receives their own
-//! notifications. Job-log events use a separate global channel (public).
+//! Security: per-user notification channels and per-job log channels ensure
+//! clients only receive the streams they explicitly subscribed to.
 
 use axum::{
     extract::{
@@ -14,7 +14,7 @@ use axum::{
         Path, Query, State, WebSocketUpgrade,
     },
     http::HeaderMap,
-    response::IntoResponse,
+    response::{IntoResponse, Response},
 };
 use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
@@ -40,9 +40,9 @@ struct NotificationHubInner {
     /// Per-user notification channels. Only the owning user receives
     /// messages pushed via `push_notification`.
     user_channels: RwLock<HashMap<i64, broadcast::Sender<NotificationEvent>>>,
-    /// Global channel for public events (e.g. job_log) that all
-    /// connected clients should receive.
-    global_sender: broadcast::Sender<NotificationEvent>,
+    /// Per-job channels prevent logs from unrelated jobs from being fanned
+    /// out to every connected client.
+    job_channels: RwLock<HashMap<i64, broadcast::Sender<NotificationEvent>>>,
 }
 
 /// Global notification hub with per-user isolation.
@@ -62,11 +62,10 @@ impl Default for NotificationHub {
 impl NotificationHub {
     /// Create a new notification hub.
     pub fn new() -> Self {
-        let (global_sender, _) = broadcast::channel(NOTIFICATION_CHANNEL_CAPACITY);
         Self {
             inner: Arc::new(NotificationHubInner {
                 user_channels: RwLock::new(HashMap::new()),
-                global_sender,
+                job_channels: RwLock::new(HashMap::new()),
             }),
         }
     }
@@ -101,15 +100,37 @@ impl NotificationHub {
         sender.subscribe()
     }
 
-    /// Subscribe to the global event channel (job logs, etc.).
-    fn subscribe_global(&self) -> broadcast::Receiver<NotificationEvent> {
-        self.inner.global_sender.subscribe()
+    async fn cleanup_user_channel(&self, user_id: i64) {
+        let mut channels = self.inner.user_channels.write().await;
+        if channels
+            .get(&user_id)
+            .is_some_and(|sender| sender.receiver_count() == 0)
+        {
+            channels.remove(&user_id);
+        }
     }
 
-    /// Broadcast a job log update to **all** WebSocket subscribers.
-    ///
-    /// Frontend clients can listen for `job_log` events and filter by job_id.
-    pub fn push_job_log(&self, job_id: i64, log: &str) {
+    /// Subscribe to one job's log stream, creating its channel on demand.
+    async fn subscribe_job(&self, job_id: i64) -> broadcast::Receiver<NotificationEvent> {
+        let mut channels = self.inner.job_channels.write().await;
+        let sender = channels
+            .entry(job_id)
+            .or_insert_with(|| broadcast::channel(NOTIFICATION_CHANNEL_CAPACITY).0);
+        sender.subscribe()
+    }
+
+    async fn cleanup_job_channel(&self, job_id: i64) {
+        let mut channels = self.inner.job_channels.write().await;
+        if channels
+            .get(&job_id)
+            .is_some_and(|sender| sender.receiver_count() == 0)
+        {
+            channels.remove(&job_id);
+        }
+    }
+
+    /// Broadcast a job log update only to subscribers of that job.
+    pub async fn push_job_log(&self, job_id: i64, log: &str) {
         let event = NotificationEvent {
             event_type: "job_log".to_string(),
             data: serde_json::json!({
@@ -117,7 +138,10 @@ impl NotificationHub {
                 "log": log,
             }),
         };
-        let _ = self.inner.global_sender.send(event);
+        let channels = self.inner.job_channels.read().await;
+        if let Some(sender) = channels.get(&job_id) {
+            let _ = sender.send(event);
+        }
     }
 }
 
@@ -223,9 +247,9 @@ async fn handle_ws_connection(socket: WebSocket, hub: NotificationHub, user_id: 
         "WebSocket client connected for notifications"
     );
 
-    // Subscribe to per-user and global channels
+    // General notifications never receive job logs. Those are isolated on
+    // the dedicated /ws/job/:job_id endpoint.
     let mut user_rx = hub.subscribe_user(uid).await;
-    let mut global_rx = hub.subscribe_global();
 
     // Send initial connection confirmation
     let welcome = serde_json::json!({
@@ -237,63 +261,41 @@ async fn handle_ws_connection(socket: WebSocket, hub: NotificationHub, user_id: 
         .await
         .is_err()
     {
+        drop(user_rx);
+        hub.cleanup_user_channel(uid).await;
         return;
     }
 
-    // Forward events from both channels to the WebSocket.
-    // - user_rx: only this user's notifications (per-user isolation)
-    // - global_rx: public events like job_log
-    let send_task = tokio::spawn(async move {
-        loop {
-            tokio::select! {
-                Ok(event) = user_rx.recv() => {
-                    let msg = match serde_json::to_string(&event) {
-                        Ok(s) => s,
-                        Err(_) => continue,
-                    };
-                    if sender.send(Message::Text(msg.into())).await.is_err() {
-                        break;
-                    }
-                }
-                Ok(event) = global_rx.recv() => {
-                    // Only forward job_log events from the global channel
-                    if event.event_type != "job_log" {
+    loop {
+        tokio::select! {
+            event = user_rx.recv() => match event {
+                Ok(event) => {
+                    let Ok(msg) = serde_json::to_string(&event) else {
                         continue;
-                    }
-                    let msg = match serde_json::to_string(&event) {
-                        Ok(s) => s,
-                        Err(_) => continue,
                     };
                     if sender.send(Message::Text(msg.into())).await.is_err() {
                         break;
                     }
                 }
-                else => { break; }
-            }
-        }
-    });
-
-    // Read incoming messages (mainly for keepalive / client commands)
-    let recv_task = tokio::spawn(async move {
-        while let Some(Ok(msg)) = receiver.next().await {
-            match msg {
-                Message::Text(text)
-                    // Client can send ping as text
-                    if text == "ping" => {
-                        // No-op: keepalive handled
+                Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                    tracing::warn!(user_id = uid, skipped, "notification WebSocket lagged");
+                }
+                Err(broadcast::error::RecvError::Closed) => break,
+            },
+            incoming = receiver.next() => match incoming {
+                Some(Ok(Message::Close(_))) | None | Some(Err(_)) => break,
+                Some(Ok(Message::Ping(payload))) => {
+                    if sender.send(Message::Pong(payload)).await.is_err() {
+                        break;
                     }
-                Message::Close(_) => break,
-                _ => {}
+                }
+                Some(Ok(_)) => {}
             }
         }
-    });
-
-    // Wait for either task to finish
-    tokio::select! {
-        _ = send_task => {},
-        _ = recv_task => {},
     }
 
+    drop(user_rx);
+    hub.cleanup_user_channel(uid).await;
     tracing::info!(user_id = uid, "WebSocket client disconnected");
 }
 
@@ -315,11 +317,9 @@ pub fn push_notification(
     });
 }
 
-/// Broadcast a job log update to all WebSocket subscribers.
-///
-/// Frontend clients can listen for `job_log` events and filter by job_id.
-pub fn push_job_log(hub: &NotificationHub, job_id: i64, log: &str) {
-    hub.push_job_log(job_id, log);
+/// Broadcast a job log update to subscribers of that job.
+pub async fn push_job_log(hub: &NotificationHub, job_id: i64, log: &str) {
+    hub.push_job_log(job_id, log).await;
 }
 
 /// GET /api/v1/ws/job/:job_id — WebSocket for real-time job log streaming.
@@ -333,7 +333,7 @@ pub async fn ws_job_log_handler(
     Query(query): Query<WsQuery>,
     State(state): State<AppState>,
     headers: HeaderMap,
-) -> impl IntoResponse {
+) -> Response {
     // M-4/M-5: Authenticate via cookie (preferred), subprotocol, or query param
     let (proto_echo, token) = match extract_token_from_cookie(&headers) {
         Some(t) => (None, Some(t)),
@@ -348,15 +348,48 @@ pub async fn ws_job_log_handler(
         .and_then(|t| rg_core::auth::jwt::validate_token(t, &state.jwt_secret))
         .and_then(|c| c.sub.parse::<i64>().ok());
 
+    let Some(user_id) = user_id else {
+        return crate::error::AppError::unauthorized("authentication required").into_response();
+    };
+
+    let job = match rg_db::ops::pipeline_ops::get_job(&state.db, job_id).await {
+        Ok(Some(job)) => job,
+        Ok(None) => return crate::error::AppError::not_found("job not found").into_response(),
+        Err(error) => return crate::error::AppError::internal(error).into_response(),
+    };
+    let stage = match rg_db::ops::pipeline_ops::get_stage_by_id(&state.db, job.stage_id).await {
+        Ok(Some(stage)) => stage,
+        Ok(None) => return crate::error::AppError::not_found("job not found").into_response(),
+        Err(error) => return crate::error::AppError::internal(error).into_response(),
+    };
+    let pipeline = match rg_db::ops::pipeline_ops::get_pipeline(&state.db, stage.pipeline_id).await
+    {
+        Ok(Some(pipeline)) => pipeline,
+        Ok(None) => return crate::error::AppError::not_found("job not found").into_response(),
+        Err(error) => return crate::error::AppError::internal(error).into_response(),
+    };
+    let repository = match rg_db::ops::repo_ops::find_by_id(&state.db, pipeline.repo_id).await {
+        Ok(Some(repository)) => repository,
+        Ok(None) => return crate::error::AppError::not_found("job not found").into_response(),
+        Err(error) => return crate::error::AppError::internal(error).into_response(),
+    };
+    match rg_core::repo::service::can_read_repo(&state.db, &repository, Some(user_id)).await {
+        Ok(true) => {}
+        Ok(false) => return crate::error::AppError::forbidden("access denied").into_response(),
+        Err(error) => return crate::error::AppError::internal(error).into_response(),
+    }
+
     let upgrade = if let Some(proto) = proto_echo {
         ws.protocols([proto])
     } else {
         ws
     };
 
-    upgrade.on_upgrade(move |socket| {
-        handle_job_log_connection(socket, state.notification_hub.clone(), job_id, user_id)
-    })
+    upgrade
+        .on_upgrade(move |socket| {
+            handle_job_log_connection(socket, state.notification_hub.clone(), job_id, user_id)
+        })
+        .into_response()
 }
 
 /// Handle a job log WebSocket connection.
@@ -364,25 +397,10 @@ async fn handle_job_log_connection(
     socket: WebSocket,
     hub: NotificationHub,
     job_id: i64,
-    user_id: Option<i64>,
+    user_id: i64,
 ) {
     let (mut sender, mut receiver) = socket.split();
-
-    // Reject unauthenticated connections
-    if user_id.is_none() {
-        let _ = sender
-            .send(Message::Text(
-                serde_json::json!({"error": "authentication required"})
-                    .to_string()
-                    .into(),
-            ))
-            .await;
-        let _ = sender.close().await;
-        return;
-    }
-
-    // Job log connections only need the global channel
-    let mut rx = hub.subscribe_global();
+    let mut rx = hub.subscribe_job(job_id).await;
 
     // Send confirmation
     let welcome = serde_json::json!({
@@ -394,38 +412,110 @@ async fn handle_job_log_connection(
         .await
         .is_err()
     {
+        drop(rx);
+        hub.cleanup_job_channel(job_id).await;
         return;
     }
 
-    let send_task = tokio::spawn(async move {
-        while let Ok(event) = rx.recv().await {
-            // Only forward job_log events for this specific job_id
-            if event.event_type == "job_log" {
-                if let Some(eid) = event.data.get("job_id").and_then(|v| v.as_i64()) {
-                    if eid == job_id {
-                        let msg = match serde_json::to_string(&event) {
-                            Ok(s) => s,
-                            Err(_) => continue,
-                        };
-                        if sender.send(Message::Text(msg.into())).await.is_err() {
-                            break;
-                        }
+    loop {
+        tokio::select! {
+            event = rx.recv() => match event {
+                Ok(event) => {
+                    let Ok(msg) = serde_json::to_string(&event) else {
+                        continue;
+                    };
+                    if sender.send(Message::Text(msg.into())).await.is_err() {
+                        break;
                     }
                 }
+                Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                    tracing::warn!(job_id, user_id, skipped, "job log WebSocket lagged");
+                }
+                Err(broadcast::error::RecvError::Closed) => break,
+            },
+            incoming = receiver.next() => match incoming {
+                Some(Ok(Message::Close(_))) | None | Some(Err(_)) => break,
+                Some(Ok(Message::Ping(payload))) => {
+                    if sender.send(Message::Pong(payload)).await.is_err() {
+                        break;
+                    }
+                }
+                Some(Ok(_)) => {}
             }
         }
-    });
+    }
 
-    let recv_task = tokio::spawn(async move {
-        while let Some(Ok(msg)) = receiver.next().await {
-            if let Message::Close(_) = msg {
-                break;
-            }
-        }
-    });
+    drop(rx);
+    hub.cleanup_job_channel(job_id).await;
+    tracing::info!(job_id, user_id, "job log WebSocket client disconnected");
+}
 
-    tokio::select! {
-        _ = send_task => {},
-        _ = recv_task => {},
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::time::{timeout, Duration};
+
+    #[tokio::test]
+    async fn job_log_channels_are_isolated_and_reclaimed() {
+        let hub = NotificationHub::new();
+        let mut job_one = hub.subscribe_job(101).await;
+        let mut job_two = hub.subscribe_job(202).await;
+
+        let producer_one = {
+            let hub = hub.clone();
+            tokio::spawn(async move { hub.push_job_log(101, "one").await })
+        };
+        let producer_two = {
+            let hub = hub.clone();
+            tokio::spawn(async move { hub.push_job_log(202, "two").await })
+        };
+        producer_one.await.unwrap();
+        producer_two.await.unwrap();
+
+        let event_one = timeout(Duration::from_secs(1), job_one.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        let event_two = timeout(Duration::from_secs(1), job_two.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(event_one.data["job_id"], 101);
+        assert_eq!(event_one.data["log"], "one");
+        assert_eq!(event_two.data["job_id"], 202);
+        assert_eq!(event_two.data["log"], "two");
+        assert!(timeout(Duration::from_millis(25), job_one.recv())
+            .await
+            .is_err());
+        assert!(timeout(Duration::from_millis(25), job_two.recv())
+            .await
+            .is_err());
+
+        drop(job_one);
+        hub.cleanup_job_channel(101).await;
+        assert!(!hub.inner.job_channels.read().await.contains_key(&101));
+        assert!(hub.inner.job_channels.read().await.contains_key(&202));
+
+        drop(job_two);
+        hub.cleanup_job_channel(202).await;
+        assert!(hub.inner.job_channels.read().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn pushes_without_subscribers_do_not_create_channels() {
+        let hub = NotificationHub::new();
+        hub.push_job_log(303, "offline").await;
+        assert!(hub.inner.job_channels.read().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn user_notification_channels_are_reclaimed() {
+        let hub = NotificationHub::new();
+        let receiver = hub.subscribe_user(7).await;
+        assert!(hub.inner.user_channels.read().await.contains_key(&7));
+
+        drop(receiver);
+        hub.cleanup_user_channel(7).await;
+        assert!(hub.inner.user_channels.read().await.is_empty());
     }
 }

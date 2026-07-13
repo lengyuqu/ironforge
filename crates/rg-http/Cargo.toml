@@ -43,5 +43,8 @@ serde_urlencoded = "0.7"
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 tempfile = "3"
 tar = "0.4"
+flate2 = "1"
+zip = { workspace = true }
 socket2 = "0.5"
 jsonwebtoken = { workspace = true }
+tokio-tungstenite = "0.29"

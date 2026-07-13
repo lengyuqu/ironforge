@@ -4277,6 +4277,7 @@ dependencies = [
  "serde_yaml",
  "sha2",
  "tar",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "toml",
@@ -4328,6 +4329,7 @@ dependencies = [
  "axum-server",
  "base64",
  "chrono",
+ "flate2",
  "futures",
  "gix",
  "hex",
@@ -4353,6 +4355,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tokio-stream",
+ "tokio-tungstenite",
  "tokio-util",
  "tower",
  "tower-http",
@@ -4360,6 +4363,7 @@ dependencies = [
  "utoipa",
  "utoipa-swagger-ui",
  "uuid",
+ "zip",
  "zstd",
 ]
 
@@ -4401,6 +4405,7 @@ name = "rg-ssh"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "rand 0.8.6",
  "rg-core",
  "rg-db",
@@ -4409,6 +4414,7 @@ dependencies = [
  "russh-keys",
  "sea-orm",
  "serde_json",
+ "tempfile",
  "tokio",
  "tracing",
 ]

@@ -8,6 +8,15 @@ use crate::entities::repository::{
     self, ActiveModel as RepoActiveModel, Entity as RepoEntity, Model as Repo,
 };
 
+/// Find a non-deleted repository by ID.
+pub async fn find_by_id(db: &DatabaseConnection, id: i64) -> Result<Option<Repo>> {
+    RepoEntity::find_by_id(id)
+        .filter(repository::Column::DeletedAt.is_null())
+        .one(db)
+        .await
+        .context("db: find repo by id")
+}
+
 /// Find a repo by (owner_id, name). Excludes soft-deleted repos.
 pub async fn find_by_owner_and_name(
     db: &DatabaseConnection,

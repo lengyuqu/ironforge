@@ -318,6 +318,39 @@ pub async fn publish(
     }
 }
 
+/// npm metadata uses `/packages/npm/{pkg_name}`, which otherwise captures the reserved
+/// `publish` segment before Axum can select the generic `/{pkg_type}/publish` route.
+/// Keep an exact npm publish route and delegate to the common implementation.
+pub async fn publish_npm(
+    State(state): State<AppState>,
+    Path((owner, name)): Path<(String, String)>,
+    Query(query): Query<PublishPackageQuery>,
+    headers: axum::http::HeaderMap,
+    body: axum::body::Bytes,
+) -> axum::response::Response {
+    publish(
+        State(state),
+        Path((owner, name, "npm".to_string())),
+        Query(query),
+        headers,
+        body,
+    )
+    .await
+}
+
+pub async fn list_npm_packages(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((owner, name)): Path<(String, String)>,
+) -> axum::response::Response {
+    list_packages(
+        State(state),
+        headers,
+        Path((owner, name, "npm".to_string())),
+    )
+    .await
+}
+
 /// GET /api/v1/repos/:owner/:name/packages
 #[utoipa::path(
     get,
@@ -1122,6 +1155,11 @@ pub async fn rubygems_gem_info(
     if let Err(e) = require_repo_read(&state, &headers, &owner, &name).await {
         return e.into_response();
     }
+
+    let gem_name = gem_name
+        .strip_suffix(".json")
+        .unwrap_or(&gem_name)
+        .to_string();
 
     let versions = match rg_core::package_registry::service::list_versions(
         &state.db, &owner, &name, "rubygems", &gem_name,

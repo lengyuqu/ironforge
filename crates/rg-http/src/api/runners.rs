@@ -539,7 +539,7 @@ pub async fn upload_log(
     };
 
     // Broadcast only the server-sanitized log via WebSocket to frontend.
-    crate::ws::push_job_log(&state.notification_hub, job_id, &body);
+    crate::ws::push_job_log(&state.notification_hub, job_id, &body).await;
 
     // Write log through the queue to serialise concurrent writes and
     // avoid SQLITE_BUSY under high concurrency.

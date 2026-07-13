@@ -184,7 +184,7 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":
 | git-receive-pack | `rg-git/src/protocol/receive_pack.rs` | SSH + HTTP 模式，返回 `Vec<RefUpdate>` |
 | **Git Protocol V2** | `rg-git/src/protocol/v2.rs` | **ls-refs + fetch 命令 + capability advertisement** |
 | **V2 HTTP 集成** | `rg-http/src/git_v2.rs` + `rg-http/src/lib.rs` | **Git-Protocol: version=2 header 检测 + V2 处理** |
-| SSH 服务端 | `rg-ssh/src/lib.rs` | russh 0.51，auth_publickey/auth_password 查 DB |
+| SSH 服务端 | `rg-ssh/src/lib.rs` | russh 0.51，auth_publickey/auth_password 查 DB；真实注册公钥 push/clone 回归已覆盖 |
 | HTTP 服务端 | `rg-http/src/lib.rs` | Axum 0.8，/git/ 路由 + **Git 协议权限鉴权** + 分支保护审计 + **SvelteKit 静态资源** |
 | REST API | `rg-http/src/api/` | Users + Repos + Issues + PRs + Wiki + LFS + Webhooks + CI/CD + **Reviews + Branch Protection + Collaborators + Repo Content** |
 | 数据库实体 | `rg-db/src/entities/` | users / repositories / ssh_keys / access_tokens / issues / issue_comments / pull_requests / milestones / wiki_pages / lfs_objects / webhooks / webhook_deliveries / pipelines / pipeline_stages / pipeline_jobs / **pr_reviews / review_comments / protected_branches / repo_collaborators** / **labels / issue_labels / repo_watches / commit_statuses / release_assets** |
@@ -195,7 +195,7 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":
 | Issue 服务 | `rg-core/src/issue/service.rs` | CRUD + labels + milestone + comments |
 | PR 服务 | `rg-core/src/pull_request/service.rs` | create + diff(git CLI) + merge(3策略) + **分支保护检查** |
 | Wiki 服务 | `rg-core/src/wiki/service.rs` | 页面 CRUD（DB 存储） |
-| LFS 服务 | `rg-core/src/lfs/service.rs` | batch API + 对象上传/下载（磁盘存储） |
+| LFS 服务 | `rg-core/src/lfs/service.rs` | batch API + 对象上传/下载（磁盘存储）；HMAC 用途/仓库/OID 绑定 URL（下载 1h、上传 6h，过期 410） |
 | Webhook 服务 | `rg-core/src/webhook/service.rs` | 注册/触发/投递/HMAC-SHA256 签名 |
 | CI/CD 引擎 | `rg-ci/src/` | YAML 解析 + Pipeline 执行器 + 后台运行 |
 | Git 鉴权 | `rg-http/src/lib.rs` | HTTP git 协议 Bearer Token 认证 + can_read/can_write |
@@ -223,12 +223,13 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":
 | **签名提交强制** | `protected_branches.require_signed_commits` + receive-pack | pack 入库后、ref 更新前验证本次引入的所有 commit；HTTP/SSH 共用策略 |
 | **LDAP / MFA 登录** | `rg-core/src/auth/ldap.rs` + `user::service::login_with_configured_auth` + MFA challenge cookie | LDAP 首次建号、Provider 身份绑定与管理员连接测试；RFC4515 转义/超时/TLS；MFA 必须持有五分钟第一因素挑战，失败日志与五次锁定覆盖本地/LDAP |
 | **OAuth 账户表兼容** | migration `000015` | 将历史派生名 `o_auth_accounts` 安全迁移为实体使用的 `oauth_accounts`，恢复 OAuth account 查询/关联保护 |
+| **OIDC Discovery / PKCE** | `rg-core/src/auth/sso.rs` + `rg-http/src/api/sso.rs` | 通用 OIDC authorize/token/refresh/userinfo 使用 discovery document；PKCE S256 与签名 state/verifier Cookie；缺 verifier fail closed；本地模拟 Provider 全链路回归 |
 | **登录事件与解锁** | `/api/v1/admin/login-attempts` + `/admin/users/{id}/unlock` + Admin UI | 管理员筛选密码/LDAP/SSO/MFA 登录事件、IP、UA 与失败原因；用户页显示锁定/失败计数并可审计地解锁 |
 | **多数据库后端** | `rg-db::connect_with_pool` + backend-aware migrations/FTS + `multi_backend_smoke` | SQLite/PostgreSQL/MySQL scheme 分流；2026-07-13 在真实 PostgreSQL/MySQL 上通过迁移、CRUD、计数器、FTS、并发登录锁定及服务启动 `/health` 验证；连接诊断统一隐藏 URL 密码 |
 | **组织系统** | `rg-core/src/org/mod.rs` + `rg-http/src/api/orgs.rs` | CRUD + 成员管理 + 团队 + 权限 |
 | **通知系统** | `rg-core/src/notification/mod.rs` + `rg-http/src/api/notifications.rs` | 创建/列表/已读/批量已读/删除 |
 | **Rate Limiting** | `rg-http/src/rate_limit.rs` | Token Bucket 中间件（IP 限流 + 可配置窗口） |
-| **WebSocket 通知** | `rg-http/src/ws.rs` | 实时通知推送（broadcast channel + JWT 认证） |
+| **WebSocket 通知** | `rg-http/src/ws.rs` | 实时通知按用户隔离，Job 日志按 `job_id` 独立 channel；断开自动回收，JWT + 仓库读取权限校验 |
 | **邮件通知** | `rg-core/src/email/mod.rs` | SMTP 邮件（lettre + HTML 模板） |
 | **组织仓库** | `rg-core/src/repo/service.rs` | org_id 关联 + find_repo_by_owner_name |
 | **权限鉴权完善** | `rg-core/src/repo/service.rs` | org member + team permission → can_read/can_write |
@@ -280,7 +281,7 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":
 - 外部 Runner 模式（`--external-runners` flag）
 - Runner Agent 独立二进制（`crates/rg-runner/` → `ironforge-runner`）
 - Artifact 管理（DB 迁移 + entity + ops + API 4 端点）
-- Job 日志 WebSocket 实时推送（`/ws/job/:job_id`）
+- Job 日志 WebSocket 实时推送（`/ws/job/:job_id`，按 Job 隔离并校验仓库读取权限）
 - Admin Runner 管理前端
 
 ### ✅ Phase 18 已完成（gix 迁移，2026-05-10）
@@ -327,6 +328,7 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":
 - `rg-db` 新增 ops：package_ops / package_version_ops / package_file_ops / package_registry_ops
 - `rg-db` 迁移：m20260607_000005_create_package_registry
 - `rg-http/src/api/packages.rs` — REST API + 19 个处理器覆盖所有包协议
+- 非 OCI 的 9 类原生 REST/协议矩阵已覆盖发布、列表、版本、下载及专用索引 E2E；OCI 另有独立权限/协议测试
 - `rg-cli` — package CLI 命令
 
 #### P1: LDAP / SSO / 2FA 认证增强
@@ -341,6 +343,7 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":
 
 #### P1: 审计日志（Audit Log）
 - `rg-core/src/audit/` — audit! 宏 + record() fire-and-forget
+- `audit/archiver.rs` — 服务启动默认接入 90 天归档；限量批次、唯一 NDJSON.zst、原子落盘后清理 DB；`[audit]` 可配置或关闭
 - `rg-db` 迁移：m20260607_000011_create_audit_logs
 - `rg-db`：audit_log 实体 + audit_log_ops
 - `rg-http/src/api/audit.rs` — Admin 专用审计日志查询端点

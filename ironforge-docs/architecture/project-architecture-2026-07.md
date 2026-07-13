@@ -184,8 +184,8 @@ rg-mcp -> no local crate deps
 | `/git/{owner}/{repo}/...` | Git Smart HTTP |
 | `/{owner}/{repo}/info/refs` 等 root Git 路由 | 兼容 Git Smart HTTP |
 | `/v2` | OCI Distribution Registry |
-| `/api/v1/ws/notifications` | 通知 WebSocket |
-| `/api/v1/ws/job/{job_id}` | CI job log WebSocket |
+| `/api/v1/ws/notifications` | 按用户隔离的通知 WebSocket，断开后回收空 channel |
+| `/api/v1/ws/job/{job_id}` | 按 Job 隔离的 CI 日志 WebSocket，升级前校验仓库读取权限 |
 | `/health` | 健康检查 |
 | `/metrics` | Prometheus metrics |
 | `/api-docs` | Swagger UI / OpenAPI |
@@ -264,7 +264,7 @@ SSH Git
 
 | 类型 | 用途 |
 |------|------|
-| JWT | Web 登录、REST、WebSocket |
+| JWT | Web 登录、REST、WebSocket；Job 日志订阅还需通过所属仓库读取权限校验 |
 | HttpOnly Cookie | 浏览器会话，cookie 名 `ironforge_token` |
 | PAT | API client、Git HTTP、docs access |
 | SSH Key / Password | SSH Git |
@@ -308,7 +308,8 @@ CI 支持：
 - pipeline/stage/job DB 记录；
 - 内置 runner；
 - 外部 runner long-poll；
-- job log queue；
+- job log queue，以及按 `job_id` 隔离并自动回收的实时日志 channel；
+- LFS Batch 为对象传输签发用途/仓库/OID 绑定的 HMAC URL，下载有效期 1 小时、上传有效期 6 小时；
 - runner labels/tags；
 - CI job token 生成。
 - job variables 持久化并注入内置/外部 Runner；保留变量不能被工作流覆盖；
@@ -445,7 +446,7 @@ node frontend build
 - `client.svelte.ts` 当前是 38 行纯 re-export 兼容入口；API 真实实现已按领域拆到独立模块。
 - Docker runtime 镜像包含 `ironforge`、`ironforge-runner`、`ironforge-mcp` 三个二进制。
 - `--sse` MCP transport 未实现。
-- 本轮 P0/P1 安全、权限和部署缺口已完成首轮修复；长期生产化方向仍包括 PostgreSQL、MCP SSE、Package 专用协议补全和 gix 后续迁移。
+- 本轮 P0/P1 安全、权限和部署缺口已完成首轮修复；长期生产化方向仍包括数据库版本矩阵/备份恢复/HA、MCP SSE、Package 专用协议补全和 gix 后续迁移。
 
 ---
 

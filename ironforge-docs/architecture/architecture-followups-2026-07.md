@@ -1,6 +1,7 @@
 # IronForge 架构差异与后续待办（2026-07）
 
 **生成日期**: 2026-07-05  
+**最近复核**: 2026-07-13
 **来源**: `project-architecture-analysis-notes-2026-07.md` 第 0-10 轮 + 修复波次回填  
 **排序原则**: 优先列出安全、权限、可用性、部署失败和文档误导风险。
 
@@ -39,11 +40,18 @@
 | 旧拆分 API 文件重复实现风险 | `auth.ts/repos.ts/...` 旧领域文件改为从 `client.svelte.ts` 显式 re-export，避免重复实现继续漂移，同时保留老导入路径兼容性 | `npm run build` |
 | Markdown sanitizer allowlist | `sanitizeHtml` 改为浏览器 DOMParser + 标签/属性/URL allowlist，非浏览器 fallback 也按 allowlist 收紧，并新增 sanitizer smoke | `npm run smoke:markdown-sanitizer`；`npm run build` |
 | API client WebSocket helper 混在聚合文件 | notification/job log WebSocket helper 抽到 `websockets.ts`，`client.svelte.ts` 继续 re-export 保持调用方兼容 | `npm run build` |
+| Job log WebSocket 全局广播、连接任务残留 | 后端改为每个 `job_id` 独立 broadcast channel，通知端不再接收 Job 日志；连接退出同步释放 receiver 并回收空 channel，订阅升级前校验 Job 所属仓库读取权限 | `cargo test -p rg-http --lib ws::tests`；`cargo test -p rg-http --test job_websocket_tests` |
+| LFS action URL 无签名/过期分级，公有仓库上传未强制写权限 | Batch action URL 改为 HMAC-SHA256 绑定用途、仓库、OID 与过期时间；下载 1h、上传 6h，过期返回 410；上传 Batch/直传对公有仓库同样要求写权限，合法签名可承接 Batch 授权 | `cargo test -p rg-http --test lfs_signed_url_tests` |
 | API client Package Registry 混在聚合文件 | Package Registry API 抽到 `packages.ts`，`client.svelte.ts` 继续 re-export `packages` 保持页面导入兼容 | `npm run build` |
 | API client Runner 管理混在聚合文件 | Runner 管理 API、响应类型和 labels 归一化抽到 `runners.ts`，`client.svelte.ts` 继续 re-export 保持页面导入兼容 | `npm run build` |
 | API client Boards/Time/Search 混在聚合文件 | Boards、Time Tracking、Search API 分别抽到 `boards.ts`、`timeTracking.ts`、`search.ts`，主入口继续 re-export 保持页面导入兼容 | `npm run build` |
 | API client Auth/Releases/Issues/PR/CI/Wiki 混在聚合文件 | Auth、Releases、Issues、Pull Requests/Reviews、Pipelines、Wiki API 分别抽到独立领域文件，主入口继续 re-export 保持页面导入兼容 | `npm run build` |
 | API client 剩余领域仍在聚合文件 | Repos、Collaborators、Labels、Notifications、Orgs、Branch Protection、Mirrors、Webhooks、Imports、Milestones、Tokens、MFA、Admin 全部抽到独立领域文件，`client.svelte.ts` 只保留兼容 re-export | `npm run build` |
+| PR rebase 在 bare 仓库直接执行导致必然失败 | rebase 改为唯一临时工作区执行，成功后以普通 fast-forward push 更新目标分支；冲突或并发推进不会覆盖 base，并统一清理临时目录；同仓库与 fork 共用实现 | `cargo test -p rg-http --test pr_merge_strategy_tests -- --nocapture`（merge/squash/rebase 拓扑与冲突恢复共 2 项通过） |
+| SSH push 缺少真实协议回归 | 新增临时 russh 服务 + 数据库注册 Ed25519 密钥 + 系统 OpenSSH/Git 全链路测试，覆盖 push、clone、bare ref/内容和 `last_used_at` | `cargo test -p rg-ssh --test ssh_push_tests -- --nocapture` |
+| 通用 OIDC discovery 未用于 token/userinfo，callback 缺 PKCE verifier 时继续请求 | authorize/token/refresh/userinfo 统一解析 discovery document；HTTP 错误 fail closed；callback 缺 verifier 直接 403；新增本地模拟 OIDC 的 S256、Cookie、token、userinfo、账户创建全链路回归 | `cargo test -p rg-http --test oauth_pkce_tests -- --nocapture` |
+| Package 9 类原生 REST/协议缺少统一 E2E | 为 Cargo/npm/Maven/PyPI/NuGet/RubyGems/Helm/Composer/Generic 生成最小合法制品，覆盖发布、列表、版本、下载和 8 类专用索引；同时修复 npm publish/list 路由冲突、RubyGems `.json` 查询及 Composer dist URL 缺版本/编码 | `cargo test -p rg-http --test package_format_e2e_tests -- --nocapture` |
+| 审计归档器未接入且固定 NDJSON 文件可能覆盖 | 服务启动默认接入可配置归档任务；按 cutoff oldest-first 限量读取，唯一 `.ndjson.zst` 文件、临时文件原子重命名并在落盘后删除 DB；支持关闭、保留天数、间隔和批大小配置 | `cargo test -p rg-core --lib audit::archiver -- --nocapture`；`cargo check -p rg-cli -p rg-core --tests` |
 
 ---
 
@@ -64,7 +72,7 @@
 | 问题 | 影响 | 建议 |
 |------|------|------|
 | API client 新增领域回归到聚合入口 | 前端 API 维护成本可能再次抬升 | 当前 `client.svelte.ts` 已降至 38 行纯 re-export；后续新增领域应优先放独立模块，再由主入口 re-export |
-| PostgreSQL 支持 | SQLite-only 对中大型生产部署和 HA 场景有限制 | 作为独立生产化项目推进，先补 SeaORM 多数据库配置、迁移 smoke 和部署文档 |
+| 多数据库生产化余量 | SQLite/PostgreSQL/MySQL 已完成首轮实库迁移、CRUD、FTS、并发认证与服务启动验证，但尚未覆盖版本矩阵、备份恢复演练、HA 和长期压测 | 以支持版本矩阵和恢复目标为边界补生产验证；不再把“实现 PostgreSQL/MySQL 基础支持”列为待办 |
 | MCP SSE transport | 当前 MCP 仅 stdio 可用，网页端 Agent 场景仍缺 transport | 等 HTTP/SSE server 设计明确后再实现；现阶段继续保持 `--sse` fail-fast |
 | Package 专用协议补全 | `go/conan/conda/alpine/debian/rpm/swift` 仍按 Generic fallback 展示 | 根据真实用户需求逐个补 adapter，不把 type 枚举写成完整协议支持 |
 | gix 后续迁移 | pack/rebase/archive/unified diff 等仍依赖 git CLI 或等待上游能力 | 每次 gix 升级复查阻塞表，优先迁移可对拍验证的只读路径 |
@@ -78,7 +86,7 @@
 | 旧口径 | 当前应写成 |
 |--------|------------|
 | Phase 1-21 全部完成即可代表功能闭环 | 以当前代码路径为准，部分安全/权限/运维闭环仍有缺口 |
-| PostgreSQL 支持 | 当前是 SQLite-only，PostgreSQL 是后续生产化方向 |
+| PostgreSQL/MySQL 支持 | 默认 SQLite，同时支持 PostgreSQL/MySQL URL；2026-07-13 已完成真实服务首轮 smoke，版本矩阵、备份恢复、HA 与压测仍是生产化余量 |
 | MCP 支持 stdio/SSE | 当前 stdio 可用，`--sse` 未实现 |
 | 前端登录态已完全迁移到 HttpOnly cookie | 关键浏览器用户 API 已支持 cookie；其他领域接口仍需按功能逐步复查 |
 | Package Registry 支持 17 种完整协议 | 17 种 type 枚举存在；其中 Cargo/npm/Maven/PyPI/Docker/NuGet/RubyGems/Helm/Composer/Generic 有 native adapter，其余 type 走 Generic fallback |
@@ -92,4 +100,4 @@
 
 1. 先冻结本轮 P0/P1 修复成果：保留现有回归测试入口，避免认证、权限、部署和 API client 结构再次漂移。
 2. 回填最终架构文档：把“已修复事实”和“长期方向”分开写，避免 Phase 完成状态被误读为生产化全闭环。
-3. 再推进长期能力：PostgreSQL、MCP SSE、Package 专用协议补全、gix 后续迁移。
+3. 再推进长期能力：数据库版本矩阵与恢复演练、MCP SSE、Package 专用协议补全、gix 后续迁移。

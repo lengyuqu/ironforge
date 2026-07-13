@@ -46,7 +46,7 @@ pub struct OAuth2TokenResponse {
 
 /// Generate OAuth2 / OIDC authorization URL with PKCE S256.
 /// Returns (auth_url, csrf_state, code_verifier).
-pub fn oauth2_authorize_url(config: &SsoProviderConfig) -> Result<(String, String, String)> {
+pub async fn oauth2_authorize_url(config: &SsoProviderConfig) -> Result<(String, String, String)> {
     // PKCE: generate code_verifier (43-128 URL-safe chars per RFC 7636)
     let code_verifier: String = rand::thread_rng()
         .sample_iter(&rand::distributions::Alphanumeric)
@@ -67,22 +67,7 @@ pub fn oauth2_authorize_url(config: &SsoProviderConfig) -> Result<(String, Strin
 
     // Build auth URL — use discovery for OIDC, default endpoints for OAuth2
     let base_url = match config.provider_type.as_str() {
-        "oidc" => {
-            // For OIDC, use the discovery_url if configured
-            // The discovery is resolved at call time and cached
-            config
-                .discovery_url
-                .as_ref()
-                .and_then(|url| {
-                    // Extract base from discovery URL to get issuer
-                    url.strip_suffix("/.well-known/openid-configuration")
-                })
-                .map(|issuer| format!("{}/protocol/openid-connect/auth", issuer))
-                .unwrap_or_else(|| {
-                    // Fallback: derive from slug
-                    default_oidc_auth_url(&config.slug).unwrap_or_default()
-                })
-        }
+        "oidc" => resolve_oidc_endpoints(config).await?.authorization_endpoint,
         _ => config
             .default_oauth2_auth_url()
             .ok_or_else(|| anyhow::anyhow!("no auth URL for provider: {}", config.slug))?,
@@ -111,11 +96,7 @@ pub async fn oauth2_exchange_code(
     code_verifier: &str,
 ) -> Result<OAuth2TokenResponse> {
     let token_url = if config.provider_type == "oidc" {
-        // Try to get OIDC token endpoint from known providers
-        default_oidc_token_url(&config.slug).unwrap_or_else(|| {
-            // Fallback to standard OAuth2 token endpoint
-            config.default_oauth2_token_url().unwrap_or_default()
-        })
+        resolve_oidc_endpoints(config).await?.token_endpoint
     } else {
         config
             .default_oauth2_token_url()
@@ -149,6 +130,8 @@ pub async fn oauth2_exchange_code(
         .context("failed to exchange OAuth2 code")?;
 
     let raw: RawTokenResponse = resp
+        .error_for_status()
+        .context("OAuth2 token endpoint returned an error")?
         .json()
         .await
         .context("failed to parse token response")?;
@@ -168,8 +151,7 @@ pub async fn oauth2_refresh_token(
     refresh_token: &str,
 ) -> Result<OAuth2TokenResponse> {
     let token_url = if config.provider_type == "oidc" {
-        default_oidc_token_url(&config.slug)
-            .unwrap_or_else(|| config.default_oauth2_token_url().unwrap_or_default())
+        resolve_oidc_endpoints(config).await?.token_endpoint
     } else {
         config
             .default_oauth2_token_url()
@@ -201,6 +183,8 @@ pub async fn oauth2_refresh_token(
         .context("failed to refresh OAuth2 token")?;
 
     let raw: RawTokenResponse = resp
+        .error_for_status()
+        .context("OAuth2 token endpoint returned an error")?
         .json()
         .await
         .context("failed to parse token refresh response")?;
@@ -366,42 +350,70 @@ async fn fetch_google_user(access_token: &str) -> Result<SsoUserInfo> {
 // ── Generic OIDC userinfo ────────────────────────────────────────
 
 async fn fetch_oidc_userinfo(
-    _config: &SsoProviderConfig,
+    config: &SsoProviderConfig,
     access_token: &str,
 ) -> Result<SsoUserInfo> {
-    // Standard OIDC UserInfo endpoint — try common paths
     let client = reqwest::Client::new();
+    let endpoint = resolve_oidc_endpoints(config).await?.userinfo_endpoint;
+    let user = client
+        .get(endpoint)
+        .header("Authorization", format!("Bearer {}", access_token))
+        .send()
+        .await
+        .context("OIDC userinfo request failed")?
+        .error_for_status()
+        .context("OIDC userinfo endpoint returned an error")?
+        .json::<serde_json::Value>()
+        .await
+        .context("failed to parse OIDC userinfo response")?;
 
-    // Try the standard Google-style endpoint first (most compatible)
-    let urls = [
-        "https://openidconnect.googleapis.com/v1/userinfo",
-        "https://www.googleapis.com/oauth2/v3/userinfo",
-    ];
+    Ok(SsoUserInfo {
+        provider_user_id: user["sub"].as_str().unwrap_or_default().to_string(),
+        provider_username: user["preferred_username"]
+            .as_str()
+            .or(user["email"].as_str().and_then(|e| e.split('@').next()))
+            .unwrap_or("")
+            .to_string(),
+        email: user["email"].as_str().unwrap_or("").to_string(),
+        display_name: user["name"].as_str().map(str::to_string),
+        avatar_url: user["picture"].as_str().map(str::to_string),
+    })
+}
 
-    for url in &urls {
-        if let Ok(resp) = client
-            .get(*url)
-            .header("Authorization", format!("Bearer {}", access_token))
+#[derive(Debug, Deserialize)]
+struct OidcEndpoints {
+    authorization_endpoint: String,
+    token_endpoint: String,
+    userinfo_endpoint: String,
+}
+
+async fn resolve_oidc_endpoints(config: &SsoProviderConfig) -> Result<OidcEndpoints> {
+    if let Some(discovery_url) = config
+        .discovery_url
+        .as_deref()
+        .filter(|url| !url.trim().is_empty())
+    {
+        return reqwest::Client::new()
+            .get(discovery_url)
             .send()
             .await
-        {
-            if let Ok(user) = resp.json::<serde_json::Value>().await {
-                return Ok(SsoUserInfo {
-                    provider_user_id: user["sub"].as_str().unwrap_or_default().to_string(),
-                    provider_username: user["preferred_username"]
-                        .as_str()
-                        .or(user["email"].as_str().and_then(|e| e.split('@').next()))
-                        .unwrap_or("")
-                        .to_string(),
-                    email: user["email"].as_str().unwrap_or("").to_string(),
-                    display_name: user["name"].as_str().map(str::to_string),
-                    avatar_url: user["picture"].as_str().map(str::to_string),
-                });
-            }
-        }
+            .context("OIDC discovery request failed")?
+            .error_for_status()
+            .context("OIDC discovery endpoint returned an error")?
+            .json::<OidcEndpoints>()
+            .await
+            .context("failed to parse OIDC discovery document");
     }
 
-    Err(anyhow::anyhow!("failed to fetch OIDC userinfo"))
+    if config.slug == "google" {
+        return Ok(OidcEndpoints {
+            authorization_endpoint: default_oidc_auth_url("google").unwrap_or_default(),
+            token_endpoint: default_oidc_token_url("google").unwrap_or_default(),
+            userinfo_endpoint: "https://openidconnect.googleapis.com/v1/userinfo".to_string(),
+        });
+    }
+
+    anyhow::bail!("OIDC provider '{}' requires a discovery URL", config.slug)
 }
 
 // ── PKCE helpers ─────────────────────────────────────────────────

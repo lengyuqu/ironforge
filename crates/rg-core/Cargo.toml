@@ -44,3 +44,6 @@ ed25519-dalek = { workspace = true }
 rand = { workspace = true }
 urlencoding = "2.1"
 http = "1"
+
+[dev-dependencies]
+tempfile = "3"

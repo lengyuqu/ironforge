@@ -182,12 +182,13 @@ pub fn build_packages_json(
 
     for v in versions {
         let download_url = format!(
-            "{}/api/v1/repos/{}/{}/packages/composer/{}/{}",
+            "{}/api/v1/repos/{}/{}/packages/composer/{}/{}/{}",
             base_url.trim_end_matches('/'),
-            owner,
-            repo,
-            package_name,
-            v.filename
+            encode_path_segment(owner),
+            encode_path_segment(repo),
+            encode_path_segment(package_name),
+            encode_path_segment(&v.version),
+            encode_path_segment(&v.filename),
         );
 
         let mut entry = serde_json::Map::new();
@@ -225,6 +226,22 @@ pub fn build_packages_json(
     packages_map.insert(package_name.to_string(), Value::Object(version_map));
     serde_json::to_string_pretty(&serde_json::json!({ "packages": Value::Object(packages_map) }))
         .unwrap_or_default()
+}
+
+fn encode_path_segment(value: &str) -> String {
+    let mut encoded = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                encoded.push(byte as char)
+            }
+            _ => {
+                use std::fmt::Write;
+                let _ = write!(encoded, "%{byte:02X}");
+            }
+        }
+    }
+    encoded
 }
 
 /// Version info used by `build_packages_json`.

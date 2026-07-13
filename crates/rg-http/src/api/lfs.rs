@@ -3,15 +3,63 @@
 //! Implements the LFS batch API and object upload/download endpoints.
 
 use axum::body::Body;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::Json;
+use serde::Deserialize;
 use tokio::io::AsyncWriteExt;
 
 use crate::api::auth::extract_bearer_claims;
 use crate::error::AppError;
 use crate::AppState;
+
+#[derive(Debug, Default, Deserialize)]
+pub struct LfsActionQuery {
+    expires: Option<i64>,
+    signature: Option<String>,
+}
+
+fn verify_signed_action(
+    state: &AppState,
+    repo_id: i64,
+    oid: &str,
+    action: rg_core::lfs::service::LfsActionKind,
+    query: &LfsActionQuery,
+) -> Result<bool, AppError> {
+    match (&query.expires, &query.signature) {
+        (None, None) => Ok(false),
+        (Some(expires), Some(signature)) => {
+            match rg_core::lfs::service::verify_action_url(
+                state.jwt_secret.as_bytes(),
+                action,
+                repo_id,
+                oid,
+                *expires,
+                signature,
+                chrono::Utc::now().timestamp(),
+            ) {
+                Ok(()) => Ok(true),
+                Err(rg_core::lfs::service::LfsActionSignatureError::Expired) => {
+                    Err(AppError::gone("LFS action URL has expired"))
+                }
+                Err(rg_core::lfs::service::LfsActionSignatureError::Invalid) => {
+                    Err(AppError::forbidden("invalid LFS action URL signature"))
+                }
+            }
+        }
+        _ => Err(AppError::forbidden("incomplete LFS action URL signature")),
+    }
+}
+
+fn authenticated_user_id(headers: &HeaderMap, state: &AppState) -> Result<i64, AppError> {
+    let claims = extract_bearer_claims(headers, &state.jwt_secret)
+        .ok_or_else(|| AppError::unauthorized("authentication required"))?;
+    claims
+        .sub
+        .parse::<i64>()
+        .map_err(|_| AppError::unauthorized("invalid token subject"))
+}
 
 /// LFS batch API: POST /repos/:owner/:name/lfs/objects/batch
 #[utoipa::path(
@@ -43,39 +91,56 @@ pub async fn batch(
             Err(e) => return AppError::internal(e).into_response(),
         };
 
-    // H-01: Auth check for private repos
-    if repo_model.is_private {
-        let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
-            Some(c) => c,
-            None => return AppError::unauthorized("authentication required").into_response(),
+    // Upload actions always require repository write access, including for
+    // public repositories. Downloads only require auth for private repos.
+    if req.operation == "upload" {
+        let user_id = match authenticated_user_id(&headers, &state) {
+            Ok(user_id) => user_id,
+            Err(error) => return error.into_response(),
         };
-        let user_id: i64 = match claims.sub.parse::<i64>() {
-            Ok(id) => id,
-            Err(_) => {
-                return AppError::unauthorized("invalid token subject".to_string()).into_response()
-            }
+        match rg_core::repo::service::can_write_repo(&state.db, &repo_model, Some(user_id)).await {
+            Ok(true) => {}
+            Ok(false) => return AppError::forbidden("write access denied").into_response(),
+            Err(error) => return AppError::internal(error).into_response(),
+        }
+    } else if req.operation == "download" && repo_model.is_private {
+        let user_id = match authenticated_user_id(&headers, &state) {
+            Ok(user_id) => user_id,
+            Err(error) => return error.into_response(),
         };
-
-        if !rg_core::repo::service::can_read_repo(&state.db, &repo_model, Some(user_id))
-            .await
-            .unwrap_or(false)
-        {
-            return AppError::forbidden("access denied").into_response();
+        match rg_core::repo::service::can_read_repo(&state.db, &repo_model, Some(user_id)).await {
+            Ok(true) => {}
+            Ok(false) => return AppError::forbidden("access denied").into_response(),
+            Err(error) => return AppError::internal(error).into_response(),
         }
     }
 
     let repo_id = repo_model.id;
     let lfs_root = rg_core::lfs::service::lfs_root(&state.repo_root, &owner, &repo);
 
-    // Build base URL from request headers
-    let base_url = headers
-        .get("host")
-        .and_then(|v| v.to_str().ok())
-        .map(|h| format!("http://{}", h))
+    // Prefer the configured public URL so signed actions retain HTTPS and the
+    // externally visible host when IronForge runs behind a reverse proxy.
+    let base_url = state
+        .external_url
+        .as_deref()
+        .map(|url| url.trim_end_matches('/').to_string())
+        .or_else(|| {
+            headers
+                .get("host")
+                .and_then(|value| value.to_str().ok())
+                .map(|host| format!("http://{host}"))
+        })
         .unwrap_or_else(|| "http://localhost:8080".to_string());
 
     match rg_core::lfs::service::batch(
-        &state.db, repo_id, &lfs_root, &base_url, &owner, &repo, &req,
+        &state.db,
+        repo_id,
+        &lfs_root,
+        &base_url,
+        &owner,
+        &repo,
+        &req,
+        state.jwt_secret.as_bytes(),
     )
     .await
     {
@@ -105,9 +170,13 @@ pub async fn batch(
 pub async fn upload_object(
     State(state): State<AppState>,
     Path((owner, repo, oid)): Path<(String, String, String)>,
+    Query(query): Query<LfsActionQuery>,
     headers: HeaderMap,
     body: Body,
 ) -> impl IntoResponse {
+    if !rg_core::lfs::service::is_valid_oid(&oid) {
+        return AppError::bad_request("invalid LFS object identifier").into_response();
+    }
     let repo_model =
         match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &repo).await {
             Ok(Some(r)) => r,
@@ -115,24 +184,25 @@ pub async fn upload_object(
             Err(e) => return AppError::internal(e).into_response(),
         };
 
-    // H-01: Auth check for private repos
-    if repo_model.is_private {
-        let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
-            Some(c) => c,
-            None => return AppError::unauthorized("authentication required").into_response(),
+    let signed = match verify_signed_action(
+        &state,
+        repo_model.id,
+        &oid,
+        rg_core::lfs::service::LfsActionKind::Upload,
+        &query,
+    ) {
+        Ok(signed) => signed,
+        Err(error) => return error.into_response(),
+    };
+    if !signed {
+        let user_id = match authenticated_user_id(&headers, &state) {
+            Ok(user_id) => user_id,
+            Err(error) => return error.into_response(),
         };
-        let user_id: i64 = match claims.sub.parse::<i64>() {
-            Ok(id) => id,
-            Err(_) => {
-                return AppError::unauthorized("invalid token subject".to_string()).into_response()
-            }
-        };
-
-        if !rg_core::repo::service::can_read_repo(&state.db, &repo_model, Some(user_id))
-            .await
-            .unwrap_or(false)
-        {
-            return AppError::forbidden("access denied").into_response();
+        match rg_core::repo::service::can_write_repo(&state.db, &repo_model, Some(user_id)).await {
+            Ok(true) => {}
+            Ok(false) => return AppError::forbidden("write access denied").into_response(),
+            Err(error) => return AppError::internal(error).into_response(),
         }
     }
 
@@ -186,8 +256,12 @@ pub async fn upload_object(
 pub async fn download_object(
     State(state): State<AppState>,
     Path((owner, repo, oid)): Path<(String, String, String)>,
+    Query(query): Query<LfsActionQuery>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
+    if !rg_core::lfs::service::is_valid_oid(&oid) {
+        return AppError::bad_request("invalid LFS object identifier").into_response();
+    }
     // H-01: Auth check for private repos
     let repo_model =
         match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &repo).await {
@@ -196,23 +270,25 @@ pub async fn download_object(
             Err(e) => return AppError::internal(e).into_response(),
         };
 
-    if repo_model.is_private {
-        let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
-            Some(c) => c,
-            None => return AppError::unauthorized("authentication required").into_response(),
+    let signed = match verify_signed_action(
+        &state,
+        repo_model.id,
+        &oid,
+        rg_core::lfs::service::LfsActionKind::Download,
+        &query,
+    ) {
+        Ok(signed) => signed,
+        Err(error) => return error.into_response(),
+    };
+    if !signed && repo_model.is_private {
+        let user_id = match authenticated_user_id(&headers, &state) {
+            Ok(user_id) => user_id,
+            Err(error) => return error.into_response(),
         };
-        let user_id: i64 = match claims.sub.parse::<i64>() {
-            Ok(id) => id,
-            Err(_) => {
-                return AppError::unauthorized("invalid token subject".to_string()).into_response()
-            }
-        };
-
-        if !rg_core::repo::service::can_read_repo(&state.db, &repo_model, Some(user_id))
-            .await
-            .unwrap_or(false)
-        {
-            return AppError::forbidden("access denied").into_response();
+        match rg_core::repo::service::can_read_repo(&state.db, &repo_model, Some(user_id)).await {
+            Ok(true) => {}
+            Ok(false) => return AppError::forbidden("access denied").into_response(),
+            Err(error) => return AppError::internal(error).into_response(),
         }
     }
 

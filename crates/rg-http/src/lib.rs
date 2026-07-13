@@ -1071,6 +1071,14 @@ fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
         )
         // npm registry protocol
         .route(
+            "/repos/{owner}/{name}/packages/npm/publish",
+            post(api::packages::publish_npm),
+        )
+        .route(
+            "/repos/{owner}/{name}/packages/npm/list",
+            get(api::packages::list_npm_packages),
+        )
+        .route(
             "/repos/{owner}/{name}/packages/npm/{pkg_name}",
             get(api::packages::npm_registry_metadata),
         )

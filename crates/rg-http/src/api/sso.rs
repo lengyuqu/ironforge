@@ -297,10 +297,11 @@ pub async fn authorize(
     };
 
     let (auth_url, csrf_state, code_verifier) = rg_core::auth::sso::oauth2_authorize_url(&config)
+        .await
         .map_err(|e| {
-        tracing::error!("SSO authorize error: {}", e);
-        AppError::internal("SSO authorization failed")
-    })?;
+            tracing::error!("SSO authorize error: {}", e);
+            AppError::internal("SSO authorization failed")
+        })?;
 
     // Build a redirect response with CSRF & PKCE cookies
     let mut redirect = Redirect::temporary(&auth_url).into_response();
@@ -371,7 +372,10 @@ pub async fn callback(
         }
     }
 
-    let code_verifier = code_verifier.unwrap_or_default();
+    let code_verifier = code_verifier.ok_or_else(|| {
+        tracing::warn!("SSO PKCE: no code verifier cookie found");
+        AppError::forbidden("missing PKCE code verifier cookie")
+    })?;
 
     // ── Get provider config ──────────────────────────────────────
     let provider = rg_db::ops::sso_provider_ops::find_by_slug(&state.db, &slug)

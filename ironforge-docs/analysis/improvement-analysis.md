@@ -5,6 +5,8 @@
 > - 2026-06-17《源码优化空间分析报告》—— 代码级优化，确认前述 P0 已解决并落地 16 项优化
 >
 > **当前代码状态以 `CLAUDE.md`「实现现状」与 `ironforge-docs/architecture/` 系列为准**。本报告为历史演进记录，供判断技术债与后续方向参考。
+>
+> **最近复核（2026-07-13）**：已按当前源码回填多数据库、OpenAPI、WebSocket、审计归档、SSH Host Key 和日志轮转状态；历史基线数字仍保留原报告日期口径。
 
 ---
 
@@ -40,14 +42,15 @@ IronForge 已完成 21 个迭代阶段，功能完备度达到轻量级 Git 托�
 | 前端 | 包注册表/看板/时间追踪 UI 补全 | P1 | ✅ 部分解决（包注册表/看板 UI 已建） | 改进 |
 | 运维 | Prometheus /metrics + /health DB 检查 | P1 | ✅ 已解决 | 改进 |
 | 安全性 | Rate Limiting 覆盖所有危险端点 | P1 | ✅ 已覆盖（tower_governor） | 改进 |
-| API | OpenAPI 注解补全 + 分页格式统一 | P1 | 📋 待处理 | 改进 |
+| API | OpenAPI 注解补全 + 分页格式统一 | P1 | 🔶 部分（核心 REST 已纳入 OpenAPI；Registry/MCP、统一分页和 AsyncAPI 仍待处理） | 改进 |
 | 架构 | rg-core 拆分（audit/notification/search 独立） | P2 | 🔶 部分（模块分组文档 + CoreError 基础） | 改进/优化 |
 | 数据库 | 软删除策略统一（user/org/issue 等 deleted_at） | P2 | 🔶 部分（关键表已补） | 改进 |
 | 数据库 | 迁移文件命名规范统一 | P2 | ✅ 已对齐 | 改进 |
-| CI/CD | 集成测试：PR Merge / SSH push 路径 | P2 | 📋 待处理 | 改进 |
+| CI/CD | 集成测试：PR Merge / SSH push 路径 | P2 | ✅ 已覆盖（PR 三策略与冲突恢复；注册公钥后的 SSH push/clone 全链路） | 改进 |
+| 安全性 | LFS URL 签名有效期分级 | P2 | ✅ 已完成（下载 1h / 上传 6h，HMAC 用途/仓库/OID 绑定，过期 410） | 改进 |
 | MCP | Tool 扩展（Issue/PR 写操作 + CI/CD 触发） | P2 | 📋 待处理 | 改进 |
-| 性能 | WebSocket 换 per-repo channel | P2 | 📋 待处理 | 改进 |
-| 数据库 | 审计日志归档（TTL + 压缩） | P2 | 📋 待处理 | 改进 |
+| 性能 | WebSocket 换细粒度 channel | P2 | ✅ 已完成（通知按用户、Job 日志按 `job_id` 独立 channel；断开后回收） | 改进 |
+| 数据库 | 审计日志归档（TTL + 压缩） | P2 | ✅ 已完成（启动接线、可配置 TTL/批次/间隔、唯一 NDJSON.zst 原子落盘后删除 DB） | 改进 |
 | 运维 | Docker 多阶段构建 + compose | P2 | ✅ 已解决（Dockerfile + compose） | 改进 |
 | 前端 | i18n key 覆盖率 CI 自动检查 | P3 | 📋 待处理 | 改进 |
 | 性能 | PostgreSQL/MySQL 可选后端 | P3 | ✅ 已完成首轮实库验证（2026-07-13；HA/恢复/压测另行推进） | 改进/优化 |
@@ -56,7 +59,7 @@ IronForge 已完成 21 个迭代阶段，功能完备度达到轻量级 Git 托�
 | 性能 | async 中 CPU 密集操作阻塞 runtime | P0 | ✅ 已修复（merge/compute_diff 包 spawn_blocking） | 优化 |
 | 数据库 | N+1 查询 | P0 | ✅ 已修复（批量 IN / join_all / batch_insert） | 优化 |
 | 可维护性 | main() 668 行 | P1 | ✅ 已修复（提取 run_serve，减至 457） | 优化 |
-| 质量 | 测试覆盖不足（rg-db/rg-ci 等零测试） | P1 | 🔶 部分（rg-db 0→10） | 优化 |
+| 质量 | 测试覆盖不足（历史上 rg-db/rg-ci 等零测试） | P1 | 🔶 部分（当前源码测试函数：rg-db 14、rg-ci 36、rg-runner 3、rg-ssh 5；rg-cli/rg-mcp 仍为 0） | 优化 |
 | 性能 | 重复打开仓库 gix::open 4-8 次 | P1 | ✅ 已修复（_with_repo 变体） | 优化 |
 | 性能 | 鉴权路径无缓存（每请求 2-4 次 DB 查） | P1 | ✅ 已修复（PermissionCache 30s TTL） | 优化 |
 | 架构 | rg-core 25 模块膨胀 | P2 | 🔶 已对齐（分组文档 + //! doc） | 优化 |
@@ -79,16 +82,16 @@ IronForge 已完成 21 个迭代阶段，功能完备度达到轻量级 Git 托�
 
 ### 3.2 数据库与持久化
 - SQLite 单写锁瓶颈（WAL 允许并发读、写串行）→ P0 已通过 `PRAGMA journal_mode=WAL; synchronous=NORMAL; busy_timeout=5000` + 写连接池 `max_connections=1` + CI 日志 mpsc 缓冲队列解决。
-- 迁移命名已统一 `m{YYYYMMDD}_{HHMMSS}_{desc}`；软删除关键表已补 `deleted_at`；审计日志归档（90 天 NDJSON 压缩）仍 📋 待处理。
+- 迁移命名已统一 `m{YYYYMMDD}_{HHMMSS}_{desc}`；软删除关键表已补 `deleted_at`；审计日志已完成默认 90 天、限量批次、唯一 NDJSON.zst 原子归档并接入服务启动。
 
 ### 3.3 安全性
 - JWT HS256 secret 明文 TOML → ✅ 改为 `IRONFORGE_JWT_SECRET` env 优先，<32 字节拒启动，支持 `secret_file`。
 - Rate Limiting 已覆盖 login/register/totp/oauth-callback（tower_governor，10次/分钟）。
 - receive-pack 权限链（匿名→401 / 只读协作者→403 / 分支保护绕过→403）已加集成测试。
-- SSH Host Key 持久化、LFS URL 签名分级（下载 1h / 上传 6h）仍 📋 待处理。
+- SSH Host Key 已按配置路径自动生成并持久化；LFS Batch 现签发 HMAC 用途/仓库/OID/过期时间绑定 URL（下载 1h / 上传 6h），过期返回 410，上传对公有仓库同样要求写权限。
 
 ### 3.4 性能与可扩展性
-- Pack 操作已移 `spawn_blocking`；WebSocket 全局 broadcast 换 per-repo channel 仍 📋 待处理。
+- Pack 操作已移 `spawn_blocking`；通知 WebSocket 已按用户 channel 隔离，Job 日志也已改为按 `job_id` 独立 channel，连接断开后按接收器计数安全回收；Job 订阅在升级前校验仓库读取权限。
 - 多 Runner 注册（`runner_registration` 表）待规划；大文件 clone 背压控制需确认。
 
 ### 3.5 前端完整性
@@ -97,15 +100,15 @@ IronForge 已完成 21 个迭代阶段，功能完备度达到轻量级 Git 托�
 
 ### 3.6 API 设计与兼容性
 - 分页响应格式混用（`X-Total-Count` vs `{"data":[],"total":0}`）→ 建议统一 `PageResponse<T>` + `Pagination` extractor。
-- OpenAPI 注解（Registry/MCP 端点）、GitHub API 兼容层（`/github/v3/`）、WebSocket AsyncAPI 规范均 📋 待处理。
+- 核心 REST OpenAPI 注解与文档端点已落地；Registry/MCP 端点覆盖、分页格式统一、GitHub API 兼容层（`/github/v3/`）和 WebSocket AsyncAPI 规范仍 📋 待处理。
 
 ### 3.7 CI/CD 与测试
-- 集成测试缺口（PR Merge 三策略 + 冲突路径、SSH push 全链路、Registry 9 格式、OAuth2/OIDC PKCE）📋 待处理。
+- PR Merge 三策略 + 冲突恢复、SSH push/clone、OIDC discovery + PKCE callback、Package 9 类原生 REST/协议矩阵均已补真实全链路回归。
 - llvm-cov 覆盖率门槛（认证/权限路径 ≥75%）待 enforce；Runner Watchdog 已自适应（默认 15s，心跳 10s）；CI YAML 不支持字段已明确 `warn!()`。
 
 ### 3.8 运维与可观测性
 - Prometheus `/metrics`、增强 `/health`（database/git/storage/smtp 子项）、Docker 多阶段构建 + compose、备份恢复文档均已 ✅ 解决。
-- 日志轮转（`tracing_appender::rolling` + logrotate）📋 待处理。
+- 日志已使用 `tracing_appender::rolling` 按日轮转并限制保留文件数；按大小轮转和外部 logrotate 联动仍 📋 待处理。
 
 ---
 
@@ -120,7 +123,7 @@ IronForge 已完成 21 个迭代阶段，功能完备度达到轻量级 Git 托�
 | P0 | 3 | async 中 CPU 密集操作 | ✅ 已修复 |
 | P0 | 4 | N+1 查询 | ✅ 已修复 |
 | P1 | 5 | main() 668 行 | ✅ 已修复 |
-| P1 | 6 | 测试覆盖不足 | 🔶 基础已补（rg-db 0→10） |
+| P1 | 6 | 测试覆盖不足 | 🔶 基础已补（rg-db/rg-ci/rg-runner/rg-ssh 已有单元测试，rg-cli/rg-mcp 仍缺） |
 | P1 | 7 | 重复打开仓库 | ✅ 已修复 |
 | P1 | 8 | 鉴权路径无缓存 | ✅ 已修复 |
 | P2 | 9 | rg-core 25 模块膨胀 | 🔶 已对齐 |
@@ -157,7 +160,7 @@ IronForge 已完成 21 个迭代阶段，功能完备度达到轻量级 Git 托�
 | DB 索引 | 132 个 | 覆盖完整 |
 | crate 依赖 | 无循环 | 优秀 |
 
-> 测试分布极不均：rg-db/rg-ci/rg-cli/rg-mcp/rg-runner/rg-ssh 为零测试，是质量风险点。
+> 这是 2026-06-17 的历史分布。2026-07-13 复核时 rg-db/rg-ci/rg-runner/rg-ssh 已有测试，rg-cli/rg-mcp 仍为零，且协议级全链路覆盖仍不均衡。
 
 ---
 
@@ -168,7 +171,7 @@ IronForge 已完成 21 个迭代阶段，功能完备度达到轻量级 Git 托�
 - **B 前端补全**（P1 前端缺口，~6 人天）：包注册表 UI、看板、SPA fallback、i18n 检查。
 - **C 架构债务清理**（P1 技术债，~7.5 人天）：GitCommandGateway、软删除补全、迁移命名、WebSocket 重构。
 - **D MCP+API 扩展**（P2，~6 人天）：MCP 写操作、GitHub 兼容层、分页统一。
-- **E 测试覆盖率**（P2，~5 人天）：PR Merge/SSH 集成测试、llvm-cov 门槛。
+- **E 测试覆盖率**（P2，~5 人天）：PR Merge 三策略/冲突、SSH push/clone、OIDC PKCE 和 Package 9 类格式矩阵已完成；继续推进 llvm-cov 门槛。
 
 ### 6.2 源码优化路线图（2026-06-17，五阶段）
 - 第一阶段(P0) #1/#3/#4 ✅ → 第二阶段(P1) #5/#7/#8 ✅ → 第三阶段(P1) #6 🔶 → 第四阶段(P2) #9/#10 🔶 → 第五阶段(P2/P3) #13/#15 📋；#16 gix 持续复查。
@@ -178,10 +181,10 @@ IronForge 已完成 21 个迭代阶段，功能完备度达到轻量级 Git 托�
 ## 7. 总结与当前建议
 
 - **P0 生产稳定性缺口已闭环**：SQLite WAL、JWT env、GitCommandGateway、Prometheus/health、前端核心补全、Docker 化均已完成。
-- **剩余主要是 P2/P3 长期项**：软删除统一、审计归档、WebSocket per-repo、PostgreSQL 后端、OpenAPI/CI 测试、文档覆盖率、gix 迁移余量（被上游阻塞）。
-- **质量风险点**：rg-db/rg-ci/rg-cli/rg-mcp/rg-runner/rg-ssh 测试覆盖为零，应优先补基础 CRUD 与协议测试。
+- **剩余主要是 P2/P3 长期项**：软删除统一、数据库版本矩阵/恢复/HA、OpenAPI 余量与覆盖率门禁、文档覆盖率、gix 迁移余量（被上游阻塞）。
+- **质量风险点**：rg-cli/rg-mcp 仍无单元测试，认证/权限路径的 llvm-cov 门槛尚未强制；后续优先补 CLI/MCP 边界行为和覆盖率门禁。
 - **权威现状源**：上述条目的当前真实状态以 `CLAUDE.md`「实现现状」与 `ironforge-docs/architecture/architecture-followups-2026-07.md` 为准；本报告为历史演进记录，勿直接当作待办清单。
 
 ---
 
-*整合自：2026-06-09《全方位改进空间分析报告》+ 2026-06-17《源码优化空间分析报告》，2026-07-08 合并。*
+*整合自：2026-06-09《全方位改进空间分析报告》+ 2026-06-17《源码优化空间分析报告》，2026-07-08 合并，2026-07-13 复核当前状态。*
