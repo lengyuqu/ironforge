@@ -58,6 +58,8 @@
 | `mainstream-git-platform-gap-analysis-2026-07-10.md` | vs GitHub/GitLab/Gitea/Forgejo 当前差距、P0 上线阻断项与实施顺序 |
 | `gitea-vs-ironforge-2026.md` | vs Gitea 1.26 功能对比（v3.1，完成度 ~85%） |
 | `gitea-gap-list.csv` | 功能差距清单（60+ 条状态标注，程序化处理友好） |
+| `gitea-detail-alignment-plan-2026-07-13.md` | vs Gitea 1.26.4 细节功能对齐计划、任务 ID、依赖与验收门 |
+| `gitea-alignment-progress-2026-07-13.md` | Gitea 1.26.4 对齐进度台账（DONE/DOING/READY/TODO/BLOCKED、证据与变更记录） |
 
 ---
 
