@@ -172,7 +172,7 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":
 
 ---
 
-## 实现现状（2026-06-16）
+## 实现现状（2026-07-14）
 
 ### ✅ 已完成（Phase 1 ~ Phase 20 + P0/P1/P2 Gap Analysis + 工程化）
 
@@ -182,7 +182,7 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":
 | sideband-64k | `rg-git/src/sideband.rs` | band 1/2/3 |
 | git-upload-pack | `rg-git/src/protocol/upload_pack.rs` | SSH + HTTP 模式 |
 | git-receive-pack | `rg-git/src/protocol/receive_pack.rs` | SSH + HTTP 模式，返回 `Vec<RefUpdate>` |
-| **Git Protocol V2** | `rg-git/src/protocol/v2.rs` | **ls-refs + fetch 命令 + capability advertisement** |
+| **Git Protocol V2** | `rg-git/src/protocol/v2.rs` | **ls-refs + fetch + object-info；HTTP/SSH 共用 capability 列表；真实 Git V2 clone/fetch/shallow/deepen/partial-clone 回归已进入 CI；广告 `fetch=shallow filter`** |
 | **V2 HTTP 集成** | `rg-http/src/git_v2.rs` + `rg-http/src/lib.rs` | **Git-Protocol: version=2 header 检测 + V2 处理** |
 | SSH 服务端 | `rg-ssh/src/lib.rs` | russh 0.51，auth_publickey/auth_password 查 DB；真实注册公钥 push/clone 回归已覆盖 |
 | HTTP 服务端 | `rg-http/src/lib.rs` | Axum 0.8，/git/ 路由 + **Git 协议权限鉴权** + 分支保护审计 + **SvelteKit 静态资源** |
@@ -193,9 +193,12 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":
 | 用户服务 | `rg-core/src/user/service.rs` | register / login |
 | 仓库服务 | `rg-core/src/repo/service.rs` | create_repo + can_read/can_write（**集成 collaborator 权限**） |
 | Issue 服务 | `rg-core/src/issue/service.rs` | CRUD + labels + milestone + comments |
+| Issue/PR Markdown Template | `rg-core/src/issue_template.rs` + `rg-http/src/api/issues.rs` | 按 Gitea 1.26.4 兼容目录从默认分支发现 Markdown 模板，解析 front matter / chooser config，Web 支持 Issue 选择预填与 PR 正文预填；YAML Issue Form 仍由 ISSUE-102 跟踪 |
+| Issue/PR/评论附件 | `rg-core/src/attachment.rs` + `rg-http/src/api/attachments.rs` | 四类显式归属、统一 BlobStorage、100 MiB 单文件限制、1 GiB 仓库配额、扩展名白名单、跨仓库 IDOR 防护；上传/本地下载/本地删除补偿流式处理；Web 统一附件面板、OpenAPI、桌面/移动 Issue/PR 浏览器闭环已完成 |
 | PR 服务 | `rg-core/src/pull_request/service.rs` | create + diff(git CLI) + merge(3策略) + **分支保护检查** |
 | Wiki 服务 | `rg-core/src/wiki/service.rs` | 页面 CRUD（DB 存储） |
 | LFS 服务 | `rg-core/src/lfs/service.rs` | batch API + 对象上传/下载（磁盘存储）；HMAC 用途/仓库/OID 绑定 URL（下载 1h、上传 6h，过期 410） |
+| **统一 BlobStorage** | `rg-core/src/blob_storage.rs` + `ironforge-docs/storage/blob-storage-contract-2026-07.md` | 稳定 BlobKey、原子本地 backend、盘点/删除/越界防护；LFS/Package/OCI/Artifact/Release 新写入已接入，legacy 路径可读；S3/迁移工具仍由 STORAGE-002 跟踪 |
 | Webhook 服务 | `rg-core/src/webhook/service.rs` | 注册/触发/投递/HMAC-SHA256 签名 |
 | CI/CD 引擎 | `rg-ci/src/` | YAML 解析 + Pipeline 执行器 + 后台运行 |
 | Git 鉴权 | `rg-http/src/lib.rs` | HTTP git 协议 Bearer Token 认证 + can_read/can_write |
@@ -212,6 +215,7 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":
 | **Merge-group CI** | `rg-core/src/pull_request/merge_queue.rs` | FIFO 队首生成 speculative merge commit，CI 成功后才合并 |
 | **Deploy Key** | `rg-http/src/api/deploy_keys.rs` + `rg-ssh/src/lib.rs` | 仓库级只读/读写 SSH Key、admin CRUD、仓库隔离与使用时间记录 |
 | **CI Variables / Actions 边界** | `rg-ci/src/runner.rs` + `gitea_actions.rs` | 变量注入内置/外部 Runner；不支持的 `uses:` 显式拒绝，不静默跳过 |
+| **第三方 Actions 安全模型** | `ironforge-docs/ci/adr-0001-third-party-actions-execution.md` | `CI-200` 已冻结专用外部 Runner、每 Job 临时容器、默认断网、Secret 最小注入与 fork 审批边界；runtime 尚未实现，第三方 `uses:` 继续 fail closed |
 | **CI Secrets / Matrix** | `ci_secrets` + `rg-ci` runner/config | 仓库 Secret 加密存储、三类 Runner 注入与日志脱敏；原生/Actions Matrix 最多展开 256 个 job |
 | **CI 工作区 / Cache** | `rg-ci` + `rg-runner` + runner workspace/cache API | 精确 commit 隔离工作区；仓库隔离 tar Cache；原生与 `actions/cache@v4`；本地/Docker/外部 Runner restore-save |
 | **本地 Reusable Workflow** | `rg-ci/src/gitea_actions.rs` | 同 commit 下 `workflow_call` 递归展开、inputs、继承 Secrets、needs 依赖重写；循环/远程调用 fail closed |
@@ -367,7 +371,7 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":
 - `rg-http` — `/search/code` 端点
 
 #### P2: SSH Protocol V2 改进
-- `rg-git/src/protocol/v2.rs` — ls-refs / fetch / object-info 完善
+- `rg-git/src/protocol/v2.rs` — ls-refs / fetch / object-info；2026-07-14 已实现 shallow/deepen 与 partial-clone filter，统一广告 `fetch=shallow filter`
 
 #### 工程化
 - `rg-http/src/openapi.rs` — OpenAPI 注解更新

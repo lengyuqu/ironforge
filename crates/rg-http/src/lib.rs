@@ -114,6 +114,8 @@ pub struct AppState {
     pub rate_limiter: rate_limit::RateLimiter,
     pub notification_hub: ws::NotificationHub,
     pub smtp_config: Option<rg_core::email::SmtpConfig>,
+    /// Backend-neutral durable object storage.
+    pub blob_storage: Arc<dyn rg_core::blob_storage::BlobStorage>,
     pub oci_storage: Arc<OciStorage>,
     pub log_write_queue: rg_core::ci::log_write_queue::LogWriteQueue,
     /// External-facing base URL for SSO callbacks (None = detect from request).
@@ -173,10 +175,21 @@ pub async fn run(config: HttpServerConfig) -> Result<()> {
     // ── Initialize Prometheus metrics registry ──────────────────
     metrics::init_registry().expect("Failed to initialize Prometheus metrics registry");
 
-    let oci_storage_path = config
-        .oci_storage_path
-        .unwrap_or_else(|| config.repo_root.join("oci"));
-    let oci_storage = Arc::new(OciStorage::new(&oci_storage_path));
+    let blob_storage: Arc<dyn rg_core::blob_storage::BlobStorage> = Arc::new(
+        rg_core::blob_storage::LocalBlobStorage::new(config.repo_root.clone()),
+    );
+    let oci_storage = if let Some(path) = config.oci_storage_path.as_ref() {
+        tracing::warn!(
+            path = %path.display(),
+            "dedicated OCI storage path uses the local compatibility backend"
+        );
+        Arc::new(OciStorage::new(path))
+    } else {
+        Arc::new(OciStorage::from_backend(
+            blob_storage.clone(),
+            config.repo_root.join("_oci_uploads"),
+        ))
+    };
 
     // Clone DB before it moves into state
     let watchdog_db = config.db.clone();
@@ -191,6 +204,7 @@ pub async fn run(config: HttpServerConfig) -> Result<()> {
         rate_limiter: rate_limiter.clone(),
         notification_hub: notification_hub.clone(),
         smtp_config: config.smtp_config,
+        blob_storage,
         oci_storage,
         log_write_queue: rg_core::ci::log_write_queue::LogWriteQueue::spawn(log_queue_db),
         external_url: config.external_url,
@@ -598,6 +612,22 @@ fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
         )
         // Issues
         .route(
+            "/repos/{owner}/{name}/issue_templates",
+            get(api::issues::list_issue_templates),
+        )
+        .route(
+            "/repos/{owner}/{name}/issue_config",
+            get(api::issues::get_issue_config),
+        )
+        .route(
+            "/repos/{owner}/{name}/issue_config/validate",
+            get(api::issues::validate_issue_config),
+        )
+        .route(
+            "/repos/{owner}/{name}/pull_request_template",
+            get(api::issues::get_pull_request_template),
+        )
+        .route(
             "/repos/{owner}/{name}/issues",
             get(api::issues::list_issues).post(api::issues::create_issue),
         )
@@ -613,6 +643,28 @@ fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
             "/repos/{owner}/{name}/issues/{number}/comments",
             get(api::issues::list_comments).post(api::issues::add_comment),
         )
+        .route(
+            "/repos/{owner}/{name}/issues/{number}/assets",
+            get(api::attachments::list_issue_attachments)
+                .post(api::attachments::create_issue_attachment)
+                .layer(RequestBodyLimitLayer::new(101 * 1024 * 1024)),
+        )
+        .route(
+            "/repos/{owner}/{name}/issues/{number}/assets/{attachment_id}",
+            get(api::attachments::get_issue_attachment)
+                .delete(api::attachments::delete_issue_attachment),
+        )
+        .route(
+            "/repos/{owner}/{name}/issues/comments/{comment_id}/assets",
+            get(api::attachments::list_issue_comment_attachments)
+                .post(api::attachments::create_issue_comment_attachment)
+                .layer(RequestBodyLimitLayer::new(101 * 1024 * 1024)),
+        )
+        .route(
+            "/repos/{owner}/{name}/issues/comments/{comment_id}/assets/{attachment_id}",
+            get(api::attachments::get_issue_comment_attachment)
+                .delete(api::attachments::delete_issue_comment_attachment),
+        )
         // Pull Requests
         .route(
             "/repos/{owner}/{name}/pulls",
@@ -621,6 +673,28 @@ fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
         .route(
             "/repos/{owner}/{name}/pulls/{number}",
             get(api::pulls::get_pr).patch(api::pulls::update_pr),
+        )
+        .route(
+            "/repos/{owner}/{name}/pulls/{number}/assets",
+            get(api::attachments::list_pull_request_attachments)
+                .post(api::attachments::create_pull_request_attachment)
+                .layer(RequestBodyLimitLayer::new(101 * 1024 * 1024)),
+        )
+        .route(
+            "/repos/{owner}/{name}/pulls/{number}/assets/{attachment_id}",
+            get(api::attachments::get_pull_request_attachment)
+                .delete(api::attachments::delete_pull_request_attachment),
+        )
+        .route(
+            "/repos/{owner}/{name}/pulls/comments/{comment_id}/assets",
+            get(api::attachments::list_review_comment_attachments)
+                .post(api::attachments::create_review_comment_attachment)
+                .layer(RequestBodyLimitLayer::new(101 * 1024 * 1024)),
+        )
+        .route(
+            "/repos/{owner}/{name}/pulls/comments/{comment_id}/assets/{attachment_id}",
+            get(api::attachments::get_review_comment_attachment)
+                .delete(api::attachments::delete_review_comment_attachment),
         )
         .route(
             "/repos/{owner}/{name}/pulls/{number}/diff",
@@ -1289,11 +1363,7 @@ async fn spa_index_handler(Extension(nonce): Extension<security::CspNonce>) -> R
     match tokio::fs::read("web/build/index.html").await {
         Ok(html_bytes) => {
             let html = String::from_utf8_lossy(&html_bytes).into_owned();
-            let nonce_attr = format!(" nonce=\"{}\"", nonce.0);
-            // Inject nonce into all <script> tags (covers both <script> and <script ...>)
-            let modified = html
-                .replace("<script>", &format!("<script{}>", nonce_attr))
-                .replace("<script ", &format!("<script{} ", nonce_attr));
+            let modified = security::inject_csp_nonce(&html, &nonce.0);
             (
                 StatusCode::OK,
                 [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
@@ -1910,11 +1980,9 @@ fn build_v2_capability_advertisement() -> Result<String> {
 
     // Protocol version line
     write_pkt(&mut buf, "version 2")?;
-    write_pkt(&mut buf, "agent=ironforge/0.1")?;
-    write_pkt(&mut buf, "ls-refs")?;
-    write_pkt(&mut buf, "fetch=shallow")?;
-    write_pkt(&mut buf, "object-format=sha1")?;
-    write_pkt(&mut buf, "server-option")?;
+    for capability in rg_git::protocol::v2::ADVERTISED_CAPABILITIES {
+        write_pkt(&mut buf, capability)?;
+    }
 
     // Flush packet
     buf.extend_from_slice(b"0000");

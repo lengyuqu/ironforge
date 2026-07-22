@@ -8,6 +8,7 @@ export { timeTracking } from './timeTracking';
 export { boards } from './boards';
 export { search, type SearchResponse, type SearchResult } from './search';
 export { auth, type AuthLoginResponse, type PublicSsoProvider } from './auth';
+export { attachments, type Attachment, type AttachmentTarget } from './attachments';
 export { releases, type ReleaseAsset } from './releases';
 export { issues } from './issues';
 export { pulls, reviews } from './pulls';

@@ -93,7 +93,7 @@ pub async fn upload_artifact(
         &state.db,
         job_id,
         &upload.name,
-        upload.file_path.to_string_lossy().as_ref(),
+        &upload.storage_path,
         upload.size,
         Some(rg_db::ops::ci_retention_ops::expires_after(
             policy.artifact_retention_days,
@@ -110,8 +110,8 @@ pub async fn upload_artifact(
         )
             .into_response(),
         Err(e) => {
-            if is_path_under(&upload.file_path, &artifact_root(&state)) {
-                let _ = tokio::fs::remove_file(&upload.file_path).await;
+            if let Ok(key) = rg_core::blob_storage::BlobKey::new(&upload.storage_path) {
+                let _ = state.blob_storage.delete(&key).await;
             }
             AppError::internal(e.to_string()).into_response()
         }
@@ -252,17 +252,9 @@ pub async fn download_artifact(
         Err(e) => return e.into_response(),
     };
 
-    let file_path = PathBuf::from(&artifact.file_path);
-    if !is_path_under(&file_path, &artifact_root(&state)) {
-        return AppError::forbidden("artifact path is outside artifact storage").into_response();
-    }
-
-    let bytes = match tokio::fs::read(&file_path).await {
+    let bytes = match read_artifact_bytes(&state, &artifact.file_path).await {
         Ok(bytes) => bytes,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            return AppError::not_found("artifact file not found").into_response();
-        }
-        Err(e) => return AppError::internal(e).into_response(),
+        Err(error) => return error.into_response(),
     };
 
     let disposition = format!(
@@ -305,14 +297,11 @@ pub async fn delete_artifact(
         Err(e) => return e.into_response(),
     };
 
+    if let Err(error) = delete_artifact_blob(&state, &artifact.file_path).await {
+        return AppError::internal(error).into_response();
+    }
     match rg_db::ops::artifact_ops::delete_by_id(&state.db, artifact_id).await {
-        Ok(true) => {
-            let file_path = PathBuf::from(&artifact.file_path);
-            if is_path_under(&file_path, &artifact_root(&state)) {
-                let _ = tokio::fs::remove_file(file_path).await;
-            }
-            StatusCode::NO_CONTENT.into_response()
-        }
+        Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => AppError::not_found("artifact not found").into_response(),
         Err(e) => AppError::internal(e.to_string()).into_response(),
     }
@@ -329,7 +318,7 @@ pub struct UploadArtifactRequest {
 
 struct ParsedArtifactUpload {
     name: String,
-    file_path: PathBuf,
+    storage_path: String,
     size: i64,
 }
 
@@ -358,9 +347,16 @@ async fn parse_artifact_upload(
             .await
             .map_err(|_| AppError::bad_request("artifact metadata file does not exist"))?
             .len() as i64;
+        let name = sanitize_artifact_name(&req.name);
+        let key = artifact_key(job_id, &name).map_err(AppError::bad_request)?;
+        state
+            .blob_storage
+            .put_file(&key, &file_path)
+            .await
+            .map_err(AppError::internal)?;
         return Ok(ParsedArtifactUpload {
-            name: sanitize_artifact_name(&req.name),
-            file_path,
+            name,
+            storage_path: key.to_string(),
             size,
         });
     }
@@ -371,20 +367,73 @@ async fn parse_artifact_upload(
 
     let name = artifact_name_from_headers(headers).unwrap_or_else(|| "artifact.bin".to_string());
     let safe_name = sanitize_artifact_name(&name);
-    let dir = artifact_root(state).join("jobs").join(job_id.to_string());
-    tokio::fs::create_dir_all(&dir)
-        .await
-        .map_err(AppError::internal)?;
-    let file_path = dir.join(format!("{}-{}", Uuid::new_v4(), safe_name));
-    tokio::fs::write(&file_path, body)
+    let key = artifact_key(job_id, &safe_name).map_err(AppError::bad_request)?;
+    let stored = state
+        .blob_storage
+        .put(&key, body)
         .await
         .map_err(AppError::internal)?;
 
     Ok(ParsedArtifactUpload {
         name: safe_name,
-        file_path,
-        size: body.len() as i64,
+        storage_path: key.to_string(),
+        size: stored.size as i64,
     })
+}
+
+fn artifact_key(job_id: i64, name: &str) -> Result<rg_core::blob_storage::BlobKey, String> {
+    let job_id = job_id.to_string();
+    let object = format!("{}-{name}", Uuid::new_v4());
+    rg_core::blob_storage::BlobKey::from_segments(["artifacts", "jobs", &job_id, &object])
+        .map_err(|error| error.to_string())
+}
+
+async fn read_artifact_bytes(state: &AppState, storage_path: &str) -> Result<Vec<u8>, AppError> {
+    match rg_core::blob_storage::BlobKey::new(storage_path) {
+        Ok(key) => state.blob_storage.get(&key).await.map_err(|error| {
+            if matches!(error, rg_core::blob_storage::BlobStorageError::NotFound(_)) {
+                AppError::not_found("artifact file not found")
+            } else {
+                AppError::internal(error)
+            }
+        }),
+        Err(_) => {
+            let file_path = PathBuf::from(storage_path);
+            if !is_path_under(&file_path, &artifact_root(state)) {
+                return Err(AppError::forbidden(
+                    "artifact path is outside artifact storage",
+                ));
+            }
+            tokio::fs::read(file_path).await.map_err(|error| {
+                if error.kind() == std::io::ErrorKind::NotFound {
+                    AppError::not_found("artifact file not found")
+                } else {
+                    AppError::internal(error)
+                }
+            })
+        }
+    }
+}
+
+pub(crate) async fn delete_artifact_blob(
+    state: &AppState,
+    storage_path: &str,
+) -> anyhow::Result<()> {
+    match rg_core::blob_storage::BlobKey::new(storage_path) {
+        Ok(key) => {
+            state.blob_storage.delete(&key).await?;
+        }
+        Err(_) => {
+            let file_path = PathBuf::from(storage_path);
+            if !is_path_under(&file_path, &artifact_root(state)) {
+                anyhow::bail!("stored path is outside managed artifact storage");
+            }
+            if tokio::fs::try_exists(&file_path).await? {
+                tokio::fs::remove_file(file_path).await?;
+            }
+        }
+    }
+    Ok(())
 }
 
 fn artifact_root(state: &AppState) -> PathBuf {

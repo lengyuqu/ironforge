@@ -447,6 +447,15 @@
       "all": "All"
     },
     "new": "New Issue",
+    "templates": {
+      "title": "Choose an issue template",
+      "description": "Select the template that best matches what you want to report.",
+      "get_started": "Get started",
+      "blank": "Open a blank issue",
+      "blank_about": "Create an issue without using a template.",
+      "open_blank": "Open blank issue",
+      "open_link": "Open link"
+    },
     "create_form": {
       "title": "Title",
       "title_placeholder": "Issue title",
@@ -988,6 +997,13 @@
     "name": "Name",
     "labels": "Labels",
     "no_runners": "No runners registered"
+  },
+  "attachments": {
+    "title": "Attachments",
+    "hint": "Allowed files up to 100 MiB",
+    "upload": "Upload file",
+    "uploading": "Uploading…",
+    "delete": "Delete"
   },
   "time_tracking": {
     "title": "Time Tracking"

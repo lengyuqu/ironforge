@@ -21,6 +21,16 @@ use std::collections::BTreeSet;
 #[derive(Clone, Debug)]
 pub struct CspNonce(pub String);
 
+/// Add one nonce attribute to every trusted SPA bootstrap script tag.
+///
+/// This deliberately performs a single replacement pass. Running separate
+/// replacements for `<script>` and `<script ...>` causes the first result to
+/// match the second pass and produces duplicate nonce attributes, which
+/// Chromium rejects under a strict CSP.
+pub(crate) fn inject_csp_nonce(html: &str, nonce: &str) -> String {
+    html.replace("<script", &format!("<script nonce=\"{nonce}\""))
+}
+
 /// Middleware that adds security headers to all responses.
 ///
 /// Headers added (Phase 22-D):
@@ -211,6 +221,19 @@ mod tests {
 
     async fn dummy_handler() -> &'static str {
         "ok"
+    }
+
+    #[test]
+    fn spa_scripts_receive_exactly_one_csp_nonce() {
+        let html = "<script>one()</script><script type=\"module\">two()</script>";
+        let modified = inject_csp_nonce(html, "test-nonce");
+
+        assert_eq!(modified.matches("nonce=\"test-nonce\"").count(), 2);
+        assert!(!modified.contains("nonce=\"test-nonce\" nonce="));
+        assert_eq!(
+            modified,
+            "<script nonce=\"test-nonce\">one()</script><script nonce=\"test-nonce\" type=\"module\">two()</script>"
+        );
     }
 
     #[tokio::test]

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { page } from '$app/stores';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
+  import AttachmentPanel from '$lib/components/AttachmentPanel.svelte';
   import { pulls, reviews } from '$lib/api/client.svelte';
   import type { DiffLine, MergeQueueEntry, PrDiff } from '$lib/api/pulls';
   import { createT, formatDate } from '$lib/i18n';
@@ -349,6 +350,8 @@
         </div>
       {/if}
 
+      <AttachmentPanel {owner} {repo} target="pulls" targetId={number} />
+
       <!-- Tabs -->
       <div class="pr-tabs">
         <button class="tab" class:active={activeTab === 'conversation'} onclick={() => activeTab = 'conversation'}>
@@ -491,6 +494,7 @@
                     <span>{comment.resolved_at ? t('pulls.threads.resolved') : t('pulls.threads.open')}</span>
                   </header>
                   <div class="thread-comment">{comment.body}</div>
+                  <AttachmentPanel {owner} {repo} target="pulls/comments" targetId={comment.id} />
                   {#if comment.suggestion !== null && comment.suggestion !== undefined}
                     <div class="suggestion-block">
                       {#if !comment.suggestion_applied_at && comment.commit_id === pr.head_sha}
@@ -519,6 +523,7 @@
                   {/if}
                   {#each repliesFor(comment.id) as reply (reply.id)}
                     <div class="thread-comment reply">{reply.body}</div>
+                    <AttachmentPanel {owner} {repo} target="pulls/comments" targetId={reply.id} />
                   {/each}
                   <footer>
                     <button

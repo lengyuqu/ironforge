@@ -1,6 +1,7 @@
 <script lang="ts">
   import { page } from '$app/stores';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
+  import AttachmentPanel from '$lib/components/AttachmentPanel.svelte';
   import { issues } from '$lib/api/client.svelte';
   import { createT, formatDate } from '$lib/i18n';
   import { renderMarkdown as renderMarkdownSafe } from '$lib/utils/markdown';
@@ -107,6 +108,8 @@
         </div>
       {/if}
 
+      <AttachmentPanel {owner} {repo} target="issues" targetId={number} />
+
       <!-- Comments -->
       {#each commentList as comment}
         <div class="comment">
@@ -114,6 +117,7 @@
             {t('issues.commented', { author: comment.author || t('common.unknown'), date: formatDate(comment.created_at) })}
           </div>
           <div class="comment-body markdown-body">{@html renderMarkdown(comment.body)}</div>
+          <AttachmentPanel {owner} {repo} target="issues/comments" targetId={comment.id} />
         </div>
       {/each}
 

@@ -36,6 +36,8 @@ export type MergeQueueEntry = {
 };
 
 export const pulls = {
+  template: (owner: string, repo: string) =>
+    request<{ content: string; file_name: string } | undefined>(`/repos/${owner}/${repo}/pull_request_template`),
   list: (owner: string, repo: string, state?: string, page?: number, perPage?: number) => {
     return request<PaginatedResponse<any>>(`/repos/${owner}/${repo}/pulls${qs({ state, page, per_page: perPage })}`);
   },

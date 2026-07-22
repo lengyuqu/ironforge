@@ -188,3 +188,47 @@ async fn test_create_release_requires_auth() {
         "unauthenticated create_release should return 401"
     );
 }
+
+#[tokio::test]
+async fn release_asset_round_trip_uses_blob_storage() {
+    let (base, token, owner, repo) = setup("asset").await;
+    let release = create_release(&base, &token, &owner, &repo, "v1.2.3", "Assets").await;
+    let release_id = release["id"].as_i64().unwrap();
+    let client = reqwest::Client::new();
+
+    let uploaded = client
+        .post(format!(
+            "{base}/api/v1/repos/{owner}/{repo}/releases/{release_id}/assets"
+        ))
+        .bearer_auth(&token)
+        .header("content-type", "text/plain")
+        .header("content-disposition", "attachment; filename=notes.txt")
+        .body("release asset")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(uploaded.status(), 201);
+    let asset: serde_json::Value = uploaded.json().await.unwrap();
+    let asset_id = asset["id"].as_i64().unwrap();
+
+    let downloaded = client
+        .get(format!(
+            "{base}/api/v1/repos/{owner}/{repo}/releases/assets/{asset_id}/download"
+        ))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(downloaded.status(), 200);
+    assert_eq!(downloaded.bytes().await.unwrap().as_ref(), b"release asset");
+
+    let deleted = client
+        .delete(format!(
+            "{base}/api/v1/repos/{owner}/{repo}/releases/assets/{asset_id}"
+        ))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .unwrap();
+    assert!(deleted.status().is_success());
+}

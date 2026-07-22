@@ -447,6 +447,15 @@
       "all": "全部"
     },
     "new": "新问题",
+    "templates": {
+      "title": "选择问题模板",
+      "description": "请选择最符合本次反馈内容的模板。",
+      "get_started": "开始填写",
+      "blank": "创建空白问题",
+      "blank_about": "不使用模板，直接创建问题。",
+      "open_blank": "打开空白问题",
+      "open_link": "打开链接"
+    },
     "create_form": {
       "title": "标题",
       "title_placeholder": "问题标题",
@@ -988,6 +997,13 @@
     "name": "名称",
     "labels": "标签",
     "no_runners": "暂无注册的 Runner"
+  },
+  "attachments": {
+    "title": "附件",
+    "hint": "允许的文件类型，单文件最大 100 MiB",
+    "upload": "上传文件",
+    "uploading": "上传中…",
+    "delete": "删除"
   },
   "time_tracking": {
     "title": "时间跟踪"

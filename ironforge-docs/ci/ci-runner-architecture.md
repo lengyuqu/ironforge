@@ -1,5 +1,7 @@
 # IronForge CI/CD Runner 调度系统架构设计
 
+> **当前安全边界（2026-07-14）**：本文记录 2026-05 的基础调度设计。第三方 Actions 的现行决策以 [ADR-0001：第三方 Actions 执行与安全边界](./adr-0001-third-party-actions-execution.md) 为准；现有宿主机执行和基础 Docker 参数不得视为不受信 Action 的安全沙箱。
+
 **版本**: v1.0  
 **日期**: 2026-05-10  
 **设计人**: 齐活林 (Qi) · 交付总监  

@@ -31,7 +31,27 @@ function normalizeIssue<T extends { labels?: string | string[] | null }>(issue: 
   };
 }
 
+export type IssueTemplate = {
+  name: string;
+  title: string;
+  about: string;
+  labels: string[];
+  assignees: string[];
+  ref: string;
+  content: string;
+  file_name: string;
+};
+
+export type IssueConfig = {
+  blank_issues_enabled: boolean;
+  contact_links: Array<{ name: string; url: string; about: string }>;
+};
+
 export const issues = {
+  templates: (owner: string, repo: string) =>
+    request<IssueTemplate[]>(`/repos/${owner}/${repo}/issue_templates`),
+  templateConfig: (owner: string, repo: string) =>
+    request<IssueConfig>(`/repos/${owner}/${repo}/issue_config`),
   list: (owner: string, repo: string, state?: string, page?: number, perPage?: number, labels?: string) => {
     return request<PaginatedResponse<any>>(`/repos/${owner}/${repo}/issues${qs({ state, page, per_page: perPage, labels })}`)
       .then((response) => ({

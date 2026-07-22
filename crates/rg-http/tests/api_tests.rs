@@ -101,6 +101,82 @@ async fn test_login_success() {
 }
 
 #[tokio::test]
+async fn star_and_watch_endpoints_accept_browser_auth_cookie() {
+    let base = spawn_test_app().await;
+    let client = reqwest::Client::new();
+    let token = register_user(
+        &base,
+        "cookie_repo_user",
+        "cookie_repo_user@example.com",
+        "Qz7$wRtm",
+    )
+    .await;
+
+    let login = client
+        .post(format!("{base}/api/v1/users/login"))
+        .json(&serde_json::json!({
+            "login": "cookie_repo_user",
+            "password": "Qz7$wRtm"
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(login.status(), 200);
+    let cookie = login
+        .headers()
+        .get(reqwest::header::SET_COOKIE)
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_string();
+
+    let repo = client
+        .post(format!("{base}/api/v1/repos"))
+        .bearer_auth(&token)
+        .json(&serde_json::json!({"name": "cookie-auth-repo"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(repo.status(), 201);
+    let repo_url = format!("{base}/api/v1/repos/cookie_repo_user/cookie-auth-repo");
+
+    for endpoint in ["starred", "watch"] {
+        let response = client
+            .get(format!("{repo_url}/{endpoint}"))
+            .header(reqwest::header::COOKIE, &cookie)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200, "GET {endpoint}");
+    }
+    let starred = client
+        .put(format!("{repo_url}/star"))
+        .header(reqwest::header::COOKIE, &cookie)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(starred.status(), 200);
+    let watched = client
+        .put(format!("{repo_url}/watch"))
+        .header(reqwest::header::COOKIE, &cookie)
+        .json(&serde_json::json!({"state": "watching"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(watched.status(), 200);
+    let unwatched = client
+        .delete(format!("{repo_url}/watch"))
+        .header(reqwest::header::COOKIE, &cookie)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(unwatched.status(), 200);
+}
+
+#[tokio::test]
 async fn test_login_invalid_credentials() {
     let base = spawn_test_app().await;
     let client = reqwest::Client::new();

@@ -135,6 +135,7 @@ pub async fn batch(
     match rg_core::lfs::service::batch(
         &state.db,
         repo_id,
+        state.blob_storage.as_ref(),
         &lfs_root,
         &base_url,
         &owner,
@@ -220,7 +221,9 @@ pub async fn upload_object(
             match rg_core::lfs::service::store_object_from_file(
                 &state.db,
                 repo_id,
-                &lfs_root,
+                state.blob_storage.as_ref(),
+                &owner,
+                &repo,
                 &oid,
                 &temp_path,
                 written as i64,
@@ -294,8 +297,19 @@ pub async fn download_object(
 
     let lfs_root = rg_core::lfs::service::lfs_root(&state.repo_root, &owner, &repo);
 
-    match rg_core::lfs::service::read_object_path(&lfs_root, &oid) {
-        Ok((file_path, is_compressed)) => {
+    match rg_core::lfs::service::read_object_source(
+        state.blob_storage.as_ref(),
+        &lfs_root,
+        &owner,
+        &repo,
+        &oid,
+    )
+    .await
+    {
+        Ok(rg_core::lfs::service::LfsObjectSource::Local {
+            path: file_path,
+            compressed: is_compressed,
+        }) => {
             if is_compressed {
                 // Stream-decompress via channel: spawn_blocking reads zstd chunks → channel → response body
                 let (tx, rx) = tokio::sync::mpsc::channel::<std::io::Result<axum::body::Bytes>>(8);
@@ -379,6 +393,22 @@ pub async fn download_object(
                         .into_response(),
                 }
             }
+        }
+        Ok(rg_core::lfs::service::LfsObjectSource::Bytes { data, compressed }) => {
+            let body = if compressed {
+                match zstd::stream::decode_all(std::io::Cursor::new(data)) {
+                    Ok(decoded) => decoded,
+                    Err(error) => return AppError::internal(error).into_response(),
+                }
+            } else {
+                data
+            };
+            (
+                StatusCode::OK,
+                [(axum::http::header::CONTENT_TYPE, "application/octet-stream")],
+                body,
+            )
+                .into_response()
         }
         Err(e) => (
             StatusCode::NOT_FOUND,

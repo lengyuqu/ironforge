@@ -280,7 +280,8 @@ pub async fn publish(
             Err(msg) => return err(StatusCode::BAD_REQUEST, &msg),
         };
 
-    let storage = rg_core::package_registry::PackageStorage::new(&state.repo_root);
+    let storage =
+        rg_core::package_registry::PackageStorage::from_backend(state.blob_storage.clone());
 
     let info = rg_core::package_registry::PublishInfo {
         owner,
@@ -576,7 +577,8 @@ pub async fn delete_version(
         Err(e) => return e.into_response(),
     };
 
-    let storage = rg_core::package_registry::PackageStorage::new(&state.repo_root);
+    let storage =
+        rg_core::package_registry::PackageStorage::from_backend(state.blob_storage.clone());
 
     match rg_core::package_registry::service::delete_version(
         &state.db, &storage, &owner, &name, &pkg_type, &pkg_name, &version,
@@ -636,7 +638,8 @@ pub async fn download_file(
         return e.into_response();
     }
 
-    let storage = rg_core::package_registry::PackageStorage::new(&state.repo_root);
+    let storage =
+        rg_core::package_registry::PackageStorage::from_backend(state.blob_storage.clone());
 
     match rg_core::package_registry::service::download_file(
         &state.db, &storage, &owner, &name, &pkg_type, &pkg_name, &version, &filename,

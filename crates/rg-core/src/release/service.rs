@@ -153,6 +153,7 @@ pub async fn delete_release(db: &DatabaseConnection, id: i64) -> Result<()> {
 pub async fn upload_asset(
     db: &DatabaseConnection,
     release_id: i64,
+    storage: &dyn crate::blob_storage::BlobStorage,
     repo_root: &Path,
     owner: &str,
     repo_name: &str,
@@ -178,15 +179,15 @@ pub async fn upload_asset(
     };
     let asset = rg_db::ops::release_ops::create_asset(db, model).await?;
 
-    // Save file to disk: <repo_root>/<owner>/<name>.releases/assets/<id>/<filename>
-    let asset_dir = asset_storage_dir(repo_root, owner, repo_name).join(asset.id.to_string());
-    tokio::fs::create_dir_all(&asset_dir)
-        .await
-        .context("failed to create asset directory")?;
-    let file_path = asset_dir.join(filename);
-    tokio::fs::write(&file_path, data)
-        .await
-        .context("failed to write asset file")?;
+    let key = asset_blob_key(owner, repo_name, &asset)?;
+    if let Err(error) = storage.put(&key, data).await {
+        let _ = rg_db::ops::release_ops::delete_asset_by_id(db, asset.id).await;
+        return Err(error).context("failed to write release asset");
+    }
+
+    // Keep the parameter during the compatibility window: old assets are read
+    // from this root, while all new writes use backend-neutral keys.
+    let _ = repo_root;
 
     Ok(asset)
 }
@@ -195,6 +196,7 @@ pub async fn upload_asset(
 pub async fn download_asset(
     db: &DatabaseConnection,
     asset_id: i64,
+    storage: &dyn crate::blob_storage::BlobStorage,
     repo_root: &Path,
     owner: &str,
     repo_name: &str,
@@ -206,11 +208,17 @@ pub async fn download_asset(
     // Increment download count
     rg_db::ops::release_ops::increment_download_count(db, asset_id).await?;
 
-    // Read file from disk
-    let file_path = asset_file_path(repo_root, owner, repo_name, &asset);
-    let data = tokio::fs::read(&file_path)
-        .await
-        .context("failed to read asset file")?;
+    let key = asset_blob_key(owner, repo_name, &asset)?;
+    let data = match storage.get(&key).await {
+        Ok(data) => data,
+        Err(crate::blob_storage::BlobStorageError::NotFound(_)) => {
+            let file_path = asset_file_path(repo_root, owner, repo_name, &asset);
+            tokio::fs::read(&file_path)
+                .await
+                .context("failed to read legacy release asset")?
+        }
+        Err(error) => return Err(error).context("failed to read release asset"),
+    };
 
     Ok((asset, data))
 }
@@ -231,11 +239,17 @@ pub async fn list_assets(db: &DatabaseConnection, release_id: i64) -> Result<Vec
 pub async fn delete_asset(
     db: &DatabaseConnection,
     asset_id: i64,
+    storage: &dyn crate::blob_storage::BlobStorage,
     repo_root: &Path,
     owner: &str,
     repo_name: &str,
 ) -> Result<()> {
     let asset = get_asset(db, asset_id).await?;
+
+    let key = asset_blob_key(owner, repo_name, &asset)?;
+    if let Err(error) = storage.delete(&key).await {
+        tracing::warn!(%key, %error, "failed to remove release asset blob");
+    }
 
     // Remove file from disk (ignore errors if file doesn't exist)
     let file_path = asset_file_path(repo_root, owner, repo_name, &asset);
@@ -266,4 +280,22 @@ fn asset_file_path(repo_root: &Path, owner: &str, repo_name: &str, asset: &Asset
     asset_storage_dir(repo_root, owner, repo_name)
         .join(asset.id.to_string())
         .join(&asset.filename)
+}
+
+fn asset_blob_key(
+    owner: &str,
+    repo_name: &str,
+    asset: &Asset,
+) -> Result<crate::blob_storage::BlobKey> {
+    let release_id = asset.release_id.to_string();
+    let asset_id = asset.id.to_string();
+    crate::blob_storage::BlobKey::from_segments([
+        "releases",
+        owner,
+        repo_name,
+        &release_id,
+        &asset_id,
+        &asset.filename,
+    ])
+    .map_err(Into::into)
 }

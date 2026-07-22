@@ -53,7 +53,10 @@ pub fn build_test_app_state(
         .or_else(|_| std::env::var("TEMP"))
         .unwrap_or_else(|_| "/private/tmp".to_string());
     let oci_storage_path = std::path::Path::new(&tmp_dir).join("ironforge-test-oci");
+    let blob_storage: Arc<dyn rg_core::blob_storage::BlobStorage> =
+        Arc::new(rg_core::blob_storage::LocalBlobStorage::new(&repo_root));
     rg_http::AppState {
+        blob_storage: blob_storage.clone(),
         repo_root: Arc::new(repo_root),
         db,
         jwt_secret: Arc::new("test-secret-key".to_string()),
@@ -62,7 +65,7 @@ pub fn build_test_app_state(
         rate_limiter: rg_http::rate_limit::RateLimiter::new(10000, 60),
         notification_hub: rg_http::ws::NotificationHub::new(),
         smtp_config: None,
-        oci_storage: Arc::new(OciStorage::new(oci_storage_path.as_path())),
+        oci_storage: Arc::new(OciStorage::from_backend(blob_storage, oci_storage_path)),
         log_write_queue: rg_core::ci::log_write_queue::LogWriteQueue::spawn(db_for_queue),
         external_url: None,
         job_timeout_secs: 3600,

@@ -19,6 +19,7 @@
   let newBase = $state('main');
   let newDraft = $state(false);
   let branches = $state<any[]>([]);
+  let templateLoaded = $state(false);
 
   $effect(() => {
     loadPRs();
@@ -61,6 +62,23 @@
       error = e.message;
     }
   }
+
+  async function openCreate() {
+    if (showCreate) {
+      showCreate = false;
+      return;
+    }
+    try {
+      if (!templateLoaded) {
+        const template = await pulls.template(owner, repo);
+        if (template?.content && !newBody) newBody = template.content;
+        templateLoaded = true;
+      }
+      showCreate = true;
+    } catch (e: any) {
+      error = e.message;
+    }
+  }
 </script>
 
 <svelte:head>
@@ -94,7 +112,7 @@
         {t('pulls.tabs.merged')}
       </button>
     </div>
-    <button class="btn-primary" onclick={() => showCreate = !showCreate}>
+    <button class="btn-primary" onclick={openCreate}>
       {t('pulls.new')}
     </button>
   </div>

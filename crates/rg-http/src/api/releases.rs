@@ -473,6 +473,7 @@ pub async fn upload_asset(
     match rg_core::release::service::upload_asset(
         &state.db,
         release_id,
+        state.blob_storage.as_ref(),
         &state.repo_root,
         &owner,
         &name,
@@ -620,6 +621,7 @@ pub async fn download_asset(
     match rg_core::release::service::download_asset(
         &state.db,
         asset_id,
+        state.blob_storage.as_ref(),
         &state.repo_root,
         &owner,
         &name,
@@ -694,6 +696,7 @@ pub async fn delete_asset(
     match rg_core::release::service::delete_asset(
         &state.db,
         asset_id,
+        state.blob_storage.as_ref(),
         &state.repo_root,
         &owner,
         &name,

@@ -1,91 +1,102 @@
-//! OCI content-addressed blob storage.
+//! OCI content-addressed storage backed by the shared [`BlobStorage`] contract.
 //!
-//! Layout:
-//! ```text
-//! {root}/{owner}/{repo}/oci/
-//!   _blobs/{algo}/{hash}        — stored blobs (content-addressed)
-//!   _uploads/{uuid}/            — in-progress upload temp dir
-//!   _manifests/{algo}/{digest}  — cached manifest JSON
-//! ```
-//!
-//! Blob paths use the first two chars of the hex digest as a sharding prefix:
-//! sha256:abc123... → _blobs/sha256/ab/abc123...
+//! Completed blobs and manifests use durable backend-neutral keys. Chunked
+//! uploads remain local temporary files until their digest has been verified,
+//! then `put_file` atomically publishes them to the configured backend.
 
+use crate::blob_storage::{BlobKey, BlobStorage, LocalBlobStorage};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use tokio::io::AsyncReadExt;
 use uuid::Uuid;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct OciStorage {
-    root: PathBuf,
+    backend: Arc<dyn BlobStorage>,
+    upload_root: PathBuf,
+    legacy_root: Option<PathBuf>,
 }
 
 impl OciStorage {
+    /// Backwards-compatible local constructor.
     pub fn new(root: &Path) -> Self {
         Self {
-            root: root.to_path_buf(),
+            backend: Arc::new(LocalBlobStorage::new(root)),
+            upload_root: root.join("_uploads"),
+            legacy_root: Some(root.to_path_buf()),
         }
     }
 
-    // ── path helpers ────────────────────────────────────────────
-
-    /// Base path for an OCI namespace (owner/repo).
-    fn namespace_base(&self, owner: &str, repo: &str) -> PathBuf {
-        self.root.join(owner).join(repo).join("oci")
+    pub fn from_backend(backend: Arc<dyn BlobStorage>, upload_root: impl Into<PathBuf>) -> Self {
+        Self {
+            backend,
+            upload_root: upload_root.into(),
+            legacy_root: None,
+        }
     }
 
-    /// Blob directory: _blobs/{algo}/xx/
-    fn blob_dir(&self, owner: &str, repo: &str, digest: &str) -> PathBuf {
-        let parts: Vec<&str> = digest.splitn(2, ':').collect();
-        let (algo, hash) = if parts.len() == 2 {
-            (parts[0], parts[1])
-        } else {
-            ("sha256", parts[0])
-        };
-        self.namespace_base(owner, repo)
-            .join("_blobs")
-            .join(algo)
-            .join(&hash[..2.min(hash.len())])
+    fn blob_key(&self, owner: &str, repo: &str, digest: &str) -> anyhow::Result<BlobKey> {
+        let (algorithm, hash) = digest_parts(digest)?;
+        BlobKey::from_segments(["oci", owner, repo, "blobs", algorithm, &hash[..2], hash])
+            .map_err(Into::into)
     }
 
-    /// Blob file path: _blobs/{algo}/xx/{hash}
-    fn blob_path(&self, owner: &str, repo: &str, digest: &str) -> PathBuf {
-        let parts: Vec<&str> = digest.splitn(2, ':').collect();
-        let (_algo, hash) = if parts.len() == 2 {
-            (parts[0], parts[1])
-        } else {
-            ("sha256", parts[0])
-        };
-        self.blob_dir(owner, repo, digest).join(hash)
+    fn manifest_key(&self, owner: &str, repo: &str, digest: &str) -> anyhow::Result<BlobKey> {
+        let (algorithm, hash) = digest_parts(digest)?;
+        BlobKey::from_segments(["oci", owner, repo, "manifests", algorithm, hash])
+            .map_err(Into::into)
     }
 
-    /// Manifest file path: _manifests/{algo}/{digest}
-    fn manifest_path(&self, owner: &str, repo: &str, digest: &str) -> PathBuf {
-        let algo = digest.split(':').next().unwrap_or("sha256");
-        self.namespace_base(owner, repo)
-            .join("_manifests")
-            .join(algo)
-            .join(digest.replace(':', "_"))
-    }
-
-    /// Upload temp directory: _uploads/{uuid}/
     fn upload_dir(&self, owner: &str, repo: &str, uuid: &str) -> PathBuf {
-        self.namespace_base(owner, repo).join("_uploads").join(uuid)
+        let key = BlobKey::from_segments(["oci-uploads", owner, repo, uuid])
+            .expect("validated OCI namespace and generated upload UUID");
+        key.as_str()
+            .split('/')
+            .fold(self.upload_root.clone(), |path, segment| path.join(segment))
     }
 
-    /// Upload temp file: _uploads/{uuid}/data
     fn upload_file_path(&self, owner: &str, repo: &str, uuid: &str) -> PathBuf {
         self.upload_dir(owner, repo, uuid).join("data")
     }
 
-    // ── blob operations ────────────────────────────────────────
-
-    /// Check if a blob exists (by digest).
-    pub fn blob_exists(&self, owner: &str, repo: &str, digest: &str) -> bool {
-        self.blob_path(owner, repo, digest).exists()
+    fn legacy_blob_path(&self, owner: &str, repo: &str, digest: &str) -> Option<PathBuf> {
+        let root = self.legacy_root.as_ref()?;
+        let (algorithm, hash) = digest_parts(digest).ok()?;
+        Some(
+            root.join(owner)
+                .join(repo)
+                .join("oci")
+                .join("_blobs")
+                .join(algorithm)
+                .join(&hash[..2])
+                .join(hash),
+        )
     }
 
-    /// Store a blob (content-addressed by digest).
+    fn legacy_manifest_path(&self, owner: &str, repo: &str, digest: &str) -> Option<PathBuf> {
+        let root = self.legacy_root.as_ref()?;
+        let (algorithm, _) = digest_parts(digest).ok()?;
+        Some(
+            root.join(owner)
+                .join(repo)
+                .join("oci")
+                .join("_manifests")
+                .join(algorithm)
+                .join(digest.replace(':', "_")),
+        )
+    }
+
+    pub async fn blob_exists(&self, owner: &str, repo: &str, digest: &str) -> anyhow::Result<bool> {
+        let key = self.blob_key(owner, repo, digest)?;
+        if self.backend.exists(&key).await? {
+            return Ok(true);
+        }
+        Ok(self
+            .legacy_blob_path(owner, repo, digest)
+            .is_some_and(|path| path.is_file()))
+    }
+
     pub async fn store_blob(
         &self,
         owner: &str,
@@ -93,46 +104,48 @@ impl OciStorage {
         digest: &str,
         data: &[u8],
     ) -> anyhow::Result<String> {
-        // Verify digest matches
-        let actual = format!("sha256:{}", hex::encode(Sha256::digest(data)));
-        if actual != digest {
-            anyhow::bail!("digest mismatch: expected {}, got {}", digest, actual);
-        }
-
-        let dir = self.blob_dir(owner, repo, digest);
-        tokio::fs::create_dir_all(&dir).await?;
-
-        let path = self.blob_path(owner, repo, digest);
-        // Skip if already exists (dedup)
-        if path.exists() {
-            return Ok(path.to_string_lossy().to_string());
-        }
-
-        tokio::fs::write(&path, data).await?;
-        Ok(path.to_string_lossy().to_string())
+        verify_digest(digest, data)?;
+        let key = self.blob_key(owner, repo, digest)?;
+        self.backend.put(&key, data).await?;
+        Ok(key.to_string())
     }
 
-    /// Read a blob from storage.
     pub async fn read_blob(
         &self,
         owner: &str,
         repo: &str,
         digest: &str,
     ) -> anyhow::Result<Vec<u8>> {
-        let path = self.blob_path(owner, repo, digest);
-        if !path.exists() {
-            anyhow::bail!("blob not found: {}", digest);
+        let key = self.blob_key(owner, repo, digest)?;
+        match self.backend.get(&key).await {
+            Ok(data) => Ok(data),
+            Err(crate::blob_storage::BlobStorageError::NotFound(_)) => {
+                let path = self
+                    .legacy_blob_path(owner, repo, digest)
+                    .ok_or_else(|| anyhow::anyhow!("blob not found: {digest}"))?;
+                tokio::fs::read(path).await.map_err(Into::into)
+            }
+            Err(error) => Err(error.into()),
         }
-        tokio::fs::read(&path).await.map_err(Into::into)
     }
 
-    /// Get the file path to a blob for streaming.
-    pub fn blob_file_path(&self, owner: &str, repo: &str, digest: &str) -> PathBuf {
-        self.blob_path(owner, repo, digest)
+    pub fn blob_local_path(
+        &self,
+        owner: &str,
+        repo: &str,
+        digest: &str,
+    ) -> anyhow::Result<Option<PathBuf>> {
+        let key = self.blob_key(owner, repo, digest)?;
+        if let Some(path) = self.backend.local_path(&key) {
+            if path.is_file() {
+                return Ok(Some(path));
+            }
+        }
+        Ok(self
+            .legacy_blob_path(owner, repo, digest)
+            .filter(|path| path.is_file()))
     }
 
-    /// Copy a blob file from another namespace (cross-repo mount).
-    /// Uses hardlink when possible, falls back to `tokio::fs::copy` (streaming copy).
     pub async fn copy_blob_file(
         &self,
         src_owner: &str,
@@ -141,30 +154,30 @@ impl OciStorage {
         dst_repo: &str,
         digest: &str,
     ) -> anyhow::Result<String> {
-        let src = self.blob_path(src_owner, src_repo, digest);
-        let dst = self.blob_path(dst_owner, dst_repo, digest);
-
-        if dst.exists() {
-            return Ok(dst.to_string_lossy().to_string());
+        let source = self.blob_key(src_owner, src_repo, digest)?;
+        let destination = self.blob_key(dst_owner, dst_repo, digest)?;
+        if self.backend.exists(&destination).await? {
+            return Ok(destination.to_string());
         }
 
-        // Ensure target directory exists
-        if let Some(parent) = dst.parent() {
-            tokio::fs::create_dir_all(parent).await?;
+        if self.backend.exists(&source).await? {
+            if let Some(path) = self.backend.local_path(&source) {
+                self.backend.put_file(&destination, &path).await?;
+            } else {
+                let data = self.backend.get(&source).await?;
+                self.backend.put(&destination, &data).await?;
+            }
+        } else if let Some(path) = self
+            .legacy_blob_path(src_owner, src_repo, digest)
+            .filter(|path| path.is_file())
+        {
+            self.backend.put_file(&destination, &path).await?;
+        } else {
+            anyhow::bail!("source blob not found: {digest}");
         }
-
-        // Try hardlink first (instant, no data copy)
-        if std::fs::hard_link(&src, &dst).is_err() {
-            // Fall back to streaming copy
-            tokio::fs::copy(&src, &dst).await?;
-        }
-
-        Ok(dst.to_string_lossy().to_string())
+        Ok(destination.to_string())
     }
 
-    // ── manifest operations ─────────────────────────────────────
-
-    /// Store manifest JSON.
     pub async fn store_manifest(
         &self,
         owner: &str,
@@ -172,41 +185,39 @@ impl OciStorage {
         digest: &str,
         data: &[u8],
     ) -> anyhow::Result<String> {
-        let path = self.manifest_path(owner, repo, digest);
-        if let Some(parent) = path.parent() {
-            tokio::fs::create_dir_all(parent).await?;
-        }
-        tokio::fs::write(&path, data).await?;
-        Ok(path.to_string_lossy().to_string())
+        let key = self.manifest_key(owner, repo, digest)?;
+        self.backend.put(&key, data).await?;
+        Ok(key.to_string())
     }
 
-    /// Read manifest JSON.
     pub async fn read_manifest(
         &self,
         owner: &str,
         repo: &str,
         digest: &str,
     ) -> anyhow::Result<Vec<u8>> {
-        let path = self.manifest_path(owner, repo, digest);
-        tokio::fs::read(&path).await.map_err(Into::into)
+        let key = self.manifest_key(owner, repo, digest)?;
+        match self.backend.get(&key).await {
+            Ok(data) => Ok(data),
+            Err(crate::blob_storage::BlobStorageError::NotFound(_)) => {
+                let path = self
+                    .legacy_manifest_path(owner, repo, digest)
+                    .ok_or_else(|| anyhow::anyhow!("manifest not found: {digest}"))?;
+                tokio::fs::read(path).await.map_err(Into::into)
+            }
+            Err(error) => Err(error.into()),
+        }
     }
 
-    // ── upload operations ───────────────────────────────────────
-
-    /// Create a new upload session, returning the UUID and temp file path.
     pub async fn create_upload(&self, owner: &str, repo: &str) -> anyhow::Result<(String, String)> {
         let uuid = Uuid::new_v4().to_string();
-        let dir = self.upload_dir(owner, repo, &uuid);
-        tokio::fs::create_dir_all(&dir).await?;
-
-        let file_path = self.upload_file_path(owner, repo, &uuid);
-        // Create empty file
-        tokio::fs::write(&file_path, &[]).await?;
-
-        Ok((uuid, file_path.to_string_lossy().to_string()))
+        let directory = self.upload_dir(owner, repo, &uuid);
+        tokio::fs::create_dir_all(&directory).await?;
+        let file = self.upload_file_path(owner, repo, &uuid);
+        tokio::fs::write(&file, &[]).await?;
+        Ok((uuid, file.to_string_lossy().to_string()))
     }
 
-    /// Append chunk data to an upload.
     pub async fn append_to_upload(
         &self,
         owner: &str,
@@ -214,28 +225,24 @@ impl OciStorage {
         uuid: &str,
         data: &[u8],
     ) -> anyhow::Result<i64> {
+        use tokio::io::AsyncWriteExt;
         let path = self.upload_file_path(owner, repo, uuid);
-        use std::io::Write;
-        let mut file = std::fs::OpenOptions::new()
+        let mut file = tokio::fs::OpenOptions::new()
             .create(true)
             .append(true)
-            .open(&path)?;
-        file.write_all(data)?;
-        let size = file.metadata()?.len() as i64;
-        Ok(size)
+            .open(path)
+            .await?;
+        file.write_all(data).await?;
+        file.flush().await?;
+        Ok(file.metadata().await?.len() as i64)
     }
 
-    /// Get current upload size.
     pub fn upload_size(&self, owner: &str, repo: &str, uuid: &str) -> i64 {
-        let path = self.upload_file_path(owner, repo, uuid);
-        std::fs::metadata(&path)
-            .map(|m| m.len() as i64)
+        std::fs::metadata(self.upload_file_path(owner, repo, uuid))
+            .map(|metadata| metadata.len() as i64)
             .unwrap_or(0)
     }
 
-    /// Finalize an upload: verify digest, copy to blob storage, return storage path.
-    /// Streams the upload file in chunks—never loads the entire file into memory.
-    /// Returns (digest, size, storage_path).
     pub async fn finalize_upload(
         &self,
         owner: &str,
@@ -244,76 +251,108 @@ impl OciStorage {
         expected_digest: &str,
     ) -> anyhow::Result<(String, i64, String)> {
         let upload_path = self.upload_file_path(owner, repo, uuid);
-        let blob_dst = self.blob_path(owner, repo, expected_digest);
+        let key = self.blob_key(owner, repo, expected_digest)?;
 
-        // Dedup: already exists
-        if blob_dst.exists() {
-            let size = blob_dst.metadata().map(|m| m.len() as i64).unwrap_or(0);
-            let dir = self.upload_dir(owner, repo, uuid);
-            let _ = tokio::fs::remove_dir_all(&dir).await;
-            return Ok((
-                expected_digest.to_string(),
-                size,
-                blob_dst.to_string_lossy().to_string(),
-            ));
+        if self.backend.exists(&key).await? {
+            let size = self.backend.metadata(&key).await?.size as i64;
+            let _ = tokio::fs::remove_dir_all(self.upload_dir(owner, repo, uuid)).await;
+            return Ok((expected_digest.to_string(), size, key.to_string()));
         }
 
-        // Ensure blob directory exists
-        if let Some(parent) = blob_dst.parent() {
-            tokio::fs::create_dir_all(parent).await?;
-        }
-
-        // Stream copy + hash: read upload file in chunks, pipe to blob file
-        use tokio::io::{AsyncReadExt, AsyncWriteExt};
-
-        let mut src = tokio::fs::File::open(&upload_path).await?;
-        let mut dst = tokio::fs::File::create(&blob_dst).await?;
+        let mut source = tokio::fs::File::open(&upload_path).await?;
         let mut hasher = Sha256::new();
-
-        let mut buf = vec![0u8; 64 * 1024]; // 64 KiB chunks
+        let mut size = 0_i64;
+        let mut buffer = vec![0_u8; 64 * 1024];
         loop {
-            let n = src.read(&mut buf).await?;
-            if n == 0 {
+            let read = source.read(&mut buffer).await?;
+            if read == 0 {
                 break;
             }
-            hasher.update(&buf[..n]);
-            dst.write_all(&buf[..n]).await?;
+            hasher.update(&buffer[..read]);
+            size += read as i64;
         }
-
-        let size = dst.metadata().await?.len() as i64;
         let actual = format!("sha256:{}", hex::encode(hasher.finalize()));
         if actual != expected_digest {
-            // Clean up partial blob on digest mismatch
-            let _ = tokio::fs::remove_file(&blob_dst).await;
-            anyhow::bail!(
-                "digest mismatch: expected {}, got {}",
-                expected_digest,
-                actual
-            );
+            anyhow::bail!("digest mismatch: expected {expected_digest}, got {actual}");
         }
 
-        // Clean up upload temp
-        let dir = self.upload_dir(owner, repo, uuid);
-        let _ = tokio::fs::remove_dir_all(&dir).await;
-
-        Ok((
-            expected_digest.to_string(),
-            size,
-            blob_dst.to_string_lossy().to_string(),
-        ))
+        self.backend.put_file(&key, &upload_path).await?;
+        let _ = tokio::fs::remove_dir_all(self.upload_dir(owner, repo, uuid)).await;
+        Ok((expected_digest.to_string(), size, key.to_string()))
     }
 
-    /// Delete upload temp files.
     pub async fn delete_upload(&self, owner: &str, repo: &str, uuid: &str) -> anyhow::Result<()> {
-        let dir = self.upload_dir(owner, repo, uuid);
-        if dir.exists() {
-            tokio::fs::remove_dir_all(&dir).await?;
+        let directory = self.upload_dir(owner, repo, uuid);
+        if tokio::fs::try_exists(&directory).await? {
+            tokio::fs::remove_dir_all(directory).await?;
         }
         Ok(())
     }
 
-    /// Read upload file content for streaming during PATCH.
     pub fn upload_file(&self, owner: &str, repo: &str, uuid: &str) -> PathBuf {
         self.upload_file_path(owner, repo, uuid)
+    }
+}
+
+impl std::fmt::Debug for OciStorage {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("OciStorage")
+            .field("backend", &self.backend.backend_name())
+            .field("upload_root", &self.upload_root)
+            .field("legacy_root", &self.legacy_root)
+            .finish()
+    }
+}
+
+fn digest_parts(digest: &str) -> anyhow::Result<(&str, &str)> {
+    let (algorithm, hash) = digest
+        .split_once(':')
+        .ok_or_else(|| anyhow::anyhow!("invalid OCI digest"))?;
+    if algorithm != "sha256"
+        || hash.len() != 64
+        || !hash.bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        anyhow::bail!("unsupported or invalid OCI digest: {digest}");
+    }
+    Ok((algorithm, hash))
+}
+
+fn verify_digest(expected: &str, data: &[u8]) -> anyhow::Result<()> {
+    digest_parts(expected)?;
+    let actual = format!("sha256:{}", hex::encode(Sha256::digest(data)));
+    if actual != expected {
+        anyhow::bail!("digest mismatch: expected {expected}, got {actual}");
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::OciStorage;
+    use sha2::{Digest, Sha256};
+
+    #[tokio::test]
+    async fn publishes_verified_upload_under_stable_key() {
+        let directory = tempfile::tempdir().unwrap();
+        let storage = OciStorage::new(directory.path());
+        let data = b"oci layer";
+        let digest = format!("sha256:{}", hex::encode(Sha256::digest(data)));
+        let (upload, _) = storage.create_upload("alice", "demo").await.unwrap();
+        storage
+            .append_to_upload("alice", "demo", &upload, data)
+            .await
+            .unwrap();
+
+        let (_, size, key) = storage
+            .finalize_upload("alice", "demo", &upload, &digest)
+            .await
+            .unwrap();
+        assert_eq!(size, data.len() as i64);
+        assert!(key.starts_with("oci/alice/demo/blobs/sha256/"));
+        assert_eq!(
+            storage.read_blob("alice", "demo", &digest).await.unwrap(),
+            data
+        );
     }
 }

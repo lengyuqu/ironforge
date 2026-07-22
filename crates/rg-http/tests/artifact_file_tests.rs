@@ -109,6 +109,8 @@ async fn artifact_raw_upload_persists_file_and_download_respects_repo_read() {
         .unwrap()
         .unwrap();
     assert!(stored.expires_at.is_some());
+    assert!(stored.file_path.starts_with("artifacts/jobs/"));
+    assert!(!std::path::Path::new(&stored.file_path).is_absolute());
 
     let anon_download = client
         .get(format!(

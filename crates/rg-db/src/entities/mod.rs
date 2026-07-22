@@ -2,6 +2,7 @@
 
 pub mod access_token;
 pub mod artifact;
+pub mod attachment;
 pub mod audit_log;
 pub mod board;
 pub mod board_card;

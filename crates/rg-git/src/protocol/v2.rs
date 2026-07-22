@@ -4,10 +4,13 @@
 //! - Stateless-friendly design
 //! - On-demand ref fetching (ls-refs command)
 //! - Clearer command/capability negotiation
-//! - Support for shallow clone and partial clone
+//!
+//! Shallow/deepen and partial-clone filters are advertised after end-to-end
+//! implementation and real Git client coverage.
 //!
 //! Reference: <https://git-scm.com/docs/protocol-v2>
 
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
 
 use anyhow::{bail, Context, Result};
@@ -19,6 +22,18 @@ use crate::sideband;
 /// V2 Protocol constants
 pub const PROTOCOL_VERSION: &str = "2";
 
+/// Capabilities that IronForge currently implements end to end.
+///
+/// Keep HTTP and SSH advertisements sourced from this list. Unsupported fetch
+/// features must not be appended here until `handle_fetch` implements them.
+pub const ADVERTISED_CAPABILITIES: &[&str] = &[
+    "agent=ironforge/0.1",
+    caps::LS_REFS,
+    caps::FETCH_SHALLOW,
+    "object-format=sha1",
+    caps::SERVER_OPTION,
+];
+
 /// V2 Capability names
 pub mod caps {
     /// Agent capability - identifies server version
@@ -29,6 +44,8 @@ pub mod caps {
     pub const LS_REFS: &str = "ls-refs";
     /// Fetch command
     pub const FETCH: &str = "fetch";
+    /// Fetch command with shallow/deepen and partial-clone filter support
+    pub const FETCH_SHALLOW: &str = "fetch=shallow filter";
     /// Server option capability
     pub const SERVER_OPTION: &str = "server-option";
     /// Session identifier
@@ -110,8 +127,7 @@ where
             CommandRequest::Fetch {
                 wants,
                 haves,
-                shallows,
-                deepen,
+                shallow,
                 filter,
                 done,
                 client_caps,
@@ -119,7 +135,7 @@ where
                 tracing::debug!(
                     wants = wants.len(),
                     haves = haves.len(),
-                    shallows = shallows.len(),
+                    shallows = shallow.shallows.len(),
                     done,
                     "Processing fetch command (HTTP V2)"
                 );
@@ -128,8 +144,7 @@ where
                     &mut writer,
                     &wants,
                     &haves,
-                    &shallows,
-                    deepen,
+                    &shallow,
                     &filter,
                     done,
                     &client_caps,
@@ -211,8 +226,7 @@ where
             CommandRequest::Fetch {
                 wants,
                 haves,
-                shallows,
-                deepen,
+                shallow,
                 filter,
                 done,
                 client_caps,
@@ -220,7 +234,7 @@ where
                 tracing::debug!(
                     wants = wants.len(),
                     haves = haves.len(),
-                    shallows = shallows.len(),
+                    shallows = shallow.shallows.len(),
                     done,
                     "Processing fetch command (SSH V2)"
                 );
@@ -229,8 +243,7 @@ where
                     &mut write_half,
                     &wants,
                     &haves,
-                    &shallows,
-                    deepen,
+                    &shallow,
                     &filter,
                     done,
                     &client_caps,
@@ -306,8 +319,7 @@ where
             CommandRequest::Fetch {
                 wants,
                 haves,
-                shallows,
-                deepen,
+                shallow,
                 filter,
                 done,
                 client_caps,
@@ -315,7 +327,7 @@ where
                 tracing::debug!(
                     wants = wants.len(),
                     haves = haves.len(),
-                    shallows = shallows.len(),
+                    shallows = shallow.shallows.len(),
                     done,
                     "Processing fetch command"
                 );
@@ -324,8 +336,7 @@ where
                     &mut writer,
                     &wants,
                     &haves,
-                    &shallows,
-                    deepen,
+                    &shallow,
                     &filter,
                     done,
                     &client_caps,
@@ -358,18 +369,13 @@ where
 
 /// Send the Protocol V2 capability advertisement.
 /// This is the first thing sent after version negotiation.
-/// Send the Protocol V2 capability advertisement.
-/// This is the first thing sent after version negotiation.
 pub async fn send_capability_advertisement<W: AsyncWrite + Unpin>(writer: &mut W) -> Result<()> {
     // Protocol version line
     write_pkt_line(writer, &PktLine::text("version 2")).await?;
 
-    // Capabilities
-    write_pkt_line(writer, &PktLine::text("agent=ironforge/0.1")).await?;
-    write_pkt_line(writer, &PktLine::text("ls-refs")).await?;
-    write_pkt_line(writer, &PktLine::text("fetch=shallow")).await?;
-    write_pkt_line(writer, &PktLine::text("object-format=sha1")).await?;
-    write_pkt_line(writer, &PktLine::text("server-option")).await?;
+    for capability in ADVERTISED_CAPABILITIES {
+        write_pkt_line(writer, &PktLine::text(capability)).await?;
+    }
 
     // End of capabilities
     write_flush(writer).await?;
@@ -391,8 +397,7 @@ pub enum CommandRequest {
     Fetch {
         wants: Vec<String>,
         haves: Vec<String>,
-        shallows: Vec<String>,
-        deepen: Option<u32>,
+        shallow: ShallowRequest,
         filter: Option<String>,
         done: bool,
         client_caps: Vec<String>,
@@ -405,6 +410,15 @@ pub enum CommandRequest {
     Flush,
     /// Unknown command type
     Unknown(String),
+}
+
+#[derive(Debug, Default)]
+pub struct ShallowRequest {
+    shallows: Vec<String>,
+    deepen: Option<u32>,
+    deepen_relative: bool,
+    deepen_since: Option<i64>,
+    deepen_not: Vec<String>,
 }
 
 /// Read a Protocol V2 command request.
@@ -504,6 +518,9 @@ async fn read_command_request<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Co
             let mut haves = Vec::new();
             let mut shallows = Vec::new();
             let mut deepen = None;
+            let mut deepen_relative = false;
+            let mut deepen_since = None;
+            let mut deepen_not = Vec::new();
             let mut filter = None;
             let mut done = false;
 
@@ -515,7 +532,17 @@ async fn read_command_request<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Co
                 } else if let Some(shallow) = arg.strip_prefix("shallow ") {
                     shallows.push(shallow.to_string());
                 } else if let Some(d) = arg.strip_prefix("deepen ") {
-                    deepen = d.parse().ok();
+                    deepen = Some(d.parse().context("invalid Protocol V2 deepen value")?);
+                } else if *arg == "deepen-relative" {
+                    deepen_relative = true;
+                } else if let Some(timestamp) = arg.strip_prefix("deepen-since ") {
+                    deepen_since = Some(
+                        timestamp
+                            .parse()
+                            .context("invalid Protocol V2 deepen-since value")?,
+                    );
+                } else if let Some(revision) = arg.strip_prefix("deepen-not ") {
+                    deepen_not.push(revision.to_string());
                 } else if let Some(f) = arg.strip_prefix("filter ") {
                     filter = Some(f.to_string());
                 } else if *arg == "done" {
@@ -527,8 +554,13 @@ async fn read_command_request<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Co
             Ok(CommandRequest::Fetch {
                 wants,
                 haves,
-                shallows,
-                deepen,
+                shallow: ShallowRequest {
+                    shallows,
+                    deepen,
+                    deepen_relative,
+                    deepen_since,
+                    deepen_not,
+                },
                 filter,
                 done,
                 client_caps: capabilities,
@@ -741,13 +773,15 @@ async fn handle_fetch<W: AsyncWrite + Unpin>(
     writer: &mut W,
     wants: &[String],
     haves: &[String],
-    _shallows: &[String],
-    _deepen: Option<u32>,
-    _filter: &Option<String>,
+    shallow: &ShallowRequest,
+    filter: &Option<String>,
     done: bool,
     _client_caps: &[String],
 ) -> Result<()> {
     use sideband::{write_sideband_data, write_sideband_flush, write_sideband_progress};
+
+    validate_fetch_features(shallow, filter)?;
+    let shallow_update = build_shallow_update(repo_path, wants, shallow)?;
 
     // Check if client supports sideband (Protocol V2 fetch always uses sideband)
     let use_sideband = true; // V2 fetch always uses sideband per spec
@@ -759,12 +793,15 @@ async fn handle_fetch<W: AsyncWrite + Unpin>(
         return Ok(());
     }
 
-    // Protocol V2 fetch response starts with section headers.
-    // If we have haves/done, send acknowledgements first.
-    if !haves.is_empty() {
+    // Protocol V2 fetch response starts with section headers. A request carrying
+    // `done` must proceed directly to the packfile section: the client treats an
+    // acknowledgments section without `ready` followed by another section as a
+    // protocol violation. During negotiation, advertise `ready` inside the
+    // acknowledgments section before delimiting the following packfile section.
+    if needs_acknowledgments(haves, done) {
         // Check which haves we have — synchronously, before any .await
         // CRITICAL: gix::Repository is !Send (contains RefCell), must not cross .await
-        let (acked_oids, any_acked): (Vec<String>, bool) = {
+        let acked_oids: Vec<String> = {
             let repo = gix::open(repo_path).ok();
             let mut acked = Vec::new();
             for have in haves {
@@ -776,36 +813,37 @@ async fn handle_fetch<W: AsyncWrite + Unpin>(
                     }
                 }
             }
-            let any = !acked.is_empty();
-            (acked, any)
+            acked
             // repo dropped here
         };
 
-        // Now do async I/O with the collected data
-        write_pkt_line(writer, &PktLine::text("acknowledgments")).await?;
-        for have in &acked_oids {
-            write_pkt_line(writer, &PktLine::text(&format!("ACK {}", have))).await?;
+        if !write_acknowledgments(writer, &acked_oids).await? {
+            return Ok(());
         }
-        if !any_acked {
-            write_pkt_line(writer, &PktLine::text("NAK")).await?;
-        }
-        // Section delimiter
-        write_pkt_line(writer, &PktLine::Delim).await?;
     }
 
-    // Only send packfile if client sent "done" or no haves (fresh clone)
-    if !done && !haves.is_empty() {
-        // Client wants more negotiation rounds — send ready signal
-        write_pkt_line(writer, &PktLine::text("ready")).await?;
-        write_flush(writer).await?;
-        return Ok(());
+    if let Some(update) = &shallow_update {
+        if !update.response_lines.is_empty() {
+            write_pkt_line(writer, &PktLine::text("shallow-info")).await?;
+            for line in &update.response_lines {
+                write_pkt_line(writer, &PktLine::text(line)).await?;
+            }
+            write_pkt_line(writer, &PktLine::Delim).await?;
+        }
     }
 
     // Send packfile section header
     write_pkt_line(writer, &PktLine::text("packfile")).await?;
 
     // Generate packfile for the requested objects, excluding known haves
-    let pack_data = generate_packfile(repo_path, wants, haves).await?;
+    let pack_data = generate_packfile(
+        repo_path,
+        wants,
+        haves,
+        shallow_update.as_ref(),
+        filter.as_deref(),
+    )
+    .await?;
 
     if use_sideband {
         // Send progress
@@ -831,6 +869,219 @@ async fn handle_fetch<W: AsyncWrite + Unpin>(
         "Sent V2 fetch packfile"
     );
     Ok(())
+}
+
+fn needs_acknowledgments(haves: &[String], done: bool) -> bool {
+    !haves.is_empty() && !done
+}
+
+/// Write a negotiation response and return whether the server is ready to
+/// continue with a packfile section in the same response.
+async fn write_acknowledgments<W: AsyncWrite + Unpin>(
+    writer: &mut W,
+    acked_oids: &[String],
+) -> Result<bool> {
+    write_pkt_line(writer, &PktLine::text("acknowledgments")).await?;
+    for have in acked_oids {
+        write_pkt_line(writer, &PktLine::text(&format!("ACK {}", have))).await?;
+    }
+
+    if !acked_oids.is_empty() {
+        // `ready` is part of the acknowledgments section. The delimiter then
+        // announces that another section (the packfile) follows.
+        write_pkt_line(writer, &PktLine::text("ready")).await?;
+        write_pkt_line(writer, &PktLine::Delim).await?;
+        Ok(true)
+    } else {
+        write_pkt_line(writer, &PktLine::text("NAK")).await?;
+        write_flush(writer).await?;
+        Ok(false)
+    }
+}
+
+fn validate_fetch_features(shallow: &ShallowRequest, filter: &Option<String>) -> Result<()> {
+    if let Some(filter) = filter {
+        if filter.is_empty()
+            || filter.len() > 1024
+            || filter
+                .chars()
+                .any(|character| character.is_whitespace() || character.is_control())
+        {
+            bail!("invalid Protocol V2 partial-clone filter specification");
+        }
+    }
+    if shallow.deepen == Some(0) {
+        bail!("Protocol V2 deepen depth must be greater than zero");
+    }
+    if shallow.deepen_relative && shallow.deepen.is_none() {
+        bail!("Protocol V2 deepen-relative requires deepen");
+    }
+    if shallow.deepen.is_some()
+        && (shallow.deepen_since.is_some() || !shallow.deepen_not.is_empty())
+    {
+        bail!("Protocol V2 deepen cannot be combined with deepen-since or deepen-not");
+    }
+    Ok(())
+}
+
+#[derive(Debug)]
+struct ShallowUpdate {
+    boundaries: Vec<String>,
+    response_lines: Vec<String>,
+}
+
+fn build_shallow_update(
+    repo_path: &Path,
+    wants: &[String],
+    request: &ShallowRequest,
+) -> Result<Option<ShallowUpdate>> {
+    let changes_depth = request.deepen.is_some()
+        || request.deepen_since.is_some()
+        || !request.deepen_not.is_empty();
+    if !changes_depth {
+        return Ok(None);
+    }
+
+    let boundaries = if let Some(depth) = request.deepen {
+        if request.deepen_relative {
+            if request.shallows.is_empty() {
+                bail!("Protocol V2 deepen-relative requires at least one shallow boundary");
+            }
+            compute_depth_boundaries(repo_path, &request.shallows, depth, true)?
+        } else {
+            compute_depth_boundaries(repo_path, wants, depth, false)?
+        }
+    } else {
+        compute_filtered_boundaries(repo_path, wants, request.deepen_since, &request.deepen_not)?
+    };
+
+    let old: HashSet<&str> = request.shallows.iter().map(String::as_str).collect();
+    let new: HashSet<&str> = boundaries.iter().map(String::as_str).collect();
+    let mut response_lines = Vec::new();
+
+    for boundary in &boundaries {
+        if !old.contains(boundary.as_str()) {
+            response_lines.push(format!("shallow {boundary}"));
+        }
+    }
+    for boundary in &request.shallows {
+        if !new.contains(boundary.as_str()) {
+            response_lines.push(format!("unshallow {boundary}"));
+        }
+    }
+
+    Ok(Some(ShallowUpdate {
+        boundaries,
+        response_lines,
+    }))
+}
+
+fn compute_depth_boundaries(
+    repo_path: &Path,
+    starts: &[String],
+    depth: u32,
+    relative: bool,
+) -> Result<Vec<String>> {
+    if starts.is_empty() {
+        bail!("cannot compute shallow boundaries without a starting commit");
+    }
+
+    let graph = load_commit_graph(repo_path, starts, None, &[])?;
+    let initial_depth = if relative { 0 } else { 1 };
+    let mut queue: VecDeque<(String, u32)> = starts
+        .iter()
+        .cloned()
+        .map(|oid| (oid, initial_depth))
+        .collect();
+    let mut included: HashMap<String, u32> = HashMap::new();
+
+    while let Some((oid, current_depth)) = queue.pop_front() {
+        if current_depth > depth {
+            continue;
+        }
+        if included
+            .get(&oid)
+            .is_some_and(|known_depth| *known_depth <= current_depth)
+        {
+            continue;
+        }
+        included.insert(oid.clone(), current_depth);
+
+        if current_depth < depth {
+            if let Some(parents) = graph.get(&oid) {
+                queue.extend(
+                    parents
+                        .iter()
+                        .cloned()
+                        .map(|parent| (parent, current_depth + 1)),
+                );
+            }
+        }
+    }
+
+    Ok(find_boundaries(&graph, &included.keys().cloned().collect()))
+}
+
+fn compute_filtered_boundaries(
+    repo_path: &Path,
+    wants: &[String],
+    deepen_since: Option<i64>,
+    deepen_not: &[String],
+) -> Result<Vec<String>> {
+    let graph = load_commit_graph(repo_path, wants, deepen_since, deepen_not)?;
+    let included: HashSet<String> = graph.keys().cloned().collect();
+    Ok(find_boundaries(&graph, &included))
+}
+
+fn load_commit_graph(
+    repo_path: &Path,
+    starts: &[String],
+    max_age: Option<i64>,
+    excluded_revisions: &[String],
+) -> Result<HashMap<String, Vec<String>>> {
+    use crate::cli_gateway::global_gateway;
+
+    let mut args = vec!["rev-list".to_string(), "--parents".to_string()];
+    if let Some(timestamp) = max_age {
+        args.push(format!("--max-age={timestamp}"));
+    }
+    args.extend(starts.iter().cloned());
+    if !excluded_revisions.is_empty() {
+        args.push("--not".to_string());
+        args.extend(excluded_revisions.iter().cloned());
+    }
+    let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
+    let output = global_gateway()
+        .as_ref()
+        .map_err(|e| anyhow::anyhow!("{e}"))?
+        .run(&arg_refs, Some(repo_path))?;
+    output.ensure_success()?;
+
+    let mut graph = HashMap::new();
+    for line in output.stdout_str().lines() {
+        let mut fields = line.split_whitespace();
+        if let Some(oid) = fields.next() {
+            graph.insert(oid.to_string(), fields.map(str::to_string).collect());
+        }
+    }
+    Ok(graph)
+}
+
+fn find_boundaries(
+    graph: &HashMap<String, Vec<String>>,
+    included: &HashSet<String>,
+) -> Vec<String> {
+    let mut boundaries: Vec<String> = included
+        .iter()
+        .filter(|oid| {
+            graph
+                .get(*oid)
+                .is_some_and(|parents| parents.iter().any(|parent| !included.contains(parent)))
+        })
+        .cloned()
+        .collect();
+    boundaries.sort();
+    boundaries
 }
 
 /// Handle the object-info command.
@@ -902,30 +1153,54 @@ async fn generate_packfile(
     repo_path: &Path,
     wants: &[String],
     haves: &[String],
+    shallow_update: Option<&ShallowUpdate>,
+    filter: Option<&str>,
 ) -> Result<Vec<u8>> {
     use crate::cli_gateway::global_gateway;
     use tokio::io::{AsyncReadExt, AsyncWriteExt as _};
 
-    // Build stdin input: wants (positive) + haves (negative/exclude)
+    // Build stdin input. For a depth-changing request, shallow boundaries are
+    // passed directly to pack-objects and known objects are intentionally
+    // resent: excluding a shallow client's `have` as a normal full-history
+    // commit would incorrectly exclude ancestors that the client does not own.
     let mut revs_input = String::new();
+    if let Some(update) = shallow_update {
+        for boundary in &update.boundaries {
+            revs_input.push_str("--shallow ");
+            revs_input.push_str(boundary);
+            revs_input.push('\n');
+        }
+    }
     for want in wants {
         revs_input.push_str(want);
         revs_input.push('\n');
     }
-    for have in haves {
-        // Prefix with '^' to exclude commits reachable from haves
-        revs_input.push('^');
-        revs_input.push_str(have);
-        revs_input.push('\n');
+    if shallow_update.is_none() {
+        for have in haves {
+            // Prefix with '^' to exclude commits reachable from haves
+            revs_input.push('^');
+            revs_input.push_str(have);
+            revs_input.push('\n');
+        }
     }
 
+    let mut pack_args = vec![
+        "pack-objects".to_string(),
+        "--revs".to_string(),
+        "--stdout".to_string(),
+        "--thin".to_string(),
+    ];
+    if shallow_update.is_some_and(|update| !update.boundaries.is_empty()) {
+        pack_args.push("--shallow".to_string());
+    }
+    if let Some(filter) = filter {
+        pack_args.push(format!("--filter={filter}"));
+    }
+    let pack_arg_refs: Vec<&str> = pack_args.iter().map(String::as_str).collect();
     let mut cmd = global_gateway()
         .as_ref()
         .map_err(|e| anyhow::anyhow!("{}", e))?
-        .spawn_async(
-            &["pack-objects", "--revs", "--stdout", "--thin"],
-            Some(repo_path),
-        )
+        .spawn_async(&pack_arg_refs, Some(repo_path))
         .await
         .context("failed to spawn git pack-objects")?;
 
@@ -979,9 +1254,92 @@ mod tests {
 
     #[test]
     fn test_capability_advertisement_format() {
-        // Just verify constants are defined correctly
         assert_eq!(PROTOCOL_VERSION, "2");
         assert_eq!(caps::LS_REFS, "ls-refs");
         assert_eq!(caps::FETCH, "fetch");
+        assert!(ADVERTISED_CAPABILITIES.contains(&caps::FETCH_SHALLOW));
+        assert!(caps::FETCH_SHALLOW.contains("filter"));
+    }
+
+    #[tokio::test]
+    async fn serialized_advertisement_includes_only_supported_fetch_features() {
+        let mut output = Vec::new();
+        send_capability_advertisement(&mut output).await.unwrap();
+        let output = String::from_utf8(output).unwrap();
+
+        assert!(output.contains("fetch=shallow filter\n"));
+    }
+
+    #[test]
+    fn fetch_feature_validation_accepts_shallow_and_rejects_invalid_combinations() {
+        let mut request = ShallowRequest::default();
+        assert!(validate_fetch_features(&request, &None).is_ok());
+        assert!(validate_fetch_features(&request, &Some("blob:none".into())).is_ok());
+        assert!(validate_fetch_features(&request, &Some("blob:limit=1 m".into())).is_err());
+
+        request.deepen = Some(0);
+        assert!(validate_fetch_features(&request, &None).is_err());
+        request.deepen = None;
+        request.deepen_relative = true;
+        assert!(validate_fetch_features(&request, &None).is_err());
+        request.deepen = Some(2);
+        assert!(validate_fetch_features(&request, &None).is_ok());
+    }
+
+    #[test]
+    fn shallow_boundaries_are_commits_with_excluded_parents() {
+        let graph = HashMap::from([
+            ("a".into(), vec!["b".into()]),
+            ("b".into(), vec!["c".into()]),
+            ("c".into(), vec![]),
+        ]);
+
+        assert_eq!(find_boundaries(&graph, &HashSet::from(["a".into()])), ["a"]);
+        assert_eq!(
+            find_boundaries(&graph, &HashSet::from(["a".into(), "b".into()])),
+            ["b"]
+        );
+        assert!(
+            find_boundaries(&graph, &HashSet::from(["a".into(), "b".into(), "c".into()]))
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn done_request_skips_acknowledgments_section() {
+        let haves = vec!["a".repeat(40)];
+        assert!(needs_acknowledgments(&haves, false));
+        assert!(!needs_acknowledgments(&haves, true));
+        assert!(!needs_acknowledgments(&[], false));
+    }
+
+    #[tokio::test]
+    async fn ready_precedes_the_packfile_section_delimiter() {
+        let oid = "a".repeat(40);
+        let mut output = Vec::new();
+
+        assert!(
+            write_acknowledgments(&mut output, std::slice::from_ref(&oid))
+                .await
+                .unwrap()
+        );
+
+        let serialized = String::from_utf8(output).unwrap();
+        let ack = serialized.find(&format!("ACK {oid}\n")).unwrap();
+        let ready = serialized.find("ready\n").unwrap();
+        assert!(ack < ready);
+        assert!(serialized.ends_with("0001"));
+    }
+
+    #[tokio::test]
+    async fn nak_ends_negotiation_without_a_following_section() {
+        let mut output = Vec::new();
+
+        assert!(!write_acknowledgments(&mut output, &[]).await.unwrap());
+
+        let serialized = String::from_utf8(output).unwrap();
+        assert!(serialized.contains("NAK\n"));
+        assert!(serialized.ends_with("0000"));
+        assert!(!serialized.ends_with("0001"));
     }
 }

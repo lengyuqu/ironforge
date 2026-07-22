@@ -14,7 +14,7 @@ resolver = "2"
 
 [workspace.dependencies]
 # HTTP
-axum = { version = "0.8", features = ["ws", "macros"] }
+axum = { version = "0.8", features = ["ws", "macros", "multipart"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["cors", "trace", "fs", "limit"] }
 

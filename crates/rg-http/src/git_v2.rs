@@ -16,7 +16,7 @@ use axum::{
 use tokio::io::AsyncWriteExt;
 
 use crate::AppState;
-use rg_git::protocol::v2::handle_v2_http;
+use rg_git::protocol::v2::{handle_v2_http, ADVERTISED_CAPABILITIES};
 
 /// Check if client wants Protocol V2 based on HTTP headers.
 pub fn wants_protocol_v2(headers: &HeaderMap) -> bool {
@@ -47,11 +47,9 @@ fn build_v2_capability_sync() -> Vec<u8> {
     };
 
     write_pkt(&mut buf, "version 2");
-    write_pkt(&mut buf, "agent=ironforge/0.1");
-    write_pkt(&mut buf, "ls-refs");
-    write_pkt(&mut buf, "fetch=shallow");
-    write_pkt(&mut buf, "object-format=sha1");
-    write_pkt(&mut buf, "server-option");
+    for capability in ADVERTISED_CAPABILITIES {
+        write_pkt(&mut buf, capability);
+    }
     buf.extend_from_slice(b"0000");
 
     buf
@@ -328,5 +326,17 @@ pub async fn handle_git_receive_pack_v2(
             )
                 .into_response()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_v2_capability_sync;
+
+    #[test]
+    fn http_advertisement_matches_supported_fetch_features() {
+        let output = String::from_utf8(build_v2_capability_sync()).unwrap();
+
+        assert!(output.contains("fetch=shallow filter\n"));
     }
 }

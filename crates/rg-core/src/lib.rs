@@ -13,6 +13,7 @@
 //! - **Infrastructure**: search, lfs, email, audit, platform
 
 // ── Identity & Auth ─────────────────────────────────
+pub mod attachment;
 pub mod auth;
 pub mod org;
 pub mod user;
@@ -22,6 +23,7 @@ pub mod board;
 pub mod branch_protection;
 pub mod collaborator;
 pub mod issue;
+pub mod issue_template;
 pub mod label;
 pub mod notification;
 pub mod pull_request;
@@ -40,6 +42,7 @@ pub mod release;
 
 // ── Infrastructure ──────────────────────────────────
 pub mod audit;
+pub mod blob_storage;
 pub mod email;
 pub mod lfs;
 pub mod platform;

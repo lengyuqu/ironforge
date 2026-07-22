@@ -6,6 +6,14 @@ use sea_orm::*;
 
 use crate::entities::pull_request::{self, ActiveModel, Entity as PrEntity, Model as PullRequest};
 
+/// Find a PR by database ID.
+pub async fn find_by_id(db: &DatabaseConnection, id: i64) -> Result<Option<PullRequest>> {
+    PrEntity::find_by_id(id)
+        .one(db)
+        .await
+        .context("db: find PR by id")
+}
+
 /// Find a PR by (repo_id, number).
 pub async fn find_by_repo_and_number(
     db: &DatabaseConnection,

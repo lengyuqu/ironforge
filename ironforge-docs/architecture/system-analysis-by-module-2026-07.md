@@ -117,7 +117,7 @@ rg-mcp    → 无本地依赖（独立 HTTP 客户端型二进制）
 **职责**: `pkt_line`（编解码 + V2 Delim/ResponseEnd）、`sideband`（band 1/2/3）、`upload_pack`、`receive_pack`、`v2`（ls-refs/fetch/object-info）、`cli_gateway`（Git CLI 统一入口）。HTTP Git 与 SSH Git 复用同一协议层。
 
 **优势**:
-- 已完整实现 Smart HTTP + Protocol V2（ls-refs/fetch/object-info），与 Gitea 1.26 持平（100%）。
+- 已实现 Smart HTTP + Protocol V2 的 ls-refs、fetch、object-info、shallow/deepen 和 partial-clone filter。2026-07-14 起真实 Git 客户端矩阵覆盖 HTTP/SSH、V1/V2 的 clone/fetch、V1 push、depth/deepen/unshallow/shallow-exclude/shallow-since，以及 HTTP `blob:none`/SSH `tree:0` promisor lazy fetch，并进入主 CI。
 - **`GitCommandGateway` 收敛成功**：全代码库 `raw Command::new("git")` 调用已清零（仅在 `cli_gateway.rs` 内部及其回归守卫测试中出现），13 个文件引用网关。
 - receive-pack 已在写 ref 前接入 protected-branch 拒绝（`ng` 前置拦截，Wave 4 修复）。
 

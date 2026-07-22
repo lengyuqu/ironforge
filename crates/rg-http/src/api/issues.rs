@@ -62,6 +62,146 @@ pub struct IssueResponse {
     pub author: Option<String>,
 }
 
+/// List valid Markdown issue templates from the repository default branch.
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/issue_templates",
+    tag = "Issues",
+    responses(
+        (status = 200, description = "Gitea-compatible issue templates", body = serde_json::Value),
+        (status = 401, description = "Authentication required", body = serde_json::Value),
+    ),
+)]
+pub async fn list_issue_templates(
+    State(state): State<AppState>,
+    Path((owner, repo)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    let repo_model = match resolve_and_check_read_access(&state, &headers, &owner, &repo).await {
+        Ok(repo) => repo,
+        Err(error) => return error.into_response(),
+    };
+    let path = state.repo_root.join(format!("{owner}/{repo}.git"));
+    let default_branch = repo_model.default_branch;
+    match tokio::task::spawn_blocking(move || {
+        rg_core::issue_template::discover_issue_templates(&path, &default_branch)
+    })
+    .await
+    {
+        Ok(Ok(discovery)) => {
+            for (file, error) in discovery.errors {
+                tracing::warn!(%file, %error, "ignored invalid issue template");
+            }
+            (StatusCode::OK, Json(discovery.templates)).into_response()
+        }
+        Ok(Err(error)) => AppError::internal(error).into_response(),
+        Err(error) => AppError::internal(error).into_response(),
+    }
+}
+
+/// Read `.gitea`/`.github` issue chooser configuration.
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/issue_config",
+    tag = "Issues",
+    responses((status = 200, body = serde_json::Value)),
+)]
+pub async fn get_issue_config(
+    State(state): State<AppState>,
+    Path((owner, repo)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    let repo_model = match resolve_and_check_read_access(&state, &headers, &owner, &repo).await {
+        Ok(repo) => repo,
+        Err(error) => return error.into_response(),
+    };
+    let path = state.repo_root.join(format!("{owner}/{repo}.git"));
+    let default_branch = repo_model.default_branch;
+    match tokio::task::spawn_blocking(move || {
+        rg_core::issue_template::read_issue_config(&path, &default_branch)
+    })
+    .await
+    {
+        Ok(Ok(config)) => (StatusCode::OK, Json(config)).into_response(),
+        Ok(Err(error)) => AppError::bad_request(error).into_response(),
+        Err(error) => AppError::internal(error).into_response(),
+    }
+}
+
+#[derive(Serialize)]
+pub struct IssueConfigValidation {
+    valid: bool,
+    message: String,
+}
+
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/issue_config/validate",
+    tag = "Issues",
+    responses((status = 200, body = serde_json::Value)),
+)]
+pub async fn validate_issue_config(
+    State(state): State<AppState>,
+    Path((owner, repo)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    let repo_model = match resolve_and_check_read_access(&state, &headers, &owner, &repo).await {
+        Ok(repo) => repo,
+        Err(error) => return error.into_response(),
+    };
+    let path = state.repo_root.join(format!("{owner}/{repo}.git"));
+    let default_branch = repo_model.default_branch;
+    match tokio::task::spawn_blocking(move || {
+        rg_core::issue_template::read_issue_config(&path, &default_branch)
+    })
+    .await
+    {
+        Ok(Ok(_)) => Json(IssueConfigValidation {
+            valid: true,
+            message: String::new(),
+        })
+        .into_response(),
+        Ok(Err(error)) => Json(IssueConfigValidation {
+            valid: false,
+            message: error.to_string(),
+        })
+        .into_response(),
+        Err(error) => AppError::internal(error).into_response(),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/pull_request_template",
+    tag = "Pull Requests",
+    responses(
+        (status = 200, body = serde_json::Value),
+        (status = 204, description = "No pull request template"),
+    ),
+)]
+pub async fn get_pull_request_template(
+    State(state): State<AppState>,
+    Path((owner, repo)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    let repo_model = match resolve_and_check_read_access(&state, &headers, &owner, &repo).await {
+        Ok(repo) => repo,
+        Err(error) => return error.into_response(),
+    };
+    let path = state.repo_root.join(format!("{owner}/{repo}.git"));
+    let default_branch = repo_model.default_branch;
+    match tokio::task::spawn_blocking(move || {
+        rg_core::issue_template::read_pull_request_template(&path, &default_branch)
+    })
+    .await
+    {
+        Ok(Ok(Some(template))) => (StatusCode::OK, Json(template)).into_response(),
+        Ok(Ok(None)) => StatusCode::NO_CONTENT.into_response(),
+        Ok(Err(error)) => AppError::internal(error).into_response(),
+        Err(error) => AppError::internal(error).into_response(),
+    }
+}
+
 #[derive(Serialize)]
 pub struct CommentResponse {
     #[serde(flatten)]

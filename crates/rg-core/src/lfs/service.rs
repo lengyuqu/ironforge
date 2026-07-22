@@ -23,6 +23,7 @@ use sha2::Sha256;
 use std::io::Write;
 use std::path::PathBuf;
 
+use crate::blob_storage::{BlobKey, BlobStorage};
 use rg_db::entities::lfs_object;
 use rg_db::ops::lfs_object_ops;
 
@@ -192,6 +193,20 @@ fn lfs_object_path(lfs_root: &std::path::Path, oid: &str) -> PathBuf {
     lfs_root.join(prefix).join(oid)
 }
 
+/// Stable storage key for an LFS object. New objects use backend-neutral keys;
+/// the historical `<owner>.lfs/<repo>` layout remains a read/delete fallback.
+pub fn lfs_object_key(owner: &str, repo: &str, oid: &str, compressed: bool) -> Result<BlobKey> {
+    if !is_valid_oid(oid) {
+        anyhow::bail!("invalid LFS object identifier");
+    }
+    let filename = if compressed {
+        format!("{oid}.zst")
+    } else {
+        oid.to_string()
+    };
+    BlobKey::from_segments(["lfs", owner, repo, &oid[..2], &filename]).map_err(Into::into)
+}
+
 /// Get the LFS root directory for a repository.
 pub fn lfs_root(repo_root: &std::path::Path, owner: &str, repo: &str) -> PathBuf {
     repo_root.join(format!("{}.lfs", owner)).join(repo)
@@ -202,6 +217,7 @@ pub fn lfs_root(repo_root: &std::path::Path, owner: &str, repo: &str) -> PathBuf
 pub async fn batch(
     db: &DatabaseConnection,
     repo_id: i64,
+    storage: &dyn BlobStorage,
     lfs_root: &std::path::Path,
     base_url: &str,
     owner: &str,
@@ -239,6 +255,7 @@ pub async fn batch(
                         handle_upload(
                             db,
                             repo_id,
+                            storage,
                             lfs_root,
                             base_url,
                             owner,
@@ -289,6 +306,7 @@ pub async fn batch(
 async fn handle_upload(
     db: &DatabaseConnection,
     repo_id: i64,
+    storage: &dyn BlobStorage,
     lfs_root: &std::path::Path,
     base_url: &str,
     owner: &str,
@@ -302,8 +320,14 @@ async fn handle_upload(
 
     if let Some(obj) = &existing {
         if obj.uploaded {
+            let compressed_key = lfs_object_key(owner, repo, oid, true)?;
+            let raw_key = lfs_object_key(owner, repo, oid, false)?;
             let obj_path = lfs_object_path(lfs_root, oid);
-            if obj_path.exists() {
+            if storage.exists(&compressed_key).await?
+                || storage.exists(&raw_key).await?
+                || obj_path.exists()
+                || obj_path.with_extension("zst").exists()
+            {
                 // Already uploaded — no action needed
                 return Ok(LfsObjectResponse {
                     oid: oid.to_string(),
@@ -419,18 +443,12 @@ async fn handle_download(
 pub async fn store_object(
     db: &DatabaseConnection,
     repo_id: i64,
-    lfs_root: &std::path::Path,
+    storage: &dyn BlobStorage,
+    owner: &str,
+    repo: &str,
     oid: &str,
     data: &[u8],
 ) -> Result<()> {
-    let obj_path = lfs_object_path(lfs_root, oid);
-
-    // Create parent directory
-    if let Some(parent) = obj_path.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("create LFS directory {:?}", parent))?;
-    }
-
     // Find or create the DB record first
     let existing = lfs_object_ops::find_by_repo_and_oid(db, repo_id, oid).await?;
     let _obj_id = if let Some(obj) = existing {
@@ -454,10 +472,8 @@ pub async fn store_object(
     let compressed = compress_data(data)?;
     let compressed_size = compressed.len() as i64;
 
-    // Write compressed file with .zst extension
-    let compressed_path = obj_path.with_extension("zst");
-    std::fs::write(&compressed_path, &compressed)
-        .with_context(|| format!("write compressed LFS object {:?}", compressed_path))?;
+    let key = lfs_object_key(owner, repo, oid, true)?;
+    storage.put(&key, &compressed).await?;
 
     tracing::info!(
         oid = %oid,
@@ -476,10 +492,10 @@ pub async fn store_object(
     model.uploaded = sea_orm::Set(true);
     model.compression = sea_orm::Set(Some(COMPRESSION_ALGO.to_string()));
     model.compressed_size = sea_orm::Set(Some(compressed_size));
-    model
-        .update(db)
-        .await
-        .context("db: update LFS object after store")?;
+    if let Err(error) = model.update(db).await {
+        let _ = storage.delete(&key).await;
+        return Err(error).context("db: update LFS object after store");
+    }
 
     Ok(())
 }
@@ -490,19 +506,13 @@ pub async fn store_object(
 pub async fn store_object_from_file(
     db: &DatabaseConnection,
     repo_id: i64,
-    lfs_root: &std::path::Path,
+    storage: &dyn BlobStorage,
+    owner: &str,
+    repo: &str,
     oid: &str,
     uncompressed_path: &std::path::Path,
     original_size: i64,
 ) -> Result<()> {
-    let obj_path = lfs_object_path(lfs_root, oid);
-
-    // Create parent directory
-    if let Some(parent) = obj_path.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("create LFS directory {:?}", parent))?;
-    }
-
     // Find or create the DB record first
     let existing = lfs_object_ops::find_by_repo_and_oid(db, repo_id, oid).await?;
     let _obj_id = if let Some(_obj) = existing {
@@ -523,7 +533,7 @@ pub async fn store_object_from_file(
     };
 
     // Stream-compress from file (uses chunked I/O, not full file read)
-    let compressed_path = obj_path.with_extension("zst");
+    let compressed_path = uncompressed_path.with_extension(format!("{}.zst", uuid::Uuid::new_v4()));
     let src_file = std::fs::File::open(uncompressed_path)
         .with_context(|| format!("open uncompressed file {:?}", uncompressed_path))?;
     let dst_file = std::fs::File::create(&compressed_path)
@@ -539,8 +549,16 @@ pub async fn store_object_from_file(
 
     let compressed_size = finished.metadata().map(|m| m.len() as i64).unwrap_or(0);
 
+    let key = lfs_object_key(owner, repo, oid, true)?;
+    if let Err(error) = storage.put_file(&key, &compressed_path).await {
+        let _ = std::fs::remove_file(&compressed_path);
+        let _ = std::fs::remove_file(uncompressed_path);
+        return Err(error.into());
+    }
+
     // Remove uncompressed temp file
     let _ = std::fs::remove_file(uncompressed_path);
+    let _ = std::fs::remove_file(&compressed_path);
 
     tracing::info!(
         oid = %oid,
@@ -559,10 +577,10 @@ pub async fn store_object_from_file(
     model.uploaded = sea_orm::Set(true);
     model.compression = sea_orm::Set(Some(COMPRESSION_ALGO.to_string()));
     model.compressed_size = sea_orm::Set(Some(compressed_size));
-    model
-        .update(db)
-        .await
-        .context("db: update LFS object after store")?;
+    if let Err(error) = model.update(db).await {
+        let _ = storage.delete(&key).await;
+        return Err(error).context("db: update LFS object after store");
+    }
 
     Ok(())
 }
@@ -605,6 +623,37 @@ pub fn read_object_path(lfs_root: &std::path::Path, oid: &str) -> Result<(PathBu
     }
 
     anyhow::bail!("LFS object {} not found", oid)
+}
+
+/// Backend-neutral download source. Local storage retains streaming file I/O;
+/// remote backends may return bytes until STORAGE-002 adds signed/streamed reads.
+pub enum LfsObjectSource {
+    Local { path: PathBuf, compressed: bool },
+    Bytes { data: Vec<u8>, compressed: bool },
+}
+
+pub async fn read_object_source(
+    storage: &dyn BlobStorage,
+    legacy_lfs_root: &std::path::Path,
+    owner: &str,
+    repo: &str,
+    oid: &str,
+) -> Result<LfsObjectSource> {
+    for compressed in [true, false] {
+        let key = lfs_object_key(owner, repo, oid, compressed)?;
+        if storage.exists(&key).await? {
+            if let Some(path) = storage.local_path(&key) {
+                return Ok(LfsObjectSource::Local { path, compressed });
+            }
+            return Ok(LfsObjectSource::Bytes {
+                data: storage.get(&key).await?,
+                compressed,
+            });
+        }
+    }
+
+    let (path, compressed) = read_object_path(legacy_lfs_root, oid)?;
+    Ok(LfsObjectSource::Local { path, compressed })
 }
 
 // ── Compression helpers ───────────────────────────────────────────────────────
@@ -738,5 +787,35 @@ pub async fn delete_object(
         lfs_object_ops::delete_by_id(db, obj.id).await?;
     }
 
+    Ok(())
+}
+
+/// Delete both backend-neutral and historical local representations before
+/// removing the database row.
+pub async fn delete_object_from_storage(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    storage: &dyn BlobStorage,
+    legacy_lfs_root: &std::path::Path,
+    owner: &str,
+    repo: &str,
+    oid: &str,
+) -> Result<()> {
+    for compressed in [true, false] {
+        let key = lfs_object_key(owner, repo, oid, compressed)?;
+        storage.delete(&key).await?;
+    }
+
+    let legacy = lfs_object_path(legacy_lfs_root, oid);
+    for path in [legacy.with_extension("zst"), legacy] {
+        if path.exists() {
+            std::fs::remove_file(&path)
+                .with_context(|| format!("delete legacy LFS object {path:?}"))?;
+        }
+    }
+
+    if let Some(obj) = lfs_object_ops::find_by_repo_and_oid(db, repo_id, oid).await? {
+        lfs_object_ops::delete_by_id(db, obj.id).await?;
+    }
     Ok(())
 }

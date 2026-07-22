@@ -13,6 +13,10 @@
   let error = $state('');
   let filterState = $state('open');
   let showCreate = $state(false);
+  let showChooser = $state(false);
+  let templatesLoaded = $state(false);
+  let issueTemplates = $state<any[]>([]);
+  let templateConfig = $state<any>({ blank_issues_enabled: true, contact_links: [] });
   let newTitle = $state('');
   let newBody = $state('');
   let newLabels = $state('');
@@ -45,6 +49,38 @@
     } catch (e: any) {
       error = e.message;
     }
+  }
+
+  async function openCreate() {
+    if (showCreate || showChooser) {
+      showCreate = false;
+      showChooser = false;
+      return;
+    }
+    try {
+      if (!templatesLoaded) {
+        [issueTemplates, templateConfig] = await Promise.all([
+          issues.templates(owner, repo),
+          issues.templateConfig(owner, repo),
+        ]);
+        templatesLoaded = true;
+      }
+      if (issueTemplates.length > 0 || templateConfig.contact_links.length > 0) {
+        showChooser = true;
+      } else {
+        showCreate = true;
+      }
+    } catch (e: any) {
+      error = e.message;
+    }
+  }
+
+  function chooseTemplate(template?: any) {
+    newTitle = template?.title || '';
+    newBody = template?.content || '';
+    newLabels = template?.labels?.join(', ') || '';
+    showChooser = false;
+    showCreate = true;
   }
 
   function emptyStateLabel(): string {
@@ -84,10 +120,51 @@
         {t('issues.tabs.all')}
       </button>
     </div>
-    <button class="btn-primary" onclick={() => showCreate = !showCreate}>
+    <button class="btn-primary" onclick={openCreate}>
       {t('issues.new')}
     </button>
   </div>
+
+  {#if showChooser}
+    <div class="template-chooser gh-card">
+      <div class="chooser-heading">
+        <div>
+          <h2>{t('issues.templates.title')}</h2>
+          <p>{t('issues.templates.description')}</p>
+        </div>
+        <button class="btn-secondary" onclick={() => showChooser = false}>{t('issues.create_form.cancel')}</button>
+      </div>
+      <div class="template-list">
+        {#each issueTemplates as template}
+          <div class="template-option">
+            <div>
+              <strong>{template.name}</strong>
+              <p>{template.about}</p>
+            </div>
+            <button class="btn-primary" onclick={() => chooseTemplate(template)}>{t('issues.templates.get_started')}</button>
+          </div>
+        {/each}
+        {#if templateConfig.blank_issues_enabled}
+          <div class="template-option">
+            <div>
+              <strong>{t('issues.templates.blank')}</strong>
+              <p>{t('issues.templates.blank_about')}</p>
+            </div>
+            <button class="btn-secondary" onclick={() => chooseTemplate()}>{t('issues.templates.open_blank')}</button>
+          </div>
+        {/if}
+        {#each templateConfig.contact_links as link}
+          <div class="template-option">
+            <div>
+              <strong>{link.name}</strong>
+              <p>{link.about}</p>
+            </div>
+            <a class="btn-secondary external-link" href={link.url} target="_blank" rel="noopener noreferrer">{t('issues.templates.open_link')}</a>
+          </div>
+        {/each}
+      </div>
+    </div>
+  {/if}
 
   {#if showCreate}
     <div class="create-form gh-card">
@@ -106,7 +183,7 @@
         </label>
         <div class="form-actions">
           <button type="submit" class="btn-primary">{t('issues.create_form.submit')}</button>
-          <button type="button" class="btn-secondary" onclick={() => showCreate = false}>{t('issues.create_form.cancel')}</button>
+          <button type="button" class="btn-secondary" onclick={() => { showCreate = false; if (issueTemplates.length > 0 || templateConfig.contact_links.length > 0) showChooser = true; }}>{t('issues.create_form.cancel')}</button>
         </div>
       </form>
     </div>
@@ -196,6 +273,15 @@
     padding: 20px;
     margin-bottom: 24px;
   }
+
+  .template-chooser { padding: 20px; margin-bottom: 24px; }
+  .chooser-heading { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; margin-bottom: 14px; }
+  .chooser-heading h2 { margin: 0 0 4px; font-size: 18px; }
+  .chooser-heading p, .template-option p { margin: 0; color: var(--text-secondary); font-size: 13px; }
+  .template-list { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: var(--radius); }
+  .template-option { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px; border-bottom: 1px solid var(--border-light); }
+  .template-option:last-child { border-bottom: 0; }
+  .external-link { text-decoration: none; white-space: nowrap; }
 
   form { display: flex; flex-direction: column; gap: 14px; }
   label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600; }

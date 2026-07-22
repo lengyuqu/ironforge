@@ -532,7 +532,21 @@ pub async fn put_manifest(
 
     // Verify all referenced blobs exist
     for blob_digest in parsed.referenced_blobs() {
-        if !state.oci_storage.blob_exists(&owner, &repo, &blob_digest) {
+        let exists = match state
+            .oci_storage
+            .blob_exists(&owner, &repo, &blob_digest)
+            .await
+        {
+            Ok(exists) => exists,
+            Err(error) => {
+                return oci_err(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "UNKNOWN",
+                    &error.to_string(),
+                );
+            }
+        };
+        if !exists {
             return oci_err(
                 StatusCode::BAD_REQUEST,
                 error_codes::MANIFEST_BLOB_UNKNOWN,
@@ -658,7 +672,16 @@ pub async fn head_blob(
         return resp;
     }
 
-    let exists = state.oci_storage.blob_exists(&owner, &repo, &digest);
+    let exists = match state.oci_storage.blob_exists(&owner, &repo, &digest).await {
+        Ok(exists) => exists,
+        Err(error) => {
+            return oci_err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "UNKNOWN",
+                &error.to_string(),
+            );
+        }
+    };
     if exists {
         // Get blob size from DB if available
         let size = match find_oci_repo(&state.db, &owner, &repo).await {
@@ -697,40 +720,62 @@ pub async fn get_blob(
         return resp;
     }
 
-    let path = state.oci_storage.blob_file_path(&owner, &repo, &digest);
-    if !path.exists() {
-        return oci_not_found(error_codes::BLOB_UNKNOWN, "blob not found");
-    }
-
-    match tokio::fs::File::open(&path).await {
-        Ok(file) => {
-            let size = match file.metadata().await {
-                Ok(m) => m.len(),
-                Err(_) => {
-                    return oci_err(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        "UNKNOWN",
-                        "failed to stat blob",
-                    );
-                }
-            };
-            let stream = tokio_util::io::ReaderStream::new(file);
-            let stream_body =
-                http_body_util::StreamBody::new(futures::StreamExt::map(stream, |item| {
-                    item.map(http_body::Frame::data)
-                }));
-            (
+    match state.oci_storage.blob_local_path(&owner, &repo, &digest) {
+        Ok(Some(path)) => match tokio::fs::File::open(&path).await {
+            Ok(file) => {
+                let size = match file.metadata().await {
+                    Ok(m) => m.len(),
+                    Err(_) => {
+                        return oci_err(
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            "UNKNOWN",
+                            "failed to stat blob",
+                        );
+                    }
+                };
+                let stream = tokio_util::io::ReaderStream::new(file);
+                let stream_body =
+                    http_body_util::StreamBody::new(futures::StreamExt::map(stream, |item| {
+                        item.map(http_body::Frame::data)
+                    }));
+                (
+                    StatusCode::OK,
+                    [
+                        (header::CONTENT_TYPE, "application/octet-stream"),
+                        (header::CONTENT_LENGTH, size.to_string().as_str()),
+                        (DOCKER_CONTENT_DIGEST, digest.as_str()),
+                    ],
+                    Body::new(stream_body),
+                )
+                    .into_response()
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                oci_not_found(error_codes::BLOB_UNKNOWN, "blob not found")
+            }
+            Err(error) => oci_err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "UNKNOWN",
+                &error.to_string(),
+            ),
+        },
+        Ok(None) => match state.oci_storage.read_blob(&owner, &repo, &digest).await {
+            Ok(data) => (
                 StatusCode::OK,
                 [
                     (header::CONTENT_TYPE, "application/octet-stream"),
-                    (header::CONTENT_LENGTH, size.to_string().as_str()),
+                    (header::CONTENT_LENGTH, data.len().to_string().as_str()),
                     (DOCKER_CONTENT_DIGEST, digest.as_str()),
                 ],
-                Body::new(stream_body),
+                data,
             )
-                .into_response()
-        }
-        Err(e) => oci_err(StatusCode::INTERNAL_SERVER_ERROR, "UNKNOWN", &e.to_string()),
+                .into_response(),
+            Err(_) => oci_not_found(error_codes::BLOB_UNKNOWN, "blob not found"),
+        },
+        Err(error) => oci_err(
+            StatusCode::BAD_REQUEST,
+            error_codes::DIGEST_INVALID,
+            &error.to_string(),
+        ),
     }
 }
 
@@ -815,6 +860,8 @@ async fn handle_mount(
     if !state
         .oci_storage
         .blob_exists(from_owner, from_repo, mount_digest)
+        .await
+        .unwrap_or(false)
     {
         return oci_not_found(error_codes::BLOB_UNKNOWN, "mount source blob not found");
     }

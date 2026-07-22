@@ -100,7 +100,6 @@ pub async fn cleanup_expired_storage(
     state: &AppState,
     repo_filter: Option<i64>,
 ) -> anyhow::Result<CleanupResponse> {
-    let artifact_root = state.repo_root.join("_artifacts");
     let cache_root = state.repo_root.join("_ci_cache");
     let mut summary = CleanupResponse::default();
     for artifact in rg_db::ops::artifact_ops::list_expired(&state.db).await? {
@@ -109,7 +108,7 @@ pub async fn cleanup_expired_storage(
                 continue;
             }
         }
-        match safe_remove_file(PathBuf::from(&artifact.file_path), &artifact_root).await {
+        match crate::api::artifacts::delete_artifact_blob(state, &artifact.file_path).await {
             Ok(()) => {
                 rg_db::ops::artifact_ops::delete_by_id(&state.db, artifact.id).await?;
                 summary.artifacts_deleted += 1;

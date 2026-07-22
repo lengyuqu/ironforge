@@ -15,7 +15,11 @@ use utoipa::ToSchema;
 
 use crate::error::AppError;
 use crate::pagination::{PaginatedResponse, PaginationParams};
-use crate::{api::auth::extract_bearer_claims, openapi::PaginatedRepoResponse, AppState};
+use crate::{
+    api::auth::{extract_bearer_claims, extract_user_id},
+    openapi::PaginatedRepoResponse,
+    AppState,
+};
 
 /// Helper to record audit log (fire-and-forget).
 #[allow(clippy::too_many_arguments)]
@@ -362,18 +366,10 @@ pub async fn star_repo(
     headers: HeaderMap,
     Path((owner, name)): Path<(String, String)>,
 ) -> impl IntoResponse {
-    let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
-        Some(c) => c,
+    let user_id = match extract_user_id(&headers, &state.jwt_secret) {
+        Some(user_id) => user_id,
         None => {
             return AppError::unauthorized("authentication required".to_string()).into_response()
-        }
-    };
-
-    let user_id: i64 = match claims.sub.parse::<i64>() {
-        Ok(id) => id,
-
-        Err(_) => {
-            return AppError::unauthorized("invalid token subject".to_string()).into_response()
         }
     };
 
@@ -413,18 +409,10 @@ pub async fn get_starred_status(
     headers: HeaderMap,
     Path((owner, name)): Path<(String, String)>,
 ) -> impl IntoResponse {
-    let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
-        Some(c) => c,
+    let user_id = match extract_user_id(&headers, &state.jwt_secret) {
+        Some(user_id) => user_id,
         None => {
             return AppError::unauthorized("authentication required".to_string()).into_response()
-        }
-    };
-
-    let user_id: i64 = match claims.sub.parse::<i64>() {
-        Ok(id) => id,
-
-        Err(_) => {
-            return AppError::unauthorized("invalid token subject".to_string()).into_response()
         }
     };
 
@@ -508,17 +496,10 @@ pub async fn get_watch_status(
     headers: HeaderMap,
     Path((owner, name)): Path<(String, String)>,
 ) -> impl IntoResponse {
-    let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
-        Some(c) => c,
+    let user_id = match extract_user_id(&headers, &state.jwt_secret) {
+        Some(user_id) => user_id,
         None => {
             return AppError::unauthorized("authentication required".to_string()).into_response()
-        }
-    };
-
-    let user_id: i64 = match claims.sub.parse::<i64>() {
-        Ok(id) => id,
-        Err(_) => {
-            return AppError::unauthorized("invalid token subject".to_string()).into_response()
         }
     };
 
@@ -562,18 +543,10 @@ pub async fn watch_repo(
     Path((owner, name)): Path<(String, String)>,
     Json(body): Json<WatchRequest>,
 ) -> impl IntoResponse {
-    let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
-        Some(c) => c,
+    let user_id = match extract_user_id(&headers, &state.jwt_secret) {
+        Some(user_id) => user_id,
         None => {
             return AppError::unauthorized("authentication required".to_string()).into_response()
-        }
-    };
-
-    let user_id: i64 = match claims.sub.parse::<i64>() {
-        Ok(id) => id,
-
-        Err(_) => {
-            return AppError::unauthorized("invalid token subject".to_string()).into_response()
         }
     };
 
@@ -613,18 +586,10 @@ pub async fn unwatch_repo(
     headers: HeaderMap,
     Path((owner, name)): Path<(String, String)>,
 ) -> impl IntoResponse {
-    let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
-        Some(c) => c,
+    let user_id = match extract_user_id(&headers, &state.jwt_secret) {
+        Some(user_id) => user_id,
         None => {
             return AppError::unauthorized("authentication required".to_string()).into_response()
-        }
-    };
-
-    let user_id: i64 = match claims.sub.parse::<i64>() {
-        Ok(id) => id,
-
-        Err(_) => {
-            return AppError::unauthorized("invalid token subject".to_string()).into_response()
         }
     };
 

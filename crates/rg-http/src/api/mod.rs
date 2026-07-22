@@ -2,6 +2,7 @@ pub mod admin;
 pub mod ai;
 pub mod archive;
 pub mod artifacts;
+pub mod attachments;
 pub mod audit;
 pub mod auth;
 pub mod boards;

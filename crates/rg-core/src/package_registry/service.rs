@@ -173,7 +173,7 @@ pub async fn publish(
         }
 
         // 5. Create version record
-        let v = rg_db::ops::package_version_ops::create(
+        let v = match rg_db::ops::package_version_ops::create(
             db,
             pkg.id,
             &info.version,
@@ -183,11 +183,26 @@ pub async fn publish(
             combined_sha256.as_deref(),
             Some(info.author_id),
         )
-        .await?;
+        .await
+        {
+            Ok(version) => version,
+            Err(error) => {
+                let _ = storage
+                    .delete_version(
+                        &info.owner,
+                        &info.repo,
+                        &info.package_type,
+                        &info.name,
+                        &info.version,
+                    )
+                    .await;
+                return Err(error.into());
+            }
+        };
 
         // 6. Create file records
         for sf in &stored_files {
-            rg_db::ops::package_file_ops::create(
+            if let Err(error) = rg_db::ops::package_file_ops::create(
                 db,
                 v.id,
                 &sf.filename,
@@ -195,7 +210,21 @@ pub async fn publish(
                 Some(&sf.sha256),
                 &sf.storage_path,
             )
-            .await?;
+            .await
+            {
+                let _ = storage
+                    .delete_version(
+                        &info.owner,
+                        &info.repo,
+                        &info.package_type,
+                        &info.name,
+                        &info.version,
+                    )
+                    .await;
+                let _ = rg_db::ops::package_file_ops::delete_by_version(db, v.id).await;
+                let _ = rg_db::ops::package_version_ops::delete_by_id(db, v.id).await;
+                return Err(error.into());
+            }
         }
 
         v
@@ -417,8 +446,7 @@ pub async fn delete_version(
     // Delete files from storage
     storage
         .delete_version(owner, repo, package_type, name, version_str)
-        .await
-        .ok();
+        .await?;
 
     // Delete DB records
     rg_db::ops::package_file_ops::delete_by_version(db, v.id).await?;

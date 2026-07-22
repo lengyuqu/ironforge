@@ -56,8 +56,9 @@
 | 文件 | 内容 |
 |------|------|
 | `mainstream-git-platform-gap-analysis-2026-07-10.md` | vs GitHub/GitLab/Gitea/Forgejo 当前差距、P0 上线阻断项与实施顺序 |
-| `gitea-vs-ironforge-2026.md` | vs Gitea 1.26 功能对比（v3.1，完成度 ~85%） |
-| `gitea-gap-list.csv` | 功能差距清单（60+ 条状态标注，程序化处理友好） |
+| `gitea-vs-ironforge-2026.md` | vs Gitea 1.26 历史功能对比（v3.1 的 ~85% 旧口径，已由可验证矩阵替代） |
+| `gitea-gap-list.csv` | Gitea 1.26.4 加权对齐矩阵（67 项，含代码/测试证据、状态、得分与任务 ID） |
+| `gitea-alignment-matrix-2026-07-13.md` | 对齐评分口径、领域得分与基线结论（当前 75.4%） |
 | `gitea-detail-alignment-plan-2026-07-13.md` | vs Gitea 1.26.4 细节功能对齐计划、任务 ID、依赖与验收门 |
 | `gitea-alignment-progress-2026-07-13.md` | Gitea 1.26.4 对齐进度台账（DONE/DOING/READY/TODO/BLOCKED、证据与变更记录） |
 
@@ -68,6 +69,20 @@
 | 文件 | 内容 |
 |------|------|
 | `ci-runner-architecture.md` | CI Runner 调度架构（Agent 生命周期 / Artifact / Job 调度） |
+| `adr-0001-third-party-actions-execution.md` | 第三方 Actions 执行模型、Runner 隔离、网络、Secret、fork 与兼容边界（Accepted） |
+
+## 存储（`ironforge-docs/storage/`）
+
+| 文件 | 内容 |
+|------|------|
+| `blob-storage-contract-2026-07.md` | BlobStorage 接口、对象键、原子写入、生命周期、legacy 兼容与备份边界 |
+
+## Issue / PR（`ironforge-docs/issues/`）
+
+| 文件 | 内容 |
+|------|------|
+| `markdown-template-compatibility-2026-07.md` | Gitea 1.26.4 Markdown Issue/PR Template 的发现路径、front matter、chooser config、API、权限与已知边界 |
+| `attachment-contract-2026-07.md` | Issue/PR/评论附件的数据归属、Blob key、配额、权限、补偿和 API 契约 |
 
 ---
 
@@ -78,6 +93,7 @@
 | `functional-test-guide-2026-07-03.md` | 功能测试指南 |
 | `audit-report-2026-07-03.md` | 前后端缺陷与设计矛盾审计 |
 | `project-audit-2026-06.md` | 项目审计与进度报告（2026-06，演进记录） |
+| `git-protocol-client-matrix-2026-07.md` | HTTP/SSH、V1/V2 的真实 Git 客户端兼容矩阵、降级语义与运行方法 |
 
 > 两份审计（2026-06 / 2026-07-03）保留以反映演进时间线，不强行合并以消除时序信息。
 
