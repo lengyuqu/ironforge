@@ -100,6 +100,7 @@ AI Agent **必须**在阅读代码前先读取以下文件：
 |------|------|--------|
 | `AGENT.md` | Agent 轻量入口（适合快速上手） | ⭐ 最高 |
 | `CLAUDE.md` | AI 统一入口：项目结构、关键约定、已实现功能清单、踩坑清单 | ⭐ 最高 |
+| `.ai/guardrails.md` | **Agent 生命周期护栏：权限边界规则（高风险操作确认/拦截）** | ⭐ 最高 |
 | `ironforge-docs/project-architecture-2026-07.md` | 当前代码事实架构总览 | ⭐ 高 |
 | `ironforge-docs/frontend-backend-structure-2026-07.md` | 当前前后端结构与页面/API 映射 | ⭐ 高 |
 | `ARCHITECTURE.md` | 历史架构方案：技术选型、模块设计、数据库模型 | 中 |

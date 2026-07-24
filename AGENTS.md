@@ -7,5 +7,6 @@
 ---
 
 - 完整 AI 协作上下文 → **[CLAUDE.md](./CLAUDE.md)** ⭐
+- **Agent 生命周期护栏（权限边界规则）** → **[.ai/guardrails.md](./.ai/guardrails.md)** ⭐
 - 轻量级项目概览 → **[AGENT.md](./AGENT.md)**
 - 文档索引（架构 / 分析 / 对比 / CI / 测试审计）→ **[ironforge-docs/README.md](./ironforge-docs/README.md)**

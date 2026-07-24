@@ -74,6 +74,18 @@ ironforge/
 
 ## 关键约定
 
+### Agent 生命周期护栏（必读！）
+
+> ⚠️ **所有 AI Agent 在执行变更操作前必须阅读 [`.ai/guardrails.md`](.ai/guardrails.md)**
+
+本项目配置了 Agent 权限边界规则，标识以下高风险操作需要确认或拦截：
+
+- 🔴 **BLOCK（禁止）**：数据库 DROP/ALTER、删除迁移文件、删除数据库、force push、修改密钥
+- 🟠 **CONFIRM（需确认）**：新增迁移、部署操作、删除源文件、修改认证/权限逻辑、Git 协议核心
+- 🟡 **WARN（需警告）**：修改实体定义、引入新依赖、修改 Dockerfile、删除文档
+
+Agent 触发高风险操作时必须输出确认模板并等待用户确认，详见 [`.ai/guardrails.md`](.ai/guardrails.md)。
+
 ### 命令规范
 
 ```bash

@@ -362,6 +362,29 @@ BACKEND_URL=http://127.0.0.1:8080 node scripts/api-client-contract-check.mjs
 
 Git 协议专项问题可以按 `AGENTS.md` 中的 SSH/HTTP clone/push 命令模板手动复现。
 
+### 变更区域 → 测试命令映射
+
+修改代码后，请至少运行对应区域的测试命令确认无回归：
+
+| 变更区域 | 测试命令 | 说明 |
+|----------|----------|------|
+| `crates/rg-git/` | `cargo test -p rg-git` | Git 协议层单元测试 |
+| `crates/rg-ssh/` | `cargo test -p rg-ssh` | SSH 传输层单元 + 集成测试 |
+| `crates/rg-http/` | `cargo test -p rg-http` | HTTP API 单元 + 集成测试 |
+| `crates/rg-core/` | `cargo test -p rg-core` | 核心业务逻辑单元 + 集成测试 |
+| `crates/rg-db/` | `cargo test -p rg-db` | 数据库层单元测试 |
+| `crates/rg-ci/` | `cargo test -p rg-ci` | CI 配置解析与执行器测试 |
+| `crates/rg-cli/` | `cargo test -p rg-cli` | CLI 入口测试 |
+| `crates/rg-mcp/` | `cargo test -p rg-mcp` | MCP 服务端测试 |
+| `crates/rg-runner/` | `cargo test -p rg-runner` | Runner Agent 测试 |
+| `web/` | `cd web && npm run check` | 前端 TypeScript / Svelte 类型检查 |
+| `web/`（构建验证） | `cd web && npm run build` | 前端生产构建 |
+| `web/`（冒烟） | `cd web && npm run smoke:markdown-sanitizer` | Markdown 净化器冒烟测试 |
+| 跨 crate / 全量 | `cargo test --workspace` | 全部后端 crate 测试 |
+| 全量回归 | `node scripts/full-interface-regression.mjs` | 后端 + 前端 + 运行态 smoke |
+
+> **提示**：若变更涉及多个 crate（如同时修改 `rg-core` 和 `rg-http`），建议直接运行 `cargo test --workspace` 避免遗漏跨 crate 影响。
+
 ---
 
 ## 分支管理

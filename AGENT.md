@@ -18,8 +18,9 @@
 ### 关键文件速查
 
 | 文件 | 用途 | 何时读取 |
-|------|------|---------|
+|------|------|--------|
 | `CLAUDE.md` | 最完整的 AI 协作上下文（踩坑记录、依赖版本、常见错误、实现现状清单） | **每次开始工作前必读** |
+| `.ai/guardrails.md` | **Agent 生命周期护栏（权限边界规则）** | **执行任何变更操作前必读** ⭐ |
 | `ironforge-docs/README.md` | 文档索引（单一事实来源） | 找任何分析报告时先读 |
 | `ironforge-docs/architecture/project-architecture-2026-07.md` | 当前代码事实架构总览 | 设计新功能、核验模块边界时 |
 | `ironforge-docs/architecture/frontend-backend-structure-2026-07.md` | 当前前后端结构和页面/API 映射 | 修改前端页面、API client 或 HTTP handler 时 |
@@ -103,6 +104,23 @@ cargo build --release
 # 创建测试仓库
 ./target/release/ironforge create-repo <owner> <repo> --repo-root /tmp/ironforge/repos
 ```
+
+---
+
+## Agent 生命周期护栏
+
+> ⚠️ **执行任何变更操作前，必须先阅读 [`.ai/guardrails.md`](.ai/guardrails.md)**
+
+本项目配置了权限边界规则，覆盖以下高风险操作类别：
+
+| 类别 | 典型操作 | 护栏等级 |
+|------|---------|----------|
+| 数据库迁移 | 新增/修改/删除迁移文件、执行 migrate | 🔴 BLOCK / 🟠 CONFIRM |
+| 部署操作 | docker compose、修改 CI/CD 工作流、镜像发布 | 🔴 BLOCK / 🟠 CONFIRM |
+| 删除操作 | 删除源文件、数据库、仓库、force push | 🔴 BLOCK / 🟠 CONFIRM |
+| 安全与认证 | 修改 auth 逻辑、JWT 密钥、权限校验 | 🔴 BLOCK / 🟠 CONFIRM |
+| Git 协议核心 | 修改 protocol/、SSH 认证、分支保护 | 🟠 CONFIRM |
+| 数据完整性 | 修改实体/ops、AppState、BlobStorage | 🟠 CONFIRM / 🟡 WARN |
 
 ---
 
