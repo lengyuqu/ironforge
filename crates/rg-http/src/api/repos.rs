@@ -218,7 +218,7 @@ pub async fn create_repo(
             let resource_name = format!(
                 "{}/{}",
                 body.org.as_deref().unwrap_or(&username),
-                &body.name
+                body.name
             );
             record_audit(
                 &state.db,

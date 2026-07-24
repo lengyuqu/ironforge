@@ -69,6 +69,7 @@ impl AttachmentTarget {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn create_attachment(
     db: &DatabaseConnection,
     storage: &dyn BlobStorage,
@@ -98,6 +99,7 @@ pub async fn create_attachment(
 
 /// Persist an attachment from a bounded temporary file without buffering the
 /// complete upload in application memory.
+#[allow(clippy::too_many_arguments)]
 pub async fn create_attachment_from_file(
     db: &DatabaseConnection,
     storage: &dyn BlobStorage,

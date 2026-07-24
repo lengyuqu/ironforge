@@ -33,6 +33,7 @@ config/local.toml
 
 # AI assistant workspace (local memory, not project source)
 .workbuddy/
+.qoder/
 
 # Logs
 *.log

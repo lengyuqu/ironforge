@@ -57,6 +57,7 @@ pub fn jwk(secret: &str) -> CiOidcJwk {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn issue(
     secret: &str,
     issuer: &str,

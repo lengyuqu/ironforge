@@ -174,6 +174,7 @@ pub async fn update_stage_status(
 // ── Job ops ──────────────────────────────────────────────────────
 
 /// Create a pipeline job.
+#[allow(clippy::too_many_arguments)]
 pub async fn create_job(
     db: &DatabaseConnection,
     stage_id: i64,

@@ -44,7 +44,7 @@ impl MigrationTrait for Migration {
                     .to_owned(),
             ),
         ];
-        for (name, definition) in columns {
+        for (name, mut definition) in columns {
             if !manager
                 .has_column("pull_requests", name.to_string().as_str())
                 .await?
@@ -53,7 +53,7 @@ impl MigrationTrait for Migration {
                     .alter_table(
                         Table::alter()
                             .table(PullRequests::Table)
-                            .add_column(&mut definition.clone())
+                            .add_column(&mut definition)
                             .to_owned(),
                     )
                     .await?;

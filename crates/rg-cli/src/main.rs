@@ -448,21 +448,6 @@ fn default_db_idle_timeout() -> u64 {
     600
 }
 
-#[cfg(test)]
-mod config_tests {
-    use super::ConfigFile;
-
-    #[test]
-    fn example_config_includes_valid_audit_archive_settings() {
-        let config: ConfigFile =
-            toml::from_str(include_str!("../../../ironforge.example.toml")).unwrap();
-        assert_eq!(config.audit.enabled, Some(true));
-        assert_eq!(config.audit.archive_after_days, Some(90));
-        assert_eq!(config.audit.interval_minutes, Some(60));
-        assert_eq!(config.audit.batch_size, Some(1_000));
-    }
-}
-
 fn load_config_file(path: &str) -> anyhow::Result<ConfigFile> {
     let content = std::fs::read_to_string(path)?;
     let config: ConfigFile = toml::from_str(&content)?;
@@ -565,7 +550,7 @@ fn restore_sqlite_db(db_url: &str, input: &PathBuf, force: bool) -> anyhow::Resu
     Ok(())
 }
 
-fn remove_sqlite_sidecar_files(db_path: &PathBuf) -> anyhow::Result<()> {
+fn remove_sqlite_sidecar_files(db_path: &std::path::Path) -> anyhow::Result<()> {
     for suffix in ["", "-wal", "-shm"] {
         let path = PathBuf::from(format!("{}{}", db_path.display(), suffix));
         if path.exists() {
@@ -1694,5 +1679,20 @@ async fn run_job_docker(image: &str, script: &str) -> (i32, String) {
             (code, log)
         }
         Err(e) => (-1, format!("Failed to run docker: {}", e)),
+    }
+}
+
+#[cfg(test)]
+mod config_tests {
+    use super::ConfigFile;
+
+    #[test]
+    fn example_config_includes_valid_audit_archive_settings() {
+        let config: ConfigFile =
+            toml::from_str(include_str!("../../../ironforge.example.toml")).unwrap();
+        assert_eq!(config.audit.enabled, Some(true));
+        assert_eq!(config.audit.archive_after_days, Some(90));
+        assert_eq!(config.audit.interval_minutes, Some(60));
+        assert_eq!(config.audit.batch_size, Some(1_000));
     }
 }

@@ -117,7 +117,7 @@ pub async fn handle_info_refs_v2(
     }
 
     // Build repo path
-    let repo_path = state.repo_root.join(&owner).join(format!("{}.git", &repo));
+    let repo_path = state.repo_root.join(&owner).join(format!("{}.git", repo));
 
     if !repo_path.exists() {
         return (
@@ -187,7 +187,7 @@ pub async fn handle_git_upload_pack_v2(
     }
 
     // Build repo path
-    let repo_path = state.repo_root.join(&owner).join(format!("{}.git", &repo));
+    let repo_path = state.repo_root.join(&owner).join(format!("{}.git", repo));
 
     if !repo_path.exists() {
         return (
@@ -273,7 +273,7 @@ pub async fn handle_git_receive_pack_v2(
     }
 
     // Build repo path
-    let repo_path = state.repo_root.join(&owner).join(format!("{}.git", &repo));
+    let repo_path = state.repo_root.join(&owner).join(format!("{}.git", repo));
 
     if !repo_path.exists() {
         return (

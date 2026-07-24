@@ -4,7 +4,6 @@ use anyhow::{bail, Context, Result};
 use chrono::Utc;
 use sea_orm::{ActiveValue::Set, ConnectionTrait, DatabaseConnection};
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
 #[cfg(test)]
 use std::sync::Mutex;
 use std::sync::{OnceLock, RwLock};
@@ -490,6 +489,7 @@ fn path_to_git_url(path: &std::path::Path) -> Result<String> {
 
 /// Auto-initialize a bare repo with initial files (README, LICENSE, .gitignore)
 /// by creating a temp working tree, committing, and pushing to the bare repo.
+#[allow(clippy::too_many_arguments)]
 fn auto_init_repo(
     bare_path: &std::path::Path,
     repo_name: &str,
@@ -750,10 +750,8 @@ pub async fn fork_repo(
         .await?
         .ok_or_else(|| anyhow::anyhow!("source repository not found"))?;
 
-    if source_repo.is_private {
-        if !can_read_repo(db, &source_repo, Some(user_id)).await? {
-            bail!("permission denied: cannot read private repository");
-        }
+    if source_repo.is_private && !can_read_repo(db, &source_repo, Some(user_id)).await? {
+        bail!("permission denied: cannot read private repository");
     }
 
     let forker = user_ops::find_by_id(db, user_id)
@@ -884,6 +882,7 @@ pub async fn transfer_repo(
 // ── Commit Status ──────────────────────────────────────────────────────
 
 /// Create a commit status. Validates that state is one of: pending, success, failure, error.
+#[allow(clippy::too_many_arguments)]
 pub async fn create_commit_status(
     db: &DatabaseConnection,
     repo_id: i64,
@@ -959,11 +958,11 @@ pub async fn get_combined_status(
 
     let state_map: std::collections::HashMap<&str, i64> =
         counts.iter().map(|(k, v)| (k.as_str(), *v)).collect();
-    let combined = if state_map.get("failure").map_or(false, |&c| c > 0) {
+    let combined = if state_map.get("failure").is_some_and(|&c| c > 0)
+        || state_map.get("error").is_some_and(|&c| c > 0)
+    {
         "failure"
-    } else if state_map.get("error").map_or(false, |&c| c > 0) {
-        "failure"
-    } else if state_map.get("pending").map_or(false, |&c| c > 0) {
+    } else if state_map.get("pending").is_some_and(|&c| c > 0) {
         "pending"
     } else {
         "success"
@@ -1016,6 +1015,7 @@ pub async fn notify_watchers_push(
 /// - `message`: Commit message
 /// - `branch`: Target branch (default: repo's default branch)
 /// - `sha`: Blob SHA of the file being updated (required for updates to prevent overwrites)
+#[allow(clippy::too_many_arguments)]
 pub async fn create_or_update_file(
     _db: &DatabaseConnection,
     _repo_id: i64,
@@ -1156,6 +1156,7 @@ pub struct FileUpdate {
 /// The branch head and every touched blob are checked before writing. The
 /// normal fast-forward push is the final concurrency guard if the branch moves
 /// after those checks.
+#[allow(clippy::too_many_arguments)]
 pub fn update_files_in_commit(
     owner: &str,
     repo_name: &str,
@@ -1274,6 +1275,7 @@ pub fn update_files_in_commit(
 /// Delete a file from a repository.
 ///
 /// Similar to `create_or_update_file()`, but removes the file instead.
+#[allow(clippy::too_many_arguments)]
 pub async fn delete_file(
     _db: &DatabaseConnection,
     _repo_id: i64,
@@ -1285,7 +1287,7 @@ pub async fn delete_file(
     sha: &str,
     author_name: &str,
     author_email: &str,
-    repo_root: &PathBuf,
+    repo_root: &std::path::Path,
 ) -> Result<()> {
     let repo_path = repo_root.join(format!("{}/{}.git", owner, repo_name));
 
