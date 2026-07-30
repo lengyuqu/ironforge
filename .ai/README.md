@@ -144,12 +144,9 @@ AI Agent **必须**在阅读代码前先读取以下文件：
 
 ---
 
-## 踩坑经验（AI 必读）
+## 踩坑经验
 
-1. **Git 协议**：pkt-line 用 `read_pkt_line`；receive-pack report-status 整体 sideband；thin pack 需 `--fix-thin`；`for-each-ref` 不列 HEAD
-2. **Axum**：`nest()` 要求相同 State 类型；TLS 用 `axum-server`；`impl IntoResponse` 不能混用返回类型
-3. **SeaORM**：单行更新先 `find` 再 `ActiveModel`；批量删除用 `delete_many().filter()`
-4. **SQLite FTS5**：触发器中不要用 `'delete'` 命令语法，用 `DELETE FROM fts WHERE rowid = old.id`
+详见 [CLAUDE.md](../CLAUDE.md) 的「重要踩坑」和「常见错误排查」章节。
 
 ---
 

@@ -12,16 +12,7 @@
 
 ## 技术栈速览
 
-| 层 | 技术 |
-|----|------|
-| 语言 | Rust 1.95 (stable) |
-| HTTP | Axum 0.8 + axum-server (rustls, TLS) |
-| SSH | russh 0.51 |
-| Git | gix 0.84 + `GitCommandGateway`（部分能力仍经 git CLI） |
-| 数据库 | SeaORM 1.1 (SQLite) |
-| 认证 | Argon2 + JWT (HS256) |
-| CI/CD | serde_yaml + sh / docker |
-| 前端 | SvelteKit 5 SPA，中英双语 i18n（199 key） |
+详见 [README.md](../README.md) 的「技术选型」章节。
 
 ## 环境要求
 
@@ -64,19 +55,11 @@ ssh-keygen -t ed25519 -f /tmp/ironforge_host_key -N ""
 
 ## crate 职责（速记）
 
-```
-rg-cli      入口 / 启动协调
-rg-core     业务逻辑（auth / repo / issue / pr / wiki / lfs / package_registry / search / audit ...）
-rg-git      Git 协议层（pkt-line / upload-pack / receive-pack，纯协议）
-rg-ssh      SSH 服务端（russh）
-rg-http     HTTP + REST API + Git Smart HTTP + WebSocket
-rg-db       SeaORM 实体 / 迁移 / ops
-rg-ci       CI/CD 引擎（YAML 解析 + Pipeline 执行）
-rg-runner   Runner Agent 独立二进制（ironforge-runner）
-rg-mcp      MCP 服务器（ironforge-mcp，暴露 Tools + Resources 给 AI Agent）
-```
+详见 [CONTRIBUTING.md](../CONTRIBUTING.md) 的「项目结构与 crate 职责」章节。
 
 ## 常见坑（先看这个）
+
+完整踩坑清单见 [CLAUDE.md](../CLAUDE.md) 的「重要踩坑」章节。以下是最常遇到的四个：
 
 - **gix `!Send`**：`gix::Repository` 含 `RefCell`，async fn 中不得跨 `.await` 持有，用同步块收集数据后再做 async I/O。
 - **Git CLI 统一**：所有 git 命令必须经 `GitCommandGateway`，禁止新增 `Command::new("git")`（防回归守卫 `test_no_raw_git_command_in_crates`）。
