@@ -5,6 +5,8 @@
 > Claude Code 默认自动读取 `CLAUDE.md`，但同样会读取本文件。
 > **建议**：先通读本文件获取概览，再根据任务深入 `CLAUDE.md` 或其他文档。
 
+> **状态**：维护中 ｜ **可信度**：确认 ｜ **来源**：仓库代码 / 文档 / 运行结果 ｜ **最后更新**：2026-08-14
+
 ---
 
 ## 快速定位（30 秒了解项目）
@@ -29,6 +31,7 @@
 | `CONTRIBUTING.md` | 开发规范、crate 边界规则、编码规范 | 写新代码时 |
 | `README.md` | 快速开始、REST API 示例 | 首次接触项目时 |
 | `.ai/README.md` | AI Agent 接入指南（MCP + REST API + prompt 模板） | 需要让 AI 工具调用 IronForge 时 |
+| `templates/` | 多 Agent 协作骨架（PLANNING.md / TASKS.md / tasks/Txx.md） | 启用多 Agent 并行开发时 |
 
 ---
 

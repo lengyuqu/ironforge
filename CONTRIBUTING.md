@@ -2,6 +2,8 @@
 
 感谢你对 IronForge 的关注！本文档说明开发规范、crate 职责划分和常见工作流程。
 
+> **状态**：维护中 ｜ **可信度**：确认 ｜ **来源**：仓库代码 / 文档 / 运行结果 ｜ **最后更新**：2026-08-14
+
 ---
 
 ## 目录
@@ -10,8 +12,11 @@
 - [项目结构与 crate 职责](#项目结构与-crate-职责)
 - [编码规范](#编码规范)
 - [提交规范](#提交规范)
+- [决策记录](#决策记录)
+- [凭据与敏感信息](#凭据与敏感信息)
 - [测试规范](#测试规范)
 - [分支管理](#分支管理)
+- [多 Agent 协作](#多-agent-协作)
 - [Phase 开发计划](#phase-开发计划)
 
 ---
@@ -300,6 +305,46 @@ packfile data, since it tried to read the pkt-line length header as text.
 
 ---
 
+## 决策记录
+
+重要架构与产品决策应沉淀为 ADR（Architecture Decision Record），避免决策只存在于对话或提交信息中。项目已有 ADR 实践（如 `ironforge-docs/ci/adr-0001-*.md`）。
+
+ADR 文件约定：
+- 位置：`ironforge-docs/<领域>/adr-NNNN-<slug>.md`（NNNN 为四位递增编号）
+- 编号：按创建顺序递增，不因废弃而复用
+
+每份 ADR 至少包含以下小节（对齐 mybook `Templates/决策记录模板`）：
+
+```markdown
+# 决策记录：<标题>
+
+状态：提议 / 接受 / 废弃 / 替代
+可信度：确认 / 待验证
+来源：用户说明 / 会议 / 仓库代码 / 运行结果
+最后更新：YYYY-MM-DD
+
+## 背景
+## 决策
+## 备选方案
+| 方案 | 优点 | 缺点 | 结论 |
+## 影响范围
+## 后续动作
+```
+
+状态说明：`提议`（待评审）、`接受`（已生效）、`废弃`（已否决）、`替代`（被更新的 ADR 取代）。
+
+---
+
+## 凭据与敏感信息
+
+> 对齐 mybook `Templates` 的凭据策略：文档不记录凭据原文。
+
+- 不把账号密码、token、secret、API key、私钥原文写入任何文档、代码注释或提交信息。
+- 文档只记录环境变量名（如 `IRONFORGE_PAT`）、用途或凭据存放位置。
+- 配置示例（`ironforge.example.toml`、`.env.example`）使用占位符，不填真实值。
+
+---
+
 ## 测试规范
 
 ### 单元测试
@@ -400,6 +445,59 @@ PR 合并到 `main` 前要求：
 1. `cargo build --release` 通过
 2. `cargo clippy` 无 error
 3. `node scripts/full-interface-regression.mjs` 或对应子集回归通过
+
+---
+
+## 多 Agent 协作
+
+> 吸收自 aifuke 仓库已验证的 worktree 协作方案（v1.0）。IronForge 当前以单 Agent 维护为主，本约定为**未来多 Agent 并行开发**预置；骨架模板位于 [`templates/`](templates/) 目录。
+
+### 启用时机
+
+仅当存在多 Agent 并行开发、可写共享远端和人工协调者时启用；单 Agent 维护期不引入 `tasks/` 与 worktree 成本。
+
+### 目录与职责
+
+- `PLANNING.md` — 稳定的协作约束（项目上下文、边界、共享契约、任务设计规则、工作分配、决策日志）；不存实时任务状态。
+- `TASKS.md` — 认领/完成协议 + 协调者维护的任务索引镜像；**Agent 不得编辑**。
+- `tasks/Txx.md` — 每个任务的唯一权威状态文件。
+- `docs/plans/Txx-plan.md` / `Txx-task.md` — 认领时创建的规划 / 约束确认文档。
+- `templates/` — 上述文件的骨架模板（`templates/PLANNING.md`、`templates/TASKS.md`、`templates/tasks/Txx.md`）。
+
+### 状态机（三态，不新增）
+
+- `available` → `in_progress` → `completed`
+- `completed` 仅表示开发就绪待人工评审，**不等于**已合并 / 已发布 / 已验收；再分配、集成、发布属人工协调，不是额外任务状态。
+- `in_progress` 任务 48 小时无活动，协调者可重置为 `available`；Agent 不得重置他人状态。
+
+### 原子认领协议
+
+1. `git fetch` 后读 `PLANNING.md`、`TASKS.md`、`tasks/Txx.md`，选一个 `available` 任务。
+2. 从 live base 建 worktree + 分支：`git worktree add ../<repo>-t01 -b agent/t01-name <remote>/<base>`
+3. 在 worktree 内只改 `tasks/Txx.md` 的 State/Agent/Branch/Worktree/Claimed at → `in_progress`，并新建 `docs/plans/Txx-plan.md`、`Txx-task.md`。
+4. 提交 `chore(tasks): claim Txx with plan`（只含任务文件 + plan/task 文档，**不含** `TASKS.md`）。
+5. `git push <remote> HEAD:<base>` 普通 fast-forward；先成功者胜。push 被拒须重新读任务文件，**禁止 force-push**。
+6. base push 成功后 `git push -u <remote> HEAD` 发布任务分支，仅在登记的 worktree 与 owned paths 内实现。
+
+### 完成协议
+
+1. rebase 到最新 base，仅在 owned paths 内解决冲突。
+2. 跑验收命令并记录真实结果。
+3. `tasks/Txx.md` State → `completed`（保留 Agent/branch/worktree/claim 时间）。
+4. push 任务分支；**不**把实现提交直接 push 到 base。
+
+### 协调者串行合并
+
+- 合并任务分支到 base 是协调者专属、串行执行。
+- 冲突时保留远端每一行，只叠加本任务自身变更，**绝不丢弃其他任务的文件/行**。
+- 合并后协调者可删除任务分支、清理 worktree。
+
+### 启用步骤
+
+1. 复制 `templates/` 骨架到仓库根与 `tasks/`。
+2. 替换全部 `{{PLACEHOLDER}}`（不留占位符）。
+3. 建立 `tasks/`、`docs/plans/` 目录。
+4. 在 `PLANNING.md` 登记工作分配与共享契约后，才开放任务认领。
 
 ---
 
