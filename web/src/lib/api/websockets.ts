@@ -7,13 +7,22 @@ function withWebSocketApiBase(path: string): string {
   return `${protocol}//${apiUrl.host}${basePath}${path.startsWith('/') ? path : `/${path}`}`;
 }
 
+// Module-level state controlling the auto-reconnect behaviour of the
+// notification socket. `connectNotificationWebSocket` sets this to true so that
+// `onclose` can schedule a reconnect; `disconnectNotificationWebSocket` flips it
+// to false and closes the active connection, breaking the reconnect loop.
+let notificationWs: WebSocket | null = null;
+let reconnectEnabled = false;
+
 export function connectNotificationWebSocket(
   onMessage: (event: { event_type: string; data: any }) => void,
   onError?: (err: Event) => void,
 ): WebSocket | null {
   // WebSocket auth uses the HttpOnly cookie sent by the browser for same-origin
   // upgrades. The backend validates the cookie before accepting the connection.
+  reconnectEnabled = true;
   const ws = new WebSocket(withWebSocketApiBase('/ws/notifications'));
+  notificationWs = ws;
 
   ws.onmessage = (event) => {
     try {
@@ -29,12 +38,28 @@ export function connectNotificationWebSocket(
   };
 
   ws.onclose = () => {
-    setTimeout(() => {
-      connectNotificationWebSocket(onMessage, onError);
-    }, 5000);
+    notificationWs = null;
+    // Only schedule a reconnect while it is still wanted. The double guard
+    // covers the race where `disconnectNotificationWebSocket` is called while a
+    // reconnect is already pending inside the setTimeout.
+    if (reconnectEnabled) {
+      setTimeout(() => {
+        if (reconnectEnabled) {
+          connectNotificationWebSocket(onMessage, onError);
+        }
+      }, 5000);
+    }
   };
 
   return ws;
+}
+
+export function disconnectNotificationWebSocket() {
+  reconnectEnabled = false;
+  if (notificationWs) {
+    notificationWs.close();
+    notificationWs = null;
+  }
 }
 
 export function connectJobLogWebSocket(

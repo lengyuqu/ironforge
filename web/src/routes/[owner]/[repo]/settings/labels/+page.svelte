@@ -66,7 +66,7 @@
       const result = await labels.list(owner!, repo!);
       labelList = result;
     } catch (err: any) {
-      error = err.message || 'Failed to load labels';
+      error = err.message || t('errors.load_failed');
     } finally {
       loading = false;
     }
@@ -130,7 +130,7 @@
       
       setTimeout(() => { success = ''; }, 3000);
     } catch (err: any) {
-      formError = err.message || 'Failed to save label';
+      formError = err.message || t('errors.update_failed');
     } finally {
       saving = false;
     }
@@ -156,7 +156,7 @@
       
       setTimeout(() => { success = ''; }, 3000);
     } catch (err: any) {
-      error = err.message || 'Failed to delete label';
+      error = err.message || t('errors.delete_failed');
     } finally {
       deleting = false;
     }
@@ -293,7 +293,7 @@
   
   <!-- Labels List -->
   {#if loading}
-    <div class="loading">Loading...</div>
+    <div class="loading">{t('common.loading')}</div>
   {:else if labelList.length === 0}
     <div class="empty-state">
       <p>{t('settings.no_labels')}</p>

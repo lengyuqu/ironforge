@@ -2,7 +2,9 @@
   import { goto } from '$app/navigation';
   import { imports, type ImportTask, type StartImportPayload } from '$lib/api/client.svelte';
   import { isLoggedIn, getUser } from '$lib/stores/auth.svelte';
-  import { formatDateTime } from '$lib/i18n';
+  import { createT, formatDateTime } from '$lib/i18n';
+
+  const t = createT();
 
   let taskList = $state<ImportTask[]>([]);
   let loading = $state(true);
@@ -72,7 +74,7 @@
     try {
       taskList = await imports.list();
     } catch (e: any) {
-      error = e.message || 'Failed to load imports';
+      error = e.message || t('errors.load_failed');
     } finally {
       loading = false;
     }
@@ -108,7 +110,7 @@
       success = 'Import queued';
       await loadImports();
     } catch (e: any) {
-      error = e.message || 'Failed to start import';
+      error = e.message || t('errors.start_failed');
     } finally {
       submitting = false;
     }
@@ -123,7 +125,7 @@
       taskList = taskList.filter((task) => task.id !== id);
       success = 'Import deleted';
     } catch (e: any) {
-      error = e.message || 'Failed to delete import';
+      error = e.message || t('errors.delete_failed');
     }
   }
 

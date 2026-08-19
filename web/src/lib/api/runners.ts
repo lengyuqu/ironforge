@@ -88,6 +88,9 @@ function normalizeRunner(row: RunnerAdminResponse): RunnerListItem {
 }
 
 export const runners = {
+  // NOTE (F-015): This fetches ALL runners then slices client-side for pagination.
+  // Acceptable because CI runner count is typically small (dozens, not thousands).
+  // If runner count grows significantly, add server-side pagination to the endpoint.
   list: (page?: number, perPage?: number) =>
     request<RunnerAdminResponse[]>(`/admin/runners`).then((rows) => {
       const list = rows.map(normalizeRunner);

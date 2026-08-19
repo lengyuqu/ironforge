@@ -1,3 +1,11 @@
+// TECH DEBT (F-013): This module uses Svelte 4 writable/derived stores.
+// The rest of the project uses Svelte 5 runes mode. Converting to runes
+// requires renaming to .svelte.ts, replacing writable→$state / derived→$derived,
+// and updating Navbar.svelte which relies on $locale auto-subscription syntax.
+// The createT() function uses get() which is not reactive in runes — components
+// that only use t() won't re-render on locale change. This is acceptable for now
+// because locale changes are rare (user action) and a full page refresh is
+// an acceptable fallback. A proper migration should be scheduled separately.
 import { writable, derived, get } from 'svelte/store';
 import en from './translations/en.json';
 import zhCN from './translations/zh-CN.json';

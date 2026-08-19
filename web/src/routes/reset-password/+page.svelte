@@ -3,6 +3,9 @@
   import { auth } from '$lib/api/client.svelte';
   import { setToken } from '$lib/api/client.svelte';
   import { fetchUser } from '$lib/stores/auth.svelte';
+  import { createT } from '$lib/i18n';
+
+  const t = createT();
 
   let token = $state('');
   let password = $state('');
@@ -43,7 +46,7 @@
       await fetchUser();
       success = true;
     } catch (e: any) {
-      localError = e.message || 'Failed to reset password';
+      localError = e.message || t('errors.reset_failed');
     } finally {
       loading = false;
     }

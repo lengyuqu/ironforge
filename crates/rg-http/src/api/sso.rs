@@ -37,29 +37,37 @@ fn append_set_cookie(response: &mut axum::response::Response, cookie: String) {
 }
 
 /// Set a short-lived signed cookie for CSRF/PKCE state.
+///
+/// When `is_https` is true, the `Secure` flag is added so the cookie is only
+/// transmitted over HTTPS — matching the behavior of `build_auth_cookie`.
 fn set_state_cookie(
     response: &mut axum::response::Response,
     name: &str,
     value: &str,
     jwt_secret: &str,
+    is_https: bool,
 ) {
     // Sign the value with HMAC for integrity
     let signature = sign_cookie_value(value, jwt_secret);
     let cookie_value = format!("{}:{}", value, signature);
 
     // Max-Age: 600 seconds (10 min) — matches typical OAuth2 code expiry
-    let cookie = format!(
+    let mut cookie = format!(
         "{}={}; Path=/; HttpOnly; SameSite=Lax; Max-Age=600",
         name, cookie_value
     );
+    if is_https {
+        cookie.push_str("; Secure");
+    }
     append_set_cookie(response, cookie);
 }
 
-fn clear_state_cookie(response: &mut axum::response::Response, name: &str) {
-    append_set_cookie(
-        response,
-        format!("{}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0", name),
-    );
+fn clear_state_cookie(response: &mut axum::response::Response, name: &str, is_https: bool) {
+    let mut cookie = format!("{}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0", name);
+    if is_https {
+        cookie.push_str("; Secure");
+    }
+    append_set_cookie(response, cookie);
 }
 
 fn build_auth_cookie(token: &str, is_https: bool) -> String {
@@ -304,18 +312,21 @@ pub async fn authorize(
         })?;
 
     // Build a redirect response with CSRF & PKCE cookies
+    let is_https = is_https_request(&headers);
     let mut redirect = Redirect::temporary(&auth_url).into_response();
     set_state_cookie(
         &mut redirect,
         SSO_STATE_COOKIE,
         &csrf_state,
         &state.jwt_secret,
+        is_https,
     );
     set_state_cookie(
         &mut redirect,
         SSO_VERIFIER_COOKIE,
         &code_verifier,
         &state.jwt_secret,
+        is_https,
     );
 
     Ok(redirect)
@@ -484,16 +495,17 @@ pub async fn callback(
             encode_query_component(&user.username)
         );
         let mut redirect = Redirect::temporary(&target).into_response();
+        let is_https = is_https_request(&headers);
         append_set_cookie(
             &mut redirect,
-            crate::api::mfa::build_mfa_challenge_cookie(&challenge, is_https_request(&headers)),
+            crate::api::mfa::build_mfa_challenge_cookie(&challenge, is_https),
         );
         append_set_cookie(
             &mut redirect,
-            build_clear_auth_cookie(is_https_request(&headers)),
+            build_clear_auth_cookie(is_https),
         );
-        clear_state_cookie(&mut redirect, SSO_STATE_COOKIE);
-        clear_state_cookie(&mut redirect, SSO_VERIFIER_COOKIE);
+        clear_state_cookie(&mut redirect, SSO_STATE_COOKIE, is_https);
+        clear_state_cookie(&mut redirect, SSO_VERIFIER_COOKIE, is_https);
         return Ok(redirect);
     }
 
@@ -506,12 +518,13 @@ pub async fn callback(
         .map_err(AppError::from)?;
 
     let mut redirect = Redirect::temporary("/dashboard").into_response();
+    let is_https = is_https_request(&headers);
     append_set_cookie(
         &mut redirect,
-        build_auth_cookie(&token, is_https_request(&headers)),
+        build_auth_cookie(&token, is_https),
     );
-    clear_state_cookie(&mut redirect, SSO_STATE_COOKIE);
-    clear_state_cookie(&mut redirect, SSO_VERIFIER_COOKIE);
+    clear_state_cookie(&mut redirect, SSO_STATE_COOKIE, is_https);
+    clear_state_cookie(&mut redirect, SSO_VERIFIER_COOKIE, is_https);
     Ok(redirect)
 }
 
@@ -839,8 +852,8 @@ mod tests {
     fn sso_state_and_pkce_cookies_are_both_set() {
         let mut response = axum::response::Response::new(axum::body::Body::empty());
 
-        set_state_cookie(&mut response, SSO_STATE_COOKIE, "state-1", "secret");
-        set_state_cookie(&mut response, SSO_VERIFIER_COOKIE, "verifier-1", "secret");
+        set_state_cookie(&mut response, SSO_STATE_COOKIE, "state-1", "secret", false);
+        set_state_cookie(&mut response, SSO_VERIFIER_COOKIE, "verifier-1", "secret", false);
 
         let cookies: Vec<_> = response
             .headers()
@@ -861,7 +874,7 @@ mod tests {
     #[test]
     fn sso_state_cookie_round_trips_with_signature() {
         let mut response = axum::response::Response::new(axum::body::Body::empty());
-        set_state_cookie(&mut response, SSO_STATE_COOKIE, "state-1", "secret");
+        set_state_cookie(&mut response, SSO_STATE_COOKIE, "state-1", "secret", false);
 
         let cookie = response
             .headers()
@@ -904,8 +917,8 @@ mod tests {
     #[test]
     fn redirect_response_can_carry_multiple_set_cookie_headers() {
         let mut response = axum::response::Redirect::temporary("/dashboard").into_response();
-        set_state_cookie(&mut response, SSO_STATE_COOKIE, "state-1", "secret");
-        set_state_cookie(&mut response, SSO_VERIFIER_COOKIE, "verifier-1", "secret");
+        set_state_cookie(&mut response, SSO_STATE_COOKIE, "state-1", "secret", false);
+        set_state_cookie(&mut response, SSO_VERIFIER_COOKIE, "verifier-1", "secret", false);
 
         assert_eq!(
             response

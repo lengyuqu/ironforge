@@ -45,6 +45,22 @@ pub struct CreateRepoOptions {
 }
 
 // ── Permission cache (30s TTL) ──────────────────────────────────────────
+//
+// ARCHITECTURAL LIMITATION (B-013):
+//   1. The 30s TTL means that a permission revocation (e.g. collaborator
+//      removal, org membership change) can take up to 30 seconds to take
+//      effect for entries still in cache. The invalidate_perm_cache_* helpers
+//      provide immediate invalidation for *known* mutation paths, but any
+//      revocation that bypasses those helpers (direct DB edits, external
+//      admin tools) will be subject to the full TTL window.
+//   2. The cache is process-local (OnceLock<RwLock<HashMap>>). In a
+//      multi-instance deployment each server maintains its own cache, so
+//      invalidation on one instance does not propagate to others. A revocation
+//      performed on instance A may still allow access on instance B for up
+//      to 30s until B's local TTL expires.
+//   Future improvement: replace with a shared cache (e.g. Redis) or a
+//   pub/sub invalidation bus so that revocation is immediate across all
+//   instances.
 
 const PERM_CACHE_TTL: Duration = Duration::from_secs(30);
 

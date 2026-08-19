@@ -4,9 +4,9 @@ use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::Json;
-use sea_orm::DatabaseConnection;
 use serde::{Deserialize, Serialize};
 
+use crate::api::auth::{resolve_repo_read_access, resolve_repo_write_access};
 use crate::error::AppError;
 use crate::AppState;
 
@@ -81,15 +81,14 @@ fn page_to_summary(p: &rg_db::entities::wiki_page::Model) -> WikiPageSummary {
 pub async fn list_pages(
     State(state): State<AppState>,
     Path((owner, repo)): Path<(String, String)>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
 ) -> impl IntoResponse {
-    let _user_id = super::auth::extract_user_id(&_headers, &state.jwt_secret);
-    let repo_id = match resolve_repo_id(&state.db, &owner, &repo).await {
-        Some(id) => id,
-        None => return AppError::not_found("repository not found").into_response(),
+    let (repo, _user_id) = match resolve_repo_read_access(&state, &headers, &owner, &repo).await {
+        Ok(r) => r,
+        Err(e) => return e.into_response(),
     };
 
-    match rg_core::wiki::service::list_pages(&state.db, repo_id).await {
+    match rg_core::wiki::service::list_pages(&state.db, repo.id).await {
         Ok(pages) => {
             let summaries: Vec<WikiPageSummary> = pages.iter().map(page_to_summary).collect();
             (StatusCode::OK, Json(serde_json::json!(summaries))).into_response()
@@ -115,14 +114,14 @@ pub async fn list_pages(
 pub async fn get_page(
     State(state): State<AppState>,
     Path((owner, repo, title)): Path<(String, String, String)>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
 ) -> impl IntoResponse {
-    let repo_id = match resolve_repo_id(&state.db, &owner, &repo).await {
-        Some(id) => id,
-        None => return AppError::not_found("repository not found").into_response(),
+    let (repo, _user_id) = match resolve_repo_read_access(&state, &headers, &owner, &repo).await {
+        Ok(r) => r,
+        Err(e) => return e.into_response(),
     };
 
-    match rg_core::wiki::service::get_page(&state.db, repo_id, &title).await {
+    match rg_core::wiki::service::get_page(&state.db, repo.id, &title).await {
         Ok(Some(page)) => (
             StatusCode::OK,
             Json(serde_json::json!(page_to_response(&page))),
@@ -146,6 +145,7 @@ pub async fn get_page(
         (status = 201, description = "Created", body = serde_json::Value),
         (status = 400, description = "Bad request", body = serde_json::Value),
         (status = 401, description = "Unauthorized", body = serde_json::Value),
+        (status = 403, description = "Forbidden", body = serde_json::Value),
     ),
 )]
 pub async fn create_page(
@@ -154,19 +154,14 @@ pub async fn create_page(
     headers: HeaderMap,
     Json(body): Json<CreateWikiPageRequest>,
 ) -> impl IntoResponse {
-    let user_id = match super::auth::extract_user_id(&headers, &state.jwt_secret) {
-        Some(id) => id,
-        None => return AppError::unauthorized("unauthorized").into_response(),
-    };
-
-    let repo_id = match resolve_repo_id(&state.db, &owner, &repo).await {
-        Some(id) => id,
-        None => return AppError::not_found("repository not found").into_response(),
+    let (repo, user_id) = match resolve_repo_write_access(&state, &headers, &owner, &repo).await {
+        Ok(r) => r,
+        Err(e) => return e.into_response(),
     };
 
     match rg_core::wiki::service::create_page(
         &state.db,
-        repo_id,
+        repo.id,
         &body.title,
         &body.content,
         body.message.as_deref(),
@@ -196,6 +191,7 @@ pub async fn create_page(
     responses(
         (status = 200, description = "Updated", body = serde_json::Value),
         (status = 401, description = "Unauthorized", body = serde_json::Value),
+        (status = 403, description = "Forbidden", body = serde_json::Value),
     ),
 )]
 pub async fn update_page(
@@ -204,19 +200,14 @@ pub async fn update_page(
     headers: HeaderMap,
     Json(body): Json<UpdateWikiPageRequest>,
 ) -> impl IntoResponse {
-    let user_id = match super::auth::extract_user_id(&headers, &state.jwt_secret) {
-        Some(id) => id,
-        None => return AppError::unauthorized("unauthorized").into_response(),
-    };
-
-    let repo_id = match resolve_repo_id(&state.db, &owner, &repo).await {
-        Some(id) => id,
-        None => return AppError::not_found("repository not found").into_response(),
+    let (repo, user_id) = match resolve_repo_write_access(&state, &headers, &owner, &repo).await {
+        Ok(r) => r,
+        Err(e) => return e.into_response(),
     };
 
     match rg_core::wiki::service::update_page(
         &state.db,
-        repo_id,
+        repo.id,
         &title,
         &body.content,
         body.message.as_deref(),
@@ -246,6 +237,7 @@ pub async fn update_page(
         (status = 200, description = "Deleted", body = serde_json::Value),
         (status = 204, description = "No content"),
         (status = 401, description = "Unauthorized", body = serde_json::Value),
+        (status = 403, description = "Forbidden", body = serde_json::Value),
     ),
 )]
 pub async fn delete_page(
@@ -253,17 +245,12 @@ pub async fn delete_page(
     Path((owner, repo, title)): Path<(String, String, String)>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    let _user_id = match super::auth::extract_user_id(&headers, &state.jwt_secret) {
-        Some(id) => id,
-        None => return AppError::unauthorized("unauthorized").into_response(),
+    let (repo, _user_id) = match resolve_repo_write_access(&state, &headers, &owner, &repo).await {
+        Ok(r) => r,
+        Err(e) => return e.into_response(),
     };
 
-    let repo_id = match resolve_repo_id(&state.db, &owner, &repo).await {
-        Some(id) => id,
-        None => return AppError::not_found("repository not found").into_response(),
-    };
-
-    match rg_core::wiki::service::delete_page(&state.db, repo_id, &title).await {
+    match rg_core::wiki::service::delete_page(&state.db, repo.id, &title).await {
         Ok(()) => (
             StatusCode::OK,
             Json(serde_json::json!({"message": "page deleted"})),
@@ -292,14 +279,14 @@ pub async fn delete_page(
 pub async fn list_revisions(
     State(state): State<AppState>,
     Path((owner, repo, title)): Path<(String, String, String)>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
 ) -> impl IntoResponse {
-    let repo_id = match resolve_repo_id(&state.db, &owner, &repo).await {
-        Some(id) => id,
-        None => return AppError::not_found("repository not found").into_response(),
+    let (repo, _user_id) = match resolve_repo_read_access(&state, &headers, &owner, &repo).await {
+        Ok(r) => r,
+        Err(e) => return e.into_response(),
     };
 
-    match rg_core::wiki::service::list_revisions(&state.db, repo_id, &title).await {
+    match rg_core::wiki::service::list_revisions(&state.db, repo.id, &title).await {
         Ok(revisions) => (StatusCode::OK, Json(serde_json::json!(revisions))).into_response(),
         Err(e) => AppError::not_found(e).into_response(),
     }
@@ -324,26 +311,17 @@ pub async fn list_revisions(
 )]
 pub async fn get_revision(
     State(state): State<AppState>,
-    Path((_owner, _repo, _title, rev_id)): Path<(String, String, String, i64)>,
-    _headers: HeaderMap,
+    Path((owner, repo, _title, rev_id)): Path<(String, String, String, i64)>,
+    headers: HeaderMap,
 ) -> impl IntoResponse {
+    let (_repo, _user_id) = match resolve_repo_read_access(&state, &headers, &owner, &repo).await {
+        Ok(r) => r,
+        Err(e) => return e.into_response(),
+    };
+
     match rg_core::wiki::service::get_revision(&state.db, rev_id).await {
         Ok(Some(rev)) => (StatusCode::OK, Json(serde_json::json!(rev))).into_response(),
         Ok(None) => AppError::not_found("revision not found").into_response(),
         Err(e) => AppError::internal(e).into_response(),
     }
-}
-
-// ── Helpers ───────────────────────────────────────────────────────────────
-
-async fn resolve_repo_id(db: &DatabaseConnection, owner: &str, repo_name: &str) -> Option<i64> {
-    let user = rg_db::ops::user_ops::find_by_username(db, owner)
-        .await
-        .ok()
-        .flatten()?;
-    let repo = rg_db::ops::repo_ops::find_by_owner_and_name(db, user.id, repo_name)
-        .await
-        .ok()
-        .flatten()?;
-    Some(repo.id)
 }

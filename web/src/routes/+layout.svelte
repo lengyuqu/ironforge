@@ -5,11 +5,11 @@
   import Layout from '$lib/components/Layout.svelte';
 import { fetchUser, isAuthReady } from '$lib/stores/auth.svelte';
 import { registerKeyboardShortcuts } from '$lib/stores/instance.svelte';
-import { locale } from '$lib/i18n';
+import { locale, createT } from '$lib/i18n';
 import { onMount } from 'svelte';
 import type { Snippet } from 'svelte';
 import { setBanner } from '$lib/stores/instance.svelte';
-import { withBackendBase } from '$lib/api/_base';
+import { withBackendBase } from '$lib/api/_base.svelte';
 
   interface Props {
     children: Snippet;
@@ -17,12 +17,14 @@ import { withBackendBase } from '$lib/api/_base';
 
   let { children }: Props = $props();
 
-  // Initialize i18n and fetch user on first load
-  locale.init();
-  fetchUser();
+  const t = createT();
 
-  // Register global keyboard shortcuts
+  // Initialize i18n on first load
+  locale.init();
+
+  // Register global keyboard shortcuts and fetch user on mount
   onMount(() => {
+    fetchUser();
     const unregister = registerKeyboardShortcuts();
     checkBackendReadiness();
     return unregister;
@@ -32,16 +34,16 @@ import { withBackendBase } from '$lib/api/_base';
     try {
       const res = await fetch(withBackendBase('/health'), { cache: 'no-store' });
       if (!res.ok) {
-        setBanner(`后端健康检查失败（HTTP ${res.status}）`, 'error');
+        setBanner(t('system.backend_health_failed', { status: res.status }), 'error');
         return;
       }
       const body = await res.json().catch(() => null);
       if (!body || !['healthy', 'ok'].includes(String(body.status || ''))) {
-        setBanner('后端状态异常，部分接口可能不可用', 'warning');
+        setBanner(t('system.backend_unhealthy'), 'warning');
         return;
       }
     } catch {
-      setBanner('无法连接后端，请确认 8080 服务已启动', 'error');
+      setBanner(t('system.backend_unreachable'), 'error');
     }
   }
 </script>
@@ -54,7 +56,7 @@ import { withBackendBase } from '$lib/api/_base';
       {#if isAuthReady()}
         {@render children()}
       {:else}
-        <div class="loading">Loading...</div>
+        <div class="loading">{t('common.loading')}</div>
       {/if}
     </main>
   </Layout>

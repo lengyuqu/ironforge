@@ -2,6 +2,9 @@
   import { goto } from '$app/navigation';
   import { isAuthReady, isLoggedIn } from '$lib/stores/auth.svelte';
   import { mfa, type MfaBackupStatus, type MfaSetupResponse } from '$lib/api/client.svelte';
+  import { createT } from '$lib/i18n';
+
+  const t = createT();
 
   let loading = $state(true);
   let saving = $state(false);
@@ -30,7 +33,7 @@
       error = '';
       backupStatus = await mfa.backup();
     } catch (err: any) {
-      error = err.message || 'Failed to load security settings';
+      error = err.message || t('errors.load_failed');
     } finally {
       loading = false;
     }
@@ -44,7 +47,7 @@
       newBackupCodes = [];
       setup = await mfa.setup();
     } catch (err: any) {
-      error = err.message || 'Failed to start MFA setup';
+      error = err.message || t('errors.start_failed');
     } finally {
       saving = false;
     }
@@ -68,7 +71,7 @@
       success = 'MFA enabled. Save your backup codes before leaving this page.';
       await loadSecurity();
     } catch (err: any) {
-      error = err.message || 'Failed to enable MFA';
+      error = err.message || t('errors.enable_failed');
     } finally {
       saving = false;
     }
@@ -93,7 +96,7 @@
       success = 'MFA disabled';
       await loadSecurity();
     } catch (err: any) {
-      error = err.message || 'Failed to disable MFA';
+      error = err.message || t('errors.disable_failed');
     } finally {
       saving = false;
     }

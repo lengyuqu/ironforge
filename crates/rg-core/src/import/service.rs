@@ -498,7 +498,10 @@ fn clone_repo(
         return Ok(());
     }
 
-    std::fs::create_dir_all(target_dir.parent().unwrap())?;
+    let parent = target_dir
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("invalid path: no parent directory"))?;
+    std::fs::create_dir_all(parent)?;
 
     let git = global_gateway()
         .as_ref()

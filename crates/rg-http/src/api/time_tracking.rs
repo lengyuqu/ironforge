@@ -14,7 +14,7 @@ use axum::{
 use serde::Deserialize;
 use utoipa::ToSchema;
 
-use crate::api::auth::extract_bearer_claims;
+use crate::api::auth::{resolve_repo_read_access, resolve_repo_write_access};
 use crate::error::AppError;
 use crate::pagination::{PaginatedResponse, PaginationParams};
 use crate::AppState;
@@ -42,21 +42,18 @@ pub struct AddTimeRequest {
         (status = 201, description = "Time entry created", body = serde_json::Value),
         (status = 400, description = "Bad request", body = serde_json::Value),
         (status = 401, description = "Unauthorized", body = serde_json::Value),
+        (status = 403, description = "Forbidden", body = serde_json::Value),
     ),
 )]
 pub async fn add_time(
     State(state): State<AppState>,
-    headers: HeaderMap,
     Path((owner, name, number)): Path<(String, String, i64)>,
+    headers: HeaderMap,
     Json(body): Json<AddTimeRequest>,
 ) -> impl IntoResponse {
-    let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
-        Some(c) => c,
-        None => return AppError::unauthorized("authentication required").into_response(),
-    };
-    let user_id: i64 = match claims.sub.parse() {
-        Ok(id) => id,
-        Err(_) => return AppError::unauthorized("invalid token subject").into_response(),
+    let (_repo, user_id) = match resolve_repo_write_access(&state, &headers, &owner, &name).await {
+        Ok(r) => r,
+        Err(e) => return e.into_response(),
     };
 
     let issue = match rg_core::issue::service::get_issue(&state.db, &owner, &name, number).await {
@@ -90,14 +87,21 @@ pub async fn add_time(
     ),
     responses(
         (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
         (status = 404, description = "Not found", body = serde_json::Value),
     ),
 )]
 pub async fn list_time_entries(
     State(state): State<AppState>,
     Path((owner, name, number)): Path<(String, String, i64)>,
+    headers: HeaderMap,
     Query(params): Query<PaginationParams>,
 ) -> impl IntoResponse {
+    let (_repo, _user_id) = match resolve_repo_read_access(&state, &headers, &owner, &name).await {
+        Ok(r) => r,
+        Err(e) => return e.into_response(),
+    };
+
     let pagination = params.clamp();
     let offset = pagination.offset();
     let limit = pagination.limit();
@@ -131,12 +135,19 @@ pub async fn list_time_entries(
     ),
     responses(
         (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
     ),
 )]
 pub async fn total_time(
     State(state): State<AppState>,
     Path((owner, name, number)): Path<(String, String, i64)>,
+    headers: HeaderMap,
 ) -> impl IntoResponse {
+    let (_repo, _user_id) = match resolve_repo_read_access(&state, &headers, &owner, &name).await {
+        Ok(r) => r,
+        Err(e) => return e.into_response(),
+    };
+
     let issue = match rg_core::issue::service::get_issue(&state.db, &owner, &name, number).await {
         Ok(i) => i,
         Err(_) => return AppError::not_found("issue not found").into_response(),
@@ -172,18 +183,18 @@ pub async fn total_time(
     responses(
         (status = 204, description = "Deleted"),
         (status = 401, description = "Unauthorized", body = serde_json::Value),
+        (status = 403, description = "Forbidden", body = serde_json::Value),
     ),
 )]
 pub async fn delete_time_entry(
     State(state): State<AppState>,
+    Path((owner, name, _number, id)): Path<(String, String, i64, i64)>,
     headers: HeaderMap,
-    Path((_owner, _name, _number, id)): Path<(String, String, i64, i64)>,
 ) -> impl IntoResponse {
-    let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
-        Some(c) => c,
-        None => return AppError::unauthorized("authentication required").into_response(),
+    let (_repo, _user_id) = match resolve_repo_write_access(&state, &headers, &owner, &name).await {
+        Ok(r) => r,
+        Err(e) => return e.into_response(),
     };
-    let _ = claims;
 
     match rg_core::time_tracking::service::delete_time_entry(&state.db, id).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),

@@ -2,6 +2,9 @@
   import { page } from '$app/stores';
   import { repos } from '$lib/api/client.svelte';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
+  import { createT } from '$lib/i18n';
+
+  const t = createT();
 
   // Svelte 5 runes
   let owner = $derived($page.params.owner!);
@@ -68,7 +71,7 @@
         };
       }
     } catch (err: any) {
-      error = err.message || 'Failed to load commit status';
+      error = err.message || t('errors.load_failed');
       console.error('Error loading commit status:', err);
     } finally {
       loading = false;

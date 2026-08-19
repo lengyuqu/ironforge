@@ -18,6 +18,9 @@ axum = { version = "0.8", features = ["ws", "macros", "multipart"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["cors", "trace", "fs", "limit"] }
 
+# API documentation
+utoipa = { version = "5", features = ["chrono"] }
+
 # SSH
 russh = "0.51"
 russh-keys = "0.45"
@@ -102,6 +105,7 @@ gix = { version = "0.84", features = [
 flate2 = "1"
 tar = "0.4"
 zip = "2"
+zstd = "0.13"
 
 # Utilities
 chrono = { version = "0.4", features = ["serde"] }

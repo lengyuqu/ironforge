@@ -24,7 +24,7 @@
         repoList = r.data;
       }
     } catch (e: any) {
-      error = e.message || 'Failed to load repositories';
+      error = e.message || t('errors.load_failed');
     } finally {
       loading = false;
     }

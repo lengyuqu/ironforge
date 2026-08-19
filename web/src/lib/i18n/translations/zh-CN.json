@@ -158,7 +158,8 @@
       "mfa_failed": "验证失败",
       "sso_loading": "正在加载单点登录选项...",
       "sso_or": "或使用以下方式继续",
-      "sso_continue": "使用 {provider} 继续"
+      "sso_continue": "使用 {provider} 继续",
+      "forgot_password": "忘记密码？"
     },
     "register": {
       "title": "创建您的账号",
@@ -269,7 +270,14 @@
     "watching": "已关注",
     "not_watching": "关注",
     "ignoring": "忽略",
-    "fork": "复刻",
+    "fork": {
+      "label": "复刻",
+      "login_required": "请先登录后再复刻仓库。",
+      "own_repo": "不能复刻自己名下的同名仓库。",
+      "success": "仓库复刻成功，正在跳转...",
+      "failed": "复刻仓库失败。",
+      "login_title": "登录后复刻"
+    },
     "forking": "复刻中...",
     "forks": "复刻",
     "clone": "克隆",
@@ -437,7 +445,9 @@
       "online": "在线",
       "offline": "离线"
     },
-    "clone_url": "克隆 URL"
+    "clone_url": "克隆 URL",
+    "login_to_star": "登录后收藏",
+    "login_to_watch": "登录后关注"
   },
   "issues": {
     "title": "问题",
@@ -669,7 +679,20 @@
     "unauthorized": "未授权",
     "network_error": "网络错误",
     "load_failed": "加载失败",
-    "create_failed": "创建失败"
+    "create_failed": "创建失败",
+    "delete_failed": "删除失败",
+    "update_failed": "更新失败",
+    "start_failed": "启动失败",
+    "revoke_failed": "吊销失败",
+    "enable_failed": "启用失败",
+    "disable_failed": "禁用失败",
+    "reset_failed": "重置失败",
+    "load_log": "加载日志失败：{message}"
+  },
+  "system": {
+    "backend_health_failed": "后端健康检查失败（HTTP {status}）",
+    "backend_unhealthy": "后端状态异常，部分接口可能不可用",
+    "backend_unreachable": "无法连接后端，请确认服务已启动"
   },
   "search": {
     "title": "搜索",
@@ -957,6 +980,10 @@
       "open_admin": "打开 Runner 管理",
       "delete_confirm": "删除 Runner",
       "delete_warning": "确定要删除 Runner \"{name}\" 吗？"
+    },
+    "settings": {
+      "title": "实例设置",
+      "desc": "实例维护和横幅配置"
     }
   },
   "profile": {
@@ -1007,5 +1034,15 @@
   },
   "time_tracking": {
     "title": "时间跟踪"
+  },
+  "error_page": {
+    "not_found_title": "页面未找到",
+    "not_found_desc": "您访问的页面不存在或已被移动。",
+    "server_error_title": "服务器错误",
+    "server_error_desc": "服务器出现问题，请稍后重试。",
+    "generic_title": "错误",
+    "generic_desc": "发生了意外错误。",
+    "back_home": "返回首页",
+    "status_code": "错误 {status}"
   }
 }

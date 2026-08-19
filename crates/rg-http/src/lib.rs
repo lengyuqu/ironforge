@@ -173,7 +173,9 @@ pub async fn run(config: HttpServerConfig) -> Result<()> {
     let notification_hub = ws::NotificationHub::new();
 
     // ── Initialize Prometheus metrics registry ──────────────────
-    metrics::init_registry().expect("Failed to initialize Prometheus metrics registry");
+    if let Err(e) = metrics::init_registry() {
+        tracing::warn!("metrics init failed: {e}");
+    }
 
     let blob_storage: Arc<dyn rg_core::blob_storage::BlobStorage> = Arc::new(
         rg_core::blob_storage::LocalBlobStorage::new(config.repo_root.clone()),

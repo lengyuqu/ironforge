@@ -2,7 +2,7 @@
   import { createT } from '$lib/i18n';
   import { getUser, isLoggedIn } from '$lib/stores/auth.svelte';
   import { repos } from '$lib/api/client.svelte';
-  import { buildSshCloneUrl, downloadApiFile, withBackendBase } from '$lib/api/_base';
+  import { buildSshCloneUrl, downloadApiFile, withBackendBase } from '$lib/api/_base.svelte';
   import { goto } from '$app/navigation';
   import { browser } from '$app/environment';
 
@@ -182,12 +182,12 @@
     forkSuccess = '';
 
     if (!isLoggedIn()) {
-      forkError = '请先登录后再复刻仓库。';
+      forkError = t('repo.fork.login_required');
       return;
     }
 
     if (isOwnRepo) {
-      forkError = '不能复刻自己名下的同名仓库。';
+      forkError = t('repo.fork.own_repo');
       return;
     }
 
@@ -197,20 +197,20 @@
       const result = await repos.fork(owner, repo);
       const forkOwner = result?.owner?.username || result?.owner_name || result?.owner || getUser()?.username;
       const forkName = result?.name || repo;
-      forkSuccess = '仓库复刻成功，正在跳转...';
+      forkSuccess = t('repo.fork.success');
       if (forkOwner) {
         goto(`/${forkOwner}/${forkName}`);
       }
     } catch (e: any) {
-      forkError = e?.message || '复刻仓库失败。';
+      forkError = e?.message || t('repo.fork.failed');
       forking = false;
     }
   }
 
   function getForkTitle() {
-    if (!isLoggedIn()) return 'Login to fork';
-    if (isOwnRepo) return '不能复刻自己名下的同名仓库';
-    return forking ? t('repo.forking') : t('repo.fork');
+    if (!isLoggedIn()) return t('repo.fork.login_title');
+    if (isOwnRepo) return t('repo.fork.own_repo');
+    return forking ? t('repo.forking') : t('repo.fork.label');
   }
 
   function getWatchLabel() {
@@ -261,8 +261,8 @@
         class:btn-primary={starred}
         class:disabled={!isLoggedIn()}
         onclick={toggleStar}
-        title={isLoggedIn() ? (starred ? t('repo.unstar') : t('repo.star')) : 'Login to star'}
-        aria-label={isLoggedIn() ? (starred ? t('repo.unstar') : t('repo.star')) : 'Login to star'}
+        title={isLoggedIn() ? (starred ? t('repo.unstar') : t('repo.star')) : t('repo.login_to_star')}
+        aria-label={isLoggedIn() ? (starred ? t('repo.unstar') : t('repo.star')) : t('repo.login_to_star')}
       >
         <span class="star-icon" aria-hidden="true">{starred ? '⭐' : '☆'}</span>
         <span class="count">{starsLocalCount}</span>
@@ -274,8 +274,8 @@
         class:ignoring={watchState === 'ignoring'}
         class:disabled={!isLoggedIn()}
         onclick={cycleWatch}
-        title={isLoggedIn() ? getWatchLabel() : 'Login to watch'}
-        aria-label={isLoggedIn() ? getWatchLabel() : 'Login to watch'}
+        title={isLoggedIn() ? getWatchLabel() : t('repo.login_to_watch')}
+        aria-label={isLoggedIn() ? getWatchLabel() : t('repo.login_to_watch')}
       >
         <span class="watch-icon" aria-hidden="true">👁</span>
         <span class="label">{getWatchLabel()}</span>
@@ -291,7 +291,7 @@
         aria-label={getForkTitle()}
       >
         <span class="fork-icon">⚡</span>
-        <span class="label">{forking ? t('repo.forking') : t('repo.fork')}</span>
+        <span class="label">{forking ? t('repo.forking') : t('repo.fork.label')}</span>
       </button>
 
       <div class="clone-area" style="position:relative">

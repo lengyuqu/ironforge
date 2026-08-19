@@ -1,15 +1,16 @@
 //! REST API handlers for repository collaborators.
 
 use axum::extract::{Path, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::Json;
 use serde::Deserialize;
 
+use crate::api::auth::{resolve_repo_read_access, resolve_repo_write_access};
 use crate::error::AppError;
 use crate::AppState;
 
-// ── Request / Response types ──────────────────────────────────────────
+// -- Request / Response types ----------------------------------------------
 
 #[derive(Deserialize)]
 pub struct AddCollaboratorRequest {
@@ -30,7 +31,7 @@ pub struct UpdatePermissionRequest {
     pub permission: String,
 }
 
-// ── Handlers ──────────────────────────────────────────────────────────
+// -- Handlers --------------------------------------------------------------
 
 /// List collaborators for a repo.
 /// GET /api/v1/repos/:owner/:name/collaborators
@@ -45,12 +46,20 @@ pub struct UpdatePermissionRequest {
     responses(
         (status = 200, description = "Success", body = serde_json::Value),
         (status = 401, description = "Unauthorized", body = serde_json::Value),
+        (status = 403, description = "Forbidden", body = serde_json::Value),
     ),
 )]
 pub async fn list_collaborators(
     State(state): State<AppState>,
     Path((owner, repo)): Path<(String, String)>,
+    headers: HeaderMap,
 ) -> impl IntoResponse {
+    let (_repo_model, _user_id) =
+        match resolve_repo_read_access(&state, &headers, &owner, &repo).await {
+            Ok(r) => r,
+            Err(e) => return e.into_response(),
+        };
+
     match rg_core::collaborator::service::list_collaborators(&state.db, &owner, &repo).await {
         Ok(collaborators) => (StatusCode::OK, Json(collaborators)).into_response(),
         Err(e) => AppError::internal(e.to_string()).into_response(),
@@ -72,17 +81,20 @@ pub async fn list_collaborators(
         (status = 201, description = "Created", body = serde_json::Value),
         (status = 400, description = "Bad request", body = serde_json::Value),
         (status = 401, description = "Unauthorized", body = serde_json::Value),
+        (status = 403, description = "Forbidden", body = serde_json::Value),
     ),
 )]
 pub async fn add_collaborator(
     State(state): State<AppState>,
     Path((owner, repo)): Path<(String, String)>,
-    headers: axum::http::HeaderMap,
+    headers: HeaderMap,
     Json(req): Json<AddCollaboratorRequest>,
 ) -> impl IntoResponse {
-    if super::auth::extract_user_id(&headers, &state.jwt_secret).is_none() {
-        return AppError::unauthorized("authentication required").into_response();
-    }
+    let (_repo_model, _user_id) =
+        match resolve_repo_write_access(&state, &headers, &owner, &repo).await {
+            Ok(r) => r,
+            Err(e) => return e.into_response(),
+        };
 
     let user_id = match resolve_collaborator_user_id(&state.db, &req).await {
         Ok(user_id) => user_id,
@@ -156,17 +168,20 @@ async fn resolve_collaborator_user_id(
     responses(
         (status = 200, description = "Updated", body = serde_json::Value),
         (status = 401, description = "Unauthorized", body = serde_json::Value),
+        (status = 403, description = "Forbidden", body = serde_json::Value),
     ),
 )]
 pub async fn update_permission(
     State(state): State<AppState>,
-    Path((_owner, _repo, id)): Path<(String, String, i64)>,
-    headers: axum::http::HeaderMap,
+    Path((owner, repo, id)): Path<(String, String, i64)>,
+    headers: HeaderMap,
     Json(req): Json<UpdatePermissionRequest>,
 ) -> impl IntoResponse {
-    if super::auth::extract_user_id(&headers, &state.jwt_secret).is_none() {
-        return AppError::unauthorized("authentication required").into_response();
-    }
+    let (_repo_model, _user_id) =
+        match resolve_repo_write_access(&state, &headers, &owner, &repo).await {
+            Ok(r) => r,
+            Err(e) => return e.into_response(),
+        };
 
     match rg_core::collaborator::service::update_permission(&state.db, id, req.permission).await {
         Ok(collab) => (StatusCode::OK, Json(collab)).into_response(),
@@ -189,16 +204,19 @@ pub async fn update_permission(
         (status = 204, description = "Removed"),
         (status = 400, description = "Bad request", body = serde_json::Value),
         (status = 401, description = "Unauthorized", body = serde_json::Value),
+        (status = 403, description = "Forbidden", body = serde_json::Value),
     ),
 )]
 pub async fn remove_collaborator(
     State(state): State<AppState>,
     Path((owner, repo, user_id)): Path<(String, String, i64)>,
-    headers: axum::http::HeaderMap,
+    headers: HeaderMap,
 ) -> impl IntoResponse {
-    if super::auth::extract_user_id(&headers, &state.jwt_secret).is_none() {
-        return AppError::unauthorized("authentication required").into_response();
-    }
+    let (_repo_model, _user_id) =
+        match resolve_repo_write_access(&state, &headers, &owner, &repo).await {
+            Ok(r) => r,
+            Err(e) => return e.into_response(),
+        };
 
     match rg_core::collaborator::service::remove_collaborator(&state.db, &owner, &repo, user_id)
         .await

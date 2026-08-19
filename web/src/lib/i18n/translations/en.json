@@ -158,7 +158,8 @@
       "mfa_failed": "Verification failed",
       "sso_loading": "Loading single sign-on options...",
       "sso_or": "or continue with",
-      "sso_continue": "Continue with {provider}"
+      "sso_continue": "Continue with {provider}",
+      "forgot_password": "Forgot password?"
     },
     "register": {
       "title": "Create your account",
@@ -268,7 +269,14 @@
     "watching": "Watching",
     "not_watching": "Watch",
     "ignoring": "Ignoring",
-    "fork": "Fork",
+    "fork": {
+      "label": "Fork",
+      "login_required": "Please sign in to fork this repository.",
+      "own_repo": "Cannot fork your own repository.",
+      "success": "Repository forked successfully, redirecting...",
+      "failed": "Failed to fork repository.",
+      "login_title": "Login to fork"
+    },
     "forking": "Forking...",
     "forks": "Forks",
     "clone": "Clone",
@@ -437,7 +445,9 @@
     "copy_clone_url": "Copy URL to clipboard",
     "download_zip": "Download ZIP",
     "clone_url": "Clone URL",
-    "select_branch": "Select branch"
+    "select_branch": "Select branch",
+    "login_to_star": "Login to star",
+    "login_to_watch": "Login to watch"
   },
   "issues": {
     "title": "Issues",
@@ -669,7 +679,20 @@
     "unauthorized": "Unauthorized",
     "network_error": "Network error",
     "load_failed": "Failed to load",
-    "create_failed": "Failed to create"
+    "create_failed": "Failed to create",
+    "delete_failed": "Failed to delete",
+    "update_failed": "Failed to update",
+    "start_failed": "Failed to start",
+    "revoke_failed": "Failed to revoke",
+    "enable_failed": "Failed to enable",
+    "disable_failed": "Failed to disable",
+    "reset_failed": "Failed to reset",
+    "load_log": "Failed to load log: {message}"
+  },
+  "system": {
+    "backend_health_failed": "Backend health check failed (HTTP {status})",
+    "backend_unhealthy": "Backend is unhealthy, some features may be unavailable.",
+    "backend_unreachable": "Cannot connect to backend. Please ensure the server is running."
   },
   "search": {
     "title": "Search",
@@ -957,6 +980,10 @@
       "open_admin": "Open runner management",
       "delete_confirm": "Delete Runner",
       "delete_warning": "Are you sure you want to delete runner \"{name}\"?"
+    },
+    "settings": {
+      "title": "Instance Settings",
+      "desc": "Instance maintenance and banner configuration"
     }
   },
   "profile": {
@@ -1007,5 +1034,15 @@
   },
   "time_tracking": {
     "title": "Time Tracking"
+  },
+  "error_page": {
+    "not_found_title": "Page Not Found",
+    "not_found_desc": "The page you are looking for does not exist or has been moved.",
+    "server_error_title": "Server Error",
+    "server_error_desc": "Something went wrong on our end. Please try again later.",
+    "generic_title": "Error",
+    "generic_desc": "An unexpected error occurred.",
+    "back_home": "Back to Home",
+    "status_code": "Error {status}"
   }
 }

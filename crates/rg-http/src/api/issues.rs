@@ -357,6 +357,10 @@ pub async fn create_issue(
         }
     };
 
+    // Design decision: issue creation requires only read access (not write),
+    // consistent with GitHub's behavior where any authenticated user with read
+    // access can open issues. Write access is enforced for issue updates that
+    // touch management fields (labels, assignee, milestone).
     let repo_model = match resolve_and_check_read_access(&state, &headers, &owner, &repo).await {
         Ok(repo) => repo,
         Err(e) => return e.into_response(),
@@ -422,12 +426,32 @@ pub async fn update_issue(
         Err(e) => return AppError::internal(e).into_response(),
     };
 
-    let can_write = rg_core::repo::service::can_write_repo(&state.db, &repo_model, Some(user_id))
-        .await
-        .unwrap_or(false);
-    let can_read = rg_core::repo::service::can_read_repo(&state.db, &repo_model, Some(user_id))
-        .await
-        .unwrap_or(false);
+    let can_write = match rg_core::repo::service::can_write_repo(
+        &state.db,
+        &repo_model,
+        Some(user_id),
+    )
+    .await
+    {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::error!(error = %e, "can_write_repo check failed");
+            return AppError::internal("permission check failed").into_response();
+        }
+    };
+    let can_read = match rg_core::repo::service::can_read_repo(
+        &state.db,
+        &repo_model,
+        Some(user_id),
+    )
+    .await
+    {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::error!(error = %e, "can_read_repo check failed");
+            return AppError::internal("permission check failed").into_response();
+        }
+    };
     let touches_management_fields =
         req.labels.is_some() || req.assignee_id.is_some() || req.milestone_id.is_some();
 

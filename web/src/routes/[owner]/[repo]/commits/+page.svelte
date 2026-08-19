@@ -29,7 +29,7 @@
         }
       })
       .catch((e: any) => {
-        error = e.message || 'Failed to load commits';
+        error = e.message || t('errors.load_failed');
       })
       .finally(() => {
         loading = false;

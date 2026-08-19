@@ -15,7 +15,7 @@ use axum::{
 use serde::Deserialize;
 use utoipa::ToSchema;
 
-use crate::api::auth::extract_bearer_claims;
+use crate::api::auth::{resolve_repo_read_access, resolve_repo_write_access};
 use crate::error::AppError;
 use crate::AppState;
 
@@ -55,8 +55,14 @@ pub struct UpdateLabelRequest {
 )]
 pub async fn list_labels(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path((owner, name)): Path<(String, String)>,
 ) -> impl IntoResponse {
+    let (_repo, _user_id) =
+        match resolve_repo_read_access(&state, &headers, &owner, &name).await {
+            Ok(r) => r,
+            Err(e) => return e.into_response(),
+        };
     match rg_core::label::service::list_labels(&state.db, &owner, &name).await {
         Ok(labels) => (StatusCode::OK, Json(serde_json::json!(labels))).into_response(),
         Err(e) => AppError::internal(e.to_string()).into_response(),
@@ -80,8 +86,14 @@ pub async fn list_labels(
 )]
 pub async fn get_label(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path((owner, name, id)): Path<(String, String, i64)>,
 ) -> impl IntoResponse {
+    let (_repo, _user_id) =
+        match resolve_repo_read_access(&state, &headers, &owner, &name).await {
+            Ok(r) => r,
+            Err(e) => return e.into_response(),
+        };
     match rg_core::label::service::get_label(&state.db, &owner, &name, id).await {
         Ok(label) => (StatusCode::OK, Json(serde_json::json!(label))).into_response(),
         Err(_) => AppError::not_found("label not found").into_response(),
@@ -102,6 +114,7 @@ pub async fn get_label(
         (status = 201, description = "Created", body = serde_json::Value),
         (status = 400, description = "Bad request", body = serde_json::Value),
         (status = 401, description = "Unauthorized", body = serde_json::Value),
+        (status = 403, description = "Forbidden", body = serde_json::Value),
     ),
 )]
 pub async fn create_label(
@@ -110,28 +123,11 @@ pub async fn create_label(
     Path((owner, name)): Path<(String, String)>,
     Json(body): Json<CreateLabelRequest>,
 ) -> impl IntoResponse {
-    let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
-        Some(c) => c,
-        None => {
-            return AppError::unauthorized("authentication required").into_response();
-        }
-    };
-
-    let user_id: i64 = match claims.sub.parse::<i64>() {
-        Ok(id) => id,
-
-        Err(_) => {
-            return AppError::unauthorized("invalid token subject".to_string()).into_response()
-        }
-    };
-
-    // Check write permission
-    if !rg_core::repo::service::can_write(&state.db, &owner, &name, Some(user_id))
-        .await
-        .unwrap_or(false)
-    {
-        return AppError::forbidden("forbidden").into_response();
-    }
+    let (_repo, _user_id) =
+        match resolve_repo_write_access(&state, &headers, &owner, &name).await {
+            Ok(r) => r,
+            Err(e) => return e.into_response(),
+        };
 
     match rg_core::label::service::create_label(
         &state.db,
@@ -162,6 +158,7 @@ pub async fn create_label(
     responses(
         (status = 200, description = "Updated", body = serde_json::Value),
         (status = 401, description = "Unauthorized", body = serde_json::Value),
+        (status = 403, description = "Forbidden", body = serde_json::Value),
     ),
 )]
 pub async fn update_label(
@@ -170,28 +167,11 @@ pub async fn update_label(
     Path((owner, name, id)): Path<(String, String, i64)>,
     Json(body): Json<UpdateLabelRequest>,
 ) -> impl IntoResponse {
-    let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
-        Some(c) => c,
-        None => {
-            return AppError::unauthorized("authentication required").into_response();
-        }
-    };
-
-    let user_id: i64 = match claims.sub.parse::<i64>() {
-        Ok(id) => id,
-
-        Err(_) => {
-            return AppError::unauthorized("invalid token subject".to_string()).into_response()
-        }
-    };
-
-    // Check write permission
-    if !rg_core::repo::service::can_write(&state.db, &owner, &name, Some(user_id))
-        .await
-        .unwrap_or(false)
-    {
-        return AppError::forbidden("forbidden").into_response();
-    }
+    let (_repo, _user_id) =
+        match resolve_repo_write_access(&state, &headers, &owner, &name).await {
+            Ok(r) => r,
+            Err(e) => return e.into_response(),
+        };
 
     match rg_core::label::service::update_label(
         &state.db,
@@ -221,6 +201,7 @@ pub async fn update_label(
         (status = 200, description = "Deleted", body = serde_json::Value),
         (status = 204, description = "No content"),
         (status = 401, description = "Unauthorized", body = serde_json::Value),
+        (status = 403, description = "Forbidden", body = serde_json::Value),
     ),
 )]
 pub async fn delete_label(
@@ -228,28 +209,11 @@ pub async fn delete_label(
     headers: HeaderMap,
     Path((owner, name, id)): Path<(String, String, i64)>,
 ) -> impl IntoResponse {
-    let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
-        Some(c) => c,
-        None => {
-            return AppError::unauthorized("authentication required").into_response();
-        }
-    };
-
-    let user_id: i64 = match claims.sub.parse::<i64>() {
-        Ok(id) => id,
-
-        Err(_) => {
-            return AppError::unauthorized("invalid token subject".to_string()).into_response()
-        }
-    };
-
-    // Check write permission
-    if !rg_core::repo::service::can_write(&state.db, &owner, &name, Some(user_id))
-        .await
-        .unwrap_or(false)
-    {
-        return AppError::forbidden("forbidden").into_response();
-    }
+    let (_repo, _user_id) =
+        match resolve_repo_write_access(&state, &headers, &owner, &name).await {
+            Ok(r) => r,
+            Err(e) => return e.into_response(),
+        };
 
     match rg_core::label::service::delete_label(&state.db, id).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),

@@ -37,10 +37,7 @@
 
   $effect(() => {
     loadPipelines();
-    return () => { if (refreshInterval) clearInterval(refreshInterval); };
-  });
 
-  $effect(() => {
     // Start auto-refresh when a pipeline is running
     if (selectedPipeline?.status === 'running' || selectedPipeline?.status === 'pending') {
       if (!refreshInterval) {
@@ -55,6 +52,11 @@
     } else {
       if (refreshInterval) { clearInterval(refreshInterval); refreshInterval = null; }
     }
+
+    // Unified cleanup: clear interval on re-run or component destroy
+    return () => {
+      if (refreshInterval) { clearInterval(refreshInterval); refreshInterval = null; }
+    };
   });
 
   async function loadPipelines() {
@@ -133,7 +135,8 @@
       startJobLogStream(jobId);
     } catch (e: any) {
       disconnectJobLogSocket();
-      logContent = 'Failed to load log: ' + e.message;
+      logContent = '';
+      logStreamError = t('errors.load_log', { message: e.message });
       logStreamStatus = 'error';
       showLogPanel = true;
     }
@@ -226,7 +229,6 @@
   }
 
   onDestroy(() => {
-    if (refreshInterval) clearInterval(refreshInterval);
     disconnectJobLogSocket();
   });
 

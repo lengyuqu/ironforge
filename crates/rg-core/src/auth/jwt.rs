@@ -4,7 +4,7 @@
 
 use anyhow::{Context, Result};
 use chrono::{Duration, Utc};
-use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
+use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
 
 /// JWT claims payload.
@@ -18,6 +18,10 @@ pub struct Claims {
     pub iat: i64,
     /// Expiry (Unix timestamp seconds).
     pub exp: i64,
+    /// Issuer — identifies the token issuer ("ironforge").
+    pub iss: Option<String>,
+    /// Audience — intended recipient ("ironforge-user").
+    pub aud: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -42,6 +46,8 @@ pub fn generate_token(user_id: i64, username: &str, secret: &str, ttl_days: i64)
         username: username.to_string(),
         iat: now.timestamp(),
         exp: exp.timestamp(),
+        iss: Some("ironforge".to_string()),
+        aud: Some("ironforge-user".to_string()),
     };
     encode(
         &Header::default(),
@@ -53,10 +59,13 @@ pub fn generate_token(user_id: i64, username: &str, secret: &str, ttl_days: i64)
 
 /// Validate and decode a JWT. Returns `None` if invalid/expired.
 pub fn validate_token(token: &str, secret: &str) -> Option<Claims> {
+    let mut validation = Validation::new(Algorithm::HS256);
+    validation.set_issuer(&["ironforge"]);
+    validation.set_audience(&["ironforge-user"]);
     decode::<Claims>(
         token,
         &DecodingKey::from_secret(secret.as_bytes()),
-        &Validation::default(),
+        &validation,
     )
     .ok()
     .map(|d| d.claims)

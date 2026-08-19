@@ -2,6 +2,7 @@
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { onMount } from 'svelte';
+  import { isAuthReady, isLoggedIn } from '$lib/stores/auth.svelte';
   import FileEditor from '$lib/components/FileEditor.svelte';
   import { repos } from '$lib/api/client.svelte';
   import { createT } from '$lib/i18n';
@@ -26,6 +27,14 @@
   let blobData = $state<BlobData | null>(null);
   let loading = $state(true);
   let error = $state('');
+
+  // F-003: Auth guard
+  $effect(() => {
+    if (!isAuthReady()) return;
+    if (!isLoggedIn()) {
+      goto('/login');
+    }
+  });
 
   function encodeRepoPath(pathValue: string): string {
     return pathValue.split('/').map(encodeURIComponent).join('/');

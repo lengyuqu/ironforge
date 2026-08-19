@@ -63,8 +63,8 @@
     <a href="/admin/settings" class="card">
       <div class="card-icon">⚙️</div>
       <div class="card-body">
-        <h2>Instance Settings</h2>
-        <p>Instance maintenance and banner configuration</p>
+        <h2>{t('admin.settings.title')}</h2>
+        <p>{t('admin.settings.desc')}</p>
       </div>
       <div class="card-arrow">→</div>
     </a>

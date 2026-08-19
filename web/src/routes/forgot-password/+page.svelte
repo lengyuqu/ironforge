@@ -1,5 +1,8 @@
 <script lang="ts">
   import { auth } from '$lib/api/client.svelte';
+  import { createT } from '$lib/i18n';
+
+  const t = createT();
 
   let email = $state('');
   let loading = $state(false);
@@ -22,7 +25,7 @@
       const res = await auth.forgotPassword(trimmedEmail);
       success = res.message || 'If that email exists, a reset link has been sent.';
     } catch (e: any) {
-      localError = e.message || 'Failed to request password reset';
+      localError = e.message || t('errors.reset_failed');
     } finally {
       loading = false;
     }

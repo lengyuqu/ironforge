@@ -2,6 +2,9 @@
   import { goto } from '$app/navigation';
   import { tokens } from '$lib/api/client.svelte';
   import { isAuthReady, isLoggedIn } from '$lib/stores/auth.svelte';
+  import { createT } from '$lib/i18n';
+
+  const t = createT();
 
   interface AccessToken {
     id: number;
@@ -38,7 +41,7 @@
       error = '';
       tokenList = await tokens.list();
     } catch (err: any) {
-      error = err.message || 'Failed to load access tokens';
+      error = err.message || t('errors.load_failed');
     } finally {
       loading = false;
     }
@@ -70,7 +73,7 @@
       expiresAt = '';
       await loadTokens();
     } catch (err: any) {
-      error = err.message || 'Failed to create token';
+      error = err.message || t('errors.create_failed');
     } finally {
       creating = false;
     }
@@ -87,7 +90,7 @@
       success = 'Token revoked';
       await loadTokens();
     } catch (err: any) {
-      error = err.message || 'Failed to revoke token';
+      error = err.message || t('errors.revoke_failed');
     } finally {
       deletingId = null;
     }

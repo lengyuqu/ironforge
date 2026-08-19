@@ -79,7 +79,7 @@
         default_branch: defaultBranch || undefined,
         gitignores: selectedGitignore || undefined,
         license: selectedLicense || undefined,
-        readme: autoInit && !selectedGitignore && !selectedLicense ? selectedReadme : autoInit ? selectedReadme : undefined,
+        readme: autoInit ? selectedReadme : undefined,
         issue_labels: autoInit ? selectedLabels : undefined,
       });
       const createdName = newName;

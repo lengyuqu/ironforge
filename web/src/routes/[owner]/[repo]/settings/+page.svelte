@@ -48,7 +48,7 @@
       const response = await repos.get(owner, repo);
       repository = response;
     } catch (err: any) {
-      error = err.message || 'Failed to load repository';
+      error = err.message || t('errors.load_failed');
     } finally {
       loading = false;
     }

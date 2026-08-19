@@ -577,6 +577,13 @@ impl PipelineRunner {
             // SECURITY: Do NOT fall back to local execution.
             // The CI script was written expecting a sandboxed container;
             // running it locally with server permissions is a privilege escalation.
+            //
+            // B-014 LIMITATION: The error is returned and eventually written to
+            // the job log (see the Err branch in run_pipeline), but no proactive
+            // notification (email, webhook, etc.) is sent to the repo owner.
+            // Users must check the job log to discover why their pipeline failed.
+            // Future improvement: send an email or in-app notification to the
+            // repo owner when Docker unavailability causes a job failure.
             return Err(anyhow::anyhow!(
                 "Docker daemon not available. Job requires image '{}' but cannot run in container. \
                  Refusing to fall back to local execution.",

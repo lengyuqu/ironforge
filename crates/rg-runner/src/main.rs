@@ -521,6 +521,12 @@ async fn run_job_docker(
         .unwrap_or(false);
 
     if !docker_ok {
+        // B-014 LIMITATION: The failure reason is written to the job log (via
+        // upload_log below) and the job is marked as "failure" (via finish_job),
+        // but no proactive notification is sent to the repo owner. Users must
+        // check the job log to discover why their build failed.
+        // Future improvement: send an email or in-app notification to the repo
+        // owner when Docker unavailability causes a job failure.
         let msg = docker_unavailable_message(image);
         tracing::warn!("{}", msg);
         return (-1, msg);

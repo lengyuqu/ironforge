@@ -101,10 +101,17 @@ pub async fn security_headers_middleware(request: Request, next: Next) -> Respon
     // `style-src 'unsafe-inline'` is retained because SvelteKit inlines styles
     // and there is no runtime mechanism to nonce them in static-build mode.
     let csp = build_content_security_policy(&nonce);
-    headers.insert(
-        header::HeaderName::from_static("content-security-policy"),
-        HeaderValue::from_str(&csp).expect("CSP header is valid ASCII"),
-    );
+    match HeaderValue::from_str(&csp) {
+        Ok(value) => {
+            headers.insert(
+                header::HeaderName::from_static("content-security-policy"),
+                value,
+            );
+        }
+        Err(e) => {
+            tracing::error!(error = %e, "CSP header construction failed, skipping CSP header");
+        }
+    }
 
     // Permissions Policy — disable unused browser features
     headers.insert(

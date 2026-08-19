@@ -8,34 +8,30 @@ const repoPagePath = path.join(root, 'web/src/routes/[owner]/[repo]/+page.svelte
 const repoPage = readFileSync(repoPagePath, 'utf8');
 const failures = [];
 
-if (!/function\s+escapeHtml\s*\(\s*value:\s*string\s*\)/.test(repoPage)) {
-  failures.push('Repository README renderer must escape backend blob content before HTML insertion');
+// F-004: Repository README must be rendered through the shared renderMarkdown utility
+// from $lib/utils/markdown, which uses marked + DOMParser sanitization.
+// The old hand-written inline parser (escapeHtml / safeMarkdownHref / renderInlineMarkdown)
+// has been removed in favour of the same renderer used by the blob page.
+
+if (!/import\s*\{\s*renderMarkdown\s*\}\s*from\s*['"]\$lib\/utils\/markdown['"]/.test(repoPage)) {
+  failures.push('Repository page must import renderMarkdown from $lib/utils/markdown');
 }
 
-if (!/function\s+safeMarkdownHref\s*\(\s*value:\s*string\s*\)/.test(repoPage)) {
-  failures.push('Repository README renderer must validate markdown link hrefs before HTML insertion');
+if (!/\{@html\s+renderMarkdown\(readmeContent\)\}/.test(repoPage)) {
+  failures.push('Repository page must render README content via {@html renderMarkdown(readmeContent)}');
 }
 
-if (!/function\s+renderInlineMarkdown\s*\(\s*line:\s*string\s*\)/.test(repoPage)) {
-  failures.push('Repository README renderer must centralize inline markdown rendering');
+// Ensure the old hand-written helpers are fully removed
+if (/function\s+escapeHtml\s*\(/.test(repoPage)) {
+  failures.push('Repository page must not contain the old escapeHtml helper');
 }
 
-const renderBlock = repoPage.match(/function\s+renderInlineMarkdown\s*\(\s*line:\s*string\s*\)\s*:\s*string\s*\{[\s\S]*?\n\s*\}/)?.[0] || '';
-
-if (!/escapeHtml\(line\)/.test(renderBlock)) {
-  failures.push('renderInlineMarkdown must start from escaped README text');
+if (/function\s+safeMarkdownHref\s*\(/.test(repoPage)) {
+  failures.push('Repository page must not contain the old safeMarkdownHref helper');
 }
 
-if (!/safeMarkdownHref\(href\)/.test(renderBlock)) {
-  failures.push('renderInlineMarkdown must sanitize markdown link hrefs');
-}
-
-if (/\{@html\s+line\s*(?:\.|\})/.test(repoPage)) {
-  failures.push('Repository page must not inject raw README lines with {@html line...}');
-}
-
-if (!/\{@html\s+renderInlineMarkdown\(line\)\}/.test(repoPage)) {
-  failures.push('Repository page must render README lines through renderInlineMarkdown');
+if (/function\s+renderInlineMarkdown\s*\(/.test(repoPage)) {
+  failures.push('Repository page must not contain the old renderInlineMarkdown helper');
 }
 
 if (failures.length > 0) {

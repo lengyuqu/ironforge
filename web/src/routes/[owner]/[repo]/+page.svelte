@@ -4,9 +4,10 @@
   import { goto } from '$app/navigation';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
   import Dropdown from '$lib/components/Dropdown.svelte';
-  import { buildSshCloneUrl, withBackendBase } from '$lib/api/_base';
+  import { buildSshCloneUrl, withBackendBase } from '$lib/api/_base.svelte';
   import { repos } from '$lib/api/client.svelte';
   import { createT, formatDate } from '$lib/i18n';
+  import { renderMarkdown } from '$lib/utils/markdown';
 
   const t = createT();
 
@@ -147,32 +148,6 @@
     if (size < 1024 * 1024) return (size / 1024).toFixed(1) + t('repo.file_size.kb');
     return (size / (1024 * 1024)).toFixed(1) + t('repo.file_size.mb');
   }
-
-  function escapeHtml(value: string): string {
-    return value
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
-  }
-
-  function safeMarkdownHref(value: string): string {
-    const href = value.trim();
-    if (/^(https?:|mailto:|#|\/|\.\/|\.\.\/)/i.test(href)) {
-      return href;
-    }
-    return '#';
-  }
-
-  function renderInlineMarkdown(line: string): string {
-    return escapeHtml(line)
-      .replace(/`([^`]+)`/g, '<code>$1</code>')
-      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, label, href) => {
-        return `<a href='${safeMarkdownHref(href)}' target='_blank' rel='noopener'>${label}</a>`;
-      });
-  }
 </script>
 
 <svelte:head>
@@ -187,7 +162,7 @@
   {/if}
 
   {#if loading}
-    <p class="text-secondary">Loading...</p>
+    <p class="text-secondary">{t('common.loading')}</p>
   {:else if commits.length === 0 && entries.length === 0}
     <!-- Empty repository — setup guidance -->
     <div class="empty-repo">
@@ -343,26 +318,7 @@ git push -u origin {repoInfo?.default_branch || 'main'}</code></pre>
         </div>
         <div class="readme-body">
           <div class="markdown-body">
-            <!-- Simple markdown rendering -->
-            {#each readmeContent.split('\n') as line}
-              {#if line.startsWith('# ')}
-                <h1 class="md-h1">{line.slice(2)}</h1>
-              {:else if line.startsWith('## ')}
-                <h2 class="md-h2">{line.slice(3)}</h2>
-              {:else if line.startsWith('### ')}
-                <h3 class="md-h3">{line.slice(4)}</h3>
-              {:else if line.startsWith('```')}
-                <hr class="md-hr" />
-              {:else if line.startsWith('- ') || line.startsWith('* ')}
-                <li class="md-li">{line.slice(2)}</li>
-              {:else if line.trim() === ''}
-                <br />
-              {:else}
-                <p class="md-p">
-                  {@html renderInlineMarkdown(line)}
-                </p>
-              {/if}
-            {/each}
+            {@html renderMarkdown(readmeContent)}
           </div>
         </div>
       </div>

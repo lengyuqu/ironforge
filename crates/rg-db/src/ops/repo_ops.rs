@@ -149,6 +149,62 @@ pub async fn list_public_paginated(
     Ok((repos, total))
 }
 
+/// Paginated list of public, non-deleted repos owned by a specific user.
+pub async fn list_public_by_owner_paginated(
+    db: &DatabaseConnection,
+    owner_id: i64,
+    offset: u64,
+    limit: u64,
+) -> Result<(Vec<Repo>, i64)> {
+    let base = RepoEntity::find()
+        .filter(repository::Column::OwnerId.eq(owner_id))
+        .filter(repository::Column::IsPrivate.eq(false))
+        .filter(repository::Column::DeletedAt.is_null())
+        .order_by_asc(repository::Column::Name);
+
+    let total = base
+        .clone()
+        .count(db)
+        .await
+        .context("db: count public repos by owner")? as i64;
+    let repos = base
+        .offset(offset)
+        .limit(limit)
+        .all(db)
+        .await
+        .context("db: list public repos by owner (paginated)")?;
+
+    Ok((repos, total))
+}
+
+/// Paginated list of public, non-deleted repos belonging to a specific organization.
+pub async fn list_public_by_org_paginated(
+    db: &DatabaseConnection,
+    org_id: i64,
+    offset: u64,
+    limit: u64,
+) -> Result<(Vec<Repo>, i64)> {
+    let base = RepoEntity::find()
+        .filter(repository::Column::OrgId.eq(org_id))
+        .filter(repository::Column::IsPrivate.eq(false))
+        .filter(repository::Column::DeletedAt.is_null())
+        .order_by_asc(repository::Column::Name);
+
+    let total = base
+        .clone()
+        .count(db)
+        .await
+        .context("db: count public repos by org")? as i64;
+    let repos = base
+        .offset(offset)
+        .limit(limit)
+        .all(db)
+        .await
+        .context("db: list public repos by org (paginated)")?;
+
+    Ok((repos, total))
+}
+
 /// Create a new repo.
 pub async fn create(db: &DatabaseConnection, model: RepoActiveModel) -> Result<Repo> {
     model.insert(db).await.context("db: create repo")

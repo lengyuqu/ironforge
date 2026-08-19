@@ -1,6 +1,7 @@
 <script lang="ts">
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
+  import { isAuthReady, isLoggedIn } from '$lib/stores/auth.svelte';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
   import { releases, repos } from '$lib/api/client.svelte';
   import { createT } from '$lib/i18n';
@@ -25,6 +26,11 @@
   let selectedTargetType = $state<'branch' | 'tag'>('tag');
 
   $effect(() => {
+    if (!isAuthReady()) return;
+    if (!isLoggedIn()) {
+      goto('/login');
+      return;
+    }
     loadBranchesAndTags();
   });
 

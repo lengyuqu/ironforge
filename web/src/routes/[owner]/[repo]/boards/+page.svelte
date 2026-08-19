@@ -74,7 +74,7 @@
       newBoardDesc = '';
       await selectBoard(b);
     } catch (e: any) {
-      error = e.message || 'Failed to create board';
+      error = e.message || t('errors.create_failed');
       console.error('createBoard error:', e);
     }
   }

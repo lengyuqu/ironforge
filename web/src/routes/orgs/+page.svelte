@@ -1,5 +1,6 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
+  import { isAuthReady, isLoggedIn } from '$lib/stores/auth.svelte';
   import { orgs } from '$lib/api/client.svelte';
   import { createT, formatDate } from '$lib/i18n';
   import { onMount } from 'svelte';
@@ -25,6 +26,14 @@
   let loading = $state(true);
   let creating = $state(false);
   let showCreate = $state(false);
+
+  // F-003: Auth guard
+  $effect(() => {
+    if (!isAuthReady()) return;
+    if (!isLoggedIn()) {
+      goto('/login');
+    }
+  });
 
   async function loadOrgs() {
     loading = true;

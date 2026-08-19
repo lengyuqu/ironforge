@@ -1,11 +1,21 @@
 <script lang="ts">
   import { page } from '$app/stores';
+  import { goto } from '$app/navigation';
+  import { isAuthReady, isLoggedIn } from '$lib/stores/auth.svelte';
   import { createT } from '$lib/i18n';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
 
   const t = createT();
 
   let { children } = $props();
+
+  // F-003: Auth guard for all settings sub-pages
+  $effect(() => {
+    if (!isAuthReady()) return;
+    if (!isLoggedIn()) {
+      goto('/login');
+    }
+  });
 
   const owner = $derived($page.params.owner!);
   const repo = $derived($page.params.repo!);

@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { notifications, connectNotificationWebSocket } from '$lib/api/client.svelte';
+  import { onMount } from 'svelte';
+  import { notifications, connectNotificationWebSocket, disconnectNotificationWebSocket } from '$lib/api/client.svelte';
   import { getUser, isLoggedIn } from '$lib/stores/auth.svelte';
   import { createT, formatDateTime } from '$lib/i18n';
 
@@ -77,7 +78,10 @@
   }
 
   load();
-  setupWebSocket();
+  onMount(() => {
+    setupWebSocket();
+    return () => disconnectNotificationWebSocket();
+  });
 </script>
 
 <div class="container">

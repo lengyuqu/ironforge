@@ -184,7 +184,9 @@ pub async fn trigger_sync(db: &DatabaseConnection, repo_id: i64, repo_root: &Pat
 // ── Git helpers ─────────────────────────────────────────────────────────
 
 fn run_git_clone_mirror(url: &str, path: &Path) -> Result<()> {
-    let parent = path.parent().unwrap();
+    let parent = path
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("invalid path: no parent directory"))?;
     std::fs::create_dir_all(parent).context("create mirror dir")?;
 
     let git = global_gateway()
