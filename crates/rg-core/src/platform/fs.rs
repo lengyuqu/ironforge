@@ -52,19 +52,19 @@ pub fn set_executable<P: AsRef<Path>>(path: P) -> std::io::Result<()> {
 /// Returns a placeholder value (0o644) since Windows doesn't have
 /// Unix-style permissions.
 pub fn get_permissions<P: AsRef<Path>>(path: P) -> std::io::Result<u32> {
-    let metadata = fs::metadata(&path)?;
-    let perms = metadata.permissions();
-
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
+        let metadata = fs::metadata(&path)?;
+        let perms = metadata.permissions();
         Ok(perms.mode())
     }
 
     #[cfg(windows)]
     {
         // Windows doesn't have Unix-style permissions
-        // Return a placeholder value
+        // Return a placeholder value (path param accepted for API consistency)
+        let _ = path;
         Ok(0o644)
     }
 }
