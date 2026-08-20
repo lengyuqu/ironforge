@@ -91,7 +91,7 @@ pub async fn create(db: &DatabaseConnection, model: ActiveModel) -> Result<PullR
 }
 
 /// Update a PR.
-pub async fn update(db: &DatabaseConnection, model: ActiveModel) -> Result<PullRequest> {
+pub async fn update<C: ConnectionTrait>(db: &C, model: ActiveModel) -> Result<PullRequest> {
     model.update(db).await.context("db: update PR")
 }
 

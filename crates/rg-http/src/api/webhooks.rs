@@ -6,7 +6,7 @@ use axum::response::IntoResponse;
 use axum::Json;
 use sea_orm::DatabaseConnection;
 
-use crate::api::auth::{resolve_repo_read_access, resolve_repo_write_access};
+use crate::api::repo_access::{require_read, require_write};
 use crate::error::AppError;
 use crate::AppState;
 
@@ -32,7 +32,7 @@ pub async fn list_webhooks(
     Path((owner, repo)): Path<(String, String)>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    let (repo_model, _user_id) = match resolve_repo_read_access(&state, &headers, &owner, &repo).await {
+    let repo_model = match require_read(&state, &headers, &owner, &repo).await {
         Ok(r) => r,
         Err(e) => return e.into_response(),
     };
@@ -72,7 +72,7 @@ pub async fn create_webhook(
     Json(body): Json<rg_core::webhook::service::CreateWebhookRequest>,
 ) -> impl IntoResponse {
     let (repo_model, _user_id) =
-        match resolve_repo_write_access(&state, &headers, &owner, &repo).await {
+        match require_write(&state, &headers, &owner, &repo).await {
             Ok(r) => r,
             Err(e) => return e.into_response(),
         };
@@ -104,7 +104,7 @@ pub async fn get_webhook(
     Path((owner, repo, id)): Path<(String, String, i64)>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    let (repo_model, _user_id) = match resolve_repo_read_access(&state, &headers, &owner, &repo).await {
+    let repo_model = match require_read(&state, &headers, &owner, &repo).await {
         Ok(r) => r,
         Err(e) => return e.into_response(),
     };
@@ -142,7 +142,7 @@ pub async fn update_webhook(
     Json(body): Json<rg_core::webhook::service::UpdateWebhookRequest>,
 ) -> impl IntoResponse {
     let (repo_model, _user_id) =
-        match resolve_repo_write_access(&state, &headers, &owner, &repo).await {
+        match require_write(&state, &headers, &owner, &repo).await {
             Ok(r) => r,
             Err(e) => return e.into_response(),
         };
@@ -180,7 +180,7 @@ pub async fn delete_webhook(
     headers: HeaderMap,
 ) -> impl IntoResponse {
     let (repo_model, _user_id) =
-        match resolve_repo_write_access(&state, &headers, &owner, &repo).await {
+        match require_write(&state, &headers, &owner, &repo).await {
             Ok(r) => r,
             Err(e) => return e.into_response(),
         };
@@ -216,7 +216,7 @@ pub async fn list_deliveries(
     Path((owner, repo, id)): Path<(String, String, i64)>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    let (repo_model, _user_id) = match resolve_repo_read_access(&state, &headers, &owner, &repo).await {
+    let repo_model = match require_read(&state, &headers, &owner, &repo).await {
         Ok(r) => r,
         Err(e) => return e.into_response(),
     };
@@ -255,7 +255,7 @@ pub async fn redeliver(
     headers: HeaderMap,
 ) -> impl IntoResponse {
     let (repo_model, _user_id) =
-        match resolve_repo_write_access(&state, &headers, &owner, &repo).await {
+        match require_write(&state, &headers, &owner, &repo).await {
             Ok(r) => r,
             Err(e) => return e.into_response(),
         };

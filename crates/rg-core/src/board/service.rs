@@ -4,17 +4,20 @@
 //! columns, and each column has cards. Cards can be linked to
 //! issues or be free-text notes.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use chrono::Utc;
 use rg_db::entities::board::{ActiveModel as BoardAM, Model as Board};
 use rg_db::entities::board_card::{ActiveModel as CardAM, Model as Card};
 use rg_db::entities::board_column::{ActiveModel as ColumnAM, Model as Column};
 use rg_db::entities::issue::Model as Issue;
-use sea_orm::{ActiveValue::Set, DatabaseConnection};
+use sea_orm::{ActiveValue::Set, DatabaseConnection, TransactionTrait};
 
 // ── Board CRUD ───────────────────────────────────────────────────────────
 
 /// Create a new project board.
+///
+/// The board row and its default columns are written in one transaction —
+/// a board left without its columns is unusable.
 pub async fn create_board(
     db: &DatabaseConnection,
     name: String,
@@ -35,7 +38,11 @@ pub async fn create_board(
         ..Default::default()
     };
 
-    let board = rg_db::ops::board_ops::create_board(db, model).await?;
+    let txn = db
+        .begin()
+        .await
+        .context("db: begin create-board transaction")?;
+    let board = rg_db::ops::board_ops::create_board(&txn, model).await?;
 
     // Auto-create default columns
     for (i, (name, color)) in ["To Do", "In Progress", "Done"]
@@ -51,8 +58,11 @@ pub async fn create_board(
             created_at: Set(now),
             ..Default::default()
         };
-        rg_db::ops::board_ops::create_column(db, col).await?;
+        rg_db::ops::board_ops::create_column(&txn, col).await?;
     }
+    txn.commit()
+        .await
+        .context("db: commit create-board transaction")?;
 
     Ok(board)
 }

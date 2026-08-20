@@ -6,7 +6,7 @@ use axum::response::IntoResponse;
 use axum::Json;
 use serde::{Deserialize, Serialize};
 
-use crate::api::auth::{resolve_repo_read_access, resolve_repo_write_access};
+use crate::api::repo_access::{require_read, require_write};
 use crate::error::AppError;
 use crate::AppState;
 
@@ -83,7 +83,7 @@ pub async fn list_pages(
     Path((owner, repo)): Path<(String, String)>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    let (repo, _user_id) = match resolve_repo_read_access(&state, &headers, &owner, &repo).await {
+    let repo = match require_read(&state, &headers, &owner, &repo).await {
         Ok(r) => r,
         Err(e) => return e.into_response(),
     };
@@ -116,7 +116,7 @@ pub async fn get_page(
     Path((owner, repo, title)): Path<(String, String, String)>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    let (repo, _user_id) = match resolve_repo_read_access(&state, &headers, &owner, &repo).await {
+    let repo = match require_read(&state, &headers, &owner, &repo).await {
         Ok(r) => r,
         Err(e) => return e.into_response(),
     };
@@ -154,7 +154,7 @@ pub async fn create_page(
     headers: HeaderMap,
     Json(body): Json<CreateWikiPageRequest>,
 ) -> impl IntoResponse {
-    let (repo, user_id) = match resolve_repo_write_access(&state, &headers, &owner, &repo).await {
+    let (repo, user_id) = match require_write(&state, &headers, &owner, &repo).await {
         Ok(r) => r,
         Err(e) => return e.into_response(),
     };
@@ -200,7 +200,7 @@ pub async fn update_page(
     headers: HeaderMap,
     Json(body): Json<UpdateWikiPageRequest>,
 ) -> impl IntoResponse {
-    let (repo, user_id) = match resolve_repo_write_access(&state, &headers, &owner, &repo).await {
+    let (repo, user_id) = match require_write(&state, &headers, &owner, &repo).await {
         Ok(r) => r,
         Err(e) => return e.into_response(),
     };
@@ -245,7 +245,7 @@ pub async fn delete_page(
     Path((owner, repo, title)): Path<(String, String, String)>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    let (repo, _user_id) = match resolve_repo_write_access(&state, &headers, &owner, &repo).await {
+    let (repo, _user_id) = match require_write(&state, &headers, &owner, &repo).await {
         Ok(r) => r,
         Err(e) => return e.into_response(),
     };
@@ -281,7 +281,7 @@ pub async fn list_revisions(
     Path((owner, repo, title)): Path<(String, String, String)>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    let (repo, _user_id) = match resolve_repo_read_access(&state, &headers, &owner, &repo).await {
+    let repo = match require_read(&state, &headers, &owner, &repo).await {
         Ok(r) => r,
         Err(e) => return e.into_response(),
     };
@@ -314,7 +314,7 @@ pub async fn get_revision(
     Path((owner, repo, _title, rev_id)): Path<(String, String, String, i64)>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    let (_repo, _user_id) = match resolve_repo_read_access(&state, &headers, &owner, &repo).await {
+    let _repo = match require_read(&state, &headers, &owner, &repo).await {
         Ok(r) => r,
         Err(e) => return e.into_response(),
     };

@@ -6,7 +6,7 @@ use sea_orm::*;
 
 use crate::entities::merge_queue_entry::{self, Entity as QueueEntity, Model as QueueEntry};
 
-pub async fn find_by_pr(db: &DatabaseConnection, pr_id: i64) -> Result<Option<QueueEntry>> {
+pub async fn find_by_pr<C: ConnectionTrait>(db: &C, pr_id: i64) -> Result<Option<QueueEntry>> {
     QueueEntity::find()
         .filter(merge_queue_entry::Column::PrId.eq(pr_id))
         .one(db)
@@ -38,8 +38,8 @@ pub async fn list_by_repo(db: &DatabaseConnection, repo_id: i64) -> Result<Vec<Q
         .context("db: list repository merge queue")
 }
 
-pub async fn enqueue(
-    db: &DatabaseConnection,
+pub async fn enqueue<C: ConnectionTrait>(
+    db: &C,
     repo_id: i64,
     pr_id: i64,
     enqueued_by_id: i64,
@@ -159,8 +159,8 @@ pub async fn claim(db: &DatabaseConnection, entry_id: i64) -> Result<bool> {
     Ok(result.rows_affected == 1)
 }
 
-pub async fn finish(
-    db: &DatabaseConnection,
+pub async fn finish<C: ConnectionTrait>(
+    db: &C,
     entry_id: i64,
     status: &str,
     failure_reason: Option<String>,

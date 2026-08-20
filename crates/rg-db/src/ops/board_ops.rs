@@ -14,7 +14,7 @@ use crate::entities::board_column::{
 // ── Board ────────────────────────────────────────────────────────────────
 
 /// Create a new board.
-pub async fn create_board(db: &DatabaseConnection, model: BoardAM) -> Result<Board> {
+pub async fn create_board<C: ConnectionTrait>(db: &C, model: BoardAM) -> Result<Board> {
     model.insert(db).await.context("db: create board")
 }
 
@@ -63,7 +63,7 @@ pub async fn delete_board_by_id(db: &DatabaseConnection, id: i64) -> Result<()> 
 // ── Columns ──────────────────────────────────────────────────────────────
 
 /// Create a new column on a board.
-pub async fn create_column(db: &DatabaseConnection, model: ColumnAM) -> Result<Column> {
+pub async fn create_column<C: ConnectionTrait>(db: &C, model: ColumnAM) -> Result<Column> {
     model.insert(db).await.context("db: create column")
 }
 

@@ -28,7 +28,7 @@ use axum::{
 use serde::Deserialize;
 use utoipa::ToSchema;
 
-use crate::api::auth::{resolve_repo_read_access, resolve_repo_write_access};
+use crate::api::repo_access::{require_read, require_write};
 use crate::error::AppError;
 use crate::AppState;
 
@@ -116,7 +116,7 @@ pub async fn create_board(
     Path((owner, name)): Path<(String, String)>,
     Json(body): Json<CreateBoardRequest>,
 ) -> impl IntoResponse {
-    let (repo, user_id) = match resolve_repo_write_access(&state, &headers, &owner, &name).await {
+    let (repo, user_id) = match require_write(&state, &headers, &owner, &name).await {
         Ok(r) => r,
         Err(e) => return e.into_response(),
     };
@@ -155,7 +155,7 @@ pub async fn list_boards(
     headers: HeaderMap,
     Path((owner, name)): Path<(String, String)>,
 ) -> impl IntoResponse {
-    let (repo, _user_id) = match resolve_repo_read_access(&state, &headers, &owner, &name).await {
+    let repo = match require_read(&state, &headers, &owner, &name).await {
         Ok(r) => r,
         Err(e) => return e.into_response(),
     };
@@ -186,7 +186,7 @@ pub async fn get_board(
     headers: HeaderMap,
     Path((owner, name, id)): Path<(String, String, i64)>,
 ) -> impl IntoResponse {
-    let (_repo, _user_id) = match resolve_repo_read_access(&state, &headers, &owner, &name).await {
+    let _repo = match require_read(&state, &headers, &owner, &name).await {
         Ok(r) => r,
         Err(e) => return e.into_response(),
     };
@@ -221,7 +221,7 @@ pub async fn update_board(
     Path((owner, name, id)): Path<(String, String, i64)>,
     Json(body): Json<UpdateBoardRequest>,
 ) -> impl IntoResponse {
-    let (_repo, _user_id) = match resolve_repo_write_access(&state, &headers, &owner, &name).await {
+    let (_repo, _user_id) = match require_write(&state, &headers, &owner, &name).await {
         Ok(r) => r,
         Err(e) => return e.into_response(),
     };
@@ -253,7 +253,7 @@ pub async fn delete_board(
     headers: HeaderMap,
     Path((owner, name, id)): Path<(String, String, i64)>,
 ) -> impl IntoResponse {
-    let (_repo, _user_id) = match resolve_repo_write_access(&state, &headers, &owner, &name).await {
+    let (_repo, _user_id) = match require_write(&state, &headers, &owner, &name).await {
         Ok(r) => r,
         Err(e) => return e.into_response(),
     };
@@ -289,7 +289,7 @@ pub async fn create_column(
     Path((owner, name, board_id)): Path<(String, String, i64)>,
     Json(body): Json<CreateColumnRequest>,
 ) -> impl IntoResponse {
-    let (_repo, _user_id) = match resolve_repo_write_access(&state, &headers, &owner, &name).await {
+    let (_repo, _user_id) = match require_write(&state, &headers, &owner, &name).await {
         Ok(r) => r,
         Err(e) => return e.into_response(),
     };
@@ -324,7 +324,7 @@ pub async fn update_column(
     Path((owner, name, _board_id, col_id)): Path<(String, String, i64, i64)>,
     Json(body): Json<UpdateColumnRequest>,
 ) -> impl IntoResponse {
-    let (_repo, _user_id) = match resolve_repo_write_access(&state, &headers, &owner, &name).await {
+    let (_repo, _user_id) = match require_write(&state, &headers, &owner, &name).await {
         Ok(r) => r,
         Err(e) => return e.into_response(),
     };
@@ -357,7 +357,7 @@ pub async fn delete_column(
     headers: HeaderMap,
     Path((owner, name, _board_id, col_id)): Path<(String, String, i64, i64)>,
 ) -> impl IntoResponse {
-    let (_repo, _user_id) = match resolve_repo_write_access(&state, &headers, &owner, &name).await {
+    let (_repo, _user_id) = match require_write(&state, &headers, &owner, &name).await {
         Ok(r) => r,
         Err(e) => return e.into_response(),
     };
@@ -394,7 +394,7 @@ pub async fn create_card(
     Path((owner, name, _board_id, col_id)): Path<(String, String, i64, i64)>,
     Json(body): Json<CreateCardRequest>,
 ) -> impl IntoResponse {
-    let (_repo, _user_id) = match resolve_repo_write_access(&state, &headers, &owner, &name).await {
+    let (_repo, _user_id) = match require_write(&state, &headers, &owner, &name).await {
         Ok(r) => r,
         Err(e) => return e.into_response(),
     };
@@ -429,7 +429,7 @@ pub async fn update_card(
     Path((owner, name, _board_id, card_id)): Path<(String, String, i64, i64)>,
     Json(body): Json<UpdateCardRequest>,
 ) -> impl IntoResponse {
-    let (_repo, _user_id) = match resolve_repo_write_access(&state, &headers, &owner, &name).await {
+    let (_repo, _user_id) = match require_write(&state, &headers, &owner, &name).await {
         Ok(r) => r,
         Err(e) => return e.into_response(),
     };
@@ -464,7 +464,7 @@ pub async fn move_card(
     Path((owner, name, _board_id, card_id)): Path<(String, String, i64, i64)>,
     Json(body): Json<MoveCardRequest>,
 ) -> impl IntoResponse {
-    let (_repo, _user_id) = match resolve_repo_write_access(&state, &headers, &owner, &name).await {
+    let (_repo, _user_id) = match require_write(&state, &headers, &owner, &name).await {
         Ok(r) => r,
         Err(e) => return e.into_response(),
     };
@@ -500,7 +500,7 @@ pub async fn reorder_cards(
     Path((owner, name, _board_id)): Path<(String, String, i64)>,
     Json(body): Json<ReorderCardsRequest>,
 ) -> impl IntoResponse {
-    let (_repo, _user_id) = match resolve_repo_write_access(&state, &headers, &owner, &name).await {
+    let (_repo, _user_id) = match require_write(&state, &headers, &owner, &name).await {
         Ok(r) => r,
         Err(e) => return e.into_response(),
     };
@@ -533,7 +533,7 @@ pub async fn delete_card(
     headers: HeaderMap,
     Path((owner, name, _board_id, card_id)): Path<(String, String, i64, i64)>,
 ) -> impl IntoResponse {
-    let (_repo, _user_id) = match resolve_repo_write_access(&state, &headers, &owner, &name).await {
+    let (_repo, _user_id) = match require_write(&state, &headers, &owner, &name).await {
         Ok(r) => r,
         Err(e) => return e.into_response(),
     };

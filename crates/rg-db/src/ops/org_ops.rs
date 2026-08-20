@@ -8,6 +8,9 @@ use crate::entities::{organization, organization_member, team, team_member};
 // ── Organization ops ──────────────────────────────────────────
 
 /// Create a new organization.
+///
+/// The org row and the owner's membership row are written in one
+/// transaction — an org without its owner member would be unmanageable.
 pub async fn create_org(
     db: &DatabaseConnection,
     name: &str,
@@ -27,10 +30,13 @@ pub async fn create_org(
         updated_at: Set(now),
         ..Default::default()
     };
-    let result = model.insert(db).await.context("db: create org")?;
+
+    let txn = db.begin().await.context("db: begin create-org transaction")?;
+    let result = model.insert(&txn).await.context("db: create org")?;
 
     // Auto-add the owner as an org member with "owner" role
-    add_org_member(db, result.id, owner_id, "owner").await?;
+    add_org_member(&txn, result.id, owner_id, "owner").await?;
+    txn.commit().await.context("db: commit create-org transaction")?;
 
     Ok(result)
 }
@@ -142,8 +148,8 @@ pub async fn delete_org(db: &DatabaseConnection, id: i64) -> Result<()> {
 // ── Organization Member ops ──────────────────────────────────
 
 /// Add a member to an organization.
-pub async fn add_org_member(
-    db: &DatabaseConnection,
+pub async fn add_org_member<C: ConnectionTrait>(
+    db: &C,
     org_id: i64,
     user_id: i64,
     role: &str,

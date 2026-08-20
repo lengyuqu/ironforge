@@ -5,7 +5,7 @@ use std::path::Path;
 
 use anyhow::{bail, Context, Result};
 use chrono::{Duration, Utc};
-use sea_orm::{DatabaseConnection, EntityTrait, Set};
+use sea_orm::{DatabaseConnection, EntityTrait, Set, TransactionTrait};
 
 use rg_db::entities::{merge_queue_entry, pull_request, repository};
 use rg_db::ops::{merge_queue_ops, pull_request_ops};
@@ -41,6 +41,10 @@ pub async fn enqueue(
         bail!("only an open, non-draft pull request can enter the merge queue");
     }
 
+    // All writes (auto-merge flag off, queue entry upsert, events) go through
+    // one transaction: a PR must never end up half-enqueued.
+    let txn = db.begin().await.context("db: begin merge-queue enqueue transaction")?;
+
     // Queue ordering owns merge execution once a PR is enqueued.
     if pr.auto_merge_enabled {
         let mut active: pull_request::ActiveModel = pr.clone().into();
@@ -49,9 +53,9 @@ pub async fn enqueue(
         active.auto_merge_enabled_by_id = Set(None);
         active.auto_merge_enabled_at = Set(None);
         active.updated_at = Set(Utc::now());
-        pull_request_ops::update(db, active).await?;
+        pull_request_ops::update(&txn, active).await?;
         rg_db::ops::pr_event_ops::record(
-            db,
+            &txn,
             pr.repo_id,
             pr.id,
             Some(actor_id),
@@ -62,9 +66,9 @@ pub async fn enqueue(
         .await?;
     }
     let entry =
-        merge_queue_ops::enqueue(db, repository.id, pr.id, actor_id, strategy.as_str()).await?;
+        merge_queue_ops::enqueue(&txn, repository.id, pr.id, actor_id, strategy.as_str()).await?;
     rg_db::ops::pr_event_ops::record(
-        db,
+        &txn,
         pr.repo_id,
         pr.id,
         Some(actor_id),
@@ -73,6 +77,7 @@ pub async fn enqueue(
         serde_json::json!({"entry_id": entry.id, "strategy": entry.strategy}),
     )
     .await?;
+    txn.commit().await.context("db: commit merge-queue enqueue transaction")?;
     Ok(entry)
 }
 
@@ -107,9 +112,12 @@ async fn finish_entry(
     status: &str,
     failure_reason: Option<String>,
 ) -> Result<merge_queue_entry::Model> {
-    let finished = merge_queue_ops::finish(db, entry.id, status, failure_reason.clone()).await?;
+    // Queue status + audit event are atomic; ref cleanup (a Git side effect)
+    // runs after commit.
+    let txn = db.begin().await.context("db: begin merge-queue finish transaction")?;
+    let finished = merge_queue_ops::finish(&txn, entry.id, status, failure_reason.clone()).await?;
     rg_db::ops::pr_event_ops::record(
-        db,
+        &txn,
         entry.repo_id,
         entry.pr_id,
         None,
@@ -118,6 +126,7 @@ async fn finish_entry(
         serde_json::json!({"entry_id": entry.id, "strategy": entry.strategy}),
     )
     .await?;
+    txn.commit().await.context("db: commit merge-queue finish transaction")?;
     if let Ok(Some(repository)) = repository::Entity::find_by_id(entry.repo_id).one(db).await {
         cleanup_merge_group_ref(db, repo_root, &repository, entry.pr_id).await;
     }

@@ -6,7 +6,7 @@ use axum::response::IntoResponse;
 use axum::Json;
 use serde::Deserialize;
 
-use crate::api::auth::{resolve_repo_read_access, resolve_repo_write_access};
+use crate::api::repo_access::{require_read, require_write};
 use crate::error::AppError;
 use crate::AppState;
 
@@ -54,11 +54,10 @@ pub async fn list_collaborators(
     Path((owner, repo)): Path<(String, String)>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    let (_repo_model, _user_id) =
-        match resolve_repo_read_access(&state, &headers, &owner, &repo).await {
-            Ok(r) => r,
-            Err(e) => return e.into_response(),
-        };
+    let _repo_model = match require_read(&state, &headers, &owner, &repo).await {
+        Ok(r) => r,
+        Err(e) => return e.into_response(),
+    };
 
     match rg_core::collaborator::service::list_collaborators(&state.db, &owner, &repo).await {
         Ok(collaborators) => (StatusCode::OK, Json(collaborators)).into_response(),
@@ -91,7 +90,7 @@ pub async fn add_collaborator(
     Json(req): Json<AddCollaboratorRequest>,
 ) -> impl IntoResponse {
     let (_repo_model, _user_id) =
-        match resolve_repo_write_access(&state, &headers, &owner, &repo).await {
+        match require_write(&state, &headers, &owner, &repo).await {
             Ok(r) => r,
             Err(e) => return e.into_response(),
         };
@@ -178,7 +177,7 @@ pub async fn update_permission(
     Json(req): Json<UpdatePermissionRequest>,
 ) -> impl IntoResponse {
     let (_repo_model, _user_id) =
-        match resolve_repo_write_access(&state, &headers, &owner, &repo).await {
+        match require_write(&state, &headers, &owner, &repo).await {
             Ok(r) => r,
             Err(e) => return e.into_response(),
         };
@@ -213,7 +212,7 @@ pub async fn remove_collaborator(
     headers: HeaderMap,
 ) -> impl IntoResponse {
     let (_repo_model, _user_id) =
-        match resolve_repo_write_access(&state, &headers, &owner, &repo).await {
+        match require_write(&state, &headers, &owner, &repo).await {
             Ok(r) => r,
             Err(e) => return e.into_response(),
         };

@@ -25,7 +25,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::api::auth::{extract_ci_job_claims, extract_user_id};
+use crate::api::auth::extract_user_id;
 use crate::AppState;
 
 // ── Request / Response types ─────────────────────────────
@@ -114,55 +114,32 @@ fn auth(headers: &axum::http::HeaderMap, secret: &str) -> Result<i64, AppError> 
         .ok_or_else(|| AppError::unauthorized("authentication required"))
 }
 
-async fn resolve_repo(
-    state: &AppState,
-    owner: &str,
-    name: &str,
-) -> Result<rg_db::entities::repository::Model, AppError> {
-    rg_core::repo::service::find_repo_by_owner_name(&state.db, owner, name)
-        .await
-        .map_err(AppError::internal)?
-        .ok_or_else(|| AppError::not_found("repository not found"))
-}
-
+/// Read access via the centralized [`crate::api::repo_access`] helpers.
+/// Package domain: the anonymous CI job token must carry `packages:read`.
 async fn require_repo_read(
     state: &AppState,
     headers: &HeaderMap,
     owner: &str,
     name: &str,
 ) -> Result<rg_db::entities::repository::Model, AppError> {
-    let repo = resolve_repo(state, owner, name).await?;
-    let actor_id = extract_user_id(headers, &state.jwt_secret);
-    match rg_core::repo::service::can_read_repo(&state.db, &repo, actor_id).await {
-        Ok(true) => Ok(repo),
-        Ok(false)
-            if actor_id.is_none()
-                && extract_ci_job_claims(headers, &state.jwt_secret, repo.id, "packages:read")
-                    .is_some() =>
-        {
-            Ok(repo)
-        }
-        Ok(false) if repo.is_private && actor_id.is_none() => {
-            Err(AppError::unauthorized("authentication required"))
-        }
-        Ok(false) => Err(AppError::forbidden("access denied")),
-        Err(e) => Err(AppError::internal(e)),
-    }
+    crate::api::repo_access::require_read_with_ci_scope(
+        state,
+        headers,
+        owner,
+        name,
+        "packages:read",
+    )
+    .await
 }
 
+/// Write access via the centralized [`crate::api::repo_access`] helpers.
 async fn require_repo_write(
     state: &AppState,
     headers: &HeaderMap,
     owner: &str,
     name: &str,
 ) -> Result<(rg_db::entities::repository::Model, i64), AppError> {
-    let user_id = auth(headers, &state.jwt_secret)?;
-    let repo = resolve_repo(state, owner, name).await?;
-    match rg_core::repo::service::can_write_repo(&state.db, &repo, Some(user_id)).await {
-        Ok(true) => Ok((repo, user_id)),
-        Ok(false) => Err(AppError::forbidden("write access denied")),
-        Err(e) => Err(AppError::internal(e)),
-    }
+    crate::api::repo_access::require_write(state, headers, owner, name).await
 }
 
 /// Resolve publish metadata: adapter-extracted fields take precedence, then

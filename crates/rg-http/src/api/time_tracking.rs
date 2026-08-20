@@ -14,7 +14,7 @@ use axum::{
 use serde::Deserialize;
 use utoipa::ToSchema;
 
-use crate::api::auth::{resolve_repo_read_access, resolve_repo_write_access};
+use crate::api::repo_access::{require_read, require_write};
 use crate::error::AppError;
 use crate::pagination::{PaginatedResponse, PaginationParams};
 use crate::AppState;
@@ -51,7 +51,7 @@ pub async fn add_time(
     headers: HeaderMap,
     Json(body): Json<AddTimeRequest>,
 ) -> impl IntoResponse {
-    let (_repo, user_id) = match resolve_repo_write_access(&state, &headers, &owner, &name).await {
+    let (_repo, user_id) = match require_write(&state, &headers, &owner, &name).await {
         Ok(r) => r,
         Err(e) => return e.into_response(),
     };
@@ -97,7 +97,7 @@ pub async fn list_time_entries(
     headers: HeaderMap,
     Query(params): Query<PaginationParams>,
 ) -> impl IntoResponse {
-    let (_repo, _user_id) = match resolve_repo_read_access(&state, &headers, &owner, &name).await {
+    let _repo = match require_read(&state, &headers, &owner, &name).await {
         Ok(r) => r,
         Err(e) => return e.into_response(),
     };
@@ -143,7 +143,7 @@ pub async fn total_time(
     Path((owner, name, number)): Path<(String, String, i64)>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    let (_repo, _user_id) = match resolve_repo_read_access(&state, &headers, &owner, &name).await {
+    let _repo = match require_read(&state, &headers, &owner, &name).await {
         Ok(r) => r,
         Err(e) => return e.into_response(),
     };
@@ -191,7 +191,7 @@ pub async fn delete_time_entry(
     Path((owner, name, _number, id)): Path<(String, String, i64, i64)>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    let (_repo, _user_id) = match resolve_repo_write_access(&state, &headers, &owner, &name).await {
+    let (_repo, _user_id) = match require_write(&state, &headers, &owner, &name).await {
         Ok(r) => r,
         Err(e) => return e.into_response(),
     };

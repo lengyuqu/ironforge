@@ -15,7 +15,7 @@ use axum::{
 use serde::Deserialize;
 use utoipa::ToSchema;
 
-use crate::api::auth::{resolve_repo_read_access, resolve_repo_write_access};
+use crate::api::repo_access::{require_read, require_write};
 use crate::error::AppError;
 use crate::AppState;
 
@@ -58,11 +58,10 @@ pub async fn list_labels(
     headers: HeaderMap,
     Path((owner, name)): Path<(String, String)>,
 ) -> impl IntoResponse {
-    let (_repo, _user_id) =
-        match resolve_repo_read_access(&state, &headers, &owner, &name).await {
-            Ok(r) => r,
-            Err(e) => return e.into_response(),
-        };
+    let _repo = match require_read(&state, &headers, &owner, &name).await {
+        Ok(r) => r,
+        Err(e) => return e.into_response(),
+    };
     match rg_core::label::service::list_labels(&state.db, &owner, &name).await {
         Ok(labels) => (StatusCode::OK, Json(serde_json::json!(labels))).into_response(),
         Err(e) => AppError::internal(e.to_string()).into_response(),
@@ -89,11 +88,10 @@ pub async fn get_label(
     headers: HeaderMap,
     Path((owner, name, id)): Path<(String, String, i64)>,
 ) -> impl IntoResponse {
-    let (_repo, _user_id) =
-        match resolve_repo_read_access(&state, &headers, &owner, &name).await {
-            Ok(r) => r,
-            Err(e) => return e.into_response(),
-        };
+    let _repo = match require_read(&state, &headers, &owner, &name).await {
+        Ok(r) => r,
+        Err(e) => return e.into_response(),
+    };
     match rg_core::label::service::get_label(&state.db, &owner, &name, id).await {
         Ok(label) => (StatusCode::OK, Json(serde_json::json!(label))).into_response(),
         Err(_) => AppError::not_found("label not found").into_response(),
@@ -124,7 +122,7 @@ pub async fn create_label(
     Json(body): Json<CreateLabelRequest>,
 ) -> impl IntoResponse {
     let (_repo, _user_id) =
-        match resolve_repo_write_access(&state, &headers, &owner, &name).await {
+        match require_write(&state, &headers, &owner, &name).await {
             Ok(r) => r,
             Err(e) => return e.into_response(),
         };
@@ -168,7 +166,7 @@ pub async fn update_label(
     Json(body): Json<UpdateLabelRequest>,
 ) -> impl IntoResponse {
     let (_repo, _user_id) =
-        match resolve_repo_write_access(&state, &headers, &owner, &name).await {
+        match require_write(&state, &headers, &owner, &name).await {
             Ok(r) => r,
             Err(e) => return e.into_response(),
         };
@@ -210,7 +208,7 @@ pub async fn delete_label(
     Path((owner, name, id)): Path<(String, String, i64)>,
 ) -> impl IntoResponse {
     let (_repo, _user_id) =
-        match resolve_repo_write_access(&state, &headers, &owner, &name).await {
+        match require_write(&state, &headers, &owner, &name).await {
             Ok(r) => r,
             Err(e) => return e.into_response(),
         };

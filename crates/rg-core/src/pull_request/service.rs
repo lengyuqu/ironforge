@@ -2,7 +2,7 @@
 
 use anyhow::{bail, Context, Result};
 use chrono::Utc;
-use sea_orm::{DatabaseConnection, EntityTrait, Set};
+use sea_orm::{DatabaseConnection, EntityTrait, Set, TransactionTrait};
 use std::collections::HashMap;
 
 use rg_db::entities::pull_request::{self, Model as PullRequest};
@@ -1203,6 +1203,12 @@ fn merge_from_ref(
 }
 
 /// Update PR state after successful merge.
+///
+/// The PR state update and the merge event record are written in one
+/// transaction so a partial failure can never leave a PR marked `merged`
+/// without its audit event (or vice versa). The webhook fires only after
+/// the transaction commits — it is an external side effect and its failure
+/// is non-fatal by design.
 async fn update_pr_merged(
     db: &DatabaseConnection,
     mut pr: PullRequest,
@@ -1230,9 +1236,11 @@ async fn update_pr_merged(
     active.merged_at = Set(final_merged_at);
     active.closed_at = Set(final_closed_at);
     active.updated_at = Set(final_updated_at);
-    let merged_pr = pull_request_ops::update(db, active).await?;
+
+    let txn = db.begin().await.context("db: begin PR merge transaction")?;
+    let merged_pr = pull_request_ops::update(&txn, active).await?;
     rg_db::ops::pr_event_ops::record(
-        db,
+        &txn,
         merged_pr.repo_id,
         merged_pr.id,
         None,
@@ -1244,8 +1252,9 @@ async fn update_pr_merged(
         }),
     )
     .await?;
+    txn.commit().await.context("db: commit PR merge transaction")?;
 
-    // Trigger pull_request.merged webhook
+    // Trigger pull_request.merged webhook (outside the transaction on purpose)
     let merge_payload = serde_json::json!({
         "id": merged_pr.id,
         "repo_id": merged_pr.repo_id,
