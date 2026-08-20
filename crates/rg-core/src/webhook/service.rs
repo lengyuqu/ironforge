@@ -135,9 +135,22 @@ pub async fn trigger_event(
 
             let (status, response_body) =
                 match deliver(&url, &content_type, &secret, &payload_str).await {
-                    Ok(resp_status) => (Some(resp_status), None::<String>),
+                    Ok(resp_status) => {
+                        tracing::info!(
+                            webhook_id = hook_id,
+                            event = %event_str,
+                            http_status = resp_status,
+                            "webhook delivered successfully"
+                        );
+                        (Some(resp_status), None::<String>)
+                    }
                     Err(e) => {
-                        tracing::warn!(webhook_id = hook_id, error = %e, "webhook delivery failed");
+                        tracing::warn!(
+                            webhook_id = hook_id,
+                            event = %event_str,
+                            error = %e,
+                            "webhook delivery failed"
+                        );
                         (None, Some(format!("delivery error: {:#}", e)))
                     }
                 };
@@ -172,7 +185,9 @@ async fn deliver(
     secret: &Option<String>,
     payload: &str,
 ) -> Result<i32> {
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()?;
     let mut builder = client.post(url);
 
     if content_type == "form" {

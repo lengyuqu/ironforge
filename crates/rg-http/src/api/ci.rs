@@ -733,6 +733,79 @@ pub async fn cancel_pipeline(
     Json(serde_json::json!({"id": id, "status": "canceled"})).into_response()
 }
 
+/// POST /api/v1/repos/:owner/:name/pipelines/:pipeline_id/jobs/:job_id/rerun
+/// Rerun a single failed/errored/canceled job within a pipeline.
+#[utoipa::path(
+    post,
+    path = "/repos/{owner}/{name}/pipelines/{pipeline_id}/jobs/{job_id}/rerun",
+    tag = "CI/CD",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("pipeline_id" = i64, Path, description = "pipeline id"),
+        ("job_id" = i64, Path, description = "job id"),
+    ),
+    responses(
+        (status = 200, description = "Job rerun triggered", body = serde_json::Value),
+        (status = 400, description = "Bad request", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+        (status = 403, description = "Forbidden", body = serde_json::Value),
+        (status = 404, description = "Not found", body = serde_json::Value),
+    ),
+)]
+pub async fn rerun_job(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((owner, name, pipeline_id, job_id)): Path<(String, String, i64, i64)>,
+) -> impl IntoResponse {
+    let (repo, _) = match repo_access::require_write(&state, &headers, &owner, &name).await {
+        Ok(access) => access,
+        Err(e) => return e.into_response(),
+    };
+
+    // Verify pipeline belongs to this repo
+    let pipeline = match rg_db::ops::pipeline_ops::get_pipeline(&state.db, pipeline_id).await {
+        Ok(Some(p)) => p,
+        Ok(None) => return AppError::not_found("pipeline not found").into_response(),
+        Err(e) => return AppError::internal(e).into_response(),
+    };
+    if pipeline.repo_id != repo.id {
+        return AppError::not_found("pipeline not found").into_response();
+    }
+
+    // Verify job belongs to this pipeline (via stage)
+    let job = match rg_db::ops::pipeline_ops::get_job(&state.db, job_id).await {
+        Ok(Some(j)) => j,
+        Ok(None) => return AppError::not_found("job not found").into_response(),
+        Err(e) => return AppError::internal(e).into_response(),
+    };
+    if !job_belongs_to_pipeline(&state, pipeline_id, job.stage_id).await {
+        return AppError::not_found("job not found").into_response();
+    }
+
+    // Attempt to rerun the failed job
+    match rg_db::ops::pipeline_ops::rerun_failed_job(&state.db, job_id).await {
+        Ok(()) => {
+            tracing::info!(
+                pipeline_id,
+                job_id,
+                "job rerun triggered by user"
+            );
+            Json(serde_json::json!({
+                "job_id": job_id,
+                "pipeline_id": pipeline_id,
+                "status": "pending",
+                "message": "job queued for rerun"
+            }))
+            .into_response()
+        }
+        Err(e) => {
+            tracing::error!(%e, job_id, "failed to rerun job");
+            AppError::bad_request(e.to_string()).into_response()
+        }
+    }
+}
+
 // ── Helpers ──────────────────────────────────────────────────────
 //
 // Repo resolution + read/write authorization is centralized in

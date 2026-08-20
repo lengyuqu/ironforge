@@ -36,6 +36,7 @@ pub mod sso;
 pub mod tag_protection;
 pub mod time_tracking;
 pub mod users;
+pub mod validation;
 pub mod webhooks;
 pub mod webhooks_external;
 pub mod wiki;

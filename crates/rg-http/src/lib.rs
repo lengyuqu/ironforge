@@ -850,6 +850,10 @@ fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
             post(api::ci_environments::approve),
         )
         .route(
+            "/repos/{owner}/{name}/pipelines/{pipeline_id}/jobs/{job_id}/rerun",
+            post(api::ci::rerun_job),
+        )
+        .route(
             "/repos/{owner}/{name}/actions/environments",
             get(api::ci_environments::list).post(api::ci_environments::create),
         )
@@ -2687,10 +2691,57 @@ async fn find_repo_by_name(
 
 // ── Runner Watchdog ───────────────────────────────────────
 
+/// One-time recovery at startup: find all jobs left in "assigned" or "running"
+/// state from a previous server instance and mark them as failed to prevent
+/// duplicate execution after restart.
+async fn recover_orphaned_jobs(db: &DatabaseConnection) {
+    tracing::info!("Startup recovery: scanning for orphaned jobs...");
+
+    // Find all assigned/running jobs — these are orphans from a prior crash/restart.
+    match rg_db::ops::pipeline_ops::find_stuck_jobs(db, 0).await {
+        Ok(orphans) => {
+            if orphans.is_empty() {
+                tracing::info!("Startup recovery: no orphaned jobs found");
+            } else {
+                tracing::warn!(
+                    count = orphans.len(),
+                    "Startup recovery: found {} orphaned jobs (assigned/running), marking as failed",
+                    orphans.len()
+                );
+                for job in &orphans {
+                    let job_id = job.id;
+                    if let Err(e) = rg_db::ops::pipeline_ops::mark_job_timeout(db, job_id).await {
+                        tracing::error!(
+                            job_id,
+                            error = %e,
+                            "Startup recovery: failed to mark orphaned job as failed"
+                        );
+                    } else {
+                        tracing::warn!(
+                            job_id,
+                            status = %job.status,
+                            "Startup recovery: marked orphaned job as failed"
+                        );
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            tracing::error!(
+                error = %e,
+                "Startup recovery: failed to scan for orphaned jobs"
+            );
+        }
+    }
+}
+
 /// Background task that periodically checks for:
 /// 1. Stuck jobs (assigned/running for too long) → reset to pending
 /// 2. Offline runners (no heartbeat) → mark as offline
 async fn run_runner_watchdog(db: DatabaseConnection) {
+    // Run one-time startup recovery first
+    recover_orphaned_jobs(&db).await;
+
     // Wait for server to fully start
     tokio::time::sleep(std::time::Duration::from_secs(10)).await;
 
@@ -2698,8 +2749,8 @@ async fn run_runner_watchdog(db: DatabaseConnection) {
         // Check every 60 seconds
         tokio::time::sleep(std::time::Duration::from_secs(60)).await;
 
-        // 1. Reset stuck jobs (assigned/running > 10 min)
-        match rg_db::ops::pipeline_ops::find_stuck_jobs(&db, 600).await {
+        // 1. Reset stuck jobs (assigned/running > 5 min)
+        match rg_db::ops::pipeline_ops::find_stuck_jobs(&db, 300).await {
             Ok(stuck) => {
                 for job in &stuck {
                     let job_id = job.id;

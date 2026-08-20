@@ -159,11 +159,35 @@ pub async fn create_page(
         Err(e) => return e.into_response(),
     };
 
+    // Input validation
+    let title = match super::validation::require_valid_text(
+        &body.title,
+        super::validation::MAX_TITLE_LEN,
+        "wiki page title",
+    ) {
+        Ok(t) => t,
+        Err(e) => return e.into_response(),
+    };
+    let content = match super::validation::require_valid_text(
+        &body.content,
+        super::validation::MAX_CONTENT_LEN,
+        "wiki page content",
+    ) {
+        Ok(c) => c,
+        Err(e) => return e.into_response(),
+    };
+    super::validation::validate_optional_text(
+        &body.message,
+        super::validation::MAX_COMMIT_MSG_LEN,
+        "commit message",
+    )
+    .ok();
+
     match rg_core::wiki::service::create_page(
         &state.db,
         repo.id,
-        &body.title,
-        &body.content,
+        &title,
+        &content,
         body.message.as_deref(),
         Some(user_id),
     )
@@ -205,11 +229,27 @@ pub async fn update_page(
         Err(e) => return e.into_response(),
     };
 
+    // Input validation
+    let content = match super::validation::require_valid_text(
+        &body.content,
+        super::validation::MAX_CONTENT_LEN,
+        "wiki page content",
+    ) {
+        Ok(c) => c,
+        Err(e) => return e.into_response(),
+    };
+    super::validation::validate_optional_text(
+        &body.message,
+        super::validation::MAX_COMMIT_MSG_LEN,
+        "commit message",
+    )
+    .ok();
+
     match rg_core::wiki::service::update_page(
         &state.db,
         repo.id,
         &title,
-        &body.content,
+        &content,
         body.message.as_deref(),
         Some(user_id),
     )

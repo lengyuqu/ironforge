@@ -382,11 +382,18 @@ pub async fn create_issue(
         Err(e) => return e.into_response(),
     };
 
+    // Input validation
+    let title = match super::validation::require_valid_text(&req.title, super::validation::MAX_TITLE_LEN, "issue title") {
+        Ok(t) => t,
+        Err(e) => return e.into_response(),
+    };
+    super::validation::validate_optional_text(&req.body, super::validation::MAX_BODY_LEN, "issue body").ok();
+
     match rg_core::issue::create_issue(
         &state.db,
         repo_model.id,
         user_id,
-        req.title,
+        title,
         req.body,
         req.labels,
         req.milestone_id,
@@ -478,6 +485,14 @@ pub async fn update_issue(
     if !can_write && (existing.author_id != user_id || touches_management_fields) {
         return AppError::forbidden("write access required").into_response();
     }
+
+    // Input validation (only on fields being updated)
+    if let Some(ref title) = req.title {
+        if let Err(e) = super::validation::require_valid_text(title, super::validation::MAX_TITLE_LEN, "issue title") {
+            return e.into_response();
+        }
+    }
+    super::validation::validate_optional_text(&req.body, super::validation::MAX_BODY_LEN, "issue body").ok();
 
     match rg_core::issue::update_issue(
         &state.db,

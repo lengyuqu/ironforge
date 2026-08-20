@@ -77,6 +77,14 @@ pub async fn create_webhook(
             Err(e) => return e.into_response(),
         };
 
+    // Input validation
+    if let Err(e) = super::validation::validate_webhook_url(&body.url) {
+        return e.into_response();
+    }
+    if body.events.is_empty() {
+        return AppError::bad_request("webhook events cannot be empty").into_response();
+    }
+
     match rg_core::webhook::service::create_webhook(&state.db, repo_model.id, &body).await {
         Ok(hook) => (StatusCode::CREATED, Json(serde_json::json!(hook))).into_response(),
         Err(e) => AppError::bad_request(e).into_response(),
@@ -272,12 +280,18 @@ pub async fn redeliver(
     }
 
     match rg_core::webhook::service::redeliver(&state.db, delivery_id).await {
-        Ok(()) => (
-            StatusCode::OK,
-            Json(serde_json::json!({"message": "redelivery triggered"})),
-        )
-            .into_response(),
-        Err(e) => AppError::bad_request(e).into_response(),
+        Ok(()) => {
+            crate::metrics::recorder::webhook_delivery(true);
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({"message": "redelivery triggered"})),
+            )
+                .into_response()
+        }
+        Err(e) => {
+            crate::metrics::recorder::webhook_delivery(false);
+            AppError::bad_request(e).into_response()
+        }
     }
 }
 

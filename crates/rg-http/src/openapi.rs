@@ -186,6 +186,7 @@ pub struct PaginatedRepoResponse {
         crate::api::ci::trigger_pipeline,
         crate::api::ci::retry_pipeline,
         crate::api::ci::cancel_pipeline,
+        crate::api::ci::rerun_job,
         // Releases
         crate::api::releases::list_releases,
         crate::api::releases::create_release,

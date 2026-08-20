@@ -180,6 +180,18 @@ pub async fn create_pr(
         return AppError::bad_request("head and base branches are required").into_response();
     };
 
+    // Input validation
+    let title = match super::validation::require_valid_text(
+        &req.title,
+        super::validation::MAX_TITLE_LEN,
+        "PR title",
+    ) {
+        Ok(t) => t,
+        Err(e) => return e.into_response(),
+    };
+    super::validation::validate_optional_text(&req.body, super::validation::MAX_BODY_LEN, "PR body")
+        .ok();
+
     match rg_core::pull_request::resolve_head_ref(&state.db, repo_id, &req.head).await {
         Ok((head_branch, head_repo_id)) => {
             match rg_core::pull_request::create_pr(
@@ -187,7 +199,7 @@ pub async fn create_pr(
                 &state.repo_root,
                 repo_id,
                 user_id,
-                req.title,
+                title,
                 req.body,
                 head_branch,
                 req.base,

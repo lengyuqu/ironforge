@@ -21,6 +21,19 @@
   let branches = $state<any[]>([]);
   let templateLoaded = $state(false);
 
+  // Q6.3: Client-side form validation
+  const MAX_TITLE_LEN = 255;
+  const MAX_BODY_LEN = 65536;
+  let titleError = $derived(
+    newTitle.trim().length === 0
+      ? t('pulls.create_form.title_required')
+      : newTitle.length > MAX_TITLE_LEN
+        ? t('pulls.create_form.title_too_long', { max: MAX_TITLE_LEN })
+        : ''
+  );
+  let bodyError = $derived(newBody.length > MAX_BODY_LEN ? t('pulls.create_form.body_too_long', { max: MAX_BODY_LEN }) : '');
+  let canSubmit = $derived(titleError === '' && bodyError === '' && !!newHead);
+
   $effect(() => {
     loadPRs();
     loadBranches();
@@ -45,6 +58,7 @@
 
   async function handleCreate(e: Event) {
     e.preventDefault();
+    if (!canSubmit) return;
     try {
       await pulls.create(owner, repo, {
         title: newTitle,
@@ -143,18 +157,20 @@
         </div>
         <label>
           {t('pulls.create_form.description')}
-          <input type="text" bind:value={newTitle} required placeholder={t('pulls.create_form.description_placeholder')} />
+          <input type="text" bind:value={newTitle} required maxlength={MAX_TITLE_LEN} placeholder={t('pulls.create_form.description_placeholder')} />
+          {#if titleError}<span class="field-error">{titleError}</span>{/if}
         </label>
         <label>
           {t('pulls.create_form.description')} <span class="optional">{t('pulls.create_form.description_hint')}</span>
-          <textarea bind:value={newBody} rows="4" placeholder={t('pulls.create_form.description_placeholder')}></textarea>
+          <textarea bind:value={newBody} rows="4" maxlength={MAX_BODY_LEN} placeholder={t('pulls.create_form.description_placeholder')}></textarea>
+          {#if bodyError}<span class="field-error">{bodyError}</span>{/if}
         </label>
         <label class="draft-option">
           <input type="checkbox" bind:checked={newDraft} />
           <span>{t('pulls.create_form.draft')}</span>
         </label>
         <div class="form-actions">
-          <button type="submit" class="btn-primary" disabled={!newHead}>{t('pulls.create_form.submit')}</button>
+          <button type="submit" class="btn-primary" disabled={!canSubmit}>{t('pulls.create_form.submit')}</button>
           <button type="button" class="btn-secondary" onclick={() => showCreate = false}>{t('pulls.create_form.cancel')}</button>
         </div>
       </form>
@@ -242,6 +258,7 @@
   form { display: flex; flex-direction: column; gap: 14px; }
   label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600; }
   .optional { font-weight: 400; color: var(--text-muted); }
+  .field-error { color: var(--red, #d73a49); font-size: 12px; font-weight: 400; }
   .draft-option { flex-direction: row; align-items: center; font-weight: 500; }
   .draft-option input { width: auto; }
   select { padding: 6px 10px; }

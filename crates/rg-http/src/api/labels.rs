@@ -127,12 +127,32 @@ pub async fn create_label(
             Err(e) => return e.into_response(),
         };
 
+    // Input validation
+    let label_name = match super::validation::require_valid_text(
+        &body.name,
+        super::validation::MAX_LABEL_NAME_LEN,
+        "label name",
+    ) {
+        Ok(n) => n,
+        Err(e) => return e.into_response(),
+    };
+    let color = match super::validation::validate_color(&body.color) {
+        Ok(c) => c,
+        Err(e) => return e.into_response(),
+    };
+    super::validation::validate_optional_text(
+        &body.description,
+        super::validation::MAX_LABEL_DESC_LEN,
+        "label description",
+    )
+    .ok();
+
     match rg_core::label::service::create_label(
         &state.db,
         &owner,
         &name,
-        body.name,
-        body.color,
+        label_name,
+        color,
         body.description,
     )
     .await

@@ -23,6 +23,23 @@
   let selectedReadme = $state('default');
   let selectedLabels = $state('default');
 
+  // Q6.3: Client-side form validation
+  const MAX_REPO_NAME_LEN = 100;
+  const MAX_DESC_LEN = 255;
+  // Repo names: alphanumeric, dash, underscore, dot; cannot start/end with dash/dot
+  const REPO_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]*[a-zA-Z0-9]$|^[a-zA-Z0-9]$/;
+  let nameError = $derived(
+    newName.trim().length === 0
+      ? t('dashboard.create_form.name_required')
+      : newName.length > MAX_REPO_NAME_LEN
+        ? t('dashboard.create_form.name_too_long', { max: MAX_REPO_NAME_LEN })
+        : !REPO_NAME_RE.test(newName)
+          ? t('dashboard.create_form.name_invalid')
+          : ''
+  );
+  let descError = $derived(newDesc.length > MAX_DESC_LEN ? t('dashboard.create_form.desc_too_long', { max: MAX_DESC_LEN }) : '');
+  let canSubmit = $derived(nameError === '' && descError === '');
+
   // Template options (loaded from API)
   let gitignoreOptions = $state<{ key: string; name: string; description: string }[]>([]);
   let licenseOptions = $state<{ key: string; name: string; description: string }[]>([]);
@@ -70,6 +87,7 @@
 
   async function handleCreate(e: Event) {
     e.preventDefault();
+    if (!canSubmit) return;
     try {
       await repos.create({
         name: newName,
@@ -128,13 +146,15 @@
         <!-- Repository name -->
         <label>
           {t('dashboard.create_form.name')} <span class="required">*</span>
-          <input type="text" bind:value={newName} required placeholder={t('dashboard.create_form.name_placeholder')} />
+          <input type="text" bind:value={newName} required maxlength={MAX_REPO_NAME_LEN} placeholder={t('dashboard.create_form.name_placeholder')} />
+          {#if nameError}<span class="field-error">{nameError}</span>{/if}
         </label>
 
         <!-- Description -->
         <label>
           {t('dashboard.create_form.desc')} <span class="optional">{t('common.optional')}</span>
-          <input type="text" bind:value={newDesc} placeholder={t('common.no_description')} />
+          <input type="text" bind:value={newDesc} maxlength={MAX_DESC_LEN} placeholder={t('common.no_description')} />
+          {#if descError}<span class="field-error">{descError}</span>{/if}
         </label>
 
         <!-- Visibility -->
@@ -210,7 +230,7 @@
         {/if}
 
         <div class="form-actions">
-          <button type="submit" class="btn-primary">{t('dashboard.create_form.submit')}</button>
+          <button type="submit" class="btn-primary" disabled={!canSubmit}>{t('dashboard.create_form.submit')}</button>
           <button type="button" class="btn-secondary" onclick={cancelCreate}>{t('dashboard.create_form.cancel')}</button>
         </div>
       </form>
@@ -310,6 +330,7 @@
   }
 
   .required { color: var(--red); font-weight: 400; }
+  .field-error { color: var(--red, #d73a49); font-size: 12px; font-weight: 400; }
   .optional { font-weight: 400; color: var(--text-muted); }
 
   .checkbox-label {

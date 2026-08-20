@@ -21,6 +21,19 @@
   let newBody = $state('');
   let newLabels = $state('');
 
+  // Q6.3: Client-side form validation
+  const MAX_TITLE_LEN = 255;
+  const MAX_BODY_LEN = 65536;
+  let titleError = $derived(
+    newTitle.trim().length === 0
+      ? t('issues.create_form.title_required')
+      : newTitle.length > MAX_TITLE_LEN
+        ? t('issues.create_form.title_too_long', { max: MAX_TITLE_LEN })
+        : ''
+  );
+  let bodyError = $derived(newBody.length > MAX_BODY_LEN ? t('issues.create_form.body_too_long', { max: MAX_BODY_LEN }) : '');
+  let canSubmit = $derived(titleError === '' && bodyError === '');
+
   $effect(() => {
     loadIssues();
   });
@@ -38,6 +51,7 @@
 
   async function handleCreate(e: Event) {
     e.preventDefault();
+    if (!canSubmit) return;
     try {
       const labels = newLabels ? newLabels.split(',').map(l => l.trim()) : undefined;
       await issues.create(owner, repo, newTitle, newBody || undefined, labels);
@@ -171,18 +185,20 @@
       <form onsubmit={handleCreate}>
         <label>
           {t('issues.create_form.title')}
-          <input type="text" bind:value={newTitle} required placeholder={t('issues.create_form.title_placeholder')} />
+          <input type="text" bind:value={newTitle} required maxlength={MAX_TITLE_LEN} placeholder={t('issues.create_form.title_placeholder')} />
+          {#if titleError}<span class="field-error">{titleError}</span>{/if}
         </label>
         <label>
           {t('issues.create_form.body')} <span class="optional">{t('issues.create_form.body_hint')}</span>
-          <textarea bind:value={newBody} rows="6" placeholder={t('issues.create_form.body_placeholder')}></textarea>
+          <textarea bind:value={newBody} rows="6" maxlength={MAX_BODY_LEN} placeholder={t('issues.create_form.body_placeholder')}></textarea>
+          {#if bodyError}<span class="field-error">{bodyError}</span>{/if}
         </label>
         <label>
           {t('issues.create_form.labels')} <span class="optional">{t('issues.create_form.labels_hint')}</span>
           <input type="text" bind:value={newLabels} placeholder={t('issues.create_form.labels_placeholder')} />
         </label>
         <div class="form-actions">
-          <button type="submit" class="btn-primary">{t('issues.create_form.submit')}</button>
+          <button type="submit" class="btn-primary" disabled={!canSubmit}>{t('issues.create_form.submit')}</button>
           <button type="button" class="btn-secondary" onclick={() => { showCreate = false; if (issueTemplates.length > 0 || templateConfig.contact_links.length > 0) showChooser = true; }}>{t('issues.create_form.cancel')}</button>
         </div>
       </form>
@@ -286,6 +302,7 @@
   form { display: flex; flex-direction: column; gap: 14px; }
   label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600; }
   .optional { font-weight: 400; color: var(--text-muted); }
+  .field-error { color: var(--red, #d73a49); font-size: 12px; font-weight: 400; }
   textarea { font-family: var(--font-mono); font-size: 13px; resize: vertical; }
   .form-actions { display: flex; gap: 8px; margin-top: 8px; }
 .empty { text-align: center; padding: 48px; color: var(--text-secondary); }

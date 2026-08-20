@@ -484,12 +484,20 @@ impl PipelineRunner {
                 tracing::warn!(job_id, %error, "CI cache save failed; job remains successful");
             }
         }
-        result.map(|(code, log)| {
-            (
-                code,
-                rg_core::auth::encryption::mask_values(&log, &secret_values),
-            )
-        })
+        result
+            .map(|(code, log)| {
+                (
+                    code,
+                    rg_core::auth::encryption::mask_values(&log, &secret_values),
+                )
+            })
+            .map_err(|e| {
+                // Q3.3: Mask any error message before it reaches the job log,
+                // since docker/spawn errors may echo env values or secret content.
+                let raw = format!("{:#}", e);
+                let masked = rg_core::auth::encryption::mask_values(&raw, &secret_values);
+                anyhow::anyhow!(masked)
+            })
     }
 
     /// Execute script locally via platform-appropriate shell.

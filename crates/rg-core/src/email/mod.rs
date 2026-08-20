@@ -58,10 +58,19 @@ pub async fn send_notification_email(
             config.user.clone(),
             config.pass.clone(),
         ))
+        .timeout(Some(std::time::Duration::from_secs(30)))
         .build();
 
-    mailer.send(email).await?;
-    Ok(())
+    match mailer.send(email).await {
+        Ok(_) => {
+            tracing::info!(to = %to, subject = %subject, "notification email sent");
+            Ok(())
+        }
+        Err(e) => {
+            tracing::warn!(to = %to, subject = %subject, error = %e, "failed to send notification email");
+            Err(anyhow::anyhow!("SMTP send failed: {}", e))
+        }
+    }
 }
 
 /// Send a simple HTML notification email with a styled template.

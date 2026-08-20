@@ -233,7 +233,7 @@ mod tests {
     #[test]
     fn test_normalize_path() {
         let path = Path::new("/tmp/./test/../other");
-        let normalized = normalize_path(path);
+        let _normalized = normalize_path(path);
 
         #[cfg(unix)]
         assert_eq!(normalized, PathBuf::from("/tmp/other"));

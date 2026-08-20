@@ -764,6 +764,85 @@ pub async fn assign_job(db: &DatabaseConnection, job_id: i64, runner_id: i64) ->
     Ok(())
 }
 
+/// Rerun a failed/errored job: reset to pending and unassign runner.
+/// Also resets the parent stage and pipeline to pending if they were failed.
+pub async fn rerun_failed_job(db: &DatabaseConnection, job_id: i64) -> Result<()> {
+    let now = chrono::Utc::now().naive_utc();
+
+    // 1. Reset the job to pending
+    let job = pipeline_job::Entity::find_by_id(job_id)
+        .one(db)
+        .await
+        .context("db: find job for rerun")?
+        .ok_or_else(|| anyhow::anyhow!("job {} not found", job_id))?;
+
+    if job.status != "error" && job.status != "failed" && job.status != "canceled" {
+        anyhow::bail!("job {} is not in a failed/error/canceled state (current: {})", job_id, job.status);
+    }
+
+    let stage_id = job.stage_id;
+
+    // Look up pipeline_id via the stage
+    let stage = pipeline_stage::Entity::find_by_id(stage_id)
+        .one(db)
+        .await
+        .context("db: find stage for rerun")?
+        .ok_or_else(|| anyhow::anyhow!("stage {} not found", stage_id))?;
+    let pipeline_id = stage.pipeline_id;
+
+    pipeline_job::Entity::update_many()
+        .filter(pipeline_job::Column::Id.eq(job_id))
+        .col_expr(pipeline_job::Column::Status, Expr::value("pending"))
+        .col_expr(
+            pipeline_job::Column::RunnerId,
+            Expr::value(sea_orm::Value::BigInt(None)),
+        )
+        .col_expr(pipeline_job::Column::ExitCode, Expr::value(sea_orm::Value::Int(None)))
+        .col_expr(
+            pipeline_job::Column::FinishedAt,
+            Expr::value(sea_orm::Value::ChronoDateTime(None)),
+        )
+        .col_expr(pipeline_job::Column::UpdatedAt, Expr::value(now))
+        .exec(db)
+        .await
+        .context("db: rerun failed job")?;
+
+    // 2. Reset the parent stage to pending if it was failed
+    pipeline_stage::Entity::update_many()
+        .filter(pipeline_stage::Column::Id.eq(stage_id))
+        .filter(pipeline_stage::Column::Status.is_in(["error", "failed", "canceled"]))
+        .col_expr(pipeline_stage::Column::Status, Expr::value("pending"))
+        .col_expr(
+            pipeline_stage::Column::FinishedAt,
+            Expr::value(sea_orm::Value::ChronoDateTime(None)),
+        )
+        .exec(db)
+        .await
+        .context("db: reset stage for rerun")?;
+
+    // 3. Reset the pipeline to pending if it was failed
+    pipeline::Entity::update_many()
+        .filter(pipeline::Column::Id.eq(pipeline_id))
+        .filter(pipeline::Column::Status.is_in(["error", "failed", "canceled"]))
+        .col_expr(pipeline::Column::Status, Expr::value("pending"))
+        .col_expr(
+            pipeline::Column::FinishedAt,
+            Expr::value(sea_orm::Value::ChronoDateTime(None)),
+        )
+        .exec(db)
+        .await
+        .context("db: reset pipeline for rerun")?;
+
+    tracing::info!(
+        job_id,
+        stage_id,
+        pipeline_id,
+        "rerun_failed_job: job reset to pending"
+    );
+
+    Ok(())
+}
+
 // ── Concurrency Control ──────────────────────────────────────────
 
 /// Count active (pending + running) pipelines for a repository.
