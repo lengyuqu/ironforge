@@ -86,6 +86,22 @@
 
 ---
 
+## 已修复（2026-08-21，批次 2 代码审查：Q2.6 迁移回归修复）
+
+来源：批次 2 推送后的全量代码审查（review 发现 Q2.6 anyhow→CoreError 迁移引入的 HTTP 语义回归）。
+
+| 问题 | 根因 | 修复 | 验证 |
+|------|------|------|------|
+| 重复 reaction 返回 500（应 409）；未知 issue/评论返回 500（应 404） | Q2.6（30aa580）把 `reaction_error_response` 改为 CoreError 变体映射，但 service 层仍用 `.context()`（Option 上产生 `Internal` 变体）与 anyhow 传播（`From<anyhow::Error>` → `Internal`），变体映射下全部落 500。批次 2 原实现（anyhow + 字符串匹配）行为正确，回归由迁移引入且迁移验证只跑了权限矩阵测试 | `reactions.rs`：comment 查找改 `ok_or_else(NotFound)`；`insert_reaction` 将 "reaction already exists" anyhow 错误映射为 `Conflict` 变体。`issue/service.rs::get_issue`：`.context` 改 `ok_or_else(NotFound)`（Display 不变，其他调用方无影响） | `issue_reaction_tests` 4/4（含 409/404 断言）；实证检查重复 409 / 未知 issue 404 / 未知评论 404；全量 `cargo test -p rg-http --no-fail-fast` 仅既有 Windows 环境失败（issue_template ×2、pr_merge、pr_permission、runner_workspace，同批次 1 归因）；clippy 通过 |
+
+附带审查结论（无改动）：Q6.1 前后端行数对齐在"整段空 chunk"时会漂移一行（`log_write_queue` 对空 chunk 仍追加 `\n` 分隔），重连时最多重复一个空行、无数据丢失，可接受；comment reaction 通知 `repo_id=None`（前端通知页不消费该字段，无影响）。
+
+---
+
+
+
+---
+
 ## P0：应优先修复
 
 当前 P0 已清零。

@@ -169,7 +169,9 @@ pub async fn get_issue(
     let repo = resolve_repo(db, owner, repo_name).await?;
     issue_ops::find_by_repo_and_number(db, repo.id, number)
         .await?
-        .context("issue not found")
+        // NotFound variant (not `.context`, which yields Internal → 500)
+        // so variant-based HTTP mappings return 404 for missing issues.
+        .ok_or_else(|| CoreError::NotFound("issue not found".into()))
 }
 
 /// Update an issue's title, body, state, labels, assignee, or milestone.

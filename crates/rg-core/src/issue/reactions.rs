@@ -4,7 +4,7 @@
 //! `idx_reactions_unique_target_user_content` DB index and surfaced as the
 //! error string "reaction already exists" so the HTTP layer can map it to 409.
 
-use crate::error::{CoreContext, CoreError, CoreResult};
+use crate::error::{CoreError, CoreResult};
 use chrono::Utc;
 use sea_orm::{DatabaseConnection, Set};
 
@@ -83,7 +83,7 @@ pub async fn add_comment_reaction(
     validate_content(content)?;
     let comment = issue_comment_ops::find_by_id(db, comment_id)
         .await?
-        .context("comment not found")?;
+        .ok_or_else(|| CoreError::NotFound("comment not found".into()))?;
     let reaction =
         insert_reaction(db, comment.issue_id, comment.id, user_id, content.to_owned()).await?;
 
@@ -115,7 +115,7 @@ pub async fn remove_comment_reaction(
 ) -> CoreResult<()> {
     let comment = issue_comment_ops::find_by_id(db, comment_id)
         .await?
-        .context("comment not found")?;
+        .ok_or_else(|| CoreError::NotFound("comment not found".into()))?;
     remove_reaction(db, comment.issue_id, comment.id, user_id, content).await
 }
 
@@ -126,7 +126,7 @@ pub async fn list_comment_reactions(
 ) -> CoreResult<Vec<reactions::Model>> {
     let comment = issue_comment_ops::find_by_id(db, comment_id)
         .await?
-        .context("comment not found")?;
+        .ok_or_else(|| CoreError::NotFound("comment not found".into()))?;
     Ok(reaction_ops::list_by_target(db, comment.issue_id, comment.id).await?)
 }
 
@@ -166,7 +166,16 @@ async fn insert_reaction(
         content: Set(content),
         created_at: Set(Utc::now()),
     };
-    Ok(reaction_ops::create(db, model).await?)
+    // `reaction_ops::create` normalizes unique-index violations to the
+    // anyhow message "reaction already exists"; surface it as a Conflict
+    // variant so the HTTP layer maps it to 409 instead of 500.
+    match reaction_ops::create(db, model).await {
+        Ok(reaction) => Ok(reaction),
+        Err(e) if e.to_string() == "reaction already exists" => {
+            Err(CoreError::Conflict("reaction already exists".into()))
+        }
+        Err(e) => Err(CoreError::Internal(e)),
+    }
 }
 
 async fn remove_reaction(
