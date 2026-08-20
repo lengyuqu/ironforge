@@ -1,6 +1,6 @@
 //! Issue service — business logic for Issue CRUD, labels, milestones, comments.
 
-use anyhow::{bail, Context, Result};
+use crate::error::{CoreContext, CoreError, CoreResult};
 use chrono::Utc;
 use sea_orm::{ActiveModelTrait, DatabaseConnection, EntityTrait, Set, TransactionTrait};
 
@@ -19,9 +19,9 @@ pub async fn create_issue(
     body: Option<String>,
     labels: Option<Vec<String>>,
     milestone_id: Option<i64>,
-) -> Result<Issue> {
+) -> CoreResult<Issue> {
     if title.trim().is_empty() {
-        bail!("issue title cannot be empty");
+        return Err(CoreError::InvalidInput("issue title cannot be empty".into()));
     }
 
     let number = issue_ops::next_number(db, repo_id).await?;
@@ -88,9 +88,9 @@ pub async fn list_issues(
     owner: &str,
     repo_name: &str,
     state: Option<&str>,
-) -> Result<Vec<Issue>> {
+) -> CoreResult<Vec<Issue>> {
     let repo = resolve_repo(db, owner, repo_name).await?;
-    issue_ops::list_by_repo(db, repo.id, state).await
+    Ok(issue_ops::list_by_repo(db, repo.id, state).await?)
 }
 
 /// Paginated list of issues. Returns (issues, total).
@@ -101,9 +101,9 @@ pub async fn list_issues_paginated(
     state: Option<&str>,
     offset: u64,
     limit: u64,
-) -> Result<(Vec<Issue>, i64)> {
+) -> CoreResult<(Vec<Issue>, i64)> {
     let repo = resolve_repo(db, owner, repo_name).await?;
-    issue_ops::list_by_repo_paginated(db, repo.id, state, offset, limit).await
+    Ok(issue_ops::list_by_repo_paginated(db, repo.id, state, offset, limit).await?)
 }
 
 /// Paginated list of issues filtered by labels. Returns issues that have ALL specified labels.
@@ -115,7 +115,7 @@ pub async fn list_issues_filtered_by_labels(
     label_names: &[String],
     offset: u64,
     limit: u64,
-) -> Result<(Vec<Issue>, i64)> {
+) -> CoreResult<(Vec<Issue>, i64)> {
     let repo = resolve_repo(db, owner, repo_name).await?;
 
     // Resolve label names to IDs
@@ -165,7 +165,7 @@ pub async fn get_issue(
     owner: &str,
     repo_name: &str,
     number: i64,
-) -> Result<Issue> {
+) -> CoreResult<Issue> {
     let repo = resolve_repo(db, owner, repo_name).await?;
     issue_ops::find_by_repo_and_number(db, repo.id, number)
         .await?
@@ -185,7 +185,7 @@ pub async fn update_issue(
     labels: Option<Vec<String>>,
     assignee_id: Option<Option<i64>>,
     milestone_id: Option<Option<i64>>,
-) -> Result<Issue> {
+) -> CoreResult<Issue> {
     let existing = get_issue(db, owner, repo_name, number).await?;
     let issue_id = existing.id;
     let issue_repo_id = existing.repo_id;
@@ -197,7 +197,7 @@ pub async fn update_issue(
 
     if let Some(t) = title {
         if t.trim().is_empty() {
-            bail!("issue title cannot be empty");
+            return Err(CoreError::InvalidInput("issue title cannot be empty".into()));
         }
         active.title = Set(t);
     }
@@ -206,7 +206,7 @@ pub async fn update_issue(
     }
     if let Some(ref s) = state {
         if s != "open" && s != "closed" {
-            bail!("invalid issue state: {}, must be open or closed", s);
+            return Err(CoreError::InvalidInput(format!("invalid issue state: {}, must be open or closed", s)));
         }
         active.state = Set(s.clone());
         if s == "closed" {
@@ -288,9 +288,9 @@ pub async fn add_comment(
     issue_number: i64,
     author_id: i64,
     body: String,
-) -> Result<Comment> {
+) -> CoreResult<Comment> {
     if body.trim().is_empty() {
-        bail!("comment body cannot be empty");
+        return Err(CoreError::InvalidInput("comment body cannot be empty".into()));
     }
 
     let issue = get_issue(db, owner, repo_name, issue_number).await?;
@@ -338,9 +338,9 @@ pub async fn list_comments(
     owner: &str,
     repo_name: &str,
     issue_number: i64,
-) -> Result<Vec<Comment>> {
+) -> CoreResult<Vec<Comment>> {
     let issue = get_issue(db, owner, repo_name, issue_number).await?;
-    issue_comment_ops::list_by_issue(db, issue.id).await
+    Ok(issue_comment_ops::list_by_issue(db, issue.id).await?)
 }
 
 /// Update a comment.
@@ -348,9 +348,9 @@ pub async fn update_comment(
     db: &DatabaseConnection,
     comment_id: i64,
     body: String,
-) -> Result<Comment> {
+) -> CoreResult<Comment> {
     if body.trim().is_empty() {
-        bail!("comment body cannot be empty");
+        return Err(CoreError::InvalidInput("comment body cannot be empty".into()));
     }
 
     let comment = issue_comment_ops::find_by_id(db, comment_id)
@@ -361,11 +361,11 @@ pub async fn update_comment(
     active.body = Set(body);
     active.updated_at = Set(Utc::now());
 
-    issue_comment_ops::update(db, active).await
+    Ok(issue_comment_ops::update(db, active).await?)
 }
 
 /// Delete a comment and its reactions in one transaction.
-pub async fn delete_comment(db: &DatabaseConnection, comment_id: i64) -> Result<()> {
+pub async fn delete_comment(db: &DatabaseConnection, comment_id: i64) -> CoreResult<()> {
     use sea_orm::TransactionTrait;
 
     let comment = issue_comment_ops::find_by_id(db, comment_id)
@@ -392,7 +392,7 @@ async fn notify_milestone_closed(
     db: &DatabaseConnection,
     repo_id: i64,
     milestone_id: i64,
-) -> Result<()> {
+) -> CoreResult<()> {
     // Trigger milestone.closed webhook
     let payload = serde_json::json!({
         "id": milestone_id,
@@ -431,7 +431,7 @@ async fn resolve_repo(
     db: &DatabaseConnection,
     owner: &str,
     repo_name: &str,
-) -> Result<rg_db::entities::repository::Model> {
+) -> CoreResult<rg_db::entities::repository::Model> {
     crate::repo::service::find_repo_by_owner_name(db, owner, repo_name)
         .await?
         .context("repository not found")

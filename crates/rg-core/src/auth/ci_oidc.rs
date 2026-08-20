@@ -1,6 +1,6 @@
 //! Short-lived, audience-bound OIDC identity tokens for CI workloads.
 
-use anyhow::{Context, Result};
+use crate::error::{CoreContext, CoreResult};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use chrono::{Duration, Utc};
 use ed25519_dalek::{pkcs8::EncodePrivateKey, SigningKey};
@@ -67,7 +67,7 @@ pub fn issue(
     job_id: i64,
     ref_name: &str,
     sha: &str,
-) -> Result<(String, i64)> {
+) -> CoreResult<(String, i64)> {
     let now = Utc::now();
     let expires = now + Duration::minutes(5);
     let key = signing_key(secret);
@@ -92,7 +92,7 @@ pub fn issue(
         ref_name: ref_name.to_string(),
         sha: sha.to_string(),
     };
-    let token = encode(&header, &claims, &EncodingKey::from_ed_pem(pem.as_bytes())?)
+    let token = encode(&header, &claims, &EncodingKey::from_ed_pem(pem.as_bytes()).context("decode ED signing key")?)
         .context("issue CI OIDC token")?;
     Ok((token, expires.timestamp()))
 }

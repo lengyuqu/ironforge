@@ -50,35 +50,47 @@ pub mod search; // Cross-platform abstractions
 
 pub mod error; // Domain error types (CoreError)
 
-use anyhow::Result;
+use crate::error::{CoreError, CoreResult};
 
 /// Check if a username is valid (alphanumeric + hyphen + underscore, max 39).
-pub fn validate_username(username: &str) -> Result<()> {
+pub fn validate_username(username: &str) -> CoreResult<()> {
     if username.is_empty() {
-        anyhow::bail!("username cannot be empty");
+        return Err(CoreError::InvalidInput("username cannot be empty".into()));
     }
     if username.len() > 39 {
-        anyhow::bail!("username too long (max 39 characters)");
+        return Err(CoreError::InvalidInput(
+            "username too long (max 39 characters)".into(),
+        ));
     }
     for c in username.chars() {
         if !c.is_alphanumeric() && c != '-' && c != '_' {
-            anyhow::bail!("username contains invalid character: {}", c);
+            return Err(CoreError::InvalidInput(format!(
+                "username contains invalid character: {}",
+                c
+            )));
         }
     }
     Ok(())
 }
 
 /// Check if a repository name is valid.
-pub fn validate_repo_name(name: &str) -> Result<()> {
+pub fn validate_repo_name(name: &str) -> CoreResult<()> {
     if name.is_empty() {
-        anyhow::bail!("repository name cannot be empty");
+        return Err(CoreError::InvalidInput(
+            "repository name cannot be empty".into(),
+        ));
     }
     if name.len() > 100 {
-        anyhow::bail!("repository name too long (max 100 characters)");
+        return Err(CoreError::InvalidInput(
+            "repository name too long (max 100 characters)".into(),
+        ));
     }
     for c in name.chars() {
         if !c.is_alphanumeric() && c != '-' && c != '_' && c != '.' {
-            anyhow::bail!("repository name contains invalid character: {}", c);
+            return Err(CoreError::InvalidInput(format!(
+                "repository name contains invalid character: {}",
+                c
+            )));
         }
     }
     Ok(())

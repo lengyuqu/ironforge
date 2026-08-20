@@ -3,7 +3,7 @@
 //! Also includes a [`PasswordValidator`] for password strength checks
 //! (Phase 22-D security hardening).
 
-use anyhow::Result;
+use crate::error::{CoreError, CoreResult};
 use argon2::{
     password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
@@ -11,19 +11,19 @@ use argon2::{
 use rand_core::OsRng;
 
 /// Hash a plaintext password. Returns a PHC-format string (includes algorithm, params, salt, hash).
-pub fn hash_password(password: &str) -> Result<String> {
+pub fn hash_password(password: &str) -> CoreResult<String> {
     let salt = SaltString::generate(&mut OsRng);
     let argon2 = Argon2::default();
     let hash = argon2
         .hash_password(password.as_bytes(), &salt)
-        .map_err(|e| anyhow::anyhow!("password hashing failed: {}", e))?;
+        .map_err(|e| CoreError::internal(format!("password hashing failed: {}", e)))?;
     Ok(hash.to_string())
 }
 
 /// Verify a plaintext password against a stored PHC hash.
-pub fn verify_password(password: &str, hash: &str) -> Result<bool> {
-    let parsed =
-        PasswordHash::new(hash).map_err(|e| anyhow::anyhow!("invalid password hash: {}", e))?;
+pub fn verify_password(password: &str, hash: &str) -> CoreResult<bool> {
+    let parsed = PasswordHash::new(hash)
+        .map_err(|e| CoreError::internal(format!("invalid password hash: {}", e)))?;
     Ok(Argon2::default()
         .verify_password(password.as_bytes(), &parsed)
         .is_ok())

@@ -111,6 +111,25 @@ impl From<anyhow::Error> for AppError {
     }
 }
 
+/// Map `CoreError` (rg-core domain error) to the appropriate HTTP-level `AppError`.
+/// This preserves semantic error categories (NotFound → 404, Forbidden → 403, etc.)
+/// instead of collapsing everything to 500.
+impl From<rg_core::error::CoreError> for AppError {
+    fn from(e: rg_core::error::CoreError) -> Self {
+        match e {
+            rg_core::error::CoreError::NotFound(msg) => Self::NotFound(msg),
+            rg_core::error::CoreError::Forbidden(msg) => Self::Forbidden(msg),
+            rg_core::error::CoreError::Conflict(msg) => Self::Conflict(msg),
+            rg_core::error::CoreError::InvalidInput(msg) => Self::BadRequest(msg),
+            rg_core::error::CoreError::Internal(inner) => {
+                let full_msg = format!("{:#}", inner);
+                tracing::error!(error = %full_msg, "CoreError::Internal converted to AppError");
+                Self::InternalError(full_msg)
+            }
+        }
+    }
+}
+
 impl From<sea_orm::DbErr> for AppError {
     fn from(e: sea_orm::DbErr) -> Self {
         // H-05: Log the database error for operators, never expose to clients.

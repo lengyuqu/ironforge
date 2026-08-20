@@ -4,7 +4,7 @@
 //! `idx_reactions_unique_target_user_content` DB index and surfaced as the
 //! error string "reaction already exists" so the HTTP layer can map it to 409.
 
-use anyhow::{bail, Context, Result};
+use crate::error::{CoreContext, CoreError, CoreResult};
 use chrono::Utc;
 use sea_orm::{DatabaseConnection, Set};
 
@@ -19,7 +19,7 @@ pub async fn add_issue_reaction(
     issue_number: i64,
     user_id: i64,
     content: &str,
-) -> Result<reactions::Model> {
+) -> CoreResult<reactions::Model> {
     validate_content(content)?;
     let issue = super::service::get_issue(db, owner, repo_name, issue_number).await?;
     let reaction =
@@ -57,7 +57,7 @@ pub async fn remove_issue_reaction(
     issue_number: i64,
     user_id: i64,
     content: &str,
-) -> Result<()> {
+) -> CoreResult<()> {
     let issue = super::service::get_issue(db, owner, repo_name, issue_number).await?;
     remove_reaction(db, issue.id, 0, user_id, content).await
 }
@@ -68,9 +68,9 @@ pub async fn list_issue_reactions(
     owner: &str,
     repo_name: &str,
     issue_number: i64,
-) -> Result<Vec<reactions::Model>> {
+) -> CoreResult<Vec<reactions::Model>> {
     let issue = super::service::get_issue(db, owner, repo_name, issue_number).await?;
-    reaction_ops::list_by_target(db, issue.id, 0).await
+    Ok(reaction_ops::list_by_target(db, issue.id, 0).await?)
 }
 
 /// Add a reaction to an issue comment.
@@ -79,7 +79,7 @@ pub async fn add_comment_reaction(
     comment_id: i64,
     user_id: i64,
     content: &str,
-) -> Result<reactions::Model> {
+) -> CoreResult<reactions::Model> {
     validate_content(content)?;
     let comment = issue_comment_ops::find_by_id(db, comment_id)
         .await?
@@ -112,7 +112,7 @@ pub async fn remove_comment_reaction(
     comment_id: i64,
     user_id: i64,
     content: &str,
-) -> Result<()> {
+) -> CoreResult<()> {
     let comment = issue_comment_ops::find_by_id(db, comment_id)
         .await?
         .context("comment not found")?;
@@ -123,23 +123,23 @@ pub async fn remove_comment_reaction(
 pub async fn list_comment_reactions(
     db: &DatabaseConnection,
     comment_id: i64,
-) -> Result<Vec<reactions::Model>> {
+) -> CoreResult<Vec<reactions::Model>> {
     let comment = issue_comment_ops::find_by_id(db, comment_id)
         .await?
         .context("comment not found")?;
-    reaction_ops::list_by_target(db, comment.issue_id, comment.id).await
+    Ok(reaction_ops::list_by_target(db, comment.issue_id, comment.id).await?)
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
-fn validate_content(content: &str) -> Result<()> {
+fn validate_content(content: &str) -> CoreResult<()> {
     if reaction_ops::REACTION_CONTENTS.contains(&content) {
         Ok(())
     } else {
-        bail!(
+        Err(CoreError::InvalidInput(format!(
             "invalid reaction content, must be one of: {}",
             reaction_ops::REACTION_CONTENTS.join(", ")
-        )
+        )))
     }
 }
 
@@ -149,13 +149,13 @@ async fn insert_reaction(
     comment_id: i64,
     user_id: i64,
     content: String,
-) -> Result<reactions::Model> {
+) -> CoreResult<reactions::Model> {
     // Validate the user exists to get a clean 404/500 instead of an FK error.
     if rg_db::ops::user_ops::find_by_id(db, user_id)
         .await?
         .is_none()
     {
-        bail!("user not found");
+        return Err(CoreError::NotFound("user not found".into()));
     }
 
     let model = reactions::ActiveModel {
@@ -166,7 +166,7 @@ async fn insert_reaction(
         content: Set(content),
         created_at: Set(Utc::now()),
     };
-    reaction_ops::create(db, model).await
+    Ok(reaction_ops::create(db, model).await?)
 }
 
 async fn remove_reaction(
@@ -175,7 +175,7 @@ async fn remove_reaction(
     comment_id: i64,
     user_id: i64,
     content: &str,
-) -> Result<()> {
+) -> CoreResult<()> {
     let existing = reaction_ops::list_by_target(db, issue_id, comment_id).await?;
     let Some(row) = existing
         .iter()
@@ -183,7 +183,7 @@ async fn remove_reaction(
     else {
         return Ok(());
     };
-    reaction_ops::delete_by_id(db, row.id).await
+    Ok(reaction_ops::delete_by_id(db, row.id).await?)
 }
 
 async fn actor_name(db: &DatabaseConnection, user_id: i64) -> String {
@@ -210,6 +210,6 @@ fn truncate(s: &str, max: usize) -> String {
 pub async fn delete_reactions_for_comment<C: sea_orm::ConnectionTrait>(
     db: &C,
     comment_id: i64,
-) -> Result<u64> {
-    reaction_ops::delete_by_comment(db, comment_id).await
+) -> CoreResult<u64> {
+    Ok(reaction_ops::delete_by_comment(db, comment_id).await?)
 }

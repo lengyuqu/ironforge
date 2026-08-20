@@ -9,7 +9,7 @@
 //!
 //! If SMTP is not configured, email sending is silently skipped.
 
-use anyhow::Result;
+use crate::error::{CoreContext, CoreResult};
 use lettre::{
     message::header::ContentType, AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor,
 };
@@ -44,15 +44,17 @@ pub async fn send_notification_email(
     to: &str,
     subject: &str,
     body: &str,
-) -> Result<()> {
+) -> CoreResult<()> {
     let email = Message::builder()
-        .from(config.from.parse()?)
-        .to(to.parse()?)
+        .from(config.from.parse().context("invalid from address")?)
+        .to(to.parse().context("invalid to address")?)
         .subject(subject)
         .header(ContentType::TEXT_HTML)
-        .body(body.to_string())?;
+        .body(body.to_string())
+        .context("failed to build email message")?;
 
-    let mailer = AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&config.host)?
+    let mailer = AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&config.host)
+        .context("failed to create SMTP relay")?
         .port(config.port)
         .credentials(lettre::transport::smtp::authentication::Credentials::new(
             config.user.clone(),
@@ -68,7 +70,7 @@ pub async fn send_notification_email(
         }
         Err(e) => {
             tracing::warn!(to = %to, subject = %subject, error = %e, "failed to send notification email");
-            Err(anyhow::anyhow!("SMTP send failed: {}", e))
+            Err(crate::error::CoreError::internal(format!("SMTP send failed: {}", e)))
         }
     }
 }
@@ -80,7 +82,7 @@ pub async fn send_html_notification(
     title: &str,
     message: &str,
     action_url: Option<&str>,
-) -> Result<()> {
+) -> CoreResult<()> {
     let action_html = match action_url {
         Some(url) => format!(
             r#"<div style="margin-top: 16px;"><a href="{}" style="background: #4f46e5; color: white; padding: 10px 20px; border-radius: 6px; text-decoration: none; display: inline-block;">View Details</a></div>"#,

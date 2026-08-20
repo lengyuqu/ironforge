@@ -6,7 +6,7 @@
 //! - Token refresh support
 //! - OIDC Discovery for Google and generic OIDC providers
 
-use anyhow::{Context, Result};
+use crate::error::{CoreContext, CoreError, CoreResult};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use rand::Rng;
 use serde::Deserialize;
@@ -46,7 +46,7 @@ pub struct OAuth2TokenResponse {
 
 /// Generate OAuth2 / OIDC authorization URL with PKCE S256.
 /// Returns (auth_url, csrf_state, code_verifier).
-pub async fn oauth2_authorize_url(config: &SsoProviderConfig) -> Result<(String, String, String)> {
+pub async fn oauth2_authorize_url(config: &SsoProviderConfig) -> CoreResult<(String, String, String)> {
     // PKCE: generate code_verifier (43-128 URL-safe chars per RFC 7636)
     let code_verifier: String = rand::thread_rng()
         .sample_iter(&rand::distributions::Alphanumeric)
@@ -70,7 +70,7 @@ pub async fn oauth2_authorize_url(config: &SsoProviderConfig) -> Result<(String,
         "oidc" => resolve_oidc_endpoints(config).await?.authorization_endpoint,
         _ => config
             .default_oauth2_auth_url()
-            .ok_or_else(|| anyhow::anyhow!("no auth URL for provider: {}", config.slug))?,
+            .ok_or_else(|| CoreError::internal(format!("no auth URL for provider: {}", config.slug)))?,
     };
 
     let url = format!(
@@ -94,13 +94,13 @@ pub async fn oauth2_exchange_code(
     config: &SsoProviderConfig,
     code: &str,
     code_verifier: &str,
-) -> Result<OAuth2TokenResponse> {
+) -> CoreResult<OAuth2TokenResponse> {
     let token_url = if config.provider_type == "oidc" {
         resolve_oidc_endpoints(config).await?.token_endpoint
     } else {
         config
             .default_oauth2_token_url()
-            .ok_or_else(|| anyhow::anyhow!("no token URL for provider: {}", config.slug))?
+            .ok_or_else(|| CoreError::internal(format!("no token URL for provider: {}", config.slug)))?
     };
 
     let client = reqwest::Client::new();
@@ -149,13 +149,13 @@ pub async fn oauth2_exchange_code(
 pub async fn oauth2_refresh_token(
     config: &SsoProviderConfig,
     refresh_token: &str,
-) -> Result<OAuth2TokenResponse> {
+) -> CoreResult<OAuth2TokenResponse> {
     let token_url = if config.provider_type == "oidc" {
         resolve_oidc_endpoints(config).await?.token_endpoint
     } else {
         config
             .default_oauth2_token_url()
-            .ok_or_else(|| anyhow::anyhow!("no token URL for provider: {}", config.slug))?
+            .ok_or_else(|| CoreError::internal(format!("no token URL for provider: {}", config.slug)))?
     };
 
     let client = reqwest::Client::new();
@@ -202,7 +202,7 @@ pub async fn oauth2_refresh_token(
 pub async fn oauth2_fetch_user_info(
     config: &SsoProviderConfig,
     access_token: &str,
-) -> Result<SsoUserInfo> {
+) -> CoreResult<SsoUserInfo> {
     match config.slug.as_str() {
         "github" => fetch_github_user(access_token).await,
         "gitlab" => fetch_gitlab_user(access_token).await,
@@ -212,7 +212,10 @@ pub async fn oauth2_fetch_user_info(
             if config.provider_type == "oidc" {
                 fetch_oidc_userinfo(config, access_token).await
             } else {
-                Err(anyhow::anyhow!("unsupported SSO provider: {}", config.slug))
+                Err(CoreError::internal(format!(
+                    "unsupported SSO provider: {}",
+                    config.slug
+                )))
             }
         }
     }
@@ -220,7 +223,7 @@ pub async fn oauth2_fetch_user_info(
 
 // ── GitHub user info ─────────────────────────────────────────────
 
-async fn fetch_github_user(access_token: &str) -> Result<SsoUserInfo> {
+async fn fetch_github_user(access_token: &str) -> CoreResult<SsoUserInfo> {
     let client = reqwest::Client::new();
 
     let user_resp = client
@@ -290,7 +293,7 @@ async fn fetch_github_email(client: &reqwest::Client, access_token: &str) -> Opt
 
 // ── GitLab user info ─────────────────────────────────────────────
 
-async fn fetch_gitlab_user(access_token: &str) -> Result<SsoUserInfo> {
+async fn fetch_gitlab_user(access_token: &str) -> CoreResult<SsoUserInfo> {
     let client = reqwest::Client::new();
     let resp = client
         .get("https://gitlab.com/api/v4/user")
@@ -318,7 +321,7 @@ async fn fetch_gitlab_user(access_token: &str) -> Result<SsoUserInfo> {
 
 // ── Google OIDC user info ────────────────────────────────────────
 
-async fn fetch_google_user(access_token: &str) -> Result<SsoUserInfo> {
+async fn fetch_google_user(access_token: &str) -> CoreResult<SsoUserInfo> {
     let client = reqwest::Client::new();
     let resp = client
         .get("https://openidconnect.googleapis.com/v1/userinfo")
@@ -352,7 +355,7 @@ async fn fetch_google_user(access_token: &str) -> Result<SsoUserInfo> {
 async fn fetch_oidc_userinfo(
     config: &SsoProviderConfig,
     access_token: &str,
-) -> Result<SsoUserInfo> {
+) -> CoreResult<SsoUserInfo> {
     let client = reqwest::Client::new();
     let endpoint = resolve_oidc_endpoints(config).await?.userinfo_endpoint;
     let user = client
@@ -387,7 +390,7 @@ struct OidcEndpoints {
     userinfo_endpoint: String,
 }
 
-async fn resolve_oidc_endpoints(config: &SsoProviderConfig) -> Result<OidcEndpoints> {
+async fn resolve_oidc_endpoints(config: &SsoProviderConfig) -> CoreResult<OidcEndpoints> {
     if let Some(discovery_url) = config
         .discovery_url
         .as_deref()
@@ -413,7 +416,10 @@ async fn resolve_oidc_endpoints(config: &SsoProviderConfig) -> Result<OidcEndpoi
         });
     }
 
-    anyhow::bail!("OIDC provider '{}' requires a discovery URL", config.slug)
+    Err(CoreError::InvalidInput(format!(
+        "OIDC provider '{}' requires a discovery URL",
+        config.slug
+    )))
 }
 
 // ── PKCE helpers ─────────────────────────────────────────────────

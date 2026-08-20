@@ -32,6 +32,7 @@
 //!
 //! Returns `{ "token": "<jwt>" }`.
 
+use crate::error::{CoreError, CoreResult};
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -127,7 +128,7 @@ pub fn generate_oci_token(
     scope: &str,
     secret: &str,
     ttl_secs: u64,
-) -> anyhow::Result<String> {
+) -> CoreResult<String> {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
@@ -150,7 +151,7 @@ pub fn generate_oci_token(
 
     let key = EncodingKey::from_secret(secret.as_bytes());
     let token = encode(&Header::default(), &claims, &key)
-        .map_err(|e| anyhow::anyhow!("OCI token generation failed: {}", e))?;
+        .map_err(|e| CoreError::internal(format!("OCI token generation failed: {}", e)))?;
     Ok(token)
 }
 

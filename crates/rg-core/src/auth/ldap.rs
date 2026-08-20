@@ -1,7 +1,7 @@
 //! LDAP authentication service.
 //! Two-step: bind with service account, search user DN, rebind with user DN + password.
 
-use anyhow::{Context, Result};
+use crate::error::{CoreContext, CoreError, CoreResult};
 use ldap3::{LdapConnAsync, LdapConnSettings, Scope, SearchEntry};
 
 #[derive(Debug, Clone)]
@@ -57,12 +57,14 @@ fn connection_settings(config: &LdapConfig) -> LdapConnSettings {
     }
 }
 
-pub async fn authenticate(config: &LdapConfig, username: &str, password: &str) -> Result<LdapUser> {
+pub async fn authenticate(config: &LdapConfig, username: &str, password: &str) -> CoreResult<LdapUser> {
     if username.trim().is_empty() || password.is_empty() {
-        anyhow::bail!("invalid LDAP credentials");
+        return Err(CoreError::InvalidInput("invalid LDAP credentials".into()));
     }
     if !config.user_filter.contains("{username}") {
-        anyhow::bail!("LDAP user filter must contain '{{username}}'");
+        return Err(CoreError::InvalidInput(
+            "LDAP user filter must contain '{username}'".into(),
+        ));
     }
     let url = if config.use_tls {
         format!("ldaps://{}:{}", config.host, config.port)
@@ -80,9 +82,9 @@ pub async fn authenticate(config: &LdapConfig, username: &str, password: &str) -
     // Step 1: bind with service account
     ldap.simple_bind(&config.bind_dn, &config.bind_password)
         .await
-        .map_err(|e| anyhow::anyhow!("LDAP service bind failed: {}", e))?
+        .map_err(|e| CoreError::internal(format!("LDAP service bind failed: {}", e)))?
         .success()
-        .map_err(|e| anyhow::anyhow!("LDAP service bind rejected: {:?}", e))?;
+        .map_err(|e| CoreError::internal(format!("LDAP service bind rejected: {:?}", e)))?;
 
     // Step 2: search for user
     let filter = config
@@ -96,15 +98,18 @@ pub async fn authenticate(config: &LdapConfig, username: &str, password: &str) -
             vec!["uid", "mail", "displayName", "cn", "givenName", "sn"],
         )
         .await
-        .map_err(|e| anyhow::anyhow!("LDAP search failed: {}", e))?
+        .map_err(|e| CoreError::internal(format!("LDAP search failed: {}", e)))?
         .success()
-        .map_err(|e| anyhow::anyhow!("LDAP search rejected: {:?}", e))?;
+        .map_err(|e| CoreError::internal(format!("LDAP search rejected: {:?}", e)))?;
 
     if results.is_empty() {
-        anyhow::bail!("user '{}' not found in LDAP directory", username);
+        return Err(CoreError::NotFound(format!(
+            "user '{}' not found in LDAP directory",
+            username
+        )));
     }
     if results.len() != 1 {
-        anyhow::bail!("LDAP user filter returned multiple entries");
+        return Err(CoreError::internal("LDAP user filter returned multiple entries"));
     }
 
     // ldap3 v0.11: SearchResultEntry has (dn, attrs) pattern
@@ -142,13 +147,13 @@ pub async fn authenticate(config: &LdapConfig, username: &str, password: &str) -
     let bind_result = ldap2
         .simple_bind(&user_dn, password)
         .await
-        .map_err(|e| anyhow::anyhow!("LDAP user bind failed: {}", e))?;
+        .map_err(|e| CoreError::internal(format!("LDAP user bind failed: {}", e)))?;
 
     ldap2.unbind().await.ok();
 
     // Check bind success via the result code
     if bind_result.rc != 0 {
-        anyhow::bail!("invalid LDAP credentials");
+        return Err(CoreError::InvalidInput("invalid LDAP credentials".into()));
     }
 
     Ok(LdapUser {
@@ -160,7 +165,7 @@ pub async fn authenticate(config: &LdapConfig, username: &str, password: &str) -
     })
 }
 
-pub async fn test_connection(config: &LdapConfig) -> Result<()> {
+pub async fn test_connection(config: &LdapConfig) -> CoreResult<()> {
     let url = if config.use_tls {
         format!("ldaps://{}:{}", config.host, config.port)
     } else {
@@ -176,9 +181,9 @@ pub async fn test_connection(config: &LdapConfig) -> Result<()> {
 
     ldap.simple_bind(&config.bind_dn, &config.bind_password)
         .await
-        .map_err(|e| anyhow::anyhow!("LDAP bind failed: {}", e))?
+        .map_err(|e| CoreError::internal(format!("LDAP bind failed: {}", e)))?
         .success()
-        .map_err(|e| anyhow::anyhow!("LDAP bind rejected: {:?}", e))?;
+        .map_err(|e| CoreError::internal(format!("LDAP bind rejected: {:?}", e)))?;
 
     ldap.unbind().await.ok();
     Ok(())

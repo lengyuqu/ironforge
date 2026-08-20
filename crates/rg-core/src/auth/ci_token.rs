@@ -16,7 +16,7 @@
 //! }
 //! ```
 
-use anyhow::{Context, Result};
+use crate::error::{CoreContext, CoreResult};
 use chrono::{Duration, Utc};
 use jsonwebtoken::{encode, EncodingKey, Header};
 use serde::{Deserialize, Serialize};
@@ -75,7 +75,7 @@ pub fn generate_ci_job_token(
     job_id: i64,
     scopes: &str,
     secret: &str,
-) -> Result<String> {
+) -> CoreResult<String> {
     generate_ci_job_token_with_ttl(repo_id, pipeline_id, job_id, scopes, secret, 3600)
 }
 
@@ -86,7 +86,7 @@ pub fn generate_ci_job_token_with_ttl(
     scopes: &str,
     secret: &str,
     ttl_seconds: i64,
-) -> Result<String> {
+) -> CoreResult<String> {
     let now = Utc::now();
     let exp = now + Duration::seconds(ttl_seconds.clamp(60, 86_700));
     let claims = CiJobClaims {

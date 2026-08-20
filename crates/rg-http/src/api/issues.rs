@@ -623,16 +623,13 @@ fn summarize_reactions(
     summaries
 }
 
-fn reaction_error_response(e: anyhow::Error) -> axum::response::Response {
-    let msg = e.to_string();
-    if msg.contains("not found") {
-        AppError::not_found(msg).into_response()
-    } else if msg.contains("reaction already exists") {
-        AppError::conflict(msg).into_response()
-    } else if msg.contains("invalid reaction content") {
-        AppError::bad_request(msg).into_response()
-    } else {
-        AppError::internal(e).into_response()
+fn reaction_error_response(e: rg_core::error::CoreError) -> axum::response::Response {
+    use rg_core::error::CoreError;
+    match e {
+        CoreError::NotFound(msg) => AppError::not_found(msg).into_response(),
+        CoreError::Conflict(msg) => AppError::conflict(msg).into_response(),
+        CoreError::InvalidInput(msg) => AppError::bad_request(msg).into_response(),
+        other => AppError::internal(other).into_response(),
     }
 }
 

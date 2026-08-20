@@ -2,7 +2,7 @@
 //!
 //! Tokens are HS256-signed JWTs with a configurable expiry (default 7 days).
 
-use anyhow::{Context, Result};
+use crate::error::{CoreContext, CoreResult};
 use chrono::{Duration, Utc};
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
@@ -38,7 +38,7 @@ fn mfa_challenge_key(secret: &str) -> String {
 }
 
 /// Generate a signed JWT for a user.
-pub fn generate_token(user_id: i64, username: &str, secret: &str, ttl_days: i64) -> Result<String> {
+pub fn generate_token(user_id: i64, username: &str, secret: &str, ttl_days: i64) -> CoreResult<String> {
     let now = Utc::now();
     let exp = now + Duration::days(ttl_days);
     let claims = Claims {
@@ -79,7 +79,7 @@ pub fn generate_mfa_challenge(
     username: &str,
     auth_provider: &str,
     secret: &str,
-) -> Result<String> {
+) -> CoreResult<String> {
     let now = Utc::now();
     let claims = MfaChallengeClaims {
         sub: user_id.to_string(),

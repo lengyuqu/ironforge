@@ -45,6 +45,12 @@ impl From<anyhow::Error> for HandlerError {
     }
 }
 
+impl From<rg_core::error::CoreError> for HandlerError {
+    fn from(e: rg_core::error::CoreError) -> Self {
+        HandlerError(format!("{:#}", e))
+    }
+}
+
 /// SSH server configuration.
 pub struct SshServerConfig {
     /// Path to the SSH host key file (e.g., ed25519).

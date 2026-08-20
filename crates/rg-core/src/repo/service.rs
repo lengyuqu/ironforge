@@ -1,6 +1,6 @@
 //! Repository service — business logic for repo creation and access control.
 
-use anyhow::{bail, Context, Result};
+use crate::error::{CoreContext, CoreError, CoreResult};
 use chrono::Utc;
 use sea_orm::{ActiveValue::Set, ConnectionTrait, DatabaseConnection};
 use std::collections::{HashMap, HashSet};
@@ -56,8 +56,8 @@ pub struct CreateRepoOptions {
 //   2. The cache is process-local (OnceLock<RwLock<HashMap>>). In a
 //      multi-instance deployment each server maintains its own cache, so
 //      invalidation on one instance does not propagate to others. A revocation
-//      performed on instance A may still allow access on instance B for up
-//      to 30s until B's local TTL expires.
+//      performed on instance A may still allow access on instance B for up to
+//      30s until B's local TTL expires.
 //   Future improvement: replace with a shared cache (e.g. Redis) or a
 //   pub/sub invalidation bus so that revocation is immediate across all
 //   instances.
@@ -121,7 +121,7 @@ pub fn invalidate_perm_cache_all() {
 /// Returns (owner_id, org_id, owner_name_for_path).
 /// - If owner is a username: returns (user_id, None, username)
 /// - If owner is an org name: returns (org_owner_id, Some(org_id), org_name)
-async fn resolve_owner(db: &DatabaseConnection, owner: &str) -> Result<(i64, Option<i64>, String)> {
+async fn resolve_owner(db: &DatabaseConnection, owner: &str) -> CoreResult<(i64, Option<i64>, String)> {
     // Try user first
     if let Some(user) = user_ops::find_by_username(db, owner).await? {
         return Ok((user.id, None, user.username.clone()));
@@ -132,10 +132,10 @@ async fn resolve_owner(db: &DatabaseConnection, owner: &str) -> Result<(i64, Opt
         return Ok((org.owner_id, Some(org.id), org.name.clone()));
     }
 
-    bail!(
+    Err(CoreError::not_found(format!(
         "owner '{}' not found (neither user nor organization)",
         owner
-    )
+    )))
 }
 
 /// Find a repository by owner name (user or org) and repo name.
@@ -143,15 +143,15 @@ pub async fn find_repo_by_owner_name(
     db: &DatabaseConnection,
     owner: &str,
     repo_name: &str,
-) -> Result<Option<rg_db::entities::repository::Model>> {
+) -> CoreResult<Option<rg_db::entities::repository::Model>> {
     // Try as user
     if let Some(user) = user_ops::find_by_username(db, owner).await? {
-        return repo_ops::find_by_owner_and_name(db, user.id, repo_name).await;
+        return Ok(repo_ops::find_by_owner_and_name(db, user.id, repo_name).await?);
     }
 
     // Try as organization
     if let Some(org) = rg_db::ops::org_ops::get_org_by_name(db, owner).await? {
-        return repo_ops::find_by_org_and_name(db, org.id, repo_name).await;
+        return Ok(repo_ops::find_by_org_and_name(db, org.id, repo_name).await?);
     }
 
     Ok(None)
@@ -164,7 +164,7 @@ pub async fn can_read_repo(
     db: &DatabaseConnection,
     repo: &rg_db::entities::repository::Model,
     actor_id: Option<i64>,
-) -> Result<bool> {
+) -> CoreResult<bool> {
     if !repo.is_private {
         return Ok(true);
     }
@@ -204,10 +204,12 @@ pub async fn can_read(
     owner: &str,
     repo_name: &str,
     actor_id: Option<i64>,
-) -> Result<bool> {
+) -> CoreResult<bool> {
     let repo = find_repo_by_owner_name(db, owner, repo_name)
         .await?
-        .ok_or_else(|| anyhow::anyhow!("repository '{}/{}' not found", owner, repo_name))?;
+        .ok_or_else(|| {
+            CoreError::not_found(format!("repository '{}/{}' not found", owner, repo_name))
+        })?;
     can_read_repo(db, &repo, actor_id).await
 }
 
@@ -219,7 +221,7 @@ pub async fn can_write_repo(
     db: &DatabaseConnection,
     repo: &rg_db::entities::repository::Model,
     actor_id: Option<i64>,
-) -> Result<bool> {
+) -> CoreResult<bool> {
     // Use a separate cache key prefix pattern: (repo_id, Some(user_id) or None)
     // We use the same cache key space as can_read_repo to reuse results.
     if let Some(cached) = check_perm_cache(repo.id, actor_id, true) {
@@ -265,7 +267,7 @@ pub async fn can_admin_repo(
     db: &DatabaseConnection,
     repo: &rg_db::entities::repository::Model,
     actor_id: Option<i64>,
-) -> Result<bool> {
+) -> CoreResult<bool> {
     let Some(actor_id) = actor_id else {
         return Ok(false);
     };
@@ -288,7 +290,7 @@ pub async fn can_admin_repo(
     if matches!(member.role.as_str(), "owner" | "admin") {
         return Ok(true);
     }
-    rg_db::ops::org_ops::is_member_of_admin_team(db, org_id, actor_id).await
+    Ok(rg_db::ops::org_ops::is_member_of_admin_team(db, org_id, actor_id).await?)
 }
 
 /// Check whether `actor_id` can write to `owner/repo`.
@@ -299,10 +301,12 @@ pub async fn can_write(
     owner: &str,
     repo_name: &str,
     actor_id: Option<i64>,
-) -> Result<bool> {
+) -> CoreResult<bool> {
     let repo = find_repo_by_owner_name(db, owner, repo_name)
         .await?
-        .ok_or_else(|| anyhow::anyhow!("repository '{}/{}' not found", owner, repo_name))?;
+        .ok_or_else(|| {
+            CoreError::not_found(format!("repository '{}/{}' not found", owner, repo_name))
+        })?;
     can_write_repo(db, &repo, actor_id).await
 }
 
@@ -318,7 +322,7 @@ pub async fn create_repo(
     is_private: bool,
     repo_root: &std::path::Path,
     org_id: Option<i64>,
-) -> Result<rg_db::entities::repository::Model> {
+) -> CoreResult<rg_db::entities::repository::Model> {
     create_repo_with_opts(
         db,
         CreateRepoOptions {
@@ -347,7 +351,7 @@ pub async fn create_repo_with_opts(
     db: &DatabaseConnection,
     opts: CreateRepoOptions,
     repo_root: &std::path::Path,
-) -> Result<rg_db::entities::repository::Model> {
+) -> CoreResult<rg_db::entities::repository::Model> {
     let default_branch = opts.default_branch.as_deref().unwrap_or("main");
     let owner_id = opts.owner_id;
     let name = &opts.name;
@@ -361,19 +365,22 @@ pub async fn create_repo_with_opts(
         .await?
         .is_some()
     {
-        bail!("repository '{}' already exists", name);
+        return Err(CoreError::conflict(format!(
+            "repository '{}' already exists",
+            name
+        )));
     }
 
     // Determine path prefix: org name or user name
     let path_prefix = if let Some(oid) = opts.org_id {
         let org = rg_db::ops::org_ops::get_org(db, oid)
             .await?
-            .ok_or_else(|| anyhow::anyhow!("organization not found"))?;
+            .ok_or_else(|| CoreError::not_found("organization not found"))?;
         org.name
     } else {
         let owner_user = rg_db::ops::user_ops::find_by_id(db, owner_id)
             .await?
-            .ok_or_else(|| anyhow::anyhow!("owner not found"))?;
+            .ok_or_else(|| CoreError::not_found("owner not found"))?;
         owner_user.username
     };
 
@@ -420,7 +427,10 @@ pub async fn create_repo_with_opts(
             // If auto_init fails, clean up the bare repo so we don't leave
             // an inconsistent state
             let _ = std::fs::remove_dir_all(&git_path);
-            bail!("auto-initialization failed: {}", e);
+            return Err(CoreError::internal(format!(
+                "auto-initialization failed: {}",
+                e
+            )));
         }
 
         init_result?;
@@ -481,7 +491,7 @@ pub async fn create_repo_with_opts(
 /// Convert a local path to a git-compatible URL format.
 /// On Windows, converts "D:\path\to\repo" to "file:///D:/path/to/repo".
 /// On Unix, converts "/path/to/repo" to "file:///path/to/repo".
-fn path_to_git_url(path: &std::path::Path) -> Result<String> {
+fn path_to_git_url(path: &std::path::Path) -> CoreResult<String> {
     let canonical = std::fs::canonicalize(path)
         .with_context(|| format!("failed to canonicalize path: {:?}", path))?;
 
@@ -517,24 +527,24 @@ fn auto_init_repo(
     owner_name: &str,
     git_author_name: &str,
     git_author_email: &str,
-) -> Result<()> {
+) -> CoreResult<()> {
     // Canonicalize the bare repo path so git push works from any working directory
     let bare_path = std::fs::canonicalize(bare_path)
         .with_context(|| format!("bare repo path does not exist: {:?}", bare_path))?;
 
     // Create a temp directory for the working tree
     let tmp = std::env::temp_dir().join(format!("ironforge-init-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&tmp)?;
+    std::fs::create_dir_all(&tmp).context("failed to create temp directory")?;
 
     // Init a non-bare repo in the temp dir
-    let gateway =
-        rg_git::cli_gateway::GitCommandGateway::new().with_context(|| "git CLI not available")?;
+    let gateway = rg_git::cli_gateway::GitCommandGateway::new()
+        .map_err(|e| CoreError::internal(format!("git CLI not available: {e}")))?;
     let output = gateway
         .run(&["init", "-b", default_branch], Some(&tmp))
-        .with_context(|| format!("git init failed in {:?}", tmp))?;
+        .map_err(|e| CoreError::internal(format!("git init failed in {:?}: {e}", tmp)))?;
     output
         .ensure_success()
-        .with_context(|| format!("git init failed in {:?}", tmp))?;
+        .map_err(|e| CoreError::internal(format!("git init failed in {:?}: {e}", tmp)))?;
 
     // Write README.md if specified
     let mut files_written = false;
@@ -584,16 +594,21 @@ fn auto_init_repo(
     // git add all files
     let output = gateway
         .run(&["add", "-A"], Some(&tmp))
-        .context("git add failed")?;
-    output.ensure_success().context("git add failed")?;
+        .map_err(|e| CoreError::internal(format!("git add failed: {e}")))?;
+    output
+        .ensure_success()
+        .map_err(|e| CoreError::internal(format!("git add failed: {e}")))?;
 
     // git commit (identity env via gateway)
     let identity = git_identity_env(git_author_name, git_author_email);
     let output = gateway
         .run_with_env(&["commit", "-m", "Initial commit"], Some(&tmp), &identity)
-        .context("git commit failed")?;
+        .map_err(|e| CoreError::internal(format!("git commit failed: {e}")))?;
     if !output.success() {
-        bail!("git commit failed: {}", output.stderr_str());
+        return Err(CoreError::internal(format!(
+            "git commit failed: {}",
+            output.stderr_str()
+        )));
     }
 
     // git push to the bare repo
@@ -603,9 +618,12 @@ fn auto_init_repo(
 
     let output = gateway
         .run(&["push", "--quiet", &push_url, &refspec], Some(&tmp))
-        .context("git push failed")?;
+        .map_err(|e| CoreError::internal(format!("git push failed: {e}")))?;
     if !output.success() {
-        bail!("git push to bare repo failed: {}", output.stderr_str());
+        return Err(CoreError::internal(format!(
+            "git push to bare repo failed: {}",
+            output.stderr_str()
+        )));
     }
 
     // Set HEAD in the bare repo to point to the default branch.
@@ -616,7 +634,7 @@ fn auto_init_repo(
             &["--git-dir", &push_url, "symbolic-ref", "HEAD", &head_ref],
             None,
         )
-        .context("git symbolic-ref HEAD failed")?;
+        .map_err(|e| CoreError::internal(format!("git symbolic-ref HEAD failed: {e}")))?;
     if !head_output.success() {
         tracing::warn!(stderr = %head_output.stderr_str(), "failed to set HEAD in bare repo");
     }
@@ -652,7 +670,7 @@ async fn create_default_labels(
     db: &DatabaseConnection,
     repo_id: i64,
     label_set: &str,
-) -> Result<()> {
+) -> CoreResult<()> {
     let labels = templates::default_labels(label_set);
 
     for label_def in &labels {
@@ -679,7 +697,7 @@ async fn create_default_labels(
 }
 
 /// Star a repository. Returns true if newly starred, false if unstarred.
-pub async fn toggle_star(db: &DatabaseConnection, user_id: i64, repo_id: i64) -> Result<bool> {
+pub async fn toggle_star(db: &DatabaseConnection, user_id: i64, repo_id: i64) -> CoreResult<bool> {
     let starred = rg_db::ops::repo_star_ops::toggle_star(db, user_id, repo_id).await?;
     // Refresh cache count field
     rg_db::ops::repo_ops::update_stars_count(db, repo_id).await?;
@@ -687,8 +705,8 @@ pub async fn toggle_star(db: &DatabaseConnection, user_id: i64, repo_id: i64) ->
 }
 
 /// Check if user has starred a repo.
-pub async fn is_starred(db: &DatabaseConnection, user_id: i64, repo_id: i64) -> Result<bool> {
-    rg_db::ops::repo_star_ops::is_starred(db, user_id, repo_id).await
+pub async fn is_starred(db: &DatabaseConnection, user_id: i64, repo_id: i64) -> CoreResult<bool> {
+    Ok(rg_db::ops::repo_star_ops::is_starred(db, user_id, repo_id).await?)
 }
 
 /// List stargazers of a repo.
@@ -697,8 +715,8 @@ pub async fn list_stargazers(
     repo_id: i64,
     offset: u64,
     limit: u64,
-) -> Result<(Vec<rg_db::entities::repo_star::Model>, i64)> {
-    rg_db::ops::repo_star_ops::list_stargazers(db, repo_id, offset, limit).await
+) -> CoreResult<(Vec<rg_db::entities::repo_star::Model>, i64)> {
+    Ok(rg_db::ops::repo_star_ops::list_stargazers(db, repo_id, offset, limit).await?)
 }
 
 /// Set watch state for a repo. Returns new watch_state.
@@ -707,8 +725,8 @@ pub async fn set_watch(
     user_id: i64,
     repo_id: i64,
     state: &str,
-) -> Result<String> {
-    rg_db::ops::repo_watch_ops::set_watch_state(db, user_id, repo_id, state).await
+) -> CoreResult<String> {
+    Ok(rg_db::ops::repo_watch_ops::set_watch_state(db, user_id, repo_id, state).await?)
 }
 
 /// Get watch state.
@@ -716,12 +734,12 @@ pub async fn get_watch(
     db: &DatabaseConnection,
     user_id: i64,
     repo_id: i64,
-) -> Result<Option<String>> {
-    rg_db::ops::repo_watch_ops::get_watch_state(db, user_id, repo_id).await
+) -> CoreResult<Option<String>> {
+    Ok(rg_db::ops::repo_watch_ops::get_watch_state(db, user_id, repo_id).await?)
 }
 
 /// Soft-delete a repository.
-pub async fn delete_repo(db: &DatabaseConnection, repo_id: i64) -> Result<()> {
+pub async fn delete_repo(db: &DatabaseConnection, repo_id: i64) -> CoreResult<()> {
     rg_db::ops::repo_ops::soft_delete(db, repo_id).await?;
 
     // Manually remove from the metadata FTS table as a defensive fallback.
@@ -746,7 +764,7 @@ pub async fn find_active_repo_by_owner_name(
     db: &DatabaseConnection,
     owner: &str,
     repo_name: &str,
-) -> Result<Option<rg_db::entities::repository::Model>> {
+) -> CoreResult<Option<rg_db::entities::repository::Model>> {
     // Reuse find_repo_by_owner_name logic but add deleted_at IS NULL filter
     // Actually existing find_repo_by_owner_name doesn't check deleted_at,
     // so we need to query via rg_db::ops and filter
@@ -761,24 +779,27 @@ pub async fn fork_repo(
     owner: &str,
     repo_name: &str,
     repo_root: &std::path::Path,
-) -> Result<rg_db::entities::repository::Model> {
+) -> CoreResult<rg_db::entities::repository::Model> {
     let source_repo = find_repo_by_owner_name(db, owner, repo_name)
         .await?
-        .ok_or_else(|| anyhow::anyhow!("source repository not found"))?;
+        .ok_or_else(|| CoreError::not_found("source repository not found"))?;
 
     if source_repo.is_private && !can_read_repo(db, &source_repo, Some(user_id)).await? {
-        bail!("permission denied: cannot read private repository");
+        return Err(CoreError::forbidden("cannot read private repository"));
     }
 
     let forker = user_ops::find_by_id(db, user_id)
         .await?
-        .ok_or_else(|| anyhow::anyhow!("user not found"))?;
+        .ok_or_else(|| CoreError::not_found("user not found"))?;
 
     if repo_ops::find_by_owner_and_name(db, user_id, repo_name)
         .await?
         .is_some()
     {
-        bail!("repository '{}' already exists in your account", repo_name);
+        return Err(CoreError::conflict(format!(
+            "repository '{}' already exists in your account",
+            repo_name
+        )));
     }
 
     let source_path = repo_root.join(format!("{}/{}.git", owner, repo_name));
@@ -794,7 +815,7 @@ pub async fn fork_repo(
     // For now, use git CLI for local fork operations
     let git = rg_git::cli_gateway::global_gateway()
         .as_ref()
-        .map_err(|e| anyhow::anyhow!("{}", e))?;
+        .map_err(|e| CoreError::internal(format!("{}", e)))?;
 
     // Convert paths to git-compatible URL format to avoid Windows path issues
     let source_url =
@@ -804,7 +825,7 @@ pub async fn fork_repo(
 
     let out = git
         .run(&["clone", "--bare", &source_url, &target_url], None)
-        .context("git clone --bare failed")?;
+        .map_err(|e| CoreError::internal(format!("git clone --bare failed: {e}")))?;
     out.ensure_success()?;
 
     let now = Utc::now();
@@ -838,11 +859,11 @@ pub async fn list_forks(
     repo_name: &str,
     offset: u64,
     limit: u64,
-) -> Result<(Vec<rg_db::entities::repository::Model>, i64)> {
+) -> CoreResult<(Vec<rg_db::entities::repository::Model>, i64)> {
     let repo = find_repo_by_owner_name(db, owner, repo_name)
         .await?
-        .ok_or_else(|| anyhow::anyhow!("repository not found"))?;
-    repo_ops::list_forks(db, repo.id, offset, limit).await
+        .ok_or_else(|| CoreError::not_found("repository not found"))?;
+    Ok(repo_ops::list_forks(db, repo.id, offset, limit).await?)
 }
 
 /// Transfer a repository to a new owner.
@@ -853,13 +874,13 @@ pub async fn transfer_repo(
     repo_name: &str,
     new_owner: &str,
     repo_root: &std::path::Path,
-) -> Result<rg_db::entities::repository::Model> {
+) -> CoreResult<rg_db::entities::repository::Model> {
     let repo = find_repo_by_owner_name(db, owner, repo_name)
         .await?
-        .ok_or_else(|| anyhow::anyhow!("repository not found"))?;
+        .ok_or_else(|| CoreError::not_found("repository not found"))?;
 
     if repo.owner_id != user_id {
-        bail!("only repository owner can transfer");
+        return Err(CoreError::forbidden("only repository owner can transfer"));
     }
 
     let (new_owner_id, new_org_id, new_owner_name) = resolve_owner(db, new_owner).await?;
@@ -868,7 +889,10 @@ pub async fn transfer_repo(
         .await?
         .is_some()
     {
-        bail!("repository '{}' already exists at destination", repo_name);
+        return Err(CoreError::conflict(format!(
+            "repository '{}' already exists at destination",
+            repo_name
+        )));
     }
 
     let old_path = repo_root.join(format!("{}/{}.git", owner, repo_name));
@@ -892,7 +916,7 @@ pub async fn transfer_repo(
 
     repo_ops::find_by_owner_and_name(db, new_owner_id, repo_name)
         .await?
-        .ok_or_else(|| anyhow::anyhow!("repository not found after transfer"))
+        .ok_or_else(|| CoreError::not_found("repository not found after transfer"))
 }
 
 // ── Commit Status ──────────────────────────────────────────────────────
@@ -908,14 +932,14 @@ pub async fn create_commit_status(
     description: Option<&str>,
     target_url: Option<&str>,
     creator_id: i64,
-) -> Result<rg_db::entities::commit_status::Model> {
+) -> CoreResult<rg_db::entities::commit_status::Model> {
     let valid_states = ["pending", "success", "failure", "error"];
     if !valid_states.contains(&state) {
-        bail!(
+        return Err(CoreError::invalid_input(format!(
             "invalid commit status state: '{}', must be one of: {:?}",
             state,
             valid_states
-        );
+        )));
     }
 
     let now = Utc::now();
@@ -932,7 +956,10 @@ pub async fn create_commit_status(
         ..Default::default()
     };
 
-    rg_db::ops::commit_status_ops::create_or_update(db, repo_id, sha, context, model).await
+    Ok(rg_db::ops::commit_status_ops::create_or_update(
+        db, repo_id, sha, context, model,
+    )
+    .await?)
 }
 
 /// List all statuses for a commit SHA in a repository.
@@ -941,11 +968,11 @@ pub async fn list_commit_statuses(
     owner: &str,
     repo_name: &str,
     sha: &str,
-) -> Result<Vec<rg_db::entities::commit_status::Model>> {
+) -> CoreResult<Vec<rg_db::entities::commit_status::Model>> {
     let repo = find_repo_by_owner_name(db, owner, repo_name)
         .await?
-        .ok_or_else(|| anyhow::anyhow!("repository not found"))?;
-    rg_db::ops::commit_status_ops::list_by_sha(db, repo.id, sha).await
+        .ok_or_else(|| CoreError::not_found("repository not found"))?;
+    Ok(rg_db::ops::commit_status_ops::list_by_sha(db, repo.id, sha).await?)
 }
 
 /// Get the combined status for a commit SHA.
@@ -955,10 +982,10 @@ pub async fn get_combined_status(
     owner: &str,
     repo_name: &str,
     sha: &str,
-) -> Result<serde_json::Value> {
+) -> CoreResult<serde_json::Value> {
     let repo = find_repo_by_owner_name(db, owner, repo_name)
         .await?
-        .ok_or_else(|| anyhow::anyhow!("repository not found"))?;
+        .ok_or_else(|| CoreError::not_found("repository not found"))?;
 
     let counts = rg_db::ops::commit_status_ops::get_combined_status(db, repo.id, sha).await?;
     let total: i64 = counts.iter().map(|(_, c)| c).sum();
@@ -1004,7 +1031,7 @@ pub async fn notify_watchers_push(
     repo_name: &str,
     pusher_name: &str,
     ref_name: &str,
-) -> Result<()> {
+) -> CoreResult<()> {
     crate::notification::notify_watchers(
         db,
         repo_id,
@@ -1045,11 +1072,14 @@ pub async fn create_or_update_file(
     author_name: &str,
     author_email: &str,
     repo_root: &std::path::Path,
-) -> Result<()> {
+) -> CoreResult<()> {
     let repo_path = repo_root.join(format!("{}/{}.git", owner, repo_name));
 
     if !repo_path.exists() {
-        bail!("repository path not found: {:?}", repo_path);
+        return Err(CoreError::not_found(format!(
+            "repository path not found: {:?}",
+            repo_path
+        )));
     }
 
     // Verify the file SHA if this is an update (not a create)
@@ -1057,28 +1087,34 @@ pub async fn create_or_update_file(
         // Check if the file exists and its current SHA matches
         let current_sha = get_file_sha(&repo_path, branch, file_path).ok();
         if current_sha.is_none() {
-            bail!("file does not exist: {}", file_path);
+            return Err(CoreError::not_found(format!(
+                "file does not exist: {}",
+                file_path
+            )));
         }
         if let Some(current) = current_sha {
             if current != expected_sha {
-                bail!(
+                return Err(CoreError::conflict(format!(
                     "file SHA mismatch: expected {}, got {}",
                     expected_sha,
                     current
-                );
+                )));
             }
         }
     } else {
         // This is a create operation - check if file already exists
         let current_sha = get_file_sha(&repo_path, branch, file_path).ok();
         if current_sha.is_some() {
-            bail!("file already exists: {} (use update with sha)", file_path);
+            return Err(CoreError::conflict(format!(
+                "file already exists: {} (use update with sha)",
+                file_path
+            )));
         }
     }
 
     // Create temp working directory
     let tmp = std::env::temp_dir().join(format!("ironforge-file-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&tmp)?;
+    std::fs::create_dir_all(&tmp).context("failed to create temp directory")?;
 
     // Clone the repo
     let clone_url =
@@ -1086,54 +1122,66 @@ pub async fn create_or_update_file(
     let tmp_str = tmp.to_string_lossy();
     let gateway = rg_git::cli_gateway::global_gateway()
         .as_ref()
-        .map_err(|e| anyhow::anyhow!("git CLI not available: {e}"))?;
+        .map_err(|e| CoreError::internal(format!("git CLI not available: {e}")))?;
 
     // Try cloning with the target branch; fall back to --no-checkout for new repos
     // where the branch does not exist yet, then create the branch via checkout -b.
     let clone_out = gateway
         .run(&["clone", "-b", branch, &clone_url, &tmp_str], None)
-        .context("git clone failed")?;
+        .map_err(|e| CoreError::internal(format!("git clone failed: {e}")))?;
     if !clone_out.success() {
         let nc_out = gateway
             .run(&["clone", "--no-checkout", &clone_url, &tmp_str], None)
-            .context("git clone (no-checkout) failed")?;
+            .map_err(|e| CoreError::internal(format!("git clone (no-checkout) failed: {e}")))?;
         if !nc_out.success() {
             let _ = std::fs::remove_dir_all(&tmp);
-            bail!("git clone failed: {}", nc_out.stderr_str());
+            return Err(CoreError::internal(format!(
+                "git clone failed: {}",
+                nc_out.stderr_str()
+            )));
         }
         let co_out = gateway
             .run(&["checkout", "-b", branch], Some(&tmp))
-            .context("git checkout failed")?;
+            .map_err(|e| CoreError::internal(format!("git checkout failed: {e}")))?;
         if !co_out.success() {
             let _ = std::fs::remove_dir_all(&tmp);
-            bail!("git checkout failed: {}", co_out.stderr_str());
+            return Err(CoreError::internal(format!(
+                "git checkout failed: {}",
+                co_out.stderr_str()
+            )));
         }
     }
 
     // Write the file
     let full_path = tmp.join(file_path);
     if let Some(parent) = full_path.parent() {
-        std::fs::create_dir_all(parent)?;
+        std::fs::create_dir_all(parent).context("failed to create parent directory")?;
     }
-    std::fs::write(&full_path, content)?;
+    std::fs::write(&full_path, content).context("failed to write file")?;
 
     // Git add
     let output = gateway
         .run(&["add", file_path], Some(&tmp))
-        .context("git add failed")?;
+        .map_err(|e| CoreError::internal(format!("git add failed: {e}")))?;
     if !output.success() {
         let _ = std::fs::remove_dir_all(&tmp);
-        bail!("git add failed: {}", output.stderr_str());
+        return Err(CoreError::internal(format!(
+            "git add failed: {}",
+            output.stderr_str()
+        )));
     }
 
     // Git commit
     let identity = git_identity_env(author_name, author_email);
     let output = gateway
         .run_with_env(&["commit", "-m", message], Some(&tmp), &identity)
-        .context("git commit failed")?;
+        .map_err(|e| CoreError::internal(format!("git commit failed: {e}")))?;
     if !output.success() {
         let _ = std::fs::remove_dir_all(&tmp);
-        bail!("git commit failed: {}", output.stderr_str());
+        return Err(CoreError::internal(format!(
+            "git commit failed: {}",
+            output.stderr_str()
+        )));
     }
 
     // Git push
@@ -1141,10 +1189,13 @@ pub async fn create_or_update_file(
 
     let output = gateway
         .run(&["push", &push_url, branch], Some(&tmp))
-        .context("git push failed")?;
+        .map_err(|e| CoreError::internal(format!("git push failed: {e}")))?;
     if !output.success() {
         let _ = std::fs::remove_dir_all(&tmp);
-        bail!("git push failed: {}", output.stderr_str());
+        return Err(CoreError::internal(format!(
+            "git push failed: {}",
+            output.stderr_str()
+        )));
     }
 
     // Clean up
@@ -1183,13 +1234,18 @@ pub fn update_files_in_commit(
     author_name: &str,
     author_email: &str,
     repo_root: &std::path::Path,
-) -> Result<String> {
+) -> CoreResult<String> {
     if updates.is_empty() {
-        bail!("at least one file update is required");
+        return Err(CoreError::invalid_input(
+            "at least one file update is required",
+        ));
     }
     let repo_path = repo_root.join(format!("{owner}/{repo_name}.git"));
     if !repo_path.exists() {
-        bail!("repository path not found: {:?}", repo_path);
+        return Err(CoreError::not_found(format!(
+            "repository path not found: {:?}",
+            repo_path
+        )));
     }
 
     let mut unique_paths = HashSet::new();
@@ -1201,21 +1257,27 @@ pub fn update_files_in_commit(
                 .components()
                 .any(|part| !matches!(part, std::path::Component::Normal(_)))
         {
-            bail!("invalid repository file path: {}", update.path);
+            return Err(CoreError::invalid_input(format!(
+                "invalid repository file path: {}",
+                update.path
+            )));
         }
         if !unique_paths.insert(update.path.as_str()) {
-            bail!("duplicate file update: {}", update.path);
+            return Err(CoreError::conflict(format!(
+                "duplicate file update: {}",
+                update.path
+            )));
         }
     }
 
     let tmp = std::env::temp_dir().join(format!("ironforge-files-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&tmp)?;
-    let result = (|| -> Result<String> {
+    std::fs::create_dir_all(&tmp).context("failed to create temp directory")?;
+    let result = (|| -> CoreResult<String> {
         let clone_url = path_to_git_url(&repo_path)?;
         let tmp_str = tmp.to_string_lossy();
         let gateway = rg_git::cli_gateway::global_gateway()
             .as_ref()
-            .map_err(|error| anyhow::anyhow!("git CLI not available: {error}"))?;
+            .map_err(|error| CoreError::internal(format!("git CLI not available: {error}")))?;
         let clone = gateway.run(
             &[
                 "clone",
@@ -1234,7 +1296,9 @@ pub fn update_files_in_commit(
         head.ensure_success()?;
         let actual_head = head.stdout_str().trim().to_string();
         if actual_head != expected_head_sha {
-            bail!("branch head changed: expected {expected_head_sha}, got {actual_head}");
+            return Err(CoreError::conflict(format!(
+                "branch head changed: expected {expected_head_sha}, got {actual_head}"
+            )));
         }
 
         for update in updates {
@@ -1243,12 +1307,12 @@ pub fn update_files_in_commit(
             blob.ensure_success()?;
             let actual_blob = blob.stdout_str().trim().to_string();
             if actual_blob != update.expected_blob_sha {
-                bail!(
+                return Err(CoreError::conflict(format!(
                     "file SHA mismatch for {}: expected {}, got {}",
                     update.path,
                     update.expected_blob_sha,
                     actual_blob
-                );
+                )));
             }
 
             let mut full_path = tmp.clone();
@@ -1259,14 +1323,17 @@ pub fn update_files_in_commit(
                 full_path.push(component);
                 if let Ok(metadata) = std::fs::symlink_metadata(&full_path) {
                     if metadata.file_type().is_symlink() {
-                        bail!("refusing to update symlink path: {}", update.path);
+                        return Err(CoreError::invalid_input(format!(
+                            "refusing to update symlink path: {}",
+                            update.path
+                        )));
                     }
                 }
             }
             if let Some(parent) = full_path.parent() {
-                std::fs::create_dir_all(parent)?;
+                std::fs::create_dir_all(parent).context("failed to create parent directory")?;
             }
-            std::fs::write(&full_path, &update.content)?;
+            std::fs::write(&full_path, &update.content).context("failed to write file")?;
             let add = gateway.run(&["add", "--", &update.path], Some(&tmp))?;
             add.ensure_success()?;
         }
@@ -1304,27 +1371,37 @@ pub async fn delete_file(
     author_name: &str,
     author_email: &str,
     repo_root: &std::path::Path,
-) -> Result<()> {
+) -> CoreResult<()> {
     let repo_path = repo_root.join(format!("{}/{}.git", owner, repo_name));
 
     if !repo_path.exists() {
-        bail!("repository path not found: {:?}", repo_path);
+        return Err(CoreError::not_found(format!(
+            "repository path not found: {:?}",
+            repo_path
+        )));
     }
 
     // Verify the file SHA to prevent accidental deletes
     let current_sha = get_file_sha(&repo_path, branch, file_path).ok();
     if current_sha.is_none() {
-        bail!("file does not exist: {}", file_path);
+        return Err(CoreError::not_found(format!(
+            "file does not exist: {}",
+            file_path
+        )));
     }
     if let Some(current) = current_sha {
         if current != sha {
-            bail!("file SHA mismatch: expected {}, got {}", sha, current);
+            return Err(CoreError::conflict(format!(
+                "file SHA mismatch: expected {}, got {}",
+                sha,
+                current
+            )));
         }
     }
 
     // Create temp working directory
     let tmp = std::env::temp_dir().join(format!("ironforge-file-del-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&tmp)?;
+    std::fs::create_dir_all(&tmp).context("failed to create temp directory")?;
 
     // Clone the repo
     let clone_url =
@@ -1332,33 +1409,42 @@ pub async fn delete_file(
     let tmp_str = tmp.to_string_lossy();
     let gateway = rg_git::cli_gateway::global_gateway()
         .as_ref()
-        .map_err(|e| anyhow::anyhow!("git CLI not available: {e}"))?;
+        .map_err(|e| CoreError::internal(format!("git CLI not available: {e}")))?;
 
     let output = gateway
         .run(&["clone", "-b", branch, &clone_url, &tmp_str], None)
-        .context("git clone failed")?;
+        .map_err(|e| CoreError::internal(format!("git clone failed: {e}")))?;
     if !output.success() {
         let _ = std::fs::remove_dir_all(&tmp);
-        bail!("git clone failed: {}", output.stderr_str());
+        return Err(CoreError::internal(format!(
+            "git clone failed: {}",
+            output.stderr_str()
+        )));
     }
 
     // Delete the file
     let output = gateway
         .run(&["rm", file_path], Some(&tmp))
-        .context("git rm failed")?;
+        .map_err(|e| CoreError::internal(format!("git rm failed: {e}")))?;
     if !output.success() {
         let _ = std::fs::remove_dir_all(&tmp);
-        bail!("git rm failed: {}", output.stderr_str());
+        return Err(CoreError::internal(format!(
+            "git rm failed: {}",
+            output.stderr_str()
+        )));
     }
 
     // Git commit
     let identity = git_identity_env(author_name, author_email);
     let output = gateway
         .run_with_env(&["commit", "-m", message], Some(&tmp), &identity)
-        .context("git commit failed")?;
+        .map_err(|e| CoreError::internal(format!("git commit failed: {e}")))?;
     if !output.success() {
         let _ = std::fs::remove_dir_all(&tmp);
-        bail!("git commit failed: {}", output.stderr_str());
+        return Err(CoreError::internal(format!(
+            "git commit failed: {}",
+            output.stderr_str()
+        )));
     }
 
     // Git push
@@ -1366,10 +1452,13 @@ pub async fn delete_file(
 
     let output = gateway
         .run(&["push", &push_url, branch], Some(&tmp))
-        .context("git push failed")?;
+        .map_err(|e| CoreError::internal(format!("git push failed: {e}")))?;
     if !output.success() {
         let _ = std::fs::remove_dir_all(&tmp);
-        bail!("git push failed: {}", output.stderr_str());
+        return Err(CoreError::internal(format!(
+            "git push failed: {}",
+            output.stderr_str()
+        )));
     }
 
     // Clean up
@@ -1386,13 +1475,16 @@ pub async fn delete_file(
 }
 
 /// Get the blob SHA of a file at a given ref.
-fn get_file_sha(repo_path: &std::path::Path, git_ref: &str, file_path: &str) -> Result<String> {
+fn get_file_sha(repo_path: &std::path::Path, git_ref: &str, file_path: &str) -> CoreResult<String> {
     let repo = gix::open(repo_path)
         .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
 
     let target = format!("{}:{}", git_ref, file_path);
     let object_id = repo.rev_parse_single(target.as_str()).map_err(|e| {
-        anyhow::anyhow!("file '{}' not found at ref '{}': {}", file_path, git_ref, e)
+        CoreError::not_found(format!(
+            "file '{}' not found at ref '{}': {}",
+            file_path, git_ref, e
+        ))
     })?;
 
     Ok(object_id.to_string())

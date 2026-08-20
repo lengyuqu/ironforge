@@ -1,6 +1,6 @@
 //! Notification service — create and manage user notifications.
 
-use anyhow::Result;
+use crate::error::CoreResult;
 use sea_orm::DatabaseConnection;
 
 use rg_db::ops::notification_ops;
@@ -13,8 +13,8 @@ pub async fn notify(
     title: &str,
     body: Option<&str>,
     repo_id: Option<i64>,
-) -> Result<rg_db::entities::notification::Model> {
-    notification_ops::create_notification(db, user_id, event_type, title, body, repo_id).await
+) -> CoreResult<rg_db::entities::notification::Model> {
+    Ok(notification_ops::create_notification(db, user_id, event_type, title, body, repo_id).await?)
 }
 
 /// List notifications for a user.
@@ -22,8 +22,8 @@ pub async fn list_notifications(
     db: &DatabaseConnection,
     user_id: i64,
     unread_only: bool,
-) -> Result<Vec<rg_db::entities::notification::Model>> {
-    notification_ops::list_notifications(db, user_id, unread_only).await
+) -> CoreResult<Vec<rg_db::entities::notification::Model>> {
+    Ok(notification_ops::list_notifications(db, user_id, unread_only).await?)
 }
 
 /// Paginated list of notifications. Returns (data, total).
@@ -33,33 +33,52 @@ pub async fn list_notifications_paginated(
     unread_only: bool,
     offset: u64,
     limit: u64,
-) -> Result<(Vec<rg_db::entities::notification::Model>, i64)> {
-    notification_ops::list_notifications_paginated(db, user_id, unread_only, offset, limit).await
+) -> CoreResult<(Vec<rg_db::entities::notification::Model>, i64)> {
+    Ok(
+        notification_ops::list_notifications_paginated(
+            db,
+            user_id,
+            unread_only,
+            offset,
+            limit,
+        )
+        .await?,
+    )
 }
 
 /// Mark a notification as read.
-pub async fn mark_read(db: &DatabaseConnection, id: i64) -> Result<()> {
-    notification_ops::mark_notification_read(db, id).await
+pub async fn mark_read(db: &DatabaseConnection, id: i64) -> CoreResult<()> {
+    notification_ops::mark_notification_read(db, id)
+        .await
+        .map_err(Into::into)
 }
 
 /// Mark a notification as read for its owning user.
-pub async fn mark_read_for_user(db: &DatabaseConnection, id: i64, user_id: i64) -> Result<()> {
-    notification_ops::mark_notification_read_for_user(db, id, user_id).await
+pub async fn mark_read_for_user(db: &DatabaseConnection, id: i64, user_id: i64) -> CoreResult<()> {
+    notification_ops::mark_notification_read_for_user(db, id, user_id)
+        .await
+        .map_err(Into::into)
 }
 
 /// Mark all notifications as read for a user.
-pub async fn mark_all_read(db: &DatabaseConnection, user_id: i64) -> Result<u64> {
-    notification_ops::mark_all_read(db, user_id).await
+pub async fn mark_all_read(db: &DatabaseConnection, user_id: i64) -> CoreResult<u64> {
+    notification_ops::mark_all_read(db, user_id)
+        .await
+        .map_err(Into::into)
 }
 
 /// Get unread notification count.
-pub async fn unread_count(db: &DatabaseConnection, user_id: i64) -> Result<u64> {
-    notification_ops::unread_count(db, user_id).await
+pub async fn unread_count(db: &DatabaseConnection, user_id: i64) -> CoreResult<u64> {
+    notification_ops::unread_count(db, user_id)
+        .await
+        .map_err(Into::into)
 }
 
 /// Delete a notification.
-pub async fn delete_notification(db: &DatabaseConnection, id: i64) -> Result<()> {
-    notification_ops::delete_notification(db, id).await
+pub async fn delete_notification(db: &DatabaseConnection, id: i64) -> CoreResult<()> {
+    notification_ops::delete_notification(db, id)
+        .await
+        .map_err(Into::into)
 }
 
 /// Delete a notification for its owning user.
@@ -67,8 +86,10 @@ pub async fn delete_notification_for_user(
     db: &DatabaseConnection,
     id: i64,
     user_id: i64,
-) -> Result<()> {
-    notification_ops::delete_notification_for_user(db, id, user_id).await
+) -> CoreResult<()> {
+    notification_ops::delete_notification_for_user(db, id, user_id)
+        .await
+        .map_err(Into::into)
 }
 
 // ── Watch notification helpers ─────────────────────────────────────────
@@ -81,7 +102,7 @@ pub async fn notify_watchers(
     title: &str,
     notification_type: &str,
     body: Option<String>,
-) -> Result<()> {
+) -> CoreResult<()> {
     let watchers = rg_db::ops::repo_watch_ops::list_watchers(db, repo_id, 0, 1000)
         .await?
         .0;

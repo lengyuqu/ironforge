@@ -1,6 +1,6 @@
 //! Pull request service — PR creation, diff, merge strategies.
 
-use anyhow::{bail, Context, Result};
+use crate::error::{CoreContext, CoreError, CoreResult};
 use chrono::Utc;
 use sea_orm::{DatabaseConnection, EntityTrait, Set, TransactionTrait};
 use std::collections::HashMap;
@@ -27,19 +27,20 @@ pub async fn create_pr(
     base_branch: String,
     head_repo_id: Option<i64>,
     is_draft: bool,
-) -> Result<PullRequest> {
+) -> CoreResult<PullRequest> {
     if title.trim().is_empty() {
-        bail!("PR title cannot be empty");
+        return Err(CoreError::InvalidInput("PR title cannot be empty".into()));
     }
     if head_branch == base_branch {
-        bail!("head and base branches cannot be the same");
+        return Err(CoreError::InvalidInput("head and base branches cannot be the same".into()));
     }
 
     let number = pull_request_ops::next_number(db, repo_id).await?;
 
     let target_repo = repo_entity::Entity::find_by_id(repo_id)
         .one(db)
-        .await?
+        .await
+        .context("failed to find target repository")?
         .context("target repository not found")?;
     let target_namespace = repository_namespace(db, &target_repo).await?;
     let target_path = repo_root.join(format!("{target_namespace}/{}.git", target_repo.name));
@@ -49,7 +50,8 @@ pub async fn create_pr(
         // For fork PRs, resolve from the fork repo's git data
         let head_repo = repo_entity::Entity::find_by_id(head_repo_id)
             .one(db)
-            .await?
+            .await
+            .context("failed to find head repository")?
             .context("head repository not found")?;
         let head_namespace = repository_namespace(db, &head_repo).await?;
         let head_path = repo_root.join(format!("{head_namespace}/{}.git", head_repo.name));
@@ -136,7 +138,7 @@ pub async fn resolve_head_ref(
     db: &DatabaseConnection,
     target_repo_id: i64,
     head_ref: &str,
-) -> Result<(String, Option<i64>)> {
+) -> CoreResult<(String, Option<i64>)> {
     if let Some((head_owner, head_branch)) = head_ref.split_once(':') {
         // Cross-repo (fork) PR: "owner:branch"
         let head_branch = head_branch.to_string();
@@ -147,7 +149,8 @@ pub async fn resolve_head_ref(
         // Find the target repo to compare
         let target_repo = repo_entity::Entity::find_by_id(target_repo_id)
             .one(db)
-            .await?
+            .await
+            .context("failed to find target repository")?
             .context("target repository not found")?;
 
         if head_owner_user.id != target_repo.owner_id {
@@ -165,11 +168,11 @@ pub async fn resolve_head_ref(
 
             // Verify it's actually a fork of the target
             if fork_repo.origin_repo_id != Some(target_repo_id) && fork_repo.id != target_repo_id {
-                bail!(
+                return Err(CoreError::invalid_input(format!(
                     "'{}/{}' is not a fork of the target repository",
                     head_owner,
                     target_repo.name
-                );
+                )));
             }
 
             return Ok((head_branch, Some(fork_repo.id)));
@@ -186,7 +189,7 @@ pub async fn resolve_head_ref(
 pub(super) async fn repository_namespace(
     db: &DatabaseConnection,
     repository: &repo_entity::Model,
-) -> Result<String> {
+) -> CoreResult<String> {
     if let Some(org_id) = repository.org_id {
         return rg_db::ops::org_ops::get_org(db, org_id)
             .await?
@@ -208,7 +211,7 @@ pub async fn notify_watchers_pr(
     pr_number: i64,
     pr_title: &str,
     action: &str,
-) -> Result<()> {
+) -> CoreResult<()> {
     crate::notification::notify_watchers(
         db,
         repo_id,
@@ -226,9 +229,9 @@ pub async fn list_prs(
     owner: &str,
     repo_name: &str,
     state: Option<&str>,
-) -> Result<Vec<PullRequest>> {
+) -> CoreResult<Vec<PullRequest>> {
     let repo = resolve_repo(db, owner, repo_name).await?;
-    pull_request_ops::list_by_repo(db, repo.id, state).await
+    Ok(pull_request_ops::list_by_repo(db, repo.id, state).await?)
 }
 
 /// Paginated list of PRs. Returns (prs, total).
@@ -239,9 +242,9 @@ pub async fn list_prs_paginated(
     state: Option<&str>,
     offset: u64,
     limit: u64,
-) -> Result<(Vec<PullRequest>, i64)> {
+) -> CoreResult<(Vec<PullRequest>, i64)> {
     let repo = resolve_repo(db, owner, repo_name).await?;
-    pull_request_ops::list_by_repo_paginated(db, repo.id, state, offset, limit).await
+    Ok(pull_request_ops::list_by_repo_paginated(db, repo.id, state, offset, limit).await?)
 }
 
 /// Get a single PR.
@@ -250,7 +253,7 @@ pub async fn get_pr(
     owner: &str,
     repo_name: &str,
     number: i64,
-) -> Result<PullRequest> {
+) -> CoreResult<PullRequest> {
     let repo = resolve_repo(db, owner, repo_name).await?;
     pull_request_ops::find_by_repo_and_number(db, repo.id, number)
         .await?
@@ -269,14 +272,14 @@ pub async fn update_pr(
     state: Option<String>,
     is_draft: Option<bool>,
     actor_id: i64,
-) -> Result<PullRequest> {
+) -> CoreResult<PullRequest> {
     let mut pr = get_pr(db, owner, repo_name, number).await?;
     let previous_state = pr.state.clone();
     let previous_draft = pr.is_draft;
 
     if let Some(t) = title {
         if t.trim().is_empty() {
-            bail!("PR title cannot be empty");
+            return Err(CoreError::InvalidInput("PR title cannot be empty".into()));
         }
         pr.title = t;
     }
@@ -285,7 +288,9 @@ pub async fn update_pr(
     }
     if let Some(draft) = is_draft {
         if pr.state != "open" {
-            bail!("only an open pull request can change draft status");
+            return Err(CoreError::InvalidInput(
+                "only an open pull request can change draft status".into(),
+            ));
         }
         pr.is_draft = draft;
     }
@@ -318,7 +323,7 @@ pub async fn update_pr(
                     }
                 }
             }
-            _ => bail!("invalid PR state: {}", s),
+            _ => return Err(CoreError::InvalidInput(format!("invalid PR state: {}", s))),
         }
     }
 
@@ -426,19 +431,23 @@ pub async fn compute_diff(
     owner: &str,
     repo_name: &str,
     number: i64,
-) -> Result<PrDiff> {
+) -> CoreResult<PrDiff> {
     let pr = get_pr(db, owner, repo_name, number).await?;
     let base_repo_path = repo_root.join(format!("{}/{}.git", owner, repo_name));
 
     if !base_repo_path.exists() {
-        bail!("repository path does not exist: {:?}", base_repo_path);
+        return Err(CoreError::internal(format!(
+            "repository path does not exist: {:?}",
+            base_repo_path
+        )));
     }
 
     // For fork PRs, fetch the head branch into the target repo first
     if let Some(head_repo_id) = pr.head_repo_id {
         let head_repo = repo_entity::Entity::find_by_id(head_repo_id)
             .one(db)
-            .await?
+            .await
+            .context("failed to find head repository")?
             .context("head repository not found")?;
         let head_owner = user_ops::find_by_id(db, head_repo.owner_id)
             .await?
@@ -452,7 +461,7 @@ pub async fn compute_diff(
 
             let git = rg_git::cli_gateway::global_gateway()
                 .as_ref()
-                .map_err(|e| anyhow::anyhow!("{}", e))?;
+                .map_err(CoreError::internal)?;
 
             let fetch_output = git.run(
                 &[
@@ -477,18 +486,21 @@ pub async fn compute_diff(
             return tokio::task::spawn_blocking(move || {
                 compute_cross_repo_diff(&base_path, &pr_clone.base_branch, &local_ref, &pr_clone)
             })
-            .await?;
+            .await
+            .map_err(|e| CoreError::internal(format!("spawn_blocking task failed: {}", e)))?;
         }
     }
 
     // Same-repo diff — offload to spawn_blocking
     let base_path = base_repo_path.clone();
     let pr_clone = pr.clone();
-    tokio::task::spawn_blocking(move || compute_same_repo_diff(&base_path, &pr_clone)).await?
+    tokio::task::spawn_blocking(move || compute_same_repo_diff(&base_path, &pr_clone))
+        .await
+        .map_err(|e| CoreError::internal(format!("spawn_blocking task failed: {}", e)))?
 }
 
 /// Compute diff for same-repo PR.
-fn compute_same_repo_diff(repo_path: &std::path::Path, pr: &PullRequest) -> Result<PrDiff> {
+fn compute_same_repo_diff(repo_path: &std::path::Path, pr: &PullRequest) -> CoreResult<PrDiff> {
     // Use gix tree-diff for numstat (files_changed + per-file additions/deletions)
     let (files_changed, stats) = gix_diff_numstat(
         repo_path,
@@ -500,7 +512,7 @@ fn compute_same_repo_diff(repo_path: &std::path::Path, pr: &PullRequest) -> Resu
     // when byte-identical output is achievable — see plan.md Phase 3)
     let git = rg_git::cli_gateway::global_gateway()
         .as_ref()
-        .map_err(|e| anyhow::anyhow!("{}", e))?;
+        .map_err(CoreError::internal)?;
     let range = format!("{}...{}", pr.base_branch, pr.head_branch);
     let patch_output = git.run(
         &[
@@ -533,7 +545,7 @@ fn compute_cross_repo_diff(
     base_branch: &str,
     fork_ref: &str,
     pr: &PullRequest,
-) -> Result<PrDiff> {
+) -> CoreResult<PrDiff> {
     // Use gix tree-diff for numstat (files_changed + per-file additions/deletions)
     let (files_changed, stats) = gix_diff_numstat(
         repo_path,
@@ -544,7 +556,7 @@ fn compute_cross_repo_diff(
     // Get unified diff patch via gateway (TODO(gix): replace with gix blob-diff when feasible)
     let git = rg_git::cli_gateway::global_gateway()
         .as_ref()
-        .map_err(|e| anyhow::anyhow!("{}", e))?;
+        .map_err(CoreError::internal)?;
     let range = format!("{}...{}", base_branch, fork_ref);
     let patch_output = git.run(
         &[
@@ -695,7 +707,7 @@ fn gix_diff_numstat(
     repo_path: &std::path::Path,
     old_ref: String,
     new_ref: String,
-) -> Result<(Vec<FileDiff>, DiffStats)> {
+) -> CoreResult<(Vec<FileDiff>, DiffStats)> {
     use gix::bstr::ByteSlice;
 
     let repo = gix::open(repo_path)
@@ -721,15 +733,19 @@ fn gix_diff_numstat(
     }
 
     let old_tree = old_id
-        .object()?
+        .object()
+        .context("failed to get object for old ref")?
         .peel_to_tree()
-        .map_err(|_| anyhow::anyhow!("{} is not a tree-ish", old_ref))?;
+        .map_err(|_| CoreError::internal(format!("{} is not a tree-ish", old_ref)))?;
     let new_tree = new_id
-        .object()?
+        .object()
+        .context("failed to get object for new ref")?
         .peel_to_tree()
-        .map_err(|_| anyhow::anyhow!("{} is not a tree-ish", new_ref))?;
+        .map_err(|_| CoreError::internal(format!("{} is not a tree-ish", new_ref)))?;
 
-    let mut platform = old_tree.changes()?;
+    let mut platform = old_tree
+        .changes()
+        .context("failed to create tree diff platform")?;
     platform.options(|opts| {
         opts.track_rewrites(None);
     });
@@ -738,10 +754,12 @@ fn gix_diff_numstat(
     let mut total_additions = 0i64;
     let mut total_deletions = 0i64;
 
-    let mut resource_cache = repo.diff_resource_cache(
-        gix::diff::blob::pipeline::Mode::ToGit,
-        gix::diff::blob::pipeline::WorktreeRoots::default(),
-    )?;
+    let mut resource_cache = repo
+        .diff_resource_cache(
+            gix::diff::blob::pipeline::Mode::ToGit,
+            gix::diff::blob::pipeline::WorktreeRoots::default(),
+        )
+        .context("failed to create diff resource cache")?;
 
     let file_count;
     {
@@ -784,7 +802,7 @@ fn gix_diff_numstat(
                     Ok(std::ops::ControlFlow::Continue(()))
                 },
             )
-            .map_err(|e| anyhow::anyhow!("tree-diff failed: {e}"))?;
+            .map_err(|e| CoreError::internal(format!("tree-diff failed: {e}")))?;
 
         file_count = files.len() as i64;
     }
@@ -846,12 +864,14 @@ pub enum MergeStrategy {
 }
 
 impl MergeStrategy {
-    pub fn parse(value: &str) -> Result<Self> {
+    pub fn parse(value: &str) -> CoreResult<Self> {
         match value {
             "merge" => Ok(Self::Merge),
             "squash" => Ok(Self::Squash),
             "rebase" => Ok(Self::Rebase),
-            _ => bail!("invalid merge strategy, use: merge, squash, rebase"),
+            _ => Err(CoreError::InvalidInput(
+                "invalid merge strategy, use: merge, squash, rebase".into(),
+            )),
         }
     }
 
@@ -879,17 +899,23 @@ pub async fn enable_auto_merge(
     number: i64,
     strategy: MergeStrategy,
     actor_id: i64,
-) -> Result<PullRequest> {
+) -> CoreResult<PullRequest> {
     let pr = get_pr(db, owner, repo_name, number).await?;
     if pr.state != "open" {
-        bail!("auto-merge can only be enabled for an open pull request");
+        return Err(CoreError::InvalidInput(
+            "auto-merge can only be enabled for an open pull request".into(),
+        ));
     }
     if pr.is_draft {
-        bail!("auto-merge cannot be enabled for a draft pull request");
+        return Err(CoreError::InvalidInput(
+            "auto-merge cannot be enabled for a draft pull request".into(),
+        ));
     }
     if let Some(entry) = rg_db::ops::merge_queue_ops::find_by_pr(db, pr.id).await? {
         if entry.status == "running" {
-            bail!("cannot enable auto-merge while the merge queue is processing this PR");
+            return Err(CoreError::Conflict(
+                "cannot enable auto-merge while the merge queue is processing this PR".into(),
+            ));
         }
         if entry.status == "queued" {
             rg_db::ops::merge_queue_ops::cancel(db, pr.id).await?;
@@ -921,7 +947,7 @@ pub async fn disable_auto_merge(
     repo_name: &str,
     number: i64,
     actor_id: i64,
-) -> Result<PullRequest> {
+) -> CoreResult<PullRequest> {
     let pr = get_pr(db, owner, repo_name, number).await?;
     let was_enabled = pr.auto_merge_enabled;
     let mut active: pull_request::ActiveModel = pr.into();
@@ -954,7 +980,7 @@ pub async fn try_auto_merge(
     owner: &str,
     repo_name: &str,
     number: i64,
-) -> Result<AutoMergeOutcome> {
+) -> CoreResult<AutoMergeOutcome> {
     let pr = get_pr(db, owner, repo_name, number).await?;
     if !pr.auto_merge_enabled {
         return Ok(AutoMergeOutcome {
@@ -1020,14 +1046,15 @@ pub async fn try_auto_merges_for_head_commit(
     repo_root: &std::path::Path,
     source_repo_id: i64,
     commit_sha: &str,
-) -> Result<Vec<AutoMergeOutcome>> {
+) -> CoreResult<Vec<AutoMergeOutcome>> {
     let prs =
         pull_request_ops::list_auto_merge_for_head_commit(db, source_repo_id, commit_sha).await?;
     let mut outcomes = Vec::with_capacity(prs.len());
     for pr in prs {
         let repository = repo_entity::Entity::find_by_id(pr.repo_id)
             .one(db)
-            .await?
+            .await
+            .context("failed to find auto-merge target repository")?
             .context("auto-merge target repository not found")?;
         let namespace = repository_namespace(db, &repository).await?;
         match try_auto_merge(db, repo_root, &namespace, &repository.name, pr.number).await {
@@ -1057,7 +1084,7 @@ pub async fn merge_pr(
     repo_name: &str,
     number: i64,
     strategy: MergeStrategy,
-) -> Result<MergeResult> {
+) -> CoreResult<MergeResult> {
     let mut pr = get_pr(db, owner, repo_name, number).await?;
 
     if pr.state == "merging"
@@ -1072,17 +1099,21 @@ pub async fn merge_pr(
     }
 
     if pr.state != "open" {
-        bail!(
+        return Err(CoreError::Conflict(format!(
             "cannot merge a PR that is not in 'open' state (current: {})",
             pr.state
-        );
+        )));
     }
     if pr.is_draft {
-        bail!("draft pull requests cannot be merged");
+        return Err(CoreError::Conflict(
+            "draft pull requests cannot be merged".into(),
+        ));
     }
 
     if !pull_request_ops::claim_merge(db, pr.id).await? {
-        bail!("another merge attempt is already in progress");
+        return Err(CoreError::Conflict(
+            "another merge attempt is already in progress".into(),
+        ));
     }
 
     let result = merge_claimed_pr(db, repo_root, owner, repo_name, pr.clone(), strategy).await;
@@ -1101,17 +1132,21 @@ async fn merge_claimed_pr(
     repo_name: &str,
     pr: PullRequest,
     strategy: MergeStrategy,
-) -> Result<MergeResult> {
+) -> CoreResult<MergeResult> {
     let repo_path = repo_root.join(format!("{}/{}.git", owner, repo_name));
     if !repo_path.exists() {
-        bail!("repository path does not exist: {:?}", repo_path);
+        return Err(CoreError::internal(format!(
+            "repository path does not exist: {:?}",
+            repo_path
+        )));
     }
 
     // For fork PRs, fetch head branch into target repo
     if let Some(head_repo_id) = pr.head_repo_id {
         let head_repo = repo_entity::Entity::find_by_id(head_repo_id)
             .one(db)
-            .await?
+            .await
+            .context("failed to find head repository")?
             .context("head repository not found")?;
         let head_namespace = repository_namespace(db, &head_repo).await?;
         let head_repo_path = repo_root.join(format!("{}/{}.git", head_namespace, head_repo.name));
@@ -1122,7 +1157,7 @@ async fn merge_claimed_pr(
 
             let git = rg_git::cli_gateway::global_gateway()
                 .as_ref()
-                .map_err(|e| anyhow::anyhow!("{}", e))?;
+                .map_err(CoreError::internal)?;
 
             let fetch_output = git.run(
                 &[
@@ -1134,10 +1169,10 @@ async fn merge_claimed_pr(
             )?;
 
             if !fetch_output.success() {
-                bail!(
+                return Err(CoreError::internal(format!(
                     "failed to fetch fork branch: {}",
                     String::from_utf8_lossy(&fetch_output.stderr)
-                );
+                )));
             }
 
             // Merge and cleanup in spawn_blocking (CPU-intensive gix merge)
@@ -1146,7 +1181,7 @@ async fn merge_claimed_pr(
                 let repo_path = repo_path.clone();
                 let pr = pr.clone();
                 let merge_ref = merge_ref.clone();
-                tokio::task::spawn_blocking(move || -> Result<String> {
+                tokio::task::spawn_blocking(move || -> CoreResult<String> {
                     let sha = merge_from_ref(&repo_path, &pr, &merge_ref, strategy)?;
                     // Clean up fetched ref
                     if let Err(e) = gix_delete_ref(&repo_path, &merge_ref) {
@@ -1154,7 +1189,8 @@ async fn merge_claimed_pr(
                     }
                     Ok(sha)
                 })
-                .await??
+                .await
+                .map_err(|e| CoreError::internal(format!("spawn_blocking task failed: {}", e)))??
             };
 
             return update_pr_merged(db, pr, merge_commit_sha, strategy).await;
@@ -1165,14 +1201,15 @@ async fn merge_claimed_pr(
     let merge_commit_sha = {
         let repo_path = repo_path.clone();
         let pr = pr.clone();
-        tokio::task::spawn_blocking(move || -> Result<String> {
+        tokio::task::spawn_blocking(move || -> CoreResult<String> {
             match strategy {
                 MergeStrategy::Merge => do_merge_commit(&repo_path, &pr),
                 MergeStrategy::Squash => do_squash_merge(&repo_path, &pr),
                 MergeStrategy::Rebase => do_rebase_merge(&repo_path, &pr),
             }
         })
-        .await??
+        .await
+        .map_err(|e| CoreError::internal(format!("spawn_blocking task failed: {}", e)))??
     };
 
     update_pr_merged(db, pr, merge_commit_sha, strategy).await
@@ -1185,7 +1222,7 @@ fn merge_from_ref(
     pr: &PullRequest,
     merge_ref: &str,
     strategy: MergeStrategy,
-) -> Result<String> {
+) -> CoreResult<String> {
     match strategy {
         MergeStrategy::Merge => {
             let merge_msg = format!("Merge pull request #{} from {}", pr.number, pr.head_branch);
@@ -1214,7 +1251,7 @@ async fn update_pr_merged(
     mut pr: PullRequest,
     merge_commit_sha: String,
     strategy: MergeStrategy,
-) -> Result<MergeResult> {
+) -> CoreResult<MergeResult> {
     pr.state = "merged".to_string();
     pr.merge_strategy = Some(format!("{:?}", strategy).to_lowercase());
     pr.merge_commit_sha = Some(merge_commit_sha.clone());
@@ -1275,12 +1312,12 @@ async fn update_pr_merged(
     })
 }
 
-fn do_merge_commit(repo_path: &std::path::Path, pr: &PullRequest) -> Result<String> {
+fn do_merge_commit(repo_path: &std::path::Path, pr: &PullRequest) -> CoreResult<String> {
     let merge_msg = format!("Merge pull request #{} from {}", pr.number, pr.head_branch);
     gix_merge_no_ff(repo_path, &pr.head_branch, &merge_msg)
 }
 
-fn do_squash_merge(repo_path: &std::path::Path, pr: &PullRequest) -> Result<String> {
+fn do_squash_merge(repo_path: &std::path::Path, pr: &PullRequest) -> CoreResult<String> {
     let squash_msg = format!(
         "Squash merge pull request #{} from {}",
         pr.number, pr.head_branch
@@ -1288,7 +1325,7 @@ fn do_squash_merge(repo_path: &std::path::Path, pr: &PullRequest) -> Result<Stri
     gix_squash_merge(repo_path, &pr.head_branch, &squash_msg)
 }
 
-fn do_rebase_merge(repo_path: &std::path::Path, pr: &PullRequest) -> Result<String> {
+fn do_rebase_merge(repo_path: &std::path::Path, pr: &PullRequest) -> CoreResult<String> {
     // TODO(gix): Replace rebase with gix rebase API (complex operation)
     let head_ref = format!("refs/heads/{}", pr.head_branch);
     git_rebase_merge(repo_path, &pr.base_branch, &head_ref)
@@ -1304,28 +1341,31 @@ fn git_rebase_merge(
     repo_path: &std::path::Path,
     base_branch: &str,
     head_ref: &str,
-) -> Result<String> {
+) -> CoreResult<String> {
     let canonical_repo = std::fs::canonicalize(repo_path)
         .with_context(|| format!("failed to canonicalize repository: {:?}", repo_path))?;
     let worktree = std::env::temp_dir().join(format!("ironforge-rebase-{}", uuid::Uuid::new_v4()));
     let git = rg_git::cli_gateway::global_gateway()
         .as_ref()
-        .map_err(|e| anyhow::anyhow!("{}", e))?;
+        .map_err(CoreError::internal)?;
 
-    let result = (|| -> Result<String> {
+    let result = (|| -> CoreResult<String> {
         let repo_arg = canonical_repo.to_string_lossy();
         let worktree_arg = worktree.to_string_lossy();
         git.run(&["clone", "--no-checkout", &repo_arg, &worktree_arg], None)?
             .ensure_success()
-            .context("failed to create temporary rebase worktree")?;
+            .map_err(|e| CoreError::internal(format!("failed to create temporary rebase worktree: {}", e)))?;
 
         let fetch = git.run(&["fetch", "origin", head_ref], Some(&worktree))?;
         if !fetch.success() {
-            bail!("failed to fetch rebase head: {}", fetch.stderr_str());
+            return Err(CoreError::internal(format!(
+                "failed to fetch rebase head: {}",
+                fetch.stderr_str()
+            )));
         }
         git.run(&["checkout", "--detach", "FETCH_HEAD"], Some(&worktree))?
             .ensure_success()
-            .context("failed to check out rebase head")?;
+            .map_err(|e| CoreError::internal(format!("failed to check out rebase head: {}", e)))?;
 
         let upstream = format!("origin/{base_branch}");
         let rebase = git.run_with_env(
@@ -1339,21 +1379,24 @@ fn git_rebase_merge(
             ],
         )?;
         if !rebase.success() {
-            bail!("rebase merge failed: {}", rebase.stderr_str());
+            return Err(CoreError::internal(format!(
+                "rebase merge failed: {}",
+                rebase.stderr_str()
+            )));
         }
 
         let target_ref = format!("HEAD:refs/heads/{base_branch}");
         let push = git.run(&["push", "origin", &target_ref], Some(&worktree))?;
         if !push.success() {
-            bail!(
+            return Err(CoreError::Conflict(format!(
                 "base branch advanced while rebasing or push failed: {}",
                 push.stderr_str()
-            );
+            )));
         }
 
         let head = git.run(&["rev-parse", "HEAD"], Some(&worktree))?;
         head.ensure_success()
-            .context("failed to resolve rebased HEAD")?;
+            .map_err(|e| CoreError::internal(format!("failed to resolve rebased HEAD: {}", e)))?;
         Ok(head.stdout_str().trim().to_string())
     })();
 
@@ -1368,23 +1411,23 @@ fn git_rebase_merge(
 /// Set HEAD to point to a branch (equivalent to `git checkout <branch>` in a bare repo).
 /// Uses gix to update the HEAD symbolic reference.
 #[allow(dead_code)]
-fn gix_set_head_to_branch(repo_path: &std::path::Path, branch: &str) -> Result<()> {
+fn gix_set_head_to_branch(repo_path: &std::path::Path, branch: &str) -> CoreResult<()> {
     let repo = gix::open(repo_path)
         .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
     gix_set_head_to_branch_with_repo(&repo, branch)
 }
 
 /// Same as `gix_set_head_to_branch` but takes an already-open `Repository`.
-fn gix_set_head_to_branch_with_repo(repo: &gix::Repository, branch: &str) -> Result<()> {
+fn gix_set_head_to_branch_with_repo(repo: &gix::Repository, branch: &str) -> CoreResult<()> {
     use gix::refs::transaction::{Change, LogChange, PreviousValue, RefEdit, RefLog};
     use gix::refs::{FullName, Target};
 
     let branch_ref: FullName = format!("refs/heads/{}", branch)
         .try_into()
-        .map_err(|e| anyhow::anyhow!("invalid branch reference: {}", e))?;
+        .map_err(|e| CoreError::internal(format!("invalid branch reference: {}", e)))?;
     let head_name: FullName = "HEAD"
         .try_into()
-        .map_err(|e| anyhow::anyhow!("invalid HEAD reference: {}", e))?;
+        .map_err(|e| CoreError::internal(format!("invalid HEAD reference: {}", e)))?;
 
     repo.edit_reference(RefEdit {
         change: Change::Update {
@@ -1399,7 +1442,7 @@ fn gix_set_head_to_branch_with_repo(repo: &gix::Repository, branch: &str) -> Res
         name: head_name,
         deref: false,
     })
-    .map_err(|e| anyhow::anyhow!("failed to set HEAD to refs/heads/{}: {}", branch, e))?;
+    .map_err(|e| CoreError::internal(format!("failed to set HEAD to refs/heads/{}: {}", branch, e)))?;
 
     Ok(())
 }
@@ -1411,7 +1454,7 @@ fn gix_fast_forward(
     repo_path: &std::path::Path,
     base_branch: &str,
     head_branch: &str,
-) -> Result<()> {
+) -> CoreResult<()> {
     let repo = gix::open(repo_path)
         .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
     gix_fast_forward_with_repo(&repo, base_branch, head_branch)
@@ -1422,14 +1465,14 @@ fn gix_fast_forward_with_repo(
     repo: &gix::Repository,
     base_branch: &str,
     head_branch: &str,
-) -> Result<()> {
+) -> CoreResult<()> {
     let head_ref_str = format!("refs/heads/{}", head_branch);
     let base_ref_str = format!("refs/heads/{}", base_branch);
 
     // Resolve head branch commit
     let head_id = repo
         .rev_parse_single(head_ref_str.as_str())
-        .map_err(|e| anyhow::anyhow!("failed to resolve {}: {}", head_ref_str, e))?;
+        .map_err(|e| CoreError::internal(format!("failed to resolve {}: {}", head_ref_str, e)))?;
 
     // Update base branch to point to head's commit
     repo.reference(
@@ -1438,41 +1481,41 @@ fn gix_fast_forward_with_repo(
         gix::refs::transaction::PreviousValue::Any,
         "fast-forward merge",
     )
-    .map_err(|e| anyhow::anyhow!("fast-forward failed: {}", e))?;
+    .map_err(|e| CoreError::internal(format!("fast-forward failed: {}", e)))?;
 
     Ok(())
 }
 
 #[allow(dead_code)]
-fn get_head_sha(repo_path: &std::path::Path) -> Result<String> {
+fn get_head_sha(repo_path: &std::path::Path) -> CoreResult<String> {
     let repo = gix::open(repo_path)
         .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
     get_head_sha_with_repo(&repo)
 }
 
 /// Same as `get_head_sha` but takes an already-open `Repository`.
-fn get_head_sha_with_repo(repo: &gix::Repository) -> Result<String> {
+fn get_head_sha_with_repo(repo: &gix::Repository) -> CoreResult<String> {
     let head_id = repo
         .rev_parse_single("HEAD")
-        .map_err(|e| anyhow::anyhow!("failed to parse HEAD: {}", e))?;
+        .map_err(|e| CoreError::internal(format!("failed to parse HEAD: {}", e)))?;
     Ok(head_id.to_string())
 }
 
 /// Resolve a branch reference to its SHA using gix.
-fn get_ref_sha(repo_path: &std::path::Path, branch: &str) -> Result<String> {
+fn get_ref_sha(repo_path: &std::path::Path, branch: &str) -> CoreResult<String> {
     let repo = gix::open(repo_path)
         .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
     let ref_str = format!("refs/heads/{}", branch);
     let id = repo
         .rev_parse_single(ref_str.as_str())
-        .map_err(|e| anyhow::anyhow!("failed to resolve {}: {}", ref_str, e))?;
+        .map_err(|e| CoreError::internal(format!("failed to resolve {}: {}", ref_str, e)))?;
     Ok(id.to_string())
 }
 
 // ── Gix merge helpers ───────────────────────────────────────────────────
 
 /// Delete a reference using gix (replaces `git update-ref -d <ref>`).
-fn gix_delete_ref(repo_path: &std::path::Path, ref_name: &str) -> Result<()> {
+fn gix_delete_ref(repo_path: &std::path::Path, ref_name: &str) -> CoreResult<()> {
     let repo = gix::open(repo_path)
         .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
 
@@ -1481,7 +1524,7 @@ fn gix_delete_ref(repo_path: &std::path::Path, ref_name: &str) -> Result<()> {
 
     let full_name: FullName = ref_name
         .try_into()
-        .map_err(|e| anyhow::anyhow!("invalid ref name '{}': {}", ref_name, e))?;
+        .map_err(|e| CoreError::internal(format!("invalid ref name '{}': {}", ref_name, e)))?;
 
     repo.edit_reference(RefEdit {
         change: Change::Delete {
@@ -1491,20 +1534,20 @@ fn gix_delete_ref(repo_path: &std::path::Path, ref_name: &str) -> Result<()> {
         name: full_name,
         deref: false,
     })
-    .map_err(|e| anyhow::anyhow!("failed to delete ref '{}': {}", ref_name, e))?;
+    .map_err(|e| CoreError::internal(format!("failed to delete ref '{}': {}", ref_name, e)))?;
 
     Ok(())
 }
 
 /// Perform a `--no-ff` merge using gix merge_commits API.
 /// Creates a merge commit with two parents (current HEAD + `head_ref`).
-fn gix_merge_no_ff(repo_path: &std::path::Path, head_ref: &str, message: &str) -> Result<String> {
+fn gix_merge_no_ff(repo_path: &std::path::Path, head_ref: &str, message: &str) -> CoreResult<String> {
     let repo = gix::open(repo_path)
         .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
 
     let our_commit = repo
         .rev_parse_single("HEAD")
-        .map_err(|e| anyhow::anyhow!("failed to resolve HEAD: {}", e))?;
+        .map_err(|e| CoreError::internal(format!("failed to resolve HEAD: {}", e)))?;
     let their_commit = repo
         .rev_parse_single(head_ref)
         .with_context(|| format!("failed to resolve merge ref '{}'", head_ref))?;
@@ -1520,19 +1563,19 @@ fn gix_merge_no_ff(repo_path: &std::path::Path, head_ref: &str, message: &str) -
             merged_tree_id.detach(),
             [our_commit.detach(), their_commit.detach()],
         )
-        .map_err(|e| anyhow::anyhow!("failed to create merge commit: {}", e))?;
+        .map_err(|e| CoreError::internal(format!("failed to create merge commit: {}", e)))?;
 
     Ok(commit_id.detach().to_string())
 }
 
 /// Perform a squash merge: merge commits, then create a single-parent commit.
-fn gix_squash_merge(repo_path: &std::path::Path, head_ref: &str, message: &str) -> Result<String> {
+fn gix_squash_merge(repo_path: &std::path::Path, head_ref: &str, message: &str) -> CoreResult<String> {
     let repo = gix::open(repo_path)
         .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
 
     let our_commit = repo
         .rev_parse_single("HEAD")
-        .map_err(|e| anyhow::anyhow!("failed to resolve HEAD: {}", e))?;
+        .map_err(|e| CoreError::internal(format!("failed to resolve HEAD: {}", e)))?;
     let their_commit = repo
         .rev_parse_single(head_ref)
         .with_context(|| format!("failed to resolve merge ref '{}'", head_ref))?;
@@ -1548,7 +1591,7 @@ fn gix_squash_merge(repo_path: &std::path::Path, head_ref: &str, message: &str) 
             merged_tree_id.detach(),
             [our_commit.detach()],
         )
-        .map_err(|e| anyhow::anyhow!("failed to create squash commit: {}", e))?;
+        .map_err(|e| CoreError::internal(format!("failed to create squash commit: {}", e)))?;
 
     Ok(commit_id.detach().to_string())
 }
@@ -1559,7 +1602,7 @@ fn gix_merge_commits_to_tree<'repo>(
     our_commit: gix::Id<'repo>,
     their_commit: gix::Id<'repo>,
     their_label: &str,
-) -> Result<(gix::Id<'repo>, Vec<gix::merge::tree::Conflict>)> {
+) -> CoreResult<(gix::Id<'repo>, Vec<gix::merge::tree::Conflict>)> {
     use gix::merge::blob::builtin_driver::text::Labels;
 
     let labels = Labels {
@@ -1570,21 +1613,21 @@ fn gix_merge_commits_to_tree<'repo>(
 
     let options: gix::merge::commit::Options = repo
         .tree_merge_options()
-        .map_err(|e| anyhow::anyhow!("failed to get tree merge options: {}", e))?
+        .map_err(|e| CoreError::internal(format!("failed to get tree merge options: {}", e)))?
         .into();
 
     let mut outcome = repo
         .merge_commits(our_commit, their_commit, labels, options)
-        .map_err(|e| anyhow::anyhow!("merge failed: {}", e))?;
+        .map_err(|e| CoreError::internal(format!("merge failed: {}", e)))?;
 
     // Check for unresolved conflicts
     let conflicts = outcome.tree_merge.conflicts;
     if !conflicts.is_empty() {
         tracing::warn!("merge has {} conflict(s)", conflicts.len());
-        bail!(
+        return Err(CoreError::Conflict(format!(
             "merge conflict detected: {} files with conflicts",
             conflicts.len()
-        );
+        )));
     }
 
     // Write the merged tree to the object database
@@ -1592,7 +1635,7 @@ fn gix_merge_commits_to_tree<'repo>(
         .tree_merge
         .tree
         .write()
-        .map_err(|e| anyhow::anyhow!("failed to write merged tree: {}", e))?;
+        .map_err(|e| CoreError::internal(format!("failed to write merged tree: {}", e)))?;
 
     Ok((tree_id, conflicts))
 }
@@ -1603,7 +1646,7 @@ async fn resolve_repo(
     db: &DatabaseConnection,
     owner: &str,
     repo_name: &str,
-) -> Result<rg_db::entities::repository::Model> {
+) -> CoreResult<rg_db::entities::repository::Model> {
     let user = user_ops::find_by_username(db, owner)
         .await?
         .context("owner not found")?;

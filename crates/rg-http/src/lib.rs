@@ -2686,7 +2686,7 @@ async fn find_repo_by_name(
     owner: &str,
     name: &str,
 ) -> anyhow::Result<Option<rg_db::entities::repository::Model>> {
-    rg_core::repo::service::find_repo_by_owner_name(db, owner, name).await
+    Ok(rg_core::repo::service::find_repo_by_owner_name(db, owner, name).await?)
 }
 
 // ── Runner Watchdog ───────────────────────────────────────

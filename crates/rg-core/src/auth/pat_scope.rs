@@ -1,13 +1,13 @@
 //! Personal Access Token scope parsing and enforcement.
 
-use anyhow::{bail, Result};
+use crate::error::{CoreError, CoreResult};
 
 /// Supported PAT scopes. `admin` permits every scope but never bypasses the
 /// authenticated user's own administrator/repository permissions.
 pub const ALLOWED_SCOPES: &[&str] = &["repo", "user", "admin"];
 
 /// Parse, validate and canonicalize a comma/whitespace separated scope list.
-pub fn normalize_scopes(input: &str) -> Result<String> {
+pub fn normalize_scopes(input: &str) -> CoreResult<String> {
     let requested: std::collections::HashSet<&str> = input
         .split(|c: char| c == ',' || c.is_whitespace())
         .map(str::trim)
@@ -15,17 +15,19 @@ pub fn normalize_scopes(input: &str) -> Result<String> {
         .collect();
 
     if requested.is_empty() {
-        bail!("at least one token scope is required");
+        return Err(CoreError::InvalidInput(
+            "at least one token scope is required".into(),
+        ));
     }
     if let Some(scope) = requested
         .iter()
         .find(|scope| !ALLOWED_SCOPES.contains(scope))
     {
-        bail!(
+        return Err(CoreError::InvalidInput(format!(
             "unsupported token scope '{}'; allowed scopes: {}",
             scope,
             ALLOWED_SCOPES.join(", ")
-        );
+        )));
     }
 
     Ok(ALLOWED_SCOPES

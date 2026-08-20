@@ -1,11 +1,11 @@
 //! TOTP 2FA service — Time-based One-Time Password (RFC 6238).
 
-use anyhow::{Context, Result};
+use crate::error::{CoreContext, CoreError, CoreResult};
 use qrcode::QrCode;
 use totp_rs::{Algorithm, Secret, TOTP};
 
 /// Generate a new TOTP secret. Returns (secret_string, otpauth_url, qr_text).
-pub fn generate_secret(username: &str, issuer: &str) -> Result<(String, String, String)> {
+pub fn generate_secret(username: &str, issuer: &str) -> CoreResult<(String, String, String)> {
     // Secret::generate_secret() returns Secret directly in totp-rs v5
     let secret = Secret::generate_secret();
 
@@ -18,7 +18,7 @@ pub fn generate_secret(username: &str, issuer: &str) -> Result<(String, String, 
         Some(issuer.to_string()),
         username.to_string(),
     )
-    .map_err(|e| anyhow::anyhow!("TOTP config error: {}", e))?;
+    .map_err(|e| CoreError::internal(format!("TOTP config error: {}", e)))?;
 
     let url = totp.get_url();
     let secret_str = secret.to_string();
@@ -34,7 +34,7 @@ pub fn generate_secret(username: &str, issuer: &str) -> Result<(String, String, 
 }
 
 /// Verify a TOTP code for a given secret.
-pub fn verify_code(secret_str: &str, code: &str) -> Result<bool> {
+pub fn verify_code(secret_str: &str, code: &str) -> CoreResult<bool> {
     let secret = Secret::Raw(secret_str.to_string().into_bytes());
 
     let totp = TOTP::new(
@@ -46,7 +46,7 @@ pub fn verify_code(secret_str: &str, code: &str) -> Result<bool> {
         None,
         "".to_string(),
     )
-    .map_err(|e| anyhow::anyhow!("TOTP parse error: {}", e))?;
+    .map_err(|e| CoreError::internal(format!("TOTP parse error: {}", e)))?;
 
     Ok(totp.check_current(code).unwrap_or(false))
 }

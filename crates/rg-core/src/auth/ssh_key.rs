@@ -1,25 +1,27 @@
 //! SSH public key fingerprint utilities.
 
-use anyhow::{bail, Context, Result};
+use crate::error::{CoreContext, CoreError, CoreResult};
 use base64::Engine as _;
 
 /// Compute the SHA-256 fingerprint from an OpenSSH public key string.
 ///
 /// Input format: `"ssh-ed25519 AAAA... comment"`
 /// Output: `"SHA256:base64url..."` (matches `ssh-keygen -l -E sha256`)
-pub fn fingerprint_from_openssh(pubkey: &str) -> Result<String> {
+pub fn fingerprint_from_openssh(pubkey: &str) -> CoreResult<String> {
     if pubkey.contains('\r') || pubkey.contains('\n') {
-        bail!("public key must be a single line");
+        return Err(CoreError::InvalidInput(
+            "public key must be a single line".into(),
+        ));
     }
 
     // Split off the key type and base64 blob
     let mut parts = pubkey.split_whitespace();
     let key_type = parts
         .next()
-        .ok_or_else(|| anyhow::anyhow!("empty public key"))?;
+        .ok_or_else(|| CoreError::InvalidInput("empty public key".into()))?;
     let b64 = parts
         .next()
-        .ok_or_else(|| anyhow::anyhow!("missing key blob"))?;
+        .ok_or_else(|| CoreError::InvalidInput("missing key blob".into()))?;
 
     if !matches!(
         key_type,
@@ -31,7 +33,9 @@ pub fn fingerprint_from_openssh(pubkey: &str) -> Result<String> {
             | "sk-ssh-ed25519@openssh.com"
             | "sk-ecdsa-sha2-nistp256@openssh.com"
     ) {
-        bail!("unsupported SSH public key type: {key_type}");
+        return Err(CoreError::InvalidInput(format!(
+            "unsupported SSH public key type: {key_type}"
+        )));
     }
 
     let raw = base64::engine::general_purpose::STANDARD
@@ -39,16 +43,18 @@ pub fn fingerprint_from_openssh(pubkey: &str) -> Result<String> {
         .or_else(|_| base64::engine::general_purpose::STANDARD_NO_PAD.decode(b64))
         .context("invalid base64 key blob")?;
     if raw.len() < 4 {
-        bail!("invalid SSH public key blob");
+        return Err(CoreError::InvalidInput("invalid SSH public key blob".into()));
     }
     let algorithm_len = u32::from_be_bytes(raw[0..4].try_into().unwrap()) as usize;
     if raw.len() < 4 + algorithm_len {
-        bail!("invalid SSH public key blob");
+        return Err(CoreError::InvalidInput("invalid SSH public key blob".into()));
     }
     let encoded_type = std::str::from_utf8(&raw[4..4 + algorithm_len])
         .context("invalid SSH public key algorithm")?;
     if encoded_type != key_type {
-        bail!("SSH public key type does not match encoded key blob");
+        return Err(CoreError::InvalidInput(
+            "SSH public key type does not match encoded key blob".into(),
+        ));
     }
 
     // SHA-256 hash

@@ -1,5 +1,6 @@
 //! AES-256-GCM encryption utilities for sensitive data at rest.
 
+use crate::error::{CoreError, CoreResult};
 use aes_gcm::{
     aead::{Aead, OsRng},
     Aes256Gcm, Key, KeyInit, Nonce,
@@ -17,7 +18,7 @@ pub fn derive_key(secret: &str) -> [u8; 32] {
     key
 }
 
-pub fn encrypt(plaintext: &str, key: &[u8; 32]) -> Result<String, anyhow::Error> {
+pub fn encrypt(plaintext: &str, key: &[u8; 32]) -> CoreResult<String> {
     let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(key));
     let mut nonce_bytes = [0u8; 12];
     OsRng.fill_bytes(&mut nonce_bytes);
@@ -25,7 +26,7 @@ pub fn encrypt(plaintext: &str, key: &[u8; 32]) -> Result<String, anyhow::Error>
 
     let ciphertext = cipher
         .encrypt(nonce, plaintext.as_bytes())
-        .map_err(|e| anyhow::anyhow!("encryption failed: {}", e))?;
+        .map_err(|e| CoreError::internal(format!("encryption failed: {}", e)))?;
 
     let mut combined = Vec::with_capacity(12 + ciphertext.len());
     combined.extend_from_slice(&nonce_bytes);
@@ -34,12 +35,12 @@ pub fn encrypt(plaintext: &str, key: &[u8; 32]) -> Result<String, anyhow::Error>
     Ok(URL_SAFE_NO_PAD.encode(&combined))
 }
 
-pub fn decrypt(encoded: &str, key: &[u8; 32]) -> Result<String, anyhow::Error> {
+pub fn decrypt(encoded: &str, key: &[u8; 32]) -> CoreResult<String> {
     let combined = URL_SAFE_NO_PAD
         .decode(encoded)
-        .map_err(|e| anyhow::anyhow!("base64 decode error: {}", e))?;
+        .map_err(|e| CoreError::internal(format!("base64 decode error: {}", e)))?;
     if combined.len() < 12 {
-        anyhow::bail!("ciphertext too short");
+        return Err(CoreError::InvalidInput("ciphertext too short".into()));
     }
 
     let (nonce_bytes, ciphertext) = combined.split_at(12);
@@ -48,9 +49,9 @@ pub fn decrypt(encoded: &str, key: &[u8; 32]) -> Result<String, anyhow::Error> {
 
     let plaintext = cipher
         .decrypt(nonce, ciphertext)
-        .map_err(|e| anyhow::anyhow!("decryption failed: {}", e))?;
+        .map_err(|e| CoreError::internal(format!("decryption failed: {}", e)))?;
 
-    String::from_utf8(plaintext).map_err(|e| anyhow::anyhow!("invalid UTF-8: {}", e))
+    String::from_utf8(plaintext).map_err(|e| CoreError::internal(format!("invalid UTF-8: {}", e)))
 }
 
 /// Replace sensitive values in output before it is persisted or streamed.
