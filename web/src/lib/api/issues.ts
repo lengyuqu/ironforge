@@ -80,4 +80,34 @@ export const issues = {
       method: 'POST',
       body: JSON.stringify({ body }),
     }),
+  listReactions: (owner: string, repo: string, issueNumber: number) =>
+    request<ReactionSummary[]>(`/repos/${owner}/${repo}/issues/${issueNumber}/reactions`),
+  addReaction: (owner: string, repo: string, issueNumber: number, content: string) =>
+    request<ReactionSummary[]>(`/repos/${owner}/${repo}/issues/${issueNumber}/reactions`, {
+      method: 'POST',
+      body: JSON.stringify({ content }),
+    }),
+  removeReaction: (owner: string, repo: string, issueNumber: number, content: string) =>
+    request<ReactionSummary[]>(`/repos/${owner}/${repo}/issues/${issueNumber}/reactions`, {
+      method: 'DELETE',
+      body: JSON.stringify({ content }),
+    }),
+  listCommentReactions: (owner: string, repo: string, commentId: number) =>
+    request<ReactionSummary[]>(`/repos/${owner}/${repo}/issues/comments/${commentId}/reactions`),
+  addCommentReaction: (owner: string, repo: string, commentId: number, content: string) =>
+    request<ReactionSummary[]>(`/repos/${owner}/${repo}/issues/comments/${commentId}/reactions`, {
+      method: 'POST',
+      body: JSON.stringify({ content }),
+    }),
+  removeCommentReaction: (owner: string, repo: string, commentId: number, content: string) =>
+    request<ReactionSummary[]>(`/repos/${owner}/${repo}/issues/comments/${commentId}/reactions`, {
+      method: 'DELETE',
+      body: JSON.stringify({ content }),
+    }),
+};
+
+export type ReactionSummary = {
+  content: string;
+  count: number;
+  reacted_by_me: boolean;
 };

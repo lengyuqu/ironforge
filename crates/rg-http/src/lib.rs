@@ -646,6 +646,18 @@ fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
             get(api::issues::list_comments).post(api::issues::add_comment),
         )
         .route(
+            "/repos/{owner}/{name}/issues/{number}/reactions",
+            get(api::issues::list_issue_reactions)
+                .post(api::issues::add_issue_reaction)
+                .delete(api::issues::remove_issue_reaction),
+        )
+        .route(
+            "/repos/{owner}/{name}/issues/comments/{comment_id}/reactions",
+            get(api::issues::list_comment_reactions)
+                .post(api::issues::add_comment_reaction)
+                .delete(api::issues::remove_comment_reaction),
+        )
+        .route(
             "/repos/{owner}/{name}/issues/{number}/assets",
             get(api::attachments::list_issue_attachments)
                 .post(api::attachments::create_issue_attachment)

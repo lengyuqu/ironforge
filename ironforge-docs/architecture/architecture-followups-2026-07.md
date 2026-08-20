@@ -1,8 +1,8 @@
 # IronForge 架构差异与后续待办（2026-07）
 
 **生成日期**: 2026-07-05  
-**最近复核**: 2026-07-13
-**来源**: `project-architecture-analysis-notes-2026-07.md` 第 0-10 轮 + 修复波次回填  
+**最近复核**: 2026-08-20
+**来源**: `project-architecture-analysis-notes-2026-07.md` 第 0-10 轮 + 修复波次回填 + 严谨性修缮计划 Q 轨道回填  
 **排序原则**: 优先列出安全、权限、可用性、部署失败和文档误导风险。
 
 ---
@@ -52,6 +52,37 @@
 | 通用 OIDC discovery 未用于 token/userinfo，callback 缺 PKCE verifier 时继续请求 | authorize/token/refresh/userinfo 统一解析 discovery document；HTTP 错误 fail closed；callback 缺 verifier 直接 403；新增本地模拟 OIDC 的 S256、Cookie、token、userinfo、账户创建全链路回归 | `cargo test -p rg-http --test oauth_pkce_tests -- --nocapture` |
 | Package 9 类原生 REST/协议缺少统一 E2E | 为 Cargo/npm/Maven/PyPI/NuGet/RubyGems/Helm/Composer/Generic 生成最小合法制品，覆盖发布、列表、版本、下载和 8 类专用索引；同时修复 npm publish/list 路由冲突、RubyGems `.json` 查询及 Composer dist URL 缺版本/编码 | `cargo test -p rg-http --test package_format_e2e_tests -- --nocapture` |
 | 审计归档器未接入且固定 NDJSON 文件可能覆盖 | 服务启动默认接入可配置归档任务；按 cutoff oldest-first 限量读取，唯一 `.ndjson.zst` 文件、临时文件原子重命名并在落盘后删除 DB；支持关闭、保留天数、间隔和批大小配置 | `cargo test -p rg-core --lib audit::archiver -- --nocapture`；`cargo check -p rg-cli -p rg-core --tests` |
+
+---
+
+## 已修复（2026-08-20，严谨性修缮批次 1：Q1/Q2）
+
+来源：`ironforge-严谨性修缮计划.md` Q 轨道。
+
+| 问题 | 修复范围 | 验证 |
+|------|----------|------|
+| 仓库访问控制存在 4 套并行实现（`repo_access`、`ci.rs`、`ai.rs`、`packages.rs` 各自持有私有授权函数），语义不一致 | `repo_access` 新增 `require_read_with_ci_scope`（CI job token 按 scope 授权匿名读）；`ci.rs` / `ai.rs` / `packages.rs` 私有 `resolve_repo*` / `require_repo_*` 全部迁移至统一 `repo_access::require_read` / `require_write`，旧函数删除；packages 读路径使用 `packages:read` CI scope | `cargo test -p rg-http --no-fail-fast`：`repo_access_matrix_tests` 4/4（含迁移端点语义、CI scope 隔离、读/写矩阵）、`ci_job_token_tests` 2/2、`ci_permission_tests` 4/4、`package_permission_tests` 2/2 |
+| 关键多表写入无事务，部分失败会留下不一致状态 | PR merge（`update_pr_merged`：PR 更新 + merged 事件）、Merge Queue（`enqueue` / `finish_entry`）、org 创建（org + owner 成员）、board 创建（board + 3 默认列）改为单事务；涉及 ops 函数（`pull_request_ops::update`、`merge_queue_ops`、`org_ops::add_org_member`、`board_ops`）泛型化为 `ConnectionTrait` | 同上全量运行：`merge_queue_ci_tests` 1/1、`board_tests` 7/7、`org_tests` 3/3、`collaborator_tests` 通过 |
+| mirror 同步落库是否原子的疑虑 | 核验 `mirror/service.rs` 现有实现已是原子写入，无需改动 | 代码走读确认（Q2.2 结论：无需改动） |
+| 权限矩阵缺统一集成测试 | 新增 `crates/rg-http/tests/repo_access_matrix_tests.rs`，覆盖 public/private 仓库 × 匿名/stranger/owner 的读访问矩阵 | 同第一行 |
+
+批次 1 验证汇总：`cargo test -p rg-http --no-fail-fast` 仅 5 项失败（issue_template ×2、pr_merge rebase worktree、pr_permission codeowner、runner_workspace auto_init），全部为本机 Windows `//?/` verbatim 临时路径导致 git clone/worktree 失败的既有环境问题（错误信息均为 `does not appear to be a git repository`，非授权类 401/403），与 Q1/Q2 改动无关，Linux CI 可复跑；`cargo clippy -p rg-http -p rg-core -p rg-db --all-targets` 通过（无警告）；前端 `npm run check` + `npm run build` 通过。
+
+---
+
+## 已修复（2026-08-20，严谨性修缮批次 2：ISSUE-104 + Q6.1/Q6.2）
+
+来源：`ironforge-严谨性修缮计划.md` F 轨道 M1（ISSUE-104 Reaction）+ Q 轨道 Q6.1/Q6.2。
+
+| 问题 | 修复范围 | 验证 |
+|------|----------|------|
+| Issue/评论无表情回应（Reaction）功能（ISSUE-104） | 数据层：`reactions` 表迁移（`m20260820_000001`，唯一约束 target+user+content，`comment_id=0` 表示 issue body）+ entity + `reaction_ops`（含评论删除级联清理、唯一约束转 409）；业务层：`rg-core/src/issue/reactions.rs`（Gitea 兼容 8 种 emoji、聚合计数含 `reacted_by_me`、通知作者但排除自己）；API：issue/评论的 list/add/delete 端点（409 重复、400 非法 content、私有仓库 require_read）；前端：issue 详情页 issue body + 评论 Reaction 栏（svelte snippet 复用）+ i18n（en/zh-CN） | `cargo test -p rg-http --test issue_reaction_tests` 4/4：issue 往返+唯一性+聚合、评论级联清理、私有仓库权限、通知作者不通知 reactor |
+| job log WebSocket 断线无重连，日志中断后不可恢复（Q6.1） | 后端 `ws.rs`：`?since=<lines>` 查询参数 + `job_log_catchup`（从 DB 缓冲日志按行偏移重放）；前端 `websockets.ts`：重构为 `JobLogSession`（指数退避重连、已收行数跟踪、connected/reconnecting/closed 状态回调、显式 disconnect）；pipelines 页展示 Live/Reconnecting/Closed 状态并传 `since` 续传 | `cargo test -p rg-http --lib ws::` 4/4（含 `job_log_catchup_replays_from_offset`）；`npm run check`（0 error）+ `npm run build` 通过 |
+| i18n 缺 key 无 CI 拦截（Q6.2） | 新增 `scripts/i18n-key-check.mjs`：扫描 `t('...')` 静态 key（985 个）+ 动态前缀白名单（9 个），比对 en/zh-CN 目录（各 874 key）缺 key 即失败；挂入 `regression.yml` frontend job | 脚本本机运行通过；本轮顺带补齐历史缺失 key（errors.save_failed、search.load_failed 等） |
+
+批次 2 验证汇总：`cargo test -p rg-http --no-fail-fast` 仅 issue_template ×2 失败（本机 Windows `//?/` verbatim 临时路径既有环境问题，同批次 1 归因，与改动无关）；`cargo clippy -p rg-http --all-targets -- -D warnings` 通过；`node ../scripts/i18n-key-check.mjs` 通过；前端 `npm run check`（0 error，6 个既有 unused-CSS warning）+ `npm run build` 通过。
+
+批次 2 余量（顺延下一批次）：ISSUE-105 多 Assignee、Q6.3 高频表单校验。
 
 ---
 

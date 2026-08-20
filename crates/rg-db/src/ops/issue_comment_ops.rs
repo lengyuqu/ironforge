@@ -36,7 +36,7 @@ pub async fn update(db: &DatabaseConnection, model: ActiveModel) -> Result<Comme
 }
 
 /// Delete a comment by id.
-pub async fn delete_by_id(db: &DatabaseConnection, id: i64) -> Result<()> {
+pub async fn delete_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<()> {
     CommentEntity::delete_by_id(id)
         .exec(db)
         .await

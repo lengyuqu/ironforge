@@ -2,11 +2,22 @@
   import { page } from '$app/stores';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
   import AttachmentPanel from '$lib/components/AttachmentPanel.svelte';
-  import { issues } from '$lib/api/client.svelte';
+  import { issues, type ReactionSummary } from '$lib/api/client.svelte';
   import { createT, formatDate } from '$lib/i18n';
   import { renderMarkdown as renderMarkdownSafe } from '$lib/utils/markdown';
 
   const t = createT();
+
+  const REACTION_EMOJI: Record<string, string> = {
+    '+1': '👍',
+    '-1': '👎',
+    laugh: '😄',
+    confused: '😕',
+    heart: '❤️',
+    hooray: '🎉',
+    rocket: '🚀',
+    eyes: '👀',
+  };
 
   let owner = $derived($page.params.owner!);
   let repo = $derived($page.params.repo!);
@@ -16,6 +27,8 @@
   let loading = $state(true);
   let error = $state('');
   let newComment = $state('');
+  let issueReactions = $state<ReactionSummary[]>([]);
+  let commentReactions = $state<Record<number, ReactionSummary[]>>({});
 
   $effect(() => {
     loadIssue();
@@ -24,16 +37,52 @@
   async function loadIssue() {
     try {
       loading = true;
-      const [issueData, commentsData] = await Promise.all([
+      const [issueData, commentsData, reactionsData] = await Promise.all([
         issues.get(owner, repo, number),
         issues.comments(owner, repo, number),
+        issues.listReactions(owner, repo, number).catch(() => [] as ReactionSummary[]),
       ]);
       issue = issueData;
       commentList = commentsData || [];
+      issueReactions = reactionsData || [];
+
+      const commentIds = (commentsData || []).map((c: any) => c.id as number);
+      const reactionEntries = await Promise.all(
+        commentIds.map(async (id: number) => {
+          const rows = await issues
+            .listCommentReactions(owner, repo, id)
+            .catch(() => [] as ReactionSummary[]);
+          return [id, rows || []] as const;
+        }),
+      );
+      commentReactions = Object.fromEntries(reactionEntries);
     } catch (e: any) {
       error = e.message;
     } finally {
       loading = false;
+    }
+  }
+
+  async function toggleIssueReaction(content: string) {
+    try {
+      const mine = issueReactions.find((r) => r.content === content && r.reacted_by_me);
+      issueReactions = mine
+        ? await issues.removeReaction(owner, repo, number, content)
+        : await issues.addReaction(owner, repo, number, content);
+    } catch (e: any) {
+      error = e.message;
+    }
+  }
+
+  async function toggleCommentReaction(commentId: number, content: string) {
+    try {
+      const rows = commentReactions[commentId] || [];
+      const mine = rows.find((r) => r.content === content && r.reacted_by_me);
+      commentReactions[commentId] = mine
+        ? await issues.removeCommentReaction(owner, repo, commentId, content)
+        : await issues.addCommentReaction(owner, repo, commentId, content);
+    } catch (e: any) {
+      error = e.message;
     }
   }
 
@@ -99,12 +148,34 @@
         </div>
       </div>
 
+      {#snippet reactionBar(rows: ReactionSummary[], onToggle: (content: string) => void)}
+        <div class="reaction-bar" role="group" aria-label={t('issues.reaction.title')}>
+          {#each Object.entries(REACTION_EMOJI) as [content, emoji]}
+            {@const summary = rows.find((r) => r.content === content)}
+            {@const count = summary?.count ?? 0}
+            {@const mine = summary?.reacted_by_me ?? false}
+            <button
+              type="button"
+              class="reaction-btn"
+              class:mine
+              title={t('issues.reaction.title')}
+              aria-pressed={mine}
+              onclick={() => onToggle(content)}
+            >
+              <span class="reaction-emoji">{emoji}</span>
+              {#if count > 0}<span class="reaction-count">{count}</span>{/if}
+            </button>
+          {/each}
+        </div>
+      {/snippet}
+
       {#if issue.body}
         <div class="issue-body">
           <div class="comment-header">
             {t('issues.commented', { author: issue.author || t('common.unknown'), date: formatDate(issue.created_at) })}
           </div>
           <div class="comment-body markdown-body">{@html renderMarkdown(issue.body)}</div>
+          {@render reactionBar(issueReactions, toggleIssueReaction)}
         </div>
       {/if}
 
@@ -117,6 +188,7 @@
             {t('issues.commented', { author: comment.author || t('common.unknown'), date: formatDate(comment.created_at) })}
           </div>
           <div class="comment-body markdown-body">{@html renderMarkdown(comment.body)}</div>
+          {@render reactionBar(commentReactions[comment.id] || [], (content) => toggleCommentReaction(comment.id, content))}
           <AttachmentPanel {owner} {repo} target="issues/comments" targetId={comment.id} />
         </div>
       {/each}
@@ -192,6 +264,54 @@
     padding: 16px;
     font-size: 14px;
     line-height: 1.6;
+  }
+
+  .reaction-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 0 16px 12px 16px;
+  }
+
+  .issue-body .reaction-bar,
+  .comment .reaction-bar {
+    border-top: 1px solid var(--border);
+    padding-top: 10px;
+    margin-top: 4px;
+  }
+
+  .reaction-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+
+  .reaction-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+
+  .reaction-btn.mine {
+    border-color: var(--green);
+    color: var(--green);
+    background: rgba(63, 185, 80, 0.12);
+  }
+
+  .reaction-emoji {
+    font-size: 14px;
+    line-height: 1;
+  }
+
+  .reaction-count {
+    font-size: 12px;
+    font-weight: 600;
   }
 
   .comment-body :global(p) {

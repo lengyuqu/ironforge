@@ -1,6 +1,6 @@
 // Re-export for backward compatibility — many route files import these from client.
 export { API_BASE, getToken, setToken, type PaginationMeta, type PaginatedResponse } from './_base.svelte';
-export { connectJobLogWebSocket, connectNotificationWebSocket, disconnectNotificationWebSocket } from './websockets';
+export { connectJobLogWebSocket, disconnectJobLogWebSocket, connectNotificationWebSocket, disconnectNotificationWebSocket } from './websockets';
 export { repos } from './repos';
 export { packages } from './packages';
 export { runners, type RegisterRunnerResponse } from './runners';
@@ -10,7 +10,7 @@ export { search, type SearchResponse, type SearchResult } from './search';
 export { auth, type AuthLoginResponse, type PublicSsoProvider } from './auth';
 export { attachments, type Attachment, type AttachmentTarget } from './attachments';
 export { releases, type ReleaseAsset } from './releases';
-export { issues } from './issues';
+export { issues, type ReactionSummary } from './issues';
 export { pulls, reviews } from './pulls';
 export { pipelines } from './pipelines';
 export { wiki } from './wiki';

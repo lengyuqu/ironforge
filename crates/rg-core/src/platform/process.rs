@@ -73,7 +73,7 @@ pub fn terminate_process(pid: u32) -> std::io::Result<()> {
     #[cfg(windows)]
     {
         Command::new("taskkill")
-            .args(&["/PID", &pid.to_string(), "/F"])
+            .args(["/PID", &pid.to_string(), "/F"])
             .output()?;
         Ok(())
     }
@@ -99,7 +99,7 @@ pub fn is_process_running(pid: u32) -> bool {
     #[cfg(windows)]
     {
         let output = Command::new("tasklist")
-            .args(&["/FI", &format!("PID eq {}", pid), "/NH"])
+            .args(["/FI", &format!("PID eq {}", pid), "/NH"])
             .output();
 
         match output {

@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::api::auth::extract_bearer_claims;
+use crate::api::repo_access;
 use crate::error::AppError;
 use crate::pagination::{PaginatedResponse, PaginationParams};
 use crate::AppState;
@@ -44,6 +45,21 @@ pub struct UpdateIssueRequest {
 #[derive(Deserialize)]
 pub struct CreateCommentRequest {
     pub body: String,
+}
+
+#[derive(Deserialize)]
+pub struct ReactionRequest {
+    /// One of `+1`, `-1`, `laugh`, `confused`, `heart`, `hooray`, `rocket`, `eyes`
+    pub content: String,
+}
+
+/// Aggregated reaction summary for one target, consumed by the SPA.
+#[derive(Serialize)]
+pub struct ReactionSummary {
+    pub content: String,
+    pub count: i64,
+    /// Whether the current viewer (when authenticated) reacted with this content
+    pub reacted_by_me: bool,
 }
 
 #[derive(Deserialize)]
@@ -561,6 +577,283 @@ pub async fn add_comment(
             (StatusCode::CREATED, Json(comment)).into_response()
         }
         Err(e) => AppError::bad_request(e.to_string()).into_response(),
+    }
+}
+
+// ── Reactions ───────────────────────────────────────────────────────────
+
+/// Aggregate reaction rows into per-content summaries.
+fn summarize_reactions(
+    rows: Vec<rg_db::entities::reactions::Model>,
+    viewer_id: Option<i64>,
+) -> Vec<ReactionSummary> {
+    let mut summaries: Vec<ReactionSummary> = Vec::new();
+    for row in rows {
+        let reacted_by_me = Some(row.user_id) == viewer_id;
+        match summaries
+            .iter_mut()
+            .find(|s| s.content == row.content)
+        {
+            Some(s) => {
+                s.count += 1;
+                s.reacted_by_me = s.reacted_by_me || reacted_by_me;
+            }
+            None => summaries.push(ReactionSummary {
+                content: row.content,
+                count: 1,
+                reacted_by_me,
+            }),
+        }
+    }
+    summaries
+}
+
+fn reaction_error_response(e: anyhow::Error) -> axum::response::Response {
+    let msg = e.to_string();
+    if msg.contains("not found") {
+        AppError::not_found(msg).into_response()
+    } else if msg.contains("reaction already exists") {
+        AppError::conflict(msg).into_response()
+    } else if msg.contains("invalid reaction content") {
+        AppError::bad_request(msg).into_response()
+    } else {
+        AppError::internal(e).into_response()
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/issues/{number}/reactions",
+    tag = "Issues",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("number" = i64, Path, description = "issue number"),
+    ),
+    responses(
+        (status = 200, description = "Aggregated reactions", body = serde_json::Value),
+        (status = 404, description = "Issue not found", body = serde_json::Value),
+    ),
+)]
+pub async fn list_issue_reactions(
+    State(state): State<AppState>,
+    Path((owner, repo, number)): Path<(String, String, i64)>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if let Err(e) = repo_access::require_read(&state, &headers, &owner, &repo).await {
+        return e.into_response();
+    }
+    let viewer = super::auth::extract_user_id(&headers, &state.jwt_secret);
+    match rg_core::issue::list_issue_reactions(&state.db, &owner, &repo, number).await {
+        Ok(rows) => (StatusCode::OK, Json(summarize_reactions(rows, viewer))).into_response(),
+        Err(e) => reaction_error_response(e),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/repos/{owner}/{name}/issues/{number}/reactions",
+    tag = "Issues",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("number" = i64, Path, description = "issue number"),
+    ),
+    request_body(content = serde_json::Value),
+    responses(
+        (status = 201, description = "Reaction added (aggregated list returned)", body = serde_json::Value),
+        (status = 400, description = "Invalid reaction content", body = serde_json::Value),
+        (status = 401, description = "Authentication required", body = serde_json::Value),
+        (status = 409, description = "Reaction already exists", body = serde_json::Value),
+    ),
+)]
+pub async fn add_issue_reaction(
+    State(state): State<AppState>,
+    Path((owner, repo, number)): Path<(String, String, i64)>,
+    headers: HeaderMap,
+    Json(req): Json<ReactionRequest>,
+) -> impl IntoResponse {
+    let Some(user_id) = super::auth::extract_user_id(&headers, &state.jwt_secret) else {
+        return AppError::unauthorized("authentication required".to_string()).into_response();
+    };
+    if let Err(e) = repo_access::require_read(&state, &headers, &owner, &repo).await {
+        return e.into_response();
+    }
+    match rg_core::issue::add_issue_reaction(&state.db, &owner, &repo, number, user_id, &req.content)
+        .await
+    {
+        Ok(_) => {
+            let rows = rg_core::issue::list_issue_reactions(&state.db, &owner, &repo, number)
+                .await
+                .unwrap_or_default();
+            (
+                StatusCode::CREATED,
+                Json(summarize_reactions(rows, Some(user_id))),
+            )
+                .into_response()
+        }
+        Err(e) => reaction_error_response(e),
+    }
+}
+
+#[utoipa::path(
+    delete,
+    path = "/repos/{owner}/{name}/issues/{number}/reactions",
+    tag = "Issues",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("number" = i64, Path, description = "issue number"),
+    ),
+    request_body(content = serde_json::Value),
+    responses(
+        (status = 200, description = "Reaction removed (aggregated list returned)", body = serde_json::Value),
+        (status = 401, description = "Authentication required", body = serde_json::Value),
+    ),
+)]
+pub async fn remove_issue_reaction(
+    State(state): State<AppState>,
+    Path((owner, repo, number)): Path<(String, String, i64)>,
+    headers: HeaderMap,
+    Json(req): Json<ReactionRequest>,
+) -> impl IntoResponse {
+    let Some(user_id) = super::auth::extract_user_id(&headers, &state.jwt_secret) else {
+        return AppError::unauthorized("authentication required".to_string()).into_response();
+    };
+    if let Err(e) = repo_access::require_read(&state, &headers, &owner, &repo).await {
+        return e.into_response();
+    }
+    match rg_core::issue::remove_issue_reaction(&state.db, &owner, &repo, number, user_id, &req.content)
+        .await
+    {
+        Ok(_) => {
+            let rows = rg_core::issue::list_issue_reactions(&state.db, &owner, &repo, number)
+                .await
+                .unwrap_or_default();
+            (
+                StatusCode::OK,
+                Json(summarize_reactions(rows, Some(user_id))),
+            )
+                .into_response()
+        }
+        Err(e) => reaction_error_response(e),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/issues/comments/{comment_id}/reactions",
+    tag = "Issues",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("comment_id" = i64, Path, description = "comment id"),
+    ),
+    responses(
+        (status = 200, description = "Aggregated reactions", body = serde_json::Value),
+        (status = 404, description = "Comment not found", body = serde_json::Value),
+    ),
+)]
+pub async fn list_comment_reactions(
+    State(state): State<AppState>,
+    Path((owner, repo, comment_id)): Path<(String, String, i64)>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if let Err(e) = repo_access::require_read(&state, &headers, &owner, &repo).await {
+        return e.into_response();
+    }
+    let viewer = super::auth::extract_user_id(&headers, &state.jwt_secret);
+    match rg_core::issue::list_comment_reactions(&state.db, comment_id).await {
+        Ok(rows) => (StatusCode::OK, Json(summarize_reactions(rows, viewer))).into_response(),
+        Err(e) => reaction_error_response(e),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/repos/{owner}/{name}/issues/comments/{comment_id}/reactions",
+    tag = "Issues",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("comment_id" = i64, Path, description = "comment id"),
+    ),
+    request_body(content = serde_json::Value),
+    responses(
+        (status = 201, description = "Reaction added (aggregated list returned)", body = serde_json::Value),
+        (status = 400, description = "Invalid reaction content", body = serde_json::Value),
+        (status = 401, description = "Authentication required", body = serde_json::Value),
+        (status = 409, description = "Reaction already exists", body = serde_json::Value),
+    ),
+)]
+pub async fn add_comment_reaction(
+    State(state): State<AppState>,
+    Path((owner, repo, comment_id)): Path<(String, String, i64)>,
+    headers: HeaderMap,
+    Json(req): Json<ReactionRequest>,
+) -> impl IntoResponse {
+    let Some(user_id) = super::auth::extract_user_id(&headers, &state.jwt_secret) else {
+        return AppError::unauthorized("authentication required".to_string()).into_response();
+    };
+    if let Err(e) = repo_access::require_read(&state, &headers, &owner, &repo).await {
+        return e.into_response();
+    }
+    match rg_core::issue::add_comment_reaction(&state.db, comment_id, user_id, &req.content).await {
+        Ok(_) => {
+            let rows = rg_core::issue::list_comment_reactions(&state.db, comment_id)
+                .await
+                .unwrap_or_default();
+            (
+                StatusCode::CREATED,
+                Json(summarize_reactions(rows, Some(user_id))),
+            )
+                .into_response()
+        }
+        Err(e) => reaction_error_response(e),
+    }
+}
+
+#[utoipa::path(
+    delete,
+    path = "/repos/{owner}/{name}/issues/comments/{comment_id}/reactions",
+    tag = "Issues",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("comment_id" = i64, Path, description = "comment id"),
+    ),
+    request_body(content = serde_json::Value),
+    responses(
+        (status = 200, description = "Reaction removed (aggregated list returned)", body = serde_json::Value),
+        (status = 401, description = "Authentication required", body = serde_json::Value),
+    ),
+)]
+pub async fn remove_comment_reaction(
+    State(state): State<AppState>,
+    Path((owner, repo, comment_id)): Path<(String, String, i64)>,
+    headers: HeaderMap,
+    Json(req): Json<ReactionRequest>,
+) -> impl IntoResponse {
+    let Some(user_id) = super::auth::extract_user_id(&headers, &state.jwt_secret) else {
+        return AppError::unauthorized("authentication required".to_string()).into_response();
+    };
+    if let Err(e) = repo_access::require_read(&state, &headers, &owner, &repo).await {
+        return e.into_response();
+    }
+    match rg_core::issue::remove_comment_reaction(&state.db, comment_id, user_id, &req.content)
+        .await
+    {
+        Ok(_) => {
+            let rows = rg_core::issue::list_comment_reactions(&state.db, comment_id)
+                .await
+                .unwrap_or_default();
+            (
+                StatusCode::OK,
+                Json(summarize_reactions(rows, Some(user_id))),
+            )
+                .into_response()
+        }
+        Err(e) => reaction_error_response(e),
     }
 }
 

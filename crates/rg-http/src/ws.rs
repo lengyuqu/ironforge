@@ -150,6 +150,10 @@ impl NotificationHub {
 pub struct WsQuery {
     /// JWT token for authentication (legacy — prefer Sec-WebSocket-Protocol).
     token: Option<String>,
+    /// Q6.1: number of log lines the client already received (job log WS only).
+    /// When present, the server only replays the buffered log from that line;
+    /// when absent, the full buffered log is replayed.
+    since: Option<usize>,
 }
 
 /// Extract a Bearer token from the `Sec-WebSocket-Protocol` header.
@@ -327,6 +331,15 @@ pub async fn push_job_log(hub: &NotificationHub, job_id: i64, log: &str) {
 /// Authenticates via `Sec-WebSocket-Protocol: bearer.<jwt>` subprotocol
 /// (preferred) or `?token=<jwt>` query parameter (legacy fallback).
 /// Frontend subscribes to receive `job_log` events filtered by the specified job_id.
+///
+/// Q6.1 log resumption: clients may pass `?since=<lines>` where `lines` is the
+/// number of log lines already rendered (lines = `log.split('\n').count()`).
+/// On connect the server replays the buffered job log from the database,
+/// skipping the first `since` lines (`since=0` replays the full buffer).
+/// Omitting `since` keeps the legacy behaviour (no replay) so clients that
+/// preload the log via REST are not double-fed during rolling upgrades.
+/// This lets the frontend reconnect after network drops without losing or
+/// duplicating log output.
 pub async fn ws_job_log_handler(
     ws: WebSocketUpgrade,
     Path(job_id): Path<i64>,
@@ -379,33 +392,64 @@ pub async fn ws_job_log_handler(
         Err(error) => return crate::error::AppError::internal(error).into_response(),
     }
 
+    // Subscribe BEFORE reading the buffered log so that log chunks broadcast
+    // while we are reading the database are queued in the channel instead of
+    // being lost. The (millisecond-scale) inverse race — a chunk both queued
+    // and present in the replayed buffer — may duplicate one chunk, which is
+    // preferable to losing one.
+    let rx = state.notification_hub.subscribe_job(job_id).await;
+
     let upgrade = if let Some(proto) = proto_echo {
         ws.protocols([proto])
     } else {
         ws
     };
 
+    let db = state.db.clone();
+    let hub = state.notification_hub.clone();
+    let since = query.since;
     upgrade
         .on_upgrade(move |socket| {
-            handle_job_log_connection(socket, state.notification_hub.clone(), job_id, user_id)
+            handle_job_log_connection(socket, hub, db, rx, job_id, user_id, since)
         })
         .into_response()
+}
+
+/// Compute the catch-up suffix of a buffered job log for a client that has
+/// already received `since` lines.
+///
+/// Line semantics mirror the frontend: `lines = log.split('\n').count()`, and
+/// the database appends each uploaded chunk as `existing + "\n" + chunk`.
+fn job_log_catchup(buffered: &str, since: usize) -> Option<String> {
+    if since == 0 {
+        // No resumption offset — replay the whole buffer.
+        return (!buffered.is_empty()).then(|| buffered.to_string());
+    }
+    let lines: Vec<&str> = buffered.split('\n').collect();
+    if since >= lines.len() {
+        // Client is already up to date.
+        return None;
+    }
+    Some(lines[since..].join("\n"))
 }
 
 /// Handle a job log WebSocket connection.
 async fn handle_job_log_connection(
     socket: WebSocket,
     hub: NotificationHub,
+    db: rg_db::DatabaseConnection,
+    mut rx: broadcast::Receiver<NotificationEvent>,
     job_id: i64,
     user_id: i64,
+    since: Option<usize>,
 ) {
     let (mut sender, mut receiver) = socket.split();
-    let mut rx = hub.subscribe_job(job_id).await;
 
     // Send confirmation
     let welcome = serde_json::json!({
         "type": "connected",
         "job_id": job_id,
+        "since": since,
     });
     if sender
         .send(Message::Text(welcome.to_string().into()))
@@ -415,6 +459,35 @@ async fn handle_job_log_connection(
         drop(rx);
         hub.cleanup_job_channel(job_id).await;
         return;
+    }
+
+    // Q6.1: replay the buffered log from the database so reconnecting clients
+    // catch up on chunks produced while they were offline.
+    if let Some(since) = since {
+        let buffered = match rg_db::ops::pipeline_ops::get_job(&db, job_id).await {
+            Ok(Some(job)) => job.log.unwrap_or_default(),
+            Ok(None) => String::new(),
+            Err(error) => {
+                tracing::warn!(job_id, %error, "job log WS: failed to read buffered log");
+                String::new()
+            }
+        };
+        if let Some(chunk) = job_log_catchup(&buffered, since) {
+            let event = NotificationEvent {
+                event_type: "job_log".to_string(),
+                data: serde_json::json!({
+                    "job_id": job_id,
+                    "log": chunk,
+                }),
+            };
+            if let Ok(msg) = serde_json::to_string(&event) {
+                if sender.send(Message::Text(msg.into())).await.is_err() {
+                    drop(rx);
+                    hub.cleanup_job_channel(job_id).await;
+                    return;
+                }
+            }
+        }
     }
 
     loop {
@@ -454,6 +527,24 @@ async fn handle_job_log_connection(
 mod tests {
     use super::*;
     use tokio::time::{timeout, Duration};
+
+    #[test]
+    fn job_log_catchup_replays_from_offset() {
+        // Buffer built from initial log + two DB-side appended chunks:
+        // "l0" + "\n" + "c1" + "\n" + "c2" → "l0\nc1\nc2" (3 lines).
+        let buffered = "l0\nc1\nc2";
+
+        // No offset → full replay.
+        assert_eq!(job_log_catchup(buffered, 0).as_deref(), Some(buffered));
+        assert_eq!(job_log_catchup("", 0), None);
+
+        // Client already has 2 of 3 lines → only the last line is replayed.
+        assert_eq!(job_log_catchup(buffered, 2).as_deref(), Some("c2"));
+
+        // Client is fully up to date → nothing to send.
+        assert_eq!(job_log_catchup(buffered, 3), None);
+        assert_eq!(job_log_catchup(buffered, 10), None);
+    }
 
     #[tokio::test]
     async fn job_log_channels_are_isolated_and_reclaimed() {

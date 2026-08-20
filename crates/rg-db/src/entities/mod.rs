@@ -47,6 +47,7 @@ pub mod pr_reviewer_request;
 pub mod protected_branch;
 pub mod protected_tag;
 pub mod pull_request;
+pub mod reactions;
 pub mod release;
 pub mod release_asset;
 pub mod repo_collaborator;

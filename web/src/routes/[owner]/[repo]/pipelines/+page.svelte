@@ -3,7 +3,7 @@
   import { onDestroy } from 'svelte';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
   import PipelineBadge from '$lib/components/PipelineBadge.svelte';
-  import { connectJobLogWebSocket, pipelines } from '$lib/api/client.svelte';
+  import { connectJobLogWebSocket, disconnectJobLogWebSocket, pipelines } from '$lib/api/client.svelte';
   import { createT, formatDate } from '$lib/i18n';
 
   const t = createT();
@@ -17,10 +17,9 @@
   let selectedJob = $state<any>(null);
   let showLogPanel = $state(false);
   let logContent = $state('');
-  let logStreamStatus = $state<'idle' | 'connected' | 'closed' | 'error'>('idle');
+  let logStreamStatus = $state<'idle' | 'connected' | 'reconnecting' | 'closed' | 'error'>('idle');
   let logStreamError = $state('');
   let logContentEl = $state<HTMLPreElement | null>(null);
-  let logSocket: WebSocket | null = null;
   let approvedJobs = $state<number[]>([]);
 
   // Auto-refresh for running pipelines
@@ -151,7 +150,10 @@
   function startJobLogStream(jobId: number) {
     logStreamStatus = 'idle';
     logStreamError = '';
-    logSocket = connectJobLogWebSocket(
+    // Q6.1: resume from the lines already rendered so the server replays
+    // only the log output the client has not seen yet.
+    const since = logContent ? logContent.split('\n').length : 0;
+    connectJobLogWebSocket(
       jobId,
       (chunk) => appendLogChunk(jobId, chunk),
       (status) => {
@@ -163,6 +165,7 @@
         logStreamStatus = 'error';
         logStreamError = 'Live log connection failed';
       },
+      since,
     );
   }
 
@@ -177,10 +180,7 @@
   }
 
   function disconnectJobLogSocket() {
-    if (logSocket) {
-      logSocket.close();
-      logSocket = null;
-    }
+    disconnectJobLogWebSocket();
     logStreamStatus = 'idle';
     logStreamError = '';
   }
@@ -411,6 +411,8 @@
           {/if}
           {#if logStreamStatus === 'connected'}
             <span class="log-live connected">Live</span>
+          {:else if logStreamStatus === 'reconnecting'}
+            <span class="log-live">Reconnecting…</span>
           {:else if logStreamStatus === 'closed'}
             <span class="log-live">Closed</span>
           {:else if logStreamStatus === 'error'}

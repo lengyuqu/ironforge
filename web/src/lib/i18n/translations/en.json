@@ -4,6 +4,7 @@
     "sign_out": "Sign out",
     "cancel": "Cancel",
     "save": "Save",
+    "saving": "Saving...",
     "edit": "Edit",
     "create": "Create",
     "submit": "Submit",
@@ -493,7 +494,10 @@
     "close_issue": "Close Issue",
     "reopen_issue": "Reopen Issue",
     "comment": "Comment",
-    "comment_placeholder": "Add a comment..."
+    "comment_placeholder": "Add a comment...",
+    "reaction": {
+      "title": "Reactions"
+    }
   },
   "pulls": {
     "title": "Pull Requests",
@@ -679,6 +683,7 @@
     "unauthorized": "Unauthorized",
     "network_error": "Network error",
     "load_failed": "Failed to load",
+    "save_failed": "Failed to save",
     "create_failed": "Failed to create",
     "delete_failed": "Failed to delete",
     "update_failed": "Failed to update",
@@ -702,6 +707,7 @@
     "issues": "Issues",
     "wiki": "Wiki",
     "no_results": "No results found.",
+    "load_failed": "Search failed",
     "results_count": "{total} results",
     "repo_result": "Repository",
     "page_info": "Page {page} of {total}",
@@ -744,6 +750,18 @@
     "title": "Settings",
     "general": "General",
     "labels": "Labels",
+    "ci_secrets": {
+      "title": "CI secrets"
+    },
+    "environments": {
+      "title": "Environments"
+    },
+    "retention": {
+      "title": "CI retention"
+    },
+    "tag_protection": {
+      "title": "Tag protection"
+    },
     "repository_info": {
       "title": "Repository information",
       "name": "Name",
@@ -1017,7 +1035,11 @@
     "no_packages": "No packages yet",
     "version": "Version",
     "title": "Packages",
-    "install": "Install"
+    "install": "Install",
+    "file": "File",
+    "description": "Description",
+    "upload_success": "Package uploaded successfully",
+    "delete_confirm": "Delete {name} {version}?"
   },
   "runners": {
     "register": "Register Runner",

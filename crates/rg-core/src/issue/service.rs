@@ -364,9 +364,25 @@ pub async fn update_comment(
     issue_comment_ops::update(db, active).await
 }
 
-/// Delete a comment.
+/// Delete a comment and its reactions in one transaction.
 pub async fn delete_comment(db: &DatabaseConnection, comment_id: i64) -> Result<()> {
-    issue_comment_ops::delete_by_id(db, comment_id).await
+    use sea_orm::TransactionTrait;
+
+    let comment = issue_comment_ops::find_by_id(db, comment_id)
+        .await?
+        .context("comment not found")?;
+
+    let txn = db
+        .begin()
+        .await
+        .context("db: begin delete-comment transaction")?;
+    super::reactions::delete_reactions_for_comment(&txn, comment.id).await?;
+    issue_comment_ops::delete_by_id(&txn, comment_id).await?;
+    txn.commit()
+        .await
+        .context("db: commit delete-comment transaction")?;
+
+    Ok(())
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────
