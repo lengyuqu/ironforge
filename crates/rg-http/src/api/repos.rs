@@ -16,7 +16,10 @@ use utoipa::ToSchema;
 use crate::error::AppError;
 use crate::pagination::{PaginatedResponse, PaginationParams};
 use crate::{
-    api::auth::{extract_bearer_claims, extract_user_id},
+    api::auth::extract_bearer_claims,
+    api::repo_access::{
+        require_admin, require_authenticated_read, require_read, require_write,
+    },
     openapi::PaginatedRepoResponse,
     AppState,
 };
@@ -264,12 +267,14 @@ pub struct ListReposQuery {
 )]
 pub async fn list_repos(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(owner): Path<String>,
     Query(params): Query<ListReposQuery>,
 ) -> impl IntoResponse {
     let pagination = params.pagination.clamp();
     let offset = pagination.offset();
     let limit = pagination.limit();
+    let actor_id = crate::api::auth::extract_user_id(&headers, &state.jwt_secret);
 
     // Try user first
     if let Some(user) = rg_db::ops::user_ops::find_by_username(&state.db, &owner)
@@ -277,8 +282,17 @@ pub async fn list_repos(
         .ok()
         .flatten()
     {
-        match rg_db::ops::repo_ops::list_by_owner_paginated(&state.db, user.id, offset, limit).await
-        {
+        // Owner sees all repos; others see only public repos
+        let include_private = actor_id == Some(user.id);
+        let result = if include_private {
+            rg_db::ops::repo_ops::list_by_owner_paginated(&state.db, user.id, offset, limit).await
+        } else {
+            rg_db::ops::repo_ops::list_public_by_owner_paginated(
+                &state.db, user.id, offset, limit,
+            )
+            .await
+        };
+        match result {
             Ok((data, total)) => {
                 return (
                     StatusCode::OK,
@@ -296,7 +310,22 @@ pub async fn list_repos(
         .ok()
         .flatten()
     {
-        match rg_db::ops::repo_ops::list_by_org_paginated(&state.db, org.id, offset, limit).await {
+        // Org members see all repos; others see only public repos
+        let include_private = match actor_id {
+            Some(id) => {
+                rg_db::ops::org_ops::is_org_member(&state.db, org.id, id)
+                    .await
+                    .unwrap_or(false)
+            }
+            None => false,
+        };
+        let result = if include_private {
+            rg_db::ops::repo_ops::list_by_org_paginated(&state.db, org.id, offset, limit).await
+        } else {
+            rg_db::ops::repo_ops::list_public_by_org_paginated(&state.db, org.id, offset, limit)
+                .await
+        };
+        match result {
             Ok((data, total)) => {
                 return (
                     StatusCode::OK,
@@ -330,12 +359,12 @@ pub async fn list_repos(
 /// Gets a single repo, supporting both user and org owners.
 pub async fn get_repo(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path((owner, name)): Path<(String, String)>,
 ) -> impl IntoResponse {
-    match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await {
-        Ok(Some(repo)) => (StatusCode::OK, Json(serde_json::json!(repo))).into_response(),
-        Ok(None) => AppError::not_found("repository not found".to_string()).into_response(),
-        Err(e) => AppError::internal(e.to_string()).into_response(),
+    match require_read(&state, &headers, &owner, &name).await {
+        Ok(repo) => (StatusCode::OK, Json(serde_json::json!(repo))).into_response(),
+        Err(e) => e.into_response(),
     }
 }
 
@@ -366,18 +395,9 @@ pub async fn star_repo(
     headers: HeaderMap,
     Path((owner, name)): Path<(String, String)>,
 ) -> impl IntoResponse {
-    let user_id = match extract_user_id(&headers, &state.jwt_secret) {
-        Some(user_id) => user_id,
-        None => {
-            return AppError::unauthorized("authentication required".to_string()).into_response()
-        }
-    };
-
-    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
-    {
-        Ok(Some(r)) => r,
-        Ok(None) => return AppError::not_found("repository not found".to_string()).into_response(),
-        Err(e) => return AppError::internal(e.to_string()).into_response(),
+    let (repo, user_id) = match require_authenticated_read(&state, &headers, &owner, &name).await {
+        Ok(pair) => pair,
+        Err(e) => return e.into_response(),
     };
 
     match rg_core::repo::service::toggle_star(&state.db, user_id, repo.id).await {
@@ -409,18 +429,9 @@ pub async fn get_starred_status(
     headers: HeaderMap,
     Path((owner, name)): Path<(String, String)>,
 ) -> impl IntoResponse {
-    let user_id = match extract_user_id(&headers, &state.jwt_secret) {
-        Some(user_id) => user_id,
-        None => {
-            return AppError::unauthorized("authentication required".to_string()).into_response()
-        }
-    };
-
-    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
-    {
-        Ok(Some(r)) => r,
-        Ok(None) => return AppError::not_found("repository not found".to_string()).into_response(),
-        Err(e) => return AppError::internal(e.to_string()).into_response(),
+    let (repo, user_id) = match require_authenticated_read(&state, &headers, &owner, &name).await {
+        Ok(pair) => pair,
+        Err(e) => return e.into_response(),
     };
 
     match rg_core::repo::service::is_starred(&state.db, user_id, repo.id).await {
@@ -449,6 +460,7 @@ pub async fn get_starred_status(
 )]
 pub async fn get_stargazers(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path((owner, name)): Path<(String, String)>,
     Query(params): Query<PaginationParams>,
 ) -> impl IntoResponse {
@@ -456,11 +468,9 @@ pub async fn get_stargazers(
     let offset = pagination.offset();
     let limit = pagination.limit();
 
-    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
-    {
-        Ok(Some(r)) => r,
-        Ok(None) => return AppError::not_found("repository not found".to_string()).into_response(),
-        Err(e) => return AppError::internal(e.to_string()).into_response(),
+    let repo = match require_read(&state, &headers, &owner, &name).await {
+        Ok(r) => r,
+        Err(e) => return e.into_response(),
     };
 
     match rg_core::repo::service::list_stargazers(&state.db, repo.id, offset, limit).await {
@@ -496,18 +506,9 @@ pub async fn get_watch_status(
     headers: HeaderMap,
     Path((owner, name)): Path<(String, String)>,
 ) -> impl IntoResponse {
-    let user_id = match extract_user_id(&headers, &state.jwt_secret) {
-        Some(user_id) => user_id,
-        None => {
-            return AppError::unauthorized("authentication required".to_string()).into_response()
-        }
-    };
-
-    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
-    {
-        Ok(Some(r)) => r,
-        Ok(None) => return AppError::not_found("repository not found".to_string()).into_response(),
-        Err(e) => return AppError::internal(e.to_string()).into_response(),
+    let (repo, user_id) = match require_authenticated_read(&state, &headers, &owner, &name).await {
+        Ok(pair) => pair,
+        Err(e) => return e.into_response(),
     };
 
     match rg_core::repo::service::get_watch(&state.db, user_id, repo.id).await {
@@ -543,18 +544,9 @@ pub async fn watch_repo(
     Path((owner, name)): Path<(String, String)>,
     Json(body): Json<WatchRequest>,
 ) -> impl IntoResponse {
-    let user_id = match extract_user_id(&headers, &state.jwt_secret) {
-        Some(user_id) => user_id,
-        None => {
-            return AppError::unauthorized("authentication required".to_string()).into_response()
-        }
-    };
-
-    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
-    {
-        Ok(Some(r)) => r,
-        Ok(None) => return AppError::not_found("repository not found".to_string()).into_response(),
-        Err(e) => return AppError::internal(e.to_string()).into_response(),
+    let (repo, user_id) = match require_authenticated_read(&state, &headers, &owner, &name).await {
+        Ok(pair) => pair,
+        Err(e) => return e.into_response(),
     };
 
     match rg_core::repo::service::set_watch(&state.db, user_id, repo.id, &body.state).await {
@@ -586,18 +578,9 @@ pub async fn unwatch_repo(
     headers: HeaderMap,
     Path((owner, name)): Path<(String, String)>,
 ) -> impl IntoResponse {
-    let user_id = match extract_user_id(&headers, &state.jwt_secret) {
-        Some(user_id) => user_id,
-        None => {
-            return AppError::unauthorized("authentication required".to_string()).into_response()
-        }
-    };
-
-    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
-    {
-        Ok(Some(r)) => r,
-        Ok(None) => return AppError::not_found("repository not found".to_string()).into_response(),
-        Err(e) => return AppError::internal(e.to_string()).into_response(),
+    let (repo, user_id) = match require_authenticated_read(&state, &headers, &owner, &name).await {
+        Ok(pair) => pair,
+        Err(e) => return e.into_response(),
     };
 
     match rg_core::repo::service::set_watch(&state.db, user_id, repo.id, "not_watching").await {
@@ -629,32 +612,17 @@ pub async fn delete_repo_handler(
     headers: HeaderMap,
     Path((owner, name)): Path<(String, String)>,
 ) -> impl IntoResponse {
+    let (repo, user_id) = match require_admin(&state, &headers, &owner, &name).await {
+        Ok(pair) => pair,
+        Err(e) => return e.into_response(),
+    };
+    // Extract claims for audit log username
     let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => {
             return AppError::unauthorized("authentication required".to_string()).into_response()
         }
     };
-
-    let user_id: i64 = match claims.sub.parse::<i64>() {
-        Ok(id) => id,
-
-        Err(_) => {
-            return AppError::unauthorized("invalid token subject".to_string()).into_response()
-        }
-    };
-
-    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
-    {
-        Ok(Some(r)) => r,
-        Ok(None) => return AppError::not_found("repository not found".to_string()).into_response(),
-        Err(e) => return AppError::internal(e.to_string()).into_response(),
-    };
-
-    // Only owner can delete
-    if repo.owner_id != user_id {
-        return AppError::forbidden("only repository owner can delete".to_string()).into_response();
-    }
 
     match rg_core::repo::service::delete_repo(&state.db, repo.id).await {
         Ok(()) => {
@@ -710,16 +678,15 @@ pub async fn fork_repo_handler(
     headers: HeaderMap,
     Path((owner, name)): Path<(String, String)>,
 ) -> impl IntoResponse {
+    let (_repo, user_id) = match require_authenticated_read(&state, &headers, &owner, &name).await {
+        Ok(pair) => pair,
+        Err(e) => return e.into_response(),
+    };
+    // Extract claims for audit log username
     let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => {
             return AppError::unauthorized("authentication required".to_string()).into_response();
-        }
-    };
-    let user_id: i64 = match claims.sub.parse::<i64>() {
-        Ok(id) => id,
-        Err(_) => {
-            return AppError::unauthorized("invalid token subject".to_string()).into_response()
         }
     };
 
@@ -769,9 +736,14 @@ pub async fn fork_repo_handler(
 )]
 pub async fn list_forks_handler(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path((owner, name)): Path<(String, String)>,
     Query(params): Query<PaginationParams>,
 ) -> impl IntoResponse {
+    if let Err(e) = require_read(&state, &headers, &owner, &name).await {
+        return e.into_response();
+    }
+
     let pagination = params.clamp();
     let offset = pagination.offset();
     let limit = pagination.limit();
@@ -815,16 +787,15 @@ pub async fn transfer_repo_handler(
     Path((owner, name)): Path<(String, String)>,
     Json(body): Json<TransferRequest>,
 ) -> impl IntoResponse {
+    let (_repo, user_id) = match require_admin(&state, &headers, &owner, &name).await {
+        Ok(pair) => pair,
+        Err(e) => return e.into_response(),
+    };
+    // Extract claims for audit log username
     let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
         Some(c) => c,
         None => {
             return AppError::unauthorized("authentication required".to_string()).into_response();
-        }
-    };
-    let user_id: i64 = match claims.sub.parse::<i64>() {
-        Ok(id) => id,
-        Err(_) => {
-            return AppError::unauthorized("invalid token subject".to_string()).into_response()
         }
     };
 
@@ -900,34 +871,10 @@ pub async fn create_commit_status(
     Path((owner, name, sha)): Path<(String, String, String)>,
     Json(body): Json<CreateCommitStatusRequest>,
 ) -> impl IntoResponse {
-    let claims = match extract_bearer_claims(&headers, &state.jwt_secret) {
-        Some(c) => c,
-        None => {
-            return AppError::unauthorized("authentication required".to_string()).into_response()
-        }
+    let (repo, user_id) = match require_write(&state, &headers, &owner, &name).await {
+        Ok(pair) => pair,
+        Err(e) => return e.into_response(),
     };
-
-    let user_id: i64 = match claims.sub.parse::<i64>() {
-        Ok(id) => id,
-
-        Err(_) => {
-            return AppError::unauthorized("invalid token subject".to_string()).into_response()
-        }
-    };
-
-    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
-    {
-        Ok(Some(r)) => r,
-        Ok(None) => return AppError::not_found("repository not found".to_string()).into_response(),
-        Err(e) => return AppError::internal(e.to_string()).into_response(),
-    };
-
-    if !rg_core::repo::service::can_write(&state.db, &owner, &name, Some(user_id))
-        .await
-        .unwrap_or(false)
-    {
-        return AppError::forbidden("forbidden".to_string()).into_response();
-    }
 
     match rg_core::repo::service::create_commit_status(
         &state.db,
@@ -963,8 +910,13 @@ pub async fn create_commit_status(
 )]
 pub async fn list_commit_statuses(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path((owner, name, sha)): Path<(String, String, String)>,
 ) -> impl IntoResponse {
+    if let Err(e) = require_read(&state, &headers, &owner, &name).await {
+        return e.into_response();
+    }
+
     match rg_core::repo::service::list_commit_statuses(&state.db, &owner, &name, &sha).await {
         Ok(statuses) => (StatusCode::OK, Json(serde_json::json!(statuses))).into_response(),
         Err(e) => AppError::internal(e.to_string()).into_response(),
@@ -988,8 +940,13 @@ pub async fn list_commit_statuses(
 )]
 pub async fn get_combined_status(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path((owner, name, sha)): Path<(String, String, String)>,
 ) -> impl IntoResponse {
+    if let Err(e) = require_read(&state, &headers, &owner, &name).await {
+        return e.into_response();
+    }
+
     match rg_core::repo::service::get_combined_status(&state.db, &owner, &name, &sha).await {
         Ok(combined) => (StatusCode::OK, Json(combined)).into_response(),
         Err(e) => AppError::internal(e.to_string()).into_response(),
