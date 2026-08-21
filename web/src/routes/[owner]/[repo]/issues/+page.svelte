@@ -20,6 +20,7 @@
   let newTitle = $state('');
   let newBody = $state('');
   let newLabels = $state('');
+  let newAssignees = $state('');
 
   // Q6.3: Client-side form validation
   const MAX_TITLE_LEN = 255;
@@ -93,6 +94,7 @@
     newTitle = template?.title || '';
     newBody = template?.content || '';
     newLabels = template?.labels?.join(', ') || '';
+    newAssignees = template?.assignees?.join(', ') || '';
     showChooser = false;
     showCreate = true;
   }
@@ -196,6 +198,10 @@
         <label>
           {t('issues.create_form.labels')} <span class="optional">{t('issues.create_form.labels_hint')}</span>
           <input type="text" bind:value={newLabels} placeholder={t('issues.create_form.labels_placeholder')} />
+        </label>
+        <label>
+          {t('issues.create_form_assignees')} <span class="optional">{t('issues.create_form_assignees_hint')}</span>
+          <input type="text" bind:value={newAssignees} placeholder={t('issues.create_form_assignees_placeholder')} />
         </label>
         <div class="form-actions">
           <button type="submit" class="btn-primary" disabled={!canSubmit}>{t('issues.create_form.submit')}</button>

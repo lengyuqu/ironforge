@@ -504,7 +504,19 @@
     "comment_placeholder": "添加评论...",
     "reaction": {
       "title": "表情回应"
-    }
+    },
+    "assignees": {
+      "title": "指派",
+      "empty": "暂无人被指派",
+      "edit": "编辑指派",
+      "placeholder": "用户名（逗号分隔）",
+      "save": "保存",
+      "cancel": "取消",
+      "hint": "第一个用户将作为主要指派人"
+    },
+    "create_form_assignees": "指派人",
+    "create_form_assignees_hint": "（逗号分隔）",
+    "create_form_assignees_placeholder": "user1, user2"
   },
   "pulls": {
     "title": "拉取请求",

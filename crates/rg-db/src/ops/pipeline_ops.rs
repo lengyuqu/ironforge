@@ -682,23 +682,6 @@ pub async fn find_stuck_jobs(
         .context("db: find stuck jobs")
 }
 
-/// Reset a stuck job back to pending, unassigning the runner.
-pub async fn reset_stuck_job(db: &DatabaseConnection, job_id: i64) -> Result<()> {
-    let now = chrono::Utc::now().naive_utc();
-    pipeline_job::Entity::update_many()
-        .filter(pipeline_job::Column::Id.eq(job_id))
-        .col_expr(pipeline_job::Column::Status, Expr::value("pending"))
-        .col_expr(
-            pipeline_job::Column::RunnerId,
-            Expr::value(sea_orm::Value::BigInt(None)),
-        )
-        .col_expr(pipeline_job::Column::UpdatedAt, Expr::value(now))
-        .exec(db)
-        .await
-        .context("db: reset stuck job")?;
-    Ok(())
-}
-
 /// Find offline runners: online/busy but no heartbeat within threshold.
 pub async fn find_offline_runners(
     db: &DatabaseConnection,
@@ -729,22 +712,33 @@ pub async fn mark_job_timeout(db: &DatabaseConnection, job_id: i64) -> Result<()
     Ok(())
 }
 
-/// Reset all jobs assigned to a runner back to pending (for deregistration).
-pub async fn reset_runner_jobs(db: &DatabaseConnection, runner_id: i64) -> Result<u64> {
-    let now = chrono::Utc::now().naive_utc();
-    let result = pipeline_job::Entity::update_many()
+/// Mark all active (assigned/running) jobs of a runner as failed and cascade
+/// stage/pipeline status updates.
+///
+/// Used when a runner goes offline (heartbeat timeout) or deregisters.
+/// Jobs are marked failed instead of re-queued to avoid duplicate execution
+/// (Q3.2 decision). Returns the failed job models.
+pub async fn fail_runner_jobs(
+    db: &DatabaseConnection,
+    runner_id: i64,
+) -> Result<Vec<pipeline_job::Model>> {
+    let jobs = pipeline_job::Entity::find()
         .filter(pipeline_job::Column::RunnerId.eq(Some(runner_id)))
         .filter(pipeline_job::Column::Status.is_in(["assigned", "running"]))
-        .col_expr(pipeline_job::Column::Status, Expr::value("pending"))
-        .col_expr(
-            pipeline_job::Column::RunnerId,
-            Expr::value(sea_orm::Value::BigInt(None)),
-        )
-        .col_expr(pipeline_job::Column::UpdatedAt, Expr::value(now))
-        .exec(db)
+        .all(db)
         .await
-        .context("db: reset runner jobs")?;
-    Ok(result.rows_affected)
+        .context("db: find active jobs for runner")?;
+
+    for job in &jobs {
+        mark_job_timeout(db, job.id).await?;
+        // Cascade: stage → pipeline (mirrors finish_job)
+        if try_update_stage(db, job.stage_id).await?.is_some() {
+            if let Some(stage) = get_stage_by_id(db, job.stage_id).await? {
+                try_update_pipeline(db, stage.pipeline_id).await?;
+            }
+        }
+    }
+    Ok(jobs)
 }
 
 /// Assign a CI job to a specific runner.

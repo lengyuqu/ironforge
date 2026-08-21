@@ -94,6 +94,8 @@ pub struct PaginatedRepoResponse {
         crate::api::issues::update_milestone,
         crate::api::issues::delete_milestone,
         crate::api::issues::get_issue_labels,
+        crate::api::issues::list_issue_assignees,
+        crate::api::issues::set_issue_assignees,
         crate::api::issues::list_issue_templates,
         crate::api::issues::get_issue_config,
         crate::api::issues::validate_issue_config,

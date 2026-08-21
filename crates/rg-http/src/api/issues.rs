@@ -24,6 +24,9 @@ pub struct CreateIssueRequest {
     pub labels: Option<Vec<String>>,
     #[serde(default)]
     pub milestone_id: Option<i64>,
+    /// Usernames to assign (ISSUE-105). Requires write access.
+    #[serde(default)]
+    pub assignees: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -67,6 +70,9 @@ pub struct ListQuery {
     pub state: Option<String>,
     #[serde(default)]
     pub labels: Option<String>,
+    /// Filter by assignee username (ISSUE-105).
+    #[serde(default)]
+    pub assignee: Option<String>,
     #[serde(flatten)]
     pub pagination: PaginationParams,
 }
@@ -76,6 +82,15 @@ pub struct IssueResponse {
     #[serde(flatten)]
     pub issue: rg_db::entities::issue::Model,
     pub author: Option<String>,
+    /// Assignee usernames (primary first) — ISSUE-105.
+    pub assignees: Vec<String>,
+}
+
+#[derive(Deserialize)]
+pub struct SetAssigneesRequest {
+    /// Assignee usernames; empty list clears all assignees.
+    #[serde(default)]
+    pub assignees: Vec<String>,
 }
 
 /// List valid Markdown issue templates from the repository default branch.
@@ -253,6 +268,42 @@ pub async fn list_issues(
     let state_filter = params.state.as_deref();
     let pagination = params.pagination.clamp();
 
+    // Assignee filter (ISSUE-105): resolve via junction table.
+    if let Some(ref assignee) = params.assignee {
+        let assignee = assignee.trim();
+        if !assignee.is_empty() {
+            return match rg_core::issue::list_issues_filtered_by_assignee(
+                &state.db,
+                &owner,
+                &repo,
+                state_filter,
+                assignee,
+                pagination.offset(),
+                pagination.limit(),
+            )
+            .await
+            {
+                Ok((data, total)) => {
+                    let data = issues_with_authors(&state.db, data).await;
+                    (
+                        StatusCode::OK,
+                        Json(PaginatedResponse::new(data, &pagination, total as u64)),
+                    )
+                        .into_response()
+                }
+                Err(e) => match e {
+                    rg_core::error::CoreError::NotFound(msg) => {
+                        AppError::not_found(msg).into_response()
+                    }
+                    other => {
+                        tracing::error!(%other, "handler error");
+                        AppError::internal(other).into_response()
+                    }
+                },
+            };
+        }
+    }
+
     // If labels filter is present, use filtered query
     if let Some(ref labels_str) = params.labels {
         let label_names: Vec<String> = labels_str
@@ -376,11 +427,32 @@ pub async fn create_issue(
     // Design decision: issue creation requires only read access (not write),
     // consistent with GitHub's behavior where any authenticated user with read
     // access can open issues. Write access is enforced for issue updates that
-    // touch management fields (labels, assignee, milestone).
+    // touch management fields (labels, assignee, milestone) and for creating
+    // with assignees pre-set (ISSUE-105).
     let repo_model = match resolve_and_check_read_access(&state, &headers, &owner, &repo).await {
         Ok(repo) => repo,
         Err(e) => return e.into_response(),
     };
+
+    let wants_assignees = req
+        .assignees
+        .as_ref()
+        .is_some_and(|list| !list.is_empty());
+    if wants_assignees {
+        let can_write = rg_core::repo::service::can_write_repo(
+            &state.db,
+            &repo_model,
+            Some(user_id),
+        )
+        .await
+        .unwrap_or(false);
+        if !can_write {
+            return AppError::forbidden(
+                "assigning issues at creation requires write access",
+            )
+            .into_response();
+        }
+    }
 
     // Input validation
     let title = match super::validation::require_valid_text(&req.title, super::validation::MAX_TITLE_LEN, "issue title") {
@@ -401,6 +473,24 @@ pub async fn create_issue(
     .await
     {
         Ok(issue) => {
+            // Optional initial assignment (ISSUE-105) — failure surfaces as 400.
+            if let Some(usernames) = req.assignees.filter(|l| !l.is_empty()) {
+                match rg_core::issue::set_issue_assignees(
+                    &state.db,
+                    &owner,
+                    &repo,
+                    issue.number,
+                    user_id,
+                    usernames,
+                )
+                .await
+                {
+                    Ok(_) => {}
+                    Err(e) => {
+                        return AppError::bad_request(e.to_string()).into_response();
+                    }
+                }
+            }
             let issue = issue_with_author(&state.db, issue).await;
             (StatusCode::CREATED, Json(issue)).into_response()
         }
@@ -869,6 +959,93 @@ pub async fn remove_comment_reaction(
     }
 }
 
+// ── Assignees (ISSUE-105) ───────────────────────────────────────────────
+
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/issues/{number}/assignees",
+    tag = "Issues",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("number" = i64, Path, description = "number"),
+    ),
+    responses(
+        (status = 200, description = "Assignee usernames (primary first)", body = serde_json::Value),
+        (status = 404, description = "Issue not found", body = serde_json::Value),
+    ),
+)]
+pub async fn list_issue_assignees(
+    State(state): State<AppState>,
+    Path((owner, repo, number)): Path<(String, String, i64)>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if let Err(e) = repo_access::require_read(&state, &headers, &owner, &repo).await {
+        return e.into_response();
+    }
+    match rg_core::issue::list_issue_assignees(&state.db, &owner, &repo, number).await {
+        Ok(assignees) => (StatusCode::OK, Json(serde_json::json!({ "assignees": assignees })))
+            .into_response(),
+        Err(e) => AppError::not_found(e.to_string()).into_response(),
+    }
+}
+
+#[utoipa::path(
+    put,
+    path = "/repos/{owner}/{name}/issues/{number}/assignees",
+    tag = "Issues",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("number" = i64, Path, description = "number"),
+    ),
+    request_body(content = serde_json::Value),
+    responses(
+        (status = 200, description = "Assignees replaced (current list returned)", body = serde_json::Value),
+        (status = 400, description = "Unknown assignee username", body = serde_json::Value),
+        (status = 401, description = "Authentication required", body = serde_json::Value),
+        (status = 403, description = "Write access required", body = serde_json::Value),
+        (status = 404, description = "Issue not found", body = serde_json::Value),
+    ),
+)]
+pub async fn set_issue_assignees(
+    State(state): State<AppState>,
+    Path((owner, repo, number)): Path<(String, String, i64)>,
+    headers: HeaderMap,
+    Json(req): Json<SetAssigneesRequest>,
+) -> impl IntoResponse {
+    let Some(user_id) = super::auth::extract_user_id(&headers, &state.jwt_secret) else {
+        return AppError::unauthorized("authentication required".to_string()).into_response();
+    };
+    if let Err(e) = repo_access::require_write(&state, &headers, &owner, &repo).await {
+        return e.into_response();
+    }
+    match rg_core::issue::set_issue_assignees(
+        &state.db,
+        &owner,
+        &repo,
+        number,
+        user_id,
+        req.assignees,
+    )
+    .await
+    {
+        Ok(assignees) => {
+            (StatusCode::OK, Json(serde_json::json!({ "assignees": assignees }))).into_response()
+        }
+        Err(rg_core::error::CoreError::NotFound(msg)) => {
+            AppError::not_found(msg).into_response()
+        }
+        Err(rg_core::error::CoreError::InvalidInput(msg)) => {
+            AppError::bad_request(msg).into_response()
+        }
+        Err(e) => {
+            tracing::error!(%e, "handler error");
+            AppError::internal(e).into_response()
+        }
+    }
+}
+
 // ── Helpers ─────────────────────────────────────────────────────────────
 
 async fn author_name(
@@ -895,7 +1072,14 @@ async fn issue_with_author(
 ) -> IssueResponse {
     let mut cache = HashMap::new();
     let author = author_name(db, &mut cache, issue.author_id).await;
-    IssueResponse { issue, author }
+    let assignees = rg_core::issue::assignee_names_by_issue(db, issue.id)
+        .await
+        .unwrap_or_default();
+    IssueResponse {
+        issue,
+        author,
+        assignees,
+    }
 }
 
 async fn issues_with_authors(
@@ -906,7 +1090,14 @@ async fn issues_with_authors(
     let mut responses = Vec::with_capacity(issues.len());
     for issue in issues {
         let author = author_name(db, &mut cache, issue.author_id).await;
-        responses.push(IssueResponse { issue, author });
+        let assignees = rg_core::issue::assignee_names_by_issue(db, issue.id)
+            .await
+            .unwrap_or_default();
+        responses.push(IssueResponse {
+            issue,
+            author,
+            assignees,
+        });
     }
     responses
 }

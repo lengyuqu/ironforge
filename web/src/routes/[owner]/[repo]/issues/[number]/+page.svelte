@@ -29,6 +29,10 @@
   let newComment = $state('');
   let issueReactions = $state<ReactionSummary[]>([]);
   let commentReactions = $state<Record<number, ReactionSummary[]>>({});
+  let assignees = $state<string[]>([]);
+  let editingAssignees = $state(false);
+  let assigneeInput = $state('');
+  let assigneeSaving = $state(false);
 
   $effect(() => {
     loadIssue();
@@ -37,14 +41,16 @@
   async function loadIssue() {
     try {
       loading = true;
-      const [issueData, commentsData, reactionsData] = await Promise.all([
+      const [issueData, commentsData, reactionsData, assigneeData] = await Promise.all([
         issues.get(owner, repo, number),
         issues.comments(owner, repo, number),
         issues.listReactions(owner, repo, number).catch(() => [] as ReactionSummary[]),
+        issues.listAssignees(owner, repo, number).catch(() => ({ assignees: [] as string[] })),
       ]);
       issue = issueData;
       commentList = commentsData || [];
       issueReactions = reactionsData || [];
+      assignees = assigneeData?.assignees || [];
 
       const commentIds = (commentsData || []).map((c: any) => c.id as number);
       const reactionEntries = await Promise.all(
@@ -107,6 +113,29 @@
     }
   }
 
+  function startEditAssignees() {
+    assigneeInput = assignees.join(', ');
+    editingAssignees = true;
+  }
+
+  async function saveAssignees() {
+    try {
+      assigneeSaving = true;
+      const names = assigneeInput
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const result = await issues.setAssignees(owner, repo, number, names);
+      assignees = result?.assignees || [];
+      if (issue) issue.assignee = assignees[0] || null;
+      editingAssignees = false;
+    } catch (e: any) {
+      error = e.message;
+    } finally {
+      assigneeSaving = false;
+    }
+  }
+
   function renderMarkdown(content: string | null | undefined): string {
     if (!content) return '';
     return renderMarkdownSafe(content);
@@ -146,6 +175,57 @@
             {/each}
           {/if}
         </div>
+      </div>
+
+      <div class="assignees-panel">
+        <div class="assignees-header">
+          <span class="assignees-title">{t('issues.assignees.title')}</span>
+          {#if !editingAssignees}
+            <button type="button" class="btn-assignee-edit" onclick={startEditAssignees}>
+              {t('issues.assignees.edit')}
+            </button>
+          {/if}
+        </div>
+        {#if editingAssignees}
+          <div class="assignees-editor">
+            <input
+              type="text"
+              bind:value={assigneeInput}
+              placeholder={t('issues.assignees.placeholder')}
+            />
+            <div class="assignees-editor-actions">
+              <button
+                type="button"
+                class="btn-primary"
+                disabled={assigneeSaving}
+                onclick={saveAssignees}
+              >
+                {t('issues.assignees.save')}
+              </button>
+              <button
+                type="button"
+                class="btn-close"
+                disabled={assigneeSaving}
+                onclick={() => (editingAssignees = false)}
+              >
+                {t('issues.assignees.cancel')}
+              </button>
+            </div>
+            <p class="assignees-hint">{t('issues.assignees.hint')}</p>
+          </div>
+        {:else}
+          {#if assignees.length}
+            <div class="assignees-list">
+              {#each assignees as name, i}
+                <span class="assignee-badge" class:primary={i === 0} title={i === 0 ? t('issues.assignees.hint') : name}>
+                  {name}
+                </span>
+              {/each}
+            </div>
+          {:else}
+            <p class="assignees-empty">{t('issues.assignees.empty')}</p>
+          {/if}
+        {/if}
       </div>
 
       {#snippet reactionBar(rows: ReactionSummary[], onToggle: (content: string) => void)}
@@ -244,6 +324,86 @@
     color: var(--purple);
     border-radius: 10px;
     font-size: 11px;
+  }
+
+  .assignees-panel {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px 16px;
+    margin-bottom: 16px;
+  }
+
+  .assignees-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+  }
+
+  .assignees-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+  }
+
+  .btn-assignee-edit {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 12px;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: var(--radius);
+  }
+  .btn-assignee-edit:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+  }
+
+  .assignees-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .assignee-badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border: 1px solid var(--border);
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border-radius: 12px;
+    font-size: 12px;
+  }
+
+  .assignee-badge.primary {
+    border-color: var(--green);
+    color: var(--green);
+    background: rgba(63, 185, 80, 0.12);
+  }
+
+  .assignees-empty {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin: 0;
+  }
+
+  .assignees-editor input {
+    width: 100%;
+    font-size: 13px;
+    padding: 6px 10px;
+    margin-bottom: 8px;
+  }
+
+  .assignees-editor-actions {
+    display: flex;
+    gap: 8px;
+  }
+
+  .assignees-hint {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin: 8px 0 0;
   }
 
   .issue-body, .comment {

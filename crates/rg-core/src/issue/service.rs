@@ -6,7 +6,7 @@ use sea_orm::{ActiveModelTrait, DatabaseConnection, EntityTrait, Set, Transactio
 
 use rg_db::entities::issue::{self, Model as Issue};
 use rg_db::entities::issue_comment::{self, Model as Comment};
-use rg_db::ops::{issue_comment_ops, issue_label_ops, issue_ops, label_ops};
+use rg_db::ops::{issue_assignee_ops, issue_comment_ops, issue_label_ops, issue_ops, label_ops};
 
 // ── Issue CRUD ──────────────────────────────────────────────────────────
 
@@ -235,6 +235,17 @@ pub async fn update_issue(
     }
     if let Some(a) = assignee_id {
         active.assignee_id = Set(a);
+        // Keep the multi-assignee junction table in sync with the legacy
+        // single-assignee column (ISSUE-105 write-path compatibility).
+        if let Err(e) = issue_assignee_ops::set_assignees(
+            db,
+            issue_id,
+            &a.map(|id| vec![id]).unwrap_or_default(),
+        )
+        .await
+        {
+            tracing::warn!("Failed to sync assignees for issue {issue_id}: {e}");
+        }
     }
     if let Some(m) = milestone_id {
         active.milestone_id = Set(m);

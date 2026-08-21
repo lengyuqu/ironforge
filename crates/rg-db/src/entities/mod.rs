@@ -16,6 +16,7 @@ pub mod commit_status;
 pub mod deploy_key;
 pub mod import_task;
 pub mod issue;
+pub mod issue_assignee;
 pub mod issue_comment;
 pub mod issue_label;
 pub mod label;

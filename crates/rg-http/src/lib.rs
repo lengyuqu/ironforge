@@ -642,6 +642,11 @@ fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
             get(api::issues::get_issue_labels),
         )
         .route(
+            "/repos/{owner}/{name}/issues/{number}/assignees",
+            get(api::issues::list_issue_assignees)
+                .put(api::issues::set_issue_assignees),
+        )
+        .route(
             "/repos/{owner}/{name}/issues/{number}/comments",
             get(api::issues::list_comments).post(api::issues::add_comment),
         )
@@ -2735,9 +2740,14 @@ async fn recover_orphaned_jobs(db: &DatabaseConnection) {
     }
 }
 
-/// Background task that periodically checks for:
-/// 1. Stuck jobs (assigned/running for too long) → reset to pending
-/// 2. Offline runners (no heartbeat) → mark as offline
+/// Background task that periodically checks for offline runners:
+/// runners with no heartbeat for 90 seconds (3 missed 30s heartbeats) are
+/// marked offline and their active jobs are marked failed (Q3.2: mark failed
+/// instead of re-queueing to avoid duplicate execution).
+///
+/// Note: per-job timeouts are enforced runner-side (rg-runner applies
+/// `tokio::time::timeout` with the job's configured timeout); server restart
+/// orphans are handled by `recover_orphaned_jobs` at startup.
 async fn run_runner_watchdog(db: DatabaseConnection) {
     // Run one-time startup recovery first
     recover_orphaned_jobs(&db).await;
@@ -2749,34 +2759,7 @@ async fn run_runner_watchdog(db: DatabaseConnection) {
         // Check every 60 seconds
         tokio::time::sleep(std::time::Duration::from_secs(60)).await;
 
-        // 1. Reset stuck jobs (assigned/running > 5 min)
-        match rg_db::ops::pipeline_ops::find_stuck_jobs(&db, 300).await {
-            Ok(stuck) => {
-                for job in &stuck {
-                    let job_id = job.id;
-                    tracing::warn!(
-                        job_id,
-                        status = %job.status,
-                        "Runner watchdog: resetting stuck job"
-                    );
-                    if let Err(e) = rg_db::ops::pipeline_ops::reset_stuck_job(&db, job_id).await {
-                        tracing::error!(job_id, error = %e, "Failed to reset stuck job");
-                    }
-                }
-                if !stuck.is_empty() {
-                    tracing::info!(
-                        count = stuck.len(),
-                        "Runner watchdog: reset {} stuck jobs",
-                        stuck.len()
-                    );
-                }
-            }
-            Err(e) => {
-                tracing::error!(error = %e, "Runner watchdog: failed to find stuck jobs");
-            }
-        }
-
-        // 2. Mark runners as offline if no heartbeat for 90 seconds
+        // Mark runners as offline if no heartbeat for 90 seconds
         match rg_db::ops::pipeline_ops::find_offline_runners(&db, 90).await {
             Ok(offline) => {
                 for runner in &offline {
@@ -2791,11 +2774,20 @@ async fn run_runner_watchdog(db: DatabaseConnection) {
                         tracing::error!(runner_id = runner.id, error = %e, "Failed to mark runner offline");
                     }
 
-                    // Reset jobs assigned to this offline runner
-                    if let Err(e) =
-                        rg_db::ops::pipeline_ops::reset_runner_jobs(&db, runner.id).await
-                    {
-                        tracing::error!(runner_id = runner.id, error = %e, "Failed to reset jobs for offline runner");
+                    // Mark active jobs of this offline runner as failed
+                    match rg_db::ops::pipeline_ops::fail_runner_jobs(&db, runner.id).await {
+                        Ok(failed) => {
+                            for job in &failed {
+                                tracing::warn!(
+                                    job_id = job.id,
+                                    runner_id = runner.id,
+                                    "Runner watchdog: marked job as failed (runner offline)"
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            tracing::error!(runner_id = runner.id, error = %e, "Failed to fail jobs for offline runner");
+                        }
                     }
                 }
                 if !offline.is_empty() {

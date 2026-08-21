@@ -52,8 +52,8 @@ export const issues = {
     request<IssueTemplate[]>(`/repos/${owner}/${repo}/issue_templates`),
   templateConfig: (owner: string, repo: string) =>
     request<IssueConfig>(`/repos/${owner}/${repo}/issue_config`),
-  list: (owner: string, repo: string, state?: string, page?: number, perPage?: number, labels?: string) => {
-    return request<PaginatedResponse<any>>(`/repos/${owner}/${repo}/issues${qs({ state, page, per_page: perPage, labels })}`)
+  list: (owner: string, repo: string, state?: string, page?: number, perPage?: number, labels?: string, assignee?: string) => {
+    return request<PaginatedResponse<any>>(`/repos/${owner}/${repo}/issues${qs({ state, page, per_page: perPage, labels, assignee })}`)
       .then((response) => ({
         ...response,
         data: response.data.map(normalizeIssue),
@@ -61,10 +61,10 @@ export const issues = {
   },
   get: (owner: string, repo: string, number: number) =>
     request<any>(`/repos/${owner}/${repo}/issues/${number}`).then(normalizeIssue),
-  create: (owner: string, repo: string, title: string, body?: string, labels?: string[]) =>
+  create: (owner: string, repo: string, title: string, body?: string, labels?: string[], assignees?: string[]) =>
     request<any>(`/repos/${owner}/${repo}/issues`, {
       method: 'POST',
-      body: JSON.stringify({ title, body, labels }),
+      body: JSON.stringify({ title, body, labels, assignees }),
     }).then(normalizeIssue),
   update: (owner: string, repo: string, number: number, data: Record<string, any>) =>
     request<any>(`/repos/${owner}/${repo}/issues/${number}`, {
@@ -103,6 +103,13 @@ export const issues = {
     request<ReactionSummary[]>(`/repos/${owner}/${repo}/issues/comments/${commentId}/reactions`, {
       method: 'DELETE',
       body: JSON.stringify({ content }),
+    }),
+  listAssignees: (owner: string, repo: string, number: number) =>
+    request<{ assignees: string[] }>(`/repos/${owner}/${repo}/issues/${number}/assignees`),
+  setAssignees: (owner: string, repo: string, number: number, assignees: string[]) =>
+    request<{ assignees: string[] }>(`/repos/${owner}/${repo}/issues/${number}/assignees`, {
+      method: 'PUT',
+      body: JSON.stringify({ assignees }),
     }),
 };
 

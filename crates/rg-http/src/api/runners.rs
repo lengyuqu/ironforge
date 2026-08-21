@@ -232,9 +232,10 @@ pub async fn deregister(
     State(state): State<AppState>,
     Path(runner_id): Path<i64>,
 ) -> impl IntoResponse {
-    // Reset any jobs assigned to this runner so they can be picked up by others
-    if let Err(e) = rg_db::ops::pipeline_ops::reset_runner_jobs(&state.db, runner_id).await {
-        tracing::warn!(runner_id, error = %e, "Failed to reset runner jobs during deregistration");
+    // Mark any active jobs of this runner as failed (Q3.2: avoid duplicate
+    // execution — the runner is going away and cannot report results anymore)
+    if let Err(e) = rg_db::ops::pipeline_ops::fail_runner_jobs(&state.db, runner_id).await {
+        tracing::warn!(runner_id, error = %e, "Failed to fail runner jobs during deregistration");
     }
 
     match rg_db::ops::runner_ops::delete_runner(&state.db, runner_id).await {

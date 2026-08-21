@@ -98,7 +98,36 @@
 
 ---
 
+## 已修复（2026-08-21，严谨性修缮批次 3：Q2.4–Q2.6 + Q3.1/Q3.3 + CI-201 + Q6.3）
 
+来源：`ironforge-严谨性修缮计划.md` Q 轨道 + F 轨道 CI-201（提交 `7ee7ffb` + Q2.6 `30aa580` + 回归修复 `877fa68`）。
+
+| 问题 | 修复范围 | 验证 |
+|------|----------|------|
+| 写端点无输入长度/格式校验，直接依赖后端 500/DB 截断（Q2.5） | 新增 `rg-http/src/api/validation.rs` 集中校验 helper；issue 创建/更新、PR 创建、wiki 创建/更新、webhook 创建（URL + events）、label 创建统一加上限 | `cargo test -p rg-http --no-fail-fast`（批次 3 全量，见下方汇总） |
+| webhook/email 投递失败仅静默 warn，不可观测（Q2.4） | webhook：reqwest 30s 超时 + 结构化 tracing（webhook_id/event/status 成败均记录），redeliver 接入 `metrics::recorder::webhook_delivery()`；email：SMTP 30s 超时 + 发送成败 tracing | 同上（tracing/metrics 走代码走读 + 编译验证；自动重试按决策 4 等 QUEUE-001） |
+| 服务重启后遗留 `running` job 永久卡死或重复执行（Q3.1） | 新增 `recover_orphaned_jobs()`：启动时先于 watchdog 扫描全部 assigned/running job 标记 failed（原因 "runner restart"，fail-closed 防重复执行）；watchdog 卡死阈值 600s→300s | 同上 |
+| docker/spawn 报错路径可泄漏 secret 值到 job log（Q3.3） | `run_job()` Err 路径返回前用 `secret_values` 脱敏错误消息 | 同上 |
+| 失败 job 无法单独重跑（CI-201） | `pipeline_ops::rerun_failed_job()`：failed/errored/canceled → pending，级联重置 stage/pipeline 状态；新增 `POST /repos/{owner}/{name}/pipelines/{pipeline_id}/jobs/{job_id}/rerun`（写权限 + pipeline 归属校验） | 同上 |
+| 高频表单（建仓/Issue/PR）无前端即时校验（Q6.3） | Issue/PR 创建：标题必填 + 255 上限、正文 65536 上限、校验失败禁用提交；建仓：名称必填 + 100 上限 + 正则（字母数字/点/横线/下划线、首尾字母数字）、描述 255 上限；校验消息 i18n（en/zh-CN） | `npm run check` + `npm run build` |
+| rg-core 业务路径残留 `anyhow`（Q2.6） | auth（11 文件）/issue/repo/pull_request/email/notification/lib 校验器全面迁移 `CoreError`/`CoreResult`；HTTP 层新增 `From<CoreError>` 语义映射（NotFound→404/Forbidden→403/Conflict→409/InvalidInput→400）；rg-ssh 新增 `From<CoreError>`；迁移引入的状态码回归已于 `877fa68` 修复（见上节） | 迁移验证（权限矩阵 4/4）+ 回归修复验证（`issue_reaction_tests` 4/4 含 409/404 断言） |
+
+批次 3 验证汇总：全量 `cargo test -p rg-http --no-fail-fast` 仅既有 Windows 环境失败（issue_template ×2、pr_merge、pr_permission、runner_workspace，同批次 1 归因）；`cargo clippy` 通过；前端 check/build + `i18n-key-check` 通过。
+
+批次 3 余量（顺延下一批次）：ISSUE-105 多 Assignee（批次 2 顺延后仍未完成）、Q3.2 runner 心跳与断连。
+
+---
+
+## 已修复（2026-08-22，严谨性修缮批次 4：ISSUE-105 + Q3.2）
+
+来源：`ironforge-严谨性修缮计划.md` 批次 3 顺延项。
+
+| 问题 | 修复范围 | 验证 |
+|------|----------|------|
+| Issue 仅支持单一 Assignee（ISSUE-105） | 后端：新表 `issue_assignees`（迁移 `m20260821_000001`，含 issues/users 级联 FK + 唯一索引 + 存量 assignee_id 回填）、entity + `issue_assignee_ops`；`rg-core/src/issue/assignees.rs` 多 Assignee 业务层（set/list/按 assignee 筛选，首列为 primary 镜像回写 legacy `assignee_id`）；API：`GET/PUT /repos/{owner}/{name}/issues/{number}/assignees`（PUT 需写权限）、创建 Issue 支持 `assignees`、列表支持 `?assignee=` 筛选；PATCH legacy `assignee_id` 同步 junction 表。前端：详情页 Assignees 面板（展示/编辑，primary 徽标高亮）、创建表单 assignees 字段、模板预填、`issues.ts` API client 扩展、i18n（en/zh-CN） | `cargo test -p rg-http --test issue_assignee_tests`（4/4：round-trip 去重+primary 镜像、写权限 403、创建+筛选、PATCH 同步）；`npm run check` + `npm run build` |
+| Runner 心跳断连后 job 被重新排队导致重复执行风险（Q3.2） | 按决策改为标记失败：`pipeline_ops::fail_runner_jobs()`（runner 的 assigned/running job → error/exit_code=-1/finished_at，并级联 stage→pipeline 状态，复用 `mark_job_timeout`）；watchdog（`rg-http/src/lib.rs`）断连 runner 处理从 reset-to-pending 改为 fail-closed，并删除 300s stuck-job 重置循环（长任务误杀 + 重复执行隐患；job 超时由 rg-runner 侧 `tokio::time::timeout` 执行，重启孤儿由 Q3.1 `recover_orphaned_jobs` 兜底）；deregister 同样改为标记失败；删除 `reset_stuck_job`/`reset_runner_jobs` 死代码。心跳参数维持 30s 上报/90s 判定（3 次丢失）| `cargo test -p rg-http --test runner_disconnect_tests`（3/3：断连检测+job 失败+stage/pipeline 级联、心跳新鲜不误判、deregister 标记失败）；`cargo test -p rg-db -p rg-core` 全量通过 |
+
+批次 4 验证汇总：`cargo test -p rg-db -p rg-core` 全量通过；`cargo test -p rg-http --test issue_assignee_tests`（4/4）、`--test runner_disconnect_tests`（3/4→3/3）、`--test issue_reaction_tests` 回归通过；`cargo clippy -p rg-db -p rg-core -p rg-http -p rg-runner --all-targets` 无警告；前端 check/build 通过。`runner_workspace_tests` 在 Windows 下仍因 auto_init 的 `git push` 无法识别 `\\?\` 前缀临时路径而失败（批次 1 起已知环境问题，非本批次引入，新测试已绕开该路径）。
 
 ---
 

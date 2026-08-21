@@ -504,7 +504,19 @@
     "comment_placeholder": "Add a comment...",
     "reaction": {
       "title": "Reactions"
-    }
+    },
+    "assignees": {
+      "title": "Assignees",
+      "empty": "No one assigned",
+      "edit": "Edit assignees",
+      "placeholder": "usernames (comma-separated)",
+      "save": "Save",
+      "cancel": "Cancel",
+      "hint": "The first user becomes the primary assignee"
+    },
+    "create_form_assignees": "Assignees",
+    "create_form_assignees_hint": "(comma-separated)",
+    "create_form_assignees_placeholder": "user1, user2"
   },
   "pulls": {
     "title": "Pull Requests",
