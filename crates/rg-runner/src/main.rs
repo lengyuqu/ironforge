@@ -477,7 +477,7 @@ async fn run_job_local(
     let output = {
         let mut command = tokio::process::Command::new("powershell.exe");
         command
-            .args(&["-NoProfile", "-NonInteractive", "-Command", script])
+            .args(["-NoProfile", "-NonInteractive", "-Command", script])
             .current_dir(workspace)
             .env_clear()
             .kill_on_drop(true);

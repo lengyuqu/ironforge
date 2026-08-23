@@ -528,7 +528,7 @@ impl PipelineRunner {
         #[cfg(windows)]
         let mut cmd = {
             let mut c = tokio::process::Command::new("powershell.exe");
-            c.args(&["-NoProfile", "-NonInteractive", "-Command", script])
+            c.args(["-NoProfile", "-NonInteractive", "-Command", script])
                 .current_dir(self.workspace_path())
                 .env_clear()
                 .envs(

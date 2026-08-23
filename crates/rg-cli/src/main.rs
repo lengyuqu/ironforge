@@ -1940,7 +1940,7 @@ async fn run_job_local(script: &str) -> (i32, String) {
 
     #[cfg(windows)]
     let output = tokio::process::Command::new("powershell.exe")
-        .args(&["-NoProfile", "-NonInteractive", "-Command", script])
+        .args(["-NoProfile", "-NonInteractive", "-Command", script])
         .output()
         .await;
 

@@ -95,5 +95,5 @@ pub async fn claim(
     if result.rows_affected == 0 {
         return Ok(None);
     }
-    Ok(find_by_id(db, id).await?)
+    find_by_id(db, id).await
 }
