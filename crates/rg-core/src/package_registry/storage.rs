@@ -7,6 +7,7 @@ use crate::blob_storage::{BlobKey, BlobStorage, LocalBlobStorage};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use uuid::Uuid;
 
 #[derive(Clone)]
 pub struct PackageStorage {
@@ -114,6 +115,54 @@ impl PackageStorage {
         Ok(())
     }
 
+    /// Back up the blob at `storage_path` so a later step of a multi-step
+    /// delete can restore it on failure (compensation pattern, mirrors
+    /// `attachment::delete_attachment`). Local blobs are copied to a temp
+    /// file; other backends fall back to in-memory bytes.
+    pub async fn backup_file(&self, storage_path: &str) -> FileBackup {
+        if let Some(source) = self.file_path(storage_path) {
+            let temp = std::env::temp_dir().join(format!(
+                "ironforge-package-delete-{}.tmp",
+                Uuid::new_v4()
+            ));
+            if tokio::fs::copy(&source, &temp).await.is_ok() {
+                return FileBackup {
+                    storage_path: storage_path.to_string(),
+                    kind: FileBackupKind::TempFile(temp),
+                };
+            }
+        }
+        let data = self.read_file(storage_path).await.ok();
+        FileBackup {
+            storage_path: storage_path.to_string(),
+            kind: FileBackupKind::Bytes(data),
+        }
+    }
+
+    /// Restore a backed-up blob to its original key.
+    pub async fn restore_file(&self, backup: &FileBackup) -> Result<()> {
+        match &backup.kind {
+            FileBackupKind::TempFile(temp) => match BlobKey::new(&backup.storage_path) {
+                Ok(key) => {
+                    self.backend.put_file(&key, temp).await?;
+                }
+                Err(_) => {
+                    tokio::fs::copy(temp, &backup.storage_path).await?;
+                }
+            },
+            FileBackupKind::Bytes(Some(data)) => match BlobKey::new(&backup.storage_path) {
+                Ok(key) => {
+                    self.backend.put(&key, data).await?;
+                }
+                Err(_) => {
+                    tokio::fs::write(&backup.storage_path, data).await?;
+                }
+            },
+            FileBackupKind::Bytes(None) => {}
+        }
+        Ok(())
+    }
+
     /// Delete a file by storage path.
     pub async fn delete_file(&self, storage_path: &str) -> Result<()> {
         match BlobKey::new(storage_path) {
@@ -165,6 +214,30 @@ pub struct StoredFile {
     pub size: i64,
     pub sha256: String,
     pub storage_path: String,
+}
+
+/// Backup of a package blob taken before deletion so a failed later step
+/// can restore it (Q4.2 compensation pattern).
+pub struct FileBackup {
+    storage_path: String,
+    kind: FileBackupKind,
+}
+
+enum FileBackupKind {
+    /// Temp file holding a copy of the blob content.
+    TempFile(PathBuf),
+    /// Blob content in memory (non-local backends). `None` means the
+    /// source was already unreadable when the backup was taken.
+    Bytes(Option<Vec<u8>>),
+}
+
+impl FileBackup {
+    /// Remove the temp file backing this backup (no-op for in-memory).
+    pub async fn cleanup(&self) {
+        if let FileBackupKind::TempFile(path) = &self.kind {
+            let _ = tokio::fs::remove_file(path).await;
+        }
+    }
 }
 
 /// Error type for storage operations.
@@ -230,6 +303,50 @@ mod tests {
                 .await
                 .unwrap(),
             b"legacy"
+        );
+    }
+
+    /// Q4.2 compensation round-trip: back up a blob, delete the version
+    /// directory, then restore — the blob must be byte-identical and
+    /// readable again at the original key.
+    #[tokio::test]
+    async fn backup_delete_then_restore_round_trips_blob() {
+        let directory = tempfile::tempdir().unwrap();
+        let storage = PackageStorage::new(directory.path());
+        let stored = storage
+            .store_file(
+                "alice",
+                "demo",
+                "cargo",
+                "demo-crate",
+                "1.0.0",
+                "demo-crate-1.0.0.crate",
+                b"crate-bytes",
+            )
+            .await
+            .unwrap();
+
+        let backup = storage.backup_file(&stored.storage_path).await;
+        storage
+            .delete_version("alice", "demo", "cargo", "demo-crate", "1.0.0")
+            .await
+            .unwrap();
+        assert!(
+            !storage
+                .has_files("alice", "demo", "cargo", "demo-crate", "1.0.0")
+                .await
+        );
+
+        storage.restore_file(&backup).await.unwrap();
+        assert_eq!(
+            storage.read_file(&stored.storage_path).await.unwrap(),
+            b"crate-bytes"
+        );
+        backup.cleanup().await;
+        // Cleanup only removes the temp file; the restored blob stays.
+        assert_eq!(
+            storage.read_file(&stored.storage_path).await.unwrap(),
+            b"crate-bytes"
         );
     }
 }

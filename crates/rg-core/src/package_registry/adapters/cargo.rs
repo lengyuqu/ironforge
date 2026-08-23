@@ -147,6 +147,13 @@ impl PackageAdapter for CargoAdapter {
     fn has_protocol_endpoint(&self) -> bool {
         true
     }
+
+    /// Cargo's sparse index carries a per-version `yanked` flag; cargo
+    /// dependency resolution refuses yanked versions, so the registry
+    /// must keep the flag linked to DB state (Q4.1).
+    fn supports_yank(&self) -> bool {
+        true
+    }
 }
 
 /// Build a sparse-index line for a version entry.

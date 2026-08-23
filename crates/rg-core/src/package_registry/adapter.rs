@@ -56,6 +56,15 @@ pub trait PackageAdapter: Send + Sync {
     fn has_protocol_endpoint(&self) -> bool {
         false
     }
+
+    /// Whether this package type supports the yank/un-yank lifecycle
+    /// (Q4.1). Yank is a protocol-native concept for some ecosystems
+    /// (Cargo sparse index carries a `yanked` flag that dependency
+    /// resolution rejects); adapters without protocol-level semantics
+    /// should keep the default `false`.
+    fn supports_yank(&self) -> bool {
+        false
+    }
 }
 
 /// Boxed adapter for type-erased storage.

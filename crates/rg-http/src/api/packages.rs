@@ -584,6 +584,18 @@ pub async fn yank_version(
         return e.into_response();
     }
 
+    // Q4.1: yank only applies to package types whose protocol gives the
+    // flag real semantics (e.g. cargo sparse index); reject others with 400.
+    let supported = rg_core::package_registry::adapter::get_adapter(&pkg_type)
+        .map(|a| a.supports_yank())
+        .unwrap_or(false);
+    if !supported {
+        return err(
+            StatusCode::BAD_REQUEST,
+            &format!("yank is not supported for package type '{pkg_type}'"),
+        );
+    }
+
     match rg_core::package_registry::service::yank_version(
         &state.db, &owner, &name, &pkg_type, &pkg_name, &version, body.yank,
     )

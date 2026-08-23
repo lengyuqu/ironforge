@@ -432,6 +432,11 @@ pub async fn download_file(
 }
 
 /// Delete a package version.
+///
+/// Order + compensation (Q4.2, mirrors `attachment::delete_attachment`):
+/// blobs are backed up first, then deleted from storage, then DB records
+/// are removed. If the DB delete fails, blobs are restored from the backup
+/// so the registry never ends up with records pointing at missing files.
 pub async fn delete_version(
     db: &DatabaseConnection,
     storage: &PackageStorage,
@@ -442,20 +447,57 @@ pub async fn delete_version(
     version_str: &str,
 ) -> Result<()> {
     let v = get_version(db, owner, repo, package_type, name, version_str).await?;
+    let files = rg_db::ops::package_file_ops::list_by_version(db, v.id).await?;
 
-    // Delete files from storage
-    storage
+    // Back up blobs so the DB delete can be compensated on failure
+    let backups: Vec<_> = {
+        let mut backups = Vec::with_capacity(files.len());
+        for file in &files {
+            backups.push(storage.backup_file(&file.storage_path).await);
+        }
+        backups
+    };
+
+    // Delete files from storage — if this fails, nothing was deleted yet
+    if let Err(error) = storage
         .delete_version(owner, repo, package_type, name, version_str)
-        .await?;
+        .await
+    {
+        for backup in &backups {
+            backup.cleanup().await;
+        }
+        return Err(error.context("failed to delete package files from storage"));
+    }
 
-    // Delete DB records
-    rg_db::ops::package_file_ops::delete_by_version(db, v.id).await?;
-    rg_db::ops::package_version_ops::delete_by_id(db, v.id).await?;
+    // Delete DB records — restore blobs on failure
+    let db_delete = async {
+        rg_db::ops::package_file_ops::delete_by_version(db, v.id).await?;
+        rg_db::ops::package_version_ops::delete_by_id(db, v.id).await?;
+        Ok::<(), anyhow::Error>(())
+    }
+    .await;
+    if let Err(error) = db_delete {
+        for backup in &backups {
+            let _ = storage.restore_file(backup).await;
+        }
+        for backup in &backups {
+            backup.cleanup().await;
+        }
+        return Err(error.context("failed to delete package version records"));
+    }
 
+    for backup in &backups {
+        backup.cleanup().await;
+    }
     Ok(())
 }
 
 /// Yank a version (soft delete — mark as pulled).
+///
+/// Only package types whose protocol gives `yanked` real semantics are
+/// allowed (Q4.1): for Cargo the sparse index carries the flag and cargo
+/// dependency resolution refuses yanked versions. Other types must use
+/// version deletion instead.
 pub async fn yank_version(
     db: &DatabaseConnection,
     owner: &str,
@@ -465,6 +507,11 @@ pub async fn yank_version(
     version_str: &str,
     yank: bool,
 ) -> Result<()> {
+    let adapter = crate::package_registry::adapter::get_adapter(package_type)
+        .ok_or_else(|| anyhow::anyhow!("unsupported package type '{package_type}'"))?;
+    if !adapter.supports_yank() {
+        anyhow::bail!("yank is not supported for package type '{package_type}'");
+    }
     let v = get_version(db, owner, repo, package_type, name, version_str).await?;
     rg_db::ops::package_version_ops::set_yanked(db, v.id, yank).await?;
     Ok(())
