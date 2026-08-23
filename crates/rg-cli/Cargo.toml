@@ -23,6 +23,7 @@ tracing-appender = { workspace = true }
 anyhow = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+chrono = { workspace = true }
 toml = { workspace = true }
 rustls-pemfile = { workspace = true }
 tokio-rustls = { workspace = true }

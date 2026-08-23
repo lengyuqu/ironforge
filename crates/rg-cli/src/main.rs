@@ -200,6 +200,63 @@ enum Commands {
         force: bool,
     },
 
+    /// Create a full-instance backup (OPS-501): database, git repositories,
+    /// blob storage (LFS/packages/OCI/artifacts/attachments), audit archive
+    /// and optional config file, into a single directory.
+    ///
+    /// Stop the IronForge server before running this command: the database
+    /// snapshot and the file copy are taken sequentially, not atomically.
+    Backup {
+        /// Database URL (SQLite only; use pg_dump/mysqldump for other backends)
+        #[arg(long, default_value = "sqlite://./ironforge.db?mode=rwc")]
+        db_url: String,
+
+        /// Root directory holding git repositories and blob storage
+        #[arg(long, default_value = "./repos")]
+        repo_root: String,
+
+        /// Audit archive directory (skipped when it does not exist)
+        #[arg(long, default_value = "./data/audit-archive")]
+        audit_archive_dir: String,
+
+        /// Optional TOML config file to include in the backup
+        #[arg(long)]
+        config: Option<String>,
+
+        /// Output backup directory (must not exist unless --force)
+        output: String,
+
+        /// Overwrite an existing output directory.
+        #[arg(long, default_value_t = false)]
+        force: bool,
+    },
+
+    /// Restore a full-instance backup created by `ironforge backup` (OPS-501).
+    ///
+    /// Restores the database, repository/blob data and audit archive to the
+    /// given targets. Run `ironforge migrate` afterwards if the restoring
+    /// binary is newer than the one that took the backup.
+    Restore {
+        /// Database URL to restore into (SQLite only)
+        #[arg(long, default_value = "sqlite://./ironforge.db?mode=rwc")]
+        db_url: String,
+
+        /// Root directory to restore repositories and blob storage into
+        #[arg(long, default_value = "./repos")]
+        repo_root: String,
+
+        /// Audit archive restore target
+        #[arg(long, default_value = "./data/audit-archive")]
+        audit_archive_dir: String,
+
+        /// Backup directory to restore from.
+        input: String,
+
+        /// Overwrite existing files at the restore targets.
+        #[arg(long, default_value_t = false)]
+        force: bool,
+    },
+
     /// Create a new bare repository (no DB record — for quick testing)
     CreateRepo {
         /// Owner username
@@ -561,6 +618,226 @@ fn remove_sqlite_sidecar_files(db_path: &std::path::Path) -> anyhow::Result<()> 
     Ok(())
 }
 
+// ── Full-instance backup / restore (OPS-501) ─────────────────────────────
+
+/// Backup directory layout:
+///
+/// ```text
+/// <output>/
+///   manifest.json      # format version, timestamp, contents summary
+///   ironforge.db       # SQLite snapshot (VACUUM INTO)
+///   data/              # repo_root copy: git repos + LFS/packages/OCI/
+///                       # artifacts/attachments blob storage
+///   audit-archive/     # audit NDJSON.zst archives (when present)
+///   config/            # optional TOML config file copy
+/// ```
+const BACKUP_FORMAT_VERSION: u64 = 1;
+
+/// Create a full-instance backup. The database snapshot and file copy are
+/// sequential — the server must be stopped for a consistent backup.
+async fn backup_instance(
+    db_url: &str,
+    repo_root: &std::path::Path,
+    audit_archive_dir: &std::path::Path,
+    config: Option<&std::path::Path>,
+    output: &std::path::Path,
+    force: bool,
+) -> anyhow::Result<()> {
+    if !db_url.starts_with("sqlite:") {
+        anyhow::bail!(
+            "full-instance backup currently supports the SQLite backend only; \
+             for PostgreSQL/MySQL dump the database with pg_dump / mysqldump and \
+             back up the repository root alongside it"
+        );
+    }
+    if output.exists() && !force {
+        anyhow::bail!(
+            "backup output already exists: {} (use --force to overwrite)",
+            output.display()
+        );
+    }
+    if !repo_root.is_dir() {
+        anyhow::bail!("repo root not found: {}", repo_root.display());
+    }
+
+    if output.exists() {
+        std::fs::remove_dir_all(output)
+            .with_context(|| format!("failed to remove existing backup: {}", output.display()))?;
+    }
+    std::fs::create_dir_all(output)
+        .with_context(|| format!("failed to create backup directory: {}", output.display()))?;
+
+    // 1. Database snapshot
+    let db_backup = output.join("ironforge.db");
+    backup_sqlite_db(db_url, &db_backup, true).await?;
+
+    // 2. Repository root (git repos + all blob storage)
+    let files = copy_dir_recursive(repo_root, &output.join("data"))
+        .with_context(|| format!("failed to copy repo root {}", repo_root.display()))?;
+    tracing::info!(files, "repo root copied");
+
+    // 3. Audit archive (optional — only when the directory exists)
+    let mut includes_audit = false;
+    if audit_archive_dir.is_dir() {
+        copy_dir_recursive(audit_archive_dir, &output.join("audit-archive"))
+            .with_context(|| format!("failed to copy audit archive {}", audit_archive_dir.display()))?;
+        includes_audit = true;
+    }
+
+    // 4. Config file (optional)
+    let mut config_name: Option<String> = None;
+    if let Some(config_path) = config {
+        if !config_path.is_file() {
+            anyhow::bail!("config file not found: {}", config_path.display());
+        }
+        let name = config_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .ok_or_else(|| anyhow::anyhow!("config file name is not valid UTF-8"))?;
+        let target_dir = output.join("config");
+        std::fs::create_dir_all(&target_dir)?;
+        std::fs::copy(config_path, target_dir.join(name))?;
+        config_name = Some(name.to_string());
+    }
+
+    // 5. Manifest
+    let manifest = serde_json::json!({
+        "format_version": BACKUP_FORMAT_VERSION,
+        "created_at": chrono::Utc::now().to_rfc3339(),
+        "db_backend": "sqlite",
+        "includes": {
+            "database": true,
+            "repo_root": true,
+            "audit_archive": includes_audit,
+            "config": config_name,
+        },
+    });
+    std::fs::write(
+        output.join("manifest.json"),
+        serde_json::to_vec_pretty(&manifest)?,
+    )?;
+
+    println!(
+        "Full-instance backup written to {} (db + repo root{}{})",
+        output.display(),
+        if includes_audit { " + audit archive" } else { "" },
+        if config_name.is_some() { " + config" } else { "" },
+    );
+    println!("Restore with: ironforge restore --input {}", output.display());
+    Ok(())
+}
+
+/// Restore a full-instance backup created by [`backup_instance`].
+fn restore_instance(
+    input: &std::path::Path,
+    db_url: &str,
+    repo_root: &std::path::Path,
+    audit_archive_dir: &std::path::Path,
+    force: bool,
+) -> anyhow::Result<()> {
+    if !input.is_dir() {
+        anyhow::bail!("backup directory does not exist: {}", input.display());
+    }
+
+    // Validate the manifest before touching any target
+    let manifest_path = input.join("manifest.json");
+    let manifest: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(
+        &manifest_path,
+    )?)
+    .with_context(|| format!("invalid manifest: {}", manifest_path.display()))?;
+    let format_version = manifest["format_version"].as_u64().ok_or_else(|| {
+        anyhow::anyhow!("backup manifest is missing format_version")
+    })?;
+    if format_version > BACKUP_FORMAT_VERSION {
+        anyhow::bail!(
+            "backup format version {format_version} is newer than this binary supports \
+             ({}); upgrade IronForge before restoring",
+            BACKUP_FORMAT_VERSION
+        );
+    }
+
+    // 1. Database
+    let db_backup = input.join("ironforge.db");
+    if !db_backup.is_file() {
+        anyhow::bail!("backup is missing the database file: {}", db_backup.display());
+    }
+
+    // 2. Repository root / blob storage
+    let data_dir = input.join("data");
+    if !data_dir.is_dir() {
+        anyhow::bail!("backup is missing the data directory: {}", data_dir.display());
+    }
+
+    // Pre-flight: validate every target BEFORE the first destructive write so
+    // a rejected restore leaves the instance untouched.
+    if !force {
+        let target_db = sqlite_db_path_from_url(db_url)?;
+        if target_db.exists() {
+            anyhow::bail!(
+                "target database already exists: {} (stop IronForge and use --force to overwrite)",
+                target_db.display()
+            );
+        }
+        if repo_root.exists()
+            && std::fs::read_dir(repo_root)
+                .map(|mut entries| entries.next().is_some())
+                .unwrap_or(false)
+        {
+            anyhow::bail!(
+                "repo root is not empty: {} (use --force to overwrite existing files)",
+                repo_root.display()
+            );
+        }
+    }
+
+    // Restore database first, then files.
+    restore_sqlite_db(db_url, &db_backup, force)?;
+
+    copy_dir_recursive(&data_dir, repo_root)
+        .with_context(|| format!("failed to restore data to {}", repo_root.display()))?;
+
+    // 3. Audit archive (only when the backup contains one)
+    let audit_src = input.join("audit-archive");
+    if audit_src.is_dir() {
+        copy_dir_recursive(&audit_src, audit_archive_dir).with_context(|| {
+            format!("failed to restore audit archive to {}", audit_archive_dir.display())
+        })?;
+    }
+
+    println!("Restored full instance to:");
+    println!("  database : {db_url}");
+    println!("  repo root: {}", repo_root.display());
+    println!("Next steps:");
+    println!("  1. run `ironforge migrate --db-url {db_url}` (no-op when schema matches)");
+    println!("  2. start the server against the restored paths");
+    Ok(())
+}
+
+/// Recursively copy a directory tree. Returns the number of files copied.
+/// Symlinks are followed (content is copied).
+fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> anyhow::Result<u64> {
+    std::fs::create_dir_all(dst)?;
+    let mut count = 0u64;
+    let mut stack = vec![(src.to_path_buf(), dst.to_path_buf())];
+    while let Some((source, target)) = stack.pop() {
+        for entry in std::fs::read_dir(&source)
+            .with_context(|| format!("failed to read directory {}", source.display()))?
+        {
+            let entry = entry?;
+            let file_type = entry.file_type()?;
+            let entry_target = target.join(entry.file_name());
+            if file_type.is_dir() {
+                std::fs::create_dir_all(&entry_target)?;
+                stack.push((entry.path(), entry_target));
+            } else {
+                std::fs::copy(entry.path(), &entry_target)?;
+                count += 1;
+            }
+        }
+    }
+    Ok(count)
+}
+
 fn sqlite_db_path_from_url(db_url: &str) -> anyhow::Result<PathBuf> {
     let rest = db_url
         .strip_prefix("sqlite://")
@@ -745,6 +1022,55 @@ async fn main() -> anyhow::Result<()> {
                 .init();
 
             restore_sqlite_db(&db_url, &PathBuf::from(input), force)?;
+        }
+
+        Commands::Backup {
+            db_url,
+            repo_root,
+            audit_archive_dir,
+            config,
+            output,
+            force,
+        } => {
+            tracing_subscriber::fmt()
+                .with_env_filter(
+                    EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+                )
+                .with_target(false)
+                .init();
+
+            backup_instance(
+                &db_url,
+                std::path::Path::new(&repo_root),
+                std::path::Path::new(&audit_archive_dir),
+                config.as_deref().map(std::path::Path::new),
+                std::path::Path::new(&output),
+                force,
+            )
+            .await?;
+        }
+
+        Commands::Restore {
+            db_url,
+            repo_root,
+            audit_archive_dir,
+            input,
+            force,
+        } => {
+            tracing_subscriber::fmt()
+                .with_env_filter(
+                    EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+                )
+                .with_target(false)
+                .init();
+
+            restore_instance(
+                std::path::Path::new(&input),
+                &db_url,
+                std::path::Path::new(&repo_root),
+                std::path::Path::new(&audit_archive_dir),
+                force,
+            )?;
         }
 
         Commands::CreateRepo {
