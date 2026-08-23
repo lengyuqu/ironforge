@@ -140,9 +140,9 @@ M4 验收门：外部身份生命周期可回收；用户屏蔽在所有写路�
 |---|---|---|---|---|---:|
 | STORAGE-001 | DONE | P0 | 统一 BlobStorage trait，覆盖 LFS/Package/OCI/Artifact/附件/归档 | 无 | 实际 1 天 |
 | STORAGE-002 | TODO | P1 | S3/MinIO 后端、签名 URL、迁移与一致性校验 | STORAGE-001 | 8–12 天 |
-| QUEUE-001 | TODO | P1 | 持久化后台任务抽象，先覆盖 mail/mirror/webhook/index/archive | 无 | 8–12 天 |
+| QUEUE-001 | DONE | P1 | 持久化后台任务抽象，先覆盖 mail/mirror/webhook/index/archive | 无 | 实际 1 天（`background_jobs` 表 + DB 持久队列/worker 抽象；webhook 传输失败重试、邮件重试、mirror 周期调度接入；index 维持 push 事件驱动、archive 维持 archiver 自有循环，见 architecture-followups 批次 5 节；Redis/退避可配置归 QUEUE-002） |
 | QUEUE-002 | TODO | P2 | Redis queue、重试、退避、死信和可观测性 | QUEUE-001 | 6–10 天 |
-| OPS-501 | TODO | P0 | 全实例 backup/restore：DB、repos、LFS、packages、OCI、artifacts、配置 | STORAGE-001 | 8–12 天 |
+| OPS-501 | DONE | P0 | 全实例 backup/restore：DB、repos、LFS、packages、OCI、artifacts、配置 | STORAGE-001 | 实际 0.5 天（SQLite 后端；`ironforge backup`/`restore` + manifest + 预检式恢复，见 architecture-followups 批次 5 节；跨主机协议抽查归 OPS-502） |
 | OPS-502 | TODO | P1 | 升级/降级边界、备份恢复演练和版本矩阵 | OPS-501 | 5–8 天 |
 | OPS-503 | TODO | P1 | SQLite/PostgreSQL/MySQL 长期并发压测与故障注入 | PERF-001 | 6–10 天 |
 | OPS-504 | TODO | P2 | 多节点部署边界、共享状态清单和明确的 HA 支持等级 | STORAGE-002, QUEUE-002 | 5–8 天 |

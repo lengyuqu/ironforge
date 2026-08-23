@@ -151,6 +151,28 @@ pub async fn trigger_event(
                             error = %e,
                             "webhook delivery failed"
                         );
+                        // QUEUE-001: schedule a durable retry for transport
+                        // failures; the background worker redelivers with
+                        // backoff and records each attempt.
+                        let queue = crate::background_jobs::BackgroundJobQueue::new(db_clone.clone());
+                        let retry_payload = serde_json::json!({
+                            "webhook_id": hook_id,
+                            "event": event_str,
+                            "payload": payload_str,
+                        });
+                        if let Err(retry_err) = queue
+                            .enqueue(
+                                crate::background_jobs::TASK_WEBHOOK_DELIVER,
+                                &retry_payload,
+                            )
+                            .await
+                        {
+                            tracing::error!(
+                                webhook_id = hook_id,
+                                error = %retry_err,
+                                "failed to enqueue webhook delivery retry"
+                            );
+                        }
                         (None, Some(format!("delivery error: {:#}", e)))
                     }
                 };
@@ -214,6 +236,66 @@ async fn deliver(
 
     let resp = builder.send().await.context("webhook POST failed")?;
     Ok(resp.status().as_u16() as i32)
+}
+
+/// Execute one queued webhook delivery (QUEUE-001 `webhook.deliver` handler).
+///
+/// Payload: `{ "webhook_id", "event", "payload" }`. Transport failures return
+/// `Err` so the queue reschedules with backoff; every attempt is recorded in
+/// `webhook_deliveries`. A webhook deleted after the retry was scheduled is
+/// treated as resolved (Ok).
+pub async fn deliver_retry_job(db: &DatabaseConnection, payload: &Value) -> Result<()> {
+    let webhook_id = payload["webhook_id"]
+        .as_i64()
+        .context("webhook retry payload is missing webhook_id")?;
+    let event = payload["event"]
+        .as_str()
+        .context("webhook retry payload is missing event")?;
+    let body = payload["payload"]
+        .as_str()
+        .context("webhook retry payload is missing payload")?;
+
+    let hook = match webhook_ops::find_by_id(db, webhook_id).await? {
+        Some(hook) => hook,
+        None => {
+            tracing::info!(webhook_id, "webhook deleted; dropping queued retry");
+            return Ok(());
+        }
+    };
+
+    let delivery_id = uuid::Uuid::new_v4().to_string();
+    let start = std::time::Instant::now();
+    let (status, response_body) = match deliver(&hook.url, &hook.content_type, &hook.secret, body).await {
+        Ok(resp_status) => {
+            tracing::info!(
+                webhook_id,
+                event = %event,
+                http_status = resp_status,
+                "webhook redelivery succeeded"
+            );
+            (Some(resp_status), None::<String>)
+        }
+        Err(e) => (None, Some(format!("delivery error: {:#}", e))),
+    };
+
+    let duration_ms = start.elapsed().as_millis() as i64;
+    let delivery_model = webhook_delivery::ActiveModel {
+        id: sea_orm::NotSet,
+        webhook_id: sea_orm::Set(webhook_id),
+        event: sea_orm::Set(event.to_string()),
+        delivery_id: sea_orm::Set(delivery_id),
+        response_status: sea_orm::Set(status),
+        request_payload: sea_orm::Set(Some(body.to_string())),
+        response_body: sea_orm::Set(response_body.clone()),
+        duration_ms: sea_orm::Set(Some(duration_ms)),
+        created_at: sea_orm::Set(Utc::now()),
+    };
+    webhook_ops::create_delivery(db, delivery_model).await?;
+
+    match response_body {
+        Some(error) => anyhow::bail!("{error}"),
+        None => Ok(()),
+    }
 }
 
 /// List recent deliveries for a webhook.

@@ -131,6 +131,35 @@
 
 ---
 
+## 已修复（2026-08-22，严谨性修缮 Q4：Package Registry 严谨性）
+
+来源：`ironforge-严谨性修缮计划.md` Q 轨道 Q4。
+
+| 问题 | 修复范围 | 验证 |
+|------|----------|------|
+| yank 无能力位，任意包类型都可 yank 但多数协议无语义（Q4.1） | `PackageAdapter` trait 新增 `supports_yank()`（默认 `false`，语义：仅协议原生支持 yank 的类型开放）；cargo adapter 覆写为 `true`（sparse index 携带 `yanked` 标志，cargo 依赖解析拒绝 yanked 版本）；service `yank_version` 与 HTTP handler 双层校验，不支持的类型返回 400（非 500）；yanked 版本保持可下载（crates.io 语义：已有 lockfile 构建不受影响）。sparse index `yanked` 字段与 DB `is_yanked` 联动此前已实现，本次补测试闭环 | `cargo test -p rg-http --test package_yank_delete_tests`（4/4：yank→index 联动+un-yank 回翻+下载不中断、generic 类型 400、匿名 401、删除后 index/version/download 均 404） |
+| 版本删除无补偿：blob 先删、DB 删除失败会产生指向缺失文件的悬空记录（Q4.2） | `PackageStorage` 新增 `backup_file`/`restore_file`/`FileBackup`（本地 backend 复制临时文件，其他 backend 内存字节，复刻 `attachment::delete_attachment` 补偿模式）；service `delete_version` 改为：备份 → 删 blob（失败即返回，无脏状态）→ 删 DB 记录（失败则从备份恢复 blob）→ 清理备份 | `rg-core` 单测 `backup_delete_then_restore_round_trips_blob`（备份→删除→恢复字节一致往返）；HTTP 集成 `delete_version_removes_records_and_files`（删除后 version/download/index 一致） |
+| publish 不同步包搜索索引（Q4.3） | **N/A（前提不满足）**：搜索子系统仅覆盖 repos/issues/wiki（`search/service.rs`），无 packages FTS 表；计划该项带"（若有 FTS 表）"前置守卫，条件不成立，新增 packages FTS 属独立功能（远超 Q4 0.5d 估算），不在本项范围 | 证据：`rg-core/src/search/service.rs` 仅 search_repos/search_issues/search_wiki |
+
+Q4 验证汇总：`cargo test -p rg-core package_registry`（28/28，含新补偿往返单测）；`cargo test -p rg-http --test package_format_e2e_tests`（1/1）+ `--test package_permission_tests`（2/2）+ `--test package_yank_delete_tests`（4/4）回归通过；`cargo clippy -p rg-core -p rg-http --all-targets` 无警告。
+
+---
+
+## 已修复（2026-08-22，严谨性修缮批次 5：OPS-501 全实例备份恢复 + QUEUE-001 任务抽象）
+
+来源：`ironforge-严谨性修缮计划.md` 批次 5；台账任务 `OPS-501`（P0，依赖 STORAGE-001 已满足——统一 BlobStorage 下所有 blob 落在 repo root 内）与 `QUEUE-001`（P1）。
+
+| 问题 | 修复范围 | 验证 |
+|------|----------|------|
+| 无全实例备份恢复命令（OPS-501） | `rg-cli` 新增 `ironforge backup` / `ironforge restore` 子命令。备份产物为单目录：`ironforge.db`（VACUUM INTO 快照）+ `data/`（repo root 整树：git 仓库 + LFS/packages/OCI/artifacts/attachments blob 存储）+ `audit-archive/`（存在时）+ `config/`（可选 `--config`）+ `manifest.json`（format_version=1、created_at、内容清单）。恢复前先做全部前置校验（manifest 版本 ≤ 本二进制、DB/data 存在、目标 DB 不存在、repo root 为空——不带 `--force` 时任何一项失败都不触碰目标），校验通过后 DB → 文件 → 审计归档依次恢复。仅支持 SQLite 后端（PG/MySQL 明确报错并指引 pg_dump/mysqldump）；快照与文件复制为顺序执行，命令文档明确要求先停服；输出已存在需 `--force` | 实机端到端（Windows，debug 构建）：`migrate` 建库 → 建假仓库/审计归档/config → `backup` 产物结构 + manifest 字段核对 → 无 `--force` 恢复到非空 repo root 被拒且目标 DB 未被创建（预检先行）→ `--force` 恢复成功 → 恢复后文件内容逐字节一致（HEAD/config/审计归档）→ 恢复库 `migrate` 报 `No pending migrations`（schema 一致性抽查）；`cargo check`/`build`/`clippy -p rg-cli` 通过（1 个警告为既有 `run_job_local` 代码，非本次引入） |
+| 无持久化后台任务抽象：webhook 投递 fire-and-forget 失败即丢、邮件失败静默丢弃、mirror `sync_due_mirrors` 从未被调度（QUEUE-001） | 新增 `background_jobs` 表（迁移 `m20260822_000001`：task_type/payload/status/attempts/max_attempts/run_at/locked_by/locked_at/last_error，pending→running→succeeded/dead 状态机）+ entity/ops；`rg-core::background_jobs`：`BackgroundJobQueue`（enqueue / claim_next 条件 UPDATE 原子抢占，SQLite/PG/MySQL 可移植 / complete / fail 指数退避 30s·2^n 封顶 1h + 死信 / recover_stale 崩溃回收 10min 阈值）与 `BackgroundJobWorker`（handler 注册表 + 5s 轮询 + 周期任务注册）。集成：webhook `trigger_event` 传输失败→入队 `webhook.deliver` 重试（每次尝试记录 delivery 行，webhook 已删除则 Ok 丢弃）；密码重置邮件与 CI 通知邮件失败→入队 `email.send` 重试（handler 捕获 SMTP 配置，未配置则丢弃）；worker 周期任务每 60s 驱动 `sync_due_mirrors`（各 mirror 自持 next_sync_at 节奏）——`AppState` 零改动（enqueue 仅需已有 `DatabaseConnection`，避免测试构造器联动）。Q2.4 决策 4 的"重试等 QUEUE-001"落地；index（push 事件驱动）与 archive（archiver 自有循环）维持现状 | `cargo test -p rg-core --lib background_jobs`（4/4：round-trip/claim 互斥、fail 退避+死信、stale 回收再认领、worker 分发+未知类型死信）；`cargo test -p rg-http --test background_job_tests`（3/3：投递失败→持久重试入队→URL 修复→重投成功记 200、不可达 URL 失败且记 delivery、webhook 删除后重试 Ok 不重投）；`cargo test -p rg-db -p rg-core` 全量（115+18+1）、runner_disconnect/issue_assignee/package_yank_delete 回归通过；clippy 无警告 |
+
+OPS-501 边界说明：验收门"新主机恢复并通过协议抽查"中的协议抽查以 `migrate` schema 一致性 + 文件往返核对覆盖；跨主机全套协议（clone/push/LFS/package 下载）抽查归属 OPS-502 升降级演练。S3 等非本地 BlobStorage 后端（STORAGE-002 未实现）暂以"整树复制 repo root"覆盖本地 backend；引入远端 backend 后需按 `BlobStorage::list(None)` 清单化备份（见 blob-storage-contract 文档）。
+
+QUEUE-001 边界说明：本批次交付的是数据库持久队列抽象与三类首个接入方（webhook 重试 / 邮件重试 / mirror 调度）；Redis 队列、退避可配置、死信管理界面与更丰富的可观测性归 QUEUE-002。webhook 重试语义为"传输失败重试"，非 2xx 响应按现状记录不重试（与既有 delivery 语义一致）。
+
+---
+
 ## P0：应优先修复
 
 当前 P0 已清零。

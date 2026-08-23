@@ -336,9 +336,9 @@
 |---|---|---|---|
 | STORAGE-001 | `DONE` | 统一 BlobStorage trait | LFS/Package/OCI/Artifact/Release 已接入；legacy 可读；S3/迁移归 STORAGE-002 |
 | STORAGE-002 | `TODO` | S3/MinIO 后端 | 依赖 STORAGE-001 |
-| QUEUE-001 | `TODO` | 持久化后台任务抽象 | 未开始 |
+| QUEUE-001 | `DONE` | 持久化后台任务抽象 | `background_jobs` 持久队列（claim 原子抢占/指数退避/死信/崩溃回收）+ worker；webhook 传输失败与邮件失败入队重试、mirror 60s 周期调度；Redis 归 QUEUE-002 |
 | QUEUE-002 | `TODO` | Redis queue、重试和死信 | 依赖 QUEUE-001 |
-| OPS-501 | `TODO` | 全实例 backup/restore | 依赖 STORAGE-001 |
+| OPS-501 | `DONE` | 全实例 backup/restore | `ironforge backup`/`restore`（SQLite 快照 + repo root 整树 + 审计归档 + 可选 config + manifest，恢复预检先行）；跨主机协议抽查归 OPS-502 |
 | OPS-502 | `TODO` | 升降级与恢复演练 | 依赖 OPS-501 |
 | OPS-503 | `TODO` | 三数据库长期压测与故障注入 | 依赖 PERF-001 |
 | OPS-504 | `TODO` | 多节点和 HA 支持边界 | 依赖 STORAGE-002、QUEUE-002 |

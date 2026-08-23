@@ -4,6 +4,7 @@ pub mod access_token;
 pub mod artifact;
 pub mod attachment;
 pub mod audit_log;
+pub mod background_job;
 pub mod board;
 pub mod board_card;
 pub mod board_column;

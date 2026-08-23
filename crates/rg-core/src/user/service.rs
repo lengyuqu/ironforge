@@ -569,14 +569,34 @@ pub async fn forgot_password(
              Click the button below to set a new password. This link expires in 15 minutes.",
             user.username
         );
-        let _ = crate::email::send_html_notification(
+        if let Err(e) = crate::email::send_html_notification(
             smtp,
             &user.email,
             subject,
             &message,
             Some(&reset_url),
         )
-        .await;
+        .await
+        {
+            // QUEUE-001: durable retry instead of dropping the email.
+            let queue = crate::background_jobs::BackgroundJobQueue::new(db.clone());
+            let payload = serde_json::json!({
+                "to": user.email,
+                "subject": subject,
+                "message": message,
+                "action_url": reset_url,
+            });
+            if let Err(retry_err) = queue
+                .enqueue(crate::background_jobs::TASK_EMAIL_SEND, &payload)
+                .await
+            {
+                tracing::error!(
+                    error = %retry_err,
+                    "failed to enqueue password-reset email retry"
+                );
+            }
+            tracing::warn!(error = %e, "password reset email send failed; retry scheduled");
+        }
     }
 
     tracing::info!(user_id = user.id, "password reset requested");

@@ -218,6 +218,10 @@ pub async fn run(config: HttpServerConfig) -> Result<()> {
 
     tokio::spawn(api::ci_retention::run_cleanup_loop(state.clone()));
 
+    // QUEUE-001: durable background job worker (webhook/email retries,
+    // periodic mirror sync).
+    spawn_background_job_worker(state.clone());
+
     // Spawn runner watchdog background task
     tokio::spawn(async move {
         run_runner_watchdog(watchdog_db).await;
@@ -2587,6 +2591,28 @@ async fn post_push_hooks(
                             .await
                             {
                                 tracing::warn!(error = %e, "Failed to send CI notification email");
+                                // QUEUE-001: durable retry instead of dropping the email.
+                                let queue = rg_core::background_jobs::BackgroundJobQueue::new(
+                                    (*db).clone(),
+                                );
+                                let payload = serde_json::json!({
+                                    "to": owner_user.email,
+                                    "subject": subject,
+                                    "message": body,
+                                    "action_url": null,
+                                });
+                                if let Err(retry_err) = queue
+                                    .enqueue(
+                                        rg_core::background_jobs::TASK_EMAIL_SEND,
+                                        &payload,
+                                    )
+                                    .await
+                                {
+                                    tracing::error!(
+                                        error = %retry_err,
+                                        "failed to enqueue CI notification email retry"
+                                    );
+                                }
                             }
                         }
                     }
@@ -2738,6 +2764,85 @@ async fn recover_orphaned_jobs(db: &DatabaseConnection) {
             );
         }
     }
+}
+
+/// Build and spawn the QUEUE-001 background job worker with the server's
+/// handlers: `webhook.deliver` (transport-failure retries recorded in
+/// `webhook_deliveries`), `email.send` (SMTP retry; skipped silently when
+/// SMTP is not configured, mirroring the direct-send semantics) and a
+/// periodic mirror-sync tick driving `sync_due_mirrors` (each mirror keeps
+/// its own `next_sync_at` cadence).
+fn spawn_background_job_worker(state: AppState) {
+    use rg_core::background_jobs::{
+        BackgroundJobQueue, BackgroundJobWorker, JobHandler, PeriodicTask, TASK_EMAIL_SEND,
+        TASK_WEBHOOK_DELIVER,
+    };
+    use std::sync::Arc;
+
+    let worker_db = state.db.clone();
+
+    // email.send — retry notification emails through SMTP.
+    let smtp_config = state.smtp_config.clone();
+    let email_handler: JobHandler = Arc::new(move |payload| {
+        let smtp = smtp_config.clone();
+        Box::pin(async move {
+            let Some(smtp) = smtp else {
+                // SMTP removed after the retry was scheduled — drop the job.
+                return Ok(());
+            };
+            let to = payload["to"].as_str().unwrap_or_default();
+            let subject = payload["subject"].as_str().unwrap_or_default();
+            let message = payload["message"].as_str().unwrap_or_default();
+            let action_url = payload["action_url"].as_str();
+            if to.is_empty() || subject.is_empty() {
+                anyhow::bail!("email retry payload is missing 'to' or 'subject'");
+            }
+            rg_core::email::send_html_notification(&smtp, to, subject, message, action_url)
+                .await
+                .map_err(|e| anyhow::anyhow!("{e}"))
+        })
+    });
+
+    // webhook.deliver — redeliver webhooks after transport failures.
+    let webhook_db = state.db.clone();
+    let webhook_handler: JobHandler = Arc::new(move |payload| {
+        let db = webhook_db.clone();
+        Box::pin(async move {
+            rg_core::webhook::service::deliver_retry_job(&db, &payload)
+                .await
+                .map_err(|e| anyhow::anyhow!("{e:#}"))
+        })
+    });
+
+    // Periodic: sync due mirrors (each mirror has its own interval).
+    let mirror_db = state.db.clone();
+    let mirror_repo_root = state.repo_root.clone();
+    let mirror_task: PeriodicTask = Arc::new(move || {
+        let db = mirror_db.clone();
+        let repo_root = mirror_repo_root.clone();
+        Box::pin(async move {
+            match rg_core::mirror::service::sync_due_mirrors(&db, &repo_root, 10).await {
+                Ok(0) => Ok(()),
+                Ok(count) => {
+                    tracing::info!(count, "mirrors synced");
+                    Ok(())
+                }
+                Err(e) => Err(anyhow::anyhow!("{e:#}")),
+            }
+        })
+    });
+
+    let worker = BackgroundJobWorker::new(BackgroundJobQueue::new(worker_db))
+        .register_handler(TASK_EMAIL_SEND, email_handler)
+        .register_handler(TASK_WEBHOOK_DELIVER, webhook_handler)
+        .register_periodic(
+            "mirror.sync_due",
+            std::time::Duration::from_secs(60),
+            mirror_task,
+        );
+    // Dropping the JoinHandles keeps the tasks running (tokio semantics).
+    drop(worker.spawn());
+    tracing::info!("background job worker started (webhook/email retries, mirror sync)");
 }
 
 /// Background task that periodically checks for offline runners:

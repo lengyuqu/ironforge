@@ -9,7 +9,7 @@ async fn assignees_round_trip_dedup_and_primary_mirror() {
     let (base, _db) = spawn_test_app_with_db().await;
     let (owner_token, _owner_id) =
         register_full(&base, "assign_owner", "assign_owner@example.com").await;
-    let (helper_token, _helper_id) =
+    let (_helper_token, _helper_id) =
         register_full(&base, "assign_helper", "assign_helper@example.com").await;
     let (_other_token, _other_id) =
         register_full(&base, "assign_other", "assign_other@example.com").await;

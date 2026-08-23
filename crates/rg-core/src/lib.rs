@@ -42,6 +42,7 @@ pub mod release;
 
 // ── Infrastructure ──────────────────────────────────
 pub mod audit;
+pub mod background_jobs;
 pub mod blob_storage;
 pub mod email;
 pub mod lfs;
