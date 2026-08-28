@@ -597,7 +597,7 @@ ironforge serve
 ### 8.1 构建产物
 
 ```text
-web npm run build → web/build/
+web pnpm run build → web/build/
 
 cargo build --release
   → target/release/ironforge
@@ -640,8 +640,8 @@ node frontend build
 | 后端单元测试 | `cargo test -p <crate>` | 各 crate 独立测试 |
 | 后端集成测试 | `cargo test -p rg-http` | API 集成测试 |
 | 代码覆盖率 | `cargo-llvm-cov` | HTML / LCOV / JSON |
-| 前端类型检查 | `npm run check` | TypeScript / Svelte 类型 |
-| 前端构建验证 | `npm run build` | 生产构建 |
+| 前端类型检查 | `pnpm run check`（web/） | TypeScript / Svelte 类型 |
+| 前端构建验证 | `pnpm run build`（web/） | 生产构建 |
 | 全量回归 | `scripts/full-interface-regression.mjs` | 后端 + 前端 + 运行态 smoke |
 | OpenAPI 冒烟 | `scripts/openapi-interface-smoke.mjs` | 全部 OpenAPI 接口可用性 |
 | 前端运行态 | `scripts/console-smoke.mjs` | console/network 错误检测 |

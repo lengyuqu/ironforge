@@ -33,7 +33,7 @@
 - 私有仓库、用户/协作者/团队权限、跨仓库 IDOR 和资源归属校验齐全；
 - 数据库变更支持 SQLite、PostgreSQL、MySQL，并包含 fresh migration 与升级迁移测试；
 - 单元测试、HTTP 集成测试以及对应真实协议/E2E 测试通过；
-- 前端 `npm run check` 为 0 error / 0 warning，涉及页面时增加浏览器 E2E；
+- 前端 `pnpm run check` 为 0 error / 0 warning，涉及页面时增加浏览器 E2E；
 - OpenAPI、i18n、配置样例、用户文档和 `CLAUDE.md` 当前事实同步更新；
 - 不支持的兼容语义必须 fail closed，不允许静默成功；
 - 不以“表、接口或页面存在”作为完成依据，必须验证完整用户路径。

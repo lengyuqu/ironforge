@@ -518,7 +518,7 @@ async function main() {
 
   console.log('\n=== 前端静态回归 ===');
   if (runFrontendStatic && !SKIP_FRONTEND_STATIC) {
-    allOk.push(await runWithRetry('web npm run check', 'npm', ['run', 'check'], {
+    allOk.push(await runWithRetry('web pnpm run check', 'pnpm', ['run', 'check'], {
       cwd: `${ROOT}/web`,
       scope: 'frontend',
       retries: FRONTEND_CHECK_RETRIES,
@@ -527,7 +527,7 @@ async function main() {
       retryBackoffMs: FRONTEND_CHECK_RETRY_BACKOFF_MS,
       retryMaxDelayMs: FRONTEND_CHECK_RETRY_MAX_DELAY_MS,
     }));
-    allOk.push(await runWithRetry('web npm run build', 'npm', ['run', 'build'], {
+    allOk.push(await runWithRetry('web pnpm run build', 'pnpm', ['run', 'build'], {
       cwd: `${ROOT}/web`,
       scope: 'frontend',
       retries: FRONTEND_BUILD_RETRIES,
@@ -537,7 +537,7 @@ async function main() {
       retryMaxDelayMs: FRONTEND_BUILD_RETRY_MAX_DELAY_MS,
     }));
   } else {
-    console.log('⚠️ SKIP_FRONTEND_STATIC=1 或 FULL_REGRESSION_ONLY 设置，已跳过 web npm run check/build');
+    console.log('⚠️ SKIP_FRONTEND_STATIC=1 或 FULL_REGRESSION_ONLY 设置，已跳过 web pnpm run check/build');
   }
 
   const backendOk = await canPing(`${BACKEND_URL}/health`);

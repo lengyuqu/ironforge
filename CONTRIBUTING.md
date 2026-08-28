@@ -422,9 +422,9 @@ Git 协议专项问题可以按 `AGENTS.md` 中的 SSH/HTTP clone/push 命令模
 | `crates/rg-cli/` | `cargo test -p rg-cli` | CLI 入口测试 |
 | `crates/rg-mcp/` | `cargo test -p rg-mcp` | MCP 服务端测试 |
 | `crates/rg-runner/` | `cargo test -p rg-runner` | Runner Agent 测试 |
-| `web/` | `cd web && npm run check` | 前端 TypeScript / Svelte 类型检查 |
-| `web/`（构建验证） | `cd web && npm run build` | 前端生产构建 |
-| `web/`（冒烟） | `cd web && npm run smoke:markdown-sanitizer` | Markdown 净化器冒烟测试 |
+| `web/` | `cd web && pnpm run check` | 前端 TypeScript / Svelte 类型检查 |
+| `web/`（构建验证） | `cd web && pnpm run build` | 前端生产构建 |
+| `web/`（冒烟） | `cd web && pnpm run smoke:markdown-sanitizer` | Markdown 净化器冒烟测试 |
 | 跨 crate / 全量 | `cargo test --workspace` | 全部后端 crate 测试 |
 | 全量回归 | `node scripts/full-interface-regression.mjs` | 后端 + 前端 + 运行态 smoke |
 

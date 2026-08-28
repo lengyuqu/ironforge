@@ -14,15 +14,15 @@
 FROM node:22-alpine AS frontend-builder
 WORKDIR /build/web
 
-# Cache npm deps
-COPY web/package.json web/package-lock.json* ./
-RUN npm ci
+# Cache pnpm deps
+COPY web/package.json web/pnpm-lock.yaml ./
+RUN corepack enable && pnpm install --frozen-lockfile
 
 # Build the SPA (static adapter, output to ./build/)
 COPY web/svelte.config.js web/tsconfig.json web/vite.config.ts ./
 COPY web/src/ ./src/
 COPY web/static/ ./static/
-RUN npm run build
+RUN pnpm run build
 # Output: /build/web/build/ (static adapter with fallback: index.html)
 
 # ── Stage 2: Rust builder ───────────────────────────────────

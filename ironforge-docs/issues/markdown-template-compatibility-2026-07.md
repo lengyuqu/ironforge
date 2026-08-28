@@ -79,7 +79,7 @@ contact_links:
 
 - `cargo test -p rg-core issue_template --lib`
 - `cargo test -p rg-http --test issue_template_tests`
-- `npm run check`（`web/`）
+- `pnpm run check`（`web/`）
 - Playwright：1440×900 Issue chooser/预填、PR 预填，以及 390×844 Issue chooser 交互通过；无框架 overlay、page error 或未解释的网络/控制台错误
 
 尚未纳入 ISSUE-101：

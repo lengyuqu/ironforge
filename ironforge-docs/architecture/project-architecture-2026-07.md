@@ -377,7 +377,7 @@ Package Registry 由通用 DB 模型、文件存储和 adapter 组成。
 ### 10.1 构建产物
 
 ```text
-web npm run build
+web pnpm run build
   -> web/build
 
 cargo build --release --bin ironforge
@@ -425,8 +425,8 @@ node frontend build
 - Rust unit tests；
 - `rg-http` integration tests；
 - `cargo-llvm-cov`；
-- `web npm run check`；
-- `web npm run build`；
+- `web pnpm run check`；
+- `web pnpm run build`；
 - `scripts/full-interface-regression.mjs`；
 - OpenAPI smoke；
 - API client contract check；
