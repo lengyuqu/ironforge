@@ -1,14 +1,13 @@
-// Auth state store using Svelte 5 runes
+// Auth state store using Svelte 5 runes.
+//
+// Auth model: HttpOnly Cookie 单轨制.  Backend sets the `ironforge_token` cookie
+// on every successful auth flow (login / MFA / SSO / reset-password).  We no
+// longer hold a copy of the JWT in JS — `fetchUser()` is the single source
+// of truth.  Logout clears both server-side cookie and our local state.
 
-import { setToken, getToken, auth } from '$lib/api/client.svelte';
-
-interface User {
-  id: number;
-  username: string;
-  email: string;
-  is_admin: boolean;
-  display_name: string | null;
-}
+import { auth } from '$lib/api/client.svelte';
+import type { User } from '$lib/types/entities';
+import { toErrorMessage } from '$lib/utils/error';
 
 let currentUser = $state<User | null>(null);
 let isLoading = $state(false);
@@ -55,15 +54,13 @@ export async function login(username: string, password: string) {
   try {
     const res = await auth.login(username, password);
     if (res.mfa_required) {
-      setToken(null);
       currentUser = null;
       pendingMfaUsername = res.username || username;
       return false;
     }
 
     pendingMfaUsername = null;
-    setToken(res.token);
-    // Fetch full profile to get is_admin
+    // Backend set-cookie on success; now fetch the full profile.
     const me = await auth.me();
     currentUser = {
       id: me.id,
@@ -73,8 +70,8 @@ export async function login(username: string, password: string) {
       display_name: me.display_name,
     };
     return true;
-  } catch (e: any) {
-    error = e.message || 'Login failed';
+  } catch (e) {
+    error = toErrorMessage(e, 'Login failed');
     return false;
   } finally {
     isLoading = false;
@@ -90,9 +87,9 @@ export async function verifyMfa(code: string, backup = false) {
   isLoading = true;
   error = null;
   try {
-    const res = await auth.verifyMfa(pendingMfaUsername, code, backup);
-    setToken(res.token);
+    await auth.verifyMfa(pendingMfaUsername, code, backup);
     pendingMfaUsername = null;
+    // Backend set-cookie on success; fetch full profile.
     const me = await auth.me();
     currentUser = {
       id: me.id,
@@ -102,8 +99,8 @@ export async function verifyMfa(code: string, backup = false) {
       display_name: me.display_name,
     };
     return true;
-  } catch (e: any) {
-    error = e.message || 'MFA verification failed';
+  } catch (e) {
+    error = toErrorMessage(e, 'MFA verification failed');
     return false;
   } finally {
     isLoading = false;
@@ -115,10 +112,10 @@ export async function register(username: string, email: string, password: string
   error = null;
   try {
     await auth.register(username, email, password);
-    // Auto login after register
+    // Auto login after register — backend sets cookie on login.
     return await login(username, password);
-  } catch (e: any) {
-    error = e.message || 'Registration failed';
+  } catch (e) {
+    error = toErrorMessage(e, 'Registration failed');
     return false;
   } finally {
     isLoading = false;
@@ -126,8 +123,8 @@ export async function register(username: string, email: string, password: string
 }
 
 export async function fetchUser() {
-  // M-4: Always try to fetch user profile — the HttpOnly cookie is sent
-  // automatically. If the cookie is absent or invalid, the API returns 401.
+  // Relies purely on HttpOnly cookie — the backend validates it and returns
+  // 401 if absent/invalid.  No Bearer header is attached.
   try {
     const me = await auth.me();
     currentUser = {
@@ -138,7 +135,6 @@ export async function fetchUser() {
       display_name: me.display_name,
     };
   } catch {
-    setToken(null);
     currentUser = null;
   } finally {
     authReady = true;
@@ -146,13 +142,12 @@ export async function fetchUser() {
 }
 
 export async function logout() {
-  // M-4: Call backend to clear the HttpOnly cookie (JS cannot clear it directly)
+  // Ask the backend to clear the HttpOnly cookie (JS can't read/delete it).
   try {
     await auth.logout();
   } catch {
-    // Ignore errors — cookie may already be cleared
+    // Ignore — cookie may already be cleared or user already logged out.
   }
-  setToken(null);
   currentUser = null;
   pendingMfaUsername = null;
 }

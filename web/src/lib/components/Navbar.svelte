@@ -10,7 +10,8 @@
 
   function handleLogout() {
     logout();
-    window.location.href = '/login';
+    // Use goto() so SvelteKit handles the transition (preserves history, runs page loaders).
+    goto('/login');
   }
 
   function setLocale(newLocale: Locale) {
@@ -78,11 +79,11 @@
         <div class="lang-menu-container">
           <Dropdown ariaLabel={t('nav.change_language', 'Change language')} triggerClass="lang-btn">
             {#snippet trigger()}
-              {$locale === 'zh-CN' ? t('nav.chinese', '中文') : t('nav.english', 'EN')}
+              {locale.value === 'zh-CN' ? t('nav.chinese', '中文') : t('nav.english', 'EN')}
             {/snippet}
             {#snippet menu(close)}
-              <button onclick={() => { setLocale('en'); close(); }} class:active={$locale === 'en'} role="menuitem">{t('nav.english', 'English')}</button>
-              <button onclick={() => { setLocale('zh-CN'); close(); }} class:active={$locale === 'zh-CN'} role="menuitem">{t('nav.chinese', '中文')}</button>
+              <button onclick={() => { setLocale('en'); close(); }} class:active={locale.value === 'en'} role="menuitem">{t('nav.english', 'English')}</button>
+              <button onclick={() => { setLocale('zh-CN'); close(); }} class:active={locale.value === 'zh-CN'} role="menuitem">{t('nav.chinese', '中文')}</button>
             {/snippet}
           </Dropdown>
         </div>

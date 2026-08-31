@@ -39,7 +39,10 @@ const ATTRIBUTES_BY_TAG: Record<string, Set<string>> = {
 };
 
 function isSafeClassName(value: string): boolean {
-  return /^[a-z0-9_:\-\s]+$/i.test(value);
+  // CSS class names allow [a-zA-Z0-9_-] plus Unicode escapes.
+  // We keep it intentionally narrow — strip any `:` (pseudo-class/element
+  // delimiter) or unexpected chars that could confuse sanitisation passes.
+  return /^[a-z0-9_\-\s]+$/i.test(value);
 }
 
 function isSafeUrl(value: string): boolean {

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { attachments, type Attachment, type AttachmentTarget } from '$lib/api/client.svelte';
   import { createT } from '$lib/i18n';
+import { toErrorMessage } from '$lib/utils/error';
 
   let { owner, repo, target, targetId }: {
     owner: string;
@@ -27,8 +28,8 @@
   async function load() {
     try {
       items = await attachments.list(owner, repo, target, targetId);
-    } catch (e: any) {
-      error = e.message;
+    } catch (e) {
+      error = toErrorMessage(e);
     }
   }
 
@@ -41,8 +42,8 @@
       const item = await attachments.upload(owner, repo, target, targetId, file);
       items = [...items, item];
       input.value = '';
-    } catch (e: any) {
-      error = e.message;
+    } catch (e) {
+      error = toErrorMessage(e);
     } finally {
       uploading = false;
     }
@@ -54,8 +55,8 @@
       error = '';
       await attachments.remove(owner, repo, target, targetId, id);
       items = items.filter((item) => item.id !== id);
-    } catch (e: any) {
-      error = e.message;
+    } catch (e) {
+      error = toErrorMessage(e);
     } finally {
       deletingId = null;
     }
