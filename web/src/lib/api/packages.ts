@@ -1,6 +1,6 @@
 import { withApiBase, request, qs, type PaginationMeta } from './_base.svelte';
 
-interface PackageSummaryResponse {
+export interface PackageSummaryResponse {
   id: number;
   name: string;
   description: string | null;
@@ -21,7 +21,7 @@ interface PackageListByTypeResponse {
   packages: PackageSummaryResponse[];
 }
 
-interface PackageVersionResponse {
+export interface PackageVersionResponse {
   id: number;
   version: string;
   semver: string | null;
@@ -42,6 +42,17 @@ interface PackageFileResponse {
 }
 
 interface VersionListByTypeResponse {
+  versions: PackageVersionResponse[];
+}
+
+/** rg-core PackageDetail：包详情（含全量版本列表） */
+export interface PackageDetailResponse {
+  id: number;
+  name: string;
+  description: string | null;
+  homepage: string | null;
+  repository_url: string | null;
+  download_count: number;
   versions: PackageVersionResponse[];
 }
 
@@ -141,11 +152,11 @@ export const packages = {
   getFormat: (owner: string, repo: string, pkg_type: string) =>
     request<PackageListByTypeResponse>(`/repos/${owner}/${repo}/packages/${encodeURIComponent(pkg_type)}/list`),
   get: (owner: string, repo: string, pkg_type: string, pkg_name: string) =>
-    request<any>(`/repos/${owner}/${repo}/packages/${encodeURIComponent(pkg_type)}/${encodeURIComponent(pkg_name)}`),
+    request<PackageDetailResponse>(`/repos/${owner}/${repo}/packages/${encodeURIComponent(pkg_type)}/${encodeURIComponent(pkg_name)}`),
   getVersions: (owner: string, repo: string, pkg_type: string, pkg_name: string) =>
     request<VersionListByTypeResponse>(`/repos/${owner}/${repo}/packages/${encodeURIComponent(pkg_type)}/${encodeURIComponent(pkg_name)}/versions`),
   getVersion: (owner: string, repo: string, pkg_type: string, pkg_name: string, version: string) =>
-    request<any>(`/repos/${owner}/${repo}/packages/${encodeURIComponent(pkg_type)}/${encodeURIComponent(pkg_name)}/${encodeURIComponent(version)}`),
+    request<PackageVersionResponse>(`/repos/${owner}/${repo}/packages/${encodeURIComponent(pkg_type)}/${encodeURIComponent(pkg_name)}/${encodeURIComponent(version)}`),
   downloadUrl: (owner: string, repo: string, pkg_type: string, pkg_name: string, version: string, filename: string) =>
     withApiBase(`/repos/${owner}/${repo}/packages/${encodeURIComponent(pkg_type)}/${encodeURIComponent(pkg_name)}/${encodeURIComponent(version)}/${encodeRepoPath(filename)}`),
   publish: (owner: string, repo: string, pkg_type: string, body: Blob | string, metadata?: { name?: string; version?: string; description?: string; homepage?: string; repository_url?: string; semver?: string }) => {

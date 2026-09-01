@@ -2,7 +2,12 @@
 export { API_BASE, getToken, setToken, type PaginationMeta, type PaginatedResponse } from './_base.svelte';
 export { connectJobLogWebSocket, disconnectJobLogWebSocket, connectNotificationWebSocket, disconnectNotificationWebSocket } from './websockets';
 export { repos } from './repos';
-export { packages } from './packages';
+export {
+  packages,
+  type PackageSummaryResponse,
+  type PackageVersionResponse,
+  type PackageDetailResponse,
+} from './packages';
 export { runners, type RegisterRunnerResponse } from './runners';
 export { timeTracking } from './timeTracking';
 export { boards } from './boards';

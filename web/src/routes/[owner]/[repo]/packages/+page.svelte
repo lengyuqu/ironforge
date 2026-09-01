@@ -1,15 +1,10 @@
 <script lang="ts">
   import { page } from '$app/stores';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
-  import { packages } from '$lib/api/client.svelte';
-  import { createT, formatDate } from '$lib/i18n';
-  import {
-    PACKAGE_FORMATS,
-    packageFormatLabel,
-    packageFormatOptionLabel,
-    packageFormatSupportLabel,
-    packageFormatUsesGenericFallback,
-  } from '$lib/packageFormats';
+  import { packages, type PackageSummaryResponse } from '$lib/api/client.svelte';
+  import PackageList from '$lib/components/packages/PackageList.svelte';
+  import { createT } from '$lib/i18n';
+  import { PACKAGE_FORMATS, packageFormatOptionLabel } from '$lib/packageFormats';
 
   const t = createT();
 
@@ -17,7 +12,7 @@
   let repo = $derived($page.params.repo!);
   let formatFilter = $state<string>('');
   let searchQuery = $state<string>('');
-  let packageList = $state<any[]>([]);
+  let packageList = $state<PackageSummaryResponse[]>([]);
   let loading = $state(true);
   let error = $state('');
   let currentPage = $state(1);
@@ -58,12 +53,9 @@
     loadPackages();
   }
 
-  function encodePackageRouteName(name: string): string {
-    return name.split('/').map(encodeURIComponent).join('/');
-  }
-
-  function packageHref(pkg: { format: string; name: string }): string {
-    return `/${owner}/${repo}/packages/${encodeURIComponent(pkg.format)}/${encodePackageRouteName(pkg.name)}`;
+  function handlePageChange(next: number) {
+    currentPage = next;
+    loadPackages();
   }
 </script>
 
@@ -88,7 +80,7 @@
       <label for="format-filter">{t('packages.format')}:</label>
       <select id="format-filter" bind:value={formatFilter} onchange={handleFormatChange}>
         <option value="">{t('common.all') || 'All'}</option>
-        {#each PACKAGE_FORMATS as f}
+        {#each PACKAGE_FORMATS as f (f)}
           <option value={f}>{packageFormatOptionLabel(f)}</option>
         {/each}
       </select>
@@ -107,61 +99,19 @@
 
   {#if loading}
     <p class="loading-text">{t('common.loading')}</p>
-  {:else if packageList.length === 0}
-    <div class="empty">
-      <p>{t('packages.no_packages')}</p>
-    </div>
   {:else}
-    <div class="package-list">
-      {#each packageList as pkg}
-        <div class="package-card">
-          <div class="package-header">
-            <a href={packageHref(pkg)} class="package-name">{pkg.name}</a>
-            <span
-              class="format-badge"
-              class:fallback={packageFormatUsesGenericFallback(pkg.format)}
-              title={packageFormatSupportLabel(pkg.format)}
-            >
-              {packageFormatLabel(pkg.format)}
-            </span>
-          </div>
-          {#if pkg.description}
-            <p class="package-desc">{pkg.description}</p>
-          {/if}
-          <div class="package-meta">
-            <span class="version">{t('packages.version')}: {pkg.latest_version}</span>
-            {#if pkg.created_at}
-              <span class="date">{t('common.created', { date: formatDate(pkg.created_at) })}</span>
-            {/if}
-          </div>
-        </div>
-      {/each}
-    </div>
-
-    {#if totalPages > 1}
-      <div class="pagination">
-        <button
-          class="btn-outline"
-          disabled={currentPage <= 1}
-          onclick={() => { currentPage = currentPage - 1; loadPackages(); }}
-        >
-          {t('common.previous') || 'Previous'}
-        </button>
-        <span class="page-info">Page {currentPage} of {totalPages}</span>
-        <button
-          class="btn-outline"
-          disabled={currentPage >= totalPages}
-          onclick={() => { currentPage = currentPage + 1; loadPackages(); }}
-        >
-          {t('common.next') || 'Next'}
-        </button>
-      </div>
-    {/if}
+    <PackageList
+      owner={owner!}
+      repo={repo!}
+      packages={packageList}
+      currentPage={currentPage}
+      totalPages={totalPages}
+      onPageChange={handlePageChange}
+    />
   {/if}
 </div>
 
 <style>
-
   .page-header {
     display: flex;
     align-items: center;
@@ -185,11 +135,13 @@
     cursor: pointer;
     text-decoration: none;
   }
+
   .btn-primary:hover {
     background: #e09a1e;
     text-decoration: none;
   }
-.filters {
+
+  .filters {
     display: flex;
     gap: 16px;
     margin-bottom: 24px;
@@ -239,10 +191,13 @@
     border: 1px solid var(--border);
     border-radius: var(--radius);
     color: var(--text-primary);
-    font-size: 13px;
+    font-size: 14px;
     cursor: pointer;
   }
-  .btn-secondary:hover { background: var(--bg-hover); }
+
+  .btn-secondary:hover {
+    background: var(--bg-tertiary, #e5e7eb);
+  }
 
   .loading-text {
     color: var(--text-secondary);
@@ -250,108 +205,11 @@
     padding: 48px;
   }
 
-  .empty {
-    text-align: center;
-    padding: 48px;
-    color: var(--text-secondary);
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
+  .error-banner {
+    color: #f85149;
+    background: rgba(248, 81, 73, 0.1);
+    padding: 10px 12px;
     border-radius: var(--radius);
-  }
-
-  .package-list {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-  }
-
-  .package-card {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 20px;
-  }
-
-  .package-header {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-bottom: 8px;
-  }
-
-  .package-name {
-    font-size: 18px;
-    font-weight: 600;
-    color: var(--accent);
-    text-decoration: none;
-  }
-  .package-name:hover { text-decoration: underline; }
-
-  .format-badge {
-    padding: 2px 8px;
-    border-radius: 10px;
-    font-size: 12px;
-    font-weight: 600;
-    background: var(--bg-tertiary);
-    color: var(--text-secondary);
-  }
-  .format-badge.fallback {
-    border: 1px solid var(--border);
-    color: var(--text-muted);
-  }
-
-  .package-desc {
-    font-size: 14px;
-    color: var(--text-secondary);
-    line-height: 1.6;
-    margin-bottom: 8px;
-  }
-
-  .package-meta {
-    display: flex;
-    gap: 16px;
-    font-size: 13px;
-    color: var(--text-muted);
-  }
-
-  .pagination {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 16px;
-    margin-top: 24px;
-  }
-
-  .btn-outline {
-    padding: 5px 12px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    color: var(--text-primary);
-    font-size: 13px;
-    cursor: pointer;
-  }
-  .btn-outline:hover { background: var(--bg-hover); }
-  .btn-outline:disabled { opacity: 0.5; cursor: not-allowed; }
-
-  .page-info {
-    font-size: 14px;
-    color: var(--text-secondary);
-  }
-
-  @media (max-width: 600px) {
-    .page-header {
-      flex-direction: column;
-      align-items: flex-start;
-      gap: 12px;
-    }
-
-    .filters {
-      flex-direction: column;
-    }
-
-    .search-group {
-      max-width: 100%;
-    }
+    margin-bottom: 16px;
   }
 </style>
