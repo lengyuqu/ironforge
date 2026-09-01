@@ -12,9 +12,10 @@
     onOpenJobLog: (jobId: number) => void;
     onPlayJob: (jobId: number) => void;
     onApproveJob: (jobId: number) => void;
+    onRerunJob: (jobId: number) => void;
   }
 
-  let { pipeline, approvedJobs, onOpenJobLog, onPlayJob, onApproveJob }: Props = $props();
+  let { pipeline, approvedJobs, onOpenJobLog, onPlayJob, onApproveJob, onRerunJob }: Props = $props();
 
   const t = createT();
 
@@ -82,6 +83,9 @@
             {/if}
             {#if job.status === 'manual'}
               <button class="play-job" onclick={(event) => { event.stopPropagation(); onPlayJob(job.id); }}>{t('pipeline.play_manual')}</button>
+            {/if}
+            {#if job.status === 'failed'}
+              <button class="play-job" onclick={(event) => { event.stopPropagation(); onRerunJob(job.id); }}>{t('pipeline.rerun_failed', 'Rerun')}</button>
             {/if}
             {#if job.status === 'waiting_approval'}
               <button

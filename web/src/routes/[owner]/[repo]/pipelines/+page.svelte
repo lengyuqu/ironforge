@@ -116,6 +116,16 @@
     }
   }
 
+  async function handleRerun(jobId: number) {
+    if (!selectedPipeline) return;
+    try {
+      await pipelines.rerun(owner, repo, selectedPipeline.id, jobId);
+      selectedPipeline = normalizePipelineDetail(await pipelines.get(owner, repo, selectedPipeline.id));
+    } catch (e: unknown) {
+      error = toErrorMessage(e);
+    }
+  }
+
   async function handleApprove(jobId: number) {
     if (!selectedPipeline) return;
     try {
@@ -200,6 +210,7 @@
               onOpenJobLog={viewJobLog}
               onPlayJob={handlePlay}
               onApproveJob={handleApprove}
+              onRerunJob={handleRerun}
             />
           {:else}
             <p class="text-secondary">{t('pipeline.select_detail')}</p>

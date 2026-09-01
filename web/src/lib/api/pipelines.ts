@@ -25,4 +25,6 @@ export const pipelines = {
     request<{ id: number; pipeline_id: number; status: string }>(`/repos/${owner}/${repo}/pipelines/${pipelineId}/jobs/${jobId}/play`, { method: 'POST' }),
   approve: (owner: string, repo: string, pipelineId: number, jobId: number) =>
     request<{ job_id: number; approvals: number; required_approvals: number; released: boolean }>(`/repos/${owner}/${repo}/pipelines/${pipelineId}/jobs/${jobId}/approve`, { method: 'POST' }),
+  rerun: (owner: string, repo: string, pipelineId: number, jobId: number) =>
+    request<{ job_id: number; pipeline_id: number; status: string; message: string }>(`/repos/${owner}/${repo}/pipelines/${pipelineId}/jobs/${jobId}/rerun`, { method: 'POST' }),
 };
