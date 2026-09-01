@@ -48,14 +48,21 @@ export interface Repo {
 
 export interface Issue {
   id: number;
+  repo_id?: number;
   number: number;
   title: string;
-  body: string | null;
-  state: 'open' | 'closed';
-  author: { id: number; username: string };
-  labels?: { id: number; name: string; color: string | null }[];
-  milestone?: { id: number; title: string } | null;
-  assignees?: { id: number; username: string }[];
+  body?: string | null;
+  /** Backend stores free-form state strings ("open" / "closed"). */
+  state: string;
+  author_id?: number;
+  /** Display username — enriched by IssueResponse; render with fallback. */
+  author?: string | null;
+  assignee?: string | null;
+  /** Assignee usernames (primary first) — ISSUE-105. */
+  assignees?: string[];
+  milestone_id?: number | null;
+  /** Normalised from the raw labels column by the api layer. */
+  labels?: string[];
   comments_count?: number;
   created_at?: string;
   updated_at?: string;
@@ -304,8 +311,13 @@ export interface ReviewComment {
 
 export interface IssueComment {
   id: number;
+  issue_id?: number;
+  author_id?: number;
   body: string;
-  author: { id: number; username: string };
+  /** Display username — enriched by CommentResponse; render with fallback. */
+  author?: string | null;
+  created_at?: string;
+  updated_at?: string;
 }
 
 // ── Release / Asset ─────────────────────────────────────────────────────────

@@ -1,38 +1,29 @@
 <script lang="ts">
+  // Issue detail page — orchestration layer: loads the issue with its
+  // comments and reactions, owns reaction toggling, commenting and the
+  // open/close state switch. Presentation lives in lib/components/issues/.
   import { page } from '$app/stores';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
   import AttachmentPanel from '$lib/components/AttachmentPanel.svelte';
   import { issues, type ReactionSummary } from '$lib/api/client.svelte';
   import { createT, formatDate } from '$lib/i18n';
-  import { renderMarkdown as renderMarkdownSafe } from '$lib/utils/markdown';
+  import { toErrorMessage } from '$lib/utils/error';
+  import type { Issue, IssueComment } from '$lib/types/entities';
+  import CommentCard from '$lib/components/issues/CommentCard.svelte';
+  import AssigneesPanel from '$lib/components/issues/AssigneesPanel.svelte';
 
   const t = createT();
-
-  const REACTION_EMOJI: Record<string, string> = {
-    '+1': '👍',
-    '-1': '👎',
-    laugh: '😄',
-    confused: '😕',
-    heart: '❤️',
-    hooray: '🎉',
-    rocket: '🚀',
-    eyes: '👀',
-  };
 
   let owner = $derived($page.params.owner!);
   let repo = $derived($page.params.repo!);
   let number = $derived(parseInt($page.params.number!));
-  let issue = $state<any>(null);
-  let commentList = $state<any[]>([]);
+  let issue = $state<Issue | null>(null);
+  let commentList = $state<IssueComment[]>([]);
   let loading = $state(true);
   let error = $state('');
   let newComment = $state('');
   let issueReactions = $state<ReactionSummary[]>([]);
   let commentReactions = $state<Record<number, ReactionSummary[]>>({});
-  let assignees = $state<string[]>([]);
-  let editingAssignees = $state(false);
-  let assigneeInput = $state('');
-  let assigneeSaving = $state(false);
 
   $effect(() => {
     loadIssue();
@@ -41,20 +32,18 @@
   async function loadIssue() {
     try {
       loading = true;
-      const [issueData, commentsData, reactionsData, assigneeData] = await Promise.all([
+      const [issueData, commentsData, reactionsData] = await Promise.all([
         issues.get(owner, repo, number),
         issues.comments(owner, repo, number),
         issues.listReactions(owner, repo, number).catch(() => [] as ReactionSummary[]),
-        issues.listAssignees(owner, repo, number).catch(() => ({ assignees: [] as string[] })),
       ]);
       issue = issueData;
       commentList = commentsData || [];
       issueReactions = reactionsData || [];
-      assignees = assigneeData?.assignees || [];
 
-      const commentIds = (commentsData || []).map((c: any) => c.id as number);
+      const commentIds = (commentsData || []).map((c) => c.id);
       const reactionEntries = await Promise.all(
-        commentIds.map(async (id: number) => {
+        commentIds.map(async (id) => {
           const rows = await issues
             .listCommentReactions(owner, repo, id)
             .catch(() => [] as ReactionSummary[]);
@@ -62,8 +51,8 @@
         }),
       );
       commentReactions = Object.fromEntries(reactionEntries);
-    } catch (e: any) {
-      error = e.message;
+    } catch (e: unknown) {
+      error = toErrorMessage(e, t('errors.load_failed', 'Load failed'));
     } finally {
       loading = false;
     }
@@ -75,8 +64,8 @@
       issueReactions = mine
         ? await issues.removeReaction(owner, repo, number, content)
         : await issues.addReaction(owner, repo, number, content);
-    } catch (e: any) {
-      error = e.message;
+    } catch (e: unknown) {
+      error = toErrorMessage(e);
     }
   }
 
@@ -87,8 +76,8 @@
       commentReactions[commentId] = mine
         ? await issues.removeCommentReaction(owner, repo, commentId, content)
         : await issues.addCommentReaction(owner, repo, commentId, content);
-    } catch (e: any) {
-      error = e.message;
+    } catch (e: unknown) {
+      error = toErrorMessage(e);
     }
   }
 
@@ -98,47 +87,20 @@
       await issues.addComment(owner, repo, number, newComment);
       newComment = '';
       await loadIssue();
-    } catch (e: any) {
-      error = e.message;
+    } catch (e: unknown) {
+      error = toErrorMessage(e);
     }
   }
 
   async function toggleState() {
+    if (!issue) return;
     try {
       const newState = issue.state === 'open' ? 'closed' : 'open';
       await issues.update(owner, repo, number, { state: newState });
       await loadIssue();
-    } catch (e: any) {
-      error = e.message;
+    } catch (e: unknown) {
+      error = toErrorMessage(e);
     }
-  }
-
-  function startEditAssignees() {
-    assigneeInput = assignees.join(', ');
-    editingAssignees = true;
-  }
-
-  async function saveAssignees() {
-    try {
-      assigneeSaving = true;
-      const names = assigneeInput
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean);
-      const result = await issues.setAssignees(owner, repo, number, names);
-      assignees = result?.assignees || [];
-      if (issue) issue.assignee = assignees[0] || null;
-      editingAssignees = false;
-    } catch (e: any) {
-      error = e.message;
-    } finally {
-      assigneeSaving = false;
-    }
-  }
-
-  function renderMarkdown(content: string | null | undefined): string {
-    if (!content) return '';
-    return renderMarkdownSafe(content);
   }
 </script>
 
@@ -167,110 +129,43 @@
             {t(`issues.state.${issue.state}`)}
           </span>
           <span class="text-secondary">
-            {t('issues.opened_by', { date: formatDate(issue.created_at), author: issue.author || t('common.unknown') })}
+            {t('issues.opened_by', { date: formatDate(issue.created_at || ''), author: issue.author || t('common.unknown') })}
           </span>
           {#if issue.labels?.length}
-            {#each issue.labels as label}
+            {#each issue.labels as label (label)}
               <span class="label-badge">{label}</span>
             {/each}
           {/if}
         </div>
       </div>
 
-      <div class="assignees-panel">
-        <div class="assignees-header">
-          <span class="assignees-title">{t('issues.assignees.title')}</span>
-          {#if !editingAssignees}
-            <button type="button" class="btn-assignee-edit" onclick={startEditAssignees}>
-              {t('issues.assignees.edit')}
-            </button>
-          {/if}
-        </div>
-        {#if editingAssignees}
-          <div class="assignees-editor">
-            <input
-              type="text"
-              bind:value={assigneeInput}
-              placeholder={t('issues.assignees.placeholder')}
-            />
-            <div class="assignees-editor-actions">
-              <button
-                type="button"
-                class="btn-primary"
-                disabled={assigneeSaving}
-                onclick={saveAssignees}
-              >
-                {t('issues.assignees.save')}
-              </button>
-              <button
-                type="button"
-                class="btn-close"
-                disabled={assigneeSaving}
-                onclick={() => (editingAssignees = false)}
-              >
-                {t('issues.assignees.cancel')}
-              </button>
-            </div>
-            <p class="assignees-hint">{t('issues.assignees.hint')}</p>
-          </div>
-        {:else}
-          {#if assignees.length}
-            <div class="assignees-list">
-              {#each assignees as name, i}
-                <span class="assignee-badge" class:primary={i === 0} title={i === 0 ? t('issues.assignees.hint') : name}>
-                  {name}
-                </span>
-              {/each}
-            </div>
-          {:else}
-            <p class="assignees-empty">{t('issues.assignees.empty')}</p>
-          {/if}
-        {/if}
-      </div>
-
-      {#snippet reactionBar(rows: ReactionSummary[], onToggle: (content: string) => void)}
-        <div class="reaction-bar" role="group" aria-label={t('issues.reaction.title')}>
-          {#each Object.entries(REACTION_EMOJI) as [content, emoji]}
-            {@const summary = rows.find((r) => r.content === content)}
-            {@const count = summary?.count ?? 0}
-            {@const mine = summary?.reacted_by_me ?? false}
-            <button
-              type="button"
-              class="reaction-btn"
-              class:mine
-              title={t('issues.reaction.title')}
-              aria-pressed={mine}
-              onclick={() => onToggle(content)}
-            >
-              <span class="reaction-emoji">{emoji}</span>
-              {#if count > 0}<span class="reaction-count">{count}</span>{/if}
-            </button>
-          {/each}
-        </div>
-      {/snippet}
+      <AssigneesPanel {owner} {repo} issueNumber={number} />
 
       {#if issue.body}
-        <div class="issue-body">
-          <div class="comment-header">
-            {t('issues.commented', { author: issue.author || t('common.unknown'), date: formatDate(issue.created_at) })}
-          </div>
-          <div class="comment-body markdown-body">{@html renderMarkdown(issue.body)}</div>
-          {@render reactionBar(issueReactions, toggleIssueReaction)}
-        </div>
+        <CommentCard
+          author={issue.author}
+          createdAt={issue.created_at}
+          body={issue.body}
+          reactions={issueReactions}
+          onToggleReaction={toggleIssueReaction}
+        />
       {/if}
 
       <AttachmentPanel {owner} {repo} target="issues" targetId={number} />
 
       <!-- Comments -->
-      {#each commentList as comment}
-        <div class="comment">
-          <div class="comment-header">
-            {t('issues.commented', { author: comment.author || t('common.unknown'), date: formatDate(comment.created_at) })}
-          </div>
-          <div class="comment-body markdown-body">{@html renderMarkdown(comment.body)}</div>
-          {@render reactionBar(commentReactions[comment.id] || [], (content) => toggleCommentReaction(comment.id, content))}
-          <AttachmentPanel {owner} {repo} target="issues/comments" targetId={comment.id} />
-        </div>
+      {#each commentList as comment (comment.id)}
+        <CommentCard
+          author={comment.author}
+          createdAt={comment.created_at}
+          body={comment.body}
+          reactions={commentReactions[comment.id] || []}
+          onToggleReaction={(content) => toggleCommentReaction(comment.id, content)}
+        >
+          {#snippet children()}
+            <AttachmentPanel {owner} {repo} target="issues/comments" targetId={comment.id} />
+          {/snippet}
+        </CommentCard>
       {/each}
 
       <!-- Add comment -->
@@ -288,7 +183,7 @@
 </div>
 
 <style>
-.issue-detail { max-width: 800px; }
+  .issue-detail { max-width: 800px; }
 
   .issue-header { margin-bottom: 24px; }
 
@@ -324,181 +219,6 @@
     color: var(--purple);
     border-radius: 10px;
     font-size: 11px;
-  }
-
-  .assignees-panel {
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 12px 16px;
-    margin-bottom: 16px;
-  }
-
-  .assignees-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 8px;
-  }
-
-  .assignees-title {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--text-secondary);
-  }
-
-  .btn-assignee-edit {
-    background: none;
-    border: none;
-    color: var(--text-secondary);
-    font-size: 12px;
-    cursor: pointer;
-    padding: 2px 6px;
-    border-radius: var(--radius);
-  }
-  .btn-assignee-edit:hover {
-    background: var(--bg-hover);
-    color: var(--text-primary);
-  }
-
-  .assignees-list {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-
-  .assignee-badge {
-    display: inline-block;
-    padding: 2px 10px;
-    border: 1px solid var(--border);
-    background: var(--bg-tertiary);
-    color: var(--text-primary);
-    border-radius: 12px;
-    font-size: 12px;
-  }
-
-  .assignee-badge.primary {
-    border-color: var(--green);
-    color: var(--green);
-    background: rgba(63, 185, 80, 0.12);
-  }
-
-  .assignees-empty {
-    font-size: 13px;
-    color: var(--text-muted);
-    margin: 0;
-  }
-
-  .assignees-editor input {
-    width: 100%;
-    font-size: 13px;
-    padding: 6px 10px;
-    margin-bottom: 8px;
-  }
-
-  .assignees-editor-actions {
-    display: flex;
-    gap: 8px;
-  }
-
-  .assignees-hint {
-    font-size: 12px;
-    color: var(--text-muted);
-    margin: 8px 0 0;
-  }
-
-  .issue-body, .comment {
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    overflow: hidden;
-    margin-bottom: 12px;
-  }
-
-  .comment-header {
-    padding: 8px 16px;
-    background: var(--bg-tertiary);
-    font-size: 13px;
-    color: var(--text-secondary);
-  }
-
-  .comment-body {
-    padding: 16px;
-    font-size: 14px;
-    line-height: 1.6;
-  }
-
-  .reaction-bar {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    padding: 0 16px 12px 16px;
-  }
-
-  .issue-body .reaction-bar,
-  .comment .reaction-bar {
-    border-top: 1px solid var(--border);
-    padding-top: 10px;
-    margin-top: 4px;
-  }
-
-  .reaction-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 2px 8px;
-    background: var(--bg-tertiary);
-    color: var(--text-secondary);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    font-size: 13px;
-    cursor: pointer;
-  }
-
-  .reaction-btn:hover {
-    background: var(--bg-hover);
-    color: var(--text-primary);
-  }
-
-  .reaction-btn.mine {
-    border-color: var(--green);
-    color: var(--green);
-    background: rgba(63, 185, 80, 0.12);
-  }
-
-  .reaction-emoji {
-    font-size: 14px;
-    line-height: 1;
-  }
-
-  .reaction-count {
-    font-size: 12px;
-    font-weight: 600;
-  }
-
-  .comment-body :global(p) {
-    margin: 0 0 12px;
-  }
-
-  .comment-body :global(p:last-child) {
-    margin-bottom: 0;
-  }
-
-  .comment-body :global(ul),
-  .comment-body :global(ol) {
-    padding-left: 24px;
-    margin: 8px 0 12px;
-  }
-
-  .comment-body :global(pre) {
-    overflow-x: auto;
-    background: var(--bg-primary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 12px;
-  }
-
-  .comment-body :global(code) {
-    font-family: var(--font-mono);
-    font-size: 12px;
   }
 
   .comment-form {

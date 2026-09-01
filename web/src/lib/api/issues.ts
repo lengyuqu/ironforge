@@ -1,4 +1,8 @@
 import { request, qs, type PaginatedResponse } from './_base.svelte';
+import type { Issue, IssueComment, Label } from '$lib/types/entities';
+
+/** Raw wire shape of IssueResponse before labels normalisation. */
+type IssueResponse = Omit<Issue, 'labels'> & { labels?: string | string[] | null };
 
 function parseIssueLabels(labels: string | string[] | undefined | null): string[] {
   if (Array.isArray(labels)) {
@@ -53,30 +57,30 @@ export const issues = {
   templateConfig: (owner: string, repo: string) =>
     request<IssueConfig>(`/repos/${owner}/${repo}/issue_config`),
   list: (owner: string, repo: string, state?: string, page?: number, perPage?: number, labels?: string, assignee?: string) => {
-    return request<PaginatedResponse<any>>(`/repos/${owner}/${repo}/issues${qs({ state, page, per_page: perPage, labels, assignee })}`)
+    return request<PaginatedResponse<IssueResponse>>(`/repos/${owner}/${repo}/issues${qs({ state, page, per_page: perPage, labels, assignee })}`)
       .then((response) => ({
         ...response,
         data: response.data.map(normalizeIssue),
       }));
   },
-  get: (owner: string, repo: string, number: number) =>
-    request<any>(`/repos/${owner}/${repo}/issues/${number}`).then(normalizeIssue),
-  create: (owner: string, repo: string, title: string, body?: string, labels?: string[], assignees?: string[]) =>
-    request<any>(`/repos/${owner}/${repo}/issues`, {
+  get: (owner: string, repo: string, number: number): Promise<Issue> =>
+    request<IssueResponse>(`/repos/${owner}/${repo}/issues/${number}`).then(normalizeIssue),
+  create: (owner: string, repo: string, title: string, body?: string, labels?: string[], assignees?: string[]): Promise<Issue> =>
+    request<IssueResponse>(`/repos/${owner}/${repo}/issues`, {
       method: 'POST',
       body: JSON.stringify({ title, body, labels, assignees }),
     }).then(normalizeIssue),
-  update: (owner: string, repo: string, number: number, data: Record<string, any>) =>
-    request<any>(`/repos/${owner}/${repo}/issues/${number}`, {
+  update: (owner: string, repo: string, number: number, data: Record<string, unknown>): Promise<Issue> =>
+    request<IssueResponse>(`/repos/${owner}/${repo}/issues/${number}`, {
       method: 'PATCH',
       body: JSON.stringify(data),
     }).then(normalizeIssue),
   comments: (owner: string, repo: string, number: number) =>
-    request<any[]>(`/repos/${owner}/${repo}/issues/${number}/comments`),
+    request<IssueComment[]>(`/repos/${owner}/${repo}/issues/${number}/comments`),
   labels: (owner: string, repo: string, number: number) =>
-    request<any[]>(`/repos/${owner}/${repo}/issues/${number}/labels`),
+    request<Label[]>(`/repos/${owner}/${repo}/issues/${number}/labels`),
   addComment: (owner: string, repo: string, number: number, body: string) =>
-    request<any>(`/repos/${owner}/${repo}/issues/${number}/comments`, {
+    request<IssueComment>(`/repos/${owner}/${repo}/issues/${number}/comments`, {
       method: 'POST',
       body: JSON.stringify({ body }),
     }),
