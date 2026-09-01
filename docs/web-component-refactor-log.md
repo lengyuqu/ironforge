@@ -264,4 +264,8 @@ P1/P2 已全部完成（2026-09-01）。实际执行与预估基本一致，仅�
 - ✅ `web/scripts/_patch_*.py` 一次性补丁脚本已清理（17 个，本为未跟踪文件，删除后无 git 痕迹）；
 - ✅ P3：issues/board 看板页已拆分（提交 `21eb31c`），拖放重构为 dataTransfer 携带 cardId + 列局部高亮；
 - ✅ `routes/` 内 400+ 行大页面全部拆分完毕，拆分系列到此收官；
-- ⬜ orgs / boards / packages 域内 ~400 行级页面可按同样模式迭代。
+- ✅ Q1-1 `settings/webhooks` 拆分（提交 `d3407b4`）：WebhookForm/WebhookList，页面 437 → 105 行；
+- ✅ Q1-2 `settings/+page` 拆分（提交 `4819f47`）：RepoInfoSection（纯展示）/TransferSection/DangerZoneSection，页面 415 → 78 行；`repos.transfer` 返回类型 any → RepoInfo；
+- ✅ Q1-3 orgs 域（提交 `41bca01`）：api/orgs.ts 16 处 any 全量类型化（对齐 rg-http orgs.rs 响应，entities 重写 Organization/OrganizationTeam 并新增 OrgSummary/OrgMember/TeamMember）+ orgs 页拆分 CreateOrgForm/OrgList，页面 412 → 104 行；
+- ✅ Q1-4 `[owner]/[repo]/boards` 页（提交 `8964411`）：重写为编排层复用 BoardSwitcher/BoardCreateForm/ColumnCreateForm/BoardColumn，消除与 issues/board 的重复实现；保留 board 删除（工具栏按钮）；卡片移动由 select 下拉升级为拖放；
+- ⬜ Q2：settings/mirror（386）、settings/collaborators（386，collaborators.ts 3 处 any）、packages/[format]/[...name]（373）、packages（357，packages.ts 2 处 any）、admin/users（353）。
