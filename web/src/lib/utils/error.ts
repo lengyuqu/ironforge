@@ -13,7 +13,7 @@ export function toErrorMessage(e: unknown, fallback = 'Unknown error'): string {
   if (e instanceof Error) {
     // Backend errors sometimes attach code/request_id as extra properties.
     const err = e as Error & { code?: string | number; request_id?: string; requestId?: string };
-    const parts: string[] = [e.message];
+    const parts: string[] = e.message ? [e.message] : [fallback];
     if (err.code) parts.push(`(${err.code})`);
     const rid = err.request_id ?? err.requestId;
     if (rid) parts.push(`[request ${rid}]`);
