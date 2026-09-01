@@ -184,33 +184,53 @@ export interface WikiRevision {
   created_at: string;
 }
 
-// ── Board / Kanban ──────────────────────────────────────────────────────────
-
 export interface Board {
   id: number;
+  repo_id: number | null;
+  org_id: number | null;
   name: string;
-  description?: string;
-  columns?: BoardColumnEntry[];
+  description: string | null;
+  created_by: number;
   /** ISO 8601 */
-  created_at?: string;
+  created_at: string;
+  /** ISO 8601 */
+  updated_at: string;
 }
 
 export interface BoardColumn {
   id: number;
+  board_id: number;
   name: string;
+  color: string | null;
+  position: number;
+  /** ISO 8601 */
+  created_at: string;
 }
 
 export interface BoardCard {
+  /** rg-core CardFull: board_card::Model flatten + issue */
   id: number;
-  note?: string;
-  issue_id?: number;
-  column_id?: number;
+  column_id: number;
+  issue_id: number | null;
+  note: string | null;
+  position: number;
+  /** ISO 8601 */
+  created_at: string;
+  /** ISO 8601 */
+  updated_at: string;
+  /** Minimal issue metadata for issue-number links (rg-db issue::Model) */
+  issue: { id: number; number: number; title: string } | null;
 }
 
-/** API returns either { column, cards } wrapper or flat column + inline cards */
-export type BoardColumnEntry =
-  | { column: BoardColumn; cards: BoardCard[] }
-  | (BoardColumn & { cards?: BoardCard[] });
+export interface BoardColumnFull {
+  column: BoardColumn;
+  cards: BoardCard[];
+}
+
+export interface BoardFull {
+  board: Board;
+  columns: BoardColumnFull[];
+}
 
 // ── Pipeline / CI ────────────────────────────────────────────────────────────
 
