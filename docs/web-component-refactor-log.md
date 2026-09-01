@@ -268,4 +268,8 @@ P1/P2 已全部完成（2026-09-01）。实际执行与预估基本一致，仅�
 - ✅ Q1-2 `settings/+page` 拆分（提交 `4819f47`）：RepoInfoSection（纯展示）/TransferSection/DangerZoneSection，页面 415 → 78 行；`repos.transfer` 返回类型 any → RepoInfo；
 - ✅ Q1-3 orgs 域（提交 `41bca01`）：api/orgs.ts 16 处 any 全量类型化（对齐 rg-http orgs.rs 响应，entities 重写 Organization/OrganizationTeam 并新增 OrgSummary/OrgMember/TeamMember）+ orgs 页拆分 CreateOrgForm/OrgList，页面 412 → 104 行；
 - ✅ Q1-4 `[owner]/[repo]/boards` 页（提交 `8964411`）：重写为编排层复用 BoardSwitcher/BoardCreateForm/ColumnCreateForm/BoardColumn，消除与 issues/board 的重复实现；保留 board 删除（工具栏按钮）；卡片移动由 select 下拉升级为拖放；
-- ⬜ Q2：settings/mirror（386）、settings/collaborators（386，collaborators.ts 3 处 any）、packages/[format]/[...name]（373）、packages（357，packages.ts 2 处 any）、admin/users（353）。
+- ✅ Q2-1 `settings/mirror` 拆分（提交 `fe41f2f`）：MirrorForm（自包含，含 Sync/Delete）/MirrorStatusPanel（纯展示），页面 386 → 97 行；mirrors API 已类型化无改动；
+- ✅ Q2-2 `settings/collaborators` 拆分（提交 `a51e7b4`）：entities 新增 RepoCollaborator，collaborators.ts 3 处 any 类型化；CollaboratorAddForm/CollaboratorTable，页面 386 → 82 行；
+- ✅ Q2-3 packages 域（提交 `3a08a38`）：packages.ts get/getVersion 2 处 any 类型化 + 导出三类型（client 聚合）；PackageList（纯展示）/PackageVersions（自包含，10 种格式安装命令内聚）；列表页 357 → 210 行、详情页 373 → 135 行（删除 latest_version/created_at 死代码字段）；
+- ✅ Q2-4 `admin/users` 拆分（提交 `37235eb`）：AdminUserTable（自包含，Unlock 内聚）/UserEditModal/UserDeleteModal，页面 353 → 101 行；warnings +4 均为快照初始化类；
+- ⬜ Q3：issues 列表页（381，高频页）；time_tracking（350，可选）。
