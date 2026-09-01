@@ -155,19 +155,31 @@ export interface BlobContent {
 // ── Wiki ────────────────────────────────────────────────────────────────────
 
 export interface WikiPage {
-  id?: number;
+  id: number;
   title: string;
-  slug?: string;
-  content?: string;
+  content: string;
+  message: string | null;
+  author_id: number | null;
   /** ISO 8601 */
-  updated_at?: string;
+  created_at: string;
+  /** ISO 8601 */
+  updated_at: string;
+}
+
+export interface WikiPageSummary {
+  id: number;
+  title: string;
+  /** ISO 8601 */
+  updated_at: string;
 }
 
 export interface WikiRevision {
   id: number;
-  title?: string;
-  message?: string;
-  author?: { username: string };
+  wiki_page_id: number;
+  content: string;
+  message: string | null;
+  author_id: number | null;
+  version: number;
   /** ISO 8601 */
   created_at: string;
 }
