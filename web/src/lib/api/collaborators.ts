@@ -1,8 +1,9 @@
 import { request } from './_base.svelte';
+import type { RepoCollaborator } from '$lib/types/entities';
 
 export const collaborators = {
   list: (owner: string, repo: string) =>
-    request<any[]>(`/repos/${owner}/${repo}/collaborators`),
+    request<RepoCollaborator[]>(`/repos/${owner}/${repo}/collaborators`),
   add: (owner: string, repo: string, userIdentifier: number | string, permission: string) => {
     const raw = String(userIdentifier).trim();
     const numericId = typeof userIdentifier === 'number' || /^\d+$/.test(raw) ? Number(raw) : null;
@@ -12,13 +13,13 @@ export const collaborators = {
         : raw.includes('@')
           ? { email: raw, permission }
           : { username: raw, permission };
-    return request<any>(`/repos/${owner}/${repo}/collaborators`, {
+    return request<RepoCollaborator>(`/repos/${owner}/${repo}/collaborators`, {
       method: 'POST',
       body: JSON.stringify(payload),
     });
   },
   updatePermission: (owner: string, repo: string, id: number, permission: string) =>
-    request<any>(`/repos/${owner}/${repo}/collaborators/${id}`, {
+    request<RepoCollaborator>(`/repos/${owner}/${repo}/collaborators/${id}`, {
       method: 'PATCH',
       body: JSON.stringify({ permission }),
     }),

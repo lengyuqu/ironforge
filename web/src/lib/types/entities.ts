@@ -516,6 +516,17 @@ export interface TeamMember {
   created_at: string;
 }
 
+// ── Repo collaborator ───────────────────────────────────────────────────────
+
+export interface RepoCollaborator {
+  id: number;
+  repo_id: number;
+  user_id: number;
+  /** read / write / admin */
+  permission: string;
+  created_at: string;
+}
+
 // ── Notification ────────────────────────────────────────────────────────────
 
 export interface Notification {
