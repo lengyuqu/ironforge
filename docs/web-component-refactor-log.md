@@ -1,14 +1,14 @@
 # 前端大组件拆分重构记录
 
 > 系列起点 `7b6880b`（refactor(web): split components, unify auth, fix Svelte 5 runes，2026-09-01）
-> 本文档整理该系列中页面拆分相关的 13 个提交，覆盖 18 个路由页面、56 个新组件。
+> 本文档整理该系列中页面拆分相关的 14 个提交，覆盖 19 个路由页面、61 个新组件。
 
 ## 一、总体成效
 
 | 指标 | 数值 |
 |------|------|
-| 拆分页面数 | 18 |
-| 新增组件数 | 56（分布在 13 个域目录） |
+| 拆分页面数 | 19 |
+| 新增组件数 | 61（分布在 14 个域目录） |
 | 新增共享工具 | `utils/repoUrls.ts`、`utils/pipelineStatus.ts`、`utils/commitStatus.ts` |
 | 页面代码量 | 约 10090 行 → 约 3003 行（编排层） |
 | 净变化 | +10329 / -7790 行（含组件新增与页面删除） |
@@ -36,6 +36,7 @@
 | 新建发行版页（releases/new） | 438 | 102 |
 | 仪表盘页（dashboard） | 436 | 118 |
 | 安全设置页（settings/security） | 416 | 151 |
+| 看板页（issues/board） | 419 | 173 |
 
 ## 二、提交清单
 
@@ -54,6 +55,7 @@
 | `b691358` | 拆分 releases/new 创建页（releases/ 第二批） | 1 组件，2 文件 +399/-356 |
 | `7b5eb4f` | 拆分 dashboard 仪表盘页（dashboard/） | 2 组件，3 文件 +395/-338 |
 | `c42752b` | 拆分 settings/security 安全页（settings/ 第三批） | 3 组件，4 文件 +480/-293 |
+| `21eb31c` | 拆分 issues/board 看板页（boards/） | 5 组件 + Board 族类型重写 + api/boards.ts 去 any，8 文件 +542/-317 |
 
 （`7b6880b` 为本系列起点，确立拆分模式；`b938d31` 为配套的前端测试基建，不在本文档统计范围。）
 
@@ -180,6 +182,18 @@
 | CreateRepoForm | 自包含 | 仓库创建表单（name 正则/长度校验、模板选项自加载、提交 + toast） |
 | RepoList | 纯展示 | 仓库卡片列表 + 私有 badge |
 
+### boards/（5 组件，450 行）— 提交 `21eb31c`
+
+| 组件 | 类型 | 职责 |
+|------|------|------|
+| BoardSwitcher | 纯展示 | board tabs + active 高亮，onSelect/onAddBoard 回调 |
+| BoardCreateForm | 自包含 | 看板名 inline 表单（create + toast，onCreated(id) 回调） |
+| ColumnCreateForm | 自包含 | 列名 inline 表单（createColumn + toast） |
+| BoardColumn | 自包含 | 列头/删列 confirm/添加卡片/drop 目标（moveCard + toast，onRefresh 回调） |
+| BoardCard | 纯展示+拖拽源 | 卡片渲染（issue 链接/note），cardId 经 dataTransfer 携带 |
+
+拖放重构：原页面级 draggingCardId/draggingFromColId/dragOverColId 三态改为 dataTransfer 携带 cardId + 各列局部 dragOver 高亮，列间完全解耦；同列 drop 仍为 no-op，位置取列尾。
+
 ## 四、类型层改动（以后端源码为唯一事实来源）
 
 所有类型均对照 `crates/rg-db/src/entities/` 与 `crates/rg-http/src/api/` 的实际定义重写，重写前先确认旧类型无其他使用方。
@@ -196,8 +210,9 @@
 | Release | 重写 | rg-db release::Model 直序列化（无 author/assets_count 字段） |
 | CommitStatus 重写 / CombinedCommitStatus 新增 | 重写/新增 | rg-http commit 状态接口（sha/context/state/description/target_url + combined 聚合） |
 | WikiPage / WikiPageSummary / WikiRevision | 重写/新增 | rg-http WikiPageResponse / rg-db wiki_revision::Model（message/author_id 可空） |
+| Board / BoardColumn / BoardCard / BoardColumnFull / BoardFull | 重写/新增 | rg-core BoardFull/ColumnFull/CardFull（card 字段 flatten + issue: {id;number;title}\|null）；删除无使用方的旧可选字段版 Board 族与 BoardColumnEntry |
 
-API 层同步去 any：`api/labels.ts`、`api/pipelines.ts`、`api/pulls.ts`、`api/repos.ts`（get/tree/log/blob/listCommitStatuses/getCombinedStatus）、`api/issues.ts`（七个方法）、`api/releases.ts`（5 处）、`api/wiki.ts`（全方法）。`api/admin.ts`、`api/branchProtections.ts`、`api/mfa.ts`、`api/imports.ts` 原已类型化，直接复用。
+API 层同步去 any：`api/labels.ts`、`api/pipelines.ts`、`api/pulls.ts`、`api/repos.ts`（get/tree/log/blob/listCommitStatuses/getCombinedStatus）、`api/issues.ts`（七个方法）、`api/releases.ts`（5 处）、`api/wiki.ts`（全方法）、`api/boards.ts`（14 个方法）。`api/admin.ts`、`api/branchProtections.ts`、`api/mfa.ts`、`api/imports.ts` 原已类型化，直接复用。
 
 ## 五、拆分模式约定
 
@@ -246,7 +261,7 @@ P1/P2 已全部完成（2026-09-01）。实际执行与预估基本一致，仅�
 ### 收尾状态与后续
 
 - ✅ P1 五页、P2 三页均按“每轮 1 页 1 提交”完成，每轮均过三项验证；
-- ✅ `web/scripts/_patch_*.py` 共 15 个一次性补丁脚本已清理（本为未跟踪文件，删除后无 git 痕迹）；
-- ⚠️ `routes/` 内 400+ 行页面现只剩 `issues/board`（419 行）；
-- ⬜ P3：先出 issues/board 拆分方案（HTML5 拖放 + 列/卡片两级 CRUD），确认后再拆分，预计 1-2 轮；
+- ✅ `web/scripts/_patch_*.py` 一次性补丁脚本已清理（17 个，本为未跟踪文件，删除后无 git 痕迹）；
+- ✅ P3：issues/board 看板页已拆分（提交 `21eb31c`），拖放重构为 dataTransfer 携带 cardId + 列局部高亮；
+- ✅ `routes/` 内 400+ 行大页面全部拆分完毕，拆分系列到此收官；
 - ⬜ orgs / boards / packages 域内 ~400 行级页面可按同样模式迭代。
