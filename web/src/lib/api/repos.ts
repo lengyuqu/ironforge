@@ -1,4 +1,5 @@
 import { request, qs, type PaginatedResponse } from './_base.svelte';
+import type { ExploreRepo, RepoCommitEntry, RepoInfo, RepoTreeEntry } from '$lib/types/entities';
 
 function encodeRepoPath(path: string): string {
   return path.split('/').map(encodeURIComponent).join('/');
@@ -29,19 +30,11 @@ export const repos = {
       `/repos/${owner}${qs({ page, per_page: perPage })}`
     ),
   explore: (page?: number, perPage?: number) =>
-    request<PaginatedResponse<{ id: number; owner_id: number; name: string; description: string | null; stars_count: number; updated_at: string }>>(
+    request<PaginatedResponse<ExploreRepo>>(
       `/repos/explore${qs({ page, per_page: perPage })}`
     ),
   get: (owner: string, name: string) =>
-    request<{
-      id: number;
-      name: string;
-      description: string | null;
-      is_private: boolean;
-      default_branch: string;
-      stars_count: number;
-      created_at: string;
-    }>(`/repos/${owner}/${name}`),
+    request<RepoInfo>(`/repos/${owner}/${name}`),
   create: (opts: {
     name: string;
     description?: string;
@@ -65,7 +58,7 @@ export const repos = {
     labels: () => request<{ data: { key: string; name: string; description: string }[] }>('/repos/templates/labels'),
   },
   tree: (owner: string, repo: string, ref?: string, path?: string) => {
-    return request<{ entries: { name: string; kind: string; size?: number }[] }>(`/repos/${owner}/${repo}/tree${qs({ ref, path })}`);
+    return request<{ entries: RepoTreeEntry[] }>(`/repos/${owner}/${repo}/tree${qs({ ref, path })}`);
   },
   blob: (owner: string, repo: string, path: string, ref?: string) => {
     return request<{ path: string; content: string; size: number; name: string; sha: string; encoding: string; is_binary: boolean }>(`/repos/${owner}/${repo}/blob/${encodeRepoPath(path)}${qs({ ref })}`);
@@ -94,7 +87,7 @@ export const repos = {
       method: 'DELETE',
     }),
   log: (owner: string, repo: string, ref?: string, path?: string) => {
-    return request<{ commits: { sha: string; message: string; author: string; date: string }[] }>(`/repos/${owner}/${repo}/log${qs({ ref, path })}`);
+    return request<{ commits: RepoCommitEntry[] }>(`/repos/${owner}/${repo}/log${qs({ ref, path })}`);
   },
   branches: (owner: string, repo: string) =>
     request<BranchRefResponse[]>(`/repos/${owner}/${repo}/branches`).then((branches) => branches.map(normalizeBranchRef)),

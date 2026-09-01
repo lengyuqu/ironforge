@@ -15,6 +15,19 @@ export interface User {
   created_at?: string;
 }
 
+// Repository row as returned by GET /repos/explore (enriched with owner_name).
+export interface ExploreRepo {
+  id: number;
+  owner_id: number;
+  owner_name: string;
+  name: string;
+  description: string | null;
+  stars_count: number;
+  forks_count: number;
+  /** ISO 8601 */
+  updated_at: string;
+}
+
 export interface Repo {
   id: number;
   name: string;
@@ -54,16 +67,22 @@ export interface PullRequest {
   number: number;
   title: string;
   body: string | null;
-  state: 'open' | 'closed' | 'merged';
-  draft?: boolean;
-  author: { id: number; username: string };
-  head?: { ref: string; sha: string };
-  base?: { ref: string; sha: string };
-  labels?: { id: number; name: string; color: string | null }[];
-  comments_count?: number;
-  review_comments_count?: number;
+  /** open / merging (transient) / closed / merged */
+  state: 'open' | 'merging' | 'closed' | 'merged';
+  is_draft: boolean;
+  author_id: number;
+  /** Display username — present only when an endpoint enriches it; render with fallback */
+  author?: string | null;
+  head_branch: string;
+  base_branch: string;
+  head_sha?: string | null;
+  /** Merge automatically once branch protection requirements are satisfied */
+  auto_merge_enabled?: boolean;
+  auto_merge_strategy?: string | null;
+  merge_strategy?: string | null;
   created_at?: string;
   updated_at?: string;
+  closed_at?: string | null;
   merged_at?: string | null;
 }
 
@@ -87,6 +106,33 @@ export interface TreeEntry {
   type: 'blob' | 'tree' | 'commit';
   sha: string;
   size?: number;
+}
+
+// ── Repo overview (tree / log / repo info) ──────────────────────────
+
+export interface RepoInfo {
+  id: number;
+  name: string;
+  description: string | null;
+  is_private: boolean;
+  default_branch: string;
+  stars_count: number;
+  created_at: string;
+}
+
+export interface RepoTreeEntry {
+  name: string;
+  path?: string;
+  kind: string; // "tree" | "blob"
+  size?: number | null;
+  sha?: string | null;
+}
+
+export interface RepoCommitEntry {
+  sha: string;
+  message: string;
+  author: string;
+  date: string;
 }
 
 // ── Wiki ────────────────────────────────────────────────────────────────────
@@ -139,16 +185,54 @@ export type BoardColumnEntry =
 
 // ── Pipeline / CI ────────────────────────────────────────────────────────────
 
+export interface Pipeline {
+  id: number;
+  repo_id: number;
+  commit_sha: string;
+  ref_name: string;
+  status: string;
+  trigger_type: string;
+  triggered_by?: number | null;
+  /** ISO 8601 or null */
+  started_at?: string | null;
+  /** ISO 8601 or null */
+  finished_at?: string | null;
+  /** ISO 8601 */
+  created_at?: string;
+}
+
 export interface PipelineStage {
-  id?: number;
+  id: number;
+  pipeline_id: number;
   name: string;
+  stage_order: number;
+  status: string;
+  /** ISO 8601 or null */
+  started_at?: string | null;
+  /** ISO 8601 or null */
+  finished_at?: string | null;
 }
 
 export interface PipelineJob {
   id: number;
+  stage_id: number;
   name: string;
+  image?: string | null;
+  script?: string;
+  when_condition?: string;
+  if_condition?: string | null;
+  allow_failure?: boolean;
+  timeout_seconds?: number | null;
+  environment_id?: number | null;
+  environment_name?: string | null;
   status: string;
-  step?: number;
+  exit_code?: number | null;
+  /** Only present in single-job responses */
+  log?: string;
+  /** ISO 8601 or null */
+  started_at?: string | null;
+  /** ISO 8601 or null */
+  finished_at?: string | null;
 }
 
 export interface PipelineStageEntry {
@@ -156,20 +240,51 @@ export interface PipelineStageEntry {
   jobs?: PipelineJob[];
 }
 
-export interface Pipeline {
-  id: number;
-  ref_name: string;
-  status: string;
-  stages?: PipelineStageEntry[];
-  /** ISO 8601 */
-  created_at?: string;
+/** GET /repos/:owner/:repo/pipelines/:id response */
+export interface PipelineDetailResponse {
+  pipeline: Pipeline;
+  stages: PipelineStageEntry[];
 }
 
+/**
+ * Flattened pipeline view used by the UI: pipeline fields plus `ref` (from
+ * ref_name) and normalized `stages: Array<Stage & { jobs: PipelineJob[] }>`.
+ */
+export type PipelineDetail = Omit<Pipeline, 'ref_name'> & {
+  ref: string;
+  stages: Array<PipelineStage & { jobs: PipelineJob[] }>;
+};
+
 // ── Review / Comments ────────────────────────────────────────────────────────
+
+export interface RequestedReviewer {
+  id: number;
+  reviewer_id: number;
+  username: string;
+  requested_by_id: number;
+  created_at: string;
+}
+
+export interface PrTimelineEvent {
+  id: string;
+  kind: string;
+  actor: { id: number; username: string } | null;
+  created_at: string;
+  body: string | null;
+  metadata: Record<string, any>;
+}
 
 export interface ReviewComment {
   id: number;
   body: string;
+  /** Parent comment id for replies, null/undefined for root comments */
+  reply_to_id?: number | null;
+  path?: string;
+  line?: number;
+  start_line?: number;
+  side?: 'LEFT' | 'RIGHT';
+  /** Raw suggested content; empty string means "delete this range" */
+  suggestion?: string | null;
   /** ISO 8601 or null */
   resolved_at?: string | null;
   commit_id?: string;
@@ -269,9 +384,12 @@ export interface Milestone {
 
 export interface Label {
   id: number;
+  repo_id?: number;
   name: string;
-  color: string | null;
+  color: string;
   description?: string | null;
+  created_at?: string;
+  updated_at?: string;
 }
 
 // ── Organization ────────────────────────────────────────────────────────────

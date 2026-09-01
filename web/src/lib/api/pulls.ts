@@ -1,4 +1,5 @@
 import { request, qs, type PaginatedResponse } from './_base.svelte';
+import type { PullRequest, ReviewComment, PrTimelineEvent, RequestedReviewer } from '$lib/types/entities';
 
 export type DiffLine = {
   kind: 'meta' | 'context' | 'addition' | 'deletion';
@@ -39,12 +40,12 @@ export const pulls = {
   template: (owner: string, repo: string) =>
     request<{ content: string; file_name: string } | undefined>(`/repos/${owner}/${repo}/pull_request_template`),
   list: (owner: string, repo: string, state?: string, page?: number, perPage?: number) => {
-    return request<PaginatedResponse<any>>(`/repos/${owner}/${repo}/pulls${qs({ state, page, per_page: perPage })}`);
+    return request<PaginatedResponse<PullRequest>>(`/repos/${owner}/${repo}/pulls${qs({ state, page, per_page: perPage })}`);
   },
   get: (owner: string, repo: string, number: number) =>
-    request<any>(`/repos/${owner}/${repo}/pulls/${number}`),
+    request<PullRequest>(`/repos/${owner}/${repo}/pulls/${number}`),
   create: (owner: string, repo: string, data: { title: string; body?: string; head_branch: string; base_branch: string; draft?: boolean }) =>
-    request<any>(`/repos/${owner}/${repo}/pulls`, {
+    request<PullRequest>(`/repos/${owner}/${repo}/pulls`, {
       method: 'POST',
       body: JSON.stringify({
         title: data.title,
@@ -55,7 +56,7 @@ export const pulls = {
       }),
     }),
   update: (owner: string, repo: string, number: number, data: { title?: string; body?: string; state?: string; draft?: boolean }) =>
-    request<any>(`/repos/${owner}/${repo}/pulls/${number}`, {
+    request<PullRequest>(`/repos/${owner}/${repo}/pulls/${number}`, {
       method: 'PATCH',
       body: JSON.stringify(data),
     }),
@@ -93,16 +94,9 @@ export const reviews = {
       body: JSON.stringify({ body, action: verdict }),
     }),
   comments: (owner: string, repo: string, number: number) =>
-    request<any[]>(`/repos/${owner}/${repo}/pulls/${number}/comments`),
+    request<ReviewComment[]>(`/repos/${owner}/${repo}/pulls/${number}/comments`),
   timeline: (owner: string, repo: string, number: number) =>
-    request<Array<{
-      id: string;
-      kind: string;
-      actor: { id: number; username: string } | null;
-      created_at: string;
-      body: string | null;
-      metadata: Record<string, any>;
-    }>>(`/repos/${owner}/${repo}/pulls/${number}/timeline`),
+    request<PrTimelineEvent[]>(`/repos/${owner}/${repo}/pulls/${number}/timeline`),
   addComment: (owner: string, repo: string, number: number, data: {
     body: string;
     path: string;
@@ -134,7 +128,7 @@ export const reviews = {
       body: JSON.stringify({ comment_ids: commentIds }),
     }),
   requestedReviewers: (owner: string, repo: string, number: number) =>
-    request<Array<{ id: number; reviewer_id: number; username: string; requested_by_id: number; created_at: string }>>(
+    request<RequestedReviewer[]>(
       `/repos/${owner}/${repo}/pulls/${number}/reviewers`,
     ),
   requestReviewer: (owner: string, repo: string, number: number, username: string) =>
