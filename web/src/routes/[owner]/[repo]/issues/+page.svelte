@@ -17,6 +17,7 @@
   let templatesLoaded = $state(false);
   let issueTemplates = $state<any[]>([]);
   let templateConfig = $state<any>({ blank_issues_enabled: true, contact_links: [] });
+  let configWarning = $state('');
   let newTitle = $state('');
   let newBody = $state('');
   let newLabels = $state('');
@@ -86,8 +87,23 @@
         showCreate = true;
       }
     } catch (e: any) {
-      error = e.message;
+      // Templates/config unreadable — degrade to defaults and surface the
+      // validation error so the admin can fix .github/ISSUE_TEMPLATE/config.yml.
+      issueTemplates = [];
+      templateConfig = { blank_issues_enabled: true, contact_links: [] };
+      configWarning = await loadConfigError();
+      showChooser = true;
     }
+  }
+
+  async function loadConfigError(): Promise<string> {
+    try {
+      const result = await issues.validateTemplateConfig(owner, repo);
+      if (!result.valid && result.message) return result.message;
+    } catch {
+      // validate endpoint itself unavailable — generic message
+    }
+    return t('issues.templates.load_failed', 'Failed to load issue templates.');
   }
 
   function chooseTemplate(template?: any) {
@@ -150,6 +166,9 @@
         </div>
         <button class="btn-secondary" onclick={() => showChooser = false}>{t('issues.create_form.cancel')}</button>
       </div>
+      {#if configWarning}
+        <div class="config-warning">{t('issues.templates.invalid_config', 'Issue template config is invalid:')} {configWarning}</div>
+      {/if}
       <div class="template-list">
         {#each issueTemplates as template}
           <div class="template-option">
@@ -347,5 +366,16 @@
     border-radius: 10px;
     font-size: 11px;
     margin-left: 4px;
+  }
+
+  .config-warning {
+    margin-bottom: 12px;
+    padding: 10px 12px;
+    border: 1px solid #d29922;
+    background: rgba(210, 153, 34, 0.1);
+    color: #d29922;
+    border-radius: 6px;
+    font-size: 13px;
+    word-break: break-word;
   }
 </style>
