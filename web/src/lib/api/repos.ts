@@ -1,5 +1,5 @@
 import { request, qs, type PaginatedResponse } from './_base.svelte';
-import type { ExploreRepo, RepoCommitEntry, RepoInfo, RepoTreeEntry } from '$lib/types/entities';
+import type { BlobContent, ExploreRepo, RepoCommitEntry, RepoInfo, RepoTreeEntry } from '$lib/types/entities';
 
 function encodeRepoPath(path: string): string {
   return path.split('/').map(encodeURIComponent).join('/');
@@ -61,7 +61,7 @@ export const repos = {
     return request<{ entries: RepoTreeEntry[] }>(`/repos/${owner}/${repo}/tree${qs({ ref, path })}`);
   },
   blob: (owner: string, repo: string, path: string, ref?: string) => {
-    return request<{ path: string; content: string; size: number; name: string; sha: string; encoding: string; is_binary: boolean }>(`/repos/${owner}/${repo}/blob/${encodeRepoPath(path)}${qs({ ref })}`);
+    return request<BlobContent>(`/repos/${owner}/${repo}/blob/${encodeRepoPath(path)}${qs({ ref })}`);
   },
   saveContent: (
     owner: string,

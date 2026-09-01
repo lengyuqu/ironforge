@@ -135,6 +135,16 @@ export interface RepoCommitEntry {
   date: string;
 }
 
+export interface BlobContent {
+  path: string;
+  sha: string;
+  size: number;
+  content: string;
+  encoding: string; // "utf-8" | "base64"
+  is_binary: boolean;
+  name?: string;
+}
+
 // ── Wiki ────────────────────────────────────────────────────────────────────
 
 export interface WikiPage {

@@ -29,3 +29,18 @@ export function encodeRepoPath(path: string): string {
 export function buildBlobHref(owner: string, repo: string, ref: string, filePath: string): string {
   return `/${owner}/${repo}/blob/${encodeRepoPath(filePath)}${buildRepoQuery(ref, '')}`;
 }
+
+/** Link to the in-browser file editor, preserving ref and blob sha. */
+export function buildEditHref(
+  owner: string,
+  repo: string,
+  ref: string,
+  filePath: string,
+  sha?: string
+): string {
+  const params = new URLSearchParams();
+  if (sha) params.set('sha', sha);
+  if (ref) params.set('ref', ref);
+  const qs = params.toString();
+  return `/${owner}/${repo}/edit/${encodeRepoPath(filePath)}${qs ? `?${qs}` : ''}`;
+}
