@@ -475,15 +475,45 @@ export interface Label {
 export interface Organization {
   id: number;
   name: string;
-  display_name?: string;
-  description?: string | null;
-  avatar_url?: string | null;
+  display_name: string | null;
+  description: string | null;
+  owner_id: number;
+  visibility: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OrgSummary {
+  id: number;
+  name: string;
+  display_name: string | null;
+  visibility: string;
 }
 
 export interface OrganizationTeam {
   id: number;
+  org_id: number;
   name: string;
-  description?: string | null;
+  description: string | null;
+  permission: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OrgMember {
+  id: number;
+  org_id: number;
+  user_id: number;
+  role: string;
+  created_at: string;
+}
+
+export interface TeamMember {
+  id: number;
+  team_id: number;
+  user_id: number;
+  role: string;
+  created_at: string;
 }
 
 // ── Notification ────────────────────────────────────────────────────────────
