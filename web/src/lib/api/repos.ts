@@ -132,7 +132,7 @@ export const repos = {
     return request<PaginatedResponse<any>>(`/repos/${owner}/${repo}/forks${qs}`);
   },
   transfer: (owner: string, repo: string, newOwner: string) =>
-    request<any>(`/repos/${owner}/${repo}/transfer`, { method: 'POST', body: JSON.stringify({ new_owner: newOwner }) }),
+    request<RepoInfo>(`/repos/${owner}/${repo}/transfer`, { method: 'POST', body: JSON.stringify({ new_owner: newOwner }) }),
   createCommitStatus: (owner: string, repo: string, sha: string, data: { state: string; context: string; description?: string; target_url?: string }) =>
     request<any>(`/repos/${owner}/${repo}/statuses/${sha}`, {
       method: 'POST',
