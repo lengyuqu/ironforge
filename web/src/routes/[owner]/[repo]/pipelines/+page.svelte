@@ -9,6 +9,7 @@
   import PipelineList from '$lib/components/pipelines/PipelineList.svelte';
   import PipelineFlow from '$lib/components/pipelines/PipelineFlow.svelte';
   import JobLogModal from '$lib/components/pipelines/JobLogModal.svelte';
+  import ArtifactsPanel from '$lib/components/pipelines/ArtifactsPanel.svelte';
   import { pipelines } from '$lib/api/client.svelte';
   import { createT } from '$lib/i18n';
   import { toErrorMessage } from '$lib/utils/error';
@@ -203,6 +204,8 @@
           {:else}
             <p class="text-secondary">{t('pipeline.select_detail')}</p>
           {/if}
+
+          <ArtifactsPanel {owner} {repo} pipelineId={selectedPipeline.id} status={selectedPipeline.status} />
         {:else}
           <p class="text-secondary">{t('pipeline.select_detail')}</p>
         {/if}

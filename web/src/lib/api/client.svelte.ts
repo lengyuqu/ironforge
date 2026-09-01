@@ -13,6 +13,7 @@ export { releases, type ReleaseAsset } from './releases';
 export { issues, type ReactionSummary } from './issues';
 export { pulls, reviews } from './pulls';
 export { pipelines } from './pipelines';
+export { artifacts } from './artifacts';
 export { wiki } from './wiki';
 export { collaborators } from './collaborators';
 export { labels } from './labels';

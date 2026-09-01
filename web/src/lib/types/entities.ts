@@ -232,6 +232,18 @@ export interface BoardFull {
   columns: BoardColumnFull[];
 }
 
+export interface Artifact {
+  id: number;
+  job_id: number;
+  name: string;
+  file_path: string;
+  size: number;
+  /** ISO 8601 */
+  created_at: string;
+  /** ISO 8601 */
+  expires_at: string | null;
+}
+
 // ── Pipeline / CI ────────────────────────────────────────────────────────────
 
 export interface Pipeline {
