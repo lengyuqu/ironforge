@@ -1,5 +1,5 @@
 import { request, qs, type PaginatedResponse } from './_base.svelte';
-import type { PullRequest, ReviewComment, PrTimelineEvent, RequestedReviewer } from '$lib/types/entities';
+import type { PullRequest, ReviewComment, PrTimelineEvent, RequestedReviewer, PrReview } from '$lib/types/entities';
 
 export type DiffLine = {
   kind: 'meta' | 'context' | 'addition' | 'deletion';
@@ -87,11 +87,16 @@ export const pulls = {
 
 export const reviews = {
   list: (owner: string, repo: string, number: number) =>
-    request<any[]>(`/repos/${owner}/${repo}/pulls/${number}/reviews`),
+    request<PrReview[]>(`/repos/${owner}/${repo}/pulls/${number}/reviews`),
   submit: (owner: string, repo: string, number: number, body: string, verdict: string) =>
-    request<any>(`/repos/${owner}/${repo}/pulls/${number}/reviews`, {
+    request<PrReview>(`/repos/${owner}/${repo}/pulls/${number}/reviews`, {
       method: 'POST',
       body: JSON.stringify({ body, action: verdict }),
+    }),
+  dismiss: (owner: string, repo: string, number: number, reviewId: number, message: string) =>
+    request<PrReview>(`/repos/${owner}/${repo}/pulls/${number}/reviews/${reviewId}/dismiss`, {
+      method: 'POST',
+      body: JSON.stringify({ message }),
     }),
   comments: (owner: string, repo: string, number: number) =>
     request<ReviewComment[]>(`/repos/${owner}/${repo}/pulls/${number}/comments`),

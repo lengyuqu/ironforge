@@ -335,6 +335,19 @@ export interface PrTimelineEvent {
   metadata: Record<string, any>;
 }
 
+export interface PrReview {
+  id: number;
+  pr_id: number;
+  repo_id: number;
+  reviewer_id: number;
+  /** comment / approve / request_changes / dismiss */
+  action: string;
+  body: string | null;
+  commit_id: string | null;
+  /** ISO 8601 */
+  created_at: string;
+}
+
 export interface ReviewComment {
   id: number;
   body: string;

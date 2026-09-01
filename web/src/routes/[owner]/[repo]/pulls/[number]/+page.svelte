@@ -12,11 +12,12 @@
   import PrDiffView from '$lib/components/pulls/PrDiffView.svelte';
   import PrReviewForm from '$lib/components/pulls/PrReviewForm.svelte';
   import { pulls, reviews } from '$lib/api/client.svelte';
+  import PrReviewList from '$lib/components/pulls/PrReviewList.svelte';
   import type { MergeQueueEntry, PrDiff } from '$lib/api/pulls';
   import { createT, formatDate } from '$lib/i18n';
   import { toast } from '$lib/components/toast.svelte';
   import { toErrorMessage } from '$lib/utils/error';
-  import type { PrTimelineEvent, PullRequest, ReviewComment } from '$lib/types/entities';
+  import type { PrTimelineEvent, PrReview, PullRequest, ReviewComment } from '$lib/types/entities';
 
   const t = createT();
 
@@ -25,7 +26,7 @@
   let number = $derived(parseInt($page.params.number!));
   let pr = $state<PullRequest | null>(null);
   let diffData = $state<PrDiff | null>(null);
-  let reviewList = $state<unknown[]>([]);
+  let reviewList = $state<PrReview[]>([]);
   let reviewComments = $state<ReviewComment[]>([]);
   let timeline = $state<PrTimelineEvent[]>([]);
   let mergeQueue = $state<MergeQueueEntry[]>([]);
@@ -163,6 +164,7 @@
       <!-- Review tab -->
       {#if activeTab === 'review'}
         <PrReviewForm {owner} {repo} prNumber={number} onSubmitted={loadPR} />
+        <PrReviewList {owner} {repo} prNumber={number} reviews={reviewList} onDismissed={loadPR} />
       {/if}
     </div>
   {/if}
