@@ -457,10 +457,23 @@ export interface Collaborator {
 // ── Commit Status ───────────────────────────────────────────────────────────
 
 export interface CommitStatus {
+  id: number;
+  repo_id?: number;
+  sha: string;
+  state: string; // success | failure | error | pending
   context: string;
-  state: 'pending' | 'success' | 'failure' | 'error';
-  description?: string;
-  target_url?: string;
+  description?: string | null;
+  target_url?: string | null;
+  creator_id?: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface CombinedCommitStatus {
+  state: string;
+  sha: string;
+  total_count: number;
+  statuses: CommitStatus[];
 }
 
 // ── Time Tracking ───────────────────────────────────────────────────────────

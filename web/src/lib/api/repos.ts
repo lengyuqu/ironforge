@@ -1,5 +1,13 @@
 import { request, qs, type PaginatedResponse } from './_base.svelte';
-import type { BlobContent, ExploreRepo, RepoCommitEntry, RepoInfo, RepoTreeEntry } from '$lib/types/entities';
+import type {
+  BlobContent,
+  CombinedCommitStatus,
+  CommitStatus,
+  ExploreRepo,
+  RepoCommitEntry,
+  RepoInfo,
+  RepoTreeEntry
+} from '$lib/types/entities';
 
 function encodeRepoPath(path: string): string {
   return path.split('/').map(encodeURIComponent).join('/');
@@ -131,7 +139,7 @@ export const repos = {
       body: JSON.stringify(data),
     }),
   listCommitStatuses: (owner: string, repo: string, sha: string) =>
-    request<any[]>(`/repos/${owner}/${repo}/commits/${sha}/statuses`),
+    request<CommitStatus[]>(`/repos/${owner}/${repo}/commits/${sha}/statuses`),
   getCombinedStatus: (owner: string, repo: string, sha: string) =>
-    request<any>(`/repos/${owner}/${repo}/commits/${sha}/status`),
+    request<CombinedCommitStatus>(`/repos/${owner}/${repo}/commits/${sha}/status`),
 };
