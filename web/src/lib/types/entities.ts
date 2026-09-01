@@ -360,17 +360,16 @@ export interface PackageSummary {
 
 export interface Release {
   id: number;
+  repo_id?: number;
   tag_name: string;
+  target_commitish: string;
   title: string;
-  body: string | null;
-  is_draft?: boolean;
-  is_prerelease?: boolean;
-  target_commitish?: string;
-  author?: { id: number; username: string };
-  assets_count?: number;
-  /** ISO 8601 */
+  body?: string | null;
+  is_draft: boolean;
+  is_prerelease: boolean;
+  author_id?: number;
   created_at?: string;
-  published_at?: string | null;
+  updated_at?: string;
 }
 
 // ── Merge / PR ──────────────────────────────────────────────────────────────
