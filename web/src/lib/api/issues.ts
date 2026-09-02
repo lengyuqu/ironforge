@@ -67,10 +67,10 @@ export const issues = {
   },
   get: (owner: string, repo: string, number: number): Promise<Issue> =>
     request<IssueResponse>(`/repos/${owner}/${repo}/issues/${number}`).then(normalizeIssue),
-  create: (owner: string, repo: string, title: string, body?: string, labels?: string[], assignees?: string[]): Promise<Issue> =>
+  create: (owner: string, repo: string, title: string, body?: string, labels?: string[], assignees?: string[], milestoneId?: number): Promise<Issue> =>
     request<IssueResponse>(`/repos/${owner}/${repo}/issues`, {
       method: 'POST',
-      body: JSON.stringify({ title, body, labels, assignees }),
+      body: JSON.stringify({ title, body, labels, assignees, milestone_id: milestoneId }),
     }).then(normalizeIssue),
   update: (owner: string, repo: string, number: number, data: Record<string, unknown>): Promise<Issue> =>
     request<IssueResponse>(`/repos/${owner}/${repo}/issues/${number}`, {

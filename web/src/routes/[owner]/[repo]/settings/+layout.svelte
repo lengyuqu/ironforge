@@ -24,6 +24,7 @@
   const navItems = $derived([
     { path: `/${owner}/${repo}/settings`, label: t('settings.general'), icon: '⚙️' },
     { path: `/${owner}/${repo}/settings/labels`, label: t('settings.labels'), icon: '🏷️' },
+    { path: `/${owner}/${repo}/settings/milestones`, label: t('settings.milestones'), icon: '🎯' },
     { path: `/${owner}/${repo}/settings/branches`, label: t('settings.branch_protection.title'), icon: '🛡️' },
     { path: `/${owner}/${repo}/settings/deploy-keys`, label: t('settings.deploy_keys.title', 'Deploy keys'), icon: '🔑' },
     { path: `/${owner}/${repo}/settings/ci-secrets`, label: t('settings.ci_secrets.title', 'CI secrets'), icon: '🔒' },

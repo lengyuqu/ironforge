@@ -8,6 +8,7 @@
   import type { Issue, IssueComment } from '$lib/types/entities';
   import CommentCard from '$lib/components/issues/CommentCard.svelte';
   import AssigneesPanel from '$lib/components/issues/AssigneesPanel.svelte';
+  import IssueMilestonePanel from '$lib/components/issues/IssueMilestonePanel.svelte';
   import IssueHeader from '$lib/components/issues/IssueHeader.svelte';
   import IssueCommentForm from '$lib/components/issues/IssueCommentForm.svelte';
 
@@ -99,6 +100,14 @@
       <IssueHeader {issue} />
 
       <AssigneesPanel {owner} {repo} issueNumber={number} />
+
+      <IssueMilestonePanel
+        {owner}
+        {repo}
+        issueNumber={number}
+        milestoneId={issue.milestone_id}
+        onChanged={loadIssue}
+      />
 
       {#if issue.body}
         <CommentCard

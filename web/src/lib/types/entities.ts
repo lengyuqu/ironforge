@@ -476,7 +476,8 @@ export interface CreateMilestoneInput {
 
 export interface UpdateMilestoneInput {
   title?: string;
-  description?: string;
+  /** null clears the description (backend: Some(None) semantics). */
+  description?: string | null;
   state?: string;
   /** RFC 3339 timestamp; null clears the due date. */
   due_date?: string | null;

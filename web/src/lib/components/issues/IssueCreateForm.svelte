@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { issues } from '$lib/api/client.svelte';
+  import { issues, milestones } from '$lib/api/client.svelte';
   import { toErrorMessage } from '$lib/utils/error';
   import { createT } from '$lib/i18n';
+  import type { Milestone } from '$lib/types/entities';
 
   const t = createT();
 
@@ -33,6 +34,8 @@
   let newBody = $state(initialBody);
   let newLabels = $state(initialLabels);
   let newAssignees = $state(initialAssignees);
+  let openMilestones = $state<Milestone[]>([]);
+  let selectedMilestone = $state<number | ''>('');
   let submitting = $state(false);
   let formError = $state('');
 
@@ -50,6 +53,20 @@
   );
   let canSubmit = $derived(titleError === '' && bodyError === '');
 
+  $effect(() => {
+    loadMilestones();
+  });
+
+  async function loadMilestones() {
+    try {
+      const list = await milestones.list(owner, repo);
+      openMilestones = list.filter((m) => m.state === 'open');
+    } catch {
+      // Degrade gracefully — the selector just stays empty.
+      openMilestones = [];
+    }
+  }
+
   async function handleCreate(e: Event) {
     e.preventDefault();
     if (!canSubmit || submitting) return;
@@ -57,7 +74,15 @@
       submitting = true;
       formError = '';
       const labels = newLabels ? newLabels.split(',').map((l) => l.trim()) : undefined;
-      await issues.create(owner, repo, newTitle, newBody || undefined, labels);
+      await issues.create(
+        owner,
+        repo,
+        newTitle,
+        newBody || undefined,
+        labels,
+        undefined,
+        selectedMilestone === '' ? undefined : selectedMilestone,
+      );
       await onCreated();
     } catch (err: any) {
       formError = toErrorMessage(err, t('errors.create_failed', 'Create failed'));
@@ -107,6 +132,16 @@
         bind:value={newAssignees}
         placeholder={t('issues.create_form_assignees_placeholder')}
       />
+    </label>
+    <label>
+      {t('issues.create_form_milestone')}
+      <span class="optional">{t('issues.create_form_milestone_hint')}</span>
+      <select bind:value={selectedMilestone}>
+        <option value="">{t('issues.create_form_milestone_none')}</option>
+        {#each openMilestones as m (m.id)}
+          <option value={m.id}>{m.title}</option>
+        {/each}
+      </select>
     </label>
 
     {#if formError}
@@ -159,6 +194,15 @@
     font-family: var(--font-mono);
     font-size: 13px;
     resize: vertical;
+  }
+
+  select {
+    padding: 6px 8px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text-primary);
+    font-size: 13px;
   }
 
   .form-error {
