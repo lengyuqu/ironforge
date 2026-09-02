@@ -576,9 +576,12 @@ export interface CombinedCommitStatus {
 
 // ── Time Tracking ───────────────────────────────────────────────────────────
 
+/** rg-db time_entry::Model（list/add 端点直接返回裸实体 JSON，无 username enrich） */
 export interface TimeEntry {
   id: number;
   issue_id: number;
-  seconds: number;
-  created_at?: string;
+  user_id: number;
+  duration_minutes: number;
+  description: string | null;
+  created_at: string;
 }

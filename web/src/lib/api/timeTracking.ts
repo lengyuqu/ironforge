@@ -1,10 +1,11 @@
 import { request, qs, type PaginatedResponse } from './_base.svelte';
+import type { TimeEntry } from '$lib/types/entities';
 
 export const timeTracking = {
   list: (owner: string, repo: string, issueNumber: number, page?: number, perPage?: number) =>
-    request<PaginatedResponse<any>>(`/repos/${owner}/${repo}/issues/${issueNumber}/time${qs({ page, per_page: perPage })}`),
+    request<PaginatedResponse<TimeEntry>>(`/repos/${owner}/${repo}/issues/${issueNumber}/time${qs({ page, per_page: perPage })}`),
   add: (owner: string, repo: string, issueNumber: number, data: { duration_minutes: number; description?: string }) =>
-    request<any>(`/repos/${owner}/${repo}/issues/${issueNumber}/time`, {
+    request<TimeEntry>(`/repos/${owner}/${repo}/issues/${issueNumber}/time`, {
       method: 'POST',
       body: JSON.stringify(data),
     }),
