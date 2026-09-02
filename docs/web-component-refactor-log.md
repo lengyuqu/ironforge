@@ -274,4 +274,8 @@ P1/P2 已全部完成（2026-09-01）。实际执行与预估基本一致，仅�
 - ✅ Q2-4 `admin/users` 拆分（提交 `37235eb`）：AdminUserTable（自包含，Unlock 内聚）/UserEditModal/UserDeleteModal，页面 353 → 101 行；warnings +4 均为快照初始化类；
 - ✅ Q3-1 issues 列表页拆分（提交 `7e56f28`）：IssueFilterTabs/IssueList（纯展示）+ IssueTemplateChooser（纯展示，validate 降级警告内聚）+ IssueCreateForm（自包含，Q6.3 校验 + 模板预填），页面 381 → 184 行，全 any → 具体类型；client 聚合导出 IssueTemplate/IssueConfig；
 - ✅ Q3-2 time_tracking 域拆分（提交 `2f1dc93`）：entities 重写旧 TimeEntry（seconds 字段与后端不符）对齐 time_entry::Model，timeTracking.ts 2 处 any 类型化；IssueSelector/TimeEntryForm/TimeEntryList，页面 350 → 204 行；
-- ⬜ 下一梯队（R2 批次候选，API 均已类型化）：settings/tokens（342）、pulls 列表（304）、admin/runners（289）、packages/upload（278）。
+- ✅ R2-1 pulls 列表页拆分（提交 `b0a24b9`）：PullFilterTabs/PullList（纯展示）+ PullCreateForm（自包含，Q6.3 校验 + 模板预填内聚），页面 304 → 100 行，prList/branches 去 any；
+- ✅ R2-2 pulls API 8 处 any 类型化 + PR 详情页头部提取（提交 `c336efa`）：merge/enableAutoMerge/disableAutoMerge/addComment/setThreadResolved/applySuggestion/applySuggestions 逐一对照 rg-http/rg-core 核实；新增 PrHeader（纯展示），详情页 271 → 169 行；
+- ✅ R2-4 Access Tokens 页拆分（提交 `c95734d`）：tokens.ts 内联类型提取为 AccessToken/CreatedToken 并经 client 聚合导出；TokenCreateForm（自包含，新 token 明文展示条）/TokenList（自包含，Revoke confirm），页面 342 → 88 行；
+- ✅ R2-3 issues 详情页拆分（提交 `3d3dc07`）：IssueHeader（纯展示）+ IssueCommentForm（自包含，Close/Reopen 内聚），页面 264 → 155 行；
+- ⬜ R2 剩余可选：admin/runners（289）、packages/upload（278）、notifications（162 + notifications.ts 5 处 any）、repos.ts 4 处 any（stargazers/fork/statuses）；milestones 4 处 any 疑似功能缺口（issues/PR 域无里程碑 UI）待与后端确认定位。
