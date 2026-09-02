@@ -11,7 +11,7 @@ interface RunnerAdminResponse {
   arch: string | null;
 }
 
-interface RunnerListItem {
+export interface RunnerListItem {
   id: number;
   name: string;
   status: string;

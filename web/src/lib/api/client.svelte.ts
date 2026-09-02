@@ -8,7 +8,7 @@ export {
   type PackageVersionResponse,
   type PackageDetailResponse,
 } from './packages';
-export { runners, type RegisterRunnerResponse } from './runners';
+export { runners, type RegisterRunnerResponse, type RunnerListItem } from './runners';
 export { timeTracking } from './timeTracking';
 export { boards } from './boards';
 export { search, type SearchResponse, type SearchResult } from './search';
