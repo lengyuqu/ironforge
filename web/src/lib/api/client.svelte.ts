@@ -15,7 +15,12 @@ export { search, type SearchResponse, type SearchResult } from './search';
 export { auth, type AuthLoginResponse, type PublicSsoProvider } from './auth';
 export { attachments, type Attachment, type AttachmentTarget } from './attachments';
 export { releases, type ReleaseAsset } from './releases';
-export { issues, type ReactionSummary } from './issues';
+export {
+  issues,
+  type ReactionSummary,
+  type IssueTemplate,
+  type IssueConfig,
+} from './issues';
 export { pulls, reviews } from './pulls';
 export { pipelines } from './pipelines';
 export { artifacts } from './artifacts';
