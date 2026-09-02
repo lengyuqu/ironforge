@@ -36,6 +36,21 @@ export type MergeQueueEntry = {
   created_at: string;
 };
 
+/** rg-core pull_request::MergeResult */
+export interface MergeResult {
+  merge_commit_sha: string;
+  strategy: string;
+}
+
+/** rg-core pull_request::AutoMergeOutcome */
+export interface AutoMergeOutcome {
+  /** disabled / pending / merged */
+  status: 'disabled' | 'pending' | 'merged';
+  reason?: string;
+  merge?: MergeResult;
+}
+
+
 export const pulls = {
   template: (owner: string, repo: string) =>
     request<{ content: string; file_name: string } | undefined>(`/repos/${owner}/${repo}/pull_request_template`),
@@ -63,21 +78,21 @@ export const pulls = {
   diff: (owner: string, repo: string, number: number) =>
     request<PrDiff>(`/repos/${owner}/${repo}/pulls/${number}/diff`),
   merge: (owner: string, repo: string, number: number, strategy: string) =>
-    request<any>(`/repos/${owner}/${repo}/pulls/${number}/merge`, {
+    request<MergeResult>(`/repos/${owner}/${repo}/pulls/${number}/merge`, {
       method: 'POST',
       body: JSON.stringify({ strategy }),
     }),
   enableAutoMerge: (owner: string, repo: string, number: number, strategy: string) =>
-    request<{ status: 'disabled' | 'pending' | 'merged'; reason?: string; merge?: any }>(
+    request<AutoMergeOutcome>(
       `/repos/${owner}/${repo}/pulls/${number}/auto-merge`,
       { method: 'PUT', body: JSON.stringify({ strategy }) },
     ),
   disableAutoMerge: (owner: string, repo: string, number: number) =>
-    request<any>(`/repos/${owner}/${repo}/pulls/${number}/auto-merge`, { method: 'DELETE' }),
+    request<PullRequest>(`/repos/${owner}/${repo}/pulls/${number}/auto-merge`, { method: 'DELETE' }),
   mergeQueue: (owner: string, repo: string) =>
     request<MergeQueueEntry[]>(`/repos/${owner}/${repo}/merge-queue`),
   enqueueMerge: (owner: string, repo: string, number: number, strategy: string) =>
-    request<any>(`/repos/${owner}/${repo}/pulls/${number}/merge-queue`, {
+    request<{ entry: unknown; process: unknown }>(`/repos/${owner}/${repo}/pulls/${number}/merge-queue`, {
       method: 'PUT',
       body: JSON.stringify({ strategy }),
     }),
@@ -114,21 +129,21 @@ export const reviews = {
     reply_to_id?: number;
     suggestion?: string;
   }) =>
-    request<any>(`/repos/${owner}/${repo}/pulls/${number}/comments`, {
+    request<ReviewComment>(`/repos/${owner}/${repo}/pulls/${number}/comments`, {
       method: 'POST',
       body: JSON.stringify(data),
     }),
   setThreadResolved: (owner: string, repo: string, number: number, commentId: number, resolved: boolean) =>
-    request<any>(`/repos/${owner}/${repo}/pulls/${number}/comments/${commentId}/resolution`, {
+    request<ReviewComment>(`/repos/${owner}/${repo}/pulls/${number}/comments/${commentId}/resolution`, {
       method: 'PATCH',
       body: JSON.stringify({ resolved }),
     }),
   applySuggestion: (owner: string, repo: string, number: number, commentId: number) =>
-    request<any>(`/repos/${owner}/${repo}/pulls/${number}/comments/${commentId}/suggestion/apply`, {
+    request<{ comment: ReviewComment; commit_sha: string }>(`/repos/${owner}/${repo}/pulls/${number}/comments/${commentId}/suggestion/apply`, {
       method: 'POST',
     }),
   applySuggestions: (owner: string, repo: string, number: number, commentIds: number[]) =>
-    request<{ comments: any[]; commit_sha: string }>(`/repos/${owner}/${repo}/pulls/${number}/suggestions/apply`, {
+    request<{ comments: ReviewComment[]; commit_sha: string }>(`/repos/${owner}/${repo}/pulls/${number}/suggestions/apply`, {
       method: 'POST',
       body: JSON.stringify({ comment_ids: commentIds }),
     }),
