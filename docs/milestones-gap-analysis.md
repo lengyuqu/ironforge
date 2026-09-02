@@ -71,3 +71,64 @@
 - 里程碑管理页（列表+进度+创建/编辑/关闭/删除）——建议挂在仓库 tab 或 issues 域下
 - IssueCreateForm 加里程碑选择器；issue 详情加里程碑展示与切换
 - IssueFilterTabs 加里程碑筛选（依赖后端 ListQuery 扩展）
+
+
+## 六、M2 实施准备清单（2026-09-02 补）
+
+### A. 后端协同确认项（开工前闭环）
+
+| # | 事项 | 阻塞范围 | 无后端配合时的降级方案 |
+|---|------|---------|----------------------|
+| A1 | Issue 列表 `ListQuery` 增加 `milestone` 过滤参数（issues.rs:69，现仅 state/labels/assignee） | 仅阻塞"里程碑筛选"功能 | 前端仅对当前页数据过滤，或暂不做筛选 |
+| A2 | 里程碑响应 enrich open/closed 计数（`count_open_by_milestone` 已有，closed 计数需补） | 仅阻塞"进度条展示" | 列表不显示进度，仅显示状态徽章 + due date |
+| A3 | issue 响应回填 milestone 标题（现只有 milestone_id） | 影响 issue 详情展示体验 | 前端一次性拉 milestones.list 建 id→title 映射（仓库级缓存） |
+| A4 | PR 里程碑定位（字段占位无入口） | 不阻塞 | M2 不做，留待定位确认 |
+| A5 | 里程碑删除时关联 issue 的 milestone_id 处理策略 | 影响 A5 删除确认文案 | confirm 文案写"关联 issue 的里程碑关联将被移除"（需确认后修正） |
+
+**关键结论：A1–A5 均不阻塞 M2 第一阶段**——管理页 CRUD 和 issue 挂载/摘除用现有裸 Model API 即可完整交付。
+
+### B. 数据层（就绪状态）
+
+- ✅ `entities.Milestone` / `CreateMilestoneInput` / `UpdateMilestoneInput`（M1，提交 c5a9d98）
+- ✅ `milestones.ts` 5 端点全类型化，client 聚合导出
+- ⬜ 若后端确认 A2：追加 `MilestoneWithCounts`（extends Milestone + open_issues/closed_issues）
+- ⬜ 若后端确认 A3：`Issue.milestone_title?: string | null` 可选字段
+
+### C. UI 范围与组件拆分方案
+
+**参照 labels 域既有模式**（LabelGrid 纯展示 + LabelFormModal/LabelDeleteModal 自包含）：
+
+| 组件 | 模式 | 职责 |
+|------|------|------|
+| `MilestoneGrid` | 纯展示 | 状态徽章（open/closed）、due date、描述截断；进度条待 A2 |
+| `MilestoneFormModal` | 自包含 | 创建/编辑双模式（参照 MirrorForm 惯例）；due_date 用 datetime-local 输入转 RFC 3339 |
+| `MilestoneDeleteModal` | 自包含 | confirm（文案依赖 A5 结论） |
+| 管理页 +page.svelte | 编排层 | 目标 ~80 行（labels 页同规模） |
+
+**issue 域联动改动**（改既有组件，不新建）：
+
+- `IssueCreateForm`：里程碑下拉选择器（milestones.list 自加载或 props 注入，映射走 A3 降级方案）
+- issue 详情页：里程碑展示与切换面板（与 AssigneesPanel 同级侧栏，PATCH milestone_id 含清除语义）
+- `IssueFilterTabs`：里程碑筛选 chip（**依赖 A1，放第二阶段**）
+
+### D. 路由与入口
+
+- 管理页：`web/src/routes/[owner]/[repo]/settings/milestones/+page.svelte`
+- 入口：`settings/+layout.svelte` 子导航追加一项（labels 在第 26 行，紧随其后）
+- 事件：`milestone.closed` webhook 已有；issue 全关闭自动触发链路后端已实现，验收时覆盖
+
+### E. i18n
+
+- `translations/zh-CN.json` / `en.json` **现无任何 milestone 键**（已核实），需新增 `settings.milestones` 及组件文案键组
+- 近期教训：直接补齐键，不走 fallback 降级
+
+### F. 验证与验收场景
+
+- 常规三项：svelte-check 0 errors（warnings ≤37 基线）· vitest 13/13 · vite build
+- 功能验收：创建/编辑/关闭/删除里程碑；issue 创建时挂载、详情页切换/摘除；关闭里程碑下全部 issue → 验证 milestone.closed webhook 与通知
+- 可选：MilestoneFormModal 日期转换单测
+
+### G. 排期建议
+
+- **M2-1（无后端依赖，可立即开工）**：管理页三组件 + settings 入口 + i18n 键 + IssueCreateForm/详情页里程碑挂载
+- **M2-2（依赖 A1/A2/A3）**：里程碑筛选 chip + 进度条 + issue enrich 直读
