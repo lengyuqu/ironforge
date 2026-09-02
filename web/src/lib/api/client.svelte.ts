@@ -34,7 +34,7 @@ export { mirrors, type MirrorPayload, type RepositoryMirror } from './mirrors';
 export { webhooks, type RepositoryWebhook, type WebhookDelivery, type WebhookPayload } from './webhooks';
 export { imports, type ImportTask, type StartImportPayload } from './imports';
 export { milestones } from './milestones';
-export { tokens } from './tokens';
+export { tokens, type AccessToken, type CreatedToken } from './tokens';
 export { sshKeys, type SshKey } from './sshKeys';
 export { deployKeys, type DeployKey } from './deployKeys';
 export { ciSecrets, type CiSecret } from './ciSecrets';
