@@ -287,4 +287,7 @@ P1/P2 已全部完成（2026-09-01）。实际执行与预估基本一致，仅�
 - ✅ R4-1 releases/edit（提交 `0c931ec`）：ReleaseForm 扩展创建/编辑双模式（tag 锁定/隐藏 target 选择器，onCreated 可选化，new 页零改动兼容），页面 265 → 104 行；
 - ✅ R4-2 admin/runners（提交 `ffdff2d`）：RunnerRegisterForm（自包含：注册 + 一次性 token 明文条 + copy）/RunnerTable（纯展示）/RunnerDeleteModal，页面 289 → 141 行，any 清零（RunnerListItem 导出并聚合）；
 - ✅ R4-3 packages/upload（提交 `1b257e1`）：PackageUploadForm（自包含：格式/文件/metadata/publish + inline banner），页面 278 → 68 行；修复 en.json i18n 键错插嵌套块（双 upload_success 锚点歧义）；
-- ⬜ 剩余可选：M2-2（issue 列表里程碑筛选/进度计数，依赖后端 A1/A2 确认）；websockets.ts 2 处 any（实时通道专项）；后端协同项：list_reviews/TimeEntry 补 username enrich、里程碑删除级联策略 A5；质量补强：新组件单测覆盖（~50 组件仅 13 用例）。R4 后 routes/ 250+ 行页面仅剩 login/search 等单功能低频页，拆分系列正式收官。
+- ✅ Q-1 websockets 事件信封类型化（提交 `dbe594b`）：NotificationWsEvent/JobLogEventData 对照 ws.rs，API 层 any 彻底清零（此前"2 处"统计含注释误报，实际 1 处）；
+- ✅ Q-2 组件单测第一批（提交 `0558fff`）：vitest 13 → 25 用例——parseRunnerLabels 兼容契约 5 例、MilestoneGrid 渲染+回调 4 例、RunnerTable 3 例；
+- ✅ Q-3 i18n 技术债根治（提交 `364dc08`）：index.ts runes 核心 git mv 为 i18n.svelte.ts + 转发 shim，修复"任何 t() 组件在 vitest 下不可渲染"的既有架构限制（已实测去 mock 可渲染），组件测试解锁；
+- ⬜ 剩余可选：M2-2（issue 列表里程碑筛选/进度计数，依赖后端 A1/A2 确认）；后端协同项：list_reviews/TimeEntry 补 username enrich、里程碑删除级联策略 A5；质量补强后续：其余 ~45 组件按同模式补测（i18n mock 隔离模式已确立）。R4 后 routes/ 250+ 行页面仅剩 login/search 等单功能低频页，拆分系列正式收官；API any 清零收官。
