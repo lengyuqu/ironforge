@@ -32,6 +32,44 @@ function normalizeTagRef(tag: TagRefResponse): { name: string } {
   return { name: tag.name };
 }
 
+/** rg-db repo_star::Model（stargazers 列表元素，无 username enrich） */
+export interface Stargazer {
+  id: number;
+  user_id: number;
+  repo_id: number;
+  created_at: string;
+}
+
+/** fork 端点返回 repository::Model JSON（无 owner_name，跳转需自行拼 owner） */
+export interface RepoForkResult {
+  id: number;
+  owner_id: number;
+  name: string;
+  description: string | null;
+  is_private: boolean;
+  default_branch: string;
+  fork_id: number | null;
+  stars_count: number;
+  forks_count: number;
+  org_id: number | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at: string | null;
+  origin_repo_id: number | null;
+}
+
+/** forks 列表元素（repository::Model 投影） */
+export interface ForkSummary {
+  id: number;
+  owner_id: number;
+  name: string;
+  is_private: boolean;
+  default_branch: string;
+  stars_count: number;
+  forks_count: number;
+  created_at: string;
+}
+
 export const repos = {
   list: (owner: string, page?: number, perPage?: number) =>
     request<PaginatedResponse<{ id: number; name: string; description: string | null; is_private: boolean; created_at: string }>>(
@@ -113,7 +151,7 @@ export const repos = {
     return repos.star(owner, repo);
   },
   stargazers: (owner: string, repo: string, page?: number, perPage?: number) =>
-    request<PaginatedResponse<any>>(`/repos/${owner}/${repo}/stargazers${qs({ page, per_page: perPage })}`),
+    request<PaginatedResponse<Stargazer>>(`/repos/${owner}/${repo}/stargazers${qs({ page, per_page: perPage })}`),
   watch: (owner: string, repo: string, state: string) =>
     request<{ watch_state: string }>(`/repos/${owner}/${repo}/watch`, { method: 'PUT', body: JSON.stringify({ state }) }),
   watchStatus: (owner: string, repo: string) =>
@@ -123,18 +161,18 @@ export const repos = {
   delete: (owner: string, repo: string) =>
     request<{ deleted: boolean }>(`/repos/${owner}/${repo}`, { method: 'DELETE' }),
   fork: (owner: string, repo: string) =>
-    request<any>(`/repos/${owner}/${repo}/fork`, { method: 'POST' }),
+    request<RepoForkResult>(`/repos/${owner}/${repo}/fork`, { method: 'POST' }),
   forks: (owner: string, repo: string, page?: number, perPage?: number) => {
     const params = new URLSearchParams();
     if (page) params.set('page', String(page));
     if (perPage) params.set('per_page', String(perPage));
     const qs = params.toString() ? `?${params.toString()}` : '';
-    return request<PaginatedResponse<any>>(`/repos/${owner}/${repo}/forks${qs}`);
+    return request<PaginatedResponse<ForkSummary>>(`/repos/${owner}/${repo}/forks${qs}`);
   },
   transfer: (owner: string, repo: string, newOwner: string) =>
     request<RepoInfo>(`/repos/${owner}/${repo}/transfer`, { method: 'POST', body: JSON.stringify({ new_owner: newOwner }) }),
   createCommitStatus: (owner: string, repo: string, sha: string, data: { state: string; context: string; description?: string; target_url?: string }) =>
-    request<any>(`/repos/${owner}/${repo}/statuses/${sha}`, {
+    request<CommitStatus>(`/repos/${owner}/${repo}/statuses/${sha}`, {
       method: 'POST',
       body: JSON.stringify(data),
     }),

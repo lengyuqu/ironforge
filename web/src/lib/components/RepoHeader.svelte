@@ -146,7 +146,7 @@
 
     try {
       const result = await repos.fork(owner, repo);
-      const forkOwner = result?.owner?.username || result?.owner_name || result?.owner || getUser()?.username;
+      const forkOwner = getUser()?.username;
       const forkName = result?.name || repo;
       toast.success(t('repo.fork.success'));
       if (forkOwner) {
