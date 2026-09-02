@@ -1,61 +1,93 @@
 <script lang="ts">
+  // Release form — self-contained: submit through the releases API and
+  // report failures via toast. Dual mode: when the `release` prop is
+  // provided it edits an existing release (tag locked, no target picker);
+  // otherwise it creates a new one (tag + target_commitish selectable).
   import { releases } from '$lib/api/client.svelte';
   import { toast } from '$lib/components/toast.svelte';
   import { toErrorMessage } from '$lib/utils/error';
   import { createT } from '$lib/i18n';
+  import type { Release } from '$lib/types/entities';
 
   const t = createT();
 
   let {
     owner,
     repo,
-    branches,
-    tags,
+    branches = [],
+    tags = [],
+    /** Release being edited, or null/undefined when creating. */
+    release = null,
+    /** Called after a successful create. */
     onCreated,
+    /** Called after a successful update. */
+    onSaved,
   }: {
     owner: string;
     repo: string;
-    branches: string[];
-    tags: string[];
-    onCreated: () => void | Promise<void>;
+    branches?: string[];
+    tags?: string[];
+    release?: Release | null;
+    onCreated?: () => void | Promise<void>;
+    onSaved?: () => void | Promise<void>;
   } = $props();
 
-  let tagName = $state('');
-  let releaseTitle = $state('');
-  let body = $state('');
+  const isEdit = release != null;
+
+  // Snapshot props before initialising $state (avoids state_referenced_locally).
+  const initialTagName = release?.tag_name ?? '';
+  const initialTitle = release?.title ?? '';
+  const initialBody = release?.body ?? '';
+  const initialDraft = !!release?.is_draft;
+  const initialPrerelease = !!release?.is_prerelease;
+
+  let tagName = $state(initialTagName);
+  let releaseTitle = $state(initialTitle);
+  let body = $state(initialBody);
+  let isDraft = $state(initialDraft);
+  let isPrerelease = $state(initialPrerelease);
   let targetCommitish = $state('');
-  let isDraft = $state(false);
-  let isPrerelease = $state(false);
   let selectedTargetType = $state<'branch' | 'tag'>('tag');
   let submitting = $state(false);
 
   async function handleSubmit(e: Event) {
     e.preventDefault();
 
-    if (!tagName.trim()) {
-      toast.error('Tag name is required');
+    if (!isEdit && !tagName.trim()) {
+      toast.error(t('releases.tag_name_required', 'Tag name is required'));
       return;
     }
 
     if (!releaseTitle.trim()) {
-      toast.error('Release title is required');
+      toast.error(t('releases.release_title_required', 'Release title is required'));
       return;
     }
 
     submitting = true;
 
     try {
-      await releases.create(owner, repo, {
-        tag_name: tagName.trim(),
-        title: releaseTitle.trim(),
-        body: body.trim() || undefined,
-        target_commitish: targetCommitish || undefined,
-        is_draft: isDraft,
-        is_prerelease: isPrerelease
-      });
-      await onCreated();
+      if (isEdit && release) {
+        await releases.update(owner, repo, release.id, {
+          title: releaseTitle.trim(),
+          body: body.trim() || undefined,
+          is_draft: isDraft,
+          is_prerelease: isPrerelease,
+        });
+        toast.success(t('releases.updated', 'Release updated'));
+        await onSaved?.();
+      } else {
+        await releases.create(owner, repo, {
+          tag_name: tagName.trim(),
+          title: releaseTitle.trim(),
+          body: body.trim() || undefined,
+          target_commitish: targetCommitish || undefined,
+          is_draft: isDraft,
+          is_prerelease: isPrerelease,
+        });
+        await onCreated?.();
+      }
     } catch (e) {
-      toast.error(toErrorMessage(e, t('errors.save_failed') || 'Create failed'));
+      toast.error(toErrorMessage(e, t('errors.save_failed', 'Save failed')));
       submitting = false;
     }
   }
@@ -71,8 +103,9 @@
       placeholder={t('releases.tag_name_placeholder')}
       required
       class="input"
+      disabled={isEdit}
     />
-    {#if tags.length > 0}
+    {#if !isEdit && tags.length > 0}
       <div class="tag-hints">
         <span class="hint-label">Existing tags:</span>
         {#each tags.slice(0, 10) as tag}
@@ -114,41 +147,43 @@
     ></textarea>
   </div>
 
-  <div class="form-group">
-    <label for="target-commitish">{t('releases.target_commitish')}</label>
-    <div class="target-toggle">
-      <button
-        type="button"
-        class="toggle-btn"
-        class:active={selectedTargetType === 'tag'}
-        onclick={() => selectedTargetType = 'tag'}
-      >
-        Tags
-      </button>
-      <button
-        type="button"
-        class="toggle-btn"
-        class:active={selectedTargetType === 'branch'}
-        onclick={() => selectedTargetType = 'branch'}
-      >
-        Branches
-      </button>
-    </div>
+  {#if !isEdit}
+    <div class="form-group">
+      <label for="target-commitish">{t('releases.target_commitish')}</label>
+      <div class="target-toggle">
+        <button
+          type="button"
+          class="toggle-btn"
+          class:active={selectedTargetType === 'tag'}
+          onclick={() => selectedTargetType = 'tag'}
+        >
+          Tags
+        </button>
+        <button
+          type="button"
+          class="toggle-btn"
+          class:active={selectedTargetType === 'branch'}
+          onclick={() => selectedTargetType = 'branch'}
+        >
+          Branches
+        </button>
+      </div>
 
-    <select id="target-commitish" bind:value={targetCommitish} class="select">
-      {#if selectedTargetType === 'tag'}
-        <option value="">-- Select a tag (optional) --</option>
-        {#each tags as tag}
-          <option value={tag}>{tag}</option>
-        {/each}
-      {:else}
-        <option value="">-- Select a branch (optional) --</option>
-        {#each branches as branch}
-          <option value={branch}>{branch}</option>
-        {/each}
-      {/if}
-    </select>
-  </div>
+      <select id="target-commitish" bind:value={targetCommitish} class="select">
+        {#if selectedTargetType === 'tag'}
+          <option value="">-- Select a tag (optional) --</option>
+          {#each tags as tag}
+            <option value={tag}>{tag}</option>
+          {/each}
+        {:else}
+          <option value="">-- Select a branch (optional) --</option>
+          {#each branches as branch}
+            <option value={branch}>{branch}</option>
+          {/each}
+        {/if}
+      </select>
+    </div>
+  {/if}
 
   <div class="form-group checkbox-group">
     <label class="checkbox-label">
@@ -167,7 +202,11 @@
   <div class="form-actions">
     <a href={`/${owner}/${repo}/releases`} class="btn-secondary">{t('common.cancel')}</a>
     <button type="submit" class="btn-primary" disabled={submitting}>
-      {submitting ? t('releases.submitting') : t('releases.submit')}
+      {submitting
+        ? t('releases.submitting')
+        : isEdit
+          ? t('releases.save', 'Save')
+          : t('releases.submit')}
     </button>
   </div>
 </form>
@@ -216,6 +255,11 @@
     border-color: var(--accent);
   }
 
+  .input:disabled {
+    color: var(--text-muted);
+    cursor: not-allowed;
+  }
+
   .textarea {
     resize: vertical;
     min-height: 120px;
@@ -253,7 +297,7 @@
   }
 
   .toggle-btn:last-child {
-    border-radius: 0 var(--radius) var(--radius) 0;
+    border-radius: 0 var(--radius) var(--radius);
     border-left: none;
   }
 
