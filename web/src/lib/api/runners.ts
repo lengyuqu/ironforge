@@ -44,7 +44,7 @@ function toPagination(total: number, page?: number, perPage?: number): Paginatio
   };
 }
 
-function parseRunnerLabels(labels: string | string[] | undefined | null): string[] {
+export function parseRunnerLabels(labels: string | string[] | undefined | null): string[] {
   if (Array.isArray(labels)) {
     return labels;
   }
