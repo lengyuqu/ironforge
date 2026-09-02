@@ -1,5 +1,23 @@
 import { API_BASE } from './_base.svelte';
 
+// ── WebSocket event envelopes (mirror rg-http ws.rs NotificationEvent) ──
+/** Envelope pushed by the notification hub; data wraps a free-form payload. */
+export interface NotificationWsEvent {
+  event_type: string;
+  data: {
+    /** Target user id — the owning channel the hub pushed to. */
+    user_id: number;
+    /** Free-form business payload; shape varies per event_type. */
+    payload: unknown;
+  };
+}
+
+/** data shape for event_type === 'job_log' (ws.rs push_job_log). */
+export interface JobLogEventData {
+  job_id: number;
+  log: string;
+}
+
 function withWebSocketApiBase(path: string): string {
   const apiUrl = new URL(API_BASE, window.location.origin);
   const protocol = apiUrl.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -15,7 +33,7 @@ let notificationWs: WebSocket | null = null;
 let reconnectEnabled = false;
 
 export function connectNotificationWebSocket(
-  onMessage: (event: { event_type: string; data: any }) => void,
+  onMessage: (event: NotificationWsEvent) => void,
   onError?: (err: Event) => void,
 ): WebSocket | null {
   // WebSocket auth uses the HttpOnly cookie sent by the browser for same-origin
