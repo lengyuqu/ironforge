@@ -4,6 +4,9 @@ import { render, screen, fireEvent } from '@testing-library/svelte';
 // The i18n module uses module-level runes in a plain .ts file, which the
 // vitest pipeline cannot compile (rune_outside_svelte). Mock it so the
 // component under test renders without the reactive locale core.
+// Mock the i18n core to keep assertions decoupled from the translation
+// files (the module-level runes now compile thanks to i18n.svelte.ts, but
+// stable keys beat locale-dependent strings in tests).
 vi.mock('$lib/i18n', () => ({
   createT: () => (key: string, fallback?: string) => fallback ?? key,
   formatDate: (iso: string) => `fmt(${iso})`,
