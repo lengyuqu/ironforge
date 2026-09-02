@@ -272,4 +272,6 @@ P1/P2 已全部完成（2026-09-01）。实际执行与预估基本一致，仅�
 - ✅ Q2-2 `settings/collaborators` 拆分（提交 `a51e7b4`）：entities 新增 RepoCollaborator，collaborators.ts 3 处 any 类型化；CollaboratorAddForm/CollaboratorTable，页面 386 → 82 行；
 - ✅ Q2-3 packages 域（提交 `3a08a38`）：packages.ts get/getVersion 2 处 any 类型化 + 导出三类型（client 聚合）；PackageList（纯展示）/PackageVersions（自包含，10 种格式安装命令内聚）；列表页 357 → 210 行、详情页 373 → 135 行（删除 latest_version/created_at 死代码字段）；
 - ✅ Q2-4 `admin/users` 拆分（提交 `37235eb`）：AdminUserTable（自包含，Unlock 内聚）/UserEditModal/UserDeleteModal，页面 353 → 101 行；warnings +4 均为快照初始化类；
-- ⬜ Q3：issues 列表页（381，高频页）；time_tracking（350，可选）。
+- ✅ Q3-1 issues 列表页拆分（提交 `7e56f28`）：IssueFilterTabs/IssueList（纯展示）+ IssueTemplateChooser（纯展示，validate 降级警告内聚）+ IssueCreateForm（自包含，Q6.3 校验 + 模板预填），页面 381 → 184 行，全 any → 具体类型；client 聚合导出 IssueTemplate/IssueConfig；
+- ✅ Q3-2 time_tracking 域拆分（提交 `2f1dc93`）：entities 重写旧 TimeEntry（seconds 字段与后端不符）对齐 time_entry::Model，timeTracking.ts 2 处 any 类型化；IssueSelector/TimeEntryForm/TimeEntryList，页面 350 → 204 行；
+- ⬜ 下一梯队（R2 批次候选，API 均已类型化）：settings/tokens（342）、pulls 列表（304）、admin/runners（289）、packages/upload（278）。
