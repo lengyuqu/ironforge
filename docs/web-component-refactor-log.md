@@ -290,4 +290,5 @@ P1/P2 已全部完成（2026-09-01）。实际执行与预估基本一致，仅�
 - ✅ Q-1 websockets 事件信封类型化（提交 `dbe594b`）：NotificationWsEvent/JobLogEventData 对照 ws.rs，API 层 any 彻底清零（此前"2 处"统计含注释误报，实际 1 处）；
 - ✅ Q-2 组件单测第一批（提交 `0558fff`）：vitest 13 → 25 用例——parseRunnerLabels 兼容契约 5 例、MilestoneGrid 渲染+回调 4 例、RunnerTable 3 例；
 - ✅ Q-3 i18n 技术债根治（提交 `364dc08`）：index.ts runes 核心 git mv 为 i18n.svelte.ts + 转发 shim，修复"任何 t() 组件在 vitest 下不可渲染"的既有架构限制（已实测去 mock 可渲染），组件测试解锁；
-- ⬜ 剩余可选：M2-2（issue 列表里程碑筛选/进度计数，依赖后端 A1/A2 确认）；后端协同项：list_reviews/TimeEntry 补 username enrich、里程碑删除级联策略 A5；质量补强后续：其余 ~45 组件按同模式补测（i18n mock 隔离模式已确立）。R4 后 routes/ 250+ 行页面仅剩 login/search 等单功能低频页，拆分系列正式收官；API any 清零收官。
+- ✅ Q-4 纯函数模块单测（提交 `925bb31` + `b6f3251`）：vitest 25 → 64 用例——packageFormats 分类学契约 4 例、repoUrls 链接构造器 9 例、pipelineStatus 7 例、commitStatus + highlightText XSS 防注入 12 例、buildLineDiff LCS 语义 5 例、markdown sanitizeHtml 白名单 unwrap 语义 + renderMarkdown 端到端 10 例；纯函数层（utils/ + packageFormats）覆盖收官；
+- ⬜ 剩余可选：M2-2（issue 列表里程碑筛选/进度计数，依赖后端 A1/A2 确认）；后端协同项：list_reviews/TimeEntry 补 username enrich、里程碑删除级联策略 A5；质量补强后续：纯展示组件（List/Grid 族）按 i18n mock 隔离模式补测（纯函数层已收官，组件层 7/50 已覆盖）。R4 后 routes/ 250+ 行页面仅剩 login/search 等单功能低频页，拆分系列正式收官；API any 清零收官。
