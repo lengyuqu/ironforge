@@ -5,15 +5,13 @@
   //   JobLogModal (live log viewer)
   import { page } from '$app/stores';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
-  import PipelineBadge from '$lib/components/PipelineBadge.svelte';
   import PipelineList from '$lib/components/pipelines/PipelineList.svelte';
-  import PipelineFlow from '$lib/components/pipelines/PipelineFlow.svelte';
   import JobLogModal from '$lib/components/pipelines/JobLogModal.svelte';
-  import ArtifactsPanel from '$lib/components/pipelines/ArtifactsPanel.svelte';
+  import PipelineDetailPanel from '$lib/components/pipelines/PipelineDetailPanel.svelte';
   import { pipelines } from '$lib/api/client.svelte';
   import { createT } from '$lib/i18n';
   import { toErrorMessage } from '$lib/utils/error';
-  import { formatDuration, isRunning } from '$lib/utils/pipelineStatus';
+  import { isRunning } from '$lib/utils/pipelineStatus';
   import type { Pipeline, PipelineDetail, PipelineDetailResponse, PipelineJob } from '$lib/types/entities';
 
   const t = createT();
@@ -184,39 +182,18 @@
       <!-- Pipeline detail -->
       <div class="pipeline-detail">
         {#if selectedPipeline}
-          <div class="detail-header">
-            <h2>{t('pipeline.detail_title', { id: String(selectedPipeline.id) })}</h2>
-            <PipelineBadge status={selectedPipeline.status} />
-            <div class="detail-actions">
-              {#if selectedPipeline.status === 'failed' || selectedPipeline.status === 'failure' || selectedPipeline.status === 'error'}
-                <button class="btn-outline" onclick={() => selectedPipeline && handleRetry(selectedPipeline.id)}>{t('pipeline.retry')}</button>
-              {/if}
-              {#if selectedPipeline.status === 'running' || selectedPipeline.status === 'pending' || selectedPipeline.status === 'manual' || selectedPipeline.status === 'waiting_approval'}
-                <button class="btn-outline btn-danger" onclick={() => selectedPipeline && handleCancel(selectedPipeline.id)}>{t('pipeline.cancel')}</button>
-              {/if}
-            </div>
-          </div>
-
-          <div class="detail-info">
-            <div><span class="text-secondary">{t('pipeline.commit')}:</span> <code>{selectedPipeline.commit_sha?.slice(0, 7)}</code></div>
-            <div><span class="text-secondary">{t('pipeline.branch')}:</span> {selectedPipeline.ref}</div>
-            <div><span class="text-secondary">{t('pipeline.duration')}:</span> {formatDuration(selectedPipeline.started_at, selectedPipeline.finished_at)}</div>
-          </div>
-
-          {#if selectedPipeline.stages?.length > 0}
-            <PipelineFlow
-              pipeline={selectedPipeline}
-              {approvedJobs}
-              onOpenJobLog={viewJobLog}
-              onPlayJob={handlePlay}
-              onApproveJob={handleApprove}
-              onRerunJob={handleRerun}
-            />
-          {:else}
-            <p class="text-secondary">{t('pipeline.select_detail')}</p>
-          {/if}
-
-          <ArtifactsPanel {owner} {repo} pipelineId={selectedPipeline.id} status={selectedPipeline.status} />
+          <PipelineDetailPanel
+            {owner}
+            {repo}
+            pipeline={selectedPipeline}
+            {approvedJobs}
+            onRetry={handleRetry}
+            onCancel={handleCancel}
+            onOpenJobLog={viewJobLog}
+            onPlayJob={handlePlay}
+            onApproveJob={handleApprove}
+            onRerunJob={handleRerun}
+          />
         {:else}
           <p class="text-secondary">{t('pipeline.select_detail')}</p>
         {/if}
@@ -256,36 +233,4 @@
     padding: 24px;
   }
 
-  .detail-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
-  h2 { font-size: 20px; margin: 0; }
-  .detail-actions { margin-left: auto; display: flex; gap: 8px; }
-
-  .btn-outline {
-    padding: 4px 12px;
-    background: none;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    color: var(--text-primary);
-    font-size: 12px;
-    cursor: pointer;
-  }
-  .btn-outline:hover { background: var(--bg-hover); }
-  .btn-danger { border-color: var(--red-dim); color: var(--red); }
-
-  .detail-info {
-    display: flex;
-    gap: 24px;
-    font-size: 13px;
-    margin-bottom: 20px;
-    padding: 12px 16px;
-    background: var(--bg-primary);
-    border-radius: var(--radius);
-    flex-wrap: wrap;
-  }
-  .detail-info code {
-    font-size: 12px;
-    background: var(--bg-tertiary);
-    padding: 1px 6px;
-    border-radius: 3px;
-  }
 </style>
