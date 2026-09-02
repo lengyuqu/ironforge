@@ -281,4 +281,5 @@ P1/P2 已全部完成（2026-09-01）。实际执行与预估基本一致，仅�
 - ✅ R3-1 notifications 域（提交 `856dfb9`）：notifications.ts 5 处 any 类型化（NotificationItem 等）；NotificationList（自包含，event_type 图标映射内聚）；页面 162 → 136 行，load 失败改 error banner；
 - ✅ R3-2 pipelines 拆分（提交 `9ed238a`）：PipelineDetailPanel（纯展示编排：header 动作 + info + PipelineFlow + ArtifactsPanel），页面 291 → 236 行；
 - ✅ R3-3 repos.ts 4 处 any 类型化（提交 `3f38474`）：stargazers/fork/forks/createCommitStatus；entities.CommitStatus 复用；RepoHeader fork 兜底链清理恒 undefined 访问；
-- ⬜ 剩余可选：admin/runners（289）、packages/upload（278）、releases/edit（265，ReleaseForm 可复用）；milestones.ts 4 处 any + websockets.ts 2 处 any（前者疑似功能缺口待后端确认定位，后者实时通道专项）；后端协同项：list_reviews/TimeEntry 补 username enrich、AI API 前端入口。
+- ✅ M1 milestones 类型化 + 缺口调查（提交 `c5a9d98`）：entities.Milestone 按后端 milestone::Model 重写（旧 GitHub 风格零使用）+ CreateMilestoneInput/UpdateMilestoneInput；milestones.ts 4 处 any 清零并经 client 聚合导出；新增 docs/milestones-gap-analysis.md（结论：后端 5 端点+issue 联动+webhook+导入完整，前端整域零 UI，导入默认写入里程碑数据不可见；M2 UI 需后端先确认列表过滤/进度计数/issue enrich 三项）；
+- ⬜ 剩余可选：admin/runners（289）、packages/upload（278）、releases/edit（265，ReleaseForm 可复用）；websockets.ts 2 处 any（实时通道专项）；M2 里程碑 UI（待后端协同确认）；后端协同项：list_reviews/TimeEntry 补 username enrich、AI API 前端入口。

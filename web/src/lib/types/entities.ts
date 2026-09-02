@@ -448,14 +448,38 @@ export interface MergeQueueEntry {
 
 // ── Milestone ───────────────────────────────────────────────────────────────
 
+/**
+ * Backend `milestones` table entity (rg-db entities/milestone.rs).
+ * NOTE: no open/closed issue counts — list/get return the bare model.
+ * Progress display requires backend enrichment (see docs/milestones-gap-analysis.md §4.2).
+ */
 export interface Milestone {
   id: number;
+  repo_id: number;
   title: string;
   description?: string | null;
-  state?: 'open' | 'closed';
-  open_issues?: number;
-  closed_issues?: number;
-  due_on?: string | null;
+  /** Backend stores free-form state strings ("open" / "closed"). */
+  state: string;
+  /** RFC 3339 timestamp; null when no due date set. */
+  due_date?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface CreateMilestoneInput {
+  title: string;
+  description?: string;
+  /** RFC 3339 timestamp. */
+  due_date?: string;
+  state?: string;
+}
+
+export interface UpdateMilestoneInput {
+  title?: string;
+  description?: string;
+  state?: string;
+  /** RFC 3339 timestamp; null clears the due date. */
+  due_date?: string | null;
 }
 
 // ── Label ───────────────────────────────────────────────────────────────────

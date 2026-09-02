@@ -33,7 +33,7 @@ export { branchProtections, type BranchProtectionPayload, type BranchProtectionR
 export { mirrors, type MirrorPayload, type RepositoryMirror } from './mirrors';
 export { webhooks, type RepositoryWebhook, type WebhookDelivery, type WebhookPayload } from './webhooks';
 export { imports, type ImportTask, type StartImportPayload } from './imports';
-export { milestones } from './milestones';
+export { milestones, type CreateMilestoneInput, type Milestone, type UpdateMilestoneInput } from './milestones';
 export { tokens, type AccessToken, type CreatedToken } from './tokens';
 export { sshKeys, type SshKey } from './sshKeys';
 export { deployKeys, type DeployKey } from './deployKeys';
