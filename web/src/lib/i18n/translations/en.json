@@ -3,6 +3,7 @@
     "sign_in": "Sign in",
     "sign_out": "Sign out",
     "cancel": "Cancel",
+    "back": "Back",
     "save": "Save",
     "saving": "Saving...",
     "edit": "Edit",
@@ -1089,6 +1090,8 @@
     "file": "File",
     "description": "Description",
     "upload_success": "Package uploaded successfully",
+    "uploading": "Uploading...",
+    "file_required": "Package file is required",
     "delete_confirm": "Delete {name} {version}?"
   },
   "runners": {

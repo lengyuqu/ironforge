@@ -3,6 +3,7 @@
     "sign_in": "登录",
     "sign_out": "退出",
     "cancel": "取消",
+    "back": "返回",
     "save": "保存",
     "saving": "保存中...",
     "edit": "编辑",
@@ -1089,6 +1090,8 @@
     "file": "文件",
     "description": "描述",
     "upload_success": "包上传成功",
+    "uploading": "上传中...",
+    "file_required": "包文件为必填项",
     "delete_confirm": "删除 {name} {version}？"
   },
   "runners": {
