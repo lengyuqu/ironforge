@@ -27,7 +27,7 @@ export { artifacts } from './artifacts';
 export { wiki } from './wiki';
 export { collaborators } from './collaborators';
 export { labels } from './labels';
-export { notifications } from './notifications';
+export { notifications, type NotificationItem } from './notifications';
 export { orgs } from './orgs';
 export { branchProtections, type BranchProtectionPayload, type BranchProtectionRule } from './branchProtections';
 export { mirrors, type MirrorPayload, type RepositoryMirror } from './mirrors';
