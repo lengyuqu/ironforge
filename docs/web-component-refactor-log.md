@@ -278,4 +278,7 @@ P1/P2 已全部完成（2026-09-01）。实际执行与预估基本一致，仅�
 - ✅ R2-2 pulls API 8 处 any 类型化 + PR 详情页头部提取（提交 `c336efa`）：merge/enableAutoMerge/disableAutoMerge/addComment/setThreadResolved/applySuggestion/applySuggestions 逐一对照 rg-http/rg-core 核实；新增 PrHeader（纯展示），详情页 271 → 169 行；
 - ✅ R2-4 Access Tokens 页拆分（提交 `c95734d`）：tokens.ts 内联类型提取为 AccessToken/CreatedToken 并经 client 聚合导出；TokenCreateForm（自包含，新 token 明文展示条）/TokenList（自包含，Revoke confirm），页面 342 → 88 行；
 - ✅ R2-3 issues 详情页拆分（提交 `3d3dc07`）：IssueHeader（纯展示）+ IssueCommentForm（自包含，Close/Reopen 内聚），页面 264 → 155 行；
-- ⬜ R2 剩余可选：admin/runners（289）、packages/upload（278）、notifications（162 + notifications.ts 5 处 any）、repos.ts 4 处 any（stargazers/fork/statuses）；milestones 4 处 any 疑似功能缺口（issues/PR 域无里程碑 UI）待与后端确认定位。
+- ✅ R3-1 notifications 域（提交 `856dfb9`）：notifications.ts 5 处 any 类型化（NotificationItem 等）；NotificationList（自包含，event_type 图标映射内聚）；页面 162 → 136 行，load 失败改 error banner；
+- ✅ R3-2 pipelines 拆分（提交 `9ed238a`）：PipelineDetailPanel（纯展示编排：header 动作 + info + PipelineFlow + ArtifactsPanel），页面 291 → 236 行；
+- ✅ R3-3 repos.ts 4 处 any 类型化（提交 `3f38474`）：stargazers/fork/forks/createCommitStatus；entities.CommitStatus 复用；RepoHeader fork 兜底链清理恒 undefined 访问；
+- ⬜ 剩余可选：admin/runners（289）、packages/upload（278）、releases/edit（265，ReleaseForm 可复用）；milestones.ts 4 处 any + websockets.ts 2 处 any（前者疑似功能缺口待后端确认定位，后者实时通道专项）；后端协同项：list_reviews/TimeEntry 补 username enrich、AI API 前端入口。
