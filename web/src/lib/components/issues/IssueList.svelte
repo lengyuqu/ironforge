@@ -45,6 +45,9 @@
               date: formatDate(issue.created_at || ''),
               author: issue.author || t('common.unknown')
             })}
+            {#if issue.milestone_title}
+              <span class="milestone-badge" title={t('issues.milestone')}>{issue.milestone_title}</span>
+            {/if}
             {#if issue.labels?.length}
               {#each issue.labels as label (label)}
                 <span class="label-badge">{label}</span>

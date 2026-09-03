@@ -58,8 +58,8 @@ export const issues = {
     request<IssueConfig>(`/repos/${owner}/${repo}/issue_config`),
   validateTemplateConfig: (owner: string, repo: string) =>
     request<{ valid: boolean; message: string }>(`/repos/${owner}/${repo}/issue_config/validate`),
-  list: (owner: string, repo: string, state?: string, page?: number, perPage?: number, labels?: string, assignee?: string) => {
-    return request<PaginatedResponse<IssueResponse>>(`/repos/${owner}/${repo}/issues${qs({ state, page, per_page: perPage, labels, assignee })}`)
+  list: (owner: string, repo: string, state?: string, page?: number, perPage?: number, labels?: string, assignee?: string, milestone?: string) => {
+    return request<PaginatedResponse<IssueResponse>>(`/repos/${owner}/${repo}/issues${qs({ state, page, per_page: perPage, labels, assignee, milestone })}`)
       .then((response) => ({
         ...response,
         data: response.data.map(normalizeIssue),

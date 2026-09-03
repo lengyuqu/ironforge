@@ -525,7 +525,8 @@
     "milestone_edit": "Edit",
     "milestone_save": "Save",
     "milestone_none": "None",
-    "milestone_saved": "Milestone updated"
+    "milestone_saved": "Milestone updated",
+    "no_milestone": "No milestone"
   },
   "pulls": {
     "title": "Pull Requests",
@@ -981,7 +982,9 @@
       "confirm_button": "Delete this repository",
       "confirming": "Deleting...",
       "success": "Repository deleted."
-    }
+    },
+    "milestone_open_count": "{n} open",
+    "milestone_closed_count": "{n} closed"
   },
   "commit": {
     "status": "Status checks",

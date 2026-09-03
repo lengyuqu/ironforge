@@ -103,7 +103,42 @@ pub async fn list_issues_paginated(
     limit: u64,
 ) -> CoreResult<(Vec<Issue>, i64)> {
     let repo = resolve_repo(db, owner, repo_name).await?;
-    Ok(issue_ops::list_by_repo_paginated(db, repo.id, state, offset, limit).await?)
+    Ok(issue_ops::list_by_repo_paginated(
+        db,
+        repo.id,
+        state,
+        None,
+        offset,
+        limit,
+    )
+    .await?)
+}
+
+/// Paginated list of issues filtered by milestone.
+///
+/// `milestone` semantics (GitHub-compatible): `Id` matches a specific
+/// milestone, `Any` matches issues with any milestone, `None` matches issues
+/// without a milestone. Combines with the `state` filter via SQL (correct
+/// `total` — unlike the in-memory label filter).
+pub async fn list_issues_filtered_by_milestone(
+    db: &DatabaseConnection,
+    owner: &str,
+    repo_name: &str,
+    state: Option<&str>,
+    milestone: rg_db::ops::issue_ops::MilestoneFilter,
+    offset: u64,
+    limit: u64,
+) -> CoreResult<(Vec<Issue>, i64)> {
+    let repo = resolve_repo(db, owner, repo_name).await?;
+    Ok(issue_ops::list_by_repo_paginated(
+        db,
+        repo.id,
+        state,
+        Some(milestone),
+        offset,
+        limit,
+    )
+    .await?)
 }
 
 /// Paginated list of issues filtered by labels. Returns issues that have ALL specified labels.

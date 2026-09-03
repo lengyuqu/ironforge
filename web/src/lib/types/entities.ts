@@ -61,6 +61,8 @@ export interface Issue {
   /** Assignee usernames (primary first) — ISSUE-105. */
   assignees?: string[];
   milestone_id?: number | null;
+  /** Milestone title — enriched by the backend (M2-2 A3); omitted when unset. */
+  milestone_title?: string | null;
   /** Normalised from the raw labels column by the api layer. */
   labels?: string[];
   comments_count?: number;
@@ -450,8 +452,8 @@ export interface MergeQueueEntry {
 
 /**
  * Backend `milestones` table entity (rg-db entities/milestone.rs).
- * NOTE: no open/closed issue counts — list/get return the bare model.
- * Progress display requires backend enrichment (see docs/milestones-gap-analysis.md §4.2).
+ * open_issues/closed_issues are enriched by MilestoneResponse (M2-2 A2) —
+ * present on list/get/create/update, absent on bare-model callers.
  */
 export interface Milestone {
   id: number;
@@ -464,6 +466,10 @@ export interface Milestone {
   due_date?: string | null;
   created_at?: string;
   updated_at?: string;
+  /** Open-issue count for this milestone (enriched; 0 when absent). */
+  open_issues?: number;
+  /** Closed-issue count for this milestone (enriched; 0 when absent). */
+  closed_issues?: number;
 }
 
 export interface CreateMilestoneInput {

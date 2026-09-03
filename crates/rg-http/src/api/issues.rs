@@ -5,6 +5,8 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::Json;
 use serde::{Deserialize, Serialize};
+use serde::de::Error as _;
+use serde_json::Value;
 use std::collections::HashMap;
 
 use crate::api::auth::extract_bearer_claims;
@@ -14,6 +16,40 @@ use crate::pagination::{PaginatedResponse, PaginationParams};
 use crate::AppState;
 
 // ── Request / Response types ────────────────────────────────────────────
+
+/// Deserialize a tri-state i64 field (PATCH semantics):
+/// absent → `None` (leave untouched), JSON `null` → `Some(None)` (clear),
+/// integer → `Some(Some(n))` (set). Plain `Option<Option<T>>` cannot tell
+/// a JSON `null` apart from a missing field, so we deserialize the raw value.
+fn de_clearable_i64<'de, D>(d: D) -> Result<Option<Option<i64>>, D::Error>
+where
+    D: serde::de::Deserializer<'de>,
+{
+    let v = Value::deserialize(d)?;
+    match v {
+        Value::Null => Ok(Some(None)),
+        Value::Number(n) => n
+            .as_i64()
+            .map(|i| Some(Some(i)))
+            .ok_or_else(|| D::Error::custom("expected an integer or null")),
+        _ => Err(D::Error::custom("expected an integer or null")),
+    }
+}
+
+/// Deserialize a tri-state String field (PATCH semantics):
+/// absent → `None` (leave untouched), JSON `null` → `Some(None)` (clear),
+/// string → `Some(Some(s))` (set).
+fn de_clearable_str<'de, D>(d: D) -> Result<Option<Option<String>>, D::Error>
+where
+    D: serde::de::Deserializer<'de>,
+{
+    let v = Value::deserialize(d)?;
+    match v {
+        Value::Null => Ok(Some(None)),
+        Value::String(s) => Ok(Some(Some(s))),
+        _ => Err(D::Error::custom("expected a string or null")),
+    }
+}
 
 #[derive(Deserialize)]
 pub struct CreateIssueRequest {
@@ -39,9 +75,9 @@ pub struct UpdateIssueRequest {
     pub state: Option<String>,
     #[serde(default)]
     pub labels: Option<Vec<String>>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_clearable_i64")]
     pub assignee_id: Option<Option<i64>>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "de_clearable_i64")]
     pub milestone_id: Option<Option<i64>>,
 }
 
@@ -73,6 +109,9 @@ pub struct ListQuery {
     /// Filter by assignee username (ISSUE-105).
     #[serde(default)]
     pub assignee: Option<String>,
+    /// Filter by milestone: `{id}`, `none` (no milestone) or `*` (any milestone).
+    #[serde(default)]
+    pub milestone: Option<String>,
     #[serde(flatten)]
     pub pagination: PaginationParams,
 }
@@ -84,6 +123,9 @@ pub struct IssueResponse {
     pub author: Option<String>,
     /// Assignee usernames (primary first) — ISSUE-105.
     pub assignees: Vec<String>,
+    /// Milestone title when the issue belongs to a milestone (A3 enrich).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub milestone_title: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -318,6 +360,50 @@ pub async fn list_issues(
                 &repo,
                 state_filter,
                 &label_names,
+                pagination.offset(),
+                pagination.limit(),
+            )
+            .await
+            {
+                Ok((data, total)) => {
+                    let data = issues_with_authors(&state.db, data).await;
+                    (
+                        StatusCode::OK,
+                        Json(PaginatedResponse::new(data, &pagination, total as u64)),
+                    )
+                        .into_response()
+                }
+                Err(e) => {
+                    tracing::error!(%e, "handler error");
+                    AppError::internal(e).into_response()
+                }
+            };
+        }
+    }
+
+    // If milestone filter is present: `{id}`, `none` (no milestone) or `*` (any).
+    if let Some(ref raw) = params.milestone {
+        let raw = raw.trim();
+        if !raw.is_empty() {
+            let filter = match raw {
+                "none" => rg_db::ops::issue_ops::MilestoneFilter::None,
+                "*" => rg_db::ops::issue_ops::MilestoneFilter::Any,
+                _ => match raw.parse::<i64>() {
+                    Ok(id) if id > 0 => rg_db::ops::issue_ops::MilestoneFilter::Id(id),
+                    _ => {
+                        return AppError::bad_request(format!(
+                            "invalid milestone filter '{raw}': expected an id, 'none' or '*'"
+                        ))
+                        .into_response()
+                    }
+                },
+            };
+            return match rg_core::issue::list_issues_filtered_by_milestone(
+                &state.db,
+                &owner,
+                &repo,
+                state_filter,
+                filter,
                 pagination.offset(),
                 pagination.limit(),
             )
@@ -1075,10 +1161,12 @@ async fn issue_with_author(
     let assignees = rg_core::issue::assignee_names_by_issue(db, issue.id)
         .await
         .unwrap_or_default();
+    let milestone_title = milestone_title_for(db, issue.milestone_id).await;
     IssueResponse {
         issue,
         author,
         assignees,
+        milestone_title,
     }
 }
 
@@ -1088,18 +1176,42 @@ async fn issues_with_authors(
 ) -> Vec<IssueResponse> {
     let mut cache = HashMap::new();
     let mut responses = Vec::with_capacity(issues.len());
+
+    // One batched lookup for all milestone titles on this page (A3, avoids N+1).
+    let milestone_ids: Vec<i64> = issues
+        .iter()
+        .filter_map(|issue| issue.milestone_id)
+        .collect();
+    let titles = rg_db::ops::milestone_ops::titles_by_ids(db, &milestone_ids)
+        .await
+        .unwrap_or_default();
+
     for issue in issues {
         let author = author_name(db, &mut cache, issue.author_id).await;
         let assignees = rg_core::issue::assignee_names_by_issue(db, issue.id)
             .await
             .unwrap_or_default();
+        let milestone_title = issue.milestone_id.and_then(|id| titles.get(&id).cloned());
         responses.push(IssueResponse {
             issue,
             author,
             assignees,
+            milestone_title,
         });
     }
     responses
+}
+
+/// Resolve the title of a single milestone (used by create/update/get paths).
+async fn milestone_title_for(
+    db: &sea_orm::DatabaseConnection,
+    milestone_id: Option<i64>,
+) -> Option<String> {
+    let id = milestone_id?;
+    rg_db::ops::milestone_ops::titles_by_ids(db, &[id])
+        .await
+        .ok()
+        .and_then(|map| map.get(&id).cloned())
 }
 
 async fn comment_with_author(
@@ -1161,6 +1273,59 @@ pub struct ListMilestonesQuery {
     pub state: Option<String>,
 }
 
+/// Milestone with issue counts (A2 enrich). The milestone model fields are
+/// flattened, so existing consumers of the raw model keep working.
+#[derive(Serialize)]
+pub struct MilestoneResponse {
+    #[serde(flatten)]
+    pub milestone: rg_db::entities::milestone::Model,
+    /// Open (non-closed) issues under this milestone.
+    pub open_issues: i64,
+    /// Closed issues under this milestone.
+    pub closed_issues: i64,
+}
+
+async fn milestone_with_counts(
+    db: &sea_orm::DatabaseConnection,
+    milestone: rg_db::entities::milestone::Model,
+) -> MilestoneResponse {
+    let (open_issues, closed_issues) = rg_db::ops::milestone_ops::counts_by_milestones(
+        db,
+        &[milestone.id],
+    )
+    .await
+    .ok()
+    .and_then(|map| map.get(&milestone.id).copied())
+    .unwrap_or((0, 0));
+    MilestoneResponse {
+        milestone,
+        open_issues,
+        closed_issues,
+    }
+}
+
+async fn milestones_with_counts(
+    db: &sea_orm::DatabaseConnection,
+    milestones: Vec<rg_db::entities::milestone::Model>,
+) -> Vec<MilestoneResponse> {
+    let ids: Vec<i64> = milestones.iter().map(|m| m.id).collect();
+    let counts = rg_db::ops::milestone_ops::counts_by_milestones(db, &ids)
+        .await
+        .unwrap_or_default();
+    milestones
+        .into_iter()
+        .map(|milestone| {
+            let (open_issues, closed_issues) =
+                counts.get(&milestone.id).copied().unwrap_or((0, 0));
+            MilestoneResponse {
+                milestone,
+                open_issues,
+                closed_issues,
+            }
+        })
+        .collect()
+}
+
 #[utoipa::path(
     get,
     path = "/repos/{owner}/{name}/milestones",
@@ -1192,7 +1357,10 @@ pub async fn list_milestones(
     };
     match rg_db::ops::milestone_ops::list_by_repo(&state.db, repo.id, params.state.as_deref()).await
     {
-        Ok(milestones) => (StatusCode::OK, Json(serde_json::json!(milestones))).into_response(),
+        Ok(milestones) => {
+            let data = milestones_with_counts(&state.db, milestones).await;
+            (StatusCode::OK, Json(data)).into_response()
+        }
         Err(e) => {
             tracing::error!(%e, "handler error");
             AppError::internal(e).into_response()
@@ -1276,7 +1444,10 @@ pub async fn create_milestone(
         updated_at: sea_orm::Set(now),
     };
     match rg_db::ops::milestone_ops::create(&state.db, model).await {
-        Ok(m) => (StatusCode::CREATED, Json(serde_json::json!(m))).into_response(),
+        Ok(m) => {
+            let data = milestone_with_counts(&state.db, m).await;
+            (StatusCode::CREATED, Json(data)).into_response()
+        }
         Err(e) => AppError::bad_request(e.to_string()).into_response(),
     }
 }
@@ -1299,7 +1470,7 @@ pub async fn get_milestone(
     State(state): State<AppState>,
     Path((owner, name, id)): Path<(String, String, i64)>,
 ) -> impl IntoResponse {
-    let _repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name)
+    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name)
         .await
     {
         Ok(Some(r)) => r,
@@ -1312,7 +1483,11 @@ pub async fn get_milestone(
         }
     };
     match rg_db::ops::milestone_ops::find_by_id(&state.db, id).await {
-        Ok(Some(m)) => (StatusCode::OK, Json(serde_json::json!(m))).into_response(),
+        Ok(Some(m)) if m.repo_id == repo.id => {
+            let data = milestone_with_counts(&state.db, m).await;
+            (StatusCode::OK, Json(data)).into_response()
+        }
+        Ok(Some(_)) => AppError::not_found("milestone not found".to_string()).into_response(),
         Ok(None) => AppError::not_found("milestone not found".to_string()).into_response(),
         Err(e) => {
             tracing::error!(%e, "handler error");
@@ -1324,8 +1499,10 @@ pub async fn get_milestone(
 #[derive(Deserialize)]
 pub struct UpdateMilestoneRequest {
     pub title: Option<String>,
+    #[serde(default, deserialize_with = "de_clearable_str")]
     pub description: Option<Option<String>>,
     pub state: Option<String>,
+    #[serde(default, deserialize_with = "de_clearable_str")]
     pub due_date: Option<Option<String>>,
 }
 
@@ -1369,8 +1546,20 @@ pub async fn update_milestone(
     {
         return AppError::forbidden("forbidden".to_string()).into_response();
     }
+    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
+    {
+        Ok(Some(r)) => r,
+        Ok(None) => return AppError::not_found("repository not found".to_string()).into_response(),
+        Err(e) => {
+            return {
+                tracing::error!(%e, "handler error");
+                AppError::internal(e).into_response()
+            }
+        }
+    };
     let existing = match rg_db::ops::milestone_ops::find_by_id(&state.db, id).await {
-        Ok(Some(m)) => m,
+        Ok(Some(m)) if m.repo_id == repo.id => m,
+        Ok(Some(_)) => return AppError::not_found("milestone not found".to_string()).into_response(),
         Ok(None) => return AppError::not_found("milestone not found".to_string()).into_response(),
         Err(e) => {
             return {
@@ -1401,7 +1590,10 @@ pub async fn update_milestone(
     }
     active.updated_at = sea_orm::Set(chrono::Utc::now());
     match rg_db::ops::milestone_ops::update(&state.db, active).await {
-        Ok(m) => (StatusCode::OK, Json(serde_json::json!(m))).into_response(),
+        Ok(m) => {
+            let data = milestone_with_counts(&state.db, m).await;
+            (StatusCode::OK, Json(data)).into_response()
+        }
         Err(e) => {
             tracing::error!(%e, "handler error");
             AppError::internal(e).into_response()
@@ -1448,7 +1640,31 @@ pub async fn delete_milestone(
     {
         return AppError::forbidden("forbidden".to_string()).into_response();
     }
-    match rg_db::ops::milestone_ops::delete_by_id(&state.db, id).await {
+    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
+    {
+        Ok(Some(r)) => r,
+        Ok(None) => return AppError::not_found("repository not found".to_string()).into_response(),
+        Err(e) => {
+            return {
+                tracing::error!(%e, "handler error");
+                AppError::internal(e).into_response()
+            }
+        }
+    };
+    // Ownership guard: never let a write to repo A delete/leak repo B's milestone.
+    let milestone = match rg_db::ops::milestone_ops::find_by_id(&state.db, id).await {
+        Ok(Some(m)) if m.repo_id == repo.id => m,
+        Ok(Some(_)) => return AppError::not_found("milestone not found".to_string()).into_response(),
+        Ok(None) => return AppError::not_found("milestone not found".to_string()).into_response(),
+        Err(e) => {
+            return {
+                tracing::error!(%e, "handler error");
+                AppError::internal(e).into_response()
+            }
+        }
+    };
+    // Cascade: detach linked issues/PRs, then delete (A5).
+    match rg_db::ops::milestone_ops::delete_cascade(&state.db, milestone.id).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(e) => {
             tracing::error!(%e, "handler error");

@@ -79,11 +79,11 @@
 
 | # | 事项 | 阻塞范围 | 无后端配合时的降级方案 |
 |---|------|---------|----------------------|
-| A1 | Issue 列表 `ListQuery` 增加 `milestone` 过滤参数（issues.rs:69，现仅 state/labels/assignee） | 仅阻塞"里程碑筛选"功能 | 前端仅对当前页数据过滤，或暂不做筛选 |
-| A2 | 里程碑响应 enrich open/closed 计数（`count_open_by_milestone` 已有，closed 计数需补） | 仅阻塞"进度条展示" | 列表不显示进度，仅显示状态徽章 + due date |
-| A3 | issue 响应回填 milestone 标题（现只有 milestone_id） | 影响 issue 详情展示体验 | 前端一次性拉 milestones.list 建 id→title 映射（仓库级缓存） |
+| A1 | Issue 列表 `ListQuery` 增加 `milestone` 过滤参数（issues.rs:69，现仅 state/labels/assignee） | ✅ 已实现（2026-09-03）：`MilestoneFilter` 枚举（Id/Any/None），query 语义 `{id}`/`none`/`*`，非法值 400 | 前端仅对当前页数据过滤，或暂不做筛选 |
+| A2 | 里程碑响应 enrich open/closed 计数（`count_open_by_milestone` 已有，closed 计数需补） | ✅ 已实现（2026-09-03）：`counts_by_milestones` 分组计数；`MilestoneResponse`（flatten + open_issues/closed_issues），list/get/create/update 全走 enrich | 列表不显示进度，仅显示状态徽章 + due date |
+| A3 | issue 响应回填 milestone 标题（现只有 milestone_id） | ✅ 已实现（2026-09-03）：`titles_by_ids` 批量回填（单页一次查询，无 N+1），`milestone_title` 仅在有值时序列化 | 前端一次性拉 milestones.list 建 id→title 映射（仓库级缓存） |
 | A4 | PR 里程碑定位（字段占位无入口） | 不阻塞 | M2 不做，留待定位确认 |
-| A5 | 里程碑删除时关联 issue 的 milestone_id 处理策略 | 影响 A5 删除确认文案 | confirm 文案写"关联 issue 的里程碑关联将被移除"（需确认后修正） |
+| A5 | 里程碑删除时关联 issue 的 milestone_id 处理策略 | ✅ 已实现（2026-09-03）：`delete_cascade` 事务内 detach issue/PR 再删里程碑（GitHub 语义）；get/update/delete 增加跨仓库 404 守卫 | confirm 文案写"关联 issue 的里程碑关联将被移除"（已确认） |
 
 **关键结论：A1–A5 均不阻塞 M2 第一阶段**——管理页 CRUD 和 issue 挂载/摘除用现有裸 Model API 即可完整交付。
 
@@ -91,8 +91,8 @@
 
 - ✅ `entities.Milestone` / `CreateMilestoneInput` / `UpdateMilestoneInput`（M1，提交 c5a9d98）
 - ✅ `milestones.ts` 5 端点全类型化，client 聚合导出
-- ⬜ 若后端确认 A2：追加 `MilestoneWithCounts`（extends Milestone + open_issues/closed_issues）
-- ⬜ 若后端确认 A3：`Issue.milestone_title?: string | null` 可选字段
+- ✅ A2 已确认并落地：`Milestone` 加可选 `open_issues`/`closed_issues`（后端 MilestoneResponse flatten 直供，无需前端独立 `MilestoneWithCounts` 类型）
+- ✅ A3 已确认并落地：`Issue.milestone_title?: string | null` 可选字段，IssueList 徽章直读
 
 ### C. UI 范围与组件拆分方案
 
@@ -100,7 +100,7 @@
 
 | 组件 | 模式 | 职责 |
 |------|------|------|
-| `MilestoneGrid` | 纯展示 | 状态徽章（open/closed）、due date、描述截断；进度条待 A2 |
+| `MilestoneGrid` | 纯展示 | 状态徽章（open/closed）、due date、描述截断；✅ 进度条已启用（M2-2，读 enrich counts） |
 | `MilestoneFormModal` | 自包含 | 创建/编辑双模式（参照 MirrorForm 惯例）；due_date 用 datetime-local 输入转 RFC 3339 |
 | `MilestoneDeleteModal` | 自包含 | confirm（文案依赖 A5 结论） |
 | 管理页 +page.svelte | 编排层 | 目标 ~80 行（labels 页同规模） |
@@ -109,7 +109,7 @@
 
 - `IssueCreateForm`：里程碑下拉选择器（milestones.list 自加载或 props 注入，映射走 A3 降级方案）
 - issue 详情页：里程碑展示与切换面板（与 AssigneesPanel 同级侧栏，PATCH milestone_id 含清除语义）
-- `IssueFilterTabs`：里程碑筛选 chip（**依赖 A1，放第二阶段**）
+- `IssueFilterTabs`：✅ 里程碑筛选 chip 已实现（M2-2，A1 语义 `''`/`none`/id，issues 列表页工具栏第二行）
 
 ### D. 路由与入口
 
@@ -131,4 +131,4 @@
 ### G. 排期建议
 
 - **M2-1（无后端依赖，可立即开工）**：管理页三组件 + settings 入口 + i18n 键 + IssueCreateForm/详情页里程碑挂载
-- **M2-2（依赖 A1/A2/A3）**：里程碑筛选 chip + 进度条 + issue enrich 直读
+- **M2-2（依赖 A1/A2/A3）**：里程碑筛选 chip + 进度条 + issue enrich 直读 —— ✅ 已完成（2026-09-03）

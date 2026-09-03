@@ -9,6 +9,11 @@ vi.mock('$lib/i18n', () => ({
 
 import IssueFilterTabs from './IssueFilterTabs.svelte';
 
+const milestones = [
+  { id: 1, repo_id: 1, title: 'v1.0', state: 'open', open_issues: 2 },
+  { id: 2, repo_id: 1, title: 'backlog', state: 'open', open_issues: 0 },
+];
+
 describe('IssueFilterTabs.svelte', () => {
   it('renders exactly the open/closed/all tabs', () => {
     render(IssueFilterTabs, { filter: 'open', onFilterChange: () => {} });
@@ -33,5 +38,48 @@ describe('IssueFilterTabs.svelte', () => {
 
     fireEvent.click(screen.getByText('issues.tabs.all'));
     expect(onFilterChange).toHaveBeenCalledWith('all');
+  });
+
+  it('does not render the milestone row without milestone props', () => {
+    render(IssueFilterTabs, { filter: 'open', onFilterChange: () => {} });
+    expect(screen.queryByText('issues.no_milestone')).not.toBeInTheDocument();
+  });
+
+  it('renders milestone chips when milestones are provided (M2-2 A1)', () => {
+    render(IssueFilterTabs, {
+      filter: 'open',
+      onFilterChange: () => {},
+      milestones,
+      milestoneFilter: '',
+      onMilestoneChange: () => {},
+    });
+
+    expect(screen.getByText('common.all')).toBeInTheDocument();
+    expect(screen.getByText('issues.no_milestone')).toBeInTheDocument();
+    expect(screen.getByText('v1.0')).toBeInTheDocument();
+    expect(screen.getByText('backlog')).toBeInTheDocument();
+    // Only milestones with open issues show the count bubble.
+    expect(screen.getAllByText('2')).toHaveLength(1);
+  });
+
+  it('marks the active milestone chip and delegates selection', () => {
+    const onMilestoneChange = vi.fn();
+    render(IssueFilterTabs, {
+      filter: 'open',
+      onFilterChange: () => {},
+      milestones,
+      milestoneFilter: '1',
+      onMilestoneChange,
+    });
+
+    // State tab ('open') and the milestone chip both carry .active.
+    const actives = [...document.querySelectorAll('.filter-btn.active')];
+    expect(actives.some((el) => el.textContent?.includes('v1.0'))).toBe(true);
+
+    fireEvent.click(screen.getByText('issues.no_milestone'));
+    expect(onMilestoneChange).toHaveBeenCalledWith('none');
+
+    fireEvent.click(screen.getByText('backlog'));
+    expect(onMilestoneChange).toHaveBeenCalledWith('2');
   });
 });

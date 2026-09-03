@@ -40,6 +40,18 @@ pub async fn find_by_ids(db: &DatabaseConnection, ids: &[i64]) -> Result<Vec<Iss
         .context("db: find issues by ids")
 }
 
+/// Milestone filter semantics for issue listing (GitHub-compatible subset).
+///
+/// - `Id(id)` — issue belongs to the milestone with `id`
+/// - `Any`    — issue has any milestone (`*`)
+/// - `None`   — issue has no milestone (`none`)
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MilestoneFilter {
+    Id(i64),
+    Any,
+    None,
+}
+
 /// List issues for a repo, optionally filtered by state.
 pub async fn list_by_repo(
     db: &DatabaseConnection,
@@ -63,12 +75,20 @@ pub async fn list_by_repo_paginated(
     db: &DatabaseConnection,
     repo_id: i64,
     state: Option<&str>,
+    milestone: Option<MilestoneFilter>,
     offset: u64,
     limit: u64,
 ) -> Result<(Vec<Issue>, i64)> {
     let mut base = IssueEntity::find().filter(issue::Column::RepoId.eq(repo_id));
     if let Some(s) = state {
         base = base.filter(issue::Column::State.eq(s));
+    }
+    if let Some(m) = milestone {
+        base = match m {
+            MilestoneFilter::Id(id) => base.filter(issue::Column::MilestoneId.eq(id)),
+            MilestoneFilter::Any => base.filter(issue::Column::MilestoneId.is_not_null()),
+            MilestoneFilter::None => base.filter(issue::Column::MilestoneId.is_null()),
+        };
     }
     let query = base.order_by_desc(issue::Column::CreatedAt);
 

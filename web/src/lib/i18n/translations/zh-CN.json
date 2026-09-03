@@ -525,7 +525,8 @@
     "milestone_edit": "编辑",
     "milestone_save": "保存",
     "milestone_none": "未设置",
-    "milestone_saved": "里程碑已更新"
+    "milestone_saved": "里程碑已更新",
+    "no_milestone": "无里程碑"
   },
   "pulls": {
     "title": "拉取请求",
@@ -981,7 +982,9 @@
       "confirm_button": "删除此仓库",
       "confirming": "删除中...",
       "success": "仓库已删除。"
-    }
+    },
+    "milestone_open_count": "{n} 个开放",
+    "milestone_closed_count": "{n} 个已关闭"
   },
   "commit": {
     "status": "状态检查",

@@ -73,4 +73,26 @@ describe('IssueList.svelte', () => {
     // t('issues.empty', { state: ... }) → mocked key
     expect(screen.getByText('issues.empty')).toBeInTheDocument();
   });
+
+  it('renders a milestone badge from the enriched milestone_title (M2-2 A3)', () => {
+    render(IssueList, {
+      owner: 'alice',
+      repo: 'demo',
+      issues: [{ ...issue, milestone_id: 3, milestone_title: 'v1.0 Launch' }],
+      loading: false,
+      filter: 'all',
+    });
+    expect(screen.getByText('v1.0 Launch')).toBeInTheDocument();
+  });
+
+  it('omits the milestone badge when milestone_title is unset', () => {
+    render(IssueList, {
+      owner: 'alice',
+      repo: 'demo',
+      issues: [issue],
+      loading: false,
+      filter: 'all',
+    });
+    expect(screen.queryByTitle('issues.milestone')).not.toBeInTheDocument();
+  });
 });

@@ -3,11 +3,13 @@
   import RepoHeader from '$lib/components/RepoHeader.svelte';
   import { issues, type IssueConfig, type IssueTemplate } from '$lib/api/client.svelte';
   import type { Issue } from '$lib/types/entities';
-  import IssueFilterTabs from '$lib/components/issues/IssueFilterTabs.svelte';
-  import IssueList from '$lib/components/issues/IssueList.svelte';
-  import IssueTemplateChooser from '$lib/components/issues/IssueTemplateChooser.svelte';
-  import IssueCreateForm from '$lib/components/issues/IssueCreateForm.svelte';
-  import { createT } from '$lib/i18n';
+import IssueFilterTabs from '$lib/components/issues/IssueFilterTabs.svelte';
+import IssueList from '$lib/components/issues/IssueList.svelte';
+import IssueTemplateChooser from '$lib/components/issues/IssueTemplateChooser.svelte';
+import IssueCreateForm from '$lib/components/issues/IssueCreateForm.svelte';
+import { milestones } from '$lib/api/client.svelte';
+import type { Milestone } from '$lib/types/entities';
+import { createT } from '$lib/i18n';
 
   const t = createT();
 
@@ -18,6 +20,9 @@
   let loading = $state(true);
   let error = $state('');
   let filterState = $state('open');
+  // Milestone filter (M2-2 A1): '' = no constraint, 'none' = no milestone, else String(id).
+  let milestoneFilter = $state('');
+  let milestoneList = $state<Milestone[]>([]);
 
   let showCreate = $state(false);
   let showChooser = $state(false);
@@ -35,17 +40,29 @@
 
   $effect(() => {
     loadIssues();
+    loadMilestones();
   });
 
   async function loadIssues() {
     try {
       loading = true;
       error = '';
-      issueList = (await issues.list(owner, repo, filterState)).data;
+      issueList = (
+        await issues.list(owner, repo, filterState, undefined, undefined, undefined, undefined, milestoneFilter || undefined)
+      ).data;
     } catch (e: any) {
       error = e.message;
     } finally {
       loading = false;
+    }
+  }
+
+  async function loadMilestones() {
+    try {
+      milestoneList = await milestones.list(owner, repo);
+    } catch {
+      // Milestone filter is progressive enhancement — hide the row on failure.
+      milestoneList = [];
     }
   }
 
@@ -133,6 +150,12 @@
       filter={filterState}
       onFilterChange={(next) => {
         filterState = next;
+        loadIssues();
+      }}
+      milestones={milestoneList}
+      milestoneFilter={milestoneFilter}
+      onMilestoneChange={(next) => {
+        milestoneFilter = next;
         loadIssues();
       }}
     />

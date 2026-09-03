@@ -36,6 +36,20 @@
           {/if}
         </div>
       </div>
+      <div class="milestone-progress">
+        {#if milestone.open_issues !== undefined || milestone.closed_issues !== undefined}
+          {@const open = milestone.open_issues ?? 0}
+          {@const closed = milestone.closed_issues ?? 0}
+          {@const total = open + closed}
+          <div class="progress-track" role="progressbar" aria-valuenow={closed} aria-valuemin={0} aria-valuemax={total || 1}>
+            <div class="progress-fill" style:width={total > 0 ? `${Math.round((closed / total) * 100)}%` : '0%'}></div>
+          </div>
+          <div class="progress-counts">
+            <span>{t('settings.milestone_open_count', { n: open })}</span>
+            <span>{t('settings.milestone_closed_count', { n: closed })}</span>
+          </div>
+        {/if}
+      </div>
       <div class="milestone-actions">
         <button class="btn-icon" onclick={() => onEdit(milestone)} title={t('settings.edit_milestone')}>
           ✏️
@@ -119,6 +133,36 @@
   .milestone-due {
     color: var(--text-secondary);
     font-size: 0.8rem;
+  }
+
+  .milestone-progress {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 180px;
+    max-width: 220px;
+    flex-shrink: 0;
+  }
+
+  .progress-track {
+    height: 6px;
+    border-radius: 3px;
+    background: var(--bg-hover);
+    overflow: hidden;
+  }
+
+  .progress-fill {
+    height: 100%;
+    border-radius: 3px;
+    background: var(--green, #1a7f37);
+    transition: width 0.3s ease;
+  }
+
+  .progress-counts {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.75rem;
+    color: var(--text-muted);
   }
 
   .milestone-actions {

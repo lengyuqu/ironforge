@@ -8,7 +8,8 @@ import { render, screen, fireEvent } from '@testing-library/svelte';
 // files (the module-level runes now compile thanks to i18n.svelte.ts, but
 // stable keys beat locale-dependent strings in tests).
 vi.mock('$lib/i18n', () => ({
-  createT: () => (key: string, fallback?: string) => fallback ?? key,
+  createT: () => (key: string, fallbackOrParams?: string | Record<string, unknown>) =>
+    typeof fallbackOrParams === 'string' ? fallbackOrParams : key,
   formatDate: (iso: string) => `fmt(${iso})`,
 }));
 
@@ -78,5 +79,35 @@ describe('MilestoneGrid.svelte', () => {
 
     fireEvent.click(screen.getByTitle('settings.delete_milestone'));
     expect(onDelete).toHaveBeenCalledWith(baseMilestone);
+  });
+
+  it('renders a progress bar from enriched open/closed counts (M2-2 A2)', () => {
+    render(MilestoneGrid, {
+      items: [
+        { ...baseMilestone, open_issues: 3, closed_issues: 1 },
+        { ...baseMilestone, id: 2, title: 'empty', open_issues: 0, closed_issues: 0 },
+      ],
+      onEdit: () => {},
+      onDelete: () => {},
+    });
+
+    // One issue closed out of 4 total → 25% fill on the first card.
+    const bars = document.querySelectorAll('.progress-fill');
+    expect(bars).toHaveLength(2);
+    expect((bars[0] as HTMLElement).style.width).toBe('25%');
+    // Zero-total milestone keeps the track but never fills.
+    expect((bars[1] as HTMLElement).style.width).toBe('0%');
+    // Counts render as i18n keys (mocked t returns the key) — one set per card.
+    expect(screen.getAllByText('settings.milestone_open_count')).toHaveLength(2);
+    expect(screen.getAllByText('settings.milestone_closed_count')).toHaveLength(2);
+  });
+
+  it('hides the progress area when counts are absent (bare model)', () => {
+    render(MilestoneGrid, {
+      items: [baseMilestone],
+      onEdit: () => {},
+      onDelete: () => {},
+    });
+    expect(document.querySelector('.progress-track')).not.toBeInTheDocument();
   });
 });
