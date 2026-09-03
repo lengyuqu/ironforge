@@ -62,7 +62,9 @@
       aria-label="Previous page"
     >‹</button>
 
-    {#each pageNumbers as p (p)}
+    <!-- Key must be unique: two ellipses can coexist (e.g. [1, …, 5, …, 10]),
+         so suffix the ellipsis key with its index to avoid each_key_duplicate. -->
+    {#each pageNumbers as p, i (p === '…' ? `…${i}` : p)}
       {#if p === '…'}
         <span class="pg-ellipsis">…</span>
       {:else}
