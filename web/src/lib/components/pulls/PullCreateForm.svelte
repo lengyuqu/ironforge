@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { pulls, repos } from '$lib/api/client.svelte';
+  import { milestones, pulls, repos } from '$lib/api/client.svelte';
   import { toErrorMessage } from '$lib/utils/error';
   import { createT } from '$lib/i18n';
+  import type { Milestone } from '$lib/types/entities';
 
   const t = createT();
 
@@ -26,7 +27,9 @@
   let newHead = $state('');
   let newBase = $state('main');
   let newDraft = $state(false);
+  let newMilestone = $state<number | ''>('');
   let branches = $state<{ name: string; is_default: boolean }[]>([]);
+  let milestoneOptions = $state<Milestone[]>([]);
   let templateLoaded = $state(false);
   let submitting = $state(false);
   let error = $state('');
@@ -43,6 +46,7 @@
 
   $effect(() => {
     loadBranches();
+    loadMilestones();
   });
 
   async function loadBranches() {
@@ -50,6 +54,14 @@
       branches = await repos.branches(owner, repo);
     } catch {
       /* branches unavailable — leave selector empty */
+    }
+  }
+
+  async function loadMilestones() {
+    try {
+      milestoneOptions = await milestones.list(owner, repo);
+    } catch {
+      /* milestones unavailable — milestone selector stays hidden */
     }
   }
 
@@ -65,6 +77,11 @@
     }
   }
 
+  function onMilestonePick(event: Event) {
+    const value = (event.currentTarget as HTMLSelectElement).value;
+    newMilestone = value === '' ? '' : Number(value);
+  }
+
   async function handleCreate(e: Event) {
     e.preventDefault();
     if (!canSubmit) return;
@@ -77,6 +94,7 @@
         head_branch: newHead,
         base_branch: newBase,
         draft: newDraft,
+        ...(newMilestone === '' ? {} : { milestone_id: newMilestone }),
       });
       await onCreated();
     } catch (err: any) {
@@ -136,6 +154,17 @@
       ></textarea>
       {#if bodyError}<span class="field-error">{bodyError}</span>{/if}
     </label>
+    {#if milestoneOptions.length > 0}
+      <label>
+        {t('pulls.create_form.milestone')} <span class="optional">({t('issues.create_form_milestone_hint')})</span>
+        <select onchange={onMilestonePick}>
+          <option value="">{t('issues.create_form_milestone_none')}</option>
+          {#each milestoneOptions as ms (ms.id)}
+            <option value={ms.id} selected={newMilestone === ms.id}>{ms.title}</option>
+          {/each}
+        </select>
+      </label>
+    {/if}
     <label class="draft-option">
       <input type="checkbox" bind:checked={newDraft} />
       <span>{t('pulls.create_form.draft')}</span>

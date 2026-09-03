@@ -552,7 +552,8 @@
       "body_too_long": "Body must be at most {max} characters",
       "draft": "Create as draft",
       "submit": "Create Pull Request",
-      "cancel": "Cancel"
+      "cancel": "Cancel",
+      "milestone": "Milestone"
     },
     "empty": "No {state} pull requests.",
     "meta": "#{number} opened {date} by {author}",

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/svelte';
+import { tick } from 'svelte';
 
 vi.mock('$lib/i18n', () => ({
   createT: () => (key: string, fallbackOrParams?: string | Record<string, unknown>) =>
@@ -9,6 +10,7 @@ vi.mock('$lib/i18n', () => ({
 const pullsCreate = vi.fn();
 const pullsTemplate = vi.fn();
 const reposBranches = vi.fn();
+const milestonesList = vi.fn();
 vi.mock('$lib/api/client.svelte', () => ({
   pulls: {
     create: (...a: unknown[]) => pullsCreate(...a),
@@ -16,6 +18,9 @@ vi.mock('$lib/api/client.svelte', () => ({
   },
   repos: {
     branches: (...a: unknown[]) => reposBranches(...a),
+  },
+  milestones: {
+    list: (...a: unknown[]) => milestonesList(...a),
   },
 }));
 
@@ -34,11 +39,12 @@ const BRANCHES = [
 ];
 
 beforeEach(() => {
-  [pullsCreate, pullsTemplate, reposBranches].forEach((f) => f.mockReset());
+  [pullsCreate, pullsTemplate, reposBranches, milestonesList].forEach((f) => f.mockReset());
   toastError.mockClear();
   pullsCreate.mockResolvedValue({});
   pullsTemplate.mockResolvedValue(undefined);
   reposBranches.mockResolvedValue(BRANCHES);
+  milestonesList.mockResolvedValue([]);
 });
 
 function titleInput(container: HTMLElement): HTMLInputElement {
@@ -108,6 +114,33 @@ describe('PullCreateForm.svelte', () => {
         head_branch: 'feature',
         base_branch: 'main',
         draft: true,
+      })
+    );
+  });
+
+  it('sends the chosen milestone id when creating a PR', async () => {
+    milestonesList.mockResolvedValue([{ id: 5, repo_id: 1, title: 'v1', state: 'open' }]);
+    const onCreated = vi.fn();
+    const { container } = render(PullCreateForm, { owner: 'o', repo: 'r', onCreated, onCancel: () => {} });
+    await screen.findAllByText('feature');
+    await fireEvent.change(headSelect(container));
+    await fireEvent.input(titleInput(container), { target: { value: 'Milestoned PR' } });
+    await screen.findByText('v1');
+    const milestoneSelect = container.querySelectorAll('select')[2] as HTMLSelectElement;
+    milestoneSelect.value = '5';
+    await fireEvent.change(milestoneSelect);
+    await tick();
+
+    await fireEvent.click(screen.getByText('pulls.create_form.submit'));
+
+    await waitFor(() =>
+      expect(pullsCreate).toHaveBeenCalledWith('o', 'r', {
+        title: 'Milestoned PR',
+        body: undefined,
+        head_branch: 'feature',
+        base_branch: 'main',
+        draft: false,
+        milestone_id: 5,
       })
     );
   });

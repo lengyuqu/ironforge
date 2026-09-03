@@ -82,7 +82,7 @@
 | A1 | Issue 列表 `ListQuery` 增加 `milestone` 过滤参数（issues.rs:69，现仅 state/labels/assignee） | ✅ 已实现（2026-09-03）：`MilestoneFilter` 枚举（Id/Any/None），query 语义 `{id}`/`none`/`*`，非法值 400 | 前端仅对当前页数据过滤，或暂不做筛选 |
 | A2 | 里程碑响应 enrich open/closed 计数（`count_open_by_milestone` 已有，closed 计数需补） | ✅ 已实现（2026-09-03）：`counts_by_milestones` 分组计数；`MilestoneResponse`（flatten + open_issues/closed_issues），list/get/create/update 全走 enrich | 列表不显示进度，仅显示状态徽章 + due date |
 | A3 | issue 响应回填 milestone 标题（现只有 milestone_id） | ✅ 已实现（2026-09-03）：`titles_by_ids` 批量回填（单页一次查询，无 N+1），`milestone_title` 仅在有值时序列化 | 前端一次性拉 milestones.list 建 id→title 映射（仓库级缓存） |
-| A4 | PR 里程碑定位（字段占位无入口） | 不阻塞 | M2 不做，留待定位确认 |
+| A4 | PR 里程碑定位（字段占位无入口） | ✅ 已实现（2026-09-03，M2-3）：core `create_pr`/`update_pr` 读写 + 仓库归属校验（跨仓库/未知 id 400）；API `CreatePrRequest.milestone_id`（Option）、`UpdatePrRequest.milestone_id`（`de_clearable_i64` 三态：null 清除）；PR 详情 `PrMilestoneBox` 侧栏切换 + 创建表单下拉；`pr_milestone_tests.rs` 2 用例（set/clear + 跨仓库拒绝） | 已确认支持 |
 | A5 | 里程碑删除时关联 issue 的 milestone_id 处理策略 | ✅ 已实现（2026-09-03）：`delete_cascade` 事务内 detach issue/PR 再删里程碑（GitHub 语义）；get/update/delete 增加跨仓库 404 守卫 | confirm 文案写"关联 issue 的里程碑关联将被移除"（已确认） |
 
 **关键结论：A1–A5 均不阻塞 M2 第一阶段**——管理页 CRUD 和 issue 挂载/摘除用现有裸 Model API 即可完整交付。
@@ -132,3 +132,4 @@
 
 - **M2-1（无后端依赖，可立即开工）**：管理页三组件 + settings 入口 + i18n 键 + IssueCreateForm/详情页里程碑挂载
 - **M2-2（依赖 A1/A2/A3）**：里程碑筛选 chip + 进度条 + issue enrich 直读 —— ✅ 已完成（2026-09-03）
+- **M2-3（A4 PR 里程碑闭环）**：后端 PR create/update 读写 + 校验、前端创建表单下拉 + 详情侧栏 `PrMilestoneBox` —— ✅ 已完成（2026-09-03）

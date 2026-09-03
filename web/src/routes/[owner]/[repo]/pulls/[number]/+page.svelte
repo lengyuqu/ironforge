@@ -6,6 +6,7 @@
   import RepoHeader from '$lib/components/RepoHeader.svelte';
   import AttachmentPanel from '$lib/components/AttachmentPanel.svelte';
   import PrReviewersBox from '$lib/components/pulls/PrReviewersBox.svelte';
+  import PrMilestoneBox from '$lib/components/pulls/PrMilestoneBox.svelte';
   import PrMergeBox from '$lib/components/pulls/PrMergeBox.svelte';
   import PrTimeline from '$lib/components/pulls/PrTimeline.svelte';
   import PrThreads from '$lib/components/pulls/PrThreads.svelte';
@@ -113,6 +114,8 @@
       {#if activeTab === 'conversation'}
         <div class="conversation">
           <PrReviewersBox {owner} {repo} prNumber={number} />
+
+          <PrMilestoneBox {owner} {repo} {pr} onChanged={loadPR} />
 
           {#if pr.state === 'open'}
             <PrMergeBox {owner} {repo} prNumber={number} {pr} {mergeQueue} onChanged={loadPR} />

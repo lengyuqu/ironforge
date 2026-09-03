@@ -21,7 +21,7 @@ use crate::AppState;
 /// absent → `None` (leave untouched), JSON `null` → `Some(None)` (clear),
 /// integer → `Some(Some(n))` (set). Plain `Option<Option<T>>` cannot tell
 /// a JSON `null` apart from a missing field, so we deserialize the raw value.
-fn de_clearable_i64<'de, D>(d: D) -> Result<Option<Option<i64>>, D::Error>
+pub(crate) fn de_clearable_i64<'de, D>(d: D) -> Result<Option<Option<i64>>, D::Error>
 where
     D: serde::de::Deserializer<'de>,
 {

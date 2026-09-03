@@ -27,12 +27,26 @@ pub async fn create_pr(
     base_branch: String,
     head_repo_id: Option<i64>,
     is_draft: bool,
+    milestone_id: Option<i64>,
 ) -> CoreResult<PullRequest> {
     if title.trim().is_empty() {
         return Err(CoreError::InvalidInput("PR title cannot be empty".into()));
     }
     if head_branch == base_branch {
         return Err(CoreError::InvalidInput("head and base branches cannot be the same".into()));
+    }
+
+    // Milestone must exist and belong to the target repo (A4).
+    if let Some(ms_id) = milestone_id {
+        let owned = rg_db::ops::milestone_ops::find_by_id(db, ms_id)
+            .await?
+            .map(|m| m.repo_id == repo_id)
+            .unwrap_or(false);
+        if !owned {
+            return Err(CoreError::InvalidInput(
+                "milestone not found in this repository".into(),
+            ));
+        }
     }
 
     let number = pull_request_ops::next_number(db, repo_id).await?;
@@ -86,7 +100,7 @@ pub async fn create_pr(
         merge_strategy: Set(None),
         merge_commit_sha: Set(None),
         head_repo_id: Set(head_repo_id),
-        milestone_id: Set(None),
+        milestone_id: Set(milestone_id),
         labels: Set(None),
         created_at: Set(Utc::now()),
         updated_at: Set(Utc::now()),
@@ -260,7 +274,7 @@ pub async fn get_pr(
         .context("pull request not found")
 }
 
-/// Update PR metadata (title, body, state).
+/// Update PR metadata (title, body, state, draft, milestone).
 #[allow(clippy::too_many_arguments)]
 pub async fn update_pr(
     db: &DatabaseConnection,
@@ -271,6 +285,7 @@ pub async fn update_pr(
     body: Option<String>,
     state: Option<String>,
     is_draft: Option<bool>,
+    milestone_id: Option<Option<i64>>,
     actor_id: i64,
 ) -> CoreResult<PullRequest> {
     let mut pr = get_pr(db, owner, repo_name, number).await?;
@@ -285,6 +300,21 @@ pub async fn update_pr(
     }
     if let Some(b) = body {
         pr.body = Some(b);
+    }
+    if let Some(m) = milestone_id {
+        // A non-null milestone must exist and belong to the PR's repo (A4).
+        if let Some(id) = m {
+            let owned = rg_db::ops::milestone_ops::find_by_id(db, id)
+                .await?
+                .map(|ms| ms.repo_id == pr.repo_id)
+                .unwrap_or(false);
+            if !owned {
+                return Err(CoreError::InvalidInput(
+                    "milestone not found in this repository".into(),
+                ));
+            }
+        }
+        pr.milestone_id = m;
     }
     if let Some(draft) = is_draft {
         if pr.state != "open" {
@@ -337,6 +367,7 @@ pub async fn update_pr(
     let final_is_draft = pr.is_draft;
     let final_auto_merge_enabled = pr.auto_merge_enabled;
     let final_closed_at = pr.closed_at;
+    let final_milestone_id = pr.milestone_id;
     let final_updated_at = pr.updated_at;
     let mut active: pull_request::ActiveModel = pr.into();
     active.title = Set(final_title);
@@ -345,6 +376,7 @@ pub async fn update_pr(
     active.is_draft = Set(final_is_draft);
     active.auto_merge_enabled = Set(final_auto_merge_enabled);
     active.closed_at = Set(final_closed_at);
+    active.milestone_id = Set(final_milestone_id);
     active.updated_at = Set(final_updated_at);
     let updated = pull_request_ops::update(db, active).await?;
     if previous_draft != updated.is_draft {

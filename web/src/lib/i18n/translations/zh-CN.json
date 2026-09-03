@@ -552,7 +552,8 @@
       "body_too_long": "内容最多 {max} 个字符",
       "draft": "创建为草稿",
       "submit": "创建拉取请求",
-      "cancel": "取消"
+      "cancel": "取消",
+      "milestone": "里程碑"
     },
     "empty": "暂无 {state} 拉取请求。",
     "meta": "#{number} 由 {author} 于 {date} 创建",

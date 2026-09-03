@@ -85,6 +85,8 @@ export interface PullRequest {
   head_branch: string;
   base_branch: string;
   head_sha?: string | null;
+  /** Attached milestone (A4) — id when set, null/undefined when unset. */
+  milestone_id?: number | null;
   /** Merge automatically once branch protection requirements are satisfied */
   auto_merge_enabled?: boolean;
   auto_merge_strategy?: string | null;

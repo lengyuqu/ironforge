@@ -59,7 +59,7 @@ export const pulls = {
   },
   get: (owner: string, repo: string, number: number) =>
     request<PullRequest>(`/repos/${owner}/${repo}/pulls/${number}`),
-  create: (owner: string, repo: string, data: { title: string; body?: string; head_branch: string; base_branch: string; draft?: boolean }) =>
+  create: (owner: string, repo: string, data: { title: string; body?: string; head_branch: string; base_branch: string; draft?: boolean; milestone_id?: number }) =>
     request<PullRequest>(`/repos/${owner}/${repo}/pulls`, {
       method: 'POST',
       body: JSON.stringify({
@@ -68,9 +68,10 @@ export const pulls = {
         head: data.head_branch,
         base: data.base_branch,
         draft: data.draft ?? false,
+        ...(data.milestone_id !== undefined ? { milestone_id: data.milestone_id } : {}),
       }),
     }),
-  update: (owner: string, repo: string, number: number, data: { title?: string; body?: string; state?: string; draft?: boolean }) =>
+  update: (owner: string, repo: string, number: number, data: { title?: string; body?: string; state?: string; draft?: boolean; milestone_id?: number | null }) =>
     request<PullRequest>(`/repos/${owner}/${repo}/pulls/${number}`, {
       method: 'PATCH',
       body: JSON.stringify(data),

@@ -7,6 +7,7 @@ use axum::Json;
 use sea_orm::EntityTrait;
 use serde::{Deserialize, Serialize};
 
+use super::issues::de_clearable_i64;
 use super::repo_access::{require_authenticated_read, require_read, require_write};
 use crate::error::AppError;
 use crate::pagination::{PaginatedResponse, PaginationParams};
@@ -24,6 +25,9 @@ pub struct CreatePrRequest {
     pub base: String,
     #[serde(default)]
     pub draft: bool,
+    /// Milestone to attach to the new PR (A4). Must belong to the target repo.
+    #[serde(default)]
+    pub milestone_id: Option<i64>,
 }
 
 #[derive(Deserialize)]
@@ -36,6 +40,9 @@ pub struct UpdatePrRequest {
     pub state: Option<String>,
     #[serde(default)]
     pub draft: Option<bool>,
+    /// Tri-state: absent = untouched, JSON null = clear, integer = set (A4).
+    #[serde(default, deserialize_with = "de_clearable_i64")]
+    pub milestone_id: Option<Option<i64>>,
 }
 
 #[derive(Deserialize)]
@@ -205,6 +212,7 @@ pub async fn create_pr(
                 req.base,
                 head_repo_id,
                 req.draft,
+                req.milestone_id,
             )
             .await
             {
@@ -298,7 +306,16 @@ pub async fn update_pr(
     }
 
     match rg_core::pull_request::update_pr(
-        &state.db, &owner, &repo, number, req.title, req.body, req.state, req.draft, actor_id,
+        &state.db,
+        &owner,
+        &repo,
+        number,
+        req.title,
+        req.body,
+        req.state,
+        req.draft,
+        req.milestone_id,
+        actor_id,
     )
     .await
     {
