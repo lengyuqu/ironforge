@@ -1374,15 +1374,15 @@ fn git_rebase_merge(
     base_branch: &str,
     head_ref: &str,
 ) -> CoreResult<String> {
-    let canonical_repo = std::fs::canonicalize(repo_path)
-        .with_context(|| format!("failed to canonicalize repository: {:?}", repo_path))?;
     let worktree = std::env::temp_dir().join(format!("ironforge-rebase-{}", uuid::Uuid::new_v4()));
     let git = rg_git::cli_gateway::global_gateway()
         .as_ref()
         .map_err(CoreError::internal)?;
 
     let result = (|| -> CoreResult<String> {
-        let repo_arg = canonical_repo.to_string_lossy();
+        // Windows canonicalize yields `\\?\`-prefixed paths that git misparses;
+        // canonical_git_path strips the prefix for a git-safe local path.
+        let repo_arg = crate::repo::service::canonical_git_path(repo_path)?;
         let worktree_arg = worktree.to_string_lossy();
         git.run(&["clone", "--no-checkout", &repo_arg, &worktree_arg], None)?
             .ensure_success()

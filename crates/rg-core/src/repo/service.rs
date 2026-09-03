@@ -488,28 +488,49 @@ pub async fn create_repo_with_opts(
     Ok(repo)
 }
 
-/// Convert a local path to a git-compatible URL format.
-/// On Windows, converts "D:\path\to\repo" to "file:///D:/path/to/repo".
-/// On Unix, converts "/path/to/repo" to "file:///path/to/repo".
-fn path_to_git_url(path: &std::path::Path) -> CoreResult<String> {
+/// Canonicalize a path into a git-friendly string.
+///
+/// On Windows, `std::fs::canonicalize` returns `\\?\`-prefixed verbatim paths.
+/// git misparses those ("hostname contains invalid characters" for plain clone
+/// args, broken `file://///?/C:/...` URLs when used as a file:// source), so the
+/// prefix is stripped here — once for every git invocation that consumes a path.
+pub(crate) fn canonical_git_path(path: &std::path::Path) -> CoreResult<String> {
     let canonical = std::fs::canonicalize(path)
         .with_context(|| format!("failed to canonicalize path: {:?}", path))?;
 
-    let path_str = canonical.to_string_lossy().to_string();
+    #[cfg(windows)]
+    {
+        let s = canonical.to_string_lossy();
+        if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
+            return Ok(format!(r"\\{rest}"));
+        }
+        if let Some(rest) = s.strip_prefix(r"\\?\") {
+            return Ok(rest.to_string());
+        }
+        return Ok(s.into_owned());
+    }
 
-    // On Windows, convert "D:\path" to "file:///D:/path"
-    // On Unix, convert "/path" to "file:///path"
-    if cfg!(windows) {
-        // Windows path like "D:\path\to\repo"
-        // Step 1: Replace backslashes with forward slashes
-        let with_forward_slash = path_str.replace('\\', "/");
-        // Step 2: Ensure drive letter is followed by colon and slash
-        // "D:/path/to/repo" -> "file:///D:/path/to/repo"
-        Ok(format!("file:///{}", with_forward_slash))
-    } else {
-        // Unix path like "/path/to/repo"
-        // "file:///path/to/repo"
-        Ok(format!("file://{}", path_str))
+    #[cfg(not(windows))]
+    Ok(canonical.to_string_lossy().into_owned())
+}
+
+/// Convert a local path to a git-compatible location string.
+///
+/// On Windows the callers always operate on local bare repositories, and git
+/// (notably MSYS/Portable builds) mangles `file:///C:/...` URLs into `/C:/...`
+/// before failing to find the repo — so return the plain local path (already
+/// verbatim-stripped by `canonical_git_path`), which clone/fetch/push accept.
+/// On Unix, converts "/path/to/repo" to "file:///path/to/repo".
+fn path_to_git_url(path: &std::path::Path) -> CoreResult<String> {
+    #[cfg(windows)]
+    {
+        return canonical_git_path(path);
+    }
+
+    #[cfg(not(windows))]
+    {
+        let path_str = canonical_git_path(path)?;
+        Ok(format!("file://{path_str}"))
     }
 }
 
