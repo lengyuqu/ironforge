@@ -14,6 +14,7 @@ export default defineConfig({
         __dirname,
         './node_modules/@sveltejs/kit/src/runtime/app/navigation.js'
       ),
+      '$app/environment': resolve(__dirname, './src/test-stubs/app-environment.ts'),
     },
     // Force Svelte 5 to resolve the client build (mount() available) even
     // when the entry is a plain .svelte.ts file. Vitest with happy-dom
