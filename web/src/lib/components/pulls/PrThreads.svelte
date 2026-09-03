@@ -45,9 +45,15 @@
   // suggestion was applied or the head SHA moved).
   $effect(() => {
     const list = comments;
-    selectedSuggestionIds = selectedSuggestionIds.filter((id) =>
+    const next = selectedSuggestionIds.filter((id) =>
       list.some((comment) => comment.id === id && !comment.suggestion_applied_at && comment.commit_id === pr.head_sha),
     );
+    // Only reassign when the contents actually changed — otherwise this
+    // self-referential effect would loop forever (it both reads and writes
+    // `selectedSuggestionIds`).
+    const changed =
+      next.length !== selectedSuggestionIds.length || next.some((id, i) => id !== selectedSuggestionIds[i]);
+    if (changed) selectedSuggestionIds = next;
   });
 
   function repliesFor(rootId: number) {

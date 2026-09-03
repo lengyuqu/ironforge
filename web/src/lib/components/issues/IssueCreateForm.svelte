@@ -73,14 +73,17 @@
     try {
       submitting = true;
       formError = '';
-      const labels = newLabels ? newLabels.split(',').map((l) => l.trim()) : undefined;
+      const labels = newLabels ? newLabels.split(',').map((l) => l.trim()).filter(Boolean) : undefined;
+      const assignees = newAssignees
+        ? newAssignees.split(',').map((a) => a.trim()).filter(Boolean)
+        : undefined;
       await issues.create(
         owner,
         repo,
         newTitle,
         newBody || undefined,
         labels,
-        undefined,
+        assignees,
         selectedMilestone === '' ? undefined : selectedMilestone,
       );
       await onCreated();

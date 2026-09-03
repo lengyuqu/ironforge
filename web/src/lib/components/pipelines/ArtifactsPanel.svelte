@@ -31,15 +31,22 @@
 
   // Reload on pipeline switch; reload once when the pipeline transitions to a
   // terminal state (artifacts are uploaded when jobs finish).
-  let wasTerminal = $state(false);
+  // The bookkeeping below is deliberately non-reactive: reading `loading` /
+  // `wasTerminal` as $state made the effect depend on its own writes, so every
+  // finished request re-triggered it — an endless reload loop while the
+  // pipeline was still in flight.
+  let loadedPipelineId: number | null = null;
+  let wasTerminal = false;
   $effect(() => {
     const id = pipelineId;
     const terminal = isTerminal;
-    const firstLoad = !wasTerminal && !loading;
-    if (firstLoad || (terminal && !wasTerminal)) {
+    const switched = loadedPipelineId !== id;
+    const justFinished = terminal && !wasTerminal;
+    loadedPipelineId = id;
+    wasTerminal = terminal;
+    if (switched || justFinished) {
       loadArtifacts(id);
     }
-    wasTerminal = terminal;
   });
 
   async function loadArtifacts(id: number) {
