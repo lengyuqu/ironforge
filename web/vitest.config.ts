@@ -7,6 +7,13 @@ export default defineConfig({
   resolve: {
     alias: {
       $lib: resolve(__dirname, './src/lib'),
+      // Make the SvelteKit virtual module resolvable under vitest so that
+      // vi.mock('$app/navigation') can intercept it (alias points at the
+      // kit runtime re-export; tests still mock it, nothing executes).
+      '$app/navigation': resolve(
+        __dirname,
+        './node_modules/@sveltejs/kit/src/runtime/app/navigation.js'
+      ),
     },
     // Force Svelte 5 to resolve the client build (mount() available) even
     // when the entry is a plain .svelte.ts file. Vitest with happy-dom
