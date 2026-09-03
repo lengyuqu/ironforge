@@ -107,7 +107,14 @@
   tabindex="0"
   onkeydown={closeByKey}
 >
-  <div class="form-modal" role="dialog" aria-modal="true" tabindex="-1">
+  <div
+    class="form-modal"
+    role="dialog"
+    aria-modal="true"
+    tabindex="-1"
+    onclick={(e) => e.stopPropagation()}
+    onkeydown={(e) => e.stopPropagation()}
+  >
     <h2>{milestone ? t('settings.edit_milestone') : t('settings.new_milestone')}</h2>
 
     {#if formError}

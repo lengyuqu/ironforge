@@ -59,7 +59,14 @@
   tabindex="0"
   onkeydown={closeByKey}
 >
-  <div class="modal" role="dialog" aria-modal="true" tabindex="-1">
+  <div
+    class="modal"
+    role="dialog"
+    aria-modal="true"
+    tabindex="-1"
+    onclick={(e) => e.stopPropagation()}
+    onkeydown={(e) => e.stopPropagation()}
+  >
     <h2>{t('admin.audit.detail_title', { id: detail.id })}</h2>
 
     {#if detailError}

@@ -53,7 +53,14 @@
   tabindex="0"
   onkeydown={closeByKey}
 >
-  <div class="form-modal" role="dialog" aria-modal="true" tabindex="-1">
+  <div
+    class="form-modal"
+    role="dialog"
+    aria-modal="true"
+    tabindex="-1"
+    onclick={(e) => e.stopPropagation()}
+    onkeydown={(e) => e.stopPropagation()}
+  >
     <h2>{t('settings.confirm_delete_milestone_title', 'Confirm Delete')}</h2>
     <p>{t('settings.confirm_delete_milestone')}</p>
     <p><strong>{milestone.title}</strong></p>

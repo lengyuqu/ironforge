@@ -41,7 +41,14 @@
 </script>
 
 <div class="modal-overlay" onclick={onClose} role="button" tabindex="0" onkeydown={closeByKey}>
-  <div class="modal" role="dialog" aria-modal="true" tabindex="-1">
+  <div
+    class="modal"
+    role="dialog"
+    aria-modal="true"
+    tabindex="-1"
+    onclick={(e) => e.stopPropagation()}
+    onkeydown={(e) => e.stopPropagation()}
+  >
     <h2>{t('admin.users.delete_confirm')}</h2>
     <p>
       {t('admin.users.delete_warning', { username: user.username })}

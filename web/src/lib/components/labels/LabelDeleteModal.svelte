@@ -50,7 +50,14 @@
   tabindex="0"
   onkeydown={closeByKey}
 >
-  <div class="form-modal" role="dialog" aria-modal="true" tabindex="-1">
+  <div
+    class="form-modal"
+    role="dialog"
+    aria-modal="true"
+    tabindex="-1"
+    onclick={(e) => e.stopPropagation()}
+    onkeydown={(e) => e.stopPropagation()}
+  >
     <h2>Confirm Delete</h2>
     <p>{t('settings.confirm_delete_label')}</p>
     <p><strong>{label.name}</strong></p>
