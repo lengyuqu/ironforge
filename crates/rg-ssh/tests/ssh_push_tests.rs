@@ -104,9 +104,12 @@ async fn registered_key_can_push_and_clone_over_live_ssh() {
 
     let remote = format!("ssh://git@{}/ssh-owner/ssh-repo.git", listen_addr);
     git(&["remote", "add", "origin", &remote], Some(worktree.path()));
+    // GIT_SSH_COMMAND is executed by git through an MSYS `sh`, where a
+    // backslash is an escape character — `C:\Users\...` would reach ssh as
+    // `C:Users...`. Use forward slashes and quote the path.
+    let key_arg = client_key.display().to_string().replace('\\', "/");
     let ssh_command = format!(
-        "ssh -i {} -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes",
-        client_key.display()
+        "ssh -i \"{key_arg}\" -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes"
     );
     let gateway = rg_git::cli_gateway::global_gateway().as_ref().unwrap();
     let pushed = gateway
@@ -137,10 +140,12 @@ async fn registered_key_can_push_and_clone_over_live_ssh() {
         "SSH clone failed: {}",
         cloned.stderr_str()
     );
-    assert_eq!(
-        std::fs::read_to_string(clone_path.join("README.md")).unwrap(),
-        "pushed over SSH\n"
-    );
+    // A Windows clone may check the file out with CRLF (core.autocrlf), so
+    // compare newline-normalised content.
+    let cloned_readme = std::fs::read_to_string(clone_path.join("README.md"))
+        .unwrap()
+        .replace("\r\n", "\n");
+    assert_eq!(cloned_readme, "pushed over SSH\n");
 
     let used_key = rg_db::ops::ssh_key_ops::find_by_id(&db, ssh_key.id)
         .await

@@ -112,6 +112,60 @@ pub fn is_process_running(pid: u32) -> bool {
     }
 }
 
+/// Variables Windows PowerShell needs in order to boot at all.
+///
+/// Job scripts run with a cleared environment (`Command::env_clear`) for
+/// isolation, but PowerShell fails to initialise without these and aborts with
+/// crypto/NTE error `0x8009001d` — printing its banner instead of running the
+/// script. Only this fixed whitelist is forwarded, so the "clean environment"
+/// guarantee still holds for everything else.
+#[cfg(windows)]
+pub const POWERSHELL_ENV_KEYS: &[&str] = &[
+    "SystemRoot",
+    "windir",
+    "ComSpec",
+    "PATHEXT",
+    "TEMP",
+    "TMP",
+    "USERPROFILE",
+    "APPDATA",
+    "LOCALAPPDATA",
+    "COMPUTERNAME",
+    "USERNAME",
+    "USERDOMAIN",
+    "HOMEDRIVE",
+    "HOMEPATH",
+    "PROGRAMDATA",
+    "NUMBER_OF_PROCESSORS",
+    "PROCESSOR_ARCHITECTURE",
+    "OS",
+];
+
+/// Forward the Windows-only variables PowerShell requires into a command whose
+/// environment has been cleared. No-op on unix.
+#[cfg(windows)]
+pub fn seed_powershell_env(cmd: &mut Command) {
+    for (key, value) in powershell_env_vars() {
+        cmd.env(key, value);
+    }
+}
+
+/// The PowerShell boot variables present in the host environment.
+///
+/// Returned as (name, value) pairs so callers can seed either a
+/// `std::process::Command` or a `tokio::process::Command`. Empty on unix.
+#[cfg(windows)]
+pub fn powershell_env_vars() -> impl Iterator<Item = (&'static str, String)> {
+    POWERSHELL_ENV_KEYS
+        .iter()
+        .filter_map(|key| std::env::var(key).ok().map(|value| (*key, value)))
+}
+
+#[cfg(not(windows))]
+pub fn powershell_env_vars() -> std::iter::Empty<(&'static str, String)> {
+    std::iter::empty()
+}
+
 /// Get the platform-specific shell command.
 ///
 /// # Returns

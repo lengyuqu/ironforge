@@ -537,6 +537,11 @@ impl PipelineRunner {
                         .map(|(k, v)| (k.as_str(), v.as_str())),
                 )
                 .kill_on_drop(true);
+            // PowerShell cannot boot without SystemRoot & friends — see
+            // rg_core::platform::process::POWERSHELL_ENV_KEYS.
+            for (key, value) in rg_core::platform::process::powershell_env_vars() {
+                c.env(key, value);
+            }
             c
         };
 
@@ -1135,11 +1140,26 @@ mod tests {
         let stage = rg_db::ops::pipeline_ops::create_stage(&db, pipeline.id, "test", 0)
             .await
             .unwrap();
+        // Job scripts run through the platform shell (`sh` on unix,
+        // `powershell.exe -Command` on Windows), so the assertion script has to
+        // be written in that shell's syntax.
+        #[cfg(unix)]
+        let variables_script = format!(
+            "test \"$MESSAGE\" = hello && test \"$CI_SHA\" = {commit_sha} \
+             && test -f README.md && echo \"secret=$DEPLOY_SECRET\""
+        );
+        #[cfg(windows)]
+        let variables_script = format!(
+            "if ($env:MESSAGE -ne 'hello') {{ exit 1 }}; \
+             if ($env:CI_SHA -ne '{commit_sha}') {{ exit 1 }}; \
+             if (-not (Test-Path README.md)) {{ exit 1 }}; \
+             \"secret=$env:DEPLOY_SECRET\""
+        );
         let job = rg_db::ops::pipeline_ops::create_job(
             &db,
             stage.id,
             "variables",
-            &format!("test \"$MESSAGE\" = hello && test \"$CI_SHA\" = {commit_sha} && test -f README.md && echo \"secret=$DEPLOY_SECRET\""),
+            &variables_script,
             None,
             None,
             Some(r#"{"MESSAGE":"hello","CI_JOB_TOKEN":"must-not-override"}"#),

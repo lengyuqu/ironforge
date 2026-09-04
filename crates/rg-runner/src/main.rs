@@ -452,6 +452,37 @@ async fn finish_job(
         .await;
 }
 
+/// Variables Windows PowerShell needs in order to boot at all.
+///
+/// Job scripts run with a cleared environment, but PowerShell fails to
+/// initialise without them (crypto/NTE error `0x8009001d`, printing its banner
+/// instead of running the script). Only a fixed whitelist is forwarded, so the
+/// "clean environment" guarantee still holds for everything else.
+///
+/// Mirrors `rg_core::platform::process::POWERSHELL_ENV_KEYS`; rg-runner is a
+/// standalone binary and does not link rg-core.
+#[cfg(windows)]
+const POWERSHELL_ENV_KEYS: &[&str] = &[
+    "SystemRoot",
+    "windir",
+    "ComSpec",
+    "PATHEXT",
+    "TEMP",
+    "TMP",
+    "USERPROFILE",
+    "APPDATA",
+    "LOCALAPPDATA",
+    "COMPUTERNAME",
+    "USERNAME",
+    "USERDOMAIN",
+    "HOMEDRIVE",
+    "HOMEPATH",
+    "PROGRAMDATA",
+    "NUMBER_OF_PROCESSORS",
+    "PROCESSOR_ARCHITECTURE",
+    "OS",
+];
+
 /// Execute a job script locally via platform-appropriate shell.
 async fn run_job_local(
     script: &str,
@@ -474,13 +505,18 @@ async fn run_job_local(
     };
 
     #[cfg(windows)]
-    let output = {
-        let mut command = tokio::process::Command::new("powershell.exe");
+let output = {
+    let mut command = tokio::process::Command::new("powershell.exe");
         command
             .args(["-NoProfile", "-NonInteractive", "-Command", script])
             .current_dir(workspace)
             .env_clear()
             .kill_on_drop(true);
+        for key in POWERSHELL_ENV_KEYS {
+            if let Ok(value) = std::env::var(key) {
+                command.env(*key, value);
+            }
+        }
         for (key, value) in variables {
             command.env(key, value);
         }
@@ -588,12 +624,18 @@ mod tests {
     #[tokio::test]
     async fn local_executor_injects_polled_variables_with_a_clean_environment() {
         let variables = vec![("RUNNER_MESSAGE".into(), "hello".into())];
-        let (code, log) = run_job_local(
-            "test \"$RUNNER_MESSAGE\" = hello && test -z \"$IRONFORGE_HOST_SECRET\" && echo ok",
-            &variables,
-            std::path::Path::new("."),
-        )
-        .await;
+        // The local executor runs the script with the platform shell (`sh` on
+        // unix, `powershell.exe -Command` on Windows), so the assertion script
+        // has to be written in that shell's syntax.
+        #[cfg(unix)]
+        let script = "test \"$RUNNER_MESSAGE\" = hello && test -z \"$IRONFORGE_HOST_SECRET\" && echo ok";
+        #[cfg(windows)]
+        let script = concat!(
+            "if ($env:RUNNER_MESSAGE -ne 'hello') { exit 1 }; ",
+            "if ($env:IRONFORGE_HOST_SECRET) { exit 1 }; ",
+            "'ok'"
+        );
+        let (code, log) = run_job_local(script, &variables, std::path::Path::new(".")).await;
         assert_eq!(code, 0, "{log}");
         assert!(log.contains("ok"));
     }
