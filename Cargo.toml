@@ -93,7 +93,7 @@ toml = "0.8"
 tracing-appender = "0.2"
 
 # Git library (replacing git CLI)
-gix = { version = "0.84", features = [
+gix = { version = "0.87", features = [
     "blocking-http-transport-curl",
     "max-performance",
     "blob-diff",
