@@ -373,9 +373,6 @@ pub async fn apply_suggestions(
     }
 
     let repo_path = repo_root.join(format!("{source_namespace}/{}.git", source_repo.name));
-    let git = rg_git::cli_gateway::global_gateway()
-        .as_ref()
-        .map_err(|error| anyhow::anyhow!("{error}"))?;
     let mut file_updates = Vec::with_capacity(suggestions_by_path.len());
     for (path, suggestions) in &mut suggestions_by_path {
         suggestions.sort_by_key(|suggestion| suggestion.start_line);
@@ -385,14 +382,13 @@ pub async fn apply_suggestions(
             }
         }
 
-        let object = format!("{head_sha}:{path}");
-        let content_output = git.run(&["show", &object], Some(&repo_path))?;
-        content_output.ensure_success()?;
-        let content = String::from_utf8(content_output.stdout)
+        let Some((blob_sha, blob_bytes)) = rg_git::ops::blob_at(&repo_path, head_sha, path)
+            .with_context(|| format!("failed to read '{path}' at {head_sha}"))?
+        else {
+            bail!("'{path}' does not exist at {head_sha}");
+        };
+        let content = String::from_utf8(blob_bytes)
             .context("suggestions cannot be applied to a non-UTF-8 file")?;
-        let sha_output = git.run(&["rev-parse", &object], Some(&repo_path))?;
-        sha_output.ensure_success()?;
-        let blob_sha = sha_output.stdout_str().trim().to_string();
         let had_trailing_newline = content.ends_with('\n');
         let mut lines = content.lines().map(str::to_string).collect::<Vec<_>>();
 

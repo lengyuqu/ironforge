@@ -1426,10 +1426,9 @@ fn git_rebase_merge(
             )));
         }
 
-        let head = git.run(&["rev-parse", "HEAD"], Some(&worktree))?;
-        head.ensure_success()
-            .map_err(|e| CoreError::internal(format!("failed to resolve rebased HEAD: {}", e)))?;
-        Ok(head.stdout_str().trim().to_string())
+        let head = rg_git::ops::rev_parse(&worktree, "HEAD")
+            .map_err(|e| CoreError::internal(format!("failed to resolve rebased HEAD: {e}")))?;
+        Ok(head)
     })();
 
     if let Err(error) = std::fs::remove_dir_all(&worktree) {

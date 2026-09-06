@@ -101,7 +101,7 @@ pub fn discover_issue_templates(
     default_branch: &str,
 ) -> Result<IssueTemplateDiscovery> {
     let git = GitCommandGateway::new()?;
-    let Some(commit_ref) = verified_branch_ref(&git, repository_path, default_branch)? else {
+    let Some(commit_ref) = verified_branch_ref(repository_path, default_branch)? else {
         return Ok(IssueTemplateDiscovery::default());
     };
     let mut discovery = IssueTemplateDiscovery::default();
@@ -112,7 +112,7 @@ pub fn discover_issue_templates(
                 continue;
             }
             let path = format!("{directory}/{filename}");
-            match read_text_blob(&git, repository_path, &commit_ref, &path)
+            match read_text_blob(repository_path, &commit_ref, &path)
                 .and_then(|content| parse_markdown_template(&path, &content))
             {
                 Ok(template) => discovery.templates.push(template),
@@ -125,13 +125,11 @@ pub fn discover_issue_templates(
 }
 
 pub fn read_issue_config(repository_path: &Path, default_branch: &str) -> Result<IssueConfig> {
-    let git = GitCommandGateway::new()?;
-    let Some(commit_ref) = verified_branch_ref(&git, repository_path, default_branch)? else {
+    let Some(commit_ref) = verified_branch_ref(repository_path, default_branch)? else {
         return Ok(IssueConfig::default());
     };
     for candidate in ISSUE_CONFIGS {
-        let Some(content) = try_read_text_blob(&git, repository_path, &commit_ref, candidate)?
-        else {
+        let Some(content) = try_read_text_blob(repository_path, &commit_ref, candidate)? else {
             continue;
         };
         let config: IssueConfig =
@@ -146,12 +144,11 @@ pub fn read_pull_request_template(
     repository_path: &Path,
     default_branch: &str,
 ) -> Result<Option<PullRequestTemplate>> {
-    let git = GitCommandGateway::new()?;
-    let Some(commit_ref) = verified_branch_ref(&git, repository_path, default_branch)? else {
+    let Some(commit_ref) = verified_branch_ref(repository_path, default_branch)? else {
         return Ok(None);
     };
     for candidate in PULL_REQUEST_TEMPLATES {
-        if let Some(content) = try_read_text_blob(&git, repository_path, &commit_ref, candidate)? {
+        if let Some(content) = try_read_text_blob(repository_path, &commit_ref, candidate)? {
             return Ok(Some(PullRequestTemplate {
                 content,
                 file_name: (*candidate).to_string(),
@@ -162,21 +159,12 @@ pub fn read_pull_request_template(
 }
 
 fn verified_branch_ref(
-    git: &GitCommandGateway,
     repository_path: &Path,
     default_branch: &str,
 ) -> Result<Option<String>> {
     let branch_ref = format!("refs/heads/{default_branch}");
     let commit_spec = format!("{branch_ref}^{{commit}}");
-    let output = git.run(
-        &["rev-parse", "--verify", &commit_spec],
-        Some(repository_path),
-    )?;
-    if output.success() {
-        Ok(Some(branch_ref))
-    } else {
-        Ok(None)
-    }
+    rg_git::ops::try_rev_parse(repository_path, &commit_spec)
 }
 
 fn list_directory(
@@ -205,26 +193,22 @@ fn list_directory(
 }
 
 fn try_read_text_blob(
-    git: &GitCommandGateway,
     repository_path: &Path,
     git_ref: &str,
     path: &str,
 ) -> Result<Option<String>> {
-    let object = format!("{git_ref}:{path}");
-    let output = git.run(&["cat-file", "blob", &object], Some(repository_path))?;
-    if !output.success() {
-        return Ok(None);
+    match rg_git::ops::blob_at(repository_path, git_ref, path)? {
+        Some((_sha, data)) => decode_template_content(path, data).map(Some),
+        None => Ok(None),
     }
-    decode_template_content(path, output.stdout).map(Some)
 }
 
 fn read_text_blob(
-    git: &GitCommandGateway,
     repository_path: &Path,
     git_ref: &str,
     path: &str,
 ) -> Result<String> {
-    try_read_text_blob(git, repository_path, git_ref, path)?
+    try_read_text_blob(repository_path, git_ref, path)?
         .ok_or_else(|| anyhow::anyhow!("template disappeared while reading"))
 }
 

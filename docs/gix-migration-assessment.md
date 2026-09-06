@@ -89,3 +89,23 @@
 - 仓库内 gix 调用 API 全兼容，`cargo check --workspace` 零错误，无需改代码
 - 认证：`cargo test --workspace --no-fail-fast` 全绿（63 个测试二进制 0 failed）
 - 0.86 的 owned-config 破坏性变更未波及本项目调用面（我们主要走瓷器层）
+
+---
+
+## 五、Phase A+B 执行结果（2026-09-06）
+
+**Phase A（低风险速赢）— 完成**：
+- 新增 `rg_git::ops` 模块（`rev_parse` / `try_rev_parse` / `blob_at` / `update_ref` / `delete_ref` / `verify_commit[_with_repo]`），gix 0.87.1 原生实现，错误语义与 CLI 对齐
+- `rev-parse`：merge_queue（base ref）、pull_request/service（rebase worktree HEAD）、repo/service（clone 校验 / blob 校验 / 新提交 SHA）、issue_template（`--verify ^{commit}`）全部迁移
+- `update-ref` / `update-ref -d`：merge_queue 的 merge-group ref 写入与清理迁移
+- `show` + `rev-parse <rev>:<path>`：review/service 与 codeowners 合并为单次 `blob_at` 调用
+- `cat-file blob`：issue_template 模板/配置读取迁移
+
+**Phase B — B1、B3 完成，B2 有意缩减**：
+- **B1 auto_init 全量 gix 化**：不再经临时 worktree + init/add/commit/push/symbolic-ref CLI 链，直接在 bare 仓库内 `write_blob` → 构建 Tree → `commit_as`（显式 identity，`refs/heads/<branch>` 创建即校验 MustNotExist）→ `edit_reference` 设 HEAD symbolic。删除约 100 行 CLI 编排
+- **B3 验签迁移**：`git verify-commit`（receive_pack 签名策略）替换为 gix `Commit::verify_signature()`；gix features 增加 `command`。未签名提交短路返回 `Ok(None)`，不触发 gpg；验证失败按 fail-closed 处理，与 CLI 语义一致
+- **B2 rebase 网络环节缩减**：clone/fetch/checkout/push 保留 CLI。原因：rebase 依赖 `origin/<branch>` 远程跟踪 ref 与 remote 配置，gix `PrepareFetch`/`PreparePush` 单独替换 clone/push 会在 ref 映射与配置写入面引入回归风险，收益不匹配；最终 `rev-parse HEAD` 已随 Phase A 迁移。待 gix rebase API 或 Phase C 一并处理
+
+**认证**：`cargo test --workspace --no-fail-fast` 414 passed / 0 failed；clippy 目标 crate 0 警告。
+
+**注意**：`ops.rs` 文档注释避免出现 regression guard 扫描的裸 git 进程创建字面量（已踩一次：guard 连注释一起扫）。

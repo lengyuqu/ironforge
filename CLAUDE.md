@@ -136,14 +136,14 @@ Phase 1~21 全部完成。核心能力：
 
 ### 技术债与后续方向
 
-**gix 迁移**：raw git 全消除（经 GitCommandGateway），gix 原生覆盖率 ~70%。CLI 经网关保留（Rebase/Pack/Thin-pack/Clone/Fetch）。Phase 3 等待 gix 上游成熟（迁移评估见 `docs/gix-migration-assessment.md`，基于 gix 0.87.1）：
+**gix 迁移**：raw git 全消除（经 GitCommandGateway），gix 原生覆盖率 ~85%（Phase A+B 完成：rev-parse/update-ref/show/cat-file/verify-commit/auto_init 已 gix 化，新增 rg_git::ops 模块）。CLI 经网关保留（Rebase/rebase worktree 的 clone/fetch/push/Pack/Thin-pack/Clone/Fetch/ls-tree）。Phase 3 等待 gix 上游成熟（迁移评估见 `docs/gix-migration-assessment.md`，基于 gix 0.87.1）：
 
 | 待办 | 阻塞原因 | 解除条件 |
 |---|---|---|
 | Rebase 合并 | gix-rebase 无 API | gix 发布稳定 rebase API |
 | Pack 生成 | gix 无高层 pack 协商 | gix 提供 server 端 pack 生成（或 Phase C 用 gix-pack 自研，见评估文档） |
 | Thin-pack 索引 | gix 缺 thin 补全解析 | gix-pack 支持 --fix-thin |
-| ~~GPG 验签~~ | ✅ 已解除：gix 0.87 `Commit::verify()`/`Commit::sign()` 内建 OpenPGP/X.509/SSH 签名与验签 | — |
+| ~~GPG 验签~~ | ✅ 已解除：gix 0.87 `Commit::verify()`/`Commit::sign()` 内建 OpenPGP/X.509/SSH 签名与验签（Phase B3 已接入 receive_pack，`command` feature） | — |
 | blob-diff patch | 字节一致性待验证 | 对拍测试通过 |
 
 复查节奏：每次 gix 版本升级时过一遍（最近一次：2026-09-06，gix 0.84→0.87.1）。

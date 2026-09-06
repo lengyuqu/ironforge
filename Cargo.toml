@@ -99,6 +99,7 @@ gix = { version = "0.87", features = [
     "blob-diff",
     "pack-cache-lru-dynamic",
     "merge",
+    "command",
 ] }
 
 # Archive / compression

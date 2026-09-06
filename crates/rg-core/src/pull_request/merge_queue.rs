@@ -150,12 +150,8 @@ async fn cleanup_merge_group_ref(
     };
     let repo_path = repo_root.join(format!("{namespace}/{}.git", repository.name));
     let group_ref = format!("refs/merge-queue/{}", entry.id);
-    if let Ok(git) = rg_git::cli_gateway::global_gateway().as_ref() {
-        if let Ok(output) = git.run(&["update-ref", "-d", &group_ref], Some(&repo_path)) {
-            if !output.success() {
-                tracing::warn!(entry_id = entry.id, "failed to delete merge-group ref");
-            }
-        }
+    if let Err(error) = rg_git::ops::delete_ref(&repo_path, &group_ref) {
+        tracing::warn!(entry_id = entry.id, %error, "failed to delete merge-group ref");
     }
 }
 
@@ -449,8 +445,7 @@ async fn ensure_merge_group_ci(
     commit_output.ensure_success()?;
     let group_sha = commit_output.stdout_str().trim().to_string();
     let group_ref = format!("refs/merge-queue/{}", entry.id);
-    git.run(&["update-ref", &group_ref, &group_sha], Some(&repo_path))?
-        .ensure_success()?;
+    rg_git::ops::update_ref(&repo_path, &group_ref, &group_sha, "merge queue group")?;
 
     if !ci.trigger.has_ci_config(&repo_path, &group_sha) {
         return Ok(MergeGroupState::Ready);

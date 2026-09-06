@@ -62,14 +62,17 @@ pub fn owners_for_paths(rules: &[CodeownerRule], paths: &[String]) -> Vec<String
 
 /// Load CODEOWNERS from the base branch using the standard location priority.
 pub fn load_codeowners(repo_path: &Path, base_branch: &str) -> Result<Option<Vec<CodeownerRule>>> {
-    let git = rg_git::cli_gateway::global_gateway()
-        .as_ref()
-        .map_err(|error| anyhow::anyhow!("{error}"))?;
+    let branch_ref = format!("refs/heads/{base_branch}");
     for candidate in [".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS"] {
-        let object = format!("refs/heads/{base_branch}:{candidate}");
-        let output = git.run(&["show", &object], Some(repo_path))?;
-        if output.success() {
-            return Ok(Some(parse_codeowners(&output.stdout_str())));
+        // As with the previous `git show` based lookup, any failure (missing
+        // branch, missing file) simply falls through to the next candidate.
+        match rg_git::ops::blob_at(repo_path, &branch_ref, candidate) {
+            Ok(Some((_sha, bytes))) => {
+                let content = String::from_utf8(bytes)
+                    .map_err(|error| anyhow::anyhow!("CODEOWNERS is not UTF-8: {error}"))?;
+                return Ok(Some(parse_codeowners(&content)));
+            }
+            _ => continue,
         }
     }
     Ok(None)

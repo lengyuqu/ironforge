@@ -458,6 +458,27 @@ fn enforce_signed_commit_policies(
             return;
         }
     };
+    // Open the repository once for gix-native signature verification.
+    let verify_repo = match gix::open(repo_path) {
+        Ok(repo) => repo,
+        Err(error) => {
+            // Fail closed: without repository access we cannot verify anything.
+            for update in updates.iter_mut().filter(|update| {
+                update.status == "ok"
+                    && patterns
+                        .iter()
+                        .any(|pattern| ref_matches_rejection_pattern(&update.refname, pattern))
+            }) {
+                update.status = "error".into();
+                update.message =
+                    format!("unable to verify required commit signatures: {error}");
+            }
+            return;
+        }
+    };
+    let verify = |sha: &str| -> bool {
+        crate::ops::verify_commit_with_repo(&verify_repo, sha).unwrap_or(false)
+    };
 
     for update in updates.iter_mut().filter(|update| {
         update.status == "ok"
@@ -488,12 +509,14 @@ fn enforce_signed_commit_policies(
                 continue;
             }
         };
-        if let Some(unsigned) = commits.lines().find(|sha| {
-            gateway
-                .run(&["verify-commit", sha], Some(repo_path))
-                .map(|output| !output.success())
-                .unwrap_or(true)
-        }) {
+        // gix-native replacement for `git verify-commit`: verification shells
+        // out to the configured GPG program via gix's `command` feature. Any
+        // error (or an unsigned commit) fails closed, matching the CLI where
+        // `verify-commit` exiting non-zero marks the commit unsigned.
+        if let Some(unsigned) = commits
+            .lines()
+            .find(|sha| !verify(sha))
+        {
             update.status = "error".into();
             update.message =
                 format!("commit {unsigned} does not have a cryptographically valid signature");

@@ -507,7 +507,7 @@ pub(crate) fn canonical_git_path(path: &std::path::Path) -> CoreResult<String> {
         if let Some(rest) = s.strip_prefix(r"\\?\") {
             return Ok(rest.to_string());
         }
-        return Ok(s.into_owned());
+        Ok(s.into_owned())
     }
 
     #[cfg(not(windows))]
@@ -524,7 +524,7 @@ pub(crate) fn canonical_git_path(path: &std::path::Path) -> CoreResult<String> {
 fn path_to_git_url(path: &std::path::Path) -> CoreResult<String> {
     #[cfg(windows)]
     {
-        return canonical_git_path(path);
+        canonical_git_path(path)
     }
 
     #[cfg(not(windows))]
@@ -535,7 +535,8 @@ fn path_to_git_url(path: &std::path::Path) -> CoreResult<String> {
 }
 
 /// Auto-initialize a bare repo with initial files (README, LICENSE, .gitignore)
-/// by creating a temp working tree, committing, and pushing to the bare repo.
+/// by writing blobs, a tree, and the initial commit directly into the bare
+/// repository with gix — no temporary worktree, no git CLI.
 #[allow(clippy::too_many_arguments)]
 fn auto_init_repo(
     bare_path: &std::path::Path,
@@ -549,39 +550,16 @@ fn auto_init_repo(
     git_author_name: &str,
     git_author_email: &str,
 ) -> CoreResult<()> {
-    // Canonicalize the bare repo path so git push works from any working directory
-    let bare_path = std::fs::canonicalize(bare_path)
-        .with_context(|| format!("bare repo path does not exist: {:?}", bare_path))?;
+    // Collect the template files to seed. All templates live at the tree root.
+    let mut files: Vec<(&'static str, Vec<u8>)> = Vec::new();
 
-    // Create a temp directory for the working tree
-    let tmp = std::env::temp_dir().join(format!("ironforge-init-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&tmp).context("failed to create temp directory")?;
-
-    // Init a non-bare repo in the temp dir
-    let gateway = rg_git::cli_gateway::GitCommandGateway::new()
-        .map_err(|e| CoreError::internal(format!("git CLI not available: {e}")))?;
-    let output = gateway
-        .run(&["init", "-b", default_branch], Some(&tmp))
-        .map_err(|e| CoreError::internal(format!("git init failed in {:?}: {e}", tmp)))?;
-    output
-        .ensure_success()
-        .map_err(|e| CoreError::internal(format!("git init failed in {:?}: {e}", tmp)))?;
-
-    // Write README.md if specified
-    let mut files_written = false;
-
-    // Write .gitignore if specified
     if let Some(key) = gitignores_key {
         if !key.is_empty() {
             if let Some(tmpl) = templates::gitignore_content(key) {
-                std::fs::write(tmp.join(".gitignore"), tmpl.content)
-                    .context("failed to write .gitignore")?;
-                files_written = true;
+                files.push((".gitignore", tmpl.content.as_bytes().to_vec()));
             }
         }
     }
-
-    // Write LICENSE if specified (with year/author substitution)
     if let Some(key) = license_key {
         if !key.is_empty() {
             if let Some(tmpl) = templates::license_content(key) {
@@ -590,86 +568,108 @@ fn auto_init_repo(
                     .content
                     .replace("{YEAR}", &year)
                     .replace("{AUTHOR}", owner_name);
-                std::fs::write(tmp.join("LICENSE"), content).context("failed to write LICENSE")?;
-                files_written = true;
+                files.push(("LICENSE", content.into_bytes()));
             }
         }
     }
-
-    // Write README.md if specified (default to "default" if auto_init but no template specified)
     let readme_key = readme_key.unwrap_or("default");
     if !readme_key.is_empty() {
         if let Some(content) = templates::readme_content(readme_key, repo_name, description) {
-            std::fs::write(tmp.join("README.md"), content).context("failed to write README.md")?;
-            files_written = true;
+            files.push(("README.md", content.into_bytes()));
         }
     }
 
-    // If no files were written, skip commit and just clean up
-    if !files_written {
-        let _ = std::fs::remove_dir_all(&tmp);
+    // If no files were written, skip creating the initial commit.
+    if files.is_empty() {
         tracing::info!(%repo_name, "auto_init: no template files to commit, skipping");
         return Ok(());
     }
 
-    // git add all files
-    let output = gateway
-        .run(&["add", "-A"], Some(&tmp))
-        .map_err(|e| CoreError::internal(format!("git add failed: {e}")))?;
-    output
-        .ensure_success()
-        .map_err(|e| CoreError::internal(format!("git add failed: {e}")))?;
+    // Write blobs + tree + initial commit directly into the bare repository.
+    let repo = gix::open(bare_path)
+        .with_context(|| format!("failed to open bare repository: {:?}", bare_path))?;
 
-    // git commit (identity env via gateway)
-    let identity = git_identity_env(git_author_name, git_author_email);
-    let output = gateway
-        .run_with_env(&["commit", "-m", "Initial commit"], Some(&tmp), &identity)
-        .map_err(|e| CoreError::internal(format!("git commit failed: {e}")))?;
-    if !output.success() {
-        return Err(CoreError::internal(format!(
-            "git commit failed: {}",
-            output.stderr_str()
-        )));
+    let mut entries = Vec::with_capacity(files.len());
+    for (name, content) in &files {
+        let blob_id = repo
+            .write_blob(content)
+            .map_err(|e| CoreError::internal(format!("failed to write blob for {name}: {e}")))?;
+        entries.push(rg_git_obj_tree_entry(name, blob_id.detach()));
     }
+    // Tree entries must be sorted the way git expects (plain byte order is
+    // sufficient here: all entries are non-tree blobs at the root).
+    entries.sort_by(|a, b| a.filename.cmp(&b.filename));
+    let tree_id = repo
+        .write_object(&gix::objs::Tree { entries })
+        .map_err(|e| CoreError::internal(format!("failed to write initial tree: {e}")))?;
 
-    // git push to the bare repo
-    let push_url =
-        path_to_git_url(&bare_path).context("failed to convert bare repo path to git URL")?;
-    let refspec = format!("{}:{}", default_branch, default_branch);
-
-    let output = gateway
-        .run(&["push", "--quiet", &push_url, &refspec], Some(&tmp))
-        .map_err(|e| CoreError::internal(format!("git push failed: {e}")))?;
-    if !output.success() {
-        return Err(CoreError::internal(format!(
-            "git push to bare repo failed: {}",
-            output.stderr_str()
-        )));
-    }
-
-    // Set HEAD in the bare repo to point to the default branch.
-    // Use --git-dir (cannot combine with the gateway's `-C`, so repo_path=None).
-    let head_ref = format!("refs/heads/{}", default_branch);
-    let head_output = gateway
-        .run(
-            &["--git-dir", &push_url, "symbolic-ref", "HEAD", &head_ref],
-            None,
+    let now = gix::date::Time::now_utc();
+    // `SignatureRef.time` is the raw git timestamp string (`<seconds> <offset>`).
+    let time_str = format!("{} +0000", now.seconds);
+    let signature = gix::actor::SignatureRef {
+        name: git_author_name.as_bytes().into(),
+        email: git_author_email.as_bytes().into(),
+        time: time_str.as_str(),
+    };
+    let branch_ref = format!("refs/heads/{default_branch}");
+    let commit_id = repo
+        .commit_as(
+            signature,
+            signature,
+            branch_ref.as_str(),
+            "Initial commit",
+            tree_id.detach(),
+            std::iter::empty::<gix::hash::ObjectId>(),
         )
-        .map_err(|e| CoreError::internal(format!("git symbolic-ref HEAD failed: {e}")))?;
-    if !head_output.success() {
-        tracing::warn!(stderr = %head_output.stderr_str(), "failed to set HEAD in bare repo");
-    }
+        .map_err(|e| CoreError::internal(format!("failed to create initial commit: {e}")))?;
 
-    // Clean up temp directory
-    let _ = std::fs::remove_dir_all(&tmp);
+    // Point HEAD at the default branch (bare repos default to whatever
+    // `init.defaultBranch` was; make it deterministic).
+    use gix::refs::transaction::{Change, LogChange, PreviousValue, RefEdit, RefLog};
+
+    let branch_name: gix::refs::FullName = branch_ref
+        .clone()
+        .try_into()
+        .map_err(|e| CoreError::internal(format!("invalid branch reference: {e}")))?;
+    let head_name: gix::refs::FullName = "HEAD"
+        .try_into()
+        .map_err(|e| CoreError::internal(format!("invalid HEAD reference: {e}")))?;
+    repo.edit_reference(RefEdit {
+        change: Change::Update {
+            log: LogChange {
+                mode: RefLog::AndReference,
+                force_create_reflog: false,
+                message: "init".into(),
+            },
+            expected: PreviousValue::Any,
+            new: gix::refs::Target::Symbolic(branch_name),
+        },
+        name: head_name,
+        deref: false,
+    })
+    .map_err(|e| CoreError::internal(format!("failed to set HEAD to {branch_ref}: {e}")))?;
 
     tracing::info!(
         repo = %repo_name,
         branch = %default_branch,
+        commit = %commit_id.detach(),
+        files = files.len(),
         "auto-initialized repository with template files"
     );
 
     Ok(())
+}
+
+/// Build a root-level tree entry for `name` pointing at `object_id`.
+fn rg_git_obj_tree_entry(
+    name: &str,
+    object_id: gix::hash::ObjectId,
+) -> gix::objs::tree::Entry {
+    gix::objs::tree::Entry {
+        mode: gix::objs::tree::EntryKind::Blob.into(),
+        filename: name.as_bytes().into(),
+        oid: object_id,
+    }
 }
 
 /// Build git identity env vars for commit commands run via `GitCommandGateway`.
@@ -1323,10 +1323,12 @@ pub fn update_files_in_commit(
         }
 
         for update in updates {
-            let object = format!("HEAD:{}", update.path);
-            let blob = gateway.run(&["rev-parse", &object], Some(&tmp))?;
-            blob.ensure_success()?;
-            let actual_blob = blob.stdout_str().trim().to_string();
+            let (_sha, _bytes) = rg_git::ops::blob_at(&tmp, "HEAD", &update.path)
+                .map_err(|e| CoreError::internal(format!("failed to inspect {}: {e}", update.path)))?
+                .ok_or_else(|| {
+                    CoreError::conflict(format!("file {} is missing at HEAD", update.path))
+                })?;
+            let actual_blob = _sha;
             if actual_blob != update.expected_blob_sha {
                 return Err(CoreError::conflict(format!(
                     "file SHA mismatch for {}: expected {}, got {}",
@@ -1362,9 +1364,8 @@ pub fn update_files_in_commit(
         let identity = git_identity_env(author_name, author_email);
         let commit = gateway.run_with_env(&["commit", "-m", message], Some(&tmp), &identity)?;
         commit.ensure_success()?;
-        let commit_sha = gateway.run(&["rev-parse", "HEAD"], Some(&tmp))?;
-        commit_sha.ensure_success()?;
-        let commit_sha = commit_sha.stdout_str().trim().to_string();
+        let commit_sha = rg_git::ops::rev_parse(&tmp, "HEAD")
+            .map_err(|e| CoreError::internal(format!("failed to resolve new commit SHA: {e}")))?;
 
         let push_url = path_to_git_url(&repo_path)?;
         let destination = format!("HEAD:refs/heads/{branch}");
