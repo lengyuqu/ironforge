@@ -136,17 +136,17 @@ Phase 1~21 全部完成。核心能力：
 
 ### 技术债与后续方向
 
-**gix 迁移**：raw git 全消除（经 GitCommandGateway），gix 原生覆盖率 ~70%。16 处 CLI 经网关保留（Diff/Fetch/Rebase/Pack/GPG/Clone）。Phase 3 等待 gix 上游成熟：
+**gix 迁移**：raw git 全消除（经 GitCommandGateway），gix 原生覆盖率 ~70%。CLI 经网关保留（Rebase/Pack/Thin-pack/Clone/Fetch）。Phase 3 等待 gix 上游成熟（迁移评估见 `docs/gix-migration-assessment.md`，基于 gix 0.87.1）：
 
 | 待办 | 阻塞原因 | 解除条件 |
 |---|---|---|
 | Rebase 合并 | gix-rebase 无 API | gix 发布稳定 rebase API |
-| Pack 生成 | gix 无高层 pack 协商 | gix 提供 server 端 pack 生成 |
+| Pack 生成 | gix 无高层 pack 协商 | gix 提供 server 端 pack 生成（或 Phase C 用 gix-pack 自研，见评估文档） |
 | Thin-pack 索引 | gix 缺 thin 补全解析 | gix-pack 支持 --fix-thin |
-| GPG 验签 | gix 无验签 | gix 内建或引入 sequoia-openpgp |
+| ~~GPG 验签~~ | ✅ 已解除：gix 0.87 `Commit::verify()`/`Commit::sign()` 内建 OpenPGP/X.509/SSH 签名与验签 | — |
 | blob-diff patch | 字节一致性待验证 | 对拍测试通过 |
 
-复查节奏：每次 gix 版本升级时过一遍。
+复查节奏：每次 gix 版本升级时过一遍（最近一次：2026-09-06，gix 0.84→0.87.1）。
 
 详细架构事实见 [ironforge-docs/architecture/project-architecture-2026-07.md](ironforge-docs/architecture/project-architecture-2026-07.md)。
 
@@ -295,7 +295,7 @@ utoipa          = "5"        # ⚠️ 未纳入 workspace，在 rg-http 中硬�
 utoipa-swagger-ui = "8"      # ⚠️ 未纳入 workspace
 anyhow          = "1"
 thiserror       = "2"
-gix             = "0.84"     # features: blocking-http-transport-curl, max-performance, blob-diff, pack-cache-lru-dynamic, merge
+gix             = "0.87"     # features: blocking-http-transport-curl, max-performance, blob-diff, pack-cache-lru-dynamic, merge
 chrono          = "0.4"      # features: serde
 uuid            = "1"        # features: v4, serde
 # Auth / Crypto

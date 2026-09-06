@@ -1,0 +1,91 @@
+# gix 0.84 → 0.87.1 升级评估与 CLI 替换迁移路线
+
+> 日期：2026-09-06 | 基于 gitoxide 官方 release notes（v0.85.0 / v0.86.0 / v0.87.0 / v0.87.1）
+> 复查节奏：CLAUDE.md 约定"每次 gix 版本升级时过一遍"，本文即该次复查的产出。
+
+---
+
+## 一、0.85 → 0.87 更新要点（按对 IronForge 的价值排序）
+
+### 0.87.0 —— 直接命中本项目 CLI 保留清单
+
+| 新能力 | API | 对 IronForge 的意义 |
+|---|---|---|
+| **Git 兼容提交签名** | `Commit::sign()` | 解析 gpg.format / 每格式程序 / 签名 key / committer 回退 / `gpg.ssh.defaultKeyCommand`，OpenPGP + X.509 + SSH 全支持 |
+| **Git 兼容提交验签** | `Commit::verify()` / `commit::SignedData::verify()` | **CLAUDE.md 等待表"GPG 验签"一行就此关闭**——原先计划引入 sequoia-openpgp，现在 gix 内建（签名流式送入 verifier，无需重建 payload） |
+| **批量删本地分支** | `Repository::delete_local_branches()` | 事务内一次删 refs+reflog，拒绝任何 worktree 检出中的分支 |
+| **Git notes 瓷器层** | `Repository::notes` | notes 读写 + CAS 更新（防并发覆盖） |
+| **单 revision clone** | `PrepareFetch::with_revision()` | 对齐 git 2.5x `--revision=` 行为：detach HEAD、不建普通 refs、不持久 refspec |
+| **GIT_ALLOW_PROTOCOL** | 传输层 | 网络协议白名单安全语义对齐 git |
+| 其他 | `gix::config()`、editor 解析、Git quoting 工具、`commit::Info::generation` | — |
+
+### 0.86.0 —— Windows 性能 + API 工效大版本
+
+| 新能力 | 意义 |
+|---|---|
+| **Windows dir-cache 加速 status + 懒加载线程局部 `core.fscache`** | IronForge CI runner 本地执行 / 仓库扫描在 Windows 主机上的文件遍历性能直接受益 |
+| **gix-config 全 owned 化（lifetime-free）** | 配置值返回 owned `BString`/`PathBuf`/`OsString`，消除 `Cow`/`into_owned()` 样板；错误可自然 `?` 传播 |
+| **zlib 压缩级别感知** | 遵循 core.compression / pack.compression（含 git 的 -1 映射）——pack 生成调优可用 |
+| **多 remote URL** | `Remote::urls(Direction)` 保留全部 fetch/push URL 并保序 |
+| **credentials 强化** | `Connection::configured_credentials_for_current_url()`、`credential.protectProtocol` |
+| `Repository::normalize_path()` / `discover_opts()` | 替代 `Pattern + normalize` workaround |
+
+### 0.85.0 —— 正确性修复为主
+
+- clone 采用远端 object format（sha256 兼容）并限定重试次数（`IncompatibleObjectHash`）
+- fetch 对远端 symref 的解析对齐 git（`+HEAD:...` 不再错误解析到本地同名分支）
+- 松散 ref 路径前缀碰撞（`refs/heads/A` 文件 vs `refs/heads/A/new`）
+- 浅 clone 的 tag refspec；相对 worktree gitdir 文件
+- tree editor `Editor::remove_leaf()`、`write_object_with_known_id()`
+
+---
+
+## 二、现状盘点：生产代码中经 GitCommandGateway 保留的 CLI
+
+（tests 排除；gateway 自身的 `--version` 健康检查与"no raw git"守卫不计入迁移对象）
+
+| 命令 | 处数 | 位置 | gix 替代 | 难度 |
+|---|---|---|---|---|
+| `rev-parse` | 6 | merge_queue / pull_request service / repo service | `repo.rev_parse_single()`（revspec 解析已成熟） | 低 |
+| `update-ref` | 2 | merge_queue（group ref） | `repo.edit_reference()` / refs 事务 | 低 |
+| `show` | 2 | review/codeowners（`show base:CODEOWNERS`） | `repo.find_object()` + tree 遍历 | 低 |
+| `cat-file blob` | 1 | issue_template | 同上 | 低 |
+| `init -b` / `add -A` / `commit` | 1+1+4 | repo service（auto_init 种子提交） | gix init + index 更新 + `repo.commit()` | 中 |
+| `push` | 2 | auto_init / rebase worktree | `PreparePush`（gix push 已成熟） | 中 |
+| `clone --no-checkout` / `fetch` / `checkout --detach` | 2+1+1 | rebase worktree、file 检出 | `PrepareFetch` + worktree checkout（0.85/0.86 大量正确性修复后已稳） | 中 |
+| `archive` | 1 | repo_content/archive API | `gix-worktree-stream`（tar 流） | 中 |
+| `pack-objects --all --stdout` | 2 | upload_pack / protocol v2（服务端 pack 生成） | gix-pack 可达性遍历 + bundle 写出，但缺 server 端协商高层封装 | 高 |
+| `index-pack --fix-thin --stdin` | 1 | receive_pack（thin pack 补全入库） | gix-pack data::input 支持借 ODB 补 base；需自写索引管线 | 高 |
+| **rebase** | 整条链 | pull_request service（temp worktree） | **gix 至今无 rebase API**（0.85–0.87 均未涉及） | ❌ 保留 |
+
+---
+
+## 三、迁移路线建议
+
+**Phase A（低风险速赢，~1 天）**：`rev-parse` / `update-ref` / `show` / `cat-file`
+→ 纯读操作，gix API 直换，行为可用现有集成测试回归。
+
+**Phase B（0.87 新解锁，~2 天）**：
+1. GPG/SSH **验签走 `Commit::verify()`**——若代码中尚有验签 CLI 则替换；新功能可直接用 gix 内建，sequoia-openpgp 依赖不用引
+2. auto_init 种子流程 gix 化（init/add/commit/push）
+3. rebase worktree 的 clone/fetch/push 环节 gix 化——**仅 rebase 本身保留 CLI**，把本周暴露的
+   Windows 子进程环境类 bug 面再压一层
+
+**Phase C（服务端协议，3~5 天）**：`pack-objects` / `index-pack --fix-thin`
+→ 用 gix-pack 自研 pack 生成与 thin 补全入库；收益是服务端协议零 git 依赖，但这是性能敏感路径，需基准对比。
+
+**Phase D（等待上游）**：rebase——CLAUDE.md 等待表唯一无法关闭项。
+
+### 建议同步更新 CLAUDE.md
+
+- 依赖速查：`gix = "0.84"` → `"0.87"`（本次已升级）
+- 等待表"GPG 验签 | gix 无验签" → 已由 0.87 `Commit::verify()` 内建解决，可关闭
+- 保留清单改为：Rebase（等 API）/ Pack 生成 / Thin-pack 索引（Phase C 自研或继续等待高层封装）
+
+---
+
+## 四、升级本身的行为影响
+
+- 仓库内 gix 调用 API 全兼容，`cargo check --workspace` 零错误，无需改代码
+- 认证：`cargo test --workspace --no-fail-fast` 全绿（63 个测试二进制 0 failed）
+- 0.86 的 owned-config 破坏性变更未波及本项目调用面（我们主要走瓷器层）
