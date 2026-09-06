@@ -4,9 +4,9 @@
 //! 1. Split reader/writer (HTTP mode) — via `handle_upload_pack`
 //! 2. Single bidirectional stream (SSH mode) — via `handle_upload_pack_stream`
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use std::path::Path;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tracing;
 
 use crate::pkt_line::{read_pkt_line, write_flush, write_pkt_line, PktLine};
@@ -346,8 +346,9 @@ fn build_ref_advertisement(ref_list: &[(String, String)], service: &str) -> Vec<
 }
 
 /// Generate and send the packfile.
-/// TODO(gix): Replace with gix pack generation when available.
-/// Currently using git pack-objects CLI as gix doesn't have a direct replacement.
+///
+/// gix-native replacement for `git pack-objects --all --stdout`: the whole
+/// object universe reachable from all refs is packed in-process.
 async fn send_packfile<W: AsyncWrite + Unpin>(
     repo_path: &Path,
     wants: &[String],
@@ -355,45 +356,10 @@ async fn send_packfile<W: AsyncWrite + Unpin>(
     writer: &mut W,
     use_sideband: bool,
 ) -> Result<()> {
-    // Use git pack-objects to generate the packfile via gateway
-    let mut cmd = crate::cli_gateway::global_gateway()
-        .as_ref()
-        .map_err(|e| anyhow::anyhow!("{}", e))?
-        .spawn_async(&["pack-objects", "--all", "--stdout"], Some(repo_path))
+    let repo_dir = repo_path.to_path_buf();
+    let pack_data = tokio::task::spawn_blocking(move || crate::ops::pack_universe(&repo_dir))
         .await
-        .context("failed to spawn git pack-objects")?;
-
-    // Close stdin immediately — `--all` packs all objects without stdin input,
-    // but the piped stdin keeps the child waiting for EOF if we don't close it.
-    // 踩坑: Stdio::piped() creates a pipe but git pack-objects blocks reading stdin
-    // until EOF; must take and drop stdin to signal EOF.
-    {
-        let stdin = cmd.stdin.take();
-        drop(stdin); // Close stdin pipe → child sees EOF
-    }
-
-    let stdout = cmd.stdout.take().context("no stdout")?;
-    let mut pack_reader = BufReader::new(stdout);
-
-    let mut pack_data = Vec::new();
-    pack_reader
-        .read_to_end(&mut pack_data)
-        .await
-        .context("failed to read packfile")?;
-
-    let status = cmd.wait().await?;
-    if !status.success() {
-        let stderr = cmd.stderr.take();
-        if let Some(mut stderr) = stderr {
-            let mut err_msg = Vec::new();
-            stderr.read_to_end(&mut err_msg).await?;
-            bail!(
-                "git pack-objects failed: {}",
-                String::from_utf8_lossy(&err_msg)
-            );
-        }
-        bail!("git pack-objects failed with status {}", status);
-    }
+        .map_err(|error| anyhow::anyhow!("pack generation task failed: {error}"))??;
 
     let pack_size = pack_data.len();
     tracing::info!(pack_size, "Packfile generated successfully");

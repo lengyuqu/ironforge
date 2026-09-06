@@ -488,27 +488,35 @@ pub async fn compute_diff(
             repo_root.join(format!("{}/{}.git", head_owner.username, head_repo.name));
 
         if head_repo_path.exists() {
-            let fetch_ref = format!("refs/heads/{}", pr.head_branch);
             let local_ref = format!("refs/forks/{}/{}", head_owner.username, pr.head_branch);
+            let head_tip = format!("refs/heads/{}", pr.head_branch);
 
-            let git = rg_git::cli_gateway::global_gateway()
-                .as_ref()
-                .map_err(CoreError::internal)?;
-
-            let fetch_output = git.run(
-                &[
-                    "fetch",
-                    &head_repo_path.to_string_lossy(),
-                    &format!("{}:{}", fetch_ref, local_ref),
-                ],
-                Some(&base_repo_path),
-            )?;
-
-            if !fetch_output.success() {
-                tracing::warn!(
-                    "fetch of fork branch failed (non-fatal): {}",
-                    String::from_utf8_lossy(&fetch_output.stderr)
-                );
+            // gix-native fork fetch: copy objects in-process, then point the
+            // local fork ref at the head branch tip.
+            let fetch_dir = base_repo_path.clone();
+            let fetch_tip = head_tip.clone();
+            let fetch_source = head_repo_path.clone();
+            let fetched_tip = tokio::task::spawn_blocking(move || {
+                rg_git::ops::copy_objects_from_source(&fetch_source, &fetch_tip, &fetch_dir)
+            })
+            .await
+            .map_err(|error| {
+                CoreError::internal(format!("fork fetch task failed: {error}"))
+            })?;
+            match fetched_tip {
+                Ok(tip) => {
+                    if let Err(error) = rg_git::ops::update_ref(
+                        &base_repo_path,
+                        &local_ref,
+                        &tip,
+                        "fork fetch",
+                    ) {
+                        tracing::warn!("failed to update fork ref (non-fatal): {error}");
+                    }
+                }
+                Err(error) => {
+                    tracing::warn!("fetch of fork branch failed (non-fatal): {error}");
+                }
             }
 
             // Compute diff inside spawn_blocking (CPU-intensive gix tree-diff)
@@ -1184,27 +1192,33 @@ async fn merge_claimed_pr(
         let head_repo_path = repo_root.join(format!("{}/{}.git", head_namespace, head_repo.name));
 
         if head_repo_path.exists() {
-            let fetch_ref = format!("refs/heads/{}", pr.head_branch);
             let local_ref = format!("refs/forks/{}/{}", head_namespace, pr.head_branch);
+            let head_tip = format!("refs/heads/{}", pr.head_branch);
 
-            let git = rg_git::cli_gateway::global_gateway()
-                .as_ref()
-                .map_err(CoreError::internal)?;
-
-            let fetch_output = git.run(
-                &[
-                    "fetch",
-                    &head_repo_path.to_string_lossy(),
-                    &format!("{}:{}", fetch_ref, local_ref),
-                ],
-                Some(&repo_path),
-            )?;
-
-            if !fetch_output.success() {
-                return Err(CoreError::internal(format!(
-                    "failed to fetch fork branch: {}",
-                    String::from_utf8_lossy(&fetch_output.stderr)
-                )));
+            // gix-native fork fetch: copy objects in-process, then point the
+            // local fork ref at the head branch tip.
+            let fetch_dir = repo_path.clone();
+            let fetch_tip = head_tip.clone();
+            let fetch_source = head_repo_path.clone();
+            let fetched_tip = tokio::task::spawn_blocking(move || {
+                rg_git::ops::copy_objects_from_source(&fetch_source, &fetch_tip, &fetch_dir)
+            })
+            .await
+            .map_err(|error| {
+                CoreError::internal(format!("fork fetch task failed: {error}"))
+            })?;
+            match fetched_tip {
+                Ok(tip) => {
+                    rg_git::ops::update_ref(&repo_path, &local_ref, &tip, "fork fetch")
+                        .map_err(|error| {
+                            CoreError::internal(format!("failed to update fork ref: {error}"))
+                        })?;
+                }
+                Err(error) => {
+                    return Err(CoreError::internal(format!(
+                        "failed to fetch fork branch: {error}"
+                    )));
+                }
             }
 
             // Merge and cleanup in spawn_blocking (CPU-intensive gix merge)

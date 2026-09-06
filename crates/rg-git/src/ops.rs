@@ -489,6 +489,596 @@ pub fn verify_commit_with_repo(repo: &gix::Repository, sha: &str) -> anyhow::Res
     Ok(outcome.is_some_and(|signed| signed.is_valid()))
 }
 
+// ─── Final CLI coverage: graph walking, pack I/O, tree-edit commits ─────────
+
+/// gix-native replacement for `git rev-list <include> [^<exclude>]`: returns
+/// the hex SHAs of every commit reachable from `include`, minus those
+/// reachable from `exclude` when given.
+pub fn commits_between(
+    repo: &gix::Repository,
+    include: gix::hash::ObjectId,
+    exclude: Option<gix::hash::ObjectId>,
+) -> anyhow::Result<Vec<String>> {
+    let mut walk = repo.rev_walk([include]);
+    if let Some(hidden) = exclude {
+        walk = walk.with_hidden([hidden]);
+    }
+    Ok(walk
+        .all()
+        .map_err(|error| anyhow::anyhow!("failed to walk commit graph from {include}: {error}"))?
+        .filter_map(|item| item.ok().map(|info| info.id.to_string()))
+        .collect())
+}
+
+/// gix-native replacement for
+/// `git rev-list --parents [--max-age=<ts>] <starts> --not <excluded>`:
+/// returns `(oid_hex, parent_hexes)` pairs for every commit reachable from
+/// `starts` except those reachable from `excluded`, limited to commits newer
+/// than `max_age` when given (traversal stops at the cutoff like the CLI).
+pub fn commit_graph(
+    repo: &gix::Repository,
+    starts: &[gix::hash::ObjectId],
+    max_age: Option<i64>,
+    excluded: &[gix::hash::ObjectId],
+) -> anyhow::Result<Vec<(String, Vec<String>)>> {
+    use gix::revision::walk::Sorting;
+    use gix::traverse::commit::simple::CommitTimeOrder;
+
+    let mut walk = repo.rev_walk(starts.iter().copied());
+    if let Some(cutoff) = max_age {
+        walk = walk.sorting(Sorting::ByCommitTimeCutoff {
+            order: CommitTimeOrder::NewestFirst,
+            seconds: cutoff,
+        });
+    }
+    if !excluded.is_empty() {
+        walk = walk.with_hidden(excluded.iter().copied());
+    }
+    let mut graph = Vec::new();
+    for item in walk
+        .all()
+        .map_err(|error| anyhow::anyhow!("failed to walk commit graph: {error}"))?
+    {
+        let info = item.map_err(|error| anyhow::anyhow!("commit graph walk failed: {error}"))?;
+        let parents: Vec<String> = info
+            .parent_ids
+            .into_iter()
+            .map(|parent| parent.to_string())
+            .collect();
+        graph.push((info.id.to_string(), parents));
+    }
+    Ok(graph)
+}
+
+/// gix-native replacement for `git pack-objects` — generates a version-2
+/// packfile containing `input_ids` plus every object they expand to.
+///
+/// Inputs are usually commits (expanded with `TreeContents`: the commit plus
+/// its full tree contents) and tag objects, which are included verbatim.
+/// Callers pre-compute the commit list via `rev_walk` negotiation, mirroring
+/// `pack-objects --revs` with `^have` exclusions.
+pub fn generate_pack(
+    repo: &gix::Repository,
+    input_ids: Vec<gix::hash::ObjectId>,
+) -> anyhow::Result<Vec<u8>> {
+    use gix::features::progress::Discard;
+    use gix::odb::pack::data::output;
+
+    let should_interrupt = std::sync::atomic::AtomicBool::new(false);
+    // `repo.objects` is a memory `Proxy` which does not implement
+    // `gix_pack::Find`; unwrap down to the `Cache` (which does) for the
+    // pack pipeline while writes elsewhere keep using the proxy.
+    let db = repo.objects.clone().into_inner();
+    let input: Box<
+        dyn Iterator<
+                Item = Result<
+                    gix::hash::ObjectId,
+                    Box<dyn std::error::Error + Send + Sync + 'static>,
+                >,
+            > + Send,
+    > = Box::new(input_ids.into_iter().map(Ok));
+
+    let (counts, _outcome) = output::count::objects(
+        db.clone(),
+        input,
+        &Discard,
+        &should_interrupt,
+        output::count::objects::Options {
+            thread_limit: None,
+            chunk_size: 10,
+            input_object_expansion: output::count::objects::ObjectExpansion::TreeContents,
+        },
+    )
+    .map_err(|error| anyhow::anyhow!("failed to count pack objects: {error}"))?;
+
+    let num_entries = counts.len() as u32;
+    let entries = output::entry::iter_from_counts(
+        counts,
+        db,
+        Box::new(Discard),
+        output::entry::iter_from_counts::Options {
+            allow_thin_pack: false,
+            ..Default::default()
+        },
+    );
+
+    let mut pack = Vec::new();
+    {
+        use gix::features::parallel::InOrderIter;
+        let in_order = InOrderIter::from(entries);
+        let mut writer = output::bytes::FromEntriesIter::new(
+            in_order,
+            &mut pack,
+            num_entries,
+            gix::odb::pack::data::Version::V2,
+            repo.object_hash(),
+        );
+        for chunk in &mut writer {
+            chunk.map_err(|error| anyhow::anyhow!("failed to write pack entry: {error}"))?;
+        }
+    }
+    Ok(pack)
+}
+
+/// gix-native replacement for `git pack-objects --all --stdout`: packs every
+/// object reachable from every ref in the repository (initial-clone path).
+pub fn pack_universe(repo_path: &Path) -> anyhow::Result<Vec<u8>> {
+    let repo = open_repo(repo_path)?;
+    let mut inputs: Vec<gix::hash::ObjectId> = Vec::new();
+    let mut walk_tips: Vec<gix::hash::ObjectId> = Vec::new();
+
+    let platform = repo
+        .references()
+        .map_err(|error| anyhow::anyhow!("failed to list refs: {error}"))?;
+    let refs = platform
+        .all()
+        .map_err(|error| anyhow::anyhow!("failed to iterate refs: {error}"))?;
+    for reference in refs.flatten() {
+        let target = reference.target();
+        let Some(id) = target.try_id() else {
+            continue;
+        };
+        let id = gix::hash::ObjectId::from(id);
+        // Tag objects (and any other non-commit ref targets) go in verbatim.
+        inputs.push(id);
+        if let Some(commit) = repo
+            .find_object(id)
+            .ok()
+            .and_then(|object| object.peel_to_commit().ok())
+            .map(|commit| commit.id().detach())
+        {
+            walk_tips.push(commit);
+        }
+    }
+
+    if !walk_tips.is_empty() {
+        let commits: Vec<gix::hash::ObjectId> = repo
+            .rev_walk(walk_tips)
+            .all()
+            .map_err(|error| anyhow::anyhow!("failed to walk all refs: {error}"))?
+            .filter_map(|item| item.ok().map(|info| info.id))
+            .collect();
+        inputs.extend(commits);
+    }
+    generate_pack(&repo, inputs)
+}
+
+/// gix-native replacement for `git pack-objects --revs --stdout [--thin]`:
+/// packs everything reachable from `wants` minus everything reachable from
+/// `haves`. When `shallow_boundaries` is non-empty (shallow client), the
+/// boundaries take the place of the haves: traversal stops at them while
+/// their tree contents are still included, exactly like `--shallow <sha>`
+/// revs fed to the CLI.
+pub fn pack_for_wants(
+    repo_path: &Path,
+    wants: &[String],
+    haves: &[String],
+    shallow_boundaries: &[String],
+) -> anyhow::Result<Vec<u8>> {
+    let repo = open_repo(repo_path)?;
+    let peel_to_commit = |spec: &str| -> anyhow::Result<gix::hash::ObjectId> {
+        let id = repo
+            .rev_parse_single(spec)
+            .with_context(|| format!("failed to resolve '{spec}'"))?
+            .detach();
+        let commit = repo
+            .find_object(id)
+            .ok()
+            .and_then(|object| object.peel_to_commit().ok())
+            .map(|commit| commit.id().detach())
+            .with_context(|| format!("'{spec}' is not a commit"))?;
+        Ok(commit)
+    };
+
+    let mut starts = Vec::with_capacity(wants.len());
+    let mut extra_inputs = Vec::new();
+    for want in wants {
+        let id = repo
+            .rev_parse_single(want.as_str())
+            .with_context(|| format!("failed to resolve want '{want}'"))?
+            .detach();
+        if repo.find_object(id)?.kind == gix::object::Kind::Tag {
+            extra_inputs.push(id);
+        }
+        starts.push(peel_to_commit(want)?);
+    }
+
+    let peel_list = |specs: &[String]| -> anyhow::Result<Vec<gix::hash::ObjectId>> {
+        specs.iter().map(|spec| peel_to_commit(spec)).collect()
+    };
+    let hidden = if !shallow_boundaries.is_empty() {
+        peel_list(shallow_boundaries)?
+    } else {
+        peel_list(haves)?
+    };
+
+    let mut inputs: Vec<gix::hash::ObjectId> = if starts.is_empty() {
+        Vec::new()
+    } else {
+        let mut walk = repo.rev_walk(starts);
+        if !hidden.is_empty() {
+            walk = walk.with_hidden(hidden);
+        }
+        walk.all()
+            .map_err(|error| anyhow::anyhow!("failed to walk want history: {error}"))?
+            .filter_map(|item| item.ok().map(|info| info.id))
+            .collect()
+    };
+    if !shallow_boundaries.is_empty() {
+        // Shallow clients own the boundary commits but not their trees —
+        // TreeContents expansion of the boundary commit supplies exactly that.
+        for boundary in shallow_boundaries {
+            inputs.push(peel_to_commit(boundary)?);
+        }
+    }
+    inputs.extend(extra_inputs);
+    generate_pack(&repo, inputs)
+}
+
+/// gix-native replacement for `git index-pack --fix-thin --stdin`: ingests a
+/// pack byte stream into the repository object database, resolving thin-pack
+/// deltas against objects already present, and writes pack + index into
+/// `objects/pack`. Any `.keep` file left behind is removed so the pack
+/// participates in future repacks.
+pub fn index_pack_bytes(repo_path: &Path, pack: &[u8]) -> anyhow::Result<()> {
+    use gix::features::progress::Discard;
+    use gix::odb::pack::Bundle;
+
+    let repo = open_repo(repo_path)?;
+    let pack_dir = repo.objects.store().path().join("pack");
+    std::fs::create_dir_all(&pack_dir)
+        .with_context(|| format!("failed to ensure pack dir: {}", pack_dir.display()))?;
+
+    let mut reader = std::io::Cursor::new(pack);
+    let should_interrupt = std::sync::atomic::AtomicBool::new(false);
+    let outcome = Bundle::write_to_directory(
+        &mut reader,
+        Some(&pack_dir),
+        &mut Discard,
+        &should_interrupt,
+        Some(repo.objects.clone()),
+        repo.object_hash(),
+        gix::odb::pack::bundle::write::Options::default(),
+    )
+    .map_err(|error| anyhow::anyhow!("failed to index pack: {error}"))?;
+    if let Some(keep) = outcome.keep_path {
+        let _ = std::fs::remove_file(keep);
+    }
+    Ok(())
+}
+
+/// gix-native replacement for `git fetch <source-path> <tip>` between two
+/// local bare repositories: copies every object reachable from `tip` (a
+/// revspec in the source repo) that is not already reachable in the target
+/// repo, and returns the hex SHA of `tip`.
+///
+/// Pruning happens at commit level (`rev_walk` with the target's refs as
+/// hidden tips) plus per-commit tree deltas
+/// (`TreeAdditionsComparedToAncestor`), so shared history is not re-copied.
+pub fn copy_objects_from_source(
+    source_repo_path: &Path,
+    tip: &str,
+    target_repo_path: &Path,
+) -> anyhow::Result<String> {
+    use gix::features::progress::Discard;
+
+    let src = open_repo(source_repo_path)?;
+    let dst = open_repo(target_repo_path)?;
+    let tip_commit = src
+        .rev_parse_single(tip)
+        .with_context(|| format!("failed to resolve tip '{tip}' in source repository"))?
+        .object()
+        .ok()
+        .and_then(|object| object.peel_to_commit().ok())
+        .map(|commit| commit.id().detach())
+        .with_context(|| format!("tip '{tip}' is not a commit"))?;
+
+    // Commits already reachable in the target repository prune the walk.
+    let platform = dst
+        .references()
+        .map_err(|error| anyhow::anyhow!("failed to list target refs: {error}"))?;
+    let refs = platform
+        .all()
+        .map_err(|error| anyhow::anyhow!("failed to iterate target refs: {error}"))?;
+    let dst_tips: Vec<gix::hash::ObjectId> = refs
+        .filter_map(|reference| {
+            reference.ok().and_then(|reference| {
+                let target = reference.target();
+                let commit_id = target
+                    .try_id()
+                    .and_then(|id| dst.find_object(gix::hash::ObjectId::from(id)).ok())
+                    .and_then(|object| object.peel_to_commit().ok())
+                    .map(|commit| commit.id().detach());
+                commit_id
+            })
+        })
+        .collect();
+
+    let mut walk = src.rev_walk([tip_commit]);
+    if !dst_tips.is_empty() {
+        // Hidden tips missing from the source (commits the target has but
+        // the source lost, e.g. force-push) cannot be reached from `tip`
+        // anyway; skip them instead of failing the walk.
+        let hidden: Vec<gix::hash::ObjectId> = dst_tips
+            .into_iter()
+            .filter(|id| src.find_object(*id).is_ok())
+            .collect();
+        if !hidden.is_empty() {
+            walk = walk.with_hidden(hidden);
+        }
+    }
+    let new_commits: Vec<gix::hash::ObjectId> = walk
+        .all()
+        .map_err(|error| anyhow::anyhow!("failed to walk source history: {error}"))?
+        .filter_map(|item| item.ok().map(|info| info.id))
+        .collect();
+    if new_commits.is_empty() {
+        return Ok(tip_commit.to_string());
+    }
+
+    let should_interrupt = std::sync::atomic::AtomicBool::new(false);
+    let input: Box<
+        dyn Iterator<
+                Item = Result<
+                    gix::hash::ObjectId,
+                    Box<dyn std::error::Error + Send + Sync + 'static>,
+                >,
+            > + Send,
+    > = Box::new(new_commits.into_iter().map(Ok));
+    let (counts, _outcome) = gix::odb::pack::data::output::count::objects(
+        src.objects.clone().into_inner(),
+        input,
+        &Discard,
+        &should_interrupt,
+        gix::odb::pack::data::output::count::objects::Options {
+            thread_limit: None,
+            chunk_size: 10,
+            input_object_expansion:
+                gix::odb::pack::data::output::count::objects::ObjectExpansion::TreeAdditionsComparedToAncestor,
+        },
+    )
+    .map_err(|error| anyhow::anyhow!("failed to expand source objects: {error}"))?;
+
+    for count in counts {
+        let object = src
+            .find_object(count.id)
+            .with_context(|| format!("failed to read object {} from source repository", count.id))?;
+        // Re-writing an object that already exists is a no-op on all
+        // platforms (persist succeeds or the existing file is kept).
+        use gix::prelude::Write as _;
+        dst.objects
+            .write_buf_with_known_id(object.kind, &object.data, count.id)
+            .map_err(|error| {
+                anyhow::anyhow!("failed to copy object {} into target repository: {error}", count.id)
+            })?;
+    }
+    Ok(tip_commit.to_string())
+}
+
+/// A single path-level edit applied to the tip tree of a branch, replacing
+/// the previous `clone` → `add`/`rm` → `commit` → `push` CLI chains.
+pub enum TreeEdit {
+    /// Create or replace a file. When `expected_blob_sha` is given the
+    /// current blob must match (optimistic concurrency).
+    SetFile {
+        path: String,
+        content: Vec<u8>,
+        expected_blob_sha: Option<String>,
+    },
+    /// Remove an existing file.
+    RemoveFile { path: String },
+}
+
+/// Outcome of [`commit_tree_edits`].
+#[derive(Debug)]
+pub enum CommitTreeOutcome {
+    /// A new commit was written and the branch ref advanced; carries the SHA.
+    Committed(String),
+    /// The branch ref is no longer at the expected tip (concurrent advance);
+    /// carries the actual tip when it could be resolved.
+    TipAdvanced { actual: Option<String> },
+}
+
+/// Commit direct tree edits onto a bare repository branch — the pure-gix
+/// replacement for the clone/add/commit/push file-editing chains.
+///
+/// The branch ref is updated with an expected-value guard: when it moved
+/// between the caller's read and this commit, [`CommitTreeOutcome::TipAdvanced`]
+/// is returned and nothing is written. `expected_tip == None` skips that check
+/// (used together with `create_branch_if_missing` for first commits on empty
+/// repositories, where the ref is guarded by `MustNotExist` instead).
+#[allow(clippy::too_many_arguments)]
+pub fn commit_tree_edits(
+    repo_path: &Path,
+    branch: &str,
+    expected_tip: Option<&str>,
+    edits: &[TreeEdit],
+    message: &str,
+    author_name: &str,
+    author_email: &str,
+    create_branch_if_missing: bool,
+) -> anyhow::Result<CommitTreeOutcome> {
+    use gix::objs::tree::EntryKind;
+    use gix::refs::transaction::{Change, LogChange, PreviousValue, RefEdit, RefLog};
+
+    let repo = open_repo(repo_path)?;
+    let branch_ref: gix::refs::FullName = format!("refs/heads/{branch}")
+        .try_into()
+        .map_err(|error| anyhow::anyhow!("invalid branch ref: {error}"))?;
+    let tip = match repo.rev_parse_single(format!("refs/heads/{branch}").as_str()) {
+        Ok(id) => Some(id.detach()),
+        Err(_) => None,
+    };
+    match (tip, expected_tip) {
+        // Compare parsed ids so hex case differences cannot spuriously
+        // report an advance; an unparseable expected tip defers to the
+        // ref-transaction guard below.
+        (Some(actual), Some(expected))
+            if actual
+                != gix::hash::ObjectId::from_hex(expected.as_bytes()).unwrap_or(actual) =>
+        {
+            return Ok(CommitTreeOutcome::TipAdvanced {
+                actual: Some(actual.to_string()),
+            });
+        }
+        // Fresh branch on an empty repository: commit with no parent and
+        // create the ref (guarded by MustNotExist below).
+        (None, None) if create_branch_if_missing => {}
+        (None, _) => bail!("branch '{branch}' not found"),
+        _ => {}
+    }
+
+    let tip_display = tip
+        .map(|tip| tip.to_string())
+        .unwrap_or_else(|| "<new branch>".to_string());
+    let tip_tree = match tip {
+        Some(tip) => Some(
+            repo.find_object(tip)?
+                .peel_to_tree()
+                .with_context(|| format!("failed to read tree of branch tip {tip}"))?,
+        ),
+        None => None,
+    };
+    let base_tree_id = match &tip_tree {
+        Some(tree) => tree.id().detach(),
+        None => gix::hash::ObjectId::empty_tree(repo.object_hash()),
+    };
+    let mut editor = repo.edit_tree(base_tree_id)?;
+
+    for edit in edits {
+        match edit {
+            TreeEdit::SetFile {
+                path,
+                content,
+                expected_blob_sha,
+            } => {
+                let entry = match &tip_tree {
+                    Some(tree) => tree
+                        .lookup_entry_by_path(path)
+                        .with_context(|| format!("failed to look up '{path}' in tree of {tip_display}"))?,
+                    None => None,
+                };
+                match (entry, expected_blob_sha) {
+                    (None, Some(_)) => {
+                        bail!("file {path} is missing at HEAD");
+                    }
+                    (Some(entry), _) => {
+                        if entry.mode().is_link() {
+                            bail!("refusing to update symlink path: {path}");
+                        }
+                        if let Some(expected) = expected_blob_sha {
+                            let actual = entry.id().to_string();
+                            if actual != *expected {
+                                bail!(
+                                    "file SHA mismatch for {path}: expected {expected}, got {actual}"
+                                );
+                            }
+                        }
+                    }
+                    // (None, None): plain create, nothing to verify.
+                    (None, None) => {}
+                }
+                let blob = repo.write_blob(content.as_slice())?;
+                editor
+                    .upsert(path.as_str(), EntryKind::Blob, blob.detach())
+                    .with_context(|| format!("failed to stage '{path}'"))?;
+            }
+            TreeEdit::RemoveFile { path } => {
+                let exists = match &tip_tree {
+                    Some(tree) => tree
+                        .lookup_entry_by_path(path)
+                        .with_context(|| format!("failed to look up '{path}' in tree of {tip_display}"))?
+                        .is_some(),
+                    None => false,
+                };
+                if !exists {
+                    bail!("file {path} does not exist at HEAD");
+                }
+                editor
+                    .remove(path.as_str())
+                    .with_context(|| format!("failed to remove '{path}'"))?;
+            }
+        }
+    }
+
+    let new_tree = editor
+        .write()
+        .map_err(|error| anyhow::anyhow!("failed to write edited tree: {error}"))?
+        .detach();
+
+    let now = gix::date::Time::now_utc();
+    let stamp = format!("{} +0000", now.seconds);
+    let signature = gix::actor::SignatureRef {
+        name: author_name.as_bytes().into(),
+        email: author_email.as_bytes().into(),
+        time: stamp.as_str(),
+    };
+    let parents: Vec<gix::hash::ObjectId> = tip.into_iter().collect();
+    let commit = repo
+        .new_commit_as(signature, signature, message, new_tree, parents)
+        .map_err(|error| anyhow::anyhow!("failed to create commit: {error}"))?;
+    let new_sha = commit.id().detach();
+
+    let expected = match tip {
+        Some(tip) => PreviousValue::ExistingMustMatch(gix::refs::Target::Object(tip)),
+        None => PreviousValue::MustNotExist,
+    };
+    repo.edit_reference(RefEdit {
+        change: Change::Update {
+            log: LogChange {
+                mode: RefLog::AndReference,
+                force_create_reflog: false,
+                message: message.into(),
+            },
+            expected,
+            new: gix::refs::Target::Object(new_sha),
+        },
+        name: branch_ref,
+        deref: false,
+    })
+    .map_err(|error| anyhow::anyhow!("branch ref update rejected: {error}"))?;
+    Ok(CommitTreeOutcome::Committed(new_sha.to_string()))
+}
+
+/// Same as [`verify_commit_with_repo`] but returns the full verification
+/// outcome so callers can surface signer identity and failure reasons.
+/// `Ok(None)` means the commit carries no signature at all.
+pub fn verify_commit_details_with_repo(
+    repo: &gix::Repository,
+    sha: &str,
+) -> anyhow::Result<Option<gix::commit::verify::Outcome>> {
+    let commit = repo
+        .rev_parse_single(sha)
+        .with_context(|| format!("failed to resolve commit '{sha}'"))?
+        .object()
+        .with_context(|| format!("failed to read object for commit '{sha}'"))?
+        .peel_to_commit()
+        .with_context(|| format!("'{sha}' is not a commit"))?;
+    commit
+        .verify_signature()
+        .map_err(|error| anyhow::anyhow!("signature verification failed for commit {sha}: {error}"))
+}
+
 #[cfg(test)]
 mod rebase_tests {
     //! Characterization tests for [`rebase_merge`]. These pin the semantics

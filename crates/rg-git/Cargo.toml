@@ -16,6 +16,9 @@ gix-archive = { version = "0.36", default-features = false, features = [
     "tar_gz",
     "zip",
 ] }
+# Pack generation pipeline (count + entry + bytes output) is gated behind
+# the `generate` feature; gix does not enable it by default.
+gix-pack = { version = "0.74", features = ["generate"] }
 thiserror = { workspace = true }
 
 [dev-dependencies]

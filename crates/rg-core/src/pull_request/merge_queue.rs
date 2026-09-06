@@ -344,23 +344,23 @@ async fn ensure_merge_group_ci(
         .clone()
         .context("pull request head SHA is missing")?;
 
-    // Object fetch from the (possibly forked) head repository stays on the git
-    // CLI for now — see the gix migration assessment (Phase B2 deferral).
+    // Object fetch from the (possibly forked) head repository — gix-native
+    // in-process object copy (no git CLI, no transport subprocess).
     if let Some(head_repo_id) = pr.head_repo_id {
-        let git = rg_git::cli_gateway::global_gateway()
-            .as_ref()
-            .map_err(|error| anyhow::anyhow!("{error}"))?;
         let head_repo = repository::Entity::find_by_id(head_repo_id)
             .one(db)
             .await?
             .context("pull request head repository not found")?;
         let head_namespace = service::repository_namespace(db, &head_repo).await?;
         let head_repo_path = repo_root.join(format!("{head_namespace}/{}.git", head_repo.name));
-        let fetch = git.run(
-            &["fetch", &head_repo_path.to_string_lossy(), &head_sha],
-            Some(&repo_path),
-        )?;
-        fetch.ensure_success()?;
+        let target_path = repo_path.clone();
+        let head_sha = head_sha.clone();
+        tokio::task::spawn_blocking(move || {
+            rg_git::ops::copy_objects_from_source(&head_repo_path, &head_sha, &target_path)
+        })
+        .await
+        .map_err(|error| anyhow::anyhow!("fork fetch task failed: {error}"))?
+        .map_err(|error| anyhow::anyhow!("failed to fetch objects from head repo: {error}"))?;
     }
 
     if entry.merge_group_base_sha.as_deref() == Some(&base_sha)

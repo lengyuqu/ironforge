@@ -1039,32 +1039,26 @@ fn load_commit_graph(
     max_age: Option<i64>,
     excluded_revisions: &[String],
 ) -> Result<HashMap<String, Vec<String>>> {
-    use crate::cli_gateway::global_gateway;
+    // gix-native `rev-list --parents [--max-age] ... --not` replacement:
+    // traversal stops at the commit-time cutoff and hidden tips prune
+    // everything reachable from the excluded revisions, like the CLI.
+    let repo = gix::open(repo_path).map_err(|e| anyhow::anyhow!("failed to open repo: {e}"))?;
+    let resolve = |spec: &str| -> Result<gix::hash::ObjectId> {
+        repo.rev_parse_single(spec)
+            .map(|id| id.detach())
+            .map_err(|e| anyhow::anyhow!("failed to resolve '{spec}': {e}"))
+    };
+    let start_ids: Vec<gix::hash::ObjectId> = starts
+        .iter()
+        .map(|spec| resolve(spec))
+        .collect::<Result<_>>()?;
+    let excluded: Vec<gix::hash::ObjectId> = excluded_revisions
+        .iter()
+        .map(|spec| resolve(spec))
+        .collect::<Result<_>>()?;
 
-    let mut args = vec!["rev-list".to_string(), "--parents".to_string()];
-    if let Some(timestamp) = max_age {
-        args.push(format!("--max-age={timestamp}"));
-    }
-    args.extend(starts.iter().cloned());
-    if !excluded_revisions.is_empty() {
-        args.push("--not".to_string());
-        args.extend(excluded_revisions.iter().cloned());
-    }
-    let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
-    let output = global_gateway()
-        .as_ref()
-        .map_err(|e| anyhow::anyhow!("{e}"))?
-        .run(&arg_refs, Some(repo_path))?;
-    output.ensure_success()?;
-
-    let mut graph = HashMap::new();
-    for line in output.stdout_str().lines() {
-        let mut fields = line.split_whitespace();
-        if let Some(oid) = fields.next() {
-            graph.insert(oid.to_string(), fields.map(str::to_string).collect());
-        }
-    }
-    Ok(graph)
+    let graph = crate::ops::commit_graph(&repo, &start_ids, max_age, &excluded)?;
+    Ok(graph.into_iter().collect())
 }
 
 fn find_boundaries(
@@ -1143,12 +1137,12 @@ fn get_object_size(repo_path: &Path, oid: &str) -> Result<u64> {
 
 /// Generate a packfile for the given wants, excluding known haves.
 ///
-/// Uses `git pack-objects --revs --stdout` which reads revision specs from stdin.
-/// Each want is written as `<sha>`, each have as `^<sha>` (exclude).
-///
-/// TODO(gix): Replace with gix pack generation when available.
-/// The `gix` crate does not yet expose a stable pack-objects API,
-/// so we fall back to the git CLI for this step.
+/// gix-native replacement for `git pack-objects --revs --stdout --thin`:
+/// traversal walks from the wants with the haves (or the shallow boundaries,
+/// for depth-changing requests) as hidden tips, and the pack pipeline expands
+/// every reachable commit's tree contents. Partial-clone `filter` specs are
+/// not yet supported by the gix pack pipeline — the full pack is sent, which
+/// is always protocol-correct (just not bandwidth-optimal).
 async fn generate_packfile(
     repo_path: &Path,
     wants: &[String],
@@ -1156,96 +1150,22 @@ async fn generate_packfile(
     shallow_update: Option<&ShallowUpdate>,
     filter: Option<&str>,
 ) -> Result<Vec<u8>> {
-    use crate::cli_gateway::global_gateway;
-    use tokio::io::{AsyncReadExt, AsyncWriteExt as _};
-
-    // Build stdin input. For a depth-changing request, shallow boundaries are
-    // passed directly to pack-objects and known objects are intentionally
-    // resent: excluding a shallow client's `have` as a normal full-history
-    // commit would incorrectly exclude ancestors that the client does not own.
-    let mut revs_input = String::new();
-    if let Some(update) = shallow_update {
-        for boundary in &update.boundaries {
-            revs_input.push_str("--shallow ");
-            revs_input.push_str(boundary);
-            revs_input.push('\n');
-        }
-    }
-    for want in wants {
-        revs_input.push_str(want);
-        revs_input.push('\n');
-    }
-    if shallow_update.is_none() {
-        for have in haves {
-            // Prefix with '^' to exclude commits reachable from haves
-            revs_input.push('^');
-            revs_input.push_str(have);
-            revs_input.push('\n');
-        }
-    }
-
-    let mut pack_args = vec![
-        "pack-objects".to_string(),
-        "--revs".to_string(),
-        "--stdout".to_string(),
-        "--thin".to_string(),
-    ];
-    if shallow_update.is_some_and(|update| !update.boundaries.is_empty()) {
-        pack_args.push("--shallow".to_string());
-    }
-    if let Some(filter) = filter {
-        pack_args.push(format!("--filter={filter}"));
-    }
-    let pack_arg_refs: Vec<&str> = pack_args.iter().map(String::as_str).collect();
-    let mut cmd = global_gateway()
-        .as_ref()
-        .map_err(|e| anyhow::anyhow!("{}", e))?
-        .spawn_async(&pack_arg_refs, Some(repo_path))
-        .await
-        .context("failed to spawn git pack-objects")?;
-
-    // Write revision list to stdin, then close it
-    if let Some(mut stdin) = cmd.stdin.take() {
-        stdin
-            .write_all(revs_input.as_bytes())
-            .await
-            .context("failed to write revs to pack-objects stdin")?;
-        // stdin is dropped here, closing the pipe
-    }
-
-    let stdout = cmd.stdout.take().context("no stdout from pack-objects")?;
-    let mut reader = BufReader::new(stdout);
-    let mut pack_data = Vec::new();
-    reader
-        .read_to_end(&mut pack_data)
-        .await
-        .context("failed to read packfile from pack-objects")?;
-
-    let status = cmd.wait().await.context("git pack-objects wait failed")?;
-    if !status.success() {
-        // Read stderr for diagnostics
-        let stderr_msg = if let Some(mut se) = cmd.stderr.take() {
-            let mut buf = Vec::new();
-            se.read_to_end(&mut buf).await.ok();
-            String::from_utf8_lossy(&buf).into_owned()
-        } else {
-            String::new()
-        };
-        bail!(
-            "git pack-objects failed ({}): {}",
-            status,
-            stderr_msg.trim()
+    if filter.is_some() {
+        tracing::warn!(
+            "partial clone filter requested; gix pack generation sends the full pack (filter ignored)"
         );
     }
-
-    tracing::debug!(
-        pack_bytes = pack_data.len(),
-        wants = wants.len(),
-        haves = haves.len(),
-        "pack-objects complete"
-    );
-
-    Ok(pack_data)
+    let boundaries: Vec<String> = shallow_update
+        .map(|update| update.boundaries.clone())
+        .unwrap_or_default();
+    let repo_dir = repo_path.to_path_buf();
+    let wants = wants.to_vec();
+    let haves = haves.to_vec();
+    tokio::task::spawn_blocking(
+        move || crate::ops::pack_for_wants(&repo_dir, &wants, &haves, &boundaries),
+    )
+    .await
+    .map_err(|error| anyhow::anyhow!("pack generation task failed: {error}"))?
 }
 
 #[cfg(test)]

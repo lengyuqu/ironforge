@@ -147,3 +147,48 @@ upload_pack `pack-objects`（Phase C 自研）、update_files_in_commit 与 merg
 clone/fetch（PrepareFetch 可达，可选）。
 
 认证：5 个 characterization 测试 + `merge_squash_and_rebase_update_refs_and_pr_state` HTTP 集成测试全绿。
+
+---
+
+## 八、全量覆盖完成 —— 生产路径 git CLI 归零（2026-09-07）
+
+剩余 6 类 11 处 CLI 调用全部 gix 化：
+
+- **receive_pack `rev-list`（签名枚举）**：`rev_walk([new]).with_hidden([old])`
+  （`ops::commits_between`），枚举结果为 `Vec<String>`
+- **v2 `rev-list --parents`（load_commit_graph）**：`ops::commit_graph`（walk + `Info.parent_ids`
+  构图）；`--max-age` 用 `Sorting::ByCommitTimeCutoff`（在截止处停止遍历，等价 limit 语义）
+- **receive_pack `index-pack --fix-thin --stdin`**：pack 字节先缓冲后
+  `spawn_blocking` 调 `gix_pack Bundle::write_to_directory`（thin lookup =
+  目标仓库 ODB，等价 --fix-thin；落盘后移除 .keep 使 pack 可参与 repack）
+- **upload_pack `pack-objects --all --stdout`**：`ops::pack_universe` —
+  refs 枚举 + rev_walk 全提交 + `count::objects(TreeContents)` 展开 +
+  `entry::iter_from_counts(PackCopyAndBaseObjects)` + `FromEntriesIter` 写 V2 pack
+- **v2 `pack-objects --revs --stdout --thin`**：`ops::pack_for_wants` —
+  wants/haves 预解析（tag 剥离），shallow 边界替代 haves 作 hidden tips 且边界提交
+  TreeContents 补树内容，等价 `--shallow <sha>` revs 语义；partial-clone filter
+  暂不支持（warn + 发全量 pack，协议上恒正确）
+- **fork fetch ×3（pull_request diff/merge、merge_queue）**：`ops::copy_objects_from_source`
+  —— 本地裸仓库间进程内对象搬运：dst 全部 refs 为 hidden tips 剪枝 commit 级，
+  `TreeAdditionsComparedToAncestor` 增量展开，逐对象 `write_buf_with_known_id`
+  直写 dst ODB（已存在对象持久化幂等）；diff/merge 路径随后 `update_ref` 建
+  `refs/forks/...`。不走 gix remote/file transport（那会 spawn `git upload-pack`，
+  反而重新引入 CLI）
+- **update_files_in_commit / create_or_update_file / delete_file**：
+  `ops::commit_tree_edits` —— `edit_tree`（Editor upsert/remove）+ `new_commit_as` +
+  `edit_reference(ExistingMustMatch)` 乐观锁直写；创建语义支持空仓库根提交
+  （`MustNotExist` 守卫）与从 HEAD 建分支（等价旧 checkout -b 回退）；symlink
+  拒写、blob SHA 预检语义保持
+- **fork_repo `clone --bare`**：`gix::create::into(Bare)` + 逐 ref 复制（MustNotExist 守卫）
+  + 符号 HEAD 对齐 + `pack_universe` → `index_pack_bytes` 对象宇宙单 pack 搬运
+
+关键工程点：
+- gix-pack 的 pack 生成管线（`data::output::{count,entry,bytes}`）gated behind
+  `generate` feature —— rg-git 直依赖 `gix-pack = { features = ["generate"] }` 开启
+- `repo.objects` 是 memory `Proxy`（不实现 `gix_pack::Find`）；pack 管线用
+  `into_inner()` 解到 `Cache<Handle>`（实现 Find + Send + Clone）
+- `InOrderIter` 把并行 entry 分块按 SequenceId 顺序重排后喂 `FromEntriesIter`
+
+认证：全 workspace 416 测试 0 失败（含协议集成、PR 合并策略、权限、push/pull 端到端）。
+生产路径 git CLI 调用归零；`GitCommandGateway` 仅供测试造数据使用。
+

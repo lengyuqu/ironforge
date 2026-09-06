@@ -820,52 +820,73 @@ fn verify_commit_signature(repo_path: &std::path::Path, sha: &str) -> anyhow::Re
         });
     }
 
-    // TODO(gix): Verify the signature using git CLI — gix doesn't support cryptographic verification (Phase 3)
-    // When gix ships built-in GPG verification (or sequoia-openpgp is introduced), replace this block.
-    let git_gateway = rg_git::cli_gateway::global_gateway()
-        .as_ref()
-        .map_err(|e| anyhow::anyhow!("{}", e))?;
-
-    let verify_output = git_gateway.run(
-        &["log", "--format=%G?%n%GK%n%GN%n%GE", "-1", &full_sha],
-        Some(repo_path),
-    )?;
-    if !verify_output.success() {
+    // gix-native verification: shells out to the configured GPG program via
+    // gix's `command` feature (same mechanism as `git log --show-signature`),
+    // and returns the parsed status plus signer identity.
+    let outcome = rg_git::ops::verify_commit_details_with_repo(&repo, &full_sha).map_err(
+        |error| -> anyhow::Error {
+            anyhow::anyhow!("signature verification failed for {full_sha}: {error}")
+        },
+    );
+    let outcome = match outcome {
+        Ok(outcome) => outcome,
+        Err(_) => {
+            return Ok(GpgSignature {
+                verified: false,
+                signer_key: None,
+                signer_name: None,
+                signer_email: None,
+                status: "verification_failed".to_string(),
+            });
+        }
+    };
+    let Some(outcome) = outcome else {
         return Ok(GpgSignature {
             verified: false,
             signer_key: None,
             signer_name: None,
             signer_email: None,
-            status: "verification_failed".to_string(),
+            status: "no_signature".to_string(),
         });
-    }
-    let verify_text = verify_output.stdout_str();
-    let lines: Vec<&str> = verify_text.lines().collect();
+    };
 
-    let status_code: &str = lines.first().map(|l: &&str| l.trim()).unwrap_or("N");
-    let signer_key = lines
-        .get(1)
-        .map(|l: &&str| l.trim().to_string())
-        .filter(|s| !s.is_empty());
-    let signer_name = lines
-        .get(2)
-        .map(|l: &&str| l.trim().to_string())
-        .filter(|s| !s.is_empty());
-    let signer_email = lines
-        .get(3)
-        .map(|l: &&str| l.trim().to_string())
+    // Signer identity: the GPG user ID ("Name <email>") or SSH principal.
+    let signer = outcome
+        .signer
+        .as_ref()
+        .map(|signer| signer.to_string())
+        .unwrap_or_default();
+    let (signer_name, signer_email) = match (signer.find('<'), signer.rfind('>')) {
+        (Some(start), Some(end)) if start < end => {
+            let name = signer[..start].trim().to_string();
+            let email = signer[start + 1..end].trim().to_string();
+            (Some(name).filter(|s| !s.is_empty()), Some(email).filter(|s| !s.is_empty()))
+        }
+        _ => (Some(signer.clone()).filter(|s| !s.is_empty()), None),
+    };
+    let signer_key = outcome
+        .key
+        .as_ref()
+        .map(|key| key.to_string())
         .filter(|s| !s.is_empty());
 
-    let (verified, status): (bool, String) = match status_code {
-        "G" => (true, "valid".to_string()),
-        "E" => (false, "expired".to_string()),
-        "X" => (false, "expired_key".to_string()),
-        "Y" => (false, "expired_key".to_string()),
-        "R" => (false, "revoked_key".to_string()),
-        "B" => (false, "bad_signature".to_string()),
-        "U" => (false, "untrusted".to_string()),
-        "N" => (false, "no_signature".to_string()),
-        _ => (false, format!("unknown_{}", status_code)),
+    use gix::objs::signature::verify::Status;
+
+    // Status mapping mirrors the previous `%G?` semantics (G/B/U/X/Y/R/E/N).
+    let (verified, status): (bool, String) = match outcome.status {
+        Status::Good => {
+            if outcome.is_valid() {
+                (true, "valid".to_string())
+            } else {
+                (false, "untrusted".to_string())
+            }
+        }
+        Status::Bad => (false, "bad_signature".to_string()),
+        Status::Error => (false, "expired".to_string()),
+        Status::Expired => (false, "expired".to_string()),
+        Status::ExpiredKey => (false, "expired_key".to_string()),
+        Status::RevokedKey => (false, "revoked_key".to_string()),
+        Status::Unknown => (false, "unknown".to_string()),
     };
 
     Ok(GpgSignature {

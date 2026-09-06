@@ -488,52 +488,6 @@ pub async fn create_repo_with_opts(
     Ok(repo)
 }
 
-/// Canonicalize a path into a git-friendly string.
-///
-/// On Windows, `std::fs::canonicalize` returns `\\?\`-prefixed verbatim paths.
-/// git misparses those ("hostname contains invalid characters" for plain clone
-/// args, broken `file://///?/C:/...` URLs when used as a file:// source), so the
-/// prefix is stripped here — once for every git invocation that consumes a path.
-pub(crate) fn canonical_git_path(path: &std::path::Path) -> CoreResult<String> {
-    let canonical = std::fs::canonicalize(path)
-        .with_context(|| format!("failed to canonicalize path: {:?}", path))?;
-
-    #[cfg(windows)]
-    {
-        let s = canonical.to_string_lossy();
-        if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
-            return Ok(format!(r"\\{rest}"));
-        }
-        if let Some(rest) = s.strip_prefix(r"\\?\") {
-            return Ok(rest.to_string());
-        }
-        Ok(s.into_owned())
-    }
-
-    #[cfg(not(windows))]
-    Ok(canonical.to_string_lossy().into_owned())
-}
-
-/// Convert a local path to a git-compatible location string.
-///
-/// On Windows the callers always operate on local bare repositories, and git
-/// (notably MSYS/Portable builds) mangles `file:///C:/...` URLs into `/C:/...`
-/// before failing to find the repo — so return the plain local path (already
-/// verbatim-stripped by `canonical_git_path`), which clone/fetch/push accept.
-/// On Unix, converts "/path/to/repo" to "file:///path/to/repo".
-fn path_to_git_url(path: &std::path::Path) -> CoreResult<String> {
-    #[cfg(windows)]
-    {
-        canonical_git_path(path)
-    }
-
-    #[cfg(not(windows))]
-    {
-        let path_str = canonical_git_path(path)?;
-        Ok(format!("file://{path_str}"))
-    }
-}
-
 /// Auto-initialize a bare repo with initial files (README, LICENSE, .gitignore)
 /// by writing blobs, a tree, and the initial commit directly into the bare
 /// repository with gix — no temporary worktree, no git CLI.
@@ -670,20 +624,6 @@ fn rg_git_obj_tree_entry(
         filename: name.as_bytes().into(),
         oid: object_id,
     }
-}
-
-/// Build git identity env vars for commit commands run via `GitCommandGateway`.
-///
-/// Returns a borrowed array suitable for `gateway.run_with_env(...)`. Used
-/// instead of setting env on a raw `Command` now that commits go through the
-/// gateway rather than spawning git directly.
-fn git_identity_env<'a>(name: &'a str, email: &'a str) -> [(&'a str, &'a str); 4] {
-    [
-        ("GIT_AUTHOR_NAME", name),
-        ("GIT_AUTHOR_EMAIL", email),
-        ("GIT_COMMITTER_NAME", name),
-        ("GIT_COMMITTER_EMAIL", email),
-    ]
 }
 
 /// Create default issue labels for a newly created repository.
@@ -832,22 +772,87 @@ pub async fn fork_repo(
     )
     .with_context(|| format!("failed to create directory: {:?}", target_path.parent()))?;
 
-    // TODO(gix): Local bare clone - gix doesn't support local bare clone via prepare_clone_bare
-    // For now, use git CLI for local fork operations
-    let git = rg_git::cli_gateway::global_gateway()
-        .as_ref()
-        .map_err(|e| CoreError::internal(format!("{}", e)))?;
+    // gix-native local bare fork: init an empty bare repository, copy every
+    // ref plus the symbolic HEAD, then transfer the complete object universe
+    // as one pack (replaces `git clone --bare`).
+    let source_dir = source_path.clone();
+    let target_dir = target_path.clone();
+    tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+        use gix::refs::transaction::{Change, LogChange, PreviousValue, RefEdit, RefLog};
 
-    // Convert paths to git-compatible URL format to avoid Windows path issues
-    let source_url =
-        path_to_git_url(&source_path).context("failed to convert source path to git URL")?;
-    let target_url =
-        path_to_git_url(&target_path).context("failed to convert target path to git URL")?;
+        if target_dir.exists() {
+            anyhow::bail!(
+                "target repository path already exists: {}",
+                target_dir.display()
+            );
+        }
+        let src = gix::open(&source_dir)
+            .map_err(|error| anyhow::anyhow!("failed to open source repository: {error}"))?;
+        gix::create::into(
+            &target_dir,
+            gix::create::Kind::Bare,
+            gix::create::Options::default(),
+        )
+        .map_err(|error| anyhow::anyhow!("failed to init bare fork: {error}"))?;
+        let dst = gix::open(&target_dir)
+            .map_err(|error| anyhow::anyhow!("failed to open fork: {error}"))?;
 
-    let out = git
-        .run(&["clone", "--bare", &source_url, &target_url], None)
-        .map_err(|e| CoreError::internal(format!("git clone --bare failed: {e}")))?;
-    out.ensure_success()?;
+        // Copy every ref (loose and packed alike).
+        let platform = src
+            .references()
+            .map_err(|error| anyhow::anyhow!("failed to list source refs: {error}"))?;
+        let refs = platform
+            .all()
+            .map_err(|error| anyhow::anyhow!("failed to iterate source refs: {error}"))?;
+        for reference in refs.flatten() {
+            let target = reference.target();
+            let Some(id) = target.try_id() else {
+                continue;
+            };
+            let name = reference.name().to_owned();
+            dst.reference(
+                name,
+                gix::hash::ObjectId::from(id),
+                PreviousValue::MustNotExist,
+                "fork: copy ref",
+            )
+            .map_err(|error| anyhow::anyhow!("failed to copy ref: {error}"))?;
+        }
+
+        // Point HEAD at the same branch as the source.
+        let referent = src
+            .head()
+            .ok()
+            .and_then(|head| head.referent_name().map(|name| name.to_owned()));
+        if let Some(name) = referent {
+            dst.edit_reference(RefEdit {
+                change: Change::Update {
+                    log: LogChange {
+                        mode: RefLog::AndReference,
+                        force_create_reflog: false,
+                        message: "fork: set HEAD".into(),
+                    },
+                    expected: PreviousValue::Any,
+                    new: gix::refs::Target::Symbolic(name),
+                },
+                name: "HEAD"
+                    .try_into()
+                    .map_err(|error| anyhow::anyhow!("invalid HEAD ref: {error}"))?,
+                deref: false,
+            })
+            .map_err(|error| anyhow::anyhow!("failed to set HEAD: {error}"))?;
+        }
+
+        // Transfer the object universe as one pack.
+        let pack = rg_git::ops::pack_universe(&source_dir)
+            .map_err(|error| anyhow::anyhow!("failed to pack source objects: {error}"))?;
+        rg_git::ops::index_pack_bytes(&target_dir, &pack)
+            .map_err(|error| anyhow::anyhow!("failed to index fork pack: {error}"))?;
+        Ok(())
+    })
+    .await
+    .map_err(|error| CoreError::internal(format!("fork task failed: {error}")))?
+    .map_err(|error| CoreError::internal(format!("fork failed: {error}")))?;
 
     let now = Utc::now();
     let model = RepoActiveModel {
@@ -1133,94 +1138,64 @@ pub async fn create_or_update_file(
         }
     }
 
-    // Create temp working directory
-    let tmp = std::env::temp_dir().join(format!("ironforge-file-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&tmp).context("failed to create temp directory")?;
-
-    // Clone the repo
-    let clone_url =
-        path_to_git_url(&repo_path).context("failed to convert repo path to git URL")?;
-    let tmp_str = tmp.to_string_lossy();
-    let gateway = rg_git::cli_gateway::global_gateway()
-        .as_ref()
-        .map_err(|e| CoreError::internal(format!("git CLI not available: {e}")))?;
-
-    // Try cloning with the target branch; fall back to --no-checkout for new repos
-    // where the branch does not exist yet, then create the branch via checkout -b.
-    let clone_out = gateway
-        .run(&["clone", "-b", branch, &clone_url, &tmp_str], None)
-        .map_err(|e| CoreError::internal(format!("git clone failed: {e}")))?;
-    if !clone_out.success() {
-        let nc_out = gateway
-            .run(&["clone", "--no-checkout", &clone_url, &tmp_str], None)
-            .map_err(|e| CoreError::internal(format!("git clone (no-checkout) failed: {e}")))?;
-        if !nc_out.success() {
-            let _ = std::fs::remove_dir_all(&tmp);
-            return Err(CoreError::internal(format!(
-                "git clone failed: {}",
-                nc_out.stderr_str()
-            )));
-        }
-        let co_out = gateway
-            .run(&["checkout", "-b", branch], Some(&tmp))
-            .map_err(|e| CoreError::internal(format!("git checkout failed: {e}")))?;
-        if !co_out.success() {
-            let _ = std::fs::remove_dir_all(&tmp);
-            return Err(CoreError::internal(format!(
-                "git checkout failed: {}",
-                co_out.stderr_str()
-            )));
+    // gix-native direct commit — replaces the clone/add/commit/push
+    // worktree chain (and its temp directory) entirely. The branch ref is
+    // snapshotted before the write so a concurrent advance is rejected
+    // (equivalent to the old fast-forward push guard).
+    let mut tip_snapshot =
+        rg_git::ops::try_rev_parse(&repo_path, &format!("refs/heads/{branch}"))
+            .ok()
+            .flatten();
+    if tip_snapshot.is_none() {
+        // Mirror the old `checkout -b` fallback for repos where the branch
+        // does not exist yet: branch from the current default HEAD.
+        if let Some(head) = rg_git::ops::try_rev_parse(&repo_path, "HEAD").ok().flatten() {
+            rg_git::ops::update_ref(
+                &repo_path,
+                &format!("refs/heads/{branch}"),
+                &head,
+                "create branch via file edit",
+            )
+            .map_err(|error| CoreError::internal(format!("failed to create branch: {error}")))?;
+            tip_snapshot = Some(head);
         }
     }
-
-    // Write the file
-    let full_path = tmp.join(file_path);
-    if let Some(parent) = full_path.parent() {
-        std::fs::create_dir_all(parent).context("failed to create parent directory")?;
+    let create_branch = tip_snapshot.is_none();
+    let repo_dir = repo_path.clone();
+    let branch_owned = branch.to_string();
+    let file_path_owned = file_path.to_string();
+    let content_bytes = content.as_bytes().to_vec();
+    let message_owned = message.to_string();
+    let author_name_owned = author_name.to_string();
+    let author_email_owned = author_email.to_string();
+    let expected_blob = sha.map(|value| value.to_string());
+    let outcome = tokio::task::spawn_blocking(move || {
+        rg_git::ops::commit_tree_edits(
+            &repo_dir,
+            &branch_owned,
+            tip_snapshot.as_deref(),
+            &[rg_git::ops::TreeEdit::SetFile {
+                path: file_path_owned,
+                content: content_bytes,
+                expected_blob_sha: expected_blob,
+            }],
+            &message_owned,
+            &author_name_owned,
+            &author_email_owned,
+            create_branch,
+        )
+    })
+    .await
+    .map_err(|error| CoreError::internal(format!("file commit task failed: {error}")))?
+    .map_err(|error| CoreError::internal(format!("failed to commit file: {error}")))?;
+    match outcome {
+        rg_git::ops::CommitTreeOutcome::Committed(_) => {}
+        rg_git::ops::CommitTreeOutcome::TipAdvanced { actual } => {
+            return Err(CoreError::conflict(format!(
+                "branch head changed while committing (now at {actual:?})"
+            )));
+        }
     }
-    std::fs::write(&full_path, content).context("failed to write file")?;
-
-    // Git add
-    let output = gateway
-        .run(&["add", file_path], Some(&tmp))
-        .map_err(|e| CoreError::internal(format!("git add failed: {e}")))?;
-    if !output.success() {
-        let _ = std::fs::remove_dir_all(&tmp);
-        return Err(CoreError::internal(format!(
-            "git add failed: {}",
-            output.stderr_str()
-        )));
-    }
-
-    // Git commit
-    let identity = git_identity_env(author_name, author_email);
-    let output = gateway
-        .run_with_env(&["commit", "-m", message], Some(&tmp), &identity)
-        .map_err(|e| CoreError::internal(format!("git commit failed: {e}")))?;
-    if !output.success() {
-        let _ = std::fs::remove_dir_all(&tmp);
-        return Err(CoreError::internal(format!(
-            "git commit failed: {}",
-            output.stderr_str()
-        )));
-    }
-
-    // Git push
-    let push_url = path_to_git_url(&repo_path).context("failed to convert repo path to git URL")?;
-
-    let output = gateway
-        .run(&["push", &push_url, branch], Some(&tmp))
-        .map_err(|e| CoreError::internal(format!("git push failed: {e}")))?;
-    if !output.success() {
-        let _ = std::fs::remove_dir_all(&tmp);
-        return Err(CoreError::internal(format!(
-            "git push failed: {}",
-            output.stderr_str()
-        )));
-    }
-
-    // Clean up
-    let _ = std::fs::remove_dir_all(&tmp);
 
     tracing::info!(
         repo = %repo_name,
@@ -1291,91 +1266,35 @@ pub fn update_files_in_commit(
         }
     }
 
-    let tmp = std::env::temp_dir().join(format!("ironforge-files-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&tmp).context("failed to create temp directory")?;
-    let result = (|| -> CoreResult<String> {
-        let clone_url = path_to_git_url(&repo_path)?;
-        let tmp_str = tmp.to_string_lossy();
-        let gateway = rg_git::cli_gateway::global_gateway()
-            .as_ref()
-            .map_err(|error| CoreError::internal(format!("git CLI not available: {error}")))?;
-        let clone = gateway.run(
-            &[
-                "clone",
-                "--branch",
-                branch,
-                "--single-branch",
-                "--",
-                &clone_url,
-                &tmp_str,
-            ],
-            None,
-        )?;
-        clone.ensure_success()?;
-
-        let actual_head = rg_git::ops::rev_parse(&tmp, "HEAD")
-            .map_err(|e| CoreError::internal(format!("failed to resolve cloned HEAD: {e}")))?;
-        if actual_head != expected_head_sha {
-            return Err(CoreError::conflict(format!(
-                "branch head changed: expected {expected_head_sha}, got {actual_head}"
-            )));
-        }
-
-        for update in updates {
-            let Some((actual_blob, _)) = rg_git::ops::blob_at(&tmp, "HEAD", &update.path)
-                .map_err(|e| CoreError::internal(format!("failed to inspect {}: {e}", update.path)))?
-            else {
-                return Err(CoreError::conflict(format!(
-                    "file {} is missing at HEAD",
-                    update.path
-                )));
-            };
-            if actual_blob != update.expected_blob_sha {
-                return Err(CoreError::conflict(format!(
-                    "file SHA mismatch for {}: expected {}, got {}",
-                    update.path,
-                    update.expected_blob_sha,
-                    actual_blob
-                )));
-            }
-
-            let mut full_path = tmp.clone();
-            for component in std::path::Path::new(&update.path).components() {
-                let std::path::Component::Normal(component) = component else {
-                    unreachable!("path was validated above")
-                };
-                full_path.push(component);
-                if let Ok(metadata) = std::fs::symlink_metadata(&full_path) {
-                    if metadata.file_type().is_symlink() {
-                        return Err(CoreError::invalid_input(format!(
-                            "refusing to update symlink path: {}",
-                            update.path
-                        )));
-                    }
-                }
-            }
-            if let Some(parent) = full_path.parent() {
-                std::fs::create_dir_all(parent).context("failed to create parent directory")?;
-            }
-            std::fs::write(&full_path, &update.content).context("failed to write file")?;
-            let add = gateway.run(&["add", "--", &update.path], Some(&tmp))?;
-            add.ensure_success()?;
-        }
-
-        let identity = git_identity_env(author_name, author_email);
-        let commit = gateway.run_with_env(&["commit", "-m", message], Some(&tmp), &identity)?;
-        commit.ensure_success()?;
-        let commit_sha = rg_git::ops::rev_parse(&tmp, "HEAD")
-            .map_err(|e| CoreError::internal(format!("failed to resolve new commit SHA: {e}")))?;
-
-        let push_url = path_to_git_url(&repo_path)?;
-        let destination = format!("HEAD:refs/heads/{branch}");
-        let push = gateway.run(&["push", &push_url, &destination], Some(&tmp))?;
-        push.ensure_success()?;
-        Ok(commit_sha)
-    })();
-    let _ = std::fs::remove_dir_all(&tmp);
-    result
+    // gix-native direct commit — replaces the clone/add/commit/push chain.
+    // The expected head acts as the optimistic-concurrency guard (the old
+    // fast-forward push rejection).
+    let edits: Vec<rg_git::ops::TreeEdit> = updates
+        .iter()
+        .map(|update| rg_git::ops::TreeEdit::SetFile {
+            path: update.path.clone(),
+            content: update.content.as_bytes().to_vec(),
+            expected_blob_sha: Some(update.expected_blob_sha.clone()),
+        })
+        .collect();
+    match rg_git::ops::commit_tree_edits(
+        &repo_path,
+        branch,
+        Some(expected_head_sha),
+        &edits,
+        message,
+        author_name,
+        author_email,
+        false,
+    ) {
+        Ok(rg_git::ops::CommitTreeOutcome::Committed(sha)) => Ok(sha),
+        Ok(rg_git::ops::CommitTreeOutcome::TipAdvanced { actual }) => Err(CoreError::conflict(
+            format!("branch head changed: expected {expected_head_sha}, got {actual:?}"),
+        )),
+        Err(error) => Err(CoreError::internal(format!(
+            "failed to commit file updates: {error}"
+        ))),
+    }
 }
 
 /// Delete a file from a repository.
@@ -1422,70 +1341,39 @@ pub async fn delete_file(
         }
     }
 
-    // Create temp working directory
-    let tmp = std::env::temp_dir().join(format!("ironforge-file-del-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&tmp).context("failed to create temp directory")?;
-
-    // Clone the repo
-    let clone_url =
-        path_to_git_url(&repo_path).context("failed to convert repo path to git URL")?;
-    let tmp_str = tmp.to_string_lossy();
-    let gateway = rg_git::cli_gateway::global_gateway()
-        .as_ref()
-        .map_err(|e| CoreError::internal(format!("git CLI not available: {e}")))?;
-
-    let output = gateway
-        .run(&["clone", "-b", branch, &clone_url, &tmp_str], None)
-        .map_err(|e| CoreError::internal(format!("git clone failed: {e}")))?;
-    if !output.success() {
-        let _ = std::fs::remove_dir_all(&tmp);
-        return Err(CoreError::internal(format!(
-            "git clone failed: {}",
-            output.stderr_str()
-        )));
+    // gix-native direct commit — replaces the clone/rm/commit/push chain.
+    let tip_snapshot = rg_git::ops::try_rev_parse(&repo_path, &format!("refs/heads/{branch}"))
+        .ok()
+        .flatten();
+    let repo_dir = repo_path.clone();
+    let branch_owned = branch.to_string();
+    let file_path_owned = file_path.to_string();
+    let message_owned = message.to_string();
+    let author_name_owned = author_name.to_string();
+    let author_email_owned = author_email.to_string();
+    let outcome = tokio::task::spawn_blocking(move || {
+        rg_git::ops::commit_tree_edits(
+            &repo_dir,
+            &branch_owned,
+            tip_snapshot.as_deref(),
+            &[rg_git::ops::TreeEdit::RemoveFile { path: file_path_owned }],
+            &message_owned,
+            &author_name_owned,
+            &author_email_owned,
+            false,
+        )
+    })
+    .await
+    .map_err(|error| CoreError::internal(format!("file deletion task failed: {error}")))?
+    .map_err(|error| CoreError::internal(format!("failed to delete file: {error}")))?;
+    match outcome {
+        rg_git::ops::CommitTreeOutcome::Committed(_) => {}
+        rg_git::ops::CommitTreeOutcome::TipAdvanced { actual } => {
+            return Err(CoreError::conflict(format!(
+                "branch head changed while deleting (now at {actual:?})"
+            )));
+        }
     }
-
-    // Delete the file
-    let output = gateway
-        .run(&["rm", file_path], Some(&tmp))
-        .map_err(|e| CoreError::internal(format!("git rm failed: {e}")))?;
-    if !output.success() {
-        let _ = std::fs::remove_dir_all(&tmp);
-        return Err(CoreError::internal(format!(
-            "git rm failed: {}",
-            output.stderr_str()
-        )));
-    }
-
-    // Git commit
-    let identity = git_identity_env(author_name, author_email);
-    let output = gateway
-        .run_with_env(&["commit", "-m", message], Some(&tmp), &identity)
-        .map_err(|e| CoreError::internal(format!("git commit failed: {e}")))?;
-    if !output.success() {
-        let _ = std::fs::remove_dir_all(&tmp);
-        return Err(CoreError::internal(format!(
-            "git commit failed: {}",
-            output.stderr_str()
-        )));
-    }
-
-    // Git push
-    let push_url = path_to_git_url(&repo_path).context("failed to convert repo path to git URL")?;
-
-    let output = gateway
-        .run(&["push", &push_url, branch], Some(&tmp))
-        .map_err(|e| CoreError::internal(format!("git push failed: {e}")))?;
-    if !output.success() {
-        let _ = std::fs::remove_dir_all(&tmp);
-        return Err(CoreError::internal(format!(
-            "git push failed: {}",
-            output.stderr_str()
-        )));
-    }
-
-    // Clean up
-    let _ = std::fs::remove_dir_all(&tmp);
 
     tracing::info!(
         repo = %repo_name,

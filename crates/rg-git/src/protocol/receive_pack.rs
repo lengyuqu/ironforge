@@ -6,7 +6,7 @@
 
 use std::path::Path;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 
 use crate::pkt_line::{read_pkt_line, write_flush, write_pkt_line, PktLine};
@@ -357,65 +357,19 @@ where
         return Ok(updates);
     }
 
-    // Receive pack data and pipe to git index-pack
-    // TODO(gix): Replace with gix pack indexing when available.
-    //
-    // CRITICAL: --fix-thin is REQUIRED (踩坑经验 #4)
-    //
-    // Thin packs reference base objects NOT in the pack.
-    // Without --fix-thin, git index-pack fails with "pack has delta resolution error".
-    // With --fix-thin, missing bases are resolved from the repo before indexing.
-    // TODO(gix): Replace with gix pack indexing when available.
-    // Currently using git index-pack CLI as gix doesn't have a direct replacement.
-    //
-    // CRITICAL: --fix-thin is REQUIRED (踩坑经验 #4)
-    //
-    // A "thin pack" is a packfile that references base objects NOT included in
-    // the pack. Git clients send thin packs during push to reduce network traffic.
-    //
-    // Without --fix-thin:
-    //   git index-pack will fail with "pack has delta resolution error"
-    //   or "missing delta base object"
-    //
-    // With --fix-thin:
-    //   git index-pack resolves missing bases from the repository, adds them
-    //   to the pack, making it "non-thin" before indexing.
-    //
-    // This is a common gotcha when implementing receive-pack. Always use
-    // --fix-thin unless you're absolutely sure the client sends full packs.
-    let mut index_pack = crate::cli_gateway::global_gateway()
-        .as_ref()
-        .map_err(|e| anyhow::anyhow!("{}", e))?
-        .spawn_async(&["index-pack", "--fix-thin", "--stdin"], Some(repo_path))
+    // Receive the pack bytes, then index them gix-natively. This replaces
+    // `git index-pack --fix-thin --stdin` including thin-pack completion:
+    // delta bases missing from the pack are looked up in the repository's
+    // object database before indexing.
+    let mut pack_data = Vec::new();
+    reader.read_to_end(&mut pack_data).await?;
+    let pack_bytes = pack_data.len();
+    let repo_dir = repo_path.to_path_buf();
+    tokio::task::spawn_blocking(move || crate::ops::index_pack_bytes(&repo_dir, &pack_data))
         .await
-        .context("failed to spawn git index-pack")?;
-
-    let stdin = index_pack.stdin.as_mut().context("no stdin")?;
-
-    // Read and forward pack data
-    let mut buf = [0u8; 8192];
-    loop {
-        let n = reader.read(&mut buf).await?;
-        if n == 0 {
-            break;
-        }
-        stdin.write_all(&buf[..n]).await?;
-    }
-    // stdin is automatically closed when dropped (end of scope)
-
-    let status = index_pack.wait().await?;
-    if !status.success() {
-        let stderr = index_pack.stderr.take();
-        if let Some(mut stderr) = stderr {
-            let mut err_msg = Vec::new();
-            stderr.read_to_end(&mut err_msg).await?;
-            bail!(
-                "git index-pack failed: {}",
-                String::from_utf8_lossy(&err_msg)
-            );
-        }
-        bail!("git index-pack failed with status {}", status);
-    }
+        .map_err(|error| anyhow::anyhow!("index-pack task failed: {error}"))?
+        .map_err(|error| anyhow::anyhow!("git index-pack failed: {error}"))?;
+    tracing::debug!(pack_bytes, "pack indexed");
 
     enforce_signed_commit_policies(repo_path, &mut updates, require_signed_refs);
 
@@ -443,21 +397,6 @@ fn enforce_signed_commit_policies(
     updates: &mut [RefUpdate],
     patterns: &[String],
 ) {
-    let gateway = match crate::cli_gateway::global_gateway().as_ref() {
-        Ok(gateway) => gateway,
-        Err(error) => {
-            for update in updates.iter_mut().filter(|update| {
-                update.status == "ok"
-                    && patterns
-                        .iter()
-                        .any(|pattern| ref_matches_rejection_pattern(&update.refname, pattern))
-            }) {
-                update.status = "error".into();
-                update.message = format!("unable to verify required commit signatures: {error}");
-            }
-            return;
-        }
-    };
     // Open the repository once for gix-native signature verification.
     let verify_repo = match gix::open(repo_path) {
         Ok(repo) => repo,
@@ -486,22 +425,29 @@ fn enforce_signed_commit_policies(
                 .iter()
                 .any(|pattern| ref_matches_rejection_pattern(&update.refname, pattern))
     }) {
-        let mut args = vec!["rev-list", update.new_sha.as_str()];
-        let old_exclusion;
-        if !update.old_sha.starts_with("0000000") {
-            old_exclusion = format!("^{}", update.old_sha);
-            args.push(&old_exclusion);
-        }
-        let commits = match gateway.run(&args, Some(repo_path)) {
-            Ok(output) if output.success() => output.stdout_str(),
-            Ok(output) => {
+        let new_id = match gix::hash::ObjectId::from_hex(update.new_sha.as_bytes()) {
+            Ok(id) => id,
+            Err(error) => {
                 update.status = "error".into();
-                update.message = format!(
-                    "failed to enumerate commits for signature verification: {}",
-                    output.stderr_str().trim()
-                );
+                update.message = format!("invalid new sha for signature verification: {error}");
                 continue;
             }
+        };
+        let old_id = if !update.old_sha.starts_with("0000000") {
+            match gix::hash::ObjectId::from_hex(update.old_sha.as_bytes()) {
+                Ok(id) => Some(id),
+                Err(error) => {
+                    update.status = "error".into();
+                    update.message =
+                        format!("invalid old sha for signature verification: {error}");
+                    continue;
+                }
+            }
+        } else {
+            None
+        };
+        let commits = match crate::ops::commits_between(&verify_repo, new_id, old_id) {
+            Ok(commits) => commits,
             Err(error) => {
                 update.status = "error".into();
                 update.message =
@@ -513,10 +459,7 @@ fn enforce_signed_commit_policies(
         // out to the configured GPG program via gix's `command` feature. Any
         // error (or an unsigned commit) fails closed, matching the CLI where
         // `verify-commit` exiting non-zero marks the commit unsigned.
-        if let Some(unsigned) = commits
-            .lines()
-            .find(|sha| !verify(sha))
-        {
+        if let Some(unsigned) = commits.iter().find(|sha| !verify(sha)) {
             update.status = "error".into();
             update.message =
                 format!("commit {unsigned} does not have a cryptographically valid signature");
