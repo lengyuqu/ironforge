@@ -123,3 +123,27 @@
 认证：全 workspace 测试通过（唯一失败为 webhook 重试的时序 flaky，单独重跑两次均绿）；rg-git/rg-core/rg-http clippy 无新增警告。
 
 剩余 CLI（生产路径）：rebase 及其 worktree 的 clone/fetch/push、update_files_in_commit 的 clone/add/commit/push、merge_queue fork fetch、receive_pack rev-list/index-pack、upload_pack pack-objects。
+
+---
+
+## 七、Rebase 自研完成 —— CLI 仅剩 pack 链（2026-09-07）
+
+`git rebase`（PR Rebase and merge 策略）以 gix 原语自研实现，替换整条
+`clone --no-checkout / fetch / checkout --detach / rebase / push` 临时 worktree 链：
+
+- **重放集合**：`rev_walk(head).with_hidden(base)`（等价 `rev-list base..head`），本地 Kahn 拓扑排序
+  （gix walk 无 topo 变体），优先级为最旧提交优先
+- **语义对齐 git rebase 默认**：merge commit 线性化丢弃；空提交（重放后树不变）跳过；
+  作者身份与消息原样保留，committer=IronForge
+- **cherry-pick 核心**：`merge_trees(ancestor=原父树, our=运行头树, their=原提交树)` 显式祖先三方合并
+- **并发保护**：`edit_reference` + `PreviousValue::ExistingMustMatch(old_base)`，等价原
+  fast-forward push 被拒语义；冲突时 base ref 完全不动
+- **切换就绪**：单函数薄适配（`RebaseOutcome::{Rebased, Conflict, BaseAdvanced}`），
+  5 个 characterization 测试钉死语义，gix 出原生 rebase API 时按同一断言验收替换
+- 删除 `git_rebase_merge` 的临时 worktree 编排（-90 行），fork PR 的 `refs/forks/...` ref 直接可作 head_rev
+
+残余 CLI（生产路径）仅剩：receive_pack `index-pack --fix-thin` + `rev-list`（签名枚举）、
+upload_pack `pack-objects`（Phase C 自研）、update_files_in_commit 与 merge_queue fork 的
+clone/fetch（PrepareFetch 可达，可选）。
+
+认证：5 个 characterization 测试 + `merge_squash_and_rebase_update_refs_and_pr_state` HTTP 集成测试全绿。

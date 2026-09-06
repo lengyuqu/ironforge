@@ -1248,7 +1248,7 @@ async fn merge_claimed_pr(
 }
 
 /// Merge from an arbitrary ref (used for fork PRs).
-/// Uses gix merge APIs for Merge and Squash strategies; Rebase still uses git CLI.
+/// All strategies use gix native implementations.
 fn merge_from_ref(
     repo_path: &std::path::Path,
     pr: &PullRequest,
@@ -1267,7 +1267,16 @@ fn merge_from_ref(
             );
             gix_squash_merge(repo_path, merge_ref, &squash_msg)
         }
-        MergeStrategy::Rebase => git_rebase_merge(repo_path, &pr.base_branch, merge_ref),
+        MergeStrategy::Rebase => match rg_git::ops::rebase_merge(repo_path, &pr.base_branch, merge_ref) {
+            Ok(rg_git::ops::RebaseOutcome::Rebased(sha)) => Ok(sha),
+            Ok(rg_git::ops::RebaseOutcome::Conflict(message)) => {
+                Err(CoreError::internal(format!("rebase merge failed: {message}")))
+            }
+            Ok(rg_git::ops::RebaseOutcome::BaseAdvanced) => Err(CoreError::Conflict(
+                "base branch advanced while rebasing".to_string(),
+            )),
+            Err(error) => Err(CoreError::internal(format!("rebase merge failed: {error}"))),
+        },
     }
 }
 
@@ -1358,85 +1367,16 @@ fn do_squash_merge(repo_path: &std::path::Path, pr: &PullRequest) -> CoreResult<
 }
 
 fn do_rebase_merge(repo_path: &std::path::Path, pr: &PullRequest) -> CoreResult<String> {
-    // TODO(gix): Replace rebase with gix rebase API (complex operation)
-    let head_ref = format!("refs/heads/{}", pr.head_branch);
-    git_rebase_merge(repo_path, &pr.base_branch, &head_ref)
-}
-
-/// Rebase a PR head in an isolated worktree and fast-forward the bare repository's base ref.
-///
-/// `git rebase` cannot run directly inside a bare repository. Cloning into a unique temporary
-/// worktree also keeps an interrupted/conflicting rebase from leaving mutable index state in the
-/// served repository. The final push is a normal fast-forward, so a concurrently advanced base
-/// branch is rejected instead of overwritten.
-fn git_rebase_merge(
-    repo_path: &std::path::Path,
-    base_branch: &str,
-    head_ref: &str,
-) -> CoreResult<String> {
-    let worktree = std::env::temp_dir().join(format!("ironforge-rebase-{}", uuid::Uuid::new_v4()));
-    let git = rg_git::cli_gateway::global_gateway()
-        .as_ref()
-        .map_err(CoreError::internal)?;
-
-    let result = (|| -> CoreResult<String> {
-        // Windows canonicalize yields `\\?\`-prefixed paths that git misparses;
-        // canonical_git_path strips the prefix for a git-safe local path.
-        let repo_arg = crate::repo::service::canonical_git_path(repo_path)?;
-        let worktree_arg = worktree.to_string_lossy();
-        git.run(&["clone", "--no-checkout", &repo_arg, &worktree_arg], None)?
-            .ensure_success()
-            .map_err(|e| CoreError::internal(format!("failed to create temporary rebase worktree: {}", e)))?;
-
-        let fetch = git.run(&["fetch", "origin", head_ref], Some(&worktree))?;
-        if !fetch.success() {
-            return Err(CoreError::internal(format!(
-                "failed to fetch rebase head: {}",
-                fetch.stderr_str()
-            )));
+    match rg_git::ops::rebase_merge(repo_path, &pr.base_branch, &pr.head_branch) {
+        Ok(rg_git::ops::RebaseOutcome::Rebased(sha)) => Ok(sha),
+        Ok(rg_git::ops::RebaseOutcome::Conflict(message)) => {
+            Err(CoreError::internal(format!("rebase merge failed: {message}")))
         }
-        git.run(&["checkout", "--detach", "FETCH_HEAD"], Some(&worktree))?
-            .ensure_success()
-            .map_err(|e| CoreError::internal(format!("failed to check out rebase head: {}", e)))?;
-
-        let upstream = format!("origin/{base_branch}");
-        let rebase = git.run_with_env(
-            &["rebase", &upstream],
-            Some(&worktree),
-            &[
-                ("GIT_AUTHOR_NAME", "IronForge"),
-                ("GIT_AUTHOR_EMAIL", "noreply@ironforge.local"),
-                ("GIT_COMMITTER_NAME", "IronForge"),
-                ("GIT_COMMITTER_EMAIL", "noreply@ironforge.local"),
-            ],
-        )?;
-        if !rebase.success() {
-            return Err(CoreError::internal(format!(
-                "rebase merge failed: {}",
-                rebase.stderr_str()
-            )));
-        }
-
-        let target_ref = format!("HEAD:refs/heads/{base_branch}");
-        let push = git.run(&["push", "origin", &target_ref], Some(&worktree))?;
-        if !push.success() {
-            return Err(CoreError::Conflict(format!(
-                "base branch advanced while rebasing or push failed: {}",
-                push.stderr_str()
-            )));
-        }
-
-        let head = rg_git::ops::rev_parse(&worktree, "HEAD")
-            .map_err(|e| CoreError::internal(format!("failed to resolve rebased HEAD: {e}")))?;
-        Ok(head)
-    })();
-
-    if let Err(error) = std::fs::remove_dir_all(&worktree) {
-        if error.kind() != std::io::ErrorKind::NotFound {
-            tracing::warn!(path = ?worktree, %error, "failed to remove temporary rebase worktree");
-        }
+        Ok(rg_git::ops::RebaseOutcome::BaseAdvanced) => Err(CoreError::Conflict(
+            "base branch advanced while rebasing".to_string(),
+        )),
+        Err(error) => Err(CoreError::internal(format!("rebase merge failed: {error}"))),
     }
-    result
 }
 
 /// Set HEAD to point to a branch (equivalent to `git checkout <branch>` in a bare repo).

@@ -136,11 +136,11 @@ Phase 1~21 全部完成。核心能力：
 
 ### 技术债与后续方向
 
-**gix 迁移**：raw git 全消除（经 GitCommandGateway），gix 原生覆盖率 ~90%（Phase A+B+C-lite 完成：rev-parse/update-ref/show/cat-file/verify-commit/auto_init/merge-tree/commit-tree/ls-tree/archive 已 gix 化，新增 rg_git::ops 模块）。CLI 经网关保留（Rebase 及其 worktree clone/fetch/push、update_files_in_commit clone/add/commit/push、merge_queue fork fetch、Pack/Thin-pack）。Phase 3 等待 gix 上游成熟（迁移评估见 `docs/gix-migration-assessment.md`，基于 gix 0.87.1）：
+**gix 迁移**：raw git 全消除（经 GitCommandGateway），gix 原生覆盖率 ~95%（Phase A+B+C-lite+Rebase 完成：rev-parse/update-ref/show/cat-file/verify-commit/auto_init/merge-tree/commit-tree/ls-tree/archive/rebase 已 gix 化，rebase 为自研实现待上游原生 API 替换）。CLI 经网关保留（Pack/Thin-pack 生成、receive_pack rev-list 签名枚举、update_files_in_commit 与 merge_queue fork 的 clone/fetch）。Phase 3 等待 gix 上游成熟（迁移评估见 `docs/gix-migration-assessment.md`，基于 gix 0.87.1）：
 
 | 待办 | 阻塞原因 | 解除条件 |
 |---|---|---|
-| Rebase 合并 | gix-rebase 无 API | gix 发布稳定 rebase API |
+| Rebase 合并 | gix-rebase 无 API | ✅ 已自研关闭：`rg_git::ops::rebase_merge`（merge_trees 显式祖先三方合并 + 拓扑重放，characterization 测试钉死语义，gix 出原生 API 时可替换） |
 | Pack 生成 | gix 无高层 pack 协商 | gix 提供 server 端 pack 生成（或 Phase C 用 gix-pack 自研，见评估文档） |
 | Thin-pack 索引 | gix 缺 thin 补全解析 | gix-pack 支持 --fix-thin |
 | ~~GPG 验签~~ | ✅ 已解除：gix 0.87 `Commit::verify()`/`Commit::sign()` 内建 OpenPGP/X.509/SSH 签名与验签（Phase B3 已接入 receive_pack，`command` feature） | — |
