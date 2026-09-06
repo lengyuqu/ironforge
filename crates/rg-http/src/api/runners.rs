@@ -602,14 +602,7 @@ pub async fn download_workspace(
         .join(format!("{}.git", repository.name));
     let commit_sha = pipeline.commit_sha.clone();
     let archive = match tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<u8>> {
-        let gateway = rg_git::cli_gateway::global_gateway()
-            .as_ref()
-            .map_err(|error| anyhow::anyhow!("{error}"))?;
-        let output = gateway.run(&["archive", "--format=tar", &commit_sha], Some(&repo_path))?;
-        if !output.success() {
-            anyhow::bail!("git archive failed: {}", output.stderr_str().trim());
-        }
-        Ok(output.stdout)
+        rg_git::ops::archive(&repo_path, &commit_sha, rg_git::ops::ArchiveFormat::Tar)
     })
     .await
     {

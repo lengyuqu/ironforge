@@ -109,3 +109,17 @@
 **认证**：`cargo test --workspace --no-fail-fast` 414 passed / 0 failed；clippy 目标 crate 0 警告。
 
 **注意**：`ops.rs` 文档注释避免出现 regression guard 扫描的裸 git 进程创建字面量（已踩一次：guard 连注释一起扫）。
+
+---
+
+## 六、Phase C-lite：直接可换点位收尾（2026-09-06）
+
+在 Phase C（pack 自研）之前，把评估表中"原语齐全、直接可换"的点位先吃掉：
+
+- **merge_queue 的 `merge-tree --write-tree` + `commit-tree`**：gix `merge_commits` + `tree.write()` + `new_commit_as`（不触引用，等价 commit-tree），冲突仍走 finish_entry Failed。gix Repository 是 !Send，整段放进 `spawn_blocking`
+- **issue_template 的 `ls-tree -z --name-only`**：`lookup_entry_by_path` + `Tree::iter()`，缺失/非目录行为与 CLI 对齐（返回空）
+- **`git archive`（archive API + runners 产物）**：`repo.worktree_stream` + `repo.worktree_archive`（gix-archive），Tar/TarGz/Zip 三格式齐备；mtime 用提交时间；workspace gix 增加 `worktree-archive` feature，rg-git 直依赖 `gix-archive`（default-features=false + tar/tar_gz/zip）借 feature unification 开启 gix 内 gix-archive 的格式支持
+
+认证：全 workspace 测试通过（唯一失败为 webhook 重试的时序 flaky，单独重跑两次均绿）；rg-git/rg-core/rg-http clippy 无新增警告。
+
+剩余 CLI（生产路径）：rebase 及其 worktree 的 clone/fetch/push、update_files_in_commit 的 clone/add/commit/push、merge_queue fork fetch、receive_pack rev-list/index-pack、upload_pack pack-objects。

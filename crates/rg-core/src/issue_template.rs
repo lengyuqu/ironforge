@@ -1,7 +1,6 @@
 //! Gitea-compatible Markdown issue and pull-request template discovery.
 
 use anyhow::{Context, Result};
-use rg_git::cli_gateway::GitCommandGateway;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -100,14 +99,13 @@ pub fn discover_issue_templates(
     repository_path: &Path,
     default_branch: &str,
 ) -> Result<IssueTemplateDiscovery> {
-    let git = GitCommandGateway::new()?;
     let Some(commit_ref) = verified_branch_ref(repository_path, default_branch)? else {
         return Ok(IssueTemplateDiscovery::default());
     };
     let mut discovery = IssueTemplateDiscovery::default();
 
     for directory in ISSUE_TEMPLATE_DIRS {
-        for filename in list_directory(&git, repository_path, &commit_ref, directory)? {
+        for filename in list_directory(repository_path, &commit_ref, directory)? {
             if !filename.to_ascii_lowercase().ends_with(".md") {
                 continue;
             }
@@ -167,26 +165,42 @@ fn verified_branch_ref(
     rg_git::ops::try_rev_parse(repository_path, &commit_spec)
 }
 
-fn list_directory(
-    git: &GitCommandGateway,
-    repository_path: &Path,
-    git_ref: &str,
-    directory: &str,
-) -> Result<Vec<String>> {
-    let treeish = format!("{git_ref}:{directory}");
-    let output = git.run(
-        &["ls-tree", "-z", "--name-only", &treeish],
-        Some(repository_path),
-    )?;
-    if !output.success() {
+fn list_directory(repository_path: &Path, git_ref: &str, directory: &str) -> Result<Vec<String>> {
+    use gix::bstr::ByteSlice;
+
+    let repo = gix::open(repository_path)
+        .with_context(|| format!("failed to open repository: {}", repository_path.display()))?;
+    let tree = repo
+        .rev_parse_single(git_ref)
+        .with_context(|| format!("failed to resolve revision '{git_ref}'"))?
+        .object()
+        .with_context(|| format!("failed to read object for '{git_ref}'"))?
+        .peel_to_tree()
+        .with_context(|| format!("failed to peel '{git_ref}' to a tree"))?;
+    // As with the previous `git ls-tree` based lookup, a missing path (or one
+    // that is not a directory) simply yields no entries.
+    let Some(entry) = tree
+        .lookup_entry_by_path(directory)
+        .with_context(|| format!("failed to look up '{directory}' in tree of '{git_ref}'"))?
+    else {
+        return Ok(Vec::new());
+    };
+    if !entry.mode().is_tree() {
         return Ok(Vec::new());
     }
-    let mut names: Vec<String> = output
-        .stdout
-        .split(|byte| *byte == 0)
-        .filter(|name| !name.is_empty())
-        .filter_map(|name| std::str::from_utf8(name).ok().map(str::to_string))
-        .filter(|name| !name.contains('/'))
+    let dir_tree = entry
+        .id()
+        .object()
+        .with_context(|| format!("failed to read tree '{directory}'"))?
+        .peel_to_tree()
+        .with_context(|| format!("'{directory}' is not a tree"))?;
+    let mut names: Vec<String> = dir_tree
+        .iter()
+        .filter_map(|entry| {
+            entry
+                .ok()
+                .and_then(|entry| entry.filename().to_str().ok().map(str::to_string))
+        })
         .collect();
     names.sort();
     Ok(names)

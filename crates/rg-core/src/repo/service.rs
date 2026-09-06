@@ -1313,9 +1313,8 @@ pub fn update_files_in_commit(
         )?;
         clone.ensure_success()?;
 
-        let head = gateway.run(&["rev-parse", "HEAD"], Some(&tmp))?;
-        head.ensure_success()?;
-        let actual_head = head.stdout_str().trim().to_string();
+        let actual_head = rg_git::ops::rev_parse(&tmp, "HEAD")
+            .map_err(|e| CoreError::internal(format!("failed to resolve cloned HEAD: {e}")))?;
         if actual_head != expected_head_sha {
             return Err(CoreError::conflict(format!(
                 "branch head changed: expected {expected_head_sha}, got {actual_head}"
@@ -1323,12 +1322,14 @@ pub fn update_files_in_commit(
         }
 
         for update in updates {
-            let (_sha, _bytes) = rg_git::ops::blob_at(&tmp, "HEAD", &update.path)
+            let Some((actual_blob, _)) = rg_git::ops::blob_at(&tmp, "HEAD", &update.path)
                 .map_err(|e| CoreError::internal(format!("failed to inspect {}: {e}", update.path)))?
-                .ok_or_else(|| {
-                    CoreError::conflict(format!("file {} is missing at HEAD", update.path))
-                })?;
-            let actual_blob = _sha;
+            else {
+                return Err(CoreError::conflict(format!(
+                    "file {} is missing at HEAD",
+                    update.path
+                )));
+            };
             if actual_blob != update.expected_blob_sha {
                 return Err(CoreError::conflict(format!(
                     "file SHA mismatch for {}: expected {}, got {}",

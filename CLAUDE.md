@@ -136,7 +136,7 @@ Phase 1~21 全部完成。核心能力：
 
 ### 技术债与后续方向
 
-**gix 迁移**：raw git 全消除（经 GitCommandGateway），gix 原生覆盖率 ~85%（Phase A+B 完成：rev-parse/update-ref/show/cat-file/verify-commit/auto_init 已 gix 化，新增 rg_git::ops 模块）。CLI 经网关保留（Rebase/rebase worktree 的 clone/fetch/push/Pack/Thin-pack/Clone/Fetch/ls-tree）。Phase 3 等待 gix 上游成熟（迁移评估见 `docs/gix-migration-assessment.md`，基于 gix 0.87.1）：
+**gix 迁移**：raw git 全消除（经 GitCommandGateway），gix 原生覆盖率 ~90%（Phase A+B+C-lite 完成：rev-parse/update-ref/show/cat-file/verify-commit/auto_init/merge-tree/commit-tree/ls-tree/archive 已 gix 化，新增 rg_git::ops 模块）。CLI 经网关保留（Rebase 及其 worktree clone/fetch/push、update_files_in_commit clone/add/commit/push、merge_queue fork fetch、Pack/Thin-pack）。Phase 3 等待 gix 上游成熟（迁移评估见 `docs/gix-migration-assessment.md`，基于 gix 0.87.1）：
 
 | 待办 | 阻塞原因 | 解除条件 |
 |---|---|---|

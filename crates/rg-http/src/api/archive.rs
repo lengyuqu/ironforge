@@ -92,22 +92,20 @@ pub async fn download_archive(
         _ => "application/gzip",
     };
 
-    let git = match rg_git::cli_gateway::global_gateway().as_ref() {
-        Ok(g) => g,
-        Err(e) => return AppError::internal(e.to_string()).into_response(),
+    let format = match format_flag {
+        "zip" => rg_git::ops::ArchiveFormat::Zip,
+        _ => rg_git::ops::ArchiveFormat::TarGz,
     };
 
-    let git_out = match git.run(
-        &["archive", &format!("--format={}", format_flag), &sha],
-        Some(&repo_path),
-    ) {
-        Ok(o) => o,
+    let sha_for_task = sha.clone();
+    let output = match tokio::task::spawn_blocking(move || {
+        rg_git::ops::archive(&repo_path, &sha_for_task, format)
+    })
+    .await
+    {
+        Ok(Ok(bytes)) => bytes,
+        Ok(Err(_)) => return AppError::bad_request("Invalid ref or SHA").into_response(),
         Err(e) => return AppError::internal(e.to_string()).into_response(),
-    };
-
-    let output = match git_out.ensure_success() {
-        Ok(()) => git_out.stdout,
-        Err(_) => return AppError::bad_request("Invalid ref or SHA").into_response(),
     };
 
     // Truncate by chars (not bytes) so a short ref like `main` or a

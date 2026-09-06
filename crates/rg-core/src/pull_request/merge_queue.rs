@@ -337,19 +337,19 @@ async fn ensure_merge_group_ci(
 ) -> Result<MergeGroupState> {
     let namespace = service::repository_namespace(db, repository).await?;
     let repo_path = repo_root.join(format!("{namespace}/{}.git", repository.name));
-    let git = rg_git::cli_gateway::global_gateway()
-        .as_ref()
-        .map_err(|error| anyhow::anyhow!("{error}"))?;
     let base_ref = format!("refs/heads/{}", pr.base_branch);
-    let base_output = git.run(&["rev-parse", &base_ref], Some(&repo_path))?;
-    base_output.ensure_success()?;
-    let base_sha = base_output.stdout_str().trim().to_string();
+    let base_sha = rg_git::ops::rev_parse(&repo_path, &base_ref)?;
     let head_sha = pr
         .head_sha
         .clone()
         .context("pull request head SHA is missing")?;
 
+    // Object fetch from the (possibly forked) head repository stays on the git
+    // CLI for now — see the gix migration assessment (Phase B2 deferral).
     if let Some(head_repo_id) = pr.head_repo_id {
+        let git = rg_git::cli_gateway::global_gateway()
+            .as_ref()
+            .map_err(|error| anyhow::anyhow!("{error}"))?;
         let head_repo = repository::Entity::find_by_id(head_repo_id)
             .one(db)
             .await?
@@ -394,56 +394,91 @@ async fn ensure_merge_group_ci(
         }
     }
 
-    let tree_output = git.run(
-        &["merge-tree", "--write-tree", &base_sha, &head_sha],
-        Some(&repo_path),
-    )?;
-    if !tree_output.success() {
-        finish_entry(
-            db,
-            repo_root,
-            entry,
-            "failed",
-            Some(format!(
-                "merge group conflicts: {}",
-                tree_output.stderr_str().trim()
-            )),
-        )
-        .await?;
-        return Ok(MergeGroupState::Failed);
+    // `git merge-tree --write-tree` + `git commit-tree` equivalent, run on a
+    // blocking thread: gix's Repository is !Send and must not live across
+    // await points.
+    enum GroupOutcome {
+        Conflicts(usize),
+        Committed(String),
     }
-    let tree_sha = tree_output
-        .stdout_str()
-        .lines()
-        .next()
-        .unwrap_or_default()
-        .trim()
-        .to_string();
-    if tree_sha.is_empty() {
-        anyhow::bail!("git merge-tree did not return a tree id");
-    }
-    let message = format!("Merge queue group for PR #{}", pr.number);
-    let commit_output = git.run_with_env(
-        &[
-            "commit-tree",
-            &tree_sha,
-            "-p",
-            &base_sha,
-            "-p",
-            &head_sha,
-            "-m",
-            &message,
-        ],
-        Some(&repo_path),
-        &[
-            ("GIT_AUTHOR_NAME", "IronForge Merge Queue"),
-            ("GIT_AUTHOR_EMAIL", "merge-queue@ironforge.local"),
-            ("GIT_COMMITTER_NAME", "IronForge Merge Queue"),
-            ("GIT_COMMITTER_EMAIL", "merge-queue@ironforge.local"),
-        ],
-    )?;
-    commit_output.ensure_success()?;
-    let group_sha = commit_output.stdout_str().trim().to_string();
+    let group_sha = tokio::task::spawn_blocking({
+        let repo_path = repo_path.clone();
+        let base_sha = base_sha.clone();
+        let head_sha = head_sha.clone();
+        let pr_number = pr.number;
+        move || -> anyhow::Result<GroupOutcome> {
+            let repo = gix::open(&repo_path)
+                .map_err(|error| anyhow::anyhow!("failed to open repository: {error}"))?;
+            let base_id = repo
+                .rev_parse_single(base_sha.as_str())
+                .map_err(|error| anyhow::anyhow!("failed to resolve base commit {base_sha}: {error}"))?;
+            let head_id = repo
+                .rev_parse_single(head_sha.as_str())
+                .map_err(|error| anyhow::anyhow!("failed to resolve head commit {head_sha}: {error}"))?;
+
+            let labels = gix::merge::blob::builtin_driver::text::Labels {
+                current: Some(base_sha.as_str().into()),
+                other: Some(head_sha.as_str().into()),
+                ancestor: None,
+            };
+            let options: gix::merge::commit::Options = repo
+                .tree_merge_options()
+                .map_err(|error| anyhow::anyhow!("failed to get tree merge options: {error}"))?
+                .into();
+            let mut outcome = repo
+                .merge_commits(base_id, head_id, labels, options)
+                .map_err(|error| anyhow::anyhow!("merge group tree merge failed: {error}"))?;
+            if !outcome.tree_merge.conflicts.is_empty() {
+                return Ok(GroupOutcome::Conflicts(outcome.tree_merge.conflicts.len()));
+            }
+            let tree_id = outcome
+                .tree_merge
+                .tree
+                .write()
+                .map_err(|error| anyhow::anyhow!("failed to write merged tree: {error}"))?
+                .detach();
+            let message = format!("Merge queue group for PR #{pr_number}");
+            let now = gix::date::Time::now_utc();
+            // `SignatureRef.time` is the raw git timestamp string (`<seconds> <offset>`).
+            let time_str = format!("{} +0000", now.seconds);
+            let identity = gix::actor::SignatureRef {
+                name: "IronForge Merge Queue".as_bytes().into(),
+                email: "merge-queue@ironforge.local".as_bytes().into(),
+                time: time_str.as_str(),
+            };
+            // `git commit-tree <tree> -p <base> -p <head> -m <message>` equivalent:
+            // write the commit object without touching any reference.
+            let group_commit = repo
+                .new_commit_as(
+                    identity,
+                    identity,
+                    &message,
+                    tree_id,
+                    [base_id.detach(), head_id.detach()],
+                )
+                .map_err(|error| anyhow::anyhow!("failed to create merge group commit: {error}"))?;
+            Ok(GroupOutcome::Committed(
+                group_commit.id().detach().to_string(),
+            ))
+        }
+    })
+    .await
+    .map_err(|error| anyhow::anyhow!("merge group task join failed: {error}"))??;
+
+    let group_sha = match group_sha {
+        GroupOutcome::Conflicts(count) => {
+            finish_entry(
+                db,
+                repo_root,
+                entry,
+                "failed",
+                Some(format!("merge group conflicts: {count} files with conflicts")),
+            )
+            .await?;
+            return Ok(MergeGroupState::Failed);
+        }
+        GroupOutcome::Committed(group_sha) => group_sha,
+    };
     let group_ref = format!("refs/merge-queue/{}", entry.id);
     rg_git::ops::update_ref(&repo_path, &group_ref, &group_sha, "merge queue group")?;
 

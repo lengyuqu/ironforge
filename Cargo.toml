@@ -100,6 +100,7 @@ gix = { version = "0.87", features = [
     "pack-cache-lru-dynamic",
     "merge",
     "command",
+    "worktree-archive",
 ] }
 
 # Archive / compression

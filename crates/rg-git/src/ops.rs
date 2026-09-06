@@ -119,6 +119,74 @@ pub fn delete_ref(repo_path: &Path, ref_name: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Archive container formats, mirroring the `git archive --format=` values
+/// the HTTP API exposes (`.tar`, `.tar.gz`/`.tgz`, `.zip`).
+#[derive(Clone, Copy, Debug)]
+pub enum ArchiveFormat {
+    Tar,
+    TarGz,
+    Zip,
+}
+
+/// Equivalent of `git archive --format=<fmt> <commitish>` — returns the
+/// archive bytes for the tree of `commitish`.
+///
+/// Uses gix's `worktree_stream` + `worktree_archive` (gix-archive), which
+/// apply `export-ignore` attributes and checkout filters like the CLI does.
+pub fn archive(
+    repo_path: &Path,
+    commitish: &str,
+    format: ArchiveFormat,
+) -> anyhow::Result<Vec<u8>> {
+    use std::sync::atomic::AtomicBool;
+
+    let repo = open_repo(repo_path)?;
+    let commit = repo
+        .rev_parse_single(commitish)
+        .with_context(|| format!("failed to resolve revision '{commitish}'"))?
+        .object()
+        .with_context(|| format!("failed to read object for '{commitish}'"))?
+        .peel_to_commit()
+        .with_context(|| format!("'{commitish}' is not a commit"))?;
+    let tree_id = commit
+        .tree_id()
+        .with_context(|| format!("failed to resolve tree of '{commitish}'"))?;
+    let (stream, _index) = repo
+        .worktree_stream(tree_id.detach())
+        .map_err(|error| anyhow::anyhow!("failed to stream tree for archive: {error}"))?;
+
+    let format = match format {
+        ArchiveFormat::Tar => gix::worktree::archive::Format::Tar,
+        ArchiveFormat::TarGz => gix::worktree::archive::Format::TarGz {
+            compression_level: None,
+        },
+        ArchiveFormat::Zip => gix::worktree::archive::Format::Zip {
+            compression_level: None,
+        },
+    };
+    // Like `git archive`, stamp entries with the commit's timestamp.
+    let modification_time = commit
+        .time()
+        .map(|time| time.seconds)
+        .unwrap_or_default();
+    let options = gix::worktree::archive::Options {
+        format,
+        tree_prefix: None,
+        modification_time,
+    };
+    let should_interrupt = AtomicBool::new(false);
+    let mut out = std::io::Cursor::new(Vec::new());
+    repo.worktree_archive(
+        stream,
+        &mut out,
+        gix::features::progress::Discard,
+        &should_interrupt,
+        options,
+    )
+    .map_err(|error| anyhow::anyhow!("failed to write archive: {error}"))?;
+    Ok(out.into_inner())
+}
+
 /// Equivalent of `git verify-commit <sha>` — returns `true` when the commit
 /// carries a cryptographically valid signature.
 ///

@@ -8,6 +8,14 @@ tokio = { workspace = true, features = ["process"] }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 gix = { workspace = true }
+# Direct dep so the shared gix-archive instance gets tar/tar_gz/zip enabled
+# (gix itself pulls gix-archive with default-features = false; features are
+# unified across the graph, which turns on the formats in `ops::archive`).
+gix-archive = { version = "0.36", default-features = false, features = [
+    "tar",
+    "tar_gz",
+    "zip",
+] }
 thiserror = { workspace = true }
 
 [dev-dependencies]
