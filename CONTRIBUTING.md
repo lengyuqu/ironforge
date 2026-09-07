@@ -36,7 +36,7 @@ rustfmt --edition 2021
 cargo clippy
 
 # 系统依赖（macOS）
-# git 仅测试造数据需要（生产运行时为纯 gix，无需系统 git）
+# git 为测试造数据与 mirror 同步需要（其余生产路径为纯 gix）
 which git   # 跑测试套件需要
 ```
 
@@ -97,7 +97,7 @@ rg-runner
 **允许**：
 - pkt-line / sideband 编解码
 - upload-pack / receive-pack 协议处理
-- gix 原生操作（对象/引用/树编辑/pack 管线/合并）；CLI 网关仅限测试代码
+- gix 原生操作（对象/引用/树编辑/pack 管线/合并）；CLI 网关仅限测试代码与 mirror 同步
 - 文件路径操作
 
 **禁止**：

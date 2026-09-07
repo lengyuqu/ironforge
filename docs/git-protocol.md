@@ -644,4 +644,4 @@ done\n
 - [Git HTTP Backend](https://git-scm.com/docs/git-http-backend)
 - [Git Smart HTTP Transfer Protocols](https://git-scm.com/docs/http-protocol)
 - [russh 文档](https://docs.rs/russh/)
-- [gitoxide (gix)](https://github.com/Byron/gitoxide) — 已完成全量迁移：生产路径 git 操作 100% gix 原生（见 `gix-migration-assessment.md`）
+- [gitoxide (gix)](https://github.com/Byron/gitoxide) — 已完成全量迁移：除 mirror 同步（`git clone --mirror` / `git remote update` 经 CLI 网关，带 transport lockdown）外，生产路径 git 操作 100% gix 原生（见 `gix-migration-assessment.md`）

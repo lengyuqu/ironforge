@@ -190,5 +190,31 @@ clone/fetch（PrepareFetch 可达，可选）。
 - `InOrderIter` 把并行 entry 分块按 SequenceId 顺序重排后喂 `FromEntriesIter`
 
 认证：全 workspace 416 测试 0 失败（含协议集成、PR 合并策略、权限、push/pull 端到端）。
-生产路径 git CLI 调用归零；`GitCommandGateway` 仅供测试造数据使用。
+生产路径 git CLI 调用除 mirror 同步外归零（见第九节勘误）；`GitCommandGateway` 供测试造数据与 mirror 同步使用。
+
+---
+
+## 九、勘误：mirror 同步仍走 git CLI（2026-09-07 代码审查发现）
+
+第二节现状盘点遗漏了 `rg-core/src/mirror/service.rs`：pull mirror 的
+`git clone --mirror` 与 `git remote update --prune` 一直经
+`GitCommandGateway::global_gateway()` 执行，属生产路径（后台任务每 60s
+`sync_due_mirrors` + 手动 trigger API）。因此"生产路径 100% gix 原生 /
+运行时不依赖 git CLI"的表述不准确，相关文档（CLAUDE.md / README /
+ARCHITECTURE.md / CONTRIBUTING.md / git-protocol.md / AGENT.md）已同步纠偏。
+
+现状安全护栏（2026-09 安全修复 #1 引入）：
+
+- `net_guard::validate_mirror_url`：scheme 白名单（http/https/git）+ DNS
+  解析 + 内网/回环地址封禁，创建/更新/同步三处入口校验
+- `GIT_TRANSPORT_LOCKDOWN`：每次调用附加 `-c protocol.ext.allow=never
+  -c protocol.file.allow=never -c protocol.ssh.allow=never`（禁 `ext::`
+  RCE / `file://` 本地读取 / ssh）
+
+迁移评估：mirror 全量 ref 镜像同步需要 gix fetch 管线（refspec 协商
+`+refs/*:refs/*` + pack 摄取 + prune 语义），自研成本与 fork fetch 的
+对象搬运不同（涉及远端传输），维持 CLI 直至 gix fetch API 成熟；届时
+按本评估文档复查清单验收。防回归守卫 `test_no_raw_git_command_in_crates`
+只拦截裸 `Command::new("git")`，经网关的调用不受限——mirror 是有意的
+唯一生产例外，新增生产 CLI 调用须在此文档登记。
 

@@ -91,7 +91,7 @@ Phase 1~21 全部完成。核心能力：
 | git-receive-pack | `rg-git/src/protocol/receive_pack.rs` | SSH + HTTP，返回 Vec\<RefUpdate\> |
 | Git Protocol V2 | `rg-git/src/protocol/v2.rs` | ls-refs/fetch/object-info；shallow/deepen/partial-clone |
 | V2 HTTP 集成 | `rg-http/src/git_v2.rs` | Git-Protocol: version=2 header 检测 |
-| CLI 网关（仅测试） | `rg-git/src/cli_gateway.rs` | git CLI 网关已从生产路径退役，仅测试造数据使用；防回归守卫 |
+| CLI 网关（测试 + mirror） | `rg-git/src/cli_gateway.rs` | git CLI 网关已从协议生产路径退役；现仅测试造数据与 mirror 同步（唯一生产例外）使用；防回归守卫 |
 | SSH 服务端 | `rg-ssh/src/lib.rs` | russh 0.51，公钥/密码认证查 DB |
 | HTTP 服务端 | `rg-http/src/lib.rs` | Axum 0.8，Git 协议鉴权 + 分支保护 + SvelteKit 静态资源 |
 | REST API | `rg-http/src/api/` | 30+ API 模块，142 个 OpenAPI 注解 |
@@ -114,7 +114,7 @@ Phase 1~21 全部完成。核心能力：
 | 邮件通知 | `rg-core/src/email/mod.rs` | SMTP（lettre）+ HTML 模板 |
 | Package Registry | `rg-core/src/package_registry/` | 10 种适配器 + OCI Distribution Spec v1.0 |
 | 审计日志 | `rg-core/src/audit/` | audit! 宏 + 90 天归档（NDJSON.zst） |
-| Mirror | `rg-core/src/mirror/` | 仓库镜像同步 |
+| Mirror | `rg-core/src/mirror/` | 仓库镜像同步（git CLI 经网关执行，transport lockdown + net_guard URL 校验；唯一生产 CLI 例外） |
 | Board | `rg-core/src/board/` | 看板管理（Board/Column/Card） |
 | Time Tracking | `rg-core/src/time_tracking/` | 工时追踪 |
 | 数据导入 | `rg-core/src/import/` | GitHub/GitLab 导入 |
@@ -136,7 +136,7 @@ Phase 1~21 全部完成。核心能力：
 
 ### 技术债与后续方向
 
-**gix 迁移**：生产路径 git CLI 调用归零（100% gix 原生）。Phase A+B+C-lite+Rebase+全量覆盖完成：rev-parse/update-ref/show/cat-file/verify-commit/auto_init/merge-tree/commit-tree/ls-tree/archive/rebase/pack 生成/ thin-pack 摄取/rev-list 图遍历/文件编辑直写（edit_tree+commit_as+引用乐观锁）/fork 对象搬运/fork 裸克隆 均已 gix 化；rebase 与 fork fetch 为自研实现（characterization 测试钉死语义，gix 出原生 API 时可替换）。`GitCommandGateway` 仅测试造数据使用。等待 gix 上游成熟项（迁移评估见 `docs/gix-migration-assessment.md`，基于 gix 0.87.1）：
+**gix 迁移**：生产路径 git CLI 调用除 **mirror 同步**（`git clone --mirror` / `git remote update --prune` 经 `GitCommandGateway` 执行）外归零，其余 100% gix 原生。Phase A+B+C-lite+Rebase+全量覆盖完成：rev-parse/update-ref/show/cat-file/verify-commit/auto_init/merge-tree/commit-tree/ls-tree/archive/rebase/pack 生成/ thin-pack 摄取/rev-list 图遍历/文件编辑直写（edit_tree+commit_as+引用乐观锁）/fork 对象搬运/fork 裸克隆 均已 gix 化；rebase 与 fork fetch 为自研实现（characterization 测试钉死语义，gix 出原生 API 时可替换）。`GitCommandGateway` 仅测试造数据与 mirror 同步使用。等待 gix 上游成熟项（迁移评估见 `docs/gix-migration-assessment.md`，基于 gix 0.87.1）：
 
 | 待办 | 阻塞原因 | 解除条件 |
 |---|---|---|
@@ -145,6 +145,7 @@ Phase 1~21 全部完成。核心能力：
 | Thin-pack 索引 | ~~gix 缺 thin 补全解析~~ | ✅ 已解除：`Bundle::write_to_directory`（thin base lookup = ODB，等价 --fix-thin） |
 | ~~GPG 验签~~ | ✅ 已解除：gix 0.87 `Commit::verify()`/`Commit::sign()` 内建 OpenPGP/X.509/SSH 签名与验签（Phase B3 已接入 receive_pack，`command` feature） | — |
 | blob-diff patch | 字节一致性待验证 | 对拍测试通过 |
+| Mirror 同步 gix 化 | gix fetch 管线（refspec 协商 + 镜像全量 ref 更新）自研成本高 | 当前走 git CLI + transport lockdown（`protocol.ext/file/ssh.allow=never`）+ `net_guard::validate_mirror_url`；gix 提供成熟 fetch API 后迁移 |
 
 复查节奏：每次 gix 版本升级时过一遍（最近一次：2026-09-06，gix 0.84→0.87.1）。
 

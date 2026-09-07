@@ -87,7 +87,7 @@ flowchart TB
 | 异步运行时 | tokio | 1.x | Rust 异步生态事实标准 |
 | HTTP 框架 | axum + axum-server | 0.8 / 0.7 | tokio 官方出品，生态好，性能优秀 |
 | SSH 服务端 | russh | 0.51 | 纯 Rust SSH2 实现，支持服务端 |
-| Git 操作 | gix (gitoxide) | 0.87.1 | 纯 Rust Git 实现，生产路径 100% gix 原生（git CLI 已退役，仅测试造数据使用） |
+| Git 操作 | gix (gitoxide) | 0.87.1 | 纯 Rust Git 实现，生产路径 gix 原生（git CLI 仅余 mirror 同步一处生产例外 + 测试造数据） |
 | ORM | SeaORM | 1.1 | 异步原生，迁移工具成熟，API 友好 |
 | 数据库 | SQLite（默认）/ PostgreSQL / MySQL | — | 轻量起步，支持多后端切换 |
 | 序列化 | serde + serde_json + toml | 1.x | Rust 事实标准 |
@@ -122,7 +122,7 @@ flowchart TB
 | 对象操作 | 成熟 | 非常成熟 |
 | 活跃度 | 极高 | 中等 |
 
-**选择 gix**：纯 Rust 的优势在交叉编译和 Docker 镜像体积上回报巨大。服务端协议层（Smart Protocol）是本项目自行实现的核心部分。git CLI 依赖已于 2026-09 全量退役（含 pack 生成/摄取、rebase、fork 对象搬运等自研补齐，见 `docs/gix-migration-assessment.md`），运行时不再需要系统 git。
+**选择 gix**：纯 Rust 的优势在交叉编译和 Docker 镜像体积上回报巨大。服务端协议层（Smart Protocol）是本项目自行实现的核心部分。git CLI 依赖已于 2026-09 基本全量退役（含 pack 生成/摄取、rebase、fork 对象搬运等自研补齐，见 `docs/gix-migration-assessment.md`），唯一残留：mirror 同步（`git clone --mirror` / `git remote update`，带 transport lockdown）仍走 git CLI，启用镜像功能时运行时需要系统 git。
 
 #### 前端框架对比
 
@@ -180,7 +180,7 @@ ironforge/
 │   │   └── src/
 │   │       ├── pkt_line.rs       #   pkt-line 编解码
 │   │       ├── sideband.rs       #   sideband-64k 多路复用
-│   │       ├── cli_gateway.rs    #   CLI 网关（历史组件，仅测试造数据使用）
+│   │       ├── cli_gateway.rs    #   CLI 网关（测试造数据 + mirror 同步使用）
 │   │       └── protocol/
 │   │           ├── upload_pack.rs #  Git upload-pack（clone/fetch）
 │   │           ├── receive_pack.rs # Git receive-pack（push）
@@ -385,9 +385,9 @@ HTTP Git 和 SSH Git 共同复用 `rg-git` 协议层。HTTP Git 已接入 JWT/PA
 - `object-info` 命令
 - HTTP 通过 `Git-Protocol: version=2` header 检测切换
 
-#### GitCommandGateway（历史组件，仅测试使用）
+#### GitCommandGateway（测试造数据 + mirror 同步）
 
-生产路径的所有 git 操作（协议服务、pack 生成/摄取、引用事务、合并/rebase、文件编辑、fork、验签、archive）均已由 gix 原生实现，运行时不再 spawn git 子进程。`rg-git/src/cli_gateway.rs` 保留为测试造数据的统一入口，防回归守卫 `test_no_raw_git_command_in_crates` 确保生产代码不新增 `Command::new("git")`。迁移全程记录见 `docs/gix-migration-assessment.md`。
+除 mirror 同步外，生产路径的所有 git 操作（协议服务、pack 生成/摄取、引用事务、合并/rebase、文件编辑、fork、验签、archive）均已由 gix 原生实现。`rg-core/src/mirror/service.rs` 是唯一的生产 CLI 调用方：`git clone --mirror` / `git remote update --prune` 经网关执行，且带 transport lockdown（`protocol.ext/file/ssh.allow=never`）与 `net_guard::validate_mirror_url` URL 校验（SSRF/RCE 防护，见 #1 修复）。`rg-git/src/cli_gateway.rs` 另保留为测试造数据的统一入口，防回归守卫 `test_no_raw_git_command_in_crates` 确保生产代码不新增裸 `Command::new("git")`。迁移全程记录见 `docs/gix-migration-assessment.md`。
 
 ### 6.2 认证与安全
 
