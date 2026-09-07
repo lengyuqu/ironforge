@@ -356,10 +356,15 @@ pub async fn ws_job_log_handler(
         },
     };
 
-    let user_id = token
-        .as_deref()
-        .and_then(|t| rg_core::auth::jwt::validate_token(t, &state.jwt_secret))
-        .and_then(|c| c.sub.parse::<i64>().ok());
+    let user_id = match token.as_deref() {
+        Some(t) => match rg_core::auth::jwt::validate_token(t, &state.jwt_secret) {
+            // #5: also enforce token_version revocation (query-param tokens
+            // bypass the header-based session_guard middleware).
+            Some(claims) => crate::api::auth::validate_session(&state.db, &claims).await,
+            None => None,
+        },
+        None => None,
+    };
 
     let Some(user_id) = user_id else {
         return crate::error::AppError::unauthorized("authentication required").into_response();

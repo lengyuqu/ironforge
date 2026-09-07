@@ -53,7 +53,7 @@ async fn record_audit(
     };
 
     if let Err(e) = rg_db::ops::audit_log_ops::insert(db, entry).await {
-        tracing::warn!(error = %e, "failed to record audit log");
+        tracing::error!(error = %e, "failed to record audit log");
     }
 }
 
@@ -182,6 +182,17 @@ pub async fn update_user(
     .await
     {
         Ok(user) => {
+            // Deactivation must take effect immediately (#5): bump
+            // token_version so all of the target's session JWTs die now,
+            // not when they happen to expire.
+            if is_active == Some(false) {
+                if let Err(e) =
+                    rg_db::ops::user_ops::bump_token_version(&state.db, user_id).await
+                {
+                    tracing::error!(user_id, error = %e, "failed to bump token version on deactivation");
+                    return AppError::internal("failed to deactivate user").into_response();
+                }
+            }
             let details = serde_json::json!({
                 "target_user_id": user_id,
                 "display_name": display_name_for_audit,

@@ -105,7 +105,9 @@ async fn check_access(
             .unwrap_or(""),
         &state.jwt_secret,
     ) {
-        if let Ok(uid) = claims.sub.parse::<i64>() {
+        // #5: enforce token_version revocation; a revoked session falls
+        // through to the OCI-scoped token check / anonymous access.
+        if let Some(uid) = crate::api::auth::validate_session(&state.db, &claims).await {
             if uid > 0 {
                 let allowed = match required_action {
                     "pull" => {

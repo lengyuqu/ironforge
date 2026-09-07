@@ -70,6 +70,7 @@ pub mod m20260714_000002_repair_mysql_fts_triggers;
 pub mod m20260820_000001_create_reactions;
 pub mod m20260821_000001_create_issue_assignees;
 pub mod m20260822_000001_create_background_jobs;
+pub mod m20260907_000001_add_users_token_version;
 
 use sea_orm_migration::prelude::*;
 
@@ -153,6 +154,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260820_000001_create_reactions::Migration),
             Box::new(m20260821_000001_create_issue_assignees::Migration),
             Box::new(m20260822_000001_create_background_jobs::Migration),
+            Box::new(m20260907_000001_add_users_token_version::Migration),
         ]
     }
 }

@@ -1332,6 +1332,14 @@ fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
         state.clone(),
         pat_auth_middleware,
     ));
+    // #5: strip JWTs whose `ver` claim no longer matches users.token_version
+    // (revoked via password reset / MFA change / deactivation). Added after
+    // pat_auth so it wraps it and runs first; PAT-minted JWTs always carry
+    // the current version and pass.
+    let api_v1 = api_v1.layer(axum::middleware::from_fn_with_state(
+        state.clone(),
+        api::auth::session_guard_middleware,
+    ));
 
     (api_v1, git_routes)
 }
@@ -1532,7 +1540,13 @@ async fn docs_auth_middleware(
     req: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> Response {
-    if api::auth::extract_bearer_claims(req.headers(), &state.jwt_secret).is_none() {
+    // #5: also enforce token_version revocation on the session JWT. JWTs
+    // minted from PATs by pat_auth_middleware carry the current version.
+    let authenticated = match api::auth::extract_bearer_claims(req.headers(), &state.jwt_secret) {
+        Some(claims) => api::auth::validate_session(&state.db, &claims).await.is_some(),
+        None => false,
+    };
+    if !authenticated {
         let mut response =
             (StatusCode::UNAUTHORIZED, "api docs requires authentication").into_response();
         if let Ok(challenge) = HeaderValue::from_str("Bearer") {
@@ -1672,20 +1686,43 @@ async fn pat_to_bearer_jwt(
             {
                 return Err(());
             }
-            let username = rg_db::ops::user_ops::find_by_id(&state.db, pat.user_id)
+            let Some(user) = rg_db::ops::user_ops::find_by_id(&state.db, pat.user_id)
                 .await
                 .ok()
                 .flatten()
-                .map(|u| u.username)
-                .unwrap_or_default();
-            if let Ok(jwt) =
-                rg_core::auth::jwt::generate_token(pat.user_id, &username, &state.jwt_secret, 1)
-            {
+            else {
+                // Owner no longer exists — the PAT must not mint a session.
+                continue;
+            };
+            if !user.is_active {
+                // Deactivated accounts must not mint fresh sessions (#5).
+                continue;
+            }
+            if let Ok(jwt) = rg_core::auth::jwt::generate_token(
+                user.id,
+                &user.username,
+                &state.jwt_secret,
+                1,
+                user.token_version,
+            ) {
                 return Ok(Some(jwt));
             }
         }
     }
     Ok(None)
+}
+
+/// Resolve a PAT to an actor id, requiring the `repo` scope and an active
+/// owner account (#5: deactivated accounts lose PAT access too).
+async fn pat_actor(db: &DatabaseConnection, token: &str) -> Option<i64> {
+    let pat = resolve_pat(db, token).await?;
+    if !rg_core::auth::pat_scope::has_scope(&pat.scopes, "repo") {
+        return None;
+    }
+    let user = rg_db::ops::user_ops::find_by_id(db, pat.user_id)
+        .await
+        .ok()??;
+    user.is_active.then_some(pat.user_id)
 }
 
 /// Extract the authenticated user id from a git-over-HTTP request.
@@ -1704,12 +1741,10 @@ async fn extract_actor_id(
     if let Some(token) = auth_str.strip_prefix("Bearer ") {
         // JWT session token first, then fall back to a PAT.
         if let Some(claims) = rg_core::auth::jwt::validate_token(token, jwt_secret) {
-            return claims.sub.parse().ok();
+            // #5: enforce token_version revocation on git-over-HTTP too.
+            return api::auth::validate_session(db, &claims).await;
         }
-        return resolve_pat(db, token)
-            .await
-            .filter(|pat| rg_core::auth::pat_scope::has_scope(&pat.scopes, "repo"))
-            .map(|pat| pat.user_id);
+        return pat_actor(db, token).await;
     }
 
     if let Some(encoded) = auth_str.strip_prefix("Basic ") {
@@ -1726,12 +1761,14 @@ async fn extract_actor_id(
                 continue;
             }
             if let Some(claims) = rg_core::auth::jwt::validate_token(candidate, jwt_secret) {
-                return claims.sub.parse().ok();
-            }
-            if let Some(pat) = resolve_pat(db, candidate).await {
-                if rg_core::auth::pat_scope::has_scope(&pat.scopes, "repo") {
-                    return Some(pat.user_id);
+                // #5: enforce token_version revocation on git-over-HTTP too.
+                if let Some(user_id) = api::auth::validate_session(db, &claims).await {
+                    return Some(user_id);
                 }
+                continue;
+            }
+            if let Some(user_id) = pat_actor(db, candidate).await {
+                return Some(user_id);
             }
         }
     }

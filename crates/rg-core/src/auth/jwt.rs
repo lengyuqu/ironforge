@@ -22,6 +22,11 @@ pub struct Claims {
     pub iss: Option<String>,
     /// Audience — intended recipient ("ironforge-user").
     pub aud: Option<String>,
+    /// Token revocation version — must equal `users.token_version` at
+    /// validation time. Absent in pre-migration tokens (decodes to 0,
+    /// matching the column default) so existing sessions survive deploys.
+    #[serde(default)]
+    pub ver: i64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -38,7 +43,17 @@ fn mfa_challenge_key(secret: &str) -> String {
 }
 
 /// Generate a signed JWT for a user.
-pub fn generate_token(user_id: i64, username: &str, secret: &str, ttl_days: i64) -> CoreResult<String> {
+///
+/// `token_version` is embedded as the `ver` claim; bumping the user's
+/// `users.token_version` row (see `user_ops::bump_token_version`)
+/// invalidates every token minted before the bump.
+pub fn generate_token(
+    user_id: i64,
+    username: &str,
+    secret: &str,
+    ttl_days: i64,
+    token_version: i64,
+) -> CoreResult<String> {
     let now = Utc::now();
     let exp = now + Duration::days(ttl_days);
     let claims = Claims {
@@ -48,6 +63,7 @@ pub fn generate_token(user_id: i64, username: &str, secret: &str, ttl_days: i64)
         exp: exp.timestamp(),
         iss: Some("ironforge".to_string()),
         aud: Some("ironforge-user".to_string()),
+        ver: token_version,
     };
     encode(
         &Header::default(),
@@ -113,10 +129,11 @@ mod tests {
     #[test]
     fn test_generate_and_validate() {
         let secret = "test_secret_key";
-        let token = generate_token(42, "alice", secret, 1).unwrap();
+        let token = generate_token(42, "alice", secret, 1, 0).unwrap();
         let claims = validate_token(&token, secret).unwrap();
         assert_eq!(claims.sub, "42");
         assert_eq!(claims.username, "alice");
+        assert_eq!(claims.ver, 0);
     }
 
     #[test]
@@ -126,31 +143,32 @@ mod tests {
 
     #[test]
     fn test_wrong_secret_fails() {
-        let token = generate_token(1, "bob", "secret_a", 7).unwrap();
+        let token = generate_token(1, "bob", "secret_a", 7, 0).unwrap();
         assert!(validate_token(&token, "secret_b").is_none());
     }
 
     #[test]
     fn test_expired_token_fails() {
-        let token = generate_token(1, "charlie", "secret", -1).unwrap(); // already expired
+        let token = generate_token(1, "charlie", "secret", -1, 0).unwrap(); // already expired
         assert!(validate_token(&token, "secret").is_none());
     }
 
     #[test]
     fn test_token_claims_fields() {
-        let token = generate_token(99, "testuser", "mykey", 30).unwrap();
+        let token = generate_token(99, "testuser", "mykey", 30, 3).unwrap();
         let claims = validate_token(&token, "mykey").unwrap();
         assert_eq!(claims.sub, "99");
         assert_eq!(claims.username, "testuser");
         assert!(claims.iat > 0);
         assert!(claims.exp > claims.iat);
+        assert_eq!(claims.ver, 3);
     }
 
     #[test]
     fn test_different_user_ids() {
         let secret = "key";
-        let t1 = generate_token(0, "user0", secret, 7).unwrap();
-        let t2 = generate_token(i64::MAX, "usermax", secret, 7).unwrap();
+        let t1 = generate_token(0, "user0", secret, 7, 0).unwrap();
+        let t2 = generate_token(i64::MAX, "usermax", secret, 7, 0).unwrap();
 
         let c1 = validate_token(&t1, secret).unwrap();
         assert_eq!(c1.sub, "0");
@@ -180,7 +198,18 @@ mod tests {
         assert_eq!(claims.auth_provider, "ldap");
         assert!(claims.exp - claims.iat <= 300);
 
-        let session = generate_token(42, "alice", "secret", 7).unwrap();
+        let session = generate_token(42, "alice", "secret", 7, 0).unwrap();
         assert!(validate_mfa_challenge(&session, "secret").is_none());
+    }
+
+    #[test]
+    fn token_version_round_trip_and_mismatch() {
+        let secret = "key";
+        let v1 = generate_token(7, "carol", secret, 7, 1).unwrap();
+        let v2 = generate_token(7, "carol", secret, 7, 2).unwrap();
+        // Both validate cryptographically; the caller (session guard)
+        // compares `claims.ver` against `users.token_version`.
+        assert_eq!(validate_token(&v1, secret).unwrap().ver, 1);
+        assert_eq!(validate_token(&v2, secret).unwrap().ver, 2);
     }
 }

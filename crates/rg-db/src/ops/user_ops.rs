@@ -156,6 +156,7 @@ pub async fn create_user(
         last_login_at: Set(None),
         login_attempts: Set(0),
         locked_until: Set(None),
+        token_version: Set(0),
         created_at: Set(now),
         updated_at: Set(now),
         deleted_at: Set(None),
@@ -197,6 +198,7 @@ pub async fn create_ldap_user(
             last_login_at: Set(None),
             login_attempts: Set(0),
             locked_until: Set(None),
+            token_version: Set(0),
             created_at: Set(now),
             updated_at: Set(now),
             deleted_at: Set(None),
@@ -366,5 +368,26 @@ pub async fn delete_by_id(db: &DatabaseConnection, id: i64) -> Result<()> {
         .ok_or_else(|| anyhow::anyhow!("user {} not found", id))?;
 
     model.delete(db).await.context("db: delete user")?;
+    Ok(())
+}
+
+/// Atomically increment `token_version`, revoking every previously issued
+/// JWT for the user (claims embed the version at issuance time; the session
+/// guard rejects mismatches). Call on password reset, MFA disable and admin
+/// deactivation.
+pub async fn bump_token_version(db: &DatabaseConnection, user_id: i64) -> Result<()> {
+    let result = UserEntity::update_many()
+        .col_expr(
+            user::Column::TokenVersion,
+            Expr::col(user::Column::TokenVersion).add(1),
+        )
+        .col_expr(user::Column::UpdatedAt, Expr::value(chrono::Utc::now()))
+        .filter(user::Column::Id.eq(user_id))
+        .exec(db)
+        .await
+        .context("db: bump token version")?;
+    if result.rows_affected == 0 {
+        anyhow::bail!("user {} not found", user_id);
+    }
     Ok(())
 }

@@ -340,8 +340,14 @@ pub async fn verify_mfa(
     record_mfa_attempt(&state, &headers, &user, &challenge.auth_provider, true).await;
 
     // Issue JWT
-    let token = rg_core::auth::jwt::generate_token(user.id, &user.username, &state.jwt_secret, 7)
-        .map_err(AppError::from)?;
+    let token = rg_core::auth::jwt::generate_token(
+        user.id,
+        &user.username,
+        &state.jwt_secret,
+        7,
+        user.token_version,
+    )
+    .map_err(AppError::from)?;
 
     // M-4: Set HttpOnly cookie for browser-based auth
     let is_https = headers
@@ -457,6 +463,13 @@ pub async fn disable_mfa(
     rg_db::ops::user_ops::disable_mfa(&state.db, user_id)
         .await
         .map_err(AppError::from)?;
+
+    // Security-sensitive change: revoke all existing sessions (#5). The
+    // client re-authenticates with the freshly verified password.
+    if let Err(e) = rg_db::ops::user_ops::bump_token_version(&state.db, user_id).await {
+        tracing::error!(user_id, error = %e, "failed to bump token version after MFA disable");
+        return Err(AppError::internal("failed to disable MFA"));
+    }
 
     Ok(Json(serde_json::json!({"disabled": true})))
 }

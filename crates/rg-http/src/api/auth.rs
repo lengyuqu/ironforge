@@ -112,3 +112,130 @@ pub(crate) fn extract_ci_job_claims(
 
 // Repo-scoped access helpers live in [`crate::api::repo_access`]
 // (`require_read` / `require_write` / `require_admin`).
+
+// ── #5: JWT session revocation (token_version) ──────────────────────
+
+/// Which credential a session JWT was presented in.
+enum SessionSource {
+    Cookie,
+    Bearer,
+}
+
+/// Validate that a signature-valid JWT still represents a live session (#5).
+///
+/// Compares the token's `ver` claim against `users.token_version` and rejects
+/// disabled accounts. Returns the user id when the session is still valid;
+/// `None` when the token has been revoked (password reset, MFA change,
+/// deactivation) or the account no longer exists / is disabled.
+///
+/// Pre-migration tokens carry no `ver` claim (decodes to 0) and match the
+/// column default, so sessions issued before this feature survive deploys.
+pub(crate) async fn validate_session(
+    db: &sea_orm::DatabaseConnection,
+    claims: &Claims,
+) -> Option<i64> {
+    let user_id = claims.sub.parse::<i64>().ok()?;
+    let user = rg_db::ops::user_ops::find_by_id(db, user_id)
+        .await
+        .ok()??;
+    if !user.is_active || user.token_version != claims.ver {
+        return None;
+    }
+    Some(user_id)
+}
+
+/// Extract the session JWT claims using the same priority as
+/// `extract_user_id` (HttpOnly cookie first, then Bearer header).
+/// Returns `None` when no signature-valid user JWT is presented.
+fn extract_session_claims(
+    headers: &HeaderMap,
+    jwt_secret: &str,
+) -> Option<(Claims, SessionSource)> {
+    if let Some(token) = extract_token_from_cookie(headers) {
+        if let Some(claims) = rg_core::auth::jwt::validate_token(&token, jwt_secret) {
+            return Some((claims, SessionSource::Cookie));
+        }
+    }
+    extract_bearer_claims(headers, jwt_secret).map(|claims| (claims, SessionSource::Bearer))
+}
+
+/// Remove the auth cookie from the `Cookie` header, preserving other cookies.
+fn strip_auth_cookie(headers: &mut HeaderMap) {
+    let Some(raw) = headers
+        .get(axum::http::header::COOKIE)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string)
+    else {
+        return;
+    };
+    let prefix = format!("{}=", AUTH_COOKIE_NAME);
+    let remaining: Vec<&str> = raw
+        .split(';')
+        .map(str::trim)
+        .filter(|c| !c.starts_with(&prefix))
+        .collect();
+    if remaining.is_empty() {
+        headers.remove(axum::http::header::COOKIE);
+    } else if let Ok(joined) = remaining.join("; ").parse() {
+        headers.insert(axum::http::header::COOKIE, joined);
+    }
+}
+
+/// #5: Session revocation guard for the REST API.
+///
+/// Runs on every `/api/v1` request. When a signature-valid JWT is presented
+/// whose `ver` claim no longer matches `users.token_version`, the credential
+/// is **stripped from the request** (and the auth cookie cleared) instead of
+/// short-circuiting with 401:
+///
+/// - Auth-free endpoints (login, register, public repo reads) keep working,
+///   so a user with a revoked browser session can still re-authenticate.
+/// - Every authenticated handler then sees "no credentials" and returns its
+///   normal 401, which the frontend global handler routes to the login page.
+///
+/// Requests without a signature-valid JWT (anonymous, PAT, CI token) pass
+/// through untouched — only live-session requests incur the primary-key
+/// user lookup.
+pub(crate) async fn session_guard_middleware(
+    axum::extract::State(state): axum::extract::State<crate::AppState>,
+    mut req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let Some((claims, source)) = extract_session_claims(req.headers(), &state.jwt_secret) else {
+        return next.run(req).await;
+    };
+    if validate_session(&state.db, &claims).await.is_some() {
+        return next.run(req).await;
+    }
+
+    tracing::info!(user_id = %claims.sub, "revoked session token presented; stripping credentials");
+    let mut clear_cookie = None;
+    match source {
+        SessionSource::Cookie => {
+            strip_auth_cookie(req.headers_mut());
+            let is_https = req
+                .headers()
+                .get("x-forwarded-proto")
+                .and_then(|v| v.to_str().ok())
+                .is_some_and(|v| v == "https");
+            clear_cookie = Some(format!(
+                "{}=; HttpOnly; Path=/; SameSite=Strict; Max-Age=0{}",
+                AUTH_COOKIE_NAME,
+                if is_https { "; Secure" } else { "" }
+            ));
+        }
+        SessionSource::Bearer => {
+            req.headers_mut().remove(axum::http::header::AUTHORIZATION);
+        }
+    }
+
+    let mut response = next.run(req).await;
+    if let Some(cookie) = clear_cookie {
+        if let Ok(value) = axum::http::HeaderValue::from_str(&cookie) {
+            response
+                .headers_mut()
+                .append(axum::http::header::SET_COOKIE, value);
+        }
+    }
+    response
+}

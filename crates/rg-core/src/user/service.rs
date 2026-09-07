@@ -140,7 +140,7 @@ pub async fn register(
     };
 
     let user = user_ops::create(db, model).await?;
-    let token = jwt::generate_token(user.id, &user.username, jwt_secret, 7)?;
+    let token = jwt::generate_token(user.id, &user.username, jwt_secret, 7, user.token_version)?;
 
     Ok(AuthResponse {
         token,
@@ -176,7 +176,7 @@ pub async fn login(
         bail!("invalid credentials");
     }
 
-    let token = jwt::generate_token(user.id, &user.username, jwt_secret, 7)?;
+    let token = jwt::generate_token(user.id, &user.username, jwt_secret, 7, user.token_version)?;
 
     Ok(AuthResponse {
         token,
@@ -294,7 +294,7 @@ async fn login_via_ldap(
                 bail!("invalid credentials");
             }
         };
-        let token = jwt::generate_token(user.id, &user.username, jwt_secret, 7)?;
+        let token = jwt::generate_token(user.id, &user.username, jwt_secret, 7, user.token_version)?;
         return Ok(LoginOutcome {
             response: AuthResponse {
                 token,
@@ -645,8 +645,15 @@ pub async fn reset_password(
     // Invalidate any other unused tokens for this user
     rg_db::ops::password_reset_token_ops::invalidate_user_tokens(db, user.id).await?;
 
-    // Generate new JWT
-    let jwt_token = jwt::generate_token(user.id, &user.username, jwt_secret, 7)?;
+    // Revoke all previously issued session tokens (#5): the password just
+    // changed, so any JWT minted under the old credential must stop working.
+    user_ops::bump_token_version(db, user.id).await?;
+    let user = user_ops::find_by_id(db, user.id)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("user not found after token version bump"))?;
+
+    // Generate new JWT carrying the fresh token_version
+    let jwt_token = jwt::generate_token(user.id, &user.username, jwt_secret, 7, user.token_version)?;
 
     Ok(AuthResponse {
         token: jwt_token,
