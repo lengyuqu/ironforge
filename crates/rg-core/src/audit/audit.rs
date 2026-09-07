@@ -10,8 +10,9 @@ use rg_db::entities::audit_log;
 
 /// Record an audit event.
 ///
-/// Any error is logged but never propagated to the caller — audit
-/// failures must not block the primary operation.
+/// Any error is logged at ERROR level but never propagated to the caller —
+/// audit failures must not block the primary operation, but they must be
+/// visible: a lost audit trail is a security/compliance event, not noise.
 #[tracing::instrument(skip(db, details), fields(action = %action))]
 #[allow(clippy::too_many_arguments)]
 pub async fn record(
@@ -41,6 +42,6 @@ pub async fn record(
     };
 
     if let Err(e) = audit_log::Entity::insert(entry).exec(db).await {
-        tracing::warn!(%action, "failed to write audit log: {}", e);
+        tracing::error!(%action, "failed to write audit log: {}", e);
     }
 }

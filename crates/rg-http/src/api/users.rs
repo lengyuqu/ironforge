@@ -80,7 +80,7 @@ async fn record_audit(
     };
 
     if let Err(e) = rg_db::ops::audit_log_ops::insert(db, entry).await {
-        tracing::warn!(error = %e, "failed to record audit log");
+        tracing::error!(error = %e, "failed to record audit log");
     }
 }
 

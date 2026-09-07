@@ -139,40 +139,49 @@ impl RateLimiter {
 
     fn client_key(&self, headers: &HeaderMap, addr: SocketAddr) -> String {
         if self.trusted_proxies.contains(&addr.ip()) {
-            if let Some(forwarded) = extract_forwarded_client_key(headers) {
+            if let Some(forwarded) = self.forwarded_client_key(headers) {
                 return forwarded;
             }
         }
         addr.ip().to_string()
     }
-}
 
-/// Extract client IP from trusted proxy headers (X-Forwarded-For, X-Real-IP).
-/// Returns `None` if no identifying header is present.
-fn extract_forwarded_client_key(headers: &HeaderMap) -> Option<String> {
-    // Try X-Forwarded-For first (first IP in the list)
-    if let Some(xff) = headers.get("x-forwarded-for") {
-        if let Ok(val) = xff.to_str() {
-            if let Some(ip) = val.split(',').next() {
-                let ip = ip.trim();
-                if !ip.is_empty() {
-                    return Some(ip.to_string());
+    /// Derive the client key from proxy headers when the connection itself
+    /// comes from a trusted proxy.
+    ///
+    /// Walks `X-Forwarded-For` **right-to-left**, skipping entries that are
+    /// themselves trusted proxies, and returns the first remaining address —
+    /// i.e. the farthest peer the trusted proxy chain actually observed.
+    /// The leftmost entry is client-controlled and trivially spoofed
+    /// (`X-Forwarded-For: 1.2.3.4` prepended by the caller), so it must never
+    /// be used as the rate-limit key.
+    fn forwarded_client_key(&self, headers: &HeaderMap) -> Option<String> {
+        if let Some(xff) = headers.get("x-forwarded-for").and_then(|v| v.to_str().ok()) {
+            for entry in xff.split(',').rev() {
+                let entry = entry.trim();
+                if entry.is_empty() {
+                    continue;
+                }
+                // Skip unparseable entries defensively (never key on garbage).
+                let Ok(ip) = entry.parse::<IpAddr>() else {
+                    continue;
+                };
+                if !self.trusted_proxies.contains(&ip) {
+                    return Some(entry.to_string());
                 }
             }
         }
-    }
 
-    // Try X-Real-IP
-    if let Some(xri) = headers.get("x-real-ip") {
-        if let Ok(val) = xri.to_str() {
-            let val = val.trim();
-            if !val.is_empty() {
+        // Single-hop proxies commonly set X-Real-IP instead.
+        if let Some(xri) = headers.get("x-real-ip").and_then(|v| v.to_str().ok()) {
+            let val = xri.trim();
+            if !val.is_empty() && val.parse::<IpAddr>().is_ok() {
                 return Some(val.to_string());
             }
         }
-    }
 
-    None
+        None
+    }
 }
 
 /// Axum middleware for rate limiting.
@@ -250,29 +259,72 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_forwarded_client_key_xff() {
+    fn test_forwarded_key_picks_rightmost_non_trusted_ip() {
+        // CDN → LB → app: both hops are trusted proxies, the client is the
+        // rightmost entry that is not a trusted proxy.
+        let limiter = RateLimiter::with_trusted_proxies(
+            10,
+            60,
+            vec!["10.0.0.1".parse().unwrap(), "10.0.0.2".parse().unwrap()],
+        );
         let mut headers = HeaderMap::new();
-        headers.insert("x-forwarded-for", "192.168.1.1, 10.0.0.1".parse().unwrap());
+        headers.insert("x-forwarded-for", "203.0.113.10, 10.0.0.2, 10.0.0.1".parse().unwrap());
         assert_eq!(
-            extract_forwarded_client_key(&headers),
-            Some("192.168.1.1".to_string())
+            limiter.forwarded_client_key(&headers),
+            Some("203.0.113.10".to_string())
         );
     }
 
     #[test]
-    fn test_extract_forwarded_client_key_xri() {
+    fn test_forwarded_key_ignores_spoofed_leftmost_ip() {
+        // Attacker connects to the trusted proxy with a forged leftmost
+        // X-Forwarded-For entry; the proxy appends the address it observed.
+        // The rightmost non-trusted entry is the attacker's real address.
+        let limiter =
+            RateLimiter::with_trusted_proxies(10, 60, vec!["10.0.0.1".parse().unwrap()]);
         let mut headers = HeaderMap::new();
-        headers.insert("x-real-ip", "10.0.0.1".parse().unwrap());
+        headers.insert(
+            "x-forwarded-for",
+            "1.2.3.4, 198.51.100.7, 10.0.0.1".parse().unwrap(),
+        );
         assert_eq!(
-            extract_forwarded_client_key(&headers),
-            Some("10.0.0.1".to_string())
+            limiter.forwarded_client_key(&headers),
+            Some("198.51.100.7".to_string())
         );
     }
 
     #[test]
-    fn test_extract_forwarded_client_key_none() {
-        let headers = HeaderMap::new();
-        assert_eq!(extract_forwarded_client_key(&headers), None);
+    fn test_forwarded_key_skips_unparseable_entries() {
+        let limiter =
+            RateLimiter::with_trusted_proxies(10, 60, vec!["10.0.0.1".parse().unwrap()]);
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-for", "not-an-ip, 203.0.113.10, 10.0.0.1".parse().unwrap());
+        assert_eq!(
+            limiter.forwarded_client_key(&headers),
+            Some("203.0.113.10".to_string())
+        );
+    }
+
+    #[test]
+    fn test_forwarded_key_falls_back_to_x_real_ip() {
+        let limiter =
+            RateLimiter::with_trusted_proxies(10, 60, vec!["10.0.0.1".parse().unwrap()]);
+        let mut headers = HeaderMap::new();
+        headers.insert("x-real-ip", "203.0.113.10".parse().unwrap());
+        assert_eq!(
+            limiter.forwarded_client_key(&headers),
+            Some("203.0.113.10".to_string())
+        );
+    }
+
+    #[test]
+    fn test_forwarded_key_none_when_only_trusted_entries() {
+        let limiter =
+            RateLimiter::with_trusted_proxies(10, 60, vec!["10.0.0.1".parse().unwrap()]);
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-for", "10.0.0.1".parse().unwrap());
+        assert_eq!(limiter.forwarded_client_key(&headers), None);
+        assert_eq!(limiter.forwarded_client_key(&HeaderMap::new()), None);
     }
 
     #[test]

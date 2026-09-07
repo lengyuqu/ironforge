@@ -17,6 +17,10 @@ pub use audit_impl::record;
 
 /// Shorthand macro so callers don't need to pass `&db` explicitly.
 ///
+/// Fire-and-forget: write failures are logged at ERROR level inside
+/// [`record`] and never propagated — an audit failure must not block the
+/// primary operation, but it is never silent.
+///
 /// `$db` — `&DatabaseConnection`
 /// `$user_id` — `Option<i64>`
 /// `$username` — `Option<&str>`
@@ -26,7 +30,7 @@ pub use audit_impl::record;
 macro_rules! audit {
     ($db:expr, $user_id:expr, $username:expr, $action:expr,
      $rt:expr, $rid:expr, $rn:expr, $ip:expr, $ua:expr, $details:expr $(,)?) => {{
-        let _ = $crate::audit::record(
+        $crate::audit::record(
             $db, $user_id, $username, $action, $rt, $rid, $rn, $ip, $ua, $details,
         )
         .await;
