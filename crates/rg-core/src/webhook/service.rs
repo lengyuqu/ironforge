@@ -44,6 +44,11 @@ pub async fn create_webhook(
     repo_id: i64,
     req: &CreateWebhookRequest,
 ) -> Result<webhook::Model> {
+    // SSRF guard: only public http/https endpoints may receive payloads.
+    crate::net_guard::validate_webhook_url(&req.url)
+        .await
+        .map_err(|e| anyhow::anyhow!("invalid webhook URL: {e}"))?;
+
     let now = Utc::now();
     let events_str = req.events.join(",");
     let model = webhook::ActiveModel {
@@ -80,6 +85,13 @@ pub async fn update_webhook(
     existing: &webhook::Model,
     req: &UpdateWebhookRequest,
 ) -> Result<webhook::Model> {
+    if let Some(url) = &req.url {
+        // SSRF guard on updated endpoint.
+        crate::net_guard::validate_webhook_url(url)
+            .await
+            .map_err(|e| anyhow::anyhow!("invalid webhook URL: {e}"))?;
+    }
+
     let model = webhook::ActiveModel {
         id: sea_orm::Set(existing.id),
         repo_id: sea_orm::Set(existing.repo_id),
@@ -200,6 +212,22 @@ pub async fn trigger_event(
     Ok(())
 }
 
+/// Shared HTTP client for webhook deliveries.
+///
+/// - Redirects are **not** followed: a validated public endpoint must not be
+///   able to bounce the POST to an internal target via 3xx (which would
+///   bypass the SSRF guard). Receivers that answer 3xx are recorded as such.
+/// - Connection pooling avoids a new TLS handshake per delivery.
+static HTTP_CLIENT: std::sync::LazyLock<Option<reqwest::Client>> =
+    std::sync::LazyLock::new(|| {
+        reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .connect_timeout(std::time::Duration::from_secs(10))
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .ok()
+    });
+
 /// Deliver a webhook payload via HTTP POST.
 async fn deliver(
     url: &str,
@@ -207,9 +235,17 @@ async fn deliver(
     secret: &Option<String>,
     payload: &str,
 ) -> Result<i32> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .build()?;
+    // Re-validate immediately before sending: covers legacy rows created
+    // before the URL guard existed and narrows the DNS-rebinding window
+    // (a host that resolved publicly at registration time may now resolve
+    // internally).
+    crate::net_guard::validate_webhook_url(url)
+        .await
+        .map_err(|e| anyhow::anyhow!("webhook URL rejected: {e}"))?;
+
+    let client = HTTP_CLIENT
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("failed to initialise webhook HTTP client"))?;
     let mut builder = client.post(url);
 
     if content_type == "form" {

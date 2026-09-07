@@ -21,6 +21,12 @@ pub async fn create_mirror(
     password: Option<String>,
     sync_interval_seconds: i64,
 ) -> Result<Mirror> {
+    // SSRF/RCE guard: reject ext::, file://, ssh:// and other dangerous
+    // transports before persisting the remote URL.
+    crate::net_guard::validate_mirror_url(&url)
+        .await
+        .map_err(|e| anyhow::anyhow!("invalid mirror URL: {e}"))?;
+
     // Ensure the repository exists
     let repo = repository::Entity::find_by_id(repo_id)
         .one(db)
@@ -79,6 +85,13 @@ pub async fn update_mirror(
         .await?
         .ok_or_else(|| anyhow::anyhow!("mirror not found"))?;
 
+    if let Some(v) = &url {
+        // SSRF/RCE guard on updated remote URL.
+        crate::net_guard::validate_mirror_url(v)
+            .await
+            .map_err(|e| anyhow::anyhow!("invalid mirror URL: {e}"))?;
+    }
+
     let mut model: ActiveModel = existing.into();
     if let Some(v) = url {
         model.url = Set(v);
@@ -117,6 +130,24 @@ pub async fn sync_mirror(
     repo_root: &Path,
 ) -> Result<bool> {
     if mirror.status != "active" {
+        return Ok(false);
+    }
+
+    // Re-validate the stored remote: rows created before the URL guard was
+    // introduced (or written directly to the DB) must not be able to use
+    // dangerous transports (ext:: RCE, file:// local reads).
+    if let Err(e) = crate::net_guard::validate_mirror_url(&mirror.url).await {
+        tracing::error!(
+            repo_id = mirror.repo_id,
+            url = %mirror.url,
+            error = %e,
+            "mirror URL rejected by outbound guard; disabling mirror"
+        );
+        let mut model: ActiveModel = mirror.clone().into();
+        model.last_sync_error = Set(Some(format!("mirror URL rejected: {e}")));
+        model.status = Set("error".to_string());
+        model.updated_at = Set(Utc::now());
+        rg_db::ops::mirror_ops::update(db, model).await?;
         return Ok(false);
     }
 
@@ -183,6 +214,19 @@ pub async fn trigger_sync(db: &DatabaseConnection, repo_id: i64, repo_root: &Pat
 
 // ── Git helpers ─────────────────────────────────────────────────────────
 
+/// Git transport lockdown passed as `-c` options to every mirror git
+/// invocation. `ext::` executes arbitrary commands (RCE), `file://` reads
+/// local paths, and ssh is not supported for mirrors — all three are
+/// disabled at the git layer as defence in depth on top of the URL guard.
+const GIT_TRANSPORT_LOCKDOWN: [&str; 6] = [
+    "-c",
+    "protocol.ext.allow=never",
+    "-c",
+    "protocol.file.allow=never",
+    "-c",
+    "protocol.ssh.allow=never",
+];
+
 fn run_git_clone_mirror(url: &str, path: &Path) -> Result<()> {
     let parent = path
         .parent()
@@ -192,14 +236,18 @@ fn run_git_clone_mirror(url: &str, path: &Path) -> Result<()> {
     let git = global_gateway()
         .as_ref()
         .map_err(|e| anyhow::anyhow!("{}", e))?;
-    git.run_or_bail(&["clone", "--mirror", url, &path.to_string_lossy()], None)
-        .context("git clone --mirror")
+    let path_str = path.to_string_lossy();
+    let mut args: Vec<&str> = GIT_TRANSPORT_LOCKDOWN.to_vec();
+    args.extend(["clone", "--mirror", url, &path_str]);
+    git.run_or_bail(&args, None).context("git clone --mirror")
 }
 
 fn run_git_remote_update(path: &Path) -> Result<()> {
     let git = global_gateway()
         .as_ref()
         .map_err(|e| anyhow::anyhow!("{}", e))?;
-    git.run_or_bail(&["remote", "update", "--prune"], Some(path))
+    let mut args: Vec<&str> = GIT_TRANSPORT_LOCKDOWN.to_vec();
+    args.extend(["remote", "update", "--prune"]);
+    git.run_or_bail(&args, Some(path))
         .context("git remote update")
 }

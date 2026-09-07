@@ -31,6 +31,9 @@ impl rg_core::ci::CiTrigger for NoopCiEngine {
 pub async fn setup_test_db() -> (rg_db::DatabaseConnection, tempfile::TempDir) {
     use sea_orm::{ConnectOptions, Database};
     use std::time::Duration;
+    // Webhook/mirror tests deliver to loopback receivers; the outbound URL
+    // guard must let them through (scheme allowlists still apply).
+    std::env::set_var("IRONFORGE_ALLOW_LOCAL_OUTBOUND", "1");
     let dir = tempfile::tempdir().expect("failed to create temp dir");
     let db_path = dir.path().join("test.db");
     let db_url = format!("sqlite://{}?mode=rwc", db_path.display());

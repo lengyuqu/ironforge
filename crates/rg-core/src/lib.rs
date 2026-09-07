@@ -46,6 +46,7 @@ pub mod background_jobs;
 pub mod blob_storage;
 pub mod email;
 pub mod lfs;
+pub mod net_guard; // SSRF/RCE guard for outbound URLs (webhook, mirror)
 pub mod platform;
 pub mod search; // Cross-platform abstractions
 
