@@ -51,8 +51,8 @@
 ### 开发新功能 / 规划下一步
 → `CLAUDE.md` 实现现状表格 → `ironforge-docs/architecture/` 系列架构文档 → `CONTRIBUTING.md` 编码规范
 
-### gix 迁移 / 替换 git CLI 调用
-→ `CLAUDE.md` 技术债与后续方向
+### gix 升级 / 复查迁移状态
+→ `docs/gix-migration-assessment.md`（生产路径 git CLI 已归零，gix 升级时按评估文档复查清单验收）
 
 ### CI/CD Runner 开发
 → `ironforge-docs/ci/ci-runner-architecture.md`

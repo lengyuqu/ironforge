@@ -72,7 +72,7 @@ Phase 1~21 全部完成。核心能力：
 
 | 领域 | 模块 | 说明 |
 |------|------|------|
-| Git 协议 | `rg-git` | V1/V2、pkt-line、sideband、upload-pack、receive-pack、GitCommandGateway |
+| Git 协议 | `rg-git` | V1/V2、pkt-line、sideband、upload-pack、receive-pack（gix 原生，CLI 网关仅测试用） |
 | SSH 服务 | `rg-ssh` | russh 0.51，公钥/密码认证，Deploy Key |
 | HTTP 服务 | `rg-http` | Axum 0.8，REST + Git Smart HTTP + OCI + WebSocket + OpenAPI + SPA |
 | 业务逻辑 | `rg-core` | auth/user/repo/issue/pr/wiki/lfs/webhook/review/branch_protection/collaborator/org/notification/email/package_registry/mirror/board/time_tracking/import/audit/search/code_indexer |
@@ -91,7 +91,7 @@ Phase 1~21 全部完成。核心能力：
 | git-receive-pack | `rg-git/src/protocol/receive_pack.rs` | SSH + HTTP，返回 Vec\<RefUpdate\> |
 | Git Protocol V2 | `rg-git/src/protocol/v2.rs` | ls-refs/fetch/object-info；shallow/deepen/partial-clone |
 | V2 HTTP 集成 | `rg-http/src/git_v2.rs` | Git-Protocol: version=2 header 检测 |
-| GitCommandGateway | `rg-git/src/cli_gateway.rs` | 全部 git 子进程统一入口，防回归守卫 |
+| CLI 网关（仅测试） | `rg-git/src/cli_gateway.rs` | git CLI 网关已从生产路径退役，仅测试造数据使用；防回归守卫 |
 | SSH 服务端 | `rg-ssh/src/lib.rs` | russh 0.51，公钥/密码认证查 DB |
 | HTTP 服务端 | `rg-http/src/lib.rs` | Axum 0.8，Git 协议鉴权 + 分支保护 + SvelteKit 静态资源 |
 | REST API | `rg-http/src/api/` | 30+ API 模块，142 个 OpenAPI 注解 |

@@ -36,8 +36,8 @@ rustfmt --edition 2021
 cargo clippy
 
 # 系统依赖（macOS）
-# git（用于 pack-objects / index-pack / update-ref）
-which git   # 必须存在
+# git 仅测试造数据需要（生产运行时为纯 gix，无需系统 git）
+which git   # 跑测试套件需要
 ```
 
 ### 推荐工具
@@ -97,7 +97,7 @@ rg-runner
 **允许**：
 - pkt-line / sideband 编解码
 - upload-pack / receive-pack 协议处理
-- 调用系统 `git` 命令（pack-objects、index-pack、update-ref、for-each-ref）
+- gix 原生操作（对象/引用/树编辑/pack 管线/合并）；CLI 网关仅限测试代码
 - 文件路径操作
 
 **禁止**：
@@ -185,13 +185,12 @@ rg-runner
 
 ```rust
 // ✅ 错误处理：用 anyhow::Result 配合 ? 操作符
-pub async fn do_something(path: &Path) -> anyhow::Result<()> {
-    let output = std::process::Command::new("git")
-        .arg("-C").arg(path)
-        .args(["rev-parse", "HEAD"])
-        .output()
-        .context("failed to run git rev-parse")?;
-    Ok(())
+pub fn resolve_head(path: &Path) -> anyhow::Result<String> {
+    let repo = gix::open(path).context("failed to open repository")?;
+    let head = repo
+        .rev_parse_single("HEAD")
+        .context("failed to resolve HEAD")?;
+    Ok(head.to_string())
 }
 
 // ✅ 日志：用 tracing，结构化字段
@@ -214,12 +213,13 @@ pub async fn write_pkt_line<W: AsyncWrite + Unpin>(writer: &mut W, ...) -> Resul
     let result = process_push(repo_path, &mut reader).await?;
 }  // BufReader drop 在这里，之后 stream 可以继续用于写
 
-// ✅ 调用系统命令：用 tokio::process::Command 做异步
-let mut cmd = tokio::process::Command::new("git")
-    .arg("-C").arg(repo_path)
-    .args(["index-pack", "--fix-thin", "--stdin"])
-    .stdin(Stdio::piped())
-    .spawn()?;
+// ✅ 阻塞型 git 操作：gix 调用放进 spawn_blocking（gix Repository !Send）
+let repo_path = repo_path.to_path_buf();
+let tip = tokio::task::spawn_blocking(move || -> anyhow::Result<String> {
+    Ok(gix::open(&repo_path)?.rev_parse_single("HEAD")?.to_string())
+})
+.await
+.context("git task failed")??;
 ```
 
 ### 错误处理规范

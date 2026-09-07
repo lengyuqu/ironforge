@@ -17,7 +17,7 @@ IronForge 对标 [Gitea](https://gitea.com/) / [Forgejo](https://forgejo.org/)�
 
 - Rust 1.95+（推荐 stable）
 - Node.js（前端构建与回归脚本）
-- git（系统命令，用于 pack-objects / index-pack / update-ref / diff）
+- git（可选，仅运行测试套件造数据需要；生产路径 100% gix 原生，运行时不依赖 git CLI）
 - macOS 或 Linux
 
 ### 编译
@@ -287,7 +287,7 @@ ironforge/
 | 异步运行时 | tokio | 1.x |
 | HTTP 框架 | axum + axum-server | 0.8 / 0.7 |
 | SSH 服务端 | russh | 0.51 |
-| Git 操作 | gix + GitCommandGateway | 0.84 |
+| Git 操作 | gix（生产路径 100% 原生，CLI 网关仅测试用） | 0.87.1 |
 | ORM | SeaORM | 1.1 |
 | 认证 | argon2 + JWT | 0.5 |
 | TLS | rustls + tokio-rustls | 0.23 / 0.26 |

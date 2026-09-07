@@ -1435,12 +1435,9 @@ async fn health(State(state): State<AppState>) -> impl IntoResponse {
         serde_json::json!(if metrics_ok { "ok" } else { "not_initialized" }),
     );
 
-    // Git availability check (gateway already validates git --version at init)
-    let git_ok = rg_git::cli_gateway::global_gateway().is_ok();
-    checks.insert(
-        "git".to_string(),
-        serde_json::json!(if git_ok { "ok" } else { "error" }),
-    );
+    // Git functionality is provided in-process by gix (no external git
+    // binary involved since the CLI retirement); always available.
+    checks.insert("git".to_string(), serde_json::json!("builtin"));
 
     // SMTP connectivity check (TCP connect with timeout)
     let smtp_ok = if let Some(ref smtp) = state.smtp_config {
@@ -1462,14 +1459,14 @@ async fn health(State(state): State<AppState>) -> impl IntoResponse {
     );
 
     // Overall: all critical checks must pass
-    let overall = if db_ok && fs_ok && git_ok && smtp_ok {
+    let overall = if db_ok && fs_ok && smtp_ok {
         "ok"
     } else if db_ok || fs_ok {
         "degraded"
     } else {
         "unhealthy"
     };
-    let status_code = if db_ok && fs_ok && git_ok && smtp_ok {
+    let status_code = if db_ok && fs_ok && smtp_ok {
         StatusCode::OK
     } else {
         StatusCode::SERVICE_UNAVAILABLE

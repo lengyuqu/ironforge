@@ -87,7 +87,7 @@ flowchart TB
 | 异步运行时 | tokio | 1.x | Rust 异步生态事实标准 |
 | HTTP 框架 | axum + axum-server | 0.8 / 0.7 | tokio 官方出品，生态好，性能优秀 |
 | SSH 服务端 | russh | 0.51 | 纯 Rust SSH2 实现，支持服务端 |
-| Git 操作 | gix (gitoxide) + GitCommandGateway | 0.84 | 纯 Rust Git 实现（~70% 覆盖率），剩余经统一网关调用 git CLI |
+| Git 操作 | gix (gitoxide) | 0.87.1 | 纯 Rust Git 实现，生产路径 100% gix 原生（git CLI 已退役，仅测试造数据使用） |
 | ORM | SeaORM | 1.1 | 异步原生，迁移工具成熟，API 友好 |
 | 数据库 | SQLite（默认）/ PostgreSQL / MySQL | — | 轻量起步，支持多后端切换 |
 | 序列化 | serde + serde_json + toml | 1.x | Rust 事实标准 |
@@ -122,7 +122,7 @@ flowchart TB
 | 对象操作 | 成熟 | 非常成熟 |
 | 活跃度 | 极高 | 中等 |
 
-**选择 gix**：纯 Rust 的优势在交叉编译和 Docker 镜像体积上回报巨大。服务端协议层（Smart Protocol）是本项目自行实现的核心部分。当前采用 gix + GitCommandGateway 混合模式，逐步将 CLI 调用迁移至 gix 原生 API。
+**选择 gix**：纯 Rust 的优势在交叉编译和 Docker 镜像体积上回报巨大。服务端协议层（Smart Protocol）是本项目自行实现的核心部分。git CLI 依赖已于 2026-09 全量退役（含 pack 生成/摄取、rebase、fork 对象搬运等自研补齐，见 `docs/gix-migration-assessment.md`），运行时不再需要系统 git。
 
 #### 前端框架对比
 
@@ -180,7 +180,7 @@ ironforge/
 │   │   └── src/
 │   │       ├── pkt_line.rs       #   pkt-line 编解码
 │   │       ├── sideband.rs       #   sideband-64k 多路复用
-│   │       ├── cli_gateway.rs    #   Git CLI 统一入口（GitCommandGateway）
+│   │       ├── cli_gateway.rs    #   CLI 网关（历史组件，仅测试造数据使用）
 │   │       └── protocol/
 │   │           ├── upload_pack.rs #  Git upload-pack（clone/fetch）
 │   │           ├── receive_pack.rs # Git receive-pack（push）
@@ -385,9 +385,9 @@ HTTP Git 和 SSH Git 共同复用 `rg-git` 协议层。HTTP Git 已接入 JWT/PA
 - `object-info` 命令
 - HTTP 通过 `Git-Protocol: version=2` header 检测切换
 
-#### GitCommandGateway
+#### GitCommandGateway（历史组件，仅测试使用）
 
-所有 git 子进程调用统一走 `rg-git/src/cli_gateway.rs`，防回归守卫 `test_no_raw_git_command_in_crates` 确保不新增 `Command::new("git")`。当前 gix 原生覆盖率 ~70%，16 处 CLI 经网关保留（Diff/Fetch/Rebase/Pack/GPG/Clone），等待 gix 上游能力成熟后逐步迁移。
+生产路径的所有 git 操作（协议服务、pack 生成/摄取、引用事务、合并/rebase、文件编辑、fork、验签、archive）均已由 gix 原生实现，运行时不再 spawn git 子进程。`rg-git/src/cli_gateway.rs` 保留为测试造数据的统一入口，防回归守卫 `test_no_raw_git_command_in_crates` 确保生产代码不新增 `Command::new("git")`。迁移全程记录见 `docs/gix-migration-assessment.md`。
 
 ### 6.2 认证与安全
 
@@ -546,7 +546,6 @@ ironforge serve
   → resolve JWT/config/logging/timeouts
   → init tracing ( RollingFileAppender )
   → create repo_root
-  → init GitCommandGateway
   → rg_db::connect_with_timeouts
   → rg_db::run_migrations
   → build AppState
@@ -656,7 +655,7 @@ node frontend build
 
 | 风险 | 影响 | 缓解策略 |
 |------|------|----------|
-| gix 服务端 API 不成熟 | 部分操作仍需 git CLI | GitCommandGateway 统一入口，逐步迁移 |
+| gix 上游 API 变动 | 自研适配层需跟进 | 生产路径已 100% gix 化；语义由 characterization 测试钉死，升级时按评估文档复查 |
 | SQLite 并发写入瓶颈 | 大规模部署受限 | 支持 PostgreSQL/MySQL 多后端 |
 | CI/CD 安全性 | 执行用户脚本的风险 | Docker 容器隔离 + Secret 最小注入 + 网络断开 |
 | 前端 SPA 无 SSR | SEO 不友好 | 定位为开发者工具，非面向公众 |

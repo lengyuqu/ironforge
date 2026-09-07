@@ -213,11 +213,13 @@ want <sha1> side-band-64k ofs-delta\n
 
 ### Pack 生成
 
-```bash
-git -C <repo_path> pack-objects --all --stdout
-```
-
-标准输入接受 object SHA（`--all` 表示打包所有对象）。
+已 gix 化（`rg_git::ops`）：
+- **全量打包**（upload-pack V0）：`pack_universe` — refs 枚举 → `rev_walk` 全提交
+  → `count::objects(TreeContents)` 展开 → `iter_from_counts` + `FromEntriesIter` 写 V2 pack
+- **增量打包**（fetch 协商）：`pack_for_wants` — wants/haves 预解析（tag 剥离），
+  haves 作为 `with_hidden` 排除；shallow 请求以边界提交替代 haves 并用
+  `TreeContents` 补齐边界树内容，等价 `--shallow <sha>` revs 语义
+- partial-clone filter 暂不支持（warn 后发送全量 pack，协议恒正确）
 
 ---
 
@@ -260,11 +262,9 @@ Client                          Server
 ### Thin Pack 处理
 
 客户端发送的是 **thin pack**（只包含 delta base 不一定在 pack 里的对象）。
-必须用 `--fix-thin` 转换为完整 pack：
-
-```bash
-git -C <repo_path> index-pack --fix-thin --stdin
-```
+已 gix 化（`ops::index_pack_bytes`）：pack 字节缓冲后经
+`gix_pack Bundle::write_to_directory` 摄取，thin delta base 从目标仓库对象库
+lookup 补全（等价 `--fix-thin`），pack + idx 落盘 `objects/pack` 后移除 `.keep`。
 
 ### Report-Status 响应格式（关键！）
 
@@ -468,7 +468,7 @@ Content-Type 响应头必须正确设置（见 CLAUDE.md 踩坑 #6）。
 
 **现象**：`git index-pack failed: error: pack has X unresolved deltas`  
 **原因**：客户端发送 thin pack（delta base 可能是已有对象，不在 pack 中），不加 `--fix-thin` 无法解析。  
-**修复**：使用 `git index-pack --fix-thin --stdin`。
+**修复**：CLI 时代使用 `git index-pack --fix-thin --stdin`；gix 迁移后由 `ops::index_pack_bytes`（`gix::odb::pack::Bundle::write_to_directory`）等价完成——thin pack 的缺失 base 直接向目标 ODB 查找补全。
 
 ### 坑 6：空 repo 的 git rev-parse HEAD 返回字面 "HEAD"
 
@@ -644,4 +644,4 @@ done\n
 - [Git HTTP Backend](https://git-scm.com/docs/git-http-backend)
 - [Git Smart HTTP Transfer Protocols](https://git-scm.com/docs/http-protocol)
 - [russh 文档](https://docs.rs/russh/)
-- [gitoxide (gix)](https://github.com/Byron/gitoxide) — 未来替换系统 git 命令的候选库
+- [gitoxide (gix)](https://github.com/Byron/gitoxide) — 已完成全量迁移：生产路径 git 操作 100% gix 原生（见 `gix-migration-assessment.md`）
