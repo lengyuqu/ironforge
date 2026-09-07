@@ -317,17 +317,20 @@ mod tests {
     use super::*;
     use sea_orm::{ConnectOptions, Database};
 
-    async fn test_db() -> DatabaseConnection {
+    /// Returns (db, _dir): the TempDir must stay alive for the connection's
+    /// lifetime — dropping it deletes the database file and every subsequent
+    /// write fails with `attempt to write a readonly database`.
+    async fn test_db() -> (DatabaseConnection, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
         let db_url = format!("sqlite://{}?mode=rwc", dir.path().join("jobs.db").display());
         let db = Database::connect(ConnectOptions::new(db_url)).await.unwrap();
         rg_db::run_migrations(&db).await.unwrap();
-        db
+        (db, dir)
     }
 
     #[tokio::test]
     async fn enqueue_claim_complete_round_trip() {
-        let db = test_db().await;
+        let (db, _dir) = test_db().await;
         let queue = BackgroundJobQueue::new(db.clone());
 
         let job = queue
@@ -354,7 +357,7 @@ mod tests {
 
     #[tokio::test]
     async fn fail_reschedules_with_backoff_then_dead_letters() {
-        let db = test_db().await;
+        let (db, _dir) = test_db().await;
         let queue = BackgroundJobQueue::new(db.clone());
 
         let job = queue
@@ -392,7 +395,7 @@ mod tests {
 
     #[tokio::test]
     async fn recover_stale_returns_running_jobs_to_pending() {
-        let db = test_db().await;
+        let (db, _dir) = test_db().await;
         let queue = BackgroundJobQueue::new(db.clone());
 
         let job = queue
@@ -424,7 +427,7 @@ mod tests {
     async fn worker_dispatches_handlers_and_dead_letters_unknown_types() {
         use std::sync::atomic::{AtomicUsize, Ordering};
 
-        let db = test_db().await;
+        let (db, _dir) = test_db().await;
         let queue = BackgroundJobQueue::new(db.clone());
 
         // Unknown task type: no handler → fails like any other job; with
