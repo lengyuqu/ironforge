@@ -54,12 +54,24 @@
     }
   }
 
+  // Same-origin path to return to after login (`?redirect=`). Hard-fails to
+  // /dashboard unless it is a relative path starting with '/' (blocks
+  // `//evil.com` and absolute-URL open redirects).
+  function postLoginTarget(): string {
+    const params = new URLSearchParams(window.location.search);
+    const target = params.get('redirect');
+    if (target && target.startsWith('/') && !target.startsWith('//')) {
+      return target;
+    }
+    return '/dashboard';
+  }
+
   async function handleSubmit(e: Event) {
     e.preventDefault();
     localError = '';
     const ok = await login(username, password);
     if (ok) {
-      window.location.href = '/dashboard';
+      window.location.href = postLoginTarget();
     } else if (isMfaRequired()) {
       localError = '';
     } else {
@@ -72,7 +84,7 @@
     localError = '';
     const ok = await verifyMfa(mfaCode.trim(), useBackupCode);
     if (ok) {
-      window.location.href = '/dashboard';
+      window.location.href = postLoginTarget();
     } else {
       localError = getAuthError() || t('auth.login.mfa_failed');
     }

@@ -60,6 +60,52 @@ function isSafeUrl(value: string): boolean {
   }
 }
 
+// Named character references that decode to scheme-obfuscation-relevant
+// characters: `:` terminates a URL scheme, tab/newline are stripped by the
+// URL parser. Case-sensitive per the HTML spec (`&Tab;` ≠ `&tab;`).
+const NAMED_ENTITIES: Record<string, string> = {
+  colon: ':',
+  Tab: '\t',
+  NewLine: '\n',
+};
+
+/**
+ * Decode HTML character references the way the HTML parser does when
+ * reading an attribute value: numeric refs (semicolon optional, per spec —
+ * decimal and hex digit sets are kept separate so `&#58alert` decodes to
+ * `:alert` exactly like a browser), plus the scheme-relevant named refs
+ * (semicolon required; case-sensitive lookup). Unknown refs stay literal.
+ * Single pass — replaced output is never re-scanned, so `&amp;#58;`
+ * yields `&#58;`, not `:`.
+ */
+function decodeHtmlEntities(value: string): string {
+  return value.replace(
+    /&#x([0-9a-f]+);?|&#([0-9]+);?|&([a-z][a-z0-9]*);/gi,
+    (match, hex: string, dec: string, named: string) => {
+      const code = hex !== undefined
+        ? Number.parseInt(hex, 16)
+        : dec !== undefined
+          ? Number.parseInt(dec, 10)
+          : undefined;
+      if (code !== undefined) {
+        return code >= 0 && code <= 0x10ffff ? String.fromCodePoint(code) : match;
+      }
+      const decoded = NAMED_ENTITIES[named];
+      return decoded === undefined ? match : decoded;
+    },
+  );
+}
+
+/**
+ * Fallback-path URL validation input: the regex sanitiser sees raw markup,
+ * where the browser will entity-decode the attribute value and then strip
+ * tab/CR/LF (per the URL standard) before parsing the URL. Validate the
+ * same string the browser will actually parse.
+ */
+function isSafeFallbackUrl(value: string): boolean {
+  return isSafeUrl(decodeHtmlEntities(value).replace(/[\t\n\r]/g, ''));
+}
+
 function isAllowedAttribute(tagName: string, attrName: string, value: string): boolean {
   if (attrName.startsWith('on')) return false;
   if (GLOBAL_ATTRIBUTES.has(attrName)) return true;
@@ -124,13 +170,13 @@ function stripDangerousAttributes(tag: string): string {
     .replace(/\s+on[a-z]+\s*=\s*'[^']*'/gi, '')
     .replace(/\s+on[a-z]+\s*=\s*[^\s>]+/gi, '')
     .replace(/\s+(href|src)\s*=\s*"([^"]*)"/gi, (_match, attr, value) =>
-      isSafeUrl(value) ? ` ${attr}="${value}"` : ''
+      isSafeFallbackUrl(value) ? ` ${attr}="${value}"` : ''
     )
     .replace(/\s+(href|src)\s*=\s*'([^']*)'/gi, (_match, attr, value) =>
-      isSafeUrl(value) ? ` ${attr}="${value}"` : ''
+      isSafeFallbackUrl(value) ? ` ${attr}="${value}"` : ''
     )
     .replace(/\s+(href|src)\s*=\s*([^\s>"']+)/gi, (_match, attr, value) =>
-      isSafeUrl(value) ? ` ${attr}="${value}"` : ''
+      isSafeFallbackUrl(value) ? ` ${attr}="${value}"` : ''
     )
     .replace(/\s+style\s*=\s*"[^"]*"/gi, '')
     .replace(/\s+style\s*=\s*'[^']*'/gi, '')

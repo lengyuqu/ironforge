@@ -3,13 +3,14 @@
   import Navbar from '$lib/components/Navbar.svelte';
   import InstanceBanner from '$lib/components/InstanceBanner.svelte';
   import Layout from '$lib/components/Layout.svelte';
-import { fetchUser, isAuthReady } from '$lib/stores/auth.svelte';
+import { fetchUser, isAuthReady, clearAuth, getUser } from '$lib/stores/auth.svelte';
 import { registerKeyboardShortcuts } from '$lib/stores/instance.svelte';
 import { locale, createT } from '$lib/i18n';
 import { onMount } from 'svelte';
 import type { Snippet } from 'svelte';
 import { setBanner } from '$lib/stores/instance.svelte';
-import { withBackendBase } from '$lib/api/_base.svelte';
+import { withBackendBase, UNAUTHORIZED_EVENT } from '$lib/api/_base.svelte';
+import { goto } from '$app/navigation';
 
   interface Props {
     children: Snippet;
@@ -27,7 +28,23 @@ import { withBackendBase } from '$lib/api/_base.svelte';
     fetchUser();
     const unregister = registerKeyboardShortcuts();
     checkBackendReadiness();
-    return unregister;
+
+    // Session-expiry handling: non-auth API calls that answer 401 fire
+    // UNAUTHORIZED_EVENT (see `_base.svelte.ts`). Redirect logged-in users
+    // to the login page preserving their location; anonymous 401s (e.g.
+    // private repos) are normal and ignored.
+    const onUnauthorized = () => {
+      if (!getUser()) return;
+      clearAuth();
+      const url = new URL(window.location.href);
+      goto(`/login?redirect=${encodeURIComponent(url.pathname + url.search)}`);
+    };
+    window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+
+    return () => {
+      window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+      unregister?.();
+    };
   });
 
   async function checkBackendReadiness() {

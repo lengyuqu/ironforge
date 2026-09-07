@@ -47,6 +47,28 @@ export function buildSshCloneUrl(owner: string, repo: string, fallbackHost?: str
   return `ssh://git@${normalizeSshHost(host)}${portPart}/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
 }
 
+/** API error carrying the HTTP status (e.g. 401/403/404/429). */
+export class ApiError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
+
+/** Window event fired when a non-auth API call returns 401 (session expired). */
+export const UNAUTHORIZED_EVENT = 'ironforge:unauthorized';
+
+function notifyUnauthorized(path: string): void {
+  if (typeof window === 'undefined') return;
+  // Auth endpoints answer 401 during normal flows (wrong password, expired
+  // MFA challenge) — never treat those as session expiry.
+  if (path.startsWith('/auth/')) return;
+  window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT, { detail: { path } }));
+}
+
 let authToken = $state<string | null>(null);
 
 /**
@@ -107,7 +129,8 @@ export async function request<T>(path: string, options: RequestInit = {}): Promi
       (body?.error && typeof body.error === 'object' ? body.error.message : body?.error) ||
       body?.message ||
       `HTTP ${res.status}`;
-    throw new Error(msg);
+    if (res.status === 401) notifyUnauthorized(path);
+    throw new ApiError(msg, res.status);
   }
 
   if (res.status === 204) {
@@ -161,7 +184,8 @@ export async function downloadApiFile(path: string, fallbackFilename: string): P
       (body?.error && typeof body.error === 'object' ? body.error.message : body?.error) ||
       body?.message ||
       `HTTP ${res.status}`;
-    throw new Error(msg);
+    if (res.status === 401) notifyUnauthorized(path);
+    throw new ApiError(msg, res.status);
   }
 
   const blob = await res.blob();

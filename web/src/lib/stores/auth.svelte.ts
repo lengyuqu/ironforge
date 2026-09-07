@@ -151,3 +151,13 @@ export async function logout() {
   currentUser = null;
   pendingMfaUsername = null;
 }
+
+/**
+ * Clear local auth state WITHOUT calling the backend. Used when a non-auth
+ * API call answers 401 (expired session) — the cookie is already gone or
+ * invalid, so there is nothing to invalidate server-side.
+ */
+export function clearAuth() {
+  currentUser = null;
+  pendingMfaUsername = null;
+}
