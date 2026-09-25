@@ -548,25 +548,11 @@ fn compute_same_repo_diff(repo_path: &std::path::Path, pr: &PullRequest) -> Core
         format!("refs/heads/{}", pr.head_branch),
     )?;
 
-    // Get unified diff patch via gateway (TODO(gix): replace with gix blob-diff
-    // when byte-identical output is achievable — see plan.md Phase 3)
-    let git = rg_git::cli_gateway::global_gateway()
-        .as_ref()
-        .map_err(CoreError::internal)?;
-    let range = format!("{}...{}", pr.base_branch, pr.head_branch);
-    let patch_output = git.run(
-        &[
-            "-c",
-            "core.quotePath=false",
-            "diff",
-            "--no-ext-diff",
-            "--find-renames",
-            &range,
-        ],
-        Some(repo_path),
-    )?;
-    patch_output.ensure_success()?;
-    let patch_text = patch_output.stdout_str();
+    // Unified diff patch via gix blob-diff（与 `git diff` 字节级对拍通过，见 gix_patch.rs）
+    let patch_bytes =
+        super::gix_patch::unified_patch(repo_path, &pr.base_branch, &pr.head_branch)
+            .map_err(CoreError::internal)?;
+    let patch_text = String::from_utf8_lossy(&patch_bytes);
 
     let mut files = files_changed;
     attach_patches(&mut files, &patch_text);
@@ -593,24 +579,10 @@ fn compute_cross_repo_diff(
         fork_ref.to_string(),
     )?;
 
-    // Get unified diff patch via gateway (TODO(gix): replace with gix blob-diff when feasible)
-    let git = rg_git::cli_gateway::global_gateway()
-        .as_ref()
+    // Unified diff patch via gix blob-diff（与 `git diff` 字节级对拍通过，见 gix_patch.rs）
+    let patch_bytes = super::gix_patch::unified_patch(repo_path, base_branch, fork_ref)
         .map_err(CoreError::internal)?;
-    let range = format!("{}...{}", base_branch, fork_ref);
-    let patch_output = git.run(
-        &[
-            "-c",
-            "core.quotePath=false",
-            "diff",
-            "--no-ext-diff",
-            "--find-renames",
-            &range,
-        ],
-        Some(repo_path),
-    )?;
-    patch_output.ensure_success()?;
-    let patch_text = patch_output.stdout_str();
+    let patch_text = String::from_utf8_lossy(&patch_bytes);
 
     let mut files = files_changed;
     attach_patches(&mut files, &patch_text);

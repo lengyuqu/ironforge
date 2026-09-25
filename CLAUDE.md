@@ -136,7 +136,7 @@ Phase 1~21 全部完成。核心能力：
 
 ### 技术债与后续方向
 
-**gix 迁移**：生产路径 git CLI 调用除 **mirror 同步**（`git clone --mirror` / `git remote update --prune` 经 `GitCommandGateway` 执行）外归零，其余 100% gix 原生。Phase A+B+C-lite+Rebase+全量覆盖完成：rev-parse/update-ref/show/cat-file/verify-commit/auto_init/merge-tree/commit-tree/ls-tree/archive/rebase/pack 生成/ thin-pack 摄取/rev-list 图遍历/文件编辑直写（edit_tree+commit_as+引用乐观锁）/fork 对象搬运/fork 裸克隆 均已 gix 化；rebase 与 fork fetch 为自研实现（characterization 测试钉死语义，gix 出原生 API 时可替换）。`GitCommandGateway` 仅测试造数据与 mirror 同步使用。等待 gix 上游成熟项（迁移评估见 `docs/gix-migration-assessment.md`，基于 gix 0.87.1）：
+**gix 迁移**：生产路径 git CLI 调用仅剩 3 处边缘点（mirror 同步 / import 裸克隆 / CI worktree，见下表），核心热路径 100% gix 原生。Phase A+B+C-lite+Rebase+全量覆盖完成：rev-parse/update-ref/show/cat-file/verify-commit/auto_init/merge-tree/commit-tree/ls-tree/archive/rebase/pack 生成/ thin-pack 摄取/rev-list 图遍历/文件编辑直写（edit_tree+commit_as+引用乐观锁）/fork 对象搬运/fork 裸克隆 均已 gix 化；rebase 与 fork fetch 为自研实现（characterization 测试钉死语义，gix 出原生 API 时可替换）。`GitCommandGateway` 仅测试造数据与上述 3 处边缘点使用。等待 gix 上游成熟项（迁移评估见 `docs/gix-migration-assessment.md`，基于 gix 0.87.1）：
 
 | 待办 | 阻塞原因 | 解除条件 |
 |---|---|---|
@@ -144,10 +144,12 @@ Phase 1~21 全部完成。核心能力：
 | Pack 生成 | ~~gix 无高层 pack 协商~~ | ✅ 已自研关闭：gix-pack `generate` 管线（count::objects(TreeContents) + iter_from_counts + FromEntriesIter），wants/haves/shallow 语义对齐 |
 | Thin-pack 索引 | ~~gix 缺 thin 补全解析~~ | ✅ 已解除：`Bundle::write_to_directory`（thin base lookup = ODB，等价 --fix-thin） |
 | ~~GPG 验签~~ | ✅ 已解除：gix 0.87 `Commit::verify()`/`Commit::sign()` 内建 OpenPGP/X.509/SSH 签名与验签（Phase B3 已接入 receive_pack，`command` feature） | — |
-| blob-diff patch | 字节一致性待验证 | 对拍测试通过 |
+| ~~blob-diff patch~~ | ✅ 已解除（2026-09-25）：`rg_core::pull_request::gix_patch::unified_patch`，与 `git diff --find-renames` 字节级对拍通过（13 类 fixture：多 hunk/funcname/EOF 裁剪/无尾换行 marker/rename 100%+92%/mode change/binary/删除等） | 对拍测试钉死：`gix_patch::parity_tests` |
 | Mirror 同步 gix 化 | gix fetch 管线（refspec 协商 + 镜像全量 ref 更新）自研成本高 | 当前走 git CLI + transport lockdown（`protocol.ext/file/ssh.allow=never`）+ `net_guard::validate_mirror_url`；gix 提供成熟 fetch API 后迁移 |
+| Import 裸克隆 gix 化 | gix `prepare_clone` 对 bare 目标 + 远端 URL 的组合支持不完整（2026-09-25 登记） | `import/service.rs:509` `git clone --bare`；gix bare clone API 成熟后迁移 |
+| CI worktree gix 化 | gix 无 linked-worktree 管理 API（登记/`prune` 语义）；替代方案 = gix checkout 到独立目录 | `rg-ci/runner.rs:769,798` `git worktree add --detach` / `remove --force`；CI 频率低收益中等，择机迁移 |
 
-复查节奏：每次 gix 版本升级时过一遍（最近一次：2026-09-06，gix 0.84→0.87.1）。
+复查节奏：每次 gix 版本升级时过一遍（最近一次：2026-09-25 复核，0.87.1 仍为 crates.io 最新（2026-08-24 发布），无新版可升；本次补登记 import 裸克隆与 CI worktree 两个漏项）。
 
 详细架构事实见 [ironforge-docs/architecture/project-architecture-2026-07.md](ironforge-docs/architecture/project-architecture-2026-07.md)。
 
