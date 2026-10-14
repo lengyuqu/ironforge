@@ -527,6 +527,18 @@ async function main() {
       retryBackoffMs: FRONTEND_CHECK_RETRY_BACKOFF_MS,
       retryMaxDelayMs: FRONTEND_CHECK_RETRY_MAX_DELAY_MS,
     }));
+    // Frontend unit tests (vitest). Kept in the same "static" phase as
+    // `check`/`build`; without this the 550+ component tests had no regression
+    // entry point at all (CI did not run them either).
+    allOk.push(await runWithRetry('web pnpm run test', 'pnpm', ['run', 'test'], {
+      cwd: `${ROOT}/web`,
+      scope: 'frontend',
+      retries: FRONTEND_CHECK_RETRIES,
+      timeout: FRONTEND_CHECK_TIMEOUT_MS,
+      retryDelayMs: REGRESSION_RETRY_DELAY_MS,
+      retryBackoffMs: FRONTEND_CHECK_RETRY_BACKOFF_MS,
+      retryMaxDelayMs: FRONTEND_CHECK_RETRY_MAX_DELAY_MS,
+    }));
     allOk.push(await runWithRetry('web pnpm run build', 'pnpm', ['run', 'build'], {
       cwd: `${ROOT}/web`,
       scope: 'frontend',
@@ -537,7 +549,7 @@ async function main() {
       retryMaxDelayMs: FRONTEND_BUILD_RETRY_MAX_DELAY_MS,
     }));
   } else {
-    console.log('⚠️ SKIP_FRONTEND_STATIC=1 或 FULL_REGRESSION_ONLY 设置，已跳过 web pnpm run check/build');
+    console.log('⚠️ SKIP_FRONTEND_STATIC=1 或 FULL_REGRESSION_ONLY 设置，已跳过 web pnpm run check/test/build');
   }
 
   const backendOk = await canPing(`${BACKEND_URL}/health`);

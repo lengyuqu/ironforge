@@ -20,6 +20,14 @@ jwt_secret = "uYT7aF/+zA2Zh6P48xnsuY0IbcHH3WdWA4SAtP/Uv6s="
 [ci]
 docker = false
 
+# SECURITY: CI jobs without an `image` would otherwise run directly on the host
+# via `sh -c`, with the server's full permissions — the job script is
+# repository content, so that is remote code execution as the server user.
+# Host execution is therefore refused by default; only enable it if you trust
+# every repository whose CI can run. Prefer `docker = true` or `external_runners`.
+# Equivalent CLI flag: --allow-host-execution
+allow_host_execution = false
+
 [rate_limit]
 max = 0          # 0 = disabled
 window_secs = 60

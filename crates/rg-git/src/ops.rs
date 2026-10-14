@@ -568,7 +568,14 @@ pub fn generate_pack(
     // `repo.objects` is a memory `Proxy` which does not implement
     // `gix_pack::Find`; unwrap down to the `Cache` (which does) for the
     // pack pipeline while writes elsewhere keep using the proxy.
-    let db = repo.objects.clone().into_inner();
+    let mut db = repo.objects.clone().into_inner();
+    // `output::count::objects` hardcodes `allow_pack_lookups = true`, so it
+    // always reaches `Find::location_by_oid`, which asserts the handle is in
+    // `KeepDeletedPacksAvailable` mode. A freshly created handle defaults to
+    // `DeletedPacksAreInaccessible`, so without this the gix worker thread
+    // panics ("BUG: handle must be configured to `prevent_pack_unload()`")
+    // and — with `panic = "abort"` — takes the whole server process down.
+    db.prevent_pack_unload();
     let input: Box<
         dyn Iterator<
                 Item = Result<
@@ -665,15 +672,40 @@ pub fn pack_universe(repo_path: &Path) -> anyhow::Result<Vec<u8>> {
 
 /// gix-native replacement for `git pack-objects --revs --stdout [--thin]`:
 /// packs everything reachable from `wants` minus everything reachable from
-/// `haves`. When `shallow_boundaries` is non-empty (shallow client), the
-/// boundaries take the place of the haves: traversal stops at them while
-/// their tree contents are still included, exactly like `--shallow <sha>`
-/// revs fed to the CLI.
+/// `haves`.
+///
+/// `shallow_boundaries` carries the **new** shallow boundary set when the
+/// client is deepening (or unshallowing). In that mode the traversal stops at
+/// those boundaries instead of at `haves`, and each boundary commit's tree
+/// contents are added explicitly (the client owns the boundary commit but not
+/// its trees).
+///
+/// `shallow_mode` disambiguates an empty `shallow_boundaries`:
+/// - `false` — ordinary fetch: `haves` prune the walk.
+/// - `true`  — deepening request whose new boundary set is empty, i.e. a full
+///   `--unshallow`. A shallow client's `have` lines only assert that it holds
+///   those commits, **not** that it holds their ancestry, so pruning by
+///   `haves` here would cut the very history the client is asking for. With
+///   `want == have` (git sends the tip as both) the walk degenerates to empty
+///   and the client fails with `remote did not send all necessary objects`.
+///   So no pruning is applied and the full history from `wants` is sent.
 pub fn pack_for_wants(
     repo_path: &Path,
     wants: &[String],
     haves: &[String],
     shallow_boundaries: &[String],
+) -> anyhow::Result<Vec<u8>> {
+    pack_for_wants_opts(repo_path, wants, haves, shallow_boundaries, false)
+}
+
+/// [`pack_for_wants`] with an explicit `shallow_mode` flag; see that function
+/// for the meaning of each parameter.
+pub fn pack_for_wants_opts(
+    repo_path: &Path,
+    wants: &[String],
+    haves: &[String],
+    shallow_boundaries: &[String],
+    shallow_mode: bool,
 ) -> anyhow::Result<Vec<u8>> {
     let repo = open_repo(repo_path)?;
     let peel_to_commit = |spec: &str| -> anyhow::Result<gix::hash::ObjectId> {
@@ -708,6 +740,10 @@ pub fn pack_for_wants(
     };
     let hidden = if !shallow_boundaries.is_empty() {
         peel_list(shallow_boundaries)?
+    } else if shallow_mode {
+        // Deepening with an empty boundary set == full unshallow; see the doc
+        // comment. Pruning by `haves` would drop the history being requested.
+        Vec::new()
     } else {
         peel_list(haves)?
     };
@@ -845,8 +881,13 @@ pub fn copy_objects_from_source(
                 >,
             > + Send,
     > = Box::new(new_commits.into_iter().map(Ok));
+    // Same `location_by_oid` assertion as in `generate_pack`: the handle used
+    // for `count::objects` must have pack unloading prevented. This path is
+    // exercised by fork / cross-repo pull-request object copying.
+    let mut src_db = src.objects.clone().into_inner();
+    src_db.prevent_pack_unload();
     let (counts, _outcome) = gix::odb::pack::data::output::count::objects(
-        src.objects.clone().into_inner(),
+        src_db,
         input,
         &Discard,
         &should_interrupt,
@@ -1199,9 +1240,9 @@ mod rebase_tests {
 
         // Like `git rev-list --no-merges main..feature` + rebase: both b and
         // the side-branch commit s are replayed, the merge commit is dropped.
-        assert_eq!(git_out(&git, &["show", &format!("refs/heads/main:s.txt")], dir), "s");
-        assert_eq!(git_out(&git, &["show", &format!("refs/heads/main:b.txt")], dir), "b");
-        assert_eq!(git_out(&git, &["show", &format!("refs/heads/main:d.txt")], dir), "d");
+        assert_eq!(git_out(&git, &["show", "refs/heads/main:s.txt"], dir), "s");
+        assert_eq!(git_out(&git, &["show", "refs/heads/main:b.txt"], dir), "b");
+        assert_eq!(git_out(&git, &["show", "refs/heads/main:d.txt"], dir), "d");
         let subjects = git_out(&git, &["log", "--format=%s", "-3"], dir);
         // Newest first: s, b, then d (the base tip).
         assert_eq!(subjects, "s\nb\nd");
@@ -1249,5 +1290,139 @@ mod rebase_tests {
         assert_eq!(new_base, feature_head);
         assert_eq!(git_out(&git, &["rev-parse", "refs/heads/main"], dir), feature_head);
         assert_eq!(git_out(&git, &["log", "--format=%s", "-1"], dir), "b");
+    }
+
+    /// Regression: `generate_pack` must call `prevent_pack_unload()` on the odb
+    /// handle it hands to `count::objects`. Without it the gix worker thread
+    /// panics with "BUG: handle must be configured to `prevent_pack_unload()`"
+    /// and — because release builds set `panic = "abort"` — the whole server
+    /// process dies, making `git clone` an unauthenticated remote DoS.
+    #[test]
+    fn generate_pack_succeeds_for_clone_and_incremental_fetch() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
+        let git = init_repo(dir);
+        commit(&git, dir, "a.txt", "one\n", "a");
+        commit(&git, dir, "b.txt", "two\n", "b");
+        let head = git_out(&git, &["rev-parse", "refs/heads/main"], dir);
+
+        // Clone path (`pack_universe` -> `generate_pack`, TreeContents).
+        let pack = pack_universe(dir).expect("pack_universe must not panic");
+        assert!(pack.len() > 12, "pack should contain a header plus objects");
+
+        // Incremental-fetch path (`pack_for_wants` -> `generate_pack`).
+        let pack = pack_for_wants(dir, std::slice::from_ref(&head), &[], &[])
+            .expect("pack_for_wants must not panic");
+        assert!(pack.len() > 12, "incremental pack should not be empty");
+
+        // Fetch with everything already present still yields a valid pack.
+        pack_for_wants(dir, std::slice::from_ref(&head), std::slice::from_ref(&head), &[])
+            .expect("up-to-date fetch must not panic");
+    }
+
+    /// Regression: `copy_objects_from_source` (fork / cross-repo PR object
+    /// copying) builds its own odb handle for `count::objects`, so it needs the
+    /// same `prevent_pack_unload()` treatment as `generate_pack`. This path had
+    /// no test coverage at all, which is why it survived the first fix.
+    #[test]
+    fn copy_objects_from_source_succeeds_for_fork() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("source");
+        let target = temp.path().join("target");
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::create_dir_all(&target).unwrap();
+
+        let git = init_repo(&source);
+        commit(&git, &source, "a.txt", "one\n", "a");
+        commit(&git, &source, "b.txt", "two\n", "b");
+        let tip = git_out(&git, &["rev-parse", "refs/heads/main"], &source);
+
+        // Bare target, like a fork destination.
+        run_git(&git, &["init", "--bare", "-b", "main"], &target);
+
+        let copied =
+            copy_objects_from_source(&source, &tip, &target).expect("object copy must not panic");
+        assert_eq!(copied, tip);
+
+        // The objects really landed in the target repository.
+        assert_eq!(
+            git_out(&git, &["cat-file", "-t", &tip], &target),
+            "commit",
+            "copied tip commit must be readable in the target"
+        );
+        assert_eq!(
+            git_out(&git, &["show", &format!("{tip}:b.txt")], &target),
+            "two"
+        );
+    }
+
+    /// Regression: `git fetch --unshallow` must transfer the full history.
+    ///
+    /// For an unshallow the client sends `want == have == tip` plus
+    /// `deepen 2147483647`, and the computed new boundary set is empty (the
+    /// whole history is included, so no commit has an excluded parent).
+    /// Treating an empty boundary set as "ordinary fetch" made `haves` prune
+    /// the walk; with `want == have` the commit set degenerated to empty and
+    /// the client failed with `remote did not send all necessary objects`.
+    #[test]
+    fn pack_for_wants_unshallow_sends_full_history() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
+        let git = init_repo(dir);
+        commit(&git, dir, "a.txt", "one\n", "a");
+        commit(&git, dir, "b.txt", "two\n", "b");
+        commit(&git, dir, "c.txt", "three\n", "c");
+        let tip = git_out(&git, &["rev-parse", "refs/heads/main"], dir);
+
+        // `shallow_mode = true` with no boundaries: the unshallow case.
+        let pack = pack_for_wants_opts(
+            dir,
+            std::slice::from_ref(&tip),
+            std::slice::from_ref(&tip),
+            &[],
+            true,
+        )
+        .expect("unshallow pack generation must succeed");
+
+        // Every commit must be reachable in the produced pack. A pack that
+        // omitted them would be far smaller than the full-history pack.
+        let shallow_pack =
+            pack_for_wants(dir, std::slice::from_ref(&tip), std::slice::from_ref(&tip), &[])
+                .expect("ordinary up-to-date fetch must not panic");
+        assert!(
+            pack.len() > shallow_pack.len(),
+            "unshallow pack ({} bytes) must be larger than an empty up-to-date \
+             pack ({} bytes), proving history was not pruned",
+            pack.len(),
+            shallow_pack.len()
+        );
+
+        // The pack must be consumable: index it into a bare clone and confirm
+        // the root commit is present. `index-pack` writes the `.idx` next to
+        // the pack, so both go into the target's `objects/pack/` directory.
+        let target = temp.path().join("target.git");
+        std::fs::create_dir_all(&target).unwrap();
+        run_git(&git, &["init", "--bare", "-b", "main"], &target);
+        let pack_dir = target.join("objects").join("pack");
+        std::fs::create_dir_all(&pack_dir).unwrap();
+        let pack_file = pack_dir.join("pack-under-test.pack");
+        let idx_file = pack_dir.join("pack-under-test.idx");
+        std::fs::write(&pack_file, &pack).unwrap();
+        run_git(
+            &git,
+            &[
+                "index-pack",
+                "-o",
+                idx_file.to_str().unwrap(),
+                pack_file.to_str().unwrap(),
+            ],
+            &target,
+        );
+        let root = git_out(&git, &["rev-list", "--max-parents=0", "refs/heads/main"], dir);
+        assert_eq!(
+            git_out(&git, &["cat-file", "-t", &root], &target),
+            "commit",
+            "the unshallow pack must contain the root commit"
+        );
     }
 }

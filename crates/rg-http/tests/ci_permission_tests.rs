@@ -326,3 +326,59 @@ async fn protected_environment_requires_authorized_approval_before_release() {
         409
     );
 }
+
+/// Regression: the external CI webhook only checked that the caller was logged
+/// in. Any authenticated user could publish commit statuses for any repository
+/// by name, forging CI results. It must require write access.
+#[tokio::test]
+async fn external_ci_webhook_requires_write_access() {
+    let (base, _db) = spawn_test_app_with_db().await;
+    let client = reqwest::Client::new();
+    let (owner_token, _owner_id) =
+        register_full(&base, "extci_owner", "extci_owner@example.com").await;
+    let (other_token, _other_id) =
+        register_full(&base, "extci_other", "extci_other@example.com").await;
+    let _ = create_private_repo(&base, &owner_token, "external-ci").await;
+
+    let payload = serde_json::json!({
+        "context": "jenkins/forge",
+        "state": "success",
+        "description": "forged"
+    });
+    let url = format!("{base}/api/v1/repos/extci_owner/external-ci/webhooks/external/ci");
+
+    // Anonymous callers cannot publish statuses.
+    let anon = client.post(&url).json(&payload).send().await.unwrap();
+    assert_eq!(anon.status(), 401, "anonymous webhook call must be rejected");
+
+    // A logged-in non-collaborator cannot either.
+    let other = client
+        .post(&url)
+        .bearer_auth(&other_token)
+        .json(&payload)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        other.status(),
+        403,
+        "a non-collaborator must not publish commit statuses, got {}: {}",
+        other.status(),
+        other.text().await.unwrap_or_default()
+    );
+
+    // The owner still can.
+    let owner = client
+        .post(&url)
+        .bearer_auth(&owner_token)
+        .json(&payload)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        owner.status(),
+        200,
+        "the repository owner must still publish statuses, got {}",
+        owner.status()
+    );
+}

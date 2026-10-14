@@ -1158,12 +1158,16 @@ async fn generate_packfile(
     let boundaries: Vec<String> = shallow_update
         .map(|update| update.boundaries.clone())
         .unwrap_or_default();
+    // A present `shallow_update` means the client asked to change depth. When
+    // its new boundary set is empty that is a full `--unshallow`, and the
+    // client's `have` lines must not prune the history it is requesting.
+    let shallow_mode = shallow_update.is_some();
     let repo_dir = repo_path.to_path_buf();
     let wants = wants.to_vec();
     let haves = haves.to_vec();
-    tokio::task::spawn_blocking(
-        move || crate::ops::pack_for_wants(&repo_dir, &wants, &haves, &boundaries),
-    )
+    tokio::task::spawn_blocking(move || {
+        crate::ops::pack_for_wants_opts(&repo_dir, &wants, &haves, &boundaries, shallow_mode)
+    })
     .await
     .map_err(|error| anyhow::anyhow!("pack generation task failed: {error}"))?
 }

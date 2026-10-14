@@ -111,6 +111,9 @@ pub struct AppState {
     pub jwt_secret: Arc<String>,
     pub docker_enabled: bool,
     pub external_runners: bool,
+    /// Whether CI jobs without an `image` may run directly on the host.
+    /// Refused by default; see `rg_core::ci::TriggerPipelineParams`.
+    pub allow_host_execution: bool,
     pub rate_limiter: rate_limit::RateLimiter,
     pub notification_hub: ws::NotificationHub,
     pub smtp_config: Option<rg_core::email::SmtpConfig>,
@@ -140,6 +143,8 @@ pub struct HttpServerConfig {
     pub docker_enabled: bool,
     /// Whether to use external runners instead of embedded runner for CI.
     pub external_runners: bool,
+    /// Whether CI jobs without an `image` may run directly on the host.
+    pub allow_host_execution: bool,
     /// Rate limit: max requests per window (0 = disabled).
     pub rate_limit_max: u32,
     /// Rate limit: window duration in seconds.
@@ -203,6 +208,7 @@ pub async fn run(config: HttpServerConfig) -> Result<()> {
         jwt_secret: Arc::new(config.jwt_secret),
         docker_enabled: config.docker_enabled,
         external_runners: config.external_runners,
+        allow_host_execution: config.allow_host_execution,
         rate_limiter: rate_limiter.clone(),
         notification_hub: notification_hub.clone(),
         smtp_config: config.smtp_config,
@@ -2291,8 +2297,12 @@ async fn handle_git_receive_pack(
         output
     });
 
-    let require_signed_refs = signed_commit_required_refs(&protection_rules);
-    let mut rejected_refs = branch_protection_rejected_refs(protection_rules, actor_id);
+    // Shared with the direct-commit path (contents API / review suggestions):
+    // one implementation of wildcard matching and allowlist semantics.
+    let require_signed_refs =
+        rg_core::branch_protection::service::signed_commit_required_patterns(&protection_rules);
+    let mut rejected_refs =
+        rg_core::branch_protection::service::direct_push_rejections(&protection_rules, actor_id);
     rejected_refs.extend(tag_protection_rejected_refs(tag_protection_rules, actor_id));
     match rg_git::protocol::receive_pack::handle_receive_pack_http_with_rejections(
         &repo_path,
@@ -2316,6 +2326,7 @@ async fn handle_git_receive_pack(
             let repo_clone = repo.clone();
             let docker_enabled = state.docker_enabled;
             let external_runners = state.external_runners;
+            let allow_host_execution = state.allow_host_execution;
             let jwt_secret = state.jwt_secret.clone();
             let hub = state.notification_hub.clone();
             let smtp = state.smtp_config.clone();
@@ -2332,6 +2343,7 @@ async fn handle_git_receive_pack(
                         repo_name: &repo_clone,
                         docker_enabled,
                         external_runners,
+                        allow_host_execution,
                         jwt_secret: &jwt_secret,
                         notification_hub: &hub,
                         smtp_config: &smtp,
@@ -2369,6 +2381,7 @@ struct PostPushParams<'a> {
     repo_name: &'a str,
     docker_enabled: bool,
     external_runners: bool,
+    allow_host_execution: bool,
     jwt_secret: &'a str,
     notification_hub: &'a ws::NotificationHub,
     smtp_config: &'a Option<rg_core::email::SmtpConfig>,
@@ -2376,62 +2389,6 @@ struct PostPushParams<'a> {
     external_url: Option<&'a str>,
 }
 
-fn branch_protection_rejected_refs(
-    protections: Vec<rg_db::entities::protected_branch::Model>,
-    actor_id: Option<i64>,
-) -> Vec<(String, String)> {
-    protections
-        .into_iter()
-        .filter_map(|protection| {
-            if direct_push_allowed_by_rule(&protection, actor_id) {
-                return None;
-            }
-
-            let message = if protection.require_pr {
-                format!(
-                    "push to protected branch '{}' is not allowed; open a pull request instead",
-                    protection.branch_name
-                )
-            } else if !protection.allow_force_push {
-                format!(
-                    "force push to protected branch '{}' is not allowed",
-                    protection.branch_name
-                )
-            } else {
-                return None;
-            };
-
-            Some((format!("refs/heads/{}", protection.branch_name), message))
-        })
-        .collect()
-}
-
-fn direct_push_allowed_by_rule(
-    protection: &rg_db::entities::protected_branch::Model,
-    actor_id: Option<i64>,
-) -> bool {
-    if let Some(uid) = actor_id {
-        if let Some(allowed_json) = &protection.allowed_push_user_ids {
-            if let Ok(allowed_ids) = serde_json::from_str::<Vec<i64>>(allowed_json) {
-                if allowed_ids.contains(&uid) {
-                    return true;
-                }
-            }
-        }
-    }
-
-    false
-}
-
-fn signed_commit_required_refs(
-    protections: &[rg_db::entities::protected_branch::Model],
-) -> Vec<String> {
-    protections
-        .iter()
-        .filter(|rule| rule.require_signed_commits)
-        .map(|rule| format!("refs/heads/{}", rule.branch_name))
-        .collect()
-}
 
 fn tag_protection_rejected_refs(
     protections: Vec<rg_db::entities::protected_tag::Model>,
@@ -2473,6 +2430,7 @@ async fn post_push_hooks(
         repo_name,
         docker_enabled,
         external_runners,
+        allow_host_execution,
         jwt_secret,
         notification_hub,
         smtp_config,
@@ -2534,6 +2492,7 @@ async fn post_push_hooks(
                                     trigger: params.ci_engine,
                                     docker_enabled: params.docker_enabled,
                                     external_runners: params.external_runners,
+                                    allow_host_execution: params.allow_host_execution,
                                     jwt_secret: Some(params.jwt_secret),
                                     external_url: params.external_url,
                                 },
@@ -2581,6 +2540,7 @@ async fn post_push_hooks(
                     triggered_by: None,
                     docker_enabled: *docker_enabled,
                     external_runners: *external_runners,
+                    allow_host_execution: *allow_host_execution,
                     jwt_secret: Some(jwt_secret),
                     external_url: *external_url,
                 })

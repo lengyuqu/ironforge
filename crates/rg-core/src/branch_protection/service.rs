@@ -188,6 +188,164 @@ pub async fn delete_protection_for_repo(
     delete_protection(db, protection_id).await
 }
 
+// ── Shared protection-rule semantics ─────────────────────────────────
+//
+// There is exactly one place that decides what a protection rule means. Both
+// write paths consume it:
+//
+// - the git push path (receive-pack pre-receive hook, HTTP and SSH), which
+//   turns rules into (ref-pattern, reason) rejections and a signature-required
+//   pattern list before the pack is even indexed;
+// - the direct-commit path (REST `contents` API, review suggestions), which
+//   calls [`check_direct_commit_allowed`] before writing a commit.
+//
+// Keeping the decision here — rather than re-implementing it in each caller —
+// is what keeps wildcard matching and allowlist semantics identical.
+
+/// Match a full ref name against a protection pattern.
+///
+/// `*` matches any sequence of characters; patterns without a wildcard retain
+/// exact-match behavior. This is the same matcher the receive-pack hook uses
+/// for tag patterns, lifted here so branch rules share it.
+pub fn ref_matches_pattern(refname: &str, pattern: &str) -> bool {
+    if !pattern.contains('*') {
+        return refname == pattern;
+    }
+    let value = refname.as_bytes();
+    let pattern = pattern.as_bytes();
+    let mut dp = vec![vec![false; value.len() + 1]; pattern.len() + 1];
+    dp[0][0] = true;
+    for i in 1..=pattern.len() {
+        if pattern[i - 1] == b'*' {
+            dp[i][0] = dp[i - 1][0];
+        }
+        for j in 1..=value.len() {
+            dp[i][j] = if pattern[i - 1] == b'*' {
+                dp[i - 1][j] || dp[i][j - 1]
+            } else {
+                dp[i - 1][j - 1] && pattern[i - 1] == value[j - 1]
+            };
+        }
+    }
+    dp[pattern.len()][value.len()]
+}
+
+/// The ref pattern a rule protects: `refs/heads/<branch_name>`.
+///
+/// `branch_name` may itself contain `*` (e.g. `release/*`), which the matcher
+/// expands against the pushed ref.
+pub fn protection_ref_pattern(rule: &ProtectedBranch) -> String {
+    format!("refs/heads/{}", rule.branch_name)
+}
+
+/// Whether `refname` (a full ref) is covered by `rule`.
+pub fn rule_matches_ref(rule: &ProtectedBranch, refname: &str) -> bool {
+    ref_matches_pattern(refname, &protection_ref_pattern(rule))
+}
+
+/// Whether the actor is explicitly allowlisted to push to the rule's branch.
+///
+/// The allowlist only bypasses the *push* restrictions (`require_pr`,
+/// force-push). It deliberately does **not** bypass `require_signed_commits`:
+/// signature requirements apply to everyone, exactly as the receive-pack hook
+/// has always enforced them.
+pub fn is_push_allowlisted(rule: &ProtectedBranch, actor_id: Option<i64>) -> bool {
+    actor_id.is_some_and(|uid| {
+        rule.allowed_push_user_ids
+            .as_deref()
+            .and_then(|json| serde_json::from_str::<Vec<i64>>(json).ok())
+            .is_some_and(|ids| ids.contains(&uid))
+    })
+}
+
+/// Rejections for the receive-pack pre-receive hook.
+///
+/// Returns one `(ref_pattern, message)` entry per rule that rejects a direct
+/// push by `actor_id`. `ref_pattern` may contain a wildcard, which the
+/// protocol layer matches against each pushed ref.
+pub fn direct_push_rejections(
+    rules: &[ProtectedBranch],
+    actor_id: Option<i64>,
+) -> Vec<(String, String)> {
+    rules
+        .iter()
+        .filter_map(|rule| {
+            if is_push_allowlisted(rule, actor_id) {
+                return None;
+            }
+
+            let message = if rule.require_pr {
+                format!(
+                    "push to protected branch '{}' is not allowed; open a pull request instead",
+                    rule.branch_name
+                )
+            } else if !rule.allow_force_push {
+                format!(
+                    "force push to protected branch '{}' is not allowed",
+                    rule.branch_name
+                )
+            } else {
+                return None;
+            };
+
+            Some((protection_ref_pattern(rule), message))
+        })
+        .collect()
+}
+
+/// Ref patterns whose pushed commits must carry a valid cryptographic
+/// signature. Applies to every actor, allowlisted or not.
+pub fn signed_commit_required_patterns(rules: &[ProtectedBranch]) -> Vec<String> {
+    rules
+        .iter()
+        .filter(|rule| rule.require_signed_commits)
+        .map(protection_ref_pattern)
+        .collect()
+}
+
+/// Decide whether a direct server-side commit may land on `branch_name`.
+///
+/// This is the shared verdict for writes that create a commit themselves
+/// rather than receiving a signed pack: the REST `contents` API and applying
+/// review suggestions. A direct commit is always fast-forward, so
+/// `allow_force_push` does not apply; only `require_pr` and
+/// `require_signed_commits` can block.
+///
+/// Returns `Some(reason)` when the commit must be refused.
+pub fn direct_commit_rejection(
+    rules: &[ProtectedBranch],
+    branch_name: &str,
+    actor_id: Option<i64>,
+) -> Option<String> {
+    let refname = format!("refs/heads/{branch_name}");
+    let mut require_pr = false;
+    let mut require_signed = false;
+
+    for rule in rules {
+        if !rule_matches_ref(rule, &refname) {
+            continue;
+        }
+        if rule.require_pr && !is_push_allowlisted(rule, actor_id) {
+            require_pr = true;
+        }
+        if rule.require_signed_commits {
+            require_signed = true;
+        }
+    }
+
+    if require_signed {
+        return Some(format!(
+            "branch '{branch_name}' requires cryptographically signed commits; server-side content edits are not signed"
+        ));
+    }
+    if require_pr {
+        return Some(format!(
+            "direct commits to protected branch '{branch_name}' are not allowed; open a pull request instead"
+        ));
+    }
+    None
+}
+
 /// Check if a push to a branch is allowed.
 /// Returns Ok(()) if allowed, or Err with the reason if blocked.
 pub async fn check_push_allowed(
@@ -196,37 +354,52 @@ pub async fn check_push_allowed(
     branch_name: &str,
     user_id: Option<i64>,
 ) -> Result<()> {
-    let protection =
-        protected_branch_ops::find_by_repo_and_branch(db, repo_id, branch_name).await?;
+    let rules = protected_branch_ops::list_by_repo(db, repo_id).await?;
+    let refname = format!("refs/heads/{branch_name}");
 
-    let Some(protection) = protection else {
+    let Some(rule) = rules.iter().find(|rule| rule_matches_ref(rule, &refname)) else {
         // Not protected, push is allowed
         return Ok(());
     };
 
-    // Check if user is in the allowed list
-    if let Some(uid) = user_id {
-        if let Some(allowed_json) = &protection.allowed_push_user_ids {
-            if let Ok(allowed_ids) = serde_json::from_str::<Vec<i64>>(allowed_json) {
-                if allowed_ids.contains(&uid) {
-                    return Ok(());
-                }
-            }
-        }
+    if is_push_allowlisted(rule, user_id) {
+        return Ok(());
     }
 
-    if protection.require_pr {
+    if rule.require_pr {
         bail!(
             "push to protected branch '{}' is not allowed; open a pull request instead",
             branch_name
         );
     }
 
-    if !protection.allow_force_push {
+    if !rule.allow_force_push {
         bail!(
             "force push to protected branch '{}' is not allowed",
             branch_name
         );
+    }
+
+    Ok(())
+}
+
+/// Check whether a direct server-side commit (the REST `contents` API or
+/// applying a review suggestion) may land on `branch_name`.
+///
+/// The git push path enforces protection in the receive-pack pre-receive hook.
+/// A server-side commit has no pack and no signature, so `require_pr` and
+/// `require_signed_commits` must be enforced here instead. Both write paths
+/// call this so the rules cannot drift apart.
+pub async fn check_direct_commit_allowed(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    branch_name: &str,
+    user_id: Option<i64>,
+) -> Result<()> {
+    let rules = protected_branch_ops::list_by_repo(db, repo_id).await?;
+
+    if let Some(reason) = direct_commit_rejection(&rules, branch_name, user_id) {
+        bail!("{reason}");
     }
 
     Ok(())
@@ -239,10 +412,12 @@ pub async fn check_merge_allowed(
     target_branch: &str,
     pr_id: i64,
 ) -> Result<()> {
-    let protection =
-        protected_branch_ops::find_by_repo_and_branch(db, repo_id, target_branch).await?;
+    // Use the same matcher as the push and direct-commit paths so a wildcard
+    // rule (e.g. `release/*`) protects merges too.
+    let rules = protected_branch_ops::list_by_repo(db, repo_id).await?;
+    let refname = format!("refs/heads/{target_branch}");
 
-    let Some(protection) = protection else {
+    let Some(protection) = rules.iter().find(|rule| rule_matches_ref(rule, &refname)) else {
         return Ok(());
     };
 
@@ -353,6 +528,7 @@ pub async fn check_merge_allowed(
     Ok(())
 }
 
+
 // ── Helpers ───────────────────────────────────────────────────────────
 
 async fn resolve_repo(
@@ -366,4 +542,106 @@ async fn resolve_repo(
     repo_ops::find_by_owner_and_name(db, user.id, repo_name)
         .await?
         .context("repository not found")
+}
+
+#[cfg(test)]
+mod shared_rule_tests {
+    use super::*;
+    use chrono::Utc;
+
+    fn rule(branch: &str) -> ProtectedBranch {
+        ProtectedBranch {
+            id: 1,
+            repo_id: 7,
+            branch_name: branch.to_string(),
+            require_pr: false,
+            require_status_check: false,
+            required_status_checks: None,
+            require_approval: false,
+            required_approvals: None,
+            allow_force_push: false,
+            require_signed_commits: false,
+            allowed_push_user_ids: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn wildcard_rule_covers_matching_branch() {
+        let release = rule("release/*");
+        assert!(rule_matches_ref(&release, "refs/heads/release/1.0"));
+        assert!(rule_matches_ref(&release, "refs/heads/release/2026/07"));
+        assert!(!rule_matches_ref(&release, "refs/heads/main"));
+        assert!(!rule_matches_ref(&release, "refs/heads/release"));
+    }
+
+    #[test]
+    fn exact_rule_still_requires_exact_match() {
+        let main = rule("main");
+        assert!(rule_matches_ref(&main, "refs/heads/main"));
+        assert!(!rule_matches_ref(&main, "refs/heads/main-2"));
+        assert!(!rule_matches_ref(&main, "refs/tags/main"));
+    }
+
+    #[test]
+    fn allowlist_does_not_waive_signed_commit_requirement() {
+        let mut signed = rule("main");
+        signed.require_pr = true;
+        signed.require_signed_commits = true;
+        signed.allowed_push_user_ids = Some("[42]".to_string());
+        let rules = vec![signed];
+
+        // The allowlisted user still cannot make an unsigned server-side
+        // commit — the receive-pack hook never waived signatures either.
+        assert!(direct_commit_rejection(&rules, "main", Some(42)).is_some());
+        assert!(direct_commit_rejection(&rules, "main", None).is_some());
+    }
+
+    #[test]
+    fn allowlist_waives_require_pr_for_direct_commit() {
+        let mut pr_only = rule("main");
+        pr_only.require_pr = true;
+        pr_only.allowed_push_user_ids = Some("[42]".to_string());
+        let rules = vec![pr_only];
+
+        assert!(direct_commit_rejection(&rules, "main", Some(42)).is_none());
+        assert!(direct_commit_rejection(&rules, "main", Some(7)).is_some());
+        // Anonymous callers are never allowlisted.
+        assert!(direct_commit_rejection(&rules, "main", None).is_some());
+    }
+
+    #[test]
+    fn wildcard_rule_blocks_direct_commit() {
+        let mut release = rule("release/*");
+        release.require_pr = true;
+        let rules = vec![release];
+
+        assert!(direct_commit_rejection(&rules, "release/1.0", None).is_some());
+        assert!(direct_commit_rejection(&rules, "main", None).is_none());
+    }
+
+    #[test]
+    fn direct_push_rejections_carry_wildcard_patterns() {
+        let mut release = rule("release/*");
+        release.require_pr = true;
+        let rules = vec![release];
+
+        let rejections = direct_push_rejections(&rules, None);
+        assert_eq!(rejections.len(), 1);
+        assert_eq!(rejections[0].0, "refs/heads/release/*");
+    }
+
+    #[test]
+    fn signed_commit_patterns_ignore_allowlist() {
+        let mut signed = rule("main");
+        signed.require_signed_commits = true;
+        signed.allowed_push_user_ids = Some("[42]".to_string());
+        let rules = vec![signed];
+
+        assert_eq!(
+            signed_commit_required_patterns(&rules),
+            vec!["refs/heads/main".to_string()]
+        );
+    }
 }

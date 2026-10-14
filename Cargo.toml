@@ -121,5 +121,9 @@ sea-orm-migration = { version = "1.1", features = ["sqlx-sqlite", "sqlx-postgres
 lto = true
 strip = true
 codegen-units = 1
-panic = "abort"
+# `unwind` (not `abort`): gix and the rest of the tree contain `unwrap`/`expect`
+# paths, and a panic inside a `spawn_blocking` task must become a recoverable
+# `JoinError` instead of killing the whole server process. `abort` turns any
+# worker-thread panic into a remote DoS.
+panic = "unwind"
 opt-level = 3

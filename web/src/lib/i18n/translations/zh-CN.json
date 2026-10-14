@@ -28,7 +28,10 @@
     "offline": "离线",
     "date": "日期",
     "view": "查看",
-    "never": "从未"
+    "never": "从未",
+    "just_now": "刚刚",
+    "download": "下载",
+    "copied": "已复制"
   },
   "nav": {
     "dashboard": "仪表板",
@@ -453,7 +456,11 @@
     },
     "clone_url": "克隆 URL",
     "login_to_star": "登录后收藏",
-    "login_to_watch": "登录后关注"
+    "login_to_watch": "登录后关注",
+    "download_started": "归档下载已开始",
+    "download_failed": "下载失败",
+    "star_failed": "更新星标失败",
+    "watch_failed": "更新关注状态失败"
   },
   "issues": {
     "title": "问题",
@@ -470,7 +477,9 @@
       "blank": "创建空白问题",
       "blank_about": "不使用模板，直接创建问题。",
       "open_blank": "打开空白问题",
-      "open_link": "打开链接"
+      "open_link": "打开链接",
+      "invalid_config": "Issue 模板配置无效：",
+      "load_failed": "加载 Issue 模板失败。"
     },
     "create_form": {
       "title": "标题",
@@ -597,7 +606,17 @@
       "verdict_approve": "批准",
       "verdict_changes": "请求变更",
       "placeholder": "留下审查评论...",
-      "submit": "提交审查"
+      "submit": "提交审查",
+      "approved": "已批准",
+      "changes_requested": "已请求修改",
+      "commented": "已评论",
+      "dismissed": "已驳回",
+      "dismiss_prompt": "驳回该评审的原因：",
+      "dismiss_default": "评审已驳回",
+      "dismiss_failed": "驳回失败",
+      "history": "评审历史",
+      "none": "暂无评审。",
+      "dismiss": "驳回"
     },
     "reviewers": {
       "title": "已请求的审查者",
@@ -706,7 +725,19 @@
     "duration": "持续时间",
     "stages": "阶段",
     "jobs": "任务",
-    "select_detail": "选择流水线以查看详情。"
+    "select_detail": "选择流水线以查看详情。",
+    "artifacts_load_failed": "加载产物失败",
+    "artifact_download_started": "下载已开始",
+    "artifact_download_failed": "下载失败",
+    "artifact_expired": "已过期",
+    "artifact_expires_in": "剩余",
+    "artifacts": "产物",
+    "no_artifacts": "该流水线暂无产物。",
+    "artifact_name": "名称",
+    "artifact_size": "大小",
+    "artifact_uploaded": "上传时间",
+    "artifact_expiry": "过期时间",
+    "rerun_failed": "重新运行"
   },
   "errors": {
     "login_failed": "登录失败",
@@ -782,7 +813,9 @@
     "tag": "标签",
     "created": "创建于 {date}",
     "edit": "编辑",
-    "delete": "删除"
+    "delete": "删除",
+    "deleted": "发布已删除",
+    "download_failed": "下载失败"
   },
   "settings": {
     "title": "设置",
@@ -985,7 +1018,28 @@
       "success": "仓库已删除。"
     },
     "milestone_open_count": "{n} 个开放",
-    "milestone_closed_count": "{n} 个已关闭"
+    "milestone_closed_count": "{n} 个已关闭",
+    "tokens": {
+      "name_required": "令牌名称不能为空",
+      "created_title": "新令牌",
+      "created_hint": "请在离开页面前复制该值。",
+      "create_title": "创建令牌",
+      "name_label": "名称",
+      "scopes_label": "权限范围",
+      "expires_label": "过期时间",
+      "creating": "创建中...",
+      "create": "创建",
+      "revoke_confirm": "确定吊销令牌“{name}”？此操作不可撤销。",
+      "never_used": "从未使用",
+      "existing_title": "现有令牌",
+      "empty": "暂无个人访问令牌。",
+      "created_label": "创建时间",
+      "last_used_label": "最近使用",
+      "revoking": "吊销中...",
+      "revoke": "吊销",
+      "title": "访问令牌",
+      "subtitle": "管理用于 HTTP Git、API 客户端与自动化的个人令牌。"
+    }
   },
   "commit": {
     "status": "状态检查",

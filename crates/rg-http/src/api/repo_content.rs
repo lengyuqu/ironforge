@@ -1004,6 +1004,7 @@ pub async fn create_or_update_file(
         &user.username,
         &user.email,
         &state.repo_root,
+        Some(user.id),
     )
     .await
     {
@@ -1024,12 +1025,10 @@ pub async fn create_or_update_file(
                 .into_response()
         }
         Err(e) => {
-            // Check if it's a SHA mismatch (conflict)
-            if e.to_string().contains("SHA mismatch") {
-                AppError::conflict(e.to_string()).into_response()
-            } else {
-                AppError::bad_request(e.to_string()).into_response()
-            }
+            // Preserve semantic categories (Forbidden → 403, Conflict → 409,
+            // NotFound → 404) instead of collapsing everything to 400, so
+            // branch-protection rejections surface as 403.
+            AppError::from(e).into_response()
         }
     }
 }
@@ -1089,6 +1088,7 @@ pub async fn delete_file(
         &user.username,
         &user.email,
         &state.repo_root,
+        Some(user.id),
     )
     .await
     {
@@ -1109,12 +1109,9 @@ pub async fn delete_file(
                 .into_response()
         }
         Err(e) => {
-            // Check if it's a SHA mismatch (conflict)
-            if e.to_string().contains("SHA mismatch") {
-                AppError::conflict(e.to_string()).into_response()
-            } else {
-                AppError::bad_request(e.to_string()).into_response()
-            }
+            // See `create_or_update_file`: keep the semantic status code so
+            // branch-protection rejections are 403, not 400.
+            AppError::from(e).into_response()
         }
     }
 }

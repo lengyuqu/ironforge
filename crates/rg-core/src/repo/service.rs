@@ -1086,8 +1086,8 @@ pub async fn notify_watchers_push(
 /// - `sha`: Blob SHA of the file being updated (required for updates to prevent overwrites)
 #[allow(clippy::too_many_arguments)]
 pub async fn create_or_update_file(
-    _db: &DatabaseConnection,
-    _repo_id: i64,
+    db: &DatabaseConnection,
+    repo_id: i64,
     owner: &str,
     repo_name: &str,
     file_path: &str,
@@ -1098,7 +1098,17 @@ pub async fn create_or_update_file(
     author_name: &str,
     author_email: &str,
     repo_root: &std::path::Path,
+    actor_id: Option<i64>,
 ) -> CoreResult<()> {
+    // Branch protection must be enforced here (not only in the receive-pack
+    // hook) so the REST contents API cannot bypass `require_pr` /
+    // `require_signed_commits` with a plain POST.
+    crate::branch_protection::service::check_direct_commit_allowed(
+        db, repo_id, branch, actor_id,
+    )
+    .await
+    .map_err(|error| CoreError::forbidden(error.to_string()))?;
+
     let repo_path = repo_root.join(format!("{}/{}.git", owner, repo_name));
 
     if !repo_path.exists() {
@@ -1302,8 +1312,8 @@ pub fn update_files_in_commit(
 /// Similar to `create_or_update_file()`, but removes the file instead.
 #[allow(clippy::too_many_arguments)]
 pub async fn delete_file(
-    _db: &DatabaseConnection,
-    _repo_id: i64,
+    db: &DatabaseConnection,
+    repo_id: i64,
     owner: &str,
     repo_name: &str,
     file_path: &str,
@@ -1313,7 +1323,16 @@ pub async fn delete_file(
     author_name: &str,
     author_email: &str,
     repo_root: &std::path::Path,
+    actor_id: Option<i64>,
 ) -> CoreResult<()> {
+    // See `create_or_update_file`: the contents API must not bypass branch
+    // protection.
+    crate::branch_protection::service::check_direct_commit_allowed(
+        db, repo_id, branch, actor_id,
+    )
+    .await
+    .map_err(|error| CoreError::forbidden(error.to_string()))?;
+
     let repo_path = repo_root.join(format!("{}/{}.git", owner, repo_name));
 
     if !repo_path.exists() {

@@ -529,3 +529,104 @@ mod tests {
         }
     }
 }
+
+/// Regression guard for the singular/plural table-name class of bug.
+///
+/// Migrations that declare `#[derive(Iden)] enum Thing { Table }` create a
+/// **singular** table name (`thing`), while the SeaORM entity maps to
+/// `#[sea_orm(table_name = "things")]`. When the two drift, every query for
+/// that entity fails at runtime with `no such table`, and the failure is
+/// invisible until the feature is exercised — `mirrors` shipped broken this
+/// way and the periodic mirror task logged `no such table: mirrors` on every
+/// tick.
+///
+/// This asserts that a freshly migrated database contains a table for every
+/// declared entity, so any new mismatch fails here instead of in production.
+#[cfg(test)]
+mod table_name_tests {
+    use super::*;
+    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+
+    /// Collect every `#[sea_orm(table_name = "...")]` declared in the entity
+    /// layer by scanning the source files.
+    ///
+    /// Scanning the directory (rather than keeping a hand-maintained list)
+    /// means a newly added entity is covered automatically — the earlier
+    /// constant silently missed new entities, which is exactly how the
+    /// `mirrors` mismatch shipped.
+    fn declared_entity_tables() -> Vec<String> {
+        let entities_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/entities");
+        let mut tables = Vec::new();
+        for entry in std::fs::read_dir(&entities_dir).expect("read entities dir") {
+            let entry = entry.expect("entity dir entry");
+            let path = entry.path();
+            if path.extension().and_then(|ext| ext.to_str()) != Some("rs") {
+                continue;
+            }
+            let source = std::fs::read_to_string(&path).expect("read entity source");
+            for line in source.lines() {
+                let Some(rest) = line.split("table_name = \"").nth(1) else {
+                    continue;
+                };
+                let Some(name) = rest.split('\"').next() else {
+                    continue;
+                };
+                if !name.is_empty() {
+                    tables.push(name.to_string());
+                }
+            }
+        }
+        tables.sort();
+        tables.dedup();
+        tables
+    }
+
+    #[tokio::test]
+    async fn every_entity_table_exists_after_fresh_migration() {
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!(
+            "ironforge_table_names_test_{}.db",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&path);
+        let url = format!("sqlite://{}?mode=rwc", path.display());
+
+        let db = connect(&url).await.expect("connect");
+        run_migrations(&db).await.expect("run migrations");
+
+        let rows = db
+            .query_all(Statement::from_string(
+                DatabaseBackend::Sqlite,
+                "SELECT name FROM sqlite_master WHERE type = 'table'".to_string(),
+            ))
+            .await
+            .expect("list tables");
+
+        let existing: std::collections::HashSet<String> = rows
+            .iter()
+            .filter_map(|row| row.try_get_by_index::<String>(0).ok())
+            .collect();
+
+        let declared = declared_entity_tables();
+        let missing: Vec<&String> = declared
+            .iter()
+            .filter(|table| !existing.contains(*table))
+            .collect();
+
+        // The scan must actually find entities; otherwise it would pass
+        // vacuously if the directory layout ever changes.
+        assert!(
+            declared.len() > 50,
+            "entity scan found only {} table(s); check the entities directory path",
+            declared.len()
+        );
+
+        assert!(
+            missing.is_empty(),
+            "entities declare tables that the migrations never created \
+             (queries would fail with `no such table`): {missing:?}"
+        );
+
+        let _ = std::fs::remove_file(&path);
+    }
+}

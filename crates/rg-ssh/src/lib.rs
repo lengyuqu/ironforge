@@ -486,10 +486,16 @@ impl Handler for SshHandler {
                         if let Some((protection_rules, tag_protection_rules, actor_id)) =
                             receive_pack_context
                         {
+                            // Same shared rule semantics as the HTTP push path.
                             let require_signed_refs =
-                                signed_commit_required_refs(&protection_rules);
+                                rg_core::branch_protection::service::signed_commit_required_patterns(
+                                    &protection_rules,
+                                );
                             let mut rejected_refs =
-                                branch_protection_rejected_refs(protection_rules, actor_id);
+                                rg_core::branch_protection::service::direct_push_rejections(
+                                    &protection_rules,
+                                    actor_id,
+                                );
                             rejected_refs.extend(tag_protection_rejected_refs(
                                 tag_protection_rules,
                                 actor_id,
@@ -545,62 +551,6 @@ impl Handler for SshHandler {
     }
 }
 
-fn branch_protection_rejected_refs(
-    protections: Vec<rg_db::entities::protected_branch::Model>,
-    actor_id: Option<i64>,
-) -> Vec<(String, String)> {
-    protections
-        .into_iter()
-        .filter_map(|protection| {
-            if direct_push_allowed_by_rule(&protection, actor_id) {
-                return None;
-            }
-
-            let message = if protection.require_pr {
-                format!(
-                    "push to protected branch '{}' is not allowed; open a pull request instead",
-                    protection.branch_name
-                )
-            } else if !protection.allow_force_push {
-                format!(
-                    "force push to protected branch '{}' is not allowed",
-                    protection.branch_name
-                )
-            } else {
-                return None;
-            };
-
-            Some((format!("refs/heads/{}", protection.branch_name), message))
-        })
-        .collect()
-}
-
-fn direct_push_allowed_by_rule(
-    protection: &rg_db::entities::protected_branch::Model,
-    actor_id: Option<i64>,
-) -> bool {
-    if let Some(uid) = actor_id {
-        if let Some(allowed_json) = &protection.allowed_push_user_ids {
-            if let Ok(allowed_ids) = serde_json::from_str::<Vec<i64>>(allowed_json) {
-                if allowed_ids.contains(&uid) {
-                    return true;
-                }
-            }
-        }
-    }
-
-    false
-}
-
-fn signed_commit_required_refs(
-    protections: &[rg_db::entities::protected_branch::Model],
-) -> Vec<String> {
-    protections
-        .iter()
-        .filter(|rule| rule.require_signed_commits)
-        .map(|rule| format!("refs/heads/{}", rule.branch_name))
-        .collect()
-}
 
 fn tag_protection_rejected_refs(
     protections: Vec<rg_db::entities::protected_tag::Model>,

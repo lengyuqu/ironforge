@@ -19,7 +19,7 @@ async fn session_rejected_after_version_bump_and_relogin_works() {
 
     // Sanity: the session works before revocation.
     let resp = client
-        .get(format!("{}/api/v1/users/me", &base))
+        .get(format!("{}/api/v1/users/me", base))
         .bearer_auth(&token)
         .send()
         .await
@@ -32,7 +32,7 @@ async fn session_rejected_after_version_bump_and_relogin_works() {
 
     // The old token is now revoked.
     let resp = client
-        .get(format!("{}/api/v1/users/me", &base))
+        .get(format!("{}/api/v1/users/me", base))
         .bearer_auth(&token)
         .send()
         .await
@@ -41,7 +41,7 @@ async fn session_rejected_after_version_bump_and_relogin_works() {
 
     // Re-login mints a token with the current version.
     let resp = client
-        .post(format!("{}/api/v1/users/login", &base))
+        .post(format!("{}/api/v1/users/login", base))
         .json(&serde_json::json!({"login": "revoke1", "password": "Qz7$wRtm"}))
         .send()
         .await
@@ -50,7 +50,7 @@ async fn session_rejected_after_version_bump_and_relogin_works() {
     let body: serde_json::Value = resp.json().await.unwrap();
     let fresh = body["token"].as_str().unwrap();
     let resp = client
-        .get(format!("{}/api/v1/users/me", &base))
+        .get(format!("{}/api/v1/users/me", base))
         .bearer_auth(fresh)
         .send()
         .await
@@ -72,7 +72,7 @@ async fn revoked_cookie_is_stripped_and_cleared() {
 
     // Authenticated handler: stripped credentials → 401.
     let resp = client
-        .get(format!("{}/api/v1/users/me", &base))
+        .get(format!("{}/api/v1/users/me", base))
         .header("cookie", format!("ironforge_token={token}"))
         .send()
         .await
@@ -95,7 +95,7 @@ async fn revoked_cookie_is_stripped_and_cleared() {
     // Auth-free endpoint still reachable with the stale cookie attached —
     // the user can re-authenticate from the same browser session.
     let resp = client
-        .post(format!("{}/api/v1/users/login", &base))
+        .post(format!("{}/api/v1/users/login", base))
         .header("cookie", format!("ironforge_token={token}"))
         .json(&serde_json::json!({"login": "revoke2", "password": "Qz7$wRtm"}))
         .send()
@@ -119,7 +119,7 @@ async fn deactivation_revokes_session_and_pat() {
 
     // Mint a PAT for the target user while the account is still active.
     let pat = client
-        .post(format!("{}/api/v1/users/tokens", &base))
+        .post(format!("{}/api/v1/users/tokens", base))
         .bearer_auth(&user_token)
         .json(&serde_json::json!({"name": "cli", "scopes": "user, repo"}))
         .send()
@@ -133,7 +133,7 @@ async fn deactivation_revokes_session_and_pat() {
 
     // PAT works before deactivation.
     let resp = client
-        .get(format!("{}/api/v1/users/me", &base))
+        .get(format!("{}/api/v1/users/me", base))
         .bearer_auth(&pat_value)
         .send()
         .await
@@ -142,7 +142,7 @@ async fn deactivation_revokes_session_and_pat() {
 
     // Admin deactivates the account.
     let resp = client
-        .patch(format!("{}/api/v1/admin/users/{user_id}", &base))
+        .patch(format!("{}/api/v1/admin/users/{user_id}", base))
         .bearer_auth(&admin_token)
         .json(&serde_json::json!({"is_active": false}))
         .send()
@@ -152,7 +152,7 @@ async fn deactivation_revokes_session_and_pat() {
 
     // Session JWT issued before deactivation is revoked...
     let resp = client
-        .get(format!("{}/api/v1/users/me", &base))
+        .get(format!("{}/api/v1/users/me", base))
         .bearer_auth(&user_token)
         .send()
         .await
@@ -161,7 +161,7 @@ async fn deactivation_revokes_session_and_pat() {
 
     // ...and the PAT can no longer mint a session either.
     let resp = client
-        .get(format!("{}/api/v1/users/me", &base))
+        .get(format!("{}/api/v1/users/me", base))
         .bearer_auth(&pat_value)
         .send()
         .await

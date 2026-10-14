@@ -100,6 +100,14 @@ enum Commands {
         #[arg(long, default_value_t = false)]
         external_runners: bool,
 
+        /// Allow CI jobs without an `image` to run directly on the host via `sh -c`.
+        ///
+        /// This is a security-sensitive opt-in: the job script is repository
+        /// content, so host execution grants its author code execution as the
+        /// server user. Off by default.
+        #[arg(long, default_value_t = false)]
+        allow_host_execution: bool,
+
         /// Rate limit: max requests per window per IP (0 = disabled)
         #[arg(long, default_value_t = 0)]
         rate_limit_max: u32,
@@ -435,6 +443,9 @@ struct CiConfig {
     docker: Option<bool>,
     #[serde(default)]
     external_runners: Option<bool>,
+    /// Allow CI jobs without an `image` to run on the host. Off by default.
+    #[serde(default)]
+    allow_host_execution: Option<bool>,
 }
 
 #[derive(Debug, serde::Deserialize, Default)]
@@ -915,6 +926,7 @@ async fn main() -> anyhow::Result<()> {
             jwt_secret,
             docker,
             external_runners,
+            allow_host_execution,
             rate_limit_max,
             rate_limit_window,
             rate_limit_trusted_proxies,
@@ -939,6 +951,7 @@ async fn main() -> anyhow::Result<()> {
                 jwt_secret,
                 docker,
                 external_runners,
+                allow_host_execution,
                 rate_limit_max,
                 rate_limit_window,
                 rate_limit_trusted_proxies,
@@ -1608,6 +1621,7 @@ async fn run_serve(
     jwt_secret: Option<String>,
     docker: bool,
     external_runners: bool,
+    allow_host_execution: bool,
     rate_limit_max: u32,
     rate_limit_window: u64,
     rate_limit_trusted_proxies: Vec<String>,
@@ -1659,6 +1673,11 @@ async fn run_serve(
         || cfg
             .as_ref()
             .and_then(|c| c.ci.external_runners)
+            .unwrap_or(false);
+    let resolved_allow_host_execution = allow_host_execution
+        || cfg
+            .as_ref()
+            .and_then(|c| c.ci.allow_host_execution)
             .unwrap_or(false);
     let resolved_rate_limit_max = if rate_limit_max > 0 {
         rate_limit_max
@@ -1891,6 +1910,7 @@ async fn run_serve(
         oci_storage_path: None,
         external_url: resolved_external_url,
         job_timeout_secs: resolved_job_timeout,
+        allow_host_execution: resolved_allow_host_execution,
         // M-14: Inject CiEngine via trait object, decoupling rg-http from rg-ci.
         ci_engine: std::sync::Arc::new(rg_ci::CiEngine),
     };

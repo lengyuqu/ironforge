@@ -88,6 +88,18 @@ pub async fn external_ci_webhook(
         Err(e) => return crate::error::AppError::internal(e.to_string()).into_response(),
     };
 
+    // Posting a commit status mutates repository state. Without this check any
+    // authenticated user could forge CI results for any repository by name.
+    let can_write = rg_core::repo::service::can_write_repo(&state.db, &repo, Some(user_id))
+        .await
+        .unwrap_or(false);
+    if !can_write {
+        return crate::error::AppError::forbidden(
+            "write access to the repository is required to publish commit statuses",
+        )
+        .into_response();
+    }
+
     // Create commit status (without sha — will be associated later via push)
     // Clone fields before moving into ActiveModel
     let context = body.context.clone();

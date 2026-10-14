@@ -16,6 +16,8 @@ pub struct MergeQueueCi<'a> {
     pub trigger: &'a dyn crate::ci::CiTrigger,
     pub docker_enabled: bool,
     pub external_runners: bool,
+    /// See [`crate::ci::TriggerPipelineParams::allow_host_execution`].
+    pub allow_host_execution: bool,
     pub jwt_secret: Option<&'a str>,
     pub external_url: Option<&'a str>,
 }
@@ -497,6 +499,7 @@ async fn ensure_merge_group_ci(
             triggered_by: Some(entry.enqueued_by_id),
             docker_enabled: ci.docker_enabled,
             external_runners: ci.external_runners,
+            allow_host_execution: ci.allow_host_execution,
             jwt_secret: ci.jwt_secret,
             external_url: ci.external_url,
         })

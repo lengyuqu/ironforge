@@ -23,6 +23,13 @@ pub struct TriggerPipelineParams<'a> {
     pub triggered_by: Option<i64>,
     pub docker_enabled: bool,
     pub external_runners: bool,
+    /// Whether jobs **without** an `image` may run on the host via `sh -c`.
+    ///
+    /// Defaults to `false`: a CI script is attacker-influenced input (it comes
+    /// from a repository), so executing it directly on the server host is
+    /// equivalent to remote code execution. Operators that accept that risk can
+    /// opt in explicitly.
+    pub allow_host_execution: bool,
     pub jwt_secret: Option<&'a str>,
     pub external_url: Option<&'a str>,
 }
@@ -35,6 +42,8 @@ pub struct ResumePipelineParams<'a> {
     pub pipeline_id: i64,
     pub docker_enabled: bool,
     pub external_runners: bool,
+    /// See [`TriggerPipelineParams::allow_host_execution`].
+    pub allow_host_execution: bool,
     pub jwt_secret: Option<&'a str>,
     pub external_url: Option<&'a str>,
 }

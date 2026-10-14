@@ -145,7 +145,8 @@ fn render_change(
         } => {
             let p = location.as_bstr();
             push_diff_git_line(out, p, p);
-            if previous_entry_mode != entry_mode {
+            let mode_changed = previous_entry_mode != entry_mode;
+            if mode_changed {
                 push_str(
                     out,
                     &format!(
@@ -155,12 +156,19 @@ fn render_change(
                     ),
                 );
             }
+            // Mode-only change (chmod without touching the blob): git emits
+            // just `old mode`/`new mode` and stops — no `index`, no `---`/`+++`.
+            if mode_changed && previous_id.detach() == id.detach() {
+                return Ok(());
+            }
             let old_abbrev = previous_id.shorten().context("failed to abbreviate id")?;
             let new_abbrev = id.shorten().context("failed to abbreviate id")?;
-            let mode_suffix = if previous_entry_mode == entry_mode {
-                format!(" {:o}", entry_mode.value())
-            } else {
+            // The mode suffix appears only when the mode is unchanged; with a
+            // mode change git emits a bare `index <old>..<new>`.
+            let mode_suffix = if mode_changed {
                 String::new()
+            } else {
+                format!(" {:o}", entry_mode.value())
             };
             push_str(
                 out,
@@ -188,16 +196,11 @@ fn render_change(
             let dst = location.as_bstr();
             push_diff_git_line(out, src, dst);
 
-            let similarity = diff.as_ref().map_or(100.0, |s| s.similarity * 100.0);
-            // git 的 similarity index 为整数截断（非四舍五入），实测 92.5 → 92
-            push_str(
-                out,
-                &format!("similarity index {}%\n", similarity.floor().clamp(0.0, 100.0)),
-            );
-            push_str(out, &format!("rename from {}\n", src.to_str_lossy()));
-            push_str(out, &format!("rename to {}\n", dst.to_str_lossy()));
-
-            if source_entry_mode != entry_mode {
+            // git emits the mode lines *before* the similarity/rename block:
+            //   diff --git / old mode / new mode / similarity index /
+            //   rename from / rename to / index
+            let mode_changed = source_entry_mode != entry_mode;
+            if mode_changed {
                 push_str(
                     out,
                     &format!(
@@ -207,16 +210,26 @@ fn render_change(
                     ),
                 );
             }
+
+            let similarity = diff.as_ref().map_or(100.0, |s| s.similarity * 100.0);
+            // git 的 similarity index 为整数截断（非四舍五入），实测 92.5 → 92
+            push_str(
+                out,
+                &format!("similarity index {}%\n", similarity.floor().clamp(0.0, 100.0)),
+            );
+            push_str(out, &format!("rename from {}\n", src.to_str_lossy()));
+            push_str(out, &format!("rename to {}\n", dst.to_str_lossy()));
+
             // 纯 rename（source_id == id）：git 不输出 index/---/+++ 行
             if source_id.detach() == id.detach() {
                 return Ok(());
             }
             let old_abbrev = source_id.shorten().context("failed to abbreviate id")?;
             let new_abbrev = id.shorten().context("failed to abbreviate id")?;
-            let mode_suffix = if source_entry_mode == entry_mode {
-                format!(" {:o}", entry_mode.value())
-            } else {
+            let mode_suffix = if mode_changed {
                 String::new()
+            } else {
+                format!(" {:o}", entry_mode.value())
             };
             push_str(
                 out,
@@ -443,6 +456,17 @@ mod parity_tests {
             v
         })?;
         write("del.txt", b"delete me\nline two\n")?;
+        // rename + chmod + edit: the one combination the other fixtures miss.
+        // Pure-rename (100%) and mode-only cases are covered separately below,
+        // and this is the only case that exercises the ordering of
+        // `old mode`/`new mode` relative to `similarity index`/`rename from`.
+        write("moved/renamed_mode.txt", &{
+            let mut v = Vec::new();
+            for i in 1..=20 {
+                v.extend_from_slice(format!("mode line {i}\n").as_bytes());
+            }
+            v
+        })?;
 
         run(&["add", "-A"], Some(&repo))?;
         run(&["commit", "-m", "base"], Some(&repo))?;
@@ -500,6 +524,33 @@ mod parity_tests {
 
         // 11) 删除文件
         std::fs::remove_file(repo.join("del.txt"))?;
+
+        // 12) rename + chmod + 编辑：git 的顺序是
+        //     diff --git / old mode / new mode / similarity index /
+        //     rename from / rename to / index
+        //     （此前无 fixture 覆盖，mode 行位置错误未被对拍钉死）
+        run(
+            &["mv", "moved/renamed_mode.txt", "moved/mode_final.txt"],
+            Some(&repo),
+        )?;
+        let mut mode_edited = Vec::new();
+        for i in 1..=20 {
+            let line = if i == 5 {
+                format!("mode line {i} EDITED\n")
+            } else {
+                format!("mode line {i}\n")
+            };
+            mode_edited.extend_from_slice(line.as_bytes());
+        }
+        write("moved/mode_final.txt", &mode_edited)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(
+                repo.join("moved/mode_final.txt"),
+                std::fs::Permissions::from_mode(0o755),
+            )?;
+        }
 
         run(&["add", "-A"], Some(&repo))?;
         run(&["commit", "-m", "head"], Some(&repo))?;

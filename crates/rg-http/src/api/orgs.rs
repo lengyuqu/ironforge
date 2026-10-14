@@ -188,7 +188,7 @@ pub async fn create_org(
             )
                 .into_response()
         }
-        Err(e) => AppError::bad_request(e).into_response(),
+        Err(e) => org_error(e).into_response(),
     }
 }
 
@@ -205,11 +205,19 @@ pub async fn create_org(
         (status = 401, description = "Unauthorized", body = serde_json::Value),
     ),
 )]
-pub async fn get_org(State(state): State<AppState>, Path(name): Path<String>) -> impl IntoResponse {
-    match rg_core::org::get_org_by_name(&state.db, &name).await {
-        Ok(Some(org)) => Json(org_to_response(&org)).into_response(),
-        Ok(None) => AppError::not_found("organization not found").into_response(),
-        Err(e) => AppError::internal(e).into_response(),
+pub async fn get_org(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(name): Path<String>,
+) -> impl IntoResponse {
+    // Private orgs are indistinguishable from missing ones for non-members.
+    let actor_id = super::auth::extract_user_id(&headers, &state.jwt_secret);
+    match rg_core::org::require_org_read(&state.db, &name, actor_id).await {
+        Ok(org) => Json(org_to_response(&org)).into_response(),
+        Err(e) => match org_read_error(&e) {
+            Some(error) => error.into_response(),
+            None => AppError::not_found("organization not found").into_response(),
+        },
     }
 }
 
@@ -280,6 +288,7 @@ pub async fn update_org(
     match rg_core::org::update_org(
         &state.db,
         org.id,
+        user_id,
         body.display_name.as_deref(),
         body.description.as_deref(),
         body.visibility.as_deref(),
@@ -306,7 +315,7 @@ pub async fn update_org(
             .await;
             Json(org_to_response(&updated)).into_response()
         }
-        Err(e) => AppError::bad_request(e).into_response(),
+        Err(e) => org_error(e).into_response(),
     }
 }
 
@@ -383,15 +392,18 @@ pub async fn delete_org(
 )]
 pub async fn list_org_members(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(name): Path<String>,
 ) -> impl IntoResponse {
-    let org = match rg_core::org::get_org_by_name(&state.db, &name).await {
-        Ok(Some(o)) => o,
-        Ok(None) => {
-            return AppError::not_found("organization not found").into_response();
-        }
+    // Team/member lists of a private org are not readable by non-members.
+    let actor_id = super::auth::extract_user_id(&headers, &state.jwt_secret);
+    let org = match rg_core::org::require_org_read(&state.db, &name, actor_id).await {
+        Ok(o) => o,
         Err(e) => {
-            return AppError::internal(e).into_response();
+            return match org_read_error(&e) {
+                Some(error) => error.into_response(),
+                None => AppError::internal(e.to_string()).into_response(),
+            };
         }
     };
 
@@ -452,7 +464,7 @@ pub async fn add_org_member(
 
     let role = body.role.as_deref().unwrap_or("member");
 
-    match rg_core::org::add_org_member(&state.db, org.id, body.user_id, role).await {
+    match rg_core::org::add_org_member(&state.db, org.id, actor_id, body.user_id, role).await {
         Ok(m) => {
             let details = serde_json::json!({
                 "org_name": org.name,
@@ -482,7 +494,7 @@ pub async fn add_org_member(
             )
                 .into_response()
         }
-        Err(e) => AppError::bad_request(e).into_response(),
+        Err(e) => org_error(e).into_response(),
     }
 }
 
@@ -522,7 +534,7 @@ pub async fn remove_org_member(
         }
     };
 
-    match rg_core::org::remove_org_member(&state.db, org.id, user_id).await {
+    match rg_core::org::remove_org_member(&state.db, org.id, actor_id, user_id).await {
         Ok(()) => {
             let details = serde_json::json!({
                 "org_name": org.name,
@@ -542,7 +554,7 @@ pub async fn remove_org_member(
             .await;
             Json(serde_json::json!({"removed": true})).into_response()
         }
-        Err(e) => AppError::bad_request(e).into_response(),
+        Err(e) => org_error(e).into_response(),
     }
 }
 
@@ -565,9 +577,13 @@ pub async fn remove_org_member(
 )]
 pub async fn create_team(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(name): Path<String>,
     Json(body): Json<CreateTeamRequest>,
 ) -> impl IntoResponse {
+    let Some(actor_id) = super::auth::extract_user_id(&headers, &state.jwt_secret) else {
+        return AppError::unauthorized("authentication required").into_response();
+    };
     let org = match rg_core::org::get_org_by_name(&state.db, &name).await {
         Ok(Some(o)) => o,
         Ok(None) => {
@@ -583,6 +599,7 @@ pub async fn create_team(
     match rg_core::org::create_team(
         &state.db,
         org.id,
+        actor_id,
         &body.name,
         body.description.as_deref(),
         permission,
@@ -599,7 +616,7 @@ pub async fn create_team(
             })),
         )
             .into_response(),
-        Err(e) => AppError::bad_request(e).into_response(),
+        Err(e) => org_error(e).into_response(),
     }
 }
 
@@ -618,15 +635,17 @@ pub async fn create_team(
 )]
 pub async fn list_org_teams(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path(name): Path<String>,
 ) -> impl IntoResponse {
-    let org = match rg_core::org::get_org_by_name(&state.db, &name).await {
-        Ok(Some(o)) => o,
-        Ok(None) => {
-            return AppError::not_found("organization not found").into_response();
-        }
+    let actor_id = super::auth::extract_user_id(&headers, &state.jwt_secret);
+    let org = match rg_core::org::require_org_read(&state.db, &name, actor_id).await {
+        Ok(o) => o,
         Err(e) => {
-            return AppError::internal(e).into_response();
+            return match org_read_error(&e) {
+                Some(error) => error.into_response(),
+                None => AppError::internal(e.to_string()).into_response(),
+            };
         }
     };
 
@@ -666,10 +685,23 @@ pub async fn list_org_teams(
 )]
 pub async fn get_team(
     State(state): State<AppState>,
-    Path((_name, team_id)): Path<(String, i64)>,
+    headers: HeaderMap,
+    Path((name, team_id)): Path<(String, i64)>,
 ) -> impl IntoResponse {
+    // The path carries the org name; the team must actually belong to it, and
+    // a private org's teams are not visible to non-members.
+    let actor_id = super::auth::extract_user_id(&headers, &state.jwt_secret);
+    let org = match rg_core::org::require_org_read(&state.db, &name, actor_id).await {
+        Ok(org) => org,
+        Err(e) => {
+            return match org_read_error(&e) {
+                Some(error) => error.into_response(),
+                None => AppError::internal(e.to_string()).into_response(),
+            };
+        }
+    };
     match rg_core::org::get_team(&state.db, team_id).await {
-        Ok(Some(t)) => Json(TeamResponse {
+        Ok(Some(t)) if t.org_id == org.id => Json(TeamResponse {
             id: t.id,
             org_id: t.org_id,
             name: t.name,
@@ -679,6 +711,7 @@ pub async fn get_team(
             updated_at: t.updated_at.to_string(),
         })
         .into_response(),
+        Ok(Some(_)) => AppError::not_found("team not found").into_response(),
         Ok(None) => AppError::not_found("team not found").into_response(),
         Err(e) => AppError::internal(e).into_response(),
     }
@@ -701,11 +734,18 @@ pub async fn get_team(
 )]
 pub async fn delete_team(
     State(state): State<AppState>,
-    Path((_name, team_id)): Path<(String, i64)>,
+    headers: HeaderMap,
+    Path((name, team_id)): Path<(String, i64)>,
 ) -> impl IntoResponse {
-    match rg_core::org::delete_team(&state.db, team_id).await {
+    let Some(actor_id) = super::auth::extract_user_id(&headers, &state.jwt_secret) else {
+        return AppError::unauthorized("authentication required").into_response();
+    };
+    if let Err(e) = require_team_in_org(&state, &name, team_id).await {
+        return e.into_response();
+    }
+    match rg_core::org::delete_team(&state.db, team_id, actor_id).await {
         Ok(()) => Json(serde_json::json!({"deleted": true})).into_response(),
-        Err(e) => AppError::not_found(e).into_response(),
+        Err(e) => org_error(e).into_response(),
     }
 }
 
@@ -725,8 +765,24 @@ pub async fn delete_team(
 )]
 pub async fn list_team_members(
     State(state): State<AppState>,
-    Path((_name, team_id)): Path<(String, i64)>,
+    headers: HeaderMap,
+    Path((name, team_id)): Path<(String, i64)>,
 ) -> impl IntoResponse {
+    let actor_id = super::auth::extract_user_id(&headers, &state.jwt_secret);
+    let org = match rg_core::org::require_org_read(&state.db, &name, actor_id).await {
+        Ok(org) => org,
+        Err(e) => {
+            return match org_read_error(&e) {
+                Some(error) => error.into_response(),
+                None => AppError::internal(e.to_string()).into_response(),
+            };
+        }
+    };
+    match rg_core::org::get_team(&state.db, team_id).await {
+        Ok(Some(team)) if team.org_id == org.id => {}
+        Ok(_) => return AppError::not_found("team not found").into_response(),
+        Err(e) => return AppError::internal(e).into_response(),
+    }
     match rg_core::org::list_team_members(&state.db, team_id).await {
         Ok(members) => {
             let resp: Vec<TeamMemberResponse> = members
@@ -763,12 +819,19 @@ pub async fn list_team_members(
 )]
 pub async fn add_team_member(
     State(state): State<AppState>,
-    Path((_name, team_id)): Path<(String, i64)>,
+    headers: HeaderMap,
+    Path((name, team_id)): Path<(String, i64)>,
     Json(body): Json<AddTeamMemberRequest>,
 ) -> impl IntoResponse {
+    let Some(actor_id) = super::auth::extract_user_id(&headers, &state.jwt_secret) else {
+        return AppError::unauthorized("authentication required").into_response();
+    };
+    if let Err(e) = require_team_in_org(&state, &name, team_id).await {
+        return e.into_response();
+    }
     let role = body.role.as_deref().unwrap_or("member");
 
-    match rg_core::org::add_team_member(&state.db, team_id, body.user_id, role).await {
+    match rg_core::org::add_team_member(&state.db, team_id, actor_id, body.user_id, role).await {
         Ok(m) => (
             StatusCode::CREATED,
             Json(serde_json::json!({
@@ -779,7 +842,7 @@ pub async fn add_team_member(
             })),
         )
             .into_response(),
-        Err(e) => AppError::bad_request(e).into_response(),
+        Err(e) => org_error(e).into_response(),
     }
 }
 
@@ -801,15 +864,69 @@ pub async fn add_team_member(
 )]
 pub async fn remove_team_member(
     State(state): State<AppState>,
-    Path((_name, team_id, user_id)): Path<(String, i64, i64)>,
+    headers: HeaderMap,
+    Path((name, team_id, user_id)): Path<(String, i64, i64)>,
 ) -> impl IntoResponse {
-    match rg_core::org::remove_team_member(&state.db, team_id, user_id).await {
+    let Some(actor_id) = super::auth::extract_user_id(&headers, &state.jwt_secret) else {
+        return AppError::unauthorized("authentication required").into_response();
+    };
+    if let Err(e) = require_team_in_org(&state, &name, team_id).await {
+        return e.into_response();
+    }
+    match rg_core::org::remove_team_member(&state.db, team_id, actor_id, user_id).await {
         Ok(()) => Json(serde_json::json!({"removed": true})).into_response(),
-        Err(e) => AppError::bad_request(e).into_response(),
+        Err(e) => org_error(e).into_response(),
     }
 }
 
+
 // ── Helpers ──────────────────────────────────────────────────
+
+/// Map an org service error to the matching HTTP status.
+///
+/// The service layer signals authorization failures as
+/// `forbidden: ...` and missing resources as `... not found`. Collapsing
+/// everything into 400/404 hides the real cause from callers.
+fn org_error(error: anyhow::Error) -> AppError {
+    let message = error.to_string();
+    if message.starts_with("forbidden:") {
+        AppError::forbidden(message)
+    } else if message.contains("not found") {
+        AppError::not_found(message)
+    } else {
+        AppError::bad_request(message)
+    }
+}
+
+/// Ensure `team_id` exists and belongs to the organization named in the path.
+///
+/// The team routes are nested under `/orgs/{name}/teams/{team_id}`; ignoring
+/// `name` would let a caller reach another org's team through the wrong path.
+async fn require_team_in_org(state: &AppState, org_name: &str, team_id: i64) -> Result<(), AppError> {
+    let org = rg_core::org::get_org_by_name(&state.db, org_name)
+        .await
+        .map_err(AppError::internal)?
+        .ok_or_else(|| AppError::not_found("organization not found"))?;
+    let team = rg_core::org::get_team(&state.db, team_id)
+        .await
+        .map_err(AppError::internal)?
+        .ok_or_else(|| AppError::not_found("team not found"))?;
+    if team.org_id != org.id {
+        return Err(AppError::not_found("team not found"));
+    }
+    Ok(())
+}
+
+/// Map an org-read error for a public endpoint: a private org the caller may
+/// not see is reported as missing, so org names are not enumerable.
+fn org_read_error(error: &anyhow::Error) -> Option<AppError> {
+    let message = error.to_string();
+    if message.starts_with("forbidden:") || message.contains("not found") {
+        Some(AppError::not_found("organization not found"))
+    } else {
+        None
+    }
+}
 
 fn org_to_response(org: &rg_db::entities::organization::Model) -> OrgResponse {
     OrgResponse {

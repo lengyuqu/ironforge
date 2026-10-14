@@ -28,7 +28,10 @@
     "view": "View",
     "never": "Never",
     "all": "All",
-    "search": "Search"
+    "search": "Search",
+    "just_now": "just now",
+    "download": "Download",
+    "copied": "Copied"
   },
   "nav": {
     "dashboard": "Dashboard",
@@ -453,7 +456,11 @@
     "clone_url": "Clone URL",
     "select_branch": "Select branch",
     "login_to_star": "Login to star",
-    "login_to_watch": "Login to watch"
+    "login_to_watch": "Login to watch",
+    "download_started": "Archive download started",
+    "download_failed": "Download failed",
+    "star_failed": "Failed to update star",
+    "watch_failed": "Failed to update watch status"
   },
   "issues": {
     "title": "Issues",
@@ -470,7 +477,9 @@
       "blank": "Open a blank issue",
       "blank_about": "Create an issue without using a template.",
       "open_blank": "Open blank issue",
-      "open_link": "Open link"
+      "open_link": "Open link",
+      "invalid_config": "Issue template config is invalid:",
+      "load_failed": "Failed to load issue templates."
     },
     "create_form": {
       "title": "Title",
@@ -597,7 +606,17 @@
       "verdict_approve": "Approve",
       "verdict_changes": "Request Changes",
       "placeholder": "Leave a review comment...",
-      "submit": "Submit Review"
+      "submit": "Submit Review",
+      "approved": "Approved",
+      "changes_requested": "Changes requested",
+      "commented": "Commented",
+      "dismissed": "Dismissed",
+      "dismiss_prompt": "Reason for dismissing this review:",
+      "dismiss_default": "Review dismissed",
+      "dismiss_failed": "Dismiss failed",
+      "history": "Review History",
+      "none": "No reviews yet.",
+      "dismiss": "Dismiss"
     },
     "reviewers": {
       "title": "Requested reviewers",
@@ -706,7 +725,19 @@
     "duration": "Duration",
     "stages": "Stages",
     "jobs": "Jobs",
-    "select_detail": "Select a pipeline to view details."
+    "select_detail": "Select a pipeline to view details.",
+    "artifacts_load_failed": "Failed to load artifacts",
+    "artifact_download_started": "Download started",
+    "artifact_download_failed": "Download failed",
+    "artifact_expired": "Expired",
+    "artifact_expires_in": "Expires in",
+    "artifacts": "Artifacts",
+    "no_artifacts": "No artifacts for this pipeline.",
+    "artifact_name": "Name",
+    "artifact_size": "Size",
+    "artifact_uploaded": "Uploaded",
+    "artifact_expiry": "Expiry",
+    "rerun_failed": "Rerun"
   },
   "errors": {
     "login_failed": "Login failed",
@@ -782,7 +813,9 @@
     "tag": "Tag",
     "created": "Created {date}",
     "edit": "Edit",
-    "delete": "Delete"
+    "delete": "Delete",
+    "deleted": "Release deleted",
+    "download_failed": "Download failed"
   },
   "settings": {
     "title": "Settings",
@@ -985,7 +1018,28 @@
       "success": "Repository deleted."
     },
     "milestone_open_count": "{n} open",
-    "milestone_closed_count": "{n} closed"
+    "milestone_closed_count": "{n} closed",
+    "tokens": {
+      "name_required": "Token name is required",
+      "created_title": "New token",
+      "created_hint": "Copy this value before leaving the page.",
+      "create_title": "Create Token",
+      "name_label": "Name",
+      "scopes_label": "Scopes",
+      "expires_label": "Expires",
+      "creating": "Creating...",
+      "create": "Create",
+      "revoke_confirm": "Revoke token \"{name}\"? This cannot be undone.",
+      "never_used": "Never",
+      "existing_title": "Existing Tokens",
+      "empty": "No personal access tokens yet.",
+      "created_label": "Created",
+      "last_used_label": "Last used",
+      "revoking": "Revoking...",
+      "revoke": "Revoke",
+      "title": "Access Tokens",
+      "subtitle": "Manage personal tokens for Git over HTTP, API clients, and automation."
+    }
   },
   "commit": {
     "status": "Status checks",

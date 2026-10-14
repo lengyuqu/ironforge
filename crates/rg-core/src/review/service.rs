@@ -10,6 +10,8 @@ use rg_db::entities::pull_request;
 use rg_db::entities::review_comment::{self, Model as ReviewComment};
 use rg_db::ops::{pr_review_ops, pull_request_ops, repo_ops, review_comment_ops};
 
+use crate::error::CoreError;
+
 // ── Review actions ────────────────────────────────────────────────────
 
 /// Review action types.
@@ -426,6 +428,19 @@ pub async fn apply_suggestions(
             expected_blob_sha: blob_sha,
         });
     }
+
+    // Applying a suggestion creates a server-side commit on the PR head
+    // branch. That branch may be protected, so the same check the contents API
+    // uses must run here — otherwise `require_pr` / `require_signed_commits`
+    // can be bypassed by applying a suggestion instead of pushing.
+    crate::branch_protection::service::check_direct_commit_allowed(
+        db,
+        source_repo.id,
+        &pr.head_branch,
+        Some(actor.id),
+    )
+    .await
+    .map_err(|error| CoreError::forbidden(error.to_string()))?;
 
     let commit_sha = crate::repo::service::update_files_in_commit(
         source_namespace,

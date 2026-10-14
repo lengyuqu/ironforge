@@ -65,6 +65,8 @@ pub fn build_test_app_state(
         jwt_secret: Arc::new("test-secret-key".to_string()),
         docker_enabled: false,
         external_runners: false,
+        // Tests exercise the local execution path deliberately.
+        allow_host_execution: true,
         rate_limiter: rg_http::rate_limit::RateLimiter::new(10000, 60),
         notification_hub: rg_http::ws::NotificationHub::new(),
         smtp_config: None,

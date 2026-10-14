@@ -12,8 +12,6 @@ use chrono::Utc;
 use common::{register_full, spawn_test_app_with_db};
 use sea_orm::Set;
 
-const PW: &str = "Qz7$wRtm";
-
 async fn register_owner(base: &str, tag: &str) -> (String, i64) {
     register_full(base, &format!("prms{tag}"), &format!("prms{tag}@example.com")).await
 }
@@ -150,7 +148,7 @@ async fn test_pr_milestone_cross_repo_and_unknown_are_rejected() {
     let (base, db) = spawn_test_app_with_db().await;
     let (token, user_id) = register_owner(&base, "g1").await;
     let repo_a = create_repo(&base, &token, "prms-a").await;
-    let repo_b = create_repo(&base, &token, "prms-b").await;
+    let _repo_b = create_repo(&base, &token, "prms-b").await;
     // Milestone lives on repo B only.
     let ms_b = create_milestone(&base, &token, "prmsg1", "prms-b", "b-milestone").await;
     insert_pr(&db, repo_a, user_id, 1).await;

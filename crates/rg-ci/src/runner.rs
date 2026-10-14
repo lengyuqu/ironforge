@@ -1,13 +1,17 @@
 //! Pipeline runner — executes CI jobs sequentially by stage.
 //!
 //! Supports two execution modes:
-//! - **Local**: `sh -c` (default, when no `image` is specified)
 //! - **Docker**: `docker run --rm <image> sh -c` (when `image` field is set)
+//! - **Local**: `sh -c` (when no `image` is specified) — **opt-in only**
 //!
 //! Security measures:
 //! - All job executions are bounded by a configurable timeout (default 1 hour).
 //! - When Docker is requested but unavailable, the job **fails** instead of
 //!   silently falling back to local execution (prevents privilege escalation).
+//! - A job with no `image` is **refused** unless the operator set
+//!   `allow_host_execution` (config `[ci].allow_host_execution`, CLI
+//!   `--allow-host-execution`): its script is repository content, so running it
+//!   on the host is code execution as the server user.
 //! - Local execution sanitizes the environment to avoid leaking sensitive vars.
 //! - On timeout the child process is killed (not just abandoned).
 
@@ -31,6 +35,9 @@ pub struct PipelineRunner {
     repo_id: i64,
     jwt_secret: Option<String>,
     docker_enabled: bool,
+    /// Whether jobs without an `image` may run on the host. See
+    /// `TriggerPipelineParams::allow_host_execution`; defaults to `false`.
+    allow_host_execution: bool,
     oidc_token_url: Option<String>,
     /// Per-job timeout in seconds (0 = no timeout).
     job_timeout_secs: u64,
@@ -45,6 +52,7 @@ impl PipelineRunner {
             repo_id: 0,
             jwt_secret: None,
             docker_enabled: true,
+            allow_host_execution: false,
             oidc_token_url: None,
             job_timeout_secs: DEFAULT_JOB_TIMEOUT_SECS,
         }
@@ -63,9 +71,18 @@ impl PipelineRunner {
             repo_id: 0,
             jwt_secret: None,
             docker_enabled: false,
+            allow_host_execution: false,
             oidc_token_url: None,
             job_timeout_secs: DEFAULT_JOB_TIMEOUT_SECS,
         }
+    }
+
+    /// Opt in to running jobs without an `image` directly on the host.
+    ///
+    /// This is `false` by default: CI scripts come from repository content, so
+    /// host execution grants their authors code execution as the server user.
+    pub fn set_allow_host_execution(&mut self, allow: bool) {
+        self.allow_host_execution = allow;
     }
 
     /// Set the repository ID (for CI_JOB_TOKEN generation).
@@ -344,6 +361,7 @@ impl PipelineRunner {
                             trigger: &ci_engine,
                             docker_enabled: self.docker_enabled,
                             external_runners: false,
+                            allow_host_execution: self.allow_host_execution,
                             jwt_secret: self.jwt_secret.as_deref(),
                             external_url: self
                                 .oidc_token_url
@@ -455,6 +473,16 @@ impl PipelineRunner {
             .and_then(|seconds| u64::try_from(seconds).ok())
             .unwrap_or(self.job_timeout_secs)
             .min(86_400);
+        // A job with no `image` would run `sh -c <script>` directly on the
+        // server host. That script is repository content, so executing it is
+        // remote code execution as the server user. It is refused unless the
+        // operator explicitly opted in.
+        if image.is_none() && !self.allow_host_execution {
+            let msg = "Job has no `image` and host execution is disabled on this runner; set `ci.allow_host_execution = true` (or `--allow-host-execution`) to run jobs directly on the host, or give the job an `image`.";
+            tracing::warn!(job_id, "{}", msg);
+            return Err(anyhow::anyhow!("{}", msg));
+        }
+
         let exec_future = async {
             if let Some(img) = image {
                 self.run_job_docker(job_id, script, img, &job_environment)
@@ -1220,6 +1248,8 @@ mod tests {
         let mut runner = PipelineRunner::new_local_only(db.clone(), &repo_path, pipeline.id);
         runner.set_repo_id(repo.id);
         runner.set_jwt_secret(jwt_secret.into());
+        // This test exercises host execution deliberately.
+        runner.set_allow_host_execution(true);
         runner.run().await.unwrap();
 
         let completed = rg_db::ops::pipeline_ops::get_job(&db, job.id)
@@ -1302,7 +1332,8 @@ mod tests {
         .await
         .unwrap();
 
-        let runner = PipelineRunner::new_local_only(db.clone(), &repo_path, manual_pipeline.id);
+        let mut runner = PipelineRunner::new_local_only(db.clone(), &repo_path, manual_pipeline.id);
+        runner.set_allow_host_execution(true);
         runner.run().await.unwrap();
         assert_eq!(
             rg_db::ops::pipeline_ops::get_pipeline(&db, manual_pipeline.id)
@@ -1334,7 +1365,8 @@ mod tests {
         rg_db::ops::pipeline_ops::resume_pipeline_chain(&db, manual_pipeline.id, manual_stage.id)
             .await
             .unwrap();
-        let runner = PipelineRunner::new_local_only(db.clone(), &repo_path, manual_pipeline.id);
+        let mut runner = PipelineRunner::new_local_only(db.clone(), &repo_path, manual_pipeline.id);
+        runner.set_allow_host_execution(true);
         runner.run().await.unwrap();
         assert_eq!(
             rg_db::ops::pipeline_ops::get_pipeline(&db, manual_pipeline.id)
@@ -1355,5 +1387,169 @@ mod tests {
                 .count(),
             1
         );
+    }
+
+    /// Regression: a job without an `image` must not silently run on the host.
+    /// Host execution is RCE-as-the-server-user and is now opt-in.
+    #[tokio::test]
+    async fn job_without_image_is_refused_unless_host_execution_is_enabled() {
+        let temp = tempfile::tempdir().unwrap();
+        let db_path = temp.path().join("ci-host-exec.db");
+        let db = rg_db::connect(&format!("sqlite://{}?mode=rwc", db_path.display()))
+            .await
+            .unwrap();
+        rg_db::run_migrations(&db).await.unwrap();
+        let user = rg_db::ops::user_ops::create_user(
+            &db,
+            "host-exec-owner",
+            "host-exec-owner@example.com",
+            "unused",
+            "Host Exec Owner",
+        )
+        .await
+        .unwrap();
+        let now = chrono::Utc::now();
+        let repo = rg_db::ops::repo_ops::create(
+            &db,
+            rg_db::entities::repository::ActiveModel {
+                id: NotSet,
+                owner_id: Set(user.id),
+                name: Set("host-exec".into()),
+                description: Set(None),
+                is_private: Set(true),
+                default_branch: Set("main".into()),
+                fork_id: Set(None),
+                stars_count: Set(0),
+                forks_count: Set(0),
+                org_id: Set(None),
+                created_at: Set(now),
+                updated_at: Set(now),
+                deleted_at: Set(None),
+                origin_repo_id: Set(None),
+            },
+        )
+        .await
+        .unwrap();
+        let repo_path = temp.path().join("repos/host-exec/host-exec.git");
+        std::fs::create_dir_all(&repo_path).unwrap();
+        // The runner materialises a worktree, so the target must be a real
+        // (bare) repository with at least one commit.
+        let git = rg_git::cli_gateway::global_gateway().as_ref().unwrap();
+        assert!(git.run(&["init"], Some(&repo_path)).unwrap().success());
+        assert!(git
+            .run(&["config", "user.name", "Host Exec"], Some(&repo_path))
+            .unwrap()
+            .success());
+        assert!(git
+            .run(
+                &["config", "user.email", "host-exec@example.com"],
+                Some(&repo_path),
+            )
+            .unwrap()
+            .success());
+        std::fs::write(repo_path.join("README.md"), "host exec").unwrap();
+        assert!(git
+            .run(&["add", "README.md"], Some(&repo_path))
+            .unwrap()
+            .success());
+        assert!(git
+            .run(&["commit", "-m", "initial"], Some(&repo_path))
+            .unwrap()
+            .success());
+        let commit_sha = git
+            .run(&["rev-parse", "HEAD"], Some(&repo_path))
+            .unwrap()
+            .stdout_str()
+            .trim()
+            .to_owned();
+
+        let pipeline = rg_db::ops::pipeline_ops::create_pipeline(
+            &db,
+            repo.id,
+            commit_sha.as_str(),
+            "refs/heads/main",
+            "host-exec",
+            Some(user.id),
+        )
+        .await
+        .unwrap();
+        let stage = rg_db::ops::pipeline_ops::create_stage(&db, pipeline.id, "test", 0)
+            .await
+            .unwrap();
+        let job = rg_db::ops::pipeline_ops::create_job(
+            &db,
+            stage.id,
+            "no-image",
+            "echo should-not-run",
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+        // Default (`allow_host_execution == false`): the job must fail and the
+        // script must not run.
+        let runner = PipelineRunner::new_local_only(db.clone(), &repo_path, pipeline.id);
+        runner.run().await.unwrap();
+        let refused = rg_db::ops::pipeline_ops::get_job(&db, job.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(refused.status, "failed");
+        assert!(
+            refused
+                .log
+                .unwrap_or_default()
+                .contains("host execution is disabled"),
+            "the refusal must explain why the job did not run"
+        );
+
+        // Opt in explicitly: the job now runs on the host.
+        let pipeline = rg_db::ops::pipeline_ops::create_pipeline(
+            &db,
+            repo.id,
+            commit_sha.as_str(),
+            "refs/heads/main",
+            "host-exec-optin",
+            Some(user.id),
+        )
+        .await
+        .unwrap();
+        let stage = rg_db::ops::pipeline_ops::create_stage(&db, pipeline.id, "test", 0)
+            .await
+            .unwrap();
+        let job = rg_db::ops::pipeline_ops::create_job(
+            &db,
+            stage.id,
+            "no-image",
+            "echo host-ran",
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        let mut runner = PipelineRunner::new_local_only(db.clone(), &repo_path, pipeline.id);
+        runner.set_allow_host_execution(true);
+        runner.run().await.unwrap();
+        let allowed = rg_db::ops::pipeline_ops::get_job(&db, job.id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(allowed.status, "success");
+        assert!(allowed.log.unwrap_or_default().contains("host-ran"));
     }
 }

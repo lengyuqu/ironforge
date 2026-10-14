@@ -198,6 +198,7 @@ async fn after_suggestions_applied(
                 triggered_by: Some(actor_id),
                 docker_enabled: state.docker_enabled,
                 external_runners: state.external_runners,
+                allow_host_execution: state.allow_host_execution,
                 jwt_secret: Some(&state.jwt_secret),
                 external_url: state.external_url.as_deref(),
             })
@@ -220,6 +221,7 @@ async fn after_suggestions_applied(
         trigger: &*state.ci_engine,
         docker_enabled: state.docker_enabled,
         external_runners: state.external_runners,
+        allow_host_execution: state.allow_host_execution,
         jwt_secret: Some(&state.jwt_secret),
         external_url: state.external_url.as_deref(),
     };
@@ -348,6 +350,7 @@ pub async fn submit_review(
                     trigger: &*state.ci_engine,
                     docker_enabled: state.docker_enabled,
                     external_runners: state.external_runners,
+                    allow_host_execution: state.allow_host_execution,
                     jwt_secret: Some(&state.jwt_secret),
                     external_url: state.external_url.as_deref(),
                 };
@@ -894,6 +897,11 @@ pub async fn apply_review_suggestion(
         {
             AppError::conflict(error.to_string()).into_response()
         }
+        // Branch protection rejects the commit with `CoreError::forbidden`;
+        // surface it as 403 rather than collapsing it into a 400.
+        Err(error) if error.to_string().starts_with("forbidden:") => {
+            AppError::forbidden(error.to_string()).into_response()
+        }
         Err(error) => AppError::bad_request(error).into_response(),
     }
 }
@@ -949,6 +957,11 @@ pub async fn apply_review_suggestions(
                 || error.to_string().contains("branch head changed") =>
         {
             AppError::conflict(error.to_string()).into_response()
+        }
+        // Branch protection rejects the commit with `CoreError::forbidden`;
+        // surface it as 403 rather than collapsing it into a 400.
+        Err(error) if error.to_string().starts_with("forbidden:") => {
+            AppError::forbidden(error.to_string()).into_response()
         }
         Err(error) => AppError::bad_request(error).into_response(),
     }

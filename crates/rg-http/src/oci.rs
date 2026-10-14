@@ -158,15 +158,17 @@ async fn require_access(
     owner: &str,
     repo: &str,
     required_action: &str,
-) -> Result<Option<i64>, Response> {
+) -> Result<Option<i64>, Box<Response>> {
     match check_access(state, headers, owner, repo, required_action).await {
         Ok((true, user_id)) => Ok(user_id),
-        Ok((false, _)) => Err(oci_unauthorized("authentication required")),
-        Err(e) => Err(oci_err(
+        // Boxed because `Response` is large (~128 bytes); returning it by value
+        // tripped `clippy::result_large_err`.
+        Ok((false, _)) => Err(Box::new(oci_unauthorized("authentication required"))),
+        Err(e) => Err(Box::new(oci_err(
             StatusCode::INTERNAL_SERVER_ERROR,
             "UNKNOWN",
             &e.to_string(),
-        )),
+        ))),
     }
 }
 
@@ -368,7 +370,7 @@ pub async fn list_tags(
     Path((owner, repo)): Path<(String, String)>,
 ) -> Response {
     if let Err(resp) = require_access(&state, &headers, &owner, &repo, "pull").await {
-        return resp;
+        return *resp;
     }
 
     let oci_repo = match find_oci_repo(&state.db, &owner, &repo).await {
@@ -419,7 +421,7 @@ async fn get_manifest_impl(
     head_only: bool,
 ) -> Response {
     if let Err(resp) = require_access(&state, &headers, &owner, &repo, "pull").await {
-        return resp;
+        return *resp;
     }
 
     let oci_repo = match find_oci_repo(&state.db, &owner, &repo).await {
@@ -490,7 +492,7 @@ pub async fn put_manifest(
 ) -> Response {
     let user_id = match require_access(&state, &headers, &owner, &repo, "push").await {
         Ok(user_id) => user_id,
-        Err(resp) => return resp,
+        Err(resp) => return *resp,
     };
 
     let oci_repo = match find_oci_repo(&state.db, &owner, &repo).await {
@@ -671,7 +673,7 @@ pub async fn head_blob(
     Path((owner, repo, digest)): Path<(String, String, String)>,
 ) -> Response {
     if let Err(resp) = require_access(&state, &headers, &owner, &repo, "pull").await {
-        return resp;
+        return *resp;
     }
 
     let exists = match state.oci_storage.blob_exists(&owner, &repo, &digest).await {
@@ -719,7 +721,7 @@ pub async fn get_blob(
     Path((owner, repo, digest)): Path<(String, String, String)>,
 ) -> Response {
     if let Err(resp) = require_access(&state, &headers, &owner, &repo, "pull").await {
-        return resp;
+        return *resp;
     }
 
     match state.oci_storage.blob_local_path(&owner, &repo, &digest) {
@@ -792,7 +794,7 @@ pub async fn start_upload(
 ) -> Response {
     let user_id = match require_access(&state, &headers, &owner, &repo, "push").await {
         Ok(user_id) => user_id,
-        Err(resp) => return resp,
+        Err(resp) => return *resp,
     };
 
     // Check for cross-repo mount
@@ -852,10 +854,10 @@ async fn handle_mount(
     };
 
     if let Err(resp) = require_access(state, headers, from_owner, from_repo, "pull").await {
-        return resp;
+        return *resp;
     }
     if let Err(resp) = require_access(state, headers, owner, repo, "push").await {
-        return resp;
+        return *resp;
     }
 
     // Check source blob exists
@@ -900,7 +902,7 @@ pub async fn chunk_upload(
     body: Body,
 ) -> Response {
     if let Err(resp) = require_access(&state, &headers, &owner, &repo, "push").await {
-        return resp;
+        return *resp;
     }
 
     // Verify upload session exists
@@ -947,7 +949,7 @@ pub async fn complete_upload(
 ) -> Response {
     let user_id = match require_access(&state, &headers, &owner, &repo, "push").await {
         Ok(user_id) => user_id,
-        Err(resp) => return resp,
+        Err(resp) => return *resp,
     };
     let expected_digest = match params.get("digest") {
         Some(d) => d.clone(),
