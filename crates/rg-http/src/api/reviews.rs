@@ -891,18 +891,10 @@ pub async fn apply_review_suggestion(
             .await;
             (StatusCode::OK, Json(applied)).into_response()
         }
-        Err(error)
-            if error.to_string().contains("outdated")
-                || error.to_string().contains("branch head changed") =>
-        {
-            AppError::conflict(error.to_string()).into_response()
-        }
-        // Branch protection rejects the commit with `CoreError::forbidden`;
-        // surface it as 403 rather than collapsing it into a 400.
-        Err(error) if error.to_string().starts_with("forbidden:") => {
-            AppError::forbidden(error.to_string()).into_response()
-        }
-        Err(error) => AppError::bad_request(error).into_response(),
+        // The service returns typed `CoreError` variants, so the status code
+        // follows the error kind — `AppError::from` maps Forbidden → 403,
+        // Conflict → 409, NotFound → 404, InvalidInput → 400.
+        Err(error) => AppError::from(error).into_response(),
     }
 }
 
@@ -952,18 +944,10 @@ pub async fn apply_review_suggestions(
             .await;
             (StatusCode::OK, Json(applied)).into_response()
         }
-        Err(error)
-            if error.to_string().contains("outdated")
-                || error.to_string().contains("branch head changed") =>
-        {
-            AppError::conflict(error.to_string()).into_response()
-        }
-        // Branch protection rejects the commit with `CoreError::forbidden`;
-        // surface it as 403 rather than collapsing it into a 400.
-        Err(error) if error.to_string().starts_with("forbidden:") => {
-            AppError::forbidden(error.to_string()).into_response()
-        }
-        Err(error) => AppError::bad_request(error).into_response(),
+        // The service returns typed `CoreError` variants, so the status code
+        // follows the error kind — `AppError::from` maps Forbidden → 403,
+        // Conflict → 409, NotFound → 404, InvalidInput → 400.
+        Err(error) => AppError::from(error).into_response(),
     }
 }
 

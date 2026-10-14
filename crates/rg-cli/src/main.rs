@@ -860,21 +860,45 @@ fn sqlite_db_path_from_url(db_url: &str) -> anyhow::Result<PathBuf> {
     Ok(PathBuf::from(path_part))
 }
 
+/// Secrets that must never be accepted, as SHA-256 digests.
+///
+/// These values are (or were) committed to the repository. Matching on the
+/// digest rather than the literal keeps the repository from re-committing the
+/// very secret it is trying to ban.
+const DENYLISTED_JWT_SECRET_SHA256: &[(&str, &str)] = &[
+    (
+        // ironforge.example.toml placeholder.
+        "92809ab604c9377285fbbcf82c4f30db65f107ecfd7217c7e62c17a2b3be7633",
+        "the documented placeholder from ironforge.example.toml",
+    ),
+    (
+        // Previously committed in ironforge.toml / ironforge-simple.toml.
+        "b476e5c4d762e0860f117d8626c163068cc915d868a5b2220e03981fd951d341",
+        "a secret previously committed to this repository (rotate it if it was ever used)",
+    ),
+];
+
 /// Validate JWT secret strength.
 /// Common function used for CLI arg, env var, and config file values.
 fn validate_jwt_secret(jwt_secret: &str, source: &str) -> anyhow::Result<()> {
-    if jwt_secret == "change-me-in-production" {
+    use sha2::{Digest, Sha256};
+
+    let digest = hex::encode(Sha256::digest(jwt_secret.as_bytes()));
+    if let Some((_, reason)) = DENYLISTED_JWT_SECRET_SHA256
+        .iter()
+        .find(|(hash, _)| *hash == digest)
+    {
         tracing::error!(
-            "FATAL: jwt_secret is set to the default value from {}. \
-             Set a strong secret via IRONFORGE_JWT_SECRET, --jwt-secret, or config file [auth].jwt_secret",
-            source
+            "FATAL: jwt_secret from {} is {} — refusing to start. \
+             Generate a fresh secret, e.g. `openssl rand -base64 48`",
+            source, reason
         );
-        anyhow::bail!("refusing to start with default jwt_secret");
+        anyhow::bail!("refusing to start with a known-compromised jwt_secret");
     }
-    if jwt_secret.len() < 16 {
+    if jwt_secret.len() < 32 {
         tracing::warn!(
             jwt_len = jwt_secret.len(),
-            "jwt_secret from {} is shorter than 16 characters — consider using a stronger secret",
+            "jwt_secret from {} is shorter than 32 characters — consider using a stronger secret",
             source
         );
     }

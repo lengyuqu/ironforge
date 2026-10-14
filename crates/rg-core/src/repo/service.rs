@@ -452,7 +452,24 @@ pub async fn create_repo_with_opts(
         ..Default::default()
     };
 
-    let repo = repo_ops::create(db, model).await?;
+    // Insert DB record. If this fails, remove the bare repository we just
+    // created: otherwise the name is taken on disk while the DB has no row,
+    // and a retry fails at `gix::create::into` with a confusing error.
+    let repo = match repo_ops::create(db, model).await {
+        Ok(repo) => repo,
+        Err(error) => {
+            if let Err(cleanup) = std::fs::remove_dir_all(&git_path) {
+                tracing::error!(
+                    path = %git_path.display(),
+                    error = %cleanup,
+                    "failed to remove bare repository after DB insert failure; manual cleanup required"
+                );
+            }
+            return Err(CoreError::internal(format!(
+                "failed to record repository in the database (disk cleaned up): {error:#}"
+            )));
+        }
+    };
 
     // Keep the metadata FTS table in sync. Triggers also maintain it; use an
     // upsert so the explicit write is safe on SQLite, PostgreSQL and MySQL.
@@ -936,7 +953,22 @@ pub async fn transfer_repo(
         )
     })?;
 
-    repo_ops::update_owner(db, repo.id, new_owner_id, new_org_id).await?;
+    // The directory has moved; if the DB update fails the repository would be
+    // stranded at the new path while the DB still points the old owner at it,
+    // so move it back before returning the error.
+    if let Err(error) = repo_ops::update_owner(db, repo.id, new_owner_id, new_org_id).await {
+        if let Err(rollback) = std::fs::rename(&new_path, &old_path) {
+            tracing::error!(
+                from = %new_path.display(),
+                to = %old_path.display(),
+                error = %rollback,
+                "failed to roll the repository directory back after a failed transfer; manual cleanup required"
+            );
+        }
+        return Err(CoreError::internal(format!(
+            "failed to update repository ownership (directory rolled back): {error:#}"
+        )));
+    }
     // Ownership (and thus who can read/write) changed — drop cached decisions.
     invalidate_perm_cache_repo(repo.id);
 

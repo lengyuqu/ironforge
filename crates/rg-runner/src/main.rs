@@ -82,6 +82,13 @@ enum Commands {
         /// Path to config file
         #[arg(long, default_value = "~/.ironforge/runner.toml")]
         config: String,
+
+        /// Allow CI jobs without an `image` to run directly on this host via
+        /// `sh -c`. The job script is repository content, so this is remote
+        /// code execution as the runner user. Off by default; prefer giving
+        /// jobs an `image` so they run in a container.
+        #[arg(long, default_value_t = false)]
+        allow_host_execution: bool,
     },
 }
 
@@ -93,6 +100,10 @@ struct RunnerConfig {
     runner_id: Option<i64>,
     name: Option<String>,
     labels: Option<Vec<String>>,
+    /// Opt in to running jobs without an `image` directly on the host.
+    /// See the `--allow-host-execution` flag. Defaults to `false`.
+    #[serde(default)]
+    allow_host_execution: Option<bool>,
 }
 
 fn config_path(path: &str) -> PathBuf {
@@ -548,6 +559,15 @@ async fn run_job_docker(
     workspace: &std::path::Path,
     job_id: i64,
 ) -> (i32, String) {
+    // `image` is repository content: validate it before it reaches the
+    // `docker run` argument list, where a value like `--privileged` would be
+    // consumed as an option.
+    if let Err(error) = rg_ci_isolation::validate_container_image(image) {
+        let msg = format!("refusing container image {image:?}: {error}");
+        tracing::warn!("{}", msg);
+        return (-1, msg);
+    }
+
     // Check if Docker daemon is running
     let docker_ok = tokio::process::Command::new("docker")
         .arg("info")
@@ -573,9 +593,15 @@ async fn run_job_docker(
     command.args(["run", "--rm", "--name", &container_name, "-v"]);
     command.arg(format!("{}:/workspace", workspace.to_string_lossy()));
     command.args(["-w", "/workspace"]);
+    // Bound resources and drop capabilities; same policy as the embedded
+    // runner (rg_ci_isolation::DockerLimits).
+    command.args(rg_ci_isolation::DockerLimits::default().hardening_args());
     for (key, _) in variables {
         command.arg("-e").arg(key);
     }
+    // `--` ends option parsing so the validated image cannot be mistaken for
+    // a flag even if a future Docker version accepts new options.
+    command.arg("--");
     command.args([image, "sh", "-c", script]);
     for (key, value) in variables {
         command.env(key, value);
@@ -619,6 +645,30 @@ mod tests {
 
         assert!(msg.contains("alpine:3.20"));
         assert!(msg.contains("Refusing to fall back to local execution"));
+    }
+
+    /// Regression: the container image comes from repository content and used
+    /// to be passed straight to `docker run`, where a flag-shaped value would
+    /// be parsed as an option. It must be validated first.
+    #[test]
+    fn flag_shaped_images_are_refused_before_docker_runs() {
+        for bad in ["--privileged", "-v/:/host", "alpine:3.20 --privileged", ""] {
+            assert!(
+                rg_ci_isolation::validate_container_image(bad).is_err(),
+                "runner must refuse {bad:?}"
+            );
+        }
+        assert!(rg_ci_isolation::validate_container_image("alpine:3.20").is_ok());
+    }
+
+    /// The runner-side hardening flags must match the embedded runner policy.
+    #[test]
+    fn runner_applies_hardening_flags() {
+        let args = rg_ci_isolation::DockerLimits::default().hardening_args();
+        let joined = args.join(" ");
+        assert!(joined.contains("--cap-drop ALL"), "{joined}");
+        assert!(joined.contains("--security-opt no-new-privileges"), "{joined}");
+        assert!(joined.contains("--pids-limit"), "{joined}");
     }
 
     #[tokio::test]
@@ -733,6 +783,7 @@ async fn main() -> Result<()> {
                     token: Some(token.clone()),
                     name: Some(name),
                     labels: Some(labels_vec),
+                    allow_host_execution: None,
                 };
                 let config_path = "~/.ironforge/runner.toml";
                 save_config(config_path, &config)?;
@@ -748,12 +799,20 @@ async fn main() -> Result<()> {
             runner_id,
             auth_token,
             config,
+            allow_host_execution,
         } => {
             let client = reqwest::Client::new();
 
             // Resolve config: CLI args > config file > defaults
             let cfg = load_config(&config);
             let resolved_server = server.as_str();
+            // Host execution is opt-in; the flag or the config file can enable
+            // it, and both default to off.
+            let resolved_allow_host_execution = allow_host_execution
+                || cfg
+                    .as_ref()
+                    .and_then(|c| c.allow_host_execution)
+                    .unwrap_or(false);
             let (resolved_id, resolved_token, resolved_name) = match (runner_id, token, name) {
                 (Some(id), Some(tok), Some(n)) => (id, tok, n),
                 (Some(id), Some(tok), None) => (
@@ -817,9 +876,22 @@ async fn main() -> Result<()> {
             };
 
             println!(
-                "Runner {} started (server={})",
-                resolved_name, resolved_server
+                "Runner {} started (server={}, host_execution={})",
+                resolved_name,
+                resolved_server,
+                if resolved_allow_host_execution {
+                    "enabled"
+                } else {
+                    "disabled"
+                }
             );
+            if !resolved_allow_host_execution {
+                println!(
+                    "  Jobs without an `image` will be refused. Pass \
+                     --allow-host-execution (or set allow_host_execution = true in the \
+                     runner config) to run them on this host."
+                );
+            }
 
             // Spawn heartbeat task (every 30s)
             let hb_client = client.clone();
@@ -935,12 +1007,23 @@ async fn main() -> Result<()> {
                                 tracing::warn!(job_id = job.job_id, %error, "cache restore failed; continuing");
                             }
                         }
+                        // A job without an `image` would run `sh -c` directly on
+                        // this host. The script is repository content, so that is
+                        // remote code execution as the runner user; refuse it
+                        // unless the operator opted in.
                         let execution = async {
                             if let Some(img) = &job.image {
                                 run_job_docker(img, &script_str, &variables, &workspace, job.job_id)
                                     .await
-                            } else {
+                            } else if resolved_allow_host_execution {
                                 run_job_local(&script_str, &variables, &workspace).await
+                            } else {
+                                (
+                                    -1,
+                                    "Job has no `image` and host execution is disabled on this \
+                                     runner; pass --allow-host-execution or give the job an `image`."
+                                        .to_string(),
+                                )
                             }
                         };
                         let timeout_seconds =

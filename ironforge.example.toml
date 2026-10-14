@@ -1,5 +1,11 @@
-# IronForge Configuration File
-# Copy this to ironforge.toml and customize for your deployment.
+# IronForge Configuration File (template)
+#
+# Copy this to ironforge.toml and customize for your deployment:
+#
+#     cp ironforge.example.toml ironforge.toml
+#
+# `ironforge.toml` is gitignored: it holds deployment secrets and must not be
+# committed. Only this template is tracked.
 
 [server]
 repo_root = "./repos"
@@ -11,6 +17,12 @@ ssh_addr = "0.0.0.0:2222"
 url = "sqlite://./ironforge.db?mode=rwc"
 
 [auth]
+# Required. Generate one per deployment, never reuse a committed value:
+#
+#     openssl rand -base64 48
+#
+# Startup refuses the placeholder below and any secret previously committed to
+# this repository. Changing the secret invalidates all issued tokens.
 jwt_secret = "change-me-in-production"
 
 [ci]

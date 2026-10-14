@@ -884,18 +884,10 @@ pub async fn remove_team_member(
 
 /// Map an org service error to the matching HTTP status.
 ///
-/// The service layer signals authorization failures as
-/// `forbidden: ...` and missing resources as `... not found`. Collapsing
-/// everything into 400/404 hides the real cause from callers.
-fn org_error(error: anyhow::Error) -> AppError {
-    let message = error.to_string();
-    if message.starts_with("forbidden:") {
-        AppError::forbidden(message)
-    } else if message.contains("not found") {
-        AppError::not_found(message)
-    } else {
-        AppError::bad_request(message)
-    }
+/// The org service returns typed [`rg_core::error::CoreError`] variants, so the
+/// status code comes from the error *kind* rather than from its message text.
+fn org_error(error: rg_core::error::CoreError) -> AppError {
+    AppError::from(error)
 }
 
 /// Ensure `team_id` exists and belongs to the organization named in the path.
@@ -905,11 +897,11 @@ fn org_error(error: anyhow::Error) -> AppError {
 async fn require_team_in_org(state: &AppState, org_name: &str, team_id: i64) -> Result<(), AppError> {
     let org = rg_core::org::get_org_by_name(&state.db, org_name)
         .await
-        .map_err(AppError::internal)?
+        .map_err(AppError::from)?
         .ok_or_else(|| AppError::not_found("organization not found"))?;
     let team = rg_core::org::get_team(&state.db, team_id)
         .await
-        .map_err(AppError::internal)?
+        .map_err(AppError::from)?
         .ok_or_else(|| AppError::not_found("team not found"))?;
     if team.org_id != org.id {
         return Err(AppError::not_found("team not found"));
@@ -919,12 +911,12 @@ async fn require_team_in_org(state: &AppState, org_name: &str, team_id: i64) -> 
 
 /// Map an org-read error for a public endpoint: a private org the caller may
 /// not see is reported as missing, so org names are not enumerable.
-fn org_read_error(error: &anyhow::Error) -> Option<AppError> {
-    let message = error.to_string();
-    if message.starts_with("forbidden:") || message.contains("not found") {
-        Some(AppError::not_found("organization not found"))
-    } else {
-        None
+fn org_read_error(error: &rg_core::error::CoreError) -> Option<AppError> {
+    match error {
+        rg_core::error::CoreError::Forbidden(_) | rg_core::error::CoreError::NotFound(_) => {
+            Some(AppError::not_found("organization not found"))
+        }
+        _ => None,
     }
 }
 

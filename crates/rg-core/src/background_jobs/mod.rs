@@ -278,35 +278,52 @@ impl BackgroundJobWorker {
 
         for (name, interval, task) in &self.periodic {
             let task = task.clone();
-            let name = name.clone();
             let interval = *interval;
-            handles.push(tokio::spawn(async move {
-                let mut ticker = tokio::time::interval(interval);
-                ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-                loop {
-                    ticker.tick().await;
-                    if let Err(error) = task().await {
-                        tracing::warn!(task = %name, error = %format!("{error:#}"), "periodic background task failed");
+            // The name is needed as a `&'static str` for the supervisor, but
+            // it comes from the caller — leak the (tiny, once-per-task) string
+            // rather than weaken the supervisor's signature.
+            let name: &'static str = Box::leak(name.clone().into_boxed_str());
+            handles.push(tokio::spawn(crate::task_supervisor::supervise(
+                name,
+                move || {
+                    let task = task.clone();
+                    async move {
+                        let mut ticker = tokio::time::interval(interval);
+                        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                        loop {
+                            ticker.tick().await;
+                            if let Err(error) = task().await {
+                                tracing::warn!(task = name, error = %format!("{error:#}"), "periodic background task failed");
+                            }
+                        }
                     }
-                }
-            }));
+                },
+            )));
         }
 
         let queue = self.queue.clone();
         let worker = Arc::new(self);
-        handles.push(tokio::spawn(async move {
-            let mut ticker = tokio::time::interval(worker.poll_interval);
-            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-            loop {
-                ticker.tick().await;
-                if let Err(error) = worker.run_once().await {
-                    tracing::warn!(error = %format!("{error:#}"), "background job poll failed");
+        let worker_for_supervisor = worker.clone();
+        handles.push(tokio::spawn(crate::task_supervisor::supervise(
+            "background_jobs.poll",
+            move || {
+                let worker = worker_for_supervisor.clone();
+                let queue = queue.clone();
+                async move {
+                    let mut ticker = tokio::time::interval(worker.poll_interval);
+                    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                    loop {
+                        ticker.tick().await;
+                        if let Err(error) = worker.run_once().await {
+                            tracing::warn!(error = %format!("{error:#}"), "background job poll failed");
+                        }
+                        if let Err(error) = queue.recover_stale(worker.stale_after).await {
+                            tracing::warn!(error = %format!("{error:#}"), "background job stale recovery failed");
+                        }
+                    }
                 }
-                if let Err(error) = queue.recover_stale(worker.stale_after).await {
-                    tracing::warn!(error = %format!("{error:#}"), "background job stale recovery failed");
-                }
-            }
-        }));
+            },
+        )));
 
         handles
     }

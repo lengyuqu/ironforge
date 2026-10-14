@@ -50,7 +50,21 @@ impl LogWriteQueue {
         let (tx, rx) = mpsc::channel::<LogWriteRequest>(CHANNEL_CAPACITY);
         let db = Arc::new(db);
 
-        tokio::spawn(Self::consumer(db, rx));
+        // Supervised: with `panic = "unwind"` a panic here would otherwise
+        // silently stop log persistence while the server stayed up. The
+        // receiver cannot be recreated, so the consumer loop keeps it and
+        // each message is processed under `step`.
+        tokio::spawn(async move {
+            let mut rx = rx;
+            while let Some(req) = rx.recv().await {
+                let db = db.clone();
+                crate::task_supervisor::step("ci.log_write_queue", async move {
+                    Self::handle(db, req).await;
+                })
+                .await;
+            }
+            tracing::info!("log write queue consumer stopped");
+        });
 
         Self { tx }
     }
@@ -91,46 +105,44 @@ impl LogWriteQueue {
         self.tx.max_capacity() - self.tx.capacity()
     }
 
-    /// Background consumer: receives write requests and executes them.
-    async fn consumer(db: Arc<DatabaseConnection>, mut rx: mpsc::Receiver<LogWriteRequest>) {
-        while let Some(req) = rx.recv().await {
-            // Read the current job to get the existing log
-            let existing_log = match rg_db::ops::pipeline_ops::get_job(&db, req.job_id).await {
-                Ok(Some(job)) => job.log.unwrap_or_default(),
-                Ok(None) => {
-                    tracing::warn!(job_id = req.job_id, "log write: job not found");
-                    continue;
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        job_id = req.job_id,
-                        error = %e,
-                        "log write: failed to read current job log"
-                    );
-                    continue;
-                }
-            };
-
-            // Append the new chunk
-            let combined = if existing_log.is_empty() {
-                req.log_text
-            } else {
-                format!("{}\n{}", existing_log, req.log_text)
-            };
-
-            // Write back
-            if let Err(e) =
-                rg_db::ops::pipeline_ops::update_job_log(&db, req.job_id, &combined).await
-            {
+    /// Process a single write request: append the chunk to the job log.
+    ///
+    /// Called under [`crate::task_supervisor::step`] so a panic while touching
+    /// the database does not kill the consumer.
+    async fn handle(db: Arc<DatabaseConnection>, req: LogWriteRequest) {
+        // Read the current job to get the existing log
+        let existing_log = match rg_db::ops::pipeline_ops::get_job(&db, req.job_id).await {
+            Ok(Some(job)) => job.log.unwrap_or_default(),
+            Ok(None) => {
+                tracing::warn!(job_id = req.job_id, "log write: job not found");
+                return;
+            }
+            Err(e) => {
                 tracing::warn!(
                     job_id = req.job_id,
                     error = %e,
-                    "log write: failed to persist"
+                    "log write: failed to read current job log"
                 );
+                return;
             }
-        }
+        };
 
-        tracing::info!("log write queue consumer stopped");
+        // Append the new chunk
+        let combined = if existing_log.is_empty() {
+            req.log_text
+        } else {
+            format!("{}\n{}", existing_log, req.log_text)
+        };
+
+        // Write back
+        if let Err(e) = rg_db::ops::pipeline_ops::update_job_log(&db, req.job_id, &combined).await
+        {
+            tracing::warn!(
+                job_id = req.job_id,
+                error = %e,
+                "log write: failed to persist"
+            );
+        }
     }
 }
 

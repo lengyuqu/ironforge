@@ -38,6 +38,8 @@ pub struct PipelineRunner {
     /// Whether jobs without an `image` may run on the host. See
     /// `TriggerPipelineParams::allow_host_execution`; defaults to `false`.
     allow_host_execution: bool,
+    /// Resource/capability limits applied to job containers.
+    docker_limits: rg_ci_isolation::DockerLimits,
     oidc_token_url: Option<String>,
     /// Per-job timeout in seconds (0 = no timeout).
     job_timeout_secs: u64,
@@ -53,6 +55,7 @@ impl PipelineRunner {
             jwt_secret: None,
             docker_enabled: true,
             allow_host_execution: false,
+            docker_limits: rg_ci_isolation::DockerLimits::default(),
             oidc_token_url: None,
             job_timeout_secs: DEFAULT_JOB_TIMEOUT_SECS,
         }
@@ -72,6 +75,7 @@ impl PipelineRunner {
             jwt_secret: None,
             docker_enabled: false,
             allow_host_execution: false,
+            docker_limits: rg_ci_isolation::DockerLimits::default(),
             oidc_token_url: None,
             job_timeout_secs: DEFAULT_JOB_TIMEOUT_SECS,
         }
@@ -83,6 +87,11 @@ impl PipelineRunner {
     /// host execution grants their authors code execution as the server user.
     pub fn set_allow_host_execution(&mut self, allow: bool) {
         self.allow_host_execution = allow;
+    }
+
+    /// Override the resource/capability limits applied to job containers.
+    pub fn set_docker_limits(&mut self, limits: rg_ci_isolation::DockerLimits) {
+        self.docker_limits = limits;
     }
 
     /// Set the repository ID (for CI_JOB_TOKEN generation).
@@ -607,6 +616,12 @@ impl PipelineRunner {
             .to_str()
             .ok_or_else(|| anyhow::anyhow!("repo path is not valid UTF-8"))?;
 
+        // `image` is repository content: validate it before it reaches the
+        // `docker run` argument list, where a value like `--privileged` would
+        // be consumed as an option.
+        rg_ci_isolation::validate_container_image(image)
+            .map_err(|error| anyhow::anyhow!("refusing container image {image:?}: {error}"))?;
+
         // Check if Docker is available
         let docker_check = tokio::process::Command::new("docker")
             .arg("info")
@@ -646,6 +661,9 @@ impl PipelineRunner {
             "-w".to_string(),
             "/workspace".to_string(),
         ];
+        // Bound resources and drop capabilities. Without these a job could
+        // exhaust the host or escalate inside the container.
+        args.extend(self.docker_limits.hardening_args());
         for (key, _) in job_environment {
             if key == "HOME" {
                 continue;
@@ -659,6 +677,11 @@ impl PipelineRunner {
         args.extend([
             "-e".to_string(),
             "HOME=/tmp".to_string(),
+        ]);
+        // `--` ends option parsing so the validated image cannot be mistaken
+        // for a flag even if a future Docker version accepts new options.
+        args.push("--".to_string());
+        args.extend([
             image.to_string(),
             "sh".to_string(),
             "-c".to_string(),

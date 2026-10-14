@@ -80,6 +80,14 @@ impl From<anyhow::Error> for CoreError {
     }
 }
 
+// Database failures are internal errors. This lets `?` work in service
+// functions that return `CoreResult` without an explicit `map_err`.
+impl From<sea_orm::DbErr> for CoreError {
+    fn from(e: sea_orm::DbErr) -> Self {
+        CoreError::Internal(anyhow::Error::new(e))
+    }
+}
+
 // ── Context trait (replaces anyhow::Context) ─────────────────────────────
 
 /// Provides `.context()` and `.with_context()` for any `Result<T, E>` where

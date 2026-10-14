@@ -28,3 +28,5 @@ toml = { workspace = true }
 rustls-pemfile = { workspace = true }
 tokio-rustls = { workspace = true }
 reqwest = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }

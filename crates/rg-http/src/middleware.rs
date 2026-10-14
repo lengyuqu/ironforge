@@ -145,25 +145,43 @@ async fn inject_request_id(response: Response, request_id: &str) -> Response {
 }
 
 /// Maintenance mode middleware — rejects mutating requests when the instance
-/// is in read-only maintenance mode.  Safe methods (GET, HEAD, OPTIONS) and
+/// is in read-only maintenance mode. Safe methods (GET, HEAD, OPTIONS) and
 /// the admin panel are always allowed.
+///
+/// Two things this must get right:
+///
+/// 1. **Status code.** Maintenance is a temporary, server-imposed condition, so
+///    the response is `503 Service Unavailable` with `Retry-After` — not 200.
+///    Returning 200 made clients treat the rejection as success.
+/// 2. **Git fetch must keep working.** `POST /git/<owner>/<repo>/git-upload-pack`
+///    is a read-only operation that happens to use POST, and git clients always
+///    use it. Blocking it would break every clone/fetch during maintenance,
+///    while the matching `git-receive-pack` (the actual write) stays blocked.
 pub async fn maintenance_middleware(request: Request, next: Next) -> Response {
     let settings = crate::instance::get_settings();
     if settings.maintenance_mode {
         let method = request.method();
         let path = request.uri().path();
 
-        // Always allow GET, HEAD, OPTIONS, and admin routes
         let is_safe_method =
             method == Method::GET || method == Method::HEAD || method == Method::OPTIONS;
         let is_admin = path.starts_with("/api/v1/admin/");
+        // Read-only git transport: upload-pack negotiates and sends objects, it
+        // never writes. `info/refs` is a GET and already allowed above.
+        let is_git_read = path.ends_with("/git-upload-pack");
 
-        if !is_safe_method && !is_admin {
-            return Json(serde_json::json!({
+        if !is_safe_method && !is_admin && !is_git_read {
+            let mut response = Json(serde_json::json!({
                 "error": "Instance is in maintenance mode. Read-only access only.",
                 "code": "MAINTENANCE_MODE"
             }))
             .into_response();
+            *response.status_mut() = axum::http::StatusCode::SERVICE_UNAVAILABLE;
+            response.headers_mut().insert(
+                header::RETRY_AFTER,
+                HeaderValue::from_static("300"),
+            );
+            return response;
         }
     }
     next.run(request).await

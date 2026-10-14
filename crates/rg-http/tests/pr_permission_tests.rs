@@ -790,7 +790,8 @@ async fn creating_pr_requests_matching_codeowner_user() {
         .send()
         .await
         .unwrap();
-    assert_eq!(already_applied.status(), 400);
+    // Re-applying is a state conflict (409), not a malformed request.
+    assert_eq!(already_applied.status(), 409);
 
     let enqueue = client
         .put(format!(

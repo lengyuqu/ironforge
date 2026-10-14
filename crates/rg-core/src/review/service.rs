@@ -10,7 +10,7 @@ use rg_db::entities::pull_request;
 use rg_db::entities::review_comment::{self, Model as ReviewComment};
 use rg_db::ops::{pr_review_ops, pull_request_ops, repo_ops, review_comment_ops};
 
-use crate::error::CoreError;
+use crate::error::{CoreError, CoreResult};
 
 // ── Review actions ────────────────────────────────────────────────────
 
@@ -289,7 +289,7 @@ pub async fn apply_suggestion(
     pr: &rg_db::entities::pull_request::Model,
     comment_id: i64,
     actor: &rg_db::entities::user::Model,
-) -> Result<AppliedSuggestion> {
+) -> CoreResult<AppliedSuggestion> {
     let mut applied = apply_suggestions(
         db,
         repo_root,
@@ -324,44 +324,56 @@ pub async fn apply_suggestions(
     pr: &rg_db::entities::pull_request::Model,
     comment_ids: &[i64],
     actor: &rg_db::entities::user::Model,
-) -> Result<AppliedSuggestions> {
+) -> CoreResult<AppliedSuggestions> {
     if comment_ids.is_empty() || comment_ids.len() > 100 {
-        bail!("between 1 and 100 suggestions must be selected");
+        return Err(CoreError::invalid_input(
+            "between 1 and 100 suggestions must be selected",
+        ));
     }
     let head_sha = pr
         .head_sha
         .as_deref()
-        .context("pull request head SHA is missing")?;
+        .ok_or_else(|| CoreError::invalid_input("pull request head SHA is missing"))?;
     let mut unique_ids = HashSet::new();
     let mut suggestions_by_path: BTreeMap<String, Vec<ValidatedSuggestion>> = BTreeMap::new();
     for &comment_id in comment_ids {
         if !unique_ids.insert(comment_id) {
-            bail!("duplicate suggestion comment #{comment_id}");
+            return Err(CoreError::invalid_input(format!(
+                "duplicate suggestion comment #{comment_id}"
+            )));
         }
         let comment = review_comment_ops::find_by_id(db, comment_id)
             .await?
-            .context("review comment not found")?;
+            .ok_or_else(|| CoreError::not_found("review comment not found"))?;
         if comment.pr_id != pr.id || comment.reply_to_id.is_some() {
-            bail!("suggestion does not belong to this pull request");
+            return Err(CoreError::invalid_input(
+                "suggestion does not belong to this pull request",
+            ));
         }
         let replacement = comment
             .suggestion
             .clone()
-            .context("comment does not contain a suggestion")?;
+            .ok_or_else(|| CoreError::invalid_input("comment does not contain a suggestion"))?;
         if comment.suggestion_applied_at.is_some() {
-            bail!("suggestion has already been applied");
+            return Err(CoreError::conflict("suggestion has already been applied"));
         }
         if comment.commit_id.as_deref() != Some(head_sha) {
-            bail!("suggestion is outdated because the pull request head has changed");
+            return Err(CoreError::conflict(
+                "suggestion is outdated because the pull request head has changed",
+            ));
         }
-        let end_line = comment.line.context("suggestion line is missing")?;
+        let end_line = comment
+            .line
+            .ok_or_else(|| CoreError::invalid_input("suggestion line is missing"))?;
         let start_line = comment.start_line.unwrap_or(end_line);
         if start_line < 1
             || start_line > end_line
             || comment.side.as_deref() != Some("RIGHT")
             || comment.start_side.as_deref().unwrap_or("RIGHT") != "RIGHT"
         {
-            bail!("suggestion must target a valid RIGHT-side range");
+            return Err(CoreError::invalid_input(
+                "suggestion must target a valid RIGHT-side range",
+            ));
         }
         suggestions_by_path
             .entry(comment.path.clone())
@@ -380,17 +392,22 @@ pub async fn apply_suggestions(
         suggestions.sort_by_key(|suggestion| suggestion.start_line);
         for pair in suggestions.windows(2) {
             if pair[0].end_line >= pair[1].start_line {
-                bail!("suggestion ranges overlap in {path}");
+                return Err(CoreError::invalid_input(format!(
+                    "suggestion ranges overlap in {path}"
+                )));
             }
         }
 
         let Some((blob_sha, blob_bytes)) = rg_git::ops::blob_at(&repo_path, head_sha, path)
-            .with_context(|| format!("failed to read '{path}' at {head_sha}"))?
+            .map_err(|error| CoreError::internal(format!("failed to read '{path}' at {head_sha}: {error:#}")))?
         else {
-            bail!("'{path}' does not exist at {head_sha}");
+            return Err(CoreError::not_found(format!(
+                "'{path}' does not exist at {head_sha}"
+            )));
         };
-        let content = String::from_utf8(blob_bytes)
-            .context("suggestions cannot be applied to a non-UTF-8 file")?;
+        let content = String::from_utf8(blob_bytes).map_err(|_| {
+            CoreError::invalid_input("suggestions cannot be applied to a non-UTF-8 file")
+        })?;
         let had_trailing_newline = content.ends_with('\n');
         let mut lines = content.lines().map(str::to_string).collect::<Vec<_>>();
 
@@ -398,12 +415,10 @@ pub async fn apply_suggestions(
             let start_index = (suggestion.start_line - 1) as usize;
             let end_index = suggestion.end_line as usize;
             if start_index >= lines.len() || end_index > lines.len() {
-                bail!(
+                return Err(CoreError::invalid_input(format!(
                     "suggestion range {}-{} is outside {}",
-                    suggestion.start_line,
-                    suggestion.end_line,
-                    path
-                );
+                    suggestion.start_line, suggestion.end_line, path
+                )));
             }
             let replacement = suggestion
                 .replacement
@@ -411,10 +426,10 @@ pub async fn apply_suggestions(
                 .map(str::to_string)
                 .collect::<Vec<_>>();
             if lines[start_index..end_index] == replacement {
-                bail!(
+                return Err(CoreError::invalid_input(format!(
                     "suggestion #{} does not change {path}",
                     suggestion.comment.id
-                );
+                )));
             }
             lines.splice(start_index..end_index, replacement);
         }

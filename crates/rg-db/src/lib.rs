@@ -630,3 +630,138 @@ mod table_name_tests {
         let _ = std::fs::remove_file(&path);
     }
 }
+
+/// Regression: a soft-deleted repository must not keep its name reserved.
+///
+/// `repo_ops::find_by_owner_and_name` filters `deleted_at IS NULL`, so it
+/// reports the name as free — but the original `UNIQUE (owner_id, name)` still
+/// rejected the insert. The partial index only covers live rows, so recreating
+/// works while duplicate live names stay rejected.
+#[cfg(test)]
+mod soft_delete_tests {
+    use super::*;
+    use sea_orm::{ActiveModelTrait, ConnectionTrait, DatabaseBackend, Statement};
+
+    async fn owner(db: &DatabaseConnection, name: &str) -> i64 {
+        crate::entities::user::ActiveModel {
+            username: sea_orm::Set(name.to_string()),
+            email: sea_orm::Set(format!("{name}@example.com")),
+            password_hash: sea_orm::Set("unused".to_string()),
+            display_name: sea_orm::Set(Some(name.to_string())),
+            is_admin: sea_orm::Set(false),
+            is_active: sea_orm::Set(true),
+            created_at: sea_orm::Set(chrono::Utc::now()),
+            updated_at: sea_orm::Set(chrono::Utc::now()),
+            ..Default::default()
+        }
+        .insert(db)
+        .await
+        .expect("insert user")
+        .id
+    }
+
+    async fn repository(db: &DatabaseConnection, owner_id: i64, name: &str) -> i64 {
+        crate::entities::repository::ActiveModel {
+            owner_id: sea_orm::Set(owner_id),
+            name: sea_orm::Set(name.to_string()),
+            default_branch: sea_orm::Set("main".to_string()),
+            is_private: sea_orm::Set(false),
+            stars_count: sea_orm::Set(0),
+            forks_count: sea_orm::Set(0),
+            created_at: sea_orm::Set(chrono::Utc::now()),
+            updated_at: sea_orm::Set(chrono::Utc::now()),
+            ..Default::default()
+        }
+        .insert(db)
+        .await
+        .expect("insert repository")
+        .id
+    }
+
+    #[tokio::test]
+    async fn soft_deleted_repository_name_can_be_reused() {
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!("ironforge_soft_delete_test_{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let url = format!("sqlite://{}?mode=rwc", path.display());
+
+        let db = connect(&url).await.expect("connect");
+        run_migrations(&db).await.expect("run migrations");
+
+        // The partial index must exist after migration.
+        let index = db
+            .query_one(Statement::from_string(
+                DatabaseBackend::Sqlite,
+                "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'uq_repositories_owner_name_live'",
+            ))
+            .await
+            .expect("query index")
+            .and_then(|row| row.try_get_by_index::<String>(0).ok());
+        assert_eq!(index.as_deref(), Some("uq_repositories_owner_name_live"));
+
+        // The rebuild must preserve every column the entity declares, and the
+        // `ON DELETE CASCADE` clause that the copy would otherwise drop.
+        let ddl = db
+            .query_one(Statement::from_string(
+                DatabaseBackend::Sqlite,
+                "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'repositories'",
+            ))
+            .await
+            .expect("query table")
+            .and_then(|row| row.try_get_by_index::<String>(0).ok())
+            .expect("repositories DDL");
+        for column in [
+            "id",
+            "owner_id",
+            "name",
+            "description",
+            "is_private",
+            "default_branch",
+            "fork_id",
+            "stars_count",
+            "forks_count",
+            "created_at",
+            "updated_at",
+            "org_id",
+            "deleted_at",
+            "origin_repo_id",
+        ] {
+            assert!(ddl.contains(column), "rebuild dropped column {column}: {ddl}");
+        }
+        assert!(
+            ddl.to_uppercase().contains("ON DELETE CASCADE"),
+            "rebuild must preserve the owner foreign-key cascade: {ddl}"
+        );
+
+        let owner_id = owner(&db, "softdelete-owner").await;
+
+        // Create, soft-delete, then recreate under the same name.
+        let first = repository(&db, owner_id, "reusable").await;
+        crate::ops::repo_ops::soft_delete(&db, first)
+            .await
+            .expect("soft delete");
+        let second = repository(&db, owner_id, "reusable").await;
+        assert_ne!(first, second, "recreating must produce a new row");
+
+        // Two live rows with the same name must still be rejected.
+        let duplicate = crate::entities::repository::ActiveModel {
+            owner_id: sea_orm::Set(owner_id),
+            name: sea_orm::Set("reusable".to_string()),
+            default_branch: sea_orm::Set("main".to_string()),
+            is_private: sea_orm::Set(false),
+            stars_count: sea_orm::Set(0),
+            forks_count: sea_orm::Set(0),
+            created_at: sea_orm::Set(chrono::Utc::now()),
+            updated_at: sea_orm::Set(chrono::Utc::now()),
+            ..Default::default()
+        };
+        assert!(
+            duplicate.insert(&db).await.is_err(),
+            "two live repositories with the same owner+name must be rejected"
+        );
+
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{}", path.display(), suffix));
+        }
+    }
+}

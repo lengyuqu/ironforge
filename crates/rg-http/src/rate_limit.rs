@@ -72,13 +72,16 @@ impl RateLimiter {
             return true;
         }
 
+        // A poisoned mutex means some thread panicked while holding the lock.
+        // The map itself is still consistent (every critical section here is a
+        // short, panic-free update), so recover the guard and keep enforcing
+        // limits. Clearing the map and allowing the request — the previous
+        // behaviour — was a fail-open bypass that a single panic could trigger.
         let mut clients = match self.clients.lock() {
             Ok(guard) => guard,
-            // If the mutex is poisoned, reset the map and continue
             Err(poisoned) => {
-                let mut guard = poisoned.into_inner();
-                guard.clear();
-                return true;
+                tracing::error!("rate limiter mutex was poisoned; recovering and continuing");
+                poisoned.into_inner()
             }
         };
         let now = Instant::now();
@@ -109,9 +112,8 @@ impl RateLimiter {
         let mut clients = match self.clients.lock() {
             Ok(guard) => guard,
             Err(poisoned) => {
-                let mut guard = poisoned.into_inner();
-                guard.clear();
-                return;
+                tracing::error!("rate limiter mutex was poisoned during cleanup; recovering");
+                poisoned.into_inner()
             }
         };
         let now = Instant::now();

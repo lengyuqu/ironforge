@@ -1,8 +1,12 @@
 //! Organization service — business logic for org/team management.
 
-use anyhow::Result;
+//! Errors are typed ([`CoreError`]) rather than `anyhow`, so the HTTP layer can
+//! map them to status codes via `AppError::from` instead of guessing from a
+//! message prefix.
+
 use sea_orm::DatabaseConnection;
 
+use crate::error::{CoreError, CoreResult};
 use rg_db::ops::org_ops;
 
 /// Create a new organization.
@@ -13,45 +17,54 @@ pub async fn create_org(
     description: Option<&str>,
     owner_id: i64,
     visibility: &str,
-) -> Result<rg_db::entities::organization::Model> {
+) -> CoreResult<rg_db::entities::organization::Model> {
     // Validate org name (same rules as username)
     crate::validate_username(name)?;
 
     // Check visibility
     if visibility != "public" && visibility != "private" {
-        anyhow::bail!("visibility must be 'public' or 'private'");
+        return Err(CoreError::invalid_input(
+            "visibility must be 'public' or 'private'",
+        ));
     }
 
     // Check if org name is already taken
     if org_ops::get_org_by_name(db, name).await?.is_some() {
-        anyhow::bail!("organization name '{}' is already taken", name);
+        return Err(CoreError::conflict(format!(
+            "organization name '{}' is already taken",
+            name
+        )));
     }
 
-    org_ops::create_org(db, name, display_name, description, owner_id, visibility).await
+    org_ops::create_org(db, name, display_name, description, owner_id, visibility).await?;
+    // Re-read so the caller gets the persisted row (id, timestamps).
+    org_ops::get_org_by_name(db, name)
+        .await?
+        .ok_or_else(|| CoreError::internal("organization disappeared after create"))
 }
 
 /// Get an organization by name.
 pub async fn get_org_by_name(
     db: &DatabaseConnection,
     name: &str,
-) -> Result<Option<rg_db::entities::organization::Model>> {
-    org_ops::get_org_by_name(db, name).await
+) -> CoreResult<Option<rg_db::entities::organization::Model>> {
+    Ok(org_ops::get_org_by_name(db, name).await?)
 }
 
 /// Get an organization by ID.
 pub async fn get_org(
     db: &DatabaseConnection,
     id: i64,
-) -> Result<Option<rg_db::entities::organization::Model>> {
-    org_ops::get_org(db, id).await
+) -> CoreResult<Option<rg_db::entities::organization::Model>> {
+    Ok(org_ops::get_org(db, id).await?)
 }
 
 /// List organizations for a user.
 pub async fn list_user_orgs(
     db: &DatabaseConnection,
     user_id: i64,
-) -> Result<Vec<rg_db::entities::organization::Model>> {
-    org_ops::list_user_orgs(db, user_id).await
+) -> CoreResult<Vec<rg_db::entities::organization::Model>> {
+    Ok(org_ops::list_user_orgs(db, user_id).await?)
 }
 
 /// Update an organization. `actor_id` must be an org owner/admin.
@@ -62,24 +75,24 @@ pub async fn update_org(
     display_name: Option<&str>,
     description: Option<&str>,
     visibility: Option<&str>,
-) -> Result<rg_db::entities::organization::Model> {
+) -> CoreResult<rg_db::entities::organization::Model> {
     if !can_admin_org(db, id, actor_id).await? {
-        anyhow::bail!("forbidden: requires organization admin");
+        return Err(CoreError::forbidden("requires organization admin"));
     }
-    org_ops::update_org(db, id, display_name, description, visibility).await
+    Ok(org_ops::update_org(db, id, display_name, description, visibility).await?)
 }
 
 /// Delete an organization (only owner can do this).
-pub async fn delete_org(db: &DatabaseConnection, id: i64, requesting_user_id: i64) -> Result<()> {
+pub async fn delete_org(db: &DatabaseConnection, id: i64, requesting_user_id: i64) -> CoreResult<()> {
     let org = org_ops::get_org(db, id)
         .await?
-        .ok_or_else(|| anyhow::anyhow!("organization not found"))?;
+        .ok_or_else(|| CoreError::not_found("organization not found"))?;
 
     if org.owner_id != requesting_user_id {
-        anyhow::bail!("only the organization owner can delete it");
+        return Err(CoreError::forbidden("only the organization owner can delete it"));
     }
 
-    org_ops::delete_org(db, id).await
+    Ok(org_ops::delete_org(db, id).await?)
 }
 
 /// Add a member to an organization.
@@ -92,9 +105,9 @@ pub async fn add_org_member(
     actor_id: i64,
     user_id: i64,
     role: &str,
-) -> Result<rg_db::entities::organization_member::Model> {
+) -> CoreResult<rg_db::entities::organization_member::Model> {
     if !can_admin_org(db, org_id, actor_id).await? {
-        anyhow::bail!("forbidden: requires organization admin");
+        return Err(CoreError::forbidden("requires organization admin"));
     }
     add_org_member_unchecked(db, org_id, user_id, role).await
 }
@@ -108,9 +121,11 @@ pub(crate) async fn add_org_member_unchecked(
     org_id: i64,
     user_id: i64,
     role: &str,
-) -> Result<rg_db::entities::organization_member::Model> {
+) -> CoreResult<rg_db::entities::organization_member::Model> {
     if role != "owner" && role != "admin" && role != "member" {
-        anyhow::bail!("role must be 'owner', 'admin', or 'member'");
+        return Err(CoreError::invalid_input(
+            "role must be 'owner', 'admin', or 'member'",
+        ));
     }
     let member = org_ops::add_org_member(db, org_id, user_id, role).await?;
     // Org membership grants access across all org repos — flush perm cache.
@@ -124,9 +139,9 @@ pub async fn remove_org_member(
     org_id: i64,
     actor_id: i64,
     user_id: i64,
-) -> Result<()> {
+) -> CoreResult<()> {
     if !can_admin_org(db, org_id, actor_id).await? {
-        anyhow::bail!("forbidden: requires organization admin");
+        return Err(CoreError::forbidden("requires organization admin"));
     }
     remove_org_member_unchecked(db, org_id, user_id).await
 }
@@ -136,7 +151,7 @@ pub(crate) async fn remove_org_member_unchecked(
     db: &DatabaseConnection,
     org_id: i64,
     user_id: i64,
-) -> Result<()> {
+) -> CoreResult<()> {
     org_ops::remove_org_member(db, org_id, user_id).await?;
     crate::repo::service::invalidate_perm_cache_all();
     Ok(())
@@ -146,13 +161,13 @@ pub(crate) async fn remove_org_member_unchecked(
 pub async fn list_org_members(
     db: &DatabaseConnection,
     org_id: i64,
-) -> Result<Vec<rg_db::entities::organization_member::Model>> {
-    org_ops::list_org_members(db, org_id).await
+) -> CoreResult<Vec<rg_db::entities::organization_member::Model>> {
+    Ok(org_ops::list_org_members(db, org_id).await?)
 }
 
 /// Check if user is a member of the org.
-pub async fn is_org_member(db: &DatabaseConnection, org_id: i64, user_id: i64) -> Result<bool> {
-    org_ops::is_org_member(db, org_id, user_id).await
+pub async fn is_org_member(db: &DatabaseConnection, org_id: i64, user_id: i64) -> CoreResult<bool> {
+    Ok(org_ops::is_org_member(db, org_id, user_id).await?)
 }
 
 /// Find a specific org member.
@@ -160,13 +175,13 @@ pub async fn find_org_member(
     db: &DatabaseConnection,
     org_id: i64,
     user_id: i64,
-) -> Result<Option<rg_db::entities::organization_member::Model>> {
-    org_ops::find_org_member(db, org_id, user_id).await
+) -> CoreResult<Option<rg_db::entities::organization_member::Model>> {
+    Ok(org_ops::find_org_member(db, org_id, user_id).await?)
 }
 
 /// Check if a user is a member of a team.
-pub async fn is_team_member(db: &DatabaseConnection, team_id: i64, user_id: i64) -> Result<bool> {
-    org_ops::is_team_member(db, team_id, user_id).await
+pub async fn is_team_member(db: &DatabaseConnection, team_id: i64, user_id: i64) -> CoreResult<bool> {
+    Ok(org_ops::is_team_member(db, team_id, user_id).await?)
 }
 
 // ── Authorization ────────────────────────────────────────────
@@ -182,7 +197,7 @@ pub async fn can_admin_org(
     db: &DatabaseConnection,
     org_id: i64,
     actor_id: i64,
-) -> Result<bool> {
+) -> CoreResult<bool> {
     let Some(org) = org_ops::get_org(db, org_id).await? else {
         return Ok(false);
     };
@@ -194,7 +209,7 @@ pub async fn can_admin_org(
             return Ok(true);
         }
     }
-    org_ops::is_member_of_admin_team(db, org_id, actor_id).await
+    Ok(org_ops::is_member_of_admin_team(db, org_id, actor_id).await?)
 }
 
 /// Whether `actor_id` may read the org and its teams/members.
@@ -206,7 +221,7 @@ pub async fn can_read_org(
     db: &DatabaseConnection,
     org_id: i64,
     actor_id: Option<i64>,
-) -> Result<bool> {
+) -> CoreResult<bool> {
     let Some(org) = org_ops::get_org(db, org_id).await? else {
         return Ok(false);
     };
@@ -214,7 +229,7 @@ pub async fn can_read_org(
         return Ok(true);
     }
     match actor_id {
-        Some(uid) => org_ops::is_org_member(db, org_id, uid).await,
+        Some(uid) => Ok(org_ops::is_org_member(db, org_id, uid).await?),
         None => Ok(false),
     }
 }
@@ -227,12 +242,12 @@ pub async fn require_org_read(
     db: &DatabaseConnection,
     org_name: &str,
     actor_id: Option<i64>,
-) -> Result<rg_db::entities::organization::Model> {
+) -> CoreResult<rg_db::entities::organization::Model> {
     let org = org_ops::get_org_by_name(db, org_name)
         .await?
-        .ok_or_else(|| anyhow::anyhow!("organization not found"))?;
+        .ok_or_else(|| CoreError::not_found("organization not found"))?;
     if !can_read_org(db, org.id, actor_id).await? {
-        anyhow::bail!("forbidden: organization is private");
+        return Err(CoreError::forbidden("organization is private"));
     }
     Ok(org)
 }
@@ -244,12 +259,12 @@ pub async fn require_org_admin(
     db: &DatabaseConnection,
     org_name: &str,
     actor_id: i64,
-) -> Result<rg_db::entities::organization::Model> {
+) -> CoreResult<rg_db::entities::organization::Model> {
     let org = org_ops::get_org_by_name(db, org_name)
         .await?
-        .ok_or_else(|| anyhow::anyhow!("organization not found"))?;
+        .ok_or_else(|| CoreError::not_found("organization not found"))?;
     if !can_admin_org(db, org.id, actor_id).await? {
-        anyhow::bail!("forbidden: requires organization admin");
+        return Err(CoreError::forbidden("requires organization admin"));
     }
     Ok(org)
 }
@@ -264,9 +279,9 @@ pub async fn create_team(
     name: &str,
     description: Option<&str>,
     permission: &str,
-) -> Result<rg_db::entities::team::Model> {
+) -> CoreResult<rg_db::entities::team::Model> {
     if !can_admin_org(db, org_id, actor_id).await? {
-        anyhow::bail!("forbidden: requires organization admin");
+        return Err(CoreError::forbidden("requires organization admin"));
     }
     create_team_unchecked(db, org_id, name, description, permission).await
 }
@@ -278,42 +293,44 @@ pub(crate) async fn create_team_unchecked(
     name: &str,
     description: Option<&str>,
     permission: &str,
-) -> Result<rg_db::entities::team::Model> {
+) -> CoreResult<rg_db::entities::team::Model> {
     if permission != "read" && permission != "write" && permission != "admin" {
-        anyhow::bail!("permission must be 'read', 'write', or 'admin'");
+        return Err(CoreError::invalid_input(
+            "permission must be 'read', 'write', or 'admin'",
+        ));
     }
-    org_ops::create_team(db, org_id, name, description, permission).await
+    Ok(org_ops::create_team(db, org_id, name, description, permission).await?)
 }
 
 /// List teams for an organization.
 pub async fn list_org_teams(
     db: &DatabaseConnection,
     org_id: i64,
-) -> Result<Vec<rg_db::entities::team::Model>> {
-    org_ops::list_org_teams(db, org_id).await
+) -> CoreResult<Vec<rg_db::entities::team::Model>> {
+    Ok(org_ops::list_org_teams(db, org_id).await?)
 }
 
 /// Get a team by ID.
 pub async fn get_team(
     db: &DatabaseConnection,
     id: i64,
-) -> Result<Option<rg_db::entities::team::Model>> {
-    org_ops::get_team(db, id).await
+) -> CoreResult<Option<rg_db::entities::team::Model>> {
+    Ok(org_ops::get_team(db, id).await?)
 }
 
 /// Delete a team. `actor_id` must be an org owner/admin of the team's org.
-pub async fn delete_team(db: &DatabaseConnection, id: i64, actor_id: i64) -> Result<()> {
+pub async fn delete_team(db: &DatabaseConnection, id: i64, actor_id: i64) -> CoreResult<()> {
     let team = org_ops::get_team(db, id)
         .await?
-        .ok_or_else(|| anyhow::anyhow!("team not found"))?;
+        .ok_or_else(|| CoreError::not_found("team not found"))?;
     if !can_admin_org(db, team.org_id, actor_id).await? {
-        anyhow::bail!("forbidden: requires organization admin");
+        return Err(CoreError::forbidden("requires organization admin"));
     }
     delete_team_unchecked(db, id).await
 }
 
 /// Delete a team without an authorization check.
-pub(crate) async fn delete_team_unchecked(db: &DatabaseConnection, id: i64) -> Result<()> {
+pub(crate) async fn delete_team_unchecked(db: &DatabaseConnection, id: i64) -> CoreResult<()> {
     org_ops::delete_team(db, id).await?;
     crate::repo::service::invalidate_perm_cache_all();
     Ok(())
@@ -326,12 +343,12 @@ pub async fn add_team_member(
     actor_id: i64,
     user_id: i64,
     role: &str,
-) -> Result<rg_db::entities::team_member::Model> {
+) -> CoreResult<rg_db::entities::team_member::Model> {
     let team = org_ops::get_team(db, team_id)
         .await?
-        .ok_or_else(|| anyhow::anyhow!("team not found"))?;
+        .ok_or_else(|| CoreError::not_found("team not found"))?;
     if !can_admin_org(db, team.org_id, actor_id).await? {
-        anyhow::bail!("forbidden: requires organization admin");
+        return Err(CoreError::forbidden("requires organization admin"));
     }
     add_team_member_unchecked(db, team_id, user_id, role).await
 }
@@ -342,9 +359,11 @@ pub(crate) async fn add_team_member_unchecked(
     team_id: i64,
     user_id: i64,
     role: &str,
-) -> Result<rg_db::entities::team_member::Model> {
+) -> CoreResult<rg_db::entities::team_member::Model> {
     if role != "member" && role != "maintainer" {
-        anyhow::bail!("role must be 'member' or 'maintainer'");
+        return Err(CoreError::invalid_input(
+            "role must be 'member' or 'maintainer'",
+        ));
     }
     let member = org_ops::add_team_member(db, team_id, user_id, role).await?;
     // Team membership can grant repo access — flush perm cache.
@@ -358,12 +377,12 @@ pub async fn remove_team_member(
     team_id: i64,
     actor_id: i64,
     user_id: i64,
-) -> Result<()> {
+) -> CoreResult<()> {
     let team = org_ops::get_team(db, team_id)
         .await?
-        .ok_or_else(|| anyhow::anyhow!("team not found"))?;
+        .ok_or_else(|| CoreError::not_found("team not found"))?;
     if !can_admin_org(db, team.org_id, actor_id).await? {
-        anyhow::bail!("forbidden: requires organization admin");
+        return Err(CoreError::forbidden("requires organization admin"));
     }
     remove_team_member_unchecked(db, team_id, user_id).await
 }
@@ -373,7 +392,7 @@ pub(crate) async fn remove_team_member_unchecked(
     db: &DatabaseConnection,
     team_id: i64,
     user_id: i64,
-) -> Result<()> {
+) -> CoreResult<()> {
     org_ops::remove_team_member(db, team_id, user_id).await?;
     crate::repo::service::invalidate_perm_cache_all();
     Ok(())
@@ -383,6 +402,21 @@ pub(crate) async fn remove_team_member_unchecked(
 pub async fn list_team_members(
     db: &DatabaseConnection,
     team_id: i64,
-) -> Result<Vec<rg_db::entities::team_member::Model>> {
-    org_ops::list_team_members(db, team_id).await
+) -> CoreResult<Vec<rg_db::entities::team_member::Model>> {
+    Ok(org_ops::list_team_members(db, team_id).await?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The error type must carry semantics, not a message prefix, so the HTTP
+    /// layer can map it to a status code.
+    #[test]
+    fn core_error_display_carries_semantics() {
+        assert_eq!(CoreError::forbidden("x").to_string(), "forbidden: x");
+        assert_eq!(CoreError::not_found("x").to_string(), "x");
+        assert_eq!(CoreError::invalid_input("x").to_string(), "invalid input: x");
+        assert_eq!(CoreError::conflict("x").to_string(), "conflict: x");
+    }
 }

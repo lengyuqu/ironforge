@@ -342,6 +342,24 @@ ADR 文件约定：
 - 不把账号密码、token、secret、API key、私钥原文写入任何文档、代码注释或提交信息。
 - 文档只记录环境变量名（如 `IRONFORGE_PAT`）、用途或凭据存放位置。
 - 配置示例（`ironforge.example.toml`、`.env.example`）使用占位符，不填真实值。
+- **本机运行配置不入库**：`ironforge.toml` / `ironforge-simple.toml` 已被
+  `.gitignore` 忽略，只跟踪模板 `ironforge.example.toml`。
+- 启动时会拒绝**已提交过**的 JWT secret（按 SHA-256 摘要匹配，见
+  `validate_jwt_secret`），因此泄漏过的值不会再被静默沿用。
+
+### 密钥轮换（重要）
+
+历史提交中曾包含一个真实形态的 `jwt_secret`。删除文件**不能**清除 git 历史，
+所以：
+
+1. 如果该值在任何环境使用过，必须轮换（轮换会使所有已签发 token 失效）：
+
+   ```bash
+   openssl rand -base64 48   # 写入 [auth].jwt_secret 或 IRONFORGE_JWT_SECRET
+   ```
+
+2. 需要从历史中彻底移除时，用 `git filter-repo` / BFG 重写历史，并让所有协作者
+   重新克隆——这会改写已推送的提交，属于人工决策，不由 Agent 自动执行。
 
 ---
 

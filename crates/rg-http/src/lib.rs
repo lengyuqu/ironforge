@@ -17,6 +17,7 @@ pub mod oci;
 pub mod openapi;
 pub mod pagination;
 pub mod rate_limit;
+pub mod body_reader;
 pub mod security;
 pub mod ws;
 
@@ -40,6 +41,11 @@ use tower_http::limit::RequestBodyLimitLayer;
 // gix is used via `gix::open()` etc. — crate available at crate root
 use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
+
+/// Maximum size of a git push/fetch request body.
+///
+/// This bounds the streamed pack; it is not a per-object limit.
+const MAX_GIT_BODY_BYTES: usize = 4 * 1024 * 1024 * 1024;
 
 /// Build a restrictive CORS layer.
 ///
@@ -222,16 +228,29 @@ pub async fn run(config: HttpServerConfig) -> Result<()> {
 
     let app = create_router(state.clone(), rate_limiter.clone());
 
-    tokio::spawn(api::ci_retention::run_cleanup_loop(state.clone()));
+    tokio::spawn(rg_core::task_supervisor::supervise(
+        "ci.retention_cleanup",
+        {
+            let state = state.clone();
+            move || {
+                let state = state.clone();
+                async move { api::ci_retention::run_cleanup_loop(state).await }
+            }
+        },
+    ));
 
     // QUEUE-001: durable background job worker (webhook/email retries,
     // periodic mirror sync).
     spawn_background_job_worker(state.clone());
 
     // Spawn runner watchdog background task
-    tokio::spawn(async move {
-        run_runner_watchdog(watchdog_db).await;
-    });
+    tokio::spawn(rg_core::task_supervisor::supervise(
+        "runners.watchdog",
+        move || {
+            let db = watchdog_db.clone();
+            async move { run_runner_watchdog(db).await }
+        },
+    ));
 
     tracing::info!("CORS permissive mode active — tighten in production");
 
@@ -362,6 +381,11 @@ fn build_router(state: AppState, rate_limiter: rate_limit::RateLimiter) -> Route
     let v2_routes = build_v2_routes(&state);
     let docs_routes = build_docs_routes(&state);
 
+    // Git push/fetch bodies are streamed now, but they still need an upper
+    // bound: without one a client can stream an unbounded pack. Git clients
+    // negotiate in small pkt-line requests, so this only limits the pack.
+    let git_body_limit = RequestBodyLimitLayer::new(MAX_GIT_BODY_BYTES);
+
     Router::new()
         .nest("/git", git_routes)
         // ── Root-level Git Smart HTTP routes (standard git client format) ───
@@ -376,6 +400,7 @@ fn build_router(state: AppState, rate_limiter: rate_limit::RateLimiter) -> Route
             "/{owner}/{repo}/git-receive-pack",
             post(handle_git_receive_pack),
         )
+        .layer(git_body_limit)
         .nest("/api/v1", api_v1)
         .nest("/v2", v2_routes)
         .route("/health", get(health))
@@ -2059,7 +2084,7 @@ async fn handle_git_upload_pack(
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
     axum::extract::Path((owner, repo)): axum::extract::Path<(String, String)>,
-    body: axum::body::Bytes,
+    body: axum::body::Body,
 ) -> Response {
     // Strip .git suffix so both `owner/repo.git` and `owner/repo` work
     let repo = strip_git_suffix(&repo);
@@ -2102,11 +2127,11 @@ async fn handle_git_upload_pack(
     let wants_v2 = git_v2::wants_protocol_v2(&headers);
 
     if wants_v2 {
-        // Protocol V2: use V2 handler
-        let (pipe_read, mut pipe_write) = tokio::io::duplex(body.len() + 1024);
-        tokio::spawn(async move {
-            let _ = pipe_write.write_all(&body).await;
-        });
+        // Protocol V2: stream the request body straight into the handler.
+        // Buffering it first (the previous `Bytes` extractor) made memory use
+        // proportional to the request size and read the whole body before the
+        // access check above could reject it.
+        let pipe_read = crate::body_reader::BodyReader::new(body.into_data_stream());
 
         let (buf_reader, mut buf_writer) = tokio::io::duplex(64 * 1024);
         // Spawn concurrent reader to prevent duplex deadlock when pack > 64KB
@@ -2141,11 +2166,8 @@ async fn handle_git_upload_pack(
             }
         }
     } else {
-        // Protocol V1: use V1 handler
-        let (pipe_read, mut pipe_write) = tokio::io::duplex(body.len() + 1024);
-        tokio::spawn(async move {
-            let _ = pipe_write.write_all(&body).await;
-        });
+        // Protocol V1: stream the request body, as in the V2 branch above.
+        let pipe_read = crate::body_reader::BodyReader::new(body.into_data_stream());
 
         let (buf_reader, mut buf_writer) = tokio::io::duplex(64 * 1024);
         // Spawn concurrent reader to prevent duplex deadlock when pack > 64KB
@@ -2192,7 +2214,7 @@ async fn handle_git_receive_pack(
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
     axum::extract::Path((owner, repo)): axum::extract::Path<(String, String)>,
-    body: axum::body::Bytes,
+    body: axum::body::Body,
 ) -> impl IntoResponse {
     // Strip .git suffix so both `owner/repo.git` and `owner/repo` work
     let repo = strip_git_suffix(&repo);
@@ -2283,10 +2305,11 @@ async fn handle_git_receive_pack(
             }
         };
 
-    let (pipe_read, mut pipe_write) = tokio::io::duplex(body.len() + 1024);
-    tokio::spawn(async move {
-        let _ = pipe_write.write_all(&body).await;
-    });
+    // Stream the pack instead of buffering it: the previous `Bytes` extractor
+    // held the entire push in memory, and it was read *before* the access check
+    // above, so an unauthenticated client could make the server buffer an
+    // arbitrarily large body.
+    let pipe_read = crate::body_reader::BodyReader::new(body.into_data_stream());
 
     let (buf_reader, mut buf_writer) = tokio::io::duplex(64 * 1024);
     // Spawn concurrent reader to prevent duplex deadlock when response > 64KB

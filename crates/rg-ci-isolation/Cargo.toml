@@ -1,0 +1,7 @@
+[package]
+name = "rg-ci-isolation"
+version = "0.2.0"
+edition = "2021"
+
+[dependencies]
+anyhow = { workspace = true }

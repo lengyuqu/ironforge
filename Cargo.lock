@@ -4329,6 +4329,7 @@ dependencies = [
  "chrono",
  "gix",
  "hex",
+ "rg-ci-isolation",
  "rg-core",
  "rg-db",
  "rg-git",
@@ -4344,6 +4345,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "rg-ci-isolation"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+]
+
+[[package]]
 name = "rg-cli"
 version = "0.2.0"
 dependencies = [
@@ -4351,6 +4359,7 @@ dependencies = [
  "chrono",
  "clap",
  "gix",
+ "hex",
  "reqwest",
  "rg-ci",
  "rg-core",
@@ -4361,6 +4370,7 @@ dependencies = [
  "rustls-pemfile",
  "serde",
  "serde_json",
+ "sha2",
  "tokio",
  "tokio-rustls",
  "toml",
@@ -4518,6 +4528,7 @@ dependencies = [
  "clap",
  "home",
  "reqwest",
+ "rg-ci-isolation",
  "serde",
  "serde_json",
  "tar",
