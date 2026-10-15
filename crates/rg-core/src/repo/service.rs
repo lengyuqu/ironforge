@@ -58,11 +58,29 @@ pub struct CreateRepoOptions {
 //      invalidation on one instance does not propagate to others. A revocation
 //      performed on instance A may still allow access on instance B for up to
 //      30s until B's local TTL expires.
-//   Future improvement: replace with a shared cache (e.g. Redis) or a
-//   pub/sub invalidation bus so that revocation is immediate across all
-//   instances.
+//
+//   Mitigation for (2): set `IRONFORGE_DISABLE_PERM_CACHE=1` on every instance.
+//   The cache is then bypassed entirely, so authorization is always decided
+//   from the database and no stale cross-instance entry can exist. This trades
+//   throughput for correctness and is the safe choice until a shared cache or a
+//   pub/sub invalidation bus replaces the local map.
 
 const PERM_CACHE_TTL: Duration = Duration::from_secs(30);
+
+/// Whether the process-local permission cache is disabled.
+///
+/// Read once on first use. Set `IRONFORGE_DISABLE_PERM_CACHE=1` in
+/// multi-instance deployments so a revocation on one instance cannot be
+/// masked by another instance's stale cache.
+fn perm_cache_disabled() -> bool {
+    static DISABLED: OnceLock<bool> = OnceLock::new();
+    *DISABLED.get_or_init(|| {
+        matches!(
+            std::env::var("IRONFORGE_DISABLE_PERM_CACHE").as_deref(),
+            Ok("1") | Ok("true") | Ok("TRUE") | Ok("yes")
+        )
+    })
+}
 
 /// Permission cache key: (repo_id, actor_id, for_write).
 /// for_write=false → read check, for_write=true → write check.
@@ -76,6 +94,9 @@ fn perm_cache() -> &'static RwLock<HashMap<PermKey, PermEntry>> {
 }
 
 fn check_perm_cache(repo_id: i64, actor_id: Option<i64>, for_write: bool) -> Option<bool> {
+    if perm_cache_disabled() {
+        return None;
+    }
     let cache = perm_cache().read().unwrap_or_else(|e| e.into_inner());
     cache
         .get(&(repo_id, actor_id, for_write))
@@ -84,6 +105,9 @@ fn check_perm_cache(repo_id: i64, actor_id: Option<i64>, for_write: bool) -> Opt
 }
 
 fn set_perm_cache(repo_id: i64, actor_id: Option<i64>, for_write: bool, value: bool) {
+    if perm_cache_disabled() {
+        return;
+    }
     let mut cache = perm_cache().write().unwrap_or_else(|e| e.into_inner());
     cache.retain(|_, (_, ts)| ts.elapsed() < PERM_CACHE_TTL);
     cache.insert((repo_id, actor_id, for_write), (value, Instant::now()));
@@ -216,7 +240,9 @@ pub async fn can_read(
 /// Check whether `actor_id` can write to the given repo.
 /// Use this when you already have the repo model to avoid duplicate queries.
 /// Owner always has write. Collaborators with "write" or "admin" can write.
-/// Org admins/members with write team permission can write.
+/// Org owners/admins can write. Other org members need a write team, and that
+/// team must be mapped to this repository (or have no mapping at all, which is
+/// the historical org-wide behaviour).
 pub async fn can_write_repo(
     db: &DatabaseConnection,
     repo: &rg_db::entities::repository::Model,
@@ -245,7 +271,13 @@ pub async fn can_write_repo(
                         if member.role == "owner" || member.role == "admin" {
                             true
                         } else {
-                            rg_db::ops::org_ops::is_member_of_write_team(db, org_id, id).await?
+                            // A write team only grants access to the repos it is
+                            // mapped to; a team with no mapping keeps the
+                            // historical org-wide behaviour.
+                            rg_db::ops::org_ops::is_member_of_write_team_for_repo(
+                                db, org_id, id, repo.id,
+                            )
+                            .await?
                         }
                     } else {
                         false

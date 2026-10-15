@@ -62,6 +62,7 @@ pub mod ssh_key;
 pub mod sso_provider;
 pub mod team;
 pub mod team_member;
+pub mod team_repository;
 pub mod time_entry;
 pub mod user;
 pub mod webhook;

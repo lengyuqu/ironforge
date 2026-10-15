@@ -32,14 +32,20 @@ async fn assigned_runner_downloads_exact_commit_workspace_and_other_runner_is_de
         .unwrap()
         .to_owned();
 
-    let runner =
+    let registered =
         rg_db::ops::runner_ops::register_runner(&db, "workspace-runner", "[]", None, None, None)
             .await
             .unwrap();
-    let other =
+    let other_registered =
         rg_db::ops::runner_ops::register_runner(&db, "other-runner", "[]", None, None, None)
             .await
             .unwrap();
+    let runner = registered.runner;
+    // Plaintext tokens exist only in the registration result; the DB stores
+    // digests.
+    let runner_token = registered.token;
+    let other = other_registered.runner;
+    let other_token = other_registered.token;
     let pipeline = rg_db::ops::pipeline_ops::create_pipeline(
         &db,
         repo_id,
@@ -79,7 +85,7 @@ async fn assigned_runner_downloads_exact_commit_workspace_and_other_runner_is_de
             "{base}/api/v1/runners/{}/jobs/{}/workspace",
             other.id, job.id
         ))
-        .bearer_auth(&other.token)
+        .bearer_auth(&other_token)
         .send()
         .await
         .unwrap();
@@ -89,7 +95,7 @@ async fn assigned_runner_downloads_exact_commit_workspace_and_other_runner_is_de
             "{base}/api/v1/runners/{}/jobs/{}/workspace",
             runner.id, job.id
         ))
-        .bearer_auth(&runner.token)
+        .bearer_auth(&runner_token)
         .send()
         .await
         .unwrap();
@@ -114,7 +120,7 @@ async fn assigned_runner_downloads_exact_commit_workspace_and_other_runner_is_de
             "{base}/api/v1/runners/{}/jobs/{}/cache",
             runner.id, job.id
         ))
-        .bearer_auth(&runner.token)
+        .bearer_auth(&runner_token)
         .header("x-cache-key", "build-main")
         .body("cache-bytes")
         .send()
@@ -126,7 +132,7 @@ async fn assigned_runner_downloads_exact_commit_workspace_and_other_runner_is_de
             "{base}/api/v1/runners/{}/jobs/{}/cache",
             runner.id, job.id
         ))
-        .bearer_auth(&runner.token)
+        .bearer_auth(&runner_token)
         .header("x-cache-key", "build-main")
         .send()
         .await

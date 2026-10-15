@@ -389,6 +389,124 @@ pub async fn is_member_of_write_team(
     Ok(count > 0)
 }
 
+
+/// Whether a user's write/admin team grants access to a specific repository.
+///
+/// This is the repo-scoped counterpart of [`is_member_of_write_team`]. The team
+/// only counts when it has **no** repo mapping (the historical, org-wide
+/// behaviour) or when it is mapped to exactly this repository.
+pub async fn is_member_of_write_team_for_repo(
+    db: &DatabaseConnection,
+    org_id: i64,
+    user_id: i64,
+    repo_id: i64,
+) -> Result<bool> {
+    let backend = db.get_database_backend();
+    let result = db
+        .query_one(Statement::from_sql_and_values(
+            backend,
+            crate::prepare_sql(
+                backend,
+                r#"SELECT COUNT(*) as cnt
+               FROM team_members tm
+               JOIN teams t ON t.id = tm.team_id
+               WHERE t.org_id = ? AND tm.user_id = ? AND t.permission IN ('write', 'admin')
+                 AND (NOT EXISTS (SELECT 1 FROM team_repositories tr WHERE tr.team_id = t.id)
+                      OR EXISTS (SELECT 1 FROM team_repositories tr2 WHERE tr2.team_id = t.id AND tr2.repo_id = ?))"#,
+            ),
+            [Value::from(org_id), Value::from(user_id), Value::from(repo_id)],
+        ))
+        .await
+        .context("db: check repo-scoped write team membership")?;
+
+    let count: i64 = result
+        .and_then(|row| row.try_get::<i64>("", "cnt").ok())
+        .unwrap_or(0);
+    Ok(count > 0)
+}
+
+/// Whether a user's read team grants access to a specific repository.
+///
+/// A team with no mapping covers every repo in the org; a mapped team covers
+/// only its listed repositories.
+pub async fn is_member_of_read_team_for_repo(
+    db: &DatabaseConnection,
+    org_id: i64,
+    user_id: i64,
+    repo_id: i64,
+) -> Result<bool> {
+    let backend = db.get_database_backend();
+    let result = db
+        .query_one(Statement::from_sql_and_values(
+            backend,
+            crate::prepare_sql(
+                backend,
+                r#"SELECT COUNT(*) as cnt
+               FROM team_members tm
+               JOIN teams t ON t.id = tm.team_id
+               WHERE t.org_id = ? AND tm.user_id = ?
+                 AND (NOT EXISTS (SELECT 1 FROM team_repositories tr WHERE tr.team_id = t.id)
+                      OR EXISTS (SELECT 1 FROM team_repositories tr2 WHERE tr2.team_id = t.id AND tr2.repo_id = ?))"#,
+            ),
+            [Value::from(org_id), Value::from(user_id), Value::from(repo_id)],
+        ))
+        .await
+        .context("db: check repo-scoped read team membership")?;
+
+    let count: i64 = result
+        .and_then(|row| row.try_get::<i64>("", "cnt").ok())
+        .unwrap_or(0);
+    Ok(count > 0)
+}
+
+/// List the repositories a team is mapped to.
+pub async fn list_team_repositories(
+    db: &DatabaseConnection,
+    team_id: i64,
+) -> Result<Vec<crate::entities::team_repository::Model>> {
+    use crate::entities::team_repository::{Column, Entity};
+    Entity::find()
+        .filter(Column::TeamId.eq(team_id))
+        .all(db)
+        .await
+        .context("db: list team repositories")
+}
+
+/// Replace a team's repository mapping.
+///
+/// Passing an empty list removes every mapping, which restores the org-wide
+/// (historical) behaviour for that team.
+pub async fn set_team_repositories(
+    db: &DatabaseConnection,
+    team_id: i64,
+    repo_ids: &[i64],
+) -> Result<()> {
+    use crate::entities::team_repository::{ActiveModel, Column, Entity};
+    let txn = db.begin().await.context("db: begin set team repositories")?;
+    Entity::delete_many()
+        .filter(Column::TeamId.eq(team_id))
+        .exec(&txn)
+        .await
+        .context("db: clear team repositories")?;
+    let now = chrono::Utc::now();
+    let mut seen = std::collections::HashSet::new();
+    for repo_id in repo_ids {
+        if !seen.insert(*repo_id) {
+            continue;
+        }
+        ActiveModel {
+            id: NotSet,
+            team_id: Set(team_id),
+            repo_id: Set(*repo_id),
+            created_at: Set(now),
+        }
+        .insert(&txn)
+        .await
+        .context("db: insert team repository")?;
+    }
+    txn.commit().await.context("db: commit team repositories")?;
+    Ok(())
+}
 /// Check whether a user belongs to an admin-permission team in an organization.
 pub async fn is_member_of_admin_team(
     db: &DatabaseConnection,

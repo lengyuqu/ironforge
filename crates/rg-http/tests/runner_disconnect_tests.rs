@@ -36,10 +36,11 @@ async fn offline_runner_jobs_marked_failed_with_cascade() {
     let (repo_id, sha) = setup_repo_with_sha(&base, &token, "disc-repo").await;
 
     // Online runner holding an assigned job
-    let runner =
+    let registered =
         rg_db::ops::runner_ops::register_runner(&db, "disc-runner", "[]", None, None, None)
             .await
             .unwrap();
+    let runner = registered.runner;
     rg_db::ops::runner_ops::update_status(&db, runner.id, "online")
         .await
         .unwrap();
@@ -124,7 +125,8 @@ async fn fresh_heartbeat_runner_not_offline() {
     let (_base, db) = spawn_test_app_with_db().await;
     let runner = rg_db::ops::runner_ops::register_runner(&db, "hb-runner", "[]", None, None, None)
         .await
-        .unwrap();
+        .unwrap()
+        .runner;
     rg_db::ops::runner_ops::update_status(&db, runner.id, "online")
         .await
         .unwrap();
@@ -150,10 +152,12 @@ async fn deregister_marks_active_jobs_failed() {
     let (token, _) = register_full(&base, "dereg_owner", "dereg_owner@example.com").await;
     let (repo_id, sha) = setup_repo_with_sha(&base, &token, "dereg-repo").await;
 
-    let runner =
+    let registered =
         rg_db::ops::runner_ops::register_runner(&db, "dereg-runner", "[]", None, None, None)
             .await
             .unwrap();
+    let runner = registered.runner;
+    let runner_token = registered.token;
 
     let pipeline = rg_db::ops::pipeline_ops::create_pipeline(
         &db,
@@ -192,7 +196,7 @@ async fn deregister_marks_active_jobs_failed() {
     let client = reqwest::Client::new();
     let resp = client
         .post(format!("{base}/api/v1/runners/{}/deregister", runner.id))
-        .bearer_auth(&runner.token)
+        .bearer_auth(&runner_token)
         .send()
         .await
         .unwrap();

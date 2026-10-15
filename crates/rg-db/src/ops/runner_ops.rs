@@ -7,9 +7,28 @@ use sea_orm::*;
 
 use crate::entities::runner::{ActiveModel, Column, Entity as RunnerEntity, Model as Runner};
 
+/// A freshly registered runner together with its one-time plaintext token.
+///
+/// The token is stored **hashed**; the plaintext is returned exactly once, here,
+/// and can never be recovered from the database afterwards.
+pub struct RegisteredRunner {
+    pub runner: Runner,
+    pub token: String,
+}
+
+/// Hash a runner token for storage/lookup.
+///
+/// Tokens are high-entropy random values, so a plain SHA-256 is sufficient (no
+/// password-style KDF is needed) and keeps lookup a single indexed query.
+pub fn hash_token(token: &str) -> String {
+    use sha2::{Digest, Sha256};
+    format!("{:x}", Sha256::digest(token.as_bytes()))
+}
+
 /// Register a new runner.
 ///
-/// Generates a unique token and creates a runner record.
+/// Generates a unique token, stores only its hash, and returns the plaintext
+/// once so the caller can hand it to the runner agent.
 pub async fn register_runner(
     db: &DatabaseConnection,
     name: &str,
@@ -17,14 +36,16 @@ pub async fn register_runner(
     version: Option<&str>,
     os: Option<&str>,
     arch: Option<&str>,
-) -> Result<Runner> {
+) -> Result<RegisteredRunner> {
     let now = Utc::now();
     let token = generate_token();
 
     let active_model = ActiveModel {
         id: NotSet,
         name: Set(name.to_string()),
-        token: Set(token),
+        // Only the digest is persisted; a database leak no longer exposes
+        // usable runner credentials.
+        token: Set(hash_token(&token)),
         status: Set("offline".to_string()),
         labels: Set(labels.to_string()),
         last_seen_at: Set(now),
@@ -35,7 +56,8 @@ pub async fn register_runner(
         updated_at: Set(now),
     };
 
-    active_model.insert(db).await.context("db: register runner")
+    let runner = active_model.insert(db).await.context("db: register runner")?;
+    Ok(RegisteredRunner { runner, token })
 }
 
 /// Update runner heartbeat (last_seen_at).
@@ -76,10 +98,14 @@ pub async fn find_by_id(db: &DatabaseConnection, id: i64) -> Result<Option<Runne
         .context("db: find runner by id")
 }
 
-/// Find a runner by token.
+/// Find a runner by a presented (plaintext) token.
+///
+/// The stored value is a digest, so the lookup hashes the input first. Callers
+/// must still compare the returned runner's id against the id in the request
+/// path — a token identifies one runner.
 pub async fn find_by_token(db: &DatabaseConnection, token: &str) -> Result<Option<Runner>> {
     RunnerEntity::find()
-        .filter(Column::Token.eq(token))
+        .filter(Column::Token.eq(hash_token(token)))
         .one(db)
         .await
         .context("db: find runner by token")
@@ -116,4 +142,18 @@ fn generate_token() -> String {
     // Use UUID v4 to generate a unique token (36 chars with hyphens)
     // Remove hyphens to get 32-char token
     uuid::Uuid::new_v4().to_string().replace('-', "")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn token_hash_is_stable_and_not_the_token() {
+        let hash = hash_token("abc123");
+        assert_eq!(hash, hash_token("abc123"), "lookup must be deterministic");
+        assert_ne!(hash, "abc123", "the stored value must not be the token");
+        assert_eq!(hash.len(), 64, "sha-256 hex digest");
+        assert_ne!(hash_token("abc123"), hash_token("abc124"));
+    }
 }

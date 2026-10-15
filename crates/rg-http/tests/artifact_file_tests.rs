@@ -57,10 +57,13 @@ async fn artifact_raw_upload_persists_file_and_download_respects_repo_read() {
     let (owner_token, _owner_id) =
         register_full(&base, "artifact_owner", "artifact_owner@example.com").await;
     let repo_id = create_private_repo(&base, &owner_token, "private-artifacts").await;
-    let runner =
+    let registered =
         rg_db::ops::runner_ops::register_runner(&db, "artifact-runner", "", None, None, None)
             .await
             .unwrap();
+    // Only the hash is stored; the plaintext exists once, here.
+    let runner = registered.runner;
+    let runner_token = registered.token;
     let (pipeline_id, job_id) = create_assigned_job(&db, repo_id, runner.id).await;
 
     let policy_url =
@@ -93,7 +96,7 @@ async fn artifact_raw_upload_persists_file_and_download_respects_repo_read() {
             "{}/api/v1/runners/{}/jobs/{}/artifacts",
             base, runner.id, job_id
         ))
-        .bearer_auth(&runner.token)
+        .bearer_auth(&runner_token)
         .header("x-artifact-name", "report.txt")
         .body("artifact bytes")
         .send()

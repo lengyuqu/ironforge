@@ -151,6 +151,14 @@ Phase 1~21 全部完成。核心能力：
 
 复查节奏：每次 gix 版本升级时过一遍（最近一次：2026-09-25 复核，0.87.1 仍为 crates.io 最新（2026-08-24 发布），无新版可升；本次补登记 import 裸克隆与 CI worktree 两个漏项）。
 
+**多实例部署的进程内状态**（登记，未完全关闭）：权限缓存（`rg-core/src/repo/service.rs`，30s TTL，可设
+`IRONFORGE_DISABLE_PERM_CACHE=1` 完全绕过）、限流令牌桶（`rg-http/src/rate_limit.rs`，各实例独立计数）、
+实例设置（`rg-http/src/instance.rs`，maintenance/banner 不跨实例传播）。解除条件：共享缓存（Redis）或
+pub/sub 失效总线；在此之前建议单实例部署，详见 `deploy/README.md`。
+
+**CI 容器隔离的剩余面**：工作区 rw 挂载 + 容器内 root 仍可在宿主留下 root 属主文件；需靠 daemon 的
+userns-remap 或 `rg-ci-isolation::DockerLimits::user` 收紧。镜像/资源/capability 已加固。
+
 详细架构事实见 [ironforge-docs/architecture/project-architecture-2026-07.md](ironforge-docs/architecture/project-architecture-2026-07.md)。
 
 ---

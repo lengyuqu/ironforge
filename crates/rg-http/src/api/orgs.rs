@@ -880,6 +880,97 @@ pub async fn remove_team_member(
 }
 
 
+
+/// Request body for replacing a team repository mapping.
+#[derive(Deserialize)]
+pub struct SetTeamRepositoriesRequest {
+    /// Repository IDs. An empty list restores org-wide access.
+    #[serde(default)]
+    pub repo_ids: Vec<i64>,
+}
+
+/// GET /api/v1/orgs/:name/teams/:team_id/repositories
+///
+/// Returns the repositories the team is explicitly mapped to. An empty list
+/// means the team is unrestricted (org-wide).
+#[utoipa::path(
+    get,
+    path = "/orgs/{name}/teams/{team_id}/repositories",
+    tag = "Organizations",
+    params(
+        ("name" = String, Path, description = "name"),
+        ("team_id" = i64, Path, description = "team_id"),
+    ),
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+        (status = 404, description = "Not found", body = serde_json::Value),
+    ),
+)]
+pub async fn list_team_repositories(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((name, team_id)): Path<(String, i64)>,
+) -> impl IntoResponse {
+    let actor_id = super::auth::extract_user_id(&headers, &state.jwt_secret);
+    let org = match rg_core::org::require_org_read(&state.db, &name, actor_id).await {
+        Ok(org) => org,
+        Err(e) => {
+            return match org_read_error(&e) {
+                Some(error) => error.into_response(),
+                None => AppError::internal(e.to_string()).into_response(),
+            };
+        }
+    };
+    match rg_core::org::get_team(&state.db, team_id).await {
+        Ok(Some(team)) if team.org_id == org.id => {}
+        Ok(_) => return AppError::not_found("team not found").into_response(),
+        Err(e) => return AppError::internal(e).into_response(),
+    }
+    match rg_core::org::list_team_repositories(&state.db, team_id).await {
+        Ok(repo_ids) => Json(serde_json::json!({ "repo_ids": repo_ids })).into_response(),
+        Err(e) => org_error(e).into_response(),
+    }
+}
+
+/// PUT /api/v1/orgs/:name/teams/:team_id/repositories
+///
+/// Replaces the mapping. An empty `repo_ids` restores the historical org-wide
+/// behaviour for the team.
+#[utoipa::path(
+    put,
+    path = "/orgs/{name}/teams/{team_id}/repositories",
+    tag = "Organizations",
+    params(
+        ("name" = String, Path, description = "name"),
+        ("team_id" = i64, Path, description = "team_id"),
+    ),
+    request_body(content = serde_json::Value),
+    responses(
+        (status = 200, description = "Updated", body = serde_json::Value),
+        (status = 400, description = "Bad request", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+        (status = 403, description = "Forbidden", body = serde_json::Value),
+    ),
+)]
+pub async fn set_team_repositories(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((name, team_id)): Path<(String, i64)>,
+    Json(body): Json<SetTeamRepositoriesRequest>,
+) -> impl IntoResponse {
+    let Some(actor_id) = super::auth::extract_user_id(&headers, &state.jwt_secret) else {
+        return AppError::unauthorized("authentication required").into_response();
+    };
+    if let Err(e) = require_team_in_org(&state, &name, team_id).await {
+        return e.into_response();
+    }
+    match rg_core::org::set_team_repositories(&state.db, team_id, actor_id, &body.repo_ids).await {
+        Ok(()) => Json(serde_json::json!({ "repo_ids": body.repo_ids })).into_response(),
+        Err(e) => org_error(e).into_response(),
+    }
+}
+
 // ── Helpers ──────────────────────────────────────────────────
 
 /// Map an org service error to the matching HTTP status.

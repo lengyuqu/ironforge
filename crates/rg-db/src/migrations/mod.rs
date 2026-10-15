@@ -73,6 +73,7 @@ pub mod m20260822_000001_create_background_jobs;
 pub mod m20260907_000001_add_users_token_version;
 pub mod m20261015_000001_rename_mirror_plural;
 pub mod m20261015_000002_repositories_partial_unique_index;
+pub mod m20261015_000003_create_team_repositories;
 
 use sea_orm_migration::prelude::*;
 
@@ -159,6 +160,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260907_000001_add_users_token_version::Migration),
             Box::new(m20261015_000001_rename_mirror_plural::Migration),
             Box::new(m20261015_000002_repositories_partial_unique_index::Migration),
+            Box::new(m20261015_000003_create_team_repositories::Migration),
         ]
     }
 }

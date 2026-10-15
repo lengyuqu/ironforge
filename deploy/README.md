@@ -27,11 +27,30 @@ Access: **http://localhost:8080**
 | `IRONFORGE_JWT_SECRET` | **Yes** | set in `deploy/.env` |
 | `IRONFORGE_CORS_ORIGINS` | No | unset |
 | `IRONFORGE_CSP_CONNECT_SRC` | No | unset |
+| `IRONFORGE_DISABLE_PERM_CACHE` | No | unset |
 
 For a separately hosted frontend, set `IRONFORGE_CORS_ORIGINS` to the browser
 origin. IronForge also adds those origins, plus matching `ws://` or `wss://`
 origins, to CSP `connect-src`. Use `IRONFORGE_CSP_CONNECT_SRC` only for extra
 API/WebSocket origins not covered by CORS.
+
+**When `IRONFORGE_CORS_ORIGINS` is unset, cross-origin browser requests are
+refused** rather than reflected. The SPA is served from the same origin and needs
+no CORS; set this variable only when the frontend is hosted elsewhere.
+
+### Multi-instance deployments (read before scaling out)
+
+IronForge keeps three pieces of state in-process, so running more than one
+instance behind a load balancer is not fully supported yet:
+
+| State | File | Consequence of multiple instances |
+|-------|------|-----------------------------------|
+| Permission cache (30s TTL) | `rg-core/src/repo/service.rs` | A revocation on one instance stays cached on another for up to 30s. Set `IRONFORGE_DISABLE_PERM_CACHE=1` on **every** instance to bypass the cache and always authorize from the database. |
+| Rate limiter token buckets | `rg-http/src/rate_limit.rs` | Each instance counts independently, so the effective limit is `max × instances`. Use a shared limiter (or a fronting proxy) if that matters. |
+| Instance settings (maintenance mode, banner) | `rg-http/src/instance.rs` | Toggling maintenance mode on one instance does not affect the others. |
+
+Until a shared cache / pub-sub invalidation bus replaces these, prefer a single
+instance or accept the above.
 
 ### Volumes
 | Path | Purpose |

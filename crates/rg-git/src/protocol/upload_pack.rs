@@ -345,24 +345,44 @@ fn build_ref_advertisement(ref_list: &[(String, String)], service: &str) -> Vec<
     lines
 }
 
-/// Generate and send the packfile.
+/// Generate and send the packfile for the negotiated want/have set.
 ///
-/// gix-native replacement for `git pack-objects --all --stdout`: the whole
-/// object universe reachable from all refs is packed in-process.
+/// This is the V1 counterpart of `git pack-objects --revs --stdout`: the pack
+/// contains everything reachable from `wants` minus everything reachable from
+/// `haves`. It previously called `pack_universe`, which ignored `haves` and
+/// shipped every object in the repository on **every** fetch — correct output,
+/// but an incremental fetch transferred the whole history instead of only the
+/// new commits.
+///
+/// Falls back to `pack_universe` only when the client sent no `want` lines
+/// (the negotiation did not narrow the request).
 async fn send_packfile<W: AsyncWrite + Unpin>(
     repo_path: &Path,
     wants: &[String],
-    _haves: &[String],
+    haves: &[String],
     writer: &mut W,
     use_sideband: bool,
 ) -> Result<()> {
     let repo_dir = repo_path.to_path_buf();
-    let pack_data = tokio::task::spawn_blocking(move || crate::ops::pack_universe(&repo_dir))
-        .await
-        .map_err(|error| anyhow::anyhow!("pack generation task failed: {error}"))??;
+    let wants_owned = wants.to_vec();
+    let haves_owned = haves.to_vec();
+    let pack_data = tokio::task::spawn_blocking(move || {
+        if wants_owned.is_empty() {
+            return crate::ops::pack_universe(&repo_dir);
+        }
+        // V1 has no shallow/partial-clone negotiation here, so both are empty.
+        crate::ops::pack_for_wants(&repo_dir, &wants_owned, &haves_owned, &[])
+    })
+    .await
+    .map_err(|error| anyhow::anyhow!("pack generation task failed: {error}"))??;
 
     let pack_size = pack_data.len();
-    tracing::info!(pack_size, "Packfile generated successfully");
+    tracing::info!(
+        pack_size,
+        wants = wants.len(),
+        haves = haves.len(),
+        "Packfile generated successfully"
+    );
 
     if use_sideband {
         // Send packfile data through sideband-64k (band 1)
@@ -382,4 +402,98 @@ async fn send_packfile<W: AsyncWrite + Unpin>(
     tracing::info!(pack_size, objects = wants.len(), "Upload-pack complete");
 
     Ok(())
+}
+
+#[cfg(test)]
+mod haves_tests {
+
+    /// Count objects in a pack stream by parsing its header.
+    fn pack_object_count(pack: &[u8]) -> u32 {
+        assert!(pack.starts_with(b"PACK"), "not a pack stream");
+        // 4-byte signature, 4-byte version, then a big-endian object count.
+        u32::from_be_bytes([pack[8], pack[9], pack[10], pack[11]])
+    }
+
+    fn git(args: &[&str], cwd: Option<&std::path::Path>) -> String {
+        let gateway = crate::cli_gateway::global_gateway().as_ref().unwrap();
+        let output = gateway.run(args, cwd).unwrap();
+        output.ensure_success().unwrap();
+        output.stdout_str().trim().to_string()
+    }
+
+    /// Regression: the V1 handler ignored `haves` and called `pack_universe`, so
+    /// every fetch shipped the entire object database. An incremental fetch must
+    /// send only the objects the client does not already have.
+    #[tokio::test]
+    async fn v1_fetch_prunes_haves_instead_of_sending_everything() {
+        let temp = tempfile::tempdir().unwrap();
+        let bare = temp.path().join("bare.git");
+        let bare_arg = bare.to_string_lossy().to_string();
+        git(&["init", "--bare", "--initial-branch=main", &bare_arg], None);
+
+        let work = tempfile::tempdir().unwrap();
+        let path = work.path();
+        git(&["init", "--initial-branch=main", &path.to_string_lossy()], None);
+        git(&["config", "user.name", "Haves Test"], Some(path));
+        git(
+            &["config", "user.email", "haves@example.com"],
+            Some(path),
+        );
+        git(&["remote", "add", "origin", &bare_arg], Some(path));
+
+        std::fs::write(path.join("a.txt"), "a\n").unwrap();
+        git(&["add", "."], Some(path));
+        git(&["commit", "-m", "a"], Some(path));
+        git(&["push", "origin", "main"], Some(path));
+        let old_tip = git(&["rev-parse", "HEAD"], Some(path));
+
+        std::fs::write(path.join("b.txt"), "b\n").unwrap();
+        git(&["add", "."], Some(path));
+        git(&["commit", "-m", "b"], Some(path));
+        git(&["push", "origin", "main"], Some(path));
+        let new_tip = git(&["rev-parse", "HEAD"], Some(path));
+
+        // Full pack (client has nothing) vs incremental (client has `old_tip`).
+        let full =
+            crate::ops::pack_for_wants(&bare, std::slice::from_ref(&new_tip), &[], &[]).unwrap();
+        let incremental = crate::ops::pack_for_wants(
+            &bare,
+            std::slice::from_ref(&new_tip),
+            std::slice::from_ref(&old_tip),
+            &[],
+        )
+        .unwrap();
+
+        let full_count = pack_object_count(&full);
+        let incremental_count = pack_object_count(&incremental);
+        assert!(
+            incremental_count < full_count,
+            "incremental fetch must send fewer objects than a full fetch \
+             ({incremental_count} vs {full_count})"
+        );
+        // The incremental pack still carries the new commit, its tree and blob.
+        assert!(incremental_count >= 3, "got {incremental_count} objects");
+    }
+
+    /// The full pack still contains every object, and the incremental one is
+    /// non-empty (it must include the new commit and its tree/blob).
+    #[test]
+    fn pack_object_counts_are_sane() {
+        let temp = tempfile::tempdir().unwrap();
+        let bare = temp.path().join("counts.git");
+        git(&["init", "--bare", &bare.to_string_lossy()], None);
+        let work = tempfile::tempdir().unwrap();
+        let path = work.path();
+        git(&["init", &path.to_string_lossy()], None);
+        git(&["config", "user.name", "Counts"], Some(path));
+        git(&["config", "user.email", "counts@example.com"], Some(path));
+        git(&["remote", "add", "origin", &bare.to_string_lossy()], Some(path));
+        std::fs::write(path.join("f.txt"), "1\n").unwrap();
+        git(&["add", "."], Some(path));
+        git(&["commit", "-m", "1"], Some(path));
+        git(&["push", "origin", "HEAD:main"], Some(path));
+        let sha = git(&["rev-parse", "HEAD"], Some(path));
+        let pack = crate::ops::pack_for_wants(&bare, &[sha], &[], &[]).unwrap();
+        assert!(pack_object_count(&pack) >= 3, "commit + tree + blob");
+    }
 }

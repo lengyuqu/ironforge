@@ -318,6 +318,56 @@ pub async fn get_team(
     Ok(org_ops::get_team(db, id).await?)
 }
 
+
+/// List the repositories a team is explicitly mapped to.
+///
+/// An empty list means the team is not restricted and keeps the historical
+/// org-wide access.
+pub async fn list_team_repositories(
+    db: &DatabaseConnection,
+    team_id: i64,
+) -> CoreResult<Vec<i64>> {
+    Ok(org_ops::list_team_repositories(db, team_id)
+        .await?
+        .into_iter()
+        .map(|mapping| mapping.repo_id)
+        .collect())
+}
+
+/// Replace a team repository mapping. `actor_id` must be an org owner/admin
+/// of the team org.
+///
+/// Every listed repository must belong to the same organization as the team;
+/// otherwise a team could be pointed at another org repository.
+pub async fn set_team_repositories(
+    db: &DatabaseConnection,
+    team_id: i64,
+    actor_id: i64,
+    repo_ids: &[i64],
+) -> CoreResult<()> {
+    let team = org_ops::get_team(db, team_id)
+        .await?
+        .ok_or_else(|| CoreError::not_found("team not found"))?;
+    if !can_admin_org(db, team.org_id, actor_id).await? {
+        return Err(CoreError::forbidden("requires organization admin"));
+    }
+
+    for repo_id in repo_ids {
+        let repo = rg_db::ops::repo_ops::find_by_id(db, *repo_id)
+            .await?
+            .ok_or_else(|| CoreError::not_found(format!("repository {repo_id} not found")))?;
+        if repo.org_id != Some(team.org_id) {
+            return Err(CoreError::invalid_input(format!(
+                "repository {repo_id} does not belong to this organization"
+            )));
+        }
+    }
+
+    org_ops::set_team_repositories(db, team_id, repo_ids).await?;
+    // Team scope changed — drop cached access decisions.
+    crate::repo::service::invalidate_perm_cache_all();
+    Ok(())
+}
 /// Delete a team. `actor_id` must be an org owner/admin of the team's org.
 pub async fn delete_team(db: &DatabaseConnection, id: i64, actor_id: i64) -> CoreResult<()> {
     let team = org_ops::get_team(db, id)

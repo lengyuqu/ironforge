@@ -55,6 +55,12 @@ const MAX_GIT_BODY_BYTES: usize = 4 * 1024 * 1024 * 1024;
 ///
 /// Replaces `CorsLayer::permissive()` — restricts allowed methods and headers
 /// to only what IronForge needs.
+/// Test-only access to the default CORS policy.
+#[doc(hidden)]
+pub fn test_cors_layer() -> CorsLayer {
+    build_cors_layer()
+}
+
 fn build_cors_layer() -> CorsLayer {
     use std::time::Duration;
 
@@ -96,14 +102,21 @@ fn build_cors_layer() -> CorsLayer {
             }
         }
         _ => {
+            // SECURITY: never reflect an arbitrary `Origin` while also allowing
+            // credentials. Doing so lets any website issue authenticated
+            // cross-origin requests with the victim's session cookie
+            // (a CSRF/credential-leak primitive).
+            //
+            // The SPA is served from this same origin, so it needs no CORS at
+            // all. Deployments with a separately hosted frontend must set
+            // `IRONFORGE_CORS_ORIGINS` to the browser origin.
             tracing::warn!(
-                "IRONFORGE_CORS_ORIGINS not set — CORS allows all origins (not recommended for production)"
+                "IRONFORGE_CORS_ORIGINS not set — cross-origin browser requests are refused. \
+                 Set it to your frontend origin if it is hosted separately."
             );
             CorsLayer::new()
-                .allow_origin(tower_http::cors::AllowOrigin::mirror_request())
                 .allow_methods(methods)
                 .allow_headers(headers_list)
-                .allow_credentials(true)
                 .max_age(Duration::from_secs(3600))
         }
     }
@@ -1103,6 +1116,11 @@ fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
             "/orgs/{name}/teams/{team_id}/members/{user_id}",
             delete(api::orgs::remove_team_member),
         )
+        // Team → repository mapping (empty list = org-wide, historical default)
+        .route(
+            "/orgs/{name}/teams/{team_id}/repositories",
+            get(api::orgs::list_team_repositories).put(api::orgs::set_team_repositories),
+        )
         // Notifications
         .route(
             "/notifications",
@@ -1615,16 +1633,31 @@ async fn resolve_pat(
 ///
 /// A scope only controls which API family the token may enter. Normal user,
 /// repository and administrator authorization is still enforced by handlers.
+///
+/// This table is **explicit and fail-closed**: every known prefix is mapped to a
+/// scope, and anything unrecognised requires `admin`. The previous version
+/// ended in a catch-all `Some("repo")`, so any new or unlisted route silently
+/// became reachable by a `repo`-scoped token — including endpoints whose
+/// handlers do not independently enforce user/admin rights.
 fn required_pat_scope(path: &str) -> Option<&'static str> {
-    if path.starts_with("/api-docs") {
-        return None;
-    }
     // Axum may expose either the original URI or the path with the nested
     // `/api/v1` prefix stripped, depending on which router layer is running.
     let path = path.strip_prefix("/api/v1").unwrap_or(path);
+    let path = path.split('?').next().unwrap_or(path);
+
+    // Public docs and health checks need no credential at all. The docs routes
+    // are mounted at the root, so check the raw form too.
+    if path.starts_with("/api-docs") || path == "/health" || path == "/metrics" {
+        return None;
+    }
+
+    // Administrator surfaces. Registering a runner also mints a credential, so
+    // it stays behind `admin` even though the route lives under /runners.
     if path.starts_with("/admin") || path == "/runners/register" {
         return Some("admin");
     }
+
+    // The authenticated user's own account, notifications and session.
     if path.starts_with("/users")
         || path.starts_with("/notifications")
         || path.starts_with("/auth")
@@ -1632,7 +1665,31 @@ fn required_pat_scope(path: &str) -> Option<&'static str> {
     {
         return Some("user");
     }
-    Some("repo")
+
+    // Repository-scoped surfaces, including organization and CI routes that
+    // resolve a repository before acting.
+    const REPO_SCOPED: &[&str] = &[
+        "/repos",
+        "/orgs",
+        "/ci",
+        "/artifacts",
+        "/imports",
+        "/search",
+        "/ai",
+        "/ws",
+    ];
+    if REPO_SCOPED.iter().any(|prefix| path.starts_with(prefix)) {
+        return Some("repo");
+    }
+
+    // Runner job traffic authenticates with a runner token, not a PAT, and is
+    // gated by `authenticate_runner`; anything else unknown needs `admin`.
+    if path.starts_with("/runners") {
+        return Some("admin");
+    }
+
+    // Fail closed: a PAT must not reach an unrecognised route by default.
+    Some("admin")
 }
 
 /// Axum middleware: translate a valid Personal Access Token into an equivalent
@@ -2924,5 +2981,42 @@ async fn run_runner_watchdog(db: DatabaseConnection) {
                 tracing::error!(error = %e, "Runner watchdog: failed to find offline runners");
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod pat_scope_tests {
+    use super::required_pat_scope;
+
+    #[test]
+    fn maps_known_families() {
+        assert_eq!(required_pat_scope("/api/v1/users/me"), Some("user"));
+        assert_eq!(required_pat_scope("/api/v1/notifications"), Some("user"));
+        assert_eq!(required_pat_scope("/api/v1/auth/sso/x"), Some("user"));
+        assert_eq!(required_pat_scope("/api/v1/ws/notifications"), Some("user"));
+        assert_eq!(required_pat_scope("/api/v1/repos/o/r"), Some("repo"));
+        assert_eq!(required_pat_scope("/api/v1/orgs/x/teams"), Some("repo"));
+        assert_eq!(required_pat_scope("/api/v1/ci/pipelines"), Some("repo"));
+        assert_eq!(required_pat_scope("/api/v1/search"), Some("repo"));
+        assert_eq!(required_pat_scope("/api/v1/admin/users"), Some("admin"));
+        assert_eq!(required_pat_scope("/api/v1/runners/register"), Some("admin"));
+        assert_eq!(required_pat_scope("/api/v1/api-docs"), None);
+    }
+
+    #[test]
+    fn strips_prefix_and_query() {
+        // The middleware sees both prefixed and stripped forms, and paths may
+        // carry a query string.
+        assert_eq!(required_pat_scope("/users/me"), Some("user"));
+        assert_eq!(required_pat_scope("/repos?page=1"), Some("repo"));
+        assert_eq!(required_pat_scope("/api/v1/repos?page=1"), Some("repo"));
+    }
+
+    /// Regression: an unrecognised route used to fall through to `repo`. A new
+    /// endpoint must not become reachable by a `repo`-scoped token by default.
+    #[test]
+    fn unknown_routes_fail_closed() {
+        assert_eq!(required_pat_scope("/api/v1/brand-new"), Some("admin"));
+        assert_eq!(required_pat_scope("/brand-new"), Some("admin"));
     }
 }

@@ -168,11 +168,13 @@ pub async fn register(
     )
     .await
     {
-        Ok(runner) => (
+        Ok(registered) => (
             StatusCode::CREATED,
             Json(RegisterRunnerResponse {
-                id: runner.id,
-                token: runner.token,
+                id: registered.runner.id,
+                // The plaintext token is returned exactly once; only its hash
+                // is stored.
+                token: registered.token,
                 message: "Runner registered successfully".to_string(),
             }),
         )
