@@ -765,3 +765,103 @@ mod soft_delete_tests {
         }
     }
 }
+/// Regression: hashing runner tokens broke already-registered runners.
+///
+/// `find_by_token` now hashes the presented value, but rows written before the
+/// change still held the plaintext token, so an existing runner could no longer
+/// authenticate. The `m20261015_000004_hash_runner_tokens` migration rewrites
+/// those rows in place.
+#[cfg(test)]
+mod runner_token_migration_tests {
+    use super::*;
+    use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+    use sea_orm::ActiveModelTrait;
+    use sea_orm_migration::{MigrationTrait, SchemaManager};
+
+    #[tokio::test]
+    async fn migration_hashes_existing_plaintext_tokens() {
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!("ironforge_runner_token_test_{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        let url = format!("sqlite://{}?mode=rwc", path.display());
+
+        let db = connect(&url).await.expect("connect");
+        run_migrations(&db).await.expect("run migrations");
+
+        // Simulate a row written by the pre-hashing code: plaintext token.
+        // The ORM is used so the timestamp columns get the encoding SeaORM
+        // expects on read (a raw INSERT with `chrono::to_string()` would store a
+        // format it cannot decode back).
+        let plaintext = "0123456789abcdef0123456789abcdef";
+        let now = chrono::Utc::now();
+        let inserted = crate::entities::runner::ActiveModel {
+            id: sea_orm::NotSet,
+            name: sea_orm::Set("legacy-runner".to_string()),
+            token: sea_orm::Set(plaintext.to_string()),
+            status: sea_orm::Set("offline".to_string()),
+            labels: sea_orm::Set("[]".to_string()),
+            last_seen_at: sea_orm::Set(now),
+            version: sea_orm::Set(None),
+            os: sea_orm::Set(None),
+            arch: sea_orm::Set(None),
+            created_at: sea_orm::Set(now),
+            updated_at: sea_orm::Set(now),
+        }
+        .insert(&db)
+        .await
+        .expect("insert legacy runner row");
+        // The row must start as plaintext, otherwise the test proves nothing.
+        assert_eq!(inserted.token, plaintext);
+
+        // Re-run the migration so it sees the plaintext row.
+        crate::migrations::m20261015_000004_hash_runner_tokens::Migration
+            .up(&SchemaManager::new(&db))
+            .await
+            .expect("run token-hashing migration");
+
+        let stored: String = db
+            .query_one(Statement::from_string(
+                DatabaseBackend::Sqlite,
+                "SELECT token FROM runners WHERE name = 'legacy-runner'".to_string(),
+            ))
+            .await
+            .expect("query token")
+            .and_then(|row| row.try_get_by_index::<String>(0).ok())
+            .expect("token row");
+
+        assert_eq!(stored.len(), 64, "stored value must be a sha-256 digest");
+        assert_ne!(stored, plaintext, "the plaintext must no longer be stored");
+        assert_eq!(
+            stored,
+            crate::ops::runner_ops::hash_token(plaintext),
+            "the digest must match what lookup hashes to"
+        );
+
+        // The whole point: the old plaintext still authenticates.
+        let found = crate::ops::runner_ops::find_by_token(&db, plaintext)
+            .await
+            .expect("lookup")
+            .expect("legacy runner must still be found");
+        assert_eq!(found.name, "legacy-runner");
+
+        // Re-running the migration must be a no-op.
+        crate::migrations::m20261015_000004_hash_runner_tokens::Migration
+            .up(&SchemaManager::new(&db))
+            .await
+            .expect("second run");
+        let after: String = db
+            .query_one(Statement::from_string(
+                DatabaseBackend::Sqlite,
+                "SELECT token FROM runners WHERE name = 'legacy-runner'".to_string(),
+            ))
+            .await
+            .expect("query token again")
+            .and_then(|row| row.try_get_by_index::<String>(0).ok())
+            .expect("token row");
+        assert_eq!(after, stored, "re-running must not hash a digest again");
+
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{}", path.display(), suffix));
+        }
+    }
+}

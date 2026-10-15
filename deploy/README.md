@@ -52,6 +52,18 @@ instance behind a load balancer is not fully supported yet:
 Until a shared cache / pub-sub invalidation bus replaces these, prefer a single
 instance or accept the above.
 
+### Upgrading from a build that stored runner tokens in plaintext
+
+Runner tokens are now stored as SHA-256 digests. Migration
+`m20261015_000004_hash_runner_tokens` hashes existing plaintext rows in place,
+so already-registered runners keep authenticating without re-registering.
+Verify after upgrading:
+
+```bash
+sqlite3 /data/ironforge.db "SELECT id, name, length(token) FROM runners;"
+# every token length should be 64
+```
+
 ### Volumes
 | Path | Purpose |
 |------|---------|

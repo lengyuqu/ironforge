@@ -4,7 +4,7 @@
 > 提供踩坑记录、依赖版本速查、常见错误排查和实现现状清单。
 > 轻量概览见 [AGENT.md](AGENT.md)；完整文档索引见 [ironforge-docs/README.md](ironforge-docs/README.md)。
 
-> **状态**：维护中 ｜ **可信度**：确认 ｜ **来源**：仓库代码 / 文档 / 运行结果 ｜ **最后更新**：2026-08-14
+> **状态**：维护中 ｜ **可信度**：确认 ｜ **来源**：仓库代码 / 文档 / 运行结果 ｜ **最后更新**：2026-10-15
 
 ---
 
@@ -77,7 +77,7 @@ Phase 1~21 全部完成。核心能力：
 | HTTP 服务 | `rg-http` | Axum 0.8，REST + Git Smart HTTP + OCI + WebSocket + OpenAPI + SPA |
 | 业务逻辑 | `rg-core` | auth/user/repo/issue/pr/wiki/lfs/webhook/review/branch_protection/collaborator/org/notification/email/package_registry/mirror/board/time_tracking/import/audit/search/code_indexer |
 | 数据库 | `rg-db` | SeaORM 1.1 + SQLite/PostgreSQL/MySQL，自动迁移 |
-| CI/CD | `rg-ci` + `rg-runner` | YAML 解析、Pipeline 执行器、Docker Runner、外部 Runner、Secrets/Matrix/Cache/Environment/OIDC/Retention |
+| CI/CD | `rg-ci` + `rg-runner` + `rg-ci-isolation` | YAML 解析、Pipeline 执行器、Docker Runner、外部 Runner、Secrets/Matrix/Cache/Environment/OIDC/Retention；容器加固策略（镜像校验 + 资源/capability 限制）由 `rg-ci-isolation` 供内置与外部 runner 共用 |
 | 前端 | `web/` | SvelteKit 5 SPA，中英双语 i18n（199 key） |
 | MCP | `rg-mcp` | stdio-only，暴露 Tools + Resources 给 AI Agent |
 
