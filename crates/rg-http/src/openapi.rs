@@ -67,6 +67,11 @@ pub struct PaginatedRepoResponse {
         crate::api::repos::unwatch_repo,
         crate::api::repos::fork_repo_handler,
         crate::api::repos::list_forks_handler,
+        crate::api::repos::list_gitignore_templates,
+        crate::api::repos::list_license_templates,
+        crate::api::repos::list_readme_templates,
+        crate::api::repos::list_label_sets,
+        crate::api::repos::explore,
         crate::api::repos::transfer_repo_handler,
         crate::api::repos::create_commit_status,
         crate::api::repos::list_commit_statuses,
@@ -216,6 +221,8 @@ pub struct PaginatedRepoResponse {
         crate::api::orgs::list_team_members,
         crate::api::orgs::add_team_member,
         crate::api::orgs::remove_team_member,
+        crate::api::orgs::list_team_repositories,
+        crate::api::orgs::set_team_repositories,
         // Notifications
         crate::api::notifications::list_notifications,
         crate::api::notifications::unread_count,
@@ -249,6 +256,8 @@ pub struct PaginatedRepoResponse {
         crate::api::repo_content::list_branches,
         crate::api::repo_content::list_tags,
         crate::api::repo_content::get_commit_signature,
+        crate::api::repo_content::create_or_update_file,
+        crate::api::repo_content::delete_file,
         // Package registry
         crate::api::packages::publish,
         crate::api::packages::list_registries,
@@ -264,6 +273,7 @@ pub struct PaginatedRepoResponse {
         crate::api::imports::delete_import,
         // Runners
         crate::api::runners::register,
+        crate::api::runners::deregister,
         crate::api::runners::heartbeat,
         crate::api::runners::poll_job,
         crate::api::runners::start_job,
@@ -307,6 +317,7 @@ pub struct PaginatedRepoResponse {
         crate::api::ai::ai_list_prs,
         crate::api::ai::ai_repo_tree,
         crate::api::ai::ai_search_code,
+        crate::api::ai::ai_index_repository,
         // Mirrors
         crate::api::mirrors::create_mirror,
         crate::api::mirrors::get_mirror,
