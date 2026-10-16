@@ -184,6 +184,12 @@ pub async fn find_repo_by_owner_name(
 /// Check whether `actor_id` (None = anonymous) can read the given repo.
 /// Use this when you already have the repo model to avoid duplicate queries.
 /// Takes into account: public repos, private repos (owner + collaborators + org members).
+///
+/// NOTE: read access is organization-wide — every member of the owning org can
+/// read its private repositories. Team `permission = 'read'` therefore has no
+/// effect, and team→repository mappings restrict **write** only (see
+/// [`can_write_repo`]). Narrowing reads to teams would be a separate,
+/// deliberate change to the read model.
 pub async fn can_read_repo(
     db: &DatabaseConnection,
     repo: &rg_db::entities::repository::Model,

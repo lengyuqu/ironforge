@@ -360,41 +360,12 @@ pub async fn list_user_teams(db: &DatabaseConnection, user_id: i64) -> Result<Ve
         .context("db: list user teams")
 }
 
-/// Check if a user is a member of any team with write/admin permission in an org.
-/// Single query replacement for the N+1 pattern (list teams + is_team_member per team).
-pub async fn is_member_of_write_team(
-    db: &DatabaseConnection,
-    org_id: i64,
-    user_id: i64,
-) -> Result<bool> {
-    let backend = db.get_database_backend();
-    let result = db
-        .query_one(Statement::from_sql_and_values(
-            backend,
-            crate::prepare_sql(
-                backend,
-                r#"SELECT COUNT(*) as cnt
-               FROM team_members tm
-               JOIN teams t ON t.id = tm.team_id
-               WHERE t.org_id = ? AND tm.user_id = ? AND t.permission IN ('write', 'admin')"#,
-            ),
-            [Value::from(org_id), Value::from(user_id)],
-        ))
-        .await
-        .context("db: check write team membership")?;
-
-    let count: i64 = result
-        .and_then(|row| row.try_get::<i64>("", "cnt").ok())
-        .unwrap_or(0);
-    Ok(count > 0)
-}
-
 
 /// Whether a user's write/admin team grants access to a specific repository.
 ///
-/// This is the repo-scoped counterpart of [`is_member_of_write_team`]. The team
-/// only counts when it has **no** repo mapping (the historical, org-wide
-/// behaviour) or when it is mapped to exactly this repository.
+/// The team only counts when it has **no** repo mapping (the historical,
+/// org-wide behaviour) or when it is mapped to exactly this repository. A team
+/// with `permission = 'read'` never grants write and is not consulted here.
 pub async fn is_member_of_write_team_for_repo(
     db: &DatabaseConnection,
     org_id: i64,
@@ -425,39 +396,13 @@ pub async fn is_member_of_write_team_for_repo(
     Ok(count > 0)
 }
 
-/// Whether a user's read team grants access to a specific repository.
-///
-/// A team with no mapping covers every repo in the org; a mapped team covers
-/// only its listed repositories.
-pub async fn is_member_of_read_team_for_repo(
-    db: &DatabaseConnection,
-    org_id: i64,
-    user_id: i64,
-    repo_id: i64,
-) -> Result<bool> {
-    let backend = db.get_database_backend();
-    let result = db
-        .query_one(Statement::from_sql_and_values(
-            backend,
-            crate::prepare_sql(
-                backend,
-                r#"SELECT COUNT(*) as cnt
-               FROM team_members tm
-               JOIN teams t ON t.id = tm.team_id
-               WHERE t.org_id = ? AND tm.user_id = ?
-                 AND (NOT EXISTS (SELECT 1 FROM team_repositories tr WHERE tr.team_id = t.id)
-                      OR EXISTS (SELECT 1 FROM team_repositories tr2 WHERE tr2.team_id = t.id AND tr2.repo_id = ?))"#,
-            ),
-            [Value::from(org_id), Value::from(user_id), Value::from(repo_id)],
-        ))
-        .await
-        .context("db: check repo-scoped read team membership")?;
-
-    let count: i64 = result
-        .and_then(|row| row.try_get::<i64>("", "cnt").ok())
-        .unwrap_or(0);
-    Ok(count > 0)
-}
+// NOTE: there is deliberately no `is_member_of_read_team_for_repo`.
+//
+// `repo::service::can_read_repo` grants read access to *any* member of the
+// owning organization, so team `permission = 'read'` has no effect today.
+// A repo-scoped read helper only becomes meaningful once the read model itself
+// is narrowed to teams; adding one now would be dead code that looks like an
+// enforced boundary. See `can_read_repo` for the current rule.
 
 /// List the repositories a team is mapped to.
 pub async fn list_team_repositories(
