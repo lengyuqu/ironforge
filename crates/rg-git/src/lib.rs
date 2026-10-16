@@ -22,11 +22,10 @@
 //!
 //! - **Bare repositories only.**  IronForge repos live as `{owner}/{repo}.git`
 //!   bare repos on disk.
-//! - **Hybrid gix + git CLI.**  Uses `gix` 0.83 for ref traversal, object
-//!   reading, and reference updates.  Falls back to `git` CLI for pack
-//!   generation (`git pack-objects`), thin-pack indexing
-//!   (`git index-pack --fix-thin`), and Protocol V2 packfile streaming.
-//!   See Project Memory for migration status.
+//! - **gix-native core.**  Every protocol path is built on `gix`: ref
+//!   traversal, object reading, reference updates, pack generation, thin-pack
+//!   indexing, and Protocol V2 packfile streaming in both HTTP and SSH modes.
+//!   No `git` CLI is involved in these paths.
 //! - **Thin pack handling.**  Clients may send thin (delta-only) packs; they
 //!   MUST be completed with `--fix-thin` before the ref is updated.
 //!
@@ -44,10 +43,14 @@
 //!
 //! # Caveats
 //!
-//! - **Protocol V2** is complete in HTTP mode but has gaps in SSH mode
-//!   (`handle_v2_stream_impl` is a stub).
-//! - Pack generation and thin-pack indexing use `git` CLI — not pure Rust.
-//!   These are the remaining migration items tracked in Project Memory.
+//! - **Protocol V2** is complete in both HTTP and SSH modes:
+//!   `handle_v2_stream_impl` sends the capability advertisement and runs the
+//!   V2 command loop (ls-refs / fetch) over a single bidirectional stream.
+//! - **`git` CLI usage.**  Within `rg-git`, raw git process spawning is
+//!   confined to [`cli_gateway`] and used only by tests (a regression guard
+//!   enforces this); all protocol paths are gix-native.  The only production
+//!   git-CLI calls live outside this crate — mirror sync (`rg-core` mirror
+//!   module), import bare clone, and the CI worktree.
 
 use std::path::Path;
 

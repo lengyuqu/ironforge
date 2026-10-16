@@ -1311,7 +1311,7 @@ fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
         .route("/admin/runners", get(api::runners::list_runners_admin))
         .route(
             "/admin/runners/{id}",
-            delete(api::runners::delete_runner_admin),
+            get(api::runners::get_runner_admin).delete(api::runners::delete_runner_admin),
         )
         .route("/admin/users", get(api::admin::list_users))
         .route("/admin/users/{id}", get(api::admin::get_user))
@@ -1370,7 +1370,7 @@ fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
             "/ai/repos/{owner}/{name}/search/code",
             get(api::ai::ai_search_code),
         )
-        // .route("/ai/repos/{owner}/{name}/index", post(api::ai::ai_index_repository))  // 暂时注释：Axum Handler trait 问题，改用 CLI 命令
+        .route("/ai/repos/{owner}/{name}/index", post(api::ai::ai_index_repository))
         // WebSocket
         .route("/ws/notifications", get(ws::ws_notifications_handler))
         .route("/ws/job/{job_id}", get(ws::ws_job_log_handler));

@@ -76,7 +76,11 @@ fn every_annotated_handler_is_registered_in_openapi() {
         for handler in annotated_handlers(&source) {
             seen += 1;
             if !registered.contains(&handler) {
-                missing.push(format!("{}::{}", path.file_name().unwrap().to_string_lossy(), handler));
+                missing.push(format!(
+                    "{}::{}",
+                    path.file_name().unwrap().to_string_lossy(),
+                    handler
+                ));
             }
         }
     }
@@ -112,5 +116,104 @@ fn team_repository_routes_are_in_the_spec() {
     assert!(
         spec.contains("/orgs/{name}/teams/{team_id}/repositories"),
         "the team-repository route must be documented in the OpenAPI spec"
+    );
+}
+
+/// Strip `//` line comments so a handler that is only mentioned in a
+/// commented-out route does not count as "mounted".
+///
+/// A bare `find("//")` is not enough: `//` also appears inside URLs
+/// (`https://…`). A `//` preceded by `:` is a scheme separator, not a comment,
+/// so it is skipped. Missing that would truncate the line and could drop a
+/// genuinely mounted handler, turning the check into a false positive.
+fn strip_line_comments(source: &str) -> String {
+    source
+        .lines()
+        .map(|line| {
+            let bytes = line.as_bytes();
+            let mut index = 0;
+            while index + 1 < bytes.len() {
+                if bytes[index] == b'/' && bytes[index + 1] == b'/' {
+                    // `://` is a URL scheme separator, not a comment start.
+                    if index > 0 && bytes[index - 1] == b':' {
+                        index += 2;
+                        continue;
+                    }
+                    return line[..index].to_string();
+                }
+                index += 1;
+            }
+            line.to_string()
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Extract the `crate::api::<module>::<handler>` references inside the
+/// `#[openapi(paths(...))]` block only.
+///
+/// `schemas(...)` also lists `crate::api::…` paths; those are types, not routes,
+/// and must not be treated as mounted handlers.
+fn path_handlers(openapi_source: &str) -> BTreeSet<String> {
+    let Some(paths_start) = openapi_source.find("paths(") else {
+        return BTreeSet::new();
+    };
+    // The `paths(...)` list ends where `schemas(` begins.
+    let rest = &openapi_source[paths_start..];
+    let block = match rest.find("schemas(") {
+        Some(end) => &rest[..end],
+        None => rest,
+    };
+
+    let mut handlers = BTreeSet::new();
+    for line in block.lines() {
+        let line = line.trim();
+        let Some(rest) = line.strip_prefix("crate::api::") else {
+            continue;
+        };
+        let Some((_module, handler)) = rest.split_once("::") else {
+            continue;
+        };
+        let handler = handler.trim_end_matches(',').trim();
+        if !handler.is_empty() && handler.chars().all(|c| c.is_alphanumeric() || c == '_') {
+            handlers.insert(handler.to_string());
+        }
+    }
+    handlers
+}
+
+/// The inverse of the check above: a handler registered in `paths(...)` must
+/// actually be mounted in the router.
+///
+/// This is the bug class the previous round introduced: `ai_index_repository`
+/// was added to the spec while its route was commented out, so the docs
+/// advertised an endpoint that does not exist. A naive "is the name present in
+/// lib.rs" search misses that, because the name appears inside the comment —
+/// hence [`strip_line_comments`].
+#[test]
+fn every_registered_handler_is_mounted_in_the_router() {
+    let manifest = env!("CARGO_MANIFEST_DIR");
+    let openapi_src = std::fs::read_to_string(Path::new(manifest).join("src/openapi.rs"))
+        .expect("read openapi.rs");
+    let router_src =
+        std::fs::read_to_string(Path::new(manifest).join("src/lib.rs")).expect("read lib.rs");
+    let router_src = strip_line_comments(&router_src);
+
+    let handlers = path_handlers(&openapi_src);
+    assert!(
+        handlers.len() > 100,
+        "only {} handlers parsed from openapi.rs::paths(...)",
+        handlers.len()
+    );
+
+    let missing: Vec<&String> = handlers
+        .iter()
+        .filter(|handler| !router_src.contains(handler.as_str()))
+        .collect();
+
+    assert!(
+        missing.is_empty(),
+        "these handlers are documented in openapi.rs::paths(...) but have no mounted route \
+         (the docs advertise endpoints that do not exist): {missing:?}"
     );
 }

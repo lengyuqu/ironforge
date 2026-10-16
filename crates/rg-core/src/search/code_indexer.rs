@@ -184,39 +184,52 @@ impl CodeIndexer {
         repo_path: &Path,
         ref_name: &str,
     ) -> Result<usize> {
-        let repo = gix::open(repo_path)
-            .with_context(|| format!("Failed to open repository: {}", repo_path.display()))?;
-
-        let commit_id = repo
-            .rev_parse_single(ref_name)
-            .with_context(|| format!("Failed to resolve ref: {}", ref_name))?;
-
-        let commit = repo
-            .find_commit(commit_id)
-            .with_context(|| format!("Failed to find commit: {}", commit_id))?;
-
-        let decoded = commit
-            .decode()
-            .with_context(|| "Failed to decode commit".to_string())?;
-        let tree_oid = decoded.tree();
-
-        let tree = repo
-            .find_tree(tree_oid)
-            .with_context(|| format!("Failed to find tree: {}", tree_oid))?;
-
+        // Preserve prior ordering: clear the existing index, then traverse the
+        // tree, then insert the freshly collected entries.
         self.clear_index_for_repo(repo_id).await?;
 
-        let mut entries: Vec<IndexEntry> = Vec::new();
-        let mut visited = HashSet::new();
-        self.collect_tree_entries(
-            &repo,
-            &tree,
-            repo_id,
-            PathBuf::new(),
-            &mut entries,
-            &mut visited,
-        )
-        .await?;
+        // All gix work is confined to a blocking task: `gix::Repository` is
+        // `!Send` (it holds `RefCell`s internally), so it must not be held
+        // across an `.await`. The closure owns its inputs and returns the
+        // collected entries.
+        let repo_path = repo_path.to_path_buf();
+        let ref_name = ref_name.to_string();
+        let entries = tokio::task::spawn_blocking(move || -> Result<Vec<IndexEntry>> {
+            let repo = gix::open(&repo_path)
+                .with_context(|| format!("Failed to open repository: {}", repo_path.display()))?;
+
+            let commit_id = repo
+                .rev_parse_single(ref_name.as_str())
+                .with_context(|| format!("Failed to resolve ref: {}", ref_name))?;
+
+            let commit = repo
+                .find_commit(commit_id)
+                .with_context(|| format!("Failed to find commit: {}", commit_id))?;
+
+            let decoded = commit
+                .decode()
+                .with_context(|| "Failed to decode commit".to_string())?;
+            let tree_oid = decoded.tree();
+
+            let tree = repo
+                .find_tree(tree_oid)
+                .with_context(|| format!("Failed to find tree: {}", tree_oid))?;
+
+            let mut entries: Vec<IndexEntry> = Vec::new();
+            let mut visited = HashSet::new();
+            Self::collect_tree_entries(
+                &repo,
+                &tree,
+                repo_id,
+                PathBuf::new(),
+                &mut entries,
+                &mut visited,
+            )?;
+
+            Ok(entries)
+        })
+        .await
+        .context("Failed to join code indexing task")??;
 
         let count = entries.len();
         self.batch_insert_fts(&entries).await?;
@@ -238,8 +251,7 @@ impl CodeIndexer {
     }
 
     /// Collect indexable file entries by traversing the Git tree iteratively.
-    async fn collect_tree_entries(
-        &self,
+    fn collect_tree_entries(
         repo: &gix::Repository,
         tree: &gix::Tree<'_>,
         repo_id: i64,
@@ -248,13 +260,11 @@ impl CodeIndexer {
         visited: &mut HashSet<gix::ObjectId>,
     ) -> Result<()> {
         let mut stack: Vec<(gix::ObjectId, PathBuf)> = Vec::new();
-        self.collect_tree(repo, tree, repo_id, base_path, entries, visited, &mut stack)
-            .await?;
+        Self::collect_tree(repo, tree, repo_id, base_path, entries, visited, &mut stack)?;
         while let Some((tree_oid, path)) = stack.pop() {
             if let Ok(object) = repo.find_object(tree_oid) {
                 if let Ok(tree) = object.try_into_tree() {
-                    self.collect_tree(repo, &tree, repo_id, path, entries, visited, &mut stack)
-                        .await?;
+                    Self::collect_tree(repo, &tree, repo_id, path, entries, visited, &mut stack)?;
                 }
             }
         }
@@ -264,8 +274,7 @@ impl CodeIndexer {
     /// Collect entries from a single tree into the entries Vec.
     #[allow(clippy::too_many_arguments)]
     #[allow(clippy::clone_on_copy)]
-    async fn collect_tree(
-        &self,
+    fn collect_tree(
         repo: &gix::Repository,
         tree: &gix::Tree<'_>,
         repo_id: i64,
