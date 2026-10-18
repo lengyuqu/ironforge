@@ -91,6 +91,7 @@ pub async fn search(
     db: &DatabaseConnection,
     raw_query: &str,
     search_type: &str,
+    actor_id: Option<i64>,
     page: u64,
     per_page: u64,
 ) -> Result<(Vec<SearchResult>, i64)> {
@@ -104,19 +105,19 @@ pub async fn search(
     let mut total = 0i64;
 
     if search_type == "all" || search_type == "repos" {
-        let (repos, count) = search_repos(db, raw_text, &filters, offset, limit).await?;
+        let (repos, count) = search_repos(db, raw_text, &filters, actor_id, offset, limit).await?;
         total += count;
         results.extend(repos);
     }
 
     if search_type == "all" || search_type == "issues" {
-        let (issues, count) = search_issues(db, raw_text, &filters, offset, limit).await?;
+        let (issues, count) = search_issues(db, raw_text, &filters, actor_id, offset, limit).await?;
         total += count;
         results.extend(issues);
     }
 
     if search_type == "all" || search_type == "wiki" {
-        let (wiki, count) = search_wiki(db, raw_text, &filters, offset, limit).await?;
+        let (wiki, count) = search_wiki(db, raw_text, &filters, actor_id, offset, limit).await?;
         total += count;
         results.extend(wiki);
     }
@@ -213,6 +214,34 @@ fn build_issue_filter_clauses(filters: &SearchFilters) -> (Vec<String>, Vec<Stri
     (clauses, joins, params)
 }
 
+/// SQL predicate restricting FTS results to repositories `actor_id` may read.
+///
+/// This mirrors `repo::service::can_read_repo`: public repositories are visible
+/// to everyone, while a private repository is visible to its owner, its
+/// collaborators, and members of its organization. Read access is org-wide by
+/// design (team mappings restrict write only), so no team check is needed here.
+///
+/// `None` means an anonymous caller: only public repositories.
+fn visibility_clause(actor_id: Option<i64>) -> (String, Vec<Value>) {
+    match actor_id {
+        None => ("NOT r.is_private".to_string(), Vec::new()),
+        Some(actor_id) => (
+            "(NOT r.is_private \
+             OR r.owner_id = ? \
+             OR EXISTS (SELECT 1 FROM repo_collaborators rc \
+                        WHERE rc.repo_id = r.id AND rc.user_id = ?) \
+             OR EXISTS (SELECT 1 FROM organization_members om \
+                        WHERE om.org_id = r.org_id AND om.user_id = ?))"
+                .to_string(),
+            vec![
+                Value::from(actor_id),
+                Value::from(actor_id),
+                Value::from(actor_id),
+            ],
+        ),
+    }
+}
+
 /// Combine the FTS predicate + filter clauses into a single WHERE clause and the
 /// parameter list (query values first, then filter values).
 fn combine_where(match_pred: &str, filter_clauses: &[String]) -> (String, Vec<Value>) {
@@ -253,11 +282,17 @@ async fn search_repos(
     db: &DatabaseConnection,
     raw_query: &str,
     filters: &SearchFilters,
+    actor_id: Option<i64>,
     offset: u64,
     limit: u64,
 ) -> Result<(Vec<SearchResult>, i64)> {
     let backend = db.get_database_backend();
-    let (filter_clauses, extra_joins, filter_params) = build_filter_clauses(filters, "r");
+    let (mut filter_clauses, extra_joins, mut filter_params) = build_filter_clauses(filters, "r");
+
+    // Never return a private repository the actor cannot read.
+    let (visibility_clause, visibility_params) = visibility_clause(actor_id);
+    filter_clauses.push(visibility_clause);
+    filter_params.extend(visibility_params);
 
     let (match_pred, order_clause, query_values) = if raw_query.is_empty() {
         (String::new(), String::new(), Vec::new())
@@ -346,6 +381,7 @@ async fn search_issues(
     db: &DatabaseConnection,
     raw_query: &str,
     filters: &SearchFilters,
+    actor_id: Option<i64>,
     offset: u64,
     limit: u64,
 ) -> Result<(Vec<SearchResult>, i64)> {
@@ -355,6 +391,11 @@ async fn search_issues(
 
     common_clauses.extend(issue_clauses);
     common_params.extend(issue_params);
+
+    // Never return issues of a private repository the actor cannot read.
+    let (visibility_clause, visibility_params) = visibility_clause(actor_id);
+    common_clauses.push(visibility_clause);
+    common_params.extend(visibility_params);
     let all_joins = format!("{}\n{}", common_joins.join("\n"), issue_joins.join("\n"));
 
     let (match_pred, order_clause, query_values) = if raw_query.is_empty() {
@@ -443,11 +484,17 @@ async fn search_wiki(
     db: &DatabaseConnection,
     raw_query: &str,
     filters: &SearchFilters,
+    actor_id: Option<i64>,
     offset: u64,
     limit: u64,
 ) -> Result<(Vec<SearchResult>, i64)> {
     let backend = db.get_database_backend();
-    let (filter_clauses, extra_joins, filter_params) = build_filter_clauses(filters, "w");
+    let (mut filter_clauses, extra_joins, mut filter_params) = build_filter_clauses(filters, "w");
+
+    // Never return wiki pages of a private repository the actor cannot read.
+    let (visibility_clause, visibility_params) = visibility_clause(actor_id);
+    filter_clauses.push(visibility_clause);
+    filter_params.extend(visibility_params);
 
     let (match_pred, order_clause, query_values) = if raw_query.is_empty() {
         (String::new(), String::new(), Vec::new())

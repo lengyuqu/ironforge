@@ -50,9 +50,13 @@ fn normalize_search_type(raw: &str) -> Option<&'static str> {
 )]
 pub async fn search(
     State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
     Query(params): Query<SearchQuery>,
 ) -> impl IntoResponse {
     let pagination = PaginationParams::new(params.page, params.per_page);
+    // Search is reachable anonymously; the actor scopes results to what they may
+    // read. Without it, private repositories would leak through search.
+    let actor_id = crate::api::auth::extract_user_id(&headers, &state.jwt_secret);
 
     if params.q.trim().is_empty() {
         return AppError::bad_request("search query 'q' parameter is required").into_response();
@@ -69,6 +73,7 @@ pub async fn search(
         &state.db,
         &params.q,
         search_type,
+        actor_id,
         pagination.page,
         pagination.per_page,
     )
