@@ -108,7 +108,7 @@ pub async fn list_users(
     {
         Ok(paginated) => {
             let resp = PaginatedResponse::new(paginated.users, &params, paginated.total as u64);
-            (StatusCode::OK, Json(serde_json::to_value(resp).unwrap())).into_response()
+            (StatusCode::OK, Json(resp)).into_response()
         }
         Err(e) => AppError::internal(e.to_string()).into_response(),
     }
@@ -345,7 +345,7 @@ pub async fn list_orgs(
         Ok((orgs, total)) => {
             let resp: Vec<_> = orgs.iter().map(org_response).collect();
             let page = PaginatedResponse::new(resp, &params, total as u64);
-            (StatusCode::OK, Json(serde_json::to_value(page).unwrap())).into_response()
+            (StatusCode::OK, Json(page)).into_response()
         }
         Err(e) => AppError::internal(e.to_string()).into_response(),
     }

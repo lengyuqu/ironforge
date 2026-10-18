@@ -353,7 +353,7 @@ home            = "0.5"
 | `fatal: not a valid ref` (HTTP clone) | Content-Type 不正确 | 确保 `info/refs` 响应使用正确的 advertisement Content-Type |
 | `pack has delta resolution error` | thin pack 未加 `--fix-thin` | `git index-pack` 必须加 `--fix-thin` 参数 |
 | handler 返回类型编译错误 | Axum handler 返回类型不一致 | 同一 handler 不能混用 `(StatusCode, Json)` 和 `Html` |
-| JSON 响应 `data` 字段为空 | `PaginatedResponse` 未用 `to_value()` 包装 | 必须用 `serde_json::to_value(resp)` 包装后返回 |
+| ~~JSON 响应 `data` 字段为空~~ **此说已证伪（2026-10-16）** | 曾以为 `PaginatedResponse` 需 `to_value()` 包装；axum 0.8 的 `Json<T>` 能正确序列化泛型包装器。证据：`rg-http/src/pagination.rs` 单元测试 + `issue_tests`/`ci_permission_tests` 断言 `body["data"]` 为数组 | 直接 `Json(resp)`；**不要**用 `to_value(resp).unwrap()`——那会把可编译检查的 handler 变成请求路径 panic（500） |
 | Axum TLS 报错 | 用了 `axum::serve()` 而不是 `axum_server` | TLS 必须用 `axum_server::bind_rustls()` |
 | SeaORM 批量删除不生效 | 用了错误的方法 | 必须用 `Entity::delete_many().filter(...).exec(db)` |
 | SeaORM 单行更新失败 | 直接构造 ActiveModel | 必须先 `find_by_id()` 再 `into_active_model()` |

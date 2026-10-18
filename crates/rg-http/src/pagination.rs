@@ -108,29 +108,23 @@ impl PaginationMeta {
 
 /// Paginated response wrapper.
 ///
-/// CRITICAL: Serialization (踩坑经验 #2)
+/// Return it directly from an Axum handler:
 ///
-/// When returning from Axum handler, MUST wrap with serde_json::to_value():
-///   (StatusCode::OK, Json(serde_json::to_value(resp).unwrap())).into_response()
-/// Without to_value(), the `data` field may be empty in the JSON response.
+/// ```ignore
+/// let resp = PaginatedResponse::new(data, &params, total);
+/// (StatusCode::OK, Json(resp)).into_response()
+/// ```
 ///
-/// CRITICAL: Serialization (踩坑经验 #2)
+/// A previous version of this comment claimed `Json(resp)` produces an empty
+/// `data` field and that `serde_json::to_value(resp).unwrap()` was required.
+/// That is not true with axum 0.8: `Json<T>` serializes any `T: Serialize`,
+/// including generic wrappers. It is disproved by the integration tests —
+/// `issue_tests` and `ci_permission_tests` assert `body["data"]` is a populated
+/// array on endpoints that return `Json(PaginatedResponse::new(..))` directly.
 ///
-/// When returning `PaginatedResponse<T>` from an Axum handler,
-/// you MUST wrap it with `serde_json::to_value()` before returning:
-///
-///   OK pattern:
-///     let resp = PaginatedResponse::new(data, &params, total);
-///     (StatusCode::OK, Json(serde_json::to_value(resp).unwrap())).into_response()
-///
-///   WRONG pattern (will compile but produce wrong JSON or empty data field):
-///     (StatusCode::OK, Json(resp)).into_response()
-///     // or
-///     Json(resp).into_response()
-///
-/// Reason: `PaginatedResponse<T>` implements `Serialize`, but Axum's
-/// `Json()` extractor may not correctly serialize generic wrappers
-/// without explicit `to_value()` conversion. Always use `to_value()`.
+/// Prefer the direct form. The `to_value(..).unwrap()` form is worse than
+/// redundant: a serialization failure becomes a panic in a request path (a 500)
+/// instead of a compile-time-checked handler, for no benefit.
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct PaginatedResponse<T: Serialize> {
     pub data: Vec<T>,
@@ -276,5 +270,44 @@ mod tests {
     fn test_default_per_page_fn() {
         assert_eq!(default_page(), 1);
         assert_eq!(default_per_page(), 20);
+    }
+}
+
+/// Regression: `Json(PaginatedResponse::new(..))` must serialize correctly.
+///
+/// A stale comment in `pagination.rs` claimed this produced an empty `data`
+/// field and that `serde_json::to_value(..).unwrap()` was required. That claim
+/// is false with axum 0.8, and following it turned a compile-time-checked
+/// handler into a panic in the request path. This test pins the direct form so
+/// the misleading advice cannot come back.
+#[cfg(test)]
+mod paginated_response_serialization_tests {
+    use crate::pagination::{PaginatedResponse, PaginationParams};
+    use axum::response::IntoResponse;
+
+    #[test]
+    fn direct_json_serialization_keeps_data_and_pagination() {
+        let params = PaginationParams {
+            page: 1,
+            per_page: 20,
+        };
+        let resp = PaginatedResponse::new(vec!["a".to_string(), "b".to_string()], &params, 2);
+
+        // Serialize exactly the way `Json(resp)` would.
+        let value = serde_json::to_value(&resp).expect("serialize paginated response");
+        let data = value.get("data").and_then(|d| d.as_array());
+        assert_eq!(
+            data.map(Vec::len),
+            Some(2),
+            "the data array must survive serialization: {value}"
+        );
+        assert_eq!(
+            value.get("pagination").and_then(|p| p.get("total")),
+            Some(&serde_json::json!(2)),
+            "pagination metadata must be present: {value}"
+        );
+
+        // And the handler-style response must actually build.
+        let _ = (axum::http::StatusCode::OK, axum::Json(resp)).into_response();
     }
 }
