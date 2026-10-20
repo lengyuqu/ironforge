@@ -102,6 +102,7 @@ gix = { version = "0.87", features = [
     "merge",
     "command",
     "worktree-archive",
+    "blame",
 ] }
 
 # Archive / compression

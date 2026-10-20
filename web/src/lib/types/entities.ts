@@ -146,6 +146,32 @@ export interface RepoCommitEntry {
   date: string;
 }
 
+export interface BlameCommit {
+  sha: string;
+  author: string;
+  email: string;
+  date: string;
+  message: string;
+}
+
+export interface BlameHunk {
+  /** 1-based first line of the hunk in the blamed revision. */
+  start_line: number;
+  original_start_line: number;
+  /** Set when the introducing commit knew the file under another name. */
+  original_path?: string;
+  commit: BlameCommit;
+  lines: string[];
+}
+
+export interface BlameResult {
+  path: string;
+  ref: string;
+  commit_sha: string;
+  total_lines: number;
+  hunks: BlameHunk[];
+}
+
 export interface BlobContent {
   path: string;
   sha: string;

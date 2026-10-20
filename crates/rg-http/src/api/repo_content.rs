@@ -40,6 +40,72 @@ pub struct LogQuery {
     pub limit: Option<i64>,
 }
 
+#[derive(Serialize)]
+pub struct BlameCommitInfo {
+    pub sha: String,
+    pub author: String,
+    pub email: String,
+    pub date: String,
+    pub message: String,
+}
+
+#[derive(Serialize)]
+pub struct BlameHunkEntry {
+    /// 1-based first line of the hunk in the blamed revision.
+    pub start_line: u32,
+    /// 1-based first line of the hunk in the introducing commit's version.
+    pub original_start_line: u32,
+    /// Present when the file had a different name in the introducing commit.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub original_path: Option<String>,
+    pub commit: BlameCommitInfo,
+    pub lines: Vec<String>,
+}
+
+#[derive(Serialize)]
+pub struct BlameResponse {
+    pub path: String,
+    #[serde(rename = "ref")]
+    pub git_ref: String,
+    /// SHA the ref resolved to.
+    pub commit_sha: String,
+    pub total_lines: u32,
+    pub hunks: Vec<BlameHunkEntry>,
+}
+
+impl BlameResponse {
+    fn from_blame(path: String, git_ref: String, blame: rg_git::blame::Blame) -> Self {
+        Self {
+            path,
+            git_ref,
+            commit_sha: blame.commit_sha,
+            total_lines: blame.total_lines,
+            hunks: blame
+                .hunks
+                .into_iter()
+                .map(|h| BlameHunkEntry {
+                    start_line: h.start_line,
+                    original_start_line: h.original_start_line,
+                    original_path: h.original_path,
+                    commit: BlameCommitInfo {
+                        sha: h.commit.sha,
+                        author: h.commit.author_name,
+                        email: h.commit.author_email,
+                        date: chrono::DateTime::<chrono::Utc>::from_timestamp(
+                            h.commit.author_time,
+                            0,
+                        )
+                        .map(|dt| dt.to_rfc3339())
+                        .unwrap_or_default(),
+                        message: h.commit.summary,
+                    },
+                    lines: h.lines,
+                })
+                .collect(),
+        }
+    }
+}
+
 /// Request body for creating/updating a file.
 #[derive(Deserialize, utoipa::ToSchema)]
 pub struct CreateOrUpdateFileRequest {
@@ -341,6 +407,81 @@ pub async fn get_log(
             tracing::error!(%e, "get_log failed");
             AppError::internal(e).into_response()
         }
+    }
+}
+
+/// Per-line authorship for a file (`git blame`).
+/// GET /api/v1/repos/:owner/:name/blame/*path
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/blame/{path}",
+    tag = "Repository Content",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("path" = String, Path, description = "File path"),
+        ("ref" = Option<String>, Query, description = "Git ref (branch/tag/sha, default: HEAD)"),
+    ),
+    responses(
+        (status = 200, description = "Hunks of consecutive lines attributed to the commit that introduced them", body = serde_json::Value),
+        (status = 400, description = "Binary or oversized file", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+        (status = 404, description = "Repository, ref or path not found", body = serde_json::Value),
+    ),
+)]
+pub async fn get_blame(
+    State(state): State<AppState>,
+    Path((owner, repo, path)): Path<(String, String, String)>,
+    headers: HeaderMap,
+    Query(params): Query<BlobQuery>,
+) -> impl IntoResponse {
+    if let Err(e) = rg_core::platform::validate_repo_path(&owner) {
+        return AppError::bad_request(e.to_string()).into_response();
+    }
+    if let Err(e) = rg_core::platform::validate_repo_path(&repo) {
+        return AppError::bad_request(e.to_string()).into_response();
+    }
+
+    let _repo = match resolve_and_check_access(&state, &headers, &owner, &repo).await {
+        Ok(r) => r,
+        Err(e) => return e.into_response(),
+    };
+
+    let repo_path = state.repo_root.join(format!("{}/{}.git", owner, repo));
+    if !repo_path.exists() {
+        return AppError::not_found("repository not found").into_response();
+    }
+
+    let path = path.trim_matches('/').to_string();
+    if path.is_empty() || path.split('/').any(|c| c.is_empty() || c == "." || c == "..") {
+        return AppError::bad_request("invalid file path").into_response();
+    }
+    let git_ref = params.r#ref.unwrap_or_else(|| "HEAD".to_string());
+
+    // Blame walks history and diffs on every ancestor — keep it off the async workers.
+    let result = tokio::task::spawn_blocking({
+        let (path, git_ref) = (path.clone(), git_ref.clone());
+        move || rg_git::blame::blame_file(&repo_path, &git_ref, &path)
+    })
+    .await;
+
+    match result {
+        Ok(Ok(blame)) => (StatusCode::OK, Json(BlameResponse::from_blame(path, git_ref, blame)))
+            .into_response(),
+        Ok(Err(rg_git::blame::BlameError::NotFound(p))) => {
+            AppError::not_found(format!("path '{p}' not found at ref '{git_ref}'")).into_response()
+        }
+        Ok(Err(e @ (rg_git::blame::BlameError::NotAFile(_)
+        | rg_git::blame::BlameError::Binary
+        | rg_git::blame::BlameError::TooLarge { .. }))) => {
+            AppError::bad_request(e).into_response()
+        }
+        // Unresolvable refs surface as `Other`; treat them like get_blob does.
+        Ok(Err(rg_git::blame::BlameError::Other(e))) => {
+            tracing::warn!(error = %e, %git_ref, "blame failed");
+            AppError::not_found(format!("cannot blame '{path}' at ref '{git_ref}'")).into_response()
+        }
+        Err(e) => AppError::internal(e).into_response(),
     }
 }
 

@@ -1,5 +1,6 @@
 import { request, qs, type PaginatedResponse } from './_base.svelte';
 import type {
+  BlameResult,
   BlobContent,
   CombinedCommitStatus,
   CommitStatus,
@@ -108,6 +109,9 @@ export const repos = {
   },
   blob: (owner: string, repo: string, path: string, ref?: string) => {
     return request<BlobContent>(`/repos/${owner}/${repo}/blob/${encodeRepoPath(path)}${qs({ ref })}`);
+  },
+  blame: (owner: string, repo: string, path: string, ref?: string) => {
+    return request<BlameResult>(`/repos/${owner}/${repo}/blame/${encodeRepoPath(path)}${qs({ ref })}`);
   },
   saveContent: (
     owner: string,

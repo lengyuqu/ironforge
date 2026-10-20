@@ -29,15 +29,13 @@
 | 指标 | 数量 | 说明 |
 |---|---:|---|
 | 总任务 | 54 | 来自细节功能计划 M0–M5 |
-| `DONE` | 9 | `ALIGN-001`、`GIT-001`、`GIT-002`、`GIT-003`、`GIT-004`、`CI-200`、`STORAGE-001`、`ISSUE-101`、`ISSUE-103` |
-| `DOING` | 0 | 当前没有修改中的任务 |
-| `READY` | 1 | `ISSUE-105` |
-| `TODO` | 44 | 等待依赖、验收标准或排期 |
+| `DONE` | 12 | `ALIGN-001`、`GIT-001`、`GIT-002`、`GIT-003`、`GIT-004`、`CI-200`、`STORAGE-001`、`ISSUE-101`、`ISSUE-103`、`ISSUE-105`、`QUEUE-001`、`OPS-501` |
+| `DOING` | 3 | `REPO-104`（Blame 已完成）、`ISSUE-104`（Issue/评论已完成）、`CI-201`（功能已有、缺专项测试） |
+| `READY` | 0 | — |
+| `TODO` | 39 | 等待依赖、验收标准或排期 |
 | `BLOCKED` | 0 | 当前没有确认的外部阻塞 |
 
-当前没有 `DOING` 任务。
-
-下一任务：`ISSUE-105` — 多 Assignee 数据模型、API、筛选和 UI（`READY`）。
+2026-10-21 复核：快照此前停留在 2026-07-14，未包含 `ISSUE-105`、`QUEUE-001`、`OPS-501` 的完成，也未反映 `ISSUE-104`、`CI-201` 的代码已落地；已按代码与提交记录回填。三个 `DOING` 任务各有明确的剩余验收项，见任务状态总表。
 
 ## 3. 已完成的前置基础能力
 
@@ -277,14 +275,14 @@
 | REPO-101 | `TODO` | Push Mirror | 已有 Pull Mirror；需新增多目标 Push Mirror |
 | REPO-102 | `TODO` | upload-archive / `git archive --remote` | 现有 HTTP archive API 不等同于该协议 |
 | REPO-103 | `TODO` | Template Repository | 未开始 |
-| REPO-104 | `TODO` | Blame、Go to file、目录删除 | 未开始 |
+| REPO-104 | `DOING` | Blame、Go to file、目录删除 | Blame 已完成（`GET /repos/{owner}/{name}/blame/{path}`，gix `blame_file` + 重命名跟踪；`cargo test -p rg-git blame` 6 项与 `git blame --porcelain` 对拍、`blame_tests` 3 项、前端单测）；Go to file、目录删除未做；另 `log` 的 `path` 过滤参数被忽略，文件历史不可用 |
 | REPO-105 | `TODO` | 自动生成 Release Notes | 未开始 |
 | REPO-106 | `TODO` | 仓库内 OpenAPI 安全渲染 | 未开始 |
 | ISSUE-101 | `DONE` | Markdown Issue/PR Template | 默认分支发现、API/权限、Issue/PR 预填和桌面/移动浏览器 E2E 通过 |
 | ISSUE-102 | `TODO` | YAML Issue Form | 依赖 ISSUE-101 |
 | ISSUE-103 | `DONE` | Issue/PR/评论附件 | 四类目标、流式 Blob、权限/配额、Web/OpenAPI、HTTP 与桌面/移动浏览器闭环通过 |
-| ISSUE-104 | `TODO` | Reaction | 未开始 |
-| ISSUE-105 | `READY` | 多 Assignee | 下一任务；当前仍为单个 `assignee_id` |
+| ISSUE-104 | `DOING` | Reaction | Issue 正文与 Issue 评论已完成（`issue_reaction_tests` 4 项，提交 68610d8）；PR 与 Review 评论的 Reaction 未做 |
+| ISSUE-105 | `DONE` | 多 Assignee | `issue_assignees` 多对多表 + API + 筛选 + 详情页面板；`issue_assignee_tests` 4 项（提交 2e69521）；PR 多 Assignee 未做 |
 | ISSUE-106 | `TODO` | Lock/Pin | 未开始 |
 | ISSUE-107 | `TODO` | Issue 依赖与自动引用 | 未开始 |
 
@@ -293,7 +291,7 @@
 | ID | 状态 | 任务 | 当前说明 |
 |---|---|---|---|
 | CI-200 | `DONE` | 第三方 Action 执行与安全边界 ADR | Accepted；第三方 `uses:` 在 runtime 落地前继续 fail closed |
-| CI-201 | `TODO` | 仅重跑失败 Job | 依赖 CI-200 |
+| CI-201 | `DOING` | 仅重跑失败 Job | `rerun_failed_job` + `POST .../jobs/{job_id}/rerun` + 前端按钮已落地（提交 7ee7ffb）；无专项回归测试，补齐后转 `DONE` |
 | CI-202 | `TODO` | Step/Job outputs | 依赖 CI-200 |
 | CI-203 | `TODO` | 运行时条件函数 | 当前 `always()`、`failure()` 被显式拒绝 |
 | CI-204 | `TODO` | Service Containers | 依赖 CI-200 |
@@ -390,3 +388,8 @@
 | 2026-07-14 | ISSUE-103 | `TODO → READY → DOING` | STORAGE-001 前置已完成；开始附件模型、权限、配额与 Blob 生命周期审计 | Codex |
 | 2026-07-14 | ISSUE-103 | `DOING → DONE` | 四类附件、流式上传/下载、私有权限/配额/IDOR、OpenAPI/Web 与桌面/移动浏览器通过；修复 CSP nonce、附件下载路由和 star/watch Cookie 鉴权；总完成度 75.4% | Codex |
 | 2026-07-14 | ISSUE-105 | `TODO → READY` | ISSUE-103 完成；下一任务为多 Assignee 数据模型、API、筛选和 UI | Codex |
+| 2026-10-21 | REPO-104 | `TODO → DOING` | 完成 Blame（后端 + 前端 + 测试）；Go to file、目录删除未做；发现 `log?path=` 过滤参数被忽略 | Claude |
+| 2026-10-21 | ISSUE-105 | `READY → DONE` | 代码与 4 项测试早已在 2e69521 落地，台账未回填；补记 | Claude |
+| 2026-10-21 | ISSUE-104 | `TODO → DOING` | Issue/评论 Reaction 已在 68610d8 落地；PR/Review 评论未做 | Claude |
+| 2026-10-21 | CI-201 | `TODO → DOING` | 重跑端点与前端按钮已在 7ee7ffb、eedefde 落地；缺专项回归测试 | Claude |
+| 2026-10-21 | ALIGN-001 | 复核 | 按 CSV 与代码证据回填六行，总完成度 75.4% → 77.7%（`QUEUE-001`、`OPS-501` 台账已为 DONE，但对应矩阵行含 Redis/多数据库/自动化测试范围，保持 PARTIAL 并计部分分） | Claude |

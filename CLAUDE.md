@@ -124,6 +124,7 @@ Phase 1~21 全部完成。核心能力：
 | TLS/HTTPS | `rg-http/src/lib.rs` | axum-server + rustls |
 | TOML 配置 | `rg-cli/src/main.rs` | CLI > config > defaults |
 | API 分页 | `rg-http/src/pagination.rs` | PaginationParams + PaginatedResponse\<T\> |
+| 代码 Blame | `rg-git/src/blame.rs` + `rg-http/src/api/repo_content.rs::get_blame` | GET /repos/:owner/:name/blame/*path；gix `blame_file`（含重命名跟踪）；二进制与超 1MiB 拒绝；与 `git blame --porcelain` 对拍测试 |
 | GPG 签名 | `rg-http/src/api/repo_content.rs` | GET /repos/:owner/:name/commits/:sha/signature |
 | 前端 i18n | `web/src/lib/i18n/` | locale store + localStorage + 中/英翻译 |
 | CI Secrets/Matrix | `rg-ci` + `rg-runner` | AES-256-GCM 加密、Matrix 256 上限 |
@@ -306,7 +307,7 @@ utoipa          = "5"        # ⚠️ 未纳入 workspace，在 rg-http 中硬�
 utoipa-swagger-ui = "8"      # ⚠️ 未纳入 workspace
 anyhow          = "1"
 thiserror       = "2"
-gix             = "0.87"     # features: blocking-http-transport-curl, max-performance, blob-diff, pack-cache-lru-dynamic, merge
+gix             = "0.87"     # features: blocking-http-transport-curl, max-performance, blob-diff, pack-cache-lru-dynamic, merge, blame
 chrono          = "0.4"      # features: serde
 uuid            = "1"        # features: v4, serde
 # Auth / Crypto

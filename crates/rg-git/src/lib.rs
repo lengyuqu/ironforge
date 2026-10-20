@@ -54,6 +54,7 @@
 
 use std::path::Path;
 
+pub mod blame;
 pub mod cli_gateway;
 pub mod ops;
 pub mod pkt_line;

@@ -980,6 +980,10 @@ fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
             "/repos/{owner}/{name}/blob/{*path}",
             get(api::repo_content::get_blob),
         )
+        .route(
+            "/repos/{owner}/{name}/blame/{*path}",
+            get(api::repo_content::get_blame),
+        )
         .route("/repos/{owner}/{name}/log", get(api::repo_content::get_log))
         .route(
             "/repos/{owner}/{name}/branches",

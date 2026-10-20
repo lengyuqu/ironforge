@@ -96,4 +96,36 @@ describe('BlobFileHeader.svelte', () => {
     await fireEvent.click(screen.getByText('repo.blob.delete_file'));
     expect(onToggleDelete).toHaveBeenCalledTimes(1);
   });
+  it('offers blame for text files and reports its state', async () => {
+    const onToggleBlame = vi.fn();
+    const { rerender } = render(BlobFileHeader, {
+      ...baseProps,
+      onToggleView: () => {},
+      onToggleDelete: () => {},
+      onToggleBlame,
+    });
+
+    await fireEvent.click(screen.getByText('repo.blob.blame'));
+    expect(onToggleBlame).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('repo.blob.blame').getAttribute('aria-pressed')).toBe('false');
+
+    await rerender({ blameActive: true });
+    const active = screen.getByText('repo.blob.blame_hide');
+    expect(active.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('hides blame for binary files or when no handler is given', () => {
+    const { unmount } = render(BlobFileHeader, {
+      ...baseProps,
+      isText: false,
+      onToggleView: () => {},
+      onToggleDelete: () => {},
+      onToggleBlame: () => {},
+    });
+    expect(screen.queryByText('repo.blob.blame')).toBeNull();
+    unmount();
+
+    render(BlobFileHeader, { ...baseProps, onToggleView: () => {}, onToggleDelete: () => {} });
+    expect(screen.queryByText('repo.blob.blame')).toBeNull();
+  });
 });

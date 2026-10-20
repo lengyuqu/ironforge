@@ -18,7 +18,9 @@
     canEdit: boolean;
     viewMode: 'rendered' | 'source';
     sha?: string;
+    blameActive?: boolean;
     onToggleView: () => void;
+    onToggleBlame?: () => void;
     onToggleDelete: () => void;
   }
 
@@ -34,7 +36,9 @@
     canEdit,
     viewMode,
     sha,
+    blameActive = false,
     onToggleView,
+    onToggleBlame,
     onToggleDelete
   }: Props = $props();
 
@@ -96,6 +100,16 @@
     {#if isMarkdown && isText}
       <button type="button" class="btn-outline btn-sm" onclick={onToggleView}>
         {viewMode === 'rendered' ? t('repo.blob.raw') : t('repo.blob.rendered')}
+      </button>
+    {/if}
+    {#if onToggleBlame && isText}
+      <button
+        type="button"
+        class="btn-outline btn-sm"
+        aria-pressed={blameActive}
+        onclick={onToggleBlame}
+      >
+        {blameActive ? t('repo.blob.blame_hide') : t('repo.blob.blame')}
       </button>
     {/if}
     <button type="button" class="btn-outline btn-sm" onclick={copyPath}>

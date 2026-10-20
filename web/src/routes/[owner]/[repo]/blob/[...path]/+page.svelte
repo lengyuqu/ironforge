@@ -14,6 +14,7 @@
   import BlobFileHeader from '$lib/components/repo/BlobFileHeader.svelte';
   import BlobDeletePanel from '$lib/components/repo/BlobDeletePanel.svelte';
   import BlobContentView from '$lib/components/repo/BlobContentView.svelte';
+  import BlobBlameView from '$lib/components/repo/BlobBlameView.svelte';
 
   const t = createT();
   const MAX_EDITABLE_SIZE = 1024 * 1024;
@@ -22,6 +23,7 @@
   let repo = $derived($page.params.repo!);
   let filePath = $derived($page.params.path!);
   let queryRef = $derived($page.url.searchParams.get('ref') || '');
+  let blameMode = $derived($page.url.searchParams.get('blame') === '1');
 
   let blobData = $state<BlobContent | null>(null);
   let ref = $state('');
@@ -61,6 +63,15 @@
     }
   }
 
+  // Blame lives in the URL so the view is shareable; toggling it must not
+  // reload the blob, so it stays out of loadKey.
+  function toggleBlame() {
+    const url = new URL($page.url);
+    if (blameMode) url.searchParams.delete('blame');
+    else url.searchParams.set('blame', '1');
+    goto(`${url.pathname}${url.search}`, { replaceState: true, noScroll: true, keepFocus: true });
+  }
+
   function handleDeleted() {
     goto(buildTreeHref(owner, repo, ref, ''));
   }
@@ -94,6 +105,8 @@
       {canEdit}
       {viewMode}
       sha={blobData.sha}
+      blameActive={blameMode}
+      onToggleBlame={toggleBlame}
       onToggleView={() => (viewMode = viewMode === 'rendered' ? 'source' : 'rendered')}
       onToggleDelete={() => (deleteOpen = !deleteOpen)}
     />
@@ -116,7 +129,11 @@
       />
     {/if}
 
-    <BlobContentView blob={blobData} {filePath} {isText} {isMarkdown} {viewMode} />
+    {#if blameMode && isText}
+      <BlobBlameView {owner} {repo} {ref} {filePath} />
+    {:else}
+      <BlobContentView blob={blobData} {filePath} {isText} {isMarkdown} {viewMode} />
+    {/if}
   {/if}
 </div>
 
