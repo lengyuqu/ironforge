@@ -758,14 +758,49 @@ pub async fn assign_job(db: &DatabaseConnection, job_id: i64, runner_id: i64) ->
     Ok(())
 }
 
-/// Rerun a failed/errored job: reset to pending and unassign runner.
-/// Also resets the parent stage and pipeline to pending if they were failed.
+/// Status a job returns to when it is made runnable again, mirroring how it was
+/// created: manual jobs wait for a click, protected-environment jobs wait for
+/// approval, everything else is schedulable.
+async fn reopened_job_status<C: ConnectionTrait>(
+    db: &C,
+    job: &pipeline_job::Model,
+) -> Result<&'static str> {
+    if job.when_condition == "manual" {
+        return Ok("manual");
+    }
+    if let Some(environment_id) = job.environment_id {
+        let protected = crate::entities::ci_environment::Entity::find_by_id(environment_id)
+            .one(db)
+            .await
+            .context("db: find environment for reopened job")?
+            .is_some_and(|environment| environment.protected);
+        if protected {
+            return Ok("waiting_approval");
+        }
+    }
+    Ok("pending")
+}
+
+/// Rerun a failed/errored/canceled job and rebuild what depended on it.
+///
+/// - The job goes back to `pending` with its runner, exit code and finish time
+///   cleared; its stage and the pipeline are re-opened.
+/// - Later stages that were skipped (failure propagation) or canceled (pipeline
+///   cancel) are re-opened too, so the pipeline cannot turn green with work
+///   that never ran. Their `skipped`/`canceled` jobs return to the status they
+///   were created with. A job that was skipped *and* carries an `if:`
+///   condition stays skipped: the two causes are indistinguishable, and
+///   running a job whose condition may be false is the worse error.
+/// - Refused when an earlier stage did not succeed: the job could never be
+///   scheduled and the pipeline would wait forever.
+///
+/// Everything happens in one transaction.
 pub async fn rerun_failed_job(db: &DatabaseConnection, job_id: i64) -> Result<()> {
     let now = chrono::Utc::now().naive_utc();
+    let txn = db.begin().await.context("db: begin rerun transaction")?;
 
-    // 1. Reset the job to pending
     let job = pipeline_job::Entity::find_by_id(job_id)
-        .one(db)
+        .one(&txn)
         .await
         .context("db: find job for rerun")?
         .ok_or_else(|| anyhow::anyhow!("job {} not found", job_id))?;
@@ -775,15 +810,33 @@ pub async fn rerun_failed_job(db: &DatabaseConnection, job_id: i64) -> Result<()
     }
 
     let stage_id = job.stage_id;
-
-    // Look up pipeline_id via the stage
     let stage = pipeline_stage::Entity::find_by_id(stage_id)
-        .one(db)
+        .one(&txn)
         .await
         .context("db: find stage for rerun")?
         .ok_or_else(|| anyhow::anyhow!("stage {} not found", stage_id))?;
     let pipeline_id = stage.pipeline_id;
 
+    let stages = pipeline_stage::Entity::find()
+        .filter(pipeline_stage::Column::PipelineId.eq(pipeline_id))
+        .order_by_asc(pipeline_stage::Column::StageOrder)
+        .all(&txn)
+        .await
+        .context("db: list stages for rerun")?;
+
+    if let Some(blocking) = stages
+        .iter()
+        .find(|s| s.stage_order < stage.stage_order && s.status != "success")
+    {
+        anyhow::bail!(
+            "cannot rerun job {}: earlier stage '{}' is {}, so the job could not be scheduled",
+            job_id,
+            blocking.name,
+            blocking.status
+        );
+    }
+
+    // 1. Reset the job itself.
     pipeline_job::Entity::update_many()
         .filter(pipeline_job::Column::Id.eq(job_id))
         .col_expr(pipeline_job::Column::Status, Expr::value("pending"))
@@ -797,11 +850,11 @@ pub async fn rerun_failed_job(db: &DatabaseConnection, job_id: i64) -> Result<()
             Expr::value(sea_orm::Value::ChronoDateTime(None)),
         )
         .col_expr(pipeline_job::Column::UpdatedAt, Expr::value(now))
-        .exec(db)
+        .exec(&txn)
         .await
         .context("db: rerun failed job")?;
 
-    // 2. Reset the parent stage to pending if it was failed
+    // 2. Re-open the job's own stage if it had been closed as failed.
     pipeline_stage::Entity::update_many()
         .filter(pipeline_stage::Column::Id.eq(stage_id))
         .filter(pipeline_stage::Column::Status.is_in(["error", "failed", "canceled"]))
@@ -810,11 +863,59 @@ pub async fn rerun_failed_job(db: &DatabaseConnection, job_id: i64) -> Result<()
             pipeline_stage::Column::FinishedAt,
             Expr::value(sea_orm::Value::ChronoDateTime(None)),
         )
-        .exec(db)
+        .exec(&txn)
         .await
         .context("db: reset stage for rerun")?;
 
-    // 3. Reset the pipeline to pending if it was failed
+    // 3. Re-open downstream stages that were closed because of the failure.
+    for downstream in stages.iter().filter(|s| {
+        s.stage_order > stage.stage_order && matches!(s.status.as_str(), "skipped" | "canceled")
+    }) {
+        let jobs = pipeline_job::Entity::find()
+            .filter(pipeline_job::Column::StageId.eq(downstream.id))
+            .all(&txn)
+            .await
+            .context("db: list downstream jobs for rerun")?;
+        for downstream_job in jobs {
+            let reopen = match downstream_job.status.as_str() {
+                "canceled" => true,
+                "skipped" => downstream_job.if_condition.is_none(),
+                _ => false,
+            };
+            if !reopen {
+                continue;
+            }
+            let status = reopened_job_status(&txn, &downstream_job).await?;
+            pipeline_job::Entity::update_many()
+                .filter(pipeline_job::Column::Id.eq(downstream_job.id))
+                .col_expr(pipeline_job::Column::Status, Expr::value(status))
+                .col_expr(
+                    pipeline_job::Column::RunnerId,
+                    Expr::value(sea_orm::Value::BigInt(None)),
+                )
+                .col_expr(pipeline_job::Column::ExitCode, Expr::value(sea_orm::Value::Int(None)))
+                .col_expr(
+                    pipeline_job::Column::FinishedAt,
+                    Expr::value(sea_orm::Value::ChronoDateTime(None)),
+                )
+                .col_expr(pipeline_job::Column::UpdatedAt, Expr::value(now))
+                .exec(&txn)
+                .await
+                .context("db: reopen downstream job")?;
+        }
+        pipeline_stage::Entity::update_many()
+            .filter(pipeline_stage::Column::Id.eq(downstream.id))
+            .col_expr(pipeline_stage::Column::Status, Expr::value("pending"))
+            .col_expr(
+                pipeline_stage::Column::FinishedAt,
+                Expr::value(sea_orm::Value::ChronoDateTime(None)),
+            )
+            .exec(&txn)
+            .await
+            .context("db: reopen downstream stage")?;
+    }
+
+    // 4. Re-open the pipeline.
     pipeline::Entity::update_many()
         .filter(pipeline::Column::Id.eq(pipeline_id))
         .filter(pipeline::Column::Status.is_in(["error", "failed", "canceled"]))
@@ -823,9 +924,11 @@ pub async fn rerun_failed_job(db: &DatabaseConnection, job_id: i64) -> Result<()
             pipeline::Column::FinishedAt,
             Expr::value(sea_orm::Value::ChronoDateTime(None)),
         )
-        .exec(db)
+        .exec(&txn)
         .await
         .context("db: reset pipeline for rerun")?;
+
+    txn.commit().await.context("db: commit rerun transaction")?;
 
     tracing::info!(
         job_id,

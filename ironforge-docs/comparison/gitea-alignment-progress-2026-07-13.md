@@ -29,13 +29,13 @@
 | 指标 | 数量 | 说明 |
 |---|---:|---|
 | 总任务 | 54 | 来自细节功能计划 M0–M5 |
-| `DONE` | 12 | `ALIGN-001`、`GIT-001`、`GIT-002`、`GIT-003`、`GIT-004`、`CI-200`、`STORAGE-001`、`ISSUE-101`、`ISSUE-103`、`ISSUE-105`、`QUEUE-001`、`OPS-501` |
-| `DOING` | 3 | `REPO-104`（Blame 已完成）、`ISSUE-104`（Issue/评论已完成）、`CI-201`（功能已有、缺专项测试） |
+| `DONE` | 13 | `ALIGN-001`、`GIT-001`、`GIT-002`、`GIT-003`、`GIT-004`、`CI-200`、`STORAGE-001`、`ISSUE-101`、`ISSUE-103`、`ISSUE-105`、`CI-201`、`QUEUE-001`、`OPS-501` |
+| `DOING` | 2 | `REPO-104`（Blame 已完成）、`ISSUE-104`（Issue/评论已完成） |
 | `READY` | 0 | — |
 | `TODO` | 39 | 等待依赖、验收标准或排期 |
 | `BLOCKED` | 0 | 当前没有确认的外部阻塞 |
 
-2026-10-21 复核：快照此前停留在 2026-07-14，未包含 `ISSUE-105`、`QUEUE-001`、`OPS-501` 的完成，也未反映 `ISSUE-104`、`CI-201` 的代码已落地；已按代码与提交记录回填。三个 `DOING` 任务各有明确的剩余验收项，见任务状态总表。
+2026-10-21 复核：快照此前停留在 2026-07-14，未包含 `ISSUE-105`、`QUEUE-001`、`OPS-501` 的完成，也未反映 `ISSUE-104`、`CI-201` 的代码已落地；已按代码与提交记录回填。两个 `DOING` 任务各有明确的剩余验收项，见任务状态总表。
 
 ## 3. 已完成的前置基础能力
 
@@ -291,7 +291,7 @@
 | ID | 状态 | 任务 | 当前说明 |
 |---|---|---|---|
 | CI-200 | `DONE` | 第三方 Action 执行与安全边界 ADR | Accepted；第三方 `uses:` 在 runtime 落地前继续 fail closed |
-| CI-201 | `DOING` | 仅重跑失败 Job | `rerun_failed_job` + `POST .../jobs/{job_id}/rerun` + 前端按钮已落地（提交 7ee7ffb）；无专项回归测试，补齐后转 `DONE` |
+| CI-201 | `DONE` | 仅重跑失败 Job | `rerun_failed_job` 事务内重置 Job/Stage/Pipeline 并重建被连带 skipped/canceled 的下游 Stage 与 Job；前序 Stage 未成功时拒绝；`ci_rerun_tests` 11 项通过 |
 | CI-202 | `TODO` | Step/Job outputs | 依赖 CI-200 |
 | CI-203 | `TODO` | 运行时条件函数 | 当前 `always()`、`failure()` 被显式拒绝 |
 | CI-204 | `TODO` | Service Containers | 依赖 CI-200 |
@@ -393,3 +393,4 @@
 | 2026-10-21 | ISSUE-104 | `TODO → DOING` | Issue/评论 Reaction 已在 68610d8 落地；PR/Review 评论未做 | Claude |
 | 2026-10-21 | CI-201 | `TODO → DOING` | 重跑端点与前端按钮已在 7ee7ffb、eedefde 落地；缺专项回归测试 | Claude |
 | 2026-10-21 | ALIGN-001 | 复核 | 按 CSV 与代码证据回填六行，总完成度 75.4% → 77.7%（`QUEUE-001`、`OPS-501` 台账已为 DONE，但对应矩阵行含 Redis/多数据库/自动化测试范围，保持 PARTIAL 并计部分分） | Claude |
+| 2026-10-21 | CI-201 | `DOING → DONE` | 补 11 项专项测试；测试暴露缺陷：重跑后下游 skipped Stage 不恢复，Pipeline 在下游未运行时被判成功，取消后重跑同理，前序 Stage 未成功时重跑会让 Pipeline 永久 pending；已修复并纳入测试；总完成度 77.7% → 77.9% | Claude |
