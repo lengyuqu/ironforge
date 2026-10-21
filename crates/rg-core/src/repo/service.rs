@@ -1254,7 +1254,9 @@ pub async fn list_forks(
     Ok(repo_ops::list_forks(db, repo.id, offset, limit).await?)
 }
 
-/// Transfer a repository to a new owner.
+/// Transfer a repository to a new owner (see the authorization rules below:
+/// organization admins move org repos; the destination must be the actor's own
+/// account or an organization they belong to).
 pub async fn transfer_repo(
     db: &DatabaseConnection,
     user_id: i64,
@@ -1268,11 +1270,58 @@ pub async fn transfer_repo(
         .await?
         .ok_or_else(|| CoreError::not_found("repository not found"))?;
 
-    if repo.owner_id != user_id {
-        return Err(CoreError::forbidden("only repository owner can transfer"));
+    // Who may move the repository out of where it is now.
+    //
+    // For an organization repository `owner_id` is merely the member who
+    // created it. Authorizing on it let any member who once created a repo take
+    // the organization's code into their own account; it is the organization's
+    // administrators who decide where org repositories live.
+    match repo.org_id {
+        Some(org_id) => {
+            if !crate::org::can_admin_org(db, org_id, user_id).await? {
+                return Err(CoreError::forbidden(
+                    "only organization owners and admins can transfer an organization repository",
+                ));
+            }
+        }
+        None => {
+            if repo.owner_id != user_id {
+                return Err(CoreError::forbidden("only repository owner can transfer"));
+            }
+        }
     }
 
     let (new_owner_id, new_org_id, new_owner_name) = resolve_owner(db, new_owner).await?;
+
+    // Who may move a repository *into* the destination. A transfer lands data
+    // and a name in someone else's namespace, so it needs the destination's
+    // consent; without an accept/decline flow that is approximated by:
+    //  - an organization: the actor must belong to it (the bar for creating a
+    //    repository there);
+    //  - a user: only the actor themself (reclaiming a repo into their own
+    //    namespace). Pushing a repository into another person's account
+    //    unasked is refused.
+    match new_org_id {
+        Some(org_id) => {
+            let org = rg_db::ops::org_ops::get_org(db, org_id)
+                .await?
+                .ok_or_else(|| CoreError::not_found("destination organization not found"))?;
+            let belongs = org.owner_id == user_id
+                || rg_db::ops::org_ops::is_org_member(db, org_id, user_id).await?;
+            if !belongs {
+                return Err(CoreError::forbidden(
+                    "you must be a member of the destination organization to transfer a repository into it",
+                ));
+            }
+        }
+        None => {
+            if new_owner_id != user_id {
+                return Err(CoreError::forbidden(
+                    "a repository can only be transferred to your own account or to an organization you belong to",
+                ));
+            }
+        }
+    }
 
     // The destination namespace is the organization when transferring to one;
     // `new_owner_id` is then merely the org's owner user, whose *personal*
