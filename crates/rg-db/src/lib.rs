@@ -678,6 +678,156 @@ mod soft_delete_tests {
         .id
     }
 
+    async fn scalar(db: &DatabaseConnection, sql: &str) -> i64 {
+        db.query_one(Statement::from_string(DatabaseBackend::Sqlite, sql.to_string()))
+            .await
+            .expect("query")
+            .and_then(|row| row.try_get_by_index::<i64>(0).ok())
+            .unwrap_or(-1)
+    }
+
+    /// Regression for a data-loss bug in `m20261015_000002`: the SQLite rebuild
+    /// ran `PRAGMA foreign_keys = OFF` inside a transaction (a silent no-op), so
+    /// `DROP TABLE repositories` cascaded into every child table and deleted
+    /// stars, labels, releases, secrets, ... on upgrade. It also dropped the
+    /// `repos_fts_*` triggers.
+    ///
+    /// This builds a database at the schema *before* the migration, seeds child
+    /// rows, upgrades, and asserts nothing was lost.
+    #[tokio::test]
+    async fn upgrade_keeps_child_rows_triggers_and_foreign_keys() {
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!("ironforge_upgrade_test_{}.db", std::process::id()));
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{}", path.display(), suffix));
+        }
+        let url = format!("sqlite://{}?mode=rwc", path.display());
+        let db = connect(&url).await.expect("connect");
+
+        // Bring the database to the state just before the rebuild migration.
+        let before = migrations::Migrator::migrations()
+            .iter()
+            .position(|m| m.name() == "m20261015_000001_rename_mirror_plural")
+            .expect("anchor migration")
+            + 1;
+        migrations::Migrator::up(&db, Some(before as u32))
+            .await
+            .expect("migrate to pre-rebuild schema");
+        assert!(
+            scalar(
+                &db,
+                "SELECT COUNT(*) FROM sqlite_master WHERE name = 'uq_repositories_owner_name_live'"
+            )
+            .await
+                == 0,
+            "test must start from the pre-rebuild schema"
+        );
+
+        let owner_id = owner(&db, "upgrade-owner").await;
+        let repo_id = repository(&db, owner_id, "kept").await;
+        for sql in [
+            format!("INSERT INTO repo_stars (repo_id, user_id, created_at) VALUES ({repo_id}, {owner_id}, datetime('now'))"),
+            format!("INSERT INTO labels (repo_id, name, color, created_at, updated_at) VALUES ({repo_id}, 'bug', 'ff0000', datetime('now'), datetime('now'))"),
+        ] {
+            db.execute_unprepared(&sql).await.expect("seed child row");
+        }
+        let triggers_before = scalar(
+            &db,
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND tbl_name = 'repositories'",
+        )
+        .await;
+        assert!(triggers_before >= 3, "expected the repos_fts triggers");
+
+        // Upgrade across the rebuild.
+        migrations::Migrator::up(&db, None).await.expect("upgrade");
+
+        assert_eq!(scalar(&db, "SELECT COUNT(*) FROM repositories").await, 1);
+        assert_eq!(
+            scalar(&db, "SELECT COUNT(*) FROM repo_stars").await,
+            1,
+            "upgrade cascade-deleted repo_stars"
+        );
+        assert_eq!(
+            scalar(&db, "SELECT COUNT(*) FROM labels").await,
+            1,
+            "upgrade cascade-deleted labels"
+        );
+        assert_eq!(
+            scalar(
+                &db,
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND tbl_name = 'repositories'"
+            )
+            .await,
+            triggers_before,
+            "repositories triggers must survive the rebuild"
+        );
+        for index in [
+            "uq_repositories_owner_name_live",
+            "idx_repositories_org_id",
+            "idx_repositories_origin_repo_id",
+        ] {
+            assert_eq!(
+                scalar(
+                    &db,
+                    &format!("SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = '{index}'")
+                )
+                .await,
+                1,
+                "index {index} missing after rebuild"
+            );
+        }
+
+        // The FTS trigger must still follow updates.
+        db.execute_unprepared("UPDATE repositories SET name = 'renamedkept' WHERE id = 1")
+            .await
+            .expect("rename");
+        assert_eq!(
+            scalar(
+                &db,
+                "SELECT COUNT(*) FROM repos_fts WHERE repos_fts MATCH 'renamedkept'"
+            )
+            .await,
+            1,
+            "repos_fts trigger stopped following updates"
+        );
+
+        // Foreign-key enforcement must be back on for every pooled connection,
+        // not just the one the migration used.
+        for _ in 0..8 {
+            assert_eq!(scalar(&db, "PRAGMA foreign_keys").await, 1);
+        }
+
+        // Rolling the three post-anchor migrations back must also keep the
+        // data (the `down` path rebuilds the table too) and restore the full
+        // unique constraint; re-applying must then succeed again.
+        migrations::Migrator::down(&db, Some(3)).await.expect("downgrade");
+        assert_eq!(scalar(&db, "SELECT COUNT(*) FROM repo_stars").await, 1);
+        assert_eq!(scalar(&db, "SELECT COUNT(*) FROM labels").await, 1);
+        assert_eq!(
+            scalar(
+                &db,
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'uq_repositories_owner_name_live'"
+            )
+            .await,
+            0
+        );
+        assert_eq!(
+            scalar(
+                &db,
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND tbl_name = 'repositories'"
+            )
+            .await,
+            triggers_before
+        );
+        migrations::Migrator::up(&db, None).await.expect("re-upgrade");
+        assert_eq!(scalar(&db, "SELECT COUNT(*) FROM repo_stars").await, 1);
+        assert_eq!(scalar(&db, "PRAGMA foreign_keys").await, 1);
+
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{}", path.display(), suffix));
+        }
+    }
+
     #[tokio::test]
     async fn soft_deleted_repository_name_can_be_reused() {
         let dir = std::env::temp_dir();
