@@ -5,6 +5,7 @@ import {
   buildCommitHref,
   buildBlobHref,
   buildEditHref,
+  buildHistoryHref,
   encodeRepoPath,
 } from './repoUrls';
 
@@ -47,6 +48,14 @@ describe('repoUrls', () => {
       expect(buildBlobHref('alice', 'demo', 'dev', 'docs/my file.md')).toBe(
         '/alice/demo/blob/docs/my%20file.md?ref=dev',
       );
+    });
+
+    it('buildHistoryHref carries ref and path, and omits empty ones', () => {
+      expect(buildHistoryHref('alice', 'demo', 'dev', 'docs/my file.md')).toBe(
+        '/alice/demo/commits?ref=dev&path=docs%2Fmy+file.md',
+      );
+      expect(buildHistoryHref('alice', 'demo', '', '')).toBe('/alice/demo/commits');
+      expect(buildHistoryHref('alice', 'demo', 'dev', '')).toBe('/alice/demo/commits?ref=dev');
     });
 
     it('buildEditHref includes sha and ref params', () => {

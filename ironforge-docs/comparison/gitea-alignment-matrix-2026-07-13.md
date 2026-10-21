@@ -24,7 +24,7 @@
 | 领域 | 权重 | 已得分 | 完成度 | 主要扣分项 |
 |---|---:|---:|---:|---|
 | Git 协议 | 12 | 11.25 | 93.8% | 大仓库性能基线 |
-| 仓库管理 | 12 | 8.35 | 69.6% | Push Mirror、upload-archive、模板仓库、Go to file/目录删除/文件历史 |
+| 仓库管理 | 12 | 8.35 | 69.6% | Push Mirror、upload-archive、模板仓库、Go to file/目录删除 |
 | Issue/PR/Wiki | 16 | 14.85 | 92.8% | YAML Issue Form、PR/Review 评论 Reaction、Lock/Pin/Dependency |
 | CI/Actions | 14 | 9.0 | 64.3% | outputs、运行时条件、Service Container、第三方 Action |
 | Package Registry | 11 | 8.2 | 74.5% | 治理、Terraform/Go、Linux 发行版和长尾专用协议 |
@@ -36,7 +36,7 @@
 
 当前统一口径为 **77.9%**（2026-10-21 复核更新，此前为 75.4%）。`GIT-003` 完成真实客户端矩阵，`GIT-004` 完成 shallow/deepen，`GIT-002` 完成 partial clone/filter 后，Git 协议领域达到 93.8%，M0 目标已达到。`CI-200` 已通过 ADR 冻结第三方 Actions 的安全和兼容边界，但 runtime 尚未实现，因此不增加分值。`STORAGE-001` 完成统一 BlobStorage、本地原子 backend 和五类持久 Blob 迁移；`ISSUE-101` 完成 Gitea 兼容 Markdown Issue/PR Template；`ISSUE-103` 完成四类附件的流式上传/下载、权限、配额、Web 与浏览器 E2E。S3/MinIO、迁移/repair、YAML Issue Form 仍未计为完成。
 
-2026-10-21 复核：7 月 14 日之后落地的能力此前未回填到本矩阵，现按代码与测试证据补记——多 Assignee（`ISSUE-105`，+0.4，DONE）、Issue/评论 Reaction（`ISSUE-104`，+0.25，PR/Review 评论仍缺，保持 PARTIAL）、失败 Job 重跑（`CI-201`，+0.5，DONE：补 11 项专项测试，并修复下游 Stage 不会重建导致 Pipeline 误判成功的缺陷）、全实例备份恢复（`OPS-501`，+0.5，仅 SQLite 且无自动化测试，保持 PARTIAL）、持久化后台队列（`QUEUE-001`，+0.5，webhook/邮件/mirror 已入队，无 Redis，保持 PARTIAL）、Blame（`REPO-104`，+0.35，Go to file 与目录删除未做，保持 PARTIAL）。同时发现 `GET /repos/{owner}/{name}/log` 的 `path` 参数被忽略，文件历史不可用，已登记到 `REPO-104` 的后续验收。
+2026-10-21 复核：7 月 14 日之后落地的能力此前未回填到本矩阵，现按代码与测试证据补记——多 Assignee（`ISSUE-105`，+0.4，DONE）、Issue/评论 Reaction（`ISSUE-104`，+0.25，PR/Review 评论仍缺，保持 PARTIAL）、失败 Job 重跑（`CI-201`，+0.5，DONE：补 11 项专项测试，并修复下游 Stage 不会重建导致 Pipeline 误判成功的缺陷）、全实例备份恢复（`OPS-501`，+0.5，仅 SQLite 且无自动化测试，保持 PARTIAL）、持久化后台队列（`QUEUE-001`，+0.5，webhook/邮件/mirror 已入队，无 Redis，保持 PARTIAL）、Blame（`REPO-104`，+0.35，Go to file 与目录删除未做，保持 PARTIAL）。同时发现 `GET /repos/{owner}/{name}/log` 的 `path` 参数被忽略，文件历史不可用；同日已修复（`rg_git::history::commits_touching_path`，与 `git log -- <path>` 对拍），不单独计分，blob 页头已加“历史”入口。
 
 ## 3. 基线结论
 

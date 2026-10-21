@@ -3,12 +3,16 @@
   import { createT, formatDate } from '$lib/i18n';
   import { page } from '$app/stores';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
+  import { buildBlobHref, buildHistoryHref } from '$lib/utils/repoUrls';
 
   const t = createT();
   
   let owner = $derived($page.params.owner!);
   let repo = $derived($page.params.repo!);
-  let branch = $state('main');
+  // Optional filters from the URL: ?ref=<branch|tag|sha>&path=<file or directory>.
+  // Without a ref the server resolves HEAD (the default branch).
+  let refName = $derived($page.url.searchParams.get('ref') || '');
+  let filterPath = $derived($page.url.searchParams.get('path') || '');
   
   let commits = $state<any[]>([]);
   let loading = $state(true);
@@ -20,7 +24,7 @@
     loading = true;
     error = '';
     
-    repos.log(owner, repo, branch)
+    repos.log(owner, repo, refName || undefined, filterPath || undefined)
       .then(r => {
         if (r && r.commits && Array.isArray(r.commits)) {
           commits = r.commits;
@@ -44,7 +48,16 @@
 <div class="page-container">
   <RepoHeader {owner} {repo} activeTab="commits" />
 
-  <h1>{t('repo.tabs.commits')}</h1>
+  {#if filterPath}
+    <h1>{t('repo.commits_path_title', { path: filterPath })}</h1>
+    <p class="filter-links">
+      <a href={buildBlobHref(owner, repo, refName, filterPath)}>{filterPath}</a>
+      <span aria-hidden="true">·</span>
+      <a href={buildHistoryHref(owner, repo, refName, '')}>{t('repo.commits_clear_filter')}</a>
+    </p>
+  {:else}
+    <h1>{t('repo.tabs.commits')}</h1>
+  {/if}
   
   {#if error}
     <div class="error-banner">
@@ -57,7 +70,7 @@
     <p class="text-secondary">{t('common.loading')}</p>
   {:else if commits.length === 0}
     <div class="empty">
-      <p>{t('repo.commits_empty', 'No commits yet.')}</p>
+      <p>{filterPath ? t('repo.commits_path_empty') : t('repo.commits_empty', 'No commits yet.')}</p>
     </div>
   {:else}
     <div class="commits-list">
@@ -84,6 +97,14 @@
   h1 {
     font-size: 24px;
     margin-bottom: 16px;
+  }
+
+  .filter-links {
+    display: flex;
+    gap: 8px;
+    margin: -8px 0 16px;
+    font-size: 13px;
+    color: var(--text-secondary);
   }
 
   .error-banner {

@@ -4,7 +4,7 @@
   // Copy actions are self-contained clipboard operations.
   import { browser } from '$app/environment';
   import { createT } from '$lib/i18n';
-  import { buildBlobHref } from '$lib/utils/repoUrls';
+  import { buildBlobHref, buildHistoryHref } from '$lib/utils/repoUrls';
 
   interface Props {
     owner: string;
@@ -102,6 +102,9 @@
         {viewMode === 'rendered' ? t('repo.blob.raw') : t('repo.blob.rendered')}
       </button>
     {/if}
+    <a href={buildHistoryHref(owner, repo, ref, filePath)} class="btn-outline btn-sm">
+      {t('repo.blob.history')}
+    </a>
     {#if onToggleBlame && isText}
       <button
         type="button"

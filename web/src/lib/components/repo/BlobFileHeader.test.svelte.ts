@@ -128,4 +128,19 @@ describe('BlobFileHeader.svelte', () => {
     render(BlobFileHeader, { ...baseProps, onToggleView: () => {}, onToggleDelete: () => {} });
     expect(screen.queryByText('repo.blob.blame')).toBeNull();
   });
+  it('links to the history of the file at the current ref', () => {
+    render(BlobFileHeader, { ...baseProps, onToggleView: () => {}, onToggleDelete: () => {} });
+    const link = screen.getByText('repo.blob.history').closest('a') as HTMLAnchorElement;
+    expect(link.getAttribute('href')).toBe('/alice/demo/commits?ref=main&path=src%2Fmain.rs');
+  });
+
+  it('offers history for binary files too', () => {
+    render(BlobFileHeader, {
+      ...baseProps,
+      isText: false,
+      onToggleView: () => {},
+      onToggleDelete: () => {},
+    });
+    expect(screen.getByText('repo.blob.history')).toBeInTheDocument();
+  });
 });

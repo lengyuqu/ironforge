@@ -275,7 +275,7 @@
 | REPO-101 | `TODO` | Push Mirror | 已有 Pull Mirror；需新增多目标 Push Mirror |
 | REPO-102 | `TODO` | upload-archive / `git archive --remote` | 现有 HTTP archive API 不等同于该协议 |
 | REPO-103 | `TODO` | Template Repository | 未开始 |
-| REPO-104 | `DOING` | Blame、Go to file、目录删除 | Blame 已完成（`GET /repos/{owner}/{name}/blame/{path}`，gix `blame_file` + 重命名跟踪；`cargo test -p rg-git blame` 6 项与 `git blame --porcelain` 对拍、`blame_tests` 3 项、前端单测）；Go to file、目录删除未做；另 `log` 的 `path` 过滤参数被忽略，文件历史不可用 |
+| REPO-104 | `DOING` | Blame、Go to file、目录删除 | Blame 已完成（`GET /repos/{owner}/{name}/blame/{path}`，gix `blame_file` + 重命名跟踪；`cargo test -p rg-git blame` 6 项与 `git blame --porcelain` 对拍、`blame_tests` 3 项、前端单测）；`log?path=` 文件/目录历史已修复（`rg_git::history`，对拍 7 项 + `log_path_tests` 3 项）；blob 页头“历史”入口与提交列表 `?path=` 已完成；Go to file、目录删除未做 |
 | REPO-105 | `TODO` | 自动生成 Release Notes | 未开始 |
 | REPO-106 | `TODO` | 仓库内 OpenAPI 安全渲染 | 未开始 |
 | ISSUE-101 | `DONE` | Markdown Issue/PR Template | 默认分支发现、API/权限、Issue/PR 预填和桌面/移动浏览器 E2E 通过 |
@@ -394,3 +394,4 @@
 | 2026-10-21 | CI-201 | `TODO → DOING` | 重跑端点与前端按钮已在 7ee7ffb、eedefde 落地；缺专项回归测试 | Claude |
 | 2026-10-21 | ALIGN-001 | 复核 | 按 CSV 与代码证据回填六行，总完成度 75.4% → 77.7%（`QUEUE-001`、`OPS-501` 台账已为 DONE，但对应矩阵行含 Redis/多数据库/自动化测试范围，保持 PARTIAL 并计部分分） | Claude |
 | 2026-10-21 | CI-201 | `DOING → DONE` | 补 11 项专项测试；测试暴露缺陷：重跑后下游 skipped Stage 不恢复，Pipeline 在下游未运行时被判成功，取消后重跑同理，前序 Stage 未成功时重跑会让 Pipeline 永久 pending；已修复并纳入测试；总完成度 77.7% → 77.9% | Claude |
+| 2026-10-21 | REPO-104 | `DOING` | 修复 `GET /log` 的 `path` 参数被忽略：新增 `rg_git::history::commits_touching_path`，按 git 默认历史简化（合并 TREESAME 只跟随该父提交），与 `git log -- <path>` 对拍；不影响评分 | Claude |

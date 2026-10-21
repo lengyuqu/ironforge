@@ -332,6 +332,7 @@
       "copy_link": "Copy link",
       "copied": "Copied",
       "blame": "Blame",
+      "history": "History",
       "blame_hide": "Normal view",
       "blame_loading": "Loading blame...",
       "blame_failed": "Could not load blame: {message}",
@@ -354,6 +355,9 @@
     "no_diff": "No diff available.",
     "recent_commits": "Recent commits",
     "commits_empty": "No commits yet.",
+    "commits_path_title": "History of {path}",
+    "commits_clear_filter": "Show all commits",
+    "commits_path_empty": "No commits changed this path.",
     "empty": {
       "title": "Quick setup",
       "desc": "If you're new here and want to get started quickly, the easiest way is to push an existing repository.",

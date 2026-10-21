@@ -338,6 +338,7 @@
       "copy_link": "复制链接",
       "copied": "已复制",
       "blame": "追溯",
+      "history": "历史",
       "blame_hide": "普通视图",
       "blame_loading": "正在加载追溯信息...",
       "blame_failed": "无法加载追溯信息：{message}",
@@ -359,6 +360,9 @@
     "no_diff": "无差异。",
     "recent_commits": "最近提交",
     "commits_empty": "暂无提交。",
+    "commits_path_title": "{path} 的历史",
+    "commits_clear_filter": "显示全部提交",
+    "commits_path_empty": "没有提交修改过此路径。",
     "lines_count": "{count} 行",
     "file_size": {
       "b": " B",

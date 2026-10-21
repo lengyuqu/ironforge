@@ -364,7 +364,7 @@ pub async fn get_blob(
         ("owner" = String, Path, description = "owner"),
         ("name" = String, Path, description = "name"),
         ("ref" = Option<String>, Query, description = "Git ref (branch/tag/sha, default: HEAD)"),
-        ("path" = Option<String>, Query, description = "File path filter"),
+        ("path" = Option<String>, Query, description = "Only commits that changed this file or directory (like `git log -- <path>`); renames are not followed"),
         ("limit" = Option<i64>, Query, description = "Max number of commits"),
     ),
     responses(
@@ -400,8 +400,12 @@ pub async fn get_log(
     let git_ref = params.r#ref.clone().unwrap_or_else(|| "HEAD".to_string());
     let limit = params.limit.unwrap_or(50).min(100);
     let file_path = params.path.unwrap_or_default();
+    let file_path = file_path.trim_matches('/');
+    if file_path.split('/').any(|c| c == "." || c == ".." || (c.is_empty() && !file_path.is_empty())) {
+        return AppError::bad_request("invalid path").into_response();
+    }
 
-    match get_commit_log(&repo_path, &git_ref, &file_path, limit) {
+    match get_commit_log(&repo_path, &git_ref, file_path, limit) {
         Ok(log) => (StatusCode::OK, Json(serde_json::json!({ "commits": log }))).into_response(),
         Err(e) => {
             tracing::error!(%e, "get_log failed");
@@ -754,79 +758,67 @@ fn get_blob_size(repo_path: &std::path::Path, sha: &str) -> anyhow::Result<i64> 
 fn get_commit_log(
     repo_path: &std::path::Path,
     git_ref: &str,
-    _path: &str,
+    path: &str,
     limit: i64,
 ) -> anyhow::Result<Vec<CommitEntry>> {
     let repo = gix::open(repo_path)
         .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
 
-    let mut entries = Vec::new();
+    let limit = limit.max(0) as usize;
+    let path = path.trim_matches('/');
 
-    // Use rev_walk to traverse commit history
-    let head_id = match repo.rev_parse_single(git_ref) {
-        Ok(id) => id,
-        Err(_) => return Ok(entries), // No commits yet
+    // Commit ids to report, newest first.
+    let ids: Vec<gix::ObjectId> = if path.is_empty() {
+        let head_id = match repo.rev_parse_single(git_ref) {
+            Ok(id) => id,
+            Err(_) => return Ok(Vec::new()), // No commits yet
+        };
+        let Ok(walk) = repo.rev_walk([head_id]).all() else {
+            return Ok(Vec::new());
+        };
+        walk.filter_map(|info| info.ok().map(|i| i.id)).take(limit).collect()
+    } else {
+        match rg_git::history::commits_touching_path(repo_path, git_ref, path, limit) {
+            Ok(ids) => ids,
+            Err(_) => return Ok(Vec::new()), // unknown ref / no commits yet
+        }
     };
 
-    let walk = repo.rev_walk([head_id]);
+    let mut entries = Vec::with_capacity(ids.len());
+    for commit_id in ids {
+        let Ok(object) = repo.find_object(commit_id) else {
+            continue;
+        };
+        let Ok(commit) = object.try_into_commit() else {
+            continue;
+        };
 
-    let mut count = 0;
-    // Call all() to get the iterator
-    if let Ok(walk_iter) = walk.all() {
-        for info in walk_iter {
-            if count >= limit {
-                break;
-            }
+        let message = commit.message_raw().unwrap_or_default().to_string();
+        let first_line = message.lines().next().unwrap_or("").to_string();
 
-            let info = match info {
-                Ok(i) => i,
-                Err(_) => continue,
-            };
+        let author = commit.author().unwrap_or_default();
+        let author_name = String::from_utf8_lossy(author.name).to_string();
+        let author_email = String::from_utf8_lossy(author.email).to_string();
+        // Signature time is "timestamp offset", e.g. "1700000000 +0000".
+        let timestamp = author
+            .time
+            .split_whitespace()
+            .next()
+            .unwrap_or("0")
+            .parse::<i64>()
+            .unwrap_or(0);
+        let author_date = chrono::DateTime::<chrono::Utc>::from_timestamp(timestamp, 0)
+            .map(|dt| dt.to_rfc3339())
+            .unwrap_or_default();
 
-            let commit_id = info.id;
-
-            let object = match repo.find_object(commit_id) {
-                Ok(obj) => obj,
-                Err(_) => continue,
-            };
-
-            let commit = match object.try_into_commit() {
-                Ok(c) => c,
-                Err(_) => continue,
-            };
-
-            // Get commit message
-            let message = commit.message_raw().unwrap_or_default().to_string();
-            let first_line = message.lines().next().unwrap_or("").to_string();
-
-            // Get author info
-            let author = commit.author().unwrap_or_default();
-            let author_name = String::from_utf8_lossy(author.name).to_string();
-            let author_email = String::from_utf8_lossy(author.email).to_string();
-            // Parse author time from the signature string (format: "timestamp offset")
-            // e.g., "1700000000 +0000"
-            let timestamp = author
-                .time
-                .split_whitespace()
-                .next()
-                .unwrap_or("0")
-                .parse::<i64>()
-                .unwrap_or(0);
-            let author_date = chrono::DateTime::<chrono::Utc>::from_timestamp(timestamp, 0)
-                .map(|dt| dt.to_rfc3339())
-                .unwrap_or_default();
-
-            entries.push(CommitEntry {
-                sha: commit_id.to_string(),
-                author_name,
-                author_email,
-                author_date,
-                message: first_line,
-                gpg_signature: None,
-            });
-
-            count += 1;
-        }
+        entries.push(CommitEntry {
+            sha: commit_id.to_string(),
+            author_name,
+            author_email,
+            author_date,
+            message: first_line,
+            gpg_signature: None,
+        });
     }
 
     Ok(entries)

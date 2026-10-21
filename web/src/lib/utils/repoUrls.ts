@@ -30,6 +30,11 @@ export function buildBlobHref(owner: string, repo: string, ref: string, filePath
   return `/${owner}/${repo}/blob/${encodeRepoPath(filePath)}${buildRepoQuery(ref, '')}`;
 }
 
+/** Link to the commit list, optionally limited to the history of a file or directory. */
+export function buildHistoryHref(owner: string, repo: string, ref: string, path: string): string {
+  return `/${owner}/${repo}/commits${buildRepoQuery(ref, path)}`;
+}
+
 /** Link to the in-browser file editor, preserving ref and blob sha. */
 export function buildEditHref(
   owner: string,
