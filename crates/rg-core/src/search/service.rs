@@ -221,17 +221,27 @@ fn build_issue_filter_clauses(filters: &SearchFilters) -> (Vec<String>, Vec<Stri
 /// collaborators, and members of its organization. Read access is org-wide by
 /// design (team mappings restrict write only), so no team check is needed here.
 ///
+/// Soft-deleted repositories are never returned, whoever asks. This is filtered
+/// at query time rather than by pruning the index: the FTS row of a soft-deleted
+/// repository is re-created by the `UPDATE` that soft-deletes it (the update
+/// trigger deletes then re-inserts), and issue/wiki rows of a deleted
+/// repository are not touched by the delete at all, so a public repository's
+/// issues stayed searchable after it was deleted.
+///
 /// `None` means an anonymous caller: only public repositories.
 fn visibility_clause(actor_id: Option<i64>) -> (String, Vec<Value>) {
     match actor_id {
-        None => ("NOT r.is_private".to_string(), Vec::new()),
+        None => (
+            "(r.deleted_at IS NULL AND NOT r.is_private)".to_string(),
+            Vec::new(),
+        ),
         Some(actor_id) => (
-            "(NOT r.is_private \
+            "(r.deleted_at IS NULL AND (NOT r.is_private \
              OR r.owner_id = ? \
              OR EXISTS (SELECT 1 FROM repo_collaborators rc \
                         WHERE rc.repo_id = r.id AND rc.user_id = ?) \
              OR EXISTS (SELECT 1 FROM organization_members om \
-                        WHERE om.org_id = r.org_id AND om.user_id = ?))"
+                        WHERE om.org_id = r.org_id AND om.user_id = ?)))"
                 .to_string(),
             vec![
                 Value::from(actor_id),
@@ -392,8 +402,10 @@ async fn search_issues(
     common_clauses.extend(issue_clauses);
     common_params.extend(issue_params);
 
-    // Never return issues of a private repository the actor cannot read.
+    // Never return issues of a private repository the actor cannot read, nor
+    // soft-deleted issues.
     let (visibility_clause, visibility_params) = visibility_clause(actor_id);
+    common_clauses.push("i.deleted_at IS NULL".to_string());
     common_clauses.push(visibility_clause);
     common_params.extend(visibility_params);
     let all_joins = format!("{}\n{}", common_joins.join("\n"), issue_joins.join("\n"));
@@ -456,6 +468,7 @@ async fn search_issues(
         SELECT COUNT(DISTINCT i.id)
         FROM issues_fts
         JOIN issues i ON i.id = issues_fts.rowid
+        JOIN repositories r ON r.id = i.repo_id
         {}
         WHERE {}
         "#,
