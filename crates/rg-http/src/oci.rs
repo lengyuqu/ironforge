@@ -1063,15 +1063,12 @@ async fn find_or_create_oci_repo(
     repo: &str,
     owner_id: Option<i64>,
 ) -> anyhow::Result<rg_db::entities::oci_repository::Model> {
-    let ironforge_repo = if let Some(id) = owner_id.filter(|&id| id > 0) {
-        rg_db::ops::repo_ops::find_by_owner_and_name(db, id, repo)
-            .await?
-            .ok_or_else(|| anyhow::anyhow!("repository {}/{} not found", owner, repo))?
-    } else {
-        rg_core::repo::service::find_repo_by_owner_name(db, owner, repo)
-            .await?
-            .ok_or_else(|| anyhow::anyhow!("repository {}/{} not found", owner, repo))?
-    };
+    // Resolve by the namespace in the URL. `owner_id` is the *authenticated
+    // user*, not the repository's owner: looking the repo up by it found the
+    // pusher's own repo of the same name (or none at all for an org repo).
+    let ironforge_repo = rg_core::repo::service::find_repo_by_owner_name(db, owner, repo)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("repository {}/{} not found", owner, repo))?;
 
     let namespace = format!("{}/{}", owner, repo);
     rg_db::ops::oci_ops::find_or_create_repo(

@@ -384,6 +384,27 @@ pub async fn create_repo(
     .await
 }
 
+/// Whether a live repository already uses `name` in the namespace a create is
+/// about to write to.
+///
+/// A repository's namespace is its organization when it has one, otherwise its
+/// owning user. `owner_id` of an organization repository is only the member who
+/// created it, so checking `(owner_id, name)` for an org repo both missed
+/// duplicates created by a different member and blocked a user from having a
+/// personal repo and an org repo of the same name.
+async fn repo_name_taken(
+    db: &DatabaseConnection,
+    owner_id: i64,
+    org_id: Option<i64>,
+    name: &str,
+) -> CoreResult<bool> {
+    let existing = match org_id {
+        Some(org_id) => repo_ops::find_by_org_and_name(db, org_id, name).await?,
+        None => repo_ops::find_by_owner_and_name(db, owner_id, name).await?,
+    };
+    Ok(existing.is_some())
+}
+
 /// Create a new repository with full template/auto-init support.
 pub async fn create_repo_with_opts(
     db: &DatabaseConnection,
@@ -398,11 +419,8 @@ pub async fn create_repo_with_opts(
     crate::validate_repo_name(name)
         .with_context(|| format!("invalid repository name: {}", name))?;
 
-    // Check name conflict (per owner)
-    if repo_ops::find_by_owner_and_name(db, owner_id, name)
-        .await?
-        .is_some()
-    {
+    // Check name conflict (per owner and per organization)
+    if repo_name_taken(db, owner_id, opts.org_id, name).await? {
         return Err(CoreError::conflict(format!(
             "repository '{}' already exists",
             name
@@ -422,8 +440,32 @@ pub async fn create_repo_with_opts(
         owner_user.username
     };
 
+    // Serialize directory creation/quarantine/cleanup against other lifecycle
+    // operations: the leftover check and the compensation below would otherwise
+    // act on a directory a concurrent create has just made.
+    let _lifecycle = lifecycle_lock().lock().await;
+
     // Create bare git repo on disk using gix
     let git_path = repo_root.join(format!("{}/{}.git", path_prefix, name));
+
+    // Re-check under the lock: a live repository may have been created since
+    // the early check above.
+    if repo_name_taken(db, owner_id, opts.org_id, name).await? {
+        return Err(CoreError::conflict(format!(
+            "repository '{}' already exists",
+            name
+        )));
+    }
+    quarantine_leftover_dir(
+        db,
+        &git_path,
+        repo_root,
+        &path_prefix,
+        owner_id,
+        opts.org_id,
+        name,
+    )
+    .await?;
     std::fs::create_dir_all(&git_path)
         .with_context(|| format!("failed to create directory: {:?}", git_path))?;
 
@@ -755,8 +797,125 @@ pub async fn get_watch(
 }
 
 /// Soft-delete a repository.
-pub async fn delete_repo(db: &DatabaseConnection, repo_id: i64) -> CoreResult<()> {
-    rg_db::ops::repo_ops::soft_delete(db, repo_id).await?;
+pub async fn delete_repo(
+    db: &DatabaseConnection,
+    repo_root: &std::path::Path,
+    repo_id: i64,
+) -> CoreResult<()> {
+    delete_repo_with_retention(db, repo_root, repo_id, deleted_repo_retention()).await
+}
+
+/// How long the git data of a deleted repository is kept before being purged.
+///
+/// `IRONFORGE_DELETED_REPO_RETENTION_DAYS` (default 30). `0` removes the data
+/// as part of the delete itself.
+pub fn deleted_repo_retention() -> chrono::Duration {
+    const DEFAULT_DAYS: i64 = 30;
+    let days = std::env::var("IRONFORGE_DELETED_REPO_RETENTION_DAYS")
+        .ok()
+        .and_then(|value| value.trim().parse::<i64>().ok())
+        .filter(|days| *days >= 0)
+        .unwrap_or(DEFAULT_DAYS);
+    chrono::Duration::days(days)
+}
+
+/// Process-wide guard for operations that move or create repository
+/// directories. Without it a create racing another create (or a delete) can
+/// quarantine or remove a directory the other side has just made.
+fn lifecycle_lock() -> &'static tokio::sync::Mutex<()> {
+    static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
+}
+
+/// Directory a deleted repository's data is moved to.
+///
+/// It lives next to the live path (same filesystem, so the move is an atomic
+/// rename) and cannot collide with a live repository: live paths always end in
+/// `.git`, tombstones end in `.git.deleted-<id>`, and git requests for them
+/// resolve no repository row.
+pub fn tombstone_path(
+    repo_root: &std::path::Path,
+    namespace: &str,
+    name: &str,
+    repo_id: i64,
+) -> std::path::PathBuf {
+    repo_root.join(format!("{namespace}/{name}.git.deleted-{repo_id}"))
+}
+
+/// Namespace (user or organization name) a repository's directory lives under.
+async fn repo_namespace(
+    db: &DatabaseConnection,
+    repo: &rg_db::entities::repository::Model,
+) -> CoreResult<String> {
+    if let Some(org_id) = repo.org_id {
+        return Ok(rg_db::ops::org_ops::get_org(db, org_id)
+            .await?
+            .ok_or_else(|| CoreError::not_found("repository organization not found"))?
+            .name);
+    }
+    Ok(user_ops::find_by_id(db, repo.owner_id)
+        .await?
+        .ok_or_else(|| CoreError::not_found("repository owner not found"))?
+        .username)
+}
+
+/// Soft-delete a repository **and** free its on-disk path.
+///
+/// Soft-deleting only the row used to leave `<ns>/<name>.git` in place, so the
+/// name could never be created again (`gix init` refuses an existing
+/// directory) and, had it been reused, the new repository would have inherited
+/// the old one's history. The directory is therefore moved to a tombstone
+/// first; the row is soft-deleted second, and the move is undone if that
+/// fails, so a live row always has its directory.
+///
+/// The tombstone is kept for `retention` (recoverable by hand) and then removed
+/// by [`purge_deleted_repositories`]. A zero retention removes it right away.
+pub async fn delete_repo_with_retention(
+    db: &DatabaseConnection,
+    repo_root: &std::path::Path,
+    repo_id: i64,
+    retention: chrono::Duration,
+) -> CoreResult<()> {
+    let _guard = lifecycle_lock().lock().await;
+
+    let repo = repo_ops::find_by_id(db, repo_id)
+        .await?
+        .ok_or_else(|| CoreError::not_found("repository not found"))?;
+    let namespace = repo_namespace(db, &repo).await?;
+    let live = repo_root.join(format!("{namespace}/{}.git", repo.name));
+    let tombstone = tombstone_path(repo_root, &namespace, &repo.name, repo.id);
+
+    let moved = if live.exists() {
+        if tombstone.exists() {
+            return Err(CoreError::internal(format!(
+                "tombstone path already exists: {}",
+                tombstone.display()
+            )));
+        }
+        tokio::fs::rename(&live, &tombstone).await.map_err(|error| {
+            CoreError::internal(format!(
+                "failed to move repository {} aside: {error}",
+                live.display()
+            ))
+        })?;
+        true
+    } else {
+        false
+    };
+
+    if let Err(error) = rg_db::ops::repo_ops::soft_delete(db, repo_id).await {
+        if moved {
+            if let Err(rollback) = tokio::fs::rename(&tombstone, &live).await {
+                tracing::error!(
+                    from = %tombstone.display(),
+                    to = %live.display(),
+                    error = %rollback,
+                    "failed to restore repository directory after a failed delete; manual cleanup required"
+                );
+            }
+        }
+        return Err(error.into());
+    }
 
     // Manually remove from the metadata FTS table as a defensive fallback.
     let backend = db.get_database_backend();
@@ -770,9 +929,114 @@ pub async fn delete_repo(db: &DatabaseConnection, repo_id: i64) -> CoreResult<()
     {
         tracing::warn!(repo_id = repo_id, error = %e, "failed to remove repo from repos_fts index");
     }
+    // The code index is keyed by repo_id and is useless once the data is gone.
+    // (Issue and wiki rows are excluded at query time — see `search::service`.)
+    if let Err(e) = db
+        .execute(sea_orm::Statement::from_sql_and_values(
+            backend,
+            rg_db::prepare_sql(backend, "DELETE FROM code_fts WHERE repo_id = ?"),
+            [repo_id.into()],
+        ))
+        .await
+    {
+        tracing::warn!(repo_id = repo_id, error = %e, "failed to remove repo from code_fts index");
+    }
 
     invalidate_perm_cache_repo(repo_id);
+
+    if moved && retention <= chrono::Duration::zero() {
+        remove_tombstone(&tombstone).await;
+    }
     Ok(())
+}
+
+async fn remove_tombstone(path: &std::path::Path) {
+    let path = path.to_path_buf();
+    let removed = {
+        let path = path.clone();
+        tokio::task::spawn_blocking(move || std::fs::remove_dir_all(path)).await
+    };
+    match removed {
+        Ok(Ok(())) => tracing::info!(path = %path.display(), "purged deleted repository data"),
+        Ok(Err(error)) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Ok(Err(error)) => tracing::error!(
+            path = %path.display(), %error,
+            "failed to remove deleted repository data"
+        ),
+        Err(error) => tracing::error!(
+            path = %path.display(), %error,
+            "purge task failed"
+        ),
+    }
+}
+
+/// Remove the git data of repositories deleted longer than `retention` ago.
+///
+/// The rows stay (child tables reference them); only the on-disk tombstone is
+/// removed, and a row whose tombstone is already gone is skipped, so the pass
+/// is idempotent. Returns how many directories were removed.
+pub async fn purge_deleted_repositories(
+    db: &DatabaseConnection,
+    repo_root: &std::path::Path,
+    retention: chrono::Duration,
+) -> CoreResult<usize> {
+    let cutoff = Utc::now() - retention;
+    let mut purged = 0;
+    for repo in repo_ops::list_deleted_before(db, cutoff).await? {
+        let namespace = match repo_namespace(db, &repo).await {
+            Ok(namespace) => namespace,
+            // Owner/org itself is gone: the tombstone path can no longer be
+            // derived, so leave it for manual cleanup rather than guess.
+            Err(_) => continue,
+        };
+        let tombstone = tombstone_path(repo_root, &namespace, &repo.name, repo.id);
+        if tombstone.exists() {
+            remove_tombstone(&tombstone).await;
+            purged += 1;
+        }
+    }
+    Ok(purged)
+}
+
+/// A directory sits at a path about to be used by a new repository although no
+/// live repository owns it: the leftover of a `delete_repo` from before
+/// tombstones existed. Move it aside instead of deleting it, so no data is lost
+/// and the new repository cannot inherit its contents.
+async fn quarantine_leftover_dir(
+    db: &DatabaseConnection,
+    git_path: &std::path::Path,
+    repo_root: &std::path::Path,
+    namespace: &str,
+    owner_id: i64,
+    org_id: Option<i64>,
+    name: &str,
+) -> CoreResult<()> {
+    if !git_path.exists() {
+        return Ok(());
+    }
+    let destination = match repo_ops::find_latest_deleted(db, owner_id, org_id, name).await? {
+        Some(deleted) => tombstone_path(repo_root, namespace, name, deleted.id),
+        None => repo_root.join(format!(
+            "{namespace}/{name}.git.orphan-{}",
+            Utc::now().timestamp()
+        )),
+    };
+    if destination.exists() {
+        return Err(CoreError::conflict(format!(
+            "repository path is occupied by leftover data: {}",
+            git_path.display()
+        )));
+    }
+    tracing::warn!(
+        from = %git_path.display(),
+        to = %destination.display(),
+        "moving leftover repository directory aside before creating a new repository"
+    );
+    tokio::fs::rename(git_path, &destination).await.map_err(|error| {
+        CoreError::internal(format!(
+            "failed to move leftover repository directory aside: {error}"
+        ))
+    })
 }
 
 /// Find repo by owner/name (skip soft-deleted).
@@ -818,8 +1082,35 @@ pub async fn fork_repo(
         )));
     }
 
+    // Same serialization as create/delete/transfer: the leftover check and the
+    // cleanup below must not act on a directory another lifecycle operation has
+    // just created. (Held for the whole fork, so a very large fork delays other
+    // repository create/delete calls on this instance.)
+    let _lifecycle = lifecycle_lock().lock().await;
+    if repo_ops::find_by_owner_and_name(db, user_id, repo_name)
+        .await?
+        .is_some()
+    {
+        return Err(CoreError::conflict(format!(
+            "repository '{}' already exists in your account",
+            repo_name
+        )));
+    }
+
     let source_path = repo_root.join(format!("{}/{}.git", owner, repo_name));
     let target_path = repo_root.join(format!("{}/{}.git", forker.username, repo_name));
+    // A directory left by a delete from before tombstones existed would make
+    // `gix::create` refuse the fork; move it aside (never delete it).
+    quarantine_leftover_dir(
+        db,
+        &target_path,
+        repo_root,
+        &forker.username,
+        user_id,
+        None,
+        repo_name,
+    )
+    .await?;
     std::fs::create_dir_all(
         target_path
             .parent()
@@ -927,7 +1218,23 @@ pub async fn fork_repo(
         ..Default::default()
     };
 
-    let forked = repo_ops::create(db, model).await?;
+    // Like `create_repo`: if the row cannot be recorded, do not leave a
+    // directory behind that no repository owns.
+    let forked = match repo_ops::create(db, model).await {
+        Ok(forked) => forked,
+        Err(error) => {
+            if let Err(cleanup) = std::fs::remove_dir_all(&target_path) {
+                tracing::error!(
+                    path = %target_path.display(),
+                    error = %cleanup,
+                    "failed to remove fork directory after DB insert failure; manual cleanup required"
+                );
+            }
+            return Err(CoreError::internal(format!(
+                "failed to record fork in the database (disk cleaned up): {error:#}"
+            )));
+        }
+    };
     repo_ops::update_forks_count(db, source_repo.id).await?;
 
     Ok(forked)
@@ -956,6 +1263,7 @@ pub async fn transfer_repo(
     new_owner: &str,
     repo_root: &std::path::Path,
 ) -> CoreResult<rg_db::entities::repository::Model> {
+    let _lifecycle = lifecycle_lock().lock().await;
     let repo = find_repo_by_owner_name(db, owner, repo_name)
         .await?
         .ok_or_else(|| CoreError::not_found("repository not found"))?;
@@ -966,10 +1274,10 @@ pub async fn transfer_repo(
 
     let (new_owner_id, new_org_id, new_owner_name) = resolve_owner(db, new_owner).await?;
 
-    if repo_ops::find_by_owner_and_name(db, new_owner_id, repo_name)
-        .await?
-        .is_some()
-    {
+    // The destination namespace is the organization when transferring to one;
+    // `new_owner_id` is then merely the org's owner user, whose *personal*
+    // repositories are irrelevant (the old check looked at those).
+    if repo_name_taken(db, new_owner_id, new_org_id, repo_name).await? {
         return Err(CoreError::conflict(format!(
             "repository '{}' already exists at destination",
             repo_name
@@ -978,6 +1286,18 @@ pub async fn transfer_repo(
 
     let old_path = repo_root.join(format!("{}/{}.git", owner, repo_name));
     let new_path = repo_root.join(format!("{}/{}.git", new_owner_name, repo_name));
+    // Leftover data of an earlier delete must not block (or be overwritten by)
+    // the move; it is set aside, never removed.
+    quarantine_leftover_dir(
+        db,
+        &new_path,
+        repo_root,
+        &new_owner_name,
+        new_owner_id,
+        new_org_id,
+        repo_name,
+    )
+    .await?;
     std::fs::create_dir_all(
         new_path
             .parent()
@@ -1010,7 +1330,7 @@ pub async fn transfer_repo(
     // Ownership (and thus who can read/write) changed — drop cached decisions.
     invalidate_perm_cache_repo(repo.id);
 
-    repo_ops::find_by_owner_and_name(db, new_owner_id, repo_name)
+    repo_ops::find_by_id(db, repo.id)
         .await?
         .ok_or_else(|| CoreError::not_found("repository not found after transfer"))
 }

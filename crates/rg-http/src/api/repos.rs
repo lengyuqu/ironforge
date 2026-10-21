@@ -624,7 +624,7 @@ pub async fn delete_repo_handler(
         }
     };
 
-    match rg_core::repo::service::delete_repo(&state.db, repo.id).await {
+    match rg_core::repo::service::delete_repo(&state.db, &state.repo_root, repo.id).await {
         Ok(()) => {
             // Record audit log
             let resource_name = format!("{}/{}", owner, name);

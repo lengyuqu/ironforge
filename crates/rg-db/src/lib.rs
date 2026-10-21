@@ -678,6 +678,172 @@ mod soft_delete_tests {
         .id
     }
 
+    async fn org_repository(
+        db: &DatabaseConnection,
+        owner_id: i64,
+        org_id: i64,
+        name: &str,
+    ) -> Result<i64, sea_orm::DbErr> {
+        crate::entities::repository::ActiveModel {
+            owner_id: sea_orm::Set(owner_id),
+            org_id: sea_orm::Set(Some(org_id)),
+            name: sea_orm::Set(name.to_string()),
+            default_branch: sea_orm::Set("main".to_string()),
+            is_private: sea_orm::Set(false),
+            stars_count: sea_orm::Set(0),
+            forks_count: sea_orm::Set(0),
+            created_at: sea_orm::Set(chrono::Utc::now()),
+            updated_at: sea_orm::Set(chrono::Utc::now()),
+            ..Default::default()
+        }
+        .insert(db)
+        .await
+        .map(|model| model.id)
+    }
+
+    /// Uniqueness is per namespace: a user's personal repositories, and each
+    /// organization's repositories. `owner_id` of an org repo is only whoever
+    /// created it, so it must play no part in the org's uniqueness.
+    #[tokio::test]
+    async fn repository_names_are_unique_per_namespace() {
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!("ironforge_namespace_test_{}.db", std::process::id()));
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{}", path.display(), suffix));
+        }
+        let db = connect(&format!("sqlite://{}?mode=rwc", path.display()))
+            .await
+            .expect("connect");
+        run_migrations(&db).await.expect("run migrations");
+
+        let alice = owner(&db, "ns-alice").await;
+        let bob = owner(&db, "ns-bob").await;
+
+        // Personal and org repos of one name coexist for the same user, and the
+        // same name may exist in several orgs.
+        repository(&db, alice, "shared").await;
+        org_repository(&db, alice, 1, "shared").await.expect("org 1");
+        org_repository(&db, alice, 2, "shared").await.expect("org 2");
+
+        // A different member must not create a duplicate inside org 1 ...
+        assert!(
+            org_repository(&db, bob, 1, "shared").await.is_err(),
+            "two members must not both own org 1's 'shared'"
+        );
+        // ... nor a second personal repo of the same name.
+        let duplicate_personal = crate::entities::repository::ActiveModel {
+            owner_id: sea_orm::Set(alice),
+            name: sea_orm::Set("shared".to_string()),
+            default_branch: sea_orm::Set("main".to_string()),
+            is_private: sea_orm::Set(false),
+            stars_count: sea_orm::Set(0),
+            forks_count: sea_orm::Set(0),
+            created_at: sea_orm::Set(chrono::Utc::now()),
+            updated_at: sea_orm::Set(chrono::Utc::now()),
+            ..Default::default()
+        };
+        assert!(duplicate_personal.insert(&db).await.is_err());
+
+        // Soft-deleting frees the name in that namespace only.
+        let org_one = crate::ops::repo_ops::find_by_org_and_name(&db, 1, "shared")
+            .await
+            .unwrap()
+            .expect("org repo")
+            .id;
+        crate::ops::repo_ops::soft_delete(&db, org_one).await.unwrap();
+        org_repository(&db, bob, 1, "shared")
+            .await
+            .expect("name is reusable after a soft delete");
+
+        // The personal lookup never returns an org repo, and vice versa.
+        let personal = crate::ops::repo_ops::find_by_owner_and_name(&db, alice, "shared")
+            .await
+            .unwrap()
+            .expect("personal");
+        assert_eq!(personal.org_id, None);
+        let org = crate::ops::repo_ops::find_by_org_and_name(&db, 1, "shared")
+            .await
+            .unwrap()
+            .expect("org");
+        assert_eq!(org.org_id, Some(1));
+        assert_eq!(org.owner_id, bob);
+        org_repository(&db, alice, 3, "only-in-org").await.unwrap();
+        assert!(
+            crate::ops::repo_ops::find_by_owner_and_name(&db, alice, "only-in-org")
+                .await
+                .unwrap()
+                .is_none(),
+            "an org repo must not resolve in its creator's personal namespace"
+        );
+        let (personal_list, total) =
+            crate::ops::repo_ops::list_by_owner_paginated(&db, alice, 0, 50).await.unwrap();
+        assert_eq!(total, 1);
+        assert!(personal_list.iter().all(|r| r.org_id.is_none()));
+
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{}", path.display(), suffix));
+        }
+    }
+
+    /// Databases that already hold duplicate org repos (created by different
+    /// members before this fix) must stop the migration with a readable list,
+    /// not have a repository silently dropped or the index half-created.
+    #[tokio::test]
+    async fn migration_refuses_to_run_over_existing_duplicates() {
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!("ironforge_dup_migration_test_{}.db", std::process::id()));
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{}", path.display(), suffix));
+        }
+        let db = connect(&format!("sqlite://{}?mode=rwc", path.display()))
+            .await
+            .expect("connect");
+
+        let before = migrations::Migrator::migrations()
+            .iter()
+            .position(|m| m.name() == "m20261015_000004_hash_runner_tokens")
+            .expect("anchor migration")
+            + 1;
+        migrations::Migrator::up(&db, Some(before as u32)).await.expect("pre-schema");
+
+        let alice = owner(&db, "dup-alice").await;
+        let bob = owner(&db, "dup-bob").await;
+        org_repository(&db, alice, 7, "twin").await.expect("first");
+        // Allowed by the old (owner_id, name) key.
+        let second = org_repository(&db, bob, 7, "twin").await.expect("second");
+
+        let error = migrations::Migrator::up(&db, None).await.expect_err("must refuse");
+        let message = error.to_string();
+        assert!(message.contains("duplicate live repositories"), "{message}");
+        assert!(message.contains("'twin'"), "{message}");
+        assert_eq!(
+            scalar(
+                &db,
+                "SELECT COUNT(*) FROM sqlite_master WHERE name = 'uq_repositories_org_name_live'"
+            )
+            .await,
+            0,
+            "no index may be half-created"
+        );
+        assert_eq!(scalar(&db, "SELECT COUNT(*) FROM repositories").await, 2, "nothing dropped");
+
+        // The operator resolves it; the migration then goes through.
+        crate::ops::repo_ops::soft_delete(&db, second).await.unwrap();
+        migrations::Migrator::up(&db, None).await.expect("migrates once resolved");
+        assert_eq!(
+            scalar(
+                &db,
+                "SELECT COUNT(*) FROM sqlite_master WHERE name = 'uq_repositories_org_name_live'"
+            )
+            .await,
+            1
+        );
+
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{}", path.display(), suffix));
+        }
+    }
+
     async fn scalar(db: &DatabaseConnection, sql: &str) -> i64 {
         db.query_one(Statement::from_string(DatabaseBackend::Sqlite, sql.to_string()))
             .await
@@ -716,7 +882,7 @@ mod soft_delete_tests {
         assert!(
             scalar(
                 &db,
-                "SELECT COUNT(*) FROM sqlite_master WHERE name = 'uq_repositories_owner_name_live'"
+                "SELECT COUNT(*) FROM sqlite_master WHERE name LIKE 'uq_repositories_%'"
             )
             .await
                 == 0,
@@ -762,7 +928,8 @@ mod soft_delete_tests {
             "repositories triggers must survive the rebuild"
         );
         for index in [
-            "uq_repositories_owner_name_live",
+            "uq_repositories_personal_name_live",
+            "uq_repositories_org_name_live",
             "idx_repositories_org_id",
             "idx_repositories_origin_repo_id",
         ] {
@@ -797,16 +964,16 @@ mod soft_delete_tests {
             assert_eq!(scalar(&db, "PRAGMA foreign_keys").await, 1);
         }
 
-        // Rolling the three post-anchor migrations back must also keep the
+        // Rolling the four post-anchor migrations back must also keep the
         // data (the `down` path rebuilds the table too) and restore the full
         // unique constraint; re-applying must then succeed again.
-        migrations::Migrator::down(&db, Some(3)).await.expect("downgrade");
+        migrations::Migrator::down(&db, Some(4)).await.expect("downgrade");
         assert_eq!(scalar(&db, "SELECT COUNT(*) FROM repo_stars").await, 1);
         assert_eq!(scalar(&db, "SELECT COUNT(*) FROM labels").await, 1);
         assert_eq!(
             scalar(
                 &db,
-                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'uq_repositories_owner_name_live'"
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name LIKE 'uq_repositories_%'"
             )
             .await,
             0
@@ -842,12 +1009,16 @@ mod soft_delete_tests {
         let index = db
             .query_one(Statement::from_string(
                 DatabaseBackend::Sqlite,
-                "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'uq_repositories_owner_name_live'",
+                "SELECT group_concat(name) FROM (SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE 'uq_repositories_%' ORDER BY name)",
             ))
             .await
             .expect("query index")
             .and_then(|row| row.try_get_by_index::<String>(0).ok());
-        assert_eq!(index.as_deref(), Some("uq_repositories_owner_name_live"));
+        assert_eq!(
+            index.as_deref(),
+            Some("uq_repositories_org_name_live,uq_repositories_personal_name_live"),
+            "uniqueness must be split per namespace"
+        );
 
         // The rebuild must preserve every column the entity declares, and the
         // `ON DELETE CASCADE` clause that the copy would otherwise drop.

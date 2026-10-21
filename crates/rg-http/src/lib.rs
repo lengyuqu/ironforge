@@ -2925,6 +2925,30 @@ fn spawn_background_job_worker(state: AppState) {
         })
     });
 
+    // Periodic: remove the git data of repositories whose retention expired.
+    let purge_db = state.db.clone();
+    let purge_repo_root = state.repo_root.clone();
+    let purge_task: PeriodicTask = Arc::new(move || {
+        let db = purge_db.clone();
+        let repo_root = purge_repo_root.clone();
+        Box::pin(async move {
+            match rg_core::repo::service::purge_deleted_repositories(
+                &db,
+                &repo_root,
+                rg_core::repo::service::deleted_repo_retention(),
+            )
+            .await
+            {
+                Ok(0) => Ok(()),
+                Ok(count) => {
+                    tracing::info!(count, "purged expired deleted repositories");
+                    Ok(())
+                }
+                Err(e) => Err(anyhow::anyhow!("{e:#}")),
+            }
+        })
+    });
+
     let worker = BackgroundJobWorker::new(BackgroundJobQueue::new(worker_db))
         .register_handler(TASK_EMAIL_SEND, email_handler)
         .register_handler(TASK_WEBHOOK_DELIVER, webhook_handler)
@@ -2932,6 +2956,11 @@ fn spawn_background_job_worker(state: AppState) {
             "mirror.sync_due",
             std::time::Duration::from_secs(60),
             mirror_task,
+        )
+        .register_periodic(
+            "repo.purge_deleted",
+            std::time::Duration::from_secs(3600),
+            purge_task,
         );
     // Dropping the JoinHandles keeps the tasks running (tokio semantics).
     drop(worker.spawn());

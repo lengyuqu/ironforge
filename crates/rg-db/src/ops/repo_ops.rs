@@ -17,7 +17,14 @@ pub async fn find_by_id(db: &DatabaseConnection, id: i64) -> Result<Option<Repo>
         .context("db: find repo by id")
 }
 
-/// Find a repo by (owner_id, name). Excludes soft-deleted repos.
+/// Find a *personal* repo by (owner_id, name). Excludes soft-deleted repos.
+///
+/// "Personal" means `org_id IS NULL`. For an organization repository
+/// `owner_id` is merely the member who created it, so matching on `owner_id`
+/// alone made `/repos/<creator>/<name>` resolve to the organization's
+/// repository (and made one user's personal and org repos collide). Use
+/// [`find_by_org_and_name`] for the organization namespace, or
+/// `repo::service::find_repo_by_owner_name` to resolve either from a URL.
 pub async fn find_by_owner_and_name(
     db: &DatabaseConnection,
     owner_id: i64,
@@ -25,6 +32,7 @@ pub async fn find_by_owner_and_name(
 ) -> Result<Option<Repo>> {
     RepoEntity::find()
         .filter(repository::Column::OwnerId.eq(owner_id))
+        .filter(repository::Column::OrgId.is_null())
         .filter(repository::Column::Name.eq(name))
         .filter(repository::Column::DeletedAt.is_null())
         .one(db)
@@ -32,10 +40,50 @@ pub async fn find_by_owner_and_name(
         .context("db: find repo by owner and name")
 }
 
+/// Newest soft-deleted repository with this name in the given namespace.
+///
+/// `org_id = None` means a personal repository. Used to label a directory that
+/// a pre-tombstone `delete_repo` left behind under its live path.
+pub async fn find_latest_deleted(
+    db: &DatabaseConnection,
+    owner_id: i64,
+    org_id: Option<i64>,
+    name: &str,
+) -> Result<Option<Repo>> {
+    let mut query = RepoEntity::find()
+        .filter(repository::Column::OwnerId.eq(owner_id))
+        .filter(repository::Column::Name.eq(name))
+        .filter(repository::Column::DeletedAt.is_not_null());
+    query = match org_id {
+        Some(org_id) => query.filter(repository::Column::OrgId.eq(org_id)),
+        None => query.filter(repository::Column::OrgId.is_null()),
+    };
+    query
+        .order_by_desc(repository::Column::Id)
+        .one(db)
+        .await
+        .context("db: find latest deleted repo")
+}
+
+/// Soft-deleted repositories deleted at or before `cutoff`, oldest first.
+pub async fn list_deleted_before(
+    db: &DatabaseConnection,
+    cutoff: chrono::DateTime<Utc>,
+) -> Result<Vec<Repo>> {
+    RepoEntity::find()
+        .filter(repository::Column::DeletedAt.is_not_null())
+        .filter(repository::Column::DeletedAt.lte(cutoff))
+        .order_by_asc(repository::Column::DeletedAt)
+        .all(db)
+        .await
+        .context("db: list deleted repos")
+}
+
 /// List all non-deleted repos owned by a user.
 pub async fn list_by_owner(db: &DatabaseConnection, owner_id: i64) -> Result<Vec<Repo>> {
     RepoEntity::find()
         .filter(repository::Column::OwnerId.eq(owner_id))
+        .filter(repository::Column::OrgId.is_null())
         .filter(repository::Column::DeletedAt.is_null())
         .order_by_asc(repository::Column::Name)
         .all(db)
@@ -43,7 +91,7 @@ pub async fn list_by_owner(db: &DatabaseConnection, owner_id: i64) -> Result<Vec
         .context("db: list repos by owner")
 }
 
-/// Paginated list of non-deleted repos owned by a user.
+/// Paginated list of non-deleted *personal* repos owned by a user.
 pub async fn list_by_owner_paginated(
     db: &DatabaseConnection,
     owner_id: i64,
@@ -52,6 +100,7 @@ pub async fn list_by_owner_paginated(
 ) -> Result<(Vec<Repo>, i64)> {
     let base = RepoEntity::find()
         .filter(repository::Column::OwnerId.eq(owner_id))
+        .filter(repository::Column::OrgId.is_null())
         .filter(repository::Column::DeletedAt.is_null())
         .order_by_asc(repository::Column::Name);
 
@@ -158,6 +207,7 @@ pub async fn list_public_by_owner_paginated(
 ) -> Result<(Vec<Repo>, i64)> {
     let base = RepoEntity::find()
         .filter(repository::Column::OwnerId.eq(owner_id))
+        .filter(repository::Column::OrgId.is_null())
         .filter(repository::Column::IsPrivate.eq(false))
         .filter(repository::Column::DeletedAt.is_null())
         .order_by_asc(repository::Column::Name);

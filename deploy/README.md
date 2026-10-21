@@ -292,6 +292,41 @@ metrics::recorder::my_event();
         PagerDuty                 Slack                  Email
 ```
 
+## 🗑️ Deleted repositories
+
+Deleting a repository soft-deletes its row and **moves** its git data from
+`<repo_root>/<owner>/<name>.git` to `<owner>/<name>.git.deleted-<id>` in the same
+directory. The name is immediately reusable and a new repository starts empty.
+
+- The tombstone is kept for `IRONFORGE_DELETED_REPO_RETENTION_DAYS` days
+  (default `30`) and then removed by an hourly purge task. `0` removes the data
+  as part of the delete itself.
+- To recover a repository inside the retention window, move the tombstone back to
+  `<name>.git` and clear `deleted_at` on its row.
+- After upgrading, directories left behind by the old delete (which kept
+  `<name>.git` in place) are moved aside to a tombstone the first time that name
+  is created again; nothing is deleted automatically.
+- LFS objects, attachments and package/OCI blobs of a deleted repository are not
+  touched by this.
+
+## 🏷️ Repository namespaces
+
+A repository lives in exactly one namespace: its **organization** if it has one,
+otherwise its owning **user**. Names are unique per namespace, so `alice/tools`
+and `acme/tools` can coexist, and an organization's repositories are reachable
+only under the organization (`/repos/acme/tools`), never under the member who
+created them.
+
+- Migration `m20261022_000001` enforces this with two partial unique indexes
+  (SQLite, PostgreSQL). If a database already contains two live repositories with
+  the same name in one organization — possible only if two members created it —
+  the migration **stops and lists them**; soft-delete or rename the extras and
+  start the server again. Nothing is dropped automatically.
+- MySQL has no partial indexes: there the application check is the only
+  enforcement.
+- Links that used `/repos/<creator>/<org-repo>` stop working; use the
+  organization name.
+
 ## 📚 References
 
 - [Prometheus docs](https://prometheus.io/docs/)

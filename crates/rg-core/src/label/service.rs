@@ -6,7 +6,7 @@ use sea_orm::{ActiveValue::Set, DatabaseConnection};
 
 use rg_db::entities::label::{ActiveModel as LabelActiveModel, Model as Label};
 use rg_db::entities::repository;
-use rg_db::ops::{issue_label_ops, label_ops, repo_ops, user_ops};
+use rg_db::ops::{issue_label_ops, label_ops};
 
 /// List all labels for a repository.
 pub async fn list_labels(
@@ -129,10 +129,11 @@ async fn resolve_repo(
     owner: &str,
     repo_name: &str,
 ) -> Result<repository::Model> {
-    let user = user_ops::find_by_username(db, owner)
-        .await?
-        .context("owner not found")?;
-    repo_ops::find_by_owner_and_name(db, user.id, repo_name)
+    // Resolve through the shared helper so organization repositories
+    // (`acme/widget`) work, not only personal ones: this used to look the owner
+    // up as a *user*, which made every org URL fail with "owner not found" and
+    // left the creator's personal URL as the only way in.
+    crate::repo::service::find_repo_by_owner_name(db, owner, repo_name)
         .await?
         .context("repository not found")
 }

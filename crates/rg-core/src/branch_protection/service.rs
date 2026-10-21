@@ -6,7 +6,7 @@ use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
 
 use rg_db::entities::protected_branch::{self, Model as ProtectedBranch};
 use rg_db::entities::pull_request;
-use rg_db::ops::{pipeline_ops, pr_review_ops, protected_branch_ops, repo_ops};
+use rg_db::ops::{pipeline_ops, pr_review_ops, protected_branch_ops};
 
 /// Create a branch protection rule.
 #[allow(clippy::too_many_arguments)]
@@ -536,10 +536,11 @@ async fn resolve_repo(
     owner: &str,
     repo_name: &str,
 ) -> Result<rg_db::entities::repository::Model> {
-    let user = rg_db::ops::user_ops::find_by_username(db, owner)
-        .await?
-        .context("owner not found")?;
-    repo_ops::find_by_owner_and_name(db, user.id, repo_name)
+    // Resolve through the shared helper so organization repositories
+    // (`acme/widget`) work, not only personal ones: this used to look the owner
+    // up as a *user*, which made every org URL fail with "owner not found" and
+    // left the creator's personal URL as the only way in.
+    crate::repo::service::find_repo_by_owner_name(db, owner, repo_name)
         .await?
         .context("repository not found")
 }

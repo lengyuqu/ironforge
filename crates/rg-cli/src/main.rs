@@ -1571,14 +1571,8 @@ async fn main() -> anyhow::Result<()> {
             );
             let db = rg_db::connect(&db_url).await?;
 
-            // Find owner by username
-            let owner = rg_db::ops::user_ops::find_by_username(&db, owner_username)
-                .await
-                .context("Failed to find owner")?
-                .ok_or_else(|| anyhow::anyhow!("User not found: {}", owner_username))?;
-
-            // Find repository by owner_id and name
-            let repo = rg_db::ops::repo_ops::find_by_owner_and_name(&db, owner.id, repo_name)
+            // Resolve `<owner>/<repo>` where owner is a user or an organization.
+            let repo = rg_core::repo::service::find_repo_by_owner_name(&db, owner_username, repo_name)
                 .await
                 .context("Failed to find repository")?
                 .ok_or_else(|| {
