@@ -17,6 +17,7 @@ pub mod oci;
 pub mod openapi;
 pub mod pagination;
 pub mod rate_limit;
+pub mod redact;
 pub mod body_reader;
 pub mod security;
 pub mod ws;
@@ -389,7 +390,20 @@ fn create_router(state: AppState, rate_limiter: rate_limit::RateLimiter) -> Rout
 ///   let git_routes = Router::new()...with_state(git_state);  // different type
 ///   let api_v1 = Router::new()...with_state(api_state);     // different type
 ///   Router::new().nest("/git", git_routes).nest("/api/v1", api_v1)  // ERROR
+/// Tell the error-response scrubber which server paths must never be echoed.
+fn register_sensitive_paths(state: &AppState) {
+    redact::register_server_path(&state.repo_root);
+    if let Ok(cwd) = std::env::current_dir() {
+        redact::register_server_path(&cwd);
+    }
+    if let Some(home) = std::env::var_os("HOME") {
+        redact::register_server_path(std::path::Path::new(&home));
+    }
+    redact::register_server_path(&std::env::temp_dir());
+}
+
 fn build_router(state: AppState, rate_limiter: rate_limit::RateLimiter) -> Router {
+    register_sensitive_paths(&state);
     let (api_v1, git_routes) = build_routes(&state);
     let v2_routes = build_v2_routes(&state);
     let docs_routes = build_docs_routes(&state);
@@ -1399,6 +1413,7 @@ fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
 
 /// Build the test router (no rate limiter, no static file serving).
 fn build_test_router(state: AppState) -> Router {
+    register_sensitive_paths(&state);
     let (api_v1, git_routes) = build_routes(&state);
     let v2_routes = build_v2_routes(&state);
     let docs_routes = build_docs_routes(&state);

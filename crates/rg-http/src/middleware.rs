@@ -88,14 +88,73 @@ pub async fn request_id_middleware(mut request: Request, next: Next) -> Response
         response.headers_mut().insert(X_REQUEST_ID.clone(), val);
     }
 
-    // Inject request_id into JSON error response bodies
-    if (response.status().is_client_error() || response.status().is_server_error())
-        && is_json_response(&response)
-    {
-        return inject_request_id(response, &request_id).await;
+    // Scrub server paths from every error body, then (for JSON) add the
+    // request id. Done here, once, because error text is produced in ~100
+    // handlers plus OCI/git responses that bypass `AppError`.
+    if response.status().is_client_error() || response.status().is_server_error() {
+        return scrub_error_response(response, &request_id).await;
     }
 
     response
+}
+
+/// Largest error body that is buffered for scrubbing. Real error bodies are a
+/// line or two; anything bigger (or of unknown length) is left untouched rather
+/// than buffered.
+const MAX_SCRUBBED_BODY: u64 = 1024 * 1024;
+
+fn is_textual_response(response: &Response) -> bool {
+    response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map(|ct| ct.starts_with("text/") || ct.starts_with("application/json"))
+        .unwrap_or(false)
+}
+
+/// Redact server filesystem paths from a 4xx/5xx text or JSON body, and add the
+/// request id to JSON error bodies.
+async fn scrub_error_response(response: Response, request_id: &str) -> Response {
+    use axum::body::HttpBody;
+
+    if !is_textual_response(&response) {
+        return response;
+    }
+    let bounded = response
+        .body()
+        .size_hint()
+        .upper()
+        .is_some_and(|upper| upper <= MAX_SCRUBBED_BODY);
+    if !bounded {
+        return if is_json_response(&response) {
+            inject_request_id(response, request_id).await
+        } else {
+            response
+        };
+    }
+
+    let (mut parts, body) = response.into_parts();
+    let bytes = match to_bytes(body, MAX_SCRUBBED_BODY as usize).await {
+        Ok(bytes) => bytes,
+        Err(_) => return Response::from_parts(parts, Body::empty()),
+    };
+    let scrubbed: Vec<u8> = match std::str::from_utf8(&bytes) {
+        Ok(text) => match crate::redact::redact_server_paths(text) {
+            std::borrow::Cow::Borrowed(_) => bytes.to_vec(),
+            std::borrow::Cow::Owned(redacted) => redacted.into_bytes(),
+        },
+        Err(_) => bytes.to_vec(),
+    };
+    parts.headers.insert(
+        header::CONTENT_LENGTH,
+        HeaderValue::from_str(&scrubbed.len().to_string()).unwrap_or_else(|_| HeaderValue::from(0)),
+    );
+    let response = Response::from_parts(parts, Body::from(scrubbed));
+    if is_json_response(&response) {
+        inject_request_id(response, request_id).await
+    } else {
+        response
+    }
 }
 
 fn is_json_response(response: &Response) -> bool {

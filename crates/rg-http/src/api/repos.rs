@@ -238,7 +238,7 @@ pub async fn create_repo(
 
             (StatusCode::CREATED, Json(serde_json::json!(repo))).into_response()
         }
-        Err(e) => AppError::bad_request(e.to_string()).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -716,7 +716,7 @@ pub async fn fork_repo_handler(
 
             (StatusCode::ACCEPTED, Json(serde_json::json!(repo))).into_response()
         }
-        Err(e) => AppError::bad_request(e.to_string()).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -832,7 +832,7 @@ pub async fn transfer_repo_handler(
 
             (StatusCode::OK, Json(serde_json::json!(repo))).into_response()
         }
-        Err(e) => AppError::bad_request(e.to_string()).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
