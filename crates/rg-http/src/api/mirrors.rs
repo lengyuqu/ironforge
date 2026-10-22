@@ -64,8 +64,9 @@ pub struct UpdateMirrorRequest {
     request_body = CreateMirrorRequest,
     responses(
         (status = 201, description = "Mirror created", body = serde_json::Value),
-        (status = 400, description = "Bad request", body = serde_json::Value),
+        (status = 400, description = "Invalid or disallowed remote URL", body = serde_json::Value),
         (status = 401, description = "Unauthorized", body = serde_json::Value),
+        (status = 409, description = "A mirror already exists for this repository", body = serde_json::Value),
     ),
 )]
 pub async fn create_mirror(
@@ -87,14 +88,14 @@ pub async fn create_mirror(
     {
         Ok(Some(r)) => r,
         Ok(None) => return AppError::not_found("repository not found").into_response(),
-        Err(e) => return AppError::internal(e).into_response(),
+        Err(e) => return AppError::from(e).into_response(),
     };
 
     // Check write permission
     match rg_core::repo::service::can_write_repo(&state.db, &repo, Some(user_id)).await {
         Ok(true) => {}
         Ok(false) => return AppError::forbidden("no write permission").into_response(),
-        Err(e) => return AppError::internal(e).into_response(),
+        Err(e) => return AppError::from(e).into_response(),
     }
 
     match rg_core::mirror::service::create_mirror(
@@ -108,7 +109,7 @@ pub async fn create_mirror(
     .await
     {
         Ok(mirror) => (StatusCode::CREATED, Json(serde_json::json!(mirror))).into_response(),
-        Err(e) => AppError::bad_request(e).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -134,13 +135,13 @@ pub async fn get_mirror(
     {
         Ok(Some(r)) => r,
         Ok(None) => return AppError::not_found("repository not found").into_response(),
-        Err(e) => return AppError::internal(e).into_response(),
+        Err(e) => return AppError::from(e).into_response(),
     };
 
     match rg_core::mirror::service::get_mirror(&state.db, repo.id).await {
         Ok(Some(mirror)) => (StatusCode::OK, Json(serde_json::json!(mirror))).into_response(),
         Ok(None) => AppError::not_found("no mirror configured for this repository").into_response(),
-        Err(e) => AppError::internal(e).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -156,7 +157,9 @@ pub async fn get_mirror(
     request_body = UpdateMirrorRequest,
     responses(
         (status = 200, description = "Updated", body = serde_json::Value),
+        (status = 400, description = "Invalid or disallowed remote URL", body = serde_json::Value),
         (status = 401, description = "Unauthorized", body = serde_json::Value),
+        (status = 404, description = "No mirror configured", body = serde_json::Value),
     ),
 )]
 pub async fn update_mirror(
@@ -178,13 +181,13 @@ pub async fn update_mirror(
     {
         Ok(Some(r)) => r,
         Ok(None) => return AppError::not_found("repository not found").into_response(),
-        Err(e) => return AppError::internal(e).into_response(),
+        Err(e) => return AppError::from(e).into_response(),
     };
 
     match rg_core::repo::service::can_write_repo(&state.db, &repo, Some(user_id)).await {
         Ok(true) => {}
         Ok(false) => return AppError::forbidden("no write permission").into_response(),
-        Err(e) => return AppError::internal(e).into_response(),
+        Err(e) => return AppError::from(e).into_response(),
     }
 
     match rg_core::mirror::service::update_mirror(
@@ -199,7 +202,7 @@ pub async fn update_mirror(
     .await
     {
         Ok(mirror) => (StatusCode::OK, Json(serde_json::json!(mirror))).into_response(),
-        Err(e) => AppError::bad_request(e).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -215,6 +218,7 @@ pub async fn update_mirror(
     responses(
         (status = 204, description = "Deleted"),
         (status = 401, description = "Unauthorized", body = serde_json::Value),
+        (status = 404, description = "No mirror configured", body = serde_json::Value),
     ),
 )]
 pub async fn delete_mirror(
@@ -235,18 +239,18 @@ pub async fn delete_mirror(
     {
         Ok(Some(r)) => r,
         Ok(None) => return AppError::not_found("repository not found").into_response(),
-        Err(e) => return AppError::internal(e).into_response(),
+        Err(e) => return AppError::from(e).into_response(),
     };
 
     match rg_core::repo::service::can_write_repo(&state.db, &repo, Some(user_id)).await {
         Ok(true) => {}
         Ok(false) => return AppError::forbidden("no write permission").into_response(),
-        Err(e) => return AppError::internal(e).into_response(),
+        Err(e) => return AppError::from(e).into_response(),
     }
 
     match rg_core::mirror::service::delete_mirror(&state.db, repo.id).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(e) => AppError::internal(e).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -264,6 +268,7 @@ pub async fn delete_mirror(
     responses(
         (status = 200, description = "Sync triggered", body = serde_json::Value),
         (status = 401, description = "Unauthorized", body = serde_json::Value),
+        (status = 404, description = "No mirror configured", body = serde_json::Value),
     ),
 )]
 pub async fn trigger_mirror_sync(
@@ -284,13 +289,13 @@ pub async fn trigger_mirror_sync(
     {
         Ok(Some(r)) => r,
         Ok(None) => return AppError::not_found("repository not found").into_response(),
-        Err(e) => return AppError::internal(e).into_response(),
+        Err(e) => return AppError::from(e).into_response(),
     };
 
     match rg_core::repo::service::can_write_repo(&state.db, &repo, Some(user_id)).await {
         Ok(true) => {}
         Ok(false) => return AppError::forbidden("no write permission").into_response(),
-        Err(e) => return AppError::internal(e).into_response(),
+        Err(e) => return AppError::from(e).into_response(),
     }
 
     match rg_core::mirror::service::trigger_sync(&state.db, repo.id, &state.repo_root).await {
@@ -299,6 +304,6 @@ pub async fn trigger_mirror_sync(
             Json(serde_json::json!({"status": "sync_triggered"})),
         )
             .into_response(),
-        Err(e) => AppError::internal(e).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }

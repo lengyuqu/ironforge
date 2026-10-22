@@ -67,7 +67,7 @@ pub async fn upload_artifact(
             return AppError::not_found("job not found").into_response();
         }
         Err(e) => {
-            return AppError::internal(e.to_string()).into_response();
+            return AppError::from(e).into_response();
         }
     };
 
@@ -81,7 +81,7 @@ pub async fn upload_artifact(
     };
     let policy = match rg_db::ops::ci_retention_ops::get_policy(&state.db, repo_id).await {
         Ok(policy) => policy,
-        Err(error) => return AppError::internal(error).into_response(),
+        Err(error) => return AppError::from(error).into_response(),
     };
 
     let upload = match parse_artifact_upload(&state, job_id, &headers, &body).await {
@@ -113,7 +113,7 @@ pub async fn upload_artifact(
             if let Ok(key) = rg_core::blob_storage::BlobKey::new(&upload.storage_path) {
                 let _ = state.blob_storage.delete(&key).await;
             }
-            AppError::internal(e.to_string()).into_response()
+            AppError::from(e).into_response()
         }
     }
 }
@@ -159,7 +159,7 @@ pub async fn list_pipeline_artifacts(
                 .collect();
             (StatusCode::OK, Json(resp)).into_response()
         }
-        Err(e) => AppError::internal(e.to_string()).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -210,20 +210,20 @@ async fn require_artifact_write(
     let artifact = require_artifact_read(state, headers, artifact_id).await?;
     let job = rg_db::ops::pipeline_ops::get_job(&state.db, artifact.job_id)
         .await
-        .map_err(AppError::internal)?
+        .map_err(AppError::from)?
         .ok_or_else(|| AppError::not_found("job not found"))?;
     let repo_id = repo_id_for_job(state, &job).await?;
     let repo = rg_db::entities::repository::Entity::find_by_id(repo_id)
         .one(&state.db)
         .await
-        .map_err(AppError::internal)?
+        .map_err(AppError::from)?
         .ok_or_else(|| AppError::not_found("repository not found"))?;
     let actor_id = extract_user_id(headers, &state.jwt_secret)
         .ok_or_else(|| AppError::unauthorized("authentication required"))?;
     match rg_core::repo::service::can_write_repo(&state.db, &repo, Some(actor_id)).await {
         Ok(true) => Ok(artifact),
         Ok(false) => Err(AppError::forbidden("write access denied")),
-        Err(error) => Err(AppError::internal(error)),
+        Err(error) => Err(AppError::from(error)),
     }
 }
 
@@ -303,7 +303,7 @@ pub async fn delete_artifact(
     match rg_db::ops::artifact_ops::delete_by_id(&state.db, artifact_id).await {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => AppError::not_found("artifact not found").into_response(),
-        Err(e) => AppError::internal(e.to_string()).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -492,11 +492,11 @@ async fn require_pipeline_read(
 ) -> Result<rg_db::entities::pipeline::Model, AppError> {
     let repo = rg_core::repo::service::find_repo_by_owner_name(&state.db, owner, name)
         .await
-        .map_err(AppError::internal)?
+        .map_err(AppError::from)?
         .ok_or_else(|| AppError::not_found("repository not found"))?;
     let pipeline = rg_db::ops::pipeline_ops::get_pipeline(&state.db, pipeline_id)
         .await
-        .map_err(AppError::internal)?
+        .map_err(AppError::from)?
         .ok_or_else(|| AppError::not_found("pipeline not found"))?;
     if pipeline.repo_id != repo.id {
         return Err(AppError::not_found("pipeline not found"));
@@ -512,7 +512,7 @@ async fn require_artifact_read(
 ) -> Result<rg_db::entities::artifact::Model, AppError> {
     let artifact = rg_db::ops::artifact_ops::get_by_id(&state.db, artifact_id)
         .await
-        .map_err(AppError::internal)?
+        .map_err(AppError::from)?
         .ok_or_else(|| AppError::not_found("artifact not found"))?;
     if artifact
         .expires_at
@@ -522,20 +522,20 @@ async fn require_artifact_read(
     }
     let job = rg_db::ops::pipeline_ops::get_job(&state.db, artifact.job_id)
         .await
-        .map_err(AppError::internal)?
+        .map_err(AppError::from)?
         .ok_or_else(|| AppError::not_found("job not found"))?;
     let stage = rg_db::ops::pipeline_ops::get_stage_by_id(&state.db, job.stage_id)
         .await
-        .map_err(AppError::internal)?
+        .map_err(AppError::from)?
         .ok_or_else(|| AppError::not_found("stage not found"))?;
     let pipeline = rg_db::ops::pipeline_ops::get_pipeline(&state.db, stage.pipeline_id)
         .await
-        .map_err(AppError::internal)?
+        .map_err(AppError::from)?
         .ok_or_else(|| AppError::not_found("pipeline not found"))?;
     let repo = rg_db::entities::repository::Entity::find_by_id(pipeline.repo_id)
         .one(&state.db)
         .await
-        .map_err(AppError::internal)?
+        .map_err(AppError::from)?
         .ok_or_else(|| AppError::not_found("repository not found"))?;
     require_repo_read(state, headers, &repo).await?;
     Ok(artifact)
@@ -553,7 +553,7 @@ async fn require_repo_read(
             Err(AppError::unauthorized("authentication required"))
         }
         Ok(false) => Err(AppError::forbidden("access denied")),
-        Err(e) => Err(AppError::internal(e)),
+        Err(e) => Err(AppError::from(e)),
     }
 }
 
@@ -563,11 +563,11 @@ async fn repo_id_for_job(
 ) -> Result<i64, AppError> {
     let stage = rg_db::ops::pipeline_ops::get_stage_by_id(&state.db, job.stage_id)
         .await
-        .map_err(AppError::internal)?
+        .map_err(AppError::from)?
         .ok_or_else(|| AppError::not_found("stage not found"))?;
     let pipeline = rg_db::ops::pipeline_ops::get_pipeline(&state.db, stage.pipeline_id)
         .await
-        .map_err(AppError::internal)?
+        .map_err(AppError::from)?
         .ok_or_else(|| AppError::not_found("pipeline not found"))?;
     Ok(pipeline.repo_id)
 }

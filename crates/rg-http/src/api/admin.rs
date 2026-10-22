@@ -110,7 +110,7 @@ pub async fn list_users(
             let resp = PaginatedResponse::new(paginated.users, &params, paginated.total as u64);
             (StatusCode::OK, Json(resp)).into_response()
         }
-        Err(e) => AppError::internal(e.to_string()).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -138,7 +138,7 @@ pub async fn get_user(
     match rg_core::user::service::get_user_by_id(&state.db, user_id).await {
         Ok(Some(user)) => (StatusCode::OK, Json(serde_json::json!(user))).into_response(),
         Ok(None) => AppError::not_found("user not found").into_response(),
-        Err(e) => AppError::internal(e.to_string()).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -154,6 +154,7 @@ pub async fn get_user(
     responses(
         (status = 200, description = "Updated", body = serde_json::Value),
         (status = 401, description = "Unauthorized", body = serde_json::Value),
+        (status = 404, description = "User not found", body = serde_json::Value),
     ),
 )]
 pub async fn update_user(
@@ -213,7 +214,7 @@ pub async fn update_user(
             .await;
             (StatusCode::OK, Json(serde_json::json!(user))).into_response()
         }
-        Err(e) => AppError::bad_request(e.to_string()).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -241,7 +242,7 @@ pub async fn unlock_user(
     let target = match rg_db::ops::user_ops::find_by_id(&state.db, user_id).await {
         Ok(Some(user)) => user,
         Ok(None) => return AppError::not_found("user not found").into_response(),
-        Err(error) => return AppError::internal(error).into_response(),
+        Err(error) => return AppError::from(error).into_response(),
     };
     let actor_username = rg_db::ops::user_ops::find_by_id(&state.db, current_id)
         .await
@@ -269,7 +270,7 @@ pub async fn unlock_user(
             let response: rg_core::user::service::UserInfo = updated.into();
             (StatusCode::OK, Json(serde_json::json!(response))).into_response()
         }
-        Err(error) => AppError::internal(error).into_response(),
+        Err(error) => AppError::from(error).into_response(),
     }
 }
 
@@ -285,6 +286,7 @@ pub async fn unlock_user(
         (status = 200, description = "Deleted", body = serde_json::Value),
         (status = 204, description = "No content"),
         (status = 401, description = "Unauthorized", body = serde_json::Value),
+        (status = 404, description = "User not found", body = serde_json::Value),
     ),
 )]
 pub async fn delete_user(
@@ -316,7 +318,7 @@ pub async fn delete_user(
             .await;
             (StatusCode::OK, Json(serde_json::json!({"deleted": true}))).into_response()
         }
-        Err(e) => AppError::internal(e.to_string()).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -347,7 +349,7 @@ pub async fn list_orgs(
             let page = PaginatedResponse::new(resp, &params, total as u64);
             (StatusCode::OK, Json(page)).into_response()
         }
-        Err(e) => AppError::internal(e.to_string()).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -377,7 +379,7 @@ pub async fn get_org(
             (StatusCode::OK, Json(serde_json::json!(org_response(&org)))).into_response()
         }
         Ok(None) => AppError::not_found("organization not found").into_response(),
-        Err(e) => AppError::internal(e.to_string()).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -405,7 +407,11 @@ pub async fn delete_org(
         None => return AppError::forbidden("admin required").into_response(),
     };
     match rg_core::org::get_org_by_name(&state.db, &name).await {
-        Ok(Some(org)) => match rg_core::org::delete_org(&state.db, org.id, org.id).await {
+        // An instance admin may delete any organization; the service only lets
+        // the owner do so, so act on the owner's behalf. (This used to pass the
+        // org id as the requesting user id, which only worked when the two ids
+        // happened to coincide and otherwise surfaced as a 500.)
+        Ok(Some(org)) => match rg_core::org::delete_org(&state.db, org.id, org.owner_id).await {
             Ok(()) => {
                 let details = serde_json::json!({"org_name": org.name});
                 record_audit(
@@ -422,10 +428,10 @@ pub async fn delete_org(
                 .await;
                 (StatusCode::OK, Json(serde_json::json!({"deleted": true}))).into_response()
             }
-            Err(e) => AppError::internal(e.to_string()).into_response(),
+            Err(e) => AppError::from(e).into_response(),
         },
         Ok(None) => AppError::not_found("organization not found").into_response(),
-        Err(e) => AppError::internal(e.to_string()).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -453,7 +459,7 @@ pub async fn list_sso_providers(
             let list: Vec<_> = providers.iter().map(sso_provider_response).collect();
             (StatusCode::OK, Json(serde_json::json!(list))).into_response()
         }
-        Err(e) => AppError::internal(e.to_string()).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -479,7 +485,7 @@ pub async fn get_sso_provider(
     match rg_db::ops::sso_provider_ops::find_by_id(&state.db, id).await {
         Ok(Some(p)) => (StatusCode::OK, Json(sso_provider_response(&p))).into_response(),
         Ok(None) => AppError::not_found("SSO provider not found").into_response(),
-        Err(e) => AppError::internal(e.to_string()).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -556,7 +562,9 @@ fn validate_ldap_provider_request(
     request_body(content = serde_json::Value),
     responses(
         (status = 201, description = "Created"),
+        (status = 400, description = "Invalid provider configuration"),
         (status = 401, description = "Unauthorized"),
+        (status = 409, description = "A provider with this slug already exists"),
     ),
 )]
 pub async fn create_sso_provider(
@@ -587,7 +595,7 @@ pub async fn create_sso_provider(
         .transpose()
     {
         Ok(secret) => secret,
-        Err(error) => return AppError::internal(error).into_response(),
+        Err(error) => return AppError::from(error).into_response(),
     };
     let ldap_password_enc = match body
         .ldap_bind_password
@@ -597,7 +605,7 @@ pub async fn create_sso_provider(
         .transpose()
     {
         Ok(secret) => secret,
-        Err(error) => return AppError::internal(error).into_response(),
+        Err(error) => return AppError::from(error).into_response(),
     };
 
     match rg_db::ops::sso_provider_ops::upsert(
@@ -624,7 +632,7 @@ pub async fn create_sso_provider(
         Ok(provider) => {
             (StatusCode::CREATED, Json(sso_provider_response(&provider))).into_response()
         }
-        Err(e) => AppError::bad_request(e.to_string()).into_response(),
+        Err(e) => sso_write_error(e).into_response(),
     }
 }
 
@@ -659,7 +667,7 @@ pub async fn update_sso_provider(
     let existing_provider = match rg_db::ops::sso_provider_ops::find_by_id(&state.db, id).await {
         Ok(Some(provider)) => provider,
         Ok(None) => return AppError::not_found("SSO provider not found").into_response(),
-        Err(e) => return AppError::internal(e.to_string()).into_response(),
+        Err(e) => return AppError::from(e).into_response(),
     };
     if let Err(error) =
         validate_ldap_provider_request(&body, existing_provider.ldap_bind_password_enc.is_some())
@@ -676,7 +684,7 @@ pub async fn update_sso_provider(
         .transpose()
     {
         Ok(secret) => secret.or(existing_provider.client_secret_enc),
-        Err(error) => return AppError::internal(error).into_response(),
+        Err(error) => return AppError::from(error).into_response(),
     };
     let ldap_password_enc = match body
         .ldap_bind_password
@@ -686,7 +694,7 @@ pub async fn update_sso_provider(
         .transpose()
     {
         Ok(secret) => secret.or(existing_provider.ldap_bind_password_enc),
-        Err(error) => return AppError::internal(error).into_response(),
+        Err(error) => return AppError::from(error).into_response(),
     };
 
     match rg_db::ops::sso_provider_ops::upsert(
@@ -711,7 +719,7 @@ pub async fn update_sso_provider(
     .await
     {
         Ok(provider) => (StatusCode::OK, Json(sso_provider_response(&provider))).into_response(),
-        Err(e) => AppError::bad_request(e.to_string()).into_response(),
+        Err(e) => sso_write_error(e).into_response(),
     }
 }
 
@@ -738,7 +746,7 @@ pub async fn test_sso_provider_connection(
     let provider = match rg_db::ops::sso_provider_ops::find_by_id(&state.db, id).await {
         Ok(Some(provider)) => provider,
         Ok(None) => return AppError::not_found("SSO provider not found").into_response(),
-        Err(error) => return AppError::internal(error).into_response(),
+        Err(error) => return AppError::from(error).into_response(),
     };
     if provider.provider_type != "ldap" {
         return AppError::bad_request("connection testing is only supported for LDAP providers")
@@ -781,7 +789,7 @@ pub async fn delete_sso_provider(
     let provider = match rg_db::ops::sso_provider_ops::find_by_id(&state.db, id).await {
         Ok(Some(provider)) => provider,
         Ok(None) => return AppError::not_found("SSO provider not found").into_response(),
-        Err(error) => return AppError::internal(error).into_response(),
+        Err(error) => return AppError::from(error).into_response(),
     };
     let linked_identities = if provider.provider_type == "ldap" {
         rg_db::ops::user_ops::count_by_ldap_provider(&state.db, id).await
@@ -798,15 +806,28 @@ pub async fn delete_sso_provider(
             )
             .into_response();
         }
-        Err(error) => return AppError::internal(error).into_response(),
+        Err(error) => return AppError::from(error).into_response(),
     }
     match rg_db::ops::sso_provider_ops::delete_by_id(&state.db, id).await {
         Ok(()) => (StatusCode::OK, Json(serde_json::json!({"deleted": true}))).into_response(),
-        Err(e) => AppError::bad_request(e.to_string()).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
 // ── SSO Helpers ──────────────────────────────────────────────────
+
+/// Classify a failed provider insert/update: the unique slug index is the one
+/// failure the caller can fix; anything else is a storage problem and must not
+/// echo driver text to the client.
+fn sso_write_error(error: sea_orm::DbErr) -> AppError {
+    if matches!(
+        error.sql_err(),
+        Some(sea_orm::SqlErr::UniqueConstraintViolation(_))
+    ) {
+        return AppError::conflict("an SSO provider with this slug already exists");
+    }
+    AppError::from(error)
+}
 
 fn sso_provider_response(p: &rg_db::entities::sso_provider::Model) -> serde_json::Value {
     serde_json::json!({

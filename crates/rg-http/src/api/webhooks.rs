@@ -44,7 +44,7 @@ pub async fn list_webhooks(
             }
             (StatusCode::OK, Json(serde_json::json!(hooks))).into_response()
         }
-        Err(e) => AppError::internal(e).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -87,7 +87,7 @@ pub async fn create_webhook(
 
     match rg_core::webhook::service::create_webhook(&state.db, repo_model.id, &body).await {
         Ok(hook) => (StatusCode::CREATED, Json(serde_json::json!(hook))).into_response(),
-        Err(e) => AppError::bad_request(e).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -162,7 +162,7 @@ pub async fn update_webhook(
 
     match rg_core::webhook::service::update_webhook(&state.db, &existing, &body).await {
         Ok(hook) => (StatusCode::OK, Json(serde_json::json!(hook))).into_response(),
-        Err(e) => AppError::bad_request(e).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -199,7 +199,7 @@ pub async fn delete_webhook(
 
     match rg_core::webhook::service::delete_webhook(&state.db, id).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(e) => AppError::bad_request(e).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -235,7 +235,7 @@ pub async fn list_deliveries(
 
     match rg_core::webhook::service::list_deliveries(&state.db, id).await {
         Ok(deliveries) => (StatusCode::OK, Json(serde_json::json!(deliveries))).into_response(),
-        Err(e) => AppError::internal(e).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -276,7 +276,7 @@ pub async fn redeliver(
     match rg_core::webhook::service::get_delivery(&state.db, delivery_id).await {
         Ok(Some(delivery)) if delivery.webhook_id == hook.id => {}
         Ok(Some(_)) | Ok(None) => return AppError::not_found("delivery not found").into_response(),
-        Err(e) => return AppError::internal(e).into_response(),
+        Err(e) => return AppError::from(e).into_response(),
     }
 
     match rg_core::webhook::service::redeliver(&state.db, delivery_id).await {
@@ -290,7 +290,7 @@ pub async fn redeliver(
         }
         Err(e) => {
             crate::metrics::recorder::webhook_delivery(false);
-            AppError::bad_request(e).into_response()
+            AppError::from(e).into_response()
         }
     }
 }
@@ -305,6 +305,6 @@ async fn resolve_webhook_in_repo(
     match rg_core::webhook::service::get_webhook(db, webhook_id).await {
         Ok(Some(hook)) if hook.repo_id == repo_id => Ok(hook),
         Ok(Some(_)) | Ok(None) => Err(AppError::not_found("webhook not found")),
-        Err(e) => Err(AppError::internal(e)),
+        Err(e) => Err(AppError::from(e)),
     }
 }

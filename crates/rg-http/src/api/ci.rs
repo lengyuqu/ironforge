@@ -139,7 +139,7 @@ pub async fn list_pipelines(
         }
         Err(e) => {
             tracing::error!(%e, "handler error");
-            AppError::internal(e).into_response()
+            AppError::from(e).into_response()
         }
     }
 }
@@ -176,7 +176,7 @@ pub async fn get_pipeline(
         Err(e) => {
             return {
                 tracing::error!(%e, "handler error");
-                AppError::internal(e).into_response()
+                AppError::from(e).into_response()
             };
         }
     };
@@ -189,7 +189,7 @@ pub async fn get_pipeline(
         Err(e) => {
             return {
                 tracing::error!(%e, "handler error");
-                AppError::internal(e).into_response()
+                AppError::from(e).into_response()
             };
         }
     };
@@ -202,7 +202,7 @@ pub async fn get_pipeline(
             Err(e) => {
                 return {
                     tracing::error!(%e, "handler error");
-                    AppError::internal(e).into_response()
+                    AppError::from(e).into_response()
                 };
             }
         };
@@ -292,7 +292,7 @@ pub async fn get_job(
         Ok(Some(_)) | Ok(None) => return AppError::not_found("pipeline not found").into_response(),
         Err(e) => {
             tracing::error!(%e, "handler error");
-            return AppError::internal(e).into_response();
+            return AppError::from(e).into_response();
         }
     };
 
@@ -324,7 +324,7 @@ pub async fn get_job(
         Ok(None) => AppError::not_found("job not found").into_response(),
         Err(e) => {
             tracing::error!(%e, "handler error");
-            AppError::internal(e).into_response()
+            AppError::from(e).into_response()
         }
     }
 }
@@ -359,19 +359,19 @@ pub async fn play_job(
     let pipeline = match rg_db::ops::pipeline_ops::get_pipeline(&state.db, pipeline_id).await {
         Ok(Some(pipeline)) if pipeline.repo_id == repo.id => pipeline,
         Ok(Some(_)) | Ok(None) => return AppError::not_found("pipeline not found").into_response(),
-        Err(error) => return AppError::internal(error).into_response(),
+        Err(error) => return AppError::from(error).into_response(),
     };
     let job = match rg_db::ops::pipeline_ops::get_job(&state.db, job_id).await {
         Ok(Some(job)) if job_belongs_to_pipeline(&state, pipeline_id, job.stage_id).await => job,
         Ok(Some(_)) | Ok(None) => return AppError::not_found("job not found").into_response(),
-        Err(error) => return AppError::internal(error).into_response(),
+        Err(error) => return AppError::from(error).into_response(),
     };
     if pipeline.status != "manual" || job.status != "manual" || job.when_condition != "manual" {
         return AppError::bad_request("job is not awaiting manual action").into_response();
     }
     let released = match rg_db::ops::pipeline_ops::play_manual_job(&state.db, job.id).await {
         Ok(released) => released,
-        Err(error) => return AppError::internal(error).into_response(),
+        Err(error) => return AppError::from(error).into_response(),
     };
     if !released {
         return AppError::bad_request("manual job was already released").into_response();
@@ -379,7 +379,7 @@ pub async fn play_job(
     if let Err(error) =
         rg_db::ops::pipeline_ops::resume_pipeline_chain(&state.db, pipeline_id, job.stage_id).await
     {
-        return AppError::internal(error).into_response();
+        return AppError::from(error).into_response();
     }
 
     let owner_display = match resolve_repo_storage_owner(&state, &repo, &owner).await {
@@ -390,7 +390,7 @@ pub async fn play_job(
         .repo_root
         .join(format!("{}/{}.git", owner_display, name));
     if !repo_path.exists() {
-        return AppError::not_found("repo path not found").into_response();
+        return missing_repo_storage(&repo).into_response();
     }
     if let Err(error) = state
         .ci_engine
@@ -407,7 +407,7 @@ pub async fn play_job(
         })
         .await
     {
-        return AppError::internal(error).into_response();
+        return engine_error(error).into_response();
     }
 
     Json(serde_json::json!({
@@ -465,7 +465,7 @@ pub async fn trigger_pipeline(
             .join(format!("{}/{}.git", owner_display, name))
     };
     if !repo_path.exists() {
-        return AppError::not_found("repo path not found").into_response();
+        return missing_repo_storage(&repo).into_response();
     }
 
     // Resolve HEAD commit SHA
@@ -510,10 +510,7 @@ pub async fn trigger_pipeline(
             })),
         )
             .into_response(),
-        Err(e) => {
-            tracing::error!(%e, "handler error");
-            AppError::internal(e).into_response()
-        }
+        Err(e) => engine_error(e).into_response(),
     }
 }
 
@@ -551,7 +548,7 @@ pub async fn retry_pipeline(
         Err(e) => {
             return {
                 tracing::error!(%e, "handler error");
-                AppError::internal(e).into_response()
+                AppError::from(e).into_response()
             };
         }
     };
@@ -577,7 +574,7 @@ pub async fn retry_pipeline(
             .join(format!("{}/{}.git", owner_display, name))
     };
     if !repo_path.exists() {
-        return AppError::not_found("repo path not found").into_response();
+        return missing_repo_storage(&repo).into_response();
     }
 
     match state
@@ -607,10 +604,7 @@ pub async fn retry_pipeline(
             })),
         )
             .into_response(),
-        Err(e) => {
-            tracing::error!(%e, "handler error");
-            AppError::internal(e).into_response()
-        }
+        Err(e) => engine_error(e).into_response(),
     }
 }
 
@@ -647,7 +641,7 @@ pub async fn cancel_pipeline(
         Err(e) => {
             return {
                 tracing::error!(%e, "handler error");
-                AppError::internal(e).into_response()
+                AppError::from(e).into_response()
             };
         }
     };
@@ -672,7 +666,7 @@ pub async fn cancel_pipeline(
     {
         return {
             tracing::error!(%e, "handler error");
-            AppError::internal(e).into_response()
+            AppError::from(e).into_response()
         };
     }
 
@@ -682,7 +676,7 @@ pub async fn cancel_pipeline(
         Err(e) => {
             return {
                 tracing::error!(%e, "handler error");
-                AppError::internal(e).into_response()
+                AppError::from(e).into_response()
             };
         }
     };
@@ -770,7 +764,7 @@ pub async fn rerun_job(
     let pipeline = match rg_db::ops::pipeline_ops::get_pipeline(&state.db, pipeline_id).await {
         Ok(Some(p)) => p,
         Ok(None) => return AppError::not_found("pipeline not found").into_response(),
-        Err(e) => return AppError::internal(e).into_response(),
+        Err(e) => return AppError::from(e).into_response(),
     };
     if pipeline.repo_id != repo.id {
         return AppError::not_found("pipeline not found").into_response();
@@ -780,10 +774,21 @@ pub async fn rerun_job(
     let job = match rg_db::ops::pipeline_ops::get_job(&state.db, job_id).await {
         Ok(Some(j)) => j,
         Ok(None) => return AppError::not_found("job not found").into_response(),
-        Err(e) => return AppError::internal(e).into_response(),
+        Err(e) => return AppError::from(e).into_response(),
     };
     if !job_belongs_to_pipeline(&state, pipeline_id, job.stage_id).await {
         return AppError::not_found("job not found").into_response();
+    }
+
+    // Only a failed/errored/canceled job can be rerun. Check it here so the
+    // state mismatch is reported as the caller's error, and anything that
+    // `rerun_failed_job` still returns is a genuine storage failure.
+    if !matches!(job.status.as_str(), "error" | "failed" | "canceled") {
+        return AppError::bad_request(format!(
+            "job is not in a failed/error/canceled state (current: {})",
+            job.status
+        ))
+        .into_response();
     }
 
     // Attempt to rerun the failed job
@@ -804,13 +809,31 @@ pub async fn rerun_job(
         }
         Err(e) => {
             tracing::error!(%e, job_id, "failed to rerun job");
-            AppError::bad_request(e.to_string()).into_response()
+            AppError::from(e).into_response()
         }
     }
 }
 
 // ── Helpers ──────────────────────────────────────────────────────
-//
+
+/// Map an error from the CI engine (`CiTrigger` returns `anyhow`) to an HTTP
+/// error. A `CoreError` the engine raised on purpose (invalid CI config,
+/// concurrency conflict) is recovered from the `anyhow` wrapper so the caller
+/// sees 400/409; anything else is an internal failure.
+fn engine_error(error: anyhow::Error) -> AppError {
+    match error.downcast::<rg_core::error::CoreError>() {
+        Ok(core) => AppError::from(core),
+        Err(other) => AppError::from(other),
+    }
+}
+
+/// The repository row exists but its git directory does not: nothing the
+/// caller did, so this is a server fault (500), not a missing resource.
+fn missing_repo_storage(repo: &rg_db::entities::repository::Model) -> AppError {
+    tracing::error!(repo_id = repo.id, "repository exists in the database but its git directory is missing");
+    AppError::internal("repository storage is missing")
+}
+
 // Repo resolution + read/write authorization is centralized in
 // [`crate::api::repo_access`] (`require_read` / `require_write`).
 
@@ -825,7 +848,7 @@ async fn resolve_repo_storage_owner(
 
     rg_db::ops::user_ops::find_by_id(&state.db, repo.owner_id)
         .await
-        .map_err(AppError::internal)?
+        .map_err(AppError::from)?
         .map(|user| user.username)
         .ok_or_else(|| AppError::internal("repository owner not found"))
 }
@@ -857,5 +880,26 @@ fn resolve_commit_sha(repo_path: &std::path::Path, ref_name: &str) -> Option<Str
             let short = ref_name.strip_prefix("refs/heads/").unwrap_or(ref_name);
             repo.rev_parse_single(short).ok().map(|id| id.to_string())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rg_core::error::CoreError;
+
+    #[test]
+    fn engine_errors_keep_their_http_class_across_the_anyhow_boundary() {
+        // The CI engine returns `anyhow`; a deliberate CoreError inside it must
+        // come back as 400/409 rather than an opaque 500.
+        let invalid = anyhow::Error::new(CoreError::invalid_input("bad ci file"));
+        assert!(matches!(engine_error(invalid), AppError::BadRequest(m) if m == "bad ci file"));
+
+        let conflict =
+            anyhow::Error::new(CoreError::conflict("group busy")).context("while triggering");
+        assert!(matches!(engine_error(conflict), AppError::Conflict(m) if m == "group busy"));
+
+        let internal = anyhow::anyhow!("disk exploded at /var/lib/ironforge");
+        assert!(matches!(engine_error(internal), AppError::InternalError(_)));
     }
 }
