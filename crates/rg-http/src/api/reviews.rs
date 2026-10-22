@@ -87,6 +87,19 @@ pub struct ReviewTimelineEvent {
     pub metadata: serde_json::Value,
 }
 
+/// Whether `error` (an `anyhow` chain from the db layer) is a unique-key violation.
+fn is_unique_violation(error: &anyhow::Error) -> bool {
+    error
+        .chain()
+        .filter_map(|cause| cause.downcast_ref::<sea_orm::DbErr>())
+        .any(|db_error| {
+            matches!(
+                db_error.sql_err(),
+                Some(sea_orm::SqlErr::UniqueConstraintViolation(_))
+            )
+        })
+}
+
 async fn require_pr_manager(
     state: &AppState,
     headers: &axum::http::HeaderMap,
@@ -135,7 +148,7 @@ async fn require_suggestion_source(
     let (_, actor_id) = require_authenticated_read(state, headers, owner, repo).await?;
     let pr = rg_core::pull_request::get_pr(&state.db, owner, repo, number)
         .await
-        .map_err(|error| AppError::not_found(error.to_string()))?;
+        .map_err(AppError::from)?;
     if pr.state != "open" {
         return Err(AppError::conflict("pull request is not open"));
     }
@@ -143,7 +156,7 @@ async fn require_suggestion_source(
     let source_repo = rg_db::entities::repository::Entity::find_by_id(source_repo_id)
         .one(&state.db)
         .await
-        .map_err(AppError::internal)?
+        .map_err(AppError::from)?
         .ok_or_else(|| AppError::not_found("source repository not found"))?;
     let can_write = rg_core::repo::service::can_write_repo(&state.db, &source_repo, Some(actor_id))
         .await
@@ -155,18 +168,18 @@ async fn require_suggestion_source(
     }
     let actor = rg_db::ops::user_ops::find_by_id(&state.db, actor_id)
         .await
-        .map_err(AppError::internal)?
+        .map_err(AppError::from)?
         .ok_or_else(|| AppError::unauthorized("user not found"))?;
     let source_namespace = if let Some(org_id) = source_repo.org_id {
         rg_db::ops::org_ops::get_org(&state.db, org_id)
             .await
-            .map_err(AppError::internal)?
+            .map_err(AppError::from)?
             .ok_or_else(|| AppError::not_found("source repository organization not found"))?
             .name
     } else {
         rg_db::ops::user_ops::find_by_id(&state.db, source_repo.owner_id)
             .await
-            .map_err(AppError::internal)?
+            .map_err(AppError::from)?
             .ok_or_else(|| AppError::not_found("source repository owner not found"))?
             .username
     };
@@ -267,7 +280,7 @@ pub async fn list_reviews(
 
     match rg_core::review::service::list_reviews(&state.db, &owner, &repo, number).await {
         Ok(reviews) => (StatusCode::OK, Json(reviews)).into_response(),
-        Err(e) => AppError::internal(e).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -302,12 +315,12 @@ pub async fn submit_review(
         };
     let pr = match rg_core::pull_request::get_pr(&state.db, &owner, &repo, number).await {
         Ok(pr) => pr,
-        Err(e) => return AppError::not_found(e.to_string()).into_response(),
+        Err(e) => return AppError::from(e).into_response(),
     };
 
     let action = match rg_core::review::service::ReviewAction::parse_action(&req.action) {
         Ok(a) => a,
-        Err(e) => return AppError::bad_request(e).into_response(),
+        Err(e) => return AppError::from(e).into_response(),
     };
     if matches!(action.as_str(), "approve" | "request_changes") && pr.author_id == user_id {
         return AppError::bad_request(
@@ -367,7 +380,7 @@ pub async fn submit_review(
             }
             (StatusCode::CREATED, Json(review)).into_response()
         }
-        Err(e) => AppError::bad_request(e).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -399,14 +412,14 @@ pub async fn get_review(
     };
     let pr = match rg_core::pull_request::get_pr(&state.db, &owner, &repo, number).await {
         Ok(pr) => pr,
-        Err(e) => return AppError::not_found(e.to_string()).into_response(),
+        Err(e) => return AppError::from(e).into_response(),
     };
     match rg_core::review::service::get_review(&state.db, id).await {
         Ok(review) if review.repo_id == repo_model.id && review.pr_id == pr.id => {
             (StatusCode::OK, Json(review)).into_response()
         }
         Ok(_) => AppError::not_found("review not found").into_response(),
-        Err(e) => AppError::not_found(e).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -441,18 +454,18 @@ pub async fn dismiss_review(
     };
     let pr = match rg_core::pull_request::get_pr(&state.db, &owner, &repo, number).await {
         Ok(pr) => pr,
-        Err(e) => return AppError::not_found(e.to_string()).into_response(),
+        Err(e) => return AppError::from(e).into_response(),
     };
     let review = match rg_core::review::service::get_review(&state.db, id).await {
         Ok(review) if review.repo_id == repo_model.id && review.pr_id == pr.id => review,
         Ok(_) => return AppError::not_found("review not found").into_response(),
-        Err(e) => return AppError::not_found(e).into_response(),
+        Err(e) => return AppError::from(e).into_response(),
     };
 
     match rg_core::review::service::dismiss_review(&state.db, review.id, user_id, req.message).await
     {
         Ok(review) => (StatusCode::OK, Json(review)).into_response(),
-        Err(e) => AppError::bad_request(e).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -485,7 +498,7 @@ pub async fn list_review_comments(
 
     match rg_core::review::service::list_review_comments(&state.db, &owner, &repo, number).await {
         Ok(comments) => (StatusCode::OK, Json(comments)).into_response(),
-        Err(e) => AppError::internal(e).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -510,11 +523,11 @@ pub async fn get_review_timeline(
     }
     let pr = match rg_core::pull_request::get_pr(&state.db, &owner, &repo, number).await {
         Ok(pr) => pr,
-        Err(error) => return AppError::not_found(error.to_string()).into_response(),
+        Err(error) => return AppError::from(error).into_response(),
     };
     let persisted_events = match rg_db::ops::pr_event_ops::list_by_pr(&state.db, pr.id).await {
         Ok(events) => events,
-        Err(error) => return AppError::internal(error).into_response(),
+        Err(error) => return AppError::from(error).into_response(),
     };
     let persisted_events = persisted_events
         .into_iter()
@@ -526,20 +539,20 @@ pub async fn get_review_timeline(
         .collect::<Vec<_>>();
     let reviews = match rg_db::ops::pr_review_ops::list_by_pr(&state.db, pr.id).await {
         Ok(reviews) => reviews,
-        Err(error) => return AppError::internal(error).into_response(),
+        Err(error) => return AppError::from(error).into_response(),
     };
     let comments = match rg_db::ops::review_comment_ops::list_by_pr(&state.db, pr.id).await {
         Ok(comments) => comments,
-        Err(error) => return AppError::internal(error).into_response(),
+        Err(error) => return AppError::from(error).into_response(),
     };
     let reviewer_requests =
         match rg_db::ops::pr_reviewer_request_ops::list_by_pr(&state.db, pr.id).await {
             Ok(requests) => requests,
-            Err(error) => return AppError::internal(error).into_response(),
+            Err(error) => return AppError::from(error).into_response(),
         };
     let queue_entry = match rg_db::ops::merge_queue_ops::find_by_pr(&state.db, pr.id).await {
         Ok(entry) => entry,
-        Err(error) => return AppError::internal(error).into_response(),
+        Err(error) => return AppError::from(error).into_response(),
     };
 
     let mut actor_ids = HashSet::from([pr.author_id]);
@@ -571,7 +584,7 @@ pub async fn get_review_timeline(
             .into_iter()
             .map(|user| (user.id, user.username))
             .collect::<HashMap<_, _>>(),
-        Err(error) => return AppError::internal(error).into_response(),
+        Err(error) => return AppError::from(error).into_response(),
     };
     let actor = |id: i64| {
         users.get(&id).map(|username| TimelineActor {
@@ -798,13 +811,13 @@ pub async fn create_review_comment(
         };
     let pr = match rg_core::pull_request::get_pr(&state.db, &owner, &repo, number).await {
         Ok(pr) => pr,
-        Err(e) => return AppError::not_found(e.to_string()).into_response(),
+        Err(e) => return AppError::from(e).into_response(),
     };
     let review = match req.review_id {
         Some(review_id) => match rg_core::review::service::get_review(&state.db, review_id).await {
             Ok(review) if review.repo_id == repo_model.id && review.pr_id == pr.id => review,
             Ok(_) => return AppError::not_found("review not found").into_response(),
-            Err(e) => return AppError::not_found(e).into_response(),
+            Err(e) => return AppError::from(e).into_response(),
         },
         None => match rg_core::review::service::submit_review(
             &state.db,
@@ -818,7 +831,7 @@ pub async fn create_review_comment(
         .await
         {
             Ok(review) => review,
-            Err(e) => return AppError::bad_request(e).into_response(),
+            Err(e) => return AppError::from(e).into_response(),
         },
     };
 
@@ -841,7 +854,7 @@ pub async fn create_review_comment(
     .await
     {
         Ok(comment) => (StatusCode::CREATED, Json(comment)).into_response(),
-        Err(e) => AppError::bad_request(e).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -974,11 +987,11 @@ pub async fn list_requested_reviewers(
     }
     let pr = match rg_core::pull_request::get_pr(&state.db, &owner, &repo, number).await {
         Ok(pr) => pr,
-        Err(_) => return AppError::not_found("pull request not found").into_response(),
+        Err(error) => return AppError::from(error).into_response(),
     };
     let requests = match rg_db::ops::pr_reviewer_request_ops::list_by_pr(&state.db, pr.id).await {
         Ok(requests) => requests,
-        Err(error) => return AppError::internal(error).into_response(),
+        Err(error) => return AppError::from(error).into_response(),
     };
 
     let mut response = Vec::with_capacity(requests.len());
@@ -987,7 +1000,7 @@ pub async fn list_requested_reviewers(
         {
             Ok(Some(user)) => user.username,
             Ok(None) => continue,
-            Err(error) => return AppError::internal(error).into_response(),
+            Err(error) => return AppError::from(error).into_response(),
         };
         response.push(RequestedReviewerResponse {
             id: request.id,
@@ -1034,7 +1047,7 @@ pub async fn request_reviewer(
     let reviewer = match rg_db::ops::user_ops::find_by_username(&state.db, username).await {
         Ok(Some(user)) if user.is_active && user.deleted_at.is_none() => user,
         Ok(_) => return AppError::not_found("reviewer not found").into_response(),
-        Err(error) => return AppError::internal(error).into_response(),
+        Err(error) => return AppError::from(error).into_response(),
     };
     if reviewer.id == pr.author_id {
         return AppError::bad_request("the PR author cannot be requested as a reviewer")
@@ -1051,7 +1064,7 @@ pub async fn request_reviewer(
     match rg_db::ops::pr_reviewer_request_ops::find(&state.db, pr.id, reviewer.id).await {
         Ok(Some(_)) => return AppError::conflict("reviewer is already requested").into_response(),
         Ok(None) => {}
-        Err(error) => return AppError::internal(error).into_response(),
+        Err(error) => return AppError::from(error).into_response(),
     }
 
     let model = rg_db::entities::pr_reviewer_request::ActiveModel {
@@ -1078,7 +1091,7 @@ pub async fn request_reviewer(
             )
             .await
             {
-                return AppError::internal(error).into_response();
+                return AppError::from(error).into_response();
             }
             (
                 StatusCode::CREATED,
@@ -1092,10 +1105,11 @@ pub async fn request_reviewer(
             )
                 .into_response()
         }
-        Err(error) if error.to_string().to_ascii_lowercase().contains("unique") => {
+        // Lost a race with a concurrent request for the same reviewer.
+        Err(error) if is_unique_violation(&error) => {
             AppError::conflict("reviewer is already requested").into_response()
         }
-        Err(error) => AppError::internal(error).into_response(),
+        Err(error) => AppError::from(error).into_response(),
     }
 }
 
@@ -1124,7 +1138,7 @@ pub async fn remove_requested_reviewer(
     let reviewer = match rg_db::ops::user_ops::find_by_username(&state.db, &username).await {
         Ok(Some(user)) => user,
         Ok(None) => return AppError::not_found("requested reviewer not found").into_response(),
-        Err(error) => return AppError::internal(error).into_response(),
+        Err(error) => return AppError::from(error).into_response(),
     };
     match rg_db::ops::pr_reviewer_request_ops::delete(&state.db, pr.id, reviewer.id).await {
         Ok(0) => AppError::not_found("requested reviewer not found").into_response(),
@@ -1143,11 +1157,11 @@ pub async fn remove_requested_reviewer(
             )
             .await
             {
-                return AppError::internal(error).into_response();
+                return AppError::from(error).into_response();
             }
             StatusCode::NO_CONTENT.into_response()
         }
-        Err(error) => AppError::internal(error).into_response(),
+        Err(error) => AppError::from(error).into_response(),
     }
 }
 
@@ -1179,11 +1193,14 @@ pub async fn set_thread_resolution(
         };
     let pr = match rg_core::pull_request::get_pr(&state.db, &owner, &repo, number).await {
         Ok(pr) => pr,
-        Err(_) => return AppError::not_found("pull request not found").into_response(),
+        Err(error) => return AppError::from(error).into_response(),
     };
     let root = match rg_core::review::service::get_thread_root(&state.db, pr.id, comment_id).await {
         Ok(root) => root,
-        Err(_) => return AppError::not_found("review thread not found").into_response(),
+        Err(rg_core::error::CoreError::NotFound(_)) => {
+            return AppError::not_found("review thread not found").into_response()
+        }
+        Err(error) => return AppError::from(error).into_response(),
     };
     let can_write = rg_core::repo::service::can_write_repo(&state.db, &repo_model, Some(actor_id))
         .await
@@ -1205,7 +1222,7 @@ pub async fn set_thread_resolution(
     .await
     {
         Ok(comment) => (StatusCode::OK, Json(comment)).into_response(),
-        Err(error) => AppError::bad_request(error).into_response(),
+        Err(error) => AppError::from(error).into_response(),
     }
 }
 

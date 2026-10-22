@@ -9,6 +9,7 @@ use serde::Deserialize;
 use crate::api::repo_access::{require_read, require_write};
 use crate::error::AppError;
 use crate::AppState;
+use rg_core::error::{CoreError, CoreResult};
 
 // -- Request / Response types ----------------------------------------------
 
@@ -61,7 +62,7 @@ pub async fn list_collaborators(
 
     match rg_core::collaborator::service::list_collaborators(&state.db, &owner, &repo).await {
         Ok(collaborators) => (StatusCode::OK, Json(collaborators)).into_response(),
-        Err(e) => AppError::internal(e.to_string()).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -97,7 +98,7 @@ pub async fn add_collaborator(
 
     let user_id = match resolve_collaborator_user_id(&state.db, &req).await {
         Ok(user_id) => user_id,
-        Err(e) => return AppError::bad_request(e.to_string()).into_response(),
+        Err(e) => return AppError::from(e).into_response(),
     };
 
     match rg_core::collaborator::service::add_collaborator(
@@ -110,19 +111,21 @@ pub async fn add_collaborator(
     .await
     {
         Ok(collab) => (StatusCode::CREATED, Json(collab)).into_response(),
-        Err(e) => AppError::bad_request(e.to_string()).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
 async fn resolve_collaborator_user_id(
     db: &rg_db::DatabaseConnection,
     req: &AddCollaboratorRequest,
-) -> anyhow::Result<i64> {
+) -> CoreResult<i64> {
     if let Some(user_id) = req.user_id {
         if user_id > 0 {
             return Ok(user_id);
         }
-        anyhow::bail!("user_id must be a positive integer");
+        return Err(CoreError::invalid_input(
+            "user_id must be a positive integer",
+        ));
     }
 
     if let Some(username) = req
@@ -134,7 +137,7 @@ async fn resolve_collaborator_user_id(
         return rg_db::ops::user_ops::find_by_username(db, username)
             .await?
             .map(|user| user.id)
-            .ok_or_else(|| anyhow::anyhow!("user '{}' not found", username));
+            .ok_or_else(|| CoreError::not_found(format!("user '{}' not found", username)));
     }
 
     if let Some(email) = req
@@ -146,10 +149,12 @@ async fn resolve_collaborator_user_id(
         return rg_db::ops::user_ops::find_by_email(db, email)
             .await?
             .map(|user| user.id)
-            .ok_or_else(|| anyhow::anyhow!("user '{}' not found", email));
+            .ok_or_else(|| CoreError::not_found(format!("user '{}' not found", email)));
     }
 
-    anyhow::bail!("user_id, username, or email is required");
+    Err(CoreError::invalid_input(
+        "user_id, username, or email is required",
+    ))
 }
 
 /// Update a collaborator's permission.
@@ -182,9 +187,17 @@ pub async fn update_permission(
             Err(e) => return e.into_response(),
         };
 
-    match rg_core::collaborator::service::update_permission(&state.db, id, req.permission).await {
+    match rg_core::collaborator::service::update_permission(
+        &state.db,
+        &owner,
+        &repo,
+        id,
+        req.permission,
+    )
+    .await
+    {
         Ok(collab) => (StatusCode::OK, Json(collab)).into_response(),
-        Err(e) => AppError::bad_request(e.to_string()).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -221,6 +234,6 @@ pub async fn remove_collaborator(
         .await
     {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(e) => AppError::bad_request(e.to_string()).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }

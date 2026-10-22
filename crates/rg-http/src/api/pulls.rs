@@ -119,10 +119,7 @@ pub async fn list_prs(
             Json(PaginatedResponse::new(data, &pagination, total as u64)),
         )
             .into_response(),
-        Err(e) => {
-            tracing::error!(%e, "handler error");
-            AppError::internal(e).into_response()
-        }
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -151,7 +148,7 @@ pub async fn get_pr(
 
     match rg_core::pull_request::get_pr(&state.db, &owner, &repo, number).await {
         Ok(pr) => (StatusCode::OK, Json(pr)).into_response(),
-        Err(e) => AppError::not_found(e.to_string()).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -256,10 +253,10 @@ pub async fn create_pr(
                     }
                     (StatusCode::CREATED, Json(pr)).into_response()
                 }
-                Err(e) => AppError::bad_request(e.to_string()).into_response(),
+                Err(e) => AppError::from(e).into_response(),
             }
         }
-        Err(e) => AppError::bad_request(e.to_string()).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -291,7 +288,7 @@ pub async fn update_pr(
         };
     let existing = match rg_core::pull_request::get_pr(&state.db, &owner, &repo, number).await {
         Ok(pr) => pr,
-        Err(e) => return AppError::not_found(e.to_string()).into_response(),
+        Err(e) => return AppError::from(e).into_response(),
     };
     let can_write = rg_core::repo::service::can_write_repo(&state.db, &repo_model, Some(actor_id))
         .await
@@ -320,7 +317,7 @@ pub async fn update_pr(
     .await
     {
         Ok(pr) => (StatusCode::OK, Json(pr)).into_response(),
-        Err(e) => AppError::bad_request(e.to_string()).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -351,10 +348,7 @@ pub async fn get_diff(
         .await
     {
         Ok(diff) => (StatusCode::OK, Json(diff)).into_response(),
-        Err(e) => {
-            tracing::error!(%e, "handler error");
-            AppError::internal(e).into_response()
-        }
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -387,24 +381,26 @@ pub async fn merge_pr(
 
     let strategy = match rg_core::pull_request::MergeStrategy::parse(&req.strategy) {
         Ok(strategy) => strategy,
-        Err(error) => return AppError::bad_request(error).into_response(),
+        Err(error) => return AppError::from(error).into_response(),
     };
 
     // Check branch protection before merging
-    if let Ok(pr) = rg_core::pull_request::get_pr(&state.db, &owner, &repo, number).await {
-        if pr.is_draft {
-            return AppError::conflict("draft pull requests cannot be merged").into_response();
-        }
-        if let Err(e) = rg_core::branch_protection::service::check_merge_allowed(
-            &state.db,
-            repo_model.id,
-            &pr.base_branch,
-            pr.id,
-        )
-        .await
-        {
-            return AppError::forbidden(e.to_string()).into_response();
-        }
+    let pr = match rg_core::pull_request::get_pr(&state.db, &owner, &repo, number).await {
+        Ok(pr) => pr,
+        Err(e) => return AppError::from(e).into_response(),
+    };
+    if pr.is_draft {
+        return AppError::conflict("draft pull requests cannot be merged").into_response();
+    }
+    if let Err(e) = rg_core::branch_protection::service::check_merge_allowed(
+        &state.db,
+        repo_model.id,
+        &pr.base_branch,
+        pr.id,
+    )
+    .await
+    {
+        return AppError::from(e).into_response();
     }
 
     match rg_core::pull_request::merge_pr(
@@ -418,7 +414,7 @@ pub async fn merge_pr(
     .await
     {
         Ok(result) => (StatusCode::OK, Json(result)).into_response(),
-        Err(e) => AppError::bad_request(e.to_string()).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -446,20 +442,20 @@ pub async fn enable_auto_merge(
     };
     let strategy = match rg_core::pull_request::MergeStrategy::parse(&req.strategy) {
         Ok(strategy) => strategy,
-        Err(error) => return AppError::bad_request(error).into_response(),
+        Err(error) => return AppError::from(error).into_response(),
     };
     if let Err(error) = rg_core::pull_request::enable_auto_merge(
         &state.db, &owner, &repo, number, strategy, actor_id,
     )
     .await
     {
-        return AppError::bad_request(error).into_response();
+        return AppError::from(error).into_response();
     }
     match rg_core::pull_request::try_auto_merge(&state.db, &state.repo_root, &owner, &repo, number)
         .await
     {
         Ok(outcome) => (StatusCode::OK, Json(outcome)).into_response(),
-        Err(error) => AppError::bad_request(error).into_response(),
+        Err(error) => AppError::from(error).into_response(),
     }
 }
 
@@ -487,7 +483,7 @@ pub async fn disable_auto_merge(
         .await
     {
         Ok(pr) => (StatusCode::OK, Json(pr)).into_response(),
-        Err(error) => AppError::bad_request(error).into_response(),
+        Err(error) => AppError::from(error).into_response(),
     }
 }
 
@@ -509,7 +505,7 @@ pub async fn list_merge_queue(
     };
     let entries = match rg_db::ops::merge_queue_ops::list_by_repo(&state.db, repository.id).await {
         Ok(entries) => entries,
-        Err(error) => return AppError::internal(error).into_response(),
+        Err(error) => return AppError::from(error).into_response(),
     };
     let mut response = Vec::with_capacity(entries.len());
     for (index, entry) in entries.into_iter().enumerate() {
@@ -519,7 +515,7 @@ pub async fn list_merge_queue(
         {
             Ok(Some(pr)) if pr.repo_id == repository.id => pr,
             Ok(_) => continue,
-            Err(error) => return AppError::internal(error).into_response(),
+            Err(error) => return AppError::from(error).into_response(),
         };
         response.push(MergeQueueEntryResponse {
             id: entry.id,
@@ -556,11 +552,11 @@ pub async fn enqueue_merge_queue(
     };
     let pr = match rg_core::pull_request::get_pr(&state.db, &owner, &repo, number).await {
         Ok(pr) => pr,
-        Err(error) => return AppError::not_found(error.to_string()).into_response(),
+        Err(error) => return AppError::from(error).into_response(),
     };
     let strategy = match rg_core::pull_request::MergeStrategy::parse(&req.strategy) {
         Ok(strategy) => strategy,
-        Err(error) => return AppError::bad_request(error).into_response(),
+        Err(error) => return AppError::from(error).into_response(),
     };
     let entry = match rg_core::pull_request::merge_queue::enqueue(
         &state.db,
@@ -572,7 +568,7 @@ pub async fn enqueue_merge_queue(
     .await
     {
         Ok(entry) => entry,
-        Err(error) => return AppError::bad_request(error).into_response(),
+        Err(error) => return AppError::from(error).into_response(),
     };
     let ci = rg_core::pull_request::merge_queue::MergeQueueCi {
         trigger: &*state.ci_engine,
@@ -591,7 +587,7 @@ pub async fn enqueue_merge_queue(
     .await
     {
         Ok(process) => process,
-        Err(error) => return AppError::internal(error).into_response(),
+        Err(error) => return AppError::from(error).into_response(),
     };
     (
         StatusCode::OK,
@@ -618,7 +614,7 @@ pub async fn cancel_merge_queue(
     };
     let pr = match rg_core::pull_request::get_pr(&state.db, &owner, &repo, number).await {
         Ok(pr) => pr,
-        Err(error) => return AppError::not_found(error.to_string()).into_response(),
+        Err(error) => return AppError::from(error).into_response(),
     };
     match rg_core::pull_request::merge_queue::cancel(
         &state.db,
@@ -631,6 +627,6 @@ pub async fn cancel_merge_queue(
     {
         Ok(true) => StatusCode::NO_CONTENT.into_response(),
         Ok(false) => AppError::not_found("pull request is not queued").into_response(),
-        Err(error) => AppError::internal(error).into_response(),
+        Err(error) => AppError::from(error).into_response(),
     }
 }

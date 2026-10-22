@@ -1,6 +1,5 @@
 //! Code review service — submit reviews, add inline comments, approve / request changes.
 
-use anyhow::{bail, Context, Result};
 use chrono::Utc;
 use sea_orm::{ActiveModelTrait, DatabaseConnection, EntityTrait, Set, TransactionTrait};
 use std::collections::{BTreeMap, HashSet};
@@ -38,13 +37,16 @@ impl ReviewAction {
         }
     }
 
-    pub fn parse_action(s: &str) -> Result<Self> {
+    pub fn parse_action(s: &str) -> CoreResult<Self> {
         match s {
             "comment" => Ok(Self::Comment),
             "approve" => Ok(Self::Approve),
             "request_changes" => Ok(Self::RequestChanges),
             "dismiss" => Ok(Self::Dismiss),
-            _ => bail!("invalid review action: {}", s),
+            _ => Err(CoreError::invalid_input(format!(
+                "invalid review action: {}",
+                s
+            ))),
         }
     }
 }
@@ -60,17 +62,17 @@ pub async fn submit_review(
     action: ReviewAction,
     body: Option<String>,
     commit_id: Option<String>,
-) -> Result<PrReview> {
+) -> CoreResult<PrReview> {
     // Validate PR exists
     let pr = pull_request_ops::find_by_repo_and_number(db, repo_id, pr_number)
         .await?
-        .context("pull request not found")?;
+        .ok_or_else(|| CoreError::not_found("pull request not found"))?;
 
     if pr.state != "open" {
-        bail!(
+        return Err(CoreError::conflict(format!(
             "cannot review a PR that is not open (current: {})",
             pr.state
-        );
+        )));
     }
 
     // For dismiss, body is typically about why the review is dismissed
@@ -105,20 +107,20 @@ pub async fn list_reviews(
     owner: &str,
     repo_name: &str,
     pr_number: i64,
-) -> Result<Vec<PrReview>> {
+) -> CoreResult<Vec<PrReview>> {
     let repo = resolve_repo(db, owner, repo_name).await?;
     let pr = pull_request_ops::find_by_repo_and_number(db, repo.id, pr_number)
         .await?
-        .context("pull request not found")?;
+        .ok_or_else(|| CoreError::not_found("pull request not found"))?;
 
-    pr_review_ops::list_by_pr(db, pr.id).await
+    Ok(pr_review_ops::list_by_pr(db, pr.id).await?)
 }
 
 /// Get a single review by ID.
-pub async fn get_review(db: &DatabaseConnection, review_id: i64) -> Result<PrReview> {
+pub async fn get_review(db: &DatabaseConnection, review_id: i64) -> CoreResult<PrReview> {
     pr_review_ops::find_by_id(db, review_id)
         .await?
-        .context("review not found")
+        .ok_or_else(|| CoreError::not_found("review not found"))
 }
 
 /// Dismiss a review.
@@ -127,10 +129,10 @@ pub async fn dismiss_review(
     review_id: i64,
     dismissor_id: i64,
     message: String,
-) -> Result<PrReview> {
+) -> CoreResult<PrReview> {
     let review = pr_review_ops::find_by_id(db, review_id)
         .await?
-        .context("review not found")?;
+        .ok_or_else(|| CoreError::not_found("review not found"))?;
 
     // Create a dismiss review entry
     let model = pr_review::ActiveModel {
@@ -177,42 +179,45 @@ pub async fn create_review_comment(
     suggestion: Option<String>,
     commit_id: Option<String>,
     reply_to_id: Option<i64>,
-) -> Result<ReviewComment> {
+) -> CoreResult<ReviewComment> {
     // Validate PR
     let pr = pull_request_ops::find_by_repo_and_number(db, repo_id, pr_number)
         .await?
-        .context("pull request not found")?;
+        .ok_or_else(|| CoreError::not_found("pull request not found"))?;
 
     // Validate review exists
     let review = pr_review_ops::find_by_id(db, review_id)
         .await?
-        .context("review not found")?;
+        .ok_or_else(|| CoreError::not_found("review not found"))?;
     if review.repo_id != repo_id || review.pr_id != pr.id {
-        bail!("review does not belong to this PR");
+        return Err(CoreError::not_found("review not found"));
     }
 
-    // Validate reply_to if specified
+    // Validate reply_to if specified. It is a reference carried in the request
+    // body (not the addressed resource), so a bad one is invalid input.
     if let Some(rtid) = reply_to_id {
-        let parent = review_comment_ops::find_by_id(db, rtid)
+        review_comment_ops::find_by_id(db, rtid)
             .await?
-            .context("parent comment not found")?;
-        if parent.pr_id != pr.id {
-            bail!("parent comment does not belong to this PR");
-        }
+            .filter(|parent| parent.pr_id == pr.id)
+            .ok_or_else(|| CoreError::invalid_input("parent comment not found on this PR"))?;
     }
 
     if body.trim().is_empty() {
-        bail!("comment body cannot be empty");
+        return Err(CoreError::invalid_input("comment body cannot be empty"));
     }
     let suggestion = suggestion.map(|value| value.replace("\r\n", "\n"));
     if suggestion.is_some() {
         if reply_to_id.is_some() || line.is_none() || side.as_deref() != Some("RIGHT") {
-            bail!("suggestions require a top-level RIGHT-side line comment");
+            return Err(CoreError::invalid_input(
+                "suggestions require a top-level RIGHT-side line comment",
+            ));
         }
         let end = line.unwrap();
         let start = start_line.unwrap_or(end);
         if start < 1 || start > end || start_side.as_deref().unwrap_or("RIGHT") != "RIGHT" {
-            bail!("suggestion range must be an ordered RIGHT-side range");
+            return Err(CoreError::invalid_input(
+                "suggestion range must be an ordered RIGHT-side range",
+            ));
         }
     }
 
@@ -454,8 +459,7 @@ pub async fn apply_suggestions(
         &pr.head_branch,
         Some(actor.id),
     )
-    .await
-    .map_err(|error| CoreError::forbidden(error.to_string()))?;
+    .await?;
 
     let commit_sha = crate::repo::service::update_files_in_commit(
         source_namespace,
@@ -525,7 +529,7 @@ pub async fn set_thread_resolved(
     comment_id: i64,
     actor_id: i64,
     resolved: bool,
-) -> Result<ReviewComment> {
+) -> CoreResult<ReviewComment> {
     let comment = get_thread_root(db, pr_id, comment_id).await?;
 
     let mut active: review_comment::ActiveModel = comment.into();
@@ -539,7 +543,7 @@ pub async fn set_thread_resolved(
         pull_request::Entity::find_by_id(pr_id)
             .one(db)
             .await?
-            .context("pull request not found")?
+            .ok_or_else(|| CoreError::not_found("pull request not found"))?
             .repo_id,
         pr_id,
         Some(actor_id),
@@ -560,12 +564,13 @@ pub async fn get_thread_root(
     db: &DatabaseConnection,
     pr_id: i64,
     comment_id: i64,
-) -> Result<ReviewComment> {
+) -> CoreResult<ReviewComment> {
     let mut comment = review_comment_ops::find_by_id(db, comment_id)
         .await?
-        .context("review comment not found")?;
+        .ok_or_else(|| CoreError::not_found("review comment not found"))?;
     if comment.pr_id != pr_id {
-        bail!("review comment does not belong to this PR");
+        // Comments of other PRs are not addressable through this PR.
+        return Err(CoreError::not_found("review comment not found"));
     }
 
     // Resolution is stored on the root. Replies currently form a shallow
@@ -574,13 +579,16 @@ pub async fn get_thread_root(
     while let Some(parent_id) = comment.reply_to_id {
         comment = review_comment_ops::find_by_id(db, parent_id)
             .await?
-            .context("review thread root not found")?;
+            .ok_or_else(|| CoreError::not_found("review thread root not found"))?;
         if comment.pr_id != pr_id {
-            bail!("review thread does not belong to this PR");
+            return Err(CoreError::not_found("review thread root not found"));
         }
         hops += 1;
         if hops > 100 {
-            bail!("review thread nesting is invalid");
+            // Stored data is malformed; nothing the caller can fix.
+            return Err(CoreError::internal(format!(
+                "review comment {comment_id} has an invalid thread nesting"
+            )));
         }
     }
 
@@ -593,21 +601,21 @@ pub async fn list_review_comments(
     owner: &str,
     repo_name: &str,
     pr_number: i64,
-) -> Result<Vec<ReviewComment>> {
+) -> CoreResult<Vec<ReviewComment>> {
     let repo = resolve_repo(db, owner, repo_name).await?;
     let pr = pull_request_ops::find_by_repo_and_number(db, repo.id, pr_number)
         .await?
-        .context("pull request not found")?;
+        .ok_or_else(|| CoreError::not_found("pull request not found"))?;
 
-    review_comment_ops::list_by_pr(db, pr.id).await
+    Ok(review_comment_ops::list_by_pr(db, pr.id).await?)
 }
 
 /// List comments for a specific review.
 pub async fn list_comments_for_review(
     db: &DatabaseConnection,
     review_id: i64,
-) -> Result<Vec<ReviewComment>> {
-    review_comment_ops::list_by_review(db, review_id).await
+) -> CoreResult<Vec<ReviewComment>> {
+    Ok(review_comment_ops::list_by_review(db, review_id).await?)
 }
 
 /// Check if a PR has enough approvals.
@@ -615,11 +623,11 @@ pub async fn check_approval_status(
     db: &DatabaseConnection,
     pr_id: i64,
     required_approvals: i64,
-) -> Result<bool> {
+) -> CoreResult<bool> {
     let pr = pull_request::Entity::find_by_id(pr_id)
         .one(db)
         .await?
-        .context("pull request not found")?;
+        .ok_or_else(|| CoreError::not_found("pull request not found"))?;
     let count = pr_review_ops::count_current_approvals(db, pr_id, pr.head_sha.as_deref()).await?;
     Ok(count >= required_approvals)
 }
@@ -630,12 +638,12 @@ async fn resolve_repo(
     db: &DatabaseConnection,
     owner: &str,
     repo_name: &str,
-) -> Result<rg_db::entities::repository::Model> {
+) -> CoreResult<rg_db::entities::repository::Model> {
     // Resolve through the shared helper so organization repositories
     // (`acme/widget`) work, not only personal ones: this used to look the owner
     // up as a *user*, which made every org URL fail with "owner not found" and
     // left the creator's personal URL as the only way in.
     crate::repo::service::find_repo_by_owner_name(db, owner, repo_name)
         .await?
-        .context("repository not found")
+        .ok_or_else(|| CoreError::not_found("repository not found"))
 }

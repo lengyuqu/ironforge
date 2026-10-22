@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 use std::path::Path;
 
-use anyhow::{bail, Context, Result};
+use anyhow::Context;
 use chrono::{Duration, Utc};
 use sea_orm::{DatabaseConnection, EntityTrait, Set, TransactionTrait};
 
@@ -11,6 +11,7 @@ use rg_db::entities::{merge_queue_entry, pull_request, repository};
 use rg_db::ops::{merge_queue_ops, pull_request_ops};
 
 use super::service::{self, MergeStrategy};
+use crate::error::{CoreError, CoreResult};
 
 pub struct MergeQueueCi<'a> {
     pub trigger: &'a dyn crate::ci::CiTrigger,
@@ -35,12 +36,16 @@ pub async fn enqueue(
     pr: &pull_request::Model,
     actor_id: i64,
     strategy: MergeStrategy,
-) -> Result<merge_queue_entry::Model> {
+) -> CoreResult<merge_queue_entry::Model> {
     if pr.repo_id != repository.id {
-        bail!("pull request does not belong to this repository");
+        return Err(CoreError::not_found(
+            "pull request not found in this repository",
+        ));
     }
     if pr.state != "open" || pr.is_draft {
-        bail!("only an open, non-draft pull request can enter the merge queue");
+        return Err(CoreError::conflict(
+            "only an open, non-draft pull request can enter the merge queue",
+        ));
     }
 
     // All writes (auto-merge flag off, queue entry upsert, events) go through
@@ -89,7 +94,7 @@ pub async fn cancel(
     repository: &repository::Model,
     pr: &pull_request::Model,
     actor_id: i64,
-) -> Result<bool> {
+) -> CoreResult<bool> {
     let canceled = merge_queue_ops::cancel(db, pr.id).await?;
     if canceled {
         rg_db::ops::pr_event_ops::record(
@@ -113,7 +118,7 @@ async fn finish_entry(
     entry: &merge_queue_entry::Model,
     status: &str,
     failure_reason: Option<String>,
-) -> Result<merge_queue_entry::Model> {
+) -> CoreResult<merge_queue_entry::Model> {
     // Queue status + audit event are atomic; ref cleanup (a Git side effect)
     // runs after commit.
     let txn = db.begin().await.context("db: begin merge-queue finish transaction")?;
@@ -161,7 +166,7 @@ pub async fn process_repository(
     db: &DatabaseConnection,
     repo_root: &Path,
     repository: &repository::Model,
-) -> Result<MergeQueueProcessResult> {
+) -> CoreResult<MergeQueueProcessResult> {
     process_repository_inner(db, repo_root, repository, None).await
 }
 
@@ -170,7 +175,7 @@ pub async fn process_repository_with_ci(
     repo_root: &Path,
     repository: &repository::Model,
     ci: &MergeQueueCi<'_>,
-) -> Result<MergeQueueProcessResult> {
+) -> CoreResult<MergeQueueProcessResult> {
     process_repository_inner(db, repo_root, repository, Some(ci)).await
 }
 
@@ -179,7 +184,7 @@ async fn process_repository_inner(
     repo_root: &Path,
     repository: &repository::Model,
     ci: Option<&MergeQueueCi<'_>>,
-) -> Result<MergeQueueProcessResult> {
+) -> CoreResult<MergeQueueProcessResult> {
     let namespace = service::repository_namespace(db, repository).await?;
     let mut result = MergeQueueProcessResult {
         merged: Vec::new(),
@@ -249,7 +254,7 @@ async fn process_repository_inner(
             result.failed.push(pr.id);
             continue;
         }
-        if let Err(error) = crate::branch_protection::service::check_merge_allowed(
+        match crate::branch_protection::service::check_merge_allowed(
             db,
             repository.id,
             &pr.base_branch,
@@ -257,8 +262,14 @@ async fn process_repository_inner(
         )
         .await
         {
-            result.waiting_reason = Some(error.to_string());
-            break;
+            Ok(()) => {}
+            // A protection rule that is not yet satisfied just keeps the head
+            // of the queue waiting; real failures are errors.
+            Err(CoreError::Forbidden(reason)) => {
+                result.waiting_reason = Some(reason);
+                break;
+            }
+            Err(error) => return Err(error),
         }
         if let Some(ci) = ci {
             match ensure_merge_group_ci(db, repo_root, repository, &entry, &pr, ci).await? {
@@ -315,7 +326,19 @@ async fn process_repository_inner(
                 result.merged.push(pr.id);
             }
             Err(error) => {
-                finish_entry(db, repo_root, &entry, "failed", Some(error.to_string())).await?;
+                // The reason is persisted and shown on the PR timeline, so it
+                // must never carry internal detail (paths, driver text).
+                let reason = match &error {
+                    CoreError::NotFound(message)
+                    | CoreError::Forbidden(message)
+                    | CoreError::Conflict(message)
+                    | CoreError::InvalidInput(message) => message.clone(),
+                    CoreError::Internal(_) => {
+                        tracing::error!(pr_id = pr.id, %error, "merge queue merge failed");
+                        "merge failed due to an internal error".to_string()
+                    }
+                };
+                finish_entry(db, repo_root, &entry, "failed", Some(reason)).await?;
                 result.failed.push(pr.id);
             }
         }
@@ -336,7 +359,7 @@ async fn ensure_merge_group_ci(
     entry: &merge_queue_entry::Model,
     pr: &pull_request::Model,
     ci: &MergeQueueCi<'_>,
-) -> Result<MergeGroupState> {
+) -> CoreResult<MergeGroupState> {
     let namespace = service::repository_namespace(db, repository).await?;
     let repo_path = repo_root.join(format!("{namespace}/{}.git", repository.name));
     let base_ref = format!("refs/heads/{}", pr.base_branch);
@@ -361,8 +384,10 @@ async fn ensure_merge_group_ci(
             rg_git::ops::copy_objects_from_source(&head_repo_path, &head_sha, &target_path)
         })
         .await
-        .map_err(|error| anyhow::anyhow!("fork fetch task failed: {error}"))?
-        .map_err(|error| anyhow::anyhow!("failed to fetch objects from head repo: {error}"))?;
+        .map_err(|error| CoreError::internal(format!("fork fetch task failed: {error}")))?
+        .map_err(|error| {
+            CoreError::internal(format!("failed to fetch objects from head repo: {error}"))
+        })?;
     }
 
     if entry.merge_group_base_sha.as_deref() == Some(&base_sha)
@@ -465,7 +490,7 @@ async fn ensure_merge_group_ci(
         }
     })
     .await
-    .map_err(|error| anyhow::anyhow!("merge group task join failed: {error}"))??;
+    .map_err(|error| CoreError::internal(format!("merge group task join failed: {error}")))??;
 
     let group_sha = match group_sha {
         GroupOutcome::Conflicts(count) => {
@@ -526,7 +551,7 @@ pub async fn process_for_head_commit(
     repo_root: &Path,
     source_repo_id: i64,
     commit_sha: &str,
-) -> Result<Vec<MergeQueueProcessResult>> {
+) -> CoreResult<Vec<MergeQueueProcessResult>> {
     process_for_head_commit_inner(db, repo_root, source_repo_id, commit_sha, None).await
 }
 
@@ -536,7 +561,7 @@ pub async fn process_for_head_commit_with_ci(
     source_repo_id: i64,
     commit_sha: &str,
     ci: &MergeQueueCi<'_>,
-) -> Result<Vec<MergeQueueProcessResult>> {
+) -> CoreResult<Vec<MergeQueueProcessResult>> {
     process_for_head_commit_inner(db, repo_root, source_repo_id, commit_sha, Some(ci)).await
 }
 
@@ -546,7 +571,7 @@ async fn process_for_head_commit_inner(
     source_repo_id: i64,
     commit_sha: &str,
     ci: Option<&MergeQueueCi<'_>>,
-) -> Result<Vec<MergeQueueProcessResult>> {
+) -> CoreResult<Vec<MergeQueueProcessResult>> {
     if let Some(entry) =
         merge_queue_ops::find_by_merge_group_sha(db, source_repo_id, commit_sha).await?
     {

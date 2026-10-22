@@ -79,10 +79,7 @@ pub async fn list_protections(
     }
     match rg_core::branch_protection::service::list_protections(&state.db, &owner, &repo).await {
         Ok(protections) => (StatusCode::OK, Json(protections)).into_response(),
-        Err(e) => {
-            tracing::error!(%e, "list_protections failed");
-            AppError::internal(e).into_response()
-        }
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -130,7 +127,7 @@ pub async fn create_protection(
     .await
     {
         Ok(protection) => (StatusCode::CREATED, Json(protection)).into_response(),
-        Err(e) => AppError::bad_request(e.to_string()).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -162,7 +159,7 @@ pub async fn get_protection(
         .await
     {
         Ok(protection) => (StatusCode::OK, Json(protection)).into_response(),
-        Err(e) => AppError::not_found(e.to_string()).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -210,7 +207,7 @@ pub async fn update_protection(
     .await
     {
         Ok(protection) => (StatusCode::OK, Json(protection)).into_response(),
-        Err(e) => AppError::bad_request(e.to_string()).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -246,6 +243,6 @@ pub async fn delete_protection(
     .await
     {
         Ok(()) => (StatusCode::NO_CONTENT, Json(serde_json::json!({}))).into_response(),
-        Err(e) => AppError::bad_request(e.to_string()).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
