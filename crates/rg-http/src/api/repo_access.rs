@@ -13,7 +13,7 @@ pub(crate) async fn resolve_repo(
 ) -> Result<rg_db::entities::repository::Model, AppError> {
     rg_core::repo::service::find_repo_by_owner_name(&state.db, owner, name)
         .await
-        .map_err(AppError::internal)?
+        .map_err(AppError::from)?
         .ok_or_else(|| AppError::not_found("repository not found"))
 }
 
@@ -60,7 +60,7 @@ pub(crate) async fn require_read_with_ci_scope(
             Err(AppError::unauthorized("authentication required"))
         }
         Ok(false) => Err(AppError::forbidden("access denied")),
-        Err(e) => Err(AppError::internal(e)),
+        Err(e) => Err(AppError::from(e)),
     }
 }
 
@@ -78,7 +78,7 @@ pub(crate) async fn require_authenticated_read(
     match rg_core::repo::service::can_read_repo(&state.db, &repo, Some(actor_id)).await {
         Ok(true) => Ok((repo, actor_id)),
         Ok(false) => Err(AppError::forbidden("access denied")),
-        Err(e) => Err(AppError::internal(e)),
+        Err(e) => Err(AppError::from(e)),
     }
 }
 
@@ -96,7 +96,7 @@ pub(crate) async fn require_write(
     match rg_core::repo::service::can_write_repo(&state.db, &repo, Some(actor_id)).await {
         Ok(true) => Ok((repo, actor_id)),
         Ok(false) => Err(AppError::forbidden("write access denied")),
-        Err(e) => Err(AppError::internal(e)),
+        Err(e) => Err(AppError::from(e)),
     }
 }
 
@@ -113,6 +113,6 @@ pub(crate) async fn require_admin(
     match rg_core::repo::service::can_admin_repo(&state.db, &repo, Some(actor_id)).await {
         Ok(true) => Ok((repo, actor_id)),
         Ok(false) => Err(AppError::forbidden("repository admin access required")),
-        Err(error) => Err(AppError::internal(error)),
+        Err(error) => Err(AppError::from(error)),
     }
 }
