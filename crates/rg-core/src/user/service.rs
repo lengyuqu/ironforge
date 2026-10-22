@@ -1,13 +1,33 @@
 //! User service — business logic for user registration, login, profile, admin management,
 //! and password reset.
 
-use anyhow::{bail, Context, Result};
 use chrono::{Duration, Utc};
 use sea_orm::{ActiveValue::Set, DatabaseConnection};
 
 use rg_db::{entities::user::ActiveModel as UserActiveModel, ops::user_ops};
 
 use crate::auth::{jwt, password};
+use crate::error::{CoreError, CoreResult};
+
+/// Message carried by the [`CoreError::Forbidden`] that signals a failed
+/// credential check. The HTTP login handler maps it (and every other
+/// non-internal login failure) to the same generic 401 so the response never
+/// reveals whether the account exists.
+pub const INVALID_CREDENTIALS: &str = "invalid credentials";
+/// Message carried by the [`CoreError::Forbidden`] that signals a locked account.
+pub const ACCOUNT_LOCKED: &str = "account is temporarily locked";
+
+/// Whether `error` (or anything in its cause chain) is a database
+/// unique-constraint violation. Lets handlers turn the loser of a concurrent
+/// insert race into a 409 instead of an opaque 500.
+pub fn is_unique_violation(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        cause
+            .downcast_ref::<sea_orm::DbErr>()
+            .and_then(sea_orm::DbErr::sql_err)
+            .is_some_and(|e| matches!(e, sea_orm::SqlErr::UniqueConstraintViolation(_)))
+    })
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LoginMethod {
@@ -61,26 +81,34 @@ pub struct AuthResponse {
 /// - Must not contain path traversal sequences (`..` or `/`)
 ///
 /// Returns `Ok(())` if valid, `Err` with a descriptive message otherwise.
-pub fn validate_username(username: &str) -> Result<()> {
+pub fn validate_username(username: &str) -> CoreResult<()> {
     if username.len() < 3 || username.len() > 30 {
-        bail!("username must be between 3 and 30 characters");
+        return Err(CoreError::invalid_input(
+            "username must be between 3 and 30 characters",
+        ));
     }
 
     let first_char = username.chars().next().unwrap(); // len >= 3, safe to unwrap
     if !first_char.is_ascii_alphanumeric() {
-        bail!("username must start with an alphanumeric character");
+        return Err(CoreError::invalid_input(
+            "username must start with an alphanumeric character",
+        ));
     }
 
     if !username
         .chars()
         .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
     {
-        bail!("username must only contain alphanumeric characters, hyphens, and underscores");
+        return Err(CoreError::invalid_input(
+            "username must only contain alphanumeric characters, hyphens, and underscores",
+        ));
     }
 
     // Path traversal prevention
     if username.contains("..") || username.contains('/') {
-        bail!("username contains invalid characters");
+        return Err(CoreError::invalid_input(
+            "username contains invalid characters",
+        ));
     }
 
     Ok(())
@@ -95,17 +123,20 @@ pub async fn register(
     email: &str,
     plaintext_password: &str,
     jwt_secret: &str,
-) -> Result<AuthResponse> {
+) -> CoreResult<AuthResponse> {
     // Validate inputs
-    rg_db::ops::user_ops::find_by_username(db, username)
-        .await?
-        .map(|_| ())
-        .map_or(Ok(()), |_| {
-            bail!("username '{}' is already taken", username)
-        })?;
+    if user_ops::find_by_username(db, username).await?.is_some() {
+        return Err(CoreError::conflict(format!(
+            "username '{}' is already taken",
+            username
+        )));
+    }
 
     if user_ops::find_by_email(db, email).await?.is_some() {
-        bail!("email '{}' is already registered", email);
+        return Err(CoreError::conflict(format!(
+            "email '{}' is already registered",
+            email
+        )));
     }
 
     // ── Username validation ──────────────────────────────────────
@@ -114,17 +145,20 @@ pub async fn register(
     // ── Email validation ─────────────────────────────────────────
     match email.split_once('@') {
         Some((local, domain)) if !local.is_empty() && !domain.is_empty() => {}
-        _ => bail!("email must contain '@' with a non-empty local and domain part"),
+        _ => {
+            return Err(CoreError::invalid_input(
+                "email must contain '@' with a non-empty local and domain part",
+            ))
+        }
     }
 
     // ── Password validation ──────────────────────────────────────
     let password_validator = password::PasswordValidator::standard();
     password_validator
         .validate_with_username(plaintext_password, username)
-        .map_err(|e| anyhow::anyhow!("{}", e))?;
+        .map_err(|e| CoreError::invalid_input(e.to_string()))?;
 
-    let password_hash =
-        password::hash_password(plaintext_password).context("failed to hash password")?;
+    let password_hash = password::hash_password(plaintext_password)?;
 
     let now = Utc::now();
     let model = UserActiveModel {
@@ -139,7 +173,18 @@ pub async fn register(
         ..Default::default()
     };
 
-    let user = user_ops::create(db, model).await?;
+    // The pre-checks above are not atomic with this insert: the loser of a
+    // concurrent registration trips the unique index and must see a conflict,
+    // not a 500.
+    let user = match user_ops::create(db, model).await {
+        Ok(user) => user,
+        Err(error) if is_unique_violation(&error) => {
+            return Err(CoreError::conflict(
+                "username or email is already registered",
+            ))
+        }
+        Err(error) => return Err(error.into()),
+    };
     let token = jwt::generate_token(user.id, &user.username, jwt_secret, 7, user.token_version)?;
 
     Ok(AuthResponse {
@@ -150,12 +195,15 @@ pub async fn register(
 }
 
 /// Authenticate a user by username/password. Returns a JWT on success.
+///
+/// Credential failures are [`CoreError::Forbidden`] (see [`INVALID_CREDENTIALS`]);
+/// only genuine infrastructure failures are [`CoreError::Internal`].
 pub async fn login(
     db: &DatabaseConnection,
     username_or_email: &str,
     plaintext_password: &str,
     jwt_secret: &str,
-) -> Result<AuthResponse> {
+) -> CoreResult<AuthResponse> {
     // Try username first, then email
     let user = if username_or_email.contains('@') {
         user_ops::find_by_email(db, username_or_email).await?
@@ -165,15 +213,25 @@ pub async fn login(
 
     let user = match user {
         Some(u) => u,
-        None => bail!("invalid credentials"),
+        None => return Err(CoreError::forbidden(INVALID_CREDENTIALS)),
     };
 
     if !user.is_active {
-        bail!("account is disabled");
+        return Err(CoreError::forbidden("account is disabled"));
     }
 
-    if !password::verify_password(plaintext_password, &user.password_hash)? {
-        bail!("invalid credentials");
+    // A stored hash that cannot be parsed is a data problem, but surfacing it
+    // as a different status than "wrong password" would reveal that the
+    // account exists. Log it for operators and answer like any other failure.
+    let verified = match password::verify_password(plaintext_password, &user.password_hash) {
+        Ok(verified) => verified,
+        Err(error) => {
+            tracing::error!(user_id = user.id, %error, "stored password hash could not be verified");
+            false
+        }
+    };
+    if !verified {
+        return Err(CoreError::forbidden(INVALID_CREDENTIALS));
     }
 
     let token = jwt::generate_token(user.id, &user.username, jwt_secret, 7, user.token_version)?;
@@ -192,13 +250,13 @@ pub async fn login_with_configured_auth(
     username_or_email: &str,
     plaintext_password: &str,
     jwt_secret: &str,
-) -> Result<LoginOutcome> {
+) -> CoreResult<LoginOutcome> {
     let existing = find_login_user(db, username_or_email).await?;
     if existing.as_ref().is_some_and(|user| {
         user.locked_until
             .is_some_and(|locked_until| locked_until > Utc::now())
     }) {
-        bail!("account is temporarily locked");
+        return Err(CoreError::forbidden(ACCOUNT_LOCKED));
     }
     match existing.as_ref().map(|user| user.auth_provider.as_str()) {
         Some("local") => Ok(LoginOutcome {
@@ -215,19 +273,20 @@ pub async fn login_with_configured_auth(
             )
             .await
         }
-        Some(_) => bail!("invalid credentials"),
+        Some(_) => Err(CoreError::forbidden(INVALID_CREDENTIALS)),
     }
 }
 
 async fn find_login_user(
     db: &DatabaseConnection,
     username_or_email: &str,
-) -> Result<Option<rg_db::entities::user::Model>> {
-    if username_or_email.contains('@') {
-        user_ops::find_by_email(db, username_or_email).await
+) -> CoreResult<Option<rg_db::entities::user::Model>> {
+    let user = if username_or_email.contains('@') {
+        user_ops::find_by_email(db, username_or_email).await?
     } else {
-        user_ops::find_by_username(db, username_or_email).await
-    }
+        user_ops::find_by_username(db, username_or_email).await?
+    };
+    Ok(user)
 }
 
 async fn login_via_ldap(
@@ -236,12 +295,12 @@ async fn login_via_ldap(
     username_or_email: &str,
     plaintext_password: &str,
     jwt_secret: &str,
-) -> Result<LoginOutcome> {
+) -> CoreResult<LoginOutcome> {
     if plaintext_password.is_empty() {
-        bail!("invalid credentials");
+        return Err(CoreError::forbidden(INVALID_CREDENTIALS));
     }
     if existing.as_ref().is_some_and(|user| !user.is_active) {
-        bail!("account is disabled");
+        return Err(CoreError::forbidden("account is disabled"));
     }
 
     let lookup = existing
@@ -256,7 +315,7 @@ async fn login_via_ldap(
     if let Some(provider_id) = existing.as_ref().and_then(|user| user.ldap_provider_id) {
         providers.retain(|provider| provider.id == provider_id);
     } else if existing.is_some() && providers.len() != 1 {
-        bail!("invalid credentials");
+        return Err(CoreError::forbidden(INVALID_CREDENTIALS));
     }
     for provider in providers {
         let config = match ldap_config_from_provider(&provider, jwt_secret) {
@@ -289,9 +348,12 @@ async fn login_via_ldap(
         let user = match resolve_ldap_identity(db, existing.as_ref(), provider.id, ldap_user).await
         {
             Ok(user) => user,
+            // A conflicting or incomplete directory entry is a credential-style
+            // failure (never reveal why); a storage failure is a real 500.
+            Err(error @ CoreError::Internal(_)) => return Err(error),
             Err(error) => {
                 tracing::warn!(provider_id = provider.id, %error, "LDAP identity could not be linked");
-                bail!("invalid credentials");
+                return Err(CoreError::forbidden(INVALID_CREDENTIALS));
             }
         };
         let token = jwt::generate_token(user.id, &user.username, jwt_secret, 7, user.token_version)?;
@@ -304,19 +366,19 @@ async fn login_via_ldap(
             method: LoginMethod::Ldap,
         });
     }
-    bail!("invalid credentials")
+    Err(CoreError::forbidden(INVALID_CREDENTIALS))
 }
 
 fn ldap_config_from_provider(
     provider: &rg_db::entities::sso_provider::Model,
     jwt_secret: &str,
-) -> Result<crate::auth::ldap::LdapConfig> {
+) -> CoreResult<crate::auth::ldap::LdapConfig> {
     let raw_host = provider
         .ldap_host
         .as_deref()
         .map(str::trim)
         .filter(|host| !host.is_empty())
-        .context("LDAP host is missing")?;
+        .ok_or_else(|| CoreError::invalid_input("LDAP host is missing"))?;
     let (host, explicit_tls) = raw_host
         .strip_prefix("ldaps://")
         .map(|host| (host, Some(true)))
@@ -327,7 +389,7 @@ fn ldap_config_from_provider(
         })
         .unwrap_or((raw_host, None));
     if host.is_empty() || host.contains('/') {
-        bail!("LDAP host is invalid");
+        return Err(CoreError::invalid_input("LDAP host is invalid"));
     }
     let use_tls = explicit_tls.unwrap_or(match provider.ldap_port {
         Some(port) => port == 636,
@@ -336,23 +398,25 @@ fn ldap_config_from_provider(
     let port = provider
         .ldap_port
         .unwrap_or(if use_tls { 636 } else { 389 });
-    let port = u16::try_from(port).context("LDAP port is invalid")?;
-    if port == 0 {
-        bail!("LDAP port is invalid");
-    }
+    let port = u16::try_from(port)
+        .ok()
+        .filter(|port| *port != 0)
+        .ok_or_else(|| CoreError::invalid_input("LDAP port is invalid"))?;
     let bind_password_enc = provider
         .ldap_bind_password_enc
         .as_deref()
-        .context("LDAP bind password is missing")?;
+        .ok_or_else(|| CoreError::invalid_input("LDAP bind password is missing"))?;
     let key = crate::auth::encryption::derive_key(jwt_secret);
+    // Failing to decrypt a stored secret is a server-side problem (rotated or
+    // corrupted key), not something the caller can fix by changing input.
     let bind_password = crate::auth::encryption::decrypt(bind_password_enc, &key)
-        .context("LDAP bind password could not be decrypted")?;
-    let required = |value: Option<&str>, name: &str| -> Result<String> {
+        .map_err(|e| CoreError::internal(format!("LDAP bind password could not be decrypted: {e}")))?;
+    let required = |value: Option<&str>, name: &str| -> CoreResult<String> {
         value
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(str::to_string)
-            .with_context(|| format!("LDAP {name} is missing"))
+            .ok_or_else(|| CoreError::invalid_input(format!("LDAP {name} is missing")))
     };
     let user_filter = provider
         .ldap_user_filter
@@ -361,7 +425,9 @@ fn ldap_config_from_provider(
         .trim()
         .to_string();
     if !user_filter.contains("{username}") {
-        bail!("LDAP user filter must contain '{{username}}'");
+        return Err(CoreError::invalid_input(
+            "LDAP user filter must contain '{username}'",
+        ));
     }
     Ok(crate::auth::ldap::LdapConfig {
         host: host.to_string(),
@@ -378,9 +444,9 @@ fn ldap_config_from_provider(
 pub async fn test_ldap_provider_connection(
     provider: &rg_db::entities::sso_provider::Model,
     jwt_secret: &str,
-) -> Result<()> {
+) -> CoreResult<()> {
     if provider.provider_type != "ldap" {
-        bail!("provider is not LDAP");
+        return Err(CoreError::invalid_input("provider is not LDAP"));
     }
     let config = ldap_config_from_provider(provider, jwt_secret)?;
     tokio::time::timeout(
@@ -388,7 +454,7 @@ pub async fn test_ldap_provider_connection(
         crate::auth::ldap::test_connection(&config),
     )
     .await
-    .context("LDAP connection test timed out")??;
+    .map_err(|_| CoreError::invalid_input("LDAP connection test timed out"))??;
     Ok(())
 }
 
@@ -397,13 +463,13 @@ async fn resolve_ldap_identity(
     existing: Option<&rg_db::entities::user::Model>,
     ldap_provider_id: i64,
     ldap_user: crate::auth::ldap::LdapUser,
-) -> Result<rg_db::entities::user::Model> {
+) -> CoreResult<rg_db::entities::user::Model> {
     let username = ldap_user
         .uid
         .as_deref()
         .unwrap_or(&ldap_user.username)
         .trim();
-    validate_username(username).context("LDAP username is not valid for IronForge")?;
+    validate_username(username)?;
 
     if let Some(user) = existing {
         if user.auth_provider != "ldap"
@@ -412,9 +478,11 @@ async fn resolve_ldap_identity(
                 .ldap_provider_id
                 .is_some_and(|provider_id| provider_id != ldap_provider_id)
         {
-            bail!("LDAP identity conflicts with an existing account");
+            return Err(CoreError::conflict(
+                "LDAP identity conflicts with an existing account",
+            ));
         }
-        return user_ops::sync_ldap_identity(
+        let synced = user_ops::sync_ldap_identity(
             db,
             user.id,
             ldap_provider_id,
@@ -422,22 +490,29 @@ async fn resolve_ldap_identity(
             &ldap_user.dn,
             ldap_user.uid.as_deref(),
         )
-        .await;
+        .await?;
+        return Ok(synced);
     }
 
     if user_ops::find_by_username(db, username).await?.is_some() {
-        bail!("LDAP identity conflicts with an existing account");
+        return Err(CoreError::conflict(
+            "LDAP identity conflicts with an existing account",
+        ));
     }
     let email = ldap_user
         .email
         .as_deref()
         .map(str::trim)
         .filter(|email| valid_email(email))
-        .context("LDAP account does not have a valid email address")?;
+        .ok_or_else(|| {
+            CoreError::invalid_input("LDAP account does not have a valid email address")
+        })?;
     if user_ops::find_by_email(db, email).await?.is_some() {
-        bail!("LDAP identity conflicts with an existing account");
+        return Err(CoreError::conflict(
+            "LDAP identity conflicts with an existing account",
+        ));
     }
-    user_ops::create_ldap_user(
+    let created = user_ops::create_ldap_user(
         db,
         ldap_provider_id,
         username,
@@ -446,7 +521,8 @@ async fn resolve_ldap_identity(
         &ldap_user.dn,
         ldap_user.uid.as_deref(),
     )
-    .await
+    .await?;
+    Ok(created)
 }
 
 fn valid_email(email: &str) -> bool {
@@ -480,7 +556,7 @@ pub async fn list_users_admin(
     db: &DatabaseConnection,
     page: u64,
     per_page: u64,
-) -> Result<PaginatedUsers> {
+) -> CoreResult<PaginatedUsers> {
     let (users, total) = user_ops::list_users(db, page, per_page).await?;
     Ok(PaginatedUsers {
         users: users.into_iter().map(Into::into).collect(),
@@ -496,19 +572,29 @@ pub async fn update_user_admin(
     bio: Option<Option<String>>,
     is_admin: Option<bool>,
     is_active: Option<bool>,
-) -> Result<UserInfo> {
+) -> CoreResult<UserInfo> {
+    // `user_ops::update_by_id` reports a missing row as a plain error, which is
+    // indistinguishable from a storage failure; look the user up first so a
+    // missing target is a 404.
+    if user_ops::find_by_id(db, target_user_id).await?.is_none() {
+        return Err(CoreError::not_found("user not found"));
+    }
     let updated =
         user_ops::update_by_id(db, target_user_id, display_name, bio, is_admin, is_active).await?;
     Ok(updated.into())
 }
 
 /// Delete a user (admin only).
-pub async fn delete_user(db: &DatabaseConnection, user_id: i64) -> Result<()> {
-    user_ops::delete_by_id(db, user_id).await
+pub async fn delete_user(db: &DatabaseConnection, user_id: i64) -> CoreResult<()> {
+    if user_ops::find_by_id(db, user_id).await?.is_none() {
+        return Err(CoreError::not_found("user not found"));
+    }
+    user_ops::delete_by_id(db, user_id).await?;
+    Ok(())
 }
 
 /// Get a single user by ID (admin view).
-pub async fn get_user_by_id(db: &DatabaseConnection, user_id: i64) -> Result<Option<UserInfo>> {
+pub async fn get_user_by_id(db: &DatabaseConnection, user_id: i64) -> CoreResult<Option<UserInfo>> {
     let user = user_ops::find_by_id(db, user_id).await?;
     Ok(user.map(Into::into))
 }
@@ -523,7 +609,7 @@ pub async fn forgot_password(
     email: &str,
     smtp_config: Option<&crate::email::SmtpConfig>,
     base_url: &str,
-) -> Result<()> {
+) -> CoreResult<()> {
     let user = match user_ops::find_by_email(db, email).await? {
         Some(u) => u,
         None => {
@@ -610,27 +696,32 @@ pub async fn reset_password(
     raw_token: &str,
     new_password: &str,
     jwt_secret: &str,
-) -> Result<AuthResponse> {
+) -> CoreResult<AuthResponse> {
     use sha2::Digest;
     let token_hash = hex::encode(sha2::Sha256::digest(raw_token.as_bytes()));
 
     let token_record = rg_db::ops::password_reset_token_ops::find_by_hash(db, &token_hash).await?;
     let token = match token_record {
         Some(t) if !t.used && t.expires_at > Utc::now() => t,
-        _ => bail!("invalid or expired reset token"),
+        _ => {
+            return Err(CoreError::invalid_input(
+                "invalid or expired reset token",
+            ))
+        }
     };
 
-    // Validate new password
+    // Validate new password. A token whose user has since been deleted is just
+    // as unusable as an expired one; do not reveal the difference.
     let user = user_ops::find_by_id(db, token.user_id)
         .await?
-        .ok_or_else(|| anyhow::anyhow!("user not found"))?;
+        .ok_or_else(|| CoreError::invalid_input("invalid or expired reset token"))?;
 
     let password_validator = password::PasswordValidator::standard();
     password_validator
         .validate_with_username(new_password, &user.username)
-        .map_err(|e| anyhow::anyhow!("{}", e))?;
+        .map_err(|e| CoreError::invalid_input(e.to_string()))?;
 
-    let new_hash = password::hash_password(new_password).context("failed to hash new password")?;
+    let new_hash = password::hash_password(new_password)?;
 
     // Update password
     use sea_orm::ActiveModelTrait;
@@ -650,7 +741,7 @@ pub async fn reset_password(
     user_ops::bump_token_version(db, user.id).await?;
     let user = user_ops::find_by_id(db, user.id)
         .await?
-        .ok_or_else(|| anyhow::anyhow!("user not found after token version bump"))?;
+        .ok_or_else(|| CoreError::internal("user not found after token version bump"))?;
 
     // Generate new JWT carrying the fresh token_version
     let jwt_token = jwt::generate_token(user.id, &user.username, jwt_secret, 7, user.token_version)?;
@@ -718,6 +809,111 @@ mod tests {
         invalid.ldap_user_filter = Some("(objectClass=person)".into());
         assert!(ldap_config_from_provider(&invalid, "jwt-secret").is_err());
         assert!(ldap_config_from_provider(&ldap_provider("other-secret"), "jwt-secret").is_err());
+    }
+
+    async fn memory_db() -> DatabaseConnection {
+        let db = rg_db::connect("sqlite::memory:").await.unwrap();
+        rg_db::run_migrations(&db).await.unwrap();
+        db
+    }
+
+    #[tokio::test]
+    async fn service_errors_are_classified_not_flattened() {
+        let db = memory_db().await;
+        assert!(matches!(
+            validate_username("a"),
+            Err(CoreError::InvalidInput(_))
+        ));
+        register(&db, "classify", "classify@example.com", "Qz7$wRtm", "secret")
+            .await
+            .unwrap();
+
+        // duplicates are conflicts, malformed input is invalid input
+        assert!(matches!(
+            register(&db, "classify", "x@example.com", "Qz7$wRtm", "secret").await,
+            Err(CoreError::Conflict(_))
+        ));
+        assert!(matches!(
+            register(&db, "classify2", "classify@example.com", "Qz7$wRtm", "secret").await,
+            Err(CoreError::Conflict(_))
+        ));
+        assert!(matches!(
+            register(&db, "classify3", "no-at", "Qz7$wRtm", "secret").await,
+            Err(CoreError::InvalidInput(_))
+        ));
+        assert!(matches!(
+            register(&db, "classify3", "c3@example.com", "abc", "secret").await,
+            Err(CoreError::InvalidInput(_))
+        ));
+
+        // credential failures carry the generic marker, never an internal error
+        for (login_name, pw) in [("classify", "Wrong#pass1"), ("ghost", "Qz7$wRtm")] {
+            match login(&db, login_name, pw, "secret").await {
+                Err(CoreError::Forbidden(m)) => assert_eq!(m, INVALID_CREDENTIALS),
+                other => panic!("expected generic credential failure, got {other:?}"),
+            }
+        }
+
+        // missing targets of admin operations are 404s, not generic failures
+        assert!(matches!(
+            update_user_admin(&db, 9999, None, None, None, None).await,
+            Err(CoreError::NotFound(_))
+        ));
+        assert!(matches!(
+            delete_user(&db, 9999).await,
+            Err(CoreError::NotFound(_))
+        ));
+        assert!(matches!(
+            reset_password(&db, "no-such-token", "Zx9#plmQ", "secret").await,
+            Err(CoreError::InvalidInput(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn storage_failures_stay_internal() {
+        use sea_orm::ConnectionTrait;
+        let db = memory_db().await;
+        db.execute_unprepared("ALTER TABLE users RENAME TO users_gone")
+            .await
+            .unwrap();
+        assert!(matches!(
+            register(&db, "someone", "someone@example.com", "Qz7$wRtm", "secret").await,
+            Err(CoreError::Internal(_))
+        ));
+        assert!(matches!(
+            login(&db, "someone", "Qz7$wRtm", "secret").await,
+            Err(CoreError::Internal(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn real_unique_violation_is_recognised_through_context_layers() {
+        let db = memory_db().await;
+        let make = || UserActiveModel {
+            username: Set("dup".into()),
+            email: Set("dup@example.com".into()),
+            password_hash: Set("x".into()),
+            is_admin: Set(false),
+            is_active: Set(true),
+            created_at: Set(Utc::now()),
+            updated_at: Set(Utc::now()),
+            deleted_at: Set(None),
+            ..Default::default()
+        };
+        user_ops::create(&db, make()).await.unwrap();
+        // `user_ops::create` wraps the driver error in an anyhow context.
+        let error = user_ops::create(&db, make()).await.unwrap_err();
+        assert!(is_unique_violation(&error), "{error:#}");
+    }
+
+    #[test]
+    fn unique_violations_are_recognised_through_context_layers() {
+        use sea_orm::{DbErr, RuntimeErr};
+        // A non-unique driver error is not a conflict.
+        let other = anyhow::Error::new(DbErr::Conn(RuntimeErr::Internal("boom".into())))
+            .context("db: create thing");
+        assert!(!is_unique_violation(&other));
+        assert!(!is_unique_violation(&anyhow::anyhow!("unique")));
     }
 
     #[tokio::test]

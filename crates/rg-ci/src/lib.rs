@@ -38,7 +38,16 @@ use anyhow::{Context, Result};
 use gix::bstr::ByteSlice;
 
 use config::CiConfig;
+use rg_core::error::CoreError;
 use runner::PipelineRunner;
+
+/// A problem with the repository's CI definition itself (bad YAML, unsupported
+/// value, over-large matrix). It is raised as `CoreError::InvalidInput` inside
+/// the `anyhow` the engine returns, so the HTTP layer can report it as a 400
+/// with the real reason instead of an opaque 500.
+fn invalid_config(message: impl Into<String>) -> anyhow::Error {
+    anyhow::Error::new(CoreError::invalid_input(message))
+}
 
 // M-14: TriggerPipelineParams and has_ci_config are now defined in rg-core.
 // Re-export for backward compatibility with any code that still imports from rg_ci.
@@ -143,12 +152,12 @@ pub async fn trigger_pipeline(params: TriggerPipelineParams<'_>) -> Result<i64> 
                     }
                 }
             } else {
-                return Err(anyhow::anyhow!(
+                return Err(anyhow::Error::new(CoreError::conflict(format!(
                     "Concurrency group '{}' has {} active pipeline(s). \
                      Set cancel_in_progress: true to auto-cancel, or wait for them to finish.",
                     group,
                     active.len()
-                ));
+                ))));
             }
         }
     }
@@ -408,24 +417,25 @@ fn validate_execution_semantics(config: &CiConfig) -> Result<()> {
     for (name, job) in &config.jobs {
         if let Some(when) = job.when.as_deref() {
             if when != "on_success" && when != "manual" {
-                anyhow::bail!("job '{name}' uses unsupported when: '{when}'; supported values are 'on_success' and 'manual'");
+                return Err(invalid_config(format!("job '{name}' uses unsupported when: '{when}'; supported values are 'on_success' and 'manual'")));
             }
         }
         if job.timeout_seconds == Some(0) || job.timeout_seconds.is_some_and(|value| value > 86_400)
         {
-            anyhow::bail!("job '{name}' timeout_seconds must be between 1 and 86400");
+            return Err(invalid_config(format!("job '{name}' timeout_seconds must be between 1 and 86400")));
         }
         if let Some(environment) = job.environment.as_deref() {
             if environment.is_empty()
                 || environment.len() > 255
                 || environment.chars().any(char::is_control)
             {
-                anyhow::bail!("job '{name}' has an invalid environment name");
+                return Err(invalid_config(format!("job '{name}' has an invalid environment name")));
             }
         }
         if let Some(condition) = job.condition.as_deref() {
-            crate::condition::validate_condition(condition)
-                .with_context(|| format!("job '{name}' has an unsupported if condition"))?;
+            crate::condition::validate_condition(condition).map_err(|e| {
+                invalid_config(format!("job '{name}' has an unsupported if condition: {e:#}"))
+            })?;
         }
     }
     Ok(())
@@ -484,14 +494,16 @@ fn expand_matrix(job_name: &str, config: &config::JobConfig) -> Result<Vec<Matri
         }]);
     };
     if matrix.values().any(Vec::is_empty) {
-        anyhow::bail!("job '{job_name}' has an empty matrix dimension");
+        return Err(invalid_config(format!("job '{job_name}' has an empty matrix dimension")));
     }
     let count = matrix
         .values()
         .try_fold(1usize, |total, values| total.checked_mul(values.len()))
-        .context("matrix size overflow")?;
+        .ok_or_else(|| invalid_config(format!("job '{job_name}' matrix size overflow")))?;
     if count > 256 {
-        anyhow::bail!("job '{job_name}' matrix expands to {count} variants; maximum is 256");
+        return Err(invalid_config(format!(
+            "job '{job_name}' matrix expands to {count} variants; maximum is 256"
+        )));
     }
     let mut variants = vec![(Vec::<(String, String)>::new(), base)];
     for (key, values) in matrix {
@@ -553,10 +565,10 @@ fn read_ci_config(
     // Fall back to native .ironforge-ci.yml
     let revspec = format!("{}:.ironforge-ci.yml", commit_sha);
     let object_id = repo.rev_parse_single(revspec.as_str()).map_err(|_| {
-        anyhow::anyhow!(
+        invalid_config(format!(
             "no CI config found (.gitea/workflows/*.yml or .ironforge-ci.yml) at commit {}",
             commit_sha
-        )
+        ))
     })?;
 
     let object_id = object_id.object().context("failed to resolve object")?;
@@ -564,11 +576,13 @@ fn read_ci_config(
         .try_into_blob()
         .context("expected a blob object for .ironforge-ci.yml")?;
 
-    let ci_yml =
-        String::from_utf8(blob.data.to_vec()).context(".ironforge-ci.yml is not valid UTF-8")?;
+    let ci_yml = String::from_utf8(blob.data.to_vec())
+        .map_err(|_| invalid_config(".ironforge-ci.yml is not valid UTF-8"))?;
 
+    // The parser's message carries line/column and the reason; do not echo the
+    // whole file back.
     let config: CiConfig = serde_yaml::from_str(&ci_yml)
-        .with_context(|| format!("failed to parse .ironforge-ci.yml: {}", ci_yml))?;
+        .map_err(|e| invalid_config(format!("failed to parse .ironforge-ci.yml: {e}")))?;
 
     Ok(config)
 }
@@ -753,6 +767,12 @@ mod matrix_tests {
         )
         .unwrap_err();
         assert!(error.to_string().contains("maximum is 256"));
+        // A problem in the repository's CI file is the caller's to fix: the
+        // HTTP layer recovers this classification (400) from the anyhow.
+        assert!(matches!(
+            error.downcast_ref::<CoreError>(),
+            Some(CoreError::InvalidInput(_))
+        ));
     }
 
     #[tokio::test]
@@ -1020,7 +1040,11 @@ mod matrix_tests {
             concurrency: None,
             jobs: HashMap::from([("deploy".into(), job.clone())]),
         };
-        assert!(validate_execution_semantics(&invalid_when).is_err());
+        let error = validate_execution_semantics(&invalid_when).unwrap_err();
+        assert!(matches!(
+            error.downcast_ref::<CoreError>(),
+            Some(CoreError::InvalidInput(_))
+        ));
         job.when = None;
         job.timeout_seconds = Some(0);
         let config = CiConfig {

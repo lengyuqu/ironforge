@@ -16,6 +16,8 @@ use rg_db::entities::webhook;
 use rg_db::entities::webhook_delivery;
 use rg_db::ops::webhook_ops;
 
+use crate::error::{CoreError, CoreResult};
+
 // ── API types ─────────────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -43,11 +45,11 @@ pub async fn create_webhook(
     db: &DatabaseConnection,
     repo_id: i64,
     req: &CreateWebhookRequest,
-) -> Result<webhook::Model> {
+) -> CoreResult<webhook::Model> {
     // SSRF guard: only public http/https endpoints may receive payloads.
     crate::net_guard::validate_webhook_url(&req.url)
         .await
-        .map_err(|e| anyhow::anyhow!("invalid webhook URL: {e}"))?;
+        .map_err(|e| CoreError::invalid_input(format!("invalid webhook URL: {e}")))?;
 
     let now = Utc::now();
     let events_str = req.events.join(",");
@@ -66,17 +68,17 @@ pub async fn create_webhook(
         created_at: sea_orm::Set(now),
         updated_at: sea_orm::Set(now),
     };
-    webhook_ops::create_webhook(db, model).await
+    Ok(webhook_ops::create_webhook(db, model).await?)
 }
 
 /// List all webhooks for a repository.
-pub async fn list_webhooks(db: &DatabaseConnection, repo_id: i64) -> Result<Vec<webhook::Model>> {
-    webhook_ops::list_by_repo(db, repo_id).await
+pub async fn list_webhooks(db: &DatabaseConnection, repo_id: i64) -> CoreResult<Vec<webhook::Model>> {
+    Ok(webhook_ops::list_by_repo(db, repo_id).await?)
 }
 
 /// Get a webhook by id.
-pub async fn get_webhook(db: &DatabaseConnection, id: i64) -> Result<Option<webhook::Model>> {
-    webhook_ops::find_by_id(db, id).await
+pub async fn get_webhook(db: &DatabaseConnection, id: i64) -> CoreResult<Option<webhook::Model>> {
+    Ok(webhook_ops::find_by_id(db, id).await?)
 }
 
 /// Update a webhook.
@@ -84,12 +86,12 @@ pub async fn update_webhook(
     db: &DatabaseConnection,
     existing: &webhook::Model,
     req: &UpdateWebhookRequest,
-) -> Result<webhook::Model> {
+) -> CoreResult<webhook::Model> {
     if let Some(url) = &req.url {
         // SSRF guard on updated endpoint.
         crate::net_guard::validate_webhook_url(url)
             .await
-            .map_err(|e| anyhow::anyhow!("invalid webhook URL: {e}"))?;
+            .map_err(|e| CoreError::invalid_input(format!("invalid webhook URL: {e}")))?;
     }
 
     let model = webhook::ActiveModel {
@@ -112,12 +114,12 @@ pub async fn update_webhook(
         created_at: sea_orm::Set(existing.created_at),
         updated_at: sea_orm::Set(Utc::now()),
     };
-    webhook_ops::update_webhook(db, model).await
+    Ok(webhook_ops::update_webhook(db, model).await?)
 }
 
 /// Delete a webhook.
-pub async fn delete_webhook(db: &DatabaseConnection, id: i64) -> Result<()> {
-    webhook_ops::delete_webhook_by_id(db, id).await
+pub async fn delete_webhook(db: &DatabaseConnection, id: i64) -> CoreResult<()> {
+    Ok(webhook_ops::delete_webhook_by_id(db, id).await?)
 }
 
 // ── Event dispatch ────────────────────────────────────────────────────────
@@ -338,27 +340,27 @@ pub async fn deliver_retry_job(db: &DatabaseConnection, payload: &Value) -> Resu
 pub async fn list_deliveries(
     db: &DatabaseConnection,
     webhook_id: i64,
-) -> Result<Vec<webhook_delivery::Model>> {
-    webhook_ops::list_deliveries_by_webhook(db, webhook_id).await
+) -> CoreResult<Vec<webhook_delivery::Model>> {
+    Ok(webhook_ops::list_deliveries_by_webhook(db, webhook_id).await?)
 }
 
 /// Get a delivery by id.
 pub async fn get_delivery(
     db: &DatabaseConnection,
     id: i64,
-) -> Result<Option<webhook_delivery::Model>> {
-    webhook_ops::find_delivery_by_id(db, id).await
+) -> CoreResult<Option<webhook_delivery::Model>> {
+    Ok(webhook_ops::find_delivery_by_id(db, id).await?)
 }
 
 /// Redeliver a webhook (re-post the original payload).
-pub async fn redeliver(db: &DatabaseConnection, delivery_id: i64) -> Result<()> {
+pub async fn redeliver(db: &DatabaseConnection, delivery_id: i64) -> CoreResult<()> {
     let delivery = webhook_ops::find_delivery_by_id(db, delivery_id)
         .await?
-        .ok_or_else(|| anyhow::anyhow!("delivery {} not found", delivery_id))?;
+        .ok_or_else(|| CoreError::not_found("delivery not found"))?;
 
     let hook = webhook_ops::find_by_id(db, delivery.webhook_id)
         .await?
-        .ok_or_else(|| anyhow::anyhow!("webhook {} not found", delivery.webhook_id))?;
+        .ok_or_else(|| CoreError::not_found("webhook not found"))?;
 
     let payload = delivery.request_payload.clone().unwrap_or_default();
 

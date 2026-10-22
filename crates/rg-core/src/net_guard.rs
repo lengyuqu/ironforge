@@ -170,14 +170,24 @@ async fn resolve_and_check(
     port: u16,
     blocked: fn(IpAddr) -> bool,
 ) -> Result<(), String> {
+    // The returned messages reach API clients (and webhook delivery logs), so
+    // they must not disclose what a hostname resolved to or the resolver's own
+    // error text: that would turn this guard into a DNS/internal-network probe.
+    // The detail goes to the operator log instead.
     let addrs = tokio::net::lookup_host((host.to_string(), port))
         .await
-        .map_err(|e| format!("cannot resolve host {host:?}: {e}"))?;
+        .map_err(|e| {
+            tracing::warn!(host, error = %e, "outbound URL host could not be resolved");
+            format!("cannot resolve host {host:?}")
+        })?;
     let mut any = false;
     for addr in addrs {
         any = true;
         if blocked(addr.ip()) {
-            return Err(format!("host {host:?} resolves to a blocked address ({})", addr.ip()));
+            tracing::warn!(host, resolved = %addr.ip(), "outbound URL host resolves to a blocked address");
+            return Err(format!(
+                "host {host:?} resolves to an address that is not allowed"
+            ));
         }
     }
     if !any {
@@ -353,6 +363,23 @@ mod tests {
             .await
             .unwrap_err();
         assert!(err.contains("cannot resolve"), "{err}");
+        // The resolver's own error text stays in the operator log.
+        assert!(!err.contains("lookup") && !err.contains("os error"), "{err}");
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn blocked_address_errors_do_not_disclose_the_resolved_ip() {
+        let _g = ENV_GUARD.lock().unwrap();
+        // `localhost` resolves to loopback; the client may learn that it was
+        // refused, but not what the name resolved to.
+        for err in [
+            validate_webhook_url("http://localhost/x").await.unwrap_err(),
+            validate_mirror_url("http://localhost/x").await.unwrap_err(),
+        ] {
+            assert!(err.contains("not allowed"), "{err}");
+            assert!(!err.contains("127.0.0.1") && !err.contains("::1"), "{err}");
+        }
     }
 
     // ── mirror policy ────────────────────────────────────────────────────
