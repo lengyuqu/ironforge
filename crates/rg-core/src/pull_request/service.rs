@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 use rg_db::entities::pull_request::{self, Model as PullRequest};
 use rg_db::entities::repository as repo_entity;
-use rg_db::ops::{pull_request_ops, repo_ops, user_ops};
+use rg_db::ops::{pull_request_ops, user_ops};
 
 // ── PR CRUD ─────────────────────────────────────────────────────────────
 
@@ -146,58 +146,61 @@ pub async fn create_pr(
 }
 
 /// Resolve a head reference in `owner:branch` format to (head_branch, head_repo_id).
-/// Returns (branch_name, Some(head_repo_id)) if owner differs from the target repo owner,
-/// or (branch_name, None) if same owner (same-repo PR).
+///
+/// `owner` is a namespace: the target repository's own namespace (its owning
+/// user, or its organization) means "a branch of this very repository" and
+/// yields `(branch, None)`; any other user or organization must hold a fork of
+/// the target under the target's name, which yields `(branch, Some(fork_id))`.
+///
+/// The target's namespace is compared by *name*, not by `owner_id`. For an
+/// organization repository `owner_id` is only the member who created it, so
+/// comparing it made `acme:feature` fail ("head owner not found"), and made the
+/// creator's own `carol:feature` silently mean the organization's repository
+/// even when `carol` held a fork of it.
 pub async fn resolve_head_ref(
     db: &DatabaseConnection,
     target_repo_id: i64,
     head_ref: &str,
 ) -> CoreResult<(String, Option<i64>)> {
-    if let Some((head_owner, head_branch)) = head_ref.split_once(':') {
-        // Cross-repo (fork) PR: "owner:branch"
-        let head_branch = head_branch.to_string();
-        let head_owner_user = user_ops::find_by_username(db, head_owner)
-            .await?
-            .with_context(|| format!("head owner '{}' not found", head_owner))?;
-
-        // Find the target repo to compare
-        let target_repo = repo_entity::Entity::find_by_id(target_repo_id)
-            .one(db)
-            .await
-            .context("failed to find target repository")?
-            .context("target repository not found")?;
-
-        if head_owner_user.id != target_repo.owner_id {
-            // Different owner — this is a fork PR
-            // Find the fork repo by the head owner (user may have forked the same repo)
-            let fork_repo =
-                repo_ops::find_by_owner_and_name(db, head_owner_user.id, &target_repo.name)
-                    .await?
-                    .with_context(|| {
-                        format!(
-                            "no repository '{}/{}' found for head owner",
-                            head_owner, target_repo.name
-                        )
-                    })?;
-
-            // Verify it's actually a fork of the target
-            if fork_repo.origin_repo_id != Some(target_repo_id) && fork_repo.id != target_repo_id {
-                return Err(CoreError::invalid_input(format!(
-                    "'{}/{}' is not a fork of the target repository",
-                    head_owner,
-                    target_repo.name
-                )));
-            }
-
-            return Ok((head_branch, Some(fork_repo.id)));
-        }
-
-        // Same owner — not a fork, just a branch reference with owner prefix
-        Ok((head_branch, None))
-    } else {
+    let Some((head_owner, head_branch)) = head_ref.split_once(':') else {
         // Simple branch name — same-repo PR
-        Ok((head_ref.to_string(), None))
+        return Ok((head_ref.to_string(), None));
+    };
+    let head_branch = head_branch.to_string();
+
+    let target_repo = repo_entity::Entity::find_by_id(target_repo_id)
+        .one(db)
+        .await
+        .context("failed to find target repository")?
+        .ok_or_else(|| CoreError::not_found("target repository not found"))?;
+
+    // Same namespace as the target — just a branch reference with a prefix.
+    if head_owner == repository_namespace(db, &target_repo).await? {
+        return Ok((head_branch, None));
     }
+
+    // Different namespace — this is a fork PR. Look for the fork there (a user's
+    // personal repository, or an organization's), under the target's name.
+    let fork_repo = crate::repo::service::find_repo_by_owner_name(db, head_owner, &target_repo.name)
+        .await?
+        // The head named in the request body does not resolve: a client error,
+        // not an internal failure.
+        .ok_or_else(|| {
+            CoreError::invalid_input(format!(
+                "no repository '{}/{}' found for head owner",
+                head_owner, target_repo.name
+            ))
+        })?;
+
+    // Verify it's actually a fork of the target
+    if fork_repo.origin_repo_id != Some(target_repo_id) && fork_repo.id != target_repo_id {
+        return Err(CoreError::invalid_input(format!(
+            "'{}/{}' is not a fork of the target repository",
+            head_owner, target_repo.name
+        )));
+    }
+
+    Ok((head_branch, Some(fork_repo.id)))
 }
 
 pub(super) async fn repository_namespace(
@@ -1650,5 +1653,5 @@ async fn resolve_repo(
     // left the creator's personal URL as the only way in.
     crate::repo::service::find_repo_by_owner_name(db, owner, repo_name)
         .await?
-        .context("repository not found")
+        .ok_or_else(|| CoreError::not_found("repository not found"))
 }
