@@ -103,6 +103,11 @@ impl IntoResponse for AppError {
 
 impl From<anyhow::Error> for AppError {
     fn from(e: anyhow::Error) -> Self {
+        // A domain error widened into anyhow keeps its HTTP category.
+        let e = match e.downcast::<rg_core::error::CoreError>() {
+            Ok(core) => return Self::from(core),
+            Err(e) => e,
+        };
         // H-05: Log the full error for operators, store a generic message internally.
         // The IntoResponse impl will also sanitize the client-facing message.
         let full_msg = e.to_string();
@@ -122,6 +127,12 @@ impl From<rg_core::error::CoreError> for AppError {
             rg_core::error::CoreError::Conflict(msg) => Self::Conflict(msg),
             rg_core::error::CoreError::InvalidInput(msg) => Self::BadRequest(msg),
             rg_core::error::CoreError::Internal(inner) => {
+                // An `Internal` that merely wraps another domain error (built
+                // before classification survived anyhow) is unwrapped, not 500.
+                let inner = match inner.downcast::<rg_core::error::CoreError>() {
+                    Ok(core) => return Self::from(core),
+                    Err(inner) => inner,
+                };
                 let full_msg = format!("{:#}", inner);
                 tracing::error!(error = %full_msg, "CoreError::Internal converted to AppError");
                 Self::InternalError(full_msg)
@@ -171,5 +182,37 @@ impl AppError {
 
     pub fn rate_limited(msg: impl std::fmt::Display) -> Self {
         Self::TooManyRequests(msg.to_string())
+    }
+}
+
+#[cfg(test)]
+mod classification_tests {
+    use super::*;
+    use anyhow::Context as _;
+    use rg_core::error::CoreError;
+
+    #[test]
+    fn domain_errors_keep_their_status_through_anyhow() {
+        let widened: anyhow::Result<()> = Err(anyhow::Error::from(CoreError::not_found("x")));
+        let err = AppError::from(widened.context("while loading").unwrap_err());
+        assert_eq!(err.status(), StatusCode::NOT_FOUND);
+
+        let err = AppError::from(anyhow::Error::from(CoreError::forbidden("no")));
+        assert_eq!(err.status(), StatusCode::FORBIDDEN);
+
+        let err = AppError::from(anyhow::Error::from(CoreError::conflict("dup")));
+        assert_eq!(err.status(), StatusCode::CONFLICT);
+    }
+
+    #[test]
+    fn wrapped_internal_unwraps_to_the_inner_category() {
+        let nested = CoreError::Internal(anyhow::Error::from(CoreError::invalid_input("bad")));
+        assert_eq!(AppError::from(nested).status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn unrelated_anyhow_errors_are_still_sanitised_500s() {
+        let err = AppError::from(anyhow::anyhow!("open /srv/secret/path failed"));
+        assert_eq!(err.status(), StatusCode::INTERNAL_SERVER_ERROR);
     }
 }

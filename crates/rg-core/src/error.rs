@@ -73,10 +73,20 @@ impl CoreError {
     }
 }
 
-// Convenience: convert anyhow::Error directly into CoreError::Internal
+// Convenience: convert anyhow::Error directly into CoreError::Internal.
+//
+// A `CoreError` that was widened into `anyhow::Error` (`?` inside a function
+// that still returns `anyhow::Result`, with or without `.context(..)`) keeps its
+// category when it comes back: it is recovered by downcast instead of being
+// wrapped as `Internal`. Without this, a "not found" or "forbidden" that
+// crosses one anyhow-returning function turned into a 500, which made it unsafe
+// to migrate services to `CoreResult` one at a time.
 impl From<anyhow::Error> for CoreError {
     fn from(e: anyhow::Error) -> Self {
-        CoreError::Internal(e)
+        match e.downcast::<CoreError>() {
+            Ok(core) => core,
+            Err(other) => CoreError::Internal(other),
+        }
     }
 }
 
@@ -130,5 +140,48 @@ impl<T> CoreContext<T> for Option<T> {
 
     fn with_context<C: Into<String>, F: FnOnce() -> C>(self, f: F) -> CoreResult<T> {
         self.ok_or_else(|| CoreError::Internal(anyhow::anyhow!("{}", f().into())))
+    }
+}
+
+#[cfg(test)]
+mod anyhow_round_trip_tests {
+    use super::*;
+    use anyhow::Context as _;
+
+    fn through_anyhow(e: CoreError) -> anyhow::Result<()> {
+        Err(anyhow::Error::from(e))
+    }
+
+    #[test]
+    fn category_survives_a_trip_through_anyhow() {
+        for (original, check) in [
+            (CoreError::not_found("nope"), "NotFound"),
+            (CoreError::forbidden("no"), "Forbidden"),
+            (CoreError::conflict("dup"), "Conflict"),
+            (CoreError::invalid_input("bad"), "InvalidInput"),
+        ] {
+            let back: CoreError = through_anyhow(original).unwrap_err().into();
+            let kind = match back {
+                CoreError::NotFound(_) => "NotFound",
+                CoreError::Forbidden(_) => "Forbidden",
+                CoreError::Conflict(_) => "Conflict",
+                CoreError::InvalidInput(_) => "InvalidInput",
+                CoreError::Internal(_) => "Internal",
+            };
+            assert_eq!(kind, check);
+        }
+    }
+
+    #[test]
+    fn category_survives_added_context() {
+        let widened = through_anyhow(CoreError::not_found("repo")).context("while loading");
+        let back: CoreError = widened.unwrap_err().into();
+        assert!(matches!(back, CoreError::NotFound(_)), "{back:?}");
+    }
+
+    #[test]
+    fn foreign_errors_stay_internal() {
+        let back: CoreError = anyhow::anyhow!("disk exploded").into();
+        assert!(matches!(back, CoreError::Internal(_)));
     }
 }
