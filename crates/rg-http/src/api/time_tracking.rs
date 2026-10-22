@@ -58,7 +58,7 @@ pub async fn add_time(
 
     let issue = match rg_core::issue::service::get_issue(&state.db, &owner, &name, number).await {
         Ok(i) => i,
-        Err(_) => return AppError::not_found("issue not found").into_response(),
+        Err(e) => return AppError::from(e).into_response(),
     };
 
     match rg_core::time_tracking::service::add_time(
@@ -71,7 +71,7 @@ pub async fn add_time(
     .await
     {
         Ok(entry) => (StatusCode::CREATED, Json(serde_json::json!(entry))).into_response(),
-        Err(e) => AppError::bad_request(e).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -108,7 +108,7 @@ pub async fn list_time_entries(
 
     let issue = match rg_core::issue::service::get_issue(&state.db, &owner, &name, number).await {
         Ok(i) => i,
-        Err(_) => return AppError::not_found("issue not found").into_response(),
+        Err(e) => return AppError::from(e).into_response(),
     };
 
     match rg_core::time_tracking::service::list_time_entries(&state.db, issue.id, offset, limit)
@@ -119,7 +119,7 @@ pub async fn list_time_entries(
             Json(PaginatedResponse::new(entries, &pagination, total as u64)),
         )
             .into_response(),
-        Err(e) => AppError::internal(e).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -150,7 +150,7 @@ pub async fn total_time(
 
     let issue = match rg_core::issue::service::get_issue(&state.db, &owner, &name, number).await {
         Ok(i) => i,
-        Err(_) => return AppError::not_found("issue not found").into_response(),
+        Err(e) => return AppError::from(e).into_response(),
     };
 
     match rg_core::time_tracking::service::total_time_minutes(&state.db, issue.id).await {
@@ -165,7 +165,7 @@ pub async fn total_time(
             )
                 .into_response()
         }
-        Err(e) => AppError::internal(e).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -184,11 +184,12 @@ pub async fn total_time(
         (status = 204, description = "Deleted"),
         (status = 401, description = "Unauthorized", body = serde_json::Value),
         (status = 403, description = "Forbidden", body = serde_json::Value),
+        (status = 404, description = "Issue or time entry not found", body = serde_json::Value),
     ),
 )]
 pub async fn delete_time_entry(
     State(state): State<AppState>,
-    Path((owner, name, _number, id)): Path<(String, String, i64, i64)>,
+    Path((owner, name, number, id)): Path<(String, String, i64, i64)>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
     let (_repo, _user_id) = match require_write(&state, &headers, &owner, &name).await {
@@ -196,8 +197,13 @@ pub async fn delete_time_entry(
         Err(e) => return e.into_response(),
     };
 
-    match rg_core::time_tracking::service::delete_time_entry(&state.db, id).await {
+    let issue = match rg_core::issue::service::get_issue(&state.db, &owner, &name, number).await {
+        Ok(i) => i,
+        Err(e) => return AppError::from(e).into_response(),
+    };
+
+    match rg_core::time_tracking::service::delete_time_entry(&state.db, issue.id, id).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(e) => AppError::internal(e).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }

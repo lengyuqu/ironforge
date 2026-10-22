@@ -1,7 +1,8 @@
 //! Durable Issue, pull-request and comment attachments.
 
 use crate::blob_storage::{BlobKey, BlobStorage};
-use anyhow::{Context, Result};
+use crate::error::{CoreError, CoreResult};
+use anyhow::Context;
 use chrono::Utc;
 use rg_db::entities::attachment::{ActiveModel, Model as Attachment};
 use sea_orm::{ActiveValue::Set, DatabaseConnection};
@@ -79,7 +80,7 @@ pub async fn create_attachment(
     filename: &str,
     content_type: &str,
     data: &[u8],
-) -> Result<Attachment> {
+) -> CoreResult<Attachment> {
     let prepared = prepare_attachment(db, repo_id, filename, data.len() as u64).await?;
     storage
         .put(&prepared.key, data)
@@ -110,13 +111,15 @@ pub async fn create_attachment_from_file(
     content_type: &str,
     source: &Path,
     size: u64,
-) -> Result<Attachment> {
+) -> CoreResult<Attachment> {
     let actual_size = tokio::fs::metadata(source)
         .await
         .context("failed to inspect attachment upload")?
         .len();
     if actual_size != size {
-        anyhow::bail!("attachment upload size changed before storage");
+        return Err(CoreError::internal(
+            "attachment upload size changed before storage",
+        ));
     }
     let prepared = prepare_attachment(db, repo_id, filename, size).await?;
     storage
@@ -147,18 +150,23 @@ async fn prepare_attachment(
     repo_id: i64,
     filename: &str,
     size: u64,
-) -> Result<PreparedAttachment> {
+) -> CoreResult<PreparedAttachment> {
     let filename = validate_filename(filename)?;
     if size == 0 {
-        anyhow::bail!("attachment cannot be empty");
+        return Err(CoreError::invalid_input("attachment cannot be empty"));
     }
     if size > MAX_ATTACHMENT_SIZE as u64 {
-        anyhow::bail!("attachment exceeds the 100 MiB file limit");
+        return Err(CoreError::invalid_input(
+            "attachment exceeds the 100 MiB file limit",
+        ));
     }
-    let size = i64::try_from(size).context("attachment size is too large")?;
+    let size = i64::try_from(size)
+        .map_err(|_| CoreError::invalid_input("attachment size is too large"))?;
     let current_size = rg_db::ops::attachment_ops::repo_size(db, repo_id).await?;
     if current_size.saturating_add(size) > DEFAULT_REPO_ATTACHMENT_QUOTA {
-        anyhow::bail!("repository attachment quota exceeded");
+        return Err(CoreError::invalid_input(
+            "repository attachment quota exceeded",
+        ));
     }
 
     let uuid = Uuid::new_v4().to_string();
@@ -168,7 +176,8 @@ async fn prepare_attachment(
         repo_segment.as_str(),
         uuid.as_str(),
         filename.as_str(),
-    ])?;
+    ])
+    .context("failed to build attachment blob key")?;
     Ok(PreparedAttachment {
         filename,
         uuid,
@@ -186,7 +195,7 @@ async fn persist_attachment(
     target: AttachmentTarget,
     prepared: PreparedAttachment,
     content_type: &str,
-) -> Result<Attachment> {
+) -> CoreResult<Attachment> {
     let PreparedAttachment {
         filename,
         uuid,
@@ -220,7 +229,9 @@ async fn persist_attachment(
         Ok(attachment) => Ok(attachment),
         Err(error) => {
             let _ = storage.delete(&key).await;
-            Err(error).context("failed to persist attachment metadata")
+            Err(error
+                .context("failed to persist attachment metadata")
+                .into())
         }
     }
 }
@@ -229,19 +240,19 @@ pub async fn list_attachments(
     db: &DatabaseConnection,
     repo_id: i64,
     target: AttachmentTarget,
-) -> Result<Vec<Attachment>> {
+) -> CoreResult<Vec<Attachment>> {
     match target {
         AttachmentTarget::Issue(id) => {
-            rg_db::ops::attachment_ops::list_by_issue(db, repo_id, id).await
+            Ok(rg_db::ops::attachment_ops::list_by_issue(db, repo_id, id).await?)
         }
         AttachmentTarget::PullRequest(id) => {
-            rg_db::ops::attachment_ops::list_by_pull_request(db, repo_id, id).await
+            Ok(rg_db::ops::attachment_ops::list_by_pull_request(db, repo_id, id).await?)
         }
         AttachmentTarget::IssueComment(id) => {
-            rg_db::ops::attachment_ops::list_by_issue_comment(db, repo_id, id).await
+            Ok(rg_db::ops::attachment_ops::list_by_issue_comment(db, repo_id, id).await?)
         }
         AttachmentTarget::ReviewComment(id) => {
-            rg_db::ops::attachment_ops::list_by_review_comment(db, repo_id, id).await
+            Ok(rg_db::ops::attachment_ops::list_by_review_comment(db, repo_id, id).await?)
         }
     }
 }
@@ -251,12 +262,12 @@ pub async fn get_attachment(
     repo_id: i64,
     target: AttachmentTarget,
     attachment_id: i64,
-) -> Result<Attachment> {
+) -> CoreResult<Attachment> {
     let attachment = rg_db::ops::attachment_ops::find_by_id(db, attachment_id)
         .await?
-        .ok_or_else(|| anyhow::anyhow!("attachment not found"))?;
+        .ok_or_else(|| CoreError::not_found("attachment not found"))?;
     if attachment.repo_id != repo_id || !target.matches(&attachment) {
-        anyhow::bail!("attachment not found");
+        return Err(CoreError::not_found("attachment not found"));
     }
     Ok(attachment)
 }
@@ -267,9 +278,9 @@ pub async fn download_attachment(
     repo_id: i64,
     target: AttachmentTarget,
     attachment_id: i64,
-) -> Result<(Attachment, Vec<u8>)> {
+) -> CoreResult<(Attachment, Vec<u8>)> {
     let attachment = get_attachment(db, repo_id, target, attachment_id).await?;
-    let key = BlobKey::new(attachment.blob_key.clone())?;
+    let key = BlobKey::new(attachment.blob_key.clone()).context("invalid stored attachment blob key")?;
     let data = storage
         .get(&key)
         .await
@@ -284,9 +295,9 @@ pub async fn delete_attachment(
     repo_id: i64,
     target: AttachmentTarget,
     attachment_id: i64,
-) -> Result<()> {
+) -> CoreResult<()> {
     let attachment = get_attachment(db, repo_id, target, attachment_id).await?;
-    let key = BlobKey::new(attachment.blob_key.clone())?;
+    let key = BlobKey::new(attachment.blob_key.clone()).context("invalid stored attachment blob key")?;
     let backup = if let Some(source) = storage.local_path(&key) {
         let path = std::env::temp_dir().join(format!(
             "ironforge-attachment-delete-{}.tmp",
@@ -301,7 +312,9 @@ pub async fn delete_attachment(
     };
     if let Err(error) = storage.delete(&key).await {
         backup.cleanup().await;
-        return Err(error).context("failed to delete attachment blob");
+        return Err(anyhow::Error::new(error)
+            .context("failed to delete attachment blob")
+            .into());
     }
     if let Err(error) = rg_db::ops::attachment_ops::delete_by_id(db, attachment.id).await {
         match &backup {
@@ -314,7 +327,7 @@ pub async fn delete_attachment(
             AttachmentBackup::Bytes(None) => {}
         }
         backup.cleanup().await;
-        return Err(error).context("failed to delete attachment metadata");
+        return Err(error.context("failed to delete attachment metadata").into());
     }
     backup.cleanup().await;
     Ok(())
@@ -333,20 +346,24 @@ impl AttachmentBackup {
     }
 }
 
-fn validate_filename(filename: &str) -> Result<String> {
+fn validate_filename(filename: &str) -> CoreResult<String> {
     let filename = filename.trim();
     if filename.is_empty() || filename.len() > 255 || filename.chars().any(char::is_control) {
-        anyhow::bail!("invalid attachment filename");
+        return Err(CoreError::invalid_input("invalid attachment filename"));
     }
     if filename.contains('/') || filename.contains('\\') || matches!(filename, "." | "..") {
-        anyhow::bail!("attachment filename must not contain a path");
+        return Err(CoreError::invalid_input(
+            "attachment filename must not contain a path",
+        ));
     }
     let extension = filename
         .rsplit_once('.')
         .map(|(_, extension)| extension.to_ascii_lowercase())
         .unwrap_or_default();
     if !ALLOWED_EXTENSIONS.contains(&extension.as_str()) {
-        anyhow::bail!("attachment file type is not allowed");
+        return Err(CoreError::invalid_input(
+            "attachment file type is not allowed",
+        ));
     }
     Ok(filename.to_string())
 }

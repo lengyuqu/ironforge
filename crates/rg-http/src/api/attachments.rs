@@ -351,7 +351,7 @@ async fn list(
                 .collect::<Vec<_>>(),
         )
         .into_response(),
-        Err(error) => AppError::internal(error).into_response(),
+        Err(error) => AppError::from(error).into_response(),
     }
 }
 
@@ -463,7 +463,7 @@ async fn create(
             Json(response(owner, repo_name, kind, target_id, attachment)),
         )
             .into_response(),
-        Err(error) => AppError::bad_request(error).into_response(),
+        Err(error) => AppError::from(error).into_response(),
     }
 }
 
@@ -486,12 +486,9 @@ async fn download(
     {
         Ok(attachment) => match stream_attachment(state, &attachment).await {
             Ok(response) => response,
-            Err(error) => AppError::internal(error).into_response(),
+            Err(error) => AppError::from(error).into_response(),
         },
-        Err(error) if error.to_string().contains("not found") => {
-            AppError::not_found("attachment not found").into_response()
-        }
-        Err(error) => AppError::internal(error).into_response(),
+        Err(error) => AppError::from(error).into_response(),
     }
 }
 
@@ -560,10 +557,7 @@ async fn delete(
     .await
     {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(error) if error.to_string().contains("not found") => {
-            AppError::not_found("attachment not found").into_response()
-        }
-        Err(error) => AppError::internal(error).into_response(),
+        Err(error) => AppError::from(error).into_response(),
     }
 }
 

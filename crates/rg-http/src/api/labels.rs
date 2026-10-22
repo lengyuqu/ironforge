@@ -64,7 +64,7 @@ pub async fn list_labels(
     };
     match rg_core::label::service::list_labels(&state.db, &owner, &name).await {
         Ok(labels) => (StatusCode::OK, Json(serde_json::json!(labels))).into_response(),
-        Err(e) => AppError::internal(e.to_string()).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -94,7 +94,7 @@ pub async fn get_label(
     };
     match rg_core::label::service::get_label(&state.db, &owner, &name, id).await {
         Ok(label) => (StatusCode::OK, Json(serde_json::json!(label))).into_response(),
-        Err(_) => AppError::not_found("label not found").into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -113,6 +113,7 @@ pub async fn get_label(
         (status = 400, description = "Bad request", body = serde_json::Value),
         (status = 401, description = "Unauthorized", body = serde_json::Value),
         (status = 403, description = "Forbidden", body = serde_json::Value),
+        (status = 409, description = "A label with this name already exists", body = serde_json::Value),
     ),
 )]
 pub async fn create_label(
@@ -158,7 +159,7 @@ pub async fn create_label(
     .await
     {
         Ok(label) => (StatusCode::CREATED, Json(serde_json::json!(label))).into_response(),
-        Err(e) => AppError::bad_request(e.to_string()).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -177,6 +178,8 @@ pub async fn create_label(
         (status = 200, description = "Updated", body = serde_json::Value),
         (status = 401, description = "Unauthorized", body = serde_json::Value),
         (status = 403, description = "Forbidden", body = serde_json::Value),
+        (status = 404, description = "Label not found in this repository", body = serde_json::Value),
+        (status = 409, description = "A label with this name already exists", body = serde_json::Value),
     ),
 )]
 pub async fn update_label(
@@ -185,7 +188,7 @@ pub async fn update_label(
     Path((owner, name, id)): Path<(String, String, i64)>,
     Json(body): Json<UpdateLabelRequest>,
 ) -> impl IntoResponse {
-    let (_repo, _user_id) =
+    let (repo, _user_id) =
         match require_write(&state, &headers, &owner, &name).await {
             Ok(r) => r,
             Err(e) => return e.into_response(),
@@ -193,6 +196,7 @@ pub async fn update_label(
 
     match rg_core::label::service::update_label(
         &state.db,
+        repo.id,
         id,
         body.name,
         body.color,
@@ -201,7 +205,7 @@ pub async fn update_label(
     .await
     {
         Ok(label) => (StatusCode::OK, Json(serde_json::json!(label))).into_response(),
-        Err(e) => AppError::bad_request(e.to_string()).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -220,6 +224,7 @@ pub async fn update_label(
         (status = 204, description = "No content"),
         (status = 401, description = "Unauthorized", body = serde_json::Value),
         (status = 403, description = "Forbidden", body = serde_json::Value),
+        (status = 404, description = "Label not found in this repository", body = serde_json::Value),
     ),
 )]
 pub async fn delete_label(
@@ -227,14 +232,14 @@ pub async fn delete_label(
     headers: HeaderMap,
     Path((owner, name, id)): Path<(String, String, i64)>,
 ) -> impl IntoResponse {
-    let (_repo, _user_id) =
+    let (repo, _user_id) =
         match require_write(&state, &headers, &owner, &name).await {
             Ok(r) => r,
             Err(e) => return e.into_response(),
         };
 
-    match rg_core::label::service::delete_label(&state.db, id).await {
+    match rg_core::label::service::delete_label(&state.db, repo.id, id).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(e) => AppError::bad_request(e.to_string()).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }

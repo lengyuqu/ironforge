@@ -196,7 +196,7 @@ pub async fn get_issue_config(
     .await
     {
         Ok(Ok(config)) => (StatusCode::OK, Json(config)).into_response(),
-        Ok(Err(error)) => AppError::bad_request(error).into_response(),
+        Ok(Err(error)) => AppError::from(error).into_response(),
         Err(error) => AppError::internal(error).into_response(),
     }
 }
@@ -234,11 +234,15 @@ pub async fn validate_issue_config(
             message: String::new(),
         })
         .into_response(),
-        Ok(Err(error)) => Json(IssueConfigValidation {
+        // A malformed config is a verdict, not a failure: report it with the
+        // content-level message. Anything else (unreadable repository, ...)
+        // is an internal error and must not be echoed to the client.
+        Ok(Err(rg_core::error::CoreError::InvalidInput(message))) => Json(IssueConfigValidation {
             valid: false,
-            message: error.to_string(),
+            message,
         })
         .into_response(),
+        Ok(Err(error)) => AppError::from(error).into_response(),
         Err(error) => AppError::internal(error).into_response(),
     }
 }
@@ -333,15 +337,7 @@ pub async fn list_issues(
                     )
                         .into_response()
                 }
-                Err(e) => match e {
-                    rg_core::error::CoreError::NotFound(msg) => {
-                        AppError::not_found(msg).into_response()
-                    }
-                    other => {
-                        tracing::error!(%other, "handler error");
-                        AppError::internal(other).into_response()
-                    }
-                },
+                Err(e) => AppError::from(e).into_response(),
             };
         }
     }
@@ -373,10 +369,7 @@ pub async fn list_issues(
                     )
                         .into_response()
                 }
-                Err(e) => {
-                    tracing::error!(%e, "handler error");
-                    AppError::internal(e).into_response()
-                }
+                Err(e) => AppError::from(e).into_response(),
             };
         }
     }
@@ -417,10 +410,7 @@ pub async fn list_issues(
                     )
                         .into_response()
                 }
-                Err(e) => {
-                    tracing::error!(%e, "handler error");
-                    AppError::internal(e).into_response()
-                }
+                Err(e) => AppError::from(e).into_response(),
             };
         }
     }
@@ -443,10 +433,7 @@ pub async fn list_issues(
             )
                 .into_response()
         }
-        Err(e) => {
-            tracing::error!(%e, "handler error");
-            AppError::internal(e).into_response()
-        }
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -478,7 +465,7 @@ pub async fn get_issue(
             let issue = issue_with_author(&state.db, issue).await;
             (StatusCode::OK, Json(issue)).into_response()
         }
-        Err(e) => AppError::not_found(e.to_string()).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -573,14 +560,14 @@ pub async fn create_issue(
                 {
                     Ok(_) => {}
                     Err(e) => {
-                        return AppError::bad_request(e.to_string()).into_response();
+                        return AppError::from(e).into_response();
                     }
                 }
             }
             let issue = issue_with_author(&state.db, issue).await;
             (StatusCode::CREATED, Json(issue)).into_response()
         }
-        Err(e) => AppError::bad_request(e.to_string()).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -614,7 +601,7 @@ pub async fn update_issue(
 
     let existing = match rg_core::issue::get_issue(&state.db, &owner, &repo, number).await {
         Ok(issue) => issue,
-        Err(e) => return AppError::not_found(e.to_string()).into_response(),
+        Err(e) => return AppError::from(e).into_response(),
     };
 
     let repo_model = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &repo)
@@ -622,7 +609,7 @@ pub async fn update_issue(
     {
         Ok(Some(repo)) => repo,
         Ok(None) => return AppError::not_found("repository not found".to_string()).into_response(),
-        Err(e) => return AppError::internal(e).into_response(),
+        Err(e) => return AppError::from(e).into_response(),
     };
 
     let can_write = match rg_core::repo::service::can_write_repo(
@@ -688,7 +675,7 @@ pub async fn update_issue(
             let issue = issue_with_author(&state.db, issue).await;
             (StatusCode::OK, Json(issue)).into_response()
         }
-        Err(e) => AppError::bad_request(e.to_string()).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -722,10 +709,7 @@ pub async fn list_comments(
             let comments = comments_with_authors(&state.db, comments).await;
             (StatusCode::OK, Json(comments)).into_response()
         }
-        Err(e) => {
-            tracing::error!(%e, "handler error");
-            AppError::internal(e).into_response()
-        }
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -767,7 +751,7 @@ pub async fn add_comment(
             let comment = comment_with_author(&state.db, comment).await;
             (StatusCode::CREATED, Json(comment)).into_response()
         }
-        Err(e) => AppError::bad_request(e.to_string()).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -800,13 +784,7 @@ fn summarize_reactions(
 }
 
 fn reaction_error_response(e: rg_core::error::CoreError) -> axum::response::Response {
-    use rg_core::error::CoreError;
-    match e {
-        CoreError::NotFound(msg) => AppError::not_found(msg).into_response(),
-        CoreError::Conflict(msg) => AppError::conflict(msg).into_response(),
-        CoreError::InvalidInput(msg) => AppError::bad_request(msg).into_response(),
-        other => AppError::internal(other).into_response(),
-    }
+    AppError::from(e).into_response()
 }
 
 #[utoipa::path(
@@ -1072,7 +1050,7 @@ pub async fn list_issue_assignees(
     match rg_core::issue::list_issue_assignees(&state.db, &owner, &repo, number).await {
         Ok(assignees) => (StatusCode::OK, Json(serde_json::json!({ "assignees": assignees })))
             .into_response(),
-        Err(e) => AppError::not_found(e.to_string()).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -1119,16 +1097,7 @@ pub async fn set_issue_assignees(
         Ok(assignees) => {
             (StatusCode::OK, Json(serde_json::json!({ "assignees": assignees }))).into_response()
         }
-        Err(rg_core::error::CoreError::NotFound(msg)) => {
-            AppError::not_found(msg).into_response()
-        }
-        Err(rg_core::error::CoreError::InvalidInput(msg)) => {
-            AppError::bad_request(msg).into_response()
-        }
-        Err(e) => {
-            tracing::error!(%e, "handler error");
-            AppError::internal(e).into_response()
-        }
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -1341,19 +1310,13 @@ async fn milestones_with_counts(
 )]
 pub async fn list_milestones(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path((owner, name)): Path<(String, String)>,
     Query(params): Query<ListMilestonesQuery>,
 ) -> impl IntoResponse {
-    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name).await
-    {
-        Ok(Some(r)) => r,
-        Ok(None) => return AppError::not_found("repository not found".to_string()).into_response(),
-        Err(e) => {
-            return {
-                tracing::error!(%e, "handler error");
-                AppError::internal(e).into_response()
-            }
-        }
+    let repo = match resolve_and_check_read_access(&state, &headers, &owner, &name).await {
+        Ok(r) => r,
+        Err(e) => return e.into_response(),
     };
     match rg_db::ops::milestone_ops::list_by_repo(&state.db, repo.id, params.state.as_deref()).await
     {
@@ -1448,7 +1411,7 @@ pub async fn create_milestone(
             let data = milestone_with_counts(&state.db, m).await;
             (StatusCode::CREATED, Json(data)).into_response()
         }
-        Err(e) => AppError::bad_request(e.to_string()).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -1468,19 +1431,12 @@ pub async fn create_milestone(
 )]
 pub async fn get_milestone(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path((owner, name, id)): Path<(String, String, i64)>,
 ) -> impl IntoResponse {
-    let repo = match rg_core::repo::service::find_repo_by_owner_name(&state.db, &owner, &name)
-        .await
-    {
-        Ok(Some(r)) => r,
-        Ok(None) => return AppError::not_found("repository not found".to_string()).into_response(),
-        Err(e) => {
-            return {
-                tracing::error!(%e, "handler error");
-                AppError::internal(e).into_response()
-            }
-        }
+    let repo = match resolve_and_check_read_access(&state, &headers, &owner, &name).await {
+        Ok(r) => r,
+        Err(e) => return e.into_response(),
     };
     match rg_db::ops::milestone_ops::find_by_id(&state.db, id).await {
         Ok(Some(m)) if m.repo_id == repo.id => {
@@ -1692,16 +1648,17 @@ pub async fn delete_milestone(
 )]
 pub async fn get_issue_labels(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Path((owner, repo, number)): Path<(String, String, i64)>,
 ) -> impl IntoResponse {
+    if let Err(e) = resolve_and_check_read_access(&state, &headers, &owner, &repo).await {
+        return e.into_response();
+    }
     match rg_core::issue::get_issue(&state.db, &owner, &repo, number).await {
         Ok(issue) => match rg_core::label::service::get_issue_labels(&state.db, issue.id).await {
             Ok(labels) => (StatusCode::OK, Json(serde_json::json!(labels))).into_response(),
-            Err(e) => {
-                tracing::error!(%e, "handler error");
-                AppError::internal(e).into_response()
-            }
+            Err(e) => AppError::from(e).into_response(),
         },
-        Err(e) => AppError::not_found(e.to_string()).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
