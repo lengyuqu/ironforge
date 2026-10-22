@@ -807,6 +807,11 @@ pub async fn rerun_job(
             }))
             .into_response()
         }
+        // A refusal by state (job not failed, an earlier stage did not
+        // succeed) is the caller's mistake, not a storage failure.
+        Err(e) if e.downcast_ref::<rg_db::ops::pipeline_ops::RerunRefused>().is_some() => {
+            AppError::bad_request(e.to_string()).into_response()
+        }
         Err(e) => {
             tracing::error!(%e, job_id, "failed to rerun job");
             AppError::from(e).into_response()

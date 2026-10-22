@@ -781,6 +781,21 @@ async fn reopened_job_status<C: ConnectionTrait>(
     Ok("pending")
 }
 
+/// A rerun that was refused because of the job's or pipeline's state - the
+/// caller's mistake, as opposed to a storage failure. It travels inside the
+/// `anyhow::Error` returned by [`rerun_failed_job`]; callers recover it with
+/// `downcast_ref::<RerunRefused>()` to answer 4xx instead of 500.
+#[derive(Debug)]
+pub struct RerunRefused(pub String);
+
+impl std::fmt::Display for RerunRefused {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for RerunRefused {}
+
 /// Rerun a failed/errored/canceled job and rebuild what depended on it.
 ///
 /// - The job goes back to `pending` with its runner, exit code and finish time
@@ -806,7 +821,11 @@ pub async fn rerun_failed_job(db: &DatabaseConnection, job_id: i64) -> Result<()
         .ok_or_else(|| anyhow::anyhow!("job {} not found", job_id))?;
 
     if job.status != "error" && job.status != "failed" && job.status != "canceled" {
-        anyhow::bail!("job {} is not in a failed/error/canceled state (current: {})", job_id, job.status);
+        return Err(RerunRefused(format!(
+            "job {} is not in a failed/error/canceled state (current: {})",
+            job_id, job.status
+        ))
+        .into());
     }
 
     let stage_id = job.stage_id;
@@ -828,12 +847,11 @@ pub async fn rerun_failed_job(db: &DatabaseConnection, job_id: i64) -> Result<()
         .iter()
         .find(|s| s.stage_order < stage.stage_order && s.status != "success")
     {
-        anyhow::bail!(
+        return Err(RerunRefused(format!(
             "cannot rerun job {}: earlier stage '{}' is {}, so the job could not be scheduled",
-            job_id,
-            blocking.name,
-            blocking.status
-        );
+            job_id, blocking.name, blocking.status
+        ))
+        .into());
     }
 
     // 1. Reset the job itself.
