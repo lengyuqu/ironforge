@@ -1139,6 +1139,66 @@ pub async fn notify_watchers_push(
     .await
 }
 
+/// Classify a failure from the branch-protection direct-commit check.
+///
+/// A rule rejection is a permission problem (`Forbidden`); a database failure
+/// while loading the rules is an internal fault and must not be reported to
+/// the caller as "forbidden". Accepts either an `anyhow::Error` or a
+/// [`CoreError`] so it keeps working while that service is being migrated.
+fn direct_commit_error(error: impl Into<anyhow::Error>) -> CoreError {
+    let error: anyhow::Error = error.into();
+    match error.downcast::<CoreError>() {
+        Ok(core) => core,
+        Err(error) if error.downcast_ref::<sea_orm::DbErr>().is_some() => {
+            CoreError::Internal(error)
+        }
+        Err(error) => CoreError::forbidden(error.to_string()),
+    }
+}
+
+/// The database knows the repository but its bare repository is gone from
+/// disk. That is a server-side inconsistency, not a missing resource for the
+/// caller, and the filesystem path must never reach the client.
+fn missing_repo_storage(repo_path: &std::path::Path) -> CoreError {
+    CoreError::internal(format!(
+        "repository storage missing on disk: {}",
+        repo_path.display()
+    ))
+}
+
+/// Reject branch names that cannot form a valid `refs/heads/<branch>` ref.
+fn validate_branch_name(branch: &str) -> CoreResult<()> {
+    if branch.is_empty()
+        || gix::refs::FullName::try_from(format!("refs/heads/{branch}")).is_err()
+    {
+        return Err(CoreError::invalid_input(format!(
+            "invalid branch name: {branch}"
+        )));
+    }
+    Ok(())
+}
+
+/// Reject file paths that are empty, absolute, or contain `.`/`..`/empty
+/// components or NUL bytes.
+fn validate_repo_file_path(file_path: &str) -> CoreResult<()> {
+    let path = std::path::Path::new(file_path);
+    if file_path.contains('\0')
+        || path.as_os_str().is_empty()
+        || path.is_absolute()
+        || file_path.ends_with('/')
+        || file_path.contains("//")
+        || path
+            .components()
+            .any(|part| !matches!(part, std::path::Component::Normal(_)))
+    {
+        return Err(CoreError::invalid_input(format!(
+            "invalid repository file path: {}",
+            file_path.replace('\0', "")
+        )));
+    }
+    Ok(())
+}
+
 /// Create or update a file in a repository.
 ///
 /// This function:
@@ -1170,6 +1230,9 @@ pub async fn create_or_update_file(
     repo_root: &std::path::Path,
     actor_id: Option<i64>,
 ) -> CoreResult<()> {
+    validate_branch_name(branch)?;
+    validate_repo_file_path(file_path)?;
+
     // Branch protection must be enforced here (not only in the receive-pack
     // hook) so the REST contents API cannot bypass `require_pr` /
     // `require_signed_commits` with a plain POST.
@@ -1177,21 +1240,18 @@ pub async fn create_or_update_file(
         db, repo_id, branch, actor_id,
     )
     .await
-    .map_err(|error| CoreError::forbidden(error.to_string()))?;
+    .map_err(direct_commit_error)?;
 
     let repo_path = repo_root.join(format!("{}/{}.git", owner, repo_name));
 
     if !repo_path.exists() {
-        return Err(CoreError::not_found(format!(
-            "repository path not found: {:?}",
-            repo_path
-        )));
+        return Err(missing_repo_storage(&repo_path));
     }
 
     // Verify the file SHA if this is an update (not a create)
     if let Some(expected_sha) = sha {
         // Check if the file exists and its current SHA matches
-        let current_sha = get_file_sha(&repo_path, branch, file_path).ok();
+        let current_sha = get_file_sha(&repo_path, branch, file_path)?;
         if current_sha.is_none() {
             return Err(CoreError::not_found(format!(
                 "file does not exist: {}",
@@ -1209,7 +1269,7 @@ pub async fn create_or_update_file(
         }
     } else {
         // This is a create operation - check if file already exists
-        let current_sha = get_file_sha(&repo_path, branch, file_path).ok();
+        let current_sha = get_file_sha(&repo_path, branch, file_path)?;
         if current_sha.is_some() {
             return Err(CoreError::conflict(format!(
                 "file already exists: {} (use update with sha)",
@@ -1318,10 +1378,7 @@ pub fn update_files_in_commit(
     }
     let repo_path = repo_root.join(format!("{owner}/{repo_name}.git"));
     if !repo_path.exists() {
-        return Err(CoreError::not_found(format!(
-            "repository path not found: {:?}",
-            repo_path
-        )));
+        return Err(missing_repo_storage(&repo_path));
     }
 
     let mut unique_paths = HashSet::new();
@@ -1395,25 +1452,25 @@ pub async fn delete_file(
     repo_root: &std::path::Path,
     actor_id: Option<i64>,
 ) -> CoreResult<()> {
+    validate_branch_name(branch)?;
+    validate_repo_file_path(file_path)?;
+
     // See `create_or_update_file`: the contents API must not bypass branch
     // protection.
     crate::branch_protection::service::check_direct_commit_allowed(
         db, repo_id, branch, actor_id,
     )
     .await
-    .map_err(|error| CoreError::forbidden(error.to_string()))?;
+    .map_err(direct_commit_error)?;
 
     let repo_path = repo_root.join(format!("{}/{}.git", owner, repo_name));
 
     if !repo_path.exists() {
-        return Err(CoreError::not_found(format!(
-            "repository path not found: {:?}",
-            repo_path
-        )));
+        return Err(missing_repo_storage(&repo_path));
     }
 
     // Verify the file SHA to prevent accidental deletes
-    let current_sha = get_file_sha(&repo_path, branch, file_path).ok();
+    let current_sha = get_file_sha(&repo_path, branch, file_path)?;
     if current_sha.is_none() {
         return Err(CoreError::not_found(format!(
             "file does not exist: {}",
@@ -1474,20 +1531,21 @@ pub async fn delete_file(
     Ok(())
 }
 
-/// Get the blob SHA of a file at a given ref.
-fn get_file_sha(repo_path: &std::path::Path, git_ref: &str, file_path: &str) -> CoreResult<String> {
+/// Get the blob SHA of a file at a given ref, or `None` when the ref or the
+/// path does not exist. Failing to open the repository is an internal error.
+fn get_file_sha(
+    repo_path: &std::path::Path,
+    git_ref: &str,
+    file_path: &str,
+) -> CoreResult<Option<String>> {
     let repo = gix::open(repo_path)
         .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
 
     let target = format!("{}:{}", git_ref, file_path);
-    let object_id = repo.rev_parse_single(target.as_str()).map_err(|e| {
-        CoreError::not_found(format!(
-            "file '{}' not found at ref '{}': {}",
-            file_path, git_ref, e
-        ))
-    })?;
-
-    Ok(object_id.to_string())
+    Ok(repo
+        .rev_parse_single(target.as_str())
+        .ok()
+        .map(|object_id| object_id.to_string()))
 }
 
 #[cfg(test)]

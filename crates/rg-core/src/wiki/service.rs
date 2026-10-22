@@ -4,7 +4,7 @@
 //! database for fast querying and optionally mirrored to a `.wiki.git` bare
 //! repository on disk for version control.
 
-use anyhow::{Context, Result};
+use anyhow::Context;
 use chrono::Utc;
 use sea_orm::{ConnectionTrait, DatabaseConnection};
 
@@ -13,6 +13,7 @@ use rg_db::entities::wiki_revision;
 use rg_db::ops::wiki_page_ops;
 use rg_db::ops::wiki_revision_ops;
 
+use crate::error::{CoreError, CoreResult};
 use crate::search::dialect::metadata_fts_upsert_sql;
 
 /// Create a new wiki page.
@@ -23,14 +24,17 @@ pub async fn create_page(
     content: &str,
     message: Option<&str>,
     author_id: Option<i64>,
-) -> Result<wiki_page::Model> {
+) -> CoreResult<wiki_page::Model> {
     // Check for duplicate title
     if wiki_page_ops::find_by_repo_and_title(db, repo_id, title)
         .await
         .context("check existing wiki page")?
         .is_some()
     {
-        anyhow::bail!("wiki page '{}' already exists in this repository", title);
+        return Err(CoreError::conflict(format!(
+            "wiki page '{}' already exists in this repository",
+            title
+        )));
     }
 
     let now = Utc::now();
@@ -74,13 +78,13 @@ pub async fn get_page(
     db: &DatabaseConnection,
     repo_id: i64,
     title: &str,
-) -> Result<Option<wiki_page::Model>> {
-    wiki_page_ops::find_by_repo_and_title(db, repo_id, title).await
+) -> CoreResult<Option<wiki_page::Model>> {
+    Ok(wiki_page_ops::find_by_repo_and_title(db, repo_id, title).await?)
 }
 
 /// List all wiki pages for a repo (title + updated_at only for index).
-pub async fn list_pages(db: &DatabaseConnection, repo_id: i64) -> Result<Vec<wiki_page::Model>> {
-    wiki_page_ops::list_by_repo(db, repo_id).await
+pub async fn list_pages(db: &DatabaseConnection, repo_id: i64) -> CoreResult<Vec<wiki_page::Model>> {
+    Ok(wiki_page_ops::list_by_repo(db, repo_id).await?)
 }
 
 /// Update a wiki page.
@@ -91,11 +95,11 @@ pub async fn update_page(
     content: &str,
     message: Option<&str>,
     author_id: Option<i64>,
-) -> Result<wiki_page::Model> {
+) -> CoreResult<wiki_page::Model> {
     let existing = wiki_page_ops::find_by_repo_and_title(db, repo_id, title)
         .await
         .context("find wiki page for update")?
-        .ok_or_else(|| anyhow::anyhow!("wiki page '{}' not found", title))?;
+        .ok_or_else(|| CoreError::not_found(format!("wiki page '{}' not found", title)))?;
 
     // Save the current content as a revision before overwriting.
     let next_version = wiki_revision_ops::latest_version(db, existing.id)
@@ -152,28 +156,28 @@ pub async fn list_revisions(
     db: &DatabaseConnection,
     repo_id: i64,
     title: &str,
-) -> Result<Vec<wiki_revision::Model>> {
+) -> CoreResult<Vec<wiki_revision::Model>> {
     let page = wiki_page_ops::find_by_repo_and_title(db, repo_id, title)
         .await
         .context("find wiki page for revisions")?
-        .ok_or_else(|| anyhow::anyhow!("wiki page '{}' not found", title))?;
-    wiki_revision_ops::list_by_page(db, page.id).await
+        .ok_or_else(|| CoreError::not_found(format!("wiki page '{}' not found", title)))?;
+    Ok(wiki_revision_ops::list_by_page(db, page.id).await?)
 }
 
 /// Get a specific revision's content.
 pub async fn get_revision(
     db: &DatabaseConnection,
     revision_id: i64,
-) -> Result<Option<wiki_revision::Model>> {
-    wiki_revision_ops::find_by_id(db, revision_id).await
+) -> CoreResult<Option<wiki_revision::Model>> {
+    Ok(wiki_revision_ops::find_by_id(db, revision_id).await?)
 }
 
 /// Delete a wiki page.
-pub async fn delete_page(db: &DatabaseConnection, repo_id: i64, title: &str) -> Result<()> {
+pub async fn delete_page(db: &DatabaseConnection, repo_id: i64, title: &str) -> CoreResult<()> {
     let existing = wiki_page_ops::find_by_repo_and_title(db, repo_id, title)
         .await
         .context("find wiki page for delete")?
-        .ok_or_else(|| anyhow::anyhow!("wiki page '{}' not found", title))?;
+        .ok_or_else(|| CoreError::not_found(format!("wiki page '{}' not found", title)))?;
 
     let page_id = existing.id;
 
@@ -190,5 +194,6 @@ pub async fn delete_page(db: &DatabaseConnection, repo_id: i64, title: &str) -> 
         tracing::warn!(error = %e, page_id = %page_id, "failed to delete from wiki_pages_fts index");
     }
 
-    wiki_page_ops::delete_by_id(db, page_id).await
+    wiki_page_ops::delete_by_id(db, page_id).await?;
+    Ok(())
 }
