@@ -1,6 +1,6 @@
 //! REST API handlers for repository content browsing (tree, blob, history).
 
-use anyhow::Context;
+use rg_core::error::{CoreContext, CoreError, CoreResult};
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
@@ -121,6 +121,33 @@ pub struct GpgSignature {
 
 // ── Handlers ──────────────────────────────────────────────────────────
 
+/// H-02: validate owner/repo before they are used to build a repository path.
+fn validate_owner_repo(owner: &str, repo: &str) -> Result<(), AppError> {
+    rg_core::platform::validate_repo_path(owner)
+        .and_then(|()| rg_core::platform::validate_repo_path(repo))
+        .map_err(|e| AppError::bad_request(e.to_string()))
+}
+
+/// Locate the bare repository on disk for a repo the database already knows.
+///
+/// If the database row exists but the directory is gone, that is a storage
+/// inconsistency on the server, not a missing resource for the caller: answer
+/// with a sanitised 500 and keep the filesystem path in the server log only.
+fn existing_repo_path(
+    state: &AppState,
+    owner: &str,
+    repo: &str,
+) -> Result<std::path::PathBuf, AppError> {
+    let repo_path = state.repo_root.join(format!("{}/{}.git", owner, repo));
+    if !repo_path.exists() {
+        return Err(AppError::from(CoreError::internal(format!(
+            "repository storage missing on disk: {}",
+            repo_path.display()
+        ))));
+    }
+    Ok(repo_path)
+}
+
 /// Resolve a repo by owner/name and enforce read access.
 /// Returns the repo model. Public repos are always accessible;
 /// private repos require a valid JWT and the user must have read permission.
@@ -131,8 +158,7 @@ async fn resolve_and_check_access(
     repo: &str,
 ) -> Result<rg_db::entities::repository::Model, AppError> {
     let repo_model = rg_core::repo::service::find_repo_by_owner_name(&state.db, owner, repo)
-        .await
-        .map_err(AppError::internal)?
+        .await?
         .ok_or_else(|| AppError::not_found("repository not found"))?;
 
     let actor_id = extract_user_id(headers, &state.jwt_secret);
@@ -153,7 +179,7 @@ async fn resolve_and_check_access(
         Ok(false) => {
             return Err(AppError::forbidden("access denied"));
         }
-        Err(e) => return Err(AppError::internal(e)),
+        Err(e) => return Err(AppError::from(e)),
     }
 
     Ok(repo_model)
@@ -182,12 +208,8 @@ pub async fn list_tree(
     headers: HeaderMap,
     Query(params): Query<TreeQuery>,
 ) -> impl IntoResponse {
-    // H-02: Validate owner/repo before constructing repository path
-    if let Err(e) = rg_core::platform::validate_repo_path(&owner) {
-        return AppError::bad_request(e.to_string()).into_response();
-    }
-    if let Err(e) = rg_core::platform::validate_repo_path(&repo) {
-        return AppError::bad_request(e.to_string()).into_response();
+    if let Err(e) = validate_owner_repo(&owner, &repo) {
+        return e.into_response();
     }
 
     // H-01: Auth check for private repos
@@ -196,10 +218,10 @@ pub async fn list_tree(
         Err(e) => return e.into_response(),
     };
 
-    let repo_path = state.repo_root.join(format!("{}/{}.git", owner, repo));
-    if !repo_path.exists() {
-        return AppError::not_found("repository not found").into_response();
-    }
+    let repo_path = match existing_repo_path(&state, &owner, &repo) {
+        Ok(p) => p,
+        Err(e) => return e.into_response(),
+    };
 
     let git_ref = params.r#ref.unwrap_or_else(|| "HEAD".to_string());
     let sub_path = params.path.unwrap_or_default();
@@ -220,8 +242,7 @@ pub async fn list_tree(
                 return (StatusCode::OK, Json(serde_json::json!({ "entries": [] })))
                     .into_response();
             }
-            tracing::error!(%e, "list_tree failed");
-            AppError::internal(e).into_response()
+            AppError::from(e).into_response()
         }
     }
 }
@@ -261,12 +282,8 @@ pub async fn get_blob(
     headers: HeaderMap,
     Query(params): Query<BlobQuery>,
 ) -> impl IntoResponse {
-    // H-02: Validate owner/repo before constructing repository path
-    if let Err(e) = rg_core::platform::validate_repo_path(&owner) {
-        return AppError::bad_request(e.to_string()).into_response();
-    }
-    if let Err(e) = rg_core::platform::validate_repo_path(&repo) {
-        return AppError::bad_request(e.to_string()).into_response();
+    if let Err(e) = validate_owner_repo(&owner, &repo) {
+        return e.into_response();
     }
 
     // H-01: Auth check for private repos
@@ -275,16 +292,16 @@ pub async fn get_blob(
         Err(e) => return e.into_response(),
     };
 
-    let repo_path = state.repo_root.join(format!("{}/{}.git", owner, repo));
-    if !repo_path.exists() {
-        return AppError::not_found("repository not found").into_response();
-    }
+    let repo_path = match existing_repo_path(&state, &owner, &repo) {
+        Ok(p) => p,
+        Err(e) => return e.into_response(),
+    };
 
     let git_ref = params.r#ref.unwrap_or_else(|| "HEAD".to_string());
 
     match get_blob_content(&repo_path, &git_ref, &path) {
         Ok(blob) => (StatusCode::OK, Json(blob)).into_response(),
-        Err(e) => AppError::not_found(e).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -312,12 +329,8 @@ pub async fn get_log(
     headers: HeaderMap,
     Query(params): Query<LogQuery>,
 ) -> impl IntoResponse {
-    // H-02: Validate owner/repo before constructing repository path
-    if let Err(e) = rg_core::platform::validate_repo_path(&owner) {
-        return AppError::bad_request(e.to_string()).into_response();
-    }
-    if let Err(e) = rg_core::platform::validate_repo_path(&repo) {
-        return AppError::bad_request(e.to_string()).into_response();
+    if let Err(e) = validate_owner_repo(&owner, &repo) {
+        return e.into_response();
     }
 
     // H-01: Auth check for private repos
@@ -326,10 +339,10 @@ pub async fn get_log(
         Err(e) => return e.into_response(),
     };
 
-    let repo_path = state.repo_root.join(format!("{}/{}.git", owner, repo));
-    if !repo_path.exists() {
-        return AppError::not_found("repository not found").into_response();
-    }
+    let repo_path = match existing_repo_path(&state, &owner, &repo) {
+        Ok(p) => p,
+        Err(e) => return e.into_response(),
+    };
 
     let git_ref = params.r#ref.clone().unwrap_or_else(|| "HEAD".to_string());
     let limit = params.limit.unwrap_or(50).min(100);
@@ -338,8 +351,7 @@ pub async fn get_log(
     match get_commit_log(&repo_path, &git_ref, &file_path, limit) {
         Ok(log) => (StatusCode::OK, Json(serde_json::json!({ "commits": log }))).into_response(),
         Err(e) => {
-            tracing::error!(%e, "get_log failed");
-            AppError::internal(e).into_response()
+            AppError::from(e).into_response()
         }
     }
 }
@@ -364,12 +376,8 @@ pub async fn list_branches(
     Path((owner, repo)): Path<(String, String)>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    // H-02: Validate owner/repo before constructing repository path
-    if let Err(e) = rg_core::platform::validate_repo_path(&owner) {
-        return AppError::bad_request(e.to_string()).into_response();
-    }
-    if let Err(e) = rg_core::platform::validate_repo_path(&repo) {
-        return AppError::bad_request(e.to_string()).into_response();
+    if let Err(e) = validate_owner_repo(&owner, &repo) {
+        return e.into_response();
     }
 
     // H-01: Auth check for private repos
@@ -378,16 +386,15 @@ pub async fn list_branches(
         Err(e) => return e.into_response(),
     };
 
-    let repo_path = state.repo_root.join(format!("{}/{}.git", owner, repo));
-    if !repo_path.exists() {
-        return AppError::not_found("repository not found").into_response();
-    }
+    let repo_path = match existing_repo_path(&state, &owner, &repo) {
+        Ok(p) => p,
+        Err(e) => return e.into_response(),
+    };
 
     match list_branch_names(&repo_path) {
         Ok(branches) => (StatusCode::OK, Json(branches)).into_response(),
         Err(e) => {
-            tracing::error!(%e, "list_branches failed");
-            AppError::internal(e).into_response()
+            AppError::from(e).into_response()
         }
     }
 }
@@ -412,12 +419,8 @@ pub async fn list_tags(
     Path((owner, repo)): Path<(String, String)>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    // H-02: Validate owner/repo before constructing repository path
-    if let Err(e) = rg_core::platform::validate_repo_path(&owner) {
-        return AppError::bad_request(e.to_string()).into_response();
-    }
-    if let Err(e) = rg_core::platform::validate_repo_path(&repo) {
-        return AppError::bad_request(e.to_string()).into_response();
+    if let Err(e) = validate_owner_repo(&owner, &repo) {
+        return e.into_response();
     }
 
     // H-01: Auth check for private repos
@@ -426,47 +429,54 @@ pub async fn list_tags(
         Err(e) => return e.into_response(),
     };
 
-    let repo_path = state.repo_root.join(format!("{}/{}.git", owner, repo));
-    if !repo_path.exists() {
-        return AppError::not_found("repository not found").into_response();
-    }
+    let repo_path = match existing_repo_path(&state, &owner, &repo) {
+        Ok(p) => p,
+        Err(e) => return e.into_response(),
+    };
 
     match list_tag_names(&repo_path) {
         Ok(tags) => (StatusCode::OK, Json(tags)).into_response(),
         Err(e) => {
-            tracing::error!(%e, "list_tags failed");
-            AppError::internal(e).into_response()
+            AppError::from(e).into_response()
         }
     }
 }
 
 // ── Git CLI helpers ───────────────────────────────────────────────────
 
+/// Open the bare repository; failure here is a server-side storage fault.
+fn open_repo(repo_path: &std::path::Path) -> CoreResult<gix::Repository> {
+    gix::open(repo_path).map_err(|e| {
+        CoreError::internal(format!("failed to open repository {repo_path:?}: {e}"))
+    })
+}
+
 fn list_tree_entries(
     repo_path: &std::path::Path,
     git_ref: &str,
     sub_path: &str,
-) -> anyhow::Result<Vec<TreeEntry>> {
-    let repo = gix::open(repo_path)
-        .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
+) -> CoreResult<Vec<TreeEntry>> {
+    let repo = open_repo(repo_path)?;
 
-    // Resolve ref to commit
-    let commit_id = repo
-        .rev_parse_single(git_ref)
-        .map_err(|e| anyhow::anyhow!("failed to resolve ref '{}': {}", git_ref, e))?;
+    // Resolve ref to commit. A ref that does not resolve is the caller's
+    // problem (404); the underlying gix error text is only logged.
+    let commit_id = repo.rev_parse_single(git_ref).map_err(|e| {
+        tracing::debug!(error = %e, git_ref, "ref did not resolve");
+        CoreError::not_found(format!("ref '{git_ref}' not found"))
+    })?;
 
     let commit = repo
         .find_commit(commit_id)
-        .map_err(|e| anyhow::anyhow!("failed to find commit: {}", e))?;
+        .map_err(|e| CoreError::internal(format!("failed to find commit: {e}")))?;
 
     let decoded = commit
         .decode()
-        .map_err(|e| anyhow::anyhow!("failed to decode commit: {}", e))?;
+        .map_err(|e| CoreError::internal(format!("failed to decode commit: {e}")))?;
 
     let tree_oid = decoded.tree();
     let mut tree = repo
         .find_tree(tree_oid)
-        .map_err(|e| anyhow::anyhow!("failed to get tree: {}", e))?;
+        .map_err(|e| CoreError::internal(format!("failed to get tree: {e}")))?;
 
     // Traverse into sub_path if specified
     if !sub_path.is_empty() {
@@ -475,10 +485,16 @@ fn list_tree_entries(
                 .iter()
                 .filter_map(|e| e.ok())
                 .find(|e| e.filename() == component);
-            let entry = entry.ok_or_else(|| anyhow::anyhow!("path not found: {}", sub_path))?;
+            let entry =
+                entry.ok_or_else(|| CoreError::not_found(format!("path not found: {sub_path}")))?;
+            // A path component that is a file (or submodule) rather than a
+            // directory cannot be listed.
+            if !entry.mode().is_tree() {
+                return Err(CoreError::not_found(format!("path not found: {sub_path}")));
+            }
             tree = repo
                 .find_tree(entry.oid())
-                .map_err(|e| anyhow::anyhow!("failed to find sub-tree: {}", e))?;
+                .map_err(|e| CoreError::internal(format!("failed to find sub-tree: {e}")))?;
         }
     }
 
@@ -524,25 +540,26 @@ fn get_blob_content(
     repo_path: &std::path::Path,
     git_ref: &str,
     path: &str,
-) -> anyhow::Result<BlobContent> {
-    let repo = gix::open(repo_path)
-        .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
+) -> CoreResult<BlobContent> {
+    let repo = open_repo(repo_path)?;
 
     let target = format!("{}:{}", git_ref, path);
 
-    // Resolve ref:path to object ID
-    let object_id = repo
-        .rev_parse_single(target.as_str())
-        .map_err(|e| anyhow::anyhow!("path '{}' not found at ref '{}': {}", path, git_ref, e))?;
+    // Resolve ref:path to object ID. Any failure to resolve means the ref or
+    // the path does not exist; the gix error text is only logged.
+    let object_id = repo.rev_parse_single(target.as_str()).map_err(|e| {
+        tracing::debug!(error = %e, git_ref, path, "blob path did not resolve");
+        CoreError::not_found(format!("path '{path}' not found at ref '{git_ref}'"))
+    })?;
 
     // Find and decode the blob
     let object = repo
         .find_object(object_id)
-        .map_err(|e| anyhow::anyhow!("failed to find object: {}", e))?;
+        .map_err(|e| CoreError::internal(format!("failed to find object: {e}")))?;
 
     let blob = object
         .try_into_blob()
-        .map_err(|e| anyhow::anyhow!("path '{}' is not a file: {}", path, e))?;
+        .map_err(|_| CoreError::not_found(format!("path '{path}' is not a file")))?;
 
     let data = blob.data.as_slice();
     let size = data.len() as i64;
@@ -592,20 +609,19 @@ fn get_blob_content(
     })
 }
 
-fn get_blob_size(repo_path: &std::path::Path, sha: &str) -> anyhow::Result<i64> {
-    let repo = gix::open(repo_path)
-        .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
+fn get_blob_size(repo_path: &std::path::Path, sha: &str) -> CoreResult<i64> {
+    let repo = open_repo(repo_path)?;
 
     let oid = gix::ObjectId::from_hex(sha.as_bytes())
-        .map_err(|e| anyhow::anyhow!("invalid SHA: {}", e))?;
+        .map_err(|e| CoreError::internal(format!("invalid SHA: {e}")))?;
 
     let object = repo
         .find_object(oid)
-        .map_err(|e| anyhow::anyhow!("object not found: {}", e))?;
+        .map_err(|e| CoreError::internal(format!("object not found: {e}")))?;
 
     let blob = object
         .try_into_blob()
-        .map_err(|e| anyhow::anyhow!("not a blob: {}", e))?;
+        .map_err(|e| CoreError::internal(format!("not a blob: {e}")))?;
 
     Ok(blob.data.len() as i64)
 }
@@ -615,9 +631,8 @@ fn get_commit_log(
     git_ref: &str,
     _path: &str,
     limit: i64,
-) -> anyhow::Result<Vec<CommitEntry>> {
-    let repo = gix::open(repo_path)
-        .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
+) -> CoreResult<Vec<CommitEntry>> {
+    let repo = open_repo(repo_path)?;
 
     let mut entries = Vec::new();
 
@@ -691,13 +706,13 @@ fn get_commit_log(
     Ok(entries)
 }
 
-fn list_branch_names(repo_path: &std::path::Path) -> anyhow::Result<Vec<String>> {
-    let repo = gix::open(repo_path)
-        .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
+fn list_branch_names(repo_path: &std::path::Path) -> CoreResult<Vec<String>> {
+    let repo = open_repo(repo_path)?;
 
-    let references = repo.references()?;
+    let references = repo.references().context("failed to read references")?;
     let branches: Vec<String> = references
-        .all()?
+        .all()
+        .context("failed to list references")?
         .filter_map(|r| r.ok())
         .filter_map(|r| {
             let name = r.name().as_bstr();
@@ -714,13 +729,13 @@ fn list_branch_names(repo_path: &std::path::Path) -> anyhow::Result<Vec<String>>
     Ok(branches)
 }
 
-fn list_tag_names(repo_path: &std::path::Path) -> anyhow::Result<Vec<String>> {
-    let repo = gix::open(repo_path)
-        .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
+fn list_tag_names(repo_path: &std::path::Path) -> CoreResult<Vec<String>> {
+    let repo = open_repo(repo_path)?;
 
-    let references = repo.references()?;
+    let references = repo.references().context("failed to read references")?;
     let tags: Vec<String> = references
-        .all()?
+        .all()
+        .context("failed to list references")?
         .filter_map(|r| r.ok())
         .filter_map(|r| {
             let name = r.name().as_bstr();
@@ -758,12 +773,8 @@ pub async fn get_commit_signature(
     Path((owner, repo, sha)): Path<(String, String, String)>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    // H-02: Validate owner/repo before constructing repository path
-    if let Err(e) = rg_core::platform::validate_repo_path(&owner) {
-        return AppError::bad_request(e.to_string()).into_response();
-    }
-    if let Err(e) = rg_core::platform::validate_repo_path(&repo) {
-        return AppError::bad_request(e.to_string()).into_response();
+    if let Err(e) = validate_owner_repo(&owner, &repo) {
+        return e.into_response();
     }
 
     // H-01: Auth check for private repos
@@ -772,10 +783,10 @@ pub async fn get_commit_signature(
         Err(e) => return e.into_response(),
     };
 
-    let repo_path = state.repo_root.join(format!("{}/{}.git", owner, repo));
-    if !repo_path.exists() {
-        return AppError::not_found("repository not found").into_response();
-    }
+    let repo_path = match existing_repo_path(&state, &owner, &repo) {
+        Ok(p) => p,
+        Err(e) => return e.into_response(),
+    };
 
     // Validate SHA format
     if sha.len() < 7 || !sha.chars().all(|c| c.is_ascii_hexdigit()) {
@@ -784,31 +795,43 @@ pub async fn get_commit_signature(
 
     match verify_commit_signature(&repo_path, &sha) {
         Ok(sig) => (StatusCode::OK, Json(sig)).into_response(),
-        Err(e) => AppError::not_found(e).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
 /// Verify a commit's GPG signature using `git log --show-signature`.
-fn verify_commit_signature(repo_path: &std::path::Path, sha: &str) -> anyhow::Result<GpgSignature> {
-    let repo = gix::open(repo_path)
-        .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
+fn verify_commit_signature(repo_path: &std::path::Path, sha: &str) -> CoreResult<GpgSignature> {
+    let repo = open_repo(repo_path)?;
 
     // Resolve the commit SHA using gix
     let commit_id = match repo.rev_parse_single(sha) {
         Ok(id) => id,
-        Err(_) => anyhow::bail!("commit {} not found", sha),
+        Err(_) => return Err(CoreError::not_found(format!("commit {sha} not found"))),
     };
 
     let full_sha = commit_id.to_string();
 
     // Read commit object to check for gpgsig header via gix extra_headers()
-    let commit_object = repo.find_object(commit_id)?;
+    // A full-length hex SHA resolves without an existence check, so a missing
+    // object surfaces here: that is "commit not found", not a server fault.
+    let commit_object = match repo.find_object(commit_id) {
+        Ok(object) => object,
+        Err(gix::object::find::existing::Error::NotFound { .. }) => {
+            return Err(CoreError::not_found(format!("commit {sha} not found")));
+        }
+        Err(e) => return Err(CoreError::internal(format!("failed to read object: {e}"))),
+    };
     let commit = commit_object
         .try_into_commit()
-        .map_err(|_| anyhow::anyhow!("not a commit object"))?;
+        .map_err(|_| CoreError::not_found(format!("{sha} is not a commit")))?;
 
     // Use gix decode() + extra_headers() to check for gpgsig (replaces git cat-file commit)
-    let has_gpgsig = commit.decode()?.extra_headers().find("gpgsig").is_some();
+    let has_gpgsig = commit
+        .decode()
+        .map_err(|e| CoreError::internal(format!("failed to decode commit: {e}")))?
+        .extra_headers()
+        .find("gpgsig")
+        .is_some();
 
     if !has_gpgsig {
         return Ok(GpgSignature {
@@ -823,14 +846,11 @@ fn verify_commit_signature(repo_path: &std::path::Path, sha: &str) -> anyhow::Re
     // gix-native verification: shells out to the configured GPG program via
     // gix's `command` feature (same mechanism as `git log --show-signature`),
     // and returns the parsed status plus signer identity.
-    let outcome = rg_git::ops::verify_commit_details_with_repo(&repo, &full_sha).map_err(
-        |error| -> anyhow::Error {
-            anyhow::anyhow!("signature verification failed for {full_sha}: {error}")
-        },
-    );
+    let outcome = rg_git::ops::verify_commit_details_with_repo(&repo, &full_sha);
     let outcome = match outcome {
         Ok(outcome) => outcome,
-        Err(_) => {
+        Err(e) => {
+            tracing::warn!(error = %e, sha = %full_sha, "signature verification failed");
             return Ok(GpgSignature {
                 verified: false,
                 signer_key: None,
@@ -926,20 +946,15 @@ async fn resolve_and_check_write_access(
     }
 
     let repo_model = rg_core::repo::service::find_repo_by_owner_name(&state.db, owner, repo)
-        .await
-        .map_err(AppError::internal)?
+        .await?
         .ok_or_else(|| AppError::not_found("repository not found"))?;
 
-    if !rg_core::repo::service::can_write_repo(&state.db, &repo_model, Some(user_id))
-        .await
-        .unwrap_or(false)
-    {
+    if !rg_core::repo::service::can_write_repo(&state.db, &repo_model, Some(user_id)).await? {
         return Err(AppError::forbidden("write access denied"));
     }
 
     let user = rg_db::ops::user_ops::find_by_id(&state.db, user_id)
-        .await
-        .map_err(AppError::internal)?
+        .await?
         .ok_or_else(|| AppError::unauthorized("invalid token"))?;
 
     Ok((repo_model, user))
@@ -973,12 +988,8 @@ pub async fn create_or_update_file(
     headers: HeaderMap,
     Json(req): Json<CreateOrUpdateFileRequest>,
 ) -> impl IntoResponse {
-    // Validate owner/repo
-    if let Err(e) = rg_core::platform::validate_repo_path(&owner) {
-        return AppError::bad_request(e.to_string()).into_response();
-    }
-    if let Err(e) = rg_core::platform::validate_repo_path(&repo) {
-        return AppError::bad_request(e.to_string()).into_response();
+    if let Err(e) = validate_owner_repo(&owner, &repo) {
+        return e.into_response();
     }
 
     // Check write access
@@ -1011,7 +1022,11 @@ pub async fn create_or_update_file(
         Ok(_) => {
             // Get the new commit SHA
             let repo_path = state.repo_root.join(format!("{}/{}.git", owner, repo));
-            let new_sha = get_latest_commit_sha(&repo_path, &branch).unwrap_or_default();
+            let new_sha = get_latest_commit_sha(&repo_path, &branch).unwrap_or_else(|e| {
+                // The commit already landed; do not turn that into a failure.
+                tracing::warn!(error = %e, "could not resolve new commit sha after write");
+                String::new()
+            });
 
             (
                 StatusCode::OK,
@@ -1058,12 +1073,8 @@ pub async fn delete_file(
     headers: HeaderMap,
     Query(params): Query<DeleteFileQuery>,
 ) -> impl IntoResponse {
-    // Validate owner/repo
-    if let Err(e) = rg_core::platform::validate_repo_path(&owner) {
-        return AppError::bad_request(e.to_string()).into_response();
-    }
-    if let Err(e) = rg_core::platform::validate_repo_path(&repo) {
-        return AppError::bad_request(e.to_string()).into_response();
+    if let Err(e) = validate_owner_repo(&owner, &repo) {
+        return e.into_response();
     }
 
     // Check write access
@@ -1095,7 +1106,11 @@ pub async fn delete_file(
         Ok(_) => {
             // Get the new commit SHA
             let repo_path = state.repo_root.join(format!("{}/{}.git", owner, repo));
-            let new_sha = get_latest_commit_sha(&repo_path, &branch).unwrap_or_default();
+            let new_sha = get_latest_commit_sha(&repo_path, &branch).unwrap_or_else(|e| {
+                // The commit already landed; do not turn that into a failure.
+                tracing::warn!(error = %e, "could not resolve new commit sha after write");
+                String::new()
+            });
 
             (
                 StatusCode::OK,
@@ -1117,14 +1132,13 @@ pub async fn delete_file(
 }
 
 /// Get the latest commit SHA on a branch.
-fn get_latest_commit_sha(repo_path: &std::path::Path, branch: &str) -> anyhow::Result<String> {
-    let repo = gix::open(repo_path)
-        .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
+fn get_latest_commit_sha(repo_path: &std::path::Path, branch: &str) -> CoreResult<String> {
+    let repo = open_repo(repo_path)?;
 
     let reference = format!("refs/heads/{}", branch);
     let oid = repo
         .rev_parse_single(reference.as_str())
-        .map_err(|e| anyhow::anyhow!("failed to resolve branch '{}': {}", branch, e))?;
+        .map_err(|e| CoreError::internal(format!("failed to resolve branch '{branch}': {e}")))?;
 
     Ok(oid.to_string())
 }
