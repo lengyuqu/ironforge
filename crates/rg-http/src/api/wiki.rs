@@ -93,7 +93,7 @@ pub async fn list_pages(
             let summaries: Vec<WikiPageSummary> = pages.iter().map(page_to_summary).collect();
             (StatusCode::OK, Json(serde_json::json!(summaries))).into_response()
         }
-        Err(e) => AppError::internal(e).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -128,7 +128,7 @@ pub async fn get_page(
         )
             .into_response(),
         Ok(None) => AppError::not_found("page not found").into_response(),
-        Err(e) => AppError::internal(e).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -198,7 +198,7 @@ pub async fn create_page(
             Json(serde_json::json!(page_to_response(&page))),
         )
             .into_response(),
-        Err(e) => AppError::bad_request(e).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -260,7 +260,7 @@ pub async fn update_page(
             Json(serde_json::json!(page_to_response(&page))),
         )
             .into_response(),
-        Err(e) => AppError::bad_request(e).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -296,7 +296,7 @@ pub async fn delete_page(
             Json(serde_json::json!({"message": "page deleted"})),
         )
             .into_response(),
-        Err(e) => AppError::bad_request(e).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -328,7 +328,7 @@ pub async fn list_revisions(
 
     match rg_core::wiki::service::list_revisions(&state.db, repo.id, &title).await {
         Ok(revisions) => (StatusCode::OK, Json(serde_json::json!(revisions))).into_response(),
-        Err(e) => AppError::not_found(e).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -362,6 +362,6 @@ pub async fn get_revision(
     match rg_core::wiki::service::get_revision(&state.db, rev_id).await {
         Ok(Some(rev)) => (StatusCode::OK, Json(serde_json::json!(rev))).into_response(),
         Ok(None) => AppError::not_found("revision not found").into_response(),
-        Err(e) => AppError::internal(e).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }

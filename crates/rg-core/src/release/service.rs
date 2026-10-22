@@ -1,9 +1,10 @@
 //! Release service — business logic for releases.
 
-use anyhow::{Context, Result};
 use chrono::Utc;
 use sea_orm::{ActiveValue::Set, DatabaseConnection};
 use std::path::{Path, PathBuf};
+
+use crate::error::{CoreContext, CoreError, CoreResult};
 
 use rg_db::{
     entities::release::{ActiveModel as ReleaseActiveModel, Model as Release},
@@ -23,13 +24,13 @@ pub async fn create_release(
     is_draft: bool,
     is_prerelease: bool,
     _repo_path: &std::path::Path,
-) -> Result<Release> {
+) -> CoreResult<Release> {
     // Validate inputs
     if tag_name.is_empty() {
-        anyhow::bail!("tag_name cannot be empty");
+        return Err(CoreError::invalid_input("tag_name cannot be empty"));
     }
     if title.is_empty() {
-        anyhow::bail!("title cannot be empty");
+        return Err(CoreError::invalid_input("title cannot be empty"));
     }
 
     // Check for duplicate tag
@@ -37,7 +38,10 @@ pub async fn create_release(
         .await?
         .is_some()
     {
-        anyhow::bail!("release with tag '{}' already exists", tag_name);
+        return Err(CoreError::conflict(format!(
+            "release with tag '{}' already exists",
+            tag_name
+        )));
     }
 
     let now = Utc::now();
@@ -81,15 +85,15 @@ pub async fn list_releases(
     repo_id: i64,
     offset: u64,
     limit: u64,
-) -> Result<(Vec<Release>, i64)> {
-    rg_db::ops::release_ops::list_by_repo(db, repo_id, offset, limit).await
+) -> CoreResult<(Vec<Release>, i64)> {
+    Ok(rg_db::ops::release_ops::list_by_repo(db, repo_id, offset, limit).await?)
 }
 
 /// Get a release by ID.
-pub async fn get_release(db: &DatabaseConnection, id: i64) -> Result<Release> {
+pub async fn get_release(db: &DatabaseConnection, id: i64) -> CoreResult<Release> {
     rg_db::ops::release_ops::find_by_id(db, id)
         .await?
-        .ok_or_else(|| anyhow::anyhow!("release not found"))
+        .ok_or_else(|| CoreError::not_found("release not found"))
 }
 
 /// Update a release.
@@ -101,10 +105,10 @@ pub async fn update_release(
     body: Option<&str>,
     is_draft: Option<bool>,
     is_prerelease: Option<bool>,
-) -> Result<Release> {
+) -> CoreResult<Release> {
     let existing = rg_db::ops::release_ops::find_by_id(db, id)
         .await?
-        .ok_or_else(|| anyhow::anyhow!("release not found"))?;
+        .ok_or_else(|| CoreError::not_found("release not found"))?;
 
     let mut model: ReleaseActiveModel = existing.into();
     if let Some(t) = title {
@@ -121,15 +125,15 @@ pub async fn update_release(
     }
     model.updated_at = Set(Utc::now());
 
-    rg_db::ops::release_ops::update(db, model).await
+    Ok(rg_db::ops::release_ops::update(db, model).await?)
 }
 
 /// Delete a release.
-pub async fn delete_release(db: &DatabaseConnection, id: i64) -> Result<()> {
+pub async fn delete_release(db: &DatabaseConnection, id: i64) -> CoreResult<()> {
     // Get release info for webhook before deleting
     let release = rg_db::ops::release_ops::find_by_id(db, id)
         .await?
-        .ok_or_else(|| anyhow::anyhow!("release not found"))?;
+        .ok_or_else(|| CoreError::not_found("release not found"))?;
     let repo_id = release.repo_id;
 
     rg_db::ops::release_ops::delete_by_id(db, id).await?;
@@ -162,7 +166,7 @@ pub async fn upload_asset(
     content_type: &str,
     uploader_id: i64,
     data: &[u8],
-) -> Result<Asset> {
+) -> CoreResult<Asset> {
     // Verify release exists and get repo info
     let _release = get_release(db, release_id).await?;
 
@@ -182,7 +186,7 @@ pub async fn upload_asset(
     let key = asset_blob_key(owner, repo_name, &asset)?;
     if let Err(error) = storage.put(&key, data).await {
         let _ = rg_db::ops::release_ops::delete_asset_by_id(db, asset.id).await;
-        return Err(error).context("failed to write release asset");
+        return Err(blob_error(error, "failed to write release asset"));
     }
 
     // Keep the parameter during the compatibility window: old assets are read
@@ -200,10 +204,10 @@ pub async fn download_asset(
     repo_root: &Path,
     owner: &str,
     repo_name: &str,
-) -> Result<(Asset, Vec<u8>)> {
+) -> CoreResult<(Asset, Vec<u8>)> {
     let asset = rg_db::ops::release_ops::find_asset_by_id(db, asset_id)
         .await?
-        .ok_or_else(|| anyhow::anyhow!("asset not found"))?;
+        .ok_or_else(|| CoreError::not_found("asset not found"))?;
 
     // Increment download count
     rg_db::ops::release_ops::increment_download_count(db, asset_id).await?;
@@ -213,26 +217,40 @@ pub async fn download_asset(
         Ok(data) => data,
         Err(crate::blob_storage::BlobStorageError::NotFound(_)) => {
             let file_path = asset_file_path(repo_root, owner, repo_name, &asset);
-            tokio::fs::read(&file_path)
-                .await
-                .context("failed to read legacy release asset")?
+            match tokio::fs::read(&file_path).await {
+                Ok(data) => data,
+                // Neither the current backend nor the legacy location has the
+                // bytes: the asset's content is unavailable. Do not echo the
+                // storage path to the client.
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    tracing::warn!(
+                        asset_id,
+                        path = %file_path.display(),
+                        "release asset content missing from storage"
+                    );
+                    return Err(CoreError::not_found("asset content not found"));
+                }
+                Err(error) => {
+                    return Err(error).context("failed to read legacy release asset")
+                }
+            }
         }
-        Err(error) => return Err(error).context("failed to read release asset"),
+        Err(error) => return Err(blob_error(error, "failed to read release asset")),
     };
 
     Ok((asset, data))
 }
 
 /// Get a release asset by ID (without incrementing download count).
-pub async fn get_asset(db: &DatabaseConnection, asset_id: i64) -> Result<Asset> {
+pub async fn get_asset(db: &DatabaseConnection, asset_id: i64) -> CoreResult<Asset> {
     rg_db::ops::release_ops::find_asset_by_id(db, asset_id)
         .await?
-        .ok_or_else(|| anyhow::anyhow!("asset not found"))
+        .ok_or_else(|| CoreError::not_found("asset not found"))
 }
 
 /// List assets for a release.
-pub async fn list_assets(db: &DatabaseConnection, release_id: i64) -> Result<Vec<Asset>> {
-    rg_db::ops::release_ops::list_assets(db, release_id).await
+pub async fn list_assets(db: &DatabaseConnection, release_id: i64) -> CoreResult<Vec<Asset>> {
+    Ok(rg_db::ops::release_ops::list_assets(db, release_id).await?)
 }
 
 /// Delete a release asset (removes DB record + file from disk).
@@ -243,7 +261,7 @@ pub async fn delete_asset(
     repo_root: &Path,
     owner: &str,
     repo_name: &str,
-) -> Result<()> {
+) -> CoreResult<()> {
     let asset = get_asset(db, asset_id).await?;
 
     let key = asset_blob_key(owner, repo_name, &asset)?;
@@ -282,11 +300,22 @@ fn asset_file_path(repo_root: &Path, owner: &str, repo_name: &str, asset: &Asset
         .join(&asset.filename)
 }
 
+/// Classify a blob-storage failure: an invalid key is a caller mistake (for
+/// example an empty filename), everything else is an internal storage fault.
+fn blob_error(error: crate::blob_storage::BlobStorageError, context: &str) -> CoreError {
+    match error {
+        crate::blob_storage::BlobStorageError::InvalidKey(_) => {
+            CoreError::invalid_input("invalid release asset name")
+        }
+        other => CoreError::Internal(anyhow::Error::new(other).context(context.to_string())),
+    }
+}
+
 fn asset_blob_key(
     owner: &str,
     repo_name: &str,
     asset: &Asset,
-) -> Result<crate::blob_storage::BlobKey> {
+) -> CoreResult<crate::blob_storage::BlobKey> {
     let release_id = asset.release_id.to_string();
     let asset_id = asset.id.to_string();
     crate::blob_storage::BlobKey::from_segments([
@@ -297,5 +326,5 @@ fn asset_blob_key(
         &asset_id,
         &asset.filename,
     ])
-    .map_err(Into::into)
+    .map_err(|error| blob_error(error, "failed to build release asset key"))
 }

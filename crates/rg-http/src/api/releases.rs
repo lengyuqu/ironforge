@@ -85,7 +85,7 @@ pub async fn list_releases(
             return AppError::not_found("repository not found").into_response();
         }
         Err(e) => {
-            return AppError::internal(e).into_response();
+            return AppError::from(e).into_response();
         }
     };
 
@@ -95,7 +95,7 @@ pub async fn list_releases(
             Json(PaginatedResponse::new(releases, &pagination, total as u64)),
         )
             .into_response(),
-        Err(e) => AppError::internal(e).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -144,7 +144,7 @@ pub async fn create_release(
             return AppError::not_found("repository not found").into_response();
         }
         Err(e) => {
-            return AppError::internal(e).into_response();
+            return AppError::from(e).into_response();
         }
     };
 
@@ -155,7 +155,7 @@ pub async fn create_release(
             return AppError::forbidden("permission denied").into_response();
         }
         Err(e) => {
-            return AppError::internal(e).into_response();
+            return AppError::from(e).into_response();
         }
     }
 
@@ -184,7 +184,7 @@ pub async fn create_release(
     .await
     {
         Ok(release) => (StatusCode::CREATED, Json(serde_json::json!(release))).into_response(),
-        Err(e) => AppError::bad_request(e).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -214,13 +214,13 @@ pub async fn get_release(
             return AppError::not_found("repository not found").into_response();
         }
         Err(e) => {
-            return AppError::internal(e).into_response();
+            return AppError::from(e).into_response();
         }
     }
 
     match rg_core::release::service::get_release(&state.db, id).await {
         Ok(release) => (StatusCode::OK, Json(serde_json::json!(release))).into_response(),
-        Err(_) => AppError::not_found("release not found").into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -268,7 +268,7 @@ pub async fn update_release(
             return AppError::forbidden("permission denied").into_response();
         }
         Err(e) => {
-            return AppError::internal(e).into_response();
+            return AppError::from(e).into_response();
         }
     }
 
@@ -283,7 +283,7 @@ pub async fn update_release(
     .await
     {
         Ok(release) => (StatusCode::OK, Json(serde_json::json!(release))).into_response(),
-        Err(e) => AppError::bad_request(e).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -330,7 +330,7 @@ pub async fn delete_release(
             return AppError::forbidden("permission denied").into_response();
         }
         Err(e) => {
-            return AppError::internal(e).into_response();
+            return AppError::from(e).into_response();
         }
     }
 
@@ -340,7 +340,7 @@ pub async fn delete_release(
             Json(serde_json::json!({ "deleted": true })),
         )
             .into_response(),
-        Err(e) => AppError::bad_request(e).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -372,13 +372,13 @@ pub async fn list_assets(
             return AppError::not_found("repository not found").into_response();
         }
         Err(e) => {
-            return AppError::internal(e).into_response();
+            return AppError::from(e).into_response();
         }
     }
 
     match rg_core::release::service::list_assets(&state.db, release_id).await {
         Ok(assets) => (StatusCode::OK, Json(serde_json::json!(assets))).into_response(),
-        Err(e) => AppError::internal(e).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -431,7 +431,7 @@ pub async fn upload_asset(
             return AppError::forbidden("permission denied").into_response();
         }
         Err(e) => {
-            return AppError::internal(e).into_response();
+            return AppError::from(e).into_response();
         }
     }
 
@@ -464,7 +464,8 @@ pub async fn upload_asset(
         // 512 MB max
         Ok(b) => b,
         Err(e) => {
-            return AppError::bad_request(format!("failed to read body: {}", e)).into_response();
+            tracing::debug!(error = %e, "failed to read release asset upload body");
+            return AppError::bad_request("failed to read request body").into_response();
         }
     };
 
@@ -486,7 +487,7 @@ pub async fn upload_asset(
     .await
     {
         Ok(asset) => (StatusCode::CREATED, Json(serde_json::json!(asset))).into_response(),
-        Err(e) => AppError::bad_request(e).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -560,13 +561,13 @@ pub async fn get_asset(
             return AppError::not_found("repository not found").into_response();
         }
         Err(e) => {
-            return AppError::internal(e).into_response();
+            return AppError::from(e).into_response();
         }
     }
 
     match rg_core::release::service::get_asset(&state.db, asset_id).await {
         Ok(asset) => (StatusCode::OK, Json(serde_json::json!(asset))).into_response(),
-        Err(_) => AppError::not_found("asset not found").into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -600,7 +601,7 @@ pub async fn download_asset(
             return AppError::not_found("repository not found").into_response();
         }
         Err(e) => {
-            return AppError::internal(e).into_response();
+            return AppError::from(e).into_response();
         }
     };
 
@@ -614,7 +615,7 @@ pub async fn download_asset(
             return AppError::forbidden("access denied").into_response();
         }
         Err(e) => {
-            return AppError::internal(e).into_response();
+            return AppError::from(e).into_response();
         }
     }
 
@@ -642,7 +643,7 @@ pub async fn download_asset(
             );
             response.into_response()
         }
-        Err(e) => AppError::not_found(e).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -689,7 +690,7 @@ pub async fn delete_asset(
             return AppError::forbidden("permission denied").into_response();
         }
         Err(e) => {
-            return AppError::internal(e).into_response();
+            return AppError::from(e).into_response();
         }
     }
 
@@ -708,6 +709,6 @@ pub async fn delete_asset(
             Json(serde_json::json!({ "deleted": true })),
         )
             .into_response(),
-        Err(e) => AppError::bad_request(e).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
