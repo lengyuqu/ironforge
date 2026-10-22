@@ -1,12 +1,13 @@
 //! Branch protection service — protected branches + required status checks.
 
-use anyhow::{bail, Context, Result};
 use chrono::Utc;
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
 
 use rg_db::entities::protected_branch::{self, Model as ProtectedBranch};
 use rg_db::entities::pull_request;
 use rg_db::ops::{pipeline_ops, pr_review_ops, protected_branch_ops, repo_ops};
+
+use crate::error::{CoreContext, CoreError, CoreResult};
 
 /// Create a branch protection rule.
 #[allow(clippy::too_many_arguments)]
@@ -23,15 +24,27 @@ pub async fn create_protection(
     allow_force_push: bool,
     require_signed_commits: bool,
     allowed_push_user_ids: Option<Vec<i64>>,
-) -> Result<ProtectedBranch> {
+) -> CoreResult<ProtectedBranch> {
     let repo = resolve_repo(db, owner, repo_name).await?;
+
+    if branch_name.trim().is_empty() {
+        return Err(CoreError::invalid_input("branch_name cannot be empty"));
+    }
+    if required_approvals.is_some_and(|count| count < 0) {
+        return Err(CoreError::invalid_input(
+            "required_approvals cannot be negative",
+        ));
+    }
 
     // Check if protection already exists
     if protected_branch_ops::find_by_repo_and_branch(db, repo.id, &branch_name)
         .await?
         .is_some()
     {
-        bail!("branch '{}' is already protected", branch_name);
+        return Err(CoreError::conflict(format!(
+            "branch '{}' is already protected",
+            branch_name
+        )));
     }
 
     let model = protected_branch::ActiveModel {
@@ -54,7 +67,7 @@ pub async fn create_protection(
         updated_at: Set(Utc::now()),
     };
 
-    protected_branch_ops::create(db, model).await
+    Ok(protected_branch_ops::create(db, model).await?)
 }
 
 /// List all branch protection rules for a repo.
@@ -62,19 +75,19 @@ pub async fn list_protections(
     db: &DatabaseConnection,
     owner: &str,
     repo_name: &str,
-) -> Result<Vec<ProtectedBranch>> {
+) -> CoreResult<Vec<ProtectedBranch>> {
     let repo = resolve_repo(db, owner, repo_name).await?;
-    protected_branch_ops::list_by_repo(db, repo.id).await
+    Ok(protected_branch_ops::list_by_repo(db, repo.id).await?)
 }
 
 /// Get a branch protection rule by ID.
 pub async fn get_protection(
     db: &DatabaseConnection,
     protection_id: i64,
-) -> Result<ProtectedBranch> {
+) -> CoreResult<ProtectedBranch> {
     protected_branch_ops::find_by_id(db, protection_id)
         .await?
-        .context("protection rule not found")
+        .ok_or_else(|| CoreError::not_found("protection rule not found"))
 }
 
 /// Get a branch protection rule by ID, scoped to a repository route.
@@ -83,11 +96,11 @@ pub async fn get_protection_for_repo(
     owner: &str,
     repo_name: &str,
     protection_id: i64,
-) -> Result<ProtectedBranch> {
+) -> CoreResult<ProtectedBranch> {
     let repo = resolve_repo(db, owner, repo_name).await?;
     let protection = get_protection(db, protection_id).await?;
     if protection.repo_id != repo.id {
-        bail!("protection rule not found");
+        return Err(CoreError::not_found("protection rule not found"));
     }
     Ok(protection)
 }
@@ -105,10 +118,15 @@ pub async fn update_protection(
     allow_force_push: Option<bool>,
     require_signed_commits: Option<bool>,
     allowed_push_user_ids: Option<Vec<i64>>,
-) -> Result<ProtectedBranch> {
+) -> CoreResult<ProtectedBranch> {
+    if required_approvals.is_some_and(|count| count < 0) {
+        return Err(CoreError::invalid_input(
+            "required_approvals cannot be negative",
+        ));
+    }
     let mut protection = protected_branch_ops::find_by_id(db, protection_id)
         .await?
-        .context("protection rule not found")?;
+        .ok_or_else(|| CoreError::not_found("protection rule not found"))?;
 
     if let Some(v) = require_pr {
         protection.require_pr = v;
@@ -137,7 +155,7 @@ pub async fn update_protection(
     protection.updated_at = Utc::now();
 
     let active: protected_branch::ActiveModel = protection.into();
-    protected_branch_ops::update(db, active).await
+    Ok(protected_branch_ops::update(db, active).await?)
 }
 
 /// Update a branch protection rule, scoped to a repository route.
@@ -155,7 +173,7 @@ pub async fn update_protection_for_repo(
     allow_force_push: Option<bool>,
     require_signed_commits: Option<bool>,
     allowed_push_user_ids: Option<Vec<i64>>,
-) -> Result<ProtectedBranch> {
+) -> CoreResult<ProtectedBranch> {
     get_protection_for_repo(db, owner, repo_name, protection_id).await?;
     update_protection(
         db,
@@ -173,8 +191,8 @@ pub async fn update_protection_for_repo(
 }
 
 /// Delete a branch protection rule.
-pub async fn delete_protection(db: &DatabaseConnection, protection_id: i64) -> Result<()> {
-    protected_branch_ops::delete_by_id(db, protection_id).await
+pub async fn delete_protection(db: &DatabaseConnection, protection_id: i64) -> CoreResult<()> {
+    Ok(protected_branch_ops::delete_by_id(db, protection_id).await?)
 }
 
 /// Delete a branch protection rule, scoped to a repository route.
@@ -183,7 +201,7 @@ pub async fn delete_protection_for_repo(
     owner: &str,
     repo_name: &str,
     protection_id: i64,
-) -> Result<()> {
+) -> CoreResult<()> {
     get_protection_for_repo(db, owner, repo_name, protection_id).await?;
     delete_protection(db, protection_id).await
 }
@@ -353,7 +371,7 @@ pub async fn check_push_allowed(
     repo_id: i64,
     branch_name: &str,
     user_id: Option<i64>,
-) -> Result<()> {
+) -> CoreResult<()> {
     let rules = protected_branch_ops::list_by_repo(db, repo_id).await?;
     let refname = format!("refs/heads/{branch_name}");
 
@@ -367,17 +385,17 @@ pub async fn check_push_allowed(
     }
 
     if rule.require_pr {
-        bail!(
+        return Err(CoreError::forbidden(format!(
             "push to protected branch '{}' is not allowed; open a pull request instead",
             branch_name
-        );
+        )));
     }
 
     if !rule.allow_force_push {
-        bail!(
+        return Err(CoreError::forbidden(format!(
             "force push to protected branch '{}' is not allowed",
             branch_name
-        );
+        )));
     }
 
     Ok(())
@@ -395,11 +413,11 @@ pub async fn check_direct_commit_allowed(
     repo_id: i64,
     branch_name: &str,
     user_id: Option<i64>,
-) -> Result<()> {
+) -> CoreResult<()> {
     let rules = protected_branch_ops::list_by_repo(db, repo_id).await?;
 
     if let Some(reason) = direct_commit_rejection(&rules, branch_name, user_id) {
-        bail!("{reason}");
+        return Err(CoreError::forbidden(reason));
     }
 
     Ok(())
@@ -411,7 +429,7 @@ pub async fn check_merge_allowed(
     repo_id: i64,
     target_branch: &str,
     pr_id: i64,
-) -> Result<()> {
+) -> CoreResult<()> {
     // Use the same matcher as the push and direct-commit paths so a wildcard
     // rule (e.g. `release/*`) protects merges too.
     let rules = protected_branch_ops::list_by_repo(db, repo_id).await?;
@@ -422,10 +440,10 @@ pub async fn check_merge_allowed(
     };
 
     if protection.require_signed_commits {
-        bail!(
+        return Err(CoreError::forbidden(format!(
             "branch '{}' requires cryptographically signed commits; server-side PR merge commits are not signed, so create and push a signed commit with an allowed identity",
             target_branch
-        );
+        )));
     }
 
     // Check required approvals
@@ -434,16 +452,14 @@ pub async fn check_merge_allowed(
         let pr = pull_request::Entity::find_by_id(pr_id)
             .one(db)
             .await?
-            .context("pull request not found")?;
+            .ok_or_else(|| CoreError::not_found("pull request not found"))?;
         let approval_count =
             pr_review_ops::count_current_approvals(db, pr_id, pr.head_sha.as_deref()).await?;
         if approval_count < required {
-            bail!(
+            return Err(CoreError::forbidden(format!(
                 "merging into protected branch '{}' requires at least {} approval(s), got {}",
-                target_branch,
-                required,
-                approval_count
-            );
+                target_branch, required, approval_count
+            )));
         }
     }
 
@@ -461,34 +477,30 @@ pub async fn check_merge_allowed(
                 let head_sha = match pr.and_then(|p| p.head_sha) {
                     Some(s) if !s.is_empty() => s,
                     _ => {
-                        bail!(
+                        return Err(CoreError::forbidden(format!(
                             "branch '{}' requires status checks but no CI pipeline found for PR {}",
-                            target_branch,
-                            pr_id
-                        );
+                            target_branch, pr_id
+                        )));
                     }
                 };
 
                 // Find the latest pipeline for this commit
-                let pipeline = pipeline_ops::find_latest_by_repo_and_commit(db, repo_id, &head_sha)
-                    .await
-                    .context("db: find pipeline for status check")?;
+                let pipeline =
+                    pipeline_ops::find_latest_by_repo_and_commit(db, repo_id, &head_sha).await?;
 
                 match pipeline {
                     None => {
-                        bail!(
+                        return Err(CoreError::forbidden(format!(
                             "branch '{}' requires status checks to pass, but no CI pipeline has run for commit {}",
                             target_branch,
                             &head_sha[..8.min(head_sha.len())]
-                        );
+                        )));
                     }
                     Some(p) if p.status != "success" => {
-                        bail!(
+                        return Err(CoreError::forbidden(format!(
                             "branch '{}' requires all status checks to pass, but pipeline #{} is {}",
-                            target_branch,
-                            p.id,
-                            p.status
-                        );
+                            target_branch, p.id, p.status
+                        )));
                     }
                     Some(p) => {
                         // All pipeline jobs must have passed — check job names match required list
@@ -505,12 +517,10 @@ pub async fn check_merge_allowed(
                             .collect();
 
                         if !missing.is_empty() {
-                            bail!(
+                            return Err(CoreError::forbidden(format!(
                                 "branch '{}' requires status checks {:?} to pass, but {:?} are missing or failed",
-                                target_branch,
-                                required_checks,
-                                missing
-                            );
+                                target_branch, required_checks, missing
+                            )));
                         }
 
                         tracing::info!(
@@ -535,13 +545,13 @@ async fn resolve_repo(
     db: &DatabaseConnection,
     owner: &str,
     repo_name: &str,
-) -> Result<rg_db::entities::repository::Model> {
+) -> CoreResult<rg_db::entities::repository::Model> {
     let user = rg_db::ops::user_ops::find_by_username(db, owner)
         .await?
-        .context("owner not found")?;
+        .ok_or_else(|| CoreError::not_found("owner not found"))?;
     repo_ops::find_by_owner_and_name(db, user.id, repo_name)
         .await?
-        .context("repository not found")
+        .ok_or_else(|| CoreError::not_found("repository not found"))
 }
 
 #[cfg(test)]

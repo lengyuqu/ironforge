@@ -228,7 +228,8 @@ async fn merge_conflict_keeps_base_ref_and_restores_open_pr_state() {
         .send()
         .await
         .unwrap();
-    assert_eq!(failed.status(), 400);
+    // A merge conflict is a state conflict (409), not a malformed request.
+    assert_eq!(failed.status(), 409);
     assert!(failed
         .text()
         .await

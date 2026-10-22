@@ -271,7 +271,7 @@ pub async fn get_pr(
     let repo = resolve_repo(db, owner, repo_name).await?;
     pull_request_ops::find_by_repo_and_number(db, repo.id, number)
         .await?
-        .context("pull request not found")
+        .ok_or_else(|| CoreError::not_found("pull request not found"))
 }
 
 /// Update PR metadata (title, body, state, draft, milestone).
@@ -708,6 +708,23 @@ fn parse_range_start(range: &str) -> Option<i64> {
     range.split(',').next()?.parse().ok()
 }
 
+/// Resolve a full ref name for a diff, telling "the ref does not exist" (a
+/// missing branch the caller can see) apart from a real repository failure.
+fn resolve_ref_for_diff<'repo>(
+    repo: &'repo gix::Repository,
+    name: &str,
+) -> CoreResult<gix::Id<'repo>> {
+    match repo.rev_parse_single(name) {
+        Ok(id) => Ok(id),
+        Err(error) => match repo.try_find_reference(name) {
+            Ok(None) => Err(CoreError::not_found(format!("ref not found: {name}"))),
+            _ => Err(CoreError::internal(format!(
+                "failed to resolve {name}: {error}"
+            ))),
+        },
+    }
+}
+
 /// Compute per-file diff statistics using gix tree-to-tree diff.
 ///
 /// Replaces `git diff --numstat` with native gix tree-diff + per-blob line counting.
@@ -725,12 +742,8 @@ fn gix_diff_numstat(
     let repo = gix::open(repo_path)
         .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
 
-    let old_id = repo
-        .rev_parse_single(old_ref.as_str())
-        .with_context(|| format!("ref not found: {}", old_ref))?;
-    let new_id = repo
-        .rev_parse_single(new_ref.as_str())
-        .with_context(|| format!("ref not found: {}", new_ref))?;
+    let old_id = resolve_ref_for_diff(&repo, &old_ref)?;
+    let new_id = resolve_ref_for_diff(&repo, &new_ref)?;
 
     // If refs point to the same tree, there are no changes
     if old_id == new_id {
@@ -914,13 +927,13 @@ pub async fn enable_auto_merge(
 ) -> CoreResult<PullRequest> {
     let pr = get_pr(db, owner, repo_name, number).await?;
     if pr.state != "open" {
-        return Err(CoreError::InvalidInput(
-            "auto-merge can only be enabled for an open pull request".into(),
+        return Err(CoreError::conflict(
+            "auto-merge can only be enabled for an open pull request",
         ));
     }
     if pr.is_draft {
-        return Err(CoreError::InvalidInput(
-            "auto-merge cannot be enabled for a draft pull request".into(),
+        return Err(CoreError::conflict(
+            "auto-merge cannot be enabled for a draft pull request",
         ));
     }
     if let Some(entry) = rg_db::ops::merge_queue_ops::find_by_pr(db, pr.id).await? {
@@ -1008,7 +1021,7 @@ pub async fn try_auto_merge(
             merge: None,
         });
     }
-    if let Err(error) = crate::branch_protection::service::check_merge_allowed(
+    match crate::branch_protection::service::check_merge_allowed(
         db,
         pr.repo_id,
         &pr.base_branch,
@@ -1016,11 +1029,18 @@ pub async fn try_auto_merge(
     )
     .await
     {
-        return Ok(AutoMergeOutcome {
-            status: "pending".into(),
-            reason: Some(error.to_string()),
-            merge: None,
-        });
+        Ok(()) => {}
+        // An unsatisfied protection rule is an expected "not yet" outcome;
+        // anything else (database failure, missing PR) is a real error and
+        // must not be reported to the client as a protection reason.
+        Err(CoreError::Forbidden(reason)) => {
+            return Ok(AutoMergeOutcome {
+                status: "pending".into(),
+                reason: Some(reason),
+                merge: None,
+            });
+        }
+        Err(error) => return Err(error),
     }
 
     let strategy = MergeStrategy::parse(
@@ -1164,6 +1184,7 @@ async fn merge_claimed_pr(
         let head_repo_path = repo_root.join(format!("{}/{}.git", head_namespace, head_repo.name));
 
         if head_repo_path.exists() {
+            ensure_branch_exists(&head_repo_path, &pr.head_branch, "head")?;
             let local_ref = format!("refs/forks/{}/{}", head_namespace, pr.head_branch);
             let head_tip = format!("refs/heads/{}", pr.head_branch);
 
@@ -1220,6 +1241,12 @@ async fn merge_claimed_pr(
         let repo_path = repo_path.clone();
         let pr = pr.clone();
         tokio::task::spawn_blocking(move || -> CoreResult<String> {
+            // The head branch may have been deleted after the PR was opened;
+            // that is a state conflict, not a server fault.
+            ensure_branch_exists(&repo_path, &pr.head_branch, "head")?;
+            if matches!(strategy, MergeStrategy::Rebase) {
+                ensure_branch_exists(&repo_path, &pr.base_branch, "base")?;
+            }
             match strategy {
                 MergeStrategy::Merge => do_merge_commit(&repo_path, &pr),
                 MergeStrategy::Squash => do_squash_merge(&repo_path, &pr),
@@ -1231,6 +1258,19 @@ async fn merge_claimed_pr(
     };
 
     update_pr_merged(db, pr, merge_commit_sha, strategy).await
+}
+
+/// Fail with a state conflict when `refs/heads/<branch>` no longer exists.
+///
+/// A PR keeps pointing at its branches by name, so a deleted head (or base)
+/// branch is something the caller can act on, not an internal failure.
+fn ensure_branch_exists(repo_path: &std::path::Path, branch: &str, role: &str) -> CoreResult<()> {
+    match rg_git::ops::try_rev_parse(repo_path, &format!("refs/heads/{branch}"))? {
+        Some(_) => Ok(()),
+        None => Err(CoreError::conflict(format!(
+            "{role} branch '{branch}' no longer exists"
+        ))),
+    }
 }
 
 /// Merge from an arbitrary ref (used for fork PRs).
@@ -1256,7 +1296,7 @@ fn merge_from_ref(
         MergeStrategy::Rebase => match rg_git::ops::rebase_merge(repo_path, &pr.base_branch, merge_ref) {
             Ok(rg_git::ops::RebaseOutcome::Rebased(sha)) => Ok(sha),
             Ok(rg_git::ops::RebaseOutcome::Conflict(message)) => {
-                Err(CoreError::internal(format!("rebase merge failed: {message}")))
+                Err(CoreError::conflict(format!("rebase merge failed: {message}")))
             }
             Ok(rg_git::ops::RebaseOutcome::BaseAdvanced) => Err(CoreError::Conflict(
                 "base branch advanced while rebasing".to_string(),
@@ -1356,7 +1396,7 @@ fn do_rebase_merge(repo_path: &std::path::Path, pr: &PullRequest) -> CoreResult<
     match rg_git::ops::rebase_merge(repo_path, &pr.base_branch, &pr.head_branch) {
         Ok(rg_git::ops::RebaseOutcome::Rebased(sha)) => Ok(sha),
         Ok(rg_git::ops::RebaseOutcome::Conflict(message)) => {
-            Err(CoreError::internal(format!("rebase merge failed: {message}")))
+            Err(CoreError::conflict(format!("rebase merge failed: {message}")))
         }
         Ok(rg_git::ops::RebaseOutcome::BaseAdvanced) => Err(CoreError::Conflict(
             "base branch advanced while rebasing".to_string(),
