@@ -1,5 +1,6 @@
 //! Gitea-compatible Markdown issue and pull-request template discovery.
 
+use crate::error::{CoreError, CoreResult};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -122,16 +123,25 @@ pub fn discover_issue_templates(
     Ok(discovery)
 }
 
-pub fn read_issue_config(repository_path: &Path, default_branch: &str) -> Result<IssueConfig> {
+/// Read the issue chooser configuration of the default branch.
+///
+/// A malformed config file committed to the repository is reported as
+/// [`CoreError::InvalidInput`] (its message describes the content problem and
+/// is safe to show); failures to read the repository itself are
+/// [`CoreError::Internal`] and must not reach the client verbatim.
+pub fn read_issue_config(repository_path: &Path, default_branch: &str) -> CoreResult<IssueConfig> {
     let Some(commit_ref) = verified_branch_ref(repository_path, default_branch)? else {
         return Ok(IssueConfig::default());
     };
     for candidate in ISSUE_CONFIGS {
-        let Some(content) = try_read_text_blob(repository_path, &commit_ref, candidate)? else {
+        let Some((_sha, data)) = rg_git::ops::blob_at(repository_path, &commit_ref, candidate)?
+        else {
             continue;
         };
-        let config: IssueConfig =
-            serde_yaml::from_str(&content).context("invalid issue template config YAML")?;
+        let content = decode_template_content(candidate, data)
+            .map_err(|e| CoreError::invalid_input(e.to_string()))?;
+        let config: IssueConfig = serde_yaml::from_str(&content)
+            .map_err(|_| CoreError::invalid_input("invalid issue template config YAML"))?;
         validate_config(&config)?;
         return Ok(config);
     }
@@ -314,18 +324,25 @@ fn yaml_string_list(value: &serde_yaml::Value) -> Result<Vec<String>> {
     }
 }
 
-fn validate_config(config: &IssueConfig) -> Result<()> {
+fn validate_config(config: &IssueConfig) -> CoreResult<()> {
     for (index, link) in config.contact_links.iter().enumerate() {
         if link.name.trim().is_empty() || link.about.trim().is_empty() {
-            anyhow::bail!("contact link {} requires name and about", index + 1);
+            return Err(CoreError::invalid_input(format!(
+                "contact link {} requires name and about",
+                index + 1
+            )));
         }
-        let url = reqwest::Url::parse(&link.url)
-            .with_context(|| format!("invalid contact link URL at position {}", index + 1))?;
+        let url = reqwest::Url::parse(&link.url).map_err(|_| {
+            CoreError::invalid_input(format!(
+                "invalid contact link URL at position {}",
+                index + 1
+            ))
+        })?;
         if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
-            anyhow::bail!(
+            return Err(CoreError::invalid_input(format!(
                 "contact link {} must use an absolute HTTP(S) URL",
                 index + 1
-            );
+            )));
         }
     }
     Ok(())

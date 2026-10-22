@@ -132,7 +132,7 @@ pub async fn create_board(
     .await
     {
         Ok(board) => (StatusCode::CREATED, Json(serde_json::json!(board))).into_response(),
-        Err(e) => AppError::bad_request(e).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -162,7 +162,7 @@ pub async fn list_boards(
 
     match rg_core::board::service::list_boards_by_repo(&state.db, repo.id).await {
         Ok(boards) => (StatusCode::OK, Json(serde_json::json!(boards))).into_response(),
-        Err(e) => AppError::internal(e).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -186,15 +186,14 @@ pub async fn get_board(
     headers: HeaderMap,
     Path((owner, name, id)): Path<(String, String, i64)>,
 ) -> impl IntoResponse {
-    let _repo = match require_read(&state, &headers, &owner, &name).await {
+    let repo = match require_read(&state, &headers, &owner, &name).await {
         Ok(r) => r,
         Err(e) => return e.into_response(),
     };
 
-    match rg_core::board::service::get_board(&state.db, id).await {
-        Ok(Some(board)) => (StatusCode::OK, Json(serde_json::json!(board))).into_response(),
-        Ok(None) => AppError::not_found("board not found").into_response(),
-        Err(e) => AppError::internal(e).into_response(),
+    match rg_core::board::service::get_board(&state.db, repo.id, id).await {
+        Ok(board) => (StatusCode::OK, Json(serde_json::json!(board))).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -221,14 +220,16 @@ pub async fn update_board(
     Path((owner, name, id)): Path<(String, String, i64)>,
     Json(body): Json<UpdateBoardRequest>,
 ) -> impl IntoResponse {
-    let (_repo, _user_id) = match require_write(&state, &headers, &owner, &name).await {
+    let (repo, _user_id) = match require_write(&state, &headers, &owner, &name).await {
         Ok(r) => r,
         Err(e) => return e.into_response(),
     };
 
-    match rg_core::board::service::update_board(&state.db, id, body.name, body.description).await {
+    match rg_core::board::service::update_board(&state.db, repo.id, id, body.name, body.description)
+        .await
+    {
         Ok(board) => (StatusCode::OK, Json(serde_json::json!(board))).into_response(),
-        Err(e) => AppError::bad_request(e).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -253,14 +254,14 @@ pub async fn delete_board(
     headers: HeaderMap,
     Path((owner, name, id)): Path<(String, String, i64)>,
 ) -> impl IntoResponse {
-    let (_repo, _user_id) = match require_write(&state, &headers, &owner, &name).await {
+    let (repo, _user_id) = match require_write(&state, &headers, &owner, &name).await {
         Ok(r) => r,
         Err(e) => return e.into_response(),
     };
 
-    match rg_core::board::service::delete_board(&state.db, id).await {
+    match rg_core::board::service::delete_board(&state.db, repo.id, id).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(e) => AppError::internal(e).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -289,14 +290,16 @@ pub async fn create_column(
     Path((owner, name, board_id)): Path<(String, String, i64)>,
     Json(body): Json<CreateColumnRequest>,
 ) -> impl IntoResponse {
-    let (_repo, _user_id) = match require_write(&state, &headers, &owner, &name).await {
+    let (repo, _user_id) = match require_write(&state, &headers, &owner, &name).await {
         Ok(r) => r,
         Err(e) => return e.into_response(),
     };
 
-    match rg_core::board::service::create_column(&state.db, board_id, body.name, body.color).await {
+    match rg_core::board::service::create_column(&state.db, repo.id, board_id, body.name, body.color)
+        .await
+    {
         Ok(column) => (StatusCode::CREATED, Json(serde_json::json!(column))).into_response(),
-        Err(e) => AppError::bad_request(e).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -321,17 +324,21 @@ pub async fn create_column(
 pub async fn update_column(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Path((owner, name, _board_id, col_id)): Path<(String, String, i64, i64)>,
+    Path((owner, name, board_id, col_id)): Path<(String, String, i64, i64)>,
     Json(body): Json<UpdateColumnRequest>,
 ) -> impl IntoResponse {
-    let (_repo, _user_id) = match require_write(&state, &headers, &owner, &name).await {
+    let (repo, _user_id) = match require_write(&state, &headers, &owner, &name).await {
         Ok(r) => r,
         Err(e) => return e.into_response(),
     };
 
-    match rg_core::board::service::update_column(&state.db, col_id, body.name, body.color).await {
+    match rg_core::board::service::update_column(
+        &state.db, repo.id, board_id, col_id, body.name, body.color,
+    )
+    .await
+    {
         Ok(column) => (StatusCode::OK, Json(serde_json::json!(column))).into_response(),
-        Err(e) => AppError::bad_request(e).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -355,16 +362,16 @@ pub async fn update_column(
 pub async fn delete_column(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Path((owner, name, _board_id, col_id)): Path<(String, String, i64, i64)>,
+    Path((owner, name, board_id, col_id)): Path<(String, String, i64, i64)>,
 ) -> impl IntoResponse {
-    let (_repo, _user_id) = match require_write(&state, &headers, &owner, &name).await {
+    let (repo, _user_id) = match require_write(&state, &headers, &owner, &name).await {
         Ok(r) => r,
         Err(e) => return e.into_response(),
     };
 
-    match rg_core::board::service::delete_column(&state.db, col_id).await {
+    match rg_core::board::service::delete_column(&state.db, repo.id, board_id, col_id).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(e) => AppError::internal(e).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -391,17 +398,26 @@ pub async fn delete_column(
 pub async fn create_card(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Path((owner, name, _board_id, col_id)): Path<(String, String, i64, i64)>,
+    Path((owner, name, board_id, col_id)): Path<(String, String, i64, i64)>,
     Json(body): Json<CreateCardRequest>,
 ) -> impl IntoResponse {
-    let (_repo, _user_id) = match require_write(&state, &headers, &owner, &name).await {
+    let (repo, _user_id) = match require_write(&state, &headers, &owner, &name).await {
         Ok(r) => r,
         Err(e) => return e.into_response(),
     };
 
-    match rg_core::board::service::create_card(&state.db, col_id, body.issue_id, body.note).await {
+    match rg_core::board::service::create_card(
+        &state.db,
+        repo.id,
+        board_id,
+        col_id,
+        body.issue_id,
+        body.note,
+    )
+    .await
+    {
         Ok(card) => (StatusCode::CREATED, Json(serde_json::json!(card))).into_response(),
-        Err(e) => AppError::bad_request(e).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -426,17 +442,26 @@ pub async fn create_card(
 pub async fn update_card(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Path((owner, name, _board_id, card_id)): Path<(String, String, i64, i64)>,
+    Path((owner, name, board_id, card_id)): Path<(String, String, i64, i64)>,
     Json(body): Json<UpdateCardRequest>,
 ) -> impl IntoResponse {
-    let (_repo, _user_id) = match require_write(&state, &headers, &owner, &name).await {
+    let (repo, _user_id) = match require_write(&state, &headers, &owner, &name).await {
         Ok(r) => r,
         Err(e) => return e.into_response(),
     };
 
-    match rg_core::board::service::update_card(&state.db, card_id, body.note, body.issue_id).await {
+    match rg_core::board::service::update_card(
+        &state.db,
+        repo.id,
+        board_id,
+        card_id,
+        body.note,
+        body.issue_id,
+    )
+    .await
+    {
         Ok(card) => (StatusCode::OK, Json(serde_json::json!(card))).into_response(),
-        Err(e) => AppError::bad_request(e).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -461,19 +486,26 @@ pub async fn update_card(
 pub async fn move_card(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Path((owner, name, _board_id, card_id)): Path<(String, String, i64, i64)>,
+    Path((owner, name, board_id, card_id)): Path<(String, String, i64, i64)>,
     Json(body): Json<MoveCardRequest>,
 ) -> impl IntoResponse {
-    let (_repo, _user_id) = match require_write(&state, &headers, &owner, &name).await {
+    let (repo, _user_id) = match require_write(&state, &headers, &owner, &name).await {
         Ok(r) => r,
         Err(e) => return e.into_response(),
     };
 
-    match rg_core::board::service::move_card(&state.db, card_id, body.column_id, body.position)
-        .await
+    match rg_core::board::service::move_card(
+        &state.db,
+        repo.id,
+        board_id,
+        card_id,
+        body.column_id,
+        body.position,
+    )
+    .await
     {
         Ok(card) => (StatusCode::OK, Json(serde_json::json!(card))).into_response(),
-        Err(e) => AppError::bad_request(e).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -497,17 +529,19 @@ pub async fn move_card(
 pub async fn reorder_cards(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Path((owner, name, _board_id)): Path<(String, String, i64)>,
+    Path((owner, name, board_id)): Path<(String, String, i64)>,
     Json(body): Json<ReorderCardsRequest>,
 ) -> impl IntoResponse {
-    let (_repo, _user_id) = match require_write(&state, &headers, &owner, &name).await {
+    let (repo, _user_id) = match require_write(&state, &headers, &owner, &name).await {
         Ok(r) => r,
         Err(e) => return e.into_response(),
     };
 
-    match rg_core::board::service::reorder_cards(&state.db, body.positions).await {
+    match rg_core::board::service::reorder_cards(&state.db, repo.id, board_id, body.positions)
+        .await
+    {
         Ok(()) => (StatusCode::OK, Json(serde_json::json!({"status": "ok"}))).into_response(),
-        Err(e) => AppError::bad_request(e).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -531,15 +565,15 @@ pub async fn reorder_cards(
 pub async fn delete_card(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Path((owner, name, _board_id, card_id)): Path<(String, String, i64, i64)>,
+    Path((owner, name, board_id, card_id)): Path<(String, String, i64, i64)>,
 ) -> impl IntoResponse {
-    let (_repo, _user_id) = match require_write(&state, &headers, &owner, &name).await {
+    let (repo, _user_id) = match require_write(&state, &headers, &owner, &name).await {
         Ok(r) => r,
         Err(e) => return e.into_response(),
     };
 
-    match rg_core::board::service::delete_card(&state.db, card_id).await {
+    match rg_core::board::service::delete_card(&state.db, repo.id, board_id, card_id).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(e) => AppError::internal(e).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }

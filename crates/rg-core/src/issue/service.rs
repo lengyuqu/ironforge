@@ -24,6 +24,10 @@ pub async fn create_issue(
         return Err(CoreError::InvalidInput("issue title cannot be empty".into()));
     }
 
+    if let Some(mid) = milestone_id {
+        ensure_milestone_in_repo(db, repo_id, mid).await?;
+    }
+
     let number = issue_ops::next_number(db, repo_id).await?;
     let labels_json = labels
         .as_ref()
@@ -206,7 +210,7 @@ pub async fn get_issue(
         .await?
         // NotFound variant (not `.context`, which yields Internal → 500)
         // so variant-based HTTP mappings return 404 for missing issues.
-        .ok_or_else(|| CoreError::NotFound("issue not found".into()))
+        .ok_or_else(|| CoreError::not_found("issue not found"))
 }
 
 /// Update an issue's title, body, state, labels, assignee, or milestone.
@@ -228,6 +232,16 @@ pub async fn update_issue(
     let issue_repo_id = existing.repo_id;
     let issue_milestone_id = existing.milestone_id;
     let was_open = existing.state == "open";
+
+    // Validate references up front so a rejected request has no side effects.
+    if let Some(Some(mid)) = milestone_id {
+        ensure_milestone_in_repo(db, issue_repo_id, mid).await?;
+    }
+    if let Some(Some(uid)) = assignee_id {
+        if rg_db::ops::user_ops::find_by_id(db, uid).await?.is_none() {
+            return Err(CoreError::invalid_input(format!("unknown assignee: {uid}")));
+        }
+    }
 
     // Convert to ActiveModel — all non-PK fields become Unchanged; we Set() only changed fields.
     let mut active: issue::ActiveModel = existing.into();
@@ -403,7 +417,7 @@ pub async fn update_comment(
 
     let comment = issue_comment_ops::find_by_id(db, comment_id)
         .await?
-        .context("comment not found")?;
+        .ok_or_else(|| CoreError::not_found("comment not found"))?;
 
     let mut active: issue_comment::ActiveModel = comment.into();
     active.body = Set(body);
@@ -418,7 +432,7 @@ pub async fn delete_comment(db: &DatabaseConnection, comment_id: i64) -> CoreRes
 
     let comment = issue_comment_ops::find_by_id(db, comment_id)
         .await?
-        .context("comment not found")?;
+        .ok_or_else(|| CoreError::not_found("comment not found"))?;
 
     let txn = db
         .begin()
@@ -434,6 +448,22 @@ pub async fn delete_comment(db: &DatabaseConnection, comment_id: i64) -> CoreRes
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────
+
+/// A milestone referenced by an issue must exist in the issue's own repo.
+/// Without this check a dangling id surfaces as a foreign-key failure (500)
+/// and an id from another repo would leak that repo's milestone title.
+async fn ensure_milestone_in_repo(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    milestone_id: i64,
+) -> CoreResult<()> {
+    match rg_db::ops::milestone_ops::find_by_id(db, milestone_id).await? {
+        Some(m) if m.repo_id == repo_id => Ok(()),
+        _ => Err(CoreError::invalid_input(format!(
+            "milestone {milestone_id} not found in this repository"
+        ))),
+    }
+}
 
 /// Notify watchers and trigger webhook when all issues in a milestone are closed.
 async fn notify_milestone_closed(
@@ -482,5 +512,5 @@ async fn resolve_repo(
 ) -> CoreResult<rg_db::entities::repository::Model> {
     crate::repo::service::find_repo_by_owner_name(db, owner, repo_name)
         .await?
-        .context("repository not found")
+        .ok_or_else(|| CoreError::not_found("repository not found"))
 }
