@@ -635,7 +635,7 @@ pub async fn delete_repo_handler(
             record_audit(
                 &state.db,
                 user_id,
-                &claims.sub,
+                &claims.username,
                 "repo.delete",
                 Some("repo"),
                 Some(repo.id),
@@ -698,13 +698,13 @@ pub async fn fork_repo_handler(
             let details = serde_json::json!({
                 "source_owner": owner,
                 "source_name": name,
-                "fork_owner": claims.sub
+                "fork_owner": claims.username
             });
-            let resource_name = format!("{}/{}", claims.sub, name);
+            let resource_name = format!("{}/{}", claims.username, name);
             record_audit(
                 &state.db,
                 user_id,
-                &claims.sub,
+                &claims.username,
                 "repo.fork",
                 Some("repo"),
                 Some(repo.id),
@@ -820,7 +820,7 @@ pub async fn transfer_repo_handler(
             record_audit(
                 &state.db,
                 user_id,
-                &claims.sub,
+                &claims.username,
                 "repo.transfer",
                 Some("repo"),
                 Some(repo.id),
