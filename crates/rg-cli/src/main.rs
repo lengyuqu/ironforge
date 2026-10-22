@@ -1686,6 +1686,9 @@ async fn run_serve(
     let resolved_host_key =
         host_key.or_else(|| cfg.as_ref().and_then(|c| c.server.host_key.clone()));
     let resolved_db_url = db_url;
+    // SQLite errors name the database file; keep that directory out of error
+    // responses (the HTTP layer is not handed the database location).
+    rg_http::redact::register_database_url(&resolved_db_url);
     let resolved_docker = docker || cfg.as_ref().and_then(|c| c.ci.docker).unwrap_or(false);
     let resolved_external_runners = external_runners
         || cfg

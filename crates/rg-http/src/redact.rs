@@ -51,6 +51,25 @@ pub fn register_server_path(path: &Path) {
     }
 }
 
+/// Register the directory of a SQLite database URL (`sqlite://path?mode=rwc`,
+/// `sqlite:path`). The HTTP layer is never handed the database location, yet
+/// SQLite errors ("unable to open database file: /srv/forge/data/db.sqlite")
+/// name it; the caller that owns the URL registers it here. Non-SQLite URLs
+/// carry no filesystem path and are ignored.
+pub fn register_database_url(url: &str) {
+    let Some(rest) = url.strip_prefix("sqlite://").or_else(|| url.strip_prefix("sqlite:")) else {
+        return;
+    };
+    let path = rest.split('?').next().unwrap_or(rest);
+    if path.is_empty() || path == ":memory:" {
+        return;
+    }
+    let path = Path::new(path);
+    if let Some(dir) = path.parent().filter(|dir| !dir.as_os_str().is_empty()) {
+        register_server_path(dir);
+    }
+}
+
 fn is_path_char(c: char) -> bool {
     c.is_alphanumeric() || matches!(c, '/' | '\\' | '.' | '_' | '-' | '~' | '+' | '@' | '%' | ':')
 }
@@ -171,6 +190,20 @@ mod tests {
             "from /srv/forge-redact-test/repos/a.git to /srv/forge-redact-test/repos/b.git failed",
         );
         assert_eq!(out, format!("from {REDACTED} to {REDACTED} failed"));
+    }
+
+    #[test]
+    fn database_url_registers_the_directory_of_a_sqlite_file() {
+        let dir = std::env::temp_dir().join("ironforge-redact-db-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let url = format!("sqlite://{}/forge.db?mode=rwc", dir.display());
+        register_database_url(&url);
+        let message = format!("unable to open database file: {}/forge.db", dir.display());
+        let out = redact_server_paths(&message);
+        assert!(!out.contains("ironforge-redact-db-test"), "{out}");
+        // Servers and in-memory databases register nothing and never panic.
+        register_database_url("postgres://u:p@db.internal/forge");
+        register_database_url("sqlite://:memory:");
     }
 
     #[test]
