@@ -1,6 +1,6 @@
 //! SSH public key fingerprint utilities.
 
-use crate::error::{CoreContext, CoreError, CoreResult};
+use crate::error::{CoreError, CoreResult};
 use base64::Engine as _;
 
 /// Compute the SHA-256 fingerprint from an OpenSSH public key string.
@@ -41,7 +41,7 @@ pub fn fingerprint_from_openssh(pubkey: &str) -> CoreResult<String> {
     let raw = base64::engine::general_purpose::STANDARD
         .decode(b64)
         .or_else(|_| base64::engine::general_purpose::STANDARD_NO_PAD.decode(b64))
-        .context("invalid base64 key blob")?;
+        .map_err(|_| CoreError::InvalidInput("invalid base64 key blob".into()))?;
     if raw.len() < 4 {
         return Err(CoreError::InvalidInput("invalid SSH public key blob".into()));
     }
@@ -50,7 +50,7 @@ pub fn fingerprint_from_openssh(pubkey: &str) -> CoreResult<String> {
         return Err(CoreError::InvalidInput("invalid SSH public key blob".into()));
     }
     let encoded_type = std::str::from_utf8(&raw[4..4 + algorithm_len])
-        .context("invalid SSH public key algorithm")?;
+        .map_err(|_| CoreError::InvalidInput("invalid SSH public key algorithm".into()))?;
     if encoded_type != key_type {
         return Err(CoreError::InvalidInput(
             "SSH public key type does not match encoded key blob".into(),
@@ -116,5 +116,21 @@ mod tests {
         )
         .is_err());
         assert!(fingerprint_from_openssh("ssh-dss AAAA").is_err());
+    }
+
+    #[test]
+    fn malformed_key_material_is_a_client_error_not_internal() {
+        // Input that fails base64 decoding or the embedded-algorithm UTF-8
+        // check is the caller's mistake; it must never classify as Internal
+        // (which the API turns into a 500).
+        for key in ["ssh-ed25519 !!!", "ssh-ed25519 AAAAA", "ssh-rsa AAAA"] {
+            assert!(
+                matches!(
+                    fingerprint_from_openssh(key),
+                    Err(CoreError::InvalidInput(_))
+                ),
+                "{key}"
+            );
+        }
     }
 }

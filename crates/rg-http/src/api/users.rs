@@ -10,6 +10,7 @@ use axum::{
     response::IntoResponse,
     Json,
 };
+use rg_core::error::CoreError;
 use serde::Deserialize;
 use utoipa::ToSchema;
 
@@ -135,6 +136,7 @@ pub struct UserProfile {
     responses(
         (status = 201, description = "User registered successfully", body = AuthResponse),
         (status = 400, description = "Invalid input", body = serde_json::Value),
+        (status = 409, description = "Username or email already registered", body = serde_json::Value),
     )
 )]
 pub async fn register(
@@ -172,7 +174,7 @@ pub async fn register(
 
             (StatusCode::CREATED, Json(serde_json::json!(resp))).into_response()
         }
-        Err(e) => AppError::bad_request(e.to_string()).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -300,6 +302,10 @@ pub async fn login(
                     .into_response()
             }
         }
+        // A storage failure says nothing about the credentials: report it as a
+        // sanitised 500 and do not count it as a failed attempt against the
+        // account (which could lock a user out because the database blipped).
+        Err(error @ CoreError::Internal(_)) => AppError::from(error).into_response(),
         Err(error) => {
             let user = if body.login.contains('@') {
                 rg_db::ops::user_ops::find_by_email(&state.db, &body.login)
@@ -312,8 +318,15 @@ pub async fn login(
                     .ok()
                     .flatten()
             };
-            let mut locked = error.to_string() == "account is temporarily locked";
-            if !locked && error.to_string() == "invalid credentials" {
+            let mut locked = matches!(
+                &error,
+                CoreError::Forbidden(m) if m == rg_core::user::service::ACCOUNT_LOCKED
+            );
+            let bad_credentials = matches!(
+                &error,
+                CoreError::Forbidden(m) if m == rg_core::user::service::INVALID_CREDENTIALS
+            );
+            if !locked && bad_credentials {
                 if let Some(user) = &user {
                     locked = rg_db::ops::user_ops::record_failed_login(&state.db, user.id, 5)
                         .await
@@ -399,7 +412,7 @@ pub async fn me(State(state): State<AppState>, headers: HeaderMap) -> impl IntoR
         )
             .into_response(),
         Ok(None) => AppError::not_found("user not found".to_string()).into_response(),
-        Err(e) => AppError::internal(e.to_string()).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -483,7 +496,7 @@ pub async fn list_tokens(State(state): State<AppState>, headers: HeaderMap) -> i
 
             (StatusCode::OK, Json(tokens)).into_response()
         }
-        Err(e) => AppError::internal(e.to_string()).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -520,7 +533,7 @@ pub async fn create_token(
         body.scopes.as_deref().unwrap_or("repo"),
     ) {
         Ok(scopes) => scopes,
-        Err(e) => return AppError::bad_request(e.to_string()).into_response(),
+        Err(e) => return AppError::from(e).into_response(),
     };
     let expires_at = body
         .expires_at
@@ -551,7 +564,7 @@ pub async fn create_token(
             })),
         )
             .into_response(),
-        Err(e) => AppError::internal(e.to_string()).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -583,9 +596,10 @@ pub async fn delete_token(
 
     let token = match rg_db::ops::token_ops::find_by_id(&state.db, id).await {
         Ok(Some(t)) => t,
-        _ => {
+        Ok(None) => {
             return AppError::not_found("token not found".to_string()).into_response();
         }
+        Err(e) => return AppError::from(e).into_response(),
     };
     if token.user_id != user_id {
         return AppError::forbidden("you can only revoke your own tokens".to_string())
@@ -593,7 +607,7 @@ pub async fn delete_token(
     }
     match rg_db::ops::token_ops::delete_by_id(&state.db, id).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(e) => AppError::internal(e.to_string()).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -651,7 +665,7 @@ pub async fn forgot_password(
             )
                 .into_response()
         }
-        Err(e) => AppError::internal(e.to_string()).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -699,6 +713,6 @@ pub async fn reset_password(
             )
                 .into_response()
         }
-        Err(e) => AppError::bad_request(e.to_string()).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }

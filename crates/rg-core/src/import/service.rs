@@ -12,7 +12,7 @@
 //! The import runs asynchronously and updates progress in the
 //! import_tasks database table.
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use chrono::Utc;
 use rg_git::cli_gateway::global_gateway;
 use sea_orm::{ActiveValue::Set, DatabaseConnection};
@@ -26,6 +26,7 @@ use rg_db::ops::{
     pr_review_ops, pull_request_ops, user_ops,
 };
 
+use crate::error::{CoreError, CoreResult};
 use crate::import::github_client::{
     GitHubClient, GitHubComment, GitHubIssue, GitHubLabel, GitHubMilestone, GitHubPR,
     GitHubRelease, GitHubReview,
@@ -60,7 +61,9 @@ pub async fn run_import(
         "github" => run_github_import(db, task, repo_root, &mut stats).await?,
         "gitlab" => run_gitlab_import(db, task, repo_root, &mut stats).await?,
         "gitea" | "git" => run_git_import(db, task, repo_root, &mut stats).await?,
-        other => anyhow::bail!("unsupported platform: {other}"),
+        other => {
+            return Err(CoreError::invalid_input(format!("unsupported platform: {other}")).into())
+        }
     }
 
     Ok(stats)
@@ -455,10 +458,11 @@ async fn resolve_or_create_target_repo(
         } else if let Some(org) = org_ops::get_org_by_name(db, target_owner).await? {
             (org.owner_id, Some(org.id))
         } else {
-            anyhow::bail!(
+            return Err(CoreError::not_found(format!(
                 "target owner '{}' not found (must be an existing IronForge user or organization)",
                 target_owner
-            );
+            ))
+            .into());
         };
 
     // Create the repo via the repo service
@@ -506,11 +510,19 @@ fn clone_repo(
     let git = global_gateway()
         .as_ref()
         .map_err(|e| anyhow::anyhow!("{}", e))?;
-    git.run_or_bail(
+    // The CLI's stderr names the destination path and echoes the source URL
+    // (which may embed a token); the task's `error` field is shown to the
+    // user, so keep the detail in the operator log only.
+    if let Err(error) = git.run_or_bail(
         &["clone", "--bare", source_url, &target_dir.to_string_lossy()],
         None,
-    )
-    .context("git clone --bare")?;
+    ) {
+        tracing::warn!(error = %format!("{error:#}"), "import: bare clone failed");
+        return Err(CoreError::invalid_input(
+            "failed to clone the source repository; check that the URL is reachable and any credentials are valid",
+        )
+        .into());
+    }
 
     tracing::info!(path = %target_dir.display(), "Repository cloned");
     Ok(())
@@ -524,7 +536,7 @@ fn parse_github_url(url: &str) -> Result<(String, String)> {
     let url = url.trim_end_matches('/').trim_end_matches(".git");
     let parts: Vec<&str> = url.split('/').collect();
     if parts.len() < 2 {
-        anyhow::bail!("invalid GitHub URL: {url}");
+        return Err(CoreError::invalid_input(format!("invalid GitHub URL: {url}")).into());
     }
     let repo = parts[parts.len() - 1].to_string();
     let owner = parts[parts.len() - 2].to_string();
@@ -540,7 +552,7 @@ fn parse_gitlab_url(url: &str) -> Result<String> {
             return Ok(path.to_string());
         }
     }
-    anyhow::bail!("invalid GitLab URL: {url}")
+    Err(CoreError::invalid_input(format!("invalid GitLab URL: {url}")).into())
 }
 
 fn build_gitlab_clone_url(http_url: &str, token: &str) -> String {
@@ -1351,7 +1363,7 @@ pub async fn start_import(
     import_labels: bool,
     import_milestones: bool,
     repo_root: &Path,
-) -> Result<ImportTask> {
+) -> CoreResult<ImportTask> {
     let now = Utc::now();
     let supports_metadata = matches!(platform.as_str(), "github" | "gitlab");
 
@@ -1395,8 +1407,8 @@ pub async fn start_import(
                     import_task_ops::mark_completed(&db_clone, task_clone.id, &stats_json).await;
             }
             Err(e) => {
-                let _ =
-                    import_task_ops::mark_failed(&db_clone, task_clone.id, &format!("{e:#}")).await;
+                let message = user_visible_failure(&e);
+                let _ = import_task_ops::mark_failed(&db_clone, task_clone.id, &message).await;
             }
         }
     });
@@ -1404,5 +1416,23 @@ pub async fn start_import(
     // Re-fetch to get the persisted record
     import_task_ops::find_by_id(db, task.id)
         .await?
-        .ok_or_else(|| anyhow::anyhow!("import task not found after creation"))
+        .ok_or_else(|| CoreError::internal("import task not found after creation"))
+}
+
+/// Text stored in the import task's `error` field, which the owner can read
+/// back over the API. Failures the user can act on (bad URL, unknown target
+/// owner, rejected token) keep their message; everything else is logged for
+/// operators and replaced by a generic line so paths, SQL text and tokens
+/// embedded in lower-level errors never reach the client.
+fn user_visible_failure(error: &anyhow::Error) -> String {
+    match error.downcast_ref::<CoreError>() {
+        Some(CoreError::NotFound(msg))
+        | Some(CoreError::Forbidden(msg))
+        | Some(CoreError::Conflict(msg))
+        | Some(CoreError::InvalidInput(msg)) => msg.clone(),
+        _ => {
+            tracing::error!(error = %format!("{error:#}"), "import task failed");
+            "import failed due to an internal error; see the server logs".to_string()
+        }
+    }
 }

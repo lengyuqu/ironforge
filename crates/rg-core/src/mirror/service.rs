@@ -8,6 +8,7 @@ use chrono::Utc;
 use rg_db::entities::mirror::{ActiveModel, Model as Mirror};
 use rg_db::entities::repository;
 use rg_git::cli_gateway::global_gateway;
+use crate::error::{CoreError, CoreResult};
 use sea_orm::ActiveValue::Set;
 use sea_orm::{DatabaseConnection, EntityTrait};
 use std::path::Path;
@@ -20,20 +21,17 @@ pub async fn create_mirror(
     username: Option<String>,
     password: Option<String>,
     sync_interval_seconds: i64,
-) -> Result<Mirror> {
+) -> CoreResult<Mirror> {
     // SSRF/RCE guard: reject ext::, file://, ssh:// and other dangerous
     // transports before persisting the remote URL.
     crate::net_guard::validate_mirror_url(&url)
         .await
-        .map_err(|e| anyhow::anyhow!("invalid mirror URL: {e}"))?;
+        .map_err(|e| CoreError::invalid_input(format!("invalid mirror URL: {e}")))?;
 
     // Ensure the repository exists
-    let repo = repository::Entity::find_by_id(repo_id)
-        .one(db)
-        .await
-        .context("check repo exists")?;
+    let repo = repository::Entity::find_by_id(repo_id).one(db).await?;
     if repo.is_none() {
-        anyhow::bail!("repository not found");
+        return Err(CoreError::not_found("repository not found"));
     }
 
     // Check for existing mirror
@@ -41,7 +39,9 @@ pub async fn create_mirror(
         .await?
         .is_some()
     {
-        anyhow::bail!("mirror already exists for this repository");
+        return Err(CoreError::conflict(
+            "mirror already exists for this repository",
+        ));
     }
 
     let now = Utc::now();
@@ -62,13 +62,23 @@ pub async fn create_mirror(
         ..Default::default()
     };
 
-    let mirror = rg_db::ops::mirror_ops::create(db, model).await?;
+    // Two concurrent creates can both pass the check above; the loser hits
+    // the unique index on repo_id and must see the same conflict.
+    let mirror = match rg_db::ops::mirror_ops::create(db, model).await {
+        Ok(mirror) => mirror,
+        Err(error) if crate::user::service::is_unique_violation(&error) => {
+            return Err(CoreError::conflict(
+                "mirror already exists for this repository",
+            ))
+        }
+        Err(error) => return Err(error.into()),
+    };
     Ok(mirror)
 }
 
 /// Get mirror for a repository.
-pub async fn get_mirror(db: &DatabaseConnection, repo_id: i64) -> Result<Option<Mirror>> {
-    rg_db::ops::mirror_ops::find_by_repo_id(db, repo_id).await
+pub async fn get_mirror(db: &DatabaseConnection, repo_id: i64) -> CoreResult<Option<Mirror>> {
+    Ok(rg_db::ops::mirror_ops::find_by_repo_id(db, repo_id).await?)
 }
 
 /// Update mirror settings.
@@ -80,16 +90,16 @@ pub async fn update_mirror(
     password: Option<String>,
     sync_interval_seconds: Option<i64>,
     status: Option<String>,
-) -> Result<Mirror> {
+) -> CoreResult<Mirror> {
     let existing = rg_db::ops::mirror_ops::find_by_repo_id(db, repo_id)
         .await?
-        .ok_or_else(|| anyhow::anyhow!("mirror not found"))?;
+        .ok_or_else(|| CoreError::not_found("mirror not found"))?;
 
     if let Some(v) = &url {
         // SSRF/RCE guard on updated remote URL.
         crate::net_guard::validate_mirror_url(v)
             .await
-            .map_err(|e| anyhow::anyhow!("invalid mirror URL: {e}"))?;
+            .map_err(|e| CoreError::invalid_input(format!("invalid mirror URL: {e}")))?;
     }
 
     let mut model: ActiveModel = existing.into();
@@ -110,15 +120,15 @@ pub async fn update_mirror(
     }
     model.updated_at = Set(Utc::now());
 
-    rg_db::ops::mirror_ops::update(db, model).await
+    Ok(rg_db::ops::mirror_ops::update(db, model).await?)
 }
 
 /// Delete a mirror.
-pub async fn delete_mirror(db: &DatabaseConnection, repo_id: i64) -> Result<()> {
+pub async fn delete_mirror(db: &DatabaseConnection, repo_id: i64) -> CoreResult<()> {
     let mirror = rg_db::ops::mirror_ops::find_by_repo_id(db, repo_id)
         .await?
-        .ok_or_else(|| anyhow::anyhow!("mirror not found"))?;
-    rg_db::ops::mirror_ops::delete_by_id(db, mirror.id).await
+        .ok_or_else(|| CoreError::not_found("mirror not found"))?;
+    Ok(rg_db::ops::mirror_ops::delete_by_id(db, mirror.id).await?)
 }
 
 /// Sync a single mirror: clone (first time) or fetch (subsequent).
@@ -204,10 +214,14 @@ pub async fn sync_due_mirrors(
 }
 
 /// Manually trigger a sync for a mirror.
-pub async fn trigger_sync(db: &DatabaseConnection, repo_id: i64, repo_root: &Path) -> Result<()> {
+pub async fn trigger_sync(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    repo_root: &Path,
+) -> CoreResult<()> {
     let mirror = rg_db::ops::mirror_ops::find_by_repo_id(db, repo_id)
         .await?
-        .ok_or_else(|| anyhow::anyhow!("mirror not found"))?;
+        .ok_or_else(|| CoreError::not_found("mirror not found"))?;
     sync_mirror(db, &mirror, repo_root).await?;
     Ok(())
 }
