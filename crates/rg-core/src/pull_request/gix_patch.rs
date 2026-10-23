@@ -470,6 +470,20 @@ mod parity_tests {
             v
         })?;
         write("del.txt", b"delete me\nline two\n")?;
+        // Trailing blank lines: Git treats the last non-empty line plus the
+        // blanks after it as one run, and imara-diff used to diverge here
+        // (`track end of file and trailing blanks the way git does`).
+        write("trailing_blank_add.txt", b"alpha\nbeta\n\n")?;
+        write("trailing_blank_drop.txt", b"gamma\ndelta\n\n\n\n")?;
+        // No trailing newline *and* the last line disappears: the
+        // `\ No newline at end of file` marker moves to the other side.
+        write("eof_delete.txt", b"keep line\nthis line dies without newline")?;
+        // Pure deletion block far from a pure addition block, plus a block
+        // replacement at the tail (imara's `compact removals before additions`).
+        write(
+            "mixed.txt",
+            b"m1\nm2\nm3\nm4\nm5\nm6\nm7\nm8\nm9\nm10\nm11\nm12\nm13\nm14\nm15\nm16\n",
+        )?;
         // rename + chmod + edit: the one combination the other fixtures miss.
         // Pure-rename (100%) and mode-only cases are covered separately below,
         // and this is the only case that exercises the ordering of
@@ -566,9 +580,19 @@ mod parity_tests {
             )?;
         }
 
+        // 13) 纯空行变化：增、删尾随空行各一例
+        write("trailing_blank_add.txt", b"alpha\nbeta\n\n\n\n")?;
+        write("trailing_blank_drop.txt", b"gamma\ndelta\n")?;
+        // 14) 无尾换行文件删掉末行，剩余内容依然无尾换行
+        write("eof_delete.txt", b"keep line")?;
+        // 15) 纯删除（m4..m6）+ 纯新增（n1..n3），尾部把 m16 换成三行
+        write(
+            "mixed.txt",
+            b"m1\nm2\nm3\nm7\nm8\nm9\nm10\nm11\nm12\nm13\nm14\nm15\nn1\nn2\nn3\n",
+        )?;
+
         run(&["add", "-A"], Some(&repo))?;
         run(&["commit", "-m", "head"], Some(&repo))?;
-
         Ok((dir, repo))
     }
 
@@ -598,6 +622,22 @@ mod parity_tests {
 
         let gix_out = unified_patch(&repo, "main", "feature").expect("gix patch");
         let cli_out = cli_patch(&repo, "main...feature").expect("cli patch");
+
+        // Guard the fixtures themselves: a typo in a path would silently shrink
+        // the comparison instead of failing it.
+        let cli_text = String::from_utf8_lossy(&cli_out);
+        for fixture in [
+            "trailing_blank_add.txt",
+            "trailing_blank_drop.txt",
+            "eof_delete.txt",
+            "mixed.txt",
+        ] {
+            assert!(
+                cli_text.contains(fixture),
+                "fixture {fixture} is missing from the reference diff; the parity \
+                 comparison would not cover it"
+            );
+        }
 
         if gix_out != cli_out {
             let g = String::from_utf8_lossy(&gix_out);
