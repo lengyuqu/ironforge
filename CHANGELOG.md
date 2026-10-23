@@ -35,6 +35,29 @@
 
 - 全 workspace 416 个测试通过（0 失败）；touched crates clippy 无警告。
 
+### Added（2026-10-23 增量，随 v0.2.0 首个公开发布一并交付）
+
+- **CI 工作区改为 gix 原生 linked worktree**：`Repository::add_worktree` / `remove_worktree` 替换
+  `git worktree add --detach` / `remove --force`（新增 `worktree-mutation` feature）。`Force::DiscardChanges`
+  等价 `--force` 但仍尊重 operator lock；崩溃残留的注册会在下次准备时自动 prune。
+- **导入裸克隆改为 gix 原生**：`prepare_clone_bare` + `fetch_only` 替换 `git clone --bare`，
+  私有源继续走 git credential helper。
+- **PR patch 对拍扩展**：尾随空行增删、无尾换行 + 末行删除、纯删除 + 纯新增混合，与 `git diff` 仍字节级一致。
+- **依赖升级**：gix 0.87.1 → 0.90.0（错误体系并入分类式 `gix::Error`、`merge_base` 返回 `Option`、
+  移除 `gix::features::{progress,parallel}`），russh 0.51.1 → 0.64.1。
+
+### Security（2026-10-23）
+
+- 关闭代码审计 #1 的 7 项：PAT 改用 `OsRng` 256-bit、SSO cookie 改 HMAC-SHA256、出站 HTTP 复用受限 client、
+  认证端点常开限流、Git 流式传输加 deadline、host runner fail-closed、release 资产附 SHA-256 校验和。
+- 全仓声明 MIT 许可：workspace `license` 继承 + LICENSE 全文 + `web/package.json`。
+
+### Known limitations（发布时补充）
+
+- mirror 的 clone 与同步仍走 git CLI：gix 0.90 的 clone fetch 不按根级 `refs/*` 通配写 ref，
+  且没有 `fetch --prune` 等价能力；枚举命名空间会丢失未知命名空间，属语义回退。
+  现状与解除条件见 `CLAUDE.md` 技术债表。
+
 ## [0.1.0] - 2026-06 之前
 
 初始开发版本（内部迭代，Phase 1~19：Git 协议服务端、SSH/HTTP 传输、REST API、CI、SSO/MFA、
