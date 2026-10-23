@@ -7,7 +7,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use rand::rngs::OsRng;
 use russh::keys::ssh_key::LineEnding;
 use russh::keys::{load_secret_key, Algorithm, PrivateKey};
 use russh::server::{Auth, Config, Handler, Msg, Server as _, Session};
@@ -135,7 +134,12 @@ fn ensure_host_key(path: &std::path::Path) -> Result<()> {
                 .with_context(|| format!("failed to create host key directory: {:?}", parent))?;
         }
     }
-    let key = PrivateKey::random(&mut OsRng, Algorithm::Ed25519)
+    // russh 0.64 pulls ssh-key 0.7, whose `PrivateKey::random` requires a
+    // rand_core 0.10 `CryptoRng`; the rand 0.8 `OsRng` no longer satisfies it.
+    // `rand::rng()` (rand 0.10) is the pattern russh itself uses. This crate
+    // therefore depends on rand 0.10 while the rest of the workspace stays on
+    // 0.8 — the two coexist, and only host-key generation needs the newer one.
+    let key = PrivateKey::random(&mut rand::rng(), Algorithm::Ed25519)
         .context("failed to generate ed25519 host key")?;
     let pem = key
         .to_openssh(LineEnding::LF)
@@ -412,11 +416,17 @@ impl Handler for SshHandler {
     async fn channel_open_session(
         &mut self,
         channel: Channel<Msg>,
+        reply: russh::server::ChannelOpenHandle,
         _session: &mut Session,
-    ) -> Result<bool, Self::Error> {
+    ) -> Result<(), Self::Error> {
         tracing::debug!(id = self.id, channel_id = ?channel.id(), "channel_open_session");
         self.channel = Some(channel);
-        Ok(true)
+        // russh 0.64 changed channel opening to an explicit two-phase reply:
+        // the handler gets a handle and MUST accept it. Dropping the handle
+        // without calling accept()/reject() sends `AdministrativelyProhibited`,
+        // which would reject every session.
+        reply.accept().await;
+        Ok(())
     }
 
     async fn exec_request(

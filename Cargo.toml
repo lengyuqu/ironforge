@@ -32,8 +32,7 @@ tower-http = { version = "0.6", features = ["cors", "trace", "fs", "limit"] }
 utoipa = { version = "5", features = ["chrono"] }
 
 # SSH
-russh = "0.51"
-russh-keys = "0.45"
+russh = "0.64"
 
 # Database — SeaORM's default features already bundle all three sqlx backends
 # (sqlite + postgres + mysql) plus with-chrono/with-uuid, so IronForge can select

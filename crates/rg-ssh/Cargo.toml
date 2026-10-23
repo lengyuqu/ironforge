@@ -12,11 +12,10 @@ rg-core = { path = "../rg-core" }
 rg-db = { path = "../rg-db" }
 tokio = { workspace = true }
 russh = { workspace = true }
-russh-keys = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 sea-orm = { workspace = true }
-rand = { workspace = true }
+rand = "0.10"
 serde_json = { workspace = true }
 
 [dev-dependencies]
