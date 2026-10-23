@@ -110,6 +110,9 @@ gix = { version = "0.90", features = [
     "merge",
     "command",
     "worktree-archive",
+    # `Repository::{add_worktree, remove_worktree}` — used by the CI runner to
+    # materialise per-pipeline worktrees without shelling out to `git`.
+    "worktree-mutation",
     "blame",
 ] }
 

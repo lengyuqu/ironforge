@@ -800,6 +800,13 @@ impl PipelineRunner {
             .join(self.pipeline_id.to_string())
     }
 
+    /// Materialise the pipeline commit as a detached linked worktree.
+    ///
+    /// This used to shell out to `git worktree add --detach`. gix 0.90 exposes
+    /// native linked-worktree support (`Repository::add_worktree`), so the CI
+    /// path stays inside the library. The repository is bare, which gix handles
+    /// by writing the worktree's private Git directory below
+    /// `<git-dir>/worktrees/<id>` just like Git does.
     async fn prepare_workspace(&self) -> Result<()> {
         let pipeline = pipeline_ops::get_pipeline(&self.db, self.pipeline_id)
             .await?
@@ -807,51 +814,87 @@ impl PipelineRunner {
         let repo_path = self.repo_path.clone();
         let workspace = self.workspace_path();
         tokio::task::spawn_blocking(move || -> Result<()> {
+            let repo = open_repo(&repo_path)?;
+            // A crashed run can leave both the checkout and its registration
+            // behind. Drop the stale registration first: `add_worktree` refuses
+            // to reuse a destination that is still registered.
+            let stale = registered_worktrees_at(&repo, &workspace);
             if workspace.exists() {
                 std::fs::remove_dir_all(&workspace).context("remove stale CI workspace")?;
+            }
+            for git_dir in stale {
+                if git_dir.exists() {
+                    std::fs::remove_dir_all(&git_dir).with_context(|| {
+                        format!("prune stale worktree registration {}", git_dir.display())
+                    })?;
+                }
             }
             if let Some(parent) = workspace.parent() {
                 std::fs::create_dir_all(parent).context("create CI workspace parent")?;
             }
-            let gateway = rg_git::cli_gateway::global_gateway()
-                .as_ref()
-                .map_err(|error| anyhow::anyhow!("{error}"))?;
-            let workspace_text = workspace.to_string_lossy().into_owned();
-            let output = gateway.run(
-                &[
-                    "worktree",
-                    "add",
-                    "--detach",
-                    &workspace_text,
-                    &pipeline.commit_sha,
-                ],
-                Some(&repo_path),
-            )?;
-            if !output.success() {
-                anyhow::bail!(
-                    "failed to create CI worktree: {}",
-                    output.stderr_str().trim()
-                );
-            }
+            let commit = gix::ObjectId::from_hex(pipeline.commit_sha.as_bytes()).map_err(|error| {
+                anyhow::anyhow!(
+                    "pipeline commit {:?} is not a valid object id: {error}",
+                    pipeline.commit_sha
+                )
+            })?;
+            let interrupt = std::sync::atomic::AtomicBool::new(false);
+            let (_worktree, _outcome) = repo
+                .add_worktree(
+                    &workspace,
+                    gix::worktree::add::Head::Detached(commit),
+                    gix::progress::Discard,
+                    &interrupt,
+                )
+                .with_context(|| {
+                    format!(
+                        "failed to create CI worktree at {} for commit {}",
+                        workspace.display(),
+                        pipeline.commit_sha
+                    )
+                })?;
             Ok(())
         })
         .await?
     }
 
+    /// Discard the pipeline's worktree.
+    ///
+    /// `Force::DiscardChanges` is the exact equivalent of `git worktree remove
+    /// --force`: it throws away local modifications and initialised submodules
+    /// but still refuses to touch a worktree an operator locked. Anything the
+    /// library refuses to remove falls back to deleting the checkout directory,
+    /// and the now-dangling registration is pruned so the path can be reused.
     async fn cleanup_workspace(&self) -> Result<()> {
         let repo_path = self.repo_path.clone();
         let workspace = self.workspace_path();
+        let pipeline_id = self.pipeline_id;
         tokio::task::spawn_blocking(move || -> Result<()> {
-            let gateway = rg_git::cli_gateway::global_gateway()
-                .as_ref()
-                .map_err(|error| anyhow::anyhow!("{error}"))?;
-            let workspace_text = workspace.to_string_lossy().into_owned();
-            let output = gateway.run(
-                &["worktree", "remove", "--force", &workspace_text],
-                Some(&repo_path),
-            )?;
-            if !output.success() && workspace.exists() {
-                std::fs::remove_dir_all(&workspace).context("remove CI workspace")?;
+            let repo = open_repo(&repo_path)?;
+            // Collect registrations before the checkout disappears — `base()`
+            // reads the pointer file inside the worktree's Git directory.
+            let registered = registered_worktrees_at(&repo, &workspace);
+            if let Err(error) = repo.remove_worktree(
+                &workspace,
+                gix::worktree::remove::Force::DiscardChanges,
+                gix::progress::Discard,
+            ) {
+                tracing::warn!(
+                    pipeline_id,
+                    workspace = %workspace.display(),
+                    %error,
+                    "gitoxide refused to remove the CI worktree; falling back to deleting the checkout"
+                );
+                if workspace.exists() {
+                    std::fs::remove_dir_all(&workspace).context("remove CI workspace")?;
+                }
+                for git_dir in registered {
+                    if git_dir.exists() {
+                        std::fs::remove_dir_all(&git_dir).with_context(|| {
+                            format!("prune worktree registration {}", git_dir.display())
+                        })?;
+                    }
+                }
             }
             Ok(())
         })
@@ -949,6 +992,41 @@ impl PipelineRunner {
 fn cache_key_hash(key: &str) -> String {
     use sha2::Digest;
     hex::encode(sha2::Sha256::digest(key.as_bytes()))
+}
+
+/// Open a repository for worktree management.
+///
+/// IronForge stores bare repositories, so there is no working tree to discover:
+/// `open` on the Git directory itself is the correct entry point.
+fn open_repo(repo_path: &std::path::Path) -> Result<gix::Repository> {
+    gix::open(repo_path).with_context(|| format!("open repository at {}", repo_path.display()))
+}
+
+/// Return the private Git directories of linked worktrees checked out at `target`.
+///
+/// A registration is only reported when its recorded checkout path matches, so
+/// a lock held on some unrelated worktree is never considered for pruning.
+fn registered_worktrees_at(repo: &gix::Repository, target: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let Ok(proxies) = repo.worktrees() else {
+        return Vec::new();
+    };
+    proxies
+        .iter()
+        .filter(|proxy| !proxy.is_locked())
+        .filter(|proxy| proxy.base().is_ok_and(|base| same_path(&base, target)))
+        .map(|proxy| proxy.git_dir().to_path_buf())
+        .collect()
+}
+
+/// Compare two paths, falling back to canonicalisation for symlinked layouts.
+fn same_path(left: &std::path::Path, right: &std::path::Path) -> bool {
+    if left == right {
+        return true;
+    }
+    match (left.canonicalize(), right.canonicalize()) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => false,
+    }
 }
 
 fn cache_spec(
@@ -1106,6 +1184,145 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(workspace.join("target/cache.txt")).unwrap(),
             "cached"
+        );
+    }
+
+    /// CI workspaces are linked worktrees of a *bare* repository. gix only grew
+    /// native worktree support in 0.89/0.90, so this pins the two properties the
+    /// runner depends on: the checkout is materialised outside the Git
+    /// directory, and cleanup drops both the checkout and its registration even
+    /// when a job left local modifications behind (`--force` semantics).
+    #[tokio::test]
+    async fn workspace_is_a_linked_worktree_of_the_bare_repository() {
+        let temp = tempfile::tempdir().unwrap();
+        let db = rg_db::connect(&format!(
+            "sqlite://{}?mode=rwc",
+            temp.path().join("ci-worktree.db").display()
+        ))
+        .await
+        .unwrap();
+        rg_db::run_migrations(&db).await.unwrap();
+        let user = rg_db::ops::user_ops::create_user(
+            &db,
+            "worktree-owner",
+            "worktree@example.com",
+            "unused",
+            "Worktree Owner",
+        )
+        .await
+        .unwrap();
+        let now = chrono::Utc::now();
+        let repository = rg_db::ops::repo_ops::create(
+            &db,
+            rg_db::entities::repository::ActiveModel {
+                id: NotSet,
+                owner_id: Set(user.id),
+                name: Set("repo".into()),
+                description: Set(None),
+                is_private: Set(true),
+                default_branch: Set("main".into()),
+                fork_id: Set(None),
+                stars_count: Set(0),
+                forks_count: Set(0),
+                org_id: Set(None),
+                created_at: Set(now),
+                updated_at: Set(now),
+                deleted_at: Set(None),
+                origin_repo_id: Set(None),
+            },
+        )
+        .await
+        .unwrap();
+
+        // Build a commit in a throw-away worktree and then take a bare clone of
+        // it: that is the layout the server stores and the one the runner sees.
+        let git = rg_git::cli_gateway::global_gateway().as_ref().unwrap();
+        let source = temp.path().join("source");
+        std::fs::create_dir_all(&source).unwrap();
+        let run = |args: &[&str], cwd: Option<&std::path::Path>| {
+            assert!(
+                git.run(args, cwd).unwrap().success(),
+                "git {args:?} failed while setting up the fixture"
+            );
+        };
+        run(&["init", "-b", "main", &source.to_string_lossy()], None);
+        run(&["config", "user.email", "ci@example.com"], Some(&source));
+        run(&["config", "user.name", "CI"], Some(&source));
+        std::fs::write(source.join("README.md"), "workspace\n").unwrap();
+        run(&["add", "-A"], Some(&source));
+        run(&["commit", "-m", "initial"], Some(&source));
+        let commit_sha = git
+            .run(&["rev-parse", "HEAD"], Some(&source))
+            .unwrap()
+            .stdout_str()
+            .trim()
+            .to_owned();
+
+        let bare = temp.path().join("repos/owner/repo.git");
+        std::fs::create_dir_all(bare.parent().unwrap()).unwrap();
+        run(
+            &["clone", "--bare", &source.to_string_lossy(), &bare.to_string_lossy()],
+            None,
+        );
+        let registrations = || -> Vec<std::path::PathBuf> {
+            match std::fs::read_dir(bare.join("worktrees")) {
+                Ok(entries) => entries.filter_map(|entry| entry.ok()).map(|e| e.path()).collect(),
+                Err(_) => Vec::new(),
+            }
+        };
+        assert!(registrations().is_empty(), "a fresh bare clone has no worktrees");
+
+        let pipeline = rg_db::ops::pipeline_ops::create_pipeline(
+            &db,
+            repository.id,
+            &commit_sha,
+            "refs/heads/main",
+            "manual",
+            Some(user.id),
+        )
+        .await
+        .unwrap();
+        let mut runner = PipelineRunner::new_local_only(db, &bare, pipeline.id);
+        runner.set_repo_id(repository.id);
+        let workspace = runner.workspace_path();
+
+        runner.prepare_workspace().await.unwrap();
+        assert_eq!(
+            std::fs::read_to_string(workspace.join("README.md")).unwrap(),
+            "workspace\n",
+            "the pipeline commit must be checked out into the workspace"
+        );
+        assert_eq!(
+            registrations().len(),
+            1,
+            "the checkout must be registered as a linked worktree of the bare repository"
+        );
+
+        // Re-preparing without a cleanup models a crashed run: the checkout and
+        // its registration are still around, and the retry has to recover
+        // instead of tripping over the orphaned registration.
+        runner
+            .prepare_workspace()
+            .await
+            .expect("preparing again must recover from a leftover worktree");
+        assert_eq!(
+            registrations().len(),
+            1,
+            "recovery must refresh the registration instead of adding a second one"
+        );
+        assert_eq!(
+            std::fs::read_to_string(workspace.join("README.md")).unwrap(),
+            "workspace\n"
+        );
+
+        // A job that leaves the tree dirty must not block cleanup.
+        std::fs::write(workspace.join("README.md"), "modified by a job\n").unwrap();
+
+        runner.cleanup_workspace().await.unwrap();
+        assert!(!workspace.exists(), "cleanup must delete the checkout");
+        assert!(
+            registrations().is_empty(),
+            "cleanup must also drop the worktree registration, otherwise the path cannot be reused"
         );
     }
 
