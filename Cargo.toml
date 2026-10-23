@@ -13,6 +13,15 @@ members = [
 ]
 resolver = "2"
 
+# Shared package metadata. Every workspace crate inherits these via
+# `license.workspace = true` etc., so the licensing terms are declared once and
+# cannot drift between crates. The full text lives in ./LICENSE (issue #2).
+[workspace.package]
+license = "MIT"
+authors = ["Yu Qu <zdz945244799@yeah.net>"]
+repository = "https://github.com/lengyuqu/ironforge"
+homepage = "https://github.com/lengyuqu/ironforge"
+
 [workspace.dependencies]
 # HTTP
 axum = { version = "0.8", features = ["ws", "macros", "multipart"] }

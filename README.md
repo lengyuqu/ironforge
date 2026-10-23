@@ -318,4 +318,18 @@ ironforge/
 
 ## License
 
-MIT
+IronForge 以 [MIT License](LICENSE) 发布。
+
+> Copyright (c) 2026 Yu Qu (lengyuqu)
+
+MIT 授予任何人免费获取本软件及相关文档副本的权利，可无限制地使用、复制、修改、合并、发布、分发、再许可和/或销售本软件副本。唯一义务是在软件的所有副本或实质部分中保留上述版权声明与本许可声明。本软件按「原样」提供，不附带任何明示或默示担保。
+
+| 项 | 说明 |
+|----|------|
+| 完整文本 | [LICENSE](LICENSE) |
+| SPDX 标识 | `MIT` |
+| 闭源 / 商业使用 | 允许，无需公开衍生代码 |
+| 再分发义务 | 保留版权声明与许可声明 |
+| 第三方依赖 | 各自遵循原有许可（以 MIT / Apache-2.0 为主） |
+
+许可声明在仓库内统一维护：Cargo workspace 通过 `[workspace.package]` 的 `license = "MIT"` 下发给全部 crate，前端包 `web/package.json` 标注 `"license": "MIT"`。

@@ -2,6 +2,9 @@
 name = "rg-ci"
 version = "0.2.0"
 edition = "2021"
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
 
 [dependencies]
 tokio = { workspace = true }
