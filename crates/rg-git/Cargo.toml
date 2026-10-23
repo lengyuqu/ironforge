@@ -14,14 +14,14 @@ gix = { workspace = true }
 # Direct dep so the shared gix-archive instance gets tar/tar_gz/zip enabled
 # (gix itself pulls gix-archive with default-features = false; features are
 # unified across the graph, which turns on the formats in `ops::archive`).
-gix-archive = { version = "0.36", default-features = false, features = [
+gix-archive = { version = "0.39", default-features = false, features = [
     "tar",
     "tar_gz",
     "zip",
 ] }
 # Pack generation pipeline (count + entry + bytes output) is gated behind
 # the `generate` feature; gix does not enable it by default.
-gix-pack = { version = "0.74", features = ["generate"] }
+gix-pack = { version = "0.77", features = ["generate"] }
 thiserror = { workspace = true }
 
 [dev-dependencies]

@@ -179,6 +179,10 @@ pub fn rebase_merge(
     let merge_base = repo
         .merge_base(base_sha, head_sha)
         .with_context(|| format!("no merge base between '{base_branch}' and '{head_rev}'"))?
+        // gix 0.90 returns `Option<Id>` (no merge base is `None`, not an
+        // error). Keep the previous fail-loud semantics: a rebase without a
+        // common ancestor is an error, not "nothing to do".
+        .ok_or_else(|| anyhow::anyhow!("no merge base between '{base_branch}' and '{head_rev}'"))?
         .detach();
 
     // When the head is a strict descendant of the base, `git rebase`
@@ -456,7 +460,7 @@ pub fn archive(
     repo.worktree_archive(
         stream,
         &mut out,
-        gix::features::progress::Discard,
+        gix::progress::Discard,
         &should_interrupt,
         options,
     )
@@ -561,7 +565,7 @@ pub fn generate_pack(
     repo: &gix::Repository,
     input_ids: Vec<gix::hash::ObjectId>,
 ) -> anyhow::Result<Vec<u8>> {
-    use gix::features::progress::Discard;
+    use gix::progress::Discard;
     use gix::odb::pack::data::output;
 
     let should_interrupt = std::sync::atomic::AtomicBool::new(false);
@@ -576,14 +580,10 @@ pub fn generate_pack(
     // panics ("BUG: handle must be configured to `prevent_pack_unload()`")
     // and — with `panic = "abort"` — takes the whole server process down.
     db.prevent_pack_unload();
-    let input: Box<
-        dyn Iterator<
-                Item = Result<
-                    gix::hash::ObjectId,
-                    Box<dyn std::error::Error + Send + Sync + 'static>,
-                >,
-            > + Send,
-    > = Box::new(input_ids.into_iter().map(Ok));
+    // gix-pack 0.77 narrowed the iterator item error to `gix::Error`
+    // (gix-error), so the ids are boxed with that error type.
+    let input: Box<dyn Iterator<Item = Result<gix::hash::ObjectId, gix::Error>> + Send> =
+        Box::new(input_ids.into_iter().map(Ok));
 
     let (counts, _outcome) = output::count::objects(
         db.clone(),
@@ -599,6 +599,10 @@ pub fn generate_pack(
     .map_err(|error| anyhow::anyhow!("failed to count pack objects: {error}"))?;
 
     let num_entries = counts.len() as u32;
+
+    // gix-pack 0.77 made `iter_from_counts` fallible (it now resolves options
+    // and can fail before any work starts) and it returns the iterator inside
+    // a `Result`.
     let entries = output::entry::iter_from_counts(
         counts,
         db,
@@ -607,11 +611,12 @@ pub fn generate_pack(
             allow_thin_pack: false,
             ..Default::default()
         },
-    );
+    )
+    .map_err(|error| anyhow::anyhow!("failed to start pack entry iteration: {error}"))?;
 
     let mut pack = Vec::new();
     {
-        use gix::features::parallel::InOrderIter;
+        use gix::parallel::InOrderIter;
         let in_order = InOrderIter::from(entries);
         let mut writer = output::bytes::FromEntriesIter::new(
             in_order,
@@ -777,7 +782,7 @@ pub fn pack_for_wants_opts(
 /// `objects/pack`. Any `.keep` file left behind is removed so the pack
 /// participates in future repacks.
 pub fn index_pack_bytes(repo_path: &Path, pack: &[u8]) -> anyhow::Result<()> {
-    use gix::features::progress::Discard;
+    use gix::progress::Discard;
     use gix::odb::pack::Bundle;
 
     let repo = open_repo(repo_path)?;
@@ -816,7 +821,7 @@ pub fn copy_objects_from_source(
     tip: &str,
     target_repo_path: &Path,
 ) -> anyhow::Result<String> {
-    use gix::features::progress::Discard;
+    use gix::progress::Discard;
 
     let src = open_repo(source_repo_path)?;
     let dst = open_repo(target_repo_path)?;
@@ -873,14 +878,10 @@ pub fn copy_objects_from_source(
     }
 
     let should_interrupt = std::sync::atomic::AtomicBool::new(false);
-    let input: Box<
-        dyn Iterator<
-                Item = Result<
-                    gix::hash::ObjectId,
-                    Box<dyn std::error::Error + Send + Sync + 'static>,
-                >,
-            > + Send,
-    > = Box::new(new_commits.into_iter().map(Ok));
+    // Same error-type narrowing as `generate_pack`: gix-pack 0.77 wants
+    // `gix::Error` in the iterator item.
+    let input: Box<dyn Iterator<Item = Result<gix::hash::ObjectId, gix::Error>> + Send> =
+        Box::new(new_commits.into_iter().map(Ok));
     // Same `location_by_oid` assertion as in `generate_pack`: the handle used
     // for `count::objects` must have pack unloading prevented. This path is
     // exercised by fork / cross-repo pull-request object copying.

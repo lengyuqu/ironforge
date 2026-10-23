@@ -798,7 +798,9 @@ fn gix_diff_numstat(
         platform
             .for_each_to_obtain_tree(
                 &new_tree,
-                |change| -> Result<std::ops::ControlFlow<()>, anyhow::Error> {
+                // gix 0.90 requires the callback to return `gix::Result<Action>`
+                // (`Action = ControlFlow<()>`) instead of an anyhow error.
+                |change| -> std::result::Result<gix::object::tree::diff::Action, gix::Error> {
                     let location = change.location().to_str_lossy().to_string();
 
                     let (additions, deletions) = change

@@ -949,7 +949,10 @@ fn verify_commit_signature(repo_path: &std::path::Path, sha: &str) -> CoreResult
     // object surfaces here: that is "commit not found", not a server fault.
     let commit_object = match repo.find_object(commit_id) {
         Ok(object) => object,
-        Err(gix::object::find::existing::Error::NotFound { .. }) => {
+        // gix 0.90 replaced the per-operation error enums
+        // (`object::find::existing::Error::NotFound`) with the classified
+        // `gix::Error`; "object missing" is now a class check.
+        Err(e) if e.is_not_found() => {
             return Err(CoreError::not_found(format!("commit {sha} not found")));
         }
         Err(e) => return Err(CoreError::internal(format!("failed to read object: {e}"))),

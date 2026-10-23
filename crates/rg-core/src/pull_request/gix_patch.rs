@@ -44,7 +44,13 @@ pub fn unified_patch(repo_path: &Path, base_ref: &str, head_ref: &str) -> anyhow
         .with_context(|| format!("ref not found: {head_ref}"))?;
 
     // `<base>...<head>` 语义：merge-base(base, head) → head
-    let merge_base = repo.merge_base(base_id.detach(), head_id.detach())?;
+    // gix 0.90 起 merge_base 返回 Option（无共同祖先时为 None），保持原本
+    // 失败即报错的语义。
+    let merge_base = repo
+        .merge_base(base_id.detach(), head_id.detach())?
+        .ok_or_else(|| {
+            anyhow::anyhow!("no merge base between '{}' and '{}'", base_ref, head_ref)
+        })?;
     let old_tree = merge_base.object()?.peel_to_tree()?;
     let new_tree = head_id.object()?.peel_to_tree()?;
 
@@ -67,7 +73,9 @@ pub fn unified_patch(repo_path: &Path, base_ref: &str, head_ref: &str) -> anyhow
     platform
         .for_each_to_obtain_tree(
             &new_tree,
-            |change| -> anyhow::Result<std::ops::ControlFlow<()>> {
+            // gix 0.90 requires `gix::Result<Action>` here (`Action =
+            // ControlFlow<()>`); an anyhow error no longer type-checks.
+            |change| -> std::result::Result<gix::object::tree::diff::Action, gix::Error> {
                 let key = change.location().to_owned();
                 changes.push((key, change.detach()));
                 Ok(std::ops::ControlFlow::Continue(()))
@@ -257,7 +265,13 @@ fn emit_body(
 ) -> anyhow::Result<()> {
     let mut hunks: Vec<u8> = Vec::new();
     let platform = change.diff(cache)?;
-    let prep = platform.resource_cache.prepare_diff()?;
+    // gix 0.90 wraps this error in `Exn<..>`, which does not implement
+    // `std::error::Error` (so `?` into anyhow fails). Convert explicitly —
+    // `Exn` still renders a useful `Display`.
+    let prep = platform
+        .resource_cache
+        .prepare_diff()
+        .map_err(|error| anyhow::anyhow!("failed to prepare diff: {error}"))?;
     match prep.operation {
         Operation::InternalDiff { algorithm } => {
             // git 语义：行终止符属于行记录（"无换行末行" != "有换行同行"）。
