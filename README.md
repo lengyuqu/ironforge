@@ -264,7 +264,7 @@ ironforge/
 │   ├── rg-cli/             # 主二进制入口（bin = "ironforge"）
 │   ├── rg-core/            # 核心业务逻辑（auth/repo/issue/pr/wiki/lfs/...）
 │   ├── rg-git/             # Git 协议层（pkt-line/V1/V2/cli_gateway）
-│   ├── rg-ssh/             # SSH 服务端（russh 0.51）
+│   ├── rg-ssh/             # SSH 服务端（russh 0.64）
 │   ├── rg-http/            # HTTP 服务端 + REST API（Axum 0.8）
 │   ├── rg-db/              # 数据库层（SeaORM 1.1 + SQLite/PG/MySQL）
 │   ├── rg-ci/              # CI/CD 引擎（YAML 解析 + Pipeline 执行器）
@@ -286,8 +286,8 @@ ironforge/
 |------|------|------|
 | 异步运行时 | tokio | 1.x |
 | HTTP 框架 | axum + axum-server | 0.8 / 0.7 |
-| SSH 服务端 | russh | 0.51 |
-| Git 操作 | gix（生产路径原生；唯一例外：mirror 同步走 git CLI 网关） | 0.87.1 |
+| SSH 服务端 | russh | 0.64 |
+| Git 操作 | gix（生产路径原生；唯一例外：mirror 同步走 git CLI 网关） | 0.90.0 |
 | ORM | SeaORM | 1.1 |
 | 认证 | argon2 + JWT | 0.5 |
 | TLS | rustls + tokio-rustls | 0.23 / 0.26 |

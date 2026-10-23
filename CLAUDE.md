@@ -73,7 +73,7 @@ Phase 1~21 全部完成。核心能力：
 | 领域 | 模块 | 说明 |
 |------|------|------|
 | Git 协议 | `rg-git` | V1/V2、pkt-line、sideband、upload-pack、receive-pack（gix 原生，CLI 网关仅测试用） |
-| SSH 服务 | `rg-ssh` | russh 0.51，公钥/密码认证，Deploy Key |
+| SSH 服务 | `rg-ssh` | russh 0.64，公钥/密码认证，Deploy Key |
 | HTTP 服务 | `rg-http` | Axum 0.8，REST + Git Smart HTTP + OCI + WebSocket + OpenAPI + SPA |
 | 业务逻辑 | `rg-core` | auth/user/repo/issue/pr/wiki/lfs/webhook/review/branch_protection/collaborator/org/notification/email/package_registry/mirror/board/time_tracking/import/audit/search/code_indexer |
 | 数据库 | `rg-db` | SeaORM 1.1 + SQLite/PostgreSQL/MySQL，自动迁移 |
@@ -92,7 +92,7 @@ Phase 1~21 全部完成。核心能力：
 | Git Protocol V2 | `rg-git/src/protocol/v2.rs` | ls-refs/fetch/object-info；shallow/deepen/partial-clone |
 | V2 HTTP 集成 | `rg-http/src/git_v2.rs` | Git-Protocol: version=2 header 检测 |
 | CLI 网关（测试 + mirror） | `rg-git/src/cli_gateway.rs` | git CLI 网关已从协议生产路径退役；现仅测试造数据与 mirror 同步（唯一生产例外）使用；防回归守卫 |
-| SSH 服务端 | `rg-ssh/src/lib.rs` | russh 0.51，公钥/密码认证查 DB |
+| SSH 服务端 | `rg-ssh/src/lib.rs` | russh 0.64，公钥/密码认证查 DB |
 | HTTP 服务端 | `rg-http/src/lib.rs` | Axum 0.8，Git 协议鉴权 + 分支保护 + SvelteKit 静态资源 |
 | REST API | `rg-http/src/api/` | 30+ API 模块，142 个 OpenAPI 注解 |
 | 用户认证 | `rg-core/src/auth/` | argon2 + JWT HS256 + LDAP + SSO(OIDC) + TOTP MFA |
@@ -137,7 +137,7 @@ Phase 1~21 全部完成。核心能力：
 
 ### 技术债与后续方向
 
-**gix 迁移**：生产路径 git CLI 调用仅剩 3 处边缘点（mirror 同步 / import 裸克隆 / CI worktree，见下表），核心热路径 100% gix 原生。Phase A+B+C-lite+Rebase+全量覆盖完成：rev-parse/update-ref/show/cat-file/verify-commit/auto_init/merge-tree/commit-tree/ls-tree/archive/rebase/pack 生成/ thin-pack 摄取/rev-list 图遍历/文件编辑直写（edit_tree+commit_as+引用乐观锁）/fork 对象搬运/fork 裸克隆 均已 gix 化；rebase 与 fork fetch 为自研实现（characterization 测试钉死语义，gix 出原生 API 时可替换）。`GitCommandGateway` 仅测试造数据与上述 3 处边缘点使用。等待 gix 上游成熟项（迁移评估见 `docs/gix-migration-assessment.md`，基于 gix 0.87.1）：
+**gix 迁移**：生产路径 git CLI 调用仅剩 3 处边缘点（mirror 同步 / import 裸克隆 / CI worktree，见下表），核心热路径 100% gix 原生。Phase A+B+C-lite+Rebase+全量覆盖完成：rev-parse/update-ref/show/cat-file/verify-commit/auto_init/merge-tree/commit-tree/ls-tree/archive/rebase/pack 生成/ thin-pack 摄取/rev-list 图遍历/文件编辑直写（edit_tree+commit_as+引用乐观锁）/fork 对象搬运/fork 裸克隆 均已 gix 化；rebase 与 fork fetch 为自研实现（characterization 测试钉死语义，gix 出原生 API 时可替换）。`GitCommandGateway` 仅测试造数据与上述 3 处边缘点使用。等待 gix 上游成熟项（迁移评估见 `docs/gix-migration-assessment.md`，基于 gix 0.90.0）：
 
 | 待办 | 阻塞原因 | 解除条件 |
 |---|---|---|
@@ -150,7 +150,7 @@ Phase 1~21 全部完成。核心能力：
 | Import 裸克隆 gix 化 | gix `prepare_clone` 对 bare 目标 + 远端 URL 的组合支持不完整（2026-09-25 登记） | `import/service.rs:509` `git clone --bare`；gix bare clone API 成熟后迁移 |
 | CI worktree gix 化 | gix 无 linked-worktree 管理 API（登记/`prune` 语义）；替代方案 = gix checkout 到独立目录 | `rg-ci/runner.rs:769,798` `git worktree add --detach` / `remove --force`；CI 频率低收益中等，择机迁移 |
 
-复查节奏：每次 gix 版本升级时过一遍（最近一次：2026-09-25 复核，0.87.1 仍为 crates.io 最新（2026-08-24 发布），无新版可升；本次补登记 import 裸克隆与 CI worktree 两个漏项）。
+复查节奏：每次 gix 版本升级时过一遍（最近一次：2026-10-23 升级 0.87.1 → 0.90.0，同时 russh 0.51 → 0.64；本轮修复 `gix::features` 模块移除、`merge_base` 返回 Option、`count::objects` 错误类型收窄、`iter_from_counts` 变 fallible、tree-diff 回调返回 `gix::Result<Action>`、per-op 错误枚举并入分类式 `gix::Error`；russh 侧 `channel_open_session` 改为两阶段必须 accept）。
 
 **多实例部署的进程内状态**（登记，未完全关闭）：权限缓存（`rg-core/src/repo/service.rs`，30s TTL，可设
 `IRONFORGE_DISABLE_PERM_CACHE=1` 完全绕过）、限流令牌桶（`rg-http/src/rate_limit.rs`，各实例独立计数）、
@@ -292,7 +292,31 @@ FTS5 的 `INSERT INTO fts_table(fts_table, rowid, ...) VALUES('delete', ...)` �
 ### 14. 迁移应幂等 + AppState 字段变更要同步测试构造器
 
 - `ALTER TABLE ... ADD COLUMN` 等非幂等语句用 `manager.has_table()/has_column()` 守卫
+- **回滚（down）为空实现时 `up` 必须幂等**：否则 `Migrator::down()` 后再 `up()` 报 `duplicate column name`
 - 给 `AppState` 新增字段时，**必须**同步更新 `crates/rg-http/tests/common/mod.rs::build_test_app_state`
+
+### 15. russh 0.64 的通道开启是两阶段握手 ⚠️
+
+`Handler::channel_open_session` 签名变为 `(channel, reply: ChannelOpenHandle, session) -> Result<(), Error>`（原为 `-> Result<bool, Error>`）。
+
+- **必须显式 `reply.accept().await`**；丢弃 handle 会自动回 `AdministrativelyProhibited`，**拒绝所有会话**
+- 编译能过但 SSH 全废，只能靠端到端验证（`scripts/git-protocol-e2e.sh` 的 SSH V1/V2 clone+push 步骤）
+- 附带：`PrivateKey::random` 需要 rand_core 0.10 的 `CryptoRng`，rand 0.8 的 `OsRng` 不再满足；用 `rand::rng()`，故 `rg-ssh` 单独依赖 rand 0.10
+
+### 16. gix 0.90 的破坏性变更清单
+
+| 旧写法 | 新写法 |
+|--------|--------|
+| `gix::features::progress::Discard` | `gix::progress::Discard` |
+| `gix::features::parallel::InOrderIter` | `gix::parallel::InOrderIter` |
+| `merge_base() -> Result<Id>` | `Result<Option<Id>>`（无共同祖先为 `None`，需自行决定是否报错） |
+| `count::objects` item 错误 | 收窄为 `gix::Error`（不再是 `Box<dyn Error>`） |
+| `iter_from_counts` 直接返回迭代器 | 返回 `Result<迭代器>`，需 `?` |
+| tree-diff 回调返回 `anyhow::Result<ControlFlow>` | 必须 `gix::Result<Action>`（`Action = ControlFlow<()>`） |
+| `prepare_diff()?` | 错误是 `Exn<..>`，不实现 `StdError`，需 `map_err` 转字符串 |
+| `object::find::existing::Error::NotFound` | `err.is_not_found()`（分类式 `gix::Error`） |
+
+另外：rg-git 直接依赖的 `gix-pack` / `gix-archive` 必须与 gix 主版本同步升级，否则 Cargo 会解析出**两套** gix 子 crate（编译报 "set either the sha1 or sha256 feature flag"）。
 
 ---
 
@@ -303,8 +327,7 @@ axum            = "0.8"
 axum-server     = "0.7"      # features: tls-rustls
 tower           = "0.5"
 tower-http      = "0.6"      # features: cors, trace, fs
-russh           = "0.51"
-russh-keys      = "0.45"
+russh           = "0.64"   # 通道开启为两阶段：必须 accept ChannelOpenHandle
 sea-orm         = "1.1"      # features: sqlx-sqlite, runtime-tokio-rustls, macros
 clap            = "4"        # features: derive
 tokio           = "1"        # features: full
@@ -321,7 +344,7 @@ utoipa          = "5"        # ⚠️ 未纳入 workspace，在 rg-http 中硬�
 utoipa-swagger-ui = "8"      # ⚠️ 未纳入 workspace
 anyhow          = "1"
 thiserror       = "2"
-gix             = "0.87"     # features: blocking-http-transport-curl, max-performance, blob-diff, pack-cache-lru-dynamic, merge, blame
+gix             = "0.90"     # features: blocking-http-transport-curl, max-performance, blob-diff, pack-cache-lru-dynamic, merge, blame
 chrono          = "0.4"      # features: serde
 uuid            = "1"        # features: v4, serde
 # Auth / Crypto
