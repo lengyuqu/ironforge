@@ -160,6 +160,20 @@ pub/sub 失效总线；在此之前建议单实例部署，详见 `deploy/README
 **CI 容器隔离的剩余面**：工作区 rw 挂载 + 容器内 root 仍可在宿主留下 root 属主文件；需靠 daemon 的
 userns-remap 或 `rg-ci-isolation::DockerLimits::user` 收紧。镜像/资源/capability 已加固。
 
+**安全加固台账（2026-10-23，对应 GitHub issue #1）**：
+
+| 面 | 修复 |
+|----|------|
+| PAT 生成 | `rg-http/src/api/users.rs` 改用 `OsRng` 取 256-bit，去掉时间戳与 PID 回退；熵源不可用则 panic（fail-closed），不再生成可猜凭据 |
+| SSO state cookie | 裸 `SHA256(secret‖":"‖value)` → HMAC-SHA256 + `Mac::verify_slice` 常量时间校验，关闭长度扩展与时序侧信道 |
+| SSO/OIDC 出站 | 7 处 `reqwest::Client::new()` 收敛为共享 client：30s 请求 / 10s 连接超时、禁跟随重定向。**刻意不**拒绝内网 IP——自托管 IdP（Keycloak/GitLab）常位于内网，信任边界由部署方决定 |
+| 限流 | `RateLimiter` 增加 `max_keys`（默认 10 万，满时先清过期条目再拒绝新 key，防 map 无界增长）；`/users/register`（60/60s）与 `/users/login`+`/users/forgot-password`+`/users/reset-password`（10/60s）挂常开独立限流；测试路由不挂（集成测试全部来自 127.0.0.1） |
+| Git 流式超时 | HTTP upload/receive-pack 与 SSH 三个 stream handler 加 wall-clock deadline（默认 3600s，`IRONFORGE_GIT_STREAM_TIMEOUT_SECS` 可调，0 = 关闭）；HTTP 超时返回 504，子进程随 future drop 被回收 |
+| rg-cli 内联 runner | Docker 不可用改为 fail-closed（不再静默落宿主 shell）；`docker run` 复用 `rg-ci-isolation::DockerLimits::hardening_args()` 并以 `--` 结束选项解析；无 image 的 job 需 `IRONFORGE_ALLOW_HOST_RUNNER=1` 才允许在宿主执行 |
+| release 资产完整性 | 新增 `release_assets.sha256`（迁移 `m20261023_000001`，`up` 幂等以兼容 SQLite 回滚），上传计算、下载返回 `x-checksum-sha256` |
+
+webhook / mirror 的 SSRF 已由 `rg-core/src/net_guard.rs`（`validate_webhook_url` / `validate_mirror_url`）覆盖；CI 已有 `cargo audit` job（`regression.yml` → `security-audit`）。
+
 详细架构事实见 [ironforge-docs/architecture/project-architecture-2026-07.md](ironforge-docs/architecture/project-architecture-2026-07.md)。
 
 ---
