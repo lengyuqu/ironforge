@@ -5,14 +5,15 @@
 
 ## [0.2.0] - 2026-09-07
 
-本版本的核心里程碑：**生产路径 git CLI 调用归零，100% gix 原生**。运行时不再依赖系统安装的 git，
-部署即拷贝单个二进制 + 静态前端，彻底消除 CLI 版本漂移、stderr 解析与子进程管理问题。
+本版本的核心里程碑：**核心热路径 git CLI 调用归零，100% gix 原生**。运行时不再依赖系统安装的 git
+完成 Git 协议、对象读写与 pack 生成/摄取；仅 mirror 的 clone 与同步仍调用 git CLI（见下方 Known
+limitations），部署即拷贝单个二进制 + 静态前端，消除了热路径上的 CLI 版本漂移、stderr 解析与子进程管理问题。
 
 ### Changed（架构级，breaking）
 
 - **git CLI 退役**：原经 `GitCommandGateway` 调用 git CLI 的全部 11 处生产路径（pack 生成/摄取、
-  rev-list、fork fetch、文件编辑提交、验签等）替换为 gix 原生实现；`cli_gateway.rs` 仅保留用于测试造数据，
-  防回归守卫 `test_no_raw_git_command_in_crates` 继续生效。
+  rev-list、fork fetch、文件编辑提交、验签等）替换为 gix 原生实现；`cli_gateway.rs` 现仅用于测试造数据
+  与 mirror 的 clone/同步，防回归守卫 `test_no_raw_git_command_in_crates` 继续生效。
 - 新增 gix 原生底层能力（`rg-git/src/ops.rs`）：`commits_between` / `commit_graph` / `generate_pack` /
   `pack_universe` / `pack_for_wants` / `index_pack_bytes` / `copy_objects_from_source` / `commit_tree_edits` /
   `verify_commit_details_with_repo`。
