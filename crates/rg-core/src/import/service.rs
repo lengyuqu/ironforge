@@ -14,7 +14,6 @@
 
 use anyhow::Result;
 use chrono::Utc;
-use rg_git::cli_gateway::global_gateway;
 use sea_orm::{ActiveValue::Set, DatabaseConnection};
 use std::collections::HashMap;
 use std::path::Path;
@@ -507,16 +506,20 @@ fn clone_repo(
         .ok_or_else(|| anyhow::anyhow!("invalid path: no parent directory"))?;
     std::fs::create_dir_all(parent)?;
 
-    let git = global_gateway()
-        .as_ref()
-        .map_err(|e| anyhow::anyhow!("{}", e))?;
-    // The CLI's stderr names the destination path and echoes the source URL
+    // `prepare_clone_bare` is the library form of `git clone --bare`: branches
+    // land in `refs/heads/` and no default fetch refspec is written. The
+    // `blocking-network-client` feature (implied by the curl transport) also
+    // enables the credential helpers, so private sources keep working.
+    let interrupt = std::sync::atomic::AtomicBool::new(false);
+    let cloned = gix::prepare_clone_bare(source_url, &target_dir).and_then(|mut prepare| {
+        prepare
+            .fetch_only(gix::progress::Discard, &interrupt)
+            .map(|_| ())
+    });
+    // The CLI's stderr named the destination path and echoed the source URL
     // (which may embed a token); the task's `error` field is shown to the
     // user, so keep the detail in the operator log only.
-    if let Err(error) = git.run_or_bail(
-        &["clone", "--bare", source_url, &target_dir.to_string_lossy()],
-        None,
-    ) {
+    if let Err(error) = cloned {
         tracing::warn!(error = %format!("{error:#}"), "import: bare clone failed");
         return Err(CoreError::invalid_input(
             "failed to clone the source repository; check that the URL is reachable and any credentials are valid",
@@ -1434,5 +1437,60 @@ fn user_visible_failure(error: &anyhow::Error) -> String {
             tracing::error!(error = %format!("{error:#}"), "import task failed");
             "import failed due to an internal error; see the server logs".to_string()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `clone_repo` replaced `git clone --bare`, so the result still has to be
+    /// a bare repository that Git itself accepts, with the source branches and
+    /// tags intact.
+    #[test]
+    fn clone_repo_builds_a_bare_repository_git_can_read() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("source");
+        let git = rg_git::cli_gateway::global_gateway().as_ref().unwrap();
+        let run = |args: &[&str], cwd: Option<&Path>| {
+            assert!(
+                git.run(args, cwd).unwrap().success(),
+                "git {args:?} failed while setting up the fixture"
+            );
+        };
+        run(&["init", "-b", "main", &source.to_string_lossy()], None);
+        run(&["config", "user.email", "import@example.com"], Some(&source));
+        run(&["config", "user.name", "Import"], Some(&source));
+        std::fs::write(source.join("README.md"), "imported\n").unwrap();
+        run(&["add", "-A"], Some(&source));
+        run(&["commit", "-m", "initial"], Some(&source));
+        run(&["tag", "v1"], Some(&source));
+        let head = git
+            .run(&["rev-parse", "HEAD"], Some(&source))
+            .unwrap()
+            .stdout_str()
+            .trim()
+            .to_owned();
+
+        clone_repo(&source.to_string_lossy(), temp.path(), "owner", "name", "").unwrap();
+
+        let target = temp.path().join("owner/name.git");
+        let cloned = gix::open(&target).expect("cloned repository must open");
+        assert!(cloned.is_bare(), "the clone must be a bare repository");
+        let cloned_head = cloned.head_id().expect("HEAD must be resolvable");
+        assert_eq!(cloned_head.detach().to_string(), head);
+
+        // Git is the reference implementation: it must accept the repository
+        // and resolve the same branch and tag.
+        let branch = git.run(&["rev-parse", "main"], Some(&target)).unwrap();
+        assert!(branch.success(), "git must resolve refs/heads/main");
+        assert_eq!(branch.stdout_str().trim(), head);
+        let tag = git.run(&["rev-parse", "v1"], Some(&target)).unwrap();
+        assert!(tag.success(), "tags must be cloned as well");
+        assert_eq!(tag.stdout_str().trim(), head);
+
+        // Re-running is a no-op instead of a destructive re-clone.
+        clone_repo(&source.to_string_lossy(), temp.path(), "owner", "name", "").unwrap();
+        assert_eq!(cloned.head_id().unwrap().detach().to_string(), head);
     }
 }
