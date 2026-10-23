@@ -632,7 +632,7 @@ pub async fn download_asset(
         Ok((asset, data)) => {
             let content_disposition = format!("attachment; filename=\"{}\"", asset.filename);
             let content_length = asset.size.to_string();
-            let response = (
+            let mut response = (
                 StatusCode::OK,
                 [
                     (header::CONTENT_TYPE, asset.content_type.as_str()),
@@ -640,8 +640,22 @@ pub async fn download_asset(
                     (header::CONTENT_LENGTH, content_length.as_str()),
                 ],
                 data,
-            );
-            response.into_response()
+            )
+                .into_response();
+
+            // Integrity digest: lets a client verify that the bytes it
+            // received match what was uploaded. Absent on assets stored before
+            // digests were recorded — that means "unverifiable", not "corrupt".
+            if let Some(sha256) = asset.sha256.as_deref() {
+                if let Ok(value) = axum::http::HeaderValue::from_str(sha256) {
+                    response.headers_mut().insert(
+                        axum::http::HeaderName::from_static("x-checksum-sha256"),
+                        value,
+                    );
+                }
+            }
+
+            response
         }
         Err(e) => AppError::from(e).into_response(),
     }

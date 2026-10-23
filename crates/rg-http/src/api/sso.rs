@@ -124,8 +124,7 @@ fn verify_state_cookie(headers: &HeaderMap, name: &str, jwt_secret: &str) -> Opt
         if let Some(value) = trimmed.strip_prefix(&prefix) {
             // Split value:signature
             if let Some((val, sig)) = value.rsplit_once(':') {
-                let expected_sig = sign_cookie_value(val, jwt_secret);
-                if sig == expected_sig {
+                if verify_cookie_signature(val, sig, jwt_secret) {
                     return Some(val.to_string());
                 }
             }
@@ -134,22 +133,40 @@ fn verify_state_cookie(headers: &HeaderMap, name: &str, jwt_secret: &str) -> Opt
     None
 }
 
-/// SHA256-based cookie signing using JWT secret.
+/// Sign a cookie value with HMAC-SHA256 keyed by the JWT secret.
+///
+/// HMAC — not a bare `SHA256(secret ‖ ":" ‖ value)`. A plain
+/// Merkle–Damgård hash of `secret ‖ message` is the textbook
+/// length-extension setup: anyone who observes one valid `(value, sig)` pair
+/// can compute a valid signature for `value ‖ padding ‖ suffix` without
+/// knowing the secret. HMAC is the construction that closes this.
 fn sign_cookie_value(value: &str, secret: &str) -> String {
-    use sha2::{Digest, Sha256};
-    let mut hasher = Sha256::new();
-    hasher.update(secret.as_bytes());
-    hasher.update(b":");
-    hasher.update(value.as_bytes());
-    let result = hasher.finalize();
-    // Hex encode the digest
-    let mut hex = String::with_capacity(64);
-    for byte in &result {
-        use std::fmt::Write;
-        // write! to a String never fails, so unwrap is safe here
-        let _ = write!(hex, "{byte:02x}");
-    }
-    hex
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+
+    let mut mac =
+        Hmac::<Sha256>::new_from_slice(secret.as_bytes()).expect("HMAC accepts any key length");
+    mac.update(value.as_bytes());
+    hex::encode(mac.finalize().into_bytes())
+}
+
+/// Verify a cookie signature in constant time.
+///
+/// `Mac::verify_slice` compares the full tag without short-circuiting on the
+/// first differing byte, so repeated invalid attempts cannot be used as a
+/// timing oracle to recover the expected signature prefix.
+fn verify_cookie_signature(value: &str, sig: &str, secret: &str) -> bool {
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+
+    let Ok(expected) = hex::decode(sig) else {
+        return false;
+    };
+    let Ok(mut mac) = Hmac::<Sha256>::new_from_slice(secret.as_bytes()) else {
+        return false;
+    };
+    mac.update(value.as_bytes());
+    mac.verify_slice(&expected).is_ok()
 }
 
 // ── Extract base URL ─────────────────────────────────────────────
@@ -848,8 +865,8 @@ async fn generate_unique_username(
 #[cfg(test)]
 mod tests {
     use super::{
-        build_auth_cookie, encode_query_component, set_state_cookie, verify_state_cookie,
-        SSO_STATE_COOKIE, SSO_VERIFIER_COOKIE,
+        build_auth_cookie, encode_query_component, set_state_cookie, sign_cookie_value,
+        verify_cookie_signature, verify_state_cookie, SSO_STATE_COOKIE, SSO_VERIFIER_COOKIE,
     };
     use axum::http::{header, HeaderMap};
     use axum::response::IntoResponse;
@@ -921,8 +938,7 @@ mod tests {
     }
 
     #[test]
-    fn redirect_response_can_carry_multiple_set_cookie_headers() {
-        let mut response = axum::response::Redirect::temporary("/dashboard").into_response();
+    fn redirect_response_can_carry_multiple_set_cookie_headers() {        let mut response = axum::response::Redirect::temporary("/dashboard").into_response();
         set_state_cookie(&mut response, SSO_STATE_COOKIE, "state-1", "secret", false);
         set_state_cookie(&mut response, SSO_VERIFIER_COOKIE, "verifier-1", "secret", false);
 
@@ -934,5 +950,34 @@ mod tests {
                 .count(),
             2
         );
+    }
+
+    #[test]
+    fn sso_cookie_signature_rejects_tampering_and_wrong_secret() {
+        let sig = sign_cookie_value("state-1", "secret");
+        assert!(verify_cookie_signature("state-1", &sig, "secret"));
+
+        // Different secret must not validate.
+        assert!(!verify_cookie_signature("state-1", &sig, "other-secret"));
+        // Modified value must not validate against the original tag.
+        assert!(!verify_cookie_signature("state-2", &sig, "secret"));
+        // Malformed hex is rejected rather than panicking.
+        assert!(!verify_cookie_signature("state-1", "not-hex", "secret"));
+        // Truncated tag must not verify.
+        assert!(!verify_cookie_signature(
+            "state-1",
+            &sig[..sig.len() - 2],
+            "secret"
+        ));
+    }
+
+    #[test]
+    fn sso_cookie_signature_is_length_extension_resistant() {
+        // The signature is HMAC-SHA256, not SHA256(secret ‖ ":" ‖ value).
+        // With a bare Merkle–Damgård hash an attacker could append a suffix and
+        // reuse the tag; with HMAC the extended message must not verify.
+        let sig = sign_cookie_value("state-1", "secret");
+        let extended = "state-1\u{80}appended".to_string();
+        assert!(!verify_cookie_signature(&extended, &sig, "secret"));
     }
 }

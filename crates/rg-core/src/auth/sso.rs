@@ -12,6 +12,31 @@ use rand::Rng;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
+// ── Outbound HTTP client ─────────────────────────────────────────
+
+/// Shared client for all SSO/OIDC provider traffic.
+///
+/// Every call-site previously built a bare `reqwest::Client::new()`, which has
+/// **no timeout** (a hung or slow IdP pins the login task indefinitely) and
+/// **follows redirects** (an IdP answering 3xx silently reroutes the flow,
+/// which is at best a surprise and at worst a token-handling bug).
+///
+/// Private/loopback addresses are deliberately *not* rejected here: unlike
+/// webhook delivery, a self-hosted forge legitimately targets an internal IdP
+/// (Keycloak or GitLab on a private address). The trust boundary is the
+/// operator's choice, so only the deployment-independent hardening applies.
+fn http_client() -> &'static reqwest::Client {
+    static CLIENT: std::sync::LazyLock<reqwest::Client> = std::sync::LazyLock::new(|| {
+        reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .connect_timeout(std::time::Duration::from_secs(10))
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap_or_else(|e| panic!("failed to build the SSO HTTP client: {e}"))
+    });
+    &CLIENT
+}
+
 // ── Public types ──────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
@@ -103,7 +128,7 @@ pub async fn oauth2_exchange_code(
             .ok_or_else(|| CoreError::internal(format!("no token URL for provider: {}", config.slug)))?
     };
 
-    let client = reqwest::Client::new();
+    let client = http_client();
 
     #[derive(Deserialize)]
     struct RawTokenResponse {
@@ -158,7 +183,7 @@ pub async fn oauth2_refresh_token(
             .ok_or_else(|| CoreError::internal(format!("no token URL for provider: {}", config.slug)))?
     };
 
-    let client = reqwest::Client::new();
+    let client = http_client();
 
     #[derive(Deserialize)]
     struct RawTokenResponse {
@@ -224,7 +249,7 @@ pub async fn oauth2_fetch_user_info(
 // ── GitHub user info ─────────────────────────────────────────────
 
 async fn fetch_github_user(access_token: &str) -> CoreResult<SsoUserInfo> {
-    let client = reqwest::Client::new();
+    let client = http_client();
 
     let user_resp = client
         .get("https://api.github.com/user")
@@ -249,7 +274,7 @@ async fn fetch_github_user(access_token: &str) -> CoreResult<SsoUserInfo> {
     let provider_username = user["login"].as_str().unwrap_or("").to_string();
     let display_name = user["name"].as_str().map(str::to_string);
     let avatar_url = user["avatar_url"].as_str().map(str::to_string);
-    let email = fetch_github_email(&client, access_token)
+    let email = fetch_github_email(client, access_token)
         .await
         .unwrap_or_else(|| user["email"].as_str().unwrap_or("").to_string());
 
@@ -294,7 +319,7 @@ async fn fetch_github_email(client: &reqwest::Client, access_token: &str) -> Opt
 // ── GitLab user info ─────────────────────────────────────────────
 
 async fn fetch_gitlab_user(access_token: &str) -> CoreResult<SsoUserInfo> {
-    let client = reqwest::Client::new();
+    let client = http_client();
     let resp = client
         .get("https://gitlab.com/api/v4/user")
         .header("Authorization", format!("Bearer {}", access_token))
@@ -322,7 +347,7 @@ async fn fetch_gitlab_user(access_token: &str) -> CoreResult<SsoUserInfo> {
 // ── Google OIDC user info ────────────────────────────────────────
 
 async fn fetch_google_user(access_token: &str) -> CoreResult<SsoUserInfo> {
-    let client = reqwest::Client::new();
+    let client = http_client();
     let resp = client
         .get("https://openidconnect.googleapis.com/v1/userinfo")
         .header("Authorization", format!("Bearer {}", access_token))
@@ -356,7 +381,7 @@ async fn fetch_oidc_userinfo(
     config: &SsoProviderConfig,
     access_token: &str,
 ) -> CoreResult<SsoUserInfo> {
-    let client = reqwest::Client::new();
+    let client = http_client();
     let endpoint = resolve_oidc_endpoints(config).await?.userinfo_endpoint;
     let user = client
         .get(endpoint)
@@ -396,7 +421,7 @@ async fn resolve_oidc_endpoints(config: &SsoProviderConfig) -> CoreResult<OidcEn
         .as_deref()
         .filter(|url| !url.trim().is_empty())
     {
-        return reqwest::Client::new()
+        return http_client()
             .get(discovery_url)
             .send()
             .await

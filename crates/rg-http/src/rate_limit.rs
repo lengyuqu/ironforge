@@ -22,6 +22,14 @@ struct ClientState {
     reset_at: Instant,
 }
 
+/// Default cap on distinct client keys tracked per limiter.
+///
+/// Without a bound, a burst of distinct source addresses (or spoofed
+/// `X-Forwarded-For` values behind a misconfigured proxy) grows the map faster
+/// than the periodic sweep reclaims it — a cheap memory-pressure DoS. The cap
+/// only limits *tracked* keys; existing keys keep being enforced normally.
+pub const DEFAULT_MAX_KEYS: usize = 100_000;
+
 /// Shared rate limiter state.
 #[derive(Debug, Clone)]
 pub struct RateLimiter {
@@ -31,6 +39,8 @@ pub struct RateLimiter {
     max_requests: u32,
     /// Window duration in seconds.
     window_secs: u64,
+    /// Upper bound on the number of distinct client keys tracked.
+    max_keys: usize,
     /// Proxy IPs whose X-Forwarded-For / X-Real-IP headers are trusted.
     trusted_proxies: Arc<Vec<IpAddr>>,
     /// Client IP → state mapping.
@@ -49,9 +59,16 @@ impl RateLimiter {
             enabled: max_requests > 0,
             max_requests: max_requests.max(1),
             window_secs: window_secs.max(1),
+            max_keys: DEFAULT_MAX_KEYS,
             trusted_proxies: Arc::new(Vec::new()),
             clients: Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+
+    /// Override the cap on distinct tracked client keys.
+    pub fn with_max_keys(mut self, max_keys: usize) -> Self {
+        self.max_keys = max_keys.max(1);
+        self
     }
 
     /// Create a new rate limiter that trusts proxy headers only from the
@@ -85,6 +102,23 @@ impl RateLimiter {
             }
         };
         let now = Instant::now();
+
+        // Bound the map before inserting a new key. Sweep expired entries
+        // first (amortised: only when full), then fail closed for unseen keys
+        // if the limiter is genuinely saturated. Rejecting an unknown client in
+        // that state is the correct trade: it caps memory under address-spray
+        // abuse instead of letting the map grow without limit.
+        if !clients.contains_key(key) && clients.len() >= self.max_keys {
+            clients.retain(|_, state| now < state.reset_at);
+            if clients.len() >= self.max_keys {
+                tracing::warn!(
+                    tracked_keys = clients.len(),
+                    max_keys = self.max_keys,
+                    "rate limiter key map is full; rejecting an unseen client key"
+                );
+                return false;
+            }
+        }
 
         let entry = clients
             .entry(key.to_string())
@@ -183,6 +217,113 @@ impl RateLimiter {
         }
 
         None
+    }
+}
+
+/// Authentication-specific budgets.
+///
+/// Registration and credentials get *separate* buckets on purpose:
+///
+/// - Registration is a provisioning action. A team behind one NAT egress IP
+///   may legitimately create many accounts in a short window, so the budget
+///   only has to stop scripted bulk account creation.
+/// - Login and account recovery are the brute-forceable surface and stay
+///   strict.
+const REGISTRATION_LIMIT_MAX_REQUESTS: u32 = 60;
+const REGISTRATION_LIMIT_WINDOW_SECS: u64 = 60;
+const CREDENTIAL_LIMIT_MAX_REQUESTS: u32 = 10;
+const CREDENTIAL_LIMIT_WINDOW_SECS: u64 = 60;
+
+/// The pair of always-on limiters guarding the credential surface.
+#[derive(Debug, Clone)]
+pub struct AuthLimiters {
+    /// Applied to `/users/register`.
+    pub registration: AuthRateLimiter,
+    /// Applied to `/users/login`, `/users/forgot-password`, `/users/reset-password`.
+    pub credentials: AuthRateLimiter,
+}
+
+impl AuthLimiters {
+    /// Production defaults: 60 registrations and 10 credential attempts per
+    /// minute, per client IP.
+    pub fn default_budget() -> Self {
+        Self {
+            registration: AuthRateLimiter::new(
+                REGISTRATION_LIMIT_MAX_REQUESTS,
+                REGISTRATION_LIMIT_WINDOW_SECS,
+            ),
+            credentials: AuthRateLimiter::new(
+                CREDENTIAL_LIMIT_MAX_REQUESTS,
+                CREDENTIAL_LIMIT_WINDOW_SECS,
+            ),
+        }
+    }
+}
+
+impl Default for AuthLimiters {
+    fn default() -> Self {
+        Self::default_budget()
+    }
+}
+
+/// Stricter, **always-on** per-IP limiter for credential endpoints.
+///
+/// The global limiter is opt-in (`RateLimiter::new` disables itself when
+/// `max_requests == 0`, which is the default configuration), so out of the box
+/// registration spam and password guessing on `/users/login` and
+/// `/users/register` were not throttled at all. This limiter is layered onto
+/// those routes unconditionally, independently of `--rate-limit-max`.
+#[derive(Debug, Clone)]
+pub struct AuthRateLimiter(RateLimiter);
+
+impl AuthRateLimiter {
+    /// `max_requests` attempts per `window_secs` per client IP.
+    pub fn new(max_requests: u32, window_secs: u64) -> Self {
+        let limiter = RateLimiter::new(max_requests.max(1), window_secs.max(1));
+        // Guard against unit tests calling this outside a Tokio runtime.
+        if tokio::runtime::Handle::try_current().is_ok() {
+            limiter.spawn_cleanup_task();
+        }
+        Self(limiter)
+    }
+
+    /// The default credential budget: 10 requests / 60 s / IP.
+    pub fn default_budget() -> Self {
+        Self::new(CREDENTIAL_LIMIT_MAX_REQUESTS, CREDENTIAL_LIMIT_WINDOW_SECS)
+    }
+}
+
+impl Default for AuthRateLimiter {
+    fn default() -> Self {
+        Self::default_budget()
+    }
+}
+
+/// Axum middleware enforcing the credential-endpoint limiter.
+pub async fn auth_rate_limit_middleware(
+    axum::extract::State(limiter): axum::extract::State<AuthRateLimiter>,
+    headers: HeaderMap,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let key = limiter.0.client_key(&headers, addr);
+
+    if limiter.0.allow(&key) {
+        next.run(request).await
+    } else {
+        if let Some(c) = crate::metrics::rate_limit::BLOCKED.get() {
+            c.inc();
+        }
+        tracing::warn!(
+            client = %key,
+            path = %request.uri().path(),
+            "auth endpoint rate limit exceeded"
+        );
+        crate::error::AppError::rate_limited(
+            "Too many authentication attempts. Please try again later.",
+        )
+        .into_response()
     }
 }
 

@@ -1237,8 +1237,16 @@ async fn main() -> anyhow::Result<()> {
                 let script_str = script.join("\n");
                 let (exit_code, log) = if let Some(img) = image {
                     run_job_docker(img, &script_str).await
-                } else {
+                } else if host_runner_allowed() {
                     run_job_local(&script_str).await
+                } else {
+                    (
+                        1,
+                        "job requests no container image and host execution is disabled; \
+                         set IRONFORGE_ALLOW_HOST_RUNNER=1 to run jobs directly on the \
+                         host shell (no isolation)"
+                            .to_string(),
+                    )
                 };
 
                 // 4. Upload log
@@ -2004,7 +2012,28 @@ async fn run_job_local(script: &str) -> (i32, String) {
     }
 }
 
-/// Execute a job script inside a Docker container.
+/// Whether CI jobs may be executed directly on the host shell.
+///
+/// A host shell has **no isolation whatsoever**, so it must be an explicit
+/// operator decision rather than a silent default. Enable it with
+/// `IRONFORGE_ALLOW_HOST_RUNNER=1` (or `true`/`yes`).
+fn host_runner_allowed() -> bool {
+    std::env::var("IRONFORGE_ALLOW_HOST_RUNNER")
+        .map(|v| {
+            matches!(
+                v.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes"
+            )
+        })
+        .unwrap_or(false)
+}
+
+/// Execute a job script inside a sandboxed Docker container.
+///
+/// Fails **closed**: a job that asked for a container must never silently run
+/// on the host shell just because the Docker daemon is down. The other two
+/// runners (the `rg-ci` PipelineRunner and the `rg-runner` daemon) already
+/// behave this way — this inline runner was the odd one out.
 async fn run_job_docker(image: &str, script: &str) -> (i32, String) {
     // Check if Docker is available
     let docker_check = tokio::process::Command::new("docker")
@@ -2014,16 +2043,47 @@ async fn run_job_docker(image: &str, script: &str) -> (i32, String) {
 
     match docker_check {
         Ok(check) if !check.status.success() => {
-            return run_job_local(script).await;
+            return (
+                1,
+                "job requested a container but the Docker daemon is unavailable; \
+                 refusing to fall back to the host shell"
+                    .to_string(),
+            );
         }
-        Err(_) => {
-            return run_job_local(script).await;
+        Err(e) => {
+            return (
+                1,
+                format!(
+                    "job requested a container but docker could not be invoked ({e}); \
+                     refusing to fall back to the host shell"
+                ),
+            );
         }
         _ => {}
     }
 
+    // The image reference comes from repository content; an unvalidated value
+    // such as `--privileged` would be parsed by `docker run` as an option.
+    if let Err(e) = rg_ci_isolation::validate_container_image(image) {
+        return (1, format!("invalid container image: {e}"));
+    }
+
+    // Same resource/capability limits as the server-side runners: drop all
+    // capabilities, no-new-privileges, memory/cpu/pid caps.
+    let mut args: Vec<String> = vec!["run".to_string(), "--rm".to_string()];
+    args.extend(rg_ci_isolation::DockerLimits::default().hardening_args());
+    // `--` ends option parsing so the validated image cannot be mistaken for a
+    // flag even if a future Docker version accepts new options.
+    args.push("--".to_string());
+    args.extend([
+        image.to_string(),
+        "sh".to_string(),
+        "-c".to_string(),
+        script.to_string(),
+    ]);
+
     let output = tokio::process::Command::new("docker")
-        .args(["run", "--rm", image, "sh", "-c", script])
+        .args(&args)
         .output()
         .await;
 

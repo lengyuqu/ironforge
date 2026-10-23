@@ -21,6 +21,52 @@ use rg_git::protocol::receive_pack::{
 use rg_git::protocol::upload_pack::handle_upload_pack_stream;
 use rg_git::protocol::v2::handle_v2_stream;
 
+/// Default wall-clock deadline for one git smart-protocol streaming call.
+const DEFAULT_GIT_STREAM_TIMEOUT_SECS: u64 = 3600;
+
+/// Wall-clock deadline applied to a single git upload-pack/receive-pack call.
+///
+/// An SSH session has no request-level deadline: a client that stalls
+/// mid-transfer — or starts an expensive pack negotiation and then stops
+/// reading — keeps the session task and its child git process alive
+/// indefinitely, which is a slowloris-style resource-exhaustion vector.
+///
+/// The default is generous (1 hour) so legitimate clones of large
+/// repositories are not cut off. Override with
+/// `IRONFORGE_GIT_STREAM_TIMEOUT_SECS`; `0` disables the deadline.
+fn git_stream_timeout() -> std::time::Duration {
+    static TIMEOUT: std::sync::LazyLock<std::time::Duration> = std::sync::LazyLock::new(|| {
+        let secs = std::env::var("IRONFORGE_GIT_STREAM_TIMEOUT_SECS")
+            .ok()
+            .and_then(|v| v.trim().parse::<u64>().ok())
+            .unwrap_or(DEFAULT_GIT_STREAM_TIMEOUT_SECS);
+        if secs == 0 {
+            std::time::Duration::from_secs(u32::MAX as u64)
+        } else {
+            std::time::Duration::from_secs(secs)
+        }
+    });
+    *TIMEOUT
+}
+
+/// Apply a wall-clock deadline to one git streaming call.
+///
+/// On elapse the future is dropped (taking the child git process with it),
+/// an error is returned, and the caller closes the channel with a non-zero
+/// exit status.
+async fn with_deadline<F, T>(deadline: std::time::Duration, fut: F) -> Result<T>
+where
+    F: std::future::Future<Output = Result<T>>,
+{
+    match tokio::time::timeout(deadline, fut).await {
+        Ok(result) => result,
+        Err(_elapsed) => Err(anyhow::anyhow!(
+            "git operation exceeded the {}s streaming deadline",
+            deadline.as_secs()
+        )),
+    }
+}
+
 /// Error type for SSH handler.
 #[derive(Debug)]
 struct HandlerError(String);
@@ -474,14 +520,18 @@ impl Handler for SshHandler {
 
             let mut stream: ChannelStream<Msg> = ch.into_stream();
 
+            let deadline = git_stream_timeout();
             let result: Result<(), anyhow::Error> = if git_protocol_version == "2" {
                 tracing::info!(%service_name, "Using Protocol V2");
-                handle_v2_stream(&repo_full_path, &mut stream).await
+                with_deadline(deadline, handle_v2_stream(&repo_full_path, &mut stream)).await
             } else {
                 match service_name.as_str() {
-                    "git-upload-pack" => handle_upload_pack_stream(&repo_full_path, &mut stream)
-                        .await
-                        .map(|_| ()),
+                    "git-upload-pack" => with_deadline(
+                        deadline,
+                        handle_upload_pack_stream(&repo_full_path, &mut stream),
+                    )
+                    .await
+                    .map(|_| ()),
                     "git-receive-pack" => {
                         if let Some((protection_rules, tag_protection_rules, actor_id)) =
                             receive_pack_context
@@ -500,18 +550,24 @@ impl Handler for SshHandler {
                                 tag_protection_rules,
                                 actor_id,
                             ));
-                            handle_receive_pack_stream_with_rejections(
-                                &repo_full_path,
-                                &mut stream,
-                                rejected_refs,
-                                require_signed_refs,
+                            with_deadline(
+                                deadline,
+                                handle_receive_pack_stream_with_rejections(
+                                    &repo_full_path,
+                                    &mut stream,
+                                    rejected_refs,
+                                    require_signed_refs,
+                                ),
                             )
                             .await
                             .map(|_| ())
                         } else {
-                            handle_receive_pack_stream(&repo_full_path, &mut stream)
-                                .await
-                                .map(|_| ())
+                            with_deadline(
+                                deadline,
+                                handle_receive_pack_stream(&repo_full_path, &mut stream),
+                            )
+                            .await
+                            .map(|_| ())
                         }
                     }
                     _ => Err(anyhow::anyhow!("Unknown git service: {}", service_name)),

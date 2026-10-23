@@ -964,10 +964,15 @@ mod soft_delete_tests {
             assert_eq!(scalar(&db, "PRAGMA foreign_keys").await, 1);
         }
 
-        // Rolling the four post-anchor migrations back must also keep the
-        // data (the `down` path rebuilds the table too) and restore the full
-        // unique constraint; re-applying must then succeed again.
-        migrations::Migrator::down(&db, Some(4)).await.expect("downgrade");
+        // Rolling the post-anchor migrations back must also keep the data (the
+        // `down` path rebuilds the table too) and restore the full unique
+        // constraint; re-applying must then succeed again.
+        //
+        // The count must cover every migration applied after the
+        // `m20261015_000002` partial-unique-index anchor — add 1 here whenever
+        // a migration is appended, or this assertion silently stops testing
+        // the intended window.
+        migrations::Migrator::down(&db, Some(5)).await.expect("downgrade");
         assert_eq!(scalar(&db, "SELECT COUNT(*) FROM repo_stars").await, 1);
         assert_eq!(scalar(&db, "SELECT COUNT(*) FROM labels").await, 1);
         assert_eq!(

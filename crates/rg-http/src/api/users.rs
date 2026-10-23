@@ -437,23 +437,21 @@ pub struct AccessTokenResponse {
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
+/// Generate an opaque Personal Access Token with 256 bits of OS entropy.
+///
+/// Security note: this deliberately has **no** timestamp component and **no**
+/// predictable fallback. The previous implementation embedded the wall clock
+/// and fell back to `(nanos << 32) | pid` when `/dev/urandom` could not be
+/// opened — both attacker-guessable, which turns a bearer credential into a
+/// brute-forceable one. `OsRng` panics if the OS entropy source is
+/// unavailable: failing closed is the only safe outcome for a secret.
 fn generate_token() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    let entropy: u128 = {
-        let mut buf = [0u8; 16];
-        if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
-            let _ = std::io::Read::read_exact(&mut f, &mut buf);
-            u128::from_le_bytes(buf)
-        } else {
-            let pid = std::process::id() as u128;
-            (nanos << 32) | pid
-        }
-    };
-    format!("ifp_{:016x}{:032x}", nanos, entropy)
+    use rand::rngs::OsRng;
+    use rand::RngCore;
+
+    let mut buf = [0u8; 32];
+    OsRng.fill_bytes(&mut buf);
+    format!("ifp_{}", hex::encode(buf))
 }
 
 fn hash_token(token: &str) -> String {

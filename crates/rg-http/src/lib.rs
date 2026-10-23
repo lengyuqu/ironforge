@@ -404,7 +404,8 @@ fn register_sensitive_paths(state: &AppState) {
 
 fn build_router(state: AppState, rate_limiter: rate_limit::RateLimiter) -> Router {
     register_sensitive_paths(&state);
-    let (api_v1, git_routes) = build_routes(&state);
+    let (api_v1, git_routes) =
+        build_routes(&state, Some(rate_limit::AuthLimiters::default_budget()));
     let v2_routes = build_v2_routes(&state);
     let docs_routes = build_docs_routes(&state);
 
@@ -536,7 +537,10 @@ fn build_docs_routes(state: &AppState) -> Router<AppState> {
 }
 
 /// Build route definitions (shared between production and test routers).
-fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
+fn build_routes(
+    state: &AppState,
+    auth_limiters: Option<rate_limit::AuthLimiters>,
+) -> (Router<AppState>, Router<AppState>) {
     // ── Git Smart HTTP routes ──────────────────────────────────────────────
     let git_routes = Router::new()
         .route("/{owner}/{repo}/info/refs", get(handle_info_refs))
@@ -586,15 +590,44 @@ fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
         ))
         .with_state(state.clone());
 
+    // ── Credential endpoints: stricter, always-on limiter ─────────────────
+    // Layered per-route rather than globally so ordinary API traffic keeps
+    // using the configurable global limiter. These are the credential and
+    // account-recovery surface: they must be throttled even when
+    // `--rate-limit-max` is left at its disabled default, otherwise
+    // registration spam and password guessing run unbounded.
+    //
+    // Registration and credentials use separate buckets because a team behind
+    // one NAT egress IP legitimately provisions many accounts, while login is
+    // the brute-force target. `None` (test routers) wires the routes without
+    // any limiter — integration tests create dozens of users from 127.0.0.1.
+    let registration_routes = Router::new().route("/users/register", post(api::users::register));
+    let credential_routes = Router::new()
+        .route("/users/login", post(api::users::login))
+        .route("/users/forgot-password", post(api::users::forgot_password))
+        .route("/users/reset-password", post(api::users::reset_password));
+
+    let auth_routes = match auth_limiters {
+        Some(limiters) => registration_routes
+            .route_layer(axum::middleware::from_fn_with_state(
+                limiters.registration,
+                rate_limit::auth_rate_limit_middleware,
+            ))
+            .merge(credential_routes.route_layer(
+                axum::middleware::from_fn_with_state(
+                    limiters.credentials,
+                    rate_limit::auth_rate_limit_middleware,
+                ),
+            )),
+        None => registration_routes.merge(credential_routes),
+    };
+
     // ── REST API routes ───────────────────────────────────────────────────
     let api_v1 = Router::new()
+        .merge(auth_routes)
         // Users
-        .route("/users/register", post(api::users::register))
-        .route("/users/login", post(api::users::login))
         .route("/users/logout", post(api::users::logout))
         .route("/users/me", get(api::users::me))
-        .route("/users/forgot-password", post(api::users::forgot_password))
-        .route("/users/reset-password", post(api::users::reset_password))
         // PAT
         .route(
             "/users/tokens",
@@ -1414,7 +1447,9 @@ fn build_routes(state: &AppState) -> (Router<AppState>, Router<AppState>) {
 /// Build the test router (no rate limiter, no static file serving).
 fn build_test_router(state: AppState) -> Router {
     register_sensitive_paths(&state);
-    let (api_v1, git_routes) = build_routes(&state);
+    // No auth rate limiting in tests: every integration test hits 127.0.0.1,
+    // so a per-IP budget would throttle the fixtures rather than an attacker.
+    let (api_v1, git_routes) = build_routes(&state, None);
     let v2_routes = build_v2_routes(&state);
     let docs_routes = build_docs_routes(&state);
 
@@ -2156,6 +2191,34 @@ fn build_v2_capability_advertisement() -> Result<String> {
     Ok(String::from_utf8(buf)?)
 }
 
+/// Default wall-clock deadline for one git smart-protocol streaming call.
+const DEFAULT_GIT_STREAM_TIMEOUT_SECS: u64 = 3600;
+
+/// Wall-clock deadline applied to a single git upload-pack/receive-pack call.
+///
+/// Without a deadline, a client that stalls mid-transfer — or starts an
+/// oversized pack negotiation and then stops reading — ties up a connection
+/// and its task indefinitely: a slowloris-style resource-exhaustion vector.
+///
+/// The default is deliberately generous (1 hour) because cloning a genuinely
+/// large repository is long-running and must not be cut off. Override with
+/// `IRONFORGE_GIT_STREAM_TIMEOUT_SECS`; `0` disables the deadline.
+fn git_stream_timeout() -> std::time::Duration {
+    static TIMEOUT: std::sync::LazyLock<std::time::Duration> = std::sync::LazyLock::new(|| {
+        let secs = std::env::var("IRONFORGE_GIT_STREAM_TIMEOUT_SECS")
+            .ok()
+            .and_then(|v| v.trim().parse::<u64>().ok())
+            .unwrap_or(DEFAULT_GIT_STREAM_TIMEOUT_SECS);
+        if secs == 0 {
+            // Explicit opt-out: effectively unbounded (≈136 years).
+            std::time::Duration::from_secs(u32::MAX as u64)
+        } else {
+            std::time::Duration::from_secs(secs)
+        }
+    });
+    *TIMEOUT
+}
+
 async fn handle_git_upload_pack(
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
@@ -2218,8 +2281,14 @@ async fn handle_git_upload_pack(
             output
         });
 
-        match rg_git::protocol::v2::handle_v2_http(&repo_path, pipe_read, &mut buf_writer).await {
-            Ok(()) => {
+        let v2_result = tokio::time::timeout(
+            git_stream_timeout(),
+            rg_git::protocol::v2::handle_v2_http(&repo_path, pipe_read, &mut buf_writer),
+        )
+        .await;
+
+        match v2_result {
+            Ok(Ok(())) => {
                 let _ = buf_writer.flush().await;
                 drop(buf_writer);
                 let output = reader_task.await.unwrap_or_default();
@@ -2230,13 +2299,31 @@ async fn handle_git_upload_pack(
                 )
                     .into_response()
             }
-            Err(e) => {
+            Ok(Err(e)) => {
                 drop(buf_writer);
                 reader_task.abort();
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     [(header::CONTENT_TYPE, "text/plain")],
                     Body::from(format!("error: {:#}", e)),
+                )
+                    .into_response()
+            }
+            Err(_elapsed) => {
+                // Dropping the future also drops the child git process
+                // (spawned with `kill_on_drop`), so it cannot outlive the
+                // request and keep burning CPU on an abandoned pack.
+                drop(buf_writer);
+                reader_task.abort();
+                tracing::warn!(
+                    owner = %owner,
+                    repo = %repo,
+                    "git upload-pack exceeded the streaming deadline"
+                );
+                (
+                    StatusCode::GATEWAY_TIMEOUT,
+                    [(header::CONTENT_TYPE, "text/plain")],
+                    Body::from("git operation timed out"),
                 )
                     .into_response()
             }
@@ -2254,14 +2341,18 @@ async fn handle_git_upload_pack(
             output
         });
 
-        match rg_git::protocol::upload_pack::handle_upload_pack_http(
-            &repo_path,
-            pipe_read,
-            &mut buf_writer,
+        let v1_result = tokio::time::timeout(
+            git_stream_timeout(),
+            rg_git::protocol::upload_pack::handle_upload_pack_http(
+                &repo_path,
+                pipe_read,
+                &mut buf_writer,
+            ),
         )
-        .await
-        {
-            Ok(()) => {
+        .await;
+
+        match v1_result {
+            Ok(Ok(())) => {
                 let _ = buf_writer.flush().await;
                 drop(buf_writer);
                 let output = reader_task.await.unwrap_or_default();
@@ -2272,13 +2363,28 @@ async fn handle_git_upload_pack(
                 )
                     .into_response()
             }
-            Err(e) => {
+            Ok(Err(e)) => {
                 drop(buf_writer);
                 reader_task.abort();
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     [(header::CONTENT_TYPE, "text/plain")],
                     Body::from(format!("error: {:#}", e)),
+                )
+                    .into_response()
+            }
+            Err(_elapsed) => {
+                drop(buf_writer);
+                reader_task.abort();
+                tracing::warn!(
+                    owner = %owner,
+                    repo = %repo,
+                    "git upload-pack (v1) exceeded the streaming deadline"
+                );
+                (
+                    StatusCode::GATEWAY_TIMEOUT,
+                    [(header::CONTENT_TYPE, "text/plain")],
+                    Body::from("git operation timed out"),
                 )
                     .into_response()
             }
@@ -2403,16 +2509,20 @@ async fn handle_git_receive_pack(
     let mut rejected_refs =
         rg_core::branch_protection::service::direct_push_rejections(&protection_rules, actor_id);
     rejected_refs.extend(tag_protection_rejected_refs(tag_protection_rules, actor_id));
-    match rg_git::protocol::receive_pack::handle_receive_pack_http_with_rejections(
-        &repo_path,
-        pipe_read,
-        &mut buf_writer,
-        rejected_refs,
-        require_signed_refs,
+    let push_result = tokio::time::timeout(
+        git_stream_timeout(),
+        rg_git::protocol::receive_pack::handle_receive_pack_http_with_rejections(
+            &repo_path,
+            pipe_read,
+            &mut buf_writer,
+            rejected_refs,
+            require_signed_refs,
+        ),
     )
-    .await
-    {
-        Ok(ref_updates) => {
+    .await;
+
+    match push_result {
+        Ok(Ok(ref_updates)) => {
             let _ = buf_writer.flush().await;
             drop(buf_writer);
             let output = reader_task.await.unwrap_or_default();
@@ -2463,11 +2573,27 @@ async fn handle_git_receive_pack(
                 Body::from(output),
             )
         }
-        Err(e) => (
+        Ok(Err(e)) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             [(header::CONTENT_TYPE, "text/plain")],
             Body::from(format!("error: {:#}", e)),
         ),
+        Err(_elapsed) => {
+            // Dropping the future kills the child git process (spawned with
+            // `kill_on_drop`), so an abandoned push cannot keep running.
+            drop(buf_writer);
+            reader_task.abort();
+            tracing::warn!(
+                owner = %owner,
+                repo = %repo,
+                "git receive-pack exceeded the streaming deadline"
+            );
+            (
+                StatusCode::GATEWAY_TIMEOUT,
+                [(header::CONTENT_TYPE, "text/plain")],
+                Body::from("git operation timed out"),
+            )
+        }
     }
 }
 

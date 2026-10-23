@@ -76,6 +76,7 @@ pub mod m20261015_000002_repositories_partial_unique_index;
 pub mod m20261015_000003_create_team_repositories;
 pub mod m20261015_000004_hash_runner_tokens;
 pub mod m20261022_000001_scope_repo_names_by_namespace;
+pub mod m20261023_000001_add_release_asset_sha256;
 
 use sea_orm_migration::prelude::*;
 
@@ -165,6 +166,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261015_000003_create_team_repositories::Migration),
             Box::new(m20261015_000004_hash_runner_tokens::Migration),
             Box::new(m20261022_000001_scope_repo_names_by_namespace::Migration),
+            Box::new(m20261023_000001_add_release_asset_sha256::Migration),
         ]
     }
 }

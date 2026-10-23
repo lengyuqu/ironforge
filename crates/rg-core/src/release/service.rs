@@ -170,6 +170,16 @@ pub async fn upload_asset(
     // Verify release exists and get repo info
     let _release = get_release(db, release_id).await?;
 
+    // Record the integrity digest before persisting the row so the DB record
+    // and the stored blob always agree. Exposed to clients on download as
+    // `x-checksum-sha256`.
+    let sha256 = {
+        use sha2::Digest;
+        let mut hasher = sha2::Sha256::new();
+        hasher.update(data);
+        format!("{:x}", hasher.finalize())
+    };
+
     // Create DB record first to get asset ID
     let model = AssetActiveModel {
         release_id: Set(release_id),
@@ -179,6 +189,7 @@ pub async fn upload_asset(
         download_count: Set(0),
         uploader_id: Set(uploader_id),
         created_at: Set(Utc::now()),
+        sha256: Set(Some(sha256)),
         ..Default::default()
     };
     let asset = rg_db::ops::release_ops::create_asset(db, model).await?;

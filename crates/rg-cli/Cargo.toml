@@ -14,6 +14,7 @@ rg-ssh = { path = "../rg-ssh" }
 rg-http = { path = "../rg-http" }
 rg-db = { path = "../rg-db" }
 rg-ci = { path = "../rg-ci" }
+rg-ci-isolation = { path = "../rg-ci-isolation" }
 gix = { workspace = true }
 tokio = { workspace = true }
 clap = { workspace = true }

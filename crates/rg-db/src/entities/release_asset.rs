@@ -15,6 +15,11 @@ pub struct Model {
     pub download_count: i64,
     pub uploader_id: i64,
     pub created_at: DateTimeUtc,
+    /// Hex-encoded SHA-256 of the asset bytes, recorded at upload time.
+    ///
+    /// `None` for assets uploaded before digests were recorded; clients should
+    /// treat a missing digest as "unverifiable", not as a failure.
+    pub sha256: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
