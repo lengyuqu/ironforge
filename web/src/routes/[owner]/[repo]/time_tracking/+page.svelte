@@ -148,8 +148,9 @@
 </div>
 
 <style>
-  .page-header { margin-bottom: 20px; }
-  h1 { font-size: 22px; font-weight: 600; margin: 0; }
+  h1 {
+    margin: 0;
+  }
 
   .layout {
     display: grid;
@@ -181,7 +182,9 @@
     margin-bottom: 16px;
   }
 
-  h2 { font-size: 17px; font-weight: 600; margin: 0; }
+  h2 {
+    margin: 0;
+  }
   .issue-link { color: var(--text-primary); text-decoration: none; }
   .issue-link:hover { color: var(--accent); }
 

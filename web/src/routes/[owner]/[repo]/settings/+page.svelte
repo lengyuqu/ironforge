@@ -59,7 +59,6 @@
   }
 
   h1 {
-    font-size: 1.75rem;
     margin-bottom: 2rem;
     color: var(--text-primary);
   }

@@ -77,14 +77,3 @@
   {/if}
 </div>
 
-<style>
-  .page-header {
-    margin-bottom: 24px;
-  }
-
-  h1 {
-    font-size: 24px;
-    font-weight: 600;
-  }
-
-</style>

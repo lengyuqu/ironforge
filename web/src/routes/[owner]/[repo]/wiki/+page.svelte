@@ -100,7 +100,6 @@
 
 <style>
   .toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
-  h2 { font-size: 18px; }
 
   .create-form { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 24px; margin-bottom: 24px; }
   form { display: flex; flex-direction: column; gap: 14px; }

@@ -34,7 +34,6 @@
 
   h1 {
     margin: 0 0 0.5rem;
-    font-size: 1.25rem;
   }
 
   p {

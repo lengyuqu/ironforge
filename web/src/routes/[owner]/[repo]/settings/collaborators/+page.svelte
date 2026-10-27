@@ -60,12 +60,7 @@
     max-width: 900px;
   }
 
-  .page-header {
-    margin-bottom: 2rem;
-  }
-
   h1 {
-    font-size: 1.75rem;
     margin: 0 0 0.5rem;
     color: var(--text-primary);
   }

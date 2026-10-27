@@ -103,17 +103,6 @@
 </div>
 
 <style>
-  .page-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 24px;
-  }
-
-  h1 {
-    font-size: 24px;
-    font-weight: 600;
-  }
 
   @media (max-width: 600px) {
     .page-header {

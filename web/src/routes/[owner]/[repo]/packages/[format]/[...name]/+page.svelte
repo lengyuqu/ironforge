@@ -101,11 +101,6 @@
     flex-wrap: wrap;
   }
 
-  h1 {
-    font-size: 24px;
-    font-weight: 600;
-  }
-
   .download-count {
     padding: 2px 8px;
     border-radius: 10px;

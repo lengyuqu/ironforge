@@ -186,7 +186,9 @@
     border-bottom: 1px solid var(--border);
     padding-bottom: 12px;
   }
-  h1 { font-size: 24px; margin: 0; }
+  h1 {
+    margin: 0;
+  }
   .header-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .text-sm { font-size: 12px; }
   .btn-outline.active { background: var(--bg-tertiary); border-color: var(--accent); color: var(--accent); }
