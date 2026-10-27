@@ -47,7 +47,7 @@
   }
 </script>
 
-<section class="section transfer-section">
+<section class="settings-section transfer-section">
   <h2>{t('settings.transfer.title')}</h2>
   <p class="section-desc">{t('settings.transfer.desc')}</p>
 
@@ -89,12 +89,6 @@
   h2 {
     margin-bottom: 1rem;
     color: var(--text-primary);
-  }
-
-  .section {
-    margin-bottom: 2.5rem;
-    padding-bottom: 2rem;
-    border-bottom: 1px solid var(--border);
   }
 
   .section-desc {

@@ -115,7 +115,7 @@
   }
 </script>
 
-<section class="section">
+<section class="settings-section">
   <h2>{mirror ? t('settings.mirror.edit_title') : t('settings.mirror.create_title')}</h2>
 
   {#if success}
@@ -207,12 +207,6 @@
   h2 {
     margin: 0 0 1rem;
     color: var(--text-primary);
-  }
-
-  .section {
-    margin-bottom: 2.5rem;
-    padding-bottom: 2rem;
-    border-bottom: 1px solid var(--border);
   }
 
   .mirror-form {

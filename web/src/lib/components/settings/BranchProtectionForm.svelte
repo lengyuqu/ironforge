@@ -126,7 +126,7 @@
   }
 </script>
 
-<section class="section">
+<section class="settings-section">
   <h2>{editingRule ? t('settings.branch_protection.edit_title') : t('settings.branch_protection.create_title')}</h2>
   <form class="rule-form" onsubmit={saveRule}>
     <div class="form-grid">
@@ -197,12 +197,6 @@
   h2 {
     margin: 0 0 1rem;
     color: var(--text-primary);
-  }
-
-  .section {
-    margin-bottom: 2.5rem;
-    padding-bottom: 2rem;
-    border-bottom: 1px solid var(--border);
   }
 
   .rule-form {

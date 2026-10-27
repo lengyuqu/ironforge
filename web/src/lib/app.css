@@ -488,6 +488,19 @@ button {
   border-radius: var(--radius);
 }
 
+/* A section of a settings page, separated from the next by a hairline. */
+.settings-section {
+  margin-bottom: 40px;
+  padding-bottom: 32px;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-section:last-child {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
 /* Field-level validation feedback */
 input[aria-invalid='true'],
 textarea[aria-invalid='true'],

@@ -72,7 +72,7 @@
   </section>
 {/if}
 
-<section class="section">
+<section class="settings-section">
   <h2>{t('settings.tokens.create_title', 'Create Token')}</h2>
 
   {#if error}
@@ -101,12 +101,6 @@
 <style>
   h2 {
     margin: 0 0 16px;
-  }
-
-  .section {
-    margin-bottom: 32px;
-    padding-bottom: 28px;
-    border-bottom: 1px solid var(--border);
   }
 
   .create-form {

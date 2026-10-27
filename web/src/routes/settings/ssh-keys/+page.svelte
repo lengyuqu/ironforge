@@ -102,7 +102,7 @@
   {#if error}<div class="message error-box" role="alert">{error}</div>{/if}
   {#if success}<SuccessBanner message={success} />{/if}
 
-  <section class="section">
+  <section class="settings-section">
     <h2>{t('ssh_keys.add_title')}</h2>
     <form class="create-form" onsubmit={addKey}>
       <label for="ssh-key-title">{t('ssh_keys.name')}</label>
@@ -132,7 +132,7 @@
     </form>
   </section>
 
-  <section class="section">
+  <section class="settings-section">
     <h2>{t('ssh_keys.existing')}</h2>
     {#if loading}
       <p class="muted">{t('ssh_keys.loading')}</p>
@@ -183,7 +183,6 @@
     margin: 0;
   }
   p { margin: 0; color: var(--text-secondary); }
-  .section { margin-bottom: 32px; padding-bottom: 28px; border-bottom: 1px solid var(--border); }
   .create-form { display: grid; gap: 8px; }
   label { margin-top: 8px; color: var(--text-secondary); font-size: 13px; font-weight: 600; }
   input, textarea {

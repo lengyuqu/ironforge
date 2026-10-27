@@ -44,12 +44,12 @@
     <ErrorBanner message={error} />
   {/if}
 
-  <section class="section">
+  <section class="settings-section">
     <h2>{t('settings.webhooks.create_title', 'Add webhook')}</h2>
     <WebhookForm {owner} {repo} onCreated={loadWebhooks} />
   </section>
 
-  <section class="section">
+  <section class="settings-section">
     <h2>{t('settings.webhooks.current', 'Configured webhooks')}</h2>
     {#if loading}
       <LoadingState />
@@ -78,12 +78,6 @@
     margin: 0;
     color: var(--text-secondary);
     font-size: 0.95rem;
-  }
-
-  .section {
-    margin-bottom: 2.5rem;
-    padding-bottom: 2rem;
-    border-bottom: 1px solid var(--border);
   }
 
 </style>
