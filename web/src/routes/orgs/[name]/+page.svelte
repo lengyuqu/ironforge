@@ -160,7 +160,10 @@
   .org-desc { color: var(--text-primary); margin: 0.5rem 0 0; }
   .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
   .section { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem; }
-  h2 { color: var(--text-primary); font-size: 1.1rem; margin: 0 0 1rem; }
+  h2 {
+    color: var(--text-primary);
+    margin: 0 0 1rem;
+  }
   .create-form { display: flex; gap: 0.5rem; margin-bottom: 1rem; align-items: center; }
   .create-form input, .create-form select {
     flex: 1;

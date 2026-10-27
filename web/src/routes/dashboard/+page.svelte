@@ -83,6 +83,4 @@
     margin-bottom: 24px;
   }
 
-  h1 { font-size: 24px; }
-
 </style>

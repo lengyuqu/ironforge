@@ -88,7 +88,6 @@
   }
 
   h1 {
-    font-size: 20px;
     margin: 12px 0 6px;
   }
 

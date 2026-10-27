@@ -82,7 +82,9 @@
     margin-bottom: 24px;
   }
 
-  h1 { font-size: 20px; margin-top: 12px; }
+  h1 {
+    margin-top: 12px;
+  }
 
   form {
     display: flex;

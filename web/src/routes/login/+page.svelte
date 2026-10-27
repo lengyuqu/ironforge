@@ -190,7 +190,6 @@
   }
 
   h1 {
-    font-size: 20px;
     margin-top: 12px;
   }
 

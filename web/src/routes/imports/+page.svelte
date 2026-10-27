@@ -80,22 +80,13 @@
 </div>
 
 <style>
-  .page-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: 16px;
-    margin-bottom: 20px;
-  }
 
   h1 {
     margin: 0 0 4px;
-    font-size: 24px;
   }
 
   h2 {
     margin: 0 0 16px;
-    font-size: 18px;
   }
 
   .subtitle,

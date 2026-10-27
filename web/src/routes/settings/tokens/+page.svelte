@@ -62,13 +62,8 @@
     max-width: 980px;
   }
 
-  .page-header {
-    margin-bottom: 24px;
-  }
-
   h1 {
     margin: 0 0 6px;
-    font-size: 28px;
   }
 
   p {

@@ -92,5 +92,7 @@
 
 <style>
   .settings-page { max-width: 700px; margin: 0 auto; padding: 24px; }
-  h1 { font-size: 22px; margin-bottom: 24px; }
+  h1 {
+    margin-bottom: 24px;
+  }
 </style>

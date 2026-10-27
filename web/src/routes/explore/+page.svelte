@@ -89,11 +89,10 @@
 </div>
 
 <style>
-  .page-header {
-    margin-bottom: 24px;
-  }
 
-  h1 { font-size: 24px; margin-bottom: 4px; }
+  h1 {
+    margin-bottom: 4px;
+  }
 
   .subtitle {
     font-size: 14px;

@@ -173,10 +173,15 @@
 
 <style>
   .ssh-keys-page { max-width: 880px; }
-  .page-header { margin-bottom: 24px; }
-  h1 { margin: 0 0 6px; font-size: 28px; }
-  h2 { margin: 0 0 16px; font-size: 18px; }
-  h3 { margin: 0; font-size: 16px; }
+  h1 {
+    margin: 0 0 6px;
+  }
+  h2 {
+    margin: 0 0 16px;
+  }
+  h3 {
+    margin: 0;
+  }
   p { margin: 0; color: var(--text-secondary); }
   .section { margin-bottom: 32px; padding-bottom: 28px; border-bottom: 1px solid var(--border); }
   .create-form { display: grid; gap: 8px; }
