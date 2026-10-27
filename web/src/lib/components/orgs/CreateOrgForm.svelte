@@ -135,28 +135,8 @@
     font-weight: 600;
   }
 
-  input,
-  textarea,
-  select {
-    background: var(--bg-primary);
-    color: var(--text-primary);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 0.5rem 0.75rem;
-    font-size: 0.95rem;
-  }
-
-  input:focus,
-  textarea:focus,
-  select:focus {
-    outline: none;
-    border-color: var(--accent);
-  }
-
   .form-actions {
-    display: flex;
     justify-content: flex-end;
-    gap: 0.75rem;
   }
 
   @media (max-width: 700px) {

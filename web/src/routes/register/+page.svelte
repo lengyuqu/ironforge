@@ -98,8 +98,6 @@
     font-weight: 600;
     color: var(--text-primary);
   }
-
-  input { padding: 8px 12px; }
 .footer {
     text-align: center;
     margin-top: 20px;

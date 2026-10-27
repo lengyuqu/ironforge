@@ -259,13 +259,10 @@
   }
 
   .required { color: var(--red); font-weight: 400; }
-  .field-error { color: var(--red); font-size: 12px; font-weight: 400; }
   .optional { font-weight: 400; color: var(--text-muted); }
 
   .checkbox-label {
     flex-direction: row;
-    align-items: flex-start;
-    gap: 8px;
   }
   .checkbox-label input { width: auto; margin-top: 2px; }
 
@@ -289,20 +286,5 @@
     gap: 14px;
     padding-left: 24px;
     border-left: 2px solid var(--border);
-  }
-
-  select {
-    padding: 8px 10px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    font-size: 14px;
-    background: var(--bg-primary);
-    color: var(--text-primary);
-  }
-
-  .form-actions {
-    display: flex;
-    gap: 8px;
-    margin-top: 8px;
   }
 </style>

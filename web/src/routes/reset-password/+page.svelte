@@ -159,10 +159,6 @@
     display: block;
     width: 100%;
     margin-top: 4px;
-    padding: 8px 12px;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    font-size: 14px;
     box-sizing: border-box;
   }
   .footer {

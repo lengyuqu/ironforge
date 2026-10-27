@@ -209,13 +209,8 @@
     color: var(--text-primary);
   }
 
-  input {
-    padding: 8px 12px;
-  }
-
   .checkbox-label {
     flex-direction: row;
-    align-items: center;
     font-weight: 500;
   }
 

@@ -161,11 +161,6 @@
   input,
   select {
     min-width: 0;
-    padding: 8px 10px;
-    background: var(--bg-primary);
-    color: var(--text-primary);
-    border: 1px solid var(--border);
-    border-radius: 6px;
   }
 
   .wide {

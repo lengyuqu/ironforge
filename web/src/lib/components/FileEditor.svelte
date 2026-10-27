@@ -630,12 +630,6 @@
     margin-top: 18px;
   }
 
-  .form-actions {
-    display: flex;
-    gap: 10px;
-    margin-top: 6px;
-  }
-
   .btn-link {
     min-height: 36px;
     border-radius: 6px;

@@ -163,7 +163,10 @@
   h2 { color: var(--text-primary); font-size: 1.1rem; margin: 0 0 1rem; }
   .create-form { display: flex; gap: 0.5rem; margin-bottom: 1rem; align-items: center; }
   .create-form input, .create-form select { flex: 1; background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border); border-radius: 4px; padding: 0.4rem 0.6rem; font-size: 0.85rem; }
-  .checkbox-label { display: flex; align-items: center; gap: 0.3rem; font-size: 0.85rem; color: var(--text-secondary); white-space: nowrap; }
+  .checkbox-label {
+    font-size: 0.85rem;
+    white-space: nowrap;
+  }
   .item { display: flex; align-items: center; justify-content: space-between; padding: 0.5rem 0; border-bottom: 1px solid var(--border); }
   .item:last-child { border-bottom: none; }
   .item-name { color: var(--text-primary); }
