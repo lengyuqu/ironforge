@@ -180,10 +180,6 @@
   .pagination button:disabled { opacity: 0.5; cursor: not-allowed; }
   .pagination span { color: var(--text-secondary); font-size: 0.9rem; }
 
-  .btn-danger { background: rgba(248, 81, 73, 0.15); border: 1px solid #f85149; color: #f85149; border-radius: 4px; padding: 0.25rem 0.6rem; font-size: 0.8rem; cursor: pointer; }
-  .btn-danger:hover { background: rgba(248, 81, 73, 0.25); }
-  .btn-danger:disabled { opacity: 0.6; cursor: not-allowed; }
-
   /* Modal */
   .modal-text { color: var(--text-secondary); margin: 0 0 1rem; }
 </style>

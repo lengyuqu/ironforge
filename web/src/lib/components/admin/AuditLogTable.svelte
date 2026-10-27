@@ -159,15 +159,4 @@
   }
   .pagination button:disabled { opacity: 0.5; cursor: not-allowed; }
   .pagination span { color: var(--text-secondary); font-size: 0.9rem; }
-
-  .btn-sm {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    color: var(--text-primary);
-    border-radius: 4px;
-    padding: 0.25rem 0.6rem;
-    font-size: 0.8rem;
-    cursor: pointer;
-  }
-  .btn-sm:hover { background: var(--bg-hover); }
 </style>

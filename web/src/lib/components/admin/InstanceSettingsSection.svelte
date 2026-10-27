@@ -112,15 +112,4 @@
   }
 
   .actions { margin-top: 16px; }
-
-  .btn-primary {
-    padding: 8px 20px;
-    background: var(--accent);
-    color: #fff;
-    border: none;
-    border-radius: var(--radius);
-    font-size: 14px;
-    cursor: pointer;
-  }
-  .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
 </style>

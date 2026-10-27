@@ -159,17 +159,6 @@
     font-size: 12px;
   }
 
-  .btn-secondary {
-    padding: 6px 10px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--bg-primary);
-    color: var(--text-primary);
-    font-size: 13px;
-    cursor: pointer;
-  }
-  .btn-secondary:disabled { opacity: 0.6; cursor: wait; }
-
   @media (max-width: 720px) {
     .login-filters { grid-template-columns: 1fr; }
     .login-attempt-row { grid-template-columns: 64px 1fr; }

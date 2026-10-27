@@ -330,30 +330,6 @@
 
   .inline-actions { display: flex; gap: 8px; margin-top: 16px; }
 
-  .btn-primary {
-    padding: 8px 20px;
-    background: var(--accent);
-    color: #fff;
-    border: none;
-    border-radius: var(--radius);
-    font-size: 14px;
-    cursor: pointer;
-  }
-  .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
-  .btn-secondary:disabled { opacity: 0.6; cursor: wait; }
-
-  .btn-secondary,
-  .btn-danger {
-    padding: 6px 10px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--bg-primary);
-    color: var(--text-primary);
-    font-size: 13px;
-    cursor: pointer;
-  }
-  .btn-danger { color: #cf222e; }
-
   .provider-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
 
   .connection-result {

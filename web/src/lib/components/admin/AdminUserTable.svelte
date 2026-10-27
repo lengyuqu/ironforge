@@ -207,26 +207,6 @@
     border-color: var(--orange);
   }
 
-  .btn-sm {
-    padding: 0.25rem 0.6rem;
-    font-size: 0.8rem;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    cursor: pointer;
-    color: var(--text-primary);
-  }
-
-  .btn-danger {
-    padding: 0.25rem 0.6rem;
-    font-size: 0.8rem;
-    background: rgba(248, 81, 73, 0.1);
-    border: 1px solid rgba(248, 81, 73, 0.4);
-    border-radius: 6px;
-    cursor: pointer;
-    color: #f85149;
-  }
-
   .pagination {
     display: flex;
     align-items: center;

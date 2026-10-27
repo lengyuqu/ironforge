@@ -147,30 +147,6 @@
     color: var(--text-primary);
   }
 
-  .btn-secondary {
-    background: var(--bg-primary);
-    border: 1px solid var(--border);
-    color: var(--text-primary);
-    border-radius: 6px;
-    padding: 0.45rem 0.8rem;
-    cursor: pointer;
-  }
-
-  .btn-primary {
-    background: var(--accent);
-    border: 1px solid var(--accent);
-    color: #fff;
-    border-radius: 6px;
-    padding: 0.5rem 0.9rem;
-    cursor: pointer;
-    font-weight: 600;
-  }
-
-  .btn-primary:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-
   @media (max-width: 720px) {
     .form-grid {
       grid-template-columns: 1fr;
