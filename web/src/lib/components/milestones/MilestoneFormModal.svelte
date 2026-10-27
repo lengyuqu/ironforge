@@ -3,6 +3,7 @@
   // milestones API and reports success via toast. Inline formError stays
   // inside the modal. due_date uses datetime-local input (local timezone)
   // and is converted to RFC 3339 on submit.
+  import FormField from '$lib/components/FormField.svelte';
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import Modal from '$lib/components/Modal.svelte';
   import { milestones } from '$lib/api/client.svelte';
@@ -113,57 +114,48 @@
     <ErrorBanner message={formError} />
   {/if}
 
-  <div class="form-group">
-    <label for="milestone-title">{t('settings.milestone_title')}</label>
-    <input
-      id="milestone-title"
-      type="text"
-      bind:value={formData.title}
-      oninput={() => (titleError = '')}
-      maxlength={MAX_TITLE_LEN}
-      disabled={saving}
-      aria-invalid={titleError ? 'true' : undefined}
-      aria-describedby={titleError ? 'milestone-title-error' : undefined}
-      data-autofocus
-    />
-    {#if titleError}<p class="field-error" id="milestone-title-error" role="alert">{titleError}</p>{/if}
-  </div>
+  <FormField id="milestone-title" label={t('settings.milestone_title')} error={titleError}>
+    {#snippet children({ id, describedBy, invalid })}
+      <input
+        {id}
+        type="text"
+        bind:value={formData.title}
+        oninput={() => (titleError = '')}
+        maxlength={MAX_TITLE_LEN}
+        disabled={saving}
+        aria-invalid={invalid ? 'true' : undefined}
+        aria-describedby={describedBy}
+        data-autofocus
+      />
+    {/snippet}
+  </FormField>
 
-  <div class="form-group">
-    <label for="milestone-desc">{t('settings.milestone_desc')}</label>
-    <input id="milestone-desc" type="text" bind:value={formData.description} disabled={saving} />
-  </div>
+  <FormField id="milestone-desc" label={t('settings.milestone_desc')}>
+    {#snippet children({ id })}
+      <input {id} type="text" bind:value={formData.description} disabled={saving} />
+    {/snippet}
+  </FormField>
 
   <div class="form-row">
-    <div class="form-group">
-      <label for="milestone-due">{t('settings.milestone_due')}</label>
-      <input id="milestone-due" type="datetime-local" bind:value={formData.dueDate} disabled={saving} />
-    </div>
-    <div class="form-group">
-      <label for="milestone-state">{t('settings.milestone_state')}</label>
-      <select id="milestone-state" bind:value={formData.state} disabled={saving}>
-        <option value="open">open</option>
-        <option value="closed">closed</option>
-      </select>
-    </div>
+    <FormField id="milestone-due" label={t('settings.milestone_due')}>
+      {#snippet children({ id })}
+        <input {id} type="datetime-local" bind:value={formData.dueDate} disabled={saving} />
+      {/snippet}
+    </FormField>
+    <FormField id="milestone-state" label={t('settings.milestone_state')}>
+      {#snippet children({ id })}
+        <select {id} bind:value={formData.state} disabled={saving}>
+          <option value="open">open</option>
+          <option value="closed">closed</option>
+        </select>
+      {/snippet}
+    </FormField>
   </div>
 </Modal>
 
 <style>
 
-  .form-row {
-    display: flex;
-    gap: 1rem;
-  }
 
-  .form-row .form-group {
-    flex: 1;
-  }
 
-  .form-group input,
-  .form-group select {
-    width: 100%;
-    box-sizing: border-box;
-  }
 
 </style>

@@ -392,6 +392,10 @@ button {
   margin-bottom: 16px;
 }
 
+.form-group > :where(input:not([type='checkbox']):not([type='radio']), textarea, select) {
+  width: 100%;
+}
+
 .form-group > label,
 .form-label {
   font-size: 13px;

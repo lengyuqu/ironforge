@@ -1,4 +1,5 @@
 <script lang="ts">
+  import FormField from '$lib/components/FormField.svelte';
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import Modal from '$lib/components/Modal.svelte';
   import { admin, type AdminUser } from '$lib/api/client.svelte';
@@ -57,15 +58,17 @@
     <ErrorBanner message={error} />
   {/if}
 
-  <div class="form-group">
-    <label for="admin-user-display-name">{t('admin.users.display_name')}</label>
-    <input id="admin-user-display-name" type="text" bind:value={editDisplayName} />
-  </div>
+  <FormField id="admin-user-display-name" label={t('admin.users.display_name')}>
+    {#snippet children({ id })}
+      <input {id} type="text" bind:value={editDisplayName} />
+    {/snippet}
+  </FormField>
 
-  <div class="form-group">
-    <label for="admin-user-bio">{t('admin.users.bio')}</label>
-    <textarea id="admin-user-bio" bind:value={editBio} rows="3"></textarea>
-  </div>
+  <FormField id="admin-user-bio" label={t('admin.users.bio')}>
+    {#snippet children({ id })}
+      <textarea {id} bind:value={editBio} rows="3"></textarea>
+    {/snippet}
+  </FormField>
 
   <div class="form-group">
     <label class="checkbox-label">

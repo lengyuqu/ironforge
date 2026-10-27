@@ -1,6 +1,7 @@
 <script lang="ts">
   // Create/edit label modal — self-contained: submits through the labels API
   // and reports success via toast. Inline formError stays inside the modal.
+  import FormField from '$lib/components/FormField.svelte';
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import Modal from '$lib/components/Modal.svelte';
   import { labels } from '$lib/api/client.svelte';
@@ -98,21 +99,21 @@
     <ErrorBanner message={formError} />
   {/if}
 
-  <div class="form-group">
-    <label for="label-name">{t('settings.label_name')}</label>
-    <input
-      id="label-name"
-      type="text"
-      bind:value={formData.name}
-      oninput={() => (nameError = '')}
-      placeholder={t('settings.label_name_placeholder')}
-      disabled={saving}
-      aria-invalid={nameError ? 'true' : undefined}
-      aria-describedby={nameError ? 'label-name-error' : undefined}
-      data-autofocus
-    />
-    {#if nameError}<p class="field-error" id="label-name-error" role="alert">{nameError}</p>{/if}
-  </div>
+  <FormField id="label-name" label={t('settings.label_name')} error={nameError}>
+    {#snippet children({ id, describedBy, invalid })}
+      <input
+        {id}
+        type="text"
+        bind:value={formData.name}
+        oninput={() => (nameError = '')}
+        placeholder={t('settings.label_name_placeholder')}
+        disabled={saving}
+        aria-invalid={invalid ? 'true' : undefined}
+        aria-describedby={describedBy}
+        data-autofocus
+      />
+    {/snippet}
+  </FormField>
 
   <div class="form-group">
     <label for="label-color-input">{t('settings.label_color')}</label>
@@ -155,16 +156,17 @@
     </div>
   </div>
 
-  <div class="form-group">
-    <label for="label-desc">{t('settings.label_desc')}</label>
-    <input
-      id="label-desc"
-      type="text"
-      bind:value={formData.description}
-      placeholder={t('settings.label_desc_placeholder')}
-      disabled={saving}
-    />
-  </div>
+  <FormField id="label-desc" label={t('settings.label_desc')}>
+    {#snippet children({ id })}
+      <input
+        {id}
+        type="text"
+        bind:value={formData.description}
+        placeholder={t('settings.label_desc_placeholder')}
+        disabled={saving}
+      />
+    {/snippet}
+  </FormField>
 </Modal>
 
 <style>
