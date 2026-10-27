@@ -81,35 +81,10 @@
 
 <style>
 
-  .form-group {
-    display: flex;
-    flex-direction: column;
-    gap: 0.4rem;
-    margin-bottom: 1rem;
-  }
-
   label {
     font-size: 0.9rem;
     color: var(--text-secondary);
     font-weight: 500;
-  }
-
-  input[type='text'],
-  textarea {
-    padding: 0.5rem 0.7rem;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    background: var(--bg-primary);
-    color: var(--text-primary);
-    font-size: 0.95rem;
-  }
-
-  .checkbox-label {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    cursor: pointer;
-    color: var(--text-primary);
   }
 
 </style>

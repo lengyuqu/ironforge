@@ -139,14 +139,6 @@
     font-weight: 600;
   }
 
-  input {
-    padding: 0.5rem 0.65rem;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    background: var(--bg-primary);
-    color: var(--text-primary);
-  }
-
   @media (max-width: 720px) {
     .form-grid {
       grid-template-columns: 1fr;

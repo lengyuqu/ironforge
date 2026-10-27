@@ -98,16 +98,9 @@
   .toggle-row input[type='checkbox'] { width: 18px; height: 18px; }
 
   .form-group { margin-top: 12px; }
-  .form-group label { display: block; font-size: 13px; color: var(--text-secondary); margin-bottom: 4px; }
   .form-group input,
   .form-group select {
     width: 100%;
-    padding: 8px 12px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    font-size: 14px;
-    background: var(--bg-primary);
-    color: var(--text-primary);
     box-sizing: border-box;
   }
 
