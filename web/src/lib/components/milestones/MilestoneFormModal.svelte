@@ -3,6 +3,7 @@
   // milestones API and reports success via toast. Inline formError stays
   // inside the modal. due_date uses datetime-local input (local timezone)
   // and is converted to RFC 3339 on submit.
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import Modal from '$lib/components/Modal.svelte';
   import { milestones } from '$lib/api/client.svelte';
   import { createT } from '$lib/i18n';
@@ -109,7 +110,7 @@
   onSubmit={handleSave}
 >
   {#if formError}
-    <div class="error-box" role="alert">{formError}</div>
+    <ErrorBanner message={formError} />
   {/if}
 
   <div class="form-group">
@@ -149,15 +150,6 @@
 </Modal>
 
 <style>
-  .error-box {
-    padding: 0.75rem;
-    background: rgba(255, 0, 0, 0.1);
-    border: 1px solid var(--red, #ff4444);
-    border-radius: 6px;
-    color: var(--red, #ff4444);
-    font-size: 0.9rem;
-    margin-bottom: 1rem;
-  }
 
 
 

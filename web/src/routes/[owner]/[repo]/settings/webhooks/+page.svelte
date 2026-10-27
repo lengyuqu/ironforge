@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import LoadingState from '$lib/components/LoadingState.svelte';
   import { page } from '$app/stores';
   import { createT } from '$lib/i18n';
@@ -40,7 +41,7 @@
   </div>
 
   {#if error}
-    <div class="error-box">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   <section class="section">
@@ -91,13 +92,4 @@
     border-bottom: 1px solid var(--border);
   }
 
-  .error-box {
-    padding: 0.75rem;
-    border-radius: 6px;
-    font-size: 0.9rem;
-    margin-bottom: 1rem;
-    background: rgba(255, 0, 0, 0.1);
-    border: 1px solid var(--red, #ff4444);
-    color: var(--red, #ff4444);
-  }
 </style>

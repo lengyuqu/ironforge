@@ -2,6 +2,7 @@
   // Repo overview page — orchestration layer: loads tree/branches/commits/
   // repo info in parallel, keeps the URL in sync with ref/path, and renders
   // the browser components. README detection probes common filenames.
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import LoadingState from '$lib/components/LoadingState.svelte';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
@@ -123,7 +124,7 @@
   <RepoHeader {owner} {repo} activeTab="code" starsCount={repoInfo?.stars_count || 0} defaultBranch={repoInfo?.default_branch} />
 
   {#if error}
-    <div class="error-banner">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   {#if loading}

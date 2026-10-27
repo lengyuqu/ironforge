@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { page } from '$app/stores';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
   import { issues, type IssueConfig, type IssueTemplate } from '$lib/api/client.svelte';
@@ -190,7 +191,7 @@ import { createT } from '$lib/i18n';
   {/if}
 
   {#if error}
-    <div class="error-banner">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   <IssueList {owner} {repo} issues={issueList} {loading} filter={filterState} />
@@ -219,11 +220,4 @@ import { createT } from '$lib/i18n';
     background: var(--accent-hover);
   }
 
-  .error-banner {
-    color: #f85149;
-    background: rgba(248, 81, 73, 0.1);
-    padding: 10px 12px;
-    border-radius: var(--radius);
-    margin-bottom: 16px;
-  }
 </style>

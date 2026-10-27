@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import LoadingState from '$lib/components/LoadingState.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import { createT } from '$lib/i18n';
@@ -72,7 +73,7 @@
   <RepoHeader {owner} {repo} activeTab="board" starsCount={0} />
 
   {#if error}
-    <div class="error-banner">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   {#if loading}
@@ -143,11 +144,6 @@
   .board-container {
     display: flex; gap: 16px; overflow-x: auto; padding-bottom: 16px;
     align-items: flex-start;
-  }
-
-  .error-banner {
-    color: #f85149; background: rgba(248, 81, 73, 0.1);
-    padding: 10px 12px; border-radius: 6px; margin-bottom: 16px;
   }
 
   /* ── Buttons ── */

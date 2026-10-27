@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { goto } from '$app/navigation';
   import { imports, type ImportTask } from '$lib/api/client.svelte';
   import { isLoggedIn, getUser } from '$lib/stores/auth.svelte';
@@ -58,7 +59,7 @@
   </div>
 
   {#if error}
-    <div class="error-banner">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   <section class="panel">
@@ -123,14 +124,6 @@
   button:disabled {
     opacity: 0.6;
     cursor: not-allowed;
-  }
-
-  .error-banner {
-    margin-bottom: 16px;
-    padding: 10px 12px;
-    border-radius: 6px;
-    color: #f85149;
-    background: rgba(248, 81, 73, 0.1);
   }
 
   @media (max-width: 720px) {

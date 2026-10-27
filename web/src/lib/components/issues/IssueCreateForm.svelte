@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { tick } from 'svelte';
   import { issues, milestones } from '$lib/api/client.svelte';
   import { toErrorMessage } from '$lib/utils/error';
@@ -179,7 +180,7 @@
     </label>
 
     {#if formError}
-      <div class="form-error" role="alert">{formError}</div>
+      <ErrorBanner message={formError} />
     {/if}
 
     <div class="form-actions">
@@ -237,15 +238,6 @@
     border-radius: var(--radius);
     color: var(--text-primary);
     font-size: 13px;
-  }
-
-  .form-error {
-    padding: 10px 12px;
-    border-radius: 6px;
-    font-size: 13px;
-    color: var(--red, #d73a49);
-    background: rgba(215, 58, 73, 0.08);
-    border: 1px solid rgba(215, 58, 73, 0.35);
   }
 
   .form-actions {

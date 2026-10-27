@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import LoadingState from '$lib/components/LoadingState.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import { isLoggedIn, getUser } from '$lib/stores/auth.svelte';
@@ -62,7 +63,7 @@
   {/if}
 
   {#if error}
-    <div class="error-banner">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   {#if loading}
@@ -96,11 +97,4 @@
   }
   .btn-primary:hover { background: var(--green); }
 
-  .error-banner {
-    color: #f85149;
-    background: rgba(248, 81, 73, 0.1);
-    padding: 10px 12px;
-    border-radius: 6px;
-    margin-bottom: 16px;
-  }
 </style>

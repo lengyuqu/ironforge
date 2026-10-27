@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import LoadingState from '$lib/components/LoadingState.svelte';
   import { page } from '$app/stores';
   import { repos } from '$lib/api/client.svelte';
@@ -44,7 +45,7 @@
   {#if loading}
     <LoadingState />
   {:else if error}
-    <div class="error">{error}</div>
+    <ErrorBanner message={error} />
   {:else if repository}
     <RepoInfoSection {repository} />
     <TransferSection {owner} {repo} />
@@ -62,13 +63,5 @@
     margin-bottom: 2rem;
     color: var(--text-primary);
   }
-  .error {
-    padding: 2rem;
-    text-align: center;
-    color: var(--text-secondary);
-  }
 
-  .error {
-    color: var(--red, #ff4444);
-  }
 </style>

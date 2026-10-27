@@ -3,6 +3,7 @@
   // notes, file input and optional metadata fields; publishes via the
   // packages API and reports the result to the parent via callbacks.
   // Inline error/success banners stay inside the form.
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { packages } from '$lib/api/client.svelte';
   import { createT } from '$lib/i18n';
   import { toErrorMessage } from '$lib/utils/error';
@@ -83,7 +84,7 @@
 
 <form class="package-form" onsubmit={handleUpload}>
   {#if error}
-    <div class="error-banner">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   {#if success}
@@ -161,18 +162,11 @@
     padding: 24px;
   }
 
-  .error-banner,
   .success-banner {
     padding: 10px 12px;
     border-radius: var(--radius);
     font-size: 13px;
     margin-bottom: 16px;
-  }
-
-  .error-banner {
-    color: #f85149;
-    background: rgba(248, 81, 73, 0.1);
-    border: 1px solid rgba(248, 81, 73, 0.35);
   }
 
   .success-banner {

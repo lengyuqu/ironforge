@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import Modal from '$lib/components/Modal.svelte';
   import { createT, formatDateTime } from '$lib/i18n';
   import { admin, type AuditLogEntry } from '$lib/api/client.svelte';
@@ -49,7 +50,7 @@
 
 <Modal open={true} title={t('admin.audit.detail_title', { id: detail.id })} {onClose}>
   {#if detailError}
-    <div class="detail-error" role="alert">{detailError}</div>
+    <ErrorBanner message={detailError} />
   {/if}
 
   <div class="detail-grid">
@@ -97,14 +98,6 @@
 <style>
   .detail-grid { margin-bottom: 0; }
 
-
-  .detail-error {
-    color: #f85149;
-    background: rgba(248, 81, 73, 0.1);
-    padding: 0.5rem 0.75rem;
-    border-radius: 6px;
-    margin-bottom: 1rem;
-  }
 
   .detail-row {
     display: flex;

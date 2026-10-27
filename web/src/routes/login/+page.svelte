@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import {
     login,
     verifyMfa,
@@ -105,7 +106,7 @@
     </div>
 
     {#if localError}
-      <div class="error-banner">{localError}</div>
+      <ErrorBanner message={localError} />
     {/if}
 
     {#if isMfaRequired()}

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { confirmDialog } from '$lib/components/confirm.svelte';
   import { goto } from '$app/navigation';
   import { repos } from '$lib/api/client.svelte';
@@ -55,7 +56,7 @@
   </div>
 
   {#if transferError}
-    <div class="error-box">{transferError}</div>
+    <ErrorBanner message={transferError} />
   {/if}
 
   {#if transferSuccess}
@@ -177,16 +178,6 @@
 
   .btn-warning:hover:not(:disabled) {
     background: var(--orange-dark, #cc6600);
-  }
-
-  .error-box {
-    padding: 0.75rem;
-    background: rgba(255, 0, 0, 0.1);
-    border: 1px solid var(--red, #ff4444);
-    border-radius: 6px;
-    color: var(--red, #ff4444);
-    font-size: 0.9rem;
-    margin-bottom: 1rem;
   }
 
   .success-box {

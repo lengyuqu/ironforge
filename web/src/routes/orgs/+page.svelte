@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { goto } from '$app/navigation';
   import { isAuthReady, isLoggedIn } from '$lib/stores/auth.svelte';
   import { orgs } from '$lib/api/client.svelte';
@@ -65,7 +66,7 @@
   </div>
 
   {#if error}
-    <div class="error" role="alert">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   {#if showCreate}
@@ -106,15 +107,6 @@
     cursor: pointer;
     background: var(--accent);
     color: white;
-  }
-
-  .error {
-    color: #f85149;
-    background: rgba(248, 81, 73, 0.1);
-    border: 1px solid rgba(248, 81, 73, 0.35);
-    padding: 0.65rem 0.85rem;
-    border-radius: 6px;
-    margin-bottom: 1rem;
   }
 
   @media (max-width: 700px) {

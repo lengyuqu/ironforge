@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { confirmDialog } from '$lib/components/confirm.svelte';
   import { goto } from '$app/navigation';
   import { repos } from '$lib/api/client.svelte';
@@ -50,7 +51,7 @@
     <p>{t('settings.delete.desc')}</p>
 
     {#if deleteError}
-      <div class="error-box">{deleteError}</div>
+      <ErrorBanner message={deleteError} />
     {/if}
 
     <div class="form-group">
@@ -158,13 +159,4 @@
     background: var(--red-dark, #cc0000);
   }
 
-  .error-box {
-    padding: 0.75rem;
-    background: rgba(255, 0, 0, 0.1);
-    border: 1px solid var(--red, #ff4444);
-    border-radius: 6px;
-    color: var(--red, #ff4444);
-    font-size: 0.9rem;
-    margin-bottom: 1rem;
-  }
 </style>

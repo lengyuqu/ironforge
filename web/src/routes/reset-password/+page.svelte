@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { onMount } from 'svelte';
   import { auth } from '$lib/api/client.svelte';
   import { setToken } from '$lib/api/client.svelte';
@@ -87,7 +88,7 @@
       </a>
     {:else}
       {#if localError}
-        <div class="error-banner">{localError}</div>
+        <ErrorBanner message={localError} />
       {/if}
 
       <form onsubmit={handleSubmit}>

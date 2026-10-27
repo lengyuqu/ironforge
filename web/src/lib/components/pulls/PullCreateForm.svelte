@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { milestones, pulls, repos } from '$lib/api/client.svelte';
   import { tick } from 'svelte';
   import { toErrorMessage } from '$lib/utils/error';
@@ -126,7 +127,7 @@
   <h2>{t('pulls.create_form.title')}</h2>
 
   {#if error}
-    <div class="error-banner" role="alert">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   <form onsubmit={handleCreate} bind:this={formEl} novalidate>
@@ -304,11 +305,4 @@
     cursor: pointer;
   }
 
-  .error-banner {
-    color: #f85149;
-    background: rgba(248, 81, 73, 0.1);
-    padding: 10px 12px;
-    border-radius: var(--radius);
-    margin-bottom: 12px;
-  }
 </style>

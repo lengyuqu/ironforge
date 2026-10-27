@@ -2,6 +2,7 @@
   // Edit-release page — orchestration layer: loads the release and hands
   // it to ReleaseForm (edit mode: tag locked, no target picker). Submit
   // handling lives inside the form; this page only routes back on success.
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import LoadingState from '$lib/components/LoadingState.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import { page } from '$app/stores';
@@ -66,7 +67,7 @@
       <a href={`/${owner}/${repo}/releases`} class="btn-primary">{t('releases.title')}</a>
     </EmptyState>
   {:else if error}
-    <div class="error-banner">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   {#if loading}
@@ -86,14 +87,6 @@
     font-weight: 600;
   }
 
-
-  .error-banner {
-    color: #f85149;
-    background: rgba(248, 81, 73, 0.1);
-    padding: 10px 12px;
-    border-radius: var(--radius);
-    margin-bottom: 16px;
-  }
 
   .btn-primary {
     padding: 6px 16px;

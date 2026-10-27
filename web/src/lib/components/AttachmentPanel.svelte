@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { attachments, type Attachment, type AttachmentTarget } from '$lib/api/client.svelte';
   import { createT } from '$lib/i18n';
 import { toErrorMessage } from '$lib/utils/error';
@@ -81,7 +82,7 @@ import { toErrorMessage } from '$lib/utils/error';
     </label>
   </div>
 
-  {#if error}<div class="error-banner">{error}</div>{/if}
+  {#if error}<ErrorBanner message={error} />{/if}
   {#if items.length > 0}
     <ul>
       {#each items as item (item.id)}

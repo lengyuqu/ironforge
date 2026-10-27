@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { confirmDialog } from '$lib/components/confirm.svelte';
   import { mirrors, type RepositoryMirror } from '$lib/api/client.svelte';
   import { toErrorMessage } from '$lib/utils/error';
@@ -120,7 +121,7 @@
   {/if}
 
   {#if error}
-    <div class="error-box">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   <form class="mirror-form" onsubmit={saveMirror}>
@@ -289,8 +290,7 @@
     color: white;
   }
 
-  .success-box,
-  .error-box {
+  .success-box {
     padding: 1rem;
     border-radius: 6px;
     margin-bottom: 1rem;
@@ -299,11 +299,6 @@
   .success-box {
     background: rgba(63, 185, 80, 0.12);
     color: var(--green);
-  }
-
-  .error-box {
-    background: rgba(248, 81, 73, 0.12);
-    color: var(--red);
   }
 
   @media (max-width: 720px) {

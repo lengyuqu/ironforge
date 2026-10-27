@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import LoadingState from '$lib/components/LoadingState.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import { page } from '$app/stores';
@@ -62,7 +63,7 @@
   {#if loading}
     <LoadingState />
   {:else if error}
-    <div class="error">{error}</div>
+    <ErrorBanner message={error} />
   {:else}
     {#if viewingRev && currentRev}
       <div class="revision-detail">
@@ -137,12 +138,7 @@
   }
   .breadcrumb a:hover { text-decoration: underline; }
   .breadcrumb .sep { margin: 0 0.4rem; }
-  .breadcrumb .current { color: var(--text-primary, #333); font-weight: 600; } .error{
-    text-align: center;
-    padding: 2rem;
-    color: var(--text-secondary, #666);
-  }
-  .error { color: #dc2626; }
+  .breadcrumb .current { color: var(--text-primary, #333); font-weight: 600; }
 
   .rev-table {
     width: 100%;

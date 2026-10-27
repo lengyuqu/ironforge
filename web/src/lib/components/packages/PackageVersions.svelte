@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { packages, type PackageVersionResponse } from '$lib/api/client.svelte';
   import { toErrorMessage } from '$lib/utils/error';
   import { createT } from '$lib/i18n';
@@ -81,7 +82,7 @@
 </script>
 
 {#if error}
-  <div class="error-banner">{error}</div>
+  <ErrorBanner message={error} />
 {/if}
 
 <div class="versions-section">
@@ -260,11 +261,4 @@
     flex-wrap: wrap;
   }
 
-  .error-banner {
-    color: #f85149;
-    background: rgba(248, 81, 73, 0.1);
-    padding: 10px 12px;
-    border-radius: var(--radius);
-    margin-bottom: 16px;
-  }
 </style>

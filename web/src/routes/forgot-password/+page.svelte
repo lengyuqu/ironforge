@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { auth } from '$lib/api/client.svelte';
   import { createT } from '$lib/i18n';
 
@@ -47,7 +48,7 @@
     </div>
 
     {#if localError}
-      <div class="error-banner">{localError}</div>
+      <ErrorBanner message={localError} />
     {/if}
 
     {#if success}

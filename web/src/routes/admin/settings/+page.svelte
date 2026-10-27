@@ -2,6 +2,7 @@
   // Admin instance settings page — orchestration layer: auth guard + initial
   // data load (settings / SSO providers / first login-attempts page); the
   // three sections manage their own state and API calls.
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { goto } from '$app/navigation';
   import { setBanner, clearBanner } from '$lib/stores/instance.svelte';
   import { isAuthReady, isLoggedIn, isAdmin } from '$lib/stores/auth.svelte';
@@ -67,7 +68,7 @@
   <h1>Instance Settings</h1>
 
   {#if error}
-    <div class="error-banner">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   {#if loading}

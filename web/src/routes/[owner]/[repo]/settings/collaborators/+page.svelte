@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { page } from '$app/stores';
   import { collaborators } from '$lib/api/client.svelte';
   import type { RepoCollaborator } from '$lib/types/entities';
@@ -40,7 +41,7 @@
   </div>
 
   {#if error}
-    <div class="error-box">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   <CollaboratorAddForm {owner} {repo} onAdded={loadCollaborators} />
@@ -75,13 +76,4 @@
     font-size: 0.95rem;
   }
 
-  .error-box {
-    padding: 0.75rem 1rem;
-    border-radius: 6px;
-    margin-bottom: 1rem;
-    font-size: 0.9rem;
-    background: rgba(220, 53, 69, 0.1);
-    color: var(--red, #dc3545);
-    border: 1px solid rgba(220, 53, 69, 0.3);
-  }
 </style>

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import LoadingState from '$lib/components/LoadingState.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import { isAuthReady, isLoggedIn, isAdmin } from '$lib/stores/auth.svelte';
@@ -81,7 +82,7 @@
   </div>
 
   {#if error}
-    <div class="error">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   {#if loading}
@@ -147,7 +148,7 @@
     >
       <p class="modal-text">{t('admin.orgs.delete_warning', { name: deleteTarget.name })}</p>
       {#if error}
-        <div class="error" role="alert">{error}</div>
+        <ErrorBanner message={error} />
       {/if}
     </Modal>
   {/if}
@@ -158,7 +159,6 @@
   .back:hover { color: var(--accent); text-decoration: none; }
   h1 { margin: 0.5rem 0 0; }
   .meta { color: var(--text-secondary); margin: 0; }
-  .error { color: #f85149; background: rgba(248, 81, 73, 0.1); padding: 0.5rem 0.75rem; border-radius: 6px; margin-bottom: 1rem; }
 
   .table-wrap { overflow-x: auto; }
   .orgs-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }

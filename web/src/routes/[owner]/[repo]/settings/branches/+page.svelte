@@ -2,6 +2,7 @@
   // Branch protection settings page — orchestration layer: loads the rule
   // list and tracks which rule is being edited; create/edit/delete run in
   // the self-contained form/list components.
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { page } from '$app/stores';
   import { branchProtections, type BranchProtectionRule } from '$lib/api/client.svelte';
   import { createT } from '$lib/i18n';
@@ -70,7 +71,7 @@
   </div>
 
   {#if error}
-    <div class="error-box">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   {#key formKey}
@@ -116,11 +117,4 @@
     font-size: 0.95rem;
   }
 
-  .error-box {
-    padding: 1rem;
-    border-radius: 6px;
-    margin-bottom: 1rem;
-    background: var(--danger-bg, #fee2e2);
-    color: var(--danger-text, #991b1b);
-  }
 </style>

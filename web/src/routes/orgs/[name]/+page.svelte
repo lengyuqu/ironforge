@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import LoadingState from '$lib/components/LoadingState.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import { page } from '$app/state';
@@ -67,7 +68,7 @@
   {#if loading}
     <LoadingState />
   {:else if error && !org}
-    <div class="error">{error}</div>
+    <ErrorBanner message={error} />
   {:else if org}
     <div class="org-header">
       <div class="org-avatar">{org.name[0]?.toUpperCase() || '?'}</div>

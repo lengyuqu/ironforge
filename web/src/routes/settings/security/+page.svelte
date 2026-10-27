@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { goto } from '$app/navigation';
   import { isAuthReady, isLoggedIn } from '$lib/stores/auth.svelte';
   import { mfa, type MfaBackupStatus, type MfaSetupResponse } from '$lib/api/client.svelte';
@@ -79,7 +80,7 @@
   </header>
 
   {#if error}
-    <div class="error-box">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   {#if success}
@@ -129,17 +130,10 @@
     color: var(--text-secondary);
   }
 
-  .error-box,
   .success-box {
     margin-bottom: 16px;
     padding: 12px 14px;
     border-radius: var(--radius);
-  }
-
-  .error-box {
-    border: 1px solid var(--red-dim);
-    background: color-mix(in srgb, var(--red-dim) 14%, transparent);
-    color: var(--red);
   }
 
   .success-box {

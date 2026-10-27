@@ -2,6 +2,7 @@
   // Milestones settings page — orchestration layer: loads the milestone
   // list and manages modal visibility. Create/edit/delete are handled by
   // the self-contained modal components, which reload the list on success.
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import LoadingState from '$lib/components/LoadingState.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import { page } from '$app/stores';
@@ -69,7 +70,7 @@
   </div>
 
   {#if error}
-    <div class="error-banner">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   {#if showForm}
@@ -123,11 +124,4 @@
     margin: 0;
   }
 
-  .error-banner {
-    color: #f85149;
-    background: rgba(248, 81, 73, 0.1);
-    padding: 10px 12px;
-    border-radius: var(--radius);
-    margin-bottom: 16px;
-  }
 </style>

@@ -2,6 +2,7 @@
   // Admin runners page — orchestration layer: auth guard, list loading
   // and pagination. Registration (with token banner) and delete
   // confirmation are handled by the self-contained components.
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import LoadingState from '$lib/components/LoadingState.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import { goto } from '$app/navigation';
@@ -79,7 +80,7 @@
   </div>
 
   {#if error}
-    <div class="error">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   <RunnerRegisterForm onRegistered={loadRunners} />
@@ -131,14 +132,6 @@
 
   .meta{
     color: var(--text-secondary);
-  }
-
-  .error {
-    color: #f85149;
-    background: rgba(248, 81, 73, 0.1);
-    padding: 0.5rem 0.75rem;
-    border-radius: 6px;
-    margin-bottom: 1rem;
   }
 
   .pagination {

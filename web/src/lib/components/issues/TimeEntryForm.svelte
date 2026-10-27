@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { timeTracking } from '$lib/api/client.svelte';
   import { toErrorMessage } from '$lib/utils/error';
   import { createT } from '$lib/i18n';
@@ -46,7 +47,7 @@
   <h3>{t('repo.time_tracking.add_entry')}</h3>
 
   {#if error}
-    <div class="error-banner">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   <div class="form-row">
@@ -152,12 +153,4 @@
     cursor: not-allowed;
   }
 
-  .error-banner {
-    padding: 8px 12px;
-    border-radius: var(--radius);
-    margin-bottom: 12px;
-    font-size: 13px;
-    color: var(--red, #f85149);
-    background: rgba(248, 81, 73, 0.1);
-  }
 </style>

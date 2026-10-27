@@ -2,6 +2,7 @@
   // Labels settings page — orchestration layer: loads the label list and
   // manages modal visibility. Create/edit/delete are handled by the
   // self-contained modal components, which reload the list on success.
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import LoadingState from '$lib/components/LoadingState.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import { page } from '$app/stores';
@@ -69,7 +70,7 @@
   </div>
 
   {#if error}
-    <div class="error-banner">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   {#if showForm}

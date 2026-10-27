@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import Modal from '$lib/components/Modal.svelte';
   import { admin, type AdminUser } from '$lib/api/client.svelte';
   import { toast } from '$lib/components/toast.svelte';
@@ -53,7 +54,7 @@
   onSubmit={handleSave}
 >
   {#if error}
-    <div class="error" role="alert">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   <div class="form-group">
@@ -111,11 +112,4 @@
     color: var(--text-primary);
   }
 
-  .error {
-    color: #f85149;
-    background: rgba(248, 81, 73, 0.1);
-    padding: 0.5rem 0.75rem;
-    border-radius: 6px;
-    margin-bottom: 1rem;
-  }
 </style>

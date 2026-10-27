@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { orgs } from '$lib/api/client.svelte';
   import type { OrgSummary } from '$lib/types/entities';
   import { toErrorMessage } from '$lib/utils/error';
@@ -56,7 +57,7 @@
   <h2>{t('orgs.create_title')}</h2>
 
   {#if error}
-    <div class="error" role="alert">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   <div class="field">
@@ -171,14 +172,6 @@
   .btn-primary:disabled {
     opacity: 0.6;
     cursor: not-allowed;
-  }
-
-  .error {
-    color: #f85149;
-    background: rgba(248, 81, 73, 0.1);
-    border: 1px solid rgba(248, 81, 73, 0.35);
-    padding: 0.65rem 0.85rem;
-    border-radius: 6px;
   }
 
   @media (max-width: 700px) {

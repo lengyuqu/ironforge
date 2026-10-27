@@ -2,6 +2,7 @@
   // Blob viewer page — orchestration layer: loads the file content for the
   // current ref/path, keeps the URL ref in sync, and owns the view-mode and
   // delete-panel visibility state.
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import LoadingState from '$lib/components/LoadingState.svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
@@ -86,7 +87,7 @@
   <RepoHeader {owner} {repo} activeTab="code" />
 
   {#if error}
-    <div class="error-banner">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   {#if loading}

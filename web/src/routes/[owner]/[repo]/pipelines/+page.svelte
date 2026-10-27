@@ -3,6 +3,7 @@
   // pipeline detail, auto-refreshes while running, and delegates UI to:
   //   PipelineList (sidebar) / PipelineFlow (stage-job visualization) /
   //   JobLogModal (live log viewer)
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import LoadingState from '$lib/components/LoadingState.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import { page } from '$app/stores';
@@ -164,7 +165,7 @@
   <RepoHeader {owner} {repo} activeTab="pipelines" />
 
   {#if error}
-    <div class="error-banner">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   {#if loading}
