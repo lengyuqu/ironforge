@@ -159,28 +159,9 @@
     gap: 0.75rem;
   }
 
-  .btn-primary {
-    border: none;
-    border-radius: 6px;
-    padding: 0.6rem 1.2rem;
-    font-size: 0.95rem;
-    cursor: pointer;
-    background: var(--accent);
-    color: white;
-  }
-
-  .btn-primary:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-
   @media (max-width: 700px) {
     .form-actions {
       flex-direction: column-reverse;
-    }
-
-    .btn-primary {
-      width: 100%;
     }
   }
 </style>

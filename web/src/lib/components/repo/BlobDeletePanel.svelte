@@ -110,39 +110,6 @@
     gap: 8px;
   }
 
-  .btn-outline {
-    border-radius: 6px;
-    min-height: 32px;
-    padding: 5px 10px;
-    font-size: 13px;
-    text-decoration: none;
-    cursor: pointer;
-    border: 1px solid var(--border);
-    background: var(--bg-primary);
-    color: var(--text-primary);
-  }
-
-  .btn-outline:hover {
-    background: var(--bg-tertiary);
-  }
-
-  .btn-danger {
-    border-radius: 6px;
-    min-height: 32px;
-    padding: 5px 10px;
-    font-size: 13px;
-    text-decoration: none;
-    cursor: pointer;
-    border: 1px solid #cf222e;
-    background: #cf222e;
-    color: white;
-  }
-
-  .btn-danger:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-
   .delete-error {
     color: #cf222e;
     font-size: 13px;

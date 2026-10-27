@@ -165,29 +165,6 @@
     font-size: 14px;
     box-sizing: border-box;
   }
-  .btn-primary {
-    width: 100%;
-    padding: 10px 16px;
-    background: var(--accent, #4f46e5);
-    color: #fff;
-    border: none;
-    border-radius: 6px;
-    font-size: 14px;
-    cursor: pointer;
-  }
-  .btn-primary:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-  .btn-secondary {
-    padding: 10px 16px;
-    background: var(--bg-secondary, #f3f4f6);
-    color: var(--text, #1f2937);
-    border: 1px solid var(--border, #d1d5db);
-    border-radius: 6px;
-    font-size: 14px;
-    text-decoration: none;
-  }
   .footer {
     text-align: center;
     margin-top: 16px;

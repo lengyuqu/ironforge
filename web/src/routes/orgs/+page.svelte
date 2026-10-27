@@ -99,23 +99,12 @@
     white-space: nowrap;
   }
 
-  .btn-primary {
-    border: none;
-    border-radius: 6px;
-    padding: 0.6rem 1.2rem;
-    font-size: 0.95rem;
-    cursor: pointer;
-    background: var(--accent);
-    color: white;
-  }
-
   @media (max-width: 700px) {
     .page-header {
       flex-direction: column;
     }
 
-    .header-action,
-    .btn-primary {
+    .header-action {
       width: 100%;
     }
   }

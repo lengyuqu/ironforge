@@ -636,8 +636,6 @@
     margin-top: 6px;
   }
 
-  .btn-primary,
-  .btn-secondary,
   .btn-link {
     min-height: 36px;
     border-radius: 6px;
@@ -645,24 +643,6 @@
     font-size: 14px;
     text-decoration: none;
     cursor: pointer;
-  }
-
-  .btn-primary {
-    border: 1px solid #1f883d;
-    background: #1f883d;
-    color: white;
-    font-weight: 600;
-  }
-
-  .btn-primary:disabled {
-    opacity: 0.55;
-    cursor: not-allowed;
-  }
-
-  .btn-secondary {
-    border: 1px solid var(--border);
-    background: var(--bg-primary);
-    color: var(--text-primary);
   }
 
   .btn-link {

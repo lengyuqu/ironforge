@@ -281,11 +281,6 @@
     background: var(--bg-hover);
   }
 
-  .btn-outline {
-    font-size: 13px;
-    padding: 6px 12px;
-  }
-
   @media (max-width: 1200px) {
     .navbar-inner {
       grid-template-columns: auto auto;

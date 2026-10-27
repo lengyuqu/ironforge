@@ -223,19 +223,6 @@
     width: auto;
   }
 
-  .btn-primary {
-    padding: 8px 16px;
-    background: var(--green-dim);
-    color: #fff;
-    border: none;
-    border-radius: var(--radius);
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-  }
-  .btn-primary:hover { background: var(--green); }
-  .btn-primary:disabled { opacity: 0.6; }
-
   .sso-loading {
     margin: 18px 0 0;
     color: var(--text-secondary);

@@ -137,16 +137,6 @@
     text-align: right;
   }
 
-  .btn-danger {
-    background: rgba(248, 81, 73, 0.12);
-    color: #f85149;
-    border: 0;
-    border-radius: 6px;
-    padding: 8px 12px;
-    cursor: pointer;
-    font-weight: 600;
-  }
-
   button:disabled {
     opacity: 0.6;
     cursor: not-allowed;

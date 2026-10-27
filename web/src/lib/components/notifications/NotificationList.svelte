@@ -137,16 +137,4 @@
   .notif-time { color: var(--text-secondary); }
 
   .notif-actions { flex-shrink: 0; }
-
-  .btn-xs {
-    background: transparent;
-    color: var(--accent);
-    border: 1px solid var(--accent);
-    border-radius: 4px;
-    padding: 0.2rem 0.5rem;
-    cursor: pointer;
-    font-size: 0.75rem;
-  }
-
-  .btn-xs:disabled { opacity: 0.6; cursor: not-allowed; }
 </style>

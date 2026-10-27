@@ -101,21 +101,6 @@
     font-size: 24px;
   }
 
-  .btn-primary {
-    padding: 6px 16px;
-    background: var(--green-dim, #2da44e);
-    color: #fff;
-    border: none;
-    border-radius: var(--radius, 6px);
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-  }
-
-  .btn-primary:hover {
-    background: var(--green, #218838);
-  }
-
   .dashboard-footer {
     text-align: center;
   }

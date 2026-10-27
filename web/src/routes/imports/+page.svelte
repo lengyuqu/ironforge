@@ -111,16 +111,6 @@
     border-radius: var(--radius);
   }
 
-  .btn-secondary {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    color: var(--text-primary);
-    border-radius: 6px;
-    padding: 8px 12px;
-    cursor: pointer;
-    font-weight: 600;
-  }
-
   button:disabled {
     opacity: 0.6;
     cursor: not-allowed;

@@ -73,16 +73,6 @@
     color: var(--text-secondary);
   }
 
-  .btn-primary {
-    border: none;
-    border-radius: 6px;
-    padding: 0.6rem 1.2rem;
-    font-size: 0.95rem;
-    cursor: pointer;
-    background: var(--accent);
-    color: white;
-  }
-
   .org-list {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -153,11 +143,5 @@
     margin: 0.3rem 0 0;
     font-size: 0.85rem;
     overflow-wrap: anywhere;
-  }
-
-  @media (max-width: 700px) {
-    .btn-primary {
-      width: 100%;
-    }
   }
 </style>

@@ -118,26 +118,6 @@
     padding: 8px 12px;
   }
 
-  .btn-primary {
-    padding: 8px 16px;
-    background: var(--green-dim);
-    color: #fff;
-    border: none;
-    border-radius: var(--radius);
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-  }
-
-  .btn-primary:hover {
-    background: var(--green);
-  }
-
-  .btn-primary:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-
   .footer {
     text-align: center;
     margin-top: 20px;
