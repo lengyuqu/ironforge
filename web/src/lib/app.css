@@ -479,6 +479,15 @@ button {
   color: var(--text-secondary);
 }
 
+/* A bordered panel on the secondary background. Add it next to a component's
+   own class (class="repo-card surface"); the component keeps only its padding,
+   layout and hover behaviour. */
+.surface {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
 /* Field-level validation feedback */
 input[aria-invalid='true'],
 textarea[aria-invalid='true'],
