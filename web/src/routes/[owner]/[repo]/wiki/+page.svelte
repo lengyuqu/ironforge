@@ -60,7 +60,7 @@
   </div>
 
   {#if showCreate}
-    <div class="create-form">
+    <div class="create-form surface">
       <form onsubmit={handleCreate}>
         <label>
           {t('wiki.create_form.title')}
@@ -101,7 +101,10 @@
 <style>
   .toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
 
-  .create-form { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 24px; margin-bottom: 24px; }
+  .create-form {
+    padding: 24px;
+    margin-bottom: 24px;
+  }
   form { display: flex; flex-direction: column; gap: 14px; }
   label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600; }
   textarea {

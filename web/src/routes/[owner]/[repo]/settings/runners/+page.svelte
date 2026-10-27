@@ -12,7 +12,7 @@
   <title>{t('admin.runners.title')} · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
-<section class="panel">
+<section class="panel surface">
   <div>
     <h1>{t('admin.runners.title')}</h1>
     <p>{t('admin.runners.repo_handoff')}</p>
@@ -27,9 +27,6 @@
     justify-content: space-between;
     gap: 1rem;
     padding: 1rem;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: 8px;
   }
 
   h1 {

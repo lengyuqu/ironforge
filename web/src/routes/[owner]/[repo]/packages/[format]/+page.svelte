@@ -87,7 +87,7 @@
   {:else}
     <div class="package-list">
       {#each packageList as pkg}
-        <div class="package-card">
+        <div class="package-card surface">
           <div class="package-header">
             <a href={packageHref(pkg)} class="package-name">{pkg.name}</a>
             {#if pkg.latest_version}
@@ -107,7 +107,7 @@
 
           <div class="install-section">
             <pre><code>{getInstallCommand(pkg)}</code></pre>
-            <button class="copy-btn" onclick={() => navigator.clipboard.writeText(getInstallCommand(pkg))}>
+            <button class="copy-btn surface" onclick={() => navigator.clipboard.writeText(getInstallCommand(pkg))}>
               {t('common.copy') || 'Copy'}
             </button>
           </div>
@@ -126,9 +126,6 @@
   }
 
   .package-card {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
     padding: 20px;
   }
 
@@ -192,9 +189,6 @@
 
   .copy-btn {
     padding: 4px 10px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
     font-size: 12px;
     cursor: pointer;
     color: var(--text-primary);

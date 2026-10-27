@@ -67,7 +67,7 @@
 </script>
 
 <div class="reset-page">
-  <div class="reset-card">
+  <div class="reset-card surface">
     <div class="reset-header">
       <h1>Reset Password</h1>
       <p class="subtitle">Enter your new password</p>
@@ -128,9 +128,6 @@
 
 <style>
   .reset-card {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: 8px;
     padding: 32px;
     width: 100%;
     max-width: 400px;

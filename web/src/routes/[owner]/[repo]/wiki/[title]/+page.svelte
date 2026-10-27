@@ -116,7 +116,7 @@
         onScrollToHeading={scrollToHeading}
       />
 
-      <main class="wiki-main">
+      <main class="wiki-main surface">
         <div class="wiki-header">
           <h1>{title}</h1>
           <div class="header-actions">
@@ -169,9 +169,6 @@
 
   /* ── Main ── */
   .wiki-main {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
     padding: 24px;
     min-height: 400px;
   }

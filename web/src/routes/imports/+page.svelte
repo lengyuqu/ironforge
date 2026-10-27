@@ -62,12 +62,12 @@
     <ErrorBanner message={error} />
   {/if}
 
-  <section class="panel">
+  <section class="panel surface">
     <h2>New import</h2>
     <ImportForm initialOwner={initialOwner} onStarted={loadImports} />
   </section>
 
-  <section class="panel">
+  <section class="panel surface">
     <h2>Import tasks</h2>
     {#if loading}
       <p class="muted">Loading imports...</p>
@@ -97,9 +97,6 @@
   .panel {
     margin-bottom: 20px;
     padding: 16px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
   }
 
   button:disabled {

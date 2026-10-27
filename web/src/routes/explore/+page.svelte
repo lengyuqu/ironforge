@@ -57,7 +57,7 @@
   {:else}
     <div class="repo-grid">
       {#each repoList as repo}
-        <a href={`/${repo.owner_name}/${repo.name}`} class="repo-card">
+        <a href={`/${repo.owner_name}/${repo.name}`} class="repo-card surface">
           <div class="rc-icon">📂</div>
           <div class="rc-body">
             <div class="rc-name">{repo.owner_name}/{repo.name}</div>
@@ -73,13 +73,13 @@
     {#if totalPages > 1}
       <div class="pagination">
         <button
-          class="btn-page"
+          class="btn-page surface"
           disabled={page <= 1}
           onclick={() => loadPage(page - 1)}
         >← {t('explore.prev')}</button>
         <span class="page-info">{page} / {totalPages}</span>
         <button
-          class="btn-page"
+          class="btn-page surface"
           disabled={page >= totalPages}
           onclick={() => loadPage(page + 1)}
         >{t('explore.next')} →</button>
@@ -116,9 +116,6 @@
     display: flex;
     gap: 12px;
     padding: 16px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
     text-decoration: none;
     color: var(--text-primary);
     transition: border-color 0.15s;
@@ -165,9 +162,6 @@
 
   .btn-page {
     padding: 6px 14px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
     color: var(--text-primary);
     font-size: 13px;
     cursor: pointer;

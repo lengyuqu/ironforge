@@ -109,7 +109,7 @@
 
     <main class="main-panel">
       {#if !selectedIssue}
-        <div class="select-hint">
+        <div class="select-hint surface">
           <p>← Select an issue to view and log time</p>
         </div>
       {:else}
@@ -168,9 +168,6 @@
     text-align: center;
     color: var(--text-secondary);
     font-size: 14px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
   }
 
   .issue-header {

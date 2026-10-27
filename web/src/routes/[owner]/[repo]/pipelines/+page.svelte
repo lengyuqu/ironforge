@@ -175,12 +175,12 @@
   {:else}
     <div class="pipeline-layout">
       <!-- Pipeline list -->
-      <div class="pipeline-list">
+      <div class="pipeline-list surface">
         <PipelineList pipelines={pipelineList} selectedId={selectedPipeline?.id} onSelect={selectPipeline} />
       </div>
 
       <!-- Pipeline detail -->
-      <div class="pipeline-detail">
+      <div class="pipeline-detail surface">
         {#if selectedPipeline}
           <PipelineDetailPanel
             {owner}
@@ -216,18 +216,12 @@
   @media (max-width: 900px) { .pipeline-layout { grid-template-columns: 1fr; } }
 
   .pipeline-list {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
     overflow: hidden;
     display: flex;
     flex-direction: column;
   }
 
   .pipeline-detail {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
     padding: 24px;
   }
 
