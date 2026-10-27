@@ -259,7 +259,7 @@
   }
 
   .required { color: var(--red); font-weight: 400; }
-  .field-error { color: var(--red, #d73a49); font-size: 12px; font-weight: 400; }
+  .field-error { color: var(--red); font-size: 12px; font-weight: 400; }
   .optional { font-weight: 400; color: var(--text-muted); }
 
   .checkbox-label {

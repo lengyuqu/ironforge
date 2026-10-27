@@ -27,7 +27,7 @@
   }
   .info { background: rgba(46, 164, 255, 0.15); color: #6db7ff; border-bottom-color: rgba(88, 166, 255, 0.4); }
   .warning { background: rgba(255, 211, 88, 0.12); color: #f2cc60; border-bottom-color: rgba(210, 153, 34, 0.5); }
-  .error { background: rgba(248, 81, 73, 0.15); color: var(--red, #f85149); border-bottom-color: rgba(248, 81, 73, 0.45); }
+  .error { background: rgba(248, 81, 73, 0.15); color: var(--red); border-bottom-color: rgba(248, 81, 73, 0.45); }
   .banner-text { flex: 1; }
   .banner-close {
     background: none; border: none; cursor: pointer;

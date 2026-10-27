@@ -60,7 +60,7 @@
 <style>
   .public-repos {
     padding: 80px 24px;
-    background: var(--bg-primary, #ffffff);
+    background: var(--bg-primary);
   }
 
   .repos-container {
@@ -78,12 +78,12 @@
   .repos-header h2 {
     font-size: 24px;
     font-weight: 700;
-    color: var(--text-primary, #1f2328);
+    color: var(--text-primary);
   }
 
   .view-all {
     font-size: 14px;
-    color: var(--primary, #2da44e);
+    color: var(--green);
     text-decoration: none;
   }
 
@@ -102,18 +102,18 @@
     align-items: flex-start;
     gap: 12px;
     padding: 16px 20px;
-    border-bottom: 1px solid var(--border-light, #eaeef2);
+    border-bottom: 1px solid var(--border-light);
     text-decoration: none;
-    color: var(--text-primary, #1f2328);
+    color: var(--text-primary);
     transition: background 0.2s;
   }
 
   .repo-item:hover {
-    background: var(--bg-secondary, #f6f8fa);
+    background: var(--bg-secondary);
   }
 
   .repo-item:first-child {
-    border-top: 1px solid var(--border-light, #eaeef2);
+    border-top: 1px solid var(--border-light);
     border-radius: 8px 8px 0 0;
   }
 
@@ -133,19 +133,19 @@
   .repo-name {
     font-weight: 600;
     font-size: 15px;
-    color: var(--accent, #0969da);
+    color: var(--accent);
     margin-bottom: 4px;
   }
 
   .repo-desc {
     font-size: 13px;
-    color: var(--text-secondary, #656d76);
+    color: var(--text-secondary);
     margin-top: 2px;
   }
 
   .repo-meta {
     font-size: 12px;
-    color: var(--text-muted, #8b949e);
+    color: var(--text-muted);
     margin-top: 4px;
   }
 

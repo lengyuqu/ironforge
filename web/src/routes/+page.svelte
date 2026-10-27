@@ -108,7 +108,7 @@
   .view-all-btn {
     display: inline-block;
     padding: 8px 20px;
-    background: var(--primary, #2da44e);
+    background: var(--green-dim);
     color: white;
     border-radius: 6px;
     text-decoration: none;

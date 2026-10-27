@@ -48,7 +48,7 @@
   .error-code {
     font-size: 6rem;
     font-weight: 700;
-    color: var(--color-primary, #0969da);
+    color: var(--accent);
     line-height: 1;
     margin-bottom: 1rem;
   }
@@ -75,7 +75,7 @@
     display: inline-block;
     margin-top: 1.5rem;
     padding: 0.5rem 1.25rem;
-    background-color: var(--color-primary, #0969da);
+    background-color: var(--accent);
     color: #fff;
     text-decoration: none;
     border-radius: 6px;

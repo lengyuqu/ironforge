@@ -135,12 +135,12 @@
   }
   .gpg-badge.verified {
     background: rgba(63, 185, 80, 0.12);
-    color: var(--green, #3fb950);
+    color: var(--green);
     border: 1px solid rgba(63, 185, 80, 0.25);
   }
   .gpg-badge.unverified {
     background: rgba(248, 81, 73, 0.1);
-    color: var(--red, #f85149);
+    color: var(--red);
     border: 1px solid rgba(248, 81, 73, 0.2);
   }
   .gpg-badge.no-sig {

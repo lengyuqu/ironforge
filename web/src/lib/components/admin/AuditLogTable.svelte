@@ -114,7 +114,7 @@
     white-space: nowrap;
     color: var(--text-secondary);
     font-size: 0.8rem;
-    font-family: var(--font-mono, monospace);
+    font-family: var(--font-mono);
   }
   .user-cell .username-text { font-weight: 500; }
   .user-cell .user-id { color: var(--text-secondary); }
@@ -123,7 +123,7 @@
   .resource-link { color: var(--accent); }
   .text-muted { color: var(--text-secondary); }
   .ip-cell {
-    font-family: var(--font-mono, monospace);
+    font-family: var(--font-mono);
     font-size: 0.8rem;
     color: var(--text-secondary);
     white-space: nowrap;
@@ -140,7 +140,7 @@
     background: var(--bg-secondary);
     border: 1px solid var(--border);
     white-space: nowrap;
-    font-family: var(--font-mono, monospace);
+    font-family: var(--font-mono);
   }
   .action-badge[data-action^="user."] { border-color: #58a6ff; color: #58a6ff; background: rgba(88, 166, 255, 0.1); }
   .action-badge[data-action^="repo."] { border-color: #3fb950; color: #3fb950; background: rgba(63, 185, 80, 0.1); }

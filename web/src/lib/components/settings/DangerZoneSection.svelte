@@ -89,14 +89,14 @@
   }
 
   .danger-box {
-    border: 1px solid var(--red, #ff4444);
+    border: 1px solid var(--red);
     background: rgba(255, 0, 0, 0.05);
     border-radius: 6px;
     padding: 1.5rem;
   }
 
   .danger-box h3 {
-    color: var(--red, #ff4444);
+    color: var(--red);
     margin-bottom: 0.5rem;
     font-size: 1.1rem;
   }

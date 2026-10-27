@@ -23,8 +23,8 @@
 
 <style>
   .footer {
-    background: var(--bg-secondary, #f6f8fa);
-    border-top: 1px solid var(--border, #d0d7de);
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border);
     padding: 40px 24px;
   }
 
@@ -40,7 +40,7 @@
   .footer-logo-text {
     font-size: 20px;
     font-weight: 700;
-    color: var(--text-primary, #1f2328);
+    color: var(--text-primary);
   }
 
   .footer-links {
@@ -49,17 +49,17 @@
   }
 
   .footer-links a {
-    color: var(--text-secondary, #656d76);
+    color: var(--text-secondary);
     text-decoration: none;
     font-size: 14px;
   }
 
   .footer-links a:hover {
-    color: var(--primary, #2da44e);
+    color: var(--green);
   }
 
   .footer-copyright {
     font-size: 12px;
-    color: var(--text-muted, #8b949e);
+    color: var(--text-muted);
   }
 </style>

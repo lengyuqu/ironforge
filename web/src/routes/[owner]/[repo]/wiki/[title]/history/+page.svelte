@@ -130,7 +130,7 @@
   }
   .breadcrumb {
     font-size: 0.9rem;
-    color: var(--text-secondary, #666);
+    color: var(--text-secondary);
   }
   .breadcrumb a {
     color: var(--link-color, #2563eb);
@@ -138,7 +138,7 @@
   }
   .breadcrumb a:hover { text-decoration: underline; }
   .breadcrumb .sep { margin: 0 0.4rem; }
-  .breadcrumb .current { color: var(--text-primary, #333); font-weight: 600; }
+  .breadcrumb .current { color: var(--text-primary); font-weight: 600; }
 
   .rev-table {
     width: 100%;
@@ -148,25 +148,25 @@
   .rev-table th {
     text-align: left;
     padding: 0.5rem 0.75rem;
-    border-bottom: 2px solid var(--border-color, #e5e7eb);
-    color: var(--text-secondary, #666);
+    border-bottom: 2px solid var(--border);
+    color: var(--text-secondary);
     font-weight: 600;
   }
   .rev-table td {
     padding: 0.5rem 0.75rem;
-    border-bottom: 1px solid var(--border-color, #e5e7eb);
+    border-bottom: 1px solid var(--border);
   }
   .rev-id {
-    color: var(--text-secondary, #666);
+    color: var(--text-secondary);
     font-family: monospace;
     width: 3rem;
   }
   .rev-msg { max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .rev-date { color: var(--text-secondary, #666); width: 10rem; }
+  .rev-date { color: var(--text-secondary); width: 10rem; }
 
   .revision-detail { margin-top: 1rem; }
   .rev-meta {
-    background: var(--bg-secondary, #f9fafb);
+    background: var(--bg-secondary);
     padding: 1rem;
     border-radius: 8px;
     margin-bottom: 1rem;
@@ -176,9 +176,9 @@
     flex-wrap: wrap;
   }
   .rev-meta h3 { margin: 0; font-size: 1rem; }
-  .rev-info { margin: 0; color: var(--text-secondary, #666); font-size: 0.85rem; }
+  .rev-info { margin: 0; color: var(--text-secondary); font-size: 0.85rem; }
   .rev-content {
-    background: var(--bg-secondary, #f9fafb);
+    background: var(--bg-secondary);
     padding: 1rem;
     border-radius: 8px;
     overflow-x: auto;

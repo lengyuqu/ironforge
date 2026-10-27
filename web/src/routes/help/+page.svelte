@@ -40,7 +40,7 @@
   }
 
   .help-header {
-    border-bottom: 1px solid var(--border-color);
+    border-bottom: 1px solid var(--border);
     padding-bottom: 20px;
     margin-bottom: 28px;
   }
@@ -58,7 +58,7 @@
 
   .help-section {
     padding: 20px 0;
-    border-bottom: 1px solid var(--border-color);
+    border-bottom: 1px solid var(--border);
   }
 
   .help-section h2 {
@@ -75,7 +75,7 @@
     display: block;
     overflow-x: auto;
     padding: 12px 14px;
-    border: 1px solid var(--border-color);
+    border: 1px solid var(--border);
     border-radius: 6px;
     background: var(--bg-secondary);
     color: var(--text-primary);
@@ -89,7 +89,7 @@
 
   .quick-links a,
   .link-button {
-    color: var(--color-primary);
+    color: var(--accent);
     font-weight: 600;
     text-decoration: none;
   }

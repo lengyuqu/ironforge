@@ -129,7 +129,7 @@
   }
 
   .format-badge.fallback {
-    background: var(--bg-tertiary, #e5e7eb);
+    background: var(--bg-tertiary);
     color: var(--text-secondary);
   }
 

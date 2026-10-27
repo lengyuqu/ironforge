@@ -67,11 +67,11 @@
     border-radius: 12px;
     font-size: 0.8rem;
     font-weight: 600;
-    background: var(--green, #28a745);
+    background: var(--green);
     color: white;
   }
 
   .badge.private {
-    background: var(--orange, #ff8800);
+    background: var(--orange);
   }
 </style>

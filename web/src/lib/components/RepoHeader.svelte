@@ -324,13 +324,13 @@
   }
 
   .action-btn.starred {
-    background: var(--accent-weak);
+    background: var(--accent-subtle);
     border-color: var(--accent);
     color: var(--accent);
   }
 
   .action-btn.watching {
-    background: var(--accent-weak);
+    background: var(--accent-subtle);
     border-color: var(--accent);
     color: var(--accent);
   }

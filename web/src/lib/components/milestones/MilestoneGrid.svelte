@@ -154,7 +154,7 @@
   .progress-fill {
     height: 100%;
     border-radius: 3px;
-    background: var(--green, #1a7f37);
+    background: var(--green);
     transition: width 0.3s ease;
   }
 

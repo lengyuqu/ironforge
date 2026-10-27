@@ -61,7 +61,7 @@
     display: flex;
     gap: 12px;
     padding: 16px;
-    border: 1px solid var(--border, #d0d7de);
+    border: 1px solid var(--border);
     border-radius: 8px;
     text-decoration: none;
     color: inherit;
@@ -69,7 +69,7 @@
   }
 
   .repo-card:hover {
-    border-color: var(--primary, #2da44e);
+    border-color: var(--green);
   }
 
   .rc-icon {
@@ -90,7 +90,7 @@
 
   .rc-desc {
     font-size: 13px;
-    color: var(--text-secondary, #656d76);
+    color: var(--text-secondary);
     margin-bottom: 6px;
     overflow: hidden;
     text-overflow: ellipsis;

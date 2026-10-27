@@ -123,7 +123,7 @@
   }
 
   .commit-item:hover {
-    border-color: var(--primary);
+    border-color: var(--green);
   }
 
   .commit-icon {
@@ -147,7 +147,7 @@
   }
 
   .commit-message a:hover {
-    color: var(--primary);
+    color: var(--green);
   }
 
   .commit-meta {
@@ -159,7 +159,7 @@
 
   .commit-sha {
     font-family: monospace;
-    background: var(--bg-secondary, #f5f5f5);
+    background: var(--bg-secondary);
     padding: 2px 6px;
     border-radius: 3px;
     font-size: 12px;

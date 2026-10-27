@@ -26,9 +26,9 @@
 <style>
   .stats {
     padding: 60px 24px;
-    background: var(--bg-secondary, #f6f8fa);
-    border-top: 1px solid var(--border, #d0d7de);
-    border-bottom: 1px solid var(--border, #d0d7de);
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
   }
 
   .stats-container {
@@ -53,12 +53,12 @@
   .stat-number {
     font-size: 36px;
     font-weight: 700;
-    color: var(--primary, #2da44e);
+    color: var(--green);
     margin-bottom: 8px;
   }
 
   .stat-label {
     font-size: 14px;
-    color: var(--text-secondary, #656d76);
+    color: var(--text-secondary);
   }
 </style>

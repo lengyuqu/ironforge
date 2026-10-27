@@ -109,7 +109,7 @@
     gap: 0.75rem;
     padding: 1rem;
     background: rgba(255, 165, 0, 0.1);
-    border: 1px solid var(--orange, #ff8800);
+    border: 1px solid var(--orange);
     border-radius: 6px;
     margin-bottom: 1.5rem;
   }
@@ -158,7 +158,7 @@
   }
 
   .btn-warning {
-    background: var(--orange, #ff8800);
+    background: var(--orange);
     color: white;
   }
 

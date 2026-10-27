@@ -132,7 +132,7 @@
   header p { color: var(--text-secondary); }
   form { display: grid; gap: 9px; }
   input, textarea { width: 100%; padding: 8px 10px; }
-  textarea, code { font-family: var(--font-mono, monospace); }
+  textarea, code { font-family: var(--font-mono); }
   .checkbox { display: flex; align-items: center; gap: 8px; }
   .checkbox input { width: auto; }
   .message{ margin-bottom: 18px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius); }
@@ -142,5 +142,5 @@
   article h3 { margin: 0 0 8px; }
   article code { display: block; overflow-wrap: anywhere; color: var(--text-secondary); }
   article span { display: inline-block; margin-top: 8px; color: var(--text-secondary); }
-  article span.write { color: var(--orange, #c56a00); }
+  article span.write { color: var(--orange); }
 </style>

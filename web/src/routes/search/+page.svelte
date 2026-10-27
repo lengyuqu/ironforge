@@ -204,7 +204,7 @@
     border: 1px solid var(--border);
     border-radius: 4px;
     padding: 1px 5px;
-    font-family: var(--font-mono, monospace);
+    font-family: var(--font-mono);
     font-size: 11px;
   }
 </style>

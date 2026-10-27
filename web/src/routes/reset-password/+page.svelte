@@ -129,7 +129,7 @@
 <style>
   .reset-card {
     background: var(--card-bg, #fff);
-    border: 1px solid var(--border, #e5e7eb);
+    border: 1px solid var(--border);
     border-radius: 8px;
     padding: 32px;
     width: 100%;
@@ -146,7 +146,7 @@
   }
   .subtitle {
     margin: 0;
-    color: var(--text-muted, #6b7280);
+    color: var(--text-muted);
     font-size: 14px;
   }
   label {
@@ -160,7 +160,7 @@
     width: 100%;
     margin-top: 4px;
     padding: 8px 12px;
-    border: 1px solid var(--border, #d1d5db);
+    border: 1px solid var(--border);
     border-radius: 6px;
     font-size: 14px;
     box-sizing: border-box;
@@ -171,7 +171,7 @@
     font-size: 14px;
   }
   .footer a {
-    color: var(--accent, #4f46e5);
+    color: var(--accent);
     text-decoration: none;
   }
 </style>

@@ -32,7 +32,7 @@
 <style>
   .features {
     padding: 80px 24px;
-    background: var(--bg-primary, #ffffff);
+    background: var(--bg-primary);
   }
 
   .features-container {
@@ -45,7 +45,7 @@
     font-size: 32px;
     font-weight: 700;
     margin-bottom: 48px;
-    color: var(--text-primary, #1f2328);
+    color: var(--text-primary);
   }
 
   .features-grid {
@@ -68,13 +68,13 @@
 
   .feature-card {
     padding: 24px;
-    border: 1px solid var(--border, #d0d7de);
+    border: 1px solid var(--border);
     border-radius: 12px;
     transition: border-color 0.2s, box-shadow 0.2s;
   }
 
   .feature-card:hover {
-    border-color: var(--primary, #2da44e);
+    border-color: var(--green);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
   }
 
@@ -87,12 +87,12 @@
     font-size: 18px;
     font-weight: 600;
     margin-bottom: 8px;
-    color: var(--text-primary, #1f2328);
+    color: var(--text-primary);
   }
 
   .feature-card p {
     font-size: 14px;
-    color: var(--text-secondary, #656d76);
+    color: var(--text-secondary);
     line-height: 1.6;
   }
 </style>

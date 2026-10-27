@@ -220,7 +220,7 @@
   }
 
   .field-error {
-    color: var(--red, #d73a49);
+    color: var(--red);
     font-size: 12px;
     font-weight: 400;
   }
