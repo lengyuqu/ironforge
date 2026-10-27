@@ -325,20 +325,111 @@ button {
   border-bottom: none;
 }
 
-input, textarea, select {
+/* ── Form controls ─────────────────────────────────────────────────────
+   Defaults for every text-like control. They use :where() so they carry no
+   specificity: a component can still adjust layout (width, margin) or opt out
+   without fighting this block. Do not restate the skin (padding, border,
+   background, focus ring) in component <style> blocks. */
+
+:where(
+    input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']):not([type='color']):not([type='hidden']),
+    textarea,
+    select
+  ) {
   font-family: var(--font-sans);
   font-size: 14px;
+  line-height: 1.4;
   background: var(--bg-primary);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text-primary);
-  padding: 5px 12px;
+  padding: 7px 10px;
   outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
 
-input:focus, textarea:focus, select:focus {
+:where(input, textarea, select):focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.15);
+  box-shadow: var(--focus-ring);
+}
+
+:where(input, textarea, select):disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  background: var(--bg-secondary);
+}
+
+:where(input, textarea):read-only:not(:disabled) {
+  background: var(--bg-secondary);
+}
+
+:where(input, textarea)::placeholder {
+  color: var(--text-muted);
+}
+
+:where(textarea) {
+  line-height: 1.5;
+  resize: vertical;
+}
+
+:where(input[type='checkbox'], input[type='radio']) {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+:where(input[type='checkbox'], input[type='radio']):disabled {
+  cursor: not-allowed;
+}
+
+/* Form layout helpers: a labelled field, a row of fields, an action bar. */
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.form-group > label,
+.form-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.form-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.form-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  color: var(--text-primary);
+}
+
+@media (max-width: 600px) {
+  .form-row {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* Field-level validation feedback */
