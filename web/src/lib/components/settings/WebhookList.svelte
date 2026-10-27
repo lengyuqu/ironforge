@@ -131,25 +131,6 @@
     font-weight: 400;
   }
 
-  .btn {
-    padding: 0.6rem 1.25rem;
-    border: none;
-    border-radius: 6px;
-    font-size: 0.9rem;
-    font-weight: 500;
-    cursor: pointer;
-  }
-
-  .btn-danger {
-    background: var(--red, #ff4444);
-    color: white;
-  }
-
-  .btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
   @media (max-width: 720px) {
     .hook-item,
     .hook-actions {

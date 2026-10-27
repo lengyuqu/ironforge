@@ -134,29 +134,4 @@
     border-color: var(--accent);
   }
 
-  .btn {
-    padding: 0.6rem 1.25rem;
-    border: none;
-    border-radius: 6px;
-    font-size: 0.9rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s;
-    margin-top: 1rem;
-  }
-
-  .btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .btn-danger {
-    background: var(--red, #ff4444);
-    color: white;
-  }
-
-  .btn-danger:hover:not(:disabled) {
-    background: var(--red-dark, #cc0000);
-  }
-
 </style>

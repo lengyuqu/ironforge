@@ -260,37 +260,6 @@
     gap: 0.75rem;
   }
 
-  .btn {
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 0.65rem 1rem;
-    cursor: pointer;
-    font-weight: 600;
-    background: var(--bg-secondary);
-    color: var(--text-primary);
-  }
-
-  .btn:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-
-  .btn-primary {
-    background: var(--accent);
-    border-color: var(--accent);
-    color: white;
-  }
-
-  .btn-outline {
-    background: transparent;
-  }
-
-  .btn-danger {
-    background: var(--red-dim);
-    border-color: var(--red-dim);
-    color: white;
-  }
-
   @media (max-width: 720px) {
     .form-row {
       grid-template-columns: 1fr;

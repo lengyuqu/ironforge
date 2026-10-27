@@ -134,25 +134,6 @@
     outline: none;
   }
 
-  .btn {
-    padding: 0.55rem 0.9rem;
-    border-radius: 6px;
-    border: 1px solid var(--border);
-    cursor: pointer;
-    font-size: 0.9rem;
-  }
-
-  .btn:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-
-  .btn-primary {
-    background: var(--accent);
-    color: white;
-    border-color: var(--accent);
-  }
-
   @media (max-width: 760px) {
     .add-form {
       grid-template-columns: 1fr;

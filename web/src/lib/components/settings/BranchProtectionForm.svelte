@@ -252,24 +252,6 @@
     gap: 0.75rem;
   }
 
-  .btn {
-    padding: 0.55rem 0.9rem;
-    border-radius: 6px;
-    border: 1px solid var(--border);
-    cursor: pointer;
-  }
-
-  .btn-primary {
-    background: var(--accent);
-    border-color: var(--accent);
-    color: white;
-  }
-
-  .btn-outline {
-    background: transparent;
-    color: var(--text-primary);
-  }
-
   @media (max-width: 720px) {
     .form-grid {
       grid-template-columns: 1fr;

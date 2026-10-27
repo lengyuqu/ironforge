@@ -168,32 +168,6 @@
     font-weight: 600;
   }
 
-  .btn {
-    width: fit-content;
-    padding: 8px 14px;
-    border-radius: var(--radius);
-    border: 1px solid var(--border);
-    cursor: pointer;
-    font-weight: 600;
-  }
-
-  .btn-primary {
-    border-color: var(--green-dim);
-    background: var(--green-dim);
-    color: #fff;
-  }
-
-  .btn-danger {
-    border-color: var(--red-dim);
-    background: var(--red-dim);
-    color: #fff;
-  }
-
-  .btn:disabled {
-    cursor: not-allowed;
-    opacity: 0.65;
-  }
-
   @media (max-width: 720px) {
     .section-heading {
       display: grid;

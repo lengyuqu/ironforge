@@ -158,25 +158,6 @@
     color: var(--text-secondary);
   }
 
-  .btn {
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    cursor: pointer;
-    font-size: 14px;
-  }
-
-  .btn-primary {
-    padding: 7px 16px;
-    background: var(--accent);
-    border-color: var(--accent);
-    color: #fff;
-  }
-
-  .btn-primary:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-
   @media (max-width: 760px) {
     .create-form {
       grid-template-columns: 1fr;

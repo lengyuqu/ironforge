@@ -179,30 +179,6 @@
     font-size: 0.9rem;
   }
 
-  .btn {
-    padding: 0.55rem 0.9rem;
-    border-radius: 6px;
-    border: 1px solid var(--border);
-    cursor: pointer;
-    font-size: 0.9rem;
-  }
-
-  .btn:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-
-  .btn-outline {
-    background: var(--bg-primary);
-    color: var(--text-primary);
-  }
-
-  .btn-danger {
-    background: var(--red, #dc3545);
-    color: white;
-    border-color: var(--red, #dc3545);
-  }
-
   @media (max-width: 760px) {
     .actions {
       justify-content: flex-start;

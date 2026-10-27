@@ -74,20 +74,6 @@
     background: var(--bg-primary);
   }
 
-  .btn {
-    width: fit-content;
-    padding: 8px 14px;
-    border-radius: var(--radius);
-    border: 1px solid var(--border);
-    cursor: pointer;
-    font-weight: 600;
-  }
-
-  .btn-secondary {
-    background: var(--bg-primary);
-    color: var(--text-primary);
-  }
-
   @media (max-width: 720px) {
     .section-heading {
       display: grid;

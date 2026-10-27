@@ -43,21 +43,6 @@
     line-height: 1.5;
   }
 
-  .btn-primary {
-    flex-shrink: 0;
-    padding: 0.5rem 0.75rem;
-    background: var(--accent);
-    color: #fff;
-    border-radius: 6px;
-    text-decoration: none;
-    font-weight: 600;
-  }
-
-  .btn-primary:hover {
-    text-decoration: none;
-    filter: brightness(1.05);
-  }
-
   @media (max-width: 640px) {
     .panel {
       flex-direction: column;

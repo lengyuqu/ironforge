@@ -161,24 +161,6 @@
     gap: 0.75rem;
   }
 
-  .btn {
-    padding: 0.55rem 0.9rem;
-    border-radius: 6px;
-    border: 1px solid var(--border);
-    cursor: pointer;
-  }
-
-  .btn-outline {
-    background: transparent;
-    color: var(--text-primary);
-  }
-
-  .btn-danger {
-    background: var(--danger, #dc2626);
-    border-color: var(--danger, #dc2626);
-    color: white;
-  }
-
   @media (max-width: 720px) {
     .actions {
       flex-direction: column;

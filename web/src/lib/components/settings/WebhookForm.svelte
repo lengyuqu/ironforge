@@ -195,25 +195,6 @@
     gap: 0.75rem;
   }
 
-  .btn {
-    padding: 0.6rem 1.25rem;
-    border: none;
-    border-radius: 6px;
-    font-size: 0.9rem;
-    font-weight: 500;
-    cursor: pointer;
-  }
-
-  .btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .btn-primary {
-    background: var(--accent);
-    color: white;
-  }
-
   @media (max-width: 720px) {
     .form-row {
       display: flex;

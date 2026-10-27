@@ -136,23 +136,4 @@
   .actions {
     text-align: right;
   }
-
-  .btn {
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    cursor: pointer;
-    font-size: 14px;
-  }
-
-  .btn-danger {
-    padding: 5px 12px;
-    background: color-mix(in srgb, var(--red) 12%, transparent);
-    border-color: color-mix(in srgb, var(--red) 45%, transparent);
-    color: var(--red);
-  }
-
-  .btn-danger:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
 </style>
