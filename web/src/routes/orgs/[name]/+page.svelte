@@ -80,7 +80,7 @@
     </div>
 
     {#if error}
-      <div class="error" style="margin:1rem 0">{error}</div>
+      <ErrorBanner message={error} />
     {/if}
 
     <!-- Organization Repositories -->
@@ -169,7 +169,6 @@
   .item:last-child { border-bottom: none; }
   .item-name { color: var(--text-primary); }
   .badge { background: var(--bg-primary); color: var(--text-secondary); padding: 0.15rem 0.5rem; border-radius: 12px; font-size: 0.75rem; border: 1px solid var(--border); }
-  .error { color: #f85149; background: rgba(248, 81, 73, 0.1); padding: 0.5rem 0.75rem; border-radius: 6px; }
   .repo-list { display: flex; flex-direction: column; gap: 0; }
   .repo-item { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.75rem; color: var(--text-primary); text-decoration: none; border-bottom: 1px solid var(--border); border-radius: 0; }
   .repo-item:last-child { border-bottom: none; }

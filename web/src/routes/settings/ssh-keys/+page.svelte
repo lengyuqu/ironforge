@@ -1,4 +1,5 @@
 <script lang="ts">
+  import SuccessBanner from '$lib/components/SuccessBanner.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import { confirmDialog } from '$lib/components/confirm.svelte';
   import { goto } from '$app/navigation';
@@ -99,7 +100,7 @@
   </header>
 
   {#if error}<div class="message error-box" role="alert">{error}</div>{/if}
-  {#if success}<div class="message success-box">{success}</div>{/if}
+  {#if success}<SuccessBanner message={success} />{/if}
 
   <section class="section">
     <h2>{t('ssh_keys.add_title')}</h2>
@@ -184,7 +185,6 @@
   textarea { resize: vertical; font-family: var(--font-mono, monospace); }
   .message{ margin-bottom: 20px; padding: 14px 16px; border: 1px solid var(--border); border-radius: var(--radius); }
   .error-box { color: var(--red); background: color-mix(in srgb, var(--red) 10%, transparent); }
-  .success-box { color: var(--green); background: color-mix(in srgb, var(--green) 10%, transparent); }
   .key-list { display: grid; gap: 12px; }
   .key-card { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius); }
   .key-main { min-width: 0; }

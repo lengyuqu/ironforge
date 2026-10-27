@@ -42,7 +42,7 @@ describe('PublicReposSection.svelte', () => {
     render(PublicReposSection, { repos: [], loading: false, error: 'upstream down', onRetry });
 
     expect(screen.getByText('upstream down')).toBeInTheDocument();
-    fireEvent.click(screen.getByText('Retry'));
+    fireEvent.click(screen.getByText('common.retry'));
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
 });

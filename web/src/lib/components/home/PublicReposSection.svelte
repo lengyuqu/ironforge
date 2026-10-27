@@ -1,6 +1,7 @@
 <script lang="ts">
   // Landing public repositories section — vertical repo list fed by the
   // explore API, with loading / error / empty states.
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import LoadingState from '$lib/components/LoadingState.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import { createT, formatDate } from '$lib/i18n';
@@ -26,10 +27,9 @@
     </div>
 
     {#if error}
-      <div class="error-banner">
-        <p>{error}</p>
-        <button onclick={onRetry}>Retry</button>
-      </div>
+      <ErrorBanner message={error}>
+        <button class="btn btn-sm" onclick={onRetry}>{t('common.retry')}</button>
+      </ErrorBanner>
     {/if}
 
     {#if loading}
@@ -149,23 +149,4 @@
     margin-top: 4px;
   }
 
-  .error-banner {
-    background: var(--error-bg, #fee);
-    border: 1px solid var(--error-border, #fcc);
-    border-radius: 6px;
-    padding: 12px 16px;
-    margin-bottom: 16px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-
-  .error-banner button {
-    padding: 6px 12px;
-    background: var(--primary, #2da44e);
-    color: white;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-  }
 </style>

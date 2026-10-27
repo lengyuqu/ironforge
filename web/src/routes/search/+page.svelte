@@ -3,6 +3,7 @@
   // the search request and delegates UI to:
   //   SearchBox (input + help + type tabs)
   //   SearchResultsList (result cards + pagination)
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import LoadingState from '$lib/components/LoadingState.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import { page } from '$app/stores';
@@ -140,9 +141,7 @@
     {#if loading}
       <LoadingState />
     {:else if searchError}
-      <div class="error-state">
-        <p>{searchError}</p>
-      </div>
+      <ErrorBanner message={searchError} />
     {:else if !hasSearched}
       <EmptyState icon="🔍" title={t('search.placeholder')} />
     {:else if results.length === 0}
@@ -181,19 +180,6 @@
 
   .search-body {
     min-height: 200px;
-  }
-
-  .error-state {
-    padding: 16px;
-    color: var(--red);
-    background: color-mix(in srgb, var(--red) 10%, transparent);
-    border: 1px solid color-mix(in srgb, var(--red) 30%, transparent);
-    border-radius: var(--radius);
-  }
-
-  .error-state p {
-    margin: 0;
-    font-size: 14px;
   }
 
   .results-info {

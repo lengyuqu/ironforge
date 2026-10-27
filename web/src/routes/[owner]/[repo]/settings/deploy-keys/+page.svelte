@@ -1,4 +1,5 @@
 <script lang="ts">
+  import SuccessBanner from '$lib/components/SuccessBanner.svelte';
   import LoadingState from '$lib/components/LoadingState.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import { confirmDialog } from '$lib/components/confirm.svelte';
@@ -87,7 +88,7 @@
   </header>
 
   {#if error}<div class="message error" role="alert">{error}</div>{/if}
-  {#if success}<div class="message success">{success}</div>{/if}
+  {#if success}<SuccessBanner message={success} />{/if}
 
   <section>
     <h2>{t('settings.deploy_keys.add', 'Add deploy key')}</h2>
@@ -136,7 +137,6 @@
   .checkbox input { width: auto; }
   .message{ margin-bottom: 18px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius); }
   .error { color: var(--red); }
-  .success { color: var(--green); }
   .key-list { display: grid; gap: 12px; }
   article { display: flex; justify-content: space-between; gap: 16px; align-items: center; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius); }
   article h3 { margin: 0 0 8px; }

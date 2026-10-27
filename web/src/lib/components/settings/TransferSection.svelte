@@ -1,4 +1,5 @@
 <script lang="ts">
+  import SuccessBanner from '$lib/components/SuccessBanner.svelte';
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { confirmDialog } from '$lib/components/confirm.svelte';
   import { goto } from '$app/navigation';
@@ -60,7 +61,7 @@
   {/if}
 
   {#if transferSuccess}
-    <div class="success-box">{transferSuccess}</div>
+    <SuccessBanner message={transferSuccess} />
   {/if}
 
   <div class="form-group">
@@ -180,13 +181,4 @@
     background: var(--orange-dark, #cc6600);
   }
 
-  .success-box {
-    padding: 0.75rem;
-    background: rgba(0, 255, 0, 0.1);
-    border: 1px solid var(--green, #28a745);
-    border-radius: 6px;
-    color: var(--green, #28a745);
-    font-size: 0.9rem;
-    margin-bottom: 1rem;
-  }
 </style>

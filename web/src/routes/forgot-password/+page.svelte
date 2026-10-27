@@ -1,4 +1,5 @@
 <script lang="ts">
+  import SuccessBanner from '$lib/components/SuccessBanner.svelte';
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { auth } from '$lib/api/client.svelte';
   import { createT } from '$lib/i18n';
@@ -52,7 +53,7 @@
     {/if}
 
     {#if success}
-      <div class="success-banner">{success}</div>
+      <SuccessBanner message={success} />
     {/if}
 
     <form onsubmit={handleSubmit}>
@@ -135,17 +136,6 @@
   .btn-primary:disabled {
     opacity: 0.6;
     cursor: not-allowed;
-  }
-
-  .success-banner {
-    background: #f0fdf4;
-    border: 1px solid #bbf7d0;
-    color: #166534;
-    padding: 12px 14px;
-    border-radius: var(--radius);
-    font-size: 14px;
-    line-height: 1.5;
-    margin-bottom: 16px;
   }
 
   .footer {

@@ -1,6 +1,7 @@
 <script lang="ts">
   // Commit status page — orchestration layer: loads the combined status,
   // status list, commit info (via log lookup) and GPG signature.
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import LoadingState from '$lib/components/LoadingState.svelte';
   import { page } from '$app/stores';
   import { repos } from '$lib/api/client.svelte';
@@ -94,10 +95,9 @@
     {#if loading}
       <LoadingState />
     {:else if error}
-      <div class="error-container">
-        <p class="error-message">Error: {error}</p>
-        <button onclick={() => loadData()}>Retry</button>
-      </div>
+      <ErrorBanner message={error}>
+        <button class="btn btn-sm" onclick={() => loadData()}>{t('common.retry')}</button>
+      </ErrorBanner>
     {:else if commitInfo}
       <CommitInfoCard commit={commitInfo} gpgSignature={gpgSignature} />
       <StatusChecksPanel combined={combinedStatus} {statuses} />
@@ -110,14 +110,4 @@
     color: var(--text-primary);
   }
 
-  .error-container {
-    text-align: center;
-    padding: 3rem;
-    color: var(--text-secondary);
-  }
-
-  .error-message {
-    color: var(--red);
-    margin-bottom: 1rem;
-  }
 </style>

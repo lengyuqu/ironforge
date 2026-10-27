@@ -69,9 +69,9 @@ describe('TransferSection.svelte', () => {
     // Success is shown inline; the redirect to the new repo path is
     // deferred by a 1.5s setTimeout, which is not awaited here.
     await waitFor(() =>
-      expect(document.querySelector('.success-box')?.textContent).toBe('settings.transfer.success')
+      expect(screen.getByRole('status')).toHaveTextContent('settings.transfer.success')
     );
-    expect(document.querySelector('.error-box')).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('skips the transfer when the confirmation dialog is dismissed', async () => {
@@ -99,6 +99,6 @@ describe('TransferSection.svelte', () => {
     await waitFor(() =>
       expect(screen.getByText('target is an organization')).toBeInTheDocument()
     );
-    expect(document.querySelector('.success-box')).not.toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 });

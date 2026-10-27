@@ -3,6 +3,7 @@
   // notes, file input and optional metadata fields; publishes via the
   // packages API and reports the result to the parent via callbacks.
   // Inline error/success banners stay inside the form.
+  import SuccessBanner from '$lib/components/SuccessBanner.svelte';
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { packages } from '$lib/api/client.svelte';
   import { createT } from '$lib/i18n';
@@ -88,7 +89,7 @@
   {/if}
 
   {#if success}
-    <div class="success-banner">{success}</div>
+    <SuccessBanner message={success} />
   {/if}
 
   <div class="form-group">
@@ -160,19 +161,6 @@
     border: 1px solid var(--border);
     border-radius: var(--radius);
     padding: 24px;
-  }
-
-  .success-banner {
-    padding: 10px 12px;
-    border-radius: var(--radius);
-    font-size: 13px;
-    margin-bottom: 16px;
-  }
-
-  .success-banner {
-    color: #1a7f37;
-    background: rgba(26, 127, 55, 0.1);
-    border: 1px solid rgba(26, 127, 55, 0.35);
   }
 
   .form-group {

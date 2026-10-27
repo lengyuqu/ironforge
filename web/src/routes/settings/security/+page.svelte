@@ -1,4 +1,5 @@
 <script lang="ts">
+  import SuccessBanner from '$lib/components/SuccessBanner.svelte';
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { goto } from '$app/navigation';
   import { isAuthReady, isLoggedIn } from '$lib/stores/auth.svelte';
@@ -84,7 +85,7 @@
   {/if}
 
   {#if success}
-    <div class="success-box">{success}</div>
+    <SuccessBanner message={success} />
   {/if}
 
   {#if loading}
@@ -130,15 +131,4 @@
     color: var(--text-secondary);
   }
 
-  .success-box {
-    margin-bottom: 16px;
-    padding: 12px 14px;
-    border-radius: var(--radius);
-  }
-
-  .success-box {
-    border: 1px solid var(--green-dim);
-    background: color-mix(in srgb, var(--green-dim) 14%, transparent);
-    color: var(--green);
-  }
 </style>

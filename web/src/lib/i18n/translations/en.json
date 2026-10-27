@@ -34,7 +34,8 @@
     "search": "Search",
     "just_now": "just now",
     "download": "Download",
-    "copied": "Copied"
+    "copied": "Copied",
+    "retry": "Retry"
   },
   "nav": {
     "dashboard": "Dashboard",
@@ -179,6 +180,11 @@
       "footer": "Already have an account? {link}",
       "footer_link": "Sign in",
       "failed": "Registration failed"
+    },
+    "reset": {
+      "invalid_link": "Invalid reset link. Please request a new password reset.",
+      "success": "Password reset successful! You are now logged in.",
+      "go_dashboard": "Go to Dashboard"
     }
   },
   "dashboard": {

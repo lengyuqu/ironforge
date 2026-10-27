@@ -1,4 +1,5 @@
 <script lang="ts">
+  import SuccessBanner from '$lib/components/SuccessBanner.svelte';
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { onMount } from 'svelte';
   import { auth } from '$lib/api/client.svelte';
@@ -73,16 +74,12 @@
     </div>
 
     {#if success}
-      <div class="success-banner">
-        Password reset successful! You are now logged in.
-      </div>
+      <SuccessBanner message={t('auth.reset.success')} />
       <a href="/dashboard" class="btn-secondary" style="display:block;text-align:center;margin-top:16px;">
-        Go to Dashboard
+        {t('auth.reset.go_dashboard')}
       </a>
     {:else if !token}
-      <div class="error-banner">
-        Invalid reset link. Please request a new password reset.
-      </div>
+      <ErrorBanner message={t('auth.reset.invalid_link')} />
       <a href="/forgot-password" class="btn-secondary" style="display:block;text-align:center;margin-top:16px;">
         Request Reset
       </a>
@@ -190,15 +187,6 @@
     border-radius: 6px;
     font-size: 14px;
     text-decoration: none;
-  }
-.success-banner {
-    background: #f0fdf4;
-    border: 1px solid #bbf7d0;
-    color: #16a34a;
-    padding: 14px 18px;
-    border-radius: 6px;
-    font-size: 14px;
-    line-height: 1.5;
   }
   .footer {
     text-align: center;

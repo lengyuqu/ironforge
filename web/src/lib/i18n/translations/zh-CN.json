@@ -34,7 +34,8 @@
     "never": "从未",
     "just_now": "刚刚",
     "download": "下载",
-    "copied": "已复制"
+    "copied": "已复制",
+    "retry": "重试"
   },
   "nav": {
     "dashboard": "仪表板",
@@ -179,6 +180,11 @@
       "footer": "已有账号？{link}",
       "footer_link": "登录",
       "failed": "注册失败"
+    },
+    "reset": {
+      "invalid_link": "重置链接无效，请重新申请重置密码。",
+      "success": "密码重置成功，你已自动登录。",
+      "go_dashboard": "前往仪表板"
     }
   },
   "dashboard": {

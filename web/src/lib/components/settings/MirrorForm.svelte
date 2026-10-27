@@ -1,4 +1,5 @@
 <script lang="ts">
+  import SuccessBanner from '$lib/components/SuccessBanner.svelte';
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { confirmDialog } from '$lib/components/confirm.svelte';
   import { mirrors, type RepositoryMirror } from '$lib/api/client.svelte';
@@ -117,7 +118,7 @@
   <h2>{mirror ? t('settings.mirror.edit_title') : t('settings.mirror.create_title')}</h2>
 
   {#if success}
-    <div class="success-box">{success}</div>
+    <SuccessBanner message={success} />
   {/if}
 
   {#if error}
@@ -288,17 +289,6 @@
     background: var(--red-dim);
     border-color: var(--red-dim);
     color: white;
-  }
-
-  .success-box {
-    padding: 1rem;
-    border-radius: 6px;
-    margin-bottom: 1rem;
-  }
-
-  .success-box {
-    background: rgba(63, 185, 80, 0.12);
-    color: var(--green);
   }
 
   @media (max-width: 720px) {

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import LoadingState from '$lib/components/LoadingState.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import { repos } from '$lib/api/client.svelte';
@@ -62,10 +63,9 @@
   {/if}
   
   {#if error}
-    <div class="error-banner">
-      <p>{error}</p>
-      <button onclick={() => window.location.reload()}>Retry</button>
-    </div>
+    <ErrorBanner message={error}>
+      <button class="btn btn-sm" onclick={() => window.location.reload()}>{t('common.retry')}</button>
+    </ErrorBanner>
   {/if}
 
   {#if loading}
@@ -105,26 +105,6 @@
     margin: -8px 0 16px;
     font-size: 13px;
     color: var(--text-secondary);
-  }
-
-  .error-banner {
-    background: var(--error-bg, #fee);
-    border: 1px solid var(--error-border, #fcc);
-    border-radius: 6px;
-    padding: 12px 16px;
-    margin-bottom: 16px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-
-  .error-banner button {
-    padding: 6px 12px;
-    background: var(--primary);
-    color: white;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
   }
 
   .commits-list {
