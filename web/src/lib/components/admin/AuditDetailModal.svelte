@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Modal from '$lib/components/Modal.svelte';
   import { createT, formatDateTime } from '$lib/i18n';
   import { admin, type AuditLogEntry } from '$lib/api/client.svelte';
 
@@ -34,12 +35,6 @@
       });
   });
 
-  function closeByKey(e: KeyboardEvent) {
-    if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      onClose();
-    }
-  }
 
   function formatResourceType(rt: string | null): string {
     if (!rt) return '—';
@@ -52,95 +47,56 @@
   }
 </script>
 
-<div
-  class="modal-overlay"
-  onclick={onClose}
-  role="button"
-  tabindex="0"
-  onkeydown={closeByKey}
->
-  <div
-    class="modal"
-    role="dialog"
-    aria-modal="true"
-    tabindex="-1"
-    onclick={(e) => e.stopPropagation()}
-    onkeydown={(e) => e.stopPropagation()}
-  >
-    <h2>{t('admin.audit.detail_title', { id: detail.id })}</h2>
+<Modal open={true} title={t('admin.audit.detail_title', { id: detail.id })} {onClose}>
+  {#if detailError}
+    <div class="detail-error" role="alert">{detailError}</div>
+  {/if}
 
-    {#if detailError}
-      <div class="detail-error">{detailError}</div>
-    {/if}
-
-    <div class="detail-grid">
-      <div class="detail-row">
-        <span class="detail-label">{t('admin.audit.fields.time')}</span>
-        <span class="detail-value">{formatDateTime(detail.created_at)}</span>
-      </div>
-      <div class="detail-row">
-        <span class="detail-label">{t('admin.audit.fields.user')}</span>
-        <span class="detail-value">
-          {#if detail.username}
-            {detail.username} (#{detail.user_id})
-          {:else}
-            {detail.user_id ? `#${detail.user_id}` : '—'}
-          {/if}
-        </span>
-      </div>
-      <div class="detail-row">
-        <span class="detail-label">{t('admin.audit.fields.action')}</span>
-        <span class="detail-value"><span class="action-badge" data-action={detail.action}>{detail.action}</span></span>
-      </div>
-      <div class="detail-row">
-        <span class="detail-label">{t('admin.audit.fields.resource_type')}</span>
-        <span class="detail-value">{formatResourceType(detail.resource_type)}</span>
-      </div>
-      {#if detail.resource_name}
-        <div class="detail-row">
-          <span class="detail-label">{t('admin.audit.fields.resource')}</span>
-          <span class="detail-value">{detail.resource_name} (#{detail.resource_id})</span>
-        </div>
-      {/if}
-      <div class="detail-row">
-        <span class="detail-label">{t('admin.audit.fields.ip')}</span>
-        <span class="detail-value">{detail.ip_address || '—'}</span>
-      </div>
-      <div class="detail-row detail-row-full">
-        <span class="detail-label">{t('admin.audit.fields.details')}</span>
-        <span class="detail-value">
-          {detailLoading ? t('common.loading') : detail.details || t('admin.audit.no_details')}
-        </span>
-      </div>
+  <div class="detail-grid">
+    <div class="detail-row">
+      <span class="detail-label">{t('admin.audit.fields.time')}</span>
+      <span class="detail-value">{formatDateTime(detail.created_at)}</span>
     </div>
-
-    <div class="modal-actions">
-      <button class="btn-secondary" onclick={onClose}>{t('common.cancel')}</button>
+    <div class="detail-row">
+      <span class="detail-label">{t('admin.audit.fields.user')}</span>
+      <span class="detail-value">
+        {#if detail.username}
+          {detail.username} (#{detail.user_id})
+        {:else}
+          {detail.user_id ? `#${detail.user_id}` : '—'}
+        {/if}
+      </span>
+    </div>
+    <div class="detail-row">
+      <span class="detail-label">{t('admin.audit.fields.action')}</span>
+      <span class="detail-value"><span class="action-badge" data-action={detail.action}>{detail.action}</span></span>
+    </div>
+    <div class="detail-row">
+      <span class="detail-label">{t('admin.audit.fields.resource_type')}</span>
+      <span class="detail-value">{formatResourceType(detail.resource_type)}</span>
+    </div>
+    {#if detail.resource_name}
+      <div class="detail-row">
+        <span class="detail-label">{t('admin.audit.fields.resource')}</span>
+        <span class="detail-value">{detail.resource_name} (#{detail.resource_id})</span>
+      </div>
+    {/if}
+    <div class="detail-row">
+      <span class="detail-label">{t('admin.audit.fields.ip')}</span>
+      <span class="detail-value">{detail.ip_address || '—'}</span>
+    </div>
+    <div class="detail-row detail-row-full">
+      <span class="detail-label">{t('admin.audit.fields.details')}</span>
+      <span class="detail-value">
+        {detailLoading ? t('common.loading') : detail.details || t('admin.audit.no_details')}
+      </span>
     </div>
   </div>
-</div>
+</Modal>
 
 <style>
-  .modal-overlay {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.7);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-  }
-  .modal {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 1.5rem;
-    width: 560px;
-    max-width: 90vw;
-    max-height: 80vh;
-    overflow-y: auto;
-  }
-  .modal h2 { margin: 0 0 1rem; font-size: 1.1rem; }
+  .detail-grid { margin-bottom: 0; }
+
 
   .detail-error {
     color: #f85149;
@@ -150,7 +106,6 @@
     margin-bottom: 1rem;
   }
 
-  .detail-grid { margin-bottom: 1rem; }
   .detail-row {
     display: flex;
     padding: 0.5rem 0;
@@ -191,19 +146,4 @@
   .action-badge[data-action^="org."] { border-color: #d2a8ff; color: #d2a8ff; background: rgba(210, 168, 255, 0.1); }
   .action-badge[data-action^="admin."] { border-color: #f85149; color: #f85149; background: rgba(248, 81, 73, 0.1); }
 
-  .modal-actions {
-    display: flex;
-    gap: 0.75rem;
-    justify-content: flex-end;
-    margin-top: 1rem;
-  }
-  .btn-secondary {
-    background: var(--bg-primary);
-    border: 1px solid var(--border);
-    color: var(--text-primary);
-    border-radius: 6px;
-    padding: 0.5rem 1rem;
-    cursor: pointer;
-    font-size: 0.9rem;
-  }
 </style>

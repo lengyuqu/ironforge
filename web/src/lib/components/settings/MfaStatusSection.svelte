@@ -1,8 +1,12 @@
 <script lang="ts">
+  import { createT } from '$lib/i18n';
+  import { confirmDialog } from '$lib/components/confirm.svelte';
   import { mfa, type MfaBackupStatus } from '$lib/api/client.svelte';
   import { toast } from '$lib/components/toast.svelte';
   import { toErrorMessage } from '$lib/utils/error';
 
+
+  const t = createT();
   let {
     backupStatus,
     saving = false,
@@ -26,7 +30,7 @@
       toast.error('Current password is required');
       return;
     }
-    if (!confirm('Disable multi-factor authentication for your account?')) return;
+    if (!(await confirmDialog({ variant: 'danger', message: t('confirm.mfa_disable') }))) return;
 
     disabling = true;
     try {

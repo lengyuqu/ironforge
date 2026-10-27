@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { confirmDialog } from '$lib/components/confirm.svelte';
   import { mirrors, type RepositoryMirror } from '$lib/api/client.svelte';
   import { toErrorMessage } from '$lib/utils/error';
   import { createT } from '$lib/i18n';
@@ -94,7 +95,7 @@
   }
 
   async function removeMirror() {
-    if (!mirror || !confirm(t('settings.mirror.delete_confirm'))) return;
+    if (!mirror || !(await confirmDialog({ variant: 'danger', message: t('settings.mirror.delete_confirm') }))) return;
 
     try {
       deleting = true;

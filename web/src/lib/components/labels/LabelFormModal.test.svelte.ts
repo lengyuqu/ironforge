@@ -100,4 +100,38 @@ describe('LabelFormModal.svelte', () => {
 
     expect(await screen.findByText('duplicate')).toBeInTheDocument();
   });
+
+  it('flags the name field with aria-invalid and clears it on input', async () => {
+    render(LabelFormModal, { owner: 'alice', repo: 'demo', label: null, onClose: () => {}, onSaved: () => {} });
+
+    await fireEvent.click(screen.getByText('settings.create_label'));
+    const input = screen.getByLabelText('settings.label_name');
+    await waitFor(() => expect(input).toHaveAttribute('aria-invalid', 'true'));
+    expect(input).toHaveAccessibleDescription('Label name is required');
+
+    await fireEvent.input(input, { target: { value: 'bug' } });
+    expect(input).not.toHaveAttribute('aria-invalid');
+  });
+
+  it('rejects colours that are not 6-digit hex without calling the API', async () => {
+    render(LabelFormModal, { owner: 'alice', repo: 'demo', label: null, onClose: () => {}, onSaved: () => {} });
+
+    await fireEvent.input(screen.getByLabelText('settings.label_name'), { target: { value: 'bug' } });
+    await fireEvent.input(screen.getByLabelText('settings.label_color'), { target: { value: 'red' } });
+    await fireEvent.click(screen.getByText('settings.create_label'));
+
+    expect(await screen.findByText('Use a 6-digit hex colour such as #ff8800')).toBeInTheDocument();
+    expect(labelsCreate).not.toHaveBeenCalled();
+  });
+
+  it('submits with Enter from the name field', async () => {
+    labelsCreate.mockResolvedValue(undefined);
+    render(LabelFormModal, { owner: 'alice', repo: 'demo', label: null, onClose: () => {}, onSaved: () => {} });
+
+    const input = screen.getByLabelText('settings.label_name');
+    await fireEvent.input(input, { target: { value: 'bug' } });
+    await fireEvent.keyDown(input, { key: 'Enter' });
+
+    await waitFor(() => expect(labelsCreate).toHaveBeenCalled());
+  });
 });

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { confirmDialog } from '$lib/components/confirm.svelte';
   import { imports, type ImportTask } from '$lib/api/client.svelte';
   import { toast } from '$lib/components/toast.svelte';
   import { toErrorMessage } from '$lib/utils/error';
@@ -21,7 +22,7 @@
   }
 
   async function deleteImport(task: ImportTask) {
-    if (!confirm('Cancel and delete this import task?')) return;
+    if (!(await confirmDialog({ variant: 'danger', message: t('confirm.import_delete') }))) return;
     deletingId = task.id;
     try {
       await imports.remove(task.id);

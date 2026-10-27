@@ -1,12 +1,16 @@
 <script lang="ts">
+  import { createT } from '$lib/i18n';
+  import { confirmDialog } from '$lib/components/confirm.svelte';
   import { page } from '$app/stores';
   import { ciSecrets, type CiSecret } from '$lib/api/client.svelte';
+
+  const t = createT();
   const owner = $derived($page.params.owner!); const repo = $derived($page.params.repo!);
   let items = $state<CiSecret[]>([]); let name = $state(''); let value = $state(''); let error = $state(''); let saving = $state(false);
   $effect(() => { owner; repo; load(); });
   async function load() { try { items = await ciSecrets.list(owner, repo); error = ''; } catch (e: any) { error = e.message; } }
   async function save(event: SubmitEvent) { event.preventDefault(); try { saving = true; error = ''; await ciSecrets.put(owner, repo, name.trim().toUpperCase(), value); name = ''; value = ''; await load(); } catch (e: any) { error = e.message; } finally { saving = false; } }
-  async function remove(item: CiSecret) { if (!confirm(`Delete ${item.name}?`)) return; try { await ciSecrets.delete(owner, repo, item.name); await load(); } catch (e: any) { error = e.message; } }
+  async function remove(item: CiSecret) { if (!(await confirmDialog({ variant: 'danger', message: t('confirm.ci_secret_delete', { name: item.name }) }))) return; try { await ciSecrets.delete(owner, repo, item.name); await load(); } catch (e: any) { error = e.message; } }
 </script>
 <svelte:head><title>CI secrets · {owner}/{repo}</title></svelte:head>
 <div class="settings-page"><header><h1>CI secrets</h1><p>Encrypted repository secrets are injected into jobs and masked from stored logs.</p></header>{#if error}<div class="message" role="alert">{error}</div>{/if}<section><h2>Add or replace a secret</h2><form onsubmit={save}><label for="secret-name">Name</label><input id="secret-name" bind:value={name} pattern="[A-Z_][A-Z0-9_]*" maxlength="100" placeholder="DEPLOY_TOKEN" required /><label for="secret-value">Value</label><input id="secret-value" type="password" bind:value={value} minlength="4" maxlength="65536" required /><button class="btn btn-primary" disabled={saving}>Save secret</button></form></section><section><h2>Configured secrets</h2>{#if items.length === 0}<p>No secrets configured.</p>{:else}<div class="list">{#each items as item (item.name)}<article><div><strong>{item.name}</strong><small>Updated {new Date(item.updated_at).toLocaleString()}</small></div><button class="btn btn-danger" onclick={() => remove(item)}>Delete</button></article>{/each}</div>{/if}</section></div>

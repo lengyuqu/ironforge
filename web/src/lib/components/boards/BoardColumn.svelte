@@ -1,10 +1,14 @@
 <script lang="ts">
+  import { createT } from '$lib/i18n';
+  import { confirmDialog } from '$lib/components/confirm.svelte';
   import { boards } from '$lib/api/client.svelte';
   import { toast } from '$lib/components/toast.svelte';
   import { toErrorMessage } from '$lib/utils/error';
   import type { BoardCard as BoardCardType, BoardColumn as BoardColumnType } from '$lib/types/entities';
   import BoardCard from './BoardCard.svelte';
 
+
+  const t = createT();
   let {
     owner,
     repo,
@@ -89,7 +93,7 @@
   }
 
   async function handleDeleteColumn() {
-    if (!confirm('Delete this column and all its cards?')) return;
+    if (!(await confirmDialog({ variant: 'danger', message: t('confirm.column_delete') }))) return;
     try {
       await boards.deleteColumn(owner, repo, boardId, column.id);
       await onRefresh();

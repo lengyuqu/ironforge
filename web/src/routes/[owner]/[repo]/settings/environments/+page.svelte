@@ -1,6 +1,10 @@
 <script lang="ts">
+  import { createT } from '$lib/i18n';
+  import { confirmDialog } from '$lib/components/confirm.svelte';
   import { page } from '$app/stores';
   import { ciEnvironments, type CiEnvironment } from '$lib/api/client.svelte';
+
+  const t = createT();
   const owner = $derived($page.params.owner!); const repo = $derived($page.params.repo!);
   let items = $state<CiEnvironment[]>([]); let name = $state('production'); let isProtected = $state(true);
   let required = $state(1); let approverIds = $state(''); let error = $state(''); let editingId = $state<number | null>(null);
@@ -10,7 +14,7 @@
   function resetForm() { editingId = null; name = ''; isProtected = true; required = 1; approverIds = ''; }
   function edit(item: CiEnvironment) { editingId = item.id; name = item.name; isProtected = item.protected; required = item.required_approvals; approverIds = item.allowed_approver_ids.join(', '); }
   async function save(event: SubmitEvent) { event.preventDefault(); try { if (editingId === null) await ciEnvironments.create(owner, repo, payload()); else await ciEnvironments.update(owner, repo, editingId, payload()); resetForm(); await load(); } catch (e: any) { error = e.message; } }
-  async function remove(item: CiEnvironment) { if (!confirm(`Delete environment ${item.name}?`)) return; try { await ciEnvironments.delete(owner, repo, item.id); await load(); } catch (e: any) { error = e.message; } }
+  async function remove(item: CiEnvironment) { if (!(await confirmDialog({ variant: 'danger', message: t('confirm.ci_env_delete', { name: item.name }) }))) return; try { await ciEnvironments.delete(owner, repo, item.id); await load(); } catch (e: any) { error = e.message; } }
 </script>
 <svelte:head><title>Environments · {owner}/{repo}</title></svelte:head>
 <div class="settings-page">

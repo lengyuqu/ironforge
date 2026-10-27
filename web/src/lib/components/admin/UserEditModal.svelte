@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Modal from '$lib/components/Modal.svelte';
   import { admin, type AdminUser } from '$lib/api/client.svelte';
   import { toast } from '$lib/components/toast.svelte';
   import { toErrorMessage } from '$lib/utils/error';
@@ -23,13 +24,6 @@
   let saving = $state(false);
   let error = $state('');
 
-  function closeByKey(e: KeyboardEvent) {
-    if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      onClose();
-    }
-  }
-
   async function handleSave() {
     saving = true;
     error = '';
@@ -50,55 +44,41 @@
   }
 </script>
 
-<div class="modal-overlay" onclick={onClose} role="button" tabindex="0" onkeydown={closeByKey}>
-  <div
-    class="modal"
-    role="dialog"
-    aria-modal="true"
-    tabindex="-1"
-    onclick={(e) => e.stopPropagation()}
-    onkeydown={(e) => e.stopPropagation()}
-  >
-    <h2>{t('admin.users.edit', { username: user.username })}</h2>
+<Modal
+  open={true}
+  title={t('admin.users.edit', { username: user.username })}
+  submitLabel={saving ? t('common.loading') : t('common.save')}
+  busy={saving}
+  {onClose}
+  onSubmit={handleSave}
+>
+  {#if error}
+    <div class="error" role="alert">{error}</div>
+  {/if}
 
-    {#if error}
-      <div class="error">{error}</div>
-    {/if}
-
-    <div class="form-group">
-      <label for="admin-user-display-name">Display Name</label>
-      <input id="admin-user-display-name" type="text" bind:value={editDisplayName} />
-    </div>
-
-    <div class="form-group">
-      <label for="admin-user-bio">Bio</label>
-      <textarea id="admin-user-bio" bind:value={editBio} rows="3"></textarea>
-    </div>
-
-    <div class="form-group">
-      <label class="checkbox-label">
-        <input type="checkbox" bind:checked={editIsAdmin} />
-        {t('admin.users.is_admin')}
-      </label>
-      <label class="checkbox-label">
-        <input type="checkbox" bind:checked={editIsActive} />
-        {t('admin.users.is_active')}
-      </label>
-    </div>
-
-    <div class="modal-actions">
-      <button class="btn-primary" onclick={handleSave} disabled={saving}>
-        {saving ? t('common.loading') : t('common.save')}
-      </button>
-      <button class="btn-secondary" onclick={onClose}>{t('common.cancel')}</button>
-    </div>
+  <div class="form-group">
+    <label for="admin-user-display-name">{t('admin.users.display_name')}</label>
+    <input id="admin-user-display-name" type="text" bind:value={editDisplayName} />
   </div>
-</div>
+
+  <div class="form-group">
+    <label for="admin-user-bio">{t('admin.users.bio')}</label>
+    <textarea id="admin-user-bio" bind:value={editBio} rows="3"></textarea>
+  </div>
+
+  <div class="form-group">
+    <label class="checkbox-label">
+      <input type="checkbox" bind:checked={editIsAdmin} />
+      {t('admin.users.is_admin')}
+    </label>
+    <label class="checkbox-label">
+      <input type="checkbox" bind:checked={editIsActive} />
+      {t('admin.users.is_active')}
+    </label>
+  </div>
+</Modal>
 
 <style>
-  h2 {
-    margin: 0 0 1rem;
-  }
 
   .form-group {
     display: flex;
@@ -129,50 +109,6 @@
     gap: 0.5rem;
     cursor: pointer;
     color: var(--text-primary);
-  }
-
-  .modal-overlay {
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.5);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 100;
-  }
-
-  .modal {
-    background: var(--bg-primary);
-    padding: 1.5rem;
-    border-radius: 10px;
-    min-width: 360px;
-    max-width: 440px;
-  }
-
-  .modal-actions {
-    display: flex;
-    gap: 0.75rem;
-    justify-content: flex-end;
-  }
-
-  .btn-primary,
-  .btn-secondary {
-    padding: 0.5rem 1rem;
-    border-radius: 6px;
-    border: none;
-    cursor: pointer;
-    font-size: 0.9rem;
-  }
-
-  .btn-primary {
-    background: var(--accent);
-    color: #fff;
-  }
-
-  .btn-secondary {
-    background: var(--bg-secondary);
-    color: var(--text-primary);
-    border: 1px solid var(--border);
   }
 
   .error {

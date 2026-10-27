@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { promptDialog } from '$lib/components/confirm.svelte';
   import { reviews } from '$lib/api/client.svelte';
   import { toast } from '$lib/components/toast.svelte';
   import { toErrorMessage } from '$lib/utils/error';
@@ -35,7 +36,12 @@
   }
 
   async function handleDismiss(review: PrReview) {
-    const message = prompt(t('pulls.review.dismiss_prompt', 'Reason for dismissing this review:'));
+    const message = await promptDialog({
+      message: t('pulls.review.dismiss_prompt', 'Reason for dismissing this review:'),
+      confirmLabel: t('pulls.review.dismiss', 'Dismiss'),
+      multiline: true,
+      required: true,
+    });
     if (message === null) return;
     const reason = message.trim() || t('pulls.review.dismiss_default', 'Review dismissed');
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { confirmDialog } from '$lib/components/confirm.svelte';
   import { goto } from '$app/navigation';
   import { repos } from '$lib/api/client.svelte';
   import { toErrorMessage } from '$lib/utils/error';
@@ -22,7 +23,7 @@
   async function handleTransfer() {
     if (!newOwner.trim()) return;
 
-    const confirmed = confirm(t('settings.transfer.warning'));
+    const confirmed = (await confirmDialog({ variant: 'danger', message: t('settings.transfer.warning') }));
     if (!confirmed) return;
 
     try {

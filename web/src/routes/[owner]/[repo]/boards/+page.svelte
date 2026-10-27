@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { confirmDialog } from '$lib/components/confirm.svelte';
   import { page } from '$app/stores';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
   import { boards } from '$lib/api/client.svelte';
@@ -64,7 +65,7 @@
   }
 
   async function handleDeleteBoard(id: number) {
-    if (!confirm(t('board.confirmDelete'))) return;
+    if (!(await confirmDialog({ variant: 'danger', message: t('board.confirmDelete') }))) return;
     try {
       await boards.delete(owner, repo, id);
       activeBoard = null;

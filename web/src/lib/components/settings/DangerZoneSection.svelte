@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { confirmDialog } from '$lib/components/confirm.svelte';
   import { goto } from '$app/navigation';
   import { repos } from '$lib/api/client.svelte';
   import { toErrorMessage } from '$lib/utils/error';
@@ -23,7 +24,7 @@
   async function handleDelete() {
     if (deleteConfirm !== repositoryPath) return;
 
-    const confirmed = confirm(t('settings.delete.desc'));
+    const confirmed = (await confirmDialog({ variant: 'danger', message: t('settings.delete.desc') }));
     if (!confirmed) return;
 
     try {

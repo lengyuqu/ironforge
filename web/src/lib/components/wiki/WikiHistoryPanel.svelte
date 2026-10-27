@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { confirmDialog } from '$lib/components/confirm.svelte';
   import { wiki } from '$lib/api/client.svelte';
   import { toast } from '$lib/components/toast.svelte';
   import { toErrorMessage } from '$lib/utils/error';
@@ -58,7 +59,7 @@
   }
 
   async function restoreRevision(rev: WikiRevision) {
-    if (!confirm(`Restore version ${rev.version}? Current content will become a revision.`)) return;
+    if (!(await confirmDialog({ variant: 'danger', message: t('confirm.wiki_restore', { version: rev.version }) }))) return;
     restoring = true;
     try {
       await wiki.update(owner, repo, title, viewingRevision?.content ?? rev.content);

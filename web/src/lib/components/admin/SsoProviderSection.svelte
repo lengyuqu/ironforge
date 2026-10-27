@@ -1,10 +1,14 @@
 <script lang="ts">
   // SSO providers section — self-contained: loads/manages the provider list
   // and the create/edit form (test connection, enable/disable, delete).
+  import { createT } from '$lib/i18n';
+  import { confirmDialog } from '$lib/components/confirm.svelte';
   import { admin, type AdminSsoProvider, type SsoProviderPayload } from '$lib/api/client.svelte';
   import { toast } from '$lib/components/toast.svelte';
   import { toErrorMessage } from '$lib/utils/error';
 
+
+  const t = createT();
   function emptySsoProviderForm(): SsoProviderPayload {
     return {
       name: '',
@@ -140,7 +144,7 @@
   }
 
   async function deleteSsoProvider(provider: AdminSsoProvider) {
-    if (!confirm(`Delete SSO provider "${provider.name}"?`)) return;
+    if (!(await confirmDialog({ variant: 'danger', message: t('confirm.sso_delete', { name: provider.name }) }))) return;
     try {
       await admin.deleteSsoProvider(provider.id);
       await reloadProviders();
