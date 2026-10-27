@@ -169,35 +169,9 @@
 
 <style>
 
-
-
-
-  .form-group {
-    margin-bottom: 1.25rem;
-  }
-
-  .form-group label {
-    display: block;
-    margin-bottom: 0.5rem;
-    color: var(--text-primary);
-    font-weight: 500;
-    font-size: 0.9rem;
-  }
-
   .form-group input[type='text'] {
     width: 100%;
-    padding: 0.6rem 0.75rem;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    color: var(--text-primary);
-    font-size: 0.9rem;
     box-sizing: border-box;
-  }
-
-  .form-group input[type='text']:focus {
-    outline: none;
-    border-color: var(--accent);
   }
 
   .preset-colors {

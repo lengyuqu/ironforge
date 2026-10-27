@@ -219,30 +219,7 @@
     color: var(--text-muted);
   }
 
-  .field-error {
-    color: var(--red);
-    font-size: 12px;
-    font-weight: 400;
-  }
-
   textarea {
-    font-family: var(--font-mono);
-    font-size: 13px;
     resize: vertical;
-  }
-
-  select {
-    padding: 6px 8px;
-    background: var(--bg-primary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    color: var(--text-primary);
-    font-size: 13px;
-  }
-
-  .form-actions {
-    display: flex;
-    gap: 8px;
-    margin-top: 8px;
   }
 </style>

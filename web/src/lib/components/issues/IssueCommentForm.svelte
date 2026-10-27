@@ -81,14 +81,7 @@
 
   textarea {
     width: 100%;
-    font-family: var(--font-mono);
-    font-size: 13px;
     resize: vertical;
     margin-bottom: 8px;
-  }
-
-  .form-actions {
-    display: flex;
-    gap: 8px;
   }
 </style>

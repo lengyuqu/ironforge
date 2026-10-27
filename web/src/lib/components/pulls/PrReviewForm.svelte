@@ -85,8 +85,6 @@
 
   textarea {
     width: 100%;
-    font-family: var(--font-mono);
-    font-size: 13px;
     resize: vertical;
     margin-bottom: 12px;
   }

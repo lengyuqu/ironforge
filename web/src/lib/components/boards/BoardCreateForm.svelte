@@ -52,8 +52,7 @@
     margin-bottom: 16px; flex-wrap: wrap;
   }
   .form-input {
-    flex: 1; min-width: 180px; padding: 6px 12px;
-    border: 1px solid var(--border); border-radius: var(--radius);
-    background: var(--bg-primary); color: var(--text-primary); font-size: 14px;
+    flex: 1;
+    min-width: 180px;
   }
 </style>

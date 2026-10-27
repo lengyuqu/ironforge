@@ -102,26 +102,8 @@
     flex-wrap: wrap;
   }
 
-  .form-group {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
   .form-group label {
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--text-secondary);
     text-transform: uppercase;
-  }
-
-  .form-group input {
-    padding: 6px 10px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--bg-primary);
-    color: var(--text-primary);
-    font-size: 14px;
   }
 
   .form-group input[type='number'] {

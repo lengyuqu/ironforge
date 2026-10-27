@@ -235,12 +235,6 @@
     color: var(--text-muted);
   }
 
-  .field-error {
-    color: var(--red);
-    font-size: 12px;
-    font-weight: 400;
-  }
-
   .draft-option {
     flex-direction: row;
     align-items: center;
@@ -251,13 +245,7 @@
     width: auto;
   }
 
-  select {
-    padding: 6px 10px;
-  }
-
   textarea {
-    font-family: var(--font-mono);
-    font-size: 13px;
     resize: vertical;
   }
 
@@ -271,12 +259,6 @@
     font-size: 20px;
     color: var(--text-muted);
     margin-bottom: 8px;
-  }
-
-  .form-actions {
-    display: flex;
-    gap: 8px;
-    margin-top: 8px;
   }
 
 </style>
