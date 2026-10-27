@@ -3,6 +3,7 @@
   // report failures via toast. Dual mode: when the `release` prop is
   // provided it edits an existing release (tag locked, no target picker);
   // otherwise it creates a new one (tag + target_commitish selectable).
+  import FormField from '$lib/components/FormField.svelte';
   import { releases } from '$lib/api/client.svelte';
   import { toast } from '$lib/components/toast.svelte';
   import { toErrorMessage } from '$lib/utils/error';
@@ -136,16 +137,17 @@
     />
   </div>
 
-  <div class="form-group">
-    <label for="body">{t('releases.body')}</label>
-    <textarea
-      id="body"
-      bind:value={body}
-      placeholder={t('releases.body_placeholder')}
-      rows="8"
-      class="textarea"
-    ></textarea>
-  </div>
+  <FormField id="body" label={t('releases.body')}>
+    {#snippet children()}
+      <textarea
+        id="body"
+        bind:value={body}
+        placeholder={t('releases.body_placeholder')}
+        rows="8"
+        class="textarea"
+      ></textarea>
+    {/snippet}
+  </FormField>
 
   {#if !isEdit}
     <div class="form-group">

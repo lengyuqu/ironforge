@@ -1,6 +1,7 @@
 <script lang="ts">
   // Branch protection form — self-contained: create/edit a protection rule
   // via the branchProtections API, reporting success/failure via toast.
+  import FormField from '$lib/components/FormField.svelte';
   import {
     branchProtections,
     type BranchProtectionPayload,
@@ -129,15 +130,17 @@
   <h2>{editingRule ? t('settings.branch_protection.edit_title') : t('settings.branch_protection.create_title')}</h2>
   <form class="rule-form" onsubmit={saveRule}>
     <div class="form-grid">
-      <div class="form-group">
-        <label for="protected-branch">{t('settings.branch_protection.branch')}</label>
-        <input id="protected-branch" bind:value={form.branch_name} disabled={saving || Boolean(editingRule)} placeholder="main" />
-      </div>
+      <FormField id="protected-branch" label={t('settings.branch_protection.branch')}>
+        {#snippet children()}
+          <input id="protected-branch" bind:value={form.branch_name} disabled={saving || Boolean(editingRule)} placeholder="main" />
+        {/snippet}
+      </FormField>
 
-      <div class="form-group">
-        <label for="required-approvals">{t('settings.branch_protection.required_approvals')}</label>
-        <input id="required-approvals" type="number" min="1" bind:value={form.required_approvals} disabled={saving || !form.require_approval} />
-      </div>
+      <FormField id="required-approvals" label={t('settings.branch_protection.required_approvals')}>
+        {#snippet children()}
+          <input id="required-approvals" type="number" min="1" bind:value={form.required_approvals} disabled={saving || !form.require_approval} />
+        {/snippet}
+      </FormField>
 
       <label class="check-row">
         <input type="checkbox" bind:checked={form.require_pr} disabled={saving} />
@@ -165,15 +168,17 @@
       </label>
     </div>
 
-    <div class="form-group">
-      <label for="required-checks">{t('settings.branch_protection.required_checks')}</label>
-      <input id="required-checks" bind:value={form.required_status_checks} disabled={saving || !form.require_status_check} placeholder="test, lint" />
-    </div>
+    <FormField id="required-checks" label={t('settings.branch_protection.required_checks')}>
+      {#snippet children()}
+        <input id="required-checks" bind:value={form.required_status_checks} disabled={saving || !form.require_status_check} placeholder="test, lint" />
+      {/snippet}
+    </FormField>
 
-    <div class="form-group">
-      <label for="allowed-pushers">{t('settings.branch_protection.allowed_pushers')}</label>
-      <input id="allowed-pushers" bind:value={form.allowed_push_user_ids} disabled={saving} placeholder="42, 108" />
-    </div>
+    <FormField id="allowed-pushers" label={t('settings.branch_protection.allowed_pushers')}>
+      {#snippet children()}
+        <input id="allowed-pushers" bind:value={form.allowed_push_user_ids} disabled={saving} placeholder="42, 108" />
+      {/snippet}
+    </FormField>
 
     <div class="form-actions">
       {#if editingRule}

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import FormField from '$lib/components/FormField.svelte';
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { timeTracking } from '$lib/api/client.svelte';
   import { toErrorMessage } from '$lib/utils/error';
@@ -51,17 +52,18 @@
   {/if}
 
   <div class="form-row">
-    <div class="form-group">
-      <label for="tt-dur">Duration (hours)</label>
-      <input
-        id="tt-dur"
-        type="number"
-        min="0.25"
-        step="0.25"
-        bind:value={durationHours}
-        disabled={saving}
-      />
-    </div>
+    <FormField id="tt-dur" label="Duration (hours)">
+      {#snippet children()}
+        <input
+          id="tt-dur"
+          type="number"
+          min="0.25"
+          step="0.25"
+          bind:value={durationHours}
+          disabled={saving}
+        />
+      {/snippet}
+    </FormField>
     <div class="form-group flex-grow">
       <label for="tt-desc">Note</label>
       <input
@@ -102,11 +104,14 @@
     flex-wrap: wrap;
   }
 
-  .form-group label {
+  .form-row :global(.form-group > label) {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
     text-transform: uppercase;
   }
 
-  .form-group input[type='number'] {
+  .form-row input[type='number'] {
     width: 90px;
   }
 

@@ -3,6 +3,7 @@
   // notes, file input and optional metadata fields; publishes via the
   // packages API and reports the result to the parent via callbacks.
   // Inline error/success banners stay inside the form.
+  import FormField from '$lib/components/FormField.svelte';
   import SuccessBanner from '$lib/components/SuccessBanner.svelte';
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { packages } from '$lib/api/client.svelte';
@@ -112,41 +113,47 @@
     </div>
   </div>
 
-  <div class="form-group">
-    <label for="name">Name</label>
-    <input id="name" type="text" bind:value={packageName} class="input" placeholder="Package name" />
-  </div>
+  <FormField id="name" label="Name">
+    {#snippet children()}
+      <input id="name" type="text" bind:value={packageName} class="input" placeholder="Package name" />
+    {/snippet}
+  </FormField>
 
-  <div class="form-group">
-    <label for="version">{t('packages.version')}</label>
-    <input
-      id="version"
-      type="text"
-      bind:value={packageVersion}
-      class="input"
-      placeholder={t('packages.version')}
-    />
-  </div>
+  <FormField id="version" label={t('packages.version')}>
+    {#snippet children()}
+      <input
+        id="version"
+        type="text"
+        bind:value={packageVersion}
+        class="input"
+        placeholder={t('packages.version')}
+      />
+    {/snippet}
+  </FormField>
 
-  <div class="form-group">
-    <label for="description">{t('packages.description')}</label>
-    <textarea id="description" bind:value={description} class="textarea" rows="3"></textarea>
-  </div>
+  <FormField id="description" label={t('packages.description')}>
+    {#snippet children()}
+      <textarea id="description" bind:value={description} class="textarea" rows="3"></textarea>
+    {/snippet}
+  </FormField>
 
-  <div class="form-group">
-    <label for="homepage">Homepage</label>
-    <input id="homepage" type="text" bind:value={homepage} class="input" />
-  </div>
+  <FormField id="homepage" label="Homepage">
+    {#snippet children()}
+      <input id="homepage" type="text" bind:value={homepage} class="input" />
+    {/snippet}
+  </FormField>
 
-  <div class="form-group">
-    <label for="repository-url">Repository URL</label>
-    <input id="repository-url" type="text" bind:value={repositoryUrl} class="input" />
-  </div>
+  <FormField id="repository-url" label="Repository URL">
+    {#snippet children()}
+      <input id="repository-url" type="text" bind:value={repositoryUrl} class="input" />
+    {/snippet}
+  </FormField>
 
-  <div class="form-group">
-    <label for="semver">Semver</label>
-    <input id="semver" type="text" bind:value={semver} class="input" />
-  </div>
+  <FormField id="semver" label="Semver">
+    {#snippet children()}
+      <input id="semver" type="text" bind:value={semver} class="input" />
+    {/snippet}
+  </FormField>
 
   <div class="form-actions">
     <button type="submit" class="btn-primary" disabled={uploading || !packageFile}>

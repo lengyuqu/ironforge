@@ -2,6 +2,7 @@
   // Instance settings section — maintenance mode toggle + instance banner.
   // Self-contained: initialises from the loaded settings and persists via
   // admin.updateSettings, syncing the banner store on save.
+  import FormField from '$lib/components/FormField.svelte';
   import { setBanner, clearBanner } from '$lib/stores/instance.svelte';
   import { admin } from '$lib/api/client.svelte';
   import { toast } from '$lib/components/toast.svelte';
@@ -58,23 +59,25 @@
 
 <div class="section">
   <h2>Instance Banner</h2>
-  <div class="form-group">
-    <label for="admin-banner-message">Banner Message (leave empty to hide)</label>
-    <input
-      id="admin-banner-message"
-      type="text"
-      bind:value={bannerMessage}
-      placeholder="e.g. Scheduled maintenance tonight at 2am"
-    />
-  </div>
-  <div class="form-group">
-    <label for="admin-banner-type">Banner Type</label>
-    <select id="admin-banner-type" bind:value={bannerType}>
-      <option value="info">Info (blue)</option>
-      <option value="warning">Warning (yellow)</option>
-      <option value="error">Error (red)</option>
-    </select>
-  </div>
+  <FormField id="admin-banner-message" label="Banner Message (leave empty to hide)">
+    {#snippet children()}
+      <input
+        id="admin-banner-message"
+        type="text"
+        bind:value={bannerMessage}
+        placeholder="e.g. Scheduled maintenance tonight at 2am"
+      />
+    {/snippet}
+  </FormField>
+  <FormField id="admin-banner-type" label="Banner Type">
+    {#snippet children()}
+      <select id="admin-banner-type" bind:value={bannerType}>
+        <option value="info">Info (blue)</option>
+        <option value="warning">Warning (yellow)</option>
+        <option value="error">Error (red)</option>
+      </select>
+    {/snippet}
+  </FormField>
 </div>
 
 <div class="actions">
@@ -97,12 +100,6 @@
   .toggle-row { display: flex; align-items: center; gap: 10px; font-size: 14px; cursor: pointer; }
   .toggle-row input[type='checkbox'] { width: 18px; height: 18px; }
 
-  .form-group { margin-top: 12px; }
-  .form-group input,
-  .form-group select {
-    width: 100%;
-    box-sizing: border-box;
-  }
 
   .actions { margin-top: 16px; }
 </style>

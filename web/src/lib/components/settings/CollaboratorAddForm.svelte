@@ -1,4 +1,5 @@
 <script lang="ts">
+  import FormField from '$lib/components/FormField.svelte';
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { collaborators } from '$lib/api/client.svelte';
   import { toErrorMessage } from '$lib/utils/error';
@@ -59,25 +60,27 @@
   {/if}
 
   <form class="add-form" onsubmit={handleAdd}>
-    <div class="form-group">
-      <label for="collaborator-user">{t('settings.collaborators.user_identifier')}</label>
-      <input
-        id="collaborator-user"
-        type="text"
-        bind:value={userIdentifier}
-        placeholder={t('settings.collaborators.user_placeholder')}
-        disabled={adding}
-      />
-    </div>
+    <FormField id="collaborator-user" label={t('settings.collaborators.user_identifier')}>
+      {#snippet children()}
+        <input
+          id="collaborator-user"
+          type="text"
+          bind:value={userIdentifier}
+          placeholder={t('settings.collaborators.user_placeholder')}
+          disabled={adding}
+        />
+      {/snippet}
+    </FormField>
 
-    <div class="form-group">
-      <label for="collaborator-permission">{t('settings.collaborators.permission')}</label>
-      <select id="collaborator-permission" bind:value={permission} disabled={adding}>
-        {#each permissionOptions as option (option.value)}
-          <option value={option.value}>{option.label}</option>
-        {/each}
-      </select>
-    </div>
+    <FormField id="collaborator-permission" label={t('settings.collaborators.permission')}>
+      {#snippet children()}
+        <select id="collaborator-permission" bind:value={permission} disabled={adding}>
+          {#each permissionOptions as option (option.value)}
+            <option value={option.value}>{option.label}</option>
+          {/each}
+        </select>
+      {/snippet}
+    </FormField>
 
     <button class="btn btn-primary" type="submit" disabled={adding || !userIdentifier.trim()}>
       {adding ? t('settings.collaborators.adding') : t('settings.collaborators.add')}
@@ -105,11 +108,6 @@
     gap: 1rem;
   }
 
-  label {
-    color: var(--text-primary);
-    font-size: 0.9rem;
-    font-weight: 500;
-  }
 
   input,
   select {

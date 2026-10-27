@@ -1,4 +1,5 @@
 <script lang="ts">
+  import FormField from '$lib/components/FormField.svelte';
   import SuccessBanner from '$lib/components/SuccessBanner.svelte';
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { confirmDialog } from '$lib/components/confirm.svelte';
@@ -126,39 +127,42 @@
   {/if}
 
   <form class="mirror-form" onsubmit={saveMirror}>
-    <div class="form-group">
-      <label for="mirror-url">{t('settings.mirror.url')}</label>
-      <input
-        id="mirror-url"
-        type="url"
-        bind:value={url}
-        placeholder="https://github.com/org/repo.git"
-        disabled={saving}
-      />
-    </div>
+    <FormField id="mirror-url" label={t('settings.mirror.url')}>
+      {#snippet children()}
+        <input
+          id="mirror-url"
+          type="url"
+          bind:value={url}
+          placeholder="https://github.com/org/repo.git"
+          disabled={saving}
+        />
+      {/snippet}
+    </FormField>
 
     <div class="form-row">
-      <div class="form-group">
-        <label for="mirror-username">{t('settings.mirror.username')}</label>
-        <input
-          id="mirror-username"
-          type="text"
-          bind:value={username}
-          autocomplete="username"
-          disabled={saving}
-        />
-      </div>
-      <div class="form-group">
-        <label for="mirror-password">{t('settings.mirror.password')}</label>
-        <input
-          id="mirror-password"
-          type="password"
-          bind:value={password}
-          autocomplete="new-password"
-          disabled={saving}
-          placeholder={mirror ? t('settings.mirror.password_placeholder') : ''}
-        />
-      </div>
+      <FormField id="mirror-username" label={t('settings.mirror.username')}>
+        {#snippet children()}
+          <input
+            id="mirror-username"
+            type="text"
+            bind:value={username}
+            autocomplete="username"
+            disabled={saving}
+          />
+        {/snippet}
+      </FormField>
+      <FormField id="mirror-password" label={t('settings.mirror.password')}>
+        {#snippet children()}
+          <input
+            id="mirror-password"
+            type="password"
+            bind:value={password}
+            autocomplete="new-password"
+            disabled={saving}
+            placeholder={mirror ? t('settings.mirror.password_placeholder') : ''}
+          />
+        {/snippet}
+      </FormField>
     </div>
 
     <div class="form-group small">

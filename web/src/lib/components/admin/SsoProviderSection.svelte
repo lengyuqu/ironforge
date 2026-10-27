@@ -1,6 +1,7 @@
 <script lang="ts">
   // SSO providers section — self-contained: loads/manages the provider list
   // and the create/edit form (test connection, enable/disable, delete).
+  import FormField from '$lib/components/FormField.svelte';
   import { createT } from '$lib/i18n';
   import { confirmDialog } from '$lib/components/confirm.svelte';
   import { admin, type AdminSsoProvider, type SsoProviderPayload } from '$lib/api/client.svelte';
@@ -214,75 +215,89 @@
   <div class="sso-form">
     <h3>{editingSsoId ? 'Edit SSO Provider' : 'Add SSO Provider'}</h3>
     <div class="form-grid">
-      <div class="form-group">
-        <label for="sso-name">Name</label>
-        <input id="sso-name" type="text" bind:value={ssoForm.name} placeholder="Google Workspace" />
-      </div>
-      <div class="form-group">
-        <label for="sso-slug">Slug</label>
-        <input id="sso-slug" type="text" bind:value={ssoForm.slug} placeholder="google" />
-      </div>
-      <div class="form-group">
-        <label for="sso-type">Type</label>
-        <select id="sso-type" bind:value={ssoForm.provider_type}>
-          <option value="oauth2">OAuth2 / OIDC</option>
-          <option value="ldap">LDAP</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label for="sso-client-id">Client ID</label>
-        <input id="sso-client-id" type="text" bind:value={ssoForm.client_id} />
-      </div>
-      <div class="form-group">
-        <label for="sso-client-secret">Client Secret</label>
-        <input
-          id="sso-client-secret"
-          type="password"
-          bind:value={ssoForm.client_secret}
-          placeholder={editingSsoId ? 'Leave blank to keep existing secret' : ''}
-        />
-      </div>
-      <div class="form-group">
-        <label for="sso-discovery-url">Discovery URL</label>
-        <input id="sso-discovery-url" type="url" bind:value={ssoForm.discovery_url} />
-      </div>
-      <div class="form-group">
-        <label for="sso-scopes">Scopes</label>
-        <input id="sso-scopes" type="text" bind:value={ssoForm.scopes} />
-      </div>
-      <div class="form-group">
-        <label for="sso-icon-url">Icon URL</label>
-        <input id="sso-icon-url" type="url" bind:value={ssoForm.icon_url} />
-      </div>
-      <div class="form-group">
-        <label for="sso-ldap-host">LDAP Host</label>
-        <input id="sso-ldap-host" type="text" bind:value={ssoForm.ldap_host} placeholder="ldap.example.com (LDAPS by default)" />
-      </div>
-      <div class="form-group">
-        <label for="sso-ldap-port">LDAP Port</label>
-        <input id="sso-ldap-port" type="number" min="1" bind:value={ssoForm.ldap_port} />
-      </div>
-      <div class="form-group">
-        <label for="sso-ldap-bind-dn">LDAP Bind DN</label>
-        <input id="sso-ldap-bind-dn" type="text" bind:value={ssoForm.ldap_bind_dn} />
-      </div>
-      <div class="form-group">
-        <label for="sso-ldap-bind-password">LDAP Bind Password</label>
-        <input
-          id="sso-ldap-bind-password"
-          type="password"
-          bind:value={ssoForm.ldap_bind_password}
-          placeholder={editingSsoId ? 'Leave blank to keep existing password' : ''}
-        />
-      </div>
-      <div class="form-group">
-        <label for="sso-ldap-base-dn">LDAP Base DN</label>
-        <input id="sso-ldap-base-dn" type="text" bind:value={ssoForm.ldap_base_dn} />
-      </div>
-      <div class="form-group">
-        <label for="sso-ldap-filter">LDAP User Filter</label>
-        <input id="sso-ldap-filter" type="text" bind:value={ssoForm.ldap_user_filter} placeholder={'(uid={username})'} />
-      </div>
+      <FormField id="sso-name" label="Name">
+        {#snippet children()}
+          <input id="sso-name" type="text" bind:value={ssoForm.name} placeholder="Google Workspace" />
+        {/snippet}
+      </FormField>
+      <FormField id="sso-slug" label="Slug">
+        {#snippet children()}
+          <input id="sso-slug" type="text" bind:value={ssoForm.slug} placeholder="google" />
+        {/snippet}
+      </FormField>
+      <FormField id="sso-type" label="Type">
+        {#snippet children()}
+          <select id="sso-type" bind:value={ssoForm.provider_type}>
+            <option value="oauth2">OAuth2 / OIDC</option>
+            <option value="ldap">LDAP</option>
+          </select>
+        {/snippet}
+      </FormField>
+      <FormField id="sso-client-id" label="Client ID">
+        {#snippet children()}
+          <input id="sso-client-id" type="text" bind:value={ssoForm.client_id} />
+        {/snippet}
+      </FormField>
+      <FormField id="sso-client-secret" label="Client Secret">
+        {#snippet children()}
+          <input
+            id="sso-client-secret"
+            type="password"
+            bind:value={ssoForm.client_secret}
+            placeholder={editingSsoId ? 'Leave blank to keep existing secret' : ''}
+          />
+        {/snippet}
+      </FormField>
+      <FormField id="sso-discovery-url" label="Discovery URL">
+        {#snippet children()}
+          <input id="sso-discovery-url" type="url" bind:value={ssoForm.discovery_url} />
+        {/snippet}
+      </FormField>
+      <FormField id="sso-scopes" label="Scopes">
+        {#snippet children()}
+          <input id="sso-scopes" type="text" bind:value={ssoForm.scopes} />
+        {/snippet}
+      </FormField>
+      <FormField id="sso-icon-url" label="Icon URL">
+        {#snippet children()}
+          <input id="sso-icon-url" type="url" bind:value={ssoForm.icon_url} />
+        {/snippet}
+      </FormField>
+      <FormField id="sso-ldap-host" label="LDAP Host">
+        {#snippet children()}
+          <input id="sso-ldap-host" type="text" bind:value={ssoForm.ldap_host} placeholder="ldap.example.com (LDAPS by default)" />
+        {/snippet}
+      </FormField>
+      <FormField id="sso-ldap-port" label="LDAP Port">
+        {#snippet children()}
+          <input id="sso-ldap-port" type="number" min="1" bind:value={ssoForm.ldap_port} />
+        {/snippet}
+      </FormField>
+      <FormField id="sso-ldap-bind-dn" label="LDAP Bind DN">
+        {#snippet children()}
+          <input id="sso-ldap-bind-dn" type="text" bind:value={ssoForm.ldap_bind_dn} />
+        {/snippet}
+      </FormField>
+      <FormField id="sso-ldap-bind-password" label="LDAP Bind Password">
+        {#snippet children()}
+          <input
+            id="sso-ldap-bind-password"
+            type="password"
+            bind:value={ssoForm.ldap_bind_password}
+            placeholder={editingSsoId ? 'Leave blank to keep existing password' : ''}
+          />
+        {/snippet}
+      </FormField>
+      <FormField id="sso-ldap-base-dn" label="LDAP Base DN">
+        {#snippet children()}
+          <input id="sso-ldap-base-dn" type="text" bind:value={ssoForm.ldap_base_dn} />
+        {/snippet}
+      </FormField>
+      <FormField id="sso-ldap-filter" label="LDAP User Filter">
+        {#snippet children()}
+          <input id="sso-ldap-filter" type="text" bind:value={ssoForm.ldap_user_filter} placeholder={'(uid={username})'} />
+        {/snippet}
+      </FormField>
     </div>
     <div class="toggle-row">
       <input id="sso-enabled" type="checkbox" bind:checked={ssoForm.enabled} />
@@ -314,12 +329,6 @@
   .toggle-row { display: flex; align-items: center; gap: 10px; font-size: 14px; cursor: pointer; }
   .toggle-row input[type='checkbox'] { width: 18px; height: 18px; }
 
-  .form-group { margin-top: 12px; }
-  .form-group input,
-  .form-group select {
-    width: 100%;
-    box-sizing: border-box;
-  }
 
   .inline-actions { display: flex; gap: 8px; margin-top: 16px; }
 
