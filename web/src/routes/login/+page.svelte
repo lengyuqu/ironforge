@@ -177,7 +177,8 @@
 <style>
 
   .login-card {
-    width: 340px;
+    width: 100%;
+    max-width: 340px;
     padding: 32px;
   }
 

@@ -75,7 +75,8 @@
 
 <style>
   .login-card {
-    width: 360px;
+    width: 100%;
+    max-width: 360px;
     padding: 32px;
   }
 

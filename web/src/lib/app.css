@@ -610,6 +610,7 @@ main > .search-page {
 
 main > .login-page,
 main > .reset-page {
+  display: flex;
   min-height: calc(100vh - 62px);
   align-items: center !important;
   justify-content: center !important;
