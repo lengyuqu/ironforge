@@ -168,7 +168,7 @@
   }
 </script>
 
-<div class="section">
+<div class="section surface">
   <h2>SSO Providers</h2>
   {#if ssoTestResult}
     <div class="connection-result" class:success={ssoTestResult.ok}>
@@ -323,9 +323,6 @@
   }
 
   .section {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
     padding: 16px;
     margin-bottom: 16px;
   }

@@ -60,7 +60,7 @@
 </script>
 
 {#if newToken}
-  <section class="token-created" aria-label="New access token">
+  <section class="token-created surface" aria-label="New access token">
     <div>
       <strong>{t('settings.tokens.created_title', 'New token')}</strong>
       <p>{t('settings.tokens.created_hint', 'Copy this value before leaving the page.')}</p>
@@ -134,9 +134,6 @@
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 12px;
     align-items: center;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
     padding: 14px 16px;
     margin-bottom: 20px;
   }

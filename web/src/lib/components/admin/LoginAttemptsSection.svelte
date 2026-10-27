@@ -59,8 +59,8 @@
   }
 </script>
 
-<div class="section">
-  <div class="section-heading">
+<div class="section surface">
+  <div class="section-heading surface">
     <div>
       <h2>Login Attempts</h2>
       <span class="text-secondary">{total} matching events</span>
@@ -111,9 +111,6 @@
   }
 
   .section {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
     padding: 16px;
     margin-bottom: 16px;
   }

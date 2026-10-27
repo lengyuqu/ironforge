@@ -84,7 +84,7 @@
     {/if}
 
     <!-- Organization Repositories -->
-    <div class="section" style="margin-bottom: 1.5rem;">
+    <div class="section surface" style="margin-bottom: 1.5rem;">
       <h2>{t('orgs.repositories', { count: String(orgRepos.length) })}</h2>
       <div class="create-form">
         <input type="text" bind:value={newRepoName} placeholder={t('orgs.new_repo')} />
@@ -111,7 +111,7 @@
 
     <div class="grid">
       <!-- Teams -->
-      <div class="section">
+      <div class="section surface">
         <h2>{t('orgs.teams', { count: String(teams.length) })}</h2>
         <div class="create-form">
           <input type="text" bind:value={newTeamName} placeholder={t('orgs.new_team')} />
@@ -135,7 +135,7 @@
       </div>
 
       <!-- Members -->
-      <div class="section">
+      <div class="section surface">
         <h2>{t('orgs.members', { count: String(members.length) })}</h2>
         {#if members.length === 0}
           <EmptyState title={t('orgs.no_members')} />
@@ -159,7 +159,9 @@
   .org-meta { color: var(--text-secondary); font-size: 0.9rem; margin: 0.3rem 0 0; }
   .org-desc { color: var(--text-primary); margin: 0.5rem 0 0; }
   .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
-  .section { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem; }
+  .section {
+    padding: 1.25rem;
+  }
   h2 {
     color: var(--text-primary);
     margin: 0 0 1rem;

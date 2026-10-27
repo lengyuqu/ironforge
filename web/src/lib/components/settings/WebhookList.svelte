@@ -57,7 +57,7 @@
 {:else}
   <div class="hook-list">
     {#each hooks as hook (hook.id)}
-      <article class="hook-item">
+      <article class="hook-item surface">
         <div class="hook-main">
           <div class="hook-url">{hook.url}</div>
           <div class="hook-meta">
@@ -91,9 +91,6 @@
     justify-content: space-between;
     gap: 1rem;
     padding: 1rem;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    background: var(--bg-secondary);
   }
 
   .hook-main {

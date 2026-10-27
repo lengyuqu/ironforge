@@ -49,7 +49,7 @@
   }
 </script>
 
-<div class="section">
+<div class="section surface">
   <h2>Maintenance Mode</h2>
   <div class="toggle-row">
     <input id="admin-maintenance-mode" type="checkbox" bind:checked={maintenanceMode} />
@@ -57,7 +57,7 @@
   </div>
 </div>
 
-<div class="section">
+<div class="section surface">
   <h2>Instance Banner</h2>
   <FormField id="admin-banner-message" label="Banner Message (leave empty to hide)">
     {#snippet children()}
@@ -92,9 +92,6 @@
   }
 
   .section {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
     padding: 16px;
     margin-bottom: 16px;
   }

@@ -59,7 +59,7 @@
             {/if}
           </td>
           <td>
-            <span class="action-badge" data-action={log.action}>
+            <span class="action-badge surface" data-action={log.action}>
               {log.action}
             </span>
           </td>
@@ -134,11 +134,8 @@
   .action-badge {
     display: inline-block;
     padding: 0.15rem 0.5rem;
-    border-radius: 8px;
     font-size: 0.78rem;
     font-weight: 500;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
     white-space: nowrap;
     font-family: var(--font-mono);
   }

@@ -33,7 +33,7 @@
   }
 </script>
 
-<section class="section setup-section">
+<section class="section setup-section surface">
   <h2>Scan Authenticator QR</h2>
   <div class="setup-grid">
     <div class="qr" aria-label="Authenticator QR code">{@html setup.qr_svg}</div>
@@ -57,9 +57,6 @@
   .section {
     margin-bottom: 20px;
     padding: 20px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--bg-secondary);
   }
 
   h2 {

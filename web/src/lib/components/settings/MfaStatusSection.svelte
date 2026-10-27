@@ -46,8 +46,8 @@
   }
 </script>
 
-<section class="section">
-  <div class="section-heading">
+<section class="section surface">
+  <div class="section-heading surface">
     <div>
       <h2>Multi-Factor Authentication</h2>
       <p>Add a time-based authenticator code after password login.</p>
@@ -88,9 +88,6 @@
   .section {
     margin-bottom: 20px;
     padding: 20px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--bg-secondary);
   }
 
   .section-heading {

@@ -70,7 +70,7 @@
     </div>
     <div class="detail-row">
       <span class="detail-label">{t('admin.audit.fields.action')}</span>
-      <span class="detail-value"><span class="action-badge" data-action={detail.action}>{detail.action}</span></span>
+      <span class="detail-value"><span class="action-badge surface" data-action={detail.action}>{detail.action}</span></span>
     </div>
     <div class="detail-row">
       <span class="detail-label">{t('admin.audit.fields.resource_type')}</span>
@@ -97,7 +97,6 @@
 
 <style>
   .detail-grid { margin-bottom: 0; }
-
 
   .detail-row {
     display: flex;
@@ -126,11 +125,8 @@
   .action-badge {
     display: inline-block;
     padding: 0.15rem 0.5rem;
-    border-radius: 8px;
     font-size: 0.78rem;
     font-weight: 500;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
     white-space: nowrap;
     font-family: var(--font-mono);
   }

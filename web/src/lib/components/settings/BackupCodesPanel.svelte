@@ -18,8 +18,8 @@
   }
 </script>
 
-<section class="section backup-section" aria-label="New backup codes">
-  <div class="section-heading">
+<section class="section backup-section surface" aria-label="New backup codes">
+  <div class="section-heading surface">
     <div>
       <h2>Backup Codes</h2>
       <p>Each code can be used once if you lose authenticator access.</p>
@@ -37,9 +37,6 @@
   .section {
     margin-bottom: 20px;
     padding: 20px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--bg-secondary);
   }
 
   .section-heading {

@@ -64,26 +64,26 @@
           <td class="username">{u.username}</td>
           <td class="email">{u.email}</td>
           <td>
-            <span class="badge" class:admin={u.is_admin}>
+            <span class="badge surface" class:admin={u.is_admin}>
               {u.is_admin ? '✓' : '—'}
             </span>
           </td>
           <td>
-            <span class="badge" class:active={u.is_active} class:inactive={!u.is_active}>
+            <span class="badge surface" class:active={u.is_active} class:inactive={!u.is_active}>
               {u.is_active ? '✓' : '✗'}
             </span>
           </td>
-          <td><span class="badge">{u.auth_provider}</span></td>
+          <td><span class="badge surface">{u.auth_provider}</span></td>
           <td class="login-state">
             {#if isLocked(u)}
-              <span class="badge locked" title={`Locked until ${formatDate(u.locked_until || '')}`}
+              <span class="badge locked surface" title={`Locked until ${formatDate(u.locked_until || '')}`}
                 >Locked</span
               >
             {:else if u.login_attempts > 0}
-              <span class="badge warning">{u.login_attempts} failed</span>
+              <span class="badge warning surface">{u.login_attempts} failed</span>
             {:else}
               <span
-                class="badge active"
+                class="badge active surface"
                 title={u.last_login_at
                   ? `Last login ${formatDate(u.last_login_at)}`
                   : 'No completed login recorded'}>OK</span
@@ -176,10 +176,7 @@
   .badge {
     display: inline-block;
     padding: 0.1rem 0.4rem;
-    border-radius: 8px;
     font-size: 0.8rem;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
   }
 
   .badge.admin {
