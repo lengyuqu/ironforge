@@ -60,14 +60,6 @@
     margin-bottom: 1rem;
     flex-wrap: wrap;
   }
-  .filters select {
-    background: var(--bg-secondary);
-    color: var(--text-primary);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 0.4rem 0.75rem;
-    font-size: 0.85rem;
-  }
   .filters .btn-sm {
     background: var(--bg-secondary);
     border: 1px solid var(--border);

@@ -162,7 +162,9 @@
   .section { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem; }
   h2 { color: var(--text-primary); font-size: 1.1rem; margin: 0 0 1rem; }
   .create-form { display: flex; gap: 0.5rem; margin-bottom: 1rem; align-items: center; }
-  .create-form input, .create-form select { flex: 1; background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border); border-radius: 4px; padding: 0.4rem 0.6rem; font-size: 0.85rem; }
+  .create-form input, .create-form select {
+    flex: 1;
+  }
   .checkbox-label {
     font-size: 0.85rem;
     white-space: nowrap;

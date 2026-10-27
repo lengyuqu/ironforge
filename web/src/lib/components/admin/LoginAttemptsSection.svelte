@@ -120,14 +120,6 @@
   .section-heading h2 { margin-bottom: 2px; }
 
   .login-filters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 14px 0; }
-  .login-filters input,
-  .login-filters select {
-    padding: 7px 9px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--bg-primary);
-    color: var(--text-primary);
-  }
 
   .login-attempt-list { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
 

@@ -144,15 +144,6 @@
     color: var(--text-secondary);
   }
 
-  .filter-group select {
-    padding: 6px 12px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--bg-secondary);
-    color: var(--text-primary);
-    font-size: 14px;
-  }
-
   .search-group {
     display: flex;
     gap: 8px;
@@ -162,12 +153,6 @@
 
   .search-group input {
     flex: 1;
-    padding: 6px 12px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--bg-secondary);
-    color: var(--text-primary);
-    font-size: 14px;
   }
 
 </style>

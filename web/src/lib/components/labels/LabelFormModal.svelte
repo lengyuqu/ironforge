@@ -226,13 +226,6 @@
 
   .custom-color-input input {
     width: 100px;
-    padding: 0.5rem;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    color: var(--text-primary);
-    font-size: 0.9rem;
-    font-family: monospace;
   }
 
 </style>

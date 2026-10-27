@@ -97,11 +97,6 @@
 
   .delete-panel input {
     min-height: 36px;
-    padding: 7px 10px;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    background: var(--bg-primary);
-    color: var(--text-primary);
   }
 
   .delete-actions {

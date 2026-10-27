@@ -95,7 +95,6 @@
 
   .milestone-box select {
     width: 100%;
-    padding: 6px 8px;
   }
 
   .milestone-none {

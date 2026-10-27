@@ -178,8 +178,6 @@
 
   .assignees-editor input {
     width: 100%;
-    font-size: 13px;
-    padding: 6px 10px;
     margin-bottom: 8px;
   }
 
