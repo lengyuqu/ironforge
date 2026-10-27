@@ -51,7 +51,6 @@
   h3 {
     padding: 12px 16px;
     border-bottom: 1px solid var(--border);
-    font-size: 14px;
     margin: 0;
   }
 

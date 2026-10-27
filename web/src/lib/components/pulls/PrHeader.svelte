@@ -48,9 +48,6 @@
 {/if}
 
 <style>
-  h1 {
-    font-size: 24px;
-  }
 
   .pr-meta {
     display: flex;

@@ -101,7 +101,9 @@ import { toErrorMessage } from '$lib/utils/error';
 <style>
   .attachment-panel { border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin: 16px 0; }
   .attachment-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
-  h3 { margin: 0 0 4px; font-size: 15px; }
+  h3 {
+    margin: 0 0 4px;
+  }
   p { margin: 0; color: var(--text-muted); font-size: 12px; }
   .upload-button { display: inline-flex; padding: 6px 12px; border-radius: var(--radius); background: var(--green-dim); color: white; cursor: pointer; font-size: 13px; white-space: nowrap; }
   .upload-button.disabled { opacity: .55; cursor: default; }

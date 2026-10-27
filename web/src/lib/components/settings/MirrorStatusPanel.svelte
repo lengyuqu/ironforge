@@ -35,7 +35,6 @@
 
 <style>
   h2 {
-    font-size: 1.1rem;
     margin: 0 0 1rem;
     color: var(--text-primary);
   }

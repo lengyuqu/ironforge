@@ -168,7 +168,9 @@
     border-radius: var(--radius);
   }
 
-  h3 { margin: 0 0 12px; font-size: 15px; }
+  h3 {
+    margin: 0 0 12px;
+  }
 
   .muted { color: var(--text-secondary); font-size: 13px; }
   .panel-error {

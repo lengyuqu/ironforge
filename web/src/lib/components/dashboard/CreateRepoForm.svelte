@@ -242,7 +242,9 @@
     margin-bottom: 24px;
   }
 
-  h2 { font-size: 18px; margin-bottom: 16px; }
+  h2 {
+    margin-bottom: 16px;
+  }
 
   form {
     display: flex;

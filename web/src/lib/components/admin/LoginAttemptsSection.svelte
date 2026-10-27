@@ -106,7 +106,9 @@
 </div>
 
 <style>
-  h2 { font-size: 16px; margin: 0 0 12px; }
+  h2 {
+    margin: 0 0 12px;
+  }
 
   .section {
     background: var(--bg-secondary);

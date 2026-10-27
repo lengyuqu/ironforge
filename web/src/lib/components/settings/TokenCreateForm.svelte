@@ -101,7 +101,6 @@
 <style>
   h2 {
     margin: 0 0 16px;
-    font-size: 18px;
   }
 
   .section {

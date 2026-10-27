@@ -124,7 +124,6 @@
 
   h2 {
     margin: 0 0 1rem;
-    font-size: 1rem;
   }
 
   label {

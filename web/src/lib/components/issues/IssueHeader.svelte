@@ -38,10 +38,6 @@
     gap: 8px;
   }
 
-  h1 {
-    font-size: 24px;
-  }
-
   .issue-number {
     color: var(--text-muted);
     font-size: 18px;

@@ -103,7 +103,6 @@
 
   h2 {
     margin: 0;
-    font-size: 18px;
   }
 
   p {

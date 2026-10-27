@@ -87,7 +87,6 @@
 
 <style>
   h2 {
-    font-size: 20px;
     margin: 0;
   }
 

@@ -60,7 +60,6 @@
 
   h2 {
     color: var(--text-primary);
-    font-size: 1.1rem;
     margin: 0;
   }
 

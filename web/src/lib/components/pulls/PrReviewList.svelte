@@ -94,7 +94,9 @@
 
 <style>
   .review-list { margin-top: 24px; }
-  h3 { margin: 0 0 12px; font-size: 15px; }
+  h3 {
+    margin: 0 0 12px;
+  }
   .muted { color: var(--text-secondary); font-size: 13px; }
 
   .review-items { display: flex; flex-direction: column; gap: 8px; }

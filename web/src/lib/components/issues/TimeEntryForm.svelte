@@ -92,8 +92,6 @@
   }
 
   h3 {
-    font-size: 14px;
-    font-weight: 600;
     margin: 0 0 12px;
   }
 

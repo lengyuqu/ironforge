@@ -100,7 +100,9 @@
     border: 1px solid var(--border);
     border-radius: var(--radius);
   }
-  h3 { font-size: 16px; margin-bottom: 12px; }
+  h3 {
+    margin-bottom: 12px;
+  }
 
   .reviewer-list {
     display: flex;

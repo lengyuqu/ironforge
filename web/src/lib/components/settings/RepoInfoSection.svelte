@@ -33,7 +33,6 @@
 
 <style>
   h2 {
-    font-size: 1.25rem;
     margin-bottom: 1rem;
     color: var(--text-primary);
   }

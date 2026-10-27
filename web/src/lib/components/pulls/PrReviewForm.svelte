@@ -67,7 +67,9 @@
     border-radius: var(--radius-lg);
     padding: 24px;
   }
-  h3 { font-size: 16px; margin-bottom: 12px; }
+  h3 {
+    margin-bottom: 12px;
+  }
 
   .verdict-select {
     display: flex;
