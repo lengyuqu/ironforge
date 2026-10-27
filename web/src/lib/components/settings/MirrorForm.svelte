@@ -224,12 +224,6 @@
     gap: 1rem;
   }
 
-  .form-group {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-  }
-
   .form-group.small {
     max-width: 180px;
   }
@@ -238,20 +232,6 @@
     font-size: 0.85rem;
     font-weight: 600;
     color: var(--text-primary);
-  }
-
-  input {
-    padding: 0.65rem 0.75rem;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    background: var(--bg-primary);
-    color: var(--text-primary);
-    font-size: 0.95rem;
-  }
-
-  input:focus {
-    outline: none;
-    border-color: var(--accent);
   }
 
   .actions {

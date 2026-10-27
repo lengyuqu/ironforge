@@ -105,12 +105,6 @@
     gap: 1rem;
   }
 
-  .form-group {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-  }
-
   label {
     color: var(--text-primary);
     font-size: 0.9rem;
@@ -120,18 +114,6 @@
   input,
   select {
     min-height: 38px;
-    padding: 0.55rem 0.7rem;
-    background: var(--bg-primary);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    color: var(--text-primary);
-    font-size: 0.9rem;
-  }
-
-  input:focus,
-  select:focus {
-    border-color: var(--accent);
-    outline: none;
   }
 
   @media (max-width: 760px) {

@@ -171,12 +171,6 @@
 
   select {
     min-height: 34px;
-    padding: 0.4rem 0.6rem;
-    background: var(--bg-primary);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    color: var(--text-primary);
-    font-size: 0.9rem;
   }
 
   @media (max-width: 760px) {

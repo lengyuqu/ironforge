@@ -181,8 +181,12 @@
   .section { margin-bottom: 32px; padding-bottom: 28px; border-bottom: 1px solid var(--border); }
   .create-form { display: grid; gap: 8px; }
   label { margin-top: 8px; color: var(--text-secondary); font-size: 13px; font-weight: 600; }
-  input, textarea { width: 100%; padding: 8px 10px; }
-  textarea { resize: vertical; font-family: var(--font-mono); }
+  input, textarea {
+    width: 100%;
+  }
+  textarea {
+    resize: vertical;
+  }
   .message{ margin-bottom: 20px; padding: 14px 16px; border: 1px solid var(--border); border-radius: var(--radius); }
   .error-box { color: var(--red); background: color-mix(in srgb, var(--red) 10%, transparent); }
   .key-list { display: grid; gap: 12px; }

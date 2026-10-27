@@ -213,25 +213,10 @@
     gap: 1rem;
   }
 
-  .form-group {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-  }
-
   label {
     font-size: 0.9rem;
     font-weight: 600;
     color: var(--text-primary);
-  }
-
-  input {
-    padding: 0.65rem 0.75rem;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    background: var(--bg-primary);
-    color: var(--text-primary);
-    font-size: 0.95rem;
   }
 
   .check-row {
@@ -247,9 +232,7 @@
   }
 
   .form-actions {
-    display: flex;
     justify-content: flex-end;
-    gap: 0.75rem;
   }
 
   @media (max-width: 720px) {

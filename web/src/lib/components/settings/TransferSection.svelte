@@ -129,14 +129,6 @@
     margin-top: 1.5rem;
   }
 
-  .form-group label {
-    display: block;
-    margin-bottom: 0.5rem;
-    color: var(--text-primary);
-    font-weight: 500;
-    font-size: 0.9rem;
-  }
-
   .input-row {
     display: flex;
     gap: 0.75rem;
@@ -144,17 +136,6 @@
 
   input[type='text'] {
     flex: 1;
-    padding: 0.6rem 0.75rem;
-    background: var(--bg-primary);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    color: var(--text-primary);
-    font-size: 0.9rem;
-  }
-
-  input[type='text']:focus {
-    outline: none;
-    border-color: var(--accent);
   }
 
   .btn-warning {

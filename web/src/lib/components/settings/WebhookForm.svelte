@@ -142,33 +142,11 @@
     gap: 1rem;
   }
 
-  .form-group {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-  }
-
   label,
   legend {
     color: var(--text-primary);
     font-size: 0.9rem;
     font-weight: 500;
-  }
-
-  input,
-  select {
-    padding: 0.6rem 0.75rem;
-    background: var(--bg-primary);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    color: var(--text-primary);
-    font-size: 0.9rem;
-  }
-
-  input:focus,
-  select:focus {
-    outline: none;
-    border-color: var(--accent);
   }
 
   .event-grid {

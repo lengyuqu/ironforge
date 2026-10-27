@@ -128,7 +128,6 @@
 
   input {
     min-height: 36px;
-    padding: 7px 10px;
   }
 
   .token-created {

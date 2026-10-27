@@ -131,7 +131,9 @@
   h1 { margin-bottom: 6px; }
   header p { color: var(--text-secondary); }
   form { display: grid; gap: 9px; }
-  input, textarea { width: 100%; padding: 8px 10px; }
+  input, textarea {
+    width: 100%;
+  }
   textarea, code { font-family: var(--font-mono); }
   .checkbox { display: flex; align-items: center; gap: 8px; }
   .checkbox input { width: auto; }
