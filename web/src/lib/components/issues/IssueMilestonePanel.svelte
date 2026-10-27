@@ -100,7 +100,7 @@
         <button type="button" class="btn-primary" disabled={saving} onclick={saveMilestone}>
           {t('issues.milestone_save')}
         </button>
-        <button type="button" class="btn-close" disabled={saving} onclick={() => (editing = false)}>
+        <button type="button" class="btn-secondary" disabled={saving} onclick={() => (editing = false)}>
           {t('common.cancel', 'Cancel')}
         </button>
       </div>
@@ -169,16 +169,6 @@
   .editor-actions {
     display: flex;
     gap: 8px;
-  }
-
-  .btn-close {
-    padding: 4px 12px;
-    background: none;
-    color: var(--text-primary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    font-size: 12px;
-    cursor: pointer;
   }
 
   .current-title {

@@ -68,7 +68,7 @@
     <button type="submit" class="btn-primary" disabled={!newComment.trim() || submitting}>
       {submitting ? t('common.loading') : t('issues.comment')}
     </button>
-    <button type="button" class="btn-close" onclick={toggleState} disabled={toggling}>
+    <button type="button" class="btn-secondary" onclick={toggleState} disabled={toggling}>
       {issueState === 'open' ? t('issues.close_issue') : t('issues.reopen_issue')}
     </button>
   </div>
@@ -91,17 +91,4 @@
     display: flex;
     gap: 8px;
   }
-
-  .btn-close {
-    padding: 6px 16px;
-    background: none;
-    color: var(--text-primary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    font-size: 14px;
-    cursor: pointer;
-  }
-
-  .btn-close:hover { background: var(--bg-hover); }
-  .btn-close:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>

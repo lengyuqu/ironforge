@@ -295,14 +295,6 @@
   }
   .range-control input { width: 72px; }
 
-  .btn-link {
-    padding: 0;
-    border: none;
-    background: none;
-    color: var(--accent);
-    cursor: pointer;
-  }
-
   textarea {
     width: 100%;
     font-family: var(--font-mono);

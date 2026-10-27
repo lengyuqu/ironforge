@@ -81,14 +81,6 @@
     font-weight: 600;
   }
 
-  .btn-link {
-    padding: 0;
-    border: none;
-    background: none;
-    color: var(--accent);
-    cursor: pointer;
-  }
-
   .branch-pair {
     display: flex;
     align-items: center;

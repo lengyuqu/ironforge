@@ -85,7 +85,7 @@
         </button>
         <button
           type="button"
-          class="btn-close"
+          class="btn-secondary"
           disabled={saving}
           onclick={() => (editing = false)}
         >
@@ -193,15 +193,4 @@
     color: var(--text-muted);
     margin: 8px 0 0;
   }
-
-  .btn-close {
-    padding: 6px 16px;
-    background: none;
-    color: var(--text-primary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    font-size: 14px;
-    cursor: pointer;
-  }
-  .btn-close:hover { background: var(--bg-hover); }
 </style>

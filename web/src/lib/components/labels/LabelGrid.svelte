@@ -98,19 +98,4 @@
   .label-card:hover .label-actions {
     opacity: 1;
   }
-
-  .btn-icon {
-    background: none;
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    padding: 0.25rem 0.5rem;
-    cursor: pointer;
-    font-size: 0.9rem;
-    transition: all 0.2s;
-  }
-
-  .btn-icon:hover {
-    background: var(--bg-primary);
-    border-color: var(--accent);
-  }
 </style>
