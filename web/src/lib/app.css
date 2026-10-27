@@ -18,6 +18,15 @@
   --yellow-dim: #9e6a03;
   --purple: #bc8cff;
   --orange: #d18616;
+  --text-on-accent: #ffffff;
+  --accent-subtle: rgba(88, 166, 255, 0.15);
+  --red-subtle: rgba(248, 81, 73, 0.12);
+  --green-subtle: rgba(63, 185, 80, 0.12);
+  --yellow-subtle: rgba(210, 153, 34, 0.15);
+  --overlay: rgba(0, 0, 0, 0.6);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.4);
+  --focus-ring: 0 0 0 3px var(--accent-subtle);
   --font-mono: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
   --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
   --radius: 6px;
@@ -113,60 +122,105 @@ button {
   cursor: pointer;
 }
 
-.btn {
+/* ── Buttons ───────────────────────────────────────────────────────────
+   The single button definition. Every variant and size class is
+   self-sufficient, so `class="btn-primary"`, `class="btn btn-primary"` and
+   `<Button variant="primary">` all render identically. Do not redefine these
+   classes in component <style> blocks; add a new modifier instead. */
+
+.btn,
+.btn-primary,
+.btn-secondary,
+.btn-outline,
+.btn-ghost,
+.btn-danger,
+.btn-sm,
+.btn-md,
+.btn-lg,
+.btn-xs {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  border-radius: var(--radius);
-  font-weight: 500;
-  text-decoration: none;
-  transition: background-color 0.15s, border-color 0.15s;
+  padding: 6px 14px;
   border: 1px solid var(--border);
-  background: var(--bg-primary);
+  border-radius: var(--radius);
+  background: var(--bg-secondary);
   color: var(--text-primary);
-  padding: 5px 12px;
-  font-size: 14px;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
+  text-decoration: none;
   cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
 }
 
-.btn:focus-visible {
+.btn:hover:not(:disabled),
+.btn-primary:hover:not(:disabled),
+.btn-secondary:hover:not(:disabled),
+.btn-outline:hover:not(:disabled),
+.btn-ghost:hover:not(:disabled),
+.btn-danger:hover:not(:disabled) {
+  text-decoration: none;
+}
+
+.btn:focus-visible,
+.btn-primary:focus-visible,
+.btn-secondary:focus-visible,
+.btn-outline:focus-visible,
+.btn-ghost:focus-visible,
+.btn-danger:focus-visible,
+.btn-sm:focus-visible,
+.btn-lg:focus-visible,
+.btn-xs:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
-.btn:disabled {
+.btn:disabled,
+.btn-primary:disabled,
+.btn-secondary:disabled,
+.btn-outline:disabled,
+.btn-ghost:disabled,
+.btn-danger:disabled,
+.btn-sm:disabled,
+.btn-lg:disabled,
+.btn-xs:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
 
-.btn:hover:not(:disabled) {
+/* Sizes (md is the default above) */
+.btn-xs { padding: 1px 6px; font-size: 11px; }
+.btn-sm { padding: 3px 10px; font-size: 12px; }
+.btn-md { padding: 6px 14px; font-size: 13px; }
+.btn-lg { padding: 8px 18px; font-size: 14px; }
+
+/* Variants */
+.btn:hover:not(:disabled),
+.btn-secondary:hover:not(:disabled),
+.btn-outline:hover:not(:disabled) {
   background: var(--bg-hover);
 }
 
-.btn-sm { padding: 3px 8px; font-size: 12px; }
-.btn-md { padding: 5px 12px; font-size: 13px; }
-.btn-lg { padding: 8px 16px; font-size: 14px; }
-
-.btn-primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-}
-
-.btn-primary:hover:not(:disabled) {
-  background: var(--accent-hover);
-  border-color: var(--accent-hover);
-}
-
+.btn-secondary,
 .btn-outline {
   background: var(--bg-secondary);
   border-color: var(--border);
   color: var(--text-primary);
 }
 
-.btn-outline:hover:not(:disabled) {
-  background: var(--bg-hover);
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--text-on-accent);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 
 .btn-ghost {
@@ -182,7 +236,7 @@ button {
 .btn-danger {
   background: var(--red-dim);
   border-color: var(--red-dim);
-  color: #fff;
+  color: var(--text-on-accent);
 }
 
 .btn-danger:hover:not(:disabled) {
@@ -190,25 +244,18 @@ button {
   border-color: var(--red);
 }
 
-.error-banner {
-  background: rgba(248, 81, 73, 0.12);
-  border: 1px solid var(--red-dim);
+/* Outline + danger = destructive but secondary (e.g. "Delete" in a toolbar) */
+.btn-danger.btn-outline,
+.btn-outline.btn-danger {
+  background: transparent;
+  border-color: var(--red-dim);
   color: var(--red);
-  border-radius: var(--radius);
-  padding: 10px 14px;
-  margin-bottom: 16px;
-  font-size: 13px;
 }
 
-.success-banner {
-  background: #f0fdf4;
-  border: 1px solid #bbf7d0;
-  color: #16a34a;
-  border-radius: var(--radius);
-  padding: 10px 14px;
-  margin-bottom: 16px;
-  font-size: 13px;
-  line-height: 1.5;
+.btn-danger.btn-outline:hover:not(:disabled),
+.btn-outline.btn-danger:hover:not(:disabled) {
+  background: var(--red-dim);
+  color: var(--text-on-accent);
 }
 
 .gh-card {

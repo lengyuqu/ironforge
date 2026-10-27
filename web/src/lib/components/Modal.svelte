@@ -253,8 +253,7 @@
   }
 
   .modal-close:hover:not(:disabled) { color: var(--text-primary); }
-  .modal-close:disabled,
-  .btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
+  .modal-close:disabled { opacity: 0.5; cursor: not-allowed; }
 
   .modal-body {
     flex: 1;
@@ -280,49 +279,6 @@
     to   { opacity: 1; transform: translateY(0) scale(1); }
   }
 
-  .btn-primary {
-    padding: 8px 16px;
-    background: var(--accent);
-    color: #fff;
-    border: 0;
-    border-radius: var(--radius);
-    font-size: 14px;
-    font-weight: 500;
-    cursor: pointer;
-  }
-
-  .btn-primary:hover:not(:disabled) { background: var(--accent-hover); }
-  .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
-
-  .btn-danger {
-    padding: 8px 16px;
-    background: var(--red);
-    color: #fff;
-    border: 0;
-    border-radius: var(--radius);
-    font-size: 14px;
-    font-weight: 500;
-    cursor: pointer;
-  }
-
-  .btn-danger:hover:not(:disabled) { background: var(--red-dim); }
-  .btn-danger:disabled { opacity: 0.6; cursor: not-allowed; }
-
-  .btn-secondary {
-    padding: 8px 16px;
-    background: transparent;
-    color: var(--text-primary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    font-size: 14px;
-    cursor: pointer;
-  }
-
-  .btn-secondary:hover { background: var(--bg-hover); }
-
-  .btn-primary:focus-visible,
-  .btn-danger:focus-visible,
-  .btn-secondary:focus-visible,
   .modal-close:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
