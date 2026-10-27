@@ -1,36 +1,52 @@
 <script lang="ts">
   import { toast, type ToastItem } from './toast.svelte';
+  import { createT } from '$lib/i18n';
+
+  const t = createT();
 
   function dismiss(item: ToastItem) {
     toast.dismiss(item.id);
   }
 </script>
 
-{#each toast.items as item, i (item.id)}
-  <div
-    class="toast toast-{item.type}"
-    role="status"
-    aria-live="polite"
-    style="top: calc(80px + {i} * 64px);"
-  >
-    <span class="toast-icon" aria-hidden="true">
-      {#if item.type === 'success'}✓{:else if item.type === 'error'}✕{:else if item.type === 'warning'}!{:else}ⓘ{/if}
-    </span>
-    <span class="toast-message">{item.message}</span>
-    <button class="toast-close" onclick={() => dismiss(item)} aria-label="Dismiss">×</button>
-  </div>
-{/each}
+<div class="toast-stack" aria-live="polite">
+  {#each toast.items as item (item.id)}
+    <div
+      class="toast toast-{item.type}"
+      role={item.type === 'error' ? 'alert' : 'status'}
+      onmouseenter={() => toast.pause(item.id)}
+      onmouseleave={() => toast.resume(item.id)}
+      onfocusin={() => toast.pause(item.id)}
+      onfocusout={() => toast.resume(item.id)}
+    >
+      <span class="toast-icon" aria-hidden="true">
+        {#if item.type === 'success'}✓{:else if item.type === 'error'}✕{:else if item.type === 'warning'}!{:else}ⓘ{/if}
+      </span>
+      <span class="toast-message">{item.message}</span>
+      <button class="toast-close" onclick={() => dismiss(item)} aria-label={t('common.dismiss')}>×</button>
+    </div>
+  {/each}
+</div>
 
 <style>
-  .toast {
+  .toast-stack {
     position: fixed;
+    top: 72px;
     right: 20px;
-    z-index: 9999;
+    z-index: 11000;
     display: flex;
-    align-items: center;
+    flex-direction: column;
+    gap: 8px;
+    max-width: min(420px, calc(100vw - 40px));
+    pointer-events: none;
+  }
+
+  .toast {
+    pointer-events: auto;
+    display: flex;
+    align-items: flex-start;
     gap: 10px;
     min-width: 240px;
-    max-width: 420px;
     padding: 12px 14px;
     border: 1px solid var(--border);
     border-radius: var(--radius);
@@ -39,6 +55,15 @@
     font-size: 14px;
     color: var(--text-primary);
     animation: toast-in 0.2s ease-out;
+  }
+
+  @media (max-width: 600px) {
+    .toast-stack {
+      left: 12px;
+      right: 12px;
+      max-width: none;
+    }
+    .toast { min-width: 0; }
   }
 
   .toast-icon {
@@ -50,6 +75,7 @@
   .toast-message {
     flex: 1;
     line-height: 1.4;
+    padding-top: 1px;
     word-break: break-word;
   }
 

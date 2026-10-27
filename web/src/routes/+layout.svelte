@@ -1,8 +1,11 @@
 <script lang="ts">
+  import LoadingState from '$lib/components/LoadingState.svelte';
   import '$lib/app.css';
   import Navbar from '$lib/components/Navbar.svelte';
   import InstanceBanner from '$lib/components/InstanceBanner.svelte';
   import Layout from '$lib/components/Layout.svelte';
+  import ToastContainer from '$lib/components/ToastContainer.svelte';
+  import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 import { fetchUser, isAuthReady, clearAuth, getUser } from '$lib/stores/auth.svelte';
 import { registerKeyboardShortcuts } from '$lib/stores/instance.svelte';
 import { locale, createT } from '$lib/i18n';
@@ -73,11 +76,14 @@ import { goto } from '$app/navigation';
       {#if isAuthReady()}
         {@render children()}
       {:else}
-        <div class="loading">{t('common.loading')}</div>
+        <LoadingState />
       {/if}
     </main>
   </Layout>
 </div>
+
+<ToastContainer />
+<ConfirmDialog />
 
 <style>
   .app {

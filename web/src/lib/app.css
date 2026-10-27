@@ -249,6 +249,32 @@ input:focus, textarea:focus, select:focus {
   box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.15);
 }
 
+/* Field-level validation feedback */
+input[aria-invalid='true'],
+textarea[aria-invalid='true'],
+select[aria-invalid='true'] {
+  /* !important: component-scoped input styles are more specific than this. */
+  border-color: var(--red) !important;
+}
+
+input[aria-invalid='true']:focus,
+textarea[aria-invalid='true']:focus,
+select[aria-invalid='true']:focus {
+  box-shadow: 0 0 0 3px rgba(248, 81, 73, 0.2);
+}
+
+.field-error {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--red);
+}
+
+.field-hint {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
 /* Scrollbar */
 ::-webkit-scrollbar {
   width: 8px;

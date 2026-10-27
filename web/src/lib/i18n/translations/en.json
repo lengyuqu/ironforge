@@ -2,6 +2,9 @@
   "common": {
     "sign_in": "Sign in",
     "sign_out": "Sign out",
+    "confirm": "Confirm",
+    "confirm_action": "Confirm action",
+    "dismiss": "Dismiss",
     "cancel": "Cancel",
     "back": "Back",
     "save": "Save",
@@ -1048,7 +1051,10 @@
       "revoke": "Revoke",
       "title": "Access Tokens",
       "subtitle": "Manage personal tokens for Git over HTTP, API clients, and automation."
-    }
+    },
+    "confirm_delete_label_title": "Confirm Delete",
+    "label_name_required": "Label name is required",
+    "label_color_invalid": "Use a 6-digit hex colour such as #ff8800"
   },
   "commit": {
     "status": "Status checks",
@@ -1073,7 +1079,9 @@
       "is_admin": "Site Admin",
       "is_active": "Active",
       "delete_confirm": "Delete User",
-      "delete_warning": "Are you sure you want to delete user \"{username}\"? This action cannot be undone."
+      "delete_warning": "Are you sure you want to delete user \"{username}\"? This action cannot be undone.",
+      "display_name": "Display Name",
+      "bio": "Bio"
     },
     "orgs": {
       "title": "Organization Management",
@@ -1186,5 +1194,17 @@
     "generic_desc": "An unexpected error occurred.",
     "back_home": "Back to Home",
     "status_code": "Error {status}"
+  },
+  "confirm": {
+    "mfa_disable": "Disable multi-factor authentication for your account?",
+    "sso_delete": "Delete SSO provider \"{name}\"?",
+    "wiki_restore": "Restore version {version}? Current content will become a revision.",
+    "import_delete": "Cancel and delete this import task?",
+    "column_delete": "Delete this column and all its cards?",
+    "time_entry_delete": "Delete this time entry?",
+    "ci_secret_delete": "Delete secret {name}?",
+    "ci_env_delete": "Delete environment {name}?",
+    "tag_protection_delete": "Delete protection for {pattern}?",
+    "wiki_delete": "Delete this wiki page? This cannot be undone."
   }
 }

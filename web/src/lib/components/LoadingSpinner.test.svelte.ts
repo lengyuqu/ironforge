@@ -7,7 +7,7 @@ describe('LoadingSpinner.svelte', () => {
     render(LoadingSpinner);
     const span = screen.getByRole('status');
     expect(span).toBeInTheDocument();
-    expect(span).toHaveAttribute('aria-label', 'Loading');
+    expect(span).toHaveAttribute('aria-label', 'Loading...');
     const svg = span.querySelector('svg');
     expect(svg).not.toBeNull();
     expect(svg).toHaveAttribute('width', '20');
