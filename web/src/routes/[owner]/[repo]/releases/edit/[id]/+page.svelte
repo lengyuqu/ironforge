@@ -2,6 +2,7 @@
   // Edit-release page — orchestration layer: loads the release and hands
   // it to ReleaseForm (edit mode: tag locked, no target picker). Submit
   // handling lives inside the form; this page only routes back on success.
+  import EmptyState from '$lib/components/EmptyState.svelte';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
@@ -60,10 +61,9 @@
   </div>
 
   {#if notFound}
-    <div class="empty">
-      <p>{t('releases.invalid_id', 'Invalid release id.')}</p>
+    <EmptyState title={t('releases.invalid_id', 'Invalid release id.')}>
       <a href={`/${owner}/${repo}/releases`} class="btn-primary">{t('releases.title')}</a>
-    </div>
+    </EmptyState>
   {:else if error}
     <div class="error-banner">{error}</div>
   {/if}
@@ -91,14 +91,6 @@
     padding: 48px;
   }
 
-  .empty {
-    text-align: center;
-    padding: 48px;
-    color: var(--text-secondary);
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-  }
 
   .error-banner {
     color: #f85149;

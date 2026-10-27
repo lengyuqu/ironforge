@@ -1,6 +1,7 @@
 <script lang="ts">
   // Releases page — orchestration layer: loads the paginated release list and
   // each release's assets; cards handle their own delete/download actions.
+  import EmptyState from '$lib/components/EmptyState.svelte';
   import { page } from '$app/stores';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
   import { releases, type ReleaseAsset } from '$lib/api/client.svelte';
@@ -82,10 +83,9 @@
   {#if loading}
     <p class="loading-text">{t('common.loading')}</p>
   {:else if releaseList.length === 0}
-    <div class="empty">
-      <p>{t('releases.no_releases')}</p>
+    <EmptyState title={t('releases.no_releases')}>
       <a href={newReleaseHref} class="btn-primary">{t('releases.new')}</a>
-    </div>
+    </EmptyState>
   {:else}
     <ReleaseList
       {owner}
@@ -133,19 +133,6 @@
     color: var(--text-secondary);
     text-align: center;
     padding: 48px;
-  }
-
-  .empty {
-    text-align: center;
-    padding: 48px;
-    color: var(--text-secondary);
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-  }
-
-  .empty p {
-    margin-bottom: 16px;
   }
 
   @media (max-width: 600px) {

@@ -1157,7 +1157,8 @@
     "colNamePlaceholder": "Column name",
     "moveTo": "Move to",
     "cardTitlePlaceholder": "Card title",
-    "addCard": "Add Card"
+    "addCard": "Add Card",
+    "noBoardsHint": "Create your first project board to organize issues."
   },
   "packages": {
     "upload": "Upload Package",

@@ -1157,7 +1157,8 @@
     "colNamePlaceholder": "列名称",
     "moveTo": "移动到",
     "cardTitlePlaceholder": "卡片标题",
-    "addCard": "添加卡片"
+    "addCard": "添加卡片",
+    "noBoardsHint": "创建第一个项目看板来整理 Issue。"
   },
   "packages": {
     "upload": "上传包",

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import EmptyState from '$lib/components/EmptyState.svelte';
+  import { createT } from '$lib/i18n';
   import { page } from '$app/stores';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
   import { boards } from '$lib/api/client.svelte';
@@ -7,6 +9,8 @@
   import BoardCreateForm from '$lib/components/boards/BoardCreateForm.svelte';
   import ColumnCreateForm from '$lib/components/boards/ColumnCreateForm.svelte';
   import BoardColumn from '$lib/components/boards/BoardColumn.svelte';
+
+  const t = createT();
 
   let owner = $derived($page.params.owner!);
   let repo = $derived($page.params.repo!);
@@ -74,12 +78,9 @@
     <p class="loading-text">Loading…</p>
   {:else if boardList.length === 0 && !showCreateBoard}
     <!-- Empty state -->
-    <div class="empty-state">
-      <div class="empty-icon">📋</div>
-      <h2>No boards yet</h2>
-      <p>Create your first project board to organize issues.</p>
-      <button class="btn-primary" onclick={() => showCreateBoard = true}>Create Board</button>
-    </div>
+    <EmptyState icon="📋" title={t('board.noBoards')} description={t('board.noBoardsHint')}>
+      <button class="btn-primary" onclick={() => (showCreateBoard = true)}>{t('board.createBoard')}</button>
+    </EmptyState>
   {:else}
     <!-- Board selector + controls -->
     <div class="board-toolbar">
@@ -131,15 +132,6 @@
 
 <style>
   .loading-text { color: var(--text-secondary); text-align: center; padding: 48px; }
-
-  /* ── Empty state ── */
-  .empty-state {
-    text-align: center; padding: 80px 24px;
-    display: flex; flex-direction: column; align-items: center; gap: 12px;
-  }
-  .empty-icon { font-size: 48px; }
-  .empty-state h2 { font-size: 20px; font-weight: 600; margin: 0; }
-  .empty-state p { color: var(--text-secondary); font-size: 14px; margin: 0; }
 
   /* ── Toolbar ── */
   .board-toolbar {

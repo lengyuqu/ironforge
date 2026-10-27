@@ -1,4 +1,5 @@
 <script lang="ts">
+  import EmptyState from '$lib/components/EmptyState.svelte';
   import LoadingState from '$lib/components/LoadingState.svelte';
   import type { Organization } from '$lib/types/entities';
   import { createT, formatDate } from '$lib/i18n';
@@ -24,13 +25,11 @@
   {#if loading}
     <LoadingState />
   {:else if organizations.length === 0}
-    <div class="empty-state">
-      <h3>{t('orgs.no_orgs')}</h3>
-      <p>{t('orgs.no_orgs_desc')}</p>
+    <EmptyState title={t('orgs.no_orgs')} description={t('orgs.no_orgs_desc')}>
       <button type="button" class="btn-primary" onclick={onCreate}>
         {t('orgs.create_action')}
       </button>
-    </div>
+    </EmptyState>
   {:else}
     <div class="org-list">
       {#each organizations as org (org.id)}
@@ -68,28 +67,10 @@
   .section-header {
     margin-bottom: 1rem;
   }
-  .empty-state p,
   .org-desc,
   .org-meta,
   .org-name {
     color: var(--text-secondary);
-  }
-
-  .empty-state {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.75rem;
-    padding: 1rem 0;
-  }
-
-  .empty-state h3 {
-    color: var(--text-primary);
-    margin: 0;
-  }
-
-  .empty-state p {
-    margin: 0;
   }
 
   .btn-primary {
