@@ -92,20 +92,6 @@
     gap: 8px;
   }
 
-  .btn-primary {
-    padding: 6px 16px;
-    background: var(--green-dim);
-    color: #fff;
-    border: none;
-    border-radius: var(--radius);
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-  }
-
-  .btn-primary:hover { background: var(--green); }
-  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
-
   .btn-close {
     padding: 6px 16px;
     background: none;

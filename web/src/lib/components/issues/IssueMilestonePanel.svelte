@@ -171,21 +171,6 @@
     gap: 8px;
   }
 
-  .btn-primary {
-    padding: 4px 12px;
-    background: var(--accent);
-    color: #fff;
-    border: 1px solid var(--accent);
-    border-radius: var(--radius);
-    font-size: 12px;
-    cursor: pointer;
-  }
-
-  .btn-primary:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-
   .btn-close {
     padding: 4px 12px;
     background: none;

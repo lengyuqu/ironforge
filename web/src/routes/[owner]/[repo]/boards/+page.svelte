@@ -193,43 +193,4 @@
     padding-bottom: 16px;
     align-items: flex-start;
   }
-
-  .btn-primary {
-    padding: 6px 14px;
-    background: var(--accent, #2563eb);
-    color: #fff;
-    border: none;
-    border-radius: 6px;
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-  }
-
-  .btn-primary:hover {
-    filter: brightness(1.1);
-  }
-
-  .btn-outline {
-    padding: 5px 12px;
-    background: none;
-    border: 1px solid var(--border, #d1d5db);
-    border-radius: 6px;
-    color: var(--text-primary, #333);
-    font-size: 13px;
-    cursor: pointer;
-  }
-
-  .btn-outline:hover {
-    background: var(--bg-secondary, #f3f4f6);
-  }
-
-  .btn-danger {
-    color: #dc2626;
-    border-color: rgba(220, 38, 38, 0.4);
-  }
-
-  .btn-sm {
-    padding: 4px 10px;
-    font-size: 12px;
-  }
 </style>

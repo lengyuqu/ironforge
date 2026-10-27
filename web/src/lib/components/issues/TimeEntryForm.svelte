@@ -137,20 +137,4 @@
     align-items: flex-end;
   }
 
-  .btn-primary {
-    padding: 6px 14px;
-    background: var(--accent);
-    color: #fff;
-    border: none;
-    border-radius: var(--radius);
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-  }
-
-  .btn-primary:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
 </style>

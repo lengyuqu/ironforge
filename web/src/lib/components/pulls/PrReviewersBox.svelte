@@ -127,16 +127,4 @@
 
   .reviewer-form { display: flex; gap: 8px; margin-top: 12px; }
   .reviewer-form input { flex: 1; min-width: 0; }
-
-  .btn-secondary {
-    padding: 6px 16px;
-    background: var(--bg-tertiary);
-    color: var(--text-primary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    font-size: 14px;
-    cursor: pointer;
-  }
-  .btn-secondary:hover:not(:disabled) { border-color: var(--accent); }
-  .btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>

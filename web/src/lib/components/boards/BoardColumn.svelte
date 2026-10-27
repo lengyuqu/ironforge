@@ -191,16 +191,4 @@
     color: var(--text-primary); font-size: 13px; resize: none; box-sizing: border-box;
   }
   .add-card-actions { display: flex; gap: 6px; }
-
-  .btn-primary {
-    padding: 6px 14px; background: var(--accent); color: #fff; border: none;
-    border-radius: var(--radius); font-size: 13px; font-weight: 600; cursor: pointer;
-  }
-  .btn-primary:hover { filter: brightness(1.1); }
-  .btn-ghost {
-    padding: 5px 10px; background: none; border: none;
-    color: var(--text-secondary); font-size: 13px; cursor: pointer; border-radius: var(--radius);
-  }
-  .btn-ghost:hover { background: var(--bg-secondary); color: var(--text-primary); }
-  .btn-xs { padding: 3px 8px; font-size: 12px; }
 </style>

@@ -245,30 +245,4 @@
     gap: 8px;
     margin-top: 8px;
   }
-
-  .btn-primary {
-    padding: 6px 16px;
-    background: var(--accent);
-    color: #fff;
-    border: 1px solid var(--accent);
-    border-radius: var(--radius);
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-  }
-
-  .btn-primary:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-
-  .btn-secondary {
-    padding: 6px 16px;
-    background: none;
-    color: var(--text-primary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    font-size: 14px;
-    cursor: pointer;
-  }
 </style>

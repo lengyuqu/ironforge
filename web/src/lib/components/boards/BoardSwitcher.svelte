@@ -34,11 +34,4 @@
   }
   .board-tab:hover { background: var(--bg-secondary); }
   .board-tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
-
-  .btn-ghost {
-    padding: 5px 10px; background: none; border: none;
-    color: var(--text-secondary); font-size: 13px; cursor: pointer; border-radius: var(--radius);
-  }
-  .btn-ghost:hover { background: var(--bg-secondary); color: var(--text-primary); }
-  .btn-sm { padding: 4px 10px; font-size: 12px; }
 </style>

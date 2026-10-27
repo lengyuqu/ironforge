@@ -160,45 +160,6 @@
     text-align: right;
   }
 
-  .btn-outline {
-    padding: 5px 12px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    color: var(--text-primary);
-    font-size: 13px;
-    cursor: pointer;
-  }
-
-  .btn-outline:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .btn-danger {
-    padding: 4px 10px;
-    background: var(--red-dim);
-    border: 1px solid var(--red);
-    border-radius: var(--radius);
-    color: #fff;
-    font-size: 12px;
-    cursor: pointer;
-  }
-
-  .btn-danger:hover:not(:disabled) {
-    background: var(--red);
-  }
-
-  .btn-danger:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .btn-sm {
-    padding: 4px 10px;
-    font-size: 12px;
-  }
-
   .pagination {
     display: flex;
     align-items: center;

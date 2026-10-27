@@ -145,17 +145,4 @@
     display: flex; gap: 16px; overflow-x: auto; padding-bottom: 16px;
     align-items: flex-start;
   }
-
-  /* ── Buttons ── */
-  .btn-primary {
-    padding: 6px 14px; background: var(--accent); color: #fff; border: none;
-    border-radius: var(--radius); font-size: 13px; font-weight: 600; cursor: pointer;
-  }
-  .btn-primary:hover { filter: brightness(1.1); }
-  .btn-outline {
-    padding: 5px 12px; background: none; border: 1px solid var(--border);
-    border-radius: var(--radius); color: var(--text-primary); font-size: 13px; cursor: pointer;
-  }
-  .btn-outline:hover { background: var(--bg-secondary); }
-  .btn-sm { padding: 4px 10px; font-size: 12px; }
 </style>

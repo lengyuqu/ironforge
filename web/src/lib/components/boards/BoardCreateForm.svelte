@@ -56,15 +56,4 @@
     border: 1px solid var(--border); border-radius: var(--radius);
     background: var(--bg-primary); color: var(--text-primary); font-size: 14px;
   }
-  .btn-primary {
-    padding: 6px 14px; background: var(--accent); color: #fff; border: none;
-    border-radius: var(--radius); font-size: 13px; font-weight: 600; cursor: pointer;
-  }
-  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
-  .btn-ghost {
-    padding: 5px 10px; background: none; border: none;
-    color: var(--text-secondary); font-size: 13px; cursor: pointer; border-radius: var(--radius);
-  }
-  .btn-ghost:hover { background: var(--bg-secondary); color: var(--text-primary); }
-  .btn-sm { padding: 4px 10px; font-size: 12px; }
 </style>
