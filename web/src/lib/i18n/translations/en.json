@@ -752,7 +752,8 @@
     "artifact_size": "Size",
     "artifact_uploaded": "Uploaded",
     "artifact_expiry": "Expiry",
-    "rerun_failed": "Rerun"
+    "rerun_failed": "Rerun",
+    "log": "Job log output"
   },
   "errors": {
     "login_failed": "Login failed",

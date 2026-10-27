@@ -132,17 +132,16 @@ describe('JobLogModal.svelte', () => {
     expect(disconnectSpy).toHaveBeenCalledTimes(3);
   });
 
-  it('closes on Enter/Space, ignores unrelated keys and disconnects on unmount', async () => {
+  it('keeps Enter/Space for scrolling, focuses the dialog and disconnects on unmount', async () => {
     const onClose = vi.fn();
     const { unmount } = render(JobLogModal, { job: makeJob(), onClose });
 
     const dialog = document.querySelector('.log-modal') as HTMLElement;
+    await waitFor(() => expect(document.activeElement).toBe(dialog));
     await fireEvent.keyDown(dialog, { key: 'a' });
-    expect(onClose).not.toHaveBeenCalled();
-
     await fireEvent.keyDown(dialog, { key: 'Enter' });
     await fireEvent.keyDown(dialog, { key: ' ' });
-    expect(onClose).toHaveBeenCalledTimes(2);
+    expect(onClose).not.toHaveBeenCalled();
 
     disconnectSpy.mockClear();
     unmount();

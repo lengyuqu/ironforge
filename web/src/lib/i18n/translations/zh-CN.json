@@ -752,7 +752,8 @@
     "artifact_size": "大小",
     "artifact_uploaded": "上传时间",
     "artifact_expiry": "过期时间",
-    "rerun_failed": "重新运行"
+    "rerun_failed": "重新运行",
+    "log": "作业日志输出"
   },
   "errors": {
     "login_failed": "登录失败",

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/svelte';
+import { render, screen, fireEvent, waitFor } from '@testing-library/svelte';
 
 const downloadApiFile = vi.fn();
 vi.mock('$lib/api/_base.svelte', () => ({
@@ -86,5 +86,22 @@ describe('CloneModal.svelte', () => {
 
     fireEvent.click(document.querySelector('.clone-backdrop') as HTMLElement);
     expect(onClose).toHaveBeenCalledTimes(2);
+  });
+
+  it('focuses the clone URL on open and switches tabs with the arrow keys', async () => {
+    renderModal();
+    const input = screen.getByLabelText('repo.clone_url') as HTMLInputElement;
+    await waitFor(() => expect(document.activeElement).toBe(input));
+
+    const httpTab = document.getElementById('clone-tab-http') as HTMLElement;
+    const sshTab = document.getElementById('clone-tab-ssh') as HTMLElement;
+    expect(httpTab).toHaveAttribute('tabindex', '0');
+    expect(sshTab).toHaveAttribute('tabindex', '-1');
+
+    await fireEvent.keyDown(httpTab, { key: 'ArrowRight' });
+    expect(sshTab).toHaveAttribute('aria-selected', 'true');
+    await waitFor(() => expect(document.activeElement).toBe(sshTab));
+    await fireEvent.keyDown(sshTab, { key: 'ArrowRight' });
+    expect(httpTab).toHaveAttribute('aria-selected', 'true');
   });
 });
