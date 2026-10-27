@@ -9,7 +9,7 @@
   }
 </script>
 
-<div class="toast-stack" aria-live="polite">
+<div class="toast-stack surface" aria-live="polite">
   {#each toast.items as item (item.id)}
     <div
       class="toast toast-{item.type}"
@@ -19,11 +19,11 @@
       onfocusin={() => toast.pause(item.id)}
       onfocusout={() => toast.resume(item.id)}
     >
-      <span class="toast-icon" aria-hidden="true">
+      <span class="toast-icon surface" aria-hidden="true">
         {#if item.type === 'success'}✓{:else if item.type === 'error'}✕{:else if item.type === 'warning'}!{:else}ⓘ{/if}
       </span>
-      <span class="toast-message">{item.message}</span>
-      <button class="toast-close" onclick={() => dismiss(item)} aria-label={t('common.dismiss')}>×</button>
+      <span class="toast-message surface">{item.message}</span>
+      <button class="toast-close surface" onclick={() => dismiss(item)} aria-label={t('common.dismiss')}>×</button>
     </div>
   {/each}
 </div>
@@ -48,9 +48,6 @@
     gap: 10px;
     min-width: 240px;
     padding: 12px 14px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--bg-secondary);
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
     font-size: 14px;
     color: var(--text-primary);

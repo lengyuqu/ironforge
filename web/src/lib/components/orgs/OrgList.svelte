@@ -17,7 +17,7 @@
   } = $props();
 </script>
 
-<section class="org-section">
+<section class="org-section surface">
   <div class="section-header">
     <h2>{t('orgs.list_title', { count: String(organizations.length) })}</h2>
   </div>
@@ -52,9 +52,6 @@
 
 <style>
   .org-section {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: 8px;
     padding: 1.25rem;
   }
 

@@ -43,7 +43,7 @@
   }
 </script>
 
-<div class="commit-info">
+<div class="commit-info surface">
   <div class="commit-header">
     <h1 class="commit-title">{commit.message}</h1>
     <div class="commit-sha">
@@ -78,9 +78,6 @@
 
 <style>
   .commit-info {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
     padding: 1.5rem;
     margin-bottom: 1.5rem;
   }

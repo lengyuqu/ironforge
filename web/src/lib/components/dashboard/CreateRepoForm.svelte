@@ -117,7 +117,7 @@
   }
 </script>
 
-<div class="create-form">
+<div class="create-form surface">
   <h2>{t('dashboard.create_form.title')}</h2>
   <form onsubmit={handleCreate} bind:this={formEl} novalidate>
     <!-- Repository name -->
@@ -235,9 +235,6 @@
 
 <style>
   .create-form {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
     padding: 24px;
     margin-bottom: 24px;
   }

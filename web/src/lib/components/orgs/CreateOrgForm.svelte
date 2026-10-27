@@ -53,7 +53,7 @@
   }
 </script>
 
-<form onsubmit={handleCreate} class="create-panel">
+<form onsubmit={handleCreate} class="create-panel surface">
   <h2>{t('orgs.create_title')}</h2>
 
   {#if error}
@@ -107,9 +107,6 @@
 
 <style>
   .create-panel {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: 8px;
     padding: 1.25rem;
     display: flex;
     flex-direction: column;

@@ -38,7 +38,7 @@
   }
 </script>
 
-<div class="review-form">
+<div class="review-form surface">
   <h3>{t('pulls.review.title')}</h3>
   <div class="verdict-select">
     <label class="radio-label">
@@ -62,9 +62,6 @@
 
 <style>
   .review-form {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
     padding: 24px;
   }
   h3 {

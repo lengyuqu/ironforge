@@ -18,7 +18,7 @@
   const t = createT();
 </script>
 
-<aside class="issue-sidebar">
+<aside class="issue-sidebar surface">
   <div class="sidebar-header">
     <h3>{t('issues.selector.title')}</h3>
   </div>
@@ -44,9 +44,6 @@
 
 <style>
   .issue-sidebar {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
     overflow: hidden;
     position: sticky;
     top: 24px;

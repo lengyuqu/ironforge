@@ -14,7 +14,7 @@
 
 <div class="labels-grid">
   {#each items as label (label.id)}
-    <div class="label-card">
+    <div class="label-card surface">
       <div class="label-info">
         <div class="label-color" style="background-color: {label.color}"></div>
         <div class="label-text">
@@ -48,9 +48,6 @@
     justify-content: space-between;
     align-items: center;
     padding: 1rem;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: 6px;
     transition: all 0.2s;
   }
 

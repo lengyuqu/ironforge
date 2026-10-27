@@ -40,7 +40,7 @@
 {:else}
   <div class="package-list">
     {#each packages as pkg (pkg.id)}
-      <div class="package-card">
+      <div class="package-card surface">
         <div class="package-header">
           <a href={packageHref(pkg)} class="package-name">{pkg.name}</a>
           <span
@@ -90,9 +90,6 @@
   }
 
   .package-card {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
     padding: 16px;
     display: flex;
     flex-direction: column;

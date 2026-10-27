@@ -44,7 +44,7 @@
   }
 </script>
 
-<div class="form-card">
+<div class="form-card surface">
   <h3>{t('repo.time_tracking.add_entry')}</h3>
 
   {#if error}
@@ -84,9 +84,6 @@
 
 <style>
   .form-card {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
     padding: 16px;
     margin-bottom: 20px;
   }

@@ -34,7 +34,7 @@
 </script>
 
 {#if combined}
-  <div class="combined-status" style="border-left-color: {statusColor(combined.state)}">
+  <div class="combined-status surface" style="border-left-color: {statusColor(combined.state)}">
     <div class="status-icon-large">
       {statusIcon(combined.state)}
     </div>
@@ -45,7 +45,7 @@
   </div>
 {/if}
 
-<div class="status-checks">
+<div class="status-checks surface">
   <h3>Status Checks</h3>
 
   {#if statuses.length === 0}
@@ -85,10 +85,7 @@
     display: flex;
     align-items: center;
     gap: 1rem;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
     border-left: 4px solid;
-    border-radius: var(--radius);
     padding: 1.5rem;
     margin-bottom: 1.5rem;
   }
@@ -116,9 +113,6 @@
   }
 
   .status-checks {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
     padding: 1.5rem;
   }
 

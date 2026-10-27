@@ -84,7 +84,7 @@
   }
 </script>
 
-<form class="package-form" onsubmit={handleUpload}>
+<form class="package-form surface" onsubmit={handleUpload}>
   {#if error}
     <ErrorBanner message={error} />
   {/if}
@@ -164,9 +164,6 @@
 
 <style>
   .package-form {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
     padding: 24px;
   }
 

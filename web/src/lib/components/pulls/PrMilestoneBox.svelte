@@ -52,7 +52,7 @@
   }
 </script>
 
-<section class="milestone-box">
+<section class="milestone-box surface">
   <h3>{t('issues.milestone')}</h3>
   {#if updating}
     <LoadingState />
@@ -78,9 +78,6 @@
 <style>
   .milestone-box {
     padding: 12px 16px;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    background: var(--bg-secondary);
     display: flex;
     flex-direction: column;
     gap: 8px;

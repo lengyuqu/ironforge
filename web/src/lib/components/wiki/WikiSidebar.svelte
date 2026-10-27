@@ -22,7 +22,7 @@
 </script>
 
 <aside class="wiki-sidebar">
-  <div class="sidebar-section">
+  <div class="sidebar-section surface">
     <h3>{t('wiki.pages')}</h3>
     <nav class="page-nav">
       {#each pages as p}
@@ -35,7 +35,7 @@
   </div>
 
   {#if toc.length > 0}
-    <div class="sidebar-section">
+    <div class="sidebar-section surface">
       <h3>{t('wiki.toc') || 'Table of Contents'}</h3>
       <nav class="toc-nav">
         {#each toc as heading}
@@ -58,9 +58,6 @@
     top: 24px;
   }
   .sidebar-section {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
     padding: 12px;
     margin-bottom: 12px;
   }

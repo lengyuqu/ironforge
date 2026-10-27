@@ -17,7 +17,7 @@
 
 <div class="milestones-grid">
   {#each items as milestone (milestone.id)}
-    <div class="milestone-card">
+    <div class="milestone-card surface">
       <div class="milestone-info">
         <div class="milestone-text">
           <div class="milestone-title-row">
@@ -74,9 +74,6 @@
     justify-content: space-between;
     align-items: center;
     padding: 1rem;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: 6px;
     transition: all 0.2s;
   }
 

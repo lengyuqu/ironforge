@@ -104,7 +104,7 @@
 </script>
 
 <div
-  class="board-column"
+  class="board-column surface"
   class:drag-over={dragOver}
   ondragover={onDragOver}
   ondragleave={onDragLeave}
@@ -157,9 +157,10 @@
 
 <style>
   .board-column {
-    flex: 0 0 280px; background: var(--bg-secondary);
-    border: 1px solid var(--border); border-radius: var(--radius);
-    display: flex; flex-direction: column; min-height: 200px;
+    flex: 0 0 280px;
+    display: flex;
+    flex-direction: column;
+    min-height: 200px;
     transition: background 0.15s;
   }
   .board-column.drag-over { background: var(--bg-hover); border-color: var(--accent); }

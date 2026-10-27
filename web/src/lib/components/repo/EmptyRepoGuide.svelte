@@ -48,7 +48,7 @@
     </div>
 
     <div class="clone-options">
-      <div class="option-box">
+      <div class="option-box surface">
         <div class="option-header">
           <strong>HTTPS</strong>
           <button class="mini-copy" onclick={copyHttp}>
@@ -57,7 +57,7 @@
         </div>
         <code class="cmd">{httpCloneUrl}</code>
       </div>
-      <div class="option-box">
+      <div class="option-box surface">
         <div class="option-header">
           <strong>SSH</strong>
           <button class="mini-copy" onclick={copySsh}>
@@ -159,9 +159,6 @@ git push -u origin {defaultBranch}</code></pre>
   }
 
   .option-box {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
     padding: 12px;
   }
 

@@ -94,7 +94,7 @@
   }
 </script>
 
-<form class="release-form" onsubmit={handleSubmit}>
+<form class="release-form surface" onsubmit={handleSubmit}>
   <div class="form-group">
     <label for="tag-name">{t('releases.tag_name')} <span class="required">*</span></label>
     <input
@@ -215,9 +215,6 @@
 
 <style>
   .release-form {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
     padding: 24px;
   }
 

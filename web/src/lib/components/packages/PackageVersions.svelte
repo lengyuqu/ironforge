@@ -88,7 +88,7 @@
 <div class="versions-section">
   <h2>{t('packages.version') || 'Versions'}</h2>
   {#each versions as version (version.id)}
-    <div class="version-card">
+    <div class="version-card surface">
       <div class="version-header">
         <span class="version-name">v{version.version}</span>
         <div class="version-actions">
@@ -153,9 +153,6 @@
   }
 
   .version-card {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
     padding: 16px;
   }
 

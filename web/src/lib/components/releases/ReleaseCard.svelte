@@ -85,7 +85,7 @@
   }
 </script>
 
-<div class="release-card">
+<div class="release-card surface">
   <div class="release-header">
     <div class="tag-section">
       <span class="tag-badge">🏷 {release.tag_name}</span>
@@ -147,9 +147,6 @@
 
 <style>
   .release-card {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
     padding: 20px;
   }
 

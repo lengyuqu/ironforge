@@ -50,7 +50,7 @@
 </div>
 
 {#if showHelp}
-  <div class="search-help">
+  <div class="search-help surface">
     <h3>{t('search.help_title', 'Search Tips')}</h3>
     <p>{t('search.help_desc', 'Use qualifiers to refine your search:')}</p>
     <div class="help-qualifiers">
@@ -167,9 +167,6 @@
     margin-top: 0;
     margin-bottom: 16px;
     padding: 16px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
     font-size: 13px;
     color: var(--text-secondary);
   }

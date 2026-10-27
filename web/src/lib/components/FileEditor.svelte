@@ -271,7 +271,7 @@
     />
   </div>
 
-  <div class="editor-panel">
+  <div class="editor-panel surface">
     <div class="tabbar" role="tablist" aria-label={t('repo.editor.tabs_label')}>
       <button type="button" class:active={activeTab === 'edit'} onclick={() => activeTab = 'edit'}>
         {t('repo.editor.edit_tab')}
@@ -439,10 +439,7 @@
   }
 
   .editor-panel {
-    border: 1px solid var(--border);
-    border-radius: 6px;
     overflow: hidden;
-    background: var(--bg-secondary);
   }
 
   .tabbar {

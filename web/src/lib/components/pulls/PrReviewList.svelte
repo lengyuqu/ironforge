@@ -67,7 +67,7 @@
     <div class="review-items">
       {#each reviewList as review (review.id)}
         {@const info = actionInfo(review.action)}
-        <div class="review-item">
+        <div class="review-item surface">
           <div class="review-head">
             <span class="action-badge {info.cls}">{info.label}</span>
             <span class="reviewer">#{review.reviewer_id}</span>
@@ -103,9 +103,6 @@
 
   .review-item {
     padding: 12px 14px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
   }
 
   .review-head {
