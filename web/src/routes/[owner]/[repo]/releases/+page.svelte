@@ -115,22 +115,6 @@
     font-weight: 600;
   }
 
-  .btn-primary {
-    padding: 6px 16px;
-    background: var(--orange);
-    color: #fff;
-    border: none;
-    border-radius: var(--radius);
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-    text-decoration: none;
-  }
-  .btn-primary:hover {
-    background: #e09a1e;
-    text-decoration: none;
-  }
-
   @media (max-width: 600px) {
     .page-header {
       flex-direction: column;

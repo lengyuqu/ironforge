@@ -86,19 +86,4 @@
     font-size: 24px;
     font-weight: 600;
   }
-
-
-  .btn-primary {
-    padding: 6px 16px;
-    background: var(--orange);
-    color: #fff;
-    border: none;
-    border-radius: var(--radius);
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-    text-decoration: none;
-    display: inline-block;
-    margin-top: 12px;
-  }
 </style>

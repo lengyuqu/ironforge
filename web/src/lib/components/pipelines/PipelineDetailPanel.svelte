@@ -104,20 +104,6 @@
     gap: 8px;
   }
 
-  .btn-outline {
-    padding: 4px 12px;
-    background: none;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    color: var(--text-primary);
-    font-size: 12px;
-    cursor: pointer;
-  }
-
-  .btn-outline:hover { background: var(--bg-hover); }
-
-  .btn-danger { border-color: var(--red-dim); color: var(--red); }
-
   .detail-info {
     display: flex;
     gap: 24px;

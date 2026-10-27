@@ -72,16 +72,4 @@
     font-size: 14px;
     color: var(--text-secondary);
   }
-
-  .btn-outline {
-    padding: 5px 12px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    color: var(--text-primary);
-    font-size: 13px;
-    cursor: pointer;
-  }
-  .btn-outline:hover { background: var(--bg-hover); }
-  .btn-outline:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>

@@ -189,14 +189,6 @@
   h1 { font-size: 24px; margin: 0; }
   .header-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .text-sm { font-size: 12px; }
-
-  .btn-outline {
-    padding: 5px 12px; background: none; border: 1px solid var(--border);
-    border-radius: var(--radius); color: var(--text-primary); font-size: 13px; cursor: pointer;
-  }
-  .btn-outline:hover { background: var(--bg-hover); }
-  .btn-danger { border-color: var(--red-dim); color: var(--red); }
-  .btn-danger:hover { background: rgba(248, 81, 73, 0.1); }
   .btn-outline.active { background: var(--bg-tertiary); border-color: var(--accent); color: var(--accent); }
 
   /* ── Markdown Content ── */

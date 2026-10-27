@@ -126,23 +126,6 @@
     font-weight: 600;
   }
 
-  .btn-primary {
-    padding: 6px 16px;
-    background: var(--orange);
-    color: #fff;
-    border: none;
-    border-radius: var(--radius);
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-    text-decoration: none;
-  }
-
-  .btn-primary:hover {
-    background: #e09a1e;
-    text-decoration: none;
-  }
-
   .filters {
     display: flex;
     gap: 16px;
@@ -185,20 +168,6 @@
     background: var(--bg-secondary);
     color: var(--text-primary);
     font-size: 14px;
-  }
-
-  .btn-secondary {
-    padding: 6px 12px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    color: var(--text-primary);
-    font-size: 14px;
-    cursor: pointer;
-  }
-
-  .btn-secondary:hover {
-    background: var(--bg-tertiary, #e5e7eb);
   }
 
 </style>

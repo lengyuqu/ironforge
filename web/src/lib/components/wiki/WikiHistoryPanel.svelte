@@ -128,10 +128,5 @@
     background: var(--bg-primary); border: 1px solid var(--border); border-radius: var(--radius);
     padding: 10px; margin-bottom: 10px;
   }
-  .btn-primary {
-    padding: 6px 16px; background: var(--accent); color: #fff;
-    border: none; border-radius: var(--radius); font-size: 13px; cursor: pointer;
-  }
-  .btn-sm { padding: 4px 10px; font-size: 12px; }
   button:disabled { opacity: 0.6; cursor: not-allowed; }
 </style>

@@ -288,29 +288,6 @@
   }
   .delete-confirm span { color: var(--text-secondary); }
 
-  .btn-secondary {
-    padding: 5px 12px;
-    background: none;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    color: var(--text-primary);
-    font-size: 13px;
-    cursor: pointer;
-  }
-  .btn-secondary:hover { background: var(--bg-hover); }
-
-  .btn-danger {
-    padding: 5px 12px;
-    background: var(--red-dim);
-    border: 1px solid var(--red);
-    border-radius: var(--radius);
-    color: #fff;
-    font-size: 13px;
-    cursor: pointer;
-  }
-  .btn-danger:hover { background: var(--red); }
-  .btn-danger:disabled { opacity: 0.5; cursor: not-allowed; }
-
   @media (max-width: 600px) {
     .release-actions {
       flex-direction: column;

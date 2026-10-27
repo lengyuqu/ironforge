@@ -56,14 +56,5 @@
     resize: vertical; box-sizing: border-box;
   }
   .form-actions { display: flex; gap: 8px; margin-top: 12px; }
-
-  .btn-primary {
-    padding: 6px 16px; background: var(--accent); color: #fff;
-    border: none; border-radius: var(--radius); font-size: 13px; cursor: pointer;
-  }
-  .btn-secondary {
-    padding: 6px 16px; background: var(--bg-tertiary); color: var(--text-primary);
-    border: 1px solid var(--border); border-radius: var(--radius); font-size: 13px; cursor: pointer;
-  }
   button:disabled { opacity: 0.6; cursor: not-allowed; }
 </style>

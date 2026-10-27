@@ -102,10 +102,6 @@
   .toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
   h2 { font-size: 18px; }
 
-  .btn-primary { padding: 6px 16px; background: var(--green-dim); color: #fff; border: none; border-radius: var(--radius); font-size: 14px; font-weight: 600; cursor: pointer; }
-  .btn-primary:hover { background: var(--green); }
-  .btn-secondary { padding: 6px 16px; background: none; color: var(--text-primary); border: 1px solid var(--border); border-radius: var(--radius); font-size: 14px; cursor: pointer; }
-
   .create-form { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 24px; margin-bottom: 24px; }
   form { display: flex; flex-direction: column; gap: 14px; }
   label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600; }

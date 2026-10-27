@@ -368,44 +368,6 @@
     border-top: 1px solid var(--border);
   }
 
-  .btn-primary {
-    padding: 8px 20px;
-    background: var(--orange);
-    color: #fff;
-    border: none;
-    border-radius: var(--radius);
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: background 0.15s ease;
-  }
-
-  .btn-primary:hover:not(:disabled) {
-    background: #e09a1e;
-  }
-
-  .btn-primary:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-
-  .btn-secondary {
-    padding: 8px 20px;
-    background: none;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    color: var(--text-primary);
-    font-size: 14px;
-    font-weight: 500;
-    text-decoration: none;
-    cursor: pointer;
-    transition: all 0.15s ease;
-  }
-
-  .btn-secondary:hover {
-    background: var(--bg-hover);
-  }
-
   @media (max-width: 600px) {
     .release-form {
       padding: 16px;
@@ -413,12 +375,6 @@
 
     .form-actions {
       flex-direction: column-reverse;
-    }
-
-    .btn-primary,
-    .btn-secondary {
-      width: 100%;
-      text-align: center;
     }
   }
 </style>

@@ -191,17 +191,4 @@
     margin: 0;
     line-height: 1.6;
   }
-
-  .btn {
-    padding: 0.4rem 1rem;
-    border: 1px solid var(--border-color, #d1d5db);
-    border-radius: 6px;
-    background: var(--bg-primary, #fff);
-    cursor: pointer;
-    font-size: 0.85rem;
-    color: var(--text-primary, #333);
-  }
-  .btn:hover { background: var(--bg-secondary, #f3f4f6); }
-  .btn-sm { padding: 0.2rem 0.6rem; font-size: 0.8rem; }
-  .btn-secondary { background: var(--bg-secondary, #f3f4f6); }
 </style>

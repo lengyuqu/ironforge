@@ -161,19 +161,4 @@
     font-size: 13px;
     color: var(--text-secondary);
   }
-
-  .btn-outline {
-    padding: 6px 14px;
-    background: none;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    color: var(--text-primary);
-    font-size: 13px;
-    cursor: pointer;
-  }
-
-  .btn-outline:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
 </style>
