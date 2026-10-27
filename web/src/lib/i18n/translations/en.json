@@ -574,7 +574,10 @@
       "draft": "Create as draft",
       "submit": "Create Pull Request",
       "cancel": "Cancel",
-      "milestone": "Milestone"
+      "milestone": "Milestone",
+      "title_label": "Title",
+      "title_placeholder": "Pull request title",
+      "head_required": "Select the branch to merge from"
     },
     "empty": "No {state} pull requests.",
     "meta": "#{number} opened {date} by {author}",

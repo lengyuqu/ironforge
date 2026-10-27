@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from 'svelte';
   import { repos } from '$lib/api/client.svelte';
   import { toast } from '$lib/components/toast.svelte';
   import { toErrorMessage } from '$lib/utils/error';
@@ -44,6 +45,20 @@
   let descError = $derived(newDesc.length > MAX_DESC_LEN ? t('dashboard.create_form.desc_too_long', { max: MAX_DESC_LEN }) : '');
   let canSubmit = $derived(nameError === '' && descError === '');
 
+  // Errors appear once a field was edited/left or a submit was attempted —
+  // never on a pristine form.
+  let attempted = $state(false);
+  let touched = $state({ name: false, desc: false });
+  let showNameError = $derived(nameError !== '' && (attempted || touched.name));
+  let showDescError = $derived(descError !== '' && (attempted || touched.desc));
+  let formEl = $state<HTMLFormElement | null>(null);
+  let nameEl = $state<HTMLInputElement | null>(null);
+
+  // The form is revealed by a user action; start typing right away.
+  $effect(() => {
+    nameEl?.focus();
+  });
+
   // Template options (loaded from API)
   let gitignoreOptions = $state<{ key: string; name: string; description: string }[]>([]);
   let licenseOptions = $state<{ key: string; name: string; description: string }[]>([]);
@@ -73,7 +88,13 @@
 
   async function handleCreate(e: Event) {
     e.preventDefault();
-    if (!canSubmit || submitting) return;
+    if (submitting) return;
+    if (!canSubmit) {
+      attempted = true;
+      await tick();
+      formEl?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
+      return;
+    }
     submitting = true;
     try {
       await repos.create({
@@ -98,19 +119,39 @@
 
 <div class="create-form">
   <h2>{t('dashboard.create_form.title')}</h2>
-  <form onsubmit={handleCreate}>
+  <form onsubmit={handleCreate} bind:this={formEl} novalidate>
     <!-- Repository name -->
     <label>
       {t('dashboard.create_form.name')} <span class="required">*</span>
-      <input type="text" bind:value={newName} required maxlength={MAX_REPO_NAME_LEN} placeholder={t('dashboard.create_form.name_placeholder')} />
-      {#if nameError}<span class="field-error">{nameError}</span>{/if}
+      <input
+        type="text"
+        bind:value={newName}
+        required
+        maxlength={MAX_REPO_NAME_LEN}
+        placeholder={t('dashboard.create_form.name_placeholder')}
+        oninput={() => (touched.name = true)}
+        onblur={() => (touched.name = true)}
+        aria-invalid={showNameError ? 'true' : undefined}
+        aria-describedby={showNameError ? 'repo-name-error' : undefined}
+        bind:this={nameEl}
+      />
+      {#if showNameError}<span class="field-error" id="repo-name-error" role="alert">{nameError}</span>{/if}
     </label>
 
     <!-- Description -->
     <label>
       {t('dashboard.create_form.desc')} <span class="optional">{t('common.optional')}</span>
-      <input type="text" bind:value={newDesc} maxlength={MAX_DESC_LEN} placeholder={t('common.no_description')} />
-      {#if descError}<span class="field-error">{descError}</span>{/if}
+      <input
+        type="text"
+        bind:value={newDesc}
+        maxlength={MAX_DESC_LEN}
+        placeholder={t('common.no_description')}
+        oninput={() => (touched.desc = true)}
+        onblur={() => (touched.desc = true)}
+        aria-invalid={showDescError ? 'true' : undefined}
+        aria-describedby={showDescError ? 'repo-desc-error' : undefined}
+      />
+      {#if showDescError}<span class="field-error" id="repo-desc-error" role="alert">{descError}</span>{/if}
     </label>
 
     <!-- Visibility -->
@@ -186,7 +227,7 @@
     {/if}
 
     <div class="form-actions">
-      <button type="submit" class="btn-primary" disabled={!canSubmit || submitting}>{t('dashboard.create_form.submit')}</button>
+      <button type="submit" class="btn-primary" disabled={submitting}>{t('dashboard.create_form.submit')}</button>
       <button type="button" class="btn-secondary" onclick={onCancel}>{t('dashboard.create_form.cancel')}</button>
     </div>
   </form>
