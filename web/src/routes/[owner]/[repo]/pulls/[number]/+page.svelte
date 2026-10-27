@@ -2,6 +2,7 @@
   // PR detail page — orchestrator. Loads PR state and delegates the heavy
   // UI to focused components under $lib/components/pulls/:
   //   PrReviewersBox / PrMergeBox / PrTimeline / PrThreads / PrDiffView / PrReviewForm
+  import LoadingState from '$lib/components/LoadingState.svelte';
   import { page } from '$app/stores';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
   import AttachmentPanel from '$lib/components/AttachmentPanel.svelte';
@@ -90,7 +91,7 @@
   {/if}
 
   {#if loading}
-    <p class="text-secondary">{t('common.loading')}</p>
+    <LoadingState />
   {:else if pr}
     <div class="pr-detail">
       <PrHeader {pr} {updatingDraft} onToggleDraft={toggleDraft} />

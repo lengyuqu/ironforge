@@ -1,6 +1,7 @@
 <script lang="ts">
   // Blob content view — renders the file body: markdown (rendered/source),
   // code with line numbers + highlight.js, binary or empty placeholders.
+  import EmptyState from '$lib/components/EmptyState.svelte';
   import { createT } from '$lib/i18n';
   import { renderMarkdown } from '$lib/utils/markdown';
   import type { BlobContent } from '$lib/types/entities';
@@ -64,7 +65,7 @@
 
 <div class="file-content">
   {#if blob.is_binary}
-    <div class="empty-state">{t('repo.blob.binary_file')}</div>
+    <EmptyState title={t('repo.blob.binary_file')} />
   {:else if isMarkdown && viewMode === 'rendered'}
     <div class="markdown-body">
       {@html renderedMarkdown || `<p>${t('repo.blob.empty')}</p>`}
@@ -85,7 +86,7 @@
       </table>
     </div>
   {:else}
-    <div class="empty-state">{t('repo.blob.empty')}</div>
+    <EmptyState title={t('repo.blob.empty')} />
   {/if}
 </div>
 

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import LoadingState from '$lib/components/LoadingState.svelte';
+  import EmptyState from '$lib/components/EmptyState.svelte';
   import { repos } from '$lib/api/client.svelte';
   import { createT, formatDate } from '$lib/i18n';
   import { page } from '$app/stores';
@@ -67,11 +69,9 @@
   {/if}
 
   {#if loading}
-    <p class="text-secondary">{t('common.loading')}</p>
+    <LoadingState />
   {:else if commits.length === 0}
-    <div class="empty">
-      <p>{filterPath ? t('repo.commits_path_empty') : t('repo.commits_empty', 'No commits yet.')}</p>
-    </div>
+    <EmptyState title={filterPath ? t('repo.commits_path_empty') : t('repo.commits_empty', 'No commits yet.')} />
   {:else}
     <div class="commits-list">
       {#each commits as commit}
@@ -125,12 +125,6 @@
     border: none;
     border-radius: 4px;
     cursor: pointer;
-  }
-
-  .empty {
-    text-align: center;
-    padding: 60px 24px;
-    color: var(--text-secondary);
   }
 
   .commits-list {

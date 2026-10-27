@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LoadingState from '$lib/components/LoadingState.svelte';
   import type { Organization } from '$lib/types/entities';
   import { createT, formatDate } from '$lib/i18n';
 
@@ -21,7 +22,7 @@
   </div>
 
   {#if loading}
-    <p class="loading">{t('common.loading')}</p>
+    <LoadingState />
   {:else if organizations.length === 0}
     <div class="empty-state">
       <h3>{t('orgs.no_orgs')}</h3>
@@ -67,17 +68,11 @@
   .section-header {
     margin-bottom: 1rem;
   }
-
-  .loading,
   .empty-state p,
   .org-desc,
   .org-meta,
   .org-name {
     color: var(--text-secondary);
-  }
-
-  .loading {
-    margin: 0;
   }
 
   .empty-state {

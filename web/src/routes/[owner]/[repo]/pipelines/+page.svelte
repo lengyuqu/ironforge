@@ -3,6 +3,8 @@
   // pipeline detail, auto-refreshes while running, and delegates UI to:
   //   PipelineList (sidebar) / PipelineFlow (stage-job visualization) /
   //   JobLogModal (live log viewer)
+  import LoadingState from '$lib/components/LoadingState.svelte';
+  import EmptyState from '$lib/components/EmptyState.svelte';
   import { page } from '$app/stores';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
   import PipelineList from '$lib/components/pipelines/PipelineList.svelte';
@@ -166,12 +168,9 @@
   {/if}
 
   {#if loading}
-    <p class="text-secondary">{t('common.loading')}</p>
+    <LoadingState />
   {:else if pipelineList.length === 0}
-    <div class="empty">
-      <p>{t('pipeline.no_pipelines')}</p>
-      <p class="text-secondary">{t('pipeline.hint', { file: t('pipeline.file') })}</p>
-    </div>
+    <EmptyState title={t('pipeline.no_pipelines')} description={t('pipeline.hint', { file: t('pipeline.file') })} />
   {:else}
     <div class="pipeline-layout">
       <!-- Pipeline list -->
@@ -208,8 +207,6 @@
 {/if}
 
 <style>
-  .empty { text-align: center; padding: 48px; color: var(--text-secondary); }
-
   .pipeline-layout {
     display: grid;
     grid-template-columns: 320px 1fr;

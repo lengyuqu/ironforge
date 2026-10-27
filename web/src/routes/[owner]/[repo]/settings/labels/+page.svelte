@@ -2,6 +2,8 @@
   // Labels settings page — orchestration layer: loads the label list and
   // manages modal visibility. Create/edit/delete are handled by the
   // self-contained modal components, which reload the list on success.
+  import LoadingState from '$lib/components/LoadingState.svelte';
+  import EmptyState from '$lib/components/EmptyState.svelte';
   import { page } from '$app/stores';
   import { labels } from '$lib/api/client.svelte';
   import { createT } from '$lib/i18n';
@@ -91,11 +93,9 @@
   {/if}
 
   {#if loading}
-    <div class="loading">{t('common.loading')}</div>
+    <LoadingState />
   {:else if labelList.length === 0}
-    <div class="empty-state">
-      <p>{t('settings.no_labels')}</p>
-    </div>
+    <EmptyState title={t('settings.no_labels')} />
   {:else}
     <LabelGrid
       items={labelList}
@@ -121,18 +121,5 @@
     font-size: 1.75rem;
     color: var(--text-primary);
     margin: 0;
-  }
-
-  .empty-state {
-    padding: 3rem;
-    text-align: center;
-    color: var(--text-secondary);
-    font-size: 0.95rem;
-  }
-
-  .loading {
-    padding: 2rem;
-    text-align: center;
-    color: var(--text-secondary);
   }
 </style>

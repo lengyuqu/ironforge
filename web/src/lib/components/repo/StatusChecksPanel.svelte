@@ -1,6 +1,7 @@
 <script lang="ts">
   // Status checks panel — pure presentation: the combined status banner and
   // the individual check cards.
+  import EmptyState from '$lib/components/EmptyState.svelte';
   import { statusIcon, statusText, statusColor } from '$lib/utils/commitStatus';
   import type { CombinedCommitStatus, CommitStatus } from '$lib/types/entities';
 
@@ -48,9 +49,7 @@
   <h3>Status Checks</h3>
 
   {#if statuses.length === 0}
-    <div class="empty-state">
-      <p>No status checks reported yet.</p>
-    </div>
+    <EmptyState title="No status checks reported yet." />
   {:else}
     <div class="status-list">
       {#each statuses as status, index (status.id)}
@@ -128,12 +127,6 @@
     font-weight: 600;
     margin: 0 0 1rem 0;
     color: var(--text-primary);
-  }
-
-  .empty-state {
-    text-align: center;
-    padding: 2rem;
-    color: var(--text-muted);
   }
 
   .status-list {

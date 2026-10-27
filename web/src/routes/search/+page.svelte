@@ -3,6 +3,8 @@
   // the search request and delegates UI to:
   //   SearchBox (input + help + type tabs)
   //   SearchResultsList (result cards + pagination)
+  import LoadingState from '$lib/components/LoadingState.svelte';
+  import EmptyState from '$lib/components/EmptyState.svelte';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
   import { createT } from '$lib/i18n';
@@ -138,7 +140,7 @@
     {#if loading}
       <div class="loading">
         <div class="spinner"></div>
-        <span>{t('common.loading')}</span>
+        <LoadingState />
       </div>
     {:else if searchError}
       <div class="error-state">
@@ -152,9 +154,7 @@
         <p>{t('search.placeholder')}</p>
       </div>
     {:else if results.length === 0}
-      <div class="empty-state">
-        <p>{t('search.no_results')}</p>
-      </div>
+      <EmptyState title={t('search.no_results')} />
     {:else}
       <div class="results-info">
         {t('search.results_count', { total })}

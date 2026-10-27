@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LoadingState from '$lib/components/LoadingState.svelte';
   import { page } from '$app/stores';
   import { repos } from '$lib/api/client.svelte';
   import type { RepoInfo } from '$lib/types/entities';
@@ -41,7 +42,7 @@
   <h1>{t('settings.general')}</h1>
 
   {#if loading}
-    <div class="loading">{t('common.loading')}</div>
+    <LoadingState />
   {:else if error}
     <div class="error">{error}</div>
   {:else if repository}
@@ -61,8 +62,6 @@
     margin-bottom: 2rem;
     color: var(--text-primary);
   }
-
-  .loading,
   .error {
     padding: 2rem;
     text-align: center;

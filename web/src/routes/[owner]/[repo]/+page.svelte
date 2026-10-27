@@ -2,6 +2,7 @@
   // Repo overview page — orchestration layer: loads tree/branches/commits/
   // repo info in parallel, keeps the URL in sync with ref/path, and renders
   // the browser components. README detection probes common filenames.
+  import LoadingState from '$lib/components/LoadingState.svelte';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
@@ -126,7 +127,7 @@
   {/if}
 
   {#if loading}
-    <p class="text-secondary">{t('common.loading')}</p>
+    <LoadingState />
   {:else if commits.length === 0 && entries.length === 0}
     <!-- Empty repository — setup guidance -->
     <EmptyRepoGuide {owner} {repo} defaultBranch={repoInfo?.default_branch || 'main'} />

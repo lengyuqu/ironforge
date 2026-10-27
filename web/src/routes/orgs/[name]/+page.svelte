@@ -1,4 +1,6 @@
 <script lang="ts">
+  import LoadingState from '$lib/components/LoadingState.svelte';
+  import EmptyState from '$lib/components/EmptyState.svelte';
   import { page } from '$app/state';
   import { orgs, repos } from '$lib/api/client.svelte';
   import { createT, formatDate } from '$lib/i18n';
@@ -63,7 +65,7 @@
 
 <div class="container">
   {#if loading}
-    <p>{t('common.loading')}</p>
+    <LoadingState />
   {:else if error && !org}
     <div class="error">{error}</div>
   {:else if org}
@@ -92,7 +94,7 @@
         <button class="btn-sm" onclick={createOrgRepo}>{t('orgs.create_repo')}</button>
       </div>
       {#if orgRepos.length === 0}
-        <p class="empty">{t('orgs.no_repos')}</p>
+        <EmptyState title={t('orgs.no_repos')} />
       {:else}
         <div class="repo-list">
           {#each orgRepos as repo}
@@ -120,7 +122,7 @@
           <button class="btn-sm" onclick={createTeam}>{t('orgs.create_team')}</button>
         </div>
         {#if teams.length === 0}
-          <p class="empty">{t('orgs.no_teams')}</p>
+          <EmptyState title={t('orgs.no_teams')} />
         {:else}
           {#each teams as team}
             <div class="item">
@@ -135,7 +137,7 @@
       <div class="section">
         <h2>{t('orgs.members', { count: String(members.length) })}</h2>
         {#if members.length === 0}
-          <p class="empty">{t('orgs.no_members')}</p>
+          <EmptyState title={t('orgs.no_members')} />
         {:else}
           {#each members as member}
             <div class="item">
@@ -166,7 +168,6 @@
   .item:last-child { border-bottom: none; }
   .item-name { color: var(--text-primary); }
   .badge { background: var(--bg-primary); color: var(--text-secondary); padding: 0.15rem 0.5rem; border-radius: 12px; font-size: 0.75rem; border: 1px solid var(--border); }
-  .empty { color: var(--text-secondary); font-style: italic; }
   .error { color: #f85149; background: rgba(248, 81, 73, 0.1); padding: 0.5rem 0.75rem; border-radius: 6px; }
   .repo-list { display: flex; flex-direction: column; gap: 0; }
   .repo-item { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.75rem; color: var(--text-primary); text-decoration: none; border-bottom: 1px solid var(--border); border-radius: 0; }

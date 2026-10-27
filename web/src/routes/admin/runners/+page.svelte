@@ -2,6 +2,8 @@
   // Admin runners page — orchestration layer: auth guard, list loading
   // and pagination. Registration (with token banner) and delete
   // confirmation are handled by the self-contained components.
+  import LoadingState from '$lib/components/LoadingState.svelte';
+  import EmptyState from '$lib/components/EmptyState.svelte';
   import { goto } from '$app/navigation';
   import { createT } from '$lib/i18n';
   import { runners, type RunnerListItem } from '$lib/api/client.svelte';
@@ -83,9 +85,9 @@
   <RunnerRegisterForm onRegistered={loadRunners} />
 
   {#if loading}
-    <p class="loading">{t('common.loading')}</p>
+    <LoadingState />
   {:else if runnerList.length === 0}
-    <p class="empty">{t('admin.runners.empty')}</p>
+    <EmptyState title={t('admin.runners.empty')} />
   {:else}
     <RunnerTable items={runnerList} onDelete={(runner) => (deleteTarget = runner)} />
 
@@ -127,14 +129,8 @@
     margin: 0.5rem 0 0;
   }
 
-  .meta,
-  .loading,
-  .empty {
+  .meta{
     color: var(--text-secondary);
-  }
-
-  .empty {
-    font-style: italic;
   }
 
   .error {

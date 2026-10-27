@@ -1,7 +1,10 @@
 <script lang="ts">
+  import LoadingState from '$lib/components/LoadingState.svelte';
+  import EmptyState from '$lib/components/EmptyState.svelte';
   import { isAuthReady, isLoggedIn, isAdmin } from '$lib/stores/auth.svelte';
   import { goto } from '$app/navigation';
   import { createT, formatDate } from '$lib/i18n';
+  import Modal from '$lib/components/Modal.svelte';
   import { admin, type AdminOrg } from '$lib/api/client.svelte';
 
   const t = createT();
@@ -68,12 +71,6 @@
     if (page < totalPages) { page++; loadOrgs(); }
   }
 
-  function closeDeleteDialogByKey(e: KeyboardEvent) {
-    if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      showDeleteConfirm = false;
-    }
-  }
 </script>
 
 <div class="container">
@@ -88,9 +85,9 @@
   {/if}
 
   {#if loading}
-    <p class="loading">{t('common.loading')}</p>
+    <LoadingState />
   {:else if orgs.length === 0}
-    <p class="empty">{t('orgs.no_repos')}</p>
+    <EmptyState title={t('orgs.no_repos')} />
   {:else}
     <div class="table-wrap">
       <table class="orgs-table">
@@ -139,30 +136,21 @@
 
 <!-- Delete confirm -->
   {#if showDeleteConfirm && deleteTarget}
-    <div
-      class="modal-overlay"
-      onclick={() => showDeleteConfirm = false}
-      role="button"
-      tabindex="0"
-      onkeydown={closeDeleteDialogByKey}
+    <Modal
+      open={true}
+      title={t('admin.orgs.delete_confirm')}
+      submitLabel={deleting ? t('common.loading') : t('common.delete')}
+      submitVariant="danger"
+      busy={deleting}
+      onClose={() => (showDeleteConfirm = false)}
+      onSubmit={handleDelete}
     >
-      <div class="modal" role="dialog" aria-modal="true" tabindex="-1">
-      <h2>{t('admin.orgs.delete_confirm')}</h2>
-      <p>
-        {t('admin.orgs.delete_warning', { name: deleteTarget.name })}
-      </p>
+      <p class="modal-text">{t('admin.orgs.delete_warning', { name: deleteTarget.name })}</p>
       {#if error}
-        <div class="error">{error}</div>
+        <div class="error" role="alert">{error}</div>
       {/if}
-      <div class="modal-actions">
-        <button class="btn-danger" onclick={handleDelete} disabled={deleting}>
-          {deleting ? t('common.loading') : t('common.delete')}
-        </button>
-        <button class="btn-secondary" onclick={() => showDeleteConfirm = false}>{t('common.cancel')}</button>
-      </div>
-    </div>
-  </div>
-{/if}
+    </Modal>
+  {/if}
 
 <style>
   .header { margin-bottom: 1.5rem; }
@@ -171,8 +159,6 @@
   h1 { margin: 0.5rem 0 0; }
   .meta { color: var(--text-secondary); margin: 0; }
   .error { color: #f85149; background: rgba(248, 81, 73, 0.1); padding: 0.5rem 0.75rem; border-radius: 6px; margin-bottom: 1rem; }
-  .loading { color: var(--text-secondary); }
-  .empty { color: var(--text-secondary); font-style: italic; }
 
   .table-wrap { overflow-x: auto; }
   .orgs-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
@@ -199,10 +185,5 @@
   .btn-danger:disabled { opacity: 0.6; cursor: not-allowed; }
 
   /* Modal */
-  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-  .modal { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; width: 420px; max-width: 90vw; }
-  .modal h2 { margin: 0 0 1rem; font-size: 1.1rem; }
-  .modal p { color: var(--text-secondary); margin: 0 0 1rem; }
-  .modal-actions { display: flex; gap: 0.75rem; justify-content: flex-end; margin-top: 1.25rem; }
-  .btn-secondary { background: var(--bg-primary); border: 1px solid var(--border); color: var(--text-primary); border-radius: 6px; padding: 0.5rem 1rem; cursor: pointer; font-size: 0.9rem; }
+  .modal-text { color: var(--text-secondary); margin: 0 0 1rem; }
 </style>

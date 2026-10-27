@@ -2,6 +2,7 @@
   // Blob viewer page — orchestration layer: loads the file content for the
   // current ref/path, keeps the URL ref in sync, and owns the view-mode and
   // delete-panel visibility state.
+  import LoadingState from '$lib/components/LoadingState.svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
@@ -89,7 +90,7 @@
   {/if}
 
   {#if loading}
-    <p class="text-secondary">{t('common.loading')}</p>
+    <LoadingState />
   {:else if blobData}
     <BlobBreadcrumb {owner} {repo} {ref} {filePath} />
 

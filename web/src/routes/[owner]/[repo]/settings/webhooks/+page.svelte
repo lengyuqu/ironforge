@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LoadingState from '$lib/components/LoadingState.svelte';
   import { page } from '$app/stores';
   import { createT } from '$lib/i18n';
   import { webhooks, type RepositoryWebhook } from '$lib/api/client.svelte';
@@ -50,7 +51,7 @@
   <section class="section">
     <h2>{t('settings.webhooks.current', 'Configured webhooks')}</h2>
     {#if loading}
-      <div class="loading">{t('common.loading')}</div>
+      <LoadingState />
     {:else}
       <WebhookList {owner} {repo} {hooks} onChanged={loadWebhooks} />
     {/if}
@@ -88,14 +89,6 @@
     margin-bottom: 2.5rem;
     padding-bottom: 2rem;
     border-bottom: 1px solid var(--border);
-  }
-
-  .loading {
-    padding: 2rem;
-    text-align: center;
-    color: var(--text-secondary);
-    background: var(--bg-secondary);
-    border-radius: 6px;
   }
 
   .error-box {

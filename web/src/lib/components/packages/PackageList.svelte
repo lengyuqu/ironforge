@@ -1,4 +1,5 @@
 <script lang="ts">
+  import EmptyState from '$lib/components/EmptyState.svelte';
   import type { PackageSummaryResponse } from '$lib/api/client.svelte';
   import { createT } from '$lib/i18n';
   import {
@@ -35,9 +36,7 @@
 </script>
 
 {#if packages.length === 0}
-  <div class="empty">
-    <p>{t('packages.no_packages')}</p>
-  </div>
+  <EmptyState title={t('packages.no_packages')} />
 {:else}
   <div class="package-list">
     {#each packages as pkg (pkg.id)}
@@ -84,15 +83,6 @@
 {/if}
 
 <style>
-  .empty {
-    text-align: center;
-    padding: 48px;
-    color: var(--text-secondary);
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-  }
-
   .package-list {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));

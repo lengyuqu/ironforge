@@ -1,4 +1,6 @@
 <script lang="ts">
+  import LoadingState from '$lib/components/LoadingState.svelte';
+  import EmptyState from '$lib/components/EmptyState.svelte';
   import { isAuthReady, isLoggedIn, isAdmin } from '$lib/stores/auth.svelte';
   import { goto } from '$app/navigation';
   import { createT } from '$lib/i18n';
@@ -99,9 +101,9 @@
   {/if}
 
   {#if loading}
-    <p class="loading">{t('common.loading')}</p>
+    <LoadingState />
   {:else if logs.length === 0}
-    <p class="empty">No audit records found.</p>
+    <EmptyState title="No audit records found." />
   {:else}
     <AuditLogTable
       {logs}
@@ -126,6 +128,4 @@
   .meta { color: var(--text-secondary); margin: 0; }
 
   .error { color: #f85149; background: rgba(248, 81, 73, 0.1); padding: 0.5rem 0.75rem; border-radius: 6px; margin-bottom: 1rem; }
-  .loading { color: var(--text-secondary); }
-  .empty { color: var(--text-secondary); text-align: center; padding: 2rem 0; }
 </style>

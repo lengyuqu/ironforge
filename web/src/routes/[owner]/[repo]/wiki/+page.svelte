@@ -1,4 +1,6 @@
 <script lang="ts">
+  import LoadingState from '$lib/components/LoadingState.svelte';
+  import EmptyState from '$lib/components/EmptyState.svelte';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
@@ -80,9 +82,9 @@
   {/if}
 
   {#if loading}
-    <p class="text-secondary">{t('common.loading')}</p>
+    <LoadingState />
   {:else if pageList.length === 0}
-    <div class="empty"><p>{t('wiki.empty')}</p></div>
+    <EmptyState title={t('wiki.empty')} />
   {:else}
     <div class="page-list">
       {#each pageList as p}
@@ -108,7 +110,6 @@
   label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600; }
   textarea { font-family: var(--font-mono); font-size: 13px; resize: vertical; }
   .form-actions { display: flex; gap: 8px; margin-top: 8px; }
-.empty { text-align: center; padding: 48px; color: var(--text-secondary); }
 
   .page-list { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
   .wiki-item {

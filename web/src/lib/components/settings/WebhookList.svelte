@@ -1,4 +1,6 @@
 <script lang="ts">
+  import EmptyState from '$lib/components/EmptyState.svelte';
+  import { confirmDialog } from '$lib/components/confirm.svelte';
   import { webhooks, type RepositoryWebhook } from '$lib/api/client.svelte';
   import { toast } from '$lib/components/toast.svelte';
   import { toErrorMessage } from '$lib/utils/error';
@@ -31,7 +33,7 @@
   }
 
   async function removeWebhook(hook: RepositoryWebhook) {
-    if (!confirm(t('settings.webhooks.delete_confirm', `Delete webhook ${hook.url}?`))) return;
+    if (!(await confirmDialog({ variant: 'danger', message: t('settings.webhooks.delete_confirm', `Delete webhook ${hook.url}?`) }))) return;
 
     deletingId = hook.id;
     try {
@@ -51,7 +53,7 @@
 </script>
 
 {#if hooks.length === 0}
-  <div class="empty-state">{t('settings.webhooks.empty', 'No webhooks configured yet.')}</div>
+  <EmptyState title={t('settings.webhooks.empty', 'No webhooks configured yet.')} />
 {:else}
   <div class="hook-list">
     {#each hooks as hook (hook.id)}
@@ -146,14 +148,6 @@
   .btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
-  }
-
-  .empty-state {
-    padding: 2rem;
-    text-align: center;
-    color: var(--text-secondary);
-    background: var(--bg-secondary);
-    border-radius: 6px;
   }
 
   @media (max-width: 720px) {

@@ -1,6 +1,7 @@
 <script lang="ts">
   // README section — renders the repo-root README (if any) as markdown.
   // Pure presentation; markdown rendering happens here via renderMarkdown.
+  import LoadingState from '$lib/components/LoadingState.svelte';
   import { createT } from '$lib/i18n';
   import { renderMarkdown } from '$lib/utils/markdown';
 
@@ -27,7 +28,7 @@
   </div>
 {:else if loading}
   <div class="gh-card readme-section">
-    <p class="text-secondary">{t('common.loading')}</p>
+    <LoadingState />
   </div>
 {/if}
 

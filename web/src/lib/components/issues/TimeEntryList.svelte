@@ -1,8 +1,12 @@
 <script lang="ts">
+  import EmptyState from '$lib/components/EmptyState.svelte';
+  import { createT } from '$lib/i18n';
+  import { confirmDialog } from '$lib/components/confirm.svelte';
   import { timeTracking } from '$lib/api/client.svelte';
   import { toErrorMessage } from '$lib/utils/error';
   import type { TimeEntry } from '$lib/types/entities';
 
+  const t = createT();
   let {
     owner,
     repo,
@@ -36,7 +40,7 @@
   }
 
   async function handleDelete(id: number) {
-    if (!confirm('Delete this time entry?')) return;
+    if (!(await confirmDialog({ variant: 'danger', message: t('confirm.time_entry_delete') }))) return;
     try {
       deletingId = id;
       error = '';
@@ -57,7 +61,7 @@
 {#if loading}
   <p class="loading-text">Loading…</p>
 {:else if entries.length === 0}
-  <div class="empty">No time entries for this issue yet.</div>
+  <EmptyState title="No time entries for this issue yet." />
 {:else}
   <table class="entries-table">
     <thead>
@@ -114,16 +118,6 @@
     color: var(--text-secondary);
     text-align: center;
     padding: 32px;
-  }
-
-  .empty {
-    padding: 40px;
-    text-align: center;
-    color: var(--text-secondary);
-    font-size: 14px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
   }
 
   .entries-table {

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import EmptyState from '$lib/components/EmptyState.svelte';
   import { page } from '$app/stores';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
   import { packages } from '$lib/api/client.svelte';
@@ -80,9 +81,7 @@
   {#if loading}
     <p class="loading-text">{t('common.loading')}</p>
   {:else if packageList.length === 0}
-    <div class="empty">
-      <p>{t('packages.no_packages')}</p>
-    </div>
+    <EmptyState title={t('packages.no_packages')} />
   {:else}
     <div class="package-list">
       {#each packageList as pkg}
@@ -133,15 +132,6 @@
     color: var(--text-secondary);
     text-align: center;
     padding: 48px;
-  }
-
-  .empty {
-    text-align: center;
-    padding: 48px;
-    color: var(--text-secondary);
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
   }
 
   .package-list {

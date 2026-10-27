@@ -1,4 +1,6 @@
 <script lang="ts">
+  import LoadingState from '$lib/components/LoadingState.svelte';
+  import EmptyState from '$lib/components/EmptyState.svelte';
   import { isLoggedIn, getUser } from '$lib/stores/auth.svelte';
   import { repos } from '$lib/api/client.svelte';
   import { goto } from '$app/navigation';
@@ -64,12 +66,9 @@
   {/if}
 
   {#if loading}
-    <p class="text-secondary">{t('common.loading')}</p>
+    <LoadingState />
   {:else if repoList.length === 0}
-    <div class="empty">
-      <p>{t('dashboard.empty.no_repos')}</p>
-      <p class="text-secondary">{t('dashboard.empty.get_started')}</p>
-    </div>
+    <EmptyState title={t('dashboard.empty.no_repos')} description={t('dashboard.empty.get_started')} />
   {:else}
     <RepoList owner={owner} repos={repoList} />
   {/if}
@@ -97,19 +96,11 @@
   }
   .btn-primary:hover { background: var(--green); }
 
-  .text-secondary { color: var(--text-secondary); }
-
   .error-banner {
     color: #f85149;
     background: rgba(248, 81, 73, 0.1);
     padding: 10px 12px;
     border-radius: 6px;
     margin-bottom: 16px;
-  }
-
-  .empty {
-    text-align: center;
-    padding: 60px 24px;
-    color: var(--text-secondary);
   }
 </style>

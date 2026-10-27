@@ -1,4 +1,6 @@
 <script lang="ts">
+  import LoadingState from '$lib/components/LoadingState.svelte';
+  import EmptyState from '$lib/components/EmptyState.svelte';
   import { page } from '$app/stores';
   import { repos } from '$lib/api/client.svelte';
   import { createT, formatDate } from '$lib/i18n';
@@ -46,11 +48,9 @@
   {/if}
 
   {#if loading}
-    <p class="text-secondary">{t('common.loading')}</p>
+    <LoadingState />
   {:else if repoList.length === 0}
-    <div class="empty">
-      <p>{t('profile.no_repos')}</p>
-    </div>
+    <EmptyState title={t('profile.no_repos')} />
   {:else}
     <div class="repo-list">
       {#each repoList as repo}
@@ -101,12 +101,6 @@
   .info h1 {
     font-size: 22px;
     margin: 0;
-  }
-
-  .empty {
-    text-align: center;
-    padding: 60px 24px;
-    color: var(--text-secondary);
   }
 
   .repo-list {

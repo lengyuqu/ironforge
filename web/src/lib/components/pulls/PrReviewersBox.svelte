@@ -1,6 +1,7 @@
 <script lang="ts">
   // Reviewers box — manages the requested-reviewer list for a PR.
   // Self-contained: loads/manages its own reviewer state via the reviews API.
+  import LoadingState from '$lib/components/LoadingState.svelte';
   import { reviews } from '$lib/api/client.svelte';
   import { createT } from '$lib/i18n';
   import { toast } from '$lib/components/toast.svelte';
@@ -67,7 +68,7 @@
 <section class="reviewers-box">
   <h3>{t('pulls.reviewers.title')}</h3>
   {#if loading}
-    <p class="text-secondary">{t('common.loading')}</p>
+    <LoadingState />
   {:else if reviewers.length === 0}
     <p class="text-secondary">{t('pulls.reviewers.empty')}</p>
   {:else}

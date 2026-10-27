@@ -1,6 +1,8 @@
 <script lang="ts">
   // Landing public repositories section — vertical repo list fed by the
   // explore API, with loading / error / empty states.
+  import LoadingState from '$lib/components/LoadingState.svelte';
+  import EmptyState from '$lib/components/EmptyState.svelte';
   import { createT, formatDate } from '$lib/i18n';
   import type { ExploreRepo } from '$lib/types/entities';
 
@@ -31,11 +33,9 @@
     {/if}
 
     {#if loading}
-      <p class="text-secondary">{t('common.loading')}</p>
+      <LoadingState />
     {:else if repos.length === 0}
-      <div class="empty">
-        <p>{t('explore.empty')}</p>
-      </div>
+      <EmptyState title={t('explore.empty')} />
     {:else}
       <div class="repo-list">
         {#each repos as repo (repo.id)}
@@ -147,12 +147,6 @@
     font-size: 12px;
     color: var(--text-muted, #8b949e);
     margin-top: 4px;
-  }
-
-  .empty {
-    text-align: center;
-    padding: 60px 24px;
-    color: var(--text-secondary, #656d76);
   }
 
   .error-banner {

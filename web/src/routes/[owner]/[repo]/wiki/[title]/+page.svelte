@@ -1,4 +1,7 @@
 <script lang="ts">
+  import LoadingState from '$lib/components/LoadingState.svelte';
+  import EmptyState from '$lib/components/EmptyState.svelte';
+  import { confirmDialog } from '$lib/components/confirm.svelte';
   import { page } from '$app/stores';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
   import { wiki } from '$lib/api/client.svelte';
@@ -69,7 +72,7 @@
   }
 
   async function handleDelete() {
-    if (!confirm('Delete this wiki page? This cannot be undone.')) return;
+    if (!(await confirmDialog({ variant: 'danger', message: t('confirm.wiki_delete') }))) return;
     try {
       await wiki.remove(owner, repo, title);
       window.location.href = `/${owner}/${repo}/wiki`;
@@ -100,7 +103,7 @@
   {/if}
 
   {#if loading}
-    <p class="text-secondary">{t('common.loading')}</p>
+    <LoadingState />
   {:else if wikiPage}
     <div class="wiki-layout">
       <WikiSidebar
@@ -148,13 +151,11 @@
       </main>
     </div>
   {:else}
-    <div class="empty"><p>{t('wiki.not_found') || 'Page not found'}</p></div>
+    <EmptyState title={t('wiki.not_found') || 'Page not found'} />
   {/if}
 </div>
 
 <style>
-  .empty { text-align: center; padding: 48px; color: var(--text-secondary); }
-  .text-secondary { color: var(--text-secondary); }
   .error-banner {
     color: #f85149; background: rgba(248, 81, 73, 0.1);
     padding: 10px 12px; border-radius: 6px; margin-bottom: 16px;
@@ -245,4 +246,5 @@
   .wiki-footer { margin-top: 32px; padding-top: 16px; border-top: 1px solid var(--border-light); }
   .back-link { color: var(--accent); text-decoration: none; font-size: 14px; }
   .back-link:hover { text-decoration: underline; }
+  .text-secondary { color: var(--text-secondary); }
 </style>

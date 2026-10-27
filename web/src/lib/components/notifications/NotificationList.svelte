@@ -1,4 +1,6 @@
 <script lang="ts">
+  import LoadingState from '$lib/components/LoadingState.svelte';
+  import EmptyState from '$lib/components/EmptyState.svelte';
   import { notifications, type NotificationItem } from '$lib/api/client.svelte';
   import { toErrorMessage } from '$lib/utils/error';
   import { createT, formatDateTime } from '$lib/i18n';
@@ -45,11 +47,9 @@
 </script>
 
 {#if loading}
-  <p>{t('common.loading')}</p>
+  <LoadingState />
 {:else if items.length === 0}
-  <div class="empty-state">
-    <p>{t('notifications.empty')}</p>
-  </div>
+  <EmptyState title={t('notifications.empty')} />
 {:else}
   <div class="notif-list">
     {#each items as notif (notif.id)}
@@ -76,12 +76,6 @@
 {/if}
 
 <style>
-  .empty-state {
-    text-align: center;
-    padding: 3rem;
-    color: var(--text-secondary);
-  }
-
   .notif-list {
     display: flex;
     flex-direction: column;

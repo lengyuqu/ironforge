@@ -1,4 +1,7 @@
 <script lang="ts">
+  import LoadingState from '$lib/components/LoadingState.svelte';
+  import EmptyState from '$lib/components/EmptyState.svelte';
+  import { confirmDialog } from '$lib/components/confirm.svelte';
   import { page } from '$app/stores';
   import { deployKeys, type DeployKey } from '$lib/api/client.svelte';
   import { createT } from '$lib/i18n';
@@ -59,7 +62,7 @@
   }
 
   async function removeKey(key: DeployKey) {
-    if (!confirm(t('settings.deploy_keys.delete_confirm', { title: key.title }))) return;
+    if (!(await confirmDialog({ variant: 'danger', message: t('settings.deploy_keys.delete_confirm', { title: key.title }) }))) return;
     try {
       deletingId = key.id;
       error = '';
@@ -101,9 +104,9 @@
   <section>
     <h2>{t('settings.deploy_keys.current', 'Configured deploy keys')}</h2>
     {#if loading}
-      <p>{t('common.loading')}</p>
+      <LoadingState />
     {:else if keys.length === 0}
-      <div class="empty-state">{t('settings.deploy_keys.empty', 'No deploy keys configured.')}</div>
+      <EmptyState title={t('settings.deploy_keys.empty', 'No deploy keys configured.')} />
     {:else}
       <div class="key-list">
         {#each keys as key (key.id)}
@@ -131,7 +134,7 @@
   textarea, code { font-family: var(--font-mono, monospace); }
   .checkbox { display: flex; align-items: center; gap: 8px; }
   .checkbox input { width: auto; }
-  .message, .empty-state { margin-bottom: 18px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius); }
+  .message{ margin-bottom: 18px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius); }
   .error { color: var(--red); }
   .success { color: var(--green); }
   .key-list { display: grid; gap: 12px; }

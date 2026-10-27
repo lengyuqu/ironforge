@@ -1,4 +1,7 @@
 <script lang="ts">
+  import LoadingState from '$lib/components/LoadingState.svelte';
+  import EmptyState from '$lib/components/EmptyState.svelte';
+  import { confirmDialog } from '$lib/components/confirm.svelte';
   import { collaborators as collaboratorsApi } from '$lib/api/client.svelte';
   import { toast } from '$lib/components/toast.svelte';
   import { toErrorMessage } from '$lib/utils/error';
@@ -43,7 +46,7 @@
   }
 
   async function removeCollaborator(collaborator: RepoCollaborator) {
-    if (!confirm(t('settings.collaborators.remove_confirm', { userId: collaborator.user_id }))) return;
+    if (!(await confirmDialog({ variant: 'danger', message: t('settings.collaborators.remove_confirm', { userId: collaborator.user_id }) }))) return;
 
     try {
       busyId = collaborator.id;
@@ -62,9 +65,9 @@
   <h2>{t('settings.collaborators.current')}</h2>
 
   {#if loading}
-    <div class="loading">{t('common.loading')}</div>
+    <LoadingState />
   {:else if collaboratorList.length === 0}
-    <div class="empty-state">{t('settings.collaborators.empty')}</div>
+    <EmptyState title={t('settings.collaborators.empty')} />
   {:else}
     <div class="table-wrap">
       <table>
@@ -128,15 +131,6 @@
     margin-bottom: 2.5rem;
     padding-bottom: 2rem;
     border-bottom: 1px solid var(--border);
-  }
-
-  .loading,
-  .empty-state {
-    padding: 2rem;
-    text-align: center;
-    color: var(--text-secondary);
-    background: var(--bg-secondary);
-    border-radius: 6px;
   }
 
   .table-wrap {

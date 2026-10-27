@@ -1,4 +1,6 @@
 <script lang="ts">
+  import EmptyState from '$lib/components/EmptyState.svelte';
+  import { confirmDialog } from '$lib/components/confirm.svelte';
   import { tokens, type AccessToken } from '$lib/api/client.svelte';
   import { toErrorMessage } from '$lib/utils/error';
   import { createT } from '$lib/i18n';
@@ -19,7 +21,7 @@
   let error = $state('');
 
   async function revokeToken(token: AccessToken) {
-    if (!confirm(t('settings.tokens.revoke_confirm', { name: token.name }))) return;
+    if (!(await confirmDialog({ variant: 'danger', message: t('settings.tokens.revoke_confirm', { name: token.name }) }))) return;
 
     try {
       deletingId = token.id;
@@ -51,7 +53,7 @@
   {#if loading}
     <p class="muted">{t('common.loading')}</p>
   {:else if tokenList.length === 0}
-    <div class="empty-state">{t('settings.tokens.empty', 'No personal access tokens yet.')}</div>
+    <EmptyState title={t('settings.tokens.empty', 'No personal access tokens yet.')} />
   {:else}
     <div class="table-wrap">
       <table>
@@ -134,14 +136,6 @@
   }
 
   .muted {
-    color: var(--text-secondary);
-  }
-
-  .empty-state {
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 14px 16px;
-    margin-bottom: 20px;
     color: var(--text-secondary);
   }
 

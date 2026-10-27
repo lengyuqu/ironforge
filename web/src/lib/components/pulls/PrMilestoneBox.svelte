@@ -2,6 +2,7 @@
   // PR milestone box (A4) — shows the current milestone and lets repo writers
   // attach / clear it. Self-contained: loads the milestone list itself and
   // delegates persistence to the pulls.update endpoint (tri-state null clears).
+  import LoadingState from '$lib/components/LoadingState.svelte';
   import { milestones, pulls } from '$lib/api/client.svelte';
   import { createT } from '$lib/i18n';
   import { toast } from '$lib/components/toast.svelte';
@@ -54,7 +55,7 @@
 <section class="milestone-box">
   <h3>{t('issues.milestone')}</h3>
   {#if updating}
-    <p class="text-secondary">{t('common.loading')}</p>
+    <LoadingState />
   {:else}
     <select
       value={pr.milestone_id ? String(pr.milestone_id) : ''}
