@@ -181,7 +181,7 @@
   .btn-merge {
     padding: 6px 16px;
     background: var(--green-dim);
-    color: #fff;
+    color: var(--text-on-accent);
     border: none;
     border-radius: var(--radius);
     font-size: 14px;

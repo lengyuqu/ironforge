@@ -163,7 +163,7 @@
   }
 
   .btn-warning:hover:not(:disabled) {
-    background: var(--orange-dark, #cc6600);
+    background: var(--orange);
   }
 
 </style>

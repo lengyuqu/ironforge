@@ -204,6 +204,6 @@
     padding: 12px 16px;
     border: 1px solid var(--accent);
     border-radius: var(--radius);
-    background: rgba(88, 166, 255, 0.08);
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
   }
 </style>

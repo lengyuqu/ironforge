@@ -82,7 +82,7 @@
     padding: 1rem;
     border-radius: 6px;
     margin-bottom: 1rem;
-    background: rgba(248, 81, 73, 0.12);
+    background: color-mix(in srgb, var(--red) 12%, transparent);
     color: var(--red);
   }
 

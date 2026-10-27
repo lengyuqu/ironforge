@@ -33,5 +33,5 @@
     font-size: 13px; cursor: pointer;
   }
   .board-tab:hover { background: var(--bg-secondary); }
-  .board-tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .board-tab.active { background: var(--accent); color: var(--text-on-accent); border-color: var(--accent); }
 </style>

@@ -99,6 +99,6 @@
 
   .rc-meta {
     font-size: 12px;
-    color: var(--text-tertiary, #888);
+    color: var(--text-muted);
   }
 </style>

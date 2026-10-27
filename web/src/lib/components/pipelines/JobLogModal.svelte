@@ -249,7 +249,7 @@
     font-size: 12px;
     line-height: 1.5;
     background: #1a1a2e;
-    color: #e0e0e0;
+    color: var(--text-primary);
     border-radius: 0 0 var(--radius-lg) var(--radius-lg);
     white-space: pre-wrap;
     word-break: break-all;

@@ -335,12 +335,12 @@
   .connection-result {
     margin-bottom: 12px;
     padding: 8px 10px;
-    border: 1px solid #cf222e;
+    border: 1px solid var(--red);
     border-radius: var(--radius);
-    color: #cf222e;
+    color: var(--red);
     font-size: 13px;
   }
-  .connection-result.success { border-color: #1a7f37; color: #1a7f37; }
+  .connection-result.success { border-color: var(--green-dim); color: var(--green); }
 
   .provider-row {
     display: flex;
@@ -354,7 +354,7 @@
   }
 
   .provider-meta { display: flex; flex-wrap: wrap; gap: 8px; color: var(--text-secondary); font-size: 12px; margin-top: 4px; }
-  .provider-meta .enabled { color: #1a7f37; }
+  .provider-meta .enabled { color: var(--green); }
   .provider-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
 
   .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 12px; }

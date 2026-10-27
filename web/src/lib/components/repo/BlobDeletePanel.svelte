@@ -77,9 +77,9 @@
   .delete-panel {
     display: grid;
     gap: 10px;
-    border: 1px solid color-mix(in srgb, #cf222e 30%, transparent);
+    border: 1px solid color-mix(in srgb, var(--red) 30%, transparent);
     border-bottom: none;
-    background: color-mix(in srgb, #cf222e 7%, var(--bg-primary));
+    background: color-mix(in srgb, var(--red) 7%, var(--bg-primary));
     padding: 10px 16px;
     font-size: 13px;
   }
@@ -111,7 +111,7 @@
   }
 
   .delete-error {
-    color: #cf222e;
+    color: var(--red);
     font-size: 13px;
   }
 

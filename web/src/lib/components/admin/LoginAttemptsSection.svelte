@@ -142,8 +142,8 @@
   }
   .login-attempt-row:last-child { border-bottom: 0; }
 
-  .attempt-status { color: #cf222e; font-weight: 600; }
-  .attempt-status.success { color: #1a7f37; }
+  .attempt-status { color: var(--red); font-weight: 600; }
+  .attempt-status.success { color: var(--green); }
 
   .attempt-identity { display: flex; flex-direction: column; min-width: 0; }
   .attempt-identity span,

@@ -139,7 +139,7 @@ git push -u origin {defaultBranch}</code></pre>
     height: 24px;
     border-radius: 50%;
     background: var(--accent);
-    color: #fff;
+    color: var(--text-on-accent);
     font-size: 12px;
     font-weight: 700;
     flex-shrink: 0;

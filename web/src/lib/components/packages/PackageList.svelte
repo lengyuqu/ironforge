@@ -123,7 +123,7 @@
     border-radius: 10px;
     font-size: 11px;
     font-weight: 600;
-    background: var(--accent-dim, rgba(37, 99, 235, 0.15));
+    background: var(--accent-subtle);
     color: var(--accent);
     white-space: nowrap;
   }

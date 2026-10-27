@@ -258,7 +258,7 @@
     height: 24px;
     border-radius: 50%;
     background: var(--accent);
-    color: #fff;
+    color: var(--text-on-accent);
     display: inline-flex;
     align-items: center;
     justify-content: center;

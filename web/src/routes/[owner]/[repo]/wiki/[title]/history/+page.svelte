@@ -133,7 +133,7 @@
     color: var(--text-secondary);
   }
   .breadcrumb a {
-    color: var(--link-color, #2563eb);
+    color: var(--accent);
     text-decoration: none;
   }
   .breadcrumb a:hover { text-decoration: underline; }

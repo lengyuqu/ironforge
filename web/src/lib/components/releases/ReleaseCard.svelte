@@ -179,12 +179,12 @@
 
   .badge.latest {
     background: var(--green-dim);
-    color: #fff;
+    color: var(--text-on-accent);
   }
 
   .badge.prerelease {
     background: var(--yellow-dim);
-    color: #fff;
+    color: var(--text-on-accent);
   }
 
   .badge.draft {

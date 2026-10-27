@@ -169,7 +169,7 @@
   }
 
   .error-text {
-    color: #cf222e;
+    color: var(--red);
   }
 
   @media (max-width: 820px) {

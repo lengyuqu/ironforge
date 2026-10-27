@@ -59,13 +59,13 @@
   }
 
   p {
-    color: var(--color-text-secondary, #57606a);
+    color: var(--text-secondary);
     margin: 0 0 0.5rem;
     max-width: 480px;
   }
 
   .error-detail {
-    color: var(--color-danger, #cf222e);
+    color: var(--red);
     font-family: monospace;
     font-size: 0.875rem;
     word-break: break-word;
@@ -76,7 +76,7 @@
     margin-top: 1.5rem;
     padding: 0.5rem 1.25rem;
     background-color: var(--accent);
-    color: #fff;
+    color: var(--text-on-accent);
     text-decoration: none;
     border-radius: 6px;
     font-weight: 500;

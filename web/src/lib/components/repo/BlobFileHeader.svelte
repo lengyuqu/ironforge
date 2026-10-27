@@ -194,7 +194,7 @@
   }
 
   .btn-outline.danger {
-    color: #cf222e;
+    color: var(--red);
   }
 
   .copy-status {

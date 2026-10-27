@@ -164,19 +164,19 @@
 
   .state-badge-open {
     background: #2da44e20;
-    color: #2da44e;
+    color: var(--green);
     border: 1px solid #2da44e40;
   }
 
   .state-badge-closed {
     background: #8250df20;
-    color: #8250df;
+    color: var(--purple);
     border: 1px solid #8250df40;
   }
 
   .state-badge-merged {
     background: #8250df20;
-    color: #8250df;
+    color: var(--purple);
     border: 1px solid #8250df40;
   }
 

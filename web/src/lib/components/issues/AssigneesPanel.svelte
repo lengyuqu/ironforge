@@ -167,7 +167,7 @@
   .assignee-badge.primary {
     border-color: var(--green);
     color: var(--green);
-    background: rgba(63, 185, 80, 0.12);
+    background: color-mix(in srgb, var(--green) 12%, transparent);
   }
 
   .assignees-empty {

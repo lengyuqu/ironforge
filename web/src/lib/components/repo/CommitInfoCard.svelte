@@ -134,14 +134,14 @@
     white-space: nowrap;
   }
   .gpg-badge.verified {
-    background: rgba(63, 185, 80, 0.12);
+    background: color-mix(in srgb, var(--green) 12%, transparent);
     color: var(--green);
-    border: 1px solid rgba(63, 185, 80, 0.25);
+    border: 1px solid color-mix(in srgb, var(--green) 25%, transparent);
   }
   .gpg-badge.unverified {
-    background: rgba(248, 81, 73, 0.1);
+    background: color-mix(in srgb, var(--red) 10%, transparent);
     color: var(--red);
-    border: 1px solid rgba(248, 81, 73, 0.2);
+    border: 1px solid color-mix(in srgb, var(--red) 20%, transparent);
   }
   .gpg-badge.no-sig {
     background: var(--bg-tertiary);

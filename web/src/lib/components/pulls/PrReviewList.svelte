@@ -114,8 +114,8 @@
     font-size: 12px; font-weight: 600; padding: 2px 10px;
     border-radius: 10px; border: 1px solid var(--border);
   }
-  .action-badge.approved { color: #3fb950; border-color: rgba(63, 185, 80, 0.4); background: rgba(63, 185, 80, 0.08); }
-  .action-badge.changes { color: #f85149; border-color: rgba(248, 81, 73, 0.4); background: rgba(248, 81, 73, 0.08); }
+  .action-badge.approved { color: var(--green); border-color: color-mix(in srgb, var(--green) 40%, transparent); background: color-mix(in srgb, var(--green) 8%, transparent); }
+  .action-badge.changes { color: var(--red); border-color: color-mix(in srgb, var(--red) 40%, transparent); background: color-mix(in srgb, var(--red) 8%, transparent); }
   .action-badge.comment { color: var(--text-secondary); }
   .action-badge.dismissed { color: var(--text-muted); border-style: dashed; }
 

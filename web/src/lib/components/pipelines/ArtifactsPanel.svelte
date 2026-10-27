@@ -172,7 +172,7 @@
 
   .muted { color: var(--text-secondary); font-size: 13px; }
   .panel-error {
-    color: #f85149; background: rgba(248, 81, 73, 0.1);
+    color: var(--red); background: color-mix(in srgb, var(--red) 10%, transparent);
     padding: 8px 12px; border-radius: 6px; margin-bottom: 12px; font-size: 13px;
   }
 

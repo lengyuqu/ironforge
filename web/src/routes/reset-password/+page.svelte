@@ -128,7 +128,7 @@
 
 <style>
   .reset-card {
-    background: var(--card-bg, #fff);
+    background: var(--bg-secondary);
     border: 1px solid var(--border);
     border-radius: 8px;
     padding: 32px;
@@ -142,7 +142,7 @@
   .reset-header h1 {
     margin: 0 0 8px;
     font-size: 24px;
-    color: var(--text, #1f2937);
+    color: var(--text-primary);
   }
   .subtitle {
     margin: 0;
@@ -153,7 +153,7 @@
     display: block;
     margin-bottom: 16px;
     font-weight: 500;
-    color: var(--text, #1f2937);
+    color: var(--text-primary);
   }
   input {
     display: block;

@@ -198,16 +198,16 @@
 
   .danger-btn {
     padding: 4px 12px;
-    background: rgba(248, 81, 73, 0.1);
-    border: 1px solid rgba(248, 81, 73, 0.4);
+    background: color-mix(in srgb, var(--red) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--red) 40%, transparent);
     border-radius: var(--radius);
     font-size: 12px;
     cursor: pointer;
-    color: #f85149;
+    color: var(--red);
   }
 
   .danger-btn:hover {
-    background: rgba(248, 81, 73, 0.2);
+    background: color-mix(in srgb, var(--red) 20%, transparent);
   }
 
   .secondary-btn {
@@ -254,8 +254,8 @@
     gap: 12px;
     margin-top: 12px;
     padding: 10px 12px;
-    background: rgba(248, 81, 73, 0.08);
-    border: 1px solid rgba(248, 81, 73, 0.35);
+    background: color-mix(in srgb, var(--red) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--red) 35%, transparent);
     border-radius: var(--radius);
     font-size: 13px;
     flex-wrap: wrap;

@@ -226,9 +226,9 @@
     line-height: 22px;
     background: var(--bg-primary);
   }
-  .diff-line.addition { background: rgba(63, 185, 80, 0.12); }
-  .diff-line.deletion { background: rgba(248, 81, 73, 0.12); }
-  .diff-line.meta { background: rgba(88, 166, 255, 0.09); color: var(--text-secondary); }
+  .diff-line.addition { background: color-mix(in srgb, var(--green) 12%, transparent); }
+  .diff-line.deletion { background: color-mix(in srgb, var(--red) 12%, transparent); }
+  .diff-line.meta { background: color-mix(in srgb, var(--accent) 9%, transparent); color: var(--text-secondary); }
   .diff-line > code {
     padding: 0 10px;
     white-space: pre;
@@ -258,7 +258,7 @@
     color: transparent;
     cursor: pointer;
   }
-  .diff-line:hover .comment-gutter button { color: #fff; background: var(--accent); }
+  .diff-line:hover .comment-gutter button { color: var(--text-on-accent); background: var(--accent); }
 
   .inline-comment-form,
   .inline-thread {

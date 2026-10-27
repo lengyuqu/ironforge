@@ -403,7 +403,7 @@
     gap: 6px;
     padding: 5px 14px;
     background: var(--green-dim);
-    color: #fff;
+    color: var(--text-on-accent);
     border: 1px solid rgba(27,31,36,0.15);
     border-radius: var(--radius);
     font-size: 14px;
@@ -412,7 +412,7 @@
     line-height: 20px;
   }
   .btn-code:hover {
-    background: #1a7f37;
+    background: var(--green-dim);
   }
 
   .code-icon {

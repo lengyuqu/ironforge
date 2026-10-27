@@ -593,11 +593,11 @@
   }
 
   .diff-pane tr.add {
-    background: color-mix(in srgb, #2da44e 13%, transparent);
+    background: color-mix(in srgb, var(--green-dim) 13%, transparent);
   }
 
   .diff-pane tr.del {
-    background: color-mix(in srgb, #cf222e 12%, transparent);
+    background: color-mix(in srgb, var(--red) 12%, transparent);
   }
 
   .line-number {
@@ -666,15 +666,15 @@
   }
 
   .error-message {
-    border: 1px solid color-mix(in srgb, #cf222e 30%, transparent);
-    background: color-mix(in srgb, #cf222e 9%, transparent);
-    color: #cf222e;
+    border: 1px solid color-mix(in srgb, var(--red) 30%, transparent);
+    background: color-mix(in srgb, var(--red) 9%, transparent);
+    color: var(--red);
   }
 
   .conflict-message,
   .warning-message {
-    border: 1px solid color-mix(in srgb, #bf8700 35%, transparent);
-    background: color-mix(in srgb, #bf8700 11%, transparent);
+    border: 1px solid color-mix(in srgb, var(--yellow-dim) 35%, transparent);
+    background: color-mix(in srgb, var(--yellow-dim) 11%, transparent);
     color: var(--text-primary);
   }
 

@@ -193,13 +193,13 @@
   }
 
   .badge.inactive {
-    color: #f85149;
-    border-color: #f85149;
+    color: var(--red);
+    border-color: var(--red);
   }
 
   .badge.locked {
-    color: #f85149;
-    border-color: #f85149;
+    color: var(--red);
+    border-color: var(--red);
   }
 
   .badge.warning {

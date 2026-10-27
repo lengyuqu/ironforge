@@ -25,9 +25,9 @@
     border-bottom: 1px solid;
     z-index: 50;
   }
-  .info { background: rgba(46, 164, 255, 0.15); color: #6db7ff; border-bottom-color: rgba(88, 166, 255, 0.4); }
-  .warning { background: rgba(255, 211, 88, 0.12); color: #f2cc60; border-bottom-color: rgba(210, 153, 34, 0.5); }
-  .error { background: rgba(248, 81, 73, 0.15); color: var(--red); border-bottom-color: rgba(248, 81, 73, 0.45); }
+  .info { background: rgba(46, 164, 255, 0.15); color: #6db7ff; border-bottom-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+  .warning { background: rgba(255, 211, 88, 0.12); color: #f2cc60; border-bottom-color: color-mix(in srgb, var(--yellow) 50%, transparent); }
+  .error { background: color-mix(in srgb, var(--red) 15%, transparent); color: var(--red); border-bottom-color: color-mix(in srgb, var(--red) 45%, transparent); }
   .banner-text { flex: 1; }
   .banner-close {
     background: none; border: none; cursor: pointer;

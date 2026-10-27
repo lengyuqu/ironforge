@@ -122,8 +122,8 @@
   }
 
   .badge.online {
-    background: rgba(63, 185, 80, 0.15);
-    color: #3fb950;
-    border-color: #3fb950;
+    background: color-mix(in srgb, var(--green) 15%, transparent);
+    color: var(--green);
+    border-color: var(--green);
   }
 </style>

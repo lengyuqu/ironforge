@@ -304,7 +304,7 @@
   .toggle-btn.active {
     background: var(--accent);
     border-color: var(--accent);
-    color: #fff;
+    color: var(--text-on-accent);
   }
 
   .tag-hints {

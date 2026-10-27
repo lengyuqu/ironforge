@@ -114,13 +114,13 @@
     font-size: 0.75rem;
     padding: 0.1rem 0.5rem;
     border-radius: 10px;
-    color: #1a7f37;
+    color: var(--green);
     background: rgba(26, 127, 55, 0.12);
     text-transform: capitalize;
   }
 
   .state-badge.closed {
-    color: #cf222e;
+    color: var(--red);
     background: rgba(207, 34, 46, 0.12);
   }
 

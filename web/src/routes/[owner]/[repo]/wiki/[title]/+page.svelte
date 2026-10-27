@@ -214,7 +214,7 @@
     font-size: 13px; font-family: var(--font-mono);
   }
   :global(.wiki-main .markdown-body pre) {
-    background: #1a1a2e; color: #e0e0e0; padding: 14px; border-radius: 6px;
+    background: #1a1a2e; color: var(--text-primary); padding: 14px; border-radius: 6px;
     overflow-x: auto; font-size: 13px; line-height: 1.5;
   }
   :global(.wiki-main .markdown-body pre code) { background: none; padding: 0; }

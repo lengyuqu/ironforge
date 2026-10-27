@@ -141,9 +141,9 @@
 
 <style>
   .warning-banner {
-    border: 1px solid color-mix(in srgb, #bf8700 35%, transparent);
+    border: 1px solid color-mix(in srgb, var(--yellow-dim) 35%, transparent);
     border-bottom: none;
-    background: color-mix(in srgb, #bf8700 11%, transparent);
+    background: color-mix(in srgb, var(--yellow-dim) 11%, transparent);
     padding: 10px 16px;
     font-size: 13px;
   }

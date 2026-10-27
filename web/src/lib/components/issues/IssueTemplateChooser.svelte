@@ -135,9 +135,9 @@
   .config-warning {
     margin-bottom: 12px;
     padding: 10px 12px;
-    border: 1px solid #d29922;
-    background: rgba(210, 153, 34, 0.1);
-    color: #d29922;
+    border: 1px solid var(--yellow);
+    background: color-mix(in srgb, var(--yellow) 10%, transparent);
+    color: var(--yellow);
     border-radius: 6px;
     font-size: 13px;
     word-break: break-word;

@@ -112,6 +112,6 @@
   }
 
   .editor-error {
-    color: #cf222e;
+    color: var(--red);
   }
 </style>

@@ -169,8 +169,8 @@
     transition: background 0.15s;
   }
   .job-card:hover { background: var(--bg-hover); }
-  .job-card.running { background: rgba(88, 166, 255, 0.08); }
-  .job-card.failed { background: rgba(248, 81, 73, 0.06); }
+  .job-card.running { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+  .job-card.failed { background: color-mix(in srgb, var(--red) 6%, transparent); }
 
   .job-status-icon {
     width: 20px;
@@ -230,7 +230,7 @@
     cursor: pointer;
     font-size: 11px;
   }
-  .play-job:hover { background: rgba(88, 166, 255, 0.1); }
+  .play-job:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
   .play-job:disabled { opacity: 0.6; cursor: default; }
 
   .spin { display: inline-block; animation: spin 1.5s linear infinite; }

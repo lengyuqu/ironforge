@@ -121,7 +121,7 @@
 
   .task-error {
     margin-top: 6px;
-    color: #f85149;
+    color: var(--red);
   }
 
   .muted {

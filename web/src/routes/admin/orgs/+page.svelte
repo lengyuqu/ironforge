@@ -172,8 +172,8 @@
   .date { color: var(--text-secondary); white-space: nowrap; }
   .actions { text-align: right; }
 
-  .badge { display: inline-block; padding: 0.1rem 0.4rem; border-radius: 8px; font-size: 0.8rem; background: rgba(63, 185, 80, 0.15); color: #3fb950; border: 1px solid #3fb950; }
-  .badge.private { background: rgba(248, 81, 73, 0.15); color: #f85149; border-color: #f85149; }
+  .badge { display: inline-block; padding: 0.1rem 0.4rem; border-radius: 8px; font-size: 0.8rem; background: color-mix(in srgb, var(--green) 15%, transparent); color: var(--green); border: 1px solid var(--green); }
+  .badge.private { background: color-mix(in srgb, var(--red) 15%, transparent); color: var(--red); border-color: var(--red); }
 
   .pagination { display: flex; align-items: center; gap: 1rem; margin-top: 1rem; }
   .pagination button { background: var(--bg-secondary); border: 1px solid var(--border); color: var(--text-primary); border-radius: 6px; padding: 0.4rem 0.8rem; cursor: pointer; }

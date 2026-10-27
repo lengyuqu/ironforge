@@ -165,7 +165,7 @@
     font-size: 12px;
     font-weight: 600;
     background: var(--green-dim);
-    color: #fff;
+    color: var(--text-on-accent);
   }
 
   .package-desc {

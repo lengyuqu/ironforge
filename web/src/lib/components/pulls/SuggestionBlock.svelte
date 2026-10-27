@@ -60,7 +60,7 @@
     padding: 10px;
     border: 1px solid var(--green-dim);
     border-radius: var(--radius);
-    background: rgba(63, 185, 80, 0.08);
+    background: color-mix(in srgb, var(--green) 8%, transparent);
   }
   .suggestion-block code { white-space: pre-wrap; }
   .suggestion-block button { align-self: flex-start; }

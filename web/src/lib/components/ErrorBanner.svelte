@@ -26,7 +26,7 @@
     padding: 10px 14px;
     border: 1px solid var(--red-dim);
     border-radius: var(--radius);
-    background: rgba(248, 81, 73, 0.12);
+    background: color-mix(in srgb, var(--red) 12%, transparent);
     color: var(--red);
     font-size: 13px;
     line-height: 1.5;
