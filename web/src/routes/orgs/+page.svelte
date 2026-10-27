@@ -99,7 +99,7 @@
     white-space: nowrap;
   }
 
-  @media (max-width: 700px) {
+  @media (max-width: 720px) {
     .page-header {
       flex-direction: column;
     }

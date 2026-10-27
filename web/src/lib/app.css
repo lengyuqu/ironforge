@@ -37,6 +37,14 @@
   --layout-narrow-max: min(980px, calc(100vw - 2 * var(--layout-gutter)));
 }
 
+/* Breakpoints (CSS cannot read custom properties inside @media, so these are
+   conventions; use only these values):
+     max-width: 600px   phones
+     max-width: 720px   large phones / small tablets
+     max-width: 900px   tablets and narrow laptops
+     max-width: 1200px  wide layouts that need to tighten
+*/
+
 * {
   box-sizing: border-box;
   margin: 0;

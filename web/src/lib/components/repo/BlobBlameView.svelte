@@ -172,7 +172,7 @@
     color: var(--red);
   }
 
-  @media (max-width: 820px) {
+  @media (max-width: 900px) {
     .blame-meta {
       min-width: 160px;
     }

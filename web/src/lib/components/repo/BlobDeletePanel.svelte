@@ -110,7 +110,7 @@
     font-size: 13px;
   }
 
-  @media (max-width: 820px) {
+  @media (max-width: 900px) {
     .delete-actions {
       justify-content: flex-start;
     }

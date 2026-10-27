@@ -198,7 +198,7 @@
   dt { color: var(--text-secondary); }
   dd { margin: 0; }
   .muted { color: var(--text-secondary); }
-  @media (max-width: 640px) {
+  @media (max-width: 600px) {
     .key-card { align-items: flex-start; flex-direction: column; }
   }
 </style>

@@ -139,7 +139,7 @@
     justify-content: flex-end;
   }
 
-  @media (max-width: 700px) {
+  @media (max-width: 720px) {
     .form-actions {
       flex-direction: column-reverse;
     }

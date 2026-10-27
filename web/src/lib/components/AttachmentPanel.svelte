@@ -111,7 +111,7 @@ import { toErrorMessage } from '$lib/utils/error';
   li:last-child { border-bottom: 0; }
   li a { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   li span { color: var(--text-muted); font-size: 12px; }
-  @media (max-width: 560px) {
+  @media (max-width: 600px) {
     .attachment-heading { align-items: flex-start; }
     li { grid-template-columns: minmax(0, 1fr) auto; }
     li span { grid-row: 2; }

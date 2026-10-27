@@ -206,7 +206,7 @@
     color: var(--text-secondary);
   }
 
-  @media (max-width: 820px) {
+  @media (max-width: 900px) {
     .file-header {
       grid-template-columns: 1fr;
       align-items: stretch;

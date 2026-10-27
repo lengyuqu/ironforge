@@ -114,7 +114,7 @@
     min-height: 38px;
   }
 
-  @media (max-width: 760px) {
+  @media (max-width: 720px) {
     .add-form {
       grid-template-columns: 1fr;
     }

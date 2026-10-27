@@ -157,7 +157,7 @@
     color: var(--text-secondary);
   }
 
-  @media (max-width: 760px) {
+  @media (max-width: 720px) {
     .create-form {
       grid-template-columns: 1fr;
     }

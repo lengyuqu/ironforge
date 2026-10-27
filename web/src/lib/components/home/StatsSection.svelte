@@ -40,7 +40,7 @@
     text-align: center;
   }
 
-  @media (max-width: 768px) {
+  @media (max-width: 720px) {
     .stats-container {
       grid-template-columns: repeat(2, 1fr);
     }

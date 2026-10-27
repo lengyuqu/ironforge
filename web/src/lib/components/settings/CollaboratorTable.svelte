@@ -173,7 +173,7 @@
     min-height: 34px;
   }
 
-  @media (max-width: 760px) {
+  @media (max-width: 720px) {
     .actions {
       justify-content: flex-start;
     }
