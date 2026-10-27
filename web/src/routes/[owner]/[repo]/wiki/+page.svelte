@@ -105,8 +105,9 @@
   .create-form { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 24px; margin-bottom: 24px; }
   form { display: flex; flex-direction: column; gap: 14px; }
   label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600; }
-  textarea { font-family: var(--font-mono); font-size: 13px; resize: vertical; }
-  .form-actions { display: flex; gap: 8px; margin-top: 8px; }
+  textarea {
+    resize: vertical;
+  }
 
   .page-list { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
   .wiki-item {

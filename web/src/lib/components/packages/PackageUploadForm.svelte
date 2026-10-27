@@ -163,35 +163,16 @@
     padding: 24px;
   }
 
-  .form-group {
-    margin-bottom: 18px;
-  }
-
-  .form-group label {
-    display: block;
-    margin-bottom: 6px;
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text-primary);
-  }
-
   .input,
   .select,
   .textarea {
     width: 100%;
-    padding: 8px 12px;
-    font-size: 14px;
-    color: var(--text-primary);
-    background: var(--bg-primary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
     box-sizing: border-box;
   }
 
   .textarea {
     resize: vertical;
     min-height: 80px;
-    font-family: inherit;
   }
 
   .format-note {
@@ -218,8 +199,6 @@
   }
 
   .form-actions {
-    display: flex;
     justify-content: flex-end;
-    margin-top: 8px;
   }
 </style>

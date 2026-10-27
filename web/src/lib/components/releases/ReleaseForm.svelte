@@ -219,18 +219,6 @@
     padding: 24px;
   }
 
-  .form-group {
-    margin-bottom: 20px;
-  }
-
-  .form-group label {
-    display: block;
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text-primary);
-    margin-bottom: 6px;
-  }
-
   .required {
     color: var(--red);
   }
@@ -239,36 +227,19 @@
   .textarea,
   .select {
     width: 100%;
-    padding: 8px 12px;
-    font-size: 14px;
-    color: var(--text-primary);
-    background: var(--bg-primary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
     box-sizing: border-box;
   }
 
-  .input:focus,
-  .textarea:focus,
-  .select:focus {
-    outline: none;
-    border-color: var(--accent);
-  }
-
   .input:disabled {
-    color: var(--text-muted);
     cursor: not-allowed;
   }
 
   .textarea {
     resize: vertical;
     min-height: 120px;
-    font-family: inherit;
-    line-height: 1.6;
   }
 
   .select {
-    appearance: none;
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23888' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
     background-repeat: no-repeat;
     background-position: right 10px center;
@@ -346,11 +317,7 @@
   }
 
   .checkbox-label {
-    display: flex;
-    align-items: center;
-    gap: 8px;
     font-weight: 500;
-    cursor: pointer;
   }
 
   .checkbox-label input[type="checkbox"] {
@@ -360,10 +327,7 @@
   }
 
   .form-actions {
-    display: flex;
     justify-content: flex-end;
-    gap: 12px;
-    margin-top: 24px;
     padding-top: 20px;
     border-top: 1px solid var(--border);
   }
