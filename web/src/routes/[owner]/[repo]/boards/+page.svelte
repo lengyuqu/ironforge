@@ -1,4 +1,6 @@
 <script lang="ts">
+  import EmptyState from '$lib/components/EmptyState.svelte';
+  import LoadingState from '$lib/components/LoadingState.svelte';
   import { confirmDialog } from '$lib/components/confirm.svelte';
   import { page } from '$app/stores';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
@@ -96,9 +98,9 @@
   {/if}
 
   {#if loading}
-    <p class="loading-text">{t('common.loading')}…</p>
+    <LoadingState />
   {:else if boardList.length === 0}
-    <p class="empty-text">{t('board.noBoards')}</p>
+    <EmptyState icon="📋" title={t('board.noBoards')} description={t('board.noBoardsHint')} />
   {:else}
     <div class="board-toolbar">
       <BoardSwitcher
@@ -167,13 +169,6 @@
     font-size: 24px;
     font-weight: 600;
     margin: 0;
-  }
-
-  .loading-text,
-  .empty-text {
-    color: var(--text-secondary, #666);
-    text-align: center;
-    padding: 48px;
   }
 
   .board-toolbar {

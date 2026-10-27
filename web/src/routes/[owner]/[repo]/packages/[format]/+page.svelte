@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LoadingState from '$lib/components/LoadingState.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import { page } from '$app/stores';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
@@ -79,7 +80,7 @@
   {/if}
 
   {#if loading}
-    <p class="loading-text">{t('common.loading')}</p>
+    <LoadingState />
   {:else if packageList.length === 0}
     <EmptyState title={t('packages.no_packages')} />
   {:else}
@@ -127,11 +128,6 @@
   h1 {
     font-size: 24px;
     font-weight: 600;
-  }
-.loading-text {
-    color: var(--text-secondary);
-    text-align: center;
-    padding: 48px;
   }
 
   .package-list {

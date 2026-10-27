@@ -1,6 +1,7 @@
 <script lang="ts">
   // Commit status page — orchestration layer: loads the combined status,
   // status list, commit info (via log lookup) and GPG signature.
+  import LoadingState from '$lib/components/LoadingState.svelte';
   import { page } from '$app/stores';
   import { repos } from '$lib/api/client.svelte';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
@@ -91,10 +92,7 @@
 
   <div class="commit-status-page">
     {#if loading}
-      <div class="loading-container">
-        <div class="spinner"></div>
-        <p>Loading commit status...</p>
-      </div>
+      <LoadingState />
     {:else if error}
       <div class="error-container">
         <p class="error-message">Error: {error}</p>
@@ -110,31 +108,6 @@
 <style>
   .commit-status-page {
     color: var(--text-primary);
-  }
-
-  .loading-container {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    min-height: 400px;
-    gap: 1rem;
-    color: var(--text-secondary);
-  }
-
-  .spinner {
-    width: 40px;
-    height: 40px;
-    border: 3px solid var(--border);
-    border-top-color: var(--accent);
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
-  }
-
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
-    }
   }
 
   .error-container {

@@ -45,7 +45,7 @@ describe('TimeEntryList.svelte', () => {
       onPageChange: vi.fn(),
       onRefresh: vi.fn(),
     });
-    expect(screen.getByText('Loading…')).toBeInTheDocument();
+    expect(screen.getByText('Loading...')).toBeInTheDocument();
   });
 
   it('shows an empty message when there are no entries', () => {

@@ -138,21 +138,13 @@
 
   <div class="search-body">
     {#if loading}
-      <div class="loading">
-        <div class="spinner"></div>
-        <LoadingState />
-      </div>
+      <LoadingState />
     {:else if searchError}
       <div class="error-state">
         <p>{searchError}</p>
       </div>
     {:else if !hasSearched}
-      <div class="empty-state">
-        <svg class="empty-icon" viewBox="0 0 16 16" width="48" height="48" fill="currentColor">
-          <path d="M11.5 7a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0Zm-.82 4.74a6 6 0 1 1 1.06-1.06l3.04 3.04a.75.75 0 1 1-1.06 1.06l-3.04-3.04Z"/>
-        </svg>
-        <p>{t('search.placeholder')}</p>
-      </div>
+      <EmptyState icon="🔍" title={t('search.placeholder')} />
     {:else if results.length === 0}
       <EmptyState title={t('search.no_results')} />
     {:else}
@@ -189,43 +181,6 @@
 
   .search-body {
     min-height: 200px;
-  }
-
-  .loading {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 40px 0;
-    color: var(--text-secondary);
-    justify-content: center;
-  }
-
-  .spinner {
-    width: 20px;
-    height: 20px;
-    border: 2px solid var(--border);
-    border-top-color: var(--accent);
-    border-radius: 50%;
-    animation: spin 0.6s linear infinite;
-  }
-
-  @keyframes spin {
-    to { transform: rotate(360deg); }
-  }
-
-  .empty-state {
-    text-align: center;
-    padding: 60px 24px;
-    color: var(--text-secondary);
-  }
-
-  .empty-icon {
-    color: var(--text-muted);
-    margin-bottom: 16px;
-  }
-
-  .empty-state p {
-    font-size: 15px;
   }
 
   .error-state {

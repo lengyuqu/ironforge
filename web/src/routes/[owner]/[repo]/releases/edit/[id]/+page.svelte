@@ -2,6 +2,7 @@
   // Edit-release page — orchestration layer: loads the release and hands
   // it to ReleaseForm (edit mode: tag locked, no target picker). Submit
   // handling lives inside the form; this page only routes back on success.
+  import LoadingState from '$lib/components/LoadingState.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
@@ -69,7 +70,7 @@
   {/if}
 
   {#if loading}
-    <p class="loading-text">{t('common.loading')}</p>
+    <LoadingState />
   {:else if release}
     <ReleaseForm {owner} {repo} {release} onSaved={handleSaved} />
   {/if}
@@ -83,12 +84,6 @@
   h1 {
     font-size: 24px;
     font-weight: 600;
-  }
-
-  .loading-text {
-    color: var(--text-secondary);
-    text-align: center;
-    padding: 48px;
   }
 
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LoadingState from '$lib/components/LoadingState.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import { createT } from '$lib/i18n';
   import { confirmDialog } from '$lib/components/confirm.svelte';
@@ -59,7 +60,7 @@
 {/if}
 
 {#if loading}
-  <p class="loading-text">Loading…</p>
+  <LoadingState compact />
 {:else if entries.length === 0}
   <EmptyState title="No time entries for this issue yet." />
 {:else}
@@ -114,11 +115,6 @@
 {/if}
 
 <style>
-  .loading-text {
-    color: var(--text-secondary);
-    text-align: center;
-    padding: 32px;
-  }
 
   .entries-table {
     width: 100%;

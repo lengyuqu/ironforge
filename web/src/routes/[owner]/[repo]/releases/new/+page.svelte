@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LoadingState from '$lib/components/LoadingState.svelte';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
   import { isAuthReady, isLoggedIn } from '$lib/stores/auth.svelte';
@@ -63,7 +64,7 @@
   {/if}
 
   {#if loading}
-    <p class="loading-text">{t('common.loading')}</p>
+    <LoadingState />
   {:else}
     <ReleaseForm
       owner={owner!}
@@ -83,12 +84,6 @@
   h1 {
     font-size: 24px;
     font-weight: 600;
-  }
-
-  .loading-text {
-    color: var(--text-secondary);
-    text-align: center;
-    padding: 48px;
   }
 
   .error-banner {

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LoadingState from '$lib/components/LoadingState.svelte';
   import { page } from '$app/stores';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
   import { packages, type PackageSummaryResponse } from '$lib/api/client.svelte';
@@ -98,7 +99,7 @@
   </div>
 
   {#if loading}
-    <p class="loading-text">{t('common.loading')}</p>
+    <LoadingState />
   {:else}
     <PackageList
       owner={owner!}
@@ -197,12 +198,6 @@
 
   .btn-secondary:hover {
     background: var(--bg-tertiary, #e5e7eb);
-  }
-
-  .loading-text {
-    color: var(--text-secondary);
-    text-align: center;
-    padding: 48px;
   }
 
   .error-banner {

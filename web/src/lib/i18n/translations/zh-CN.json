@@ -547,7 +547,11 @@
     "milestone_save": "保存",
     "milestone_none": "未设置",
     "milestone_saved": "里程碑已更新",
-    "no_milestone": "无里程碑"
+    "no_milestone": "无里程碑",
+    "selector": {
+      "title": "Issue",
+      "no_open": "没有未关闭的 Issue。"
+    }
   },
   "pulls": {
     "title": "拉取请求",

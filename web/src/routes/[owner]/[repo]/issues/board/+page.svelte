@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LoadingState from '$lib/components/LoadingState.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import { createT } from '$lib/i18n';
   import { page } from '$app/stores';
@@ -75,7 +76,7 @@
   {/if}
 
   {#if loading}
-    <p class="loading-text">Loading…</p>
+    <LoadingState />
   {:else if boardList.length === 0 && !showCreateBoard}
     <!-- Empty state -->
     <EmptyState icon="📋" title={t('board.noBoards')} description={t('board.noBoardsHint')}>
@@ -131,7 +132,6 @@
 </div>
 
 <style>
-  .loading-text { color: var(--text-secondary); text-align: center; padding: 48px; }
 
   /* ── Toolbar ── */
   .board-toolbar {

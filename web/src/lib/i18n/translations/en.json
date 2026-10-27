@@ -547,7 +547,11 @@
     "milestone_save": "Save",
     "milestone_none": "None",
     "milestone_saved": "Milestone updated",
-    "no_milestone": "No milestone"
+    "no_milestone": "No milestone",
+    "selector": {
+      "title": "Issues",
+      "no_open": "No open issues."
+    }
   },
   "pulls": {
     "title": "Pull Requests",

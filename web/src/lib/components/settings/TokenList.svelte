@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LoadingState from '$lib/components/LoadingState.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import { confirmDialog } from '$lib/components/confirm.svelte';
   import { tokens, type AccessToken } from '$lib/api/client.svelte';
@@ -51,7 +52,7 @@
   {/if}
 
   {#if loading}
-    <p class="muted">{t('common.loading')}</p>
+    <LoadingState />
   {:else if tokenList.length === 0}
     <EmptyState title={t('settings.tokens.empty', 'No personal access tokens yet.')} />
   {:else}
@@ -133,10 +134,6 @@
 
   .actions {
     text-align: right;
-  }
-
-  .muted {
-    color: var(--text-secondary);
   }
 
   .error-box {
