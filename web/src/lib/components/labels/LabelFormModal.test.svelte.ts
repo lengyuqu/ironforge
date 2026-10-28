@@ -2,8 +2,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/svelte';
 
 vi.mock('$lib/i18n', () => ({
+  // Echo the key, appending a `color` param so each swatch keeps a distinct label.
   createT: () => (key: string, fallbackOrParams?: string | Record<string, unknown>) =>
-    typeof fallbackOrParams === 'string' ? fallbackOrParams : key,
+    typeof fallbackOrParams === 'string'
+      ? fallbackOrParams
+      : fallbackOrParams?.color
+        ? `${key} ${fallbackOrParams.color}`
+        : key,
 }));
 
 const labelsCreate = vi.fn();
@@ -44,7 +49,7 @@ describe('LabelFormModal.svelte', () => {
       target: { value: '  enhancement ' },
     });
     // Pick the second preset swatch (#00ff00).
-    await fireEvent.click(screen.getByLabelText('Color #00ff00'));
+    await fireEvent.click(screen.getByLabelText('settings.label_color_aria #00ff00'));
 
     await fireEvent.click(screen.getByText('settings.create_label'));
     await waitFor(() =>

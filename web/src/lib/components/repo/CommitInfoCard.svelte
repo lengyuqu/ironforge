@@ -2,6 +2,9 @@
   // Commit info card — pure presentation: title, short sha, author/date and
   // the GPG signature badge.
   import type { RepoCommitEntry } from '$lib/types/entities';
+  import { createT } from '$lib/i18n';
+
+  const t = createT();
 
   interface GpgSignature {
     verified: boolean;
@@ -59,7 +62,7 @@
         class:verified={gpgSignature.verified}
         class:unverified={!gpgSignature.verified && gpgSignature.status !== 'no_signature'}
         class:no-sig={gpgSignature.status === 'no_signature'}
-        title="GPG: {gpgSignature.status}{gpgSignature.signer_name ? ' · ' + gpgSignature.signer_name : ''}"
+        title="{t('commit.gpg_title', { status: gpgSignature.status })}{gpgSignature.signer_name ? ' · ' + gpgSignature.signer_name : ''}"
       >
         {#if gpgSignature.verified}
           <span class="gpg-icon">✓</span> Signed

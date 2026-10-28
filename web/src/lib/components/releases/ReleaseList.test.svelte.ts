@@ -84,7 +84,7 @@ describe('ReleaseList.svelte', () => {
       onReload: () => {},
       onPageChange: () => {},
     });
-    expect(screen.getByText('Page 2 of 5')).toBeInTheDocument();
+    expect(screen.getByText('common.page_of')).toBeInTheDocument();
   });
 
   it('delegates page changes to the parent', () => {
@@ -100,10 +100,10 @@ describe('ReleaseList.svelte', () => {
       onPageChange,
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
+    fireEvent.click(screen.getByRole('button', { name: 'common.next' }));
     expect(onPageChange).toHaveBeenCalledWith(3);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Previous' }));
+    fireEvent.click(screen.getByRole('button', { name: 'common.previous' }));
     expect(onPageChange).toHaveBeenCalledWith(1);
   });
 
@@ -119,7 +119,7 @@ describe('ReleaseList.svelte', () => {
       onPageChange: () => {},
     });
 
-    expect(screen.getByRole('button', { name: 'Previous' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Next' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'common.previous' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'common.next' })).toBeEnabled();
   });
 });

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { createT } from '$lib/i18n';
+
   interface Props {
     /** Total number of items (from the PaginatedResponse meta). */
     total: number;
@@ -13,6 +15,8 @@
   }
 
   let { total, page, perPage, onPageChange, siblingCount = 5 }: Props = $props();
+
+  const t = createT();
 
   const totalPages = $derived(Math.max(1, Math.ceil(total / perPage)));
 
@@ -54,12 +58,12 @@
 </script>
 
 {#if totalPages > 1}
-  <nav class="pagination" aria-label="Pagination">
+  <nav class="pagination" aria-label={t('common.pagination')}>
     <button
       class="pg-btn"
       onclick={() => goto(page - 1)}
       disabled={page <= 1}
-      aria-label="Previous page"
+      aria-label={t('common.previous_page')}
     >‹</button>
 
     <!-- Key must be unique: two ellipses can coexist (e.g. [1, …, 5, …, 10]),
@@ -80,11 +84,11 @@
       class="pg-btn"
       onclick={() => goto(page + 1)}
       disabled={page >= totalPages}
-      aria-label="Next page"
+      aria-label={t('common.next_page')}
     >›</button>
 
     <span class="pg-info">
-      {total > 0 ? `${start}-${end} of ${total}` : 'No items'}
+      {total > 0 ? t('common.range_of', { start, end, total }) : t('common.no_items')}
     </span>
   </nav>
 {/if}

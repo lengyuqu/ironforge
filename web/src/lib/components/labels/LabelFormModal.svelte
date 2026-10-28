@@ -129,7 +129,7 @@
             style="background-color: {color}"
             onclick={() => { formData.color = color; colorError = ''; }}
             disabled={saving}
-            aria-label="Color {color}"
+            aria-label={t('settings.label_color_aria', { color })}
             aria-pressed={formData.color === color}
           ></button>
         {/each}

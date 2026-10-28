@@ -57,7 +57,7 @@ describe('PackageUploadForm.svelte', () => {
       (document.querySelector('button[type="submit"]') as HTMLButtonElement).disabled
     ).toBe(false);
 
-    await fireEvent.input(screen.getByLabelText('Name'), { target: { value: '  mypkg ' } });
+    await fireEvent.input(screen.getByLabelText('packages.name'), { target: { value: '  mypkg ' } });
     await fireEvent.input(screen.getByLabelText('packages.version'), {
       target: { value: ' 1.0.0 ' },
     });

@@ -108,7 +108,7 @@
     />
     {#if !isEdit && tags.length > 0}
       <div class="tag-hints">
-        <span class="hint-label">Existing tags:</span>
+        <span class="hint-label">{t('releases.existing_tags')}</span>
         {#each tags.slice(0, 10) as tag}
           <button
             type="button"
@@ -119,7 +119,7 @@
           </button>
         {/each}
         {#if tags.length > 10}
-          <span class="hint-more">+{tags.length - 10} more</span>
+          <span class="hint-more">{t('releases.more_tags', { count: tags.length - 10 })}</span>
         {/if}
       </div>
     {/if}
@@ -159,7 +159,7 @@
           class:active={selectedTargetType === 'tag'}
           onclick={() => selectedTargetType = 'tag'}
         >
-          Tags
+          {t('releases.target_tags')}
         </button>
         <button
           type="button"
@@ -167,18 +167,18 @@
           class:active={selectedTargetType === 'branch'}
           onclick={() => selectedTargetType = 'branch'}
         >
-          Branches
+          {t('releases.target_branches')}
         </button>
       </div>
 
       <select id="target-commitish" bind:value={targetCommitish} class="select">
         {#if selectedTargetType === 'tag'}
-          <option value="">-- Select a tag (optional) --</option>
+          <option value="">{t('releases.select_tag')}</option>
           {#each tags as tag}
             <option value={tag}>{tag}</option>
           {/each}
         {:else}
-          <option value="">-- Select a branch (optional) --</option>
+          <option value="">{t('releases.select_branch')}</option>
           {#each branches as branch}
             <option value={branch}>{branch}</option>
           {/each}

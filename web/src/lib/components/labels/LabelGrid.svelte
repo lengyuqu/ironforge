@@ -2,6 +2,9 @@
   // Labels grid — pure presentation: renders label cards and delegates
   // edit/delete intents to the parent via callbacks.
   import type { Label } from '$lib/types/entities';
+  import { createT } from '$lib/i18n';
+
+  const t = createT();
 
   interface Props {
     items: Label[];
@@ -25,10 +28,10 @@
         </div>
       </div>
       <div class="label-actions">
-        <button class="btn-icon" onclick={() => onEdit(label)} title="Edit">
+        <button class="btn-icon" onclick={() => onEdit(label)} title={t('common.edit')}>
           ✏️
         </button>
-        <button class="btn-icon" onclick={() => onDelete(label)} title="Delete">
+        <button class="btn-icon" onclick={() => onDelete(label)} title={t('common.delete')}>
           🗑️
         </button>
       </div>

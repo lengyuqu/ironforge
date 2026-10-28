@@ -119,7 +119,7 @@
 <div class="diff-view">
   {#if diffData && diffData.files_changed.length > 0}
     <div class="diff-summary">
-      <strong>{diffData.stats.files_changed} files</strong>
+      <strong>{t('pulls.files_changed_count', { count: diffData.stats.files_changed })}</strong>
       <span class="addition-text">+{diffData.stats.total_additions}</span>
       <span class="deletion-text">−{diffData.stats.total_deletions}</span>
     </div>

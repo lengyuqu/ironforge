@@ -144,7 +144,7 @@
         {:else}
           {#each members as member}
             <div class="item">
-              <span class="item-name">User #{member.user_id}</span>
+              <span class="item-name">{t('orgs.user_number', { id: member.user_id })}</span>
               <span class="badge">{member.role}</span>
             </div>
           {/each}

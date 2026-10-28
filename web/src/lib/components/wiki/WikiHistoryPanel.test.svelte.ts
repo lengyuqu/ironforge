@@ -86,7 +86,7 @@ describe('WikiHistoryPanel.svelte', () => {
     });
 
     expect(
-      await screen.findByText('No revisions yet. Revisions are saved on every edit.')
+      await screen.findByText('wiki.no_revisions_hint')
     ).toBeInTheDocument();
   });
 
@@ -116,7 +116,7 @@ describe('WikiHistoryPanel.svelte', () => {
     await fireEvent.click(screen.getByText('fix typo'));
     await screen.findByText('# full v3');
 
-    await fireEvent.click(screen.getByText('Restore this version'));
+    await fireEvent.click(screen.getByText('wiki.restore_version'));
     await waitFor(() =>
       expect(wikiUpdate).toHaveBeenCalledWith('alice', 'demo', 'Home', '# full v3')
     );

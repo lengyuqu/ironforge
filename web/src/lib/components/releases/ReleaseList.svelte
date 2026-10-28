@@ -4,6 +4,9 @@
   import type { Release } from '$lib/types/entities';
   import type { ReleaseAsset } from '$lib/api/releases';
   import ReleaseCard from './ReleaseCard.svelte';
+  import { createT } from '$lib/i18n';
+
+  const t = createT();
 
   interface Props {
     owner: string;
@@ -40,15 +43,15 @@
       disabled={currentPage <= 1}
       onclick={() => onPageChange(currentPage - 1)}
     >
-      Previous
+      {t('common.previous')}
     </button>
-    <span class="page-info">Page {currentPage} of {totalPages}</span>
+    <span class="page-info">{t('common.page_of', { page: currentPage, total: totalPages })}</span>
     <button
       class="btn-outline"
       disabled={currentPage >= totalPages}
       onclick={() => onPageChange(currentPage + 1)}
     >
-      Next
+      {t('common.next')}
     </button>
   </div>
 {/if}

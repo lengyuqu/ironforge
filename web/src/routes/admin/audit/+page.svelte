@@ -105,7 +105,7 @@
   {#if loading}
     <LoadingState />
   {:else if logs.length === 0}
-    <EmptyState title="No audit records found." />
+    <EmptyState title={t('admin.audit.empty')} />
   {:else}
     <AuditLogTable
       {logs}

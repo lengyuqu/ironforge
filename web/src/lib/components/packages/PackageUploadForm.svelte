@@ -113,9 +113,9 @@
     </div>
   </div>
 
-  <FormField id="name" label="Name">
+  <FormField id="name" label={t('packages.name')}>
     {#snippet children()}
-      <input id="name" type="text" bind:value={packageName} class="input" placeholder="Package name" />
+      <input id="name" type="text" bind:value={packageName} class="input" placeholder={t('packages.name_placeholder')} />
     {/snippet}
   </FormField>
 
@@ -137,19 +137,19 @@
     {/snippet}
   </FormField>
 
-  <FormField id="homepage" label="Homepage">
+  <FormField id="homepage" label={t('packages.homepage')}>
     {#snippet children()}
       <input id="homepage" type="text" bind:value={homepage} class="input" />
     {/snippet}
   </FormField>
 
-  <FormField id="repository-url" label="Repository URL">
+  <FormField id="repository-url" label={t('packages.repository_url')}>
     {#snippet children()}
       <input id="repository-url" type="text" bind:value={repositoryUrl} class="input" />
     {/snippet}
   </FormField>
 
-  <FormField id="semver" label="Semver">
+  <FormField id="semver" label={t('packages.semver')}>
     {#snippet children()}
       <input id="semver" type="text" bind:value={semver} class="input" />
     {/snippet}

@@ -74,7 +74,7 @@ describe('JobLogModal.svelte', () => {
     expect(document.querySelector('.log-content')).toHaveTextContent('(no log output)');
 
     captured?.onStatus?.('connected');
-    expect(await screen.findByText('Live')).toHaveClass('connected');
+    expect(await screen.findByText('pipeline.log_live')).toHaveClass('connected');
 
     captured?.onLog('hello\n');
     captured?.onLog('world');
@@ -83,10 +83,10 @@ describe('JobLogModal.svelte', () => {
     );
 
     captured?.onStatus?.('reconnecting');
-    expect(await screen.findByText('Reconnecting…')).toBeInTheDocument();
+    expect(await screen.findByText('pipeline.log_reconnecting')).toBeInTheDocument();
 
     captured?.onStatus?.('closed');
-    expect(await screen.findByText('Closed')).toBeInTheDocument();
+    expect(await screen.findByText('pipeline.log_closed')).toBeInTheDocument();
   });
 
   it('ignores empty chunks so the rendered log is untouched', async () => {
@@ -101,7 +101,7 @@ describe('JobLogModal.svelte', () => {
     render(JobLogModal, { job: makeJob(), onClose: () => {} });
 
     captured?.onError?.(new Event('error'));
-    const badge = await screen.findByText('Live log connection failed');
+    const badge = await screen.findByText('pipeline.log_connect_failed');
     expect(badge).toHaveClass('error');
   });
 
@@ -164,7 +164,7 @@ describe('JobLogModal.svelte', () => {
       onClose: () => {},
     });
 
-    expect(screen.getByText('Job Log')).toBeInTheDocument();
+    expect(screen.getByText('pipeline.job_log')).toBeInTheDocument();
     expect(screen.getByText('pipeline.condition')).toBeInTheDocument();
   });
 });

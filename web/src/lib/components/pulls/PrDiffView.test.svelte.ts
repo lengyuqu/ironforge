@@ -83,7 +83,7 @@ describe('PrDiffView.svelte', () => {
       comments: [],
       onChanged: () => {},
     });
-    expect(screen.getByText('1 files')).toBeInTheDocument();
+    expect(screen.getByText('pulls.files_changed_count')).toBeInTheDocument();
     expect(screen.getAllByText('+1')).toHaveLength(2);
     expect(screen.getByText('src/a.ts')).toBeInTheDocument();
     expect(screen.getByText('const b = 2;')).toBeInTheDocument();

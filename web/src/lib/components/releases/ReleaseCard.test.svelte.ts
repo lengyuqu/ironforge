@@ -66,7 +66,7 @@ describe('ReleaseCard.svelte', () => {
     expect(screen.getByText('First stable')).toBeInTheDocument();
     expect(screen.getByText('Initial release notes')).toBeInTheDocument();
     expect(screen.getByText('demo-1.2.0.tar.gz')).toBeInTheDocument();
-    expect(screen.getByText(/2\.0 KB · 3 downloads/)).toBeInTheDocument();
+    expect(screen.getByText(/2\.0 KB · releases\.download_count/)).toBeInTheDocument();
     // The t() mock keeps the key for interpolated strings; the created
     // badge is rendered (the real formatDate path is diff > 30 days).
     expect(screen.getByText('releases.created')).toBeInTheDocument();
@@ -102,7 +102,7 @@ describe('ReleaseCard.svelte', () => {
     render(ReleaseCard, { owner: 'alice', repo: 'demo', release, assets, onChanged });
 
     await fireEvent.click(screen.getByText('releases.delete'));
-    expect(screen.getByText('Are you sure?')).toBeInTheDocument();
+    expect(screen.getByText('releases.confirm_delete')).toBeInTheDocument();
 
     await fireEvent.click(screen.getByText('common.delete'));
     await waitFor(() => expect(releasesDelete).toHaveBeenCalledWith('alice', 'demo', 11));

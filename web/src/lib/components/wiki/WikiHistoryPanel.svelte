@@ -1,5 +1,6 @@
 <script lang="ts">
   import { confirmDialog } from '$lib/components/confirm.svelte';
+  import LoadingState from '$lib/components/LoadingState.svelte';
   import { wiki } from '$lib/api/client.svelte';
   import { toast } from '$lib/components/toast.svelte';
   import { toErrorMessage } from '$lib/utils/error';
@@ -75,18 +76,18 @@
 </script>
 
 <div class="history-panel">
-  <h3>Revision History</h3>
+  <h3>{t('wiki.revision_history')}</h3>
   {#if historyLoading}
-    <p class="text-secondary">Loading…</p>
+    <LoadingState compact />
   {:else if revisions.length === 0}
-    <p class="text-secondary">No revisions yet. Revisions are saved on every edit.</p>
+    <p class="text-secondary">{t('wiki.no_revisions_hint')}</p>
   {:else}
     <div class="revision-list">
       {#each revisions as rev}
         <div class="revision-item" class:expanded={viewingRevision?.id === rev.id}>
           <button class="revision-header" onclick={() => viewRevision(rev)}>
             <span class="rev-version">v{rev.version}</span>
-            <span class="rev-msg">{rev.message || 'No message'}</span>
+            <span class="rev-msg">{rev.message || t('wiki.noMessage')}</span>
             <span class="rev-date">{formatDate(rev.created_at)}</span>
             <span class="rev-arrow">{viewingRevision?.id === rev.id ? '▲' : '▼'}</span>
           </button>
@@ -94,7 +95,7 @@
             <div class="revision-content">
               <pre class="rev-preview">{viewingRevision.content}</pre>
               <button class="btn-primary btn-sm" disabled={restoring} onclick={() => restoreRevision(rev)}>
-                Restore this version
+                {t('wiki.restore_version')}
               </button>
             </div>
           {/if}

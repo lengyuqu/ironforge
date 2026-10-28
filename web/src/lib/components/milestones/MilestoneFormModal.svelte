@@ -145,8 +145,8 @@
     <FormField id="milestone-state" label={t('settings.milestone_state')}>
       {#snippet children({ id })}
         <select {id} bind:value={formData.state} disabled={saving}>
-          <option value="open">open</option>
-          <option value="closed">closed</option>
+          <option value="open">{t('issues.state_label.open')}</option>
+          <option value="closed">{t('issues.state_label.closed')}</option>
         </select>
       {/snippet}
     </FormField>

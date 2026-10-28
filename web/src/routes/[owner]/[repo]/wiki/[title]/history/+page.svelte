@@ -70,7 +70,7 @@
     {#if viewingRev && currentRev}
       <div class="revision-detail">
         <div class="rev-meta">
-          <h3>Revision #{currentRev.id}</h3>
+          <h3>{t('wiki.revision_title', { id: currentRev.id })}</h3>
           <p class="rev-info">
             {formatDate(currentRev.created_at)}
             {#if currentRev.message}

@@ -4,6 +4,9 @@
   import EmptyState from '$lib/components/EmptyState.svelte';
   import { statusIcon, statusText, statusColor } from '$lib/utils/commitStatus';
   import type { CombinedCommitStatus, CommitStatus } from '$lib/types/entities';
+  import { createT } from '$lib/i18n';
+
+  const t = createT();
 
   interface Props {
     combined: CombinedCommitStatus | null;
@@ -40,16 +43,16 @@
     </div>
     <div class="status-content">
       <h2 class="status-title">{statusText(combined.state)}</h2>
-      <p class="status-count">{combined.total_count} checks</p>
+      <p class="status-count">{t('commit.checks_count', { count: combined.total_count })}</p>
     </div>
   </div>
 {/if}
 
 <div class="status-checks surface">
-  <h3>Status Checks</h3>
+  <h3>{t('commit.status')}</h3>
 
   {#if statuses.length === 0}
-    <EmptyState title="No status checks reported yet." />
+    <EmptyState title={t('commit.no_status')} />
   {:else}
     <div class="status-list">
       {#each statuses as status, index (status.id)}
@@ -70,7 +73,7 @@
                 rel="noopener noreferrer"
                 class="status-details-link"
               >
-                View Details →
+                {t('commit.view_details')} →
               </a>
             {/if}
           </div>

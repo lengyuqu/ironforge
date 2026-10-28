@@ -37,7 +37,12 @@
     "download": "Download",
     "copied": "Copied",
     "retry": "Retry",
-    "page_of": "Page {page} of {total}"
+    "page_of": "Page {page} of {total}",
+    "pagination": "Pagination",
+    "previous_page": "Previous page",
+    "next_page": "Next page",
+    "range_of": "{start}-{end} of {total}",
+    "no_items": "No items"
   },
   "nav": {
     "dashboard": "Dashboard",
@@ -289,7 +294,8 @@
       "read": "Read",
       "write": "Write",
       "admin": "Admin"
-    }
+    },
+    "user_number": "User #{id}"
   },
   "repo": {
     "tabs": {
@@ -721,7 +727,8 @@
       "applying_selected": "Applying suggestions...",
       "apply": "Apply suggestion",
       "applied": "Suggestion applied"
-    }
+    },
+    "files_changed_count": "{count} files"
   },
   "wiki": {
     "title": "Wiki",
@@ -746,7 +753,12 @@
     "history": "History",
     "revisionMessage": "Revision Message",
     "noMessage": "No message",
-    "noRevisions": "No revisions yet"
+    "noRevisions": "No revisions yet",
+    "revision_history": "Revision History",
+    "no_revisions_hint": "No revisions yet. Revisions are saved on every edit.",
+    "restore_version": "Restore this version",
+    "last_edited": "Last edited {date}",
+    "revision_title": "Revision #{id}"
   },
   "pipeline": {
     "status": {
@@ -790,7 +802,13 @@
     "artifact_uploaded": "Uploaded",
     "artifact_expiry": "Expiry",
     "rerun_failed": "Rerun",
-    "log": "Job log output"
+    "log": "Job log output",
+    "job_log": "Job Log",
+    "log_live": "Live",
+    "log_reconnecting": "Reconnecting…",
+    "log_closed": "Closed",
+    "log_offline": "Offline",
+    "log_connect_failed": "Live log connection failed"
   },
   "errors": {
     "login_failed": "Login failed",
@@ -868,7 +886,16 @@
     "edit": "Edit",
     "delete": "Delete",
     "deleted": "Release deleted",
-    "download_failed": "Download failed"
+    "download_failed": "Download failed",
+    "assets_label": "Release assets",
+    "download_count": "{count} downloads",
+    "confirm_delete": "Are you sure?",
+    "existing_tags": "Existing tags:",
+    "more_tags": "+{count} more",
+    "target_tags": "Tags",
+    "target_branches": "Branches",
+    "select_tag": "-- Select a tag (optional) --",
+    "select_branch": "-- Select a branch (optional) --"
   },
   "settings": {
     "title": "Settings",
@@ -1166,7 +1193,8 @@
       "starting": "Starting...",
       "setup": "Set up MFA",
       "enabled_notice": "MFA enabled. Save your backup codes before leaving this page."
-    }
+    },
+    "label_color_aria": "Color {color}"
   },
   "commit": {
     "status": "Status checks",
@@ -1177,7 +1205,10 @@
     "no_status": "No status checks reported yet.",
     "context": "Context",
     "description": "Description",
-    "details": "Details"
+    "details": "Details",
+    "checks_count": "{count} checks",
+    "view_details": "View Details",
+    "gpg_title": "GPG: {status}"
   },
   "admin": {
     "title": "Admin Panel",
@@ -1240,7 +1271,8 @@
       "resource_user": "User",
       "resource_repo": "Repository",
       "resource_org": "Organization",
-      "clear_filters": "Clear filters"
+      "clear_filters": "Clear filters",
+      "empty": "No audit records found."
     },
     "runners": {
       "title": "Runner Management",
@@ -1385,7 +1417,12 @@
     "upload_success": "Package uploaded successfully",
     "uploading": "Uploading...",
     "file_required": "Package file is required",
-    "delete_confirm": "Delete {name} {version}?"
+    "delete_confirm": "Delete {name} {version}?",
+    "name": "Name",
+    "name_placeholder": "Package name",
+    "homepage": "Homepage",
+    "repository_url": "Repository URL",
+    "semver": "Semver"
   },
   "runners": {
     "register": "Register Runner",

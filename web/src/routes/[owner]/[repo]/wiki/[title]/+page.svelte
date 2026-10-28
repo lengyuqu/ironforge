@@ -122,9 +122,9 @@
           <h1>{title}</h1>
           <div class="header-actions">
             {#if wikiPage.updated_at}
-              <span class="text-secondary text-sm">Last edited {formatDate(wikiPage.updated_at)}</span>
+              <span class="text-secondary text-sm">{t('wiki.last_edited', { date: formatDate(wikiPage.updated_at) })}</span>
             {/if}
-            <button class="btn-outline" onclick={toggleHistory} class:active={showHistory}>History</button>
+            <button class="btn-outline" onclick={toggleHistory} class:active={showHistory}>{t('wiki.history')}</button>
             <button class="btn-outline" onclick={() => editing = true}>{t('wiki.edit')}</button>
             <button class="btn-outline btn-danger" onclick={handleDelete}>{t('wiki.delete') || 'Delete'}</button>
           </div>

@@ -37,7 +37,12 @@
     "download": "下载",
     "copied": "已复制",
     "retry": "重试",
-    "page_of": "第 {page} / {total} 页"
+    "page_of": "第 {page} / {total} 页",
+    "pagination": "分页",
+    "previous_page": "上一页",
+    "next_page": "下一页",
+    "range_of": "第 {start}-{end} 条,共 {total} 条",
+    "no_items": "暂无数据"
   },
   "nav": {
     "dashboard": "仪表板",
@@ -289,7 +294,8 @@
       "read": "读取",
       "write": "写入",
       "admin": "管理员"
-    }
+    },
+    "user_number": "用户 #{id}"
   },
   "repo": {
     "tabs": {
@@ -721,7 +727,8 @@
       "applying_selected": "正在应用建议...",
       "apply": "应用建议",
       "applied": "建议已应用"
-    }
+    },
+    "files_changed_count": "{count} 个文件"
   },
   "wiki": {
     "title": "Wiki",
@@ -746,7 +753,12 @@
     "history": "历史",
     "revisionMessage": "版本消息",
     "noMessage": "无消息",
-    "noRevisions": "暂无版本"
+    "noRevisions": "暂无版本",
+    "revision_history": "修订历史",
+    "no_revisions_hint": "暂无修订。每次编辑都会保存一个修订。",
+    "restore_version": "恢复此版本",
+    "last_edited": "最后编辑于 {date}",
+    "revision_title": "修订 #{id}"
   },
   "pipeline": {
     "status": {
@@ -790,7 +802,13 @@
     "artifact_uploaded": "上传时间",
     "artifact_expiry": "过期时间",
     "rerun_failed": "重新运行",
-    "log": "作业日志输出"
+    "log": "作业日志输出",
+    "job_log": "作业日志",
+    "log_live": "实时",
+    "log_reconnecting": "重新连接中…",
+    "log_closed": "已关闭",
+    "log_offline": "离线",
+    "log_connect_failed": "实时日志连接失败"
   },
   "errors": {
     "login_failed": "登录失败",
@@ -868,7 +886,16 @@
     "edit": "编辑",
     "delete": "删除",
     "deleted": "发布已删除",
-    "download_failed": "下载失败"
+    "download_failed": "下载失败",
+    "assets_label": "发布附件",
+    "download_count": "{count} 次下载",
+    "confirm_delete": "确定吗?",
+    "existing_tags": "已有标签:",
+    "more_tags": "另有 {count} 个",
+    "target_tags": "标签",
+    "target_branches": "分支",
+    "select_tag": "-- 选择标签(可选)--",
+    "select_branch": "-- 选择分支(可选)--"
   },
   "settings": {
     "title": "设置",
@@ -1166,7 +1193,8 @@
       "starting": "启动中...",
       "setup": "设置 MFA",
       "enabled_notice": "MFA 已启用。离开此页面前请保存备份码。"
-    }
+    },
+    "label_color_aria": "颜色 {color}"
   },
   "commit": {
     "status": "状态检查",
@@ -1177,7 +1205,10 @@
     "no_status": "暂无状态检查报告。",
     "context": "上下文",
     "description": "描述",
-    "details": "详情"
+    "details": "详情",
+    "checks_count": "{count} 项检查",
+    "view_details": "查看详情",
+    "gpg_title": "GPG:{status}"
   },
   "admin": {
     "title": "管理面板",
@@ -1240,7 +1271,8 @@
       "resource_user": "用户",
       "resource_repo": "仓库",
       "resource_org": "组织",
-      "clear_filters": "清除筛选"
+      "clear_filters": "清除筛选",
+      "empty": "未找到审计记录。"
     },
     "runners": {
       "title": "Runner 管理",
@@ -1385,7 +1417,12 @@
     "upload_success": "包上传成功",
     "uploading": "上传中...",
     "file_required": "包文件为必填项",
-    "delete_confirm": "删除 {name} {version}？"
+    "delete_confirm": "删除 {name} {version}？",
+    "name": "名称",
+    "name_placeholder": "包名",
+    "homepage": "主页",
+    "repository_url": "仓库 URL",
+    "semver": "语义化版本"
   },
   "runners": {
     "register": "注册 Runner",

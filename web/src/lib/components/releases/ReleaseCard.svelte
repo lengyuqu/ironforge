@@ -112,7 +112,7 @@
   </div>
 
   {#if assets.length}
-    <div class="asset-list" aria-label="Release assets">
+    <div class="asset-list" aria-label={t('releases.assets_label')}>
       {#each assets as asset (asset.id)}
         <button
           type="button"
@@ -121,7 +121,7 @@
           disabled={downloadingAssetId === asset.id}
         >
           <span class="asset-name">{asset.filename}</span>
-          <span class="asset-meta">{formatBytes(asset.size)} · {asset.download_count || 0} downloads</span>
+          <span class="asset-meta">{formatBytes(asset.size)} · {t('releases.download_count', { count: asset.download_count || 0 })}</span>
         </button>
       {/each}
     </div>
@@ -133,7 +133,7 @@
 
     {#if confirmDelete}
       <div class="delete-confirm">
-        <span>Are you sure?</span>
+        <span>{t('releases.confirm_delete')}</span>
         <button class="btn-danger" onclick={handleDelete} disabled={deleting}>
           {deleting ? '...' : t('common.delete')}
         </button>
