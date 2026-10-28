@@ -136,4 +136,167 @@ describe('ReleaseForm.svelte', () => {
 
     await waitFor(() => expect(toastError).toHaveBeenCalledWith('tag exists'));
   });
+
+  describe('existing-tag hints', () => {
+    const manyTags = Array.from({ length: 12 }, (_, i) => `v${i}`);
+
+    it('shows at most ten hint buttons and counts the rest', () => {
+      render(ReleaseForm, { owner: 'alice', repo: 'demo', tags: manyTags });
+
+      const hints = document.querySelectorAll('.tag-hint');
+      expect(hints).toHaveLength(10);
+      expect(hints[0].textContent?.trim()).toBe('v0');
+      expect(hints[9].textContent?.trim()).toBe('v9');
+      expect(screen.getByText('releases.more_tags')).toBeInTheDocument();
+    });
+
+    it('omits the "more" note when ten or fewer tags exist', () => {
+      render(ReleaseForm, { owner: 'alice', repo: 'demo', tags: manyTags.slice(0, 10) });
+      expect(document.querySelectorAll('.tag-hint')).toHaveLength(10);
+      expect(screen.queryByText('releases.more_tags')).toBeNull();
+    });
+
+    it('renders no hints without tags, and none in edit mode', () => {
+      const { unmount } = render(ReleaseForm, { owner: 'alice', repo: 'demo' });
+      expect(document.querySelector('.tag-hints')).toBeNull();
+      unmount();
+
+      render(ReleaseForm, {
+        owner: 'alice',
+        repo: 'demo',
+        tags: ['v1'],
+        release: { id: 1, tag_name: 'v1', title: 't' } as unknown as Release,
+      });
+      expect(document.querySelector('.tag-hints')).toBeNull();
+    });
+  });
+
+  describe('target picker', () => {
+    const targetSelect = () => document.getElementById('target-commitish') as HTMLSelectElement;
+    const optionValues = () => Array.from(targetSelect().options).map((o) => o.value);
+
+    it('starts on tags and lists them after the empty option', () => {
+      render(ReleaseForm, { owner: 'a', repo: 'r', tags: ['v1', 'v2'], branches: ['main', 'dev'] });
+      expect(optionValues()).toEqual(['', 'v1', 'v2']);
+      expect(screen.getByText('releases.target_tags')).toHaveClass('active');
+    });
+
+    it('switches to branches and back', async () => {
+      render(ReleaseForm, { owner: 'a', repo: 'r', tags: ['v1'], branches: ['main', 'dev'] });
+
+      await fireEvent.click(screen.getByText('releases.target_branches'));
+      expect(optionValues()).toEqual(['', 'main', 'dev']);
+      expect(screen.getByText('releases.target_branches')).toHaveClass('active');
+      expect(screen.getByText('releases.target_tags')).not.toHaveClass('active');
+
+      await fireEvent.click(screen.getByText('releases.target_tags'));
+      expect(optionValues()).toEqual(['', 'v1']);
+    });
+
+    it('sends the chosen branch as target_commitish', async () => {
+      releasesCreate.mockResolvedValue(undefined);
+      render(ReleaseForm, { owner: 'a', repo: 'r', branches: ['main', 'dev'], onCreated: () => {} });
+
+      await fireEvent.input(screen.getByLabelText(/tag_name/), { target: { value: 'v9' } });
+      await fireEvent.input(screen.getByLabelText(/release_title/), { target: { value: 'T' } });
+      await fireEvent.click(screen.getByText('releases.target_branches'));
+      // happy-dom has no `:checked` for <option>, which Svelte's select binding
+      // queries to read the choice; answer it from selectedIndex for this test.
+      const original = HTMLSelectElement.prototype.querySelector;
+      const spy = vi
+        .spyOn(HTMLSelectElement.prototype, 'querySelector')
+        .mockImplementation(function (this: HTMLSelectElement, selector: string) {
+          return selector === ':checked'
+            ? (this.options[this.selectedIndex] ?? null)
+            : original.call(this, selector);
+        });
+      try {
+        await fireEvent.change(targetSelect(), { target: { value: 'dev' } });
+      } finally {
+        spy.mockRestore();
+      }
+      await fireEvent.click(submitButton()!);
+
+      await waitFor(() => expect(releasesCreate).toHaveBeenCalledTimes(1));
+      expect(releasesCreate.mock.calls[0][2]).toMatchObject({ tag_name: 'v9', target_commitish: 'dev' });
+    });
+
+    it('is absent in edit mode', () => {
+      render(ReleaseForm, {
+        owner: 'a',
+        repo: 'r',
+        release: { id: 1, tag_name: 'v1', title: 't' } as unknown as Release,
+      });
+      expect(document.getElementById('target-commitish')).toBeNull();
+    });
+  });
+
+  describe('flags and submit state', () => {
+    it('sends draft and pre-release flags on create', async () => {
+      releasesCreate.mockResolvedValue(undefined);
+      render(ReleaseForm, { owner: 'a', repo: 'r', onCreated: () => {} });
+      await fireEvent.input(screen.getByLabelText(/tag_name/), { target: { value: 'v1' } });
+      await fireEvent.input(screen.getByLabelText(/release_title/), { target: { value: 'T' } });
+      await fireEvent.click(screen.getByText('releases.is_draft'));
+      await fireEvent.click(screen.getByText('releases.is_prerelease'));
+      await fireEvent.click(submitButton()!);
+
+      await waitFor(() => expect(releasesCreate).toHaveBeenCalledTimes(1));
+      expect(releasesCreate.mock.calls[0][2]).toMatchObject({ is_draft: true, is_prerelease: true });
+    });
+
+    it('edit mode preloads the existing flags', () => {
+      render(ReleaseForm, {
+        owner: 'a',
+        repo: 'r',
+        release: { id: 1, tag_name: 'v1', title: 't', is_draft: true, is_prerelease: false } as unknown as Release,
+      });
+      const [draft, pre] = Array.from(document.querySelectorAll<HTMLInputElement>('input[type="checkbox"]'));
+      expect(draft.checked).toBe(true);
+      expect(pre.checked).toBe(false);
+    });
+
+    it('omits an empty body', async () => {
+      releasesCreate.mockResolvedValue(undefined);
+      render(ReleaseForm, { owner: 'a', repo: 'r', onCreated: () => {} });
+      await fireEvent.input(screen.getByLabelText(/tag_name/), { target: { value: 'v1' } });
+      await fireEvent.input(screen.getByLabelText(/release_title/), { target: { value: 'T' } });
+      await fireEvent.input(screen.getByLabelText('releases.body'), { target: { value: '   ' } });
+      await fireEvent.click(submitButton()!);
+
+      await waitFor(() => expect(releasesCreate).toHaveBeenCalledTimes(1));
+      expect(releasesCreate.mock.calls[0][2].body).toBeUndefined();
+    });
+
+    it('disables submit and shows the progress label while saving', async () => {
+      let resolve!: () => void;
+      releasesCreate.mockReturnValue(new Promise<void>((r) => (resolve = r)));
+      render(ReleaseForm, { owner: 'a', repo: 'r', onCreated: () => {} });
+      expect(submitButton()).toHaveTextContent('releases.submit');
+
+      await fireEvent.input(screen.getByLabelText(/tag_name/), { target: { value: 'v1' } });
+      await fireEvent.input(screen.getByLabelText(/release_title/), { target: { value: 'T' } });
+      await fireEvent.click(submitButton()!);
+
+      await waitFor(() => expect(submitButton()).toBeDisabled());
+      expect(submitButton()).toHaveTextContent('releases.submitting');
+      resolve();
+    });
+
+    it('re-enables submit after a failed request', async () => {
+      releasesCreate.mockRejectedValue(new Error('boom'));
+      render(ReleaseForm, { owner: 'a', repo: 'r', onCreated: () => {} });
+      await fireEvent.input(screen.getByLabelText(/tag_name/), { target: { value: 'v1' } });
+      await fireEvent.input(screen.getByLabelText(/release_title/), { target: { value: 'T' } });
+      await fireEvent.click(submitButton()!);
+
+      await waitFor(() => expect(toastError).toHaveBeenCalled());
+      expect(submitButton()).toBeEnabled();
+    });
+
+    it('links Cancel back to the releases list', () => {
+      render(ReleaseForm, { owner: 'alice', repo: 'demo' });
+      expect(screen.getByText('common.cancel')).toHaveAttribute('href', '/alice/demo/releases');
+    });
+  });
 });
