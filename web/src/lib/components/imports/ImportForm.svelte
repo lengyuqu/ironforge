@@ -83,7 +83,7 @@
       sourceUrl = '';
       targetName = '';
       authToken = '';
-      toast.success('Import queued');
+      toast.success(t('imports.queued'));
       await onStarted();
     } catch (e) {
       toast.error(toErrorMessage(e, t('errors.start_failed')));
@@ -95,7 +95,7 @@
 
 <form class="import-form" onsubmit={startImport}>
   <label>
-    Platform
+    {t('imports.platform')}
     <select bind:value={platform}>
       <option value="github">GitHub</option>
       <option value="gitlab">GitLab</option>
@@ -105,39 +105,39 @@
   </label>
 
   <label class="wide">
-    Source repository URL
+    {t('imports.source_url')}
     <input type="url" bind:value={sourceUrl} placeholder={sourcePlaceholder()} required />
   </label>
 
   <label>
-    Target owner
+    {t('imports.target_owner')}
     <input type="text" bind:value={targetOwner} required />
   </label>
 
   <label>
-    Target repository
-    <input type="text" bind:value={targetName} placeholder="Derived from source URL" />
+    {t('imports.target_repo')}
+    <input type="text" bind:value={targetName} placeholder={t('imports.target_repo_placeholder')} />
   </label>
 
   <label class="wide">
-    Source access token
-    <input type="password" bind:value={authToken} autocomplete="off" placeholder="Optional for private repositories" />
+    {t('imports.source_token')}
+    <input type="password" bind:value={authToken} autocomplete="off" placeholder={t('imports.token_placeholder')} />
   </label>
 
   <fieldset class="wide options">
-    <legend>Content</legend>
-    <label><input type="checkbox" bind:checked={importRepo} /> Repository</label>
-    <label><input type="checkbox" bind:checked={importIssues} disabled={!supportsMetadataImport()} /> Issues</label>
-    <label><input type="checkbox" bind:checked={importPullRequests} disabled={!supportsMetadataImport()} /> Pull requests</label>
-    <label><input type="checkbox" bind:checked={importWiki} disabled={!supportsMetadataImport()} /> Wiki</label>
-    <label><input type="checkbox" bind:checked={importReleases} disabled={!supportsMetadataImport()} /> Releases</label>
-    <label><input type="checkbox" bind:checked={importLabels} disabled={!supportsMetadataImport()} /> Labels</label>
-    <label><input type="checkbox" bind:checked={importMilestones} disabled={!supportsMetadataImport()} /> Milestones</label>
+    <legend>{t('imports.content')}</legend>
+    <label><input type="checkbox" bind:checked={importRepo} /> {t('imports.content_repo')}</label>
+    <label><input type="checkbox" bind:checked={importIssues} disabled={!supportsMetadataImport()} /> {t('imports.content_issues')}</label>
+    <label><input type="checkbox" bind:checked={importPullRequests} disabled={!supportsMetadataImport()} /> {t('imports.content_pulls')}</label>
+    <label><input type="checkbox" bind:checked={importWiki} disabled={!supportsMetadataImport()} /> {t('imports.content_wiki')}</label>
+    <label><input type="checkbox" bind:checked={importReleases} disabled={!supportsMetadataImport()} /> {t('imports.content_releases')}</label>
+    <label><input type="checkbox" bind:checked={importLabels} disabled={!supportsMetadataImport()} /> {t('imports.content_labels')}</label>
+    <label><input type="checkbox" bind:checked={importMilestones} disabled={!supportsMetadataImport()} /> {t('imports.content_milestones')}</label>
   </fieldset>
 
   <div class="actions wide">
     <button class="btn-primary" type="submit" disabled={submitting || !sourceUrl.trim() || !targetOwner.trim()}>
-      {submitting ? 'Starting...' : 'Start import'}
+      {submitting ? t('imports.starting') : t('imports.start')}
     </button>
   </div>
 </form>

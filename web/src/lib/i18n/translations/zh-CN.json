@@ -1317,5 +1317,39 @@
     "ci_env_delete": "删除环境 {name}？",
     "tag_protection_delete": "删除对 {pattern} 的保护规则？",
     "wiki_delete": "删除该 Wiki 页面？此操作无法撤销。"
+  },
+  "imports": {
+    "page_title": "导入 · IronForge",
+    "subtitle": "从 GitHub、GitLab、Gitea 或 Git 远端迁移仓库及项目数据。",
+    "refresh": "刷新",
+    "new_title": "新建导入",
+    "tasks_title": "导入任务",
+    "empty": "暂无导入任务。",
+    "platform": "平台",
+    "source_url": "源仓库 URL",
+    "target_owner": "目标所有者",
+    "target_repo": "目标仓库",
+    "source_token": "源访问令牌",
+    "target_repo_placeholder": "默认取自源 URL",
+    "token_placeholder": "私有仓库时填写",
+    "content": "导入内容",
+    "content_repo": "仓库",
+    "content_issues": "议题",
+    "content_pulls": "合并请求",
+    "content_wiki": "Wiki",
+    "content_releases": "发布",
+    "content_labels": "标签",
+    "content_milestones": "里程碑",
+    "starting": "启动中...",
+    "start": "开始导入",
+    "queued": "导入已加入队列",
+    "col": {
+      "source": "来源",
+      "target": "目标",
+      "status": "状态",
+      "progress": "进度",
+      "updated": "更新时间"
+    },
+    "deleted": "导入任务已删除"
   }
 }

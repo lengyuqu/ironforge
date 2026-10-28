@@ -1317,5 +1317,39 @@
     "ci_env_delete": "Delete environment {name}?",
     "tag_protection_delete": "Delete protection for {pattern}?",
     "wiki_delete": "Delete this wiki page? This cannot be undone."
+  },
+  "imports": {
+    "page_title": "Imports · IronForge",
+    "subtitle": "Migrate repositories and project data from GitHub, GitLab, Gitea, or Git remotes.",
+    "refresh": "Refresh",
+    "new_title": "New import",
+    "tasks_title": "Import tasks",
+    "empty": "No import tasks yet.",
+    "platform": "Platform",
+    "source_url": "Source repository URL",
+    "target_owner": "Target owner",
+    "target_repo": "Target repository",
+    "source_token": "Source access token",
+    "target_repo_placeholder": "Derived from source URL",
+    "token_placeholder": "Optional for private repositories",
+    "content": "Content",
+    "content_repo": "Repository",
+    "content_issues": "Issues",
+    "content_pulls": "Pull requests",
+    "content_wiki": "Wiki",
+    "content_releases": "Releases",
+    "content_labels": "Labels",
+    "content_milestones": "Milestones",
+    "starting": "Starting...",
+    "start": "Start import",
+    "queued": "Import queued",
+    "col": {
+      "source": "Source",
+      "target": "Target",
+      "status": "Status",
+      "progress": "Progress",
+      "updated": "Updated"
+    },
+    "deleted": "Import deleted"
   }
 }

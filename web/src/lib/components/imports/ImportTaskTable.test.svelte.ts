@@ -103,17 +103,17 @@ describe('ImportTaskTable.svelte', () => {
     const onDeleted = vi.fn();
     render(ImportTaskTable, { tasks: [task], onDeleted });
 
-    await fireEvent.click(screen.getByText('Delete'));
+    await fireEvent.click(screen.getByText('common.delete'));
     await waitFor(() => expect(importsRemove).toHaveBeenCalledWith(3));
     await waitFor(() => expect(onDeleted).toHaveBeenCalledWith(3));
-    expect(toastSuccess).toHaveBeenCalledWith('Import deleted');
+    expect(toastSuccess).toHaveBeenCalledWith('imports.deleted');
   });
 
   it('skips deletion when the confirm dialog is declined', async () => {
     confirmMock.mockReturnValue(false);
     render(ImportTaskTable, { tasks: [task], onDeleted: () => {} });
 
-    await fireEvent.click(screen.getByText('Delete'));
+    await fireEvent.click(screen.getByText('common.delete'));
     expect(importsRemove).not.toHaveBeenCalled();
   });
 });

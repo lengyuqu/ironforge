@@ -26,7 +26,7 @@
     deletingId = task.id;
     try {
       await imports.remove(task.id);
-      toast.success('Import deleted');
+      toast.success(t('imports.deleted'));
       onDeleted(task.id);
     } catch (e) {
       toast.error(toErrorMessage(e, t('errors.delete_failed')));
@@ -40,11 +40,11 @@
   <table>
     <thead>
       <tr>
-        <th>Source</th>
-        <th>Target</th>
-        <th>Status</th>
-        <th>Progress</th>
-        <th>Updated</th>
+        <th>{t('imports.col.source')}</th>
+        <th>{t('imports.col.target')}</th>
+        <th>{t('imports.col.status')}</th>
+        <th>{t('imports.col.progress')}</th>
+        <th>{t('imports.col.updated')}</th>
         <th></th>
       </tr>
     </thead>
@@ -70,7 +70,7 @@
           </td>
           <td>{formatDateTime(task.updated_at || task.created_at)}</td>
           <td class="row-actions">
-            <button class="btn-danger" type="button" disabled={deletingId === task.id} onclick={() => deleteImport(task)}>Delete</button>
+            <button class="btn-danger" type="button" disabled={deletingId === task.id} onclick={() => deleteImport(task)}>{t('common.delete')}</button>
           </td>
         </tr>
       {/each}
