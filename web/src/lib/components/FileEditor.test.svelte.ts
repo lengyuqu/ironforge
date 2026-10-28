@@ -1,188 +1,317 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/svelte';
-
-vi.mock('$lib/i18n', () => ({
-  createT: () => (key: string, fallbackOrParams?: string | Record<string, unknown>) =>
-    typeof fallbackOrParams === 'string' ? fallbackOrParams : key,
-  formatDate: (iso: string) => `fmt(${iso})`,
-  formatDateTime: (iso: string) => `fmtt(${iso})`,
-}));
-
-// Deterministic markdown + syntax highlighting — both are pure output concerns
-// that the editor just pipes into the DOM.
-vi.mock('$lib/utils/markdown', () => ({
-  renderMarkdown: (content: string) => `<p>md(${content})</p>`,
-}));
-vi.mock('highlight.js', () => ({
-  default: {
-    getLanguage: () => null,
-    highlightAuto: (content: string) => ({ value: content }),
-    highlight: (content: string) => ({ value: content }),
-  },
-}));
 
 import FileEditor from './FileEditor.svelte';
 
-const onSave = vi.fn();
+type Props = Partial<{
+  mode: 'create' | 'edit';
+  initialPath: string;
+  initialContent: string;
+  initialSha: string;
+  branch: string;
+  disabledReason: string;
+  onSave: (p: unknown) => Promise<void>;
+}>;
 
-beforeEach(() => {
-  onSave.mockReset();
-  onSave.mockResolvedValue(undefined);
-});
-
-function renderEditor(overrides: Record<string, unknown> = {}) {
-  return render(FileEditor, {
-    props: {
-      owner: 'alice',
-      repo: 'demo',
-      mode: 'create',
-      initialPath: 'docs/guide.md',
-      initialContent: '',
-      cancelHref: '/alice/demo',
-      onSave,
-      ...overrides,
-    },
+function renderEditor(props: Props = {}) {
+  const onSave = props.onSave ?? vi.fn().mockResolvedValue(undefined);
+  render(FileEditor, {
+    owner: 'alice',
+    repo: 'demo',
+    mode: 'create',
+    cancelHref: '/alice/demo',
+    ...props,
+    onSave,
   });
+  return { onSave: onSave as ReturnType<typeof vi.fn> };
 }
 
-const pathInput = () => screen.getByLabelText('repo.editor.path') as HTMLInputElement;
-const messageInput = () => screen.getByLabelText('repo.editor.commit_message') as HTMLInputElement;
-const branchInput = () => screen.getByLabelText('repo.editor.branch') as HTMLInputElement;
-const contentArea = () => screen.getByPlaceholderText('repo.editor.content_placeholder') as HTMLTextAreaElement;
-const saveButton = () => screen.getByRole('button', { name: /repo\.editor\.(create_file|save_changes|saving)/ });
-
-async function setContent(value: string) {
-  fireEvent.input(contentArea(), { target: { value } });
-  await waitFor(() => expect(contentArea().value).toBe(value));
-}
+const pathInput = () => screen.getByLabelText('File path') as HTMLInputElement;
+const content = () => document.getElementById('file-content') as HTMLTextAreaElement;
+const message = () => screen.getByLabelText('Commit message') as HTMLInputElement;
+const branchInput = () => screen.getByLabelText('Branch') as HTMLInputElement;
+const saveButton = (name: string) => screen.getByRole('button', { name });
 
 describe('FileEditor.svelte', () => {
-  it('seeds create mode from the initial props', async () => {
-    renderEditor({ mode: 'create', initialPath: 'docs/guide.md', branch: 'develop' });
+  describe('initial state', () => {
+    it('create mode starts empty with a generic commit message and the default branch', () => {
+      renderEditor();
 
-    expect(screen.getByText('alice/demo')).toBeInTheDocument();
-    expect(screen.getByText('repo.new_file')).toBeInTheDocument();
-    expect(pathInput().value).toBe('docs/guide.md');
-    expect(pathInput().readOnly).toBe(false);
-    // Commit message is auto-derived from the path so the user can just save.
-    expect(messageInput().value).toBe('Create docs/guide.md');
-    expect(branchInput().value).toBe('develop');
-  });
+      expect(screen.getByText('alice/demo')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'New File' })).toBeInTheDocument();
+      expect(pathInput().value).toBe('');
+      expect(pathInput()).not.toHaveAttribute('readonly');
+      expect(message().value).toBe('Create new file');
+      expect(branchInput().value).toBe('main');
+    });
 
-  it('locks the path and prefills content in edit mode', async () => {
-    renderEditor({ mode: 'edit', initialPath: 'src/main.rs', initialContent: 'fn main() {}' });
+    it('edit mode locks the path and derives the commit message from it', () => {
+      renderEditor({ mode: 'edit', initialPath: 'docs/a.md', initialContent: 'hi', branch: 'dev' });
 
-    expect(screen.getByText('repo.edit_file')).toBeInTheDocument();
-    expect(pathInput().readOnly).toBe(true);
-    await waitFor(() => expect(contentArea().value).toBe('fn main() {}'));
-    expect(messageInput().value).toBe('Update src/main.rs');
-  });
+      expect(screen.getByRole('heading', { name: 'Edit File' })).toBeInTheDocument();
+      expect(pathInput().value).toBe('docs/a.md');
+      expect(pathInput()).toHaveAttribute('readonly');
+      expect(content().value).toBe('hi');
+      expect(message().value).toBe('Update docs/a.md');
+      expect(branchInput().value).toBe('dev');
+    });
 
-  it('keeps save disabled in edit mode until the content actually changes', async () => {
-    renderEditor({ mode: 'edit', initialContent: 'one\ntwo' });
-
-    expect(saveButton()).toBeDisabled();
-
-    await setContent('one\ntwo\nthree');
-    expect(saveButton()).toBeEnabled();
-  });
-
-  it('submits the trimmed payload, carrying sha only when editing', async () => {
-    renderEditor({ mode: 'edit', initialPath: 'a.txt', initialSha: 'abc123', branch: ' main ' });
-
-    await setContent('hello');
-    fireEvent.input(messageInput(), { target: { value: '  tweak  ' } });
-    fireEvent.click(saveButton());
-
-    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
-    expect(onSave).toHaveBeenCalledWith({
-      path: 'a.txt',
-      content: 'hello',
-      message: 'tweak',
-      branch: 'main',
-      sha: 'abc123',
+    it('links both cancel buttons to cancelHref', () => {
+      renderEditor();
+      const links = screen.getAllByRole('link', { name: 'Cancel' });
+      expect(links).toHaveLength(2);
+      for (const l of links) expect(l).toHaveAttribute('href', '/alice/demo');
     });
   });
 
-  it('omits sha and blocks submission when a required field is empty', async () => {
-    renderEditor({ mode: 'create', initialPath: 'new.txt' });
-    await setContent('body');
+  describe('save button state', () => {
+    it('edit mode only enables saving once the content changed', async () => {
+      renderEditor({ mode: 'edit', initialPath: 'a.txt', initialContent: 'one' });
+      expect(saveButton('Save changes')).toBeDisabled();
 
-    fireEvent.input(messageInput(), { target: { value: '   ' } });
-    fireEvent.click(saveButton());
-    expect(await screen.findByText('repo.editor.message_required')).toBeInTheDocument();
-    expect(onSave).not.toHaveBeenCalled();
+      await fireEvent.input(content(), { target: { value: 'two' } });
+      expect(saveButton('Save changes')).toBeEnabled();
 
-    fireEvent.input(messageInput(), { target: { value: 'add file' } });
-    fireEvent.input(branchInput(), { target: { value: '  ' } });
-    fireEvent.click(saveButton());
-    expect(await screen.findByText('repo.editor.branch_required')).toBeInTheDocument();
-    expect(onSave).not.toHaveBeenCalled();
+      await fireEvent.input(content(), { target: { value: 'one' } });
+      expect(saveButton('Save changes')).toBeDisabled();
+    });
+
+    it('create mode is always enabled', () => {
+      renderEditor();
+      expect(saveButton('Create file')).toBeEnabled();
+    });
+
+    it('a disabledReason shows a warning, locks the textarea and the save button', async () => {
+      const { onSave } = renderEditor({ disabledReason: 'Branch is protected' });
+
+      expect(screen.getByText('Branch is protected')).toBeInTheDocument();
+      expect(content()).toBeDisabled();
+      expect(saveButton('Create file')).toBeDisabled();
+      expect(onSave).not.toHaveBeenCalled();
+    });
   });
 
-  it('rejects malformed paths before hitting the API', async () => {
-    renderEditor({ mode: 'create', initialPath: '' });
-    await setContent('body');
+  describe('validation', () => {
+    const cases: Array<[string, string]> = [
+      ['', 'File path is required'],
+      ['   ', 'File path is required'],
+      ['/abs.txt', 'File path cannot start with a slash.'],
+      ['\\abs.txt', 'File path cannot start with a slash.'],
+      ['a\\b.txt', 'Use forward slashes in file paths.'],
+      ['a//b.txt', 'File path cannot contain empty folders.'],
+      ['dir/', 'File path cannot contain empty folders.'],
+      ['a/./b', 'File path cannot contain . or .. segments.'],
+      ['../b', 'File path cannot contain . or .. segments.'],
+      ['a\u0001b', 'File path contains invalid characters.'],
+    ];
 
-    for (const bad of ['/abs/path', 'a\\\\b', 'a//b', 'a/../b']) {
-      fireEvent.input(pathInput(), { target: { value: bad } });
-      fireEvent.click(saveButton());
-      expect(await screen.findByText(/repo\.editor\.path_invalid/)).toBeInTheDocument();
-    }
-    expect(onSave).not.toHaveBeenCalled();
+    it.each(cases)('rejects path %j', async (value, expected) => {
+      const { onSave } = renderEditor();
+      await fireEvent.input(pathInput(), { target: { value } });
+      await fireEvent.click(saveButton('Create file'));
+
+      expect(screen.getByText(expected)).toBeInTheDocument();
+      expect(onSave).not.toHaveBeenCalled();
+    });
+
+    it('requires a commit message and a branch', async () => {
+      const { onSave } = renderEditor();
+      await fireEvent.input(pathInput(), { target: { value: 'a.txt' } });
+
+      await fireEvent.input(message(), { target: { value: '  ' } });
+      await fireEvent.click(saveButton('Create file'));
+      expect(screen.getByText('Commit message is required')).toBeInTheDocument();
+
+      await fireEvent.input(message(), { target: { value: 'msg' } });
+      await fireEvent.input(branchInput(), { target: { value: ' ' } });
+      await fireEvent.click(saveButton('Create file'));
+      expect(screen.getByText('Branch is required')).toBeInTheDocument();
+      expect(onSave).not.toHaveBeenCalled();
+    });
   });
 
-  it('switches between preview and diff tabs', async () => {
-    renderEditor({ mode: 'edit', initialPath: 'notes.md', initialContent: 'line one' });
-    await waitFor(() => expect(contentArea().value).toBe('line one'));
+  describe('saving', () => {
+    it('create mode sends trimmed fields and no sha', async () => {
+      const { onSave } = renderEditor({ initialSha: 'ignored' });
+      await fireEvent.input(pathInput(), { target: { value: ' docs/new.md ' } });
+      await fireEvent.input(content(), { target: { value: 'body' } });
+      await fireEvent.input(message(), { target: { value: ' add doc ' } });
+      await fireEvent.input(branchInput(), { target: { value: ' feature ' } });
+      await fireEvent.click(saveButton('Create file'));
 
-    fireEvent.click(screen.getByRole('button', { name: 'repo.editor.preview_tab' }));
-    expect(await screen.findByText('md(line one)')).toBeInTheDocument();
+      await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+      expect(onSave).toHaveBeenCalledWith({
+        path: 'docs/new.md',
+        content: 'body',
+        message: 'add doc',
+        branch: 'feature',
+      });
+    });
 
-    fireEvent.click(screen.getByRole('button', { name: 'repo.editor.diff_tab' }));
-    // Nothing changed yet — the diff pane collapses to a placeholder.
-    expect(await screen.findByText('repo.editor.no_changes')).toBeInTheDocument();
+    it('edit mode includes the original sha', async () => {
+      const { onSave } = renderEditor({
+        mode: 'edit',
+        initialPath: 'a.txt',
+        initialContent: 'one',
+        initialSha: 'abc123',
+      });
+      await fireEvent.input(content(), { target: { value: 'two' } });
+      await fireEvent.click(saveButton('Save changes'));
 
-    // The textarea only exists on the edit tab, so go back before typing.
-    fireEvent.click(screen.getByRole('button', { name: 'repo.editor.edit_tab' }));
-    await setContent('line one\nline two');
+      await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+      expect(onSave).toHaveBeenCalledWith({
+        path: 'a.txt',
+        content: 'two',
+        message: 'Update a.txt',
+        branch: 'main',
+        sha: 'abc123',
+      });
+    });
 
-    fireEvent.click(screen.getByRole('button', { name: 'repo.editor.diff_tab' }));
-    await waitFor(() => expect(screen.getByText('+')).toBeInTheDocument());
-    expect(screen.getByText('line two')).toBeInTheDocument();
+    it('shows the saving label while the request is pending', async () => {
+      let resolve!: () => void;
+      const onSave = vi.fn(() => new Promise<void>((r) => (resolve = r)));
+      renderEditor({ onSave });
+      await fireEvent.input(pathInput(), { target: { value: 'a.txt' } });
+      await fireEvent.click(saveButton('Create file'));
+
+      expect(await screen.findByRole('button', { name: 'Saving...' })).toBeDisabled();
+      resolve();
+      await waitFor(() => expect(saveButton('Create file')).toBeEnabled());
+    });
+
+    it('reports a generic failure with the error message', async () => {
+      renderEditor({ onSave: vi.fn().mockRejectedValue(new Error('disk full')) });
+      await fireEvent.input(pathInput(), { target: { value: 'a.txt' } });
+      await fireEvent.click(saveButton('Create file'));
+
+      expect(await screen.findByText('Save failed: disk full')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Reload latest' })).toBeNull();
+    });
+
+    it('treats non-Error rejections as text', async () => {
+      renderEditor({ onSave: vi.fn().mockRejectedValue('nope') });
+      await fireEvent.input(pathInput(), { target: { value: 'a.txt' } });
+      await fireEvent.click(saveButton('Create file'));
+
+      expect(await screen.findByText('Save failed: nope')).toBeInTheDocument();
+    });
+
+    it.each(['sha mismatch on write', 'Merge CONFLICT detected'])(
+      'recognises %j as an edit conflict and offers a reload',
+      async (msg) => {
+        renderEditor({ onSave: vi.fn().mockRejectedValue(new Error(msg)) });
+        await fireEvent.input(pathInput(), { target: { value: 'a.txt' } });
+        await fireEvent.click(saveButton('Create file'));
+
+        expect(
+          await screen.findByText(
+            'This file changed since you opened it. Reload the latest version before saving.'
+          )
+        ).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: 'Reload latest' })).toBeInTheDocument();
+      }
+    );
+
+    it('clears a previous error on the next attempt', async () => {
+      const onSave = vi.fn().mockRejectedValueOnce(new Error('boom')).mockResolvedValue(undefined);
+      renderEditor({ onSave });
+      await fireEvent.input(pathInput(), { target: { value: 'a.txt' } });
+      await fireEvent.click(saveButton('Create file'));
+      await screen.findByText('Save failed: boom');
+
+      await fireEvent.click(saveButton('Create file'));
+      await waitFor(() => expect(screen.queryByText('Save failed: boom')).toBeNull());
+    });
   });
 
-  it('renders non-markdown previews as plain code', async () => {
-    renderEditor({ mode: 'edit', initialPath: 'main.rs', initialContent: 'fn main() {}' });
-    await waitFor(() => expect(contentArea().value).toBe('fn main() {}'));
+  describe('tabs', () => {
+    it('shows the editor by default', () => {
+      renderEditor();
+      expect(content()).toBeInTheDocument();
+      expect(screen.getByRole('tablist', { name: 'File editor views' })).toBeInTheDocument();
+    });
 
-    fireEvent.click(screen.getByRole('button', { name: 'repo.editor.preview_tab' }));
-    const pre = await screen.findByText('fn main() {}');
-    expect(pre.tagName).toBe('CODE');
+    it('previews markdown files as rendered HTML', async () => {
+      renderEditor({ initialPath: 'README.md' });
+      await fireEvent.input(content(), { target: { value: '# Title\n\nhello' } });
+      await fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+
+      expect(document.querySelector('.markdown-body h1')?.textContent).toContain('Title');
+      expect(document.getElementById('file-content')).toBeNull();
+    });
+
+    it('previews non-markdown files verbatim', async () => {
+      renderEditor({ initialPath: 'a.txt' });
+      await fireEvent.input(content(), { target: { value: '# not markdown' } });
+      await fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+
+      expect(document.querySelector('.markdown-body')).toBeNull();
+      expect(document.querySelector('.preview-pane pre code')?.textContent).toBe('# not markdown');
+    });
+
+    it('shows an empty-file hint in the preview when there is no content', async () => {
+      renderEditor({ initialPath: 'a.txt' });
+      await fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+      expect(screen.getByText('This file is empty.')).toBeInTheDocument();
+    });
+
+    it('diff tab lists added and removed lines with line numbers', async () => {
+      renderEditor({ mode: 'edit', initialPath: 'a.txt', initialContent: 'one\ntwo' });
+      await fireEvent.input(content(), { target: { value: 'one\nthree' } });
+      await fireEvent.click(screen.getByRole('button', { name: 'Diff' }));
+
+      const rows = Array.from(document.querySelectorAll('.diff-pane tr')).map((tr) => ({
+        cls: tr.classList[0],
+        cells: Array.from(tr.querySelectorAll('td')).map((td) => td.textContent),
+      }));
+      expect(rows).toEqual([
+        { cls: 'same', cells: ['1', '1', ' ', 'one'] },
+        { cls: 'del', cells: ['2', '', '-', 'two'] },
+        { cls: 'add', cells: ['', '2', '+', 'three'] },
+      ]);
+    });
+
+    it('diff tab says so when nothing changed in edit mode', async () => {
+      renderEditor({ mode: 'edit', initialPath: 'a.txt', initialContent: 'one' });
+      await fireEvent.click(screen.getByRole('button', { name: 'Diff' }));
+      expect(screen.getByText('No changes.')).toBeInTheDocument();
+    });
+
+    it('switching back to Edit keeps the typed content', async () => {
+      renderEditor();
+      await fireEvent.input(content(), { target: { value: 'kept' } });
+      await fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+      await fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+      expect(content().value).toBe('kept');
+    });
   });
 
-  it('surfaces save failures, offering a reload only on conflicts', async () => {
-    renderEditor();
-    await setContent('body');
+  describe('syntax highlighting backdrop', () => {
+    it('highlights using the language implied by the file extension', async () => {
+      renderEditor({ initialPath: 'main.rs' });
+      await fireEvent.input(content(), { target: { value: 'fn main() {}' } });
 
-    onSave.mockRejectedValueOnce(new Error('sha mismatch'));
-    fireEvent.click(saveButton());
+      const code = document.querySelector('.highlight-backdrop code') as HTMLElement;
+      expect(code.className).toContain('language-rust');
+      await waitFor(() => expect(code.innerHTML).toContain('hljs-keyword'));
+    });
 
-    await waitFor(() => expect(screen.getByText('repo.editor.conflict')).toBeInTheDocument());
-    expect(screen.getByText('repo.editor.reload_latest')).toBeInTheDocument();
+    it('falls back to no language class for unknown extensions', () => {
+      renderEditor({ initialPath: 'notes.unknownext' });
+      const code = document.querySelector('.highlight-backdrop code') as HTMLElement;
+      expect(Array.from(code.classList).slice(0, 2)).toEqual(['hljs', 'language-']);
+    });
 
-    onSave.mockRejectedValueOnce(new Error('boom'));
-    fireEvent.click(saveButton());
-
-    await waitFor(() => expect(screen.getByText('repo.editor.save_failed')).toBeInTheDocument());
-    expect(screen.queryByText('repo.editor.reload_latest')).not.toBeInTheDocument();
-  });
-
-  it('shows the disabled reason and blocks interaction', async () => {
-    renderEditor({ mode: 'edit', initialContent: 'x', disabledReason: 'read-only mirror' });
-
-    expect(screen.getByText('read-only mirror')).toBeInTheDocument();
-    expect(saveButton()).toBeDisabled();
-    expect(contentArea()).toBeDisabled();
+    it('mirrors the textarea scroll position onto the backdrop', async () => {
+      renderEditor();
+      const area = content();
+      const backdrop = document.querySelector('.highlight-backdrop') as HTMLElement;
+      area.scrollTop = 40;
+      area.scrollLeft = 7;
+      await fireEvent.scroll(area);
+      expect(backdrop.scrollTop).toBe(40);
+      expect(backdrop.scrollLeft).toBe(7);
+    });
   });
 });
