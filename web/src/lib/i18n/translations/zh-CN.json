@@ -850,16 +850,52 @@
     "general": "常规",
     "labels": "标签",
     "ci_secrets": {
-      "title": "CI 密钥"
+      "title": "CI 密钥",
+      "desc": "加密的仓库密钥会注入到作业中,并从已保存的日志中屏蔽。",
+      "add_title": "添加或替换密钥",
+      "name": "名称",
+      "value": "值",
+      "save": "保存密钥",
+      "configured": "已配置的密钥",
+      "empty": "尚未配置密钥。"
     },
     "environments": {
-      "title": "环境"
+      "title": "环境",
+      "heading": "部署环境",
+      "desc": "作业部署到受保护环境前,需要指定审批人批准。",
+      "create_title": "创建环境",
+      "edit_title": "编辑环境",
+      "save_changes": "保存更改",
+      "name": "名称",
+      "require_approval": "需要审批",
+      "required_approvals": "所需审批数",
+      "approver_ids": "允许的审批人用户 ID",
+      "approver_ids_hint": "以逗号分隔;留空表示仓库管理员。",
+      "configured": "已配置的环境",
+      "empty": "尚未配置环境。",
+      "approvals_required": "需要 {count} 个审批",
+      "unprotected": "未保护",
+      "reviewers": "审批人:{ids}"
     },
     "retention": {
-      "title": "CI 保留策略"
+      "title": "CI 保留策略",
+      "desc": "控制新上传的构建产物和被访问过的缓存保留多久。过期存储每小时回收一次。",
+      "artifact_days": "构建产物保留天数",
+      "cache_days": "缓存最后访问后保留天数",
+      "save": "保存策略",
+      "cleanup": "立即清理过期存储",
+      "saved": "保留策略已保存,新上传的内容将使用新的保留期。",
+      "cleaned": "已删除 {artifacts} 个构建产物和 {caches} 个缓存条目。",
+      "cleanup_failures": "{count} 项无法安全删除。"
     },
     "tag_protection": {
-      "title": "Tag 保护"
+      "title": "Tag 保护",
+      "desc": "通过 HTTP 和 SSH 阻止创建或更新匹配通配符规则的标签。",
+      "add_title": "保护一个规则",
+      "pattern": "规则",
+      "add": "添加保护",
+      "list_title": "受保护的规则",
+      "empty": "暂无受保护的标签规则。"
     },
     "repository_info": {
       "title": "仓库信息",

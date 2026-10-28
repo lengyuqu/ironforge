@@ -850,16 +850,52 @@
     "general": "General",
     "labels": "Labels",
     "ci_secrets": {
-      "title": "CI secrets"
+      "title": "CI secrets",
+      "desc": "Encrypted repository secrets are injected into jobs and masked from stored logs.",
+      "add_title": "Add or replace a secret",
+      "name": "Name",
+      "value": "Value",
+      "save": "Save secret",
+      "configured": "Configured secrets",
+      "empty": "No secrets configured."
     },
     "environments": {
-      "title": "Environments"
+      "title": "Environments",
+      "heading": "Deployment environments",
+      "desc": "Require designated reviewers before jobs can deploy to protected environments.",
+      "create_title": "Create environment",
+      "edit_title": "Edit environment",
+      "save_changes": "Save changes",
+      "name": "Name",
+      "require_approval": "Require approval",
+      "required_approvals": "Required approvals",
+      "approver_ids": "Allowed approver user IDs",
+      "approver_ids_hint": "Comma-separated; empty means repository admins.",
+      "configured": "Configured environments",
+      "empty": "No environments configured.",
+      "approvals_required": "{count} approval(s) required",
+      "unprotected": "Unprotected",
+      "reviewers": "reviewers: {ids}"
     },
     "retention": {
-      "title": "CI retention"
+      "title": "CI retention",
+      "desc": "Control how long newly uploaded artifacts and accessed caches remain available. Expired storage is reclaimed hourly.",
+      "artifact_days": "Artifact retention (days)",
+      "cache_days": "Cache retention after last access (days)",
+      "save": "Save policy",
+      "cleanup": "Clean expired storage now",
+      "saved": "Retention policy saved. New uploads use the updated lifetime.",
+      "cleaned": "Deleted {artifacts} artifact(s) and {caches} cache entry(s).",
+      "cleanup_failures": "{count} item(s) could not be safely removed."
     },
     "tag_protection": {
-      "title": "Tag protection"
+      "title": "Tag protection",
+      "desc": "Block tag creation and updates matching a wildcard pattern over HTTP and SSH.",
+      "add_title": "Protect a pattern",
+      "pattern": "Pattern",
+      "add": "Add protection",
+      "list_title": "Protected patterns",
+      "empty": "No protected tag patterns."
     },
     "repository_info": {
       "title": "Repository information",
