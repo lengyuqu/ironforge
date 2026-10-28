@@ -74,7 +74,7 @@
       confirmDelete = null;
       await onRefresh();
     } catch (e) {
-      error = toErrorMessage(e, t('common.delete') || 'Delete failed');
+      error = toErrorMessage(e, t('errors.delete_failed'));
     } finally {
       deletingVersion = null;
     }

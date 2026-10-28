@@ -110,7 +110,7 @@
       });
       await onCreated(newName);
     } catch (e) {
-      toast.error(toErrorMessage(e, t('errors.save_failed') || 'Create failed'));
+      toast.error(toErrorMessage(e, t('errors.create_failed')));
     } finally {
       submitting = false;
     }

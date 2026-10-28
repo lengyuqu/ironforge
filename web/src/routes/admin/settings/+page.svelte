@@ -57,7 +57,7 @@
         clearBanner();
       }
     } catch (e: unknown) {
-      error = toErrorMessage(e, 'Load failed');
+      error = toErrorMessage(e, t('errors.load_failed'));
     } finally {
       loading = false;
     }

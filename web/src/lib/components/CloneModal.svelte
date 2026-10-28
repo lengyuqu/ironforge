@@ -119,7 +119,7 @@
         onclick={() => (cloneTab = 'http')}
         role="tab"
         aria-selected={cloneTab === 'http'}
-        aria-label="HTTPS clone"
+        aria-label={t('repo.clone_https_tab')}
       >HTTPS</button>
       <button
         id="clone-tab-ssh"
@@ -129,7 +129,7 @@
         onclick={() => (cloneTab = 'ssh')}
         role="tab"
         aria-selected={cloneTab === 'ssh'}
-        aria-label="SSH clone"
+        aria-label={t('repo.clone_ssh_tab')}
       >SSH</button>
     </div>
 

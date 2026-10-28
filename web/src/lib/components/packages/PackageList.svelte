@@ -70,7 +70,7 @@
       >
         {t('common.previous') || 'Previous'}
       </button>
-      <span class="page-info">Page {currentPage} of {totalPages}</span>
+      <span class="page-info">{t('common.page_of', { page: currentPage, total: totalPages })}</span>
       <button
         class="btn-outline"
         disabled={currentPage >= totalPages}

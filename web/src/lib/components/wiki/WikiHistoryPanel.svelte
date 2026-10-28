@@ -68,7 +68,7 @@
       viewingRevision = null;
       await onRestored();
     } catch (e) {
-      toast.error(toErrorMessage(e, t('errors.save_failed') || 'Restore failed'));
+      toast.error(toErrorMessage(e, t('errors.update_failed')));
     } finally {
       restoring = false;
     }

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/svelte';
 
 vi.mock('$lib/i18n', () => ({
+  t: (key: string) => key,
   createT: () => (key: string, fallbackOrParams?: string | Record<string, unknown>) =>
     typeof fallbackOrParams === 'string' ? fallbackOrParams : key,
 }));

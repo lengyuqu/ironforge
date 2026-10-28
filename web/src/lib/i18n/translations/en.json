@@ -175,7 +175,8 @@
       "sso_loading": "Loading single sign-on options...",
       "sso_or": "or continue with",
       "sso_continue": "Continue with {provider}",
-      "forgot_password": "Forgot password?"
+      "forgot_password": "Forgot password?",
+      "mfa_not_pending": "MFA verification is not pending"
     },
     "register": {
       "title": "Create your account",
@@ -511,7 +512,9 @@
     "download_started": "Archive download started",
     "download_failed": "Download failed",
     "star_failed": "Failed to update star",
-    "watch_failed": "Failed to update watch status"
+    "watch_failed": "Failed to update watch status",
+    "clone_https_tab": "HTTPS clone",
+    "clone_ssh_tab": "SSH clone"
   },
   "issues": {
     "title": "Issues",
@@ -827,7 +830,8 @@
     "enable_failed": "Failed to enable",
     "disable_failed": "Failed to disable",
     "reset_failed": "Failed to reset",
-    "load_log": "Failed to load log: {message}"
+    "load_log": "Failed to load log: {message}",
+    "invalid_response": "Invalid response format from server"
   },
   "system": {
     "backend_health_failed": "Backend health check failed (HTTP {status})",
@@ -1307,7 +1311,8 @@
       "banner_warning": "Warning (yellow)",
       "banner_error": "Error (red)",
       "title": "Instance Settings",
-      "page_title": "Instance Settings · Admin · IronForge"
+      "page_title": "Instance Settings · Admin · IronForge",
+      "saved": "Settings saved"
     },
     "login_attempts": {
       "title": "Login Attempts",
@@ -1422,7 +1427,9 @@
     "name_placeholder": "Package name",
     "homepage": "Homepage",
     "repository_url": "Repository URL",
-    "semver": "Semver"
+    "semver": "Semver",
+    "support_generic": "Generic fallback",
+    "support_native": "Native adapter"
   },
   "runners": {
     "register": "Register Runner",

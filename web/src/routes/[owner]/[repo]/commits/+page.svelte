@@ -34,7 +34,7 @@
         if (r && r.commits && Array.isArray(r.commits)) {
           commits = r.commits;
         } else {
-          error = 'Invalid response format from server';
+          error = t('errors.invalid_response');
         }
       })
       .catch((e) => {

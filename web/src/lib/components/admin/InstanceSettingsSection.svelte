@@ -43,7 +43,7 @@
       } else {
         clearBanner();
       }
-      toast.success('Settings saved');
+      toast.success(t('admin.instance.saved'));
     } catch (e: unknown) {
       toast.error(toErrorMessage(e));
     } finally {

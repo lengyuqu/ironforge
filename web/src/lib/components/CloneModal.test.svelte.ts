@@ -55,7 +55,7 @@ describe('CloneModal.svelte', () => {
     const input = screen.getByLabelText('repo.clone_url') as HTMLInputElement;
     expect(input.value).toBe('http://backend.test/git/alice/demo');
 
-    fireEvent.click(screen.getByRole('tab', { name: 'SSH clone' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'repo.clone_ssh_tab' }));
     expect(input.value).toBe('ssh://git@localhost:2222/alice/demo');
   });
 

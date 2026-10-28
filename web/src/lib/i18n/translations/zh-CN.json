@@ -175,7 +175,8 @@
       "sso_loading": "正在加载单点登录选项...",
       "sso_or": "或使用以下方式继续",
       "sso_continue": "使用 {provider} 继续",
-      "forgot_password": "忘记密码？"
+      "forgot_password": "忘记密码？",
+      "mfa_not_pending": "当前没有待验证的 MFA"
     },
     "register": {
       "title": "创建您的账号",
@@ -511,7 +512,9 @@
     "download_started": "归档下载已开始",
     "download_failed": "下载失败",
     "star_failed": "更新星标失败",
-    "watch_failed": "更新关注状态失败"
+    "watch_failed": "更新关注状态失败",
+    "clone_https_tab": "HTTPS 克隆",
+    "clone_ssh_tab": "SSH 克隆"
   },
   "issues": {
     "title": "问题",
@@ -827,7 +830,8 @@
     "enable_failed": "启用失败",
     "disable_failed": "禁用失败",
     "reset_failed": "重置失败",
-    "load_log": "加载日志失败：{message}"
+    "load_log": "加载日志失败：{message}",
+    "invalid_response": "服务器返回的数据格式无效"
   },
   "system": {
     "backend_health_failed": "后端健康检查失败（HTTP {status}）",
@@ -1307,7 +1311,8 @@
       "banner_warning": "警告(黄色)",
       "banner_error": "错误(红色)",
       "title": "实例设置",
-      "page_title": "实例设置 · 管理 · IronForge"
+      "page_title": "实例设置 · 管理 · IronForge",
+      "saved": "设置已保存"
     },
     "login_attempts": {
       "title": "登录尝试",
@@ -1422,7 +1427,9 @@
     "name_placeholder": "包名",
     "homepage": "主页",
     "repository_url": "仓库 URL",
-    "semver": "语义化版本"
+    "semver": "语义化版本",
+    "support_generic": "通用兜底",
+    "support_native": "原生适配器"
   },
   "runners": {
     "register": "注册 Runner",

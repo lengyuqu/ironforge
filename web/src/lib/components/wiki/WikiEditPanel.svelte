@@ -32,7 +32,7 @@
       toast.success(t('wiki.save') || 'Saved');
       await onSaved();
     } catch (e) {
-      toast.error(toErrorMessage(e, t('errors.save_failed') || 'Save failed'));
+      toast.error(toErrorMessage(e, t('errors.save_failed')));
     } finally {
       saving = false;
     }
