@@ -1,5 +1,6 @@
 {
   "common": {
+    "unknown_error": "Unknown error",
     "sign_in": "Sign in",
     "sign_out": "Sign out",
     "confirm": "Confirm",

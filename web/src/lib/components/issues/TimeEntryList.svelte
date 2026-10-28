@@ -48,7 +48,7 @@
       error = '';
       await timeTracking.delete(owner, repo, issueNumber, id);
       await onRefresh();
-    } catch (e: any) {
+    } catch (e) {
       error = toErrorMessage(e, 'Failed to delete time entry');
     } finally {
       deletingId = null;

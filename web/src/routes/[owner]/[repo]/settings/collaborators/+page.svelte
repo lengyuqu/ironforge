@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { toErrorMessage } from '$lib/utils/error';
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { page } from '$app/stores';
   import { collaborators } from '$lib/api/client.svelte';
@@ -24,8 +25,8 @@
       loading = true;
       error = '';
       collaboratorList = await collaborators.list(owner, repo);
-    } catch (err: any) {
-      error = err.message || t('settings.collaborators.load_failed');
+    } catch (err) {
+      error = toErrorMessage(err, t('settings.collaborators.load_failed'));
     } finally {
       loading = false;
     }

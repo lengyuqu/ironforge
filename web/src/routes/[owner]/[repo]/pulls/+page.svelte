@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { toErrorMessage } from '$lib/utils/error';
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { page } from '$app/stores';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
@@ -29,8 +30,8 @@
       loading = true;
       error = '';
       prList = (await pulls.list(owner, repo, filterState)).data;
-    } catch (e: any) {
-      error = e.message;
+    } catch (e) {
+      error = toErrorMessage(e, t('common.unknown_error'));
     } finally {
       loading = false;
     }

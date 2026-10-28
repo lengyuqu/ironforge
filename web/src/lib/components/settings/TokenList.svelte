@@ -30,7 +30,7 @@
       error = '';
       await tokens.delete(token.id);
       await onRefresh();
-    } catch (err: any) {
+    } catch (err) {
       error = toErrorMessage(err, t('errors.revoke_failed', 'Revoke failed'));
     } finally {
       deletingId = null;

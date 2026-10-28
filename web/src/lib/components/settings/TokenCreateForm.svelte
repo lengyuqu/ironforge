@@ -45,7 +45,7 @@
       scopes = 'repo';
       expiresAt = '';
       await onCreated();
-    } catch (err: any) {
+    } catch (err) {
       error = toErrorMessage(err, t('errors.create_failed'));
     } finally {
       creating = false;

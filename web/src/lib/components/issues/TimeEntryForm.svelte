@@ -36,7 +36,7 @@
       durationHours = 1;
       description = '';
       await onAdded();
-    } catch (e: any) {
+    } catch (e) {
       error = toErrorMessage(e, 'Failed to add time entry');
     } finally {
       saving = false;

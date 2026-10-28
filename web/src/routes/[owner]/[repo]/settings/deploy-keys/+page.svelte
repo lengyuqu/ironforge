@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { toErrorMessage } from '$lib/utils/error';
   import SuccessBanner from '$lib/components/SuccessBanner.svelte';
   import LoadingState from '$lib/components/LoadingState.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
@@ -32,8 +33,8 @@
       loading = true;
       error = '';
       keys = await deployKeys.list(owner, repo);
-    } catch (err: any) {
-      error = err.message || t('settings.deploy_keys.load_failed', 'Failed to load deploy keys.');
+    } catch (err) {
+      error = toErrorMessage(err, t('settings.deploy_keys.load_failed', 'Failed to load deploy keys.'));
     } finally {
       loading = false;
     }
@@ -55,8 +56,8 @@
       readOnly = true;
       success = t('settings.deploy_keys.created', 'Deploy key added.');
       await loadKeys();
-    } catch (err: any) {
-      error = err.message || t('settings.deploy_keys.create_failed', 'Failed to add deploy key.');
+    } catch (err) {
+      error = toErrorMessage(err, t('settings.deploy_keys.create_failed', 'Failed to add deploy key.'));
     } finally {
       saving = false;
     }
@@ -71,8 +72,8 @@
       await deployKeys.delete(owner, repo, key.id);
       success = t('settings.deploy_keys.deleted', 'Deploy key removed.');
       await loadKeys();
-    } catch (err: any) {
-      error = err.message || t('settings.deploy_keys.delete_failed', 'Failed to remove deploy key.');
+    } catch (err) {
+      error = toErrorMessage(err, t('settings.deploy_keys.delete_failed', 'Failed to remove deploy key.'));
     } finally {
       deletingId = null;
     }

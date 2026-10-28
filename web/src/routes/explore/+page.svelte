@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { toErrorMessage } from '$lib/utils/error';
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import LoadingState from '$lib/components/LoadingState.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
@@ -28,8 +29,8 @@
       totalPages = result.pagination?.total_pages ?? 1;
       totalCount = result.pagination?.total ?? 0;
       page = p;
-    } catch (e: any) {
-      error = e.message;
+    } catch (e) {
+      error = toErrorMessage(e, t('common.unknown_error'));
     } finally {
       loading = false;
     }

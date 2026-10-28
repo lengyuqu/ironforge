@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { toErrorMessage } from '$lib/utils/error';
   import SuccessBanner from '$lib/components/SuccessBanner.svelte';
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { auth } from '$lib/api/client.svelte';
@@ -26,8 +27,8 @@
     try {
       const res = await auth.forgotPassword(trimmedEmail);
       success = res.message || 'If that email exists, a reset link has been sent.';
-    } catch (e: any) {
-      localError = e.message || t('errors.reset_failed');
+    } catch (e) {
+      localError = toErrorMessage(e, t('errors.reset_failed'));
     } finally {
       loading = false;
     }

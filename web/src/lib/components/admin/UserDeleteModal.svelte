@@ -27,7 +27,7 @@
       await admin.deleteUser(user.id);
       onClose();
       await onDeleted();
-    } catch (e: any) {
+    } catch (e) {
       error = toErrorMessage(e, t('errors.load_failed'));
     } finally {
       saving = false;

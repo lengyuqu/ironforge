@@ -45,7 +45,7 @@
       );
       resetForm();
       await onCreated(result);
-    } catch (e: any) {
+    } catch (e) {
       error = toErrorMessage(e, t('errors.create_failed'));
     } finally {
       creating = false;

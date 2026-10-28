@@ -73,7 +73,7 @@
       await packages.delete(owner, repo, format, name, version);
       confirmDelete = null;
       await onRefresh();
-    } catch (e: any) {
+    } catch (e) {
       error = toErrorMessage(e, t('common.delete') || 'Delete failed');
     } finally {
       deletingVersion = null;

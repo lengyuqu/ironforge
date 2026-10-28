@@ -38,7 +38,7 @@
       });
       onClose();
       await onSaved();
-    } catch (e: any) {
+    } catch (e) {
       error = toErrorMessage(e, t('errors.load_failed'));
     } finally {
       saving = false;

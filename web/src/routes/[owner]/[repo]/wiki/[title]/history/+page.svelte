@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { toErrorMessage } from '$lib/utils/error';
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import LoadingState from '$lib/components/LoadingState.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
@@ -25,8 +26,8 @@
     try {
       loading = true;
       revisions = await wiki.listRevisions(owner, repo, title);
-    } catch (e: any) {
-      error = e.message;
+    } catch (e) {
+      error = toErrorMessage(e, t('common.unknown_error'));
     } finally {
       loading = false;
     }
@@ -36,8 +37,8 @@
     try {
       currentRev = await wiki.getRevision(owner, repo, title, rev.id);
       viewingRev = true;
-    } catch (e: any) {
-      error = e.message;
+    } catch (e) {
+      error = toErrorMessage(e, t('common.unknown_error'));
     }
   }
 

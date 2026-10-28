@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { toErrorMessage } from '$lib/utils/error';
   import SuccessBanner from '$lib/components/SuccessBanner.svelte';
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { goto } from '$app/navigation';
@@ -33,8 +34,8 @@
       loading = true;
       error = '';
       backupStatus = await mfa.backup();
-    } catch (err: any) {
-      error = err.message || t('errors.load_failed');
+    } catch (err) {
+      error = toErrorMessage(err, t('errors.load_failed'));
     } finally {
       loading = false;
     }
@@ -47,8 +48,8 @@
       success = '';
       newBackupCodes = [];
       setup = await mfa.setup();
-    } catch (err: any) {
-      error = err.message || t('errors.start_failed');
+    } catch (err) {
+      error = toErrorMessage(err, t('errors.start_failed'));
     } finally {
       saving = false;
     }

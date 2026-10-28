@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { toErrorMessage } from '$lib/utils/error';
   import { createT } from '$lib/i18n';
   import { confirmDialog } from '$lib/components/confirm.svelte';
   import { page } from '$app/stores';
@@ -9,12 +10,12 @@
   let items = $state<CiEnvironment[]>([]); let name = $state('production'); let isProtected = $state(true);
   let required = $state(1); let approverIds = $state(''); let error = $state(''); let editingId = $state<number | null>(null);
   $effect(() => { owner; repo; load(); });
-  async function load() { try { items = await ciEnvironments.list(owner, repo); error = ''; } catch (e: any) { error = e.message; } }
+  async function load() { try { items = await ciEnvironments.list(owner, repo); error = ''; } catch (e) { error = toErrorMessage(e, t('common.unknown_error')); } }
   function payload() { return { name: name.trim(), protected: isProtected, required_approvals: required, allowed_approver_ids: approverIds.split(',').map(v => Number(v.trim())).filter(Number.isSafeInteger) }; }
   function resetForm() { editingId = null; name = ''; isProtected = true; required = 1; approverIds = ''; }
   function edit(item: CiEnvironment) { editingId = item.id; name = item.name; isProtected = item.protected; required = item.required_approvals; approverIds = item.allowed_approver_ids.join(', '); }
-  async function save(event: SubmitEvent) { event.preventDefault(); try { if (editingId === null) await ciEnvironments.create(owner, repo, payload()); else await ciEnvironments.update(owner, repo, editingId, payload()); resetForm(); await load(); } catch (e: any) { error = e.message; } }
-  async function remove(item: CiEnvironment) { if (!(await confirmDialog({ variant: 'danger', message: t('confirm.ci_env_delete', { name: item.name }) }))) return; try { await ciEnvironments.delete(owner, repo, item.id); await load(); } catch (e: any) { error = e.message; } }
+  async function save(event: SubmitEvent) { event.preventDefault(); try { if (editingId === null) await ciEnvironments.create(owner, repo, payload()); else await ciEnvironments.update(owner, repo, editingId, payload()); resetForm(); await load(); } catch (e) { error = toErrorMessage(e, t('common.unknown_error')); } }
+  async function remove(item: CiEnvironment) { if (!(await confirmDialog({ variant: 'danger', message: t('confirm.ci_env_delete', { name: item.name }) }))) return; try { await ciEnvironments.delete(owner, repo, item.id); await load(); } catch (e) { error = toErrorMessage(e, t('common.unknown_error')); } }
 </script>
 <svelte:head><title>Environments · {owner}/{repo}</title></svelte:head>
 <div class="settings-page">

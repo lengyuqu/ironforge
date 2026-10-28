@@ -109,7 +109,7 @@
         selectedMilestone === '' ? undefined : selectedMilestone,
       );
       await onCreated();
-    } catch (err: any) {
+    } catch (err) {
       formError = toErrorMessage(err, t('errors.create_failed', 'Create failed'));
     } finally {
       submitting = false;

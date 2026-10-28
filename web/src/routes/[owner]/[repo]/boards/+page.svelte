@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { toErrorMessage } from '$lib/utils/error';
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import LoadingState from '$lib/components/LoadingState.svelte';
@@ -40,8 +41,8 @@
         activeBoardId = activeBoardId ?? boardList[0].id;
         await loadBoard(activeBoardId!);
       }
-    } catch (e: any) {
-      error = e.message || t('errors.load_failed');
+    } catch (e) {
+      error = toErrorMessage(e, t('errors.load_failed'));
     } finally {
       loading = false;
     }
@@ -74,8 +75,8 @@
       activeBoard = null;
       activeBoardId = null;
       await loadBoards();
-    } catch (e: any) {
-      error = e.message || t('errors.load_failed');
+    } catch (e) {
+      error = toErrorMessage(e, t('errors.load_failed'));
     }
   }
 </script>

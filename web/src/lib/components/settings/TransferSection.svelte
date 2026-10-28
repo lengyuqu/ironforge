@@ -39,7 +39,7 @@
       setTimeout(() => {
         goto(`/${newOwner.trim()}/${repo}`);
       }, 1500);
-    } catch (err: any) {
+    } catch (err) {
       transferError = toErrorMessage(err, 'Transfer failed');
     } finally {
       transferring = false;

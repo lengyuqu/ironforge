@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { toErrorMessage } from '$lib/utils/error';
   import SuccessBanner from '$lib/components/SuccessBanner.svelte';
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { onMount } from 'svelte';
@@ -47,8 +48,8 @@
       setToken(res.token);
       await fetchUser();
       success = true;
-    } catch (e: any) {
-      localError = e.message || t('errors.reset_failed');
+    } catch (e) {
+      localError = toErrorMessage(e, t('errors.reset_failed'));
     } finally {
       loading = false;
     }

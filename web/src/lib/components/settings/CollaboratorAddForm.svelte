@@ -44,7 +44,7 @@
       userIdentifier = '';
       permission = 'read';
       await onAdded();
-    } catch (err: any) {
+    } catch (err) {
       error = toErrorMessage(err, t('settings.collaborators.add_failed'));
     } finally {
       adding = false;

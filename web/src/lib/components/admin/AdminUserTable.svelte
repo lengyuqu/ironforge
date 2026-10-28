@@ -36,7 +36,7 @@
       unlockingUserId = user.id;
       await admin.unlockUser(user.id);
       await onRefresh();
-    } catch (e: any) {
+    } catch (e) {
       toast.error(toErrorMessage(e, t('errors.load_failed')));
     } finally {
       unlockingUserId = null;

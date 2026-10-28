@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { toErrorMessage } from '$lib/utils/error';
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import LoadingState from '$lib/components/LoadingState.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
@@ -47,8 +48,8 @@
       logs = result.logs;
       total = result.total;
       totalPages = Math.max(1, Math.ceil(result.total / result.per_page));
-    } catch (e: any) {
-      error = e.message || t('errors.load_failed');
+    } catch (e) {
+      error = toErrorMessage(e, t('errors.load_failed'));
     } finally {
       loading = false;
     }

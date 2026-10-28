@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { toErrorMessage } from '$lib/utils/error';
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import LoadingState from '$lib/components/LoadingState.svelte';
   import { page } from '$app/stores';
@@ -27,8 +28,8 @@
       loading = true;
       const response = await repos.get(owner, repo);
       repository = response;
-    } catch (err: any) {
-      error = err.message || t('errors.load_failed');
+    } catch (err) {
+      error = toErrorMessage(err, t('errors.load_failed'));
     } finally {
       loading = false;
     }

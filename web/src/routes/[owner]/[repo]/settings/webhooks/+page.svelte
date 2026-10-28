@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { toErrorMessage } from '$lib/utils/error';
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import LoadingState from '$lib/components/LoadingState.svelte';
   import { page } from '$app/stores';
@@ -24,8 +25,8 @@
       loading = true;
       error = '';
       hooks = await webhooks.list(owner, repo);
-    } catch (err: any) {
-      error = err.message || t('settings.webhooks.load_failed', 'Failed to load webhooks');
+    } catch (err) {
+      error = toErrorMessage(err, t('settings.webhooks.load_failed', 'Failed to load webhooks'));
     } finally {
       loading = false;
     }

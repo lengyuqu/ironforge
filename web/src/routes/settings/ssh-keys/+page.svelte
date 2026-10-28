@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { toErrorMessage } from '$lib/utils/error';
   import SuccessBanner from '$lib/components/SuccessBanner.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import { confirmDialog } from '$lib/components/confirm.svelte';
@@ -31,8 +32,8 @@
       loading = true;
       error = '';
       keys = await sshKeys.list();
-    } catch (err: any) {
-      error = err.message || t('ssh_keys.load_failed');
+    } catch (err) {
+      error = toErrorMessage(err, t('ssh_keys.load_failed'));
     } finally {
       loading = false;
     }
@@ -58,8 +59,8 @@
       publicKey = '';
       success = t('ssh_keys.added');
       await loadKeys();
-    } catch (err: any) {
-      error = err.message || t('ssh_keys.add_failed');
+    } catch (err) {
+      error = toErrorMessage(err, t('ssh_keys.add_failed'));
     } finally {
       adding = false;
     }
@@ -75,8 +76,8 @@
       await sshKeys.delete(key.id);
       success = t('ssh_keys.deleted');
       await loadKeys();
-    } catch (err: any) {
-      error = err.message || t('ssh_keys.delete_failed');
+    } catch (err) {
+      error = toErrorMessage(err, t('ssh_keys.delete_failed'));
     } finally {
       deletingId = null;
     }

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { toErrorMessage } from '$lib/utils/error';
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import LoadingState from '$lib/components/LoadingState.svelte';
   import { isAuthReady, isLoggedIn, isAdmin } from '$lib/stores/auth.svelte';
@@ -36,8 +37,8 @@
       users = result.data;
       total = result.pagination?.total ?? 0;
       totalPages = result.pagination?.total_pages ?? 1;
-    } catch (e: any) {
-      error = e.message || t('errors.load_failed');
+    } catch (e) {
+      error = toErrorMessage(e, t('errors.load_failed'));
     } finally {
       loading = false;
     }

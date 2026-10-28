@@ -36,7 +36,7 @@
 
       // Redirect to dashboard
       goto('/dashboard');
-    } catch (err: any) {
+    } catch (err) {
       deleteError = toErrorMessage(err, 'Delete failed');
       deleting = false;
     }

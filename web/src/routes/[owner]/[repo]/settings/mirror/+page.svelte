@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { toErrorMessage } from '$lib/utils/error';
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import LoadingState from '$lib/components/LoadingState.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
@@ -25,11 +26,11 @@
       loading = true;
       error = '';
       mirror = await mirrors.get(owner, repo);
-    } catch (err: any) {
-      if (String(err?.message || '').toLowerCase().includes('no mirror configured')) {
+    } catch (err) {
+      if ((err instanceof Error ? err.message : '').toLowerCase().includes('no mirror configured')) {
         mirror = null;
       } else {
-        error = err.message || t('settings.mirror.load_failed');
+        error = toErrorMessage(err, t('settings.mirror.load_failed'));
       }
     } finally {
       loading = false;

@@ -1,5 +1,6 @@
 {
   "common": {
+    "unknown_error": "未知错误",
     "sign_in": "登录",
     "sign_out": "退出",
     "confirm": "确认",

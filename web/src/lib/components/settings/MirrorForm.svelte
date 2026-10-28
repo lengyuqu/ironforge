@@ -75,7 +75,7 @@
       success = wasConfigured ? t('settings.mirror.updated') : t('settings.mirror.created');
       await onChanged();
       fillForm(next);
-    } catch (err: any) {
+    } catch (err) {
       error = toErrorMessage(err, t('settings.mirror.save_failed'));
     } finally {
       saving = false;
@@ -90,7 +90,7 @@
       await mirrors.sync(owner, repo);
       success = t('settings.mirror.sync_started');
       await onChanged();
-    } catch (err: any) {
+    } catch (err) {
       error = toErrorMessage(err, t('settings.mirror.sync_failed'));
     } finally {
       syncing = false;
@@ -107,7 +107,7 @@
       await mirrors.remove(owner, repo);
       success = t('settings.mirror.deleted');
       await onChanged();
-    } catch (err: any) {
+    } catch (err) {
       error = toErrorMessage(err, t('settings.mirror.delete_failed'));
     } finally {
       deleting = false;

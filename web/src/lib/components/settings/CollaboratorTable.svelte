@@ -38,7 +38,7 @@
       await collaboratorsApi.updatePermission(owner, repo, collaborator.id, collaborator.permission);
       toast.success(t('settings.collaborators.updated'));
       await onRefresh();
-    } catch (err: any) {
+    } catch (err) {
       toast.error(toErrorMessage(err, t('settings.collaborators.update_failed')));
     } finally {
       busyId = null;
@@ -53,7 +53,7 @@
       await collaboratorsApi.remove(owner, repo, collaborator.user_id);
       toast.success(t('settings.collaborators.removed'));
       await onRefresh();
-    } catch (err: any) {
+    } catch (err) {
       toast.error(toErrorMessage(err, t('settings.collaborators.remove_failed')));
     } finally {
       busyId = null;

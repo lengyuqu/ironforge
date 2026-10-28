@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { toErrorMessage } from '$lib/utils/error';
   import { createT } from '$lib/i18n';
   import { confirmDialog } from '$lib/components/confirm.svelte';
   import { page } from '$app/stores';
@@ -8,9 +9,9 @@
   const owner = $derived($page.params.owner!); const repo = $derived($page.params.repo!);
   let items = $state<TagProtection[]>([]); let pattern = $state(''); let error = $state('');
   $effect(() => { owner; repo; load(); });
-  async function load() { try { items = await tagProtections.list(owner, repo); error = ''; } catch (e: any) { error = e.message; } }
-  async function create(event: SubmitEvent) { event.preventDefault(); try { await tagProtections.create(owner, repo, pattern.trim()); pattern = ''; await load(); } catch (e: any) { error = e.message; } }
-  async function remove(item: TagProtection) { if (!(await confirmDialog({ variant: 'danger', message: t('confirm.tag_protection_delete', { pattern: item.pattern }) }))) return; try { await tagProtections.delete(owner, repo, item.id); await load(); } catch (e: any) { error = e.message; } }
+  async function load() { try { items = await tagProtections.list(owner, repo); error = ''; } catch (e) { error = toErrorMessage(e, t('common.unknown_error')); } }
+  async function create(event: SubmitEvent) { event.preventDefault(); try { await tagProtections.create(owner, repo, pattern.trim()); pattern = ''; await load(); } catch (e) { error = toErrorMessage(e, t('common.unknown_error')); } }
+  async function remove(item: TagProtection) { if (!(await confirmDialog({ variant: 'danger', message: t('confirm.tag_protection_delete', { pattern: item.pattern }) }))) return; try { await tagProtections.delete(owner, repo, item.id); await load(); } catch (e) { error = toErrorMessage(e, t('common.unknown_error')); } }
 </script>
 <svelte:head><title>Tag protection · {owner}/{repo}</title></svelte:head>
 <div class="settings-page"><header><h1>Tag protection</h1><p>Block tag creation and updates matching a wildcard pattern over HTTP and SSH.</p></header>{#if error}<div class="message" role="alert">{error}</div>{/if}<section><h2>Protect a pattern</h2><form onsubmit={create}><label for="tag-pattern">Pattern</label><input id="tag-pattern" bind:value={pattern} maxlength="255" placeholder="v*" required /><button class="btn btn-primary">Add protection</button></form></section><section><h2>Protected patterns</h2>{#if items.length === 0}<p>No protected tag patterns.</p>{:else}<div class="list">{#each items as item (item.id)}<article><code>{item.pattern}</code><button class="btn btn-danger" onclick={() => remove(item)}>Delete</button></article>{/each}</div>{/if}</section></div>

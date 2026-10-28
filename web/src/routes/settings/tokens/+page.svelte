@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { toErrorMessage } from '$lib/utils/error';
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { goto } from '$app/navigation';
   import { tokens } from '$lib/api/client.svelte';
@@ -28,8 +29,8 @@
       loading = true;
       error = '';
       tokenList = await tokens.list();
-    } catch (err: any) {
-      error = err.message || t('errors.load_failed');
+    } catch (err) {
+      error = toErrorMessage(err, t('errors.load_failed'));
     } finally {
       loading = false;
     }
