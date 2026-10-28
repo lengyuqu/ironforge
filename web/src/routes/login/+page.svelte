@@ -169,7 +169,7 @@
       {t('auth.login.footer', { link: '' })}
       <a href="/register">{t('auth.login.footer_link')}</a>
       <span class="separator">·</span>
-      <a href="/forgot-password">Forgot password?</a>
+      <a href="/forgot-password">{t('auth.login.forgot_password')}</a>
     </p>
   </div>
 </div>

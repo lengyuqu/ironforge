@@ -186,8 +186,33 @@
     "reset": {
       "invalid_link": "Invalid reset link. Please request a new password reset.",
       "success": "Password reset successful! You are now logged in.",
-      "go_dashboard": "Go to Dashboard"
-    }
+      "go_dashboard": "Go to Dashboard",
+      "mismatch": "Passwords do not match",
+      "pw_short": "Password must be at least 8 characters",
+      "pw_long": "Password must be at most 128 characters",
+      "pw_spaces": "Password must not contain spaces",
+      "pw_upper": "Password must contain an uppercase letter",
+      "pw_lower": "Password must contain a lowercase letter",
+      "pw_digit": "Password must contain a number",
+      "pw_special": "Password must contain a special character",
+      "title": "Reset Password",
+      "subtitle": "Enter your new password",
+      "request_new": "Request Reset",
+      "new_password": "New Password",
+      "new_placeholder": "At least 8 characters",
+      "confirm_password": "Confirm Password",
+      "confirm_placeholder": "Re-enter password",
+      "resetting": "Resetting..."
+    },
+    "forgot": {
+      "title": "Forgot Password",
+      "desc": "Enter your account email to receive a reset link.",
+      "sending": "Sending...",
+      "submit": "Send Reset Link",
+      "email_required": "Email is required",
+      "sent": "If that email exists, a reset link has been sent."
+    },
+    "back_to_login": "Back to Login"
   },
   "dashboard": {
     "title": "Dashboard",

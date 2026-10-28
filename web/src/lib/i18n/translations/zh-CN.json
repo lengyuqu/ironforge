@@ -186,8 +186,33 @@
     "reset": {
       "invalid_link": "重置链接无效，请重新申请重置密码。",
       "success": "密码重置成功，你已自动登录。",
-      "go_dashboard": "前往仪表板"
-    }
+      "go_dashboard": "前往仪表板",
+      "mismatch": "两次输入的密码不一致",
+      "pw_short": "密码至少需要 8 个字符",
+      "pw_long": "密码最多 128 个字符",
+      "pw_spaces": "密码不能包含空格",
+      "pw_upper": "密码必须包含大写字母",
+      "pw_lower": "密码必须包含小写字母",
+      "pw_digit": "密码必须包含数字",
+      "pw_special": "密码必须包含特殊字符",
+      "title": "重置密码",
+      "subtitle": "请输入新密码",
+      "request_new": "重新申请重置",
+      "new_password": "新密码",
+      "new_placeholder": "至少 8 个字符",
+      "confirm_password": "确认密码",
+      "confirm_placeholder": "再次输入密码",
+      "resetting": "重置中..."
+    },
+    "forgot": {
+      "title": "忘记密码",
+      "desc": "输入账号邮箱以接收重置链接。",
+      "sending": "发送中...",
+      "submit": "发送重置链接",
+      "email_required": "请输入邮箱",
+      "sent": "如果该邮箱存在,重置链接已发送。"
+    },
+    "back_to_login": "返回登录"
   },
   "dashboard": {
     "title": "仪表板",

@@ -23,8 +23,8 @@
 
   onMount(() => {
     const params = new URLSearchParams(window.location.search);
-    const t = params.get('token');
-    if (t) token = t;
+    const urlToken = params.get('token');
+    if (urlToken) token = urlToken;
   });
 
   async function handleSubmit(e: Event) {
@@ -32,7 +32,7 @@
     localError = '';
 
     if (password !== confirmPassword) {
-      localError = 'Passwords do not match';
+      localError = t('auth.reset.mismatch');
       return;
     }
 
@@ -56,13 +56,13 @@
   }
 
   function validatePassword(value: string): string {
-    if (value.length < 8) return 'Password must be at least 8 characters';
-    if (value.length > 128) return 'Password must be at most 128 characters';
-    if (/\s/.test(value)) return 'Password must not contain spaces';
-    if (!/[A-Z]/.test(value)) return 'Password must contain an uppercase letter';
-    if (!/[a-z]/.test(value)) return 'Password must contain a lowercase letter';
-    if (!/[0-9]/.test(value)) return 'Password must contain a number';
-    if (!specialChars.test(value)) return 'Password must contain a special character';
+    if (value.length < 8) return t('auth.reset.pw_short');
+    if (value.length > 128) return t('auth.reset.pw_long');
+    if (/\s/.test(value)) return t('auth.reset.pw_spaces');
+    if (!/[A-Z]/.test(value)) return t('auth.reset.pw_upper');
+    if (!/[a-z]/.test(value)) return t('auth.reset.pw_lower');
+    if (!/[0-9]/.test(value)) return t('auth.reset.pw_digit');
+    if (!specialChars.test(value)) return t('auth.reset.pw_special');
     return '';
   }
 </script>
@@ -70,8 +70,8 @@
 <div class="reset-page">
   <div class="reset-card surface">
     <div class="reset-header">
-      <h1>Reset Password</h1>
-      <p class="subtitle">Enter your new password</p>
+      <h1>{t('auth.reset.title')}</h1>
+      <p class="subtitle">{t('auth.reset.subtitle')}</p>
     </div>
 
     {#if success}
@@ -82,7 +82,7 @@
     {:else if !token}
       <ErrorBanner message={t('auth.reset.invalid_link')} />
       <a href="/forgot-password" class="btn-secondary" style="display:block;text-align:center;margin-top:16px;">
-        Request Reset
+        {t('auth.reset.request_new')}
       </a>
     {:else}
       {#if localError}
@@ -91,7 +91,7 @@
 
       <form onsubmit={handleSubmit}>
         <label>
-          New Password
+          {t('auth.reset.new_password')}
           <input
             type="password"
             bind:value={password}
@@ -99,29 +99,29 @@
             minlength={8}
             maxlength={128}
             pattern={passwordPattern}
-            placeholder="At least 8 characters"
+            placeholder={t('auth.reset.new_placeholder')}
             autocomplete="new-password"
           />
         </label>
 
         <label>
-          Confirm Password
+          {t('auth.reset.confirm_password')}
           <input
             type="password"
             bind:value={confirmPassword}
             required
-            placeholder="Re-enter password"
+            placeholder={t('auth.reset.confirm_placeholder')}
             autocomplete="new-password"
           />
         </label>
 
         <button type="submit" class="btn-primary" disabled={loading}>
-          {loading ? 'Resetting...' : 'Reset Password'}
+          {loading ? t('auth.reset.resetting') : t('auth.reset.title')}
         </button>
       </form>
 
       <p class="footer">
-        <a href="/login">Back to Login</a>
+        <a href="/login">{t('auth.back_to_login')}</a>
       </p>
     {/if}
   </div>
