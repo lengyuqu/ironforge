@@ -2,6 +2,9 @@
   import { mfa, type MfaSetupResponse } from '$lib/api/client.svelte';
   import { toast } from '$lib/components/toast.svelte';
   import { toErrorMessage } from '$lib/utils/error';
+  import { createT } from '$lib/i18n';
+
+  const t = createT();
 
   let {
     setup,
@@ -17,7 +20,7 @@
   async function enableMfa(event: SubmitEvent) {
     event.preventDefault();
     if (!verificationCode.trim()) {
-      toast.error('Authentication code is required');
+      toast.error(t('settings.mfa.code_required'));
       return;
     }
 
@@ -26,7 +29,7 @@
       const result = await mfa.enable(verificationCode.trim());
       await onEnabled(result.backup_codes);
     } catch (e) {
-      toast.error(toErrorMessage(e, 'Enable failed'));
+      toast.error(toErrorMessage(e, t('settings.mfa.enable_failed')));
     } finally {
       enabling = false;
     }
@@ -34,19 +37,19 @@
 </script>
 
 <section class="section setup-section surface">
-  <h2>Scan Authenticator QR</h2>
+  <h2>{t('settings.mfa.scan_title')}</h2>
   <div class="setup-grid">
-    <div class="qr" aria-label="Authenticator QR code">{@html setup.qr_svg}</div>
+    <div class="qr" aria-label={t('settings.mfa.qr_label')}>{@html setup.qr_svg}</div>
     <div>
-      <p class="muted">Scan the QR code with an authenticator app, then enter the six-digit code.</p>
+      <p class="muted">{t('settings.mfa.scan_desc')}</p>
       <code>{setup.secret}</code>
       <form class="enable-form" onsubmit={enableMfa}>
         <label>
-          Authentication code
+          {t('auth.login.mfa_code')}
           <input inputmode="numeric" autocomplete="one-time-code" bind:value={verificationCode} disabled={enabling} />
         </label>
         <button type="submit" class="btn btn-primary" disabled={enabling || !verificationCode.trim()}>
-          {enabling ? 'Verifying...' : 'Enable MFA'}
+          {enabling ? t('auth.login.verifying') : t('settings.mfa.enable')}
         </button>
       </form>
     </div>

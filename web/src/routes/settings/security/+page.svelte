@@ -59,7 +59,7 @@
   async function handleEnabled(backupCodes: string[]) {
     newBackupCodes = backupCodes;
     setup = null;
-    success = 'MFA enabled. Save your backup codes before leaving this page.';
+    success = t('settings.mfa.enabled_notice');
     await loadSecurity();
   }
 

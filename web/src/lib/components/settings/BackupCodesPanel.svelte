@@ -1,5 +1,8 @@
 <script lang="ts">
   import { toast } from '$lib/components/toast.svelte';
+  import { createT } from '$lib/i18n';
+
+  const t = createT();
 
   let {
     codes,
@@ -11,20 +14,20 @@
     if (codes.length === 0) return;
     try {
       await navigator.clipboard.writeText(codes.join('\n'));
-      toast.success('Backup codes copied');
+      toast.success(t('settings.mfa.codes_copied'));
     } catch {
-      toast.error('Copy failed');
+      toast.error(t('settings.mfa.copy_failed'));
     }
   }
 </script>
 
-<section class="section backup-section surface" aria-label="New backup codes">
+<section class="section backup-section surface" aria-label={t('settings.mfa.new_codes')}>
   <div class="section-heading surface">
     <div>
-      <h2>Backup Codes</h2>
-      <p>Each code can be used once if you lose authenticator access.</p>
+      <h2>{t('settings.mfa.codes_title')}</h2>
+      <p>{t('settings.mfa.codes_desc')}</p>
     </div>
-    <button type="button" class="btn btn-secondary" onclick={copyBackupCodes}>Copy Codes</button>
+    <button type="button" class="btn btn-secondary" onclick={copyBackupCodes}>{t('settings.mfa.copy_codes')}</button>
   </div>
   <div class="code-grid">
     {#each codes as code}

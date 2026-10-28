@@ -27,7 +27,7 @@
   async function disableMfa(event: SubmitEvent) {
     event.preventDefault();
     if (!disablePassword) {
-      toast.error('Current password is required');
+      toast.error(t('settings.mfa.password_required'));
       return;
     }
     if (!(await confirmDialog({ variant: 'danger', message: t('confirm.mfa_disable') }))) return;
@@ -36,10 +36,10 @@
     try {
       await mfa.disable(disablePassword);
       disablePassword = '';
-      toast.success('MFA disabled');
+      toast.success(t('settings.mfa.disabled_toast'));
       await onDisabled();
     } catch (e) {
-      toast.error(toErrorMessage(e, 'Disable failed'));
+      toast.error(toErrorMessage(e, t('settings.mfa.disable_failed')));
     } finally {
       disabling = false;
     }
@@ -49,37 +49,37 @@
 <section class="section surface">
   <div class="section-heading surface">
     <div>
-      <h2>Multi-Factor Authentication</h2>
-      <p>Add a time-based authenticator code after password login.</p>
+      <h2>{t('settings.mfa.title')}</h2>
+      <p>{t('settings.mfa.desc')}</p>
     </div>
-    <span class:enabled={mfaEnabled} class="status">{mfaEnabled ? 'Enabled' : 'Disabled'}</span>
+    <span class:enabled={mfaEnabled} class="status">{mfaEnabled ? t('settings.mfa.status_enabled') : t('settings.mfa.status_disabled')}</span>
   </div>
 
   {#if mfaEnabled}
     <div class="summary-grid">
       <div>
         <strong>{backupStatus?.unused ?? 0}</strong>
-        <span>unused backup codes</span>
+        <span>{t('settings.mfa.unused_codes')}</span>
       </div>
       <div>
         <strong>{backupStatus?.total ?? 0}</strong>
-        <span>total backup codes</span>
+        <span>{t('settings.mfa.total_codes')}</span>
       </div>
     </div>
 
     <form class="disable-form" onsubmit={disableMfa}>
       <label>
-        Current password
+        {t('settings.mfa.current_password')}
         <input type="password" bind:value={disablePassword} autocomplete="current-password" disabled={disabling || saving} />
       </label>
       <button type="submit" class="btn btn-danger" disabled={disabling || saving || !disablePassword}>
-        {disabling ? 'Disabling...' : 'Disable MFA'}
+        {disabling ? t('settings.mfa.disabling') : t('settings.mfa.disable')}
       </button>
     </form>
   {:else}
-    <p class="muted">MFA is not enabled for this account.</p>
+    <p class="muted">{t('settings.mfa.not_enabled')}</p>
     <button type="button" class="btn btn-primary" onclick={onStartSetup} disabled={saving}>
-      {saving ? 'Starting...' : 'Set up MFA'}
+      {saving ? t('settings.mfa.starting') : t('settings.mfa.setup')}
     </button>
   {/if}
 </section>

@@ -1095,7 +1095,8 @@
       "confirm": "Transfer repository",
       "confirming": "Transferring...",
       "success": "Repository transferred successfully.",
-      "warning": "This is a permanent action. Make sure you have the correct new owner."
+      "warning": "This is a permanent action. Make sure you have the correct new owner.",
+      "failed": "Transfer failed"
     },
     "delete": {
       "title": "Delete this repository",
@@ -1135,6 +1136,36 @@
     "security": {
       "title": "Security",
       "desc": "Manage account protections for web login and Git/API access."
+    },
+    "mfa": {
+      "codes_copied": "Backup codes copied",
+      "copy_failed": "Copy failed",
+      "new_codes": "New backup codes",
+      "codes_title": "Backup Codes",
+      "codes_desc": "Each code can be used once if you lose authenticator access.",
+      "copy_codes": "Copy Codes",
+      "code_required": "Authentication code is required",
+      "enable_failed": "Enable failed",
+      "scan_title": "Scan Authenticator QR",
+      "qr_label": "Authenticator QR code",
+      "scan_desc": "Scan the QR code with an authenticator app, then enter the six-digit code.",
+      "enable": "Enable MFA",
+      "password_required": "Current password is required",
+      "disabled_toast": "MFA disabled",
+      "disable_failed": "Disable failed",
+      "title": "Multi-Factor Authentication",
+      "desc": "Add a time-based authenticator code after password login.",
+      "status_enabled": "Enabled",
+      "status_disabled": "Disabled",
+      "unused_codes": "unused backup codes",
+      "total_codes": "total backup codes",
+      "current_password": "Current password",
+      "disabling": "Disabling...",
+      "disable": "Disable MFA",
+      "not_enabled": "MFA is not enabled for this account.",
+      "starting": "Starting...",
+      "setup": "Set up MFA",
+      "enabled_notice": "MFA enabled. Save your backup codes before leaving this page."
     }
   },
   "commit": {

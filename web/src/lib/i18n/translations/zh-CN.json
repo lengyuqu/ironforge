@@ -1095,7 +1095,8 @@
       "confirm": "转移仓库",
       "confirming": "转移中...",
       "success": "仓库转移成功。",
-      "warning": "这是永久性操作。请确保您有正确的新所有者。"
+      "warning": "这是永久性操作。请确保您有正确的新所有者。",
+      "failed": "转移失败"
     },
     "delete": {
       "title": "删除此仓库",
@@ -1135,6 +1136,36 @@
     "security": {
       "title": "安全",
       "desc": "管理 Web 登录及 Git/API 访问的账号保护。"
+    },
+    "mfa": {
+      "codes_copied": "备份码已复制",
+      "copy_failed": "复制失败",
+      "new_codes": "新备份码",
+      "codes_title": "备份码",
+      "codes_desc": "若无法使用验证器,每个备份码可使用一次。",
+      "copy_codes": "复制备份码",
+      "code_required": "请输入验证码",
+      "enable_failed": "启用失败",
+      "scan_title": "扫描验证器二维码",
+      "qr_label": "验证器二维码",
+      "scan_desc": "使用验证器应用扫描二维码,然后输入 6 位验证码。",
+      "enable": "启用 MFA",
+      "password_required": "请输入当前密码",
+      "disabled_toast": "MFA 已关闭",
+      "disable_failed": "关闭失败",
+      "title": "多因素认证",
+      "desc": "密码登录后增加基于时间的验证码校验。",
+      "status_enabled": "已启用",
+      "status_disabled": "未启用",
+      "unused_codes": "未使用的备份码",
+      "total_codes": "备份码总数",
+      "current_password": "当前密码",
+      "disabling": "关闭中...",
+      "disable": "关闭 MFA",
+      "not_enabled": "此账号未启用 MFA。",
+      "starting": "启动中...",
+      "setup": "设置 MFA",
+      "enabled_notice": "MFA 已启用。离开此页面前请保存备份码。"
     }
   },
   "commit": {

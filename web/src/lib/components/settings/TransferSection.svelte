@@ -40,7 +40,7 @@
         goto(`/${newOwner.trim()}/${repo}`);
       }, 1500);
     } catch (err) {
-      transferError = toErrorMessage(err, 'Transfer failed');
+      transferError = toErrorMessage(err, t('settings.transfer.failed'));
     } finally {
       transferring = false;
     }

@@ -60,7 +60,7 @@
 </script>
 
 {#if newToken}
-  <section class="token-created surface" aria-label="New access token">
+  <section class="token-created surface" aria-label={t('settings.tokens.created_title', 'New token')}>
     <div>
       <strong>{t('settings.tokens.created_title', 'New token')}</strong>
       <p>{t('settings.tokens.created_hint', 'Copy this value before leaving the page.')}</p>
