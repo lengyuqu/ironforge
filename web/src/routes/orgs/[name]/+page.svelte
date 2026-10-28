@@ -4,15 +4,16 @@
   import LoadingState from '$lib/components/LoadingState.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import { page } from '$app/state';
-  import { orgs, repos } from '$lib/api/client.svelte';
+  import { orgs, repos, type RepoListEntry } from '$lib/api/client.svelte';
+  import type { Organization, OrganizationTeam, OrgMember } from '$lib/types/entities';
   import { createT, formatDate } from '$lib/i18n';
 
   const t = createT();
 
-  let org = $state<any>(null);
-  let teams = $state<any[]>([]);
-  let members = $state<any[]>([]);
-  let orgRepos = $state<any[]>([]);
+  let org = $state<Organization | null>(null);
+  let teams = $state<OrganizationTeam[]>([]);
+  let members = $state<OrgMember[]>([]);
+  let orgRepos = $state<RepoListEntry[]>([]);
   let loading = $state(true);
   let error = $state('');
   let newTeamName = $state('');

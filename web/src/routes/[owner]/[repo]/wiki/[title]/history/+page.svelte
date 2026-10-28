@@ -7,6 +7,7 @@
   import { onMount } from 'svelte';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
   import { wiki } from '$lib/api/client.svelte';
+  import type { WikiRevision } from '$lib/types/entities';
   import { createT, formatDate } from '$lib/i18n';
 
   const t = createT();
@@ -14,8 +15,8 @@
   let owner = $derived($page.params.owner!);
   let repo = $derived($page.params.repo!);
   let title = $derived($page.params.title!);
-  let revisions = $state<any[]>([]);
-  let currentRev = $state<any>(null);
+  let revisions = $state<WikiRevision[]>([]);
+  let currentRev = $state<WikiRevision | null>(null);
   let loading = $state(true);
   let error = $state('');
   let viewingRev = $state(false);
@@ -33,7 +34,7 @@
     }
   }
 
-  async function viewRevision(rev: any) {
+  async function viewRevision(rev: WikiRevision) {
     try {
       currentRev = await wiki.getRevision(owner, repo, title, rev.id);
       viewingRev = true;

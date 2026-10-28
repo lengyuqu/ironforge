@@ -4,14 +4,13 @@
   import LoadingState from '$lib/components/LoadingState.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import { page } from '$app/stores';
-  import { repos } from '$lib/api/client.svelte';
+  import { repos, type RepoListEntry } from '$lib/api/client.svelte';
   import { createT, formatDate } from '$lib/i18n';
 
   const t = createT();
 
   let owner = $derived($page.params.owner!);
-  let repoList = $state<any[]>([]);
-  let userInfo = $state<any>(null);
+  let repoList = $state<RepoListEntry[]>([]);
   let loading = $state(true);
   let error = $state('');
 

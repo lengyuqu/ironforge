@@ -4,11 +4,12 @@
   import LoadingState from '$lib/components/LoadingState.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import { repos } from '$lib/api/client.svelte';
+  import type { ExploreRepo } from '$lib/types/entities';
   import { createT, formatDate } from '$lib/i18n';
 
   const t = createT();
 
-  let repoList = $state<any[]>([]);
+  let repoList = $state<ExploreRepo[]>([]);
   let loading = $state(true);
   let error = $state('');
   let page = $state(1);

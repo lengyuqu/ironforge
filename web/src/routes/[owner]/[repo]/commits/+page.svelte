@@ -3,6 +3,8 @@
   import LoadingState from '$lib/components/LoadingState.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import { repos } from '$lib/api/client.svelte';
+  import type { RepoCommitEntry } from '$lib/types/entities';
+  import { toErrorMessage } from '$lib/utils/error';
   import { createT, formatDate } from '$lib/i18n';
   import { page } from '$app/stores';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
@@ -17,7 +19,7 @@
   let refName = $derived($page.url.searchParams.get('ref') || '');
   let filterPath = $derived($page.url.searchParams.get('path') || '');
   
-  let commits = $state<any[]>([]);
+  let commits = $state<RepoCommitEntry[]>([]);
   let loading = $state(true);
   let error = $state('');
 
@@ -35,8 +37,8 @@
           error = 'Invalid response format from server';
         }
       })
-      .catch((e: any) => {
-        error = e.message || t('errors.load_failed');
+      .catch((e) => {
+        error = toErrorMessage(e, t('errors.load_failed'));
       })
       .finally(() => {
         loading = false;

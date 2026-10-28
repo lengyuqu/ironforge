@@ -5,7 +5,7 @@
   import EmptyState from '$lib/components/EmptyState.svelte';
   import { page } from '$app/stores';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
-  import { packages } from '$lib/api/client.svelte';
+  import { packages, type PackageSummaryResponse } from '$lib/api/client.svelte';
   import { createT, formatDate } from '$lib/i18n';
   import { packageFormatLabel } from '$lib/packageFormats';
 
@@ -15,7 +15,7 @@
   let repo = $derived($page.params.repo!);
   let format = $derived($page.params.format!);
 
-  let packageList = $state<any[]>([]);
+  let packageList = $state<PackageSummaryResponse[]>([]);
   let loading = $state(true);
   let error = $state('');
   let currentPage = $state(1);
@@ -39,7 +39,7 @@
     }
   }
 
-  function getInstallCommand(pkg: any): string {
+  function getInstallCommand(pkg: PackageSummaryResponse): string {
     const f = format!.toLowerCase();
     const name = pkg.name;
     const version = pkg.latest_version || '';
@@ -100,12 +100,6 @@
             <p class="package-desc">{pkg.description}</p>
           {/if}
 
-          <div class="package-meta">
-            {#if pkg.created_at}
-              <span class="date">{t('common.created', { date: formatDate(pkg.created_at) })}</span>
-            {/if}
-          </div>
-
           <div class="install-section">
             <pre><code>{getInstallCommand(pkg)}</code></pre>
             <button class="copy-btn surface" onclick={() => navigator.clipboard.writeText(getInstallCommand(pkg))}>
@@ -159,12 +153,6 @@
     color: var(--text-secondary);
     line-height: 1.6;
     margin-bottom: 8px;
-  }
-
-  .package-meta {
-    font-size: 13px;
-    color: var(--text-muted);
-    margin-bottom: 12px;
   }
 
   .install-section {

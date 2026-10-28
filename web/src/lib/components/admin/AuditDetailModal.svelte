@@ -1,5 +1,6 @@
 <script lang="ts">
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
+  import { toErrorMessage } from '$lib/utils/error';
   import Modal from '$lib/components/Modal.svelte';
   import { createT, formatDateTime } from '$lib/i18n';
   import { admin, type AuditLogEntry } from '$lib/api/client.svelte';
@@ -28,8 +29,8 @@
       .then((full) => {
         detail = full;
       })
-      .catch((e: any) => {
-        detailError = e?.message || t('errors.load_failed');
+      .catch((e) => {
+        detailError = toErrorMessage(e, t('errors.load_failed'));
       })
       .finally(() => {
         detailLoading = false;

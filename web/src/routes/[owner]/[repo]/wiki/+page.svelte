@@ -7,13 +7,14 @@
   import { goto } from '$app/navigation';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
   import { wiki } from '$lib/api/client.svelte';
+  import type { WikiPageSummary } from '$lib/types/entities';
   import { createT, formatDate } from '$lib/i18n';
 
   const t = createT();
 
   let owner = $derived($page.params.owner!);
   let repo = $derived($page.params.repo!);
-  let pageList = $state<any[]>([]);
+  let pageList = $state<WikiPageSummary[]>([]);
   let loading = $state(true);
   let error = $state('');
   let showCreate = $state(false);
