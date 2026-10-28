@@ -1401,7 +1401,16 @@
     "delete": "删除"
   },
   "time_tracking": {
-    "title": "时间跟踪"
+    "title": "时间跟踪",
+    "add_failed": "添加工时记录失败",
+    "duration_hours": "时长(小时)",
+    "note": "备注",
+    "delete_failed": "删除工时记录失败",
+    "empty": "此议题暂无工时记录。",
+    "col_duration": "时长",
+    "col_logged": "记录时间",
+    "select_hint": "选择一个议题以查看和记录工时",
+    "total": "合计:{time}"
   },
   "error_page": {
     "not_found_title": "页面未找到",

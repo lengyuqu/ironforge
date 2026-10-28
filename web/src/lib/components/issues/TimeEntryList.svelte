@@ -49,7 +49,7 @@
       await timeTracking.delete(owner, repo, issueNumber, id);
       await onRefresh();
     } catch (e) {
-      error = toErrorMessage(e, 'Failed to delete time entry');
+      error = toErrorMessage(e, t('time_tracking.delete_failed'));
     } finally {
       deletingId = null;
     }
@@ -63,14 +63,14 @@
 {#if loading}
   <LoadingState compact />
 {:else if entries.length === 0}
-  <EmptyState title="No time entries for this issue yet." />
+  <EmptyState title={t('time_tracking.empty')} />
 {:else}
   <table class="entries-table">
     <thead>
       <tr>
-        <th>Duration</th>
-        <th>Note</th>
-        <th>Logged</th>
+        <th>{t('time_tracking.col_duration')}</th>
+        <th>{t('time_tracking.note')}</th>
+        <th>{t('time_tracking.col_logged')}</th>
         <th></th>
       </tr>
     </thead>
@@ -86,7 +86,7 @@
               onclick={() => handleDelete(entry.id)}
               disabled={deletingId === entry.id}
             >
-              {deletingId === entry.id ? '…' : 'Delete'}
+              {deletingId === entry.id ? '…' : t('common.delete')}
             </button>
           </td>
         </tr>
@@ -101,7 +101,7 @@
         disabled={currentPage <= 1}
         onclick={() => onPageChange(currentPage - 1)}
       >
-        Previous
+        {t('common.previous')}
       </button>
       <span>{currentPage} / {totalPages}</span>
       <button
@@ -109,7 +109,7 @@
         disabled={currentPage >= totalPages}
         onclick={() => onPageChange(currentPage + 1)}
       >
-        Next
+        {t('common.next')}
       </button>
     </div>
   {/if}

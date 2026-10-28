@@ -111,7 +111,7 @@
     <main class="main-panel">
       {#if !selectedIssue}
         <div class="select-hint surface">
-          <p>← Select an issue to view and log time</p>
+          <p>← {t('time_tracking.select_hint')}</p>
         </div>
       {:else}
         <div class="issue-header">
@@ -121,7 +121,7 @@
             </a>
           </h2>
           {#if totalFormatted}
-            <div class="total-badge">Total: {totalFormatted}</div>
+            <div class="total-badge">{t('time_tracking.total', { time: totalFormatted })}</div>
           {/if}
         </div>
 

@@ -37,7 +37,7 @@
       description = '';
       await onAdded();
     } catch (e) {
-      error = toErrorMessage(e, 'Failed to add time entry');
+      error = toErrorMessage(e, t('time_tracking.add_failed'));
     } finally {
       saving = false;
     }
@@ -52,7 +52,7 @@
   {/if}
 
   <div class="form-row">
-    <FormField id="tt-dur" label="Duration (hours)">
+    <FormField id="tt-dur" label={t('time_tracking.duration_hours')}>
       {#snippet children()}
         <input
           id="tt-dur"
@@ -65,18 +65,18 @@
       {/snippet}
     </FormField>
     <div class="form-group flex-grow">
-      <label for="tt-desc">Note</label>
+      <label for="tt-desc">{t('time_tracking.note')}</label>
       <input
         id="tt-desc"
         type="text"
-        placeholder="(optional)"
+        placeholder={t('common.optional')}
         bind:value={description}
         disabled={saving}
       />
     </div>
     <div class="form-action">
       <button class="btn-primary" onclick={handleAdd} disabled={saving || durationHours <= 0}>
-        {saving ? '…' : 'Add'}
+        {saving ? '…' : t('common.add')}
       </button>
     </div>
   </div>

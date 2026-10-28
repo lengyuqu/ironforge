@@ -1401,7 +1401,16 @@
     "delete": "Delete"
   },
   "time_tracking": {
-    "title": "Time Tracking"
+    "title": "Time Tracking",
+    "add_failed": "Failed to add time entry",
+    "duration_hours": "Duration (hours)",
+    "note": "Note",
+    "delete_failed": "Failed to delete time entry",
+    "empty": "No time entries for this issue yet.",
+    "col_duration": "Duration",
+    "col_logged": "Logged",
+    "select_hint": "Select an issue to view and log time",
+    "total": "Total: {time}"
   },
   "error_page": {
     "not_found_title": "Page Not Found",
