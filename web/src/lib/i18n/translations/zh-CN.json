@@ -1370,7 +1370,9 @@
       "name_slug_required": "SSO 提供方名称和标识不能为空",
       "updated": "SSO 提供方已更新",
       "created": "SSO 提供方已创建",
-      "ldap_test_failed": "LDAP 连接测试失败"
+      "ldap_test_failed": "LDAP 连接测试失败",
+      "status_enabled": "已启用",
+      "status_disabled": "已禁用"
     }
   },
   "profile": {
