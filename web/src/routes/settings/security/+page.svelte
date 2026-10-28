@@ -2,6 +2,7 @@
   import { toErrorMessage } from '$lib/utils/error';
   import SuccessBanner from '$lib/components/SuccessBanner.svelte';
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
+  import LoadingState from '$lib/components/LoadingState.svelte';
   import { goto } from '$app/navigation';
   import { isAuthReady, isLoggedIn } from '$lib/stores/auth.svelte';
   import { mfa, type MfaBackupStatus, type MfaSetupResponse } from '$lib/api/client.svelte';
@@ -70,14 +71,14 @@
 </script>
 
 <svelte:head>
-  <title>Security · IronForge</title>
+  <title>{t('settings.security.title')} · IronForge</title>
 </svelte:head>
 
 <div class="page-container security-page">
   <header class="page-header">
     <div>
-      <h1>Security</h1>
-      <p>Manage account protections for web login and Git/API access.</p>
+      <h1>{t('settings.security.title')}</h1>
+      <p>{t('settings.security.desc')}</p>
     </div>
   </header>
 
@@ -90,7 +91,7 @@
   {/if}
 
   {#if loading}
-    <p class="muted">Loading...</p>
+    <LoadingState />
   {:else}
     <MfaStatusSection
       backupStatus={backupStatus}
@@ -122,9 +123,7 @@
     margin: 0;
   }
 
-  .page-header p,
-  .muted {
+  .page-header p {
     color: var(--text-secondary);
   }
-
 </style>

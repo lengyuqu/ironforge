@@ -1131,7 +1131,11 @@
     },
     "confirm_delete_label_title": "确认删除",
     "label_name_required": "请输入标签名称",
-    "label_color_invalid": "请输入 6 位十六进制颜色，例如 #ff8800"
+    "label_color_invalid": "请输入 6 位十六进制颜色，例如 #ff8800",
+    "security": {
+      "title": "安全",
+      "desc": "管理 Web 登录及 Git/API 访问的账号保护。"
+    }
   },
   "commit": {
     "status": "状态检查",
@@ -1412,5 +1416,17 @@
       "updated": "更新时间"
     },
     "deleted": "导入任务已删除"
+  },
+  "help": {
+    "title": "帮助",
+    "subtitle": "使用此 IronForge 实例的常用命令与入口。",
+    "clone_title": "克隆仓库",
+    "tokens_title": "使用访问令牌",
+    "tokens_desc": "在安全设置中创建个人访问令牌,可用作 API 请求的 Bearer 令牌,或 HTTPS Git 操作的密码。",
+    "tokens_manage": "管理访问令牌",
+    "find_title": "查找工作",
+    "explore": "浏览仓库",
+    "search": "搜索代码和议题",
+    "import": "导入仓库"
   }
 }

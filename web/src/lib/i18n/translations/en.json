@@ -1131,7 +1131,11 @@
     },
     "confirm_delete_label_title": "Confirm Delete",
     "label_name_required": "Label name is required",
-    "label_color_invalid": "Use a 6-digit hex colour such as #ff8800"
+    "label_color_invalid": "Use a 6-digit hex colour such as #ff8800",
+    "security": {
+      "title": "Security",
+      "desc": "Manage account protections for web login and Git/API access."
+    }
   },
   "commit": {
     "status": "Status checks",
@@ -1412,5 +1416,17 @@
       "updated": "Updated"
     },
     "deleted": "Import deleted"
+  },
+  "help": {
+    "title": "Help",
+    "subtitle": "Common commands and entry points for using this IronForge instance.",
+    "clone_title": "Clone a repository",
+    "tokens_title": "Use access tokens",
+    "tokens_desc": "Create a personal access token from security settings, then use it as a Bearer token for API requests or as the password for HTTPS Git operations.",
+    "tokens_manage": "Manage access tokens",
+    "find_title": "Find work",
+    "explore": "Explore repositories",
+    "search": "Search code and issues",
+    "import": "Import repositories"
   }
 }
