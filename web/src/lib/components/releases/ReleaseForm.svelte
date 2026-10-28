@@ -4,6 +4,8 @@
   // provided it edits an existing release (tag locked, no target picker);
   // otherwise it creates a new one (tag + target_commitish selectable).
   import FormField from '$lib/components/FormField.svelte';
+  import TagHints from '$lib/components/releases/TagHints.svelte';
+  import ReleaseTargetPicker from '$lib/components/releases/ReleaseTargetPicker.svelte';
   import { releases } from '$lib/api/client.svelte';
   import { toast } from '$lib/components/toast.svelte';
   import { toErrorMessage } from '$lib/utils/error';
@@ -48,7 +50,6 @@
   let isDraft = $state(initialDraft);
   let isPrerelease = $state(initialPrerelease);
   let targetCommitish = $state('');
-  let selectedTargetType = $state<'branch' | 'tag'>('tag');
   let submitting = $state(false);
 
   async function handleSubmit(e: Event) {
@@ -106,22 +107,8 @@
       class="input"
       disabled={isEdit}
     />
-    {#if !isEdit && tags.length > 0}
-      <div class="tag-hints">
-        <span class="hint-label">{t('releases.existing_tags')}</span>
-        {#each tags.slice(0, 10) as tag}
-          <button
-            type="button"
-            class="tag-hint"
-            onclick={() => tagName = tag}
-          >
-            {tag}
-          </button>
-        {/each}
-        {#if tags.length > 10}
-          <span class="hint-more">{t('releases.more_tags', { count: tags.length - 10 })}</span>
-        {/if}
-      </div>
+    {#if !isEdit}
+      <TagHints {tags} onPick={(tag) => (tagName = tag)} />
     {/if}
   </div>
 
@@ -150,41 +137,7 @@
   </FormField>
 
   {#if !isEdit}
-    <div class="form-group">
-      <label for="target-commitish">{t('releases.target_commitish')}</label>
-      <div class="target-toggle">
-        <button
-          type="button"
-          class="toggle-btn"
-          class:active={selectedTargetType === 'tag'}
-          onclick={() => selectedTargetType = 'tag'}
-        >
-          {t('releases.target_tags')}
-        </button>
-        <button
-          type="button"
-          class="toggle-btn"
-          class:active={selectedTargetType === 'branch'}
-          onclick={() => selectedTargetType = 'branch'}
-        >
-          {t('releases.target_branches')}
-        </button>
-      </div>
-
-      <select id="target-commitish" bind:value={targetCommitish} class="select">
-        {#if selectedTargetType === 'tag'}
-          <option value="">{t('releases.select_tag')}</option>
-          {#each tags as tag}
-            <option value={tag}>{tag}</option>
-          {/each}
-        {:else}
-          <option value="">{t('releases.select_branch')}</option>
-          {#each branches as branch}
-            <option value={branch}>{branch}</option>
-          {/each}
-        {/if}
-      </select>
-    </div>
+    <ReleaseTargetPicker {tags} {branches} bind:value={targetCommitish} />
   {/if}
 
   <div class="form-group checkbox-group">
@@ -223,8 +176,7 @@
   }
 
   .input,
-  .textarea,
-  .select {
+  .textarea {
     width: 100%;
     box-sizing: border-box;
   }
@@ -236,79 +188,6 @@
   .textarea {
     resize: vertical;
     min-height: 120px;
-  }
-
-  .select {
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23888' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: right 10px center;
-    padding-right: 30px;
-  }
-
-  .target-toggle {
-    display: flex;
-    gap: 0;
-    margin-bottom: 8px;
-  }
-
-  .toggle-btn {
-    padding: 6px 16px;
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--text-secondary);
-    background: var(--bg-primary);
-    border: 1px solid var(--border);
-    cursor: pointer;
-    transition: all 0.15s ease;
-  }
-
-  .toggle-btn:first-child {
-    border-radius: var(--radius) 0 0 var(--radius);
-  }
-
-  .toggle-btn:last-child {
-    border-radius: 0 var(--radius) var(--radius);
-    border-left: none;
-  }
-
-  .toggle-btn.active {
-    background: var(--accent);
-    border-color: var(--accent);
-    color: var(--text-on-accent);
-  }
-
-  .tag-hints {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 6px;
-    margin-top: 8px;
-  }
-
-  .hint-label {
-    font-size: 12px;
-    color: var(--text-muted);
-  }
-
-  .tag-hint {
-    padding: 2px 8px;
-    font-size: 12px;
-    color: var(--text-secondary);
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    cursor: pointer;
-    transition: all 0.15s ease;
-  }
-
-  .tag-hint:hover {
-    background: var(--bg-hover);
-    color: var(--text-primary);
-  }
-
-  .hint-more {
-    font-size: 12px;
-    color: var(--text-muted);
   }
 
   .checkbox-group {
