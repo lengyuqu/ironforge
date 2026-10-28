@@ -1360,7 +1360,18 @@
     "moveTo": "移动到",
     "cardTitlePlaceholder": "卡片标题",
     "addCard": "添加卡片",
-    "noBoardsHint": "创建第一个项目看板来整理 Issue。"
+    "noBoardsHint": "创建第一个项目看板来整理 Issue。",
+    "removeCard": "移除卡片",
+    "deleteColumn": "删除列",
+    "notePlaceholder": "添加备注…",
+    "moveFailed": "移动失败",
+    "addCardFailed": "添加卡片失败",
+    "deleteCardFailed": "删除卡片失败",
+    "deleteColumnFailed": "删除列失败",
+    "createFailed": "创建看板失败",
+    "boardLabel": "看板",
+    "addColumnFailed": "添加列失败",
+    "columnLabel": "列"
   },
   "packages": {
     "upload": "上传包",

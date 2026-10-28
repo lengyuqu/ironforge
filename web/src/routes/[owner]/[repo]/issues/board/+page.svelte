@@ -93,7 +93,7 @@
         onSelect={handleSelectBoard}
         onAddBoard={() => showCreateBoard = !showCreateBoard}
       />
-      <button class="btn-outline btn-sm" onclick={() => showAddColumn = !showAddColumn}>+ Column</button>
+      <button class="btn-outline btn-sm" onclick={() => showAddColumn = !showAddColumn}>+ {t('board.columnLabel')}</button>
     </div>
 
     {#if showCreateBoard}

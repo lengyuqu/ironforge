@@ -2,6 +2,9 @@
   import { boards } from '$lib/api/client.svelte';
   import { toast } from '$lib/components/toast.svelte';
   import { toErrorMessage } from '$lib/utils/error';
+  import { createT } from '$lib/i18n';
+
+  const t = createT();
 
   let {
     owner,
@@ -26,7 +29,7 @@
       name = '';
       await onCreated(board.id);
     } catch (e) {
-      toast.error(toErrorMessage(e, 'Create board failed'));
+      toast.error(toErrorMessage(e, t('board.createFailed')));
     } finally {
       creating = false;
     }
@@ -36,14 +39,14 @@
 <div class="inline-form">
   <input
     class="form-input"
-    placeholder="Board name"
+    placeholder={t('board.namePlaceholder')}
     bind:value={name}
     onkeydown={(e) => e.key === 'Enter' && handleCreate()}
   />
   <button class="btn-primary btn-sm" onclick={handleCreate} disabled={creating}>
-    {creating ? '…' : 'Create'}
+    {creating ? '…' : t('common.create')}
   </button>
-  <button class="btn-ghost btn-sm" onclick={onCancel}>Cancel</button>
+  <button class="btn-ghost btn-sm" onclick={onCancel}>{t('common.cancel')}</button>
 </div>
 
 <style>

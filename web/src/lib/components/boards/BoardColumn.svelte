@@ -64,7 +64,7 @@
       });
       await onRefresh();
     } catch (err) {
-      toast.error(toErrorMessage(err, 'Move failed'));
+      toast.error(toErrorMessage(err, t('board.moveFailed')));
     } finally {
       cardIds = [];
     }
@@ -79,7 +79,7 @@
       showAddCard = false;
       await onRefresh();
     } catch (err) {
-      toast.error(toErrorMessage(err, 'Add card failed'));
+      toast.error(toErrorMessage(err, t('board.addCardFailed')));
     }
   }
 
@@ -88,7 +88,7 @@
       await boards.deleteCard(owner, repo, boardId, cardId);
       await onRefresh();
     } catch (err) {
-      toast.error(toErrorMessage(err, 'Delete card failed'));
+      toast.error(toErrorMessage(err, t('board.deleteCardFailed')));
     }
   }
 
@@ -98,7 +98,7 @@
       await boards.deleteColumn(owner, repo, boardId, column.id);
       await onRefresh();
     } catch (err) {
-      toast.error(toErrorMessage(err, 'Delete column failed'));
+      toast.error(toErrorMessage(err, t('board.deleteColumnFailed')));
     }
   }
 </script>
@@ -116,7 +116,7 @@
     <span class="column-name">{column.name}</span>
     <div class="column-actions">
       <span class="card-count">{cards.length}</span>
-      <button class="btn-ghost btn-xs" onclick={handleDeleteColumn} title="Delete column">✕</button>
+      <button class="btn-ghost btn-xs" onclick={handleDeleteColumn} title={t('board.deleteColumn')}>✕</button>
     </div>
   </div>
 
@@ -138,13 +138,13 @@
         <textarea
           class="card-textarea"
           rows="2"
-          placeholder="Add a note…"
+          placeholder={t('board.notePlaceholder')}
           bind:value={newCardNote}
           onkeydown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleAddCard(); } }}
         ></textarea>
         <div class="add-card-actions">
-          <button class="btn-primary btn-xs" onclick={handleAddCard}>Add</button>
-          <button class="btn-ghost btn-xs" onclick={() => showAddCard = false}>Cancel</button>
+          <button class="btn-primary btn-xs" onclick={handleAddCard}>{t('common.add')}</button>
+          <button class="btn-ghost btn-xs" onclick={() => showAddCard = false}>{t('common.cancel')}</button>
         </div>
       </div>
     {:else}

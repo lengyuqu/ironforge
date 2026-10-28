@@ -1360,7 +1360,18 @@
     "moveTo": "Move to",
     "cardTitlePlaceholder": "Card title",
     "addCard": "Add Card",
-    "noBoardsHint": "Create your first project board to organize issues."
+    "noBoardsHint": "Create your first project board to organize issues.",
+    "removeCard": "Remove card",
+    "deleteColumn": "Delete column",
+    "notePlaceholder": "Add a note…",
+    "moveFailed": "Move failed",
+    "addCardFailed": "Add card failed",
+    "deleteCardFailed": "Delete card failed",
+    "deleteColumnFailed": "Delete column failed",
+    "createFailed": "Create board failed",
+    "boardLabel": "Board",
+    "addColumnFailed": "Add column failed",
+    "columnLabel": "Column"
   },
   "packages": {
     "upload": "Upload Package",

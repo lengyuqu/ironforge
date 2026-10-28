@@ -1,5 +1,8 @@
 <script lang="ts">
   import type { Board } from '$lib/types/entities';
+  import { createT } from '$lib/i18n';
+
+  const t = createT();
 
   let {
     boards,
@@ -22,7 +25,7 @@
       onclick={() => onSelect(b.id)}
     >{b.name}</button>
   {/each}
-  <button class="btn-ghost btn-sm" onclick={onAddBoard}>+ Board</button>
+  <button class="btn-ghost btn-sm" onclick={onAddBoard}>+ {t('board.boardLabel')}</button>
 </div>
 
 <style>

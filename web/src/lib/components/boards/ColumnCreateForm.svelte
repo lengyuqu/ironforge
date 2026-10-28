@@ -2,6 +2,9 @@
   import { boards } from '$lib/api/client.svelte';
   import { toast } from '$lib/components/toast.svelte';
   import { toErrorMessage } from '$lib/utils/error';
+  import { createT } from '$lib/i18n';
+
+  const t = createT();
 
   let {
     owner,
@@ -26,7 +29,7 @@
       name = '';
       await onCreated();
     } catch (e) {
-      toast.error(toErrorMessage(e, 'Add column failed'));
+      toast.error(toErrorMessage(e, t('board.addColumnFailed')));
     }
   }
 </script>
@@ -34,12 +37,12 @@
 <div class="inline-form">
   <input
     class="form-input"
-    placeholder="Column name"
+    placeholder={t('board.colNamePlaceholder')}
     bind:value={name}
     onkeydown={(e) => e.key === 'Enter' && handleAdd()}
   />
-  <button class="btn-primary btn-sm" onclick={handleAdd}>Add</button>
-  <button class="btn-ghost btn-sm" onclick={onCancel}>Cancel</button>
+  <button class="btn-primary btn-sm" onclick={handleAdd}>{t('common.add')}</button>
+  <button class="btn-ghost btn-sm" onclick={onCancel}>{t('common.cancel')}</button>
 </div>
 
 <style>
