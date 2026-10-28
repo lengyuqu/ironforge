@@ -95,11 +95,11 @@
       <table class="orgs-table">
         <thead>
           <tr>
-            <th>Name</th>
-            <th>Display Name</th>
-            <th>Visibility</th>
-            <th>Owner ID</th>
-            <th>Created</th>
+            <th>{t('admin.orgs.col.name')}</th>
+            <th>{t('admin.users.display_name')}</th>
+            <th>{t('admin.orgs.col.visibility')}</th>
+            <th>{t('admin.orgs.col.owner_id')}</th>
+            <th>{t('admin.orgs.col.created')}</th>
             <th></th>
           </tr>
         </thead>
@@ -128,9 +128,9 @@
 
     {#if totalPages > 1}
       <div class="pagination">
-        <button onclick={prevPage} disabled={page <= 1}>← Prev</button>
-        <span>Page {page} of {totalPages}</span>
-        <button onclick={nextPage} disabled={page >= totalPages}>Next →</button>
+        <button onclick={prevPage} disabled={page <= 1}>← {t('common.previous')}</button>
+        <span>{t('common.page_of', { page, total: totalPages })}</span>
+        <button onclick={nextPage} disabled={page >= totalPages}>{t('common.next')} →</button>
       </div>
     {/if}
   {/if}

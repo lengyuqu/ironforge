@@ -86,9 +86,9 @@
 
 {#if totalPages > 1}
   <div class="pagination">
-    <button onclick={onPrevPage} disabled={page <= 0}>← Prev</button>
-    <span>Page {page + 1} of {totalPages}</span>
-    <button onclick={onNextPage} disabled={page >= totalPages - 1}>Next →</button>
+    <button onclick={onPrevPage} disabled={page <= 0}>← {t('common.previous')}</button>
+    <span>{t('common.page_of', { page: page + 1, total: totalPages })}</span>
+    <button onclick={onNextPage} disabled={page >= totalPages - 1}>{t('common.next')} →</button>
   </div>
 {/if}
 

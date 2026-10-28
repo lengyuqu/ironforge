@@ -3,6 +3,7 @@
   // data load (settings / SSO providers / first login-attempts page); the
   // three sections manage their own state and API calls.
   import ErrorBanner from '$lib/components/ErrorBanner.svelte';
+  import LoadingState from '$lib/components/LoadingState.svelte';
   import { goto } from '$app/navigation';
   import { setBanner, clearBanner } from '$lib/stores/instance.svelte';
   import { isAuthReady, isLoggedIn, isAdmin } from '$lib/stores/auth.svelte';
@@ -11,6 +12,9 @@
   import InstanceSettingsSection from '$lib/components/admin/InstanceSettingsSection.svelte';
   import SsoProviderSection from '$lib/components/admin/SsoProviderSection.svelte';
   import LoginAttemptsSection from '$lib/components/admin/LoginAttemptsSection.svelte';
+  import { createT } from '$lib/i18n';
+
+  const t = createT();
 
   let loading = $state(true);
   let error = $state('');
@@ -61,18 +65,18 @@
 </script>
 
 <svelte:head>
-  <title>Instance Settings · Admin · IronForge</title>
+  <title>{t('admin.instance.page_title')}</title>
 </svelte:head>
 
 <div class="settings-page">
-  <h1>Instance Settings</h1>
+  <h1>{t('admin.instance.title')}</h1>
 
   {#if error}
     <ErrorBanner message={error} />
   {/if}
 
   {#if loading}
-    <p class="text-secondary">Loading...</p>
+    <LoadingState />
   {:else if settings}
     <InstanceSettingsSection
       initialMaintenanceMode={settings.maintenance_mode}

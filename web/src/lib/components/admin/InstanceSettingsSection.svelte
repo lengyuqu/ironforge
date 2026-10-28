@@ -7,6 +7,9 @@
   import { admin } from '$lib/api/client.svelte';
   import { toast } from '$lib/components/toast.svelte';
   import { toErrorMessage } from '$lib/utils/error';
+  import { createT } from '$lib/i18n';
+
+  const t = createT();
 
   interface Props {
     initialMaintenanceMode: boolean;
@@ -50,31 +53,31 @@
 </script>
 
 <div class="section surface">
-  <h2>Maintenance Mode</h2>
+  <h2>{t('admin.instance.maintenance_title')}</h2>
   <div class="toggle-row">
     <input id="admin-maintenance-mode" type="checkbox" bind:checked={maintenanceMode} />
-    <label for="admin-maintenance-mode">Enable maintenance mode (read-only, blocks all mutating requests)</label>
+    <label for="admin-maintenance-mode">{t('admin.instance.maintenance_enable')}</label>
   </div>
 </div>
 
 <div class="section surface">
-  <h2>Instance Banner</h2>
-  <FormField id="admin-banner-message" label="Banner Message (leave empty to hide)">
+  <h2>{t('admin.instance.banner_title')}</h2>
+  <FormField id="admin-banner-message" label={t('admin.instance.banner_message')}>
     {#snippet children()}
       <input
         id="admin-banner-message"
         type="text"
         bind:value={bannerMessage}
-        placeholder="e.g. Scheduled maintenance tonight at 2am"
+        placeholder={t('admin.instance.banner_placeholder')}
       />
     {/snippet}
   </FormField>
-  <FormField id="admin-banner-type" label="Banner Type">
+  <FormField id="admin-banner-type" label={t('admin.instance.banner_type')}>
     {#snippet children()}
       <select id="admin-banner-type" bind:value={bannerType}>
-        <option value="info">Info (blue)</option>
-        <option value="warning">Warning (yellow)</option>
-        <option value="error">Error (red)</option>
+        <option value="info">{t('admin.instance.banner_info')}</option>
+        <option value="warning">{t('admin.instance.banner_warning')}</option>
+        <option value="error">{t('admin.instance.banner_error')}</option>
       </select>
     {/snippet}
   </FormField>

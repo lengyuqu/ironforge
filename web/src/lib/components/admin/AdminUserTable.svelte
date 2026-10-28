@@ -48,13 +48,13 @@
   <table class="users-table">
     <thead>
       <tr>
-        <th>Username</th>
-        <th>Email</th>
-        <th>Admin</th>
-        <th>Active</th>
-        <th>Provider</th>
-        <th>Login</th>
-        <th>Created</th>
+        <th>{t('admin.users.col.username')}</th>
+        <th>{t('admin.users.col.email')}</th>
+        <th>{t('admin.users.col.admin')}</th>
+        <th>{t('admin.users.col.active')}</th>
+        <th>{t('admin.users.col.provider')}</th>
+        <th>{t('admin.users.col.login')}</th>
+        <th>{t('admin.users.col.created')}</th>
         <th></th>
       </tr>
     </thead>
@@ -76,11 +76,11 @@
           <td><span class="badge surface">{u.auth_provider}</span></td>
           <td class="login-state">
             {#if isLocked(u)}
-              <span class="badge locked surface" title={`Locked until ${formatDate(u.locked_until || '')}`}
-                >Locked</span
+              <span class="badge locked surface" title={t('admin.users.locked_until', { date: formatDate(u.locked_until || '') })}
+                >{t('admin.users.locked')}</span
               >
             {:else if u.login_attempts > 0}
-              <span class="badge warning surface">{u.login_attempts} failed</span>
+              <span class="badge warning surface">{t('admin.users.failed_attempts', { count: u.login_attempts })}</span>
             {:else}
               <span
                 class="badge active surface"
@@ -114,9 +114,9 @@
 
 {#if totalPages > 1}
   <div class="pagination">
-    <button onclick={() => onPageChange(page - 1)} disabled={page <= 1}>← Prev</button>
-    <span>Page {page} of {totalPages}</span>
-    <button onclick={() => onPageChange(page + 1)} disabled={page >= totalPages}>Next →</button>
+    <button onclick={() => onPageChange(page - 1)} disabled={page <= 1}>← {t('common.previous')}</button>
+    <span>{t('common.page_of', { page, total: totalPages })}</span>
+    <button onclick={() => onPageChange(page + 1)} disabled={page >= totalPages}>{t('common.next')} →</button>
   </div>
 {/if}
 

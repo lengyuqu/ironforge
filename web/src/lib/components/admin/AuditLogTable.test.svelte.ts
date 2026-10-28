@@ -45,7 +45,7 @@ describe('AuditLogTable.svelte', () => {
     expect(screen.getByText('127.0.0.1')).toBeInTheDocument();
     expect(screen.getByText('fmt(2026-09-01T10:00:00Z)')).toBeInTheDocument();
     // Single page -> no pagination controls.
-    expect(screen.queryByText('← Prev')).toBeNull();
+    expect(screen.queryByText('← common.previous')).toBeNull();
   });
 
   it('falls back to #user_id and em-dashes for missing fields', () => {
@@ -94,9 +94,9 @@ describe('AuditLogTable.svelte', () => {
       onNextPage,
     });
 
-    expect(screen.getByText('← Prev')).toBeDisabled();
-    await fireEvent.click(screen.getByText('Next →'));
+    expect(screen.getByText('← common.previous')).toBeDisabled();
+    await fireEvent.click(screen.getByText('common.next →'));
     expect(onNextPage).toHaveBeenCalledTimes(1);
-    expect(screen.getByText('Page 1 of 3')).toBeInTheDocument();
+    expect(screen.getByText('common.page_of')).toBeInTheDocument();
   });
 });

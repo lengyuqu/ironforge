@@ -36,7 +36,8 @@
     "just_now": "just now",
     "download": "Download",
     "copied": "Copied",
-    "retry": "Retry"
+    "retry": "Retry",
+    "page_of": "Page {page} of {total}"
   },
   "nav": {
     "dashboard": "Dashboard",
@@ -1096,14 +1097,32 @@
       "delete_confirm": "Delete User",
       "delete_warning": "Are you sure you want to delete user \"{username}\"? This action cannot be undone.",
       "display_name": "Display Name",
-      "bio": "Bio"
+      "bio": "Bio",
+      "col": {
+        "username": "Username",
+        "email": "Email",
+        "admin": "Admin",
+        "active": "Active",
+        "provider": "Provider",
+        "login": "Login",
+        "created": "Created"
+      },
+      "locked": "Locked",
+      "locked_until": "Locked until {date}",
+      "failed_attempts": "{count} failed"
     },
     "orgs": {
       "title": "Organization Management",
       "desc": "View and manage all organizations",
       "total": "organizations total",
       "delete_confirm": "Delete Organization",
-      "delete_warning": "Are you sure you want to delete organization \"{name}\"? All associated data will be lost."
+      "delete_warning": "Are you sure you want to delete organization \"{name}\"? All associated data will be lost.",
+      "col": {
+        "name": "Name",
+        "visibility": "Visibility",
+        "owner_id": "Owner ID",
+        "created": "Created"
+      }
     },
     "audit": {
       "title": "Audit Log",
@@ -1120,7 +1139,12 @@
         "resource": "Resource",
         "ip": "IP Address",
         "details": "Details"
-      }
+      },
+      "resource_all": "{label}: All",
+      "resource_user": "User",
+      "resource_repo": "Repository",
+      "resource_org": "Organization",
+      "clear_filters": "Clear filters"
     },
     "runners": {
       "title": "Runner Management",
@@ -1143,6 +1167,77 @@
     "settings": {
       "title": "Instance Settings",
       "desc": "Instance maintenance and banner configuration"
+    },
+    "instance": {
+      "maintenance_title": "Maintenance Mode",
+      "maintenance_enable": "Enable maintenance mode (read-only, blocks all mutating requests)",
+      "banner_title": "Instance Banner",
+      "banner_message": "Banner Message (leave empty to hide)",
+      "banner_placeholder": "e.g. Scheduled maintenance tonight at 2am",
+      "banner_type": "Banner Type",
+      "banner_info": "Info (blue)",
+      "banner_warning": "Warning (yellow)",
+      "banner_error": "Error (red)",
+      "title": "Instance Settings",
+      "page_title": "Instance Settings · Admin · IronForge"
+    },
+    "login_attempts": {
+      "title": "Login Attempts",
+      "matching": "{total} matching events",
+      "refresh": "Refresh",
+      "filter_username": "Filter login attempts by username",
+      "username": "Username",
+      "filter_provider": "Filter login attempts by provider",
+      "provider_placeholder": "Provider (password, ldap...)",
+      "filter_status": "Filter login attempts by status",
+      "status_all": "All results",
+      "status_failure": "Failed only",
+      "status_success": "Successful only",
+      "start_time": "Login attempts start time",
+      "end_time": "Login attempts end time",
+      "apply": "Apply",
+      "empty": "No matching login attempts.",
+      "success": "Success",
+      "failed": "Failed",
+      "unknown_ip": "Unknown IP"
+    },
+    "sso": {
+      "field": {
+        "name": "Name",
+        "slug": "Slug",
+        "type": "Type",
+        "client_id": "Client ID",
+        "client_secret": "Client Secret",
+        "discovery_url": "Discovery URL",
+        "scopes": "Scopes",
+        "icon_url": "Icon URL",
+        "ldap_host": "LDAP Host",
+        "ldap_port": "LDAP Port",
+        "ldap_bind_dn": "LDAP Bind DN",
+        "ldap_bind_password": "LDAP Bind Password",
+        "ldap_base_dn": "LDAP Base DN",
+        "ldap_user_filter": "LDAP User Filter"
+      },
+      "title": "SSO Providers",
+      "empty": "No SSO providers configured.",
+      "testing": "Testing...",
+      "test_connection": "Test connection",
+      "disable": "Disable",
+      "enable": "Enable",
+      "edit_title": "Edit SSO Provider",
+      "add_title": "Add SSO Provider",
+      "type_oauth2": "OAuth2 / OIDC",
+      "name_placeholder": "Google Workspace",
+      "keep_secret": "Leave blank to keep existing secret",
+      "keep_password": "Leave blank to keep existing password",
+      "ldap_host_placeholder": "ldap.example.com (LDAPS by default)",
+      "enable_provider": "Enable this provider",
+      "update": "Update Provider",
+      "create": "Create Provider",
+      "name_slug_required": "SSO provider name and slug are required",
+      "updated": "SSO provider updated",
+      "created": "SSO provider created",
+      "ldap_test_failed": "LDAP connection test failed"
     }
   },
   "profile": {

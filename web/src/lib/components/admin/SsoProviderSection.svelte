@@ -98,7 +98,7 @@
 
   async function saveSsoProvider() {
     if (!ssoForm.name.trim() || !ssoForm.slug.trim()) {
-      toast.error('SSO provider name and slug are required');
+      toast.error(t('admin.sso.name_slug_required'));
       return;
     }
 
@@ -107,10 +107,10 @@
       const payload = cleanSsoPayload();
       if (editingSsoId) {
         await admin.updateSsoProvider(editingSsoId, payload);
-        toast.success('SSO provider updated');
+        toast.success(t('admin.sso.updated'));
       } else {
         await admin.createSsoProvider(payload);
-        toast.success('SSO provider created');
+        toast.success(t('admin.sso.created'));
       }
       await reloadProviders();
       resetSsoForm();
@@ -161,7 +161,7 @@
       ssoTestResult = null;
       ssoTestResult = await admin.testSsoProvider(provider.id);
     } catch (e: unknown) {
-      ssoTestResult = { ok: false, message: toErrorMessage(e, 'LDAP connection test failed') };
+      ssoTestResult = { ok: false, message: toErrorMessage(e, t('admin.sso.ldap_test_failed')) };
     } finally {
       testingSsoId = null;
     }
@@ -169,7 +169,7 @@
 </script>
 
 <div class="section surface">
-  <h2>SSO Providers</h2>
+  <h2>{t('admin.sso.title')}</h2>
   {#if ssoTestResult}
     <div class="connection-result" class:success={ssoTestResult.ok}>
       {ssoTestResult.message}
@@ -177,7 +177,7 @@
   {/if}
 
   {#if providers.length === 0}
-    <p class="text-secondary">No SSO providers configured.</p>
+    <p class="text-secondary">{t('admin.sso.empty')}</p>
   {:else}
     <div class="provider-list">
       {#each providers as provider (provider.id)}
@@ -198,14 +198,14 @@
                 disabled={testingSsoId === provider.id}
                 onclick={() => testSsoProvider(provider)}
               >
-                {testingSsoId === provider.id ? 'Testing...' : 'Test connection'}
+                {testingSsoId === provider.id ? t('admin.sso.testing') : t('admin.sso.test_connection')}
               </button>
             {/if}
             <button class="btn-secondary" type="button" onclick={() => toggleSsoProvider(provider)}>
-              {provider.enabled ? 'Disable' : 'Enable'}
+              {provider.enabled ? t('admin.sso.disable') : t('admin.sso.enable')}
             </button>
-            <button class="btn-secondary" type="button" onclick={() => editSsoProvider(provider)}>Edit</button>
-            <button class="btn-danger" type="button" onclick={() => deleteSsoProvider(provider)}>Delete</button>
+            <button class="btn-secondary" type="button" onclick={() => editSsoProvider(provider)}>{t('common.edit')}</button>
+            <button class="btn-danger" type="button" onclick={() => deleteSsoProvider(provider)}>{t('common.delete')}</button>
           </div>
         </div>
       {/each}
@@ -213,87 +213,87 @@
   {/if}
 
   <div class="sso-form">
-    <h3>{editingSsoId ? 'Edit SSO Provider' : 'Add SSO Provider'}</h3>
+    <h3>{editingSsoId ? t('admin.sso.edit_title') : t('admin.sso.add_title')}</h3>
     <div class="form-grid">
-      <FormField id="sso-name" label="Name">
+      <FormField id="sso-name" label={t('admin.sso.field.name')}>
         {#snippet children()}
-          <input id="sso-name" type="text" bind:value={ssoForm.name} placeholder="Google Workspace" />
+          <input id="sso-name" type="text" bind:value={ssoForm.name} placeholder={t('admin.sso.name_placeholder')} />
         {/snippet}
       </FormField>
-      <FormField id="sso-slug" label="Slug">
+      <FormField id="sso-slug" label={t('admin.sso.field.slug')}>
         {#snippet children()}
           <input id="sso-slug" type="text" bind:value={ssoForm.slug} placeholder="google" />
         {/snippet}
       </FormField>
-      <FormField id="sso-type" label="Type">
+      <FormField id="sso-type" label={t('admin.sso.field.type')}>
         {#snippet children()}
           <select id="sso-type" bind:value={ssoForm.provider_type}>
-            <option value="oauth2">OAuth2 / OIDC</option>
+            <option value="oauth2">{t('admin.sso.type_oauth2')}</option>
             <option value="ldap">LDAP</option>
           </select>
         {/snippet}
       </FormField>
-      <FormField id="sso-client-id" label="Client ID">
+      <FormField id="sso-client-id" label={t('admin.sso.field.client_id')}>
         {#snippet children()}
           <input id="sso-client-id" type="text" bind:value={ssoForm.client_id} />
         {/snippet}
       </FormField>
-      <FormField id="sso-client-secret" label="Client Secret">
+      <FormField id="sso-client-secret" label={t('admin.sso.field.client_secret')}>
         {#snippet children()}
           <input
             id="sso-client-secret"
             type="password"
             bind:value={ssoForm.client_secret}
-            placeholder={editingSsoId ? 'Leave blank to keep existing secret' : ''}
+            placeholder={editingSsoId ? t('admin.sso.keep_secret') : ''}
           />
         {/snippet}
       </FormField>
-      <FormField id="sso-discovery-url" label="Discovery URL">
+      <FormField id="sso-discovery-url" label={t('admin.sso.field.discovery_url')}>
         {#snippet children()}
           <input id="sso-discovery-url" type="url" bind:value={ssoForm.discovery_url} />
         {/snippet}
       </FormField>
-      <FormField id="sso-scopes" label="Scopes">
+      <FormField id="sso-scopes" label={t('admin.sso.field.scopes')}>
         {#snippet children()}
           <input id="sso-scopes" type="text" bind:value={ssoForm.scopes} />
         {/snippet}
       </FormField>
-      <FormField id="sso-icon-url" label="Icon URL">
+      <FormField id="sso-icon-url" label={t('admin.sso.field.icon_url')}>
         {#snippet children()}
           <input id="sso-icon-url" type="url" bind:value={ssoForm.icon_url} />
         {/snippet}
       </FormField>
-      <FormField id="sso-ldap-host" label="LDAP Host">
+      <FormField id="sso-ldap-host" label={t('admin.sso.field.ldap_host')}>
         {#snippet children()}
-          <input id="sso-ldap-host" type="text" bind:value={ssoForm.ldap_host} placeholder="ldap.example.com (LDAPS by default)" />
+          <input id="sso-ldap-host" type="text" bind:value={ssoForm.ldap_host} placeholder={t('admin.sso.ldap_host_placeholder')} />
         {/snippet}
       </FormField>
-      <FormField id="sso-ldap-port" label="LDAP Port">
+      <FormField id="sso-ldap-port" label={t('admin.sso.field.ldap_port')}>
         {#snippet children()}
           <input id="sso-ldap-port" type="number" min="1" bind:value={ssoForm.ldap_port} />
         {/snippet}
       </FormField>
-      <FormField id="sso-ldap-bind-dn" label="LDAP Bind DN">
+      <FormField id="sso-ldap-bind-dn" label={t('admin.sso.field.ldap_bind_dn')}>
         {#snippet children()}
           <input id="sso-ldap-bind-dn" type="text" bind:value={ssoForm.ldap_bind_dn} />
         {/snippet}
       </FormField>
-      <FormField id="sso-ldap-bind-password" label="LDAP Bind Password">
+      <FormField id="sso-ldap-bind-password" label={t('admin.sso.field.ldap_bind_password')}>
         {#snippet children()}
           <input
             id="sso-ldap-bind-password"
             type="password"
             bind:value={ssoForm.ldap_bind_password}
-            placeholder={editingSsoId ? 'Leave blank to keep existing password' : ''}
+            placeholder={editingSsoId ? t('admin.sso.keep_password') : ''}
           />
         {/snippet}
       </FormField>
-      <FormField id="sso-ldap-base-dn" label="LDAP Base DN">
+      <FormField id="sso-ldap-base-dn" label={t('admin.sso.field.ldap_base_dn')}>
         {#snippet children()}
           <input id="sso-ldap-base-dn" type="text" bind:value={ssoForm.ldap_base_dn} />
         {/snippet}
       </FormField>
-      <FormField id="sso-ldap-filter" label="LDAP User Filter">
+      <FormField id="sso-ldap-filter" label={t('admin.sso.field.ldap_user_filter')}>
         {#snippet children()}
           <input id="sso-ldap-filter" type="text" bind:value={ssoForm.ldap_user_filter} placeholder={'(uid={username})'} />
         {/snippet}
@@ -301,14 +301,14 @@
     </div>
     <div class="toggle-row">
       <input id="sso-enabled" type="checkbox" bind:checked={ssoForm.enabled} />
-      <label for="sso-enabled">Enable this provider</label>
+      <label for="sso-enabled">{t('admin.sso.enable_provider')}</label>
     </div>
     <div class="inline-actions">
       <button class="btn-primary" type="button" onclick={saveSsoProvider} disabled={ssoSaving}>
-        {ssoSaving ? 'Saving...' : editingSsoId ? 'Update Provider' : 'Create Provider'}
+        {ssoSaving ? t('common.saving') : editingSsoId ? t('admin.sso.update') : t('admin.sso.create')}
       </button>
       {#if editingSsoId}
-        <button class="btn-secondary" type="button" onclick={resetSsoForm}>Cancel</button>
+        <button class="btn-secondary" type="button" onclick={resetSsoForm}>{t('common.cancel')}</button>
       {/if}
     </div>
   </div>

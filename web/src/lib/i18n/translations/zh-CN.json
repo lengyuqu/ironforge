@@ -36,7 +36,8 @@
     "just_now": "刚刚",
     "download": "下载",
     "copied": "已复制",
-    "retry": "重试"
+    "retry": "重试",
+    "page_of": "第 {page} / {total} 页"
   },
   "nav": {
     "dashboard": "仪表板",
@@ -1096,14 +1097,32 @@
       "delete_confirm": "删除用户",
       "delete_warning": "确定要删除用户 \"{username}\" 吗？此操作无法撤销。",
       "display_name": "显示名称",
-      "bio": "个人简介"
+      "bio": "个人简介",
+      "col": {
+        "username": "用户名",
+        "email": "邮箱",
+        "admin": "管理员",
+        "active": "启用",
+        "provider": "认证方式",
+        "login": "登录状态",
+        "created": "创建时间"
+      },
+      "locked": "已锁定",
+      "locked_until": "锁定至 {date}",
+      "failed_attempts": "失败 {count} 次"
     },
     "orgs": {
       "title": "组织管理",
       "desc": "查看和管理所有组织",
       "total": "组织总数",
       "delete_confirm": "删除组织",
-      "delete_warning": "确定要删除组织 \"{name}\" 吗？所有关联数据将丢失。"
+      "delete_warning": "确定要删除组织 \"{name}\" 吗？所有关联数据将丢失。",
+      "col": {
+        "name": "名称",
+        "visibility": "可见性",
+        "owner_id": "所有者 ID",
+        "created": "创建时间"
+      }
     },
     "audit": {
       "title": "审计日志",
@@ -1120,7 +1139,12 @@
         "resource": "资源",
         "ip": "IP 地址",
         "details": "详情"
-      }
+      },
+      "resource_all": "{label}:全部",
+      "resource_user": "用户",
+      "resource_repo": "仓库",
+      "resource_org": "组织",
+      "clear_filters": "清除筛选"
     },
     "runners": {
       "title": "Runner 管理",
@@ -1143,6 +1167,77 @@
     "settings": {
       "title": "实例设置",
       "desc": "实例维护和横幅配置"
+    },
+    "instance": {
+      "maintenance_title": "维护模式",
+      "maintenance_enable": "启用维护模式(只读,拦截所有写请求)",
+      "banner_title": "站点横幅",
+      "banner_message": "横幅内容(留空则隐藏)",
+      "banner_placeholder": "例如:今晚 2 点计划维护",
+      "banner_type": "横幅类型",
+      "banner_info": "提示(蓝色)",
+      "banner_warning": "警告(黄色)",
+      "banner_error": "错误(红色)",
+      "title": "实例设置",
+      "page_title": "实例设置 · 管理 · IronForge"
+    },
+    "login_attempts": {
+      "title": "登录尝试",
+      "matching": "共 {total} 条匹配记录",
+      "refresh": "刷新",
+      "filter_username": "按用户名筛选登录尝试",
+      "username": "用户名",
+      "filter_provider": "按认证方式筛选登录尝试",
+      "provider_placeholder": "认证方式(password、ldap…)",
+      "filter_status": "按结果筛选登录尝试",
+      "status_all": "全部结果",
+      "status_failure": "仅失败",
+      "status_success": "仅成功",
+      "start_time": "登录尝试开始时间",
+      "end_time": "登录尝试结束时间",
+      "apply": "应用",
+      "empty": "没有匹配的登录尝试。",
+      "success": "成功",
+      "failed": "失败",
+      "unknown_ip": "未知 IP"
+    },
+    "sso": {
+      "field": {
+        "name": "名称",
+        "slug": "标识(Slug)",
+        "type": "类型",
+        "client_id": "Client ID",
+        "client_secret": "Client Secret",
+        "discovery_url": "Discovery URL",
+        "scopes": "Scopes",
+        "icon_url": "图标 URL",
+        "ldap_host": "LDAP 主机",
+        "ldap_port": "LDAP 端口",
+        "ldap_bind_dn": "LDAP Bind DN",
+        "ldap_bind_password": "LDAP Bind 密码",
+        "ldap_base_dn": "LDAP Base DN",
+        "ldap_user_filter": "LDAP 用户过滤器"
+      },
+      "title": "SSO 提供方",
+      "empty": "尚未配置 SSO 提供方。",
+      "testing": "测试中...",
+      "test_connection": "测试连接",
+      "disable": "禁用",
+      "enable": "启用",
+      "edit_title": "编辑 SSO 提供方",
+      "add_title": "添加 SSO 提供方",
+      "type_oauth2": "OAuth2 / OIDC",
+      "name_placeholder": "Google Workspace",
+      "keep_secret": "留空则保留现有密钥",
+      "keep_password": "留空则保留现有密码",
+      "ldap_host_placeholder": "ldap.example.com(默认使用 LDAPS)",
+      "enable_provider": "启用此提供方",
+      "update": "更新提供方",
+      "create": "创建提供方",
+      "name_slug_required": "SSO 提供方名称和标识不能为空",
+      "updated": "SSO 提供方已更新",
+      "created": "SSO 提供方已创建",
+      "ldap_test_failed": "LDAP 连接测试失败"
     }
   },
   "profile": {
