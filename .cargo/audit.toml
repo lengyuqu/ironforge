@@ -1,0 +1,27 @@
+# cargo-audit policy. Every ignore below has a reason and a condition for
+# removing it; do not add one without both.
+
+[advisories]
+ignore = [
+  # Marvin Attack (timing side channel in RSA decryption). No patched `rsa`
+  # release exists. It is pulled in by sqlx-mysql (MySQL RSA password
+  # exchange, only used when connecting to MySQL) and by russh/ssh-key for
+  # RSA host/user keys. Remove once `rsa` ships a constant-time fix.
+  "RUSTSEC-2023-0071",
+
+  # rkyv 0.7: present in Cargo.lock only through rust_decimal's optional
+  # `rkyv` feature, which nothing enables, so it is never compiled
+  # (`cargo tree -i rkyv --target all -e all` finds no path to it). Remove
+  # once rust_decimal moves to rkyv 0.8.
+  "RUSTSEC-2026-0235",
+
+  # zip < 9 (SUID/SGID bits, symlink targets and permissions on extract).
+  # IronForge's own `zip` dependency is on 9.x. The remaining 2.x copy is the
+  # build-script dependency of utoipa-swagger-ui 8, which unpacks the Swagger
+  # UI assets bundled inside that crate at compile time and never touches
+  # untrusted archives. A fixed utoipa-swagger-ui (10.x) needs utoipa 6, a
+  # separate migration. Remove when utoipa-swagger-ui is upgraded.
+  "RUSTSEC-2026-0367",
+  "RUSTSEC-2026-0368",
+  "RUSTSEC-2026-0369",
+]
