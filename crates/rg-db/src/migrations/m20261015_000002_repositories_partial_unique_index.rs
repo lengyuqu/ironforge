@@ -27,7 +27,7 @@
 //!   `DELETE` that fires every `ON DELETE CASCADE` child (stars, labels,
 //!   releases, secrets, ...) and wipes them.
 
-use sea_orm::DatabaseBackend;
+use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 use sea_orm_migration::prelude::*;
 
 pub struct Migration;
@@ -353,13 +353,48 @@ async fn postgres_up(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
 
 /// MySQL: no partial indexes. Drop the constraint so deleted names can be
 /// reused, accepting that live names are no longer database-enforced.
+///
+/// The original `UNIQUE (owner_id, name)` is declared without a name, and MySQL
+/// names such an index after its first column (`owner_id`), not
+/// `repositories_owner_id_name_key` like PostgreSQL. So the index is found by
+/// its columns. The `owner_id` foreign key is using it, so a plain index takes
+/// over that job first; MySQL refuses to drop an index a foreign key needs.
 async fn mysql_up(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
     if !manager.has_table("repositories").await? {
         return Ok(());
     }
-    manager
-        .get_connection()
-        .execute_unprepared("ALTER TABLE repositories DROP INDEX repositories_owner_id_name_key")
+    let connection = manager.get_connection();
+    let rows = connection
+        .query_all(Statement::from_string(
+            DatabaseBackend::MySql,
+            "SELECT INDEX_NAME FROM information_schema.STATISTICS \
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'repositories' \
+               AND NON_UNIQUE = 0 \
+             GROUP BY INDEX_NAME \
+             HAVING GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX) = 'owner_id,name'",
+        ))
+        .await?;
+    // Already dropped (or never created): nothing to do, so a re-run is safe.
+    let Some(row) = rows.first() else {
+        return Ok(());
+    };
+    let index_name: String = row.try_get_by_index(0)?;
+
+    if !manager
+        .has_index("repositories", "idx_repositories_owner_id")
+        .await?
+    {
+        connection
+            .execute_unprepared(
+                "CREATE INDEX idx_repositories_owner_id ON repositories (owner_id)",
+            )
+            .await?;
+    }
+    connection
+        .execute_unprepared(&format!(
+            "ALTER TABLE repositories DROP INDEX `{}`",
+            index_name.replace('`', "``")
+        ))
         .await?;
     Ok(())
 }
