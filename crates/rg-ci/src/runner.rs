@@ -998,8 +998,37 @@ fn cache_key_hash(key: &str) -> String {
 ///
 /// IronForge stores bare repositories, so there is no working tree to discover:
 /// `open` on the Git directory itself is the correct entry point.
+///
+/// Creating a linked worktree writes a reflog entry, which needs a committer.
+/// A server with no global `user.name` / `user.email` (a fresh container, a CI
+/// runner) has none and the worktree would fail with "reflog messages need a
+/// committer which isn't set", so IronForge's own identity (the one merge
+/// commits use) fills in when nothing is configured. A configured identity is
+/// left alone.
 fn open_repo(repo_path: &std::path::Path) -> Result<gix::Repository> {
-    gix::open(repo_path).with_context(|| format!("open repository at {}", repo_path.display()))
+    open_repo_with(repo_path, gix::open::Options::default())
+}
+
+/// [`open_repo`] on top of explicit base options (tests pass
+/// `Options::isolated()` to ignore the machine's own git configuration).
+fn open_repo_with(
+    repo_path: &std::path::Path,
+    base: gix::open::Options,
+) -> Result<gix::Repository> {
+    let open = |options: gix::open::Options| {
+        gix::open_opts(repo_path, options)
+            .with_context(|| format!("open repository at {}", repo_path.display()))
+    };
+    let repo = open(base.clone())?;
+    if repo.committer().is_some() {
+        return Ok(repo);
+    }
+    // Overrides given at open time are inherited by the worktree repository
+    // `add_worktree` opens, which an in-memory config change would not be.
+    open(base.config_overrides([
+        "user.name=IronForge",
+        "user.email=noreply@ironforge.local",
+    ]))
 }
 
 /// Return the private Git directories of linked worktrees checked out at `target`.
@@ -1791,5 +1820,29 @@ mod tests {
             .unwrap();
         assert_eq!(allowed.status, "success");
         assert!(allowed.log.unwrap_or_default().contains("host-ran"));
+    }
+
+    #[test]
+    fn open_repo_supplies_a_committer_only_when_none_is_configured() {
+        let temp = tempfile::tempdir().unwrap();
+        let bare = temp.path().join("repo.git");
+        gix::init_bare(&bare).unwrap();
+        let isolated = gix::open::Options::isolated;
+
+        // No identity anywhere: IronForge's own is filled in.
+        let repo = open_repo_with(&bare, isolated()).unwrap();
+        let committer = repo.committer().expect("a fallback committer").unwrap();
+        assert_eq!(committer.name, "IronForge");
+        assert_eq!(committer.email, "noreply@ironforge.local");
+
+        // A configured identity is never replaced.
+        let config = bare.join("config");
+        let mut text = std::fs::read_to_string(&config).unwrap();
+        text.push_str("[user]\n\tname = Real Person\n\temail = real@example.com\n");
+        std::fs::write(&config, text).unwrap();
+        let repo = open_repo_with(&bare, isolated()).unwrap();
+        let committer = repo.committer().unwrap().unwrap();
+        assert_eq!(committer.name, "Real Person");
+        assert_eq!(committer.email, "real@example.com");
     }
 }
