@@ -41,6 +41,17 @@ impl rg_core::ci::CiTrigger for PendingMergeGroupCi {
 
 #[tokio::test]
 async fn queue_waits_for_speculative_merge_group_ci_before_updating_base() {
+    // The server must create merge commits under its own identity. Hide any
+    // global/system git identity so this keeps guarding that on a developer
+    // machine that happens to have `user.name` set (a CI runner has none).
+    // This file holds a single test, so changing the process environment
+    // cannot race with another test.
+    let no_git_config = tempfile::tempdir().unwrap();
+    std::env::set_var("HOME", no_git_config.path());
+    std::env::set_var("XDG_CONFIG_HOME", no_git_config.path());
+    std::env::set_var("GIT_CONFIG_GLOBAL", "/dev/null");
+    std::env::set_var("GIT_CONFIG_NOSYSTEM", "1");
+
     let (db, app_dir) = setup_test_db().await;
     let repo_root = app_dir.path().join("repos");
     std::fs::create_dir_all(&repo_root).unwrap();

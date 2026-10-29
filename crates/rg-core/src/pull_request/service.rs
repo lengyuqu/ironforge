@@ -1541,6 +1541,34 @@ fn gix_delete_ref(repo_path: &std::path::Path, ref_name: &str) -> CoreResult<()>
     Ok(())
 }
 
+/// Identity recorded on merge and squash commits that IronForge itself creates.
+///
+/// Passed explicitly rather than read from git config: a server without a
+/// global `user.name` / `user.email` (a fresh container, a CI runner) would
+/// otherwise fail every merge with "committer identity not configured". It
+/// matches the committer `rg_git::ops::rebase_merge` already uses.
+const SERVER_COMMIT_NAME: &str = "IronForge";
+const SERVER_COMMIT_EMAIL: &str = "noreply@ironforge.local";
+
+fn commit_as_server(
+    repo: &gix::Repository,
+    what: &str,
+    message: &str,
+    tree: gix::ObjectId,
+    parents: Vec<gix::ObjectId>,
+) -> CoreResult<gix::ObjectId> {
+    // `SignatureRef.time` is the raw git timestamp string (`<seconds> <offset>`).
+    let stamp = format!("{} +0000", gix::date::Time::now_utc().seconds);
+    let signature = gix::actor::SignatureRef {
+        name: SERVER_COMMIT_NAME.as_bytes().into(),
+        email: SERVER_COMMIT_EMAIL.as_bytes().into(),
+        time: stamp.as_str(),
+    };
+    repo.commit_as(signature, signature, "HEAD", message, tree, parents)
+        .map(|id| id.detach())
+        .map_err(|e| CoreError::internal(format!("failed to create {what}: {e}")))
+}
+
 /// Perform a `--no-ff` merge using gix merge_commits API.
 /// Creates a merge commit with two parents (current HEAD + `head_ref`).
 fn gix_merge_no_ff(repo_path: &std::path::Path, head_ref: &str, message: &str) -> CoreResult<String> {
@@ -1558,16 +1586,15 @@ fn gix_merge_no_ff(repo_path: &std::path::Path, head_ref: &str, message: &str) -
         gix_merge_commits_to_tree(&repo, our_commit, their_commit, head_ref)?;
 
     // Create merge commit (two parents)
-    let commit_id = repo
-        .commit(
-            "HEAD",
-            message,
-            merged_tree_id.detach(),
-            [our_commit.detach(), their_commit.detach()],
-        )
-        .map_err(|e| CoreError::internal(format!("failed to create merge commit: {}", e)))?;
+    let commit_id = commit_as_server(
+        &repo,
+        "merge commit",
+        message,
+        merged_tree_id.detach(),
+        vec![our_commit.detach(), their_commit.detach()],
+    )?;
 
-    Ok(commit_id.detach().to_string())
+    Ok(commit_id.to_string())
 }
 
 /// Perform a squash merge: merge commits, then create a single-parent commit.
@@ -1586,16 +1613,15 @@ fn gix_squash_merge(repo_path: &std::path::Path, head_ref: &str, message: &str) 
         gix_merge_commits_to_tree(&repo, our_commit, their_commit, head_ref)?;
 
     // Squash merge: single-parent commit
-    let commit_id = repo
-        .commit(
-            "HEAD",
-            message,
-            merged_tree_id.detach(),
-            [our_commit.detach()],
-        )
-        .map_err(|e| CoreError::internal(format!("failed to create squash commit: {}", e)))?;
+    let commit_id = commit_as_server(
+        &repo,
+        "squash commit",
+        message,
+        merged_tree_id.detach(),
+        vec![our_commit.detach()],
+    )?;
 
-    Ok(commit_id.detach().to_string())
+    Ok(commit_id.to_string())
 }
 
 /// Core merge logic: merge two commits and return the merged tree id + conflicts.
