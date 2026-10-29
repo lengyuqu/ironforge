@@ -151,7 +151,7 @@
     color: var(--text-muted);
   }
 
-  @media (max-width: 760px) {
+  @media (max-width: 720px) {
     .settings-layout {
       flex-direction: column;
       gap: 1rem;

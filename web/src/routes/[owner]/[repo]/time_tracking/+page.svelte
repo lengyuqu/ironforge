@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { toErrorMessage } from '$lib/utils/error';
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { page } from '$app/stores';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
   import { issues, timeTracking } from '$lib/api/client.svelte';
@@ -35,8 +37,8 @@
     try {
       const res = await issues.list(owner, repo, 'open', 1, 100);
       issueList = res.data || [];
-    } catch (e: any) {
-      error = e.message;
+    } catch (e) {
+      error = toErrorMessage(e, t('common.unknown_error'));
     } finally {
       issueLoading = false;
     }
@@ -55,8 +57,8 @@
       const res = await timeTracking.list(owner, repo, selectedIssue.number, currentPage, 20);
       entries = res.data || [];
       totalPages = res.pagination?.total_pages ?? 1;
-    } catch (e: any) {
-      error = e.message;
+    } catch (e) {
+      error = toErrorMessage(e, t('common.unknown_error'));
     } finally {
       entriesLoading = false;
     }
@@ -84,7 +86,7 @@
 </script>
 
 <svelte:head>
-  <title>Time Tracking · {owner}/{repo} · IronForge</title>
+  <title>{t('time_tracking.title')} · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
 <div class="page-container">
@@ -95,7 +97,7 @@
   </div>
 
   {#if error}
-    <div class="error-banner">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   <div class="layout">
@@ -108,8 +110,8 @@
 
     <main class="main-panel">
       {#if !selectedIssue}
-        <div class="select-hint">
-          <p>← Select an issue to view and log time</p>
+        <div class="select-hint surface">
+          <p>← {t('time_tracking.select_hint')}</p>
         </div>
       {:else}
         <div class="issue-header">
@@ -119,7 +121,7 @@
             </a>
           </h2>
           {#if totalFormatted}
-            <div class="total-badge">Total: {totalFormatted}</div>
+            <div class="total-badge">{t('time_tracking.total', { time: totalFormatted })}</div>
           {/if}
         </div>
 
@@ -147,8 +149,9 @@
 </div>
 
 <style>
-  .page-header { margin-bottom: 20px; }
-  h1 { font-size: 22px; font-weight: 600; margin: 0; }
+  h1 {
+    margin: 0;
+  }
 
   .layout {
     display: grid;
@@ -166,9 +169,6 @@
     text-align: center;
     color: var(--text-secondary);
     font-size: 14px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
   }
 
   .issue-header {
@@ -180,7 +180,9 @@
     margin-bottom: 16px;
   }
 
-  h2 { font-size: 17px; font-weight: 600; margin: 0; }
+  h2 {
+    margin: 0;
+  }
   .issue-link { color: var(--text-primary); text-decoration: none; }
   .issue-link:hover { color: var(--accent); }
 
@@ -194,11 +196,4 @@
     color: var(--text-secondary);
   }
 
-  .error-banner {
-    color: #f85149;
-    background: rgba(248, 81, 73, 0.1);
-    padding: 10px 12px;
-    border-radius: var(--radius);
-    margin-bottom: 16px;
-  }
 </style>

@@ -3,6 +3,9 @@
   // pipeline detail, auto-refreshes while running, and delegates UI to:
   //   PipelineList (sidebar) / PipelineFlow (stage-job visualization) /
   //   JobLogModal (live log viewer)
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
+  import LoadingState from '$lib/components/LoadingState.svelte';
+  import EmptyState from '$lib/components/EmptyState.svelte';
   import { page } from '$app/stores';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
   import PipelineList from '$lib/components/pipelines/PipelineList.svelte';
@@ -155,32 +158,29 @@
 </script>
 
 <svelte:head>
-  <title>CI/CD · {owner}/{repo} · IronForge</title>
+  <title>{t('repo.tabs.pipelines')} · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
 <div class="page-container">
   <RepoHeader {owner} {repo} activeTab="pipelines" />
 
   {#if error}
-    <div class="error-banner">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   {#if loading}
-    <p class="text-secondary">{t('common.loading')}</p>
+    <LoadingState />
   {:else if pipelineList.length === 0}
-    <div class="empty">
-      <p>{t('pipeline.no_pipelines')}</p>
-      <p class="text-secondary">{t('pipeline.hint', { file: t('pipeline.file') })}</p>
-    </div>
+    <EmptyState title={t('pipeline.no_pipelines')} description={t('pipeline.hint', { file: t('pipeline.file') })} />
   {:else}
     <div class="pipeline-layout">
       <!-- Pipeline list -->
-      <div class="pipeline-list">
+      <div class="pipeline-list surface">
         <PipelineList pipelines={pipelineList} selectedId={selectedPipeline?.id} onSelect={selectPipeline} />
       </div>
 
       <!-- Pipeline detail -->
-      <div class="pipeline-detail">
+      <div class="pipeline-detail surface">
         {#if selectedPipeline}
           <PipelineDetailPanel
             {owner}
@@ -208,8 +208,6 @@
 {/if}
 
 <style>
-  .empty { text-align: center; padding: 48px; color: var(--text-secondary); }
-
   .pipeline-layout {
     display: grid;
     grid-template-columns: 320px 1fr;
@@ -218,18 +216,12 @@
   @media (max-width: 900px) { .pipeline-layout { grid-template-columns: 1fr; } }
 
   .pipeline-list {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
     overflow: hidden;
     display: flex;
     flex-direction: column;
   }
 
   .pipeline-detail {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
     padding: 24px;
   }
 

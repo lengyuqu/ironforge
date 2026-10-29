@@ -48,9 +48,6 @@
 {/if}
 
 <style>
-  h1 {
-    font-size: 24px;
-  }
 
   .pr-meta {
     display: flex;
@@ -68,8 +65,8 @@
     font-weight: 600;
   }
 
-  .state-badge.open { background: rgba(63, 185, 80, 0.15); color: var(--green); }
-  .state-badge.closed { background: rgba(248, 81, 73, 0.15); color: var(--red); }
+  .state-badge.open { background: color-mix(in srgb, var(--green) 15%, transparent); color: var(--green); }
+  .state-badge.closed { background: color-mix(in srgb, var(--red) 15%, transparent); color: var(--red); }
   .state-badge.merged { background: rgba(188, 140, 255, 0.15); color: var(--purple); }
 
   .draft-badge {
@@ -79,14 +76,6 @@
     color: var(--text-secondary);
     font-size: 12px;
     font-weight: 600;
-  }
-
-  .btn-link {
-    padding: 0;
-    border: none;
-    background: none;
-    color: var(--accent);
-    cursor: pointer;
   }
 
   .branch-pair {

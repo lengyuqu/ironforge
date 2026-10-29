@@ -1,4 +1,8 @@
 <script lang="ts">
+  import { toErrorMessage } from '$lib/utils/error';
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
+  import LoadingState from '$lib/components/LoadingState.svelte';
+  import EmptyState from '$lib/components/EmptyState.svelte';
   import { isLoggedIn, getUser } from '$lib/stores/auth.svelte';
   import { repos } from '$lib/api/client.svelte';
   import { goto } from '$app/navigation';
@@ -30,8 +34,8 @@
       loading = true;
       const result = await repos.list(owner);
       repoList = result.data;
-    } catch (e: any) {
-      error = e.message;
+    } catch (e) {
+      error = toErrorMessage(e, t('common.unknown_error'));
     } finally {
       loading = false;
     }
@@ -60,16 +64,13 @@
   {/if}
 
   {#if error}
-    <div class="error-banner">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   {#if loading}
-    <p class="text-secondary">{t('common.loading')}</p>
+    <LoadingState />
   {:else if repoList.length === 0}
-    <div class="empty">
-      <p>{t('dashboard.empty.no_repos')}</p>
-      <p class="text-secondary">{t('dashboard.empty.get_started')}</p>
-    </div>
+    <EmptyState title={t('dashboard.empty.no_repos')} description={t('dashboard.empty.get_started')} />
   {:else}
     <RepoList owner={owner} repos={repoList} />
   {/if}
@@ -83,33 +84,4 @@
     margin-bottom: 24px;
   }
 
-  h1 { font-size: 24px; }
-
-  .btn-primary {
-    padding: 6px 16px;
-    background: var(--green-dim);
-    color: #fff;
-    border: none;
-    border-radius: var(--radius);
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-  }
-  .btn-primary:hover { background: var(--green); }
-
-  .text-secondary { color: var(--text-secondary); }
-
-  .error-banner {
-    color: #f85149;
-    background: rgba(248, 81, 73, 0.1);
-    padding: 10px 12px;
-    border-radius: 6px;
-    margin-bottom: 16px;
-  }
-
-  .empty {
-    text-align: center;
-    padding: 60px 24px;
-    color: var(--text-secondary);
-  }
 </style>

@@ -70,11 +70,11 @@ describe('AdminUserTable.svelte', () => {
     expect(screen.getByText('carol')).toBeInTheDocument();
     expect(screen.getByText('bob@example.com')).toBeInTheDocument();
     // carol is inactive and has failed attempts -> warning badge, unlock button
-    expect(screen.getByText('2 failed')).toBeInTheDocument();
-    expect(screen.getByText('Unlock')).toBeInTheDocument();
+    expect(screen.getByText('admin.users.failed_attempts')).toBeInTheDocument();
+    expect(screen.getByText('admin.users.unlock')).toBeInTheDocument();
     // locked user in the next case uses title; here carol shows failed badge
-    expect(screen.getByText('Page 1 of 2')).toBeInTheDocument();
-    expect(screen.getByText('← Prev')).toBeDisabled();
+    expect(screen.getByText('common.page_of')).toBeInTheDocument();
+    expect(screen.getByText('← common.previous')).toBeDisabled();
   });
 
   it('marks locked users and hides delete for the current admin row', () => {
@@ -92,7 +92,7 @@ describe('AdminUserTable.svelte', () => {
       onRefresh: () => {},
     });
 
-    expect(screen.getByText('Locked')).toBeInTheDocument();
+    expect(screen.getByText('admin.users.locked')).toBeInTheDocument();
     // Delete rendered for bob but not for the admin's own row (id 1).
     expect(screen.getAllByText('common.delete').length).toBe(1);
   });
@@ -110,7 +110,7 @@ describe('AdminUserTable.svelte', () => {
       onRefresh,
     });
 
-    await fireEvent.click(screen.getByText('Unlock'));
+    await fireEvent.click(screen.getByText('admin.users.unlock'));
     await waitFor(() => expect(unlockUser).toHaveBeenCalledWith(2));
     await waitFor(() => expect(onRefresh).toHaveBeenCalledTimes(1));
   });

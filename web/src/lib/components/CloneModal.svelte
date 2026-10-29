@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { buildSshCloneUrl, downloadApiFile, withBackendBase } from '$lib/api/_base.svelte';
   import { browser } from '$app/environment';
   import { createT } from '$lib/i18n';
@@ -52,6 +52,34 @@
     }
   }
 
+  let inputEl = $state<HTMLInputElement | null>(null);
+  const tabs = ['http', 'ssh'] as const;
+
+  // Arrow keys move between the HTTPS/SSH tabs (WAI-ARIA tablist pattern).
+  function onTabKeydown(e: KeyboardEvent) {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight' && e.key !== 'Home' && e.key !== 'End') return;
+    e.preventDefault();
+    const i = tabs.indexOf(cloneTab);
+    const next =
+      e.key === 'Home' ? 0 : e.key === 'End' ? tabs.length - 1 : (i + (e.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+    cloneTab = tabs[next];
+    tick().then(() => document.getElementById(`clone-tab-${cloneTab}`)?.focus());
+  }
+
+  // On open: put the URL in focus and selected so Cmd/Ctrl+C just works;
+  // on close: hand focus back to the button that opened the popover.
+  $effect(() => {
+    if (!open) return;
+    const opener = document.activeElement as HTMLElement | null;
+    tick().then(() => {
+      inputEl?.focus();
+      inputEl?.select();
+    });
+    return () => {
+      if (opener && document.contains(opener)) opener.focus();
+    };
+  });
+
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === 'Escape' && open) {
       e.preventDefault();
@@ -81,22 +109,27 @@
     </div>
 
     <!-- Tab bar -->
-    <div class="clone-tabs" role="tablist">
+    <!-- svelte-ignore a11y_interactive_supports_focus -->
+    <div class="clone-tabs" role="tablist" onkeydown={onTabKeydown}>
       <button
+        id="clone-tab-http"
+        tabindex={cloneTab === 'http' ? 0 : -1}
         class="clone-tab"
         class:active={cloneTab === 'http'}
         onclick={() => (cloneTab = 'http')}
         role="tab"
         aria-selected={cloneTab === 'http'}
-        aria-label="HTTPS clone"
+        aria-label={t('repo.clone_https_tab')}
       >HTTPS</button>
       <button
+        id="clone-tab-ssh"
+        tabindex={cloneTab === 'ssh' ? 0 : -1}
         class="clone-tab"
         class:active={cloneTab === 'ssh'}
         onclick={() => (cloneTab = 'ssh')}
         role="tab"
         aria-selected={cloneTab === 'ssh'}
-        aria-label="SSH clone"
+        aria-label={t('repo.clone_ssh_tab')}
       >SSH</button>
     </div>
 
@@ -106,6 +139,8 @@
         type="text"
         class="clone-input"
         readonly
+        bind:this={inputEl}
+        onfocus={(e) => e.currentTarget.select()}
         value={cloneTab === 'http' ? httpCloneUrl : sshCloneUrl}
         aria-label={t('repo.clone_url')}
       />

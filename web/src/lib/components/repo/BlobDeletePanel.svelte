@@ -77,9 +77,9 @@
   .delete-panel {
     display: grid;
     gap: 10px;
-    border: 1px solid color-mix(in srgb, #cf222e 30%, transparent);
+    border: 1px solid color-mix(in srgb, var(--red) 30%, transparent);
     border-bottom: none;
-    background: color-mix(in srgb, #cf222e 7%, var(--bg-primary));
+    background: color-mix(in srgb, var(--red) 7%, var(--bg-primary));
     padding: 10px 16px;
     font-size: 13px;
   }
@@ -97,11 +97,6 @@
 
   .delete-panel input {
     min-height: 36px;
-    padding: 7px 10px;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    background: var(--bg-primary);
-    color: var(--text-primary);
   }
 
   .delete-actions {
@@ -110,45 +105,12 @@
     gap: 8px;
   }
 
-  .btn-outline {
-    border-radius: 6px;
-    min-height: 32px;
-    padding: 5px 10px;
-    font-size: 13px;
-    text-decoration: none;
-    cursor: pointer;
-    border: 1px solid var(--border);
-    background: var(--bg-primary);
-    color: var(--text-primary);
-  }
-
-  .btn-outline:hover {
-    background: var(--bg-tertiary);
-  }
-
-  .btn-danger {
-    border-radius: 6px;
-    min-height: 32px;
-    padding: 5px 10px;
-    font-size: 13px;
-    text-decoration: none;
-    cursor: pointer;
-    border: 1px solid #cf222e;
-    background: #cf222e;
-    color: white;
-  }
-
-  .btn-danger:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-
   .delete-error {
-    color: #cf222e;
+    color: var(--red);
     font-size: 13px;
   }
 
-  @media (max-width: 820px) {
+  @media (max-width: 900px) {
     .delete-actions {
       justify-content: flex-start;
     }

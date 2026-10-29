@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LoadingState from '$lib/components/LoadingState.svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import { onMount } from 'svelte';
@@ -84,7 +85,7 @@
 </svelte:head>
 
 {#if loading}
-  <div class="loading">{t('common.loading')}</div>
+  <LoadingState />
 {:else if error}
   <div class="editor-error">{error}</div>
 {:else if blobData}
@@ -103,7 +104,6 @@
 {/if}
 
 <style>
-  .loading,
   .editor-error {
     max-width: 900px;
     margin: 0 auto;
@@ -112,6 +112,6 @@
   }
 
   .editor-error {
-    color: #cf222e;
+    color: var(--red);
   }
 </style>

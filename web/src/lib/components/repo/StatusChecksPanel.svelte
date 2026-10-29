@@ -1,8 +1,12 @@
 <script lang="ts">
   // Status checks panel — pure presentation: the combined status banner and
   // the individual check cards.
+  import EmptyState from '$lib/components/EmptyState.svelte';
   import { statusIcon, statusText, statusColor } from '$lib/utils/commitStatus';
   import type { CombinedCommitStatus, CommitStatus } from '$lib/types/entities';
+  import { createT } from '$lib/i18n';
+
+  const t = createT();
 
   interface Props {
     combined: CombinedCommitStatus | null;
@@ -33,24 +37,22 @@
 </script>
 
 {#if combined}
-  <div class="combined-status" style="border-left-color: {statusColor(combined.state)}">
+  <div class="combined-status surface" style="border-left-color: {statusColor(combined.state)}">
     <div class="status-icon-large">
       {statusIcon(combined.state)}
     </div>
     <div class="status-content">
       <h2 class="status-title">{statusText(combined.state)}</h2>
-      <p class="status-count">{combined.total_count} checks</p>
+      <p class="status-count">{t('commit.checks_count', { count: combined.total_count })}</p>
     </div>
   </div>
 {/if}
 
-<div class="status-checks">
-  <h3>Status Checks</h3>
+<div class="status-checks surface">
+  <h3>{t('commit.status')}</h3>
 
   {#if statuses.length === 0}
-    <div class="empty-state">
-      <p>No status checks reported yet.</p>
-    </div>
+    <EmptyState title={t('commit.no_status')} />
   {:else}
     <div class="status-list">
       {#each statuses as status, index (status.id)}
@@ -71,7 +73,7 @@
                 rel="noopener noreferrer"
                 class="status-details-link"
               >
-                View Details →
+                {t('commit.view_details')} →
               </a>
             {/if}
           </div>
@@ -86,10 +88,7 @@
     display: flex;
     align-items: center;
     gap: 1rem;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
     border-left: 4px solid;
-    border-radius: var(--radius);
     padding: 1.5rem;
     margin-bottom: 1.5rem;
   }
@@ -117,9 +116,6 @@
   }
 
   .status-checks {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
     padding: 1.5rem;
   }
 
@@ -128,12 +124,6 @@
     font-weight: 600;
     margin: 0 0 1rem 0;
     color: var(--text-primary);
-  }
-
-  .empty-state {
-    text-align: center;
-    padding: 2rem;
-    color: var(--text-muted);
   }
 
   .status-list {

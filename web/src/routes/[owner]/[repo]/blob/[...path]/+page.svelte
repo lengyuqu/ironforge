@@ -2,6 +2,8 @@
   // Blob viewer page — orchestration layer: loads the file content for the
   // current ref/path, keeps the URL ref in sync, and owns the view-mode and
   // delete-panel visibility state.
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
+  import LoadingState from '$lib/components/LoadingState.svelte';
   import { goto } from '$app/navigation';
   import { page } from '$app/stores';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
@@ -85,11 +87,11 @@
   <RepoHeader {owner} {repo} activeTab="code" />
 
   {#if error}
-    <div class="error-banner">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   {#if loading}
-    <p class="text-secondary">{t('common.loading')}</p>
+    <LoadingState />
   {:else if blobData}
     <BlobBreadcrumb {owner} {repo} {ref} {filePath} />
 
@@ -139,9 +141,9 @@
 
 <style>
   .warning-banner {
-    border: 1px solid color-mix(in srgb, #bf8700 35%, transparent);
+    border: 1px solid color-mix(in srgb, var(--yellow-dim) 35%, transparent);
     border-bottom: none;
-    background: color-mix(in srgb, #bf8700 11%, transparent);
+    background: color-mix(in srgb, var(--yellow-dim) 11%, transparent);
     padding: 10px 16px;
     font-size: 13px;
   }

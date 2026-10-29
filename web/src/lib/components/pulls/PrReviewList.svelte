@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { promptDialog } from '$lib/components/confirm.svelte';
   import { reviews } from '$lib/api/client.svelte';
   import { toast } from '$lib/components/toast.svelte';
   import { toErrorMessage } from '$lib/utils/error';
@@ -35,7 +36,12 @@
   }
 
   async function handleDismiss(review: PrReview) {
-    const message = prompt(t('pulls.review.dismiss_prompt', 'Reason for dismissing this review:'));
+    const message = await promptDialog({
+      message: t('pulls.review.dismiss_prompt', 'Reason for dismissing this review:'),
+      confirmLabel: t('pulls.review.dismiss', 'Dismiss'),
+      multiline: true,
+      required: true,
+    });
     if (message === null) return;
     const reason = message.trim() || t('pulls.review.dismiss_default', 'Review dismissed');
 
@@ -61,7 +67,7 @@
     <div class="review-items">
       {#each reviewList as review (review.id)}
         {@const info = actionInfo(review.action)}
-        <div class="review-item">
+        <div class="review-item surface">
           <div class="review-head">
             <span class="action-badge {info.cls}">{info.label}</span>
             <span class="reviewer">#{review.reviewer_id}</span>
@@ -88,16 +94,15 @@
 
 <style>
   .review-list { margin-top: 24px; }
-  h3 { margin: 0 0 12px; font-size: 15px; }
+  h3 {
+    margin: 0 0 12px;
+  }
   .muted { color: var(--text-secondary); font-size: 13px; }
 
   .review-items { display: flex; flex-direction: column; gap: 8px; }
 
   .review-item {
     padding: 12px 14px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
   }
 
   .review-head {
@@ -108,8 +113,8 @@
     font-size: 12px; font-weight: 600; padding: 2px 10px;
     border-radius: 10px; border: 1px solid var(--border);
   }
-  .action-badge.approved { color: #3fb950; border-color: rgba(63, 185, 80, 0.4); background: rgba(63, 185, 80, 0.08); }
-  .action-badge.changes { color: #f85149; border-color: rgba(248, 81, 73, 0.4); background: rgba(248, 81, 73, 0.08); }
+  .action-badge.approved { color: var(--green); border-color: color-mix(in srgb, var(--green) 40%, transparent); background: color-mix(in srgb, var(--green) 8%, transparent); }
+  .action-badge.changes { color: var(--red); border-color: color-mix(in srgb, var(--red) 40%, transparent); background: color-mix(in srgb, var(--red) 8%, transparent); }
   .action-badge.comment { color: var(--text-secondary); }
   .action-badge.dismissed { color: var(--text-muted); border-style: dashed; }
 

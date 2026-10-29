@@ -1,3 +1,5 @@
+import { t } from '$lib/i18n';
+
 export const PACKAGE_FORMATS = [
   'cargo',
   'npm',
@@ -64,7 +66,7 @@ export function packageFormatUsesGenericFallback(format: string): boolean {
 }
 
 export function packageFormatSupportLabel(format: string): string {
-  return packageFormatUsesGenericFallback(format) ? 'Generic fallback' : 'Native adapter';
+  return packageFormatUsesGenericFallback(format) ? t('packages.support_generic') : t('packages.support_native');
 }
 
 export function packageFormatOptionLabel(format: string): string {

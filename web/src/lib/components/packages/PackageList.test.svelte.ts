@@ -4,6 +4,7 @@ import { render, screen } from '@testing-library/svelte';
 // i18n mock: t() returns the fallback for string fallbacks and the key
 // otherwise (including when called with interpolation params).
 vi.mock('$lib/i18n', () => ({
+  t: (key: string) => key,
   createT: () => (key: string, fallbackOrParams?: string | Record<string, unknown>) =>
     typeof fallbackOrParams === 'string' ? fallbackOrParams : key,
   formatDate: (iso: string) => `fmt(${iso})`,

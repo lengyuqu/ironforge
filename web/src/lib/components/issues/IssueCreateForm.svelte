@@ -1,4 +1,6 @@
 <script lang="ts">
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
+  import { tick } from 'svelte';
   import { issues, milestones } from '$lib/api/client.svelte';
   import { toErrorMessage } from '$lib/utils/error';
   import { createT } from '$lib/i18n';
@@ -53,6 +55,20 @@
   );
   let canSubmit = $derived(titleError === '' && bodyError === '');
 
+  // Errors appear once a field was edited/left or a submit was attempted —
+  // never on a pristine form.
+  let attempted = $state(false);
+  let touched = $state({ title: false, body: false });
+  let showTitleError = $derived(titleError !== '' && (attempted || touched.title));
+  let showBodyError = $derived(bodyError !== '' && (attempted || touched.body));
+  let formEl = $state<HTMLFormElement | null>(null);
+  let titleEl = $state<HTMLInputElement | null>(null);
+
+  // The form is revealed by a user action; start typing right away.
+  $effect(() => {
+    titleEl?.focus();
+  });
+
   $effect(() => {
     loadMilestones();
   });
@@ -69,7 +85,13 @@
 
   async function handleCreate(e: Event) {
     e.preventDefault();
-    if (!canSubmit || submitting) return;
+    if (submitting) return;
+    if (!canSubmit) {
+      attempted = true;
+      await tick();
+      formEl?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
+      return;
+    }
     try {
       submitting = true;
       formError = '';
@@ -87,7 +109,7 @@
         selectedMilestone === '' ? undefined : selectedMilestone,
       );
       await onCreated();
-    } catch (err: any) {
+    } catch (err) {
       formError = toErrorMessage(err, t('errors.create_failed', 'Create failed'));
     } finally {
       submitting = false;
@@ -96,7 +118,7 @@
 </script>
 
 <div class="create-form gh-card">
-  <form onsubmit={handleCreate}>
+  <form onsubmit={handleCreate} bind:this={formEl} novalidate>
     <label>
       {t('issues.create_form.title')}
       <input
@@ -105,8 +127,13 @@
         required
         maxlength={MAX_TITLE_LEN}
         placeholder={t('issues.create_form.title_placeholder')}
+        oninput={() => (touched.title = true)}
+        onblur={() => (touched.title = true)}
+        aria-invalid={showTitleError ? 'true' : undefined}
+        aria-describedby={showTitleError ? 'issue-title-error' : undefined}
+        bind:this={titleEl}
       />
-      {#if titleError}<span class="field-error">{titleError}</span>{/if}
+      {#if showTitleError}<span class="field-error" id="issue-title-error" role="alert">{titleError}</span>{/if}
     </label>
     <label>
       {t('issues.create_form.body')}
@@ -115,8 +142,13 @@
         bind:value={newBody}
         rows="6"
         maxlength={MAX_BODY_LEN}
-        placeholder={t('issues.create_form.body_placeholder')}></textarea>
-      {#if bodyError}<span class="field-error">{bodyError}</span>{/if}
+        placeholder={t('issues.create_form.body_placeholder')}
+        oninput={() => (touched.body = true)}
+        onblur={() => (touched.body = true)}
+        aria-invalid={showBodyError ? 'true' : undefined}
+        aria-describedby={showBodyError ? 'issue-body-error' : undefined}
+      ></textarea>
+      {#if showBodyError}<span class="field-error" id="issue-body-error" role="alert">{bodyError}</span>{/if}
     </label>
     <label>
       {t('issues.create_form.labels')}
@@ -148,11 +180,11 @@
     </label>
 
     {#if formError}
-      <div class="form-error">{formError}</div>
+      <ErrorBanner message={formError} />
     {/if}
 
     <div class="form-actions">
-      <button type="submit" class="btn-primary" disabled={!canSubmit || submitting}>
+      <button type="submit" class="btn-primary" disabled={submitting}>
         {submitting ? t('common.loading') : t('issues.create_form.submit')}
       </button>
       <button type="button" class="btn-secondary" onclick={onCancel}>
@@ -187,65 +219,7 @@
     color: var(--text-muted);
   }
 
-  .field-error {
-    color: var(--red, #d73a49);
-    font-size: 12px;
-    font-weight: 400;
-  }
-
   textarea {
-    font-family: var(--font-mono);
-    font-size: 13px;
     resize: vertical;
-  }
-
-  select {
-    padding: 6px 8px;
-    background: var(--bg-primary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    color: var(--text-primary);
-    font-size: 13px;
-  }
-
-  .form-error {
-    padding: 10px 12px;
-    border-radius: 6px;
-    font-size: 13px;
-    color: var(--red, #d73a49);
-    background: rgba(215, 58, 73, 0.08);
-    border: 1px solid rgba(215, 58, 73, 0.35);
-  }
-
-  .form-actions {
-    display: flex;
-    gap: 8px;
-    margin-top: 8px;
-  }
-
-  .btn-primary {
-    padding: 6px 16px;
-    background: var(--accent);
-    color: #fff;
-    border: 1px solid var(--accent);
-    border-radius: var(--radius);
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-  }
-
-  .btn-primary:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-
-  .btn-secondary {
-    padding: 6px 16px;
-    background: none;
-    color: var(--text-primary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    font-size: 14px;
-    cursor: pointer;
   }
 </style>

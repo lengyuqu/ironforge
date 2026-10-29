@@ -1,4 +1,6 @@
 <script lang="ts">
+  import FormField from '$lib/components/FormField.svelte';
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { collaborators } from '$lib/api/client.svelte';
   import { toErrorMessage } from '$lib/utils/error';
   import { createT } from '$lib/i18n';
@@ -42,7 +44,7 @@
       userIdentifier = '';
       permission = 'read';
       await onAdded();
-    } catch (err: any) {
+    } catch (err) {
       error = toErrorMessage(err, t('settings.collaborators.add_failed'));
     } finally {
       adding = false;
@@ -50,33 +52,35 @@
   }
 </script>
 
-<section class="section">
+<section class="settings-section">
   <h2>{t('settings.collaborators.add_title')}</h2>
 
   {#if error}
-    <div class="error-box">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   <form class="add-form" onsubmit={handleAdd}>
-    <div class="form-group">
-      <label for="collaborator-user">{t('settings.collaborators.user_identifier')}</label>
-      <input
-        id="collaborator-user"
-        type="text"
-        bind:value={userIdentifier}
-        placeholder={t('settings.collaborators.user_placeholder')}
-        disabled={adding}
-      />
-    </div>
+    <FormField id="collaborator-user" label={t('settings.collaborators.user_identifier')}>
+      {#snippet children()}
+        <input
+          id="collaborator-user"
+          type="text"
+          bind:value={userIdentifier}
+          placeholder={t('settings.collaborators.user_placeholder')}
+          disabled={adding}
+        />
+      {/snippet}
+    </FormField>
 
-    <div class="form-group">
-      <label for="collaborator-permission">{t('settings.collaborators.permission')}</label>
-      <select id="collaborator-permission" bind:value={permission} disabled={adding}>
-        {#each permissionOptions as option (option.value)}
-          <option value={option.value}>{option.label}</option>
-        {/each}
-      </select>
-    </div>
+    <FormField id="collaborator-permission" label={t('settings.collaborators.permission')}>
+      {#snippet children()}
+        <select id="collaborator-permission" bind:value={permission} disabled={adding}>
+          {#each permissionOptions as option (option.value)}
+            <option value={option.value}>{option.label}</option>
+          {/each}
+        </select>
+      {/snippet}
+    </FormField>
 
     <button class="btn btn-primary" type="submit" disabled={adding || !userIdentifier.trim()}>
       {adding ? t('settings.collaborators.adding') : t('settings.collaborators.add')}
@@ -86,15 +90,8 @@
 
 <style>
   h2 {
-    font-size: 1.1rem;
     margin: 0 0 1rem;
     color: var(--text-primary);
-  }
-
-  .section {
-    margin-bottom: 2.5rem;
-    padding-bottom: 2rem;
-    border-bottom: 1px solid var(--border);
   }
 
   .add-form {
@@ -104,65 +101,12 @@
     gap: 1rem;
   }
 
-  .form-group {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-  }
-
-  label {
-    color: var(--text-primary);
-    font-size: 0.9rem;
-    font-weight: 500;
-  }
-
   input,
   select {
     min-height: 38px;
-    padding: 0.55rem 0.7rem;
-    background: var(--bg-primary);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    color: var(--text-primary);
-    font-size: 0.9rem;
   }
 
-  input:focus,
-  select:focus {
-    border-color: var(--accent);
-    outline: none;
-  }
-
-  .error-box {
-    padding: 0.75rem 1rem;
-    border-radius: 6px;
-    margin-bottom: 1rem;
-    font-size: 0.9rem;
-    background: rgba(220, 53, 69, 0.1);
-    color: var(--red, #dc3545);
-    border: 1px solid rgba(220, 53, 69, 0.3);
-  }
-
-  .btn {
-    padding: 0.55rem 0.9rem;
-    border-radius: 6px;
-    border: 1px solid var(--border);
-    cursor: pointer;
-    font-size: 0.9rem;
-  }
-
-  .btn:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-
-  .btn-primary {
-    background: var(--accent);
-    color: white;
-    border-color: var(--accent);
-  }
-
-  @media (max-width: 760px) {
+  @media (max-width: 720px) {
     .add-form {
       grid-template-columns: 1fr;
     }

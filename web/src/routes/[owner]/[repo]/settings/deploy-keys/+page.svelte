@@ -1,4 +1,9 @@
 <script lang="ts">
+  import { toErrorMessage } from '$lib/utils/error';
+  import SuccessBanner from '$lib/components/SuccessBanner.svelte';
+  import LoadingState from '$lib/components/LoadingState.svelte';
+  import EmptyState from '$lib/components/EmptyState.svelte';
+  import { confirmDialog } from '$lib/components/confirm.svelte';
   import { page } from '$app/stores';
   import { deployKeys, type DeployKey } from '$lib/api/client.svelte';
   import { createT } from '$lib/i18n';
@@ -28,8 +33,8 @@
       loading = true;
       error = '';
       keys = await deployKeys.list(owner, repo);
-    } catch (err: any) {
-      error = err.message || t('settings.deploy_keys.load_failed', 'Failed to load deploy keys.');
+    } catch (err) {
+      error = toErrorMessage(err, t('settings.deploy_keys.load_failed', 'Failed to load deploy keys.'));
     } finally {
       loading = false;
     }
@@ -51,15 +56,15 @@
       readOnly = true;
       success = t('settings.deploy_keys.created', 'Deploy key added.');
       await loadKeys();
-    } catch (err: any) {
-      error = err.message || t('settings.deploy_keys.create_failed', 'Failed to add deploy key.');
+    } catch (err) {
+      error = toErrorMessage(err, t('settings.deploy_keys.create_failed', 'Failed to add deploy key.'));
     } finally {
       saving = false;
     }
   }
 
   async function removeKey(key: DeployKey) {
-    if (!confirm(t('settings.deploy_keys.delete_confirm', { title: key.title }))) return;
+    if (!(await confirmDialog({ variant: 'danger', message: t('settings.deploy_keys.delete_confirm', { title: key.title }) }))) return;
     try {
       deletingId = key.id;
       error = '';
@@ -67,8 +72,8 @@
       await deployKeys.delete(owner, repo, key.id);
       success = t('settings.deploy_keys.deleted', 'Deploy key removed.');
       await loadKeys();
-    } catch (err: any) {
-      error = err.message || t('settings.deploy_keys.delete_failed', 'Failed to remove deploy key.');
+    } catch (err) {
+      error = toErrorMessage(err, t('settings.deploy_keys.delete_failed', 'Failed to remove deploy key.'));
     } finally {
       deletingId = null;
     }
@@ -84,7 +89,7 @@
   </header>
 
   {#if error}<div class="message error" role="alert">{error}</div>{/if}
-  {#if success}<div class="message success">{success}</div>{/if}
+  {#if success}<SuccessBanner message={success} />{/if}
 
   <section>
     <h2>{t('settings.deploy_keys.add', 'Add deploy key')}</h2>
@@ -101,9 +106,9 @@
   <section>
     <h2>{t('settings.deploy_keys.current', 'Configured deploy keys')}</h2>
     {#if loading}
-      <p>{t('common.loading')}</p>
+      <LoadingState />
     {:else if keys.length === 0}
-      <div class="empty-state">{t('settings.deploy_keys.empty', 'No deploy keys configured.')}</div>
+      <EmptyState title={t('settings.deploy_keys.empty', 'No deploy keys configured.')} />
     {:else}
       <div class="key-list">
         {#each keys as key (key.id)}
@@ -127,17 +132,18 @@
   h1 { margin-bottom: 6px; }
   header p { color: var(--text-secondary); }
   form { display: grid; gap: 9px; }
-  input, textarea { width: 100%; padding: 8px 10px; }
-  textarea, code { font-family: var(--font-mono, monospace); }
+  input, textarea {
+    width: 100%;
+  }
+  textarea, code { font-family: var(--font-mono); }
   .checkbox { display: flex; align-items: center; gap: 8px; }
   .checkbox input { width: auto; }
-  .message, .empty-state { margin-bottom: 18px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius); }
+  .message{ margin-bottom: 18px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius); }
   .error { color: var(--red); }
-  .success { color: var(--green); }
   .key-list { display: grid; gap: 12px; }
   article { display: flex; justify-content: space-between; gap: 16px; align-items: center; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius); }
   article h3 { margin: 0 0 8px; }
   article code { display: block; overflow-wrap: anywhere; color: var(--text-secondary); }
   article span { display: inline-block; margin-top: 8px; color: var(--text-secondary); }
-  article span.write { color: var(--orange, #c56a00); }
+  article span.write { color: var(--orange); }
 </style>

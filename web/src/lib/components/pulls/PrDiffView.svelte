@@ -119,7 +119,7 @@
 <div class="diff-view">
   {#if diffData && diffData.files_changed.length > 0}
     <div class="diff-summary">
-      <strong>{diffData.stats.files_changed} files</strong>
+      <strong>{t('pulls.files_changed_count', { count: diffData.stats.files_changed })}</strong>
       <span class="addition-text">+{diffData.stats.total_additions}</span>
       <span class="deletion-text">−{diffData.stats.total_deletions}</span>
     </div>
@@ -226,9 +226,9 @@
     line-height: 22px;
     background: var(--bg-primary);
   }
-  .diff-line.addition { background: rgba(63, 185, 80, 0.12); }
-  .diff-line.deletion { background: rgba(248, 81, 73, 0.12); }
-  .diff-line.meta { background: rgba(88, 166, 255, 0.09); color: var(--text-secondary); }
+  .diff-line.addition { background: color-mix(in srgb, var(--green) 12%, transparent); }
+  .diff-line.deletion { background: color-mix(in srgb, var(--red) 12%, transparent); }
+  .diff-line.meta { background: color-mix(in srgb, var(--accent) 9%, transparent); color: var(--text-secondary); }
   .diff-line > code {
     padding: 0 10px;
     white-space: pre;
@@ -258,7 +258,7 @@
     color: transparent;
     cursor: pointer;
   }
-  .diff-line:hover .comment-gutter button { color: #fff; background: var(--accent); }
+  .diff-line:hover .comment-gutter button { color: var(--text-on-accent); background: var(--accent); }
 
   .inline-comment-form,
   .inline-thread {
@@ -295,43 +295,8 @@
   }
   .range-control input { width: 72px; }
 
-  .btn-link {
-    padding: 0;
-    border: none;
-    background: none;
-    color: var(--accent);
-    cursor: pointer;
-  }
-
-  .btn-primary {
-    padding: 6px 16px;
-    background: var(--green-dim);
-    color: #fff;
-    border: none;
-    border-radius: var(--radius);
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-  }
-  .btn-primary:hover:not(:disabled) { background: var(--green); }
-  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
-
-  .btn-secondary {
-    padding: 6px 16px;
-    background: var(--bg-tertiary);
-    color: var(--text-primary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    font-size: 14px;
-    cursor: pointer;
-  }
-  .btn-secondary:hover:not(:disabled) { border-color: var(--accent); }
-  .btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
-
   textarea {
     width: 100%;
-    font-family: var(--font-mono);
-    font-size: 13px;
     resize: vertical;
     margin-bottom: 12px;
   }

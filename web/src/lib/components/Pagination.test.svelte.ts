@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/svelte';
 
-// No i18n needed: Pagination's info line is hardcoded English.
+// Uses the real English catalog, so assertions read as the rendered text.
 
 import Pagination from './Pagination.svelte';
 

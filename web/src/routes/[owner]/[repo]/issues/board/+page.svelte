@@ -1,4 +1,9 @@
 <script lang="ts">
+  import { toErrorMessage } from '$lib/utils/error';
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
+  import LoadingState from '$lib/components/LoadingState.svelte';
+  import EmptyState from '$lib/components/EmptyState.svelte';
+  import { createT } from '$lib/i18n';
   import { page } from '$app/stores';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
   import { boards } from '$lib/api/client.svelte';
@@ -7,6 +12,8 @@
   import BoardCreateForm from '$lib/components/boards/BoardCreateForm.svelte';
   import ColumnCreateForm from '$lib/components/boards/ColumnCreateForm.svelte';
   import BoardColumn from '$lib/components/boards/BoardColumn.svelte';
+
+  const t = createT();
 
   let owner = $derived($page.params.owner!);
   let repo = $derived($page.params.repo!);
@@ -31,8 +38,8 @@
         activeBoardId = activeBoardId ?? boardList[0].id;
         await loadBoard(activeBoardId!);
       }
-    } catch (e: any) {
-      error = e.message;
+    } catch (e) {
+      error = toErrorMessage(e, t('common.unknown_error'));
     } finally {
       loading = false;
     }
@@ -60,26 +67,23 @@
 </script>
 
 <svelte:head>
-  <title>Board · {owner}/{repo} · IronForge</title>
+  <title>{t('repo.tabs.board')} · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
 <div class="page-container">
   <RepoHeader {owner} {repo} activeTab="board" starsCount={0} />
 
   {#if error}
-    <div class="error-banner">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   {#if loading}
-    <p class="loading-text">Loading…</p>
+    <LoadingState />
   {:else if boardList.length === 0 && !showCreateBoard}
     <!-- Empty state -->
-    <div class="empty-state">
-      <div class="empty-icon">📋</div>
-      <h2>No boards yet</h2>
-      <p>Create your first project board to organize issues.</p>
-      <button class="btn-primary" onclick={() => showCreateBoard = true}>Create Board</button>
-    </div>
+    <EmptyState icon="📋" title={t('board.noBoards')} description={t('board.noBoardsHint')}>
+      <button class="btn-primary" onclick={() => (showCreateBoard = true)}>{t('board.createBoard')}</button>
+    </EmptyState>
   {:else}
     <!-- Board selector + controls -->
     <div class="board-toolbar">
@@ -89,7 +93,7 @@
         onSelect={handleSelectBoard}
         onAddBoard={() => showCreateBoard = !showCreateBoard}
       />
-      <button class="btn-outline btn-sm" onclick={() => showAddColumn = !showAddColumn}>+ Column</button>
+      <button class="btn-outline btn-sm" onclick={() => showAddColumn = !showAddColumn}>+ {t('board.columnLabel')}</button>
     </div>
 
     {#if showCreateBoard}
@@ -130,16 +134,6 @@
 </div>
 
 <style>
-  .loading-text { color: var(--text-secondary); text-align: center; padding: 48px; }
-
-  /* ── Empty state ── */
-  .empty-state {
-    text-align: center; padding: 80px 24px;
-    display: flex; flex-direction: column; align-items: center; gap: 12px;
-  }
-  .empty-icon { font-size: 48px; }
-  .empty-state h2 { font-size: 20px; font-weight: 600; margin: 0; }
-  .empty-state p { color: var(--text-secondary); font-size: 14px; margin: 0; }
 
   /* ── Toolbar ── */
   .board-toolbar {
@@ -152,22 +146,4 @@
     display: flex; gap: 16px; overflow-x: auto; padding-bottom: 16px;
     align-items: flex-start;
   }
-
-  .error-banner {
-    color: #f85149; background: rgba(248, 81, 73, 0.1);
-    padding: 10px 12px; border-radius: 6px; margin-bottom: 16px;
-  }
-
-  /* ── Buttons ── */
-  .btn-primary {
-    padding: 6px 14px; background: var(--accent); color: #fff; border: none;
-    border-radius: var(--radius); font-size: 13px; font-weight: 600; cursor: pointer;
-  }
-  .btn-primary:hover { filter: brightness(1.1); }
-  .btn-outline {
-    padding: 5px 12px; background: none; border: 1px solid var(--border);
-    border-radius: var(--radius); color: var(--text-primary); font-size: 13px; cursor: pointer;
-  }
-  .btn-outline:hover { background: var(--bg-secondary); }
-  .btn-sm { padding: 4px 10px; font-size: 12px; }
 </style>

@@ -1,10 +1,15 @@
 <script lang="ts">
+  import { toErrorMessage } from '$lib/utils/error';
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
+  import LoadingState from '$lib/components/LoadingState.svelte';
+  import EmptyState from '$lib/components/EmptyState.svelte';
   import { repos } from '$lib/api/client.svelte';
+  import type { ExploreRepo } from '$lib/types/entities';
   import { createT, formatDate } from '$lib/i18n';
 
   const t = createT();
 
-  let repoList = $state<any[]>([]);
+  let repoList = $state<ExploreRepo[]>([]);
   let loading = $state(true);
   let error = $state('');
   let page = $state(1);
@@ -25,8 +30,8 @@
       totalPages = result.pagination?.total_pages ?? 1;
       totalCount = result.pagination?.total ?? 0;
       page = p;
-    } catch (e: any) {
-      error = e.message;
+    } catch (e) {
+      error = toErrorMessage(e, t('common.unknown_error'));
     } finally {
       loading = false;
     }
@@ -44,19 +49,17 @@
   </div>
 
   {#if error}
-    <div class="error-banner">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   {#if loading}
-    <p class="text-secondary">{t('common.loading')}</p>
+    <LoadingState />
   {:else if repoList.length === 0}
-    <div class="empty">
-      <p>{t('explore.empty')}</p>
-    </div>
+    <EmptyState title={t('explore.empty')} />
   {:else}
     <div class="repo-grid">
       {#each repoList as repo}
-        <a href={`/${repo.owner_name}/${repo.name}`} class="repo-card">
+        <a href={`/${repo.owner_name}/${repo.name}`} class="repo-card surface">
           <div class="rc-icon">📂</div>
           <div class="rc-body">
             <div class="rc-name">{repo.owner_name}/{repo.name}</div>
@@ -72,13 +75,13 @@
     {#if totalPages > 1}
       <div class="pagination">
         <button
-          class="btn-page"
+          class="btn-page surface"
           disabled={page <= 1}
           onclick={() => loadPage(page - 1)}
         >← {t('explore.prev')}</button>
         <span class="page-info">{page} / {totalPages}</span>
         <button
-          class="btn-page"
+          class="btn-page surface"
           disabled={page >= totalPages}
           onclick={() => loadPage(page + 1)}
         >{t('explore.next')} →</button>
@@ -88,20 +91,13 @@
 </div>
 
 <style>
-  .page-header {
-    margin-bottom: 24px;
-  }
 
-  h1 { font-size: 24px; margin-bottom: 4px; }
+  h1 {
+    margin-bottom: 4px;
+  }
 
   .subtitle {
     font-size: 14px;
-    color: var(--text-secondary);
-  }
-
-  .empty {
-    text-align: center;
-    padding: 60px 24px;
     color: var(--text-secondary);
   }
 
@@ -122,9 +118,6 @@
     display: flex;
     gap: 12px;
     padding: 16px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
     text-decoration: none;
     color: var(--text-primary);
     transition: border-color 0.15s;
@@ -171,9 +164,6 @@
 
   .btn-page {
     padding: 6px 14px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
     color: var(--text-primary);
     font-size: 13px;
     cursor: pointer;

@@ -71,9 +71,20 @@ export interface ForkSummary {
   created_at: string;
 }
 
+export interface RepoListEntry {
+  id: number;
+  name: string;
+  description: string | null;
+  is_private: boolean;
+  stars_count: number;
+  forks_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export const repos = {
   list: (owner: string, page?: number, perPage?: number) =>
-    request<PaginatedResponse<{ id: number; name: string; description: string | null; is_private: boolean; created_at: string }>>(
+    request<PaginatedResponse<RepoListEntry>>(
       `/repos/${owner}${qs({ page, per_page: perPage })}`
     ),
   explore: (page?: number, perPage?: number) =>

@@ -1,8 +1,14 @@
 <script lang="ts">
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
+  import LoadingState from '$lib/components/LoadingState.svelte';
+  import EmptyState from '$lib/components/EmptyState.svelte';
+  import { createT } from '$lib/i18n';
+  import { confirmDialog } from '$lib/components/confirm.svelte';
   import { timeTracking } from '$lib/api/client.svelte';
   import { toErrorMessage } from '$lib/utils/error';
   import type { TimeEntry } from '$lib/types/entities';
 
+  const t = createT();
   let {
     owner,
     repo,
@@ -36,14 +42,14 @@
   }
 
   async function handleDelete(id: number) {
-    if (!confirm('Delete this time entry?')) return;
+    if (!(await confirmDialog({ variant: 'danger', message: t('confirm.time_entry_delete') }))) return;
     try {
       deletingId = id;
       error = '';
       await timeTracking.delete(owner, repo, issueNumber, id);
       await onRefresh();
-    } catch (e: any) {
-      error = toErrorMessage(e, 'Failed to delete time entry');
+    } catch (e) {
+      error = toErrorMessage(e, t('time_tracking.delete_failed'));
     } finally {
       deletingId = null;
     }
@@ -51,20 +57,20 @@
 </script>
 
 {#if error}
-  <div class="error-banner">{error}</div>
+  <ErrorBanner message={error} />
 {/if}
 
 {#if loading}
-  <p class="loading-text">Loading…</p>
+  <LoadingState compact />
 {:else if entries.length === 0}
-  <div class="empty">No time entries for this issue yet.</div>
+  <EmptyState title={t('time_tracking.empty')} />
 {:else}
   <table class="entries-table">
     <thead>
       <tr>
-        <th>Duration</th>
-        <th>Note</th>
-        <th>Logged</th>
+        <th>{t('time_tracking.col_duration')}</th>
+        <th>{t('time_tracking.note')}</th>
+        <th>{t('time_tracking.col_logged')}</th>
         <th></th>
       </tr>
     </thead>
@@ -80,7 +86,7 @@
               onclick={() => handleDelete(entry.id)}
               disabled={deletingId === entry.id}
             >
-              {deletingId === entry.id ? '…' : 'Delete'}
+              {deletingId === entry.id ? '…' : t('common.delete')}
             </button>
           </td>
         </tr>
@@ -95,7 +101,7 @@
         disabled={currentPage <= 1}
         onclick={() => onPageChange(currentPage - 1)}
       >
-        Previous
+        {t('common.previous')}
       </button>
       <span>{currentPage} / {totalPages}</span>
       <button
@@ -103,28 +109,13 @@
         disabled={currentPage >= totalPages}
         onclick={() => onPageChange(currentPage + 1)}
       >
-        Next
+        {t('common.next')}
       </button>
     </div>
   {/if}
 {/if}
 
 <style>
-  .loading-text {
-    color: var(--text-secondary);
-    text-align: center;
-    padding: 32px;
-  }
-
-  .empty {
-    padding: 40px;
-    text-align: center;
-    color: var(--text-secondary);
-    font-size: 14px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-  }
 
   .entries-table {
     width: 100%;
@@ -169,45 +160,6 @@
     text-align: right;
   }
 
-  .btn-outline {
-    padding: 5px 12px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    color: var(--text-primary);
-    font-size: 13px;
-    cursor: pointer;
-  }
-
-  .btn-outline:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .btn-danger {
-    padding: 4px 10px;
-    background: var(--red-dim);
-    border: 1px solid var(--red);
-    border-radius: var(--radius);
-    color: #fff;
-    font-size: 12px;
-    cursor: pointer;
-  }
-
-  .btn-danger:hover:not(:disabled) {
-    background: var(--red);
-  }
-
-  .btn-danger:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .btn-sm {
-    padding: 4px 10px;
-    font-size: 12px;
-  }
-
   .pagination {
     display: flex;
     align-items: center;
@@ -221,12 +173,4 @@
     color: var(--text-secondary);
   }
 
-  .error-banner {
-    padding: 8px 12px;
-    border-radius: var(--radius);
-    margin-bottom: 12px;
-    font-size: 13px;
-    color: var(--red, #f85149);
-    background: rgba(248, 81, 73, 0.1);
-  }
 </style>

@@ -85,7 +85,7 @@
   }
 </script>
 
-<div class="release-card">
+<div class="release-card surface">
   <div class="release-header">
     <div class="tag-section">
       <span class="tag-badge">🏷 {release.tag_name}</span>
@@ -112,7 +112,7 @@
   </div>
 
   {#if assets.length}
-    <div class="asset-list" aria-label="Release assets">
+    <div class="asset-list" aria-label={t('releases.assets_label')}>
       {#each assets as asset (asset.id)}
         <button
           type="button"
@@ -121,7 +121,7 @@
           disabled={downloadingAssetId === asset.id}
         >
           <span class="asset-name">{asset.filename}</span>
-          <span class="asset-meta">{formatBytes(asset.size)} · {asset.download_count || 0} downloads</span>
+          <span class="asset-meta">{formatBytes(asset.size)} · {t('releases.download_count', { count: asset.download_count || 0 })}</span>
         </button>
       {/each}
     </div>
@@ -133,7 +133,7 @@
 
     {#if confirmDelete}
       <div class="delete-confirm">
-        <span>Are you sure?</span>
+        <span>{t('releases.confirm_delete')}</span>
         <button class="btn-danger" onclick={handleDelete} disabled={deleting}>
           {deleting ? '...' : t('common.delete')}
         </button>
@@ -147,9 +147,6 @@
 
 <style>
   .release-card {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
     padding: 20px;
   }
 
@@ -179,12 +176,12 @@
 
   .badge.latest {
     background: var(--green-dim);
-    color: #fff;
+    color: var(--text-on-accent);
   }
 
   .badge.prerelease {
     background: var(--yellow-dim);
-    color: #fff;
+    color: var(--text-on-accent);
   }
 
   .badge.draft {
@@ -287,29 +284,6 @@
     font-size: 13px;
   }
   .delete-confirm span { color: var(--text-secondary); }
-
-  .btn-secondary {
-    padding: 5px 12px;
-    background: none;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    color: var(--text-primary);
-    font-size: 13px;
-    cursor: pointer;
-  }
-  .btn-secondary:hover { background: var(--bg-hover); }
-
-  .btn-danger {
-    padding: 5px 12px;
-    background: var(--red-dim);
-    border: 1px solid var(--red);
-    border-radius: var(--radius);
-    color: #fff;
-    font-size: 13px;
-    cursor: pointer;
-  }
-  .btn-danger:hover { background: var(--red); }
-  .btn-danger:disabled { opacity: 0.5; cursor: not-allowed; }
 
   @media (max-width: 600px) {
     .release-actions {

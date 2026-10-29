@@ -3,6 +3,9 @@
   // the search request and delegates UI to:
   //   SearchBox (input + help + type tabs)
   //   SearchResultsList (result cards + pagination)
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
+  import LoadingState from '$lib/components/LoadingState.svelte';
+  import EmptyState from '$lib/components/EmptyState.svelte';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
   import { createT } from '$lib/i18n';
@@ -136,25 +139,13 @@
 
   <div class="search-body">
     {#if loading}
-      <div class="loading">
-        <div class="spinner"></div>
-        <span>{t('common.loading')}</span>
-      </div>
+      <LoadingState />
     {:else if searchError}
-      <div class="error-state">
-        <p>{searchError}</p>
-      </div>
+      <ErrorBanner message={searchError} />
     {:else if !hasSearched}
-      <div class="empty-state">
-        <svg class="empty-icon" viewBox="0 0 16 16" width="48" height="48" fill="currentColor">
-          <path d="M11.5 7a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0Zm-.82 4.74a6 6 0 1 1 1.06-1.06l3.04 3.04a.75.75 0 1 1-1.06 1.06l-3.04-3.04Z"/>
-        </svg>
-        <p>{t('search.placeholder')}</p>
-      </div>
+      <EmptyState icon="🔍" title={t('search.placeholder')} />
     {:else if results.length === 0}
-      <div class="empty-state">
-        <p>{t('search.no_results')}</p>
-      </div>
+      <EmptyState title={t('search.no_results')} />
     {:else}
       <div class="results-info">
         {t('search.results_count', { total })}
@@ -183,62 +174,11 @@
   }
 
   h1 {
-    font-size: 24px;
     margin-bottom: 20px;
   }
 
   .search-body {
     min-height: 200px;
-  }
-
-  .loading {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 40px 0;
-    color: var(--text-secondary);
-    justify-content: center;
-  }
-
-  .spinner {
-    width: 20px;
-    height: 20px;
-    border: 2px solid var(--border);
-    border-top-color: var(--accent);
-    border-radius: 50%;
-    animation: spin 0.6s linear infinite;
-  }
-
-  @keyframes spin {
-    to { transform: rotate(360deg); }
-  }
-
-  .empty-state {
-    text-align: center;
-    padding: 60px 24px;
-    color: var(--text-secondary);
-  }
-
-  .empty-icon {
-    color: var(--text-muted);
-    margin-bottom: 16px;
-  }
-
-  .empty-state p {
-    font-size: 15px;
-  }
-
-  .error-state {
-    padding: 16px;
-    color: var(--red);
-    background: color-mix(in srgb, var(--red) 10%, transparent);
-    border: 1px solid color-mix(in srgb, var(--red) 30%, transparent);
-    border-radius: var(--radius);
-  }
-
-  .error-state p {
-    margin: 0;
-    font-size: 14px;
   }
 
   .results-info {
@@ -263,7 +203,7 @@
     border: 1px solid var(--border);
     border-radius: 4px;
     padding: 1px 5px;
-    font-family: var(--font-mono, monospace);
+    font-family: var(--font-mono);
     font-size: 11px;
   }
 </style>

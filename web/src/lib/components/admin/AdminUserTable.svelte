@@ -36,7 +36,7 @@
       unlockingUserId = user.id;
       await admin.unlockUser(user.id);
       await onRefresh();
-    } catch (e: any) {
+    } catch (e) {
       toast.error(toErrorMessage(e, t('errors.load_failed')));
     } finally {
       unlockingUserId = null;
@@ -48,13 +48,13 @@
   <table class="users-table">
     <thead>
       <tr>
-        <th>Username</th>
-        <th>Email</th>
-        <th>Admin</th>
-        <th>Active</th>
-        <th>Provider</th>
-        <th>Login</th>
-        <th>Created</th>
+        <th>{t('admin.users.col.username')}</th>
+        <th>{t('admin.users.col.email')}</th>
+        <th>{t('admin.users.col.admin')}</th>
+        <th>{t('admin.users.col.active')}</th>
+        <th>{t('admin.users.col.provider')}</th>
+        <th>{t('admin.users.col.login')}</th>
+        <th>{t('admin.users.col.created')}</th>
         <th></th>
       </tr>
     </thead>
@@ -64,26 +64,26 @@
           <td class="username">{u.username}</td>
           <td class="email">{u.email}</td>
           <td>
-            <span class="badge" class:admin={u.is_admin}>
+            <span class="badge surface" class:admin={u.is_admin}>
               {u.is_admin ? '✓' : '—'}
             </span>
           </td>
           <td>
-            <span class="badge" class:active={u.is_active} class:inactive={!u.is_active}>
+            <span class="badge surface" class:active={u.is_active} class:inactive={!u.is_active}>
               {u.is_active ? '✓' : '✗'}
             </span>
           </td>
-          <td><span class="badge">{u.auth_provider}</span></td>
+          <td><span class="badge surface">{u.auth_provider}</span></td>
           <td class="login-state">
             {#if isLocked(u)}
-              <span class="badge locked" title={`Locked until ${formatDate(u.locked_until || '')}`}
-                >Locked</span
+              <span class="badge locked surface" title={t('admin.users.locked_until', { date: formatDate(u.locked_until || '') })}
+                >{t('admin.users.locked')}</span
               >
             {:else if u.login_attempts > 0}
-              <span class="badge warning">{u.login_attempts} failed</span>
+              <span class="badge warning surface">{t('admin.users.failed_attempts', { count: u.login_attempts })}</span>
             {:else}
               <span
-                class="badge active"
+                class="badge active surface"
                 title={u.last_login_at
                   ? `Last login ${formatDate(u.last_login_at)}`
                   : 'No completed login recorded'}>OK</span
@@ -98,7 +98,7 @@
                 disabled={unlockingUserId === u.id}
                 onclick={() => handleUnlock(u)}
               >
-                {unlockingUserId === u.id ? 'Unlocking...' : 'Unlock'}
+                {unlockingUserId === u.id ? t('admin.users.unlocking') : t('admin.users.unlock')}
               </button>
             {/if}
             <button class="btn-sm" onclick={() => onEdit(u)}>{t('common.edit')}</button>
@@ -114,9 +114,9 @@
 
 {#if totalPages > 1}
   <div class="pagination">
-    <button onclick={() => onPageChange(page - 1)} disabled={page <= 1}>← Prev</button>
-    <span>Page {page} of {totalPages}</span>
-    <button onclick={() => onPageChange(page + 1)} disabled={page >= totalPages}>Next →</button>
+    <button onclick={() => onPageChange(page - 1)} disabled={page <= 1}>← {t('common.previous')}</button>
+    <span>{t('common.page_of', { page, total: totalPages })}</span>
+    <button onclick={() => onPageChange(page + 1)} disabled={page >= totalPages}>{t('common.next')} →</button>
   </div>
 {/if}
 
@@ -176,10 +176,7 @@
   .badge {
     display: inline-block;
     padding: 0.1rem 0.4rem;
-    border-radius: 8px;
     font-size: 0.8rem;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
   }
 
   .badge.admin {
@@ -193,38 +190,18 @@
   }
 
   .badge.inactive {
-    color: #f85149;
-    border-color: #f85149;
+    color: var(--red);
+    border-color: var(--red);
   }
 
   .badge.locked {
-    color: #f85149;
-    border-color: #f85149;
+    color: var(--red);
+    border-color: var(--red);
   }
 
   .badge.warning {
     color: var(--orange);
     border-color: var(--orange);
-  }
-
-  .btn-sm {
-    padding: 0.25rem 0.6rem;
-    font-size: 0.8rem;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    cursor: pointer;
-    color: var(--text-primary);
-  }
-
-  .btn-danger {
-    padding: 0.25rem 0.6rem;
-    font-size: 0.8rem;
-    background: rgba(248, 81, 73, 0.1);
-    border: 1px solid rgba(248, 81, 73, 0.4);
-    border-radius: 6px;
-    cursor: pointer;
-    color: #f85149;
   }
 
   .pagination {

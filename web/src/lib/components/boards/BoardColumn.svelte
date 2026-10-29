@@ -1,10 +1,14 @@
 <script lang="ts">
+  import { createT } from '$lib/i18n';
+  import { confirmDialog } from '$lib/components/confirm.svelte';
   import { boards } from '$lib/api/client.svelte';
   import { toast } from '$lib/components/toast.svelte';
   import { toErrorMessage } from '$lib/utils/error';
   import type { BoardCard as BoardCardType, BoardColumn as BoardColumnType } from '$lib/types/entities';
   import BoardCard from './BoardCard.svelte';
 
+
+  const t = createT();
   let {
     owner,
     repo,
@@ -60,7 +64,7 @@
       });
       await onRefresh();
     } catch (err) {
-      toast.error(toErrorMessage(err, 'Move failed'));
+      toast.error(toErrorMessage(err, t('board.moveFailed')));
     } finally {
       cardIds = [];
     }
@@ -75,7 +79,7 @@
       showAddCard = false;
       await onRefresh();
     } catch (err) {
-      toast.error(toErrorMessage(err, 'Add card failed'));
+      toast.error(toErrorMessage(err, t('board.addCardFailed')));
     }
   }
 
@@ -84,23 +88,23 @@
       await boards.deleteCard(owner, repo, boardId, cardId);
       await onRefresh();
     } catch (err) {
-      toast.error(toErrorMessage(err, 'Delete card failed'));
+      toast.error(toErrorMessage(err, t('board.deleteCardFailed')));
     }
   }
 
   async function handleDeleteColumn() {
-    if (!confirm('Delete this column and all its cards?')) return;
+    if (!(await confirmDialog({ variant: 'danger', message: t('confirm.column_delete') }))) return;
     try {
       await boards.deleteColumn(owner, repo, boardId, column.id);
       await onRefresh();
     } catch (err) {
-      toast.error(toErrorMessage(err, 'Delete column failed'));
+      toast.error(toErrorMessage(err, t('board.deleteColumnFailed')));
     }
   }
 </script>
 
 <div
-  class="board-column"
+  class="board-column surface"
   class:drag-over={dragOver}
   ondragover={onDragOver}
   ondragleave={onDragLeave}
@@ -112,7 +116,7 @@
     <span class="column-name">{column.name}</span>
     <div class="column-actions">
       <span class="card-count">{cards.length}</span>
-      <button class="btn-ghost btn-xs" onclick={handleDeleteColumn} title="Delete column">✕</button>
+      <button class="btn-ghost btn-xs" onclick={handleDeleteColumn} title={t('board.deleteColumn')}>✕</button>
     </div>
   </div>
 
@@ -134,13 +138,13 @@
         <textarea
           class="card-textarea"
           rows="2"
-          placeholder="Add a note…"
+          placeholder={t('board.notePlaceholder')}
           bind:value={newCardNote}
           onkeydown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleAddCard(); } }}
         ></textarea>
         <div class="add-card-actions">
-          <button class="btn-primary btn-xs" onclick={handleAddCard}>Add</button>
-          <button class="btn-ghost btn-xs" onclick={() => showAddCard = false}>Cancel</button>
+          <button class="btn-primary btn-xs" onclick={handleAddCard}>{t('common.add')}</button>
+          <button class="btn-ghost btn-xs" onclick={() => showAddCard = false}>{t('common.cancel')}</button>
         </div>
       </div>
     {:else}
@@ -153,9 +157,10 @@
 
 <style>
   .board-column {
-    flex: 0 0 280px; background: var(--bg-secondary);
-    border: 1px solid var(--border); border-radius: var(--radius);
-    display: flex; flex-direction: column; min-height: 200px;
+    flex: 0 0 280px;
+    display: flex;
+    flex-direction: column;
+    min-height: 200px;
     transition: background 0.15s;
   }
   .board-column.drag-over { background: var(--bg-hover); border-color: var(--accent); }
@@ -187,16 +192,4 @@
     color: var(--text-primary); font-size: 13px; resize: none; box-sizing: border-box;
   }
   .add-card-actions { display: flex; gap: 6px; }
-
-  .btn-primary {
-    padding: 6px 14px; background: var(--accent); color: #fff; border: none;
-    border-radius: var(--radius); font-size: 13px; font-weight: 600; cursor: pointer;
-  }
-  .btn-primary:hover { filter: brightness(1.1); }
-  .btn-ghost {
-    padding: 5px 10px; background: none; border: none;
-    color: var(--text-secondary); font-size: 13px; cursor: pointer; border-radius: var(--radius);
-  }
-  .btn-ghost:hover { background: var(--bg-secondary); color: var(--text-primary); }
-  .btn-xs { padding: 3px 8px; font-size: 12px; }
 </style>

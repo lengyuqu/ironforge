@@ -1,8 +1,13 @@
 <script lang="ts">
+  import { toErrorMessage } from '$lib/utils/error';
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
+  import LoadingState from '$lib/components/LoadingState.svelte';
+  import EmptyState from '$lib/components/EmptyState.svelte';
   import { page } from '$app/stores';
   import { onMount } from 'svelte';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
   import { wiki } from '$lib/api/client.svelte';
+  import type { WikiRevision } from '$lib/types/entities';
   import { createT, formatDate } from '$lib/i18n';
 
   const t = createT();
@@ -10,8 +15,8 @@
   let owner = $derived($page.params.owner!);
   let repo = $derived($page.params.repo!);
   let title = $derived($page.params.title!);
-  let revisions = $state<any[]>([]);
-  let currentRev = $state<any>(null);
+  let revisions = $state<WikiRevision[]>([]);
+  let currentRev = $state<WikiRevision | null>(null);
   let loading = $state(true);
   let error = $state('');
   let viewingRev = $state(false);
@@ -22,19 +27,19 @@
     try {
       loading = true;
       revisions = await wiki.listRevisions(owner, repo, title);
-    } catch (e: any) {
-      error = e.message;
+    } catch (e) {
+      error = toErrorMessage(e, t('common.unknown_error'));
     } finally {
       loading = false;
     }
   }
 
-  async function viewRevision(rev: any) {
+  async function viewRevision(rev: WikiRevision) {
     try {
       currentRev = await wiki.getRevision(owner, repo, title, rev.id);
       viewingRev = true;
-    } catch (e: any) {
-      error = e.message;
+    } catch (e) {
+      error = toErrorMessage(e, t('common.unknown_error'));
     }
   }
 
@@ -58,14 +63,14 @@
   </div>
 
   {#if loading}
-    <div class="loading">{t('common.loading')}...</div>
+    <LoadingState />
   {:else if error}
-    <div class="error">{error}</div>
+    <ErrorBanner message={error} />
   {:else}
     {#if viewingRev && currentRev}
       <div class="revision-detail">
         <div class="rev-meta">
-          <h3>Revision #{currentRev.id}</h3>
+          <h3>{t('wiki.revision_title', { id: currentRev.id })}</h3>
           <p class="rev-info">
             {formatDate(currentRev.created_at)}
             {#if currentRev.message}
@@ -109,7 +114,7 @@
           </tbody>
         </table>
         {#if revisions.length === 0}
-          <p class="empty">{t('wiki.noRevisions')}</p>
+          <EmptyState title={t('wiki.noRevisions')} />
         {/if}
       </div>
     {/if}
@@ -127,22 +132,15 @@
   }
   .breadcrumb {
     font-size: 0.9rem;
-    color: var(--text-secondary, #666);
+    color: var(--text-secondary);
   }
   .breadcrumb a {
-    color: var(--link-color, #2563eb);
+    color: var(--accent);
     text-decoration: none;
   }
   .breadcrumb a:hover { text-decoration: underline; }
   .breadcrumb .sep { margin: 0 0.4rem; }
-  .breadcrumb .current { color: var(--text-primary, #333); font-weight: 600; }
-
-  .loading, .error, .empty {
-    text-align: center;
-    padding: 2rem;
-    color: var(--text-secondary, #666);
-  }
-  .error { color: #dc2626; }
+  .breadcrumb .current { color: var(--text-primary); font-weight: 600; }
 
   .rev-table {
     width: 100%;
@@ -152,25 +150,25 @@
   .rev-table th {
     text-align: left;
     padding: 0.5rem 0.75rem;
-    border-bottom: 2px solid var(--border-color, #e5e7eb);
-    color: var(--text-secondary, #666);
+    border-bottom: 2px solid var(--border);
+    color: var(--text-secondary);
     font-weight: 600;
   }
   .rev-table td {
     padding: 0.5rem 0.75rem;
-    border-bottom: 1px solid var(--border-color, #e5e7eb);
+    border-bottom: 1px solid var(--border);
   }
   .rev-id {
-    color: var(--text-secondary, #666);
+    color: var(--text-secondary);
     font-family: monospace;
     width: 3rem;
   }
   .rev-msg { max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .rev-date { color: var(--text-secondary, #666); width: 10rem; }
+  .rev-date { color: var(--text-secondary); width: 10rem; }
 
   .revision-detail { margin-top: 1rem; }
   .rev-meta {
-    background: var(--bg-secondary, #f9fafb);
+    background: var(--bg-secondary);
     padding: 1rem;
     border-radius: 8px;
     margin-bottom: 1rem;
@@ -180,9 +178,9 @@
     flex-wrap: wrap;
   }
   .rev-meta h3 { margin: 0; font-size: 1rem; }
-  .rev-info { margin: 0; color: var(--text-secondary, #666); font-size: 0.85rem; }
+  .rev-info { margin: 0; color: var(--text-secondary); font-size: 0.85rem; }
   .rev-content {
-    background: var(--bg-secondary, #f9fafb);
+    background: var(--bg-secondary);
     padding: 1rem;
     border-radius: 8px;
     overflow-x: auto;
@@ -195,17 +193,4 @@
     margin: 0;
     line-height: 1.6;
   }
-
-  .btn {
-    padding: 0.4rem 1rem;
-    border: 1px solid var(--border-color, #d1d5db);
-    border-radius: 6px;
-    background: var(--bg-primary, #fff);
-    cursor: pointer;
-    font-size: 0.85rem;
-    color: var(--text-primary, #333);
-  }
-  .btn:hover { background: var(--bg-secondary, #f3f4f6); }
-  .btn-sm { padding: 0.2rem 0.6rem; font-size: 0.8rem; }
-  .btn-secondary { background: var(--bg-secondary, #f3f4f6); }
 </style>

@@ -48,24 +48,23 @@
   .error-code {
     font-size: 6rem;
     font-weight: 700;
-    color: var(--color-primary, #0969da);
+    color: var(--accent);
     line-height: 1;
     margin-bottom: 1rem;
   }
 
   h1 {
-    font-size: 1.75rem;
     margin: 0 0 0.75rem;
   }
 
   p {
-    color: var(--color-text-secondary, #57606a);
+    color: var(--text-secondary);
     margin: 0 0 0.5rem;
     max-width: 480px;
   }
 
   .error-detail {
-    color: var(--color-danger, #cf222e);
+    color: var(--red);
     font-family: monospace;
     font-size: 0.875rem;
     word-break: break-word;
@@ -75,8 +74,8 @@
     display: inline-block;
     margin-top: 1.5rem;
     padding: 0.5rem 1.25rem;
-    background-color: var(--color-primary, #0969da);
-    color: #fff;
+    background-color: var(--accent);
+    color: var(--text-on-accent);
     text-decoration: none;
     border-radius: 6px;
     font-weight: 500;

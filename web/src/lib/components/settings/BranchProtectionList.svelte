@@ -1,6 +1,9 @@
 <script lang="ts">
   // Branch protection rules table — renders the current rules; deletion is
   // self-contained (confirm + API + toast), editing delegates via onEdit.
+  import LoadingState from '$lib/components/LoadingState.svelte';
+  import EmptyState from '$lib/components/EmptyState.svelte';
+  import { confirmDialog } from '$lib/components/confirm.svelte';
   import { branchProtections, type BranchProtectionRule } from '$lib/api/client.svelte';
   import { createT } from '$lib/i18n';
   import { toast } from '$lib/components/toast.svelte';
@@ -26,7 +29,7 @@
   let busyId = $state<number | null>(null);
 
   async function deleteRule(rule: BranchProtectionRule) {
-    if (!confirm(t('settings.branch_protection.delete_confirm', { branch: rule.branch_name }))) return;
+    if (!(await confirmDialog({ variant: 'danger', message: t('settings.branch_protection.delete_confirm', { branch: rule.branch_name }) }))) return;
 
     try {
       busyId = rule.id;
@@ -42,13 +45,13 @@
   }
 </script>
 
-<section class="section">
+<section class="settings-section">
   <h2>{t('settings.branch_protection.current')}</h2>
 
   {#if loading}
-    <div class="loading">{t('common.loading')}</div>
+    <LoadingState />
   {:else if rules.length === 0}
-    <div class="empty-state">{t('settings.branch_protection.empty')}</div>
+    <EmptyState title={t('settings.branch_protection.empty')} />
   {:else}
     <div class="table-wrap">
       <table>
@@ -92,25 +95,8 @@
 
 <style>
   h2 {
-    font-size: 1.1rem;
     margin: 0 0 1rem;
     color: var(--text-primary);
-  }
-
-  .section {
-    margin-bottom: 2.5rem;
-    padding-bottom: 2rem;
-    border-bottom: 1px solid var(--border);
-  }
-
-  .empty-state,
-  .loading {
-    padding: 1rem;
-    border-radius: 6px;
-    margin-bottom: 1rem;
-    background: var(--bg-secondary);
-    color: var(--text-secondary);
-    text-align: center;
   }
 
   .table-wrap {
@@ -144,7 +130,7 @@
   }
 
   code {
-    font-family: var(--font-mono, monospace);
+    font-family: var(--font-mono);
     font-size: 0.9rem;
   }
 
@@ -166,24 +152,6 @@
     display: flex;
     justify-content: flex-end;
     gap: 0.75rem;
-  }
-
-  .btn {
-    padding: 0.55rem 0.9rem;
-    border-radius: 6px;
-    border: 1px solid var(--border);
-    cursor: pointer;
-  }
-
-  .btn-outline {
-    background: transparent;
-    color: var(--text-primary);
-  }
-
-  .btn-danger {
-    background: var(--danger, #dc2626);
-    border-color: var(--danger, #dc2626);
-    color: white;
   }
 
   @media (max-width: 720px) {

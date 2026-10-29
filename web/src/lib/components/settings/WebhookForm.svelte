@@ -1,4 +1,5 @@
 <script lang="ts">
+  import FormField from '$lib/components/FormField.svelte';
   import { webhooks } from '$lib/api/client.svelte';
   import { toast } from '$lib/components/toast.svelte';
   import { toErrorMessage } from '$lib/utils/error';
@@ -82,24 +83,27 @@
 </script>
 
 <form class="webhook-form" onsubmit={createWebhook}>
-  <div class="form-group">
-    <label for="webhook-url">{t('settings.webhooks.url', 'Payload URL')}</label>
-    <input id="webhook-url" type="url" bind:value={url} placeholder="https://example.com/webhook" disabled={saving} />
-  </div>
+  <FormField id="webhook-url" label={t('settings.webhooks.url', 'Payload URL')}>
+    {#snippet children()}
+      <input id="webhook-url" type="url" bind:value={url} placeholder="https://example.com/webhook" disabled={saving} />
+    {/snippet}
+  </FormField>
 
   <div class="form-row">
-    <div class="form-group">
-      <label for="webhook-content-type">{t('settings.webhooks.content_type', 'Content type')}</label>
-      <select id="webhook-content-type" bind:value={contentType} disabled={saving}>
-        <option value="json">application/json</option>
-        <option value="form">application/x-www-form-urlencoded</option>
-      </select>
-    </div>
+    <FormField id="webhook-content-type" label={t('settings.webhooks.content_type', 'Content type')}>
+      {#snippet children()}
+        <select id="webhook-content-type" bind:value={contentType} disabled={saving}>
+          <option value="json">application/json</option>
+          <option value="form">application/x-www-form-urlencoded</option>
+        </select>
+      {/snippet}
+    </FormField>
 
-    <div class="form-group">
-      <label for="webhook-secret">{t('settings.webhooks.secret', 'Secret')}</label>
-      <input id="webhook-secret" type="password" bind:value={secret} autocomplete="new-password" disabled={saving} />
-    </div>
+    <FormField id="webhook-secret" label={t('settings.webhooks.secret', 'Secret')}>
+      {#snippet children()}
+        <input id="webhook-secret" type="password" bind:value={secret} autocomplete="new-password" disabled={saving} />
+      {/snippet}
+    </FormField>
   </div>
 
   <fieldset class="event-grid">
@@ -142,33 +146,11 @@
     gap: 1rem;
   }
 
-  .form-group {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-  }
-
   label,
   legend {
     color: var(--text-primary);
     font-size: 0.9rem;
     font-weight: 500;
-  }
-
-  input,
-  select {
-    padding: 0.6rem 0.75rem;
-    background: var(--bg-primary);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    color: var(--text-primary);
-    font-size: 0.9rem;
-  }
-
-  input:focus,
-  select:focus {
-    outline: none;
-    border-color: var(--accent);
   }
 
   .event-grid {
@@ -193,25 +175,6 @@
   .actions {
     display: flex;
     gap: 0.75rem;
-  }
-
-  .btn {
-    padding: 0.6rem 1.25rem;
-    border: none;
-    border-radius: 6px;
-    font-size: 0.9rem;
-    font-weight: 500;
-    cursor: pointer;
-  }
-
-  .btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .btn-primary {
-    background: var(--accent);
-    color: white;
   }
 
   @media (max-width: 720px) {

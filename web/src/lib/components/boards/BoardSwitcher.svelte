@@ -1,5 +1,8 @@
 <script lang="ts">
   import type { Board } from '$lib/types/entities';
+  import { createT } from '$lib/i18n';
+
+  const t = createT();
 
   let {
     boards,
@@ -22,7 +25,7 @@
       onclick={() => onSelect(b.id)}
     >{b.name}</button>
   {/each}
-  <button class="btn-ghost btn-sm" onclick={onAddBoard}>+ Board</button>
+  <button class="btn-ghost btn-sm" onclick={onAddBoard}>+ {t('board.boardLabel')}</button>
 </div>
 
 <style>
@@ -33,12 +36,5 @@
     font-size: 13px; cursor: pointer;
   }
   .board-tab:hover { background: var(--bg-secondary); }
-  .board-tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
-
-  .btn-ghost {
-    padding: 5px 10px; background: none; border: none;
-    color: var(--text-secondary); font-size: 13px; cursor: pointer; border-radius: var(--radius);
-  }
-  .btn-ghost:hover { background: var(--bg-secondary); color: var(--text-primary); }
-  .btn-sm { padding: 4px 10px; font-size: 12px; }
+  .board-tab.active { background: var(--accent); color: var(--text-on-accent); border-color: var(--accent); }
 </style>

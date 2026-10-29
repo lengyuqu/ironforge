@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { toErrorMessage } from '$lib/utils/error';
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { page } from '$app/stores';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
   import { pulls } from '$lib/api/client.svelte';
@@ -28,8 +30,8 @@
       loading = true;
       error = '';
       prList = (await pulls.list(owner, repo, filterState)).data;
-    } catch (e: any) {
-      error = e.message;
+    } catch (e) {
+      error = toErrorMessage(e, t('common.unknown_error'));
     } finally {
       loading = false;
     }
@@ -42,7 +44,7 @@
 </script>
 
 <svelte:head>
-  <title>Pull Requests · {owner}/{repo} · IronForge</title>
+  <title>{t('repo.tabs.pulls')} · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
 <div class="page-container">
@@ -66,7 +68,7 @@
   {/if}
 
   {#if error}
-    <div class="error-banner">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   <PullList {owner} {repo} pullRequests={prList} {loading} filter={filterState} />
@@ -80,26 +82,4 @@
     margin-bottom: 16px;
   }
 
-  .btn-primary {
-    padding: 6px 16px;
-    background: var(--accent);
-    color: #fff;
-    border: 1px solid var(--accent);
-    border-radius: var(--radius);
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-  }
-
-  .btn-primary:hover {
-    background: var(--accent-hover);
-  }
-
-  .error-banner {
-    color: #f85149;
-    background: rgba(248, 81, 73, 0.1);
-    padding: 10px 12px;
-    border-radius: var(--radius);
-    margin-bottom: 16px;
-  }
 </style>

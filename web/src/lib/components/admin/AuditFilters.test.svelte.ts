@@ -27,7 +27,7 @@ describe('AuditFilters.svelte', () => {
     expect(screen.getByText('user.login')).toBeInTheDocument();
     expect(screen.getByText('admin.delete_user')).toBeInTheDocument();
     // No filters set -> no clear button.
-    expect(screen.queryByText('Clear filters')).toBeNull();
+    expect(screen.queryByText('admin.audit.clear_filters')).toBeNull();
   });
 
   it('shows the clear button when a filter is active and invokes onClear', async () => {
@@ -39,7 +39,7 @@ describe('AuditFilters.svelte', () => {
       onClear,
     });
 
-    const clearBtn = screen.getByText('Clear filters');
+    const clearBtn = screen.getByText('admin.audit.clear_filters');
     await fireEvent.click(clearBtn);
     expect(onClear).toHaveBeenCalledTimes(1);
   });

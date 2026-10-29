@@ -8,6 +8,7 @@
 import { auth } from '$lib/api/client.svelte';
 import type { User } from '$lib/types/entities';
 import { toErrorMessage } from '$lib/utils/error';
+import { t } from '$lib/i18n';
 
 let currentUser = $state<User | null>(null);
 let isLoading = $state(false);
@@ -71,7 +72,7 @@ export async function login(username: string, password: string) {
     };
     return true;
   } catch (e) {
-    error = toErrorMessage(e, 'Login failed');
+    error = toErrorMessage(e, t('errors.login_failed'));
     return false;
   } finally {
     isLoading = false;
@@ -80,7 +81,7 @@ export async function login(username: string, password: string) {
 
 export async function verifyMfa(code: string, backup = false) {
   if (!pendingMfaUsername) {
-    error = 'MFA verification is not pending';
+    error = t('auth.login.mfa_not_pending');
     return false;
   }
 
@@ -100,7 +101,7 @@ export async function verifyMfa(code: string, backup = false) {
     };
     return true;
   } catch (e) {
-    error = toErrorMessage(e, 'MFA verification failed');
+    error = toErrorMessage(e, t('auth.login.mfa_failed'));
     return false;
   } finally {
     isLoading = false;
@@ -115,7 +116,7 @@ export async function register(username: string, email: string, password: string
     // Auto login after register — backend sets cookie on login.
     return await login(username, password);
   } catch (e) {
-    error = toErrorMessage(e, 'Registration failed');
+    error = toErrorMessage(e, t('errors.register_failed'));
     return false;
   } finally {
     isLoading = false;

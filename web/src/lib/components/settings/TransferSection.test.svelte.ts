@@ -1,4 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+// The app's confirm/prompt dialogs are promise-based UI; route them through the
+// stubbed window.confirm / window.prompt so tests keep driving the answer.
+vi.mock('$lib/components/confirm.svelte', () => ({
+  confirmDialog: async (o: { message: string }) => globalThis.confirm(o.message),
+  promptDialog: async (o: { message: string }) => globalThis.prompt(o.message),
+}));
 import { render, screen, fireEvent, waitFor } from '@testing-library/svelte';
 
 const reposTransfer = vi.fn();
@@ -62,9 +69,9 @@ describe('TransferSection.svelte', () => {
     // Success is shown inline; the redirect to the new repo path is
     // deferred by a 1.5s setTimeout, which is not awaited here.
     await waitFor(() =>
-      expect(document.querySelector('.success-box')?.textContent).toBe('settings.transfer.success')
+      expect(screen.getByRole('status')).toHaveTextContent('settings.transfer.success')
     );
-    expect(document.querySelector('.error-box')).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('skips the transfer when the confirmation dialog is dismissed', async () => {
@@ -92,6 +99,6 @@ describe('TransferSection.svelte', () => {
     await waitFor(() =>
       expect(screen.getByText('target is an organization')).toBeInTheDocument()
     );
-    expect(document.querySelector('.success-box')).not.toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 });

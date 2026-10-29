@@ -85,7 +85,7 @@
         </button>
         <button
           type="button"
-          class="btn-close"
+          class="btn-secondary"
           disabled={saving}
           onclick={() => (editing = false)}
         >
@@ -167,7 +167,7 @@
   .assignee-badge.primary {
     border-color: var(--green);
     color: var(--green);
-    background: rgba(63, 185, 80, 0.12);
+    background: color-mix(in srgb, var(--green) 12%, transparent);
   }
 
   .assignees-empty {
@@ -178,8 +178,6 @@
 
   .assignees-editor input {
     width: 100%;
-    font-size: 13px;
-    padding: 6px 10px;
     margin-bottom: 8px;
   }
 
@@ -193,27 +191,4 @@
     color: var(--text-muted);
     margin: 8px 0 0;
   }
-
-  .btn-primary {
-    padding: 6px 16px;
-    background: var(--green-dim);
-    color: #fff;
-    border: none;
-    border-radius: var(--radius);
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-  }
-  .btn-primary:disabled { opacity: 0.5; }
-
-  .btn-close {
-    padding: 6px 16px;
-    background: none;
-    color: var(--text-primary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    font-size: 14px;
-    cursor: pointer;
-  }
-  .btn-close:hover { background: var(--bg-hover); }
 </style>

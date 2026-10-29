@@ -1,9 +1,14 @@
 <script lang="ts">
+  import { toErrorMessage } from '$lib/utils/error';
+  import SuccessBanner from '$lib/components/SuccessBanner.svelte';
+  import EmptyState from '$lib/components/EmptyState.svelte';
+  import { confirmDialog } from '$lib/components/confirm.svelte';
   import { goto } from '$app/navigation';
   import { sshKeys, type SshKey } from '$lib/api/client.svelte';
-  import { t } from '$lib/i18n';
+  import { createT } from '$lib/i18n';
   import { isAuthReady, isLoggedIn } from '$lib/stores/auth.svelte';
 
+  const t = createT();
   let keys = $state<SshKey[]>([]);
   let loading = $state(true);
   let adding = $state(false);
@@ -27,8 +32,8 @@
       loading = true;
       error = '';
       keys = await sshKeys.list();
-    } catch (err: any) {
-      error = err.message || t('ssh_keys.load_failed');
+    } catch (err) {
+      error = toErrorMessage(err, t('ssh_keys.load_failed'));
     } finally {
       loading = false;
     }
@@ -54,15 +59,15 @@
       publicKey = '';
       success = t('ssh_keys.added');
       await loadKeys();
-    } catch (err: any) {
-      error = err.message || t('ssh_keys.add_failed');
+    } catch (err) {
+      error = toErrorMessage(err, t('ssh_keys.add_failed'));
     } finally {
       adding = false;
     }
   }
 
   async function deleteKey(key: SshKey) {
-    if (!confirm(t('ssh_keys.delete_confirm', { title: key.title }))) return;
+    if (!(await confirmDialog({ variant: 'danger', message: t('ssh_keys.delete_confirm', { title: key.title }) }))) return;
 
     try {
       deletingId = key.id;
@@ -71,8 +76,8 @@
       await sshKeys.delete(key.id);
       success = t('ssh_keys.deleted');
       await loadKeys();
-    } catch (err: any) {
-      error = err.message || t('ssh_keys.delete_failed');
+    } catch (err) {
+      error = toErrorMessage(err, t('ssh_keys.delete_failed'));
     } finally {
       deletingId = null;
     }
@@ -96,9 +101,9 @@
   </header>
 
   {#if error}<div class="message error-box" role="alert">{error}</div>{/if}
-  {#if success}<div class="message success-box">{success}</div>{/if}
+  {#if success}<SuccessBanner message={success} />{/if}
 
-  <section class="section">
+  <section class="settings-section">
     <h2>{t('ssh_keys.add_title')}</h2>
     <form class="create-form" onsubmit={addKey}>
       <label for="ssh-key-title">{t('ssh_keys.name')}</label>
@@ -128,12 +133,12 @@
     </form>
   </section>
 
-  <section class="section">
+  <section class="settings-section">
     <h2>{t('ssh_keys.existing')}</h2>
     {#if loading}
       <p class="muted">{t('ssh_keys.loading')}</p>
     {:else if keys.length === 0}
-      <div class="empty-state">{t('ssh_keys.empty')}</div>
+      <EmptyState title={t('ssh_keys.empty')} />
     {:else}
       <div class="key-list">
         {#each keys as key (key.id)}
@@ -169,19 +174,26 @@
 
 <style>
   .ssh-keys-page { max-width: 880px; }
-  .page-header { margin-bottom: 24px; }
-  h1 { margin: 0 0 6px; font-size: 28px; }
-  h2 { margin: 0 0 16px; font-size: 18px; }
-  h3 { margin: 0; font-size: 16px; }
+  h1 {
+    margin: 0 0 6px;
+  }
+  h2 {
+    margin: 0 0 16px;
+  }
+  h3 {
+    margin: 0;
+  }
   p { margin: 0; color: var(--text-secondary); }
-  .section { margin-bottom: 32px; padding-bottom: 28px; border-bottom: 1px solid var(--border); }
   .create-form { display: grid; gap: 8px; }
   label { margin-top: 8px; color: var(--text-secondary); font-size: 13px; font-weight: 600; }
-  input, textarea { width: 100%; padding: 8px 10px; }
-  textarea { resize: vertical; font-family: var(--font-mono, monospace); }
-  .message, .empty-state { margin-bottom: 20px; padding: 14px 16px; border: 1px solid var(--border); border-radius: var(--radius); }
+  input, textarea {
+    width: 100%;
+  }
+  textarea {
+    resize: vertical;
+  }
+  .message{ margin-bottom: 20px; padding: 14px 16px; border: 1px solid var(--border); border-radius: var(--radius); }
   .error-box { color: var(--red); background: color-mix(in srgb, var(--red) 10%, transparent); }
-  .success-box { color: var(--green); background: color-mix(in srgb, var(--green) 10%, transparent); }
   .key-list { display: grid; gap: 12px; }
   .key-card { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius); }
   .key-main { min-width: 0; }
@@ -191,7 +203,7 @@
   dt { color: var(--text-secondary); }
   dd { margin: 0; }
   .muted { color: var(--text-secondary); }
-  @media (max-width: 640px) {
+  @media (max-width: 600px) {
     .key-card { align-items: flex-start; flex-direction: column; }
   }
 </style>

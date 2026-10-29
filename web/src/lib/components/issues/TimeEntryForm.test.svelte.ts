@@ -23,9 +23,9 @@ describe('TimeEntryForm.svelte', () => {
     const onAdded = vi.fn().mockResolvedValue(undefined);
     render(TimeEntryForm, { owner: 'acme', repo: 'web', issueNumber: 7, onAdded });
 
-    await fireEvent.input(screen.getByLabelText('Duration (hours)'), { target: { value: '2.5' } });
-    await fireEvent.input(screen.getByLabelText('Note'), { target: { value: 'work' } });
-    await fireEvent.click(screen.getByText('Add'));
+    await fireEvent.input(screen.getByLabelText('time_tracking.duration_hours'), { target: { value: '2.5' } });
+    await fireEvent.input(screen.getByLabelText('time_tracking.note'), { target: { value: 'work' } });
+    await fireEvent.click(screen.getByText('common.add'));
 
     await waitFor(() =>
       expect(addMock).toHaveBeenCalledWith('acme', 'web', 7, {
@@ -35,16 +35,16 @@ describe('TimeEntryForm.svelte', () => {
     );
     await waitFor(() => expect(onAdded).toHaveBeenCalledTimes(1));
 
-    expect((screen.getByLabelText('Duration (hours)') as HTMLInputElement).value).toBe('1');
-    expect((screen.getByLabelText('Note') as HTMLInputElement).value).toBe('');
+    expect((screen.getByLabelText('time_tracking.duration_hours') as HTMLInputElement).value).toBe('1');
+    expect((screen.getByLabelText('time_tracking.note') as HTMLInputElement).value).toBe('');
   });
 
   it('sends undefined description when the note is empty', async () => {
     const onAdded = vi.fn().mockResolvedValue(undefined);
     render(TimeEntryForm, { owner: 'acme', repo: 'web', issueNumber: 7, onAdded });
 
-    await fireEvent.input(screen.getByLabelText('Duration (hours)'), { target: { value: '1' } });
-    await fireEvent.click(screen.getByText('Add'));
+    await fireEvent.input(screen.getByLabelText('time_tracking.duration_hours'), { target: { value: '1' } });
+    await fireEvent.click(screen.getByText('common.add'));
 
     await waitFor(() =>
       expect(addMock).toHaveBeenCalledWith('acme', 'web', 7, {
@@ -58,8 +58,8 @@ describe('TimeEntryForm.svelte', () => {
   it('disables the add button when duration is zero or less', async () => {
     render(TimeEntryForm, { owner: 'acme', repo: 'web', issueNumber: 7, onAdded: vi.fn() });
 
-    await fireEvent.input(screen.getByLabelText('Duration (hours)'), { target: { value: '0' } });
-    const add = screen.getByText('Add').closest('button') as HTMLButtonElement;
+    await fireEvent.input(screen.getByLabelText('time_tracking.duration_hours'), { target: { value: '0' } });
+    const add = screen.getByText('common.add').closest('button') as HTMLButtonElement;
     expect(add.disabled).toBe(true);
     expect(addMock).not.toHaveBeenCalled();
   });
@@ -69,8 +69,8 @@ describe('TimeEntryForm.svelte', () => {
     const onAdded = vi.fn().mockResolvedValue(undefined);
     render(TimeEntryForm, { owner: 'acme', repo: 'web', issueNumber: 7, onAdded });
 
-    await fireEvent.input(screen.getByLabelText('Duration (hours)'), { target: { value: '1' } });
-    await fireEvent.click(screen.getByText('Add'));
+    await fireEvent.input(screen.getByLabelText('time_tracking.duration_hours'), { target: { value: '1' } });
+    await fireEvent.click(screen.getByText('common.add'));
 
     await waitFor(() => expect(screen.getByText('boom')).toBeInTheDocument());
     expect(onAdded).not.toHaveBeenCalled();

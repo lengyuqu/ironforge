@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { toErrorMessage } from '$lib/utils/error';
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { goto } from '$app/navigation';
   import { isAuthReady, isLoggedIn } from '$lib/stores/auth.svelte';
   import { orgs } from '$lib/api/client.svelte';
@@ -28,8 +30,8 @@
     error = '';
     try {
       organizations = await orgs.list();
-    } catch (e: any) {
-      error = e.message || t('errors.load_failed');
+    } catch (e) {
+      error = toErrorMessage(e, t('errors.load_failed'));
     } finally {
       loading = false;
     }
@@ -65,7 +67,7 @@
   </div>
 
   {#if error}
-    <div class="error" role="alert">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   {#if showCreate}
@@ -76,13 +78,6 @@
 </div>
 
 <style>
-  .page-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: 1rem;
-    margin-bottom: 1.5rem;
-  }
 
   h1 {
     color: var(--text-primary);
@@ -98,32 +93,12 @@
     white-space: nowrap;
   }
 
-  .btn-primary {
-    border: none;
-    border-radius: 6px;
-    padding: 0.6rem 1.2rem;
-    font-size: 0.95rem;
-    cursor: pointer;
-    background: var(--accent);
-    color: white;
-  }
-
-  .error {
-    color: #f85149;
-    background: rgba(248, 81, 73, 0.1);
-    border: 1px solid rgba(248, 81, 73, 0.35);
-    padding: 0.65rem 0.85rem;
-    border-radius: 6px;
-    margin-bottom: 1rem;
-  }
-
-  @media (max-width: 700px) {
+  @media (max-width: 720px) {
     .page-header {
       flex-direction: column;
     }
 
-    .header-action,
-    .btn-primary {
+    .header-action {
       width: 100%;
     }
   }

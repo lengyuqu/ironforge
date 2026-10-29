@@ -38,7 +38,7 @@
   }
 </script>
 
-<div class="review-form">
+<div class="review-form surface">
   <h3>{t('pulls.review.title')}</h3>
   <div class="verdict-select">
     <label class="radio-label">
@@ -62,12 +62,11 @@
 
 <style>
   .review-form {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-lg);
     padding: 24px;
   }
-  h3 { font-size: 16px; margin-bottom: 12px; }
+  h3 {
+    margin-bottom: 12px;
+  }
 
   .verdict-select {
     display: flex;
@@ -85,22 +84,7 @@
 
   textarea {
     width: 100%;
-    font-family: var(--font-mono);
-    font-size: 13px;
     resize: vertical;
     margin-bottom: 12px;
   }
-
-  .btn-primary {
-    padding: 6px 16px;
-    background: var(--green-dim);
-    color: #fff;
-    border: none;
-    border-radius: var(--radius);
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-  }
-  .btn-primary:hover:not(:disabled) { background: var(--green); }
-  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>

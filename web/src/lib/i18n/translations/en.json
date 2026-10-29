@@ -1,7 +1,11 @@
 {
   "common": {
+    "unknown_error": "Unknown error",
     "sign_in": "Sign in",
     "sign_out": "Sign out",
+    "confirm": "Confirm",
+    "confirm_action": "Confirm action",
+    "dismiss": "Dismiss",
     "cancel": "Cancel",
     "back": "Back",
     "save": "Save",
@@ -31,7 +35,14 @@
     "search": "Search",
     "just_now": "just now",
     "download": "Download",
-    "copied": "Copied"
+    "copied": "Copied",
+    "retry": "Retry",
+    "page_of": "Page {page} of {total}",
+    "pagination": "Pagination",
+    "previous_page": "Previous page",
+    "next_page": "Next page",
+    "range_of": "{start}-{end} of {total}",
+    "no_items": "No items"
   },
   "nav": {
     "dashboard": "Dashboard",
@@ -164,7 +175,8 @@
       "sso_loading": "Loading single sign-on options...",
       "sso_or": "or continue with",
       "sso_continue": "Continue with {provider}",
-      "forgot_password": "Forgot password?"
+      "forgot_password": "Forgot password?",
+      "mfa_not_pending": "MFA verification is not pending"
     },
     "register": {
       "title": "Create your account",
@@ -176,7 +188,37 @@
       "footer": "Already have an account? {link}",
       "footer_link": "Sign in",
       "failed": "Registration failed"
-    }
+    },
+    "reset": {
+      "invalid_link": "Invalid reset link. Please request a new password reset.",
+      "success": "Password reset successful! You are now logged in.",
+      "go_dashboard": "Go to Dashboard",
+      "mismatch": "Passwords do not match",
+      "pw_short": "Password must be at least 8 characters",
+      "pw_long": "Password must be at most 128 characters",
+      "pw_spaces": "Password must not contain spaces",
+      "pw_upper": "Password must contain an uppercase letter",
+      "pw_lower": "Password must contain a lowercase letter",
+      "pw_digit": "Password must contain a number",
+      "pw_special": "Password must contain a special character",
+      "title": "Reset Password",
+      "subtitle": "Enter your new password",
+      "request_new": "Request Reset",
+      "new_password": "New Password",
+      "new_placeholder": "At least 8 characters",
+      "confirm_password": "Confirm Password",
+      "confirm_placeholder": "Re-enter password",
+      "resetting": "Resetting..."
+    },
+    "forgot": {
+      "title": "Forgot Password",
+      "desc": "Enter your account email to receive a reset link.",
+      "sending": "Sending...",
+      "submit": "Send Reset Link",
+      "email_required": "Email is required",
+      "sent": "If that email exists, a reset link has been sent."
+    },
+    "back_to_login": "Back to Login"
   },
   "dashboard": {
     "title": "Dashboard",
@@ -253,7 +295,8 @@
       "read": "Read",
       "write": "Write",
       "admin": "Admin"
-    }
+    },
+    "user_number": "User #{id}"
   },
   "repo": {
     "tabs": {
@@ -469,7 +512,9 @@
     "download_started": "Archive download started",
     "download_failed": "Download failed",
     "star_failed": "Failed to update star",
-    "watch_failed": "Failed to update watch status"
+    "watch_failed": "Failed to update watch status",
+    "clone_https_tab": "HTTPS clone",
+    "clone_ssh_tab": "SSH clone"
   },
   "issues": {
     "title": "Issues",
@@ -544,7 +589,11 @@
     "milestone_save": "Save",
     "milestone_none": "None",
     "milestone_saved": "Milestone updated",
-    "no_milestone": "No milestone"
+    "no_milestone": "No milestone",
+    "selector": {
+      "title": "Issues",
+      "no_open": "No open issues."
+    }
   },
   "pulls": {
     "title": "Pull Requests",
@@ -571,7 +620,10 @@
       "draft": "Create as draft",
       "submit": "Create Pull Request",
       "cancel": "Cancel",
-      "milestone": "Milestone"
+      "milestone": "Milestone",
+      "title_label": "Title",
+      "title_placeholder": "Pull request title",
+      "head_required": "Select the branch to merge from"
     },
     "empty": "No {state} pull requests.",
     "meta": "#{number} opened {date} by {author}",
@@ -678,7 +730,9 @@
       "applying_selected": "Applying suggestions...",
       "apply": "Apply suggestion",
       "applied": "Suggestion applied"
-    }
+    },
+    "files_changed_count": "{count} files",
+    "page_title_number": "PR #{number}"
   },
   "wiki": {
     "title": "Wiki",
@@ -703,7 +757,12 @@
     "history": "History",
     "revisionMessage": "Revision Message",
     "noMessage": "No message",
-    "noRevisions": "No revisions yet"
+    "noRevisions": "No revisions yet",
+    "revision_history": "Revision History",
+    "no_revisions_hint": "No revisions yet. Revisions are saved on every edit.",
+    "restore_version": "Restore this version",
+    "last_edited": "Last edited {date}",
+    "revision_title": "Revision #{id}"
   },
   "pipeline": {
     "status": {
@@ -746,7 +805,14 @@
     "artifact_size": "Size",
     "artifact_uploaded": "Uploaded",
     "artifact_expiry": "Expiry",
-    "rerun_failed": "Rerun"
+    "rerun_failed": "Rerun",
+    "log": "Job log output",
+    "job_log": "Job Log",
+    "log_live": "Live",
+    "log_reconnecting": "Reconnecting…",
+    "log_closed": "Closed",
+    "log_offline": "Offline",
+    "log_connect_failed": "Live log connection failed"
   },
   "errors": {
     "login_failed": "Login failed",
@@ -765,7 +831,8 @@
     "enable_failed": "Failed to enable",
     "disable_failed": "Failed to disable",
     "reset_failed": "Failed to reset",
-    "load_log": "Failed to load log: {message}"
+    "load_log": "Failed to load log: {message}",
+    "invalid_response": "Invalid response format from server"
   },
   "system": {
     "backend_health_failed": "Backend health check failed (HTTP {status})",
@@ -824,23 +891,69 @@
     "edit": "Edit",
     "delete": "Delete",
     "deleted": "Release deleted",
-    "download_failed": "Download failed"
+    "download_failed": "Download failed",
+    "assets_label": "Release assets",
+    "download_count": "{count} downloads",
+    "confirm_delete": "Are you sure?",
+    "existing_tags": "Existing tags:",
+    "more_tags": "+{count} more",
+    "target_tags": "Tags",
+    "target_branches": "Branches",
+    "select_tag": "-- Select a tag (optional) --",
+    "select_branch": "-- Select a branch (optional) --",
+    "edit_title": "Edit release"
   },
   "settings": {
     "title": "Settings",
     "general": "General",
     "labels": "Labels",
     "ci_secrets": {
-      "title": "CI secrets"
+      "title": "CI secrets",
+      "desc": "Encrypted repository secrets are injected into jobs and masked from stored logs.",
+      "add_title": "Add or replace a secret",
+      "name": "Name",
+      "value": "Value",
+      "save": "Save secret",
+      "configured": "Configured secrets",
+      "empty": "No secrets configured."
     },
     "environments": {
-      "title": "Environments"
+      "title": "Environments",
+      "heading": "Deployment environments",
+      "desc": "Require designated reviewers before jobs can deploy to protected environments.",
+      "create_title": "Create environment",
+      "edit_title": "Edit environment",
+      "save_changes": "Save changes",
+      "name": "Name",
+      "require_approval": "Require approval",
+      "required_approvals": "Required approvals",
+      "approver_ids": "Allowed approver user IDs",
+      "approver_ids_hint": "Comma-separated; empty means repository admins.",
+      "configured": "Configured environments",
+      "empty": "No environments configured.",
+      "approvals_required": "{count} approval(s) required",
+      "unprotected": "Unprotected",
+      "reviewers": "reviewers: {ids}"
     },
     "retention": {
-      "title": "CI retention"
+      "title": "CI retention",
+      "desc": "Control how long newly uploaded artifacts and accessed caches remain available. Expired storage is reclaimed hourly.",
+      "artifact_days": "Artifact retention (days)",
+      "cache_days": "Cache retention after last access (days)",
+      "save": "Save policy",
+      "cleanup": "Clean expired storage now",
+      "saved": "Retention policy saved. New uploads use the updated lifetime.",
+      "cleaned": "Deleted {artifacts} artifact(s) and {caches} cache entry(s).",
+      "cleanup_failures": "{count} item(s) could not be safely removed."
     },
     "tag_protection": {
-      "title": "Tag protection"
+      "title": "Tag protection",
+      "desc": "Block tag creation and updates matching a wildcard pattern over HTTP and SSH.",
+      "add_title": "Protect a pattern",
+      "pattern": "Pattern",
+      "add": "Add protection",
+      "list_title": "Protected patterns",
+      "empty": "No protected tag patterns."
     },
     "repository_info": {
       "title": "Repository information",
@@ -1015,7 +1128,8 @@
       "confirm": "Transfer repository",
       "confirming": "Transferring...",
       "success": "Repository transferred successfully.",
-      "warning": "This is a permanent action. Make sure you have the correct new owner."
+      "warning": "This is a permanent action. Make sure you have the correct new owner.",
+      "failed": "Transfer failed"
     },
     "delete": {
       "title": "Delete this repository",
@@ -1048,7 +1162,45 @@
       "revoke": "Revoke",
       "title": "Access Tokens",
       "subtitle": "Manage personal tokens for Git over HTTP, API clients, and automation."
-    }
+    },
+    "confirm_delete_label_title": "Confirm Delete",
+    "label_name_required": "Label name is required",
+    "label_color_invalid": "Use a 6-digit hex colour such as #ff8800",
+    "security": {
+      "title": "Security",
+      "desc": "Manage account protections for web login and Git/API access."
+    },
+    "mfa": {
+      "codes_copied": "Backup codes copied",
+      "copy_failed": "Copy failed",
+      "new_codes": "New backup codes",
+      "codes_title": "Backup Codes",
+      "codes_desc": "Each code can be used once if you lose authenticator access.",
+      "copy_codes": "Copy Codes",
+      "code_required": "Authentication code is required",
+      "enable_failed": "Enable failed",
+      "scan_title": "Scan Authenticator QR",
+      "qr_label": "Authenticator QR code",
+      "scan_desc": "Scan the QR code with an authenticator app, then enter the six-digit code.",
+      "enable": "Enable MFA",
+      "password_required": "Current password is required",
+      "disabled_toast": "MFA disabled",
+      "disable_failed": "Disable failed",
+      "title": "Multi-Factor Authentication",
+      "desc": "Add a time-based authenticator code after password login.",
+      "status_enabled": "Enabled",
+      "status_disabled": "Disabled",
+      "unused_codes": "unused backup codes",
+      "total_codes": "total backup codes",
+      "current_password": "Current password",
+      "disabling": "Disabling...",
+      "disable": "Disable MFA",
+      "not_enabled": "MFA is not enabled for this account.",
+      "starting": "Starting...",
+      "setup": "Set up MFA",
+      "enabled_notice": "MFA enabled. Save your backup codes before leaving this page."
+    },
+    "label_color_aria": "Color {color}"
   },
   "commit": {
     "status": "Status checks",
@@ -1059,7 +1211,10 @@
     "no_status": "No status checks reported yet.",
     "context": "Context",
     "description": "Description",
-    "details": "Details"
+    "details": "Details",
+    "checks_count": "{count} checks",
+    "view_details": "View Details",
+    "gpg_title": "GPG: {status}"
   },
   "admin": {
     "title": "Admin Panel",
@@ -1073,14 +1228,36 @@
       "is_admin": "Site Admin",
       "is_active": "Active",
       "delete_confirm": "Delete User",
-      "delete_warning": "Are you sure you want to delete user \"{username}\"? This action cannot be undone."
+      "delete_warning": "Are you sure you want to delete user \"{username}\"? This action cannot be undone.",
+      "display_name": "Display Name",
+      "bio": "Bio",
+      "col": {
+        "username": "Username",
+        "email": "Email",
+        "admin": "Admin",
+        "active": "Active",
+        "provider": "Provider",
+        "login": "Login",
+        "created": "Created"
+      },
+      "locked": "Locked",
+      "locked_until": "Locked until {date}",
+      "failed_attempts": "{count} failed",
+      "unlock": "Unlock",
+      "unlocking": "Unlocking..."
     },
     "orgs": {
       "title": "Organization Management",
       "desc": "View and manage all organizations",
       "total": "organizations total",
       "delete_confirm": "Delete Organization",
-      "delete_warning": "Are you sure you want to delete organization \"{name}\"? All associated data will be lost."
+      "delete_warning": "Are you sure you want to delete organization \"{name}\"? All associated data will be lost.",
+      "col": {
+        "name": "Name",
+        "visibility": "Visibility",
+        "owner_id": "Owner ID",
+        "created": "Created"
+      }
     },
     "audit": {
       "title": "Audit Log",
@@ -1097,7 +1274,13 @@
         "resource": "Resource",
         "ip": "IP Address",
         "details": "Details"
-      }
+      },
+      "resource_all": "{label}: All",
+      "resource_user": "User",
+      "resource_repo": "Repository",
+      "resource_org": "Organization",
+      "clear_filters": "Clear filters",
+      "empty": "No audit records found."
     },
     "runners": {
       "title": "Runner Management",
@@ -1120,6 +1303,81 @@
     "settings": {
       "title": "Instance Settings",
       "desc": "Instance maintenance and banner configuration"
+    },
+    "instance": {
+      "maintenance_title": "Maintenance Mode",
+      "maintenance_enable": "Enable maintenance mode (read-only, blocks all mutating requests)",
+      "banner_title": "Instance Banner",
+      "banner_message": "Banner Message (leave empty to hide)",
+      "banner_placeholder": "e.g. Scheduled maintenance tonight at 2am",
+      "banner_type": "Banner Type",
+      "banner_info": "Info (blue)",
+      "banner_warning": "Warning (yellow)",
+      "banner_error": "Error (red)",
+      "title": "Instance Settings",
+      "page_title": "Instance Settings · Admin · IronForge",
+      "saved": "Settings saved",
+      "save": "Save Settings"
+    },
+    "login_attempts": {
+      "title": "Login Attempts",
+      "matching": "{total} matching events",
+      "refresh": "Refresh",
+      "filter_username": "Filter login attempts by username",
+      "username": "Username",
+      "filter_provider": "Filter login attempts by provider",
+      "provider_placeholder": "Provider (password, ldap...)",
+      "filter_status": "Filter login attempts by status",
+      "status_all": "All results",
+      "status_failure": "Failed only",
+      "status_success": "Successful only",
+      "start_time": "Login attempts start time",
+      "end_time": "Login attempts end time",
+      "apply": "Apply",
+      "empty": "No matching login attempts.",
+      "success": "Success",
+      "failed": "Failed",
+      "unknown_ip": "Unknown IP"
+    },
+    "sso": {
+      "field": {
+        "name": "Name",
+        "slug": "Slug",
+        "type": "Type",
+        "client_id": "Client ID",
+        "client_secret": "Client Secret",
+        "discovery_url": "Discovery URL",
+        "scopes": "Scopes",
+        "icon_url": "Icon URL",
+        "ldap_host": "LDAP Host",
+        "ldap_port": "LDAP Port",
+        "ldap_bind_dn": "LDAP Bind DN",
+        "ldap_bind_password": "LDAP Bind Password",
+        "ldap_base_dn": "LDAP Base DN",
+        "ldap_user_filter": "LDAP User Filter"
+      },
+      "title": "SSO Providers",
+      "empty": "No SSO providers configured.",
+      "testing": "Testing...",
+      "test_connection": "Test connection",
+      "disable": "Disable",
+      "enable": "Enable",
+      "edit_title": "Edit SSO Provider",
+      "add_title": "Add SSO Provider",
+      "type_oauth2": "OAuth2 / OIDC",
+      "name_placeholder": "Google Workspace",
+      "keep_secret": "Leave blank to keep existing secret",
+      "keep_password": "Leave blank to keep existing password",
+      "ldap_host_placeholder": "ldap.example.com (LDAPS by default)",
+      "enable_provider": "Enable this provider",
+      "update": "Update Provider",
+      "create": "Create Provider",
+      "name_slug_required": "SSO provider name and slug are required",
+      "updated": "SSO provider updated",
+      "created": "SSO provider created",
+      "ldap_test_failed": "LDAP connection test failed",
+      "status_enabled": "Enabled",
+      "status_disabled": "Disabled"
     }
   },
   "profile": {
@@ -1145,7 +1403,19 @@
     "colNamePlaceholder": "Column name",
     "moveTo": "Move to",
     "cardTitlePlaceholder": "Card title",
-    "addCard": "Add Card"
+    "addCard": "Add Card",
+    "noBoardsHint": "Create your first project board to organize issues.",
+    "removeCard": "Remove card",
+    "deleteColumn": "Delete column",
+    "notePlaceholder": "Add a note…",
+    "moveFailed": "Move failed",
+    "addCardFailed": "Add card failed",
+    "deleteCardFailed": "Delete card failed",
+    "deleteColumnFailed": "Delete column failed",
+    "createFailed": "Create board failed",
+    "boardLabel": "Board",
+    "addColumnFailed": "Add column failed",
+    "columnLabel": "Column"
   },
   "packages": {
     "upload": "Upload Package",
@@ -1159,7 +1429,14 @@
     "upload_success": "Package uploaded successfully",
     "uploading": "Uploading...",
     "file_required": "Package file is required",
-    "delete_confirm": "Delete {name} {version}?"
+    "delete_confirm": "Delete {name} {version}?",
+    "name": "Name",
+    "name_placeholder": "Package name",
+    "homepage": "Homepage",
+    "repository_url": "Repository URL",
+    "semver": "Semver",
+    "support_generic": "Generic fallback",
+    "support_native": "Native adapter"
   },
   "runners": {
     "register": "Register Runner",
@@ -1175,7 +1452,16 @@
     "delete": "Delete"
   },
   "time_tracking": {
-    "title": "Time Tracking"
+    "title": "Time Tracking",
+    "add_failed": "Failed to add time entry",
+    "duration_hours": "Duration (hours)",
+    "note": "Note",
+    "delete_failed": "Failed to delete time entry",
+    "empty": "No time entries for this issue yet.",
+    "col_duration": "Duration",
+    "col_logged": "Logged",
+    "select_hint": "Select an issue to view and log time",
+    "total": "Total: {time}"
   },
   "error_page": {
     "not_found_title": "Page Not Found",
@@ -1186,5 +1472,63 @@
     "generic_desc": "An unexpected error occurred.",
     "back_home": "Back to Home",
     "status_code": "Error {status}"
+  },
+  "confirm": {
+    "mfa_disable": "Disable multi-factor authentication for your account?",
+    "sso_delete": "Delete SSO provider \"{name}\"?",
+    "wiki_restore": "Restore version {version}? Current content will become a revision.",
+    "import_delete": "Cancel and delete this import task?",
+    "column_delete": "Delete this column and all its cards?",
+    "time_entry_delete": "Delete this time entry?",
+    "ci_secret_delete": "Delete secret {name}?",
+    "ci_env_delete": "Delete environment {name}?",
+    "tag_protection_delete": "Delete protection for {pattern}?",
+    "wiki_delete": "Delete this wiki page? This cannot be undone."
+  },
+  "imports": {
+    "page_title": "Imports · IronForge",
+    "subtitle": "Migrate repositories and project data from GitHub, GitLab, Gitea, or Git remotes.",
+    "refresh": "Refresh",
+    "new_title": "New import",
+    "tasks_title": "Import tasks",
+    "empty": "No import tasks yet.",
+    "platform": "Platform",
+    "source_url": "Source repository URL",
+    "target_owner": "Target owner",
+    "target_repo": "Target repository",
+    "source_token": "Source access token",
+    "target_repo_placeholder": "Derived from source URL",
+    "token_placeholder": "Optional for private repositories",
+    "content": "Content",
+    "content_repo": "Repository",
+    "content_issues": "Issues",
+    "content_pulls": "Pull requests",
+    "content_wiki": "Wiki",
+    "content_releases": "Releases",
+    "content_labels": "Labels",
+    "content_milestones": "Milestones",
+    "starting": "Starting...",
+    "start": "Start import",
+    "queued": "Import queued",
+    "col": {
+      "source": "Source",
+      "target": "Target",
+      "status": "Status",
+      "progress": "Progress",
+      "updated": "Updated"
+    },
+    "deleted": "Import deleted"
+  },
+  "help": {
+    "title": "Help",
+    "subtitle": "Common commands and entry points for using this IronForge instance.",
+    "clone_title": "Clone a repository",
+    "tokens_title": "Use access tokens",
+    "tokens_desc": "Create a personal access token from security settings, then use it as a Bearer token for API requests or as the password for HTTPS Git operations.",
+    "tokens_manage": "Manage access tokens",
+    "find_title": "Find work",
+    "explore": "Explore repositories",
+    "search": "Search code and issues",
+    "import": "Import repositories"
   }
 }

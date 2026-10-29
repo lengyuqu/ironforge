@@ -68,7 +68,7 @@
     <button type="submit" class="btn-primary" disabled={!newComment.trim() || submitting}>
       {submitting ? t('common.loading') : t('issues.comment')}
     </button>
-    <button type="button" class="btn-close" onclick={toggleState} disabled={toggling}>
+    <button type="button" class="btn-secondary" onclick={toggleState} disabled={toggling}>
       {issueState === 'open' ? t('issues.close_issue') : t('issues.reopen_issue')}
     </button>
   </div>
@@ -81,41 +81,7 @@
 
   textarea {
     width: 100%;
-    font-family: var(--font-mono);
-    font-size: 13px;
     resize: vertical;
     margin-bottom: 8px;
   }
-
-  .form-actions {
-    display: flex;
-    gap: 8px;
-  }
-
-  .btn-primary {
-    padding: 6px 16px;
-    background: var(--green-dim);
-    color: #fff;
-    border: none;
-    border-radius: var(--radius);
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-  }
-
-  .btn-primary:hover { background: var(--green); }
-  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
-
-  .btn-close {
-    padding: 6px 16px;
-    background: none;
-    color: var(--text-primary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    font-size: 14px;
-    cursor: pointer;
-  }
-
-  .btn-close:hover { background: var(--bg-hover); }
-  .btn-close:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>

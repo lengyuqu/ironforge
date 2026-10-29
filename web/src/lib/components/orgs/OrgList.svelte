@@ -1,4 +1,6 @@
 <script lang="ts">
+  import EmptyState from '$lib/components/EmptyState.svelte';
+  import LoadingState from '$lib/components/LoadingState.svelte';
   import type { Organization } from '$lib/types/entities';
   import { createT, formatDate } from '$lib/i18n';
 
@@ -15,21 +17,19 @@
   } = $props();
 </script>
 
-<section class="org-section">
+<section class="org-section surface">
   <div class="section-header">
     <h2>{t('orgs.list_title', { count: String(organizations.length) })}</h2>
   </div>
 
   {#if loading}
-    <p class="loading">{t('common.loading')}</p>
+    <LoadingState />
   {:else if organizations.length === 0}
-    <div class="empty-state">
-      <h3>{t('orgs.no_orgs')}</h3>
-      <p>{t('orgs.no_orgs_desc')}</p>
+    <EmptyState title={t('orgs.no_orgs')} description={t('orgs.no_orgs_desc')}>
       <button type="button" class="btn-primary" onclick={onCreate}>
         {t('orgs.create_action')}
       </button>
-    </div>
+    </EmptyState>
   {:else}
     <div class="org-list">
       {#each organizations as org (org.id)}
@@ -52,59 +52,21 @@
 
 <style>
   .org-section {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: 8px;
     padding: 1.25rem;
   }
 
   h2 {
     color: var(--text-primary);
-    font-size: 1.1rem;
     margin: 0;
   }
 
   .section-header {
     margin-bottom: 1rem;
   }
-
-  .loading,
-  .empty-state p,
   .org-desc,
   .org-meta,
   .org-name {
     color: var(--text-secondary);
-  }
-
-  .loading {
-    margin: 0;
-  }
-
-  .empty-state {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.75rem;
-    padding: 1rem 0;
-  }
-
-  .empty-state h3 {
-    color: var(--text-primary);
-    margin: 0;
-  }
-
-  .empty-state p {
-    margin: 0;
-  }
-
-  .btn-primary {
-    border: none;
-    border-radius: 6px;
-    padding: 0.6rem 1.2rem;
-    font-size: 0.95rem;
-    cursor: pointer;
-    background: var(--accent);
-    color: white;
   }
 
   .org-list {
@@ -177,11 +139,5 @@
     margin: 0.3rem 0 0;
     font-size: 0.85rem;
     overflow-wrap: anywhere;
-  }
-
-  @media (max-width: 700px) {
-    .btn-primary {
-      width: 100%;
-    }
   }
 </style>

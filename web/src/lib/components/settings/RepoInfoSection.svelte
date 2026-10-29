@@ -33,7 +33,6 @@
 
 <style>
   h2 {
-    font-size: 1.25rem;
     margin-bottom: 1rem;
     color: var(--text-primary);
   }
@@ -67,11 +66,11 @@
     border-radius: 12px;
     font-size: 0.8rem;
     font-weight: 600;
-    background: var(--green, #28a745);
+    background: var(--green);
     color: white;
   }
 
   .badge.private {
-    background: var(--orange, #ff8800);
+    background: var(--orange);
   }
 </style>

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { createT } from '$lib/i18n';
+  import LoadingState from '$lib/components/LoadingState.svelte';
   import type { Issue } from '$lib/types/entities';
 
   let {
@@ -12,16 +14,18 @@
     selectedId: number | null;
     onSelect: (issue: Issue) => void;
   } = $props();
+
+  const t = createT();
 </script>
 
-<aside class="issue-sidebar">
+<aside class="issue-sidebar surface">
   <div class="sidebar-header">
-    <h3>Issues</h3>
+    <h3>{t('issues.selector.title')}</h3>
   </div>
   {#if loading}
-    <p class="sidebar-empty">Loading…</p>
+    <LoadingState compact />
   {:else if issues.length === 0}
-    <p class="sidebar-empty">No open issues.</p>
+    <p class="sidebar-empty">{t('issues.selector.no_open')}</p>
   {:else}
     <nav class="issue-nav">
       {#each issues as issue (issue.id)}
@@ -40,9 +44,6 @@
 
 <style>
   .issue-sidebar {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
     overflow: hidden;
     position: sticky;
     top: 24px;

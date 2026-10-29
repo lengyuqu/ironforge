@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { tokens } from '$lib/api/client.svelte';
   import { toErrorMessage } from '$lib/utils/error';
   import { createT } from '$lib/i18n';
@@ -44,7 +45,7 @@
       scopes = 'repo';
       expiresAt = '';
       await onCreated();
-    } catch (err: any) {
+    } catch (err) {
       error = toErrorMessage(err, t('errors.create_failed'));
     } finally {
       creating = false;
@@ -59,7 +60,7 @@
 </script>
 
 {#if newToken}
-  <section class="token-created" aria-label="New access token">
+  <section class="token-created surface" aria-label={t('settings.tokens.created_title', 'New token')}>
     <div>
       <strong>{t('settings.tokens.created_title', 'New token')}</strong>
       <p>{t('settings.tokens.created_hint', 'Copy this value before leaving the page.')}</p>
@@ -71,11 +72,11 @@
   </section>
 {/if}
 
-<section class="section">
+<section class="settings-section">
   <h2>{t('settings.tokens.create_title', 'Create Token')}</h2>
 
   {#if error}
-    <div class="error-box">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   <form class="create-form" onsubmit={createToken}>
@@ -100,13 +101,6 @@
 <style>
   h2 {
     margin: 0 0 16px;
-    font-size: 18px;
-  }
-
-  .section {
-    margin-bottom: 32px;
-    padding-bottom: 28px;
-    border-bottom: 1px solid var(--border);
   }
 
   .create-form {
@@ -127,7 +121,6 @@
 
   input {
     min-height: 36px;
-    padding: 7px 10px;
   }
 
   .token-created {
@@ -135,9 +128,6 @@
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 12px;
     align-items: center;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
     padding: 14px 16px;
     margin-bottom: 20px;
   }
@@ -157,35 +147,7 @@
     color: var(--text-secondary);
   }
 
-  .btn {
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    cursor: pointer;
-    font-size: 14px;
-  }
-
-  .btn-primary {
-    padding: 7px 16px;
-    background: var(--accent);
-    border-color: var(--accent);
-    color: #fff;
-  }
-
-  .btn-primary:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-
-  .error-box {
-    color: var(--red);
-    background: color-mix(in srgb, var(--red) 10%, transparent);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 14px 16px;
-    margin-bottom: 20px;
-  }
-
-  @media (max-width: 760px) {
+  @media (max-width: 720px) {
     .create-form {
       grid-template-columns: 1fr;
     }

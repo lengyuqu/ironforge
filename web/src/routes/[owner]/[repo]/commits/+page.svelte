@@ -1,5 +1,10 @@
 <script lang="ts">
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
+  import LoadingState from '$lib/components/LoadingState.svelte';
+  import EmptyState from '$lib/components/EmptyState.svelte';
   import { repos } from '$lib/api/client.svelte';
+  import type { RepoCommitEntry } from '$lib/types/entities';
+  import { toErrorMessage } from '$lib/utils/error';
   import { createT, formatDate } from '$lib/i18n';
   import { page } from '$app/stores';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
@@ -14,7 +19,7 @@
   let refName = $derived($page.url.searchParams.get('ref') || '');
   let filterPath = $derived($page.url.searchParams.get('path') || '');
   
-  let commits = $state<any[]>([]);
+  let commits = $state<RepoCommitEntry[]>([]);
   let loading = $state(true);
   let error = $state('');
 
@@ -29,11 +34,11 @@
         if (r && r.commits && Array.isArray(r.commits)) {
           commits = r.commits;
         } else {
-          error = 'Invalid response format from server';
+          error = t('errors.invalid_response');
         }
       })
-      .catch((e: any) => {
-        error = e.message || t('errors.load_failed');
+      .catch((e) => {
+        error = toErrorMessage(e, t('errors.load_failed'));
       })
       .finally(() => {
         loading = false;
@@ -60,18 +65,15 @@
   {/if}
   
   {#if error}
-    <div class="error-banner">
-      <p>{error}</p>
-      <button onclick={() => window.location.reload()}>Retry</button>
-    </div>
+    <ErrorBanner message={error}>
+      <button class="btn btn-sm" onclick={() => window.location.reload()}>{t('common.retry')}</button>
+    </ErrorBanner>
   {/if}
 
   {#if loading}
-    <p class="text-secondary">{t('common.loading')}</p>
+    <LoadingState />
   {:else if commits.length === 0}
-    <div class="empty">
-      <p>{filterPath ? t('repo.commits_path_empty') : t('repo.commits_empty', 'No commits yet.')}</p>
-    </div>
+    <EmptyState title={filterPath ? t('repo.commits_path_empty') : t('repo.commits_empty', 'No commits yet.')} />
   {:else}
     <div class="commits-list">
       {#each commits as commit}
@@ -95,7 +97,6 @@
 
 <style>
   h1 {
-    font-size: 24px;
     margin-bottom: 16px;
   }
 
@@ -104,32 +105,6 @@
     gap: 8px;
     margin: -8px 0 16px;
     font-size: 13px;
-    color: var(--text-secondary);
-  }
-
-  .error-banner {
-    background: var(--error-bg, #fee);
-    border: 1px solid var(--error-border, #fcc);
-    border-radius: 6px;
-    padding: 12px 16px;
-    margin-bottom: 16px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-
-  .error-banner button {
-    padding: 6px 12px;
-    background: var(--primary);
-    color: white;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-  }
-
-  .empty {
-    text-align: center;
-    padding: 60px 24px;
     color: var(--text-secondary);
   }
 
@@ -149,7 +124,7 @@
   }
 
   .commit-item:hover {
-    border-color: var(--primary);
+    border-color: var(--green);
   }
 
   .commit-icon {
@@ -173,7 +148,7 @@
   }
 
   .commit-message a:hover {
-    color: var(--primary);
+    color: var(--green);
   }
 
   .commit-meta {
@@ -185,7 +160,7 @@
 
   .commit-sha {
     font-family: monospace;
-    background: var(--bg-secondary, #f5f5f5);
+    background: var(--bg-secondary);
     padding: 2px 6px;
     border-radius: 3px;
     font-size: 12px;

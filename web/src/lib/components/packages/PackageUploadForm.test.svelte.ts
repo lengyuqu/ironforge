@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/svelte';
 
 vi.mock('$lib/i18n', () => ({
+  t: (key: string) => key,
   createT: () => (key: string, fallbackOrParams?: string | Record<string, unknown>) =>
     typeof fallbackOrParams === 'string' ? fallbackOrParams : key,
 }));
@@ -57,7 +58,7 @@ describe('PackageUploadForm.svelte', () => {
       (document.querySelector('button[type="submit"]') as HTMLButtonElement).disabled
     ).toBe(false);
 
-    await fireEvent.input(screen.getByLabelText('Name'), { target: { value: '  mypkg ' } });
+    await fireEvent.input(screen.getByLabelText('packages.name'), { target: { value: '  mypkg ' } });
     await fireEvent.input(screen.getByLabelText('packages.version'), {
       target: { value: ' 1.0.0 ' },
     });

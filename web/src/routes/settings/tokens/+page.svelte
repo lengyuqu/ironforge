@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { toErrorMessage } from '$lib/utils/error';
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { goto } from '$app/navigation';
   import { tokens } from '$lib/api/client.svelte';
   import type { AccessToken } from '$lib/api/client.svelte';
@@ -27,8 +29,8 @@
       loading = true;
       error = '';
       tokenList = await tokens.list();
-    } catch (err: any) {
-      error = err.message || t('errors.load_failed');
+    } catch (err) {
+      error = toErrorMessage(err, t('errors.load_failed'));
     } finally {
       loading = false;
     }
@@ -36,7 +38,7 @@
 </script>
 
 <svelte:head>
-  <title>Access Tokens · IronForge</title>
+  <title>{t('settings.tokens.title')} · IronForge</title>
 </svelte:head>
 
 <div class="page-container tokens-page">
@@ -48,7 +50,7 @@
   </header>
 
   {#if error}
-    <div class="error-box">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   <TokenCreateForm onCreated={loadTokens} />
@@ -61,13 +63,8 @@
     max-width: 980px;
   }
 
-  .page-header {
-    margin-bottom: 24px;
-  }
-
   h1 {
     margin: 0 0 6px;
-    font-size: 28px;
   }
 
   p {
@@ -75,12 +72,4 @@
     color: var(--text-secondary);
   }
 
-  .error-box {
-    color: var(--red);
-    background: color-mix(in srgb, var(--red) 10%, transparent);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 14px 16px;
-    margin-bottom: 20px;
-  }
 </style>

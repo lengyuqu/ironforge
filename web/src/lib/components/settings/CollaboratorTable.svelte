@@ -1,4 +1,7 @@
 <script lang="ts">
+  import LoadingState from '$lib/components/LoadingState.svelte';
+  import EmptyState from '$lib/components/EmptyState.svelte';
+  import { confirmDialog } from '$lib/components/confirm.svelte';
   import { collaborators as collaboratorsApi } from '$lib/api/client.svelte';
   import { toast } from '$lib/components/toast.svelte';
   import { toErrorMessage } from '$lib/utils/error';
@@ -35,7 +38,7 @@
       await collaboratorsApi.updatePermission(owner, repo, collaborator.id, collaborator.permission);
       toast.success(t('settings.collaborators.updated'));
       await onRefresh();
-    } catch (err: any) {
+    } catch (err) {
       toast.error(toErrorMessage(err, t('settings.collaborators.update_failed')));
     } finally {
       busyId = null;
@@ -43,14 +46,14 @@
   }
 
   async function removeCollaborator(collaborator: RepoCollaborator) {
-    if (!confirm(t('settings.collaborators.remove_confirm', { userId: collaborator.user_id }))) return;
+    if (!(await confirmDialog({ variant: 'danger', message: t('settings.collaborators.remove_confirm', { userId: collaborator.user_id }) }))) return;
 
     try {
       busyId = collaborator.id;
       await collaboratorsApi.remove(owner, repo, collaborator.user_id);
       toast.success(t('settings.collaborators.removed'));
       await onRefresh();
-    } catch (err: any) {
+    } catch (err) {
       toast.error(toErrorMessage(err, t('settings.collaborators.remove_failed')));
     } finally {
       busyId = null;
@@ -58,13 +61,13 @@
   }
 </script>
 
-<section class="section">
+<section class="settings-section">
   <h2>{t('settings.collaborators.current')}</h2>
 
   {#if loading}
-    <div class="loading">{t('common.loading')}</div>
+    <LoadingState />
   {:else if collaboratorList.length === 0}
-    <div class="empty-state">{t('settings.collaborators.empty')}</div>
+    <EmptyState title={t('settings.collaborators.empty')} />
   {:else}
     <div class="table-wrap">
       <table>
@@ -119,24 +122,8 @@
 
 <style>
   h2 {
-    font-size: 1.1rem;
     margin: 0 0 1rem;
     color: var(--text-primary);
-  }
-
-  .section {
-    margin-bottom: 2.5rem;
-    padding-bottom: 2rem;
-    border-bottom: 1px solid var(--border);
-  }
-
-  .loading,
-  .empty-state {
-    padding: 2rem;
-    text-align: center;
-    color: var(--text-secondary);
-    background: var(--bg-secondary);
-    border-radius: 6px;
   }
 
   .table-wrap {
@@ -177,39 +164,9 @@
 
   select {
     min-height: 34px;
-    padding: 0.4rem 0.6rem;
-    background: var(--bg-primary);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    color: var(--text-primary);
-    font-size: 0.9rem;
   }
 
-  .btn {
-    padding: 0.55rem 0.9rem;
-    border-radius: 6px;
-    border: 1px solid var(--border);
-    cursor: pointer;
-    font-size: 0.9rem;
-  }
-
-  .btn:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-
-  .btn-outline {
-    background: var(--bg-primary);
-    color: var(--text-primary);
-  }
-
-  .btn-danger {
-    background: var(--red, #dc3545);
-    color: white;
-    border-color: var(--red, #dc3545);
-  }
-
-  @media (max-width: 760px) {
+  @media (max-width: 720px) {
     .actions {
       justify-content: flex-start;
     }

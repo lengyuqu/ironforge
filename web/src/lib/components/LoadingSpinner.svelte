@@ -1,10 +1,24 @@
 <script lang="ts">
+  import { createT } from '$lib/i18n';
+
   /** Size in pixels. Defaults to 20. */
   /** Extra CSS class name (e.g. `inline`, `block`) for styling. */
-  let { size = 20, className = '' }: { size?: number; className?: string } = $props();
+  /** Hide from assistive tech when an adjacent label already says "Loading". */
+  let {
+    size = 20,
+    className = '',
+    decorative = false,
+  }: { size?: number; className?: string; decorative?: boolean } = $props();
+
+  const t = createT();
 </script>
 
-<span class="spinner {className}" role="status" aria-label="Loading">
+<span
+  class="spinner {className}"
+  role={decorative ? undefined : 'status'}
+  aria-label={decorative ? undefined : t('common.loading')}
+  aria-hidden={decorative ? 'true' : undefined}
+>
   <svg
     width={size}
     height={size}

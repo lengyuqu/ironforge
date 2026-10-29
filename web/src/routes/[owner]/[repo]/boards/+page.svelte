@@ -1,4 +1,9 @@
 <script lang="ts">
+  import { toErrorMessage } from '$lib/utils/error';
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
+  import EmptyState from '$lib/components/EmptyState.svelte';
+  import LoadingState from '$lib/components/LoadingState.svelte';
+  import { confirmDialog } from '$lib/components/confirm.svelte';
   import { page } from '$app/stores';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
   import { boards } from '$lib/api/client.svelte';
@@ -36,8 +41,8 @@
         activeBoardId = activeBoardId ?? boardList[0].id;
         await loadBoard(activeBoardId!);
       }
-    } catch (e: any) {
-      error = e.message || t('errors.load_failed');
+    } catch (e) {
+      error = toErrorMessage(e, t('errors.load_failed'));
     } finally {
       loading = false;
     }
@@ -64,20 +69,20 @@
   }
 
   async function handleDeleteBoard(id: number) {
-    if (!confirm(t('board.confirmDelete'))) return;
+    if (!(await confirmDialog({ variant: 'danger', message: t('board.confirmDelete') }))) return;
     try {
       await boards.delete(owner, repo, id);
       activeBoard = null;
       activeBoardId = null;
       await loadBoards();
-    } catch (e: any) {
-      error = e.message || t('errors.load_failed');
+    } catch (e) {
+      error = toErrorMessage(e, t('errors.load_failed'));
     }
   }
 </script>
 
 <svelte:head>
-  <title>Board · {owner}/{repo} · IronForge</title>
+  <title>{t('repo.tabs.board')} · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
 <div class="page-container">
@@ -91,13 +96,13 @@
   </div>
 
   {#if error}
-    <div class="error-banner">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   {#if loading}
-    <p class="loading-text">{t('common.loading')}…</p>
+    <LoadingState />
   {:else if boardList.length === 0}
-    <p class="empty-text">{t('board.noBoards')}</p>
+    <EmptyState icon="📋" title={t('board.noBoards')} description={t('board.noBoardsHint')} />
   {:else}
     <div class="board-toolbar">
       <BoardSwitcher
@@ -155,24 +160,9 @@
 </div>
 
 <style>
-  .page-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 20px;
-  }
 
   h1 {
-    font-size: 24px;
-    font-weight: 600;
     margin: 0;
-  }
-
-  .loading-text,
-  .empty-text {
-    color: var(--text-secondary, #666);
-    text-align: center;
-    padding: 48px;
   }
 
   .board-toolbar {
@@ -195,52 +185,5 @@
     overflow-x: auto;
     padding-bottom: 16px;
     align-items: flex-start;
-  }
-
-  .error-banner {
-    color: #f85149;
-    background: rgba(248, 81, 73, 0.1);
-    padding: 10px 12px;
-    border-radius: 6px;
-    margin-bottom: 16px;
-  }
-
-  .btn-primary {
-    padding: 6px 14px;
-    background: var(--accent, #2563eb);
-    color: #fff;
-    border: none;
-    border-radius: 6px;
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-  }
-
-  .btn-primary:hover {
-    filter: brightness(1.1);
-  }
-
-  .btn-outline {
-    padding: 5px 12px;
-    background: none;
-    border: 1px solid var(--border, #d1d5db);
-    border-radius: 6px;
-    color: var(--text-primary, #333);
-    font-size: 13px;
-    cursor: pointer;
-  }
-
-  .btn-outline:hover {
-    background: var(--bg-secondary, #f3f4f6);
-  }
-
-  .btn-danger {
-    color: #dc2626;
-    border-color: rgba(220, 38, 38, 0.4);
-  }
-
-  .btn-sm {
-    padding: 4px 10px;
-    font-size: 12px;
   }
 </style>

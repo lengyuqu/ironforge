@@ -1,4 +1,7 @@
 <script lang="ts">
+  import { toErrorMessage } from '$lib/utils/error';
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
+  import LoadingState from '$lib/components/LoadingState.svelte';
   import { page } from '$app/stores';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
   import { packages, type PackageSummaryResponse } from '$lib/api/client.svelte';
@@ -36,8 +39,8 @@
       );
       packageList = res.data;
       totalPages = res.pagination.total_pages;
-    } catch (e: any) {
-      error = e.message;
+    } catch (e) {
+      error = toErrorMessage(e, t('common.unknown_error'));
     } finally {
       loading = false;
     }
@@ -60,7 +63,7 @@
 </script>
 
 <svelte:head>
-  <title>Packages · {owner}/{repo} · IronForge</title>
+  <title>{t('repo.tabs.packages')} · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
 <div class="page-container">
@@ -72,7 +75,7 @@
   </div>
 
   {#if error}
-    <div class="error-banner">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   <div class="filters">
@@ -98,7 +101,7 @@
   </div>
 
   {#if loading}
-    <p class="loading-text">{t('common.loading')}</p>
+    <LoadingState />
   {:else}
     <PackageList
       owner={owner!}
@@ -112,34 +115,6 @@
 </div>
 
 <style>
-  .page-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 24px;
-  }
-
-  h1 {
-    font-size: 24px;
-    font-weight: 600;
-  }
-
-  .btn-primary {
-    padding: 6px 16px;
-    background: var(--orange);
-    color: #fff;
-    border: none;
-    border-radius: var(--radius);
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-    text-decoration: none;
-  }
-
-  .btn-primary:hover {
-    background: #e09a1e;
-    text-decoration: none;
-  }
 
   .filters {
     display: flex;
@@ -159,15 +134,6 @@
     color: var(--text-secondary);
   }
 
-  .filter-group select {
-    padding: 6px 12px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--bg-secondary);
-    color: var(--text-primary);
-    font-size: 14px;
-  }
-
   .search-group {
     display: flex;
     gap: 8px;
@@ -177,39 +143,6 @@
 
   .search-group input {
     flex: 1;
-    padding: 6px 12px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--bg-secondary);
-    color: var(--text-primary);
-    font-size: 14px;
   }
 
-  .btn-secondary {
-    padding: 6px 12px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    color: var(--text-primary);
-    font-size: 14px;
-    cursor: pointer;
-  }
-
-  .btn-secondary:hover {
-    background: var(--bg-tertiary, #e5e7eb);
-  }
-
-  .loading-text {
-    color: var(--text-secondary);
-    text-align: center;
-    padding: 48px;
-  }
-
-  .error-banner {
-    color: #f85149;
-    background: rgba(248, 81, 73, 0.1);
-    padding: 10px 12px;
-    border-radius: var(--radius);
-    margin-bottom: 16px;
-  }
 </style>

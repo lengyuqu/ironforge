@@ -44,7 +44,7 @@ describe('LabelDeleteModal.svelte', () => {
     expect(screen.getByText('Confirm Delete')).toBeInTheDocument();
     expect(screen.getByText('settings.confirm_delete_label')).toBeInTheDocument();
     expect(screen.getByText('bug')).toBeInTheDocument();
-    expect(screen.getByText('Delete')).toBeInTheDocument();
+    expect(screen.getByText('common.delete')).toBeInTheDocument();
   });
 
   it('deletes via the API exactly once, toasts, closes and refreshes', async () => {
@@ -59,10 +59,10 @@ describe('LabelDeleteModal.svelte', () => {
       onDeleted,
     });
 
-    await fireEvent.click(screen.getByText('Delete'));
+    await fireEvent.click(screen.getByText('common.delete'));
     await waitFor(() => expect(labelsDelete).toHaveBeenCalledWith('alice', 'demo', 3));
     await waitFor(() => expect(toastSuccess).toHaveBeenCalledTimes(1));
-    // Exactly one close call: the click must not bubble to the overlay.
+    // Exactly one close call.
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
     expect(onDeleted).toHaveBeenCalledTimes(1);
   });
@@ -78,7 +78,7 @@ describe('LabelDeleteModal.svelte', () => {
       onDeleted: () => {},
     });
 
-    await fireEvent.click(screen.getByText('Delete'));
+    await fireEvent.click(screen.getByText('common.delete'));
     await waitFor(() => expect(toastError).toHaveBeenCalled());
     expect(onClose).not.toHaveBeenCalled();
   });

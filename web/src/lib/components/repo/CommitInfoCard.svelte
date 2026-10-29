@@ -2,6 +2,9 @@
   // Commit info card — pure presentation: title, short sha, author/date and
   // the GPG signature badge.
   import type { RepoCommitEntry } from '$lib/types/entities';
+  import { createT } from '$lib/i18n';
+
+  const t = createT();
 
   interface GpgSignature {
     verified: boolean;
@@ -43,7 +46,7 @@
   }
 </script>
 
-<div class="commit-info">
+<div class="commit-info surface">
   <div class="commit-header">
     <h1 class="commit-title">{commit.message}</h1>
     <div class="commit-sha">
@@ -59,7 +62,7 @@
         class:verified={gpgSignature.verified}
         class:unverified={!gpgSignature.verified && gpgSignature.status !== 'no_signature'}
         class:no-sig={gpgSignature.status === 'no_signature'}
-        title="GPG: {gpgSignature.status}{gpgSignature.signer_name ? ' · ' + gpgSignature.signer_name : ''}"
+        title="{t('commit.gpg_title', { status: gpgSignature.status })}{gpgSignature.signer_name ? ' · ' + gpgSignature.signer_name : ''}"
       >
         {#if gpgSignature.verified}
           <span class="gpg-icon">✓</span> Signed
@@ -78,9 +81,6 @@
 
 <style>
   .commit-info {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
     padding: 1.5rem;
     margin-bottom: 1.5rem;
   }
@@ -134,14 +134,14 @@
     white-space: nowrap;
   }
   .gpg-badge.verified {
-    background: rgba(63, 185, 80, 0.12);
-    color: var(--green, #3fb950);
-    border: 1px solid rgba(63, 185, 80, 0.25);
+    background: color-mix(in srgb, var(--green) 12%, transparent);
+    color: var(--green);
+    border: 1px solid color-mix(in srgb, var(--green) 25%, transparent);
   }
   .gpg-badge.unverified {
-    background: rgba(248, 81, 73, 0.1);
-    color: var(--red, #f85149);
-    border: 1px solid rgba(248, 81, 73, 0.2);
+    background: color-mix(in srgb, var(--red) 10%, transparent);
+    color: var(--red);
+    border: 1px solid color-mix(in srgb, var(--red) 20%, transparent);
   }
   .gpg-badge.no-sig {
     background: var(--bg-tertiary);

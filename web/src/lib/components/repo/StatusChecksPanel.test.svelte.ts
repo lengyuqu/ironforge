@@ -61,7 +61,7 @@ describe('StatusChecksPanel.svelte', () => {
     render(StatusChecksPanel, { combined: null, statuses });
 
     expect(document.querySelector('.combined-status')).not.toBeInTheDocument();
-    expect(screen.getByText('Status Checks')).toBeInTheDocument();
+    expect(screen.getByText('Status checks')).toBeInTheDocument();
     expect(screen.getByText('ci/lint')).toBeInTheDocument();
   });
 });

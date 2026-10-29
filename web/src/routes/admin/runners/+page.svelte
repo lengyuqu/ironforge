@@ -2,6 +2,9 @@
   // Admin runners page — orchestration layer: auth guard, list loading
   // and pagination. Registration (with token banner) and delete
   // confirmation are handled by the self-contained components.
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
+  import LoadingState from '$lib/components/LoadingState.svelte';
+  import EmptyState from '$lib/components/EmptyState.svelte';
   import { goto } from '$app/navigation';
   import { createT } from '$lib/i18n';
   import { runners, type RunnerListItem } from '$lib/api/client.svelte';
@@ -77,22 +80,22 @@
   </div>
 
   {#if error}
-    <div class="error">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   <RunnerRegisterForm onRegistered={loadRunners} />
 
   {#if loading}
-    <p class="loading">{t('common.loading')}</p>
+    <LoadingState />
   {:else if runnerList.length === 0}
-    <p class="empty">{t('admin.runners.empty')}</p>
+    <EmptyState title={t('admin.runners.empty')} />
   {:else}
     <RunnerTable items={runnerList} onDelete={(runner) => (deleteTarget = runner)} />
 
     {#if totalPages > 1}
       <div class="pagination">
         <button onclick={prevPage} disabled={page <= 1}>{t('common.previous')}</button>
-        <span>Page {page} of {totalPages}</span>
+        <span>{t('common.page_of', { page, total: totalPages })}</span>
         <button onclick={nextPage} disabled={page >= totalPages}>{t('common.next')}</button>
       </div>
     {/if}
@@ -127,22 +130,8 @@
     margin: 0.5rem 0 0;
   }
 
-  .meta,
-  .loading,
-  .empty {
+  .meta{
     color: var(--text-secondary);
-  }
-
-  .empty {
-    font-style: italic;
-  }
-
-  .error {
-    color: #f85149;
-    background: rgba(248, 81, 73, 0.1);
-    padding: 0.5rem 0.75rem;
-    border-radius: 6px;
-    margin-bottom: 1rem;
   }
 
   .pagination {

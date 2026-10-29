@@ -1,4 +1,6 @@
 <script lang="ts">
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
+  import { confirmDialog } from '$lib/components/confirm.svelte';
   import { goto } from '$app/navigation';
   import { repos } from '$lib/api/client.svelte';
   import { toErrorMessage } from '$lib/utils/error';
@@ -23,7 +25,7 @@
   async function handleDelete() {
     if (deleteConfirm !== repositoryPath) return;
 
-    const confirmed = confirm(t('settings.delete.desc'));
+    const confirmed = (await confirmDialog({ variant: 'danger', message: t('settings.delete.desc') }));
     if (!confirmed) return;
 
     try {
@@ -34,8 +36,8 @@
 
       // Redirect to dashboard
       goto('/dashboard');
-    } catch (err: any) {
-      deleteError = toErrorMessage(err, 'Delete failed');
+    } catch (err) {
+      deleteError = toErrorMessage(err, t('errors.delete_failed'));
       deleting = false;
     }
   }
@@ -49,7 +51,7 @@
     <p>{t('settings.delete.desc')}</p>
 
     {#if deleteError}
-      <div class="error-box">{deleteError}</div>
+      <ErrorBanner message={deleteError} />
     {/if}
 
     <div class="form-group">
@@ -77,7 +79,6 @@
 
 <style>
   h2 {
-    font-size: 1.25rem;
     margin-bottom: 1rem;
     color: var(--text-primary);
   }
@@ -87,14 +88,14 @@
   }
 
   .danger-box {
-    border: 1px solid var(--red, #ff4444);
+    border: 1px solid var(--red);
     background: rgba(255, 0, 0, 0.05);
     border-radius: 6px;
     padding: 1.5rem;
   }
 
   .danger-box h3 {
-    color: var(--red, #ff4444);
+    color: var(--red);
     margin-bottom: 0.5rem;
     font-size: 1.1rem;
   }
@@ -109,61 +110,8 @@
     margin-top: 1.5rem;
   }
 
-  .form-group label {
-    display: block;
-    margin-bottom: 0.5rem;
-    color: var(--text-primary);
-    font-weight: 500;
-    font-size: 0.9rem;
-  }
-
   input[type='text'] {
     width: 100%;
-    padding: 0.6rem 0.75rem;
-    background: var(--bg-primary);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    color: var(--text-primary);
-    font-size: 0.9rem;
   }
 
-  input[type='text']:focus {
-    outline: none;
-    border-color: var(--accent);
-  }
-
-  .btn {
-    padding: 0.6rem 1.25rem;
-    border: none;
-    border-radius: 6px;
-    font-size: 0.9rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s;
-    margin-top: 1rem;
-  }
-
-  .btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .btn-danger {
-    background: var(--red, #ff4444);
-    color: white;
-  }
-
-  .btn-danger:hover:not(:disabled) {
-    background: var(--red-dark, #cc0000);
-  }
-
-  .error-box {
-    padding: 0.75rem;
-    background: rgba(255, 0, 0, 0.1);
-    border: 1px solid var(--red, #ff4444);
-    border-radius: 6px;
-    color: var(--red, #ff4444);
-    font-size: 0.9rem;
-    margin-bottom: 1rem;
-  }
 </style>

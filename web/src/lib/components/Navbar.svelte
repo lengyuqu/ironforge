@@ -258,7 +258,7 @@
     height: 24px;
     border-radius: 50%;
     background: var(--accent);
-    color: #fff;
+    color: var(--text-on-accent);
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -279,11 +279,6 @@
 
   .lang-menu-container :global(.lang-btn:hover) {
     background: var(--bg-hover);
-  }
-
-  .btn-outline {
-    font-size: 13px;
-    padding: 6px 12px;
   }
 
   @media (max-width: 1200px) {

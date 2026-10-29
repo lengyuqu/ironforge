@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { confirmDialog } from '$lib/components/confirm.svelte';
+  import LoadingState from '$lib/components/LoadingState.svelte';
   import { wiki } from '$lib/api/client.svelte';
   import { toast } from '$lib/components/toast.svelte';
   import { toErrorMessage } from '$lib/utils/error';
@@ -58,7 +60,7 @@
   }
 
   async function restoreRevision(rev: WikiRevision) {
-    if (!confirm(`Restore version ${rev.version}? Current content will become a revision.`)) return;
+    if (!(await confirmDialog({ variant: 'danger', message: t('confirm.wiki_restore', { version: rev.version }) }))) return;
     restoring = true;
     try {
       await wiki.update(owner, repo, title, viewingRevision?.content ?? rev.content);
@@ -66,7 +68,7 @@
       viewingRevision = null;
       await onRestored();
     } catch (e) {
-      toast.error(toErrorMessage(e, t('errors.save_failed') || 'Restore failed'));
+      toast.error(toErrorMessage(e, t('errors.update_failed')));
     } finally {
       restoring = false;
     }
@@ -74,18 +76,18 @@
 </script>
 
 <div class="history-panel">
-  <h3>Revision History</h3>
+  <h3>{t('wiki.revision_history')}</h3>
   {#if historyLoading}
-    <p class="text-secondary">Loading…</p>
+    <LoadingState compact />
   {:else if revisions.length === 0}
-    <p class="text-secondary">No revisions yet. Revisions are saved on every edit.</p>
+    <p class="text-secondary">{t('wiki.no_revisions_hint')}</p>
   {:else}
     <div class="revision-list">
       {#each revisions as rev}
         <div class="revision-item" class:expanded={viewingRevision?.id === rev.id}>
           <button class="revision-header" onclick={() => viewRevision(rev)}>
             <span class="rev-version">v{rev.version}</span>
-            <span class="rev-msg">{rev.message || 'No message'}</span>
+            <span class="rev-msg">{rev.message || t('wiki.noMessage')}</span>
             <span class="rev-date">{formatDate(rev.created_at)}</span>
             <span class="rev-arrow">{viewingRevision?.id === rev.id ? '▲' : '▼'}</span>
           </button>
@@ -93,7 +95,7 @@
             <div class="revision-content">
               <pre class="rev-preview">{viewingRevision.content}</pre>
               <button class="btn-primary btn-sm" disabled={restoring} onclick={() => restoreRevision(rev)}>
-                Restore this version
+                {t('wiki.restore_version')}
               </button>
             </div>
           {/if}
@@ -127,10 +129,5 @@
     background: var(--bg-primary); border: 1px solid var(--border); border-radius: var(--radius);
     padding: 10px; margin-bottom: 10px;
   }
-  .btn-primary {
-    padding: 6px 16px; background: var(--accent); color: #fff;
-    border: none; border-radius: var(--radius); font-size: 13px; cursor: pointer;
-  }
-  .btn-sm { padding: 4px 10px; font-size: 12px; }
   button:disabled { opacity: 0.6; cursor: not-allowed; }
 </style>

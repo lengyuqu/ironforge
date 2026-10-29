@@ -1,7 +1,12 @@
 <script lang="ts">
+  import { toErrorMessage } from '$lib/utils/error';
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
+  import LoadingState from '$lib/components/LoadingState.svelte';
+  import EmptyState from '$lib/components/EmptyState.svelte';
   import { isAuthReady, isLoggedIn, isAdmin } from '$lib/stores/auth.svelte';
   import { goto } from '$app/navigation';
   import { createT, formatDate } from '$lib/i18n';
+  import Modal from '$lib/components/Modal.svelte';
   import { admin, type AdminOrg } from '$lib/api/client.svelte';
 
   const t = createT();
@@ -32,8 +37,8 @@
       orgs = result.data;
       total = result.pagination?.total ?? 0;
       totalPages = result.pagination?.total_pages ?? 1;
-    } catch (e: any) {
-      error = e.message || t('errors.load_failed');
+    } catch (e) {
+      error = toErrorMessage(e, t('errors.load_failed'));
     } finally {
       loading = false;
     }
@@ -53,8 +58,8 @@
       deleteTarget = null;
       showDeleteConfirm = false;
       await loadOrgs();
-    } catch (e: any) {
-      error = e.message;
+    } catch (e) {
+      error = toErrorMessage(e, t('common.unknown_error'));
     } finally {
       deleting = false;
     }
@@ -68,12 +73,6 @@
     if (page < totalPages) { page++; loadOrgs(); }
   }
 
-  function closeDeleteDialogByKey(e: KeyboardEvent) {
-    if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      showDeleteConfirm = false;
-    }
-  }
 </script>
 
 <div class="container">
@@ -84,23 +83,23 @@
   </div>
 
   {#if error}
-    <div class="error">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   {#if loading}
-    <p class="loading">{t('common.loading')}</p>
+    <LoadingState />
   {:else if orgs.length === 0}
-    <p class="empty">{t('orgs.no_repos')}</p>
+    <EmptyState title={t('orgs.no_repos')} />
   {:else}
     <div class="table-wrap">
       <table class="orgs-table">
         <thead>
           <tr>
-            <th>Name</th>
-            <th>Display Name</th>
-            <th>Visibility</th>
-            <th>Owner ID</th>
-            <th>Created</th>
+            <th>{t('admin.orgs.col.name')}</th>
+            <th>{t('admin.users.display_name')}</th>
+            <th>{t('admin.orgs.col.visibility')}</th>
+            <th>{t('admin.orgs.col.owner_id')}</th>
+            <th>{t('admin.orgs.col.created')}</th>
             <th></th>
           </tr>
         </thead>
@@ -129,9 +128,9 @@
 
     {#if totalPages > 1}
       <div class="pagination">
-        <button onclick={prevPage} disabled={page <= 1}>← Prev</button>
-        <span>Page {page} of {totalPages}</span>
-        <button onclick={nextPage} disabled={page >= totalPages}>Next →</button>
+        <button onclick={prevPage} disabled={page <= 1}>← {t('common.previous')}</button>
+        <span>{t('common.page_of', { page, total: totalPages })}</span>
+        <button onclick={nextPage} disabled={page >= totalPages}>{t('common.next')} →</button>
       </div>
     {/if}
   {/if}
@@ -139,30 +138,21 @@
 
 <!-- Delete confirm -->
   {#if showDeleteConfirm && deleteTarget}
-    <div
-      class="modal-overlay"
-      onclick={() => showDeleteConfirm = false}
-      role="button"
-      tabindex="0"
-      onkeydown={closeDeleteDialogByKey}
+    <Modal
+      open={true}
+      title={t('admin.orgs.delete_confirm')}
+      submitLabel={deleting ? t('common.loading') : t('common.delete')}
+      submitVariant="danger"
+      busy={deleting}
+      onClose={() => (showDeleteConfirm = false)}
+      onSubmit={handleDelete}
     >
-      <div class="modal" role="dialog" aria-modal="true" tabindex="-1">
-      <h2>{t('admin.orgs.delete_confirm')}</h2>
-      <p>
-        {t('admin.orgs.delete_warning', { name: deleteTarget.name })}
-      </p>
+      <p class="modal-text">{t('admin.orgs.delete_warning', { name: deleteTarget.name })}</p>
       {#if error}
-        <div class="error">{error}</div>
+        <ErrorBanner message={error} />
       {/if}
-      <div class="modal-actions">
-        <button class="btn-danger" onclick={handleDelete} disabled={deleting}>
-          {deleting ? t('common.loading') : t('common.delete')}
-        </button>
-        <button class="btn-secondary" onclick={() => showDeleteConfirm = false}>{t('common.cancel')}</button>
-      </div>
-    </div>
-  </div>
-{/if}
+    </Modal>
+  {/if}
 
 <style>
   .header { margin-bottom: 1.5rem; }
@@ -170,9 +160,6 @@
   .back:hover { color: var(--accent); text-decoration: none; }
   h1 { margin: 0.5rem 0 0; }
   .meta { color: var(--text-secondary); margin: 0; }
-  .error { color: #f85149; background: rgba(248, 81, 73, 0.1); padding: 0.5rem 0.75rem; border-radius: 6px; margin-bottom: 1rem; }
-  .loading { color: var(--text-secondary); }
-  .empty { color: var(--text-secondary); font-style: italic; }
 
   .table-wrap { overflow-x: auto; }
   .orgs-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
@@ -186,23 +173,14 @@
   .date { color: var(--text-secondary); white-space: nowrap; }
   .actions { text-align: right; }
 
-  .badge { display: inline-block; padding: 0.1rem 0.4rem; border-radius: 8px; font-size: 0.8rem; background: rgba(63, 185, 80, 0.15); color: #3fb950; border: 1px solid #3fb950; }
-  .badge.private { background: rgba(248, 81, 73, 0.15); color: #f85149; border-color: #f85149; }
+  .badge { display: inline-block; padding: 0.1rem 0.4rem; border-radius: 8px; font-size: 0.8rem; background: color-mix(in srgb, var(--green) 15%, transparent); color: var(--green); border: 1px solid var(--green); }
+  .badge.private { background: color-mix(in srgb, var(--red) 15%, transparent); color: var(--red); border-color: var(--red); }
 
   .pagination { display: flex; align-items: center; gap: 1rem; margin-top: 1rem; }
   .pagination button { background: var(--bg-secondary); border: 1px solid var(--border); color: var(--text-primary); border-radius: 6px; padding: 0.4rem 0.8rem; cursor: pointer; }
   .pagination button:disabled { opacity: 0.5; cursor: not-allowed; }
   .pagination span { color: var(--text-secondary); font-size: 0.9rem; }
 
-  .btn-danger { background: rgba(248, 81, 73, 0.15); border: 1px solid #f85149; color: #f85149; border-radius: 4px; padding: 0.25rem 0.6rem; font-size: 0.8rem; cursor: pointer; }
-  .btn-danger:hover { background: rgba(248, 81, 73, 0.25); }
-  .btn-danger:disabled { opacity: 0.6; cursor: not-allowed; }
-
   /* Modal */
-  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-  .modal { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; width: 420px; max-width: 90vw; }
-  .modal h2 { margin: 0 0 1rem; font-size: 1.1rem; }
-  .modal p { color: var(--text-secondary); margin: 0 0 1rem; }
-  .modal-actions { display: flex; gap: 0.75rem; justify-content: flex-end; margin-top: 1.25rem; }
-  .btn-secondary { background: var(--bg-primary); border: 1px solid var(--border); color: var(--text-primary); border-radius: 6px; padding: 0.5rem 1rem; cursor: pointer; font-size: 0.9rem; }
+  .modal-text { color: var(--text-secondary); margin: 0 0 1rem; }
 </style>

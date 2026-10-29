@@ -1,4 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+// The app's confirm/prompt dialogs are promise-based UI; route them through the
+// stubbed window.confirm / window.prompt so tests keep driving the answer.
+vi.mock('$lib/components/confirm.svelte', () => ({
+  confirmDialog: async (o: { message: string }) => globalThis.confirm(o.message),
+  promptDialog: async (o: { message: string }) => globalThis.prompt(o.message),
+}));
 import { render, screen, fireEvent, waitFor } from '@testing-library/svelte';
 
 const tokensDelete = vi.fn();

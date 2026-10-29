@@ -37,14 +37,23 @@ describe('ToastContainer.svelte', () => {
     expect(screen.queryByText('Sticky note')).not.toBeInTheDocument();
   });
 
-  it('stacks multiple toasts at increasing offsets', () => {
+  it('stacks multiple toasts in one flex container instead of fixed offsets', () => {
     toast.info('One');
     toast.info('Two');
     render(ToastContainer);
 
-    // Offsets are emitted as unevaluated calc() expressions.
-    const toasts = Array.from(document.querySelectorAll('.toast'));
-    expect(toasts[0].getAttribute('style')).toContain('0 * 64px');
-    expect(toasts[1].getAttribute('style')).toContain('1 * 64px');
+    const stack = document.querySelector('.toast-stack') as HTMLElement;
+    expect(stack).toBeInTheDocument();
+    expect(Array.from(stack.children).map((el) => el.textContent?.includes('One') || el.textContent?.includes('Two'))).toEqual([true, true]);
+  });
+
+  it('announces errors with role=alert and keeps at most five toasts', () => {
+    for (let i = 0; i < 7; i++) toast.info(`n${i}`);
+    toast.error('Boom');
+    render(ToastContainer);
+
+    expect(document.querySelectorAll('.toast').length).toBe(5);
+    expect(screen.getByRole('alert')).toHaveTextContent('Boom');
+    expect(screen.queryByText('n0')).not.toBeInTheDocument();
   });
 });

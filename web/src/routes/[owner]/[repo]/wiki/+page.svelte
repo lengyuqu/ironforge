@@ -1,15 +1,20 @@
 <script lang="ts">
+  import { toErrorMessage } from '$lib/utils/error';
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
+  import LoadingState from '$lib/components/LoadingState.svelte';
+  import EmptyState from '$lib/components/EmptyState.svelte';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
   import { wiki } from '$lib/api/client.svelte';
+  import type { WikiPageSummary } from '$lib/types/entities';
   import { createT, formatDate } from '$lib/i18n';
 
   const t = createT();
 
   let owner = $derived($page.params.owner!);
   let repo = $derived($page.params.repo!);
-  let pageList = $state<any[]>([]);
+  let pageList = $state<WikiPageSummary[]>([]);
   let loading = $state(true);
   let error = $state('');
   let showCreate = $state(false);
@@ -22,8 +27,8 @@
     try {
       loading = true;
       pageList = await wiki.list(owner, repo);
-    } catch (e: any) {
-      error = e.message;
+    } catch (e) {
+      error = toErrorMessage(e, t('common.unknown_error'));
     } finally {
       loading = false;
     }
@@ -38,14 +43,14 @@
       newTitle = '';
       newContent = '';
       await goto(`/${owner}/${repo}/wiki/${encodeURIComponent(createdTitle)}`);
-    } catch (e: any) {
-      error = e.message;
+    } catch (e) {
+      error = toErrorMessage(e, t('common.unknown_error'));
     }
   }
 </script>
 
 <svelte:head>
-  <title>Wiki · {owner}/{repo} · IronForge</title>
+  <title>{t('repo.tabs.wiki')} · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
 <div class="page-container">
@@ -57,7 +62,7 @@
   </div>
 
   {#if showCreate}
-    <div class="create-form">
+    <div class="create-form surface">
       <form onsubmit={handleCreate}>
         <label>
           {t('wiki.create_form.title')}
@@ -76,13 +81,13 @@
   {/if}
 
   {#if error}
-    <div class="error-banner">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   {#if loading}
-    <p class="text-secondary">{t('common.loading')}</p>
+    <LoadingState />
   {:else if pageList.length === 0}
-    <div class="empty"><p>{t('wiki.empty')}</p></div>
+    <EmptyState title={t('wiki.empty')} />
   {:else}
     <div class="page-list">
       {#each pageList as p}
@@ -97,18 +102,16 @@
 
 <style>
   .toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
-  h2 { font-size: 18px; }
 
-  .btn-primary { padding: 6px 16px; background: var(--green-dim); color: #fff; border: none; border-radius: var(--radius); font-size: 14px; font-weight: 600; cursor: pointer; }
-  .btn-primary:hover { background: var(--green); }
-  .btn-secondary { padding: 6px 16px; background: none; color: var(--text-primary); border: 1px solid var(--border); border-radius: var(--radius); font-size: 14px; cursor: pointer; }
-
-  .create-form { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 24px; margin-bottom: 24px; }
+  .create-form {
+    padding: 24px;
+    margin-bottom: 24px;
+  }
   form { display: flex; flex-direction: column; gap: 14px; }
   label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600; }
-  textarea { font-family: var(--font-mono); font-size: 13px; resize: vertical; }
-  .form-actions { display: flex; gap: 8px; margin-top: 8px; }
-.empty { text-align: center; padding: 48px; color: var(--text-secondary); }
+  textarea {
+    resize: vertical;
+  }
 
   .page-list { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
   .wiki-item {

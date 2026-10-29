@@ -60,7 +60,7 @@
     padding: 10px;
     border: 1px solid var(--green-dim);
     border-radius: var(--radius);
-    background: rgba(63, 185, 80, 0.08);
+    background: color-mix(in srgb, var(--green) 8%, transparent);
   }
   .suggestion-block code { white-space: pre-wrap; }
   .suggestion-block button { align-self: flex-start; }
@@ -72,16 +72,4 @@
     font-size: 12px;
     color: var(--text-secondary);
   }
-
-  .btn-secondary {
-    padding: 6px 16px;
-    background: var(--bg-tertiary);
-    color: var(--text-primary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    font-size: 14px;
-    cursor: pointer;
-  }
-  .btn-secondary:hover:not(:disabled) { border-color: var(--accent); }
-  .btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>
