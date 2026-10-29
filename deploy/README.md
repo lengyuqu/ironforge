@@ -327,6 +327,16 @@ created them.
 - Links that used `/repos/<creator>/<org-repo>` stop working; use the
   organization name.
 
+## MySQL notes
+
+The full-text-search migration (`m20260714_000002_repair_mysql_fts_triggers`)
+creates triggers. With binary logging enabled (the default on MySQL 8.4) the
+server rejects `CREATE TRIGGER` from a user without `SUPER` with
+`ERROR 1419: You do not have the SUPER privilege and binary logging is enabled`.
+Before the first start, either set `log_bin_trust_function_creators = 1`
+(`SET GLOBAL ...` or in `my.cnf`) or run the migration once as a user that has
+`SUPER`. The CI MySQL smoke job sets the variable for the same reason.
+
 ## 📚 References
 
 - [Prometheus docs](https://prometheus.io/docs/)

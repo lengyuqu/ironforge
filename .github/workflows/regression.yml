@@ -183,6 +183,13 @@ jobs:
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
 
+      # The FTS migration creates triggers. With binary logging on (the MySQL
+      # 8.4 default) the server refuses that for a non-SUPER user (error 1419)
+      # unless log_bin_trust_function_creators is set. Production MySQL needs
+      # the same setting, or a migration user with SUPER.
+      - name: Allow trigger creation with binary logging
+        run: mysql -h 127.0.0.1 -P 3306 -uroot -proot -e "SET GLOBAL log_bin_trust_function_creators = 1"
+
       - name: Run MySQL runtime smoke
         run: cargo test -p rg-core --test multi_backend_smoke -- --ignored --nocapture
 
