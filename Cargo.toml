@@ -130,6 +130,14 @@ home = "0.5"
 # DB migration
 sea-orm-migration = { version = "1.1", features = ["sqlx-sqlite", "sqlx-postgres", "sqlx-mysql", "runtime-tokio-rustls"] }
 
+# rg-http alone has ~70 integration-test files, each linked into its own debug
+# binary. With full debug info those were ~170 MB apiece, and linking them all
+# exhausted the CI runner's disk (`ld: Bus error`). Line tables keep panics and
+# backtraces readable at a fraction of the size; set CARGO_PROFILE_DEV_DEBUG=2
+# locally if you need to inspect variables in a debugger.
+[profile.dev]
+debug = "line-tables-only"
+
 [profile.release]
 lto = true
 strip = true
