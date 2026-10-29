@@ -71,4 +71,58 @@ describe('Modal.svelte (via ModalHarness)', () => {
     rerender({ open: false });
     await waitFor(() => expect(document.body.style.overflow).not.toBe('hidden'));
   });
+
+  it('does not react to Escape while closed', () => {
+    const onClose = vi.fn();
+    render(ModalHarness, { open: false, onClose });
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('moves focus into the dialog, traps Tab, and restores focus on close', async () => {
+    const opener = document.createElement('button');
+    document.body.appendChild(opener);
+    opener.focus();
+
+    const { rerender } = render(ModalHarness, { open: false });
+    rerender({ open: true, title: 'T', onSubmit: () => {} });
+    await waitFor(() => expect(document.querySelector('.modal-content')?.contains(document.activeElement)).toBe(true));
+
+    // Tab from the last control wraps to the first one.
+    const items = Array.from(
+      document.querySelectorAll<HTMLElement>('.modal-content button'),
+    );
+    items[items.length - 1].focus();
+    fireEvent.keyDown(window, { key: 'Tab' });
+    expect(document.activeElement).toBe(items[0]);
+
+    rerender({ open: false });
+    await waitFor(() => expect(document.activeElement).toBe(opener));
+    opener.remove();
+  });
+
+  it('submits on Enter inside a text input but not when disabled', async () => {
+    const onSubmit = vi.fn();
+    const { rerender } = render(ModalHarness, { open: true, title: 'T', onSubmit, withInput: true });
+    const input = await waitFor(() => {
+      const el = document.querySelector<HTMLInputElement>('#harness-input');
+      expect(el).toBeInTheDocument();
+      return el as HTMLInputElement;
+    });
+    await fireEvent.keyDown(input, { key: 'Enter' });
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+
+    rerender({ open: true, title: 'T', onSubmit, withInput: true, submitDisabled: true });
+    await fireEvent.keyDown(input, { key: 'Enter' });
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the dialog open when a text-selection drag ends on the backdrop', async () => {
+    const onClose = vi.fn();
+    render(ModalHarness, { open: true, title: 'T', onClose });
+    const backdrop = document.querySelector('.modal-backdrop') as HTMLElement;
+    await fireEvent.mouseDown(document.querySelector('.modal-content') as HTMLElement);
+    await fireEvent.click(backdrop);
+    expect(onClose).not.toHaveBeenCalled();
+  });
 });

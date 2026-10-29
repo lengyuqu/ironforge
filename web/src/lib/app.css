@@ -18,6 +18,15 @@
   --yellow-dim: #9e6a03;
   --purple: #bc8cff;
   --orange: #d18616;
+  --text-on-accent: #ffffff;
+  --accent-subtle: rgba(88, 166, 255, 0.15);
+  --red-subtle: rgba(248, 81, 73, 0.12);
+  --green-subtle: rgba(63, 185, 80, 0.12);
+  --yellow-subtle: rgba(210, 153, 34, 0.15);
+  --overlay: rgba(0, 0, 0, 0.6);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.4);
+  --focus-ring: 0 0 0 3px var(--accent-subtle);
   --font-mono: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
   --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
   --radius: 6px;
@@ -27,6 +36,14 @@
   --layout-max: min(1280px, calc(100vw - 2 * var(--layout-gutter)));
   --layout-narrow-max: min(980px, calc(100vw - 2 * var(--layout-gutter)));
 }
+
+/* Breakpoints (CSS cannot read custom properties inside @media, so these are
+   conventions; use only these values):
+     max-width: 600px   phones
+     max-width: 720px   large phones / small tablets
+     max-width: 900px   tablets and narrow laptops
+     max-width: 1200px  wide layouts that need to tighten
+*/
 
 * {
   box-sizing: border-box;
@@ -113,60 +130,105 @@ button {
   cursor: pointer;
 }
 
-.btn {
+/* ── Buttons ───────────────────────────────────────────────────────────
+   The single button definition. Every variant and size class is
+   self-sufficient, so `class="btn-primary"`, `class="btn btn-primary"` and
+   `<Button variant="primary">` all render identically. Do not redefine these
+   classes in component <style> blocks; add a new modifier instead. */
+
+.btn,
+.btn-primary,
+.btn-secondary,
+.btn-outline,
+.btn-ghost,
+.btn-danger,
+.btn-sm,
+.btn-md,
+.btn-lg,
+.btn-xs {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  border-radius: var(--radius);
-  font-weight: 500;
-  text-decoration: none;
-  transition: background-color 0.15s, border-color 0.15s;
+  padding: 6px 14px;
   border: 1px solid var(--border);
-  background: var(--bg-primary);
+  border-radius: var(--radius);
+  background: var(--bg-secondary);
   color: var(--text-primary);
-  padding: 5px 12px;
-  font-size: 14px;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
+  text-decoration: none;
   cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
 }
 
-.btn:focus-visible {
+.btn:hover:not(:disabled),
+.btn-primary:hover:not(:disabled),
+.btn-secondary:hover:not(:disabled),
+.btn-outline:hover:not(:disabled),
+.btn-ghost:hover:not(:disabled),
+.btn-danger:hover:not(:disabled) {
+  text-decoration: none;
+}
+
+.btn:focus-visible,
+.btn-primary:focus-visible,
+.btn-secondary:focus-visible,
+.btn-outline:focus-visible,
+.btn-ghost:focus-visible,
+.btn-danger:focus-visible,
+.btn-sm:focus-visible,
+.btn-lg:focus-visible,
+.btn-xs:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
-.btn:disabled {
+.btn:disabled,
+.btn-primary:disabled,
+.btn-secondary:disabled,
+.btn-outline:disabled,
+.btn-ghost:disabled,
+.btn-danger:disabled,
+.btn-sm:disabled,
+.btn-lg:disabled,
+.btn-xs:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
 
-.btn:hover:not(:disabled) {
+/* Sizes (md is the default above) */
+.btn-xs { padding: 1px 6px; font-size: 11px; }
+.btn-sm { padding: 3px 10px; font-size: 12px; }
+.btn-md { padding: 6px 14px; font-size: 13px; }
+.btn-lg { padding: 8px 18px; font-size: 14px; }
+
+/* Variants */
+.btn:hover:not(:disabled),
+.btn-secondary:hover:not(:disabled),
+.btn-outline:hover:not(:disabled) {
   background: var(--bg-hover);
 }
 
-.btn-sm { padding: 3px 8px; font-size: 12px; }
-.btn-md { padding: 5px 12px; font-size: 13px; }
-.btn-lg { padding: 8px 16px; font-size: 14px; }
-
-.btn-primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-}
-
-.btn-primary:hover:not(:disabled) {
-  background: var(--accent-hover);
-  border-color: var(--accent-hover);
-}
-
+.btn-secondary,
 .btn-outline {
   background: var(--bg-secondary);
   border-color: var(--border);
   color: var(--text-primary);
 }
 
-.btn-outline:hover:not(:disabled) {
-  background: var(--bg-hover);
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--text-on-accent);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 
 .btn-ghost {
@@ -182,7 +244,7 @@ button {
 .btn-danger {
   background: var(--red-dim);
   border-color: var(--red-dim);
-  color: #fff;
+  color: var(--text-on-accent);
 }
 
 .btn-danger:hover:not(:disabled) {
@@ -190,25 +252,63 @@ button {
   border-color: var(--red);
 }
 
-.error-banner {
-  background: rgba(248, 81, 73, 0.12);
-  border: 1px solid var(--red-dim);
-  color: var(--red);
-  border-radius: var(--radius);
-  padding: 10px 14px;
-  margin-bottom: 16px;
-  font-size: 13px;
+/* Text-style button: looks like a link, behaves like a button */
+.btn-link {
+  display: inline;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
 }
 
-.success-banner {
-  background: #f0fdf4;
-  border: 1px solid #bbf7d0;
-  color: #16a34a;
+.btn-link:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.btn-link:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Compact square-ish button for a single glyph (edit, delete, ...) */
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 10px 14px;
-  margin-bottom: 16px;
+  background: none;
+  color: var(--text-primary);
   font-size: 13px;
-  line-height: 1.5;
+  cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+.btn-icon:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--accent);
+}
+
+.btn-icon:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Outline + danger = destructive but secondary (e.g. "Delete" in a toolbar) */
+.btn-danger.btn-outline,
+.btn-outline.btn-danger {
+  background: transparent;
+  border-color: var(--red-dim);
+  color: var(--red);
+}
+
+.btn-danger.btn-outline:hover:not(:disabled),
+.btn-outline.btn-danger:hover:not(:disabled) {
+  background: var(--red-dim);
+  color: var(--text-on-accent);
 }
 
 .gh-card {
@@ -233,20 +333,198 @@ button {
   border-bottom: none;
 }
 
-input, textarea, select {
+/* ── Form controls ─────────────────────────────────────────────────────
+   Defaults for every text-like control. They use :where() so they carry no
+   specificity: a component can still adjust layout (width, margin) or opt out
+   without fighting this block. Do not restate the skin (padding, border,
+   background, focus ring) in component <style> blocks. */
+
+:where(
+    input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']):not([type='color']):not([type='hidden']),
+    textarea,
+    select
+  ) {
   font-family: var(--font-sans);
   font-size: 14px;
+  line-height: 1.4;
   background: var(--bg-primary);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text-primary);
-  padding: 5px 12px;
+  padding: 7px 10px;
   outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
 
-input:focus, textarea:focus, select:focus {
+:where(input, textarea, select):focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.15);
+  box-shadow: var(--focus-ring);
+}
+
+:where(input, textarea, select):disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  background: var(--bg-secondary);
+}
+
+:where(input, textarea):read-only:not(:disabled) {
+  background: var(--bg-secondary);
+}
+
+:where(input, textarea)::placeholder {
+  color: var(--text-muted);
+}
+
+:where(textarea) {
+  line-height: 1.5;
+  resize: vertical;
+}
+
+:where(input[type='checkbox'], input[type='radio']) {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+:where(input[type='checkbox'], input[type='radio']):disabled {
+  cursor: not-allowed;
+}
+
+/* Form layout helpers: a labelled field, a row of fields, an action bar. */
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.form-group > :where(input:not([type='checkbox']):not([type='radio']), textarea, select) {
+  width: 100%;
+}
+
+.form-group > label,
+.form-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.form-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.form-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  color: var(--text-primary);
+}
+
+@media (max-width: 600px) {
+  .form-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── Typography and page header ────────────────────────────────────────
+   Heading scale and the standard "title + actions" row. Headings use :where()
+   so a component can still size its own (hero, error page). Rendered markdown
+   keeps its own heading styles. */
+
+:where(h1):not(.markdown-body *) { font-size: 24px; font-weight: 600; line-height: 1.3; }
+:where(h2):not(.markdown-body *) { font-size: 18px; font-weight: 600; line-height: 1.35; }
+:where(h3):not(.markdown-body *) { font-size: 16px; font-weight: 600; line-height: 1.4; }
+
+.page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 24px;
+}
+
+.page-header > :where(h1, h2) {
+  margin: 0;
+}
+
+.page-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.subtitle {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+/* A bordered panel on the secondary background. Add it next to a component's
+   own class (class="repo-card surface"); the component keeps only its padding,
+   layout and hover behaviour. */
+.surface {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+/* A section of a settings page, separated from the next by a hairline. */
+.settings-section {
+  margin-bottom: 40px;
+  padding-bottom: 32px;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-section:last-child {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+/* Field-level validation feedback */
+input[aria-invalid='true'],
+textarea[aria-invalid='true'],
+select[aria-invalid='true'] {
+  /* !important: component-scoped input styles are more specific than this. */
+  border-color: var(--red) !important;
+}
+
+input[aria-invalid='true']:focus,
+textarea[aria-invalid='true']:focus,
+select[aria-invalid='true']:focus {
+  box-shadow: 0 0 0 3px rgba(248, 81, 73, 0.2);
+}
+
+.field-error {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--red);
+}
+
+.field-hint {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
 }
 
 /* Scrollbar */
@@ -332,6 +610,7 @@ main > .search-page {
 
 main > .login-page,
 main > .reset-page {
+  display: flex;
   min-height: calc(100vh - 62px);
   align-items: center !important;
   justify-content: center !important;

@@ -1,4 +1,8 @@
 <script lang="ts">
+  import { toErrorMessage } from '$lib/utils/error';
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
+  import LoadingState from '$lib/components/LoadingState.svelte';
+  import EmptyState from '$lib/components/EmptyState.svelte';
   import { page } from '$app/stores';
   import { mirrors, type RepositoryMirror } from '$lib/api/client.svelte';
   import MirrorForm from '$lib/components/settings/MirrorForm.svelte';
@@ -22,11 +26,11 @@
       loading = true;
       error = '';
       mirror = await mirrors.get(owner, repo);
-    } catch (err: any) {
-      if (String(err?.message || '').toLowerCase().includes('no mirror configured')) {
+    } catch (err) {
+      if ((err instanceof Error ? err.message : '').toLowerCase().includes('no mirror configured')) {
         mirror = null;
       } else {
-        error = err.message || t('settings.mirror.load_failed');
+        error = toErrorMessage(err, t('settings.mirror.load_failed'));
       }
     } finally {
       loading = false;
@@ -43,18 +47,18 @@
   </div>
 
   {#if error}
-    <div class="error-box">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   {#if loading}
-    <div class="loading">{t('common.loading')}</div>
+    <LoadingState />
   {:else}
     <MirrorForm {owner} {repo} {mirror} onChanged={loadMirror} />
 
     {#if mirror}
       <MirrorStatusPanel {mirror} />
     {:else}
-      <div class="empty-state">{t('settings.mirror.empty')}</div>
+      <EmptyState title={t('settings.mirror.empty')} />
     {/if}
   {/if}
 </div>
@@ -64,12 +68,7 @@
     max-width: 900px;
   }
 
-  .page-header {
-    margin-bottom: 2rem;
-  }
-
   h1 {
-    font-size: 1.75rem;
     margin: 0 0 0.5rem;
     color: var(--text-primary);
   }
@@ -80,21 +79,4 @@
     font-size: 0.95rem;
   }
 
-  .error-box {
-    padding: 1rem;
-    border-radius: 6px;
-    margin-bottom: 1rem;
-    background: rgba(248, 81, 73, 0.12);
-    color: var(--red);
-  }
-
-  .empty-state,
-  .loading {
-    padding: 1rem;
-    border-radius: 6px;
-    margin-bottom: 1rem;
-    background: var(--bg-secondary);
-    color: var(--text-secondary);
-    border: 1px solid var(--border);
-  }
 </style>

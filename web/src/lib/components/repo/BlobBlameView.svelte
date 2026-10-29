@@ -2,6 +2,7 @@
   // Blame view — per-line authorship for a file. Self-contained: loads the
   // blame for the given ref/path and renders one row per line, with the
   // introducing commit shown on the first row of each hunk.
+  import EmptyState from '$lib/components/EmptyState.svelte';
   import { repos } from '$lib/api/client.svelte';
   import { createT, formatDate } from '$lib/i18n';
   import { toErrorMessage } from '$lib/utils/error';
@@ -49,7 +50,7 @@
 
 <div class="blame-view">
   {#if loading}
-    <div class="empty-state">{t('repo.blob.blame_loading')}</div>
+    <EmptyState title={t('repo.blob.blame_loading')} />
   {:else if error}
     <div class="empty-state error-text">{error}</div>
   {:else if result}
@@ -168,10 +169,10 @@
   }
 
   .error-text {
-    color: #cf222e;
+    color: var(--red);
   }
 
-  @media (max-width: 820px) {
+  @media (max-width: 900px) {
     .blame-meta {
       min-width: 160px;
     }

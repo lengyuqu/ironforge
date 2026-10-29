@@ -12,7 +12,7 @@ const issues: Issue[] = [
 describe('IssueSelector.svelte', () => {
   it('shows a loading indicator while loading', () => {
     render(IssueSelector, { issues: [], loading: true, selectedId: null, onSelect: vi.fn() });
-    expect(screen.getByText('Loading…')).toBeInTheDocument();
+    expect(screen.getByText('Loading...')).toBeInTheDocument();
   });
 
   it('shows an empty message when there are no issues', () => {

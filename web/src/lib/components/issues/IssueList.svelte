@@ -1,4 +1,6 @@
 <script lang="ts">
+  import LoadingState from '$lib/components/LoadingState.svelte';
+  import EmptyState from '$lib/components/EmptyState.svelte';
   import type { Issue } from '$lib/types/entities';
   import { createT, formatDate } from '$lib/i18n';
 
@@ -25,11 +27,9 @@
 </script>
 
 {#if loading}
-  <p class="text-secondary">{t('common.loading')}</p>
+  <LoadingState />
 {:else if issues.length === 0}
-  <div class="empty">
-    <p>{t('issues.empty', { state: emptyStateLabel() })}</p>
-  </div>
+  <EmptyState title={t('issues.empty', { state: emptyStateLabel() })} />
 {:else}
   <div class="issue-list gh-list">
     {#each issues as issue (issue.id)}
@@ -61,12 +61,6 @@
 {/if}
 
 <style>
-  .empty {
-    text-align: center;
-    padding: 48px;
-    color: var(--text-secondary);
-  }
-
   .issue-item {
     display: flex;
     align-items: flex-start;

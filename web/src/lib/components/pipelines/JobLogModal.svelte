@@ -2,7 +2,7 @@
   // Job log viewer modal — shows a job's log with live WebSocket streaming
   // status (Live / Reconnecting / Closed / error) and the job's if-condition.
   // Self-contained: owns the WebSocket connection and auto-scrolls.
-  import { onDestroy } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
   import PipelineBadge from '$lib/components/PipelineBadge.svelte';
   import { connectJobLogWebSocket, disconnectJobLogWebSocket } from '$lib/api/client.svelte';
   import { createT } from '$lib/i18n';
@@ -53,18 +53,49 @@
       },
       () => {
         logStreamStatus = 'error';
-        logStreamError = 'Live log connection failed';
+        logStreamError = t('pipeline.log_connect_failed');
       },
       since,
     );
   }
 
+  let dialogEl = $state<HTMLDivElement | null>(null);
+
+  // Only Escape closes: Space/Enter/arrows must stay available for scrolling
+  // and activating controls inside the log viewer.
   function closeByKey(e: KeyboardEvent) {
-    if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') {
+    if (e.key === 'Escape') {
       e.preventDefault();
       close();
+      return;
+    }
+    if (e.key === 'Tab' && dialogEl) {
+      const items = Array.from(dialogEl.querySelectorAll<HTMLElement>('button, [tabindex="0"]'));
+      if (items.length === 0) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
     }
   }
+
+  // Move focus into the dialog (so Escape works immediately), lock page scroll
+  // and hand focus back to whatever opened the log.
+  onMount(() => {
+    const opener = document.activeElement as HTMLElement | null;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    dialogEl?.focus();
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      if (opener && document.contains(opener)) opener.focus();
+    };
+  });
 
   function close() {
     disconnectJobLogWebSocket();
@@ -93,23 +124,24 @@
     aria-modal="true"
     aria-labelledby="pipeline-log-title"
     tabindex="-1"
+    bind:this={dialogEl}
     onkeydown={closeByKey}
   >
     <div class="log-header">
       <div>
-        <strong id="pipeline-log-title">{job.name || 'Job Log'}</strong>
+        <strong id="pipeline-log-title">{job.name || t('pipeline.job_log')}</strong>
         <PipelineBadge status={job.status} />
         {#if logStreamStatus === 'connected'}
-          <span class="log-live connected">Live</span>
+          <span class="log-live connected">{t('pipeline.log_live')}</span>
         {:else if logStreamStatus === 'reconnecting'}
-          <span class="log-live">Reconnecting…</span>
+          <span class="log-live">{t('pipeline.log_reconnecting')}</span>
         {:else if logStreamStatus === 'closed'}
-          <span class="log-live">Closed</span>
+          <span class="log-live">{t('pipeline.log_closed')}</span>
         {:else if logStreamStatus === 'error'}
-          <span class="log-live error">{logStreamError || 'Offline'}</span>
+          <span class="log-live error">{logStreamError || t('pipeline.log_offline')}</span>
         {/if}
       </div>
-      <button class="btn-close" onclick={close}>✕</button>
+      <button class="btn-close" onclick={close} aria-label={t('common.close')}>✕</button>
     </div>
     {#if job.if_condition}
       <div class="log-condition">
@@ -117,7 +149,9 @@
         <code>{job.if_condition}</code>
       </div>
     {/if}
-    <pre class="log-content" bind:this={logContentEl}><code>{logContent || '(no log output)'}</code></pre>
+    <!-- A focusable scroll region lets keyboard users scroll the log. -->
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+    <pre class="log-content" bind:this={logContentEl} tabindex="0" aria-label={t('pipeline.log')}><code>{logContent || '(no log output)'}</code></pre>
   </div>
 </div>
 
@@ -144,6 +178,7 @@
   }
 
   .log-modal {
+    outline: none;
     position: relative;
     z-index: 2;
     background: var(--bg-primary);
@@ -214,7 +249,7 @@
     font-size: 12px;
     line-height: 1.5;
     background: #1a1a2e;
-    color: #e0e0e0;
+    color: var(--text-primary);
     border-radius: 0 0 var(--radius-lg) var(--radius-lg);
     white-space: pre-wrap;
     word-break: break-all;

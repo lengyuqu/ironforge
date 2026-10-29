@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { orgs } from '$lib/api/client.svelte';
   import type { OrgSummary } from '$lib/types/entities';
   import { toErrorMessage } from '$lib/utils/error';
@@ -44,7 +45,7 @@
       );
       resetForm();
       await onCreated(result);
-    } catch (e: any) {
+    } catch (e) {
       error = toErrorMessage(e, t('errors.create_failed'));
     } finally {
       creating = false;
@@ -52,11 +53,11 @@
   }
 </script>
 
-<form onsubmit={handleCreate} class="create-panel">
+<form onsubmit={handleCreate} class="create-panel surface">
   <h2>{t('orgs.create_title')}</h2>
 
   {#if error}
-    <div class="error" role="alert">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   <div class="field">
@@ -106,9 +107,6 @@
 
 <style>
   .create-panel {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: 8px;
     padding: 1.25rem;
     display: flex;
     flex-direction: column;
@@ -118,7 +116,6 @@
 
   h2 {
     color: var(--text-primary);
-    font-size: 1.1rem;
     margin: 0;
   }
 
@@ -134,60 +131,13 @@
     font-weight: 600;
   }
 
-  input,
-  textarea,
-  select {
-    background: var(--bg-primary);
-    color: var(--text-primary);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 0.5rem 0.75rem;
-    font-size: 0.95rem;
-  }
-
-  input:focus,
-  textarea:focus,
-  select:focus {
-    outline: none;
-    border-color: var(--accent);
-  }
-
   .form-actions {
-    display: flex;
     justify-content: flex-end;
-    gap: 0.75rem;
   }
 
-  .btn-primary {
-    border: none;
-    border-radius: 6px;
-    padding: 0.6rem 1.2rem;
-    font-size: 0.95rem;
-    cursor: pointer;
-    background: var(--accent);
-    color: white;
-  }
-
-  .btn-primary:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-
-  .error {
-    color: #f85149;
-    background: rgba(248, 81, 73, 0.1);
-    border: 1px solid rgba(248, 81, 73, 0.35);
-    padding: 0.65rem 0.85rem;
-    border-radius: 6px;
-  }
-
-  @media (max-width: 700px) {
+  @media (max-width: 720px) {
     .form-actions {
       flex-direction: column-reverse;
-    }
-
-    .btn-primary {
-      width: 100%;
     }
   }
 </style>

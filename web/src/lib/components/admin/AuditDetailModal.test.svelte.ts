@@ -63,17 +63,15 @@ describe('AuditDetailModal.svelte', () => {
     await waitFor(() => expect(screen.getByText('boom')).toBeInTheDocument());
   });
 
-  it('closes via Escape and the cancel button', async () => {
+  it('closes via the close button and Escape', async () => {
     getAuditLog.mockResolvedValue(listEntry);
     const onClose = vi.fn();
     render(AuditDetailModal, { log: listEntry, onClose });
 
-    await fireEvent.click(screen.getByText('common.cancel'));
+    await fireEvent.click(screen.getByLabelText('common.close'));
     expect(onClose).toHaveBeenCalledTimes(1);
 
-    await fireEvent.keyDown(document.querySelector('.modal-overlay') as HTMLElement, {
-      key: 'Escape',
-    });
+    await fireEvent.keyDown(window, { key: 'Escape' });
     expect(onClose).toHaveBeenCalledTimes(2);
   });
 });

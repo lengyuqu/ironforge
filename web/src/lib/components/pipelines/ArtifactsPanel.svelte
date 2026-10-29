@@ -107,7 +107,7 @@
   }
 </script>
 
-<section class="artifacts-panel">
+<section class="artifacts-panel surface">
   <h3>{t('pipeline.artifacts', 'Artifacts')}</h3>
 
   {#if error}
@@ -163,16 +163,15 @@
   .artifacts-panel {
     margin-top: 16px;
     padding: 16px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
   }
 
-  h3 { margin: 0 0 12px; font-size: 15px; }
+  h3 {
+    margin: 0 0 12px;
+  }
 
   .muted { color: var(--text-secondary); font-size: 13px; }
   .panel-error {
-    color: #f85149; background: rgba(248, 81, 73, 0.1);
+    color: var(--red); background: color-mix(in srgb, var(--red) 10%, transparent);
     padding: 8px 12px; border-radius: 6px; margin-bottom: 12px; font-size: 13px;
   }
 

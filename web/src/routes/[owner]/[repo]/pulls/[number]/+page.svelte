@@ -2,6 +2,8 @@
   // PR detail page — orchestrator. Loads PR state and delegates the heavy
   // UI to focused components under $lib/components/pulls/:
   //   PrReviewersBox / PrMergeBox / PrTimeline / PrThreads / PrDiffView / PrReviewForm
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
+  import LoadingState from '$lib/components/LoadingState.svelte';
   import { page } from '$app/stores';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
   import AttachmentPanel from '$lib/components/AttachmentPanel.svelte';
@@ -79,18 +81,18 @@
 </script>
 
 <svelte:head>
-  <title>PR #{number} · {owner}/{repo} · IronForge</title>
+  <title>{t('pulls.page_title_number', { number })} · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
 <div class="page-container">
   <RepoHeader {owner} {repo} activeTab="pulls" starsCount={0} />
 
   {#if error}
-    <div class="error-banner">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   {#if loading}
-    <p class="text-secondary">{t('common.loading')}</p>
+    <LoadingState />
   {:else if pr}
     <div class="pr-detail">
       <PrHeader {pr} {updatingDraft} onToggleDraft={toggleDraft} />

@@ -171,7 +171,9 @@
     border: 1px solid var(--border);
     border-radius: var(--radius);
   }
-  h3 { font-size: 16px; margin-bottom: 12px; }
+  h3 {
+    margin-bottom: 12px;
+  }
 
   .thread {
     margin-top: 12px;
@@ -204,31 +206,6 @@
     padding: 12px 16px;
     border: 1px solid var(--accent);
     border-radius: var(--radius);
-    background: rgba(88, 166, 255, 0.08);
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
   }
-
-  .btn-primary {
-    padding: 6px 16px;
-    background: var(--green-dim);
-    color: #fff;
-    border: none;
-    border-radius: var(--radius);
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-  }
-  .btn-primary:hover:not(:disabled) { background: var(--green); }
-  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
-
-  .btn-secondary {
-    padding: 6px 16px;
-    background: var(--bg-tertiary);
-    color: var(--text-primary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    font-size: 14px;
-    cursor: pointer;
-  }
-  .btn-secondary:hover:not(:disabled) { border-color: var(--accent); }
-  .btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>

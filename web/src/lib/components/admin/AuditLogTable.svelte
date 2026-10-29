@@ -59,7 +59,7 @@
             {/if}
           </td>
           <td>
-            <span class="action-badge" data-action={log.action}>
+            <span class="action-badge surface" data-action={log.action}>
               {log.action}
             </span>
           </td>
@@ -86,9 +86,9 @@
 
 {#if totalPages > 1}
   <div class="pagination">
-    <button onclick={onPrevPage} disabled={page <= 0}>← Prev</button>
-    <span>Page {page + 1} of {totalPages}</span>
-    <button onclick={onNextPage} disabled={page >= totalPages - 1}>Next →</button>
+    <button onclick={onPrevPage} disabled={page <= 0}>← {t('common.previous')}</button>
+    <span>{t('common.page_of', { page: page + 1, total: totalPages })}</span>
+    <button onclick={onNextPage} disabled={page >= totalPages - 1}>{t('common.next')} →</button>
   </div>
 {/if}
 
@@ -114,7 +114,7 @@
     white-space: nowrap;
     color: var(--text-secondary);
     font-size: 0.8rem;
-    font-family: var(--font-mono, monospace);
+    font-family: var(--font-mono);
   }
   .user-cell .username-text { font-weight: 500; }
   .user-cell .user-id { color: var(--text-secondary); }
@@ -123,7 +123,7 @@
   .resource-link { color: var(--accent); }
   .text-muted { color: var(--text-secondary); }
   .ip-cell {
-    font-family: var(--font-mono, monospace);
+    font-family: var(--font-mono);
     font-size: 0.8rem;
     color: var(--text-secondary);
     white-space: nowrap;
@@ -134,18 +134,15 @@
   .action-badge {
     display: inline-block;
     padding: 0.15rem 0.5rem;
-    border-radius: 8px;
     font-size: 0.78rem;
     font-weight: 500;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
     white-space: nowrap;
-    font-family: var(--font-mono, monospace);
+    font-family: var(--font-mono);
   }
-  .action-badge[data-action^="user."] { border-color: #58a6ff; color: #58a6ff; background: rgba(88, 166, 255, 0.1); }
-  .action-badge[data-action^="repo."] { border-color: #3fb950; color: #3fb950; background: rgba(63, 185, 80, 0.1); }
-  .action-badge[data-action^="org."] { border-color: #d2a8ff; color: #d2a8ff; background: rgba(210, 168, 255, 0.1); }
-  .action-badge[data-action^="admin."] { border-color: #f85149; color: #f85149; background: rgba(248, 81, 73, 0.1); }
+  .action-badge[data-action^="user."] { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+  .action-badge[data-action^="repo."] { border-color: var(--green); color: var(--green); background: color-mix(in srgb, var(--green) 10%, transparent); }
+  .action-badge[data-action^="org."] { border-color: var(--purple); color: var(--purple); background: color-mix(in srgb, var(--purple) 10%, transparent); }
+  .action-badge[data-action^="admin."] { border-color: var(--red); color: var(--red); background: color-mix(in srgb, var(--red) 10%, transparent); }
 
   /* Pagination */
   .pagination { display: flex; align-items: center; gap: 1rem; margin-top: 1rem; }
@@ -159,15 +156,4 @@
   }
   .pagination button:disabled { opacity: 0.5; cursor: not-allowed; }
   .pagination span { color: var(--text-secondary); font-size: 0.9rem; }
-
-  .btn-sm {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    color: var(--text-primary);
-    border-radius: 4px;
-    padding: 0.25rem 0.6rem;
-    font-size: 0.8rem;
-    cursor: pointer;
-  }
-  .btn-sm:hover { background: var(--bg-hover); }
 </style>

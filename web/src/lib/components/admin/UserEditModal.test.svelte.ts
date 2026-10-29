@@ -32,9 +32,9 @@ describe('UserEditModal.svelte', () => {
     render(UserEditModal, { user, onClose: () => {}, onSaved: () => {} });
 
     expect(
-      (screen.getByLabelText('Display Name') as HTMLInputElement).value
+      (screen.getByLabelText('admin.users.display_name') as HTMLInputElement).value
     ).toBe('Bobby');
-    expect((screen.getByLabelText('Bio') as HTMLTextAreaElement).value).toBe('hello world');
+    expect((screen.getByLabelText('admin.users.bio') as HTMLTextAreaElement).value).toBe('hello world');
     const checkboxes = document.querySelectorAll<HTMLInputElement>('input[type="checkbox"]');
     expect(checkboxes[0].checked).toBe(false); // is_admin
     expect(checkboxes[1].checked).toBe(true); // is_active
@@ -46,10 +46,10 @@ describe('UserEditModal.svelte', () => {
     const onSaved = vi.fn().mockResolvedValue(undefined);
     render(UserEditModal, { user, onClose, onSaved });
 
-    await fireEvent.input(screen.getByLabelText('Display Name'), {
+    await fireEvent.input(screen.getByLabelText('admin.users.display_name'), {
       target: { value: 'Bobby Tables' },
     });
-    await fireEvent.input(screen.getByLabelText('Bio'), { target: { value: '' } });
+    await fireEvent.input(screen.getByLabelText('admin.users.bio'), { target: { value: '' } });
     const checkboxes = document.querySelectorAll<HTMLInputElement>('input[type="checkbox"]');
     await fireEvent.click(checkboxes[0]); // promote to admin
 

@@ -1,4 +1,8 @@
 <script lang="ts">
+  import { toErrorMessage } from '$lib/utils/error';
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
+  import LoadingState from '$lib/components/LoadingState.svelte';
+  import EmptyState from '$lib/components/EmptyState.svelte';
   import { page } from '$app/stores';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
   import {
@@ -36,8 +40,8 @@
       ]);
       packageInfo = info;
       versions = versionRes.versions || [];
-    } catch (e: any) {
-      error = e.message;
+    } catch (e) {
+      error = toErrorMessage(e, t('common.unknown_error'));
     } finally {
       loading = false;
     }
@@ -52,15 +56,13 @@
   <RepoHeader owner={owner!} repo={repo!} activeTab="packages" />
 
   {#if error}
-    <div class="error-banner">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   {#if loading}
-    <p class="loading-text">{t('common.loading')}</p>
+    <LoadingState />
   {:else if !packageInfo}
-    <div class="empty">
-      <p>{t('packages.no_packages')}</p>
-    </div>
+    <EmptyState title={t('packages.no_packages')} />
   {:else}
     <div class="package-detail">
       <div class="package-header">
@@ -86,20 +88,6 @@
 </div>
 
 <style>
-  .loading-text {
-    color: var(--text-secondary);
-    text-align: center;
-    padding: 48px;
-  }
-
-  .empty {
-    text-align: center;
-    padding: 48px;
-    color: var(--text-secondary);
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-  }
 
   .package-detail {
     display: flex;
@@ -114,17 +102,12 @@
     flex-wrap: wrap;
   }
 
-  h1 {
-    font-size: 24px;
-    font-weight: 600;
-  }
-
   .download-count {
     padding: 2px 8px;
     border-radius: 10px;
     font-size: 12px;
     font-weight: 600;
-    background: var(--bg-tertiary, #e5e7eb);
+    background: var(--bg-tertiary);
     color: var(--text-secondary);
   }
 
@@ -135,11 +118,4 @@
     margin: 0;
   }
 
-  .error-banner {
-    color: #f85149;
-    background: rgba(248, 81, 73, 0.1);
-    padding: 10px 12px;
-    border-radius: var(--radius);
-    margin-bottom: 16px;
-  }
 </style>

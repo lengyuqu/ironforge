@@ -12,7 +12,7 @@
   <title>{t('admin.runners.title')} · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
-<section class="panel">
+<section class="panel surface">
   <div>
     <h1>{t('admin.runners.title')}</h1>
     <p>{t('admin.runners.repo_handoff')}</p>
@@ -27,14 +27,10 @@
     justify-content: space-between;
     gap: 1rem;
     padding: 1rem;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: 8px;
   }
 
   h1 {
     margin: 0 0 0.5rem;
-    font-size: 1.25rem;
   }
 
   p {
@@ -43,22 +39,7 @@
     line-height: 1.5;
   }
 
-  .btn-primary {
-    flex-shrink: 0;
-    padding: 0.5rem 0.75rem;
-    background: var(--accent);
-    color: #fff;
-    border-radius: 6px;
-    text-decoration: none;
-    font-weight: 600;
-  }
-
-  .btn-primary:hover {
-    text-decoration: none;
-    filter: brightness(1.05);
-  }
-
-  @media (max-width: 640px) {
+  @media (max-width: 600px) {
     .panel {
       flex-direction: column;
     }

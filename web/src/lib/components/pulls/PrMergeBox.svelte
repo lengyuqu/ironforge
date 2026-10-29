@@ -181,7 +181,7 @@
   .btn-merge {
     padding: 6px 16px;
     background: var(--green-dim);
-    color: #fff;
+    color: var(--text-on-accent);
     border: none;
     border-radius: var(--radius);
     font-size: 14px;
@@ -190,18 +190,6 @@
   }
   .btn-merge:hover:not(:disabled) { background: var(--green); }
   .btn-merge:disabled { opacity: 0.5; cursor: not-allowed; }
-
-  .btn-secondary {
-    padding: 6px 16px;
-    background: var(--bg-tertiary);
-    color: var(--text-primary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    font-size: 14px;
-    cursor: pointer;
-  }
-  .btn-secondary:hover:not(:disabled) { border-color: var(--accent); }
-  .btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
 
   .queue-summary {
     display: flex;

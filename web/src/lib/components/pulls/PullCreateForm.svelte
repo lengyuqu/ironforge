@@ -1,5 +1,7 @@
 <script lang="ts">
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { milestones, pulls, repos } from '$lib/api/client.svelte';
+  import { tick } from 'svelte';
   import { toErrorMessage } from '$lib/utils/error';
   import { createT } from '$lib/i18n';
   import type { Milestone } from '$lib/types/entities';
@@ -42,7 +44,17 @@
         : ''
   );
   let bodyError = $derived(newBody.length > MAX_BODY_LEN ? t('pulls.create_form.body_too_long', { max: MAX_BODY_LEN }) : '');
-  let canSubmit = $derived(titleError === '' && bodyError === '' && !!newHead && !submitting);
+  let headError = $derived(newHead ? '' : t('pulls.create_form.head_required'));
+  let canSubmit = $derived(titleError === '' && bodyError === '' && headError === '');
+
+  // Errors appear once a field was edited/left or a submit was attempted —
+  // never on a pristine form.
+  let attempted = $state(false);
+  let touched = $state({ title: false, body: false });
+  let showTitleError = $derived(titleError !== '' && (attempted || touched.title));
+  let showBodyError = $derived(bodyError !== '' && (attempted || touched.body));
+  let showHeadError = $derived(headError !== '' && attempted);
+  let formEl = $state<HTMLFormElement | null>(null);
 
   $effect(() => {
     loadBranches();
@@ -84,7 +96,13 @@
 
   async function handleCreate(e: Event) {
     e.preventDefault();
-    if (!canSubmit) return;
+    if (submitting) return;
+    if (!canSubmit) {
+      attempted = true;
+      await tick();
+      formEl?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
+      return;
+    }
     try {
       submitting = true;
       error = '';
@@ -97,7 +115,7 @@
         ...(newMilestone === '' ? {} : { milestone_id: newMilestone }),
       });
       await onCreated();
-    } catch (err: any) {
+    } catch (err) {
       error = toErrorMessage(err, t('errors.create_failed', 'Create failed'));
     } finally {
       submitting = false;
@@ -109,19 +127,25 @@
   <h2>{t('pulls.create_form.title')}</h2>
 
   {#if error}
-    <div class="error-banner">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
-  <form onsubmit={handleCreate}>
+  <form onsubmit={handleCreate} bind:this={formEl} novalidate>
     <div class="branch-row">
       <label>
         {t('pulls.create_form.from')}
-        <select bind:value={newHead} required>
+        <select
+          bind:value={newHead}
+          required
+          aria-invalid={showHeadError ? 'true' : undefined}
+          aria-describedby={showHeadError ? 'pr-head-error' : undefined}
+        >
           <option value="" disabled selected>{t('pulls.create_form.select_branch')}</option>
           {#each branches as b (b.name)}
             <option value={b.name}>{b.name}</option>
           {/each}
         </select>
+        {#if showHeadError}<span class="field-error" id="pr-head-error" role="alert">{headError}</span>{/if}
       </label>
       <span class="arrow">→</span>
       <label>
@@ -134,15 +158,19 @@
       </label>
     </div>
     <label>
-      {t('pulls.create_form.description')}
+      {t('pulls.create_form.title_label')}
       <input
         type="text"
         bind:value={newTitle}
         required
         maxlength={MAX_TITLE_LEN}
-        placeholder={t('pulls.create_form.description_placeholder')}
+        placeholder={t('pulls.create_form.title_placeholder')}
+        oninput={() => (touched.title = true)}
+        onblur={() => (touched.title = true)}
+        aria-invalid={showTitleError ? 'true' : undefined}
+        aria-describedby={showTitleError ? 'pr-title-error' : undefined}
       />
-      {#if titleError}<span class="field-error">{titleError}</span>{/if}
+      {#if showTitleError}<span class="field-error" id="pr-title-error" role="alert">{titleError}</span>{/if}
     </label>
     <label>
       {t('pulls.create_form.description')} <span class="optional">{t('pulls.create_form.description_hint')}</span>
@@ -151,8 +179,12 @@
         rows="4"
         maxlength={MAX_BODY_LEN}
         placeholder={t('pulls.create_form.description_placeholder')}
+        oninput={() => (touched.body = true)}
+        onblur={() => (touched.body = true)}
+        aria-invalid={showBodyError ? 'true' : undefined}
+        aria-describedby={showBodyError ? 'pr-body-error' : undefined}
       ></textarea>
-      {#if bodyError}<span class="field-error">{bodyError}</span>{/if}
+      {#if showBodyError}<span class="field-error" id="pr-body-error" role="alert">{bodyError}</span>{/if}
     </label>
     {#if milestoneOptions.length > 0}
       <label>
@@ -170,7 +202,7 @@
       <span>{t('pulls.create_form.draft')}</span>
     </label>
     <div class="form-actions">
-      <button type="submit" class="btn-primary" disabled={!canSubmit}>
+      <button type="submit" class="btn-primary" disabled={submitting}>
         {submitting ? t('common.loading') : t('pulls.create_form.submit')}
       </button>
       <button type="button" class="btn-secondary" onclick={onCancel}>{t('pulls.create_form.cancel')}</button>
@@ -180,7 +212,6 @@
 
 <style>
   h2 {
-    font-size: 18px;
     margin-bottom: 16px;
   }
 
@@ -203,12 +234,6 @@
     color: var(--text-muted);
   }
 
-  .field-error {
-    color: var(--red, #d73a49);
-    font-size: 12px;
-    font-weight: 400;
-  }
-
   .draft-option {
     flex-direction: row;
     align-items: center;
@@ -219,13 +244,7 @@
     width: auto;
   }
 
-  select {
-    padding: 6px 10px;
-  }
-
   textarea {
-    font-family: var(--font-mono);
-    font-size: 13px;
     resize: vertical;
   }
 
@@ -241,43 +260,4 @@
     margin-bottom: 8px;
   }
 
-  .form-actions {
-    display: flex;
-    gap: 8px;
-    margin-top: 8px;
-  }
-
-  .btn-primary {
-    padding: 6px 16px;
-    background: var(--accent);
-    color: #fff;
-    border: 1px solid var(--accent);
-    border-radius: var(--radius);
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-  }
-
-  .btn-primary:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .btn-secondary {
-    padding: 6px 16px;
-    background: none;
-    color: var(--text-primary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    font-size: 14px;
-    cursor: pointer;
-  }
-
-  .error-banner {
-    color: #f85149;
-    background: rgba(248, 81, 73, 0.1);
-    padding: 10px 12px;
-    border-radius: var(--radius);
-    margin-bottom: 12px;
-  }
 </style>

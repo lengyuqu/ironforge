@@ -3,6 +3,9 @@
   // notes, file input and optional metadata fields; publishes via the
   // packages API and reports the result to the parent via callbacks.
   // Inline error/success banners stay inside the form.
+  import FormField from '$lib/components/FormField.svelte';
+  import SuccessBanner from '$lib/components/SuccessBanner.svelte';
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { packages } from '$lib/api/client.svelte';
   import { createT } from '$lib/i18n';
   import { toErrorMessage } from '$lib/utils/error';
@@ -81,13 +84,13 @@
   }
 </script>
 
-<form class="package-form" onsubmit={handleUpload}>
+<form class="package-form surface" onsubmit={handleUpload}>
   {#if error}
-    <div class="error-banner">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   {#if success}
-    <div class="success-banner">{success}</div>
+    <SuccessBanner message={success} />
   {/if}
 
   <div class="form-group">
@@ -110,41 +113,47 @@
     </div>
   </div>
 
-  <div class="form-group">
-    <label for="name">Name</label>
-    <input id="name" type="text" bind:value={packageName} class="input" placeholder="Package name" />
-  </div>
+  <FormField id="name" label={t('packages.name')}>
+    {#snippet children()}
+      <input id="name" type="text" bind:value={packageName} class="input" placeholder={t('packages.name_placeholder')} />
+    {/snippet}
+  </FormField>
 
-  <div class="form-group">
-    <label for="version">{t('packages.version')}</label>
-    <input
-      id="version"
-      type="text"
-      bind:value={packageVersion}
-      class="input"
-      placeholder={t('packages.version')}
-    />
-  </div>
+  <FormField id="version" label={t('packages.version')}>
+    {#snippet children()}
+      <input
+        id="version"
+        type="text"
+        bind:value={packageVersion}
+        class="input"
+        placeholder={t('packages.version')}
+      />
+    {/snippet}
+  </FormField>
 
-  <div class="form-group">
-    <label for="description">{t('packages.description')}</label>
-    <textarea id="description" bind:value={description} class="textarea" rows="3"></textarea>
-  </div>
+  <FormField id="description" label={t('packages.description')}>
+    {#snippet children()}
+      <textarea id="description" bind:value={description} class="textarea" rows="3"></textarea>
+    {/snippet}
+  </FormField>
 
-  <div class="form-group">
-    <label for="homepage">Homepage</label>
-    <input id="homepage" type="text" bind:value={homepage} class="input" />
-  </div>
+  <FormField id="homepage" label={t('packages.homepage')}>
+    {#snippet children()}
+      <input id="homepage" type="text" bind:value={homepage} class="input" />
+    {/snippet}
+  </FormField>
 
-  <div class="form-group">
-    <label for="repository-url">Repository URL</label>
-    <input id="repository-url" type="text" bind:value={repositoryUrl} class="input" />
-  </div>
+  <FormField id="repository-url" label={t('packages.repository_url')}>
+    {#snippet children()}
+      <input id="repository-url" type="text" bind:value={repositoryUrl} class="input" />
+    {/snippet}
+  </FormField>
 
-  <div class="form-group">
-    <label for="semver">Semver</label>
-    <input id="semver" type="text" bind:value={semver} class="input" />
-  </div>
+  <FormField id="semver" label={t('packages.semver')}>
+    {#snippet children()}
+      <input id="semver" type="text" bind:value={semver} class="input" />
+    {/snippet}
+  </FormField>
 
   <div class="form-actions">
     <button type="submit" class="btn-primary" disabled={uploading || !packageFile}>
@@ -155,61 +164,19 @@
 
 <style>
   .package-form {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
     padding: 24px;
-  }
-
-  .error-banner,
-  .success-banner {
-    padding: 10px 12px;
-    border-radius: var(--radius);
-    font-size: 13px;
-    margin-bottom: 16px;
-  }
-
-  .error-banner {
-    color: #f85149;
-    background: rgba(248, 81, 73, 0.1);
-    border: 1px solid rgba(248, 81, 73, 0.35);
-  }
-
-  .success-banner {
-    color: #1a7f37;
-    background: rgba(26, 127, 55, 0.1);
-    border: 1px solid rgba(26, 127, 55, 0.35);
-  }
-
-  .form-group {
-    margin-bottom: 18px;
-  }
-
-  .form-group label {
-    display: block;
-    margin-bottom: 6px;
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text-primary);
   }
 
   .input,
   .select,
   .textarea {
     width: 100%;
-    padding: 8px 12px;
-    font-size: 14px;
-    color: var(--text-primary);
-    background: var(--bg-primary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
     box-sizing: border-box;
   }
 
   .textarea {
     resize: vertical;
     min-height: 80px;
-    font-family: inherit;
   }
 
   .format-note {
@@ -236,24 +203,6 @@
   }
 
   .form-actions {
-    display: flex;
     justify-content: flex-end;
-    margin-top: 8px;
-  }
-
-  .btn-primary {
-    padding: 8px 20px;
-    background: var(--accent);
-    color: #fff;
-    border: none;
-    border-radius: var(--radius);
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-  }
-
-  .btn-primary:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
   }
 </style>

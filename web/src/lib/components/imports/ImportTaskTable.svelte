@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { confirmDialog } from '$lib/components/confirm.svelte';
   import { imports, type ImportTask } from '$lib/api/client.svelte';
   import { toast } from '$lib/components/toast.svelte';
   import { toErrorMessage } from '$lib/utils/error';
@@ -21,11 +22,11 @@
   }
 
   async function deleteImport(task: ImportTask) {
-    if (!confirm('Cancel and delete this import task?')) return;
+    if (!(await confirmDialog({ variant: 'danger', message: t('confirm.import_delete') }))) return;
     deletingId = task.id;
     try {
       await imports.remove(task.id);
-      toast.success('Import deleted');
+      toast.success(t('imports.deleted'));
       onDeleted(task.id);
     } catch (e) {
       toast.error(toErrorMessage(e, t('errors.delete_failed')));
@@ -39,11 +40,11 @@
   <table>
     <thead>
       <tr>
-        <th>Source</th>
-        <th>Target</th>
-        <th>Status</th>
-        <th>Progress</th>
-        <th>Updated</th>
+        <th>{t('imports.col.source')}</th>
+        <th>{t('imports.col.target')}</th>
+        <th>{t('imports.col.status')}</th>
+        <th>{t('imports.col.progress')}</th>
+        <th>{t('imports.col.updated')}</th>
         <th></th>
       </tr>
     </thead>
@@ -69,7 +70,7 @@
           </td>
           <td>{formatDateTime(task.updated_at || task.created_at)}</td>
           <td class="row-actions">
-            <button class="btn-danger" type="button" disabled={deletingId === task.id} onclick={() => deleteImport(task)}>Delete</button>
+            <button class="btn-danger" type="button" disabled={deletingId === task.id} onclick={() => deleteImport(task)}>{t('common.delete')}</button>
           </td>
         </tr>
       {/each}
@@ -120,7 +121,7 @@
 
   .task-error {
     margin-top: 6px;
-    color: #f85149;
+    color: var(--red);
   }
 
   .muted {
@@ -134,16 +135,6 @@
 
   .row-actions {
     text-align: right;
-  }
-
-  .btn-danger {
-    background: rgba(248, 81, 73, 0.12);
-    color: #f85149;
-    border: 0;
-    border-radius: 6px;
-    padding: 8px 12px;
-    cursor: pointer;
-    font-weight: 600;
   }
 
   button:disabled {

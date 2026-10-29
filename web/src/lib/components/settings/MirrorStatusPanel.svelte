@@ -11,7 +11,7 @@
   }
 </script>
 
-<section class="section">
+<section class="settings-section">
   <h2>{t('settings.mirror.status')}</h2>
   <dl class="status-grid">
     <div>
@@ -35,15 +35,8 @@
 
 <style>
   h2 {
-    font-size: 1.1rem;
     margin: 0 0 1rem;
     color: var(--text-primary);
-  }
-
-  .section {
-    margin-bottom: 2.5rem;
-    padding-bottom: 2rem;
-    border-bottom: 1px solid var(--border);
   }
 
   .status-grid {
@@ -82,7 +75,7 @@
     padding: 1rem;
     border-radius: 6px;
     margin-bottom: 1rem;
-    background: rgba(248, 81, 73, 0.12);
+    background: color-mix(in srgb, var(--red) 12%, transparent);
     color: var(--red);
   }
 

@@ -98,9 +98,9 @@
 
 {#if totalPages > 1}
   <div class="pagination">
-    <button class="page-btn" disabled={!hasPrev} onclick={() => onPageChange(currentPage - 1)}>&larr; {t('common.previous')}</button>
+    <button class="page-btn surface" disabled={!hasPrev} onclick={() => onPageChange(currentPage - 1)}>&larr; {t('common.previous')}</button>
     <span class="page-info">{t('search.page_info', { page: currentPage, total: totalPages })}</span>
-    <button class="page-btn" disabled={!hasNext} onclick={() => onPageChange(currentPage + 1)}>{t('common.next')} &rarr;</button>
+    <button class="page-btn surface" disabled={!hasNext} onclick={() => onPageChange(currentPage + 1)}>{t('common.next')} &rarr;</button>
   </div>
 {/if}
 
@@ -164,19 +164,19 @@
 
   .state-badge-open {
     background: #2da44e20;
-    color: #2da44e;
+    color: var(--green);
     border: 1px solid #2da44e40;
   }
 
   .state-badge-closed {
     background: #8250df20;
-    color: #8250df;
+    color: var(--purple);
     border: 1px solid #8250df40;
   }
 
   .state-badge-merged {
     background: #8250df20;
-    color: #8250df;
+    color: var(--purple);
     border: 1px solid #8250df40;
   }
 
@@ -220,10 +220,7 @@
 
   .page-btn {
     padding: 6px 14px;
-    background: var(--bg-secondary);
     color: var(--text-primary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
     font-size: 13px;
     cursor: pointer;
   }

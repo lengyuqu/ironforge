@@ -42,13 +42,13 @@
     {/each}
   </select>
   <select bind:value={resourceFilter} onchange={onApply}>
-    <option value="">{t('admin.audit.fields.resource_type')}: All</option>
-    <option value="user">User</option>
-    <option value="repo">Repository</option>
-    <option value="org">Organization</option>
+    <option value="">{t('admin.audit.resource_all', { label: t('admin.audit.fields.resource_type') })}</option>
+    <option value="user">{t('admin.audit.resource_user')}</option>
+    <option value="repo">{t('admin.audit.resource_repo')}</option>
+    <option value="org">{t('admin.audit.resource_org')}</option>
   </select>
   {#if actionFilter || resourceFilter}
-    <button class="btn-sm" onclick={onClear}>Clear filters</button>
+    <button class="btn-sm" onclick={onClear}>{t('admin.audit.clear_filters')}</button>
   {/if}
 </div>
 
@@ -59,14 +59,6 @@
     align-items: center;
     margin-bottom: 1rem;
     flex-wrap: wrap;
-  }
-  .filters select {
-    background: var(--bg-secondary);
-    color: var(--text-primary);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 0.4rem 0.75rem;
-    font-size: 0.85rem;
   }
   .filters .btn-sm {
     background: var(--bg-secondary);

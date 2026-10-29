@@ -2,6 +2,7 @@
   // Runner registration form — self-contained: registers via the runners
   // API and shows the one-time token banner (with copy) inline after
   // success; the parent only needs to reload the list via onRegistered.
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { runners } from '$lib/api/client.svelte';
   import { createT } from '$lib/i18n';
   import { toErrorMessage } from '$lib/utils/error';
@@ -65,7 +66,7 @@
 <section class="panel">
   <h2>{t('admin.runners.register')}</h2>
   {#if formError}
-    <div class="error">{formError}</div>
+    <ErrorBanner message={formError} />
   {/if}
   <div class="form-grid">
     <label>
@@ -123,7 +124,6 @@
 
   h2 {
     margin: 0 0 1rem;
-    font-size: 1rem;
   }
 
   label {
@@ -136,46 +136,6 @@
     color: var(--text-secondary);
     font-size: 0.85rem;
     font-weight: 600;
-  }
-
-  input {
-    padding: 0.5rem 0.65rem;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    background: var(--bg-primary);
-    color: var(--text-primary);
-  }
-
-  .error {
-    color: #f85149;
-    background: rgba(248, 81, 73, 0.1);
-    padding: 0.5rem 0.75rem;
-    border-radius: 6px;
-    margin-bottom: 1rem;
-  }
-
-  .btn-secondary {
-    background: var(--bg-primary);
-    border: 1px solid var(--border);
-    color: var(--text-primary);
-    border-radius: 6px;
-    padding: 0.45rem 0.8rem;
-    cursor: pointer;
-  }
-
-  .btn-primary {
-    background: var(--accent);
-    border: 1px solid var(--accent);
-    color: #fff;
-    border-radius: 6px;
-    padding: 0.5rem 0.9rem;
-    cursor: pointer;
-    font-weight: 600;
-  }
-
-  .btn-primary:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
   }
 
   @media (max-width: 720px) {

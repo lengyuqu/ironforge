@@ -1,4 +1,9 @@
 <script lang="ts">
+  import { toErrorMessage } from '$lib/utils/error';
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
+  import LoadingState from '$lib/components/LoadingState.svelte';
+  import EmptyState from '$lib/components/EmptyState.svelte';
+  import { confirmDialog } from '$lib/components/confirm.svelte';
   import { page } from '$app/stores';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
   import { wiki } from '$lib/api/client.svelte';
@@ -35,8 +40,8 @@
       wikiPage = pageData;
       allPages = pages;
       renderContent(pageData.content);
-    } catch (e: any) {
-      error = e.message;
+    } catch (e) {
+      error = toErrorMessage(e, t('common.unknown_error'));
     } finally {
       loading = false;
     }
@@ -69,12 +74,12 @@
   }
 
   async function handleDelete() {
-    if (!confirm('Delete this wiki page? This cannot be undone.')) return;
+    if (!(await confirmDialog({ variant: 'danger', message: t('confirm.wiki_delete') }))) return;
     try {
       await wiki.remove(owner, repo, title);
       window.location.href = `/${owner}/${repo}/wiki`;
-    } catch (e: any) {
-      error = e.message;
+    } catch (e) {
+      error = toErrorMessage(e, t('common.unknown_error'));
     }
   }
 
@@ -96,11 +101,11 @@
   <RepoHeader {owner} {repo} activeTab="wiki" />
 
   {#if error}
-    <div class="error-banner">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   {#if loading}
-    <p class="text-secondary">{t('common.loading')}</p>
+    <LoadingState />
   {:else if wikiPage}
     <div class="wiki-layout">
       <WikiSidebar
@@ -112,14 +117,14 @@
         onScrollToHeading={scrollToHeading}
       />
 
-      <main class="wiki-main">
+      <main class="wiki-main surface">
         <div class="wiki-header">
           <h1>{title}</h1>
           <div class="header-actions">
             {#if wikiPage.updated_at}
-              <span class="text-secondary text-sm">Last edited {formatDate(wikiPage.updated_at)}</span>
+              <span class="text-secondary text-sm">{t('wiki.last_edited', { date: formatDate(wikiPage.updated_at) })}</span>
             {/if}
-            <button class="btn-outline" onclick={toggleHistory} class:active={showHistory}>History</button>
+            <button class="btn-outline" onclick={toggleHistory} class:active={showHistory}>{t('wiki.history')}</button>
             <button class="btn-outline" onclick={() => editing = true}>{t('wiki.edit')}</button>
             <button class="btn-outline btn-danger" onclick={handleDelete}>{t('wiki.delete') || 'Delete'}</button>
           </div>
@@ -148,17 +153,11 @@
       </main>
     </div>
   {:else}
-    <div class="empty"><p>{t('wiki.not_found') || 'Page not found'}</p></div>
+    <EmptyState title={t('wiki.not_found') || 'Page not found'} />
   {/if}
 </div>
 
 <style>
-  .empty { text-align: center; padding: 48px; color: var(--text-secondary); }
-  .text-secondary { color: var(--text-secondary); }
-  .error-banner {
-    color: #f85149; background: rgba(248, 81, 73, 0.1);
-    padding: 10px 12px; border-radius: 6px; margin-bottom: 16px;
-  }
 
   /* ── Layout ── */
   .wiki-layout {
@@ -171,9 +170,6 @@
 
   /* ── Main ── */
   .wiki-main {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
     padding: 24px;
     min-height: 400px;
   }
@@ -188,17 +184,11 @@
     border-bottom: 1px solid var(--border);
     padding-bottom: 12px;
   }
-  h1 { font-size: 24px; margin: 0; }
+  h1 {
+    margin: 0;
+  }
   .header-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .text-sm { font-size: 12px; }
-
-  .btn-outline {
-    padding: 5px 12px; background: none; border: 1px solid var(--border);
-    border-radius: var(--radius); color: var(--text-primary); font-size: 13px; cursor: pointer;
-  }
-  .btn-outline:hover { background: var(--bg-hover); }
-  .btn-danger { border-color: var(--red-dim); color: var(--red); }
-  .btn-danger:hover { background: rgba(248, 81, 73, 0.1); }
   .btn-outline.active { background: var(--bg-tertiary); border-color: var(--accent); color: var(--accent); }
 
   /* ── Markdown Content ── */
@@ -224,7 +214,7 @@
     font-size: 13px; font-family: var(--font-mono);
   }
   :global(.wiki-main .markdown-body pre) {
-    background: #1a1a2e; color: #e0e0e0; padding: 14px; border-radius: 6px;
+    background: #1a1a2e; color: var(--text-primary); padding: 14px; border-radius: 6px;
     overflow-x: auto; font-size: 13px; line-height: 1.5;
   }
   :global(.wiki-main .markdown-body pre code) { background: none; padding: 0; }
@@ -245,4 +235,5 @@
   .wiki-footer { margin-top: 32px; padding-top: 16px; border-top: 1px solid var(--border-light); }
   .back-link { color: var(--accent); text-decoration: none; font-size: 14px; }
   .back-link:hover { text-decoration: underline; }
+  .text-secondary { color: var(--text-secondary); }
 </style>

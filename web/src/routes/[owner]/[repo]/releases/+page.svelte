@@ -1,6 +1,9 @@
 <script lang="ts">
   // Releases page — orchestration layer: loads the paginated release list and
   // each release's assets; cards handle their own delete/download actions.
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
+  import LoadingState from '$lib/components/LoadingState.svelte';
+  import EmptyState from '$lib/components/EmptyState.svelte';
   import { page } from '$app/stores';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
   import { releases, type ReleaseAsset } from '$lib/api/client.svelte';
@@ -64,7 +67,7 @@
 </script>
 
 <svelte:head>
-  <title>Releases · {owner}/{repo} · IronForge</title>
+  <title>{t('repo.tabs.releases')} · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
 <div class="page-container">
@@ -76,16 +79,15 @@
   </div>
 
   {#if error}
-    <div class="error-banner">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   {#if loading}
-    <p class="loading-text">{t('common.loading')}</p>
+    <LoadingState />
   {:else if releaseList.length === 0}
-    <div class="empty">
-      <p>{t('releases.no_releases')}</p>
+    <EmptyState title={t('releases.no_releases')}>
       <a href={newReleaseHref} class="btn-primary">{t('releases.new')}</a>
-    </div>
+    </EmptyState>
   {:else}
     <ReleaseList
       {owner}
@@ -101,52 +103,6 @@
 </div>
 
 <style>
-  .page-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 24px;
-  }
-
-  h1 {
-    font-size: 24px;
-    font-weight: 600;
-  }
-
-  .btn-primary {
-    padding: 6px 16px;
-    background: var(--orange);
-    color: #fff;
-    border: none;
-    border-radius: var(--radius);
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-    text-decoration: none;
-  }
-  .btn-primary:hover {
-    background: #e09a1e;
-    text-decoration: none;
-  }
-
-  .loading-text {
-    color: var(--text-secondary);
-    text-align: center;
-    padding: 48px;
-  }
-
-  .empty {
-    text-align: center;
-    padding: 48px;
-    color: var(--text-secondary);
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-  }
-
-  .empty p {
-    margin-bottom: 16px;
-  }
 
   @media (max-width: 600px) {
     .page-header {

@@ -1,4 +1,8 @@
 <script lang="ts">
+  import { toErrorMessage } from '$lib/utils/error';
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
+  import LoadingState from '$lib/components/LoadingState.svelte';
+  import EmptyState from '$lib/components/EmptyState.svelte';
   import { goto } from '$app/navigation';
   import { imports, type ImportTask } from '$lib/api/client.svelte';
   import { isLoggedIn, getUser } from '$lib/stores/auth.svelte';
@@ -32,8 +36,8 @@
     error = '';
     try {
       taskList = await imports.list();
-    } catch (e: any) {
-      error = e.message || t('errors.load_failed');
+    } catch (e) {
+      error = toErrorMessage(e, t('errors.load_failed'));
     } finally {
       loading = false;
     }
@@ -45,33 +49,33 @@
 </script>
 
 <svelte:head>
-  <title>Imports · IronForge</title>
+  <title>{t('imports.page_title')}</title>
 </svelte:head>
 
 <div class="page-container">
   <div class="page-header">
     <div>
-      <h1>Imports</h1>
-      <p class="subtitle">Migrate repositories and project data from GitHub, GitLab, Gitea, or Git remotes.</p>
+      <h1>{t('nav.imports')}</h1>
+      <p class="subtitle">{t('imports.subtitle')}</p>
     </div>
-    <button class="btn-secondary" type="button" onclick={loadImports} disabled={loading}>Refresh</button>
+    <button class="btn-secondary" type="button" onclick={loadImports} disabled={loading}>{t('imports.refresh')}</button>
   </div>
 
   {#if error}
-    <div class="error-banner">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
-  <section class="panel">
-    <h2>New import</h2>
+  <section class="panel surface">
+    <h2>{t('imports.new_title')}</h2>
     <ImportForm initialOwner={initialOwner} onStarted={loadImports} />
   </section>
 
-  <section class="panel">
-    <h2>Import tasks</h2>
+  <section class="panel surface">
+    <h2>{t('imports.tasks_title')}</h2>
     {#if loading}
-      <p class="muted">Loading imports...</p>
+      <LoadingState />
     {:else if taskList.length === 0}
-      <p class="muted">No import tasks yet.</p>
+      <EmptyState title={t('imports.empty')} />
     {:else}
       <ImportTaskTable tasks={taskList} onDeleted={handleDeleted} />
     {/if}
@@ -79,58 +83,23 @@
 </div>
 
 <style>
-  .page-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: 16px;
-    margin-bottom: 20px;
-  }
 
   h1 {
     margin: 0 0 4px;
-    font-size: 24px;
   }
 
   h2 {
     margin: 0 0 16px;
-    font-size: 18px;
-  }
-
-  .subtitle,
-  .muted {
-    color: var(--text-secondary);
   }
 
   .panel {
     margin-bottom: 20px;
     padding: 16px;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-  }
-
-  .btn-secondary {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    color: var(--text-primary);
-    border-radius: 6px;
-    padding: 8px 12px;
-    cursor: pointer;
-    font-weight: 600;
   }
 
   button:disabled {
     opacity: 0.6;
     cursor: not-allowed;
-  }
-
-  .error-banner {
-    margin-bottom: 16px;
-    padding: 10px 12px;
-    border-radius: 6px;
-    color: #f85149;
-    background: rgba(248, 81, 73, 0.1);
   }
 
   @media (max-width: 720px) {

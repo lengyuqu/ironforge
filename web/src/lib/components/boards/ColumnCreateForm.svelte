@@ -2,6 +2,9 @@
   import { boards } from '$lib/api/client.svelte';
   import { toast } from '$lib/components/toast.svelte';
   import { toErrorMessage } from '$lib/utils/error';
+  import { createT } from '$lib/i18n';
+
+  const t = createT();
 
   let {
     owner,
@@ -26,7 +29,7 @@
       name = '';
       await onCreated();
     } catch (e) {
-      toast.error(toErrorMessage(e, 'Add column failed'));
+      toast.error(toErrorMessage(e, t('board.addColumnFailed')));
     }
   }
 </script>
@@ -34,12 +37,12 @@
 <div class="inline-form">
   <input
     class="form-input"
-    placeholder="Column name"
+    placeholder={t('board.colNamePlaceholder')}
     bind:value={name}
     onkeydown={(e) => e.key === 'Enter' && handleAdd()}
   />
-  <button class="btn-primary btn-sm" onclick={handleAdd}>Add</button>
-  <button class="btn-ghost btn-sm" onclick={onCancel}>Cancel</button>
+  <button class="btn-primary btn-sm" onclick={handleAdd}>{t('common.add')}</button>
+  <button class="btn-ghost btn-sm" onclick={onCancel}>{t('common.cancel')}</button>
 </div>
 
 <style>
@@ -48,18 +51,7 @@
     margin-bottom: 16px; flex-wrap: wrap;
   }
   .form-input {
-    flex: 1; min-width: 180px; padding: 6px 12px;
-    border: 1px solid var(--border); border-radius: var(--radius);
-    background: var(--bg-primary); color: var(--text-primary); font-size: 14px;
+    flex: 1;
+    min-width: 180px;
   }
-  .btn-primary {
-    padding: 6px 14px; background: var(--accent); color: #fff; border: none;
-    border-radius: var(--radius); font-size: 13px; font-weight: 600; cursor: pointer;
-  }
-  .btn-ghost {
-    padding: 5px 10px; background: none; border: none;
-    color: var(--text-secondary); font-size: 13px; cursor: pointer; border-radius: var(--radius);
-  }
-  .btn-ghost:hover { background: var(--bg-secondary); color: var(--text-primary); }
-  .btn-sm { padding: 4px 10px; font-size: 12px; }
 </style>

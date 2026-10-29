@@ -1,6 +1,7 @@
 <script lang="ts">
   // Reviewers box — manages the requested-reviewer list for a PR.
   // Self-contained: loads/manages its own reviewer state via the reviews API.
+  import LoadingState from '$lib/components/LoadingState.svelte';
   import { reviews } from '$lib/api/client.svelte';
   import { createT } from '$lib/i18n';
   import { toast } from '$lib/components/toast.svelte';
@@ -67,7 +68,7 @@
 <section class="reviewers-box">
   <h3>{t('pulls.reviewers.title')}</h3>
   {#if loading}
-    <p class="text-secondary">{t('common.loading')}</p>
+    <LoadingState />
   {:else if reviewers.length === 0}
     <p class="text-secondary">{t('pulls.reviewers.empty')}</p>
   {:else}
@@ -99,7 +100,9 @@
     border: 1px solid var(--border);
     border-radius: var(--radius);
   }
-  h3 { font-size: 16px; margin-bottom: 12px; }
+  h3 {
+    margin-bottom: 12px;
+  }
 
   .reviewer-list {
     display: flex;
@@ -126,16 +129,4 @@
 
   .reviewer-form { display: flex; gap: 8px; margin-top: 12px; }
   .reviewer-form input { flex: 1; min-width: 0; }
-
-  .btn-secondary {
-    padding: 6px 16px;
-    background: var(--bg-tertiary);
-    color: var(--text-primary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    font-size: 14px;
-    cursor: pointer;
-  }
-  .btn-secondary:hover:not(:disabled) { border-color: var(--accent); }
-  .btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>

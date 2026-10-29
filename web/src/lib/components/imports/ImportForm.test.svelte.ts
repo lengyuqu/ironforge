@@ -42,7 +42,7 @@ describe('ImportForm.svelte', () => {
     // Wiki defaults off.
     expect(checkboxes.map((c) => c.checked)).toEqual([true, true, true, false, true, true, true]);
     expect(checkboxes[1].disabled).toBe(false); // metadata import supported
-    expect(screen.getByText('Start import')).toBeDisabled();
+    expect(screen.getByText('imports.start')).toBeDisabled();
   });
 
   it('submits the full payload and resets the source url on success', async () => {
@@ -50,13 +50,13 @@ describe('ImportForm.svelte', () => {
     const onStarted = vi.fn();
     render(ImportForm, { initialOwner: 'alice', onStarted });
 
-    await fireEvent.input(screen.getByLabelText('Source repository URL'), {
+    await fireEvent.input(screen.getByLabelText('imports.source_url'), {
       target: { value: 'https://github.com/example/project' },
     });
-    await fireEvent.input(screen.getByLabelText('Target repository'), {
+    await fireEvent.input(screen.getByLabelText('imports.target_repo'), {
       target: { value: 'renamed' },
     });
-    await fireEvent.input(screen.getByLabelText(/Source access token/), {
+    await fireEvent.input(screen.getByLabelText(/imports.source_token/), {
       target: { value: 'tok123' },
     });
     await fireEvent.submit(document.querySelector('form')!);
@@ -78,9 +78,9 @@ describe('ImportForm.svelte', () => {
       })
     );
     await waitFor(() => expect(onStarted).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith('Import queued'));
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith('imports.queued'));
     expect(
-      (screen.getByLabelText('Source repository URL') as HTMLInputElement).value
+      (screen.getByLabelText('imports.source_url') as HTMLInputElement).value
     ).toBe('');
   });
 
@@ -88,7 +88,7 @@ describe('ImportForm.svelte', () => {
     importsStart.mockRejectedValue(new Error('invalid url'));
     render(ImportForm, { initialOwner: 'alice', onStarted: () => {} });
 
-    await fireEvent.input(screen.getByLabelText('Source repository URL'), {
+    await fireEvent.input(screen.getByLabelText('imports.source_url'), {
       target: { value: 'https://github.com/example/project' },
     });
     await fireEvent.submit(document.querySelector('form')!);

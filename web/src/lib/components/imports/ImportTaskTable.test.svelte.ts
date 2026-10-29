@@ -1,4 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+
+// The app's confirm/prompt dialogs are promise-based UI; route them through the
+// stubbed window.confirm / window.prompt so tests keep driving the answer.
+vi.mock('$lib/components/confirm.svelte', () => ({
+  confirmDialog: async (o: { message: string }) => globalThis.confirm(o.message),
+  promptDialog: async (o: { message: string }) => globalThis.prompt(o.message),
+}));
 import { render, screen, fireEvent, waitFor } from '@testing-library/svelte';
 
 vi.mock('$lib/i18n', () => ({
@@ -96,17 +103,17 @@ describe('ImportTaskTable.svelte', () => {
     const onDeleted = vi.fn();
     render(ImportTaskTable, { tasks: [task], onDeleted });
 
-    await fireEvent.click(screen.getByText('Delete'));
+    await fireEvent.click(screen.getByText('common.delete'));
     await waitFor(() => expect(importsRemove).toHaveBeenCalledWith(3));
     await waitFor(() => expect(onDeleted).toHaveBeenCalledWith(3));
-    expect(toastSuccess).toHaveBeenCalledWith('Import deleted');
+    expect(toastSuccess).toHaveBeenCalledWith('imports.deleted');
   });
 
   it('skips deletion when the confirm dialog is declined', async () => {
     confirmMock.mockReturnValue(false);
     render(ImportTaskTable, { tasks: [task], onDeleted: () => {} });
 
-    await fireEvent.click(screen.getByText('Delete'));
+    await fireEvent.click(screen.getByText('common.delete'));
     expect(importsRemove).not.toHaveBeenCalled();
   });
 });

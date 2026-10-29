@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { packages, type PackageVersionResponse } from '$lib/api/client.svelte';
   import { toErrorMessage } from '$lib/utils/error';
   import { createT } from '$lib/i18n';
@@ -72,8 +73,8 @@
       await packages.delete(owner, repo, format, name, version);
       confirmDelete = null;
       await onRefresh();
-    } catch (e: any) {
-      error = toErrorMessage(e, t('common.delete') || 'Delete failed');
+    } catch (e) {
+      error = toErrorMessage(e, t('errors.delete_failed'));
     } finally {
       deletingVersion = null;
     }
@@ -81,13 +82,13 @@
 </script>
 
 {#if error}
-  <div class="error-banner">{error}</div>
+  <ErrorBanner message={error} />
 {/if}
 
 <div class="versions-section">
   <h2>{t('packages.version') || 'Versions'}</h2>
   {#each versions as version (version.id)}
-    <div class="version-card">
+    <div class="version-card surface">
       <div class="version-header">
         <span class="version-name">v{version.version}</span>
         <div class="version-actions">
@@ -144,10 +145,6 @@
 </div>
 
 <style>
-  h2 {
-    font-size: 18px;
-    font-weight: 600;
-  }
 
   .versions-section {
     display: flex;
@@ -156,9 +153,6 @@
   }
 
   .version-card {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
     padding: 16px;
   }
 
@@ -197,16 +191,16 @@
 
   .danger-btn {
     padding: 4px 12px;
-    background: rgba(248, 81, 73, 0.1);
-    border: 1px solid rgba(248, 81, 73, 0.4);
+    background: color-mix(in srgb, var(--red) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--red) 40%, transparent);
     border-radius: var(--radius);
     font-size: 12px;
     cursor: pointer;
-    color: #f85149;
+    color: var(--red);
   }
 
   .danger-btn:hover {
-    background: rgba(248, 81, 73, 0.2);
+    background: color-mix(in srgb, var(--red) 20%, transparent);
   }
 
   .secondary-btn {
@@ -253,18 +247,11 @@
     gap: 12px;
     margin-top: 12px;
     padding: 10px 12px;
-    background: rgba(248, 81, 73, 0.08);
-    border: 1px solid rgba(248, 81, 73, 0.35);
+    background: color-mix(in srgb, var(--red) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--red) 35%, transparent);
     border-radius: var(--radius);
     font-size: 13px;
     flex-wrap: wrap;
   }
 
-  .error-banner {
-    color: #f85149;
-    background: rgba(248, 81, 73, 0.1);
-    padding: 10px 12px;
-    border-radius: var(--radius);
-    margin-bottom: 16px;
-  }
 </style>

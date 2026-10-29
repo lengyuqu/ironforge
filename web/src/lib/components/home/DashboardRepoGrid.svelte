@@ -1,6 +1,8 @@
 <script lang="ts">
   // Dashboard repo card grid — shown on the home page for logged-in users.
   // Renders the user's explore-loaded repo cards with loading / empty states.
+  import LoadingState from '$lib/components/LoadingState.svelte';
+  import EmptyState from '$lib/components/EmptyState.svelte';
   import { createT, formatDate } from '$lib/i18n';
   import type { ExploreRepo } from '$lib/types/entities';
 
@@ -15,12 +17,9 @@
 </script>
 
 {#if loading}
-  <p class="text-secondary">{t('common.loading')}</p>
+  <LoadingState />
 {:else if repos.length === 0}
-  <div class="empty">
-    <p>{t('dashboard.empty.no_repos')}</p>
-    <p class="text-secondary">{t('dashboard.empty.get_started')}</p>
-  </div>
+  <EmptyState title={t('dashboard.empty.no_repos')} description={t('dashboard.empty.get_started')} />
 {:else}
   <div class="repo-grid">
     {#each repos as repo (repo.id)}
@@ -62,7 +61,7 @@
     display: flex;
     gap: 12px;
     padding: 16px;
-    border: 1px solid var(--border, #d0d7de);
+    border: 1px solid var(--border);
     border-radius: 8px;
     text-decoration: none;
     color: inherit;
@@ -70,7 +69,7 @@
   }
 
   .repo-card:hover {
-    border-color: var(--primary, #2da44e);
+    border-color: var(--green);
   }
 
   .rc-icon {
@@ -91,7 +90,7 @@
 
   .rc-desc {
     font-size: 13px;
-    color: var(--text-secondary, #656d76);
+    color: var(--text-secondary);
     margin-bottom: 6px;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -100,12 +99,6 @@
 
   .rc-meta {
     font-size: 12px;
-    color: var(--text-tertiary, #888);
-  }
-
-  .empty {
-    text-align: center;
-    padding: 60px 24px;
-    color: var(--text-secondary, #656d76);
+    color: var(--text-muted);
   }
 </style>

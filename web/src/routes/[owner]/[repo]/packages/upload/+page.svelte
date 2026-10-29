@@ -44,32 +44,3 @@
   <PackageUploadForm {owner} {repo} onUploaded={handleUploaded} />
 </div>
 
-<style>
-  .page-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 24px;
-  }
-
-  h1 {
-    font-size: 24px;
-    font-weight: 600;
-  }
-
-  .btn-secondary {
-    padding: 8px 20px;
-    background: none;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    color: var(--text-primary);
-    font-size: 14px;
-    font-weight: 500;
-    text-decoration: none;
-    cursor: pointer;
-  }
-
-  .btn-secondary:hover {
-    background: var(--bg-hover);
-  }
-</style>

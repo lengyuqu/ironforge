@@ -1,4 +1,8 @@
 <script lang="ts">
+  import { toErrorMessage } from '$lib/utils/error';
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
+  import LoadingState from '$lib/components/LoadingState.svelte';
+  import EmptyState from '$lib/components/EmptyState.svelte';
   import { isAuthReady, isLoggedIn, isAdmin } from '$lib/stores/auth.svelte';
   import { goto } from '$app/navigation';
   import { createT } from '$lib/i18n';
@@ -44,8 +48,8 @@
       logs = result.logs;
       total = result.total;
       totalPages = Math.max(1, Math.ceil(result.total / result.per_page));
-    } catch (e: any) {
-      error = e.message || t('errors.load_failed');
+    } catch (e) {
+      error = toErrorMessage(e, t('errors.load_failed'));
     } finally {
       loading = false;
     }
@@ -95,13 +99,13 @@
   />
 
   {#if error}
-    <div class="error">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   {#if loading}
-    <p class="loading">{t('common.loading')}</p>
+    <LoadingState />
   {:else if logs.length === 0}
-    <p class="empty">No audit records found.</p>
+    <EmptyState title={t('admin.audit.empty')} />
   {:else}
     <AuditLogTable
       {logs}
@@ -125,7 +129,4 @@
   h1 { margin: 0.5rem 0 0; }
   .meta { color: var(--text-secondary); margin: 0; }
 
-  .error { color: #f85149; background: rgba(248, 81, 73, 0.1); padding: 0.5rem 0.75rem; border-radius: 6px; margin-bottom: 1rem; }
-  .loading { color: var(--text-secondary); }
-  .empty { color: var(--text-secondary); text-align: center; padding: 2rem 0; }
 </style>

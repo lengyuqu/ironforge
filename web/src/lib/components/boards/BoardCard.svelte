@@ -1,5 +1,8 @@
 <script lang="ts">
   import type { BoardCard as BoardCardType } from '$lib/types/entities';
+  import { createT } from '$lib/i18n';
+
+  const t = createT();
 
   let {
     owner,
@@ -41,7 +44,7 @@
   <button
     class="card-delete"
     onclick={() => onDelete(card.id)}
-    title="Remove card"
+    title={t('board.removeCard')}
   >✕</button>
 </div>
 

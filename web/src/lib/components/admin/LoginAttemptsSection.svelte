@@ -4,6 +4,9 @@
   import { admin, type LoginAttemptEntry } from '$lib/api/client.svelte';
   import { toast } from '$lib/components/toast.svelte';
   import { toErrorMessage } from '$lib/utils/error';
+  import { createT } from '$lib/i18n';
+
+  const t = createT();
 
   interface Props {
     initialAttempts: LoginAttemptEntry[];
@@ -59,59 +62,58 @@
   }
 </script>
 
-<div class="section">
+<div class="section surface">
   <div class="section-heading">
     <div>
-      <h2>Login Attempts</h2>
-      <span class="text-secondary">{total} matching events</span>
+      <h2>{t('admin.login_attempts.title')}</h2>
+      <span class="text-secondary">{t('admin.login_attempts.matching', { total })}</span>
     </div>
     <button class="btn-secondary" type="button" disabled={loading} onclick={() => loadLoginAttempts(page)}>
-      {loading ? 'Loading...' : 'Refresh'}
+      {loading ? t('common.loading') : t('admin.login_attempts.refresh')}
     </button>
   </div>
   <div class="login-filters">
-    <input aria-label="Filter login attempts by username" placeholder="Username" bind:value={usernameFilter} />
-    <input aria-label="Filter login attempts by provider" placeholder="Provider (password, ldap...)" bind:value={providerFilter} />
-    <select aria-label="Filter login attempts by status" bind:value={statusFilter}>
-      <option value="all">All results</option>
-      <option value="failure">Failed only</option>
-      <option value="success">Successful only</option>
+    <input aria-label={t('admin.login_attempts.filter_username')} placeholder={t('admin.login_attempts.username')} bind:value={usernameFilter} />
+    <input aria-label={t('admin.login_attempts.filter_provider')} placeholder={t('admin.login_attempts.provider_placeholder')} bind:value={providerFilter} />
+    <select aria-label={t('admin.login_attempts.filter_status')} bind:value={statusFilter}>
+      <option value="all">{t('admin.login_attempts.status_all')}</option>
+      <option value="failure">{t('admin.login_attempts.status_failure')}</option>
+      <option value="success">{t('admin.login_attempts.status_success')}</option>
     </select>
-    <input aria-label="Login attempts start time" type="datetime-local" bind:value={startTime} />
-    <input aria-label="Login attempts end time" type="datetime-local" bind:value={endTime} />
-    <button class="btn-secondary" type="button" disabled={loading} onclick={() => loadLoginAttempts(1)}>Apply</button>
+    <input aria-label={t('admin.login_attempts.start_time')} type="datetime-local" bind:value={startTime} />
+    <input aria-label={t('admin.login_attempts.end_time')} type="datetime-local" bind:value={endTime} />
+    <button class="btn-secondary" type="button" disabled={loading} onclick={() => loadLoginAttempts(1)}>{t('admin.login_attempts.apply')}</button>
   </div>
   {#if attempts.length === 0}
-    <p class="text-secondary">No matching login attempts.</p>
+    <p class="text-secondary">{t('admin.login_attempts.empty')}</p>
   {:else}
     <div class="login-attempt-list">
       {#each attempts as attempt (attempt.id)}
         <div class="login-attempt-row">
-          <span class="attempt-status" class:success={attempt.success}>{attempt.success ? 'Success' : 'Failed'}</span>
+          <span class="attempt-status" class:success={attempt.success}>{attempt.success ? t('admin.login_attempts.success') : t('admin.login_attempts.failed')}</span>
           <div class="attempt-identity">
             <strong>{attempt.username}</strong>
             <span>{attempt.auth_provider}{attempt.failure_reason ? ` · ${attempt.failure_reason}` : ''}</span>
           </div>
-          <span title={attempt.user_agent || ''}>{attempt.ip_address || 'Unknown IP'}</span>
+          <span title={attempt.user_agent || ''}>{attempt.ip_address || t('admin.login_attempts.unknown_ip')}</span>
           <time datetime={attempt.created_at}>{formatLoginTime(attempt.created_at)}</time>
         </div>
       {/each}
     </div>
     <div class="login-pagination">
-      <button class="btn-secondary" type="button" disabled={loading || page <= 1} onclick={() => loadLoginAttempts(page - 1)}>Previous</button>
-      <span>Page {page} of {pages}</span>
-      <button class="btn-secondary" type="button" disabled={loading || page >= pages} onclick={() => loadLoginAttempts(page + 1)}>Next</button>
+      <button class="btn-secondary" type="button" disabled={loading || page <= 1} onclick={() => loadLoginAttempts(page - 1)}>{t('common.previous')}</button>
+      <span>{t('common.page_of', { page, total: pages })}</span>
+      <button class="btn-secondary" type="button" disabled={loading || page >= pages} onclick={() => loadLoginAttempts(page + 1)}>{t('common.next')}</button>
     </div>
   {/if}
 </div>
 
 <style>
-  h2 { font-size: 16px; margin: 0 0 12px; }
+  h2 {
+    margin: 0 0 12px;
+  }
 
   .section {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
     padding: 16px;
     margin-bottom: 16px;
   }
@@ -120,14 +122,6 @@
   .section-heading h2 { margin-bottom: 2px; }
 
   .login-filters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 14px 0; }
-  .login-filters input,
-  .login-filters select {
-    padding: 7px 9px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--bg-primary);
-    color: var(--text-primary);
-  }
 
   .login-attempt-list { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
 
@@ -142,8 +136,8 @@
   }
   .login-attempt-row:last-child { border-bottom: 0; }
 
-  .attempt-status { color: #cf222e; font-weight: 600; }
-  .attempt-status.success { color: #1a7f37; }
+  .attempt-status { color: var(--red); font-weight: 600; }
+  .attempt-status.success { color: var(--green); }
 
   .attempt-identity { display: flex; flex-direction: column; min-width: 0; }
   .attempt-identity span,
@@ -158,17 +152,6 @@
     color: var(--text-secondary);
     font-size: 12px;
   }
-
-  .btn-secondary {
-    padding: 6px 10px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--bg-primary);
-    color: var(--text-primary);
-    font-size: 13px;
-    cursor: pointer;
-  }
-  .btn-secondary:disabled { opacity: 0.6; cursor: wait; }
 
   @media (max-width: 720px) {
     .login-filters { grid-template-columns: 1fr; }

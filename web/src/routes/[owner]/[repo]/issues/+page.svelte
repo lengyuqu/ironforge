@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { toErrorMessage } from '$lib/utils/error';
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { page } from '$app/stores';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
   import { issues, type IssueConfig, type IssueTemplate } from '$lib/api/client.svelte';
@@ -50,8 +52,8 @@ import { createT } from '$lib/i18n';
       issueList = (
         await issues.list(owner, repo, filterState, undefined, undefined, undefined, undefined, milestoneFilter || undefined)
       ).data;
-    } catch (e: any) {
-      error = e.message;
+    } catch (e) {
+      error = toErrorMessage(e, t('common.unknown_error'));
     } finally {
       loading = false;
     }
@@ -190,7 +192,7 @@ import { createT } from '$lib/i18n';
   {/if}
 
   {#if error}
-    <div class="error-banner">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   <IssueList {owner} {repo} issues={issueList} {loading} filter={filterState} />
@@ -204,26 +206,4 @@ import { createT } from '$lib/i18n';
     margin-bottom: 16px;
   }
 
-  .btn-primary {
-    padding: 6px 16px;
-    background: var(--accent);
-    color: #fff;
-    border: 1px solid var(--accent);
-    border-radius: var(--radius);
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-  }
-
-  .btn-primary:hover {
-    background: var(--accent-hover);
-  }
-
-  .error-banner {
-    color: #f85149;
-    background: rgba(248, 81, 73, 0.1);
-    padding: 10px 12px;
-    border-radius: var(--radius);
-    margin-bottom: 16px;
-  }
 </style>

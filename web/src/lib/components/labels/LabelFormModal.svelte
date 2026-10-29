@@ -1,6 +1,9 @@
 <script lang="ts">
   // Create/edit label modal — self-contained: submits through the labels API
   // and reports success via toast. Inline formError stays inside the modal.
+  import FormField from '$lib/components/FormField.svelte';
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
+  import Modal from '$lib/components/Modal.svelte';
   import { labels } from '$lib/api/client.svelte';
   import { createT } from '$lib/i18n';
   import { toast } from '$lib/components/toast.svelte';
@@ -37,19 +40,20 @@
   });
   let saving = $state(false);
   let formError = $state('');
+  let nameError = $state('');
+  let colorError = $state('');
 
-  function closeByKey(e: KeyboardEvent) {
-    if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      onClose();
-    }
+
+  function validate(): boolean {
+    nameError = formData.name.trim() ? '' : t('settings.label_name_required', 'Label name is required');
+    colorError = /^#[0-9a-fA-F]{6}$/.test(formData.color.trim())
+      ? ''
+      : t('settings.label_color_invalid', 'Use a 6-digit hex colour such as #ff8800');
+    return !nameError && !colorError;
   }
 
   async function handleSave() {
-    if (!formData.name.trim()) {
-      formError = 'Label name is required';
-      return;
-    }
+    if (!validate()) return;
 
     try {
       saving = true;
@@ -83,162 +87,93 @@
   }
 </script>
 
-<div
-  class="form-overlay"
-  onclick={onClose}
-  role="button"
-  tabindex="0"
-  onkeydown={closeByKey}
+<Modal
+  open={true}
+  title={label ? t('settings.edit_label') : t('settings.new_label')}
+  submitLabel={saving ? t('common.saving') : label ? t('settings.save_label') : t('settings.create_label')}
+  busy={saving}
+  {onClose}
+  onSubmit={handleSave}
 >
-  <div
-    class="form-modal"
-    role="dialog"
-    aria-modal="true"
-    tabindex="-1"
-    onclick={(e) => e.stopPropagation()}
-    onkeydown={(e) => e.stopPropagation()}
-  >
-    <h2>{label ? t('settings.edit_label') : t('settings.new_label')}</h2>
+  {#if formError}
+    <ErrorBanner message={formError} />
+  {/if}
 
-    {#if formError}
-      <div class="error-box">{formError}</div>
-    {/if}
-
-    <div class="form-group">
-      <label for="label-name">{t('settings.label_name')}</label>
+  <FormField id="label-name" label={t('settings.label_name')} error={nameError}>
+    {#snippet children({ id, describedBy, invalid })}
       <input
-        id="label-name"
+        {id}
         type="text"
         bind:value={formData.name}
+        oninput={() => (nameError = '')}
         placeholder={t('settings.label_name_placeholder')}
         disabled={saving}
+        aria-invalid={invalid ? 'true' : undefined}
+        aria-describedby={describedBy}
+        data-autofocus
       />
-    </div>
+    {/snippet}
+  </FormField>
 
-    <div class="form-group">
-      <label for="label-color-input">{t('settings.label_color')}</label>
+  <div class="form-group">
+    <label for="label-color-input">{t('settings.label_color')}</label>
 
-      <div class="preset-colors">
-        <span class="color-section-label">{t('settings.preset_colors')}</span>
-        <div class="color-swatches">
-          {#each presetColors as color (color)}
-            <button
-              class="color-swatch"
-              class:active={formData.color === color}
-              style="background-color: {color}"
-              onclick={() => formData.color = color}
-              disabled={saving}
-              aria-label="Color {color}"
-            ></button>
-          {/each}
-        </div>
-      </div>
-
-      <div class="custom-color">
-        <span class="color-section-label">{t('settings.custom_color')}</span>
-        <div class="custom-color-input">
-          <div class="color-preview" style="background-color: {formData.color}"></div>
-          <input
-            id="label-color-input"
-            type="text"
-            bind:value={formData.color}
-            placeholder="#000000"
+    <div class="preset-colors">
+      <span class="color-section-label">{t('settings.preset_colors')}</span>
+      <div class="color-swatches">
+        {#each presetColors as color (color)}
+          <button
+            type="button"
+            class="color-swatch"
+            class:active={formData.color === color}
+            style="background-color: {color}"
+            onclick={() => { formData.color = color; colorError = ''; }}
             disabled={saving}
-            maxlength="7"
-          />
-        </div>
+            aria-label={t('settings.label_color_aria', { color })}
+            aria-pressed={formData.color === color}
+          ></button>
+        {/each}
       </div>
     </div>
 
-    <div class="form-group">
-      <label for="label-desc">{t('settings.label_desc')}</label>
+    <div class="custom-color">
+      <span class="color-section-label">{t('settings.custom_color')}</span>
+      <div class="custom-color-input">
+        <div class="color-preview" style="background-color: {colorError ? 'transparent' : formData.color}"></div>
+        <input
+          id="label-color-input"
+          type="text"
+          bind:value={formData.color}
+          oninput={() => (colorError = '')}
+          placeholder="#000000"
+          disabled={saving}
+          maxlength="7"
+          aria-invalid={colorError ? 'true' : undefined}
+          aria-describedby={colorError ? 'label-color-error' : undefined}
+        />
+      </div>
+      {#if colorError}<p class="field-error" id="label-color-error" role="alert">{colorError}</p>{/if}
+    </div>
+  </div>
+
+  <FormField id="label-desc" label={t('settings.label_desc')}>
+    {#snippet children({ id })}
       <input
-        id="label-desc"
+        {id}
         type="text"
         bind:value={formData.description}
         placeholder={t('settings.label_desc_placeholder')}
         disabled={saving}
       />
-    </div>
-
-    <div class="form-actions">
-      <button class="btn btn-outline" onclick={onClose} disabled={saving}>
-        Cancel
-      </button>
-      <button class="btn btn-primary" onclick={handleSave} disabled={saving}>
-        {saving ? 'Saving...' : (label ? t('settings.save_label') : t('settings.create_label'))}
-      </button>
-    </div>
-  </div>
-</div>
+    {/snippet}
+  </FormField>
+</Modal>
 
 <style>
-  .error-box {
-    padding: 0.75rem;
-    background: rgba(255, 0, 0, 0.1);
-    border: 1px solid var(--red, #ff4444);
-    border-radius: 6px;
-    color: var(--red, #ff4444);
-    font-size: 0.9rem;
-    margin-bottom: 1rem;
-  }
-
-  .form-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.7);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-  }
-
-  .form-modal {
-    background: var(--bg-primary);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 2rem;
-    max-width: 500px;
-    width: 90%;
-    max-height: 90vh;
-    overflow-y: auto;
-  }
-
-  .form-modal h2 {
-    margin: 0 0 1.5rem 0;
-    color: var(--text-primary);
-    font-size: 1.25rem;
-  }
-
-  .form-group {
-    margin-bottom: 1.25rem;
-  }
-
-  .form-group label {
-    display: block;
-    margin-bottom: 0.5rem;
-    color: var(--text-primary);
-    font-weight: 500;
-    font-size: 0.9rem;
-  }
 
   .form-group input[type='text'] {
     width: 100%;
-    padding: 0.6rem 0.75rem;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    color: var(--text-primary);
-    font-size: 0.9rem;
     box-sizing: border-box;
-  }
-
-  .form-group input[type='text']:focus {
-    outline: none;
-    border-color: var(--accent);
   }
 
   .preset-colors {
@@ -293,19 +228,6 @@
 
   .custom-color-input input {
     width: 100px;
-    padding: 0.5rem;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    color: var(--text-primary);
-    font-size: 0.9rem;
-    font-family: monospace;
   }
 
-  .form-actions {
-    display: flex;
-    gap: 0.75rem;
-    justify-content: flex-end;
-    margin-top: 1.5rem;
-  }
 </style>

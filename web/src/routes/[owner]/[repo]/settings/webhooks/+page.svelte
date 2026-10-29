@@ -1,4 +1,7 @@
 <script lang="ts">
+  import { toErrorMessage } from '$lib/utils/error';
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
+  import LoadingState from '$lib/components/LoadingState.svelte';
   import { page } from '$app/stores';
   import { createT } from '$lib/i18n';
   import { webhooks, type RepositoryWebhook } from '$lib/api/client.svelte';
@@ -22,8 +25,8 @@
       loading = true;
       error = '';
       hooks = await webhooks.list(owner, repo);
-    } catch (err: any) {
-      error = err.message || t('settings.webhooks.load_failed', 'Failed to load webhooks');
+    } catch (err) {
+      error = toErrorMessage(err, t('settings.webhooks.load_failed', 'Failed to load webhooks'));
     } finally {
       loading = false;
     }
@@ -39,18 +42,18 @@
   </div>
 
   {#if error}
-    <div class="error-box">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
-  <section class="section">
+  <section class="settings-section">
     <h2>{t('settings.webhooks.create_title', 'Add webhook')}</h2>
     <WebhookForm {owner} {repo} onCreated={loadWebhooks} />
   </section>
 
-  <section class="section">
+  <section class="settings-section">
     <h2>{t('settings.webhooks.current', 'Configured webhooks')}</h2>
     {#if loading}
-      <div class="loading">{t('common.loading')}</div>
+      <LoadingState />
     {:else}
       <WebhookList {owner} {repo} {hooks} onChanged={loadWebhooks} />
     {/if}
@@ -62,18 +65,12 @@
     max-width: 900px;
   }
 
-  .page-header {
-    margin-bottom: 2rem;
-  }
-
   h1 {
-    font-size: 1.75rem;
     margin: 0 0 0.5rem;
     color: var(--text-primary);
   }
 
   h2 {
-    font-size: 1.1rem;
     margin: 0 0 1rem;
     color: var(--text-primary);
   }
@@ -84,27 +81,4 @@
     font-size: 0.95rem;
   }
 
-  .section {
-    margin-bottom: 2.5rem;
-    padding-bottom: 2rem;
-    border-bottom: 1px solid var(--border);
-  }
-
-  .loading {
-    padding: 2rem;
-    text-align: center;
-    color: var(--text-secondary);
-    background: var(--bg-secondary);
-    border-radius: 6px;
-  }
-
-  .error-box {
-    padding: 0.75rem;
-    border-radius: 6px;
-    font-size: 0.9rem;
-    margin-bottom: 1rem;
-    background: rgba(255, 0, 0, 0.1);
-    border: 1px solid var(--red, #ff4444);
-    color: var(--red, #ff4444);
-  }
 </style>

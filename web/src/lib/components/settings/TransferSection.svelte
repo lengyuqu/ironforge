@@ -1,4 +1,7 @@
 <script lang="ts">
+  import SuccessBanner from '$lib/components/SuccessBanner.svelte';
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
+  import { confirmDialog } from '$lib/components/confirm.svelte';
   import { goto } from '$app/navigation';
   import { repos } from '$lib/api/client.svelte';
   import { toErrorMessage } from '$lib/utils/error';
@@ -22,7 +25,7 @@
   async function handleTransfer() {
     if (!newOwner.trim()) return;
 
-    const confirmed = confirm(t('settings.transfer.warning'));
+    const confirmed = (await confirmDialog({ variant: 'danger', message: t('settings.transfer.warning') }));
     if (!confirmed) return;
 
     try {
@@ -36,15 +39,15 @@
       setTimeout(() => {
         goto(`/${newOwner.trim()}/${repo}`);
       }, 1500);
-    } catch (err: any) {
-      transferError = toErrorMessage(err, 'Transfer failed');
+    } catch (err) {
+      transferError = toErrorMessage(err, t('settings.transfer.failed'));
     } finally {
       transferring = false;
     }
   }
 </script>
 
-<section class="section transfer-section">
+<section class="settings-section transfer-section">
   <h2>{t('settings.transfer.title')}</h2>
   <p class="section-desc">{t('settings.transfer.desc')}</p>
 
@@ -54,11 +57,11 @@
   </div>
 
   {#if transferError}
-    <div class="error-box">{transferError}</div>
+    <ErrorBanner message={transferError} />
   {/if}
 
   {#if transferSuccess}
-    <div class="success-box">{transferSuccess}</div>
+    <SuccessBanner message={transferSuccess} />
   {/if}
 
   <div class="form-group">
@@ -84,15 +87,8 @@
 
 <style>
   h2 {
-    font-size: 1.25rem;
     margin-bottom: 1rem;
     color: var(--text-primary);
-  }
-
-  .section {
-    margin-bottom: 2.5rem;
-    padding-bottom: 2rem;
-    border-bottom: 1px solid var(--border);
   }
 
   .section-desc {
@@ -106,7 +102,7 @@
     gap: 0.75rem;
     padding: 1rem;
     background: rgba(255, 165, 0, 0.1);
-    border: 1px solid var(--orange, #ff8800);
+    border: 1px solid var(--orange);
     border-radius: 6px;
     margin-bottom: 1.5rem;
   }
@@ -126,14 +122,6 @@
     margin-top: 1.5rem;
   }
 
-  .form-group label {
-    display: block;
-    margin-bottom: 0.5rem;
-    color: var(--text-primary);
-    font-weight: 500;
-    font-size: 0.9rem;
-  }
-
   .input-row {
     display: flex;
     gap: 0.75rem;
@@ -141,60 +129,15 @@
 
   input[type='text'] {
     flex: 1;
-    padding: 0.6rem 0.75rem;
-    background: var(--bg-primary);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    color: var(--text-primary);
-    font-size: 0.9rem;
-  }
-
-  input[type='text']:focus {
-    outline: none;
-    border-color: var(--accent);
-  }
-
-  .btn {
-    padding: 0.6rem 1.25rem;
-    border: none;
-    border-radius: 6px;
-    font-size: 0.9rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s;
-  }
-
-  .btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
   }
 
   .btn-warning {
-    background: var(--orange, #ff8800);
+    background: var(--orange);
     color: white;
   }
 
   .btn-warning:hover:not(:disabled) {
-    background: var(--orange-dark, #cc6600);
+    background: var(--orange);
   }
 
-  .error-box {
-    padding: 0.75rem;
-    background: rgba(255, 0, 0, 0.1);
-    border: 1px solid var(--red, #ff4444);
-    border-radius: 6px;
-    color: var(--red, #ff4444);
-    font-size: 0.9rem;
-    margin-bottom: 1rem;
-  }
-
-  .success-box {
-    padding: 0.75rem;
-    background: rgba(0, 255, 0, 0.1);
-    border: 1px solid var(--green, #28a745);
-    border-radius: 6px;
-    color: var(--green, #28a745);
-    font-size: 0.9rem;
-    margin-bottom: 1rem;
-  }
 </style>

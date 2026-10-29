@@ -1,6 +1,9 @@
 <script lang="ts">
   // Landing public repositories section — vertical repo list fed by the
   // explore API, with loading / error / empty states.
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
+  import LoadingState from '$lib/components/LoadingState.svelte';
+  import EmptyState from '$lib/components/EmptyState.svelte';
   import { createT, formatDate } from '$lib/i18n';
   import type { ExploreRepo } from '$lib/types/entities';
 
@@ -24,18 +27,15 @@
     </div>
 
     {#if error}
-      <div class="error-banner">
-        <p>{error}</p>
-        <button onclick={onRetry}>Retry</button>
-      </div>
+      <ErrorBanner message={error}>
+        <button class="btn btn-sm" onclick={onRetry}>{t('common.retry')}</button>
+      </ErrorBanner>
     {/if}
 
     {#if loading}
-      <p class="text-secondary">{t('common.loading')}</p>
+      <LoadingState />
     {:else if repos.length === 0}
-      <div class="empty">
-        <p>{t('explore.empty')}</p>
-      </div>
+      <EmptyState title={t('explore.empty')} />
     {:else}
       <div class="repo-list">
         {#each repos as repo (repo.id)}
@@ -60,7 +60,7 @@
 <style>
   .public-repos {
     padding: 80px 24px;
-    background: var(--bg-primary, #ffffff);
+    background: var(--bg-primary);
   }
 
   .repos-container {
@@ -78,12 +78,12 @@
   .repos-header h2 {
     font-size: 24px;
     font-weight: 700;
-    color: var(--text-primary, #1f2328);
+    color: var(--text-primary);
   }
 
   .view-all {
     font-size: 14px;
-    color: var(--primary, #2da44e);
+    color: var(--green);
     text-decoration: none;
   }
 
@@ -102,18 +102,18 @@
     align-items: flex-start;
     gap: 12px;
     padding: 16px 20px;
-    border-bottom: 1px solid var(--border-light, #eaeef2);
+    border-bottom: 1px solid var(--border-light);
     text-decoration: none;
-    color: var(--text-primary, #1f2328);
+    color: var(--text-primary);
     transition: background 0.2s;
   }
 
   .repo-item:hover {
-    background: var(--bg-secondary, #f6f8fa);
+    background: var(--bg-secondary);
   }
 
   .repo-item:first-child {
-    border-top: 1px solid var(--border-light, #eaeef2);
+    border-top: 1px solid var(--border-light);
     border-radius: 8px 8px 0 0;
   }
 
@@ -133,45 +133,20 @@
   .repo-name {
     font-weight: 600;
     font-size: 15px;
-    color: var(--accent, #0969da);
+    color: var(--accent);
     margin-bottom: 4px;
   }
 
   .repo-desc {
     font-size: 13px;
-    color: var(--text-secondary, #656d76);
+    color: var(--text-secondary);
     margin-top: 2px;
   }
 
   .repo-meta {
     font-size: 12px;
-    color: var(--text-muted, #8b949e);
+    color: var(--text-muted);
     margin-top: 4px;
   }
 
-  .empty {
-    text-align: center;
-    padding: 60px 24px;
-    color: var(--text-secondary, #656d76);
-  }
-
-  .error-banner {
-    background: var(--error-bg, #fee);
-    border: 1px solid var(--error-border, #fcc);
-    border-radius: 6px;
-    padding: 12px 16px;
-    margin-bottom: 16px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-
-  .error-banner button {
-    padding: 6px 12px;
-    background: var(--primary, #2da44e);
-    color: white;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-  }
 </style>

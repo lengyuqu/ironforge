@@ -187,22 +187,6 @@
     gap: 6px;
   }
 
-  .btn-outline {
-    border-radius: 6px;
-    min-height: 32px;
-    padding: 5px 10px;
-    font-size: 13px;
-    text-decoration: none;
-    cursor: pointer;
-    border: 1px solid var(--border);
-    background: var(--bg-primary);
-    color: var(--text-primary);
-  }
-
-  .btn-outline:hover {
-    background: var(--bg-tertiary);
-  }
-
   .btn-outline.disabled {
     opacity: 0.55;
     cursor: not-allowed;
@@ -210,7 +194,7 @@
   }
 
   .btn-outline.danger {
-    color: #cf222e;
+    color: var(--red);
   }
 
   .copy-status {
@@ -222,7 +206,7 @@
     color: var(--text-secondary);
   }
 
-  @media (max-width: 820px) {
+  @media (max-width: 900px) {
     .file-header {
       grid-template-columns: 1fr;
       align-items: stretch;

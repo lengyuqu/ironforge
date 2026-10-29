@@ -23,7 +23,7 @@ describe('IssueCreateForm.svelte', () => {
     milestonesListMock.mockResolvedValue([]);
   });
 
-  it('blocks submission and shows an error when the title is empty', () => {
+  it('keeps a pristine form quiet, then flags the title on submit and focuses it', async () => {
     render(IssueCreateForm, {
       owner: 'acme',
       repo: 'web',
@@ -31,9 +31,15 @@ describe('IssueCreateForm.svelte', () => {
       onCancel: vi.fn(),
     });
 
-    expect(screen.getByText('issues.create_form.title_required')).toBeInTheDocument();
-    const submit = screen.getByText('issues.create_form.submit').closest('button') as HTMLButtonElement;
-    expect(submit.disabled).toBe(true);
+    expect(screen.queryByText('issues.create_form.title_required')).not.toBeInTheDocument();
+    const title = screen.getByPlaceholderText('issues.create_form.title_placeholder');
+    await waitFor(() => expect(document.activeElement).toBe(title));
+
+    await fireEvent.click(screen.getByText('issues.create_form.submit'));
+    expect(await screen.findByText('issues.create_form.title_required')).toBeInTheDocument();
+    expect(title).toHaveAttribute('aria-invalid', 'true');
+    await waitFor(() => expect(document.activeElement).toBe(title));
+    expect(createMock).not.toHaveBeenCalled();
   });
 
   it('submits trimmed labels and assignees and clears on success', async () => {
@@ -107,6 +113,6 @@ describe('IssueCreateForm.svelte', () => {
     });
     expect(screen.getByText('issues.create_form.title_required')).toBeInTheDocument();
     const submit = screen.getByText('issues.create_form.submit').closest('button') as HTMLButtonElement;
-    expect(submit.disabled).toBe(true);
+    expect(submit.disabled).toBe(false);
   });
 });

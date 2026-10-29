@@ -17,7 +17,7 @@
 
 <div class="milestones-grid">
   {#each items as milestone (milestone.id)}
-    <div class="milestone-card">
+    <div class="milestone-card surface">
       <div class="milestone-info">
         <div class="milestone-text">
           <div class="milestone-title-row">
@@ -74,9 +74,6 @@
     justify-content: space-between;
     align-items: center;
     padding: 1rem;
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: 6px;
     transition: all 0.2s;
   }
 
@@ -114,13 +111,13 @@
     font-size: 0.75rem;
     padding: 0.1rem 0.5rem;
     border-radius: 10px;
-    color: #1a7f37;
+    color: var(--green);
     background: rgba(26, 127, 55, 0.12);
     text-transform: capitalize;
   }
 
   .state-badge.closed {
-    color: #cf222e;
+    color: var(--red);
     background: rgba(207, 34, 46, 0.12);
   }
 
@@ -154,7 +151,7 @@
   .progress-fill {
     height: 100%;
     border-radius: 3px;
-    background: var(--green, #1a7f37);
+    background: var(--green);
     transition: width 0.3s ease;
   }
 
@@ -175,20 +172,5 @@
 
   .milestone-card:hover .milestone-actions {
     opacity: 1;
-  }
-
-  .btn-icon {
-    background: none;
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    padding: 0.25rem 0.5rem;
-    cursor: pointer;
-    font-size: 0.9rem;
-    transition: all 0.2s;
-  }
-
-  .btn-icon:hover {
-    background: var(--bg-primary);
-    border-color: var(--accent);
   }
 </style>

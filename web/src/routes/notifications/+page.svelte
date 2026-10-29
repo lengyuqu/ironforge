@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { onMount } from 'svelte';
   import {
     notifications,
@@ -88,7 +89,7 @@
   </div>
 
   {#if error}
-    <div class="error-banner">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   <NotificationList
@@ -127,27 +128,10 @@
     cursor: pointer;
   }
 
-  .btn-sm {
-    background: var(--accent);
-    color: white;
-    border: none;
-    border-radius: 4px;
-    padding: 0.4rem 0.8rem;
-    cursor: pointer;
-    font-size: 0.85rem;
-  }
-
   .hint {
     font-size: 0.85rem;
     color: var(--text-secondary);
     margin-top: 0.5rem;
   }
 
-  .error-banner {
-    color: #f85149;
-    background: rgba(248, 81, 73, 0.1);
-    padding: 10px 12px;
-    border-radius: var(--radius);
-    margin-bottom: 16px;
-  }
 </style>

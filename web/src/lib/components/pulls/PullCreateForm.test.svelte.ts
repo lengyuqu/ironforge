@@ -64,14 +64,29 @@ describe('PullCreateForm.svelte', () => {
     expect(screen.getByText('main')).toBeInTheDocument();
   });
 
-  it('disables submit until a title and head branch are provided', async () => {
+  it('does not create a PR until a title and head branch are provided, and says why', async () => {
     render(PullCreateForm, { owner: 'o', repo: 'r', onCreated: () => {}, onCancel: () => {} });
     await screen.findAllByText('feature');
-    expect((screen.getByText('pulls.create_form.submit') as HTMLButtonElement).disabled).toBe(true);
+
+    expect(screen.queryByText('pulls.create_form.title_required')).not.toBeInTheDocument();
+    await fireEvent.click(screen.getByText('pulls.create_form.submit'));
+
+    expect(await screen.findByText('pulls.create_form.title_required')).toBeInTheDocument();
+    expect(screen.getByText('pulls.create_form.head_required')).toBeInTheDocument();
+    expect(pullsCreate).not.toHaveBeenCalled();
   });
 
-  it('shows a required-title error for an empty title', async () => {
+  it('labels the title field "title", not "description"', async () => {
     render(PullCreateForm, { owner: 'o', repo: 'r', onCreated: () => {}, onCancel: () => {} });
+    await screen.findAllByText('feature');
+    expect(screen.getByText('pulls.create_form.title_label')).toBeInTheDocument();
+  });
+
+  it('shows the required-title error once the title was edited and cleared', async () => {
+    const { container } = render(PullCreateForm, { owner: 'o', repo: 'r', onCreated: () => {}, onCancel: () => {} });
+    await screen.findAllByText('feature');
+    await fireEvent.input(titleInput(container), { target: { value: 'x' } });
+    await fireEvent.input(titleInput(container), { target: { value: '' } });
     expect(await screen.findByText('pulls.create_form.title_required')).toBeInTheDocument();
   });
 

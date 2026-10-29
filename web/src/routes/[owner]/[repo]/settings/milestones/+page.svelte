@@ -2,6 +2,9 @@
   // Milestones settings page — orchestration layer: loads the milestone
   // list and manages modal visibility. Create/edit/delete are handled by
   // the self-contained modal components, which reload the list on success.
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
+  import LoadingState from '$lib/components/LoadingState.svelte';
+  import EmptyState from '$lib/components/EmptyState.svelte';
   import { page } from '$app/stores';
   import { milestones } from '$lib/api/client.svelte';
   import { createT } from '$lib/i18n';
@@ -67,7 +70,7 @@
   </div>
 
   {#if error}
-    <div class="error-banner">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   {#if showForm}
@@ -91,11 +94,9 @@
   {/if}
 
   {#if loading}
-    <div class="loading">{t('common.loading')}</div>
+    <LoadingState />
   {:else if milestoneList.length === 0}
-    <div class="empty-state">
-      <p>{t('settings.no_milestones')}</p>
-    </div>
+    <EmptyState title={t('settings.no_milestones')} />
   {:else}
     <MilestoneGrid
       items={milestoneList}
@@ -110,37 +111,9 @@
     max-width: 800px;
   }
 
-  .page-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 2rem;
-  }
-
   h1 {
-    font-size: 1.75rem;
     color: var(--text-primary);
     margin: 0;
   }
 
-  .empty-state {
-    padding: 3rem;
-    text-align: center;
-    color: var(--text-secondary);
-    font-size: 0.95rem;
-  }
-
-  .loading {
-    padding: 2rem;
-    text-align: center;
-    color: var(--text-secondary);
-  }
-
-  .error-banner {
-    color: #f85149;
-    background: rgba(248, 81, 73, 0.1);
-    padding: 10px 12px;
-    border-radius: var(--radius);
-    margin-bottom: 16px;
-  }
 </style>

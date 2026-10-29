@@ -1,4 +1,8 @@
 <script lang="ts">
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
+  import LoadingState from '$lib/components/LoadingState.svelte';
+  import EmptyState from '$lib/components/EmptyState.svelte';
+  import { confirmDialog } from '$lib/components/confirm.svelte';
   import { tokens, type AccessToken } from '$lib/api/client.svelte';
   import { toErrorMessage } from '$lib/utils/error';
   import { createT } from '$lib/i18n';
@@ -19,14 +23,14 @@
   let error = $state('');
 
   async function revokeToken(token: AccessToken) {
-    if (!confirm(t('settings.tokens.revoke_confirm', { name: token.name }))) return;
+    if (!(await confirmDialog({ variant: 'danger', message: t('settings.tokens.revoke_confirm', { name: token.name }) }))) return;
 
     try {
       deletingId = token.id;
       error = '';
       await tokens.delete(token.id);
       await onRefresh();
-    } catch (err: any) {
+    } catch (err) {
       error = toErrorMessage(err, t('errors.revoke_failed', 'Revoke failed'));
     } finally {
       deletingId = null;
@@ -41,17 +45,17 @@
   }
 </script>
 
-<section class="section">
+<section class="settings-section">
   <h2>{t('settings.tokens.existing_title', 'Existing Tokens')}</h2>
 
   {#if error}
-    <div class="error-box">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   {#if loading}
-    <p class="muted">{t('common.loading')}</p>
+    <LoadingState />
   {:else if tokenList.length === 0}
-    <div class="empty-state">{t('settings.tokens.empty', 'No personal access tokens yet.')}</div>
+    <EmptyState title={t('settings.tokens.empty', 'No personal access tokens yet.')} />
   {:else}
     <div class="table-wrap">
       <table>
@@ -96,13 +100,6 @@
 <style>
   h2 {
     margin: 0 0 16px;
-    font-size: 18px;
-  }
-
-  .section {
-    margin-bottom: 32px;
-    padding-bottom: 28px;
-    border-bottom: 1px solid var(--border);
   }
 
   .table-wrap {
@@ -131,45 +128,5 @@
 
   .actions {
     text-align: right;
-  }
-
-  .muted {
-    color: var(--text-secondary);
-  }
-
-  .empty-state {
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 14px 16px;
-    margin-bottom: 20px;
-    color: var(--text-secondary);
-  }
-
-  .error-box {
-    color: var(--red);
-    background: color-mix(in srgb, var(--red) 10%, transparent);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 14px 16px;
-    margin-bottom: 20px;
-  }
-
-  .btn {
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    cursor: pointer;
-    font-size: 14px;
-  }
-
-  .btn-danger {
-    padding: 5px 12px;
-    background: color-mix(in srgb, var(--red) 12%, transparent);
-    border-color: color-mix(in srgb, var(--red) 45%, transparent);
-    color: var(--red);
-  }
-
-  .btn-danger:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
   }
 </style>

@@ -122,22 +122,8 @@
   }
 
   .badge.online {
-    background: rgba(63, 185, 80, 0.15);
-    color: #3fb950;
-    border-color: #3fb950;
-  }
-
-  .btn-danger {
-    background: rgba(248, 81, 73, 0.15);
-    border: 1px solid #f85149;
-    color: #f85149;
-    border-radius: 4px;
-    padding: 0.25rem 0.6rem;
-    font-size: 0.8rem;
-    cursor: pointer;
-  }
-
-  .btn-danger:hover {
-    background: rgba(248, 81, 73, 0.25);
+    background: color-mix(in srgb, var(--green) 15%, transparent);
+    color: var(--green);
+    border-color: var(--green);
   }
 </style>

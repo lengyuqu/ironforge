@@ -12,6 +12,7 @@
     closeOnBackdrop = true,
     onSubmit,
     onClose = () => {},
+    withInput = false,
   }: {
     open?: boolean;
     title?: string;
@@ -22,6 +23,7 @@
     closeOnBackdrop?: boolean;
     onSubmit?: () => void;
     onClose?: () => void;
+    withInput?: boolean;
   } = $props();
 </script>
 
@@ -37,4 +39,5 @@
   {onClose}
 >
   <p id="harness-body">Body content</p>
+  {#if withInput}<input id="harness-input" type="text" />{/if}
 </Modal>

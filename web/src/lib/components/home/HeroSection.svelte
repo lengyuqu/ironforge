@@ -86,7 +86,7 @@
 
   .btn-hero-primary {
     padding: 12px 32px;
-    background: var(--primary, #2da44e);
+    background: var(--green-dim);
     color: white;
     border: none;
     border-radius: 8px;
@@ -97,7 +97,7 @@
   }
 
   .btn-hero-primary:hover {
-    background: var(--primary-hover, #218838);
+    background: var(--green);
   }
 
   .btn-hero-secondary {

@@ -38,10 +38,6 @@
     gap: 8px;
   }
 
-  h1 {
-    font-size: 24px;
-  }
-
   .issue-number {
     color: var(--text-muted);
     font-size: 18px;
@@ -63,8 +59,8 @@
     font-weight: 600;
   }
 
-  .state-badge.open { background: rgba(63, 185, 80, 0.15); color: var(--green); }
-  .state-badge.closed { background: rgba(248, 81, 73, 0.15); color: var(--red); }
+  .state-badge.open { background: color-mix(in srgb, var(--green) 15%, transparent); color: var(--green); }
+  .state-badge.closed { background: color-mix(in srgb, var(--red) 15%, transparent); color: var(--red); }
 
   .label-badge {
     display: inline-block;

@@ -3,6 +3,7 @@
   //   logged in  → dashboard with the user's repo grid
   //   logged out → marketing landing (hero / features / stats / public repos)
   // Heavy UI lives in $lib/components/home/.
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
   import { isLoggedIn } from '$lib/stores/auth.svelte';
   import { repos } from '$lib/api/client.svelte';
   import { goto } from '$app/navigation';
@@ -57,7 +58,7 @@
     </div>
 
     {#if error}
-      <div class="error-banner">{error}</div>
+      <ErrorBanner message={error} />
     {/if}
 
     <DashboardRepoGrid repos={repoList} {loading} />
@@ -100,21 +101,6 @@
     font-size: 24px;
   }
 
-  .btn-primary {
-    padding: 6px 16px;
-    background: var(--green-dim, #2da44e);
-    color: #fff;
-    border: none;
-    border-radius: var(--radius, 6px);
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-  }
-
-  .btn-primary:hover {
-    background: var(--green, #218838);
-  }
-
   .dashboard-footer {
     text-align: center;
   }
@@ -122,7 +108,7 @@
   .view-all-btn {
     display: inline-block;
     padding: 8px 20px;
-    background: var(--primary, #2da44e);
+    background: var(--green-dim);
     color: white;
     border-radius: 6px;
     text-decoration: none;

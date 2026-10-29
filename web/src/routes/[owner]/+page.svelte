@@ -1,13 +1,16 @@
 <script lang="ts">
+  import { toErrorMessage } from '$lib/utils/error';
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
+  import LoadingState from '$lib/components/LoadingState.svelte';
+  import EmptyState from '$lib/components/EmptyState.svelte';
   import { page } from '$app/stores';
-  import { repos } from '$lib/api/client.svelte';
+  import { repos, type RepoListEntry } from '$lib/api/client.svelte';
   import { createT, formatDate } from '$lib/i18n';
 
   const t = createT();
 
   let owner = $derived($page.params.owner!);
-  let repoList = $state<any[]>([]);
-  let userInfo = $state<any>(null);
+  let repoList = $state<RepoListEntry[]>([]);
   let loading = $state(true);
   let error = $state('');
 
@@ -21,8 +24,8 @@
     try {
       const result = await repos.list(owner);
       repoList = result.data;
-    } catch (e: any) {
-      error = e.message;
+    } catch (e) {
+      error = toErrorMessage(e, t('common.unknown_error'));
     } finally {
       loading = false;
     }
@@ -42,15 +45,13 @@
   </div>
 
   {#if error}
-    <div class="error-banner">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   {#if loading}
-    <p class="text-secondary">{t('common.loading')}</p>
+    <LoadingState />
   {:else if repoList.length === 0}
-    <div class="empty">
-      <p>{t('profile.no_repos')}</p>
-    </div>
+    <EmptyState title={t('profile.no_repos')} />
   {:else}
     <div class="repo-list">
       {#each repoList as repo}
@@ -101,12 +102,6 @@
   .info h1 {
     font-size: 22px;
     margin: 0;
-  }
-
-  .empty {
-    text-align: center;
-    padding: 60px 24px;
-    color: var(--text-secondary);
   }
 
   .repo-list {

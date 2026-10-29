@@ -1,4 +1,8 @@
 <script lang="ts">
+  import { toErrorMessage } from '$lib/utils/error';
+  import SuccessBanner from '$lib/components/SuccessBanner.svelte';
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
+  import LoadingState from '$lib/components/LoadingState.svelte';
   import { goto } from '$app/navigation';
   import { isAuthReady, isLoggedIn } from '$lib/stores/auth.svelte';
   import { mfa, type MfaBackupStatus, type MfaSetupResponse } from '$lib/api/client.svelte';
@@ -31,8 +35,8 @@
       loading = true;
       error = '';
       backupStatus = await mfa.backup();
-    } catch (err: any) {
-      error = err.message || t('errors.load_failed');
+    } catch (err) {
+      error = toErrorMessage(err, t('errors.load_failed'));
     } finally {
       loading = false;
     }
@@ -45,8 +49,8 @@
       success = '';
       newBackupCodes = [];
       setup = await mfa.setup();
-    } catch (err: any) {
-      error = err.message || t('errors.start_failed');
+    } catch (err) {
+      error = toErrorMessage(err, t('errors.start_failed'));
     } finally {
       saving = false;
     }
@@ -55,7 +59,7 @@
   async function handleEnabled(backupCodes: string[]) {
     newBackupCodes = backupCodes;
     setup = null;
-    success = 'MFA enabled. Save your backup codes before leaving this page.';
+    success = t('settings.mfa.enabled_notice');
     await loadSecurity();
   }
 
@@ -67,27 +71,27 @@
 </script>
 
 <svelte:head>
-  <title>Security · IronForge</title>
+  <title>{t('settings.security.title')} · IronForge</title>
 </svelte:head>
 
 <div class="page-container security-page">
   <header class="page-header">
     <div>
-      <h1>Security</h1>
-      <p>Manage account protections for web login and Git/API access.</p>
+      <h1>{t('settings.security.title')}</h1>
+      <p>{t('settings.security.desc')}</p>
     </div>
   </header>
 
   {#if error}
-    <div class="error-box">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   {#if success}
-    <div class="success-box">{success}</div>
+    <SuccessBanner message={success} />
   {/if}
 
   {#if loading}
-    <p class="muted">Loading...</p>
+    <LoadingState />
   {:else}
     <MfaStatusSection
       backupStatus={backupStatus}
@@ -111,40 +115,15 @@
     max-width: 980px;
   }
 
-  .page-header {
-    margin-bottom: 24px;
-  }
-
   h1 {
     margin: 0 0 6px;
-    font-size: 28px;
   }
 
   p {
     margin: 0;
   }
 
-  .page-header p,
-  .muted {
+  .page-header p {
     color: var(--text-secondary);
-  }
-
-  .error-box,
-  .success-box {
-    margin-bottom: 16px;
-    padding: 12px 14px;
-    border-radius: var(--radius);
-  }
-
-  .error-box {
-    border: 1px solid var(--red-dim);
-    background: color-mix(in srgb, var(--red-dim) 14%, transparent);
-    color: var(--red);
-  }
-
-  .success-box {
-    border: 1px solid var(--green-dim);
-    background: color-mix(in srgb, var(--green-dim) 14%, transparent);
-    color: var(--green);
   }
 </style>

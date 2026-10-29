@@ -2,6 +2,9 @@
   // Edit-release page — orchestration layer: loads the release and hands
   // it to ReleaseForm (edit mode: tag locked, no target picker). Submit
   // handling lives inside the form; this page only routes back on success.
+  import ErrorBanner from '$lib/components/ErrorBanner.svelte';
+  import LoadingState from '$lib/components/LoadingState.svelte';
+  import EmptyState from '$lib/components/EmptyState.svelte';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
   import RepoHeader from '$lib/components/RepoHeader.svelte';
@@ -49,7 +52,7 @@
 </script>
 
 <svelte:head>
-  <title>Edit Release · {owner}/{repo} · IronForge</title>
+  <title>{t('releases.edit_title')} · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
 <div class="page-container">
@@ -60,65 +63,17 @@
   </div>
 
   {#if notFound}
-    <div class="empty">
-      <p>{t('releases.invalid_id', 'Invalid release id.')}</p>
+    <EmptyState title={t('releases.invalid_id', 'Invalid release id.')}>
       <a href={`/${owner}/${repo}/releases`} class="btn-primary">{t('releases.title')}</a>
-    </div>
+    </EmptyState>
   {:else if error}
-    <div class="error-banner">{error}</div>
+    <ErrorBanner message={error} />
   {/if}
 
   {#if loading}
-    <p class="loading-text">{t('common.loading')}</p>
+    <LoadingState />
   {:else if release}
     <ReleaseForm {owner} {repo} {release} onSaved={handleSaved} />
   {/if}
 </div>
 
-<style>
-  .page-header {
-    margin-bottom: 24px;
-  }
-
-  h1 {
-    font-size: 24px;
-    font-weight: 600;
-  }
-
-  .loading-text {
-    color: var(--text-secondary);
-    text-align: center;
-    padding: 48px;
-  }
-
-  .empty {
-    text-align: center;
-    padding: 48px;
-    color: var(--text-secondary);
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-  }
-
-  .error-banner {
-    color: #f85149;
-    background: rgba(248, 81, 73, 0.1);
-    padding: 10px 12px;
-    border-radius: var(--radius);
-    margin-bottom: 16px;
-  }
-
-  .btn-primary {
-    padding: 6px 16px;
-    background: var(--orange);
-    color: #fff;
-    border: none;
-    border-radius: var(--radius);
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-    text-decoration: none;
-    display: inline-block;
-    margin-top: 12px;
-  }
-</style>

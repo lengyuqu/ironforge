@@ -362,7 +362,7 @@ export interface PrTimelineEvent {
   actor: { id: number; username: string } | null;
   created_at: string;
   body: string | null;
-  metadata: Record<string, any>;
+  metadata: Record<string, string | number>;
 }
 
 export interface PrReview {

@@ -3,6 +3,9 @@
   // report failures via toast. Dual mode: when the `release` prop is
   // provided it edits an existing release (tag locked, no target picker);
   // otherwise it creates a new one (tag + target_commitish selectable).
+  import FormField from '$lib/components/FormField.svelte';
+  import TagHints from '$lib/components/releases/TagHints.svelte';
+  import ReleaseTargetPicker from '$lib/components/releases/ReleaseTargetPicker.svelte';
   import { releases } from '$lib/api/client.svelte';
   import { toast } from '$lib/components/toast.svelte';
   import { toErrorMessage } from '$lib/utils/error';
@@ -47,7 +50,6 @@
   let isDraft = $state(initialDraft);
   let isPrerelease = $state(initialPrerelease);
   let targetCommitish = $state('');
-  let selectedTargetType = $state<'branch' | 'tag'>('tag');
   let submitting = $state(false);
 
   async function handleSubmit(e: Event) {
@@ -93,7 +95,7 @@
   }
 </script>
 
-<form class="release-form" onsubmit={handleSubmit}>
+<form class="release-form surface" onsubmit={handleSubmit}>
   <div class="form-group">
     <label for="tag-name">{t('releases.tag_name')} <span class="required">*</span></label>
     <input
@@ -105,22 +107,8 @@
       class="input"
       disabled={isEdit}
     />
-    {#if !isEdit && tags.length > 0}
-      <div class="tag-hints">
-        <span class="hint-label">Existing tags:</span>
-        {#each tags.slice(0, 10) as tag}
-          <button
-            type="button"
-            class="tag-hint"
-            onclick={() => tagName = tag}
-          >
-            {tag}
-          </button>
-        {/each}
-        {#if tags.length > 10}
-          <span class="hint-more">+{tags.length - 10} more</span>
-        {/if}
-      </div>
+    {#if !isEdit}
+      <TagHints {tags} onPick={(tag) => (tagName = tag)} />
     {/if}
   </div>
 
@@ -136,53 +124,20 @@
     />
   </div>
 
-  <div class="form-group">
-    <label for="body">{t('releases.body')}</label>
-    <textarea
-      id="body"
-      bind:value={body}
-      placeholder={t('releases.body_placeholder')}
-      rows="8"
-      class="textarea"
-    ></textarea>
-  </div>
+  <FormField id="body" label={t('releases.body')}>
+    {#snippet children()}
+      <textarea
+        id="body"
+        bind:value={body}
+        placeholder={t('releases.body_placeholder')}
+        rows="8"
+        class="textarea"
+      ></textarea>
+    {/snippet}
+  </FormField>
 
   {#if !isEdit}
-    <div class="form-group">
-      <label for="target-commitish">{t('releases.target_commitish')}</label>
-      <div class="target-toggle">
-        <button
-          type="button"
-          class="toggle-btn"
-          class:active={selectedTargetType === 'tag'}
-          onclick={() => selectedTargetType = 'tag'}
-        >
-          Tags
-        </button>
-        <button
-          type="button"
-          class="toggle-btn"
-          class:active={selectedTargetType === 'branch'}
-          onclick={() => selectedTargetType = 'branch'}
-        >
-          Branches
-        </button>
-      </div>
-
-      <select id="target-commitish" bind:value={targetCommitish} class="select">
-        {#if selectedTargetType === 'tag'}
-          <option value="">-- Select a tag (optional) --</option>
-          {#each tags as tag}
-            <option value={tag}>{tag}</option>
-          {/each}
-        {:else}
-          <option value="">-- Select a branch (optional) --</option>
-          {#each branches as branch}
-            <option value={branch}>{branch}</option>
-          {/each}
-        {/if}
-      </select>
-    </div>
+    <ReleaseTargetPicker {tags} {branches} bind:value={targetCommitish} />
   {/if}
 
   <div class="form-group checkbox-group">
@@ -213,22 +168,7 @@
 
 <style>
   .release-form {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
     padding: 24px;
-  }
-
-  .form-group {
-    margin-bottom: 20px;
-  }
-
-  .form-group label {
-    display: block;
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text-primary);
-    margin-bottom: 6px;
   }
 
   .required {
@@ -236,109 +176,18 @@
   }
 
   .input,
-  .textarea,
-  .select {
+  .textarea {
     width: 100%;
-    padding: 8px 12px;
-    font-size: 14px;
-    color: var(--text-primary);
-    background: var(--bg-primary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
     box-sizing: border-box;
   }
 
-  .input:focus,
-  .textarea:focus,
-  .select:focus {
-    outline: none;
-    border-color: var(--accent);
-  }
-
   .input:disabled {
-    color: var(--text-muted);
     cursor: not-allowed;
   }
 
   .textarea {
     resize: vertical;
     min-height: 120px;
-    font-family: inherit;
-    line-height: 1.6;
-  }
-
-  .select {
-    appearance: none;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23888' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: right 10px center;
-    padding-right: 30px;
-  }
-
-  .target-toggle {
-    display: flex;
-    gap: 0;
-    margin-bottom: 8px;
-  }
-
-  .toggle-btn {
-    padding: 6px 16px;
-    font-size: 13px;
-    font-weight: 500;
-    color: var(--text-secondary);
-    background: var(--bg-primary);
-    border: 1px solid var(--border);
-    cursor: pointer;
-    transition: all 0.15s ease;
-  }
-
-  .toggle-btn:first-child {
-    border-radius: var(--radius) 0 0 var(--radius);
-  }
-
-  .toggle-btn:last-child {
-    border-radius: 0 var(--radius) var(--radius);
-    border-left: none;
-  }
-
-  .toggle-btn.active {
-    background: var(--accent);
-    border-color: var(--accent);
-    color: #fff;
-  }
-
-  .tag-hints {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 6px;
-    margin-top: 8px;
-  }
-
-  .hint-label {
-    font-size: 12px;
-    color: var(--text-muted);
-  }
-
-  .tag-hint {
-    padding: 2px 8px;
-    font-size: 12px;
-    color: var(--text-secondary);
-    background: var(--bg-tertiary);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    cursor: pointer;
-    transition: all 0.15s ease;
-  }
-
-  .tag-hint:hover {
-    background: var(--bg-hover);
-    color: var(--text-primary);
-  }
-
-  .hint-more {
-    font-size: 12px;
-    color: var(--text-muted);
   }
 
   .checkbox-group {
@@ -346,11 +195,7 @@
   }
 
   .checkbox-label {
-    display: flex;
-    align-items: center;
-    gap: 8px;
     font-weight: 500;
-    cursor: pointer;
   }
 
   .checkbox-label input[type="checkbox"] {
@@ -360,50 +205,9 @@
   }
 
   .form-actions {
-    display: flex;
     justify-content: flex-end;
-    gap: 12px;
-    margin-top: 24px;
     padding-top: 20px;
     border-top: 1px solid var(--border);
-  }
-
-  .btn-primary {
-    padding: 8px 20px;
-    background: var(--orange);
-    color: #fff;
-    border: none;
-    border-radius: var(--radius);
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: background 0.15s ease;
-  }
-
-  .btn-primary:hover:not(:disabled) {
-    background: #e09a1e;
-  }
-
-  .btn-primary:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-
-  .btn-secondary {
-    padding: 8px 20px;
-    background: none;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    color: var(--text-primary);
-    font-size: 14px;
-    font-weight: 500;
-    text-decoration: none;
-    cursor: pointer;
-    transition: all 0.15s ease;
-  }
-
-  .btn-secondary:hover {
-    background: var(--bg-hover);
   }
 
   @media (max-width: 600px) {
@@ -413,12 +217,6 @@
 
     .form-actions {
       flex-direction: column-reverse;
-    }
-
-    .btn-primary,
-    .btn-secondary {
-      width: 100%;
-      text-align: center;
     }
   }
 </style>

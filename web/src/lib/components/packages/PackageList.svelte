@@ -1,4 +1,5 @@
 <script lang="ts">
+  import EmptyState from '$lib/components/EmptyState.svelte';
   import type { PackageSummaryResponse } from '$lib/api/client.svelte';
   import { createT } from '$lib/i18n';
   import {
@@ -35,13 +36,11 @@
 </script>
 
 {#if packages.length === 0}
-  <div class="empty">
-    <p>{t('packages.no_packages')}</p>
-  </div>
+  <EmptyState title={t('packages.no_packages')} />
 {:else}
   <div class="package-list">
     {#each packages as pkg (pkg.id)}
-      <div class="package-card">
+      <div class="package-card surface">
         <div class="package-header">
           <a href={packageHref(pkg)} class="package-name">{pkg.name}</a>
           <span
@@ -71,7 +70,7 @@
       >
         {t('common.previous') || 'Previous'}
       </button>
-      <span class="page-info">Page {currentPage} of {totalPages}</span>
+      <span class="page-info">{t('common.page_of', { page: currentPage, total: totalPages })}</span>
       <button
         class="btn-outline"
         disabled={currentPage >= totalPages}
@@ -84,15 +83,6 @@
 {/if}
 
 <style>
-  .empty {
-    text-align: center;
-    padding: 48px;
-    color: var(--text-secondary);
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-  }
-
   .package-list {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
@@ -100,9 +90,6 @@
   }
 
   .package-card {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
     padding: 16px;
     display: flex;
     flex-direction: column;
@@ -133,13 +120,13 @@
     border-radius: 10px;
     font-size: 11px;
     font-weight: 600;
-    background: var(--accent-dim, rgba(37, 99, 235, 0.15));
+    background: var(--accent-subtle);
     color: var(--accent);
     white-space: nowrap;
   }
 
   .format-badge.fallback {
-    background: var(--bg-tertiary, #e5e7eb);
+    background: var(--bg-tertiary);
     color: var(--text-secondary);
   }
 
@@ -170,20 +157,5 @@
   .page-info {
     font-size: 13px;
     color: var(--text-secondary);
-  }
-
-  .btn-outline {
-    padding: 6px 14px;
-    background: none;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    color: var(--text-primary);
-    font-size: 13px;
-    cursor: pointer;
-  }
-
-  .btn-outline:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
   }
 </style>
