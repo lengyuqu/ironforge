@@ -13,6 +13,7 @@
 //! the `Option`/`Err` into their existing fallback; see `codeowners.rs` for an
 //! example.
 
+use std::collections::HashSet;
 use std::path::Path;
 
 use anyhow::{Context, bail};
@@ -554,6 +555,51 @@ pub fn commit_graph(
     Ok(graph)
 }
 
+/// Partial-clone object filter: the subset of `--filter=<spec>` that
+/// `upload-pack` honours when building a pack.
+///
+/// Anything else (`sparse:oid=`, `object:type=`, `combine:`...) is not
+/// recognised and the full pack is sent, which is always protocol-correct.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ObjectFilter {
+    /// `blob:none` — commits and trees only.
+    BlobNone,
+    /// `blob:limit=<n>[kmg]` — blobs larger than the limit are left out.
+    BlobLimit(u64),
+    /// `tree:0` — commits only.
+    TreeNone,
+}
+
+impl ObjectFilter {
+    /// Parse a protocol filter spec, or `None` when it is not one we apply.
+    pub fn parse(spec: &str) -> Option<Self> {
+        match spec {
+            "blob:none" => Some(Self::BlobNone),
+            "tree:0" => Some(Self::TreeNone),
+            _ => {
+                let limit = spec.strip_prefix("blob:limit=")?;
+                let (digits, unit) = match limit.chars().last()? {
+                    'k' | 'K' => (&limit[..limit.len() - 1], 1024),
+                    'm' | 'M' => (&limit[..limit.len() - 1], 1024 * 1024),
+                    'g' | 'G' => (&limit[..limit.len() - 1], 1024 * 1024 * 1024),
+                    _ => (limit, 1),
+                };
+                digits.parse::<u64>().ok()?.checked_mul(unit).map(Self::BlobLimit)
+            }
+        }
+    }
+
+    /// Whether an object of this kind and size belongs in the pack.
+    fn keeps(self, kind: gix::object::Kind, size: u64) -> bool {
+        use gix::object::Kind;
+        match self {
+            Self::BlobNone => kind != Kind::Blob,
+            Self::BlobLimit(limit) => kind != Kind::Blob || size <= limit,
+            Self::TreeNone => kind != Kind::Blob && kind != Kind::Tree,
+        }
+    }
+}
+
 /// gix-native replacement for `git pack-objects` — generates a version-2
 /// packfile containing `input_ids` plus every object they expand to.
 ///
@@ -564,6 +610,20 @@ pub fn commit_graph(
 pub fn generate_pack(
     repo: &gix::Repository,
     input_ids: Vec<gix::hash::ObjectId>,
+) -> anyhow::Result<Vec<u8>> {
+    generate_pack_filtered(repo, input_ids, None, &HashSet::new())
+}
+
+/// [`generate_pack`] that leaves out the objects `filter` rejects.
+///
+/// `requested` are objects the client asked for by name; a filter only prunes
+/// what traversal discovers, so these are always kept (a partial clone's lazy
+/// fetch re-sends its filter together with `want <blob>`).
+pub fn generate_pack_filtered(
+    repo: &gix::Repository,
+    input_ids: Vec<gix::hash::ObjectId>,
+    filter: Option<ObjectFilter>,
+    requested: &HashSet<gix::hash::ObjectId>,
 ) -> anyhow::Result<Vec<u8>> {
     use gix::progress::Discard;
     use gix::odb::pack::data::output;
@@ -585,7 +645,7 @@ pub fn generate_pack(
     let input: Box<dyn Iterator<Item = Result<gix::hash::ObjectId, gix::Error>> + Send> =
         Box::new(input_ids.into_iter().map(Ok));
 
-    let (counts, _outcome) = output::count::objects(
+    let (mut counts, _outcome) = output::count::objects(
         db.clone(),
         input,
         &Discard,
@@ -597,6 +657,18 @@ pub fn generate_pack(
         },
     )
     .map_err(|error| anyhow::anyhow!("failed to count pack objects: {error}"))?;
+
+    if let Some(filter) = filter {
+        // An object whose header cannot be read is kept: sending too much is
+        // protocol-correct, dropping something the client needs is not.
+        counts.retain(|count| {
+            requested.contains(&count.id)
+                || repo
+                    .find_header(count.id)
+                    .map(|header| filter.keeps(header.kind(), header.size()))
+                    .unwrap_or(true)
+        });
+    }
 
     let num_entries = counts.len() as u32;
 
@@ -712,6 +784,22 @@ pub fn pack_for_wants_opts(
     shallow_boundaries: &[String],
     shallow_mode: bool,
 ) -> anyhow::Result<Vec<u8>> {
+    pack_for_wants_filtered(repo_path, wants, haves, shallow_boundaries, shallow_mode, None)
+}
+
+/// [`pack_for_wants_opts`] with a partial-clone `filter`.
+///
+/// A `want` may name a blob or tree directly: that is how a partial clone
+/// lazily fetches what it left out, and such a want is packed as-is rather
+/// than walked as history.
+pub fn pack_for_wants_filtered(
+    repo_path: &Path,
+    wants: &[String],
+    haves: &[String],
+    shallow_boundaries: &[String],
+    shallow_mode: bool,
+    filter: Option<ObjectFilter>,
+) -> anyhow::Result<Vec<u8>> {
     let repo = open_repo(repo_path)?;
     let peel_to_commit = |spec: &str| -> anyhow::Result<gix::hash::ObjectId> {
         let id = repo
@@ -729,13 +817,20 @@ pub fn pack_for_wants_opts(
 
     let mut starts = Vec::with_capacity(wants.len());
     let mut extra_inputs = Vec::new();
+    let mut requested = HashSet::new();
     for want in wants {
         let id = repo
             .rev_parse_single(want.as_str())
             .with_context(|| format!("failed to resolve want '{want}'"))?
             .detach();
-        if repo.find_object(id)?.kind == gix::object::Kind::Tag {
-            extra_inputs.push(id);
+        match repo.find_object(id)?.kind {
+            gix::object::Kind::Tag => extra_inputs.push(id),
+            gix::object::Kind::Blob | gix::object::Kind::Tree => {
+                extra_inputs.push(id);
+                requested.insert(id);
+                continue;
+            }
+            gix::object::Kind::Commit => {}
         }
         starts.push(peel_to_commit(want)?);
     }
@@ -773,7 +868,7 @@ pub fn pack_for_wants_opts(
         }
     }
     inputs.extend(extra_inputs);
-    generate_pack(&repo, inputs)
+    generate_pack_filtered(&repo, inputs, filter, &requested)
 }
 
 /// gix-native replacement for `git index-pack --fix-thin --stdin`: ingests a
@@ -1319,6 +1414,62 @@ mod rebase_tests {
         // Fetch with everything already present still yields a valid pack.
         pack_for_wants(dir, std::slice::from_ref(&head), std::slice::from_ref(&head), &[])
             .expect("up-to-date fetch must not panic");
+    }
+
+    fn pack_object_count(pack: &[u8]) -> u32 {
+        // Pack header: "PACK", version (4 bytes), object count (4 bytes, BE).
+        u32::from_be_bytes(pack[8..12].try_into().unwrap())
+    }
+
+    #[test]
+    fn object_filter_parses_the_supported_specs_only() {
+        assert_eq!(ObjectFilter::parse("blob:none"), Some(ObjectFilter::BlobNone));
+        assert_eq!(ObjectFilter::parse("tree:0"), Some(ObjectFilter::TreeNone));
+        assert_eq!(ObjectFilter::parse("blob:limit=100"), Some(ObjectFilter::BlobLimit(100)));
+        assert_eq!(ObjectFilter::parse("blob:limit=2k"), Some(ObjectFilter::BlobLimit(2048)));
+        assert_eq!(ObjectFilter::parse("blob:limit=1M"), Some(ObjectFilter::BlobLimit(1 << 20)));
+        assert_eq!(ObjectFilter::parse("blob:limit=1g"), Some(ObjectFilter::BlobLimit(1 << 30)));
+        // Not applied: the caller falls back to a full pack.
+        for spec in ["tree:1", "blob:limit=", "blob:limit=x", "sparse:oid=abc", "combine:blob:none+tree:0", ""] {
+            assert_eq!(ObjectFilter::parse(spec), None, "{spec}");
+        }
+    }
+
+    #[test]
+    fn filtered_packs_leave_out_blobs_and_trees_but_keep_requested_objects() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
+        let git = init_repo(dir);
+        commit(&git, dir, "a.txt", "one\n", "a");
+        commit(&git, dir, "big.txt", &"x".repeat(5000), "b");
+        let head = git_out(&git, &["rev-parse", "refs/heads/main"], dir);
+        let wants = std::slice::from_ref(&head);
+        let count = |filter| {
+            pack_object_count(&pack_for_wants_filtered(dir, wants, &[], &[], false, filter).unwrap())
+        };
+
+        // 2 commits + 2 trees (one per commit) + 2 distinct blobs (a.txt is
+        // shared between the commits).
+        let full = count(None);
+        assert_eq!(full, 6);
+        assert_eq!(count(Some(ObjectFilter::BlobNone)), 4);
+        assert_eq!(count(Some(ObjectFilter::TreeNone)), 2);
+        // Only the 5000-byte blob exceeds the limit.
+        assert_eq!(count(Some(ObjectFilter::BlobLimit(1000))), 5);
+        assert_eq!(count(Some(ObjectFilter::BlobLimit(10_000))), 6);
+
+        // A blob named directly is sent even though the filter would drop it.
+        let blob = git_out(&git, &["rev-parse", "HEAD:big.txt"], dir);
+        let lazy = pack_for_wants_filtered(
+            dir,
+            std::slice::from_ref(&blob),
+            &[],
+            &[],
+            false,
+            Some(ObjectFilter::BlobNone),
+        )
+        .unwrap();
+        assert_eq!(pack_object_count(&lazy), 1);
     }
 
     /// Regression: `copy_objects_from_source` (fork / cross-repo PR object

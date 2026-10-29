@@ -1141,8 +1141,9 @@ fn get_object_size(repo_path: &Path, oid: &str) -> Result<u64> {
 /// traversal walks from the wants with the haves (or the shallow boundaries,
 /// for depth-changing requests) as hidden tips, and the pack pipeline expands
 /// every reachable commit's tree contents. Partial-clone `filter` specs are
-/// not yet supported by the gix pack pipeline — the full pack is sent, which
-/// is always protocol-correct (just not bandwidth-optimal).
+/// applied by pruning that object list (`blob:none`, `blob:limit=<n>`,
+/// `tree:0`); a spec we do not recognise sends the full pack, which is always
+/// protocol-correct (just not bandwidth-optimal).
 async fn generate_packfile(
     repo_path: &Path,
     wants: &[String],
@@ -1150,9 +1151,11 @@ async fn generate_packfile(
     shallow_update: Option<&ShallowUpdate>,
     filter: Option<&str>,
 ) -> Result<Vec<u8>> {
-    if filter.is_some() {
+    let object_filter = filter.and_then(crate::ops::ObjectFilter::parse);
+    if let (Some(spec), None) = (filter, object_filter) {
         tracing::warn!(
-            "partial clone filter requested; gix pack generation sends the full pack (filter ignored)"
+            filter = spec,
+            "unsupported partial clone filter; sending the full pack"
         );
     }
     let boundaries: Vec<String> = shallow_update
@@ -1166,7 +1169,14 @@ async fn generate_packfile(
     let wants = wants.to_vec();
     let haves = haves.to_vec();
     tokio::task::spawn_blocking(move || {
-        crate::ops::pack_for_wants_opts(&repo_dir, &wants, &haves, &boundaries, shallow_mode)
+        crate::ops::pack_for_wants_filtered(
+            &repo_dir,
+            &wants,
+            &haves,
+            &boundaries,
+            shallow_mode,
+            object_filter,
+        )
     })
     .await
     .map_err(|error| anyhow::anyhow!("pack generation task failed: {error}"))?
