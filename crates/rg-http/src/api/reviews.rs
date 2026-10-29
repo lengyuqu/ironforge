@@ -766,7 +766,7 @@ pub async fn get_review_timeline(
         timeline.push(ReviewTimelineEvent {
             id: format!("event:{}", event.id),
             kind: event.event_type,
-            actor: event.actor_id.and_then(&actor),
+            actor: event.actor_id.and_then(actor),
             created_at: event.created_at,
             body: event.body,
             metadata,
