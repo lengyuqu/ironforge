@@ -98,7 +98,7 @@
                 disabled={unlockingUserId === u.id}
                 onclick={() => handleUnlock(u)}
               >
-                {unlockingUserId === u.id ? 'Unlocking...' : 'Unlock'}
+                {unlockingUserId === u.id ? t('admin.users.unlocking') : t('admin.users.unlock')}
               </button>
             {/if}
             <button class="btn-sm" onclick={() => onEdit(u)}>{t('common.edit')}</button>

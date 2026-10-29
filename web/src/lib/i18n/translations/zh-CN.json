@@ -1242,7 +1242,9 @@
       },
       "locked": "已锁定",
       "locked_until": "锁定至 {date}",
-      "failed_attempts": "失败 {count} 次"
+      "failed_attempts": "失败 {count} 次",
+      "unlock": "解锁",
+      "unlocking": "解锁中..."
     },
     "orgs": {
       "title": "组织管理",
@@ -1314,7 +1316,8 @@
       "banner_error": "错误(红色)",
       "title": "实例设置",
       "page_title": "实例设置 · 管理 · IronForge",
-      "saved": "设置已保存"
+      "saved": "设置已保存",
+      "save": "保存设置"
     },
     "login_attempts": {
       "title": "登录尝试",

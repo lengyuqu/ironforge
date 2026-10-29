@@ -85,7 +85,7 @@
 
 <div class="actions">
   <button class="btn-primary" onclick={saveSettings} disabled={saving}>
-    {saving ? 'Saving...' : 'Save Settings'}
+    {saving ? t('common.saving') : t('admin.instance.save')}
   </button>
 </div>
 

@@ -71,7 +71,7 @@ describe('AdminUserTable.svelte', () => {
     expect(screen.getByText('bob@example.com')).toBeInTheDocument();
     // carol is inactive and has failed attempts -> warning badge, unlock button
     expect(screen.getByText('admin.users.failed_attempts')).toBeInTheDocument();
-    expect(screen.getByText('Unlock')).toBeInTheDocument();
+    expect(screen.getByText('admin.users.unlock')).toBeInTheDocument();
     // locked user in the next case uses title; here carol shows failed badge
     expect(screen.getByText('common.page_of')).toBeInTheDocument();
     expect(screen.getByText('← common.previous')).toBeDisabled();
@@ -110,7 +110,7 @@ describe('AdminUserTable.svelte', () => {
       onRefresh,
     });
 
-    await fireEvent.click(screen.getByText('Unlock'));
+    await fireEvent.click(screen.getByText('admin.users.unlock'));
     await waitFor(() => expect(unlockUser).toHaveBeenCalledWith(2));
     await waitFor(() => expect(onRefresh).toHaveBeenCalledTimes(1));
   });

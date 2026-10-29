@@ -1242,7 +1242,9 @@
       },
       "locked": "Locked",
       "locked_until": "Locked until {date}",
-      "failed_attempts": "{count} failed"
+      "failed_attempts": "{count} failed",
+      "unlock": "Unlock",
+      "unlocking": "Unlocking..."
     },
     "orgs": {
       "title": "Organization Management",
@@ -1314,7 +1316,8 @@
       "banner_error": "Error (red)",
       "title": "Instance Settings",
       "page_title": "Instance Settings · Admin · IronForge",
-      "saved": "Settings saved"
+      "saved": "Settings saved",
+      "save": "Save Settings"
     },
     "login_attempts": {
       "title": "Login Attempts",
