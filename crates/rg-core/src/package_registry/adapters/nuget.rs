@@ -56,7 +56,7 @@ impl PackageAdapter for NuGetAdapter {
             let entry = archive
                 .by_index(i)
                 .map_err(|e| anyhow::anyhow!("failed to read ZIP entry: {e}"))?;
-            let name = entry.name().to_lowercase();
+            let name = super::zip_entry_name(&entry).to_lowercase();
             if name.ends_with(".nuspec") {
                 found_nuspec = true;
                 break;
@@ -153,7 +153,7 @@ fn extract_from_nupkg(data: &[u8]) -> Result<ExtractedMetadata, anyhow::Error> {
         let mut entry = archive
             .by_index(i)
             .map_err(|e| anyhow::anyhow!("failed to read .nupkg entry {}: {e}", i))?;
-        let name = entry.name().to_lowercase();
+        let name = super::zip_entry_name(&entry).to_lowercase();
         if name.ends_with(".nuspec") {
             let mut content = String::new();
             entry.read_to_string(&mut content)?;

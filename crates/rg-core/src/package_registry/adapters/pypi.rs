@@ -222,7 +222,7 @@ fn extract_from_whl(data: &[u8]) -> Result<ExtractedMetadata, anyhow::Error> {
         let mut entry = archive
             .by_index(i)
             .map_err(|e| anyhow::anyhow!("failed to read .whl entry {}: {e}", i))?;
-        let path = entry.name().to_lowercase();
+        let path = super::zip_entry_name(&entry).to_lowercase();
 
         // Look for *.dist-info/METADATA
         if path.ends_with(".dist-info/metadata") || path.ends_with(".dist-info\\metadata") {
@@ -276,7 +276,7 @@ fn validate_whl(data: &[u8]) -> Result<(), anyhow::Error> {
         let entry = archive
             .by_index(i)
             .map_err(|e| anyhow::anyhow!("failed to read .whl entry: {e}"))?;
-        let path = entry.name().to_lowercase();
+        let path = super::zip_entry_name(&entry).to_lowercase();
         if path.ends_with(".dist-info/metadata") || path.ends_with(".dist-info\\metadata") {
             found_metadata = true;
             break;

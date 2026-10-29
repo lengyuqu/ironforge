@@ -149,7 +149,7 @@ fn extract_composer_json(data: &[u8]) -> anyhow::Result<String> {
         let entry = archive
             .by_index(i)
             .map_err(|e| anyhow::anyhow!("failed to read ZIP entry: {e}"))?;
-        let name = entry.name().to_string();
+        let name = super::zip_entry_name(&entry);
 
         // Match: any path ending with /composer.json
         if name.ends_with("/composer.json") {
