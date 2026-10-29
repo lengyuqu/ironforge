@@ -63,7 +63,7 @@
 </script>
 
 <div class="section surface">
-  <div class="section-heading surface">
+  <div class="section-heading">
     <div>
       <h2>{t('admin.login_attempts.title')}</h2>
       <span class="text-secondary">{t('admin.login_attempts.matching', { total })}</span>

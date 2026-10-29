@@ -22,7 +22,7 @@
 </script>
 
 <section class="section backup-section surface" aria-label={t('settings.mfa.new_codes')}>
-  <div class="section-heading surface">
+  <div class="section-heading">
     <div>
       <h2>{t('settings.mfa.codes_title')}</h2>
       <p>{t('settings.mfa.codes_desc')}</p>

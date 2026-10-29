@@ -9,21 +9,21 @@
   }
 </script>
 
-<div class="toast-stack surface" aria-live="polite">
+<div class="toast-stack" aria-live="polite">
   {#each toast.items as item (item.id)}
     <div
-      class="toast toast-{item.type}"
+      class="toast surface toast-{item.type}"
       role={item.type === 'error' ? 'alert' : 'status'}
       onmouseenter={() => toast.pause(item.id)}
       onmouseleave={() => toast.resume(item.id)}
       onfocusin={() => toast.pause(item.id)}
       onfocusout={() => toast.resume(item.id)}
     >
-      <span class="toast-icon surface" aria-hidden="true">
+      <span class="toast-icon" aria-hidden="true">
         {#if item.type === 'success'}✓{:else if item.type === 'error'}✕{:else if item.type === 'warning'}!{:else}ⓘ{/if}
       </span>
-      <span class="toast-message surface">{item.message}</span>
-      <button class="toast-close surface" onclick={() => dismiss(item)} aria-label={t('common.dismiss')}>×</button>
+      <span class="toast-message">{item.message}</span>
+      <button class="toast-close" onclick={() => dismiss(item)} aria-label={t('common.dismiss')}>×</button>
     </div>
   {/each}
 </div>

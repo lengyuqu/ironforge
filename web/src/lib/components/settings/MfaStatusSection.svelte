@@ -47,7 +47,7 @@
 </script>
 
 <section class="section surface">
-  <div class="section-heading surface">
+  <div class="section-heading">
     <div>
       <h2>{t('settings.mfa.title')}</h2>
       <p>{t('settings.mfa.desc')}</p>
