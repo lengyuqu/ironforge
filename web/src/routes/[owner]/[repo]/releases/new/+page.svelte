@@ -51,7 +51,7 @@
 </script>
 
 <svelte:head>
-  <title>New Release · {owner}/{repo} · IronForge</title>
+  <title>{t('releases.new')} · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
 <div class="page-container">

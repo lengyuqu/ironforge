@@ -38,7 +38,7 @@
 </script>
 
 <svelte:head>
-  <title>Access Tokens · IronForge</title>
+  <title>{t('settings.tokens.title')} · IronForge</title>
 </svelte:head>
 
 <div class="page-container tokens-page">

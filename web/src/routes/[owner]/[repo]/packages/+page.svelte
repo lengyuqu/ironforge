@@ -63,7 +63,7 @@
 </script>
 
 <svelte:head>
-  <title>Packages · {owner}/{repo} · IronForge</title>
+  <title>{t('repo.tabs.packages')} · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
 <div class="page-container">

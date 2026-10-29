@@ -67,7 +67,7 @@
 </script>
 
 <svelte:head>
-  <title>Board · {owner}/{repo} · IronForge</title>
+  <title>{t('repo.tabs.board')} · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
 <div class="page-container">

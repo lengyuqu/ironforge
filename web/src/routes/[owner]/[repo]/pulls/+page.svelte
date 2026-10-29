@@ -44,7 +44,7 @@
 </script>
 
 <svelte:head>
-  <title>Pull Requests · {owner}/{repo} · IronForge</title>
+  <title>{t('repo.tabs.pulls')} · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
 <div class="page-container">

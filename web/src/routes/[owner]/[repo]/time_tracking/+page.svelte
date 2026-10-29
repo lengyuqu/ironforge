@@ -86,7 +86,7 @@
 </script>
 
 <svelte:head>
-  <title>Time Tracking · {owner}/{repo} · IronForge</title>
+  <title>{t('time_tracking.title')} · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
 <div class="page-container">

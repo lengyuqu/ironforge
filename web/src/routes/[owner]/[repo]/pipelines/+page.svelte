@@ -158,7 +158,7 @@
 </script>
 
 <svelte:head>
-  <title>CI/CD · {owner}/{repo} · IronForge</title>
+  <title>{t('repo.tabs.pipelines')} · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
 <div class="page-container">

@@ -731,7 +731,8 @@
       "apply": "应用建议",
       "applied": "建议已应用"
     },
-    "files_changed_count": "{count} 个文件"
+    "files_changed_count": "{count} 个文件",
+    "page_title_number": "合并请求 #{number}"
   },
   "wiki": {
     "title": "Wiki",
@@ -899,7 +900,8 @@
     "target_tags": "标签",
     "target_branches": "分支",
     "select_tag": "-- 选择标签(可选)--",
-    "select_branch": "-- 选择分支(可选)--"
+    "select_branch": "-- 选择分支(可选)--",
+    "edit_title": "编辑发布"
   },
   "settings": {
     "title": "设置",

@@ -81,7 +81,7 @@
 </script>
 
 <svelte:head>
-  <title>PR #{number} · {owner}/{repo} · IronForge</title>
+  <title>{t('pulls.page_title_number', { number })} · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
 <div class="page-container">

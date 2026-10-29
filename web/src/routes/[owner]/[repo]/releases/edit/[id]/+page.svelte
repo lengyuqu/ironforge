@@ -52,7 +52,7 @@
 </script>
 
 <svelte:head>
-  <title>Edit Release · {owner}/{repo} · IronForge</title>
+  <title>{t('releases.edit_title')} · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
 <div class="page-container">

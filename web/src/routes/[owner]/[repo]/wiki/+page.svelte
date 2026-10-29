@@ -50,7 +50,7 @@
 </script>
 
 <svelte:head>
-  <title>Wiki · {owner}/{repo} · IronForge</title>
+  <title>{t('repo.tabs.wiki')} · {owner}/{repo} · IronForge</title>
 </svelte:head>
 
 <div class="page-container">

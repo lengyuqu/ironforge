@@ -731,7 +731,8 @@
       "apply": "Apply suggestion",
       "applied": "Suggestion applied"
     },
-    "files_changed_count": "{count} files"
+    "files_changed_count": "{count} files",
+    "page_title_number": "PR #{number}"
   },
   "wiki": {
     "title": "Wiki",
@@ -899,7 +900,8 @@
     "target_tags": "Tags",
     "target_branches": "Branches",
     "select_tag": "-- Select a tag (optional) --",
-    "select_branch": "-- Select a branch (optional) --"
+    "select_branch": "-- Select a branch (optional) --",
+    "edit_title": "Edit release"
   },
   "settings": {
     "title": "Settings",
