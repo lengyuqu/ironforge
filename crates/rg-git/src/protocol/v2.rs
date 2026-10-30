@@ -1152,10 +1152,14 @@ async fn generate_packfile(
     filter: Option<&str>,
 ) -> Result<Vec<u8>> {
     let object_filter = filter.and_then(crate::ops::ObjectFilter::parse);
-    if let (Some(spec), None) = (filter, object_filter) {
+    if let (Some(spec), None) = (filter, object_filter.as_ref()) {
+        // Protocol-correct either way: git clients accept a full pack for any
+        // filter. `sparse:oid=` and `tree:<n>` (n > 0) are the specs we do not
+        // implement, so this is the expected path for them rather than an
+        // error; log it so the omission is visible in server logs.
         tracing::warn!(
             filter = spec,
-            "unsupported partial clone filter; sending the full pack"
+            "partial clone filter not implemented by this server; sending the full pack"
         );
     }
     let boundaries: Vec<String> = shallow_update

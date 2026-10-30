@@ -558,24 +558,76 @@ pub fn commit_graph(
 /// Partial-clone object filter: the subset of `--filter=<spec>` that
 /// `upload-pack` honours when building a pack.
 ///
-/// Anything else (`sparse:oid=`, `object:type=`, `combine:`...) is not
-/// recognised and the full pack is sent, which is always protocol-correct.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ObjectFilter {
-    /// `blob:none` — commits and trees only.
-    BlobNone,
-    /// `blob:limit=<n>[kmg]` — blobs larger than the limit are left out.
-    BlobLimit(u64),
-    /// `tree:0` — commits only.
-    TreeNone,
+/// Components are ANDed, matching git. Specs we do not implement
+/// (`sparse:oid=`, `tree:<n>` for n > 0) parse to `None`, and the caller
+/// then sends the full pack — always protocol-correct, just not bandwidth-optimal.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ObjectFilter {
+    components: Vec<FilterComponent>,
 }
 
 impl ObjectFilter {
     /// Parse a protocol filter spec, or `None` when it is not one we apply.
+    ///
+    /// `combine:` nests and may contain empty components
+    /// (`combine:blob:none+`); git ignores the empty ones, so we do too.
     pub fn parse(spec: &str) -> Option<Self> {
+        let mut components = Vec::new();
+        if !parse_filter_spec(spec, &mut components)? {
+            return None;
+        }
+        Some(Self { components })
+    }
+
+    /// Whether an object of this kind and size belongs in the pack.
+    fn keeps(&self, kind: gix::object::Kind, size: u64, tip: bool) -> bool {
+        self.components
+            .iter()
+            .all(|component| component.keeps(kind, size, tip))
+    }
+}
+
+/// One component of a partial-clone filter spec.
+///
+/// Semantics were verified against git 2.54 by feeding the same repository
+/// through `git pack-objects --revs --filter=<spec>` and counting the objects
+/// in the resulting pack:
+///
+/// * Components are **ANDed**: an object is kept only if every component keeps
+///   it.
+/// * The `blob:*` and `tree:0` families never prune commits or tags:
+///   those carry the history and reach the refs the client asked for.
+/// * `object:type=<type>` keeps only objects of that type, plus the **tip**
+///   commits the client named (it must have somewhere to start walking).
+///   Historical commits are dropped unless the type is `commit`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FilterComponent {
+    /// `blob:none` — no blobs.
+    BlobNone,
+    /// `blob:limit=<n>[kmg]` — blobs above the limit are left out.
+    BlobLimit(u64),
+    /// `tree:0` — no trees either (commits and tags only).
+    TreeNone,
+    /// `object:type=blob` — blobs plus the tip commits.
+    TypeBlob,
+    /// `object:type=tree` — trees plus the tip commits.
+    TypeTree,
+    /// `object:type=commit` — commits only.
+    TypeCommit,
+    /// `object:type=tag` — only the tip commits; tag objects the client
+    /// explicitly wants are kept by the `requested` set, not by this filter.
+    TypeTag,
+}
+
+impl FilterComponent {
+    fn parse(spec: &str) -> Option<Self> {
         match spec {
             "blob:none" => Some(Self::BlobNone),
             "tree:0" => Some(Self::TreeNone),
+            "object:type=blob" => Some(Self::TypeBlob),
+            "object:type=tree" => Some(Self::TypeTree),
+            "object:type=commit" => Some(Self::TypeCommit),
+            "object:type=tag" => Some(Self::TypeTag),
             _ => {
                 let limit = spec.strip_prefix("blob:limit=")?;
                 let (digits, unit) = match limit.chars().last()? {
@@ -589,15 +641,60 @@ impl ObjectFilter {
         }
     }
 
-    /// Whether an object of this kind and size belongs in the pack.
-    fn keeps(self, kind: gix::object::Kind, size: u64) -> bool {
+    /// Whether this component keeps an object of the given kind and size.
+    fn keeps(self, kind: gix::object::Kind, size: u64, tip: bool) -> bool {
         use gix::object::Kind;
         match self {
-            Self::BlobNone => kind != Kind::Blob,
-            Self::BlobLimit(limit) => kind != Kind::Blob || size <= limit,
-            Self::TreeNone => kind != Kind::Blob && kind != Kind::Tree,
+            // Commits and tags always survive these: they are the skeleton the
+            // client walks, and tree:0 exists precisely to send just them.
+            Self::BlobNone | Self::BlobLimit(_) | Self::TreeNone => match kind {
+                Kind::Blob => match self {
+                    // tree:0 means "commits only", so it drops blobs as well.
+                    Self::BlobNone | Self::TreeNone => false,
+                    Self::BlobLimit(limit) => size <= limit,
+                    _ => true,
+                },
+                Kind::Tree => !matches!(self, Self::TreeNone),
+                _ => true,
+            },
+            Self::TypeBlob => kind == Kind::Blob || (kind == Kind::Commit && tip),
+            Self::TypeTree => kind == Kind::Tree || (kind == Kind::Commit && tip),
+            Self::TypeCommit => kind == Kind::Commit,
+            Self::TypeTag => kind == Kind::Commit && tip,
         }
     }
+}
+
+/// Recursively collect the components of the spec into the output list.
+///
+/// Returns `Some(false)` when the spec is a well-formed git filter we do not
+/// implement (the caller falls back to a full pack), and `None` when the spec
+/// is malformed. Git accepts an empty component inside `combine:` (for
+/// example `combine:blob:none+`), meaning "no constraint", so those
+/// contribute nothing.
+fn parse_filter_spec(spec: &str, out: &mut Vec<FilterComponent>) -> Option<bool> {
+    let Some(rest) = spec.strip_prefix("combine:") else {
+        return match FilterComponent::parse(spec) {
+            Some(component) => {
+                out.push(component);
+                Some(true)
+            }
+            // Well-formed but unimplemented: sparse:oid=<oid>, tree:<n> with
+            // n > 0, a bad blob:limit= number, and so on.
+            None => Some(false),
+        };
+    };
+    if rest.is_empty() {
+        return None;
+    }
+    let mut supported = true;
+    for part in rest.split('+') {
+        if part.is_empty() {
+            continue;
+        }
+        supported &= parse_filter_spec(part, out)?;
+    }
+    Some(supported)
 }
 
 /// gix-native replacement for `git pack-objects` — generates a version-2
@@ -624,6 +721,24 @@ pub fn generate_pack_filtered(
     input_ids: Vec<gix::hash::ObjectId>,
     filter: Option<ObjectFilter>,
     requested: &HashSet<gix::hash::ObjectId>,
+) -> anyhow::Result<Vec<u8>> {
+    // No tips: this entry point is used by callers that hand over a whole
+    // object set (fork copies, archives), where "the commits the client asked
+    // for" is not a meaningful notion. `pack_for_wants_filtered` passes the
+    // real wants through the `_with_tips` variant below.
+    generate_pack_filtered_with_tips(repo, input_ids, filter, requested, &HashSet::new())
+}
+
+/// Same as the wrapper above, but the caller decides which inputs are tips.
+///
+/// `object:type` filters keep tip commits and drop the historical ones, so the
+/// distinction matters for them; every other filter ignores `tips`.
+pub fn generate_pack_filtered_with_tips(
+    repo: &gix::Repository,
+    input_ids: Vec<gix::hash::ObjectId>,
+    filter: Option<ObjectFilter>,
+    requested: &HashSet<gix::hash::ObjectId>,
+    tips: &HashSet<gix::hash::ObjectId>,
 ) -> anyhow::Result<Vec<u8>> {
     use gix::progress::Discard;
     use gix::odb::pack::data::output;
@@ -665,7 +780,9 @@ pub fn generate_pack_filtered(
             requested.contains(&count.id)
                 || repo
                     .find_header(count.id)
-                    .map(|header| filter.keeps(header.kind(), header.size()))
+                    .map(|header| {
+                        filter.keeps(header.kind(), header.size(), tips.contains(&count.id))
+                    })
                     .unwrap_or(true)
         });
     }
@@ -851,7 +968,7 @@ pub fn pack_for_wants_filtered(
     let mut inputs: Vec<gix::hash::ObjectId> = if starts.is_empty() {
         Vec::new()
     } else {
-        let mut walk = repo.rev_walk(starts);
+        let mut walk = repo.rev_walk(starts.iter().copied());
         if !hidden.is_empty() {
             walk = walk.with_hidden(hidden);
         }
@@ -868,7 +985,11 @@ pub fn pack_for_wants_filtered(
         }
     }
     inputs.extend(extra_inputs);
-    generate_pack_filtered(&repo, inputs, filter, &requested)
+    // Only the commits the client asked for are tips. Everything else in
+    // `inputs` came from walking their history, and `object:type` filters drop
+    // those (git keeps exactly the wanted commit plus the objects of its type).
+    let tips: HashSet<gix::hash::ObjectId> = starts.into_iter().collect();
+    generate_pack_filtered_with_tips(&repo, inputs, filter, &requested, &tips)
 }
 
 /// gix-native replacement for `git index-pack --fix-thin --stdin`: ingests a
@@ -1421,18 +1542,100 @@ mod rebase_tests {
         u32::from_be_bytes(pack[8..12].try_into().unwrap())
     }
 
+    /// Flatten a parsed filter back to its components, for readable assertions.
+    fn components(filter: &ObjectFilter) -> Vec<FilterComponent> {
+        filter.components.clone()
+    }
+
+    fn parsed(spec: &str) -> Option<Vec<FilterComponent>> {
+        ObjectFilter::parse(spec).map(|filter| components(&filter))
+    }
+
     #[test]
-    fn object_filter_parses_the_supported_specs_only() {
-        assert_eq!(ObjectFilter::parse("blob:none"), Some(ObjectFilter::BlobNone));
-        assert_eq!(ObjectFilter::parse("tree:0"), Some(ObjectFilter::TreeNone));
-        assert_eq!(ObjectFilter::parse("blob:limit=100"), Some(ObjectFilter::BlobLimit(100)));
-        assert_eq!(ObjectFilter::parse("blob:limit=2k"), Some(ObjectFilter::BlobLimit(2048)));
-        assert_eq!(ObjectFilter::parse("blob:limit=1M"), Some(ObjectFilter::BlobLimit(1 << 20)));
-        assert_eq!(ObjectFilter::parse("blob:limit=1g"), Some(ObjectFilter::BlobLimit(1 << 30)));
-        // Not applied: the caller falls back to a full pack.
-        for spec in ["tree:1", "blob:limit=", "blob:limit=x", "sparse:oid=abc", "combine:blob:none+tree:0", ""] {
+    fn object_filter_parses_every_supported_spec() {
+        assert_eq!(parsed("blob:none"), Some(vec![FilterComponent::BlobNone]));
+        assert_eq!(parsed("tree:0"), Some(vec![FilterComponent::TreeNone]));
+        assert_eq!(parsed("blob:limit=100"), Some(vec![FilterComponent::BlobLimit(100)]));
+        assert_eq!(parsed("blob:limit=2k"), Some(vec![FilterComponent::BlobLimit(2048)]));
+        assert_eq!(parsed("blob:limit=1M"), Some(vec![FilterComponent::BlobLimit(1 << 20)]));
+        assert_eq!(parsed("blob:limit=1g"), Some(vec![FilterComponent::BlobLimit(1 << 30)]));
+
+        // object:type=<type>, all four types git accepts.
+        assert_eq!(parsed("object:type=blob"), Some(vec![FilterComponent::TypeBlob]));
+        assert_eq!(parsed("object:type=tree"), Some(vec![FilterComponent::TypeTree]));
+        assert_eq!(parsed("object:type=commit"), Some(vec![FilterComponent::TypeCommit]));
+        assert_eq!(parsed("object:type=tag"), Some(vec![FilterComponent::TypeTag]));
+
+        // combine: flattens into one ANDed component list.
+        assert_eq!(
+            parsed("combine:blob:none+tree:0"),
+            Some(vec![FilterComponent::BlobNone, FilterComponent::TreeNone])
+        );
+        assert_eq!(
+            parsed("combine:object:type=tree+blob:limit=1k"),
+            Some(vec![FilterComponent::TypeTree, FilterComponent::BlobLimit(1024)])
+        );
+        // Nested combine: is accepted too.
+        assert_eq!(
+            parsed("combine:combine:blob:none+tree:0"),
+            Some(vec![FilterComponent::BlobNone, FilterComponent::TreeNone])
+        );
+        // Empty components mean "no constraint" and are dropped, like git.
+        assert_eq!(parsed("combine:blob:none+"), Some(vec![FilterComponent::BlobNone]));
+        assert_eq!(parsed("combine:+blob:none"), Some(vec![FilterComponent::BlobNone]));
+    }
+
+    #[test]
+    fn object_filter_falls_back_for_unimplemented_and_malformed_specs() {
+        // Well-formed git filters we do not implement: parse returns None and
+        // the caller sends a full pack. Protocol-correct, never an error.
+        for spec in ["sparse:oid=abc", "tree:1", "tree:2", "combine:tree:1+blob:none"] {
             assert_eq!(ObjectFilter::parse(spec), None, "{spec}");
         }
+        // Malformed specs also yield None; the distinction only affects the log
+        // message, and both fall back to a full pack.
+        for spec in ["", "combine:", "blob:limit=", "blob:limit=x", "object:type=bogus"] {
+            assert_eq!(ObjectFilter::parse(spec), None, "{spec}");
+        }
+    }
+
+    #[test]
+    fn blob_filters_keep_commits_and_tags() {
+        use gix::object::Kind;
+        for component in [
+            FilterComponent::BlobNone,
+            FilterComponent::BlobLimit(0),
+            FilterComponent::TreeNone,
+        ] {
+            // Commits and tags carry the history and reach the client refs, so
+            // the blob/tree filters never drop them.
+            assert!(component.keeps(Kind::Commit, 0, false), "{component:?}");
+            assert!(component.keeps(Kind::Tag, 0, false), "{component:?}");
+        }
+    }
+
+    #[test]
+    fn object_type_filters_keep_their_type_and_tip_commits_only() {
+        use gix::object::Kind;
+        // Verified against git: object:type=blob over a 5-commit history ships
+        // exactly 1 commit (the tip) plus every blob.
+        assert!(FilterComponent::TypeBlob.keeps(Kind::Blob, 0, false));
+        assert!(FilterComponent::TypeBlob.keeps(Kind::Commit, 0, true));
+        assert!(!FilterComponent::TypeBlob.keeps(Kind::Commit, 0, false));
+        assert!(!FilterComponent::TypeBlob.keeps(Kind::Tree, 0, false));
+
+        assert!(FilterComponent::TypeTree.keeps(Kind::Tree, 0, false));
+        assert!(FilterComponent::TypeTree.keeps(Kind::Commit, 0, true));
+        assert!(!FilterComponent::TypeTree.keeps(Kind::Blob, 0, false));
+
+        // object:type=commit keeps every commit, tip or not.
+        assert!(FilterComponent::TypeCommit.keeps(Kind::Commit, 0, false));
+        assert!(FilterComponent::TypeCommit.keeps(Kind::Commit, 0, true));
+        assert!(!FilterComponent::TypeCommit.keeps(Kind::Tree, 0, false));
+
+        // object:type=tag keeps only the tip commit.
+        assert!(FilterComponent::TypeTag.keeps(Kind::Commit, 0, true));
+        assert!(!FilterComponent::TypeTag.keeps(Kind::Commit, 0, false));
     }
 
     #[test]
@@ -1444,32 +1647,50 @@ mod rebase_tests {
         commit(&git, dir, "big.txt", &"x".repeat(5000), "b");
         let head = git_out(&git, &["rev-parse", "refs/heads/main"], dir);
         let wants = std::slice::from_ref(&head);
-        let count = |filter| {
+        let count = |spec: Option<&str>| {
+            let filter = spec.map(|spec| ObjectFilter::parse(spec).expect("supported filter"));
             pack_object_count(&pack_for_wants_filtered(dir, wants, &[], &[], false, filter).unwrap())
         };
 
         // 2 commits + 2 trees (one per commit) + 2 distinct blobs (a.txt is
-        // shared between the commits).
-        let full = count(None);
-        assert_eq!(full, 6);
-        assert_eq!(count(Some(ObjectFilter::BlobNone)), 4);
-        assert_eq!(count(Some(ObjectFilter::TreeNone)), 2);
+        // shared between the commits). These counts match what git itself
+        // produces for the same spec (see the comment on FilterComponent).
+        assert_eq!(count(None), 6);
+        assert_eq!(count(Some("blob:none")), 4);
+        assert_eq!(count(Some("tree:0")), 2);
         // Only the 5000-byte blob exceeds the limit.
-        assert_eq!(count(Some(ObjectFilter::BlobLimit(1000))), 5);
-        assert_eq!(count(Some(ObjectFilter::BlobLimit(10_000))), 6);
+        assert_eq!(count(Some("blob:limit=1000")), 5);
+        assert_eq!(count(Some("blob:limit=10k")), 6);
+
+        // object:type keeps its type plus the tip commit only: 1 commit + 2
+        // blobs / 1 commit + 2 trees.
+        assert_eq!(count(Some("object:type=blob")), 3);
+        assert_eq!(count(Some("object:type=tree")), 3);
+        // object:type=commit keeps both commits and nothing else.
+        assert_eq!(count(Some("object:type=commit")), 2);
+
+        // combine: is an intersection. tree:0 already leaves only commits, so
+        // adding blob:none cannot widen it.
+        assert_eq!(count(Some("combine:blob:none+tree:0")), 2);
+        // Both components keep trees; neither keeps blobs.
+        assert_eq!(count(Some("combine:object:type=tree+blob:none")), 3);
+        // object:type=blob drops trees and blob:none drops blobs: tip commit only.
+        assert_eq!(count(Some("combine:object:type=blob+blob:none")), 1);
 
         // A blob named directly is sent even though the filter would drop it.
         let blob = git_out(&git, &["rev-parse", "HEAD:big.txt"], dir);
-        let lazy = pack_for_wants_filtered(
-            dir,
-            std::slice::from_ref(&blob),
-            &[],
-            &[],
-            false,
-            Some(ObjectFilter::BlobNone),
-        )
-        .unwrap();
-        assert_eq!(pack_object_count(&lazy), 1);
+        for spec in [
+            "blob:none",
+            "tree:0",
+            "object:type=tree",
+            "combine:blob:none+tree:0",
+        ] {
+            let filter = ObjectFilter::parse(spec);
+            let lazy =
+                pack_for_wants_filtered(dir, std::slice::from_ref(&blob), &[], &[], false, filter)
+                    .unwrap();
+            assert_eq!(pack_object_count(&lazy), 1, "lazy fetch under {spec}");
+        }
     }
 
     /// Regression: `copy_objects_from_source` (fork / cross-repo PR object
