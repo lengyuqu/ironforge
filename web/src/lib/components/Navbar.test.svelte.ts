@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/svelte';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 const authLogin = vi.fn();
 const authMe = vi.fn();
@@ -93,5 +95,59 @@ describe('Navbar.svelte', () => {
     await waitFor(() => expect(authLogout).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(goto).toHaveBeenCalledWith('/login'));
     await waitFor(() => expect(screen.getByText('nav.sign_in')).toBeInTheDocument());
+  });
+
+  // Layout contract. happy-dom does not run layout and drops the component's
+  // <style> block, so the CSS cannot be asserted through the DOM; read the
+  // component source instead. These pin the phone-width rules that keep the
+  // search button on one line: CJK text breaks between any two characters, so
+  // a squeezed button rendered "搜索" as two stacked characters.
+  describe('narrow-screen layout rules', () => {
+    // `new URL(..., import.meta.url)` throws under happy-dom's URL shim, so
+    // build the path from the test file's own directory instead.
+    const source = readFileSync(
+      resolve(import.meta.dirname ?? process.cwd(), 'Navbar.svelte'),
+      'utf8'
+    );
+    const styleBlock = source.slice(source.indexOf('<style>'), source.lastIndexOf('</style>'));
+
+    /** Declarations of the first rule whose selector list matches `selector`. */
+    function ruleFor(selector: string, scope = styleBlock): string {
+      const start = scope.indexOf(`${selector} {`);
+      if (start < 0) throw new Error(`no rule for ${selector}`);
+      return scope.slice(start, scope.indexOf('}', start));
+    }
+
+    /** Body of a media query, e.g. `@media (max-width: 900px)`. */
+    function mediaBlock(query: string): string {
+      const start = styleBlock.indexOf(`@media ${query}`);
+      if (start < 0) throw new Error(`no media block for ${query}`);
+      return styleBlock.slice(start, styleBlock.indexOf('\n  }\n', start));
+    }
+
+    it('keeps the search button label on one line', () => {
+      const btn = ruleFor('.search-btn');
+      expect(btn).toMatch(/white-space:\s*nowrap/);
+      // Without this the input (flex-basis 100%) squeezes the button to its
+      // min-content width, which for CJK is a single character.
+      expect(btn).toMatch(/flex:\s*0\s+0\s+auto/);
+    });
+
+    it('lets the search input shrink instead of overflowing on narrow screens', () => {
+      const input = ruleFor('.search-input', mediaBlock('(max-width: 900px)'));
+      expect(input).toMatch(/min-width:\s*0/);
+      expect(input).toMatch(/flex:\s*1\s+1\s+auto/);
+      // The button must not be given up on as the screen narrows.
+      expect(input).not.toMatch(/min-width:\s*180px/);
+    });
+
+    it('keeps the desktop grid untouched', () => {
+      // The single-column layout only applies below 900px; the desktop rule
+      // still lays the three areas out side by side.
+      const inner = ruleFor('.navbar-inner');
+      expect(inner).toMatch(
+        /grid-template-columns:\s*minmax\(260px,\s*1\.2fr\)\s+minmax\(240px,\s*1fr\)\s+minmax\(320px,\s*1\.2fr\)/
+      );
+    });
   });
 });
