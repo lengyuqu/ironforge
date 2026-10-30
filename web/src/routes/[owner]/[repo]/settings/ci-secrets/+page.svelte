@@ -18,6 +18,32 @@
   let error = $state('');
   let saving = $state(false);
 
+  // Mirrors the server's rule in rg-http::api::ci_secrets::valid_secret_name.
+  // The input accepts lowercase (the viewer should not have to shout), and the
+  // name is upper-cased on submit; the pattern is the server's shape applied
+  // case-insensitively so a name can never reach the API in a form it rejects.
+  const NAME_PATTERN = '[A-Za-z_][A-Za-z0-9_]*';
+  const NAME_MAX_LENGTH = 100;
+  // Names the CI runner injects itself; the server rejects them.
+  const RESERVED_NAMES = new Set([
+    'CI',
+    'IRONFORGE',
+    'CI_PIPELINE_ID',
+    'CI_COMMIT_SHA',
+    'CI_SHA',
+    'CI_REF',
+    'CI_EVENT',
+    'CI_JOB_TOKEN',
+    'CI_OIDC_TOKEN_URL',
+    'HOME',
+    'PATH',
+  ]);
+
+  const normalizedName = $derived(name.trim().toUpperCase());
+  const nameHint = $derived(
+    normalizedName ? t('settings.ci_secrets.name_hint', { name: normalizedName }) : ''
+  );
+
   $effect(() => {
     owner;
     repo;
@@ -35,10 +61,15 @@
 
   async function save(event: SubmitEvent) {
     event.preventDefault();
+    const secretName = normalizedName;
+    if (RESERVED_NAMES.has(secretName)) {
+      error = t('settings.ci_secrets.name_reserved', { name: secretName });
+      return;
+    }
     try {
       saving = true;
       error = '';
-      await ciSecrets.put(owner, repo, name.trim().toUpperCase(), value);
+      await ciSecrets.put(owner, repo, secretName, value);
       name = '';
       value = '';
       await load();
@@ -73,9 +104,18 @@
   <section>
     <h2>{t('settings.ci_secrets.add_title')}</h2>
     <form onsubmit={save}>
-      <FormField id="secret-name" label={t('settings.ci_secrets.name')}>
-        {#snippet children({ id })}
-          <input {id} bind:value={name} pattern="[A-Z_][A-Z0-9_]*" maxlength="100" placeholder="DEPLOY_TOKEN" required />
+      <FormField id="secret-name" label={t('settings.ci_secrets.name')} hint={nameHint}>
+        {#snippet children({ id, describedBy, invalid })}
+          <input
+            {id}
+            bind:value={name}
+            pattern={NAME_PATTERN}
+            maxlength={NAME_MAX_LENGTH}
+            placeholder="DEPLOY_TOKEN"
+            aria-describedby={describedBy}
+            aria-invalid={invalid ? 'true' : undefined}
+            required
+          />
         {/snippet}
       </FormField>
       <FormField id="secret-value" label={t('settings.ci_secrets.value')}>

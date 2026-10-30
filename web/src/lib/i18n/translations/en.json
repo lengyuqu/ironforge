@@ -912,6 +912,8 @@
       "desc": "Encrypted repository secrets are injected into jobs and masked from stored logs.",
       "add_title": "Add or replace a secret",
       "name": "Name",
+      "name_hint": "Saved as {name}",
+      "name_reserved": "{name} is reserved by the CI runner and cannot be used as a secret name.",
       "value": "Value",
       "save": "Save secret",
       "configured": "Configured secrets",

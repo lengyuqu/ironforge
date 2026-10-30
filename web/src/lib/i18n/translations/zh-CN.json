@@ -912,6 +912,8 @@
       "desc": "加密的仓库密钥会注入到作业中,并从已保存的日志中屏蔽。",
       "add_title": "添加或替换密钥",
       "name": "名称",
+      "name_hint": "将保存为 {name}",
+      "name_reserved": "{name} 是 CI Runner 保留的名称，不能用作密钥名。",
       "value": "值",
       "save": "保存密钥",
       "configured": "已配置的密钥",
