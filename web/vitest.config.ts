@@ -14,6 +14,13 @@ export default defineConfig({
         __dirname,
         './node_modules/@sveltejs/kit/src/runtime/app/navigation.js'
       ),
+      // Same reasoning for the deprecated page store: components that still
+      // read `$app/stores` (route pages) can then be rendered in tests, with
+      // vi.mock('$app/stores') supplying the page data.
+      '$app/stores': resolve(
+        __dirname,
+        './node_modules/@sveltejs/kit/src/runtime/app/stores.js'
+      ),
       '$app/environment': resolve(__dirname, './src/test-stubs/app-environment.ts'),
     },
     // Force Svelte 5 to resolve the client build (mount() available) even
