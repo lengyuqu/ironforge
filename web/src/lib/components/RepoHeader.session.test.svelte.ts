@@ -3,7 +3,7 @@
 // default-branch lookup that feeds the clone modal. The logged-out and layout
 // behaviour lives in RepoHeader.test.svelte.ts.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/svelte';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/svelte';
 
 const api = vi.hoisted(() => ({
   get: vi.fn(),
@@ -246,6 +246,148 @@ describe('RepoHeader.svelte (signed in)', () => {
       await waitFor(() => expect(api.get).toHaveBeenCalled());
       const stub = await openClone();
       expect(stub.getAttribute('data-archive-ref')).toBe('main');
+    });
+  });
+
+  // The header loads star/watch state asynchronously. A user who clicks before
+  // that load settles used to lose the click: the late response wrote the old
+  // server value back over the optimistic update. These cases pin the ordering.
+  describe('racing the initial state load', () => {
+    it('does not let a late star-state load overwrite a click made before it returned', async () => {
+      let resolveStarred!: (v: { starred: boolean }) => void;
+      api.starred.mockReturnValue(new Promise((r) => (resolveStarred = r)));
+      api.star.mockResolvedValue({ starred: true });
+      render(RepoHeader, { owner: 'alice', repo: 'demo', starsCount: 5 });
+
+      // The viewer stars the repo while the initial load is still in flight.
+      await fireEvent.click(screen.getByLabelText('repo.star'));
+      await act(async () => {});
+      expect(api.star).toHaveBeenCalledWith('alice', 'demo');
+      expect(starIcon()).toBe('⭐');
+      expect(starCount()).toBe('6');
+
+      // The stale load now answers "not starred"; it must not undo the click.
+      await act(async () => {
+        resolveStarred({ starred: false });
+      });
+      expect(starIcon()).toBe('⭐');
+      expect(starCount()).toBe('6');
+      expect(screen.getByLabelText('repo.unstar')).toBeInTheDocument();
+    });
+
+    it('does not let a late watch-state load overwrite a click made before it returned', async () => {
+      let resolveWatch!: (v: { watch_state: 'not_watching' | 'watching' | 'ignoring' }) => void;
+      api.watchStatus.mockReturnValue(new Promise((r) => (resolveWatch = r)));
+      api.watch.mockResolvedValue({ watch_state: 'watching' });
+      render(RepoHeader, { owner: 'alice', repo: 'demo' });
+
+      // The star half of the load settles first, so watchStatus is now in flight.
+      await waitFor(() => expect(api.watchStatus).toHaveBeenCalledWith('alice', 'demo'));
+
+      await fireEvent.click(screen.getByLabelText('repo.watch'));
+      await act(async () => {});
+      expect(api.watch).toHaveBeenCalledWith('alice', 'demo', 'watching');
+      expect(screen.getByLabelText('repo.watching')).toBeInTheDocument();
+
+      // The stale load answers "not watching"; it must not undo the click.
+      await act(async () => {
+        resolveWatch({ watch_state: 'not_watching' });
+      });
+      expect(screen.getByLabelText('repo.watching')).toBeInTheDocument();
+    });
+
+    it('ignores a late load from the previous repository after the header switched repos', async () => {
+      const pending: Array<(v: { starred: boolean }) => void> = [];
+      api.starred.mockImplementation(() => new Promise((r) => pending.push(r)));
+
+      const view = render(RepoHeader, { owner: 'alice', repo: 'demo', starsCount: 0 });
+      await waitFor(() => expect(api.starred).toHaveBeenCalledWith('alice', 'demo'));
+
+      await view.rerender({ owner: 'bob', repo: 'other', starsCount: 0 });
+      await waitFor(() => expect(api.starred).toHaveBeenCalledWith('bob', 'other'));
+
+      // The previous repo's answer arrives last and claims "starred".
+      await act(async () => {
+        pending[0]({ starred: true });
+      });
+      expect(starIcon()).toBe('☆');
+
+      // The new repo's own answer still lands.
+      await act(async () => {
+        pending[1]({ starred: true });
+      });
+      expect(starIcon()).toBe('⭐');
+    });
+
+    it('ignores a late watch load from the previous repository after the header switched repos', async () => {
+      const pending: Array<(v: { watch_state: 'not_watching' | 'watching' | 'ignoring' }) => void> = [];
+      api.watchStatus.mockImplementation(() => new Promise((r) => pending.push(r)));
+
+      const view = render(RepoHeader, { owner: 'alice', repo: 'demo' });
+      await waitFor(() => expect(api.watchStatus).toHaveBeenCalledWith('alice', 'demo'));
+
+      await view.rerender({ owner: 'bob', repo: 'other' });
+      await waitFor(() => expect(api.watchStatus).toHaveBeenCalledWith('bob', 'other'));
+
+      // The previous repo's answer arrives last and claims "watching".
+      await act(async () => {
+        pending[0]({ watch_state: 'watching' });
+      });
+      expect(screen.getByLabelText('repo.watch')).toBeInTheDocument();
+
+      // The new repo's own answer still lands.
+      await act(async () => {
+        pending[1]({ watch_state: 'ignoring' });
+      });
+      expect(screen.getByLabelText('repo.ignoring')).toBeInTheDocument();
+    });
+
+    it('drops a star answer that arrives after the header switched repos', async () => {
+      let resolveStar!: (v: { starred: boolean }) => void;
+      api.star.mockReturnValue(new Promise((r) => (resolveStar = r)));
+      api.starred.mockResolvedValue({ starred: false });
+
+      const view = render(RepoHeader, { owner: 'alice', repo: 'demo', starsCount: 5 });
+      await waitFor(() => expect(api.starred).toHaveBeenCalledWith('alice', 'demo'));
+
+      await fireEvent.click(screen.getByLabelText('repo.star'));
+      await act(async () => {});
+      expect(starCount()).toBe('6');
+
+      // The viewer navigates to another repo before the star request settles.
+      await view.rerender({ owner: 'bob', repo: 'other', starsCount: 0 });
+      await act(async () => {});
+
+      await act(async () => {
+        resolveStar({ starred: true });
+      });
+      // The stale answer must not be counted into the new repo.
+      expect(starIcon()).toBe('☆');
+      expect(starCount()).toBe('0');
+    });
+
+    it('drops a watch failure that arrives after the header switched repos', async () => {
+      let rejectWatch!: (e: Error) => void;
+      api.watch.mockReturnValue(new Promise((_, reject) => (rejectWatch = reject)));
+      api.starred.mockResolvedValue({ starred: false });
+      api.watchStatus.mockResolvedValue({ watch_state: 'not_watching' });
+
+      const view = render(RepoHeader, { owner: 'alice', repo: 'demo' });
+      await waitFor(() => expect(api.watchStatus).toHaveBeenCalledWith('alice', 'demo'));
+
+      await fireEvent.click(screen.getByLabelText('repo.watch'));
+      await act(async () => {});
+      expect(screen.getByLabelText('repo.watching')).toBeInTheDocument();
+
+      await view.rerender({ owner: 'bob', repo: 'other' });
+      await act(async () => {});
+
+      await act(async () => {
+        rejectWatch(new Error('nope'));
+      });
+      // No toast about a repository that is no longer on screen.
+      expect(toast.error).not.toHaveBeenCalled();
+      expect(screen.getByLabelText('repo.watch')).toBeInTheDocument();
     });
   });
 });
