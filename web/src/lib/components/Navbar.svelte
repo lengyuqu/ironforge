@@ -231,6 +231,13 @@
     font-size: 12px;
     font-weight: 600;
     cursor: pointer;
+    /* The input is flex-basis 100%, so it used to squeeze this button down to
+       its min-content width. CJK text may break between any two characters, so
+       min-content for "搜索" is one character: the label wrapped to two lines
+       and grew the box. Keep the button at its natural width and let the input
+       absorb the shrinking instead. */
+    flex: 0 0 auto;
+    white-space: nowrap;
   }
 
   .search-btn:hover {
@@ -316,6 +323,11 @@
       gap: 8px;
     }
 
-    .search-input { min-width: 180px; }
+    /* Let the input give up space before the button does; 180px is the floor
+       it keeps on a phone-width screen, below which it would be unusable. */
+    .search-input {
+      flex: 1 1 auto;
+      min-width: 0;
+    }
   }
 </style>
