@@ -30,5 +30,5 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
-# Env / Config
-dotenv = "0.15"
+# Env / Config is read straight from the process environment (std::env::var);
+# there is no .env file support, so no dotenv dependency.
