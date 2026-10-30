@@ -372,10 +372,39 @@ fi
 git -C "${WORK_DIR}/ssh-partial" cat-file -e 'HEAD^{tree}'
 test -f "${WORK_DIR}/ssh-partial/payload.txt"
 
+# combine: / object:type filters. `object:type=tree` keeps trees and the tip
+# commit but no blobs, so the checkout has to lazily fetch every file.
+HTTP_COMBINE_TRACE="${WORK_DIR}/http-combine.trace"
+GIT_TRACE_PACKET="${HTTP_COMBINE_TRACE}" git_http 2 clone -q --no-checkout \
+  --filter=combine:object:type=tree+blob:none "${HTTP_REPO}" "${WORK_DIR}/http-combine"
+assert_trace_v2 "${HTTP_COMBINE_TRACE}" "HTTP combine: partial clone"
+if ! grep -q "filter combine:object:type=tree+blob:none" "${HTTP_COMBINE_TRACE}"; then
+  echo "HTTP combine: clone did not send the combined filter" >&2
+  exit 1
+fi
+# A combined filter that keeps trees must omit blobs.
+if ! GIT_NO_LAZY_FETCH=1 git -C "${WORK_DIR}/http-combine" \
+  rev-list --objects --missing=print HEAD | grep -q '^?'; then
+  echo "HTTP combine: clone did not omit any objects" >&2
+  exit 1
+fi
+# Trees survive object:type=tree, so they are present without a lazy fetch.
+git -C "${WORK_DIR}/http-combine" cat-file -e 'HEAD^{tree}'
+HTTP_COMBINE_PAYLOAD_OID="$(git -C "${WORK_DIR}/http-combine" rev-parse HEAD:payload.txt)"
+HTTP_COMBINE_LAZY_TRACE="${WORK_DIR}/http-combine-lazy.trace"
+GIT_TRACE_PACKET="${HTTP_COMBINE_LAZY_TRACE}" git_http 2 \
+  -C "${WORK_DIR}/http-combine" checkout -q main
+if ! grep -q "want ${HTTP_COMBINE_PAYLOAD_OID}" "${HTTP_COMBINE_LAZY_TRACE}"; then
+  echo "HTTP combine: checkout did not lazily request the missing payload blob" >&2
+  exit 1
+fi
+git -C "${WORK_DIR}/http-combine" cat-file -e "${HTTP_COMBINE_PAYLOAD_OID}"
+test -f "${WORK_DIR}/http-combine/payload.txt"
+
 echo "Git protocol E2E matrix passed:"
 echo "  HTTP V1: clone/fetch/push"
 echo "  HTTP V2: clone/fetch"
 echo "  SSH V1: clone/fetch/push"
 echo "  SSH V2: clone/fetch"
 echo "  shallow/deepen: HTTP clone/deepen/unshallow/exclude/since and SSH clone"
-echo "  partial clone filter: HTTP blob:none and SSH tree:0 with lazy fetch"
+echo "  partial clone filter: HTTP blob:none, SSH tree:0, HTTP combine:object:type=tree+blob:none with lazy fetch"
