@@ -17,13 +17,27 @@
 
   let { owner, repo, starsCount = 0, defaultBranch }: Props = $props();
 
+  type WatchState = 'not_watching' | 'watching' | 'ignoring';
+
   // Action button states
   let starred = $state(false);
-  let watchState = $state<'not_watching' | 'watching' | 'ignoring'>('not_watching');
+  let watchState = $state<WatchState>('not_watching');
   let forking = $state(false);
   let starsLocalCount = $state(0);
   let archiveRef = $state('main');
   let showClone = $state(false);
+
+  // Bookkeeping for the async state load. A load remembers the repository it was
+  // started for and, per field, the action version at that moment; it may only
+  // write when both still match. Otherwise a slow response would either undo a
+  // click the viewer made in the meantime or leak the previous repository's
+  // state into the one now on screen. Plain (non-reactive) values: they exist to
+  // be compared when a response lands, not to drive renders.
+  // Empty until the first load runs, so the initial value never has to capture
+  // props (and the "switched repositories" branch is skipped on first run).
+  let stateScope = '';
+  let starVersion = 0;
+  let watchVersion = 0;
 
   let currentUsername = $derived(getUser()?.username || '');
   let isOwnRepo = $derived(Boolean(currentUsername) && currentUsername === owner);
@@ -42,6 +56,18 @@
 
   // Check auth and load initial states
   $effect(() => {
+    const scope = `${owner}/${repo}`;
+    if (scope !== stateScope) {
+      if (stateScope !== '') {
+        // Switching repositories: drop what the old one showed and invalidate
+        // any load still in flight for it.
+        starVersion += 1;
+        watchVersion += 1;
+        starred = false;
+        watchState = 'not_watching';
+      }
+      stateScope = scope;
+    }
     if (isLoggedIn()) {
       loadStates();
     }
@@ -68,22 +94,41 @@
   }
 
   async function loadStates() {
+    const scope = `${owner}/${repo}`;
+    const starTicket = starVersion;
+    const watchTicket = watchVersion;
+    // Each field is guarded on its own so a star click does not also discard a
+    // watch answer that is still useful.
+    const starIsCurrent = () => starTicket === starVersion && scope === `${owner}/${repo}`;
+    const watchIsCurrent = () => watchTicket === watchVersion && scope === `${owner}/${repo}`;
+
+    let nextStarred = false;
     try {
-      const stateRes = await repos.starred(owner, repo);
-      starred = stateRes.starred;
+      nextStarred = (await repos.starred(owner, repo)).starred;
     } catch {
-      starred = false;
+      nextStarred = false;
     }
+    if (starIsCurrent()) starred = nextStarred;
+
+    let nextWatchState: WatchState = 'not_watching';
     try {
-      const watchRes = await repos.watchStatus(owner, repo);
-      watchState = watchRes.watch_state;
+      nextWatchState = (await repos.watchStatus(owner, repo)).watch_state;
     } catch {
-      watchState = 'not_watching';
+      nextWatchState = 'not_watching';
     }
+    if (watchIsCurrent()) watchState = nextWatchState;
   }
 
   async function toggleStar() {
     if (!isLoggedIn()) return;
+
+    // A load that started before this click must not write its stale answer.
+    starVersion += 1;
+
+    // The answer belongs to the repository that was on screen when it was asked
+    // for; if the header moved on, drop it instead of writing it to the new one.
+    const scope = `${owner}/${repo}`;
+    const isCurrent = () => scope === `${owner}/${repo}`;
 
     const prevStarred = starred;
     const prevCount = starsLocalCount;
@@ -94,9 +139,11 @@
 
     try {
       const res = await repos.star(owner, repo);
+      if (!isCurrent()) return;
       starred = res.starred;
       starsLocalCount = starred ? prevCount + 1 : prevCount - 1;
     } catch (e: unknown) {
+      if (!isCurrent()) return;
       // Revert on error and show feedback
       starred = prevStarred;
       starsLocalCount = prevCount;
@@ -108,7 +155,13 @@
   async function cycleWatch() {
     if (!isLoggedIn()) return;
 
-    const states: Array<'not_watching' | 'watching' | 'ignoring'> = ['not_watching', 'watching', 'ignoring'];
+    // Same guards as toggleStar, for the watch field only.
+    watchVersion += 1;
+
+    const scope = `${owner}/${repo}`;
+    const isCurrent = () => scope === `${owner}/${repo}`;
+
+    const states: WatchState[] = ['not_watching', 'watching', 'ignoring'];
     const currentIndex = states.indexOf(watchState);
     const nextState = states[(currentIndex + 1) % states.length];
     const prevState = watchState;
@@ -123,6 +176,7 @@
         await repos.watch(owner, repo, nextState);
       }
     } catch (e: unknown) {
+      if (!isCurrent()) return;
       // Revert on error and show feedback
       watchState = prevState;
       const msg = e instanceof Error ? e.message : String(e);
