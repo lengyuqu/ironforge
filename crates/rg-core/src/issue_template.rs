@@ -89,9 +89,9 @@ struct FrontMatter {
     #[serde(default)]
     description: String,
     #[serde(default)]
-    labels: serde_yaml::Value,
+    labels: crate::yaml::Value,
     #[serde(default)]
-    assignees: serde_yaml::Value,
+    assignees: crate::yaml::Value,
     #[serde(default, rename = "ref")]
     git_ref: String,
 }
@@ -140,7 +140,7 @@ pub fn read_issue_config(repository_path: &Path, default_branch: &str) -> CoreRe
         };
         let content = decode_template_content(candidate, data)
             .map_err(|e| CoreError::invalid_input(e.to_string()))?;
-        let config: IssueConfig = serde_yaml::from_str(&content)
+        let config: IssueConfig = crate::yaml::from_str(&content)
             .map_err(|_| CoreError::invalid_input("invalid issue template config YAML"))?;
         validate_config(&config)?;
         return Ok(config);
@@ -253,7 +253,7 @@ fn parse_markdown_template(path: &str, source: &str) -> Result<IssueTemplate> {
     let fallback_about = ellipsis(body.trim(), 80);
 
     let front_matter = metadata
-        .and_then(|yaml| serde_yaml::from_str::<FrontMatter>(yaml).ok())
+        .and_then(|yaml| crate::yaml::from_str::<FrontMatter>(yaml).ok())
         .unwrap_or_default();
     let name = if front_matter.name.trim().is_empty() {
         filename.clone()
@@ -302,16 +302,16 @@ fn split_front_matter(source: &str) -> (Option<&str>, &str) {
     (None, source)
 }
 
-fn yaml_string_list(value: &serde_yaml::Value) -> Result<Vec<String>> {
+fn yaml_string_list(value: &crate::yaml::Value) -> Result<Vec<String>> {
     match value {
-        serde_yaml::Value::Null => Ok(Vec::new()),
-        serde_yaml::Value::String(value) => Ok(value
+        crate::yaml::Value::Null => Ok(Vec::new()),
+        crate::yaml::Value::String(value) => Ok(value
             .split(',')
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(str::to_string)
             .collect()),
-        serde_yaml::Value::Sequence(values) => values
+        crate::yaml::Value::Array(values) => values
             .iter()
             .map(|value| {
                 value
@@ -407,7 +407,7 @@ mod tests {
 
     #[test]
     fn issue_config_defaults_to_blank_enabled() {
-        let config: IssueConfig = serde_yaml::from_str("contact_links: []").unwrap();
+        let config: IssueConfig = crate::yaml::from_str("contact_links: []").unwrap();
         assert!(config.blank_issues_enabled);
     }
 }

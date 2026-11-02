@@ -51,6 +51,7 @@ pub mod platform;
 pub mod search; // Cross-platform abstractions
 
 pub mod error; // Domain error types (CoreError)
+pub mod yaml; // YAML parsing for workflows, issue templates, package metadata
 pub mod task_supervisor; // panic-resistant supervision for background tasks
 
 use crate::error::{CoreError, CoreResult};

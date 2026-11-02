@@ -109,8 +109,8 @@ fn extract_from_chart(data: &[u8]) -> Result<ExtractedMetadata, anyhow::Error> {
 
 /// Parse Chart.yaml content.
 fn parse_chart_yaml(yaml: &str) -> Result<ExtractedMetadata, anyhow::Error> {
-    let doc: serde_yaml::Value =
-        serde_yaml::from_str(yaml).map_err(|e| anyhow::anyhow!("invalid Chart.yaml: {e}"))?;
+    let doc: crate::yaml::Value =
+        crate::yaml::from_str(yaml).map_err(|e| anyhow::anyhow!("invalid Chart.yaml: {e}"))?;
 
     let name = doc
         .get("name")
@@ -143,7 +143,7 @@ fn parse_chart_yaml(yaml: &str) -> Result<ExtractedMetadata, anyhow::Error> {
     let keywords = doc
         .get("keywords")
         .and_then(|v| {
-            v.as_sequence().map(|seq| {
+            v.as_array().map(|seq| {
                 seq.iter()
                     .filter_map(|k| k.as_str())
                     .collect::<Vec<_>>()
@@ -155,7 +155,7 @@ fn parse_chart_yaml(yaml: &str) -> Result<ExtractedMetadata, anyhow::Error> {
     // Helm charts can have a "sources" list for repository URLs
     let repository_url = doc
         .get("sources")
-        .and_then(|v| v.as_sequence())
+        .and_then(|v| v.as_array())
         .and_then(|seq| seq.first())
         .and_then(|s| s.as_str())
         .map(String::from);
@@ -189,63 +189,85 @@ pub struct HelmIndexEntry {
     pub urls: Vec<String>,
 }
 
+/// One version of a chart in `index.yaml`. Field order is the order Helm's own
+/// tooling writes, and unset optional fields are left out.
+#[derive(serde::Serialize)]
+struct IndexVersion<'a> {
+    name: &'a str,
+    version: &'a str,
+    #[serde(rename = "appVersion", skip_serializing_if = "Option::is_none")]
+    app_version: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<&'a str>,
+    #[serde(rename = "apiVersion", skip_serializing_if = "Option::is_none")]
+    api_version: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    home: Option<&'a str>,
+    #[serde(skip_serializing_if = "slice_is_empty")]
+    sources: &'a [String],
+    #[serde(skip_serializing_if = "slice_is_empty")]
+    keywords: &'a [String],
+    created: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    digest: Option<&'a str>,
+    urls: &'a [String],
+}
+
+fn slice_is_empty(items: &&[String]) -> bool {
+    items.is_empty()
+}
+
+/// Chart name to its versions, written as a mapping in the order the charts
+/// first appear (a typed map would sort them).
+struct ChartGroups<'a>(Vec<(&'a str, Vec<IndexVersion<'a>>)>);
+
+impl serde::Serialize for ChartGroups<'_> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_map(self.0.iter().map(|(name, versions)| (name, versions)))
+    }
+}
+
+#[derive(serde::Serialize)]
+struct HelmIndex<'a> {
+    #[serde(rename = "apiVersion")]
+    api_version: &'static str,
+    generated: String,
+    entries: ChartGroups<'a>,
+}
+
 /// Build a Helm repository index.yaml.
 ///
 /// Format: https://helm.sh/docs/topics/chart_repository/#the-chart-repository-structure
 pub fn build_helm_index(entries: &[HelmIndexEntry]) -> String {
-    let mut chart_entries: serde_yaml::Mapping = serde_yaml::Mapping::new();
+    let mut groups: Vec<(&str, Vec<IndexVersion>)> = Vec::new();
 
-    // Group entries by chart name
+    // Group entries by chart name, keeping first-seen order.
     for entry in entries {
-        let chart_list = chart_entries
-            .entry(serde_yaml::Value::String(entry.name.clone()))
-            .or_insert_with(|| serde_yaml::Value::Sequence(Vec::new()));
-
-        if let serde_yaml::Value::Sequence(ref mut seq) = chart_list {
-            let mut ver = serde_yaml::Mapping::new();
-            ver.insert("name".into(), entry.name.clone().into());
-            ver.insert("version".into(), entry.version.clone().into());
-            if let Some(ref av) = entry.app_version {
-                ver.insert("appVersion".into(), av.clone().into());
-            }
-            if let Some(ref desc) = entry.description {
-                ver.insert("description".into(), desc.clone().into());
-            }
-            if let Some(ref api) = entry.api_version {
-                ver.insert("apiVersion".into(), api.clone().into());
-            }
-            if let Some(ref home) = entry.home {
-                ver.insert("home".into(), home.clone().into());
-            }
-            if !entry.sources.is_empty() {
-                let sources: Vec<serde_yaml::Value> =
-                    entry.sources.iter().map(|s| s.clone().into()).collect();
-                ver.insert("sources".into(), serde_yaml::Value::Sequence(sources));
-            }
-            if !entry.keywords.is_empty() {
-                let keywords: Vec<serde_yaml::Value> =
-                    entry.keywords.iter().map(|k| k.clone().into()).collect();
-                ver.insert("keywords".into(), serde_yaml::Value::Sequence(keywords));
-            }
-            ver.insert("created".into(), entry.created.clone().into());
-            if let Some(ref d) = entry.digest {
-                ver.insert("digest".into(), d.clone().into());
-            }
-            let urls: Vec<serde_yaml::Value> =
-                entry.urls.iter().map(|u| u.clone().into()).collect();
-            ver.insert("urls".into(), serde_yaml::Value::Sequence(urls));
-
-            seq.push(serde_yaml::Value::Mapping(ver));
+        let version = IndexVersion {
+            name: &entry.name,
+            version: &entry.version,
+            app_version: entry.app_version.as_deref(),
+            description: entry.description.as_deref(),
+            api_version: entry.api_version.as_deref(),
+            home: entry.home.as_deref(),
+            sources: &entry.sources,
+            keywords: &entry.keywords,
+            created: &entry.created,
+            digest: entry.digest.as_deref(),
+            urls: &entry.urls,
+        };
+        match groups.iter_mut().find(|(name, _)| *name == entry.name) {
+            Some((_, versions)) => versions.push(version),
+            None => groups.push((&entry.name, vec![version])),
         }
     }
 
-    let mut root = serde_yaml::Mapping::new();
-    root.insert("apiVersion".into(), "v1".into());
-    root.insert("generated".into(), chrono::Utc::now().to_rfc3339().into());
-    root.insert("entries".into(), serde_yaml::Value::Mapping(chart_entries));
-
-    let value = serde_yaml::Value::Mapping(root);
-    serde_yaml::to_string(&value).unwrap_or_default()
+    let index = HelmIndex {
+        api_version: "v1",
+        generated: chrono::Utc::now().to_rfc3339(),
+        entries: ChartGroups(groups),
+    };
+    crate::yaml::to_string(&index).unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -385,5 +407,52 @@ sources:
         assert!(yaml.contains("1.2.3"));
         assert!(yaml.contains("sha256:abc123"));
         assert!(yaml.contains("generated"));
+    }
+
+    #[test]
+    fn helm_index_keeps_helm_key_order_and_reads_back() {
+        let entry = |name: &str, version: &str| HelmIndexEntry {
+            name: name.into(),
+            version: version.into(),
+            app_version: Some("1.19.0".into()),
+            description: Some("A chart: with \"quotes\" and # hash".into()),
+            api_version: Some("v2".into()),
+            home: None,
+            sources: vec![],
+            keywords: vec!["web".into()],
+            created: "2024-01-01T00:00:00Z".into(),
+            digest: Some("sha256:abc123".into()),
+            urls: vec!["https://example.com/charts/x.tgz".into()],
+        };
+        // Two versions of one chart and a second chart: grouped by name, in the
+        // order the charts first appear.
+        let entries = vec![entry("nginx", "1.0.0"), entry("redis", "7.0.0"), entry("nginx", "1.1.0")];
+        let yaml = build_helm_index(&entries);
+
+        // Top-level keys and each entry's keys come out in a fixed, familiar order.
+        let at = |needle: &str| yaml.find(needle).unwrap_or_else(|| panic!("{needle} missing in:\n{yaml}"));
+        assert!(at("apiVersion: v1") < at("generated:") && at("generated:") < at("entries:"));
+        assert!(at("nginx:") < at("redis:"));
+        // Values may or may not be quoted; only the key order is checked here, and
+        // the values themselves below, after reading the document back.
+        assert!(at("name: nginx") < at("  version:"));
+        assert!(at("  version:") < at("appVersion:"));
+        assert!(at("appVersion:") < at("description:"));
+        assert!(at("description:") < at("apiVersion: v2"));
+        assert!(at("created:") < at("digest:") && at("digest:") < at("urls:"));
+        // Optional fields that are unset are left out entirely.
+        assert!(!yaml.contains("home:") && !yaml.contains("sources:"));
+        assert!(!yaml.starts_with('%'), "directive in index.yaml: {yaml}");
+
+        // And the whole document reads back with the values intact.
+        let doc: crate::yaml::Value = crate::yaml::from_str(&yaml).unwrap();
+        assert_eq!(doc["apiVersion"], "v1");
+        let nginx = doc["entries"]["nginx"].as_array().unwrap();
+        assert_eq!(nginx.len(), 2);
+        assert_eq!(nginx[0]["version"], "1.0.0");
+        assert_eq!(nginx[1]["version"], "1.1.0");
+        assert_eq!(nginx[0]["description"], "A chart: with \"quotes\" and # hash");
+        assert_eq!(nginx[0]["keywords"][0], "web");
+        assert_eq!(doc["entries"]["redis"][0]["version"], "7.0.0");
     }
 }

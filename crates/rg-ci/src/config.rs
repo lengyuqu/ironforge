@@ -121,7 +121,7 @@ test_unit:
   script:
     - make test
 "#;
-        let config: CiConfig = serde_yaml::from_str(yml).unwrap();
+        let config: CiConfig = rg_core::yaml::from_str(yml).unwrap();
         assert_eq!(config.stages.as_ref().unwrap().len(), 2);
         assert_eq!(config.jobs.len(), 2);
 
@@ -146,7 +146,7 @@ deploy_prod:
   only:
     - main
 "#;
-        let config: CiConfig = serde_yaml::from_str(yml).unwrap();
+        let config: CiConfig = rg_core::yaml::from_str(yml).unwrap();
         let deploy = config.jobs.get("deploy_prod").unwrap();
         assert_eq!(deploy.only.as_ref().unwrap().len(), 1);
         assert_eq!(deploy.only.as_ref().unwrap()[0], "main");
@@ -160,7 +160,7 @@ hello:
   script:
     - echo "hello"
 "#;
-        let config: CiConfig = serde_yaml::from_str(yml).unwrap();
+        let config: CiConfig = rg_core::yaml::from_str(yml).unwrap();
         assert!(config.stages.is_none());
         assert_eq!(config.jobs.len(), 1);
         let job = config.jobs.get("hello").unwrap();
@@ -195,7 +195,7 @@ full_job:
     - docker
     - linux
 "#;
-        let config: CiConfig = serde_yaml::from_str(yml).unwrap();
+        let config: CiConfig = rg_core::yaml::from_str(yml).unwrap();
         let job = config.jobs.get("full_job").unwrap();
         assert_eq!(job.image.as_deref(), Some("rust:1.75"));
         assert_eq!(job.only.as_ref().unwrap().len(), 2);
@@ -221,7 +221,7 @@ full_job:
         let yml = r#"
 stages: []
 "#;
-        let config: CiConfig = serde_yaml::from_str(yml).unwrap();
+        let config: CiConfig = rg_core::yaml::from_str(yml).unwrap();
         assert!(config.stages.as_ref().unwrap().is_empty());
         assert!(config.jobs.is_empty());
     }
@@ -242,7 +242,7 @@ integration_tests:
   script:
     - cargo test --test integration
 "#;
-        let config: CiConfig = serde_yaml::from_str(yml).unwrap();
+        let config: CiConfig = rg_core::yaml::from_str(yml).unwrap();
         assert_eq!(config.jobs.len(), 2);
         for job in config.jobs.values() {
             assert_eq!(job.stage.as_deref(), Some("test"));
@@ -260,9 +260,9 @@ build:
   script:
     - make
 "#;
-        let config: CiConfig = serde_yaml::from_str(yml).unwrap();
-        let serialized = serde_yaml::to_string(&config).unwrap();
-        let deserialized: CiConfig = serde_yaml::from_str(&serialized).unwrap();
+        let config: CiConfig = rg_core::yaml::from_str(yml).unwrap();
+        let serialized = rg_core::yaml::to_string(&config).unwrap();
+        let deserialized: CiConfig = rg_core::yaml::from_str(&serialized).unwrap();
         assert_eq!(config.stages, deserialized.stages);
         assert_eq!(config.jobs.len(), deserialized.jobs.len());
     }
@@ -282,7 +282,7 @@ deploy:
   script:
     - make deploy
 "#;
-        let config: CiConfig = serde_yaml::from_str(yml).unwrap();
+        let config: CiConfig = rg_core::yaml::from_str(yml).unwrap();
         let cc = config.concurrency.as_ref().unwrap();
         assert_eq!(cc.group, "prod-deploy");
         assert!(cc.cancel_in_progress);
@@ -303,7 +303,7 @@ test:
   script:
     - make test
 "#;
-        let config: CiConfig = serde_yaml::from_str(yml).unwrap();
+        let config: CiConfig = rg_core::yaml::from_str(yml).unwrap();
         let cc = config.concurrency.as_ref().unwrap();
         assert_eq!(cc.group, "${{ branch }}");
         assert!(!cc.cancel_in_progress); // default false
@@ -320,7 +320,7 @@ build:
   script:
     - make
 "#;
-        let config: CiConfig = serde_yaml::from_str(yml).unwrap();
+        let config: CiConfig = rg_core::yaml::from_str(yml).unwrap();
         assert!(config.concurrency.is_none());
     }
 }

@@ -581,7 +581,7 @@ fn read_ci_config(
 
     // The parser's message carries line/column and the reason; do not echo the
     // whole file back.
-    let config: CiConfig = serde_yaml::from_str(&ci_yml)
+    let config: CiConfig = rg_core::yaml::from_str(&ci_yml)
         .map_err(|e| invalid_config(format!("failed to parse .ironforge-ci.yml: {e}")))?;
 
     Ok(config)

@@ -16,6 +16,7 @@
 
 use anyhow::Result;
 use serde::Deserialize;
+use rg_core::yaml::Value as YamlValue;
 use std::collections::HashMap;
 
 use crate::config::{CacheConfig, CiConfig, ConcurrencyConfig, JobConfig};
@@ -59,9 +60,9 @@ pub struct WorkflowTriggerSingle {
     #[serde(rename = "pull_request_target")]
     pub pull_request_target: Option<EventFilter>,
     pub schedule: Option<Vec<ScheduleTrigger>>,
-    pub workflow_dispatch: Option<serde_yaml::Value>,
+    pub workflow_dispatch: Option<YamlValue>,
     #[serde(default, deserialize_with = "deserialize_present_yaml")]
-    pub workflow_call: Option<serde_yaml::Value>,
+    pub workflow_call: Option<YamlValue>,
 }
 
 /// Event filter with optional branch/tag/path filtering.
@@ -97,10 +98,10 @@ pub struct GiteaJob {
 
     /// Reusable-workflow secret declaration (`inherit` is accepted implicitly
     /// because repository secrets are already scoped to every job).
-    pub secrets: Option<serde_yaml::Value>,
+    pub secrets: Option<YamlValue>,
     /// Runner label (e.g., `ubuntu-latest`, `self-hosted`).
     #[serde(rename = "runs-on")]
-    pub runs_on: Option<serde_yaml::Value>,
+    pub runs_on: Option<YamlValue>,
 
     /// Job steps.
     #[serde(default)]
@@ -129,7 +130,7 @@ pub struct GiteaJob {
     pub continue_on_error: bool,
 
     /// Deployment environment, either a name or `{ name, url }` mapping.
-    pub environment: Option<serde_yaml::Value>,
+    pub environment: Option<YamlValue>,
 
     /// Matrix expansion compatible with `strategy.matrix`.
     pub strategy: Option<GiteaStrategy>,
@@ -138,7 +139,7 @@ pub struct GiteaJob {
 #[derive(Debug, Clone, Deserialize)]
 pub struct GiteaStrategy {
     #[serde(default)]
-    pub matrix: std::collections::BTreeMap<String, Vec<serde_yaml::Value>>,
+    pub matrix: std::collections::BTreeMap<String, Vec<YamlValue>>,
 }
 
 /// A step within a Gitea Actions job.
@@ -204,7 +205,7 @@ pub struct WorkflowContext {
 impl GiteaWorkflow {
     /// Parse a Gitea Actions workflow YAML string.
     pub fn parse(yaml: &str) -> Result<Self> {
-        let wf: GiteaWorkflow = serde_yaml::from_str(yaml)?;
+        let wf: GiteaWorkflow = rg_core::yaml::from_str(yaml)?;
         Ok(wf)
     }
 
@@ -478,8 +479,8 @@ impl GiteaWorkflow {
 
             // Determine tags from runs-on
             let tags = match &job.runs_on {
-                Some(serde_yaml::Value::String(s)) => Some(vec![s.clone()]),
-                Some(serde_yaml::Value::Sequence(arr)) => {
+                Some(YamlValue::String(s)) => Some(vec![s.clone()]),
+                Some(YamlValue::Array(arr)) => {
                     let tags: Vec<String> = arr
                         .iter()
                         .filter_map(|v| v.as_str().map(String::from))
@@ -543,12 +544,12 @@ impl GiteaWorkflow {
     }
 }
 
-fn environment_name(value: &serde_yaml::Value) -> Option<String> {
+fn environment_name(value: &YamlValue) -> Option<String> {
     match value {
-        serde_yaml::Value::String(name) => Some(name.clone()),
-        serde_yaml::Value::Mapping(mapping) => mapping
-            .get(serde_yaml::Value::String("name".into()))
-            .and_then(serde_yaml::Value::as_str)
+        YamlValue::String(name) => Some(name.clone()),
+        YamlValue::Object(mapping) => mapping
+            .get("name")
+            .and_then(YamlValue::as_str)
             .map(str::to_string),
         _ => None,
     }
@@ -686,11 +687,11 @@ where
 
 fn deserialize_present_yaml<'de, D>(
     deserializer: D,
-) -> std::result::Result<Option<serde_yaml::Value>, D::Error>
+) -> std::result::Result<Option<YamlValue>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
-    serde_yaml::Value::deserialize(deserializer).map(Some)
+    YamlValue::deserialize(deserializer).map(Some)
 }
 
 /// Check if a ref matches an event filter.
@@ -834,11 +835,11 @@ fn substitute_expr(
     result
 }
 
-fn yaml_scalar_string(value: &serde_yaml::Value) -> Option<String> {
+fn yaml_scalar_string(value: &YamlValue) -> Option<String> {
     match value {
-        serde_yaml::Value::String(v) => Some(v.clone()),
-        serde_yaml::Value::Bool(v) => Some(v.to_string()),
-        serde_yaml::Value::Number(v) => Some(v.to_string()),
+        YamlValue::String(v) => Some(v.clone()),
+        YamlValue::Bool(v) => Some(v.to_string()),
+        YamlValue::Number(v) => Some(v.to_string()),
         _ => None,
     }
 }

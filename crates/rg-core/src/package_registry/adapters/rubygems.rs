@@ -122,7 +122,7 @@ fn extract_from_gem(data: &[u8]) -> Result<ExtractedMetadata, anyhow::Error> {
 /// The metadata.gz contains a YAML document with keys:
 /// name, version, summary, description, homepage, licenses, authors, etc.
 fn parse_gemspec_yaml(yaml: &str) -> Result<ExtractedMetadata, anyhow::Error> {
-    let doc: serde_yaml::Value = serde_yaml::from_str(yaml)
+    let doc: crate::yaml::Value = crate::yaml::from_str(yaml)
         .map_err(|e| anyhow::anyhow!("invalid RubyGems metadata (not valid YAML): {e}"))?;
 
     let name = doc
@@ -176,7 +176,7 @@ fn parse_gemspec_yaml(yaml: &str) -> Result<ExtractedMetadata, anyhow::Error> {
     let license = doc
         .get("licenses")
         .and_then(|v| {
-            v.as_sequence()
+            v.as_array()
                 .map(|seq| {
                     seq.iter()
                         .filter_map(|l| l.as_str())
@@ -195,7 +195,7 @@ fn parse_gemspec_yaml(yaml: &str) -> Result<ExtractedMetadata, anyhow::Error> {
         .get("metadata")
         .and_then(|v| v.get("tags").or_else(|| v.get("keywords")))
         .and_then(|v| {
-            v.as_sequence()
+            v.as_array()
                 .map(|seq| {
                     seq.iter()
                         .filter_map(|t| t.as_str())
@@ -374,6 +374,88 @@ metadata:
         assert!(meta.description.unwrap().contains("Rack provides"));
         assert_eq!(meta.homepage.unwrap(), "https://github.com/rack/rack");
         assert_eq!(meta.license.unwrap(), "MIT");
+    }
+
+    /// Shaped like a real `metadata.gz`: Ruby object tags on the document and on
+    /// nested nodes, symbols, a timestamp, empty values and nested lists.
+    #[test]
+    fn test_extract_gem_from_realistic_metadata() {
+        let yaml = r#"--- !ruby/object:Gem::Specification
+name: rack
+version: !ruby/object:Gem::Version
+  version: 2.2.4
+platform: ruby
+authors:
+- Leah Neukirchen
+autorequire:
+bindir: bin
+cert_chain: []
+date: 2022-06-30 00:00:00.000000000 Z
+dependencies:
+- !ruby/object:Gem::Dependency
+  name: minitest
+  requirement: !ruby/object:Gem::Requirement
+    requirements:
+    - - ">="
+      - !ruby/object:Gem::Version
+        version: '0'
+  type: :development
+  prerelease: false
+  version_requirements: !ruby/object:Gem::Requirement
+    requirements:
+    - - ">="
+      - !ruby/object:Gem::Version
+        version: '0'
+description: Rack provides a minimal interface between webservers and Ruby frameworks.
+email: rack-devel@googlegroups.com
+executables:
+- rackup
+extensions: []
+extra_rdoc_files:
+- README.rdoc
+files:
+- lib/rack.rb
+homepage: https://github.com/rack/rack
+licenses:
+- MIT
+metadata:
+  bug_tracker_uri: https://github.com/rack/rack/issues
+  source_code_uri: https://github.com/rack/rack
+  tags: web, rack
+post_install_message:
+rdoc_options: []
+require_paths:
+- lib
+required_ruby_version: !ruby/object:Gem::Requirement
+  requirements:
+  - - ">="
+    - !ruby/object:Gem::Version
+      version: 2.3.0
+required_rubygems_version: !ruby/object:Gem::Requirement
+  requirements:
+  - - ">="
+    - !ruby/object:Gem::Version
+      version: '0'
+requirements: []
+rubygems_version: 3.3.7
+signing_key:
+specification_version: 4
+summary: A modular Ruby webserver interface
+test_files: []
+"#;
+
+        let meta = RubyGemsAdapter
+            .extract_metadata("rack-2.2.4.gem", &make_gem(yaml))
+            .unwrap();
+        assert_eq!(meta.name, "rack");
+        assert_eq!(meta.version, "2.2.4");
+        assert!(meta.description.unwrap().starts_with("Rack provides"));
+        assert_eq!(meta.homepage.unwrap(), "https://github.com/rack/rack");
+        assert_eq!(meta.license.unwrap(), "MIT");
+        assert_eq!(
+            meta.repository_url.unwrap(),
+            "https://github.com/rack/rack"
+        );
     }
 
     #[test]
