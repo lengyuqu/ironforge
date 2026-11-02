@@ -303,12 +303,12 @@ pub async fn run(config: HttpServerConfig) -> Result<()> {
 
         let app = app;
         let rustls_config = axum_server::tls_rustls::RustlsConfig::from_config(tls_config);
-        axum_server::bind_rustls(
-            config_clone
-                .parse()
-                .with_context(|| format!("invalid TLS listen address: {}", config_clone))?,
-            rustls_config,
-        )
+        // axum-server 0.8 is generic over the address type (it also serves unix
+        // sockets), so the TCP address has to be named for `parse` to infer it.
+        let tls_addr: std::net::SocketAddr = config_clone
+            .parse()
+            .with_context(|| format!("invalid TLS listen address: {}", config_clone))?;
+        axum_server::bind_rustls(tls_addr, rustls_config)
         .serve(app.into_make_service_with_connect_info::<std::net::SocketAddr>())
         .await
         .context("HTTPS server error")?;
@@ -337,25 +337,36 @@ async fn load_tls_config(
     key_path: &std::path::Path,
 ) -> Result<Arc<tokio_rustls::rustls::ServerConfig>> {
     use std::io::BufReader;
-    use tokio_rustls::rustls::pki_types::CertificateDer;
+    use tokio_rustls::rustls::pki_types::pem::{self, PemObject};
+    use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer};
     use tokio_rustls::rustls::ServerConfig;
 
     let cert_file = std::fs::File::open(cert_path)
         .with_context(|| format!("failed to open TLS cert: {}", cert_path.display()))?;
-    let mut cert_reader = BufReader::new(cert_file);
-    let certs: Vec<CertificateDer<'_>> = rustls_pemfile::certs(&mut cert_reader)
-        .collect::<Result<Vec<_>, _>>()
-        .context("failed to parse TLS certificates")?;
+    let certs: Vec<CertificateDer<'static>> =
+        CertificateDer::pem_reader_iter(BufReader::new(cert_file))
+            .collect::<Result<Vec<_>, _>>()
+            .context("failed to parse TLS certificates")?;
 
     let key_file = std::fs::File::open(key_path)
         .with_context(|| format!("failed to open TLS key: {}", key_path.display()))?;
-    let mut key_reader = BufReader::new(key_file);
+    // Accepts PKCS#8, PKCS#1 (RSA) and SEC1 (EC) keys, like the first private
+    // key section in the file.
+    let key = PrivateKeyDer::from_pem_reader(BufReader::new(key_file)).map_err(|error| match error {
+        pem::Error::NoItemsFound => {
+            anyhow::anyhow!("no private key found in {}", key_path.display())
+        }
+        other => anyhow::Error::new(other).context("failed to parse TLS private key"),
+    })?;
 
-    let key = rustls_pemfile::private_key(&mut key_reader)
-        .context("failed to parse TLS private key")?
-        .ok_or_else(|| anyhow::anyhow!("no private key found in {}", key_path.display()))?;
-
-    let server_config = ServerConfig::builder()
+    // Name the crypto provider instead of relying on a process-wide default:
+    // `ring` and `aws-lc-rs` are both compiled in (the SSH stack brings the
+    // latter), so rustls cannot choose one itself and `ServerConfig::builder()`
+    // panics on the first call.
+    let provider = Arc::new(tokio_rustls::rustls::crypto::ring::default_provider());
+    let server_config = ServerConfig::builder_with_provider(provider)
+        .with_safe_default_protocol_versions()
+        .context("failed to select TLS protocol versions")?
         .with_no_client_auth()
         .with_single_cert(certs, key)
         .context("failed to build TLS server config")?;
@@ -3192,5 +3203,92 @@ mod pat_scope_tests {
     fn unknown_routes_fail_closed() {
         assert_eq!(required_pat_scope("/api/v1/brand-new"), Some("admin"));
         assert_eq!(required_pat_scope("/brand-new"), Some("admin"));
+    }
+}
+
+#[cfg(test)]
+mod tls_config_tests {
+    use super::load_tls_config;
+    use std::path::Path;
+
+    /// Throwaway certificates and keys, generated for this test by
+    /// `scripts/gen-test-tls.sh` (nothing secret is kept in the repository).
+    fn fixtures() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().expect("create fixture dir");
+        let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/gen-test-tls.sh");
+        let output = std::process::Command::new("bash")
+            .arg(&script)
+            .arg(dir.path())
+            .output()
+            .expect("run scripts/gen-test-tls.sh (needs bash and openssl)");
+        assert!(
+            output.status.success(),
+            "gen-test-tls.sh failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        // The point of these tests is the key *format*; make sure the
+        // generator really produced each one.
+        for (file, header) in [
+            ("ec-pkcs8.key", "-----BEGIN PRIVATE KEY-----"),
+            ("ec-sec1.key", "-----BEGIN EC PRIVATE KEY-----"),
+            ("rsa-pkcs1.key", "-----BEGIN RSA PRIVATE KEY-----"),
+        ] {
+            let text = std::fs::read_to_string(dir.path().join(file)).expect("read key");
+            assert!(text.starts_with(header), "{file} is not {header}");
+        }
+        dir
+    }
+
+    // No process-wide crypto provider is installed here, as in the real binary:
+    // both `ring` and `aws-lc-rs` are compiled in, so rustls cannot pick one on
+    // its own and the config must name the provider it wants.
+    async fn load(dir: &tempfile::TempDir, cert: &str, key: &str) -> anyhow::Result<()> {
+        load_tls_config(&dir.path().join(cert), &dir.path().join(key))
+            .await
+            .map(|_| ())
+    }
+
+    #[tokio::test]
+    async fn loads_every_private_key_format_a_certificate_authority_hands_out() {
+        let dir = fixtures();
+        load(&dir, "ec.crt", "ec-pkcs8.key").await.expect("PKCS#8 key");
+        load(&dir, "ec.crt", "ec-sec1.key").await.expect("SEC1 EC key");
+        load(&dir, "rsa.crt", "rsa-pkcs1.key").await.expect("PKCS#1 RSA key");
+    }
+
+    #[tokio::test]
+    async fn a_key_that_does_not_belong_to_the_certificate_is_rejected() {
+        let dir = fixtures();
+        let error = load(&dir, "rsa.crt", "ec-pkcs8.key").await.unwrap_err();
+        assert!(
+            format!("{error:#}").contains("failed to build TLS server config"),
+            "unexpected error: {error:#}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_missing_file_names_the_path_it_could_not_open() {
+        let dir = fixtures();
+        let error = load(&dir, "does-not-exist.crt", "ec-pkcs8.key").await.unwrap_err();
+        assert!(format!("{error:#}").contains("failed to open TLS cert"), "{error:#}");
+        let error = load(&dir, "ec.crt", "does-not-exist.key").await.unwrap_err();
+        assert!(format!("{error:#}").contains("failed to open TLS key"), "{error:#}");
+    }
+
+    #[tokio::test]
+    async fn a_key_file_without_a_key_is_reported_as_such() {
+        // The certificate file holds PEM, but no private key.
+        let dir = fixtures();
+        let error = load(&dir, "ec.crt", "ec.crt").await.unwrap_err();
+        let message = format!("{error:#}");
+        assert!(message.contains("no private key found"), "unexpected error: {message}");
+    }
+
+    #[tokio::test]
+    async fn a_certificate_file_with_no_certificate_cannot_serve_tls() {
+        // A key where the certificate chain should be: nothing to present.
+        let dir = fixtures();
+        let error = load(&dir, "ec-pkcs8.key", "ec-pkcs8.key").await.unwrap_err();
+        assert!(!format!("{error:#}").is_empty());
     }
 }

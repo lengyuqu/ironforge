@@ -9,7 +9,7 @@ if [[ "${IRONFORGE_BIN}" != /* ]]; then
   IRONFORGE_BIN="${ROOT_DIR}/${IRONFORGE_BIN}"
 fi
 
-for command in curl git python3 ssh ssh-keygen; do
+for command in curl git openssl python3 ssh ssh-keygen; do
   if ! command -v "${command}" >/dev/null 2>&1; then
     echo "missing required command: ${command}" >&2
     exit 1
@@ -401,6 +401,61 @@ fi
 git -C "${WORK_DIR}/http-combine" cat-file -e "${HTTP_COMBINE_PAYLOAD_OID}"
 test -f "${WORK_DIR}/http-combine/payload.txt"
 
+# HTTPS: a second instance serving a throwaway certificate generated for this
+# run (the same generator the `load_tls_config` unit tests use). This is the only
+# place the real binary is started in TLS mode, which is where a missing rustls
+# crypto provider shows up (it panics on start-up and nothing else in this
+# matrix would notice).
+TLS_FIXTURES="${WORK_DIR}/tls"
+"${ROOT_DIR}/scripts/gen-test-tls.sh" "${TLS_FIXTURES}"
+TLS_HOST="ironforge-test.invalid"
+TLS_HTTP_PORT="$(free_port)"
+TLS_SSH_PORT="$(free_port)"
+while [[ "${TLS_HTTP_PORT}" == "${HTTP_PORT}" || "${TLS_HTTP_PORT}" == "${SSH_PORT}" || "${TLS_SSH_PORT}" == "${TLS_HTTP_PORT}" ]]; do
+  TLS_HTTP_PORT="$(free_port)"
+  TLS_SSH_PORT="$(free_port)"
+done
+mkdir -p "${WORK_DIR}/tls-repos"
+"${IRONFORGE_BIN}" serve \
+  --repo-root "${WORK_DIR}/tls-repos" \
+  --http-addr "127.0.0.1:${TLS_HTTP_PORT}" \
+  --ssh-addr "127.0.0.1:${TLS_SSH_PORT}" \
+  --host-key "${WORK_DIR}/host-key" \
+  --db-url "sqlite://${WORK_DIR}/ironforge-tls.db?mode=rwc" \
+  --jwt-secret "git-protocol-e2e-secret-2026" \
+  --tls-cert "${TLS_FIXTURES}/ec.crt" \
+  --tls-key "${TLS_FIXTURES}/ec-pkcs8.key" \
+  >"${WORK_DIR}/server-tls.log" 2>&1 &
+TLS_SERVER_PID=$!
+tls_curl() {
+  curl -fsS --max-time 5 --cacert "${TLS_FIXTURES}/ec.crt" \
+    --resolve "${TLS_HOST}:${TLS_HTTP_PORT}:127.0.0.1" "$@"
+}
+for _ in $(seq 1 120); do
+  if tls_curl "https://${TLS_HOST}:${TLS_HTTP_PORT}/health" >/dev/null 2>&1; then
+    break
+  fi
+  if ! kill -0 "${TLS_SERVER_PID}" 2>/dev/null; then
+    echo "IronForge TLS server exited before becoming healthy" >&2
+    tail -50 "${WORK_DIR}/server-tls.log" >&2 || true
+    exit 1
+  fi
+  sleep 0.25
+done
+if ! tls_curl "https://${TLS_HOST}:${TLS_HTTP_PORT}/health" | grep -q '"status":"ok"'; then
+  echo "HTTPS: /health did not answer over a verified TLS connection" >&2
+  kill "${TLS_SERVER_PID}" 2>/dev/null || true
+  exit 1
+fi
+# The listener must not also answer plain HTTP.
+if curl -fsS --max-time 3 "http://127.0.0.1:${TLS_HTTP_PORT}/health" >/dev/null 2>&1; then
+  echo "HTTPS: the TLS port answered a plain HTTP request" >&2
+  kill "${TLS_SERVER_PID}" 2>/dev/null || true
+  exit 1
+fi
+kill "${TLS_SERVER_PID}" 2>/dev/null || true
+wait "${TLS_SERVER_PID}" 2>/dev/null || true
+
 echo "Git protocol E2E matrix passed:"
 echo "  HTTP V1: clone/fetch/push"
 echo "  HTTP V2: clone/fetch"
@@ -408,3 +463,4 @@ echo "  SSH V1: clone/fetch/push"
 echo "  SSH V2: clone/fetch"
 echo "  shallow/deepen: HTTP clone/deepen/unshallow/exclude/since and SSH clone"
 echo "  partial clone filter: HTTP blob:none, SSH tree:0, HTTP combine:object:type=tree+blob:none with lazy fetch"
+echo "  HTTPS: server starts with a PEM certificate and answers over verified TLS"
