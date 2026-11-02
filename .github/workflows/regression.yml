@@ -7,6 +7,11 @@ on:
       - main
   workflow_dispatch:
 
+# Runners are pinned to a concrete image instead of `ubuntu-latest`: GitHub is
+# moving that label to Ubuntu 26, and a toolchain/OS change should arrive as a
+# reviewed commit rather than as a surprise red build. Move the pin on purpose.
+# The JavaScript actions below are on majors that run on Node 24 (the earlier
+# ones ran on Node 20, which GitHub is retiring).
 env:
   CARGO_INCREMENTAL: "0"
 
@@ -17,11 +22,11 @@ jobs:
   # `svelte-check` and the frontend build.
   clippy:
     name: Clippy (deny warnings)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install system dependencies
         run: |
@@ -41,11 +46,11 @@ jobs:
 
   rust-tests:
     name: Rust tests and migration smoke
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install system dependencies
         run: |
@@ -74,11 +79,11 @@ jobs:
 
   security-audit:
     name: Security audit
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -94,11 +99,11 @@ jobs:
 
   git-protocol:
     name: Real Git client protocol matrix
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install system dependencies
         run: |
@@ -121,7 +126,7 @@ jobs:
 
   postgres-smoke:
     name: PostgreSQL migration, CRUD and FTS smoke
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     services:
       postgres:
@@ -141,7 +146,7 @@ jobs:
       IRONFORGE_TEST_DATABASE_URL: postgres://ironforge:ironforge@127.0.0.1:5432/ironforge
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -154,7 +159,7 @@ jobs:
 
   mysql-smoke:
     name: MySQL migration, CRUD and FTS smoke
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     services:
       mysql:
@@ -175,7 +180,7 @@ jobs:
       IRONFORGE_TEST_DATABASE_URL: mysql://ironforge:ironforge@127.0.0.1:3306/ironforge
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -195,22 +200,22 @@ jobs:
 
   frontend:
     name: Frontend check and build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     defaults:
       run:
         working-directory: web
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           version: 11
 
       - name: Install Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: pnpm
@@ -236,11 +241,11 @@ jobs:
 
   deploy-config:
     name: Docker compose config
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Validate main compose
         run: |
