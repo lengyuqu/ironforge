@@ -318,13 +318,30 @@ FTS5 的 `INSERT INTO fts_table(fts_table, rowid, ...) VALUES('delete', ...)` �
 
 另外：rg-git 直接依赖的 `gix-pack` / `gix-archive` 必须与 gix 主版本同步升级，否则 Cargo 会解析出**两套** gix 子 crate（编译报 "set either the sha1 or sha256 feature flag"）。
 
+### 17. HTTPS 模式必须显式指定 rustls 的 crypto provider ⚠️
+
+`ring` 与 `aws-lc-rs`（russh 带入）同时编进来，rustls 无法自行选择，`ServerConfig::builder()` 会在**首次调用**时 panic（"Could not automatically determine the process-level CryptoProvider"）。症状：带 `--tls-cert/--tls-key` 启动即崩溃；HTTP 模式与单元测试都不受影响，所以长期没被发现。
+
+- ✅ `ServerConfig::builder_with_provider(Arc::new(ring::default_provider())).with_safe_default_protocol_versions()`
+- ❌ 依赖进程级默认 provider，或在测试里 `install_default()` 掩盖问题
+- 回归守卫：`rg-http` 的 `tls_config_tests`（不安装 provider）与 `scripts/git-protocol-e2e.sh` 末尾的 HTTPS 步骤；测试证书由 `scripts/gen-test-tls.sh` 运行时生成，**仓库不提交私钥**（`.ai/guardrails.md` 凭据策略）
+
+### 18. YAML 经 `rg_core::yaml`，不要直接依赖解析库
+
+工作流、Issue 模板、Chart.yaml、gem 元数据都走 `rg_core::yaml::{from_str, to_string, Value}`（`Value` 即 `serde_json::Value`），一处决定方言与设置。与旧的 `serde_yaml` 的差异：
+
+- `strict_booleans`：只有 `true/false` 是布尔，`yes/no/on/off` 保持字符串（否则 `on:` 触发器会被改写）
+- `.inf/.nan` 变 `null` 而非整篇文档失败；`<<` 合并键会被展开；自定义 tag（`!ruby/object:...`）被忽略，节点按普通节点读取
+- `010`、`1_000` 现在是数字而非字符串；必须保持文本时请加引号
+- `Value` 的映射键按字母序，**不得依赖映射顺序**；需要固定输出顺序时用带字段顺序的 `#[derive(Serialize)]` 结构（见 `helm.rs` 的 `HelmIndex`）
+
 ---
 
 ## 依赖版本速查
 
 ```toml
 axum            = "0.8"
-axum-server     = "0.7"      # features: tls-rustls
+axum-server     = "0.8"      # features: tls-rustls；bind_rustls 对地址类型泛型，需标注 SocketAddr
 tower           = "0.5"
 tower-http      = "0.6"      # features: cors, trace, fs
 russh           = "0.64"   # 通道开启为两阶段：必须 accept ChannelOpenHandle
@@ -333,11 +350,11 @@ clap            = "4"        # features: derive
 tokio           = "1"        # features: full
 serde           = "1"        # features: derive
 serde_json      = "1"
+serde-saphyr    = "2"        # YAML，纯 Rust；经 rg_core::yaml 使用，取代 serde_yaml
 toml            = "0.8"
 tracing         = "0.1"
 tracing-subscriber = "0.3"   # features: env-filter
 tracing-appender = "0.2"
-rustls-pemfile  = "2"
 tokio-rustls    = "0.26"
 lettre          = "0.11"     # default-features = false, features: tokio1-rustls-tls, builder, smtp-transport
 utoipa          = "5"        # ⚠️ 未纳入 workspace，在 rg-http 中硬编码
