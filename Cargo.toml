@@ -91,9 +91,8 @@ rand = "0.8"
 ldap3 = { version = "0.11", features = ["tls"] }
 
 # TLS
-rustls-pemfile = "2"
 tokio-rustls = "0.26"
-axum-server = { version = "0.7", features = ["tls-rustls"] }
+axum-server = { version = "0.8", features = ["tls-rustls"] }
 
 # Config
 toml = "0.8"

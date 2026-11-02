@@ -27,7 +27,6 @@ sha2 = { workspace = true }
 hex = { workspace = true }
 hmac = { workspace = true }
 tokio-rustls = { workspace = true }
-rustls-pemfile = { workspace = true }
 axum-server = { workspace = true }
 utoipa = { workspace = true }
 utoipa-swagger-ui = "8"
