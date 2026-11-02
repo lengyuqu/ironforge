@@ -405,6 +405,29 @@ async fn repo_name_taken(
     Ok(existing.is_some())
 }
 
+/// Turn a failed repository write into the error the caller should see.
+///
+/// The name checks above run before the write, so two requests can both pass
+/// them; the live-name unique index (a partial index on SQLite/PostgreSQL,
+/// generated-column indexes on MySQL) then rejects the loser. That is the same
+/// "already exists" answer the early check gives, not a server fault. Any other
+/// database failure stays internal, with `context` saying what was being done.
+fn name_conflict_or_internal(
+    error: anyhow::Error,
+    conflict_message: String,
+    context: &str,
+) -> CoreError {
+    let lost_race = error
+        .downcast_ref::<sea_orm::DbErr>()
+        .and_then(|e| e.sql_err())
+        .is_some_and(|e| matches!(e, sea_orm::SqlErr::UniqueConstraintViolation(_)));
+    if lost_race {
+        CoreError::conflict(conflict_message)
+    } else {
+        CoreError::internal(format!("{context}: {error:#}"))
+    }
+}
+
 /// Create a new repository with full template/auto-init support.
 pub async fn create_repo_with_opts(
     db: &DatabaseConnection,
@@ -545,9 +568,11 @@ pub async fn create_repo_with_opts(
                     "failed to remove bare repository after DB insert failure; manual cleanup required"
                 );
             }
-            return Err(CoreError::internal(format!(
-                "failed to record repository in the database (disk cleaned up): {error:#}"
-            )));
+            return Err(name_conflict_or_internal(
+                error,
+                format!("repository '{}' already exists", name),
+                "failed to record repository in the database (disk cleaned up)",
+            ));
         }
     };
 
@@ -1230,9 +1255,11 @@ pub async fn fork_repo(
                     "failed to remove fork directory after DB insert failure; manual cleanup required"
                 );
             }
-            return Err(CoreError::internal(format!(
-                "failed to record fork in the database (disk cleaned up): {error:#}"
-            )));
+            return Err(name_conflict_or_internal(
+                error,
+                format!("repository '{}' already exists in your account", repo_name),
+                "failed to record fork in the database (disk cleaned up)",
+            ));
         }
     };
     repo_ops::update_forks_count(db, source_repo.id).await?;
@@ -1372,9 +1399,11 @@ pub async fn transfer_repo(
                 "failed to roll the repository directory back after a failed transfer; manual cleanup required"
             );
         }
-        return Err(CoreError::internal(format!(
-            "failed to update repository ownership (directory rolled back): {error:#}"
-        )));
+        return Err(name_conflict_or_internal(
+            error,
+            format!("repository '{}' already exists at destination", repo_name),
+            "failed to update repository ownership (directory rolled back)",
+        ));
     }
     // Ownership (and thus who can read/write) changed — drop cached decisions.
     invalidate_perm_cache_repo(repo.id);
@@ -1966,5 +1995,57 @@ mod perm_cache_tests {
 
         assert_eq!(check_perm_cache(910_004, Some(1), false), None);
         assert_eq!(check_perm_cache(910_005, Some(2), true), None);
+    }
+}
+
+#[cfg(test)]
+mod name_race_tests {
+    use super::*;
+
+    /// A real unique-index violation, produced by the live-name index.
+    async fn lost_race_error() -> anyhow::Error {
+        let db = rg_db::connect("sqlite::memory:").await.unwrap();
+        rg_db::run_migrations(&db).await.unwrap();
+        let user = user_ops::create_user(&db, "racer", "racer@example.invalid", "x", "Racer")
+            .await
+            .unwrap();
+        let model = || RepoActiveModel {
+            owner_id: Set(user.id),
+            name: Set("same".to_string()),
+            default_branch: Set("main".to_string()),
+            stars_count: Set(0),
+            forks_count: Set(0),
+            created_at: Set(Utc::now()),
+            updated_at: Set(Utc::now()),
+            ..Default::default()
+        };
+        repo_ops::create(&db, model()).await.unwrap();
+        repo_ops::create(&db, model()).await.unwrap_err()
+    }
+
+    #[tokio::test]
+    async fn losing_a_race_for_a_name_is_a_conflict_not_a_server_error() {
+        let error = name_conflict_or_internal(
+            lost_race_error().await,
+            "repository 'same' already exists".to_string(),
+            "failed to record repository in the database",
+        );
+        assert!(
+            matches!(&error, CoreError::Conflict(message) if message == "repository 'same' already exists"),
+            "expected a conflict, got {error:?}"
+        );
+    }
+
+    #[test]
+    fn other_database_failures_stay_internal() {
+        let error = name_conflict_or_internal(
+            anyhow::Error::new(sea_orm::DbErr::Custom("connection reset".into())),
+            "repository 'same' already exists".to_string(),
+            "failed to record repository in the database",
+        );
+        assert!(
+            matches!(&error, CoreError::Internal(_)),
+            "expected an internal error, got {error:?}"
+        );
     }
 }
