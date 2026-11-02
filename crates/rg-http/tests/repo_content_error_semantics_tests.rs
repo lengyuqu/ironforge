@@ -289,6 +289,20 @@ async fn contents_read_classifies_missing_ref_and_path() {
 }
 
 #[tokio::test]
+async fn tree_of_repo_without_commits_is_empty_not_error() {
+    let app = spawn().await;
+    let owner = app.user("eowner").await;
+    let (st, body) = app.post("/repos", &owner, json!({"name": "blank"})).await;
+    assert_eq!(st, 201, "{body}");
+
+    // An unborn HEAD cannot resolve to a tree; the UI expects an empty listing.
+    let (st, body) = app.get("/repos/eowner/blank/tree", None).await;
+    assert_eq!(st, 200, "{body}");
+    let body: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(body["entries"], json!([]));
+}
+
+#[tokio::test]
 async fn contents_missing_storage_is_sanitised_500() {
     let app = spawn().await;
     let owner = app.user("sowner").await;

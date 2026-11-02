@@ -292,7 +292,14 @@ pub async fn list_tree(
     let git_ref = params.r#ref.unwrap_or_else(|| "HEAD".to_string());
     let sub_path = params.path.unwrap_or_default();
 
-    let result = list_tree_entries(&repo_path, &git_ref, &sub_path);
+    let result = run_blocking(move || match list_tree_entries(&repo_path, &git_ref, &sub_path) {
+        // A freshly-created repo with no commits has an unborn HEAD, which
+        // can't be resolved to a tree. That's not an error — return an
+        // empty tree so the UI can render the empty-repo state.
+        Err(_) if is_empty_repo(&repo_path) => Ok(Vec::new()),
+        other => other,
+    })
+    .await;
 
     match result {
         Ok(entries) => (
@@ -300,16 +307,7 @@ pub async fn list_tree(
             Json(serde_json::json!({ "entries": entries })),
         )
             .into_response(),
-        Err(e) => {
-            // A freshly-created repo with no commits has an unborn HEAD, which
-            // can't be resolved to a tree. That's not an error — return an
-            // empty tree so the UI can render the empty-repo state.
-            if is_empty_repo(&repo_path) {
-                return (StatusCode::OK, Json(serde_json::json!({ "entries": [] })))
-                    .into_response();
-            }
-            AppError::from(e).into_response()
-        }
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -365,7 +363,7 @@ pub async fn get_blob(
 
     let git_ref = params.r#ref.unwrap_or_else(|| "HEAD".to_string());
 
-    match get_blob_content(&repo_path, &git_ref, &path) {
+    match run_blocking(move || get_blob_content(&repo_path, &git_ref, &path)).await {
         Ok(blob) => (StatusCode::OK, Json(blob)).into_response(),
         Err(e) => AppError::from(e).into_response(),
     }
@@ -417,8 +415,10 @@ pub async fn get_log(
     if file_path.split('/').any(|c| c == "." || c == ".." || (c.is_empty() && !file_path.is_empty())) {
         return AppError::bad_request("invalid path").into_response();
     }
+    let file_path = file_path.to_string();
 
-    match get_commit_log(&repo_path, &git_ref, file_path, limit) {
+    // A path-filtered log walks and diffs history, so it must not run on the async workers.
+    match run_blocking(move || get_commit_log(&repo_path, &git_ref, &file_path, limit)).await {
         Ok(log) => (StatusCode::OK, Json(serde_json::json!({ "commits": log }))).into_response(),
         Err(e) => {
             AppError::from(e).into_response()
@@ -536,7 +536,7 @@ pub async fn list_branches(
         Err(e) => return e.into_response(),
     };
 
-    match list_branch_names(&repo_path) {
+    match run_blocking(move || list_branch_names(&repo_path)).await {
         Ok(branches) => (StatusCode::OK, Json(branches)).into_response(),
         Err(e) => {
             AppError::from(e).into_response()
@@ -579,7 +579,7 @@ pub async fn list_tags(
         Err(e) => return e.into_response(),
     };
 
-    match list_tag_names(&repo_path) {
+    match run_blocking(move || list_tag_names(&repo_path)).await {
         Ok(tags) => (StatusCode::OK, Json(tags)).into_response(),
         Err(e) => {
             AppError::from(e).into_response()
@@ -588,6 +588,17 @@ pub async fn list_tags(
 }
 
 // ── Git CLI helpers ───────────────────────────────────────────────────
+
+/// Run a synchronous gix helper on the blocking pool. Object reads, history
+/// walks and the GPG subprocess behind signature checks would otherwise stall
+/// a tokio worker, and with it every request scheduled on that worker.
+async fn run_blocking<T: Send + 'static>(
+    f: impl FnOnce() -> CoreResult<T> + Send + 'static,
+) -> CoreResult<T> {
+    tokio::task::spawn_blocking(f)
+        .await
+        .map_err(|e| CoreError::internal(format!("blocking git task failed: {e}")))?
+}
 
 /// Open the bare repository; failure here is a server-side storage fault.
 fn open_repo(repo_path: &std::path::Path) -> CoreResult<gix::Repository> {
@@ -926,7 +937,7 @@ pub async fn get_commit_signature(
         return AppError::bad_request("invalid commit SHA format").into_response();
     }
 
-    match verify_commit_signature(&repo_path, &sha) {
+    match run_blocking(move || verify_commit_signature(&repo_path, &sha)).await {
         Ok(sig) => (StatusCode::OK, Json(sig)).into_response(),
         Err(e) => AppError::from(e).into_response(),
     }
@@ -1158,11 +1169,13 @@ pub async fn create_or_update_file(
         Ok(_) => {
             // Get the new commit SHA
             let repo_path = state.repo_root.join(format!("{}/{}.git", owner, repo));
-            let new_sha = get_latest_commit_sha(&repo_path, &branch).unwrap_or_else(|e| {
-                // The commit already landed; do not turn that into a failure.
-                tracing::warn!(error = %e, "could not resolve new commit sha after write");
-                String::new()
-            });
+            let new_sha = run_blocking(move || get_latest_commit_sha(&repo_path, &branch))
+                .await
+                .unwrap_or_else(|e| {
+                    // The commit already landed; do not turn that into a failure.
+                    tracing::warn!(error = %e, "could not resolve new commit sha after write");
+                    String::new()
+                });
 
             (
                 StatusCode::OK,
@@ -1242,11 +1255,13 @@ pub async fn delete_file(
         Ok(_) => {
             // Get the new commit SHA
             let repo_path = state.repo_root.join(format!("{}/{}.git", owner, repo));
-            let new_sha = get_latest_commit_sha(&repo_path, &branch).unwrap_or_else(|e| {
-                // The commit already landed; do not turn that into a failure.
-                tracing::warn!(error = %e, "could not resolve new commit sha after write");
-                String::new()
-            });
+            let new_sha = run_blocking(move || get_latest_commit_sha(&repo_path, &branch))
+                .await
+                .unwrap_or_else(|e| {
+                    // The commit already landed; do not turn that into a failure.
+                    tracing::warn!(error = %e, "could not resolve new commit sha after write");
+                    String::new()
+                });
 
             (
                 StatusCode::OK,
