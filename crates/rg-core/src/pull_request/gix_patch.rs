@@ -1,8 +1,8 @@
-//! gix-native unified patch generation — blob-diff 对拍 spike（CLAUDE.md 技术债表「blob-diff patch」项）。
+//! gix-native unified patch generation（CLAUDE.md 技术债表「blob-diff patch」项，已关闭）。
 //!
-//! 目标：与 `git -c core.quotePath=false diff --no-ext-diff --find-renames <base>...<head>`
-//! 的输出**字节级一致**，使 `compute_same_repo_diff` / `compute_cross_repo_diff` 可以去掉
-//! CLI 网关调用（`pull_request/service.rs` 两处 `TODO(gix)`）。
+//! 与 `git -c core.quotePath=false diff --no-ext-diff --find-renames <base>...<head>`
+//! 的输出**字节级一致**，`compute_same_repo_diff` / `compute_cross_repo_diff` 据此不再调用
+//! CLI 网关；一致性由本文件的 `parity_tests` 对拍钉死。
 //!
 //! 已处理的 git 格式细节：
 //! - 三点语义（`base...head` = merge-base(base, head) → head 的 diff）

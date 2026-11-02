@@ -120,6 +120,8 @@ SSH 命令解析和 HTTP Git 端点的路径拼接未检查 `..` 遍历字符。
 
 **M-05: `serde_yaml` 已废弃** — workspace 依赖使用 `serde_yaml = "0.9"`，该 crate 已被作者标记为 deprecated，不再接收安全更新。
 
+> **状态（2026-11-02）：已解决。** 已迁移到纯 Rust 的 `serde-saphyr`，统一经 `rg_core::yaml` 使用；`unsafe-libyaml` 不再出现在依赖树中。行为差异见 `crates/rg-core/src/yaml.rs` 模块文档与 CLAUDE.md 踩坑 #18。
+
 **M-06: JWT Token 无法撤销** — 无 token 黑名单机制，签发后 7 天内始终有效，用户登出或改密码后旧 token 仍可用。
 
 **M-07: rg-core 缺少领域错误类型** — 核心业务层全局使用 `anyhow::Result`，已声明 `thiserror` 依赖但未使用，无法区分 NotFound/Forbidden/Conflict 等不同语义。
