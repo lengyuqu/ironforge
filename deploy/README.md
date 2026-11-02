@@ -322,8 +322,16 @@ created them.
   the same name in one organization — possible only if two members created it —
   the migration **stops and lists them**; soft-delete or rename the extras and
   start the server again. Nothing is dropped automatically.
-- MySQL has no partial indexes: there the application check is the only
-  enforcement.
+- MySQL has no partial indexes, so migration `m20261102_000001` gets the same
+  guarantee from two virtual generated columns (`live_personal_owner_id`,
+  `live_org_id`) that are `NULL` for soft-deleted rows, plus a unique index over
+  each column and `name`. It stops and lists duplicates in the same way, and it
+  is safe to re-run after a partial failure. Before this migration, MySQL relied
+  on the application check alone, so two concurrent creates could both succeed.
+  Name comparison follows the column collation, which is case-insensitive by
+  default on MySQL, matching the application's own lookup.
+- A create, fork or transfer that loses a race for a name now answers
+  `409 Conflict`, like the up-front check, instead of a server error.
 - Links that used `/repos/<creator>/<org-repo>` stop working; use the
   organization name.
 
