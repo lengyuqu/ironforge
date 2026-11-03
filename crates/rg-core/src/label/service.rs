@@ -104,7 +104,19 @@ pub async fn update_label(
     label.updated_at = Utc::now();
 
     let name_for_error = label.name.clone();
-    let active: LabelActiveModel = label.into();
+    // Build the ActiveModel column by column: the generated `From<Model>`
+    // conversion leaves columns unset for this entity, so `update` issued an
+    // UPDATE without any SET clause and silently kept the old row.
+    use sea_orm::Set;
+    let active = LabelActiveModel {
+        id: Set(label.id),
+        repo_id: Set(label.repo_id),
+        name: Set(label.name.clone()),
+        color: Set(label.color.clone()),
+        description: Set(label.description.clone()),
+        created_at: Set(label.created_at),
+        updated_at: Set(label.updated_at),
+    };
     label_ops::update(db, active)
         .await
         .map_err(|e| unique_or_internal(e, &name_for_error))
