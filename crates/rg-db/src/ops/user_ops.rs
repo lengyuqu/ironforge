@@ -117,6 +117,26 @@ pub async fn update_by_id(
     active.update(db).await.context("db: update user by admin")
 }
 
+/// Point a user at a different authentication provider.
+///
+/// `create_user` inserts `auth_provider = "oauth2"` (it exists for SSO
+/// provisioning); password login only accepts `"local"`, so locally
+/// provisioned accounts must say so explicitly.
+pub async fn set_auth_provider(
+    db: &DatabaseConnection,
+    id: i64,
+    provider: &str,
+) -> Result<User> {
+    let model = UserEntity::find_by_id(id)
+        .one(db)
+        .await
+        .context("db: find user for provider update")?
+        .ok_or_else(|| anyhow::anyhow!("user {} not found", id))?;
+    let mut active: ActiveModel = model.into();
+    active.auth_provider = Set(provider.to_string());
+    active.update(db).await.context("db: set auth provider")
+}
+
 /// Make `user_id` an administrator if it is the first user the instance ever
 /// had, i.e. the lowest id in the table. Returns whether it was promoted.
 ///
