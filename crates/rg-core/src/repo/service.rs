@@ -868,7 +868,7 @@ pub fn tombstone_path(
 }
 
 /// Namespace (user or organization name) a repository's directory lives under.
-async fn repo_namespace(
+pub async fn repo_namespace(
     db: &DatabaseConnection,
     repo: &rg_db::entities::repository::Model,
 ) -> CoreResult<String> {
@@ -882,6 +882,25 @@ async fn repo_namespace(
         .await?
         .ok_or_else(|| CoreError::not_found("repository owner not found"))?
         .username)
+}
+
+/// Resolve a repository id to its `(owner-or-org name, repository name)`.
+///
+/// Used to build fork clone URLs for pull requests (the PR row only stores
+/// `head_repo_id`; clients need the namespace to clone from).
+pub async fn repo_owner_and_name_by_id(
+    db: &DatabaseConnection,
+    repo_id: i64,
+) -> CoreResult<Option<(String, String)>> {
+    use sea_orm::EntityTrait;
+    let Some(repo) = rg_db::entities::repository::Entity::find_by_id(repo_id)
+        .one(db)
+        .await?
+    else {
+        return Ok(None);
+    };
+    let namespace = repo_namespace(db, &repo).await?;
+    Ok(Some((namespace, repo.name)))
 }
 
 /// Soft-delete a repository **and** free its on-disk path.

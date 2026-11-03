@@ -147,7 +147,27 @@ pub async fn get_pr(
     }
 
     match rg_core::pull_request::get_pr(&state.db, &owner, &repo, number).await {
-        Ok(pr) => (StatusCode::OK, Json(pr)).into_response(),
+        Ok(pr) => {
+            // Enrich fork PRs with the head repository's namespace/name so
+            // clients can build the clone URL (the row only stores an id).
+            let mut body = serde_json::json!(pr);
+            if let Some(head_repo_id) = pr.head_repo_id {
+                match rg_core::repo::service::repo_owner_and_name_by_id(&state.db, head_repo_id).await
+                {
+                    Ok(Some((head_owner, head_name))) => {
+                        body["head_repo_owner"] = serde_json::json!(head_owner);
+                        body["head_repo_name"] = serde_json::json!(head_name);
+                    }
+                    Ok(None) => {
+                        tracing::debug!(head_repo_id, "fork head repository no longer exists");
+                    }
+                    Err(e) => {
+                        tracing::debug!(head_repo_id, error = %e, "could not resolve fork head repo");
+                    }
+                }
+            }
+            (StatusCode::OK, Json(body)).into_response()
+        }
         Err(e) => AppError::from(e).into_response(),
     }
 }
