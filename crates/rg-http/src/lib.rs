@@ -960,6 +960,32 @@ fn build_routes(
             "/repos/{owner}/{name}/pipelines/{id}/wait",
             get(api::ci_feedback::wait_pipeline),
         )
+        // Same-account multi-agent collaboration
+        .route(
+            "/repos/{owner}/{name}/collaboration/sessions",
+            get(api::collab_sessions::list_sessions)
+                .post(api::collab_sessions::create_session),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/sessions/{id}/heartbeat",
+            post(api::collab_sessions::heartbeat),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/sessions/{id}/end",
+            post(api::collab_sessions::end_session),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/tasks",
+            get(api::collab_tasks::list_tasks).post(api::collab_tasks::create_task),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/tasks/{id}",
+            get(api::collab_tasks::get_task).patch(api::collab_tasks::update_task),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/tasks/{id}/messages",
+            get(api::collab_messages::list_messages).post(api::collab_messages::send_message),
+        )
         .route(
             "/repos/{owner}/{name}/pipelines/{id}/jobs/{job_id}/play",
             post(api::ci::play_job),
@@ -1237,6 +1263,10 @@ fn build_routes(
         .route(
             "/repos/{owner}/{name}/releases",
             get(api::releases::list_releases).post(api::releases::create_release),
+        )
+        .route(
+            "/repos/{owner}/{name}/releases/tags/{tag}",
+            get(api::releases::get_release_by_tag),
         )
         .route(
             "/repos/{owner}/{name}/releases/{id}",
@@ -2715,7 +2745,21 @@ async fn post_push_hooks(
                 )
                 .await
                 {
-                    Ok(_) => {
+                    Ok(prs) => {
+                        // Mirror the pushed head into refs/pull/<n>/head so
+                        // `git fetch <url> refs/pull/<n>/head` works and keeps
+                        // working after the head branch is deleted.
+                        for pr in &prs {
+                            let refname = format!("refs/pull/{}/head", pr.number);
+                            if let Err(error) = rg_git::ops::update_ref(
+                                repo_path,
+                                &refname,
+                                &update.new_sha,
+                                "pull request head (push)",
+                            ) {
+                                tracing::warn!(%error, %refname, "could not update pull-request head ref");
+                            }
+                        }
                         if let Err(error) = rg_core::pull_request::try_auto_merges_for_head_commit(
                             db,
                             repo_root,

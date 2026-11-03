@@ -180,6 +180,17 @@ pub struct PaginatedRepoResponse {
         crate::api::ci::get_job,
         crate::api::ci_feedback::get_job_log,
         crate::api::ci_feedback::wait_pipeline,
+        // Collaboration
+        crate::api::collab_sessions::create_session,
+        crate::api::collab_sessions::list_sessions,
+        crate::api::collab_sessions::heartbeat,
+        crate::api::collab_sessions::end_session,
+        crate::api::collab_tasks::create_task,
+        crate::api::collab_tasks::list_tasks,
+        crate::api::collab_tasks::get_task,
+        crate::api::collab_tasks::update_task,
+        crate::api::collab_messages::send_message,
+        crate::api::collab_messages::list_messages,
         crate::api::ci::play_job,
         crate::api::ci_environments::list,
         crate::api::ci_environments::create,
@@ -349,6 +360,17 @@ pub struct PaginatedRepoResponse {
     ),
     components(
         schemas(
+            crate::api::collab_sessions::CreateSessionRequest,
+            crate::api::collab_sessions::CreateSessionResponse,
+            crate::api::collab_sessions::SessionResponse,
+            crate::api::collab_sessions::SessionListResponse,
+            crate::api::collab_tasks::CreateTaskRequest,
+            crate::api::collab_tasks::UpdateTaskRequest,
+            crate::api::collab_tasks::TaskResponse,
+            crate::api::collab_tasks::TaskListResponse,
+            crate::api::collab_messages::SendMessageRequest,
+            crate::api::collab_messages::MessageResponse,
+            crate::api::collab_messages::MessageListResponse,
             crate::api::users::RegisterRequest,
             crate::api::users::LoginRequest,
             crate::api::users::AuthResponse,
@@ -418,6 +440,7 @@ pub struct PaginatedRepoResponse {
         )
     ),
     tags(
+        (name = "Collaboration", description = "Same-account multi-agent sessions, tasks, messages and handoffs"),
         (name = "Users", description = "User registration, authentication, and profile"),
         (name = "Repositories", description = "Repository CRUD and management"),
         (name = "Issues", description = "Issue tracking"),
@@ -454,7 +477,11 @@ pub struct ApiDoc;
 
 /// Return the OpenAPI spec as a JSON string.
 pub fn openapi_spec() -> String {
-    ApiDoc::openapi().to_pretty_json().unwrap_or_default()
+    // The #[openapi(info(version = ...))] attribute only takes literals, so
+    // the real package version is stamped in here (client design doc §6.3).
+    let mut doc = ApiDoc::openapi();
+    doc.info.version = env!("CARGO_PKG_VERSION").to_string();
+    doc.to_pretty_json().unwrap_or_default()
 }
 
 /// Lazy-initialized Swagger UI config (avoids re-computing on every request).

@@ -22,6 +22,10 @@ pub struct ErrorBody {
     /// Request ID (injected by request-id middleware for error responses).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub request_id: Option<String>,
+    /// Structured, machine-readable context for coded errors (e.g.
+    /// `{"current_version": 3}` on `VERSION_CONFLICT`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub details: Option<serde_json::Value>,
 }
 
 /// Unified application error type for all HTTP handlers.
@@ -43,6 +47,15 @@ pub enum AppError {
     InternalError(String),
     #[error("{0}")]
     TooManyRequests(String),
+    /// An error with its own stable machine-readable `code` (clients branch on
+    /// it instead of parsing `message`) and optional structured `details`.
+    #[error("{message}")]
+    Coded {
+        status: StatusCode,
+        code: &'static str,
+        message: String,
+        details: Option<serde_json::Value>,
+    },
 }
 
 impl AppError {
@@ -57,6 +70,7 @@ impl AppError {
             Self::Gone(_) => "GONE",
             Self::InternalError(_) => "INTERNAL_ERROR",
             Self::TooManyRequests(_) => "RATE_LIMITED",
+            Self::Coded { code, .. } => code,
         }
     }
 
@@ -71,6 +85,7 @@ impl AppError {
             Self::Gone(_) => StatusCode::GONE,
             Self::InternalError(_) => StatusCode::INTERNAL_SERVER_ERROR,
             Self::TooManyRequests(_) => StatusCode::TOO_MANY_REQUESTS,
+            Self::Coded { status, .. } => *status,
         }
     }
 }
@@ -90,11 +105,16 @@ impl IntoResponse for AppError {
             other => other.to_string(),
         };
 
+        let details = match &self {
+            Self::Coded { details, .. } => details.clone(),
+            _ => None,
+        };
         let body = ErrorResponse {
             error: ErrorBody {
                 code,
                 message: sanitized_message,
                 request_id: None,
+                details,
             },
         };
         (status, axum::Json(body)).into_response()
@@ -182,6 +202,63 @@ impl AppError {
 
     pub fn rate_limited(msg: impl std::fmt::Display) -> Self {
         Self::TooManyRequests(msg.to_string())
+    }
+
+    /// An error carrying a stable machine-readable `code`.
+    pub fn coded(
+        status: StatusCode,
+        code: &'static str,
+        msg: impl std::fmt::Display,
+    ) -> Self {
+        Self::Coded {
+            status,
+            code,
+            message: msg.to_string(),
+            details: None,
+        }
+    }
+
+    /// Attach structured `details` to a [`AppError::Coded`] (no-op otherwise).
+    pub fn with_details(mut self, value: serde_json::Value) -> Self {
+        if let Self::Coded { details, .. } = &mut self {
+            *details = Some(value);
+        }
+        self
+    }
+}
+
+/// Map collaboration domain errors onto the REST contract: stable codes for the
+/// conditions clients must branch on, sanitised 500 for everything else.
+impl From<rg_core::collaboration::CollabError> for AppError {
+    fn from(e: rg_core::collaboration::CollabError) -> Self {
+        use rg_core::collaboration::CollabError as E;
+        match e {
+            E::NotFound(msg) => Self::NotFound(msg),
+            E::BadRequest(msg) => Self::BadRequest(msg),
+            E::Conflict(msg) => Self::Conflict(msg),
+            E::SessionCredentials => Self::coded(
+                StatusCode::FORBIDDEN,
+                "SESSION_CREDENTIALS_INVALID",
+                "invalid session credentials",
+            ),
+            E::SessionExpired => Self::coded(
+                StatusCode::CONFLICT,
+                "SESSION_EXPIRED",
+                "session has ended or expired",
+            ),
+            E::VersionConflict { current_version } => Self::coded(
+                StatusCode::CONFLICT,
+                "VERSION_CONFLICT",
+                "the object was modified; re-read it and retry",
+            )
+            .with_details(serde_json::json!({ "current_version": current_version })),
+            E::IdempotencyKeyReused => Self::coded(
+                StatusCode::CONFLICT,
+                "IDEMPOTENCY_KEY_REUSED",
+                "the client id was already used with a different payload",
+            ),
+            E::Internal(inner) => Self::from(inner),
+        }
     }
 }
 

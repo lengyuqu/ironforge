@@ -1,3 +1,4 @@
+pub mod agent_session_ops;
 pub mod artifact_ops;
 pub mod attachment_ops;
 pub mod audit_log_ops;
@@ -6,6 +7,10 @@ pub mod board_ops;
 pub mod ci_environment_ops;
 pub mod ci_retention_ops;
 pub mod ci_secret_ops;
+pub mod collab_handoff_ops;
+pub mod collab_message_ops;
+pub mod collab_read_ops;
+pub mod collab_task_ops;
 pub mod commit_status_ops;
 pub mod deploy_key_ops;
 pub mod import_task_ops;

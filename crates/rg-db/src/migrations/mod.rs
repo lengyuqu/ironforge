@@ -78,6 +78,7 @@ pub mod m20261015_000004_hash_runner_tokens;
 pub mod m20261022_000001_scope_repo_names_by_namespace;
 pub mod m20261023_000001_add_release_asset_sha256;
 pub mod m20261102_000001_mysql_live_repo_name_unique;
+pub mod m20261104_000001_create_agent_collaboration;
 
 use sea_orm_migration::prelude::*;
 
@@ -169,6 +170,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261022_000001_scope_repo_names_by_namespace::Migration),
             Box::new(m20261023_000001_add_release_asset_sha256::Migration),
             Box::new(m20261102_000001_mysql_live_repo_name_unique::Migration),
+            Box::new(m20261104_000001_create_agent_collaboration::Migration),
         ]
     }
 }

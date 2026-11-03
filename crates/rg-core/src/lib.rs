@@ -21,6 +21,7 @@ pub mod user;
 // ── Collaboration ───────────────────────────────────
 pub mod board;
 pub mod branch_protection;
+pub mod collaboration;
 pub mod collaborator;
 pub mod issue;
 pub mod issue_template;

@@ -1,6 +1,7 @@
 //! Re-exports all entity modules.
 
 pub mod access_token;
+pub mod agent_session;
 pub mod artifact;
 pub mod attachment;
 pub mod audit_log;
@@ -13,6 +14,10 @@ pub mod ci_environment;
 pub mod ci_environment_approval;
 pub mod ci_retention_policy;
 pub mod ci_secret;
+pub mod collab_handoff;
+pub mod collab_message;
+pub mod collab_read;
+pub mod collab_task;
 pub mod commit_status;
 pub mod deploy_key;
 pub mod import_task;
