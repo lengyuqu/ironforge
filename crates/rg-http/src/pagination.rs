@@ -21,7 +21,10 @@ pub struct PaginationParams {
     )]
     pub page: u64,
     /// Items per page. Default: 20, Max: 100
-    #[serde(default = "default_per_page")]
+    #[serde(
+        default = "default_per_page",
+        deserialize_with = "deserialize_u64_from_query"
+    )]
     pub per_page: u64,
 }
 
