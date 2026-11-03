@@ -224,6 +224,45 @@ pub async fn get_release(
     }
 }
 
+/// GET /api/v1/repos/:owner/:name/releases/tags/{tag}
+///
+/// Clients need a by-tag lookup that does not page through every release
+/// (the client design doc listed this as an upstream need).
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/releases/tags/{tag}",
+    tag = "Releases",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("tag" = String, Path, description = "release tag"),
+    ),
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 404, description = "Not found", body = serde_json::Value),
+    ),
+)]
+pub async fn get_release_by_tag(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((owner, name, tag)): Path<(String, String, String)>,
+) -> impl IntoResponse {
+    let repo = match super::repo_access::require_read(&state, &headers, &owner, &name).await {
+        Ok(repo) => repo,
+        Err(e) => return e.into_response(),
+    };
+
+    match rg_db::ops::release_ops::find_by_repo_and_tag(&state.db, repo.id, &tag).await {
+        Ok(Some(release)) => (StatusCode::OK, Json(serde_json::json!(release))).into_response(),
+        Ok(None) => AppError::not_found(format!("release with tag '{tag}' not found"))
+            .into_response(),
+        Err(e) => {
+            tracing::error!(%e, "handler error");
+            AppError::from(e).into_response()
+        }
+    }
+}
+
 /// PATCH /api/v1/repos/:owner/:name/releases/:id
 #[utoipa::path(
     patch,

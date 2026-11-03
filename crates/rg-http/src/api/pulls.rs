@@ -234,6 +234,23 @@ pub async fn create_pr(
             .await
             {
                 Ok(pr) => {
+                    // Publish refs/pull/<n>/head for same-repo PRs so checkout
+                    // works without the head branch (fork PRs keep their head
+                    // branch in the fork; client falls back to fetching it).
+                    if pr.head_repo_id.is_none() {
+                        if let Some(head_sha) = pr.head_sha.as_deref() {
+                            let repo_path = state.repo_root.join(format!("{owner}/{repo}.git"));
+                            let refname = format!("refs/pull/{}/head", pr.number);
+                            if let Err(error) = rg_git::ops::update_ref(
+                                &repo_path,
+                                &refname,
+                                head_sha,
+                                "pull request opened",
+                            ) {
+                                tracing::warn!(%error, %refname, "could not publish pull-request head ref");
+                            }
+                        }
+                    }
                     // CODEOWNERS is advisory: a malformed/missing file or an
                     // unavailable diff must not prevent PR creation.
                     match rg_core::pull_request::compute_diff(
