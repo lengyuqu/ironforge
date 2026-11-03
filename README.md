@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/brand/ironforge-logo.svg" alt="IronForge" width="288"></p>
+
 # IronForge 🔨
 
 > **铁匠铺** — 一个用 Rust 从零实现的轻量级 Git 托管平台
