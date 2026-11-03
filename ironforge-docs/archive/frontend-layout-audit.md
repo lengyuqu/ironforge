@@ -134,6 +134,9 @@
 - ✅ 响应式布局未出现明显问题
 
 ### 截图文件
+
+> 2026-11-03：以下截图已从仓库根目录删除——它们展示的是旧版（与 GitHub 标识过于相似的）Logo，已由 `assets/brand/` 的新标识取代。如需查看，可从该日期之前的 git 历史中取回。
+
 - `ironforge_home.png` - 首页
 - `ironforge_home_full.png` - 首页完整页面
 - `ironforge_login.png` - 登录页
