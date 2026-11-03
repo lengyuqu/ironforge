@@ -347,12 +347,22 @@ pub async fn ws_job_log_handler(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Response {
-    // M-4/M-5: Authenticate via cookie (preferred), subprotocol, or query param
+    // M-4/M-5: authenticate via cookie (preferred), subprotocol, a plain
+    // Authorization header (CLI handshakes), or a query parameter.
+    let header_token = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| {
+            value
+                .strip_prefix("Bearer ")
+                .or_else(|| value.strip_prefix("token "))
+        })
+        .map(|token| token.to_string());
     let (proto_echo, token) = match extract_token_from_cookie(&headers) {
         Some(t) => (None, Some(t)),
         None => match extract_bearer_from_protocol(&headers) {
             Some((proto, token)) => (Some(proto), Some(token)),
-            None => (None, query.token),
+            None => (None, header_token.or(query.token)),
         },
     };
 
@@ -361,7 +371,9 @@ pub async fn ws_job_log_handler(
             // #5: also enforce token_version revocation (query-param tokens
             // bypass the header-based session_guard middleware).
             Some(claims) => crate::api::auth::validate_session(&state.db, &claims).await,
-            None => None,
+            // A PAT is not a JWT: resolve it directly so `ifg ci logs --follow`
+            // can stream without minting a session first.
+            None => crate::pat_actor(&state.db, t).await,
         },
         None => None,
     };

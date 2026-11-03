@@ -1872,7 +1872,7 @@ async fn pat_to_bearer_jwt(
 
 /// Resolve a PAT to an actor id, requiring the `repo` scope and an active
 /// owner account (#5: deactivated accounts lose PAT access too).
-async fn pat_actor(db: &DatabaseConnection, token: &str) -> Option<i64> {
+pub(crate) async fn pat_actor(db: &DatabaseConnection, token: &str) -> Option<i64> {
     let pat = resolve_pat(db, token).await?;
     if !rg_core::auth::pat_scope::has_scope(&pat.scopes, "repo") {
         return None;
