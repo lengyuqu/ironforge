@@ -48,6 +48,7 @@ COPY crates/rg-ssh/Cargo.toml    crates/rg-ssh/
 COPY crates/rg-http/Cargo.toml   crates/rg-http/
 COPY crates/rg-db/Cargo.toml     crates/rg-db/
 COPY crates/rg-ci/Cargo.toml     crates/rg-ci/
+COPY crates/rg-ci-isolation/Cargo.toml crates/rg-ci-isolation/
 COPY crates/rg-runner/Cargo.toml crates/rg-runner/
 COPY crates/rg-mcp/Cargo.toml    crates/rg-mcp/
 
@@ -56,7 +57,7 @@ COPY crates/rg-mcp/Cargo.toml    crates/rg-mcp/
 RUN mkdir -p crates/rg-cli/src && echo 'fn main() {}' > crates/rg-cli/src/main.rs \
     && mkdir -p crates/rg-mcp/src && echo 'fn main() {}' > crates/rg-mcp/src/main.rs \
     && mkdir -p crates/rg-runner/src && echo 'fn main() {}' > crates/rg-runner/src/main.rs
-RUN for crate in rg-core rg-git rg-ssh rg-http rg-db rg-ci; do \
+RUN for crate in rg-core rg-git rg-ssh rg-http rg-db rg-ci rg-ci-isolation; do \
       mkdir -p crates/$crate/src && echo '' > crates/$crate/src/lib.rs; \
     done
 
@@ -74,6 +75,7 @@ RUN touch crates/rg-cli/src/main.rs \
     crates/rg-http/src/lib.rs \
     crates/rg-db/src/lib.rs \
     crates/rg-ci/src/lib.rs \
+    crates/rg-ci-isolation/src/lib.rs \
     && cargo build --release --bin ironforge --bin ironforge-runner --bin ironforge-mcp
 
 # Strip symbols to reduce binary size
