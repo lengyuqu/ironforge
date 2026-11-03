@@ -151,6 +151,20 @@ pub async fn register_full(base: &str, username: &str, email: &str) -> (String, 
     (token, body["id"].as_i64().unwrap())
 }
 
+/// Register the instance's first account. The first registration is promoted
+/// to administrator, so tests that need an ordinary (non-admin) user must
+/// register one of these first and only then register their own users.
+#[allow(dead_code)]
+pub async fn register_bootstrap_admin(base: &str) {
+    register_user(
+        base,
+        "bootstrap_admin",
+        "bootstrap_admin@example.com",
+        "Qz7$wRtm",
+    )
+    .await;
+}
+
 /// Create a repo and return its id.
 #[allow(dead_code)]
 pub async fn create_repo(base: &str, token: &str, name: &str) -> i64 {

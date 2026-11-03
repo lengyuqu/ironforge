@@ -1,10 +1,11 @@
 mod common;
 
-use common::{register_full, spawn_test_app_with_db};
+use common::{register_bootstrap_admin, register_full, spawn_test_app_with_db};
 
 #[tokio::test]
 async fn runner_register_requires_admin() {
     let (base, db) = spawn_test_app_with_db().await;
+    register_bootstrap_admin(&base).await;
     let client = reqwest::Client::new();
 
     let unauth_resp = client

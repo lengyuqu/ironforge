@@ -1,6 +1,6 @@
 mod common;
 
-use common::{register_full, spawn_test_app_with_db};
+use common::{register_bootstrap_admin, register_full, spawn_test_app_with_db};
 
 #[tokio::test]
 async fn admin_orgs_list_requires_auth() {
@@ -19,6 +19,7 @@ async fn admin_orgs_list_requires_auth() {
 #[tokio::test]
 async fn admin_orgs_list_requires_admin() {
     let (base, db) = spawn_test_app_with_db().await;
+    register_bootstrap_admin(&base).await;
     let client = reqwest::Client::new();
 
     let (user_token, _) = register_full(&base, "org_member", "org_member@example.com").await;

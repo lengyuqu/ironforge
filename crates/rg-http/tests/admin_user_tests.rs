@@ -1,6 +1,6 @@
 mod common;
 
-use common::{register_full, spawn_test_app_with_db};
+use common::{register_bootstrap_admin, register_full, spawn_test_app_with_db};
 
 async fn promote_user_to_admin(db: &rg_db::DatabaseConnection, user_id: i64) {
     rg_db::ops::user_ops::update_by_id(db, user_id, None, None, Some(true), None)
@@ -24,6 +24,7 @@ async fn admin_users_list_requires_auth() {
 #[tokio::test]
 async fn admin_users_list_requires_admin() {
     let (base, db) = spawn_test_app_with_db().await;
+    register_bootstrap_admin(&base).await;
     let client = reqwest::Client::new();
 
     let (user_token, _) = register_full(&base, "nona", "nona@example.com").await;
@@ -46,7 +47,8 @@ async fn admin_users_list_requires_admin() {
         .unwrap();
     assert_eq!(admin_resp.status(), 200);
     let body: serde_json::Value = admin_resp.json().await.unwrap();
-    assert_eq!(body["pagination"]["total"], 2);
+    // bootstrap admin + nona + adminer
+    assert_eq!(body["pagination"]["total"], 3);
 }
 
 #[tokio::test]

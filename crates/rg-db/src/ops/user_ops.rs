@@ -117,6 +117,32 @@ pub async fn update_by_id(
     active.update(db).await.context("db: update user by admin")
 }
 
+/// Make `user_id` an administrator if it is the first user the instance ever
+/// had, i.e. the lowest id in the table. Returns whether it was promoted.
+///
+/// Called right after a registration insert. Deciding by "lowest id" instead of
+/// "table was empty before my insert" keeps concurrent first registrations
+/// from both qualifying: only one row can hold the minimum id. Soft-deleted
+/// rows still count, so an instance that has had users never hands out admin
+/// to a later registrant.
+pub async fn promote_if_first_user(db: &DatabaseConnection, user_id: i64) -> Result<bool> {
+    let first = UserEntity::find()
+        .order_by_asc(user::Column::Id)
+        .one(db)
+        .await
+        .context("db: find first user")?;
+    if first.map(|u| u.id) != Some(user_id) {
+        return Ok(false);
+    }
+    UserEntity::update_many()
+        .col_expr(user::Column::IsAdmin, Expr::value(true))
+        .filter(user::Column::Id.eq(user_id))
+        .exec(db)
+        .await
+        .context("db: promote first user to admin")?;
+    Ok(true)
+}
+
 /// Create a user with high-level parameters (used by SSO).
 pub async fn create_user(
     db: &DatabaseConnection,

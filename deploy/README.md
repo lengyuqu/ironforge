@@ -21,6 +21,18 @@ docker compose logs -f
 
 Access: **http://localhost:8080**
 
+### First administrator
+
+On a fresh instance the **first account registered through the sign-up page or
+`POST /api/v1/users/register` becomes the administrator**. Every later
+registration is an ordinary user. Accounts created by LDAP/SSO sign-in never
+get this bootstrap, and an instance that has ever had a user (even a deleted
+one) never promotes a later registrant.
+
+Register your own account right after the first start, before exposing the
+port to anyone else, since whoever registers first owns the instance. Further
+admins are granted from the admin API/UI by an existing admin.
+
 ### Environment variables (used with default CMD):
 | Variable | Required | Default |
 |----------|----------|---------|

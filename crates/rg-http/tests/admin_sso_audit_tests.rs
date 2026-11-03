@@ -1,7 +1,7 @@
 mod common;
 
 use chrono::Utc;
-use common::{register_full, spawn_test_app_with_db};
+use common::{register_bootstrap_admin, register_full, spawn_test_app_with_db};
 use sea_orm::{ActiveValue, Set};
 
 #[tokio::test]
@@ -21,6 +21,7 @@ async fn admin_sso_list_requires_auth() {
 #[tokio::test]
 async fn admin_sso_requires_admin() {
     let (base, db) = spawn_test_app_with_db().await;
+    register_bootstrap_admin(&base).await;
     let client = reqwest::Client::new();
 
     let (user_token, _user_id) = register_full(&base, "sso_user", "sso_user@example.com").await;

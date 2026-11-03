@@ -116,6 +116,8 @@ pub fn validate_username(username: &str) -> CoreResult<()> {
 
 /// Register a new user.
 ///
+/// The first user an instance ever registers is made an administrator.
+///
 /// Returns an `AuthResponse` with a JWT token.
 pub async fn register(
     db: &DatabaseConnection,
@@ -185,6 +187,12 @@ pub async fn register(
         }
         Err(error) => return Err(error.into()),
     };
+    // Bootstrap: a fresh instance has no administrator and the admin API needs
+    // one, so the first account ever registered becomes the admin. Only this
+    // local registration path does it; LDAP/SSO provisioning never does.
+    if user_ops::promote_if_first_user(db, user.id).await? {
+        tracing::info!(user_id = user.id, username = %user.username, "first registered user promoted to admin");
+    }
     let token = jwt::generate_token(user.id, &user.username, jwt_secret, 7, user.token_version)?;
 
     Ok(AuthResponse {
@@ -815,6 +823,56 @@ mod tests {
         let db = rg_db::connect("sqlite::memory:").await.unwrap();
         rg_db::run_migrations(&db).await.unwrap();
         db
+    }
+
+    async fn is_admin(db: &DatabaseConnection, name: &str) -> bool {
+        user_ops::find_by_username(db, name)
+            .await
+            .unwrap()
+            .unwrap()
+            .is_admin
+    }
+
+    #[tokio::test]
+    async fn first_registered_user_is_admin_and_later_ones_are_not() {
+        let db = memory_db().await;
+        register(&db, "first", "first@example.com", "Str0ng!Passw0rd", "s")
+            .await
+            .unwrap();
+        register(&db, "second", "second@example.com", "Str0ng!Passw0rd", "s")
+            .await
+            .unwrap();
+
+        assert!(is_admin(&db, "first").await);
+        assert!(!is_admin(&db, "second").await);
+    }
+
+    #[tokio::test]
+    async fn failed_registration_does_not_consume_the_admin_slot() {
+        let db = memory_db().await;
+        // Rejected before any insert (weak password), so the table stays empty.
+        assert!(register(&db, "first", "first@example.com", "x", "s")
+            .await
+            .is_err());
+        register(&db, "second", "second@example.com", "Str0ng!Passw0rd", "s")
+            .await
+            .unwrap();
+
+        assert!(is_admin(&db, "second").await);
+    }
+
+    #[tokio::test]
+    async fn existing_users_keep_a_later_registrant_from_becoming_admin() {
+        let db = memory_db().await;
+        // An account provisioned some other way (SSO/LDAP) already exists.
+        user_ops::create_user(&db, "sso-user", "sso@example.com", "", "SSO")
+            .await
+            .unwrap();
+        register(&db, "local", "local@example.com", "Str0ng!Passw0rd", "s")
+            .await
+            .unwrap();
+
+        assert!(!is_admin(&db, "local").await);
     }
 
     #[tokio::test]
