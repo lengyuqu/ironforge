@@ -7,6 +7,8 @@ use axum::response::IntoResponse;
 use axum::Json;
 use chrono;
 use serde::{Deserialize, Serialize};
+use std::sync::{Arc, OnceLock};
+use tokio::sync::Semaphore;
 
 use crate::api::auth::{extract_bearer_claims, extract_ci_job_claims, extract_user_id};
 use crate::error::AppError;
@@ -292,14 +294,7 @@ pub async fn list_tree(
     let git_ref = params.r#ref.unwrap_or_else(|| "HEAD".to_string());
     let sub_path = params.path.unwrap_or_default();
 
-    let result = run_blocking(move || match list_tree_entries(&repo_path, &git_ref, &sub_path) {
-        // A freshly-created repo with no commits has an unborn HEAD, which
-        // can't be resolved to a tree. That's not an error — return an
-        // empty tree so the UI can render the empty-repo state.
-        Err(_) if is_empty_repo(&repo_path) => Ok(Vec::new()),
-        other => other,
-    })
-    .await;
+    let result = run_blocking(move || list_tree_or_empty(&repo_path, &git_ref, &sub_path)).await;
 
     match result {
         Ok(entries) => (
@@ -308,6 +303,21 @@ pub async fn list_tree(
         )
             .into_response(),
         Err(e) => AppError::from(e).into_response(),
+    }
+}
+
+/// List a tree, treating a repository without commits as an empty listing.
+fn list_tree_or_empty(
+    repo_path: &std::path::Path,
+    git_ref: &str,
+    sub_path: &str,
+) -> CoreResult<Vec<TreeEntry>> {
+    match list_tree_entries(repo_path, git_ref, sub_path) {
+        // A freshly-created repo with no commits has an unborn HEAD, which
+        // can't be resolved to a tree. That's not an error — return an
+        // empty tree so the UI can render the empty-repo state.
+        Err(_) if is_empty_repo(repo_path) => Ok(Vec::new()),
+        other => other,
     }
 }
 
@@ -475,7 +485,7 @@ pub async fn get_blame(
     let git_ref = params.r#ref.unwrap_or_else(|| "HEAD".to_string());
 
     // Blame walks history and diffs on every ancestor — keep it off the async workers.
-    let result = tokio::task::spawn_blocking({
+    let result = run_git_read({
         let (path, git_ref) = (path.clone(), git_ref.clone());
         move || rg_git::blame::blame_file(&repo_path, &git_ref, &path)
     })
@@ -497,7 +507,7 @@ pub async fn get_blame(
             tracing::warn!(error = %e, %git_ref, "blame failed");
             AppError::not_found(format!("cannot blame '{path}' at ref '{git_ref}'")).into_response()
         }
-        Err(e) => AppError::internal(e).into_response(),
+        Err(e) => AppError::from(e).into_response(),
     }
 }
 
@@ -589,15 +599,43 @@ pub async fn list_tags(
 
 // ── Git CLI helpers ───────────────────────────────────────────────────
 
+/// Caps how many repository reads run on the blocking pool at once. The pool
+/// itself allows hundreds of threads, so without this bound a burst of
+/// anonymous log or blame requests on a public repo could run that many
+/// history walks in parallel. Excess requests wait here, off the workers.
+fn git_read_permits() -> &'static Arc<Semaphore> {
+    static PERMITS: OnceLock<Arc<Semaphore>> = OnceLock::new();
+    PERMITS.get_or_init(|| {
+        let cpus = std::thread::available_parallelism().map_or(4, |n| n.get());
+        Arc::new(Semaphore::new(cpus * 2))
+    })
+}
+
 /// Run a synchronous gix helper on the blocking pool. Object reads, history
 /// walks and the GPG subprocess behind signature checks would otherwise stall
 /// a tokio worker, and with it every request scheduled on that worker.
+///
+/// The permit moves into the task: if the client disconnects, the handler
+/// future is dropped but the work keeps running, and it must keep its slot.
+async fn run_git_read<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> CoreResult<T> {
+    let permit = git_read_permits()
+        .clone()
+        .acquire_owned()
+        .await
+        .map_err(|e| CoreError::internal(format!("git read limiter closed: {e}")))?;
+    tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        f()
+    })
+    .await
+    .map_err(|e| CoreError::internal(format!("blocking git task failed: {e}")))
+}
+
+/// [`run_git_read`] for helpers that already return a `CoreResult`.
 async fn run_blocking<T: Send + 'static>(
     f: impl FnOnce() -> CoreResult<T> + Send + 'static,
 ) -> CoreResult<T> {
-    tokio::task::spawn_blocking(f)
-        .await
-        .map_err(|e| CoreError::internal(format!("blocking git task failed: {e}")))?
+    run_git_read(f).await?
 }
 
 /// Open the bare repository; failure here is a server-side storage fault.
