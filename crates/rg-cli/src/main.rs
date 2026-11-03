@@ -278,6 +278,26 @@ enum Commands {
         repo_root: String,
     },
 
+    /// Create a user directly in the database (bootstrap / ops; works even
+    /// when open registration is disabled)
+    CreateUser {
+        username: String,
+
+        #[arg(long)]
+        email: String,
+
+        /// Password value, or `-` to read one line from stdin
+        #[arg(long)]
+        password: Option<String>,
+
+        #[arg(long)]
+        admin: bool,
+
+        /// Database URL (same one the server uses)
+        #[arg(long, default_value = "sqlite://ironforge.db?mode=rwc")]
+        db_url: String,
+    },
+
     /// Run as a CI Runner — polls jobs and executes them
     Runner {
         /// IronForge server URL (e.g. http://127.0.0.1:8080)
@@ -1629,6 +1649,50 @@ async fn main() -> anyhow::Result<()> {
                 indexed_count = indexed_count,
                 elapsed_ms = elapsed.as_millis(),
                 "Repository indexing complete"
+            );
+        }
+
+        Commands::CreateUser {
+            username,
+            email,
+            password,
+            admin,
+            db_url,
+        } => {
+            let db = rg_db::connect(&db_url).await?;
+            // A fresh database needs the schema before the insert.
+            rg_db::run_migrations(&db).await?;
+            let password = match password.as_deref() {
+                Some("-") => {
+                    use std::io::BufRead;
+                    let mut line = String::new();
+                    std::io::stdin().lock().read_line(&mut line)?;
+                    line.trim().to_string()
+                }
+                Some(value) => value.to_string(),
+                None => anyhow::bail!(
+                    "pass --password <VALUE> or --password - (read one line from stdin)"
+                ),
+            };
+            if password.len() < 8 {
+                anyhow::bail!("password must be at least 8 characters");
+            }
+            let hash = rg_core::auth::password::hash_password(&password)
+                .map_err(|e| anyhow::anyhow!("could not hash the password: {e}"))?;
+            let user =
+                rg_db::ops::user_ops::create_user(&db, &username, &email, &hash, "").await?;
+            // create_user exists for SSO provisioning and marks the account
+            // "oauth2", which password login refuses; ops-created users log
+            // in with the password just set.
+            rg_db::ops::user_ops::set_auth_provider(&db, user.id, "local").await?;
+            if admin {
+                rg_db::ops::user_ops::update_by_id(&db, user.id, None, None, Some(true), None)
+                    .await?;
+            }
+            println!(
+                "created user {username} (id {}){}",
+                user.id,
+                if admin { " [admin] " } else { "" }
             );
         }
     }

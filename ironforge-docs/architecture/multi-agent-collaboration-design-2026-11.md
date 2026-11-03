@@ -1,7 +1,7 @@
 # 同账号多 Agent 协作：首版设计与实施任务
 
-> 状态：Proposed，待评审；2026-11-04。本文是[整合路线](harness-integrated-roadmap-2026-11.md) S1 的细化，不表示功能已经实现或验证。
-> 来源：用户描述的使用场景、整合路线及当前工作区静态检查。当前工作区有未提交改动；实现状态须在动工时重新核对。
+> 状态：首版已按本文实施（C01–C06，2026-11-04）；实施偏差见 §9，逐层证据与未验证项见[验证记录](multi-agent-collaboration-verification-2026-11.md)。本文是[整合路线](harness-integrated-roadmap-2026-11.md) S1 的细化。
+> 来源：用户描述的使用场景、整合路线、当前工作区静态检查及实施中的实测。§1–§8 保留原设计表述；与实现不一致处以 §9 和代码为准。
 
 ## 1. 目标与边界
 
@@ -70,7 +70,7 @@ MCP 进程内暂存 session ID 与 secret，不向模型返回 secret；持久�
 
 ## 6. 任务拆分与依赖
 
-所有任务初始状态 `TODO`；路径为候选，实施前按现有架构复核。迁移、认证、权限、AppState 等遵守项目护栏；本文是设计，不代表已授权执行受确认约束的变更。
+任务初始状态为 `TODO`，现状见 §9；路径为候选，实施前按现有架构复核。迁移、认证、权限、AppState 等遵守项目护栏；本文是设计，不代表已授权执行受确认约束的变更。
 
 | ID | 任务与建议位置 | 依赖 | 完成标准 |
 |---|---|---|---|
@@ -109,3 +109,31 @@ C02–C04 可先为 REST 交付；只读客户端可并行开发。新增迁移�
 2. session secret 在桌面、CLI 和不同 MCP 宿主的具体安全存储方式；不支持安全存储的宿主默认重注册。
 3. 不同账号协作、管理员代管、长期保留与清理、消息编辑删除、在线推送和全局收件箱均为后续范围；先评估用户需求与资源开销。
 4. S1 与受限 agent token 尚未落地时，用户可用现有账号凭据完成协作；不能将其描述为已具备细粒度 Agent 身份隔离。
+
+## 9. 实施状态与相对设计的偏差（2026-11-04）
+
+| 任务 | 状态 | 代码位置 |
+|---|---|---|
+| C00 | 完成（静态核验，另在实施中实测了权限缓存） | [multi-agent-c00-baseline-2026-11.md](multi-agent-c00-baseline-2026-11.md) |
+| C01 | 完成并通过 SQLite / PostgreSQL 17 / MySQL 8.4 | `rg-db`：迁移 `m20261104_000001_create_agent_collaboration`、5 个实体、`*_ops` |
+| C02 | 完成 | `rg-core/src/collaboration/{session,secret,cursor,validation}.rs`、`rg-http/src/api/collab_sessions.rs` |
+| C03 | 完成 | `…/{task,message}.rs`、`collab_tasks.rs`、`collab_messages.rs` |
+| C04 | 完成 | `…/{handoff,read}.rs`、`collab_handoffs.rs` |
+| C05 | 完成 | `rg-mcp/src/collab.rs` |
+| C06 | 完成（真实服务 + 真实 MCP 二进制 + HTTP 客户端 + 真实 Git 仓库） | `scripts/collab-e2e.py`、`.ai/README.md` |
+
+“完成”的含义与证据层次见验证记录；它不代表生产发布或多实例部署已验证。
+
+实现与上文设计不同或补充之处：
+
+1. **MCP 多一个工具** `collab_list_tasks`（共 15 个）：设计列出的 14 个工具里没有任务发现入口，另一个 harness 无从得知 `task_id`。
+2. **权限缓存**：协作端点在判权前对 `(repo, user)` 调用 `invalidate_perm_cache_user`，使撤权在下一次协作请求生效（实测：绕过失效钩子直接改库后，通用 `can_write_repo` 仍返回缓存值 `true`，协作请求已 403）。没有修改 `can_read_repo/can_write_repo`；其余端点的 30 秒窗口与多实例限制不变。
+3. **错误契约**：`AppError` 增加 `Coded{status, code, message, details}`，响应体 `error.details` 可选。码：`SESSION_CREDENTIALS_INVALID`(403，未知 id/错密钥/他人账号/他仓库不可区分)、`SESSION_CREDENTIALS_REQUIRED`(400)、`SESSION_EXPIRED`(409)、`VERSION_CONFLICT`(409，`details.current_version`)、`IDEMPOTENCY_KEY_REUSED`(409)。交接：非指定会话接受/非创建者取消为 403 `FORBIDDEN`；非 pending 状态再操作为 409 `CONFLICT`；pending 但版本过期为 `VERSION_CONFLICT`。
+4. **交接不改变任务**：接受/取消只改变交接自身，不重新指派任务、不生成消息（设计 §3 末句的字面实现）；新负责人需另行 `PATCH` 任务。要求接受方为**存活**会话；目标可以是离线或已过期的会话（交接保持 pending，创建者可取消后重新指派）；不允许交给自己。
+5. **交接幂等**：新增 `client_handoff_id`、`payload_hash` 列及 `UNIQUE(from_session_id, client_handoff_id)`（设计 §4 已预告）；证据条目为单行文本、≤2048 字节、≤20 条。
+6. **跨对象一致性在数据库层强制**：被引用表暴露 `UNIQUE(id, repo_id)`（消息回复为 `(id, task_id)`），引用方使用复合外键，因此跨仓库的作者/目标/回复/负责人由数据库拒绝，服务层校验只是第一道。外键均 `ON DELETE CASCADE`：删除仓库或用户会一并删除其协作记录。
+7. **任务/会话链接**：`owner_session_id` 必须是同仓库**存活**会话；`issue_number`/`pr_number` 必须存在于本仓库；`commit_sha` 必须是本仓库真实存在的提交对象（仅校验存在，不校验是否在某分支或已审查/通过 CI）。
+8. **读取可见性（§8.1 仍待产品决定）**：当前为“已认证 + 仓库读权限”，公开仓库也必须登录；只读协作者可读任务与消息，不可写。收紧只需改 `rg-http/src/api/collab.rs::require_collab_read` 一处。
+9. **MCP 凭据持久化**：默认仅内存，重启后须重新注册；宿主可设置 `IRONFORGE_COLLAB_SESSION_FILE`（0600）以续接同一会话。`collab_start_session` 对仍存活的会话返回 `resumed: true` 而不重复注册（`force_new` 可强制新建）。
+10. **时间精度**：MySQL 的 `TIMESTAMP` 实测精度为秒（PostgreSQL 为微秒）。会话/任务/交接列表在同一秒内的相对顺序退化为按 `id` 排序；消息顺序由 `seq` 决定，不受影响。
+11. **未做**：不限制单用户会话数量；未写审计记录；无自动清理；无推送；未实现收件箱等后续产品需求（见 [agent-collaboration-product-requirements-2026-11.md](agent-collaboration-product-requirements-2026-11.md)）。

@@ -27,6 +27,11 @@ pub enum CollabError {
     #[error("session has ended or expired")]
     SessionExpired,
 
+    /// The session is valid but not the one allowed to perform this action
+    /// (e.g. accepting a handoff addressed to another session).
+    #[error("{0}")]
+    Forbidden(String),
+
     /// Optimistic-lock failure; `current_version` is the winner's version.
     #[error("version conflict")]
     VersionConflict { current_version: i64 },

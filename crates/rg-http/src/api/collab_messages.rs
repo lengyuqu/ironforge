@@ -139,6 +139,53 @@ pub async fn send_message(
     })
 }
 
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct MarkReadRequest {
+    /// Highest message `seq` the session has processed.
+    pub last_read_seq: i64,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct MarkReadResponse {
+    /// The session's watermark after the call. Monotonic: a lower request leaves
+    /// it unchanged, so `last_read_seq: 0` reads the current value.
+    pub last_read_seq: i64,
+}
+
+#[utoipa::path(
+    put,
+    path = "/repos/{owner}/{name}/collaboration/tasks/{id}/read",
+    tag = "Collaboration",
+    params(("owner" = String, Path), ("name" = String, Path), ("id" = String, Path)),
+    request_body = MarkReadRequest,
+    responses(
+        (status = 200, description = "Watermark after the update", body = MarkReadResponse),
+        (status = 400, description = "Negative, or beyond the last committed message"),
+        (status = 403, description = "Write access denied or invalid session credentials"),
+        (status = 404, description = "No such task in this repository"),
+        (status = 409, description = "SESSION_EXPIRED")
+    )
+)]
+pub async fn mark_read(
+    State(state): State<AppState>,
+    Path((owner, name, id)): Path<(String, String, String)>,
+    headers: HeaderMap,
+    Json(req): Json<MarkReadRequest>,
+) -> Result<Json<MarkReadResponse>, AppError> {
+    let (repo, user_id) = require_collab_write(&state, &headers, &owner, &name).await?;
+    let session = acting_session(&state, &headers, repo.id, user_id).await?;
+    let last_read_seq = collaboration::read::mark(
+        &state.db,
+        repo.id,
+        &id,
+        &session,
+        req.last_read_seq,
+        Utc::now(),
+    )
+    .await?;
+    Ok(Json(MarkReadResponse { last_read_seq }))
+}
+
 #[utoipa::path(
     get,
     path = "/repos/{owner}/{name}/collaboration/tasks/{id}/messages",

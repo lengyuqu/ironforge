@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 
 use collab_common::{Env, Sess};
 use reqwest::Method;
-use rg_db::sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+use rg_db::sea_orm::{ConnectionTrait, Statement};
 use serde_json::Value;
 
 #[derive(Clone, Default)]
@@ -93,7 +93,7 @@ async fn t09_session_secret_never_leaves_the_registration_response() {
         let rows = env
             .db
             .query_all(Statement::from_string(
-                DatabaseBackend::Sqlite,
+                env.db.get_database_backend(),
                 format!("SELECT * FROM {table}"),
             ))
             .await

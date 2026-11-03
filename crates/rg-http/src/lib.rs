@@ -987,6 +987,22 @@ fn build_routes(
             get(api::collab_messages::list_messages).post(api::collab_messages::send_message),
         )
         .route(
+            "/repos/{owner}/{name}/collaboration/tasks/{id}/read",
+            put(api::collab_messages::mark_read),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/tasks/{id}/handoffs",
+            get(api::collab_handoffs::list_handoffs).post(api::collab_handoffs::create_handoff),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/handoffs/{id}/accept",
+            post(api::collab_handoffs::accept_handoff),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/handoffs/{id}/cancel",
+            post(api::collab_handoffs::cancel_handoff),
+        )
+        .route(
             "/repos/{owner}/{name}/pipelines/{id}/jobs/{job_id}/play",
             post(api::ci::play_job),
         )

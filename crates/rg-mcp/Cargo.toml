@@ -18,6 +18,7 @@ tokio = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 urlencoding = "2"
+uuid = { workspace = true }
 
 # HTTP client (call IronForge REST API)
 reqwest = { workspace = true }
@@ -32,3 +33,6 @@ tracing-subscriber = { workspace = true }
 
 # Env / Config is read straight from the process environment (std::env::var);
 # there is no .env file support, so no dotenv dependency.
+
+[dev-dependencies]
+tempfile = "3"

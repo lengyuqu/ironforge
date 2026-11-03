@@ -134,6 +134,7 @@ Phase 1~21 全部完成。核心能力：
 | Tag 保护 | `protected_tags` + receive-pack | 通配 Tag 规则 |
 | 签名提交强制 | `protected_branches.require_signed_commits` | pack 入库后验证 |
 | LDAP/MFA | `rg-core/src/auth/ldap.rs` + `sso.rs` + `totp.rs` | RFC4515 转义、PKCE S256、五次锁定 |
+| 同账号多 Agent 协作 | `rg-db` 迁移 `m20261104_000001` + `rg-core/src/collaboration/` + `rg-http/src/api/collab*.rs` + `rg-mcp/src/collab.rs` | 会话/任务/消息/交接/已读 5 表；REST `…/collaboration/*`；15 个 MCP `collab_*` 工具。会话是标签不是安全边界；所有客户端字段 `origin: user_content`。证据分层见 [multi-agent-collaboration-verification-2026-11.md](ironforge-docs/architecture/multi-agent-collaboration-verification-2026-11.md) |
 
 ### 技术债与后续方向
 
@@ -334,6 +335,19 @@ FTS5 的 `INSERT INTO fts_table(fts_table, rowid, ...) VALUES('delete', ...)` �
 - `.inf/.nan` 变 `null` 而非整篇文档失败；`<<` 合并键会被展开；自定义 tag（`!ruby/object:...`）被忽略，节点按普通节点读取
 - `010`、`1_000` 现在是数字而非字符串；必须保持文本时请加引号
 - `Value` 的映射键按字母序，**不得依赖映射顺序**；需要固定输出顺序时用带字段顺序的 `#[derive(Serialize)]` 结构（见 `helm.rs` 的 `HelmIndex`）
+
+### 19. 跨三数据库的 SQL：`ON CONFLICT DO NOTHING` 在 MySQL 上不可用 ⚠️
+
+SeaORM 的 `.on_conflict(OnConflict::…do_nothing()).do_nothing()` 在 MySQL 上渲染出非法的 `INSERT IGNORE`（报 1064），SQLite/PostgreSQL 却正常——**只在 SQLite 上测试会漏掉**。需要“已存在则跳过”时：先条件 `UPDATE`，再普通 `insert`，把 `err.sql_err() == Some(SqlErr::UniqueConstraintViolation(_))` 当作“被别人抢先创建”（见 `rg-db/src/ops/collab_read_ops.rs`）。凡新增并发相关 SQL，用 `IRONFORGE_TEST_DATABASE_URL` 跑 PostgreSQL 与 MySQL（`rg-db/tests/collab_store.rs` 即按此设计）。
+
+另：`composite FK` 要求被引用列有唯一键，且建表时要把该唯一键写在同一条 `CREATE TABLE` 里（`Table::create().index(Index::create().unique()…)`），自引用外键才能在 PostgreSQL 上创建。
+
+### 20. 协作接口的权限与错误约定
+
+- 协作端点每次请求前先 `invalidate_perm_cache_user(repo, user)` 再判权（`rg-http/src/api/collab.rs`），使撤权在下一次请求生效，**不改** `can_read_repo/can_write_repo` 本身；其他端点仍受 30 秒缓存约束。
+- 需要稳定机器码或结构化细节的错误用 `AppError::coded(status, "CODE", msg).with_details(json)`（响应体 `error.details`），不要让客户端解析 `message`。
+- 会话凭据错误（未知 id/错误密钥/他人账号/他仓库）统一返回同一个 403 `SESSION_CREDENTIALS_INVALID`，不要拆成可区分的错误（防探测）。
+- `api/` 下的 OpenAPI 守卫测试只扫描 `src/api/*.rs`（不递归），新增端点文件请平铺在该目录。
 
 ---
 

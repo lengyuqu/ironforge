@@ -80,6 +80,10 @@ pub fn list_tools(_state: &AppState, req: &JsonRpcRequest) -> JsonRpcResponse {
         }
     ]);
 
+    let mut tools = tools;
+    if let Some(list) = tools.as_array_mut() {
+        list.extend(crate::collab::tool_definitions());
+    }
     make_success(req.id.clone(), serde_json::json!({ "tools": tools }))
 }
 
@@ -105,6 +109,17 @@ pub fn call_tool(state: &AppState, req: &JsonRpcRequest) -> JsonRpcResponse {
         .get("arguments")
         .cloned()
         .unwrap_or(serde_json::json!({}));
+
+    if crate::collab::is_collab_tool(name) {
+        let out = crate::collab::call(state, name, &args);
+        return make_success(
+            req.id.clone(),
+            serde_json::json!({
+                "content": [ { "type": "text", "text": out.text } ],
+                "isError": out.is_error
+            }),
+        );
+    }
 
     let result = match name {
         "list_repos" => tool_list_repos(state, &args),

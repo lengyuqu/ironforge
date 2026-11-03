@@ -441,11 +441,7 @@ async fn t10_real_issue_and_real_commit_references_are_accepted_and_kept_separat
     assert_eq!(m["origin"], "user_content");
 
     // A tree or blob id is not a commit.
-    let tree = std::process::Command::new("git")
-        .args(["--git-dir", env.bare_path(&env.repo).to_str().unwrap(), "rev-parse", &format!("{sha}^{{tree}}")])
-        .output()
-        .unwrap();
-    let tree = String::from_utf8(tree.stdout).unwrap().trim().to_string();
+    let tree = env.rev_parse(&env.repo, &format!("{sha}^{{tree}}"));
     let (status, _) = send(&env, tid, &a, json!({"client_message_id": "t", "kind": "note", "body": "x", "commit_sha": tree})).await;
     assert_eq!(status, 400);
 }

@@ -1,9 +1,7 @@
 //! Helpers shared by the collaboration integration tests.
 #![allow(dead_code)]
 
-use crate::common::{
-    build_test_app_state, create_repo, register_bootstrap_admin, register_full, setup_test_db,
-};
+use crate::common::{build_test_app_state, create_repo, register_full, setup_test_db};
 use reqwest::{Method, Response};
 use serde_json::{json, Value};
 
@@ -27,6 +25,24 @@ pub struct Env {
 pub struct Sess {
     pub id: String,
     pub secret: String,
+}
+
+fn unique() -> String {
+    uuid::Uuid::new_v4().simple().to_string()[..10].to_string()
+}
+
+/// SQLite by default; with `IRONFORGE_TEST_DATABASE_URL` set, the PostgreSQL or
+/// MySQL database it names (migrated, shared between tests, never reset).
+async fn test_database() -> (rg_db::DatabaseConnection, tempfile::TempDir) {
+    let Ok(url) = std::env::var("IRONFORGE_TEST_DATABASE_URL") else {
+        return setup_test_db().await;
+    };
+    static SETUP: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    let _guard = SETUP.lock().await;
+    std::env::set_var("IRONFORGE_ALLOW_LOCAL_OUTBOUND", "1");
+    let db = rg_db::connect_with_pool(&url, 20, 60, 16).await.expect("connect");
+    rg_db::run_migrations(&db).await.expect("migrate");
+    (db, tempfile::tempdir().unwrap())
 }
 
 /// Start a server instance over `db`; each call is a fresh process-equivalent
@@ -58,32 +74,42 @@ impl Env {
         self.dir.path().join("repos").join(&self.owner).join(format!("{name}.git"))
     }
 
-    /// Create a commit in the bare repository `name` and return its id. Uses an
-    /// explicit identity so it works on machines (and CI) with no git config.
+    /// Create a commit in the bare repository `name` and return its id. Goes
+    /// through the sanctioned git gateway (the `rg-git` guard forbids raw
+    /// `git` processes) and takes its identity from the environment, so it works
+    /// on machines and CI with no git configuration.
     pub fn push_commit(&self, name: &str, message: &str) -> String {
+        let gateway = rg_git::cli_gateway::global_gateway().as_ref().expect("git gateway");
+        let env = [
+            ("GIT_AUTHOR_NAME", "t"),
+            ("GIT_AUTHOR_EMAIL", "t@example.invalid"),
+            ("GIT_COMMITTER_NAME", "t"),
+            ("GIT_COMMITTER_EMAIL", "t@example.invalid"),
+        ];
         let work = tempfile::tempdir().unwrap();
-        let run = |args: &[&str]| {
-            let out = std::process::Command::new("git")
-                .args(args)
-                .current_dir(work.path())
-                .env("GIT_AUTHOR_NAME", "t")
-                .env("GIT_AUTHOR_EMAIL", "t@example.invalid")
-                .env("GIT_COMMITTER_NAME", "t")
-                .env("GIT_COMMITTER_EMAIL", "t@example.invalid")
-                .env("GIT_CONFIG_GLOBAL", "/dev/null")
-                .env("GIT_CONFIG_SYSTEM", "/dev/null")
-                .output()
-                .unwrap();
-            assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
-            String::from_utf8(out.stdout).unwrap().trim().to_string()
+        let dir = work.path();
+        let run = |args: &[&str], cwd: Option<&std::path::Path>| {
+            let out = gateway.run_with_env(args, cwd, &env).expect("run git");
+            out.ensure_success().expect("git failed");
+            out.stdout_str().trim().to_string()
         };
-        run(&["init", "-q", "-b", "main"]);
-        std::fs::write(work.path().join("f.txt"), message).unwrap();
-        run(&["add", "f.txt"]);
-        run(&["commit", "-q", "-m", message]);
-        let sha = run(&["rev-parse", "HEAD"]);
-        run(&["push", "-q", self.bare_path(name).to_str().unwrap(), "HEAD:refs/heads/main"]);
+        run(&["init", "-q", "--initial-branch=main", dir.to_str().unwrap()], None);
+        std::fs::write(dir.join("f.txt"), message).unwrap();
+        run(&["add", "f.txt"], Some(dir));
+        run(&["commit", "-q", "-m", message], Some(dir));
+        let sha = run(&["rev-parse", "HEAD"], Some(dir));
+        run(&["push", "-q", self.bare_path(name).to_str().unwrap(), "HEAD:refs/heads/main"], Some(dir));
         sha
+    }
+
+    /// Resolve `rev` (e.g. `<sha>^{tree}`) in the bare repository `name`.
+    pub fn rev_parse(&self, name: &str, rev: &str) -> String {
+        let gateway = rg_git::cli_gateway::global_gateway().as_ref().expect("git gateway");
+        let out = gateway
+            .run(&["--git-dir", self.bare_path(name).to_str().unwrap(), "rev-parse", rev], None)
+            .expect("run git");
+        out.ensure_success().expect("git rev-parse failed");
+        out.stdout_str().trim().to_string()
     }
 
     /// Instance with an owner and one public repository `collab-repo`.
@@ -92,12 +118,19 @@ impl Env {
     }
 
     pub async fn with_repo(repo_body: Value) -> Self {
-        let (db, dir) = setup_test_db().await;
+        let (db, dir) = test_database().await;
         let dir = std::sync::Arc::new(dir);
         let base = serve(&db, &dir).await;
-        register_bootstrap_admin(&base).await;
+        // The first account of an instance becomes its administrator. A shared
+        // server database may already have one, so a repeat is not an error.
+        let _ = reqwest::Client::new()
+            .post(format!("{base}/api/v1/users/register"))
+            .json(&json!({"username": "bootstrap_admin", "email": "bootstrap_admin@example.com", "password": "Qz7$wRtm"}))
+            .send()
+            .await;
+        let owner = format!("collab_owner_{}", unique());
         let (owner_token, owner_id) =
-            register_full(&base, "collab_owner", "collab_owner@example.com").await;
+            register_full(&base, &owner, &format!("{owner}@example.com")).await;
         let repo = repo_body["name"].as_str().unwrap().to_string();
         let repo_id = if repo_body.get("is_private").is_some() {
             let resp = reqwest::Client::new()
@@ -116,7 +149,7 @@ impl Env {
             base,
             db,
             dir,
-            owner: "collab_owner".into(),
+            owner,
             owner_token,
             owner_id,
             repo,
@@ -126,7 +159,8 @@ impl Env {
 
     /// Register another account and return `(token, user_id)`.
     pub async fn user(&self, name: &str) -> (String, i64) {
-        register_full(&self.base, name, &format!("{name}@example.com")).await
+        let name = format!("{name}_{}", unique());
+        register_full(&self.base, &name, &format!("{name}@example.com")).await
     }
 
     pub async fn add_collaborator(&self, user_id: i64, permission: &str) {

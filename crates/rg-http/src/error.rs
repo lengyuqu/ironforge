@@ -236,6 +236,7 @@ impl From<rg_core::collaboration::CollabError> for AppError {
             E::NotFound(msg) => Self::NotFound(msg),
             E::BadRequest(msg) => Self::BadRequest(msg),
             E::Conflict(msg) => Self::Conflict(msg),
+            E::Forbidden(msg) => Self::Forbidden(msg),
             E::SessionCredentials => Self::coded(
                 StatusCode::FORBIDDEN,
                 "SESSION_CREDENTIALS_INVALID",

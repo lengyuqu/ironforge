@@ -10,6 +10,7 @@
 //! HTTP SSE transport is intentionally not advertised until implemented.
 
 pub mod client;
+pub mod collab;
 pub mod error;
 pub mod protocol;
 pub mod resources;
@@ -25,6 +26,8 @@ pub use error::{Error, Result};
 pub struct AppState {
     pub api_base: String,
     pub pat: String,
+    /// Collaboration session credentials held by this process (never shown to the model).
+    pub collab: std::sync::Arc<collab::SessionStore>,
 }
 
 impl AppState {
@@ -39,7 +42,11 @@ impl AppState {
             tracing::warn!("IRONFORGE_PAT not set – API calls may fail");
         }
 
-        Ok(Self { api_base, pat })
+        Ok(Self {
+            api_base,
+            pat,
+            collab: std::sync::Arc::new(collab::SessionStore::from_env()),
+        })
     }
 
     /// Build a `reqwest::Client` with Bearer token header.
