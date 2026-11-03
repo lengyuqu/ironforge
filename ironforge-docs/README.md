@@ -40,6 +40,8 @@
 | `architecture-followups-2026-07.md` | 已修复项、P2 长期方向、旧口径修正 |
 | `system-analysis-by-module-2026-07.md` | 分模块深入分析 + 风险与优先级矩阵 |
 | `db-multi-backend-design-2026-07.md` | PostgreSQL 多后端设计 |
+| `client-cli-design-2026-11.md` | 用户侧 API 客户端 CLI（`ifg`）设计草案（Proposed） |
+| `harness-native-design-2026-11.md` | 面向 AI Agent/Harness 的接口、凭据策略与事件设计草案（Proposed） |
 
 ---
 
