@@ -31,6 +31,7 @@ pub struct PaginatedRepoResponse {
         crate::api::users::register,
         crate::api::users::login,
         crate::api::users::me,
+        crate::api::users::get_user,
         crate::api::users::list_tokens,
         crate::api::users::create_token,
         crate::api::users::delete_token,

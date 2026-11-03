@@ -639,6 +639,7 @@ fn build_routes(
         // Users
         .route("/users/logout", post(api::users::logout))
         .route("/users/me", get(api::users::me))
+        .route("/users/{username}", get(api::users::get_user))
         // PAT
         .route(
             "/users/tokens",

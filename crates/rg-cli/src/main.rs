@@ -1692,7 +1692,7 @@ async fn main() -> anyhow::Result<()> {
             println!(
                 "created user {username} (id {}){}",
                 user.id,
-                if admin { " [admin] " } else { "" }
+                if admin { " [admin]" } else { "" }
             );
         }
     }

@@ -380,6 +380,41 @@ pub async fn logout(headers: HeaderMap) -> impl IntoResponse {
     )
 }
 
+/// GET /api/v1/users/{username}
+///
+/// Public profile lookup. The CLI resolves assignee names to ids with it
+/// (there is no by-name route equivalent otherwise).
+#[utoipa::path(
+    get,
+    path = "/users/{username}",
+    tag = "Users",
+    params(("username" = String, Path, description = "username")),
+    responses(
+        (status = 200, description = "Success", body = serde_json::Value),
+        (status = 404, description = "Not found", body = serde_json::Value),
+    ),
+)]
+pub async fn get_user(
+    State(state): State<AppState>,
+    Path(username): Path<String>,
+) -> impl IntoResponse {
+    match rg_db::ops::user_ops::find_by_username(&state.db, &username).await {
+        Ok(Some(user)) => Json(serde_json::json!({
+            "id": user.id,
+            "username": user.username,
+            "display_name": user.display_name,
+            "avatar_url": user.avatar_url,
+            "created_at": user.created_at.to_string(),
+        }))
+        .into_response(),
+        Ok(None) => AppError::not_found("user not found").into_response(),
+        Err(e) => {
+            tracing::error!(%e, "handler error");
+            AppError::from(e).into_response()
+        }
+    }
+}
+
 #[utoipa::path(
     get,
     path = "/users/me",
