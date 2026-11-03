@@ -78,6 +78,12 @@ pub struct TreeQuery {
     pub r#ref: Option<String>,
     #[serde(default)]
     pub path: Option<String>,
+    #[serde(default)]
+    pub depth: Option<u32>,
+    #[serde(default)]
+    pub limit: Option<usize>,
+    #[serde(default)]
+    pub cursor: Option<String>,
 }
 
 /// Query params for code search endpoint
@@ -88,6 +94,8 @@ pub struct SearchCodeQuery {
     pub r#ref: Option<String>,
     #[serde(default)]
     pub limit: Option<i64>,
+    #[serde(default)]
+    pub offset: Option<i64>,
 }
 
 // ── Handlers ──────────────────────────────────────
@@ -224,7 +232,178 @@ pub async fn ai_list_prs(
     Ok((StatusCode::OK, Json(summaries)))
 }
 
-// ── Stub handlers (NOT IMPLEMENTED) ─────────────────
+// ── File tree ───────────────────────────────────────
+
+const TREE_DEFAULT_LIMIT: usize = 200;
+const TREE_MAX_LIMIT: usize = 1000;
+const TREE_MAX_DEPTH: u32 = 8;
+
+/// One entry of the file tree. `path` is relative to the repository root.
+#[derive(Serialize, ToSchema)]
+pub struct AiTreeEntry {
+    pub path: String,
+    /// `blob` | `tree` | `symlink` | `submodule`
+    #[serde(rename = "type")]
+    pub kind: &'static str,
+    /// Byte size, blobs only.
+    pub size: Option<u64>,
+    pub sha: String,
+}
+
+/// File tree page.
+#[derive(Serialize, ToSchema)]
+pub struct AiTreeResponse {
+    /// The ref as requested (or the default branch).
+    #[serde(rename = "ref")]
+    pub git_ref: String,
+    /// Commit the ref resolved to; `None` for a repository without commits.
+    pub commit: Option<String>,
+    pub path: String,
+    pub entries: Vec<AiTreeEntry>,
+    /// More entries exist beyond this page.
+    pub truncated: bool,
+    /// Pass back as `cursor` to fetch the next page.
+    pub next_cursor: Option<String>,
+}
+
+fn entry_kind(mode: gix::object::tree::EntryMode) -> &'static str {
+    if mode.is_tree() {
+        "tree"
+    } else if mode.is_commit() {
+        "submodule"
+    } else if mode.is_link() {
+        "symlink"
+    } else {
+        "blob"
+    }
+}
+
+/// Depth-first walk collecting at most `limit` entries; returns `true` once
+/// the limit was hit so the caller can stop descending.
+fn collect_tree(
+    repo: &gix::Repository,
+    tree_id: gix::ObjectId,
+    prefix: &str,
+    depth_left: u32,
+    limit: usize,
+    out: &mut Vec<AiTreeEntry>,
+) -> rg_core::error::CoreResult<bool> {
+    use rg_core::error::CoreError;
+
+    let tree = repo
+        .find_tree(tree_id)
+        .map_err(|e| CoreError::internal(format!("failed to read tree: {e}")))?;
+    for entry in tree.iter() {
+        let entry = entry.map_err(|e| CoreError::internal(format!("corrupt tree entry: {e}")))?;
+        if out.len() >= limit {
+            return Ok(true);
+        }
+        let oid = entry.oid().to_owned();
+        let mode = entry.mode();
+        let name = entry.filename().to_string();
+        let path = if prefix.is_empty() {
+            name
+        } else {
+            format!("{prefix}/{name}")
+        };
+        let kind = entry_kind(mode);
+        let size = if kind == "blob" {
+            repo.find_header(oid).ok().map(|h| h.size())
+        } else {
+            None
+        };
+        out.push(AiTreeEntry {
+            path: path.clone(),
+            kind,
+            size,
+            sha: oid.to_string(),
+        });
+        if kind == "tree"
+            && depth_left > 1
+            && collect_tree(repo, oid, &path, depth_left - 1, limit, out)?
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn list_ai_tree(
+    repo_path: &std::path::Path,
+    git_ref: &str,
+    sub_path: &str,
+    depth: u32,
+    skip: usize,
+    take: usize,
+) -> rg_core::error::CoreResult<AiTreeResponse> {
+    use rg_core::error::CoreError;
+
+    let empty = |git_ref: &str| AiTreeResponse {
+        git_ref: git_ref.to_string(),
+        commit: None,
+        path: sub_path.to_string(),
+        entries: Vec::new(),
+        truncated: false,
+        next_cursor: None,
+    };
+
+    let repo = crate::api::repo_content::open_repo(repo_path)?;
+    let commit_id = match repo.rev_parse_single(git_ref) {
+        Ok(id) => id.detach(),
+        // A repository without commits has an unborn HEAD: an empty tree,
+        // not an error.
+        Err(_) if crate::api::repo_content::is_empty_repo(repo_path) => {
+            return Ok(empty(git_ref));
+        }
+        Err(e) => {
+            tracing::debug!(error = %e, git_ref, "ref did not resolve");
+            return Err(CoreError::not_found(format!("ref '{git_ref}' not found")));
+        }
+    };
+    let commit = repo
+        .find_commit(commit_id)
+        .map_err(|e| CoreError::internal(format!("failed to find commit: {e}")))?;
+    let mut tree_id = commit
+        .tree_id()
+        .map_err(|e| CoreError::internal(format!("failed to read commit tree: {e}")))?
+        .detach();
+
+    for component in sub_path.split('/').filter(|c| !c.is_empty()) {
+        let tree = repo
+            .find_tree(tree_id)
+            .map_err(|e| CoreError::internal(format!("failed to read tree: {e}")))?;
+        let next = tree
+            .iter()
+            .filter_map(|e| e.ok())
+            .find(|e| e.filename() == component && e.mode().is_tree())
+            .map(|e| e.oid().to_owned())
+            .ok_or_else(|| CoreError::not_found(format!("path not found: {sub_path}")))?;
+        tree_id = next;
+    }
+
+    // One past the page so we can tell whether more exists.
+    let mut collected = Vec::new();
+    collect_tree(
+        &repo,
+        tree_id,
+        sub_path.trim_matches('/'),
+        depth,
+        skip.saturating_add(take).saturating_add(1),
+        &mut collected,
+    )?;
+    let truncated = collected.len() > skip + take;
+    let entries: Vec<AiTreeEntry> = collected.into_iter().skip(skip).take(take).collect();
+    let next_cursor = truncated.then(|| (skip + entries.len()).to_string());
+
+    Ok(AiTreeResponse {
+        git_ref: git_ref.to_string(),
+        commit: Some(commit_id.to_string()),
+        path: sub_path.to_string(),
+        entries,
+        truncated,
+        next_cursor,
+    })
+}
 
 /// GET /api/v1/ai/repos/{owner}/{name}/tree
 #[utoipa::path(
@@ -235,11 +414,14 @@ pub async fn ai_list_prs(
         ("name" = String, Path, description = "Repository name"),
         ("ref" = Option<String>, Query, description = "Branch/tag/SHA (default: default branch)"),
         ("path" = Option<String>, Query, description = "Subdirectory path (default: root)"),
+        ("depth" = Option<u32>, Query, description = "Directory levels to descend (default 1, max 8)"),
+        ("limit" = Option<usize>, Query, description = "Max entries per page (default 200, max 1000)"),
+        ("cursor" = Option<String>, Query, description = "next_cursor from the previous page"),
     ),
     responses(
-        (status = 200, description = "Repository file tree"),
-        (status = 404, description = "Repository not found"),
-        (status = 501, description = "Not yet implemented"),
+        (status = 200, description = "Repository file tree page", body = AiTreeResponse),
+        (status = 400, description = "Invalid cursor"),
+        (status = 404, description = "Repository, ref or path not found"),
     ),
     tag = "ai",
 )]
@@ -247,13 +429,38 @@ pub async fn ai_repo_tree(
     State(state): State<AppState>,
     Path((owner, name)): Path<(String, String)>,
     headers: HeaderMap,
-    Query(_params): Query<TreeQuery>,
-) -> Result<(StatusCode, Json<serde_json::Value>), AppError> {
-    let _repo = repo_access::require_read(&state, &headers, &owner, &name).await?;
-    Ok((
-        StatusCode::NOT_IMPLEMENTED,
-        Json(serde_json::json!({"error": "repo_tree not yet implemented"})),
-    ))
+    Query(params): Query<TreeQuery>,
+) -> Result<(StatusCode, Json<AiTreeResponse>), AppError> {
+    let repo = repo_access::require_read(&state, &headers, &owner, &name).await?;
+
+    let skip = match params.cursor.as_deref() {
+        None | Some("") => 0,
+        Some(c) => c
+            .parse::<usize>()
+            .map_err(|_| AppError::bad_request("invalid cursor"))?,
+    };
+    let take = params
+        .limit
+        .unwrap_or(TREE_DEFAULT_LIMIT)
+        .clamp(1, TREE_MAX_LIMIT);
+    let depth = params.depth.unwrap_or(1).clamp(1, TREE_MAX_DEPTH);
+    let git_ref = params.r#ref.unwrap_or_else(|| repo.default_branch.clone());
+    let sub_path = params
+        .path
+        .unwrap_or_default()
+        .trim_matches('/')
+        .to_string();
+
+    let repo_path = state.repo_root.join(format!("{}/{}.git", owner, name));
+    if !repo_path.exists() {
+        return Err(AppError::not_found("repository not found on disk"));
+    }
+
+    let listing = crate::api::repo_content::run_blocking(move || {
+        list_ai_tree(&repo_path, &git_ref, &sub_path, depth, skip, take)
+    })
+    .await?;
+    Ok((StatusCode::OK, Json(listing)))
 }
 
 /// Code search result for AI API
@@ -274,12 +481,13 @@ pub struct CodeSearchResult {
         ("owner" = String, Path, description = "Repository owner"),
         ("name" = String, Path, description = "Repository name"),
         ("q" = String, Query, description = "Search query"),
-        ("ref" = Option<String>, Query, description = "Branch/tag/SHA (default: default branch)"),
-        ("limit" = Option<i64>, Query, description = "Max results (default 20)"),
+        ("ref" = Option<String>, Query, description = "Only the default branch is indexed; any other ref is rejected with 400"),
+        ("limit" = Option<i64>, Query, description = "Max results (default 20, max 100)"),
+        ("offset" = Option<i64>, Query, description = "Results to skip (default 0); total in the x-total-count header"),
     ),
     responses(
-        (status = 200, description = "Code search results", body = Vec<CodeSearchResult>),
-        (status = 400, description = "Repository not indexed"),
+        (status = 200, description = "Code search results; x-total-count carries the total match count", body = Vec<CodeSearchResult>),
+        (status = 400, description = "Repository not indexed, or ref is not the indexed branch"),
         (status = 404, description = "Repository not found"),
     ),
     tag = "ai",
@@ -289,11 +497,23 @@ pub async fn ai_search_code(
     Path((owner, name)): Path<(String, String)>,
     headers: HeaderMap,
     Query(params): Query<SearchCodeQuery>,
-) -> Result<(StatusCode, Json<Vec<CodeSearchResult>>), AppError> {
+) -> Result<axum::response::Response, AppError> {
     let repo = repo_access::require_read(&state, &headers, &owner, &name).await?;
 
-    let limit = params.limit.unwrap_or(20).min(100) as u64;
-    let offset = 0u64;
+    // The index is built from the default branch only; silently answering a
+    // query about another ref from it would return results for the wrong tree.
+    if let Some(requested) = params.r#ref.as_deref() {
+        let requested = requested.strip_prefix("refs/heads/").unwrap_or(requested);
+        if !requested.is_empty() && requested != repo.default_branch {
+            return Err(AppError::bad_request(format!(
+                "code search only covers the default branch '{}', not '{}'",
+                repo.default_branch, requested
+            )));
+        }
+    }
+
+    let limit = params.limit.unwrap_or(20).clamp(1, 100) as u64;
+    let offset = params.offset.unwrap_or(0).max(0) as u64;
 
     let indexer = rg_core::search::code_indexer::CodeIndexer::new(state.db.clone());
 
@@ -323,12 +543,12 @@ pub async fn ai_search_code(
         ));
     }
 
-    let (results, _total) = indexer
+    let (results, total) = indexer
         .search_code(&params.q, Some(repo.id), limit, offset)
         .await
         .map_err(|e| AppError::internal(format!("Search error: {}", e)))?;
 
-    let api_results = results
+    let api_results: Vec<CodeSearchResult> = results
         .into_iter()
         .map(|r| CodeSearchResult {
             repo_id: r.repo_id,
@@ -339,7 +559,12 @@ pub async fn ai_search_code(
         })
         .collect();
 
-    Ok((StatusCode::OK, Json(api_results)))
+    Ok((
+        StatusCode::OK,
+        [("x-total-count", total.to_string())],
+        Json(api_results),
+    )
+        .into_response())
 }
 
 /// Response for index trigger.

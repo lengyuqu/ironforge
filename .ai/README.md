@@ -63,8 +63,17 @@ IronForge 提供专门为 AI Agent 设计的 REST 端点，路径前缀 `/api/v1
 | `/api/v1/ai/repos/{owner}/{name}/summary` | GET | 仓库摘要（AI 友好格式） |
 | `/api/v1/ai/repos/{owner}/{name}/issues?state=&limit=` | GET | Issue 列表（摘要格式） |
 | `/api/v1/ai/repos/{owner}/{name}/prs?state=&limit=` | GET | PR 列表（摘要格式） |
-| `/api/v1/ai/repos/{owner}/{name}/tree?ref=&path=` | GET | 文件树（待实现） |
-| `/api/v1/ai/repos/{owner}/{name}/search/code?q=` | GET | 代码搜索（待实现） |
+| `/api/v1/ai/repos/{owner}/{name}/tree?ref=&path=&depth=&limit=&cursor=` | GET | 文件树（分页：响应含 `next_cursor`；`depth` 默认 1，最大 8） |
+| `/api/v1/ai/repos/{owner}/{name}/search/code?q=&limit=&offset=` | GET | 代码搜索（仅默认分支；需先索引；总数在 `x-total-count` 响应头） |
+| `/api/v1/ai/repos/{owner}/{name}/index` | POST | 触发默认分支代码索引 |
+
+CI 反馈（Agent 修 CI 的循环）：
+
+| 端点 | 方法 | 说明 |
+|--------|------|------|
+| `/api/v1/repos/{owner}/{name}/pipelines/{id}/jobs/{job_id}/log?offset=&limit=&tail=&strip_ansi=` | GET | 增量/尾部读取 job 日志；响应 `next_offset` 即下次的 `offset`，`eof` 为真表示 job 已结束且读完 |
+| `/api/v1/repos/{owner}/{name}/pipelines/{id}/wait?etag=&timeout=&until=terminal` | GET | 长轮询：状态变化（或 `until=terminal` 时流水线结束）才返回；`timeout` ≤ 60s |
+| `/api/v1/repos/{owner}/{name}/pipelines/{id}/jobs/{job_id}` | GET | 失败 job 额外带 `failure_summary`（末尾 50 行 + 疑似错误行） |
 
 **认证**：所有 API 端点（包括 AI 端点）使用 Bearer Token：
 

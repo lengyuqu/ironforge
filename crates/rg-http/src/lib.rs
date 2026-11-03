@@ -953,6 +953,14 @@ fn build_routes(
             get(api::ci::get_job),
         )
         .route(
+            "/repos/{owner}/{name}/pipelines/{id}/jobs/{job_id}/log",
+            get(api::ci_feedback::get_job_log),
+        )
+        .route(
+            "/repos/{owner}/{name}/pipelines/{id}/wait",
+            get(api::ci_feedback::wait_pipeline),
+        )
+        .route(
             "/repos/{owner}/{name}/pipelines/{id}/jobs/{job_id}/play",
             post(api::ci::play_job),
         )

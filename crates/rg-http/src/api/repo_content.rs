@@ -323,7 +323,7 @@ fn list_tree_or_empty(
 
 /// Returns true if the repository has no commits yet (unborn HEAD), e.g. a
 /// repo that was just created but never pushed to.
-fn is_empty_repo(repo_path: &std::path::Path) -> bool {
+pub(crate) fn is_empty_repo(repo_path: &std::path::Path) -> bool {
     match gix::open(repo_path) {
         Ok(repo) => match repo.head() {
             // `Head::id()` is None when HEAD points at a branch that doesn't
@@ -632,14 +632,14 @@ async fn run_git_read<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static)
 }
 
 /// [`run_git_read`] for helpers that already return a `CoreResult`.
-async fn run_blocking<T: Send + 'static>(
+pub(crate) async fn run_blocking<T: Send + 'static>(
     f: impl FnOnce() -> CoreResult<T> + Send + 'static,
 ) -> CoreResult<T> {
     run_git_read(f).await?
 }
 
 /// Open the bare repository; failure here is a server-side storage fault.
-fn open_repo(repo_path: &std::path::Path) -> CoreResult<gix::Repository> {
+pub(crate) fn open_repo(repo_path: &std::path::Path) -> CoreResult<gix::Repository> {
     gix::open(repo_path).map_err(|e| {
         CoreError::internal(format!("failed to open repository {repo_path:?}: {e}"))
     })

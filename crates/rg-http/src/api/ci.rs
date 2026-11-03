@@ -6,6 +6,7 @@ use axum::response::IntoResponse;
 use axum::Json;
 use serde::{Deserialize, Serialize};
 
+use crate::api::ci_feedback;
 use crate::api::repo_access;
 use crate::error::AppError;
 use crate::pagination::{PaginatedResponse, PaginationParams};
@@ -55,6 +56,9 @@ struct JobResponse {
     exit_code: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     log: Option<String>,
+    /// Present only for failed jobs: bounded tail and error-looking lines.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    failure_summary: Option<ci_feedback::FailureSummary>,
     started_at: Option<String>,
     finished_at: Option<String>,
 }
@@ -231,6 +235,11 @@ pub async fn get_pipeline(
                     timeout_seconds: j.timeout_seconds,
                     environment_id: j.environment_id,
                     environment_name: j.environment_name,
+                    failure_summary: ci_feedback::summary_for_job(
+                        &j.status,
+                        j.exit_code,
+                        j.log.as_deref(),
+                    ),
                     status: j.status,
                     exit_code: j.exit_code,
                     log: j.log,
@@ -313,6 +322,11 @@ pub async fn get_job(
                 timeout_seconds: j.timeout_seconds,
                 environment_id: j.environment_id,
                 environment_name: j.environment_name,
+                failure_summary: ci_feedback::summary_for_job(
+                    &j.status,
+                    j.exit_code,
+                    j.log.as_deref(),
+                ),
                 status: j.status,
                 exit_code: j.exit_code,
                 log: j.log,
@@ -858,7 +872,7 @@ async fn resolve_repo_storage_owner(
         .ok_or_else(|| AppError::internal("repository owner not found"))
 }
 
-async fn job_belongs_to_pipeline(state: &AppState, pipeline_id: i64, stage_id: i64) -> bool {
+pub(crate) async fn job_belongs_to_pipeline(state: &AppState, pipeline_id: i64, stage_id: i64) -> bool {
     match rg_db::ops::pipeline_ops::list_stages_by_pipeline(&state.db, pipeline_id).await {
         Ok(stages) => stages.iter().any(|stage| stage.id == stage_id),
         Err(e) => {

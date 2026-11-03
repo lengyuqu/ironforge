@@ -9,6 +9,7 @@ pub mod boards;
 pub mod branch_protection;
 pub mod ci;
 pub mod ci_environments;
+pub mod ci_feedback;
 pub mod ci_oidc;
 pub mod ci_retention;
 pub mod ci_secrets;
