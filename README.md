@@ -98,6 +98,34 @@ RUST_LOG=debug ./target/release/ironforge serve ...
 
 ---
 
+## Docker 部署
+
+仓库自带多阶段 `Dockerfile`（SvelteKit 前端 + Rust release + 精简运行时）和 `docker-compose.yml`。
+
+```bash
+export IRONFORGE_JWT_SECRET=$(openssl rand -hex 32)
+docker compose up -d --build          # 首次约 11 分钟（前端 + release 编译）
+
+# 首次建号（注册关闭时也能用）
+docker compose exec ironforge ironforge create-user admin \
+  --email you@example.com --password 'change-me-please' --admin \
+  --db-url "sqlite:///data/ironforge.db?mode=rwc"
+
+curl -fsS http://localhost:8080/health
+```
+
+- 端口：`8080`（HTTP + Web UI）、`2222`（git over SSH）
+- 数据：`ironforge-data` 卷（repos / sqlite / logs），重建容器不丢
+- 换 PostgreSQL：`docker compose --profile postgres up -d`，并按 compose 注释覆盖 `command` 的 `--db-url`
+- 镜像自带 `HEALTHCHECK`，`docker compose ps` 会显示 `healthy`
+
+命令行客户端验证：
+
+```bash
+ifg auth login --host http://localhost:8080   # 粘 Settings → Tokens 生成的 PAT
+ifg doctor                                    # 八项自检，全 ok 即可用
+```
+
 ## REST API
 
 所有 API 在 `/api/v1/` 下，需要认证的接口在 Header 中传 `Authorization: Bearer <token>`。完整 OpenAPI 规范可从运行中的服务获取：`/api-docs/openapi.json`（Swagger UI: `/api-docs/`）。
