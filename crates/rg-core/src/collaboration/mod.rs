@@ -13,6 +13,7 @@ pub mod completion;
 pub mod cursor;
 pub mod error;
 pub mod handoff;
+pub mod health;
 pub mod inbox;
 pub mod message;
 pub mod question;

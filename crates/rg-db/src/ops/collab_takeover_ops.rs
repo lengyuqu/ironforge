@@ -5,6 +5,7 @@ use chrono::{DateTime, Utc};
 use sea_orm::sea_query::Expr;
 use sea_orm::*;
 
+use super::collab_metric_ops;
 use super::collab_task_ops::find_in_repo as find_task;
 use crate::entities::collab_takeover::{
     self, ActiveModel, Entity as TakeoverEntity, Model as Takeover,
@@ -134,6 +135,8 @@ pub async fn takeover_cas(
     }
     match model.insert(&txn).await {
         Ok(takeover) => {
+            collab_metric_ops::record_takeover(&txn, repo_id, task_id, &takeover.id, &takeover.outcome, now)
+                .await?;
             txn.commit().await.context("db: commit takeover")?;
             Ok(TakeoverOutcome::Done {
                 task: current,

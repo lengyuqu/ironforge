@@ -5,6 +5,7 @@ use chrono::{DateTime, Utc};
 use sea_orm::sea_query::Expr;
 use sea_orm::*;
 
+use super::collab_metric_ops::{self, event_type};
 use super::collab_task_ops::CasOutcome;
 use crate::entities::collab_answer::{self, Entity as AnswerEntity, Model as Answer};
 use crate::entities::collab_question::{
@@ -61,7 +62,21 @@ pub async fn create_idempotent(
     {
         return Ok(CreateOutcome::Existing(existing));
     }
-    match model.insert(db).await {
+    let txn = db.begin().await.context("db: begin question create")?;
+    let inserted = match model.insert(&txn).await {
+        Ok(created) => {
+            collab_metric_ops::record_question(&txn, &created, event_type::QUESTION_OPENED, None, created.created_at)
+                .await?;
+            txn.commit().await.context("db: commit question create")?;
+            Ok(created)
+        }
+        Err(err) => {
+            // Roll back before looking for the winner of an idempotency race.
+            drop(txn);
+            Err(err)
+        }
+    };
+    match inserted {
         Ok(created) => Ok(CreateOutcome::Created(created)),
         Err(err) if matches!(err.sql_err(), Some(SqlErr::UniqueConstraintViolation(_))) => {
             let existing = find_by_client_id(db, creator_kind, creator_id, client_question_id)
@@ -205,6 +220,8 @@ pub async fn answer_cas(
         return Ok(AnswerOutcome::Conflict { current });
     }
     let answer = answer.insert(&txn).await.context("db: insert answer")?;
+    collab_metric_ops::record_question(&txn, &current, event_type::QUESTION_ANSWERED, Some(status::OPEN), now)
+        .await?;
     txn.commit().await.context("db: commit answer")?;
     Ok(AnswerOutcome::Answered {
         question: current,
@@ -236,6 +253,10 @@ pub async fn cancel_cas(
         .await
         .context("db: cancel question")?;
     let current = find_in_repo(&txn, repo_id, question_id).await?;
+    if let (1.., Some(question)) = (res.rows_affected, &current) {
+        collab_metric_ops::record_question(&txn, question, event_type::QUESTION_CANCELLED, Some(status::OPEN), now)
+            .await?;
+    }
     txn.commit().await.context("db: commit cancel")?;
     Ok(match (res.rows_affected, current) {
         (_, None) => CasOutcome::NotFound,

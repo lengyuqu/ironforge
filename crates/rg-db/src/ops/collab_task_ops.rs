@@ -5,6 +5,7 @@ use chrono::{DateTime, Utc};
 use sea_orm::sea_query::Expr;
 use sea_orm::*;
 
+use super::collab_metric_ops;
 use crate::entities::collab_task::{self, ActiveModel, Entity as TaskEntity, Model as Task};
 
 /// Result of a compare-and-swap update guarded by a `version` column.
@@ -33,8 +34,12 @@ pub struct TaskPatch {
 }
 
 /// Insert a task.
-pub async fn create<C: ConnectionTrait>(db: &C, model: ActiveModel) -> Result<Task> {
-    model.insert(db).await.context("db: create collab task")
+pub async fn create(db: &DatabaseConnection, model: ActiveModel) -> Result<Task> {
+    let txn = db.begin().await.context("db: begin task create")?;
+    let task = model.insert(&txn).await.context("db: create collab task")?;
+    collab_metric_ops::record_task_created(&txn, &task).await?;
+    txn.commit().await.context("db: commit task create")?;
+    Ok(task)
 }
 
 /// Find a task by id, scoped to a repository.
@@ -114,6 +119,26 @@ pub async fn update_cas(
     now: DateTime<Utc>,
 ) -> Result<CasOutcome<Task>> {
     let txn = db.begin().await.context("db: begin task update")?;
+    let new_status = patch.status.clone();
+    // A status change needs the status it replaces for the metric event. The
+    // no-op write comes first (SQLite: a read-first transaction cannot upgrade
+    // under concurrent writers) and, matching only `expected_version`, locks the
+    // row, so the status read next is the one this update replaces.
+    let mut prior_status = None;
+    if new_status.is_some() {
+        TaskEntity::update_many()
+            .col_expr(collab_task::Column::UpdatedAt, Expr::col(collab_task::Column::UpdatedAt).into())
+            .filter(collab_task::Column::Id.eq(id))
+            .filter(collab_task::Column::RepoId.eq(repo_id))
+            .filter(collab_task::Column::Version.eq(expected_version))
+            .exec(&txn)
+            .await
+            .context("db: lock collab task")?;
+        prior_status = find_in_repo(&txn, repo_id, id)
+            .await?
+            .filter(|t| t.version == expected_version)
+            .map(|t| t.status);
+    }
 
     let mut update = TaskEntity::update_many()
         .col_expr(collab_task::Column::UpdatedAt, Expr::value(now))
@@ -154,6 +179,13 @@ pub async fn update_cas(
         .context("db: update collab task")?;
 
     let current = find_in_repo(&txn, repo_id, id).await?;
+    if let (1.., Some(task), Some(to), Some(from)) =
+        (res.rows_affected, &current, &new_status, &prior_status)
+    {
+        if from != to {
+            collab_metric_ops::record_task_status_change(&txn, task, from, now).await?;
+        }
+    }
     txn.commit().await.context("db: commit task update")?;
     Ok(match (res.rows_affected, current) {
         (_, None) => CasOutcome::NotFound,

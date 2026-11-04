@@ -5,6 +5,7 @@ use chrono::{DateTime, Utc};
 use sea_orm::sea_query::Expr;
 use sea_orm::*;
 
+use super::collab_metric_ops::{self, event_type};
 use super::collab_task_ops::CasOutcome;
 use crate::entities::collab_handoff::{
     self, ActiveModel, Entity as HandoffEntity, Model as Handoff,
@@ -37,7 +38,21 @@ pub async fn create_idempotent(
     if let Some(existing) = find_by_client_id(db, from_session_id, client_handoff_id).await? {
         return Ok(CreateOutcome::Existing(existing));
     }
-    match model.insert(db).await {
+    let txn = db.begin().await.context("db: begin handoff create")?;
+    let inserted = match model.insert(&txn).await {
+        Ok(created) => {
+            collab_metric_ops::record_handoff(&txn, &created, event_type::HANDOFF_CREATED, None, created.created_at)
+                .await?;
+            txn.commit().await.context("db: commit handoff create")?;
+            Ok(created)
+        }
+        Err(err) => {
+            // Roll back before looking for the winner of an idempotency race.
+            drop(txn);
+            Err(err)
+        }
+    };
+    match inserted {
         Ok(created) => Ok(CreateOutcome::Created(created)),
         Err(err) if matches!(err.sql_err(), Some(SqlErr::UniqueConstraintViolation(_))) => {
             let existing = find_by_client_id(db, from_session_id, client_handoff_id)
@@ -153,6 +168,14 @@ pub async fn transition_pending(
         .await
         .context("db: transition handoff")?;
     let current = find_in_repo(&txn, repo_id, id).await?;
+    if let (1.., Some(handoff)) = (res.rows_affected, &current) {
+        let event = if to_status == status::ACCEPTED {
+            event_type::HANDOFF_ACCEPTED
+        } else {
+            event_type::HANDOFF_CANCELLED
+        };
+        collab_metric_ops::record_handoff(&txn, handoff, event, Some(status::PENDING), now).await?;
+    }
     txn.commit().await.context("db: commit handoff transition")?;
     Ok(match (res.rows_affected, current) {
         (_, None) => CasOutcome::NotFound,
