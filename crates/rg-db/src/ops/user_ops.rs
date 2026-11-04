@@ -122,11 +122,7 @@ pub async fn update_by_id(
 /// `create_user` inserts `auth_provider = "oauth2"` (it exists for SSO
 /// provisioning); password login only accepts `"local"`, so locally
 /// provisioned accounts must say so explicitly.
-pub async fn set_auth_provider(
-    db: &DatabaseConnection,
-    id: i64,
-    provider: &str,
-) -> Result<User> {
+pub async fn set_auth_provider(db: &DatabaseConnection, id: i64, provider: &str) -> Result<User> {
     let model = UserEntity::find_by_id(id)
         .one(db)
         .await

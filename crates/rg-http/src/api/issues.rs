@@ -4,8 +4,8 @@ use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::Json;
-use serde::{Deserialize, Serialize};
 use serde::de::Error as _;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 
@@ -507,32 +507,33 @@ pub async fn create_issue(
         Err(e) => return e.into_response(),
     };
 
-    let wants_assignees = req
-        .assignees
-        .as_ref()
-        .is_some_and(|list| !list.is_empty());
+    let wants_assignees = req.assignees.as_ref().is_some_and(|list| !list.is_empty());
     if wants_assignees {
-        let can_write = rg_core::repo::service::can_write_repo(
-            &state.db,
-            &repo_model,
-            Some(user_id),
-        )
-        .await
-        .unwrap_or(false);
+        let can_write =
+            rg_core::repo::service::can_write_repo(&state.db, &repo_model, Some(user_id))
+                .await
+                .unwrap_or(false);
         if !can_write {
-            return AppError::forbidden(
-                "assigning issues at creation requires write access",
-            )
-            .into_response();
+            return AppError::forbidden("assigning issues at creation requires write access")
+                .into_response();
         }
     }
 
     // Input validation
-    let title = match super::validation::require_valid_text(&req.title, super::validation::MAX_TITLE_LEN, "issue title") {
+    let title = match super::validation::require_valid_text(
+        &req.title,
+        super::validation::MAX_TITLE_LEN,
+        "issue title",
+    ) {
         Ok(t) => t,
         Err(e) => return e.into_response(),
     };
-    super::validation::validate_optional_text(&req.body, super::validation::MAX_BODY_LEN, "issue body").ok();
+    super::validation::validate_optional_text(
+        &req.body,
+        super::validation::MAX_BODY_LEN,
+        "issue body",
+    )
+    .ok();
 
     match rg_core::issue::create_issue(
         &state.db,
@@ -612,32 +613,22 @@ pub async fn update_issue(
         Err(e) => return AppError::from(e).into_response(),
     };
 
-    let can_write = match rg_core::repo::service::can_write_repo(
-        &state.db,
-        &repo_model,
-        Some(user_id),
-    )
-    .await
-    {
-        Ok(v) => v,
-        Err(e) => {
-            tracing::error!(error = %e, "can_write_repo check failed");
-            return AppError::internal("permission check failed").into_response();
-        }
-    };
-    let can_read = match rg_core::repo::service::can_read_repo(
-        &state.db,
-        &repo_model,
-        Some(user_id),
-    )
-    .await
-    {
-        Ok(v) => v,
-        Err(e) => {
-            tracing::error!(error = %e, "can_read_repo check failed");
-            return AppError::internal("permission check failed").into_response();
-        }
-    };
+    let can_write =
+        match rg_core::repo::service::can_write_repo(&state.db, &repo_model, Some(user_id)).await {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::error!(error = %e, "can_write_repo check failed");
+                return AppError::internal("permission check failed").into_response();
+            }
+        };
+    let can_read =
+        match rg_core::repo::service::can_read_repo(&state.db, &repo_model, Some(user_id)).await {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::error!(error = %e, "can_read_repo check failed");
+                return AppError::internal("permission check failed").into_response();
+            }
+        };
     let touches_management_fields =
         req.labels.is_some() || req.assignee_id.is_some() || req.milestone_id.is_some();
 
@@ -651,11 +642,20 @@ pub async fn update_issue(
 
     // Input validation (only on fields being updated)
     if let Some(ref title) = req.title {
-        if let Err(e) = super::validation::require_valid_text(title, super::validation::MAX_TITLE_LEN, "issue title") {
+        if let Err(e) = super::validation::require_valid_text(
+            title,
+            super::validation::MAX_TITLE_LEN,
+            "issue title",
+        ) {
             return e.into_response();
         }
     }
-    super::validation::validate_optional_text(&req.body, super::validation::MAX_BODY_LEN, "issue body").ok();
+    super::validation::validate_optional_text(
+        &req.body,
+        super::validation::MAX_BODY_LEN,
+        "issue body",
+    )
+    .ok();
 
     match rg_core::issue::update_issue(
         &state.db,
@@ -765,10 +765,7 @@ fn summarize_reactions(
     let mut summaries: Vec<ReactionSummary> = Vec::new();
     for row in rows {
         let reacted_by_me = Some(row.user_id) == viewer_id;
-        match summaries
-            .iter_mut()
-            .find(|s| s.content == row.content)
-        {
+        match summaries.iter_mut().find(|s| s.content == row.content) {
             Some(s) => {
                 s.count += 1;
                 s.reacted_by_me = s.reacted_by_me || reacted_by_me;
@@ -845,8 +842,15 @@ pub async fn add_issue_reaction(
     if let Err(e) = repo_access::require_read(&state, &headers, &owner, &repo).await {
         return e.into_response();
     }
-    match rg_core::issue::add_issue_reaction(&state.db, &owner, &repo, number, user_id, &req.content)
-        .await
+    match rg_core::issue::add_issue_reaction(
+        &state.db,
+        &owner,
+        &repo,
+        number,
+        user_id,
+        &req.content,
+    )
+    .await
     {
         Ok(_) => {
             let rows = rg_core::issue::list_issue_reactions(&state.db, &owner, &repo, number)
@@ -889,8 +893,15 @@ pub async fn remove_issue_reaction(
     if let Err(e) = repo_access::require_read(&state, &headers, &owner, &repo).await {
         return e.into_response();
     }
-    match rg_core::issue::remove_issue_reaction(&state.db, &owner, &repo, number, user_id, &req.content)
-        .await
+    match rg_core::issue::remove_issue_reaction(
+        &state.db,
+        &owner,
+        &repo,
+        number,
+        user_id,
+        &req.content,
+    )
+    .await
     {
         Ok(_) => {
             let rows = rg_core::issue::list_issue_reactions(&state.db, &owner, &repo, number)
@@ -1048,7 +1059,10 @@ pub async fn list_issue_assignees(
         return e.into_response();
     }
     match rg_core::issue::list_issue_assignees(&state.db, &owner, &repo, number).await {
-        Ok(assignees) => (StatusCode::OK, Json(serde_json::json!({ "assignees": assignees })))
+        Ok(assignees) => (
+            StatusCode::OK,
+            Json(serde_json::json!({ "assignees": assignees })),
+        )
             .into_response(),
         Err(e) => AppError::from(e).into_response(),
     }
@@ -1094,9 +1108,11 @@ pub async fn set_issue_assignees(
     )
     .await
     {
-        Ok(assignees) => {
-            (StatusCode::OK, Json(serde_json::json!({ "assignees": assignees }))).into_response()
-        }
+        Ok(assignees) => (
+            StatusCode::OK,
+            Json(serde_json::json!({ "assignees": assignees })),
+        )
+            .into_response(),
         Err(e) => AppError::from(e).into_response(),
     }
 }
@@ -1258,14 +1274,12 @@ async fn milestone_with_counts(
     db: &sea_orm::DatabaseConnection,
     milestone: rg_db::entities::milestone::Model,
 ) -> MilestoneResponse {
-    let (open_issues, closed_issues) = rg_db::ops::milestone_ops::counts_by_milestones(
-        db,
-        &[milestone.id],
-    )
-    .await
-    .ok()
-    .and_then(|map| map.get(&milestone.id).copied())
-    .unwrap_or((0, 0));
+    let (open_issues, closed_issues) =
+        rg_db::ops::milestone_ops::counts_by_milestones(db, &[milestone.id])
+            .await
+            .ok()
+            .and_then(|map| map.get(&milestone.id).copied())
+            .unwrap_or((0, 0));
     MilestoneResponse {
         milestone,
         open_issues,
@@ -1284,8 +1298,7 @@ async fn milestones_with_counts(
     milestones
         .into_iter()
         .map(|milestone| {
-            let (open_issues, closed_issues) =
-                counts.get(&milestone.id).copied().unwrap_or((0, 0));
+            let (open_issues, closed_issues) = counts.get(&milestone.id).copied().unwrap_or((0, 0));
             MilestoneResponse {
                 milestone,
                 open_issues,
@@ -1515,7 +1528,9 @@ pub async fn update_milestone(
     };
     let existing = match rg_db::ops::milestone_ops::find_by_id(&state.db, id).await {
         Ok(Some(m)) if m.repo_id == repo.id => m,
-        Ok(Some(_)) => return AppError::not_found("milestone not found".to_string()).into_response(),
+        Ok(Some(_)) => {
+            return AppError::not_found("milestone not found".to_string()).into_response()
+        }
         Ok(None) => return AppError::not_found("milestone not found".to_string()).into_response(),
         Err(e) => {
             return {
@@ -1610,7 +1625,9 @@ pub async fn delete_milestone(
     // Ownership guard: never let a write to repo A delete/leak repo B's milestone.
     let milestone = match rg_db::ops::milestone_ops::find_by_id(&state.db, id).await {
         Ok(Some(m)) if m.repo_id == repo.id => m,
-        Ok(Some(_)) => return AppError::not_found("milestone not found".to_string()).into_response(),
+        Ok(Some(_)) => {
+            return AppError::not_found("milestone not found".to_string()).into_response()
+        }
         Ok(None) => return AppError::not_found("milestone not found".to_string()).into_response(),
         Err(e) => {
             return {

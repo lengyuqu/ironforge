@@ -56,7 +56,10 @@ pub async fn register_runner(
         updated_at: Set(now),
     };
 
-    let runner = active_model.insert(db).await.context("db: register runner")?;
+    let runner = active_model
+        .insert(db)
+        .await
+        .context("db: register runner")?;
     Ok(RegisteredRunner { runner, token })
 }
 

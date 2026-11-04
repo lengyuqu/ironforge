@@ -108,7 +108,10 @@ fn assert_sanitised_500(app: &App, status: StatusCode, body: &str) {
     assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "body: {body}");
     let v: Value = serde_json::from_str(body).expect("error body is JSON");
     assert_eq!(v["error"]["code"], "INTERNAL_ERROR", "body: {body}");
-    assert_eq!(v["error"]["message"], "Internal server error", "body: {body}");
+    assert_eq!(
+        v["error"]["message"], "Internal server error",
+        "body: {body}"
+    );
     assert_no_internals(app, body);
 }
 
@@ -267,15 +270,22 @@ async fn contents_read_classifies_missing_ref_and_path() {
     let (st, body) = app.get(&format!("{base}/blob/missing.txt"), None).await;
     assert_eq!(st, 404, "{body}");
     assert_no_internals(&app, &body);
-    let (st, body) = app.get(&format!("{base}/blob/README.md?ref=nope"), None).await;
+    let (st, body) = app
+        .get(&format!("{base}/blob/README.md?ref=nope"), None)
+        .await;
     assert_eq!(st, 404, "{body}");
     assert_no_internals(&app, &body);
 
     // Signature: bad format 400, unknown commit 404 (short and full length).
-    let (st, _) = app.get(&format!("{base}/commits/zzz/signature"), None).await;
+    let (st, _) = app
+        .get(&format!("{base}/commits/zzz/signature"), None)
+        .await;
     assert_eq!(st, 400);
     let (st, body) = app
-        .get(&format!("{base}/commits/{}/signature", "a".repeat(40)), None)
+        .get(
+            &format!("{base}/commits/{}/signature", "a".repeat(40)),
+            None,
+        )
         .await;
     assert_eq!(st, 404, "{body}");
     let (st, body) = app
@@ -326,7 +336,10 @@ async fn contents_missing_storage_is_sanitised_500() {
     let (st, body) = app
         .send(
             reqwest::Method::DELETE,
-            &format!("/repos/sowner/proj/contents/a.txt?message=rm&sha={}", "a".repeat(40)),
+            &format!(
+                "/repos/sowner/proj/contents/a.txt?message=rm&sha={}",
+                "a".repeat(40)
+            ),
             Some(&owner),
             None,
         )
@@ -427,11 +440,19 @@ async fn releases_classify_errors() {
     assert_eq!(st, 404, "{body}");
     // Unknown repository: a missing resource, not a server error.
     let (st, body) = app
-        .patch("/repos/relowner/ghost/releases/1", &owner, json!({"title": "x"}))
+        .patch(
+            "/repos/relowner/ghost/releases/1",
+            &owner,
+            json!({"title": "x"}),
+        )
         .await;
     assert_eq!(st, 404, "{body}");
     let (st, body) = app
-        .post("/repos/relowner/ghost/releases", &owner, json!({"tag_name": "v1", "title": "x"}))
+        .post(
+            "/repos/relowner/ghost/releases",
+            &owner,
+            json!({"tag_name": "v1", "title": "x"}),
+        )
         .await;
     assert_eq!(st, 404, "{body}");
 
@@ -461,7 +482,9 @@ async fn releases_classify_errors() {
         .post(r, &other, json!({"tag_name": "v9", "title": "x"}))
         .await;
     assert_eq!(st, 403);
-    let (st, _) = app.patch(&format!("{r}/{id}"), &other, json!({"title": "x"})).await;
+    let (st, _) = app
+        .patch(&format!("{r}/{id}"), &other, json!({"title": "x"}))
+        .await;
     assert_eq!(st, 403);
     let (st, _) = app.delete(&format!("{r}/{id}"), &other).await;
     assert_eq!(st, 403);

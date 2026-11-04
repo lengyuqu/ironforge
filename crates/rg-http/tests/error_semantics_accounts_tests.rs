@@ -119,7 +119,9 @@ async fn register_classifies_validation_and_duplicates() {
 
     let ok = c
         .post(&url)
-        .json(&json!({"username": "firstuser", "email": "first@example.com", "password": "Qz7$wRtm"}))
+        .json(
+            &json!({"username": "firstuser", "email": "first@example.com", "password": "Qz7$wRtm"}),
+        )
         .send()
         .await
         .unwrap();
@@ -127,7 +129,9 @@ async fn register_classifies_validation_and_duplicates() {
 
     let dup_name = c
         .post(&url)
-        .json(&json!({"username": "firstuser", "email": "other@example.com", "password": "Qz7$wRtm"}))
+        .json(
+            &json!({"username": "firstuser", "email": "other@example.com", "password": "Qz7$wRtm"}),
+        )
         .send()
         .await
         .unwrap();
@@ -218,7 +222,11 @@ async fn reset_password_classifies_token_and_password_errors() {
         .send()
         .await
         .unwrap();
-    assert_eq!(weak.status(), 400, "weak replacement password is invalid input");
+    assert_eq!(
+        weak.status(),
+        400,
+        "weak replacement password is invalid input"
+    );
 
     let ok = c
         .post(&url)
@@ -409,7 +417,8 @@ async fn admin_sso_providers_classify_errors() {
         .unwrap();
     assert_eq!(invalid.status(), 400);
 
-    let provider = json!({"name": "Corp", "slug": "corp", "provider_type": "oidc", "enabled": false});
+    let provider =
+        json!({"name": "Corp", "slug": "corp", "provider_type": "oidc", "enabled": false});
     let created = c
         .post(&url)
         .bearer_auth(&admin)
@@ -427,15 +436,13 @@ async fn admin_sso_providers_classify_errors() {
         .unwrap();
     let (status, body) = body_of(duplicate).await;
     assert_eq!(status, 409, "duplicate slug is a conflict: {body}");
-    assert!(!message(&body).to_ascii_lowercase().contains("unique"), "{body}");
+    assert!(
+        !message(&body).to_ascii_lowercase().contains("unique"),
+        "{body}"
+    );
 
     break_table(&db, "sso_providers").await;
-    let broken = c
-        .get(&url)
-        .bearer_auth(&admin)
-        .send()
-        .await
-        .unwrap();
+    let broken = c.get(&url).bearer_auth(&admin).send().await.unwrap();
     let (status, body) = body_of(broken).await;
     assert_sanitised_500(status, &body);
 }
@@ -494,8 +501,16 @@ async fn webhooks_classify_errors() {
 
     // missing resources are 404
     for resp in [
-        c.get(format!("{hooks}/99999")).bearer_auth(&owner).send().await.unwrap(),
-        c.delete(format!("{hooks}/99999")).bearer_auth(&owner).send().await.unwrap(),
+        c.get(format!("{hooks}/99999"))
+            .bearer_auth(&owner)
+            .send()
+            .await
+            .unwrap(),
+        c.delete(format!("{hooks}/99999"))
+            .bearer_auth(&owner)
+            .send()
+            .await
+            .unwrap(),
         c.patch(format!("{hooks}/99999"))
             .bearer_auth(&owner)
             .json(&json!({"active": false}))
@@ -551,7 +566,13 @@ async fn mirrors_classify_errors() {
 
     assert_eq!(c.post(&url).json(&good).send().await.unwrap().status(), 401);
     assert_eq!(
-        c.post(&url).bearer_auth(&other).json(&good).send().await.unwrap().status(),
+        c.post(&url)
+            .bearer_auth(&other)
+            .json(&good)
+            .send()
+            .await
+            .unwrap()
+            .status(),
         403
     );
 
@@ -565,7 +586,15 @@ async fn mirrors_classify_errors() {
         .await
         .unwrap();
     assert_eq!(patch.status(), 404);
-    assert_eq!(c.delete(&url).bearer_auth(&owner).send().await.unwrap().status(), 404);
+    assert_eq!(
+        c.delete(&url)
+            .bearer_auth(&owner)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        404
+    );
     let sync = c
         .post(format!("{url}/sync"))
         .bearer_auth(&owner)
@@ -588,9 +617,21 @@ async fn mirrors_classify_errors() {
         assert!(message(&body).starts_with("invalid mirror URL"), "{body}");
     }
 
-    let created = c.post(&url).bearer_auth(&owner).json(&good).send().await.unwrap();
+    let created = c
+        .post(&url)
+        .bearer_auth(&owner)
+        .json(&good)
+        .send()
+        .await
+        .unwrap();
     assert_eq!(created.status(), 201);
-    let duplicate = c.post(&url).bearer_auth(&owner).json(&good).send().await.unwrap();
+    let duplicate = c
+        .post(&url)
+        .bearer_auth(&owner)
+        .json(&good)
+        .send()
+        .await
+        .unwrap();
     let (status, body) = body_of(duplicate).await;
     assert_eq!(status, 409, "{body}");
 
@@ -648,14 +689,27 @@ async fn imports_classify_errors_and_hide_internal_details() {
     let bad_url = start_import(&c, &imports, &owner, "github", "not-a-url", "imp_owner").await;
     let failed = wait_failed(&c, &imports, &owner, bad_url).await;
     assert!(
-        failed["error"].as_str().unwrap_or_default().contains("invalid GitHub URL"),
+        failed["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("invalid GitHub URL"),
         "{failed}"
     );
-    let unknown_owner =
-        start_import(&c, &imports, &owner, "git", "http://127.0.0.1:9/a/b.git", "no-such-owner").await;
+    let unknown_owner = start_import(
+        &c,
+        &imports,
+        &owner,
+        "git",
+        "http://127.0.0.1:9/a/b.git",
+        "no-such-owner",
+    )
+    .await;
     let failed = wait_failed(&c, &imports, &owner, unknown_owner).await;
     assert!(
-        failed["error"].as_str().unwrap_or_default().contains("not found"),
+        failed["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("not found"),
         "{failed}"
     );
 
@@ -671,11 +725,21 @@ async fn imports_classify_errors_and_hide_internal_details() {
     // ...and a storage failure in the pipeline is reduced to a generic line:
     // no table names or driver text in the task's `error` field.
     break_table(&db, "organizations").await;
-    let internal =
-        start_import(&c, &imports, &owner, "git", "http://127.0.0.1:9/a/b.git", "ghost-owner").await;
+    let internal = start_import(
+        &c,
+        &imports,
+        &owner,
+        "git",
+        "http://127.0.0.1:9/a/b.git",
+        "ghost-owner",
+    )
+    .await;
     let failed = wait_failed(&c, &imports, &owner, internal).await;
     let error = failed["error"].as_str().unwrap_or_default().to_string();
-    assert_eq!(error, "import failed due to an internal error; see the server logs", "{failed}");
+    assert_eq!(
+        error, "import failed due to an internal error; see the server logs",
+        "{failed}"
+    );
 
     // Creating the task itself failing is a sanitised 500.
     break_table(&db, "import_tasks").await;
@@ -750,7 +814,14 @@ async fn ssh_keys_classify_errors() {
 
     // every flavour of malformed key is the caller's mistake (400), including
     // bad base64, which used to be classified as an internal error.
-    for bad in ["ssh-ed25519 !!!", "ssh-ed25519 AAAAA", "ssh-rsa AAAA", "ssh-dss AAAA", "", "ssh-ed25519"] {
+    for bad in [
+        "ssh-ed25519 !!!",
+        "ssh-ed25519 AAAAA",
+        "ssh-rsa AAAA",
+        "ssh-dss AAAA",
+        "",
+        "ssh-ed25519",
+    ] {
         let resp = c
             .post(&keys)
             .bearer_auth(&owner)
@@ -782,9 +853,19 @@ async fn ssh_keys_classify_errors() {
         .unwrap();
     assert_eq!(duplicate.status(), 409);
 
-    let forbidden = c.delete(format!("{keys}/{id}")).bearer_auth(&other).send().await.unwrap();
+    let forbidden = c
+        .delete(format!("{keys}/{id}"))
+        .bearer_auth(&other)
+        .send()
+        .await
+        .unwrap();
     assert_eq!(forbidden.status(), 403);
-    let missing = c.delete(format!("{keys}/99999")).bearer_auth(&owner).send().await.unwrap();
+    let missing = c
+        .delete(format!("{keys}/99999"))
+        .bearer_auth(&owner)
+        .send()
+        .await
+        .unwrap();
     assert_eq!(missing.status(), 404);
 
     break_table(&db, "ssh_keys").await;
@@ -845,7 +926,12 @@ async fn deploy_keys_classify_errors() {
         .await
         .unwrap();
     assert_eq!(duplicate.status(), 409);
-    let missing = c.delete(format!("{keys}/99999")).bearer_auth(&owner).send().await.unwrap();
+    let missing = c
+        .delete(format!("{keys}/99999"))
+        .bearer_auth(&owner)
+        .send()
+        .await
+        .unwrap();
     assert_eq!(missing.status(), 404);
 
     break_table(&db, "deploy_keys").await;
@@ -866,9 +952,20 @@ async fn artifact_and_ci_endpoints_classify_errors() {
     let pipelines = format!("{base}/api/v1/repos/ci_err_owner/pipes/pipelines");
 
     // missing resources
-    assert_eq!(c.get(format!("{pipelines}/9999")).send().await.unwrap().status(), 404);
     assert_eq!(
-        c.get(format!("{base}/api/v1/artifacts/9999")).send().await.unwrap().status(),
+        c.get(format!("{pipelines}/9999"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        404
+    );
+    assert_eq!(
+        c.get(format!("{base}/api/v1/artifacts/9999"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
         404
     );
     let cancel_missing = c

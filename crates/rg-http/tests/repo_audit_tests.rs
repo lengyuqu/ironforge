@@ -9,10 +9,7 @@ mod common;
 use common::{register_full, spawn_test_app_with_db};
 use rg_db::sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 
-async fn entry(
-    db: &rg_db::DatabaseConnection,
-    action: &str,
-) -> rg_db::entities::audit_log::Model {
+async fn entry(db: &rg_db::DatabaseConnection, action: &str) -> rg_db::entities::audit_log::Model {
     rg_db::entities::audit_log::Entity::find()
         .filter(rg_db::entities::audit_log::Column::Action.eq(action))
         .one(db)
@@ -51,8 +48,16 @@ async fn repo_delete_fork_and_transfer_audit_the_username_not_the_id() {
     let forked = entry(&db, "repo.fork").await;
     assert_eq!(forked.user_id, Some(bob_id));
     assert_eq!(forked.username.as_deref(), Some("audit-bob"), "{forked:?}");
-    assert_eq!(forked.resource_name.as_deref(), Some("audit-bob/src"), "{forked:?}");
-    assert_eq!(forked.details.as_deref().map(|d| d.contains("audit-bob")), Some(true), "{forked:?}");
+    assert_eq!(
+        forked.resource_name.as_deref(),
+        Some("audit-bob/src"),
+        "{forked:?}"
+    );
+    assert_eq!(
+        forked.details.as_deref().map(|d| d.contains("audit-bob")),
+        Some(true),
+        "{forked:?}"
+    );
 
     // alice deletes one repo.
     let del = client
@@ -64,7 +69,11 @@ async fn repo_delete_fork_and_transfer_audit_the_username_not_the_id() {
     assert_eq!(del.status(), 200);
     let deleted = entry(&db, "repo.delete").await;
     assert_eq!(deleted.user_id, Some(alice_id));
-    assert_eq!(deleted.username.as_deref(), Some("audit-alice"), "{deleted:?}");
+    assert_eq!(
+        deleted.username.as_deref(),
+        Some("audit-alice"),
+        "{deleted:?}"
+    );
 
     // alice creates an org and transfers a repo into it.
     let org = client
@@ -85,5 +94,9 @@ async fn repo_delete_fork_and_transfer_audit_the_username_not_the_id() {
     assert_eq!(moved.status(), 200);
     let transferred = entry(&db, "repo.transfer").await;
     assert_eq!(transferred.user_id, Some(alice_id));
-    assert_eq!(transferred.username.as_deref(), Some("audit-alice"), "{transferred:?}");
+    assert_eq!(
+        transferred.username.as_deref(),
+        Some("audit-alice"),
+        "{transferred:?}"
+    );
 }

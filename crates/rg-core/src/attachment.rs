@@ -280,7 +280,8 @@ pub async fn download_attachment(
     attachment_id: i64,
 ) -> CoreResult<(Attachment, Vec<u8>)> {
     let attachment = get_attachment(db, repo_id, target, attachment_id).await?;
-    let key = BlobKey::new(attachment.blob_key.clone()).context("invalid stored attachment blob key")?;
+    let key =
+        BlobKey::new(attachment.blob_key.clone()).context("invalid stored attachment blob key")?;
     let data = storage
         .get(&key)
         .await
@@ -297,7 +298,8 @@ pub async fn delete_attachment(
     attachment_id: i64,
 ) -> CoreResult<()> {
     let attachment = get_attachment(db, repo_id, target, attachment_id).await?;
-    let key = BlobKey::new(attachment.blob_key.clone()).context("invalid stored attachment blob key")?;
+    let key =
+        BlobKey::new(attachment.blob_key.clone()).context("invalid stored attachment blob key")?;
     let backup = if let Some(source) = storage.local_path(&key) {
         let path = std::env::temp_dir().join(format!(
             "ironforge-attachment-delete-{}.tmp",

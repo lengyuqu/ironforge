@@ -137,10 +137,8 @@ pub fn validate_container_image(image: &str) -> Result<()> {
     }
     // Allowed grammar: [registry/]name[:tag][@digest]. Characters outside this
     // set (control bytes, quotes, backslashes, shell metacharacters) are refused.
-    let allowed = |c: char| {
-        c.is_ascii_alphanumeric()
-            || matches!(c, '/' | '.' | ':' | '_' | '-' | '@' | '+')
-    };
+    let allowed =
+        |c: char| c.is_ascii_alphanumeric() || matches!(c, '/' | '.' | ':' | '_' | '-' | '@' | '+');
     if !image.chars().all(allowed) {
         bail!("container image contains invalid characters");
     }
@@ -162,7 +160,10 @@ mod tests {
             "alpine;rm -rf /",
             "../etc/passwd",
         ] {
-            assert!(validate_container_image(bad).is_err(), "must reject {bad:?}");
+            assert!(
+                validate_container_image(bad).is_err(),
+                "must reject {bad:?}"
+            );
         }
     }
 
@@ -175,7 +176,10 @@ mod tests {
             "ghcr.io/owner/image@sha256:abc123",
             "localhost:5000/team/image:tag",
         ] {
-            assert!(validate_container_image(good).is_ok(), "must accept {good:?}");
+            assert!(
+                validate_container_image(good).is_ok(),
+                "must accept {good:?}"
+            );
         }
     }
 
@@ -185,7 +189,10 @@ mod tests {
         let args = limits.hardening_args();
         let joined = args.join(" ");
         assert!(joined.contains("--cap-drop ALL"), "{joined}");
-        assert!(joined.contains("--security-opt no-new-privileges"), "{joined}");
+        assert!(
+            joined.contains("--security-opt no-new-privileges"),
+            "{joined}"
+        );
         assert!(joined.contains("--pids-limit"), "{joined}");
         assert!(joined.contains("--memory 4g"), "{joined}");
         assert!(joined.contains("--cap-add CHOWN"), "{joined}");

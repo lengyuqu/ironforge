@@ -236,10 +236,9 @@ pub async fn maintenance_middleware(request: Request, next: Next) -> Response {
             }))
             .into_response();
             *response.status_mut() = axum::http::StatusCode::SERVICE_UNAVAILABLE;
-            response.headers_mut().insert(
-                header::RETRY_AFTER,
-                HeaderValue::from_static("300"),
-            );
+            response
+                .headers_mut()
+                .insert(header::RETRY_AFTER, HeaderValue::from_static("300"));
             return response;
         }
     }

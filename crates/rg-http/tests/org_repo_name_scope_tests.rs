@@ -40,7 +40,11 @@ async fn make_org(base: &str, token: &str, name: &str) {
         .send()
         .await
         .unwrap();
-    assert!(response.status().is_success(), "create org {name}: {}", response.status());
+    assert!(
+        response.status().is_success(),
+        "create org {name}: {}",
+        response.status()
+    );
 }
 
 async fn add_member(base: &str, token: &str, org: &str, user_id: i64) {
@@ -51,9 +55,12 @@ async fn add_member(base: &str, token: &str, org: &str, user_id: i64) {
         .send()
         .await
         .unwrap();
-    assert!(response.status().is_success(), "add member: {}", response.status());
+    assert!(
+        response.status().is_success(),
+        "add member: {}",
+        response.status()
+    );
 }
-
 
 async fn repo_root_app() -> (String, std::path::PathBuf) {
     use common::{build_test_app_state, setup_test_db};
@@ -94,7 +101,10 @@ async fn second_member_cannot_create_a_duplicate_org_repo_or_displace_the_first(
     assert_eq!(first.status(), 201);
 
     let (status, body) = create(&base, &bob, "dup", Some("acme3")).await;
-    assert_eq!(status, 409, "a duplicate org repo name must conflict: {body}");
+    assert_eq!(
+        status, 409,
+        "a duplicate org repo name must conflict: {body}"
+    );
 
     // Nothing was moved aside and nothing else was created.
     let mut entries: Vec<String> = std::fs::read_dir(repo_root.join("acme3"))
@@ -103,7 +113,11 @@ async fn second_member_cannot_create_a_duplicate_org_repo_or_displace_the_first(
         .map(|e| e.file_name().to_string_lossy().to_string())
         .collect();
     entries.sort();
-    assert_eq!(entries, vec!["dup.git".to_string()], "first repo's directory must stay put");
+    assert_eq!(
+        entries,
+        vec!["dup.git".to_string()],
+        "first repo's directory must stay put"
+    );
 
     let branches: serde_json::Value = reqwest::Client::new()
         .get(format!("{base}/api/v1/repos/acme3/dup/branches"))
@@ -114,7 +128,11 @@ async fn second_member_cannot_create_a_duplicate_org_repo_or_displace_the_first(
         .json()
         .await
         .unwrap();
-    assert_eq!(branches.as_array().map(Vec::len), Some(1), "first repo keeps its history: {branches}");
+    assert_eq!(
+        branches.as_array().map(Vec::len),
+        Some(1),
+        "first repo keeps its history: {branches}"
+    );
 
     let listed: serde_json::Value = reqwest::Client::new()
         .get(format!("{base}/api/v1/repos/acme3"))
@@ -142,7 +160,10 @@ async fn personal_and_org_repo_may_share_a_name() {
     assert_eq!(org, 201, "{body}");
     make_org(&base, &alice, "beta1").await;
     let (second_org, body) = create(&base, &alice, "shared", Some("beta1")).await;
-    assert_eq!(second_org, 201, "the same name may exist in several orgs: {body}");
+    assert_eq!(
+        second_org, 201,
+        "the same name may exist in several orgs: {body}"
+    );
 
     // Each URL resolves to its own repository.
     let mut ids = Vec::new();
@@ -159,7 +180,11 @@ async fn personal_and_org_repo_may_share_a_name() {
     }
     ids.sort_unstable();
     ids.dedup();
-    assert_eq!(ids.len(), 3, "three namespaces, three distinct repositories");
+    assert_eq!(
+        ids.len(),
+        3,
+        "three namespaces, three distinct repositories"
+    );
 
     // ...but duplicates *within* a namespace are still refused.
     let (dup, _) = create(&base, &alice, "shared", None).await;
@@ -191,7 +216,11 @@ async fn user_namespace_does_not_resolve_org_repositories() {
         .send()
         .await
         .unwrap();
-    assert_eq!(via_user.status(), 404, "an org repo must not resolve under a user");
+    assert_eq!(
+        via_user.status(),
+        404,
+        "an org repo must not resolve under a user"
+    );
 
     let listed: serde_json::Value = reqwest::Client::new()
         .get(format!("{base}/api/v1/repos/alice4"))
@@ -220,7 +249,14 @@ async fn org_repository_features_work_under_the_org_url() {
     let (status, _) = create(&base, &alice, "r", Some("acme9")).await;
     assert_eq!(status, 201);
 
-    for endpoint in ["pulls", "labels", "collaborators", "branches/protection", "issues", "branches"] {
+    for endpoint in [
+        "pulls",
+        "labels",
+        "collaborators",
+        "branches/protection",
+        "issues",
+        "branches",
+    ] {
         let under_org = reqwest::Client::new()
             .get(format!("{base}/api/v1/repos/acme9/r/{endpoint}"))
             .bearer_auth(&alice)
@@ -238,7 +274,13 @@ async fn org_repository_features_work_under_the_org_url() {
     }
 }
 
-async fn transfer(base: &str, token: &str, owner: &str, name: &str, to: &str) -> (reqwest::StatusCode, serde_json::Value) {
+async fn transfer(
+    base: &str,
+    token: &str,
+    owner: &str,
+    name: &str,
+    to: &str,
+) -> (reqwest::StatusCode, serde_json::Value) {
     let response = reqwest::Client::new()
         .post(format!("{base}/api/v1/repos/{owner}/{name}/transfer"))
         .bearer_auth(token)
@@ -284,5 +326,8 @@ async fn transfer_checks_the_destination_namespace() {
     assert_eq!(status, 201, "org may reuse a name the owner has personally");
     let (status, body) = transfer(&base, &alice, "alice7", "moved", "acme7").await;
     assert_eq!(status, 409, "{body}");
-    assert!(repo_root.join("alice7/moved.git").exists(), "failed transfer must not move data");
+    assert!(
+        repo_root.join("alice7/moved.git").exists(),
+        "failed transfer must not move data"
+    );
 }

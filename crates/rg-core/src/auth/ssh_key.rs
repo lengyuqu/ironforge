@@ -43,11 +43,15 @@ pub fn fingerprint_from_openssh(pubkey: &str) -> CoreResult<String> {
         .or_else(|_| base64::engine::general_purpose::STANDARD_NO_PAD.decode(b64))
         .map_err(|_| CoreError::InvalidInput("invalid base64 key blob".into()))?;
     if raw.len() < 4 {
-        return Err(CoreError::InvalidInput("invalid SSH public key blob".into()));
+        return Err(CoreError::InvalidInput(
+            "invalid SSH public key blob".into(),
+        ));
     }
     let algorithm_len = u32::from_be_bytes(raw[0..4].try_into().unwrap()) as usize;
     if raw.len() < 4 + algorithm_len {
-        return Err(CoreError::InvalidInput("invalid SSH public key blob".into()));
+        return Err(CoreError::InvalidInput(
+            "invalid SSH public key blob".into(),
+        ));
     }
     let encoded_type = std::str::from_utf8(&raw[4..4 + algorithm_len])
         .map_err(|_| CoreError::InvalidInput("invalid SSH public key algorithm".into()))?;

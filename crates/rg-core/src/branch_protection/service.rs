@@ -538,7 +538,6 @@ pub async fn check_merge_allowed(
     Ok(())
 }
 
-
 // ── Helpers ───────────────────────────────────────────────────────────
 
 async fn resolve_repo(

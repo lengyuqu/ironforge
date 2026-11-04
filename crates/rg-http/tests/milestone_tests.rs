@@ -33,7 +33,10 @@ async fn create_milestone(
 ) -> (i64, String) {
     let client = reqwest::Client::new();
     let resp = client
-        .post(format!("{}/api/v1/repos/{}/{}/milestones", base, owner, repo))
+        .post(format!(
+            "{}/api/v1/repos/{}/{}/milestones",
+            base, owner, repo
+        ))
         .bearer_auth(token)
         .json(&serde_json::json!({"title": title}))
         .send()
@@ -43,7 +46,10 @@ async fn create_milestone(
     let body: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(body["open_issues"], 0, "fresh milestone open_issues");
     assert_eq!(body["closed_issues"], 0, "fresh milestone closed_issues");
-    (body["id"].as_i64().unwrap(), body["title"].as_str().unwrap().to_string())
+    (
+        body["id"].as_i64().unwrap(),
+        body["title"].as_str().unwrap().to_string(),
+    )
 }
 
 /// Create an issue on a milestone (or none when `milestone_id` is None).
@@ -96,7 +102,12 @@ async fn list_issues(
     resp.json().await.unwrap()
 }
 
-async fn list_milestones(base: &str, token: &str, owner: &str, repo: &str) -> Vec<serde_json::Value> {
+async fn list_milestones(
+    base: &str,
+    token: &str,
+    owner: &str,
+    repo: &str,
+) -> Vec<serde_json::Value> {
     let client = reqwest::Client::new();
     let resp = client
         .get(format!(
@@ -125,7 +136,8 @@ async fn test_milestone_counts_reflect_issue_states() {
     let (ms_id, _title) = create_milestone(&base, &token, &owner, &repo, "v1.0").await;
 
     // 2 open + 1 closed on the milestone; 1 issue with no milestone.
-    let a = create_issue_with_milestone(&base, &token, &owner, &repo, "ms open 1", Some(ms_id)).await;
+    let a =
+        create_issue_with_milestone(&base, &token, &owner, &repo, "ms open 1", Some(ms_id)).await;
     create_issue_with_milestone(&base, &token, &owner, &repo, "ms open 2", Some(ms_id)).await;
     create_issue_with_milestone(&base, &token, &owner, &repo, "no ms", None).await;
 
@@ -172,8 +184,10 @@ async fn test_issue_list_milestone_filter() {
     let client = reqwest::Client::new();
     let (ms_id, _title) = create_milestone(&base, &token, &owner, &repo, "sprint-1").await;
 
-    let m1 = create_issue_with_milestone(&base, &token, &owner, &repo, "in sprint 1", Some(ms_id)).await;
-    let m2 = create_issue_with_milestone(&base, &token, &owner, &repo, "in sprint 2", Some(ms_id)).await;
+    let m1 =
+        create_issue_with_milestone(&base, &token, &owner, &repo, "in sprint 1", Some(ms_id)).await;
+    let m2 =
+        create_issue_with_milestone(&base, &token, &owner, &repo, "in sprint 2", Some(ms_id)).await;
     create_issue_with_milestone(&base, &token, &owner, &repo, "backlog", None).await;
     let n1 = m1["number"].as_i64().unwrap();
     let n2 = m2["number"].as_i64().unwrap();
@@ -197,8 +211,14 @@ async fn test_issue_list_milestone_filter() {
         .await
         .unwrap();
     assert_eq!(resp.status(), 200);
-    let body =
-        list_issues(&base, &token, &owner, &repo, &format!("?state=closed&milestone={ms_id}")).await;
+    let body = list_issues(
+        &base,
+        &token,
+        &owner,
+        &repo,
+        &format!("?state=closed&milestone={ms_id}"),
+    )
+    .await;
     let data = body["data"].as_array().unwrap();
     assert_eq!(data.len(), 1);
     assert_eq!(data[0]["number"].as_i64().unwrap(), n1);
@@ -235,7 +255,8 @@ async fn test_issue_response_has_milestone_title() {
     let (base, token, owner, repo) = setup("a3").await;
     let (ms_id, ms_title) = create_milestone(&base, &token, &owner, &repo, "release-2.0").await;
 
-    let on_ms = create_issue_with_milestone(&base, &token, &owner, &repo, "tracked", Some(ms_id)).await;
+    let on_ms =
+        create_issue_with_milestone(&base, &token, &owner, &repo, "tracked", Some(ms_id)).await;
     let number = on_ms["number"].as_i64().unwrap();
 
     // Single issue response.
@@ -260,7 +281,10 @@ async fn test_issue_response_has_milestone_title() {
         .unwrap();
     assert_eq!(resp.status(), 200);
     let updated: serde_json::Value = resp.json().await.unwrap();
-    assert!(updated.get("milestone_title").is_none(), "title omitted when unset");
+    assert!(
+        updated.get("milestone_title").is_none(),
+        "title omitted when unset"
+    );
 }
 
 // ── A5: cascade delete + cross-repo guard ─────────────────────────────────────
@@ -305,7 +329,11 @@ async fn test_delete_milestone_detaches_issues() {
     let body = list_issues(&base, &token, &owner, &repo, &format!("?milestone={ms_id}")).await;
     assert_eq!(body["total"].as_i64().unwrap_or_default(), 0);
     let body = list_issues(&base, &token, &owner, &repo, "?milestone=none").await;
-    assert_eq!(body["data"].as_array().unwrap().len(), 2, "issues survived as un-milestoned");
+    assert_eq!(
+        body["data"].as_array().unwrap().len(),
+        2,
+        "issues survived as un-milestoned"
+    );
 }
 
 #[tokio::test]
@@ -394,7 +422,14 @@ async fn test_update_milestone_null_clears_fields() {
         .unwrap();
     assert_eq!(resp.status(), 200);
     let body: serde_json::Value = resp.json().await.unwrap();
-    assert_eq!(body["description"], serde_json::Value::Null, "description cleared");
-    assert_eq!(body["due_date"], serde_json::Value::Null, "due date cleared");
+    assert_eq!(
+        body["description"],
+        serde_json::Value::Null,
+        "description cleared"
+    );
+    assert_eq!(
+        body["due_date"],
+        serde_json::Value::Null,
+        "due date cleared"
+    );
 }
-

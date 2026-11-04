@@ -57,7 +57,11 @@ fn connection_settings(config: &LdapConfig) -> LdapConnSettings {
     }
 }
 
-pub async fn authenticate(config: &LdapConfig, username: &str, password: &str) -> CoreResult<LdapUser> {
+pub async fn authenticate(
+    config: &LdapConfig,
+    username: &str,
+    password: &str,
+) -> CoreResult<LdapUser> {
     if username.trim().is_empty() || password.is_empty() {
         return Err(CoreError::InvalidInput("invalid LDAP credentials".into()));
     }
@@ -109,7 +113,9 @@ pub async fn authenticate(config: &LdapConfig, username: &str, password: &str) -
         )));
     }
     if results.len() != 1 {
-        return Err(CoreError::internal("LDAP user filter returned multiple entries"));
+        return Err(CoreError::internal(
+            "LDAP user filter returned multiple entries",
+        ));
     }
 
     // ldap3 v0.11: SearchResultEntry has (dn, attrs) pattern

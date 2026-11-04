@@ -76,7 +76,10 @@ async fn failing_repository_endpoints_do_not_reveal_server_paths() {
         "blame/README.md",
     ] {
         let response = client
-            .get(format!("{}/api/v1/repos/leak-owner/broken/{endpoint}", app.base))
+            .get(format!(
+                "{}/api/v1/repos/leak-owner/broken/{endpoint}",
+                app.base
+            ))
             .bearer_auth(&token)
             .send()
             .await
@@ -168,20 +171,32 @@ async fn scrubber_covers_text_and_json_errors_but_not_success_responses() {
     let text = client.get(format!("{base}/text-500")).send().await.unwrap();
     assert_eq!(text.status(), 500);
     let body = text.text().await.unwrap();
-    assert!(!body.contains("ironforge-scrub-test-root"), "text error leaked: {body}");
+    assert!(
+        !body.contains("ironforge-scrub-test-root"),
+        "text error leaked: {body}"
+    );
     assert!(body.contains(rg_http::redact::REDACTED), "{body}");
 
     let json = client.get(format!("{base}/json-400")).send().await.unwrap();
     assert_eq!(json.status(), 400);
     let body = json.text().await.unwrap();
-    assert!(!body.contains("ironforge-scrub-test-root"), "json error leaked: {body}");
+    assert!(
+        !body.contains("ironforge-scrub-test-root"),
+        "json error leaked: {body}"
+    );
     let parsed: serde_json::Value = serde_json::from_str(&body).expect("still valid JSON");
-    assert!(parsed["error"]["request_id"].is_string(), "request id still injected: {body}");
+    assert!(
+        parsed["error"]["request_id"].is_string(),
+        "request id still injected: {body}"
+    );
 
     let ok = client.get(format!("{base}/ok-200")).send().await.unwrap();
     assert_eq!(ok.status(), 200);
     assert!(
-        ok.text().await.unwrap().contains("ironforge-scrub-test-root"),
+        ok.text()
+            .await
+            .unwrap()
+            .contains("ironforge-scrub-test-root"),
         "success responses must not be rewritten"
     );
 }

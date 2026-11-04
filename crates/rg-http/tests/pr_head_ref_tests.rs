@@ -47,31 +47,73 @@ async fn head_owner_is_resolved_as_a_namespace() {
     let (dave, dave_id) = register_full(&base, "hr-dave", "hr-dave@example.com").await;
     let client = reqwest::Client::new();
 
-    ok(client.post(format!("{base}/api/v1/orgs")).bearer_auth(&owner)
-        .json(&serde_json::json!({"name":"hr-acme","display_name":"a"})).send().await.unwrap(), "org").await;
+    ok(
+        client
+            .post(format!("{base}/api/v1/orgs"))
+            .bearer_auth(&owner)
+            .json(&serde_json::json!({"name":"hr-acme","display_name":"a"}))
+            .send()
+            .await
+            .unwrap(),
+        "org",
+    )
+    .await;
     for id in [carol_id, dave_id] {
-        ok(client.post(format!("{base}/api/v1/orgs/hr-acme/members")).bearer_auth(&owner)
-            .json(&serde_json::json!({"user_id": id, "role":"member"})).send().await.unwrap(), "member").await;
+        ok(
+            client
+                .post(format!("{base}/api/v1/orgs/hr-acme/members"))
+                .bearer_auth(&owner)
+                .json(&serde_json::json!({"user_id": id, "role":"member"}))
+                .send()
+                .await
+                .unwrap(),
+            "member",
+        )
+        .await;
     }
 
     // carol (a plain member) creates the organization's repository, so its
     // `owner_id` is carol.
-    let org_repo = ok(client.post(format!("{base}/api/v1/repos")).bearer_auth(&carol)
-        .json(&serde_json::json!({"name":"lib","org":"hr-acme","is_private":false})).send().await.unwrap(), "org repo").await;
+    let org_repo = ok(
+        client
+            .post(format!("{base}/api/v1/repos"))
+            .bearer_auth(&carol)
+            .json(&serde_json::json!({"name":"lib","org":"hr-acme","is_private":false}))
+            .send()
+            .await
+            .unwrap(),
+        "org repo",
+    )
+    .await;
     let org_repo_id = org_repo["id"].as_i64().unwrap();
 
     // The organization's own name means "a branch of this repository".
-    assert_eq!(resolve(&db, org_repo_id, "hr-acme:feat").await, Ok(("feat".into(), None)));
+    assert_eq!(
+        resolve(&db, org_repo_id, "hr-acme:feat").await,
+        Ok(("feat".into(), None))
+    );
     // A bare branch name too.
-    assert_eq!(resolve(&db, org_repo_id, "feat").await, Ok(("feat".into(), None)));
+    assert_eq!(
+        resolve(&db, org_repo_id, "feat").await,
+        Ok(("feat".into(), None))
+    );
 
     // The creating member is just another user: without a fork it is an error,
     // not a silent alias for the organization's repository.
     assert_invalid_input(&db, org_repo_id, "hr-carol:feat").await;
 
     // Once carol forks it, `hr-carol:feat` names her fork.
-    let carol_fork = ok(client.post(format!("{base}/api/v1/repos/hr-acme/lib/fork")).bearer_auth(&carol)
-        .json(&serde_json::json!({})).send().await.unwrap(), "carol fork").await;
+    let carol_fork = ok(
+        client
+            .post(format!("{base}/api/v1/repos/hr-acme/lib/fork"))
+            .bearer_auth(&carol)
+            .json(&serde_json::json!({}))
+            .send()
+            .await
+            .unwrap(),
+        "carol fork",
+    )
+    .await;
     let carol_fork_id = carol_fork["id"].as_i64().unwrap();
     assert_eq!(
         resolve(&db, org_repo_id, "hr-carol:feat").await,
@@ -80,8 +122,17 @@ async fn head_owner_is_resolved_as_a_namespace() {
     );
 
     // Another member's fork resolves as before.
-    let dave_fork = ok(client.post(format!("{base}/api/v1/repos/hr-acme/lib/fork")).bearer_auth(&dave)
-        .json(&serde_json::json!({})).send().await.unwrap(), "dave fork").await;
+    let dave_fork = ok(
+        client
+            .post(format!("{base}/api/v1/repos/hr-acme/lib/fork"))
+            .bearer_auth(&dave)
+            .json(&serde_json::json!({}))
+            .send()
+            .await
+            .unwrap(),
+        "dave fork",
+    )
+    .await;
     assert_eq!(
         resolve(&db, org_repo_id, "hr-dave:feat").await,
         Ok(("feat".into(), Some(dave_fork["id"].as_i64().unwrap())))
@@ -99,15 +150,36 @@ async fn personal_repository_head_refs_still_work() {
     let (bob, _) = register_full(&base, "hp-bob", "hp-bob@example.com").await;
     let client = reqwest::Client::new();
 
-    let repo = ok(client.post(format!("{base}/api/v1/repos")).bearer_auth(&alice)
-        .json(&serde_json::json!({"name":"tool","is_private":false})).send().await.unwrap(), "repo").await;
+    let repo = ok(
+        client
+            .post(format!("{base}/api/v1/repos"))
+            .bearer_auth(&alice)
+            .json(&serde_json::json!({"name":"tool","is_private":false}))
+            .send()
+            .await
+            .unwrap(),
+        "repo",
+    )
+    .await;
     let id = repo["id"].as_i64().unwrap();
 
-    assert_eq!(resolve(&db, id, "hp-alice:feat").await, Ok(("feat".into(), None)));
+    assert_eq!(
+        resolve(&db, id, "hp-alice:feat").await,
+        Ok(("feat".into(), None))
+    );
     assert_invalid_input(&db, id, "hp-bob:feat").await;
 
-    let fork = ok(client.post(format!("{base}/api/v1/repos/hp-alice/tool/fork")).bearer_auth(&bob)
-        .json(&serde_json::json!({})).send().await.unwrap(), "fork").await;
+    let fork = ok(
+        client
+            .post(format!("{base}/api/v1/repos/hp-alice/tool/fork"))
+            .bearer_auth(&bob)
+            .json(&serde_json::json!({}))
+            .send()
+            .await
+            .unwrap(),
+        "fork",
+    )
+    .await;
     assert_eq!(
         resolve(&db, id, "hp-bob:feat").await,
         Ok(("feat".into(), Some(fork["id"].as_i64().unwrap())))
