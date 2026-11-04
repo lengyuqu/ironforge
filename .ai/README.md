@@ -179,10 +179,11 @@ AI Agent **必须**在阅读代码前先读取以下文件：
 | `collab_answer_question` / `collab_cancel_question` | 答复（必须带读到的 `expected_version` 和 `acknowledged_context_hash`；任务已变化返回 `CONTEXT_STALE`，需重读）/ 仅提问者可取消。答复是协作决定，**不是**合并审批 |
 | `collab_create_work_package` / `collab_list_work_packages` / `collab_get_work_package` | 写不可变、带编号的交接摘要（全部是作者声明；仅 `evidence_refs` 里 `kind=pipeline` 的 id 会在**读取时**由平台查询并单独标注 `verified_reference`/`unavailable`）/ 列表 / 单个 |
 | `collab_get_completion_status` | 对照任务的自述状态与平台记录：问题是否都已解决、是否有工作包、该工作包 commit 的最新 CI。只读；“done 但无证据”只会被标出，不会被阻止 |
+| `collab_get_dependencies` / `collab_add_dependency` / `collab_remove_dependency` | 任务依赖（A 等待 B）。读取返回直接依赖及其**声明的**状态、`graph_version` 与派生的 `blocked_by`（依赖状态非 `done`）；增删必须带读到的 `expected_graph_version`（0 = 尚无任何边）：过期返回 `VERSION_CONFLICT`+`current_version`，成环返回 `DEPENDENCY_CYCLE`（`cycle_path`），图过大或单任务超过 100 条直接依赖返回 `GRAPH_LIMIT_EXCEEDED`（`details.limit`）。删除不存在的边成功且 `removed:false`。只是声明：不阻塞、不启动、不完成任何任务 |
 
 错误以 `isError: true` 返回，正文为 `{"error": {"status", "code", "message", "details"?}}`；按 `code` 判断（`VERSION_CONFLICT`、`OWNER_MAY_BE_ACTIVE`、`CONTEXT_STALE`、`QUESTION_NOT_OPEN`、`SESSION_EXPIRED`、`IDEMPOTENCY_KEY_REUSED`、`NO_ACTIVE_SESSION`、`INVALID_ARGUMENTS`、`TRANSPORT_ERROR`…），不要解析 `message`。
 
-`collab_send_message` / `collab_create_handoff` / `collab_claim_task` / `collab_ask_question` / `collab_answer_question` / `collab_create_work_package` 省略幂等键时自动生成，并在结果里回显；**重试时请复用同一个键**，服务端只保存一条。
+`collab_send_message` / `collab_create_handoff` / `collab_claim_task` / `collab_ask_question` / `collab_answer_question` / `collab_create_work_package` / `collab_add_dependency` / `collab_remove_dependency` 省略幂等键时自动生成，并在结果里回显；**重试时请复用同一个键**，服务端只保存一条。
 
 **进程重启**：默认只在内存保存会话凭据，重启后工具会返回 `NO_ACTIVE_SESSION`，需再次 `collab_start_session`（得到**新**会话，旧会话自然过期；任务与历史消息仍可读）。若宿主希望续接同一会话，可设置 `IRONFORGE_COLLAB_SESSION_FILE=<宿主管理的路径>`：MCP 以 0600 权限把凭据写入该文件，重启后 `collab_start_session` 返回 `resumed: true`。该文件含密钥，宿主需像对待凭据一样保管，不要放进仓库。
 

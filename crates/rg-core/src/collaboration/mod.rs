@@ -11,6 +11,7 @@
 pub mod ci_evidence;
 pub mod completion;
 pub mod cursor;
+pub mod dependency;
 pub mod error;
 pub mod handoff;
 pub mod inbox;

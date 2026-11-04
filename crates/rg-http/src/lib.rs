@@ -1024,6 +1024,15 @@ fn build_routes(
             get(api::collab_takeovers::list_takeovers).post(api::collab_takeovers::claim_task),
         )
         .route(
+            "/repos/{owner}/{name}/collaboration/tasks/{id}/dependencies",
+            get(api::collab_dependencies::list_dependencies)
+                .post(api::collab_dependencies::add_dependency),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/tasks/{id}/dependencies/{depends_on_id}",
+            delete(api::collab_dependencies::remove_dependency),
+        )
+        .route(
             "/repos/{owner}/{name}/collaboration/tasks/{id}/completion-status",
             get(api::collab_tasks::get_completion_status),
         )

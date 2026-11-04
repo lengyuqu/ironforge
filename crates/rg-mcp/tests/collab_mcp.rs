@@ -192,7 +192,8 @@ fn t11_tools_list_advertises_complete_schemas() {
         "collab_get_rules", "collab_get_inbox", "collab_claim_task", "collab_list_takeovers",
         "collab_ask_question", "collab_list_questions", "collab_get_question", "collab_answer_question",
         "collab_cancel_question", "collab_create_work_package", "collab_list_work_packages",
-        "collab_get_work_package", "collab_get_completion_status",
+        "collab_get_work_package", "collab_get_completion_status", "collab_get_dependencies",
+        "collab_add_dependency", "collab_remove_dependency",
     ] {
         assert!(names.contains(&expected), "missing {expected}: {names:?}");
     }
@@ -646,5 +647,99 @@ fn p14_coded_conflicts_reach_the_model_with_their_details() {
     assert_eq!(out["error"]["status"], 409);
     assert_eq!(out["error"]["code"], "OWNER_MAY_BE_ACTIVE");
     assert_eq!(out["error"]["details"]["owner_state"], "offline");
+    mcp.stop();
+}
+
+// ── P1 U01 task dependency tools ─────────────────────────────────────
+
+#[test]
+fn u01_dependency_tools_map_to_the_rest_api_and_validate_before_sending() {
+    let stub = Stub::spawn(happy_handler());
+    let mut mcp = Mcp::start(&stub.url, None);
+    let (err, _) = mcp.tool_json("collab_start_session", start_args());
+    assert!(!err);
+    let tid = "22222222-2222-4222-8222-222222222222";
+    let dep = "33333333-3333-4333-8333-333333333333";
+    let base = |extra: Value| {
+        let mut args = json!({"owner": "o", "repo": "r"});
+        args.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        args
+    };
+
+    for (tool, args) in [
+        ("collab_get_dependencies", base(json!({"task_id": tid}))),
+        ("collab_add_dependency", base(json!({"task_id": tid, "depends_on_task_id": dep, "expected_graph_version": 0}))),
+        ("collab_remove_dependency", base(json!({"task_id": tid, "depends_on_task_id": dep, "expected_graph_version": 1, "client_request_id": "mine-1"}))),
+    ] {
+        let (err, out) = mcp.tool(tool, args);
+        assert!(!err, "{tool}: {out}");
+        assert!(!out.contains(SECRET));
+    }
+    let reqs = stub.requests();
+    let find = |method: &str, suffix: &str| -> Req {
+        reqs.iter()
+            .find(|r| r.method == method && r.path.ends_with(suffix))
+            .unwrap_or_else(|| panic!("no {method} …{suffix}"))
+            .clone()
+    };
+    let session = |r: &Req| {
+        assert_eq!(r.headers.get("x-ironforge-session").map(String::as_str), Some(SESSION_ID));
+        assert_eq!(r.headers.get("x-ironforge-session-secret").map(String::as_str), Some(SECRET));
+    };
+    let list = find("GET", &format!("/collaboration/tasks/{tid}/dependencies"));
+    assert!(list.body.is_null() || list.body == json!({}));
+    let add = find("POST", &format!("/collaboration/tasks/{tid}/dependencies"));
+    session(&add);
+    assert_eq!(add.body["depends_on_task_id"], dep);
+    assert_eq!(add.body["expected_graph_version"], 0);
+    assert!(uuid_like(add.body["client_request_id"].as_str().unwrap()), "idempotency key generated");
+    let remove = find("DELETE", &format!("/collaboration/tasks/{tid}/dependencies/{dep}"));
+    session(&remove);
+    assert_eq!(remove.body, json!({"client_request_id": "mine-1", "expected_graph_version": 1}));
+
+    // Missing version / bad ids never leave the process.
+    let before = stub.requests().len();
+    for (tool, args) in [
+        ("collab_add_dependency", base(json!({"task_id": tid, "depends_on_task_id": dep}))),
+        ("collab_add_dependency", base(json!({"task_id": tid, "expected_graph_version": 0}))),
+        ("collab_add_dependency", base(json!({"task_id": tid, "depends_on_task_id": "../x", "expected_graph_version": 0}))),
+        ("collab_remove_dependency", base(json!({"task_id": tid, "depends_on_task_id": dep}))),
+        ("collab_remove_dependency", base(json!({"task_id": "a/b", "depends_on_task_id": dep, "expected_graph_version": 1}))),
+        ("collab_get_dependencies", base(json!({"task_id": "a/b"}))),
+    ] {
+        let (err, out) = mcp.tool_json(tool, args);
+        assert!(err, "{tool} should be rejected: {out}");
+    }
+    assert_eq!(stub.requests().len(), before);
+    let stderr = mcp.stop();
+    assert!(!stderr.contains(SECRET));
+}
+
+#[test]
+fn u01_dependency_conflict_codes_and_details_reach_the_model() {
+    let handler: Handler = Box::new(|req| {
+        if req.method == "POST" && req.path.ends_with("/collaboration/sessions") {
+            (201, json!({"session": {"id": SESSION_ID, "state": "online"}, "session_secret": SECRET}).to_string())
+        } else {
+            (
+                409,
+                json!({"error": {"code": "DEPENDENCY_CYCLE", "message": "loop",
+                    "details": {"cycle_path": ["a", "b", "a"]}}})
+                .to_string(),
+            )
+        }
+    });
+    let stub = Stub::spawn(handler);
+    let mut mcp = Mcp::start(&stub.url, None);
+    mcp.tool_json("collab_start_session", start_args());
+    let (err, out) = mcp.tool_json(
+        "collab_add_dependency",
+        json!({"owner": "o", "repo": "r", "task_id": "22222222-2222-4222-8222-222222222222",
+               "depends_on_task_id": "33333333-3333-4333-8333-333333333333", "expected_graph_version": 3}),
+    );
+    assert!(err);
+    assert_eq!(out["error"]["status"], 409);
+    assert_eq!(out["error"]["code"], "DEPENDENCY_CYCLE");
+    assert_eq!(out["error"]["details"]["cycle_path"], json!(["a", "b", "a"]));
     mcp.stop();
 }

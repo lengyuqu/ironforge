@@ -275,7 +275,7 @@ struct Plan {
 }
 
 /// Which tools exist, in the order they are advertised.
-pub const TOOL_NAMES: [&str; 28] = [
+pub const TOOL_NAMES: [&str; 31] = [
     "collab_start_session",
     "collab_list_sessions",
     "collab_heartbeat",
@@ -304,6 +304,9 @@ pub const TOOL_NAMES: [&str; 28] = [
     "collab_list_work_packages",
     "collab_get_work_package",
     "collab_get_completion_status",
+    "collab_get_dependencies",
+    "collab_add_dependency",
+    "collab_remove_dependency",
 ];
 
 pub fn is_collab_tool(name: &str) -> bool {
@@ -528,6 +531,35 @@ fn plan(name: &str, args: &Value, own_session: Option<&str>) -> Result<Plan, Too
         "collab_get_completion_status" => {
             get(format!("/tasks/{}/completion-status", id_arg(args, "task_id")?))
         }
+        "collab_get_dependencies" => get(format!("/tasks/{}/dependencies", id_arg(args, "task_id")?)),
+        "collab_add_dependency" => {
+            let mut body = pick(
+                args,
+                &["client_request_id", "depends_on_task_id", "expected_graph_version"],
+            );
+            id_arg(args, "depends_on_task_id")?;
+            int_arg(args, "expected_graph_version", true)?;
+            body.entry("client_request_id").or_insert_with(|| Value::String(new_client_id()));
+            with_session(
+                Method::POST,
+                format!("/tasks/{}/dependencies", id_arg(args, "task_id")?),
+                Some(Value::Object(body)),
+            )
+        }
+        "collab_remove_dependency" => {
+            let mut body = pick(args, &["client_request_id", "expected_graph_version"]);
+            int_arg(args, "expected_graph_version", true)?;
+            body.entry("client_request_id").or_insert_with(|| Value::String(new_client_id()));
+            with_session(
+                Method::DELETE,
+                format!(
+                    "/tasks/{}/dependencies/{}",
+                    id_arg(args, "task_id")?,
+                    id_arg(args, "depends_on_task_id")?
+                ),
+                Some(Value::Object(body)),
+            )
+        }
         _ => return Err(invalid(format!("unknown tool {name}"))),
     })
 }
@@ -637,7 +669,8 @@ fn run(state: &AppState, name: &str, args: &Value) -> Result<ToolOutput, ToolOut
             value = json!({"ok": true, "ended": true});
         }
         "collab_send_message" | "collab_create_handoff" | "collab_claim_task" | "collab_ask_question"
-        | "collab_answer_question" | "collab_create_work_package" => {
+        | "collab_answer_question" | "collab_create_work_package" | "collab_add_dependency"
+        | "collab_remove_dependency" => {
             // Echo the idempotency key used so a retry can repeat it.
         }
         _ => {}
@@ -831,6 +864,22 @@ pub fn tool_definitions() -> Vec<Value> {
             schema(json!({"package_id": {"type": "string", "maxLength": 64}}), &["package_id"])),
         def("collab_get_completion_status", format!("Compare what a task claims (its status) with what platform records support: open questions, work package present, and the latest CI pipeline for exactly the work package's commit. Read-only; a done task without evidence is flagged, never blocked.{untrusted}"),
             schema(json!({"task_id": task_id()}), &["task_id"])),
+        def("collab_get_dependencies", format!("List the tasks a task waits for, with each one's declared status, plus graph_version (send it back as expected_graph_version) and blocked_by (dependencies not declared done). Statuses are declarations by other clients, not evidence that work is finished.{untrusted}"),
+            schema(json!({"task_id": task_id()}), &["task_id"])),
+        def("collab_add_dependency", format!("Declare that task_id waits for depends_on_task_id (same repository). Needs the graph_version you last read; a stale one returns VERSION_CONFLICT with current_version, a loop returns DEPENDENCY_CYCLE (cycle_path), and an oversized graph or more than 100 direct dependencies returns GRAPH_LIMIT_EXCEEDED. Declares only: nothing is blocked, started or finished. Reuse client_request_id when retrying.{untrusted}"),
+            schema(json!({
+                "task_id": task_id(),
+                "depends_on_task_id": {"type": "string", "minLength": 1, "maxLength": 64, "description": "The task to wait for."},
+                "expected_graph_version": {"type": "integer", "minimum": 0, "description": "graph_version from collab_get_dependencies (0 = no dependency was ever recorded)."},
+                "client_request_id": {"type": "string", "maxLength": 128, "description": "Idempotency key; generated if omitted."}
+            }), &["task_id", "depends_on_task_id", "expected_graph_version"])),
+        def("collab_remove_dependency", "Remove the declaration that task_id waits for depends_on_task_id. Removing an edge that does not exist succeeds with removed=false. Needs the graph_version you last read.".into(),
+            schema(json!({
+                "task_id": task_id(),
+                "depends_on_task_id": {"type": "string", "minLength": 1, "maxLength": 64},
+                "expected_graph_version": {"type": "integer", "minimum": 0},
+                "client_request_id": {"type": "string", "maxLength": 128, "description": "Idempotency key; generated if omitted."}
+            }), &["task_id", "depends_on_task_id", "expected_graph_version"])),
     ]
 }
 
