@@ -66,6 +66,17 @@ pub mod clients {
             .map_err(|_| prometheus::Error::Msg("WS_ACTIVE already set".into()))?;
         registry.register(Box::new(active))?;
 
+        // Materialise the known channels at 0 so dashboards and alerts see the
+        // series before the first connection arrives.
+        for channel in ["job_log", "notifications"] {
+            if let Some(gauge) = WS_ACTIVE.get() {
+                gauge.with_label_values(&[channel]).set(0);
+            }
+            if let Some(counter) = WS_CONNECTIONS_TOTAL.get() {
+                counter.with_label_values(&[channel]).inc_by(0);
+            }
+        }
+
         Ok(())
     }
 
