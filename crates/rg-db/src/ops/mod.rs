@@ -7,6 +7,7 @@ pub mod board_ops;
 pub mod ci_environment_ops;
 pub mod ci_retention_ops;
 pub mod ci_secret_ops;
+pub mod collab_group_ops;
 pub mod collab_handoff_ops;
 pub mod collab_message_ops;
 pub mod collab_question_ops;

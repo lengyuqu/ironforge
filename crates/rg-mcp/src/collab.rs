@@ -275,7 +275,7 @@ struct Plan {
 }
 
 /// Which tools exist, in the order they are advertised.
-pub const TOOL_NAMES: [&str; 28] = [
+pub const TOOL_NAMES: [&str; 33] = [
     "collab_start_session",
     "collab_list_sessions",
     "collab_heartbeat",
@@ -304,6 +304,11 @@ pub const TOOL_NAMES: [&str; 28] = [
     "collab_list_work_packages",
     "collab_get_work_package",
     "collab_get_completion_status",
+    "collab_create_group",
+    "collab_get_group",
+    "collab_add_group_link",
+    "collab_list_group_links",
+    "collab_remove_group_link",
 ];
 
 pub fn is_collab_tool(name: &str) -> bool {
@@ -528,6 +533,46 @@ fn plan(name: &str, args: &Value, own_session: Option<&str>) -> Result<Plan, Too
         "collab_get_completion_status" => {
             get(format!("/tasks/{}/completion-status", id_arg(args, "task_id")?))
         }
+        "collab_create_group" => {
+            require_str(args, "title")?;
+            let mut body = pick(args, &["title", "description", "client_request_id"]);
+            body.entry("client_request_id").or_insert_with(|| Value::String(new_client_id()));
+            with_session(Method::POST, "/groups".into(), Some(Value::Object(body)))
+        }
+        "collab_get_group" => get(format!(
+            "/groups/{}{}",
+            id_arg(args, "group_id")?,
+            query(args, &["limit"])
+        )),
+        "collab_add_group_link" => {
+            int_arg(args, "target_repo_id", true)?;
+            int_arg(args, "expected_group_version", true)?;
+            let mut body = pick(
+                args,
+                &["client_request_id", "target_repo_id", "target_task_id", "commit_sha", "expected_group_version"],
+            );
+            body.entry("client_request_id").or_insert_with(|| Value::String(new_client_id()));
+            with_session(
+                Method::POST,
+                format!("/groups/{}/links", id_arg(args, "group_id")?),
+                Some(Value::Object(body)),
+            )
+        }
+        "collab_list_group_links" => get(format!(
+            "/groups/{}/links{}",
+            id_arg(args, "group_id")?,
+            query(args, &["limit", "cursor"])
+        )),
+        "collab_remove_group_link" => {
+            int_arg(args, "expected_group_version", true)?;
+            let mut body = pick(args, &["client_request_id", "expected_group_version"]);
+            body.entry("client_request_id").or_insert_with(|| Value::String(new_client_id()));
+            with_session(
+                Method::DELETE,
+                format!("/groups/{}/links/{}", id_arg(args, "group_id")?, id_arg(args, "link_id")?),
+                Some(Value::Object(body)),
+            )
+        }
         _ => return Err(invalid(format!("unknown tool {name}"))),
     })
 }
@@ -637,7 +682,8 @@ fn run(state: &AppState, name: &str, args: &Value) -> Result<ToolOutput, ToolOut
             value = json!({"ok": true, "ended": true});
         }
         "collab_send_message" | "collab_create_handoff" | "collab_claim_task" | "collab_ask_question"
-        | "collab_answer_question" | "collab_create_work_package" => {
+        | "collab_answer_question" | "collab_create_work_package" | "collab_create_group"
+        | "collab_add_group_link" | "collab_remove_group_link" => {
             // Echo the idempotency key used so a retry can repeat it.
         }
         _ => {}
@@ -831,6 +877,32 @@ pub fn tool_definitions() -> Vec<Value> {
             schema(json!({"package_id": {"type": "string", "maxLength": 64}}), &["package_id"])),
         def("collab_get_completion_status", format!("Compare what a task claims (its status) with what platform records support: open questions, work package present, and the latest CI pipeline for exactly the work package's commit. Read-only; a done task without evidence is flagged, never blocked.{untrusted}"),
             schema(json!({"task_id": task_id()}), &["task_id"])),
+        def("collab_create_group", format!("Create a cross-repository coordination group owned by this repository (the anchor). WARNING: title and description are readable by everyone who can read this repository's collaboration data, including people who cannot read the repositories you later link; the server never copies content of linked repositories into them, so do not put confidential details of other repositories there. Needs write access and a session. Returns the group with its version (use it as expected_group_version).{untrusted}"),
+            schema(json!({
+                "title": {"type": "string", "minLength": 1, "maxLength": 200},
+                "description": {"type": "string", "maxLength": 16384},
+                "client_request_id": {"type": "string", "maxLength": 128, "description": "Idempotency key; generated if omitted."}
+            }), &["title"])),
+        def("collab_get_group", format!("Read a group and the first page of its links. Only links to repositories you can read are returned; there is no total and no marker for links you cannot see. version is shown only if you can write to the anchor.{untrusted}"),
+            schema(json!({"group_id": {"type": "string", "maxLength": 64}, "limit": limit()}), &["group_id"])),
+        def("collab_add_group_link", format!("Link a task and/or a commit of another repository (by repository id) to a group. Needs write access to BOTH this anchor repository and the target, and a session. Fails with VERSION_CONFLICT if the group changed since expected_group_version, LINK_ALREADY_EXISTS for a duplicate. The commit must exist in the target repository now; if it is later garbage-collected the link reports commit_state=unavailable, never another sha. A link grants no Git, CI, merge or approval rights.{untrusted}"),
+            schema(json!({
+                "group_id": {"type": "string", "maxLength": 64},
+                "target_repo_id": {"type": "integer", "minimum": 1, "description": "Stable repository id of the target"},
+                "target_task_id": {"type": "string", "maxLength": 64},
+                "commit_sha": {"type": "string", "description": "Full 40/64-digit commit id"},
+                "expected_group_version": {"type": "integer", "minimum": 1},
+                "client_request_id": {"type": "string", "maxLength": 128, "description": "Idempotency key; generated if omitted."}
+            }), &["group_id", "target_repo_id", "expected_group_version"])),
+        def("collab_list_group_links", format!("Page through the links of a group that you may see. Every page re-checks your access to every target; pages may hold fewer items than expected only at the end, and has_more is true only if a further visible link exists.{untrusted}"),
+            schema(json!({"group_id": {"type": "string", "maxLength": 64}, "limit": limit(), "cursor": {"type": "string"}}), &["group_id"])),
+        def("collab_remove_group_link", "Soft-remove a link from a group (kept as an audit record). Needs write access to BOTH the anchor and the link's target repository, and a session. Requires the group's current version.".into(),
+            schema(json!({
+                "group_id": {"type": "string", "maxLength": 64},
+                "link_id": {"type": "string", "maxLength": 64},
+                "expected_group_version": {"type": "integer", "minimum": 1},
+                "client_request_id": {"type": "string", "maxLength": 128, "description": "Idempotency key; generated if omitted."}
+            }), &["group_id", "link_id", "expected_group_version"])),
     ]
 }
 

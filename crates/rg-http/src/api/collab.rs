@@ -187,7 +187,7 @@ pub(crate) async fn require_collab_read(
     }
 }
 
-async fn is_collab_member(
+pub(crate) async fn is_collab_member(
     state: &AppState,
     repo: &rg_db::entities::repository::Model,
     actor_id: i64,

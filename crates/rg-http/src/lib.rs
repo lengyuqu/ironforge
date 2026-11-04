@@ -1057,6 +1057,22 @@ fn build_routes(
             get(api::collab_work_packages::get_work_package),
         )
         .route(
+            "/repos/{owner}/{name}/collaboration/groups",
+            post(api::collab_groups::create_group),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/groups/{group_id}",
+            get(api::collab_groups::get_group),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/groups/{group_id}/links",
+            get(api::collab_groups::list_group_links).post(api::collab_groups::add_group_link),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/groups/{group_id}/links/{link_id}",
+            delete(api::collab_groups::remove_group_link),
+        )
+        .route(
             "/repos/{owner}/{name}/pipelines/{id}/jobs/{job_id}/play",
             post(api::ci::play_job),
         )

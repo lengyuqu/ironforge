@@ -179,6 +179,9 @@ AI Agent **必须**在阅读代码前先读取以下文件：
 | `collab_answer_question` / `collab_cancel_question` | 答复（必须带读到的 `expected_version` 和 `acknowledged_context_hash`；任务已变化返回 `CONTEXT_STALE`，需重读）/ 仅提问者可取消。答复是协作决定，**不是**合并审批 |
 | `collab_create_work_package` / `collab_list_work_packages` / `collab_get_work_package` | 写不可变、带编号的交接摘要（全部是作者声明；仅 `evidence_refs` 里 `kind=pipeline` 的 id 会在**读取时**由平台查询并单独标注 `verified_reference`/`unavailable`）/ 列表 / 单个 |
 | `collab_get_completion_status` | 对照任务的自述状态与平台记录：问题是否都已解决、是否有工作包、该工作包 commit 的最新 CI。只读；“done 但无证据”只会被标出，不会被阻止 |
+| `collab_create_group` / `collab_get_group` | 建跨仓协调组（归**锚仓**所有，需锚仓写权限 + 会话）/ 读组及第一页可见关联。**警告**：`title`、`description` 对所有能读锚仓协作数据的人可见（包括读不到被关联仓库的人）；服务端从不把其他仓库的内容复制进去，别在里面写其他仓库的机密。`version` 仅锚仓写者可见，用作 `expected_group_version` |
+| `collab_add_group_link` / `collab_remove_group_link` | 向组里关联/移除**别的仓库**的任务和/或提交（按仓库 id；提交须是完整 SHA 且当前存在于目标仓）。**锚仓和目标仓都要写权限**；必须带 `expected_group_version`（`VERSION_CONFLICT`）；重复目标 `LINK_ALREADY_EXISTS`；移除是软删除并审计。关联不授予任何 Git/CI/合并/审批权 |
+| `collab_list_group_links` | 分页列出你**有权看**的关联：先鉴权、再排序分页，每页都重新鉴权；没有总数、没有“有 N 项被隐藏”提示；`has_more` 仅由可见集合决定；目标仓名称在读取时解析；提交被 GC 后 `commit_state=unavailable`（SHA 不变） |
 
 错误以 `isError: true` 返回，正文为 `{"error": {"status", "code", "message", "details"?}}`；按 `code` 判断（`VERSION_CONFLICT`、`OWNER_MAY_BE_ACTIVE`、`CONTEXT_STALE`、`QUESTION_NOT_OPEN`、`SESSION_EXPIRED`、`IDEMPOTENCY_KEY_REUSED`、`NO_ACTIVE_SESSION`、`INVALID_ARGUMENTS`、`TRANSPORT_ERROR`…），不要解析 `message`。
 

@@ -648,3 +648,83 @@ fn p14_coded_conflicts_reach_the_model_with_their_details() {
     assert_eq!(out["error"]["details"]["owner_state"], "offline");
     mcp.stop();
 }
+
+// ── coordination group tools (P2 X02) ────────────────────────────────
+
+#[test]
+fn x02_group_tools_map_to_the_rest_api() {
+    let stub = Stub::spawn(happy_handler());
+    let mut mcp = Mcp::start(&stub.url, None);
+    let listed = mcp.rpc("tools/list", json!({}));
+    let names: Vec<&str> = listed["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
+    for expected in ["collab_create_group", "collab_get_group", "collab_add_group_link", "collab_list_group_links", "collab_remove_group_link"] {
+        assert!(names.contains(&expected), "missing {expected}");
+    }
+    let create_def = listed["result"]["tools"].as_array().unwrap().iter().find(|t| t["name"] == "collab_create_group").unwrap();
+    assert!(create_def["description"].as_str().unwrap().contains("readable by everyone who can read this repository's collaboration data"), "the visibility warning is part of the tool contract");
+
+    let (err, _) = mcp.tool_json("collab_start_session", start_args());
+    assert!(!err);
+    let gid = "44444444-4444-4444-8444-444444444444";
+    let lid = "55555555-5555-4555-8555-555555555555";
+    let base = json!({"owner": "o", "repo": "r"});
+    let with = |extra: Value| {
+        let mut args = base.clone();
+        args.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        args
+    };
+    for (tool, args) in [
+        ("collab_create_group", with(json!({"title": "release train", "description": "d"}))),
+        ("collab_get_group", with(json!({"group_id": gid, "limit": 10}))),
+        ("collab_add_group_link", with(json!({"group_id": gid, "target_repo_id": 9, "target_task_id": lid, "expected_group_version": 1}))),
+        ("collab_list_group_links", with(json!({"group_id": gid, "limit": 5, "cursor": "c.d"}))),
+        ("collab_remove_group_link", with(json!({"group_id": gid, "link_id": lid, "expected_group_version": 2}))),
+    ] {
+        let (err, out) = mcp.tool(tool, args);
+        assert!(!err, "{tool}: {out}");
+        assert!(!out.contains(SECRET));
+    }
+    let reqs = stub.requests();
+    let find = |method: &str, suffix: &str| -> Req {
+        reqs.iter()
+            .find(|r| r.method == method && r.path.ends_with(suffix))
+            .unwrap_or_else(|| panic!("no {method} …{suffix}"))
+            .clone()
+    };
+    let session = |r: &Req| {
+        assert_eq!(r.headers.get("x-ironforge-session").map(String::as_str), Some(SESSION_ID));
+        assert_eq!(r.headers.get("x-ironforge-session-secret").map(String::as_str), Some(SECRET));
+    };
+
+    let create = find("POST", "/collaboration/groups");
+    session(&create);
+    assert_eq!(create.body["title"], "release train");
+    assert!(uuid_like(create.body["client_request_id"].as_str().unwrap()), "idempotency key generated");
+    let add = find("POST", &format!("/groups/{gid}/links"));
+    session(&add);
+    assert_eq!(add.body["target_repo_id"], 9);
+    assert_eq!(add.body["target_task_id"], lid);
+    assert_eq!(add.body["expected_group_version"], 1);
+    assert!(uuid_like(add.body["client_request_id"].as_str().unwrap()));
+    let remove = find("DELETE", &format!("/groups/{gid}/links/{lid}"));
+    session(&remove);
+    assert_eq!(remove.body["expected_group_version"], 2);
+    assert!(uuid_like(remove.body["client_request_id"].as_str().unwrap()));
+    assert!(find("GET", &format!("/groups/{gid}?limit=10")).path.ends_with("?limit=10"));
+    assert!(find("GET", &format!("/groups/{gid}/links?limit=5&cursor=c.d")).path.contains("cursor=c.d"));
+
+    // Bad arguments never leave the process.
+    let before = stub.requests().len();
+    for (tool, args) in [
+        ("collab_create_group", with(json!({}))),
+        ("collab_add_group_link", with(json!({"group_id": gid, "expected_group_version": 1}))),
+        ("collab_add_group_link", with(json!({"group_id": gid, "target_repo_id": 9}))),
+        ("collab_remove_group_link", with(json!({"group_id": gid, "link_id": lid}))),
+        ("collab_get_group", with(json!({"group_id": "../x"}))),
+    ] {
+        let (err, out) = mcp.tool_json(tool, args);
+        assert!(err, "{tool} should be rejected: {out}");
+    }
+    assert_eq!(stub.requests().len(), before);
+    mcp.stop();
+}
