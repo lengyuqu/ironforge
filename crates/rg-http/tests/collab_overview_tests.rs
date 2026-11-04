@@ -233,7 +233,7 @@ async fn o02_sections_locate_the_records_and_flag_unreliable_declarations() {
         .as_array()
         .unwrap()
         .iter()
-        .flat_map(|s| ids(s))
+        .flat_map(ids)
         .collect();
     assert!(!everywhere.contains(&finished));
 }
