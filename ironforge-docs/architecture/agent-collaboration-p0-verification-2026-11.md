@@ -15,7 +15,7 @@
 | 工作包按 revision 降序 | 按 `(created_at,id)` 降序 | 复用现有游标；revision 仍唯一且递增 |
 | O03a | 删除影响**只读计数**（仓库 / 账号）+ 备份覆盖盘点（§4） | 不执行删除、不执行恢复 |
 
-**未做**：MCP 工具、Web UI、`inbox_reads`、依赖图 / 决定 / 回执 / 通知（P1）、P2、O03b 隔离恢复演练、O02 总览、O04 自定义条件与强制模式、`paths_declared_at`。
+**未做**：Web UI、`inbox_reads`、依赖图 / 决定 / 回执 / 通知（P1）、P2、O03b 隔离恢复演练、O02 总览、O04 自定义条件与强制模式、`paths_declared_at`。
 
 ## 2. 实现证据（文件 / 接口）
 
@@ -36,8 +36,14 @@
 | 全量 workspace 测试（SQLite） | ✅ | `cargo test --workspace --no-fail-fast`：92 个测试目标，803 通过 / 0 失败（§5） |
 | 合并后集成 / CI | ❌ 未验证 | 尚未推送，GitHub Actions 未运行 |
 | PostgreSQL / MySQL | ❌ 未验证 | 本机测试容器未运行（127.0.0.1:55432 / 53306 不可达）；迁移与并发约束（唯一键、条件 UPDATE）未在这两个后端实测。`IRONFORGE_TEST_DATABASE_URL` 可复用同一套测试 |
-| 真实运行（真服务器 + MCP + 两客户端） | ❌ 未验证 | `scripts/collab-e2e.py` 尚未扩展到新接口；MCP 没有对应工具 |
-| 浏览器 / UI | ❌ 未验证 | 无 UI |
+| MCP 工具 | ✅ | 13 个新 `collab_*` 工具（共 28）；`rg-mcp` 真二进制 + 记录式假 API：`p14_*` 3 项（路径/方法/会话头/幂等键/`self` 解析、坏参数不发请求、带 `details` 的 409 透传），密钥不外泄断言沿用 |
+| 真实运行（P15） | ✅ SQLite | `python3 scripts/collab-e2e.py --scenario p0`：真 `ironforge` 服务器 + 真 `ironforge-mcp` 二进制（A、C）+ HTTP 客户端（B）+ 真 Git 仓库；A 崩溃、用户重指派、用户答复、B 写工作包、全新 MCP 客户端 C 仅凭记录接续；日志泄密扫描通过。原 `--scenario t12` 同样通过 |
+| 浏览器 / UI | ❌ 未验证 | 无 UI；P15 中的“人工”一侧用 REST（JWT、无会话头），**不是**真实用户在界面上的操作，所以 P0 阶段门里“真实人工入口”仍未满足 |
+
+### 真实运行暴露的使用摩擦（未改，待决定）
+
+- **问题上下文很容易过期。** `context_freshness` 比较的是任务 `version`，而改状态、改标题、重指派都会让它加一。P15 里用户重指派之后，A 当初的问题就变成 `stale`，用户的答复被 `CONTEXT_STALE` 拒绝，B 不得不重新提问。保护方向是对的（答复不该针对已变化的上下文），但粒度偏粗：可以只对与问题相关的字段（`branch`/`paths`/head SHA）判定，或让提问方显式续期。需要产品取舍，所以没有改。
+- **崩溃的 Agent 不能被其他会话接手**，必须等 8 小时硬过期或由用户重指派（设计如此：离线 ≠ 放弃）。
 
 ### 验证中发现并修复的缺陷
 

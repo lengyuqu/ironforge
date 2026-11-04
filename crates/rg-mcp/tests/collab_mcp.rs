@@ -189,6 +189,10 @@ fn t11_tools_list_advertises_complete_schemas() {
         "collab_get_task", "collab_update_task", "collab_list_messages", "collab_send_message",
         "collab_mark_read", "collab_create_handoff", "collab_list_handoffs", "collab_accept_handoff",
         "collab_cancel_handoff", "collab_heartbeat", "collab_end_session", "collab_list_tasks",
+        "collab_get_rules", "collab_get_inbox", "collab_claim_task", "collab_list_takeovers",
+        "collab_ask_question", "collab_list_questions", "collab_get_question", "collab_answer_question",
+        "collab_cancel_question", "collab_create_work_package", "collab_list_work_packages",
+        "collab_get_work_package", "collab_get_completion_status",
     ] {
         assert!(names.contains(&expected), "missing {expected}: {names:?}");
     }
@@ -500,4 +504,147 @@ fn t11_restart_with_a_credential_file_resumes_the_same_session() {
     assert!(!after.contains(SECRET) && !after.contains(SESSION_ID), "{after}");
     let stderr = second.stop();
     assert!(!stderr.contains(SECRET));
+}
+
+// ── P0 tools (P14) ───────────────────────────────────────────────────
+
+#[test]
+fn p14_p0_tools_map_to_the_rest_api_with_session_credentials_and_idempotency_keys() {
+    let stub = Stub::spawn(happy_handler());
+    let mut mcp = Mcp::start(&stub.url, None);
+    let (err, _) = mcp.tool_json("collab_start_session", start_args());
+    assert!(!err);
+    let base = json!({"owner": "o", "repo": "r"});
+    let with = |extra: Value| {
+        let mut args = base.clone();
+        args.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        args
+    };
+    let tid = "22222222-2222-4222-8222-222222222222";
+    let qid = "33333333-3333-4333-8333-333333333333";
+
+    let calls: Vec<(&str, Value)> = vec![
+        ("collab_get_rules", with(json!({"ref": "feature/x", "path": "web/src"}))),
+        ("collab_get_inbox", with(json!({"since": "2026-11-04T00:00:00Z", "limit": 5}))),
+        ("collab_claim_task", with(json!({"task_id": tid, "expected_task_version": 3, "expected_owner_session_id": null, "reason": "owner gone"}))),
+        ("collab_list_takeovers", with(json!({"task_id": tid}))),
+        ("collab_ask_question", with(json!({"task_id": tid, "recipient": {"kind": "session", "id": "self"}, "title": "Which?", "body": "A or B", "options": ["A", "B"]}))),
+        ("collab_list_questions", with(json!({"task_id": tid, "status": "open"}))),
+        ("collab_get_question", with(json!({"question_id": qid}))),
+        ("collab_answer_question", with(json!({"question_id": qid, "expected_version": 1, "acknowledged_context_hash": "abc", "option_id": "o1"}))),
+        ("collab_cancel_question", with(json!({"question_id": qid, "expected_version": 1}))),
+        ("collab_create_work_package", with(json!({"task_id": tid, "goal": "g", "evidence_refs": [{"kind": "pipeline", "reference": "7"}]}))),
+        ("collab_list_work_packages", with(json!({"task_id": tid}))),
+        ("collab_get_work_package", with(json!({"package_id": qid}))),
+        ("collab_get_completion_status", with(json!({"task_id": tid}))),
+    ];
+    for (tool, args) in &calls {
+        let (err, out) = mcp.tool(tool, args.clone());
+        assert!(!err, "{tool}: {out}");
+        assert!(!out.contains(SECRET), "{tool} leaked the secret");
+    }
+
+    let reqs = stub.requests();
+    let find = |method: &str, suffix: &str| -> Req {
+        reqs.iter()
+            .find(|r| r.method == method && r.path.contains(suffix))
+            .unwrap_or_else(|| panic!("no {method} …{suffix} in {:?}", reqs.iter().map(|r| format!("{} {}", r.method, r.path)).collect::<Vec<_>>()))
+            .clone()
+    };
+    let session = |r: &Req| {
+        assert_eq!(r.headers.get("x-ironforge-session").map(String::as_str), Some(SESSION_ID), "{}", r.path);
+        assert_eq!(r.headers.get("x-ironforge-session-secret").map(String::as_str), Some(SECRET), "{}", r.path);
+    };
+
+    let rules = find("GET", "/collaboration/rules");
+    assert!(rules.path.ends_with("/rules?ref=feature%2Fx&path=web%2Fsrc"), "{}", rules.path);
+    let inbox = find("GET", "/collaboration/inbox");
+    assert!(inbox.path.contains("since=2026-11-04T00%3A00%3A00Z") && inbox.path.contains("limit=5"), "{}", inbox.path);
+    session(&inbox); // the inbox is the session's own
+
+    let claim = find("POST", &format!("/tasks/{tid}/takeovers"));
+    session(&claim);
+    assert_eq!(claim.body["expected_task_version"], 3);
+    assert!(claim.body["expected_owner_session_id"].is_null(), "explicit null is kept");
+    assert!(uuid_like(claim.body["client_takeover_id"].as_str().unwrap()), "idempotency key generated");
+
+    let ask = find("POST", &format!("/tasks/{tid}/questions"));
+    session(&ask);
+    assert_eq!(ask.body["recipient"], json!({"kind": "session", "id": SESSION_ID}), "\"self\" resolved");
+    assert_eq!(ask.body["options"], json!(["A", "B"]));
+    assert!(uuid_like(ask.body["client_question_id"].as_str().unwrap()));
+
+    let answer = find("POST", &format!("/questions/{qid}/answer"));
+    session(&answer);
+    assert_eq!(answer.body["acknowledged_context_hash"], "abc");
+    assert!(uuid_like(answer.body["client_answer_id"].as_str().unwrap()));
+    session(&find("POST", &format!("/questions/{qid}/cancel")));
+
+    let package = find("POST", &format!("/tasks/{tid}/work-packages"));
+    session(&package);
+    assert_eq!(package.body["evidence_refs"][0], json!({"kind": "pipeline", "reference": "7"}));
+    assert!(uuid_like(package.body["client_package_id"].as_str().unwrap()));
+
+    assert!(find("GET", &format!("/tasks/{tid}/questions?status=open")).path.contains("status=open"));
+    assert!(find("GET", &format!("/work-packages/{qid}")).path.ends_with(&format!("/work-packages/{qid}")));
+    assert!(find("GET", &format!("/tasks/{tid}/completion-status")).path.ends_with("/completion-status"));
+
+    // The secret never appears in any URL or body.
+    for r in &reqs {
+        assert!(!r.path.contains(SECRET) && !r.body.to_string().contains(SECRET));
+    }
+    let stderr = mcp.stop();
+    assert!(!stderr.contains(SECRET));
+}
+
+#[test]
+fn p14_p0_tools_reject_bad_arguments_before_any_request() {
+    let stub = Stub::spawn(happy_handler());
+    let mut mcp = Mcp::start(&stub.url, None);
+    let (err, _) = mcp.tool_json("collab_start_session", start_args());
+    assert!(!err);
+    let before = stub.requests().len();
+    let tid = "22222222-2222-4222-8222-222222222222";
+    for (tool, args) in [
+        ("collab_claim_task", json!({"owner": "o", "repo": "r", "task_id": tid, "reason": "x"})), // no version
+        ("collab_claim_task", json!({"owner": "o", "repo": "r", "task_id": tid, "expected_task_version": 1})), // no reason
+        ("collab_ask_question", json!({"owner": "o", "repo": "r", "task_id": tid, "title": "t", "body": "b"})), // no recipient
+        ("collab_ask_question", json!({"owner": "o", "repo": "r", "task_id": tid, "recipient": "everyone", "title": "t", "body": "b"})),
+        ("collab_answer_question", json!({"owner": "o", "repo": "r", "question_id": "q", "expected_version": 1})), // no hash
+        ("collab_get_question", json!({"owner": "o", "repo": "r", "question_id": "../x"})),
+        ("collab_get_work_package", json!({"owner": "o", "repo": "r", "package_id": "a/b"})),
+    ] {
+        let (err, out) = mcp.tool_json(tool, args);
+        assert!(err, "{tool} should be rejected: {out}");
+    }
+    assert_eq!(stub.requests().len(), before, "no request left the process");
+    mcp.stop();
+}
+
+#[test]
+fn p14_coded_conflicts_reach_the_model_with_their_details() {
+    let handler: Handler = Box::new(|req| {
+        if req.method == "POST" && req.path.ends_with("/collaboration/sessions") {
+            (201, json!({"session": {"id": SESSION_ID, "state": "online"}, "session_secret": SECRET}).to_string())
+        } else {
+            (
+                409,
+                json!({"error": {"code": "OWNER_MAY_BE_ACTIVE", "message": "owner not gone",
+                    "details": {"owner_state": "offline"}}})
+                .to_string(),
+            )
+        }
+    });
+    let stub = Stub::spawn(handler);
+    let mut mcp = Mcp::start(&stub.url, None);
+    mcp.tool_json("collab_start_session", start_args());
+    let (err, out) = mcp.tool_json(
+        "collab_claim_task",
+        json!({"owner": "o", "repo": "r", "task_id": "22222222-2222-4222-8222-222222222222", "expected_task_version": 1, "reason": "r"}),
+    );
+    assert!(err);
+    assert_eq!(out["error"]["status"], 409);
+    assert_eq!(out["error"]["code"], "OWNER_MAY_BE_ACTIVE");
+    assert_eq!(out["error"]["details"]["owner_state"], "offline");
+    mcp.stop();
 }

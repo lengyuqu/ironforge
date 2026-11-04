@@ -405,8 +405,214 @@ def run(work, keep):
         server.stop()
 
 
+def scan_for_secrets(server, work):
+    """No session secret may appear in the server log or any MCP process log."""
+    corpus = {"server log": server.log_text()}
+    for name in os.listdir(work):
+        if name.startswith("mcp-") and name.endswith(".stderr"):
+            with open(os.path.join(work, name), "rb") as f:
+                corpus[name] = f.read().decode("utf-8", "replace")
+    for where, text in corpus.items():
+        for secret in secrets_seen:
+            check(secret not in text, f"a session secret leaked into {where}")
+        check(not re.search(r"ifs_[0-9a-f]{64}", text), f"secret-shaped value in {where}")
+    check(len(corpus["server log"]) > 2000, "server log is too small for the leak scan to mean anything")
+    return ", ".join(f"{k}={len(v)}B" for k, v in corpus.items())
+
+
+def run_p0(work, keep):
+    """P15: A (MCP) works and asks, crashes; B (REST) is put in charge by a user,
+    the user answers, B writes a work package; a fresh MCP client continues from
+    the records alone. Real server, real Git repository, no mocks."""
+    server = Server(work)
+    mcp = None
+    mcp_c = None
+    try:
+        server.start()
+        base = server.base
+        say("server started", f"{base} (sqlite, {platform.system()} {platform.machine()})")
+        st, reg = http(base, "POST", "/api/v1/users/register",
+                       body={"username": OWNER, "email": f"{OWNER}@example.com", "password": PASSWORD})
+        check(st in (200, 201), f"register: {st} {reg}")
+        jwt = reg["token"]  # the user door: no session headers
+        st, pat = http(base, "POST", "/api/v1/users/tokens", jwt, body={"name": "mcp-client", "scopes": "repo"})
+        check(st in (200, 201), f"create PAT: {st} {pat}")
+        pat_token = pat["token"]
+        st, _ = http(base, "POST", "/api/v1/repos", jwt, body={"name": REPO, "default_branch": "main"})
+        check(st == 201, "create repo")
+
+        seed = os.path.join(work, "seed")
+        os.makedirs(os.path.join(seed, "web"))
+        git(["init", "-q", "--initial-branch=main"], seed)
+        for rel, text in [("parser.rs", "fn parse() {}\n"), ("AGENTS.md", "# Rules\nRun cargo test.\n"),
+                          ("web/AGENTS.md", "# Web rules\nUse pnpm.\n")]:
+            with open(os.path.join(seed, rel), "w") as f:
+                f.write(text)
+        git(["add", "."], seed)
+        git(["commit", "-q", "-m", "initial"], seed)
+        sha1 = git(["rev-parse", "HEAD"], seed)
+        git(["push", "-q", f"{base}/git/{OWNER}/{REPO}", "main", "main:fix/parser"], seed, token=jwt)
+        say("real git repository populated through the server", f"commit {sha1[:12]} on main and fix/parser")
+
+        collab = f"/api/v1/repos/{OWNER}/{REPO}/collaboration"
+        session_file = os.path.join(work, "mcp-sessions.json")
+        mcp = McpClient(base, pat_token, session_file, work, "a")
+        a_start = mcp.ok("collab_start_session", display_name="Harness A", client_kind="mcp")
+        a_id = a_start["id"]
+        with open(session_file) as f:
+            secrets_seen.append(json.load(f)[f"{OWNER}/{REPO}"]["secret"])
+        st, b_reg = http(base, "POST", collab + "/sessions", jwt, body={"display_name": "Harness B", "client_kind": "http-script"})
+        check(st == 201, f"B register: {st} {b_reg}")
+        b = {"id": b_reg["session"]["id"], "secret": b_reg["session_secret"]}
+        secrets_seen.append(b["secret"])
+        say("A (MCP) and B (REST) registered", f"A={a_id[:8]} B={b['id'][:8]}")
+
+        # A finds the rules for the area it will touch, pinned to a commit.
+        rules = mcp.ok("collab_get_rules", path="web/src")
+        check(rules["resolved_commit"] == sha1, "rules are pinned to the commit")
+        check([e["path"] for e in rules["entries"]] == ["AGENTS.md", "web/AGENTS.md"], f"rules for web/src: {rules}")
+        check(all(e["origin"] == "repository_content" for e in rules["entries"]), "rules are repository content")
+        say("A: located the rule files for web/src", "AGENTS.md, web/AGENTS.md at " + sha1[:12])
+
+        task = mcp.ok("collab_create_task", title="Fix parser crash", owner_session_id="self", branch="fix/parser", paths=["parser.rs"])
+        task_id = task["id"]
+        q = mcp.ok("collab_ask_question", task_id=task_id, recipient={"kind": "repo_writers"},
+                   title="Keep the cache in SQLite?", body="The parser cache can stay in SQLite or move to PostgreSQL. Which?",
+                   options=["keep sqlite", "switch to postgresql"], context={"head_sha": sha1})
+        check(q["status"] == "open" and q["creator_kind"] == "session" and q["options"][1]["id"] == "o2", "A asked")
+        say("A: created a task and asked the user a question", f"question {q['id'][:8]} at task v{q['context']['task_version']}")
+
+        mcp.crash()
+        say("A: MCP process killed (crash); its session is still online")
+
+        # B may not just take the task: A could still be working.
+        st, claim = http(base, "POST", f"{collab}/tasks/{task_id}/takeovers", jwt, b, {
+            "client_takeover_id": "b-claim-1", "expected_task_version": 1, "expected_owner_session_id": a_id, "reason": "A crashed"})
+        check(st == 409 and claim["error"]["code"] == "OWNER_MAY_BE_ACTIVE", f"claim refused while A may be active: {st} {claim}")
+        check(claim["error"]["details"]["owner_state"] == "online", "the refusal names why")
+        say("B: claim refused while the owner may still be active", claim["error"]["code"])
+
+        # A user reassigns, with a reason; the record names the door, not a person.
+        st, re = http(base, "POST", f"{collab}/tasks/{task_id}/reassign", jwt, None, {
+            "client_takeover_id": "user-reassign-1", "expected_task_version": 1, "expected_owner_session_id": a_id,
+            "to_session_id": b["id"], "reason": "A's harness died; B continues"})
+        check(st == 201 and re["task"]["owner_session_id"] == b["id"] and re["takeover"]["actor_kind"] == "user", f"reassign: {st} {re}")
+        st, again = http(base, "POST", f"{collab}/tasks/{task_id}/reassign", jwt, None, {
+            "client_takeover_id": "user-reassign-1", "expected_task_version": 1, "expected_owner_session_id": a_id,
+            "to_session_id": b["id"], "reason": "A's harness died; B continues"})
+        check(st == 200 and again["replayed"] is True, "a retried reassignment is a replay")
+        say("a user reassigned the task to B; a retry was a no-op", f"task v{re['task']['version']}")
+
+        # B's inbox and the user's inbox: work found without copying any chat.
+        st, b_inbox = http(base, "GET", collab + "/inbox", jwt, b)
+        types = sorted(i["type"] for i in b_inbox["items"])
+        check(st == 200 and types == ["assigned_task", "open_question"], f"B inbox: {b_inbox}")
+        check(b_inbox["consistency"] == "live_query", "the inbox says it is live")
+        st, u_inbox = http(base, "GET", collab + "/inbox/user", jwt)
+        check(st == 200 and [i["type"] for i in u_inbox["items"]] == ["open_question"], f"user inbox: {u_inbox}")
+        say("B and the user each found what waits for them", "B: task + question; user: question")
+
+        # The user reads the question with its context and answers.
+        st, qq = http(base, "GET", f"{collab}/questions/{q['id']}", jwt)
+        check(st == 200 and qq["context_freshness"] in ("fresh", "stale"), f"question: {qq}")
+        # The reassignment moved the task to v2: the question's context is outdated,
+        # so the platform refuses an answer given against the old context.
+        check(qq["context_freshness"] == "stale", "the task moved on after the question was asked")
+        st, refused = http(base, "POST", f"{collab}/questions/{q['id']}/answer", jwt, None, {
+            "client_answer_id": "user-ans-1", "expected_version": qq["version"], "option_id": "o1",
+            "acknowledged_context_hash": qq["context_hash"]})
+        check(st == 409 and refused["error"]["code"] == "CONTEXT_STALE", f"stale context blocks the answer: {st} {refused}")
+        say("the user's answer was refused: the context changed since the question", refused["error"]["code"])
+
+        # A new question against the current context is answerable.
+        st, q2 = http(base, "POST", f"{collab}/tasks/{task_id}/questions", jwt, b, {
+            "client_question_id": "b-q-1", "recipient": {"kind": "repo_writers"},
+            "title": "Keep the cache in SQLite?", "body": "Still SQLite or PostgreSQL?",
+            "options": ["keep sqlite", "switch to postgresql"], "context": {"head_sha": sha1}})
+        check(st == 201, f"B re-asks: {st} {q2}")
+        st, q2r = http(base, "GET", f"{collab}/questions/{q2['id']}", jwt)
+        check(q2r["context_freshness"] == "fresh", "the new question is fresh")
+        st, ans = http(base, "POST", f"{collab}/questions/{q2['id']}/answer", jwt, None, {
+            "client_answer_id": "user-ans-2", "expected_version": q2r["version"], "option_id": "o1",
+            "acknowledged_context_hash": q2r["context_hash"]})
+        check(st == 200 and ans["status"] == "answered" and ans["answer"]["actor_kind"] == "user", f"user answers: {st} {ans}")
+        st, other = http(base, "POST", f"{collab}/questions/{q2['id']}/answer", jwt, None, {
+            "client_answer_id": "user-ans-3", "expected_version": q2r["version"], "option_id": "o2",
+            "acknowledged_context_hash": q2r["context_hash"]})
+        check(st == 409 and other["error"]["code"] == "QUESTION_NOT_OPEN", "a second answer finds the question closed")
+        say("the user answered B's question with the context in view", "option o1; a second answer was refused")
+
+        # B pushes real work on the task's branch and writes a work package.
+        with open(os.path.join(seed, "parser.rs"), "w") as f:
+            f.write("fn parse() { /* empty input handled */ }\n")
+        git(["commit", "-q", "-am", "handle empty input"], seed)
+        sha2 = git(["rev-parse", "HEAD"], seed)
+        git(["push", "-q", f"{base}/git/{OWNER}/{REPO}", "main:fix/parser"], seed, token=jwt)
+        st, wp = http(base, "POST", f"{collab}/tasks/{task_id}/work-packages", jwt, b, {
+            "client_package_id": "b-wp-1", "goal": "Fix the parser crash on empty input", "scope": "parser.rs",
+            "commit_sha": sha2, "completed": ["empty input handled"], "open_items": ["regression test"],
+            "next_steps": ["add a regression test", "run CI"],
+            "evidence_refs": [{"kind": "commit", "reference": sha2}, {"kind": "note", "reference": "tests pass locally, trust me"}]})
+        check(st == 201 and wp["revision"] == 1 and wp["commit_sha"] == sha2, f"work package: {st} {wp}")
+        say("B pushed a commit and wrote a work package", f"revision 1 at {sha2[:12]}")
+
+        st, t = http(base, "GET", f"{collab}/tasks/{task_id}", jwt)
+        st, _ = http(base, "PATCH", f"{collab}/tasks/{task_id}", jwt, b, {"expected_version": t["version"], "status": "done"})
+        check(st == 200, "B declares done (never blocked)")
+        st, comp = http(base, "GET", f"{collab}/tasks/{task_id}/completion-status", jwt)
+        by = {c["id"]: c for c in comp["conditions"]}
+        check(comp["declared_status"] == "done" and comp["declared_done_without_evidence"] is True, f"done without evidence is flagged: {comp}")
+        check(by["ci_passed_for_commit"]["status"] == "unknown", "no CI ran for this commit: unknown, not passed")
+        check(by["work_package_present"]["status"] == "satisfied" and by["questions_resolved"]["status"] == "unsatisfied",
+              "package present; the unanswered first question still counts as open")
+        check(comp["observed_branch_head"] == sha2, "the platform observed the branch head itself")
+        say("completion status separates the 'done' claim from the evidence", "CI unknown, 1 question still open")
+
+        # A fresh MCP client continues from the records alone.
+        mcp_c = McpClient(base, pat_token, os.path.join(work, "mcp-sessions-c.json"), work, "c")
+        c_start = mcp_c.ok("collab_start_session", display_name="Harness C", client_kind="mcp")
+        with open(os.path.join(work, "mcp-sessions-c.json")) as f:
+            secrets_seen.append(json.load(f)[f"{OWNER}/{REPO}"]["secret"])
+        check(c_start["id"] not in (a_id, b["id"]), "C is a new session; it inherits no secret")
+        pkgs = mcp_c.ok("collab_list_work_packages", task_id=task_id)
+        check(len(pkgs["items"]) == 1 and pkgs["items"][0]["commit_sha"] == sha2, "C finds B's package")
+        pkg = mcp_c.ok("collab_get_work_package", package_id=pkgs["items"][0]["id"])
+        check(pkg["evidence_resolution"] == [], "no pipeline references: nothing is claimed as verified")
+        check(pkg["missing_fields"] == [], f"complete package: {pkg['missing_fields']}")
+        got = mcp_c.ok("collab_get_question", question_id=q2["id"])
+        check(got["status"] == "answered" and got["answer"]["option_id"] == "o1", "C reads the user's decision")
+        takeovers = mcp_c.ok("collab_list_takeovers", task_id=task_id)
+        check([x["outcome"] for x in takeovers["items"]] == ["reassigned"], "C sees who moved the task and why")
+        comp_c = mcp_c.ok("collab_get_completion_status", task_id=task_id)
+        check(comp_c["declared_done_without_evidence"] is True, "C sees the same evidence gap")
+        say("C (fresh MCP client) continued from the records alone", "package, decision, history and evidence gap all readable")
+
+        # What a deletion would take, for the record.
+        st, impact = http(base, "GET", f"{collab}/deletion-impact", jwt)
+        check(st == 200 and impact["on_repository_delete"] == "kept" and impact["records"]["questions"] == 2, f"impact: {impact}")
+        say("deletion preview", f"{impact['records']['tasks']} task, {impact['records']['questions']} questions kept on soft delete")
+
+        mcp_c.close()
+        mcp_c = None
+        sizes = scan_for_secrets(server, work)
+        say("no session secret in the server log or MCP process logs", sizes)
+        say("P15 scenario complete")
+        return {"task_id": task_id, "commits": [sha1, sha2], "sessions": {"A": a_id, "B": b["id"], "C": c_start["id"]},
+                "questions": [q["id"], q2["id"]], "work_package": wp["id"]}
+    finally:
+        for client in (mcp, mcp_c):
+            if client is not None:
+                try:
+                    client.crash()
+                except Exception:
+                    pass
+        server.stop()
+
+
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--scenario", choices=["t12", "p0"], default="t12",
+                        help="t12: first-version flow; p0: takeover, questions, work packages, inbox (P15)")
     parser.add_argument("--keep", action="store_true", help="keep the work directory")
     parser.add_argument("--json-out", help="write a JSON summary with environment info")
     args = parser.parse_args()
@@ -416,7 +622,7 @@ def main():
     work = tempfile.mkdtemp(prefix="ironforge-collab-e2e.")
     status = 1
     try:
-        summary = run(work, args.keep)
+        summary = (run_p0 if args.scenario == "p0" else run)(work, args.keep)
         status = 0
         if args.json_out:
             def sh(*cmd):
