@@ -1094,6 +1094,18 @@ fn build_routes(
             delete(api::collab_groups::remove_group_link),
         )
         .route(
+            "/repos/{owner}/{name}/collaboration/health",
+            get(api::collab_health::get_health),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/health/tasks",
+            get(api::collab_health::get_health_tasks),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/health/baseline",
+            post(api::collab_health::take_baseline),
+        )
+        .route(
             "/repos/{owner}/{name}/pipelines/{id}/jobs/{job_id}/play",
             post(api::ci::play_job),
         )

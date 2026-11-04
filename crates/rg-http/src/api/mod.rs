@@ -15,6 +15,7 @@ pub mod collab_dependencies;
 pub mod collab_decisions;
 pub mod collab_groups;
 pub mod collab_handoffs;
+pub mod collab_health;
 pub mod collab_inbox;
 pub mod collab_messages;
 pub mod collab_questions;

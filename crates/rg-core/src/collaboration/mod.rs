@@ -16,6 +16,7 @@ pub mod decision;
 pub mod error;
 pub mod group;
 pub mod handoff;
+pub mod health;
 pub mod inbox;
 pub mod message;
 pub mod question;

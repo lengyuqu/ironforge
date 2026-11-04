@@ -22,6 +22,7 @@ pub mod collab_coordination_group;
 pub mod collab_coordination_link;
 pub mod collab_handoff;
 pub mod collab_message;
+pub mod collab_metric_event;
 pub mod collab_question;
 pub mod collab_read;
 pub mod collab_takeover;

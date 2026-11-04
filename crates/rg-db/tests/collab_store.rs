@@ -133,7 +133,7 @@ impl Fixture {
     async fn task_in(&self, repo_id: i64) -> collab_task::Model {
         let now = Utc::now();
         collab_task_ops::create(
-            &*self.db,
+            &self.db,
             collab_task::ActiveModel {
                 id: Set(uid()),
                 repo_id: Set(repo_id),
