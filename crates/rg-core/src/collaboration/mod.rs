@@ -8,11 +8,13 @@
 //! establish the account and repository permission; these services enforce the
 //! session secret, repository scoping, versioning and idempotency.
 
+pub mod access;
 pub mod ci_evidence;
 pub mod completion;
 pub mod cursor;
 pub mod delivery;
 pub mod error;
+pub mod escalation;
 pub mod handoff;
 pub mod inbox;
 pub mod message;

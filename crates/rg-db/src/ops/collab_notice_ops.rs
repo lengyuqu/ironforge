@@ -241,21 +241,21 @@ pub async fn resolve(db: &DatabaseConnection, id: &str, now: DateTime<Utc>) -> R
     Ok(res.rows_affected > 0)
 }
 
-/// Unresolved, unacknowledged escalation notices of a session.
-pub async fn pending_escalations(
+/// Unresolved escalation notices (acknowledged or not) of a repository,
+/// optionally restricted to one recipient session.
+pub async fn open_escalations(
     db: &DatabaseConnection,
     repo_id: i64,
-    recipient_session_id: &str,
+    recipient_session_id: Option<&str>,
 ) -> Result<Vec<Notice>> {
-    NoticeEntity::find()
+    let mut query = NoticeEntity::find()
         .filter(collab_notice::Column::RepoId.eq(repo_id))
-        .filter(collab_notice::Column::RecipientSessionId.eq(recipient_session_id))
         .filter(collab_notice::Column::Kind.eq(kind::ESCALATION))
-        .filter(collab_notice::Column::AckAt.is_null())
-        .filter(collab_notice::Column::ResolvedAt.is_null())
-        .all(db)
-        .await
-        .context("db: pending escalations")
+        .filter(collab_notice::Column::ResolvedAt.is_null());
+    if let Some(recipient) = recipient_session_id {
+        query = query.filter(collab_notice::Column::RecipientSessionId.eq(recipient));
+    }
+    query.all(db).await.context("db: open escalations")
 }
 
 // ------------------------------------------------------------------ receipts

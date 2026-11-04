@@ -192,29 +192,7 @@ async fn is_collab_member(
     repo: &rg_db::entities::repository::Model,
     actor_id: i64,
 ) -> Result<bool, AppError> {
-    if repo.owner_id == actor_id {
-        return Ok(true);
-    }
-    if rg_db::ops::repo_collaborator_ops::get_permission(&state.db, repo.id, actor_id)
-        .await
-        .map_err(|e| AppError::internal(e.to_string()))?
-        .is_some()
-    {
-        return Ok(true);
-    }
-    if let Some(org_id) = repo.org_id {
-        if rg_db::ops::org_ops::is_org_member(&state.db, org_id, actor_id)
-            .await
-            .map_err(|e| AppError::internal(e.to_string()))?
-        {
-            return Ok(true);
-        }
-    }
-    // Writers through other routes (e.g. organization teams) count as well.
-    match rg_core::repo::service::can_write_repo(&state.db, repo, Some(actor_id)).await {
-        Ok(allowed) => Ok(allowed),
-        Err(e) => Err(AppError::from(e)),
-    }
+    Ok(rg_core::collaboration::access::is_collab_member(&state.db, repo, actor_id).await?)
 }
 
 /// Authenticated account with write access to the repository (see

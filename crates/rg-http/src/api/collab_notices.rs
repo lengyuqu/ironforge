@@ -58,6 +58,7 @@ pub async fn list_notices(
         Some("all") => svc::StateFilter::All,
         Some(_) => return Err(AppError::bad_request("state must be pending or all")),
     };
+    super::collab_escalation::evaluate_lazily(&state, &repo, &session).await;
     let now = Utc::now();
     let page = svc::list(
         &state.db,

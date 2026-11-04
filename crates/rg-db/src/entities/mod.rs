@@ -15,6 +15,7 @@ pub mod ci_environment_approval;
 pub mod ci_retention_policy;
 pub mod ci_secret;
 pub mod collab_answer;
+pub mod collab_escalation_setting;
 pub mod collab_handoff;
 pub mod collab_delivery_receipt;
 pub mod collab_message;
