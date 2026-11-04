@@ -71,11 +71,10 @@ pub async fn create_webhook(
     headers: HeaderMap,
     Json(body): Json<rg_core::webhook::service::CreateWebhookRequest>,
 ) -> impl IntoResponse {
-    let (repo_model, _user_id) =
-        match require_write(&state, &headers, &owner, &repo).await {
-            Ok(r) => r,
-            Err(e) => return e.into_response(),
-        };
+    let (repo_model, _user_id) = match require_write(&state, &headers, &owner, &repo).await {
+        Ok(r) => r,
+        Err(e) => return e.into_response(),
+    };
 
     // Input validation
     if let Err(e) = super::validation::validate_webhook_url(&body.url) {
@@ -149,11 +148,10 @@ pub async fn update_webhook(
     headers: HeaderMap,
     Json(body): Json<rg_core::webhook::service::UpdateWebhookRequest>,
 ) -> impl IntoResponse {
-    let (repo_model, _user_id) =
-        match require_write(&state, &headers, &owner, &repo).await {
-            Ok(r) => r,
-            Err(e) => return e.into_response(),
-        };
+    let (repo_model, _user_id) = match require_write(&state, &headers, &owner, &repo).await {
+        Ok(r) => r,
+        Err(e) => return e.into_response(),
+    };
 
     let existing = match resolve_webhook_in_repo(&state.db, repo_model.id, id).await {
         Ok(hook) => hook,
@@ -187,11 +185,10 @@ pub async fn delete_webhook(
     Path((owner, repo, id)): Path<(String, String, i64)>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    let (repo_model, _user_id) =
-        match require_write(&state, &headers, &owner, &repo).await {
-            Ok(r) => r,
-            Err(e) => return e.into_response(),
-        };
+    let (repo_model, _user_id) = match require_write(&state, &headers, &owner, &repo).await {
+        Ok(r) => r,
+        Err(e) => return e.into_response(),
+    };
 
     if let Err(e) = resolve_webhook_in_repo(&state.db, repo_model.id, id).await {
         return e.into_response();
@@ -262,11 +259,10 @@ pub async fn redeliver(
     Path((owner, repo, id, delivery_id)): Path<(String, String, i64, i64)>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    let (repo_model, _user_id) =
-        match require_write(&state, &headers, &owner, &repo).await {
-            Ok(r) => r,
-            Err(e) => return e.into_response(),
-        };
+    let (repo_model, _user_id) = match require_write(&state, &headers, &owner, &repo).await {
+        Ok(r) => r,
+        Err(e) => return e.into_response(),
+    };
 
     let hook = match resolve_webhook_in_repo(&state.db, repo_model.id, id).await {
         Ok(hook) => hook,

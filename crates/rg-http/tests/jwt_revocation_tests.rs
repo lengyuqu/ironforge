@@ -90,7 +90,10 @@ async fn revoked_cookie_is_stripped_and_cleared() {
         set_cookie.starts_with("ironforge_token=;"),
         "unexpected clear cookie: {set_cookie}"
     );
-    assert!(set_cookie.contains("Max-Age=0"), "cookie not expired: {set_cookie}");
+    assert!(
+        set_cookie.contains("Max-Age=0"),
+        "cookie not expired: {set_cookie}"
+    );
 
     // Auth-free endpoint still reachable with the stale cookie attached —
     // the user can re-authenticate from the same browser session.

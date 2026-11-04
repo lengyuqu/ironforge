@@ -429,16 +429,19 @@ mod haves_tests {
         let temp = tempfile::tempdir().unwrap();
         let bare = temp.path().join("bare.git");
         let bare_arg = bare.to_string_lossy().to_string();
-        git(&["init", "--bare", "--initial-branch=main", &bare_arg], None);
+        git(
+            &["init", "--bare", "--initial-branch=main", &bare_arg],
+            None,
+        );
 
         let work = tempfile::tempdir().unwrap();
         let path = work.path();
-        git(&["init", "--initial-branch=main", &path.to_string_lossy()], None);
-        git(&["config", "user.name", "Haves Test"], Some(path));
         git(
-            &["config", "user.email", "haves@example.com"],
-            Some(path),
+            &["init", "--initial-branch=main", &path.to_string_lossy()],
+            None,
         );
+        git(&["config", "user.name", "Haves Test"], Some(path));
+        git(&["config", "user.email", "haves@example.com"], Some(path));
         git(&["remote", "add", "origin", &bare_arg], Some(path));
 
         std::fs::write(path.join("a.txt"), "a\n").unwrap();
@@ -487,7 +490,10 @@ mod haves_tests {
         git(&["init", &path.to_string_lossy()], None);
         git(&["config", "user.name", "Counts"], Some(path));
         git(&["config", "user.email", "counts@example.com"], Some(path));
-        git(&["remote", "add", "origin", &bare.to_string_lossy()], Some(path));
+        git(
+            &["remote", "add", "origin", &bare.to_string_lossy()],
+            Some(path),
+        );
         std::fs::write(path.join("f.txt"), "1\n").unwrap();
         git(&["add", "."], Some(path));
         git(&["commit", "-m", "1"], Some(path));

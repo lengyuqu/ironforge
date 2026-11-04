@@ -1,0 +1,65 @@
+# IronForge via Docker Compose.
+#
+#   export IRONFORGE_JWT_SECRET=$(openssl rand -hex 32)
+#   docker compose up -d --build
+#   docker compose exec ironforge ironforge create-user admin \
+#     --email you@example.com --password 'change-me-please' --admin \
+#     --db-url "sqlite:///data/ironforge.db?mode=rwc"
+#
+# Web UI:      http://localhost:8080
+# SSH clone:   ssh://git@localhost:2222/OWNER/REPO.git
+# Metrics:     http://localhost:8080/metrics
+#
+# Data lives in the `ironforge-data` volume (repos, sqlite db, logs), so
+# recreating the container keeps everything.
+name: ironforge
+
+services:
+  ironforge:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ironforge:local
+    restart: unless-stopped
+    ports:
+      - "8080:8080"   # HTTP API + web UI
+      - "2222:2222"   # SSH (git over ssh)
+    environment:
+      # Required: the server refuses to start without a secret.
+      IRONFORGE_JWT_SECRET: ${IRONFORGE_JWT_SECRET:?set IRONFORGE_JWT_SECRET first (openssl rand -hex 32)}
+    volumes:
+      - ironforge-data:/data
+    # Healthcheck comes from the image (`curl -f /health`); `docker compose ps`
+    # and `--wait` use it.
+    #
+    # To run on PostgreSQL instead of the bundled SQLite, add the `postgres`
+    # service below (docker compose --profile postgres up -d) and override the
+    # command here:
+    #
+    #   command:
+    #     - ironforge
+    #     - serve
+    #     - --repo-root
+    #     - /data/repos
+    #     - --http-addr
+    #     - 0.0.0.0:8080
+    #     - --ssh-addr
+    #     - 0.0.0.0:2222
+    #     - --db-url
+    #     - postgres://ironforge:ironforge@postgres:5432/ironforge
+
+  # Optional PostgreSQL backend; start it with `--profile postgres`.
+  postgres:
+    image: postgres:17-alpine
+    profiles: ["postgres"]
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ironforge
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ironforge}
+      POSTGRES_DB: ironforge
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+volumes:
+  ironforge-data:
+  postgres-data:

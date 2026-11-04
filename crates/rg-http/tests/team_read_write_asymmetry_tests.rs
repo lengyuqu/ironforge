@@ -61,16 +61,9 @@ async fn team_mapping_restricts_write_but_not_read() {
     let (_, member_id) = register_full(&base, "asym-member", "asym-member@example.com").await;
     let _ = owner_token;
 
-    let org = rg_db::ops::org_ops::create_org(
-        &db,
-        "asym-org",
-        None,
-        None,
-        owner_id,
-        "public",
-    )
-    .await
-    .expect("create org");
+    let org = rg_db::ops::org_ops::create_org(&db, "asym-org", None, None, owner_id, "public")
+        .await
+        .expect("create org");
     rg_db::ops::org_ops::add_org_member(&db, org.id, member_id, "member")
         .await
         .expect("add org member");

@@ -426,11 +426,18 @@ sources:
         };
         // Two versions of one chart and a second chart: grouped by name, in the
         // order the charts first appear.
-        let entries = vec![entry("nginx", "1.0.0"), entry("redis", "7.0.0"), entry("nginx", "1.1.0")];
+        let entries = vec![
+            entry("nginx", "1.0.0"),
+            entry("redis", "7.0.0"),
+            entry("nginx", "1.1.0"),
+        ];
         let yaml = build_helm_index(&entries);
 
         // Top-level keys and each entry's keys come out in a fixed, familiar order.
-        let at = |needle: &str| yaml.find(needle).unwrap_or_else(|| panic!("{needle} missing in:\n{yaml}"));
+        let at = |needle: &str| {
+            yaml.find(needle)
+                .unwrap_or_else(|| panic!("{needle} missing in:\n{yaml}"))
+        };
         assert!(at("apiVersion: v1") < at("generated:") && at("generated:") < at("entries:"));
         assert!(at("nginx:") < at("redis:"));
         // Values may or may not be quoted; only the key order is checked here, and
@@ -451,7 +458,10 @@ sources:
         assert_eq!(nginx.len(), 2);
         assert_eq!(nginx[0]["version"], "1.0.0");
         assert_eq!(nginx[1]["version"], "1.1.0");
-        assert_eq!(nginx[0]["description"], "A chart: with \"quotes\" and # hash");
+        assert_eq!(
+            nginx[0]["description"],
+            "A chart: with \"quotes\" and # hash"
+        );
         assert_eq!(nginx[0]["keywords"][0], "web");
         assert_eq!(doc["entries"]["redis"][0]["version"], "7.0.0");
     }

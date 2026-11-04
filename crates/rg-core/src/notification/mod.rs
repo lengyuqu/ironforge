@@ -14,7 +14,10 @@ pub async fn notify(
     body: Option<&str>,
     repo_id: Option<i64>,
 ) -> CoreResult<rg_db::entities::notification::Model> {
-    Ok(notification_ops::create_notification(db, user_id, event_type, title, body, repo_id).await?)
+    Ok(
+        notification_ops::create_notification(db, user_id, event_type, title, body, repo_id)
+            .await?,
+    )
 }
 
 /// List notifications for a user.
@@ -35,14 +38,8 @@ pub async fn list_notifications_paginated(
     limit: u64,
 ) -> CoreResult<(Vec<rg_db::entities::notification::Model>, i64)> {
     Ok(
-        notification_ops::list_notifications_paginated(
-            db,
-            user_id,
-            unread_only,
-            offset,
-            limit,
-        )
-        .await?,
+        notification_ops::list_notifications_paginated(db, user_id, unread_only, offset, limit)
+            .await?,
     )
 }
 

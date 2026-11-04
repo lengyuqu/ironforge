@@ -260,7 +260,10 @@ async fn org_team_and_membership_mutations_require_org_admin() {
     let team_id = team["id"].as_i64().unwrap();
 
     let resp = client
-        .post(format!("{}/api/v1/orgs/victimco/teams/{team_id}/members", base))
+        .post(format!(
+            "{}/api/v1/orgs/victimco/teams/{team_id}/members",
+            base
+        ))
         .bearer_auth(&owner_token)
         .json(&serde_json::json!({"user_id": outsider_id, "role": "member"}))
         .send()
@@ -274,7 +277,11 @@ async fn org_team_and_membership_mutations_require_org_admin() {
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), 401, "anonymous team deletion must be rejected");
+    assert_eq!(
+        resp.status(),
+        401,
+        "anonymous team deletion must be rejected"
+    );
 
     let resp = client
         .delete(format!("{}/api/v1/orgs/victimco/teams/{team_id}", base))
@@ -307,8 +314,7 @@ async fn org_team_and_membership_mutations_require_org_admin() {
 async fn team_reads_are_scoped_and_private_orgs_are_not_readable() {
     let base = spawn_test_app().await;
     let owner_token = register_user(&base, "teamreadowner", "teamreadowner@example.com", PW).await;
-    let (outsider_token, _) =
-        register_full(&base, "teamreadout", "teamreadout@example.com").await;
+    let (outsider_token, _) = register_full(&base, "teamreadout", "teamreadout@example.com").await;
     let client = reqwest::Client::new();
 
     // A private org with one team.
@@ -334,13 +340,23 @@ async fn team_reads_are_scoped_and_private_orgs_are_not_readable() {
 
     // Anonymous and non-member reads of the private org are refused.
     let anon = client
-        .get(format!("{}/api/v1/orgs/privateteamco/teams/{team_id}", base))
+        .get(format!(
+            "{}/api/v1/orgs/privateteamco/teams/{team_id}",
+            base
+        ))
         .send()
         .await
         .unwrap();
-    assert_eq!(anon.status(), 404, "anonymous read of a private org must fail");
+    assert_eq!(
+        anon.status(),
+        404,
+        "anonymous read of a private org must fail"
+    );
     let outsider = client
-        .get(format!("{}/api/v1/orgs/privateteamco/teams/{team_id}", base))
+        .get(format!(
+            "{}/api/v1/orgs/privateteamco/teams/{team_id}",
+            base
+        ))
         .bearer_auth(&outsider_token)
         .send()
         .await
@@ -375,7 +391,10 @@ async fn team_reads_are_scoped_and_private_orgs_are_not_readable() {
 
     // The legitimate owner can still read it through the right path.
     let ok = client
-        .get(format!("{}/api/v1/orgs/privateteamco/teams/{team_id}", base))
+        .get(format!(
+            "{}/api/v1/orgs/privateteamco/teams/{team_id}",
+            base
+        ))
         .bearer_auth(&owner_token)
         .send()
         .await
@@ -390,5 +409,9 @@ async fn team_reads_are_scoped_and_private_orgs_are_not_readable() {
         .send()
         .await
         .unwrap();
-    assert_eq!(forbidden.status(), 403, "non-admin team creation must be 403");
+    assert_eq!(
+        forbidden.status(),
+        403,
+        "non-admin team creation must be 403"
+    );
 }

@@ -8,6 +8,7 @@
 //!  - API pagination
 
 pub mod api;
+pub mod body_reader;
 pub mod error;
 pub mod git_v2;
 pub mod instance;
@@ -18,7 +19,6 @@ pub mod openapi;
 pub mod pagination;
 pub mod rate_limit;
 pub mod redact;
-pub mod body_reader;
 pub mod security;
 pub mod ws;
 
@@ -309,9 +309,9 @@ pub async fn run(config: HttpServerConfig) -> Result<()> {
             .parse()
             .with_context(|| format!("invalid TLS listen address: {}", config_clone))?;
         axum_server::bind_rustls(tls_addr, rustls_config)
-        .serve(app.into_make_service_with_connect_info::<std::net::SocketAddr>())
-        .await
-        .context("HTTPS server error")?;
+            .serve(app.into_make_service_with_connect_info::<std::net::SocketAddr>())
+            .await
+            .context("HTTPS server error")?;
     } else {
         // ── HTTP mode ───────────────────────────────────────────────────
         let listener = tokio::net::TcpListener::bind(&config.listen_addr)
@@ -352,12 +352,13 @@ async fn load_tls_config(
         .with_context(|| format!("failed to open TLS key: {}", key_path.display()))?;
     // Accepts PKCS#8, PKCS#1 (RSA) and SEC1 (EC) keys, like the first private
     // key section in the file.
-    let key = PrivateKeyDer::from_pem_reader(BufReader::new(key_file)).map_err(|error| match error {
-        pem::Error::NoItemsFound => {
-            anyhow::anyhow!("no private key found in {}", key_path.display())
-        }
-        other => anyhow::Error::new(other).context("failed to parse TLS private key"),
-    })?;
+    let key =
+        PrivateKeyDer::from_pem_reader(BufReader::new(key_file)).map_err(|error| match error {
+            pem::Error::NoItemsFound => {
+                anyhow::anyhow!("no private key found in {}", key_path.display())
+            }
+            other => anyhow::Error::new(other).context("failed to parse TLS private key"),
+        })?;
 
     // Name the crypto provider instead of relying on a process-wide default:
     // `ring` and `aws-lc-rs` are both compiled in (the SSH stack brings the
@@ -376,6 +377,9 @@ async fn load_tls_config(
 
 /// Create the Axum router for testing (no rate limiter, no static file serving).
 pub fn create_router_for_test(state: AppState) -> Router {
+    // The real server initializes the registry at startup; tests exercise the
+    // same handlers, so they need it too (a second call is a no-op).
+    let _ = metrics::init_registry();
     build_test_router(state)
 }
 
@@ -624,12 +628,12 @@ fn build_routes(
                 limiters.registration,
                 rate_limit::auth_rate_limit_middleware,
             ))
-            .merge(credential_routes.route_layer(
-                axum::middleware::from_fn_with_state(
+            .merge(
+                credential_routes.route_layer(axum::middleware::from_fn_with_state(
                     limiters.credentials,
                     rate_limit::auth_rate_limit_middleware,
-                ),
-            )),
+                )),
+            ),
         None => registration_routes.merge(credential_routes),
     };
 
@@ -750,8 +754,7 @@ fn build_routes(
         )
         .route(
             "/repos/{owner}/{name}/issues/{number}/assignees",
-            get(api::issues::list_issue_assignees)
-                .put(api::issues::set_issue_assignees),
+            get(api::issues::list_issue_assignees).put(api::issues::set_issue_assignees),
         )
         .route(
             "/repos/{owner}/{name}/issues/{number}/comments",
@@ -1667,7 +1670,10 @@ fn build_routes(
             "/ai/repos/{owner}/{name}/search/code",
             get(api::ai::ai_search_code),
         )
-        .route("/ai/repos/{owner}/{name}/index", post(api::ai::ai_index_repository))
+        .route(
+            "/ai/repos/{owner}/{name}/index",
+            post(api::ai::ai_index_repository),
+        )
         // WebSocket
         .route("/ws/notifications", get(ws::ws_notifications_handler))
         .route("/ws/job/{job_id}", get(ws::ws_job_log_handler));
@@ -1714,6 +1720,7 @@ fn build_test_router(state: AppState) -> Router {
         .nest("/v2", v2_routes)
         .merge(docs_routes)
         .route("/health", get(health))
+        .route("/metrics", get(metrics::metrics_handler))
         // ── Middleware layers (no rate limiter for tests) ──────────────────
         .layer(axum::middleware::from_fn(middleware::request_id_middleware))
         .layer(TraceLayer::new_for_http().make_span_with(
@@ -1892,7 +1899,9 @@ async fn docs_auth_middleware(
     // #5: also enforce token_version revocation on the session JWT. JWTs
     // minted from PATs by pat_auth_middleware carry the current version.
     let authenticated = match api::auth::extract_bearer_claims(req.headers(), &state.jwt_secret) {
-        Some(claims) => api::auth::validate_session(&state.db, &claims).await.is_some(),
+        Some(claims) => api::auth::validate_session(&state.db, &claims)
+            .await
+            .is_some(),
         None => false,
     };
     if !authenticated {
@@ -2072,6 +2081,7 @@ async fn pat_to_bearer_jwt(
             if required_scope
                 .is_some_and(|scope| !rg_core::auth::pat_scope::has_scope(&pat.scopes, scope))
             {
+                crate::metrics::clients::pat_auth("scope_denied");
                 return Err(());
             }
             let Some(user) = rg_db::ops::user_ops::find_by_id(&state.db, pat.user_id)
@@ -2080,10 +2090,12 @@ async fn pat_to_bearer_jwt(
                 .flatten()
             else {
                 // Owner no longer exists — the PAT must not mint a session.
+                crate::metrics::clients::pat_auth("invalid_token");
                 continue;
             };
             if !user.is_active {
                 // Deactivated accounts must not mint fresh sessions (#5).
+                crate::metrics::clients::pat_auth("inactive_owner");
                 continue;
             }
             if let Ok(jwt) = rg_core::auth::jwt::generate_token(
@@ -2093,16 +2105,18 @@ async fn pat_to_bearer_jwt(
                 1,
                 user.token_version,
             ) {
+                crate::metrics::clients::pat_auth("ok");
                 return Ok(Some(jwt));
             }
         }
     }
+    crate::metrics::clients::pat_auth("invalid_token");
     Ok(None)
 }
 
 /// Resolve a PAT to an actor id, requiring the `repo` scope and an active
 /// owner account (#5: deactivated accounts lose PAT access too).
-async fn pat_actor(db: &DatabaseConnection, token: &str) -> Option<i64> {
+pub(crate) async fn pat_actor(db: &DatabaseConnection, token: &str) -> Option<i64> {
     let pat = resolve_pat(db, token).await?;
     if !rg_core::auth::pat_scope::has_scope(&pat.scopes, "repo") {
         return None;
@@ -2860,7 +2874,6 @@ struct PostPushParams<'a> {
     external_url: Option<&'a str>,
 }
 
-
 fn tag_protection_rejected_refs(
     protections: Vec<rg_db::entities::protected_tag::Model>,
     actor_id: Option<i64>,
@@ -3081,10 +3094,7 @@ async fn post_push_hooks(
                                     "action_url": null,
                                 });
                                 if let Err(retry_err) = queue
-                                    .enqueue(
-                                        rg_core::background_jobs::TASK_EMAIL_SEND,
-                                        &payload,
-                                    )
+                                    .enqueue(rg_core::background_jobs::TASK_EMAIL_SEND, &payload)
                                     .await
                                 {
                                     tracing::error!(
@@ -3433,7 +3443,10 @@ mod pat_scope_tests {
         assert_eq!(required_pat_scope("/api/v1/ci/pipelines"), Some("repo"));
         assert_eq!(required_pat_scope("/api/v1/search"), Some("repo"));
         assert_eq!(required_pat_scope("/api/v1/admin/users"), Some("admin"));
-        assert_eq!(required_pat_scope("/api/v1/runners/register"), Some("admin"));
+        assert_eq!(
+            required_pat_scope("/api/v1/runners/register"),
+            Some("admin")
+        );
         assert_eq!(required_pat_scope("/api/v1/api-docs"), None);
     }
 
@@ -3500,9 +3513,15 @@ mod tls_config_tests {
     #[tokio::test]
     async fn loads_every_private_key_format_a_certificate_authority_hands_out() {
         let dir = fixtures();
-        load(&dir, "ec.crt", "ec-pkcs8.key").await.expect("PKCS#8 key");
-        load(&dir, "ec.crt", "ec-sec1.key").await.expect("SEC1 EC key");
-        load(&dir, "rsa.crt", "rsa-pkcs1.key").await.expect("PKCS#1 RSA key");
+        load(&dir, "ec.crt", "ec-pkcs8.key")
+            .await
+            .expect("PKCS#8 key");
+        load(&dir, "ec.crt", "ec-sec1.key")
+            .await
+            .expect("SEC1 EC key");
+        load(&dir, "rsa.crt", "rsa-pkcs1.key")
+            .await
+            .expect("PKCS#1 RSA key");
     }
 
     #[tokio::test]
@@ -3518,10 +3537,20 @@ mod tls_config_tests {
     #[tokio::test]
     async fn a_missing_file_names_the_path_it_could_not_open() {
         let dir = fixtures();
-        let error = load(&dir, "does-not-exist.crt", "ec-pkcs8.key").await.unwrap_err();
-        assert!(format!("{error:#}").contains("failed to open TLS cert"), "{error:#}");
-        let error = load(&dir, "ec.crt", "does-not-exist.key").await.unwrap_err();
-        assert!(format!("{error:#}").contains("failed to open TLS key"), "{error:#}");
+        let error = load(&dir, "does-not-exist.crt", "ec-pkcs8.key")
+            .await
+            .unwrap_err();
+        assert!(
+            format!("{error:#}").contains("failed to open TLS cert"),
+            "{error:#}"
+        );
+        let error = load(&dir, "ec.crt", "does-not-exist.key")
+            .await
+            .unwrap_err();
+        assert!(
+            format!("{error:#}").contains("failed to open TLS key"),
+            "{error:#}"
+        );
     }
 
     #[tokio::test]
@@ -3530,14 +3559,19 @@ mod tls_config_tests {
         let dir = fixtures();
         let error = load(&dir, "ec.crt", "ec.crt").await.unwrap_err();
         let message = format!("{error:#}");
-        assert!(message.contains("no private key found"), "unexpected error: {message}");
+        assert!(
+            message.contains("no private key found"),
+            "unexpected error: {message}"
+        );
     }
 
     #[tokio::test]
     async fn a_certificate_file_with_no_certificate_cannot_serve_tls() {
         // A key where the certificate chain should be: nothing to present.
         let dir = fixtures();
-        let error = load(&dir, "ec-pkcs8.key", "ec-pkcs8.key").await.unwrap_err();
+        let error = load(&dir, "ec-pkcs8.key", "ec-pkcs8.key")
+            .await
+            .unwrap_err();
         assert!(!format!("{error:#}").is_empty());
     }
 }

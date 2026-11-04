@@ -422,19 +422,25 @@ fn validate_execution_semantics(config: &CiConfig) -> Result<()> {
         }
         if job.timeout_seconds == Some(0) || job.timeout_seconds.is_some_and(|value| value > 86_400)
         {
-            return Err(invalid_config(format!("job '{name}' timeout_seconds must be between 1 and 86400")));
+            return Err(invalid_config(format!(
+                "job '{name}' timeout_seconds must be between 1 and 86400"
+            )));
         }
         if let Some(environment) = job.environment.as_deref() {
             if environment.is_empty()
                 || environment.len() > 255
                 || environment.chars().any(char::is_control)
             {
-                return Err(invalid_config(format!("job '{name}' has an invalid environment name")));
+                return Err(invalid_config(format!(
+                    "job '{name}' has an invalid environment name"
+                )));
             }
         }
         if let Some(condition) = job.condition.as_deref() {
             crate::condition::validate_condition(condition).map_err(|e| {
-                invalid_config(format!("job '{name}' has an unsupported if condition: {e:#}"))
+                invalid_config(format!(
+                    "job '{name}' has an unsupported if condition: {e:#}"
+                ))
             })?;
         }
     }
@@ -494,7 +500,9 @@ fn expand_matrix(job_name: &str, config: &config::JobConfig) -> Result<Vec<Matri
         }]);
     };
     if matrix.values().any(Vec::is_empty) {
-        return Err(invalid_config(format!("job '{job_name}' has an empty matrix dimension")));
+        return Err(invalid_config(format!(
+            "job '{job_name}' has an empty matrix dimension"
+        )));
     }
     let count = matrix
         .values()

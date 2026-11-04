@@ -404,7 +404,9 @@ pub async fn apply_suggestions(
         }
 
         let Some((blob_sha, blob_bytes)) = rg_git::ops::blob_at(&repo_path, head_sha, path)
-            .map_err(|error| CoreError::internal(format!("failed to read '{path}' at {head_sha}: {error:#}")))?
+            .map_err(|error| {
+                CoreError::internal(format!("failed to read '{path}' at {head_sha}: {error:#}"))
+            })?
         else {
             return Err(CoreError::not_found(format!(
                 "'{path}' does not exist at {head_sha}"

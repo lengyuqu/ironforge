@@ -121,10 +121,8 @@ impl PackageStorage {
     /// file; other backends fall back to in-memory bytes.
     pub async fn backup_file(&self, storage_path: &str) -> FileBackup {
         if let Some(source) = self.file_path(storage_path) {
-            let temp = std::env::temp_dir().join(format!(
-                "ironforge-package-delete-{}.tmp",
-                Uuid::new_v4()
-            ));
+            let temp = std::env::temp_dir()
+                .join(format!("ironforge-package-delete-{}.tmp", Uuid::new_v4()));
             if tokio::fs::copy(&source, &temp).await.is_ok() {
                 return FileBackup {
                     storage_path: storage_path.to_string(),

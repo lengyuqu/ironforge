@@ -241,9 +241,7 @@ pub async fn download_asset(
                     );
                     return Err(CoreError::not_found("asset content not found"));
                 }
-                Err(error) => {
-                    return Err(error).context("failed to read legacy release asset")
-                }
+                Err(error) => return Err(error).context("failed to read legacy release asset"),
             }
         }
         Err(error) => return Err(blob_error(error, "failed to read release asset")),

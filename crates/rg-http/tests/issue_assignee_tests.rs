@@ -43,14 +43,19 @@ async fn assignees_round_trip_dedup_and_primary_mirror() {
 
     // Primary assignee is mirrored into the legacy issue column.
     let issue = client
-        .get(format!("{base}/api/v1/repos/assign_owner/assign-repo/issues/{number}"))
+        .get(format!(
+            "{base}/api/v1/repos/assign_owner/assign-repo/issues/{number}"
+        ))
         .send()
         .await
         .unwrap()
         .json::<serde_json::Value>()
         .await
         .unwrap();
-    assert_eq!(issue["assignees"], serde_json::json!(["assign_helper", "assign_other"]));
+    assert_eq!(
+        issue["assignees"],
+        serde_json::json!(["assign_helper", "assign_other"])
+    );
     assert!(
         issue["assignee_id"].is_number(),
         "legacy assignee_id should mirror the primary assignee"
@@ -80,7 +85,9 @@ async fn assignees_round_trip_dedup_and_primary_mirror() {
 
     // Issue response reflects the cleared state, legacy column is null.
     let issue = client
-        .get(format!("{base}/api/v1/repos/assign_owner/assign-repo/issues/{number}"))
+        .get(format!(
+            "{base}/api/v1/repos/assign_owner/assign-repo/issues/{number}"
+        ))
         .send()
         .await
         .unwrap()
@@ -92,7 +99,9 @@ async fn assignees_round_trip_dedup_and_primary_mirror() {
 
     // Unknown issue → 404.
     let missing = client
-        .put(format!("{base}/api/v1/repos/assign_owner/assign-repo/issues/999/assignees"))
+        .put(format!(
+            "{base}/api/v1/repos/assign_owner/assign-repo/issues/999/assignees"
+        ))
         .bearer_auth(&owner_token)
         .json(&serde_json::json!({"assignees": ["assign_helper"]}))
         .send()
@@ -152,7 +161,9 @@ async fn create_issue_with_assignees_and_list_filter() {
 
     // Create with assignees pre-set.
     let created = client
-        .post(format!("{base}/api/v1/repos/filter_owner/filter-repo/issues"))
+        .post(format!(
+            "{base}/api/v1/repos/filter_owner/filter-repo/issues"
+        ))
         .bearer_auth(&owner_token)
         .json(&serde_json::json!({
             "title": "pre-assigned",
@@ -169,8 +180,14 @@ async fn create_issue_with_assignees_and_list_filter() {
     );
 
     // Another issue without assignees.
-    let (_id, _number) =
-        create_issue(&base, &owner_token, "filter_owner", "filter-repo", "unassigned").await;
+    let (_id, _number) = create_issue(
+        &base,
+        &owner_token,
+        "filter_owner",
+        "filter-repo",
+        "unassigned",
+    )
+    .await;
 
     // Assignee filter returns only the assigned issue.
     let filtered = client
@@ -185,7 +202,10 @@ async fn create_issue_with_assignees_and_list_filter() {
     let data = body["data"].as_array().expect("paginated data array");
     assert_eq!(data.len(), 1);
     assert_eq!(data[0]["title"], "pre-assigned");
-    assert_eq!(data[0]["assignees"], serde_json::json!(["filter_helper", "filter_owner"]));
+    assert_eq!(
+        data[0]["assignees"],
+        serde_json::json!(["filter_helper", "filter_owner"])
+    );
 
     // Filtering by owner also matches (owner is second assignee).
     let by_owner = client
@@ -225,7 +245,10 @@ async fn create_issue_with_assignees_and_list_filter() {
                 .any(|n| n["event_type"] == "issue_assigned" || n["title"] == "pre-assigned")
         })
         .unwrap_or(false);
-    assert!(found, "helper ({helper_id}) should be notified about the assignment");
+    assert!(
+        found,
+        "helper ({helper_id}) should be notified about the assignment"
+    );
 }
 
 #[tokio::test]
@@ -243,7 +266,9 @@ async fn patch_assignee_id_syncs_junction_table() {
 
     // PATCH with legacy single assignee_id (write access via owner).
     let patched = client
-        .patch(format!("{base}/api/v1/repos/sync_owner/sync-repo/issues/{number}"))
+        .patch(format!(
+            "{base}/api/v1/repos/sync_owner/sync-repo/issues/{number}"
+        ))
         .bearer_auth(&owner_token)
         .json(&serde_json::json!({ "assignee_id": helper_id }))
         .send()
@@ -253,7 +278,9 @@ async fn patch_assignee_id_syncs_junction_table() {
 
     // The assignees endpoint reflects the junction-table sync.
     let assignees = client
-        .get(format!("{base}/api/v1/repos/sync_owner/sync-repo/issues/{number}/assignees"))
+        .get(format!(
+            "{base}/api/v1/repos/sync_owner/sync-repo/issues/{number}/assignees"
+        ))
         .send()
         .await
         .unwrap()

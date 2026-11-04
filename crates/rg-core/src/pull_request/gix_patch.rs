@@ -24,7 +24,7 @@
 use std::io;
 use std::path::Path;
 
-use anyhow::{Context as _, bail};
+use anyhow::{bail, Context as _};
 use gix::bstr::{BStr, BString, ByteSlice};
 use gix::diff::blob::platform::prepare_diff::Operation;
 use gix::diff::blob::unified_diff::{ConsumeHunk, ContextSize, DiffLineKind, HunkHeader};
@@ -60,7 +60,9 @@ pub fn unified_patch(repo_path: &Path, base_ref: &str, head_ref: &str) -> anyhow
         gix::diff::blob::pipeline::WorktreeRoots::default(),
     )?;
     // 等价于 CLI 的 `--no-ext-diff`
-    resource_cache.options.skip_internal_diff_if_external_is_configured = false;
+    resource_cache
+        .options
+        .skip_internal_diff_if_external_is_configured = false;
 
     let mut platform = old_tree.changes()?;
     platform.options(|opts| {
@@ -127,8 +129,17 @@ fn render_change(
             push_diff_git_line(out, p, p);
             push_str(out, &format!("new file mode {:o}\n", entry_mode.value()));
             let abbrev = id.shorten().context("failed to abbreviate id")?;
-            push_str(out, &format!("index {}..{abbrev}\n", zeros(abbrev.to_string().len())));
-            emit_body(change, cache, out, "/dev/null", &format!("b/{}", p.to_str_lossy()))?;
+            push_str(
+                out,
+                &format!("index {}..{abbrev}\n", zeros(abbrev.to_string().len())),
+            );
+            emit_body(
+                change,
+                cache,
+                out,
+                "/dev/null",
+                &format!("b/{}", p.to_str_lossy()),
+            )?;
         }
         Change::Deletion {
             location,
@@ -138,10 +149,22 @@ fn render_change(
         } => {
             let p = location.as_bstr();
             push_diff_git_line(out, p, p);
-            push_str(out, &format!("deleted file mode {:o}\n", entry_mode.value()));
+            push_str(
+                out,
+                &format!("deleted file mode {:o}\n", entry_mode.value()),
+            );
             let abbrev = id.shorten().context("failed to abbreviate id")?;
-            push_str(out, &format!("index {abbrev}..{}\n", zeros(abbrev.to_string().len())));
-            emit_body(change, cache, out, &format!("a/{}", p.to_str_lossy()), "/dev/null")?;
+            push_str(
+                out,
+                &format!("index {abbrev}..{}\n", zeros(abbrev.to_string().len())),
+            );
+            emit_body(
+                change,
+                cache,
+                out,
+                &format!("a/{}", p.to_str_lossy()),
+                "/dev/null",
+            )?;
         }
         Change::Modification {
             location,
@@ -223,7 +246,10 @@ fn render_change(
             // git 的 similarity index 为整数截断（非四舍五入），实测 92.5 → 92
             push_str(
                 out,
-                &format!("similarity index {}%\n", similarity.floor().clamp(0.0, 100.0)),
+                &format!(
+                    "similarity index {}%\n",
+                    similarity.floor().clamp(0.0, 100.0)
+                ),
             );
             push_str(out, &format!("rename from {}\n", src.to_str_lossy()));
             push_str(out, &format!("rename to {}\n", dst.to_str_lossy()));
@@ -276,8 +302,10 @@ fn emit_body(
         Operation::InternalDiff { algorithm } => {
             // git 语义：行终止符属于行记录（"无换行末行" != "有换行同行"）。
             // 不能用 `prep.interned_input()`——它刻意剥离终止符，行为与 git 相反。
-            let input =
-                gix::diff::blob::InternedInput::new(prep.old.intern_source(), prep.new.intern_source());
+            let input = gix::diff::blob::InternedInput::new(
+                prep.old.intern_source(),
+                prep.new.intern_source(),
+            );
             let diff = gix::diff::blob::diff_with_slider_heuristics(algorithm, &input);
             let renderer = GitHunkRenderer {
                 input: &input,
@@ -286,11 +314,17 @@ fn emit_body(
             UnifiedDiff::new(&diff, &input, renderer, ContextSize::symmetrical(3)).consume()?;
         }
         Operation::SourceOrDestinationIsBinary => {
-            push_str(out, &format!("Binary files {a_label} and {b_label} differ\n"));
+            push_str(
+                out,
+                &format!("Binary files {a_label} and {b_label} differ\n"),
+            );
             return Ok(());
         }
         Operation::ExternalCommand { command } => {
-            bail!("external diff driver configured: {}", command.to_str_lossy())
+            bail!(
+                "external diff driver configured: {}",
+                command.to_str_lossy()
+            )
         }
     }
     if !hunks.is_empty() {
@@ -312,7 +346,11 @@ struct GitHunkRenderer<'a> {
 impl ConsumeHunk for GitHunkRenderer<'_> {
     type Out = ();
 
-    fn consume_hunk(&mut self, header: HunkHeader, lines: &[(DiffLineKind, &[u8])]) -> io::Result<()> {
+    fn consume_hunk(
+        &mut self,
+        header: HunkHeader,
+        lines: &[(DiffLineKind, &[u8])],
+    ) -> io::Result<()> {
         // git 省略规则：len == 1 省略 ",len"；len == 0 时 start 回退一行
         let before = fmt_range(header.before_hunk_start, header.before_hunk_len);
         let after = fmt_range(header.after_hunk_start, header.after_hunk_len);
@@ -371,7 +409,11 @@ fn is_func_line(line: &[u8]) -> bool {
 }
 
 fn fmt_range(start: u32, len: u32) -> String {
-    let start = if len == 0 { start.saturating_sub(1) } else { start };
+    let start = if len == 0 {
+        start.saturating_sub(1)
+    } else {
+        start
+    };
     if len == 1 {
         format!("{start}")
     } else {
@@ -409,7 +451,9 @@ mod parity_tests {
     fn fixture_repo() -> anyhow::Result<(tempfile::TempDir, std::path::PathBuf)> {
         let dir = tempfile::tempdir()?;
         let repo = dir.path().join("fixture");
-        let git = global_gateway().as_ref().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let git = global_gateway()
+            .as_ref()
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
 
         let run = |args: &[&str], cwd: Option<&Path>| -> anyhow::Result<()> {
             git.run_or_bail(args, cwd)
@@ -428,7 +472,10 @@ mod parity_tests {
         run(&["init", "-b", "main", &repo.to_string_lossy()], None)?;
         // 本机全局可能 core.autocrlf=true，仓库级强制关闭以保证字节级可比
         run(&["config", "core.autocrlf", "false"], Some(&repo))?;
-        run(&["config", "user.email", "fixture@example.com"], Some(&repo))?;
+        run(
+            &["config", "user.email", "fixture@example.com"],
+            Some(&repo),
+        )?;
         run(&["config", "user.name", "Fixture"], Some(&repo))?;
         run(&["config", "commit.gpgsign", "false"], Some(&repo))?;
 
@@ -459,7 +506,10 @@ mod parity_tests {
         write("nonl2.txt", b"alpha\nbeta\ngamma")?;
         write("bin/run.sh", b"#!/bin/sh\necho run\n")?;
         write("bin/other.sh", b"#!/bin/sh\necho other\n")?;
-        write("img/logo.bin", &[0x00u8, 0x01, 0x02, 0xFF, 0xFE, 0x7F, 0x80])?;
+        write(
+            "img/logo.bin",
+            &[0x00u8, 0x01, 0x02, 0xFF, 0xFE, 0x7F, 0x80],
+        )?;
         write("empty.txt", b"")?;
         write("old_name.txt", b"rename me exactly\n")?;
         write("moved/edited.txt", &{
@@ -477,7 +527,10 @@ mod parity_tests {
         write("trailing_blank_drop.txt", b"gamma\ndelta\n\n\n\n")?;
         // No trailing newline *and* the last line disappears: the
         // `\ No newline at end of file` marker moves to the other side.
-        write("eof_delete.txt", b"keep line\nthis line dies without newline")?;
+        write(
+            "eof_delete.txt",
+            b"keep line\nthis line dies without newline",
+        )?;
         // Pure deletion block far from a pure addition block, plus a block
         // replacement at the tail (imara's `compact removals before additions`).
         write(
@@ -523,18 +576,27 @@ mod parity_tests {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(repo.join("bin/run.sh"), std::fs::Permissions::from_mode(0o755))?;
+            std::fs::set_permissions(
+                repo.join("bin/run.sh"),
+                std::fs::Permissions::from_mode(0o755),
+            )?;
         }
         // 6) chmod +x 且内容变化
         write("bin/other.sh", b"#!/bin/sh\necho other changed\n")?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(repo.join("bin/other.sh"), std::fs::Permissions::from_mode(0o755))?;
+            std::fs::set_permissions(
+                repo.join("bin/other.sh"),
+                std::fs::Permissions::from_mode(0o755),
+            )?;
         }
 
         // 7) 二进制文件变化
-        write("img/logo.bin", &[0x00u8, 0x01, 0x03, 0xFF, 0x00, 0xDE, 0xAD, 0xBE, 0xEF])?;
+        write(
+            "img/logo.bin",
+            &[0x00u8, 0x01, 0x03, 0xFF, 0x00, 0xDE, 0xAD, 0xBE, 0xEF],
+        )?;
 
         // 8) 空文件 → 有内容
         write("empty.txt", b"now has content\nsecond line\n")?;
@@ -542,10 +604,17 @@ mod parity_tests {
         // 9) 精确 rename（100%）
         run(&["mv", "old_name.txt", "new_name.txt"], Some(&repo))?;
         // 10) rename + 编辑
-        run(&["mv", "moved/edited.txt", "moved/renamed_edited.txt"], Some(&repo))?;
+        run(
+            &["mv", "moved/edited.txt", "moved/renamed_edited.txt"],
+            Some(&repo),
+        )?;
         let mut edited = Vec::new();
         for i in 1..=20 {
-            let line = if i == 10 { format!("content line {i} EDITED\n") } else { format!("content line {i}\n") };
+            let line = if i == 10 {
+                format!("content line {i} EDITED\n")
+            } else {
+                format!("content line {i}\n")
+            };
             edited.extend_from_slice(line.as_bytes());
         }
         write("moved/renamed_edited.txt", &edited)?;
@@ -598,7 +667,9 @@ mod parity_tests {
 
     /// CLI 参考实现（与 `compute_same_repo_diff` 的调用方式一致）
     fn cli_patch(repo: &Path, range: &str) -> anyhow::Result<Vec<u8>> {
-        let git = global_gateway().as_ref().map_err(|e| anyhow::anyhow!("{e}"))?;
+        let git = global_gateway()
+            .as_ref()
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
         let output = git.run(
             &[
                 "-c",

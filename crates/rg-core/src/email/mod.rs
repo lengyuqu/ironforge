@@ -70,7 +70,10 @@ pub async fn send_notification_email(
         }
         Err(e) => {
             tracing::warn!(to = %to, subject = %subject, error = %e, "failed to send notification email");
-            Err(crate::error::CoreError::internal(format!("SMTP send failed: {}", e)))
+            Err(crate::error::CoreError::internal(format!(
+                "SMTP send failed: {}",
+                e
+            )))
         }
     }
 }

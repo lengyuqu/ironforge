@@ -62,6 +62,11 @@ struct OrgMemberResponse {
     id: i64,
     org_id: i64,
     user_id: i64,
+    /// Resolved for display: clients only know numeric ids otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    username: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    display_name: Option<String>,
     role: String,
     created_at: String,
 }
@@ -409,16 +414,22 @@ pub async fn list_org_members(
 
     match rg_core::org::list_org_members(&state.db, org.id).await {
         Ok(members) => {
-            let resp: Vec<OrgMemberResponse> = members
-                .into_iter()
-                .map(|m| OrgMemberResponse {
+            let mut resp: Vec<OrgMemberResponse> = Vec::with_capacity(members.len());
+            for m in members {
+                let user = rg_db::ops::user_ops::find_by_id(&state.db, m.user_id)
+                    .await
+                    .ok()
+                    .flatten();
+                resp.push(OrgMemberResponse {
                     id: m.id,
                     org_id: m.org_id,
                     user_id: m.user_id,
+                    username: user.as_ref().map(|u| u.username.clone()),
+                    display_name: user.as_ref().and_then(|u| u.display_name.clone()),
                     role: m.role,
                     created_at: m.created_at.to_string(),
-                })
-                .collect();
+                });
+            }
             Json(resp).into_response()
         }
         Err(e) => AppError::internal(e).into_response(),
@@ -879,8 +890,6 @@ pub async fn remove_team_member(
     }
 }
 
-
-
 /// Request body for replacing a team repository mapping.
 #[derive(Deserialize)]
 pub struct SetTeamRepositoriesRequest {
@@ -985,7 +994,11 @@ fn org_error(error: rg_core::error::CoreError) -> AppError {
 ///
 /// The team routes are nested under `/orgs/{name}/teams/{team_id}`; ignoring
 /// `name` would let a caller reach another org's team through the wrong path.
-async fn require_team_in_org(state: &AppState, org_name: &str, team_id: i64) -> Result<(), AppError> {
+async fn require_team_in_org(
+    state: &AppState,
+    org_name: &str,
+    team_id: i64,
+) -> Result<(), AppError> {
     let org = rg_core::org::get_org_by_name(&state.db, org_name)
         .await
         .map_err(AppError::from)?

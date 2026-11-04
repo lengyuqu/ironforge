@@ -53,7 +53,12 @@ pub async fn set_issue_assignees(
             db,
             *user_id,
             "issue_assigned",
-            &format!("{} assigned you to issue #{}: {}", actor_username(db, actor_id).await, issue.number, issue.title),
+            &format!(
+                "{} assigned you to issue #{}: {}",
+                actor_username(db, actor_id).await,
+                issue.number,
+                issue.title
+            ),
             Some(&issue.title),
             Some(issue.repo_id),
         )
@@ -123,10 +128,7 @@ pub async fn list_issues_filtered_by_assignee(
     let all = issue_ops::find_by_ids(db, &matching_ids).await?;
     let filtered: Vec<Issue> = all
         .into_iter()
-        .filter(|issue| {
-            issue.repo_id == repo.id
-                && state.map(|s| issue.state == s).unwrap_or(true)
-        })
+        .filter(|issue| issue.repo_id == repo.id && state.map(|s| issue.state == s).unwrap_or(true))
         .collect();
 
     let total = filtered.len() as i64;

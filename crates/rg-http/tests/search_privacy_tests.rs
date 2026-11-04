@@ -54,8 +54,7 @@ async fn search_typed(
 #[tokio::test]
 async fn anonymous_search_does_not_expose_private_repositories() {
     let (base, _db) = spawn_test_app_with_db().await;
-    let (token, _owner_id) =
-        register_full(&base, "search-owner", "search-owner@example.com").await;
+    let (token, _owner_id) = register_full(&base, "search-owner", "search-owner@example.com").await;
 
     let created = reqwest::Client::new()
         .post(format!("{base}/api/v1/repos"))
@@ -68,7 +67,11 @@ async fn anonymous_search_does_not_expose_private_repositories() {
         .send()
         .await
         .expect("create private repo");
-    assert_eq!(created.status(), 201, "private repo creation should succeed");
+    assert_eq!(
+        created.status(),
+        201,
+        "private repo creation should succeed"
+    );
 
     // Anonymous: must not discover it.
     let anon = search_as(&base, None, "secretproject").await;
@@ -97,8 +100,12 @@ async fn anonymous_search_does_not_expose_private_repositories() {
 #[tokio::test]
 async fn collaborators_can_find_private_repositories() {
     let (base, db) = spawn_test_app_with_db().await;
-    let (owner_token, _owner_id) =
-        register_full(&base, "search-collab-owner", "search-collab-owner@example.com").await;
+    let (owner_token, _owner_id) = register_full(
+        &base,
+        "search-collab-owner",
+        "search-collab-owner@example.com",
+    )
+    .await;
     let (collab_token, collab_id) =
         register_full(&base, "search-collab", "search-collab@example.com").await;
 
@@ -153,8 +160,7 @@ async fn collaborators_can_find_private_repositories() {
 #[tokio::test]
 async fn every_search_type_succeeds_and_respects_visibility() {
     let (base, _db) = spawn_test_app_with_db().await;
-    let (owner_token, _) =
-        register_full(&base, "kinds-owner", "kinds-owner@example.com").await;
+    let (owner_token, _) = register_full(&base, "kinds-owner", "kinds-owner@example.com").await;
     let (outsider_token, _) =
         register_full(&base, "kinds-outsider", "kinds-outsider@example.com").await;
     let client = reqwest::Client::new();
@@ -183,7 +189,11 @@ async fn every_search_type_succeeds_and_respects_visibility() {
 
     for kind in [None, Some("repos"), Some("issues"), Some("wiki")] {
         // None of these may 500 for any caller (asserted inside search_typed).
-        for token in [None, Some(outsider_token.as_str()), Some(owner_token.as_str())] {
+        for token in [
+            None,
+            Some(outsider_token.as_str()),
+            Some(owner_token.as_str()),
+        ] {
             let _ = search_typed(&base, token, "kindspublicissuemarker", kind).await;
         }
     }
@@ -204,8 +214,13 @@ async fn every_search_type_succeeds_and_respects_visibility() {
         }
     }
 
-    let owner_private =
-        search_typed(&base, Some(&owner_token), "kindsprivateissuemarker", Some("issues")).await;
+    let owner_private = search_typed(
+        &base,
+        Some(&owner_token),
+        "kindsprivateissuemarker",
+        Some("issues"),
+    )
+    .await;
     assert!(
         titles(&owner_private).contains(&"kindsprivateissuemarker".to_string()),
         "the owner must find their private repo's issue: {owner_private}"
@@ -237,7 +252,9 @@ async fn deleted_repositories_disappear_from_every_search_type() {
         .unwrap();
     assert_eq!(created.status(), 201);
     let issue = client
-        .post(format!("{base}/api/v1/repos/gone-owner/vanishingrepo/issues"))
+        .post(format!(
+            "{base}/api/v1/repos/gone-owner/vanishingrepo/issues"
+        ))
         .bearer_auth(&token)
         .json(&serde_json::json!({ "title": "vanishingissue", "body": "body" }))
         .send()
@@ -251,7 +268,11 @@ async fn deleted_repositories_disappear_from_every_search_type() {
         .send()
         .await
         .unwrap();
-    assert!(wiki.status().is_success(), "wiki page creation: {}", wiki.status());
+    assert!(
+        wiki.status().is_success(),
+        "wiki page creation: {}",
+        wiki.status()
+    );
 
     // Sanity: everything is findable before the delete, so the later absence
     // is caused by the delete and not by a broken query.

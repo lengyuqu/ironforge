@@ -135,9 +135,7 @@ pub(crate) async fn validate_session(
     claims: &Claims,
 ) -> Option<i64> {
     let user_id = claims.sub.parse::<i64>().ok()?;
-    let user = rg_db::ops::user_ops::find_by_id(db, user_id)
-        .await
-        .ok()??;
+    let user = rg_db::ops::user_ops::find_by_id(db, user_id).await.ok()??;
     if !user.is_active || user.token_version != claims.ver {
         return None;
     }

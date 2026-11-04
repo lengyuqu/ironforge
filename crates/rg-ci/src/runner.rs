@@ -674,10 +674,7 @@ impl PipelineRunner {
             // future secrets are not exposed in the host process arguments.
             args.push(key.clone());
         }
-        args.extend([
-            "-e".to_string(),
-            "HOME=/tmp".to_string(),
-        ]);
+        args.extend(["-e".to_string(), "HOME=/tmp".to_string()]);
         // `--` ends option parsing so the validated image cannot be mistaken
         // for a flag even if a future Docker version accepts new options.
         args.push("--".to_string());
@@ -832,12 +829,13 @@ impl PipelineRunner {
             if let Some(parent) = workspace.parent() {
                 std::fs::create_dir_all(parent).context("create CI workspace parent")?;
             }
-            let commit = gix::ObjectId::from_hex(pipeline.commit_sha.as_bytes()).map_err(|error| {
-                anyhow::anyhow!(
-                    "pipeline commit {:?} is not a valid object id: {error}",
-                    pipeline.commit_sha
-                )
-            })?;
+            let commit =
+                gix::ObjectId::from_hex(pipeline.commit_sha.as_bytes()).map_err(|error| {
+                    anyhow::anyhow!(
+                        "pipeline commit {:?} is not a valid object id: {error}",
+                        pipeline.commit_sha
+                    )
+                })?;
             let interrupt = std::sync::atomic::AtomicBool::new(false);
             let (_worktree, _outcome) = repo
                 .add_worktree(
@@ -1025,17 +1023,17 @@ fn open_repo_with(
     }
     // Overrides given at open time are inherited by the worktree repository
     // `add_worktree` opens, which an in-memory config change would not be.
-    open(base.config_overrides([
-        "user.name=IronForge",
-        "user.email=noreply@ironforge.local",
-    ]))
+    open(base.config_overrides(["user.name=IronForge", "user.email=noreply@ironforge.local"]))
 }
 
 /// Return the private Git directories of linked worktrees checked out at `target`.
 ///
 /// A registration is only reported when its recorded checkout path matches, so
 /// a lock held on some unrelated worktree is never considered for pruning.
-fn registered_worktrees_at(repo: &gix::Repository, target: &std::path::Path) -> Vec<std::path::PathBuf> {
+fn registered_worktrees_at(
+    repo: &gix::Repository,
+    target: &std::path::Path,
+) -> Vec<std::path::PathBuf> {
     let Ok(proxies) = repo.worktrees() else {
         return Vec::new();
     };
@@ -1290,16 +1288,27 @@ mod tests {
         let bare = temp.path().join("repos/owner/repo.git");
         std::fs::create_dir_all(bare.parent().unwrap()).unwrap();
         run(
-            &["clone", "--bare", &source.to_string_lossy(), &bare.to_string_lossy()],
+            &[
+                "clone",
+                "--bare",
+                &source.to_string_lossy(),
+                &bare.to_string_lossy(),
+            ],
             None,
         );
         let registrations = || -> Vec<std::path::PathBuf> {
             match std::fs::read_dir(bare.join("worktrees")) {
-                Ok(entries) => entries.filter_map(|entry| entry.ok()).map(|e| e.path()).collect(),
+                Ok(entries) => entries
+                    .filter_map(|entry| entry.ok())
+                    .map(|e| e.path())
+                    .collect(),
                 Err(_) => Vec::new(),
             }
         };
-        assert!(registrations().is_empty(), "a fresh bare clone has no worktrees");
+        assert!(
+            registrations().is_empty(),
+            "a fresh bare clone has no worktrees"
+        );
 
         let pipeline = rg_db::ops::pipeline_ops::create_pipeline(
             &db,

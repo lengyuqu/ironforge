@@ -50,7 +50,10 @@ pub async fn enqueue(
 
     // All writes (auto-merge flag off, queue entry upsert, events) go through
     // one transaction: a PR must never end up half-enqueued.
-    let txn = db.begin().await.context("db: begin merge-queue enqueue transaction")?;
+    let txn = db
+        .begin()
+        .await
+        .context("db: begin merge-queue enqueue transaction")?;
 
     // Queue ordering owns merge execution once a PR is enqueued.
     if pr.auto_merge_enabled {
@@ -84,7 +87,9 @@ pub async fn enqueue(
         serde_json::json!({"entry_id": entry.id, "strategy": entry.strategy}),
     )
     .await?;
-    txn.commit().await.context("db: commit merge-queue enqueue transaction")?;
+    txn.commit()
+        .await
+        .context("db: commit merge-queue enqueue transaction")?;
     Ok(entry)
 }
 
@@ -121,7 +126,10 @@ async fn finish_entry(
 ) -> CoreResult<merge_queue_entry::Model> {
     // Queue status + audit event are atomic; ref cleanup (a Git side effect)
     // runs after commit.
-    let txn = db.begin().await.context("db: begin merge-queue finish transaction")?;
+    let txn = db
+        .begin()
+        .await
+        .context("db: begin merge-queue finish transaction")?;
     let finished = merge_queue_ops::finish(&txn, entry.id, status, failure_reason.clone()).await?;
     rg_db::ops::pr_event_ops::record(
         &txn,
@@ -133,7 +141,9 @@ async fn finish_entry(
         serde_json::json!({"entry_id": entry.id, "strategy": entry.strategy}),
     )
     .await?;
-    txn.commit().await.context("db: commit merge-queue finish transaction")?;
+    txn.commit()
+        .await
+        .context("db: commit merge-queue finish transaction")?;
     if let Ok(Some(repository)) = repository::Entity::find_by_id(entry.repo_id).one(db).await {
         cleanup_merge_group_ref(db, repo_root, &repository, entry.pr_id).await;
     }
@@ -436,12 +446,12 @@ async fn ensure_merge_group_ci(
         move || -> anyhow::Result<GroupOutcome> {
             let repo = gix::open(&repo_path)
                 .map_err(|error| anyhow::anyhow!("failed to open repository: {error}"))?;
-            let base_id = repo
-                .rev_parse_single(base_sha.as_str())
-                .map_err(|error| anyhow::anyhow!("failed to resolve base commit {base_sha}: {error}"))?;
-            let head_id = repo
-                .rev_parse_single(head_sha.as_str())
-                .map_err(|error| anyhow::anyhow!("failed to resolve head commit {head_sha}: {error}"))?;
+            let base_id = repo.rev_parse_single(base_sha.as_str()).map_err(|error| {
+                anyhow::anyhow!("failed to resolve base commit {base_sha}: {error}")
+            })?;
+            let head_id = repo.rev_parse_single(head_sha.as_str()).map_err(|error| {
+                anyhow::anyhow!("failed to resolve head commit {head_sha}: {error}")
+            })?;
 
             let labels = gix::merge::blob::builtin_driver::text::Labels {
                 current: Some(base_sha.as_str().into()),
@@ -499,7 +509,9 @@ async fn ensure_merge_group_ci(
                 repo_root,
                 entry,
                 "failed",
-                Some(format!("merge group conflicts: {count} files with conflicts")),
+                Some(format!(
+                    "merge group conflicts: {count} files with conflicts"
+                )),
             )
             .await?;
             return Ok(MergeGroupState::Failed);

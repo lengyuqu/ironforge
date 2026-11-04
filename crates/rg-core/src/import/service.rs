@@ -1459,7 +1459,10 @@ mod tests {
             );
         };
         run(&["init", "-b", "main", &source.to_string_lossy()], None);
-        run(&["config", "user.email", "import@example.com"], Some(&source));
+        run(
+            &["config", "user.email", "import@example.com"],
+            Some(&source),
+        );
         run(&["config", "user.name", "Import"], Some(&source));
         std::fs::write(source.join("README.md"), "imported\n").unwrap();
         run(&["add", "-A"], Some(&source));
