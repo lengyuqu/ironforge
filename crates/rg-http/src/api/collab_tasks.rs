@@ -244,3 +244,27 @@ pub async fn update_task(
     .await?;
     Ok(Json(task.into()))
 }
+
+#[utoipa::path(
+    get,
+    path = "/repos/{owner}/{name}/collaboration/tasks/{id}/completion-status",
+    tag = "Collaboration",
+    params(("owner" = String, Path), ("name" = String, Path), ("id" = String, Path)),
+    responses(
+        (status = 200, description = "What the task claims versus what platform records support: per-condition satisfied | unsatisfied | stale | unknown. Read-only; never blocks or changes the task", body = serde_json::Value),
+        (status = 403, description = "Read access denied"),
+        (status = 404, description = "No such task in this repository")
+    )
+)]
+pub async fn get_completion_status(
+    State(state): State<AppState>,
+    Path((owner, name, id)): Path<(String, String, String)>,
+    headers: HeaderMap,
+) -> Result<Json<collaboration::completion::CompletionStatus>, AppError> {
+    let (repo, _user) = require_collab_read(&state, &headers, &owner, &name).await?;
+    let task = svc::get(&state.db, repo.id, &id).await?;
+    let head = super::collab::observed_branch_head(&state, &owner, &name, task.branch.as_deref()).await;
+    let status =
+        collaboration::completion::evaluate(&state.db, repo.id, &id, head, Utc::now()).await?;
+    Ok(Json(status))
+}

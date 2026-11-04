@@ -258,6 +258,17 @@ impl From<rg_core::collaboration::CollabError> for AppError {
                 "IDEMPOTENCY_KEY_REUSED",
                 "the client id was already used with a different payload",
             ),
+            E::CodedConflict {
+                code,
+                message,
+                details,
+            } => {
+                let err = Self::coded(StatusCode::CONFLICT, code, message);
+                match details {
+                    Some(details) => err.with_details(details),
+                    None => err,
+                }
+            }
             E::Internal(inner) => Self::from(inner),
         }
     }

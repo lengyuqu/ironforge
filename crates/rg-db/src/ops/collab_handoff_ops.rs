@@ -105,6 +105,25 @@ pub async fn list_page<C: ConnectionTrait>(
         .context("db: list handoffs")
 }
 
+/// Pending handoffs addressed to `session_id`, newest first.
+pub async fn list_pending_to_session<C: ConnectionTrait>(
+    db: &C,
+    repo_id: i64,
+    session_id: &str,
+    limit: u64,
+) -> Result<Vec<Handoff>> {
+    HandoffEntity::find()
+        .filter(collab_handoff::Column::RepoId.eq(repo_id))
+        .filter(collab_handoff::Column::ToSessionId.eq(session_id))
+        .filter(collab_handoff::Column::Status.eq(status::PENDING))
+        .order_by_desc(collab_handoff::Column::CreatedAt)
+        .order_by_desc(collab_handoff::Column::Id)
+        .limit(limit)
+        .all(db)
+        .await
+        .context("db: list pending handoffs")
+}
+
 /// Move a `pending` handoff to a terminal status iff it is still at
 /// `expected_version`. Accept and cancel both go through this one conditional
 /// `UPDATE`, so when they race exactly one matches the row and the other gets

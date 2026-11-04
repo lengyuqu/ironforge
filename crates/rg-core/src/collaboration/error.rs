@@ -44,6 +44,15 @@ pub enum CollabError {
     #[error("{0}")]
     Conflict(String),
 
+    /// A state conflict clients must be able to branch on without parsing the
+    /// message (`OWNER_MAY_BE_ACTIVE`, `CONTEXT_STALE`, `QUESTION_NOT_OPEN`, ...).
+    #[error("{message}")]
+    CodedConflict {
+        code: &'static str,
+        message: String,
+        details: Option<serde_json::Value>,
+    },
+
     /// Unexpected storage or system failure; never shown to clients verbatim.
     #[error(transparent)]
     Internal(#[from] anyhow::Error),
@@ -56,6 +65,21 @@ impl CollabError {
 
     pub fn bad_request(msg: impl Into<String>) -> Self {
         Self::BadRequest(msg.into())
+    }
+
+    pub fn coded_conflict(code: &'static str, msg: impl Into<String>) -> Self {
+        Self::CodedConflict {
+            code,
+            message: msg.into(),
+            details: None,
+        }
+    }
+
+    pub fn with_details(mut self, value: serde_json::Value) -> Self {
+        if let Self::CodedConflict { details, .. } = &mut self {
+            *details = Some(value);
+        }
+        self
     }
 }
 

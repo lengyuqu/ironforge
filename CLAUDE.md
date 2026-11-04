@@ -135,6 +135,7 @@ Phase 1~21 全部完成。核心能力：
 | 签名提交强制 | `protected_branches.require_signed_commits` | pack 入库后验证 |
 | LDAP/MFA | `rg-core/src/auth/ldap.rs` + `sso.rs` + `totp.rs` | RFC4515 转义、PKCE S256、五次锁定 |
 | 同账号多 Agent 协作 | `rg-db` 迁移 `m20261104_000001` + `rg-core/src/collaboration/` + `rg-http/src/api/collab*.rs` + `rg-mcp/src/collab.rs` | 会话/任务/消息/交接/已读 5 表；REST `…/collaboration/*`；15 个 MCP `collab_*` 工具。会话是标签不是安全边界；所有客户端字段 `origin: user_content`。证据分层见 [multi-agent-collaboration-verification-2026-11.md](ironforge-docs/architecture/multi-agent-collaboration-verification-2026-11.md) |
+| 协作 P0 子集 | 迁移 `m20261104_000002` + `rg-core/src/collaboration/{rules,takeover,question,work_package,inbox,retention,completion,ci_evidence}.rs` + `rg-http/src/api/collab_{rules,takeovers,questions,work_packages,inbox,retention}.rs` | 规则入口 `…/collaboration/rules`、接手/重指派、问题与答复、工作包、**实时**收件箱（无快照/无已读）、删除影响预览、`…/tasks/{id}/completion-status`（只读，声明≠证据）。协作数据**仅**所有者/协作者/组织成员/写者可读（`require_collab_read`）。MCP 工具与 Web UI **尚未**接入。证据见 [agent-collaboration-p0-verification-2026-11.md](ironforge-docs/architecture/agent-collaboration-p0-verification-2026-11.md) |
 
 ### 技术债与后续方向
 
@@ -350,6 +351,14 @@ SeaORM 的 `.on_conflict(OnConflict::…do_nothing()).do_nothing()` 在 MySQL �
 - `api/` 下的 OpenAPI 守卫测试只扫描 `src/api/*.rs`（不递归），新增端点文件请平铺在该目录。
 
 ---
+
+### 21. SQLite：事务以读开头再写，并发时 500 ⚠️
+
+事务第一条语句是 `SELECT`、随后才 `UPDATE`，在 SQLite 上会取一个无法升级的读快照；另一个写者提交后，升级写锁直接 `SQLITE_BUSY`（不等待 `busy_timeout`），表现为并发请求里零星的 500。**让写语句成为事务的第一条**（条件 `UPDATE` 做仲裁），幂等回放的 `SELECT` 放在事务**之前**。回归守卫：`collab_p0_tests::p02_racing_claims_*`（`rg-db/src/ops/collab_takeover_ops.rs`）。
+
+### 22. 仓库删除是软删除，账号删除是硬删除
+
+`rg_core::repo::service::delete_repo` 只软删仓库行并把 Git 目录移到 tombstone（`IRONFORGE_DELETED_REPO_RETENTION_DAYS`，默认 30 天后清 Git 数据，行永不清）。因此外键 `ON DELETE CASCADE` 在应用路径上**不会**触发；只有直接删仓库行才级联。账号删除（`user_ops::delete_by_id`）是真删除，会级联到其会话 → 其拥有的协作任务 → 任务里**所有人**的消息。计数预览见 `…/collaboration/deletion-impact`、`/admin/users/{id}/collaboration-impact`。
 
 ## 依赖版本速查
 

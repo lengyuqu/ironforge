@@ -1004,6 +1004,59 @@ fn build_routes(
             post(api::collab_handoffs::cancel_handoff),
         )
         .route(
+            "/repos/{owner}/{name}/collaboration/inbox",
+            get(api::collab_inbox::session_inbox),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/inbox/user",
+            get(api::collab_inbox::user_inbox),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/deletion-impact",
+            get(api::collab_retention::repo_deletion_impact),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/rules",
+            get(api::collab_rules::get_rules),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/tasks/{id}/takeovers",
+            get(api::collab_takeovers::list_takeovers).post(api::collab_takeovers::claim_task),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/tasks/{id}/completion-status",
+            get(api::collab_tasks::get_completion_status),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/tasks/{id}/reassign",
+            post(api::collab_takeovers::reassign_task),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/tasks/{id}/questions",
+            get(api::collab_questions::list_questions).post(api::collab_questions::create_question),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/questions/{id}",
+            get(api::collab_questions::get_question),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/questions/{id}/answer",
+            post(api::collab_questions::answer_question),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/questions/{id}/cancel",
+            post(api::collab_questions::cancel_question),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/tasks/{id}/work-packages",
+            get(api::collab_work_packages::list_work_packages)
+                .post(api::collab_work_packages::create_work_package),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/work-packages/{id}",
+            get(api::collab_work_packages::get_work_package),
+        )
+        .route(
             "/repos/{owner}/{name}/pipelines/{id}/jobs/{job_id}/play",
             post(api::ci::play_job),
         )
@@ -1435,6 +1488,10 @@ fn build_routes(
         .route("/admin/users/{id}", patch(api::admin::update_user))
         .route("/admin/users/{id}", delete(api::admin::delete_user))
         .route("/admin/users/{id}/unlock", post(api::admin::unlock_user))
+        .route(
+            "/admin/users/{id}/collaboration-impact",
+            get(api::collab_retention::user_deletion_impact),
+        )
         .route("/admin/orgs", get(api::admin::list_orgs))
         .route("/admin/orgs/{name}", get(api::admin::get_org))
         .route("/admin/orgs/{name}", delete(api::admin::delete_org))

@@ -42,6 +42,25 @@ pub async fn get_pipeline(db: &DatabaseConnection, id: i64) -> Result<Option<pip
         .context("db: get pipeline")
 }
 
+/// Pipelines of a repository that ran against exactly `commit_sha`, newest
+/// (highest id) first.
+pub async fn list_by_repo_and_commit(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    commit_sha: &str,
+    limit: u64,
+) -> Result<Vec<pipeline::Model>> {
+    use sea_orm::{ColumnTrait, QueryFilter, QueryOrder, QuerySelect};
+    pipeline::Entity::find()
+        .filter(pipeline::Column::RepoId.eq(repo_id))
+        .filter(pipeline::Column::CommitSha.eq(commit_sha))
+        .order_by_desc(pipeline::Column::Id)
+        .limit(limit)
+        .all(db)
+        .await
+        .context("db: list pipelines by commit")
+}
+
 /// List pipelines for a repo.
 pub async fn list_pipelines_by_repo(
     db: &DatabaseConnection,

@@ -83,7 +83,7 @@ pub struct TaskView {
     pub origin: &'static str,
 }
 
-fn view(row: collab_task::Model) -> TaskView {
+pub(crate) fn view(row: collab_task::Model) -> TaskView {
     TaskView {
         paths: serde_json::from_str(&row.paths_json).unwrap_or_default(),
         id: row.id,
@@ -186,7 +186,7 @@ async fn require_links(
 }
 
 /// A task owner must be a live session of this repository.
-async fn require_live_owner(
+pub(crate) async fn require_live_owner(
     db: &DatabaseConnection,
     repo_id: i64,
     session_id: &str,

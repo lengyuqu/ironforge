@@ -56,6 +56,8 @@ P0 表示优先处理，并不自动变更已规划的 P0-1–P0-5 内容或给�
 
 ## 4. O03：保留、备份与恢复
 
+**2026-11-04 核对更正**（代码与测试 `collab_p0_tests::o03a_*`，详见 [P0 验证记录](agent-collaboration-p0-verification-2026-11.md)）：应用的**仓库删除是软删除**——行保留，所以协作记录**不会**随之删除，只有 Git 数据在保留期（`IRONFORGE_DELETED_REPO_RETENTION_DAYS`，默认 30 天）后被清理，协作记录里的 commit id 随后不可解析；只有直接移除仓库**行**（数据库运维）才会外键级联删除全部协作表。**账号删除是硬删除**：其会话随之删除，连带该会话所拥有的任务，以及这些任务中**所有参与者**的消息。以下“当前已记录事实”中关于“仓库删除级联”的表述以本更正为准；预览接口 `GET …/collaboration/deletion-impact` 与 `GET /admin/users/{id}/collaboration-impact` 已实现为只读计数。
+
 **当前已记录事实**：[首版实施说明](multi-agent-collaboration-design-2026-11.md) §9 记载仓库或用户删除通过外键级联删除协作记录；[验证记录](multi-agent-collaboration-verification-2026-11.md)记载尚无协作记录保留期及清理。具体备份覆盖、删除实现和当前工作区行为须在动工时重新核对。已有备份功能的存在不能证明协作数据可恢复。
 
 ### 需求与候选契约

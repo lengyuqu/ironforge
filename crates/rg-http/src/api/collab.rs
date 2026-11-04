@@ -91,6 +91,60 @@ pub(crate) async fn commit_exists(
     .map_err(AppError::internal)
 }
 
+/// The actor of a write: the authenticated session when session headers are
+/// sent, otherwise the signed-in account through its "user door" (a UI or CLI).
+/// Both act under one account; neither proves who or what is behind them.
+pub(crate) async fn write_actor(
+    state: &AppState,
+    headers: &HeaderMap,
+    repo_id: i64,
+    user_id: i64,
+) -> Result<rg_core::collaboration::Actor, AppError> {
+    if headers.contains_key(HEADER_SESSION) || headers.contains_key(HEADER_SESSION_SECRET) {
+        let session = acting_session(state, headers, repo_id, user_id).await?;
+        Ok(rg_core::collaboration::Actor::session(session.id))
+    } else {
+        Ok(rg_core::collaboration::Actor::user(user_id))
+    }
+}
+
+/// Reject a commit id that does not name a commit of the repository.
+pub(crate) async fn ensure_commit(
+    state: &AppState,
+    owner: &str,
+    name: &str,
+    field: &str,
+    sha: Option<&str>,
+) -> Result<Option<String>, AppError> {
+    let Some(sha) = sha else { return Ok(None) };
+    let sha = rg_core::collaboration::message::normalize_commit_sha(sha)?;
+    if !commit_exists(state, owner, name, &sha).await? {
+        return Err(AppError::bad_request(format!(
+            "{field} does not name a commit in this repository"
+        )));
+    }
+    Ok(Some(sha))
+}
+
+/// Current head of `refs/heads/<branch>`, or `None` when it cannot be read.
+pub(crate) async fn observed_branch_head(
+    state: &AppState,
+    owner: &str,
+    name: &str,
+    branch: Option<&str>,
+) -> Option<String> {
+    let branch = branch?.to_string();
+    let path = state.repo_root.join(format!("{owner}/{name}.git"));
+    tokio::task::spawn_blocking(move || {
+        let repo = gix::open(&path).ok()?;
+        let id = repo.rev_parse_single(format!("refs/heads/{branch}").as_str()).ok()?;
+        Some(id.to_string())
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
 /// Deserialize a field so that "absent" (`None`) and "explicit null"
 /// (`Some(None)`) differ — the PATCH contract for clearing optional fields.
 pub(crate) fn present_or_null<'de, D, T>(d: D) -> Result<Option<Option<T>>, D::Error>
@@ -106,12 +160,14 @@ pub(crate) fn cursor_key(state: &AppState) -> &[u8] {
     state.jwt_secret.as_bytes()
 }
 
-/// Authenticated account with read access to the repository.
+/// Authenticated account that belongs to the repository's working group.
 ///
-/// Public repositories are readable by anyone, but collaboration data is not
-/// public content: an account credential is required (design §2). Whether
-/// readers beyond writers should see it is an open product decision (§8.1);
-/// this helper is the single place to tighten it.
+/// Public repositories are readable by anyone, but collaboration data (agent
+/// conversations, questions, work packages) is not public content: it can carry
+/// rationale and context its authors never meant for strangers. Readers are the
+/// owner, explicit collaborators of any level, organization members and anyone
+/// who can write — a plain signed-in account on a public repository is not
+/// among them (decision of 2026-11-04, design open question §8.1).
 pub(crate) async fn require_collab_read(
     state: &AppState,
     headers: &HeaderMap,
@@ -124,9 +180,39 @@ pub(crate) async fn require_collab_read(
     // Decide from the database, not the 30s process-local permission cache, so a
     // revocation blocks the very next collaboration request on this instance.
     rg_core::repo::service::invalidate_perm_cache_user(repo.id, actor_id);
-    match rg_core::repo::service::can_read_repo(&state.db, &repo, Some(actor_id)).await {
-        Ok(true) => Ok((repo, actor_id)),
-        Ok(false) => Err(AppError::forbidden("access denied")),
+    if is_collab_member(state, &repo, actor_id).await? {
+        Ok((repo, actor_id))
+    } else {
+        Err(AppError::forbidden("access denied"))
+    }
+}
+
+async fn is_collab_member(
+    state: &AppState,
+    repo: &rg_db::entities::repository::Model,
+    actor_id: i64,
+) -> Result<bool, AppError> {
+    if repo.owner_id == actor_id {
+        return Ok(true);
+    }
+    if rg_db::ops::repo_collaborator_ops::get_permission(&state.db, repo.id, actor_id)
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?
+        .is_some()
+    {
+        return Ok(true);
+    }
+    if let Some(org_id) = repo.org_id {
+        if rg_db::ops::org_ops::is_org_member(&state.db, org_id, actor_id)
+            .await
+            .map_err(|e| AppError::internal(e.to_string()))?
+        {
+            return Ok(true);
+        }
+    }
+    // Writers through other routes (e.g. organization teams) count as well.
+    match rg_core::repo::service::can_write_repo(&state.db, repo, Some(actor_id)).await {
+        Ok(allowed) => Ok(allowed),
         Err(e) => Err(AppError::from(e)),
     }
 }

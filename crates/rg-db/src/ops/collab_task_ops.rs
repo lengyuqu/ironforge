@@ -82,6 +82,25 @@ pub async fn list_page<C: ConnectionTrait>(
         .context("db: list collab tasks")
 }
 
+/// Unfinished tasks currently owned by `session_id`, newest update first.
+pub async fn list_owned_open<C: ConnectionTrait>(
+    db: &C,
+    repo_id: i64,
+    session_id: &str,
+    limit: u64,
+) -> Result<Vec<Task>> {
+    TaskEntity::find()
+        .filter(collab_task::Column::RepoId.eq(repo_id))
+        .filter(collab_task::Column::OwnerSessionId.eq(session_id))
+        .filter(collab_task::Column::Status.ne("done"))
+        .order_by_desc(collab_task::Column::UpdatedAt)
+        .order_by_desc(collab_task::Column::Id)
+        .limit(limit)
+        .all(db)
+        .await
+        .context("db: list owned open tasks")
+}
+
 /// Apply `patch` iff the task is still at `expected_version`; bumps `version`.
 ///
 /// The conditional `UPDATE` is the only writer of these columns, so of two

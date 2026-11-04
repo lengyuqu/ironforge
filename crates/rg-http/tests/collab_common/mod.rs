@@ -102,6 +102,49 @@ impl Env {
         sha
     }
 
+    /// Commit `files` (path, content) and `symlinks` (path, target) as a root
+    /// commit and force-push it to `refs/heads/<branch>` of repository `name`.
+    pub fn push_tree(
+        &self,
+        name: &str,
+        branch: &str,
+        files: &[(&str, &str)],
+        symlinks: &[(&str, &str)],
+    ) -> String {
+        let gateway = rg_git::cli_gateway::global_gateway().as_ref().expect("git gateway");
+        let env = [
+            ("GIT_AUTHOR_NAME", "t"),
+            ("GIT_AUTHOR_EMAIL", "t@example.invalid"),
+            ("GIT_COMMITTER_NAME", "t"),
+            ("GIT_COMMITTER_EMAIL", "t@example.invalid"),
+        ];
+        let work = tempfile::tempdir().unwrap();
+        let dir = work.path();
+        let run = |args: &[&str], cwd: Option<&std::path::Path>| {
+            let out = gateway.run_with_env(args, cwd, &env).expect("run git");
+            out.ensure_success().expect("git failed");
+            out.stdout_str().trim().to_string()
+        };
+        run(&["init", "-q", "--initial-branch=main", dir.to_str().unwrap()], None);
+        for (path, content) in files {
+            let target = dir.join(path);
+            std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+            std::fs::write(&target, content).unwrap();
+            run(&["add", path], Some(dir));
+        }
+        for (path, to) in symlinks {
+            let target = dir.join(path);
+            std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+            std::os::unix::fs::symlink(to, &target).unwrap();
+            run(&["add", path], Some(dir));
+        }
+        run(&["commit", "-q", "-m", "tree"], Some(dir));
+        let sha = run(&["rev-parse", "HEAD"], Some(dir));
+        let refspec = format!("+HEAD:refs/heads/{branch}");
+        run(&["push", "-q", self.bare_path(name).to_str().unwrap(), &refspec], Some(dir));
+        sha
+    }
+
     /// Resolve `rev` (e.g. `<sha>^{tree}`) in the bare repository `name`.
     pub fn rev_parse(&self, name: &str, rev: &str) -> String {
         let gateway = rg_git::cli_gateway::global_gateway().as_ref().expect("git gateway");
