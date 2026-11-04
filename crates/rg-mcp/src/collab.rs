@@ -275,7 +275,7 @@ struct Plan {
 }
 
 /// Which tools exist, in the order they are advertised.
-pub const TOOL_NAMES: [&str; 31] = [
+pub const TOOL_NAMES: [&str; 35] = [
     "collab_start_session",
     "collab_list_sessions",
     "collab_heartbeat",
@@ -307,6 +307,10 @@ pub const TOOL_NAMES: [&str; 31] = [
     "collab_get_dependencies",
     "collab_add_dependency",
     "collab_remove_dependency",
+    "collab_create_decision",
+    "collab_list_decisions",
+    "collab_get_decision",
+    "collab_change_decision",
 ];
 
 pub fn is_collab_tool(name: &str) -> bool {
@@ -560,6 +564,38 @@ fn plan(name: &str, args: &Value, own_session: Option<&str>) -> Result<Plan, Too
                 Some(Value::Object(body)),
             )
         }
+        "collab_create_decision" => {
+            let mut body = pick(
+                args,
+                &["client_decision_id", "title", "rationale", "question_id", "answer_id", "context"],
+            );
+            require_str(args, "title")?;
+            require_str(args, "rationale")?;
+            body.entry("client_decision_id").or_insert_with(|| Value::String(new_client_id()));
+            with_session(
+                Method::POST,
+                format!("/tasks/{}/decisions", id_arg(args, "task_id")?),
+                Some(Value::Object(body)),
+            )
+        }
+        "collab_list_decisions" => get(format!(
+            "/tasks/{}/decisions{}",
+            id_arg(args, "task_id")?,
+            query(args, &["limit", "cursor"])
+        )),
+        "collab_get_decision" => get(format!("/decisions/{}", id_arg(args, "decision_id")?)),
+        "collab_change_decision" => {
+            let mut body =
+                pick(args, &["client_change_id", "kind", "replacement_decision_id", "reason"]);
+            require_str(args, "kind")?;
+            require_str(args, "reason")?;
+            body.entry("client_change_id").or_insert_with(|| Value::String(new_client_id()));
+            with_session(
+                Method::POST,
+                format!("/decisions/{}/changes", id_arg(args, "decision_id")?),
+                Some(Value::Object(body)),
+            )
+        }
         _ => return Err(invalid(format!("unknown tool {name}"))),
     })
 }
@@ -670,7 +706,7 @@ fn run(state: &AppState, name: &str, args: &Value) -> Result<ToolOutput, ToolOut
         }
         "collab_send_message" | "collab_create_handoff" | "collab_claim_task" | "collab_ask_question"
         | "collab_answer_question" | "collab_create_work_package" | "collab_add_dependency"
-        | "collab_remove_dependency" => {
+        | "collab_remove_dependency" | "collab_create_decision" | "collab_change_decision" => {
             // Echo the idempotency key used so a retry can repeat it.
         }
         _ => {}
@@ -880,6 +916,31 @@ pub fn tool_definitions() -> Vec<Value> {
                 "expected_graph_version": {"type": "integer", "minimum": 0},
                 "client_request_id": {"type": "string", "maxLength": 128, "description": "Idempotency key; generated if omitted."}
             }), &["task_id", "depends_on_task_id", "expected_graph_version"])),
+        def("collab_create_decision", format!("Record an immutable decision on a task, optionally citing a question of that task and its answer (answer_id needs question_id; mismatched links are rejected). The decision stores the task version it was taken at (context.task_version, default: current; a stale value fails with VERSION_CONFLICT). A decision is a collaboration record, not an approval: it grants no Git, CI or merge right. Title and rationale are your own claims.{untrusted}"),
+            schema(json!({
+                "task_id": task_id(),
+                "title": {"type": "string", "minLength": 1, "maxLength": 200},
+                "rationale": {"type": "string", "minLength": 1, "maxLength": 16384},
+                "question_id": {"type": "string", "maxLength": 64},
+                "answer_id": {"type": "string", "maxLength": 64},
+                "context": {"type": "object", "additionalProperties": false, "properties": {
+                    "task_version": {"type": "integer", "minimum": 1},
+                    "base_sha": {"type": "string"}, "head_sha": {"type": "string"}
+                }},
+                "client_decision_id": {"type": "string", "maxLength": 128, "description": "Idempotency key; generated if omitted."}
+            }), &["task_id", "title", "rationale"])),
+        def("collab_list_decisions", format!("List a task's decisions, oldest first, each with its status (active | superseded | revoked), terminal change and context_freshness (fresh | stale | unknown).{untrusted}"),
+            schema(json!({"task_id": task_id(), "limit": limit(), "cursor": {"type": "string"}}), &["task_id"])),
+        def("collab_get_decision", format!("Get a decision with its status, terminal change, context_freshness and the decisions it supersedes. A stale decision is never revoked automatically; judge it yourself.{untrusted}"),
+            schema(json!({"decision_id": {"type": "string", "maxLength": 64}}), &["decision_id"])),
+        def("collab_change_decision", format!("Append the one terminal change of a decision: kind superseded (needs replacement_decision_id: a later decision of the same task) or revoked. Only one change per decision can ever succeed (DECISION_ALREADY_CHANGED); cycles fail with DECISION_CYCLE and an older replacement with REPLACEMENT_NOT_NEWER. The decision itself is never edited.{untrusted}"),
+            schema(json!({
+                "decision_id": {"type": "string", "maxLength": 64},
+                "kind": {"type": "string", "enum": ["superseded", "revoked"]},
+                "replacement_decision_id": {"type": "string", "maxLength": 64},
+                "reason": {"type": "string", "minLength": 1, "maxLength": 4096},
+                "client_change_id": {"type": "string", "maxLength": 128, "description": "Idempotency key; generated if omitted."}
+            }), &["decision_id", "kind", "reason"])),
     ]
 }
 

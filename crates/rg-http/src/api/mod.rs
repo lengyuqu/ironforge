@@ -12,6 +12,7 @@ pub mod ci_environments;
 pub mod ci_feedback;
 pub mod collab;
 pub mod collab_dependencies;
+pub mod collab_decisions;
 pub mod collab_handoffs;
 pub mod collab_inbox;
 pub mod collab_messages;

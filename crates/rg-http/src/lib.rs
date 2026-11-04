@@ -1057,6 +1057,18 @@ fn build_routes(
             post(api::collab_questions::cancel_question),
         )
         .route(
+            "/repos/{owner}/{name}/collaboration/tasks/{id}/decisions",
+            get(api::collab_decisions::list_decisions).post(api::collab_decisions::create_decision),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/decisions/{id}",
+            get(api::collab_decisions::get_decision),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/decisions/{id}/changes",
+            post(api::collab_decisions::change_decision),
+        )
+        .route(
             "/repos/{owner}/{name}/collaboration/tasks/{id}/work-packages",
             get(api::collab_work_packages::list_work_packages)
                 .post(api::collab_work_packages::create_work_package),
