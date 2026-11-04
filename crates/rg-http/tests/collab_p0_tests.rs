@@ -243,7 +243,14 @@ async fn p02_racing_claims_have_one_winner_and_consistent_history() {
     assert_eq!(winners.len(), 1, "exactly one claim wins: {results:?}");
     for (status, body) in results.iter().filter(|(s, _)| *s != 201) {
         assert_eq!(*status, 409, "{body}");
-        assert_eq!(body["error"]["code"], "VERSION_CONFLICT");
+        // A loser either read the task before the winner committed and lost the
+        // version check, or read it after and sees a live owner. Both are
+        // correct refusals; which one occurs depends on scheduling.
+        let code = body["error"]["code"].as_str().unwrap_or_default();
+        assert!(
+            matches!(code, "VERSION_CONFLICT" | "OWNER_MAY_BE_ACTIVE"),
+            "unexpected refusal: {body}"
+        );
     }
 
     let history = takeovers_of(&env, &tid).await;
