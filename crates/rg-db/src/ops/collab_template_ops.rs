@@ -92,6 +92,7 @@ pub async fn versions_of<C: ConnectionTrait>(
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[allow(clippy::large_enum_variant)]
 pub enum CreateTemplateOutcome {
     Created { template: Template, version: Version },
     /// `(created_by_user_id, client_template_id)` already exists.
@@ -160,6 +161,7 @@ pub async fn create_template(
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[allow(clippy::large_enum_variant)]
 pub enum AddVersionOutcome {
     Created { template: Template, version: Version },
     /// `(created_by_user_id, client_version_id)` already exists.
@@ -286,6 +288,7 @@ pub async fn find_link_by_client_id<C: ConnectionTrait>(
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[allow(clippy::large_enum_variant)]
 pub enum CreateFromTemplateOutcome {
     Created { task: Task, link: Link },
     /// `(creator, client_task_id)` already exists.

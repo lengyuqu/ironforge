@@ -582,6 +582,7 @@ fn usage_scope(repo_id: i64, task_id: &str, unit: Option<&str>, source: Option<&
 }
 
 /// Usage records of a task, newest reported first; the filters are exact matches.
+#[allow(clippy::too_many_arguments)]
 pub async fn list_usage(
     db: &DatabaseConnection,
     cursor_key: &[u8],

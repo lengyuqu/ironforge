@@ -179,6 +179,10 @@ AI Agent **必须**在阅读代码前先读取以下文件：
 | `collab_answer_question` / `collab_cancel_question` | 答复（必须带读到的 `expected_version` 和 `acknowledged_context_hash`；任务已变化返回 `CONTEXT_STALE`，需重读）/ 仅提问者可取消。答复是协作决定，**不是**合并审批 |
 | `collab_create_work_package` / `collab_list_work_packages` / `collab_get_work_package` | 写不可变、带编号的交接摘要（全部是作者声明；仅 `evidence_refs` 里 `kind=pipeline` 的 id 会在**读取时**由平台查询并单独标注 `verified_reference`/`unavailable`）/ 列表 / 单个 |
 | `collab_get_completion_status` | 对照任务的自述状态与平台记录：问题是否都已解决、是否有工作包、该工作包 commit 的最新 CI。只读；“done 但无证据”只会被标出，不会被阻止 |
+| `collab_create_template` / `collab_list_templates` / `collab_get_template` | 任务模板（创建/追加新版本仅仓库管理员；版本不可变，已建任务保留原版本）/ 列表 / 单个 |
+| `collab_task_from_template` | 按模板版本建任务：固定 `template_id+version`，目标/交付/清单复制进描述；可带 `rules_ref` 记录 `rules_commit`。清单只是文本，不跟踪、不是证据 |
+| `collab_declare_capabilities` / `collab_get_declaration` | 会话自报工具/测试能力/网络限制（`expected_version` 整体替换）/ 读取（带 `stale`）。**自报，不授予也不撤销任何权限**；未声明＝未知 |
+| `collab_set_budget` / `collab_report_usage` / `collab_get_budget` | 任务预算与用量：`unit`、`source`、`sampling_period` 必填，**不跨单位/来源求和**，缺失用量为 unknown 而非 0，`over_threshold` 附数字依据；纯信息性，**不会暂停或阻止工作** |
 
 错误以 `isError: true` 返回，正文为 `{"error": {"status", "code", "message", "details"?}}`；按 `code` 判断（`VERSION_CONFLICT`、`OWNER_MAY_BE_ACTIVE`、`CONTEXT_STALE`、`QUESTION_NOT_OPEN`、`SESSION_EXPIRED`、`IDEMPOTENCY_KEY_REUSED`、`NO_ACTIVE_SESSION`、`INVALID_ARGUMENTS`、`TRANSPORT_ERROR`…），不要解析 `message`。
 
