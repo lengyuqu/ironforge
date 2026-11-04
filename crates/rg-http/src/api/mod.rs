@@ -11,6 +11,7 @@ pub mod ci;
 pub mod ci_environments;
 pub mod ci_feedback;
 pub mod collab;
+pub mod collab_declarations;
 pub mod collab_handoffs;
 pub mod collab_inbox;
 pub mod collab_messages;

@@ -20,6 +20,7 @@ pub mod collab_message;
 pub mod collab_question;
 pub mod collab_read;
 pub mod collab_takeover;
+pub mod collab_session_declaration;
 pub mod collab_task;
 pub mod collab_task_template;
 pub mod collab_task_template_link;

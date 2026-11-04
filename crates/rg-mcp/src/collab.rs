@@ -275,7 +275,7 @@ struct Plan {
 }
 
 /// Which tools exist, in the order they are advertised.
-pub const TOOL_NAMES: [&str; 32] = [
+pub const TOOL_NAMES: [&str; 34] = [
     "collab_start_session",
     "collab_list_sessions",
     "collab_heartbeat",
@@ -308,6 +308,8 @@ pub const TOOL_NAMES: [&str; 32] = [
     "collab_list_templates",
     "collab_get_template",
     "collab_task_from_template",
+    "collab_declare_capabilities",
+    "collab_get_declaration",
 ];
 
 pub fn is_collab_tool(name: &str) -> bool {
@@ -582,6 +584,38 @@ fn plan(name: &str, args: &Value, own_session: Option<&str>) -> Result<Plan, Too
             body.entry("client_task_id").or_insert_with(|| Value::String(new_client_id()));
             with_session(Method::POST, "/tasks/from-template".into(), Some(Value::Object(body)))
         }
+        "collab_declare_capabilities" => {
+            let own = own_session.ok_or_else(|| {
+                err_json(0, "NO_ACTIVE_SESSION", "no active session; call collab_start_session first", None)
+            })?;
+            let mut body = pick(
+                args,
+                &["expected_version", "tools", "can_run_tests", "network", "network_notes", "notes"],
+            );
+            if int_arg(args, "expected_version", false)?.is_none() {
+                body.insert("expected_version".into(), json!(0));
+            }
+            with_session(
+                Method::PUT,
+                format!("/sessions/{own}/declaration{}", query(args, &["stale_after_seconds"])),
+                Some(Value::Object(body)),
+            )
+        }
+        "collab_get_declaration" => match args.get("session_id").and_then(Value::as_str) {
+            Some(raw) => {
+                let id = if raw == "self" {
+                    own_session
+                        .ok_or_else(|| {
+                            err_json(0, "NO_ACTIVE_SESSION", "no active session; call collab_start_session first", None)
+                        })?
+                        .to_string()
+                } else {
+                    id_arg(args, "session_id")?
+                };
+                get(format!("/sessions/{id}/declaration{}", query(args, &["stale_after_seconds"])))
+            }
+            None => get(format!("/declarations{}", query(args, &["stale_after_seconds", "limit", "cursor"]))),
+        },
         _ => return Err(invalid(format!("unknown tool {name}"))),
     })
 }
@@ -917,6 +951,22 @@ pub fn tool_definitions() -> Vec<Value> {
                 "rules_ref": {"type": "string", "maxLength": 255, "description": "Branch, tag or commit whose current commit is recorded as rules_commit."},
                 "client_task_id": {"type": "string", "maxLength": 128, "description": "Idempotency key; generated if omitted."}
             }), &["template_id"])),
+        def("collab_declare_capabilities", format!("Declare this session's tools, whether it can run tests and its network limits, so others can decide who to ask. Replaces the previous declaration; pass expected_version (the version you last saw, 0 the first time). It is a self-report: the platform does not verify it, it expires into 'stale' after a day, and it never grants or removes any permission.{untrusted}"),
+            schema(json!({
+                "expected_version": {"type": "integer", "minimum": 0, "description": "Declaration version you last saw; 0 (default) when you have not declared yet."},
+                "tools": {"type": "array", "maxItems": 50, "items": {"type": "string", "minLength": 1, "maxLength": 128}},
+                "can_run_tests": {"type": "string", "enum": ["yes", "no", "unknown"]},
+                "network": {"type": "string", "enum": ["unrestricted", "restricted", "offline", "unknown"]},
+                "network_notes": {"type": "string", "maxLength": 1024},
+                "notes": {"type": "string", "maxLength": 4096},
+                "stale_after_seconds": {"type": "integer", "minimum": 60, "maximum": 2592000}
+            }), &[])),
+        def("collab_get_declaration", format!("Read capability declarations: one session's (session_id, or \"self\") or, without session_id, all of the repository's. Each carries declared_at, age and a stale flag; 'undeclared' means unknown, not 'cannot'. Declarations are self-reported and never an authorization.{untrusted}"),
+            schema(json!({
+                "session_id": {"type": "string", "maxLength": 64, "description": "A session id, or \"self\". Omit to list all."},
+                "stale_after_seconds": {"type": "integer", "minimum": 60, "maximum": 2592000},
+                "limit": limit(), "cursor": {"type": "string"}
+            }), &[])),
     ]
 }
 

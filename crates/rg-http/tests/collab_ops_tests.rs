@@ -501,3 +501,261 @@ async fn o06_rules_commit_is_recorded_only_when_a_ref_is_supplied() {
     let (_, tasks) = env.json(Method::GET, &env.url("/tasks"), &env.owner_token, None, None).await;
     assert_eq!(tasks["items"].as_array().unwrap().len(), 2, "a refused request creates no task");
 }
+
+// ------------------------------------------------------------------ O07
+
+fn decl_body(expected: i64, tests: &str, notes: &str) -> Value {
+    json!({
+        "expected_version": expected,
+        "tools": ["cargo", "git"],
+        "can_run_tests": tests,
+        "network": "restricted",
+        "network_notes": "crates.io only",
+        "notes": notes,
+    })
+}
+
+async fn put_decl(env: &Env, s: &Sess, body: Value) -> (u16, Value) {
+    env.json(
+        Method::PUT,
+        &env.url(&format!("/sessions/{}/declaration", s.id)),
+        &env.owner_token,
+        Some(s),
+        Some(body),
+    )
+    .await
+}
+
+async fn get_decl(env: &Env, token: &str, id: &str, query: &str) -> (u16, Value) {
+    env.json(Method::GET, &env.url(&format!("/sessions/{id}/declaration{query}")), token, None, None)
+        .await
+}
+
+async fn age_declaration(env: &Env, session_id: &str, ago: chrono::Duration) {
+    use rg_db::entities::collab_session_declaration as d;
+    use rg_db::sea_orm::{ActiveModelTrait, EntityTrait, Set};
+    let row = d::Entity::find_by_id(session_id.to_string()).one(&env.db).await.unwrap().unwrap();
+    let mut active: d::ActiveModel = row.into();
+    active.declared_at = Set(chrono::Utc::now() - ago);
+    active.update(&env.db).await.unwrap();
+}
+
+#[tokio::test]
+async fn o07_declaration_is_self_reported_versioned_and_authorizes_nothing() {
+    let env = Env::new().await;
+    let a = env.session(&env.owner_token, "A").await;
+    let b = env.session(&env.owner_token, "B").await;
+
+    // Before any declaration: unknown, explicitly not "cannot".
+    let (status, none) = get_decl(&env, &env.owner_token, &a.id, "").await;
+    assert_eq!(status, 200, "{none}");
+    assert_eq!(none["status"], "undeclared");
+    assert!(none["declaration"].is_null());
+    assert_eq!(none["authorization"], "none");
+    assert!(none["meaning"].as_str().unwrap().contains("authorizes nothing"));
+
+    let (status, first) = put_decl(&env, &a, decl_body(0, "yes", "first")).await;
+    assert_eq!(status, 200, "{first}");
+    assert_eq!(first["version"], 1);
+    assert_eq!(first["source"], "user_content");
+    assert_eq!(first["authorization"], "none");
+    assert_eq!(first["stale"], false);
+    assert_eq!(first["tools"], json!(["cargo", "git"]));
+    assert_eq!(first["can_run_tests"], "yes");
+    assert_eq!(first["session_state"], "online");
+
+    // The retry of the same request is harmless; a different body at the old
+    // version is a conflict that says where things stand.
+    let (status, retry) = put_decl(&env, &a, decl_body(0, "yes", "first")).await;
+    assert_eq!(status, 200, "{retry}");
+    assert_eq!(retry["version"], 1);
+    let (status, conflict) = put_decl(&env, &a, decl_body(0, "no", "other")).await;
+    assert_eq!((status, conflict["error"]["code"].as_str()), (409, Some("VERSION_CONFLICT")), "{conflict}");
+    assert_eq!(conflict["error"]["details"]["current_version"], 1);
+    let (_, still) = get_decl(&env, &env.owner_token, &a.id, "").await;
+    assert_eq!(still["declaration"]["can_run_tests"], "yes", "a refused replace changes nothing");
+
+    let (status, second) = put_decl(&env, &a, decl_body(1, "no", "second")).await;
+    assert_eq!(status, 200, "{second}");
+    assert_eq!(second["version"], 2);
+    assert_eq!(second["can_run_tests"], "no");
+
+    // A session declares only for itself.
+    let (status, body) = env
+        .json(
+            Method::PUT,
+            &env.url(&format!("/sessions/{}/declaration", a.id)),
+            &env.owner_token,
+            Some(&b),
+            Some(decl_body(2, "yes", "forged")),
+        )
+        .await;
+    assert_eq!((status, body["error"]["code"].as_str()), (403, Some("SESSION_CREDENTIALS_INVALID")), "{body}");
+    let (status, body) = env
+        .json(
+            Method::PUT,
+            &env.url(&format!("/sessions/{}/declaration", a.id)),
+            &env.owner_token,
+            None,
+            Some(decl_body(2, "yes", "no session")),
+        )
+        .await;
+    assert_eq!((status, body["error"]["code"].as_str()), (400, Some("SESSION_CREDENTIALS_REQUIRED")), "{body}");
+    let (_, now) = get_decl(&env, &env.owner_token, &a.id, "").await;
+    assert_eq!(now["declaration"]["version"], 2);
+    assert_eq!(now["declaration"]["notes"], "second");
+
+    // Closed vocabularies and bounds.
+    for patch in [
+        json!({"can_run_tests": "maybe"}),
+        json!({"network": "fast"}),
+        json!({"tools": vec!["x"; 51]}),
+        json!({"tools": [""]}),
+        json!({"notes": "x".repeat(4097)}),
+        json!({"expected_version": -1}),
+    ] {
+        let mut body = decl_body(2, "yes", "n");
+        body.as_object_mut().unwrap().extend(patch.as_object().unwrap().clone());
+        let (status, resp) = put_decl(&env, &a, body).await;
+        assert_eq!(status, 400, "{patch}: {resp}");
+    }
+
+    // Declaring changes nothing about what the session may do: its task rights
+    // are exactly what they were (here: a claim is still a claim with the usual
+    // conditions, not something the declaration unlocked).
+    let (_, task) = env
+        .json(Method::POST, &env.url("/tasks"), &env.owner_token, Some(&b), Some(json!({"title": "t"})))
+        .await;
+    let (status, _) = env
+        .json(
+            Method::PATCH,
+            &env.url(&format!("/tasks/{}", task["id"].as_str().unwrap())),
+            &env.owner_token,
+            Some(&a),
+            Some(json!({"expected_version": 1, "status": "done"})),
+        )
+        .await;
+    assert_eq!(status, 200, "task updates are governed by repository write access alone");
+}
+
+#[tokio::test]
+async fn o07_old_or_orphaned_declarations_are_marked_stale() {
+    let env = Env::new().await;
+    let a = env.session(&env.owner_token, "A").await;
+    let b = env.session(&env.owner_token, "B").await;
+    let c = env.session(&env.owner_token, "C").await;
+    put_decl(&env, &a, decl_body(0, "yes", "a")).await;
+    put_decl(&env, &b, decl_body(0, "yes", "b")).await;
+    put_decl(&env, &c, decl_body(0, "yes", "c")).await;
+
+    age_declaration(&env, &a.id, chrono::Duration::hours(30)).await;
+    let (_, old) = get_decl(&env, &env.owner_token, &a.id, "").await;
+    assert_eq!(old["declaration"]["stale"], true);
+    assert_eq!(old["declaration"]["stale_reasons"], json!(["age"]));
+    assert!(old["declaration"]["age_seconds"].as_i64().unwrap() >= 30 * 3600);
+    assert_eq!(old["declaration"]["stale_after_seconds"], 86400);
+    assert_eq!(old["declaration"]["can_run_tests"], "yes", "stale data is still shown, with its flag");
+
+    // The threshold is configurable per request, and clamped.
+    let (_, lenient) = get_decl(&env, &env.owner_token, &a.id, "?stale_after_seconds=172800").await;
+    assert_eq!(lenient["declaration"]["stale"], false);
+    let (_, strict) = get_decl(&env, &env.owner_token, &b.id, "?stale_after_seconds=1").await;
+    assert_eq!(strict["declaration"]["stale_after_seconds"], 60);
+    assert_eq!(strict["declaration"]["stale"], false, "a fresh declaration is not stale at the 60s floor");
+
+    // A session that ended: its declaration is flagged although it is recent.
+    let (status, _) = env
+        .json(Method::POST, &env.url(&format!("/sessions/{}/end", c.id)), &env.owner_token, Some(&c), None)
+        .await;
+    assert_eq!(status, 204);
+    let (_, ended) = get_decl(&env, &env.owner_token, &c.id, "").await;
+    assert_eq!(ended["declaration"]["stale"], true);
+    assert_eq!(ended["declaration"]["stale_reasons"], json!(["session_ended"]));
+    assert_eq!(ended["session_state"], "ended");
+
+    // The list carries the same flags and can be joined with /sessions by id.
+    let (status, list) = env.json(Method::GET, &env.url("/declarations"), &env.owner_token, None, None).await;
+    assert_eq!(status, 200, "{list}");
+    let items = list["items"].as_array().unwrap();
+    assert_eq!(items.len(), 3);
+    let find = |id: &str| items.iter().find(|i| i["session_id"] == id).unwrap();
+    assert_eq!(find(&a.id)["stale"], true);
+    assert_eq!(find(&b.id)["stale"], false);
+    assert_eq!(find(&c.id)["stale_reasons"], json!(["session_ended"]));
+    for item in items {
+        assert_eq!((item["source"].as_str(), item["authorization"].as_str()), (Some("user_content"), Some("none")));
+    }
+    let (_, sessions) = env.json(Method::GET, &env.url("/sessions"), &env.owner_token, None, None).await;
+    let session_ids: Vec<&str> = sessions["items"].as_array().unwrap().iter().map(|s| s["id"].as_str().unwrap()).collect();
+    for item in items {
+        assert!(session_ids.contains(&item["session_id"].as_str().unwrap()), "joinable by session_id");
+    }
+
+    // Re-declaring (same content, current version) refreshes the timestamp.
+    let (status, fresh) = put_decl(&env, &a, decl_body(1, "yes", "a")).await;
+    assert_eq!(status, 200, "{fresh}");
+    assert_eq!(fresh["version"], 2);
+    assert_eq!(fresh["stale"], false);
+}
+
+#[tokio::test]
+async fn o07_access_and_races() {
+    let env = Env::new().await;
+    let a = env.session(&env.owner_token, "A").await;
+    put_decl(&env, &a, decl_body(0, "yes", "a")).await;
+
+    let (reader, reader_id) = env.user("reader").await;
+    env.add_collaborator(reader_id, "read").await;
+    let (stranger, _) = env.user("stranger").await;
+    let (status, _) = get_decl(&env, &reader, &a.id, "").await;
+    assert_eq!(status, 200);
+    let (status, _) = get_decl(&env, &stranger, &a.id, "").await;
+    assert_eq!(status, 403);
+    let (status, _) = env.json(Method::GET, &env.url("/declarations"), &stranger, None, None).await;
+    assert_eq!(status, 403);
+    let (status, _) = env
+        .json(
+            Method::PUT,
+            &env.url(&format!("/sessions/{}/declaration", a.id)),
+            &reader,
+            Some(&a),
+            Some(decl_body(1, "no", "x")),
+        )
+        .await;
+    assert_eq!(status, 403, "read access cannot declare");
+
+    // Unknown and foreign-repository sessions read as absent.
+    let (status, _) = get_decl(&env, &env.owner_token, &uuid::Uuid::new_v4().to_string(), "").await;
+    assert_eq!(status, 404);
+    let (status, _) = get_decl(&env, &env.owner_token, "nope", "").await;
+    assert_eq!(status, 404);
+
+    // Six declarations racing from version 1: one winner.
+    let mut handles = Vec::new();
+    for i in 0..6 {
+        let url = env.url(&format!("/sessions/{}/declaration", a.id));
+        let token = env.owner_token.clone();
+        let a = a.clone();
+        handles.push(tokio::spawn(async move {
+            reqwest::Client::new()
+                .put(url)
+                .bearer_auth(token)
+                .header(collab_common::HDR_SESSION, &a.id)
+                .header(collab_common::HDR_SECRET, &a.secret)
+                .json(&decl_body(1, "yes", &format!("racer {i}")))
+                .send()
+                .await
+                .unwrap()
+                .status()
+                .as_u16()
+        }));
+    }
+    let mut statuses = Vec::new();
+    for h in handles {
+        statuses.push(h.await.unwrap());
+    }
+    assert_eq!(statuses.iter().filter(|s| **s == 200).count(), 1, "{statuses:?}");
+    assert_eq!(statuses.iter().filter(|s| **s == 409).count(), 5, "{statuses:?}");
+    let (_, now) = get_decl(&env, &env.owner_token, &a.id, "").await;
+    assert_eq!(now["declaration"]["version"], 2);
+}

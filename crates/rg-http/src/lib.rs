@@ -1077,6 +1077,15 @@ fn build_routes(
             get(api::collab_templates::get_task_template),
         )
         .route(
+            "/repos/{owner}/{name}/collaboration/sessions/{id}/declaration",
+            get(api::collab_declarations::get_declaration)
+                .put(api::collab_declarations::put_declaration),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/declarations",
+            get(api::collab_declarations::list_declarations),
+        )
+        .route(
             "/repos/{owner}/{name}/pipelines/{id}/jobs/{job_id}/play",
             post(api::ci::play_job),
         )

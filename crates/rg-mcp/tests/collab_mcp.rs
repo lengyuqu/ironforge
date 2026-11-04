@@ -714,3 +714,49 @@ fn o06_template_tools_map_to_the_rest_api() {
     let stderr = mcp.stop();
     assert!(!stderr.contains(SECRET));
 }
+
+// ── operability tools (O07 declarations) ─────────────────────────────
+
+#[test]
+fn o07_declaration_tools_map_to_the_rest_api() {
+    let stub = Stub::spawn(happy_handler());
+    let mut mcp = Mcp::start(&stub.url, None);
+    // No session yet: the self-bound tools say so without a request.
+    let (err, out) = mcp.tool_json("collab_declare_capabilities", json!({"owner": "o", "repo": "r", "tools": ["git"]}));
+    assert!(err, "{out}");
+    assert_eq!(out["error"]["code"], "NO_ACTIVE_SESSION");
+    let (err, out) = mcp.tool_json("collab_get_declaration", json!({"owner": "o", "repo": "r", "session_id": "self"}));
+    assert!(err, "{out}");
+    assert!(stub.requests().is_empty());
+
+    let (err, _) = mcp.tool_json("collab_start_session", start_args());
+    assert!(!err);
+    let base = json!({"owner": "o", "repo": "r"});
+    let with = |extra: Value| {
+        let mut args = base.clone();
+        args.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        args
+    };
+    for (tool, args) in [
+        ("collab_declare_capabilities", with(json!({"tools": ["cargo"], "can_run_tests": "yes", "network": "offline"}))),
+        ("collab_declare_capabilities", with(json!({"expected_version": 3, "notes": "n"}))),
+        ("collab_get_declaration", with(json!({"session_id": "self", "stale_after_seconds": 600}))),
+        ("collab_get_declaration", with(json!({"limit": 5}))),
+    ] {
+        let (err, out) = mcp.tool(tool, args);
+        assert!(!err, "{tool}: {out}");
+        assert!(!out.contains(SECRET));
+    }
+    let reqs = stub.requests();
+    let puts: Vec<&Req> = reqs.iter().filter(|r| r.method == "PUT").collect();
+    assert_eq!(puts.len(), 2);
+    assert!(puts[0].path.ends_with(&format!("/sessions/{SESSION_ID}/declaration")), "{}", puts[0].path);
+    assert_eq!(puts[0].body["expected_version"], 0, "first declaration defaults to version 0");
+    assert_eq!(puts[0].body["can_run_tests"], "yes");
+    assert_eq!(puts[0].headers.get("x-ironforge-session").map(String::as_str), Some(SESSION_ID));
+    assert_eq!(puts[1].body["expected_version"], 3);
+    assert!(reqs.iter().any(|r| r.method == "GET" && r.path.contains(&format!("/sessions/{SESSION_ID}/declaration?stale_after_seconds=600"))));
+    assert!(reqs.iter().any(|r| r.method == "GET" && r.path.contains("/collaboration/declarations?limit=5")));
+    let stderr = mcp.stop();
+    assert!(!stderr.contains(SECRET));
+}
