@@ -71,6 +71,8 @@ pub struct TaskView {
     pub owner_session_id: Option<String>,
     pub branch: Option<String>,
     pub paths: Vec<String>,
+    /// When `paths` were last declared (never `updated_at`); `null` = unknown.
+    pub paths_declared_at: Option<DateTime<Utc>>,
     pub issue_number: Option<i64>,
     pub pr_number: Option<i64>,
     /// Optimistic-lock counter; send it back as `expected_version`.
@@ -92,6 +94,7 @@ pub(crate) fn view(row: collab_task::Model) -> TaskView {
         status: row.status,
         owner_session_id: row.owner_session_id,
         branch: row.branch,
+        paths_declared_at: row.paths_declared_at,
         issue_number: row.issue_number,
         pr_number: row.pr_number,
         version: row.version,
@@ -249,6 +252,8 @@ pub async fn create(
             status: Set("open".to_string()),
             owner_session_id: Set(input.owner_session_id),
             branch: Set(input.branch),
+            // Declared now iff the task starts with paths; an empty list declares nothing.
+            paths_declared_at: Set((!input.paths.is_empty()).then_some(created_at)),
             paths_json: Set(paths_json),
             issue_number: Set(input.issue_number),
             pr_number: Set(input.pr_number),

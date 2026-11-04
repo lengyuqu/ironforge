@@ -28,6 +28,7 @@ pub mod collab_inbox;
 pub mod collab_json;
 pub mod collab_messages;
 pub mod collab_notices;
+pub mod collab_overlaps;
 pub mod collab_questions;
 pub mod collab_retention;
 pub mod collab_rules;

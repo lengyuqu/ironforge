@@ -141,6 +141,7 @@ impl Fixture {
                 owner_session_id: Set(None),
                 branch: Set(None),
                 paths_json: Set("[]".to_string()),
+                paths_declared_at: Set(None),
                 issue_number: Set(None),
                 pr_number: Set(None),
                 version: Set(1),

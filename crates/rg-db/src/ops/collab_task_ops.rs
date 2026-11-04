@@ -148,6 +148,32 @@ pub async fn list_page<C: ConnectionTrait>(
         .context("db: list collab tasks")
 }
 
+/// Unfinished tasks of the repository that declared at least one path, other
+/// than `exclude_id`, in ascending id order after `after_id`. Candidates for
+/// path-overlap warnings (P1 U03); the paths themselves are compared by the caller.
+pub async fn list_overlap_candidates<C: ConnectionTrait>(
+    db: &C,
+    repo_id: i64,
+    exclude_id: &str,
+    after_id: Option<&str>,
+    limit: u64,
+) -> Result<Vec<Task>> {
+    let mut query = TaskEntity::find()
+        .filter(collab_task::Column::RepoId.eq(repo_id))
+        .filter(collab_task::Column::Id.ne(exclude_id))
+        .filter(collab_task::Column::Status.ne(DONE))
+        .filter(collab_task::Column::PathsJson.ne("[]"));
+    if let Some(after) = after_id {
+        query = query.filter(collab_task::Column::Id.gt(after));
+    }
+    query
+        .order_by_asc(collab_task::Column::Id)
+        .limit(limit)
+        .all(db)
+        .await
+        .context("db: list overlap candidates")
+}
+
 /// Unfinished tasks currently owned by `session_id`, newest update first.
 pub async fn list_owned_open<C: ConnectionTrait>(
     db: &C,
@@ -227,6 +253,9 @@ pub async fn update_cas(
     }
     if let Some(paths) = patch.paths_json {
         update = update.col_expr(collab_task::Column::PathsJson, Expr::value(paths));
+        // Only a request that carries `paths` re-declares them; no other field
+        // refreshes this timestamp.
+        update = update.col_expr(collab_task::Column::PathsDeclaredAt, Expr::value(now));
     }
     if let Some(issue) = patch.issue_number {
         update = update.col_expr(collab_task::Column::IssueNumber, Expr::value(issue));

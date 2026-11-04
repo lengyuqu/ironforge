@@ -87,6 +87,7 @@ pub mod m20261104_000006_create_collab_groups;
 pub mod m20261104_000007_create_collab_metrics;
 pub mod m20261104_000008_create_collab_ops;
 pub mod m20261104_000009_create_collab_escalation;
+pub mod m20261105_000001_add_collab_task_paths_declared_at;
 
 use sea_orm_migration::prelude::*;
 
@@ -187,6 +188,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261104_000007_create_collab_metrics::Migration),
             Box::new(m20261104_000008_create_collab_ops::Migration),
             Box::new(m20261104_000009_create_collab_escalation::Migration),
+            Box::new(m20261105_000001_add_collab_task_paths_declared_at::Migration),
         ]
     }
 }

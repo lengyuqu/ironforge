@@ -298,7 +298,7 @@ struct Plan {
 }
 
 /// Which tools exist, in the order they are advertised.
-pub const TOOL_NAMES: [&str; 54] = [
+pub const TOOL_NAMES: [&str; 55] = [
     "collab_start_session",
     "collab_list_sessions",
     "collab_heartbeat",
@@ -352,6 +352,7 @@ pub const TOOL_NAMES: [&str; 54] = [
     "collab_ack_notice",
     "collab_confirm_receipt",
     "collab_get_delivery",
+    "collab_get_overlaps",
     "collab_get_diagnostics",
 ];
 
@@ -1031,6 +1032,11 @@ fn plan(name: &str, args: &Value, own_session: Option<&str>) -> Result<Plan, Too
                 None,
             )
         }
+        "collab_get_overlaps" => get(format!(
+            "/tasks/{}/overlaps{}",
+            id_arg(args, "task_id")?,
+            query(args, &["limit", "cursor"])
+        )),
         "collab_get_diagnostics" => get(format!(
             "/diagnostics{}",
             query(args, &["task_id", "session_id"])
@@ -1519,6 +1525,8 @@ pub fn tool_definitions() -> Vec<Value> {
             schema(json!({"task_id": task_id(), "message_id": {"type": "string", "minLength": 1, "maxLength": 64}}), &["task_id", "message_id"])),
         def("collab_get_delivery", format!("Get delivery state for a message authored by this session. saved means stored, unknown means no confirmation (not unread), read is the target's confirmation, and replied is a direct reply, not agreement. The read watermark is independent.{untrusted}"),
             schema(json!({"task_id": task_id(), "message_id": {"type": "string", "minLength": 1, "maxLength": 64}}), &["task_id", "message_id"])),
+        def("collab_get_overlaps", format!("List other unfinished tasks whose declared paths overlap this task's (equal, or one a directory prefix of the other). A hint, not a lock: it never blocks writes, and tasks that declared no paths or declarations that no longer match the real changes are invisible. confidence is declaration_stale when the other task's paths were declared more than 24 hours ago or at an unknown time. A page may be short and still carry next_cursor; keep following it.{untrusted}"),
+            schema(json!({"task_id": task_id(), "limit": limit(), "cursor": {"type": "string"}}), &["task_id"])),
         def("collab_get_diagnostics", format!("Explain why a task or session looks stuck. Pass exactly one of task_id and session_id. Each finding carries its source and whether it is established or unknown; not_covered lists what was not checked. A diagnosis is read-only evidence for a human or agent to act on, never an authorization.{untrusted}"),
             schema(json!({"task_id": task_id(), "session_id": {"type": "string", "minLength": 1, "maxLength": 64}}), &[])),
     ]

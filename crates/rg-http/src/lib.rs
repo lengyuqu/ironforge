@@ -1169,6 +1169,10 @@ fn build_routes(
             get(api::collab_escalation::get_settings).put(api::collab_escalation::put_settings),
         )
         .route(
+            "/repos/{owner}/{name}/collaboration/tasks/{id}/overlaps",
+            get(api::collab_overlaps::get_overlaps),
+        )
+        .route(
             "/repos/{owner}/{name}/collaboration/diagnostics",
             get(api::collab_diagnostics::get_diagnostics),
         )

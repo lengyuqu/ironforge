@@ -678,6 +678,17 @@ pub const REGISTRY: &[Capability] = &[
         ],
     },
     Capability {
+        name: "overlaps",
+        version: "1.0",
+        status: Stable,
+        mcp_tools: &["collab_get_overlaps"],
+        routes: &[r(
+            "GET",
+            "/repos/{owner}/{name}/collaboration/tasks/{id}/overlaps",
+            CollabRead,
+        )],
+    },
+    Capability {
         name: "diagnostics",
         version: "1.0",
         status: Stable,
