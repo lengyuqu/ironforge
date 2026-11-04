@@ -23,6 +23,7 @@ pub mod secret;
 pub mod session;
 pub mod takeover;
 pub mod task;
+pub mod template;
 pub mod validation;
 pub mod work_package;
 

@@ -20,6 +20,7 @@ pub mod collab_rules;
 pub mod collab_sessions;
 pub mod collab_takeovers;
 pub mod collab_tasks;
+pub mod collab_templates;
 pub mod collab_work_packages;
 pub mod ci_oidc;
 pub mod ci_retention;

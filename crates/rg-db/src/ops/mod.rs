@@ -13,6 +13,7 @@ pub mod collab_question_ops;
 pub mod collab_read_ops;
 pub mod collab_takeover_ops;
 pub mod collab_task_ops;
+pub mod collab_template_ops;
 pub mod collab_work_package_ops;
 pub mod commit_status_ops;
 pub mod deploy_key_ops;

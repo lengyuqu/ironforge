@@ -275,7 +275,7 @@ struct Plan {
 }
 
 /// Which tools exist, in the order they are advertised.
-pub const TOOL_NAMES: [&str; 28] = [
+pub const TOOL_NAMES: [&str; 32] = [
     "collab_start_session",
     "collab_list_sessions",
     "collab_heartbeat",
@@ -304,6 +304,10 @@ pub const TOOL_NAMES: [&str; 28] = [
     "collab_list_work_packages",
     "collab_get_work_package",
     "collab_get_completion_status",
+    "collab_create_template",
+    "collab_list_templates",
+    "collab_get_template",
+    "collab_task_from_template",
 ];
 
 pub fn is_collab_tool(name: &str) -> bool {
@@ -528,6 +532,56 @@ fn plan(name: &str, args: &Value, own_session: Option<&str>) -> Result<Plan, Too
         "collab_get_completion_status" => {
             get(format!("/tasks/{}/completion-status", id_arg(args, "task_id")?))
         }
+        "collab_create_template" => {
+            // With `template_id` this appends a version (needs `expected_version`);
+            // without it, it creates a template. Admin-only on the server.
+            let keys = ["title_pattern", "goal", "deliverables", "checklist"];
+            match args.get("template_id").and_then(Value::as_str) {
+                Some(_) => {
+                    int_arg(args, "expected_version", true)?;
+                    let mut body = pick(args, &keys);
+                    body.extend(pick(args, &["expected_version"]));
+                    body.entry("client_version_id").or_insert_with(|| Value::String(new_client_id()));
+                    Plan {
+                        method: Method::POST,
+                        path: format!("/templates/{}/versions", id_arg(args, "template_id")?),
+                        needs_session: false,
+                        body: Some(Value::Object(body)),
+                    }
+                }
+                None => {
+                    require_str(args, "name")?;
+                    let mut body = pick(args, &["name"]);
+                    body.extend(pick(args, &keys));
+                    body.entry("client_template_id").or_insert_with(|| Value::String(new_client_id()));
+                    Plan {
+                        method: Method::POST,
+                        path: "/templates".into(),
+                        needs_session: false,
+                        body: Some(Value::Object(body)),
+                    }
+                }
+            }
+        }
+        "collab_list_templates" => get(format!("/templates{}", query(args, &["limit", "cursor"]))),
+        "collab_get_template" => get(format!(
+            "/templates/{}{}",
+            id_arg(args, "template_id")?,
+            query(args, &["version"])
+        )),
+        "collab_task_from_template" => {
+            let mut body = pick(
+                args,
+                &[
+                    "template_id", "version", "params", "notes", "owner_session_id", "branch", "paths",
+                    "rules_ref", "client_task_id",
+                ],
+            );
+            id_arg(args, "template_id")?;
+            resolve_self(&mut body, "owner_session_id")?;
+            body.entry("client_task_id").or_insert_with(|| Value::String(new_client_id()));
+            with_session(Method::POST, "/tasks/from-template".into(), Some(Value::Object(body)))
+        }
         _ => return Err(invalid(format!("unknown tool {name}"))),
     })
 }
@@ -637,7 +691,8 @@ fn run(state: &AppState, name: &str, args: &Value) -> Result<ToolOutput, ToolOut
             value = json!({"ok": true, "ended": true});
         }
         "collab_send_message" | "collab_create_handoff" | "collab_claim_task" | "collab_ask_question"
-        | "collab_answer_question" | "collab_create_work_package" => {
+        | "collab_answer_question" | "collab_create_work_package" | "collab_task_from_template"
+        | "collab_create_template" => {
             // Echo the idempotency key used so a retry can repeat it.
         }
         _ => {}
@@ -831,6 +886,37 @@ pub fn tool_definitions() -> Vec<Value> {
             schema(json!({"package_id": {"type": "string", "maxLength": 64}}), &["package_id"])),
         def("collab_get_completion_status", format!("Compare what a task claims (its status) with what platform records support: open questions, work package present, and the latest CI pipeline for exactly the work package's commit. Read-only; a done task without evidence is flagged, never blocked.{untrusted}"),
             schema(json!({"task_id": task_id()}), &["task_id"])),
+        def("collab_create_template", format!("Repository admins only. Create a task template (name, title_pattern with {{placeholders}}, goal, deliverables, acceptance checklist), or - with template_id and expected_version - append a new immutable version of it. Versions are never edited and tasks already made from a template keep the version they were made from. The checklist is text: it is not tracked and proves nothing.{untrusted}"),
+            schema(json!({
+                "template_id": {"type": "string", "maxLength": 64, "description": "Give this to append a version instead of creating a template."},
+                "expected_version": {"type": "integer", "minimum": 1, "description": "With template_id: the latest_version you saw; a stale value fails with VERSION_CONFLICT."},
+                "name": {"type": "string", "minLength": 1, "maxLength": 100, "description": "Required when creating."},
+                "title_pattern": {"type": "string", "minLength": 1, "maxLength": 200, "description": "Task title; {name} placeholders are filled from params."},
+                "goal": {"type": "string", "minLength": 1, "maxLength": 2048},
+                "deliverables": {"type": "array", "maxItems": 20, "items": {"type": "string", "minLength": 1, "maxLength": 256}},
+                "checklist": {"type": "array", "maxItems": 30, "items": {"type": "object", "additionalProperties": false, "required": ["text"], "properties": {
+                    "text": {"type": "string", "minLength": 1, "maxLength": 256},
+                    "required": {"type": "boolean"}
+                }}},
+                "client_template_id": {"type": "string", "maxLength": 128, "description": "Idempotency key when creating; generated if omitted."},
+                "client_version_id": {"type": "string", "maxLength": 128, "description": "Idempotency key when appending a version; generated if omitted."}
+            }), &["title_pattern", "goal"])),
+        def("collab_list_templates", format!("List the repository's task templates with their latest version.{untrusted}"),
+            schema(json!({"limit": limit(), "cursor": {"type": "string"}}), &[])),
+        def("collab_get_template", format!("Get a task template at one version (default the latest).{untrusted}"),
+            schema(json!({"template_id": {"type": "string", "maxLength": 64}, "version": {"type": "integer", "minimum": 1}}), &["template_id"])),
+        def("collab_task_from_template", format!("Create a task from a template version. The task is pinned to that version and keeps a copy of its goal, deliverables and checklist in the description, so later template edits do not change it. Optionally record the commit a rules ref resolves to (rules_ref). Needs an active session.{untrusted}"),
+            schema(json!({
+                "template_id": {"type": "string", "maxLength": 64},
+                "version": {"type": "integer", "minimum": 1, "description": "Pin this version; default the latest."},
+                "params": {"type": "object", "additionalProperties": {"type": "string", "maxLength": 100}, "description": "Values for the title pattern's placeholders, exactly those names."},
+                "notes": {"type": "string", "maxLength": 4096},
+                "owner_session_id": {"type": "string", "maxLength": 64, "description": "A live session id, or \"self\"."},
+                "branch": {"type": "string", "maxLength": 255},
+                "paths": {"type": "array", "maxItems": 100, "items": {"type": "string", "minLength": 1, "maxLength": 512}},
+                "rules_ref": {"type": "string", "maxLength": 255, "description": "Branch, tag or commit whose current commit is recorded as rules_commit."},
+                "client_task_id": {"type": "string", "maxLength": 128, "description": "Idempotency key; generated if omitted."}
+            }), &["template_id"])),
     ]
 }
 

@@ -1057,6 +1057,26 @@ fn build_routes(
             get(api::collab_work_packages::get_work_package),
         )
         .route(
+            "/repos/{owner}/{name}/collaboration/templates",
+            get(api::collab_templates::list_templates).post(api::collab_templates::create_template),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/templates/{id}",
+            get(api::collab_templates::get_template),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/templates/{id}/versions",
+            post(api::collab_templates::new_template_version),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/tasks/from-template",
+            post(api::collab_templates::create_task_from_template),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/tasks/{id}/template",
+            get(api::collab_templates::get_task_template),
+        )
+        .route(
             "/repos/{owner}/{name}/pipelines/{id}/jobs/{job_id}/play",
             post(api::ci::play_job),
         )

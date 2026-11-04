@@ -648,3 +648,69 @@ fn p14_coded_conflicts_reach_the_model_with_their_details() {
     assert_eq!(out["error"]["details"]["owner_state"], "offline");
     mcp.stop();
 }
+
+// ── operability tools (O06 templates) ────────────────────────────────
+
+#[test]
+fn o06_template_tools_map_to_the_rest_api() {
+    let stub = Stub::spawn(happy_handler());
+    let mut mcp = Mcp::start(&stub.url, None);
+    let (err, _) = mcp.tool_json("collab_start_session", start_args());
+    assert!(!err);
+    let base = json!({"owner": "o", "repo": "r"});
+    let with = |extra: Value| {
+        let mut args = base.clone();
+        args.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        args
+    };
+    let tpl = "44444444-4444-4444-8444-444444444444";
+    let calls: Vec<(&str, Value)> = vec![
+        ("collab_create_template", with(json!({"name": "Bugfix", "title_pattern": "Fix {area}", "goal": "g", "checklist": [{"text": "tests"}]}))),
+        ("collab_create_template", with(json!({"template_id": tpl, "expected_version": 1, "title_pattern": "Fix {area}", "goal": "g2"}))),
+        ("collab_list_templates", with(json!({"limit": 5}))),
+        ("collab_get_template", with(json!({"template_id": tpl, "version": 1}))),
+        ("collab_task_from_template", with(json!({"template_id": tpl, "params": {"area": "auth"}, "owner_session_id": "self", "rules_ref": "main"}))),
+    ];
+    for (tool, args) in &calls {
+        let (err, out) = mcp.tool(tool, args.clone());
+        assert!(!err, "{tool}: {out}");
+        assert!(!out.contains(SECRET), "{tool} leaked the secret");
+    }
+    let reqs = stub.requests();
+    let find = |method: &str, suffix: &str| -> Req {
+        reqs.iter()
+            .rev()
+            .find(|r| r.method == method && r.path.ends_with(suffix))
+            .unwrap_or_else(|| panic!("no {method} …{suffix}"))
+            .clone()
+    };
+    let create = find("POST", "/collaboration/templates");
+    assert_eq!(create.body["name"], "Bugfix");
+    assert!(uuid_like(create.body["client_template_id"].as_str().unwrap()), "idempotency key generated");
+    let version = find("POST", &format!("/templates/{tpl}/versions"));
+    assert_eq!(version.body["expected_version"], 1);
+    assert!(uuid_like(version.body["client_version_id"].as_str().unwrap()));
+    assert!(find("GET", "/collaboration/templates?limit=5").path.contains("limit=5"));
+    assert!(find("GET", &format!("/templates/{tpl}?version=1")).path.contains("version=1"));
+    let task = find("POST", "/collaboration/tasks/from-template");
+    assert_eq!(task.headers.get("x-ironforge-session").map(String::as_str), Some(SESSION_ID));
+    assert_eq!(task.body["owner_session_id"], SESSION_ID, "\"self\" resolved");
+    assert_eq!(task.body["params"], json!({"area": "auth"}));
+    assert_eq!(task.body["rules_ref"], "main");
+    assert!(uuid_like(task.body["client_task_id"].as_str().unwrap()));
+
+    // Bad arguments never leave the process.
+    let before = stub.requests().len();
+    for (tool, args) in [
+        ("collab_create_template", with(json!({"title_pattern": "x", "goal": "g"}))), // no name
+        ("collab_create_template", with(json!({"template_id": tpl, "title_pattern": "x", "goal": "g"}))), // no expected_version
+        ("collab_get_template", with(json!({"template_id": "../x"}))),
+        ("collab_task_from_template", with(json!({"template_id": "a/b"}))),
+    ] {
+        let (err, out) = mcp.tool_json(tool, args);
+        assert!(err, "{tool} should be rejected: {out}");
+    }
+    assert_eq!(stub.requests().len(), before);
+    let stderr = mcp.stop();
+    assert!(!stderr.contains(SECRET));
+}
