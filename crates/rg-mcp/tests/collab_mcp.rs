@@ -648,3 +648,72 @@ fn p14_coded_conflicts_reach_the_model_with_their_details() {
     assert_eq!(out["error"]["details"]["owner_state"], "offline");
     mcp.stop();
 }
+
+// ── decision tools (U02) ─────────────────────────────────────────────
+
+#[test]
+fn u02_decision_tools_map_to_the_rest_api_and_reject_bad_arguments_locally() {
+    let stub = Stub::spawn(happy_handler());
+    let mut mcp = Mcp::start(&stub.url, None);
+    let (err, _) = mcp.tool_json("collab_start_session", start_args());
+    assert!(!err);
+    let tid = "22222222-2222-4222-8222-222222222222";
+    let did = "44444444-4444-4444-8444-444444444444";
+    let repl = "55555555-5555-4555-8555-555555555555";
+    let args = |extra: Value| {
+        let mut args = json!({"owner": "o", "repo": "r"});
+        args.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        args
+    };
+
+    for (tool, a) in [
+        ("collab_create_decision", args(json!({"task_id": tid, "title": "Use PG", "rationale": "writers", "question_id": did, "context": {"task_version": 2}}))),
+        ("collab_list_decisions", args(json!({"task_id": tid, "limit": 5}))),
+        ("collab_get_decision", args(json!({"decision_id": did}))),
+        ("collab_change_decision", args(json!({"decision_id": did, "kind": "superseded", "replacement_decision_id": repl, "reason": "newer"}))),
+    ] {
+        let (err, out) = mcp.tool(tool, a);
+        assert!(!err, "{tool}: {out}");
+        assert!(!out.contains(SECRET), "{tool} leaked the secret");
+    }
+    let reqs = stub.requests();
+    let find = |method: &str, suffix: &str| -> Req {
+        reqs.iter()
+            .find(|r| r.method == method && r.path.contains(suffix))
+            .unwrap_or_else(|| panic!("no {method} …{suffix}"))
+            .clone()
+    };
+    let session = |r: &Req| {
+        assert_eq!(r.headers.get("x-ironforge-session").map(String::as_str), Some(SESSION_ID));
+        assert_eq!(r.headers.get("x-ironforge-session-secret").map(String::as_str), Some(SECRET));
+    };
+    let create = find("POST", &format!("/tasks/{tid}/decisions"));
+    session(&create);
+    assert_eq!(create.body["question_id"], did);
+    assert_eq!(create.body["context"]["task_version"], 2);
+    assert!(uuid_like(create.body["client_decision_id"].as_str().unwrap()), "idempotency key generated");
+    assert!(find("GET", &format!("/tasks/{tid}/decisions?limit=5")).path.contains("limit=5"));
+    assert!(find("GET", &format!("/decisions/{did}")).path.ends_with(&format!("/decisions/{did}")));
+    let changed = find("POST", &format!("/decisions/{did}/changes"));
+    session(&changed);
+    assert_eq!(changed.body["kind"], "superseded");
+    assert_eq!(changed.body["replacement_decision_id"], repl);
+    assert!(uuid_like(changed.body["client_change_id"].as_str().unwrap()));
+    for r in &reqs {
+        assert!(!r.path.contains(SECRET) && !r.body.to_string().contains(SECRET));
+    }
+
+    let before = stub.requests().len();
+    for (tool, a) in [
+        ("collab_create_decision", args(json!({"task_id": tid, "title": "t"}))), // no rationale
+        ("collab_create_decision", args(json!({"task_id": "../x", "title": "t", "rationale": "r"}))),
+        ("collab_change_decision", args(json!({"decision_id": did, "kind": "revoked"}))), // no reason
+        ("collab_change_decision", args(json!({"decision_id": did, "reason": "r"}))), // no kind
+        ("collab_get_decision", args(json!({"decision_id": "a/b"}))),
+    ] {
+        let (err, out) = mcp.tool_json(tool, a);
+        assert!(err, "{tool} should be rejected: {out}");
+    }
+    assert_eq!(stub.requests().len(), before, "no request left the process");
+    mcp.stop();
+}
