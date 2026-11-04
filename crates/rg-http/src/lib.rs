@@ -1065,6 +1065,10 @@ fn build_routes(
             get(api::collab_escalation::get_settings).put(api::collab_escalation::put_settings),
         )
         .route(
+            "/repos/{owner}/{name}/collaboration/diagnostics",
+            get(api::collab_diagnostics::get_diagnostics),
+        )
+        .route(
             "/repos/{owner}/{name}/collaboration/notices/{id}/ack",
             post(api::collab_notices::ack_notice),
         )

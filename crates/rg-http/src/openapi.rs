@@ -220,6 +220,7 @@ pub struct PaginatedRepoResponse {
         crate::api::collab_notices::get_delivery,
         crate::api::collab_escalation::get_settings,
         crate::api::collab_escalation::put_settings,
+        crate::api::collab_diagnostics::get_diagnostics,
         crate::api::ci::play_job,
         crate::api::ci_environments::list,
         crate::api::ci_environments::create,
