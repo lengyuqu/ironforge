@@ -1173,6 +1173,10 @@ fn build_routes(
             get(api::collab_overlaps::get_overlaps),
         )
         .route(
+            "/repos/{owner}/{name}/collaboration/overview",
+            get(api::collab_overview::get_overview),
+        )
+        .route(
             "/repos/{owner}/{name}/collaboration/diagnostics",
             get(api::collab_diagnostics::get_diagnostics),
         )

@@ -148,6 +148,25 @@ pub async fn list_page<C: ConnectionTrait>(
         .context("db: list collab tasks")
 }
 
+/// Tasks of the repository whose status is one of `statuses`, most recently
+/// updated first. For summary views; use [`list_page`] to page through tasks.
+pub async fn list_with_statuses<C: ConnectionTrait>(
+    db: &C,
+    repo_id: i64,
+    statuses: &[&str],
+    limit: u64,
+) -> Result<Vec<Task>> {
+    TaskEntity::find()
+        .filter(collab_task::Column::RepoId.eq(repo_id))
+        .filter(collab_task::Column::Status.is_in(statuses.iter().copied()))
+        .order_by_desc(collab_task::Column::UpdatedAt)
+        .order_by_desc(collab_task::Column::Id)
+        .limit(limit)
+        .all(db)
+        .await
+        .context("db: list tasks by status")
+}
+
 /// Unfinished tasks of the repository that declared at least one path, other
 /// than `exclude_id`, in ascending id order after `after_id`. Candidates for
 /// path-overlap warnings (P1 U03); the paths themselves are compared by the caller.
