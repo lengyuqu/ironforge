@@ -5,6 +5,7 @@ use chrono::{DateTime, Utc};
 use sea_orm::sea_query::Expr;
 use sea_orm::*;
 
+use super::collab_notice_ops::{self, NewNotice};
 use super::collab_task_ops::find_in_repo as find_task;
 use crate::entities::collab_takeover::{
     self, ActiveModel, Entity as TakeoverEntity, Model as Takeover,
@@ -94,6 +95,20 @@ pub async fn takeover_cas(
     model: ActiveModel,
     now: DateTime<Utc>,
 ) -> Result<TakeoverOutcome> {
+    takeover_cas_with_notices(db, repo_id, task_id, change, model, now, &[]).await
+}
+
+/// [`takeover_cas`] that also writes `notices` in the takeover's transaction:
+/// only the winning claimant of a race emits them.
+pub async fn takeover_cas_with_notices(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    task_id: &str,
+    change: OwnerChange<'_>,
+    model: ActiveModel,
+    now: DateTime<Utc>,
+    notices: &[NewNotice],
+) -> Result<TakeoverOutcome> {
     let actor_kind = model.actor_kind.clone().unwrap();
     let actor_id = model.actor_id.clone().unwrap();
     let client_id = model.client_takeover_id.clone().unwrap();
@@ -134,6 +149,7 @@ pub async fn takeover_cas(
     }
     match model.insert(&txn).await {
         Ok(takeover) => {
+            collab_notice_ops::insert_all(&txn, notices).await?;
             txn.commit().await.context("db: commit takeover")?;
             Ok(TakeoverOutcome::Done {
                 task: current,

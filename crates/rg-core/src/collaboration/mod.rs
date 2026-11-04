@@ -11,10 +11,12 @@
 pub mod ci_evidence;
 pub mod completion;
 pub mod cursor;
+pub mod delivery;
 pub mod error;
 pub mod handoff;
 pub mod inbox;
 pub mod message;
+pub mod notice;
 pub mod question;
 pub mod read;
 pub mod retention;

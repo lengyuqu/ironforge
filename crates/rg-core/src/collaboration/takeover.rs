@@ -21,7 +21,7 @@ use super::cursor::{self, KeysetPosition};
 use super::error::{CollabError, CollabResult};
 use super::session::state_of;
 use super::task::{self, TaskView};
-use super::{validation, Page, ORIGIN_USER_CONTENT};
+use super::{notice, validation, Page, ORIGIN_USER_CONTENT};
 
 pub const MAX_REASON_BYTES: usize = 2000;
 
@@ -121,8 +121,34 @@ async fn apply(
 ) -> CollabResult<TakeoverResult> {
     let Mover { actor_kind, actor_id, outcome, to_session_id } = *mover;
     let hash = payload_hash(task_id, outcome, to_session_id, req);
+    let takeover_id = uuid::Uuid::new_v4().to_string();
+    // The session the task moved away from learns of it, unless it caused the
+    // move itself or has already ended (a claim only succeeds for such owners).
+    let actor_session = (actor_kind == "session").then_some(actor_id);
+    let notices: Vec<_> = match &req.expected_owner_session_id {
+        Some(previous) if previous != to_session_id => notice::prepare(
+            db,
+            repo_id,
+            task_id,
+            previous,
+            actor_session,
+            notice::kind::TASK_REASSIGNED_AWAY,
+            notice::source::TAKEOVER,
+            &takeover_id,
+            serde_json::json!({
+                "to_session_id": to_session_id,
+                "actor_kind": actor_kind,
+                "outcome": outcome,
+            }),
+            now,
+        )
+        .await?
+        .into_iter()
+        .collect(),
+        _ => Vec::new(),
+    };
     let model = collab_takeover::ActiveModel {
-        id: Set(uuid::Uuid::new_v4().to_string()),
+        id: Set(takeover_id),
         repo_id: Set(repo_id),
         task_id: Set(task_id.to_string()),
         from_session_id: Set(req.expected_owner_session_id.clone()),
@@ -137,7 +163,7 @@ async fn apply(
         payload_hash: Set(hash.clone()),
         created_at: Set(now),
     };
-    match collab_takeover_ops::takeover_cas(
+    match collab_takeover_ops::takeover_cas_with_notices(
         db,
         repo_id,
         task_id,
@@ -148,6 +174,7 @@ async fn apply(
         },
         model,
         now,
+        &notices,
     )
     .await?
     {

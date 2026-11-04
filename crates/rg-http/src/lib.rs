@@ -1057,6 +1057,22 @@ fn build_routes(
             get(api::collab_work_packages::get_work_package),
         )
         .route(
+            "/repos/{owner}/{name}/collaboration/notices",
+            get(api::collab_notices::list_notices),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/notices/{id}/ack",
+            post(api::collab_notices::ack_notice),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/tasks/{id}/messages/{message_id}/read-receipt",
+            post(api::collab_notices::confirm_receipt),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/tasks/{id}/messages/{message_id}/delivery",
+            get(api::collab_notices::get_delivery),
+        )
+        .route(
             "/repos/{owner}/{name}/pipelines/{id}/jobs/{job_id}/play",
             post(api::ci::play_job),
         )

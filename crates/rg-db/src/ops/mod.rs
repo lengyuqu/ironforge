@@ -9,6 +9,7 @@ pub mod ci_retention_ops;
 pub mod ci_secret_ops;
 pub mod collab_handoff_ops;
 pub mod collab_message_ops;
+pub mod collab_notice_ops;
 pub mod collab_question_ops;
 pub mod collab_read_ops;
 pub mod collab_takeover_ops;

@@ -14,6 +14,7 @@ pub mod collab;
 pub mod collab_handoffs;
 pub mod collab_inbox;
 pub mod collab_messages;
+pub mod collab_notices;
 pub mod collab_questions;
 pub mod collab_retention;
 pub mod collab_rules;

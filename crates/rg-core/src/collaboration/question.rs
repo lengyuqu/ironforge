@@ -18,7 +18,7 @@ use sha2::{Digest, Sha256};
 use super::cursor::{self, KeysetPosition};
 use super::error::{CollabError, CollabResult};
 use super::message::normalize_commit_sha;
-use super::{task, validation, Actor, Page, ORIGIN_USER_CONTENT};
+use super::{notice, task, validation, Actor, Page, ORIGIN_USER_CONTENT};
 
 pub const MAX_TITLE_CHARS: usize = 200;
 pub const MAX_BODY_BYTES: usize = 16 * 1024;
@@ -276,10 +276,33 @@ pub async fn create(
     let normalized = NewQuestion { title: title.clone(), ..input.clone() };
     let hash = payload_hash(&task.id, &normalized, &context);
 
-    let outcome = collab_question_ops::create_idempotent(
+    let question_id = uuid::Uuid::new_v4().to_string();
+    // A question addressed to a session leaves that session a durable notice.
+    let mut notices = Vec::new();
+    if let (RECIPIENT_SESSION, Some(target)) =
+        (input.recipient.kind.as_str(), input.recipient.id.as_deref())
+    {
+        let actor_session = (actor.kind == "session").then_some(actor.id.as_str());
+        notices.extend(
+            notice::prepare(
+                db,
+                repo_id,
+                &task.id,
+                target,
+                actor_session,
+                notice::kind::QUESTION_ASKED,
+                notice::source::QUESTION,
+                &question_id,
+                serde_json::json!({ "creator_kind": actor.kind, "creator_id": actor.id }),
+                now,
+            )
+            .await?,
+        );
+    }
+    let outcome = collab_question_ops::create_idempotent_with_notices(
         db,
         collab_question::ActiveModel {
-            id: Set(uuid::Uuid::new_v4().to_string()),
+            id: Set(question_id),
             repo_id: Set(repo_id),
             task_id: Set(task.id.clone()),
             creator_kind: Set(actor.kind.to_string()),
@@ -300,6 +323,7 @@ pub async fn create(
         actor.kind,
         &actor.id,
         &input.client_question_id,
+        &notices,
     )
     .await?;
     match outcome {
@@ -486,7 +510,28 @@ pub async fn answer(
         })));
     }
 
-    let outcome = collab_question_ops::answer_cas(
+    // The asking session learns of the answer; written in the answering
+    // transaction, so only the winner of an answer race emits it.
+    let mut notices = Vec::new();
+    if question.creator_kind == "session" {
+        let actor_session = (actor.kind == "session").then_some(actor.id.as_str());
+        notices.extend(
+            notice::prepare(
+                db,
+                repo_id,
+                &question.task_id,
+                &question.creator_id,
+                actor_session,
+                notice::kind::QUESTION_ANSWERED,
+                notice::source::QUESTION,
+                &question.id,
+                serde_json::json!({ "answer_actor_kind": actor.kind }),
+                now,
+            )
+            .await?,
+        );
+    }
+    let outcome = collab_question_ops::answer_cas_with_notices(
         db,
         repo_id,
         &question.id,
@@ -505,6 +550,7 @@ pub async fn answer(
             created_at: Set(now),
         },
         now,
+        &notices,
     )
     .await?;
     match outcome {

@@ -16,7 +16,7 @@ use sha2::{Digest, Sha256};
 
 use super::cursor::{self, KeysetPosition};
 use super::error::{CollabError, CollabResult};
-use super::{task, validation, Page, ORIGIN_USER_CONTENT};
+use super::{notice, task, validation, Page, ORIGIN_USER_CONTENT};
 
 pub const MAX_SECTION_BYTES: usize = 16 * 1024;
 pub const MAX_EVIDENCE: usize = 20;
@@ -150,10 +150,27 @@ pub async fn create(
     }
 
     let hash = payload_hash(&task.id, &input);
-    let outcome = collab_handoff_ops::create_idempotent(
+    let handoff_id = uuid::Uuid::new_v4().to_string();
+    // The addressed session gets a durable notice in the handoff's transaction.
+    let notices: Vec<_> = notice::prepare(
+        db,
+        repo_id,
+        &task.id,
+        &input.to_session_id,
+        Some(&from.id),
+        notice::kind::HANDOFF_RECEIVED,
+        notice::source::HANDOFF,
+        &handoff_id,
+        serde_json::json!({ "from_session_id": from.id }),
+        now,
+    )
+    .await?
+    .into_iter()
+    .collect();
+    let outcome = collab_handoff_ops::create_idempotent_with_notices(
         db,
         collab_handoff::ActiveModel {
-            id: Set(uuid::Uuid::new_v4().to_string()),
+            id: Set(handoff_id),
             repo_id: Set(repo_id),
             task_id: Set(task.id.clone()),
             from_session_id: Set(from.id.clone()),
@@ -173,6 +190,7 @@ pub async fn create(
         },
         &from.id,
         &input.client_handoff_id,
+        &notices,
     )
     .await?;
     match outcome {
