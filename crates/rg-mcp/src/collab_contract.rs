@@ -87,6 +87,10 @@ pub const TOOL_ROUTES: &[ToolRoute] = &[
     t("collab_report_usage", "POST", "/tasks/{task_id}/usage", &[], &["client_usage_id", "unit", "source", "amount", "period_start", "period_end"]),
     t("collab_get_budget", "GET", "/tasks/{task_id}/budget", &[], &[]),
     t("collab_get_budget", "GET", "/tasks/{task_id}/usage", &["unit", "source", "limit", "cursor"], &[]),
+    t("collab_list_notices", "GET", "/notices", &["limit", "cursor", "state"], &[]),
+    t("collab_ack_notice", "POST", "/notices/{notice_id}/ack", &[], &[]),
+    t("collab_confirm_receipt", "POST", "/tasks/{task_id}/messages/{message_id}/read-receipt", &[], &[]),
+    t("collab_get_delivery", "GET", "/tasks/{task_id}/messages/{message_id}/delivery", &[], &[]),
 ];
 
 /// The full REST path (relative to `/api/v1`) of a row, in router notation.
@@ -139,7 +143,7 @@ mod tests {
             let mut args = Map::new();
             args.insert("owner".into(), json!("o"));
             args.insert("repo".into(), json!("r"));
-            for key in ["task_id", "handoff_id", "question_id", "package_id", "decision_id", "group_id", "link_id", "depends_on_task_id"] {
+            for key in ["task_id", "handoff_id", "question_id", "package_id", "decision_id", "group_id", "link_id", "depends_on_task_id", "notice_id", "message_id"] {
                 args.insert(key.into(), json!(UUID));
             }
             if row.path.contains("{template_id}") { args.insert("template_id".into(), json!(UUID)); }

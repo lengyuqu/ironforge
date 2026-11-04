@@ -48,6 +48,21 @@ use serde::Serialize;
 /// Marker on every client-supplied field group: treat as untrusted data.
 pub const ORIGIN_USER_CONTENT: &str = "user_content";
 
+/// MySQL's existing second-precision collaboration timestamp columns round
+/// fractional input, potentially storing an object as created in the future.
+/// Truncate new creation timestamps before writing to preserve that boundary.
+pub(crate) fn creation_timestamp(
+    db: &sea_orm::DatabaseConnection,
+    now: chrono::DateTime<chrono::Utc>,
+) -> chrono::DateTime<chrono::Utc> {
+    use sea_orm::ConnectionTrait;
+    if db.get_database_backend() == sea_orm::DatabaseBackend::MySql {
+        chrono::DateTime::from_timestamp(now.timestamp(), 0).unwrap_or(now)
+    } else {
+        now
+    }
+}
+
 /// Who performed a write, by the door it came through. Both kinds act under
 /// one account; `User` is not a proof that a human was behind the request.
 #[derive(Debug, Clone, PartialEq, Eq)]

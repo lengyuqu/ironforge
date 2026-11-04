@@ -229,6 +229,8 @@ pub async fn create(
     }
     require_links(db, repo_id, input.issue_number, input.pr_number).await?;
 
+    let created_at = super::creation_timestamp(db, now);
+
     let row = collab_task_ops::create(
         db,
         collab_task::ActiveModel {
@@ -244,8 +246,8 @@ pub async fn create(
             pr_number: Set(input.pr_number),
             version: Set(1),
             next_seq: Set(0),
-            created_at: Set(now),
-            updated_at: Set(now),
+            created_at: Set(created_at),
+            updated_at: Set(created_at),
         },
     )
     .await?;

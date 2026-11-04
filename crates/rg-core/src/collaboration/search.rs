@@ -3,7 +3,10 @@
 use super::cursor::{self, KeysetPosition};
 use super::error::{CollabError, CollabResult};
 use chrono::{DateTime, Utc};
-use rg_db::entities::{collab_decision, collab_handoff, collab_question, collab_task};
+use rg_db::entities::{
+    collab_decision, collab_handoff, collab_message, collab_question, collab_task,
+    collab_work_package,
+};
 use sea_orm::{
     ColumnTrait, Condition, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
 };
@@ -28,8 +31,8 @@ pub struct SearchPage {
 }
 
 /// One object kind per request; `q` is a bounded literal substring. Matching
-/// uses the database's LIKE collation. SHA search covers question/decision
-/// context and handoff commit SHA; it does not inspect arbitrary other objects.
+/// uses the database's LIKE collation. Message bodies and work package bodies
+/// are searchable, as are their commit SHAs. Results never include content.
 pub async fn search(
     db: &DatabaseConnection,
     repo_id: i64,
@@ -45,9 +48,12 @@ pub async fn search(
             "q must be 1..256 bytes and contain no LIKE metacharacters",
         ));
     }
-    if !matches!(kind, "task" | "question" | "decision" | "handoff") {
+    if !matches!(
+        kind,
+        "task" | "question" | "decision" | "handoff" | "message" | "work_package"
+    ) {
         return Err(CollabError::bad_request(
-            "kind must be task, question, decision, or handoff",
+            "kind must be task, question, decision, handoff, message, or work_package",
         ));
     }
     // Hash the query before putting the scope into the signed (not encrypted) cursor.
@@ -124,6 +130,20 @@ pub async fn search(
                 .add(collab_handoff::Column::Blockers.contains(q))
                 .add(collab_handoff::Column::CommitSha.contains(q)),
             |r: &collab_handoff::Model| r.task_id.clone()
+        ),
+        "message" => run!(
+            collab_message,
+            Condition::any()
+                .add(collab_message::Column::Body.contains(q))
+                .add(collab_message::Column::CommitSha.contains(q)),
+            |r: &collab_message::Model| r.task_id.clone()
+        ),
+        "work_package" => run!(
+            collab_work_package,
+            Condition::any()
+                .add(collab_work_package::Column::BodyJson.contains(q))
+                .add(collab_work_package::Column::CommitSha.contains(q)),
+            |r: &collab_work_package::Model| r.task_id.clone()
         ),
         _ => unreachable!(),
     };

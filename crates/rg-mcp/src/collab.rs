@@ -275,7 +275,7 @@ struct Plan {
 }
 
 /// Which tools exist, in the order they are advertised.
-pub const TOOL_NAMES: [&str; 49] = [
+pub const TOOL_NAMES: [&str; 53] = [
     "collab_start_session",
     "collab_list_sessions",
     "collab_heartbeat",
@@ -325,6 +325,10 @@ pub const TOOL_NAMES: [&str; 49] = [
     "collab_set_budget",
     "collab_report_usage",
     "collab_get_budget",
+    "collab_list_notices",
+    "collab_ack_notice",
+    "collab_confirm_receipt",
+    "collab_get_delivery",
 ];
 
 /// What a tool will send, for the REST/MCP contract test (`collab_contract`).
@@ -791,6 +795,18 @@ fn plan(name: &str, args: &Value, own_session: Option<&str>) -> Result<Plan, Too
                 Some(Value::Object(body)),
             )
         }
+        "collab_list_notices" => with_session(Method::GET, format!("/notices{}", query(args, &["limit", "cursor", "state"])), None),
+        "collab_ack_notice" => with_session(Method::POST, format!("/notices/{}/ack", id_arg(args, "notice_id")?), None),
+        "collab_confirm_receipt" | "collab_get_delivery" => {
+            let task = id_arg(args, "task_id")?;
+            let message = id_arg(args, "message_id")?;
+            let (method, endpoint) = if name == "collab_confirm_receipt" {
+                (Method::POST, "read-receipt")
+            } else {
+                (Method::GET, "delivery")
+            };
+            with_session(method, format!("/tasks/{task}/messages/{message}/{endpoint}"), None)
+        }
         "collab_get_budget" => {
             let task = id_arg(args, "task_id")?;
             if args.get("list_usage").and_then(Value::as_bool) == Some(true) {
@@ -1247,6 +1263,14 @@ pub fn tool_definitions() -> Vec<Value> {
                 "unit": {"type": "string", "maxLength": 32}, "source": {"type": "string", "maxLength": 64},
                 "limit": limit(), "cursor": {"type": "string"}
             }), &["task_id"])),
+        def("collab_list_notices", format!("List this session's durable notices, oldest first. state defaults to pending; use all to include acknowledged or resolved notices. Pass next_cursor as cursor for the next page. Notices are hints: re-read the referenced object before acting.{untrusted}"),
+            schema(json!({"limit": limit(), "cursor": {"type": "string"}, "state": {"type": "string", "enum": ["pending", "all"]}}), &[])),
+        def("collab_ack_notice", "Acknowledge a notice belonging to this session; repeating is harmless. This changes only the notice, not the referenced object or a message read receipt.".into(),
+            schema(json!({"notice_id": {"type": "string", "minLength": 1, "maxLength": 64}}), &["notice_id"])),
+        def("collab_confirm_receipt", "Confirm that this session read a message addressed to it. Requires repository write access; repeating keeps the original read time. This does not move the task read watermark or imply agreement.".into(),
+            schema(json!({"task_id": task_id(), "message_id": {"type": "string", "minLength": 1, "maxLength": 64}}), &["task_id", "message_id"])),
+        def("collab_get_delivery", format!("Get delivery state for a message authored by this session. saved means stored, unknown means no confirmation (not unread), read is the target's confirmation, and replied is a direct reply, not agreement. The read watermark is independent.{untrusted}"),
+            schema(json!({"task_id": task_id(), "message_id": {"type": "string", "minLength": 1, "maxLength": 64}}), &["task_id", "message_id"])),
     ]
 }
 

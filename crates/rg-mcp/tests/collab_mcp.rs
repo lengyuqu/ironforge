@@ -193,7 +193,8 @@ fn t11_tools_list_advertises_complete_schemas() {
         "collab_ask_question", "collab_list_questions", "collab_get_question", "collab_answer_question",
         "collab_cancel_question", "collab_create_work_package", "collab_list_work_packages",
         "collab_get_work_package", "collab_get_completion_status", "collab_get_dependencies",
-        "collab_add_dependency", "collab_remove_dependency",
+        "collab_add_dependency", "collab_remove_dependency", "collab_list_notices", "collab_ack_notice",
+        "collab_confirm_receipt", "collab_get_delivery",
     ] {
         assert!(names.contains(&expected), "missing {expected}: {names:?}");
     }
@@ -1059,4 +1060,58 @@ fn o08_budget_tools_map_to_the_rest_api() {
     assert_eq!(stub.requests().len(), before, "no request left the process");
     let stderr = mcp.stop();
     assert!(!stderr.contains(SECRET));
+}
+
+#[test]
+fn notice_and_receipt_tools_use_the_acting_session() {
+    let stub = Stub::spawn(Box::new(|req| {
+        if req.path.ends_with("/collaboration/sessions") {
+            (201, json!({"session": {"id": SESSION_ID}, "session_secret": SECRET}).to_string())
+        } else if req.path.ends_with("/delivery") {
+            (403, json!({"error": {"code": "FORBIDDEN", "message": "only the author"}}).to_string())
+        } else if req.path.ends_with("/read-receipt") {
+            (201, json!({"newly_confirmed": true, "read_at": "2026-11-04T00:00:00Z"}).to_string())
+        } else {
+            (200, json!({"items": [], "next_cursor": "next", "newly_acked": false}).to_string())
+        }
+    }));
+    let mut mcp = Mcp::start(&stub.url, None);
+    let tid = "22222222-2222-4222-8222-222222222222";
+    let mid = "33333333-3333-4333-8333-333333333333";
+    let nid = "44444444-4444-4444-8444-444444444444";
+    let cases = [
+        ("collab_list_notices", json!({"owner":"o", "repo":"r", "state":"all", "limit":5, "cursor":"a+b"})),
+        ("collab_ack_notice", json!({"owner":"o", "repo":"r", "notice_id":nid})),
+        ("collab_confirm_receipt", json!({"owner":"o", "repo":"r", "task_id":tid, "message_id":mid})),
+        ("collab_get_delivery", json!({"owner":"o", "repo":"r", "task_id":tid, "message_id":mid})),
+    ];
+    for (tool, args) in &cases {
+        let (err, out) = mcp.tool_json(tool, args.clone());
+        assert!(err, "{tool}: {out}");
+        assert_eq!(out["error"]["code"], "NO_ACTIVE_SESSION");
+    }
+    assert!(stub.requests().is_empty());
+    assert!(!mcp.tool_json("collab_start_session", start_args()).0);
+    for (tool, args) in &cases {
+        let (err, out) = mcp.tool_json(tool, args.clone());
+        assert_eq!(err, *tool == "collab_get_delivery", "{tool}: {out}");
+        if err { assert_eq!(out["error"]["code"], "FORBIDDEN"); }
+        assert!(!out.to_string().contains(SECRET));
+    }
+    let reqs = stub.requests();
+    assert_eq!(reqs.len(), 5);
+    assert!(reqs[1].path.ends_with("/notices?limit=5&cursor=a%2Bb&state=all"), "{}", reqs[1].path);
+    assert_eq!(reqs[2].path, format!("/api/v1/repos/o/r/collaboration/notices/{nid}/ack"));
+    assert_eq!(reqs[3].path, format!("/api/v1/repos/o/r/collaboration/tasks/{tid}/messages/{mid}/read-receipt"));
+    assert_eq!(reqs[4].path, format!("/api/v1/repos/o/r/collaboration/tasks/{tid}/messages/{mid}/delivery"));
+    for req in &reqs[1..] {
+        assert_eq!(req.headers.get("x-ironforge-session").map(String::as_str), Some(SESSION_ID));
+        assert_eq!(req.headers.get("x-ironforge-session-secret").map(String::as_str), Some(SECRET));
+        assert!(req.body.is_null());
+    }
+    let before = reqs.len();
+    let (err, _) = mcp.tool_json("collab_confirm_receipt", json!({"owner":"o", "repo":"r", "task_id":tid, "message_id":"../bad"}));
+    assert!(err);
+    assert_eq!(stub.requests().len(), before);
+    assert!(!mcp.stop().contains(SECRET));
 }

@@ -6,6 +6,96 @@ use sea_orm::*;
 
 use crate::entities::{pipeline, pipeline_job, pipeline_stage};
 
+// Earlier PostgreSQL migrations created these columns as INTEGER, while the
+// public model uses i64. Explicit casts let both INTEGER and BIGINT installations
+// decode the same way without changing an already-applied migration.
+const PG_PIPELINE_COLUMNS: &str = "id::bigint AS id, repo_id::bigint AS repo_id, commit_sha, ref_name, status, trigger_type, triggered_by::bigint AS triggered_by, started_at, finished_at, created_at";
+
+// Project integer-backed identifiers as bigint before SeaORM decodes i64 fields.
+fn stage_query<C: ConnectionTrait>(db: &C) -> Select<pipeline_stage::Entity> {
+    let mut query = pipeline_stage::Entity::find();
+    if db.get_database_backend() == DatabaseBackend::Postgres {
+        query = query.select_only();
+        for column in pipeline_stage::Column::iter() {
+            query = if matches!(
+                column,
+                pipeline_stage::Column::Id | pipeline_stage::Column::PipelineId
+            ) {
+                query.column_as(
+                    Expr::col(column).cast_as(sea_orm::sea_query::Alias::new("bigint")),
+                    column.to_string(),
+                )
+            } else {
+                query.column(column)
+            };
+        }
+    }
+    query
+}
+
+fn job_query<C: ConnectionTrait>(db: &C) -> Select<pipeline_job::Entity> {
+    let mut query = pipeline_job::Entity::find();
+    let backend = db.get_database_backend();
+    if backend == DatabaseBackend::Postgres || backend == DatabaseBackend::MySql {
+        query = query.select_only();
+        for column in pipeline_job::Column::iter() {
+            query = if matches!(column, pipeline_job::Column::UpdatedAt) {
+                let expression = if backend == DatabaseBackend::Postgres {
+                    "updated_at AT TIME ZONE 'UTC'"
+                } else {
+                    "CAST(updated_at AS DATETIME)"
+                };
+                query.expr_as(Expr::cust(expression), column.to_string())
+            } else if backend == DatabaseBackend::Postgres
+                && matches!(
+                    column,
+                    pipeline_job::Column::Id
+                        | pipeline_job::Column::StageId
+                        | pipeline_job::Column::RunnerId
+                        | pipeline_job::Column::TimeoutSeconds
+                        | pipeline_job::Column::EnvironmentId
+                )
+            {
+                query.column_as(
+                    Expr::col(column).cast_as(sea_orm::sea_query::Alias::new("bigint")),
+                    column.to_string(),
+                )
+            } else {
+                query.column(column)
+            };
+        }
+    }
+    query
+}
+
+const PG_STAGE_COLUMNS: &str = "id::bigint AS id, pipeline_id::bigint AS pipeline_id, name, stage_order, status, started_at, finished_at";
+const PG_JOB_COLUMNS: &str = "id::bigint AS id, stage_id::bigint AS stage_id, runner_id::bigint AS runner_id, name, image, script, variables, cache_key, cache_paths, allow_failure, timeout_seconds::bigint AS timeout_seconds, when_condition, if_condition, environment_id::bigint AS environment_id, environment_name, status, exit_code, log, started_at, finished_at, updated_at AT TIME ZONE 'UTC' AS updated_at, tags";
+
+// The entity represents updated_at as a UTC NaiveDateTime, while PostgreSQL
+// stores an instant. Bind UTC explicitly instead of using the session timezone.
+fn job_updated_at_value<C: ConnectionTrait>(
+    db: &C,
+    value: chrono::NaiveDateTime,
+) -> sea_orm::Value {
+    if db.get_database_backend() == DatabaseBackend::Postgres {
+        value.and_utc().into()
+    } else {
+        value.into()
+    }
+}
+
+/// SQLite deferred transactions cannot upgrade a stale read snapshot after a
+/// concurrent writer commits. Acquire its writer lock before any reads; the
+/// predicate matches no rows, so it neither mutates data nor fires row triggers.
+async fn lock_sqlite_ci_writer(txn: &DatabaseTransaction) -> Result<()> {
+    if txn.get_database_backend() == DatabaseBackend::Sqlite {
+        txn.execute_unprepared("UPDATE pipeline_stages SET id = id WHERE 0")
+            .await
+            .context("db: acquire SQLite CI writer lock")?;
+    }
+    Ok(())
+}
+
 // ── Pipeline ops ─────────────────────────────────────────────────
 
 /// Create a new pipeline record.
@@ -18,6 +108,25 @@ pub async fn create_pipeline(
     triggered_by: Option<i64>,
 ) -> Result<pipeline::Model> {
     let now = chrono::Utc::now().naive_utc();
+    if db.get_database_backend() == DatabaseBackend::Postgres {
+        let sql = format!("INSERT INTO pipelines (repo_id, commit_sha, ref_name, status, trigger_type, triggered_by, created_at) VALUES ($1, $2, $3, 'pending', $4, $5, $6) RETURNING {PG_PIPELINE_COLUMNS}");
+        return pipeline::Model::find_by_statement(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            sql,
+            [
+                repo_id.into(),
+                commit_sha.into(),
+                ref_name.into(),
+                trigger_type.into(),
+                triggered_by.into(),
+                now.into(),
+            ],
+        ))
+        .one(db)
+        .await
+        .context("db: create pipeline")?
+        .context("db: inserted pipeline was not returned");
+    }
     let model = pipeline::ActiveModel {
         repo_id: Set(repo_id),
         commit_sha: Set(commit_sha.to_string()),
@@ -35,7 +144,17 @@ pub async fn create_pipeline(
 }
 
 /// Get a pipeline by ID.
-pub async fn get_pipeline(db: &DatabaseConnection, id: i64) -> Result<Option<pipeline::Model>> {
+async fn get_pipeline_on<C: ConnectionTrait>(db: &C, id: i64) -> Result<Option<pipeline::Model>> {
+    if db.get_database_backend() == DatabaseBackend::Postgres {
+        return pipeline::Model::find_by_statement(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            format!("SELECT {PG_PIPELINE_COLUMNS} FROM pipelines WHERE id = $1"),
+            [id.into()],
+        ))
+        .one(db)
+        .await
+        .context("db: get pipeline");
+    }
     pipeline::Entity::find_by_id(id)
         .one(db)
         .await
@@ -51,6 +170,13 @@ pub async fn list_by_repo_and_commit(
     limit: u64,
 ) -> Result<Vec<pipeline::Model>> {
     use sea_orm::{ColumnTrait, QueryFilter, QueryOrder, QuerySelect};
+    if db.get_database_backend() == DatabaseBackend::Postgres {
+        return pipeline::Model::find_by_statement(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            format!("SELECT {PG_PIPELINE_COLUMNS} FROM pipelines WHERE repo_id = $1 AND commit_sha = $2 ORDER BY id DESC LIMIT $3"),
+            [repo_id.into(), commit_sha.into(), (limit.min(i64::MAX as u64) as i64).into()],
+        )).all(db).await.context("db: list pipelines by commit");
+    }
     pipeline::Entity::find()
         .filter(pipeline::Column::RepoId.eq(repo_id))
         .filter(pipeline::Column::CommitSha.eq(commit_sha))
@@ -66,6 +192,13 @@ pub async fn list_pipelines_by_repo(
     db: &DatabaseConnection,
     repo_id: i64,
 ) -> Result<Vec<pipeline::Model>> {
+    if db.get_database_backend() == DatabaseBackend::Postgres {
+        return pipeline::Model::find_by_statement(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            format!("SELECT {PG_PIPELINE_COLUMNS} FROM pipelines WHERE repo_id = $1 ORDER BY created_at DESC"),
+            [repo_id.into()],
+        )).all(db).await.context("db: list pipelines by repo");
+    }
     pipeline::Entity::find()
         .filter(pipeline::Column::RepoId.eq(repo_id))
         .order_by_desc(pipeline::Column::CreatedAt)
@@ -81,6 +214,19 @@ pub async fn list_pipelines_by_repo_paginated(
     offset: u64,
     limit: u64,
 ) -> Result<(Vec<pipeline::Model>, i64)> {
+    if db.get_database_backend() == DatabaseBackend::Postgres {
+        let total = pipeline::Entity::find()
+            .filter(pipeline::Column::RepoId.eq(repo_id))
+            .count(db)
+            .await
+            .context("db: count pipelines by repo")? as i64;
+        let pipelines = pipeline::Model::find_by_statement(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            format!("SELECT {PG_PIPELINE_COLUMNS} FROM pipelines WHERE repo_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3"),
+            [repo_id.into(), (limit.min(i64::MAX as u64) as i64).into(), (offset.min(i64::MAX as u64) as i64).into()],
+        )).all(db).await.context("db: list pipelines by repo (paginated)")?;
+        return Ok((pipelines, total));
+    }
     let base = pipeline::Entity::find()
         .filter(pipeline::Column::RepoId.eq(repo_id))
         .order_by_desc(pipeline::Column::CreatedAt);
@@ -101,13 +247,32 @@ pub async fn list_pipelines_by_repo_paginated(
 }
 
 /// Update pipeline status.
-pub async fn update_pipeline_status(
-    db: &DatabaseConnection,
+async fn update_pipeline_status_on<C: ConnectionTrait>(
+    db: &C,
     id: i64,
     status: &str,
     started_at: Option<chrono::NaiveDateTime>,
     finished_at: Option<chrono::NaiveDateTime>,
 ) -> Result<()> {
+    if db.get_database_backend() == DatabaseBackend::Postgres {
+        let mut update = pipeline::Entity::update_many()
+            .col_expr(pipeline::Column::Status, Expr::value(status))
+            .filter(pipeline::Column::Id.eq(id));
+        if let Some(at) = started_at {
+            update = update.col_expr(pipeline::Column::StartedAt, Expr::value(at));
+        }
+        if let Some(at) = finished_at {
+            update = update.col_expr(pipeline::Column::FinishedAt, Expr::value(at));
+        }
+        let result = update
+            .exec(db)
+            .await
+            .context("db: update pipeline status")?;
+        if result.rows_affected == 0 {
+            anyhow::bail!("pipeline {} not found", id);
+        }
+        return Ok(());
+    }
     let model = pipeline::Entity::find_by_id(id)
         .one(db)
         .await
@@ -138,6 +303,16 @@ pub async fn create_stage(
     name: &str,
     stage_order: i32,
 ) -> Result<pipeline_stage::Model> {
+    if db.get_database_backend() == DatabaseBackend::Postgres {
+        let txn = db.begin().await.context("db: begin create stage")?;
+        let stage = pipeline_stage::Model::find_by_statement(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            format!("INSERT INTO pipeline_stages (pipeline_id, name, stage_order, status, started_at, finished_at) VALUES ($1, $2, $3, 'pending', NULL, NULL) RETURNING {PG_STAGE_COLUMNS}"),
+            [pipeline_id.into(), name.into(), stage_order.into()],
+        )).one(&txn).await.context("db: create stage")?.context("db: inserted stage was not returned")?;
+        txn.commit().await.context("db: commit create stage")?;
+        return Ok(stage);
+    }
     let model = pipeline_stage::ActiveModel {
         pipeline_id: Set(pipeline_id),
         name: Set(name.to_string()),
@@ -152,11 +327,11 @@ pub async fn create_stage(
 }
 
 /// Get stages for a pipeline.
-pub async fn list_stages_by_pipeline(
-    db: &DatabaseConnection,
+async fn list_stages_by_pipeline_on<C: ConnectionTrait>(
+    db: &C,
     pipeline_id: i64,
 ) -> Result<Vec<pipeline_stage::Model>> {
-    pipeline_stage::Entity::find()
+    stage_query(db)
         .filter(pipeline_stage::Column::PipelineId.eq(pipeline_id))
         .order_by_asc(pipeline_stage::Column::StageOrder)
         .all(db)
@@ -165,14 +340,15 @@ pub async fn list_stages_by_pipeline(
 }
 
 /// Update stage status.
-pub async fn update_stage_status(
-    db: &DatabaseConnection,
+async fn update_stage_status_on<C: ConnectionTrait>(
+    db: &C,
     id: i64,
     status: &str,
     started_at: Option<chrono::NaiveDateTime>,
     finished_at: Option<chrono::NaiveDateTime>,
 ) -> Result<()> {
-    let model = pipeline_stage::Entity::find_by_id(id)
+    let model = stage_query(db)
+        .filter(pipeline_stage::Column::Id.eq(id))
         .one(db)
         .await
         .context("db: find stage for status update")?
@@ -186,7 +362,15 @@ pub async fn update_stage_status(
     if finished_at.is_some() {
         active.finished_at = Set(finished_at);
     }
-    active.update(db).await.context("db: update stage status")?;
+    let updated = pipeline_stage::Entity::update_many()
+        .set(active)
+        .filter(pipeline_stage::Column::Id.eq(id))
+        .exec(db)
+        .await
+        .context("db: update stage status")?;
+    if updated.rows_affected == 0 && get_stage_by_id_on(db, id).await?.is_none() {
+        anyhow::bail!("stage {} not found", id);
+    }
     Ok(())
 }
 
@@ -210,6 +394,21 @@ pub async fn create_job(
     if_condition: Option<&str>,
 ) -> Result<pipeline_job::Model> {
     let when_condition = when_condition.unwrap_or("on_success");
+    if db.get_database_backend() == DatabaseBackend::Postgres {
+        let txn = db.begin().await.context("db: begin create job")?;
+        let status = if when_condition == "manual" {
+            "manual"
+        } else {
+            "pending"
+        };
+        let job = pipeline_job::Model::find_by_statement(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            format!("INSERT INTO pipeline_jobs (stage_id, name, script, image, tags, variables, cache_key, cache_paths, allow_failure, timeout_seconds, when_condition, if_condition, environment_id, environment_name, status, exit_code, log, started_at, finished_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,NULL,NULL,$13,NULL,NULL,NULL,NULL) RETURNING {PG_JOB_COLUMNS}"),
+            [stage_id.into(), name.into(), script.into(), image.map(str::to_string).into(), tags.map(str::to_string).into(), variables.map(str::to_string).into(), cache_key.map(str::to_string).into(), cache_paths.map(str::to_string).into(), allow_failure.into(), timeout_seconds.into(), when_condition.into(), if_condition.map(str::to_string).into(), status.into()],
+        )).one(&txn).await.context("db: create job")?.context("db: inserted job was not returned")?;
+        txn.commit().await.context("db: commit create job")?;
+        return Ok(job);
+    }
     let model = pipeline_job::ActiveModel {
         stage_id: Set(stage_id),
         name: Set(name.to_string()),
@@ -253,7 +452,10 @@ pub async fn play_manual_job(db: &DatabaseConnection, id: i64) -> Result<bool> {
             pipeline_job::Column::RunnerId,
             Expr::value(sea_orm::Value::BigInt(None)),
         )
-        .col_expr(pipeline_job::Column::UpdatedAt, Expr::value(now))
+        .col_expr(
+            pipeline_job::Column::UpdatedAt,
+            Expr::value(job_updated_at_value(db, now)),
+        )
         .exec(db)
         .await
         .context("db: play manual job")?;
@@ -316,7 +518,8 @@ pub async fn resume_approval_chain(
 
 /// Get a job by ID.
 pub async fn get_job(db: &DatabaseConnection, id: i64) -> Result<Option<pipeline_job::Model>> {
-    pipeline_job::Entity::find_by_id(id)
+    job_query(db)
+        .filter(pipeline_job::Column::Id.eq(id))
         .one(db)
         .await
         .context("db: get job")
@@ -324,8 +527,8 @@ pub async fn get_job(db: &DatabaseConnection, id: i64) -> Result<Option<pipeline
 
 /// Update just the log field of a job (lightweight, used by log write queue).
 pub async fn update_job_log(db: &DatabaseConnection, id: i64, log: &str) -> Result<()> {
-    use sea_orm::ActiveModelTrait;
-    let model = pipeline_job::Entity::find_by_id(id)
+    let model = job_query(db)
+        .filter(pipeline_job::Column::Id.eq(id))
         .one(db)
         .await
         .context("db: find job for log update")?
@@ -333,16 +536,24 @@ pub async fn update_job_log(db: &DatabaseConnection, id: i64, log: &str) -> Resu
 
     let mut active: pipeline_job::ActiveModel = model.into();
     active.log = Set(Some(log.to_string()));
-    active.update(db).await.context("db: update job log")?;
+    let updated = pipeline_job::Entity::update_many()
+        .set(active)
+        .filter(pipeline_job::Column::Id.eq(id))
+        .exec(db)
+        .await
+        .context("db: update job log")?;
+    if updated.rows_affected == 0 && job_query(db).filter(pipeline_job::Column::Id.eq(id)).one(db).await?.is_none() {
+        anyhow::bail!("job {} not found", id);
+    }
     Ok(())
 }
 
 /// List jobs for a stage.
-pub async fn list_jobs_by_stage(
-    db: &DatabaseConnection,
+async fn list_jobs_by_stage_on<C: ConnectionTrait>(
+    db: &C,
     stage_id: i64,
 ) -> Result<Vec<pipeline_job::Model>> {
-    pipeline_job::Entity::find()
+    job_query(db)
         .filter(pipeline_job::Column::StageId.eq(stage_id))
         .all(db)
         .await
@@ -364,8 +575,8 @@ pub async fn stage_has_job_status(
 }
 
 /// Update job result.
-pub async fn update_job_result(
-    db: &DatabaseConnection,
+async fn update_job_result_on<C: ConnectionTrait>(
+    db: &C,
     id: i64,
     status: &str,
     exit_code: Option<i32>,
@@ -373,7 +584,8 @@ pub async fn update_job_result(
     started_at: Option<chrono::NaiveDateTime>,
     finished_at: Option<chrono::NaiveDateTime>,
 ) -> Result<()> {
-    let model = pipeline_job::Entity::find_by_id(id)
+    let model = job_query(db)
+        .filter(pipeline_job::Column::Id.eq(id))
         .one(db)
         .await
         .context("db: find job for result update")?
@@ -391,28 +603,37 @@ pub async fn update_job_result(
     if finished_at.is_some() {
         active.finished_at = Set(finished_at);
     }
-    active.update(db).await.context("db: update job result")?;
+    let updated = pipeline_job::Entity::update_many()
+        .set(active)
+        .filter(pipeline_job::Column::Id.eq(id))
+        .exec(db)
+        .await
+        .context("db: update job result")?;
+    if updated.rows_affected == 0 && job_query(db).filter(pipeline_job::Column::Id.eq(id)).one(db).await?.is_none() {
+        anyhow::bail!("job {} not found", id);
+    }
     Ok(())
 }
 
 /// Get a stage by ID.
-pub async fn get_stage_by_id(
-    db: &DatabaseConnection,
+async fn get_stage_by_id_on<C: ConnectionTrait>(
+    db: &C,
     id: i64,
 ) -> Result<Option<pipeline_stage::Model>> {
-    pipeline_stage::Entity::find_by_id(id)
+    stage_query(db)
+        .filter(pipeline_stage::Column::Id.eq(id))
         .one(db)
         .await
         .context("db: get stage by id")
 }
 
 /// List all jobs for a pipeline (across all stages).
-pub async fn list_jobs_by_pipeline(
-    db: &DatabaseConnection,
+async fn list_jobs_by_pipeline_on<C: ConnectionTrait>(
+    db: &C,
     pipeline_id: i64,
 ) -> Result<Vec<pipeline_job::Model>> {
     // First get all stages for this pipeline
-    let stages = pipeline_stage::Entity::find()
+    let stages = stage_query(db)
         .filter(pipeline_stage::Column::PipelineId.eq(pipeline_id))
         .all(db)
         .await
@@ -423,7 +644,7 @@ pub async fn list_jobs_by_pipeline(
         return Ok(Vec::new());
     }
 
-    pipeline_job::Entity::find()
+    job_query(db)
         .filter(pipeline_job::Column::StageId.is_in(stage_ids))
         .all(db)
         .await
@@ -437,6 +658,16 @@ pub async fn find_latest_by_repo_and_commit(
     repo_id: i64,
     commit_sha: &str,
 ) -> Result<Option<pipeline::Model>> {
+    if db.get_database_backend() == DatabaseBackend::Postgres {
+        return pipeline::Model::find_by_statement(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            format!("SELECT {PG_PIPELINE_COLUMNS} FROM pipelines WHERE repo_id = $1 AND commit_sha = $2 ORDER BY created_at DESC LIMIT 1"),
+            [repo_id.into(), commit_sha.into()],
+        ))
+        .one(db)
+        .await
+        .context("db: find latest pipeline by repo and commit");
+    }
     pipeline::Entity::find()
         .filter(pipeline::Column::RepoId.eq(repo_id))
         .filter(pipeline::Column::CommitSha.eq(commit_sha))
@@ -453,8 +684,8 @@ pub async fn find_latest_by_repo_and_commit(
 
 /// Check if all jobs in a stage are finished.
 /// Returns (all_done, any_failure).
-pub async fn check_stage_jobs(db: &DatabaseConnection, stage_id: i64) -> Result<(bool, bool)> {
-    let jobs = list_jobs_by_stage(db, stage_id).await?;
+async fn check_stage_jobs_on<C: ConnectionTrait>(db: &C, stage_id: i64) -> Result<(bool, bool)> {
+    let jobs = list_jobs_by_stage_on(db, stage_id).await?;
     if jobs.is_empty() {
         return Ok((true, false));
     }
@@ -473,7 +704,17 @@ pub async fn check_stage_jobs(db: &DatabaseConnection, stage_id: i64) -> Result<
 /// If every non-manual job in a stage has finished and a manual job remains,
 /// expose the persisted gate on both the stage and pipeline.
 pub async fn try_pause_stage_at_manual(db: &DatabaseConnection, stage_id: i64) -> Result<bool> {
-    let jobs = list_jobs_by_stage(db, stage_id).await?;
+    let txn = db.begin().await.context("db: begin manual stage pause")?;
+    lock_sqlite_ci_writer(&txn).await?;
+    let paused = try_pause_stage_in_transaction(&txn, stage_id).await?;
+    txn.commit()
+        .await
+        .context("db: commit manual stage pause")?;
+    Ok(paused)
+}
+
+async fn try_pause_stage_in_transaction<C: ConnectionTrait>(db: &C, stage_id: i64) -> Result<bool> {
+    let jobs = list_jobs_by_stage_on(db, stage_id).await?;
     let gate_status = if jobs.iter().any(|job| job.status == "waiting_approval") {
         Some("waiting_approval")
     } else if jobs.iter().any(|job| job.status == "manual") {
@@ -496,44 +737,61 @@ pub async fn try_pause_stage_at_manual(db: &DatabaseConnection, stage_id: i64) -
     if !automatic_done {
         return Ok(false);
     }
-    let stage = get_stage_by_id(db, stage_id)
+    let stage = get_stage_by_id_on(db, stage_id)
         .await?
         .ok_or_else(|| anyhow::anyhow!("stage {} not found", stage_id))?;
-    update_stage_status(db, stage_id, gate_status, None, None).await?;
-    update_pipeline_status(db, stage.pipeline_id, gate_status, None, None).await?;
+    update_stage_status_on(db, stage_id, gate_status, None, None).await?;
+    update_pipeline_status_on(db, stage.pipeline_id, gate_status, None, None).await?;
     Ok(true)
 }
 
 /// After a job finishes, update stage status if all jobs in the stage are done.
 /// Returns the new stage status if updated, or None if not all done.
 pub async fn try_update_stage(db: &DatabaseConnection, stage_id: i64) -> Result<Option<String>> {
-    if try_pause_stage_at_manual(db, stage_id).await? {
+    let txn = db.begin().await.context("db: begin stage update")?;
+    lock_sqlite_ci_writer(&txn).await?;
+    let result = try_update_stage_in_transaction(&txn, stage_id).await?;
+    txn.commit().await.context("db: commit stage update")?;
+    Ok(result)
+}
+
+async fn try_update_stage_in_transaction<C: ConnectionTrait>(
+    db: &C,
+    stage_id: i64,
+) -> Result<Option<String>> {
+    if try_pause_stage_in_transaction(db, stage_id).await? {
         return Ok(Some("manual".to_string()));
     }
-    let (all_done, any_failure) = check_stage_jobs(db, stage_id).await?;
+    let (all_done, any_failure) = check_stage_jobs_on(db, stage_id).await?;
     if !all_done {
         return Ok(None);
     }
     let new_status = if any_failure { "failed" } else { "success" };
+    if any_failure {
+        if let Some(stage) = get_stage_by_id_on(db, stage_id).await? {
+            // Decode the full cascade before making its first write.
+            list_jobs_by_pipeline_on(db, stage.pipeline_id).await?;
+        }
+    }
     let now = Some(chrono::Utc::now().naive_utc());
-    update_stage_status(db, stage_id, new_status, None, now).await?;
+    update_stage_status_on(db, stage_id, new_status, None, now).await?;
     if any_failure {
         skip_downstream_stages(db, stage_id).await?;
     }
     Ok(Some(new_status.to_string()))
 }
 
-async fn skip_downstream_stages(db: &DatabaseConnection, failed_stage_id: i64) -> Result<()> {
-    let Some(failed_stage) = get_stage_by_id(db, failed_stage_id).await? else {
+async fn skip_downstream_stages<C: ConnectionTrait>(db: &C, failed_stage_id: i64) -> Result<()> {
+    let Some(failed_stage) = get_stage_by_id_on(db, failed_stage_id).await? else {
         return Ok(());
     };
     let now = Some(chrono::Utc::now().naive_utc());
-    for stage in list_stages_by_pipeline(db, failed_stage.pipeline_id)
+    for stage in list_stages_by_pipeline_on(db, failed_stage.pipeline_id)
         .await?
         .into_iter()
         .filter(|stage| stage.stage_order > failed_stage.stage_order)
     {
-        let jobs = list_jobs_by_stage(db, stage.id).await?;
+        let jobs = list_jobs_by_stage_on(db, stage.id).await?;
         if jobs
             .iter()
             .any(|job| matches!(job.status.as_str(), "assigned" | "running"))
@@ -545,14 +803,14 @@ async fn skip_downstream_stages(db: &DatabaseConnection, failed_stage_id: i64) -
                 job.status.as_str(),
                 "success" | "failure" | "failed" | "error" | "skipped" | "canceled"
             ) {
-                update_job_result(db, job.id, "skipped", None, None, None, now).await?;
+                update_job_result_on(db, job.id, "skipped", None, None, None, now).await?;
             }
         }
         if !matches!(
             stage.status.as_str(),
             "success" | "failure" | "failed" | "error" | "skipped" | "canceled"
         ) {
-            update_stage_status(db, stage.id, "skipped", None, now).await?;
+            update_stage_status_on(db, stage.id, "skipped", None, now).await?;
         }
     }
     Ok(())
@@ -560,11 +818,11 @@ async fn skip_downstream_stages(db: &DatabaseConnection, failed_stage_id: i64) -
 
 /// Check if all stages in a pipeline are done.
 /// Returns (all_done, any_failure).
-pub async fn check_pipeline_stages(
-    db: &DatabaseConnection,
+async fn check_pipeline_stages_on<C: ConnectionTrait>(
+    db: &C,
     pipeline_id: i64,
 ) -> Result<(bool, bool)> {
-    let stages = list_stages_by_pipeline(db, pipeline_id).await?;
+    let stages = list_stages_by_pipeline_on(db, pipeline_id).await?;
     if stages.is_empty() {
         return Ok((true, false));
     }
@@ -581,24 +839,24 @@ pub async fn check_pipeline_stages(
 }
 
 /// After a stage finishes, update pipeline status if all stages are done.
-pub async fn try_update_pipeline(
-    db: &DatabaseConnection,
+async fn try_update_pipeline_on<C: ConnectionTrait>(
+    db: &C,
     pipeline_id: i64,
 ) -> Result<Option<String>> {
-    let (all_done, any_failure) = check_pipeline_stages(db, pipeline_id).await?;
+    let (all_done, any_failure) = check_pipeline_stages_on(db, pipeline_id).await?;
     if !all_done {
         return Ok(None);
     }
     let new_status = if any_failure { "failed" } else { "success" };
     let now = Some(chrono::Utc::now().naive_utc());
-    update_pipeline_status(db, pipeline_id, new_status, None, now).await?;
+    update_pipeline_status_on(db, pipeline_id, new_status, None, now).await?;
     Ok(Some(new_status.to_string()))
 }
 
 /// Find a pending job (status = "pending" and runner_id is NULL).
 /// Returns the oldest pending job (by id).
 pub async fn find_pending_job(db: &DatabaseConnection) -> Result<Option<pipeline_job::Model>> {
-    let jobs = pipeline_job::Entity::find()
+    let jobs = job_query(db)
         .filter(pipeline_job::Column::Status.eq("pending"))
         .filter(pipeline_job::Column::RunnerId.is_null())
         .order_by_asc(pipeline_job::Column::Id)
@@ -622,7 +880,7 @@ pub async fn find_pending_job_matching_labels(
     db: &DatabaseConnection,
     runner_labels: &[String],
 ) -> Result<Option<pipeline_job::Model>> {
-    let all_pending: Vec<pipeline_job::Model> = pipeline_job::Entity::find()
+    let all_pending: Vec<pipeline_job::Model> = job_query(db)
         .filter(pipeline_job::Column::Status.eq("pending"))
         .filter(pipeline_job::Column::RunnerId.is_null())
         .order_by_asc(pipeline_job::Column::Id)
@@ -660,7 +918,7 @@ pub async fn find_pending_job_matching_labels(
 }
 
 async fn job_is_schedulable(db: &DatabaseConnection, job: &pipeline_job::Model) -> Result<bool> {
-    let Some(stage) = get_stage_by_id(db, job.stage_id).await? else {
+    let Some(stage) = get_stage_by_id_on(db, job.stage_id).await? else {
         return Ok(false);
     };
     if matches!(
@@ -669,13 +927,13 @@ async fn job_is_schedulable(db: &DatabaseConnection, job: &pipeline_job::Model) 
     ) {
         return Ok(false);
     }
-    let Some(pipeline) = get_pipeline(db, stage.pipeline_id).await? else {
+    let Some(pipeline) = get_pipeline_on(db, stage.pipeline_id).await? else {
         return Ok(false);
     };
     if !matches!(pipeline.status.as_str(), "pending" | "running") {
         return Ok(false);
     }
-    let stages = list_stages_by_pipeline(db, stage.pipeline_id).await?;
+    let stages = list_stages_by_pipeline_on(db, stage.pipeline_id).await?;
     Ok(stages
         .iter()
         .filter(|candidate| candidate.stage_order < stage.stage_order)
@@ -689,12 +947,12 @@ pub async fn find_stuck_jobs(
 ) -> Result<Vec<pipeline_job::Model>> {
     let cutoff = chrono::Utc::now().naive_utc() - chrono::Duration::seconds(timeout_secs);
 
-    pipeline_job::Entity::find()
+    job_query(db)
         .filter(pipeline_job::Column::Status.is_in(["assigned", "running"]))
         .filter(
             pipeline_job::Column::UpdatedAt
                 .is_not_null()
-                .and(pipeline_job::Column::UpdatedAt.lte(cutoff)),
+                .and(pipeline_job::Column::UpdatedAt.lte(job_updated_at_value(db, cutoff))),
         )
         .all(db)
         .await
@@ -717,14 +975,17 @@ pub async fn find_offline_runners(
 }
 
 /// Mark a job as timed out (error status).
-pub async fn mark_job_timeout(db: &DatabaseConnection, job_id: i64) -> Result<()> {
+async fn mark_job_timeout_on<C: ConnectionTrait>(db: &C, job_id: i64) -> Result<()> {
     let now = chrono::Utc::now().naive_utc();
     pipeline_job::Entity::update_many()
         .filter(pipeline_job::Column::Id.eq(job_id))
         .col_expr(pipeline_job::Column::Status, Expr::value("error"))
         .col_expr(pipeline_job::Column::ExitCode, Expr::value(-1))
         .col_expr(pipeline_job::Column::FinishedAt, Expr::value(now))
-        .col_expr(pipeline_job::Column::UpdatedAt, Expr::value(now))
+        .col_expr(
+            pipeline_job::Column::UpdatedAt,
+            Expr::value(job_updated_at_value(db, now)),
+        )
         .exec(db)
         .await
         .context("db: mark job timeout")?;
@@ -741,29 +1002,45 @@ pub async fn fail_runner_jobs(
     db: &DatabaseConnection,
     runner_id: i64,
 ) -> Result<Vec<pipeline_job::Model>> {
-    let jobs = pipeline_job::Entity::find()
+    let txn = db.begin().await.context("db: begin failing runner jobs")?;
+    lock_sqlite_ci_writer(&txn).await?;
+    let jobs = job_query(&txn)
         .filter(pipeline_job::Column::RunnerId.eq(Some(runner_id)))
         .filter(pipeline_job::Column::Status.is_in(["assigned", "running"]))
-        .all(db)
+        .all(&txn)
         .await
         .context("db: find active jobs for runner")?;
 
+    // Decode all affected pipelines before mutating any runner job.
     for job in &jobs {
-        mark_job_timeout(db, job.id).await?;
+        if let Some(stage) = get_stage_by_id_on(&txn, job.stage_id).await? {
+            list_jobs_by_pipeline_on(&txn, stage.pipeline_id).await?;
+            get_pipeline_on(&txn, stage.pipeline_id).await?;
+        }
+    }
+    for job in &jobs {
+        mark_job_timeout_on(&txn, job.id).await?;
         // Cascade: stage → pipeline (mirrors finish_job)
-        if try_update_stage(db, job.stage_id).await?.is_some() {
-            if let Some(stage) = get_stage_by_id(db, job.stage_id).await? {
-                try_update_pipeline(db, stage.pipeline_id).await?;
+        if try_update_stage_in_transaction(&txn, job.stage_id)
+            .await?
+            .is_some()
+        {
+            if let Some(stage) = get_stage_by_id_on(&txn, job.stage_id).await? {
+                try_update_pipeline_on(&txn, stage.pipeline_id).await?;
             }
         }
     }
+    txn.commit()
+        .await
+        .context("db: commit failing runner jobs")?;
     Ok(jobs)
 }
 
 /// Assign a CI job to a specific runner.
 pub async fn assign_job(db: &DatabaseConnection, job_id: i64, runner_id: i64) -> Result<()> {
     let now = chrono::Utc::now().naive_utc();
-    let model = pipeline_job::Entity::find_by_id(job_id)
+    let model = job_query(db)
+        .filter(pipeline_job::Column::Id.eq(job_id))
         .one(db)
         .await
         .context("db: find job for assign")?
@@ -772,8 +1049,19 @@ pub async fn assign_job(db: &DatabaseConnection, job_id: i64, runner_id: i64) ->
     let mut active: pipeline_job::ActiveModel = model.into();
     active.status = Set("assigned".to_string());
     active.runner_id = Set(Some(runner_id));
-    active.updated_at = Set(Some(now));
-    active.update(db).await.context("db: assign job")?;
+    let updated = pipeline_job::Entity::update_many()
+        .set(active)
+        .filter(pipeline_job::Column::Id.eq(job_id))
+        .col_expr(
+            pipeline_job::Column::UpdatedAt,
+            Expr::value(job_updated_at_value(db, now)),
+        )
+        .exec(db)
+        .await
+        .context("db: assign job")?;
+    if updated.rows_affected == 0 && get_job(db, job_id).await?.is_none() {
+        anyhow::bail!("job {} not found", job_id);
+    }
     Ok(())
 }
 
@@ -832,8 +1120,10 @@ impl std::error::Error for RerunRefused {}
 pub async fn rerun_failed_job(db: &DatabaseConnection, job_id: i64) -> Result<()> {
     let now = chrono::Utc::now().naive_utc();
     let txn = db.begin().await.context("db: begin rerun transaction")?;
+    lock_sqlite_ci_writer(&txn).await?;
 
-    let job = pipeline_job::Entity::find_by_id(job_id)
+    let job = job_query(db)
+        .filter(pipeline_job::Column::Id.eq(job_id))
         .one(&txn)
         .await
         .context("db: find job for rerun")?
@@ -848,14 +1138,15 @@ pub async fn rerun_failed_job(db: &DatabaseConnection, job_id: i64) -> Result<()
     }
 
     let stage_id = job.stage_id;
-    let stage = pipeline_stage::Entity::find_by_id(stage_id)
+    let stage = stage_query(db)
+        .filter(pipeline_stage::Column::Id.eq(stage_id))
         .one(&txn)
         .await
         .context("db: find stage for rerun")?
         .ok_or_else(|| anyhow::anyhow!("stage {} not found", stage_id))?;
     let pipeline_id = stage.pipeline_id;
 
-    let stages = pipeline_stage::Entity::find()
+    let stages = stage_query(db)
         .filter(pipeline_stage::Column::PipelineId.eq(pipeline_id))
         .order_by_asc(pipeline_stage::Column::StageOrder)
         .all(&txn)
@@ -881,12 +1172,18 @@ pub async fn rerun_failed_job(db: &DatabaseConnection, job_id: i64) -> Result<()
             pipeline_job::Column::RunnerId,
             Expr::value(sea_orm::Value::BigInt(None)),
         )
-        .col_expr(pipeline_job::Column::ExitCode, Expr::value(sea_orm::Value::Int(None)))
+        .col_expr(
+            pipeline_job::Column::ExitCode,
+            Expr::value(sea_orm::Value::Int(None)),
+        )
         .col_expr(
             pipeline_job::Column::FinishedAt,
             Expr::value(sea_orm::Value::ChronoDateTime(None)),
         )
-        .col_expr(pipeline_job::Column::UpdatedAt, Expr::value(now))
+        .col_expr(
+            pipeline_job::Column::UpdatedAt,
+            Expr::value(job_updated_at_value(db, now)),
+        )
         .exec(&txn)
         .await
         .context("db: rerun failed job")?;
@@ -908,7 +1205,7 @@ pub async fn rerun_failed_job(db: &DatabaseConnection, job_id: i64) -> Result<()
     for downstream in stages.iter().filter(|s| {
         s.stage_order > stage.stage_order && matches!(s.status.as_str(), "skipped" | "canceled")
     }) {
-        let jobs = pipeline_job::Entity::find()
+        let jobs = job_query(db)
             .filter(pipeline_job::Column::StageId.eq(downstream.id))
             .all(&txn)
             .await
@@ -930,12 +1227,18 @@ pub async fn rerun_failed_job(db: &DatabaseConnection, job_id: i64) -> Result<()
                     pipeline_job::Column::RunnerId,
                     Expr::value(sea_orm::Value::BigInt(None)),
                 )
-                .col_expr(pipeline_job::Column::ExitCode, Expr::value(sea_orm::Value::Int(None)))
+                .col_expr(
+                    pipeline_job::Column::ExitCode,
+                    Expr::value(sea_orm::Value::Int(None)),
+                )
                 .col_expr(
                     pipeline_job::Column::FinishedAt,
                     Expr::value(sea_orm::Value::ChronoDateTime(None)),
                 )
-                .col_expr(pipeline_job::Column::UpdatedAt, Expr::value(now))
+                .col_expr(
+                    pipeline_job::Column::UpdatedAt,
+                    Expr::value(job_updated_at_value(db, now)),
+                )
                 .exec(&txn)
                 .await
                 .context("db: reopen downstream job")?;
@@ -1002,6 +1305,16 @@ pub async fn find_active_pipelines_by_ref(
     repo_id: i64,
     ref_name: &str,
 ) -> Result<Vec<pipeline::Model>> {
+    if db.get_database_backend() == DatabaseBackend::Postgres {
+        return pipeline::Model::find_by_statement(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            format!("SELECT {PG_PIPELINE_COLUMNS} FROM pipelines WHERE repo_id = $1 AND ref_name = $2 AND status IN ('pending', 'running', 'manual', 'waiting_approval') ORDER BY id ASC"),
+            [repo_id.into(), ref_name.into()],
+        ))
+        .all(db)
+        .await
+        .context("db: find active pipelines by ref");
+    }
     pipeline::Entity::find()
         .filter(pipeline::Column::RepoId.eq(repo_id))
         .filter(pipeline::Column::RefName.eq(ref_name))
@@ -1020,7 +1333,9 @@ pub async fn find_active_pipelines_by_ref(
 /// Cancel a pipeline and all its stages/jobs that are still pending or running.
 /// Returns whether the pipeline was actually transitioned to "canceled".
 pub async fn cancel_pipeline_chain(db: &DatabaseConnection, pipeline_id: i64) -> Result<bool> {
-    let pipeline_model = match get_pipeline(db, pipeline_id).await? {
+    let txn = db.begin().await.context("db: begin cancel pipeline")?;
+    lock_sqlite_ci_writer(&txn).await?;
+    let pipeline_model = match get_pipeline_on(&txn, pipeline_id).await? {
         Some(p) => p,
         None => return Ok(false),
     };
@@ -1034,27 +1349,29 @@ pub async fn cancel_pipeline_chain(db: &DatabaseConnection, pipeline_id: i64) ->
         return Ok(false);
     }
 
+    // Decode all affected rows before changing the pipeline or its children.
+    let stages = list_stages_by_pipeline_on(&txn, pipeline_id).await?;
+    let jobs = list_jobs_by_pipeline_on(&txn, pipeline_id).await?;
     let now = Some(chrono::Utc::now().naive_utc());
 
     // Cancel the pipeline
-    update_pipeline_status(db, pipeline_id, "canceled", None, now).await?;
+    update_pipeline_status_on(&txn, pipeline_id, "canceled", None, now).await?;
 
     // Cancel all stages that are not yet finished
-    let stages = list_stages_by_pipeline(db, pipeline_id).await?;
     for stage in &stages {
         if stage.status != "success" && stage.status != "failed" && stage.status != "skipped" {
-            update_stage_status(db, stage.id, "canceled", None, now).await?;
+            update_stage_status_on(&txn, stage.id, "canceled", None, now).await?;
         }
 
         // Cancel all jobs in this stage
-        let jobs = list_jobs_by_stage(db, stage.id).await?;
-        for job in &jobs {
+        for job in jobs.iter().filter(|job| job.stage_id == stage.id) {
             if job.status != "success" && job.status != "failed" && job.status != "skipped" {
-                update_job_result(db, job.id, "canceled", None, None, None, now).await?;
+                update_job_result_on(&txn, job.id, "canceled", None, None, None, now).await?;
             }
         }
     }
 
+    txn.commit().await.context("db: commit cancel pipeline")?;
     Ok(true)
 }
 
@@ -1065,4 +1382,55 @@ pub fn resolve_concurrency_group(template: &str, ref_name: &str) -> String {
     template
         .replace("${{ ref }}", ref_name)
         .replace("${{ branch }}", branch)
+}
+
+// Public wrappers preserve the original DatabaseConnection API. Internal
+// helpers also accept transactions to keep multi-row updates atomic.
+
+pub async fn get_pipeline(db: &DatabaseConnection, id: i64) -> Result<Option<pipeline::Model>> {
+    get_pipeline_on(db, id).await
+}
+
+pub async fn update_pipeline_status(db: &DatabaseConnection, id: i64, status: &str, started_at: Option<chrono::NaiveDateTime>, finished_at: Option<chrono::NaiveDateTime>) -> Result<()> {
+    update_pipeline_status_on(db, id, status, started_at, finished_at).await
+}
+
+pub async fn list_stages_by_pipeline(db: &DatabaseConnection, pipeline_id: i64) -> Result<Vec<pipeline_stage::Model>> {
+    list_stages_by_pipeline_on(db, pipeline_id).await
+}
+
+pub async fn update_stage_status(db: &DatabaseConnection, id: i64, status: &str, started_at: Option<chrono::NaiveDateTime>, finished_at: Option<chrono::NaiveDateTime>) -> Result<()> {
+    update_stage_status_on(db, id, status, started_at, finished_at).await
+}
+
+pub async fn list_jobs_by_stage(db: &DatabaseConnection, stage_id: i64) -> Result<Vec<pipeline_job::Model>> {
+    list_jobs_by_stage_on(db, stage_id).await
+}
+
+pub async fn update_job_result(db: &DatabaseConnection, id: i64, status: &str, exit_code: Option<i32>, log: Option<&str>, started_at: Option<chrono::NaiveDateTime>, finished_at: Option<chrono::NaiveDateTime>) -> Result<()> {
+    update_job_result_on(db, id, status, exit_code, log, started_at, finished_at).await
+}
+
+pub async fn get_stage_by_id(db: &DatabaseConnection, id: i64) -> Result<Option<pipeline_stage::Model>> {
+    get_stage_by_id_on(db, id).await
+}
+
+pub async fn list_jobs_by_pipeline(db: &DatabaseConnection, pipeline_id: i64) -> Result<Vec<pipeline_job::Model>> {
+    list_jobs_by_pipeline_on(db, pipeline_id).await
+}
+
+pub async fn check_stage_jobs(db: &DatabaseConnection, stage_id: i64) -> Result<(bool, bool)> {
+    check_stage_jobs_on(db, stage_id).await
+}
+
+pub async fn check_pipeline_stages(db: &DatabaseConnection, pipeline_id: i64) -> Result<(bool, bool)> {
+    check_pipeline_stages_on(db, pipeline_id).await
+}
+
+pub async fn try_update_pipeline(db: &DatabaseConnection, pipeline_id: i64) -> Result<Option<String>> {
+    try_update_pipeline_on(db, pipeline_id).await
+}
+
+pub async fn mark_job_timeout(db: &DatabaseConnection, job_id: i64) -> Result<()> {
+    mark_job_timeout_on(db, job_id).await
 }

@@ -16,13 +16,19 @@ survive. It exits non-zero on the first failed assertion and prints a transcript
 
 Usage:
   cargo build -p rg-cli -p rg-mcp
-  python3 scripts/collab-e2e.py [--keep] [--json-out FILE]
+  python3 scripts/collab-e2e.py [--scenario t12|p0|x04|ci-compat] [--multi-instance] [--keep] [--json-out FILE]
 
 Environment: IRONFORGE_BIN (default target/debug/ironforge),
-             IRONFORGE_MCP_BIN (default target/debug/ironforge-mcp).
+             IRONFORGE_MCP_BIN (default target/debug/ironforge-mcp),
+             IRONFORGE_E2E_DB_URL (X04/ci-compat only; MUST be a new disposable database).
+             The script applies migrations and creates users and repositories.
+             --multi-instance starts two processes sharing that database and a
+             local temporary Git root; it does not simulate separate hosts.
 """
 
 import argparse
+import concurrent.futures
+import hashlib
 import json
 import os
 import platform
@@ -32,6 +38,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -69,13 +76,16 @@ def free_port():
 # ── server ────────────────────────────────────────────────────────────
 
 class Server:
-    def __init__(self, work):
+    def __init__(self, work, db_url=None, label="server", extra_args=None):
         self.work = work
+        self.db_url = db_url or f"sqlite://{work}/ironforge.db?mode=rwc"
+        self.label = label
+        self.extra_args = extra_args or []
         self.http_port = free_port()
         self.ssh_port = free_port()
         self.base = f"http://127.0.0.1:{self.http_port}"
         self.proc = None
-        self.log = open(os.path.join(work, "server.log"), "ab")
+        self.log = open(os.path.join(work, f"{label}.log"), "ab")
 
     def start(self):
         os.makedirs(os.path.join(self.work, "repos"), exist_ok=True)
@@ -85,10 +95,10 @@ class Server:
                 "--repo-root", os.path.join(self.work, "repos"),
                 "--http-addr", f"127.0.0.1:{self.http_port}",
                 "--ssh-addr", f"127.0.0.1:{self.ssh_port}",
-                "--host-key", os.path.join(self.work, "host-key"),
-                "--db-url", f"sqlite://{self.work}/ironforge.db?mode=rwc",
+                "--host-key", os.path.join(self.work, f"{self.label}-host-key"),
+                "--db-url", self.db_url,
                 "--jwt-secret", JWT_SECRET,
-            ],
+            ] + self.extra_args,
             stdout=self.log, stderr=self.log,
             # Verbose on purpose: the secret-leak scan below is only meaningful
             # if the server actually logs request activity.
@@ -113,7 +123,7 @@ class Server:
 
     def log_text(self):
         self.log.flush()
-        with open(os.path.join(self.work, "server.log"), "rb") as f:
+        with open(os.path.join(self.work, f"{self.label}.log"), "rb") as f:
             return f.read().decode("utf-8", "replace")
 
 
@@ -153,6 +163,7 @@ class McpClient:
         self.next_id = 1
         resp = self.rpc("initialize", {})
         check(resp["result"]["serverInfo"]["name"] == "ironforge-mcp", "MCP initialize")
+        self.server_info = resp["result"]["serverInfo"]
 
     def rpc(self, method, params):
         req = {"jsonrpc": "2.0", "id": self.next_id, "method": method, "params": params}
@@ -405,9 +416,11 @@ def run(work, keep):
         server.stop()
 
 
-def scan_for_secrets(server, work):
+def scan_for_secrets(server, work, peer=None):
     """No session secret may appear in the server log or any MCP process log."""
     corpus = {"server log": server.log_text()}
+    if peer is not None:
+        corpus["peer server log"] = peer.log_text()
     for name in os.listdir(work):
         if name.startswith("mcp-") and name.endswith(".stderr"):
             with open(os.path.join(work, name), "rb") as f:
@@ -609,11 +622,321 @@ def run_p0(work, keep):
         server.stop()
 
 
+def run_x04(work, keep, db_url=None, multi_instance=False):
+    """X04/M12: real MCP and REST clients, two private Git repositories (X02)."""
+    server = Server(work, db_url)
+    peer = None
+    mcp = None
+    remote_owner, remote_repo = "x04-owner", "private-target"
+    try:
+        server.start()
+        base = server.base
+        if multi_instance:
+            peer = Server(work, server.db_url, "server-peer")
+            peer.start()
+        base2 = peer.base if peer else base
+        def register(name):
+            st, result = http(base, "POST", "/api/v1/users/register", body={
+                "username": name, "email": f"{name}@example.com", "password": PASSWORD})
+            check(st == 201, f"register {name}: {st}")
+            return result
+        account, owner = register(OWNER), register(remote_owner)
+        jwt, owner_jwt = account["token"], owner["token"]
+        st, pat = http(base, "POST", "/api/v1/users/tokens", jwt,
+                       body={"name": "x04-mcp", "scopes": "repo"})
+        check(st == 201, "create MCP token")
+        st, anchor = http(base, "POST", "/api/v1/repos", jwt,
+                          body={"name": REPO, "is_private": True})
+        check(st == 201, "create anchor")
+        st, target = http(base, "POST", "/api/v1/repos", owner_jwt,
+                          body={"name": remote_repo, "is_private": True})
+        check(st == 201, "create target")
+        target_path = f"/api/v1/repos/{remote_owner}/{remote_repo}"
+        st, _ = http(base, "POST", target_path + "/collaborators", owner_jwt,
+                     body={"user_id": account["user_id"], "permission": "write"})
+        check(st == 201, "grant target write access")
+        commits = {}
+        for label, repo_owner, repo_name, token in (("anchor", OWNER, REPO, jwt),
+                                                    ("target", remote_owner, remote_repo, owner_jwt)):
+            seed = os.path.join(work, "seed-" + label)
+            os.makedirs(seed)
+            git(["init", "-q", "--initial-branch=main"], seed)
+            with open(os.path.join(seed, "fixture.txt"), "w") as f:
+                f.write(label + " real git fixture\n")
+            git(["add", "."], seed)
+            git(["commit", "-q", "-m", label], seed)
+            commits[label] = git(["rev-parse", "HEAD"], seed)
+            git(["push", "-q", f"{base}/git/{repo_owner}/{repo_name}", "main"], seed, token=token)
+        say("two private Git repositories created", "shared account owns anchor and has target write access")
+
+        collab = f"/api/v1/repos/{OWNER}/{REPO}/collaboration"
+        target_collab = target_path + "/collaboration"
+        st, caps = http(base, "GET", "/api/v1/collaboration/capabilities", jwt)
+        check(st == 200 and caps["contract_version"].split(".")[0] == "1", "compatible instance capabilities")
+        group_caps = next((c for c in caps["capabilities"] if c["name"] == "groups"), None)
+        check(group_caps is not None, "groups capability advertised")
+        for path in (collab, target_collab):
+            st, rc = http(base, "GET", path + "/capabilities", jwt)
+            check(st == 200 and rc["caller"] == {"repo_collab_read": True, "repo_write": True},
+                  "repository capabilities reflect write access")
+        session_file = os.path.join(work, "x04-mcp-sessions.json")
+        mcp = McpClient(base, pat["token"], session_file, work, "x04")
+        mcp_info = mcp.server_info
+        tools = mcp.rpc("tools/list", {})["result"]["tools"]
+        tool_map = {t["name"]: t for t in tools}
+        check(all(name in tool_map for name in group_caps["mcp_tools"]), "advertised group MCP tools exist")
+        check("target_repo_id" in tool_map["collab_add_group_link"]["inputSchema"]["properties"],
+              "group link schema accepts target repository id")
+        say("capabilities discovered", f"contract {caps['contract_version']}, server {caps['server_version']}, MCP group tools present")
+
+        a = mcp.ok("collab_start_session", display_name="X04 MCP", client_kind="mcp")
+        with open(session_file) as f:
+            a_secret = json.load(f)[f"{OWNER}/{REPO}"]["secret"]
+        secrets_seen.append(a_secret)
+        st, reg_b = http(base, "POST", collab + "/sessions", jwt,
+                         body={"display_name": "X04 REST", "client_kind": "http-script"})
+        check(st == 201, "register REST anchor session")
+        b = {"id": reg_b["session"]["id"], "secret": reg_b["session_secret"]}
+        secrets_seen.append(b["secret"])
+        st, reg_target = http(base, "POST", target_collab + "/sessions", jwt,
+                              body={"display_name": "X04 REST target", "client_kind": "http-script"})
+        check(st == 201, "register independent target session")
+        bt = {"id": reg_target["session"]["id"], "secret": reg_target["session_secret"]}
+        secrets_seen.append(bt["secret"])
+        check(len({a["id"], b["id"], bt["id"]}) == 3 and len({a_secret, b["secret"], bt["secret"]}) == 3,
+              "sessions and secrets are distinct")
+        st, wrong = http(base, "POST", target_collab + f"/sessions/{b['id']}/heartbeat", jwt, b)
+        check(st == 403, "anchor session cannot act in target")
+        st, task = http(base, "POST", target_collab + "/tasks", jwt, bt,
+                        {"title": "target-private-task"})
+        check(st == 201, "create target task")
+        group = mcp.ok("collab_create_group", title="X04 coordination")
+        link = mcp.ok("collab_add_group_link", group_id=group["id"], target_repo_id=target["id"],
+                      target_task_id=task["id"], commit_sha=commits["target"], expected_group_version=group["version"])
+        st, page = http(base2, "GET", collab + f"/groups/{group['id']}/links", jwt)
+        check(st == 200 and len(page["items"]) == 1 and page["items"][0]["id"] == link["id"],
+              "REST sees MCP-created target link")
+        say("MCP linked the target task and real commit; REST discovered it")
+
+        cursor = None
+        if peer:
+            st, task2 = http(base2, "POST", target_collab + "/tasks", jwt, bt,
+                             {"title": "second target task"})
+            check(st == 201, "create another target task through the peer")
+            link2 = mcp.ok("collab_add_group_link", group_id=group["id"], target_repo_id=target["id"],
+                           target_task_id=task2["id"], expected_group_version=group["version"] + 1)
+            st, first = http(base, "GET", collab + f"/groups/{group['id']}/links?limit=1", jwt)
+            check(st == 200 and first["has_more"] is True and first["next_cursor"], "first page supplies a cursor")
+            cursor = first["next_cursor"]
+            st, second = http(base2, "GET", collab + f"/groups/{group['id']}/links?limit=1&cursor={cursor}", jwt)
+            check(st == 200 and len(second["items"]) == 1 and second["has_more"] is False
+                  and {first["items"][0]["id"], second["items"][0]["id"]} == {link["id"], link2["id"]},
+                  "cursor minted on one instance continues on the other")
+            say("group cursor continued across server processes", "both visible links returned once")
+
+        anchor_task = mcp.ok("collab_create_task", title="X04 continuation", owner_session_id="self")
+        sent = mcp.ok("collab_send_message", task_id=anchor_task["id"], kind="note",
+                      body="Continue from this record", target_session_id=b["id"])
+        st, _ = http(base2, "POST", collab + f"/tasks/{anchor_task['id']}/messages/{sent['id']}/read-receipt", jwt, b)
+        check(st == 201, "REST recipient confirms MCP author's targeted message")
+        delivery = mcp.ok("collab_get_delivery", task_id=anchor_task["id"], message_id=sent["id"])
+        check(delivery["status"] == "read", "MCP author sees REST recipient's receipt")
+        st, addressed = http(base2, "POST", collab + f"/tasks/{anchor_task['id']}/messages", jwt, b,
+                             {"kind": "note", "body": "Message to MCP", "client_message_id": "x04-targeted",
+                              "target_session_id": a["id"]})
+        check(st == 201, "REST sends a message to MCP session")
+        notices = mcp.ok("collab_list_notices")
+        notice = next((n for n in notices["items"] if n["source_id"] == addressed["id"]), None)
+        check(notice is not None, "MCP sees its addressed notice")
+        acked = mcp.ok("collab_ack_notice", notice_id=notice["id"])
+        check(acked["newly_acked"] is True, "MCP acknowledges its own notice")
+        receipt = mcp.ok("collab_confirm_receipt", task_id=anchor_task["id"], message_id=addressed["id"])
+        check(receipt["newly_confirmed"] is True, "MCP confirms REST author's message")
+        st, delivery = http(base2, "GET", collab + f"/tasks/{anchor_task['id']}/messages/{addressed['id']}/delivery", jwt, b)
+        check(st == 200 and delivery["status"] == "read", "REST author sees MCP receipt")
+        say("MCP and REST exchanged notices and receipts", "acknowledgement and read receipt remain separate")
+        mcp.ok("collab_mark_read", task_id=anchor_task["id"], last_read_seq=1)
+        mcp.crash()
+        mcp = None
+        st, unread = http(base2, "PUT", collab + f"/tasks/{anchor_task['id']}/read", jwt, b, {"last_read_seq": 0})
+        check(st == 200 and unread["last_read_seq"] == 0, "REST session did not inherit MCP read watermark")
+        st, messages = http(base2, "GET", collab + f"/tasks/{anchor_task['id']}/messages?after_seq=0", jwt)
+        check(st == 200 and [x["seq"] for x in messages["items"]] == [1, 2], "REST reads disconnected client's records")
+        st, reply = http(base2, "POST", collab + f"/tasks/{anchor_task['id']}/messages", jwt, b,
+                         {"kind": "note", "body": "REST continues from the shared record", "client_message_id": "x04-reply"})
+        check(st == 201 and reply["seq"] == 3, "REST continues after MCP disconnect")
+        say("REST continued after MCP disconnect", "independent secret and read watermark")
+
+        st, changed = http(base2, "PATCH", collab + f"/tasks/{anchor_task['id']}", jwt, b,
+                           {"expected_version": anchor_task["version"], "status": "blocked"})
+        check(st == 200 and changed["status"] == "blocked", "REST records a blocked task")
+        st, health = http(base2, "GET", collab + "/health", jwt)
+        metrics = {item["id"]: item for item in health.get("metrics", [])} if st == 200 else {}
+        check(st == 200 and "blocked_tasks" in metrics and "computed_at" in health
+              and metrics["blocked_tasks"].get("value", {}).get("blocked_at_to") == 1,
+              f"anchor administrator reads health metrics with coverage: {st} {health}")
+        st, _ = http(base, "GET", collab + "/health", owner_jwt)
+        check(st in (403, 404), "an account without anchor administration cannot read health metrics")
+        say("REST checked collaboration health", "blocked task event; admin-only access")
+
+        if peer:
+            # Both processes share durable state, not local locks. Race writes
+            # from separate HTTP connections through independent server processes.
+            path = collab + f"/tasks/{anchor_task['id']}"
+            barrier = threading.Barrier(2, timeout=10)
+            def change(base_url, state):
+                barrier.wait()
+                return http(base_url, "PATCH", path, jwt, b,
+                            {"expected_version": changed["version"], "status": state})
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+                futures = [pool.submit(change, base, "waiting"), pool.submit(change, base2, "in_progress")]
+                race = [future.result() for future in futures]
+            check(sorted(st for st, _ in race) == [200, 409], f"cross-instance task CAS: {race}")
+            message_path = path + "/messages"
+            payload = {"kind": "note", "body": "cross-instance replay", "client_message_id": "x04-cross-instance-id"}
+            barrier = threading.Barrier(2, timeout=10)
+            def send_replay(base_url):
+                barrier.wait()
+                return http(base_url, "POST", message_path, jwt, b, payload)
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+                futures = [pool.submit(send_replay, url) for url in (base, base2)]
+                retries = [future.result() for future in futures]
+            check(sorted(st for st, _ in retries) == [200, 201]
+                  and retries[0][1]["id"] == retries[1][1]["id"], f"cross-instance replay: {retries}")
+            say("independent servers arbitrated concurrent requests", "one CAS winner; one idempotent message")
+
+        st, _ = http(base, "DELETE", target_path + f"/collaborators/{account['user_id']}", owner_jwt)
+        check(st == 204, "revoke target access")
+        st, page = http(base2, "GET", collab + f"/groups/{group['id']}/links", jwt)
+        check(st == 200 and page["items"] == [] and page["has_more"] is False and page["next_cursor"] is None,
+              "REST filters target immediately after revocation")
+        raw = json.dumps(page)
+        check(all(s not in raw for s in (remote_repo, task["id"], "target-private-task", commits["target"], link["id"])),
+              "filtered response leaks no target data")
+        check(not any(k in page for k in ("total", "count", "hidden")), "filtered response exposes no hidden count")
+        if cursor:
+            st, after_revoke = http(base2, "GET", collab + f"/groups/{group['id']}/links?limit=1&cursor={cursor}", jwt)
+            check(st == 200 and after_revoke["items"] == [] and after_revoke["next_cursor"] is None,
+                  "a cross-instance cursor cannot retain access after revocation")
+        st, _ = http(base2, "GET", target_collab + "/capabilities", jwt)
+        check(st == 404, "private target capabilities denied after revocation")
+        st, _ = http(base2, "POST", target_collab + f"/sessions/{bt['id']}/heartbeat", jwt, bt)
+        check(st in (403, 404), "existing target session cannot bypass revocation")
+        mcp = McpClient(base, pat["token"], session_file, work, "x04-restart")
+        filtered = mcp.ok("collab_list_group_links", group_id=group["id"])
+        check(filtered["items"] == [] and filtered["has_more"] is False, "MCP also filters revoked target")
+        mcp.close()
+        mcp = None
+        say("target permission revoked", "REST and MCP filter link; target capabilities and existing session denied")
+        if peer:
+            server.stop()
+            st, restored = http(base2, "GET", collab + f"/tasks/{anchor_task['id']}", jwt)
+            check(st == 200 and restored["id"] == anchor_task["id"], "peer serves durable task while primary is down")
+            st, _ = http(base2, "POST", collab + f"/sessions/{b['id']}/heartbeat", jwt, b)
+            check(st == 200, "peer accepts original session credentials after primary stops")
+            server.start()
+            st, restored = http(base, "GET", collab + f"/tasks/{anchor_task['id']}", jwt)
+            check(st == 200 and restored["id"] == anchor_task["id"], "restarted primary reads the same task")
+            say("server failover and restart", "peer retained task and session; restarted primary recovered state")
+        say("session secret log scan passed", scan_for_secrets(server, work, peer))
+        def binary_hash(path):
+            with open(path, "rb") as f:
+                return hashlib.file_digest(f, "sha256").hexdigest()
+        backend = "postgresql" if server.db_url.startswith(("postgres:", "postgresql:")) else "mysql" if server.db_url.startswith("mysql:") else "sqlite"
+        say("X04 scenario complete", f"{backend}, {'two instances' if peer else 'single instance'}")
+        return {"scenario": "x04", "backend": backend, "instances": 2 if peer else 1, "scope": "X01 discovery, X02 groups and X03 health", "commits": commits,
+                "repository_ids": {"anchor": anchor["id"], "target": target["id"]},
+                "group_id": group["id"], "contract_version": caps["contract_version"],
+                "server_version": caps["server_version"], "mcp_server_info": mcp_info,
+                "binary_sha256": {"server": binary_hash(SERVER_BIN), "mcp": binary_hash(MCP_BIN)}}
+    finally:
+        if mcp is not None:
+            mcp.crash()
+        if peer is not None:
+            peer.stop()
+        server.stop()
+
+
+def run_ci_compat(work, keep, db_url=None):
+    """Real CI API, protected environment and approval; no job is executed."""
+    server = Server(work, db_url, extra_args=["--external-runners"])
+    try:
+        server.start()
+        base = server.base
+        def register(name):
+            st, result = http(base, "POST", "/api/v1/users/register", body={
+                "username": name, "email": f"{name}@example.com", "password": PASSWORD})
+            check(st == 201, f"register CI user: {st} {result}")
+            return result
+        owner, reviewer = register(OWNER), register("ci-reviewer")
+        jwt, reviewer_jwt = owner["token"], reviewer["token"]
+        st, _ = http(base, "POST", "/api/v1/repos", jwt,
+                     body={"name": REPO, "is_private": True})
+        check(st == 201, "create private CI test repository")
+        repo_path = f"/api/v1/repos/{OWNER}/{REPO}"
+        st, _ = http(base, "POST", repo_path + "/collaborators", jwt,
+                     body={"user_id": reviewer["user_id"], "permission": "read"})
+        check(st == 201, "grant CI reviewer read access")
+        st, environment = http(base, "POST", repo_path + "/actions/environments", jwt,
+                               body={"name": "ci-compat", "protected": True, "required_approvals": 2,
+                                     "allowed_approver_ids": [owner["user_id"], reviewer["user_id"]]})
+        check(st == 201, f"create protected environment: {st} {environment}")
+        seed = os.path.join(work, "ci-seed")
+        os.makedirs(seed)
+        git(["init", "-q", "--initial-branch=main"], seed)
+        with open(os.path.join(seed, ".ironforge-ci.yml"), "w") as f:
+            f.write("stages: [verify]\ncompat_job:\n  stage: verify\n  script:\n    - echo never-executed\n  environment: ci-compat\n")
+        git(["add", "."], seed)
+        git(["commit", "-q", "-m", "CI compatibility fixture"], seed)
+        sha = git(["rev-parse", "HEAD"], seed)
+        git(["push", "-q", f"{base}/git/{OWNER}/{REPO}", "main"], seed, token=jwt)
+        st, created = http(base, "POST", repo_path + "/pipelines", jwt, body={"ref_name": "refs/heads/main"})
+        check(st == 201, f"trigger CI pipeline: {st} {created}")
+        pipeline_id = created["id"]
+        st, detail = http(base, "GET", repo_path + f"/pipelines/{pipeline_id}", jwt)
+        check(st == 200 and len(detail["stages"]) == 1 and len(detail["stages"][0]["jobs"]) == 1,
+              f"read stage and job: {st} {detail}")
+        job = detail["stages"][0]["jobs"][0]
+        check(detail["pipeline"]["status"] == "waiting_approval" and job["status"] == "waiting_approval"
+              and job["environment_id"] == environment["id"], f"protected CI gate: {detail}")
+        approve_path = repo_path + f"/pipelines/{pipeline_id}/jobs/{job['id']}/approve"
+        st, first = http(base, "POST", approve_path, jwt)
+        check(st == 200 and first["approvals"] == 1 and first["released"] is False, f"first approval: {st} {first}")
+        st, _ = http(base, "POST", approve_path, jwt)
+        check(st == 409, "duplicate approval refused")
+        st, second = http(base, "POST", approve_path, reviewer_jwt)
+        check(st == 200 and second["approvals"] == 2 and second["released"] is True,
+              f"second approval releases job: {st} {second}")
+        st, final = http(base, "GET", repo_path + f"/pipelines/{pipeline_id}", jwt)
+        check(st == 200 and final["stages"][0]["jobs"][0]["status"] == "pending",
+              f"released job remains pending without runners: {st} {final}")
+        barrier = threading.Barrier(2, timeout=10)
+        def trigger_again():
+            barrier.wait()
+            return http(base, "POST", repo_path + "/pipelines", jwt, body={"ref_name": "refs/heads/main"})
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            pending = [pool.submit(trigger_again) for _ in range(2)]
+            outcomes = [future.result() for future in pending]
+        check(all(st == 201 for st, _ in outcomes)
+              and len({body["id"] for _, body in outcomes}) == 2,
+              f"concurrent pipeline creation: {outcomes}")
+        backend = "postgresql" if server.db_url.startswith(("postgres:", "postgresql:")) else "mysql" if server.db_url.startswith("mysql:") else "sqlite"
+        say("real CI stage, job and approvals verified", f"{backend}; external-runner mode, no job executed")
+        with open(SERVER_BIN, "rb") as f:
+            server_hash = hashlib.file_digest(f, "sha256").hexdigest()
+        return {"scenario": "ci-compat", "backend": backend, "commit": sha, "pipeline_id": pipeline_id,
+                "stage_id": detail["stages"][0]["stage"]["id"], "job_id": job["id"],
+                "scope": "external-runner mode; no job executed", "server_binary_sha256": server_hash}
+    finally:
+        server.stop()
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--scenario", choices=["t12", "p0"], default="t12",
-                        help="t12: first-version flow; p0: takeover, questions, work packages, inbox (P15)")
+    parser.add_argument("--scenario", choices=["t12", "p0", "x04", "ci-compat"], default="t12",
+                        help="t12: first-version flow; p0: P15; x04: two-client P2; ci-compat: protected CI approval")
     parser.add_argument("--keep", action="store_true", help="keep the work directory")
+    parser.add_argument("--multi-instance", action="store_true", help="X04: run two independent servers sharing the test DB and repository directory")
     parser.add_argument("--json-out", help="write a JSON summary with environment info")
     args = parser.parse_args()
     for binary in (SERVER_BIN, MCP_BIN):
@@ -622,7 +945,17 @@ def main():
     work = tempfile.mkdtemp(prefix="ironforge-collab-e2e.")
     status = 1
     try:
-        summary = (run_p0 if args.scenario == "p0" else run)(work, args.keep)
+        if args.multi_instance and args.scenario != "x04":
+            check(False, "--multi-instance requires --scenario x04")
+        db_url = os.environ.get("IRONFORGE_E2E_DB_URL")
+        if db_url and args.scenario not in ("x04", "ci-compat"):
+            check(False, "IRONFORGE_E2E_DB_URL requires --scenario x04 or ci-compat and a disposable database")
+        if args.scenario == "x04":
+            summary = run_x04(work, args.keep, db_url, args.multi_instance)
+        elif args.scenario == "ci-compat":
+            summary = run_ci_compat(work, args.keep, db_url)
+        else:
+            summary = {"t12": run, "p0": run_p0}[args.scenario](work, args.keep)
         status = 0
         if args.json_out:
             def sh(*cmd):
@@ -632,7 +965,7 @@ def main():
                 "git": sh("git", "--version"),
                 "repo_head": sh("git", "rev-parse", "HEAD"),
                 "working_tree_dirty": bool(sh("git", "status", "--porcelain")),
-                "server_binary": SERVER_BIN, "database": "sqlite (throw-away file)",
+                "server_binary": SERVER_BIN, "database": summary.get("backend", "sqlite"),
             }
             summary["transcript"] = transcript
             with open(args.json_out, "w") as f:

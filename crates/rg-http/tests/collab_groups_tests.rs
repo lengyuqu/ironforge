@@ -488,22 +488,23 @@ async fn m03_m04_pages_count_only_what_the_reader_can_see() {
     let w = W::new().await;
     let (gid, _ids, reader, _reader_id) = paged_world(&w).await;
 
+    // Equal database timestamps use id as the documented tie-breaker; this
+    // order need not match insertion order (notably on MySQL DATETIME).
+    let (_, all) = w.links("anchor", &gid, &w.env.owner_token, "").await;
+    let ordered = names(&all);
+    assert_eq!(ordered.len(), 6);
+    let visible: Vec<_> = ordered.iter().filter(|n| matches!(n.as_str(), "b1" | "b3" | "b5")).cloned().collect();
+    assert_eq!(visible.len(), 3);
     let (status, p1) = w.links("anchor", &gid, &reader, "?limit=2").await;
     assert_eq!(status, 200, "{p1}");
-    assert_eq!(names(&p1), ["b1", "b3"]);
+    assert_eq!(names(&p1), visible[..2]);
     assert_eq!(p1["has_more"], true);
     let (_, p2) = w.links("anchor", &gid, &reader, &format!("?limit=2&cursor={}", p1["next_cursor"].as_str().unwrap())).await;
-    assert_eq!(names(&p2), ["b5"]);
+    assert_eq!(names(&p2), visible[2..]);
     assert_eq!(p2["has_more"], false);
     assert!(p2["next_cursor"].is_null());
-
-    // A page that is exactly full does not claim more.
     let (_, p) = w.links("anchor", &gid, &reader, "?limit=3").await;
-    assert_eq!((names(&p), p["has_more"].as_bool(), p["next_cursor"].is_null()), (vec!["b1".into(), "b3".into(), "b5".into()], Some(false), true));
-
-    // The owner sees all six, in creation order.
-    let (_, all) = w.links("anchor", &gid, &w.env.owner_token, "").await;
-    assert_eq!(names(&all), ["b1", "b2", "b3", "b4", "b5", "b6"]);
+    assert_eq!((names(&p), p["has_more"].as_bool(), p["next_cursor"].is_null()), (visible, Some(false), true));
     assert_eq!(all["items"][0]["target_repo"]["owner"], w.env.owner.as_str());
 }
 
@@ -512,29 +513,34 @@ async fn m03_permissions_are_rechecked_on_every_page() {
     let w = W::new().await;
     let (gid, _ids, reader, reader_id) = paged_world(&w).await;
 
+    let (_, initial) = w.links("anchor", &gid, &reader, "").await;
+    let visible = names(&initial);
+    assert_eq!(visible.len(), 3);
+    let remaining = visible[2].clone();
     let (_, p1) = w.links("anchor", &gid, &reader, "?limit=2").await;
-    assert_eq!(names(&p1), ["b1", "b3"]);
+    assert_eq!(names(&p1), visible[..2]);
     let cursor = p1["next_cursor"].as_str().unwrap().to_string();
 
-    // Revoked mid-pagination: the next page no longer shows b5, and it is not
-    // reported as "more" or "hidden" — the scan simply finds nothing.
-    w.revoke("b5", reader_id).await;
+    // Revalidate permission for the link that would be on the next page.
+    w.revoke(&remaining, reader_id).await;
     let (_, p2) = w.links("anchor", &gid, &reader, &format!("?limit=2&cursor={cursor}")).await;
     assert!(p2["items"].as_array().unwrap().is_empty(), "{p2}");
     assert_eq!((p2["has_more"].as_bool(), p2["next_cursor"].is_null()), (Some(false), true));
-
-    // Re-granted ahead of the cursor: picked up by the following page.
-    w.grant("b5", reader_id, "read").await;
+    w.grant(&remaining, reader_id, "read").await;
     let (_, p2) = w.links("anchor", &gid, &reader, &format!("?limit=2&cursor={cursor}")).await;
-    assert_eq!(names(&p2), ["b5"]);
+    assert_eq!(names(&p2), vec![remaining.clone()]);
 
-    // Newly granted *behind* the cursor (b2): not added to this pagination,
-    // found when it restarts.
-    w.grant("b2", reader_id, "read").await;
-    let (_, p2) = w.links("anchor", &gid, &reader, &format!("?limit=2&cursor={cursor}")).await;
-    assert_eq!(names(&p2), ["b5"]);
-    let (_, fresh) = w.links("anchor", &gid, &reader, "").await;
-    assert_eq!(names(&fresh), ["b1", "b2", "b3", "b5"]);
+    // A newly visible link behind the cursor is only seen on a fresh scan.
+    let (_, owner_page) = w.links("anchor", &gid, &w.env.owner_token, "").await;
+    let owner_order = names(&owner_page);
+    let boundary = owner_order.iter().position(|name| name == &visible[1]).unwrap();
+    if let Some(hidden) = owner_order[..boundary].iter().find(|name| !visible.contains(name)) {
+        w.grant(hidden, reader_id, "read").await;
+        let (_, p2) = w.links("anchor", &gid, &reader, &format!("?limit=2&cursor={cursor}")).await;
+        assert!(!names(&p2).contains(hidden));
+        let (_, fresh) = w.links("anchor", &gid, &reader, "").await;
+        assert!(names(&fresh).contains(hidden));
+    }
 
     // Cursors are bound to the account and to this listing, and cannot be forged.
     let (other, other_id) = w.env.user("other").await;
@@ -552,7 +558,7 @@ async fn m03_permissions_are_rechecked_on_every_page() {
     let url = w.gurl("anchor", &format!("/{gid}/links?limit=2&cursor={cursor}")).replace(&w.env.base, &base2);
     let (status, p) = w.call(Method::GET, &url, &reader, None, None).await;
     assert_eq!(status, 200, "{p}");
-    assert_eq!(names(&p), ["b5"]);
+    assert_eq!(names(&p), vec![remaining]);
 }
 
 #[tokio::test]

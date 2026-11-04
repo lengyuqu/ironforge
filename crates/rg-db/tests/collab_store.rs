@@ -854,3 +854,25 @@ async fn deleting_a_repository_removes_its_collaboration_rows() {
     assert!(agent_session_ops::find_in_repo(&*fx.db, repo_id, &session.id).await.unwrap().is_none());
     assert_eq!(message_count(&fx.db, &task.id).await, 0);
 }
+
+/// The original PostgreSQL pipeline migration used INTEGER ids, while the
+/// public pipeline model uses i64. Exercise create/read/update and both list
+/// paths on every configured backend, including a nullable creator.
+#[tokio::test]
+async fn pipeline_evidence_access_handles_legacy_integer_columns() {
+    let f = Fixture::new().await;
+    let sha = "b".repeat(40);
+    let p = rg_db::ops::pipeline_ops::create_pipeline(&f.db, f.repo_id, &sha, "main", "manual", Some(f.user_id))
+        .await.expect("create pipeline");
+    let found = rg_db::ops::pipeline_ops::get_pipeline(&f.db, p.id).await.unwrap().unwrap();
+    assert_eq!((found.repo_id, found.triggered_by), (f.repo_id, Some(f.user_id)));
+    rg_db::ops::pipeline_ops::update_pipeline_status(&f.db, p.id, "success", None, Some(Utc::now().naive_utc())).await.unwrap();
+    assert_eq!(rg_db::ops::pipeline_ops::get_pipeline(&f.db, p.id).await.unwrap().unwrap().status, "success");
+    assert_eq!(rg_db::ops::pipeline_ops::list_by_repo_and_commit(&f.db, f.repo_id, &sha, 10).await.unwrap()[0].id, p.id);
+    assert_eq!(rg_db::ops::pipeline_ops::find_latest_by_repo_and_commit(&f.db, f.repo_id, &sha).await.unwrap().unwrap().id, p.id);
+    assert!(rg_db::ops::pipeline_ops::find_latest_by_repo_and_commit(&f.db, f.repo_id, &"c".repeat(40)).await.unwrap().is_none());
+    assert_eq!(rg_db::ops::pipeline_ops::list_pipelines_by_repo(&f.db, f.repo_id).await.unwrap()[0].id, p.id);
+    let (page, total) = rg_db::ops::pipeline_ops::list_pipelines_by_repo_paginated(&f.db, f.repo_id, 0, 10).await.unwrap();
+    assert_eq!((page[0].id, total), (p.id, 1));
+    assert!(rg_db::ops::pipeline_ops::update_pipeline_status(&f.db, i64::MAX, "success", None, None).await.is_err());
+}

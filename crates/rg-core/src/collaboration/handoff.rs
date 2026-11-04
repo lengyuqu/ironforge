@@ -185,7 +185,7 @@ pub async fn create(
             payload_hash: Set(hash.clone()),
             status: Set(status::PENDING.to_string()),
             version: Set(1),
-            created_at: Set(now),
+            created_at: Set(super::creation_timestamp(db, now)),
             accepted_at: Set(None),
         },
         &from.id,

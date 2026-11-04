@@ -16,6 +16,7 @@ use crate::error::AppError;
 use crate::AppState;
 
 #[derive(Debug, Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct NoticeQuery {
     pub limit: Option<u64>,
     pub cursor: Option<String>,

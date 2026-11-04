@@ -14,6 +14,7 @@ use crate::entities::collab_metric_event::{self, ActiveModel, Entity as EventEnt
 use crate::entities::collab_question::{self, Entity as QuestionEntity};
 use crate::entities::collab_task::{self, Entity as TaskEntity};
 
+
 /// Values of `event_type`.
 pub mod event_type {
     pub const TASK_CREATED: &str = "task_created";
@@ -71,7 +72,16 @@ pub async fn record<C: ConnectionTrait>(db: &C, event: NewEvent<'_>) -> Result<(
         .await
         .context("db: read newest metric event")?
         .map(|e| e.occurred_at);
-    let occurred_at = newest.map_or(event.occurred_at, |n| n.max(event.occurred_at));
+    let at = if db.get_database_backend() == DatabaseBackend::MySql {
+        // MySQL rounds fractional seconds on writes to TIMESTAMP(0). Creation
+        // hooks may receive an already rounded-up object timestamp; it cannot
+        // have happened after the server clock at the time we record the event.
+        let at = event.occurred_at.min(Utc::now());
+        DateTime::from_timestamp(at.timestamp(), 0).unwrap_or(at)
+    } else {
+        event.occurred_at
+    };
+    let occurred_at = newest.map_or(at, |n| n.max(at));
     ActiveModel {
         id: Set(uuid::Uuid::new_v4().to_string()),
         repo_id: Set(event.repo_id),

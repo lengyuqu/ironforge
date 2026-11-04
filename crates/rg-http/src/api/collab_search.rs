@@ -12,7 +12,9 @@ use serde::Deserialize;
 #[derive(Debug, Deserialize, utoipa::IntoParams)]
 #[into_params(parameter_in = Query)]
 pub struct SearchQuery {
+    /// One of task, question, decision, handoff, message, or work_package.
     pub kind: String,
+    /// Literal substring, 1–256 bytes; LIKE wildcard characters are rejected.
     pub q: String,
     pub limit: Option<u64>,
     pub cursor: Option<String>,

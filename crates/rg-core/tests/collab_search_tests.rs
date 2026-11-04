@@ -1,9 +1,12 @@
-//! Standalone harness: runs the unregistered search module without editing mod.rs.
+//! Search service integration tests with a temporary SQLite database.
 pub use rg_core::collaboration::{clamp_limit, cursor, error, ORIGIN_USER_CONTENT};
 #[path = "../src/collaboration/search.rs"]
 mod search;
 
-use rg_db::entities::{collab_decision, collab_handoff, collab_question, collab_task};
+use rg_db::entities::{
+    collab_decision, collab_handoff, collab_message, collab_question, collab_task,
+    collab_work_package,
+};
 use sea_orm::{ActiveModelTrait, ConnectionTrait, Database, DbBackend, Schema, Set, Statement};
 
 #[tokio::test]
@@ -21,6 +24,8 @@ async fn search_is_scoped_paginated_live_and_cursor_bound() {
         schema.create_table_from_entity(collab_question::Entity),
         schema.create_table_from_entity(collab_decision::Entity),
         schema.create_table_from_entity(collab_handoff::Entity),
+        schema.create_table_from_entity(collab_message::Entity),
+        schema.create_table_from_entity(collab_work_package::Entity),
     ] {
         db.execute(db.get_database_backend().build(&table))
             .await
@@ -111,6 +116,90 @@ async fn search_is_scoped_paginated_live_and_cursor_bound() {
     .insert(&db)
     .await
     .unwrap();
+    for (id, repo_id) in [("1", 1), ("2", 1), ("hidden", 2)] {
+        collab_message::ActiveModel {
+            id: Set(format!("m{id}")),
+            repo_id: Set(repo_id),
+            task_id: Set("t1".into()),
+            seq: Set(1),
+            author_session_id: Set("author".into()),
+            kind: Set("note".into()),
+            body: Set("needle confidential-content".into()),
+            reply_to_id: Set(None),
+            target_session_id: Set(None),
+            commit_sha: Set(Some("abc123".into())),
+            client_message_id: Set(format!("client{id}")),
+            payload_hash: Set("internal-hash".into()),
+            created_at: Set(now),
+        }
+        .insert(&db)
+        .await
+        .unwrap();
+        collab_work_package::ActiveModel {
+            id: Set(format!("w{id}")),
+            repo_id: Set(repo_id),
+            task_id: Set("t1".into()),
+            revision: Set(1),
+            author_kind: Set("user".into()),
+            author_id: Set("1".into()),
+            task_version: Set(1),
+            commit_sha: Set(Some("abc123".into())),
+            body_json: Set("{\"goal\":\"needle confidential-content\"}".into()),
+            client_package_id: Set(format!("client{id}")),
+            payload_hash: Set("internal-hash".into()),
+            created_at: Set(now),
+        }
+        .insert(&db)
+        .await
+        .unwrap();
+    }
+    for kind in ["message", "work_package"] {
+        for q in ["needle", "abc123"] {
+            let first = search::search(&db, 1, b"key", kind, q, Some(1), None)
+                .await
+                .unwrap();
+            assert_eq!(first.items.len(), 1);
+            assert!(first.items[0].id.ends_with('2'));
+            assert_eq!(first.items[0].task_id, "t1");
+            let serialized = serde_json::to_string(&first).unwrap();
+            assert!(!serialized.contains("confidential-content"));
+            assert!(!serialized.contains("internal-hash"));
+            assert!(!serialized.contains(q));
+            let token = first.next_cursor.unwrap();
+            let second = search::search(&db, 1, b"key", kind, q, Some(1), Some(&token))
+                .await
+                .unwrap();
+            assert!(second.items[0].id.ends_with('1'));
+            assert!(second.next_cursor.is_none());
+            assert!(
+                search::search(&db, 2, b"key", kind, q, Some(1), Some(&token))
+                    .await
+                    .is_err()
+            );
+            let other = if kind == "message" {
+                "work_package"
+            } else {
+                "message"
+            };
+            assert!(
+                search::search(&db, 1, b"key", other, q, Some(1), Some(&token))
+                    .await
+                    .is_err()
+            );
+            let hidden = search::search(&db, 2, b"key", kind, q, None, None)
+                .await
+                .unwrap();
+            assert_eq!(hidden.items.len(), 1);
+            assert!(hidden.items[0].id.ends_with("hidden"));
+        }
+        for excluded in ["internal-hash", "client1", "author"] {
+            assert!(search::search(&db, 1, b"key", kind, excluded, None, None)
+                .await
+                .unwrap()
+                .items
+                .is_empty());
+        }
+    }
     for (kind, expected) in [("question", "q1"), ("decision", "d1"), ("handoff", "h1")] {
         let found = search::search(&db, 1, b"key", kind, "abc123", None, None)
             .await

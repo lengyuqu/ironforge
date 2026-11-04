@@ -241,10 +241,10 @@ async fn n10_every_addressed_event_leaves_one_durable_notice() {
     assert_eq!(s, 201, "{q}");
 
     let got = notices(&env, &b, "").await;
-    assert_eq!(kinds(&got), ["handoff_received", "message_targeted", "question_asked"]);
-    assert_eq!(got[0]["source_id"], h["id"]);
-    assert_eq!(got[1]["source_id"], m["id"]);
-    assert_eq!(got[2]["source_id"], q["id"]);
+    assert_eq!(got.len(), 3);
+    for (kind, source) in [("handoff_received", &h["id"]), ("message_targeted", &m["id"]), ("question_asked", &q["id"])] {
+        assert!(got.iter().any(|n| n["kind"] == kind && &n["source_id"] == source));
+    }
     assert!(got.iter().all(|n| n["state"] == "pending" && n["task_id"] == tid.as_str()));
     // The hint carries platform facts only, never the client's text.
     let text = serde_json::to_string(&got).unwrap();
@@ -302,9 +302,11 @@ async fn n10_every_addressed_event_leaves_one_durable_notice() {
         .await;
     assert_eq!(s, 201, "{r}");
     let for_a = notices(&env, &a, "").await;
-    assert_eq!(kinds(&for_a), ["question_answered", "task_reassigned_away"]);
-    assert_eq!(for_a[1]["source_id"], r["takeover"]["id"]);
-    assert_eq!(for_a[1]["hint"]["to_session_id"], b.id);
+    assert_eq!(for_a.len(), 2);
+    assert!(for_a.iter().any(|n| n["kind"] == "question_answered" && n["source_id"] == q["id"]));
+    let reassigned = for_a.iter().find(|n| n["kind"] == "task_reassigned_away").unwrap();
+    assert_eq!(reassigned["source_id"], r["takeover"]["id"]);
+    assert_eq!(reassigned["hint"]["to_session_id"], b.id);
 }
 
 #[tokio::test]
@@ -350,10 +352,13 @@ async fn n10_notices_survive_restarts_are_paged_without_duplicates_and_acks_touc
     assert_eq!(s, 400);
 
     // Ack changes the notice only.
-    let handoff_notice = again.iter().find(|_| true).unwrap().clone();
     let all = notices(&env, &b, "?limit=100").await;
+    assert!(all.windows(2).all(|w| {
+        (w[0]["created_at"].as_str().unwrap(), w[0]["id"].as_str().unwrap())
+            <= (w[1]["created_at"].as_str().unwrap(), w[1]["id"].as_str().unwrap())
+    }), "notices follow the documented created_at/id order");
     let n = all.iter().find(|n| n["kind"] == "handoff_received").unwrap();
-    assert_eq!(n["id"].as_str().unwrap(), handoff_notice);
+    assert!(again.iter().any(|id| Some(id.as_str()) == n["id"].as_str()));
     let (s, acked) = env
         .json(Method::POST, &env.url(&format!("/notices/{}/ack", n["id"].as_str().unwrap())), &env.owner_token, Some(&b), None)
         .await;
@@ -571,6 +576,8 @@ async fn n09_expired_target_cancel_then_new_handoff_leaves_an_explainable_trail(
     assert_eq!(s, 201, "{h2}");
     assert_eq!(kinds(&notices(&env, &c, "").await), ["handoff_received"]);
     let (_, list) = env.json(Method::GET, &hurl, &env.owner_token, None, None).await;
-    let statuses: Vec<_> = list["items"].as_array().unwrap().iter().map(|h| h["status"].as_str().unwrap().to_string()).collect();
-    assert_eq!(statuses, ["cancelled", "pending"]);
+    let items = list["items"].as_array().unwrap();
+    assert_eq!(items.len(), 2);
+    assert!(items.iter().any(|item| item["id"] == h1["id"] && item["status"] == "cancelled"));
+    assert!(items.iter().any(|item| item["id"] == h2["id"] && item["status"] == "pending"));
 }

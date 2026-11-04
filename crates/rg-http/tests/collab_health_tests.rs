@@ -53,9 +53,9 @@ async fn health_ok(env: &Env, query: &str) -> Value {
 /// 7-day window reaches back before a fresh test database has any history,
 /// which is (correctly) reported as partial.
 async fn covered(env: &Env) -> String {
-    let body = health_ok(env, "").await;
-    let first: DateTime<Utc> = body["coverage_start"].as_str().unwrap().parse().unwrap();
-    format!("?from={}", at(first + Duration::milliseconds(2)))
+    let first = rg_db::ops::collab_metric_ops::first_occurred_at(&env.db, env.repo_id)
+        .await.unwrap().unwrap();
+    format!("?from={}", first.to_rfc3339_opts(SecondsFormat::Nanos, true))
 }
 
 fn metric<'a>(body: &'a Value, id: &str) -> &'a Value {
@@ -71,6 +71,7 @@ async fn events_of(env: &Env, task_id: &str) -> Vec<ev::Model> {
     ev::Entity::find()
         .filter(ev::Column::TaskId.eq(task_id))
         .order_by_asc(ev::Column::OccurredAt)
+        .order_by_asc(ev::Column::TaskVersion)
         .order_by_asc(ev::Column::Id)
         .all(&env.db)
         .await
@@ -84,6 +85,28 @@ async fn count_events(env: &Env, task_id: &str, event_type: &str) -> u64 {
         .count(&env.db)
         .await
         .unwrap()
+}
+
+#[tokio::test]
+async fn health_exclusive_boundary_keeps_fractional_endpoints() {
+    let env = Env::new().await;
+    let session = env.session(&env.owner_token, "boundary").await;
+    let task_id = new_task(&env, &session, "boundary").await;
+    let event = events_of(&env, &task_id).await.remove(0);
+    let ops = &env.db;
+    let at_boundary = rg_db::ops::collab_metric_ops::load_before(ops, env.repo_id, event.occurred_at)
+        .await.unwrap().unwrap();
+    assert!(at_boundary.iter().all(|e| e.id != event.id));
+    let after_boundary = rg_db::ops::collab_metric_ops::load_before(
+        ops, env.repo_id, event.occurred_at + Duration::milliseconds(1),
+    ).await.unwrap().unwrap();
+    assert!(after_boundary.iter().any(|e| e.id == event.id));
+    let created = rg_db::entities::collab_task::Entity::find_by_id(task_id.clone())
+        .one(ops).await.unwrap().unwrap().created_at;
+    assert!(!rg_db::ops::collab_metric_ops::task_ids_created_before(ops, env.repo_id, created)
+        .await.unwrap().iter().any(|(id, _)| id == &task_id));
+    assert!(rg_db::ops::collab_metric_ops::task_ids_created_before(ops, env.repo_id, created + Duration::milliseconds(1))
+        .await.unwrap().iter().any(|(id, _)| id == &task_id));
 }
 
 /// Simulate data from before the feature: forget everything recorded so far.
@@ -208,7 +231,10 @@ async fn m06_status_changes_are_recorded_by_the_platform_in_the_business_transac
     assert_eq!(tasks["value"]["entered_blocked_events"], 2);
     let duration = metric(&body, "blocked_duration");
     assert_eq!(duration["value"]["right_censored_tasks"], 1);
-    assert_eq!(duration["value"]["intervals"], 2);
+    // A complete blocked interval can have zero measurable duration when both
+    // transitions share MySQL's stored second. Only positive overlaps count.
+    let closed_interval = u64::from((events[2].occurred_at - events[1].occurred_at).num_milliseconds() > 0);
+    assert_eq!(duration["value"]["intervals"], 1 + closed_interval);
 }
 
 #[tokio::test]

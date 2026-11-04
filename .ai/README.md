@@ -169,6 +169,8 @@ AI Agent **必须**在阅读代码前先读取以下文件：
 | `collab_list_tasks` / `collab_get_task` | 浏览/读取任务（含 `version`） |
 | `collab_create_task` / `collab_update_task` | 创建/更新任务；更新必须带 `expected_version`，冲突返回 `VERSION_CONFLICT` + 当前版本；`owner_session_id` 可写 `"self"`；显式 `null` 清空可选字段 |
 | `collab_send_message` / `collab_list_messages` | 发消息（`note`/`help`/`blocker`，可 `target_session_id`、`reply_to_id`、`commit_sha`）/ 用 `after_seq` 持久轮询；`next_after_seq` 存好即可无遗漏续读 |
+| `collab_list_notices` / `collab_ack_notice` | 分页读取本会话的持久通知（`state` 默认 `pending`，可选 `all`；使用 `next_cursor` 续页）/ 幂等确认通知。通知仅是提示，行动前重读关联对象；确认不改变关联对象或消息回执 |
+| `collab_confirm_receipt` / `collab_get_delivery` | 指定目标会话确认读过消息（需要仓库写权限，重复确认保留原时间）/ 消息作者查看投递状态。`unknown` 表示没有确认，不等于未读；`replied` 不表示同意。回执与任务已读位置相互独立 |
 | `collab_mark_read` | 推进本会话已读位置（单调、不超过最新消息；传 0 读取当前值） |
 | `collab_create_handoff` / `collab_list_handoffs` | 向另一会话交接（所有字段是声明） |
 | `collab_accept_handoff` / `collab_cancel_handoff` | 仅被指定会话可接受、仅创建者可取消；只改变交接状态，**不会**改任务归属或发消息 |
@@ -204,6 +206,7 @@ AI Agent **必须**在阅读代码前先读取以下文件：
 | `POST /tasks` · `GET /tasks?status=` · `GET\|PATCH /tasks/{id}` | 任务；PATCH 带 `expected_version` |
 | `POST /tasks/{id}/messages` · `GET /tasks/{id}/messages?after_seq=` | 同会话同 `client_message_id` 同体重试返回 200 原消息，异体 409 |
 | `PUT /tasks/{id}/read` | 已读水位 |
+| `GET /search?kind=message&q=...` | 单仓实时子串搜索；`kind` 为 `task`、`question`、`decision`、`handoff`、`message` 或 `work_package`，分页游标绑定查询及仓库。结果不含正文、片段或总数；跨页无快照保证，大小写取决于数据库排序规则。 |
 | `POST /tasks/{id}/handoffs` · `GET /tasks/{id}/handoffs` · `POST /handoffs/{id}/accept\|cancel` | 交接 |
 
 会话相关请求需**同时**带账号凭据（JWT/PAT，PAT 需 `repo` scope）和两个请求头：`X-Ironforge-Session`、`X-Ironforge-Session-Secret`。读取需要认证 + 仓库读权限（公开仓库也要登录）；写入需要仓库写权限；权限撤销在下一次协作请求即生效（绕过 30 秒权限缓存）。错误体复用 `{error: {code, message, request_id}}`，协作错误另有稳定 `code` 和可选 `details`（例如 `{"current_version": 3}`）。

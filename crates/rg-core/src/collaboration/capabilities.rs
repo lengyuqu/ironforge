@@ -242,7 +242,7 @@ pub const REGISTRY: &[Capability] = &[
         r("GET", "/repos/{owner}/{name}/collaboration/tasks/{id}/usage", CollabRead),
         r("POST", "/repos/{owner}/{name}/collaboration/tasks/{id}/usage", RepoWrite),
     ]},
-    Capability { name: "notices", version: "1.0", status: Stable, mcp_tools: &[], routes: &[
+    Capability { name: "notices", version: "1.0", status: Stable, mcp_tools: &["collab_list_notices", "collab_ack_notice", "collab_confirm_receipt", "collab_get_delivery"], routes: &[
         r("GET", "/repos/{owner}/{name}/collaboration/notices", CollabReadSession),
         r("POST", "/repos/{owner}/{name}/collaboration/notices/{id}/ack", CollabReadSession),
         r("POST", "/repos/{owner}/{name}/collaboration/tasks/{id}/messages/{message_id}/read-receipt", RepoWriteSession),
