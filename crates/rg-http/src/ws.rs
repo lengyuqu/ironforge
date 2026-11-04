@@ -220,8 +220,10 @@ pub async fn ws_notifications_handler(
         ws
     };
 
-    upgrade.on_upgrade(move |socket| {
-        handle_ws_connection(socket, state.notification_hub.clone(), user_id)
+    upgrade.on_upgrade(move |socket| async move {
+        crate::metrics::clients::ws_connected("notifications");
+        handle_ws_connection(socket, state.notification_hub.clone(), user_id).await;
+        crate::metrics::clients::ws_disconnected("notifications");
     })
 }
 
@@ -426,8 +428,10 @@ pub async fn ws_job_log_handler(
     let hub = state.notification_hub.clone();
     let since = query.since;
     upgrade
-        .on_upgrade(move |socket| {
-            handle_job_log_connection(socket, hub, db, rx, job_id, user_id, since)
+        .on_upgrade(move |socket| async move {
+            crate::metrics::clients::ws_connected("job_log");
+            handle_job_log_connection(socket, hub, db, rx, job_id, user_id, since).await;
+            crate::metrics::clients::ws_disconnected("job_log");
         })
         .into_response()
 }

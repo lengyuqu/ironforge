@@ -12,6 +12,88 @@ use prometheus::{Registry, TextEncoder};
 /// Global Prometheus registry (lazy-initialized).
 pub static REGISTRY: OnceLock<Registry> = OnceLock::new();
 
+/// Client-facing metrics: how CLI/automation clients authenticate and stream.
+///
+/// The CLI (`ifg`) is the main consumer: PAT failures and WebSocket usage are
+/// the two things that show up as "the CLI is broken" in the field, so they
+/// get their own counters instead of being inferred from request counts.
+pub mod clients {
+    use prometheus::{IntCounterVec, IntGaugeVec, Opts, Registry};
+    use std::sync::OnceLock;
+
+    /// Counter: PAT authentication results, by `outcome`
+    /// (`ok`, `invalid_token`, `scope_denied`).
+    pub static PAT_AUTH_TOTAL: OnceLock<IntCounterVec> = OnceLock::new();
+
+    /// Counter: WebSocket connections accepted, by `channel`.
+    pub static WS_CONNECTIONS_TOTAL: OnceLock<IntCounterVec> = OnceLock::new();
+
+    /// Gauge: WebSocket connections currently open, by `channel`.
+    pub static WS_ACTIVE: OnceLock<IntGaugeVec> = OnceLock::new();
+
+    /// Register the client-facing metrics with the registry.
+    pub fn register(registry: &Registry) -> Result<(), prometheus::Error> {
+        let pat = IntCounterVec::new(
+            Opts::new(
+                "pat_auth_total",
+                "Personal access token authentication results",
+            ),
+            &["outcome"],
+        )?;
+        PAT_AUTH_TOTAL
+            .set(pat.clone())
+            .map_err(|_| prometheus::Error::Msg("PAT_AUTH_TOTAL already set".into()))?;
+        registry.register(Box::new(pat))?;
+
+        let connections = IntCounterVec::new(
+            Opts::new(
+                "ws_connections_total",
+                "WebSocket connections accepted, by channel",
+            ),
+            &["channel"],
+        )?;
+        WS_CONNECTIONS_TOTAL
+            .set(connections.clone())
+            .map_err(|_| prometheus::Error::Msg("WS_CONNECTIONS_TOTAL already set".into()))?;
+        registry.register(Box::new(connections))?;
+
+        let active = IntGaugeVec::new(
+            Opts::new("ws_active_connections", "Open WebSocket connections"),
+            &["channel"],
+        )?;
+        WS_ACTIVE
+            .set(active.clone())
+            .map_err(|_| prometheus::Error::Msg("WS_ACTIVE already set".into()))?;
+        registry.register(Box::new(active))?;
+
+        Ok(())
+    }
+
+    /// Record one PAT authentication attempt.
+    pub fn pat_auth(outcome: &str) {
+        if let Some(counter) = PAT_AUTH_TOTAL.get() {
+            counter.with_label_values(&[outcome]).inc();
+        }
+    }
+
+    /// Record a WebSocket connection opening.
+    pub fn ws_connected(channel: &str) {
+        if let Some(counter) = WS_CONNECTIONS_TOTAL.get() {
+            counter.with_label_values(&[channel]).inc();
+        }
+        if let Some(gauge) = WS_ACTIVE.get() {
+            gauge.with_label_values(&[channel]).inc();
+        }
+    }
+
+    /// Record a WebSocket connection closing.
+    pub fn ws_disconnected(channel: &str) {
+        if let Some(gauge) = WS_ACTIVE.get() {
+            gauge.with_label_values(&[channel]).dec();
+        }
+    }
+}
+
 /// HTTP request metrics.
 pub mod http_requests {
     use prometheus::{Histogram, HistogramOpts, IntCounterVec, IntGauge, Opts, Registry};
@@ -198,6 +280,7 @@ pub fn init_registry() -> Result<(), prometheus::Error> {
     business::register(&registry)?;
     rate_limit::register(&registry)?;
     security::register(&registry)?;
+    clients::register(&registry)?;
 
     REGISTRY
         .set(registry)

@@ -376,6 +376,9 @@ async fn load_tls_config(
 
 /// Create the Axum router for testing (no rate limiter, no static file serving).
 pub fn create_router_for_test(state: AppState) -> Router {
+    // The real server initializes the registry at startup; tests exercise the
+    // same handlers, so they need it too (a second call is a no-op).
+    let _ = metrics::init_registry();
     build_test_router(state)
 }
 
@@ -1484,6 +1487,7 @@ fn build_test_router(state: AppState) -> Router {
         .nest("/v2", v2_routes)
         .merge(docs_routes)
         .route("/health", get(health))
+        .route("/metrics", get(metrics::metrics_handler))
         // ── Middleware layers (no rate limiter for tests) ──────────────────
         .layer(axum::middleware::from_fn(middleware::request_id_middleware))
         .layer(TraceLayer::new_for_http().make_span_with(
@@ -1842,6 +1846,7 @@ async fn pat_to_bearer_jwt(
             if required_scope
                 .is_some_and(|scope| !rg_core::auth::pat_scope::has_scope(&pat.scopes, scope))
             {
+                crate::metrics::clients::pat_auth("scope_denied");
                 return Err(());
             }
             let Some(user) = rg_db::ops::user_ops::find_by_id(&state.db, pat.user_id)
@@ -1850,10 +1855,12 @@ async fn pat_to_bearer_jwt(
                 .flatten()
             else {
                 // Owner no longer exists — the PAT must not mint a session.
+                crate::metrics::clients::pat_auth("invalid_token");
                 continue;
             };
             if !user.is_active {
                 // Deactivated accounts must not mint fresh sessions (#5).
+                crate::metrics::clients::pat_auth("inactive_owner");
                 continue;
             }
             if let Ok(jwt) = rg_core::auth::jwt::generate_token(
@@ -1863,10 +1870,12 @@ async fn pat_to_bearer_jwt(
                 1,
                 user.token_version,
             ) {
+                crate::metrics::clients::pat_auth("ok");
                 return Ok(Some(jwt));
             }
         }
     }
+    crate::metrics::clients::pat_auth("invalid_token");
     Ok(None)
 }
 
