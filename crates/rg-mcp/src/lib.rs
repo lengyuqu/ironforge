@@ -11,6 +11,7 @@
 
 pub mod client;
 pub mod collab;
+pub mod collab_contract;
 pub mod error;
 pub mod protocol;
 pub mod resources;

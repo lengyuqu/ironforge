@@ -11,10 +11,12 @@ use utoipa::ToSchema;
 use super::collab::{
     acting_session, commit_exists, cursor_key, require_collab_read, require_collab_write, ListQuery,
 };
+use super::collab_json::CollabJson;
 use crate::error::AppError;
 use crate::AppState;
 
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CreateHandoffRequest {
     /// Client-chosen idempotency key, unique per session.
     pub client_handoff_id: String,
@@ -40,6 +42,7 @@ pub struct CreateHandoffRequest {
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct TransitionRequest {
     /// The handoff `version` the caller last saw.
     pub expected_version: i64,
@@ -115,7 +118,7 @@ pub async fn create_handoff(
     State(state): State<AppState>,
     Path((owner, name, id)): Path<(String, String, String)>,
     headers: HeaderMap,
-    Json(req): Json<CreateHandoffRequest>,
+    CollabJson(req): CollabJson<CreateHandoffRequest>,
 ) -> Result<(StatusCode, Json<HandoffResponse>), AppError> {
     let (repo, user_id) = require_collab_write(&state, &headers, &owner, &name).await?;
     let from = acting_session(&state, &headers, repo.id, user_id).await?;
@@ -208,7 +211,7 @@ pub async fn accept_handoff(
     State(state): State<AppState>,
     Path((owner, name, id)): Path<(String, String, String)>,
     headers: HeaderMap,
-    Json(req): Json<TransitionRequest>,
+    CollabJson(req): CollabJson<TransitionRequest>,
 ) -> Result<Json<HandoffResponse>, AppError> {
     let (repo, user_id) = require_collab_write(&state, &headers, &owner, &name).await?;
     let actor = acting_session(&state, &headers, repo.id, user_id).await?;
@@ -234,7 +237,7 @@ pub async fn cancel_handoff(
     State(state): State<AppState>,
     Path((owner, name, id)): Path<(String, String, String)>,
     headers: HeaderMap,
-    Json(req): Json<TransitionRequest>,
+    CollabJson(req): CollabJson<TransitionRequest>,
 ) -> Result<Json<HandoffResponse>, AppError> {
     let (repo, user_id) = require_collab_write(&state, &headers, &owner, &name).await?;
     let actor = acting_session(&state, &headers, repo.id, user_id).await?;

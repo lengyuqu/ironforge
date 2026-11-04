@@ -1106,6 +1106,14 @@ fn build_routes(
             post(api::collab_health::take_baseline),
         )
         .route(
+            "/collaboration/capabilities",
+            get(api::collab_capabilities::instance_capabilities),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/capabilities",
+            get(api::collab_capabilities::repo_capabilities),
+        )
+        .route(
             "/repos/{owner}/{name}/pipelines/{id}/jobs/{job_id}/play",
             post(api::ci::play_job),
         )

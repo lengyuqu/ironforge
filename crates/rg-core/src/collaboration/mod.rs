@@ -8,7 +8,9 @@
 //! establish the account and repository permission; these services enforce the
 //! session secret, repository scoping, versioning and idempotency.
 
+pub mod capabilities;
 pub mod ci_evidence;
+pub mod compat;
 pub mod completion;
 pub mod cursor;
 pub mod dependency;

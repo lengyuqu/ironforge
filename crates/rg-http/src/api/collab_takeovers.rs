@@ -9,10 +9,12 @@ use serde::Deserialize;
 use utoipa::ToSchema;
 
 use super::collab::{acting_session, cursor_key, require_collab_read, require_collab_write, ListQuery};
+use super::collab_json::CollabJson;
 use crate::error::AppError;
 use crate::AppState;
 
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct TakeoverBody {
     /// Client-chosen idempotency key, unique per acting session or user.
     pub client_takeover_id: String,
@@ -25,6 +27,7 @@ pub struct TakeoverBody {
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ReassignBody {
     pub client_takeover_id: String,
     pub expected_task_version: i64,
@@ -71,7 +74,7 @@ pub async fn claim_task(
     State(state): State<AppState>,
     Path((owner, name, id)): Path<(String, String, String)>,
     headers: HeaderMap,
-    Json(body): Json<TakeoverBody>,
+    CollabJson(body): CollabJson<TakeoverBody>,
 ) -> Result<(StatusCode, Json<svc::TakeoverResult>), AppError> {
     let (repo, user_id) = require_collab_write(&state, &headers, &owner, &name).await?;
     let session = acting_session(&state, &headers, repo.id, user_id).await?;
@@ -98,7 +101,7 @@ pub async fn reassign_task(
     State(state): State<AppState>,
     Path((owner, name, id)): Path<(String, String, String)>,
     headers: HeaderMap,
-    Json(body): Json<ReassignBody>,
+    CollabJson(body): CollabJson<ReassignBody>,
 ) -> Result<(StatusCode, Json<svc::TakeoverResult>), AppError> {
     let (repo, user_id) = require_collab_write(&state, &headers, &owner, &name).await?;
     let to = body.to_session_id.clone();

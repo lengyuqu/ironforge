@@ -9,10 +9,12 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use super::collab::{acting_session, commit_exists, require_collab_read, require_collab_write};
+use super::collab_json::CollabJson;
 use crate::error::AppError;
 use crate::AppState;
 
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct SendMessageRequest {
     /// Client-chosen idempotency key, unique per session (1–128 of `[A-Za-z0-9._:-]`).
     pub client_message_id: String,
@@ -74,6 +76,7 @@ pub struct MessageListResponse {
 }
 
 #[derive(Debug, Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct MessageListQuery {
     /// Return messages with `seq` greater than this (default 0).
     pub after_seq: Option<i64>,
@@ -99,7 +102,7 @@ pub async fn send_message(
     State(state): State<AppState>,
     Path((owner, name, id)): Path<(String, String, String)>,
     headers: HeaderMap,
-    Json(req): Json<SendMessageRequest>,
+    CollabJson(req): CollabJson<SendMessageRequest>,
 ) -> Result<(StatusCode, Json<MessageResponse>), AppError> {
     let (repo, user_id) = require_collab_write(&state, &headers, &owner, &name).await?;
     let author = acting_session(&state, &headers, repo.id, user_id).await?;
@@ -140,6 +143,7 @@ pub async fn send_message(
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct MarkReadRequest {
     /// Highest message `seq` the session has processed.
     pub last_read_seq: i64,
@@ -170,7 +174,7 @@ pub async fn mark_read(
     State(state): State<AppState>,
     Path((owner, name, id)): Path<(String, String, String)>,
     headers: HeaderMap,
-    Json(req): Json<MarkReadRequest>,
+    CollabJson(req): CollabJson<MarkReadRequest>,
 ) -> Result<Json<MarkReadResponse>, AppError> {
     let (repo, user_id) = require_collab_write(&state, &headers, &owner, &name).await?;
     let session = acting_session(&state, &headers, repo.id, user_id).await?;

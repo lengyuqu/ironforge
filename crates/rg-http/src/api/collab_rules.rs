@@ -15,6 +15,7 @@ use crate::error::AppError;
 use crate::AppState;
 
 #[derive(Debug, Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct RulesQuery {
     /// Branch, tag or commit; default `HEAD`. Resolved once to `resolved_commit`.
     pub r#ref: Option<String>,

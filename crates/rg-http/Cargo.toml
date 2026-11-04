@@ -52,3 +52,4 @@ socket2 = "0.5"
 jsonwebtoken = { workspace = true }
 tokio-tungstenite = "0.29"
 tracing-subscriber = { workspace = true }
+rg-mcp = { path = "../rg-mcp" }

@@ -318,6 +318,27 @@ pub const TOOL_NAMES: [&str; 40] = [
     "collab_remove_group_link",
 ];
 
+/// What a tool will send, for the REST/MCP contract test (`collab_contract`).
+#[cfg(test)]
+pub(crate) struct PlanView {
+    pub method: String,
+    pub path: String,
+    pub body: Option<Value>,
+}
+
+#[cfg(test)]
+pub(crate) fn plan_for_contract_test(
+    name: &str,
+    args: &Value,
+    own_session: Option<&str>,
+) -> Result<PlanView, ToolOutput> {
+    plan(name, args, own_session).map(|p| PlanView {
+        method: p.method.to_string(),
+        path: p.path,
+        body: p.body,
+    })
+}
+
 pub fn is_collab_tool(name: &str) -> bool {
     TOOL_NAMES.contains(&name)
 }
