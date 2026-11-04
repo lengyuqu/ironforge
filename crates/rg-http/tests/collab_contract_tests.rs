@@ -69,8 +69,12 @@ fn registered_collab_routes() -> BTreeMap<String, BTreeSet<String>> {
         }
         let segment = &after[..end];
         rest = &after[end..];
-        let Some(first_quote) = segment.find('"') else { continue };
-        let Some(len) = segment[first_quote + 1..].find('"') else { continue };
+        let Some(first_quote) = segment.find('"') else {
+            continue;
+        };
+        let Some(len) = segment[first_quote + 1..].find('"') else {
+            continue;
+        };
         let path = &segment[first_quote + 1..first_quote + 1 + len];
         if !path.contains("collaboration") {
             continue;
@@ -187,8 +191,15 @@ fn write_request_schemas_declare_that_unknown_fields_are_rejected() {
             checked += 1;
         }
     }
-    assert!(checked >= 10, "expected to inspect the write schemas, saw {checked}");
-    assert!(violations.is_empty(), "request schema violations:\n{}", violations.join("\n"));
+    assert!(
+        checked >= 10,
+        "expected to inspect the write schemas, saw {checked}"
+    );
+    assert!(
+        violations.is_empty(),
+        "request schema violations:\n{}",
+        violations.join("\n")
+    );
 }
 
 #[test]
@@ -226,18 +237,26 @@ fn every_mcp_tool_is_owned_by_a_capability_and_maps_to_a_rest_operation() {
         assert!(
             operations.contains(&key),
             "{}: {} {} is not a registered collaboration operation",
-            row.tool, row.method, path
+            row.tool,
+            row.method,
+            path
         );
 
         // The owning capability must contain that very operation.
-        let owner = registry::all().iter().find(|c| c.mcp_tools.contains(&row.tool)).unwrap();
+        let owner = registry::all()
+            .iter()
+            .find(|c| c.mcp_tools.contains(&row.tool))
+            .unwrap();
         assert!(
             owner
                 .routes
                 .iter()
                 .any(|r| r.method == row.method && normalize(r.path) == key.1),
             "{}: capability `{}` does not own {} {}",
-            row.tool, owner.name, row.method, path
+            row.tool,
+            owner.name,
+            row.method,
+            path
         );
 
         // OpenAPI: the real (un-normalized) path, parameters and body properties.
@@ -258,7 +277,10 @@ fn every_mcp_tool_is_owned_by_a_capability_and_maps_to_a_rest_operation() {
             .unwrap_or_default();
         for q in row.query {
             if !params.contains(*q) {
-                violations.push(format!("{}: query parameter `{q}` is not in OpenAPI for {rest} (has {params:?})", row.tool));
+                violations.push(format!(
+                    "{}: query parameter `{q}` is not in OpenAPI for {rest} (has {params:?})",
+                    row.tool
+                ));
             }
         }
         if row.body.is_empty() {
@@ -274,11 +296,18 @@ fn every_mcp_tool_is_owned_by_a_capability_and_maps_to_a_rest_operation() {
         let props = &doc["components"]["schemas"][top.as_str()]["properties"];
         for field in row.body {
             if props[*field].is_null() {
-                violations.push(format!("{}: body property `{field}` is not in request schema `{top}` of {} {rest}", row.tool, row.method));
+                violations.push(format!(
+                    "{}: body property `{field}` is not in request schema `{top}` of {} {rest}",
+                    row.tool, row.method
+                ));
             }
         }
     }
-    assert!(violations.is_empty(), "MCP/OpenAPI violations:\n{}", violations.join("\n"));
+    assert!(
+        violations.is_empty(),
+        "MCP/OpenAPI violations:\n{}",
+        violations.join("\n")
+    );
 }
 
 // ─────────────────────────── discovery over HTTP ───────────────────────────
@@ -291,7 +320,14 @@ async fn probe_methods_allowed(env: &Env, method: &str, path: &str) -> String {
     let path = path
         .replace("{owner}", &env.owner)
         .replace("{name}", &env.repo)
-        .replace("{id}", if path.starts_with("/admin") { "1" } else { UUID })
+        .replace(
+            "{id}",
+            if path.starts_with("/admin") {
+                "1"
+            } else {
+                UUID
+            },
+        )
         .replace("{depends_on_id}", UUID)
         .replace("{group_id}", UUID)
         .replace("{link_id}", UUID)
@@ -308,22 +344,44 @@ async fn probe_methods_allowed(env: &Env, method: &str, path: &str) -> String {
         "{method} {path} is advertised but the server has no route there (TRACE probe answered {})",
         resp.status()
     );
-    resp.headers().get("allow").map(|v| v.to_str().unwrap().to_string()).unwrap_or_default()
+    resp.headers()
+        .get("allow")
+        .map(|v| v.to_str().unwrap().to_string())
+        .unwrap_or_default()
 }
 
 #[tokio::test]
 async fn m11_capability_list_is_exactly_what_the_server_serves() {
     let env = Env::new().await;
-    let (status, body) = env.json(Method::GET, &instance_url(&env), &env.owner_token, None, None).await;
+    let (status, body) = env
+        .json(
+            Method::GET,
+            &instance_url(&env),
+            &env.owner_token,
+            None,
+            None,
+        )
+        .await;
     assert_eq!(status, 200, "{body}");
 
     assert_eq!(body["contract_version"], registry::contract_version());
-    assert!(body["contract_version"].as_str().unwrap().split('.').count() == 2);
+    assert!(
+        body["contract_version"]
+            .as_str()
+            .unwrap()
+            .split('.')
+            .count()
+            == 2
+    );
     assert!(!body["server_version"].as_str().unwrap().is_empty());
 
     // Names and versions are the registry, nothing invented, nothing omitted.
-    let advertised: BTreeSet<String> =
-        body["capabilities"].as_array().unwrap().iter().map(|c| c["name"].as_str().unwrap().to_string()).collect();
+    let advertised: BTreeSet<String> = body["capabilities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["name"].as_str().unwrap().to_string())
+        .collect();
     let expected: BTreeSet<String> = registry::all().iter().map(|c| c.name.to_string()).collect();
     assert_eq!(advertised, expected);
     for c in body["capabilities"].as_array().unwrap() {
@@ -339,9 +397,12 @@ async fn m11_capability_list_is_exactly_what_the_server_serves() {
         for route in cap.routes {
             let allow = probe_methods_allowed(&env, route.method, route.path).await;
             assert!(
-                allow.split(',').any(|m| m.trim().eq_ignore_ascii_case(route.method)),
+                allow
+                    .split(',')
+                    .any(|m| m.trim().eq_ignore_ascii_case(route.method)),
                 "{} {}: server allows `{allow}`",
-                route.method, route.path
+                route.method,
+                route.path
             );
             probed += 1;
         }
@@ -352,20 +413,43 @@ async fn m11_capability_list_is_exactly_what_the_server_serves() {
     assert_eq!(body["mcp_transport"]["transports"], json!(["stdio"]));
     assert_eq!(body["mcp_transport"]["tool_count"], TOOL_NAMES.len());
     assert_eq!(body["deprecations"], json!([]));
-    assert_eq!(body["limits"]["page_size_max"], rg_core::collaboration::MAX_LIMIT);
-    let modes: Vec<_> = body["auth_modes"].as_array().unwrap().iter().map(|m| m["name"].as_str().unwrap()).collect();
+    assert_eq!(
+        body["limits"]["page_size_max"],
+        rg_core::collaboration::MAX_LIMIT
+    );
+    let modes: Vec<_> = body["auth_modes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| m["name"].as_str().unwrap())
+        .collect();
     assert_eq!(modes, ["bearer_token", "session_credentials"]);
 }
 
 #[tokio::test]
 async fn m11_instance_discovery_needs_authentication_and_names_no_repository() {
     let env = Env::new().await;
-    let resp = reqwest::Client::new().get(instance_url(&env)).send().await.unwrap();
+    let resp = reqwest::Client::new()
+        .get(instance_url(&env))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 401);
 
-    let (_, body) = env.json(Method::GET, &instance_url(&env), &env.owner_token, None, None).await;
+    let (_, body) = env
+        .json(
+            Method::GET,
+            &instance_url(&env),
+            &env.owner_token,
+            None,
+            None,
+        )
+        .await;
     let text = body.to_string();
-    assert!(!text.contains(&env.owner) && !text.contains(&env.repo), "instance discovery must carry no repository data");
+    assert!(
+        !text.contains(&env.owner) && !text.contains(&env.repo),
+        "instance discovery must carry no repository data"
+    );
 }
 
 #[tokio::test]
@@ -379,26 +463,44 @@ async fn m11_repository_discovery_is_guarded_and_hides_private_repositories() {
     env.add_collaborator(writer_id, "write").await;
 
     // Unauthenticated.
-    assert_eq!(reqwest::Client::new().get(&url).send().await.unwrap().status(), 401);
+    assert_eq!(
+        reqwest::Client::new()
+            .get(&url)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        401
+    );
 
     // A stranger gets exactly what a missing repository gets.
     let (status, hidden) = env.json(Method::GET, &url, &stranger, None, None).await;
     let missing_url = env.url_in("no-such-repo", "/capabilities");
-    let (missing_status, missing) = env.json(Method::GET, &missing_url, &stranger, None, None).await;
+    let (missing_status, missing) = env
+        .json(Method::GET, &missing_url, &stranger, None, None)
+        .await;
     assert_eq!((status, missing_status), (404, 404));
     assert_eq!(hidden["error"]["code"], missing["error"]["code"]);
     assert_eq!(hidden["error"]["message"], missing["error"]["message"]);
 
     // Members see the contract plus their own access.
-    let (status, as_owner) = env.json(Method::GET, &url, &env.owner_token, None, None).await;
+    let (status, as_owner) = env
+        .json(Method::GET, &url, &env.owner_token, None, None)
+        .await;
     assert_eq!(status, 200, "{as_owner}");
     assert_eq!(as_owner["repo"], format!("{}/{}", env.owner, env.repo));
-    assert_eq!(as_owner["caller"], json!({"repo_collab_read": true, "repo_write": true}));
+    assert_eq!(
+        as_owner["caller"],
+        json!({"repo_collab_read": true, "repo_write": true})
+    );
     assert_eq!(as_owner["contract_version"], registry::contract_version());
 
     let (status, as_reader) = env.json(Method::GET, &url, &reader, None, None).await;
     assert_eq!(status, 200, "{as_reader}");
-    assert_eq!(as_reader["caller"], json!({"repo_collab_read": true, "repo_write": false}));
+    assert_eq!(
+        as_reader["caller"],
+        json!({"repo_collab_read": true, "repo_write": false})
+    );
     let (_, as_writer) = env.json(Method::GET, &url, &writer, None, None).await;
     assert_eq!(as_writer["caller"]["repo_write"], true);
 }
@@ -407,7 +509,15 @@ async fn m11_repository_discovery_is_guarded_and_hides_private_repositories() {
 async fn m11_public_repository_non_member_is_forbidden_not_hidden() {
     let env = Env::new().await;
     let (stranger, _) = env.user("stranger").await;
-    let (status, body) = env.json(Method::GET, &env.url("/capabilities"), &stranger, None, None).await;
+    let (status, body) = env
+        .json(
+            Method::GET,
+            &env.url("/capabilities"),
+            &stranger,
+            None,
+            None,
+        )
+        .await;
     assert_eq!(status, 403, "{body}");
 }
 
@@ -441,10 +551,21 @@ async fn m10_an_old_client_reads_responses_that_carry_newer_optional_fields() {
     let s = env.session(&env.owner_token, "A").await;
 
     // Capabilities: strict-minimum reader.
-    let resp = env.send(Method::GET, &instance_url(&env), Some(&env.owner_token), None, None).await;
+    let resp = env
+        .send(
+            Method::GET,
+            &instance_url(&env),
+            Some(&env.owner_token),
+            None,
+            None,
+        )
+        .await;
     let caps: OldClientCapabilities = resp.json().await.unwrap();
     assert_eq!(caps.contract_version, registry::contract_version());
-    assert!(caps.capabilities.iter().any(|c| c.name == "tasks" && c.status == "stable"));
+    assert!(caps
+        .capabilities
+        .iter()
+        .any(|c| c.name == "tasks" && c.status == "stable"));
 
     // A response with fields the old client never heard of still parses.
     let future = json!({
@@ -460,11 +581,20 @@ async fn m10_an_old_client_reads_responses_that_carry_newer_optional_fields() {
 
     // Real task payload: the old subset parses, extra fields are ignored.
     let (status, task) = env
-        .json(Method::POST, &env.url("/tasks"), &env.owner_token, Some(&s), Some(json!({"title": "t"})))
+        .json(
+            Method::POST,
+            &env.url("/tasks"),
+            &env.owner_token,
+            Some(&s),
+            Some(json!({"title": "t"})),
+        )
         .await;
     assert_eq!(status, 201, "{task}");
     let old: OldClientTask = serde_json::from_value(task.clone()).unwrap();
-    assert_eq!((old.title.as_str(), old.status.as_str(), old.version), ("t", "open", 1));
+    assert_eq!(
+        (old.title.as_str(), old.status.as_str(), old.version),
+        ("t", "open", 1)
+    );
     assert_eq!(old.id, task["id"]);
 }
 
@@ -473,7 +603,13 @@ async fn m10_unknown_safety_critical_enum_values_fail_closed() {
     let env = Env::new().await;
     let a = env.session(&env.owner_token, "A").await;
     let (_, task) = env
-        .json(Method::POST, &env.url("/tasks"), &env.owner_token, Some(&a), Some(json!({"title": "t"})))
+        .json(
+            Method::POST,
+            &env.url("/tasks"),
+            &env.owner_token,
+            Some(&a),
+            Some(json!({"title": "t"})),
+        )
         .await;
     let tid = task["id"].as_str().unwrap().to_string();
 
@@ -491,17 +627,52 @@ async fn m10_unknown_safety_critical_enum_values_fail_closed() {
     assert_eq!(body["error"]["code"], "UNKNOWN_ENUM_VALUE");
     assert_eq!(body["error"]["details"]["field"], "status");
     assert_eq!(body["error"]["details"]["value"], "completed");
-    assert!(body["error"]["details"]["allowed"].as_array().unwrap().contains(&json!("done")));
-    let (_, after) = env.json(Method::GET, &env.url(&format!("/tasks/{tid}")), &env.owner_token, None, None).await;
-    assert_eq!((after["status"].as_str(), after["version"].as_i64()), (Some("open"), Some(1)), "task unchanged");
+    assert!(body["error"]["details"]["allowed"]
+        .as_array()
+        .unwrap()
+        .contains(&json!("done")));
+    let (_, after) = env
+        .json(
+            Method::GET,
+            &env.url(&format!("/tasks/{tid}")),
+            &env.owner_token,
+            None,
+            None,
+        )
+        .await;
+    assert_eq!(
+        (after["status"].as_str(), after["version"].as_i64()),
+        (Some("open"), Some(1)),
+        "task unchanged"
+    );
 
     // Filters fail closed too, instead of silently listing everything.
-    let (status, body) = env.json(Method::GET, &env.url("/tasks?status=archived"), &env.owner_token, None, None).await;
-    assert_eq!((status, body["error"]["code"].as_str()), (400, Some("UNKNOWN_ENUM_VALUE")));
     let (status, body) = env
-        .json(Method::GET, &env.url(&format!("/tasks/{tid}/questions?status=expired")), &env.owner_token, None, None)
+        .json(
+            Method::GET,
+            &env.url("/tasks?status=archived"),
+            &env.owner_token,
+            None,
+            None,
+        )
         .await;
-    assert_eq!((status, body["error"]["code"].as_str()), (400, Some("UNKNOWN_ENUM_VALUE")));
+    assert_eq!(
+        (status, body["error"]["code"].as_str()),
+        (400, Some("UNKNOWN_ENUM_VALUE"))
+    );
+    let (status, body) = env
+        .json(
+            Method::GET,
+            &env.url(&format!("/tasks/{tid}/questions?status=expired")),
+            &env.owner_token,
+            None,
+            None,
+        )
+        .await;
+    assert_eq!(
+        (status, body["error"]["code"].as_str()),
+        (400, Some("UNKNOWN_ENUM_VALUE"))
+    );
 
     // An unknown recipient kind (authorization scope) creates no question.
     let (status, body) = env
@@ -517,8 +688,19 @@ async fn m10_unknown_safety_critical_enum_values_fail_closed() {
             })),
         )
         .await;
-    assert_eq!((status, body["error"]["code"].as_str()), (400, Some("UNKNOWN_ENUM_VALUE")));
-    let (_, list) = env.json(Method::GET, &env.url(&format!("/tasks/{tid}/questions")), &env.owner_token, None, None).await;
+    assert_eq!(
+        (status, body["error"]["code"].as_str()),
+        (400, Some("UNKNOWN_ENUM_VALUE"))
+    );
+    let (_, list) = env
+        .json(
+            Method::GET,
+            &env.url(&format!("/tasks/{tid}/questions")),
+            &env.owner_token,
+            None,
+            None,
+        )
+        .await;
     assert_eq!(list["items"].as_array().unwrap().len(), 0);
 }
 
@@ -528,7 +710,13 @@ async fn m10_a_stored_recipient_kind_from_a_newer_build_cannot_be_answered() {
     let env = Env::new().await;
     let a = env.session(&env.owner_token, "A").await;
     let (_, task) = env
-        .json(Method::POST, &env.url("/tasks"), &env.owner_token, Some(&a), Some(json!({"title": "t"})))
+        .json(
+            Method::POST,
+            &env.url("/tasks"),
+            &env.owner_token,
+            Some(&a),
+            Some(json!({"title": "t"})),
+        )
         .await;
     let tid = task["id"].as_str().unwrap();
     let (status, q) = env
@@ -566,18 +754,49 @@ async fn m10_a_stored_recipient_kind_from_a_newer_build_cannot_be_answered() {
         )
         .await;
     assert_eq!(status, 403, "an unknown recipient kind must deny: {body}");
-    let (_, after) = env.json(Method::GET, &env.url(&format!("/questions/{qid}")), &env.owner_token, None, None).await;
+    let (_, after) = env
+        .json(
+            Method::GET,
+            &env.url(&format!("/questions/{qid}")),
+            &env.owner_token,
+            None,
+            None,
+        )
+        .await;
     assert_eq!(after["status"], "open", "still open, not answered");
 }
 
 /// A body that is valid for the endpoint plus one field it does not define.
-async fn assert_unknown_field_rejected(env: &Env, method: Method, suffix: &str, session: Option<&Sess>, body: Value) {
+async fn assert_unknown_field_rejected(
+    env: &Env,
+    method: Method,
+    suffix: &str,
+    session: Option<&Sess>,
+    body: Value,
+) {
     let mut with_extra = body;
-    with_extra.as_object_mut().unwrap().insert("expected_versoin".into(), json!(1));
-    let (status, resp) = env.json(method.clone(), &env.url(suffix), &env.owner_token, session, Some(with_extra)).await;
+    with_extra
+        .as_object_mut()
+        .unwrap()
+        .insert("expected_versoin".into(), json!(1));
+    let (status, resp) = env
+        .json(
+            method.clone(),
+            &env.url(suffix),
+            &env.owner_token,
+            session,
+            Some(with_extra),
+        )
+        .await;
     assert_eq!(status, 400, "{method} {suffix}: {resp}");
-    assert_eq!(resp["error"]["code"], "UNKNOWN_FIELD", "{method} {suffix}: {resp}");
-    assert_eq!(resp["error"]["details"]["field"], "expected_versoin", "{method} {suffix}");
+    assert_eq!(
+        resp["error"]["code"], "UNKNOWN_FIELD",
+        "{method} {suffix}: {resp}"
+    );
+    assert_eq!(
+        resp["error"]["details"]["field"], "expected_versoin",
+        "{method} {suffix}"
+    );
 }
 
 #[tokio::test]
@@ -586,33 +805,93 @@ async fn m10_unknown_write_fields_are_rejected_by_every_write_endpoint() {
     let a = env.session(&env.owner_token, "A").await;
     let b = env.session(&env.owner_token, "B").await;
     let (_, task) = env
-        .json(Method::POST, &env.url("/tasks"), &env.owner_token, Some(&a), Some(json!({"title": "t"})))
+        .json(
+            Method::POST,
+            &env.url("/tasks"),
+            &env.owner_token,
+            Some(&a),
+            Some(json!({"title": "t"})),
+        )
         .await;
     let tid = task["id"].as_str().unwrap();
 
     // sessions
-    assert_unknown_field_rejected(&env, Method::POST, "/sessions", None, json!({"display_name": "x", "client_kind": "c"})).await;
+    assert_unknown_field_rejected(
+        &env,
+        Method::POST,
+        "/sessions",
+        None,
+        json!({"display_name": "x", "client_kind": "c"}),
+    )
+    .await;
     // tasks
-    assert_unknown_field_rejected(&env, Method::POST, "/tasks", Some(&a), json!({"title": "t2"})).await;
-    assert_unknown_field_rejected(&env, Method::PATCH, &format!("/tasks/{tid}"), Some(&a), json!({"expected_version": 1, "title": "n"})).await;
+    assert_unknown_field_rejected(
+        &env,
+        Method::POST,
+        "/tasks",
+        Some(&a),
+        json!({"title": "t2"}),
+    )
+    .await;
+    assert_unknown_field_rejected(
+        &env,
+        Method::PATCH,
+        &format!("/tasks/{tid}"),
+        Some(&a),
+        json!({"expected_version": 1, "title": "n"}),
+    )
+    .await;
     // messages
     assert_unknown_field_rejected(
-        &env, Method::POST, &format!("/tasks/{tid}/messages"), Some(&a),
+        &env,
+        Method::POST,
+        &format!("/tasks/{tid}/messages"),
+        Some(&a),
         json!({"client_message_id": "m1", "kind": "note", "body": "hi"}),
-    ).await;
-    assert_unknown_field_rejected(&env, Method::PUT, &format!("/tasks/{tid}/read"), Some(&a), json!({"last_read_seq": 0})).await;
+    )
+    .await;
+    assert_unknown_field_rejected(
+        &env,
+        Method::PUT,
+        &format!("/tasks/{tid}/read"),
+        Some(&a),
+        json!({"last_read_seq": 0}),
+    )
+    .await;
     // handoffs
     assert_unknown_field_rejected(
-        &env, Method::POST, &format!("/tasks/{tid}/handoffs"), Some(&a),
+        &env,
+        Method::POST,
+        &format!("/tasks/{tid}/handoffs"),
+        Some(&a),
         json!({"client_handoff_id": "h1", "to_session_id": b.id, "summary": "s"}),
-    ).await;
-    assert_unknown_field_rejected(&env, Method::POST, &format!("/handoffs/{UUID}/accept"), Some(&b), json!({"expected_version": 1})).await;
-    assert_unknown_field_rejected(&env, Method::POST, &format!("/handoffs/{UUID}/cancel"), Some(&a), json!({"expected_version": 1})).await;
+    )
+    .await;
+    assert_unknown_field_rejected(
+        &env,
+        Method::POST,
+        &format!("/handoffs/{UUID}/accept"),
+        Some(&b),
+        json!({"expected_version": 1}),
+    )
+    .await;
+    assert_unknown_field_rejected(
+        &env,
+        Method::POST,
+        &format!("/handoffs/{UUID}/cancel"),
+        Some(&a),
+        json!({"expected_version": 1}),
+    )
+    .await;
     // takeovers
     assert_unknown_field_rejected(
-        &env, Method::POST, &format!("/tasks/{tid}/takeovers"), Some(&b),
+        &env,
+        Method::POST,
+        &format!("/tasks/{tid}/takeovers"),
+        Some(&b),
         json!({"client_takeover_id": "t1", "expected_task_version": 1, "reason": "r"}),
-    ).await;
+    )
+    .await;
     assert_unknown_field_rejected(
         &env, Method::POST, &format!("/tasks/{tid}/reassign"), None,
         json!({"client_takeover_id": "r1", "expected_task_version": 1, "to_session_id": b.id, "reason": "r"}),
@@ -626,42 +905,123 @@ async fn m10_unknown_write_fields_are_rejected_by_every_write_endpoint() {
         &env, Method::POST, &format!("/questions/{UUID}/answer"), None,
         json!({"client_answer_id": "a1", "expected_version": 1, "body": "b", "acknowledged_context_hash": "h"}),
     ).await;
-    assert_unknown_field_rejected(&env, Method::POST, &format!("/questions/{UUID}/cancel"), None, json!({"expected_version": 1})).await;
+    assert_unknown_field_rejected(
+        &env,
+        Method::POST,
+        &format!("/questions/{UUID}/cancel"),
+        None,
+        json!({"expected_version": 1}),
+    )
+    .await;
     // work packages
     assert_unknown_field_rejected(
-        &env, Method::POST, &format!("/tasks/{tid}/work-packages"), None,
+        &env,
+        Method::POST,
+        &format!("/tasks/{tid}/work-packages"),
+        None,
         json!({"client_package_id": "w1", "goal": "g"}),
-    ).await;
+    )
+    .await;
 }
 
 #[tokio::test]
 async fn m10_new_write_schemas_reject_unknown_fields_over_http() {
     let env = Env::new().await;
     let session = env.session(&env.owner_token, "A").await;
-    let (_, task) = env.json(Method::POST, &env.url("/tasks"), &env.owner_token, Some(&session), Some(json!({"title": "t"}))).await;
+    let (_, task) = env
+        .json(
+            Method::POST,
+            &env.url("/tasks"),
+            &env.owner_token,
+            Some(&session),
+            Some(json!({"title": "t"})),
+        )
+        .await;
     let tid = task["id"].as_str().unwrap();
     let template = json!({"client_template_id":"x", "name":"n", "title_pattern":"t", "goal":"g"});
     for (method, path, body) in [
-        (Method::POST, format!("/tasks/{tid}/dependencies"), json!({"client_request_id":"x", "depends_on_task_id":UUID, "expected_graph_version":0})),
-        (Method::DELETE, format!("/tasks/{tid}/dependencies/{UUID}"), json!({"client_request_id":"x", "expected_graph_version":0})),
-        (Method::DELETE, format!("/groups/{UUID}/links/{UUID}"), json!({"client_request_id":"x", "expected_group_version":1})),
-        (Method::POST, format!("/tasks/{tid}/decisions"), json!({"client_decision_id":"x", "title":"t", "rationale":"r"})),
+        (
+            Method::POST,
+            format!("/tasks/{tid}/dependencies"),
+            json!({"client_request_id":"x", "depends_on_task_id":UUID, "expected_graph_version":0}),
+        ),
+        (
+            Method::DELETE,
+            format!("/tasks/{tid}/dependencies/{UUID}"),
+            json!({"client_request_id":"x", "expected_graph_version":0}),
+        ),
+        (
+            Method::DELETE,
+            format!("/groups/{UUID}/links/{UUID}"),
+            json!({"client_request_id":"x", "expected_group_version":1}),
+        ),
+        (
+            Method::POST,
+            format!("/tasks/{tid}/decisions"),
+            json!({"client_decision_id":"x", "title":"t", "rationale":"r"}),
+        ),
         (Method::POST, "/templates".into(), template),
-        (Method::POST, format!("/templates/{UUID}/versions"), json!({"client_version_id":"x", "expected_version":1, "title_pattern":"t", "goal":"g"})),
-        (Method::PUT, format!("/sessions/{}/declaration", session.id), json!({"expected_version":0})),
-        (Method::PUT, format!("/tasks/{tid}/budgets"), json!({"expected_version":0,"unit":"USD","source":"invoice","amount":"1","sampling_period":"day"})),
-        (Method::POST, "/groups".into(), json!({"client_request_id":"x","title":"t"})),
-        (Method::PUT, "/escalation-settings".into(), json!({"expected_version":0,"enabled":false,"blocked_after_secs":3600,"question_after_secs":3600,"handoff_after_secs":3600,"repeat_after_secs":0})),
+        (
+            Method::POST,
+            format!("/templates/{UUID}/versions"),
+            json!({"client_version_id":"x", "expected_version":1, "title_pattern":"t", "goal":"g"}),
+        ),
+        (
+            Method::PUT,
+            format!("/sessions/{}/declaration", session.id),
+            json!({"expected_version":0}),
+        ),
+        (
+            Method::PUT,
+            format!("/tasks/{tid}/budgets"),
+            json!({"expected_version":0,"unit":"USD","source":"invoice","amount":"1","sampling_period":"day"}),
+        ),
+        (
+            Method::POST,
+            "/groups".into(),
+            json!({"client_request_id":"x","title":"t"}),
+        ),
+        (
+            Method::PUT,
+            "/escalation-settings".into(),
+            json!({"expected_version":0,"enabled":false,"blocked_after_secs":3600,"question_after_secs":3600,"handoff_after_secs":3600,"repeat_after_secs":0}),
+        ),
     ] {
         assert_unknown_field_rejected(&env, method, &path, Some(&session), body).await;
     }
     for (path, body) in [
-        ("/templates".to_string(), json!({"client_template_id":"x","name":"n","title_pattern":"t","goal":"g","checklist":[{"text":"t","unexpected":true}]})),
-        ("/escalation-settings".to_string(), json!({"expected_version":0,"enabled":false,"blocked_after_secs":3600,"question_after_secs":3600,"handoff_after_secs":3600,"repeat_after_secs":0,"quiet_hours":{"start_minute":10,"end_minute":20,"unexpected":true}})),
+        (
+            "/templates".to_string(),
+            json!({"client_template_id":"x","name":"n","title_pattern":"t","goal":"g","checklist":[{"text":"t","unexpected":true}]}),
+        ),
+        (
+            "/escalation-settings".to_string(),
+            json!({"expected_version":0,"enabled":false,"blocked_after_secs":3600,"question_after_secs":3600,"handoff_after_secs":3600,"repeat_after_secs":0,"quiet_hours":{"start_minute":10,"end_minute":20,"unexpected":true}}),
+        ),
     ] {
-        let method = if path == "/templates" { Method::POST } else { Method::PUT };
-        let (status, resp) = env.json(method, &env.url(&path), &env.owner_token, Some(&session), Some(body)).await;
-        assert_eq!((status, resp["error"]["code"].as_str(), resp["error"]["details"]["field"].as_str()), (400, Some("UNKNOWN_FIELD"), Some("unexpected")), "{path}: {resp}");
+        let method = if path == "/templates" {
+            Method::POST
+        } else {
+            Method::PUT
+        };
+        let (status, resp) = env
+            .json(
+                method,
+                &env.url(&path),
+                &env.owner_token,
+                Some(&session),
+                Some(body),
+            )
+            .await;
+        assert_eq!(
+            (
+                status,
+                resp["error"]["code"].as_str(),
+                resp["error"]["details"]["field"].as_str()
+            ),
+            (400, Some("UNKNOWN_FIELD"), Some("unexpected")),
+            "{path}: {resp}"
+        );
     }
 }
 
@@ -670,7 +1030,13 @@ async fn m10_unknown_nested_fields_are_rejected_too() {
     let env = Env::new().await;
     let a = env.session(&env.owner_token, "A").await;
     let (_, task) = env
-        .json(Method::POST, &env.url("/tasks"), &env.owner_token, Some(&a), Some(json!({"title": "t"})))
+        .json(
+            Method::POST,
+            &env.url("/tasks"),
+            &env.owner_token,
+            Some(&a),
+            Some(json!({"title": "t"})),
+        )
         .await;
     let tid = task["id"].as_str().unwrap();
     let (status, resp) = env
@@ -685,7 +1051,11 @@ async fn m10_unknown_nested_fields_are_rejected_too() {
             })),
         )
         .await;
-    assert_eq!((status, resp["error"]["code"].as_str()), (400, Some("UNKNOWN_FIELD")), "{resp}");
+    assert_eq!(
+        (status, resp["error"]["code"].as_str()),
+        (400, Some("UNKNOWN_FIELD")),
+        "{resp}"
+    );
     assert_eq!(resp["error"]["details"]["field"], "admins_only");
 }
 
@@ -694,7 +1064,13 @@ async fn m10_a_rejected_request_has_no_effect_and_the_same_body_without_the_typo
     let env = Env::new().await;
     let a = env.session(&env.owner_token, "A").await;
     let (_, task) = env
-        .json(Method::POST, &env.url("/tasks"), &env.owner_token, Some(&a), Some(json!({"title": "t"})))
+        .json(
+            Method::POST,
+            &env.url("/tasks"),
+            &env.owner_token,
+            Some(&a),
+            Some(json!({"title": "t"})),
+        )
         .await;
     let tid = task["id"].as_str().unwrap();
 
@@ -709,8 +1085,19 @@ async fn m10_a_rejected_request_has_no_effect_and_the_same_body_without_the_typo
         )
         .await;
     assert_eq!(status, 400, "{resp}");
-    let (_, unchanged) = env.json(Method::GET, &env.url(&format!("/tasks/{tid}")), &env.owner_token, None, None).await;
-    assert_eq!((unchanged["status"].as_str(), unchanged["version"].as_i64()), (Some("open"), Some(1)));
+    let (_, unchanged) = env
+        .json(
+            Method::GET,
+            &env.url(&format!("/tasks/{tid}")),
+            &env.owner_token,
+            None,
+            None,
+        )
+        .await;
+    assert_eq!(
+        (unchanged["status"].as_str(), unchanged["version"].as_i64()),
+        (Some("open"), Some(1))
+    );
 
     let (status, resp) = env
         .json(
@@ -725,14 +1112,38 @@ async fn m10_a_rejected_request_has_no_effect_and_the_same_body_without_the_typo
     assert_eq!(resp["status"], "done");
 
     // A rejected create makes no object: sessions before/after.
-    let (_, before) = env.json(Method::GET, &env.url("/sessions"), &env.owner_token, None, None).await;
+    let (_, before) = env
+        .json(
+            Method::GET,
+            &env.url("/sessions"),
+            &env.owner_token,
+            None,
+            None,
+        )
+        .await;
     let (status, _) = env
-        .json(Method::POST, &env.url("/sessions"), &env.owner_token, None,
-              Some(json!({"display_name": "n", "client_kind": "c", "color": "red"})))
+        .json(
+            Method::POST,
+            &env.url("/sessions"),
+            &env.owner_token,
+            None,
+            Some(json!({"display_name": "n", "client_kind": "c", "color": "red"})),
+        )
         .await;
     assert_eq!(status, 400);
-    let (_, after) = env.json(Method::GET, &env.url("/sessions"), &env.owner_token, None, None).await;
-    assert_eq!(before["items"].as_array().unwrap().len(), after["items"].as_array().unwrap().len());
+    let (_, after) = env
+        .json(
+            Method::GET,
+            &env.url("/sessions"),
+            &env.owner_token,
+            None,
+            None,
+        )
+        .await;
+    assert_eq!(
+        before["items"].as_array().unwrap().len(),
+        after["items"].as_array().unwrap().len()
+    );
 }
 
 #[tokio::test]
@@ -753,15 +1164,24 @@ async fn m10_malformed_bodies_are_clean_400s_not_422() {
 
     let resp = post("{not json").await.unwrap();
     assert_eq!(resp.status(), 400);
-    assert_eq!(resp.json::<Value>().await.unwrap()["error"]["code"], "INVALID_JSON");
+    assert_eq!(
+        resp.json::<Value>().await.unwrap()["error"]["code"],
+        "INVALID_JSON"
+    );
 
     let resp = post("{}").await.unwrap();
     assert_eq!(resp.status(), 400);
     let body = resp.json::<Value>().await.unwrap();
     assert_eq!(body["error"]["code"], "INVALID_REQUEST_BODY");
-    assert!(body["error"]["message"].as_str().unwrap().contains("title"), "{body}");
+    assert!(
+        body["error"]["message"].as_str().unwrap().contains("title"),
+        "{body}"
+    );
 
     let resp = post(r#"{"title": 5}"#).await.unwrap();
     assert_eq!(resp.status(), 400);
-    assert_eq!(resp.json::<Value>().await.unwrap()["error"]["code"], "INVALID_REQUEST_BODY");
+    assert_eq!(
+        resp.json::<Value>().await.unwrap()["error"]["code"],
+        "INVALID_REQUEST_BODY"
+    );
 }

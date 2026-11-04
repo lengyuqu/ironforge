@@ -10,10 +10,11 @@ use sea_orm::sea_query::Expr;
 use sea_orm::*;
 
 use crate::entities::collab_handoff::{self, Entity as HandoffEntity};
-use crate::entities::collab_metric_event::{self, ActiveModel, Entity as EventEntity, Model as Event};
+use crate::entities::collab_metric_event::{
+    self, ActiveModel, Entity as EventEntity, Model as Event,
+};
 use crate::entities::collab_question::{self, Entity as QuestionEntity};
 use crate::entities::collab_task::{self, Entity as TaskEntity};
-
 
 /// Values of `event_type`.
 pub mod event_type {
@@ -237,15 +238,19 @@ pub struct BaselineCounts {
     pub questions: u64,
 }
 
-async fn has_event_for_task<C: ConnectionTrait>(db: &C, repo_id: i64, task_id: &str) -> Result<bool> {
+async fn has_event_for_task<C: ConnectionTrait>(
+    db: &C,
+    repo_id: i64,
+    task_id: &str,
+) -> Result<bool> {
     Ok(EventEntity::find()
         .filter(collab_metric_event::Column::RepoId.eq(repo_id))
         .filter(collab_metric_event::Column::TaskId.eq(task_id))
         .filter(collab_metric_event::Column::SourceType.ne(source_type::BASELINE))
-        .filter(collab_metric_event::Column::EventType.is_in([
-            event_type::TASK_CREATED,
-            event_type::TASK_STATUS_CHANGED,
-        ]))
+        .filter(
+            collab_metric_event::Column::EventType
+                .is_in([event_type::TASK_CREATED, event_type::TASK_STATUS_CHANGED]),
+        )
         .one(db)
         .await
         .context("db: task event lookup")?
@@ -305,13 +310,19 @@ pub async fn take_baseline(
     for id in task_ids {
         let txn = db.begin().await.context("db: begin task baseline")?;
         TaskEntity::update_many()
-            .col_expr(collab_task::Column::UpdatedAt, Expr::col(collab_task::Column::UpdatedAt).into())
+            .col_expr(
+                collab_task::Column::UpdatedAt,
+                Expr::col(collab_task::Column::UpdatedAt).into(),
+            )
             .filter(collab_task::Column::Id.eq(id.as_str()))
             .filter(collab_task::Column::RepoId.eq(repo_id))
             .exec(&txn)
             .await
             .context("db: lock task for baseline")?;
-        let task = TaskEntity::find_by_id(id.clone()).one(&txn).await.context("db: baseline task")?;
+        let task = TaskEntity::find_by_id(id.clone())
+            .one(&txn)
+            .await
+            .context("db: baseline task")?;
         if let Some(task) = task {
             if !has_event_for_task(&txn, repo_id, &task.id).await? {
                 record(
@@ -347,7 +358,10 @@ pub async fn take_baseline(
     for id in handoff_ids {
         let txn = db.begin().await.context("db: begin handoff baseline")?;
         HandoffEntity::update_many()
-            .col_expr(collab_handoff::Column::Version, Expr::col(collab_handoff::Column::Version).into())
+            .col_expr(
+                collab_handoff::Column::Version,
+                Expr::col(collab_handoff::Column::Version).into(),
+            )
             .filter(collab_handoff::Column::Id.eq(id.as_str()))
             .filter(collab_handoff::Column::RepoId.eq(repo_id))
             .exec(&txn)
@@ -392,7 +406,10 @@ pub async fn take_baseline(
     for id in question_ids {
         let txn = db.begin().await.context("db: begin question baseline")?;
         QuestionEntity::update_many()
-            .col_expr(collab_question::Column::Version, Expr::col(collab_question::Column::Version).into())
+            .col_expr(
+                collab_question::Column::Version,
+                Expr::col(collab_question::Column::Version).into(),
+            )
             .filter(collab_question::Column::Id.eq(id.as_str()))
             .filter(collab_question::Column::RepoId.eq(repo_id))
             .exec(&txn)

@@ -119,7 +119,12 @@ async fn apply(
     mover: &Mover<'_>,
     now: DateTime<Utc>,
 ) -> CollabResult<TakeoverResult> {
-    let Mover { actor_kind, actor_id, outcome, to_session_id } = *mover;
+    let Mover {
+        actor_kind,
+        actor_id,
+        outcome,
+        to_session_id,
+    } = *mover;
     let hash = payload_hash(task_id, outcome, to_session_id, req);
     let takeover_id = uuid::Uuid::new_v4().to_string();
     // The session the task moved away from learns of it, unless it caused the
@@ -251,7 +256,9 @@ pub async fn claim(
         return Ok(replay);
     }
     if current.owner_session_id.as_deref() == Some(session.id.as_str()) {
-        return Err(CollabError::bad_request("the session already owns this task"));
+        return Err(CollabError::bad_request(
+            "the session already owns this task",
+        ));
     }
     if current.status == "done" {
         return Err(CollabError::coded_conflict(
@@ -304,7 +311,9 @@ pub async fn reassign(
     }
     task::require_live_owner(db, repo_id, to_session_id, now).await?;
     if current.owner_session_id.as_deref() == Some(to_session_id) {
-        return Err(CollabError::bad_request("the session already owns this task"));
+        return Err(CollabError::bad_request(
+            "the session already owns this task",
+        ));
     }
     apply(db, repo_id, &current.id, &req, &mover, now).await
 }

@@ -8,9 +8,9 @@
 
 use chrono::{DateTime, Utc};
 use rg_db::entities::{collab_answer, collab_question, collab_task};
+use rg_db::ops::agent_session_ops;
 use rg_db::ops::collab_question_ops::{self, status, AnswerOutcome, CreateOutcome};
 use rg_db::ops::collab_task_ops::CasOutcome;
-use rg_db::ops::agent_session_ops;
 use sea_orm::{DatabaseConnection, Set};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -209,7 +209,10 @@ async fn validate_recipient(
             "recipient.id must be a user id for recipient.kind=user",
         )),
         (RECIPIENT_SESSION, Some(id)) if validation::is_uuid(id) => {
-            if agent_session_ops::find_in_repo(db, repo_id, id).await?.is_some() {
+            if agent_session_ops::find_in_repo(db, repo_id, id)
+                .await?
+                .is_some()
+            {
                 Ok(())
             } else {
                 Err(CollabError::bad_request(
@@ -264,17 +267,33 @@ pub async fn create(
     }
     let context = Context {
         task_version: task.version,
-        base_sha: input.base_sha.as_deref().map(normalize_commit_sha).transpose()?,
-        head_sha: input.head_sha.as_deref().map(normalize_commit_sha).transpose()?,
+        base_sha: input
+            .base_sha
+            .as_deref()
+            .map(normalize_commit_sha)
+            .transpose()?,
+        head_sha: input
+            .head_sha
+            .as_deref()
+            .map(normalize_commit_sha)
+            .transpose()?,
     };
     let options: Vec<OptionView> = labels
         .into_iter()
         .enumerate()
-        .map(|(i, label)| OptionView { id: format!("o{}", i + 1), label })
+        .map(|(i, label)| OptionView {
+            id: format!("o{}", i + 1),
+            label,
+        })
         .collect();
-    let options_json = serde_json::to_string(&options).map_err(|e| CollabError::Internal(e.into()))?;
-    let context_json = serde_json::to_string(&context).map_err(|e| CollabError::Internal(e.into()))?;
-    let normalized = NewQuestion { title: title.clone(), ..input.clone() };
+    let options_json =
+        serde_json::to_string(&options).map_err(|e| CollabError::Internal(e.into()))?;
+    let context_json =
+        serde_json::to_string(&context).map_err(|e| CollabError::Internal(e.into()))?;
+    let normalized = NewQuestion {
+        title: title.clone(),
+        ..input.clone()
+    };
     let hash = payload_hash(&task.id, &normalized, &context);
 
     let question_id = uuid::Uuid::new_v4().to_string();
@@ -328,10 +347,14 @@ pub async fn create(
     )
     .await?;
     match outcome {
-        CreateOutcome::Created(row) => Ok(Created { question: view(row), replayed: false }),
-        CreateOutcome::Existing(row) if row.payload_hash == hash => {
-            Ok(Created { question: view(row), replayed: true })
-        }
+        CreateOutcome::Created(row) => Ok(Created {
+            question: view(row),
+            replayed: false,
+        }),
+        CreateOutcome::Existing(row) if row.payload_hash == hash => Ok(Created {
+            question: view(row),
+            replayed: true,
+        }),
         CreateOutcome::Existing(_) => Err(CollabError::IdempotencyKeyReused),
     }
 }
@@ -397,14 +420,18 @@ pub async fn list(
         .transpose()?
         .map(|p| (p.at, p.id));
     let mut rows =
-        collab_question_ops::list_page(db, repo_id, &task.id, status_filter, after, limit + 1).await?;
+        collab_question_ops::list_page(db, repo_id, &task.id, status_filter, after, limit + 1)
+            .await?;
     let has_more = rows.len() as u64 > limit;
     rows.truncate(limit as usize);
     let next_cursor = has_more.then(|| rows.last()).flatten().map(|last| {
         cursor::encode(
             cursor_key,
             &scope,
-            &KeysetPosition { at: last.created_at, id: last.id.clone() },
+            &KeysetPosition {
+                at: last.created_at,
+                id: last.id.clone(),
+            },
         )
     });
     Ok(Page {
@@ -420,7 +447,8 @@ pub fn may_answer(question: &collab_question::Model, actor: &Actor) -> bool {
     match Known::<RecipientKind>::parse(&question.recipient_kind) {
         Known::Known(RecipientKind::RepoWriters) => true,
         Known::Known(kind) => {
-            question.recipient_id.as_deref() == Some(actor.id.as_str()) && kind.as_wire() == actor.kind
+            question.recipient_id.as_deref() == Some(actor.id.as_str())
+                && kind.as_wire() == actor.kind
         }
         Known::Unknown(_) => false,
     }
@@ -466,7 +494,10 @@ pub async fn answer(
         if existing.client_answer_id == input.client_answer_id {
             if existing.payload_hash == hash {
                 let full = get(db, repo_id, &question.id, |_| None).await?;
-                return Ok(Answered { question: full, replayed: true });
+                return Ok(Answered {
+                    question: full,
+                    replayed: true,
+                });
             }
             return Err(CollabError::IdempotencyKeyReused);
         }
@@ -481,10 +512,14 @@ pub async fn answer(
             return Err(CollabError::bad_request("this question has no options"));
         }
         (Some(id), false) if !options.iter().any(|o| &o.id == id) => {
-            return Err(CollabError::bad_request("option_id is not one of the question's options"));
+            return Err(CollabError::bad_request(
+                "option_id is not one of the question's options",
+            ));
         }
         (None, false) => {
-            return Err(CollabError::bad_request("option_id is required for this question"));
+            return Err(CollabError::bad_request(
+                "option_id is required for this question",
+            ));
         }
         (None, true) if input.body.trim().is_empty() => {
             return Err(CollabError::bad_request("body must not be empty"));
@@ -565,7 +600,10 @@ pub async fn answer(
             let mut out = view(question);
             out.answer = Some(answer_view(answer));
             out.context_freshness = Some(verdict);
-            Ok(Answered { question: out, replayed: false })
+            Ok(Answered {
+                question: out,
+                replayed: false,
+            })
         }
         AnswerOutcome::Conflict { current } if current.status != status::OPEN => {
             Err(not_open(&current.status, current.version))
@@ -578,8 +616,11 @@ pub async fn answer(
 }
 
 fn not_open(current_status: &str, version: i64) -> CollabError {
-    CollabError::coded_conflict("QUESTION_NOT_OPEN", format!("question is already {current_status}"))
-        .with_details(serde_json::json!({ "status": current_status, "current_version": version }))
+    CollabError::coded_conflict(
+        "QUESTION_NOT_OPEN",
+        format!("question is already {current_status}"),
+    )
+    .with_details(serde_json::json!({ "status": current_status, "current_version": version }))
 }
 
 /// Cancel an open question; only its creator may.

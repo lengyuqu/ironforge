@@ -23,7 +23,9 @@ pub async fn mark(
     now: DateTime<Utc>,
 ) -> CollabResult<i64> {
     if last_read_seq < 0 {
-        return Err(CollabError::bad_request("last_read_seq must not be negative"));
+        return Err(CollabError::bad_request(
+            "last_read_seq must not be negative",
+        ));
     }
     let task = task::find(db, repo_id, task_id).await?;
     match collab_read_ops::advance(db, repo_id, &task.id, &session.id, last_read_seq, now).await? {

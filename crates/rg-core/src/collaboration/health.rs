@@ -102,7 +102,10 @@ pub fn parse_metrics(raw: Option<&str>) -> CollabResult<Vec<&'static str>> {
     let mut wanted = Vec::new();
     for part in raw.split(',').map(str::trim) {
         let id = METRICS.iter().find(|m| **m == part).ok_or_else(|| {
-            CollabError::bad_request(format!("unknown metric `{part}`; known: {}", METRICS.join(", ")))
+            CollabError::bad_request(format!(
+                "unknown metric `{part}`; known: {}",
+                METRICS.join(", ")
+            ))
         })?;
         if !wanted.contains(id) {
             wanted.push(*id);
@@ -128,7 +131,11 @@ pub struct Facts {
     pub questions: Vec<(String, String, DateTime<Utc>, String)>,
 }
 
-async fn load_facts(db: &DatabaseConnection, repo_id: i64, to: DateTime<Utc>) -> CollabResult<Facts> {
+async fn load_facts(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    to: DateTime<Utc>,
+) -> CollabResult<Facts> {
     let coverage_start = ops::first_occurred_at(db, repo_id).await?;
     let events = ops::load_before(db, repo_id, to).await?.ok_or_else(|| {
         CollabError::coded_conflict(
@@ -216,7 +223,10 @@ struct Segment {
 }
 
 fn is_status_event(kind: &str) -> bool {
-    matches!(kind, et::TASK_CREATED | et::TASK_STATUS_CHANGED | et::TASK_STATUS_OBSERVED)
+    matches!(
+        kind,
+        et::TASK_CREATED | et::TASK_STATUS_CHANGED | et::TASK_STATUS_OBSERVED
+    )
 }
 
 /// Segments of one task's status, or `Err(())` if its events contradict.
@@ -270,7 +280,12 @@ fn build_timeline(events: &[&Event], coverage_start: DateTime<Utc>) -> Result<Ve
     Ok(segments)
 }
 
-fn overlap_ms(start: DateTime<Utc>, end: DateTime<Utc>, from: DateTime<Utc>, to: DateTime<Utc>) -> i64 {
+fn overlap_ms(
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+    from: DateTime<Utc>,
+    to: DateTime<Utc>,
+) -> i64 {
     (end.min(to) - start.max(from)).num_milliseconds().max(0)
 }
 
@@ -289,7 +304,11 @@ struct Life<'a> {
     end: Option<&'a Event>,
 }
 
-fn lives<'a>(events: &'a [Event], start_types: &[&str], end_types: &[&str]) -> BTreeMap<&'a str, Life<'a>> {
+fn lives<'a>(
+    events: &'a [Event],
+    start_types: &[&str],
+    end_types: &[&str],
+) -> BTreeMap<&'a str, Life<'a>> {
     let mut out: BTreeMap<&str, Life> = BTreeMap::new();
     for event in events {
         let is_start = start_types.contains(&event.event_type.as_str());
@@ -326,8 +345,10 @@ fn is_partial(metrics: &[MetricResult]) -> bool {
 pub fn compute(window: &Window, facts: &Facts, api_base: &str) -> Computed {
     let Window { from, to } = *window;
     let mut quality = DataQuality::default();
-    let mut per_task: BTreeMap<&'static str, BTreeMap<String, Value>> =
-        DRILL_METRICS.iter().map(|m| (*m, BTreeMap::new())).collect();
+    let mut per_task: BTreeMap<&'static str, BTreeMap<String, Value>> = DRILL_METRICS
+        .iter()
+        .map(|m| (*m, BTreeMap::new()))
+        .collect();
 
     let covered = facts.coverage_start.filter(|c| *c < to);
     let link = |metric: &'static str| DrillLink {
@@ -338,17 +359,18 @@ pub fn compute(window: &Window, facts: &Facts, api_base: &str) -> Computed {
             ts(to)
         ),
     };
-    let unknown_metric = |id: &'static str, source: &'static str, reason: &'static str| MetricResult {
-        id,
-        definition_version: METRIC_VERSION,
-        source,
-        timing_source: "platform_event",
-        status: "unknown",
-        value: None,
-        reason: Some(reason),
-        notes: Vec::new(),
-        drill_down: Vec::new(),
-    };
+    let unknown_metric =
+        |id: &'static str, source: &'static str, reason: &'static str| MetricResult {
+            id,
+            definition_version: METRIC_VERSION,
+            source,
+            timing_source: "platform_event",
+            status: "unknown",
+            value: None,
+            reason: Some(reason),
+            notes: Vec::new(),
+            drill_down: Vec::new(),
+        };
     let stale_paths = unknown_metric(
         METRIC_STALE_PATH_CLAIMS,
         ORIGIN_USER_CONTENT,
@@ -377,15 +399,26 @@ pub fn compute(window: &Window, facts: &Facts, api_base: &str) -> Computed {
 
     // ---- task status timelines
     let mut by_task: BTreeMap<&str, Vec<&Event>> = BTreeMap::new();
-    for event in facts.events.iter().filter(|e| is_status_event(&e.event_type)) {
-        by_task.entry(event.task_id.as_str()).or_default().push(event);
+    for event in facts
+        .events
+        .iter()
+        .filter(|e| is_status_event(&e.event_type))
+    {
+        by_task
+            .entry(event.task_id.as_str())
+            .or_default()
+            .push(event);
     }
     let mut timelines: BTreeMap<&str, Vec<Segment>> = BTreeMap::new();
     // Times at which a task entered `blocked` from another state.
     let mut entries_by_task: BTreeMap<&str, Vec<DateTime<Utc>>> = BTreeMap::new();
     for (task_id, mut evs) in by_task {
         evs.sort_by(|a, b| {
-            (a.occurred_at, a.task_version.unwrap_or(0), &a.id).cmp(&(b.occurred_at, b.task_version.unwrap_or(0), &b.id))
+            (a.occurred_at, a.task_version.unwrap_or(0), &a.id).cmp(&(
+                b.occurred_at,
+                b.task_version.unwrap_or(0),
+                &b.id,
+            ))
         });
         match build_timeline(&evs, coverage_start) {
             Ok(segments) if !segments.is_empty() => {
@@ -409,12 +442,17 @@ pub fn compute(window: &Window, facts: &Facts, api_base: &str) -> Computed {
                 per_task
                     .get_mut(DRILL_UNKNOWN_STATE)
                     .expect("drill map")
-                    .insert(task_id.to_string(), json!({"reason": "INCONSISTENT_EVENTS"}));
+                    .insert(
+                        task_id.to_string(),
+                        json!({"reason": "INCONSISTENT_EVENTS"}),
+                    );
             }
         }
     }
     for (task_id, _) in &facts.tasks {
-        if !timelines.contains_key(task_id.as_str()) && !per_task[DRILL_UNKNOWN_STATE].contains_key(task_id) {
+        if !timelines.contains_key(task_id.as_str())
+            && !per_task[DRILL_UNKNOWN_STATE].contains_key(task_id)
+        {
             quality.unknown_state_tasks += 1;
             per_task
                 .get_mut(DRILL_UNKNOWN_STATE)
@@ -434,16 +472,20 @@ pub fn compute(window: &Window, facts: &Facts, api_base: &str) -> Computed {
     for (task_id, segments) in &timelines {
         if let Some(last) = segments.last().filter(|s| s.state == "blocked") {
             blocked_at_to += 1;
-            per_task.get_mut(DRILL_BLOCKED_AT_TO).expect("drill map").insert(
-                (*task_id).to_string(),
-                json!({
-                    "state_at_to": "blocked",
-                    "blocked_since": ts(last.start),
-                    "since_is_observation_start": last.start_censored,
-                }),
-            );
+            per_task
+                .get_mut(DRILL_BLOCKED_AT_TO)
+                .expect("drill map")
+                .insert(
+                    (*task_id).to_string(),
+                    json!({
+                        "state_at_to": "blocked",
+                        "blocked_since": ts(last.start),
+                        "since_is_observation_start": last.start_censored,
+                    }),
+                );
         }
-        let (mut task_ms, mut task_intervals, mut task_left, mut task_right) = (0i64, 0u64, false, false);
+        let (mut task_ms, mut task_intervals, mut task_left, mut task_right) =
+            (0i64, 0u64, false, false);
         for seg in segments.iter().filter(|s| s.state == "blocked") {
             let ms = overlap_ms(seg.start, seg.end.unwrap_or(to), eff_from, to);
             if ms == 0 {
@@ -460,32 +502,43 @@ pub fn compute(window: &Window, facts: &Facts, api_base: &str) -> Computed {
             blocked_tasks_with_time += 1;
             left_censored += u64::from(task_left);
             right_censored += u64::from(task_right);
-            per_task.get_mut(METRIC_BLOCKED_DURATION).expect("drill map").insert(
-                (*task_id).to_string(),
-                json!({
-                    "blocked_seconds_in_window": secs(task_ms),
-                    "intervals": task_intervals,
-                    "left_censored": task_left,
-                    "right_censored": task_right,
-                }),
-            );
+            per_task
+                .get_mut(METRIC_BLOCKED_DURATION)
+                .expect("drill map")
+                .insert(
+                    (*task_id).to_string(),
+                    json!({
+                        "blocked_seconds_in_window": secs(task_ms),
+                        "intervals": task_intervals,
+                        "left_censored": task_left,
+                        "right_censored": task_right,
+                    }),
+                );
         }
         let entries = &entries_by_task[task_id];
         if !entries.is_empty() {
             entered_tasks += 1;
             entered_events += entries.len() as u64;
-            per_task.get_mut(DRILL_ENTERED_BLOCKED).expect("drill map").insert(
-                (*task_id).to_string(),
-                json!({
-                    "entries": entries.len(),
-                    "first_entered_at": ts(entries[0]),
-                    "last_entered_at": ts(entries[entries.len() - 1]),
-                }),
-            );
+            per_task
+                .get_mut(DRILL_ENTERED_BLOCKED)
+                .expect("drill map")
+                .insert(
+                    (*task_id).to_string(),
+                    json!({
+                        "entries": entries.len(),
+                        "first_entered_at": ts(entries[0]),
+                        "last_entered_at": ts(entries[entries.len() - 1]),
+                    }),
+                );
         }
     }
-    let blocked_incomplete = window_partial || quality.unknown_state_tasks > 0 || quality.inconsistent_tasks > 0;
-    let blocked_status = if blocked_incomplete { "partial" } else { "complete" };
+    let blocked_incomplete =
+        window_partial || quality.unknown_state_tasks > 0 || quality.inconsistent_tasks > 0;
+    let blocked_status = if blocked_incomplete {
+        "partial"
+    } else {
+        "complete"
+    };
     let mut blocked_notes = vec![
         "Task status is declared by clients (user_content); only the time of each change is platform-recorded.",
     ];
@@ -493,7 +546,9 @@ pub fn compute(window: &Window, facts: &Facts, api_base: &str) -> Computed {
         blocked_notes.push("Tasks without any recorded event have an unknown state and are not counted; take an observation baseline to include them from that moment on.");
     }
     if window_partial {
-        blocked_notes.push("The window starts before the first recorded event; only the covered part is measured.");
+        blocked_notes.push(
+            "The window starts before the first recorded event; only the covered part is measured.",
+        );
     }
     let blocked_tasks = MetricResult {
         id: METRIC_BLOCKED_TASKS,
@@ -510,7 +565,11 @@ pub fn compute(window: &Window, facts: &Facts, api_base: &str) -> Computed {
         })),
         reason: None,
         notes: blocked_notes.clone(),
-        drill_down: vec![link(DRILL_BLOCKED_AT_TO), link(DRILL_ENTERED_BLOCKED), link(DRILL_UNKNOWN_STATE)],
+        drill_down: vec![
+            link(DRILL_BLOCKED_AT_TO),
+            link(DRILL_ENTERED_BLOCKED),
+            link(DRILL_UNKNOWN_STATE),
+        ],
     };
     let mut duration_notes = blocked_notes;
     duration_notes.push("Intervals are clipped to the window; an interval still open at `to` is cut at `to` (right-censored).");
@@ -586,7 +645,8 @@ pub fn compute(window: &Window, facts: &Facts, api_base: &str) -> Computed {
         }
         let end_at = life.end.map_or(to, |e| e.occurred_at);
         let ms = overlap_ms(start.occurred_at, end_at, eff_from, to);
-        let censored_left = start.event_type == et::HANDOFF_OBSERVED_PENDING && start.occurred_at >= from;
+        let censored_left =
+            start.event_type == et::HANDOFF_OBSERVED_PENDING && start.occurred_at >= from;
         h_measured += 1;
         h_ms += ms;
         bump(entry, "handoffs", 1);
@@ -603,9 +663,14 @@ pub fn compute(window: &Window, facts: &Facts, api_base: &str) -> Computed {
         }
     }
     // Tasks listed only because a bookkeeping row was created but nothing measured.
-    per_task.get_mut(METRIC_HANDOFF_WAITING).expect("drill map").retain(|_, v| {
-        v["handoffs"].as_i64().unwrap_or(0) > 0 || v["accepted"].as_i64().unwrap_or(0) > 0 || v["cancelled"].as_i64().unwrap_or(0) > 0
-    });
+    per_task
+        .get_mut(METRIC_HANDOFF_WAITING)
+        .expect("drill map")
+        .retain(|_, v| {
+            v["handoffs"].as_i64().unwrap_or(0) > 0
+                || v["accepted"].as_i64().unwrap_or(0) > 0
+                || v["cancelled"].as_i64().unwrap_or(0) > 0
+        });
     let handoff_incomplete = window_partial
         || quality.unobserved_pending_handoffs > 0
         || quality.handoffs_missing_start > 0
@@ -688,7 +753,8 @@ pub fn compute(window: &Window, facts: &Facts, api_base: &str) -> Computed {
         }
         let end_at = life.end.map_or(to, |e| e.occurred_at);
         let ms = overlap_ms(start.occurred_at, end_at, eff_from, to);
-        let censored_left = start.event_type == et::QUESTION_OBSERVED_OPEN && start.occurred_at >= from;
+        let censored_left =
+            start.event_type == et::QUESTION_OBSERVED_OPEN && start.occurred_at >= from;
         q_window_ms += ms;
         bump(entry, "questions", 1);
         bump(entry, "wait_seconds_in_window", secs(ms));
@@ -706,9 +772,14 @@ pub fn compute(window: &Window, facts: &Facts, api_base: &str) -> Computed {
             entry["left_censored"] = json!(true);
         }
     }
-    per_task.get_mut(METRIC_OPEN_QUESTIONS).expect("drill map").retain(|_, v| {
-        v["questions"].as_i64().unwrap_or(0) > 0 || v["answered"].as_i64().unwrap_or(0) > 0 || v["cancelled"].as_i64().unwrap_or(0) > 0
-    });
+    per_task
+        .get_mut(METRIC_OPEN_QUESTIONS)
+        .expect("drill map")
+        .retain(|_, v| {
+            v["questions"].as_i64().unwrap_or(0) > 0
+                || v["answered"].as_i64().unwrap_or(0) > 0
+                || v["cancelled"].as_i64().unwrap_or(0) > 0
+        });
     let question_incomplete = window_partial
         || quality.unobserved_open_questions > 0
         || quality.questions_missing_start > 0
@@ -737,7 +808,13 @@ pub fn compute(window: &Window, facts: &Facts, api_base: &str) -> Computed {
         drill_down: vec![link(METRIC_OPEN_QUESTIONS)],
     };
 
-    let metrics = vec![blocked_tasks, blocked_duration, handoff_waiting, open_questions, stale_paths];
+    let metrics = vec![
+        blocked_tasks,
+        blocked_duration,
+        handoff_waiting,
+        open_questions,
+        stale_paths,
+    ];
     let partial = is_partial(&metrics);
     Computed {
         coverage_start: facts.coverage_start,
@@ -811,7 +888,9 @@ pub async fn health(
         coverage_start: computed.coverage_start.map(ts),
         partial,
         computed_at: ts(now),
-        baseline: BaselineView { taken_at: baseline.map(ts) },
+        baseline: BaselineView {
+            taken_at: baseline.map(ts),
+        },
         metrics,
         data_quality: computed.data_quality,
     })
@@ -912,16 +991,16 @@ pub async fn drill_down(
             }
         })
         .collect();
-    let next_cursor = has_more
-        .then(|| page_ids.last())
-        .flatten()
-        .map(|last| {
-            cursor::encode(
-                cursor_key,
-                &scope,
-                &KeysetPosition { at: window.to, id: last.clone() },
-            )
-        });
+    let next_cursor = has_more.then(|| page_ids.last()).flatten().map(|last| {
+        cursor::encode(
+            cursor_key,
+            &scope,
+            &KeysetPosition {
+                at: window.to,
+                id: last.clone(),
+            },
+        )
+    });
     Ok(DrillPage {
         range: range_view(window),
         metric: metric_id.to_string(),
@@ -982,7 +1061,15 @@ mod tests {
         Utc.with_ymd_and_hms(2026, 11, 1, 0, 0, 0).unwrap() + Duration::minutes(minutes)
     }
 
-    fn ev(task: &str, kind: &str, from: Option<&str>, to_state: Option<&str>, at: i64, version: Option<i64>, src: (&str, &str)) -> Event {
+    fn ev(
+        task: &str,
+        kind: &str,
+        from: Option<&str>,
+        to_state: Option<&str>,
+        at: i64,
+        version: Option<i64>,
+        src: (&str, &str),
+    ) -> Event {
         Event {
             id: format!("e-{task}-{kind}-{at}-{}", src.1),
             repo_id: 1,
@@ -999,15 +1086,39 @@ mod tests {
     }
 
     fn created(task: &str, at: i64) -> Event {
-        ev(task, et::TASK_CREATED, None, Some("open"), at, Some(1), (st::TASK, task))
+        ev(
+            task,
+            et::TASK_CREATED,
+            None,
+            Some("open"),
+            at,
+            Some(1),
+            (st::TASK, task),
+        )
     }
 
     fn changed(task: &str, from: &str, to: &str, at: i64, v: i64) -> Event {
-        ev(task, et::TASK_STATUS_CHANGED, Some(from), Some(to), at, Some(v), (st::TASK, &format!("{task}:{v}")))
+        ev(
+            task,
+            et::TASK_STATUS_CHANGED,
+            Some(from),
+            Some(to),
+            at,
+            Some(v),
+            (st::TASK, &format!("{task}:{v}")),
+        )
     }
 
     fn observed(task: &str, status: &str, at: i64) -> Event {
-        ev(task, et::TASK_STATUS_OBSERVED, None, Some(status), at, Some(1), (st::BASELINE, task))
+        ev(
+            task,
+            et::TASK_STATUS_OBSERVED,
+            None,
+            Some(status),
+            at,
+            Some(1),
+            (st::BASELINE, task),
+        )
     }
 
     fn facts(mut events: Vec<Event>, tasks: &[&str]) -> Facts {
@@ -1016,18 +1127,34 @@ mod tests {
         Facts {
             events,
             coverage_start,
-            tasks: tasks.iter().map(|id| (id.to_string(), t(-10_000))).collect(),
+            tasks: tasks
+                .iter()
+                .map(|id| (id.to_string(), t(-10_000)))
+                .collect(),
             handoffs: Vec::new(),
             questions: Vec::new(),
         }
     }
 
     fn run(window: (i64, i64), facts: &Facts) -> Computed {
-        compute(&Window { from: t(window.0), to: t(window.1) }, facts, "/api/x")
+        compute(
+            &Window {
+                from: t(window.0),
+                to: t(window.1),
+            },
+            facts,
+            "/api/x",
+        )
     }
 
     fn val<'a>(c: &'a Computed, id: &str) -> &'a Value {
-        c.metrics.iter().find(|m| m.id == id).unwrap().value.as_ref().unwrap()
+        c.metrics
+            .iter()
+            .find(|m| m.id == id)
+            .unwrap()
+            .value
+            .as_ref()
+            .unwrap()
     }
 
     fn metric<'a>(c: &'a Computed, id: &str) -> &'a MetricResult {
@@ -1038,7 +1165,12 @@ mod tests {
     fn closed_interval_inside_the_window_is_measured_exactly() {
         // created 0, blocked 10..40, unblocked, done.
         let f = facts(
-            vec![created("a", 0), changed("a", "open", "blocked", 10, 2), changed("a", "blocked", "in_progress", 40, 3), changed("a", "in_progress", "done", 50, 4)],
+            vec![
+                created("a", 0),
+                changed("a", "open", "blocked", 10, 2),
+                changed("a", "blocked", "in_progress", 40, 3),
+                changed("a", "in_progress", "done", 50, 4),
+            ],
             &["a"],
         );
         let c = run((0, 100), &f);
@@ -1046,14 +1178,23 @@ mod tests {
         assert_eq!(val(&c, METRIC_BLOCKED_DURATION)["right_censored_tasks"], 0);
         assert_eq!(val(&c, METRIC_BLOCKED_DURATION)["left_censored_tasks"], 0);
         assert_eq!(val(&c, METRIC_BLOCKED_TASKS)["blocked_at_to"], 0);
-        assert_eq!(val(&c, METRIC_BLOCKED_TASKS)["entered_blocked_in_window"], 1);
+        assert_eq!(
+            val(&c, METRIC_BLOCKED_TASKS)["entered_blocked_in_window"],
+            1
+        );
         assert_eq!(metric(&c, METRIC_BLOCKED_TASKS).status, "complete");
-        assert!(!c.partial, "the unsupported path metric does not make the result partial");
+        assert!(
+            !c.partial,
+            "the unsupported path metric does not make the result partial"
+        );
     }
 
     #[test]
     fn a_blocked_interval_still_open_is_cut_at_to_and_flagged_right_censored() {
-        let f = facts(vec![created("a", 0), changed("a", "open", "blocked", 10, 2)], &["a"]);
+        let f = facts(
+            vec![created("a", 0), changed("a", "open", "blocked", 10, 2)],
+            &["a"],
+        );
         let c = run((0, 70), &f);
         assert_eq!(val(&c, METRIC_BLOCKED_DURATION)["blocked_seconds"], 60 * 60);
         assert_eq!(val(&c, METRIC_BLOCKED_DURATION)["right_censored_tasks"], 1);
@@ -1062,11 +1203,22 @@ mod tests {
 
     #[test]
     fn an_interval_that_began_before_the_window_is_clipped_not_censored() {
-        let f = facts(vec![created("a", 0), changed("a", "open", "blocked", 10, 2), changed("a", "blocked", "open", 100, 3)], &["a"]);
+        let f = facts(
+            vec![
+                created("a", 0),
+                changed("a", "open", "blocked", 10, 2),
+                changed("a", "blocked", "open", 100, 3),
+            ],
+            &["a"],
+        );
         let c = run((50, 200), &f);
         assert_eq!(val(&c, METRIC_BLOCKED_DURATION)["blocked_seconds"], 50 * 60);
         assert_eq!(val(&c, METRIC_BLOCKED_DURATION)["left_censored_tasks"], 0);
-        assert_eq!(val(&c, METRIC_BLOCKED_TASKS)["entered_blocked_in_window"], 0, "entered before the window");
+        assert_eq!(
+            val(&c, METRIC_BLOCKED_TASKS)["entered_blocked_in_window"],
+            0,
+            "entered before the window"
+        );
         assert_eq!(val(&c, METRIC_BLOCKED_TASKS)["blocked_at_to"], 0);
     }
 
@@ -1086,7 +1238,10 @@ mod tests {
         let tasks = val(&c, METRIC_BLOCKED_TASKS);
         assert_eq!(tasks["entered_blocked_in_window"], 1);
         assert_eq!(tasks["entered_blocked_events"], 2);
-        assert_eq!(val(&c, METRIC_BLOCKED_DURATION)["blocked_seconds"], (10 + 15) * 60);
+        assert_eq!(
+            val(&c, METRIC_BLOCKED_DURATION)["blocked_seconds"],
+            (10 + 15) * 60
+        );
         assert_eq!(val(&c, METRIC_BLOCKED_DURATION)["intervals"], 2);
         assert_eq!(c.per_task[DRILL_ENTERED_BLOCKED]["a"]["entries"], 2);
     }
@@ -1095,12 +1250,19 @@ mod tests {
     fn first_event_is_a_change_out_of_blocked_so_the_start_is_left_censored() {
         // Another task makes coverage start at 0; task "a" (pre-feature) is
         // unblocked at 30 and its blocked state before that is only known since 0.
-        let f = facts(vec![created("b", 0), changed("a", "blocked", "open", 30, 7)], &["a", "b"]);
+        let f = facts(
+            vec![created("b", 0), changed("a", "blocked", "open", 30, 7)],
+            &["a", "b"],
+        );
         let c = run((-60, 100), &f);
         let d = val(&c, METRIC_BLOCKED_DURATION);
         assert_eq!(d["blocked_seconds"], 30 * 60, "only the observed part");
         assert_eq!(d["left_censored_tasks"], 1);
-        assert_eq!(metric(&c, METRIC_BLOCKED_DURATION).status, "partial", "window starts before coverage");
+        assert_eq!(
+            metric(&c, METRIC_BLOCKED_DURATION).status,
+            "partial",
+            "window starts before coverage"
+        );
         assert_eq!(d["covered_from"], ts(t(0)));
     }
 
@@ -1109,10 +1271,20 @@ mod tests {
         let f = facts(vec![observed("a", "blocked", 100)], &["a"]);
         let c = run((0, 160), &f);
         assert_eq!(val(&c, METRIC_BLOCKED_TASKS)["blocked_at_to"], 1);
-        assert_eq!(val(&c, METRIC_BLOCKED_DURATION)["blocked_seconds"], 60 * 60, "counted from the observation, not from t=0");
+        assert_eq!(
+            val(&c, METRIC_BLOCKED_DURATION)["blocked_seconds"],
+            60 * 60,
+            "counted from the observation, not from t=0"
+        );
         assert_eq!(val(&c, METRIC_BLOCKED_DURATION)["left_censored_tasks"], 1);
-        assert_eq!(c.per_task[DRILL_BLOCKED_AT_TO]["a"]["since_is_observation_start"], true);
-        assert_eq!(c.per_task[DRILL_BLOCKED_AT_TO]["a"]["blocked_since"], ts(t(100)));
+        assert_eq!(
+            c.per_task[DRILL_BLOCKED_AT_TO]["a"]["since_is_observation_start"],
+            true
+        );
+        assert_eq!(
+            c.per_task[DRILL_BLOCKED_AT_TO]["a"]["blocked_since"],
+            ts(t(100))
+        );
     }
 
     #[test]
@@ -1135,12 +1307,18 @@ mod tests {
             assert!(m.value.is_none());
         }
         let empty = run((0, 100), &facts(vec![], &["a"]));
-        assert_eq!(metric(&empty, METRIC_BLOCKED_TASKS).reason, Some("NO_EVENTS_BEFORE_WINDOW_END"));
+        assert_eq!(
+            metric(&empty, METRIC_BLOCKED_TASKS).reason,
+            Some("NO_EVENTS_BEFORE_WINDOW_END")
+        );
     }
 
     #[test]
     fn contradicting_events_exclude_the_task_and_are_counted() {
-        let f = facts(vec![created("a", 0), changed("a", "blocked", "done", 10, 2)], &["a"]);
+        let f = facts(
+            vec![created("a", 0), changed("a", "blocked", "done", 10, 2)],
+            &["a"],
+        );
         let c = run((0, 100), &f);
         assert_eq!(c.data_quality.inconsistent_tasks, 1);
         assert_eq!(metric(&c, METRIC_BLOCKED_TASKS).status, "partial");
@@ -1153,7 +1331,11 @@ mod tests {
             et::HANDOFF_ACCEPTED => (Some("pending"), "accepted"),
             _ => (Some("pending"), "cancelled"),
         };
-        let source = if kind == et::HANDOFF_OBSERVED_PENDING { st::BASELINE } else { st::HANDOFF };
+        let source = if kind == et::HANDOFF_OBSERVED_PENDING {
+            st::BASELINE
+        } else {
+            st::HANDOFF
+        };
         ev(task, kind, from, Some(to_state), at, None, (source, id))
     }
 
@@ -1178,7 +1360,10 @@ mod tests {
         // h1: 30..40 = 10m, h2: none, h3: 60..90 = 30m, h0: 30..55 = 25m.
         assert_eq!(h["waiting_seconds"], (10 + 30 + 25) * 60);
         assert_eq!(h["accepted_in_window"], 2);
-        assert_eq!(h["cancelled_in_window"], 0, "h2 was cancelled before the window");
+        assert_eq!(
+            h["cancelled_in_window"], 0,
+            "h2 was cancelled before the window"
+        );
         assert_eq!(h["open_at_to"], 1);
         assert_eq!(h["right_censored_handoffs"], 1);
         assert_eq!(metric(&c, METRIC_HANDOFF_WAITING).status, "complete");
@@ -1188,8 +1373,10 @@ mod tests {
     #[test]
     fn pending_handoff_without_any_event_makes_the_metric_partial() {
         let mut f = facts(vec![created("a", 0)], &["a"]);
-        f.handoffs.push(("old".into(), "a".into(), t(-500), "pending".into()));
-        f.handoffs.push(("older".into(), "a".into(), t(-600), "accepted".into()));
+        f.handoffs
+            .push(("old".into(), "a".into(), t(-500), "pending".into()));
+        f.handoffs
+            .push(("older".into(), "a".into(), t(-600), "accepted".into()));
         let c = run((0, 100), &f);
         assert_eq!(c.data_quality.unobserved_pending_handoffs, 1);
         assert_eq!(c.data_quality.handoffs_closed_before_coverage, 1);
@@ -1225,7 +1412,11 @@ mod tests {
                 et::QUESTION_ANSWERED => (Some("open"), "answered"),
                 _ => (Some("open"), "cancelled"),
             };
-            let source = if kind == et::QUESTION_OBSERVED_OPEN { st::BASELINE } else { st::QUESTION };
+            let source = if kind == et::QUESTION_OBSERVED_OPEN {
+                st::BASELINE
+            } else {
+                st::QUESTION
+            };
             ev("a", kind, from, Some(to_state), at, None, (source, id))
         };
         let f = facts(
@@ -1260,7 +1451,14 @@ mod tests {
 
     #[test]
     fn recompute_is_repeatable() {
-        let f = facts(vec![created("a", 0), changed("a", "open", "blocked", 10, 2), handoff("a", "h", et::HANDOFF_CREATED, 5)], &["a"]);
+        let f = facts(
+            vec![
+                created("a", 0),
+                changed("a", "open", "blocked", 10, 2),
+                handoff("a", "h", et::HANDOFF_CREATED, 5),
+            ],
+            &["a"],
+        );
         let a = serde_json::to_string(&run((0, 100), &f).metrics).unwrap();
         let b = serde_json::to_string(&run((0, 100), &f).metrics).unwrap();
         assert_eq!(a, b);
@@ -1271,12 +1469,18 @@ mod tests {
         let now = t(1000);
         assert!(resolve_window(None, None, now).is_ok());
         assert!(resolve_window(Some(t(10)), Some(t(10)), now).is_err());
-        assert!(resolve_window(Some(t(0)), Some(t(2000)), now).is_err(), "future `to`");
+        assert!(
+            resolve_window(Some(t(0)), Some(t(2000)), now).is_err(),
+            "future `to`"
+        );
         let long = resolve_window(Some(t(-60 * 24 * 91)), Some(t(0)), now);
         assert!(long.is_err());
         assert!(resolve_window(Some(t(-60 * 24 * 90)), Some(t(0)), now).is_ok());
         assert_eq!(parse_metrics(None).unwrap().len(), METRICS.len());
         assert!(parse_metrics(Some("blocked_tasks,nope")).is_err());
-        assert_eq!(parse_metrics(Some("blocked_tasks, blocked_tasks")).unwrap(), vec![METRIC_BLOCKED_TASKS]);
+        assert_eq!(
+            parse_metrics(Some("blocked_tasks, blocked_tasks")).unwrap(),
+            vec![METRIC_BLOCKED_TASKS]
+        );
     }
 }

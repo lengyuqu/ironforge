@@ -18,11 +18,16 @@ use crate::entities::collab_task::{self, Entity as TaskEntity, Model as Task};
 #[derive(Debug, Clone, PartialEq)]
 pub enum TakeoverOutcome {
     /// Ownership changed and the history row was written in one transaction.
-    Done { task: Task, takeover: Takeover },
+    Done {
+        task: Task,
+        takeover: Takeover,
+    },
     /// The idempotency key already owns a takeover; compare `payload_hash`.
     Existing(Takeover),
     /// Task version or owner no longer matches; `current` is the latest state.
-    Conflict { current: Task },
+    Conflict {
+        current: Task,
+    },
     NotFound,
 }
 
@@ -124,7 +129,10 @@ pub async fn takeover_cas_with_notices(
     let txn = db.begin().await.context("db: begin takeover")?;
 
     let mut update = TaskEntity::update_many()
-        .col_expr(collab_task::Column::OwnerSessionId, Expr::value(change.new_owner))
+        .col_expr(
+            collab_task::Column::OwnerSessionId,
+            Expr::value(change.new_owner),
+        )
         .col_expr(collab_task::Column::UpdatedAt, Expr::value(now))
         .col_expr(
             collab_task::Column::Version,
@@ -150,8 +158,15 @@ pub async fn takeover_cas_with_notices(
     }
     match model.insert(&txn).await {
         Ok(takeover) => {
-            collab_metric_ops::record_takeover(&txn, repo_id, task_id, &takeover.id, &takeover.outcome, now)
-                .await?;
+            collab_metric_ops::record_takeover(
+                &txn,
+                repo_id,
+                task_id,
+                &takeover.id,
+                &takeover.outcome,
+                now,
+            )
+            .await?;
             collab_notice_ops::insert_all(&txn, notices).await?;
             txn.commit().await.context("db: commit takeover")?;
             Ok(TakeoverOutcome::Done {

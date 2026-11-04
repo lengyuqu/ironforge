@@ -95,10 +95,22 @@ impl MigrationTrait for Migration {
     /// it destroys the data in them; `up` is idempotent.
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         for table in [
-            Table::drop().table(CollabAnswers::Table).if_exists().to_owned(),
-            Table::drop().table(CollabQuestions::Table).if_exists().to_owned(),
-            Table::drop().table(CollabWorkPackages::Table).if_exists().to_owned(),
-            Table::drop().table(CollabTakeovers::Table).if_exists().to_owned(),
+            Table::drop()
+                .table(CollabAnswers::Table)
+                .if_exists()
+                .to_owned(),
+            Table::drop()
+                .table(CollabQuestions::Table)
+                .if_exists()
+                .to_owned(),
+            Table::drop()
+                .table(CollabWorkPackages::Table)
+                .if_exists()
+                .to_owned(),
+            Table::drop()
+                .table(CollabTakeovers::Table)
+                .if_exists()
+                .to_owned(),
         ] {
             manager.drop_table(table).await?;
         }
@@ -111,20 +123,52 @@ fn takeovers_table() -> TableCreateStatement {
         .table(CollabTakeovers::Table)
         .if_not_exists()
         .col(uuid_col(CollabTakeovers::Id).not_null().primary_key())
-        .col(ColumnDef::new(CollabTakeovers::RepoId).big_integer().not_null())
+        .col(
+            ColumnDef::new(CollabTakeovers::RepoId)
+                .big_integer()
+                .not_null(),
+        )
         .col(uuid_col(CollabTakeovers::TaskId).not_null())
         .col(uuid_col(CollabTakeovers::FromSessionId).null())
         .col(uuid_col(CollabTakeovers::ToSessionId).not_null())
         // `session` (self-claim) or `user` (reassignment through a user door).
-        .col(ColumnDef::new(CollabTakeovers::ActorKind).string_len(16).not_null())
-        .col(ColumnDef::new(CollabTakeovers::ActorId).string_len(64).not_null())
-        .col(ColumnDef::new(CollabTakeovers::PreviousTaskVersion).big_integer().not_null())
-        .col(ColumnDef::new(CollabTakeovers::NewTaskVersion).big_integer().not_null())
+        .col(
+            ColumnDef::new(CollabTakeovers::ActorKind)
+                .string_len(16)
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabTakeovers::ActorId)
+                .string_len(64)
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabTakeovers::PreviousTaskVersion)
+                .big_integer()
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabTakeovers::NewTaskVersion)
+                .big_integer()
+                .not_null(),
+        )
         // `claimed` or `reassigned`.
-        .col(ColumnDef::new(CollabTakeovers::Outcome).string_len(16).not_null())
+        .col(
+            ColumnDef::new(CollabTakeovers::Outcome)
+                .string_len(16)
+                .not_null(),
+        )
         .col(ColumnDef::new(CollabTakeovers::Reason).text().not_null())
-        .col(ColumnDef::new(CollabTakeovers::ClientTakeoverId).string_len(128).not_null())
-        .col(ColumnDef::new(CollabTakeovers::PayloadHash).string_len(64).not_null())
+        .col(
+            ColumnDef::new(CollabTakeovers::ClientTakeoverId)
+                .string_len(128)
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabTakeovers::PayloadHash)
+                .string_len(64)
+                .not_null(),
+        )
         .col(created_at(CollabTakeovers::CreatedAt))
         .index(
             Index::create()
@@ -158,21 +202,69 @@ fn questions_table() -> TableCreateStatement {
         .table(CollabQuestions::Table)
         .if_not_exists()
         .col(uuid_col(CollabQuestions::Id).not_null().primary_key())
-        .col(ColumnDef::new(CollabQuestions::RepoId).big_integer().not_null())
+        .col(
+            ColumnDef::new(CollabQuestions::RepoId)
+                .big_integer()
+                .not_null(),
+        )
         .col(uuid_col(CollabQuestions::TaskId).not_null())
-        .col(ColumnDef::new(CollabQuestions::CreatorKind).string_len(16).not_null())
-        .col(ColumnDef::new(CollabQuestions::CreatorId).string_len(64).not_null())
+        .col(
+            ColumnDef::new(CollabQuestions::CreatorKind)
+                .string_len(16)
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabQuestions::CreatorId)
+                .string_len(64)
+                .not_null(),
+        )
         // `repo_writers`, `user` or `session`; the id is required for the last two.
-        .col(ColumnDef::new(CollabQuestions::RecipientKind).string_len(16).not_null())
-        .col(ColumnDef::new(CollabQuestions::RecipientId).string_len(64).null())
-        .col(ColumnDef::new(CollabQuestions::Title).string_len(800).not_null())
+        .col(
+            ColumnDef::new(CollabQuestions::RecipientKind)
+                .string_len(16)
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabQuestions::RecipientId)
+                .string_len(64)
+                .null(),
+        )
+        .col(
+            ColumnDef::new(CollabQuestions::Title)
+                .string_len(800)
+                .not_null(),
+        )
         .col(ColumnDef::new(CollabQuestions::Body).text().not_null())
-        .col(ColumnDef::new(CollabQuestions::OptionsJson).text().not_null())
-        .col(ColumnDef::new(CollabQuestions::ContextJson).text().not_null())
-        .col(ColumnDef::new(CollabQuestions::Status).string_len(16).not_null())
-        .col(ColumnDef::new(CollabQuestions::Version).big_integer().not_null())
-        .col(ColumnDef::new(CollabQuestions::ClientQuestionId).string_len(128).not_null())
-        .col(ColumnDef::new(CollabQuestions::PayloadHash).string_len(64).not_null())
+        .col(
+            ColumnDef::new(CollabQuestions::OptionsJson)
+                .text()
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabQuestions::ContextJson)
+                .text()
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabQuestions::Status)
+                .string_len(16)
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabQuestions::Version)
+                .big_integer()
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabQuestions::ClientQuestionId)
+                .string_len(128)
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabQuestions::PayloadHash)
+                .string_len(64)
+                .not_null(),
+        )
         .col(created_at(CollabQuestions::CreatedAt))
         .col(created_at(CollabQuestions::UpdatedAt))
         .index(
@@ -207,15 +299,43 @@ fn answers_table() -> TableCreateStatement {
         .table(CollabAnswers::Table)
         .if_not_exists()
         .col(uuid_col(CollabAnswers::Id).not_null().primary_key())
-        .col(ColumnDef::new(CollabAnswers::RepoId).big_integer().not_null())
+        .col(
+            ColumnDef::new(CollabAnswers::RepoId)
+                .big_integer()
+                .not_null(),
+        )
         .col(uuid_col(CollabAnswers::QuestionId).not_null())
-        .col(ColumnDef::new(CollabAnswers::ActorKind).string_len(16).not_null())
-        .col(ColumnDef::new(CollabAnswers::ActorId).string_len(64).not_null())
+        .col(
+            ColumnDef::new(CollabAnswers::ActorKind)
+                .string_len(16)
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabAnswers::ActorId)
+                .string_len(64)
+                .not_null(),
+        )
         .col(ColumnDef::new(CollabAnswers::Body).text().not_null())
-        .col(ColumnDef::new(CollabAnswers::OptionId).string_len(64).null())
-        .col(ColumnDef::new(CollabAnswers::ContextHash).string_len(64).not_null())
-        .col(ColumnDef::new(CollabAnswers::ClientAnswerId).string_len(128).not_null())
-        .col(ColumnDef::new(CollabAnswers::PayloadHash).string_len(64).not_null())
+        .col(
+            ColumnDef::new(CollabAnswers::OptionId)
+                .string_len(64)
+                .null(),
+        )
+        .col(
+            ColumnDef::new(CollabAnswers::ContextHash)
+                .string_len(64)
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabAnswers::ClientAnswerId)
+                .string_len(128)
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabAnswers::PayloadHash)
+                .string_len(64)
+                .not_null(),
+        )
         .col(created_at(CollabAnswers::CreatedAt))
         // At most one answer per question: the database decides a race.
         .index(
@@ -240,16 +360,52 @@ fn work_packages_table() -> TableCreateStatement {
         .table(CollabWorkPackages::Table)
         .if_not_exists()
         .col(uuid_col(CollabWorkPackages::Id).not_null().primary_key())
-        .col(ColumnDef::new(CollabWorkPackages::RepoId).big_integer().not_null())
+        .col(
+            ColumnDef::new(CollabWorkPackages::RepoId)
+                .big_integer()
+                .not_null(),
+        )
         .col(uuid_col(CollabWorkPackages::TaskId).not_null())
-        .col(ColumnDef::new(CollabWorkPackages::Revision).big_integer().not_null())
-        .col(ColumnDef::new(CollabWorkPackages::AuthorKind).string_len(16).not_null())
-        .col(ColumnDef::new(CollabWorkPackages::AuthorId).string_len(64).not_null())
-        .col(ColumnDef::new(CollabWorkPackages::TaskVersion).big_integer().not_null())
-        .col(ColumnDef::new(CollabWorkPackages::CommitSha).string_len(64).null())
-        .col(ColumnDef::new(CollabWorkPackages::BodyJson).text().not_null())
-        .col(ColumnDef::new(CollabWorkPackages::ClientPackageId).string_len(128).not_null())
-        .col(ColumnDef::new(CollabWorkPackages::PayloadHash).string_len(64).not_null())
+        .col(
+            ColumnDef::new(CollabWorkPackages::Revision)
+                .big_integer()
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabWorkPackages::AuthorKind)
+                .string_len(16)
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabWorkPackages::AuthorId)
+                .string_len(64)
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabWorkPackages::TaskVersion)
+                .big_integer()
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabWorkPackages::CommitSha)
+                .string_len(64)
+                .null(),
+        )
+        .col(
+            ColumnDef::new(CollabWorkPackages::BodyJson)
+                .text()
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabWorkPackages::ClientPackageId)
+                .string_len(128)
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabWorkPackages::PayloadHash)
+                .string_len(64)
+                .not_null(),
+        )
         .col(created_at(CollabWorkPackages::CreatedAt))
         .index(
             Index::create()

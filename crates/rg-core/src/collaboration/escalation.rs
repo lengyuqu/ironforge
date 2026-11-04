@@ -30,9 +30,7 @@ use chrono::{DateTime, Duration, Timelike, Utc};
 use rg_db::entities::{agent_session, collab_escalation_setting, collab_notice, repository};
 use rg_db::ops::collab_escalation_ops::{self, SaveOutcome};
 use rg_db::ops::collab_notice_ops::{self, kind, source, NewNotice};
-use rg_db::ops::{
-    agent_session_ops, collab_handoff_ops, collab_question_ops, collab_task_ops,
-};
+use rg_db::ops::{agent_session_ops, collab_handoff_ops, collab_question_ops, collab_task_ops};
 use sea_orm::{Condition, DatabaseConnection};
 use serde::{Deserialize, Serialize};
 
@@ -120,7 +118,10 @@ fn view(row: &collab_escalation_setting::Model) -> SettingsView {
         handoff_after_secs: row.handoff_after_secs,
         repeat_after_secs: row.repeat_after_secs,
         quiet_hours: match (row.quiet_start_minute, row.quiet_end_minute) {
-            (Some(start_minute), Some(end_minute)) => Some(QuietHours { start_minute, end_minute }),
+            (Some(start_minute), Some(end_minute)) => Some(QuietHours {
+                start_minute,
+                end_minute,
+            }),
             _ => None,
         },
         timezone: "UTC",
@@ -150,7 +151,9 @@ fn validate(input: &SettingsInput) -> CollabResult<()> {
             )));
         }
     }
-    if input.repeat_after_secs != 0 && !(MIN_REPEAT_SECS..=MAX_SECS).contains(&input.repeat_after_secs) {
+    if input.repeat_after_secs != 0
+        && !(MIN_REPEAT_SECS..=MAX_SECS).contains(&input.repeat_after_secs)
+    {
         return Err(CollabError::bad_request(format!(
             "repeat_after_secs must be 0 (remind once) or between {MIN_REPEAT_SECS} and {MAX_SECS}"
         )));
@@ -166,7 +169,9 @@ fn validate(input: &SettingsInput) -> CollabResult<()> {
         }
     }
     if input.expected_version < 0 {
-        return Err(CollabError::bad_request("expected_version must not be negative"));
+        return Err(CollabError::bad_request(
+            "expected_version must not be negative",
+        ));
     }
     Ok(())
 }
@@ -251,7 +256,12 @@ struct Lookup<'a> {
 
 impl<'a> Lookup<'a> {
     fn new(db: &'a DatabaseConnection, repo: &'a repository::Model) -> Self {
-        Self { db, repo, sessions: HashMap::new(), access: HashMap::new() }
+        Self {
+            db,
+            repo,
+            sessions: HashMap::new(),
+            access: HashMap::new(),
+        }
     }
 
     async fn session(&mut self, id: &str) -> CollabResult<Option<agent_session::Model>> {
@@ -264,7 +274,9 @@ impl<'a> Lookup<'a> {
 
     /// A live session of this repository whose account is still in the working group.
     async fn may_notify(&mut self, id: &str, now: DateTime<Utc>) -> CollabResult<bool> {
-        let Some(session) = self.session(id).await? else { return Ok(false) };
+        let Some(session) = self.session(id).await? else {
+            return Ok(false);
+        };
         if !matches!(state_of(&session, now), "online" | "offline") {
             return Ok(false);
         }
@@ -304,7 +316,9 @@ pub async fn evaluate_all_enabled(
 ) -> CollabResult<Vec<(i64, Report)>> {
     let mut out = Vec::new();
     for repo_id in collab_escalation_ops::list_enabled_repo_ids(db).await? {
-        let Some(repo) = rg_db::ops::repo_ops::find_by_id(db, repo_id).await? else { continue };
+        let Some(repo) = rg_db::ops::repo_ops::find_by_id(db, repo_id).await? else {
+            continue;
+        };
         out.push((repo_id, evaluate(db, &repo, None, now).await?));
     }
     Ok(out)
@@ -318,16 +332,26 @@ async fn evaluate(
 ) -> CollabResult<Report> {
     let stored = collab_escalation_ops::get(db, repo.id).await?;
     let enabled = stored.as_ref().is_some_and(|s| s.enabled);
-    let mut report = Report { enabled, ..Report::default() };
+    let mut report = Report {
+        enabled,
+        ..Report::default()
+    };
 
     report.resolved = resolve_ended(db, repo.id, scope, enabled, now).await?;
-    let Some(settings) = stored.filter(|s| s.enabled) else { return Ok(report) };
+    let Some(settings) = stored.filter(|s| s.enabled) else {
+        return Ok(report);
+    };
 
     let minute = (now.hour() * 60 + now.minute()) as i32;
     if let (Some(start_minute), Some(end_minute)) =
         (settings.quiet_start_minute, settings.quiet_end_minute)
     {
-        if (QuietHours { start_minute, end_minute }).contains(minute) {
+        if (QuietHours {
+            start_minute,
+            end_minute,
+        })
+        .contains(minute)
+        {
             report.quiet_window = true;
             return Ok(report);
         }
@@ -411,8 +435,12 @@ async fn gather(
 ) -> CollabResult<Vec<Candidate>> {
     let mut out = Vec::new();
 
-    for task in collab_escalation_ops::list_stalled_tasks(db, repo_id, scope, CANDIDATE_LIMIT).await? {
-        let Some(owner) = task.owner_session_id.clone() else { continue };
+    for task in
+        collab_escalation_ops::list_stalled_tasks(db, repo_id, scope, CANDIDATE_LIMIT).await?
+    {
+        let Some(owner) = task.owner_session_id.clone() else {
+            continue;
+        };
         out.push(Candidate {
             recipient: owner,
             task_id: task.id.clone(),
@@ -459,14 +487,18 @@ async fn gather(
     for handoff in
         collab_escalation_ops::list_pending_handoffs(db, repo_id, scope, CANDIDATE_LIMIT).await?
     {
-        let Some(target) = lookup.session(&handoff.to_session_id).await? else { continue };
+        let Some(target) = lookup.session(&handoff.to_session_id).await? else {
+            continue;
+        };
         let target_gone_at = match (target.ended_at, target.expires_at <= now) {
             (Some(ended), true) => Some(ended.min(target.expires_at)),
             (Some(ended), false) => Some(ended),
             (None, true) => Some(target.expires_at),
             (None, false) => None,
         };
-        let Some(since) = target_gone_at else { continue };
+        let Some(since) = target_gone_at else {
+            continue;
+        };
         out.push(Candidate {
             recipient: handoff.from_session_id.clone(),
             task_id: handoff.task_id.clone(),
@@ -530,10 +562,16 @@ mod tests {
 
     #[test]
     fn quiet_hours_wrap_around_midnight() {
-        let day = QuietHours { start_minute: 9 * 60, end_minute: 17 * 60 };
+        let day = QuietHours {
+            start_minute: 9 * 60,
+            end_minute: 17 * 60,
+        };
         assert!(day.contains(9 * 60) && day.contains(16 * 60 + 59));
         assert!(!day.contains(17 * 60) && !day.contains(0));
-        let night = QuietHours { start_minute: 22 * 60, end_minute: 7 * 60 };
+        let night = QuietHours {
+            start_minute: 22 * 60,
+            end_minute: 7 * 60,
+        };
         assert!(night.contains(23 * 60) && night.contains(0) && night.contains(6 * 60 + 59));
         assert!(!night.contains(7 * 60) && !night.contains(12 * 60));
     }
@@ -559,10 +597,16 @@ mod tests {
             |i: &mut SettingsInput| i.repeat_after_secs = 299,
             |i: &mut SettingsInput| i.expected_version = -1,
             |i: &mut SettingsInput| {
-                i.quiet_hours = Some(QuietHours { start_minute: 5, end_minute: 5 })
+                i.quiet_hours = Some(QuietHours {
+                    start_minute: 5,
+                    end_minute: 5,
+                })
             },
             |i: &mut SettingsInput| {
-                i.quiet_hours = Some(QuietHours { start_minute: 0, end_minute: 1440 })
+                i.quiet_hours = Some(QuietHours {
+                    start_minute: 0,
+                    end_minute: 1440,
+                })
             },
         ] {
             let mut i = input();

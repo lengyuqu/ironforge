@@ -74,7 +74,9 @@ fn amount_text(field: &str, value: serde_json::Value) -> Result<String, AppError
     match value {
         serde_json::Value::String(s) => Ok(s),
         serde_json::Value::Number(n) => Ok(n.to_string()),
-        _ => Err(AppError::bad_request(format!("{field} must be a decimal string or number"))),
+        _ => Err(AppError::bad_request(format!(
+            "{field} must be a decimal string or number"
+        ))),
     }
 }
 
@@ -112,13 +114,20 @@ pub async fn set_budget(
             unit: req.unit,
             source: req.source,
             amount: amount_text("amount", req.amount)?,
-            alert_at: req.alert_at.map(|v| amount_text("alert_at", v)).transpose()?,
+            alert_at: req
+                .alert_at
+                .map(|v| amount_text("alert_at", v))
+                .transpose()?,
             sampling_period: req.sampling_period,
         },
         Utc::now(),
     )
     .await?;
-    let status = if created && !saved.replayed { StatusCode::CREATED } else { StatusCode::OK };
+    let status = if created && !saved.replayed {
+        StatusCode::CREATED
+    } else {
+        StatusCode::OK
+    };
     Ok((status, Json(saved.budget)))
 }
 
@@ -139,7 +148,9 @@ pub async fn get_budget(
     headers: HeaderMap,
 ) -> Result<Json<svc::BudgetSummary>, AppError> {
     let (repo, _user) = require_collab_read(&state, &headers, &owner, &name).await?;
-    Ok(Json(svc::summary(&state.db, repo.id, &id, Utc::now()).await?))
+    Ok(Json(
+        svc::summary(&state.db, repo.id, &id, Utc::now()).await?,
+    ))
 }
 
 #[utoipa::path(
@@ -181,7 +192,11 @@ pub async fn report_usage(
         Utc::now(),
     )
     .await?;
-    let status = if created.replayed { StatusCode::OK } else { StatusCode::CREATED };
+    let status = if created.replayed {
+        StatusCode::OK
+    } else {
+        StatusCode::CREATED
+    };
     Ok((status, Json(created.usage)))
 }
 

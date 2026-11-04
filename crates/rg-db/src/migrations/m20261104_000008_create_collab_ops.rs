@@ -78,12 +78,30 @@ impl MigrationTrait for Migration {
     /// `up` is idempotent.
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         for table in [
-            Table::drop().table(CollabTaskTemplateLinks::Table).if_exists().to_owned(),
-            Table::drop().table(CollabTaskTemplateVersions::Table).if_exists().to_owned(),
-            Table::drop().table(CollabTaskTemplates::Table).if_exists().to_owned(),
-            Table::drop().table(CollabSessionDeclarations::Table).if_exists().to_owned(),
-            Table::drop().table(CollabTaskUsage::Table).if_exists().to_owned(),
-            Table::drop().table(CollabTaskBudgets::Table).if_exists().to_owned(),
+            Table::drop()
+                .table(CollabTaskTemplateLinks::Table)
+                .if_exists()
+                .to_owned(),
+            Table::drop()
+                .table(CollabTaskTemplateVersions::Table)
+                .if_exists()
+                .to_owned(),
+            Table::drop()
+                .table(CollabTaskTemplates::Table)
+                .if_exists()
+                .to_owned(),
+            Table::drop()
+                .table(CollabSessionDeclarations::Table)
+                .if_exists()
+                .to_owned(),
+            Table::drop()
+                .table(CollabTaskUsage::Table)
+                .if_exists()
+                .to_owned(),
+            Table::drop()
+                .table(CollabTaskBudgets::Table)
+                .if_exists()
+                .to_owned(),
         ] {
             manager.drop_table(table).await?;
         }
@@ -96,14 +114,38 @@ fn templates_table() -> TableCreateStatement {
         .table(CollabTaskTemplates::Table)
         .if_not_exists()
         .col(uuid_col(CollabTaskTemplates::Id).not_null().primary_key())
-        .col(ColumnDef::new(CollabTaskTemplates::RepoId).big_integer().not_null())
-        .col(ColumnDef::new(CollabTaskTemplates::Name).string_len(100).not_null())
+        .col(
+            ColumnDef::new(CollabTaskTemplates::RepoId)
+                .big_integer()
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabTaskTemplates::Name)
+                .string_len(100)
+                .not_null(),
+        )
         // Newest version number; the conditional UPDATE on it arbitrates
         // concurrent "new version" requests.
-        .col(ColumnDef::new(CollabTaskTemplates::LatestVersion).big_integer().not_null())
-        .col(ColumnDef::new(CollabTaskTemplates::CreatedByUserId).big_integer().not_null())
-        .col(ColumnDef::new(CollabTaskTemplates::ClientTemplateId).string_len(128).not_null())
-        .col(ColumnDef::new(CollabTaskTemplates::PayloadHash).string_len(64).not_null())
+        .col(
+            ColumnDef::new(CollabTaskTemplates::LatestVersion)
+                .big_integer()
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabTaskTemplates::CreatedByUserId)
+                .big_integer()
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabTaskTemplates::ClientTemplateId)
+                .string_len(128)
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabTaskTemplates::PayloadHash)
+                .string_len(64)
+                .not_null(),
+        )
         .col(ts(CollabTaskTemplates::CreatedAt))
         .col(ts(CollabTaskTemplates::UpdatedAt))
         .index(
@@ -141,17 +183,57 @@ fn template_versions_table() -> TableCreateStatement {
     Table::create()
         .table(CollabTaskTemplateVersions::Table)
         .if_not_exists()
-        .col(uuid_col(CollabTaskTemplateVersions::Id).not_null().primary_key())
-        .col(ColumnDef::new(CollabTaskTemplateVersions::RepoId).big_integer().not_null())
+        .col(
+            uuid_col(CollabTaskTemplateVersions::Id)
+                .not_null()
+                .primary_key(),
+        )
+        .col(
+            ColumnDef::new(CollabTaskTemplateVersions::RepoId)
+                .big_integer()
+                .not_null(),
+        )
         .col(uuid_col(CollabTaskTemplateVersions::TemplateId).not_null())
-        .col(ColumnDef::new(CollabTaskTemplateVersions::Version).big_integer().not_null())
-        .col(ColumnDef::new(CollabTaskTemplateVersions::TitlePattern).string_len(800).not_null())
-        .col(ColumnDef::new(CollabTaskTemplateVersions::Goal).text().not_null())
-        .col(ColumnDef::new(CollabTaskTemplateVersions::DeliverablesJson).text().not_null())
-        .col(ColumnDef::new(CollabTaskTemplateVersions::ChecklistJson).text().not_null())
-        .col(ColumnDef::new(CollabTaskTemplateVersions::CreatedByUserId).big_integer().not_null())
-        .col(ColumnDef::new(CollabTaskTemplateVersions::ClientVersionId).string_len(128).not_null())
-        .col(ColumnDef::new(CollabTaskTemplateVersions::PayloadHash).string_len(64).not_null())
+        .col(
+            ColumnDef::new(CollabTaskTemplateVersions::Version)
+                .big_integer()
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabTaskTemplateVersions::TitlePattern)
+                .string_len(800)
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabTaskTemplateVersions::Goal)
+                .text()
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabTaskTemplateVersions::DeliverablesJson)
+                .text()
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabTaskTemplateVersions::ChecklistJson)
+                .text()
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabTaskTemplateVersions::CreatedByUserId)
+                .big_integer()
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabTaskTemplateVersions::ClientVersionId)
+                .string_len(128)
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabTaskTemplateVersions::PayloadHash)
+                .string_len(64)
+                .not_null(),
+        )
         .col(ts(CollabTaskTemplateVersions::CreatedAt))
         .index(
             Index::create()
@@ -169,8 +251,14 @@ fn template_versions_table() -> TableCreateStatement {
         )
         .foreign_key(
             ForeignKey::create()
-                .from(CollabTaskTemplateVersions::Table, CollabTaskTemplateVersions::TemplateId)
-                .from(CollabTaskTemplateVersions::Table, CollabTaskTemplateVersions::RepoId)
+                .from(
+                    CollabTaskTemplateVersions::Table,
+                    CollabTaskTemplateVersions::TemplateId,
+                )
+                .from(
+                    CollabTaskTemplateVersions::Table,
+                    CollabTaskTemplateVersions::RepoId,
+                )
                 .to(CollabTaskTemplates::Table, CollabTaskTemplates::Id)
                 .to(CollabTaskTemplates::Table, CollabTaskTemplates::RepoId)
                 .on_delete(ForeignKeyAction::Cascade),
@@ -183,17 +271,53 @@ fn template_links_table() -> TableCreateStatement {
         .table(CollabTaskTemplateLinks::Table)
         .if_not_exists()
         // One link per task: the task is pinned to exactly one template version.
-        .col(uuid_col(CollabTaskTemplateLinks::TaskId).not_null().primary_key())
-        .col(ColumnDef::new(CollabTaskTemplateLinks::RepoId).big_integer().not_null())
+        .col(
+            uuid_col(CollabTaskTemplateLinks::TaskId)
+                .not_null()
+                .primary_key(),
+        )
+        .col(
+            ColumnDef::new(CollabTaskTemplateLinks::RepoId)
+                .big_integer()
+                .not_null(),
+        )
         .col(uuid_col(CollabTaskTemplateLinks::TemplateId).not_null())
-        .col(ColumnDef::new(CollabTaskTemplateLinks::TemplateVersion).big_integer().not_null())
+        .col(
+            ColumnDef::new(CollabTaskTemplateLinks::TemplateVersion)
+                .big_integer()
+                .not_null(),
+        )
         // Copy of what the task was created from; template edits never touch it.
-        .col(ColumnDef::new(CollabTaskTemplateLinks::SnapshotJson).text().not_null())
-        .col(ColumnDef::new(CollabTaskTemplateLinks::RulesCommit).string_len(64).null())
-        .col(ColumnDef::new(CollabTaskTemplateLinks::CreatorKind).string_len(16).not_null())
-        .col(ColumnDef::new(CollabTaskTemplateLinks::CreatorId).string_len(64).not_null())
-        .col(ColumnDef::new(CollabTaskTemplateLinks::ClientTaskId).string_len(128).not_null())
-        .col(ColumnDef::new(CollabTaskTemplateLinks::PayloadHash).string_len(64).not_null())
+        .col(
+            ColumnDef::new(CollabTaskTemplateLinks::SnapshotJson)
+                .text()
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabTaskTemplateLinks::RulesCommit)
+                .string_len(64)
+                .null(),
+        )
+        .col(
+            ColumnDef::new(CollabTaskTemplateLinks::CreatorKind)
+                .string_len(16)
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabTaskTemplateLinks::CreatorId)
+                .string_len(64)
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabTaskTemplateLinks::ClientTaskId)
+                .string_len(128)
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabTaskTemplateLinks::PayloadHash)
+                .string_len(64)
+                .not_null(),
+        )
         .col(ts(CollabTaskTemplateLinks::CreatedAt))
         .index(
             Index::create()
@@ -205,18 +329,36 @@ fn template_links_table() -> TableCreateStatement {
         )
         .foreign_key(
             ForeignKey::create()
-                .from(CollabTaskTemplateLinks::Table, CollabTaskTemplateLinks::TaskId)
-                .from(CollabTaskTemplateLinks::Table, CollabTaskTemplateLinks::RepoId)
+                .from(
+                    CollabTaskTemplateLinks::Table,
+                    CollabTaskTemplateLinks::TaskId,
+                )
+                .from(
+                    CollabTaskTemplateLinks::Table,
+                    CollabTaskTemplateLinks::RepoId,
+                )
                 .to(CollabTasks::Table, CollabTasks::Id)
                 .to(CollabTasks::Table, CollabTasks::RepoId)
                 .on_delete(ForeignKeyAction::Cascade),
         )
         .foreign_key(
             ForeignKey::create()
-                .from(CollabTaskTemplateLinks::Table, CollabTaskTemplateLinks::TemplateId)
-                .from(CollabTaskTemplateLinks::Table, CollabTaskTemplateLinks::TemplateVersion)
-                .to(CollabTaskTemplateVersions::Table, CollabTaskTemplateVersions::TemplateId)
-                .to(CollabTaskTemplateVersions::Table, CollabTaskTemplateVersions::Version)
+                .from(
+                    CollabTaskTemplateLinks::Table,
+                    CollabTaskTemplateLinks::TemplateId,
+                )
+                .from(
+                    CollabTaskTemplateLinks::Table,
+                    CollabTaskTemplateLinks::TemplateVersion,
+                )
+                .to(
+                    CollabTaskTemplateVersions::Table,
+                    CollabTaskTemplateVersions::TemplateId,
+                )
+                .to(
+                    CollabTaskTemplateVersions::Table,
+                    CollabTaskTemplateVersions::Version,
+                )
                 .on_delete(ForeignKeyAction::Cascade),
         )
         .to_owned()
@@ -227,22 +369,64 @@ fn declarations_table() -> TableCreateStatement {
         .table(CollabSessionDeclarations::Table)
         .if_not_exists()
         // One current declaration per session, replaced under `version`.
-        .col(uuid_col(CollabSessionDeclarations::SessionId).not_null().primary_key())
-        .col(ColumnDef::new(CollabSessionDeclarations::RepoId).big_integer().not_null())
-        .col(ColumnDef::new(CollabSessionDeclarations::Version).big_integer().not_null())
-        .col(ColumnDef::new(CollabSessionDeclarations::ToolsJson).text().not_null())
+        .col(
+            uuid_col(CollabSessionDeclarations::SessionId)
+                .not_null()
+                .primary_key(),
+        )
+        .col(
+            ColumnDef::new(CollabSessionDeclarations::RepoId)
+                .big_integer()
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabSessionDeclarations::Version)
+                .big_integer()
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabSessionDeclarations::ToolsJson)
+                .text()
+                .not_null(),
+        )
         // `yes` | `no` | `unknown`
-        .col(ColumnDef::new(CollabSessionDeclarations::CanRunTests).string_len(16).not_null())
+        .col(
+            ColumnDef::new(CollabSessionDeclarations::CanRunTests)
+                .string_len(16)
+                .not_null(),
+        )
         // `unrestricted` | `restricted` | `offline` | `unknown`
-        .col(ColumnDef::new(CollabSessionDeclarations::Network).string_len(16).not_null())
-        .col(ColumnDef::new(CollabSessionDeclarations::NetworkNotes).text().not_null())
-        .col(ColumnDef::new(CollabSessionDeclarations::Notes).text().not_null())
-        .col(ColumnDef::new(CollabSessionDeclarations::PayloadHash).string_len(64).not_null())
+        .col(
+            ColumnDef::new(CollabSessionDeclarations::Network)
+                .string_len(16)
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabSessionDeclarations::NetworkNotes)
+                .text()
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabSessionDeclarations::Notes)
+                .text()
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabSessionDeclarations::PayloadHash)
+                .string_len(64)
+                .not_null(),
+        )
         .col(ts(CollabSessionDeclarations::DeclaredAt))
         .foreign_key(
             ForeignKey::create()
-                .from(CollabSessionDeclarations::Table, CollabSessionDeclarations::SessionId)
-                .from(CollabSessionDeclarations::Table, CollabSessionDeclarations::RepoId)
+                .from(
+                    CollabSessionDeclarations::Table,
+                    CollabSessionDeclarations::SessionId,
+                )
+                .from(
+                    CollabSessionDeclarations::Table,
+                    CollabSessionDeclarations::RepoId,
+                )
                 .to(AgentSessions::Table, AgentSessions::Id)
                 .to(AgentSessions::Table, AgentSessions::RepoId)
                 .on_delete(ForeignKeyAction::Cascade),
@@ -255,17 +439,57 @@ fn budgets_table() -> TableCreateStatement {
         .table(CollabTaskBudgets::Table)
         .if_not_exists()
         .col(uuid_col(CollabTaskBudgets::Id).not_null().primary_key())
-        .col(ColumnDef::new(CollabTaskBudgets::RepoId).big_integer().not_null())
+        .col(
+            ColumnDef::new(CollabTaskBudgets::RepoId)
+                .big_integer()
+                .not_null(),
+        )
         .col(uuid_col(CollabTaskBudgets::TaskId).not_null())
-        .col(ColumnDef::new(CollabTaskBudgets::Unit).string_len(32).not_null())
-        .col(ColumnDef::new(CollabTaskBudgets::Source).string_len(64).not_null())
-        .col(ColumnDef::new(CollabTaskBudgets::Amount).string_len(32).not_null())
-        .col(ColumnDef::new(CollabTaskBudgets::AlertAt).string_len(32).null())
-        .col(ColumnDef::new(CollabTaskBudgets::SamplingPeriod).string_len(64).not_null())
-        .col(ColumnDef::new(CollabTaskBudgets::Version).big_integer().not_null())
-        .col(ColumnDef::new(CollabTaskBudgets::SetByKind).string_len(16).not_null())
-        .col(ColumnDef::new(CollabTaskBudgets::SetById).string_len(64).not_null())
-        .col(ColumnDef::new(CollabTaskBudgets::PayloadHash).string_len(64).not_null())
+        .col(
+            ColumnDef::new(CollabTaskBudgets::Unit)
+                .string_len(32)
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabTaskBudgets::Source)
+                .string_len(64)
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabTaskBudgets::Amount)
+                .string_len(32)
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabTaskBudgets::AlertAt)
+                .string_len(32)
+                .null(),
+        )
+        .col(
+            ColumnDef::new(CollabTaskBudgets::SamplingPeriod)
+                .string_len(64)
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabTaskBudgets::Version)
+                .big_integer()
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabTaskBudgets::SetByKind)
+                .string_len(16)
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabTaskBudgets::SetById)
+                .string_len(64)
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabTaskBudgets::PayloadHash)
+                .string_len(64)
+                .not_null(),
+        )
         .col(ts(CollabTaskBudgets::CreatedAt))
         .col(ts(CollabTaskBudgets::UpdatedAt))
         // One budget per (task, unit, source): units and sources never merge.
@@ -293,17 +517,49 @@ fn usage_table() -> TableCreateStatement {
         .table(CollabTaskUsage::Table)
         .if_not_exists()
         .col(uuid_col(CollabTaskUsage::Id).not_null().primary_key())
-        .col(ColumnDef::new(CollabTaskUsage::RepoId).big_integer().not_null())
+        .col(
+            ColumnDef::new(CollabTaskUsage::RepoId)
+                .big_integer()
+                .not_null(),
+        )
         .col(uuid_col(CollabTaskUsage::TaskId).not_null())
-        .col(ColumnDef::new(CollabTaskUsage::Unit).string_len(32).not_null())
-        .col(ColumnDef::new(CollabTaskUsage::Source).string_len(64).not_null())
-        .col(ColumnDef::new(CollabTaskUsage::Amount).string_len(32).not_null())
+        .col(
+            ColumnDef::new(CollabTaskUsage::Unit)
+                .string_len(32)
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabTaskUsage::Source)
+                .string_len(64)
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabTaskUsage::Amount)
+                .string_len(32)
+                .not_null(),
+        )
         .col(ts(CollabTaskUsage::PeriodStart))
         .col(ts(CollabTaskUsage::PeriodEnd))
-        .col(ColumnDef::new(CollabTaskUsage::ReportedByKind).string_len(16).not_null())
-        .col(ColumnDef::new(CollabTaskUsage::ReportedById).string_len(64).not_null())
-        .col(ColumnDef::new(CollabTaskUsage::ClientUsageId).string_len(128).not_null())
-        .col(ColumnDef::new(CollabTaskUsage::PayloadHash).string_len(64).not_null())
+        .col(
+            ColumnDef::new(CollabTaskUsage::ReportedByKind)
+                .string_len(16)
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabTaskUsage::ReportedById)
+                .string_len(64)
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabTaskUsage::ClientUsageId)
+                .string_len(128)
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabTaskUsage::PayloadHash)
+                .string_len(64)
+                .not_null(),
+        )
         .col(ts(CollabTaskUsage::CreatedAt))
         .index(
             Index::create()

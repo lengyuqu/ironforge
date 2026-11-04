@@ -63,7 +63,11 @@ fn reject(rejection: JsonRejection) -> AppError {
             "request body is not valid JSON",
         ),
         // Missing content type (415), oversized body (413), ...: keep the status.
-        other => AppError::coded(other.status(), "INVALID_REQUEST_BODY", clean_message(&other.body_text())),
+        other => AppError::coded(
+            other.status(),
+            "INVALID_REQUEST_BODY",
+            clean_message(&other.body_text()),
+        ),
     }
 }
 
@@ -84,7 +88,10 @@ fn clean_message(text: &str) -> String {
 
 /// Fail closed on an enum-valued input: `None` passes, a recognized value
 /// passes, anything else is a coded `UNKNOWN_ENUM_VALUE` 400.
-pub(crate) fn require_known<T: ContractEnum>(field: &str, raw: Option<&str>) -> Result<(), AppError> {
+pub(crate) fn require_known<T: ContractEnum>(
+    field: &str,
+    raw: Option<&str>,
+) -> Result<(), AppError> {
     if let Some(raw) = raw {
         Known::<T>::parse(raw).require(field)?;
     }
@@ -111,7 +118,10 @@ mod tests {
             unknown_field("Failed to deserialize the JSON body into the target type: unknown field `foo`, expected one of `a`, `b` at line 1 column 8"),
             Some("foo".to_string())
         );
-        assert_eq!(unknown_field("missing field `title` at line 1 column 2"), None);
+        assert_eq!(
+            unknown_field("missing field `title` at line 1 column 2"),
+            None
+        );
     }
 
     #[test]

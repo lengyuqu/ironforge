@@ -98,19 +98,31 @@ fn ci_condition(
         Some(latest) => match latest.status.as_str() {
             "success" => (
                 SATISFIED,
-                format!("the latest pipeline ({}) for commit {commit} succeeded", latest.id),
+                format!(
+                    "the latest pipeline ({}) for commit {commit} succeeded",
+                    latest.id
+                ),
             ),
             "failed" => (
                 UNSATISFIED,
-                format!("the latest pipeline ({}) for commit {commit} failed", latest.id),
+                format!(
+                    "the latest pipeline ({}) for commit {commit} failed",
+                    latest.id
+                ),
             ),
             "canceled" => (
                 UNSATISFIED,
-                format!("the latest pipeline ({}) for commit {commit} was canceled", latest.id),
+                format!(
+                    "the latest pipeline ({}) for commit {commit} was canceled",
+                    latest.id
+                ),
             ),
             other => (
                 UNKNOWN,
-                format!("the latest pipeline ({}) for commit {commit} is {other}", latest.id),
+                format!(
+                    "the latest pipeline ({}) for commit {commit} is {other}",
+                    latest.id
+                ),
             ),
         },
     };
@@ -154,7 +166,9 @@ pub async fn evaluate(
         let mut total = 0u64;
         let mut after = None;
         loop {
-            let rows = rg_db::ops::collab_question_ops::list_page(db, repo_id, &task.id, None, after, 200).await?;
+            let rows =
+                rg_db::ops::collab_question_ops::list_page(db, repo_id, &task.id, None, after, 200)
+                    .await?;
             let Some(last) = rows.last() else { break };
             after = Some((last.created_at, last.id.clone()));
             total += rows.len() as u64;
@@ -164,9 +178,17 @@ pub async fn evaluate(
             }
         }
         if open > 0 {
-            condition("questions_resolved", UNSATISFIED, format!("{open} of {total} questions are still open"))
+            condition(
+                "questions_resolved",
+                UNSATISFIED,
+                format!("{open} of {total} questions are still open"),
+            )
         } else {
-            condition("questions_resolved", SATISFIED, format!("no open questions ({total} asked)"))
+            condition(
+                "questions_resolved",
+                SATISFIED,
+                format!("no open questions ({total} asked)"),
+            )
         }
     };
 
@@ -175,11 +197,18 @@ pub async fn evaluate(
         .into_iter()
         .next();
     let package = match &latest {
-        None => condition("work_package_present", UNSATISFIED, "no work package has been written"),
+        None => condition(
+            "work_package_present",
+            UNSATISFIED,
+            "no work package has been written",
+        ),
         Some(p) => condition(
             "work_package_present",
             SATISFIED,
-            format!("revision {} exists (its contents are the author's claims)", p.revision),
+            format!(
+                "revision {} exists (its contents are the author's claims)",
+                p.revision
+            ),
         ),
     };
 
@@ -229,14 +258,30 @@ mod tests {
         let now = Utc::now();
         let sha = "a".repeat(40);
         // Newest first: a rerun succeeded after a failure.
-        let rerun = ci_condition(Some(&sha), &[pipe(9, &sha, "success"), pipe(8, &sha, "failed")], None, now);
+        let rerun = ci_condition(
+            Some(&sha),
+            &[pipe(9, &sha, "success"), pipe(8, &sha, "failed")],
+            None,
+            now,
+        );
         assert_eq!(rerun.status, SATISFIED);
         // A success followed by a failure is unsatisfied.
-        let regressed = ci_condition(Some(&sha), &[pipe(9, &sha, "failed"), pipe(8, &sha, "success")], None, now);
+        let regressed = ci_condition(
+            Some(&sha),
+            &[pipe(9, &sha, "failed"), pipe(8, &sha, "success")],
+            None,
+            now,
+        );
         assert_eq!(regressed.status, UNSATISFIED);
-        assert_eq!(ci_condition(Some(&sha), &[pipe(9, &sha, "canceled")], None, now).status, UNSATISFIED);
+        assert_eq!(
+            ci_condition(Some(&sha), &[pipe(9, &sha, "canceled")], None, now).status,
+            UNSATISFIED
+        );
         for running in ["pending", "running"] {
-            assert_eq!(ci_condition(Some(&sha), &[pipe(9, &sha, running)], None, now).status, UNKNOWN);
+            assert_eq!(
+                ci_condition(Some(&sha), &[pipe(9, &sha, running)], None, now).status,
+                UNKNOWN
+            );
         }
         assert_eq!(ci_condition(Some(&sha), &[], None, now).status, UNKNOWN);
         assert_eq!(ci_condition(None, &[], None, now).status, UNKNOWN);
@@ -253,7 +298,10 @@ mod tests {
         let same = ci_condition(Some(&sha), &[pipe(1, &sha, "success")], Some(&sha), now);
         assert_eq!(same.status, SATISFIED);
         // A failure stays a failure even when the branch moved.
-        assert_eq!(ci_condition(Some(&sha), &[pipe(1, &sha, "failed")], Some(&head), now).status, UNSATISFIED);
+        assert_eq!(
+            ci_condition(Some(&sha), &[pipe(1, &sha, "failed")], Some(&head), now).status,
+            UNSATISFIED
+        );
     }
 
     #[test]

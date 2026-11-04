@@ -55,7 +55,12 @@ impl MigrationTrait for Migration {
     /// Like theirs, it destroys the data; `up` is idempotent.
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         manager
-            .drop_table(Table::drop().table(CollabMetricEvents::Table).if_exists().to_owned())
+            .drop_table(
+                Table::drop()
+                    .table(CollabMetricEvents::Table)
+                    .if_exists()
+                    .to_owned(),
+            )
             .await
     }
 }
@@ -64,18 +69,55 @@ fn events_table() -> TableCreateStatement {
     Table::create()
         .table(CollabMetricEvents::Table)
         .if_not_exists()
-        .col(ColumnDef::new(CollabMetricEvents::Id).string_len(36).not_null().primary_key())
-        .col(ColumnDef::new(CollabMetricEvents::RepoId).big_integer().not_null())
-        .col(ColumnDef::new(CollabMetricEvents::TaskId).string_len(36).not_null())
+        .col(
+            ColumnDef::new(CollabMetricEvents::Id)
+                .string_len(36)
+                .not_null()
+                .primary_key(),
+        )
+        .col(
+            ColumnDef::new(CollabMetricEvents::RepoId)
+                .big_integer()
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabMetricEvents::TaskId)
+                .string_len(36)
+                .not_null(),
+        )
         // e.g. `task_status_changed`, `handoff_accepted`; see rg_db::ops::collab_metric_ops.
-        .col(ColumnDef::new(CollabMetricEvents::EventType).string_len(32).not_null())
-        .col(ColumnDef::new(CollabMetricEvents::FromState).string_len(16).null())
-        .col(ColumnDef::new(CollabMetricEvents::ToState).string_len(16).null())
+        .col(
+            ColumnDef::new(CollabMetricEvents::EventType)
+                .string_len(32)
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabMetricEvents::FromState)
+                .string_len(16)
+                .null(),
+        )
+        .col(
+            ColumnDef::new(CollabMetricEvents::ToState)
+                .string_len(16)
+                .null(),
+        )
         // Task version after a status change: orders events that share a timestamp.
-        .col(ColumnDef::new(CollabMetricEvents::TaskVersion).big_integer().null())
+        .col(
+            ColumnDef::new(CollabMetricEvents::TaskVersion)
+                .big_integer()
+                .null(),
+        )
         // `task` | `handoff` | `question` | `takeover` | `baseline_snapshot`.
-        .col(ColumnDef::new(CollabMetricEvents::SourceType).string_len(24).not_null())
-        .col(ColumnDef::new(CollabMetricEvents::SourceId).string_len(128).not_null())
+        .col(
+            ColumnDef::new(CollabMetricEvents::SourceType)
+                .string_len(24)
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabMetricEvents::SourceId)
+                .string_len(128)
+                .not_null(),
+        )
         .col(
             ColumnDef::new(CollabMetricEvents::OccurredAt)
                 .timestamp_with_time_zone()

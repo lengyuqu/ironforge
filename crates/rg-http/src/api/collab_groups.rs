@@ -27,7 +27,7 @@ use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
 use chrono::Utc;
-use rg_core::collaboration::{self, group as svc, CollabError, Actor};
+use rg_core::collaboration::{self, group as svc, Actor, CollabError};
 use rg_db::entities::{collab_coordination_link, repository};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -111,7 +111,11 @@ struct Target {
 
 impl Target {
     fn repo_ref(&self) -> svc::RepoRef {
-        svc::RepoRef { id: self.repo.id, owner: self.owner.clone(), name: self.repo.name.clone() }
+        svc::RepoRef {
+            id: self.repo.id,
+            owner: self.owner.clone(),
+            name: self.repo.name.clone(),
+        }
     }
 }
 
@@ -125,13 +129,22 @@ struct TargetAccess<'a> {
 
 impl<'a> TargetAccess<'a> {
     fn new(state: &'a AppState, user_id: i64) -> Self {
-        Self { state, user_id, cache: Mutex::new(HashMap::new()) }
+        Self {
+            state,
+            user_id,
+            cache: Mutex::new(HashMap::new()),
+        }
     }
 
     /// The repository if it exists (not soft-deleted) **and** the account is a
     /// collaboration reader of it; `None` otherwise, without telling which.
     async fn visible(&self, repo_id: i64) -> Result<Option<Arc<Target>>, AppError> {
-        if let Some(hit) = self.cache.lock().unwrap_or_else(|e| e.into_inner()).get(&repo_id) {
+        if let Some(hit) = self
+            .cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&repo_id)
+        {
             return Ok(hit.clone());
         }
         let found = match rg_db::ops::repo_ops::find_by_id(&self.state.db, repo_id)
@@ -144,24 +157,43 @@ impl<'a> TargetAccess<'a> {
                 // not from the 30 s process-local permission cache.
                 rg_core::repo::service::invalidate_perm_cache_user(repo.id, self.user_id);
                 if is_collab_member(self.state, &repo, self.user_id).await? {
-                    let owner = rg_core::repo::service::repo_namespace(&self.state.db, &repo).await?;
+                    let owner =
+                        rg_core::repo::service::repo_namespace(&self.state.db, &repo).await?;
                     Some(Arc::new(Target { repo, owner }))
                 } else {
                     None
                 }
             }
         };
-        self.cache.lock().unwrap_or_else(|e| e.into_inner()).insert(repo_id, found.clone());
+        self.cache
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(repo_id, found.clone());
         Ok(found)
     }
 
     /// Like [`Self::visible`], plus write access (403 only for a repository the
     /// account can see anyway).
-    async fn writable(&self, repo_id: i64, not_found: &'static str) -> Result<Arc<Target>, AppError> {
-        let target = self.visible(repo_id).await?.ok_or_else(|| AppError::not_found(not_found))?;
-        match rg_core::repo::service::can_write_repo(&self.state.db, &target.repo, Some(self.user_id)).await {
+    async fn writable(
+        &self,
+        repo_id: i64,
+        not_found: &'static str,
+    ) -> Result<Arc<Target>, AppError> {
+        let target = self
+            .visible(repo_id)
+            .await?
+            .ok_or_else(|| AppError::not_found(not_found))?;
+        match rg_core::repo::service::can_write_repo(
+            &self.state.db,
+            &target.repo,
+            Some(self.user_id),
+        )
+        .await
+        {
             Ok(true) => Ok(target),
-            Ok(false) => Err(AppError::forbidden("write access to the target repository denied")),
+            Ok(false) => Err(AppError::forbidden(
+                "write access to the target repository denied",
+            )),
             Err(e) => Err(AppError::from(e)),
         }
     }
@@ -179,9 +211,10 @@ impl<'a> TargetAccess<'a> {
         let task = match &row.target_task_id {
             None => None,
             Some(id) => {
-                let found = rg_db::ops::collab_task_ops::find_in_repo(&self.state.db, target.repo.id, id)
-                    .await
-                    .map_err(CollabError::Internal)?;
+                let found =
+                    rg_db::ops::collab_task_ops::find_in_repo(&self.state.db, target.repo.id, id)
+                        .await
+                        .map_err(CollabError::Internal)?;
                 match found {
                     Some(t) => Some(svc::TaskRef {
                         id: t.id,
@@ -205,7 +238,12 @@ impl<'a> TargetAccess<'a> {
                 Some(if present { "available" } else { "unavailable" })
             }
         };
-        Ok(Some(svc::LinkView::new(&row, target.repo_ref(), task, commit_state)))
+        Ok(Some(svc::LinkView::new(
+            &row,
+            target.repo_ref(),
+            task,
+            commit_state,
+        )))
     }
 }
 
@@ -292,7 +330,11 @@ pub async fn create_group(
         )
         .await;
     }
-    let status = if created.replayed { StatusCode::OK } else { StatusCode::CREATED };
+    let status = if created.replayed {
+        StatusCode::OK
+    } else {
+        StatusCode::CREATED
+    };
     Ok((
         status,
         Json(GroupResponse {
@@ -337,7 +379,10 @@ pub async fn get_group(
         |row| access.resolve_link(row),
     )
     .await?;
-    Ok(Json(GroupDetail { group: svc::GroupView::new(group, can_write), links }))
+    Ok(Json(GroupDetail {
+        group: svc::GroupView::new(group, can_write),
+        links,
+    }))
 }
 
 #[utoipa::path(
@@ -410,7 +455,9 @@ pub async fn add_group_link(
     .validated()?;
 
     let access = TargetAccess::new(&state, user_id);
-    let target = access.writable(input.target_repo_id, "target repository not found").await?;
+    let target = access
+        .writable(input.target_repo_id, "target repository not found")
+        .await?;
 
     // A retry of a request that succeeded must not fail because the world moved
     // on (the task or the commit may be gone since).
@@ -424,7 +471,9 @@ pub async fn add_group_link(
                 .map_err(|e| AppError::internal(e.to_string()))?
                 .is_some();
         if !found {
-            return Err(AppError::not_found("task not found in the target repository"));
+            return Err(AppError::not_found(
+                "task not found in the target repository",
+            ));
         }
     }
     if let Some(sha) = &input.commit_sha {
@@ -434,7 +483,16 @@ pub async fn add_group_link(
             ));
         }
     }
-    let added = svc::add_link(&state.db, anchor.id, &group.id, user_id, &actor, &input, Utc::now()).await?;
+    let added = svc::add_link(
+        &state.db,
+        anchor.id,
+        &group.id,
+        user_id,
+        &actor,
+        &input,
+        Utc::now(),
+    )
+    .await?;
     if !added.replayed {
         audit(
             &state,
@@ -463,7 +521,11 @@ async fn respond_link(
         .resolve_link(link)
         .await?
         .ok_or_else(|| AppError::not_found("link not found"))?;
-    let status = if replayed { StatusCode::OK } else { StatusCode::CREATED };
+    let status = if replayed {
+        StatusCode::OK
+    } else {
+        StatusCode::CREATED
+    };
     Ok((status, Json(view)))
 }
 
@@ -502,7 +564,9 @@ pub async fn remove_group_link(
 
     // Whoever cannot see the target gets the answer for a link that does not exist.
     let access = TargetAccess::new(&state, user_id);
-    access.writable(link.target_repo_id, "link not found").await?;
+    access
+        .writable(link.target_repo_id, "link not found")
+        .await?;
 
     if let Some(done) = svc::replay_remove(&link, &group.id, &actor, &input)? {
         return finish_removal(&access, done.link).await;
@@ -514,8 +578,16 @@ pub async fn remove_group_link(
         )
         .into());
     }
-    let removed =
-        svc::remove_link(&state.db, anchor.id, &group.id, user_id, &actor, &input, Utc::now()).await?;
+    let removed = svc::remove_link(
+        &state.db,
+        anchor.id,
+        &group.id,
+        user_id,
+        &actor,
+        &input,
+        Utc::now(),
+    )
+    .await?;
     if !removed.replayed {
         audit(
             &state,

@@ -58,7 +58,10 @@ mod tests {
         let secret = generate();
         let stored = hash("session-a", &secret);
         assert!(verify("session-a", &secret, &stored));
-        assert!(!verify("session-b", &secret, &stored), "digest must not transfer");
+        assert!(
+            !verify("session-b", &secret, &stored),
+            "digest must not transfer"
+        );
         assert!(!verify("session-a", &generate(), &stored));
         assert!(!verify("session-a", &secret, "short"));
         assert!(!stored.contains(&secret));

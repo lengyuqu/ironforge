@@ -205,11 +205,7 @@ impl AppError {
     }
 
     /// An error carrying a stable machine-readable `code`.
-    pub fn coded(
-        status: StatusCode,
-        code: &'static str,
-        msg: impl std::fmt::Display,
-    ) -> Self {
+    pub fn coded(status: StatusCode, code: &'static str, msg: impl std::fmt::Display) -> Self {
         Self::Coded {
             status,
             code,

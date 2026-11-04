@@ -872,7 +872,11 @@ async fn resolve_repo_storage_owner(
         .ok_or_else(|| AppError::internal("repository owner not found"))
 }
 
-pub(crate) async fn job_belongs_to_pipeline(state: &AppState, pipeline_id: i64, stage_id: i64) -> bool {
+pub(crate) async fn job_belongs_to_pipeline(
+    state: &AppState,
+    pipeline_id: i64,
+    stage_id: i64,
+) -> bool {
     match rg_db::ops::pipeline_ops::list_stages_by_pipeline(&state.db, pipeline_id).await {
         Ok(stages) => stages.iter().any(|stage| stage.id == stage_id),
         Err(e) => {

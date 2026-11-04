@@ -66,8 +66,14 @@ impl MigrationTrait for Migration {
     /// destroys the data in both tables; `up` is idempotent.
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         for table in [
-            Table::drop().table(CollabDecisionChanges::Table).if_exists().to_owned(),
-            Table::drop().table(CollabDecisions::Table).if_exists().to_owned(),
+            Table::drop()
+                .table(CollabDecisionChanges::Table)
+                .if_exists()
+                .to_owned(),
+            Table::drop()
+                .table(CollabDecisions::Table)
+                .if_exists()
+                .to_owned(),
         ] {
             manager.drop_table(table).await?;
         }
@@ -80,19 +86,51 @@ fn decisions_table() -> TableCreateStatement {
         .table(CollabDecisions::Table)
         .if_not_exists()
         .col(uuid_col(CollabDecisions::Id).not_null().primary_key())
-        .col(ColumnDef::new(CollabDecisions::RepoId).big_integer().not_null())
+        .col(
+            ColumnDef::new(CollabDecisions::RepoId)
+                .big_integer()
+                .not_null(),
+        )
         .col(uuid_col(CollabDecisions::TaskId).not_null())
-        .col(ColumnDef::new(CollabDecisions::Seq).big_integer().not_null())
+        .col(
+            ColumnDef::new(CollabDecisions::Seq)
+                .big_integer()
+                .not_null(),
+        )
         .col(uuid_col(CollabDecisions::QuestionId).null())
         .col(uuid_col(CollabDecisions::AnswerId).null())
-        .col(ColumnDef::new(CollabDecisions::Title).string_len(800).not_null())
+        .col(
+            ColumnDef::new(CollabDecisions::Title)
+                .string_len(800)
+                .not_null(),
+        )
         .col(ColumnDef::new(CollabDecisions::Rationale).text().not_null())
         // JSON `{task_version, base_sha?, head_sha?}` captured at decision time.
-        .col(ColumnDef::new(CollabDecisions::ContextJson).text().not_null())
-        .col(ColumnDef::new(CollabDecisions::ActorKind).string_len(16).not_null())
-        .col(ColumnDef::new(CollabDecisions::ActorId).string_len(64).not_null())
-        .col(ColumnDef::new(CollabDecisions::ClientDecisionId).string_len(128).not_null())
-        .col(ColumnDef::new(CollabDecisions::PayloadHash).string_len(64).not_null())
+        .col(
+            ColumnDef::new(CollabDecisions::ContextJson)
+                .text()
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabDecisions::ActorKind)
+                .string_len(16)
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabDecisions::ActorId)
+                .string_len(64)
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabDecisions::ClientDecisionId)
+                .string_len(128)
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabDecisions::PayloadHash)
+                .string_len(64)
+                .not_null(),
+        )
         .col(created_at(CollabDecisions::CreatedAt))
         .index(
             Index::create()
@@ -151,17 +189,45 @@ fn changes_table() -> TableCreateStatement {
         .table(CollabDecisionChanges::Table)
         .if_not_exists()
         .col(uuid_col(CollabDecisionChanges::Id).not_null().primary_key())
-        .col(ColumnDef::new(CollabDecisionChanges::RepoId).big_integer().not_null())
+        .col(
+            ColumnDef::new(CollabDecisionChanges::RepoId)
+                .big_integer()
+                .not_null(),
+        )
         .col(uuid_col(CollabDecisionChanges::TaskId).not_null())
         .col(uuid_col(CollabDecisionChanges::DecisionId).not_null())
         // `superseded` or `revoked`.
-        .col(ColumnDef::new(CollabDecisionChanges::Kind).string_len(16).not_null())
+        .col(
+            ColumnDef::new(CollabDecisionChanges::Kind)
+                .string_len(16)
+                .not_null(),
+        )
         .col(uuid_col(CollabDecisionChanges::ReplacementDecisionId).null())
-        .col(ColumnDef::new(CollabDecisionChanges::Reason).text().not_null())
-        .col(ColumnDef::new(CollabDecisionChanges::ActorKind).string_len(16).not_null())
-        .col(ColumnDef::new(CollabDecisionChanges::ActorId).string_len(64).not_null())
-        .col(ColumnDef::new(CollabDecisionChanges::ClientChangeId).string_len(128).not_null())
-        .col(ColumnDef::new(CollabDecisionChanges::PayloadHash).string_len(64).not_null())
+        .col(
+            ColumnDef::new(CollabDecisionChanges::Reason)
+                .text()
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabDecisionChanges::ActorKind)
+                .string_len(16)
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabDecisionChanges::ActorId)
+                .string_len(64)
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabDecisionChanges::ClientChangeId)
+                .string_len(128)
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabDecisionChanges::PayloadHash)
+                .string_len(64)
+                .not_null(),
+        )
         .col(created_at(CollabDecisionChanges::CreatedAt))
         // At most one terminal event per decision: the database decides a race.
         .index(
@@ -180,7 +246,10 @@ fn changes_table() -> TableCreateStatement {
         )
         .foreign_key(
             ForeignKey::create()
-                .from(CollabDecisionChanges::Table, CollabDecisionChanges::DecisionId)
+                .from(
+                    CollabDecisionChanges::Table,
+                    CollabDecisionChanges::DecisionId,
+                )
                 .from(CollabDecisionChanges::Table, CollabDecisionChanges::TaskId)
                 .from(CollabDecisionChanges::Table, CollabDecisionChanges::RepoId)
                 .to(CollabDecisions::Table, CollabDecisions::Id)
@@ -191,7 +260,10 @@ fn changes_table() -> TableCreateStatement {
         // A replacement must be a decision of the same task (and repository).
         .foreign_key(
             ForeignKey::create()
-                .from(CollabDecisionChanges::Table, CollabDecisionChanges::ReplacementDecisionId)
+                .from(
+                    CollabDecisionChanges::Table,
+                    CollabDecisionChanges::ReplacementDecisionId,
+                )
                 .from(CollabDecisionChanges::Table, CollabDecisionChanges::TaskId)
                 .from(CollabDecisionChanges::Table, CollabDecisionChanges::RepoId)
                 .to(CollabDecisions::Table, CollabDecisions::Id)

@@ -127,7 +127,11 @@ pub enum StateFilter {
 fn list_scope(repo_id: i64, session_id: &str, filter: StateFilter) -> String {
     format!(
         "notices:v1:repo={repo_id}:session={session_id}:filter={}:order=created_asc,id_asc",
-        if filter == StateFilter::Pending { "pending" } else { "all" }
+        if filter == StateFilter::Pending {
+            "pending"
+        } else {
+            "all"
+        }
     )
 }
 
@@ -196,8 +200,14 @@ pub async fn ack(
         return Err(CollabError::not_found("notice not found"));
     }
     match collab_notice_ops::ack(db, repo_id, &session.id, notice_id, now).await? {
-        AckOutcome::Acked(row) => Ok(Acked { notice: view(row), newly_acked: true }),
-        AckOutcome::AlreadyAcked(row) => Ok(Acked { notice: view(row), newly_acked: false }),
+        AckOutcome::Acked(row) => Ok(Acked {
+            notice: view(row),
+            newly_acked: true,
+        }),
+        AckOutcome::AlreadyAcked(row) => Ok(Acked {
+            notice: view(row),
+            newly_acked: false,
+        }),
         AckOutcome::NotFound => Err(CollabError::not_found("notice not found")),
     }
 }

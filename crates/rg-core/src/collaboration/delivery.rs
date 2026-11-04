@@ -80,7 +80,8 @@ pub async fn confirm(
         }
         None => {
             return Err(CollabError::Forbidden(
-                "the message is not addressed to a session; there is nothing to confirm".to_string(),
+                "the message is not addressed to a session; there is nothing to confirm"
+                    .to_string(),
             ))
         }
     }

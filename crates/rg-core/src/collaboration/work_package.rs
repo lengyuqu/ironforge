@@ -117,7 +117,9 @@ fn check_items(field: &str, items: &[String]) -> CollabResult<()> {
     }
     for item in items {
         if item.trim().is_empty() {
-            return Err(CollabError::bad_request(format!("{field} entries must not be empty")));
+            return Err(CollabError::bad_request(format!(
+                "{field} entries must not be empty"
+            )));
         }
         validation::text(field, item, 1, MAX_ITEM_BYTES)?;
     }
@@ -228,10 +230,14 @@ pub async fn create(
     )
     .await?;
     match outcome {
-        CreateOutcome::Created(row) => Ok(Created { package: view(row), replayed: false }),
-        CreateOutcome::Existing(row) if row.payload_hash == hash => {
-            Ok(Created { package: view(row), replayed: true })
-        }
+        CreateOutcome::Created(row) => Ok(Created {
+            package: view(row),
+            replayed: false,
+        }),
+        CreateOutcome::Existing(row) if row.payload_hash == hash => Ok(Created {
+            package: view(row),
+            replayed: true,
+        }),
         CreateOutcome::Existing(_) => Err(CollabError::IdempotencyKeyReused),
     }
 }
@@ -251,7 +257,12 @@ pub async fn get(
         .ok_or_else(|| CollabError::not_found("work package not found"))?;
     let mut out = view(row);
     let mut resolved = Vec::new();
-    for e in out.body.evidence_refs.iter().filter(|e| e.kind == "pipeline") {
+    for e in out
+        .body
+        .evidence_refs
+        .iter()
+        .filter(|e| e.kind == "pipeline")
+    {
         if let Ok(pipeline_id) = e.reference.parse::<i64>() {
             resolved.push(ci_evidence::resolve_pipeline(db, repo_id, pipeline_id, now).await?);
         }
@@ -279,14 +290,18 @@ pub async fn list(
         .map(|token| cursor::decode(cursor_key, &scope, token))
         .transpose()?
         .map(|p| (p.at, p.id));
-    let mut rows = collab_work_package_ops::list_page(db, repo_id, &task.id, after, limit + 1).await?;
+    let mut rows =
+        collab_work_package_ops::list_page(db, repo_id, &task.id, after, limit + 1).await?;
     let has_more = rows.len() as u64 > limit;
     rows.truncate(limit as usize);
     let next_cursor = has_more.then(|| rows.last()).flatten().map(|last| {
         cursor::encode(
             cursor_key,
             &scope,
-            &KeysetPosition { at: last.created_at, id: last.id.clone() },
+            &KeysetPosition {
+                at: last.created_at,
+                id: last.id.clone(),
+            },
         )
     });
     Ok(Page {

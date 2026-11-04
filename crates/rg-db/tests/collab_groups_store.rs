@@ -12,7 +12,9 @@
 use std::sync::Arc;
 
 use chrono::Utc;
-use rg_db::entities::{collab_coordination_group as group, collab_coordination_link as link, collab_task};
+use rg_db::entities::{
+    collab_coordination_group as group, collab_coordination_link as link, collab_task,
+};
 use rg_db::ops::collab_group_ops::{self, AddLinkOutcome, RemoveInfo, RemoveLinkOutcome};
 use rg_db::ops::{collab_task_ops, repo_ops, user_ops};
 use rg_db::sea_orm::{ActiveModelTrait, EntityTrait, NotSet, Set};
@@ -22,11 +24,14 @@ static SETUP_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 async fn connect() -> DatabaseConnection {
     let url = std::env::var("IRONFORGE_TEST_DATABASE_URL").unwrap_or_else(|_| {
-        let path = std::env::temp_dir().join(format!("ironforge_collab_groups_{}.db", std::process::id()));
+        let path =
+            std::env::temp_dir().join(format!("ironforge_collab_groups_{}.db", std::process::id()));
         format!("sqlite://{}?mode=rwc", path.display())
     });
     let _guard = SETUP_LOCK.lock().await;
-    let db = rg_db::connect_with_pool(&url, 20, 60, 16).await.expect("connect");
+    let db = rg_db::connect_with_pool(&url, 20, 60, 16)
+        .await
+        .expect("connect");
     rg_db::run_migrations(&db).await.expect("migrate");
     db
 }
@@ -73,9 +78,15 @@ impl Fx {
         let db = connect().await;
         let suffix = &uid()[..10];
         let username = format!("grp{suffix}");
-        let user = user_ops::create_user(&db, &username, &format!("{username}@example.invalid"), "unused", "G")
-            .await
-            .expect("user");
+        let user = user_ops::create_user(
+            &db,
+            &username,
+            &format!("{username}@example.invalid"),
+            "unused",
+            "G",
+        )
+        .await
+        .expect("user");
         let anchor = repo(&db, user.id, &format!("anchor{suffix}")).await;
         let target = repo(&db, user.id, &format!("target{suffix}")).await;
         let now = Utc::now();
@@ -100,7 +111,12 @@ impl Fx {
         )
         .await
         .expect("task");
-        Self { db: Arc::new(db), anchor, target, task }
+        Self {
+            db: Arc::new(db),
+            anchor,
+            target,
+            task,
+        }
     }
 
     async fn group(&self) -> group::Model {
@@ -124,7 +140,13 @@ impl Fx {
         .expect("group")
     }
 
-    fn link(&self, group_id: &str, client_id: &str, task: Option<&str>, key: &str) -> link::ActiveModel {
+    fn link(
+        &self,
+        group_id: &str,
+        client_id: &str,
+        task: Option<&str>,
+        key: &str,
+    ) -> link::ActiveModel {
         link::ActiveModel {
             id: Set(uid()),
             group_id: Set(group_id.to_string()),
@@ -160,7 +182,10 @@ async fn the_database_keeps_links_in_the_anchor_and_tasks_in_their_repository() 
     // A link whose anchor does not match its group's anchor is refused too.
     bad.target_task_id = Set(Some(fx.task.id.clone()));
     bad.anchor_repo_id = Set(fx.target);
-    assert!(bad.insert(&*fx.db).await.is_err(), "anchor must match the group's");
+    assert!(
+        bad.insert(&*fx.db).await.is_err(),
+        "anchor must match the group's"
+    );
     let ok = fx.link(&g.id, &uid(), Some(&fx.task.id), &uid());
     assert!(ok.insert(&*fx.db).await.is_ok());
 }
@@ -172,10 +197,17 @@ async fn concurrent_adds_with_one_expected_version_have_a_single_winner() {
     let mut joins = Vec::new();
     for i in 0..6 {
         let db = fx.db.clone();
-        let model = fx.link(&g.id, &format!("c{i}-{}", uid()), Some(&fx.task.id), &format!("k{i}-{}", uid()));
+        let model = fx.link(
+            &g.id,
+            &format!("c{i}-{}", uid()),
+            Some(&fx.task.id),
+            &format!("k{i}-{}", uid()),
+        );
         let (anchor, gid) = (fx.anchor, g.id.clone());
         joins.push(tokio::spawn(async move {
-            collab_group_ops::add_link_cas(&db, anchor, &gid, 1, model, 1000, Utc::now()).await.unwrap()
+            collab_group_ops::add_link_cas(&db, anchor, &gid, 1, model, 1000, Utc::now())
+                .await
+                .unwrap()
         }));
     }
     let mut added = 0;
@@ -190,7 +222,12 @@ async fn concurrent_adds_with_one_expected_version_have_a_single_winner() {
         }
     }
     assert_eq!(added, 1);
-    assert_eq!(collab_group_ops::count_active(&*fx.db, &g.id).await.unwrap(), 1);
+    assert_eq!(
+        collab_group_ops::count_active(&*fx.db, &g.id)
+            .await
+            .unwrap(),
+        1
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -205,7 +242,9 @@ async fn a_racing_copy_of_one_request_is_a_replay_not_a_conflict() {
         let model = fx.link(&g.id, &client_id, Some(&fx.task.id), &key);
         let (anchor, gid) = (fx.anchor, g.id.clone());
         joins.push(tokio::spawn(async move {
-            collab_group_ops::add_link_cas(&db, anchor, &gid, 1, model, 1000, Utc::now()).await.unwrap()
+            collab_group_ops::add_link_cas(&db, anchor, &gid, 1, model, 1000, Utc::now())
+                .await
+                .unwrap()
         }));
     }
     let (mut added, mut existing) = (0, 0);
@@ -217,7 +256,11 @@ async fn a_racing_copy_of_one_request_is_a_replay_not_a_conflict() {
         }
     }
     assert_eq!((added, existing), (1, 5));
-    let stored = group::Entity::find_by_id(g.id.clone()).one(&*fx.db).await.unwrap().unwrap();
+    let stored = group::Entity::find_by_id(g.id.clone())
+        .one(&*fx.db)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(stored.version, 2);
 }
 
@@ -227,25 +270,42 @@ async fn duplicate_active_targets_are_refused_and_do_not_move_the_version() {
     let g = fx.group().await;
     let key = uid();
     let first = fx.link(&g.id, &uid(), Some(&fx.task.id), &key);
-    let first_id = match collab_group_ops::add_link_cas(&fx.db, fx.anchor, &g.id, 1, first, 1000, Utc::now()).await.unwrap() {
-        AddLinkOutcome::Added { link, .. } => link.id,
-        other => panic!("{other:?}"),
-    };
+    let first_id =
+        match collab_group_ops::add_link_cas(&fx.db, fx.anchor, &g.id, 1, first, 1000, Utc::now())
+            .await
+            .unwrap()
+        {
+            AddLinkOutcome::Added { link, .. } => link.id,
+            other => panic!("{other:?}"),
+        };
     let again = fx.link(&g.id, &uid(), Some(&fx.task.id), &key);
-    match collab_group_ops::add_link_cas(&fx.db, fx.anchor, &g.id, 2, again, 1000, Utc::now()).await.unwrap() {
+    match collab_group_ops::add_link_cas(&fx.db, fx.anchor, &g.id, 2, again, 1000, Utc::now())
+        .await
+        .unwrap()
+    {
         AddLinkOutcome::Duplicate { link_id } => assert_eq!(link_id, first_id),
         other => panic!("{other:?}"),
     }
-    let stored = group::Entity::find_by_id(g.id.clone()).one(&*fx.db).await.unwrap().unwrap();
+    let stored = group::Entity::find_by_id(g.id.clone())
+        .one(&*fx.db)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(stored.version, 2, "rolled back with the failed insert");
 
     // The per-group cap counts active links.
     let third = fx.link(&g.id, &uid(), Some(&fx.task.id), &uid());
     assert_eq!(
-        collab_group_ops::add_link_cas(&fx.db, fx.anchor, &g.id, 2, third, 1, Utc::now()).await.unwrap(),
+        collab_group_ops::add_link_cas(&fx.db, fx.anchor, &g.id, 2, third, 1, Utc::now())
+            .await
+            .unwrap(),
         AddLinkOutcome::LimitReached
     );
-    let stored = group::Entity::find_by_id(g.id).one(&*fx.db).await.unwrap().unwrap();
+    let stored = group::Entity::find_by_id(g.id)
+        .one(&*fx.db)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(stored.version, 2);
 }
 
@@ -254,9 +314,17 @@ async fn removal_frees_the_target_and_races_have_a_single_winner() {
     let fx = Fx::new().await;
     let g = fx.group().await;
     let key = uid();
-    let l = match collab_group_ops::add_link_cas(&fx.db, fx.anchor, &g.id, 1, fx.link(&g.id, &uid(), Some(&fx.task.id), &key), 1000, Utc::now())
-        .await
-        .unwrap()
+    let l = match collab_group_ops::add_link_cas(
+        &fx.db,
+        fx.anchor,
+        &g.id,
+        1,
+        fx.link(&g.id, &uid(), Some(&fx.task.id), &key),
+        1000,
+        Utc::now(),
+    )
+    .await
+    .unwrap()
     {
         AddLinkOutcome::Added { link, .. } => link,
         other => panic!("{other:?}"),
@@ -273,7 +341,9 @@ async fn removal_frees_the_target_and_races_have_a_single_winner() {
                 client_id: format!("rm{i}-{}", uid()),
                 payload_hash: "h".into(),
             };
-            collab_group_ops::remove_link_cas(&db, anchor, &gid, &lid, 2, &by, Utc::now()).await.unwrap()
+            collab_group_ops::remove_link_cas(&db, anchor, &gid, &lid, 2, &by, Utc::now())
+                .await
+                .unwrap()
         }));
     }
     let mut removed = 0;
@@ -289,12 +359,19 @@ async fn removal_frees_the_target_and_races_have_a_single_winner() {
         }
     }
     assert_eq!(removed, 1);
-    assert_eq!(collab_group_ops::count_active(&*fx.db, &g.id).await.unwrap(), 0);
+    assert_eq!(
+        collab_group_ops::count_active(&*fx.db, &g.id)
+            .await
+            .unwrap(),
+        0
+    );
 
     // The same target can be linked again (unique key is NULL for removed rows).
     let again = fx.link(&g.id, &uid(), Some(&fx.task.id), &key);
     assert!(matches!(
-        collab_group_ops::add_link_cas(&fx.db, fx.anchor, &g.id, 3, again, 1000, Utc::now()).await.unwrap(),
+        collab_group_ops::add_link_cas(&fx.db, fx.anchor, &g.id, 3, again, 1000, Utc::now())
+            .await
+            .unwrap(),
         AddLinkOutcome::Added { .. }
     ));
 }

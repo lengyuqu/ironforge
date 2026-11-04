@@ -28,10 +28,8 @@ static SETUP_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 async fn connect() -> DatabaseConnection {
     let url = std::env::var("IRONFORGE_TEST_DATABASE_URL").unwrap_or_else(|_| {
-        let path = std::env::temp_dir().join(format!(
-            "ironforge_collab_store_{}.db",
-            std::process::id()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("ironforge_collab_store_{}.db", std::process::id()));
         format!("sqlite://{}?mode=rwc", path.display())
     });
     let _guard = SETUP_LOCK.lock().await;
@@ -159,7 +157,13 @@ impl Fixture {
         self.task_in(self.repo_id).await
     }
 
-    fn msg(&self, task: &collab_task::Model, author: &str, client_id: &str, body: &str) -> NewMessage {
+    fn msg(
+        &self,
+        task: &collab_task::Model,
+        author: &str,
+        client_id: &str,
+        body: &str,
+    ) -> NewMessage {
         NewMessage {
             id: uid(),
             repo_id: task.repo_id,
@@ -215,7 +219,9 @@ async fn message_count(db: &DatabaseConnection, task_id: &str) -> usize {
 #[tokio::test]
 async fn migration_is_idempotent_and_session_secret_is_not_serialized() {
     let fx = Fixture::new().await;
-    rg_db::run_migrations(&fx.db).await.expect("second run is a no-op");
+    rg_db::run_migrations(&fx.db)
+        .await
+        .expect("second run is a no-op");
     let session = fx.session("A").await;
     let json = serde_json::to_string(&session).unwrap();
     assert!(!json.contains("secret_hash"), "secret hash leaked: {json}");
@@ -246,7 +252,9 @@ async fn heartbeat_does_not_extend_expiry_and_ended_or_expired_sessions_cannot_r
     let s = fx.session("hb").await;
     let later = Utc::now() + Duration::seconds(30);
     assert_eq!(
-        agent_session_ops::touch(&*fx.db, fx.repo_id, &s.id, later).await.unwrap(),
+        agent_session_ops::touch(&*fx.db, fx.repo_id, &s.id, later)
+            .await
+            .unwrap(),
         1
     );
     let after = agent_session_ops::find_in_repo(&*fx.db, fx.repo_id, &s.id)
@@ -258,28 +266,39 @@ async fn heartbeat_does_not_extend_expiry_and_ended_or_expired_sessions_cannot_r
     // Past the hard expiry: not renewable.
     let past_expiry = s.expires_at + Duration::seconds(1);
     assert_eq!(
-        agent_session_ops::touch(&*fx.db, fx.repo_id, &s.id, past_expiry).await.unwrap(),
+        agent_session_ops::touch(&*fx.db, fx.repo_id, &s.id, past_expiry)
+            .await
+            .unwrap(),
         0
     );
 
     // Ended: not renewable, and a second end keeps the first end time.
-    agent_session_ops::end(&*fx.db, fx.repo_id, &s.id, Utc::now()).await.unwrap();
+    agent_session_ops::end(&*fx.db, fx.repo_id, &s.id, Utc::now())
+        .await
+        .unwrap();
     let first_end = agent_session_ops::find_in_repo(&*fx.db, fx.repo_id, &s.id)
         .await
         .unwrap()
         .unwrap()
         .ended_at
         .expect("ended");
-    agent_session_ops::end(&*fx.db, fx.repo_id, &s.id, Utc::now() + Duration::seconds(60))
-        .await
-        .unwrap();
+    agent_session_ops::end(
+        &*fx.db,
+        fx.repo_id,
+        &s.id,
+        Utc::now() + Duration::seconds(60),
+    )
+    .await
+    .unwrap();
     let second = agent_session_ops::find_in_repo(&*fx.db, fx.repo_id, &s.id)
         .await
         .unwrap()
         .unwrap();
     assert_eq!(second.ended_at, Some(first_end));
     assert_eq!(
-        agent_session_ops::touch(&*fx.db, fx.repo_id, &s.id, Utc::now()).await.unwrap(),
+        agent_session_ops::touch(&*fx.db, fx.repo_id, &s.id, Utc::now())
+            .await
+            .unwrap(),
         0
     );
 }
@@ -323,9 +342,11 @@ async fn cross_repo_references_are_rejected_by_the_database() {
     let foreign_task = fx.task_in(other_repo).await;
 
     // Author from another repository.
-    assert!(collab_message_ops::append(&fx.db, fx.msg(&task, &foreign_session.id, "c1", "x"))
-        .await
-        .is_err());
+    assert!(
+        collab_message_ops::append(&fx.db, fx.msg(&task, &foreign_session.id, "c1", "x"))
+            .await
+            .is_err()
+    );
 
     // Target session from another repository.
     let mut m = fx.msg(&task, &author.id, "c2", "x");
@@ -334,14 +355,15 @@ async fn cross_repo_references_are_rejected_by_the_database() {
 
     // reply_to pointing at a message of a different task (same repo and other repo).
     let sibling = fx.task().await;
-    let sibling_msg = match collab_message_ops::append(&fx.db, fx.msg(&sibling, &author.id, "c3", "y"))
-        .await
-        .unwrap()
-        .unwrap()
-    {
-        AppendOutcome::Created(m) => m,
-        other => panic!("{other:?}"),
-    };
+    let sibling_msg =
+        match collab_message_ops::append(&fx.db, fx.msg(&sibling, &author.id, "c3", "y"))
+            .await
+            .unwrap()
+            .unwrap()
+        {
+            AppendOutcome::Created(m) => m,
+            other => panic!("{other:?}"),
+        };
     let mut m = fx.msg(&task, &author.id, "c4", "x");
     m.reply_to_id = Some(sibling_msg.id.clone());
     assert!(collab_message_ops::append(&fx.db, m).await.is_err());
@@ -361,7 +383,8 @@ async fn cross_repo_references_are_rejected_by_the_database() {
     // Handoff to a session of another repository.
     assert!(collab_handoff_ops::create_idempotent(
         &fx.db,
-        fx.handoff_model(&task, &author.id, &foreign_session.id, "h1").await,
+        fx.handoff_model(&task, &author.id, &foreign_session.id, "h1")
+            .await,
         &author.id,
         "h1",
     )
@@ -373,9 +396,11 @@ async fn cross_repo_references_are_rejected_by_the_database() {
         owner_session_id: Some(Some(foreign_session.id.clone())),
         ..Default::default()
     };
-    assert!(collab_task_ops::update_cas(&fx.db, fx.repo_id, &task.id, 1, owner_patch, Utc::now())
-        .await
-        .is_err());
+    assert!(
+        collab_task_ops::update_cas(&fx.db, fx.repo_id, &task.id, 1, owner_patch, Utc::now())
+            .await
+            .is_err()
+    );
 
     // Nothing was written, and the failed appends consumed no sequence numbers.
     assert_eq!(message_count(&fx.db, &task.id).await, 0);
@@ -406,7 +431,11 @@ async fn reply_within_the_same_task_is_accepted() {
     let mut reply = fx.msg(&task, &b.id, "m1", "re");
     reply.reply_to_id = Some(first.id.clone());
     reply.target_session_id = Some(a.id.clone());
-    match collab_message_ops::append(&fx.db, reply).await.unwrap().unwrap() {
+    match collab_message_ops::append(&fx.db, reply)
+        .await
+        .unwrap()
+        .unwrap()
+    {
         // Same client id as `a` used, but a different author: keys are per session.
         AppendOutcome::Created(m) => assert_eq!(m.seq, 2),
         other => panic!("{other:?}"),
@@ -456,7 +485,11 @@ async fn concurrent_same_client_message_id_creates_exactly_one_message() {
     // stored hash differs and answers IDEMPOTENCY_KEY_REUSED.
     let mut other_body = fx.msg(&task, &author.id, "same-key", "different body");
     other_body.payload_hash = "other".to_string();
-    match collab_message_ops::append(&fx.db, other_body).await.unwrap().unwrap() {
+    match collab_message_ops::append(&fx.db, other_body)
+        .await
+        .unwrap()
+        .unwrap()
+    {
         AppendOutcome::Existing(m) => assert_ne!(m.payload_hash, "other"),
         other => panic!("{other:?}"),
     }
@@ -581,7 +614,10 @@ async fn concurrent_task_updates_with_one_version_have_a_single_winner() {
         .unwrap()
         .unwrap();
     assert_eq!(stored.version, 2);
-    assert_eq!(stored.title, winners[0].title, "the winner's write survives intact");
+    assert_eq!(
+        stored.title, winners[0].title,
+        "the winner's write survives intact"
+    );
 
     // Omitted fields stay, explicit null clears.
     let patch = TaskPatch {
@@ -617,9 +653,16 @@ async fn concurrent_task_updates_with_one_version_have_a_single_winner() {
     // Unknown task / task of another repository.
     let other_repo = fx.other_repo().await;
     assert_eq!(
-        collab_task_ops::update_cas(&fx.db, other_repo, &task.id, 4, TaskPatch::default(), Utc::now())
-            .await
-            .unwrap(),
+        collab_task_ops::update_cas(
+            &fx.db,
+            other_repo,
+            &task.id,
+            4,
+            TaskPatch::default(),
+            Utc::now()
+        )
+        .await
+        .unwrap(),
         CasOutcome::NotFound
     );
 }
@@ -649,7 +692,10 @@ async fn task_pages_filter_by_status_and_cover_every_row_once() {
     let blocked = collab_task_ops::list_page(&*fx.db, fx.repo_id, Some("blocked"), None, 10)
         .await
         .unwrap();
-    assert_eq!(blocked.iter().map(|t| &t.id).collect::<Vec<_>>(), vec![&one]);
+    assert_eq!(
+        blocked.iter().map(|t| &t.id).collect::<Vec<_>>(),
+        vec![&one]
+    );
 
     let mut seen = BTreeSet::new();
     let mut after = None;
@@ -679,7 +725,8 @@ async fn concurrent_accept_and_cancel_leave_exactly_one_terminal_state() {
         let to = fx.session("to").await;
         let handoff = match collab_handoff_ops::create_idempotent(
             &fx.db,
-            fx.handoff_model(&task, &from.id, &to.id, &format!("h{round}")).await,
+            fx.handoff_model(&task, &from.id, &to.id, &format!("h{round}"))
+                .await,
             &from.id,
             &format!("h{round}"),
         )
@@ -714,16 +761,26 @@ async fn concurrent_accept_and_cancel_leave_exactly_one_terminal_state() {
             (CasOutcome::Updated(w), CasOutcome::Conflict { current })
             | (CasOutcome::Conflict { current }, CasOutcome::Updated(w)) => {
                 assert_eq!(w.status, stored.status);
-                assert_eq!(current.status, stored.status, "loser sees the winner's state");
+                assert_eq!(
+                    current.status, stored.status,
+                    "loser sees the winner's state"
+                );
                 assert_eq!(stored.accepted_at.is_some(), stored.status == "accepted");
             }
             other => panic!("expected exactly one winner, got {other:?}"),
         }
 
         // A terminal handoff cannot move again, even with the right version.
-        match collab_handoff_ops::transition_pending(&fx.db, fx.repo_id, &handoff.id, 2, "accepted", Utc::now())
-            .await
-            .unwrap()
+        match collab_handoff_ops::transition_pending(
+            &fx.db,
+            fx.repo_id,
+            &handoff.id,
+            2,
+            "accepted",
+            Utc::now(),
+        )
+        .await
+        .unwrap()
         {
             CasOutcome::Conflict { current } => assert_eq!(current.status, stored.status),
             other => panic!("{other:?}"),
@@ -741,7 +798,9 @@ async fn concurrent_handoff_creates_with_one_client_id_create_one_row() {
     let mut joins = Vec::new();
     for _ in 0..6 {
         let db = fx.db.clone();
-        let model = fx.handoff_model(&task, &from.id, &to.id, "same-handoff").await;
+        let model = fx
+            .handoff_model(&task, &from.id, &to.id, "same-handoff")
+            .await;
         let from_id = from.id.clone();
         joins.push(tokio::spawn(async move {
             collab_handoff_ops::create_idempotent(&db, model, &from_id, "same-handoff")
@@ -786,18 +845,28 @@ async fn read_watermark_is_monotonic_bounded_and_per_session() {
     let now = Utc::now;
     let adv = |sid: String, seq: i64| {
         let (db, repo, task) = (fx.db.clone(), fx.repo_id, task.id.clone());
-        async move { collab_read_ops::advance(&db, repo, &task, &sid, seq, now()).await.unwrap() }
+        async move {
+            collab_read_ops::advance(&db, repo, &task, &sid, seq, now())
+                .await
+                .unwrap()
+        }
     };
 
     assert_eq!(adv(a.id.clone(), 3).await, AdvanceOutcome::Current(3));
     // Out of order: a lower value never moves the watermark back.
     assert_eq!(adv(a.id.clone(), 1).await, AdvanceOutcome::Current(3));
     // Beyond the last committed message.
-    assert_eq!(adv(a.id.clone(), 6).await, AdvanceOutcome::OutOfRange { max_seq: 5 });
+    assert_eq!(
+        adv(a.id.clone(), 6).await,
+        AdvanceOutcome::OutOfRange { max_seq: 5 }
+    );
     assert_eq!(adv(a.id.clone(), 5).await, AdvanceOutcome::Current(5));
     // Independent per session.
     assert_eq!(adv(b.id.clone(), 2).await, AdvanceOutcome::Current(2));
-    let row_a = collab_read_ops::get(&*fx.db, &task.id, &a.id).await.unwrap().unwrap();
+    let row_a = collab_read_ops::get(&*fx.db, &task.id, &a.id)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(row_a.last_read_seq, 5);
 
     // Concurrent advances converge on the maximum, whatever the order.
@@ -815,7 +884,10 @@ async fn read_watermark_is_monotonic_bounded_and_per_session() {
     for j in joins {
         assert!(matches!(j.await.unwrap(), AdvanceOutcome::Current(_)));
     }
-    let row_c = collab_read_ops::get(&*fx.db, &task.id, &c.id).await.unwrap().unwrap();
+    let row_c = collab_read_ops::get(&*fx.db, &task.id, &c.id)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(row_c.last_read_seq, 5);
 
     // Unknown task / task of another repository.
@@ -848,10 +920,24 @@ async fn deleting_a_repository_removes_its_collaboration_rows() {
     .unwrap()
     .unwrap();
 
-    let repo = repository::Entity::find_by_id(repo_id).one(&*fx.db).await.unwrap().unwrap();
-    repo.delete(&*fx.db).await.expect("repository delete cascades without FK errors");
-    assert!(collab_task_ops::find_in_repo(&*fx.db, repo_id, &task.id).await.unwrap().is_none());
-    assert!(agent_session_ops::find_in_repo(&*fx.db, repo_id, &session.id).await.unwrap().is_none());
+    let repo = repository::Entity::find_by_id(repo_id)
+        .one(&*fx.db)
+        .await
+        .unwrap()
+        .unwrap();
+    repo.delete(&*fx.db)
+        .await
+        .expect("repository delete cascades without FK errors");
+    assert!(collab_task_ops::find_in_repo(&*fx.db, repo_id, &task.id)
+        .await
+        .unwrap()
+        .is_none());
+    assert!(
+        agent_session_ops::find_in_repo(&*fx.db, repo_id, &session.id)
+            .await
+            .unwrap()
+            .is_none()
+    );
     assert_eq!(message_count(&fx.db, &task.id).await, 0);
 }
 
@@ -862,17 +948,83 @@ async fn deleting_a_repository_removes_its_collaboration_rows() {
 async fn pipeline_evidence_access_handles_legacy_integer_columns() {
     let f = Fixture::new().await;
     let sha = "b".repeat(40);
-    let p = rg_db::ops::pipeline_ops::create_pipeline(&f.db, f.repo_id, &sha, "main", "manual", Some(f.user_id))
-        .await.expect("create pipeline");
-    let found = rg_db::ops::pipeline_ops::get_pipeline(&f.db, p.id).await.unwrap().unwrap();
-    assert_eq!((found.repo_id, found.triggered_by), (f.repo_id, Some(f.user_id)));
-    rg_db::ops::pipeline_ops::update_pipeline_status(&f.db, p.id, "success", None, Some(Utc::now().naive_utc())).await.unwrap();
-    assert_eq!(rg_db::ops::pipeline_ops::get_pipeline(&f.db, p.id).await.unwrap().unwrap().status, "success");
-    assert_eq!(rg_db::ops::pipeline_ops::list_by_repo_and_commit(&f.db, f.repo_id, &sha, 10).await.unwrap()[0].id, p.id);
-    assert_eq!(rg_db::ops::pipeline_ops::find_latest_by_repo_and_commit(&f.db, f.repo_id, &sha).await.unwrap().unwrap().id, p.id);
-    assert!(rg_db::ops::pipeline_ops::find_latest_by_repo_and_commit(&f.db, f.repo_id, &"c".repeat(40)).await.unwrap().is_none());
-    assert_eq!(rg_db::ops::pipeline_ops::list_pipelines_by_repo(&f.db, f.repo_id).await.unwrap()[0].id, p.id);
-    let (page, total) = rg_db::ops::pipeline_ops::list_pipelines_by_repo_paginated(&f.db, f.repo_id, 0, 10).await.unwrap();
+    let p = rg_db::ops::pipeline_ops::create_pipeline(
+        &f.db,
+        f.repo_id,
+        &sha,
+        "main",
+        "manual",
+        Some(f.user_id),
+    )
+    .await
+    .expect("create pipeline");
+    let found = rg_db::ops::pipeline_ops::get_pipeline(&f.db, p.id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (found.repo_id, found.triggered_by),
+        (f.repo_id, Some(f.user_id))
+    );
+    rg_db::ops::pipeline_ops::update_pipeline_status(
+        &f.db,
+        p.id,
+        "success",
+        None,
+        Some(Utc::now().naive_utc()),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        rg_db::ops::pipeline_ops::get_pipeline(&f.db, p.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .status,
+        "success"
+    );
+    assert_eq!(
+        rg_db::ops::pipeline_ops::list_by_repo_and_commit(&f.db, f.repo_id, &sha, 10)
+            .await
+            .unwrap()[0]
+            .id,
+        p.id
+    );
+    assert_eq!(
+        rg_db::ops::pipeline_ops::find_latest_by_repo_and_commit(&f.db, f.repo_id, &sha)
+            .await
+            .unwrap()
+            .unwrap()
+            .id,
+        p.id
+    );
+    assert!(rg_db::ops::pipeline_ops::find_latest_by_repo_and_commit(
+        &f.db,
+        f.repo_id,
+        &"c".repeat(40)
+    )
+    .await
+    .unwrap()
+    .is_none());
+    assert_eq!(
+        rg_db::ops::pipeline_ops::list_pipelines_by_repo(&f.db, f.repo_id)
+            .await
+            .unwrap()[0]
+            .id,
+        p.id
+    );
+    let (page, total) =
+        rg_db::ops::pipeline_ops::list_pipelines_by_repo_paginated(&f.db, f.repo_id, 0, 10)
+            .await
+            .unwrap();
     assert_eq!((page[0].id, total), (p.id, 1));
-    assert!(rg_db::ops::pipeline_ops::update_pipeline_status(&f.db, i64::MAX, "success", None, None).await.is_err());
+    assert!(rg_db::ops::pipeline_ops::update_pipeline_status(
+        &f.db,
+        i64::MAX,
+        "success",
+        None,
+        None
+    )
+    .await
+    .is_err());
 }

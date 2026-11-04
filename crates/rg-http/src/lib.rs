@@ -965,11 +965,13 @@ fn build_routes(
             get(api::ci_feedback::wait_pipeline),
         )
         // Same-account multi-agent collaboration
-        .route("/repos/{owner}/{name}/collaboration/search", get(api::collab_search::search))
+        .route(
+            "/repos/{owner}/{name}/collaboration/search",
+            get(api::collab_search::search),
+        )
         .route(
             "/repos/{owner}/{name}/collaboration/sessions",
-            get(api::collab_sessions::list_sessions)
-                .post(api::collab_sessions::create_session),
+            get(api::collab_sessions::list_sessions).post(api::collab_sessions::create_session),
         )
         .route(
             "/repos/{owner}/{name}/collaboration/sessions/{id}/heartbeat",

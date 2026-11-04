@@ -127,7 +127,9 @@ pub fn validate_branch(branch: &str) -> CollabResult<()> {
             .chars()
             .any(|c| c.is_control() || c.is_whitespace() || "~^:?*[\\".contains(c));
     if bad {
-        Err(CollabError::bad_request("branch is not a valid branch name"))
+        Err(CollabError::bad_request(
+            "branch is not a valid branch name",
+        ))
     } else {
         Ok(())
     }
@@ -169,14 +171,20 @@ async fn require_links(
     pr_number: Option<i64>,
 ) -> CollabResult<()> {
     if let Some(number) = issue_number {
-        if issue_ops::find_by_repo_and_number(db, repo_id, number).await?.is_none() {
+        if issue_ops::find_by_repo_and_number(db, repo_id, number)
+            .await?
+            .is_none()
+        {
             return Err(CollabError::bad_request(
                 "issue_number does not refer to an issue of this repository",
             ));
         }
     }
     if let Some(number) = pr_number {
-        if pull_request_ops::find_by_repo_and_number(db, repo_id, number).await?.is_none() {
+        if pull_request_ops::find_by_repo_and_number(db, repo_id, number)
+            .await?
+            .is_none()
+        {
             return Err(CollabError::bad_request(
                 "pr_number does not refer to a pull request of this repository",
             ));
@@ -301,19 +309,16 @@ pub async fn list(
     let mut rows = collab_task_ops::list_page(db, repo_id, status, after, limit + 1).await?;
     let has_more = rows.len() as u64 > limit;
     rows.truncate(limit as usize);
-    let next_cursor = has_more
-        .then(|| rows.last())
-        .flatten()
-        .map(|last| {
-            cursor::encode(
-                cursor_key,
-                &scope,
-                &KeysetPosition {
-                    at: last.updated_at,
-                    id: last.id.clone(),
-                },
-            )
-        });
+    let next_cursor = has_more.then(|| rows.last()).flatten().map(|last| {
+        cursor::encode(
+            cursor_key,
+            &scope,
+            &KeysetPosition {
+                at: last.updated_at,
+                id: last.id.clone(),
+            },
+        )
+    });
     Ok(Page {
         items: rows.into_iter().map(view).collect(),
         next_cursor,
@@ -376,7 +381,8 @@ pub async fn update(
     patch.issue_number = changes.issue_number;
     patch.pr_number = changes.pr_number;
 
-    match collab_task_ops::update_cas(db, repo_id, id, changes.expected_version, patch, now).await? {
+    match collab_task_ops::update_cas(db, repo_id, id, changes.expected_version, patch, now).await?
+    {
         CasOutcome::Updated(row) => Ok(view(row)),
         CasOutcome::Conflict { current } => Err(CollabError::VersionConflict {
             current_version: current.version,
@@ -400,10 +406,27 @@ mod tests {
 
     #[test]
     fn paths_must_be_relative_literal_and_bounded() {
-        let ok = vec!["src/lib.rs".to_string(), "docs/**/*.md".to_string(), ".github/x.yml".into()];
+        let ok = vec![
+            "src/lib.rs".to_string(),
+            "docs/**/*.md".to_string(),
+            ".github/x.yml".into(),
+        ];
         assert!(validate_paths(&ok).is_ok(), "globs are stored literally");
-        for bad in ["/etc/passwd", "../x", "a/../b", "a\\..\\b", "C:\\x", "C:/x", "", "nul\0", "ctl\u{7}"] {
-            assert!(validate_paths(&[bad.to_string()]).is_err(), "{bad:?} must be rejected");
+        for bad in [
+            "/etc/passwd",
+            "../x",
+            "a/../b",
+            "a\\..\\b",
+            "C:\\x",
+            "C:/x",
+            "",
+            "nul\0",
+            "ctl\u{7}",
+        ] {
+            assert!(
+                validate_paths(&[bad.to_string()]).is_err(),
+                "{bad:?} must be rejected"
+            );
         }
         assert!(validate_paths(&["x".repeat(513)]).is_err());
         assert!(validate_paths(&vec!["a".to_string(); 101]).is_err());
@@ -415,7 +438,9 @@ mod tests {
         for ok in ["main", "feat/x-1", "release/1.2"] {
             assert!(validate_branch(ok).is_ok(), "{ok}");
         }
-        for bad in ["", "-x", "/x", "x/", "a..b", "a b", "a~b", "a:b", "x.lock", "a//b", "a@{b", "a\\b"] {
+        for bad in [
+            "", "-x", "/x", "x/", "a..b", "a b", "a~b", "a:b", "x.lock", "a//b", "a@{b", "a\\b",
+        ] {
             assert!(validate_branch(bad).is_err(), "{bad:?}");
         }
     }

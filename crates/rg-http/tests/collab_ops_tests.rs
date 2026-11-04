@@ -4,8 +4,8 @@
 //! Real HTTP server and SQLite database; with `IRONFORGE_TEST_DATABASE_URL` the
 //! same tests run on PostgreSQL or MySQL (not run locally).
 
-mod common;
 mod collab_common;
+mod common;
 
 use collab_common::{Env, Sess};
 use reqwest::Method;
@@ -72,7 +72,14 @@ fn from_body(key: &str, template_id: &str, area: &str) -> Value {
 async fn o06_template_edit_never_changes_old_tasks() {
     let env = Env::new().await;
     let s = env.session(&env.owner_token, "A").await;
-    let t = make_template(&env, "t1", "Bugfix", "Fix the bug.", &["tests added", "no new warnings"]).await;
+    let t = make_template(
+        &env,
+        "t1",
+        "Bugfix",
+        "Fix the bug.",
+        &["tests added", "no new warnings"],
+    )
+    .await;
     let tid = t["id"].as_str().unwrap();
     assert_eq!(t["latest_version"], 1);
     assert_eq!(t["version"]["version"], 1);
@@ -85,7 +92,10 @@ async fn o06_template_edit_never_changes_old_tasks() {
     assert!(desc1.contains("- [required] tests added"), "{desc1}");
     assert!(desc1.contains("Fix the bug."));
     assert_eq!(first["template_link"]["template_version"], 1);
-    assert_eq!(first["template_link"]["snapshot"]["checklist"][0]["text"], "tests added");
+    assert_eq!(
+        first["template_link"]["snapshot"]["checklist"][0]["text"],
+        "tests added"
+    );
     let task1 = first["task"]["id"].as_str().unwrap().to_string();
 
     // Edit: version 2 with a different goal and checklist.
@@ -104,13 +114,25 @@ async fn o06_template_edit_never_changes_old_tasks() {
 
     // The old task is byte-for-byte what it was; its link says a newer exists.
     let (_, task_now) = env
-        .json(Method::GET, &env.url(&format!("/tasks/{task1}")), &env.owner_token, None, None)
+        .json(
+            Method::GET,
+            &env.url(&format!("/tasks/{task1}")),
+            &env.owner_token,
+            None,
+            None,
+        )
         .await;
     assert_eq!(task_now["description"], desc1.as_str());
     assert_eq!(task_now["title"], "Fix auth bug");
     assert_eq!(task_now["version"], first["task"]["version"]);
     let (status, link) = env
-        .json(Method::GET, &env.url(&format!("/tasks/{task1}/template")), &env.owner_token, None, None)
+        .json(
+            Method::GET,
+            &env.url(&format!("/tasks/{task1}/template")),
+            &env.owner_token,
+            None,
+            None,
+        )
         .await;
     assert_eq!(status, 200, "{link}");
     assert_eq!(link["template_version"], 1);
@@ -121,15 +143,33 @@ async fn o06_template_edit_never_changes_old_tasks() {
 
     // Version 1 is still readable and unchanged; the default is the latest.
     let (_, old) = env
-        .json(Method::GET, &env.url(&format!("/templates/{tid}?version=1")), &env.owner_token, None, None)
+        .json(
+            Method::GET,
+            &env.url(&format!("/templates/{tid}?version=1")),
+            &env.owner_token,
+            None,
+            None,
+        )
         .await;
     assert_eq!(old["version"]["goal"], "Fix the bug.");
     let (_, latest) = env
-        .json(Method::GET, &env.url(&format!("/templates/{tid}")), &env.owner_token, None, None)
+        .json(
+            Method::GET,
+            &env.url(&format!("/templates/{tid}")),
+            &env.owner_token,
+            None,
+            None,
+        )
         .await;
     assert_eq!(latest["version"]["goal"], "A different goal.");
     let (status, _) = env
-        .json(Method::GET, &env.url(&format!("/templates/{tid}?version=3")), &env.owner_token, None, None)
+        .json(
+            Method::GET,
+            &env.url(&format!("/templates/{tid}?version=3")),
+            &env.owner_token,
+            None,
+            None,
+        )
         .await;
     assert_eq!(status, 404);
 
@@ -159,9 +199,19 @@ async fn o06_only_repo_admins_edit_templates_everyone_in_the_group_reads() {
     env.add_collaborator(admin_id, "admin").await;
     let (stranger, _) = env.user("stranger").await;
 
-    for (token, label) in [(&writer, "writer"), (&reader, "reader"), (&stranger, "stranger")] {
+    for (token, label) in [
+        (&writer, "writer"),
+        (&reader, "reader"),
+        (&stranger, "stranger"),
+    ] {
         let (status, body) = env
-            .json(Method::POST, &env.url("/templates"), token, None, Some(tpl_body("zz", "Other", "g", &[])))
+            .json(
+                Method::POST,
+                &env.url("/templates"),
+                token,
+                None,
+                Some(tpl_body("zz", "Other", "g", &[])),
+            )
             .await;
         assert_eq!(status, 403, "{label} must not create: {body}");
         let (status, body) = env
@@ -176,12 +226,26 @@ async fn o06_only_repo_admins_edit_templates_everyone_in_the_group_reads() {
         assert_eq!(status, 403, "{label} must not edit: {body}");
     }
     let (status, _) = env
-        .json(Method::POST, &env.url("/templates"), "", None, Some(tpl_body("zz", "Other", "g", &[])))
+        .json(
+            Method::POST,
+            &env.url("/templates"),
+            "",
+            None,
+            Some(tpl_body("zz", "Other", "g", &[])),
+        )
         .await;
     assert_eq!(status, 401);
 
     // Nothing was created or changed by the refused attempts.
-    let (_, list) = env.json(Method::GET, &env.url("/templates"), &env.owner_token, None, None).await;
+    let (_, list) = env
+        .json(
+            Method::GET,
+            &env.url("/templates"),
+            &env.owner_token,
+            None,
+            None,
+        )
+        .await;
     assert_eq!(list["items"].as_array().unwrap().len(), 1);
     assert_eq!(list["items"][0]["latest_version"], 1);
 
@@ -199,24 +263,56 @@ async fn o06_only_repo_admins_edit_templates_everyone_in_the_group_reads() {
 
     // Collaboration data is readable by the working group only.
     for token in [&writer, &reader, &admin] {
-        let (status, _) = env.json(Method::GET, &env.url("/templates"), token, None, None).await;
+        let (status, _) = env
+            .json(Method::GET, &env.url("/templates"), token, None, None)
+            .await;
         assert_eq!(status, 200);
-        let (status, _) = env.json(Method::GET, &env.url(&format!("/templates/{tid}")), token, None, None).await;
+        let (status, _) = env
+            .json(
+                Method::GET,
+                &env.url(&format!("/templates/{tid}")),
+                token,
+                None,
+                None,
+            )
+            .await;
         assert_eq!(status, 200);
     }
-    let (status, _) = env.json(Method::GET, &env.url("/templates"), &stranger, None, None).await;
+    let (status, _) = env
+        .json(Method::GET, &env.url("/templates"), &stranger, None, None)
+        .await;
     assert_eq!(status, 403);
-    let (status, _) = env.json(Method::GET, &env.url(&format!("/templates/{tid}")), &stranger, None, None).await;
+    let (status, _) = env
+        .json(
+            Method::GET,
+            &env.url(&format!("/templates/{tid}")),
+            &stranger,
+            None,
+            None,
+        )
+        .await;
     assert_eq!(status, 403);
 
     // A reader cannot create tasks, a writer can (with a session).
     let rs = env.session(&env.owner_token, "S").await;
     let (status, _) = env
-        .json(Method::POST, &env.url("/tasks/from-template"), &reader, Some(&rs), Some(from_body("r1", tid, "x")))
+        .json(
+            Method::POST,
+            &env.url("/tasks/from-template"),
+            &reader,
+            Some(&rs),
+            Some(from_body("r1", tid, "x")),
+        )
         .await;
     assert_eq!(status, 403);
     let (status, body) = env
-        .json(Method::POST, &env.url("/tasks/from-template"), &env.owner_token, None, Some(from_body("r1", tid, "x")))
+        .json(
+            Method::POST,
+            &env.url("/tasks/from-template"),
+            &env.owner_token,
+            None,
+            Some(from_body("r1", tid, "x")),
+        )
         .await;
     assert_eq!(status, 400, "session credentials are required: {body}");
     assert_eq!(body["error"]["code"], "SESSION_CREDENTIALS_REQUIRED");
@@ -230,40 +326,98 @@ async fn o06_idempotency_conflicts_and_stable_codes() {
 
     // Same key and body: replay, same template. Different body: reused.
     let (status, again) = env
-        .json(Method::POST, &env.url("/templates"), &env.owner_token, None, Some(tpl_body("t1", "Bugfix", "Fix.", &["a"])))
+        .json(
+            Method::POST,
+            &env.url("/templates"),
+            &env.owner_token,
+            None,
+            Some(tpl_body("t1", "Bugfix", "Fix.", &["a"])),
+        )
         .await;
     assert_eq!(status, 200, "{again}");
     assert_eq!(again["id"], t["id"]);
     let (status, body) = env
-        .json(Method::POST, &env.url("/templates"), &env.owner_token, None, Some(tpl_body("t1", "Bugfix", "Other.", &["a"])))
+        .json(
+            Method::POST,
+            &env.url("/templates"),
+            &env.owner_token,
+            None,
+            Some(tpl_body("t1", "Bugfix", "Other.", &["a"])),
+        )
         .await;
-    assert_eq!((status, body["error"]["code"].as_str()), (409, Some("IDEMPOTENCY_KEY_REUSED")), "{body}");
+    assert_eq!(
+        (status, body["error"]["code"].as_str()),
+        (409, Some("IDEMPOTENCY_KEY_REUSED")),
+        "{body}"
+    );
     // A new key with a taken name is its own code.
     let (status, body) = env
-        .json(Method::POST, &env.url("/templates"), &env.owner_token, None, Some(tpl_body("t2", "Bugfix", "Fix.", &["a"])))
+        .json(
+            Method::POST,
+            &env.url("/templates"),
+            &env.owner_token,
+            None,
+            Some(tpl_body("t2", "Bugfix", "Fix.", &["a"])),
+        )
         .await;
-    assert_eq!((status, body["error"]["code"].as_str()), (409, Some("TEMPLATE_NAME_TAKEN")), "{body}");
+    assert_eq!(
+        (status, body["error"]["code"].as_str()),
+        (409, Some("TEMPLATE_NAME_TAKEN")),
+        "{body}"
+    );
 
     // Versions: replay, reuse, stale expectation.
     let url = env.url(&format!("/templates/{tid}/versions"));
     let (status, v2) = env
-        .json(Method::POST, &url, &env.owner_token, None, Some(ver_body("v2", 1, "g2", &[])))
+        .json(
+            Method::POST,
+            &url,
+            &env.owner_token,
+            None,
+            Some(ver_body("v2", 1, "g2", &[])),
+        )
         .await;
     assert_eq!(status, 201, "{v2}");
     let (status, replay) = env
-        .json(Method::POST, &url, &env.owner_token, None, Some(ver_body("v2", 1, "g2", &[])))
+        .json(
+            Method::POST,
+            &url,
+            &env.owner_token,
+            None,
+            Some(ver_body("v2", 1, "g2", &[])),
+        )
         .await;
     assert_eq!(status, 200, "{replay}");
     assert_eq!(replay["version"]["version"], 2);
     assert_eq!(replay["latest_version"], 2);
     let (status, body) = env
-        .json(Method::POST, &url, &env.owner_token, None, Some(ver_body("v2", 1, "g2-changed", &[])))
+        .json(
+            Method::POST,
+            &url,
+            &env.owner_token,
+            None,
+            Some(ver_body("v2", 1, "g2-changed", &[])),
+        )
         .await;
-    assert_eq!((status, body["error"]["code"].as_str()), (409, Some("IDEMPOTENCY_KEY_REUSED")), "{body}");
+    assert_eq!(
+        (status, body["error"]["code"].as_str()),
+        (409, Some("IDEMPOTENCY_KEY_REUSED")),
+        "{body}"
+    );
     let (status, body) = env
-        .json(Method::POST, &url, &env.owner_token, None, Some(ver_body("v3", 1, "g3", &[])))
+        .json(
+            Method::POST,
+            &url,
+            &env.owner_token,
+            None,
+            Some(ver_body("v3", 1, "g3", &[])),
+        )
         .await;
-    assert_eq!((status, body["error"]["code"].as_str()), (409, Some("VERSION_CONFLICT")), "{body}");
+    assert_eq!(
+        (status, body["error"]["code"].as_str()),
+        (409, Some("VERSION_CONFLICT")),
+        "{body}"
+    );
     assert_eq!(body["error"]["details"]["current_version"], 2);
 
     // Tasks: replay returns the same task even after the template moved on;
@@ -278,9 +432,25 @@ async fn o06_idempotency_conflicts_and_stable_codes() {
     assert_eq!(replay["replayed"], true);
     assert_eq!(replay["task"]["id"], first["task"]["id"]);
     let (status, body) = from_template(&env, &s, from_body("k1", tid, "other")).await;
-    assert_eq!((status, body["error"]["code"].as_str()), (409, Some("IDEMPOTENCY_KEY_REUSED")), "{body}");
-    let (_, tasks) = env.json(Method::GET, &env.url("/tasks"), &env.owner_token, None, None).await;
-    assert_eq!(tasks["items"].as_array().unwrap().len(), 1, "a refused retry creates nothing");
+    assert_eq!(
+        (status, body["error"]["code"].as_str()),
+        (409, Some("IDEMPOTENCY_KEY_REUSED")),
+        "{body}"
+    );
+    let (_, tasks) = env
+        .json(
+            Method::GET,
+            &env.url("/tasks"),
+            &env.owner_token,
+            None,
+            None,
+        )
+        .await;
+    assert_eq!(
+        tasks["items"].as_array().unwrap().len(),
+        1,
+        "a refused retry creates nothing"
+    );
 }
 
 #[tokio::test]
@@ -309,12 +479,34 @@ async fn o06_concurrent_edits_and_creates_have_one_winner() {
     for h in handles {
         statuses.push(h.await.unwrap());
     }
-    assert_eq!(statuses.iter().filter(|s| **s == 201).count(), 1, "{statuses:?}");
-    assert_eq!(statuses.iter().filter(|s| **s == 409).count(), 5, "{statuses:?}");
-    let (_, now) = env.json(Method::GET, &env.url(&format!("/templates/{tid}")), &env.owner_token, None, None).await;
+    assert_eq!(
+        statuses.iter().filter(|s| **s == 201).count(),
+        1,
+        "{statuses:?}"
+    );
+    assert_eq!(
+        statuses.iter().filter(|s| **s == 409).count(),
+        5,
+        "{statuses:?}"
+    );
+    let (_, now) = env
+        .json(
+            Method::GET,
+            &env.url(&format!("/templates/{tid}")),
+            &env.owner_token,
+            None,
+            None,
+        )
+        .await;
     assert_eq!(now["latest_version"], 2);
     let (status, _) = env
-        .json(Method::GET, &env.url(&format!("/templates/{tid}?version=3")), &env.owner_token, None, None)
+        .json(
+            Method::GET,
+            &env.url(&format!("/templates/{tid}?version=3")),
+            &env.owner_token,
+            None,
+            None,
+        )
         .await;
     assert_eq!(status, 404);
 
@@ -353,7 +545,15 @@ async fn o06_concurrent_edits_and_creates_have_one_winner() {
     }
     assert_eq!(created, 1);
     assert_eq!(ids.len(), 1);
-    let (_, tasks) = env.json(Method::GET, &env.url("/tasks"), &env.owner_token, None, None).await;
+    let (_, tasks) = env
+        .json(
+            Method::GET,
+            &env.url("/tasks"),
+            &env.owner_token,
+            None,
+            None,
+        )
+        .await;
     assert_eq!(tasks["items"].as_array().unwrap().len(), 1);
 }
 
@@ -369,19 +569,43 @@ async fn o06_validation_and_missing_things() {
         (json!({"title_pattern": "Fix {oops"}), "unbalanced brace"),
         (json!({"title_pattern": "Fix {a b}"}), "bad placeholder"),
         (json!({"goal": " "}), "empty goal"),
-        (json!({"checklist": vec![json!({"text": "x"}); 31]}), "too many checklist items"),
-        (json!({"deliverables": vec!["x"; 21]}), "too many deliverables"),
-        (json!({"checklist": [{"text": "two\nlines"}]}), "multi-line item"),
+        (
+            json!({"checklist": vec![json!({"text": "x"}); 31]}),
+            "too many checklist items",
+        ),
+        (
+            json!({"deliverables": vec!["x"; 21]}),
+            "too many deliverables",
+        ),
+        (
+            json!({"checklist": [{"text": "two\nlines"}]}),
+            "multi-line item",
+        ),
         (json!({"name": ""}), "empty name"),
     ] {
         let mut body = tpl_body("v1", "Other", "g", &[]);
-        body.as_object_mut().unwrap().extend(patch.as_object().unwrap().clone());
-        let (status, resp) = env.json(Method::POST, &env.url("/templates"), &env.owner_token, None, Some(body)).await;
+        body.as_object_mut()
+            .unwrap()
+            .extend(patch.as_object().unwrap().clone());
+        let (status, resp) = env
+            .json(
+                Method::POST,
+                &env.url("/templates"),
+                &env.owner_token,
+                None,
+                Some(body),
+            )
+            .await;
         assert_eq!(status, 400, "{why}: {resp}");
     }
 
     // Params must match the pattern exactly.
-    let (status, _) = from_template(&env, &s, json!({"client_task_id": "p1", "template_id": tid})).await;
+    let (status, _) = from_template(
+        &env,
+        &s,
+        json!({"client_task_id": "p1", "template_id": tid}),
+    )
+    .await;
     assert_eq!(status, 400, "missing param");
     let (status, _) = from_template(
         &env,
@@ -392,7 +616,12 @@ async fn o06_validation_and_missing_things() {
     assert_eq!(status, 400, "unknown param");
 
     // Unknown template, unknown version, malformed id.
-    let (status, _) = from_template(&env, &s, from_body("p3", &uuid::Uuid::new_v4().to_string(), "a")).await;
+    let (status, _) = from_template(
+        &env,
+        &s,
+        from_body("p3", &uuid::Uuid::new_v4().to_string(), "a"),
+    )
+    .await;
     assert_eq!(status, 404);
     let mut v9 = from_body("p4", tid, "a");
     v9["version"] = json!(9);
@@ -412,7 +641,13 @@ async fn o06_validation_and_missing_things() {
         .unwrap();
     assert_eq!(resp.status(), 201);
     let (status, _) = env
-        .json(Method::GET, &env.url_in(other, &format!("/templates/{tid}")), &env.owner_token, None, None)
+        .json(
+            Method::GET,
+            &env.url_in(other, &format!("/templates/{tid}")),
+            &env.owner_token,
+            None,
+            None,
+        )
         .await;
     assert_eq!(status, 404);
     let other_session = {
@@ -444,12 +679,21 @@ async fn o06_validation_and_missing_things() {
 
     // A task made without a template has no pin.
     let (_, plain) = env
-        .json(Method::POST, &env.url("/tasks"), &env.owner_token, Some(&s), Some(json!({"title": "plain"})))
+        .json(
+            Method::POST,
+            &env.url("/tasks"),
+            &env.owner_token,
+            Some(&s),
+            Some(json!({"title": "plain"})),
+        )
         .await;
     let (status, _) = env
         .json(
             Method::GET,
-            &env.url(&format!("/tasks/{}/template", plain["id"].as_str().unwrap())),
+            &env.url(&format!(
+                "/tasks/{}/template",
+                plain["id"].as_str().unwrap()
+            )),
             &env.owner_token,
             None,
             None,
@@ -486,7 +730,10 @@ async fn o06_rules_commit_is_recorded_only_when_a_ref_is_supplied() {
     let (_, link) = env
         .json(
             Method::GET,
-            &env.url(&format!("/tasks/{}/template", got["task"]["id"].as_str().unwrap())),
+            &env.url(&format!(
+                "/tasks/{}/template",
+                got["task"]["id"].as_str().unwrap()
+            )),
             &env.owner_token,
             None,
             None,
@@ -498,8 +745,20 @@ async fn o06_rules_commit_is_recorded_only_when_a_ref_is_supplied() {
     bad["rules_ref"] = json!("no-such-branch");
     let (status, body) = from_template(&env, &s, bad).await;
     assert_eq!(status, 400, "{body}");
-    let (_, tasks) = env.json(Method::GET, &env.url("/tasks"), &env.owner_token, None, None).await;
-    assert_eq!(tasks["items"].as_array().unwrap().len(), 2, "a refused request creates no task");
+    let (_, tasks) = env
+        .json(
+            Method::GET,
+            &env.url("/tasks"),
+            &env.owner_token,
+            None,
+            None,
+        )
+        .await;
+    assert_eq!(
+        tasks["items"].as_array().unwrap().len(),
+        2,
+        "a refused request creates no task"
+    );
 }
 
 // ------------------------------------------------------------------ O07
@@ -527,14 +786,24 @@ async fn put_decl(env: &Env, s: &Sess, body: Value) -> (u16, Value) {
 }
 
 async fn get_decl(env: &Env, token: &str, id: &str, query: &str) -> (u16, Value) {
-    env.json(Method::GET, &env.url(&format!("/sessions/{id}/declaration{query}")), token, None, None)
-        .await
+    env.json(
+        Method::GET,
+        &env.url(&format!("/sessions/{id}/declaration{query}")),
+        token,
+        None,
+        None,
+    )
+    .await
 }
 
 async fn age_declaration(env: &Env, session_id: &str, ago: chrono::Duration) {
     use rg_db::entities::collab_session_declaration as d;
     use rg_db::sea_orm::{ActiveModelTrait, EntityTrait, Set};
-    let row = d::Entity::find_by_id(session_id.to_string()).one(&env.db).await.unwrap().unwrap();
+    let row = d::Entity::find_by_id(session_id.to_string())
+        .one(&env.db)
+        .await
+        .unwrap()
+        .unwrap();
     let mut active: d::ActiveModel = row.into();
     active.declared_at = Set(chrono::Utc::now() - ago);
     active.update(&env.db).await.unwrap();
@@ -552,7 +821,10 @@ async fn o07_declaration_is_self_reported_versioned_and_authorizes_nothing() {
     assert_eq!(none["status"], "undeclared");
     assert!(none["declaration"].is_null());
     assert_eq!(none["authorization"], "none");
-    assert!(none["meaning"].as_str().unwrap().contains("authorizes nothing"));
+    assert!(none["meaning"]
+        .as_str()
+        .unwrap()
+        .contains("authorizes nothing"));
 
     let (status, first) = put_decl(&env, &a, decl_body(0, "yes", "first")).await;
     assert_eq!(status, 200, "{first}");
@@ -570,10 +842,17 @@ async fn o07_declaration_is_self_reported_versioned_and_authorizes_nothing() {
     assert_eq!(status, 200, "{retry}");
     assert_eq!(retry["version"], 1);
     let (status, conflict) = put_decl(&env, &a, decl_body(0, "no", "other")).await;
-    assert_eq!((status, conflict["error"]["code"].as_str()), (409, Some("VERSION_CONFLICT")), "{conflict}");
+    assert_eq!(
+        (status, conflict["error"]["code"].as_str()),
+        (409, Some("VERSION_CONFLICT")),
+        "{conflict}"
+    );
     assert_eq!(conflict["error"]["details"]["current_version"], 1);
     let (_, still) = get_decl(&env, &env.owner_token, &a.id, "").await;
-    assert_eq!(still["declaration"]["can_run_tests"], "yes", "a refused replace changes nothing");
+    assert_eq!(
+        still["declaration"]["can_run_tests"], "yes",
+        "a refused replace changes nothing"
+    );
 
     let (status, second) = put_decl(&env, &a, decl_body(1, "no", "second")).await;
     assert_eq!(status, 200, "{second}");
@@ -590,7 +869,11 @@ async fn o07_declaration_is_self_reported_versioned_and_authorizes_nothing() {
             Some(decl_body(2, "yes", "forged")),
         )
         .await;
-    assert_eq!((status, body["error"]["code"].as_str()), (403, Some("SESSION_CREDENTIALS_INVALID")), "{body}");
+    assert_eq!(
+        (status, body["error"]["code"].as_str()),
+        (403, Some("SESSION_CREDENTIALS_INVALID")),
+        "{body}"
+    );
     let (status, body) = env
         .json(
             Method::PUT,
@@ -600,7 +883,11 @@ async fn o07_declaration_is_self_reported_versioned_and_authorizes_nothing() {
             Some(decl_body(2, "yes", "no session")),
         )
         .await;
-    assert_eq!((status, body["error"]["code"].as_str()), (400, Some("SESSION_CREDENTIALS_REQUIRED")), "{body}");
+    assert_eq!(
+        (status, body["error"]["code"].as_str()),
+        (400, Some("SESSION_CREDENTIALS_REQUIRED")),
+        "{body}"
+    );
     let (_, now) = get_decl(&env, &env.owner_token, &a.id, "").await;
     assert_eq!(now["declaration"]["version"], 2);
     assert_eq!(now["declaration"]["notes"], "second");
@@ -615,7 +902,9 @@ async fn o07_declaration_is_self_reported_versioned_and_authorizes_nothing() {
         json!({"expected_version": -1}),
     ] {
         let mut body = decl_body(2, "yes", "n");
-        body.as_object_mut().unwrap().extend(patch.as_object().unwrap().clone());
+        body.as_object_mut()
+            .unwrap()
+            .extend(patch.as_object().unwrap().clone());
         let (status, resp) = put_decl(&env, &a, body).await;
         assert_eq!(status, 400, "{patch}: {resp}");
     }
@@ -624,7 +913,13 @@ async fn o07_declaration_is_self_reported_versioned_and_authorizes_nothing() {
     // are exactly what they were (here: a claim is still a claim with the usual
     // conditions, not something the declaration unlocked).
     let (_, task) = env
-        .json(Method::POST, &env.url("/tasks"), &env.owner_token, Some(&b), Some(json!({"title": "t"})))
+        .json(
+            Method::POST,
+            &env.url("/tasks"),
+            &env.owner_token,
+            Some(&b),
+            Some(json!({"title": "t"})),
+        )
         .await;
     let (status, _) = env
         .json(
@@ -635,7 +930,10 @@ async fn o07_declaration_is_self_reported_versioned_and_authorizes_nothing() {
             Some(json!({"expected_version": 1, "status": "done"})),
         )
         .await;
-    assert_eq!(status, 200, "task updates are governed by repository write access alone");
+    assert_eq!(
+        status, 200,
+        "task updates are governed by repository write access alone"
+    );
 }
 
 #[tokio::test]
@@ -654,27 +952,50 @@ async fn o07_old_or_orphaned_declarations_are_marked_stale() {
     assert_eq!(old["declaration"]["stale_reasons"], json!(["age"]));
     assert!(old["declaration"]["age_seconds"].as_i64().unwrap() >= 30 * 3600);
     assert_eq!(old["declaration"]["stale_after_seconds"], 86400);
-    assert_eq!(old["declaration"]["can_run_tests"], "yes", "stale data is still shown, with its flag");
+    assert_eq!(
+        old["declaration"]["can_run_tests"], "yes",
+        "stale data is still shown, with its flag"
+    );
 
     // The threshold is configurable per request, and clamped.
     let (_, lenient) = get_decl(&env, &env.owner_token, &a.id, "?stale_after_seconds=172800").await;
     assert_eq!(lenient["declaration"]["stale"], false);
     let (_, strict) = get_decl(&env, &env.owner_token, &b.id, "?stale_after_seconds=1").await;
     assert_eq!(strict["declaration"]["stale_after_seconds"], 60);
-    assert_eq!(strict["declaration"]["stale"], false, "a fresh declaration is not stale at the 60s floor");
+    assert_eq!(
+        strict["declaration"]["stale"], false,
+        "a fresh declaration is not stale at the 60s floor"
+    );
 
     // A session that ended: its declaration is flagged although it is recent.
     let (status, _) = env
-        .json(Method::POST, &env.url(&format!("/sessions/{}/end", c.id)), &env.owner_token, Some(&c), None)
+        .json(
+            Method::POST,
+            &env.url(&format!("/sessions/{}/end", c.id)),
+            &env.owner_token,
+            Some(&c),
+            None,
+        )
         .await;
     assert_eq!(status, 204);
     let (_, ended) = get_decl(&env, &env.owner_token, &c.id, "").await;
     assert_eq!(ended["declaration"]["stale"], true);
-    assert_eq!(ended["declaration"]["stale_reasons"], json!(["session_ended"]));
+    assert_eq!(
+        ended["declaration"]["stale_reasons"],
+        json!(["session_ended"])
+    );
     assert_eq!(ended["session_state"], "ended");
 
     // The list carries the same flags and can be joined with /sessions by id.
-    let (status, list) = env.json(Method::GET, &env.url("/declarations"), &env.owner_token, None, None).await;
+    let (status, list) = env
+        .json(
+            Method::GET,
+            &env.url("/declarations"),
+            &env.owner_token,
+            None,
+            None,
+        )
+        .await;
     assert_eq!(status, 200, "{list}");
     let items = list["items"].as_array().unwrap();
     assert_eq!(items.len(), 3);
@@ -683,12 +1004,31 @@ async fn o07_old_or_orphaned_declarations_are_marked_stale() {
     assert_eq!(find(&b.id)["stale"], false);
     assert_eq!(find(&c.id)["stale_reasons"], json!(["session_ended"]));
     for item in items {
-        assert_eq!((item["source"].as_str(), item["authorization"].as_str()), (Some("user_content"), Some("none")));
+        assert_eq!(
+            (item["source"].as_str(), item["authorization"].as_str()),
+            (Some("user_content"), Some("none"))
+        );
     }
-    let (_, sessions) = env.json(Method::GET, &env.url("/sessions"), &env.owner_token, None, None).await;
-    let session_ids: Vec<&str> = sessions["items"].as_array().unwrap().iter().map(|s| s["id"].as_str().unwrap()).collect();
+    let (_, sessions) = env
+        .json(
+            Method::GET,
+            &env.url("/sessions"),
+            &env.owner_token,
+            None,
+            None,
+        )
+        .await;
+    let session_ids: Vec<&str> = sessions["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s["id"].as_str().unwrap())
+        .collect();
     for item in items {
-        assert!(session_ids.contains(&item["session_id"].as_str().unwrap()), "joinable by session_id");
+        assert!(
+            session_ids.contains(&item["session_id"].as_str().unwrap()),
+            "joinable by session_id"
+        );
     }
 
     // Re-declaring (same content, current version) refreshes the timestamp.
@@ -711,7 +1051,15 @@ async fn o07_access_and_races() {
     assert_eq!(status, 200);
     let (status, _) = get_decl(&env, &stranger, &a.id, "").await;
     assert_eq!(status, 403);
-    let (status, _) = env.json(Method::GET, &env.url("/declarations"), &stranger, None, None).await;
+    let (status, _) = env
+        .json(
+            Method::GET,
+            &env.url("/declarations"),
+            &stranger,
+            None,
+            None,
+        )
+        .await;
     assert_eq!(status, 403);
     let (status, _) = env
         .json(
@@ -725,7 +1073,13 @@ async fn o07_access_and_races() {
     assert_eq!(status, 403, "read access cannot declare");
 
     // Unknown and foreign-repository sessions read as absent.
-    let (status, _) = get_decl(&env, &env.owner_token, &uuid::Uuid::new_v4().to_string(), "").await;
+    let (status, _) = get_decl(
+        &env,
+        &env.owner_token,
+        &uuid::Uuid::new_v4().to_string(),
+        "",
+    )
+    .await;
     assert_eq!(status, 404);
     let (status, _) = get_decl(&env, &env.owner_token, "nope", "").await;
     assert_eq!(status, 404);
@@ -754,8 +1108,16 @@ async fn o07_access_and_races() {
     for h in handles {
         statuses.push(h.await.unwrap());
     }
-    assert_eq!(statuses.iter().filter(|s| **s == 200).count(), 1, "{statuses:?}");
-    assert_eq!(statuses.iter().filter(|s| **s == 409).count(), 5, "{statuses:?}");
+    assert_eq!(
+        statuses.iter().filter(|s| **s == 200).count(),
+        1,
+        "{statuses:?}"
+    );
+    assert_eq!(
+        statuses.iter().filter(|s| **s == 409).count(),
+        5,
+        "{statuses:?}"
+    );
     let (_, now) = get_decl(&env, &env.owner_token, &a.id, "").await;
     assert_eq!(now["declaration"]["version"], 2);
 }
@@ -764,7 +1126,13 @@ async fn o07_access_and_races() {
 
 async fn new_task(env: &Env, s: &Sess) -> String {
     let (status, task) = env
-        .json(Method::POST, &env.url("/tasks"), &env.owner_token, Some(s), Some(json!({"title": "budgeted"})))
+        .json(
+            Method::POST,
+            &env.url("/tasks"),
+            &env.owner_token,
+            Some(s),
+            Some(json!({"title": "budgeted"})),
+        )
         .await;
     assert_eq!(status, 201, "{task}");
     task["id"].as_str().unwrap().to_string()
@@ -781,7 +1149,14 @@ fn budget_body(expected: i64, unit: &str, source: &str, amount: Value) -> Value 
 }
 
 async fn put_budget(env: &Env, task: &str, body: Value) -> (u16, Value) {
-    env.json(Method::PUT, &env.url(&format!("/tasks/{task}/budgets")), &env.owner_token, None, Some(body)).await
+    env.json(
+        Method::PUT,
+        &env.url(&format!("/tasks/{task}/budgets")),
+        &env.owner_token,
+        None,
+        Some(body),
+    )
+    .await
 }
 
 fn usage_body(key: &str, unit: &str, source: &str, amount: Value) -> Value {
@@ -797,12 +1172,25 @@ fn usage_body(key: &str, unit: &str, source: &str, amount: Value) -> Value {
 }
 
 async fn report(env: &Env, task: &str, s: Option<&Sess>, body: Value) -> (u16, Value) {
-    env.json(Method::POST, &env.url(&format!("/tasks/{task}/usage")), &env.owner_token, s, Some(body)).await
+    env.json(
+        Method::POST,
+        &env.url(&format!("/tasks/{task}/usage")),
+        &env.owner_token,
+        s,
+        Some(body),
+    )
+    .await
 }
 
 async fn budget(env: &Env, task: &str) -> Value {
     let (status, body) = env
-        .json(Method::GET, &env.url(&format!("/tasks/{task}/budget")), &env.owner_token, None, None)
+        .json(
+            Method::GET,
+            &env.url(&format!("/tasks/{task}/budget")),
+            &env.owner_token,
+            None,
+            None,
+        )
         .await;
     assert_eq!(status, 200, "{body}");
     body
@@ -829,7 +1217,8 @@ async fn o08_missing_usage_is_unknown_never_zero() {
     assert_eq!(empty["unmatched_usage"], json!([]));
     assert!(empty["enforcement"].as_str().unwrap().starts_with("none"));
 
-    let (status, set) = put_budget(&env, &task, budget_body(0, "USD", "invoice", json!("10"))).await;
+    let (status, set) =
+        put_budget(&env, &task, budget_body(0, "USD", "invoice", json!("10"))).await;
     assert_eq!(status, 201, "{set}");
     assert_eq!(set["version"], 1);
     assert_eq!(set["amount"], "10");
@@ -839,14 +1228,26 @@ async fn o08_missing_usage_is_unknown_never_zero() {
     let got = budget(&env, &task).await;
     let b = entry(&got, "USD", "invoice");
     assert_eq!(b["usage"]["status"], "unknown");
-    assert!(b["usage"]["total"].is_null(), "no usage is null, never \"0\": {b}");
+    assert!(
+        b["usage"]["total"].is_null(),
+        "no usage is null, never \"0\": {b}"
+    );
     assert_eq!(b["usage"]["record_count"], 0);
-    assert!(b["usage"]["reason"].as_str().unwrap().contains("no usage has been reported"));
+    assert!(b["usage"]["reason"]
+        .as_str()
+        .unwrap()
+        .contains("no usage has been reported"));
     assert!(b["over_threshold"].is_null());
     assert!(b["threshold"].is_null());
 
     // An explicit zero IS a measurement and differs from missing.
-    let (status, _) = report(&env, &task, Some(&s), usage_body("z", "USD", "invoice", json!(0))).await;
+    let (status, _) = report(
+        &env,
+        &task,
+        Some(&s),
+        usage_body("z", "USD", "invoice", json!(0)),
+    )
+    .await;
     assert_eq!(status, 201);
     let got = budget(&env, &task).await;
     let b = entry(&got, "USD", "invoice");
@@ -864,27 +1265,80 @@ async fn o08_units_and_sources_are_never_mixed_and_thresholds_show_their_numbers
     let mut with_alert = budget_body(0, "USD", "invoice", json!("10"));
     with_alert["alert_at"] = json!("5");
     assert_eq!(put_budget(&env, &task, with_alert).await.0, 201);
-    assert_eq!(put_budget(&env, &task, budget_body(0, "tokens", "harness", json!(1000))).await.0, 201);
-    assert_eq!(put_budget(&env, &task, budget_body(0, "x", "s", json!("0.3"))).await.0, 201);
+    assert_eq!(
+        put_budget(
+            &env,
+            &task,
+            budget_body(0, "tokens", "harness", json!(1000))
+        )
+        .await
+        .0,
+        201
+    );
+    assert_eq!(
+        put_budget(&env, &task, budget_body(0, "x", "s", json!("0.3")))
+            .await
+            .0,
+        201
+    );
 
     // Same unit, other source; other unit, same source: neither is the budget's.
-    assert_eq!(report(&env, &task, Some(&s), usage_body("u1", "USD", "estimate", json!("100"))).await.0, 201);
-    assert_eq!(report(&env, &task, Some(&s), usage_body("u2", "EUR", "invoice", json!("100"))).await.0, 201);
+    assert_eq!(
+        report(
+            &env,
+            &task,
+            Some(&s),
+            usage_body("u1", "USD", "estimate", json!("100"))
+        )
+        .await
+        .0,
+        201
+    );
+    assert_eq!(
+        report(
+            &env,
+            &task,
+            Some(&s),
+            usage_body("u2", "EUR", "invoice", json!("100"))
+        )
+        .await
+        .0,
+        201
+    );
     let got = budget(&env, &task).await;
     let usd = entry(&got, "USD", "invoice");
-    assert_eq!(usd["usage"]["status"], "unknown", "100 USD from another source is not this budget's usage");
+    assert_eq!(
+        usd["usage"]["status"], "unknown",
+        "100 USD from another source is not this budget's usage"
+    );
     assert!(usd["over_threshold"].is_null());
     let unmatched = got["unmatched_usage"].as_array().unwrap();
     assert_eq!(unmatched.len(), 2);
     for (unit, source) in [("USD", "estimate"), ("EUR", "invoice")] {
-        let u = unmatched.iter().find(|u| u["unit"] == unit && u["source"] == source).unwrap();
+        let u = unmatched
+            .iter()
+            .find(|u| u["unit"] == unit && u["source"] == source)
+            .unwrap();
         assert_eq!(u["total"], "100");
         assert_eq!(u["record_count"], 1);
     }
-    assert_eq!(entry(&got, "tokens", "harness")["usage"]["status"], "unknown");
+    assert_eq!(
+        entry(&got, "tokens", "harness")["usage"]["status"],
+        "unknown"
+    );
 
     // Matching usage accumulates per exact (unit, source) only.
-    assert_eq!(report(&env, &task, Some(&s), usage_body("u3", "USD", "invoice", json!("2.5"))).await.0, 201);
+    assert_eq!(
+        report(
+            &env,
+            &task,
+            Some(&s),
+            usage_body("u3", "USD", "invoice", json!("2.5"))
+        )
+        .await
+        .0,
+        201
+    );
     let got = budget(&env, &task).await;
     let usd = entry(&got, "USD", "invoice");
     assert_eq!(usd["usage"]["total"], "2.5");
@@ -895,22 +1349,64 @@ async fn o08_units_and_sources_are_never_mixed_and_thresholds_show_their_numbers
     assert_eq!(usd["threshold"]["unit"], "USD");
     assert_eq!(usd["threshold"]["source"], "invoice");
 
-    assert_eq!(report(&env, &task, Some(&s), usage_body("u4", "USD", "invoice", json!("2.5"))).await.0, 201);
+    assert_eq!(
+        report(
+            &env,
+            &task,
+            Some(&s),
+            usage_body("u4", "USD", "invoice", json!("2.5"))
+        )
+        .await
+        .0,
+        201
+    );
     let got = budget(&env, &task).await;
     let usd = entry(&got, "USD", "invoice");
     assert_eq!(usd["usage"]["total"], "5");
     assert_eq!(usd["usage"]["record_count"], 2);
-    assert_eq!(usd["over_threshold"], true, "reaching alert_at raises the flag");
-    assert_eq!(usd["threshold"]["comparison"], "over_threshold = used_total >= threshold_amount");
+    assert_eq!(
+        usd["over_threshold"], true,
+        "reaching alert_at raises the flag"
+    );
+    assert_eq!(
+        usd["threshold"]["comparison"],
+        "over_threshold = used_total >= threshold_amount"
+    );
     assert_eq!(usd["threshold"]["used_total"], "5");
-    assert_eq!(usd["usage"]["overlapping_periods"], true, "the two test records cover the same period");
+    assert_eq!(
+        usd["usage"]["overlapping_periods"], true,
+        "the two test records cover the same period"
+    );
     assert_eq!(usd["threshold"]["total_may_double_count"], true);
     // The other ledgers did not move.
-    assert_eq!(entry(&got, "tokens", "harness")["usage"]["status"], "unknown");
+    assert_eq!(
+        entry(&got, "tokens", "harness")["usage"]["status"],
+        "unknown"
+    );
 
     // Exact decimal arithmetic: 0.1 + 0.2 is 0.3, not 0.30000000000000004.
-    assert_eq!(report(&env, &task, Some(&s), usage_body("d1", "x", "s", json!(0.1))).await.0, 201);
-    assert_eq!(report(&env, &task, Some(&s), usage_body("d2", "x", "s", json!("0.2"))).await.0, 201);
+    assert_eq!(
+        report(
+            &env,
+            &task,
+            Some(&s),
+            usage_body("d1", "x", "s", json!(0.1))
+        )
+        .await
+        .0,
+        201
+    );
+    assert_eq!(
+        report(
+            &env,
+            &task,
+            Some(&s),
+            usage_body("d2", "x", "s", json!("0.2"))
+        )
+        .await
+        .0,
+        201
+    );
     let got = budget(&env, &task).await;
     let x = entry(&got, "x", "s");
     assert_eq!(x["usage"]["total"], "0.3");
@@ -918,11 +1414,23 @@ async fn o08_units_and_sources_are_never_mixed_and_thresholds_show_their_numbers
 
     // Filters on the record list are exact.
     let (_, list) = env
-        .json(Method::GET, &env.url(&format!("/tasks/{task}/usage?unit=USD&source=invoice")), &env.owner_token, None, None)
+        .json(
+            Method::GET,
+            &env.url(&format!("/tasks/{task}/usage?unit=USD&source=invoice")),
+            &env.owner_token,
+            None,
+            None,
+        )
         .await;
     assert_eq!(list["items"].as_array().unwrap().len(), 2);
     let (_, list) = env
-        .json(Method::GET, &env.url(&format!("/tasks/{task}/usage")), &env.owner_token, None, None)
+        .json(
+            Method::GET,
+            &env.url(&format!("/tasks/{task}/usage")),
+            &env.owner_token,
+            None,
+            None,
+        )
         .await;
     assert_eq!(list["items"].as_array().unwrap().len(), 6);
     assert_eq!(list["items"][0]["origin"], "user_content");
@@ -933,15 +1441,42 @@ async fn o08_crossing_a_threshold_stops_nothing() {
     let env = Env::new().await;
     let s = env.session(&env.owner_token, "A").await;
     let task = new_task(&env, &s).await;
-    assert_eq!(put_budget(&env, &task, budget_body(0, "USD", "invoice", json!("1"))).await.0, 201);
-    assert_eq!(report(&env, &task, Some(&s), usage_body("big", "USD", "invoice", json!("999"))).await.0, 201);
-    assert_eq!(entry(&budget(&env, &task).await, "USD", "invoice")["over_threshold"], true);
+    assert_eq!(
+        put_budget(&env, &task, budget_body(0, "USD", "invoice", json!("1")))
+            .await
+            .0,
+        201
+    );
+    assert_eq!(
+        report(
+            &env,
+            &task,
+            Some(&s),
+            usage_body("big", "USD", "invoice", json!("999"))
+        )
+        .await
+        .0,
+        201
+    );
+    assert_eq!(
+        entry(&budget(&env, &task).await, "USD", "invoice")["over_threshold"],
+        true
+    );
 
     // Work continues: the task and the session are untouched and still writable.
     let (status, t) = env
-        .json(Method::GET, &env.url(&format!("/tasks/{task}")), &env.owner_token, None, None)
+        .json(
+            Method::GET,
+            &env.url(&format!("/tasks/{task}")),
+            &env.owner_token,
+            None,
+            None,
+        )
         .await;
-    assert_eq!((status, t["status"].as_str(), t["version"].as_i64()), (200, Some("open"), Some(1)));
+    assert_eq!(
+        (status, t["status"].as_str(), t["version"].as_i64()),
+        (200, Some("open"), Some(1))
+    );
     let (status, _) = env
         .json(
             Method::PATCH,
@@ -953,10 +1488,26 @@ async fn o08_crossing_a_threshold_stops_nothing() {
         .await;
     assert_eq!(status, 200);
     let (status, _) = env
-        .json(Method::POST, &env.url(&format!("/sessions/{}/heartbeat", s.id)), &env.owner_token, Some(&s), None)
+        .json(
+            Method::POST,
+            &env.url(&format!("/sessions/{}/heartbeat", s.id)),
+            &env.owner_token,
+            Some(&s),
+            None,
+        )
         .await;
     assert_eq!(status, 200);
-    assert_eq!(report(&env, &task, Some(&s), usage_body("more", "USD", "invoice", json!("1"))).await.0, 201);
+    assert_eq!(
+        report(
+            &env,
+            &task,
+            Some(&s),
+            usage_body("more", "USD", "invoice", json!("1"))
+        )
+        .await
+        .0,
+        201
+    );
 }
 
 #[tokio::test]
@@ -979,7 +1530,9 @@ async fn o08_validation_versions_and_idempotency() {
         (json!({"sampling_period": ""}), "empty period"),
     ] {
         let mut body = budget_body(0, "USD", "invoice", json!("10"));
-        body.as_object_mut().unwrap().extend(patch.as_object().unwrap().clone());
+        body.as_object_mut()
+            .unwrap()
+            .extend(patch.as_object().unwrap().clone());
         let (status, resp) = put_budget(&env, &task, body).await;
         assert_eq!(status, 400, "{why}: {resp}");
     }
@@ -987,34 +1540,78 @@ async fn o08_validation_versions_and_idempotency() {
         let mut body = budget_body(0, "USD", "invoice", json!("10"));
         body.as_object_mut().unwrap().remove(field);
         let (status, _) = put_budget(&env, &task, body).await;
-        assert!(status == 400 || status == 422, "missing {field} must be refused, got {status}");
+        assert!(
+            status == 400 || status == 422,
+            "missing {field} must be refused, got {status}"
+        );
     }
     let (_, none) = (0, budget(&env, &task).await);
-    assert_eq!(none["budgets"], json!([]), "refused requests create nothing");
+    assert_eq!(
+        none["budgets"],
+        json!([]),
+        "refused requests create nothing"
+    );
 
     // Versioned replace, with replay of the request that succeeded.
     let (status, v1) = put_budget(&env, &task, budget_body(0, "USD", "invoice", json!("10"))).await;
     assert_eq!((status, v1["version"].as_i64()), (201, Some(1)));
-    let (status, replay) = put_budget(&env, &task, budget_body(0, "USD", "invoice", json!("10.00"))).await;
+    let (status, replay) = put_budget(
+        &env,
+        &task,
+        budget_body(0, "USD", "invoice", json!("10.00")),
+    )
+    .await;
     assert_eq!(status, 200, "{replay}");
     assert_eq!(replay["version"], 1, "10.00 normalizes to 10");
-    let (status, conflict) = put_budget(&env, &task, budget_body(0, "USD", "invoice", json!("20"))).await;
-    assert_eq!((status, conflict["error"]["code"].as_str()), (409, Some("VERSION_CONFLICT")), "{conflict}");
+    let (status, conflict) =
+        put_budget(&env, &task, budget_body(0, "USD", "invoice", json!("20"))).await;
+    assert_eq!(
+        (status, conflict["error"]["code"].as_str()),
+        (409, Some("VERSION_CONFLICT")),
+        "{conflict}"
+    );
     assert_eq!(conflict["error"]["details"]["current_version"], 1);
     let (status, v2) = put_budget(&env, &task, budget_body(1, "USD", "invoice", json!("20"))).await;
-    assert_eq!((status, v2["version"].as_i64(), v2["amount"].as_str()), (200, Some(2), Some("20")));
-    let (status, conflict) = put_budget(&env, &task, budget_body(5, "USD", "invoice", json!("30"))).await;
-    assert_eq!((status, conflict["error"]["details"]["current_version"].as_i64()), (409, Some(2)));
-    let (status, conflict) = put_budget(&env, &task, budget_body(1, "JPY", "invoice", json!("30"))).await;
-    assert_eq!((status, conflict["error"]["details"]["current_version"].as_i64()), (409, Some(0)), "no budget for that unit yet");
+    assert_eq!(
+        (status, v2["version"].as_i64(), v2["amount"].as_str()),
+        (200, Some(2), Some("20"))
+    );
+    let (status, conflict) =
+        put_budget(&env, &task, budget_body(5, "USD", "invoice", json!("30"))).await;
+    assert_eq!(
+        (
+            status,
+            conflict["error"]["details"]["current_version"].as_i64()
+        ),
+        (409, Some(2))
+    );
+    let (status, conflict) =
+        put_budget(&env, &task, budget_body(1, "JPY", "invoice", json!("30"))).await;
+    assert_eq!(
+        (
+            status,
+            conflict["error"]["details"]["current_version"].as_i64()
+        ),
+        (409, Some(0)),
+        "no budget for that unit yet"
+    );
 
     // At most 20 budgets per task.
     for i in 0..19 {
-        let (status, resp) = put_budget(&env, &task, budget_body(0, &format!("u{i}"), "s", json!("1"))).await;
+        let (status, resp) = put_budget(
+            &env,
+            &task,
+            budget_body(0, &format!("u{i}"), "s", json!("1")),
+        )
+        .await;
         assert_eq!(status, 201, "{resp}");
     }
     let (status, resp) = put_budget(&env, &task, budget_body(0, "u19", "s", json!("1"))).await;
-    assert_eq!((status, resp["error"]["code"].as_str()), (409, Some("BUDGET_LIMIT_REACHED")), "{resp}");
+    assert_eq!(
+        (status, resp["error"]["code"].as_str()),
+        (409, Some("BUDGET_LIMIT_REACHED")),
+        "{resp}"
+    );
 
     // Usage: bad periods and amounts, replay, key reuse.
     let now = chrono::Utc::now();
@@ -1025,7 +1622,17 @@ async fn o08_validation_versions_and_idempotency() {
     let mut future = usage_body("fu", "USD", "invoice", json!("1"));
     future["period_end"] = json!((now + chrono::Duration::hours(1)).to_rfc3339());
     assert_eq!(report(&env, &task, Some(&s), future).await.0, 400);
-    assert_eq!(report(&env, &task, Some(&s), usage_body("neg", "USD", "invoice", json!("-5"))).await.0, 400);
+    assert_eq!(
+        report(
+            &env,
+            &task,
+            Some(&s),
+            usage_body("neg", "USD", "invoice", json!("-5"))
+        )
+        .await
+        .0,
+        400
+    );
     let mut no_unit = usage_body("nu", "USD", "invoice", json!("1"));
     no_unit.as_object_mut().unwrap().remove("unit");
     let status = report(&env, &task, Some(&s), no_unit).await.0;
@@ -1039,14 +1646,30 @@ async fn o08_validation_versions_and_idempotency() {
     let (status, again) = report(&env, &task, Some(&s), body).await;
     assert_eq!(status, 200, "{again}");
     assert_eq!(again["id"], first["id"]);
-    let (status, reused) = report(&env, &task, Some(&s), usage_body("r1", "USD", "invoice", json!("4"))).await;
-    assert_eq!((status, reused["error"]["code"].as_str()), (409, Some("IDEMPOTENCY_KEY_REUSED")), "{reused}");
+    let (status, reused) = report(
+        &env,
+        &task,
+        Some(&s),
+        usage_body("r1", "USD", "invoice", json!("4")),
+    )
+    .await;
+    assert_eq!(
+        (status, reused["error"]["code"].as_str()),
+        (409, Some("IDEMPOTENCY_KEY_REUSED")),
+        "{reused}"
+    );
     let got = budget(&env, &task).await;
     assert_eq!(entry(&got, "USD", "invoice")["usage"]["total"], "3");
     assert_eq!(entry(&got, "USD", "invoice")["usage"]["record_count"], 1);
 
     // The user door may report too; the record says so.
-    let (status, by_user) = report(&env, &task, None, usage_body("ud", "USD", "invoice", json!("1"))).await;
+    let (status, by_user) = report(
+        &env,
+        &task,
+        None,
+        usage_body("ud", "USD", "invoice", json!("1")),
+    )
+    .await;
     assert_eq!(status, 201, "{by_user}");
     assert_eq!(by_user["reported_by_kind"], "user");
 }
@@ -1060,22 +1683,58 @@ async fn o08_access_races_and_unknown_tasks() {
     let (reader, reader_id) = env.user("reader").await;
     env.add_collaborator(reader_id, "read").await;
     let (stranger, _) = env.user("stranger").await;
-    assert_eq!(put_budget(&env, &task, budget_body(0, "USD", "invoice", json!("10"))).await.0, 201);
+    assert_eq!(
+        put_budget(&env, &task, budget_body(0, "USD", "invoice", json!("10")))
+            .await
+            .0,
+        201
+    );
 
     let get = env.url(&format!("/tasks/{task}/budget"));
-    assert_eq!(env.json(Method::GET, &get, &reader, None, None).await.0, 200);
-    assert_eq!(env.json(Method::GET, &get, &stranger, None, None).await.0, 403);
+    assert_eq!(
+        env.json(Method::GET, &get, &reader, None, None).await.0,
+        200
+    );
+    assert_eq!(
+        env.json(Method::GET, &get, &stranger, None, None).await.0,
+        403
+    );
     let usage = env.url(&format!("/tasks/{task}/usage"));
-    assert_eq!(env.json(Method::GET, &usage, &stranger, None, None).await.0, 403);
+    assert_eq!(
+        env.json(Method::GET, &usage, &stranger, None, None).await.0,
+        403
+    );
     for (method, url, body) in [
-        (Method::PUT, env.url(&format!("/tasks/{task}/budgets")), budget_body(1, "USD", "invoice", json!("99"))),
-        (Method::POST, usage.clone(), usage_body("x", "USD", "invoice", json!("1"))),
+        (
+            Method::PUT,
+            env.url(&format!("/tasks/{task}/budgets")),
+            budget_body(1, "USD", "invoice", json!("99")),
+        ),
+        (
+            Method::POST,
+            usage.clone(),
+            usage_body("x", "USD", "invoice", json!("1")),
+        ),
     ] {
-        assert_eq!(env.json(method.clone(), &url, &reader, None, Some(body.clone())).await.0, 403, "reader {method}");
-        assert_eq!(env.json(method, &url, &stranger, None, Some(body)).await.0, 403, "stranger");
+        assert_eq!(
+            env.json(method.clone(), &url, &reader, None, Some(body.clone()))
+                .await
+                .0,
+            403,
+            "reader {method}"
+        );
+        assert_eq!(
+            env.json(method, &url, &stranger, None, Some(body)).await.0,
+            403,
+            "stranger"
+        );
     }
     let got = budget(&env, &task).await;
-    assert_eq!(entry(&got, "USD", "invoice")["amount"], "10", "refused writes changed nothing");
+    assert_eq!(
+        entry(&got, "USD", "invoice")["amount"],
+        "10",
+        "refused writes changed nothing"
+    );
     assert!(got["unmatched_usage"].as_array().unwrap().is_empty());
 
     // Unknown and foreign tasks read as absent.
@@ -1084,10 +1743,30 @@ async fn o08_access_races_and_unknown_tasks() {
         (Method::GET, format!("/tasks/{ghost}/budget")),
         (Method::GET, format!("/tasks/{ghost}/usage")),
     ] {
-        assert_eq!(env.json(method, &env.url(&path), &env.owner_token, None, None).await.0, 404);
+        assert_eq!(
+            env.json(method, &env.url(&path), &env.owner_token, None, None)
+                .await
+                .0,
+            404
+        );
     }
-    assert_eq!(report(&env, &ghost, Some(&s), usage_body("g", "USD", "invoice", json!("1"))).await.0, 404);
-    assert_eq!(put_budget(&env, &ghost, budget_body(0, "USD", "invoice", json!("1"))).await.0, 404);
+    assert_eq!(
+        report(
+            &env,
+            &ghost,
+            Some(&s),
+            usage_body("g", "USD", "invoice", json!("1"))
+        )
+        .await
+        .0,
+        404
+    );
+    assert_eq!(
+        put_budget(&env, &ghost, budget_body(0, "USD", "invoice", json!("1")))
+            .await
+            .0,
+        404
+    );
 
     // Six budget writers from version 1: one winner, the rest conflict.
     let mut handles = Vec::new();
@@ -1098,7 +1777,12 @@ async fn o08_access_races_and_unknown_tasks() {
             reqwest::Client::new()
                 .put(url)
                 .bearer_auth(token)
-                .json(&budget_body(1, "USD", "invoice", json!(format!("{}", 20 + i))))
+                .json(&budget_body(
+                    1,
+                    "USD",
+                    "invoice",
+                    json!(format!("{}", 20 + i)),
+                ))
                 .send()
                 .await
                 .unwrap()
@@ -1110,9 +1794,20 @@ async fn o08_access_races_and_unknown_tasks() {
     for h in handles {
         statuses.push(h.await.unwrap());
     }
-    assert_eq!(statuses.iter().filter(|s| **s == 200).count(), 1, "{statuses:?}");
-    assert_eq!(statuses.iter().filter(|s| **s == 409).count(), 5, "{statuses:?}");
-    assert_eq!(entry(&budget(&env, &task).await, "USD", "invoice")["version"], 2);
+    assert_eq!(
+        statuses.iter().filter(|s| **s == 200).count(),
+        1,
+        "{statuses:?}"
+    );
+    assert_eq!(
+        statuses.iter().filter(|s| **s == 409).count(),
+        5,
+        "{statuses:?}"
+    );
+    assert_eq!(
+        entry(&budget(&env, &task).await, "USD", "invoice")["version"],
+        2
+    );
 
     // Six identical usage reports: one record.
     let body = usage_body("same", "USD", "invoice", json!("1"));
@@ -1143,5 +1838,8 @@ async fn o08_access_races_and_unknown_tasks() {
         created += (status == 201) as u32;
     }
     assert_eq!(created, 1);
-    assert_eq!(entry(&budget(&env, &task).await, "USD", "invoice")["usage"]["record_count"], 1);
+    assert_eq!(
+        entry(&budget(&env, &task).await, "USD", "invoice")["usage"]["record_count"],
+        1
+    );
 }

@@ -97,19 +97,55 @@ fn groups_table() -> TableCreateStatement {
                 .not_null()
                 .primary_key(),
         )
-        .col(ColumnDef::new(CollabCoordinationGroups::AnchorRepoId).big_integer().not_null())
+        .col(
+            ColumnDef::new(CollabCoordinationGroups::AnchorRepoId)
+                .big_integer()
+                .not_null(),
+        )
         // Readable by everyone who can read the anchor repository's collaboration
         // data; the server never writes target-repository content into them.
-        .col(ColumnDef::new(CollabCoordinationGroups::Title).string_len(800).not_null())
-        .col(ColumnDef::new(CollabCoordinationGroups::Description).text().not_null())
-        .col(ColumnDef::new(CollabCoordinationGroups::CreatedByUserId).big_integer().not_null())
+        .col(
+            ColumnDef::new(CollabCoordinationGroups::Title)
+                .string_len(800)
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabCoordinationGroups::Description)
+                .text()
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabCoordinationGroups::CreatedByUserId)
+                .big_integer()
+                .not_null(),
+        )
         // `session` or `user`: the door the write came through, not an identity proof.
-        .col(ColumnDef::new(CollabCoordinationGroups::ActorKind).string_len(16).not_null())
-        .col(ColumnDef::new(CollabCoordinationGroups::ActorId).string_len(64).not_null())
+        .col(
+            ColumnDef::new(CollabCoordinationGroups::ActorKind)
+                .string_len(16)
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabCoordinationGroups::ActorId)
+                .string_len(64)
+                .not_null(),
+        )
         // Compare-and-swap counter, bumped by every link change.
-        .col(ColumnDef::new(CollabCoordinationGroups::Version).big_integer().not_null())
-        .col(ColumnDef::new(CollabCoordinationGroups::ClientGroupId).string_len(128).not_null())
-        .col(ColumnDef::new(CollabCoordinationGroups::PayloadHash).string_len(64).not_null())
+        .col(
+            ColumnDef::new(CollabCoordinationGroups::Version)
+                .big_integer()
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabCoordinationGroups::ClientGroupId)
+                .string_len(128)
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabCoordinationGroups::PayloadHash)
+                .string_len(64)
+                .not_null(),
+        )
         .col(
             ColumnDef::new(CollabCoordinationGroups::CreatedAt)
                 .timestamp_with_time_zone()
@@ -138,7 +174,10 @@ fn groups_table() -> TableCreateStatement {
         )
         .foreign_key(
             ForeignKey::create()
-                .from(CollabCoordinationGroups::Table, CollabCoordinationGroups::AnchorRepoId)
+                .from(
+                    CollabCoordinationGroups::Table,
+                    CollabCoordinationGroups::AnchorRepoId,
+                )
                 .to(Repositories::Table, Repositories::Id)
                 .on_delete(ForeignKeyAction::Cascade),
         )
@@ -150,7 +189,12 @@ fn links_table() -> TableCreateStatement {
     Table::create()
         .table(L::Table)
         .if_not_exists()
-        .col(ColumnDef::new(L::Id).string_len(36).not_null().primary_key())
+        .col(
+            ColumnDef::new(L::Id)
+                .string_len(36)
+                .not_null()
+                .primary_key(),
+        )
         .col(ColumnDef::new(L::GroupId).string_len(36).not_null())
         .col(ColumnDef::new(L::AnchorRepoId).big_integer().not_null())
         .col(ColumnDef::new(L::TargetRepoId).big_integer().not_null())
@@ -166,8 +210,16 @@ fn links_table() -> TableCreateStatement {
         .col(ColumnDef::new(L::ActorId).string_len(64).not_null())
         .col(ColumnDef::new(L::ClientLinkId).string_len(128).not_null())
         .col(ColumnDef::new(L::PayloadHash).string_len(64).not_null())
-        .col(ColumnDef::new(L::CreatedAt).timestamp_with_time_zone().not_null())
-        .col(ColumnDef::new(L::RemovedAt).timestamp_with_time_zone().null())
+        .col(
+            ColumnDef::new(L::CreatedAt)
+                .timestamp_with_time_zone()
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(L::RemovedAt)
+                .timestamp_with_time_zone()
+                .null(),
+        )
         .col(ColumnDef::new(L::RemovedByUserId).big_integer().null())
         .col(ColumnDef::new(L::RemovedActorKind).string_len(16).null())
         .col(ColumnDef::new(L::RemovedActorId).string_len(64).null())
@@ -199,8 +251,14 @@ fn links_table() -> TableCreateStatement {
             ForeignKey::create()
                 .from(L::Table, L::GroupId)
                 .from(L::Table, L::AnchorRepoId)
-                .to(CollabCoordinationGroups::Table, CollabCoordinationGroups::Id)
-                .to(CollabCoordinationGroups::Table, CollabCoordinationGroups::AnchorRepoId)
+                .to(
+                    CollabCoordinationGroups::Table,
+                    CollabCoordinationGroups::Id,
+                )
+                .to(
+                    CollabCoordinationGroups::Table,
+                    CollabCoordinationGroups::AnchorRepoId,
+                )
                 .on_delete(ForeignKeyAction::Cascade),
         )
         .foreign_key(
@@ -279,7 +337,9 @@ enum CollabTasks {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sea_orm_migration::sea_query::{MysqlQueryBuilder, PostgresQueryBuilder, SqliteQueryBuilder};
+    use sea_orm_migration::sea_query::{
+        MysqlQueryBuilder, PostgresQueryBuilder, SqliteQueryBuilder,
+    };
 
     /// CLAUDE.md pitfall #13: `#[derive(Iden)]` yields snake_case of the enum
     /// name, so the explicit expectation here keeps entity and DDL in step.

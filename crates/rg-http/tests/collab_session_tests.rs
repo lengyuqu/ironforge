@@ -3,8 +3,8 @@
 //! Real HTTP server and SQLite database. PostgreSQL/MySQL behaviour of the
 //! storage layer is covered by `rg-db/tests/collab_store.rs`.
 
-mod common;
 mod collab_common;
+mod common;
 
 use chrono::{Duration, Utc};
 use collab_common::{Env, Sess};
@@ -63,7 +63,10 @@ async fn t01_same_account_two_sessions_with_identical_names_stay_distinct() {
             Method::POST,
             &env.url(&format!("/sessions/{}/heartbeat", a.id)),
             &env.owner_token,
-            Some(&Sess { id: a.id.clone(), secret: b.secret.clone() }),
+            Some(&Sess {
+                id: a.id.clone(),
+                secret: b.secret.clone(),
+            }),
             None,
         )
         .await;
@@ -81,7 +84,13 @@ async fn t01_registration_validates_labels() {
         json!({"display_name": "bell\u{7}", "client_kind": "x"}),
     ] {
         let (status, resp) = env
-            .json(Method::POST, &env.url("/sessions"), &env.owner_token, None, Some(body.clone()))
+            .json(
+                Method::POST,
+                &env.url("/sessions"),
+                &env.owner_token,
+                None,
+                Some(body.clone()),
+            )
             .await;
         assert_eq!(status, 400, "{body} -> {resp}");
         assert_eq!(resp["error"]["code"], "BAD_REQUEST");
@@ -99,40 +108,68 @@ async fn t02_wrong_unknown_foreign_and_cross_repo_credentials_are_indistinguisha
     let hb = |id: &str| env.url(&format!("/sessions/{id}/heartbeat"));
 
     // Wrong secret, unknown id, malformed id: same status, code and message.
-    let wrong = Sess { id: a.id.clone(), secret: "ifs_".to_string() + &"0".repeat(64) };
-    let unknown = Sess { id: uuid::Uuid::new_v4().to_string(), secret: a.secret.clone() };
-    let malformed = Sess { id: "not-a-uuid".into(), secret: a.secret.clone() };
+    let wrong = Sess {
+        id: a.id.clone(),
+        secret: "ifs_".to_string() + &"0".repeat(64),
+    };
+    let unknown = Sess {
+        id: uuid::Uuid::new_v4().to_string(),
+        secret: a.secret.clone(),
+    };
+    let malformed = Sess {
+        id: "not-a-uuid".into(),
+        secret: a.secret.clone(),
+    };
     let mut seen = Vec::new();
     for s in [&wrong, &unknown, &malformed] {
         let (status, body) = env
             .json(Method::POST, &hb(&s.id), &env.owner_token, Some(s), None)
             .await;
         assert_eq!(status, 403);
-        seen.push((body["error"]["code"].clone(), body["error"]["message"].clone()));
+        seen.push((
+            body["error"]["code"].clone(),
+            body["error"]["message"].clone(),
+        ));
     }
-    assert!(seen.iter().all(|s| s == &seen[0]), "credential errors must not be an oracle: {seen:?}");
+    assert!(
+        seen.iter().all(|s| s == &seen[0]),
+        "credential errors must not be an oracle: {seen:?}"
+    );
     assert_eq!(seen[0].0, "SESSION_CREDENTIALS_INVALID");
 
     // Missing headers.
-    let (status, body) = env.json(Method::POST, &hb(&a.id), &env.owner_token, None, None).await;
-    assert_eq!((status, body["error"]["code"].as_str()), (400, Some("SESSION_CREDENTIALS_REQUIRED")));
+    let (status, body) = env
+        .json(Method::POST, &hb(&a.id), &env.owner_token, None, None)
+        .await;
+    assert_eq!(
+        (status, body["error"]["code"].as_str()),
+        (400, Some("SESSION_CREDENTIALS_REQUIRED"))
+    );
 
     // Path id and header id must agree.
     let b = env.session(&env.owner_token, "B").await;
-    let (status, _) = env.json(Method::POST, &hb(&b.id), &env.owner_token, Some(&a), None).await;
+    let (status, _) = env
+        .json(Method::POST, &hb(&b.id), &env.owner_token, Some(&a), None)
+        .await;
     assert_eq!(status, 403, "A's credentials cannot act on B's path");
 
     // Same id and secret in another repository of the same owner.
     let other_hb = env.url_in(other_repo, &format!("/sessions/{}/heartbeat", a.id));
-    let (status, _) = env.json(Method::POST, &other_hb, &env.owner_token, Some(&a), None).await;
+    let (status, _) = env
+        .json(Method::POST, &other_hb, &env.owner_token, Some(&a), None)
+        .await;
     assert_eq!(status, 403);
 
     // No account credential at all.
-    let resp = env.send(Method::POST, &hb(&a.id), None, Some(&a), None).await;
+    let resp = env
+        .send(Method::POST, &hb(&a.id), None, Some(&a), None)
+        .await;
     assert_eq!(resp.status(), 401);
 
     // The right secret still works for its owner.
-    let (status, _) = env.json(Method::POST, &hb(&a.id), &env.owner_token, Some(&a), None).await;
+    let (status, _) = env
+        .json(Method::POST, &hb(&a.id), &env.owner_token, Some(&a), None)
+        .await;
     assert_eq!(status, 200);
 }
 
@@ -181,23 +218,57 @@ async fn t02_registration_and_discovery_follow_repository_permissions() {
     let body = json!({"display_name": "x", "client_kind": "t"});
 
     // Read-only collaborator: cannot register or list sessions.
-    let (status, _) = env.json(Method::POST, &env.url("/sessions"), &reader_token, None, Some(body.clone())).await;
+    let (status, _) = env
+        .json(
+            Method::POST,
+            &env.url("/sessions"),
+            &reader_token,
+            None,
+            Some(body.clone()),
+        )
+        .await;
     assert_eq!(status, 403);
-    let (status, _) = env.json(Method::GET, &env.url("/sessions"), &reader_token, None, None).await;
+    let (status, _) = env
+        .json(
+            Method::GET,
+            &env.url("/sessions"),
+            &reader_token,
+            None,
+            None,
+        )
+        .await;
     assert_eq!(status, 403);
 
     // Stranger on a private repo and anonymous callers are refused too.
     let stranger = env.user("stranger_two").await.0;
-    let (status, _) = env.json(Method::POST, &env.url("/sessions"), &stranger, None, Some(body.clone())).await;
+    let (status, _) = env
+        .json(
+            Method::POST,
+            &env.url("/sessions"),
+            &stranger,
+            None,
+            Some(body.clone()),
+        )
+        .await;
     assert_eq!(status, 403);
-    let resp = env.send(Method::POST, &env.url("/sessions"), None, None, Some(body)).await;
+    let resp = env
+        .send(Method::POST, &env.url("/sessions"), None, None, Some(body))
+        .await;
     assert_eq!(resp.status(), 401);
-    let resp = env.send(Method::GET, &env.url("/sessions"), None, None, None).await;
+    let resp = env
+        .send(Method::GET, &env.url("/sessions"), None, None, None)
+        .await;
     assert_eq!(resp.status(), 401);
 
     // Unknown repository.
     let (status, _) = env
-        .json(Method::GET, &env.url_in("nope", "/sessions"), &env.owner_token, None, None)
+        .json(
+            Method::GET,
+            &env.url_in("nope", "/sessions"),
+            &env.owner_token,
+            None,
+            None,
+        )
         .await;
     assert_eq!(status, 404);
 }
@@ -211,7 +282,9 @@ async fn t02_revoked_write_access_blocks_the_next_request_despite_a_warm_permiss
     env.add_collaborator(bob_id, "write").await;
     let bob = env.session(&bob_token, "bob-session").await;
     let hb = env.url(&format!("/sessions/{}/heartbeat", bob.id));
-    let (status, _) = env.json(Method::POST, &hb, &bob_token, Some(&bob), None).await;
+    let (status, _) = env
+        .json(Method::POST, &hb, &bob_token, Some(&bob), None)
+        .await;
     assert_eq!(status, 200);
 
     // Revoke straight in the database (what an out-of-band admin edit or
@@ -231,13 +304,27 @@ async fn t02_revoked_write_access_blocks_the_next_request_despite_a_warm_permiss
         let cached = rg_core::repo::service::can_write_repo(&env.db, &repo, Some(bob_id))
             .await
             .unwrap();
-        assert!(cached, "control: cache should still be warm for the generic check");
+        assert!(
+            cached,
+            "control: cache should still be warm for the generic check"
+        );
     }
 
-    let (status, _) = env.json(Method::POST, &hb, &bob_token, Some(&bob), None).await;
-    assert_eq!(status, 403, "revocation must apply immediately to collaboration requests");
     let (status, _) = env
-        .json(Method::POST, &env.url("/sessions"), &bob_token, None, Some(json!({"display_name": "n", "client_kind": "t"})))
+        .json(Method::POST, &hb, &bob_token, Some(&bob), None)
+        .await;
+    assert_eq!(
+        status, 403,
+        "revocation must apply immediately to collaboration requests"
+    );
+    let (status, _) = env
+        .json(
+            Method::POST,
+            &env.url("/sessions"),
+            &bob_token,
+            None,
+            Some(json!({"display_name": "n", "client_kind": "t"})),
+        )
         .await;
     assert_eq!(status, 403);
 }
@@ -249,29 +336,53 @@ async fn t02_ended_and_expired_sessions_cannot_be_revived() {
     let hb = env.url(&format!("/sessions/{}/heartbeat", a.id));
     let end = env.url(&format!("/sessions/{}/end", a.id));
 
-    let (status, _) = env.json(Method::POST, &end, &env.owner_token, Some(&a), None).await;
+    let (status, _) = env
+        .json(Method::POST, &end, &env.owner_token, Some(&a), None)
+        .await;
     assert_eq!(status, 204);
     // Ending again is idempotent.
-    let (status, _) = env.json(Method::POST, &end, &env.owner_token, Some(&a), None).await;
+    let (status, _) = env
+        .json(Method::POST, &end, &env.owner_token, Some(&a), None)
+        .await;
     assert_eq!(status, 204);
 
-    let (status, body) = env.json(Method::POST, &hb, &env.owner_token, Some(&a), None).await;
-    assert_eq!((status, body["error"]["code"].as_str()), (409, Some("SESSION_EXPIRED")));
+    let (status, body) = env
+        .json(Method::POST, &hb, &env.owner_token, Some(&a), None)
+        .await;
+    assert_eq!(
+        (status, body["error"]["code"].as_str()),
+        (409, Some("SESSION_EXPIRED"))
+    );
     assert_eq!(list(&env, &env.owner_token).await[0]["state"], "ended");
 
     // Hard expiry.
     let b = env.session(&env.owner_token, "B").await;
     set_times(&env, &b.id, None, Some(Utc::now() - Duration::seconds(5))).await;
     let (status, body) = env
-        .json(Method::POST, &env.url(&format!("/sessions/{}/heartbeat", b.id)), &env.owner_token, Some(&b), None)
+        .json(
+            Method::POST,
+            &env.url(&format!("/sessions/{}/heartbeat", b.id)),
+            &env.owner_token,
+            Some(&b),
+            None,
+        )
         .await;
-    assert_eq!((status, body["error"]["code"].as_str()), (409, Some("SESSION_EXPIRED")));
+    assert_eq!(
+        (status, body["error"]["code"].as_str()),
+        (409, Some("SESSION_EXPIRED"))
+    );
     let items = list(&env, &env.owner_token).await;
     let b_item = items.iter().find(|i| i["id"] == b.id.as_str()).unwrap();
     assert_eq!(b_item["state"], "expired");
     // An expired session may still be ended (valid credentials), and stays unusable.
     let (status, _) = env
-        .json(Method::POST, &env.url(&format!("/sessions/{}/end", b.id)), &env.owner_token, Some(&b), None)
+        .json(
+            Method::POST,
+            &env.url(&format!("/sessions/{}/end", b.id)),
+            &env.owner_token,
+            Some(&b),
+            None,
+        )
         .await;
     assert_eq!(status, 204);
 }
@@ -292,10 +403,15 @@ async fn t03_original_credentials_reconnect_until_hard_expiry_and_offline_is_not
     assert!(item["ended_at"].is_null());
 
     // The client reconnects with the credentials it kept.
-    let (status, body) = env.json(Method::POST, &hb, &env.owner_token, Some(&a), None).await;
+    let (status, body) = env
+        .json(Method::POST, &hb, &env.owner_token, Some(&a), None)
+        .await;
     assert_eq!(status, 200, "{body}");
     assert_eq!(body["state"], "online");
-    assert_eq!(body["expires_at"], created["expires_at"], "heartbeat must not extend the hard expiry");
+    assert_eq!(
+        body["expires_at"], created["expires_at"],
+        "heartbeat must not extend the hard expiry"
+    );
     assert_eq!(body["id"], a.id.as_str());
 }
 
@@ -314,7 +430,10 @@ async fn t03_lost_secret_means_a_new_session_and_the_old_one_cannot_be_claimed()
                 Method::POST,
                 &env.url(&format!("/sessions/{}/heartbeat", old.id)),
                 &env.owner_token,
-                Some(&Sess { id: old.id.clone(), secret: guess }),
+                Some(&Sess {
+                    id: old.id.clone(),
+                    secret: guess,
+                }),
                 None,
             )
             .await;
@@ -322,7 +441,13 @@ async fn t03_lost_secret_means_a_new_session_and_the_old_one_cannot_be_claimed()
     }
     // The old session simply ages out; the new one works.
     let (status, _) = env
-        .json(Method::POST, &env.url(&format!("/sessions/{}/heartbeat", fresh.id)), &env.owner_token, Some(&fresh), None)
+        .json(
+            Method::POST,
+            &env.url(&format!("/sessions/{}/heartbeat", fresh.id)),
+            &env.owner_token,
+            Some(&fresh),
+            None,
+        )
         .await;
     assert_eq!(status, 200);
 }
@@ -341,7 +466,9 @@ async fn session_list_paginates_with_opaque_cursors() {
         if let Some(c) = &cursor {
             url.push_str(&format!("&cursor={c}"));
         }
-        let (status, body) = env.json(Method::GET, &url, &env.owner_token, None, None).await;
+        let (status, body) = env
+            .json(Method::GET, &url, &env.owner_token, None, None)
+            .await;
         assert_eq!(status, 200, "{body}");
         for item in body["items"].as_array().unwrap() {
             assert!(seen.insert(item["id"].as_str().unwrap().to_string()));
@@ -357,7 +484,13 @@ async fn session_list_paginates_with_opaque_cursors() {
     // Tampered or foreign cursors are rejected, not reinterpreted.
     for bad in ["garbage", "abc.def", ""] {
         let (status, body) = env
-            .json(Method::GET, &env.url(&format!("/sessions?cursor={bad}")), &env.owner_token, None, None)
+            .json(
+                Method::GET,
+                &env.url(&format!("/sessions?cursor={bad}")),
+                &env.owner_token,
+                None,
+                None,
+            )
             .await;
         if bad.is_empty() {
             assert_eq!(status, 400, "{body}");

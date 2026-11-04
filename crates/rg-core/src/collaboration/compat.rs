@@ -160,7 +160,9 @@ mod tests {
 
     #[test]
     fn unknown_value_fails_closed_and_reports_allowed_set() {
-        let err = Known::<RecipientKind>::parse("team").require("recipient.kind").unwrap_err();
+        let err = Known::<RecipientKind>::parse("team")
+            .require("recipient.kind")
+            .unwrap_err();
         assert_eq!(err.value, "team");
         assert_eq!(err.allowed, vec!["repo_writers", "user", "session"]);
         assert!(Known::<RecipientKind>::parse("team").is_unknown());

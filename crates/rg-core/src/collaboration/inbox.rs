@@ -67,7 +67,12 @@ fn item(
     }
 }
 
-fn finish(mut items: Vec<InboxItem>, since: Option<DateTime<Utc>>, limit: u64, now: DateTime<Utc>) -> Inbox {
+fn finish(
+    mut items: Vec<InboxItem>,
+    since: Option<DateTime<Utc>>,
+    limit: u64,
+    now: DateTime<Utc>,
+) -> Inbox {
     if let Some(since) = since {
         items.retain(|i| i.occurred_at > since);
     }
@@ -109,10 +114,24 @@ pub async fn for_session(
     let cap = limit + 1;
     let mut items = Vec::new();
     for t in collab_task_ops::list_owned_open(db, repo_id, session_id, cap).await? {
-        items.push(item(ASSIGNED_TASK, t.id.clone(), t.id, t.updated_at, t.status, t.title));
+        items.push(item(
+            ASSIGNED_TASK,
+            t.id.clone(),
+            t.id,
+            t.updated_at,
+            t.status,
+            t.title,
+        ));
     }
     for h in collab_handoff_ops::list_pending_to_session(db, repo_id, session_id, cap).await? {
-        items.push(item(PENDING_HANDOFF, h.task_id, h.id, h.created_at, h.status, h.summary));
+        items.push(item(
+            PENDING_HANDOFF,
+            h.task_id,
+            h.id,
+            h.created_at,
+            h.status,
+            h.summary,
+        ));
     }
     let addressed = Condition::any()
         .add(
@@ -132,7 +151,9 @@ pub async fn for_session(
     for q in collab_question_ops::list_open(db, repo_id, addressed, cap).await? {
         items.push(question_item(q));
     }
-    for q in collab_question_ops::list_answered_by_creator(db, repo_id, "session", session_id, cap).await? {
+    for q in collab_question_ops::list_answered_by_creator(db, repo_id, "session", session_id, cap)
+        .await?
+    {
         items.push(question_item(q));
     }
     Ok(finish(items, since, limit, now))
@@ -169,7 +190,8 @@ pub async fn for_user(
     for q in collab_question_ops::list_open(db, repo_id, addressed, cap).await? {
         items.push(question_item(q));
     }
-    for q in collab_question_ops::list_answered_by_creator(db, repo_id, "user", &me.id, cap).await? {
+    for q in collab_question_ops::list_answered_by_creator(db, repo_id, "user", &me.id, cap).await?
+    {
         items.push(question_item(q));
     }
     Ok(finish(items, since, limit, now))
@@ -181,14 +203,27 @@ mod tests {
     use chrono::Duration;
 
     fn at(minutes: i64, key: &str) -> InboxItem {
-        let t = DateTime::<Utc>::from_timestamp(1_700_000_000, 0).unwrap() + Duration::minutes(minutes);
-        item(OPEN_QUESTION, "t".into(), key.into(), t, "open".into(), "x".into())
+        let t =
+            DateTime::<Utc>::from_timestamp(1_700_000_000, 0).unwrap() + Duration::minutes(minutes);
+        item(
+            OPEN_QUESTION,
+            "t".into(),
+            key.into(),
+            t,
+            "open".into(),
+            "x".into(),
+        )
     }
 
     #[test]
     fn items_sort_newest_first_with_stable_ties_and_truncate_honestly() {
         let now = Utc::now();
-        let inbox = finish(vec![at(1, "b"), at(3, "z"), at(3, "a"), at(2, "c")], None, 3, now);
+        let inbox = finish(
+            vec![at(1, "b"), at(3, "z"), at(3, "a"), at(2, "c")],
+            None,
+            3,
+            now,
+        );
         let keys: Vec<_> = inbox.items.iter().map(|i| i.object_id.as_str()).collect();
         assert_eq!(keys, vec!["a", "z", "c"]);
         assert!(inbox.truncated);
@@ -199,7 +234,12 @@ mod tests {
     fn since_drops_items_at_or_before_the_watermark() {
         let now = Utc::now();
         let watermark = at(2, "w").occurred_at;
-        let inbox = finish(vec![at(1, "old"), at(2, "same"), at(3, "new")], Some(watermark), 10, now);
+        let inbox = finish(
+            vec![at(1, "old"), at(2, "same"), at(3, "new")],
+            Some(watermark),
+            10,
+            now,
+        );
         assert_eq!(inbox.items.len(), 1);
         assert_eq!(inbox.items[0].object_id, "new");
         assert!(!inbox.truncated);

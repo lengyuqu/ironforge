@@ -86,11 +86,10 @@ pub async fn get_rules(
     let repo_path = state.repo_root.join(format!("{owner}/{name}.git"));
     let git_ref = query.r#ref.filter(|r| !r.is_empty());
     let path = query.path.unwrap_or_default();
-    let found = tokio::task::spawn_blocking(move || {
-        rules::discover(&repo_path, git_ref.as_deref(), &path)
-    })
-    .await
-    .map_err(|e| AppError::internal(format!("rules discovery task failed: {e}")))??;
+    let found =
+        tokio::task::spawn_blocking(move || rules::discover(&repo_path, git_ref.as_deref(), &path))
+            .await
+            .map_err(|e| AppError::internal(format!("rules discovery task failed: {e}")))??;
 
     let commit = found.resolved_commit.clone();
     let entries = found

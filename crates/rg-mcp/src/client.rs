@@ -71,8 +71,10 @@ impl ApiClient {
     ) -> crate::Result<(u16, String)> {
         let mut request = self.inner.request(method, self.url(path));
         if let Some((id, secret)) = session {
-            let mut secret_value = reqwest::header::HeaderValue::from_str(secret)
-                .map_err(|_| super::Error::Config("session secret is not a valid header value".into()))?;
+            let mut secret_value =
+                reqwest::header::HeaderValue::from_str(secret).map_err(|_| {
+                    super::Error::Config("session secret is not a valid header value".into())
+                })?;
             secret_value.set_sensitive(true);
             request = request
                 .header("x-ironforge-session", id)

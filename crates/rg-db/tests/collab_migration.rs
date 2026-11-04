@@ -26,8 +26,12 @@ async fn existing_tables(db: &rg_db::DatabaseConnection) -> Vec<String> {
     let backend = db.get_database_backend();
     let sql = match backend {
         DatabaseBackend::Sqlite => "SELECT name FROM sqlite_master WHERE type = 'table'",
-        DatabaseBackend::Postgres => "SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema()",
-        DatabaseBackend::MySql => "SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE()",
+        DatabaseBackend::Postgres => {
+            "SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema()"
+        }
+        DatabaseBackend::MySql => {
+            "SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE()"
+        }
     };
     db.query_all(Statement::from_string(backend, sql.to_string()))
         .await
@@ -39,25 +43,39 @@ async fn existing_tables(db: &rg_db::DatabaseConnection) -> Vec<String> {
 
 async fn present(db: &rg_db::DatabaseConnection) -> Vec<bool> {
     let tables = existing_tables(db).await;
-    TABLES.iter().map(|t| tables.iter().any(|x| x.eq_ignore_ascii_case(t))).collect()
+    TABLES
+        .iter()
+        .map(|t| tables.iter().any(|x| x.eq_ignore_ascii_case(t)))
+        .collect()
 }
 
 #[tokio::test]
 #[ignore = "rolls the schema back; run against a dedicated database"]
 async fn upgrade_rollback_and_reapply_on_the_configured_backend() {
     let url = std::env::var("IRONFORGE_TEST_DATABASE_URL").unwrap_or_else(|_| {
-        let path = std::env::temp_dir().join(format!("ironforge_collab_migration_{}.db", std::process::id()));
+        let path = std::env::temp_dir().join(format!(
+            "ironforge_collab_migration_{}.db",
+            std::process::id()
+        ));
         let _ = std::fs::remove_file(&path);
         format!("sqlite://{}?mode=rwc", path.display())
     });
-    let db = rg_db::connect_with_pool(&url, 20, 60, 4).await.expect("connect");
+    let db = rg_db::connect_with_pool(&url, 20, 60, 4)
+        .await
+        .expect("connect");
 
     // Bring the database to the state just before this migration: the
     // "existing deployment" an upgrade starts from.
     rg_db::run_migrations(&db).await.expect("migrate");
     let all = Migrator::migrations().len();
-    Migrator::down(&db, Some(1)).await.expect("roll back the newest migration");
-    assert_eq!(present(&db).await, vec![false; 5], "rollback removes every collaboration table");
+    Migrator::down(&db, Some(1))
+        .await
+        .expect("roll back the newest migration");
+    assert_eq!(
+        present(&db).await,
+        vec![false; 5],
+        "rollback removes every collaboration table"
+    );
     let applied: Vec<_> = Migrator::get_applied_migrations(&db).await.unwrap();
     assert_eq!(applied.len(), all - 1);
 
@@ -66,7 +84,9 @@ async fn upgrade_rollback_and_reapply_on_the_configured_backend() {
     assert_eq!(present(&db).await, vec![true; 5]);
     // Applying again is a no-op.
     Migrator::up(&db, None).await.expect("second up");
-    rg_db::run_migrations(&db).await.expect("run_migrations is idempotent");
+    rg_db::run_migrations(&db)
+        .await
+        .expect("run_migrations is idempotent");
     assert_eq!(present(&db).await, vec![true; 5]);
 
     // And the schema is usable after the round trip: constraints still bite.
@@ -79,5 +99,8 @@ async fn upgrade_rollback_and_reapply_on_the_configured_backend() {
                 .to_string(),
         ))
         .await;
-    assert!(bad.is_err(), "a task for a nonexistent repository must violate the foreign key");
+    assert!(
+        bad.is_err(),
+        "a task for a nonexistent repository must violate the foreign key"
+    );
 }

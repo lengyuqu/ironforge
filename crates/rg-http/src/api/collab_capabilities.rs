@@ -216,6 +216,9 @@ pub async fn repo_capabilities(
     Ok(Json(RepoCapabilitiesResponse {
         instance: instance_response(),
         repo: format!("{owner}/{name}"),
-        caller: CallerAccess { repo_collab_read: true, repo_write },
+        caller: CallerAccess {
+            repo_collab_read: true,
+            repo_write,
+        },
     }))
 }

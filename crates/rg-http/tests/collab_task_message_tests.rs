@@ -1,8 +1,8 @@
 //! C03 acceptance: tasks, messages, versions, idempotency, ordering and
 //! cross-repository isolation (T04, T05, T06, T10).
 
-mod common;
 mod collab_common;
+mod common;
 
 use collab_common::{Env, Sess};
 use reqwest::Method;
@@ -10,7 +10,13 @@ use serde_json::{json, Value};
 
 async fn new_task(env: &Env, token: &str, s: &Sess, title: &str) -> Value {
     let (status, body) = env
-        .json(Method::POST, &env.url("/tasks"), token, Some(s), Some(json!({"title": title})))
+        .json(
+            Method::POST,
+            &env.url("/tasks"),
+            token,
+            Some(s),
+            Some(json!({"title": title})),
+        )
         .await;
     assert_eq!(status, 201, "{body}");
     body
@@ -35,7 +41,9 @@ async fn messages(env: &Env, task: &str, after: i64) -> Value {
     let (status, body) = env
         .json(
             Method::GET,
-            &env.url(&format!("/tasks/{task}/messages?after_seq={after}&limit=100")),
+            &env.url(&format!(
+                "/tasks/{task}/messages?after_seq={after}&limit=100"
+            )),
             &env.owner_token,
             None,
             None,
@@ -72,10 +80,19 @@ async fn task_crud_partial_update_and_clearing() {
 
     // Omitted fields unchanged.
     let (status, t2) = env
-        .json(Method::PATCH, &url, &env.owner_token, Some(&s), Some(json!({"expected_version": 1, "status": "in_progress"})))
+        .json(
+            Method::PATCH,
+            &url,
+            &env.owner_token,
+            Some(&s),
+            Some(json!({"expected_version": 1, "status": "in_progress"})),
+        )
         .await;
     assert_eq!(status, 200, "{t2}");
-    assert_eq!((t2["version"].as_i64(), t2["status"].as_str()), (Some(2), Some("in_progress")));
+    assert_eq!(
+        (t2["version"].as_i64(), t2["status"].as_str()),
+        (Some(2), Some("in_progress"))
+    );
     assert_eq!(t2["title"], "Fix flaky test");
     assert_eq!(t2["branch"], "fix/flaky");
     assert_eq!(t2["owner_session_id"], s.id.as_str());
@@ -91,14 +108,22 @@ async fn task_crud_partial_update_and_clearing() {
         )
         .await;
     assert_eq!(status, 200, "{t3}");
-    assert!(t3["branch"].is_null() && t3["owner_session_id"].is_null() && t3["description"].is_null());
+    assert!(
+        t3["branch"].is_null() && t3["owner_session_id"].is_null() && t3["description"].is_null()
+    );
     assert_eq!(t3["status"], "in_progress");
     assert_eq!(t3["paths"], json!(["src/lib.rs", "tests/**"]));
 
     // Done can be reopened (any status to any status).
     for (v, st) in [(3, "done"), (4, "open"), (5, "blocked"), (6, "waiting")] {
         let (status, t) = env
-            .json(Method::PATCH, &url, &env.owner_token, Some(&s), Some(json!({"expected_version": v, "status": st})))
+            .json(
+                Method::PATCH,
+                &url,
+                &env.owner_token,
+                Some(&s),
+                Some(json!({"expected_version": v, "status": st})),
+            )
             .await;
         assert_eq!((status, t["status"].as_str()), (200, Some(st)), "{t}");
     }
@@ -113,20 +138,54 @@ async fn task_crud_partial_update_and_clearing() {
         json!({"expected_version": 7, "issue_number": 999}),
         json!({"expected_version": 7, "owner_session_id": uuid::Uuid::new_v4().to_string()}),
     ] {
-        let (status, resp) = env.json(Method::PATCH, &url, &env.owner_token, Some(&s), Some(body.clone())).await;
+        let (status, resp) = env
+            .json(
+                Method::PATCH,
+                &url,
+                &env.owner_token,
+                Some(&s),
+                Some(body.clone()),
+            )
+            .await;
         assert_eq!(status, 400, "{body} -> {resp}");
     }
     // Rejected updates did not consume the version.
-    let (_, current) = env.json(Method::GET, &url, &env.owner_token, None, None).await;
+    let (_, current) = env
+        .json(Method::GET, &url, &env.owner_token, None, None)
+        .await;
     assert_eq!(current["version"], 7);
 
     // Listing with status filter.
     new_task(&env, &env.owner_token, &s, "other").await;
-    let (_, waiting) = env.json(Method::GET, &env.url("/tasks?status=waiting"), &env.owner_token, None, None).await;
+    let (_, waiting) = env
+        .json(
+            Method::GET,
+            &env.url("/tasks?status=waiting"),
+            &env.owner_token,
+            None,
+            None,
+        )
+        .await;
     assert_eq!(waiting["items"].as_array().unwrap().len(), 1);
-    let (status, _) = env.json(Method::GET, &env.url("/tasks?status=bogus"), &env.owner_token, None, None).await;
+    let (status, _) = env
+        .json(
+            Method::GET,
+            &env.url("/tasks?status=bogus"),
+            &env.owner_token,
+            None,
+            None,
+        )
+        .await;
     assert_eq!(status, 400);
-    let (_, all) = env.json(Method::GET, &env.url("/tasks"), &env.owner_token, None, None).await;
+    let (_, all) = env
+        .json(
+            Method::GET,
+            &env.url("/tasks"),
+            &env.owner_token,
+            None,
+            None,
+        )
+        .await;
     assert_eq!(all["items"].as_array().unwrap().len(), 2);
 }
 
@@ -144,7 +203,9 @@ async fn task_list_paginates_without_duplicates() {
         if let Some(c) = &cursor {
             url.push_str(&format!("&cursor={c}"));
         }
-        let (status, body) = env.json(Method::GET, &url, &env.owner_token, None, None).await;
+        let (status, body) = env
+            .json(Method::GET, &url, &env.owner_token, None, None)
+            .await;
         assert_eq!(status, 200, "{body}");
         for t in body["items"].as_array().unwrap() {
             assert!(seen.insert(t["id"].as_str().unwrap().to_string()));
@@ -154,7 +215,16 @@ async fn task_list_paginates_without_duplicates() {
             None => {
                 // A cursor minted for one filter is refused under another.
                 let (status, _) = env
-                    .json(Method::GET, &env.url(&format!("/tasks?status=done&cursor={}", cursor.as_deref().unwrap_or("x"))), &env.owner_token, None, None)
+                    .json(
+                        Method::GET,
+                        &env.url(&format!(
+                            "/tasks?status=done&cursor={}",
+                            cursor.as_deref().unwrap_or("x")
+                        )),
+                        &env.owner_token,
+                        None,
+                        None,
+                    )
                     .await;
                 assert_eq!(status, 400);
                 break;
@@ -177,8 +247,20 @@ async fn t04_concurrent_patches_of_one_version_have_a_single_winner() {
         let id = task["id"].as_str().unwrap().to_string();
         let url = env.url(&format!("/tasks/{id}"));
         let (ra, rb) = tokio::join!(
-            env.json(Method::PATCH, &url, &env.owner_token, Some(&a), Some(json!({"expected_version": 1, "title": "from A", "status": "in_progress"}))),
-            env.json(Method::PATCH, &url, &env.owner_token, Some(&b), Some(json!({"expected_version": 1, "title": "from B", "status": "blocked"}))),
+            env.json(
+                Method::PATCH,
+                &url,
+                &env.owner_token,
+                Some(&a),
+                Some(json!({"expected_version": 1, "title": "from A", "status": "in_progress"}))
+            ),
+            env.json(
+                Method::PATCH,
+                &url,
+                &env.owner_token,
+                Some(&b),
+                Some(json!({"expected_version": 1, "title": "from B", "status": "blocked"}))
+            ),
         );
         let (win, lose) = match (ra.0, rb.0) {
             (200, 409) => (ra, rb),
@@ -188,14 +270,22 @@ async fn t04_concurrent_patches_of_one_version_have_a_single_winner() {
         assert_eq!(lose.1["error"]["code"], "VERSION_CONFLICT");
         assert_eq!(lose.1["error"]["details"]["current_version"], 2);
         // The loser's fields did not leak into the stored task.
-        let (_, stored) = env.json(Method::GET, &url, &env.owner_token, None, None).await;
+        let (_, stored) = env
+            .json(Method::GET, &url, &env.owner_token, None, None)
+            .await;
         assert_eq!(stored["version"], 2);
         assert_eq!(stored["title"], win.1["title"]);
         assert_eq!(stored["status"], win.1["status"]);
 
         // Retrying with the reported version succeeds.
         let (status, _) = env
-            .json(Method::PATCH, &url, &env.owner_token, Some(&b), Some(json!({"expected_version": 2, "status": "done"})))
+            .json(
+                Method::PATCH,
+                &url,
+                &env.owner_token,
+                Some(&b),
+                Some(json!({"expected_version": 2, "status": "done"})),
+            )
             .await;
         assert_eq!(status, 200);
     }
@@ -225,7 +315,13 @@ async fn t05_concurrent_and_retried_sends_create_one_message() {
     assert_eq!((created.len(), replayed.len()), (1, 5), "{results:?}");
     let id = created[0].1["id"].clone();
     assert!(replayed.iter().all(|r| r.1["id"] == id && r.1["seq"] == 1));
-    assert_eq!(messages(&env, tid, 0).await["items"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        messages(&env, tid, 0).await["items"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
 
     // "Response lost": the client never saw the reply and retries later.
     let (status, again) = send(&env, tid, &a, msg("dup-1", "same body")).await;
@@ -233,11 +329,26 @@ async fn t05_concurrent_and_retried_sends_create_one_message() {
 
     // Same key, different body: conflict, nothing stored.
     let (status, body) = send(&env, tid, &a, msg("dup-1", "DIFFERENT")).await;
-    assert_eq!((status, body["error"]["code"].as_str()), (409, Some("IDEMPOTENCY_KEY_REUSED")));
+    assert_eq!(
+        (status, body["error"]["code"].as_str()),
+        (409, Some("IDEMPOTENCY_KEY_REUSED"))
+    );
     // Different kind with same body is also a different payload.
-    let (status, _) = send(&env, tid, &a, json!({"client_message_id": "dup-1", "kind": "help", "body": "same body"})).await;
+    let (status, _) = send(
+        &env,
+        tid,
+        &a,
+        json!({"client_message_id": "dup-1", "kind": "help", "body": "same body"}),
+    )
+    .await;
     assert_eq!(status, 409);
-    assert_eq!(messages(&env, tid, 0).await["items"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        messages(&env, tid, 0).await["items"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
 
     // Keys are per session.
     let (status, other) = send(&env, tid, &b, msg("dup-1", "from B")).await;
@@ -268,7 +379,13 @@ async fn t06_pollers_see_every_message_once_in_order_across_a_restart() {
         let (env, s, tid) = (env.clone(), s.clone(), tid.clone());
         writers.push(tokio::spawn(async move {
             for n in 0..per_writer {
-                let (status, body) = send(&env, &tid, &s, msg(&format!("w{w}-{n}"), &format!("{w}:{n}"))).await;
+                let (status, body) = send(
+                    &env,
+                    &tid,
+                    &s,
+                    msg(&format!("w{w}-{n}"), &format!("{w}:{n}")),
+                )
+                .await;
                 assert_eq!(status, 201, "{body}");
             }
         }));
@@ -294,14 +411,21 @@ async fn t06_pollers_see_every_message_once_in_order_across_a_restart() {
         let page: Value = resp.json().await.unwrap();
         let items = page["items"].as_array().unwrap();
         if items.is_empty() {
-            assert_eq!(page["next_after_seq"], cursor, "empty page keeps the cursor");
+            assert_eq!(
+                page["next_after_seq"], cursor,
+                "empty page keeps the cursor"
+            );
             idle += 1;
             assert!(idle < 5000, "poller starved");
             tokio::task::yield_now().await;
             continue;
         }
         for (i, m) in items.iter().enumerate() {
-            assert_eq!(m["seq"].as_i64().unwrap(), cursor + 1 + i as i64, "gap or reorder");
+            assert_eq!(
+                m["seq"].as_i64().unwrap(),
+                cursor + 1 + i as i64,
+                "gap or reorder"
+            );
             seen.push(m["seq"].as_i64().unwrap());
         }
         cursor = page["next_after_seq"].as_i64().unwrap();
@@ -316,7 +440,15 @@ async fn t06_pollers_see_every_message_once_in_order_across_a_restart() {
     }
     assert!(restarted);
     assert_eq!(seen, (1..=total).collect::<Vec<_>>());
-    let (_, t) = env.json(Method::GET, &env.url(&format!("/tasks/{tid}")), &env.owner_token, None, None).await;
+    let (_, t) = env
+        .json(
+            Method::GET,
+            &env.url(&format!("/tasks/{tid}")),
+            &env.owner_token,
+            None,
+            None,
+        )
+        .await;
     assert_eq!(t["last_message_seq"], total);
 }
 
@@ -332,7 +464,13 @@ async fn t10_invalid_and_cross_repository_input_is_rejected_without_partial_writ
     // The other repository's objects.
     let other = |suffix: &str| env.url_in("second-repo", suffix);
     let (status, foreign_session) = env
-        .json(Method::POST, &other("/sessions"), &env.owner_token, None, Some(json!({"display_name": "F", "client_kind": "t"})))
+        .json(
+            Method::POST,
+            &other("/sessions"),
+            &env.owner_token,
+            None,
+            Some(json!({"display_name": "F", "client_kind": "t"})),
+        )
         .await;
     assert_eq!(status, 201);
     let fs = Sess {
@@ -340,11 +478,23 @@ async fn t10_invalid_and_cross_repository_input_is_rejected_without_partial_writ
         secret: foreign_session["session_secret"].as_str().unwrap().into(),
     };
     let (_, foreign_task) = env
-        .json(Method::POST, &other("/tasks"), &env.owner_token, Some(&fs), Some(json!({"title": "foreign"})))
+        .json(
+            Method::POST,
+            &other("/tasks"),
+            &env.owner_token,
+            Some(&fs),
+            Some(json!({"title": "foreign"})),
+        )
         .await;
     let ftid = foreign_task["id"].as_str().unwrap();
     let (status, foreign_msg) = env
-        .json(Method::POST, &other(&format!("/tasks/{ftid}/messages")), &env.owner_token, Some(&fs), Some(msg("f1", "secret planning")))
+        .json(
+            Method::POST,
+            &other(&format!("/tasks/{ftid}/messages")),
+            &env.owner_token,
+            Some(&fs),
+            Some(msg("f1", "secret planning")),
+        )
         .await;
     assert_eq!(status, 201);
 
@@ -355,36 +505,87 @@ async fn t10_invalid_and_cross_repository_input_is_rejected_without_partial_writ
         (Method::PATCH, format!("/tasks/{ftid}")),
     ] {
         let (status, body) = env
-            .json(method.clone(), &env.url(&suffix), &env.owner_token, Some(&a), Some(json!({"expected_version": 1, "status": "done"})))
+            .json(
+                method.clone(),
+                &env.url(&suffix),
+                &env.owner_token,
+                Some(&a),
+                Some(json!({"expected_version": 1, "status": "done"})),
+            )
             .await;
         assert_eq!(status, 404, "{method} {suffix}: {body}");
-        assert!(!body.to_string().contains("foreign"), "no foreign data in errors");
+        assert!(
+            !body.to_string().contains("foreign"),
+            "no foreign data in errors"
+        );
     }
     let (status, _) = send(&env, ftid, &a, msg("x1", "hi")).await;
     assert_eq!(status, 404);
     // The foreign session's credentials are not valid in this repository either.
     let (status, _) = env
-        .json(Method::POST, &env.url("/tasks"), &env.owner_token, Some(&fs), Some(json!({"title": "x"})))
+        .json(
+            Method::POST,
+            &env.url("/tasks"),
+            &env.owner_token,
+            Some(&fs),
+            Some(json!({"title": "x"})),
+        )
         .await;
     assert_eq!(status, 403);
 
     let rejects: Vec<(&str, Value)> = vec![
-        ("foreign reply_to", json!({"client_message_id": "r1", "kind": "note", "body": "x", "reply_to_id": foreign_msg["id"]})),
-        ("unknown reply_to", json!({"client_message_id": "r2", "kind": "note", "body": "x", "reply_to_id": uuid::Uuid::new_v4().to_string()})),
-        ("garbage reply_to", json!({"client_message_id": "r3", "kind": "note", "body": "x", "reply_to_id": "nope"})),
-        ("foreign target", json!({"client_message_id": "r4", "kind": "note", "body": "x", "target_session_id": fs.id})),
-        ("bad kind", json!({"client_message_id": "r5", "kind": "shout", "body": "x"})),
-        ("empty body", json!({"client_message_id": "r6", "kind": "note", "body": ""})),
-        ("oversize body", json!({"client_message_id": "r7", "kind": "note", "body": "x".repeat(32 * 1024 + 1)})),
-        ("nul in body", json!({"client_message_id": "r8", "kind": "note", "body": "a\u{0}b"})),
-        ("bad client id", json!({"client_message_id": "has space", "kind": "note", "body": "x"})),
-        ("short sha", json!({"client_message_id": "r9", "kind": "note", "body": "x", "commit_sha": "abc123"})),
-        ("unknown sha", json!({"client_message_id": "r10", "kind": "note", "body": "x", "commit_sha": "a".repeat(40)})),
+        (
+            "foreign reply_to",
+            json!({"client_message_id": "r1", "kind": "note", "body": "x", "reply_to_id": foreign_msg["id"]}),
+        ),
+        (
+            "unknown reply_to",
+            json!({"client_message_id": "r2", "kind": "note", "body": "x", "reply_to_id": uuid::Uuid::new_v4().to_string()}),
+        ),
+        (
+            "garbage reply_to",
+            json!({"client_message_id": "r3", "kind": "note", "body": "x", "reply_to_id": "nope"}),
+        ),
+        (
+            "foreign target",
+            json!({"client_message_id": "r4", "kind": "note", "body": "x", "target_session_id": fs.id}),
+        ),
+        (
+            "bad kind",
+            json!({"client_message_id": "r5", "kind": "shout", "body": "x"}),
+        ),
+        (
+            "empty body",
+            json!({"client_message_id": "r6", "kind": "note", "body": ""}),
+        ),
+        (
+            "oversize body",
+            json!({"client_message_id": "r7", "kind": "note", "body": "x".repeat(32 * 1024 + 1)}),
+        ),
+        (
+            "nul in body",
+            json!({"client_message_id": "r8", "kind": "note", "body": "a\u{0}b"}),
+        ),
+        (
+            "bad client id",
+            json!({"client_message_id": "has space", "kind": "note", "body": "x"}),
+        ),
+        (
+            "short sha",
+            json!({"client_message_id": "r9", "kind": "note", "body": "x", "commit_sha": "abc123"}),
+        ),
+        (
+            "unknown sha",
+            json!({"client_message_id": "r10", "kind": "note", "body": "x", "commit_sha": "a".repeat(40)}),
+        ),
     ];
     for (what, body) in rejects {
         let (status, resp) = send(&env, tid, &a, body).await;
         assert_eq!(status, 400, "{what}: {resp}");
-        assert!(!resp.to_string().contains("secret planning"), "{what} leaked foreign content");
+        assert!(
+            !resp.to_string().contains("secret planning"),
+            "{what} leaked foreign content"
+        );
     }
     // The foreign message id and foreign session id are indistinguishable from nonexistent ones.
     let (_, e1) = send(&env, tid, &a, json!({"client_message_id": "c1", "kind": "note", "body": "x", "reply_to_id": foreign_msg["id"]})).await;
@@ -394,28 +595,91 @@ async fn t10_invalid_and_cross_repository_input_is_rejected_without_partial_writ
     // Task-level rejects.
     for (what, body) in [
         ("oversize title", json!({"title": "t".repeat(201)})),
-        ("oversize description", json!({"title": "t", "description": "d".repeat(16 * 1024 + 1)})),
-        ("absolute path", json!({"title": "t", "paths": ["/etc/passwd"]})),
+        (
+            "oversize description",
+            json!({"title": "t", "description": "d".repeat(16 * 1024 + 1)}),
+        ),
+        (
+            "absolute path",
+            json!({"title": "t", "paths": ["/etc/passwd"]}),
+        ),
         ("dotdot path", json!({"title": "t", "paths": ["a/../../b"]})),
-        ("too many paths", json!({"title": "t", "paths": vec!["p"; 101]})),
-        ("long path", json!({"title": "t", "paths": ["p".repeat(513)]})),
-        ("missing issue", json!({"title": "t", "issue_number": 12345})),
+        (
+            "too many paths",
+            json!({"title": "t", "paths": vec!["p"; 101]}),
+        ),
+        (
+            "long path",
+            json!({"title": "t", "paths": ["p".repeat(513)]}),
+        ),
+        (
+            "missing issue",
+            json!({"title": "t", "issue_number": 12345}),
+        ),
         ("missing pr", json!({"title": "t", "pr_number": 12345})),
-        ("foreign owner", json!({"title": "t", "owner_session_id": fs.id})),
+        (
+            "foreign owner",
+            json!({"title": "t", "owner_session_id": fs.id}),
+        ),
     ] {
-        let (status, resp) = env.json(Method::POST, &env.url("/tasks"), &env.owner_token, Some(&a), Some(body)).await;
+        let (status, resp) = env
+            .json(
+                Method::POST,
+                &env.url("/tasks"),
+                &env.owner_token,
+                Some(&a),
+                Some(body),
+            )
+            .await;
         assert_eq!(status, 400, "{what}: {resp}");
     }
 
     // Nothing was written by any rejected request.
-    assert_eq!(messages(&env, tid, 0).await["items"].as_array().unwrap().len(), 0);
-    let (_, t) = env.json(Method::GET, &env.url(&format!("/tasks/{tid}")), &env.owner_token, None, None).await;
-    assert_eq!((t["last_message_seq"].as_i64(), t["version"].as_i64()), (Some(0), Some(1)));
-    let (_, all) = env.json(Method::GET, &env.url("/tasks"), &env.owner_token, None, None).await;
-    assert_eq!(all["items"].as_array().unwrap().len(), 1, "no task from rejected creates");
+    assert_eq!(
+        messages(&env, tid, 0).await["items"]
+            .as_array()
+            .unwrap()
+            .len(),
+        0
+    );
+    let (_, t) = env
+        .json(
+            Method::GET,
+            &env.url(&format!("/tasks/{tid}")),
+            &env.owner_token,
+            None,
+            None,
+        )
+        .await;
+    assert_eq!(
+        (t["last_message_seq"].as_i64(), t["version"].as_i64()),
+        (Some(0), Some(1))
+    );
+    let (_, all) = env
+        .json(
+            Method::GET,
+            &env.url("/tasks"),
+            &env.owner_token,
+            None,
+            None,
+        )
+        .await;
+    assert_eq!(
+        all["items"].as_array().unwrap().len(),
+        1,
+        "no task from rejected creates"
+    );
     // The other repository is untouched too.
     assert_eq!(
-        env.json(Method::GET, &other(&format!("/tasks/{ftid}")), &env.owner_token, None, None).await.1["last_message_seq"],
+        env.json(
+            Method::GET,
+            &other(&format!("/tasks/{ftid}")),
+            &env.owner_token,
+            None,
+            None
+        )
+        .await
+        .1["last_message_seq"],
         1
     );
 }
@@ -423,12 +687,19 @@ async fn t10_invalid_and_cross_repository_input_is_rejected_without_partial_writ
 #[tokio::test]
 async fn t10_real_issue_and_real_commit_references_are_accepted_and_kept_separate_from_proof() {
     let env = Env::new().await;
-    let (_, number) = common::create_issue(&env.base, &env.owner_token, &env.owner, &env.repo, "bug").await;
+    let (_, number) =
+        common::create_issue(&env.base, &env.owner_token, &env.owner, &env.repo, "bug").await;
     let sha = env.push_commit(&env.repo, "first");
     let a = env.session(&env.owner_token, "A").await;
 
     let (status, task) = env
-        .json(Method::POST, &env.url("/tasks"), &env.owner_token, Some(&a), Some(json!({"title": "t", "issue_number": number})))
+        .json(
+            Method::POST,
+            &env.url("/tasks"),
+            &env.owner_token,
+            Some(&a),
+            Some(json!({"title": "t", "issue_number": number})),
+        )
         .await;
     assert_eq!(status, 201, "{task}");
     assert_eq!(task["issue_number"], number);
@@ -442,7 +713,13 @@ async fn t10_real_issue_and_real_commit_references_are_accepted_and_kept_separat
 
     // A tree or blob id is not a commit.
     let tree = env.rev_parse(&env.repo, &format!("{sha}^{{tree}}"));
-    let (status, _) = send(&env, tid, &a, json!({"client_message_id": "t", "kind": "note", "body": "x", "commit_sha": tree})).await;
+    let (status, _) = send(
+        &env,
+        tid,
+        &a,
+        json!({"client_message_id": "t", "kind": "note", "body": "x", "commit_sha": tree}),
+    )
+    .await;
     assert_eq!(status, 400);
 }
 
@@ -457,31 +734,84 @@ async fn read_and_write_permissions_apply_to_tasks_and_messages() {
     env.add_collaborator(reader_id, "read").await;
 
     // Public repository, but collaboration data still needs an account.
-    for suffix in ["/tasks".to_string(), format!("/tasks/{tid}"), format!("/tasks/{tid}/messages")] {
-        let resp = env.send(Method::GET, &env.url(&suffix), None, None, None).await;
+    for suffix in [
+        "/tasks".to_string(),
+        format!("/tasks/{tid}"),
+        format!("/tasks/{tid}/messages"),
+    ] {
+        let resp = env
+            .send(Method::GET, &env.url(&suffix), None, None, None)
+            .await;
         assert_eq!(resp.status(), 401, "anonymous GET {suffix}");
     }
     // A reader can read…
-    for suffix in ["/tasks".to_string(), format!("/tasks/{tid}"), format!("/tasks/{tid}/messages")] {
-        let (status, _) = env.json(Method::GET, &env.url(&suffix), &reader, None, None).await;
+    for suffix in [
+        "/tasks".to_string(),
+        format!("/tasks/{tid}"),
+        format!("/tasks/{tid}/messages"),
+    ] {
+        let (status, _) = env
+            .json(Method::GET, &env.url(&suffix), &reader, None, None)
+            .await;
         assert_eq!(status, 200, "reader GET {suffix}");
     }
     // …but not write, even holding the owner's session credentials.
-    let (status, _) = env.json(Method::POST, &env.url("/tasks"), &reader, Some(&a), Some(json!({"title": "x"}))).await;
-    assert_eq!(status, 403);
     let (status, _) = env
-        .json(Method::POST, &env.url(&format!("/tasks/{tid}/messages")), &reader, Some(&a), Some(msg("m2", "x")))
+        .json(
+            Method::POST,
+            &env.url("/tasks"),
+            &reader,
+            Some(&a),
+            Some(json!({"title": "x"})),
+        )
         .await;
     assert_eq!(status, 403);
     let (status, _) = env
-        .json(Method::PATCH, &env.url(&format!("/tasks/{tid}")), &reader, Some(&a), Some(json!({"expected_version": 1, "status": "done"})))
+        .json(
+            Method::POST,
+            &env.url(&format!("/tasks/{tid}/messages")),
+            &reader,
+            Some(&a),
+            Some(msg("m2", "x")),
+        )
+        .await;
+    assert_eq!(status, 403);
+    let (status, _) = env
+        .json(
+            Method::PATCH,
+            &env.url(&format!("/tasks/{tid}")),
+            &reader,
+            Some(&a),
+            Some(json!({"expected_version": 1, "status": "done"})),
+        )
         .await;
     assert_eq!(status, 403);
 
     // Writes need a live session in addition to the account.
-    let (status, body) = env.json(Method::POST, &env.url("/tasks"), &env.owner_token, None, Some(json!({"title": "x"}))).await;
-    assert_eq!((status, body["error"]["code"].as_str()), (400, Some("SESSION_CREDENTIALS_REQUIRED")));
-    env.json(Method::POST, &env.url(&format!("/sessions/{}/end", a.id)), &env.owner_token, Some(&a), None).await;
+    let (status, body) = env
+        .json(
+            Method::POST,
+            &env.url("/tasks"),
+            &env.owner_token,
+            None,
+            Some(json!({"title": "x"})),
+        )
+        .await;
+    assert_eq!(
+        (status, body["error"]["code"].as_str()),
+        (400, Some("SESSION_CREDENTIALS_REQUIRED"))
+    );
+    env.json(
+        Method::POST,
+        &env.url(&format!("/sessions/{}/end", a.id)),
+        &env.owner_token,
+        Some(&a),
+        None,
+    )
+    .await;
     let (status, body) = send(&env, tid, &a, msg("m3", "x")).await;
-    assert_eq!((status, body["error"]["code"].as_str()), (409, Some("SESSION_EXPIRED")));
+    assert_eq!(
+        (status, body["error"]["code"].as_str()),
+        (409, Some("SESSION_EXPIRED"))
+    );
 }

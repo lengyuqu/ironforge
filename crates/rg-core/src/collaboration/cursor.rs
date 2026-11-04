@@ -43,7 +43,8 @@ pub fn encode(key: &[u8], scope: &str, position: &KeysetPosition) -> String {
         t: position.at.to_rfc3339_opts(SecondsFormat::Nanos, true),
         i: position.id.clone(),
     };
-    let body = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&payload).expect("cursor payload serializes"));
+    let body =
+        URL_SAFE_NO_PAD.encode(serde_json::to_vec(&payload).expect("cursor payload serializes"));
     let tag = URL_SAFE_NO_PAD.encode(mac(key, body.as_bytes()).finalize().into_bytes());
     format!("{body}.{tag}")
 }

@@ -542,7 +542,13 @@ pub async fn update_job_log(db: &DatabaseConnection, id: i64, log: &str) -> Resu
         .exec(db)
         .await
         .context("db: update job log")?;
-    if updated.rows_affected == 0 && job_query(db).filter(pipeline_job::Column::Id.eq(id)).one(db).await?.is_none() {
+    if updated.rows_affected == 0
+        && job_query(db)
+            .filter(pipeline_job::Column::Id.eq(id))
+            .one(db)
+            .await?
+            .is_none()
+    {
         anyhow::bail!("job {} not found", id);
     }
     Ok(())
@@ -609,7 +615,13 @@ async fn update_job_result_on<C: ConnectionTrait>(
         .exec(db)
         .await
         .context("db: update job result")?;
-    if updated.rows_affected == 0 && job_query(db).filter(pipeline_job::Column::Id.eq(id)).one(db).await?.is_none() {
+    if updated.rows_affected == 0
+        && job_query(db)
+            .filter(pipeline_job::Column::Id.eq(id))
+            .one(db)
+            .await?
+            .is_none()
+    {
         anyhow::bail!("job {} not found", id);
     }
     Ok(())
@@ -1391,31 +1403,63 @@ pub async fn get_pipeline(db: &DatabaseConnection, id: i64) -> Result<Option<pip
     get_pipeline_on(db, id).await
 }
 
-pub async fn update_pipeline_status(db: &DatabaseConnection, id: i64, status: &str, started_at: Option<chrono::NaiveDateTime>, finished_at: Option<chrono::NaiveDateTime>) -> Result<()> {
+pub async fn update_pipeline_status(
+    db: &DatabaseConnection,
+    id: i64,
+    status: &str,
+    started_at: Option<chrono::NaiveDateTime>,
+    finished_at: Option<chrono::NaiveDateTime>,
+) -> Result<()> {
     update_pipeline_status_on(db, id, status, started_at, finished_at).await
 }
 
-pub async fn list_stages_by_pipeline(db: &DatabaseConnection, pipeline_id: i64) -> Result<Vec<pipeline_stage::Model>> {
+pub async fn list_stages_by_pipeline(
+    db: &DatabaseConnection,
+    pipeline_id: i64,
+) -> Result<Vec<pipeline_stage::Model>> {
     list_stages_by_pipeline_on(db, pipeline_id).await
 }
 
-pub async fn update_stage_status(db: &DatabaseConnection, id: i64, status: &str, started_at: Option<chrono::NaiveDateTime>, finished_at: Option<chrono::NaiveDateTime>) -> Result<()> {
+pub async fn update_stage_status(
+    db: &DatabaseConnection,
+    id: i64,
+    status: &str,
+    started_at: Option<chrono::NaiveDateTime>,
+    finished_at: Option<chrono::NaiveDateTime>,
+) -> Result<()> {
     update_stage_status_on(db, id, status, started_at, finished_at).await
 }
 
-pub async fn list_jobs_by_stage(db: &DatabaseConnection, stage_id: i64) -> Result<Vec<pipeline_job::Model>> {
+pub async fn list_jobs_by_stage(
+    db: &DatabaseConnection,
+    stage_id: i64,
+) -> Result<Vec<pipeline_job::Model>> {
     list_jobs_by_stage_on(db, stage_id).await
 }
 
-pub async fn update_job_result(db: &DatabaseConnection, id: i64, status: &str, exit_code: Option<i32>, log: Option<&str>, started_at: Option<chrono::NaiveDateTime>, finished_at: Option<chrono::NaiveDateTime>) -> Result<()> {
+pub async fn update_job_result(
+    db: &DatabaseConnection,
+    id: i64,
+    status: &str,
+    exit_code: Option<i32>,
+    log: Option<&str>,
+    started_at: Option<chrono::NaiveDateTime>,
+    finished_at: Option<chrono::NaiveDateTime>,
+) -> Result<()> {
     update_job_result_on(db, id, status, exit_code, log, started_at, finished_at).await
 }
 
-pub async fn get_stage_by_id(db: &DatabaseConnection, id: i64) -> Result<Option<pipeline_stage::Model>> {
+pub async fn get_stage_by_id(
+    db: &DatabaseConnection,
+    id: i64,
+) -> Result<Option<pipeline_stage::Model>> {
     get_stage_by_id_on(db, id).await
 }
 
-pub async fn list_jobs_by_pipeline(db: &DatabaseConnection, pipeline_id: i64) -> Result<Vec<pipeline_job::Model>> {
+pub async fn list_jobs_by_pipeline(
+    db: &DatabaseConnection,
+    pipeline_id: i64,
+) -> Result<Vec<pipeline_job::Model>> {
     list_jobs_by_pipeline_on(db, pipeline_id).await
 }
 
@@ -1423,11 +1467,17 @@ pub async fn check_stage_jobs(db: &DatabaseConnection, stage_id: i64) -> Result<
     check_stage_jobs_on(db, stage_id).await
 }
 
-pub async fn check_pipeline_stages(db: &DatabaseConnection, pipeline_id: i64) -> Result<(bool, bool)> {
+pub async fn check_pipeline_stages(
+    db: &DatabaseConnection,
+    pipeline_id: i64,
+) -> Result<(bool, bool)> {
     check_pipeline_stages_on(db, pipeline_id).await
 }
 
-pub async fn try_update_pipeline(db: &DatabaseConnection, pipeline_id: i64) -> Result<Option<String>> {
+pub async fn try_update_pipeline(
+    db: &DatabaseConnection,
+    pipeline_id: i64,
+) -> Result<Option<String>> {
     try_update_pipeline_on(db, pipeline_id).await
 }
 

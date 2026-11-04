@@ -6,14 +6,16 @@
 //! scenarios inject events with chosen timestamps, because the server stamps
 //! its own clock and a test cannot move it.
 
-mod common;
 mod collab_common;
+mod common;
 
 use chrono::{DateTime, Duration, SecondsFormat, Utc};
 use collab_common::{Env, Sess};
 use reqwest::Method;
 use rg_db::entities::collab_metric_event as ev;
-use rg_db::sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, Set};
+use rg_db::sea_orm::{
+    ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, Set,
+};
 use serde_json::{json, Value};
 
 fn at(t: DateTime<Utc>) -> String {
@@ -22,13 +24,25 @@ fn at(t: DateTime<Utc>) -> String {
 
 async fn new_task(env: &Env, s: &Sess, title: &str) -> String {
     let (status, task) = env
-        .json(Method::POST, &env.url("/tasks"), &env.owner_token, Some(s), Some(json!({"title": title})))
+        .json(
+            Method::POST,
+            &env.url("/tasks"),
+            &env.owner_token,
+            Some(s),
+            Some(json!({"title": title})),
+        )
         .await;
     assert_eq!(status, 201, "{task}");
     task["id"].as_str().unwrap().to_string()
 }
 
-async fn set_status(env: &Env, s: &Sess, task_id: &str, version: i64, status: &str) -> (u16, Value) {
+async fn set_status(
+    env: &Env,
+    s: &Sess,
+    task_id: &str,
+    version: i64,
+    status: &str,
+) -> (u16, Value) {
     env.json(
         Method::PATCH,
         &env.url(&format!("/tasks/{task_id}")),
@@ -40,7 +54,14 @@ async fn set_status(env: &Env, s: &Sess, task_id: &str, version: i64, status: &s
 }
 
 async fn health(env: &Env, token: &str, query: &str) -> (u16, Value) {
-    env.json(Method::GET, &env.url(&format!("/health{query}")), token, None, None).await
+    env.json(
+        Method::GET,
+        &env.url(&format!("/health{query}")),
+        token,
+        None,
+        None,
+    )
+    .await
 }
 
 async fn health_ok(env: &Env, query: &str) -> Value {
@@ -54,8 +75,13 @@ async fn health_ok(env: &Env, query: &str) -> Value {
 /// which is (correctly) reported as partial.
 async fn covered(env: &Env) -> String {
     let first = rg_db::ops::collab_metric_ops::first_occurred_at(&env.db, env.repo_id)
-        .await.unwrap().unwrap();
-    format!("?from={}", first.to_rfc3339_opts(SecondsFormat::Nanos, true))
+        .await
+        .unwrap()
+        .unwrap();
+    format!(
+        "?from={}",
+        first.to_rfc3339_opts(SecondsFormat::Nanos, true)
+    )
 }
 
 fn metric<'a>(body: &'a Value, id: &str) -> &'a Value {
@@ -94,19 +120,43 @@ async fn health_exclusive_boundary_keeps_fractional_endpoints() {
     let task_id = new_task(&env, &session, "boundary").await;
     let event = events_of(&env, &task_id).await.remove(0);
     let ops = &env.db;
-    let at_boundary = rg_db::ops::collab_metric_ops::load_before(ops, env.repo_id, event.occurred_at)
-        .await.unwrap().unwrap();
+    let at_boundary =
+        rg_db::ops::collab_metric_ops::load_before(ops, env.repo_id, event.occurred_at)
+            .await
+            .unwrap()
+            .unwrap();
     assert!(at_boundary.iter().all(|e| e.id != event.id));
     let after_boundary = rg_db::ops::collab_metric_ops::load_before(
-        ops, env.repo_id, event.occurred_at + Duration::milliseconds(1),
-    ).await.unwrap().unwrap();
+        ops,
+        env.repo_id,
+        event.occurred_at + Duration::milliseconds(1),
+    )
+    .await
+    .unwrap()
+    .unwrap();
     assert!(after_boundary.iter().any(|e| e.id == event.id));
     let created = rg_db::entities::collab_task::Entity::find_by_id(task_id.clone())
-        .one(ops).await.unwrap().unwrap().created_at;
-    assert!(!rg_db::ops::collab_metric_ops::task_ids_created_before(ops, env.repo_id, created)
-        .await.unwrap().iter().any(|(id, _)| id == &task_id));
-    assert!(rg_db::ops::collab_metric_ops::task_ids_created_before(ops, env.repo_id, created + Duration::milliseconds(1))
-        .await.unwrap().iter().any(|(id, _)| id == &task_id));
+        .one(ops)
+        .await
+        .unwrap()
+        .unwrap()
+        .created_at;
+    assert!(
+        !rg_db::ops::collab_metric_ops::task_ids_created_before(ops, env.repo_id, created)
+            .await
+            .unwrap()
+            .iter()
+            .any(|(id, _)| id == &task_id)
+    );
+    assert!(rg_db::ops::collab_metric_ops::task_ids_created_before(
+        ops,
+        env.repo_id,
+        created + Duration::milliseconds(1)
+    )
+    .await
+    .unwrap()
+    .iter()
+    .any(|(id, _)| id == &task_id));
 }
 
 /// Simulate data from before the feature: forget everything recorded so far.
@@ -148,10 +198,27 @@ async fn inject(
 }
 
 async fn inject_created(env: &Env, task_id: &str, when: DateTime<Utc>) {
-    inject(env, task_id, "task_created", None, Some("open"), Some(1), ("task", task_id), when).await;
+    inject(
+        env,
+        task_id,
+        "task_created",
+        None,
+        Some("open"),
+        Some(1),
+        ("task", task_id),
+        when,
+    )
+    .await;
 }
 
-async fn inject_change(env: &Env, task_id: &str, from: &str, to: &str, version: i64, when: DateTime<Utc>) {
+async fn inject_change(
+    env: &Env,
+    task_id: &str,
+    from: &str,
+    to: &str,
+    version: i64,
+    when: DateTime<Utc>,
+) {
     inject(
         env,
         task_id,
@@ -189,17 +256,33 @@ async fn m06_status_changes_are_recorded_by_the_platform_in_the_business_transac
     assert_eq!(set_status(&env, &a, &tid, 2, "in_progress").await.0, 200);
     assert_eq!(set_status(&env, &a, &tid, 3, "blocked").await.0, 200);
     let (status, _) = env
-        .json(Method::PATCH, &env.url(&format!("/tasks/{tid}")), &env.owner_token, Some(&a), Some(json!({"expected_version": 4, "title": "renamed"})))
+        .json(
+            Method::PATCH,
+            &env.url(&format!("/tasks/{tid}")),
+            &env.owner_token,
+            Some(&a),
+            Some(json!({"expected_version": 4, "title": "renamed"})),
+        )
         .await;
     assert_eq!(status, 200);
-    assert_eq!(set_status(&env, &a, &tid, 5, "blocked").await.0, 200, "same status again");
+    assert_eq!(
+        set_status(&env, &a, &tid, 5, "blocked").await.0,
+        200,
+        "same status again"
+    );
     // A stale write is refused and leaves no event.
     assert_eq!(set_status(&env, &a, &tid, 1, "done").await.0, 409);
 
     let events = events_of(&env, &tid).await;
     let kinds: Vec<(&str, Option<&str>, Option<&str>)> = events
         .iter()
-        .map(|e| (e.event_type.as_str(), e.from_state.as_deref(), e.to_state.as_deref()))
+        .map(|e| {
+            (
+                e.event_type.as_str(),
+                e.from_state.as_deref(),
+                e.to_state.as_deref(),
+            )
+        })
         .collect();
     assert_eq!(
         kinds,
@@ -212,7 +295,10 @@ async fn m06_status_changes_are_recorded_by_the_platform_in_the_business_transac
     );
     let finished = Utc::now() + Duration::seconds(1);
     for e in &events {
-        assert!(e.occurred_at >= started - Duration::seconds(1) && e.occurred_at <= finished, "server time");
+        assert!(
+            e.occurred_at >= started - Duration::seconds(1) && e.occurred_at <= finished,
+            "server time"
+        );
         assert_eq!(e.repo_id, env.repo_id);
     }
     assert_eq!(events[1].task_version, Some(2));
@@ -227,13 +313,17 @@ async fn m06_status_changes_are_recorded_by_the_platform_in_the_business_transac
     assert_eq!(tasks["timing_source"], "platform_event");
     assert_eq!(tasks["status"], "complete");
     assert_eq!(tasks["value"]["blocked_at_to"], 1);
-    assert_eq!(tasks["value"]["entered_blocked_in_window"], 1, "one task, two entries");
+    assert_eq!(
+        tasks["value"]["entered_blocked_in_window"], 1,
+        "one task, two entries"
+    );
     assert_eq!(tasks["value"]["entered_blocked_events"], 2);
     let duration = metric(&body, "blocked_duration");
     assert_eq!(duration["value"]["right_censored_tasks"], 1);
     // A complete blocked interval can have zero measurable duration when both
     // transitions share MySQL's stored second. Only positive overlaps count.
-    let closed_interval = u64::from((events[2].occurred_at - events[1].occurred_at).num_milliseconds() > 0);
+    let closed_interval =
+        u64::from((events[2].occurred_at - events[1].occurred_at).num_milliseconds() > 0);
     assert_eq!(duration["value"]["intervals"], 1 + closed_interval);
 }
 
@@ -278,13 +368,26 @@ async fn m06_interval_maths_covers_clipping_censoring_and_reopening() {
     assert_eq!(duration["value"]["left_censored_tasks"], 1);
     assert_eq!(duration["value"]["right_censored_tasks"], 1);
     let tasks = metric(&body, "blocked_tasks");
-    assert_eq!(tasks["value"]["blocked_at_to"], 1, "only B is blocked at `to`");
-    assert_eq!(tasks["value"]["entered_blocked_in_window"], 3, "A, B and D (C was already blocked)");
-    assert_eq!(tasks["value"]["entered_blocked_events"], 4, "D entered twice");
+    assert_eq!(
+        tasks["value"]["blocked_at_to"], 1,
+        "only B is blocked at `to`"
+    );
+    assert_eq!(
+        tasks["value"]["entered_blocked_in_window"], 3,
+        "A, B and D (C was already blocked)"
+    );
+    assert_eq!(
+        tasks["value"]["entered_blocked_events"], 4,
+        "D entered twice"
+    );
 
     // Window [20, 60): A 20m (clipped at the start), C 10m (known since the
     // coverage start, which precedes the window, so not censored), D 10m (25..35).
-    let q = format!("?from={}&to={}", at(minutes(base, 20)), at(minutes(base, 60)));
+    let q = format!(
+        "?from={}&to={}",
+        at(minutes(base, 20)),
+        at(minutes(base, 60))
+    );
     let body = health_ok(&env, &q).await;
     let duration = metric(&body, "blocked_duration");
     assert_eq!(duration["value"]["blocked_seconds"], 40 * 60);
@@ -292,17 +395,28 @@ async fn m06_interval_maths_covers_clipping_censoring_and_reopening() {
     assert_eq!(duration["value"]["right_censored_tasks"], 0);
     let tasks = metric(&body, "blocked_tasks");
     assert_eq!(tasks["value"]["blocked_at_to"], 0);
-    assert_eq!(tasks["value"]["entered_blocked_in_window"], 1, "D's second entry only");
+    assert_eq!(
+        tasks["value"]["entered_blocked_in_window"], 1,
+        "D's second entry only"
+    );
     assert_eq!(tasks["value"]["entered_blocked_events"], 1);
 
     // A window that starts before the first recorded event is partial and only
     // its covered part is measured.
-    let q = format!("?from={}&to={}", at(minutes(base, -60)), at(minutes(base, 120)));
+    let q = format!(
+        "?from={}&to={}",
+        at(minutes(base, -60)),
+        at(minutes(base, 120))
+    );
     let body = health_ok(&env, &q).await;
     assert_eq!(body["partial"], true);
     let duration = metric(&body, "blocked_duration");
     assert_eq!(duration["status"], "partial");
-    assert_eq!(duration["value"]["blocked_seconds"], 100 * 60, "nothing is invented for the uncovered hour");
+    assert_eq!(
+        duration["value"]["blocked_seconds"],
+        100 * 60,
+        "nothing is invented for the uncovered hour"
+    );
     assert_eq!(duration["value"]["covered_from"], at(base));
 
     // `to` in the middle of A's blocked interval: right-censored, cut at `to`.
@@ -313,7 +427,10 @@ async fn m06_interval_maths_covers_clipping_censoring_and_reopening() {
     // only events before `to` are used, so a past window never changes when later
     // events arrive, and C is not guessed.
     assert_eq!(duration["value"]["blocked_seconds"], 25 * 60);
-    assert_eq!(duration["value"]["right_censored_tasks"], 1, "A is still blocked at `to`");
+    assert_eq!(
+        duration["value"]["right_censored_tasks"], 1,
+        "A is still blocked at `to`"
+    );
     assert_eq!(metric(&body, "blocked_tasks")["value"]["blocked_at_to"], 1);
     // (The rows of this scenario were created "now", so C does not count as an
     // existing-but-unknown task at that past `to`; the unknown path has its own tests.)
@@ -327,34 +444,66 @@ async fn m07_handoffs_and_questions_are_recorded_and_counted_per_state() {
     let a = env.session(&env.owner_token, "A").await;
     let b = env.session(&env.owner_token, "B").await;
     let tid = new_task(&env, &a, "t").await;
-    let handoff = |key: &str| json!({
-        "client_handoff_id": key, "to_session_id": b.id, "summary": "s", "completed": "", "next_steps": "", "blockers": "",
-    });
+    let handoff = |key: &str| {
+        json!({
+            "client_handoff_id": key, "to_session_id": b.id, "summary": "s", "completed": "", "next_steps": "", "blockers": "",
+        })
+    };
     let mut ids = Vec::new();
     for key in ["h1", "h2", "h3"] {
         let (status, h) = env
-            .json(Method::POST, &env.url(&format!("/tasks/{tid}/handoffs")), &env.owner_token, Some(&a), Some(handoff(key)))
+            .json(
+                Method::POST,
+                &env.url(&format!("/tasks/{tid}/handoffs")),
+                &env.owner_token,
+                Some(&a),
+                Some(handoff(key)),
+            )
             .await;
         assert_eq!(status, 201, "{h}");
         ids.push(h["id"].as_str().unwrap().to_string());
     }
     // A replayed create writes no second event.
     let (status, _) = env
-        .json(Method::POST, &env.url(&format!("/tasks/{tid}/handoffs")), &env.owner_token, Some(&a), Some(handoff("h1")))
+        .json(
+            Method::POST,
+            &env.url(&format!("/tasks/{tid}/handoffs")),
+            &env.owner_token,
+            Some(&a),
+            Some(handoff("h1")),
+        )
         .await;
     assert_eq!(status, 200);
     assert_eq!(count_events(&env, &tid, "handoff_created").await, 3);
 
     let (s1, _) = env
-        .json(Method::POST, &env.url(&format!("/handoffs/{}/accept", ids[0])), &env.owner_token, Some(&b), Some(json!({"expected_version": 1})))
+        .json(
+            Method::POST,
+            &env.url(&format!("/handoffs/{}/accept", ids[0])),
+            &env.owner_token,
+            Some(&b),
+            Some(json!({"expected_version": 1})),
+        )
         .await;
     let (s2, _) = env
-        .json(Method::POST, &env.url(&format!("/handoffs/{}/cancel", ids[1])), &env.owner_token, Some(&a), Some(json!({"expected_version": 1})))
+        .json(
+            Method::POST,
+            &env.url(&format!("/handoffs/{}/cancel", ids[1])),
+            &env.owner_token,
+            Some(&a),
+            Some(json!({"expected_version": 1})),
+        )
         .await;
     assert_eq!((s1, s2), (200, 200));
     // A refused transition leaves no event.
     let (s3, _) = env
-        .json(Method::POST, &env.url(&format!("/handoffs/{}/accept", ids[0])), &env.owner_token, Some(&b), Some(json!({"expected_version": 1})))
+        .json(
+            Method::POST,
+            &env.url(&format!("/handoffs/{}/accept", ids[0])),
+            &env.owner_token,
+            Some(&b),
+            Some(json!({"expected_version": 1})),
+        )
         .await;
     assert_eq!(s3, 409);
     assert_eq!(count_events(&env, &tid, "handoff_accepted").await, 1);
@@ -365,7 +514,13 @@ async fn m07_handoffs_and_questions_are_recorded_and_counted_per_state() {
     let mut qs = Vec::new();
     for n in ["q1", "q2", "q3"] {
         let (status, q) = env
-            .json(Method::POST, &env.url(&format!("/tasks/{tid}/questions")), &env.owner_token, Some(&a), Some(ask(n)))
+            .json(
+                Method::POST,
+                &env.url(&format!("/tasks/{tid}/questions")),
+                &env.owner_token,
+                Some(&a),
+                Some(ask(n)),
+            )
             .await;
         assert_eq!(status, 201, "{q}");
         qs.push(q);
@@ -381,7 +536,16 @@ async fn m07_handoffs_and_questions_are_recorded_and_counted_per_state() {
         .await;
     assert_eq!(status, 200, "{answered}");
     let (status, _) = env
-        .json(Method::POST, &env.url(&format!("/questions/{}/cancel", qs[1]["id"].as_str().unwrap())), &env.owner_token, Some(&a), Some(json!({"expected_version": 1})))
+        .json(
+            Method::POST,
+            &env.url(&format!(
+                "/questions/{}/cancel",
+                qs[1]["id"].as_str().unwrap()
+            )),
+            &env.owner_token,
+            Some(&a),
+            Some(json!({"expected_version": 1})),
+        )
         .await;
     assert_eq!(status, 200);
     assert_eq!(count_events(&env, &tid, "question_opened").await, 3);
@@ -401,7 +565,11 @@ async fn m07_handoffs_and_questions_are_recorded_and_counted_per_state() {
     assert_eq!(metric(&body, "handoff_waiting")["status"], "complete");
     assert_eq!(metric(&body, "open_questions")["status"], "complete");
     let notes = metric(&body, "handoff_waiting")["notes"].to_string();
-    assert!(notes.contains("nothing about the work being done") || notes.contains("says nothing about the work"), "accepted is not completed");
+    assert!(
+        notes.contains("nothing about the work being done")
+            || notes.contains("says nothing about the work"),
+        "accepted is not completed"
+    );
 }
 
 #[tokio::test]
@@ -422,7 +590,17 @@ async fn m07_waiting_time_is_the_interval_intersection() {
         (&h2, "handoff_cancelled", Some("pending"), "cancelled", 25),
         (&h3, "handoff_created", None, "pending", 60),
     ] {
-        inject(&env, &tid, kind, from, Some(to), None, ("handoff", hid), minutes(base, m)).await;
+        inject(
+            &env,
+            &tid,
+            kind,
+            from,
+            Some(to),
+            None,
+            ("handoff", hid),
+            minutes(base, m),
+        )
+        .await;
     }
     // q1: open 10..30 then answered. q2: open since 20.
     for (qid, kind, from, to, m) in [
@@ -430,23 +608,44 @@ async fn m07_waiting_time_is_the_interval_intersection() {
         (&q1, "question_answered", Some("open"), "answered", 30),
         (&q2, "question_opened", None, "open", 20),
     ] {
-        inject(&env, &tid, kind, from, Some(to), None, ("question", qid), minutes(base, m)).await;
+        inject(
+            &env,
+            &tid,
+            kind,
+            from,
+            Some(to),
+            None,
+            ("question", qid),
+            minutes(base, m),
+        )
+        .await;
     }
 
     // [30, 90): h1 10m, h2 none (cancelled before the window), h3 30m.
-    let q = format!("?from={}&to={}", at(minutes(base, 30)), at(minutes(base, 90)));
+    let q = format!(
+        "?from={}&to={}",
+        at(minutes(base, 30)),
+        at(minutes(base, 90))
+    );
     let body = health_ok(&env, &q).await;
     let h = &metric(&body, "handoff_waiting")["value"];
     assert_eq!(h["waiting_seconds"], 40 * 60);
     assert_eq!(h["accepted_in_window"], 1, "h1 accepted at 40");
-    assert_eq!(h["cancelled_in_window"], 0, "h2 was cancelled at 25, before the window");
+    assert_eq!(
+        h["cancelled_in_window"], 0,
+        "h2 was cancelled at 25, before the window"
+    );
     assert_eq!(h["open_at_to"], 1);
     assert_eq!(h["measured_handoffs"], 3);
     // q1 answered at 30 is inside [30,90) but waited 0 inside it; q2 60m.
     let qv = &metric(&body, "open_questions")["value"];
     assert_eq!(qv["wait_seconds_in_window"], 60 * 60);
     assert_eq!(qv["open_at_to"], 1);
-    assert_eq!(qv["open_wait_seconds_at_to"], 70 * 60, "open since minute 20");
+    assert_eq!(
+        qv["open_wait_seconds_at_to"],
+        70 * 60,
+        "open since minute 20"
+    );
     assert_eq!(qv["answered_in_window"], 1);
 
     // [0, 120): h1 30m, h2 5m, h3 60m = 95m; q1 20m + q2 100m.
@@ -485,13 +684,22 @@ async fn m08_data_from_before_the_feature_is_unknown_until_a_baseline_and_never_
     let body = health_ok(&env, "").await;
     assert_eq!(body["coverage_start"], Value::Null);
     assert_eq!(body["partial"], true);
-    for id in ["blocked_tasks", "blocked_duration", "handoff_waiting", "open_questions", "stale_path_claims"] {
+    for id in [
+        "blocked_tasks",
+        "blocked_duration",
+        "handoff_waiting",
+        "open_questions",
+        "stale_path_claims",
+    ] {
         let m = metric(&body, id);
         assert_eq!(m["status"], "unknown", "{id}");
         assert!(m["value"].is_null(), "{id}: {m}");
         assert!(m["reason"].is_string(), "{id}");
     }
-    assert_eq!(metric(&body, "stale_path_claims")["reason"], "PATH_DECLARED_AT_NOT_RECORDED");
+    assert_eq!(
+        metric(&body, "stale_path_claims")["reason"],
+        "PATH_DECLARED_AT_NOT_RECORDED"
+    );
 
     // A new task starts the event log; the old one stays unknown (not "not blocked").
     let fresh = new_task(&env, &s, "fresh").await;
@@ -503,9 +711,17 @@ async fn m08_data_from_before_the_feature_is_unknown_until_a_baseline_and_never_
     assert_eq!(tasks["value"]["blocked_at_to"], 0);
     assert_eq!(tasks["value"]["unknown_state_tasks"], 1);
     assert_eq!(body["data_quality"]["unknown_state_tasks"], 1);
-    assert!(metric(&body, "blocked_duration")["notes"].to_string().contains("baseline"));
+    assert!(metric(&body, "blocked_duration")["notes"]
+        .to_string()
+        .contains("baseline"));
     let (status, unknown) = env
-        .json(Method::GET, &env.url("/health/tasks?metric=unknown_state"), &env.owner_token, None, None)
+        .json(
+            Method::GET,
+            &env.url("/health/tasks?metric=unknown_state"),
+            &env.owner_token,
+            None,
+            None,
+        )
         .await;
     assert_eq!(status, 200, "{unknown}");
     assert_eq!(unknown["items"][0]["task_id"], old.as_str());
@@ -515,7 +731,13 @@ async fn m08_data_from_before_the_feature_is_unknown_until_a_baseline_and_never_
     // The baseline makes the blocked task visible as observed *since now*.
     let before = Utc::now();
     let (status, report) = env
-        .json(Method::POST, &env.url("/health/baseline"), &env.owner_token, None, None)
+        .json(
+            Method::POST,
+            &env.url("/health/baseline"),
+            &env.owner_token,
+            None,
+            None,
+        )
         .await;
     assert_eq!(status, 200, "{report}");
     assert_eq!(report["added"]["tasks"], 1);
@@ -525,7 +747,10 @@ async fn m08_data_from_before_the_feature_is_unknown_until_a_baseline_and_never_
     assert_eq!(events[0].event_type, "task_status_observed");
     assert_eq!(events[0].source_type, "baseline_snapshot");
     assert_eq!(events[0].to_state.as_deref(), Some("blocked"));
-    assert!(events[0].occurred_at >= before - Duration::seconds(1), "observed now, not earlier");
+    assert!(
+        events[0].occurred_at >= before - Duration::seconds(1),
+        "observed now, not earlier"
+    );
 
     let body = health_ok(&env, &covered(&env).await).await;
     assert_eq!(body["baseline"]["taken_at"], at(events[0].occurred_at));
@@ -533,28 +758,56 @@ async fn m08_data_from_before_the_feature_is_unknown_until_a_baseline_and_never_
     assert_eq!(tasks["status"], "complete");
     assert_eq!(tasks["value"]["blocked_at_to"], 1);
     assert_eq!(tasks["value"]["unknown_state_tasks"], 0);
-    assert_eq!(tasks["value"]["entered_blocked_in_window"], 0, "observed, not entered");
+    assert_eq!(
+        tasks["value"]["entered_blocked_in_window"], 0,
+        "observed, not entered"
+    );
     let duration = metric(&body, "blocked_duration");
-    assert_eq!(duration["value"]["left_censored_tasks"], 1, "observed since T, never since forever");
+    assert_eq!(
+        duration["value"]["left_censored_tasks"], 1,
+        "observed since T, never since forever"
+    );
     let seconds = duration["value"]["blocked_seconds"].as_i64().unwrap();
     let elapsed = (Utc::now() - events[0].occurred_at).num_seconds();
-    assert!((0..=elapsed + 1).contains(&seconds), "{seconds} vs {elapsed}");
+    assert!(
+        (0..=elapsed + 1).contains(&seconds),
+        "{seconds} vs {elapsed}"
+    );
     let (_, blocked_now) = env
-        .json(Method::GET, &env.url("/health/tasks?metric=blocked_at_to"), &env.owner_token, None, None)
+        .json(
+            Method::GET,
+            &env.url("/health/tasks?metric=blocked_at_to"),
+            &env.owner_token,
+            None,
+            None,
+        )
         .await;
-    assert_eq!(blocked_now["items"][0]["basis"]["since_is_observation_start"], true);
+    assert_eq!(
+        blocked_now["items"][0]["basis"]["since_is_observation_start"],
+        true
+    );
 
     // Repeating the baseline adds nothing.
     let (_, again) = env
-        .json(Method::POST, &env.url("/health/baseline"), &env.owner_token, None, None)
+        .json(
+            Method::POST,
+            &env.url("/health/baseline"),
+            &env.owner_token,
+            None,
+            None,
+        )
         .await;
-    assert_eq!(again["added"], json!({"tasks": 0, "handoffs": 0, "questions": 0}));
+    assert_eq!(
+        again["added"],
+        json!({"tasks": 0, "handoffs": 0, "questions": 0})
+    );
     assert_eq!(again["existed_before"], true);
     assert_eq!(events_of(&env, &old).await.len(), 1);
 }
 
 #[tokio::test]
-async fn m08_pending_handoffs_and_open_questions_from_before_the_feature_are_partial_until_baselined() {
+async fn m08_pending_handoffs_and_open_questions_from_before_the_feature_are_partial_until_baselined(
+) {
     let env = Env::new().await;
     let a = env.session(&env.owner_token, "A").await;
     let b = env.session(&env.owner_token, "B").await;
@@ -583,24 +836,43 @@ async fn m08_pending_handoffs_and_open_questions_from_before_the_feature_are_par
 
     let body = health_ok(&env, "").await;
     assert_eq!(metric(&body, "handoff_waiting")["status"], "partial");
-    assert_eq!(metric(&body, "handoff_waiting")["value"]["open_at_to"], 0, "unknown, not counted");
+    assert_eq!(
+        metric(&body, "handoff_waiting")["value"]["open_at_to"],
+        0,
+        "unknown, not counted"
+    );
     assert_eq!(body["data_quality"]["unobserved_pending_handoffs"], 1);
     assert_eq!(body["data_quality"]["unobserved_open_questions"], 1);
 
     let (_, report) = env
-        .json(Method::POST, &env.url("/health/baseline"), &env.owner_token, None, None)
+        .json(
+            Method::POST,
+            &env.url("/health/baseline"),
+            &env.owner_token,
+            None,
+            None,
+        )
         .await;
     assert_eq!(report["added"]["handoffs"], 1);
     assert_eq!(report["added"]["questions"], 1);
     let body = health_ok(&env, &covered(&env).await).await;
     assert_eq!(metric(&body, "handoff_waiting")["status"], "complete");
     assert_eq!(metric(&body, "handoff_waiting")["value"]["open_at_to"], 1);
-    assert_eq!(metric(&body, "handoff_waiting")["value"]["left_censored_handoffs"], 1);
+    assert_eq!(
+        metric(&body, "handoff_waiting")["value"]["left_censored_handoffs"],
+        1
+    );
     assert_eq!(metric(&body, "open_questions")["value"]["open_at_to"], 1);
 
     // Accepting it later keeps one timeline: observed -> accepted.
     let (status, _) = env
-        .json(Method::POST, &env.url(&format!("/handoffs/{}/accept", h["id"].as_str().unwrap())), &env.owner_token, Some(&b), Some(json!({"expected_version": 1})))
+        .json(
+            Method::POST,
+            &env.url(&format!("/handoffs/{}/accept", h["id"].as_str().unwrap())),
+            &env.owner_token,
+            Some(&b),
+            Some(json!({"expected_version": 1})),
+        )
         .await;
     assert_eq!(status, 200);
     let body = health_ok(&env, &covered(&env).await).await;
@@ -628,8 +900,22 @@ async fn m09_only_repository_admins_can_read_or_baseline() {
     let tasks_url = env.url("/health/tasks?metric=blocked_at_to");
     for token in [&writer, &reader, &stranger] {
         assert_eq!(env.json(Method::GET, &url, token, None, None).await.0, 403);
-        assert_eq!(env.json(Method::GET, &tasks_url, token, None, None).await.0, 403);
-        assert_eq!(env.json(Method::POST, &env.url("/health/baseline"), token, None, None).await.0, 403);
+        assert_eq!(
+            env.json(Method::GET, &tasks_url, token, None, None).await.0,
+            403
+        );
+        assert_eq!(
+            env.json(
+                Method::POST,
+                &env.url("/health/baseline"),
+                token,
+                None,
+                None
+            )
+            .await
+            .0,
+            403
+        );
     }
     let unauth = env.send(Method::GET, &url, None, None, None).await;
     assert_eq!(unauth.status().as_u16(), 401);
@@ -637,7 +923,12 @@ async fn m09_only_repository_admins_can_read_or_baseline() {
     assert_eq!(events_of(&env, &tid).await.len(), 1);
 
     // The owner is an admin; an admin collaborator is too.
-    assert_eq!(env.json(Method::GET, &url, &env.owner_token, None, None).await.0, 200);
+    assert_eq!(
+        env.json(Method::GET, &url, &env.owner_token, None, None)
+            .await
+            .0,
+        200
+    );
     let (admin, admin_id) = env.user("adm").await;
     env.add_collaborator(admin_id, "admin").await;
     assert_eq!(env.json(Method::GET, &url, &admin, None, None).await.0, 200);
@@ -652,7 +943,9 @@ async fn m09_private_repository_of_someone_else_is_refused_and_repos_do_not_mix(
 
     // Someone with no access learns nothing (and nothing about existence beyond the repo route).
     let (other, _) = env.user("other").await;
-    let (status, body) = env.json(Method::GET, &env.url("/health"), &other, None, None).await;
+    let (status, body) = env
+        .json(Method::GET, &env.url("/health"), &other, None, None)
+        .await;
     assert!(status == 403 || status == 404, "{status} {body}");
     assert!(!body.to_string().contains(&tid));
 
@@ -666,12 +959,30 @@ async fn m09_private_repository_of_someone_else_is_refused_and_repos_do_not_mix(
         .unwrap();
     assert_eq!(resp.status(), 201);
     let (status, second) = env
-        .json(Method::GET, &env.url_in("second-repo", "/health"), &env.owner_token, None, None)
+        .json(
+            Method::GET,
+            &env.url_in("second-repo", "/health"),
+            &env.owner_token,
+            None,
+            None,
+        )
         .await;
     assert_eq!(status, 200, "{second}");
-    assert_eq!(second["coverage_start"], Value::Null, "no events in the other repository");
+    assert_eq!(
+        second["coverage_start"],
+        Value::Null,
+        "no events in the other repository"
+    );
     assert_eq!(metric(&second, "blocked_tasks")["status"], "unknown");
-    let (_, first) = env.json(Method::GET, &env.url("/health"), &env.owner_token, None, None).await;
+    let (_, first) = env
+        .json(
+            Method::GET,
+            &env.url("/health"),
+            &env.owner_token,
+            None,
+            None,
+        )
+        .await;
     assert_eq!(metric(&first, "blocked_tasks")["value"]["blocked_at_to"], 1);
 }
 
@@ -704,14 +1015,38 @@ async fn m09_responses_have_no_agent_ranking_and_no_message_bodies() {
     assert_eq!(status, 201);
 
     let mut all = health_ok(&env, "").await.to_string();
-    for metric in ["blocked_at_to", "entered_blocked", "blocked_duration", "handoff_waiting", "open_questions", "unknown_state"] {
+    for metric in [
+        "blocked_at_to",
+        "entered_blocked",
+        "blocked_duration",
+        "handoff_waiting",
+        "open_questions",
+        "unknown_state",
+    ] {
         let (status, page) = env
-            .json(Method::GET, &env.url(&format!("/health/tasks?metric={metric}")), &env.owner_token, None, None)
+            .json(
+                Method::GET,
+                &env.url(&format!("/health/tasks?metric={metric}")),
+                &env.owner_token,
+                None,
+                None,
+            )
             .await;
         assert_eq!(status, 200, "{page}");
         all.push_str(&page.to_string());
     }
-    for forbidden in [a.id.as_str(), b.id.as_str(), "Alice-Agent", "Bob-Agent", "MESSAGE-BODY-MARKER", "QUESTION-BODY-MARKER", "session", "agent", "rank", "owner_session"] {
+    for forbidden in [
+        a.id.as_str(),
+        b.id.as_str(),
+        "Alice-Agent",
+        "Bob-Agent",
+        "MESSAGE-BODY-MARKER",
+        "QUESTION-BODY-MARKER",
+        "session",
+        "agent",
+        "rank",
+        "owner_session",
+    ] {
         assert!(!all.contains(forbidden), "response leaks `{forbidden}`");
     }
 }
@@ -751,8 +1086,15 @@ async fn m09_concurrent_changes_record_exactly_one_event_each() {
     for h in handles {
         statuses.push(h.await.unwrap());
     }
-    assert_eq!(statuses.iter().filter(|s| **s == 200).count(), 1, "{statuses:?}");
-    assert!(statuses.iter().all(|s| *s == 200 || *s == 409), "{statuses:?}");
+    assert_eq!(
+        statuses.iter().filter(|s| **s == 200).count(),
+        1,
+        "{statuses:?}"
+    );
+    assert!(
+        statuses.iter().all(|s| *s == 200 || *s == 409),
+        "{statuses:?}"
+    );
     assert_eq!(count_events(&env, &tid, "task_status_changed").await, 1);
 
     // Accept and cancel race on one handoff: one terminal event.
@@ -766,18 +1108,38 @@ async fn m09_concurrent_changes_record_exactly_one_event_each() {
         )
         .await;
     let hid = h["id"].as_str().unwrap().to_string();
-    let (accept_url, cancel_url) = (env.url(&format!("/handoffs/{hid}/accept")), env.url(&format!("/handoffs/{hid}/cancel")));
-    let accept = env.json(Method::POST, &accept_url, &env.owner_token, Some(&b), Some(json!({"expected_version": 1})));
-    let cancel = env.json(Method::POST, &cancel_url, &env.owner_token, Some(&a), Some(json!({"expected_version": 1})));
+    let (accept_url, cancel_url) = (
+        env.url(&format!("/handoffs/{hid}/accept")),
+        env.url(&format!("/handoffs/{hid}/cancel")),
+    );
+    let accept = env.json(
+        Method::POST,
+        &accept_url,
+        &env.owner_token,
+        Some(&b),
+        Some(json!({"expected_version": 1})),
+    );
+    let cancel = env.json(
+        Method::POST,
+        &cancel_url,
+        &env.owner_token,
+        Some(&a),
+        Some(json!({"expected_version": 1})),
+    );
     let (x, y) = tokio::join!(accept, cancel);
     assert_eq!([x.0, y.0].iter().filter(|s| **s == 200).count(), 1);
-    let terminal = count_events(&env, &tid, "handoff_accepted").await + count_events(&env, &tid, "handoff_cancelled").await;
+    let terminal = count_events(&env, &tid, "handoff_accepted").await
+        + count_events(&env, &tid, "handoff_cancelled").await;
     assert_eq!(terminal, 1);
 
     // Racing creates with one idempotency key: one row, one event.
     let mut handles = Vec::new();
     for _ in 0..6 {
-        let (token, sess, url) = (env.owner_token.clone(), b.clone(), env.url(&format!("/tasks/{tid}/questions")));
+        let (token, sess, url) = (
+            env.owner_token.clone(),
+            b.clone(),
+            env.url(&format!("/tasks/{tid}/questions")),
+        );
         handles.push(tokio::spawn(async move {
             reqwest::Client::new()
                 .post(url)
@@ -804,7 +1166,14 @@ async fn m09_concurrent_changes_record_exactly_one_event_each() {
     for _ in 0..5 {
         let (token, url) = (env.owner_token.clone(), env.url("/health/baseline"));
         handles.push(tokio::spawn(async move {
-            reqwest::Client::new().post(url).bearer_auth(token).send().await.unwrap().status().as_u16()
+            reqwest::Client::new()
+                .post(url)
+                .bearer_auth(token)
+                .send()
+                .await
+                .unwrap()
+                .status()
+                .as_u16()
         }));
     }
     for h in handles {
@@ -822,10 +1191,24 @@ async fn m09_an_event_that_cannot_be_recorded_rolls_the_business_change_back() {
     // Occupy the exact event the next status change would write.
     inject_change(&env, &tid, "open", "blocked", 2, Utc::now()).await;
     let (status, _) = set_status(&env, &a, &tid, 1, "blocked").await;
-    assert_eq!(status, 500, "the event write failed, so the change must fail");
-    let (_, task) = env.json(Method::GET, &env.url(&format!("/tasks/{tid}")), &env.owner_token, None, None).await;
+    assert_eq!(
+        status, 500,
+        "the event write failed, so the change must fail"
+    );
+    let (_, task) = env
+        .json(
+            Method::GET,
+            &env.url(&format!("/tasks/{tid}")),
+            &env.owner_token,
+            None,
+            None,
+        )
+        .await;
     assert_eq!(task["status"], "open");
-    assert_eq!(task["version"], 1, "the status change was rolled back with the event");
+    assert_eq!(
+        task["version"], 1,
+        "the status change was rolled back with the event"
+    );
 }
 
 #[tokio::test]
@@ -836,8 +1219,24 @@ async fn m09_takeover_is_recorded_once_and_replays_add_nothing() {
     let tid = new_task(&env, &a, "t").await;
     let body = json!({"client_takeover_id": "k", "expected_task_version": 1, "expected_owner_session_id": null, "reason": "r"});
     let url = env.url(&format!("/tasks/{tid}/takeovers"));
-    assert_eq!(env.json(Method::POST, &url, &env.owner_token, Some(&b), Some(body.clone())).await.0, 201);
-    assert_eq!(env.json(Method::POST, &url, &env.owner_token, Some(&b), Some(body)).await.0, 200);
+    assert_eq!(
+        env.json(
+            Method::POST,
+            &url,
+            &env.owner_token,
+            Some(&b),
+            Some(body.clone())
+        )
+        .await
+        .0,
+        201
+    );
+    assert_eq!(
+        env.json(Method::POST, &url, &env.owner_token, Some(&b), Some(body))
+            .await
+            .0,
+        200
+    );
     assert_eq!(count_events(&env, &tid, "takeover").await, 1);
 }
 
@@ -856,7 +1255,10 @@ async fn m09_recompute_is_repeatable_and_drill_down_pages_stably() {
     let q = format!("?to={to}");
     let first = health_ok(&env, &q).await;
     let second = health_ok(&env, &q).await;
-    assert_eq!(first["metrics"], second["metrics"], "same events, same window, same numbers");
+    assert_eq!(
+        first["metrics"], second["metrics"],
+        "same events, same window, same numbers"
+    );
     assert_eq!(first["data_quality"], second["data_quality"]);
     assert_eq!(metric(&first, "blocked_tasks")["value"]["blocked_at_to"], 5);
 
@@ -868,13 +1270,18 @@ async fn m09_recompute_is_repeatable_and_drill_down_pages_stably() {
         if let Some(c) = &cursor {
             url.push_str(&format!("&cursor={c}"));
         }
-        let (status, page) = env.json(Method::GET, &env.url(&url), &env.owner_token, None, None).await;
+        let (status, page) = env
+            .json(Method::GET, &env.url(&url), &env.owner_token, None, None)
+            .await;
         assert_eq!(status, 200, "{page}");
         pages += 1;
         for item in page["items"].as_array().unwrap() {
             assert_eq!(item["title_origin"], "user_content");
             assert_eq!(item["status"], "blocked");
-            assert!(item["href"].as_str().unwrap().ends_with(item["task_id"].as_str().unwrap()));
+            assert!(item["href"]
+                .as_str()
+                .unwrap()
+                .ends_with(item["task_id"].as_str().unwrap()));
             seen.push(item["task_id"].as_str().unwrap().to_string());
         }
         cursor = page["next_cursor"].as_str().map(str::to_string);
@@ -887,15 +1294,39 @@ async fn m09_recompute_is_repeatable_and_drill_down_pages_stably() {
 
     // A cursor is bound to its metric and window; tampering is refused.
     let (_, page) = env
-        .json(Method::GET, &env.url(&format!("/health/tasks?metric=blocked_at_to&to={to}&limit=2")), &env.owner_token, None, None)
+        .json(
+            Method::GET,
+            &env.url(&format!(
+                "/health/tasks?metric=blocked_at_to&to={to}&limit=2"
+            )),
+            &env.owner_token,
+            None,
+            None,
+        )
         .await;
     let c = page["next_cursor"].as_str().unwrap();
     let other_metric = env
-        .json(Method::GET, &env.url(&format!("/health/tasks?metric=entered_blocked&to={to}&limit=2&cursor={c}")), &env.owner_token, None, None)
+        .json(
+            Method::GET,
+            &env.url(&format!(
+                "/health/tasks?metric=entered_blocked&to={to}&limit=2&cursor={c}"
+            )),
+            &env.owner_token,
+            None,
+            None,
+        )
         .await;
     assert_eq!(other_metric.0, 400);
     let tampered = env
-        .json(Method::GET, &env.url(&format!("/health/tasks?metric=blocked_at_to&to={to}&limit=2&cursor={c}x")), &env.owner_token, None, None)
+        .json(
+            Method::GET,
+            &env.url(&format!(
+                "/health/tasks?metric=blocked_at_to&to={to}&limit=2&cursor={c}x"
+            )),
+            &env.owner_token,
+            None,
+            None,
+        )
         .await;
     assert_eq!(tampered.0, 400);
 }
@@ -917,7 +1348,13 @@ async fn m09_window_and_metric_parameters_are_validated() {
         assert_eq!(health(&env, &env.owner_token, &q).await.0, 400, "{q}");
     }
     assert_eq!(
-        health(&env, &env.owner_token, &format!("?from={}&to={}", at(now - Duration::days(90)), at(now))).await.0,
+        health(
+            &env,
+            &env.owner_token,
+            &format!("?from={}&to={}", at(now - Duration::days(90)), at(now))
+        )
+        .await
+        .0,
         200
     );
     // Default window: the last 7 days; metrics filter.
@@ -927,8 +1364,30 @@ async fn m09_window_and_metric_parameters_are_validated() {
     assert_eq!(to - from, Duration::days(7));
     assert_eq!(body["metrics"].as_array().unwrap().len(), 1);
     // Drill-down requires a known metric.
-    assert_eq!(env.json(Method::GET, &env.url("/health/tasks"), &env.owner_token, None, None).await.0, 400);
-    assert_eq!(env.json(Method::GET, &env.url("/health/tasks?metric=agents"), &env.owner_token, None, None).await.0, 400);
+    assert_eq!(
+        env.json(
+            Method::GET,
+            &env.url("/health/tasks"),
+            &env.owner_token,
+            None,
+            None
+        )
+        .await
+        .0,
+        400
+    );
+    assert_eq!(
+        env.json(
+            Method::GET,
+            &env.url("/health/tasks?metric=agents"),
+            &env.owner_token,
+            None,
+            None
+        )
+        .await
+        .0,
+        400
+    );
 }
 
 #[tokio::test]
@@ -952,6 +1411,9 @@ async fn m09_the_same_platform_event_cannot_be_stored_twice() {
     }
     .insert(&env.db)
     .await;
-    assert!(again.is_err(), "(repo, source_type, source_id, event_type) is unique");
+    assert!(
+        again.is_err(),
+        "(repo, source_type, source_id, event_type) is unique"
+    );
     assert_eq!(count_events(&env, &tid, "task_created").await, 1);
 }

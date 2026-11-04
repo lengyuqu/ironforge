@@ -127,7 +127,10 @@ pub async fn update_cas(
     let mut prior_status = None;
     if new_status.is_some() {
         TaskEntity::update_many()
-            .col_expr(collab_task::Column::UpdatedAt, Expr::col(collab_task::Column::UpdatedAt).into())
+            .col_expr(
+                collab_task::Column::UpdatedAt,
+                Expr::col(collab_task::Column::UpdatedAt).into(),
+            )
             .filter(collab_task::Column::Id.eq(id))
             .filter(collab_task::Column::RepoId.eq(repo_id))
             .filter(collab_task::Column::Version.eq(expected_version))

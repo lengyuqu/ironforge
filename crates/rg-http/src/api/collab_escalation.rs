@@ -100,5 +100,7 @@ pub async fn put_settings(
             end_minute: q.end_minute,
         }),
     };
-    Ok(Json(svc::put_settings(&state.db, repo.id, user_id, settings, Utc::now()).await?))
+    Ok(Json(
+        svc::put_settings(&state.db, repo.id, user_id, settings, Utc::now()).await?,
+    ))
 }

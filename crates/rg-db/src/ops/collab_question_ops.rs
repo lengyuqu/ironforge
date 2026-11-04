@@ -6,8 +6,8 @@ use sea_orm::sea_query::Expr;
 use sea_orm::*;
 
 use super::collab_metric_ops::{self, event_type};
-use super::collab_task_ops::CasOutcome;
 use super::collab_notice_ops::{self, NewNotice};
+use super::collab_task_ops::CasOutcome;
 use crate::entities::collab_answer::{self, Entity as AnswerEntity, Model as Answer};
 use crate::entities::collab_question::{
     self, ActiveModel, Entity as QuestionEntity, Model as Question,
@@ -30,9 +30,14 @@ pub enum CreateOutcome {
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum AnswerOutcome {
-    Answered { question: Question, answer: Answer },
+    Answered {
+        question: Question,
+        answer: Answer,
+    },
     /// Not `open` any more or version moved; `current` is the winner's state.
-    Conflict { current: Question },
+    Conflict {
+        current: Question,
+    },
     NotFound,
 }
 
@@ -80,8 +85,14 @@ pub async fn create_idempotent_with_notices(
     let txn = db.begin().await.context("db: begin question create")?;
     let inserted = match model.insert(&txn).await {
         Ok(created) => {
-            collab_metric_ops::record_question(&txn, &created, event_type::QUESTION_OPENED, None, created.created_at)
-                .await?;
+            collab_metric_ops::record_question(
+                &txn,
+                &created,
+                event_type::QUESTION_OPENED,
+                None,
+                created.created_at,
+            )
+            .await?;
             collab_notice_ops::insert_all(&txn, notices).await?;
             txn.commit().await.context("db: commit question create")?;
             Ok(created)
@@ -227,7 +238,10 @@ pub async fn answer_cas_with_notices(
 ) -> Result<AnswerOutcome> {
     let txn = db.begin().await.context("db: begin answer")?;
     let res = QuestionEntity::update_many()
-        .col_expr(collab_question::Column::Status, Expr::value(status::ANSWERED))
+        .col_expr(
+            collab_question::Column::Status,
+            Expr::value(status::ANSWERED),
+        )
         .col_expr(collab_question::Column::UpdatedAt, Expr::value(now))
         .col_expr(
             collab_question::Column::Version,
@@ -250,8 +264,14 @@ pub async fn answer_cas_with_notices(
         return Ok(AnswerOutcome::Conflict { current });
     }
     let answer = answer.insert(&txn).await.context("db: insert answer")?;
-    collab_metric_ops::record_question(&txn, &current, event_type::QUESTION_ANSWERED, Some(status::OPEN), now)
-        .await?;
+    collab_metric_ops::record_question(
+        &txn,
+        &current,
+        event_type::QUESTION_ANSWERED,
+        Some(status::OPEN),
+        now,
+    )
+    .await?;
     collab_notice_ops::insert_all(&txn, notices).await?;
     txn.commit().await.context("db: commit answer")?;
     Ok(AnswerOutcome::Answered {
@@ -270,7 +290,10 @@ pub async fn cancel_cas(
 ) -> Result<CasOutcome<Question>> {
     let txn = db.begin().await.context("db: begin cancel")?;
     let res = QuestionEntity::update_many()
-        .col_expr(collab_question::Column::Status, Expr::value(status::CANCELLED))
+        .col_expr(
+            collab_question::Column::Status,
+            Expr::value(status::CANCELLED),
+        )
         .col_expr(collab_question::Column::UpdatedAt, Expr::value(now))
         .col_expr(
             collab_question::Column::Version,
@@ -285,8 +308,14 @@ pub async fn cancel_cas(
         .context("db: cancel question")?;
     let current = find_in_repo(&txn, repo_id, question_id).await?;
     if let (1.., Some(question)) = (res.rows_affected, &current) {
-        collab_metric_ops::record_question(&txn, question, event_type::QUESTION_CANCELLED, Some(status::OPEN), now)
-            .await?;
+        collab_metric_ops::record_question(
+            &txn,
+            question,
+            event_type::QUESTION_CANCELLED,
+            Some(status::OPEN),
+            now,
+        )
+        .await?;
     }
     txn.commit().await.context("db: commit cancel")?;
     Ok(match (res.rows_affected, current) {

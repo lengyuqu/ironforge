@@ -104,7 +104,10 @@ fn choice(field: &str, value: Option<String>, allowed: &[&str]) -> CollabResult<
     if allowed.contains(&value.as_str()) {
         Ok(value)
     } else {
-        Err(CollabError::bad_request(format!("{field} must be one of {}", allowed.join(", "))))
+        Err(CollabError::bad_request(format!(
+            "{field} must be one of {}",
+            allowed.join(", ")
+        )))
     }
 }
 
@@ -157,10 +160,14 @@ pub async fn put(
     now: DateTime<Utc>,
 ) -> CollabResult<Saved> {
     if input.expected_version < 0 {
-        return Err(CollabError::bad_request("expected_version must not be negative"));
+        return Err(CollabError::bad_request(
+            "expected_version must not be negative",
+        ));
     }
     if input.tools.len() > MAX_TOOLS {
-        return Err(CollabError::bad_request(format!("tools may have at most {MAX_TOOLS} entries")));
+        return Err(CollabError::bad_request(format!(
+            "tools may have at most {MAX_TOOLS} entries"
+        )));
     }
     let tools = input
         .tools
@@ -169,13 +176,24 @@ pub async fn put(
         .collect::<CollabResult<Vec<_>>>()?;
     let can_run_tests = choice("can_run_tests", input.can_run_tests, &CAN_RUN_TESTS)?;
     let network = choice("network", input.network, &NETWORK)?;
-    validation::text("network_notes", &input.network_notes, 0, MAX_NETWORK_NOTES_BYTES)?;
+    validation::text(
+        "network_notes",
+        &input.network_notes,
+        0,
+        MAX_NETWORK_NOTES_BYTES,
+    )?;
     validation::text("notes", &input.notes, 0, MAX_NOTES_BYTES)?;
     let tools_json = serde_json::to_string(&tools).map_err(|e| CollabError::Internal(e.into()))?;
     let hash = hex::encode(Sha256::digest(
-        serde_json::json!([tools, can_run_tests, network, input.network_notes, input.notes])
-            .to_string()
-            .as_bytes(),
+        serde_json::json!([
+            tools,
+            can_run_tests,
+            network,
+            input.network_notes,
+            input.notes
+        ])
+        .to_string()
+        .as_bytes(),
     ));
 
     let outcome = collab_declaration_ops::put(
@@ -197,9 +215,17 @@ pub async fn put(
     )
     .await?;
     match outcome {
-        PutOutcome::Saved(row) => Ok(Saved { declaration: view(row, session, stale_after, now), replayed: false }),
-        PutOutcome::Replayed(row) => Ok(Saved { declaration: view(row, session, stale_after, now), replayed: true }),
-        PutOutcome::Conflict { current_version } => Err(CollabError::VersionConflict { current_version }),
+        PutOutcome::Saved(row) => Ok(Saved {
+            declaration: view(row, session, stale_after, now),
+            replayed: false,
+        }),
+        PutOutcome::Replayed(row) => Ok(Saved {
+            declaration: view(row, session, stale_after, now),
+            replayed: true,
+        }),
+        PutOutcome::Conflict { current_version } => {
+            Err(CollabError::VersionConflict { current_version })
+        }
     }
 }
 
@@ -222,7 +248,11 @@ pub async fn get(
     Ok(SessionDeclaration {
         session_id: session.id.clone(),
         session_state: session::state_of(&session, now),
-        status: if row.is_some() { "declared" } else { "undeclared" },
+        status: if row.is_some() {
+            "declared"
+        } else {
+            "undeclared"
+        },
         declaration: row.map(|row| view(row, &session, stale_after, now)),
         authorization: "none",
         meaning: MEANING,
@@ -256,12 +286,16 @@ pub async fn list(
         cursor::encode(
             cursor_key,
             &scope,
-            &KeysetPosition { at: last.declared_at, id: last.session_id.clone() },
+            &KeysetPosition {
+                at: last.declared_at,
+                id: last.session_id.clone(),
+            },
         )
     });
     let mut items = Vec::with_capacity(rows.len());
     for row in rows {
-        if let Some(session) = agent_session_ops::find_in_repo(db, repo_id, &row.session_id).await? {
+        if let Some(session) = agent_session_ops::find_in_repo(db, repo_id, &row.session_id).await?
+        {
             items.push(view(row, &session, stale_after, now));
         }
     }

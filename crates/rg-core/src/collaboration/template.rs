@@ -17,7 +17,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use chrono::{DateTime, Utc};
-use rg_db::entities::{agent_session, collab_task, collab_task_template, collab_task_template_link, collab_task_template_version};
+use rg_db::entities::{
+    agent_session, collab_task, collab_task_template, collab_task_template_link,
+    collab_task_template_version,
+};
 use rg_db::ops::collab_template_ops::{
     self, AddVersionOutcome, CreateFromTemplateOutcome, CreateTemplateOutcome,
 };
@@ -152,7 +155,11 @@ pub fn placeholders(pattern: &str) -> CollabResult<Vec<String>> {
 }
 
 fn validate_content(content: &Content) -> CollabResult<()> {
-    validation::label("title_pattern", &content.title_pattern, super::task::MAX_TITLE_CHARS)?;
+    validation::label(
+        "title_pattern",
+        &content.title_pattern,
+        super::task::MAX_TITLE_CHARS,
+    )?;
     placeholders(&content.title_pattern)?;
     validation::text("goal", &content.goal, 1, MAX_GOAL_BYTES)?;
     if content.goal.trim().is_empty() {
@@ -179,11 +186,15 @@ fn validate_content(content: &Content) -> CollabResult<()> {
 
 fn item_text(field: &str, text: &str) -> CollabResult<()> {
     if text.trim().is_empty() {
-        return Err(CollabError::bad_request(format!("{field} entries must not be empty")));
+        return Err(CollabError::bad_request(format!(
+            "{field} entries must not be empty"
+        )));
     }
     validation::text(field, text, 1, MAX_ITEM_BYTES)?;
     if text.contains(['\n', '\r']) {
-        return Err(CollabError::bad_request(format!("{field} entries must be a single line")));
+        return Err(CollabError::bad_request(format!(
+            "{field} entries must be a single line"
+        )));
     }
     Ok(())
 }
@@ -205,8 +216,8 @@ fn hash_of(value: &serde_json::Value) -> String {
 }
 
 fn content_json(content: &Content) -> CollabResult<(String, String)> {
-    let deliverables =
-        serde_json::to_string(&content.deliverables).map_err(|e| CollabError::Internal(e.into()))?;
+    let deliverables = serde_json::to_string(&content.deliverables)
+        .map_err(|e| CollabError::Internal(e.into()))?;
     let checklist =
         serde_json::to_string(&content.checklist).map_err(|e| CollabError::Internal(e.into()))?;
     Ok((deliverables, checklist))
@@ -312,7 +323,9 @@ pub async fn new_version(
 ) -> CollabResult<CreatedTemplate> {
     validation::client_key("client_version_id", &input.client_version_id)?;
     if input.expected_version < 1 {
-        return Err(CollabError::bad_request("expected_version must be at least 1"));
+        return Err(CollabError::bad_request(
+            "expected_version must be at least 1",
+        ));
     }
     let content = normalize_content(input.content);
     validate_content(&content)?;
@@ -320,7 +333,11 @@ pub async fn new_version(
     if !validation::is_uuid(template_id) {
         return Err(CollabError::not_found("template not found"));
     }
-    let hash = hash_of(&serde_json::json!([template_id, input.expected_version, content]));
+    let hash = hash_of(&serde_json::json!([
+        template_id,
+        input.expected_version,
+        content
+    ]));
 
     let outcome = collab_template_ops::add_version(
         db,
@@ -410,7 +427,10 @@ pub async fn list(
         cursor::encode(
             cursor_key,
             &scope,
-            &KeysetPosition { at: last.created_at, id: last.id.clone() },
+            &KeysetPosition {
+                at: last.created_at,
+                id: last.id.clone(),
+            },
         )
     });
     let ids: Vec<String> = rows.iter().map(|t| t.id.clone()).collect();
@@ -518,7 +538,9 @@ fn check_input(input: &FromTemplate) -> CollabResult<()> {
         return Err(CollabError::not_found("template not found"));
     }
     if input.params.len() > MAX_PARAMS {
-        return Err(CollabError::bad_request(format!("at most {MAX_PARAMS} params are allowed")));
+        return Err(CollabError::bad_request(format!(
+            "at most {MAX_PARAMS} params are allowed"
+        )));
     }
     for (key, value) in &input.params {
         validation::label("param name", key, 32)?;
@@ -559,9 +581,13 @@ async fn replayed(
     actor: &agent_session::Model,
     input: &FromTemplate,
 ) -> CollabResult<Option<CreatedFromTemplate>> {
-    let Some(link) =
-        collab_template_ops::find_link_by_client_id(db, "session", &actor.id, &input.client_task_id)
-            .await?
+    let Some(link) = collab_template_ops::find_link_by_client_id(
+        db,
+        "session",
+        &actor.id,
+        &input.client_task_id,
+    )
+    .await?
     else {
         return Ok(None);
     };
@@ -608,7 +634,11 @@ pub fn render_description(snapshot: &Snapshot, notes: Option<&str>) -> String {
     if !snapshot.checklist.is_empty() {
         out.push_str("\nAcceptance checklist (text only; items are not tracked or verified):\n");
         for item in &snapshot.checklist {
-            let mark = if item.required { "required" } else { "optional" };
+            let mark = if item.required {
+                "required"
+            } else {
+                "optional"
+            };
             out.push_str(&format!("- [{mark}] {}\n", item.text));
         }
     }
@@ -758,9 +788,21 @@ mod tests {
 
     #[test]
     fn placeholders_are_strict() {
-        assert_eq!(placeholders("Fix {area} in {crate}").unwrap(), vec!["area", "crate"]);
+        assert_eq!(
+            placeholders("Fix {area} in {crate}").unwrap(),
+            vec!["area", "crate"]
+        );
         assert!(placeholders("no placeholders").unwrap().is_empty());
-        for bad in ["{", "}", "{}", "{a b}", "{a{b}}", "x}", "{a", &format!("{{{}}}", "a".repeat(33))] {
+        for bad in [
+            "{",
+            "}",
+            "{}",
+            "{a b}",
+            "{a{b}}",
+            "x}",
+            "{a",
+            &format!("{{{}}}", "a".repeat(33)),
+        ] {
             assert!(placeholders(bad).is_err(), "{bad:?}");
         }
     }
@@ -787,8 +829,14 @@ mod tests {
             goal: "Fix it".into(),
             deliverables: vec!["a patch".into()],
             checklist: vec![
-                ChecklistItem { text: "tests added".into(), required: true },
-                ChecklistItem { text: "docs".into(), required: false },
+                ChecklistItem {
+                    text: "tests added".into(),
+                    required: true,
+                },
+                ChecklistItem {
+                    text: "docs".into(),
+                    required: false,
+                },
             ],
             params: BTreeMap::new(),
             rendered_title: "Fix y".into(),

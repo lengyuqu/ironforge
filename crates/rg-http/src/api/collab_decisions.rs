@@ -70,7 +70,9 @@ async fn head_for_task(
     repo_id: i64,
     task_id: &str,
 ) -> Option<String> {
-    let task = collaboration::task::find(&state.db, repo_id, task_id).await.ok()?;
+    let task = collaboration::task::find(&state.db, repo_id, task_id)
+        .await
+        .ok()?;
     observed_branch_head(state, owner, name, task.branch.as_deref()).await
 }
 
@@ -113,10 +115,22 @@ pub async fn create_decision(
         base_sha: None,
         head_sha: None,
     });
-    let base_sha =
-        ensure_commit(&state, &owner, &name, "context.base_sha", ctx.base_sha.as_deref()).await?;
-    let head_sha =
-        ensure_commit(&state, &owner, &name, "context.head_sha", ctx.head_sha.as_deref()).await?;
+    let base_sha = ensure_commit(
+        &state,
+        &owner,
+        &name,
+        "context.base_sha",
+        ctx.base_sha.as_deref(),
+    )
+    .await?;
+    let head_sha = ensure_commit(
+        &state,
+        &owner,
+        &name,
+        "context.head_sha",
+        ctx.head_sha.as_deref(),
+    )
+    .await?;
     let head = head_for_task(&state, &owner, &name, repo.id, &id).await;
     let created = svc::create(
         &state.db,
@@ -137,7 +151,11 @@ pub async fn create_decision(
         Utc::now(),
     )
     .await?;
-    let status = if created.replayed { StatusCode::OK } else { StatusCode::CREATED };
+    let status = if created.replayed {
+        StatusCode::OK
+    } else {
+        StatusCode::CREATED
+    };
     Ok((status, Json(created.decision)))
 }
 
@@ -235,6 +253,10 @@ pub async fn change_decision(
         Utc::now(),
     )
     .await?;
-    let status = if changed.replayed { StatusCode::OK } else { StatusCode::CREATED };
+    let status = if changed.replayed {
+        StatusCode::OK
+    } else {
+        StatusCode::CREATED
+    };
     Ok((status, Json(changed.decision)))
 }

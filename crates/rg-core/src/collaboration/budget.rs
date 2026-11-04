@@ -44,7 +44,8 @@ const MAX_PERIOD_LABEL_CHARS: usize = 64;
 /// How far past "now" a usage period may end (clock skew allowance).
 const FUTURE_SKEW: Duration = Duration::minutes(5);
 
-pub const ENFORCEMENT: &str = "none: thresholds are informational and never pause, block or stop any work";
+pub const ENFORCEMENT: &str =
+    "none: thresholds are informational and never pause, block or stop any work";
 
 // ── amounts ───────────────────────────────────────────────────────────
 
@@ -95,15 +96,17 @@ pub fn format_micros(micros: i128) -> String {
 }
 
 fn micros_of(stored: &str) -> i128 {
-    parse_amount("stored amount", stored).map(|(_, m)| m).unwrap_or(0)
+    parse_amount("stored amount", stored)
+        .map(|(_, m)| m)
+        .unwrap_or(0)
 }
 
 fn token(field: &str, value: &str, max: usize) -> CollabResult<String> {
     let ok = !value.is_empty()
         && value.len() <= max
-        && value
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b':' | b'/' | b'@' | b'+' | b'-'));
+        && value.bytes().all(|b| {
+            b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b':' | b'/' | b'@' | b'+' | b'-')
+        });
     if ok {
         Ok(value.to_string())
     } else {
@@ -258,7 +261,11 @@ fn group_usage(rows: &[collab_task_usage::Model]) -> BTreeMap<(String, String), 
 
 fn entry(row: collab_task_budget::Model, group: Option<&Group>) -> BudgetEntry {
     let threshold_text = row.alert_at.clone().unwrap_or_else(|| row.amount.clone());
-    let basis = if row.alert_at.is_some() { "alert_at" } else { "amount" };
+    let basis = if row.alert_at.is_some() {
+        "alert_at"
+    } else {
+        "amount"
+    };
     let (usage, over, threshold) = match group {
         None => (
             UsageStatus {
@@ -380,7 +387,9 @@ pub async fn set_budget(
     now: DateTime<Utc>,
 ) -> CollabResult<SavedBudget> {
     if input.expected_version < 0 {
-        return Err(CollabError::bad_request("expected_version must not be negative"));
+        return Err(CollabError::bad_request(
+            "expected_version must not be negative",
+        ));
     }
     let unit = token("unit", &input.unit, MAX_UNIT_CHARS)?;
     let source = token("source", &input.source, MAX_SOURCE_CHARS)?;
@@ -400,10 +409,16 @@ pub async fn set_budget(
             Some(text)
         }
     };
-    let sampling_period = validation::label("sampling_period", &input.sampling_period, MAX_PERIOD_LABEL_CHARS)?;
+    let sampling_period = validation::label(
+        "sampling_period",
+        &input.sampling_period,
+        MAX_PERIOD_LABEL_CHARS,
+    )?;
     let task = task::find(db, repo_id, task_id).await?;
     if input.expected_version == 0
-        && collab_budget_ops::find_budget(db, &task.id, &unit, &source).await?.is_none()
+        && collab_budget_ops::find_budget(db, &task.id, &unit, &source)
+            .await?
+            .is_none()
         && collab_budget_ops::count_budgets(db, &task.id).await? >= MAX_BUDGETS_PER_TASK
     {
         return Err(CollabError::coded_conflict(
@@ -411,7 +426,14 @@ pub async fn set_budget(
             format!("a task may have at most {MAX_BUDGETS_PER_TASK} budgets"),
         ));
     }
-    let hash = hash_of(&serde_json::json!([task.id, unit, source, amount, alert_at, sampling_period]));
+    let hash = hash_of(&serde_json::json!([
+        task.id,
+        unit,
+        source,
+        amount,
+        alert_at,
+        sampling_period
+    ]));
 
     let outcome = collab_budget_ops::put_budget(
         db,
@@ -444,7 +466,10 @@ pub async fn set_budget(
     let rows = collab_budget_ops::all_usage(db, repo_id, &task.id).await?;
     let groups = group_usage(&rows);
     let group = groups.get(&(unit, source));
-    Ok(SavedBudget { budget: entry(row, group), replayed })
+    Ok(SavedBudget {
+        budget: entry(row, group),
+        replayed,
+    })
 }
 
 // ── usage ─────────────────────────────────────────────────────────────
@@ -514,10 +539,14 @@ pub async fn report_usage(
     let source = token("source", &input.source, MAX_SOURCE_CHARS)?;
     let (amount, _) = parse_amount("amount", &input.amount)?;
     if input.period_start > input.period_end {
-        return Err(CollabError::bad_request("period_start must not be after period_end"));
+        return Err(CollabError::bad_request(
+            "period_start must not be after period_end",
+        ));
     }
     if input.period_end > now + FUTURE_SKEW {
-        return Err(CollabError::bad_request("period_end must not be in the future"));
+        return Err(CollabError::bad_request(
+            "period_end must not be in the future",
+        ));
     }
     let task = task::find(db, repo_id, task_id).await?;
     let hash = hash_of(&serde_json::json!([
@@ -529,8 +558,13 @@ pub async fn report_usage(
         input.period_end.to_rfc3339()
     ]));
     // A retry is answered before the per-task cap is consulted.
-    if let Some(existing) =
-        collab_budget_ops::find_usage_by_client_id(db, actor.kind, &actor.id, &input.client_usage_id).await?
+    if let Some(existing) = collab_budget_ops::find_usage_by_client_id(
+        db,
+        actor.kind,
+        &actor.id,
+        &input.client_usage_id,
+    )
+    .await?
     {
         return replay(existing, &hash);
     }
@@ -560,14 +594,20 @@ pub async fn report_usage(
     )
     .await?
     {
-        AppendUsageOutcome::Created(row) => Ok(CreatedUsage { usage: usage_view(row), replayed: false }),
+        AppendUsageOutcome::Created(row) => Ok(CreatedUsage {
+            usage: usage_view(row),
+            replayed: false,
+        }),
         AppendUsageOutcome::Existing(row) => replay(row, &hash),
     }
 }
 
 fn replay(row: collab_task_usage::Model, hash: &str) -> CollabResult<CreatedUsage> {
     if row.payload_hash == hash {
-        Ok(CreatedUsage { usage: usage_view(row), replayed: true })
+        Ok(CreatedUsage {
+            usage: usage_view(row),
+            replayed: true,
+        })
     } else {
         Err(CollabError::IdempotencyKeyReused)
     }
@@ -600,17 +640,24 @@ pub async fn list_usage(
         .transpose()?
         .map(|p| (p.at, p.id));
     let mut rows =
-        collab_budget_ops::list_usage_page(db, repo_id, &task.id, unit, source, after, limit + 1).await?;
+        collab_budget_ops::list_usage_page(db, repo_id, &task.id, unit, source, after, limit + 1)
+            .await?;
     let has_more = rows.len() as u64 > limit;
     rows.truncate(limit as usize);
     let next_cursor = has_more.then(|| rows.last()).flatten().map(|last| {
         cursor::encode(
             cursor_key,
             &scope,
-            &KeysetPosition { at: last.created_at, id: last.id.clone() },
+            &KeysetPosition {
+                at: last.created_at,
+                id: last.id.clone(),
+            },
         )
     });
-    Ok(Page { items: rows.into_iter().map(usage_view).collect(), next_cursor })
+    Ok(Page {
+        items: rows.into_iter().map(usage_view).collect(),
+        next_cursor,
+    })
 }
 
 #[cfg(test)]
@@ -620,12 +667,32 @@ mod tests {
 
     #[test]
     fn amounts_are_exact_decimals() {
-        assert_eq!(parse_amount("a", "12").unwrap(), ("12".to_string(), 12_000_000));
+        assert_eq!(
+            parse_amount("a", "12").unwrap(),
+            ("12".to_string(), 12_000_000)
+        );
         assert_eq!(parse_amount("a", "0.5").unwrap().0, "0.5");
         assert_eq!(parse_amount("a", "1.500000").unwrap().0, "1.5");
         assert_eq!(parse_amount("a", "0").unwrap().0, "0");
-        assert_eq!(parse_amount("a", "999999999999999999.999999").unwrap().0, "999999999999999999.999999");
-        for bad in ["", "-1", "+1", "1e3", "1,000", ".5", "5.", "01", "1.0000001", "NaN", "1 2", "1000000000000000000", "0x10"] {
+        assert_eq!(
+            parse_amount("a", "999999999999999999.999999").unwrap().0,
+            "999999999999999999.999999"
+        );
+        for bad in [
+            "",
+            "-1",
+            "+1",
+            "1e3",
+            "1,000",
+            ".5",
+            "5.",
+            "01",
+            "1.0000001",
+            "NaN",
+            "1 2",
+            "1000000000000000000",
+            "0x10",
+        ] {
             assert!(parse_amount("a", bad).is_err(), "{bad:?}");
         }
         // 0.1 + 0.2 is exactly 0.3 here.
@@ -642,7 +709,13 @@ mod tests {
         assert!(token("u", &"x".repeat(33), 32).is_err());
     }
 
-    fn usage(unit: &str, source: &str, amount: &str, start: i64, end: i64) -> collab_task_usage::Model {
+    fn usage(
+        unit: &str,
+        source: &str,
+        amount: &str,
+        start: i64,
+        end: i64,
+    ) -> collab_task_usage::Model {
         let at = |s: i64| Utc.timestamp_opt(1_700_000_000 + s, 0).unwrap();
         collab_task_usage::Model {
             id: uuid::Uuid::new_v4().to_string(),
@@ -672,15 +745,24 @@ mod tests {
         let groups = group_usage(&rows);
         assert_eq!(groups.len(), 3);
         let g = &groups[&("USD".to_string(), "invoice".to_string())];
-        assert_eq!((format_micros(g.micros), g.count, g.overlap), ("3.75".to_string(), 2, false));
-        assert_eq!(format_micros(groups[&("USD".to_string(), "estimate".to_string())].micros), "9");
+        assert_eq!(
+            (format_micros(g.micros), g.count, g.overlap),
+            ("3.75".to_string(), 2, false)
+        );
+        assert_eq!(
+            format_micros(groups[&("USD".to_string(), "estimate".to_string())].micros),
+            "9"
+        );
     }
 
     #[test]
     fn overlapping_periods_are_flagged_not_hidden() {
         let rows = vec![usage("USD", "s", "1", 0, 10), usage("USD", "s", "1", 5, 15)];
         assert!(group_usage(&rows)[&("USD".to_string(), "s".to_string())].overlap);
-        let touching = vec![usage("USD", "s", "1", 0, 10), usage("USD", "s", "1", 10, 15)];
+        let touching = vec![
+            usage("USD", "s", "1", 0, 10),
+            usage("USD", "s", "1", 10, 15),
+        ];
         assert!(!group_usage(&touching)[&("USD".to_string(), "s".to_string())].overlap);
     }
 
@@ -713,6 +795,9 @@ mod tests {
         let e = entry(budget, groups.values().next());
         assert_eq!(e.over_threshold, Some(true), "reaching the amount counts");
         let t = e.threshold.unwrap();
-        assert_eq!((t.basis, t.threshold_amount.as_str(), t.used_total.as_str()), ("amount", "10", "10"));
+        assert_eq!(
+            (t.basis, t.threshold_amount.as_str(), t.used_total.as_str()),
+            ("amount", "10", "10")
+        );
     }
 }

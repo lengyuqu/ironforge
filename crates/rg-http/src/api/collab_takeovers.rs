@@ -8,7 +8,9 @@ use rg_core::collaboration::{self, takeover as svc};
 use serde::Deserialize;
 use utoipa::ToSchema;
 
-use super::collab::{acting_session, cursor_key, require_collab_read, require_collab_write, ListQuery};
+use super::collab::{
+    acting_session, cursor_key, require_collab_read, require_collab_write, ListQuery,
+};
 use super::collab_json::CollabJson;
 use crate::error::AppError;
 use crate::AppState;

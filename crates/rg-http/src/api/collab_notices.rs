@@ -98,7 +98,9 @@ pub async fn ack_notice(
 ) -> Result<Json<svc::Acked>, AppError> {
     let (repo, user_id) = require_collab_read(&state, &headers, &owner, &name).await?;
     let session = acting_session(&state, &headers, repo.id, user_id).await?;
-    Ok(Json(svc::ack(&state.db, repo.id, &session, &id, Utc::now()).await?))
+    Ok(Json(
+        svc::ack(&state.db, repo.id, &session, &id, Utc::now()).await?,
+    ))
 }
 
 #[utoipa::path(
@@ -123,7 +125,11 @@ pub async fn confirm_receipt(
     let session = acting_session(&state, &headers, repo.id, user_id).await?;
     let receipt =
         delivery::confirm(&state.db, repo.id, &id, &message_id, &session, Utc::now()).await?;
-    let status = if receipt.newly_confirmed { StatusCode::CREATED } else { StatusCode::OK };
+    let status = if receipt.newly_confirmed {
+        StatusCode::CREATED
+    } else {
+        StatusCode::OK
+    };
     Ok((status, Json(receipt)))
 }
 
@@ -146,5 +152,7 @@ pub async fn get_delivery(
 ) -> Result<Json<delivery::DeliveryStatus>, AppError> {
     let (repo, user_id) = require_collab_read(&state, &headers, &owner, &name).await?;
     let author = acting_session(&state, &headers, repo.id, user_id).await?;
-    Ok(Json(delivery::status(&state.db, repo.id, &id, &message_id, &author).await?))
+    Ok(Json(
+        delivery::status(&state.db, repo.id, &id, &message_id, &author).await?,
+    ))
 }

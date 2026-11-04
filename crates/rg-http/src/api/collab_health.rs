@@ -97,7 +97,15 @@ pub async fn get_health(
     )?;
     let wanted = svc::parse_metrics(query.metrics.as_deref())?;
     Ok(Json(
-        svc::health(&state.db, repo.id, &api_base(&owner, &name), &window, &wanted, now).await?,
+        svc::health(
+            &state.db,
+            repo.id,
+            &api_base(&owner, &name),
+            &window,
+            &wanted,
+            now,
+        )
+        .await?,
     ))
 }
 
@@ -163,5 +171,7 @@ pub async fn take_baseline(
     headers: HeaderMap,
 ) -> Result<Json<svc::BaselineReport>, AppError> {
     let repo = admin_repo(&state, &headers, &owner, &name).await?;
-    Ok(Json(svc::take_baseline(&state.db, repo.id, Utc::now()).await?))
+    Ok(Json(
+        svc::take_baseline(&state.db, repo.id, Utc::now()).await?,
+    ))
 }

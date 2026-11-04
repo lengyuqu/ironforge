@@ -17,9 +17,9 @@ use super::collab::{
     write_actor,
 };
 use super::collab_json::{require_known, CollabJson};
-use rg_core::collaboration::compat::{QuestionStatus, RecipientKind};
 use crate::error::AppError;
 use crate::AppState;
+use rg_core::collaboration::compat::{QuestionStatus, RecipientKind};
 
 #[derive(Debug, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
@@ -115,8 +115,22 @@ pub async fn create_question(
         base_sha: None,
         head_sha: None,
     });
-    let base_sha = ensure_commit(&state, &owner, &name, "context.base_sha", ctx.base_sha.as_deref()).await?;
-    let head_sha = ensure_commit(&state, &owner, &name, "context.head_sha", ctx.head_sha.as_deref()).await?;
+    let base_sha = ensure_commit(
+        &state,
+        &owner,
+        &name,
+        "context.base_sha",
+        ctx.base_sha.as_deref(),
+    )
+    .await?;
+    let head_sha = ensure_commit(
+        &state,
+        &owner,
+        &name,
+        "context.head_sha",
+        ctx.head_sha.as_deref(),
+    )
+    .await?;
     let created = svc::create(
         &state.db,
         repo.id,
@@ -138,7 +152,11 @@ pub async fn create_question(
         Utc::now(),
     )
     .await?;
-    let status = if created.replayed { StatusCode::OK } else { StatusCode::CREATED };
+    let status = if created.replayed {
+        StatusCode::OK
+    } else {
+        StatusCode::CREATED
+    };
     Ok((status, Json(created.question)))
 }
 
@@ -275,7 +293,14 @@ pub async fn cancel_question(
 ) -> Result<Json<svc::QuestionView>, AppError> {
     let (repo, user_id) = require_collab_write(&state, &headers, &owner, &name).await?;
     let actor = write_actor(&state, &headers, repo.id, user_id).await?;
-    let question =
-        svc::cancel(&state.db, repo.id, &id, &actor, req.expected_version, Utc::now()).await?;
+    let question = svc::cancel(
+        &state.db,
+        repo.id,
+        &id,
+        &actor,
+        req.expected_version,
+        Utc::now(),
+    )
+    .await?;
     Ok(Json(question))
 }

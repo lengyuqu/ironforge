@@ -193,9 +193,8 @@ async fn validate_links(
     question_id: Option<&str>,
     answer_id: Option<&str>,
 ) -> CollabResult<()> {
-    let mismatch = |what: &str| {
-        CollabError::bad_request(format!("{what} does not belong to this task"))
-    };
+    let mismatch =
+        |what: &str| CollabError::bad_request(format!("{what} does not belong to this task"));
     let Some(question_id) = question_id else {
         return if answer_id.is_some() {
             Err(CollabError::bad_request("answer_id requires question_id"))
@@ -234,8 +233,16 @@ pub async fn create(
     validation::client_key("client_decision_id", &input.client_decision_id)?;
     let title = validation::label("title", &input.title, MAX_TITLE_CHARS)?;
     validation::text("rationale", &input.rationale, 1, MAX_RATIONALE_BYTES)?;
-    let base_sha = input.base_sha.as_deref().map(normalize_commit_sha).transpose()?;
-    let head_sha = input.head_sha.as_deref().map(normalize_commit_sha).transpose()?;
+    let base_sha = input
+        .base_sha
+        .as_deref()
+        .map(normalize_commit_sha)
+        .transpose()?;
+    let head_sha = input
+        .head_sha
+        .as_deref()
+        .map(normalize_commit_sha)
+        .transpose()?;
     let input = NewDecision {
         base_sha,
         head_sha,
@@ -428,11 +435,7 @@ fn already_changed(winner: &collab_decision_change::Model) -> CollabError {
 }
 
 /// Whether following "superseded by" links from `start` reaches `target`.
-async fn chain_reaches(
-    db: &DatabaseConnection,
-    start: &str,
-    target: &str,
-) -> CollabResult<bool> {
+async fn chain_reaches(db: &DatabaseConnection, start: &str, target: &str) -> CollabResult<bool> {
     let mut current = start.to_string();
     for _ in 0..MAX_CHAIN {
         if current == target {
@@ -483,7 +486,9 @@ pub async fn change(
             ));
         }
         _ => {
-            return Err(CollabError::bad_request("kind must be superseded or revoked"));
+            return Err(CollabError::bad_request(
+                "kind must be superseded or revoked",
+            ));
         }
     }
     let decision = find(db, repo_id, decision_id).await?;
@@ -491,13 +496,14 @@ pub async fn change(
 
     // Replay first: a retry of a change that landed stays a replay even though
     // the decision is now terminal.
-    let replay = |existing: collab_decision_change::Model| -> CollabResult<collab_decision_change::Model> {
-        if existing.payload_hash == hash && existing.decision_id == decision.id {
-            Ok(existing)
-        } else {
-            Err(CollabError::IdempotencyKeyReused)
-        }
-    };
+    let replay =
+        |existing: collab_decision_change::Model| -> CollabResult<collab_decision_change::Model> {
+            if existing.payload_hash == hash && existing.decision_id == decision.id {
+                Ok(existing)
+            } else {
+                Err(CollabError::IdempotencyKeyReused)
+            }
+        };
 
     let outcome = if let Some(existing) = collab_decision_ops::find_change_by_client_id(
         db,

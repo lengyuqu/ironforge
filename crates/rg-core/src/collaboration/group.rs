@@ -28,8 +28,12 @@
 //! newly added link) is picked up by the following pages.
 
 use chrono::{DateTime, Utc};
-use rg_db::entities::{collab_coordination_group as group_entity, collab_coordination_link as link_entity};
-use rg_db::ops::collab_group_ops::{self, AddLinkOutcome, CreateGroupOutcome, RemoveInfo, RemoveLinkOutcome};
+use rg_db::entities::{
+    collab_coordination_group as group_entity, collab_coordination_link as link_entity,
+};
+use rg_db::ops::collab_group_ops::{
+    self, AddLinkOutcome, CreateGroupOutcome, RemoveInfo, RemoveLinkOutcome,
+};
 use sea_orm::{DatabaseConnection, Set};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -143,7 +147,11 @@ impl LinkView {
             group_id: row.group_id.clone(),
             target_repo,
             task,
-            commit: row.commit_sha.clone().zip(commit_state).map(|(sha, commit_state)| CommitRef { sha, commit_state }),
+            commit: row
+                .commit_sha
+                .clone()
+                .zip(commit_state)
+                .map(|(sha, commit_state)| CommitRef { sha, commit_state }),
             created_by_kind: row.actor_kind.clone(),
             created_by_id: row.actor_id.clone(),
             created_at: row.created_at,
@@ -213,10 +221,14 @@ pub async fn create_group(
     )
     .await?;
     match outcome {
-        CreateGroupOutcome::Created(group) => Ok(CreatedGroup { group, replayed: false }),
-        CreateGroupOutcome::Existing(group) if group.payload_hash == hash => {
-            Ok(CreatedGroup { group, replayed: true })
-        }
+        CreateGroupOutcome::Created(group) => Ok(CreatedGroup {
+            group,
+            replayed: false,
+        }),
+        CreateGroupOutcome::Existing(group) if group.payload_hash == hash => Ok(CreatedGroup {
+            group,
+            replayed: true,
+        }),
         CreateGroupOutcome::Existing(_) => Err(CollabError::IdempotencyKeyReused),
     }
 }
@@ -251,14 +263,20 @@ impl NewLink {
     pub fn validated(mut self) -> CollabResult<Self> {
         validation::client_key("client_request_id", &self.client_link_id)?;
         if self.target_repo_id <= 0 {
-            return Err(CollabError::bad_request("target_repo_id must be a repository id"));
+            return Err(CollabError::bad_request(
+                "target_repo_id must be a repository id",
+            ));
         }
         if self.target_task_id.is_none() && self.commit_sha.is_none() {
             return Err(CollabError::bad_request(
                 "a link needs a target_task_id and/or a commit_sha",
             ));
         }
-        self.commit_sha = self.commit_sha.as_deref().map(normalize_commit_sha).transpose()?;
+        self.commit_sha = self
+            .commit_sha
+            .as_deref()
+            .map(normalize_commit_sha)
+            .transpose()?;
         Ok(self)
     }
 
@@ -300,12 +318,16 @@ pub async fn replay_add(
     input: &NewLink,
 ) -> CollabResult<Option<AddedLink>> {
     let Some(existing) =
-        collab_group_ops::find_link_by_client_id(db, actor.kind, &actor.id, &input.client_link_id).await?
+        collab_group_ops::find_link_by_client_id(db, actor.kind, &actor.id, &input.client_link_id)
+            .await?
     else {
         return Ok(None);
     };
     if existing.payload_hash == input.hash(group_id) {
-        Ok(Some(AddedLink { link: existing, replayed: true }))
+        Ok(Some(AddedLink {
+            link: existing,
+            replayed: true,
+        }))
     } else {
         Err(CollabError::IdempotencyKeyReused)
     }
@@ -355,12 +377,18 @@ pub async fn add_link(
     )
     .await?;
     match outcome {
-        AddLinkOutcome::Added { link, .. } => Ok(AddedLink { link, replayed: false }),
-        AddLinkOutcome::Existing(link) if link.payload_hash == hash => {
-            Ok(AddedLink { link, replayed: true })
-        }
+        AddLinkOutcome::Added { link, .. } => Ok(AddedLink {
+            link,
+            replayed: false,
+        }),
+        AddLinkOutcome::Existing(link) if link.payload_hash == hash => Ok(AddedLink {
+            link,
+            replayed: true,
+        }),
         AddLinkOutcome::Existing(_) => Err(CollabError::IdempotencyKeyReused),
-        AddLinkOutcome::Conflict { current_version } => Err(CollabError::VersionConflict { current_version }),
+        AddLinkOutcome::Conflict { current_version } => {
+            Err(CollabError::VersionConflict { current_version })
+        }
         AddLinkOutcome::Duplicate { link_id } => Err(CollabError::coded_conflict(
             "LINK_ALREADY_EXISTS",
             "an active link to this target already exists in the group",
@@ -425,7 +453,10 @@ pub fn replay_remove(
         return Ok(None);
     }
     if link.remove_payload_hash.as_deref() == Some(input.hash(group_id).as_str()) {
-        Ok(Some(RemovedLink { link: link.clone(), replayed: true }))
+        Ok(Some(RemovedLink {
+            link: link.clone(),
+            replayed: true,
+        }))
     } else {
         Err(CollabError::IdempotencyKeyReused)
     }
@@ -460,12 +491,22 @@ pub async fn remove_link(
     )
     .await?;
     match outcome {
-        RemoveLinkOutcome::Removed { link, .. } => Ok(RemovedLink { link, replayed: false }),
-        RemoveLinkOutcome::Existing(link) if link.remove_payload_hash.as_deref() == Some(hash.as_str()) => {
-            Ok(RemovedLink { link, replayed: true })
+        RemoveLinkOutcome::Removed { link, .. } => Ok(RemovedLink {
+            link,
+            replayed: false,
+        }),
+        RemoveLinkOutcome::Existing(link)
+            if link.remove_payload_hash.as_deref() == Some(hash.as_str()) =>
+        {
+            Ok(RemovedLink {
+                link,
+                replayed: true,
+            })
         }
         RemoveLinkOutcome::Existing(_) => Err(CollabError::IdempotencyKeyReused),
-        RemoveLinkOutcome::Conflict { current_version } => Err(CollabError::VersionConflict { current_version }),
+        RemoveLinkOutcome::Conflict { current_version } => {
+            Err(CollabError::VersionConflict { current_version })
+        }
         RemoveLinkOutcome::NotActive => Err(CollabError::coded_conflict(
             "LINK_ALREADY_REMOVED",
             "the link is not active (it was removed by another request)",
@@ -512,7 +553,8 @@ where
     let mut items: Vec<LinkView> = Vec::new();
     let mut has_more = false;
     'scan: loop {
-        let rows = collab_group_ops::list_active_batch(db, group_id, after.clone(), SCAN_BATCH).await?;
+        let rows =
+            collab_group_ops::list_active_batch(db, group_id, after.clone(), SCAN_BATCH).await?;
         let exhausted = (rows.len() as u64) < SCAN_BATCH;
         for row in rows {
             after = Some((row.created_at, row.id.clone()));
@@ -528,17 +570,22 @@ where
             break;
         }
     }
-    let next_cursor = has_more
-        .then(|| items.last())
-        .flatten()
-        .map(|last| {
-            cursor::encode(
-                cursor_key,
-                &scope,
-                &KeysetPosition { at: last.created_at, id: last.id.clone() },
-            )
-        });
-    Ok(LinkPage { items, next_cursor, has_more, as_of: now })
+    let next_cursor = has_more.then(|| items.last()).flatten().map(|last| {
+        cursor::encode(
+            cursor_key,
+            &scope,
+            &KeysetPosition {
+                at: last.created_at,
+                id: last.id.clone(),
+            },
+        )
+    });
+    Ok(LinkPage {
+        items,
+        next_cursor,
+        has_more,
+        as_of: now,
+    })
 }
 
 #[cfg(test)]
@@ -562,7 +609,11 @@ mod tests {
         assert!(link(None, Some("abc123")).validated().is_err(), "short sha");
         let upper = "A".repeat(40);
         let ok = link(None, Some(&upper)).validated().unwrap();
-        assert_eq!(ok.commit_sha.unwrap(), "a".repeat(40), "normalized to lower case");
+        assert_eq!(
+            ok.commit_sha.unwrap(),
+            "a".repeat(40),
+            "normalized to lower case"
+        );
         let mut bad_repo = link(Some("t"), None);
         bad_repo.target_repo_id = 0;
         assert!(bad_repo.validated().is_err());
@@ -573,8 +624,16 @@ mod tests {
         let a = link(Some("t"), None);
         let mut b = a.clone();
         b.expected_group_version = 2;
-        assert_ne!(a.hash("g"), b.hash("g"), "version is part of the request body");
-        assert_eq!(a.active_key("g"), b.active_key("g"), "same target, same active key");
+        assert_ne!(
+            a.hash("g"),
+            b.hash("g"),
+            "version is part of the request body"
+        );
+        assert_eq!(
+            a.active_key("g"),
+            b.active_key("g"),
+            "same target, same active key"
+        );
         assert_ne!(a.active_key("g"), a.active_key("h"), "keys are per group");
         let mut c = a.clone();
         c.commit_sha = Some("a".repeat(40));

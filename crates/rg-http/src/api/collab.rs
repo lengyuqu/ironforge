@@ -137,7 +137,9 @@ pub(crate) async fn observed_branch_head(
     let path = state.repo_root.join(format!("{owner}/{name}.git"));
     tokio::task::spawn_blocking(move || {
         let repo = gix::open(&path).ok()?;
-        let id = repo.rev_parse_single(format!("refs/heads/{branch}").as_str()).ok()?;
+        let id = repo
+            .rev_parse_single(format!("refs/heads/{branch}").as_str())
+            .ok()?;
         Some(id.to_string())
     })
     .await

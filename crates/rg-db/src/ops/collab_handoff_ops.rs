@@ -6,8 +6,8 @@ use sea_orm::sea_query::Expr;
 use sea_orm::*;
 
 use super::collab_metric_ops::{self, event_type};
-use super::collab_task_ops::CasOutcome;
 use super::collab_notice_ops::{self, NewNotice};
+use super::collab_task_ops::CasOutcome;
 use crate::entities::collab_handoff::{
     self, ActiveModel, Entity as HandoffEntity, Model as Handoff,
 };
@@ -55,8 +55,14 @@ pub async fn create_idempotent_with_notices(
     let txn = db.begin().await.context("db: begin handoff create")?;
     let inserted = match model.insert(&txn).await {
         Ok(created) => {
-            collab_metric_ops::record_handoff(&txn, &created, event_type::HANDOFF_CREATED, None, created.created_at)
-                .await?;
+            collab_metric_ops::record_handoff(
+                &txn,
+                &created,
+                event_type::HANDOFF_CREATED,
+                None,
+                created.created_at,
+            )
+            .await?;
             collab_notice_ops::insert_all(&txn, notices).await?;
             txn.commit().await.context("db: commit handoff create")?;
             Ok(created)
@@ -192,7 +198,9 @@ pub async fn transition_pending(
         };
         collab_metric_ops::record_handoff(&txn, handoff, event, Some(status::PENDING), now).await?;
     }
-    txn.commit().await.context("db: commit handoff transition")?;
+    txn.commit()
+        .await
+        .context("db: commit handoff transition")?;
     Ok(match (res.rows_affected, current) {
         (_, None) => CasOutcome::NotFound,
         (0, Some(current)) => CasOutcome::Conflict { current },

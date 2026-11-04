@@ -8,21 +8,21 @@
 //! establish the account and repository permission; these services enforce the
 //! session secret, repository scoping, versioning and idempotency.
 
-pub mod capabilities;
-pub mod budget;
 pub mod access;
+pub mod budget;
+pub mod capabilities;
 pub mod ci_evidence;
 pub mod compat;
 pub mod completion;
 pub mod cursor;
-pub mod dependency;
 pub mod decision;
 pub mod declaration;
-pub mod error;
-pub mod group;
 pub mod delivery;
+pub mod dependency;
 pub mod diagnostics;
+pub mod error;
 pub mod escalation;
+pub mod group;
 pub mod handoff;
 pub mod health;
 pub mod inbox;
@@ -32,8 +32,8 @@ pub mod question;
 pub mod read;
 pub mod retention;
 pub mod rules;
-pub mod secret;
 pub mod search;
+pub mod secret;
 pub mod session;
 pub mod takeover;
 pub mod task;
@@ -73,11 +73,17 @@ pub struct Actor {
 
 impl Actor {
     pub fn session(id: impl Into<String>) -> Self {
-        Self { kind: "session", id: id.into() }
+        Self {
+            kind: "session",
+            id: id.into(),
+        }
     }
 
     pub fn user(id: i64) -> Self {
-        Self { kind: "user", id: id.to_string() }
+        Self {
+            kind: "user",
+            id: id.to_string(),
+        }
     }
 }
 

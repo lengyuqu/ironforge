@@ -56,7 +56,10 @@ pub async fn find_group_in_anchor<C: ConnectionTrait>(
         .context("db: find coordination group")
 }
 
-pub async fn create_group(db: &DatabaseConnection, model: group::ActiveModel) -> Result<CreateGroupOutcome> {
+pub async fn create_group(
+    db: &DatabaseConnection,
+    model: group::ActiveModel,
+) -> Result<CreateGroupOutcome> {
     let actor_kind = model.actor_kind.clone().unwrap();
     let actor_id = model.actor_id.clone().unwrap();
     let client_id = model.client_group_id.clone().unwrap();
@@ -120,7 +123,10 @@ pub async fn find_link_in_group<C: ConnectionTrait>(
         .context("db: find coordination link")
 }
 
-pub async fn find_active_by_key<C: ConnectionTrait>(db: &C, active_key: &str) -> Result<Option<Link>> {
+pub async fn find_active_by_key<C: ConnectionTrait>(
+    db: &C,
+    active_key: &str,
+) -> Result<Option<Link>> {
     LinkEntity::find()
         .filter(link::Column::ActiveKey.eq(active_key))
         .one(db)
@@ -150,11 +156,13 @@ pub async fn list_active_batch<C: ConnectionTrait>(
         .filter(link::Column::RemovedAt.is_null());
     if let Some((created, id)) = after {
         query = query.filter(
-            Condition::any().add(link::Column::CreatedAt.gt(created)).add(
-                Condition::all()
-                    .add(link::Column::CreatedAt.eq(created))
-                    .add(link::Column::Id.gt(id)),
-            ),
+            Condition::any()
+                .add(link::Column::CreatedAt.gt(created))
+                .add(
+                    Condition::all()
+                        .add(link::Column::CreatedAt.eq(created))
+                        .add(link::Column::Id.gt(id)),
+                ),
         );
     }
     query
@@ -170,13 +178,20 @@ pub async fn list_active_batch<C: ConnectionTrait>(
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum AddLinkOutcome {
-    Added { group: Group, link: Link },
+    Added {
+        group: Group,
+        link: Link,
+    },
     /// The idempotency key already owns a link; compare `payload_hash`.
     Existing(Link),
     /// The group's version is not `expected_version`.
-    Conflict { current_version: i64 },
+    Conflict {
+        current_version: i64,
+    },
     /// An active link to the same target already exists.
-    Duplicate { link_id: String },
+    Duplicate {
+        link_id: String,
+    },
     /// The group already holds the maximum number of active links.
     LimitReached,
     GroupNotFound,
@@ -213,7 +228,9 @@ pub async fn add_link_cas(
             return Ok(AddLinkOutcome::Existing(existing));
         }
         return Ok(match current {
-            Some(g) => AddLinkOutcome::Conflict { current_version: g.version },
+            Some(g) => AddLinkOutcome::Conflict {
+                current_version: g.version,
+            },
             None => AddLinkOutcome::GroupNotFound,
         });
     }
@@ -241,7 +258,9 @@ pub async fn add_link_cas(
             let duplicate = find_active_by_key(db, &active_key)
                 .await?
                 .context("db: unique violation without a conflicting link")?;
-            Ok(AddLinkOutcome::Duplicate { link_id: duplicate.id })
+            Ok(AddLinkOutcome::Duplicate {
+                link_id: duplicate.id,
+            })
         }
         Err(err) => Err(err).context("db: insert coordination link"),
     }
@@ -261,10 +280,15 @@ pub struct RemoveInfo {
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum RemoveLinkOutcome {
-    Removed { group: Group, link: Link },
+    Removed {
+        group: Group,
+        link: Link,
+    },
     /// The remove key already removed a link; compare `remove_payload_hash`.
     Existing(Link),
-    Conflict { current_version: i64 },
+    Conflict {
+        current_version: i64,
+    },
     /// The link is missing from the group or was removed by someone else.
     NotActive,
     GroupNotFound,
@@ -291,14 +315,17 @@ pub async fn remove_link_cas(
     if res.rows_affected == 0 {
         // As in `add_link_cas`: a lost race against our own copy is a replay.
         let replay =
-            find_link_by_remove_client_id(&txn, &by.actor_kind, &by.actor_id, &by.client_id).await?;
+            find_link_by_remove_client_id(&txn, &by.actor_kind, &by.actor_id, &by.client_id)
+                .await?;
         let current = find_group_in_anchor(&txn, anchor_repo_id, group_id).await?;
         txn.commit().await.context("db: commit remove link")?;
         if let Some(existing) = replay {
             return Ok(RemoveLinkOutcome::Existing(existing));
         }
         return Ok(match current {
-            Some(g) => RemoveLinkOutcome::Conflict { current_version: g.version },
+            Some(g) => RemoveLinkOutcome::Conflict {
+                current_version: g.version,
+            },
             None => RemoveLinkOutcome::GroupNotFound,
         });
     }
@@ -306,10 +333,22 @@ pub async fn remove_link_cas(
         .col_expr(link::Column::RemovedAt, Expr::value(now))
         .col_expr(link::Column::ActiveKey, Expr::value(Option::<String>::None))
         .col_expr(link::Column::RemovedByUserId, Expr::value(by.user_id))
-        .col_expr(link::Column::RemovedActorKind, Expr::value(by.actor_kind.clone()))
-        .col_expr(link::Column::RemovedActorId, Expr::value(by.actor_id.clone()))
-        .col_expr(link::Column::RemoveClientId, Expr::value(by.client_id.clone()))
-        .col_expr(link::Column::RemovePayloadHash, Expr::value(by.payload_hash.clone()))
+        .col_expr(
+            link::Column::RemovedActorKind,
+            Expr::value(by.actor_kind.clone()),
+        )
+        .col_expr(
+            link::Column::RemovedActorId,
+            Expr::value(by.actor_id.clone()),
+        )
+        .col_expr(
+            link::Column::RemoveClientId,
+            Expr::value(by.client_id.clone()),
+        )
+        .col_expr(
+            link::Column::RemovePayloadHash,
+            Expr::value(by.payload_hash.clone()),
+        )
         .filter(link::Column::Id.eq(link_id))
         .filter(link::Column::GroupId.eq(group_id))
         .filter(link::Column::RemovedAt.is_null())
@@ -352,7 +391,10 @@ async fn bump_version<C: ConnectionTrait>(
 ) -> Result<UpdateResult> {
     GroupEntity::update_many()
         .col_expr(group::Column::UpdatedAt, Expr::value(now))
-        .col_expr(group::Column::Version, Expr::col(group::Column::Version).add(1))
+        .col_expr(
+            group::Column::Version,
+            Expr::col(group::Column::Version).add(1),
+        )
         .filter(group::Column::Id.eq(group_id))
         .filter(group::Column::AnchorRepoId.eq(anchor_repo_id))
         .filter(group::Column::Version.eq(expected_version))

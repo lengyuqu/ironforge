@@ -7,7 +7,9 @@ use super::error::{CollabError, CollabResult};
 pub fn label(field: &str, value: &str, max_chars: usize) -> CollabResult<String> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
-        return Err(CollabError::bad_request(format!("{field} must not be empty")));
+        return Err(CollabError::bad_request(format!(
+            "{field} must not be empty"
+        )));
     }
     if trimmed.chars().count() > max_chars {
         return Err(CollabError::bad_request(format!(
@@ -26,7 +28,9 @@ pub fn label(field: &str, value: &str, max_chars: usize) -> CollabResult<String>
 /// or control characters other than tab, newline and carriage return.
 pub fn text(field: &str, value: &str, min_bytes: usize, max_bytes: usize) -> CollabResult<()> {
     if value.len() < min_bytes {
-        return Err(CollabError::bad_request(format!("{field} must not be empty")));
+        return Err(CollabError::bad_request(format!(
+            "{field} must not be empty"
+        )));
     }
     if value.len() > max_bytes {
         return Err(CollabError::bad_request(format!(
@@ -75,7 +79,10 @@ mod tests {
         assert_eq!(label("n", "  agent A ", 80).unwrap(), "agent A");
         assert!(label("n", "   ", 80).is_err());
         assert!(label("n", &"x".repeat(81), 80).is_err());
-        assert!(label("n", &"中".repeat(80), 80).is_ok(), "limit counts characters");
+        assert!(
+            label("n", &"中".repeat(80), 80).is_ok(),
+            "limit counts characters"
+        );
         assert!(label("n", "bad\u{7}name", 80).is_err());
         assert!(label("n", "two\nlines", 80).is_err());
     }

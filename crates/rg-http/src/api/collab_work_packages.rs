@@ -72,7 +72,14 @@ pub async fn create_work_package(
 ) -> Result<(StatusCode, Json<svc::PackageView>), AppError> {
     let (repo, user_id) = require_collab_write(&state, &headers, &owner, &name).await?;
     let actor = write_actor(&state, &headers, repo.id, user_id).await?;
-    let commit_sha = ensure_commit(&state, &owner, &name, "commit_sha", req.commit_sha.as_deref()).await?;
+    let commit_sha = ensure_commit(
+        &state,
+        &owner,
+        &name,
+        "commit_sha",
+        req.commit_sha.as_deref(),
+    )
+    .await?;
     for e in req.evidence_refs.iter().filter(|e| e.kind == "commit") {
         ensure_commit(&state, &owner, &name, "evidence commit", Some(&e.reference)).await?;
     }
@@ -95,14 +102,21 @@ pub async fn create_work_package(
                 evidence_refs: req
                     .evidence_refs
                     .into_iter()
-                    .map(|e| svc::EvidenceRef { kind: e.kind, reference: e.reference })
+                    .map(|e| svc::EvidenceRef {
+                        kind: e.kind,
+                        reference: e.reference,
+                    })
                     .collect(),
             },
         },
         Utc::now(),
     )
     .await?;
-    let status = if created.replayed { StatusCode::OK } else { StatusCode::CREATED };
+    let status = if created.replayed {
+        StatusCode::OK
+    } else {
+        StatusCode::CREATED
+    };
     Ok((status, Json(created.package)))
 }
 

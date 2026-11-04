@@ -215,8 +215,15 @@ pub async fn accept_handoff(
 ) -> Result<Json<HandoffResponse>, AppError> {
     let (repo, user_id) = require_collab_write(&state, &headers, &owner, &name).await?;
     let actor = acting_session(&state, &headers, repo.id, user_id).await?;
-    let handoff =
-        svc::accept(&state.db, repo.id, &id, &actor, req.expected_version, Utc::now()).await?;
+    let handoff = svc::accept(
+        &state.db,
+        repo.id,
+        &id,
+        &actor,
+        req.expected_version,
+        Utc::now(),
+    )
+    .await?;
     Ok(Json(handoff.into()))
 }
 
@@ -241,7 +248,14 @@ pub async fn cancel_handoff(
 ) -> Result<Json<HandoffResponse>, AppError> {
     let (repo, user_id) = require_collab_write(&state, &headers, &owner, &name).await?;
     let actor = acting_session(&state, &headers, repo.id, user_id).await?;
-    let handoff =
-        svc::cancel(&state.db, repo.id, &id, &actor, req.expected_version, Utc::now()).await?;
+    let handoff = svc::cancel(
+        &state.db,
+        repo.id,
+        &id,
+        &actor,
+        req.expected_version,
+        Utc::now(),
+    )
+    .await?;
     Ok(Json(handoff.into()))
 }

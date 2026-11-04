@@ -187,12 +187,15 @@ pub async fn user_impact(
             .await?;
     }
     if !sessions.is_empty() {
-        let mut authored = Condition::all()
-            .add(collab_message::Column::AuthorSessionId.is_in(sessions));
+        let mut authored =
+            Condition::all().add(collab_message::Column::AuthorSessionId.is_in(sessions));
         if !owned_tasks.is_empty() {
             authored = authored.add(collab_message::Column::TaskId.is_not_in(owned_tasks));
         }
-        other_messages = collab_message::Entity::find().filter(authored).count(db).await?;
+        other_messages = collab_message::Entity::find()
+            .filter(authored)
+            .count(db)
+            .await?;
     }
 
     Ok(UserImpact {

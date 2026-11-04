@@ -9,7 +9,9 @@ use chrono::{DateTime, Utc};
 use sea_orm::sea_query::Expr;
 use sea_orm::*;
 
-use crate::entities::collab_session_declaration::{self, ActiveModel, Entity, Model as Declaration};
+use crate::entities::collab_session_declaration::{
+    self, ActiveModel, Entity, Model as Declaration,
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum PutOutcome {
@@ -18,7 +20,9 @@ pub enum PutOutcome {
     Replayed(Declaration),
     /// `version` is not the expected one; `current_version` is 0 when there is
     /// no declaration yet.
-    Conflict { current_version: i64 },
+    Conflict {
+        current_version: i64,
+    },
 }
 
 pub async fn find<C: ConnectionTrait>(
@@ -56,14 +60,38 @@ pub async fn put(
     }
 
     let res = Entity::update_many()
-        .col_expr(collab_session_declaration::Column::Version, Expr::value(expected_version + 1))
-        .col_expr(collab_session_declaration::Column::ToolsJson, Expr::value(model.tools_json.clone().unwrap()))
-        .col_expr(collab_session_declaration::Column::CanRunTests, Expr::value(model.can_run_tests.clone().unwrap()))
-        .col_expr(collab_session_declaration::Column::Network, Expr::value(model.network.clone().unwrap()))
-        .col_expr(collab_session_declaration::Column::NetworkNotes, Expr::value(model.network_notes.clone().unwrap()))
-        .col_expr(collab_session_declaration::Column::Notes, Expr::value(model.notes.clone().unwrap()))
-        .col_expr(collab_session_declaration::Column::PayloadHash, Expr::value(hash.clone()))
-        .col_expr(collab_session_declaration::Column::DeclaredAt, Expr::value(model.declared_at.clone().unwrap()))
+        .col_expr(
+            collab_session_declaration::Column::Version,
+            Expr::value(expected_version + 1),
+        )
+        .col_expr(
+            collab_session_declaration::Column::ToolsJson,
+            Expr::value(model.tools_json.clone().unwrap()),
+        )
+        .col_expr(
+            collab_session_declaration::Column::CanRunTests,
+            Expr::value(model.can_run_tests.clone().unwrap()),
+        )
+        .col_expr(
+            collab_session_declaration::Column::Network,
+            Expr::value(model.network.clone().unwrap()),
+        )
+        .col_expr(
+            collab_session_declaration::Column::NetworkNotes,
+            Expr::value(model.network_notes.clone().unwrap()),
+        )
+        .col_expr(
+            collab_session_declaration::Column::Notes,
+            Expr::value(model.notes.clone().unwrap()),
+        )
+        .col_expr(
+            collab_session_declaration::Column::PayloadHash,
+            Expr::value(hash.clone()),
+        )
+        .col_expr(
+            collab_session_declaration::Column::DeclaredAt,
+            Expr::value(model.declared_at.clone().unwrap()),
+        )
         .filter(collab_session_declaration::Column::SessionId.eq(session_id.clone()))
         .filter(collab_session_declaration::Column::RepoId.eq(repo_id))
         .filter(collab_session_declaration::Column::Version.eq(expected_version))
@@ -92,7 +120,9 @@ async fn resolve(
         Some(row) if row.version == expected_version + 1 && row.payload_hash == hash => {
             Ok(PutOutcome::Replayed(row))
         }
-        Some(row) => Ok(PutOutcome::Conflict { current_version: row.version }),
+        Some(row) => Ok(PutOutcome::Conflict {
+            current_version: row.version,
+        }),
         None => Ok(PutOutcome::Conflict { current_version: 0 }),
     }
 }

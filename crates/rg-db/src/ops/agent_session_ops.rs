@@ -8,7 +8,9 @@ use chrono::{DateTime, Utc};
 use sea_orm::sea_query::Expr;
 use sea_orm::*;
 
-use crate::entities::agent_session::{self, ActiveModel, Entity as SessionEntity, Model as Session};
+use crate::entities::agent_session::{
+    self, ActiveModel, Entity as SessionEntity, Model as Session,
+};
 
 /// Insert a new session row.
 pub async fn create<C: ConnectionTrait>(db: &C, model: ActiveModel) -> Result<Session> {

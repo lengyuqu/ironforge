@@ -5,12 +5,12 @@ use anyhow::{Context, Result};
 use sea_orm::sea_query::Expr;
 use sea_orm::*;
 
+use super::collab_handoff_ops::status as handoff_status;
 use crate::entities::collab_escalation_setting::{
     self, ActiveModel, Entity as SettingEntity, Model as Setting,
 };
 use crate::entities::collab_handoff::{self, Entity as HandoffEntity, Model as Handoff};
 use crate::entities::collab_task::{self, Entity as TaskEntity, Model as Task};
-use super::collab_handoff_ops::status as handoff_status;
 
 pub async fn get<C: ConnectionTrait>(db: &C, repo_id: i64) -> Result<Option<Setting>> {
     SettingEntity::find_by_id(repo_id)
@@ -24,7 +24,9 @@ pub enum SaveOutcome {
     Saved(Setting),
     /// The stored version differs from `expected_version` (0 = none stored);
     /// `current` is the winner's row if there is one.
-    Conflict { current: Option<Setting> },
+    Conflict {
+        current: Option<Setting>,
+    },
 }
 
 /// Store `settings` iff the stored version is `expected_version` (0 = no row
@@ -52,13 +54,18 @@ pub async fn save_cas(
         return match row.insert(db).await {
             Ok(saved) => Ok(SaveOutcome::Saved(saved)),
             Err(err) if matches!(err.sql_err(), Some(SqlErr::UniqueConstraintViolation(_))) => {
-                Ok(SaveOutcome::Conflict { current: get(db, settings.repo_id).await? })
+                Ok(SaveOutcome::Conflict {
+                    current: get(db, settings.repo_id).await?,
+                })
             }
             Err(err) => Err(err).context("db: insert escalation settings"),
         };
     }
     let res = SettingEntity::update_many()
-        .col_expr(collab_escalation_setting::Column::Enabled, Expr::value(settings.enabled))
+        .col_expr(
+            collab_escalation_setting::Column::Enabled,
+            Expr::value(settings.enabled),
+        )
         .col_expr(
             collab_escalation_setting::Column::BlockedAfterSecs,
             Expr::value(settings.blocked_after_secs),
@@ -91,7 +98,10 @@ pub async fn save_cas(
             collab_escalation_setting::Column::UpdatedByUserId,
             Expr::value(settings.updated_by_user_id),
         )
-        .col_expr(collab_escalation_setting::Column::UpdatedAt, Expr::value(settings.updated_at))
+        .col_expr(
+            collab_escalation_setting::Column::UpdatedAt,
+            Expr::value(settings.updated_at),
+        )
         .filter(collab_escalation_setting::Column::RepoId.eq(settings.repo_id))
         .filter(collab_escalation_setting::Column::Version.eq(expected_version))
         .exec(db)

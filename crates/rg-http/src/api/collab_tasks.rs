@@ -12,9 +12,9 @@ use super::collab::{
     acting_session, cursor_key, present_or_null, require_collab_read, require_collab_write,
 };
 use super::collab_json::{require_known, CollabJson};
-use rg_core::collaboration::compat::TaskStatus;
 use crate::error::AppError;
 use crate::AppState;
+use rg_core::collaboration::compat::TaskStatus;
 
 #[derive(Debug, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
@@ -270,7 +270,8 @@ pub async fn get_completion_status(
 ) -> Result<Json<collaboration::completion::CompletionStatus>, AppError> {
     let (repo, _user) = require_collab_read(&state, &headers, &owner, &name).await?;
     let task = svc::get(&state.db, repo.id, &id).await?;
-    let head = super::collab::observed_branch_head(&state, &owner, &name, task.branch.as_deref()).await;
+    let head =
+        super::collab::observed_branch_head(&state, &owner, &name, task.branch.as_deref()).await;
     let status =
         collaboration::completion::evaluate(&state.db, repo.id, &id, head, Utc::now()).await?;
     Ok(Json(status))

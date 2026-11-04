@@ -46,20 +46,56 @@ fn settings_table() -> TableCreateStatement {
                 .not_null()
                 .primary_key(),
         )
-        .col(ColumnDef::new(CollabEscalationSettings::Enabled).boolean().not_null())
+        .col(
+            ColumnDef::new(CollabEscalationSettings::Enabled)
+                .boolean()
+                .not_null(),
+        )
         // Seconds a task may stay blocked/waiting, a question may stay open, or a
         // handoff may stay pending after its target expired, before a reminder.
-        .col(ColumnDef::new(CollabEscalationSettings::BlockedAfterSecs).big_integer().not_null())
-        .col(ColumnDef::new(CollabEscalationSettings::QuestionAfterSecs).big_integer().not_null())
-        .col(ColumnDef::new(CollabEscalationSettings::HandoffAfterSecs).big_integer().not_null())
+        .col(
+            ColumnDef::new(CollabEscalationSettings::BlockedAfterSecs)
+                .big_integer()
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabEscalationSettings::QuestionAfterSecs)
+                .big_integer()
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabEscalationSettings::HandoffAfterSecs)
+                .big_integer()
+                .not_null(),
+        )
         // 0 = remind once per episode; otherwise the earliest repeat, and only
         // after the previous reminder was acknowledged.
-        .col(ColumnDef::new(CollabEscalationSettings::RepeatAfterSecs).big_integer().not_null())
+        .col(
+            ColumnDef::new(CollabEscalationSettings::RepeatAfterSecs)
+                .big_integer()
+                .not_null(),
+        )
         // Quiet window in minutes after 00:00 UTC; both null = none.
-        .col(ColumnDef::new(CollabEscalationSettings::QuietStartMinute).integer().null())
-        .col(ColumnDef::new(CollabEscalationSettings::QuietEndMinute).integer().null())
-        .col(ColumnDef::new(CollabEscalationSettings::Version).big_integer().not_null())
-        .col(ColumnDef::new(CollabEscalationSettings::UpdatedByUserId).big_integer().not_null())
+        .col(
+            ColumnDef::new(CollabEscalationSettings::QuietStartMinute)
+                .integer()
+                .null(),
+        )
+        .col(
+            ColumnDef::new(CollabEscalationSettings::QuietEndMinute)
+                .integer()
+                .null(),
+        )
+        .col(
+            ColumnDef::new(CollabEscalationSettings::Version)
+                .big_integer()
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabEscalationSettings::UpdatedByUserId)
+                .big_integer()
+                .not_null(),
+        )
         .col(
             ColumnDef::new(CollabEscalationSettings::UpdatedAt)
                 .timestamp_with_time_zone()
@@ -67,7 +103,10 @@ fn settings_table() -> TableCreateStatement {
         )
         .foreign_key(
             ForeignKey::create()
-                .from(CollabEscalationSettings::Table, CollabEscalationSettings::RepoId)
+                .from(
+                    CollabEscalationSettings::Table,
+                    CollabEscalationSettings::RepoId,
+                )
                 .to(Repositories::Table, Repositories::Id)
                 .on_delete(ForeignKeyAction::Cascade),
         )

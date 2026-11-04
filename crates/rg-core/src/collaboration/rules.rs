@@ -110,7 +110,10 @@ pub fn normalize_path(input: &str) -> CollabResult<String> {
         ));
     }
     let segments: Vec<&str> = trimmed.split('/').collect();
-    if segments.iter().any(|s| s.is_empty() || *s == "." || *s == "..") {
+    if segments
+        .iter()
+        .any(|s| s.is_empty() || *s == "." || *s == "..")
+    {
         return Err(CollabError::bad_request(
             "path must not contain empty, '.' or '..' segments",
         ));
@@ -156,7 +159,9 @@ fn join(dir: &str, file: &str) -> String {
 fn parse_manifest(text: &str) -> Result<Vec<(String, String)>, String> {
     let manifest: Manifest = toml::from_str(text).map_err(|e| e.message().to_string())?;
     if manifest.version.is_some_and(|v| v != DISCOVERY_VERSION) {
-        return Err(format!("unsupported manifest version (expected {DISCOVERY_VERSION})"));
+        return Err(format!(
+            "unsupported manifest version (expected {DISCOVERY_VERSION})"
+        ));
     }
     if manifest.rule.len() > MAX_ENTRIES {
         return Err(format!("at most {MAX_ENTRIES} rules are allowed"));
@@ -179,11 +184,7 @@ enum Lookup {
     Skipped(&'static str),
 }
 
-fn lookup(
-    repo: &gix::Repository,
-    tree: &gix::Tree<'_>,
-    path: &str,
-) -> CollabResult<Lookup> {
+fn lookup(repo: &gix::Repository, tree: &gix::Tree<'_>, path: &str) -> CollabResult<Lookup> {
     let entry = tree
         .lookup_entry_by_path(Path::new(path))
         .map_err(|e| CollabError::Internal(anyhow::anyhow!("tree lookup failed: {e}")))?;
@@ -230,7 +231,10 @@ pub fn discover(
         resolved_commit: None,
         path: path.clone(),
         discovery_version: DISCOVERY_VERSION,
-        manifest: ManifestStatus { status: "absent", error: None },
+        manifest: ManifestStatus {
+            status: "absent",
+            error: None,
+        },
         entries: Vec::new(),
         skipped: Vec::new(),
         truncated: false,
@@ -239,7 +243,11 @@ pub fn discover(
     let id = match repo.rev_parse_single(requested) {
         Ok(id) => id,
         Err(_) if git_ref.is_none() => return Ok(out),
-        Err(_) => return Err(CollabError::not_found(format!("ref '{requested}' not found"))),
+        Err(_) => {
+            return Err(CollabError::not_found(format!(
+                "ref '{requested}' not found"
+            )))
+        }
     };
     let commit = repo
         .find_object(id)
@@ -277,7 +285,10 @@ pub fn discover(
             };
             match verdict {
                 Ok(rules) => {
-                    out.manifest = ManifestStatus { status: "valid", error: None };
+                    out.manifest = ManifestStatus {
+                        status: "valid",
+                        error: None,
+                    };
                     manifest_rules = Some(rules);
                 }
                 Err(error) => {
@@ -292,7 +303,10 @@ pub fn discover(
 
     let (candidates, source): (Vec<(String, String)>, &'static str) = match manifest_rules {
         Some(rules) => (
-            rules.into_iter().filter(|(_, to)| applies(to, &path)).collect(),
+            rules
+                .into_iter()
+                .filter(|(_, to)| applies(to, &path))
+                .collect(),
             "manifest",
         ),
         None => (

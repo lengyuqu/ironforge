@@ -71,7 +71,10 @@ fn active(new: &NewNotice) -> ActiveModel {
 /// source row they just created.
 pub async fn insert_all<C: ConnectionTrait>(db: &C, notices: &[NewNotice]) -> Result<()> {
     for notice in notices {
-        active(notice).insert(db).await.context("db: insert collab notice")?;
+        active(notice)
+            .insert(db)
+            .await
+            .context("db: insert collab notice")?;
     }
     Ok(())
 }
@@ -81,7 +84,9 @@ pub async fn insert_all<C: ConnectionTrait>(db: &C, notices: &[NewNotice]) -> Re
 pub async fn insert_if_new(db: &DatabaseConnection, notice: &NewNotice) -> Result<bool> {
     match active(notice).insert(db).await {
         Ok(_) => Ok(true),
-        Err(err) if matches!(err.sql_err(), Some(SqlErr::UniqueConstraintViolation(_))) => Ok(false),
+        Err(err) if matches!(err.sql_err(), Some(SqlErr::UniqueConstraintViolation(_))) => {
+            Ok(false)
+        }
         Err(err) => Err(err).context("db: insert collab notice"),
     }
 }

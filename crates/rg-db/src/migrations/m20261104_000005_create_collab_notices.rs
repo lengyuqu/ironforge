@@ -64,7 +64,12 @@ impl MigrationTrait for Migration {
     /// idempotent so a rollback followed by a re-apply works.
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         manager
-            .drop_table(Table::drop().table(CollabNotices::Table).if_exists().to_owned())
+            .drop_table(
+                Table::drop()
+                    .table(CollabNotices::Table)
+                    .if_exists()
+                    .to_owned(),
+            )
             .await?;
         manager
             .drop_table(
@@ -84,7 +89,11 @@ fn receipts_table() -> TableCreateStatement {
         .if_not_exists()
         .col(uuid_col(CollabDeliveryReceipts::MessageId).not_null())
         .col(uuid_col(CollabDeliveryReceipts::TargetSessionId).not_null())
-        .col(ColumnDef::new(CollabDeliveryReceipts::RepoId).big_integer().not_null())
+        .col(
+            ColumnDef::new(CollabDeliveryReceipts::RepoId)
+                .big_integer()
+                .not_null(),
+        )
         .col(uuid_col(CollabDeliveryReceipts::TaskId).not_null())
         .col(timestamp(CollabDeliveryReceipts::ReadAt).not_null())
         .primary_key(
@@ -95,24 +104,42 @@ fn receipts_table() -> TableCreateStatement {
         )
         .foreign_key(
             ForeignKey::create()
-                .from(CollabDeliveryReceipts::Table, CollabDeliveryReceipts::MessageId)
-                .from(CollabDeliveryReceipts::Table, CollabDeliveryReceipts::TaskId)
+                .from(
+                    CollabDeliveryReceipts::Table,
+                    CollabDeliveryReceipts::MessageId,
+                )
+                .from(
+                    CollabDeliveryReceipts::Table,
+                    CollabDeliveryReceipts::TaskId,
+                )
                 .to(CollabMessages::Table, CollabMessages::Id)
                 .to(CollabMessages::Table, CollabMessages::TaskId)
                 .on_delete(ForeignKeyAction::Cascade),
         )
         .foreign_key(
             ForeignKey::create()
-                .from(CollabDeliveryReceipts::Table, CollabDeliveryReceipts::TaskId)
-                .from(CollabDeliveryReceipts::Table, CollabDeliveryReceipts::RepoId)
+                .from(
+                    CollabDeliveryReceipts::Table,
+                    CollabDeliveryReceipts::TaskId,
+                )
+                .from(
+                    CollabDeliveryReceipts::Table,
+                    CollabDeliveryReceipts::RepoId,
+                )
                 .to(CollabTasks::Table, CollabTasks::Id)
                 .to(CollabTasks::Table, CollabTasks::RepoId)
                 .on_delete(ForeignKeyAction::Cascade),
         )
         .foreign_key(
             ForeignKey::create()
-                .from(CollabDeliveryReceipts::Table, CollabDeliveryReceipts::TargetSessionId)
-                .from(CollabDeliveryReceipts::Table, CollabDeliveryReceipts::RepoId)
+                .from(
+                    CollabDeliveryReceipts::Table,
+                    CollabDeliveryReceipts::TargetSessionId,
+                )
+                .from(
+                    CollabDeliveryReceipts::Table,
+                    CollabDeliveryReceipts::RepoId,
+                )
                 .to(AgentSessions::Table, AgentSessions::Id)
                 .to(AgentSessions::Table, AgentSessions::RepoId)
                 .on_delete(ForeignKeyAction::Cascade),
@@ -125,14 +152,34 @@ fn notices_table() -> TableCreateStatement {
         .table(CollabNotices::Table)
         .if_not_exists()
         .col(uuid_col(CollabNotices::Id).not_null().primary_key())
-        .col(ColumnDef::new(CollabNotices::RepoId).big_integer().not_null())
+        .col(
+            ColumnDef::new(CollabNotices::RepoId)
+                .big_integer()
+                .not_null(),
+        )
         .col(uuid_col(CollabNotices::TaskId).not_null())
         .col(uuid_col(CollabNotices::RecipientSessionId).not_null())
-        .col(ColumnDef::new(CollabNotices::Kind).string_len(32).not_null())
+        .col(
+            ColumnDef::new(CollabNotices::Kind)
+                .string_len(32)
+                .not_null(),
+        )
         // `handoff` | `message` | `question` | `takeover` | `task` | `dependency`.
-        .col(ColumnDef::new(CollabNotices::SourceType).string_len(32).not_null())
-        .col(ColumnDef::new(CollabNotices::SourceId).string_len(64).not_null())
-        .col(ColumnDef::new(CollabNotices::Generation).big_integer().not_null())
+        .col(
+            ColumnDef::new(CollabNotices::SourceType)
+                .string_len(32)
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabNotices::SourceId)
+                .string_len(64)
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabNotices::Generation)
+                .big_integer()
+                .not_null(),
+        )
         // Platform-derived facts only (ids, enumerations); never client text.
         .col(ColumnDef::new(CollabNotices::HintJson).text().not_null())
         .col(timestamp(CollabNotices::CreatedAt).not_null())

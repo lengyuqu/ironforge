@@ -195,7 +195,9 @@ pub async fn create(
     .await?;
     match outcome {
         CreateOutcome::Created(row) => Ok(Created::New(view(row))),
-        CreateOutcome::Existing(row) if row.payload_hash == hash => Ok(Created::Replayed(view(row))),
+        CreateOutcome::Existing(row) if row.payload_hash == hash => {
+            Ok(Created::Replayed(view(row)))
+        }
         CreateOutcome::Existing(_) => Err(CollabError::IdempotencyKeyReused),
     }
 }
@@ -221,19 +223,16 @@ pub async fn list(
     let mut rows = collab_handoff_ops::list_page(db, repo_id, &task.id, after, limit + 1).await?;
     let has_more = rows.len() as u64 > limit;
     rows.truncate(limit as usize);
-    let next_cursor = has_more
-        .then(|| rows.last())
-        .flatten()
-        .map(|last| {
-            cursor::encode(
-                cursor_key,
-                &scope,
-                &KeysetPosition {
-                    at: last.created_at,
-                    id: last.id.clone(),
-                },
-            )
-        });
+    let next_cursor = has_more.then(|| rows.last()).flatten().map(|last| {
+        cursor::encode(
+            cursor_key,
+            &scope,
+            &KeysetPosition {
+                at: last.created_at,
+                id: last.id.clone(),
+            },
+        )
+    });
     Ok(Page {
         items: rows.into_iter().map(view).collect(),
         next_cursor,
@@ -258,19 +257,36 @@ async fn transition(
 
     // Only the addressed session may accept, only the creator may cancel.
     let (allowed, who) = if to_status == status::ACCEPTED {
-        (handoff.to_session_id == actor.id, "the session it is addressed to")
+        (
+            handoff.to_session_id == actor.id,
+            "the session it is addressed to",
+        )
     } else {
-        (handoff.from_session_id == actor.id, "the session that created it")
+        (
+            handoff.from_session_id == actor.id,
+            "the session that created it",
+        )
     };
     if !allowed {
         return Err(CollabError::Forbidden(format!(
             "only {who} may {} this handoff",
-            if to_status == status::ACCEPTED { "accept" } else { "cancel" }
+            if to_status == status::ACCEPTED {
+                "accept"
+            } else {
+                "cancel"
+            }
         )));
     }
 
-    match collab_handoff_ops::transition_pending(db, repo_id, handoff_id, expected_version, to_status, now)
-        .await?
+    match collab_handoff_ops::transition_pending(
+        db,
+        repo_id,
+        handoff_id,
+        expected_version,
+        to_status,
+        now,
+    )
+    .await?
     {
         CasOutcome::Updated(row) => Ok(view(row)),
         CasOutcome::Conflict { current } if current.status != status::PENDING => Err(
@@ -292,7 +308,16 @@ pub async fn accept(
     expected_version: i64,
     now: DateTime<Utc>,
 ) -> CollabResult<HandoffView> {
-    transition(db, repo_id, handoff_id, actor, expected_version, status::ACCEPTED, now).await
+    transition(
+        db,
+        repo_id,
+        handoff_id,
+        actor,
+        expected_version,
+        status::ACCEPTED,
+        now,
+    )
+    .await
 }
 
 /// Cancel a pending handoff created by `actor`.
@@ -304,7 +329,16 @@ pub async fn cancel(
     expected_version: i64,
     now: DateTime<Utc>,
 ) -> CollabResult<HandoffView> {
-    transition(db, repo_id, handoff_id, actor, expected_version, status::CANCELLED, now).await
+    transition(
+        db,
+        repo_id,
+        handoff_id,
+        actor,
+        expected_version,
+        status::CANCELLED,
+        now,
+    )
+    .await
 }
 
 #[cfg(test)]

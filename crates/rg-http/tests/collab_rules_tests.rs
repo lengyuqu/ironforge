@@ -2,16 +2,22 @@
 //!
 //! Real HTTP server, SQLite and real Git objects.
 
-mod common;
 mod collab_common;
+mod common;
 
 use collab_common::Env;
 use reqwest::Method;
 use serde_json::Value;
 
 async fn rules(env: &Env, token: &str, query: &str) -> (u16, Value) {
-    env.json(Method::GET, &env.url(&format!("/rules{query}")), token, None, None)
-        .await
+    env.json(
+        Method::GET,
+        &env.url(&format!("/rules{query}")),
+        token,
+        None,
+        None,
+    )
+    .await
 }
 
 fn paths(body: &Value) -> Vec<&str> {
@@ -58,7 +64,10 @@ async fn default_discovery_lists_root_then_deeper_rules_with_blob_shas() {
     );
     assert_eq!(
         entries[1]["read_url"],
-        format!("/api/v1/repos/{}/{}/blob/web/AGENTS.md?ref={sha}", env.owner, env.repo)
+        format!(
+            "/api/v1/repos/{}/{}/blob/web/AGENTS.md?ref={sha}",
+            env.owner, env.repo
+        )
     );
 
     // Root only, and a path with no nested rules, both resolve to the root file.
@@ -86,7 +95,10 @@ async fn a_pinned_commit_stays_readable_after_the_branch_moves() {
     assert_eq!(pinned["requested_ref"], first.as_str());
     assert_eq!(pinned["resolved_commit"], first);
     assert_eq!(pinned["entries"][0]["size"], "v1".len());
-    assert_ne!(pinned["entries"][0]["blob_sha"], moved["entries"][0]["blob_sha"]);
+    assert_ne!(
+        pinned["entries"][0]["blob_sha"],
+        moved["entries"][0]["blob_sha"]
+    );
 }
 
 #[tokio::test]
@@ -123,7 +135,10 @@ async fn invalid_manifest_is_reported_and_default_discovery_applies() {
         &env.repo,
         "main",
         &[
-            (".ironforge/agent-context.toml", "[[rule]]\npath = \"../../etc/passwd\"\n"),
+            (
+                ".ironforge/agent-context.toml",
+                "[[rule]]\npath = \"../../etc/passwd\"\n",
+            ),
             ("AGENTS.md", "root"),
         ],
         &[],
@@ -176,7 +191,9 @@ async fn rules_need_an_account_with_access() {
     let env = Env::new().await;
     env.push_tree(&env.repo, "main", &[("AGENTS.md", "r")], &[]);
 
-    let resp = env.send(Method::GET, &env.url("/rules"), None, None, None).await;
+    let resp = env
+        .send(Method::GET, &env.url("/rules"), None, None, None)
+        .await;
     assert_eq!(resp.status(), 401);
     let (stranger, _) = env.user("stranger").await;
     let (status, _) = rules(&env, &stranger, "").await;

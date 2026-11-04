@@ -2,8 +2,8 @@
 //! registration response, and nowhere else — not in later responses, error
 //! bodies, server logs (captured at TRACE level) or the database.
 
-mod common;
 mod collab_common;
+mod common;
 
 use std::sync::{Arc, Mutex};
 
@@ -53,43 +53,96 @@ async fn t09_session_secret_never_leaves_the_registration_response() {
     let sid = a.id.clone();
     let calls: Vec<(Method, String, Option<Sess>)> = vec![
         (Method::GET, env.url("/sessions"), None),
-        (Method::POST, env.url(&format!("/sessions/{sid}/heartbeat")), Some(a.clone())),
         (
             Method::POST,
             env.url(&format!("/sessions/{sid}/heartbeat")),
-            Some(Sess { id: sid.clone(), secret: bogus.clone() }),
+            Some(a.clone()),
         ),
-        (Method::POST, env.url(&format!("/sessions/{sid}/heartbeat")), None),
-        (Method::POST, env.url(&format!("/sessions/{sid}/end")), Some(a.clone())),
-        (Method::POST, env.url(&format!("/sessions/{sid}/heartbeat")), Some(a.clone())),
+        (
+            Method::POST,
+            env.url(&format!("/sessions/{sid}/heartbeat")),
+            Some(Sess {
+                id: sid.clone(),
+                secret: bogus.clone(),
+            }),
+        ),
+        (
+            Method::POST,
+            env.url(&format!("/sessions/{sid}/heartbeat")),
+            None,
+        ),
+        (
+            Method::POST,
+            env.url(&format!("/sessions/{sid}/end")),
+            Some(a.clone()),
+        ),
+        (
+            Method::POST,
+            env.url(&format!("/sessions/{sid}/heartbeat")),
+            Some(a.clone()),
+        ),
     ];
     for (method, url, session) in calls {
         let (status, body) = env
-            .json(method.clone(), &url, &env.owner_token, session.as_ref(), None)
+            .json(
+                method.clone(),
+                &url,
+                &env.owner_token,
+                session.as_ref(),
+                None,
+            )
             .await;
         responses.push((format!("{method} {url} -> {status}"), body));
     }
     // A second registration and its listing, too.
     env.register_session(&env.owner_token, "second").await;
-    let (_, list) = env.json(Method::GET, &env.url("/sessions"), &env.owner_token, None, None).await;
+    let (_, list) = env
+        .json(
+            Method::GET,
+            &env.url("/sessions"),
+            &env.owner_token,
+            None,
+            None,
+        )
+        .await;
     responses.push(("list".into(), list));
 
     for (what, body) in &responses {
         let text = body.to_string();
         assert!(!text.contains(&secret), "{what} leaked the secret: {text}");
-        assert!(!text.contains(&bogus), "{what} echoed the presented secret: {text}");
-        assert!(!text.contains("secret_hash"), "{what} exposes the digest field");
+        assert!(
+            !text.contains(&bogus),
+            "{what} echoed the presented secret: {text}"
+        );
+        assert!(
+            !text.contains("secret_hash"),
+            "{what} exposes the digest field"
+        );
     }
 
     // The registration response of the *second* session carries only its own.
     // Server logs, captured for the whole flow.
     let captured = String::from_utf8_lossy(&logs.0.lock().unwrap()).to_string();
-    assert!(captured.len() > 100, "log capture is not working: {captured:?}");
-    assert!(!captured.contains(&secret), "server log contains the session secret");
-    assert!(!captured.contains(&bogus), "server log contains a presented secret");
+    assert!(
+        captured.len() > 100,
+        "log capture is not working: {captured:?}"
+    );
+    assert!(
+        !captured.contains(&secret),
+        "server log contains the session secret"
+    );
+    assert!(
+        !captured.contains(&bogus),
+        "server log contains a presented secret"
+    );
 
     // Database: neither the secret nor its raw value is stored anywhere.
-    for table in ["agent_sessions", "audit_log", "collab_tasks", "collab_messages"] {
+    for table in [
+        "agent_sessions",
+        "audit_log",
+        "collab_tasks",
+        "collab_messages",
+    ] {
         let rows = env
             .db
             .query_all(Statement::from_string(
@@ -100,7 +153,10 @@ async fn t09_session_secret_never_leaves_the_registration_response() {
             .unwrap();
         for row in rows {
             let dump = format!("{row:?}");
-            assert!(!dump.contains(&secret), "{table} row contains the secret: {dump}");
+            assert!(
+                !dump.contains(&secret),
+                "{table} row contains the secret: {dump}"
+            );
         }
     }
 }

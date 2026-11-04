@@ -61,7 +61,10 @@ impl From<TemplateContentBody> for Content {
             checklist: b
                 .checklist
                 .into_iter()
-                .map(|i| ChecklistItem { text: i.text, required: i.required })
+                .map(|i| ChecklistItem {
+                    text: i.text,
+                    required: i.required,
+                })
                 .collect(),
         }
     }
@@ -189,12 +192,17 @@ pub async fn create_template(
                 goal: req.goal,
                 deliverables: req.deliverables,
                 checklist: req.checklist,
-            }.into(),
+            }
+            .into(),
         },
         Utc::now(),
     )
     .await?;
-    let status = if created.replayed { StatusCode::OK } else { StatusCode::CREATED };
+    let status = if created.replayed {
+        StatusCode::OK
+    } else {
+        StatusCode::CREATED
+    };
     Ok((status, Json(created.template)))
 }
 
@@ -233,12 +241,17 @@ pub async fn new_template_version(
                 goal: req.goal,
                 deliverables: req.deliverables,
                 checklist: req.checklist,
-            }.into(),
+            }
+            .into(),
         },
         Utc::now(),
     )
     .await?;
-    let status = if created.replayed { StatusCode::OK } else { StatusCode::CREATED };
+    let status = if created.replayed {
+        StatusCode::OK
+    } else {
+        StatusCode::CREATED
+    };
     Ok((status, Json(created.template)))
 }
 
@@ -288,7 +301,9 @@ pub async fn get_template(
     headers: HeaderMap,
 ) -> Result<Json<svc::TemplateView>, AppError> {
     let (repo, _user) = require_collab_read(&state, &headers, &owner, &name).await?;
-    Ok(Json(svc::get(&state.db, repo.id, &id, query.version).await?))
+    Ok(Json(
+        svc::get(&state.db, repo.id, &id, query.version).await?,
+    ))
 }
 
 #[utoipa::path(
@@ -326,7 +341,11 @@ pub async fn create_task_from_template(
         rules_ref: req.rules_ref,
     };
     let respond = |done: svc::CreatedFromTemplate| {
-        let status = if done.replayed { StatusCode::OK } else { StatusCode::CREATED };
+        let status = if done.replayed {
+            StatusCode::OK
+        } else {
+            StatusCode::CREATED
+        };
         (
             status,
             Json(FromTemplateResponse {
@@ -361,8 +380,9 @@ pub async fn create_task_from_template(
             }
         }
     };
-    let done = svc::create_from_template(&state.db, repo.id, &actor, input, rules_commit, Utc::now())
-        .await?;
+    let done =
+        svc::create_from_template(&state.db, repo.id, &actor, input, rules_commit, Utc::now())
+            .await?;
     Ok(respond(done))
 }
 

@@ -5,11 +5,11 @@ use chrono::{DateTime, Utc};
 use sea_orm::sea_query::Expr;
 use sea_orm::*;
 
+use super::collab_notice_ops::{self, NewNotice};
 use crate::entities::collab_message::{
     self, ActiveModel, Entity as MessageEntity, Model as Message,
 };
 use crate::entities::collab_task;
-use super::collab_notice_ops::{self, NewNotice};
 
 /// Everything needed to append a message; the server assigns `id` and `seq`.
 #[derive(Debug, Clone)]
@@ -73,18 +73,18 @@ pub async fn append_with_notices(
         .await
         .context("db: lock task for append")?;
     if locked.rows_affected == 0 {
-        txn.rollback().await.context("db: rollback append message")?;
+        txn.rollback()
+            .await
+            .context("db: rollback append message")?;
         return Ok(None);
     }
 
-    if let Some(existing) = find_by_client_id(
-        &txn,
-        &new.author_session_id,
-        &new.client_message_id,
-    )
-    .await?
+    if let Some(existing) =
+        find_by_client_id(&txn, &new.author_session_id, &new.client_message_id).await?
     {
-        txn.rollback().await.context("db: rollback duplicate message")?;
+        txn.rollback()
+            .await
+            .context("db: rollback duplicate message")?;
         return Ok(Some(AppendOutcome::Existing(existing)));
     }
 

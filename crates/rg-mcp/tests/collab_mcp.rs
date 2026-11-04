@@ -59,7 +59,10 @@ fn serve(stream: TcpStream, handler: &Handler, log: &Arc<Mutex<Vec<Req>>>) {
         return;
     }
     let mut parts = line.split_whitespace();
-    let (method, path) = (parts.next().unwrap_or("").to_string(), parts.next().unwrap_or("").to_string());
+    let (method, path) = (
+        parts.next().unwrap_or("").to_string(),
+        parts.next().unwrap_or("").to_string(),
+    );
     let mut headers = HashMap::new();
     loop {
         let mut h = String::new();
@@ -72,11 +75,19 @@ fn serve(stream: TcpStream, handler: &Handler, log: &Arc<Mutex<Vec<Req>>>) {
             headers.insert(k.trim().to_ascii_lowercase(), v.trim().to_string());
         }
     }
-    let len: usize = headers.get("content-length").and_then(|v| v.parse().ok()).unwrap_or(0);
+    let len: usize = headers
+        .get("content-length")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
     let mut raw = vec![0u8; len];
     reader.read_exact(&mut raw).unwrap();
     let body = serde_json::from_slice(&raw).unwrap_or(Value::Null);
-    let req = Req { method, path, headers, body };
+    let req = Req {
+        method,
+        path,
+        headers,
+        body,
+    };
     let (status, text) = handler(&req);
     log.lock().unwrap().push(req);
     let mut stream = stream;
@@ -94,11 +105,18 @@ fn happy_handler() -> Handler {
         if req.method == "POST" && p.ends_with("/collaboration/sessions") {
             (201, json!({"session": {"id": SESSION_ID, "display_name": req.body["display_name"], "client_kind": req.body["client_kind"], "state": "online", "origin": "user_content"}, "session_secret": SECRET}).to_string())
         } else if p.ends_with("/heartbeat") {
-            (200, json!({"id": SESSION_ID, "state": "online"}).to_string())
+            (
+                200,
+                json!({"id": SESSION_ID, "state": "online"}).to_string(),
+            )
         } else if p.ends_with("/end") {
             (204, String::new())
         } else if p.contains("/messages") && req.method == "POST" {
-            (201, json!({"id": "m1", "seq": 1, "client_message_id": req.body["client_message_id"]}).to_string())
+            (
+                201,
+                json!({"id": "m1", "seq": 1, "client_message_id": req.body["client_message_id"]})
+                    .to_string(),
+            )
         } else {
             (200, json!({"ok": true, "path": p}).to_string())
         }
@@ -128,7 +146,11 @@ impl Mcp {
         }
         let mut child = cmd.spawn().unwrap();
         let reader = BufReader::new(child.stdout.take().unwrap());
-        Mcp { child, reader, next_id: 1 }
+        Mcp {
+            child,
+            reader,
+            next_id: 1,
+        }
     }
 
     fn rpc(&mut self, method: &str, params: Value) -> Value {
@@ -140,7 +162,8 @@ impl Mcp {
         stdin.flush().unwrap();
         let mut out = String::new();
         self.reader.read_line(&mut out).unwrap();
-        let resp: Value = serde_json::from_str(&out).unwrap_or_else(|_| panic!("bad response {out:?}"));
+        let resp: Value =
+            serde_json::from_str(&out).unwrap_or_else(|_| panic!("bad response {out:?}"));
         assert_eq!(resp["id"], id);
         resp
     }
@@ -158,7 +181,10 @@ impl Mcp {
 
     fn tool_json(&mut self, name: &str, args: Value) -> (bool, Value) {
         let (is_error, text) = self.tool(name, args);
-        (is_error, serde_json::from_str(&text).unwrap_or_else(|_| panic!("not JSON: {text}")))
+        (
+            is_error,
+            serde_json::from_str(&text).unwrap_or_else(|_| panic!("not JSON: {text}")),
+        )
     }
 
     /// Stop the process and return everything it wrote to stderr.
@@ -166,7 +192,12 @@ impl Mcp {
         drop(self.child.stdin.take());
         let _ = self.child.wait();
         let mut stderr = String::new();
-        self.child.stderr.take().unwrap().read_to_string(&mut stderr).unwrap();
+        self.child
+            .stderr
+            .take()
+            .unwrap()
+            .read_to_string(&mut stderr)
+            .unwrap();
         stderr
     }
 }
@@ -185,31 +216,80 @@ fn t11_tools_list_advertises_complete_schemas() {
     let tools = resp["result"]["tools"].as_array().unwrap();
     let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
     for expected in [
-        "list_repos", "read_file", "collab_start_session", "collab_list_sessions", "collab_create_task",
-        "collab_get_task", "collab_update_task", "collab_list_messages", "collab_send_message",
-        "collab_mark_read", "collab_create_handoff", "collab_list_handoffs", "collab_accept_handoff",
-        "collab_cancel_handoff", "collab_heartbeat", "collab_end_session", "collab_list_tasks",
-        "collab_get_rules", "collab_get_inbox", "collab_claim_task", "collab_list_takeovers",
-        "collab_ask_question", "collab_list_questions", "collab_get_question", "collab_answer_question",
-        "collab_cancel_question", "collab_create_work_package", "collab_list_work_packages",
-        "collab_get_work_package", "collab_get_completion_status", "collab_get_dependencies",
-        "collab_add_dependency", "collab_remove_dependency", "collab_list_notices", "collab_ack_notice",
-        "collab_confirm_receipt", "collab_get_delivery",
+        "list_repos",
+        "read_file",
+        "collab_start_session",
+        "collab_list_sessions",
+        "collab_create_task",
+        "collab_get_task",
+        "collab_update_task",
+        "collab_list_messages",
+        "collab_send_message",
+        "collab_mark_read",
+        "collab_create_handoff",
+        "collab_list_handoffs",
+        "collab_accept_handoff",
+        "collab_cancel_handoff",
+        "collab_heartbeat",
+        "collab_end_session",
+        "collab_list_tasks",
+        "collab_get_rules",
+        "collab_get_inbox",
+        "collab_claim_task",
+        "collab_list_takeovers",
+        "collab_ask_question",
+        "collab_list_questions",
+        "collab_get_question",
+        "collab_answer_question",
+        "collab_cancel_question",
+        "collab_create_work_package",
+        "collab_list_work_packages",
+        "collab_get_work_package",
+        "collab_get_completion_status",
+        "collab_get_dependencies",
+        "collab_add_dependency",
+        "collab_remove_dependency",
+        "collab_list_notices",
+        "collab_ack_notice",
+        "collab_confirm_receipt",
+        "collab_get_delivery",
     ] {
         assert!(names.contains(&expected), "missing {expected}: {names:?}");
     }
     let by = |n: &str| tools.iter().find(|t| t["name"] == n).unwrap();
 
     let update = &by("collab_update_task")["inputSchema"];
-    assert!(update["required"].as_array().unwrap().contains(&json!("expected_version")), "version condition");
-    assert_eq!(update["properties"]["status"]["enum"], json!(["open", "in_progress", "waiting", "blocked", "done"]));
+    assert!(
+        update["required"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("expected_version")),
+        "version condition"
+    );
+    assert_eq!(
+        update["properties"]["status"]["enum"],
+        json!(["open", "in_progress", "waiting", "blocked", "done"])
+    );
     let send = &by("collab_send_message")["inputSchema"];
-    assert_eq!(send["properties"]["kind"]["enum"], json!(["note", "help", "blocker"]));
+    assert_eq!(
+        send["properties"]["kind"]["enum"],
+        json!(["note", "help", "blocker"])
+    );
     assert_eq!(send["properties"]["body"]["maxLength"], 32768);
     assert_eq!(send["properties"]["body"]["minLength"], 1);
-    assert_eq!(by("collab_create_task")["inputSchema"]["properties"]["title"]["maxLength"], 200);
-    for t in tools.iter().filter(|t| t["name"].as_str().unwrap().starts_with("collab_")) {
-        assert_eq!(t["inputSchema"]["additionalProperties"], false, "{}", t["name"]);
+    assert_eq!(
+        by("collab_create_task")["inputSchema"]["properties"]["title"]["maxLength"],
+        200
+    );
+    for t in tools
+        .iter()
+        .filter(|t| t["name"].as_str().unwrap().starts_with("collab_"))
+    {
+        assert_eq!(
+            t["inputSchema"]["additionalProperties"], false,
+            "{}",
+            t["name"]
+        );
     }
     // The secret is not an input of any tool.
     assert!(!resp.to_string().contains("session_secret"));
@@ -226,12 +306,21 @@ fn t09_t11_secret_is_used_but_never_shown() {
 
     let (err, start) = mcp.tool_json("collab_start_session", start_args());
     assert!(!err, "{start}");
-    assert_eq!((start["id"].as_str(), start["resumed"].as_bool()), (Some(SESSION_ID), Some(false)));
+    assert_eq!(
+        (start["id"].as_str(), start["resumed"].as_bool()),
+        (Some(SESSION_ID), Some(false))
+    );
     seen.push(start.to_string());
 
     for (tool, args) in [
-        ("collab_create_task", json!({"owner": "o", "repo": "r", "title": "t", "owner_session_id": "self"})),
-        ("collab_send_message", json!({"owner": "o", "repo": "r", "task_id": "t1", "kind": "note", "body": "hi"})),
+        (
+            "collab_create_task",
+            json!({"owner": "o", "repo": "r", "title": "t", "owner_session_id": "self"}),
+        ),
+        (
+            "collab_send_message",
+            json!({"owner": "o", "repo": "r", "task_id": "t1", "kind": "note", "body": "hi"}),
+        ),
         ("collab_heartbeat", json!({"owner": "o", "repo": "r"})),
         ("collab_list_sessions", json!({"owner": "o", "repo": "r"})),
     ] {
@@ -241,25 +330,45 @@ fn t09_t11_secret_is_used_but_never_shown() {
     }
 
     for text in &seen {
-        assert!(!text.contains(SECRET), "tool output leaked the secret: {text}");
+        assert!(
+            !text.contains(SECRET),
+            "tool output leaked the secret: {text}"
+        );
         assert!(!text.contains("session_secret"), "{text}");
     }
 
     let reqs = stub.requests();
     // Registration carried only the account PAT; later calls carried the session pair.
-    assert_eq!(reqs[0].headers.get("authorization").map(String::as_str), Some("Bearer pat-for-tests"));
+    assert_eq!(
+        reqs[0].headers.get("authorization").map(String::as_str),
+        Some("Bearer pat-for-tests")
+    );
     assert!(!reqs[0].headers.contains_key("x-ironforge-session-secret"));
     for r in &reqs[1..] {
         if r.method == "GET" && r.path.contains("/sessions") {
             continue; // discovery needs no session
         }
-        assert_eq!(r.headers.get("x-ironforge-session-secret").map(String::as_str), Some(SECRET), "{} {}", r.method, r.path);
-        assert_eq!(r.headers.get("x-ironforge-session").map(String::as_str), Some(SESSION_ID));
+        assert_eq!(
+            r.headers
+                .get("x-ironforge-session-secret")
+                .map(String::as_str),
+            Some(SECRET),
+            "{} {}",
+            r.method,
+            r.path
+        );
+        assert_eq!(
+            r.headers.get("x-ironforge-session").map(String::as_str),
+            Some(SESSION_ID)
+        );
         assert!(!r.path.contains(SECRET), "secret in URL");
         assert!(!r.body.to_string().contains(SECRET), "secret in body");
     }
     // "self" was resolved to the real session id before it left the process.
-    let create = reqs.iter().find(|r| r.path.ends_with("/tasks") && r.method == "POST").unwrap();
+    let create = reqs
+        .iter()
+        .find(|r| r.path.ends_with("/tasks") && r.method == "POST")
+        .unwrap();
     assert_eq!(create.body["owner_session_id"], SESSION_ID);
 
     let stderr = mcp.stop();
@@ -268,34 +377,51 @@ fn t09_t11_secret_is_used_but_never_shown() {
 
 #[test]
 fn t11_server_errors_become_structured_tool_errors() {
-    let stub = Stub::spawn(Box::new(|req| match req.path.as_str() {
+    let stub = Stub::spawn(Box::new(|req| {
+        match req.path.as_str() {
         p if p.ends_with("/sessions") && req.method == "POST" => (201, json!({"session": {"id": SESSION_ID}, "session_secret": SECRET}).to_string()),
         p if p.contains("/tasks/conflict") => (409, json!({"error": {"code": "VERSION_CONFLICT", "message": "stale", "details": {"current_version": 3}}}).to_string()),
         p if p.contains("/tasks/echo") => (400, json!({"error": {"code": "BAD_REQUEST", "message": format!("you sent {SECRET}")}}).to_string()),
         p if p.contains("/tasks/html") => (502, "<html>bad gateway</html>".to_string()),
         p if p.contains("/tasks/missing") => (404, json!({"error": {"code": "NOT_FOUND", "message": "task not found"}}).to_string()),
         _ => (200, "{}".to_string()),
+    }
     }));
     let mut mcp = Mcp::start(&stub.url, None);
     mcp.tool("collab_start_session", start_args());
 
-    let (is_error, v) = mcp.tool_json("collab_get_task", json!({"owner": "o", "repo": "r", "task_id": "conflict"}));
+    let (is_error, v) = mcp.tool_json(
+        "collab_get_task",
+        json!({"owner": "o", "repo": "r", "task_id": "conflict"}),
+    );
     assert!(is_error, "errors must set isError");
     assert_eq!(v["error"]["status"], 409);
     assert_eq!(v["error"]["code"], "VERSION_CONFLICT");
     assert_eq!(v["error"]["details"]["current_version"], 3);
 
-    let (is_error, v) = mcp.tool_json("collab_get_task", json!({"owner": "o", "repo": "r", "task_id": "missing"}));
+    let (is_error, v) = mcp.tool_json(
+        "collab_get_task",
+        json!({"owner": "o", "repo": "r", "task_id": "missing"}),
+    );
     assert!(is_error);
-    assert_eq!((v["error"]["status"].as_i64(), v["error"]["code"].as_str()), (Some(404), Some("NOT_FOUND")));
+    assert_eq!(
+        (v["error"]["status"].as_i64(), v["error"]["code"].as_str()),
+        (Some(404), Some("NOT_FOUND"))
+    );
 
-    let (is_error, v) = mcp.tool_json("collab_get_task", json!({"owner": "o", "repo": "r", "task_id": "html"}));
+    let (is_error, v) = mcp.tool_json(
+        "collab_get_task",
+        json!({"owner": "o", "repo": "r", "task_id": "html"}),
+    );
     assert!(is_error);
     assert_eq!(v["error"]["status"], 502);
     assert_eq!(v["error"]["code"], "HTTP_ERROR");
 
     // Even a server that echoes the secret cannot get it through.
-    let (is_error, text) = mcp.tool("collab_get_task", json!({"owner": "o", "repo": "r", "task_id": "echo"}));
+    let (is_error, text) = mcp.tool(
+        "collab_get_task",
+        json!({"owner": "o", "repo": "r", "task_id": "echo"}),
+    );
     assert!(is_error);
     assert!(!text.contains(SECRET), "{text}");
     assert!(text.contains("[redacted]"));
@@ -323,27 +449,58 @@ fn t11_invalid_arguments_are_rejected_before_any_request() {
     let before = stub.requests().len();
 
     let cases = [
-        ("collab_get_task", json!({"owner": "../x", "repo": "r", "task_id": "t"})),
-        ("collab_get_task", json!({"owner": "o", "repo": "r", "task_id": "../../etc"})),
+        (
+            "collab_get_task",
+            json!({"owner": "../x", "repo": "r", "task_id": "t"}),
+        ),
+        (
+            "collab_get_task",
+            json!({"owner": "o", "repo": "r", "task_id": "../../etc"}),
+        ),
         ("collab_get_task", json!({"owner": "o", "repo": "r"})),
         ("collab_get_task", json!({"repo": "r", "task_id": "t"})),
-        ("collab_send_message", json!({"owner": "o", "repo": "r", "task_id": "t", "kind": "note"})),
-        ("collab_update_task", json!({"owner": "o", "repo": "r", "task_id": "t", "title": "no version"})),
-        ("collab_update_task", json!({"owner": "o", "repo": "r", "task_id": "t", "expected_version": "3"})),
-        ("collab_mark_read", json!({"owner": "o", "repo": "r", "task_id": "t"})),
-        ("collab_accept_handoff", json!({"owner": "o", "repo": "r", "handoff_id": "h"})),
-        ("collab_create_handoff", json!({"owner": "o", "repo": "r", "task_id": "t", "summary": "s"})),
+        (
+            "collab_send_message",
+            json!({"owner": "o", "repo": "r", "task_id": "t", "kind": "note"}),
+        ),
+        (
+            "collab_update_task",
+            json!({"owner": "o", "repo": "r", "task_id": "t", "title": "no version"}),
+        ),
+        (
+            "collab_update_task",
+            json!({"owner": "o", "repo": "r", "task_id": "t", "expected_version": "3"}),
+        ),
+        (
+            "collab_mark_read",
+            json!({"owner": "o", "repo": "r", "task_id": "t"}),
+        ),
+        (
+            "collab_accept_handoff",
+            json!({"owner": "o", "repo": "r", "handoff_id": "h"}),
+        ),
+        (
+            "collab_create_handoff",
+            json!({"owner": "o", "repo": "r", "task_id": "t", "summary": "s"}),
+        ),
         ("collab_create_task", json!({"owner": "o", "repo": "r"})),
         ("collab_start_session", json!({"owner": "o", "repo": "r"})),
     ];
     for (tool, args) in cases {
         let (is_error, v) = mcp.tool_json(tool, args.clone());
         assert!(is_error, "{tool} {args}");
-        assert_eq!(v["error"]["code"], "INVALID_ARGUMENTS", "{tool} {args}: {v}");
+        assert_eq!(
+            v["error"]["code"], "INVALID_ARGUMENTS",
+            "{tool} {args}: {v}"
+        );
     }
     let (is_error, _) = mcp.tool("collab_get_task", json!("not an object"));
     assert!(is_error);
-    assert_eq!(stub.requests().len(), before, "invalid calls must not reach the API");
+    assert_eq!(
+        stub.requests().len(),
+        before,
+        "invalid calls must not reach the API"
+    );
     mcp.stop();
 }
 
@@ -352,18 +509,30 @@ fn t11_session_bound_tools_need_a_session_and_say_so() {
     let stub = Stub::spawn(happy_handler());
     let mut mcp = Mcp::start(&stub.url, None);
     for (tool, args) in [
-        ("collab_create_task", json!({"owner": "o", "repo": "r", "title": "t"})),
+        (
+            "collab_create_task",
+            json!({"owner": "o", "repo": "r", "title": "t"}),
+        ),
         ("collab_heartbeat", json!({"owner": "o", "repo": "r"})),
-        ("collab_send_message", json!({"owner": "o", "repo": "r", "task_id": "t", "kind": "note", "body": "b"})),
+        (
+            "collab_send_message",
+            json!({"owner": "o", "repo": "r", "task_id": "t", "kind": "note", "body": "b"}),
+        ),
     ] {
         let (is_error, v) = mcp.tool_json(tool, args);
         assert!(is_error);
         assert_eq!(v["error"]["code"], "NO_ACTIVE_SESSION", "{tool}");
     }
     // Read-only tools work without a session.
-    let (is_error, _) = mcp.tool("collab_get_task", json!({"owner": "o", "repo": "r", "task_id": "t"}));
+    let (is_error, _) = mcp.tool(
+        "collab_get_task",
+        json!({"owner": "o", "repo": "r", "task_id": "t"}),
+    );
     assert!(!is_error);
-    assert!(stub.requests().iter().all(|r| r.method == "GET"), "no write reached the API");
+    assert!(
+        stub.requests().iter().all(|r| r.method == "GET"),
+        "no write reached the API"
+    );
     mcp.stop();
 }
 
@@ -373,33 +542,76 @@ fn t11_payload_mapping_keeps_nulls_and_idempotency_keys() {
     let mut mcp = Mcp::start(&stub.url, None);
     mcp.tool("collab_start_session", start_args());
 
-    mcp.tool("collab_update_task", json!({
-        "owner": "o", "repo": "r", "task_id": "t1", "expected_version": 4,
-        "branch": null, "status": "done", "owner_session_id": null
-    }));
+    mcp.tool(
+        "collab_update_task",
+        json!({
+            "owner": "o", "repo": "r", "task_id": "t1", "expected_version": 4,
+            "branch": null, "status": "done", "owner_session_id": null
+        }),
+    );
     mcp.tool("collab_send_message", json!({"owner": "o", "repo": "r", "task_id": "t1", "kind": "help", "body": "stuck", "client_message_id": "my-key-1"}));
-    let (_, generated) = mcp.tool_json("collab_send_message", json!({"owner": "o", "repo": "r", "task_id": "t1", "kind": "note", "body": "x"}));
-    mcp.tool("collab_list_messages", json!({"owner": "o", "repo": "r", "task_id": "t1", "after_seq": 7, "limit": 20}));
-    mcp.tool("collab_accept_handoff", json!({"owner": "o", "repo": "r", "handoff_id": "h1", "expected_version": 1}));
-    mcp.tool("collab_mark_read", json!({"owner": "o", "repo": "r", "task_id": "t1", "last_read_seq": 5}));
+    let (_, generated) = mcp.tool_json(
+        "collab_send_message",
+        json!({"owner": "o", "repo": "r", "task_id": "t1", "kind": "note", "body": "x"}),
+    );
+    mcp.tool(
+        "collab_list_messages",
+        json!({"owner": "o", "repo": "r", "task_id": "t1", "after_seq": 7, "limit": 20}),
+    );
+    mcp.tool(
+        "collab_accept_handoff",
+        json!({"owner": "o", "repo": "r", "handoff_id": "h1", "expected_version": 1}),
+    );
+    mcp.tool(
+        "collab_mark_read",
+        json!({"owner": "o", "repo": "r", "task_id": "t1", "last_read_seq": 5}),
+    );
 
     let reqs = stub.requests();
-    let find = |m: &str, suffix: &str| reqs.iter().find(|r| r.method == m && r.path.ends_with(suffix)).unwrap_or_else(|| panic!("{m} {suffix} in {reqs:?}"));
+    let find = |m: &str, suffix: &str| {
+        reqs.iter()
+            .find(|r| r.method == m && r.path.ends_with(suffix))
+            .unwrap_or_else(|| panic!("{m} {suffix} in {reqs:?}"))
+    };
     let patch = find("PATCH", "/collaboration/tasks/t1");
-    assert!(patch.body["branch"].is_null() && patch.body.as_object().unwrap().contains_key("branch"), "explicit null must be sent");
+    assert!(
+        patch.body["branch"].is_null() && patch.body.as_object().unwrap().contains_key("branch"),
+        "explicit null must be sent"
+    );
     assert!(patch.body["owner_session_id"].is_null());
-    assert_eq!((patch.body["expected_version"].as_i64(), patch.body["status"].as_str()), (Some(4), Some("done")));
-    assert!(!patch.body.as_object().unwrap().contains_key("title"), "omitted fields stay omitted");
+    assert_eq!(
+        (
+            patch.body["expected_version"].as_i64(),
+            patch.body["status"].as_str()
+        ),
+        (Some(4), Some("done"))
+    );
+    assert!(
+        !patch.body.as_object().unwrap().contains_key("title"),
+        "omitted fields stay omitted"
+    );
 
-    let sends: Vec<_> = reqs.iter().filter(|r| r.method == "POST" && r.path.ends_with("/tasks/t1/messages")).collect();
+    let sends: Vec<_> = reqs
+        .iter()
+        .filter(|r| r.method == "POST" && r.path.ends_with("/tasks/t1/messages"))
+        .collect();
     assert_eq!(sends[0].body["client_message_id"], "my-key-1");
     let auto = sends[1].body["client_message_id"].as_str().unwrap();
     assert!(uuid_like(auto), "{auto}");
-    assert_eq!(generated["client_message_id"], auto, "the key used is reported for retries");
+    assert_eq!(
+        generated["client_message_id"], auto,
+        "the key used is reported for retries"
+    );
 
-    assert!(reqs.iter().any(|r| r.path.ends_with("/tasks/t1/messages?after_seq=7&limit=20")));
-    assert!(reqs.iter().any(|r| r.method == "POST" && r.path.ends_with("/handoffs/h1/accept") && r.body == json!({"expected_version": 1})));
-    assert!(reqs.iter().any(|r| r.method == "PUT" && r.path.ends_with("/tasks/t1/read") && r.body == json!({"last_read_seq": 5})));
+    assert!(reqs
+        .iter()
+        .any(|r| r.path.ends_with("/tasks/t1/messages?after_seq=7&limit=20")));
+    assert!(reqs.iter().any(|r| r.method == "POST"
+        && r.path.ends_with("/handoffs/h1/accept")
+        && r.body == json!({"expected_version": 1})));
+    assert!(reqs.iter().any(|r| r.method == "PUT"
+        && r.path.ends_with("/tasks/t1/read")
+        && r.body == json!({"last_read_seq": 5})));
     mcp.stop();
 }
 
@@ -413,9 +625,17 @@ fn t11_expired_session_is_forgotten_and_a_new_one_can_be_registered() {
     let c = calls.clone();
     let stub = Stub::spawn(Box::new(move |req| {
         if req.method == "POST" && req.path.ends_with("/collaboration/sessions") {
-            let n = { let mut g = c.lock().unwrap(); *g += 1; *g };
+            let n = {
+                let mut g = c.lock().unwrap();
+                *g += 1;
+                *g
+            };
             let secret = format!("ifs_{}", format!("{n:02}").repeat(32));
-            (201, json!({"session": {"id": format!("sess-{n}")}, "session_secret": secret}).to_string())
+            (
+                201,
+                json!({"session": {"id": format!("sess-{n}")}, "session_secret": secret})
+                    .to_string(),
+            )
         } else if req.path.ends_with("/heartbeat") {
             (409, json!({"error": {"code": "SESSION_EXPIRED", "message": "session has ended or expired"}}).to_string())
         } else {
@@ -428,7 +648,10 @@ fn t11_expired_session_is_forgotten_and_a_new_one_can_be_registered() {
     assert!(is_error);
     assert_eq!(v["error"]["code"], "SESSION_EXPIRED");
     // The dead credentials are dropped, so the next write says "register" instead of retrying them.
-    let (_, v) = mcp.tool_json("collab_create_task", json!({"owner": "o", "repo": "r", "title": "t"}));
+    let (_, v) = mcp.tool_json(
+        "collab_create_task",
+        json!({"owner": "o", "repo": "r", "title": "t"}),
+    );
     assert_eq!(v["error"]["code"], "NO_ACTIVE_SESSION");
     // A fresh registration yields a new session.
     let (is_error, v) = mcp.tool_json("collab_start_session", start_args());
@@ -445,7 +668,11 @@ fn t11_restart_without_a_credential_file_requires_explicit_re_registration() {
     let r = registrations.clone();
     let stub = Stub::spawn(Box::new(move |req| {
         if req.method == "POST" && req.path.ends_with("/collaboration/sessions") {
-            let n = { let mut g = r.lock().unwrap(); *g += 1; *g };
+            let n = {
+                let mut g = r.lock().unwrap();
+                *g += 1;
+                *g
+            };
             (201, json!({"session": {"id": format!("sess-{n}")}, "session_secret": format!("ifs_{}", "ab".repeat(32))}).to_string())
         } else {
             (200, "{}".to_string())
@@ -456,14 +683,27 @@ fn t11_restart_without_a_credential_file_requires_explicit_re_registration() {
     first.stop();
 
     let mut second = Mcp::start(&stub.url, None);
-    let (is_error, v) = second.tool_json("collab_send_message", json!({"owner": "o", "repo": "r", "task_id": "t", "kind": "note", "body": "b"}));
+    let (is_error, v) = second.tool_json(
+        "collab_send_message",
+        json!({"owner": "o", "repo": "r", "task_id": "t", "kind": "note", "body": "b"}),
+    );
     assert!(is_error);
-    assert_eq!(v["error"]["code"], "NO_ACTIVE_SESSION", "an old session cannot be silently continued");
+    assert_eq!(
+        v["error"]["code"], "NO_ACTIVE_SESSION",
+        "an old session cannot be silently continued"
+    );
     let (is_error, v) = second.tool_json("collab_start_session", start_args());
     assert!(!is_error);
     assert_eq!(v["id"], "sess-2", "re-registration creates a new session");
     // The read side never needed a session.
-    assert!(!second.tool("collab_list_messages", json!({"owner": "o", "repo": "r", "task_id": "t"})).0);
+    assert!(
+        !second
+            .tool(
+                "collab_list_messages",
+                json!({"owner": "o", "repo": "r", "task_id": "t"})
+            )
+            .0
+    );
     second.stop();
 }
 
@@ -483,27 +723,60 @@ fn t11_restart_with_a_credential_file_resumes_the_same_session() {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        assert_eq!(std::fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
+        assert_eq!(
+            std::fs::metadata(&file).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
     }
 
     let mut second = Mcp::start(&stub.url, Some(&file));
     let (is_error, v) = second.tool_json("collab_start_session", start_args());
     assert!(!is_error, "{v}");
-    assert_eq!((v["resumed"].as_bool(), v["id"].as_str()), (Some(true), Some(SESSION_ID)));
+    assert_eq!(
+        (v["resumed"].as_bool(), v["id"].as_str()),
+        (Some(true), Some(SESSION_ID))
+    );
     assert!(!v.to_string().contains(SECRET));
-    let registrations = stub.requests().iter().filter(|r| r.method == "POST" && r.path.ends_with("/collaboration/sessions")).count();
-    assert_eq!(registrations, 1, "resuming must not register a duplicate session");
+    let registrations = stub
+        .requests()
+        .iter()
+        .filter(|r| r.method == "POST" && r.path.ends_with("/collaboration/sessions"))
+        .count();
+    assert_eq!(
+        registrations, 1,
+        "resuming must not register a duplicate session"
+    );
 
     // It can act as the same session straight away.
-    let (is_error, _) = second.tool("collab_send_message", json!({"owner": "o", "repo": "r", "task_id": "t", "kind": "note", "body": "after restart"}));
+    let (is_error, _) = second.tool(
+        "collab_send_message",
+        json!({"owner": "o", "repo": "r", "task_id": "t", "kind": "note", "body": "after restart"}),
+    );
     assert!(!is_error);
-    let last = stub.requests().into_iter().rev().find(|r| r.path.ends_with("/messages")).unwrap();
-    assert_eq!(last.headers.get("x-ironforge-session-secret").map(String::as_str), Some(SECRET));
+    let last = stub
+        .requests()
+        .into_iter()
+        .rev()
+        .find(|r| r.path.ends_with("/messages"))
+        .unwrap();
+    assert_eq!(
+        last.headers
+            .get("x-ironforge-session-secret")
+            .map(String::as_str),
+        Some(SECRET)
+    );
 
     // Ending the session removes the credentials from the file.
-    assert!(!second.tool("collab_end_session", json!({"owner": "o", "repo": "r"})).0);
+    assert!(
+        !second
+            .tool("collab_end_session", json!({"owner": "o", "repo": "r"}))
+            .0
+    );
     let after = std::fs::read_to_string(&file).unwrap();
-    assert!(!after.contains(SECRET) && !after.contains(SESSION_ID), "{after}");
+    assert!(
+        !after.contains(SECRET) && !after.contains(SESSION_ID),
+        "{after}"
+    );
     let stderr = second.stop();
     assert!(!stderr.contains(SECRET));
 }
@@ -519,26 +792,63 @@ fn p14_p0_tools_map_to_the_rest_api_with_session_credentials_and_idempotency_key
     let base = json!({"owner": "o", "repo": "r"});
     let with = |extra: Value| {
         let mut args = base.clone();
-        args.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        args.as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
         args
     };
     let tid = "22222222-2222-4222-8222-222222222222";
     let qid = "33333333-3333-4333-8333-333333333333";
 
     let calls: Vec<(&str, Value)> = vec![
-        ("collab_get_rules", with(json!({"ref": "feature/x", "path": "web/src"}))),
-        ("collab_get_inbox", with(json!({"since": "2026-11-04T00:00:00Z", "limit": 5}))),
-        ("collab_claim_task", with(json!({"task_id": tid, "expected_task_version": 3, "expected_owner_session_id": null, "reason": "owner gone"}))),
+        (
+            "collab_get_rules",
+            with(json!({"ref": "feature/x", "path": "web/src"})),
+        ),
+        (
+            "collab_get_inbox",
+            with(json!({"since": "2026-11-04T00:00:00Z", "limit": 5})),
+        ),
+        (
+            "collab_claim_task",
+            with(
+                json!({"task_id": tid, "expected_task_version": 3, "expected_owner_session_id": null, "reason": "owner gone"}),
+            ),
+        ),
         ("collab_list_takeovers", with(json!({"task_id": tid}))),
-        ("collab_ask_question", with(json!({"task_id": tid, "recipient": {"kind": "session", "id": "self"}, "title": "Which?", "body": "A or B", "options": ["A", "B"]}))),
-        ("collab_list_questions", with(json!({"task_id": tid, "status": "open"}))),
+        (
+            "collab_ask_question",
+            with(
+                json!({"task_id": tid, "recipient": {"kind": "session", "id": "self"}, "title": "Which?", "body": "A or B", "options": ["A", "B"]}),
+            ),
+        ),
+        (
+            "collab_list_questions",
+            with(json!({"task_id": tid, "status": "open"})),
+        ),
         ("collab_get_question", with(json!({"question_id": qid}))),
-        ("collab_answer_question", with(json!({"question_id": qid, "expected_version": 1, "acknowledged_context_hash": "abc", "option_id": "o1"}))),
-        ("collab_cancel_question", with(json!({"question_id": qid, "expected_version": 1}))),
-        ("collab_create_work_package", with(json!({"task_id": tid, "goal": "g", "evidence_refs": [{"kind": "pipeline", "reference": "7"}]}))),
+        (
+            "collab_answer_question",
+            with(
+                json!({"question_id": qid, "expected_version": 1, "acknowledged_context_hash": "abc", "option_id": "o1"}),
+            ),
+        ),
+        (
+            "collab_cancel_question",
+            with(json!({"question_id": qid, "expected_version": 1})),
+        ),
+        (
+            "collab_create_work_package",
+            with(
+                json!({"task_id": tid, "goal": "g", "evidence_refs": [{"kind": "pipeline", "reference": "7"}]}),
+            ),
+        ),
         ("collab_list_work_packages", with(json!({"task_id": tid}))),
         ("collab_get_work_package", with(json!({"package_id": qid}))),
-        ("collab_get_completion_status", with(json!({"task_id": tid}))),
+        (
+            "collab_get_completion_status",
+            with(json!({"task_id": tid})),
+        ),
     ];
     for (tool, args) in &calls {
         let (err, out) = mcp.tool(tool, args.clone());
@@ -550,29 +860,68 @@ fn p14_p0_tools_map_to_the_rest_api_with_session_credentials_and_idempotency_key
     let find = |method: &str, suffix: &str| -> Req {
         reqs.iter()
             .find(|r| r.method == method && r.path.contains(suffix))
-            .unwrap_or_else(|| panic!("no {method} …{suffix} in {:?}", reqs.iter().map(|r| format!("{} {}", r.method, r.path)).collect::<Vec<_>>()))
+            .unwrap_or_else(|| {
+                panic!(
+                    "no {method} …{suffix} in {:?}",
+                    reqs.iter()
+                        .map(|r| format!("{} {}", r.method, r.path))
+                        .collect::<Vec<_>>()
+                )
+            })
             .clone()
     };
     let session = |r: &Req| {
-        assert_eq!(r.headers.get("x-ironforge-session").map(String::as_str), Some(SESSION_ID), "{}", r.path);
-        assert_eq!(r.headers.get("x-ironforge-session-secret").map(String::as_str), Some(SECRET), "{}", r.path);
+        assert_eq!(
+            r.headers.get("x-ironforge-session").map(String::as_str),
+            Some(SESSION_ID),
+            "{}",
+            r.path
+        );
+        assert_eq!(
+            r.headers
+                .get("x-ironforge-session-secret")
+                .map(String::as_str),
+            Some(SECRET),
+            "{}",
+            r.path
+        );
     };
 
     let rules = find("GET", "/collaboration/rules");
-    assert!(rules.path.ends_with("/rules?ref=feature%2Fx&path=web%2Fsrc"), "{}", rules.path);
+    assert!(
+        rules
+            .path
+            .ends_with("/rules?ref=feature%2Fx&path=web%2Fsrc"),
+        "{}",
+        rules.path
+    );
     let inbox = find("GET", "/collaboration/inbox");
-    assert!(inbox.path.contains("since=2026-11-04T00%3A00%3A00Z") && inbox.path.contains("limit=5"), "{}", inbox.path);
+    assert!(
+        inbox.path.contains("since=2026-11-04T00%3A00%3A00Z") && inbox.path.contains("limit=5"),
+        "{}",
+        inbox.path
+    );
     session(&inbox); // the inbox is the session's own
 
     let claim = find("POST", &format!("/tasks/{tid}/takeovers"));
     session(&claim);
     assert_eq!(claim.body["expected_task_version"], 3);
-    assert!(claim.body["expected_owner_session_id"].is_null(), "explicit null is kept");
-    assert!(uuid_like(claim.body["client_takeover_id"].as_str().unwrap()), "idempotency key generated");
+    assert!(
+        claim.body["expected_owner_session_id"].is_null(),
+        "explicit null is kept"
+    );
+    assert!(
+        uuid_like(claim.body["client_takeover_id"].as_str().unwrap()),
+        "idempotency key generated"
+    );
 
     let ask = find("POST", &format!("/tasks/{tid}/questions"));
     session(&ask);
-    assert_eq!(ask.body["recipient"], json!({"kind": "session", "id": SESSION_ID}), "\"self\" resolved");
+    assert_eq!(
+        ask.body["recipient"],
+        json!({"kind": "session", "id": SESSION_ID}),
+        "\"self\" resolved"
+    );
     assert_eq!(ask.body["options"], json!(["A", "B"]));
     assert!(uuid_like(ask.body["client_question_id"].as_str().unwrap()));
 
@@ -584,12 +933,23 @@ fn p14_p0_tools_map_to_the_rest_api_with_session_credentials_and_idempotency_key
 
     let package = find("POST", &format!("/tasks/{tid}/work-packages"));
     session(&package);
-    assert_eq!(package.body["evidence_refs"][0], json!({"kind": "pipeline", "reference": "7"}));
-    assert!(uuid_like(package.body["client_package_id"].as_str().unwrap()));
+    assert_eq!(
+        package.body["evidence_refs"][0],
+        json!({"kind": "pipeline", "reference": "7"})
+    );
+    assert!(uuid_like(
+        package.body["client_package_id"].as_str().unwrap()
+    ));
 
-    assert!(find("GET", &format!("/tasks/{tid}/questions?status=open")).path.contains("status=open"));
-    assert!(find("GET", &format!("/work-packages/{qid}")).path.ends_with(&format!("/work-packages/{qid}")));
-    assert!(find("GET", &format!("/tasks/{tid}/completion-status")).path.ends_with("/completion-status"));
+    assert!(find("GET", &format!("/tasks/{tid}/questions?status=open"))
+        .path
+        .contains("status=open"));
+    assert!(find("GET", &format!("/work-packages/{qid}"))
+        .path
+        .ends_with(&format!("/work-packages/{qid}")));
+    assert!(find("GET", &format!("/tasks/{tid}/completion-status"))
+        .path
+        .ends_with("/completion-status"));
 
     // The secret never appears in any URL or body.
     for r in &reqs {
@@ -608,13 +968,34 @@ fn p14_p0_tools_reject_bad_arguments_before_any_request() {
     let before = stub.requests().len();
     let tid = "22222222-2222-4222-8222-222222222222";
     for (tool, args) in [
-        ("collab_claim_task", json!({"owner": "o", "repo": "r", "task_id": tid, "reason": "x"})), // no version
-        ("collab_claim_task", json!({"owner": "o", "repo": "r", "task_id": tid, "expected_task_version": 1})), // no reason
-        ("collab_ask_question", json!({"owner": "o", "repo": "r", "task_id": tid, "title": "t", "body": "b"})), // no recipient
-        ("collab_ask_question", json!({"owner": "o", "repo": "r", "task_id": tid, "recipient": "everyone", "title": "t", "body": "b"})),
-        ("collab_answer_question", json!({"owner": "o", "repo": "r", "question_id": "q", "expected_version": 1})), // no hash
-        ("collab_get_question", json!({"owner": "o", "repo": "r", "question_id": "../x"})),
-        ("collab_get_work_package", json!({"owner": "o", "repo": "r", "package_id": "a/b"})),
+        (
+            "collab_claim_task",
+            json!({"owner": "o", "repo": "r", "task_id": tid, "reason": "x"}),
+        ), // no version
+        (
+            "collab_claim_task",
+            json!({"owner": "o", "repo": "r", "task_id": tid, "expected_task_version": 1}),
+        ), // no reason
+        (
+            "collab_ask_question",
+            json!({"owner": "o", "repo": "r", "task_id": tid, "title": "t", "body": "b"}),
+        ), // no recipient
+        (
+            "collab_ask_question",
+            json!({"owner": "o", "repo": "r", "task_id": tid, "recipient": "everyone", "title": "t", "body": "b"}),
+        ),
+        (
+            "collab_answer_question",
+            json!({"owner": "o", "repo": "r", "question_id": "q", "expected_version": 1}),
+        ), // no hash
+        (
+            "collab_get_question",
+            json!({"owner": "o", "repo": "r", "question_id": "../x"}),
+        ),
+        (
+            "collab_get_work_package",
+            json!({"owner": "o", "repo": "r", "package_id": "a/b"}),
+        ),
     ] {
         let (err, out) = mcp.tool_json(tool, args);
         assert!(err, "{tool} should be rejected: {out}");
@@ -627,7 +1008,11 @@ fn p14_p0_tools_reject_bad_arguments_before_any_request() {
 fn p14_coded_conflicts_reach_the_model_with_their_details() {
     let handler: Handler = Box::new(|req| {
         if req.method == "POST" && req.path.ends_with("/collaboration/sessions") {
-            (201, json!({"session": {"id": SESSION_ID, "state": "online"}, "session_secret": SECRET}).to_string())
+            (
+                201,
+                json!({"session": {"id": SESSION_ID, "state": "online"}, "session_secret": SECRET})
+                    .to_string(),
+            )
         } else {
             (
                 409,
@@ -663,14 +1048,24 @@ fn u01_dependency_tools_map_to_the_rest_api_and_validate_before_sending() {
     let dep = "33333333-3333-4333-8333-333333333333";
     let base = |extra: Value| {
         let mut args = json!({"owner": "o", "repo": "r"});
-        args.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        args.as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
         args
     };
 
     for (tool, args) in [
         ("collab_get_dependencies", base(json!({"task_id": tid}))),
-        ("collab_add_dependency", base(json!({"task_id": tid, "depends_on_task_id": dep, "expected_graph_version": 0}))),
-        ("collab_remove_dependency", base(json!({"task_id": tid, "depends_on_task_id": dep, "expected_graph_version": 1, "client_request_id": "mine-1"}))),
+        (
+            "collab_add_dependency",
+            base(json!({"task_id": tid, "depends_on_task_id": dep, "expected_graph_version": 0})),
+        ),
+        (
+            "collab_remove_dependency",
+            base(
+                json!({"task_id": tid, "depends_on_task_id": dep, "expected_graph_version": 1, "client_request_id": "mine-1"}),
+            ),
+        ),
     ] {
         let (err, out) = mcp.tool(tool, args);
         assert!(!err, "{tool}: {out}");
@@ -684,8 +1079,16 @@ fn u01_dependency_tools_map_to_the_rest_api_and_validate_before_sending() {
             .clone()
     };
     let session = |r: &Req| {
-        assert_eq!(r.headers.get("x-ironforge-session").map(String::as_str), Some(SESSION_ID));
-        assert_eq!(r.headers.get("x-ironforge-session-secret").map(String::as_str), Some(SECRET));
+        assert_eq!(
+            r.headers.get("x-ironforge-session").map(String::as_str),
+            Some(SESSION_ID)
+        );
+        assert_eq!(
+            r.headers
+                .get("x-ironforge-session-secret")
+                .map(String::as_str),
+            Some(SECRET)
+        );
     };
     let list = find("GET", &format!("/collaboration/tasks/{tid}/dependencies"));
     assert!(list.body.is_null() || list.body == json!({}));
@@ -693,19 +1096,45 @@ fn u01_dependency_tools_map_to_the_rest_api_and_validate_before_sending() {
     session(&add);
     assert_eq!(add.body["depends_on_task_id"], dep);
     assert_eq!(add.body["expected_graph_version"], 0);
-    assert!(uuid_like(add.body["client_request_id"].as_str().unwrap()), "idempotency key generated");
-    let remove = find("DELETE", &format!("/collaboration/tasks/{tid}/dependencies/{dep}"));
+    assert!(
+        uuid_like(add.body["client_request_id"].as_str().unwrap()),
+        "idempotency key generated"
+    );
+    let remove = find(
+        "DELETE",
+        &format!("/collaboration/tasks/{tid}/dependencies/{dep}"),
+    );
     session(&remove);
-    assert_eq!(remove.body, json!({"client_request_id": "mine-1", "expected_graph_version": 1}));
+    assert_eq!(
+        remove.body,
+        json!({"client_request_id": "mine-1", "expected_graph_version": 1})
+    );
 
     // Missing version / bad ids never leave the process.
     let before = stub.requests().len();
     for (tool, args) in [
-        ("collab_add_dependency", base(json!({"task_id": tid, "depends_on_task_id": dep}))),
-        ("collab_add_dependency", base(json!({"task_id": tid, "expected_graph_version": 0}))),
-        ("collab_add_dependency", base(json!({"task_id": tid, "depends_on_task_id": "../x", "expected_graph_version": 0}))),
-        ("collab_remove_dependency", base(json!({"task_id": tid, "depends_on_task_id": dep}))),
-        ("collab_remove_dependency", base(json!({"task_id": "a/b", "depends_on_task_id": dep, "expected_graph_version": 1}))),
+        (
+            "collab_add_dependency",
+            base(json!({"task_id": tid, "depends_on_task_id": dep})),
+        ),
+        (
+            "collab_add_dependency",
+            base(json!({"task_id": tid, "expected_graph_version": 0})),
+        ),
+        (
+            "collab_add_dependency",
+            base(
+                json!({"task_id": tid, "depends_on_task_id": "../x", "expected_graph_version": 0}),
+            ),
+        ),
+        (
+            "collab_remove_dependency",
+            base(json!({"task_id": tid, "depends_on_task_id": dep})),
+        ),
+        (
+            "collab_remove_dependency",
+            base(json!({"task_id": "a/b", "depends_on_task_id": dep, "expected_graph_version": 1})),
+        ),
         ("collab_get_dependencies", base(json!({"task_id": "a/b"}))),
     ] {
         let (err, out) = mcp.tool_json(tool, args);
@@ -720,7 +1149,11 @@ fn u01_dependency_tools_map_to_the_rest_api_and_validate_before_sending() {
 fn u01_dependency_conflict_codes_and_details_reach_the_model() {
     let handler: Handler = Box::new(|req| {
         if req.method == "POST" && req.path.ends_with("/collaboration/sessions") {
-            (201, json!({"session": {"id": SESSION_ID, "state": "online"}, "session_secret": SECRET}).to_string())
+            (
+                201,
+                json!({"session": {"id": SESSION_ID, "state": "online"}, "session_secret": SECRET})
+                    .to_string(),
+            )
         } else {
             (
                 409,
@@ -741,7 +1174,10 @@ fn u01_dependency_conflict_codes_and_details_reach_the_model() {
     assert!(err);
     assert_eq!(out["error"]["status"], 409);
     assert_eq!(out["error"]["code"], "DEPENDENCY_CYCLE");
-    assert_eq!(out["error"]["details"]["cycle_path"], json!(["a", "b", "a"]));
+    assert_eq!(
+        out["error"]["details"]["cycle_path"],
+        json!(["a", "b", "a"])
+    );
     mcp.stop();
 }
 
@@ -758,15 +1194,30 @@ fn u02_decision_tools_map_to_the_rest_api_and_reject_bad_arguments_locally() {
     let repl = "55555555-5555-4555-8555-555555555555";
     let args = |extra: Value| {
         let mut args = json!({"owner": "o", "repo": "r"});
-        args.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        args.as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
         args
     };
 
     for (tool, a) in [
-        ("collab_create_decision", args(json!({"task_id": tid, "title": "Use PG", "rationale": "writers", "question_id": did, "context": {"task_version": 2}}))),
-        ("collab_list_decisions", args(json!({"task_id": tid, "limit": 5}))),
+        (
+            "collab_create_decision",
+            args(
+                json!({"task_id": tid, "title": "Use PG", "rationale": "writers", "question_id": did, "context": {"task_version": 2}}),
+            ),
+        ),
+        (
+            "collab_list_decisions",
+            args(json!({"task_id": tid, "limit": 5})),
+        ),
         ("collab_get_decision", args(json!({"decision_id": did}))),
-        ("collab_change_decision", args(json!({"decision_id": did, "kind": "superseded", "replacement_decision_id": repl, "reason": "newer"}))),
+        (
+            "collab_change_decision",
+            args(
+                json!({"decision_id": did, "kind": "superseded", "replacement_decision_id": repl, "reason": "newer"}),
+            ),
+        ),
     ] {
         let (err, out) = mcp.tool(tool, a);
         assert!(!err, "{tool}: {out}");
@@ -780,31 +1231,60 @@ fn u02_decision_tools_map_to_the_rest_api_and_reject_bad_arguments_locally() {
             .clone()
     };
     let session = |r: &Req| {
-        assert_eq!(r.headers.get("x-ironforge-session").map(String::as_str), Some(SESSION_ID));
-        assert_eq!(r.headers.get("x-ironforge-session-secret").map(String::as_str), Some(SECRET));
+        assert_eq!(
+            r.headers.get("x-ironforge-session").map(String::as_str),
+            Some(SESSION_ID)
+        );
+        assert_eq!(
+            r.headers
+                .get("x-ironforge-session-secret")
+                .map(String::as_str),
+            Some(SECRET)
+        );
     };
     let create = find("POST", &format!("/tasks/{tid}/decisions"));
     session(&create);
     assert_eq!(create.body["question_id"], did);
     assert_eq!(create.body["context"]["task_version"], 2);
-    assert!(uuid_like(create.body["client_decision_id"].as_str().unwrap()), "idempotency key generated");
-    assert!(find("GET", &format!("/tasks/{tid}/decisions?limit=5")).path.contains("limit=5"));
-    assert!(find("GET", &format!("/decisions/{did}")).path.ends_with(&format!("/decisions/{did}")));
+    assert!(
+        uuid_like(create.body["client_decision_id"].as_str().unwrap()),
+        "idempotency key generated"
+    );
+    assert!(find("GET", &format!("/tasks/{tid}/decisions?limit=5"))
+        .path
+        .contains("limit=5"));
+    assert!(find("GET", &format!("/decisions/{did}"))
+        .path
+        .ends_with(&format!("/decisions/{did}")));
     let changed = find("POST", &format!("/decisions/{did}/changes"));
     session(&changed);
     assert_eq!(changed.body["kind"], "superseded");
     assert_eq!(changed.body["replacement_decision_id"], repl);
-    assert!(uuid_like(changed.body["client_change_id"].as_str().unwrap()));
+    assert!(uuid_like(
+        changed.body["client_change_id"].as_str().unwrap()
+    ));
     for r in &reqs {
         assert!(!r.path.contains(SECRET) && !r.body.to_string().contains(SECRET));
     }
 
     let before = stub.requests().len();
     for (tool, a) in [
-        ("collab_create_decision", args(json!({"task_id": tid, "title": "t"}))), // no rationale
-        ("collab_create_decision", args(json!({"task_id": "../x", "title": "t", "rationale": "r"}))),
-        ("collab_change_decision", args(json!({"decision_id": did, "kind": "revoked"}))), // no reason
-        ("collab_change_decision", args(json!({"decision_id": did, "reason": "r"}))), // no kind
+        (
+            "collab_create_decision",
+            args(json!({"task_id": tid, "title": "t"})),
+        ), // no rationale
+        (
+            "collab_create_decision",
+            args(json!({"task_id": "../x", "title": "t", "rationale": "r"})),
+        ),
+        (
+            "collab_change_decision",
+            args(json!({"decision_id": did, "kind": "revoked"})),
+        ), // no reason
+        (
+            "collab_change_decision",
+            args(json!({"decision_id": did, "reason": "r"})),
+        ), // no kind
         ("collab_get_decision", args(json!({"decision_id": "a/b"}))),
     ] {
         let (err, out) = mcp.tool_json(tool, a);
@@ -821,12 +1301,34 @@ fn x02_group_tools_map_to_the_rest_api() {
     let stub = Stub::spawn(happy_handler());
     let mut mcp = Mcp::start(&stub.url, None);
     let listed = mcp.rpc("tools/list", json!({}));
-    let names: Vec<&str> = listed["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
-    for expected in ["collab_create_group", "collab_get_group", "collab_add_group_link", "collab_list_group_links", "collab_remove_group_link"] {
+    let names: Vec<&str> = listed["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["name"].as_str().unwrap())
+        .collect();
+    for expected in [
+        "collab_create_group",
+        "collab_get_group",
+        "collab_add_group_link",
+        "collab_list_group_links",
+        "collab_remove_group_link",
+    ] {
         assert!(names.contains(&expected), "missing {expected}");
     }
-    let create_def = listed["result"]["tools"].as_array().unwrap().iter().find(|t| t["name"] == "collab_create_group").unwrap();
-    assert!(create_def["description"].as_str().unwrap().contains("readable by everyone who can read this repository's collaboration data"), "the visibility warning is part of the tool contract");
+    let create_def = listed["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["name"] == "collab_create_group")
+        .unwrap();
+    assert!(
+        create_def["description"]
+            .as_str()
+            .unwrap()
+            .contains("readable by everyone who can read this repository's collaboration data"),
+        "the visibility warning is part of the tool contract"
+    );
 
     let (err, _) = mcp.tool_json("collab_start_session", start_args());
     assert!(!err);
@@ -835,15 +1337,34 @@ fn x02_group_tools_map_to_the_rest_api() {
     let base = json!({"owner": "o", "repo": "r"});
     let with = |extra: Value| {
         let mut args = base.clone();
-        args.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        args.as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
         args
     };
     for (tool, args) in [
-        ("collab_create_group", with(json!({"title": "release train", "description": "d"}))),
-        ("collab_get_group", with(json!({"group_id": gid, "limit": 10}))),
-        ("collab_add_group_link", with(json!({"group_id": gid, "target_repo_id": 9, "target_task_id": lid, "expected_group_version": 1}))),
-        ("collab_list_group_links", with(json!({"group_id": gid, "limit": 5, "cursor": "c.d"}))),
-        ("collab_remove_group_link", with(json!({"group_id": gid, "link_id": lid, "expected_group_version": 2}))),
+        (
+            "collab_create_group",
+            with(json!({"title": "release train", "description": "d"})),
+        ),
+        (
+            "collab_get_group",
+            with(json!({"group_id": gid, "limit": 10})),
+        ),
+        (
+            "collab_add_group_link",
+            with(
+                json!({"group_id": gid, "target_repo_id": 9, "target_task_id": lid, "expected_group_version": 1}),
+            ),
+        ),
+        (
+            "collab_list_group_links",
+            with(json!({"group_id": gid, "limit": 5, "cursor": "c.d"})),
+        ),
+        (
+            "collab_remove_group_link",
+            with(json!({"group_id": gid, "link_id": lid, "expected_group_version": 2})),
+        ),
     ] {
         let (err, out) = mcp.tool(tool, args);
         assert!(!err, "{tool}: {out}");
@@ -857,14 +1378,25 @@ fn x02_group_tools_map_to_the_rest_api() {
             .clone()
     };
     let session = |r: &Req| {
-        assert_eq!(r.headers.get("x-ironforge-session").map(String::as_str), Some(SESSION_ID));
-        assert_eq!(r.headers.get("x-ironforge-session-secret").map(String::as_str), Some(SECRET));
+        assert_eq!(
+            r.headers.get("x-ironforge-session").map(String::as_str),
+            Some(SESSION_ID)
+        );
+        assert_eq!(
+            r.headers
+                .get("x-ironforge-session-secret")
+                .map(String::as_str),
+            Some(SECRET)
+        );
     };
 
     let create = find("POST", "/collaboration/groups");
     session(&create);
     assert_eq!(create.body["title"], "release train");
-    assert!(uuid_like(create.body["client_request_id"].as_str().unwrap()), "idempotency key generated");
+    assert!(
+        uuid_like(create.body["client_request_id"].as_str().unwrap()),
+        "idempotency key generated"
+    );
     let add = find("POST", &format!("/groups/{gid}/links"));
     session(&add);
     assert_eq!(add.body["target_repo_id"], 9);
@@ -874,17 +1406,34 @@ fn x02_group_tools_map_to_the_rest_api() {
     let remove = find("DELETE", &format!("/groups/{gid}/links/{lid}"));
     session(&remove);
     assert_eq!(remove.body["expected_group_version"], 2);
-    assert!(uuid_like(remove.body["client_request_id"].as_str().unwrap()));
-    assert!(find("GET", &format!("/groups/{gid}?limit=10")).path.ends_with("?limit=10"));
-    assert!(find("GET", &format!("/groups/{gid}/links?limit=5&cursor=c.d")).path.contains("cursor=c.d"));
+    assert!(uuid_like(
+        remove.body["client_request_id"].as_str().unwrap()
+    ));
+    assert!(find("GET", &format!("/groups/{gid}?limit=10"))
+        .path
+        .ends_with("?limit=10"));
+    assert!(
+        find("GET", &format!("/groups/{gid}/links?limit=5&cursor=c.d"))
+            .path
+            .contains("cursor=c.d")
+    );
 
     // Bad arguments never leave the process.
     let before = stub.requests().len();
     for (tool, args) in [
         ("collab_create_group", with(json!({}))),
-        ("collab_add_group_link", with(json!({"group_id": gid, "expected_group_version": 1}))),
-        ("collab_add_group_link", with(json!({"group_id": gid, "target_repo_id": 9}))),
-        ("collab_remove_group_link", with(json!({"group_id": gid, "link_id": lid}))),
+        (
+            "collab_add_group_link",
+            with(json!({"group_id": gid, "expected_group_version": 1})),
+        ),
+        (
+            "collab_add_group_link",
+            with(json!({"group_id": gid, "target_repo_id": 9})),
+        ),
+        (
+            "collab_remove_group_link",
+            with(json!({"group_id": gid, "link_id": lid})),
+        ),
         ("collab_get_group", with(json!({"group_id": "../x"}))),
     ] {
         let (err, out) = mcp.tool_json(tool, args);
@@ -905,16 +1454,36 @@ fn o06_template_tools_map_to_the_rest_api() {
     let base = json!({"owner": "o", "repo": "r"});
     let with = |extra: Value| {
         let mut args = base.clone();
-        args.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        args.as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
         args
     };
     let tpl = "44444444-4444-4444-8444-444444444444";
     let calls: Vec<(&str, Value)> = vec![
-        ("collab_create_template", with(json!({"name": "Bugfix", "title_pattern": "Fix {area}", "goal": "g", "checklist": [{"text": "tests"}]}))),
-        ("collab_create_template", with(json!({"template_id": tpl, "expected_version": 1, "title_pattern": "Fix {area}", "goal": "g2"}))),
+        (
+            "collab_create_template",
+            with(
+                json!({"name": "Bugfix", "title_pattern": "Fix {area}", "goal": "g", "checklist": [{"text": "tests"}]}),
+            ),
+        ),
+        (
+            "collab_create_template",
+            with(
+                json!({"template_id": tpl, "expected_version": 1, "title_pattern": "Fix {area}", "goal": "g2"}),
+            ),
+        ),
         ("collab_list_templates", with(json!({"limit": 5}))),
-        ("collab_get_template", with(json!({"template_id": tpl, "version": 1}))),
-        ("collab_task_from_template", with(json!({"template_id": tpl, "params": {"area": "auth"}, "owner_session_id": "self", "rules_ref": "main"}))),
+        (
+            "collab_get_template",
+            with(json!({"template_id": tpl, "version": 1})),
+        ),
+        (
+            "collab_task_from_template",
+            with(
+                json!({"template_id": tpl, "params": {"area": "auth"}, "owner_session_id": "self", "rules_ref": "main"}),
+            ),
+        ),
     ];
     for (tool, args) in &calls {
         let (err, out) = mcp.tool(tool, args.clone());
@@ -931,15 +1500,30 @@ fn o06_template_tools_map_to_the_rest_api() {
     };
     let create = find("POST", "/collaboration/templates");
     assert_eq!(create.body["name"], "Bugfix");
-    assert!(uuid_like(create.body["client_template_id"].as_str().unwrap()), "idempotency key generated");
+    assert!(
+        uuid_like(create.body["client_template_id"].as_str().unwrap()),
+        "idempotency key generated"
+    );
     let version = find("POST", &format!("/templates/{tpl}/versions"));
     assert_eq!(version.body["expected_version"], 1);
-    assert!(uuid_like(version.body["client_version_id"].as_str().unwrap()));
-    assert!(find("GET", "/collaboration/templates?limit=5").path.contains("limit=5"));
-    assert!(find("GET", &format!("/templates/{tpl}?version=1")).path.contains("version=1"));
+    assert!(uuid_like(
+        version.body["client_version_id"].as_str().unwrap()
+    ));
+    assert!(find("GET", "/collaboration/templates?limit=5")
+        .path
+        .contains("limit=5"));
+    assert!(find("GET", &format!("/templates/{tpl}?version=1"))
+        .path
+        .contains("version=1"));
     let task = find("POST", "/collaboration/tasks/from-template");
-    assert_eq!(task.headers.get("x-ironforge-session").map(String::as_str), Some(SESSION_ID));
-    assert_eq!(task.body["owner_session_id"], SESSION_ID, "\"self\" resolved");
+    assert_eq!(
+        task.headers.get("x-ironforge-session").map(String::as_str),
+        Some(SESSION_ID)
+    );
+    assert_eq!(
+        task.body["owner_session_id"], SESSION_ID,
+        "\"self\" resolved"
+    );
     assert_eq!(task.body["params"], json!({"area": "auth"}));
     assert_eq!(task.body["rules_ref"], "main");
     assert!(uuid_like(task.body["client_task_id"].as_str().unwrap()));
@@ -947,10 +1531,19 @@ fn o06_template_tools_map_to_the_rest_api() {
     // Bad arguments never leave the process.
     let before = stub.requests().len();
     for (tool, args) in [
-        ("collab_create_template", with(json!({"title_pattern": "x", "goal": "g"}))), // no name
-        ("collab_create_template", with(json!({"template_id": tpl, "title_pattern": "x", "goal": "g"}))), // no expected_version
+        (
+            "collab_create_template",
+            with(json!({"title_pattern": "x", "goal": "g"})),
+        ), // no name
+        (
+            "collab_create_template",
+            with(json!({"template_id": tpl, "title_pattern": "x", "goal": "g"})),
+        ), // no expected_version
         ("collab_get_template", with(json!({"template_id": "../x"}))),
-        ("collab_task_from_template", with(json!({"template_id": "a/b"}))),
+        (
+            "collab_task_from_template",
+            with(json!({"template_id": "a/b"})),
+        ),
     ] {
         let (err, out) = mcp.tool_json(tool, args);
         assert!(err, "{tool} should be rejected: {out}");
@@ -967,10 +1560,16 @@ fn o07_declaration_tools_map_to_the_rest_api() {
     let stub = Stub::spawn(happy_handler());
     let mut mcp = Mcp::start(&stub.url, None);
     // No session yet: the self-bound tools say so without a request.
-    let (err, out) = mcp.tool_json("collab_declare_capabilities", json!({"owner": "o", "repo": "r", "tools": ["git"]}));
+    let (err, out) = mcp.tool_json(
+        "collab_declare_capabilities",
+        json!({"owner": "o", "repo": "r", "tools": ["git"]}),
+    );
     assert!(err, "{out}");
     assert_eq!(out["error"]["code"], "NO_ACTIVE_SESSION");
-    let (err, out) = mcp.tool_json("collab_get_declaration", json!({"owner": "o", "repo": "r", "session_id": "self"}));
+    let (err, out) = mcp.tool_json(
+        "collab_get_declaration",
+        json!({"owner": "o", "repo": "r", "session_id": "self"}),
+    );
     assert!(err, "{out}");
     assert!(stub.requests().is_empty());
 
@@ -979,13 +1578,24 @@ fn o07_declaration_tools_map_to_the_rest_api() {
     let base = json!({"owner": "o", "repo": "r"});
     let with = |extra: Value| {
         let mut args = base.clone();
-        args.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        args.as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
         args
     };
     for (tool, args) in [
-        ("collab_declare_capabilities", with(json!({"tools": ["cargo"], "can_run_tests": "yes", "network": "offline"}))),
-        ("collab_declare_capabilities", with(json!({"expected_version": 3, "notes": "n"}))),
-        ("collab_get_declaration", with(json!({"session_id": "self", "stale_after_seconds": 600}))),
+        (
+            "collab_declare_capabilities",
+            with(json!({"tools": ["cargo"], "can_run_tests": "yes", "network": "offline"})),
+        ),
+        (
+            "collab_declare_capabilities",
+            with(json!({"expected_version": 3, "notes": "n"})),
+        ),
+        (
+            "collab_get_declaration",
+            with(json!({"session_id": "self", "stale_after_seconds": 600})),
+        ),
         ("collab_get_declaration", with(json!({"limit": 5}))),
     ] {
         let (err, out) = mcp.tool(tool, args);
@@ -995,13 +1605,33 @@ fn o07_declaration_tools_map_to_the_rest_api() {
     let reqs = stub.requests();
     let puts: Vec<&Req> = reqs.iter().filter(|r| r.method == "PUT").collect();
     assert_eq!(puts.len(), 2);
-    assert!(puts[0].path.ends_with(&format!("/sessions/{SESSION_ID}/declaration")), "{}", puts[0].path);
-    assert_eq!(puts[0].body["expected_version"], 0, "first declaration defaults to version 0");
+    assert!(
+        puts[0]
+            .path
+            .ends_with(&format!("/sessions/{SESSION_ID}/declaration")),
+        "{}",
+        puts[0].path
+    );
+    assert_eq!(
+        puts[0].body["expected_version"], 0,
+        "first declaration defaults to version 0"
+    );
     assert_eq!(puts[0].body["can_run_tests"], "yes");
-    assert_eq!(puts[0].headers.get("x-ironforge-session").map(String::as_str), Some(SESSION_ID));
+    assert_eq!(
+        puts[0]
+            .headers
+            .get("x-ironforge-session")
+            .map(String::as_str),
+        Some(SESSION_ID)
+    );
     assert_eq!(puts[1].body["expected_version"], 3);
-    assert!(reqs.iter().any(|r| r.method == "GET" && r.path.contains(&format!("/sessions/{SESSION_ID}/declaration?stale_after_seconds=600"))));
-    assert!(reqs.iter().any(|r| r.method == "GET" && r.path.contains("/collaboration/declarations?limit=5")));
+    assert!(reqs.iter().any(|r| r.method == "GET"
+        && r.path.contains(&format!(
+            "/sessions/{SESSION_ID}/declaration?stale_after_seconds=600"
+        ))));
+    assert!(reqs
+        .iter()
+        .any(|r| r.method == "GET" && r.path.contains("/collaboration/declarations?limit=5")));
     let stderr = mcp.stop();
     assert!(!stderr.contains(SECRET));
 }
@@ -1017,41 +1647,93 @@ fn o08_budget_tools_map_to_the_rest_api() {
     let base = json!({"owner": "o", "repo": "r"});
     let with = |extra: Value| {
         let mut args = base.clone();
-        args.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        args.as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
         args
     };
     let tid = "22222222-2222-4222-8222-222222222222";
     for (tool, args) in [
-        ("collab_set_budget", with(json!({"task_id": tid, "unit": "USD", "source": "invoice", "amount": "10", "alert_at": 5, "sampling_period": "task_total"}))),
-        ("collab_report_usage", with(json!({"task_id": tid, "unit": "USD", "source": "invoice", "amount": 0.5, "period_start": "2026-11-04T00:00:00Z", "period_end": "2026-11-04T01:00:00Z"}))),
+        (
+            "collab_set_budget",
+            with(
+                json!({"task_id": tid, "unit": "USD", "source": "invoice", "amount": "10", "alert_at": 5, "sampling_period": "task_total"}),
+            ),
+        ),
+        (
+            "collab_report_usage",
+            with(
+                json!({"task_id": tid, "unit": "USD", "source": "invoice", "amount": 0.5, "period_start": "2026-11-04T00:00:00Z", "period_end": "2026-11-04T01:00:00Z"}),
+            ),
+        ),
         ("collab_get_budget", with(json!({"task_id": tid}))),
-        ("collab_get_budget", with(json!({"task_id": tid, "list_usage": true, "unit": "USD", "limit": 5}))),
+        (
+            "collab_get_budget",
+            with(json!({"task_id": tid, "list_usage": true, "unit": "USD", "limit": 5})),
+        ),
     ] {
         let (err, out) = mcp.tool(tool, args);
         assert!(!err, "{tool}: {out}");
         assert!(!out.contains(SECRET));
     }
     let reqs = stub.requests();
-    let set = reqs.iter().find(|r| r.method == "PUT" && r.path.ends_with(&format!("/tasks/{tid}/budgets"))).unwrap();
+    let set = reqs
+        .iter()
+        .find(|r| r.method == "PUT" && r.path.ends_with(&format!("/tasks/{tid}/budgets")))
+        .unwrap();
     assert_eq!(set.body["expected_version"], 0);
     assert_eq!(set.body["unit"], "USD");
     assert_eq!(set.body["alert_at"], 5);
-    assert_eq!(set.headers.get("x-ironforge-session").map(String::as_str), Some(SESSION_ID));
-    let usage = reqs.iter().find(|r| r.method == "POST" && r.path.ends_with(&format!("/tasks/{tid}/usage"))).unwrap();
+    assert_eq!(
+        set.headers.get("x-ironforge-session").map(String::as_str),
+        Some(SESSION_ID)
+    );
+    let usage = reqs
+        .iter()
+        .find(|r| r.method == "POST" && r.path.ends_with(&format!("/tasks/{tid}/usage")))
+        .unwrap();
     assert_eq!(usage.body["amount"], 0.5);
     assert!(uuid_like(usage.body["client_usage_id"].as_str().unwrap()));
-    assert!(reqs.iter().any(|r| r.method == "GET" && r.path.ends_with(&format!("/tasks/{tid}/budget"))));
-    assert!(reqs.iter().any(|r| r.method == "GET" && r.path.contains(&format!("/tasks/{tid}/usage?unit=USD&limit=5"))));
+    assert!(reqs
+        .iter()
+        .any(|r| r.method == "GET" && r.path.ends_with(&format!("/tasks/{tid}/budget"))));
+    assert!(reqs.iter().any(|r| r.method == "GET"
+        && r.path
+            .contains(&format!("/tasks/{tid}/usage?unit=USD&limit=5"))));
 
     // unit, source, amount and the periods are required: nothing is guessed.
     let before = stub.requests().len();
     for (tool, args) in [
-        ("collab_set_budget", with(json!({"task_id": tid, "source": "s", "amount": "1", "sampling_period": "p"}))),
-        ("collab_set_budget", with(json!({"task_id": tid, "unit": "u", "amount": "1", "sampling_period": "p"}))),
-        ("collab_set_budget", with(json!({"task_id": tid, "unit": "u", "source": "s", "sampling_period": "p"}))),
-        ("collab_set_budget", with(json!({"task_id": tid, "unit": "u", "source": "s", "amount": true, "sampling_period": "p"}))),
-        ("collab_report_usage", with(json!({"task_id": tid, "unit": "u", "source": "s", "amount": "1", "period_start": "2026-11-04T00:00:00Z"}))),
-        ("collab_report_usage", with(json!({"task_id": tid, "source": "s", "amount": "1", "period_start": "a", "period_end": "b"}))),
+        (
+            "collab_set_budget",
+            with(json!({"task_id": tid, "source": "s", "amount": "1", "sampling_period": "p"})),
+        ),
+        (
+            "collab_set_budget",
+            with(json!({"task_id": tid, "unit": "u", "amount": "1", "sampling_period": "p"})),
+        ),
+        (
+            "collab_set_budget",
+            with(json!({"task_id": tid, "unit": "u", "source": "s", "sampling_period": "p"})),
+        ),
+        (
+            "collab_set_budget",
+            with(
+                json!({"task_id": tid, "unit": "u", "source": "s", "amount": true, "sampling_period": "p"}),
+            ),
+        ),
+        (
+            "collab_report_usage",
+            with(
+                json!({"task_id": tid, "unit": "u", "source": "s", "amount": "1", "period_start": "2026-11-04T00:00:00Z"}),
+            ),
+        ),
+        (
+            "collab_report_usage",
+            with(
+                json!({"task_id": tid, "source": "s", "amount": "1", "period_start": "a", "period_end": "b"}),
+            ),
+        ),
         ("collab_get_budget", with(json!({"task_id": "../x"}))),
     ] {
         let (err, out) = mcp.tool_json(tool, args);
@@ -1066,13 +1748,25 @@ fn o08_budget_tools_map_to_the_rest_api() {
 fn notice_and_receipt_tools_use_the_acting_session() {
     let stub = Stub::spawn(Box::new(|req| {
         if req.path.ends_with("/collaboration/sessions") {
-            (201, json!({"session": {"id": SESSION_ID}, "session_secret": SECRET}).to_string())
+            (
+                201,
+                json!({"session": {"id": SESSION_ID}, "session_secret": SECRET}).to_string(),
+            )
         } else if req.path.ends_with("/delivery") {
-            (403, json!({"error": {"code": "FORBIDDEN", "message": "only the author"}}).to_string())
+            (
+                403,
+                json!({"error": {"code": "FORBIDDEN", "message": "only the author"}}).to_string(),
+            )
         } else if req.path.ends_with("/read-receipt") {
-            (201, json!({"newly_confirmed": true, "read_at": "2026-11-04T00:00:00Z"}).to_string())
+            (
+                201,
+                json!({"newly_confirmed": true, "read_at": "2026-11-04T00:00:00Z"}).to_string(),
+            )
         } else {
-            (200, json!({"items": [], "next_cursor": "next", "newly_acked": false}).to_string())
+            (
+                200,
+                json!({"items": [], "next_cursor": "next", "newly_acked": false}).to_string(),
+            )
         }
     }));
     let mut mcp = Mcp::start(&stub.url, None);
@@ -1080,10 +1774,22 @@ fn notice_and_receipt_tools_use_the_acting_session() {
     let mid = "33333333-3333-4333-8333-333333333333";
     let nid = "44444444-4444-4444-8444-444444444444";
     let cases = [
-        ("collab_list_notices", json!({"owner":"o", "repo":"r", "state":"all", "limit":5, "cursor":"a+b"})),
-        ("collab_ack_notice", json!({"owner":"o", "repo":"r", "notice_id":nid})),
-        ("collab_confirm_receipt", json!({"owner":"o", "repo":"r", "task_id":tid, "message_id":mid})),
-        ("collab_get_delivery", json!({"owner":"o", "repo":"r", "task_id":tid, "message_id":mid})),
+        (
+            "collab_list_notices",
+            json!({"owner":"o", "repo":"r", "state":"all", "limit":5, "cursor":"a+b"}),
+        ),
+        (
+            "collab_ack_notice",
+            json!({"owner":"o", "repo":"r", "notice_id":nid}),
+        ),
+        (
+            "collab_confirm_receipt",
+            json!({"owner":"o", "repo":"r", "task_id":tid, "message_id":mid}),
+        ),
+        (
+            "collab_get_delivery",
+            json!({"owner":"o", "repo":"r", "task_id":tid, "message_id":mid}),
+        ),
     ];
     for (tool, args) in &cases {
         let (err, out) = mcp.tool_json(tool, args.clone());
@@ -1095,22 +1801,50 @@ fn notice_and_receipt_tools_use_the_acting_session() {
     for (tool, args) in &cases {
         let (err, out) = mcp.tool_json(tool, args.clone());
         assert_eq!(err, *tool == "collab_get_delivery", "{tool}: {out}");
-        if err { assert_eq!(out["error"]["code"], "FORBIDDEN"); }
+        if err {
+            assert_eq!(out["error"]["code"], "FORBIDDEN");
+        }
         assert!(!out.to_string().contains(SECRET));
     }
     let reqs = stub.requests();
     assert_eq!(reqs.len(), 5);
-    assert!(reqs[1].path.ends_with("/notices?limit=5&cursor=a%2Bb&state=all"), "{}", reqs[1].path);
-    assert_eq!(reqs[2].path, format!("/api/v1/repos/o/r/collaboration/notices/{nid}/ack"));
-    assert_eq!(reqs[3].path, format!("/api/v1/repos/o/r/collaboration/tasks/{tid}/messages/{mid}/read-receipt"));
-    assert_eq!(reqs[4].path, format!("/api/v1/repos/o/r/collaboration/tasks/{tid}/messages/{mid}/delivery"));
+    assert!(
+        reqs[1]
+            .path
+            .ends_with("/notices?limit=5&cursor=a%2Bb&state=all"),
+        "{}",
+        reqs[1].path
+    );
+    assert_eq!(
+        reqs[2].path,
+        format!("/api/v1/repos/o/r/collaboration/notices/{nid}/ack")
+    );
+    assert_eq!(
+        reqs[3].path,
+        format!("/api/v1/repos/o/r/collaboration/tasks/{tid}/messages/{mid}/read-receipt")
+    );
+    assert_eq!(
+        reqs[4].path,
+        format!("/api/v1/repos/o/r/collaboration/tasks/{tid}/messages/{mid}/delivery")
+    );
     for req in &reqs[1..] {
-        assert_eq!(req.headers.get("x-ironforge-session").map(String::as_str), Some(SESSION_ID));
-        assert_eq!(req.headers.get("x-ironforge-session-secret").map(String::as_str), Some(SECRET));
+        assert_eq!(
+            req.headers.get("x-ironforge-session").map(String::as_str),
+            Some(SESSION_ID)
+        );
+        assert_eq!(
+            req.headers
+                .get("x-ironforge-session-secret")
+                .map(String::as_str),
+            Some(SECRET)
+        );
         assert!(req.body.is_null());
     }
     let before = reqs.len();
-    let (err, _) = mcp.tool_json("collab_confirm_receipt", json!({"owner":"o", "repo":"r", "task_id":tid, "message_id":"../bad"}));
+    let (err, _) = mcp.tool_json(
+        "collab_confirm_receipt",
+        json!({"owner":"o", "repo":"r", "task_id":tid, "message_id":"../bad"}),
+    );
     assert!(err);
     assert_eq!(stub.requests().len(), before);
     assert!(!mcp.stop().contains(SECRET));

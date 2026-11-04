@@ -2,8 +2,8 @@
 
 use chrono::{DateTime, Utc};
 use rg_db::entities::{agent_session, collab_message};
-use rg_db::ops::collab_message_ops::{self, AppendOutcome};
 use rg_db::ops::agent_session_ops;
+use rg_db::ops::collab_message_ops::{self, AppendOutcome};
 use sea_orm::DatabaseConnection;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -121,7 +121,9 @@ pub async fn send(
 
     if let Some(reply_to) = &input.reply_to_id {
         let found = validation::is_uuid(reply_to)
-            && collab_message_ops::find_in_task(db, &task.id, reply_to).await?.is_some();
+            && collab_message_ops::find_in_task(db, &task.id, reply_to)
+                .await?
+                .is_some();
         if !found {
             return Err(CollabError::bad_request(
                 "reply_to_id does not refer to a message of this task",
@@ -130,7 +132,9 @@ pub async fn send(
     }
     if let Some(target) = &input.target_session_id {
         let found = validation::is_uuid(target)
-            && agent_session_ops::find_in_repo(db, repo_id, target).await?.is_some();
+            && agent_session_ops::find_in_repo(db, repo_id, target)
+                .await?
+                .is_some();
         if !found {
             return Err(CollabError::bad_request(
                 "target_session_id does not refer to a session of this repository",
@@ -232,7 +236,14 @@ mod tests {
         let sha1 = "A".repeat(40);
         assert_eq!(normalize_commit_sha(&sha1).unwrap(), "a".repeat(40));
         assert!(normalize_commit_sha(&"b".repeat(64)).is_ok());
-        for bad in ["", "abc123", &"g".repeat(40), &"a".repeat(41), "main", "HEAD"] {
+        for bad in [
+            "",
+            "abc123",
+            &"g".repeat(40),
+            &"a".repeat(41),
+            "main",
+            "HEAD",
+        ] {
             assert!(normalize_commit_sha(bad).is_err(), "{bad}");
         }
     }

@@ -28,7 +28,9 @@ pub async fn repo_deletion_impact(
     headers: HeaderMap,
 ) -> Result<Json<svc::RepoImpact>, AppError> {
     let (repo, _user) = require_admin(&state, &headers, &owner, &name).await?;
-    Ok(Json(svc::repo_impact(&state.db, repo.id, Utc::now()).await?))
+    Ok(Json(
+        svc::repo_impact(&state.db, repo.id, Utc::now()).await?,
+    ))
 }
 
 #[utoipa::path(
@@ -47,7 +49,10 @@ pub async fn user_deletion_impact(
     headers: HeaderMap,
     Path(user_id): Path<i64>,
 ) -> Result<Json<svc::UserImpact>, AppError> {
-    if super::admin::require_admin(&state, &headers).await.is_none() {
+    if super::admin::require_admin(&state, &headers)
+        .await
+        .is_none()
+    {
         return Err(AppError::forbidden("admin required"));
     }
     if rg_db::ops::user_ops::find_by_id(&state.db, user_id)
@@ -57,5 +62,7 @@ pub async fn user_deletion_impact(
     {
         return Err(AppError::not_found("user not found"));
     }
-    Ok(Json(svc::user_impact(&state.db, user_id, Utc::now()).await?))
+    Ok(Json(
+        svc::user_impact(&state.db, user_id, Utc::now()).await?,
+    ))
 }

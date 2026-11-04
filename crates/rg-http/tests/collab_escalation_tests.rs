@@ -2,8 +2,8 @@
 //! scheduler is involved — conditions are aged by editing stored timestamps
 //! and evaluated by reading notices or calling the evaluation function.
 
-mod common;
 mod collab_common;
+mod common;
 
 use std::sync::Arc;
 
@@ -18,7 +18,13 @@ use tokio::sync::Barrier;
 
 async fn new_task(env: &Env, s: &Sess) -> String {
     let (status, task) = env
-        .json(Method::POST, &env.url("/tasks"), &env.owner_token, Some(s), Some(json!({"title": "task"})))
+        .json(
+            Method::POST,
+            &env.url("/tasks"),
+            &env.owner_token,
+            Some(s),
+            Some(json!({"title": "task"})),
+        )
         .await;
     assert_eq!(status, 201, "{task}");
     task["id"].as_str().unwrap().to_string()
@@ -30,8 +36,17 @@ async fn put_settings(env: &Env, version: i64, extra: Value) -> (u16, Value) {
         "blocked_after_secs": 600, "question_after_secs": 600, "handoff_after_secs": 600,
         "repeat_after_secs": 0, "quiet_hours": null
     });
-    body.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
-    env.json(Method::PUT, &env.url("/escalation-settings"), &env.owner_token, None, Some(body)).await
+    body.as_object_mut()
+        .unwrap()
+        .extend(extra.as_object().unwrap().clone());
+    env.json(
+        Method::PUT,
+        &env.url("/escalation-settings"),
+        &env.owner_token,
+        None,
+        Some(body),
+    )
+    .await
 }
 
 async fn ask(env: &Env, tid: &str, who: &Sess, key: &str) -> Value {
@@ -49,14 +64,22 @@ async fn ask(env: &Env, tid: &str, who: &Sess, key: &str) -> Value {
 }
 
 async fn age_question(env: &Env, id: &str, secs: i64) {
-    let row = collab_question::Entity::find_by_id(id.to_string()).one(&env.db).await.unwrap().unwrap();
+    let row = collab_question::Entity::find_by_id(id.to_string())
+        .one(&env.db)
+        .await
+        .unwrap()
+        .unwrap();
     let mut a: collab_question::ActiveModel = row.into();
     a.created_at = Set(Utc::now() - Duration::seconds(secs));
     a.update(&env.db).await.unwrap();
 }
 
 async fn set_task(env: &Env, id: &str, status: &str, owner: Option<&str>, age_secs: i64) {
-    let row = collab_task::Entity::find_by_id(id.to_string()).one(&env.db).await.unwrap().unwrap();
+    let row = collab_task::Entity::find_by_id(id.to_string())
+        .one(&env.db)
+        .await
+        .unwrap()
+        .unwrap();
     let mut a: collab_task::ActiveModel = row.into();
     a.status = Set(status.to_string());
     a.owner_session_id = Set(owner.map(str::to_string));
@@ -65,7 +88,11 @@ async fn set_task(env: &Env, id: &str, status: &str, owner: Option<&str>, age_se
 }
 
 async fn age_notice(env: &Env, id: &str, secs: i64) {
-    let row = collab_notice::Entity::find_by_id(id.to_string()).one(&env.db).await.unwrap().unwrap();
+    let row = collab_notice::Entity::find_by_id(id.to_string())
+        .one(&env.db)
+        .await
+        .unwrap()
+        .unwrap();
     let acked = row.ack_at.is_some();
     let mut a: collab_notice::ActiveModel = row.into();
     a.created_at = Set(Utc::now() - Duration::seconds(secs));
@@ -76,7 +103,11 @@ async fn age_notice(env: &Env, id: &str, secs: i64) {
 }
 
 async fn expire_session(env: &Env, id: &str, ago_secs: i64) {
-    let row = agent_session::Entity::find_by_id(id.to_string()).one(&env.db).await.unwrap().unwrap();
+    let row = agent_session::Entity::find_by_id(id.to_string())
+        .one(&env.db)
+        .await
+        .unwrap()
+        .unwrap();
     let mut a: agent_session::ActiveModel = row.into();
     a.expires_at = Set(Utc::now() - Duration::seconds(ago_secs));
     a.update(&env.db).await.unwrap();
@@ -84,14 +115,29 @@ async fn expire_session(env: &Env, id: &str, ago_secs: i64) {
 
 async fn escalations(env: &Env, who: &Sess, state: &str) -> Vec<Value> {
     let (status, body) = env
-        .json(Method::GET, &env.url(&format!("/notices?state={state}&limit=100")), &env.owner_token, Some(who), None)
+        .json(
+            Method::GET,
+            &env.url(&format!("/notices?state={state}&limit=100")),
+            &env.owner_token,
+            Some(who),
+            None,
+        )
         .await;
     assert_eq!(status, 200, "{body}");
-    body["items"].as_array().unwrap().iter().filter(|n| n["kind"] == "escalation").cloned().collect()
+    body["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|n| n["kind"] == "escalation")
+        .cloned()
+        .collect()
 }
 
 async fn repo(env: &Env) -> rg_db::entities::repository::Model {
-    rg_db::ops::repo_ops::find_by_id(&env.db, env.repo_id).await.unwrap().unwrap()
+    rg_db::ops::repo_ops::find_by_id(&env.db, env.repo_id)
+        .await
+        .unwrap()
+        .unwrap()
 }
 
 // ---------------------------------------------------------------- settings
@@ -99,25 +145,71 @@ async fn repo(env: &Env) -> rg_db::entities::repository::Model {
 #[tokio::test]
 async fn o05_settings_are_admin_managed_versioned_and_validated() {
     let env = Env::new().await;
-    let (s, d) = env.json(Method::GET, &env.url("/escalation-settings"), &env.owner_token, None, None).await;
+    let (s, d) = env
+        .json(
+            Method::GET,
+            &env.url("/escalation-settings"),
+            &env.owner_token,
+            None,
+            None,
+        )
+        .await;
     assert_eq!(s, 200, "{d}");
-    assert_eq!((d["enabled"].as_bool(), d["source"].as_str(), d["version"].as_i64()), (Some(false), Some("default"), Some(0)));
+    assert_eq!(
+        (
+            d["enabled"].as_bool(),
+            d["source"].as_str(),
+            d["version"].as_i64()
+        ),
+        (Some(false), Some("default"), Some(0))
+    );
 
     // A writer may read but not change them.
     let (token, uid) = env.user("writer").await;
     env.add_collaborator(uid, "write").await;
-    let (s, _) = env.json(Method::GET, &env.url("/escalation-settings"), &token, None, None).await;
+    let (s, _) = env
+        .json(
+            Method::GET,
+            &env.url("/escalation-settings"),
+            &token,
+            None,
+            None,
+        )
+        .await;
     assert_eq!(s, 200);
-    let (s, invalid) = env.json(Method::PUT, &env.url("/escalation-settings"), &token, None, Some(json!({}))).await;
-    assert_eq!((s, invalid["error"]["code"].as_str()), (400, Some("INVALID_REQUEST_BODY")), "{invalid}");
+    let (s, invalid) = env
+        .json(
+            Method::PUT,
+            &env.url("/escalation-settings"),
+            &token,
+            None,
+            Some(json!({})),
+        )
+        .await;
+    assert_eq!(
+        (s, invalid["error"]["code"].as_str()),
+        (400, Some("INVALID_REQUEST_BODY")),
+        "{invalid}"
+    );
     let body = json!({"expected_version": 0, "enabled": true, "blocked_after_secs": 600, "question_after_secs": 600,
         "handoff_after_secs": 600, "repeat_after_secs": 0, "quiet_hours": null});
-    let (s, _) = env.json(Method::PUT, &env.url("/escalation-settings"), &token, None, Some(body)).await;
+    let (s, _) = env
+        .json(
+            Method::PUT,
+            &env.url("/escalation-settings"),
+            &token,
+            None,
+            Some(body),
+        )
+        .await;
     assert_eq!(s, 403);
 
     let (s, saved) = put_settings(&env, 0, json!({})).await;
     assert_eq!(s, 200, "{saved}");
-    assert_eq!((saved["version"].as_i64(), saved["source"].as_str()), (Some(1), Some("stored")));
+    assert_eq!(
+        (saved["version"].as_i64(), saved["source"].as_str()),
+        (Some(1), Some("stored"))
+    );
     // A retry with the same values is a no-op even though its version is stale.
     let (s, again) = put_settings(&env, 0, json!({})).await;
     assert_eq!(s, 200, "{again}");
@@ -195,7 +287,12 @@ async fn o05_a_stale_question_reminds_its_asker_once_even_under_concurrent_reads
     let barrier = Arc::new(Barrier::new(8));
     let handles: Vec<_> = (0..8)
         .map(|_| {
-            let (url, token, barrier, a) = (env.url("/notices?state=all"), env.owner_token.clone(), barrier.clone(), a.clone());
+            let (url, token, barrier, a) = (
+                env.url("/notices?state=all"),
+                env.owner_token.clone(),
+                barrier.clone(),
+                a.clone(),
+            );
             tokio::spawn(async move {
                 barrier.wait().await;
                 reqwest::Client::new()
@@ -223,9 +320,19 @@ async fn o05_a_stale_question_reminds_its_asker_once_even_under_concurrent_reads
 
     // Further reads, an inbox read and a periodic evaluation add nothing.
     escalations(&env, &a, "all").await;
-    let (s, _) = env.json(Method::GET, &env.url("/inbox"), &env.owner_token, Some(&a), None).await;
+    let (s, _) = env
+        .json(
+            Method::GET,
+            &env.url("/inbox"),
+            &env.owner_token,
+            Some(&a),
+            None,
+        )
+        .await;
     assert_eq!(s, 200);
-    let report = escalation::evaluate_repo(&env.db, &repo(&env).await, Utc::now()).await.unwrap();
+    let report = escalation::evaluate_repo(&env.db, &repo(&env).await, Utc::now())
+        .await
+        .unwrap();
     assert_eq!(report.emitted, 0, "{report:?}");
     assert_eq!(escalations(&env, &a, "all").await.len(), 1);
 
@@ -234,7 +341,15 @@ async fn o05_a_stale_question_reminds_its_asker_once_even_under_concurrent_reads
 
     // Acknowledged and repeat_after_secs = 0: the same episode is never repeated.
     let nid = got[0]["id"].as_str().unwrap();
-    let (s, _) = env.json(Method::POST, &env.url(&format!("/notices/{nid}/ack")), &env.owner_token, Some(&a), None).await;
+    let (s, _) = env
+        .json(
+            Method::POST,
+            &env.url(&format!("/notices/{nid}/ack")),
+            &env.owner_token,
+            Some(&a),
+            None,
+        )
+        .await;
     assert_eq!(s, 200);
     age_notice(&env, nid, 3600).await;
     assert_eq!(escalations(&env, &a, "all").await.len(), 1);
@@ -247,7 +362,12 @@ async fn o05_acknowledged_reminders_repeat_only_after_the_interval() {
     let tid = new_task(&env, &a).await;
     let q = ask(&env, &tid, &a, "q1").await;
     let qid = q["id"].as_str().unwrap();
-    assert_eq!(put_settings(&env, 0, json!({"repeat_after_secs": 3600})).await.0, 200);
+    assert_eq!(
+        put_settings(&env, 0, json!({"repeat_after_secs": 3600}))
+            .await
+            .0,
+        200
+    );
     age_question(&env, qid, 7200).await;
 
     let first = escalations(&env, &a, "pending").await;
@@ -255,7 +375,14 @@ async fn o05_acknowledged_reminders_repeat_only_after_the_interval() {
     // Unacknowledged: even long after the interval no second reminder stacks up.
     age_notice(&env, &nid, 7200 - 600).await;
     assert_eq!(escalations(&env, &a, "all").await.len(), 1);
-    env.json(Method::POST, &env.url(&format!("/notices/{nid}/ack")), &env.owner_token, Some(&a), None).await;
+    env.json(
+        Method::POST,
+        &env.url(&format!("/notices/{nid}/ack")),
+        &env.owner_token,
+        Some(&a),
+        None,
+    )
+    .await;
     // Interval not over (measured from the acknowledgement): no repeat.
     assert_eq!(escalations(&env, &a, "all").await.len(), 1);
     age_notice(&env, &nid, 3600 + 60).await;
@@ -280,7 +407,15 @@ async fn o05_resolved_or_cancelled_conditions_leave_no_stale_reminder() {
     let qid = q["id"].as_str().unwrap().to_string();
     age_question(&env, &qid, 7200).await;
     assert_eq!(escalations(&env, &a, "pending").await.len(), 1);
-    let (_, qfull) = env.json(Method::GET, &env.url(&format!("/questions/{qid}")), &env.owner_token, None, None).await;
+    let (_, qfull) = env
+        .json(
+            Method::GET,
+            &env.url(&format!("/questions/{qid}")),
+            &env.owner_token,
+            None,
+            None,
+        )
+        .await;
     let (s, _) = env
         .json(
             Method::POST,
@@ -291,7 +426,10 @@ async fn o05_resolved_or_cancelled_conditions_leave_no_stale_reminder() {
         )
         .await;
     assert_eq!(s, 200);
-    assert!(escalations(&env, &a, "pending").await.is_empty(), "answered: nothing left to remind about");
+    assert!(
+        escalations(&env, &a, "pending").await.is_empty(),
+        "answered: nothing left to remind about"
+    );
     let all = escalations(&env, &a, "all").await;
     assert_eq!(all[0]["state"], "resolved");
     assert!(!all[0]["resolved_at"].is_null());
@@ -302,7 +440,13 @@ async fn o05_resolved_or_cancelled_conditions_leave_no_stale_reminder() {
     age_question(&env, &q2id, 7200).await;
     assert_eq!(escalations(&env, &a, "pending").await.len(), 1);
     let (s, _) = env
-        .json(Method::POST, &env.url(&format!("/questions/{q2id}/cancel")), &env.owner_token, Some(&a), Some(json!({"expected_version": q2["version"]})))
+        .json(
+            Method::POST,
+            &env.url(&format!("/questions/{q2id}/cancel")),
+            &env.owner_token,
+            Some(&a),
+            Some(json!({"expected_version": q2["version"]})),
+        )
         .await;
     assert_eq!(s, 200);
     assert!(escalations(&env, &a, "pending").await.is_empty());
@@ -337,17 +481,36 @@ async fn o05_resolved_or_cancelled_conditions_leave_no_stale_reminder() {
         )
         .await;
     assert_eq!(s, 201, "{h}");
-    assert!(escalations(&env, &a, "pending").await.iter().all(|n| n["source_type"] != "handoff"), "target is alive");
+    assert!(
+        escalations(&env, &a, "pending")
+            .await
+            .iter()
+            .all(|n| n["source_type"] != "handoff"),
+        "target is alive"
+    );
     expire_session(&env, &c.id, 7200).await;
-    let pending: Vec<_> = escalations(&env, &a, "pending").await.into_iter().filter(|n| n["source_type"] == "handoff").collect();
+    let pending: Vec<_> = escalations(&env, &a, "pending")
+        .await
+        .into_iter()
+        .filter(|n| n["source_type"] == "handoff")
+        .collect();
     assert_eq!(pending.len(), 1);
     assert_eq!(pending[0]["hint"]["condition"], "handoff_target_expired");
     assert_eq!(pending[0]["hint"]["target_session_id"], c.id);
     let (s, _) = env
-        .json(Method::POST, &env.url(&format!("/handoffs/{}/cancel", h["id"].as_str().unwrap())), &env.owner_token, Some(&a), Some(json!({"expected_version": 1})))
+        .json(
+            Method::POST,
+            &env.url(&format!("/handoffs/{}/cancel", h["id"].as_str().unwrap())),
+            &env.owner_token,
+            Some(&a),
+            Some(json!({"expected_version": 1})),
+        )
         .await;
     assert_eq!(s, 200);
-    assert!(escalations(&env, &a, "pending").await.iter().all(|n| n["source_type"] != "handoff"));
+    assert!(escalations(&env, &a, "pending")
+        .await
+        .iter()
+        .all(|n| n["source_type"] != "handoff"));
 }
 
 #[tokio::test]
@@ -359,7 +522,10 @@ async fn o05_switching_the_feature_off_closes_open_reminders() {
     let q = ask(&env, &tid, &a, "q1").await;
     age_question(&env, q["id"].as_str().unwrap(), 7200).await;
     assert_eq!(escalations(&env, &a, "pending").await.len(), 1);
-    assert_eq!(put_settings(&env, 1, json!({"enabled": false})).await.0, 200);
+    assert_eq!(
+        put_settings(&env, 1, json!({"enabled": false})).await.0,
+        200
+    );
     assert!(escalations(&env, &a, "pending").await.is_empty());
 }
 
@@ -377,8 +543,13 @@ async fn o05_the_quiet_window_defers_instead_of_dropping() {
     let end = (minute + 120) % 1440;
     let quiet = json!({"quiet_hours": {"start_minute": start, "end_minute": end}});
     assert_eq!(put_settings(&env, 0, quiet).await.0, 200);
-    assert!(escalations(&env, &a, "all").await.is_empty(), "inside the quiet window nothing is emitted");
-    let report = escalation::evaluate_repo(&env.db, &repo(&env).await, Utc::now()).await.unwrap();
+    assert!(
+        escalations(&env, &a, "all").await.is_empty(),
+        "inside the quiet window nothing is emitted"
+    );
+    let report = escalation::evaluate_repo(&env.db, &repo(&env).await, Utc::now())
+        .await
+        .unwrap();
     assert!(report.quiet_window && report.emitted == 0);
 
     // Window moved away from now: the condition still holds and fires.
@@ -418,17 +589,33 @@ async fn o05_nobody_without_access_is_notified() {
 
     // Access is revoked before any evaluation happens.
     let resp = env
-        .send(Method::DELETE, &format!("{}/api/v1/repos/{}/{}/collaborators/{uid}", env.base, env.owner, env.repo), Some(&env.owner_token), None, None)
+        .send(
+            Method::DELETE,
+            &format!(
+                "{}/api/v1/repos/{}/{}/collaborators/{uid}",
+                env.base, env.owner, env.repo
+            ),
+            Some(&env.owner_token),
+            None,
+            None,
+        )
         .await;
     assert!(resp.status().is_success());
 
     // A periodic evaluation covers every session but reaches only those with access.
-    let report = escalation::evaluate_repo(&env.db, &repo(&env).await, Utc::now()).await.unwrap();
+    let report = escalation::evaluate_repo(&env.db, &repo(&env).await, Utc::now())
+        .await
+        .unwrap();
     assert_eq!(report.emitted, 1, "{report:?}");
     let rows = collab_notice::Entity::find().all(&env.db).await.unwrap();
-    assert!(rows.iter().all(|r| r.recipient_session_id != cs.id), "no reminder for the revoked account");
+    assert!(
+        rows.iter().all(|r| r.recipient_session_id != cs.id),
+        "no reminder for the revoked account"
+    );
     assert!(rows.iter().any(|r| r.recipient_session_id == a.id));
-    let (s, _) = env.json(Method::GET, &env.url("/notices"), &token, Some(&cs), None).await;
+    let (s, _) = env
+        .json(Method::GET, &env.url("/notices"), &token, Some(&cs), None)
+        .await;
     assert_eq!(s, 403);
 }
 
@@ -442,7 +629,12 @@ async fn o05_expired_recipients_get_no_reminder() {
     let q = ask(&env, &tid, &a, "q1").await;
     age_question(&env, q["id"].as_str().unwrap(), 7200).await;
     expire_session(&env, &a.id, 30).await;
-    let report = escalation::evaluate_repo(&env.db, &repo(&env).await, Utc::now()).await.unwrap();
+    let report = escalation::evaluate_repo(&env.db, &repo(&env).await, Utc::now())
+        .await
+        .unwrap();
     assert_eq!(report.emitted, 0, "{report:?}");
-    assert!(escalations(&env, &a2, "all").await.is_empty(), "nothing is passed to a successor");
+    assert!(
+        escalations(&env, &a2, "all").await.is_empty(),
+        "nothing is passed to a successor"
+    );
 }

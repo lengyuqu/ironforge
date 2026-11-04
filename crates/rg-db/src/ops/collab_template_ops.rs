@@ -13,10 +13,10 @@ use sea_orm::sea_query::Expr;
 use sea_orm::*;
 
 use crate::entities::collab_task::{self, ActiveModel as TaskActive, Model as Task};
-use crate::entities::collab_task_template::{self, ActiveModel as TemplateActive, Model as Template};
-use crate::entities::collab_task_template_link::{
-    self, ActiveModel as LinkActive, Model as Link,
+use crate::entities::collab_task_template::{
+    self, ActiveModel as TemplateActive, Model as Template,
 };
+use crate::entities::collab_task_template_link::{self, ActiveModel as LinkActive, Model as Link};
 use crate::entities::collab_task_template_version::{
     self, ActiveModel as VersionActive, Model as Version,
 };
@@ -85,7 +85,9 @@ pub async fn versions_of<C: ConnectionTrait>(
         return Ok(Vec::new());
     }
     collab_task_template_version::Entity::find()
-        .filter(collab_task_template_version::Column::TemplateId.is_in(template_ids.iter().cloned()))
+        .filter(
+            collab_task_template_version::Column::TemplateId.is_in(template_ids.iter().cloned()),
+        )
         .all(db)
         .await
         .context("db: list template versions")
@@ -94,9 +96,15 @@ pub async fn versions_of<C: ConnectionTrait>(
 #[derive(Debug, Clone, PartialEq)]
 #[allow(clippy::large_enum_variant)]
 pub enum CreateTemplateOutcome {
-    Created { template: Template, version: Version },
+    Created {
+        template: Template,
+        version: Version,
+    },
     /// `(created_by_user_id, client_template_id)` already exists.
-    Existing { template: Template, version: Version },
+    Existing {
+        template: Template,
+        version: Version,
+    },
     NameTaken,
 }
 
@@ -133,9 +141,15 @@ pub async fn create_template(
     let txn = db.begin().await.context("db: begin create template")?;
     match template.insert(&txn).await {
         Ok(t) => {
-            let v = version.insert(&txn).await.context("db: insert template version")?;
+            let v = version
+                .insert(&txn)
+                .await
+                .context("db: insert template version")?;
             txn.commit().await.context("db: commit create template")?;
-            Ok(CreateTemplateOutcome::Created { template: t, version: v })
+            Ok(CreateTemplateOutcome::Created {
+                template: t,
+                version: v,
+            })
         }
         Err(err) if is_unique_violation(&err) => {
             drop(txn);
@@ -163,11 +177,16 @@ pub async fn create_template(
 #[derive(Debug, Clone, PartialEq)]
 #[allow(clippy::large_enum_variant)]
 pub enum AddVersionOutcome {
-    Created { template: Template, version: Version },
+    Created {
+        template: Template,
+        version: Version,
+    },
     /// `(created_by_user_id, client_version_id)` already exists.
     Existing(Version),
     /// `latest_version` is no longer the expected one.
-    Conflict { current: Template },
+    Conflict {
+        current: Template,
+    },
     NotFound,
 }
 
@@ -204,7 +223,9 @@ pub async fn add_version(
         .context("db: bump template version")?;
     if res.rows_affected == 0 {
         let current = find_template(&txn, repo_id, template_id).await?;
-        txn.commit().await.context("db: commit add template version")?;
+        txn.commit()
+            .await
+            .context("db: commit add template version")?;
         return Ok(match current {
             Some(current) => AddVersionOutcome::Conflict { current },
             None => AddVersionOutcome::NotFound,
@@ -215,7 +236,9 @@ pub async fn add_version(
             let template = find_template(&txn, repo_id, template_id)
                 .await?
                 .context("db: template vanished while adding a version")?;
-            txn.commit().await.context("db: commit add template version")?;
+            txn.commit()
+                .await
+                .context("db: commit add template version")?;
             Ok(AddVersionOutcome::Created { template, version })
         }
         Err(err) if is_unique_violation(&err) => {
@@ -290,7 +313,10 @@ pub async fn find_link_by_client_id<C: ConnectionTrait>(
 #[derive(Debug, Clone, PartialEq)]
 #[allow(clippy::large_enum_variant)]
 pub enum CreateFromTemplateOutcome {
-    Created { task: Task, link: Link },
+    Created {
+        task: Task,
+        link: Link,
+    },
     /// `(creator, client_task_id)` already exists.
     Existing(Link),
 }
@@ -309,10 +335,15 @@ pub async fn create_task_with_link(
         return Ok(CreateFromTemplateOutcome::Existing(existing));
     }
     let txn = db.begin().await.context("db: begin task from template")?;
-    let task = task.insert(&txn).await.context("db: insert task from template")?;
+    let task = task
+        .insert(&txn)
+        .await
+        .context("db: insert task from template")?;
     match link.insert(&txn).await {
         Ok(link) => {
-            txn.commit().await.context("db: commit task from template")?;
+            txn.commit()
+                .await
+                .context("db: commit task from template")?;
             Ok(CreateFromTemplateOutcome::Created { task, link })
         }
         Err(err) if is_unique_violation(&err) => {

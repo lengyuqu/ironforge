@@ -144,11 +144,26 @@ impl MigrationTrait for Migration {
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         for table in [
-            Table::drop().table(CollabReads::Table).if_exists().to_owned(),
-            Table::drop().table(CollabHandoffs::Table).if_exists().to_owned(),
-            Table::drop().table(CollabMessages::Table).if_exists().to_owned(),
-            Table::drop().table(CollabTasks::Table).if_exists().to_owned(),
-            Table::drop().table(AgentSessions::Table).if_exists().to_owned(),
+            Table::drop()
+                .table(CollabReads::Table)
+                .if_exists()
+                .to_owned(),
+            Table::drop()
+                .table(CollabHandoffs::Table)
+                .if_exists()
+                .to_owned(),
+            Table::drop()
+                .table(CollabMessages::Table)
+                .if_exists()
+                .to_owned(),
+            Table::drop()
+                .table(CollabTasks::Table)
+                .if_exists()
+                .to_owned(),
+            Table::drop()
+                .table(AgentSessions::Table)
+                .if_exists()
+                .to_owned(),
         ] {
             manager.drop_table(table).await?;
         }
@@ -167,11 +182,31 @@ fn agent_sessions_table() -> TableCreateStatement {
         .table(AgentSessions::Table)
         .if_not_exists()
         .col(uuid_col(AgentSessions::Id).not_null().primary_key())
-        .col(ColumnDef::new(AgentSessions::RepoId).big_integer().not_null())
-        .col(ColumnDef::new(AgentSessions::UserId).big_integer().not_null())
-        .col(ColumnDef::new(AgentSessions::SecretHash).string_len(64).not_null())
-        .col(ColumnDef::new(AgentSessions::DisplayName).string_len(80).not_null())
-        .col(ColumnDef::new(AgentSessions::ClientKind).string_len(64).not_null())
+        .col(
+            ColumnDef::new(AgentSessions::RepoId)
+                .big_integer()
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(AgentSessions::UserId)
+                .big_integer()
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(AgentSessions::SecretHash)
+                .string_len(64)
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(AgentSessions::DisplayName)
+                .string_len(80)
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(AgentSessions::ClientKind)
+                .string_len(64)
+                .not_null(),
+        )
         .col(
             ColumnDef::new(AgentSessions::CreatedAt)
                 .timestamp_with_time_zone()
@@ -187,7 +222,11 @@ fn agent_sessions_table() -> TableCreateStatement {
                 .timestamp_with_time_zone()
                 .not_null(),
         )
-        .col(ColumnDef::new(AgentSessions::EndedAt).timestamp_with_time_zone().null())
+        .col(
+            ColumnDef::new(AgentSessions::EndedAt)
+                .timestamp_with_time_zone()
+                .null(),
+        )
         // Target of composite foreign keys that must stay inside one repository.
         .index(
             Index::create()
@@ -217,7 +256,11 @@ fn collab_tasks_table() -> TableCreateStatement {
         .if_not_exists()
         .col(uuid_col(CollabTasks::Id).not_null().primary_key())
         .col(ColumnDef::new(CollabTasks::RepoId).big_integer().not_null())
-        .col(ColumnDef::new(CollabTasks::Title).string_len(200).not_null())
+        .col(
+            ColumnDef::new(CollabTasks::Title)
+                .string_len(200)
+                .not_null(),
+        )
         .col(ColumnDef::new(CollabTasks::Description).text().null())
         .col(
             ColumnDef::new(CollabTasks::Status)
@@ -228,7 +271,11 @@ fn collab_tasks_table() -> TableCreateStatement {
         .col(uuid_col(CollabTasks::OwnerSessionId).null())
         .col(ColumnDef::new(CollabTasks::Branch).string_len(255).null())
         .col(ColumnDef::new(CollabTasks::PathsJson).text().not_null())
-        .col(ColumnDef::new(CollabTasks::IssueNumber).big_integer().null())
+        .col(
+            ColumnDef::new(CollabTasks::IssueNumber)
+                .big_integer()
+                .null(),
+        )
         .col(ColumnDef::new(CollabTasks::PrNumber).big_integer().null())
         .col(
             ColumnDef::new(CollabTasks::Version)
@@ -281,17 +328,37 @@ fn collab_messages_table() -> TableCreateStatement {
         .table(CollabMessages::Table)
         .if_not_exists()
         .col(uuid_col(CollabMessages::Id).not_null().primary_key())
-        .col(ColumnDef::new(CollabMessages::RepoId).big_integer().not_null())
+        .col(
+            ColumnDef::new(CollabMessages::RepoId)
+                .big_integer()
+                .not_null(),
+        )
         .col(uuid_col(CollabMessages::TaskId).not_null())
         .col(ColumnDef::new(CollabMessages::Seq).big_integer().not_null())
         .col(uuid_col(CollabMessages::AuthorSessionId).not_null())
-        .col(ColumnDef::new(CollabMessages::Kind).string_len(16).not_null())
+        .col(
+            ColumnDef::new(CollabMessages::Kind)
+                .string_len(16)
+                .not_null(),
+        )
         .col(ColumnDef::new(CollabMessages::Body).text().not_null())
         .col(uuid_col(CollabMessages::ReplyToId).null())
         .col(uuid_col(CollabMessages::TargetSessionId).null())
-        .col(ColumnDef::new(CollabMessages::CommitSha).string_len(64).null())
-        .col(ColumnDef::new(CollabMessages::ClientMessageId).string_len(128).not_null())
-        .col(ColumnDef::new(CollabMessages::PayloadHash).string_len(64).not_null())
+        .col(
+            ColumnDef::new(CollabMessages::CommitSha)
+                .string_len(64)
+                .null(),
+        )
+        .col(
+            ColumnDef::new(CollabMessages::ClientMessageId)
+                .string_len(128)
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabMessages::PayloadHash)
+                .string_len(64)
+                .not_null(),
+        )
         .col(
             ColumnDef::new(CollabMessages::CreatedAt)
                 .timestamp_with_time_zone()
@@ -359,7 +426,11 @@ fn collab_handoffs_table() -> TableCreateStatement {
         .table(CollabHandoffs::Table)
         .if_not_exists()
         .col(uuid_col(CollabHandoffs::Id).not_null().primary_key())
-        .col(ColumnDef::new(CollabHandoffs::RepoId).big_integer().not_null())
+        .col(
+            ColumnDef::new(CollabHandoffs::RepoId)
+                .big_integer()
+                .not_null(),
+        )
         .col(uuid_col(CollabHandoffs::TaskId).not_null())
         .col(uuid_col(CollabHandoffs::FromSessionId).not_null())
         .col(uuid_col(CollabHandoffs::ToSessionId).not_null())
@@ -367,10 +438,26 @@ fn collab_handoffs_table() -> TableCreateStatement {
         .col(ColumnDef::new(CollabHandoffs::Completed).text().not_null())
         .col(ColumnDef::new(CollabHandoffs::NextSteps).text().not_null())
         .col(ColumnDef::new(CollabHandoffs::Blockers).text().not_null())
-        .col(ColumnDef::new(CollabHandoffs::CommitSha).string_len(64).null())
-        .col(ColumnDef::new(CollabHandoffs::EvidenceJson).text().not_null())
-        .col(ColumnDef::new(CollabHandoffs::ClientHandoffId).string_len(128).not_null())
-        .col(ColumnDef::new(CollabHandoffs::PayloadHash).string_len(64).not_null())
+        .col(
+            ColumnDef::new(CollabHandoffs::CommitSha)
+                .string_len(64)
+                .null(),
+        )
+        .col(
+            ColumnDef::new(CollabHandoffs::EvidenceJson)
+                .text()
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabHandoffs::ClientHandoffId)
+                .string_len(128)
+                .not_null(),
+        )
+        .col(
+            ColumnDef::new(CollabHandoffs::PayloadHash)
+                .string_len(64)
+                .not_null(),
+        )
         .col(
             ColumnDef::new(CollabHandoffs::Status)
                 .string_len(16)
@@ -563,7 +650,9 @@ enum Users {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sea_orm_migration::sea_query::{MysqlQueryBuilder, PostgresQueryBuilder, SqliteQueryBuilder};
+    use sea_orm_migration::sea_query::{
+        MysqlQueryBuilder, PostgresQueryBuilder, SqliteQueryBuilder,
+    };
 
     /// The `#[derive(Iden)]` pitfall (CLAUDE.md #13): enum names become
     /// snake_case, so `CollabTasks` yields `collab_tasks`. Check every table name
@@ -583,7 +672,10 @@ mod tests {
                 stmt.to_string(PostgresQueryBuilder),
                 stmt.to_string(MysqlQueryBuilder),
             ] {
-                assert!(ddl.contains(&format!("\"{name}\"")) || ddl.contains(&format!("`{name}`")), "{ddl}");
+                assert!(
+                    ddl.contains(&format!("\"{name}\"")) || ddl.contains(&format!("`{name}`")),
+                    "{ddl}"
+                );
                 assert!(ddl.contains("FOREIGN KEY"), "{ddl}");
             }
         }

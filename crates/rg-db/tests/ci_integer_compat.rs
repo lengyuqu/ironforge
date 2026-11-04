@@ -203,8 +203,14 @@ async fn stage_create() {
     pipeline_ops::update_stage_status(&db, stage.id, "running", Some(started), None)
         .await
         .unwrap();
-    pipeline_ops::update_stage_status(&db, stage.id, "running", None, None).await.unwrap();
-    assert!(pipeline_ops::update_stage_status(&db, i64::MAX, "running", None, None).await.is_err());
+    pipeline_ops::update_stage_status(&db, stage.id, "running", None, None)
+        .await
+        .unwrap();
+    assert!(
+        pipeline_ops::update_stage_status(&db, i64::MAX, "running", None, None)
+            .await
+            .is_err()
+    );
     let refreshed = pipeline_ops::get_stage_by_id(&db, stage.id)
         .await
         .unwrap()
@@ -270,8 +276,12 @@ async fn job_create() {
     pipeline_ops::update_job_log(&db, job.id, "hello")
         .await
         .unwrap();
-    pipeline_ops::update_job_log(&db, job.id, "hello").await.unwrap();
-    assert!(pipeline_ops::update_job_log(&db, i64::MAX, "hello").await.is_err());
+    pipeline_ops::update_job_log(&db, job.id, "hello")
+        .await
+        .unwrap();
+    assert!(pipeline_ops::update_job_log(&db, i64::MAX, "hello")
+        .await
+        .is_err());
     let read = pipeline_ops::get_job(&db, job.id).await.unwrap().unwrap();
     assert_eq!(read.log.as_deref(), Some("hello"));
     assert!(pipeline_ops::stage_has_job_status(&db, stage_id, "pending")
@@ -281,8 +291,12 @@ async fn job_create() {
     pipeline_ops::assign_job(&db, job.id, runner_id)
         .await
         .unwrap();
-    pipeline_ops::assign_job(&db, job.id, runner_id).await.unwrap();
-    assert!(pipeline_ops::assign_job(&db, i64::MAX, runner_id).await.is_err());
+    pipeline_ops::assign_job(&db, job.id, runner_id)
+        .await
+        .unwrap();
+    assert!(pipeline_ops::assign_job(&db, i64::MAX, runner_id)
+        .await
+        .is_err());
     let assigned = pipeline_ops::get_job(&db, job.id).await.unwrap().unwrap();
     assert_eq!(
         (assigned.status.as_str(), assigned.runner_id),

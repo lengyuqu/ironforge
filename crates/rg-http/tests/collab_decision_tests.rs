@@ -3,8 +3,8 @@
 //! Real HTTP server and SQLite database; with `IRONFORGE_TEST_DATABASE_URL` the
 //! same tests run on PostgreSQL or MySQL.
 
-mod common;
 mod collab_common;
+mod common;
 
 use collab_common::{Env, Sess};
 use reqwest::Method;
@@ -14,9 +14,17 @@ type Fut<'a> = std::pin::Pin<Box<dyn std::future::Future<Output = (u16, Value)> 
 
 async fn new_task(env: &Env, s: &Sess, extra: Value) -> Value {
     let mut body = json!({"title": "task"});
-    body.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+    body.as_object_mut()
+        .unwrap()
+        .extend(extra.as_object().unwrap().clone());
     let (status, task) = env
-        .json(Method::POST, &env.url("/tasks"), &env.owner_token, Some(s), Some(body))
+        .json(
+            Method::POST,
+            &env.url("/tasks"),
+            &env.owner_token,
+            Some(s),
+            Some(body),
+        )
         .await;
     assert_eq!(status, 201, "{task}");
     task
@@ -29,9 +37,17 @@ async fn ask(env: &Env, tid: &str, extra: Value) -> Value {
         "title": "Which database?",
         "body": "SQLite or PostgreSQL?",
     });
-    body.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+    body.as_object_mut()
+        .unwrap()
+        .extend(extra.as_object().unwrap().clone());
     let (status, q) = env
-        .json(Method::POST, &env.url(&format!("/tasks/{tid}/questions")), &env.owner_token, None, Some(body))
+        .json(
+            Method::POST,
+            &env.url(&format!("/tasks/{tid}/questions")),
+            &env.owner_token,
+            None,
+            Some(body),
+        )
         .await;
     assert_eq!(status, 201, "{q}");
     q
@@ -65,9 +81,17 @@ async fn decide(env: &Env, tid: &str, who: Option<&Sess>, key: &str, extra: Valu
         "title": "Use PostgreSQL",
         "rationale": "Needs concurrent writers.",
     });
-    body.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
-    env.json(Method::POST, &env.url(&format!("/tasks/{tid}/decisions")), &env.owner_token, who, Some(body))
-        .await
+    body.as_object_mut()
+        .unwrap()
+        .extend(extra.as_object().unwrap().clone());
+    env.json(
+        Method::POST,
+        &env.url(&format!("/tasks/{tid}/decisions")),
+        &env.owner_token,
+        who,
+        Some(body),
+    )
+    .await
 }
 
 async fn decide_ok(env: &Env, tid: &str, who: Option<&Sess>, key: &str) -> Value {
@@ -77,8 +101,14 @@ async fn decide_ok(env: &Env, tid: &str, who: Option<&Sess>, key: &str) -> Value
 }
 
 async fn change(env: &Env, did: &str, who: Option<&Sess>, body: Value) -> (u16, Value) {
-    env.json(Method::POST, &env.url(&format!("/decisions/{did}/changes")), &env.owner_token, who, Some(body))
-        .await
+    env.json(
+        Method::POST,
+        &env.url(&format!("/decisions/{did}/changes")),
+        &env.owner_token,
+        who,
+        Some(body),
+    )
+    .await
 }
 
 fn supersede(key: &str, by: &str) -> Value {
@@ -91,7 +121,13 @@ fn revoke(key: &str) -> Value {
 
 async fn get_decision(env: &Env, id: &str) -> Value {
     let (status, d) = env
-        .json(Method::GET, &env.url(&format!("/decisions/{id}")), &env.owner_token, None, None)
+        .json(
+            Method::GET,
+            &env.url(&format!("/decisions/{id}")),
+            &env.owner_token,
+            None,
+            None,
+        )
         .await;
     assert_eq!(status, 200, "{d}");
     d
@@ -99,14 +135,23 @@ async fn get_decision(env: &Env, id: &str) -> Value {
 
 async fn list_decisions(env: &Env, tid: &str, query: &str) -> Value {
     let (status, page) = env
-        .json(Method::GET, &env.url(&format!("/tasks/{tid}/decisions{query}")), &env.owner_token, None, None)
+        .json(
+            Method::GET,
+            &env.url(&format!("/tasks/{tid}/decisions{query}")),
+            &env.owner_token,
+            None,
+            None,
+        )
         .await;
     assert_eq!(status, 200, "{page}");
     page
 }
 
 async fn count(env: &Env, tid: &str) -> usize {
-    list_decisions(env, tid, "").await["items"].as_array().unwrap().len()
+    list_decisions(env, tid, "").await["items"]
+        .as_array()
+        .unwrap()
+        .len()
 }
 
 fn code(body: &Value) -> &str {
@@ -157,8 +202,16 @@ async fn n04_a_decision_cites_a_question_and_its_answer_and_stays_traceable() {
     assert_eq!(read["rationale"], "Needs concurrent writers.");
     assert_eq!(read["supersedes"], json!([]));
     let page = list_decisions(&env, tid, "").await;
-    let ids: Vec<&str> = page["items"].as_array().unwrap().iter().map(|i| i["id"].as_str().unwrap()).collect();
-    assert_eq!(ids, [d["id"].as_str().unwrap(), by_user["id"].as_str().unwrap()]);
+    let ids: Vec<&str> = page["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| i["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        ids,
+        [d["id"].as_str().unwrap(), by_user["id"].as_str().unwrap()]
+    );
 }
 
 #[tokio::test]
@@ -175,12 +228,21 @@ async fn n04_mismatched_question_or_answer_links_are_refused_without_writing() {
     let unknown = uuid::Uuid::new_v4().to_string();
 
     let cases = [
-        ("answer of another question of the task", json!({"question_id": q1, "answer_id": a2})),
+        (
+            "answer of another question of the task",
+            json!({"question_id": q1, "answer_id": a2}),
+        ),
         ("question of another task", json!({"question_id": q_other})),
-        ("answer of another task's question", json!({"question_id": q1, "answer_id": a_other})),
+        (
+            "answer of another task's question",
+            json!({"question_id": q1, "answer_id": a_other}),
+        ),
         ("answer without question", json!({"answer_id": a1})),
         ("unknown question", json!({"question_id": unknown})),
-        ("unknown answer", json!({"question_id": q1, "answer_id": unknown})),
+        (
+            "unknown answer",
+            json!({"question_id": q1, "answer_id": unknown}),
+        ),
         ("not an id", json!({"question_id": "nope"})),
     ];
     for (i, (what, extra)) in cases.iter().enumerate() {
@@ -189,14 +251,32 @@ async fn n04_mismatched_question_or_answer_links_are_refused_without_writing() {
     }
     // An answer of an unanswered question cannot exist; its question can be cited.
     let open = ask(&env, tid, json!({})).await;
-    let (status, body) = decide(&env, tid, Some(&a), "open-q", json!({"question_id": open["id"], "answer_id": a1})).await;
+    let (status, body) = decide(
+        &env,
+        tid,
+        Some(&a),
+        "open-q",
+        json!({"question_id": open["id"], "answer_id": a1}),
+    )
+    .await;
     assert_eq!(status, 400, "{body}");
-    assert_eq!(count(&env, tid).await, 0, "rejected requests left no record");
+    assert_eq!(
+        count(&env, tid).await,
+        0,
+        "rejected requests left no record"
+    );
     assert_eq!(count(&env, other_id).await, 0);
 
     // The valid pairs of both questions still work.
     for (i, (q, a_id)) in [(&q1, &a1), (&q2, &a2)].into_iter().enumerate() {
-        let (status, body) = decide(&env, tid, Some(&a), &format!("ok{i}"), json!({"question_id": q, "answer_id": a_id})).await;
+        let (status, body) = decide(
+            &env,
+            tid,
+            Some(&a),
+            &format!("ok{i}"),
+            json!({"question_id": q, "answer_id": a_id}),
+        )
+        .await;
         assert_eq!(status, 201, "{body}");
     }
     assert_eq!(count(&env, tid).await, 2);
@@ -211,7 +291,13 @@ async fn n04_a_question_of_another_repository_reads_like_any_mismatch() {
     common::create_repo(&env.base, &env.owner_token, "other-repo").await;
     let a2 = {
         let (status, body) = env
-            .json(Method::POST, &env.url_in("other-repo", "/sessions"), &env.owner_token, None, Some(json!({"display_name": "A2", "client_kind": "t"})))
+            .json(
+                Method::POST,
+                &env.url_in("other-repo", "/sessions"),
+                &env.owner_token,
+                None,
+                Some(json!({"display_name": "A2", "client_kind": "t"})),
+            )
             .await;
         assert_eq!(status, 201, "{body}");
         Sess {
@@ -220,7 +306,13 @@ async fn n04_a_question_of_another_repository_reads_like_any_mismatch() {
         }
     };
     let (status, foreign_task) = env
-        .json(Method::POST, &env.url_in("other-repo", "/tasks"), &env.owner_token, Some(&a2), Some(json!({"title": "t"})))
+        .json(
+            Method::POST,
+            &env.url_in("other-repo", "/tasks"),
+            &env.owner_token,
+            Some(&a2),
+            Some(json!({"title": "t"})),
+        )
         .await;
     assert_eq!(status, 201, "{foreign_task}");
     let (status, foreign_q) = env
@@ -234,7 +326,14 @@ async fn n04_a_question_of_another_repository_reads_like_any_mismatch() {
         .await;
     assert_eq!(status, 201, "{foreign_q}");
 
-    let (status, body) = decide(&env, tid, Some(&a), "x", json!({"question_id": foreign_q["id"]})).await;
+    let (status, body) = decide(
+        &env,
+        tid,
+        Some(&a),
+        "x",
+        json!({"question_id": foreign_q["id"]}),
+    )
+    .await;
     assert_eq!(status, 400, "{body}");
     assert_eq!(count(&env, tid).await, 0);
 }
@@ -246,21 +345,48 @@ async fn n04_a_stale_task_version_or_unknown_commit_is_refused_and_replays_are_i
     let task = new_task(&env, &a, json!({})).await;
     let tid = task["id"].as_str().unwrap();
 
-    let (status, first) = decide(&env, tid, Some(&a), "v1", json!({"context": {"task_version": 1}})).await;
+    let (status, first) = decide(
+        &env,
+        tid,
+        Some(&a),
+        "v1",
+        json!({"context": {"task_version": 1}}),
+    )
+    .await;
     assert_eq!(status, 201, "{first}");
     assert_eq!(first["context"]["task_version"], 1);
 
     // The task moves on.
     let (status, _) = env
-        .json(Method::PATCH, &env.url(&format!("/tasks/{tid}")), &env.owner_token, Some(&a), Some(json!({"expected_version": 1, "status": "blocked"})))
+        .json(
+            Method::PATCH,
+            &env.url(&format!("/tasks/{tid}")),
+            &env.owner_token,
+            Some(&a),
+            Some(json!({"expected_version": 1, "status": "blocked"})),
+        )
         .await;
     assert_eq!(status, 200);
 
-    let (status, body) = decide(&env, tid, Some(&a), "v2", json!({"context": {"task_version": 1}})).await;
+    let (status, body) = decide(
+        &env,
+        tid,
+        Some(&a),
+        "v2",
+        json!({"context": {"task_version": 1}}),
+    )
+    .await;
     assert_eq!(status, 409, "{body}");
     assert_eq!(code(&body), "VERSION_CONFLICT");
     assert_eq!(body["error"]["details"]["current_version"], 2);
-    let (status, body) = decide(&env, tid, Some(&a), "v3", json!({"context": {"head_sha": "0".repeat(40)}})).await;
+    let (status, body) = decide(
+        &env,
+        tid,
+        Some(&a),
+        "v3",
+        json!({"context": {"head_sha": "0".repeat(40)}}),
+    )
+    .await;
     assert_eq!(status, 400, "{body}");
     let (status, body) = decide(&env, tid, Some(&a), "v4", json!({"title": "   "})).await;
     assert_eq!(status, 400, "{body}");
@@ -268,10 +394,24 @@ async fn n04_a_stale_task_version_or_unknown_commit_is_refused_and_replays_are_i
 
     // Replay: same key, same body → 200 and the same record, even though the
     // task version it named is no longer current. A different body is refused.
-    let (status, replay) = decide(&env, tid, Some(&a), "v1", json!({"context": {"task_version": 1}})).await;
+    let (status, replay) = decide(
+        &env,
+        tid,
+        Some(&a),
+        "v1",
+        json!({"context": {"task_version": 1}}),
+    )
+    .await;
     assert_eq!(status, 200, "{replay}");
     assert_eq!(replay["id"], first["id"]);
-    let (status, reused) = decide(&env, tid, Some(&a), "v1", json!({"title": "Another title", "context": {"task_version": 1}})).await;
+    let (status, reused) = decide(
+        &env,
+        tid,
+        Some(&a),
+        "v1",
+        json!({"title": "Another title", "context": {"task_version": 1}}),
+    )
+    .await;
     assert_eq!(status, 409, "{reused}");
     assert_eq!(code(&reused), "IDEMPOTENCY_KEY_REUSED");
 
@@ -297,20 +437,63 @@ async fn n04_access_is_limited_to_the_working_group_and_writers() {
     for (path, method, body) in [
         (format!("/tasks/{tid}/decisions"), Method::GET, None),
         (format!("/decisions/{did}"), Method::GET, None),
-        (format!("/tasks/{tid}/decisions"), Method::POST, Some(json!({"client_decision_id": "s", "title": "t", "rationale": "r"}))),
-        (format!("/decisions/{did}/changes"), Method::POST, Some(revoke("s"))),
+        (
+            format!("/tasks/{tid}/decisions"),
+            Method::POST,
+            Some(json!({"client_decision_id": "s", "title": "t", "rationale": "r"})),
+        ),
+        (
+            format!("/decisions/{did}/changes"),
+            Method::POST,
+            Some(revoke("s")),
+        ),
     ] {
-        let (status, _) = env.json(method.clone(), &env.url(&path), &stranger, None, body.clone()).await;
+        let (status, _) = env
+            .json(
+                method.clone(),
+                &env.url(&path),
+                &stranger,
+                None,
+                body.clone(),
+            )
+            .await;
         assert_eq!(status, 403, "stranger {method} {path}");
     }
     // A read collaborator may read but not write.
-    let (status, _) = env.json(Method::GET, &env.url(&format!("/decisions/{did}")), &reader, None, None).await;
+    let (status, _) = env
+        .json(
+            Method::GET,
+            &env.url(&format!("/decisions/{did}")),
+            &reader,
+            None,
+            None,
+        )
+        .await;
     assert_eq!(status, 200);
-    let (status, _) = env.json(Method::POST, &env.url(&format!("/decisions/{did}/changes")), &reader, None, Some(revoke("r"))).await;
+    let (status, _) = env
+        .json(
+            Method::POST,
+            &env.url(&format!("/decisions/{did}/changes")),
+            &reader,
+            None,
+            Some(revoke("r")),
+        )
+        .await;
     assert_eq!(status, 403);
-    let anonymous = env.send(Method::GET, &env.url(&format!("/decisions/{did}")), None, None, None).await;
+    let anonymous = env
+        .send(
+            Method::GET,
+            &env.url(&format!("/decisions/{did}")),
+            None,
+            None,
+            None,
+        )
+        .await;
     assert_eq!(anonymous.status().as_u16(), 401);
-    assert!(get_decision(&env, did).await["change"].is_null(), "nothing was changed");
+    assert!(
+        get_decision(&env, did).await["change"].is_null(),
+        "nothing was changed"
+    );
 }
 
 // ---------------------------------------------------------------------- N05
@@ -329,18 +512,33 @@ async fn n05_racing_revoke_and_supersede_leave_exactly_one_terminal_event() {
         let oid = old["id"].as_str().unwrap();
         let results: Vec<(u16, Value)> = futures::future::join_all(vec![
             Box::pin(change(&env, oid, Some(&a), revoke(&format!("r{round}")))) as Fut,
-            Box::pin(change(&env, oid, Some(&b), supersede(&format!("s{round}"), new["id"].as_str().unwrap()))),
+            Box::pin(change(
+                &env,
+                oid,
+                Some(&b),
+                supersede(&format!("s{round}"), new["id"].as_str().unwrap()),
+            )),
             Box::pin(change(&env, oid, None, revoke(&format!("u{round}")))),
         ])
         .await;
         let winners: Vec<_> = results.iter().filter(|(s, _)| *s == 201).collect();
-        assert_eq!(winners.len(), 1, "exactly one terminal change wins: {results:?}");
+        assert_eq!(
+            winners.len(),
+            1,
+            "exactly one terminal change wins: {results:?}"
+        );
         for (status, body) in results.iter().filter(|(s, _)| *s != 201) {
             assert_eq!(*status, 409, "{body}");
             assert_eq!(code(body), "DECISION_ALREADY_CHANGED");
             // The loser is told who won.
-            assert_eq!(body["error"]["details"]["kind"], winners[0].1["change"]["kind"]);
-            assert_eq!(body["error"]["details"]["change_id"], winners[0].1["change"]["id"]);
+            assert_eq!(
+                body["error"]["details"]["kind"],
+                winners[0].1["change"]["kind"]
+            );
+            assert_eq!(
+                body["error"]["details"]["change_id"],
+                winners[0].1["change"]["id"]
+            );
         }
         let read = get_decision(&env, oid).await;
         assert_eq!(read["change"]["id"], winners[0].1["change"]["id"]);
@@ -396,7 +594,12 @@ async fn n05_a_decision_takes_one_change_only_and_history_is_preserved() {
     assert_eq!(read2["supersedes"], json!([id1]));
     assert_eq!(read2["status"], "active");
     let page = list_decisions(&env, tid, "").await;
-    let statuses: Vec<&str> = page["items"].as_array().unwrap().iter().map(|i| i["status"].as_str().unwrap()).collect();
+    let statuses: Vec<&str> = page["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| i["status"].as_str().unwrap())
+        .collect();
     assert_eq!(statuses, ["superseded", "active"]);
 
     // A revoke event keeps the decision readable too, and is recorded as revoked.
@@ -405,25 +608,50 @@ async fn n05_a_decision_takes_one_change_only_and_history_is_preserved() {
     assert_eq!(revoked["status"], "revoked");
     assert_eq!(revoked["change"]["actor_kind"], "user");
     assert!(revoked["change"]["replacement_decision_id"].is_null());
-    assert_eq!(get_decision(&env, id2).await["supersedes"], json!([id1]), "history survives the revoke");
+    assert_eq!(
+        get_decision(&env, id2).await["supersedes"],
+        json!([id1]),
+        "history survives the revoke"
+    );
 
     // Malformed changes write nothing.
     let d3 = decide_ok(&env, tid, Some(&a), "d3").await;
     let id3 = d3["id"].as_str().unwrap();
     for (what, body) in [
-        ("supersede without replacement", json!({"client_change_id": "m1", "kind": "superseded", "reason": "r"})),
-        ("revoke with replacement", json!({"client_change_id": "m2", "kind": "revoked", "replacement_decision_id": id2, "reason": "r"})),
-        ("unknown kind", json!({"client_change_id": "m3", "kind": "deleted", "reason": "r"})),
-        ("empty reason", json!({"client_change_id": "m4", "kind": "revoked", "reason": ""})),
+        (
+            "supersede without replacement",
+            json!({"client_change_id": "m1", "kind": "superseded", "reason": "r"}),
+        ),
+        (
+            "revoke with replacement",
+            json!({"client_change_id": "m2", "kind": "revoked", "replacement_decision_id": id2, "reason": "r"}),
+        ),
+        (
+            "unknown kind",
+            json!({"client_change_id": "m3", "kind": "deleted", "reason": "r"}),
+        ),
+        (
+            "empty reason",
+            json!({"client_change_id": "m4", "kind": "revoked", "reason": ""}),
+        ),
         ("self replacement", supersede("m5", id3)),
-        ("unknown replacement", supersede("m6", &uuid::Uuid::new_v4().to_string())),
+        (
+            "unknown replacement",
+            supersede("m6", &uuid::Uuid::new_v4().to_string()),
+        ),
         ("not an id", supersede("m7", "nope")),
     ] {
         let (status, body) = change(&env, id3, Some(&a), body).await;
         assert_eq!(status, 400, "{what}: {body}");
     }
     assert!(get_decision(&env, id3).await["change"].is_null());
-    let (status, _) = change(&env, &uuid::Uuid::new_v4().to_string(), Some(&a), revoke("m8")).await;
+    let (status, _) = change(
+        &env,
+        &uuid::Uuid::new_v4().to_string(),
+        Some(&a),
+        revoke("m8"),
+    )
+    .await;
     assert_eq!(status, 404);
 }
 
@@ -436,18 +664,35 @@ async fn n05_supersede_cycles_and_foreign_replacements_are_rejected() {
     let tid = task["id"].as_str().unwrap();
     let mut ids = Vec::new();
     for i in 0..4 {
-        ids.push(decide_ok(&env, tid, Some(&a), &format!("d{i}")).await["id"].as_str().unwrap().to_string());
+        ids.push(
+            decide_ok(&env, tid, Some(&a), &format!("d{i}")).await["id"]
+                .as_str()
+                .unwrap()
+                .to_string(),
+        );
     }
     let foreign = decide_ok(&env, other_task["id"].as_str().unwrap(), Some(&a), "f").await;
 
     // d0 → d1 → d2 is a fine chain.
     for (i, (from, to)) in [(0, 1), (1, 2)].into_iter().enumerate() {
-        let (status, body) = change(&env, &ids[from], Some(&a), supersede(&format!("c{i}"), &ids[to])).await;
+        let (status, body) = change(
+            &env,
+            &ids[from],
+            Some(&a),
+            supersede(&format!("c{i}"), &ids[to]),
+        )
+        .await;
         assert_eq!(status, 201, "{body}");
     }
     // d2 → d0 and d2 → d1 would close a cycle; they are named as such.
     for (i, target) in [&ids[0], &ids[1]].into_iter().enumerate() {
-        let (status, body) = change(&env, &ids[2], Some(&a), supersede(&format!("cy{i}"), target)).await;
+        let (status, body) = change(
+            &env,
+            &ids[2],
+            Some(&a),
+            supersede(&format!("cy{i}"), target),
+        )
+        .await;
         assert_eq!(status, 409, "{body}");
         assert_eq!(code(&body), "DECISION_CYCLE");
     }
@@ -456,14 +701,23 @@ async fn n05_supersede_cycles_and_foreign_replacements_are_rejected() {
     assert_eq!(status, 409, "{body}");
     assert_eq!(code(&body), "REPLACEMENT_NOT_NEWER");
     // A decision of another task cannot be a replacement.
-    let (status, body) = change(&env, &ids[3], Some(&a), supersede("foreign", foreign["id"].as_str().unwrap())).await;
+    let (status, body) = change(
+        &env,
+        &ids[3],
+        Some(&a),
+        supersede("foreign", foreign["id"].as_str().unwrap()),
+    )
+    .await;
     assert_eq!(status, 400, "{body}");
 
     // The refused changes left d2 and d3 without any event.
     for id in [&ids[2], &ids[3]] {
         assert!(get_decision(&env, id).await["change"].is_null());
     }
-    assert_eq!(get_decision(&env, &ids[2]).await["supersedes"], json!([ids[1]]));
+    assert_eq!(
+        get_decision(&env, &ids[2]).await["supersedes"],
+        json!([ids[1]])
+    );
 }
 
 #[tokio::test]
@@ -477,14 +731,30 @@ async fn n05_opposite_supersedes_racing_cannot_form_a_cycle() {
         let y = decide_ok(&env, tid, Some(&a), &format!("y{round}")).await;
         let (xid, yid) = (x["id"].as_str().unwrap(), y["id"].as_str().unwrap());
         let results: Vec<(u16, Value)> = futures::future::join_all(vec![
-            Box::pin(change(&env, xid, Some(&a), supersede(&format!("a{round}"), yid))) as Fut,
-            Box::pin(change(&env, yid, None, supersede(&format!("b{round}"), xid))),
+            Box::pin(change(
+                &env,
+                xid,
+                Some(&a),
+                supersede(&format!("a{round}"), yid),
+            )) as Fut,
+            Box::pin(change(
+                &env,
+                yid,
+                None,
+                supersede(&format!("b{round}"), xid),
+            )),
         ])
         .await;
         // Only x → y (a later replacement) can ever succeed; y → x never does.
         assert_eq!(results[0].0, 201, "{results:?}");
         assert_eq!(results[1].0, 409, "{results:?}");
-        assert!(matches!(code(&results[1].1), "DECISION_CYCLE" | "REPLACEMENT_NOT_NEWER"), "{results:?}");
+        assert!(
+            matches!(
+                code(&results[1].1),
+                "DECISION_CYCLE" | "REPLACEMENT_NOT_NEWER"
+            ),
+            "{results:?}"
+        );
         assert_eq!(get_decision(&env, xid).await["status"], "superseded");
         assert_eq!(get_decision(&env, yid).await["status"], "active");
     }
@@ -497,25 +767,62 @@ async fn n05_freshness_tells_fresh_from_stale_from_unknown_and_never_revokes() {
     let a = env.session(&env.owner_token, "A").await;
     let on_branch = new_task(&env, &a, json!({"branch": "feature"})).await;
     let no_branch = new_task(&env, &a, json!({})).await;
-    let (bid, nid) = (on_branch["id"].as_str().unwrap(), no_branch["id"].as_str().unwrap());
+    let (bid, nid) = (
+        on_branch["id"].as_str().unwrap(),
+        no_branch["id"].as_str().unwrap(),
+    );
 
-    let at_head = decide(&env, bid, Some(&a), "h", json!({"context": {"head_sha": first}})).await.1;
+    let at_head = decide(
+        &env,
+        bid,
+        Some(&a),
+        "h",
+        json!({"context": {"head_sha": first}}),
+    )
+    .await
+    .1;
     let version_only = decide_ok(&env, bid, Some(&a), "v").await;
-    let no_declared_branch = decide(&env, nid, Some(&a), "n", json!({"context": {"head_sha": first}})).await.1;
+    let no_declared_branch = decide(
+        &env,
+        nid,
+        Some(&a),
+        "n",
+        json!({"context": {"head_sha": first}}),
+    )
+    .await
+    .1;
     for d in [&at_head, &version_only] {
-        assert_eq!(get_decision(&env, d["id"].as_str().unwrap()).await["context_freshness"], "fresh");
+        assert_eq!(
+            get_decision(&env, d["id"].as_str().unwrap()).await["context_freshness"],
+            "fresh"
+        );
     }
     // A commit can only be judged against a declared branch.
-    assert_eq!(get_decision(&env, no_declared_branch["id"].as_str().unwrap()).await["context_freshness"], "unknown");
+    assert_eq!(
+        get_decision(&env, no_declared_branch["id"].as_str().unwrap()).await["context_freshness"],
+        "unknown"
+    );
 
     // The branch moves on: only the decision tied to the old head is stale.
     env.push_tree(&env.repo, "feature", &[("a.txt", "2")], &[]);
-    assert_eq!(get_decision(&env, at_head["id"].as_str().unwrap()).await["context_freshness"], "stale");
-    assert_eq!(get_decision(&env, version_only["id"].as_str().unwrap()).await["context_freshness"], "fresh");
+    assert_eq!(
+        get_decision(&env, at_head["id"].as_str().unwrap()).await["context_freshness"],
+        "stale"
+    );
+    assert_eq!(
+        get_decision(&env, version_only["id"].as_str().unwrap()).await["context_freshness"],
+        "fresh"
+    );
 
     // The task changes: every decision of it is stale, the other task's is not.
     let (status, _) = env
-        .json(Method::PATCH, &env.url(&format!("/tasks/{bid}")), &env.owner_token, Some(&a), Some(json!({"expected_version": 1, "status": "blocked"})))
+        .json(
+            Method::PATCH,
+            &env.url(&format!("/tasks/{bid}")),
+            &env.owner_token,
+            Some(&a),
+            Some(json!({"expected_version": 1, "status": "blocked"})),
+        )
         .await;
     assert_eq!(status, 200);
     let page = list_decisions(&env, bid, "").await;
@@ -525,14 +832,26 @@ async fn n05_freshness_tells_fresh_from_stale_from_unknown_and_never_revokes() {
         assert_eq!(item["status"], "active");
         assert!(item["change"].is_null());
     }
-    assert_eq!(get_decision(&env, no_declared_branch["id"].as_str().unwrap()).await["context_freshness"], "unknown");
+    assert_eq!(
+        get_decision(&env, no_declared_branch["id"].as_str().unwrap()).await["context_freshness"],
+        "unknown"
+    );
 
     // A stale decision can still be superseded or revoked explicitly.
     let fresh = decide_ok(&env, bid, Some(&a), "after").await;
     assert_eq!(fresh["context"]["task_version"], 2);
-    let (status, body) = change(&env, at_head["id"].as_str().unwrap(), Some(&a), supersede("s", fresh["id"].as_str().unwrap())).await;
+    let (status, body) = change(
+        &env,
+        at_head["id"].as_str().unwrap(),
+        Some(&a),
+        supersede("s", fresh["id"].as_str().unwrap()),
+    )
+    .await;
     assert_eq!(status, 201, "{body}");
-    assert_eq!(body["context_freshness"], "stale", "freshness is independent of the change");
+    assert_eq!(
+        body["context_freshness"], "stale",
+        "freshness is independent of the change"
+    );
 }
 
 #[tokio::test]
@@ -544,11 +863,15 @@ async fn n05_concurrent_creates_get_distinct_sequence_numbers_and_pages_follow_t
 
     let keys: Vec<String> = (0..6).map(|i| format!("par{i}")).collect();
     let results: Vec<(u16, Value)> = futures::future::join_all(
-        keys.iter().map(|key| Box::pin(decide(&env, tid, Some(&a), key, json!({}))) as Fut),
+        keys.iter()
+            .map(|key| Box::pin(decide(&env, tid, Some(&a), key, json!({}))) as Fut),
     )
     .await;
     assert!(results.iter().all(|(s, _)| *s == 201), "{results:?}");
-    let mut seqs: Vec<i64> = results.iter().map(|(_, d)| d["sequence"].as_i64().unwrap()).collect();
+    let mut seqs: Vec<i64> = results
+        .iter()
+        .map(|(_, d)| d["sequence"].as_i64().unwrap())
+        .collect();
     seqs.sort_unstable();
     assert_eq!(seqs, [1, 2, 3, 4, 5, 6]);
 
@@ -557,7 +880,13 @@ async fn n05_concurrent_creates_get_distinct_sequence_numbers_and_pages_follow_t
     let mut cursor = String::new();
     loop {
         let page = list_decisions(&env, tid, &format!("?limit=4{cursor}")).await;
-        seen.extend(page["items"].as_array().unwrap().iter().map(|i| i["sequence"].as_i64().unwrap()));
+        seen.extend(
+            page["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|i| i["sequence"].as_i64().unwrap()),
+        );
         match page["next_cursor"].as_str() {
             Some(next) => cursor = format!("&cursor={next}"),
             None => break,
@@ -566,10 +895,15 @@ async fn n05_concurrent_creates_get_distinct_sequence_numbers_and_pages_follow_t
     assert_eq!(seen, [1, 2, 3, 4, 5, 6]);
 
     // A racing retry of one key creates one decision.
-    let results: Vec<(u16, Value)> = futures::future::join_all((0..4).map(|_| {
-        Box::pin(decide(&env, tid, Some(&a), "same-key", json!({}))) as Fut
-    }))
+    let results: Vec<(u16, Value)> = futures::future::join_all(
+        (0..4).map(|_| Box::pin(decide(&env, tid, Some(&a), "same-key", json!({}))) as Fut),
+    )
     .await;
-    assert!(results.iter().all(|(s, d)| matches!(*s, 200 | 201) && d["id"] == results[0].1["id"]), "{results:?}");
+    assert!(
+        results
+            .iter()
+            .all(|(s, d)| matches!(*s, 200 | 201) && d["id"] == results[0].1["id"]),
+        "{results:?}"
+    );
     assert_eq!(count(&env, tid).await, 7);
 }

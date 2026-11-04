@@ -24,7 +24,10 @@ pub async fn is_collab_member(
     if repo.owner_id == user_id {
         return Ok(true);
     }
-    if repo_collaborator_ops::get_permission(db, repo.id, user_id).await?.is_some() {
+    if repo_collaborator_ops::get_permission(db, repo.id, user_id)
+        .await?
+        .is_some()
+    {
         return Ok(true);
     }
     if let Some(org_id) = repo.org_id {
