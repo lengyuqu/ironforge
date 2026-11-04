@@ -950,7 +950,8 @@ async fn o07_old_or_orphaned_declarations_are_marked_stale() {
     let (_, old) = get_decl(&env, &env.owner_token, &a.id, "").await;
     assert_eq!(old["declaration"]["stale"], true);
     assert_eq!(old["declaration"]["stale_reasons"], json!(["age"]));
-    assert!(old["declaration"]["age_seconds"].as_i64().unwrap() >= 30 * 3600);
+    // MySQL stores whole seconds, so the aged timestamp may read back up to 1s short.
+    assert!(old["declaration"]["age_seconds"].as_i64().unwrap() >= 30 * 3600 - 1);
     assert_eq!(old["declaration"]["stale_after_seconds"], 86400);
     assert_eq!(
         old["declaration"]["can_run_tests"], "yes",

@@ -1,7 +1,6 @@
 //! Database operations for `collab_work_packages`.
 
 use anyhow::{Context, Result};
-use chrono::{DateTime, Utc};
 use sea_orm::*;
 
 use crate::entities::collab_work_package::{
@@ -85,31 +84,25 @@ pub async fn create_next_revision(
     anyhow::bail!("db: could not allocate a work package revision under contention")
 }
 
-/// Keyset page of a task's packages ordered by `(created_at, id)` descending.
+/// Keyset page of a task's packages ordered by `revision` descending.
+///
+/// `revision` is unique and increasing within a task, so it is a total order even
+/// when timestamps tie (MySQL stores whole seconds).
 pub async fn list_page<C: ConnectionTrait>(
     db: &C,
     repo_id: i64,
     task_id: &str,
-    after: Option<(DateTime<Utc>, String)>,
+    after_revision: Option<i64>,
     limit: u64,
 ) -> Result<Vec<Package>> {
     let mut query = PackageEntity::find()
         .filter(collab_work_package::Column::RepoId.eq(repo_id))
         .filter(collab_work_package::Column::TaskId.eq(task_id));
-    if let Some((created, id)) = after {
-        query = query.filter(
-            Condition::any()
-                .add(collab_work_package::Column::CreatedAt.lt(created))
-                .add(
-                    Condition::all()
-                        .add(collab_work_package::Column::CreatedAt.eq(created))
-                        .add(collab_work_package::Column::Id.lt(id)),
-                ),
-        );
+    if let Some(revision) = after_revision {
+        query = query.filter(collab_work_package::Column::Revision.lt(revision));
     }
     query
-        .order_by_desc(collab_work_package::Column::CreatedAt)
-        .order_by_desc(collab_work_package::Column::Id)
+        .order_by_desc(collab_work_package::Column::Revision)
         .limit(limit)
         .all(db)
         .await

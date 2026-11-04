@@ -12,7 +12,7 @@
 | 可见性“仓库读者可读” | **所有者 / 任意级别协作者 / 组织成员 / 写者可读**；公开仓库的普通登录用户 403 | 问题、工作包比消息更可能含敏感内容；只收紧 `require_collab_read`，**未改** `can_read_repo/can_write_repo` |
 | O04 用户自定义条件 + 评估快照 | 只读 `completion-status`，条件由现有记录**推导**（问题已解决 / 有工作包 / 该 commit 的 CI） | 自定义条件需要独立数据模型；推导式无需迁移，且不阻止 `done` |
 | CI 证据 | 仅 `pipelines`（CI 引擎写入）；**不采信 commit status** | 任何写者（含被评估的 Agent）都能 POST commit status |
-| 工作包按 revision 降序 | 按 `(created_at,id)` 降序 | 复用现有游标；revision 仍唯一且递增 |
+| 工作包按 revision 降序 | 按 `revision` 降序，游标携带 revision | 最初用 `(created_at,id)`，MySQL 秒精度下同秒并列、UUID 决定顺序，2026-11-04 在 MySQL 实测暴露后改为 revision（同任务内唯一且递增） |
 | O03a | 删除影响**只读计数**（仓库 / 账号）+ 备份覆盖盘点（§4） | 不执行删除、不执行恢复 |
 
 **未做**：Web UI、`inbox_reads`、依赖图 / 决定 / 回执 / 通知（P1）、P2、O03b 隔离恢复演练、O02 总览、O04 自定义条件与强制模式、`paths_declared_at`。

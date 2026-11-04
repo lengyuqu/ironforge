@@ -272,7 +272,7 @@ pub async fn get(
 }
 
 fn list_scope(repo_id: i64, task_id: &str) -> String {
-    format!("work-packages:v1:repo={repo_id}:task={task_id}:order=created_desc,id_desc")
+    format!("work-packages:v2:repo={repo_id}:task={task_id}:order=revision_desc")
 }
 
 /// Packages of a task, newest first.
@@ -289,7 +289,11 @@ pub async fn list(
     let after = cursor_token
         .map(|token| cursor::decode(cursor_key, &scope, token))
         .transpose()?
-        .map(|p| (p.at, p.id));
+        .map(|p| {
+            p.id.parse::<i64>()
+                .map_err(|_| CollabError::bad_request("invalid cursor"))
+        })
+        .transpose()?;
     let mut rows =
         collab_work_package_ops::list_page(db, repo_id, &task.id, after, limit + 1).await?;
     let has_more = rows.len() as u64 > limit;
@@ -300,7 +304,7 @@ pub async fn list(
             &scope,
             &KeysetPosition {
                 at: last.created_at,
-                id: last.id.clone(),
+                id: last.revision.to_string(),
             },
         )
     });
