@@ -3,19 +3,23 @@
 //! Everything here is derived from stored records at call time and every finding
 //! names its source. Findings are either `established` (a fact the records
 //! show) or `unknown` (the records cannot tell). A silent or slow session is
-//! never blamed: "offline", "no receipt" and "no acknowledgement" are reported as
+//! never blamed: "offline" and "no acknowledgement" are reported as
 //! what they are, together with an `unknown` finding about the cause, because the
 //! collaboration records cannot see client behaviour, networks or service logs.
 //! Read-only: nothing here writes or notifies anyone.
 
 use chrono::{DateTime, Utc};
-use rg_db::entities::{agent_session, collab_question, collab_task, repository};
+use rg_db::entities::{
+    agent_session, collab_handoff, collab_notice, collab_question, collab_task, repository,
+};
 use rg_db::ops::collab_notice_ops::{self, kind, source};
 use rg_db::ops::{
-    agent_session_ops, collab_escalation_ops, collab_handoff_ops, collab_message_ops,
-    collab_question_ops, collab_task_ops,
+    agent_session_ops, collab_escalation_ops, collab_handoff_ops, collab_question_ops,
+    collab_task_ops,
 };
-use sea_orm::{ColumnTrait, Condition, DatabaseConnection};
+use sea_orm::{
+    ColumnTrait, Condition, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 use serde::Serialize;
 use serde_json::{json, Value};
 
@@ -26,17 +30,17 @@ use super::{task, validation};
 
 /// Page sizes for the per-object findings.
 const OBJECT_LIMIT: u64 = 20;
-const MESSAGE_WINDOW: i64 = 100;
 
 pub const ESTABLISHED: &str = "established";
 pub const UNKNOWN: &str = "unknown";
 
-/// What the collaboration records cannot show; stated on every diagnosis.
-pub const NOT_COVERED: [&str; 4] = [
+/// Information outside this diagnosis, stated on every response.
+pub const NOT_COVERED: [&str; 5] = [
     "what the client program is doing (busy, idle, crashed, disconnected)",
     "network conditions between a client and the server",
     "server process health and logs",
     "whether a client fetched or displayed a notice (fetches are not recorded)",
+    "message delivery and read receipts (available only to the message author)",
 ];
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -65,7 +69,7 @@ pub struct Diagnosis {
     pub subject: Value,
     pub as_of: DateTime<Utc>,
     pub findings: Vec<Finding>,
-    pub not_covered: [&'static str; 4],
+    pub not_covered: [&'static str; 5],
     /// Always `derived_from_records`; never a statement about fault.
     pub authority: &'static str,
 }
@@ -86,7 +90,11 @@ fn finding(
         confidence,
         severity,
         statement: statement.into(),
-        source: Source { record, id: id.map(str::to_string), fields: fields.to_vec() },
+        source: Source {
+            record,
+            id: id.map(str::to_string),
+            fields: fields.to_vec(),
+        },
         details,
     }
 }
@@ -205,57 +213,40 @@ async fn notice_state(
     notice_kind: &str,
     source_type: &str,
     source_id: &str,
-) -> CollabResult<&'static str> {
+) -> CollabResult<Option<collab_notice::Model>> {
     Ok(
-        match collab_notice_ops::find_for_source(db, recipient, notice_kind, source_type, source_id)
-            .await?
-        {
-            None => "none_recorded",
-            Some(n) if n.ack_at.is_some() => "acknowledged",
-            Some(n) if n.resolved_at.is_some() => "resolved",
-            Some(_) => "pending",
-        },
+        collab_notice_ops::find_for_source(db, recipient, notice_kind, source_type, source_id)
+            .await?,
     )
 }
 
 fn notice_finding(
     code: &'static str,
-    state: &'static str,
+    notice: Option<&collab_notice::Model>,
     notice_kind: &'static str,
     source_id: &str,
 ) -> Finding {
-    match state {
-        "pending" => finding(
-            code,
-            ESTABLISHED,
-            "attention",
-            "A notice for this was stored and has not been acknowledged. Whether the recipient's client fetched it is not recorded.",
-            "collab_notice",
-            Some(source_id),
-            &["kind", "ack_at"],
-            json!({ "notice_kind": notice_kind, "notice_state": state }),
-        ),
-        "none_recorded" => finding(
-            code,
-            UNKNOWN,
-            "info",
-            "No notice is recorded for this; it may predate notices or the recipient was not live when it was created.",
-            "collab_notice",
-            Some(source_id),
-            &["kind"],
-            json!({ "notice_kind": notice_kind, "notice_state": state }),
-        ),
-        _ => finding(
-            code,
-            ESTABLISHED,
-            "info",
-            format!("The notice for this is {state}."),
-            "collab_notice",
-            Some(source_id),
-            &["kind", "ack_at", "resolved_at"],
-            json!({ "notice_kind": notice_kind, "notice_state": state }),
-        ),
-    }
+    let state = match notice {
+        None => "none_recorded",
+        Some(n) if n.ack_at.is_some() => "acknowledged",
+        Some(n) if n.resolved_at.is_some() => "resolved",
+        Some(_) => "pending",
+    };
+    let (confidence, severity, statement) = match state {
+        "pending" => (ESTABLISHED, "attention", "A notice for this was stored and has not been acknowledged. Whether the recipient's client fetched it is not recorded.".to_string()),
+        "none_recorded" => (UNKNOWN, "info", "No notice is recorded for this; it may predate notices or the recipient was not live when it was created.".to_string()),
+        _ => (ESTABLISHED, "info", format!("The notice for this is {state}.")),
+    };
+    finding(
+        code,
+        confidence,
+        severity,
+        statement,
+        "collab_notice",
+        notice.map(|n| n.id.as_str()),
+        &["kind", "source_id", "ack_at", "resolved_at"],
+        json!({ "notice_kind": notice_kind, "notice_state": state, "source_id": source_id }),
+    )
 }
 
 /// Explain a session.
@@ -285,9 +276,9 @@ pub async fn for_session(
                 "{pending} notice(s) addressed to the session are stored and not acknowledged. Whether the client fetched them is not recorded."
             ),
             "collab_notice",
-            Some(&s.id),
+            None,
             &["recipient_session_id", "ack_at", "resolved_at", "created_at"],
-            json!({ "pending": pending, "oldest_created_at": oldest }),
+            json!({ "recipient_session_id": s.id, "pending": pending, "oldest_created_at": oldest }),
         ));
         findings.push(finding(
             "NOTICE_FETCH_UNKNOWN",
@@ -295,19 +286,23 @@ pub async fn for_session(
             "info",
             "Whether the session's client has read these notices cannot be told from the records.",
             "collab_notice",
-            Some(&s.id),
+            None,
             &["ack_at"],
-            json!({}),
+            json!({ "recipient_session_id": s.id }),
         ));
     }
 
-    let handoffs = collab_handoff_ops::list_pending_to_session(db, repo.id, &s.id, OBJECT_LIMIT).await?;
+    let handoffs =
+        collab_handoff_ops::list_pending_to_session(db, repo.id, &s.id, OBJECT_LIMIT).await?;
     if !handoffs.is_empty() {
         findings.push(finding(
             "HANDOFFS_WAITING_FOR_SESSION",
             ESTABLISHED,
             "attention",
-            format!("{} pending handoff(s) are addressed to this session.", handoffs.len()),
+            format!(
+                "{} pending handoff(s) are addressed to this session.",
+                handoffs.len()
+            ),
             "collab_handoff",
             None,
             &["to_session_id", "status"],
@@ -328,7 +323,10 @@ pub async fn for_session(
             "QUESTIONS_WAITING_FOR_SESSION",
             ESTABLISHED,
             "attention",
-            format!("{} open question(s) are addressed to this session.", questions.len()),
+            format!(
+                "{} open question(s) are addressed to this session.",
+                questions.len()
+            ),
             "collab_question",
             None,
             &["recipient_kind", "recipient_id", "status"],
@@ -381,35 +379,55 @@ pub async fn for_task(
         json!({ "status": t.status, "version": t.version, "updated_at": t.updated_at }),
     )];
 
+    if t.status == "done" {
+        findings.push(finding(
+            "TASK_DONE",
+            ESTABLISHED,
+            "info",
+            "The task is done and cannot be claimed until reopened.",
+            "collab_task",
+            Some(&t.id),
+            &["status"],
+            json!({}),
+        ));
+    }
     match &t.owner_session_id {
         None => findings.push(finding(
             "TASK_UNOWNED",
             ESTABLISHED,
             "attention",
-            "The task has no owner session; any session of the repository may claim it.",
+            if t.status == "done" {
+                "The task has no owner session; it must be reopened before it can be claimed."
+            } else {
+                "The task has no owner session; an eligible session of the repository may claim it."
+            },
             "collab_task",
             Some(&t.id),
             &["owner_session_id"],
             json!({}),
         )),
-        Some(owner_id) => match agent_session_ops::find_in_repo(db, repo.id, owner_id).await? {
-            None => findings.push(finding(
-                "OWNER_SESSION_MISSING",
-                ESTABLISHED,
-                "attention",
-                "The owner session no longer exists in this repository.",
-                "collab_task",
-                Some(&t.id),
-                &["owner_session_id"],
-                json!({ "owner_session_id": owner_id }),
-            )),
-            Some(owner) => {
-                let state = state_of(&owner, now);
-                findings.extend(session_state_findings(&owner, now).into_iter().map(|mut f| {
-                    f.details["role"] = json!("owner");
-                    f
-                }));
-                findings.push(match state {
+        Some(owner_id) => {
+            match agent_session_ops::find_in_repo(db, repo.id, owner_id).await? {
+                None => findings.push(finding(
+                    "OWNER_SESSION_MISSING",
+                    ESTABLISHED,
+                    "attention",
+                    "The owner session no longer exists in this repository.",
+                    "collab_task",
+                    Some(&t.id),
+                    &["owner_session_id"],
+                    json!({ "owner_session_id": owner_id }),
+                )),
+                Some(owner) => {
+                    let state = state_of(&owner, now);
+                    findings.extend(session_state_findings(&owner, now).into_iter().map(
+                        |mut f| {
+                            f.details["role"] = json!("owner");
+                            f
+                        },
+                    ));
+                    if t.status != "done" {
+                        findings.push(match state {
                     "ended" | "expired" => finding(
                         "OWNER_CAN_BE_REPLACED",
                         ESTABLISHED,
@@ -431,13 +449,17 @@ pub async fn for_task(
                         json!({ "owner_state": state }),
                     ),
                 });
-                findings.push(access_finding(db, repo, &owner).await?);
+                    }
+                    findings.push(access_finding(db, repo, &owner).await?);
+                }
             }
-        },
+        }
     }
 
     // Open questions of the task.
-    for q in collab_question_ops::list_page(db, repo.id, &t.id, Some("open"), None, OBJECT_LIMIT).await? {
+    for q in
+        collab_question_ops::list_page(db, repo.id, &t.id, Some("open"), None, OBJECT_LIMIT).await?
+    {
         let mut details = json!({
             "question_id": q.id, "age_secs": secs_since(q.created_at, now),
             "recipient_kind": q.recipient_kind,
@@ -446,7 +468,10 @@ pub async fn for_task(
             "QUESTION_OPEN",
             ESTABLISHED,
             "attention",
-            format!("A question has been open for {} s without an answer.", secs_since(q.created_at, now)),
+            format!(
+                "A question has been open for {} s without an answer.",
+                secs_since(q.created_at, now)
+            ),
             "collab_question",
             Some(&q.id),
             &["status", "created_at", "recipient_kind"],
@@ -468,14 +493,40 @@ pub async fn for_task(
                     details.clone(),
                 ));
             }
-            let state = notice_state(db, target, kind::QUESTION_ASKED, source::QUESTION, &q.id).await?;
-            findings.push(notice_finding("QUESTION_NOTICE", state, kind::QUESTION_ASKED, &q.id));
+            let state =
+                notice_state(db, target, kind::QUESTION_ASKED, source::QUESTION, &q.id).await?;
+            findings.push(notice_finding(
+                "QUESTION_NOTICE",
+                state.as_ref(),
+                kind::QUESTION_ASKED,
+                &q.id,
+            ));
         }
     }
 
     // Pending handoffs of the task.
-    let handoffs = collab_handoff_ops::list_page(db, repo.id, &t.id, None, 200).await?;
-    for h in handoffs.iter().filter(|h| h.status == collab_handoff_ops::status::PENDING).take(OBJECT_LIMIT as usize) {
+    let handoffs = collab_handoff::Entity::find()
+        .filter(collab_handoff::Column::RepoId.eq(repo.id))
+        .filter(collab_handoff::Column::TaskId.eq(&t.id))
+        .filter(collab_handoff::Column::Status.eq(collab_handoff_ops::status::PENDING))
+        .order_by_asc(collab_handoff::Column::CreatedAt)
+        .order_by_asc(collab_handoff::Column::Id)
+        .limit(OBJECT_LIMIT + 1)
+        .all(db)
+        .await?;
+    if handoffs.len() > OBJECT_LIMIT as usize {
+        findings.push(finding(
+            "HANDOFFS_TRUNCATED",
+            UNKNOWN,
+            "info",
+            "Additional pending handoffs are not included in this diagnosis.",
+            "collab_handoff",
+            None,
+            &["status"],
+            json!({"limit": OBJECT_LIMIT}),
+        ));
+    }
+    for h in handoffs.iter().take(OBJECT_LIMIT as usize) {
         let target = agent_session_ops::find_in_repo(db, repo.id, &h.to_session_id).await?;
         let target_state = target.as_ref().map(|s| state_of(s, now));
         findings.push(finding(
@@ -500,35 +551,19 @@ pub async fn for_task(
                 json!({ "handoff_id": h.id, "target_state": target_state }),
             ));
         }
-        let state = notice_state(db, &h.to_session_id, kind::HANDOFF_RECEIVED, source::HANDOFF, &h.id).await?;
-        findings.push(notice_finding("HANDOFF_NOTICE", state, kind::HANDOFF_RECEIVED, &h.id));
-    }
-
-    // Recent targeted messages nobody has confirmed or answered.
-    let after = (t.next_seq - MESSAGE_WINDOW).max(0);
-    let recent = collab_message_ops::list_after(db, &t.id, after, MESSAGE_WINDOW as u64).await?;
-    let mut unconfirmed = Vec::new();
-    for m in recent.iter().filter(|m| m.target_session_id.is_some()) {
-        let target = m.target_session_id.as_deref().unwrap_or_default();
-        let receipt = collab_notice_ops::find_receipt(db, &m.id, target).await?;
-        let reply = collab_message_ops::first_reply_by(db, &t.id, &m.id, target).await?;
-        if receipt.is_none() && reply.is_none() {
-            unconfirmed.push(json!({ "message_id": m.id, "seq": m.seq, "target_session_id": target }));
-        }
-    }
-    if !unconfirmed.is_empty() {
-        findings.push(finding(
-            "MESSAGES_UNCONFIRMED",
-            UNKNOWN,
-            "info",
-            format!(
-                "{} recent targeted message(s) have no read receipt and no reply from their target. No receipt means unknown, not unread.",
-                unconfirmed.len()
-            ),
-            "collab_delivery_receipt",
-            None,
-            &["message_id", "target_session_id", "read_at"],
-            json!({ "messages": unconfirmed, "window_messages": MESSAGE_WINDOW }),
+        let state = notice_state(
+            db,
+            &h.to_session_id,
+            kind::HANDOFF_RECEIVED,
+            source::HANDOFF,
+            &h.id,
+        )
+        .await?;
+        findings.push(notice_finding(
+            "HANDOFF_NOTICE",
+            state.as_ref(),
+            kind::HANDOFF_RECEIVED,
+            &h.id,
         ));
     }
 
