@@ -52,7 +52,10 @@ pub async fn set_assignees<C: ConnectionTrait>(
 }
 
 /// List all assignee rows of one issue (ordered by insertion id).
-pub async fn list_by_issue(db: &DatabaseConnection, issue_id: i64) -> Result<Vec<IssueAssignee>> {
+pub async fn list_by_issue(
+    db: &DatabaseConnection,
+    issue_id: i64,
+) -> Result<Vec<IssueAssignee>> {
     IssueAssigneeEntity::find()
         .filter(issue_assignee::Column::IssueId.eq(issue_id))
         .order_by_asc(issue_assignee::Column::Id)
@@ -62,7 +65,10 @@ pub async fn list_by_issue(db: &DatabaseConnection, issue_id: i64) -> Result<Vec
 }
 
 /// List assignee user IDs of one issue.
-pub async fn list_user_ids_by_issue(db: &DatabaseConnection, issue_id: i64) -> Result<Vec<i64>> {
+pub async fn list_user_ids_by_issue(
+    db: &DatabaseConnection,
+    issue_id: i64,
+) -> Result<Vec<i64>> {
     Ok(list_by_issue(db, issue_id)
         .await?
         .into_iter()
@@ -71,7 +77,10 @@ pub async fn list_user_ids_by_issue(db: &DatabaseConnection, issue_id: i64) -> R
 }
 
 /// Find issue IDs assigned to a user (for the `?assignee=` list filter).
-pub async fn find_issue_ids_by_user(db: &DatabaseConnection, user_id: i64) -> Result<Vec<i64>> {
+pub async fn find_issue_ids_by_user(
+    db: &DatabaseConnection,
+    user_id: i64,
+) -> Result<Vec<i64>> {
     let rows: Vec<i64> = IssueAssigneeEntity::find()
         .filter(issue_assignee::Column::UserId.eq(user_id))
         .order_by_asc(issue_assignee::Column::IssueId)

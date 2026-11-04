@@ -3,12 +3,12 @@
 //! Supports creating a mirror of an external Git repository, periodic
 //! sync via cron-like scheduling, and manual sync triggers.
 
-use crate::error::{CoreError, CoreResult};
 use anyhow::{Context, Result};
 use chrono::Utc;
 use rg_db::entities::mirror::{ActiveModel, Model as Mirror};
 use rg_db::entities::repository;
 use rg_git::cli_gateway::global_gateway;
+use crate::error::{CoreError, CoreResult};
 use sea_orm::ActiveValue::Set;
 use sea_orm::{DatabaseConnection, EntityTrait};
 use std::path::Path;

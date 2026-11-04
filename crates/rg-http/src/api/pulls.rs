@@ -152,8 +152,7 @@ pub async fn get_pr(
             // clients can build the clone URL (the row only stores an id).
             let mut body = serde_json::json!(pr);
             if let Some(head_repo_id) = pr.head_repo_id {
-                match rg_core::repo::service::repo_owner_and_name_by_id(&state.db, head_repo_id)
-                    .await
+                match rg_core::repo::service::repo_owner_and_name_by_id(&state.db, head_repo_id).await
                 {
                     Ok(Some((head_owner, head_name))) => {
                         body["head_repo_owner"] = serde_json::json!(head_owner);
@@ -214,12 +213,8 @@ pub async fn create_pr(
         Ok(t) => t,
         Err(e) => return e.into_response(),
     };
-    super::validation::validate_optional_text(
-        &req.body,
-        super::validation::MAX_BODY_LEN,
-        "PR body",
-    )
-    .ok();
+    super::validation::validate_optional_text(&req.body, super::validation::MAX_BODY_LEN, "PR body")
+        .ok();
 
     match rg_core::pull_request::resolve_head_ref(&state.db, repo_id, &req.head).await {
         Ok((head_branch, head_repo_id)) => {

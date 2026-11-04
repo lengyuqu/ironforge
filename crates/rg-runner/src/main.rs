@@ -516,8 +516,8 @@ async fn run_job_local(
     };
 
     #[cfg(windows)]
-    let output = {
-        let mut command = tokio::process::Command::new("powershell.exe");
+let output = {
+    let mut command = tokio::process::Command::new("powershell.exe");
         command
             .args(["-NoProfile", "-NonInteractive", "-Command", script])
             .current_dir(workspace)
@@ -667,10 +667,7 @@ mod tests {
         let args = rg_ci_isolation::DockerLimits::default().hardening_args();
         let joined = args.join(" ");
         assert!(joined.contains("--cap-drop ALL"), "{joined}");
-        assert!(
-            joined.contains("--security-opt no-new-privileges"),
-            "{joined}"
-        );
+        assert!(joined.contains("--security-opt no-new-privileges"), "{joined}");
         assert!(joined.contains("--pids-limit"), "{joined}");
     }
 
@@ -681,8 +678,7 @@ mod tests {
         // unix, `powershell.exe -Command` on Windows), so the assertion script
         // has to be written in that shell's syntax.
         #[cfg(unix)]
-        let script =
-            "test \"$RUNNER_MESSAGE\" = hello && test -z \"$IRONFORGE_HOST_SECRET\" && echo ok";
+        let script = "test \"$RUNNER_MESSAGE\" = hello && test -z \"$IRONFORGE_HOST_SECRET\" && echo ok";
         #[cfg(windows)]
         let script = concat!(
             "if ($env:RUNNER_MESSAGE -ne 'hello') { exit 1 }; ",

@@ -862,10 +862,7 @@ pub async fn rerun_failed_job(db: &DatabaseConnection, job_id: i64) -> Result<()
             pipeline_job::Column::RunnerId,
             Expr::value(sea_orm::Value::BigInt(None)),
         )
-        .col_expr(
-            pipeline_job::Column::ExitCode,
-            Expr::value(sea_orm::Value::Int(None)),
-        )
+        .col_expr(pipeline_job::Column::ExitCode, Expr::value(sea_orm::Value::Int(None)))
         .col_expr(
             pipeline_job::Column::FinishedAt,
             Expr::value(sea_orm::Value::ChronoDateTime(None)),
@@ -914,10 +911,7 @@ pub async fn rerun_failed_job(db: &DatabaseConnection, job_id: i64) -> Result<()
                     pipeline_job::Column::RunnerId,
                     Expr::value(sea_orm::Value::BigInt(None)),
                 )
-                .col_expr(
-                    pipeline_job::Column::ExitCode,
-                    Expr::value(sea_orm::Value::Int(None)),
-                )
+                .col_expr(pipeline_job::Column::ExitCode, Expr::value(sea_orm::Value::Int(None)))
                 .col_expr(
                     pipeline_job::Column::FinishedAt,
                     Expr::value(sea_orm::Value::ChronoDateTime(None)),

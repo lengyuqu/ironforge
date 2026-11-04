@@ -40,7 +40,11 @@ impl MigrationTrait for Migration {
                             .string_len(64)
                             .not_null(),
                     )
-                    .col(ColumnDef::new(BackgroundJobs::Payload).text().not_null())
+                    .col(
+                        ColumnDef::new(BackgroundJobs::Payload)
+                            .text()
+                            .not_null(),
+                    )
                     .col(
                         ColumnDef::new(BackgroundJobs::Status)
                             .string_len(16)
@@ -113,12 +117,7 @@ impl MigrationTrait for Migration {
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         manager
-            .drop_table(
-                Table::drop()
-                    .table(BackgroundJobs::Table)
-                    .if_exists()
-                    .to_owned(),
-            )
+            .drop_table(Table::drop().table(BackgroundJobs::Table).if_exists().to_owned())
             .await
     }
 }

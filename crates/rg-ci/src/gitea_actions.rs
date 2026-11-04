@@ -15,8 +15,8 @@
 //! - Basic `${{ }}` expression substitution
 
 use anyhow::Result;
-use rg_core::yaml::Value as YamlValue;
 use serde::Deserialize;
+use rg_core::yaml::Value as YamlValue;
 use std::collections::HashMap;
 
 use crate::config::{CacheConfig, CiConfig, ConcurrencyConfig, JobConfig};

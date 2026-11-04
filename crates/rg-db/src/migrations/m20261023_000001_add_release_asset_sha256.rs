@@ -26,11 +26,7 @@ impl MigrationTrait for Migration {
             .alter_table(
                 Table::alter()
                     .table(ReleaseAssets::Table)
-                    .add_column(
-                        ColumnDef::new(ReleaseAssetsCol::Sha256)
-                            .string_len(64)
-                            .null(),
-                    )
+                    .add_column(ColumnDef::new(ReleaseAssetsCol::Sha256).string_len(64).null())
                     .to_owned(),
             )
             .await?;

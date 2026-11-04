@@ -39,12 +39,7 @@ async fn protect(base: &str, token: &str, owner: &str, repo: &str, body: serde_j
         .send()
         .await
         .unwrap();
-    assert_eq!(
-        resp.status(),
-        201,
-        "create protection failed: {}",
-        resp.status()
-    );
+    assert_eq!(resp.status(), 201, "create protection failed: {}", resp.status());
 }
 
 async fn write_file(
@@ -89,7 +84,8 @@ async fn contents_api_respects_require_pr() {
     // Direct write to the protected branch must now be refused.
     let status = write_file(&base, &token, "protowner1", "prrepo", "bypass.txt", "main").await;
     assert_eq!(
-        status, 403,
+        status,
+        403,
         "direct commit to a require_pr branch must be forbidden, got {status}"
     );
 
@@ -103,7 +99,8 @@ async fn contents_api_respects_require_pr() {
         .await
         .unwrap();
     if resp.status().is_success() {
-        let status = write_file(&base, &token, "protowner1", "prrepo", "ok.txt", "feature").await;
+        let status =
+            write_file(&base, &token, "protowner1", "prrepo", "ok.txt", "feature").await;
         assert_eq!(
             status, 200,
             "unprotected branch must still accept direct commits, got {status}"
@@ -135,7 +132,8 @@ async fn contents_api_respects_require_signed_commits() {
     )
     .await;
     assert_eq!(
-        status, 403,
+        status,
+        403,
         "server-side unsigned commit must be refused on a signed-commits branch, got {status}"
     );
 }
@@ -199,15 +197,8 @@ async fn contents_api_respects_wildcard_rule_and_signed_commits() {
         .await
         .unwrap();
     if resp.status().is_success() {
-        let status = write_file(
-            &base,
-            &token,
-            "protowner4",
-            "wildrepo",
-            "r.txt",
-            "release/1.0",
-        )
-        .await;
+        let status =
+            write_file(&base, &token, "protowner4", "wildrepo", "r.txt", "release/1.0").await;
         assert_eq!(
             status, 403,
             "a `release/*` rule must cover `release/1.0`, got {status}"
@@ -261,9 +252,7 @@ async fn applying_suggestion_respects_protected_head_branch() {
     let number = pr["number"].as_i64().unwrap();
 
     let resp = client
-        .post(format!(
-            "{base}/api/v1/repos/sugowner1/sugrepo/pulls/{number}/comments"
-        ))
+        .post(format!("{base}/api/v1/repos/sugowner1/sugrepo/pulls/{number}/comments"))
         .bearer_auth(&token)
         .json(&serde_json::json!({
             "path": "note.txt",
@@ -277,12 +266,7 @@ async fn applying_suggestion_respects_protected_head_branch() {
         .send()
         .await
         .unwrap();
-    assert_eq!(
-        resp.status(),
-        201,
-        "comment create failed: {}",
-        resp.status()
-    );
+    assert_eq!(resp.status(), 201, "comment create failed: {}", resp.status());
     let comment_id = resp.json::<serde_json::Value>().await.unwrap()["id"]
         .as_i64()
         .unwrap();

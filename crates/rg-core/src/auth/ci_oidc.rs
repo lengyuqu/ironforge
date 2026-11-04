@@ -92,12 +92,8 @@ pub fn issue(
         ref_name: ref_name.to_string(),
         sha: sha.to_string(),
     };
-    let token = encode(
-        &header,
-        &claims,
-        &EncodingKey::from_ed_pem(pem.as_bytes()).context("decode ED signing key")?,
-    )
-    .context("issue CI OIDC token")?;
+    let token = encode(&header, &claims, &EncodingKey::from_ed_pem(pem.as_bytes()).context("decode ED signing key")?)
+        .context("issue CI OIDC token")?;
     Ok((token, expires.timestamp()))
 }
 

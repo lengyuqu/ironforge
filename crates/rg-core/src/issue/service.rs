@@ -21,9 +21,7 @@ pub async fn create_issue(
     milestone_id: Option<i64>,
 ) -> CoreResult<Issue> {
     if title.trim().is_empty() {
-        return Err(CoreError::InvalidInput(
-            "issue title cannot be empty".into(),
-        ));
+        return Err(CoreError::InvalidInput("issue title cannot be empty".into()));
     }
 
     if let Some(mid) = milestone_id {
@@ -109,7 +107,15 @@ pub async fn list_issues_paginated(
     limit: u64,
 ) -> CoreResult<(Vec<Issue>, i64)> {
     let repo = resolve_repo(db, owner, repo_name).await?;
-    Ok(issue_ops::list_by_repo_paginated(db, repo.id, state, None, offset, limit).await?)
+    Ok(issue_ops::list_by_repo_paginated(
+        db,
+        repo.id,
+        state,
+        None,
+        offset,
+        limit,
+    )
+    .await?)
 }
 
 /// Paginated list of issues filtered by milestone.
@@ -128,10 +134,15 @@ pub async fn list_issues_filtered_by_milestone(
     limit: u64,
 ) -> CoreResult<(Vec<Issue>, i64)> {
     let repo = resolve_repo(db, owner, repo_name).await?;
-    Ok(
-        issue_ops::list_by_repo_paginated(db, repo.id, state, Some(milestone), offset, limit)
-            .await?,
+    Ok(issue_ops::list_by_repo_paginated(
+        db,
+        repo.id,
+        state,
+        Some(milestone),
+        offset,
+        limit,
     )
+    .await?)
 }
 
 /// Paginated list of issues filtered by labels. Returns issues that have ALL specified labels.
@@ -237,9 +248,7 @@ pub async fn update_issue(
 
     if let Some(t) = title {
         if t.trim().is_empty() {
-            return Err(CoreError::InvalidInput(
-                "issue title cannot be empty".into(),
-            ));
+            return Err(CoreError::InvalidInput("issue title cannot be empty".into()));
         }
         active.title = Set(t);
     }
@@ -248,10 +257,7 @@ pub async fn update_issue(
     }
     if let Some(ref s) = state {
         if s != "open" && s != "closed" {
-            return Err(CoreError::InvalidInput(format!(
-                "invalid issue state: {}, must be open or closed",
-                s
-            )));
+            return Err(CoreError::InvalidInput(format!("invalid issue state: {}, must be open or closed", s)));
         }
         active.state = Set(s.clone());
         if s == "closed" {
@@ -346,9 +352,7 @@ pub async fn add_comment(
     body: String,
 ) -> CoreResult<Comment> {
     if body.trim().is_empty() {
-        return Err(CoreError::InvalidInput(
-            "comment body cannot be empty".into(),
-        ));
+        return Err(CoreError::InvalidInput("comment body cannot be empty".into()));
     }
 
     let issue = get_issue(db, owner, repo_name, issue_number).await?;
@@ -408,9 +412,7 @@ pub async fn update_comment(
     body: String,
 ) -> CoreResult<Comment> {
     if body.trim().is_empty() {
-        return Err(CoreError::InvalidInput(
-            "comment body cannot be empty".into(),
-        ));
+        return Err(CoreError::InvalidInput("comment body cannot be empty".into()));
     }
 
     let comment = issue_comment_ops::find_by_id(db, comment_id)

@@ -71,9 +71,7 @@ pub struct OAuth2TokenResponse {
 
 /// Generate OAuth2 / OIDC authorization URL with PKCE S256.
 /// Returns (auth_url, csrf_state, code_verifier).
-pub async fn oauth2_authorize_url(
-    config: &SsoProviderConfig,
-) -> CoreResult<(String, String, String)> {
+pub async fn oauth2_authorize_url(config: &SsoProviderConfig) -> CoreResult<(String, String, String)> {
     // PKCE: generate code_verifier (43-128 URL-safe chars per RFC 7636)
     let code_verifier: String = rand::thread_rng()
         .sample_iter(&rand::distributions::Alphanumeric)
@@ -95,9 +93,9 @@ pub async fn oauth2_authorize_url(
     // Build auth URL — use discovery for OIDC, default endpoints for OAuth2
     let base_url = match config.provider_type.as_str() {
         "oidc" => resolve_oidc_endpoints(config).await?.authorization_endpoint,
-        _ => config.default_oauth2_auth_url().ok_or_else(|| {
-            CoreError::internal(format!("no auth URL for provider: {}", config.slug))
-        })?,
+        _ => config
+            .default_oauth2_auth_url()
+            .ok_or_else(|| CoreError::internal(format!("no auth URL for provider: {}", config.slug)))?,
     };
 
     let url = format!(
@@ -125,9 +123,9 @@ pub async fn oauth2_exchange_code(
     let token_url = if config.provider_type == "oidc" {
         resolve_oidc_endpoints(config).await?.token_endpoint
     } else {
-        config.default_oauth2_token_url().ok_or_else(|| {
-            CoreError::internal(format!("no token URL for provider: {}", config.slug))
-        })?
+        config
+            .default_oauth2_token_url()
+            .ok_or_else(|| CoreError::internal(format!("no token URL for provider: {}", config.slug)))?
     };
 
     let client = http_client();
@@ -180,9 +178,9 @@ pub async fn oauth2_refresh_token(
     let token_url = if config.provider_type == "oidc" {
         resolve_oidc_endpoints(config).await?.token_endpoint
     } else {
-        config.default_oauth2_token_url().ok_or_else(|| {
-            CoreError::internal(format!("no token URL for provider: {}", config.slug))
-        })?
+        config
+            .default_oauth2_token_url()
+            .ok_or_else(|| CoreError::internal(format!("no token URL for provider: {}", config.slug)))?
     };
 
     let client = http_client();

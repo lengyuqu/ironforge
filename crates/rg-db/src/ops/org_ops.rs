@@ -31,17 +31,12 @@ pub async fn create_org(
         ..Default::default()
     };
 
-    let txn = db
-        .begin()
-        .await
-        .context("db: begin create-org transaction")?;
+    let txn = db.begin().await.context("db: begin create-org transaction")?;
     let result = model.insert(&txn).await.context("db: create org")?;
 
     // Auto-add the owner as an org member with "owner" role
     add_org_member(&txn, result.id, owner_id, "owner").await?;
-    txn.commit()
-        .await
-        .context("db: commit create-org transaction")?;
+    txn.commit().await.context("db: commit create-org transaction")?;
 
     Ok(result)
 }
@@ -365,6 +360,7 @@ pub async fn list_user_teams(db: &DatabaseConnection, user_id: i64) -> Result<Ve
         .context("db: list user teams")
 }
 
+
 /// Whether a user's write/admin team grants access to a specific repository.
 ///
 /// The team only counts when it has **no** repo mapping (the historical,
@@ -431,10 +427,7 @@ pub async fn set_team_repositories(
     repo_ids: &[i64],
 ) -> Result<()> {
     use crate::entities::team_repository::{ActiveModel, Column, Entity};
-    let txn = db
-        .begin()
-        .await
-        .context("db: begin set team repositories")?;
+    let txn = db.begin().await.context("db: begin set team repositories")?;
     Entity::delete_many()
         .filter(Column::TeamId.eq(team_id))
         .exec(&txn)

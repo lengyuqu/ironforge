@@ -111,8 +111,7 @@ pub async fn search(
     }
 
     if search_type == "all" || search_type == "issues" {
-        let (issues, count) =
-            search_issues(db, raw_text, &filters, actor_id, offset, limit).await?;
+        let (issues, count) = search_issues(db, raw_text, &filters, actor_id, offset, limit).await?;
         total += count;
         results.extend(issues);
     }

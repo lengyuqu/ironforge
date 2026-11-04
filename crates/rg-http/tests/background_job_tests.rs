@@ -65,9 +65,7 @@ async fn spawn_ok_server() -> (u16, tokio::task::JoinHandle<()>) {
                 let mut buf = [0u8; 4096];
                 let _ = socket.read(&mut buf).await;
                 let _ = socket
-                    .write_all(
-                        b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok",
-                    )
+                    .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
                     .await;
             });
         }
@@ -214,10 +212,7 @@ async fn deliver_retry_job_resolves_when_webhook_was_deleted() {
     let deliveries = webhook_ops::list_deliveries_by_webhook(&db, hook.id)
         .await
         .unwrap();
-    assert!(
-        deliveries.is_empty(),
-        "deleted webhook must not be redelivered"
-    );
+    assert!(deliveries.is_empty(), "deleted webhook must not be redelivered");
 
     // Worker round trip: the completed job is marked succeeded.
     let queue = BackgroundJobQueue::new(db.clone());

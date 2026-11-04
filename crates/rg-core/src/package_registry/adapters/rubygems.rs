@@ -452,7 +452,10 @@ test_files: []
         assert!(meta.description.unwrap().starts_with("Rack provides"));
         assert_eq!(meta.homepage.unwrap(), "https://github.com/rack/rack");
         assert_eq!(meta.license.unwrap(), "MIT");
-        assert_eq!(meta.repository_url.unwrap(), "https://github.com/rack/rack");
+        assert_eq!(
+            meta.repository_url.unwrap(),
+            "https://github.com/rack/rack"
+        );
     }
 
     #[test]

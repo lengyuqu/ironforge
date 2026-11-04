@@ -84,9 +84,7 @@ mod tests {
 
     #[test]
     fn scalars_keep_the_types_workflows_rely_on() {
-        let v = value(
-            "a: '123'\nb: 20\nc: 3.10\nd: 0x1F\ne: 0o14\nf: ~\ng:\nh: 2024-01-02\ni: 1.2.3\n",
-        );
+        let v = value("a: '123'\nb: 20\nc: 3.10\nd: 0x1F\ne: 0o14\nf: ~\ng:\nh: 2024-01-02\ni: 1.2.3\n");
         assert_eq!(v["a"], "123");
         assert_eq!(v["b"], 20);
         // The classic trap, unchanged: an unquoted 3.10 is the float 3.1.
@@ -126,9 +124,7 @@ mod tests {
 
     #[test]
     fn malformed_input_is_an_error_with_a_position() {
-        let error = from_str::<Value>("a: [1, 2\nb: 3\n")
-            .unwrap_err()
-            .to_string();
+        let error = from_str::<Value>("a: [1, 2\nb: 3\n").unwrap_err().to_string();
         assert!(error.contains("line"), "no position in: {error}");
     }
 
@@ -164,10 +160,7 @@ mod tests {
             name: String,
             tags: Vec<String>,
         }
-        let doc = Doc {
-            name: "x".into(),
-            tags: vec!["a".into(), "b".into()],
-        };
+        let doc = Doc { name: "x".into(), tags: vec!["a".into(), "b".into()] };
         let text = to_string(&doc).unwrap();
         assert!(!text.starts_with('%'), "YAML directive in output: {text}");
         assert_eq!(from_str::<Doc>(&text).unwrap(), doc);

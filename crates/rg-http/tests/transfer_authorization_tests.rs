@@ -65,13 +65,7 @@ async fn create(app: &App, token: &str, name: &str, org: Option<&str>) {
     assert_eq!(r.status(), 201, "create {name}");
 }
 
-async fn transfer(
-    app: &App,
-    token: &str,
-    owner: &str,
-    name: &str,
-    to: &str,
-) -> reqwest::StatusCode {
+async fn transfer(app: &App, token: &str, owner: &str, name: &str, to: &str) -> reqwest::StatusCode {
     reqwest::Client::new()
         .post(format!("{}/api/v1/repos/{owner}/{name}/transfer", app.base))
         .bearer_auth(token)
@@ -95,14 +89,8 @@ async fn cannot_transfer_into_an_organization_you_do_not_belong_to() {
     create(&app, &bob, "mine", None).await;
 
     let status = transfer(&app, &bob, "tr-bob", "mine", "tr-acme").await;
-    assert_eq!(
-        status, 403,
-        "a non-member must not drop a repo into the org"
-    );
-    assert!(
-        dir(&app, "tr-bob", "mine").exists(),
-        "refused transfer must not move data"
-    );
+    assert_eq!(status, 403, "a non-member must not drop a repo into the org");
+    assert!(dir(&app, "tr-bob", "mine").exists(), "refused transfer must not move data");
     assert!(!dir(&app, "tr-acme", "mine").exists());
 
     // Once they belong to the organization the same request succeeds.
@@ -118,10 +106,7 @@ async fn cannot_push_a_repository_into_another_users_account() {
     let (_bob, _) = register_full(&app.base, "tu-bob", "tu-bob@example.com").await;
     create(&app, &alice, "gift", None).await;
 
-    assert_eq!(
-        transfer(&app, &alice, "tu-alice", "gift", "tu-bob").await,
-        403
-    );
+    assert_eq!(transfer(&app, &alice, "tu-alice", "gift", "tu-bob").await, 403);
     assert!(dir(&app, "tu-alice", "gift").exists());
     assert!(!dir(&app, "tu-bob", "gift").exists());
 }
@@ -143,28 +128,16 @@ async fn only_org_admins_can_move_an_org_repository_out() {
 
     // Creating a repo does not entitle her to take it home...
     let status = transfer(&app, &carol, "to-acme", "crown", "to-carol").await;
-    assert!(
-        status == 403 || status == 404,
-        "creator-member must be refused, got {status}"
-    );
+    assert!(status == 403 || status == 404, "creator-member must be refused, got {status}");
     // ...and an outsider certainly cannot.
     let status = transfer(&app, &eve, "to-acme", "crown", "to-eve").await;
-    assert!(
-        status == 403 || status == 404,
-        "outsider must be refused, got {status}"
-    );
-    assert!(
-        dir(&app, "to-acme", "crown").exists(),
-        "org repo must stay where it is"
-    );
+    assert!(status == 403 || status == 404, "outsider must be refused, got {status}");
+    assert!(dir(&app, "to-acme", "crown").exists(), "org repo must stay where it is");
     assert!(!dir(&app, "to-carol", "crown").exists());
     assert!(!dir(&app, "to-eve", "crown").exists());
 
     // An organization admin can.
-    assert_eq!(
-        transfer(&app, &dave, "to-acme", "crown", "to-dave").await,
-        200
-    );
+    assert_eq!(transfer(&app, &dave, "to-acme", "crown", "to-dave").await, 200);
     assert!(dir(&app, "to-dave", "crown").exists());
     assert!(!dir(&app, "to-acme", "crown").exists());
 }

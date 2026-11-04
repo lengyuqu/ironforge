@@ -57,10 +57,7 @@ pub fn register_server_path(path: &Path) {
 /// name it; the caller that owns the URL registers it here. Non-SQLite URLs
 /// carry no filesystem path and are ignored.
 pub fn register_database_url(url: &str) {
-    let Some(rest) = url
-        .strip_prefix("sqlite://")
-        .or_else(|| url.strip_prefix("sqlite:"))
-    else {
+    let Some(rest) = url.strip_prefix("sqlite://").or_else(|| url.strip_prefix("sqlite:")) else {
         return;
     };
     let path = rest.split('?').next().unwrap_or(rest);
@@ -74,11 +71,7 @@ pub fn register_database_url(url: &str) {
 }
 
 fn is_path_char(c: char) -> bool {
-    c.is_alphanumeric()
-        || matches!(
-            c,
-            '/' | '\\' | '.' | '_' | '-' | '~' | '+' | '@' | '%' | ':'
-        )
+    c.is_alphanumeric() || matches!(c, '/' | '\\' | '.' | '_' | '-' | '~' | '+' | '@' | '%' | ':')
 }
 
 /// Replace every path under a registered server root with [`REDACTED`].
@@ -114,7 +107,7 @@ pub fn redact_server_paths(text: &str) -> Cow<'_, str> {
                     // Consume the rest of the path token.
                     let tail = after
                         .char_indices()
-                        .find(|(_, c)| !is_path_char(*c) || *c == ':')
+                        .find(|(_, c)| !is_path_char(*c) || *c == ':' )
                         .map(|(i, _)| i)
                         .unwrap_or(after.len());
                     out.push_str(before);
@@ -127,10 +120,7 @@ pub fn redact_server_paths(text: &str) -> Cow<'_, str> {
         // No (valid) match left: the rest is clean, except that a rejected
         // candidate may hide a later valid one, so advance one char and retry
         // only if some root still occurs.
-        let still = roots
-            .iter()
-            .filter_map(|root| rest.find(root.as_str()))
-            .min();
+        let still = roots.iter().filter_map(|root| rest.find(root.as_str())).min();
         match still {
             Some(index) => {
                 let step = index + rest[index..].chars().next().map_or(1, char::len_utf8);
@@ -167,10 +157,7 @@ mod tests {
         assert!(!out.contains("/srv/forge-redact-test"), "{out}");
         assert!(!out.contains("alice/x.git"), "{out}");
         assert!(out.contains(REDACTED), "{out}");
-        assert!(
-            out.contains("does not appear to be a git repository"),
-            "{out}"
-        );
+        assert!(out.contains("does not appear to be a git repository"), "{out}");
     }
 
     #[test]
@@ -223,9 +210,6 @@ mod tests {
     fn ignores_roots_that_are_too_short_to_be_safe() {
         register_server_path(Path::new("/"));
         register_server_path(Path::new("/tmp"));
-        assert_eq!(
-            redact_server_paths("see /tmp/x and / root"),
-            "see /tmp/x and / root"
-        );
+        assert_eq!(redact_server_paths("see /tmp/x and / root"), "see /tmp/x and / root");
     }
 }

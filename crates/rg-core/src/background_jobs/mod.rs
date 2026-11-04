@@ -60,8 +60,7 @@ impl BackgroundJobQueue {
 
     /// Enqueue a job eligible to run immediately with the default attempt cap.
     pub async fn enqueue(&self, task_type: &str, payload: &Value) -> anyhow::Result<Job> {
-        self.enqueue_with(task_type, payload, DEFAULT_MAX_ATTEMPTS)
-            .await
+        self.enqueue_with(task_type, payload, DEFAULT_MAX_ATTEMPTS).await
     }
 
     /// Enqueue a job with an explicit attempt cap.
@@ -153,7 +152,8 @@ impl BackgroundJobQueue {
     /// Return jobs stuck in `running` longer than `older_than` to `pending`.
     /// Returns the number of recovered jobs.
     pub async fn recover_stale(&self, older_than: StdDuration) -> anyhow::Result<usize> {
-        let cutoff = Utc::now() - Duration::milliseconds(older_than.as_millis() as i64);
+        let cutoff = Utc::now()
+            - Duration::milliseconds(older_than.as_millis() as i64);
         let stale = ops::list_running_locked_before(&self.db, cutoff, 100).await?;
         let mut recovered = 0;
         for job in stale {
@@ -178,7 +178,8 @@ fn backoff(attempts: i32) -> Duration {
 
 /// Handler executed for one claimed job. Runs inside the worker task; must
 /// be quick or idempotent (stale claims are reset to pending).
-pub type JobHandler = Arc<dyn Fn(Value) -> BoxFuture<'static, anyhow::Result<()>> + Send + Sync>;
+pub type JobHandler =
+    Arc<dyn Fn(Value) -> BoxFuture<'static, anyhow::Result<()>> + Send + Sync>;
 
 /// Recurring task executed on an interval (no persistence, no retry state —
 /// failures are logged and the next tick runs regardless).
@@ -208,7 +209,11 @@ impl BackgroundJobWorker {
     }
 
     /// Register the handler for a task type (builder style).
-    pub fn register_handler(mut self, task_type: impl Into<String>, handler: JobHandler) -> Self {
+    pub fn register_handler(
+        mut self,
+        task_type: impl Into<String>,
+        handler: JobHandler,
+    ) -> Self {
         self.handlers.insert(task_type.into(), handler);
         self
     }
@@ -220,7 +225,8 @@ impl BackgroundJobWorker {
         interval: StdDuration,
         task: PeriodicTask,
     ) -> Self {
-        self.periodic.push((name.to_string(), interval, task));
+        self.periodic
+            .push((name.to_string(), interval, task));
         self
     }
 
@@ -334,9 +340,7 @@ mod tests {
     async fn test_db() -> (DatabaseConnection, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
         let db_url = format!("sqlite://{}?mode=rwc", dir.path().join("jobs.db").display());
-        let db = Database::connect(ConnectOptions::new(db_url))
-            .await
-            .unwrap();
+        let db = Database::connect(ConnectOptions::new(db_url)).await.unwrap();
         rg_db::run_migrations(&db).await.unwrap();
         (db, dir)
     }
@@ -419,26 +423,14 @@ mod tests {
         assert_eq!(claimed.status, status::RUNNING);
 
         // Nothing stale yet.
-        assert_eq!(
-            queue
-                .recover_stale(StdDuration::from_secs(60))
-                .await
-                .unwrap(),
-            0
-        );
+        assert_eq!(queue.recover_stale(StdDuration::from_secs(60)).await.unwrap(), 0);
 
         // Age the claim beyond the threshold.
         let mut model: rg_db::entities::background_job::ActiveModel = claimed.into();
         model.locked_at = Set(Some(Utc::now() - Duration::minutes(11)));
         ops::update(&db, model).await.unwrap();
 
-        assert_eq!(
-            queue
-                .recover_stale(StdDuration::from_secs(600))
-                .await
-                .unwrap(),
-            1
-        );
+        assert_eq!(queue.recover_stale(StdDuration::from_secs(600)).await.unwrap(), 1);
         let recovered = ops::find_by_id(&db, job.id).await.unwrap().unwrap();
         assert_eq!(recovered.status, status::PENDING);
         assert!(recovered.locked_by.is_none());
@@ -466,11 +458,7 @@ mod tests {
         let jobs = ops::list_by_status(&db, status::DEAD, 10).await.unwrap();
         assert_eq!(jobs.len(), 1);
         assert_eq!(jobs[0].task_type, "no.such.task");
-        assert!(jobs[0]
-            .last_error
-            .as_deref()
-            .unwrap()
-            .contains("no handler"));
+        assert!(jobs[0].last_error.as_deref().unwrap().contains("no handler"));
 
         // Registered handler: first attempt fails, retry is scheduled with
         // backoff, second attempt (forced due) succeeds.
@@ -489,8 +477,7 @@ mod tests {
             .enqueue_with("test.flaky", &serde_json::json!({"n": 1}), 3)
             .await
             .unwrap();
-        let worker =
-            BackgroundJobWorker::new(queue.clone()).register_handler("test.flaky", handler);
+        let worker = BackgroundJobWorker::new(queue.clone()).register_handler("test.flaky", handler);
         assert_eq!(worker.run_once().await.unwrap(), 1);
         assert_eq!(calls.load(Ordering::SeqCst), 1);
         let pending = ops::find_by_id(&db, job.id).await.unwrap().unwrap();

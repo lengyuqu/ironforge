@@ -26,10 +26,7 @@ async fn setup_repo_with_sha(base: &str, token: &str, repo_name: &str) -> (i64, 
     let created_body: serde_json::Value = created.json().await.unwrap();
     assert_eq!(status, 201, "create_repo failed: {created_body}");
     let repo_id = created_body["id"].as_i64().unwrap();
-    (
-        repo_id,
-        "0123456789abcdef0123456789abcdef01234567".to_string(),
-    )
+    (repo_id, "0123456789abcdef0123456789abcdef01234567".to_string())
 }
 
 #[tokio::test]
@@ -62,7 +59,19 @@ async fn offline_runner_jobs_marked_failed_with_cascade() {
         .await
         .unwrap();
     let job = rg_db::ops::pipeline_ops::create_job(
-        &db, stage.id, "compile", "echo hi", None, None, None, None, None, false, None, None, None,
+        &db,
+        stage.id,
+        "compile",
+        "echo hi",
+        None,
+        None,
+        None,
+        None,
+        None,
+        false,
+        None,
+        None,
+        None,
     )
     .await
     .unwrap();

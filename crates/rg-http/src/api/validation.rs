@@ -40,7 +40,11 @@ pub fn validate_length(value: &str, max: usize, field: &str) -> Result<(), AppEr
 }
 
 /// Convenience: trim + non-empty + length check.  Returns the trimmed string.
-pub fn require_valid_text(value: &str, max: usize, field: &str) -> Result<String, AppError> {
+pub fn require_valid_text(
+    value: &str,
+    max: usize,
+    field: &str,
+) -> Result<String, AppError> {
     let trimmed = require_non_empty(value, field)?;
     validate_length(trimmed, max, field)?;
     Ok(trimmed.to_string())

@@ -187,7 +187,9 @@ pub async fn update_user(
             // token_version so all of the target's session JWTs die now,
             // not when they happen to expire.
             if is_active == Some(false) {
-                if let Err(e) = rg_db::ops::user_ops::bump_token_version(&state.db, user_id).await {
+                if let Err(e) =
+                    rg_db::ops::user_ops::bump_token_version(&state.db, user_id).await
+                {
                     tracing::error!(user_id, error = %e, "failed to bump token version on deactivation");
                     return AppError::internal("failed to deactivate user").into_response();
                 }

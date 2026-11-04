@@ -36,7 +36,10 @@ pub async fn list_by_status(
 }
 
 /// List pending jobs whose `run_at` is due, oldest first (claim candidates).
-pub async fn list_pending_due(db: &DatabaseConnection, limit: u64) -> Result<Vec<Model>> {
+pub async fn list_pending_due(
+    db: &DatabaseConnection,
+    limit: u64,
+) -> Result<Vec<Model>> {
     JobEntity::find()
         .filter(background_job::Column::Status.eq(status::PENDING))
         .filter(background_job::Column::RunAt.lte(Utc::now()))
@@ -73,7 +76,11 @@ pub async fn update(db: &DatabaseConnection, model: ActiveModel) -> Result<Model
 /// another worker claimed the row first. The `status = 'pending'` predicate
 /// makes the check-and-set portable across SQLite/PostgreSQL/MySQL without
 /// `RETURNING` support.
-pub async fn claim(db: &DatabaseConnection, id: i64, worker_id: &str) -> Result<Option<Model>> {
+pub async fn claim(
+    db: &DatabaseConnection,
+    id: i64,
+    worker_id: &str,
+) -> Result<Option<Model>> {
     let now = Utc::now();
     let result = JobEntity::update_many()
         .col_expr(background_job::Column::Status, Expr::value(status::RUNNING))

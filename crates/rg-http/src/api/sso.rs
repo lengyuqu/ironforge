@@ -517,7 +517,10 @@ pub async fn callback(
             &mut redirect,
             crate::api::mfa::build_mfa_challenge_cookie(&challenge, is_https),
         );
-        append_set_cookie(&mut redirect, build_clear_auth_cookie(is_https));
+        append_set_cookie(
+            &mut redirect,
+            build_clear_auth_cookie(is_https),
+        );
         clear_state_cookie(&mut redirect, SSO_STATE_COOKIE, is_https);
         clear_state_cookie(&mut redirect, SSO_VERIFIER_COOKIE, is_https);
         return Ok(redirect);
@@ -539,7 +542,10 @@ pub async fn callback(
 
     let mut redirect = Redirect::temporary("/dashboard").into_response();
     let is_https = is_https_request(&headers);
-    append_set_cookie(&mut redirect, build_auth_cookie(&token, is_https));
+    append_set_cookie(
+        &mut redirect,
+        build_auth_cookie(&token, is_https),
+    );
     clear_state_cookie(&mut redirect, SSO_STATE_COOKIE, is_https);
     clear_state_cookie(&mut redirect, SSO_VERIFIER_COOKIE, is_https);
     Ok(redirect)
@@ -870,13 +876,7 @@ mod tests {
         let mut response = axum::response::Response::new(axum::body::Body::empty());
 
         set_state_cookie(&mut response, SSO_STATE_COOKIE, "state-1", "secret", false);
-        set_state_cookie(
-            &mut response,
-            SSO_VERIFIER_COOKIE,
-            "verifier-1",
-            "secret",
-            false,
-        );
+        set_state_cookie(&mut response, SSO_VERIFIER_COOKIE, "verifier-1", "secret", false);
 
         let cookies: Vec<_> = response
             .headers()
@@ -938,16 +938,9 @@ mod tests {
     }
 
     #[test]
-    fn redirect_response_can_carry_multiple_set_cookie_headers() {
-        let mut response = axum::response::Redirect::temporary("/dashboard").into_response();
+    fn redirect_response_can_carry_multiple_set_cookie_headers() {        let mut response = axum::response::Redirect::temporary("/dashboard").into_response();
         set_state_cookie(&mut response, SSO_STATE_COOKIE, "state-1", "secret", false);
-        set_state_cookie(
-            &mut response,
-            SSO_VERIFIER_COOKIE,
-            "verifier-1",
-            "secret",
-            false,
-        );
+        set_state_cookie(&mut response, SSO_VERIFIER_COOKIE, "verifier-1", "secret", false);
 
         assert_eq!(
             response

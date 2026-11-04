@@ -710,14 +710,8 @@ async fn backup_instance(
     // 3. Audit archive (optional — only when the directory exists)
     let mut includes_audit = false;
     if audit_archive_dir.is_dir() {
-        copy_dir_recursive(audit_archive_dir, &output.join("audit-archive")).with_context(
-            || {
-                format!(
-                    "failed to copy audit archive {}",
-                    audit_archive_dir.display()
-                )
-            },
-        )?;
+        copy_dir_recursive(audit_archive_dir, &output.join("audit-archive"))
+            .with_context(|| format!("failed to copy audit archive {}", audit_archive_dir.display()))?;
         includes_audit = true;
     }
 
@@ -757,21 +751,10 @@ async fn backup_instance(
     println!(
         "Full-instance backup written to {} (db + repo root{}{})",
         output.display(),
-        if includes_audit {
-            " + audit archive"
-        } else {
-            ""
-        },
-        if config_name.is_some() {
-            " + config"
-        } else {
-            ""
-        },
+        if includes_audit { " + audit archive" } else { "" },
+        if config_name.is_some() { " + config" } else { "" },
     );
-    println!(
-        "Restore with: ironforge restore --input {}",
-        output.display()
-    );
+    println!("Restore with: ironforge restore --input {}", output.display());
     Ok(())
 }
 
@@ -789,12 +772,13 @@ fn restore_instance(
 
     // Validate the manifest before touching any target
     let manifest_path = input.join("manifest.json");
-    let manifest: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(&manifest_path)?)
-            .with_context(|| format!("invalid manifest: {}", manifest_path.display()))?;
-    let format_version = manifest["format_version"]
-        .as_u64()
-        .ok_or_else(|| anyhow::anyhow!("backup manifest is missing format_version"))?;
+    let manifest: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(
+        &manifest_path,
+    )?)
+    .with_context(|| format!("invalid manifest: {}", manifest_path.display()))?;
+    let format_version = manifest["format_version"].as_u64().ok_or_else(|| {
+        anyhow::anyhow!("backup manifest is missing format_version")
+    })?;
     if format_version > BACKUP_FORMAT_VERSION {
         anyhow::bail!(
             "backup format version {format_version} is newer than this binary supports \
@@ -806,19 +790,13 @@ fn restore_instance(
     // 1. Database
     let db_backup = input.join("ironforge.db");
     if !db_backup.is_file() {
-        anyhow::bail!(
-            "backup is missing the database file: {}",
-            db_backup.display()
-        );
+        anyhow::bail!("backup is missing the database file: {}", db_backup.display());
     }
 
     // 2. Repository root / blob storage
     let data_dir = input.join("data");
     if !data_dir.is_dir() {
-        anyhow::bail!(
-            "backup is missing the data directory: {}",
-            data_dir.display()
-        );
+        anyhow::bail!("backup is missing the data directory: {}", data_dir.display());
     }
 
     // Pre-flight: validate every target BEFORE the first destructive write so
@@ -853,10 +831,7 @@ fn restore_instance(
     let audit_src = input.join("audit-archive");
     if audit_src.is_dir() {
         copy_dir_recursive(&audit_src, audit_archive_dir).with_context(|| {
-            format!(
-                "failed to restore audit archive to {}",
-                audit_archive_dir.display()
-            )
+            format!("failed to restore audit archive to {}", audit_archive_dir.display())
         })?;
     }
 
@@ -936,8 +911,7 @@ fn validate_jwt_secret(jwt_secret: &str, source: &str) -> anyhow::Result<()> {
         tracing::error!(
             "FATAL: jwt_secret from {} is {} — refusing to start. \
              Generate a fresh secret, e.g. `openssl rand -base64 48`",
-            source,
-            reason
+            source, reason
         );
         anyhow::bail!("refusing to start with a known-compromised jwt_secret");
     }
@@ -1626,13 +1600,12 @@ async fn main() -> anyhow::Result<()> {
             let db = rg_db::connect(&db_url).await?;
 
             // Resolve `<owner>/<repo>` where owner is a user or an organization.
-            let repo =
-                rg_core::repo::service::find_repo_by_owner_name(&db, owner_username, repo_name)
-                    .await
-                    .context("Failed to find repository")?
-                    .ok_or_else(|| {
-                        anyhow::anyhow!("Repository not found: {}/{}", owner_username, repo_name)
-                    })?;
+            let repo = rg_core::repo::service::find_repo_by_owner_name(&db, owner_username, repo_name)
+                .await
+                .context("Failed to find repository")?
+                .ok_or_else(|| {
+                    anyhow::anyhow!("Repository not found: {}/{}", owner_username, repo_name)
+                })?;
 
             tracing::info!(
                 repo_id = repo.id,
@@ -1706,7 +1679,8 @@ async fn main() -> anyhow::Result<()> {
             }
             let hash = rg_core::auth::password::hash_password(&password)
                 .map_err(|e| anyhow::anyhow!("could not hash the password: {e}"))?;
-            let user = rg_db::ops::user_ops::create_user(&db, &username, &email, &hash, "").await?;
+            let user =
+                rg_db::ops::user_ops::create_user(&db, &username, &email, &hash, "").await?;
             // create_user exists for SSO provisioning and marks the account
             // "oauth2", which password login refuses; ops-created users log
             // in with the password just set.
@@ -2109,7 +2083,12 @@ async fn run_job_local(script: &str) -> (i32, String) {
 /// `IRONFORGE_ALLOW_HOST_RUNNER=1` (or `true`/`yes`).
 fn host_runner_allowed() -> bool {
     std::env::var("IRONFORGE_ALLOW_HOST_RUNNER")
-        .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
+        .map(|v| {
+            matches!(
+                v.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes"
+            )
+        })
         .unwrap_or(false)
 }
 

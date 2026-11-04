@@ -1,11 +1,11 @@
 //! REST API handlers for repository content browsing (tree, blob, history).
 
+use rg_core::error::{CoreContext, CoreError, CoreResult};
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::Json;
 use chrono;
-use rg_core::error::{CoreContext, CoreError, CoreResult};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, OnceLock};
 use tokio::sync::Semaphore;
@@ -422,10 +422,7 @@ pub async fn get_log(
     let limit = params.limit.unwrap_or(50).min(100);
     let file_path = params.path.unwrap_or_default();
     let file_path = file_path.trim_matches('/');
-    if file_path
-        .split('/')
-        .any(|c| c == "." || c == ".." || (c.is_empty() && !file_path.is_empty()))
-    {
+    if file_path.split('/').any(|c| c == "." || c == ".." || (c.is_empty() && !file_path.is_empty())) {
         return AppError::bad_request("invalid path").into_response();
     }
     let file_path = file_path.to_string();
@@ -433,7 +430,9 @@ pub async fn get_log(
     // A path-filtered log walks and diffs history, so it must not run on the async workers.
     match run_blocking(move || get_commit_log(&repo_path, &git_ref, &file_path, limit)).await {
         Ok(log) => (StatusCode::OK, Json(serde_json::json!({ "commits": log }))).into_response(),
-        Err(e) => AppError::from(e).into_response(),
+        Err(e) => {
+            AppError::from(e).into_response()
+        }
     }
 }
 
@@ -480,11 +479,7 @@ pub async fn get_blame(
     }
 
     let path = path.trim_matches('/').to_string();
-    if path.is_empty()
-        || path
-            .split('/')
-            .any(|c| c.is_empty() || c == "." || c == "..")
-    {
+    if path.is_empty() || path.split('/').any(|c| c.is_empty() || c == "." || c == "..") {
         return AppError::bad_request("invalid file path").into_response();
     }
     let git_ref = params.r#ref.unwrap_or_else(|| "HEAD".to_string());
@@ -497,19 +492,16 @@ pub async fn get_blame(
     .await;
 
     match result {
-        Ok(Ok(blame)) => (
-            StatusCode::OK,
-            Json(BlameResponse::from_blame(path, git_ref, blame)),
-        )
+        Ok(Ok(blame)) => (StatusCode::OK, Json(BlameResponse::from_blame(path, git_ref, blame)))
             .into_response(),
         Ok(Err(rg_git::blame::BlameError::NotFound(p))) => {
             AppError::not_found(format!("path '{p}' not found at ref '{git_ref}'")).into_response()
         }
-        Ok(Err(
-            e @ (rg_git::blame::BlameError::NotAFile(_)
-            | rg_git::blame::BlameError::Binary
-            | rg_git::blame::BlameError::TooLarge { .. }),
-        )) => AppError::bad_request(e).into_response(),
+        Ok(Err(e @ (rg_git::blame::BlameError::NotAFile(_)
+        | rg_git::blame::BlameError::Binary
+        | rg_git::blame::BlameError::TooLarge { .. }))) => {
+            AppError::bad_request(e).into_response()
+        }
         // Unresolvable refs surface as `Other`; treat them like get_blob does.
         Ok(Err(rg_git::blame::BlameError::Other(e))) => {
             tracing::warn!(error = %e, %git_ref, "blame failed");
@@ -556,7 +548,9 @@ pub async fn list_branches(
 
     match run_blocking(move || list_branch_names(&repo_path)).await {
         Ok(branches) => (StatusCode::OK, Json(branches)).into_response(),
-        Err(e) => AppError::from(e).into_response(),
+        Err(e) => {
+            AppError::from(e).into_response()
+        }
     }
 }
 
@@ -597,7 +591,9 @@ pub async fn list_tags(
 
     match run_blocking(move || list_tag_names(&repo_path)).await {
         Ok(tags) => (StatusCode::OK, Json(tags)).into_response(),
-        Err(e) => AppError::from(e).into_response(),
+        Err(e) => {
+            AppError::from(e).into_response()
+        }
     }
 }
 
@@ -644,8 +640,9 @@ async fn run_blocking<T: Send + 'static>(
 
 /// Open the bare repository; failure here is a server-side storage fault.
 fn open_repo(repo_path: &std::path::Path) -> CoreResult<gix::Repository> {
-    gix::open(repo_path)
-        .map_err(|e| CoreError::internal(format!("failed to open repository {repo_path:?}: {e}")))
+    gix::open(repo_path).map_err(|e| {
+        CoreError::internal(format!("failed to open repository {repo_path:?}: {e}"))
+    })
 }
 
 fn list_tree_entries(
@@ -843,9 +840,7 @@ fn get_commit_log(
         let Ok(walk) = repo.rev_walk([head_id]).all() else {
             return Ok(Vec::new());
         };
-        walk.filter_map(|info| info.ok().map(|i| i.id))
-            .take(limit)
-            .collect()
+        walk.filter_map(|info| info.ok().map(|i| i.id)).take(limit).collect()
     } else {
         match rg_git::history::commits_touching_path(repo_path, git_ref, path, limit) {
             Ok(ids) => ids,
@@ -1070,10 +1065,7 @@ fn verify_commit_signature(repo_path: &std::path::Path, sha: &str) -> CoreResult
         (Some(start), Some(end)) if start < end => {
             let name = signer[..start].trim().to_string();
             let email = signer[start + 1..end].trim().to_string();
-            (
-                Some(name).filter(|s| !s.is_empty()),
-                Some(email).filter(|s| !s.is_empty()),
-            )
+            (Some(name).filter(|s| !s.is_empty()), Some(email).filter(|s| !s.is_empty()))
         }
         _ => (Some(signer.clone()).filter(|s| !s.is_empty()), None),
     };

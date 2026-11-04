@@ -72,10 +72,7 @@ pub async fn create_webhook(
 }
 
 /// List all webhooks for a repository.
-pub async fn list_webhooks(
-    db: &DatabaseConnection,
-    repo_id: i64,
-) -> CoreResult<Vec<webhook::Model>> {
+pub async fn list_webhooks(db: &DatabaseConnection, repo_id: i64) -> CoreResult<Vec<webhook::Model>> {
     Ok(webhook_ops::list_by_repo(db, repo_id).await?)
 }
 
@@ -150,47 +147,49 @@ pub async fn trigger_event(
             let delivery_id = uuid::Uuid::new_v4().to_string();
             let start = std::time::Instant::now();
 
-            let (status, response_body) = match deliver(&url, &content_type, &secret, &payload_str)
-                .await
-            {
-                Ok(resp_status) => {
-                    tracing::info!(
-                        webhook_id = hook_id,
-                        event = %event_str,
-                        http_status = resp_status,
-                        "webhook delivered successfully"
-                    );
-                    (Some(resp_status), None::<String>)
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        webhook_id = hook_id,
-                        event = %event_str,
-                        error = %e,
-                        "webhook delivery failed"
-                    );
-                    // QUEUE-001: schedule a durable retry for transport
-                    // failures; the background worker redelivers with
-                    // backoff and records each attempt.
-                    let queue = crate::background_jobs::BackgroundJobQueue::new(db_clone.clone());
-                    let retry_payload = serde_json::json!({
-                        "webhook_id": hook_id,
-                        "event": event_str,
-                        "payload": payload_str,
-                    });
-                    if let Err(retry_err) = queue
-                        .enqueue(crate::background_jobs::TASK_WEBHOOK_DELIVER, &retry_payload)
-                        .await
-                    {
-                        tracing::error!(
+            let (status, response_body) =
+                match deliver(&url, &content_type, &secret, &payload_str).await {
+                    Ok(resp_status) => {
+                        tracing::info!(
                             webhook_id = hook_id,
-                            error = %retry_err,
-                            "failed to enqueue webhook delivery retry"
+                            event = %event_str,
+                            http_status = resp_status,
+                            "webhook delivered successfully"
                         );
+                        (Some(resp_status), None::<String>)
                     }
-                    (None, Some(format!("delivery error: {:#}", e)))
-                }
-            };
+                    Err(e) => {
+                        tracing::warn!(
+                            webhook_id = hook_id,
+                            event = %event_str,
+                            error = %e,
+                            "webhook delivery failed"
+                        );
+                        // QUEUE-001: schedule a durable retry for transport
+                        // failures; the background worker redelivers with
+                        // backoff and records each attempt.
+                        let queue = crate::background_jobs::BackgroundJobQueue::new(db_clone.clone());
+                        let retry_payload = serde_json::json!({
+                            "webhook_id": hook_id,
+                            "event": event_str,
+                            "payload": payload_str,
+                        });
+                        if let Err(retry_err) = queue
+                            .enqueue(
+                                crate::background_jobs::TASK_WEBHOOK_DELIVER,
+                                &retry_payload,
+                            )
+                            .await
+                        {
+                            tracing::error!(
+                                webhook_id = hook_id,
+                                error = %retry_err,
+                                "failed to enqueue webhook delivery retry"
+                            );
+                        }
+                        (None, Some(format!("delivery error: {:#}", e)))
+                    }
+                };
 
             let duration_ms = start.elapsed().as_millis() as i64;
 
@@ -221,14 +220,15 @@ pub async fn trigger_event(
 ///   able to bounce the POST to an internal target via 3xx (which would
 ///   bypass the SSRF guard). Receivers that answer 3xx are recorded as such.
 /// - Connection pooling avoids a new TLS handshake per delivery.
-static HTTP_CLIENT: std::sync::LazyLock<Option<reqwest::Client>> = std::sync::LazyLock::new(|| {
-    reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .connect_timeout(std::time::Duration::from_secs(10))
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .ok()
-});
+static HTTP_CLIENT: std::sync::LazyLock<Option<reqwest::Client>> =
+    std::sync::LazyLock::new(|| {
+        reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .connect_timeout(std::time::Duration::from_secs(10))
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .ok()
+    });
 
 /// Deliver a webhook payload via HTTP POST.
 async fn deliver(
@@ -303,19 +303,18 @@ pub async fn deliver_retry_job(db: &DatabaseConnection, payload: &Value) -> Resu
 
     let delivery_id = uuid::Uuid::new_v4().to_string();
     let start = std::time::Instant::now();
-    let (status, response_body) =
-        match deliver(&hook.url, &hook.content_type, &hook.secret, body).await {
-            Ok(resp_status) => {
-                tracing::info!(
-                    webhook_id,
-                    event = %event,
-                    http_status = resp_status,
-                    "webhook redelivery succeeded"
-                );
-                (Some(resp_status), None::<String>)
-            }
-            Err(e) => (None, Some(format!("delivery error: {:#}", e))),
-        };
+    let (status, response_body) = match deliver(&hook.url, &hook.content_type, &hook.secret, body).await {
+        Ok(resp_status) => {
+            tracing::info!(
+                webhook_id,
+                event = %event,
+                http_status = resp_status,
+                "webhook redelivery succeeded"
+            );
+            (Some(resp_status), None::<String>)
+        }
+        Err(e) => (None, Some(format!("delivery error: {:#}", e))),
+    };
 
     let duration_ms = start.elapsed().as_millis() as i64;
     let delivery_model = webhook_delivery::ActiveModel {

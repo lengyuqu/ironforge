@@ -22,7 +22,8 @@ pub async fn add_issue_reaction(
 ) -> CoreResult<reactions::Model> {
     validate_content(content)?;
     let issue = super::service::get_issue(db, owner, repo_name, issue_number).await?;
-    let reaction = insert_reaction(db, issue.id, 0, user_id, content.to_owned()).await?;
+    let reaction =
+        insert_reaction(db, issue.id, 0, user_id, content.to_owned()).await?;
 
     // Notify the issue author (never the reactor itself).
     if issue.author_id != user_id {
@@ -83,14 +84,8 @@ pub async fn add_comment_reaction(
     let comment = issue_comment_ops::find_by_id(db, comment_id)
         .await?
         .ok_or_else(|| CoreError::NotFound("comment not found".into()))?;
-    let reaction = insert_reaction(
-        db,
-        comment.issue_id,
-        comment.id,
-        user_id,
-        content.to_owned(),
-    )
-    .await?;
+    let reaction =
+        insert_reaction(db, comment.issue_id, comment.id, user_id, content.to_owned()).await?;
 
     // Notify the comment author (never the reactor itself).
     if comment.author_id != user_id {
@@ -98,11 +93,7 @@ pub async fn add_comment_reaction(
             db,
             comment.author_id,
             "comment_reaction",
-            &format!(
-                "{} reacted {} to your comment",
-                actor_name(db, user_id).await,
-                content
-            ),
+            &format!("{} reacted {} to your comment", actor_name(db, user_id).await, content),
             Some(&truncate(&comment.body, 80)),
             None,
         )

@@ -13,12 +13,7 @@ use common::{register_full, spawn_test_app_with_db};
 use sea_orm::Set;
 
 async fn register_owner(base: &str, tag: &str) -> (String, i64) {
-    register_full(
-        base,
-        &format!("prms{tag}"),
-        &format!("prms{tag}@example.com"),
-    )
-    .await
+    register_full(base, &format!("prms{tag}"), &format!("prms{tag}@example.com")).await
 }
 
 async fn create_repo(base: &str, token: &str, name: &str) -> i64 {
@@ -30,9 +25,7 @@ async fn create_repo(base: &str, token: &str, name: &str) -> i64 {
         .await
         .unwrap();
     assert_eq!(resp.status(), 201, "create repo {name}");
-    resp.json::<serde_json::Value>().await.unwrap()["id"]
-        .as_i64()
-        .unwrap()
+    resp.json::<serde_json::Value>().await.unwrap()["id"].as_i64().unwrap()
 }
 
 async fn create_milestone(base: &str, token: &str, owner: &str, repo: &str, title: &str) -> i64 {
@@ -44,9 +37,7 @@ async fn create_milestone(base: &str, token: &str, owner: &str, repo: &str, titl
         .await
         .unwrap();
     assert_eq!(resp.status(), 201, "create milestone '{title}'");
-    resp.json::<serde_json::Value>().await.unwrap()["id"]
-        .as_i64()
-        .unwrap()
+    resp.json::<serde_json::Value>().await.unwrap()["id"].as_i64().unwrap()
 }
 
 /// Insert a bare open PR directly in the DB (no git data needed).
@@ -128,11 +119,7 @@ async fn test_pr_milestone_set_and_clear() {
         .unwrap();
     assert_eq!(resp.status(), 200);
     let body: serde_json::Value = resp.json().await.unwrap();
-    assert_eq!(
-        body["milestone_id"].as_i64(),
-        Some(ms_id),
-        "PR carries milestone"
-    );
+    assert_eq!(body["milestone_id"].as_i64(), Some(ms_id), "PR carries milestone");
 
     // A fresh GET reflects it too.
     let get = client
@@ -148,22 +135,10 @@ async fn test_pr_milestone_set_and_clear() {
     );
 
     // JSON null clears it (tri-state: absent would have left it untouched).
-    let resp = patch_pr(
-        &base,
-        &token,
-        "prmss1",
-        "pr-ms-repo",
-        1,
-        serde_json::json!({"milestone_id": null}),
-    )
-    .await;
+    let resp = patch_pr(&base, &token, "prmss1", "pr-ms-repo", 1, serde_json::json!({"milestone_id": null})).await;
     assert_eq!(resp.status(), 200);
     let body: serde_json::Value = resp.json().await.unwrap();
-    assert_eq!(
-        body["milestone_id"],
-        serde_json::Value::Null,
-        "milestone cleared"
-    );
+    assert_eq!(body["milestone_id"], serde_json::Value::Null, "milestone cleared");
 }
 
 // ── Ownership guard ──────────────────────────────────────────────────────────
@@ -179,27 +154,11 @@ async fn test_pr_milestone_cross_repo_and_unknown_are_rejected() {
     insert_pr(&db, repo_a, user_id, 1).await;
 
     // PR on repo A cannot take repo B's milestone.
-    let resp = patch_pr(
-        &base,
-        &token,
-        "prmsg1",
-        "prms-a",
-        1,
-        serde_json::json!({"milestone_id": ms_b}),
-    )
-    .await;
+    let resp = patch_pr(&base, &token, "prmsg1", "prms-a", 1, serde_json::json!({"milestone_id": ms_b})).await;
     assert_eq!(resp.status(), 400, "cross-repo milestone rejected");
 
     // Unknown milestone id is rejected the same way.
-    let resp = patch_pr(
-        &base,
-        &token,
-        "prmsg1",
-        "prms-a",
-        1,
-        serde_json::json!({"milestone_id": 999_999}),
-    )
-    .await;
+    let resp = patch_pr(&base, &token, "prmsg1", "prms-a", 1, serde_json::json!({"milestone_id": 999_999})).await;
     assert_eq!(resp.status(), 400, "unknown milestone rejected");
 
     // The PR is untouched: still milestone-less.

@@ -34,19 +34,10 @@ async fn spawn() -> App {
         axum::serve(listener, app).await.unwrap();
     });
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-    App {
-        base,
-        db,
-        repo_root,
-    }
+    App { base, db, repo_root }
 }
 
-async fn create(
-    app: &App,
-    token: &str,
-    name: &str,
-    auto_init: bool,
-) -> (reqwest::StatusCode, serde_json::Value) {
+async fn create(app: &App, token: &str, name: &str, auto_init: bool) -> (reqwest::StatusCode, serde_json::Value) {
     let response = reqwest::Client::new()
         .post(format!("{}/api/v1/repos", app.base))
         .bearer_auth(token)
@@ -74,9 +65,7 @@ async fn create_public(app: &App, token: &str, name: &str) -> i64 {
         .await
         .unwrap();
     assert_eq!(response.status(), 201);
-    response.json::<serde_json::Value>().await.unwrap()["id"]
-        .as_i64()
-        .unwrap()
+    response.json::<serde_json::Value>().await.unwrap()["id"].as_i64().unwrap()
 }
 
 async fn delete(app: &App, token: &str, owner: &str, name: &str) -> reqwest::StatusCode {
@@ -132,19 +121,14 @@ async fn delete_frees_the_path_and_the_name_starts_empty() {
         "delete must free <owner>/<name>.git"
     );
     assert!(
-        tombstone(&app, "del-owner", "proj", id)
-            .join("HEAD")
-            .exists(),
+        tombstone(&app, "del-owner", "proj", id).join("HEAD").exists(),
         "the deleted repository's data must be kept in a tombstone"
     );
 
     // The name is reusable (this was a 400 `gix init --bare failed`), and the
     // new repository must NOT inherit the old one's history.
     let (status, body) = create(&app, &token, "proj", false).await;
-    assert_eq!(
-        status, 201,
-        "recreating a deleted name must succeed: {body}"
-    );
+    assert_eq!(status, 201, "recreating a deleted name must succeed: {body}");
     assert_ne!(body["id"].as_i64().unwrap(), id);
     assert_eq!(
         branch_count(&app, &token, "del-owner", "proj").await,
@@ -152,9 +136,7 @@ async fn delete_frees_the_path_and_the_name_starts_empty() {
         "a recreated repository must start empty, not inherit the old history"
     );
     // ...and the tombstone of the first one is untouched by the recreation.
-    assert!(tombstone(&app, "del-owner", "proj", id)
-        .join("HEAD")
-        .exists());
+    assert!(tombstone(&app, "del-owner", "proj", id).join("HEAD").exists());
 }
 
 #[tokio::test]
@@ -167,25 +149,15 @@ async fn leftover_directory_from_an_old_delete_is_quarantined_not_removed() {
     let id = body["id"].as_i64().unwrap();
 
     // Reproduce the pre-fix behaviour: row soft-deleted, directory left alone.
-    rg_db::ops::repo_ops::soft_delete(&app.db, id)
-        .await
-        .unwrap();
+    rg_db::ops::repo_ops::soft_delete(&app.db, id).await.unwrap();
     assert!(live(&app, "legacy-owner", "legacy").exists());
 
     let (status, body) = create(&app, &token, "legacy", false).await;
-    assert_eq!(
-        status, 201,
-        "a leftover directory must not block creation: {body}"
-    );
-    assert_eq!(
-        branch_count(&app, &token, "legacy-owner", "legacy").await,
-        0
-    );
+    assert_eq!(status, 201, "a leftover directory must not block creation: {body}");
+    assert_eq!(branch_count(&app, &token, "legacy-owner", "legacy").await, 0);
 
     assert!(
-        tombstone(&app, "legacy-owner", "legacy", id)
-            .join("HEAD")
-            .exists(),
+        tombstone(&app, "legacy-owner", "legacy", id).join("HEAD").exists(),
         "the leftover data must be moved aside, not deleted"
     );
 }
@@ -202,41 +174,29 @@ async fn purge_removes_only_expired_tombstones_and_is_idempotent() {
     assert!(dead.exists());
 
     // Inside the retention window nothing is removed.
-    let kept = rg_core::repo::service::purge_deleted_repositories(
-        &app.db,
-        &app.repo_root,
-        Duration::days(30),
-    )
-    .await
-    .unwrap();
+    let kept =
+        rg_core::repo::service::purge_deleted_repositories(&app.db, &app.repo_root, Duration::days(30))
+            .await
+            .unwrap();
     assert_eq!(kept, 0);
-    assert!(
-        dead.exists(),
-        "data inside the retention window must be kept"
-    );
+    assert!(dead.exists(), "data inside the retention window must be kept");
 
     // A live repository is never touched by a purge.
     let (_, live_body) = create(&app, &token, "survivor", true).await;
     assert!(live_body["id"].as_i64().is_some());
 
-    let purged = rg_core::repo::service::purge_deleted_repositories(
-        &app.db,
-        &app.repo_root,
-        Duration::zero(),
-    )
-    .await
-    .unwrap();
+    let purged =
+        rg_core::repo::service::purge_deleted_repositories(&app.db, &app.repo_root, Duration::zero())
+            .await
+            .unwrap();
     assert_eq!(purged, 1);
     assert!(!dead.exists(), "expired tombstone must be removed");
     assert!(live(&app, "purge-owner", "survivor").join("HEAD").exists());
 
-    let again = rg_core::repo::service::purge_deleted_repositories(
-        &app.db,
-        &app.repo_root,
-        Duration::zero(),
-    )
-    .await
-    .unwrap();
+    let again =
+        rg_core::repo::service::purge_deleted_repositories(&app.db, &app.repo_root, Duration::zero())
+            .await
+            .unwrap();
     assert_eq!(again, 0, "purge must be idempotent");
 }
 
@@ -266,12 +226,7 @@ async fn zero_retention_removes_the_data_with_the_delete() {
     assert_eq!(status, 201);
 }
 
-async fn fork(
-    app: &App,
-    token: &str,
-    owner: &str,
-    name: &str,
-) -> (reqwest::StatusCode, serde_json::Value) {
+async fn fork(app: &App, token: &str, owner: &str, name: &str) -> (reqwest::StatusCode, serde_json::Value) {
     let response = reqwest::Client::new()
         .post(format!("{}/api/v1/repos/{owner}/{name}/fork", app.base))
         .bearer_auth(token)
@@ -297,17 +252,12 @@ async fn deleting_a_fork_frees_the_name_so_it_can_be_forked_again() {
 
     assert_eq!(delete(&app, &user_token, "fork-user", "base").await, 200);
     assert!(!live(&app, "fork-user", "base").exists());
-    assert!(tombstone(&app, "fork-user", "base", first_id)
-        .join("HEAD")
-        .exists());
+    assert!(tombstone(&app, "fork-user", "base", first_id).join("HEAD").exists());
 
     let (status, second) = fork(&app, &user_token, "fork-src", "base").await;
     assert_eq!(status, 202, "re-forking after a delete must work: {second}");
     assert_ne!(second["id"].as_i64().unwrap(), first_id);
-    assert_eq!(
-        branch_count(&app, &user_token, "fork-user", "base").await,
-        1
-    );
+    assert_eq!(branch_count(&app, &user_token, "fork-user", "base").await, 1);
 }
 
 #[tokio::test]
@@ -321,20 +271,13 @@ async fn fork_quarantines_a_leftover_directory_from_an_old_delete() {
     // by soft-deleting the row only.
     let (_, old) = create(&app, &user_token, "base", true).await;
     let old_id = old["id"].as_i64().unwrap();
-    rg_db::ops::repo_ops::soft_delete(&app.db, old_id)
-        .await
-        .unwrap();
+    rg_db::ops::repo_ops::soft_delete(&app.db, old_id).await.unwrap();
     assert!(live(&app, "fl-user", "base").exists());
 
     let (status, forked) = fork(&app, &user_token, "fl-src", "base").await;
-    assert_eq!(
-        status, 202,
-        "a leftover directory must not block a fork: {forked}"
-    );
+    assert_eq!(status, 202, "a leftover directory must not block a fork: {forked}");
     assert!(
-        tombstone(&app, "fl-user", "base", old_id)
-            .join("HEAD")
-            .exists(),
+        tombstone(&app, "fl-user", "base", old_id).join("HEAD").exists(),
         "the leftover data must be moved aside, not deleted"
     );
 }

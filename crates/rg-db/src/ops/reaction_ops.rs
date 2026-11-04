@@ -3,7 +3,9 @@
 use anyhow::{Context, Result};
 use sea_orm::*;
 
-use crate::entities::reactions::{self, ActiveModel, Entity as ReactionEntity, Model as Reaction};
+use crate::entities::reactions::{
+    self, ActiveModel, Entity as ReactionEntity, Model as Reaction,
+};
 
 /// Allowed reaction contents (Gitea-compatible emoji set).
 pub const REACTION_CONTENTS: [&str; 8] = [
@@ -45,7 +47,10 @@ pub async fn list_by_target(
 }
 
 /// List all reactions attached to an issue (body + comments).
-pub async fn list_by_issue(db: &DatabaseConnection, issue_id: i64) -> Result<Vec<Reaction>> {
+pub async fn list_by_issue(
+    db: &DatabaseConnection,
+    issue_id: i64,
+) -> Result<Vec<Reaction>> {
     ReactionEntity::find()
         .filter(reactions::Column::IssueId.eq(issue_id))
         .order_by_asc(reactions::Column::Id)
@@ -78,13 +83,15 @@ pub async fn delete_by_comment<C: ConnectionTrait>(db: &C, comment_id: i64) -> R
 /// API layer can return 409 instead of 500. Walks the whole error chain
 /// because the DB error is wrapped by a `context(...)` message.
 fn map_unique_violation(e: anyhow::Error) -> anyhow::Error {
-    let violated = e.chain().any(|cause| {
-        let msg = cause.to_string();
-        msg.contains("idx_reactions_unique_target_user_content")
-            || msg.contains("UNIQUE constraint failed")
-            || msg.contains("Duplicate entry")
-            || msg.contains("duplicate key value violates unique constraint")
-    });
+    let violated = e
+        .chain()
+        .any(|cause| {
+            let msg = cause.to_string();
+            msg.contains("idx_reactions_unique_target_user_content")
+                || msg.contains("UNIQUE constraint failed")
+                || msg.contains("Duplicate entry")
+                || msg.contains("duplicate key value violates unique constraint")
+        });
     if violated {
         anyhow::anyhow!("reaction already exists")
     } else {

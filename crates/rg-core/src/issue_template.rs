@@ -166,7 +166,10 @@ pub fn read_pull_request_template(
     Ok(None)
 }
 
-fn verified_branch_ref(repository_path: &Path, default_branch: &str) -> Result<Option<String>> {
+fn verified_branch_ref(
+    repository_path: &Path,
+    default_branch: &str,
+) -> Result<Option<String>> {
     let branch_ref = format!("refs/heads/{default_branch}");
     let commit_spec = format!("{branch_ref}^{{commit}}");
     rg_git::ops::try_rev_parse(repository_path, &commit_spec)
@@ -213,14 +216,22 @@ fn list_directory(repository_path: &Path, git_ref: &str, directory: &str) -> Res
     Ok(names)
 }
 
-fn try_read_text_blob(repository_path: &Path, git_ref: &str, path: &str) -> Result<Option<String>> {
+fn try_read_text_blob(
+    repository_path: &Path,
+    git_ref: &str,
+    path: &str,
+) -> Result<Option<String>> {
     match rg_git::ops::blob_at(repository_path, git_ref, path)? {
         Some((_sha, data)) => decode_template_content(path, data).map(Some),
         None => Ok(None),
     }
 }
 
-fn read_text_blob(repository_path: &Path, git_ref: &str, path: &str) -> Result<String> {
+fn read_text_blob(
+    repository_path: &Path,
+    git_ref: &str,
+    path: &str,
+) -> Result<String> {
     try_read_text_blob(repository_path, git_ref, path)?
         .ok_or_else(|| anyhow::anyhow!("template disappeared while reading"))
 }

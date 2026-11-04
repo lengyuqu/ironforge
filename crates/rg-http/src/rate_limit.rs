@@ -411,10 +411,7 @@ mod tests {
             vec!["10.0.0.1".parse().unwrap(), "10.0.0.2".parse().unwrap()],
         );
         let mut headers = HeaderMap::new();
-        headers.insert(
-            "x-forwarded-for",
-            "203.0.113.10, 10.0.0.2, 10.0.0.1".parse().unwrap(),
-        );
+        headers.insert("x-forwarded-for", "203.0.113.10, 10.0.0.2, 10.0.0.1".parse().unwrap());
         assert_eq!(
             limiter.forwarded_client_key(&headers),
             Some("203.0.113.10".to_string())
@@ -426,7 +423,8 @@ mod tests {
         // Attacker connects to the trusted proxy with a forged leftmost
         // X-Forwarded-For entry; the proxy appends the address it observed.
         // The rightmost non-trusted entry is the attacker's real address.
-        let limiter = RateLimiter::with_trusted_proxies(10, 60, vec!["10.0.0.1".parse().unwrap()]);
+        let limiter =
+            RateLimiter::with_trusted_proxies(10, 60, vec!["10.0.0.1".parse().unwrap()]);
         let mut headers = HeaderMap::new();
         headers.insert(
             "x-forwarded-for",
@@ -440,12 +438,10 @@ mod tests {
 
     #[test]
     fn test_forwarded_key_skips_unparseable_entries() {
-        let limiter = RateLimiter::with_trusted_proxies(10, 60, vec!["10.0.0.1".parse().unwrap()]);
+        let limiter =
+            RateLimiter::with_trusted_proxies(10, 60, vec!["10.0.0.1".parse().unwrap()]);
         let mut headers = HeaderMap::new();
-        headers.insert(
-            "x-forwarded-for",
-            "not-an-ip, 203.0.113.10, 10.0.0.1".parse().unwrap(),
-        );
+        headers.insert("x-forwarded-for", "not-an-ip, 203.0.113.10, 10.0.0.1".parse().unwrap());
         assert_eq!(
             limiter.forwarded_client_key(&headers),
             Some("203.0.113.10".to_string())
@@ -454,7 +450,8 @@ mod tests {
 
     #[test]
     fn test_forwarded_key_falls_back_to_x_real_ip() {
-        let limiter = RateLimiter::with_trusted_proxies(10, 60, vec!["10.0.0.1".parse().unwrap()]);
+        let limiter =
+            RateLimiter::with_trusted_proxies(10, 60, vec!["10.0.0.1".parse().unwrap()]);
         let mut headers = HeaderMap::new();
         headers.insert("x-real-ip", "203.0.113.10".parse().unwrap());
         assert_eq!(
@@ -465,7 +462,8 @@ mod tests {
 
     #[test]
     fn test_forwarded_key_none_when_only_trusted_entries() {
-        let limiter = RateLimiter::with_trusted_proxies(10, 60, vec!["10.0.0.1".parse().unwrap()]);
+        let limiter =
+            RateLimiter::with_trusted_proxies(10, 60, vec!["10.0.0.1".parse().unwrap()]);
         let mut headers = HeaderMap::new();
         headers.insert("x-forwarded-for", "10.0.0.1".parse().unwrap());
         assert_eq!(limiter.forwarded_client_key(&headers), None);

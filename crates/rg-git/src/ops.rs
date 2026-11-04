@@ -16,7 +16,7 @@
 use std::collections::HashSet;
 use std::path::Path;
 
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 
 fn open_repo(repo_path: &Path) -> anyhow::Result<gix::Repository> {
     gix::open(repo_path)
@@ -72,10 +72,7 @@ pub fn blob_at(
         .object()
         .with_context(|| format!("failed to read blob for '{path}'"))?;
     if object.kind != gix::object::Kind::Blob {
-        bail!(
-            "'{path}' in '{commitish}' is not a blob but {}",
-            object.kind
-        );
+        bail!("'{path}' in '{commitish}' is not a blob but {}", object.kind);
     }
     Ok(Some((entry.id().to_string(), object.data.to_vec())))
 }
@@ -450,7 +447,10 @@ pub fn archive(
         },
     };
     // Like `git archive`, stamp entries with the commit's timestamp.
-    let modification_time = commit.time().map(|time| time.seconds).unwrap_or_default();
+    let modification_time = commit
+        .time()
+        .map(|time| time.seconds)
+        .unwrap_or_default();
     let options = gix::worktree::archive::Options {
         format,
         tree_prefix: None,
@@ -636,11 +636,7 @@ impl FilterComponent {
                     'g' | 'G' => (&limit[..limit.len() - 1], 1024 * 1024 * 1024),
                     _ => (limit, 1),
                 };
-                digits
-                    .parse::<u64>()
-                    .ok()?
-                    .checked_mul(unit)
-                    .map(Self::BlobLimit)
+                digits.parse::<u64>().ok()?.checked_mul(unit).map(Self::BlobLimit)
             }
         }
     }
@@ -744,8 +740,8 @@ pub fn generate_pack_filtered_with_tips(
     requested: &HashSet<gix::hash::ObjectId>,
     tips: &HashSet<gix::hash::ObjectId>,
 ) -> anyhow::Result<Vec<u8>> {
-    use gix::odb::pack::data::output;
     use gix::progress::Discard;
+    use gix::odb::pack::data::output;
 
     let should_interrupt = std::sync::atomic::AtomicBool::new(false);
     // `repo.objects` is a memory `Proxy` which does not implement
@@ -905,14 +901,7 @@ pub fn pack_for_wants_opts(
     shallow_boundaries: &[String],
     shallow_mode: bool,
 ) -> anyhow::Result<Vec<u8>> {
-    pack_for_wants_filtered(
-        repo_path,
-        wants,
-        haves,
-        shallow_boundaries,
-        shallow_mode,
-        None,
-    )
+    pack_for_wants_filtered(repo_path, wants, haves, shallow_boundaries, shallow_mode, None)
 }
 
 /// [`pack_for_wants_opts`] with a partial-clone `filter`.
@@ -1009,8 +998,8 @@ pub fn pack_for_wants_filtered(
 /// `objects/pack`. Any `.keep` file left behind is removed so the pack
 /// participates in future repacks.
 pub fn index_pack_bytes(repo_path: &Path, pack: &[u8]) -> anyhow::Result<()> {
-    use gix::odb::pack::Bundle;
     use gix::progress::Discard;
+    use gix::odb::pack::Bundle;
 
     let repo = open_repo(repo_path)?;
     let pack_dir = repo.objects.store().path().join("pack");
@@ -1129,19 +1118,16 @@ pub fn copy_objects_from_source(
     .map_err(|error| anyhow::anyhow!("failed to expand source objects: {error}"))?;
 
     for count in counts {
-        let object = src.find_object(count.id).with_context(|| {
-            format!("failed to read object {} from source repository", count.id)
-        })?;
+        let object = src
+            .find_object(count.id)
+            .with_context(|| format!("failed to read object {} from source repository", count.id))?;
         // Re-writing an object that already exists is a no-op on all
         // platforms (persist succeeds or the existing file is kept).
         use gix::prelude::Write as _;
         dst.objects
             .write_buf_with_known_id(object.kind, &object.data, count.id)
             .map_err(|error| {
-                anyhow::anyhow!(
-                    "failed to copy object {} into target repository: {error}",
-                    count.id
-                )
+                anyhow::anyhow!("failed to copy object {} into target repository: {error}", count.id)
             })?;
     }
     Ok(tip_commit.to_string())
@@ -1206,7 +1192,8 @@ pub fn commit_tree_edits(
         // report an advance; an unparseable expected tip defers to the
         // ref-transaction guard below.
         (Some(actual), Some(expected))
-            if actual != gix::hash::ObjectId::from_hex(expected.as_bytes()).unwrap_or(actual) =>
+            if actual
+                != gix::hash::ObjectId::from_hex(expected.as_bytes()).unwrap_or(actual) =>
         {
             return Ok(CommitTreeOutcome::TipAdvanced {
                 actual: Some(actual.to_string()),
@@ -1244,9 +1231,9 @@ pub fn commit_tree_edits(
                 expected_blob_sha,
             } => {
                 let entry = match &tip_tree {
-                    Some(tree) => tree.lookup_entry_by_path(path).with_context(|| {
-                        format!("failed to look up '{path}' in tree of {tip_display}")
-                    })?,
+                    Some(tree) => tree
+                        .lookup_entry_by_path(path)
+                        .with_context(|| format!("failed to look up '{path}' in tree of {tip_display}"))?,
                     None => None,
                 };
                 match (entry, expected_blob_sha) {
@@ -1278,9 +1265,7 @@ pub fn commit_tree_edits(
                 let exists = match &tip_tree {
                     Some(tree) => tree
                         .lookup_entry_by_path(path)
-                        .with_context(|| {
-                            format!("failed to look up '{path}' in tree of {tip_display}")
-                        })?
+                        .with_context(|| format!("failed to look up '{path}' in tree of {tip_display}"))?
                         .is_some(),
                     None => false,
                 };
@@ -1413,38 +1398,18 @@ mod rebase_tests {
         // The base moved to a fresh chain; the head ref stays untouched.
         assert_ne!(new_base, main_before);
         assert_ne!(new_base, feature_head);
-        assert_eq!(
-            git_out(&git, &["rev-parse", "refs/heads/main"], dir),
-            new_base
-        );
-        assert_eq!(
-            git_out(&git, &["rev-parse", "refs/heads/feature"], dir),
-            feature_head
-        );
+        assert_eq!(git_out(&git, &["rev-parse", "refs/heads/main"], dir), new_base);
+        assert_eq!(git_out(&git, &["rev-parse", "refs/heads/feature"], dir), feature_head);
 
         // Final tree merges both sides.
-        for (file, content) in [
-            ("a.txt", "one\n"),
-            ("b.txt", "b\n"),
-            ("c.txt", "c\n"),
-            ("d.txt", "d\n"),
-        ] {
-            assert_eq!(
-                git_out(&git, &["show", &format!("refs/heads/main:{file}")], dir),
-                content.trim_end()
-            );
+        for (file, content) in [("a.txt", "one\n"), ("b.txt", "b\n"), ("c.txt", "c\n"), ("d.txt", "d\n")] {
+            assert_eq!(git_out(&git, &["show", &format!("refs/heads/main:{file}")], dir), content.trim_end());
         }
         // Newest two commits on main are the replayed b and c.
         assert_eq!(git_out(&git, &["log", "--format=%s", "-2"], dir), "c\nb");
         // Authors preserved, committer is IronForge.
-        assert_eq!(
-            git_out(&git, &["log", "--format=%ae", "-2"], dir),
-            "tester@example.com\ntester@example.com"
-        );
-        assert_eq!(
-            git_out(&git, &["log", "--format=%ce", "-2"], dir),
-            "noreply@ironforge.local\nnoreply@ironforge.local"
-        );
+        assert_eq!(git_out(&git, &["log", "--format=%ae", "-2"], dir), "tester@example.com\ntester@example.com");
+        assert_eq!(git_out(&git, &["log", "--format=%ce", "-2"], dir), "noreply@ironforge.local\nnoreply@ironforge.local");
     }
 
     #[test]
@@ -1467,10 +1432,7 @@ mod rebase_tests {
 
         // The replayed commit is empty, so the base does not move.
         assert_eq!(new_base, main_before);
-        assert_eq!(
-            git_out(&git, &["rev-parse", "refs/heads/main"], dir),
-            main_before
-        );
+        assert_eq!(git_out(&git, &["rev-parse", "refs/heads/main"], dir), main_before);
     }
 
     #[test]
@@ -1523,10 +1485,7 @@ mod rebase_tests {
         assert!(message.contains("conflicts while rebasing onto main"));
 
         // Base ref untouched; no partial replay state is visible.
-        assert_eq!(
-            git_out(&git, &["rev-parse", "refs/heads/main"], dir),
-            main_before
-        );
+        assert_eq!(git_out(&git, &["rev-parse", "refs/heads/main"], dir), main_before);
     }
 
     #[test]
@@ -1546,10 +1505,7 @@ mod rebase_tests {
 
         // Head is a strict descendant: plain fast-forward, no rewriting.
         assert_eq!(new_base, feature_head);
-        assert_eq!(
-            git_out(&git, &["rev-parse", "refs/heads/main"], dir),
-            feature_head
-        );
+        assert_eq!(git_out(&git, &["rev-parse", "refs/heads/main"], dir), feature_head);
         assert_eq!(git_out(&git, &["log", "--format=%s", "-1"], dir), "b");
     }
 
@@ -1577,13 +1533,8 @@ mod rebase_tests {
         assert!(pack.len() > 12, "incremental pack should not be empty");
 
         // Fetch with everything already present still yields a valid pack.
-        pack_for_wants(
-            dir,
-            std::slice::from_ref(&head),
-            std::slice::from_ref(&head),
-            &[],
-        )
-        .expect("up-to-date fetch must not panic");
+        pack_for_wants(dir, std::slice::from_ref(&head), std::slice::from_ref(&head), &[])
+            .expect("up-to-date fetch must not panic");
     }
 
     fn pack_object_count(pack: &[u8]) -> u32 {
@@ -1604,40 +1555,16 @@ mod rebase_tests {
     fn object_filter_parses_every_supported_spec() {
         assert_eq!(parsed("blob:none"), Some(vec![FilterComponent::BlobNone]));
         assert_eq!(parsed("tree:0"), Some(vec![FilterComponent::TreeNone]));
-        assert_eq!(
-            parsed("blob:limit=100"),
-            Some(vec![FilterComponent::BlobLimit(100)])
-        );
-        assert_eq!(
-            parsed("blob:limit=2k"),
-            Some(vec![FilterComponent::BlobLimit(2048)])
-        );
-        assert_eq!(
-            parsed("blob:limit=1M"),
-            Some(vec![FilterComponent::BlobLimit(1 << 20)])
-        );
-        assert_eq!(
-            parsed("blob:limit=1g"),
-            Some(vec![FilterComponent::BlobLimit(1 << 30)])
-        );
+        assert_eq!(parsed("blob:limit=100"), Some(vec![FilterComponent::BlobLimit(100)]));
+        assert_eq!(parsed("blob:limit=2k"), Some(vec![FilterComponent::BlobLimit(2048)]));
+        assert_eq!(parsed("blob:limit=1M"), Some(vec![FilterComponent::BlobLimit(1 << 20)]));
+        assert_eq!(parsed("blob:limit=1g"), Some(vec![FilterComponent::BlobLimit(1 << 30)]));
 
         // object:type=<type>, all four types git accepts.
-        assert_eq!(
-            parsed("object:type=blob"),
-            Some(vec![FilterComponent::TypeBlob])
-        );
-        assert_eq!(
-            parsed("object:type=tree"),
-            Some(vec![FilterComponent::TypeTree])
-        );
-        assert_eq!(
-            parsed("object:type=commit"),
-            Some(vec![FilterComponent::TypeCommit])
-        );
-        assert_eq!(
-            parsed("object:type=tag"),
-            Some(vec![FilterComponent::TypeTag])
-        );
+        assert_eq!(parsed("object:type=blob"), Some(vec![FilterComponent::TypeBlob]));
+        assert_eq!(parsed("object:type=tree"), Some(vec![FilterComponent::TypeTree]));
+        assert_eq!(parsed("object:type=commit"), Some(vec![FilterComponent::TypeCommit]));
+        assert_eq!(parsed("object:type=tag"), Some(vec![FilterComponent::TypeTag]));
 
         // combine: flattens into one ANDed component list.
         assert_eq!(
@@ -1646,10 +1573,7 @@ mod rebase_tests {
         );
         assert_eq!(
             parsed("combine:object:type=tree+blob:limit=1k"),
-            Some(vec![
-                FilterComponent::TypeTree,
-                FilterComponent::BlobLimit(1024)
-            ])
+            Some(vec![FilterComponent::TypeTree, FilterComponent::BlobLimit(1024)])
         );
         // Nested combine: is accepted too.
         assert_eq!(
@@ -1657,37 +1581,20 @@ mod rebase_tests {
             Some(vec![FilterComponent::BlobNone, FilterComponent::TreeNone])
         );
         // Empty components mean "no constraint" and are dropped, like git.
-        assert_eq!(
-            parsed("combine:blob:none+"),
-            Some(vec![FilterComponent::BlobNone])
-        );
-        assert_eq!(
-            parsed("combine:+blob:none"),
-            Some(vec![FilterComponent::BlobNone])
-        );
+        assert_eq!(parsed("combine:blob:none+"), Some(vec![FilterComponent::BlobNone]));
+        assert_eq!(parsed("combine:+blob:none"), Some(vec![FilterComponent::BlobNone]));
     }
 
     #[test]
     fn object_filter_falls_back_for_unimplemented_and_malformed_specs() {
         // Well-formed git filters we do not implement: parse returns None and
         // the caller sends a full pack. Protocol-correct, never an error.
-        for spec in [
-            "sparse:oid=abc",
-            "tree:1",
-            "tree:2",
-            "combine:tree:1+blob:none",
-        ] {
+        for spec in ["sparse:oid=abc", "tree:1", "tree:2", "combine:tree:1+blob:none"] {
             assert_eq!(ObjectFilter::parse(spec), None, "{spec}");
         }
         // Malformed specs also yield None; the distinction only affects the log
         // message, and both fall back to a full pack.
-        for spec in [
-            "",
-            "combine:",
-            "blob:limit=",
-            "blob:limit=x",
-            "object:type=bogus",
-        ] {
+        for spec in ["", "combine:", "blob:limit=", "blob:limit=x", "object:type=bogus"] {
             assert_eq!(ObjectFilter::parse(spec), None, "{spec}");
         }
     }
@@ -1742,9 +1649,7 @@ mod rebase_tests {
         let wants = std::slice::from_ref(&head);
         let count = |spec: Option<&str>| {
             let filter = spec.map(|spec| ObjectFilter::parse(spec).expect("supported filter"));
-            pack_object_count(
-                &pack_for_wants_filtered(dir, wants, &[], &[], false, filter).unwrap(),
-            )
+            pack_object_count(&pack_for_wants_filtered(dir, wants, &[], &[], false, filter).unwrap())
         };
 
         // 2 commits + 2 trees (one per commit) + 2 distinct blobs (a.txt is
@@ -1854,13 +1759,9 @@ mod rebase_tests {
 
         // Every commit must be reachable in the produced pack. A pack that
         // omitted them would be far smaller than the full-history pack.
-        let shallow_pack = pack_for_wants(
-            dir,
-            std::slice::from_ref(&tip),
-            std::slice::from_ref(&tip),
-            &[],
-        )
-        .expect("ordinary up-to-date fetch must not panic");
+        let shallow_pack =
+            pack_for_wants(dir, std::slice::from_ref(&tip), std::slice::from_ref(&tip), &[])
+                .expect("ordinary up-to-date fetch must not panic");
         assert!(
             pack.len() > shallow_pack.len(),
             "unshallow pack ({} bytes) must be larger than an empty up-to-date \
@@ -1890,11 +1791,7 @@ mod rebase_tests {
             ],
             &target,
         );
-        let root = git_out(
-            &git,
-            &["rev-list", "--max-parents=0", "refs/heads/main"],
-            dir,
-        );
+        let root = git_out(&git, &["rev-list", "--max-parents=0", "refs/heads/main"], dir);
         assert_eq!(
             git_out(&git, &["cat-file", "-t", &root], &target),
             "commit",

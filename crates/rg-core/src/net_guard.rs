@@ -74,7 +74,10 @@ fn parse_url(url: &str) -> Result<(String, String, u16), String> {
     }
 
     // Authority ends at the first path/query/fragment separator.
-    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    let authority = rest
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or("");
     // Strip userinfo (`user:pass@`).
     let host_port = match authority.rsplit_once('@') {
         Some((_, host_port)) => host_port,
@@ -89,7 +92,9 @@ fn parse_url(url: &str) -> Result<(String, String, u16), String> {
         let host = &inner[..end];
         let port_part = &inner[end + 1..];
         let port = match port_part.strip_prefix(':') {
-            Some(p) => p.parse::<u16>().map_err(|_| "invalid port".to_string())?,
+            Some(p) => p
+                .parse::<u16>()
+                .map_err(|_| "invalid port".to_string())?,
             None if port_part.is_empty() => default_port(&scheme),
             _ => return Err("malformed port".to_string()),
         };
@@ -99,7 +104,8 @@ fn parse_url(url: &str) -> Result<(String, String, u16), String> {
             // Only treat as port when the remainder is all digits.
             Some((h, p)) if !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()) => (
                 h.to_string(),
-                p.parse::<u16>().map_err(|_| "invalid port".to_string())?,
+                p.parse::<u16>()
+                    .map_err(|_| "invalid port".to_string())?,
             ),
             _ => (host_port.to_string(), default_port(&scheme)),
         }
@@ -313,9 +319,7 @@ mod tests {
     async fn webhook_rejects_loopback_literals() {
         let _g = ENV_GUARD.lock().unwrap();
         assert!(validate_webhook_url("http://127.0.0.1/x").await.is_err());
-        assert!(validate_webhook_url("http://127.0.0.1:8080/x")
-            .await
-            .is_err());
+        assert!(validate_webhook_url("http://127.0.0.1:8080/x").await.is_err());
         assert!(validate_webhook_url("http://[::1]/x").await.is_err());
         assert!(validate_webhook_url("http://0.0.0.0/x").await.is_err());
     }
@@ -339,9 +343,7 @@ mod tests {
     #[allow(clippy::await_holding_lock)]
     async fn webhook_rejects_ipv6_mapped_loopback() {
         let _g = ENV_GUARD.lock().unwrap();
-        assert!(validate_webhook_url("http://[::ffff:127.0.0.1]/x")
-            .await
-            .is_err());
+        assert!(validate_webhook_url("http://[::ffff:127.0.0.1]/x").await.is_err());
     }
 
     #[tokio::test]
@@ -362,10 +364,7 @@ mod tests {
             .unwrap_err();
         assert!(err.contains("cannot resolve"), "{err}");
         // The resolver's own error text stays in the operator log.
-        assert!(
-            !err.contains("lookup") && !err.contains("os error"),
-            "{err}"
-        );
+        assert!(!err.contains("lookup") && !err.contains("os error"), "{err}");
     }
 
     #[tokio::test]
@@ -375,9 +374,7 @@ mod tests {
         // `localhost` resolves to loopback; the client may learn that it was
         // refused, but not what the name resolved to.
         for err in [
-            validate_webhook_url("http://localhost/x")
-                .await
-                .unwrap_err(),
+            validate_webhook_url("http://localhost/x").await.unwrap_err(),
             validate_mirror_url("http://localhost/x").await.unwrap_err(),
         ] {
             assert!(err.contains("not allowed"), "{err}");
@@ -392,12 +389,12 @@ mod tests {
     async fn mirror_rejects_ext_and_file_transports() {
         let _g = ENV_GUARD.lock().unwrap();
         assert!(validate_mirror_url("ext::sh -c 'evil'").await.is_err());
-        assert!(validate_mirror_url("file:///var/lib/ironforge/repo")
-            .await
-            .is_err());
-        assert!(validate_mirror_url("ssh://git@github.com/o/r.git")
-            .await
-            .is_err());
+        assert!(
+            validate_mirror_url("file:///var/lib/ironforge/repo")
+                .await
+                .is_err()
+        );
+        assert!(validate_mirror_url("ssh://git@github.com/o/r.git").await.is_err());
         assert!(validate_mirror_url("git@github.com:o/r.git").await.is_err());
     }
 
@@ -405,24 +402,16 @@ mod tests {
     #[allow(clippy::await_holding_lock)]
     async fn mirror_rejects_loopback_and_metadata() {
         let _g = ENV_GUARD.lock().unwrap();
-        assert!(validate_mirror_url("http://127.0.0.1/repo.git")
-            .await
-            .is_err());
-        assert!(validate_mirror_url("http://169.254.169.254/repo.git")
-            .await
-            .is_err());
+        assert!(validate_mirror_url("http://127.0.0.1/repo.git").await.is_err());
+        assert!(validate_mirror_url("http://169.254.169.254/repo.git").await.is_err());
     }
 
     #[tokio::test]
     #[allow(clippy::await_holding_lock)]
     async fn mirror_allows_private_for_internal_use() {
         let _g = ENV_GUARD.lock().unwrap();
-        assert!(validate_mirror_url("http://10.0.0.5/repo.git")
-            .await
-            .is_ok());
-        assert!(validate_mirror_url("https://192.168.1.10/o/r.git")
-            .await
-            .is_ok());
+        assert!(validate_mirror_url("http://10.0.0.5/repo.git").await.is_ok());
+        assert!(validate_mirror_url("https://192.168.1.10/o/r.git").await.is_ok());
     }
 
     #[tokio::test]
@@ -446,9 +435,6 @@ mod tests {
         std::env::remove_var("IRONFORGE_ALLOW_LOCAL_OUTBOUND");
         assert!(r.is_ok());
         assert!(r_ext.is_err(), "scheme allowlist must survive the override");
-        assert!(
-            r_file.is_err(),
-            "scheme allowlist must survive the override"
-        );
+        assert!(r_file.is_err(), "scheme allowlist must survive the override");
     }
 }

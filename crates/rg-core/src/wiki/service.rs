@@ -83,10 +83,7 @@ pub async fn get_page(
 }
 
 /// List all wiki pages for a repo (title + updated_at only for index).
-pub async fn list_pages(
-    db: &DatabaseConnection,
-    repo_id: i64,
-) -> CoreResult<Vec<wiki_page::Model>> {
+pub async fn list_pages(db: &DatabaseConnection, repo_id: i64) -> CoreResult<Vec<wiki_page::Model>> {
     Ok(wiki_page_ops::list_by_repo(db, repo_id).await?)
 }
 

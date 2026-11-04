@@ -17,7 +17,9 @@ use crate::error::AppError;
 use crate::pagination::{PaginatedResponse, PaginationParams};
 use crate::{
     api::auth::extract_bearer_claims,
-    api::repo_access::{require_admin, require_authenticated_read, require_read, require_write},
+    api::repo_access::{
+        require_admin, require_authenticated_read, require_read, require_write,
+    },
     openapi::PaginatedRepoResponse,
     AppState,
 };
@@ -216,8 +218,11 @@ pub async fn create_repo(
                 "readme": body.readme.as_deref(),
                 "issue_labels": body.issue_labels.as_deref(),
             });
-            let resource_name =
-                format!("{}/{}", body.org.as_deref().unwrap_or(&username), body.name);
+            let resource_name = format!(
+                "{}/{}",
+                body.org.as_deref().unwrap_or(&username),
+                body.name
+            );
             record_audit(
                 &state.db,
                 owner_id,
@@ -282,8 +287,10 @@ pub async fn list_repos(
         let result = if include_private {
             rg_db::ops::repo_ops::list_by_owner_paginated(&state.db, user.id, offset, limit).await
         } else {
-            rg_db::ops::repo_ops::list_public_by_owner_paginated(&state.db, user.id, offset, limit)
-                .await
+            rg_db::ops::repo_ops::list_public_by_owner_paginated(
+                &state.db, user.id, offset, limit,
+            )
+            .await
         };
         match result {
             Ok((data, total)) => {
@@ -305,9 +312,11 @@ pub async fn list_repos(
     {
         // Org members see all repos; others see only public repos
         let include_private = match actor_id {
-            Some(id) => rg_db::ops::org_ops::is_org_member(&state.db, org.id, id)
-                .await
-                .unwrap_or(false),
+            Some(id) => {
+                rg_db::ops::org_ops::is_org_member(&state.db, org.id, id)
+                    .await
+                    .unwrap_or(false)
+            }
             None => false,
         };
         let result = if include_private {

@@ -122,10 +122,11 @@ pub async fn create_label(
     Path((owner, name)): Path<(String, String)>,
     Json(body): Json<CreateLabelRequest>,
 ) -> impl IntoResponse {
-    let (_repo, _user_id) = match require_write(&state, &headers, &owner, &name).await {
-        Ok(r) => r,
-        Err(e) => return e.into_response(),
-    };
+    let (_repo, _user_id) =
+        match require_write(&state, &headers, &owner, &name).await {
+            Ok(r) => r,
+            Err(e) => return e.into_response(),
+        };
 
     // Input validation
     let label_name = match super::validation::require_valid_text(
@@ -187,10 +188,11 @@ pub async fn update_label(
     Path((owner, name, id)): Path<(String, String, i64)>,
     Json(body): Json<UpdateLabelRequest>,
 ) -> impl IntoResponse {
-    let (repo, _user_id) = match require_write(&state, &headers, &owner, &name).await {
-        Ok(r) => r,
-        Err(e) => return e.into_response(),
-    };
+    let (repo, _user_id) =
+        match require_write(&state, &headers, &owner, &name).await {
+            Ok(r) => r,
+            Err(e) => return e.into_response(),
+        };
 
     match rg_core::label::service::update_label(
         &state.db,
@@ -230,10 +232,11 @@ pub async fn delete_label(
     headers: HeaderMap,
     Path((owner, name, id)): Path<(String, String, i64)>,
 ) -> impl IntoResponse {
-    let (repo, _user_id) = match require_write(&state, &headers, &owner, &name).await {
-        Ok(r) => r,
-        Err(e) => return e.into_response(),
-    };
+    let (repo, _user_id) =
+        match require_write(&state, &headers, &owner, &name).await {
+            Ok(r) => r,
+            Err(e) => return e.into_response(),
+        };
 
     match rg_core::label::service::delete_label(&state.db, repo.id, id).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),

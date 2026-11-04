@@ -40,20 +40,12 @@ impl MigrationTrait for Migration {
                             .auto_increment()
                             .primary_key(),
                     )
-                    .col(
-                        ColumnDef::new(TeamRepositories::TeamId)
-                            .big_integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(TeamRepositories::RepoId)
-                            .big_integer()
-                            .not_null(),
-                    )
+                    .col(ColumnDef::new(TeamRepositories::TeamId).big_integer().not_null())
+                    .col(ColumnDef::new(TeamRepositories::RepoId).big_integer().not_null())
                     .col(
                         ColumnDef::new(TeamRepositories::CreatedAt)
                             .timestamp_with_time_zone()
-                            .not_null(),
+                            .not_null()
                     )
                     .foreign_key(
                         ForeignKey::create()

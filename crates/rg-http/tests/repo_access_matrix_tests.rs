@@ -157,7 +157,13 @@ async fn write_access_matrix_labels() {
     let body = serde_json::json!({"name": "bug", "color": "#ff0000"});
 
     assert_eq!(
-        client.post(&url).json(&body).send().await.unwrap().status(),
+        client
+            .post(&url)
+            .json(&body)
+            .send()
+            .await
+            .unwrap()
+            .status(),
         401,
         "anonymous write must be 401"
     );
@@ -189,7 +195,8 @@ async fn write_access_matrix_labels() {
 async fn migrated_read_endpoints_keep_private_semantics() {
     let (base, _db) = spawn_test_app_with_db().await;
     let client = reqwest::Client::new();
-    let (owner_token, _owner_id) = register_full(&base, "mig_owner", "mig_owner@example.com").await;
+    let (owner_token, _owner_id) =
+        register_full(&base, "mig_owner", "mig_owner@example.com").await;
     create_repo(&base, &owner_token, "mig-private", true).await;
 
     for path in ["wiki", "boards", "collaborators"] {
@@ -219,7 +226,8 @@ async fn migrated_read_endpoints_keep_private_semantics() {
 async fn ci_scopes_are_domain_isolated() {
     let (base, _db) = spawn_test_app_with_db().await;
     let client = reqwest::Client::new();
-    let (owner_token, _owner_id) = register_full(&base, "iso_owner", "iso_owner@example.com").await;
+    let (owner_token, _owner_id) =
+        register_full(&base, "iso_owner", "iso_owner@example.com").await;
     let repo_id = create_repo(&base, &owner_token, "iso-private", true).await;
 
     let packages_list = format!("{base}/api/v1/repos/iso_owner/iso-private/packages/generic/list");

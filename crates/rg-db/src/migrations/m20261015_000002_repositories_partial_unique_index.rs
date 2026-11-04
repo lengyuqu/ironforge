@@ -54,7 +54,9 @@ impl MigrationTrait for Migration {
             DatabaseBackend::Postgres => {
                 manager
                     .get_connection()
-                    .execute_unprepared("DROP INDEX IF EXISTS uq_repositories_owner_name_live")
+                    .execute_unprepared(
+                        "DROP INDEX IF EXISTS uq_repositories_owner_name_live",
+                    )
                     .await?;
                 Ok(())
             }
@@ -383,7 +385,9 @@ async fn mysql_up(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
         .await?
     {
         connection
-            .execute_unprepared("CREATE INDEX idx_repositories_owner_id ON repositories (owner_id)")
+            .execute_unprepared(
+                "CREATE INDEX idx_repositories_owner_id ON repositories (owner_id)",
+            )
             .await?;
     }
     connection

@@ -441,10 +441,11 @@ pub async fn trigger_pipeline(
     Path((owner, name)): Path<(String, String)>,
     Json(body): Json<TriggerPipelineRequest>,
 ) -> impl IntoResponse {
-    let (repo, actor_id) = match repo_access::require_write(&state, &headers, &owner, &name).await {
-        Ok(access) => access,
-        Err(e) => return e.into_response(),
-    };
+    let (repo, actor_id) =
+        match repo_access::require_write(&state, &headers, &owner, &name).await {
+            Ok(access) => access,
+            Err(e) => return e.into_response(),
+        };
 
     let owner_display = match resolve_repo_storage_owner(&state, &repo, &owner).await {
         Ok(owner) => owner,
@@ -535,10 +536,11 @@ pub async fn retry_pipeline(
     headers: HeaderMap,
     Path((owner, name, id)): Path<(String, String, i64)>,
 ) -> impl IntoResponse {
-    let (repo, actor_id) = match repo_access::require_write(&state, &headers, &owner, &name).await {
-        Ok(access) => access,
-        Err(e) => return e.into_response(),
-    };
+    let (repo, actor_id) =
+        match repo_access::require_write(&state, &headers, &owner, &name).await {
+            Ok(access) => access,
+            Err(e) => return e.into_response(),
+        };
 
     let pipeline = match rg_db::ops::pipeline_ops::get_pipeline(&state.db, id).await {
         Ok(Some(p)) => p,
@@ -792,7 +794,11 @@ pub async fn rerun_job(
     // Attempt to rerun the failed job
     match rg_db::ops::pipeline_ops::rerun_failed_job(&state.db, job_id).await {
         Ok(()) => {
-            tracing::info!(pipeline_id, job_id, "job rerun triggered by user");
+            tracing::info!(
+                pipeline_id,
+                job_id,
+                "job rerun triggered by user"
+            );
             Json(serde_json::json!({
                 "job_id": job_id,
                 "pipeline_id": pipeline_id,
@@ -803,10 +809,7 @@ pub async fn rerun_job(
         }
         // A refusal by state (job not failed, an earlier stage did not
         // succeed) is the caller's mistake, not a storage failure.
-        Err(e)
-            if e.downcast_ref::<rg_db::ops::pipeline_ops::RerunRefused>()
-                .is_some() =>
-        {
+        Err(e) if e.downcast_ref::<rg_db::ops::pipeline_ops::RerunRefused>().is_some() => {
             AppError::bad_request(e.to_string()).into_response()
         }
         Err(e) => {
@@ -832,10 +835,7 @@ fn engine_error(error: anyhow::Error) -> AppError {
 /// The repository row exists but its git directory does not: nothing the
 /// caller did, so this is a server fault (500), not a missing resource.
 fn missing_repo_storage(repo: &rg_db::entities::repository::Model) -> AppError {
-    tracing::error!(
-        repo_id = repo.id,
-        "repository exists in the database but its git directory is missing"
-    );
+    tracing::error!(repo_id = repo.id, "repository exists in the database but its git directory is missing");
     AppError::internal("repository storage is missing")
 }
 

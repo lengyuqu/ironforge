@@ -26,9 +26,7 @@ pub use rubygems::RubyGemsAdapter;
 /// the suffix checks the adapters do (`.nuspec`, `composer.json`, `METADATA`)
 /// an undecodable name is simply compared as lossy text, so one odd entry
 /// cannot make an otherwise valid package unreadable.
-pub(crate) fn zip_entry_name<R: std::io::Read + ?Sized>(
-    entry: &zip::read::ZipFile<'_, R>,
-) -> String {
+pub(crate) fn zip_entry_name<R: std::io::Read + ?Sized>(entry: &zip::read::ZipFile<'_, R>) -> String {
     match entry.name() {
         Ok(name) => name.into_owned(),
         Err(_) => String::from_utf8_lossy(entry.name_raw()).into_owned(),

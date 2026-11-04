@@ -40,9 +40,9 @@ async fn body_reader_reassembles_chunked_input() {
 
 #[tokio::test]
 async fn body_reader_surfaces_stream_errors() {
-    let body = Body::from_stream(futures::stream::iter(vec![Ok::<_, std::io::Error>(
-        axum::body::Bytes::from_static(b"ok"),
-    )]));
+    let body = Body::from_stream(futures::stream::iter(vec![
+        Ok::<_, std::io::Error>(axum::body::Bytes::from_static(b"ok")),
+    ]));
     let mut reader = rg_http::body_reader::BodyReader::new(body.into_data_stream());
     let mut buf = [0u8; 16];
     assert_eq!(reader.read(&mut buf).await.unwrap(), 2);

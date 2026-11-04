@@ -364,8 +364,7 @@ async fn login_via_ldap(
                 return Err(CoreError::forbidden(INVALID_CREDENTIALS));
             }
         };
-        let token =
-            jwt::generate_token(user.id, &user.username, jwt_secret, 7, user.token_version)?;
+        let token = jwt::generate_token(user.id, &user.username, jwt_secret, 7, user.token_version)?;
         return Ok(LoginOutcome {
             response: AuthResponse {
                 token,
@@ -418,9 +417,8 @@ fn ldap_config_from_provider(
     let key = crate::auth::encryption::derive_key(jwt_secret);
     // Failing to decrypt a stored secret is a server-side problem (rotated or
     // corrupted key), not something the caller can fix by changing input.
-    let bind_password = crate::auth::encryption::decrypt(bind_password_enc, &key).map_err(|e| {
-        CoreError::internal(format!("LDAP bind password could not be decrypted: {e}"))
-    })?;
+    let bind_password = crate::auth::encryption::decrypt(bind_password_enc, &key)
+        .map_err(|e| CoreError::internal(format!("LDAP bind password could not be decrypted: {e}")))?;
     let required = |value: Option<&str>, name: &str| -> CoreResult<String> {
         value
             .map(str::trim)
@@ -713,7 +711,11 @@ pub async fn reset_password(
     let token_record = rg_db::ops::password_reset_token_ops::find_by_hash(db, &token_hash).await?;
     let token = match token_record {
         Some(t) if !t.used && t.expires_at > Utc::now() => t,
-        _ => return Err(CoreError::invalid_input("invalid or expired reset token")),
+        _ => {
+            return Err(CoreError::invalid_input(
+                "invalid or expired reset token",
+            ))
+        }
     };
 
     // Validate new password. A token whose user has since been deleted is just
@@ -750,8 +752,7 @@ pub async fn reset_password(
         .ok_or_else(|| CoreError::internal("user not found after token version bump"))?;
 
     // Generate new JWT carrying the fresh token_version
-    let jwt_token =
-        jwt::generate_token(user.id, &user.username, jwt_secret, 7, user.token_version)?;
+    let jwt_token = jwt::generate_token(user.id, &user.username, jwt_secret, 7, user.token_version)?;
 
     Ok(AuthResponse {
         token: jwt_token,
@@ -881,15 +882,9 @@ mod tests {
             validate_username("a"),
             Err(CoreError::InvalidInput(_))
         ));
-        register(
-            &db,
-            "classify",
-            "classify@example.com",
-            "Qz7$wRtm",
-            "secret",
-        )
-        .await
-        .unwrap();
+        register(&db, "classify", "classify@example.com", "Qz7$wRtm", "secret")
+            .await
+            .unwrap();
 
         // duplicates are conflicts, malformed input is invalid input
         assert!(matches!(
@@ -897,14 +892,7 @@ mod tests {
             Err(CoreError::Conflict(_))
         ));
         assert!(matches!(
-            register(
-                &db,
-                "classify2",
-                "classify@example.com",
-                "Qz7$wRtm",
-                "secret"
-            )
-            .await,
+            register(&db, "classify2", "classify@example.com", "Qz7$wRtm", "secret").await,
             Err(CoreError::Conflict(_))
         ));
         assert!(matches!(

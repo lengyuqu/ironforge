@@ -707,10 +707,7 @@ mod soft_delete_tests {
     #[tokio::test]
     async fn repository_names_are_unique_per_namespace() {
         let dir = std::env::temp_dir();
-        let path = dir.join(format!(
-            "ironforge_namespace_test_{}.db",
-            std::process::id()
-        ));
+        let path = dir.join(format!("ironforge_namespace_test_{}.db", std::process::id()));
         for suffix in ["", "-wal", "-shm"] {
             let _ = std::fs::remove_file(format!("{}{}", path.display(), suffix));
         }
@@ -725,12 +722,8 @@ mod soft_delete_tests {
         // Personal and org repos of one name coexist for the same user, and the
         // same name may exist in several orgs.
         repository(&db, alice, "shared").await;
-        org_repository(&db, alice, 1, "shared")
-            .await
-            .expect("org 1");
-        org_repository(&db, alice, 2, "shared")
-            .await
-            .expect("org 2");
+        org_repository(&db, alice, 1, "shared").await.expect("org 1");
+        org_repository(&db, alice, 2, "shared").await.expect("org 2");
 
         // A different member must not create a duplicate inside org 1 ...
         assert!(
@@ -757,9 +750,7 @@ mod soft_delete_tests {
             .unwrap()
             .expect("org repo")
             .id;
-        crate::ops::repo_ops::soft_delete(&db, org_one)
-            .await
-            .unwrap();
+        crate::ops::repo_ops::soft_delete(&db, org_one).await.unwrap();
         org_repository(&db, bob, 1, "shared")
             .await
             .expect("name is reusable after a soft delete");
@@ -785,9 +776,7 @@ mod soft_delete_tests {
             "an org repo must not resolve in its creator's personal namespace"
         );
         let (personal_list, total) =
-            crate::ops::repo_ops::list_by_owner_paginated(&db, alice, 0, 50)
-                .await
-                .unwrap();
+            crate::ops::repo_ops::list_by_owner_paginated(&db, alice, 0, 50).await.unwrap();
         assert_eq!(total, 1);
         assert!(personal_list.iter().all(|r| r.org_id.is_none()));
 
@@ -802,10 +791,7 @@ mod soft_delete_tests {
     #[tokio::test]
     async fn migration_refuses_to_run_over_existing_duplicates() {
         let dir = std::env::temp_dir();
-        let path = dir.join(format!(
-            "ironforge_dup_migration_test_{}.db",
-            std::process::id()
-        ));
+        let path = dir.join(format!("ironforge_dup_migration_test_{}.db", std::process::id()));
         for suffix in ["", "-wal", "-shm"] {
             let _ = std::fs::remove_file(format!("{}{}", path.display(), suffix));
         }
@@ -818,9 +804,7 @@ mod soft_delete_tests {
             .position(|m| m.name() == "m20261015_000004_hash_runner_tokens")
             .expect("anchor migration")
             + 1;
-        migrations::Migrator::up(&db, Some(before as u32))
-            .await
-            .expect("pre-schema");
+        migrations::Migrator::up(&db, Some(before as u32)).await.expect("pre-schema");
 
         let alice = owner(&db, "dup-alice").await;
         let bob = owner(&db, "dup-bob").await;
@@ -828,9 +812,7 @@ mod soft_delete_tests {
         // Allowed by the old (owner_id, name) key.
         let second = org_repository(&db, bob, 7, "twin").await.expect("second");
 
-        let error = migrations::Migrator::up(&db, None)
-            .await
-            .expect_err("must refuse");
+        let error = migrations::Migrator::up(&db, None).await.expect_err("must refuse");
         let message = error.to_string();
         assert!(message.contains("duplicate live repositories"), "{message}");
         assert!(message.contains("'twin'"), "{message}");
@@ -843,19 +825,11 @@ mod soft_delete_tests {
             0,
             "no index may be half-created"
         );
-        assert_eq!(
-            scalar(&db, "SELECT COUNT(*) FROM repositories").await,
-            2,
-            "nothing dropped"
-        );
+        assert_eq!(scalar(&db, "SELECT COUNT(*) FROM repositories").await, 2, "nothing dropped");
 
         // The operator resolves it; the migration then goes through.
-        crate::ops::repo_ops::soft_delete(&db, second)
-            .await
-            .unwrap();
-        migrations::Migrator::up(&db, None)
-            .await
-            .expect("migrates once resolved");
+        crate::ops::repo_ops::soft_delete(&db, second).await.unwrap();
+        migrations::Migrator::up(&db, None).await.expect("migrates once resolved");
         assert_eq!(
             scalar(
                 &db,
@@ -871,14 +845,11 @@ mod soft_delete_tests {
     }
 
     async fn scalar(db: &DatabaseConnection, sql: &str) -> i64 {
-        db.query_one(Statement::from_string(
-            DatabaseBackend::Sqlite,
-            sql.to_string(),
-        ))
-        .await
-        .expect("query")
-        .and_then(|row| row.try_get_by_index::<i64>(0).ok())
-        .unwrap_or(-1)
+        db.query_one(Statement::from_string(DatabaseBackend::Sqlite, sql.to_string()))
+            .await
+            .expect("query")
+            .and_then(|row| row.try_get_by_index::<i64>(0).ok())
+            .unwrap_or(-1)
     }
 
     /// Regression for a data-loss bug in `m20261015_000002`: the SQLite rebuild
@@ -1001,9 +972,7 @@ mod soft_delete_tests {
         // `m20261015_000002` partial-unique-index anchor — add 1 here whenever
         // a migration is appended, or this assertion silently stops testing
         // the intended window.
-        migrations::Migrator::down(&db, Some(6))
-            .await
-            .expect("downgrade");
+        migrations::Migrator::down(&db, Some(6)).await.expect("downgrade");
         assert_eq!(scalar(&db, "SELECT COUNT(*) FROM repo_stars").await, 1);
         assert_eq!(scalar(&db, "SELECT COUNT(*) FROM labels").await, 1);
         assert_eq!(
@@ -1022,9 +991,7 @@ mod soft_delete_tests {
             .await,
             triggers_before
         );
-        migrations::Migrator::up(&db, None)
-            .await
-            .expect("re-upgrade");
+        migrations::Migrator::up(&db, None).await.expect("re-upgrade");
         assert_eq!(scalar(&db, "SELECT COUNT(*) FROM repo_stars").await, 1);
         assert_eq!(scalar(&db, "PRAGMA foreign_keys").await, 1);
 
@@ -1036,10 +1003,7 @@ mod soft_delete_tests {
     #[tokio::test]
     async fn soft_deleted_repository_name_can_be_reused() {
         let dir = std::env::temp_dir();
-        let path = dir.join(format!(
-            "ironforge_soft_delete_test_{}.db",
-            std::process::id()
-        ));
+        let path = dir.join(format!("ironforge_soft_delete_test_{}.db", std::process::id()));
         let _ = std::fs::remove_file(&path);
         let url = format!("sqlite://{}?mode=rwc", path.display());
 
@@ -1088,10 +1052,7 @@ mod soft_delete_tests {
             "deleted_at",
             "origin_repo_id",
         ] {
-            assert!(
-                ddl.contains(column),
-                "rebuild dropped column {column}: {ddl}"
-            );
+            assert!(ddl.contains(column), "rebuild dropped column {column}: {ddl}");
         }
         assert!(
             ddl.to_uppercase().contains("ON DELETE CASCADE"),
@@ -1139,17 +1100,14 @@ mod soft_delete_tests {
 #[cfg(test)]
 mod runner_token_migration_tests {
     use super::*;
-    use sea_orm::ActiveModelTrait;
     use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+    use sea_orm::ActiveModelTrait;
     use sea_orm_migration::{MigrationTrait, SchemaManager};
 
     #[tokio::test]
     async fn migration_hashes_existing_plaintext_tokens() {
         let dir = std::env::temp_dir();
-        let path = dir.join(format!(
-            "ironforge_runner_token_test_{}.db",
-            std::process::id()
-        ));
+        let path = dir.join(format!("ironforge_runner_token_test_{}.db", std::process::id()));
         let _ = std::fs::remove_file(&path);
         let url = format!("sqlite://{}?mode=rwc", path.display());
 

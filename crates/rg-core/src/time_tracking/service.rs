@@ -49,7 +49,11 @@ pub async fn total_time_minutes(db: &DatabaseConnection, issue_id: i64) -> CoreR
 ///
 /// An entry that does not exist, or that belongs to a different issue, is
 /// reported as not found so one issue's URL can never delete another's data.
-pub async fn delete_time_entry(db: &DatabaseConnection, issue_id: i64, id: i64) -> CoreResult<()> {
+pub async fn delete_time_entry(
+    db: &DatabaseConnection,
+    issue_id: i64,
+    id: i64,
+) -> CoreResult<()> {
     match rg_db::ops::time_entry_ops::find_by_id(db, id).await? {
         Some(entry) if entry.issue_id == issue_id => {}
         _ => return Err(CoreError::not_found("time entry not found")),

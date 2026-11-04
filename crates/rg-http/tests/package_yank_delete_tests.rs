@@ -38,19 +38,10 @@ fn crate_body(name: &str, version: &str) -> Vec<u8> {
     encoder.finish().unwrap()
 }
 
-async fn publish_crate(
-    base: &str,
-    token: &str,
-    owner: &str,
-    repo: &str,
-    name: &str,
-    version: &str,
-) {
+async fn publish_crate(base: &str, token: &str, owner: &str, repo: &str, name: &str, version: &str) {
     let client = reqwest::Client::new();
     let resp = client
-        .post(format!(
-            "{base}/api/v1/repos/{owner}/{repo}/packages/cargo/publish"
-        ))
+        .post(format!("{base}/api/v1/repos/{owner}/{repo}/packages/cargo/publish"))
         .bearer_auth(token)
         .header(
             reqwest::header::CONTENT_DISPOSITION,
@@ -80,22 +71,12 @@ async fn cargo_yank_flows_into_sparse_index() {
     let (base, _db) = spawn_test_app_with_db().await;
     let (token, _) = register_full(&base, "yank_owner", "yank_owner@example.com").await;
     create_repo(&base, &token, "yank-repo").await;
-    publish_crate(
-        &base,
-        &token,
-        "yank_owner",
-        "yank-repo",
-        "yank-crate",
-        "1.0.0",
-    )
-    .await;
+    publish_crate(&base, &token, "yank_owner", "yank-repo", "yank-crate", "1.0.0").await;
     let client = reqwest::Client::new();
 
     // Baseline: index shows the version as not yanked
     let index = client
-        .get(format!(
-            "{base}/api/v1/repos/yank_owner/yank-repo/packages/cargo/index/yank-crate"
-        ))
+        .get(format!("{base}/api/v1/repos/yank_owner/yank-repo/packages/cargo/index/yank-crate"))
         .send()
         .await
         .unwrap();
@@ -105,13 +86,7 @@ async fn cargo_yank_flows_into_sparse_index() {
 
     // Yank
     let resp = client
-        .patch(yank_url(
-            &base,
-            "yank_owner",
-            "yank-repo",
-            "yank-crate",
-            "1.0.0",
-        ))
+        .patch(yank_url(&base, "yank_owner", "yank-repo", "yank-crate", "1.0.0"))
         .bearer_auth(&token)
         .json(&serde_json::json!({ "yank": true }))
         .send()
@@ -120,9 +95,7 @@ async fn cargo_yank_flows_into_sparse_index() {
     assert_eq!(resp.status(), StatusCode::OK);
 
     let index = client
-        .get(format!(
-            "{base}/api/v1/repos/yank_owner/yank-repo/packages/cargo/index/yank-crate"
-        ))
+        .get(format!("{base}/api/v1/repos/yank_owner/yank-repo/packages/cargo/index/yank-crate"))
         .send()
         .await
         .unwrap();
@@ -131,9 +104,7 @@ async fn cargo_yank_flows_into_sparse_index() {
 
     // Version detail also reflects the flag
     let detail = client
-        .get(format!(
-            "{base}/api/v1/repos/yank_owner/yank-repo/packages/cargo/yank-crate/1.0.0"
-        ))
+        .get(format!("{base}/api/v1/repos/yank_owner/yank-repo/packages/cargo/yank-crate/1.0.0"))
         .send()
         .await
         .unwrap();
@@ -153,13 +124,7 @@ async fn cargo_yank_flows_into_sparse_index() {
 
     // Un-yank flips the index back
     let resp = client
-        .patch(yank_url(
-            &base,
-            "yank_owner",
-            "yank-repo",
-            "yank-crate",
-            "1.0.0",
-        ))
+        .patch(yank_url(&base, "yank_owner", "yank-repo", "yank-crate", "1.0.0"))
         .bearer_auth(&token)
         .json(&serde_json::json!({ "yank": false }))
         .send()
@@ -168,9 +133,7 @@ async fn cargo_yank_flows_into_sparse_index() {
     assert_eq!(resp.status(), StatusCode::OK);
 
     let index = client
-        .get(format!(
-            "{base}/api/v1/repos/yank_owner/yank-repo/packages/cargo/index/yank-crate"
-        ))
+        .get(format!("{base}/api/v1/repos/yank_owner/yank-repo/packages/cargo/index/yank-crate"))
         .send()
         .await
         .unwrap();
@@ -203,9 +166,7 @@ async fn yank_non_cargo_type_rejected() {
     assert_eq!(published.status(), StatusCode::CREATED);
 
     let resp = client
-        .patch(format!(
-            "{base}/api/v1/repos/gen_owner/gen-repo/packages/generic/gen-pkg/1.0.0/yank"
-        ))
+        .patch(format!("{base}/api/v1/repos/gen_owner/gen-repo/packages/generic/gen-pkg/1.0.0/yank"))
         .bearer_auth(&token)
         .json(&serde_json::json!({ "yank": true }))
         .send()
@@ -225,25 +186,11 @@ async fn yank_requires_write_access() {
     let (base, _db) = spawn_test_app_with_db().await;
     let (token, _) = register_full(&base, "perm_owner", "perm_owner@example.com").await;
     create_repo(&base, &token, "perm-repo").await;
-    publish_crate(
-        &base,
-        &token,
-        "perm_owner",
-        "perm-repo",
-        "perm-crate",
-        "1.0.0",
-    )
-    .await;
+    publish_crate(&base, &token, "perm_owner", "perm-repo", "perm-crate", "1.0.0").await;
 
     let client = reqwest::Client::new();
     let resp = client
-        .patch(yank_url(
-            &base,
-            "perm_owner",
-            "perm-repo",
-            "perm-crate",
-            "1.0.0",
-        ))
+        .patch(yank_url(&base, "perm_owner", "perm-repo", "perm-crate", "1.0.0"))
         .json(&serde_json::json!({ "yank": true }))
         .send()
         .await
@@ -274,9 +221,7 @@ async fn delete_version_removes_records_and_files() {
     assert_eq!(deleted.status(), StatusCode::NO_CONTENT);
 
     let detail = client
-        .get(format!(
-            "{base}/api/v1/repos/del_owner/del-repo/packages/cargo/del-crate/1.0.0"
-        ))
+        .get(format!("{base}/api/v1/repos/del_owner/del-repo/packages/cargo/del-crate/1.0.0"))
         .send()
         .await
         .unwrap();
@@ -293,9 +238,7 @@ async fn delete_version_removes_records_and_files() {
 
     // Sparse index no longer lists the deleted version
     let index = client
-        .get(format!(
-            "{base}/api/v1/repos/del_owner/del-repo/packages/cargo/index/del-crate"
-        ))
+        .get(format!("{base}/api/v1/repos/del_owner/del-repo/packages/cargo/index/del-crate"))
         .send()
         .await
         .unwrap();

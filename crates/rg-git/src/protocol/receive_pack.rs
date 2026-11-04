@@ -409,7 +409,8 @@ fn enforce_signed_commit_policies(
                         .any(|pattern| ref_matches_rejection_pattern(&update.refname, pattern))
             }) {
                 update.status = "error".into();
-                update.message = format!("unable to verify required commit signatures: {error}");
+                update.message =
+                    format!("unable to verify required commit signatures: {error}");
             }
             return;
         }
@@ -437,7 +438,8 @@ fn enforce_signed_commit_policies(
                 Ok(id) => Some(id),
                 Err(error) => {
                     update.status = "error".into();
-                    update.message = format!("invalid old sha for signature verification: {error}");
+                    update.message =
+                        format!("invalid old sha for signature verification: {error}");
                     continue;
                 }
             }

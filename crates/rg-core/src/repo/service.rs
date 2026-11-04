@@ -145,10 +145,7 @@ pub fn invalidate_perm_cache_all() {
 /// Returns (owner_id, org_id, owner_name_for_path).
 /// - If owner is a username: returns (user_id, None, username)
 /// - If owner is an org name: returns (org_owner_id, Some(org_id), org_name)
-async fn resolve_owner(
-    db: &DatabaseConnection,
-    owner: &str,
-) -> CoreResult<(i64, Option<i64>, String)> {
+async fn resolve_owner(db: &DatabaseConnection, owner: &str) -> CoreResult<(i64, Option<i64>, String)> {
     // Try user first
     if let Some(user) = user_ops::find_by_username(db, owner).await? {
         return Ok((user.id, None, user.username.clone()));
@@ -740,7 +737,10 @@ fn auto_init_repo(
 }
 
 /// Build a root-level tree entry for `name` pointing at `object_id`.
-fn rg_git_obj_tree_entry(name: &str, object_id: gix::hash::ObjectId) -> gix::objs::tree::Entry {
+fn rg_git_obj_tree_entry(
+    name: &str,
+    object_id: gix::hash::ObjectId,
+) -> gix::objs::tree::Entry {
     gix::objs::tree::Entry {
         mode: gix::objs::tree::EntryKind::Blob.into(),
         filename: name.as_bytes().into(),
@@ -936,14 +936,12 @@ pub async fn delete_repo_with_retention(
                 tombstone.display()
             )));
         }
-        tokio::fs::rename(&live, &tombstone)
-            .await
-            .map_err(|error| {
-                CoreError::internal(format!(
-                    "failed to move repository {} aside: {error}",
-                    live.display()
-                ))
-            })?;
+        tokio::fs::rename(&live, &tombstone).await.map_err(|error| {
+            CoreError::internal(format!(
+                "failed to move repository {} aside: {error}",
+                live.display()
+            ))
+        })?;
         true
     } else {
         false
@@ -1078,13 +1076,11 @@ async fn quarantine_leftover_dir(
         to = %destination.display(),
         "moving leftover repository directory aside before creating a new repository"
     );
-    tokio::fs::rename(git_path, &destination)
-        .await
-        .map_err(|error| {
-            CoreError::internal(format!(
-                "failed to move leftover repository directory aside: {error}"
-            ))
-        })
+    tokio::fs::rename(git_path, &destination).await.map_err(|error| {
+        CoreError::internal(format!(
+            "failed to move leftover repository directory aside: {error}"
+        ))
+    })
 }
 
 /// Find repo by owner/name (skip soft-deleted).
@@ -1454,7 +1450,8 @@ pub async fn create_commit_status(
     if !valid_states.contains(&state) {
         return Err(CoreError::invalid_input(format!(
             "invalid commit status state: '{}', must be one of: {:?}",
-            state, valid_states
+            state,
+            valid_states
         )));
     }
 
@@ -1472,7 +1469,10 @@ pub async fn create_commit_status(
         ..Default::default()
     };
 
-    Ok(rg_db::ops::commit_status_ops::create_or_update(db, repo_id, sha, context, model).await?)
+    Ok(rg_db::ops::commit_status_ops::create_or_update(
+        db, repo_id, sha, context, model,
+    )
+    .await?)
 }
 
 /// List all statuses for a commit SHA in a repository.
@@ -1585,7 +1585,9 @@ fn missing_repo_storage(repo_path: &std::path::Path) -> CoreError {
 
 /// Reject branch names that cannot form a valid `refs/heads/<branch>` ref.
 fn validate_branch_name(branch: &str) -> CoreResult<()> {
-    if branch.is_empty() || gix::refs::FullName::try_from(format!("refs/heads/{branch}")).is_err() {
+    if branch.is_empty()
+        || gix::refs::FullName::try_from(format!("refs/heads/{branch}")).is_err()
+    {
         return Err(CoreError::invalid_input(format!(
             "invalid branch name: {branch}"
         )));
@@ -1651,9 +1653,11 @@ pub async fn create_or_update_file(
     // Branch protection must be enforced here (not only in the receive-pack
     // hook) so the REST contents API cannot bypass `require_pr` /
     // `require_signed_commits` with a plain POST.
-    crate::branch_protection::service::check_direct_commit_allowed(db, repo_id, branch, actor_id)
-        .await
-        .map_err(direct_commit_error)?;
+    crate::branch_protection::service::check_direct_commit_allowed(
+        db, repo_id, branch, actor_id,
+    )
+    .await
+    .map_err(direct_commit_error)?;
 
     let repo_path = repo_root.join(format!("{}/{}.git", owner, repo_name));
 
@@ -1675,7 +1679,8 @@ pub async fn create_or_update_file(
             if current != expected_sha {
                 return Err(CoreError::conflict(format!(
                     "file SHA mismatch: expected {}, got {}",
-                    expected_sha, current
+                    expected_sha,
+                    current
                 )));
             }
         }
@@ -1694,16 +1699,14 @@ pub async fn create_or_update_file(
     // worktree chain (and its temp directory) entirely. The branch ref is
     // snapshotted before the write so a concurrent advance is rejected
     // (equivalent to the old fast-forward push guard).
-    let mut tip_snapshot = rg_git::ops::try_rev_parse(&repo_path, &format!("refs/heads/{branch}"))
-        .ok()
-        .flatten();
+    let mut tip_snapshot =
+        rg_git::ops::try_rev_parse(&repo_path, &format!("refs/heads/{branch}"))
+            .ok()
+            .flatten();
     if tip_snapshot.is_none() {
         // Mirror the old `checkout -b` fallback for repos where the branch
         // does not exist yet: branch from the current default HEAD.
-        if let Some(head) = rg_git::ops::try_rev_parse(&repo_path, "HEAD")
-            .ok()
-            .flatten()
-        {
+        if let Some(head) = rg_git::ops::try_rev_parse(&repo_path, "HEAD").ok().flatten() {
             rg_git::ops::update_ref(
                 &repo_path,
                 &format!("refs/heads/{branch}"),
@@ -1871,9 +1874,11 @@ pub async fn delete_file(
 
     // See `create_or_update_file`: the contents API must not bypass branch
     // protection.
-    crate::branch_protection::service::check_direct_commit_allowed(db, repo_id, branch, actor_id)
-        .await
-        .map_err(direct_commit_error)?;
+    crate::branch_protection::service::check_direct_commit_allowed(
+        db, repo_id, branch, actor_id,
+    )
+    .await
+    .map_err(direct_commit_error)?;
 
     let repo_path = repo_root.join(format!("{}/{}.git", owner, repo_name));
 
@@ -1893,7 +1898,8 @@ pub async fn delete_file(
         if current != sha {
             return Err(CoreError::conflict(format!(
                 "file SHA mismatch: expected {}, got {}",
-                sha, current
+                sha,
+                current
             )));
         }
     }
@@ -1913,9 +1919,7 @@ pub async fn delete_file(
             &repo_dir,
             &branch_owned,
             tip_snapshot.as_deref(),
-            &[rg_git::ops::TreeEdit::RemoveFile {
-                path: file_path_owned,
-            }],
+            &[rg_git::ops::TreeEdit::RemoveFile { path: file_path_owned }],
             &message_owned,
             &author_name_owned,
             &author_email_owned,

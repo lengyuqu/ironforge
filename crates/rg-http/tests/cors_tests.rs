@@ -41,7 +41,8 @@ async fn default_cors_does_not_reflect_arbitrary_origin() {
     // be echoed back.
     let (_, allow_origin) = preflight("https://evil.example").await;
     assert_eq!(
-        allow_origin, None,
+        allow_origin,
+        None,
         "the default policy must not reflect an arbitrary Origin"
     );
 }
