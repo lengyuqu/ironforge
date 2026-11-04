@@ -8,11 +8,11 @@ mod common;
 use common::{register_full, spawn_test_app_with_db};
 use serde_json::json;
 
-async fn scrape(base: &str, token: &str) -> String {
-    // `/metrics` sits behind the same guard as the API docs.
+/// Scrape `/metrics` — deliberately **without** a token: Prometheus scrapers
+/// do not carry application credentials, and the route is public by design.
+async fn scrape(base: &str) -> String {
     let response = reqwest::Client::new()
         .get(format!("{base}/metrics"))
-        .bearer_auth(token)
         .send()
         .await
         .expect("metrics request");
@@ -49,7 +49,7 @@ async fn pat_outcomes_are_counted() {
         .expect("request");
     assert_eq!(response.status().as_u16(), 401);
 
-    let metrics = scrape(&base, &token).await;
+    let metrics = scrape(&base).await;
     assert!(
         has_series(&metrics, "pat_auth_total{outcome=\"invalid_token\"}"),
         "invalid_token series missing:\n{metrics}"
@@ -77,7 +77,7 @@ async fn pat_outcomes_are_counted() {
         .await
         .expect("request");
     assert_eq!(response.status().as_u16(), 200);
-    let metrics = scrape(&base, &token).await;
+    let metrics = scrape(&base).await;
     assert!(
         has_series(&metrics, "pat_auth_total{outcome=\"ok\"}"),
         "ok series missing:\n{metrics}"
@@ -145,7 +145,7 @@ async fn websocket_connections_are_counted() {
     tokio::time::sleep(std::time::Duration::from_millis(150)).await;
     let _ = socket.close(None).await;
 
-    let metrics = scrape(&base, &token).await;
+    let metrics = scrape(&base).await;
     assert!(
         has_series(&metrics, "ws_connections_total{channel=\"job_log\"}"),
         "job_log connection series missing:\n{metrics}"
