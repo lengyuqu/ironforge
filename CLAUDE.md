@@ -366,6 +366,17 @@ SeaORM 的 `.on_conflict(OnConflict::…do_nothing()).do_nothing()` 在 MySQL �
 
 `rg_core::repo::service::delete_repo` 只软删仓库行并把 Git 目录移到 tombstone（`IRONFORGE_DELETED_REPO_RETENTION_DAYS`，默认 30 天后清 Git 数据，行永不清）。因此外键 `ON DELETE CASCADE` 在应用路径上**不会**触发；只有直接删仓库行才级联。账号删除（`user_ops::delete_by_id`）是真删除，会级联到其会话 → 其拥有的协作任务 → 任务里**所有人**的消息。计数预览见 `…/collaboration/deletion-impact`、`/admin/users/{id}/collaboration-impact`。
 
+### 23. MySQL 时间戳只存整秒：排序不能只靠 `(created_at, id)` ⚠️
+
+MySQL 的协作时间戳列是秒精度，同一秒创建的两条记录 `created_at` 相等，`id` 是随机 UUID，于是“最新在前”的顺序不确定；SQLite/PostgreSQL 有亚秒精度，测试根本发现不了。2026-11-04 在 MySQL 上实测暴露了工作包列表（`p09`），已改为按任务内唯一递增的 `revision` 排序，游标也携带 revision。
+
+- 有单调序号的对象（工作包 `revision`、消息和决定的 `seq`）按序号排序，不要按时间戳
+- 没有序号的列表，同秒并列是**合同允许的**，测试只断言 `(created_at, id)` 的顺序，不要假设同秒内的插入顺序
+- “把时间拨回 N 小时”的测试断言留 1 秒容差（读回可能短 1 秒）
+- 新建对象时间用 `rg_core::collaboration::creation_timestamp` 截到整秒，避免 MySQL 向上取整后落到“未来”
+- 其他按 `(created_at, id)` 排序的协作列表（问题、接手记录等）在 MySQL 上同秒仍可能不定，尚未逐个排查
+- 用 `IRONFORGE_TEST_DATABASE_URL` 指向**全新**库跑 HTTP 测试：先建用户的测试（如 `ci_integer_compat`）会占掉“首个账号即管理员”，使依赖 `bootstrap_admin` 的测试得到 403
+
 ## 依赖版本速查
 
 ```toml
