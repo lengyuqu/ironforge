@@ -9,12 +9,14 @@
 //! session secret, repository scoping, versioning and idempotency.
 
 pub mod capabilities;
+pub mod budget;
 pub mod ci_evidence;
 pub mod compat;
 pub mod completion;
 pub mod cursor;
 pub mod dependency;
 pub mod decision;
+pub mod declaration;
 pub mod error;
 pub mod group;
 pub mod handoff;
@@ -29,6 +31,7 @@ pub mod secret;
 pub mod session;
 pub mod takeover;
 pub mod task;
+pub mod template;
 pub mod validation;
 pub mod work_package;
 

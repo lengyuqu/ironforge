@@ -892,3 +892,171 @@ fn x02_group_tools_map_to_the_rest_api() {
     assert_eq!(stub.requests().len(), before);
     mcp.stop();
 }
+
+// ── operability tools (O06 templates) ────────────────────────────────
+
+#[test]
+fn o06_template_tools_map_to_the_rest_api() {
+    let stub = Stub::spawn(happy_handler());
+    let mut mcp = Mcp::start(&stub.url, None);
+    let (err, _) = mcp.tool_json("collab_start_session", start_args());
+    assert!(!err);
+    let base = json!({"owner": "o", "repo": "r"});
+    let with = |extra: Value| {
+        let mut args = base.clone();
+        args.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        args
+    };
+    let tpl = "44444444-4444-4444-8444-444444444444";
+    let calls: Vec<(&str, Value)> = vec![
+        ("collab_create_template", with(json!({"name": "Bugfix", "title_pattern": "Fix {area}", "goal": "g", "checklist": [{"text": "tests"}]}))),
+        ("collab_create_template", with(json!({"template_id": tpl, "expected_version": 1, "title_pattern": "Fix {area}", "goal": "g2"}))),
+        ("collab_list_templates", with(json!({"limit": 5}))),
+        ("collab_get_template", with(json!({"template_id": tpl, "version": 1}))),
+        ("collab_task_from_template", with(json!({"template_id": tpl, "params": {"area": "auth"}, "owner_session_id": "self", "rules_ref": "main"}))),
+    ];
+    for (tool, args) in &calls {
+        let (err, out) = mcp.tool(tool, args.clone());
+        assert!(!err, "{tool}: {out}");
+        assert!(!out.contains(SECRET), "{tool} leaked the secret");
+    }
+    let reqs = stub.requests();
+    let find = |method: &str, suffix: &str| -> Req {
+        reqs.iter()
+            .rev()
+            .find(|r| r.method == method && r.path.ends_with(suffix))
+            .unwrap_or_else(|| panic!("no {method} …{suffix}"))
+            .clone()
+    };
+    let create = find("POST", "/collaboration/templates");
+    assert_eq!(create.body["name"], "Bugfix");
+    assert!(uuid_like(create.body["client_template_id"].as_str().unwrap()), "idempotency key generated");
+    let version = find("POST", &format!("/templates/{tpl}/versions"));
+    assert_eq!(version.body["expected_version"], 1);
+    assert!(uuid_like(version.body["client_version_id"].as_str().unwrap()));
+    assert!(find("GET", "/collaboration/templates?limit=5").path.contains("limit=5"));
+    assert!(find("GET", &format!("/templates/{tpl}?version=1")).path.contains("version=1"));
+    let task = find("POST", "/collaboration/tasks/from-template");
+    assert_eq!(task.headers.get("x-ironforge-session").map(String::as_str), Some(SESSION_ID));
+    assert_eq!(task.body["owner_session_id"], SESSION_ID, "\"self\" resolved");
+    assert_eq!(task.body["params"], json!({"area": "auth"}));
+    assert_eq!(task.body["rules_ref"], "main");
+    assert!(uuid_like(task.body["client_task_id"].as_str().unwrap()));
+
+    // Bad arguments never leave the process.
+    let before = stub.requests().len();
+    for (tool, args) in [
+        ("collab_create_template", with(json!({"title_pattern": "x", "goal": "g"}))), // no name
+        ("collab_create_template", with(json!({"template_id": tpl, "title_pattern": "x", "goal": "g"}))), // no expected_version
+        ("collab_get_template", with(json!({"template_id": "../x"}))),
+        ("collab_task_from_template", with(json!({"template_id": "a/b"}))),
+    ] {
+        let (err, out) = mcp.tool_json(tool, args);
+        assert!(err, "{tool} should be rejected: {out}");
+    }
+    assert_eq!(stub.requests().len(), before);
+    let stderr = mcp.stop();
+    assert!(!stderr.contains(SECRET));
+}
+
+// ── operability tools (O07 declarations) ─────────────────────────────
+
+#[test]
+fn o07_declaration_tools_map_to_the_rest_api() {
+    let stub = Stub::spawn(happy_handler());
+    let mut mcp = Mcp::start(&stub.url, None);
+    // No session yet: the self-bound tools say so without a request.
+    let (err, out) = mcp.tool_json("collab_declare_capabilities", json!({"owner": "o", "repo": "r", "tools": ["git"]}));
+    assert!(err, "{out}");
+    assert_eq!(out["error"]["code"], "NO_ACTIVE_SESSION");
+    let (err, out) = mcp.tool_json("collab_get_declaration", json!({"owner": "o", "repo": "r", "session_id": "self"}));
+    assert!(err, "{out}");
+    assert!(stub.requests().is_empty());
+
+    let (err, _) = mcp.tool_json("collab_start_session", start_args());
+    assert!(!err);
+    let base = json!({"owner": "o", "repo": "r"});
+    let with = |extra: Value| {
+        let mut args = base.clone();
+        args.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        args
+    };
+    for (tool, args) in [
+        ("collab_declare_capabilities", with(json!({"tools": ["cargo"], "can_run_tests": "yes", "network": "offline"}))),
+        ("collab_declare_capabilities", with(json!({"expected_version": 3, "notes": "n"}))),
+        ("collab_get_declaration", with(json!({"session_id": "self", "stale_after_seconds": 600}))),
+        ("collab_get_declaration", with(json!({"limit": 5}))),
+    ] {
+        let (err, out) = mcp.tool(tool, args);
+        assert!(!err, "{tool}: {out}");
+        assert!(!out.contains(SECRET));
+    }
+    let reqs = stub.requests();
+    let puts: Vec<&Req> = reqs.iter().filter(|r| r.method == "PUT").collect();
+    assert_eq!(puts.len(), 2);
+    assert!(puts[0].path.ends_with(&format!("/sessions/{SESSION_ID}/declaration")), "{}", puts[0].path);
+    assert_eq!(puts[0].body["expected_version"], 0, "first declaration defaults to version 0");
+    assert_eq!(puts[0].body["can_run_tests"], "yes");
+    assert_eq!(puts[0].headers.get("x-ironforge-session").map(String::as_str), Some(SESSION_ID));
+    assert_eq!(puts[1].body["expected_version"], 3);
+    assert!(reqs.iter().any(|r| r.method == "GET" && r.path.contains(&format!("/sessions/{SESSION_ID}/declaration?stale_after_seconds=600"))));
+    assert!(reqs.iter().any(|r| r.method == "GET" && r.path.contains("/collaboration/declarations?limit=5")));
+    let stderr = mcp.stop();
+    assert!(!stderr.contains(SECRET));
+}
+
+// ── operability tools (O08 budgets) ──────────────────────────────────
+
+#[test]
+fn o08_budget_tools_map_to_the_rest_api() {
+    let stub = Stub::spawn(happy_handler());
+    let mut mcp = Mcp::start(&stub.url, None);
+    let (err, _) = mcp.tool_json("collab_start_session", start_args());
+    assert!(!err);
+    let base = json!({"owner": "o", "repo": "r"});
+    let with = |extra: Value| {
+        let mut args = base.clone();
+        args.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        args
+    };
+    let tid = "22222222-2222-4222-8222-222222222222";
+    for (tool, args) in [
+        ("collab_set_budget", with(json!({"task_id": tid, "unit": "USD", "source": "invoice", "amount": "10", "alert_at": 5, "sampling_period": "task_total"}))),
+        ("collab_report_usage", with(json!({"task_id": tid, "unit": "USD", "source": "invoice", "amount": 0.5, "period_start": "2026-11-04T00:00:00Z", "period_end": "2026-11-04T01:00:00Z"}))),
+        ("collab_get_budget", with(json!({"task_id": tid}))),
+        ("collab_get_budget", with(json!({"task_id": tid, "list_usage": true, "unit": "USD", "limit": 5}))),
+    ] {
+        let (err, out) = mcp.tool(tool, args);
+        assert!(!err, "{tool}: {out}");
+        assert!(!out.contains(SECRET));
+    }
+    let reqs = stub.requests();
+    let set = reqs.iter().find(|r| r.method == "PUT" && r.path.ends_with(&format!("/tasks/{tid}/budgets"))).unwrap();
+    assert_eq!(set.body["expected_version"], 0);
+    assert_eq!(set.body["unit"], "USD");
+    assert_eq!(set.body["alert_at"], 5);
+    assert_eq!(set.headers.get("x-ironforge-session").map(String::as_str), Some(SESSION_ID));
+    let usage = reqs.iter().find(|r| r.method == "POST" && r.path.ends_with(&format!("/tasks/{tid}/usage"))).unwrap();
+    assert_eq!(usage.body["amount"], 0.5);
+    assert!(uuid_like(usage.body["client_usage_id"].as_str().unwrap()));
+    assert!(reqs.iter().any(|r| r.method == "GET" && r.path.ends_with(&format!("/tasks/{tid}/budget"))));
+    assert!(reqs.iter().any(|r| r.method == "GET" && r.path.contains(&format!("/tasks/{tid}/usage?unit=USD&limit=5"))));
+
+    // unit, source, amount and the periods are required: nothing is guessed.
+    let before = stub.requests().len();
+    for (tool, args) in [
+        ("collab_set_budget", with(json!({"task_id": tid, "source": "s", "amount": "1", "sampling_period": "p"}))),
+        ("collab_set_budget", with(json!({"task_id": tid, "unit": "u", "amount": "1", "sampling_period": "p"}))),
+        ("collab_set_budget", with(json!({"task_id": tid, "unit": "u", "source": "s", "sampling_period": "p"}))),
+        ("collab_set_budget", with(json!({"task_id": tid, "unit": "u", "source": "s", "amount": true, "sampling_period": "p"}))),
+        ("collab_report_usage", with(json!({"task_id": tid, "unit": "u", "source": "s", "amount": "1", "period_start": "2026-11-04T00:00:00Z"}))),
+        ("collab_report_usage", with(json!({"task_id": tid, "source": "s", "amount": "1", "period_start": "a", "period_end": "b"}))),
+        ("collab_get_budget", with(json!({"task_id": "../x"}))),
+    ] {
+        let (err, out) = mcp.tool_json(tool, args);
+        assert!(err, "{tool} should be rejected: {out}");
+    }
+    assert_eq!(stub.requests().len(), before, "no request left the process");
+    let stderr = mcp.stop();
+    assert!(!stderr.contains(SECRET));
+}

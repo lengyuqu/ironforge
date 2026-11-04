@@ -275,7 +275,7 @@ struct Plan {
 }
 
 /// Which tools exist, in the order they are advertised.
-pub const TOOL_NAMES: [&str; 40] = [
+pub const TOOL_NAMES: [&str; 49] = [
     "collab_start_session",
     "collab_list_sessions",
     "collab_heartbeat",
@@ -316,6 +316,15 @@ pub const TOOL_NAMES: [&str; 40] = [
     "collab_add_group_link",
     "collab_list_group_links",
     "collab_remove_group_link",
+    "collab_create_template",
+    "collab_list_templates",
+    "collab_get_template",
+    "collab_task_from_template",
+    "collab_declare_capabilities",
+    "collab_get_declaration",
+    "collab_set_budget",
+    "collab_report_usage",
+    "collab_get_budget",
 ];
 
 /// What a tool will send, for the REST/MCP contract test (`collab_contract`).
@@ -662,6 +671,134 @@ fn plan(name: &str, args: &Value, own_session: Option<&str>) -> Result<Plan, Too
                 Some(Value::Object(body)),
             )
         }
+        "collab_create_template" => {
+            // With `template_id` this appends a version (needs `expected_version`);
+            // without it, it creates a template. Admin-only on the server.
+            let keys = ["title_pattern", "goal", "deliverables", "checklist"];
+            match args.get("template_id").and_then(Value::as_str) {
+                Some(_) => {
+                    int_arg(args, "expected_version", true)?;
+                    let mut body = pick(args, &keys);
+                    body.extend(pick(args, &["expected_version"]));
+                    body.entry("client_version_id").or_insert_with(|| Value::String(new_client_id()));
+                    Plan {
+                        method: Method::POST,
+                        path: format!("/templates/{}/versions", id_arg(args, "template_id")?),
+                        needs_session: false,
+                        body: Some(Value::Object(body)),
+                    }
+                }
+                None => {
+                    require_str(args, "name")?;
+                    let mut body = pick(args, &["name"]);
+                    body.extend(pick(args, &keys));
+                    body.entry("client_template_id").or_insert_with(|| Value::String(new_client_id()));
+                    Plan {
+                        method: Method::POST,
+                        path: "/templates".into(),
+                        needs_session: false,
+                        body: Some(Value::Object(body)),
+                    }
+                }
+            }
+        }
+        "collab_list_templates" => get(format!("/templates{}", query(args, &["limit", "cursor"]))),
+        "collab_get_template" => get(format!(
+            "/templates/{}{}",
+            id_arg(args, "template_id")?,
+            query(args, &["version"])
+        )),
+        "collab_task_from_template" => {
+            let mut body = pick(
+                args,
+                &[
+                    "template_id", "version", "params", "notes", "owner_session_id", "branch", "paths",
+                    "rules_ref", "client_task_id",
+                ],
+            );
+            id_arg(args, "template_id")?;
+            resolve_self(&mut body, "owner_session_id")?;
+            body.entry("client_task_id").or_insert_with(|| Value::String(new_client_id()));
+            with_session(Method::POST, "/tasks/from-template".into(), Some(Value::Object(body)))
+        }
+        "collab_declare_capabilities" => {
+            let own = own_session.ok_or_else(|| {
+                err_json(0, "NO_ACTIVE_SESSION", "no active session; call collab_start_session first", None)
+            })?;
+            let mut body = pick(
+                args,
+                &["expected_version", "tools", "can_run_tests", "network", "network_notes", "notes"],
+            );
+            if int_arg(args, "expected_version", false)?.is_none() {
+                body.insert("expected_version".into(), json!(0));
+            }
+            with_session(
+                Method::PUT,
+                format!("/sessions/{own}/declaration{}", query(args, &["stale_after_seconds"])),
+                Some(Value::Object(body)),
+            )
+        }
+        "collab_get_declaration" => match args.get("session_id").and_then(Value::as_str) {
+            Some(raw) => {
+                let id = if raw == "self" {
+                    own_session
+                        .ok_or_else(|| {
+                            err_json(0, "NO_ACTIVE_SESSION", "no active session; call collab_start_session first", None)
+                        })?
+                        .to_string()
+                } else {
+                    id_arg(args, "session_id")?
+                };
+                get(format!("/sessions/{id}/declaration{}", query(args, &["stale_after_seconds"])))
+            }
+            None => get(format!("/declarations{}", query(args, &["stale_after_seconds", "limit", "cursor"]))),
+        },
+        "collab_set_budget" => {
+            for key in ["unit", "source", "sampling_period"] {
+                require_str(args, key)?;
+            }
+            if !matches!(args.get("amount"), Some(Value::String(_) | Value::Number(_))) {
+                return Err(invalid("amount is required and must be a decimal string or number"));
+            }
+            let mut body = pick(
+                args,
+                &["expected_version", "unit", "source", "amount", "alert_at", "sampling_period"],
+            );
+            if int_arg(args, "expected_version", false)?.is_none() {
+                body.insert("expected_version".into(), json!(0));
+            }
+            with_session(
+                Method::PUT,
+                format!("/tasks/{}/budgets", id_arg(args, "task_id")?),
+                Some(Value::Object(body)),
+            )
+        }
+        "collab_report_usage" => {
+            for key in ["unit", "source", "period_start", "period_end"] {
+                require_str(args, key)?;
+            }
+            if !matches!(args.get("amount"), Some(Value::String(_) | Value::Number(_))) {
+                return Err(invalid("amount is required and must be a decimal string or number"));
+            }
+            let mut body = pick(
+                args,
+                &["client_usage_id", "unit", "source", "amount", "period_start", "period_end"],
+            );
+            body.entry("client_usage_id").or_insert_with(|| Value::String(new_client_id()));
+            with_session(
+                Method::POST,
+                format!("/tasks/{}/usage", id_arg(args, "task_id")?),
+                Some(Value::Object(body)),
+            )
+        }
+        "collab_get_budget" => {
+            let task = id_arg(args, "task_id")?;
+            if args.get("list_usage").and_then(Value::as_bool) == Some(true) {
+                get(format!("/tasks/{task}/usage{}", query(args, &["unit", "source", "limit", "cursor"])))
+            } else {
+                get(format!("/tasks/{task}/budget"))
+            }
+        }
         _ => return Err(invalid(format!("unknown tool {name}"))),
     })
 }
@@ -773,7 +910,9 @@ fn run(state: &AppState, name: &str, args: &Value) -> Result<ToolOutput, ToolOut
         "collab_send_message" | "collab_create_handoff" | "collab_claim_task" | "collab_ask_question"
         | "collab_answer_question" | "collab_create_work_package" | "collab_add_dependency"
         | "collab_remove_dependency" | "collab_create_decision" | "collab_change_decision"
-        | "collab_create_group" | "collab_add_group_link" | "collab_remove_group_link" => {
+        | "collab_create_group" | "collab_add_group_link" | "collab_remove_group_link"
+
+        | "collab_task_from_template" | "collab_create_template" | "collab_report_usage" => {
             // Echo the idempotency key used so a retry can repeat it.
         }
         _ => {}
@@ -1034,6 +1173,80 @@ pub fn tool_definitions() -> Vec<Value> {
                 "expected_group_version": {"type": "integer", "minimum": 1},
                 "client_request_id": {"type": "string", "maxLength": 128, "description": "Idempotency key; generated if omitted."}
             }), &["group_id", "link_id", "expected_group_version"])),
+        def("collab_create_template", format!("Repository admins only. Create a task template (name, title_pattern with {{placeholders}}, goal, deliverables, acceptance checklist), or - with template_id and expected_version - append a new immutable version of it. Versions are never edited and tasks already made from a template keep the version they were made from. The checklist is text: it is not tracked and proves nothing.{untrusted}"),
+            schema(json!({
+                "template_id": {"type": "string", "maxLength": 64, "description": "Give this to append a version instead of creating a template."},
+                "expected_version": {"type": "integer", "minimum": 1, "description": "With template_id: the latest_version you saw; a stale value fails with VERSION_CONFLICT."},
+                "name": {"type": "string", "minLength": 1, "maxLength": 100, "description": "Required when creating."},
+                "title_pattern": {"type": "string", "minLength": 1, "maxLength": 200, "description": "Task title; {name} placeholders are filled from params."},
+                "goal": {"type": "string", "minLength": 1, "maxLength": 2048},
+                "deliverables": {"type": "array", "maxItems": 20, "items": {"type": "string", "minLength": 1, "maxLength": 256}},
+                "checklist": {"type": "array", "maxItems": 30, "items": {"type": "object", "additionalProperties": false, "required": ["text"], "properties": {
+                    "text": {"type": "string", "minLength": 1, "maxLength": 256},
+                    "required": {"type": "boolean"}
+                }}},
+                "client_template_id": {"type": "string", "maxLength": 128, "description": "Idempotency key when creating; generated if omitted."},
+                "client_version_id": {"type": "string", "maxLength": 128, "description": "Idempotency key when appending a version; generated if omitted."}
+            }), &["title_pattern", "goal"])),
+        def("collab_list_templates", format!("List the repository's task templates with their latest version.{untrusted}"),
+            schema(json!({"limit": limit(), "cursor": {"type": "string"}}), &[])),
+        def("collab_get_template", format!("Get a task template at one version (default the latest).{untrusted}"),
+            schema(json!({"template_id": {"type": "string", "maxLength": 64}, "version": {"type": "integer", "minimum": 1}}), &["template_id"])),
+        def("collab_task_from_template", format!("Create a task from a template version. The task is pinned to that version and keeps a copy of its goal, deliverables and checklist in the description, so later template edits do not change it. Optionally record the commit a rules ref resolves to (rules_ref). Needs an active session.{untrusted}"),
+            schema(json!({
+                "template_id": {"type": "string", "maxLength": 64},
+                "version": {"type": "integer", "minimum": 1, "description": "Pin this version; default the latest."},
+                "params": {"type": "object", "additionalProperties": {"type": "string", "maxLength": 100}, "description": "Values for the title pattern's placeholders, exactly those names."},
+                "notes": {"type": "string", "maxLength": 4096},
+                "owner_session_id": {"type": "string", "maxLength": 64, "description": "A live session id, or \"self\"."},
+                "branch": {"type": "string", "maxLength": 255},
+                "paths": {"type": "array", "maxItems": 100, "items": {"type": "string", "minLength": 1, "maxLength": 512}},
+                "rules_ref": {"type": "string", "maxLength": 255, "description": "Branch, tag or commit whose current commit is recorded as rules_commit."},
+                "client_task_id": {"type": "string", "maxLength": 128, "description": "Idempotency key; generated if omitted."}
+            }), &["template_id"])),
+        def("collab_declare_capabilities", format!("Declare this session's tools, whether it can run tests and its network limits, so others can decide who to ask. Replaces the previous declaration; pass expected_version (the version you last saw, 0 the first time). It is a self-report: the platform does not verify it, it expires into 'stale' after a day, and it never grants or removes any permission.{untrusted}"),
+            schema(json!({
+                "expected_version": {"type": "integer", "minimum": 0, "description": "Declaration version you last saw; 0 (default) when you have not declared yet."},
+                "tools": {"type": "array", "maxItems": 50, "items": {"type": "string", "minLength": 1, "maxLength": 128}},
+                "can_run_tests": {"type": "string", "enum": ["yes", "no", "unknown"]},
+                "network": {"type": "string", "enum": ["unrestricted", "restricted", "offline", "unknown"]},
+                "network_notes": {"type": "string", "maxLength": 1024},
+                "notes": {"type": "string", "maxLength": 4096},
+                "stale_after_seconds": {"type": "integer", "minimum": 60, "maximum": 2592000}
+            }), &[])),
+        def("collab_get_declaration", format!("Read capability declarations: one session's (session_id, or \"self\") or, without session_id, all of the repository's. Each carries declared_at, age and a stale flag; 'undeclared' means unknown, not 'cannot'. Declarations are self-reported and never an authorization.{untrusted}"),
+            schema(json!({
+                "session_id": {"type": "string", "maxLength": 64, "description": "A session id, or \"self\". Omit to list all."},
+                "stale_after_seconds": {"type": "integer", "minimum": 60, "maximum": 2592000},
+                "limit": limit(), "cursor": {"type": "string"}
+            }), &[])),
+        def("collab_set_budget", format!("Set (create or replace) a task's budget for one unit from one source, e.g. unit USD, source invoice. unit and source are required and compared exactly: amounts of different units or sources are never converted or added. alert_at is an optional lower threshold in the same unit. Informational only - a budget never pauses or blocks work. Pass expected_version (0 for a new budget).{untrusted}"),
+            schema(json!({
+                "task_id": task_id(),
+                "unit": {"type": "string", "minLength": 1, "maxLength": 32, "description": "e.g. USD, tokens, seconds. Exact, case-sensitive."},
+                "source": {"type": "string", "minLength": 1, "maxLength": 64, "description": "Where the figures come from, e.g. invoice, harness-estimate."},
+                "amount": {"type": ["string", "number"], "description": "Decimal greater than zero, at most 6 fractional digits."},
+                "alert_at": {"type": ["string", "number"], "description": "Optional threshold in the same unit, not above amount."},
+                "sampling_period": {"type": "string", "minLength": 1, "maxLength": 64, "description": "Period the source's measurements cover, e.g. task_total, per_day."},
+                "expected_version": {"type": "integer", "minimum": 0, "description": "Budget version you last saw; 0 (default) for a new budget."}
+            }), &["task_id", "unit", "source", "amount", "sampling_period"])),
+        def("collab_report_usage", format!("Append a usage record to a task: how much of a unit a source measured over a period (a delta, not a running total). Self-reported; the platform measures nothing. Missing reports mean unknown, never zero.{untrusted}"),
+            schema(json!({
+                "task_id": task_id(),
+                "unit": {"type": "string", "minLength": 1, "maxLength": 32},
+                "source": {"type": "string", "minLength": 1, "maxLength": 64},
+                "amount": {"type": ["string", "number"], "description": "Non-negative decimal, at most 6 fractional digits."},
+                "period_start": {"type": "string", "description": "RFC 3339 timestamp."},
+                "period_end": {"type": "string", "description": "RFC 3339 timestamp, not in the future."},
+                "client_usage_id": {"type": "string", "maxLength": 128, "description": "Idempotency key; generated if omitted."}
+            }), &["task_id", "unit", "source", "amount", "period_start", "period_end"])),
+        def("collab_get_budget", format!("Read a task's budgets with their usage per exact unit and source (unknown, not zero, when nothing was reported), the derived over_threshold flag with the numbers behind it, and usage that matches no budget. With list_usage true, list the raw usage records instead. Informational: nothing is enforced.{untrusted}"),
+            schema(json!({
+                "task_id": task_id(),
+                "list_usage": {"type": "boolean", "description": "List usage records instead of the summary."},
+                "unit": {"type": "string", "maxLength": 32}, "source": {"type": "string", "maxLength": 64},
+                "limit": limit(), "cursor": {"type": "string"}
+            }), &["task_id"])),
     ]
 }
 

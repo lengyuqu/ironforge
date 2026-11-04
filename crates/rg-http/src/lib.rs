@@ -1114,6 +1114,47 @@ fn build_routes(
             get(api::collab_capabilities::repo_capabilities),
         )
         .route(
+            "/repos/{owner}/{name}/collaboration/templates",
+            get(api::collab_templates::list_templates).post(api::collab_templates::create_template),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/templates/{id}",
+            get(api::collab_templates::get_template),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/templates/{id}/versions",
+            post(api::collab_templates::new_template_version),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/tasks/from-template",
+            post(api::collab_templates::create_task_from_template),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/tasks/{id}/template",
+            get(api::collab_templates::get_task_template),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/sessions/{id}/declaration",
+            get(api::collab_declarations::get_declaration)
+                .put(api::collab_declarations::put_declaration),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/declarations",
+            get(api::collab_declarations::list_declarations),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/tasks/{id}/budgets",
+            put(api::collab_budgets::set_budget),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/tasks/{id}/budget",
+            get(api::collab_budgets::get_budget),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/tasks/{id}/usage",
+            get(api::collab_budgets::list_usage).post(api::collab_budgets::report_usage),
+        )
+        .route(
             "/repos/{owner}/{name}/pipelines/{id}/jobs/{job_id}/play",
             post(api::ci::play_job),
         )
