@@ -18,6 +18,8 @@ pub mod collab_answer;
 pub mod collab_dependency_graph;
 pub mod collab_decision;
 pub mod collab_decision_change;
+pub mod collab_coordination_group;
+pub mod collab_coordination_link;
 pub mod collab_handoff;
 pub mod collab_message;
 pub mod collab_question;

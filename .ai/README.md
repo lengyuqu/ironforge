@@ -181,6 +181,9 @@ AI Agent **必须**在阅读代码前先读取以下文件：
 | `collab_create_decision` / `collab_list_decisions` / `collab_get_decision` / `collab_change_decision` | 记录**不可变**决定（可引用本任务的问题及其答复，错配被拒；记录任务版本与 commit 上下文，版本过期 `VERSION_CONFLICT`）/ 按序列列出 / 单个（含 `status`、终结事件、`context_freshness`、`supersedes`）/ 追加唯一的终结事件 `superseded`（替代决定须为同任务**更晚**的决定）或 `revoked`（并发只有一个成功：`DECISION_ALREADY_CHANGED`；`DECISION_CYCLE`、`REPLACEMENT_NOT_NEWER`）。决定是协作记录，**不是**审批，不授予 Git/CI/合并权；过期（stale）的决定只标注，不会被自动撤销 |
 | `collab_get_completion_status` | 对照任务的自述状态与平台记录：问题是否都已解决、是否有工作包、该工作包 commit 的最新 CI。只读；“done 但无证据”只会被标出，不会被阻止 |
 | `collab_get_dependencies` / `collab_add_dependency` / `collab_remove_dependency` | 任务依赖（A 等待 B）。读取返回直接依赖及其**声明的**状态、`graph_version` 与派生的 `blocked_by`（依赖状态非 `done`）；增删必须带读到的 `expected_graph_version`（0 = 尚无任何边）：过期返回 `VERSION_CONFLICT`+`current_version`，成环返回 `DEPENDENCY_CYCLE`（`cycle_path`），图过大或单任务超过 100 条直接依赖返回 `GRAPH_LIMIT_EXCEEDED`（`details.limit`）。删除不存在的边成功且 `removed:false`。只是声明：不阻塞、不启动、不完成任何任务 |
+| `collab_create_group` / `collab_get_group` | 建跨仓协调组（归**锚仓**所有，需锚仓写权限 + 会话）/ 读组及第一页可见关联。**警告**：`title`、`description` 对所有能读锚仓协作数据的人可见（包括读不到被关联仓库的人）；服务端从不把其他仓库的内容复制进去，别在里面写其他仓库的机密。`version` 仅锚仓写者可见，用作 `expected_group_version` |
+| `collab_add_group_link` / `collab_remove_group_link` | 向组里关联/移除**别的仓库**的任务和/或提交（按仓库 id；提交须是完整 SHA 且当前存在于目标仓）。**锚仓和目标仓都要写权限**；必须带 `expected_group_version`（`VERSION_CONFLICT`）；重复目标 `LINK_ALREADY_EXISTS`；移除是软删除并审计。关联不授予任何 Git/CI/合并/审批权 |
+| `collab_list_group_links` | 分页列出你**有权看**的关联：先鉴权、再排序分页，每页都重新鉴权；没有总数、没有“有 N 项被隐藏”提示；`has_more` 仅由可见集合决定；目标仓名称在读取时解析；提交被 GC 后 `commit_state=unavailable`（SHA 不变） |
 
 错误以 `isError: true` 返回，正文为 `{"error": {"status", "code", "message", "details"?}}`；按 `code` 判断（`VERSION_CONFLICT`、`OWNER_MAY_BE_ACTIVE`、`CONTEXT_STALE`、`QUESTION_NOT_OPEN`、`SESSION_EXPIRED`、`IDEMPOTENCY_KEY_REUSED`、`NO_ACTIVE_SESSION`、`INVALID_ARGUMENTS`、`TRANSPORT_ERROR`…），不要解析 `message`。
 
