@@ -1,0 +1,62 @@
+# CNB pipelines — a trial mirror of the gates in scripts/check.sh and
+# .github/workflows/regression.yml. GitHub Actions stays the reference CI;
+# this file only runs the Rust gates on CNB (no PostgreSQL/MySQL, git-protocol
+# matrix, security audit or frontend jobs yet).
+#
+# Each list item is an independent pipeline and runs in parallel.
+
+.rust-setup: &rust-setup
+  docker:
+    image: rust:1
+  env:
+    CARGO_INCREMENTAL: "0"
+
+.apt-deps: &apt-deps
+  name: system dependencies
+  script: |
+    apt-get update
+    apt-get install -y --no-install-recommends pkg-config libssl-dev libsqlite3-dev git
+
+main:
+  push:
+    - name: lint
+      <<: *rust-setup
+      stages:
+        - *apt-deps
+        - name: rustfmt and clippy components
+          script: rustup component add rustfmt clippy
+        - name: cargo fmt --check
+          script: cargo fmt --all --check
+        - name: clippy (deny warnings)
+          script: cargo clippy --workspace --all-targets -- -D warnings
+
+    - name: test
+      <<: *rust-setup
+      stages:
+        - *apt-deps
+        - name: rg-core and rg-http tests
+          script: cargo test -p rg-core -p rg-http
+        - name: fresh DB migration smoke
+          script: cargo run -p rg-cli -- migrate --db-url "sqlite:///tmp/ironforge-cnb-migration.db?mode=rwc"
+
+feat/**:
+  push:
+    - name: lint
+      <<: *rust-setup
+      stages:
+        - *apt-deps
+        - name: rustfmt and clippy components
+          script: rustup component add rustfmt clippy
+        - name: cargo fmt --check
+          script: cargo fmt --all --check
+        - name: clippy (deny warnings)
+          script: cargo clippy --workspace --all-targets -- -D warnings
+
+    - name: test
+      <<: *rust-setup
+      stages:
+        - *apt-deps
+        - name: rg-core and rg-http tests
+          script: cargo test -p rg-core -p rg-http
+        - name: fresh DB migration smoke
+          script: cargo run -p rg-cli -- migrate --db-url "sqlite:///tmp/ironforge-cnb-migration.db?mode=rwc"
