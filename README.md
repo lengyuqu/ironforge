@@ -218,6 +218,14 @@ git push origin main
 
 ## 开发
 
+### 提交前自检
+
+```bash
+scripts/check.sh --quick   # cargo fmt + clippy（约 40 秒）
+scripts/check.sh           # 再加 rg-http / rg-core 测试（约 7 分钟）
+scripts/check.sh --full    # 全 workspace，与 CI 等价
+```
+
 ### 回归测试
 
 ```bash

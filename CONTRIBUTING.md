@@ -425,6 +425,16 @@ BACKEND_URL=http://127.0.0.1:8080 node scripts/api-client-contract-check.mjs
 
 Git 协议专项问题可以按 `AGENTS.md` 中的 SSH/HTTP clone/push 命令模板手动复现。
 
+### 提交前自检
+
+```bash
+scripts/check.sh --quick   # 格式 + clippy，约 40 秒，边写边跑
+scripts/check.sh           # 再加 rg-http / rg-core 测试，约 7 分钟，推送前跑
+scripts/check.sh --full    # 全 workspace，与 CI 等价
+```
+
+CI（`.github/workflows/regression.yml`）跑的是同一批检查，本地绿通常推送后也绿。
+
 ### 变更区域 → 测试命令映射
 
 修改代码后，请至少运行对应区域的测试命令确认无回归：
