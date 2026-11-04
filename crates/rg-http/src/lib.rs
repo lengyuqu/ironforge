@@ -1086,6 +1086,18 @@ fn build_routes(
             get(api::collab_declarations::list_declarations),
         )
         .route(
+            "/repos/{owner}/{name}/collaboration/tasks/{id}/budgets",
+            put(api::collab_budgets::set_budget),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/tasks/{id}/budget",
+            get(api::collab_budgets::get_budget),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/tasks/{id}/usage",
+            get(api::collab_budgets::list_usage).post(api::collab_budgets::report_usage),
+        )
+        .route(
             "/repos/{owner}/{name}/pipelines/{id}/jobs/{job_id}/play",
             post(api::ci::play_job),
         )

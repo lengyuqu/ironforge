@@ -760,3 +760,59 @@ fn o07_declaration_tools_map_to_the_rest_api() {
     let stderr = mcp.stop();
     assert!(!stderr.contains(SECRET));
 }
+
+// ── operability tools (O08 budgets) ──────────────────────────────────
+
+#[test]
+fn o08_budget_tools_map_to_the_rest_api() {
+    let stub = Stub::spawn(happy_handler());
+    let mut mcp = Mcp::start(&stub.url, None);
+    let (err, _) = mcp.tool_json("collab_start_session", start_args());
+    assert!(!err);
+    let base = json!({"owner": "o", "repo": "r"});
+    let with = |extra: Value| {
+        let mut args = base.clone();
+        args.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        args
+    };
+    let tid = "22222222-2222-4222-8222-222222222222";
+    for (tool, args) in [
+        ("collab_set_budget", with(json!({"task_id": tid, "unit": "USD", "source": "invoice", "amount": "10", "alert_at": 5, "sampling_period": "task_total"}))),
+        ("collab_report_usage", with(json!({"task_id": tid, "unit": "USD", "source": "invoice", "amount": 0.5, "period_start": "2026-11-04T00:00:00Z", "period_end": "2026-11-04T01:00:00Z"}))),
+        ("collab_get_budget", with(json!({"task_id": tid}))),
+        ("collab_get_budget", with(json!({"task_id": tid, "list_usage": true, "unit": "USD", "limit": 5}))),
+    ] {
+        let (err, out) = mcp.tool(tool, args);
+        assert!(!err, "{tool}: {out}");
+        assert!(!out.contains(SECRET));
+    }
+    let reqs = stub.requests();
+    let set = reqs.iter().find(|r| r.method == "PUT" && r.path.ends_with(&format!("/tasks/{tid}/budgets"))).unwrap();
+    assert_eq!(set.body["expected_version"], 0);
+    assert_eq!(set.body["unit"], "USD");
+    assert_eq!(set.body["alert_at"], 5);
+    assert_eq!(set.headers.get("x-ironforge-session").map(String::as_str), Some(SESSION_ID));
+    let usage = reqs.iter().find(|r| r.method == "POST" && r.path.ends_with(&format!("/tasks/{tid}/usage"))).unwrap();
+    assert_eq!(usage.body["amount"], 0.5);
+    assert!(uuid_like(usage.body["client_usage_id"].as_str().unwrap()));
+    assert!(reqs.iter().any(|r| r.method == "GET" && r.path.ends_with(&format!("/tasks/{tid}/budget"))));
+    assert!(reqs.iter().any(|r| r.method == "GET" && r.path.contains(&format!("/tasks/{tid}/usage?unit=USD&limit=5"))));
+
+    // unit, source, amount and the periods are required: nothing is guessed.
+    let before = stub.requests().len();
+    for (tool, args) in [
+        ("collab_set_budget", with(json!({"task_id": tid, "source": "s", "amount": "1", "sampling_period": "p"}))),
+        ("collab_set_budget", with(json!({"task_id": tid, "unit": "u", "amount": "1", "sampling_period": "p"}))),
+        ("collab_set_budget", with(json!({"task_id": tid, "unit": "u", "source": "s", "sampling_period": "p"}))),
+        ("collab_set_budget", with(json!({"task_id": tid, "unit": "u", "source": "s", "amount": true, "sampling_period": "p"}))),
+        ("collab_report_usage", with(json!({"task_id": tid, "unit": "u", "source": "s", "amount": "1", "period_start": "2026-11-04T00:00:00Z"}))),
+        ("collab_report_usage", with(json!({"task_id": tid, "source": "s", "amount": "1", "period_start": "a", "period_end": "b"}))),
+        ("collab_get_budget", with(json!({"task_id": "../x"}))),
+    ] {
+        let (err, out) = mcp.tool_json(tool, args);
+        assert!(err, "{tool} should be rejected: {out}");
+    }
+    assert_eq!(stub.requests().len(), before, "no request left the process");
+    let stderr = mcp.stop();
+    assert!(!stderr.contains(SECRET));
+}

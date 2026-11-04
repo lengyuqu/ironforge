@@ -759,3 +759,389 @@ async fn o07_access_and_races() {
     let (_, now) = get_decl(&env, &env.owner_token, &a.id, "").await;
     assert_eq!(now["declaration"]["version"], 2);
 }
+
+// ------------------------------------------------------------------ O08
+
+async fn new_task(env: &Env, s: &Sess) -> String {
+    let (status, task) = env
+        .json(Method::POST, &env.url("/tasks"), &env.owner_token, Some(s), Some(json!({"title": "budgeted"})))
+        .await;
+    assert_eq!(status, 201, "{task}");
+    task["id"].as_str().unwrap().to_string()
+}
+
+fn budget_body(expected: i64, unit: &str, source: &str, amount: Value) -> Value {
+    json!({
+        "expected_version": expected,
+        "unit": unit,
+        "source": source,
+        "amount": amount,
+        "sampling_period": "task_total",
+    })
+}
+
+async fn put_budget(env: &Env, task: &str, body: Value) -> (u16, Value) {
+    env.json(Method::PUT, &env.url(&format!("/tasks/{task}/budgets")), &env.owner_token, None, Some(body)).await
+}
+
+fn usage_body(key: &str, unit: &str, source: &str, amount: Value) -> Value {
+    let end = chrono::Utc::now() - chrono::Duration::minutes(1);
+    json!({
+        "client_usage_id": key,
+        "unit": unit,
+        "source": source,
+        "amount": amount,
+        "period_start": (end - chrono::Duration::minutes(10)).to_rfc3339(),
+        "period_end": end.to_rfc3339(),
+    })
+}
+
+async fn report(env: &Env, task: &str, s: Option<&Sess>, body: Value) -> (u16, Value) {
+    env.json(Method::POST, &env.url(&format!("/tasks/{task}/usage")), &env.owner_token, s, Some(body)).await
+}
+
+async fn budget(env: &Env, task: &str) -> Value {
+    let (status, body) = env
+        .json(Method::GET, &env.url(&format!("/tasks/{task}/budget")), &env.owner_token, None, None)
+        .await;
+    assert_eq!(status, 200, "{body}");
+    body
+}
+
+fn entry<'a>(summary: &'a Value, unit: &str, source: &str) -> &'a Value {
+    summary["budgets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|b| b["unit"] == unit && b["source"] == source)
+        .unwrap_or_else(|| panic!("no budget {unit}/{source} in {summary}"))
+}
+
+#[tokio::test]
+async fn o08_missing_usage_is_unknown_never_zero() {
+    let env = Env::new().await;
+    let s = env.session(&env.owner_token, "A").await;
+    let task = new_task(&env, &s).await;
+
+    // No budget at all: an empty ledger, not a zero one.
+    let empty = budget(&env, &task).await;
+    assert_eq!(empty["budgets"], json!([]));
+    assert_eq!(empty["unmatched_usage"], json!([]));
+    assert!(empty["enforcement"].as_str().unwrap().starts_with("none"));
+
+    let (status, set) = put_budget(&env, &task, budget_body(0, "USD", "invoice", json!("10"))).await;
+    assert_eq!(status, 201, "{set}");
+    assert_eq!(set["version"], 1);
+    assert_eq!(set["amount"], "10");
+    assert_eq!(set["origin"], "user_content");
+    assert_eq!(set["usage"]["status"], "unknown");
+
+    let got = budget(&env, &task).await;
+    let b = entry(&got, "USD", "invoice");
+    assert_eq!(b["usage"]["status"], "unknown");
+    assert!(b["usage"]["total"].is_null(), "no usage is null, never \"0\": {b}");
+    assert_eq!(b["usage"]["record_count"], 0);
+    assert!(b["usage"]["reason"].as_str().unwrap().contains("no usage has been reported"));
+    assert!(b["over_threshold"].is_null());
+    assert!(b["threshold"].is_null());
+
+    // An explicit zero IS a measurement and differs from missing.
+    let (status, _) = report(&env, &task, Some(&s), usage_body("z", "USD", "invoice", json!(0))).await;
+    assert_eq!(status, 201);
+    let got = budget(&env, &task).await;
+    let b = entry(&got, "USD", "invoice");
+    assert_eq!(b["usage"]["status"], "reported");
+    assert_eq!(b["usage"]["total"], "0");
+    assert_eq!(b["over_threshold"], false);
+}
+
+#[tokio::test]
+async fn o08_units_and_sources_are_never_mixed_and_thresholds_show_their_numbers() {
+    let env = Env::new().await;
+    let s = env.session(&env.owner_token, "A").await;
+    let task = new_task(&env, &s).await;
+
+    let mut with_alert = budget_body(0, "USD", "invoice", json!("10"));
+    with_alert["alert_at"] = json!("5");
+    assert_eq!(put_budget(&env, &task, with_alert).await.0, 201);
+    assert_eq!(put_budget(&env, &task, budget_body(0, "tokens", "harness", json!(1000))).await.0, 201);
+    assert_eq!(put_budget(&env, &task, budget_body(0, "x", "s", json!("0.3"))).await.0, 201);
+
+    // Same unit, other source; other unit, same source: neither is the budget's.
+    assert_eq!(report(&env, &task, Some(&s), usage_body("u1", "USD", "estimate", json!("100"))).await.0, 201);
+    assert_eq!(report(&env, &task, Some(&s), usage_body("u2", "EUR", "invoice", json!("100"))).await.0, 201);
+    let got = budget(&env, &task).await;
+    let usd = entry(&got, "USD", "invoice");
+    assert_eq!(usd["usage"]["status"], "unknown", "100 USD from another source is not this budget's usage");
+    assert!(usd["over_threshold"].is_null());
+    let unmatched = got["unmatched_usage"].as_array().unwrap();
+    assert_eq!(unmatched.len(), 2);
+    for (unit, source) in [("USD", "estimate"), ("EUR", "invoice")] {
+        let u = unmatched.iter().find(|u| u["unit"] == unit && u["source"] == source).unwrap();
+        assert_eq!(u["total"], "100");
+        assert_eq!(u["record_count"], 1);
+    }
+    assert_eq!(entry(&got, "tokens", "harness")["usage"]["status"], "unknown");
+
+    // Matching usage accumulates per exact (unit, source) only.
+    assert_eq!(report(&env, &task, Some(&s), usage_body("u3", "USD", "invoice", json!("2.5"))).await.0, 201);
+    let got = budget(&env, &task).await;
+    let usd = entry(&got, "USD", "invoice");
+    assert_eq!(usd["usage"]["total"], "2.5");
+    assert_eq!(usd["over_threshold"], false);
+    assert_eq!(usd["threshold"]["basis"], "alert_at");
+    assert_eq!(usd["threshold"]["threshold_amount"], "5");
+    assert_eq!(usd["threshold"]["used_total"], "2.5");
+    assert_eq!(usd["threshold"]["unit"], "USD");
+    assert_eq!(usd["threshold"]["source"], "invoice");
+
+    assert_eq!(report(&env, &task, Some(&s), usage_body("u4", "USD", "invoice", json!("2.5"))).await.0, 201);
+    let got = budget(&env, &task).await;
+    let usd = entry(&got, "USD", "invoice");
+    assert_eq!(usd["usage"]["total"], "5");
+    assert_eq!(usd["usage"]["record_count"], 2);
+    assert_eq!(usd["over_threshold"], true, "reaching alert_at raises the flag");
+    assert_eq!(usd["threshold"]["comparison"], "over_threshold = used_total >= threshold_amount");
+    assert_eq!(usd["threshold"]["used_total"], "5");
+    assert_eq!(usd["usage"]["overlapping_periods"], true, "the two test records cover the same period");
+    assert_eq!(usd["threshold"]["total_may_double_count"], true);
+    // The other ledgers did not move.
+    assert_eq!(entry(&got, "tokens", "harness")["usage"]["status"], "unknown");
+
+    // Exact decimal arithmetic: 0.1 + 0.2 is 0.3, not 0.30000000000000004.
+    assert_eq!(report(&env, &task, Some(&s), usage_body("d1", "x", "s", json!(0.1))).await.0, 201);
+    assert_eq!(report(&env, &task, Some(&s), usage_body("d2", "x", "s", json!("0.2"))).await.0, 201);
+    let got = budget(&env, &task).await;
+    let x = entry(&got, "x", "s");
+    assert_eq!(x["usage"]["total"], "0.3");
+    assert_eq!(x["over_threshold"], true);
+
+    // Filters on the record list are exact.
+    let (_, list) = env
+        .json(Method::GET, &env.url(&format!("/tasks/{task}/usage?unit=USD&source=invoice")), &env.owner_token, None, None)
+        .await;
+    assert_eq!(list["items"].as_array().unwrap().len(), 2);
+    let (_, list) = env
+        .json(Method::GET, &env.url(&format!("/tasks/{task}/usage")), &env.owner_token, None, None)
+        .await;
+    assert_eq!(list["items"].as_array().unwrap().len(), 6);
+    assert_eq!(list["items"][0]["origin"], "user_content");
+}
+
+#[tokio::test]
+async fn o08_crossing_a_threshold_stops_nothing() {
+    let env = Env::new().await;
+    let s = env.session(&env.owner_token, "A").await;
+    let task = new_task(&env, &s).await;
+    assert_eq!(put_budget(&env, &task, budget_body(0, "USD", "invoice", json!("1"))).await.0, 201);
+    assert_eq!(report(&env, &task, Some(&s), usage_body("big", "USD", "invoice", json!("999"))).await.0, 201);
+    assert_eq!(entry(&budget(&env, &task).await, "USD", "invoice")["over_threshold"], true);
+
+    // Work continues: the task and the session are untouched and still writable.
+    let (status, t) = env
+        .json(Method::GET, &env.url(&format!("/tasks/{task}")), &env.owner_token, None, None)
+        .await;
+    assert_eq!((status, t["status"].as_str(), t["version"].as_i64()), (200, Some("open"), Some(1)));
+    let (status, _) = env
+        .json(
+            Method::PATCH,
+            &env.url(&format!("/tasks/{task}")),
+            &env.owner_token,
+            Some(&s),
+            Some(json!({"expected_version": 1, "status": "in_progress"})),
+        )
+        .await;
+    assert_eq!(status, 200);
+    let (status, _) = env
+        .json(Method::POST, &env.url(&format!("/sessions/{}/heartbeat", s.id)), &env.owner_token, Some(&s), None)
+        .await;
+    assert_eq!(status, 200);
+    assert_eq!(report(&env, &task, Some(&s), usage_body("more", "USD", "invoice", json!("1"))).await.0, 201);
+}
+
+#[tokio::test]
+async fn o08_validation_versions_and_idempotency() {
+    let env = Env::new().await;
+    let s = env.session(&env.owner_token, "A").await;
+    let task = new_task(&env, &s).await;
+
+    // unit and source are required; amounts are strict decimals.
+    for (patch, why) in [
+        (json!({"unit": ""}), "empty unit"),
+        (json!({"source": ""}), "empty source"),
+        (json!({"unit": "two words"}), "unit with a space"),
+        (json!({"amount": "-1"}), "negative"),
+        (json!({"amount": "1e3"}), "exponent"),
+        (json!({"amount": "0"}), "zero budget"),
+        (json!({"amount": "1.1234567"}), "too many fractional digits"),
+        (json!({"amount": true}), "not a number"),
+        (json!({"alert_at": "11"}), "alert above amount"),
+        (json!({"sampling_period": ""}), "empty period"),
+    ] {
+        let mut body = budget_body(0, "USD", "invoice", json!("10"));
+        body.as_object_mut().unwrap().extend(patch.as_object().unwrap().clone());
+        let (status, resp) = put_budget(&env, &task, body).await;
+        assert_eq!(status, 400, "{why}: {resp}");
+    }
+    for field in ["unit", "source", "sampling_period", "amount"] {
+        let mut body = budget_body(0, "USD", "invoice", json!("10"));
+        body.as_object_mut().unwrap().remove(field);
+        let (status, _) = put_budget(&env, &task, body).await;
+        assert!(status == 400 || status == 422, "missing {field} must be refused, got {status}");
+    }
+    let (_, none) = (0, budget(&env, &task).await);
+    assert_eq!(none["budgets"], json!([]), "refused requests create nothing");
+
+    // Versioned replace, with replay of the request that succeeded.
+    let (status, v1) = put_budget(&env, &task, budget_body(0, "USD", "invoice", json!("10"))).await;
+    assert_eq!((status, v1["version"].as_i64()), (201, Some(1)));
+    let (status, replay) = put_budget(&env, &task, budget_body(0, "USD", "invoice", json!("10.00"))).await;
+    assert_eq!(status, 200, "{replay}");
+    assert_eq!(replay["version"], 1, "10.00 normalizes to 10");
+    let (status, conflict) = put_budget(&env, &task, budget_body(0, "USD", "invoice", json!("20"))).await;
+    assert_eq!((status, conflict["error"]["code"].as_str()), (409, Some("VERSION_CONFLICT")), "{conflict}");
+    assert_eq!(conflict["error"]["details"]["current_version"], 1);
+    let (status, v2) = put_budget(&env, &task, budget_body(1, "USD", "invoice", json!("20"))).await;
+    assert_eq!((status, v2["version"].as_i64(), v2["amount"].as_str()), (200, Some(2), Some("20")));
+    let (status, conflict) = put_budget(&env, &task, budget_body(5, "USD", "invoice", json!("30"))).await;
+    assert_eq!((status, conflict["error"]["details"]["current_version"].as_i64()), (409, Some(2)));
+    let (status, conflict) = put_budget(&env, &task, budget_body(1, "JPY", "invoice", json!("30"))).await;
+    assert_eq!((status, conflict["error"]["details"]["current_version"].as_i64()), (409, Some(0)), "no budget for that unit yet");
+
+    // At most 20 budgets per task.
+    for i in 0..19 {
+        let (status, resp) = put_budget(&env, &task, budget_body(0, &format!("u{i}"), "s", json!("1"))).await;
+        assert_eq!(status, 201, "{resp}");
+    }
+    let (status, resp) = put_budget(&env, &task, budget_body(0, "u19", "s", json!("1"))).await;
+    assert_eq!((status, resp["error"]["code"].as_str()), (409, Some("BUDGET_LIMIT_REACHED")), "{resp}");
+
+    // Usage: bad periods and amounts, replay, key reuse.
+    let now = chrono::Utc::now();
+    let mut backwards = usage_body("bw", "USD", "invoice", json!("1"));
+    backwards["period_start"] = json!(now.to_rfc3339());
+    backwards["period_end"] = json!((now - chrono::Duration::hours(1)).to_rfc3339());
+    assert_eq!(report(&env, &task, Some(&s), backwards).await.0, 400);
+    let mut future = usage_body("fu", "USD", "invoice", json!("1"));
+    future["period_end"] = json!((now + chrono::Duration::hours(1)).to_rfc3339());
+    assert_eq!(report(&env, &task, Some(&s), future).await.0, 400);
+    assert_eq!(report(&env, &task, Some(&s), usage_body("neg", "USD", "invoice", json!("-5"))).await.0, 400);
+    let mut no_unit = usage_body("nu", "USD", "invoice", json!("1"));
+    no_unit.as_object_mut().unwrap().remove("unit");
+    let status = report(&env, &task, Some(&s), no_unit).await.0;
+    assert!(status == 400 || status == 422, "{status}");
+
+    let body = usage_body("r1", "USD", "invoice", json!("3"));
+    let (status, first) = report(&env, &task, Some(&s), body.clone()).await;
+    assert_eq!(status, 201, "{first}");
+    assert_eq!(first["reported_by_kind"], "session");
+    assert_eq!(first["reported_by_id"], s.id.as_str());
+    let (status, again) = report(&env, &task, Some(&s), body).await;
+    assert_eq!(status, 200, "{again}");
+    assert_eq!(again["id"], first["id"]);
+    let (status, reused) = report(&env, &task, Some(&s), usage_body("r1", "USD", "invoice", json!("4"))).await;
+    assert_eq!((status, reused["error"]["code"].as_str()), (409, Some("IDEMPOTENCY_KEY_REUSED")), "{reused}");
+    let got = budget(&env, &task).await;
+    assert_eq!(entry(&got, "USD", "invoice")["usage"]["total"], "3");
+    assert_eq!(entry(&got, "USD", "invoice")["usage"]["record_count"], 1);
+
+    // The user door may report too; the record says so.
+    let (status, by_user) = report(&env, &task, None, usage_body("ud", "USD", "invoice", json!("1"))).await;
+    assert_eq!(status, 201, "{by_user}");
+    assert_eq!(by_user["reported_by_kind"], "user");
+}
+
+#[tokio::test]
+async fn o08_access_races_and_unknown_tasks() {
+    let env = Env::new().await;
+    let s = env.session(&env.owner_token, "A").await;
+    let task = new_task(&env, &s).await;
+
+    let (reader, reader_id) = env.user("reader").await;
+    env.add_collaborator(reader_id, "read").await;
+    let (stranger, _) = env.user("stranger").await;
+    assert_eq!(put_budget(&env, &task, budget_body(0, "USD", "invoice", json!("10"))).await.0, 201);
+
+    let get = env.url(&format!("/tasks/{task}/budget"));
+    assert_eq!(env.json(Method::GET, &get, &reader, None, None).await.0, 200);
+    assert_eq!(env.json(Method::GET, &get, &stranger, None, None).await.0, 403);
+    let usage = env.url(&format!("/tasks/{task}/usage"));
+    assert_eq!(env.json(Method::GET, &usage, &stranger, None, None).await.0, 403);
+    for (method, url, body) in [
+        (Method::PUT, env.url(&format!("/tasks/{task}/budgets")), budget_body(1, "USD", "invoice", json!("99"))),
+        (Method::POST, usage.clone(), usage_body("x", "USD", "invoice", json!("1"))),
+    ] {
+        assert_eq!(env.json(method.clone(), &url, &reader, None, Some(body.clone())).await.0, 403, "reader {method}");
+        assert_eq!(env.json(method, &url, &stranger, None, Some(body)).await.0, 403, "stranger");
+    }
+    let got = budget(&env, &task).await;
+    assert_eq!(entry(&got, "USD", "invoice")["amount"], "10", "refused writes changed nothing");
+    assert!(got["unmatched_usage"].as_array().unwrap().is_empty());
+
+    // Unknown and foreign tasks read as absent.
+    let ghost = uuid::Uuid::new_v4().to_string();
+    for (method, path) in [
+        (Method::GET, format!("/tasks/{ghost}/budget")),
+        (Method::GET, format!("/tasks/{ghost}/usage")),
+    ] {
+        assert_eq!(env.json(method, &env.url(&path), &env.owner_token, None, None).await.0, 404);
+    }
+    assert_eq!(report(&env, &ghost, Some(&s), usage_body("g", "USD", "invoice", json!("1"))).await.0, 404);
+    assert_eq!(put_budget(&env, &ghost, budget_body(0, "USD", "invoice", json!("1"))).await.0, 404);
+
+    // Six budget writers from version 1: one winner, the rest conflict.
+    let mut handles = Vec::new();
+    for i in 0..6 {
+        let url = env.url(&format!("/tasks/{task}/budgets"));
+        let token = env.owner_token.clone();
+        handles.push(tokio::spawn(async move {
+            reqwest::Client::new()
+                .put(url)
+                .bearer_auth(token)
+                .json(&budget_body(1, "USD", "invoice", json!(format!("{}", 20 + i))))
+                .send()
+                .await
+                .unwrap()
+                .status()
+                .as_u16()
+        }));
+    }
+    let mut statuses = Vec::new();
+    for h in handles {
+        statuses.push(h.await.unwrap());
+    }
+    assert_eq!(statuses.iter().filter(|s| **s == 200).count(), 1, "{statuses:?}");
+    assert_eq!(statuses.iter().filter(|s| **s == 409).count(), 5, "{statuses:?}");
+    assert_eq!(entry(&budget(&env, &task).await, "USD", "invoice")["version"], 2);
+
+    // Six identical usage reports: one record.
+    let body = usage_body("same", "USD", "invoice", json!("1"));
+    let mut handles = Vec::new();
+    for _ in 0..6 {
+        let url = usage.clone();
+        let token = env.owner_token.clone();
+        let s = s.clone();
+        let body = body.clone();
+        handles.push(tokio::spawn(async move {
+            reqwest::Client::new()
+                .post(url)
+                .bearer_auth(token)
+                .header(collab_common::HDR_SESSION, &s.id)
+                .header(collab_common::HDR_SECRET, &s.secret)
+                .json(&body)
+                .send()
+                .await
+                .unwrap()
+                .status()
+                .as_u16()
+        }));
+    }
+    let mut created = 0;
+    for h in handles {
+        let status = h.await.unwrap();
+        assert!(status == 201 || status == 200, "{status}");
+        created += (status == 201) as u32;
+    }
+    assert_eq!(created, 1);
+    assert_eq!(entry(&budget(&env, &task).await, "USD", "invoice")["usage"]["record_count"], 1);
+}

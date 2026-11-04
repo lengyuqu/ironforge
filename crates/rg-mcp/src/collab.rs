@@ -275,7 +275,7 @@ struct Plan {
 }
 
 /// Which tools exist, in the order they are advertised.
-pub const TOOL_NAMES: [&str; 34] = [
+pub const TOOL_NAMES: [&str; 37] = [
     "collab_start_session",
     "collab_list_sessions",
     "collab_heartbeat",
@@ -310,6 +310,9 @@ pub const TOOL_NAMES: [&str; 34] = [
     "collab_task_from_template",
     "collab_declare_capabilities",
     "collab_get_declaration",
+    "collab_set_budget",
+    "collab_report_usage",
+    "collab_get_budget",
 ];
 
 pub fn is_collab_tool(name: &str) -> bool {
@@ -616,6 +619,52 @@ fn plan(name: &str, args: &Value, own_session: Option<&str>) -> Result<Plan, Too
             }
             None => get(format!("/declarations{}", query(args, &["stale_after_seconds", "limit", "cursor"]))),
         },
+        "collab_set_budget" => {
+            for key in ["unit", "source", "sampling_period"] {
+                require_str(args, key)?;
+            }
+            if !matches!(args.get("amount"), Some(Value::String(_) | Value::Number(_))) {
+                return Err(invalid("amount is required and must be a decimal string or number"));
+            }
+            let mut body = pick(
+                args,
+                &["expected_version", "unit", "source", "amount", "alert_at", "sampling_period"],
+            );
+            if int_arg(args, "expected_version", false)?.is_none() {
+                body.insert("expected_version".into(), json!(0));
+            }
+            with_session(
+                Method::PUT,
+                format!("/tasks/{}/budgets", id_arg(args, "task_id")?),
+                Some(Value::Object(body)),
+            )
+        }
+        "collab_report_usage" => {
+            for key in ["unit", "source", "period_start", "period_end"] {
+                require_str(args, key)?;
+            }
+            if !matches!(args.get("amount"), Some(Value::String(_) | Value::Number(_))) {
+                return Err(invalid("amount is required and must be a decimal string or number"));
+            }
+            let mut body = pick(
+                args,
+                &["client_usage_id", "unit", "source", "amount", "period_start", "period_end"],
+            );
+            body.entry("client_usage_id").or_insert_with(|| Value::String(new_client_id()));
+            with_session(
+                Method::POST,
+                format!("/tasks/{}/usage", id_arg(args, "task_id")?),
+                Some(Value::Object(body)),
+            )
+        }
+        "collab_get_budget" => {
+            let task = id_arg(args, "task_id")?;
+            if args.get("list_usage").and_then(Value::as_bool) == Some(true) {
+                get(format!("/tasks/{task}/usage{}", query(args, &["unit", "source", "limit", "cursor"])))
+            } else {
+                get(format!("/tasks/{task}/budget"))
+            }
+        }
         _ => return Err(invalid(format!("unknown tool {name}"))),
     })
 }
@@ -726,7 +775,7 @@ fn run(state: &AppState, name: &str, args: &Value) -> Result<ToolOutput, ToolOut
         }
         "collab_send_message" | "collab_create_handoff" | "collab_claim_task" | "collab_ask_question"
         | "collab_answer_question" | "collab_create_work_package" | "collab_task_from_template"
-        | "collab_create_template" => {
+        | "collab_create_template" | "collab_report_usage" => {
             // Echo the idempotency key used so a retry can repeat it.
         }
         _ => {}
@@ -967,6 +1016,33 @@ pub fn tool_definitions() -> Vec<Value> {
                 "stale_after_seconds": {"type": "integer", "minimum": 60, "maximum": 2592000},
                 "limit": limit(), "cursor": {"type": "string"}
             }), &[])),
+        def("collab_set_budget", format!("Set (create or replace) a task's budget for one unit from one source, e.g. unit USD, source invoice. unit and source are required and compared exactly: amounts of different units or sources are never converted or added. alert_at is an optional lower threshold in the same unit. Informational only - a budget never pauses or blocks work. Pass expected_version (0 for a new budget).{untrusted}"),
+            schema(json!({
+                "task_id": task_id(),
+                "unit": {"type": "string", "minLength": 1, "maxLength": 32, "description": "e.g. USD, tokens, seconds. Exact, case-sensitive."},
+                "source": {"type": "string", "minLength": 1, "maxLength": 64, "description": "Where the figures come from, e.g. invoice, harness-estimate."},
+                "amount": {"type": ["string", "number"], "description": "Decimal greater than zero, at most 6 fractional digits."},
+                "alert_at": {"type": ["string", "number"], "description": "Optional threshold in the same unit, not above amount."},
+                "sampling_period": {"type": "string", "minLength": 1, "maxLength": 64, "description": "Period the source's measurements cover, e.g. task_total, per_day."},
+                "expected_version": {"type": "integer", "minimum": 0, "description": "Budget version you last saw; 0 (default) for a new budget."}
+            }), &["task_id", "unit", "source", "amount", "sampling_period"])),
+        def("collab_report_usage", format!("Append a usage record to a task: how much of a unit a source measured over a period (a delta, not a running total). Self-reported; the platform measures nothing. Missing reports mean unknown, never zero.{untrusted}"),
+            schema(json!({
+                "task_id": task_id(),
+                "unit": {"type": "string", "minLength": 1, "maxLength": 32},
+                "source": {"type": "string", "minLength": 1, "maxLength": 64},
+                "amount": {"type": ["string", "number"], "description": "Non-negative decimal, at most 6 fractional digits."},
+                "period_start": {"type": "string", "description": "RFC 3339 timestamp."},
+                "period_end": {"type": "string", "description": "RFC 3339 timestamp, not in the future."},
+                "client_usage_id": {"type": "string", "maxLength": 128, "description": "Idempotency key; generated if omitted."}
+            }), &["task_id", "unit", "source", "amount", "period_start", "period_end"])),
+        def("collab_get_budget", format!("Read a task's budgets with their usage per exact unit and source (unknown, not zero, when nothing was reported), the derived over_threshold flag with the numbers behind it, and usage that matches no budget. With list_usage true, list the raw usage records instead. Informational: nothing is enforced.{untrusted}"),
+            schema(json!({
+                "task_id": task_id(),
+                "list_usage": {"type": "boolean", "description": "List usage records instead of the summary."},
+                "unit": {"type": "string", "maxLength": 32}, "source": {"type": "string", "maxLength": 64},
+                "limit": limit(), "cursor": {"type": "string"}
+            }), &["task_id"])),
     ]
 }
 
