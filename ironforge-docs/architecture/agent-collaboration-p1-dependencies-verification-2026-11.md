@@ -15,7 +15,7 @@
 | 自依赖 | 400；跨仓或不存在的依赖目标统一 404（消息相同） | 不泄漏其他仓库任务是否存在 |
 | 依赖变更是否递增任务 `version` | **不**递增，也不改任务 | 依赖只是声明；等待方任务不应因此“被修改”，N01 断言等待方前后完全一致 |
 | 遍历上限的配置 | `GraphLimits{1000,5000,100}` 是存储层参数，REST 固定用默认值 | 既可用真实默认值走 HTTP 测，也可在存储层测试收紧参数 |
-| 完成提醒（notices） | **未实现** | 任务明确排除；`GET` 返回 `blocked_by`，通知发射器之后可直接用它 |
+| 完成提醒（notices） | ✅ 2026-11-05 实现，SQLite 已测 | `rg-db/src/ops/collab_task_ops.rs::update_cas`：状态转为 `done` 时，同事务给每个未完成、有负责会话的依赖任务写 `dependency_finished`（`source_type=dependency`，`generation`=被完成任务 version）。验证 `collab_notice_tests::u01_*`：只通知等待方负责人、已完成的依赖方和完成者不通知、重复写 `done` 不重复通知、重开再完成产生新通知。PostgreSQL/MySQL 未验证 |
 
 ## 2. 实现证据（文件 / 接口）
 

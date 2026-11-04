@@ -298,7 +298,7 @@ struct Plan {
 }
 
 /// Which tools exist, in the order they are advertised.
-pub const TOOL_NAMES: [&str; 53] = [
+pub const TOOL_NAMES: [&str; 54] = [
     "collab_start_session",
     "collab_list_sessions",
     "collab_heartbeat",
@@ -352,6 +352,7 @@ pub const TOOL_NAMES: [&str; 53] = [
     "collab_ack_notice",
     "collab_confirm_receipt",
     "collab_get_delivery",
+    "collab_get_diagnostics",
 ];
 
 /// What a tool will send, for the REST/MCP contract test (`collab_contract`).
@@ -1030,6 +1031,10 @@ fn plan(name: &str, args: &Value, own_session: Option<&str>) -> Result<Plan, Too
                 None,
             )
         }
+        "collab_get_diagnostics" => get(format!(
+            "/diagnostics{}",
+            query(args, &["task_id", "session_id"])
+        )),
         "collab_get_budget" => {
             let task = id_arg(args, "task_id")?;
             if args.get("list_usage").and_then(Value::as_bool) == Some(true) {
@@ -1514,6 +1519,8 @@ pub fn tool_definitions() -> Vec<Value> {
             schema(json!({"task_id": task_id(), "message_id": {"type": "string", "minLength": 1, "maxLength": 64}}), &["task_id", "message_id"])),
         def("collab_get_delivery", format!("Get delivery state for a message authored by this session. saved means stored, unknown means no confirmation (not unread), read is the target's confirmation, and replied is a direct reply, not agreement. The read watermark is independent.{untrusted}"),
             schema(json!({"task_id": task_id(), "message_id": {"type": "string", "minLength": 1, "maxLength": 64}}), &["task_id", "message_id"])),
+        def("collab_get_diagnostics", format!("Explain why a task or session looks stuck. Pass exactly one of task_id and session_id. Each finding carries its source and whether it is established or unknown; not_covered lists what was not checked. A diagnosis is read-only evidence for a human or agent to act on, never an authorization.{untrusted}"),
+            schema(json!({"task_id": task_id(), "session_id": {"type": "string", "minLength": 1, "maxLength": 64}}), &[])),
     ]
 }
 

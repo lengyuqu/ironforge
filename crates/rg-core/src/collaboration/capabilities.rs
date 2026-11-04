@@ -681,7 +681,7 @@ pub const REGISTRY: &[Capability] = &[
         name: "diagnostics",
         version: "1.0",
         status: Stable,
-        mcp_tools: &[],
+        mcp_tools: &["collab_get_diagnostics"],
         routes: &[r(
             "GET",
             "/repos/{owner}/{name}/collaboration/diagnostics",

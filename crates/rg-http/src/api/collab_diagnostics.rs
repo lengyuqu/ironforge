@@ -14,6 +14,7 @@ use crate::error::AppError;
 use crate::AppState;
 
 #[derive(Debug, Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct DiagnosticsQuery {
     /// Diagnose this task (exactly one of `task_id` and `session_id`).
     pub task_id: Option<String>,

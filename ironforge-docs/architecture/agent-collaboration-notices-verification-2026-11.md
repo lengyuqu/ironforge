@@ -24,8 +24,8 @@
 | O05 任务验证（SQLite） | ✅ `collab_escalation_tests` 9 项 |
 | 门禁 | U04、O05 提交时 `cargo clippy --workspace --all-targets -D warnings`、`rg-db`、`rg-http --lib`（OpenAPI 守卫）通过；当时 O10 代码仅运行 `cargo check`；后续针对性验证见下行 |
 | O10 任务验证（SQLite） | ✅ `cargo test -p rg-http --test collab_diagnostics_tests`：4 项，覆盖访问隔离、离线、回执隐私、交接筛选及截断、完成任务和通知来源；未验证其他数据库 |
-| MCP 工具（collab_get_notices/ack_notice/confirm_receipt/get_delivery/get_diagnostics） | ❌ 未做 |
-| `.ai/README.md`、CLAUDE.md 表格 | ❌ 未更新 |
+| MCP 工具 | ✅ `collab_list_notices/ack_notice/confirm_receipt/get_delivery` 已接入；`collab_get_diagnostics` 于 2026-11-05 补上（`rg-mcp` 21 项、`collab_contract_tests` 16 项通过）。防漂移测试同时发现 `DiagnosticsQuery` 缺 `into_params(parameter_in = Query)`，OpenAPI 里没有 `task_id`/`session_id`，已修 |
+| `.ai/README.md` | ✅ 已补 `collab_get_diagnostics`；CLAUDE.md 表格未更新 |
 | PostgreSQL / MySQL | ❌ 未验证（本机无实例） |
 | 合并后集成 / CI / 真实多客户端 | ❌ 未验证 |
 

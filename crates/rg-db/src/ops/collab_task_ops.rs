@@ -6,7 +6,68 @@ use sea_orm::sea_query::Expr;
 use sea_orm::*;
 
 use super::collab_metric_ops;
+use super::collab_notice_ops::{self, kind, source, NewNotice};
 use crate::entities::collab_task::{self, ActiveModel, Entity as TaskEntity, Model as Task};
+use crate::entities::collab_task_dependency::{self, Entity as EdgeEntity};
+
+/// The only status that ends a dependency wait.
+const DONE: &str = "done";
+
+/// Notices for the owners of unfinished tasks that were waiting on `finished`.
+///
+/// Written in the same transaction as the status change, so a committed
+/// `done` always has them and a rolled-back one never leaves a stray. The
+/// finished task's `version` is the generation: a task that is reopened and
+/// finished again yields a new notice, while a repeated write of the same
+/// version cannot. Statuses are declarations, so this is a hint to re-read
+/// the dependency, not evidence the work is complete.
+async fn dependency_finished_notices(
+    txn: &DatabaseTransaction,
+    finished: &Task,
+    now: DateTime<Utc>,
+) -> Result<()> {
+    let edges = EdgeEntity::find()
+        .filter(collab_task_dependency::Column::RepoId.eq(finished.repo_id))
+        .filter(collab_task_dependency::Column::DependsOnTaskId.eq(finished.id.as_str()))
+        .all(txn)
+        .await
+        .context("db: find dependents of finished task")?;
+    if edges.is_empty() {
+        return Ok(());
+    }
+    let dependents = TaskEntity::find()
+        .filter(collab_task::Column::RepoId.eq(finished.repo_id))
+        .filter(collab_task::Column::Id.is_in(edges.iter().map(|e| e.task_id.clone())))
+        .all(txn)
+        .await
+        .context("db: load dependent tasks")?;
+    let mut notices = Vec::new();
+    for dependent in dependents {
+        let Some(owner) = dependent.owner_session_id.clone() else {
+            continue;
+        };
+        if dependent.status == DONE {
+            continue;
+        }
+        notices.push(NewNotice {
+            repo_id: finished.repo_id,
+            task_id: dependent.id.clone(),
+            recipient_session_id: owner,
+            kind: kind::DEPENDENCY_FINISHED,
+            source_type: source::DEPENDENCY,
+            source_id: finished.id.clone(),
+            generation: finished.version,
+            hint_json: serde_json::json!({
+                "dependency_task_id": finished.id,
+                "dependent_task_id": dependent.id,
+                "declared_status": DONE,
+            })
+            .to_string(),
+            created_at: now,
+        });
+    }
+    collab_notice_ops::insert_all(txn, &notices).await
+}
 
 /// Result of a compare-and-swap update guarded by a `version` column.
 #[derive(Debug, Clone, PartialEq)]
@@ -187,6 +248,9 @@ pub async fn update_cas(
     {
         if from != to {
             collab_metric_ops::record_task_status_change(&txn, task, from, now).await?;
+            if to == DONE {
+                dependency_finished_notices(&txn, task, now).await?;
+            }
         }
     }
     txn.commit().await.context("db: commit task update")?;

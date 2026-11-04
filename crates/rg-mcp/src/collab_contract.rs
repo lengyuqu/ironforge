@@ -551,6 +551,13 @@ pub const TOOL_ROUTES: &[ToolRoute] = &[
         &[],
         &[],
     ),
+    t(
+        "collab_get_diagnostics",
+        "GET",
+        "/diagnostics",
+        &["task_id", "session_id"],
+        &[],
+    ),
 ];
 
 /// The full REST path (relative to `/api/v1`) of a row, in router notation.

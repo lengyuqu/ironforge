@@ -171,6 +171,7 @@ AI Agent **必须**在阅读代码前先读取以下文件：
 | `collab_send_message` / `collab_list_messages` | 发消息（`note`/`help`/`blocker`，可 `target_session_id`、`reply_to_id`、`commit_sha`）/ 用 `after_seq` 持久轮询；`next_after_seq` 存好即可无遗漏续读 |
 | `collab_list_notices` / `collab_ack_notice` | 分页读取本会话的持久通知（`state` 默认 `pending`，可选 `all`；使用 `next_cursor` 续页）/ 幂等确认通知。通知仅是提示，行动前重读关联对象；确认不改变关联对象或消息回执 |
 | `collab_confirm_receipt` / `collab_get_delivery` | 指定目标会话确认读过消息（需要仓库写权限，重复确认保留原时间）/ 消息作者查看投递状态。`unknown` 表示没有确认，不等于未读；`replied` 不表示同意。回执与任务已读位置相互独立 |
+| `collab_get_diagnostics` | 只读诊断：传 `task_id` 或 `session_id`（二选一），解释任务/会话为何看似卡住。每条 finding 带来源与 `established`/`unknown`，`not_covered` 列出未检查项；诊断不是授权 |
 | `collab_mark_read` | 推进本会话已读位置（单调、不超过最新消息；传 0 读取当前值） |
 | `collab_create_handoff` / `collab_list_handoffs` | 向另一会话交接（所有字段是声明） |
 | `collab_accept_handoff` / `collab_cancel_handoff` | 仅被指定会话可接受、仅创建者可取消；只改变交接状态，**不会**改任务归属或发消息 |
