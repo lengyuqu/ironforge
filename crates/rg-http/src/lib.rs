@@ -1057,6 +1057,14 @@ fn build_routes(
             get(api::collab_work_packages::get_work_package),
         )
         .route(
+            "/collaboration/capabilities",
+            get(api::collab_capabilities::instance_capabilities),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/capabilities",
+            get(api::collab_capabilities::repo_capabilities),
+        )
+        .route(
             "/repos/{owner}/{name}/pipelines/{id}/jobs/{job_id}/play",
             post(api::ci::play_job),
         )

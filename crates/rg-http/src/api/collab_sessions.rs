@@ -10,10 +10,12 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use super::collab::{cursor_key, require_collab_write, session_creds, ListQuery, SessionCreds};
+use super::collab_json::CollabJson;
 use crate::error::AppError;
 use crate::AppState;
 
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CreateSessionRequest {
     /// Self-reported label, 1–80 characters. Duplicates are allowed.
     pub display_name: String,
@@ -83,7 +85,7 @@ pub async fn create_session(
     State(state): State<AppState>,
     Path((owner, name)): Path<(String, String)>,
     headers: HeaderMap,
-    Json(req): Json<CreateSessionRequest>,
+    CollabJson(req): CollabJson<CreateSessionRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     let (repo, user_id) = require_collab_write(&state, &headers, &owner, &name).await?;
     let created = svc::create(

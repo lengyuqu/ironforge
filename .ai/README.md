@@ -199,6 +199,14 @@ AI Agent **必须**在阅读代码前先读取以下文件：
 
 会话相关请求需**同时**带账号凭据（JWT/PAT，PAT 需 `repo` scope）和两个请求头：`X-Ironforge-Session`、`X-Ironforge-Session-Secret`。读取需要认证 + 仓库读权限（公开仓库也要登录）；写入需要仓库写权限；权限撤销在下一次协作请求即生效（绕过 30 秒权限缓存）。错误体复用 `{error: {code, message, request_id}}`，协作错误另有稳定 `code` 和可选 `details`（例如 `{"current_version": 3}`）。
 
+### 能力发现与契约版本
+
+* `GET /api/v1/collaboration/capabilities`（已登录即可，不含仓库信息）与 `GET /api/v1/repos/{owner}/{name}/collaboration/capabilities`（需协作读权限，另返回调用者的 `repo_write`）返回 `{contract_version, server_version, capabilities[{name,version,status,requires,mcp_tools}], limits, auth_modes, mcp_transport, deprecations}`。**只广告构建里实际存在的能力**；MCP 经 `tools/list` 发现工具，应用契约版本不是 MCP 协议版本。
+* 版本 `major.minor`：新增可选响应字段/能力/可选枚举值升 minor；删除字段、改变语义、新增必填请求字段升 major 或换端点。客户端同 major 且自身 minor ≤ 服务 minor 即兼容。
+* **读宽写严**：客户端忽略未知响应字段与未知的非关键枚举值；未知的、会改变授权或终态的值按 `unknown` fail closed（不要默认成功）。服务端**拒绝**写请求里的未知字段（400 `UNKNOWN_FIELD`，`details.field`）和未知安全关键枚举值（400 `UNKNOWN_ENUM_VALUE`，`details.allowed`）；非法体是 400 `INVALID_JSON` / `INVALID_REQUEST_BODY`，不再是 422。
+* 废弃策略（建议）：在 `capabilities::DEPRECATIONS` 追加 `{capability, what, replacement, announced, earliest_removal}`，`earliest_removal` 至少晚于 `announced` 90 天；窗口内旧行为保持并有回归测试，同时升 minor。
+* **新增能力/工具**：在 `rg-core/src/collaboration/capabilities.rs` 的 `REGISTRY` 末尾追加一个 `Capability`（路由 + MCP 工具名）；新增工具还需在 `rg-mcp/src/collab_contract.rs::TOOL_ROUTES` 加一行。`rg-http/tests/collab_contract_tests.rs` 会在路由 / OpenAPI / 注册表 / MCP 工具表任一不一致时给出可读的失败信息。详见 [agent-collaboration-contract-verification-2026-11.md](../ironforge-docs/architecture/agent-collaboration-contract-verification-2026-11.md)。
+
 ---
 
 ## 踩坑经验

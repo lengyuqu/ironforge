@@ -11,10 +11,13 @@ use utoipa::ToSchema;
 use super::collab::{
     acting_session, cursor_key, present_or_null, require_collab_read, require_collab_write,
 };
+use super::collab_json::{require_known, CollabJson};
+use rg_core::collaboration::compat::TaskStatus;
 use crate::error::AppError;
 use crate::AppState;
 
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CreateTaskRequest {
     /// 1–200 characters.
     pub title: String,
@@ -35,6 +38,7 @@ pub struct CreateTaskRequest {
 /// an explicit `null` clears `description`, `owner_session_id`, `branch`,
 /// `issue_number` or `pr_number`.
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct UpdateTaskRequest {
     pub expected_version: i64,
     pub title: Option<String>,
@@ -102,6 +106,7 @@ pub struct TaskListResponse {
 }
 
 #[derive(Debug, Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct TaskListQuery {
     /// Filter by status.
     pub status: Option<String>,
@@ -126,7 +131,7 @@ pub async fn create_task(
     State(state): State<AppState>,
     Path((owner, name)): Path<(String, String)>,
     headers: HeaderMap,
-    Json(req): Json<CreateTaskRequest>,
+    CollabJson(req): CollabJson<CreateTaskRequest>,
 ) -> Result<(StatusCode, Json<TaskResponse>), AppError> {
     let (repo, user_id) = require_collab_write(&state, &headers, &owner, &name).await?;
     let actor = acting_session(&state, &headers, repo.id, user_id).await?;
@@ -168,6 +173,7 @@ pub async fn list_tasks(
     headers: HeaderMap,
 ) -> Result<Json<TaskListResponse>, AppError> {
     let (repo, _user) = require_collab_read(&state, &headers, &owner, &name).await?;
+    require_known::<TaskStatus>("status", query.status.as_deref())?;
     let page = svc::list(
         &state.db,
         cursor_key(&state),
@@ -220,10 +226,11 @@ pub async fn update_task(
     State(state): State<AppState>,
     Path((owner, name, id)): Path<(String, String, String)>,
     headers: HeaderMap,
-    Json(req): Json<UpdateTaskRequest>,
+    CollabJson(req): CollabJson<UpdateTaskRequest>,
 ) -> Result<Json<TaskResponse>, AppError> {
     let (repo, user_id) = require_collab_write(&state, &headers, &owner, &name).await?;
     let _actor = acting_session(&state, &headers, repo.id, user_id).await?;
+    require_known::<TaskStatus>("status", req.status.as_deref())?;
     let task = svc::update(
         &state.db,
         repo.id,

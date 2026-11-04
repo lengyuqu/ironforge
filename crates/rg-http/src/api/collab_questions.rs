@@ -16,10 +16,13 @@ use super::collab::{
     cursor_key, ensure_commit, observed_branch_head, require_collab_read, require_collab_write,
     write_actor,
 };
+use super::collab_json::{require_known, CollabJson};
+use rg_core::collaboration::compat::{QuestionStatus, RecipientKind};
 use crate::error::AppError;
 use crate::AppState;
 
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct RecipientBody {
     /// `repo_writers`, `user` (id = user id) or `session` (id = session id).
     pub kind: String,
@@ -27,6 +30,7 @@ pub struct RecipientBody {
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ContextBody {
     /// Must equal the task's current version when given; defaults to it.
     pub task_version: Option<i64>,
@@ -36,6 +40,7 @@ pub struct ContextBody {
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CreateQuestionRequest {
     /// Idempotency key, unique per asking session or user.
     pub client_question_id: String,
@@ -52,6 +57,7 @@ pub struct CreateQuestionRequest {
 }
 
 #[derive(Debug, Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct QuestionListQuery {
     /// `open`, `answered` or `cancelled`.
     pub status: Option<String>,
@@ -60,6 +66,7 @@ pub struct QuestionListQuery {
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct AnswerRequest {
     pub client_answer_id: String,
     /// The question `version` the caller last saw.
@@ -74,6 +81,7 @@ pub struct AnswerRequest {
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CancelQuestionRequest {
     pub expected_version: i64,
 }
@@ -97,10 +105,11 @@ pub async fn create_question(
     State(state): State<AppState>,
     Path((owner, name, id)): Path<(String, String, String)>,
     headers: HeaderMap,
-    Json(req): Json<CreateQuestionRequest>,
+    CollabJson(req): CollabJson<CreateQuestionRequest>,
 ) -> Result<(StatusCode, Json<svc::QuestionView>), AppError> {
     let (repo, user_id) = require_collab_write(&state, &headers, &owner, &name).await?;
     let actor = write_actor(&state, &headers, repo.id, user_id).await?;
+    require_known::<RecipientKind>("recipient.kind", Some(&req.recipient.kind))?;
     let ctx = req.context.unwrap_or(ContextBody {
         task_version: None,
         base_sha: None,
@@ -152,6 +161,7 @@ pub async fn list_questions(
     headers: HeaderMap,
 ) -> Result<Json<collaboration::Page<svc::QuestionView>>, AppError> {
     let (repo, _user) = require_collab_read(&state, &headers, &owner, &name).await?;
+    require_known::<QuestionStatus>("status", query.status.as_deref())?;
     let page = svc::list(
         &state.db,
         cursor_key(&state),
@@ -220,7 +230,7 @@ pub async fn answer_question(
     State(state): State<AppState>,
     Path((owner, name, id)): Path<(String, String, String)>,
     headers: HeaderMap,
-    Json(req): Json<AnswerRequest>,
+    CollabJson(req): CollabJson<AnswerRequest>,
 ) -> Result<Json<svc::QuestionView>, AppError> {
     let (repo, user_id) = require_collab_write(&state, &headers, &owner, &name).await?;
     let actor = write_actor(&state, &headers, repo.id, user_id).await?;
@@ -261,7 +271,7 @@ pub async fn cancel_question(
     State(state): State<AppState>,
     Path((owner, name, id)): Path<(String, String, String)>,
     headers: HeaderMap,
-    Json(req): Json<CancelQuestionRequest>,
+    CollabJson(req): CollabJson<CancelQuestionRequest>,
 ) -> Result<Json<svc::QuestionView>, AppError> {
     let (repo, user_id) = require_collab_write(&state, &headers, &owner, &name).await?;
     let actor = write_actor(&state, &headers, repo.id, user_id).await?;

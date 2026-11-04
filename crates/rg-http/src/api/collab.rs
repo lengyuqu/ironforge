@@ -238,6 +238,7 @@ pub(crate) async fn require_collab_write(
 
 /// Query parameters shared by cursor-paginated list endpoints.
 #[derive(Debug, serde::Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct ListQuery {
     pub limit: Option<u64>,
     pub cursor: Option<String>,

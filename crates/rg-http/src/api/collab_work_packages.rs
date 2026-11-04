@@ -11,10 +11,12 @@ use utoipa::ToSchema;
 use super::collab::{
     cursor_key, ensure_commit, require_collab_read, require_collab_write, write_actor, ListQuery,
 };
+use super::collab_json::CollabJson;
 use crate::error::AppError;
 use crate::AppState;
 
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct EvidenceRefBody {
     /// `pipeline` (a pipeline id of this repository), `commit`, `url` or `note`.
     pub kind: String,
@@ -22,6 +24,7 @@ pub struct EvidenceRefBody {
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CreateWorkPackageRequest {
     /// Idempotency key, unique per author session or user.
     pub client_package_id: String,
@@ -65,7 +68,7 @@ pub async fn create_work_package(
     State(state): State<AppState>,
     Path((owner, name, id)): Path<(String, String, String)>,
     headers: HeaderMap,
-    Json(req): Json<CreateWorkPackageRequest>,
+    CollabJson(req): CollabJson<CreateWorkPackageRequest>,
 ) -> Result<(StatusCode, Json<svc::PackageView>), AppError> {
     let (repo, user_id) = require_collab_write(&state, &headers, &owner, &name).await?;
     let actor = write_actor(&state, &headers, repo.id, user_id).await?;

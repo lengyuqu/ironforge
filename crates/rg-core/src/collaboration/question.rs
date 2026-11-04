@@ -15,6 +15,7 @@ use sea_orm::{DatabaseConnection, Set};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use super::compat::{ContractEnum, Known, RecipientKind};
 use super::cursor::{self, KeysetPosition};
 use super::error::{CollabError, CollabResult};
 use super::message::normalize_commit_sha;
@@ -391,9 +392,13 @@ pub async fn list(
 /// Whether `actor` is inside the question's recipient scope. Repository write
 /// access of the account was already checked by the caller.
 pub fn may_answer(question: &collab_question::Model, actor: &Actor) -> bool {
-    match question.recipient_kind.as_str() {
-        RECIPIENT_REPO_WRITERS => true,
-        kind => question.recipient_id.as_deref() == Some(actor.id.as_str()) && kind == actor.kind,
+    // An unrecognized recipient kind (a row written by a newer build) fails closed.
+    match Known::<RecipientKind>::parse(&question.recipient_kind) {
+        Known::Known(RecipientKind::RepoWriters) => true,
+        Known::Known(kind) => {
+            question.recipient_id.as_deref() == Some(actor.id.as_str()) && kind.as_wire() == actor.kind
+        }
+        Known::Unknown(_) => false,
     }
 }
 

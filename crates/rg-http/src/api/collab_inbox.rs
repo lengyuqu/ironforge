@@ -12,6 +12,7 @@ use crate::error::AppError;
 use crate::AppState;
 
 #[derive(Debug, Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct InboxQuery {
     /// Only items that became relevant after this RFC 3339 time.
     pub since: Option<String>,
