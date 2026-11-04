@@ -10,6 +10,7 @@
 
 pub mod capabilities;
 pub mod budget;
+pub mod access;
 pub mod ci_evidence;
 pub mod compat;
 pub mod completion;
@@ -19,15 +20,20 @@ pub mod decision;
 pub mod declaration;
 pub mod error;
 pub mod group;
+pub mod delivery;
+pub mod diagnostics;
+pub mod escalation;
 pub mod handoff;
 pub mod health;
 pub mod inbox;
 pub mod message;
+pub mod notice;
 pub mod question;
 pub mod read;
 pub mod retention;
 pub mod rules;
 pub mod secret;
+pub mod search;
 pub mod session;
 pub mod takeover;
 pub mod task;

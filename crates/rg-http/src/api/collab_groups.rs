@@ -77,6 +77,7 @@ pub struct RemoveLinkRequest {
 }
 
 #[derive(Debug, Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct GroupQuery {
     /// Size of the embedded first page of links (default 50, max 100).
     pub limit: Option<u64>,
@@ -263,7 +264,7 @@ pub async fn create_group(
     State(state): State<AppState>,
     Path((owner, name)): Path<(String, String)>,
     headers: HeaderMap,
-    Json(req): Json<CreateGroupRequest>,
+    super::collab_json::CollabJson(req): super::collab_json::CollabJson<CreateGroupRequest>,
 ) -> Result<(StatusCode, Json<GroupResponse>), AppError> {
     let (repo, user_id) = require_collab_write(&state, &headers, &owner, &name).await?;
     let actor = write_actor(&state, &headers, repo.id, user_id).await?;
@@ -394,7 +395,7 @@ pub async fn add_group_link(
     State(state): State<AppState>,
     Path((owner, name, group_id)): Path<(String, String, String)>,
     headers: HeaderMap,
-    Json(req): Json<AddLinkRequest>,
+    super::collab_json::CollabJson(req): super::collab_json::CollabJson<AddLinkRequest>,
 ) -> Result<(StatusCode, Json<svc::LinkView>), AppError> {
     let (anchor, user_id) = require_collab_write(&state, &headers, &owner, &name).await?;
     let actor = write_actor(&state, &headers, anchor.id, user_id).await?;
@@ -484,7 +485,7 @@ pub async fn remove_group_link(
     State(state): State<AppState>,
     Path((owner, name, group_id, link_id)): Path<(String, String, String, String)>,
     headers: HeaderMap,
-    Json(req): Json<RemoveLinkRequest>,
+    super::collab_json::CollabJson(req): super::collab_json::CollabJson<RemoveLinkRequest>,
 ) -> Result<Json<svc::LinkView>, AppError> {
     let (anchor, user_id) = require_collab_write(&state, &headers, &owner, &name).await?;
     let actor: Actor = write_actor(&state, &headers, anchor.id, user_id).await?;

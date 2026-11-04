@@ -19,6 +19,7 @@ use crate::error::AppError;
 use crate::AppState;
 
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct SetBudgetRequest {
     /// The budget's `version` you last saw for this unit and source; 0 when
     /// none exists. A stale value is a `VERSION_CONFLICT`.
@@ -42,6 +43,7 @@ pub struct SetBudgetRequest {
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ReportUsageRequest {
     /// Idempotency key, unique per reporting session or user.
     pub client_usage_id: String,
@@ -56,6 +58,7 @@ pub struct ReportUsageRequest {
 }
 
 #[derive(Debug, Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct UsageListQuery {
     /// Exact unit filter.
     pub unit: Option<String>,
@@ -94,7 +97,7 @@ pub async fn set_budget(
     State(state): State<AppState>,
     Path((owner, name, id)): Path<(String, String, String)>,
     headers: HeaderMap,
-    Json(req): Json<SetBudgetRequest>,
+    super::collab_json::CollabJson(req): super::collab_json::CollabJson<SetBudgetRequest>,
 ) -> Result<(StatusCode, Json<svc::BudgetEntry>), AppError> {
     let (repo, user_id) = require_collab_write(&state, &headers, &owner, &name).await?;
     let actor = write_actor(&state, &headers, repo.id, user_id).await?;
@@ -158,7 +161,7 @@ pub async fn report_usage(
     State(state): State<AppState>,
     Path((owner, name, id)): Path<(String, String, String)>,
     headers: HeaderMap,
-    Json(req): Json<ReportUsageRequest>,
+    super::collab_json::CollabJson(req): super::collab_json::CollabJson<ReportUsageRequest>,
 ) -> Result<(StatusCode, Json<svc::UsageView>), AppError> {
     let (repo, user_id) = require_collab_write(&state, &headers, &owner, &name).await?;
     let actor = write_actor(&state, &headers, repo.id, user_id).await?;

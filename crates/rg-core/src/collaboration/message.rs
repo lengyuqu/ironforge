@@ -9,7 +9,7 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 use super::error::{CollabError, CollabResult};
-use super::{task, validation, ORIGIN_USER_CONTENT};
+use super::{notice, task, validation, ORIGIN_USER_CONTENT};
 
 pub const KINDS: [&str; 3] = ["note", "help", "blocker"];
 pub const MAX_BODY_BYTES: usize = 32 * 1024;
@@ -139,10 +139,34 @@ pub async fn send(
     }
 
     let hash = payload_hash(&input);
-    let outcome = collab_message_ops::append(
+    let message_id = uuid::Uuid::new_v4().to_string();
+    // A targeted message leaves a durable notice for its target, written in the
+    // message's own transaction (none when it is a replay).
+    let notices = match &input.target_session_id {
+        Some(target) => notice::prepare(
+            db,
+            repo_id,
+            &task.id,
+            target,
+            Some(&author.id),
+            notice::kind::MESSAGE_TARGETED,
+            notice::source::MESSAGE,
+            &message_id,
+            serde_json::json!({
+                "author_session_id": author.id,
+                "message_kind": input.kind,
+            }),
+            now,
+        )
+        .await?
+        .into_iter()
+        .collect(),
+        None => Vec::new(),
+    };
+    let outcome = collab_message_ops::append_with_notices(
         db,
         collab_message_ops::NewMessage {
-            id: uuid::Uuid::new_v4().to_string(),
+            id: message_id,
             repo_id,
             task_id: task.id,
             author_session_id: author.id.clone(),
@@ -155,6 +179,7 @@ pub async fn send(
             payload_hash: hash.clone(),
             created_at: now,
         },
+        &notices,
     )
     .await?
     .ok_or_else(|| CollabError::not_found("task not found"))?;

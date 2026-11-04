@@ -16,6 +16,7 @@ use crate::error::AppError;
 use crate::AppState;
 
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct PutDeclarationRequest {
     /// The `version` of the declaration you last saw; 0 when you have not
     /// declared yet. A stale value is a `VERSION_CONFLICT`. Re-sending the
@@ -37,6 +38,7 @@ pub struct PutDeclarationRequest {
 }
 
 #[derive(Debug, Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct StaleQuery {
     /// A declaration older than this is flagged `stale` (default 86400, clamped
     /// to 60..2592000).
@@ -44,6 +46,7 @@ pub struct StaleQuery {
 }
 
 #[derive(Debug, Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct DeclarationListQuery {
     pub stale_after_seconds: Option<i64>,
     pub limit: Option<u64>,
@@ -68,7 +71,7 @@ pub async fn put_declaration(
     Path((owner, name, id)): Path<(String, String, String)>,
     Query(query): Query<StaleQuery>,
     headers: HeaderMap,
-    Json(req): Json<PutDeclarationRequest>,
+    super::collab_json::CollabJson(req): super::collab_json::CollabJson<PutDeclarationRequest>,
 ) -> Result<(StatusCode, Json<svc::DeclarationView>), AppError> {
     let (repo, user_id) = require_collab_write(&state, &headers, &owner, &name).await?;
     let session = acting_session(&state, &headers, repo.id, user_id).await?;

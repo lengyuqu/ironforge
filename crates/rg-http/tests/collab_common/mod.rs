@@ -40,7 +40,9 @@ async fn test_database() -> (rg_db::DatabaseConnection, tempfile::TempDir) {
     static SETUP: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
     let _guard = SETUP.lock().await;
     std::env::set_var("IRONFORGE_ALLOW_LOCAL_OUTBOUND", "1");
-    let db = rg_db::connect_with_pool(&url, 20, 60, 16).await.expect("connect");
+    let db = rg_db::connect_with_pool(&url, 20, 60, 16)
+        .await
+        .expect("connect");
     rg_db::run_migrations(&db).await.expect("migrate");
     (db, tempfile::tempdir().unwrap())
 }
@@ -71,7 +73,11 @@ impl Env {
 
     /// Path of the bare repository `name` owned by the fixture owner.
     pub fn bare_path(&self, name: &str) -> std::path::PathBuf {
-        self.dir.path().join("repos").join(&self.owner).join(format!("{name}.git"))
+        self.dir
+            .path()
+            .join("repos")
+            .join(&self.owner)
+            .join(format!("{name}.git"))
     }
 
     /// Create a commit in the bare repository `name` and return its id. Goes
@@ -79,7 +85,9 @@ impl Env {
     /// `git` processes) and takes its identity from the environment, so it works
     /// on machines and CI with no git configuration.
     pub fn push_commit(&self, name: &str, message: &str) -> String {
-        let gateway = rg_git::cli_gateway::global_gateway().as_ref().expect("git gateway");
+        let gateway = rg_git::cli_gateway::global_gateway()
+            .as_ref()
+            .expect("git gateway");
         let env = [
             ("GIT_AUTHOR_NAME", "t"),
             ("GIT_AUTHOR_EMAIL", "t@example.invalid"),
@@ -93,12 +101,23 @@ impl Env {
             out.ensure_success().expect("git failed");
             out.stdout_str().trim().to_string()
         };
-        run(&["init", "-q", "--initial-branch=main", dir.to_str().unwrap()], None);
+        run(
+            &["init", "-q", "--initial-branch=main", dir.to_str().unwrap()],
+            None,
+        );
         std::fs::write(dir.join("f.txt"), message).unwrap();
         run(&["add", "f.txt"], Some(dir));
         run(&["commit", "-q", "-m", message], Some(dir));
         let sha = run(&["rev-parse", "HEAD"], Some(dir));
-        run(&["push", "-q", self.bare_path(name).to_str().unwrap(), "HEAD:refs/heads/main"], Some(dir));
+        run(
+            &[
+                "push",
+                "-q",
+                self.bare_path(name).to_str().unwrap(),
+                "HEAD:refs/heads/main",
+            ],
+            Some(dir),
+        );
         sha
     }
 
@@ -111,7 +130,9 @@ impl Env {
         files: &[(&str, &str)],
         symlinks: &[(&str, &str)],
     ) -> String {
-        let gateway = rg_git::cli_gateway::global_gateway().as_ref().expect("git gateway");
+        let gateway = rg_git::cli_gateway::global_gateway()
+            .as_ref()
+            .expect("git gateway");
         let env = [
             ("GIT_AUTHOR_NAME", "t"),
             ("GIT_AUTHOR_EMAIL", "t@example.invalid"),
@@ -125,7 +146,10 @@ impl Env {
             out.ensure_success().expect("git failed");
             out.stdout_str().trim().to_string()
         };
-        run(&["init", "-q", "--initial-branch=main", dir.to_str().unwrap()], None);
+        run(
+            &["init", "-q", "--initial-branch=main", dir.to_str().unwrap()],
+            None,
+        );
         for (path, content) in files {
             let target = dir.join(path);
             std::fs::create_dir_all(target.parent().unwrap()).unwrap();
@@ -141,15 +165,33 @@ impl Env {
         run(&["commit", "-q", "-m", "tree"], Some(dir));
         let sha = run(&["rev-parse", "HEAD"], Some(dir));
         let refspec = format!("+HEAD:refs/heads/{branch}");
-        run(&["push", "-q", self.bare_path(name).to_str().unwrap(), &refspec], Some(dir));
+        run(
+            &[
+                "push",
+                "-q",
+                self.bare_path(name).to_str().unwrap(),
+                &refspec,
+            ],
+            Some(dir),
+        );
         sha
     }
 
     /// Resolve `rev` (e.g. `<sha>^{tree}`) in the bare repository `name`.
     pub fn rev_parse(&self, name: &str, rev: &str) -> String {
-        let gateway = rg_git::cli_gateway::global_gateway().as_ref().expect("git gateway");
+        let gateway = rg_git::cli_gateway::global_gateway()
+            .as_ref()
+            .expect("git gateway");
         let out = gateway
-            .run(&["--git-dir", self.bare_path(name).to_str().unwrap(), "rev-parse", rev], None)
+            .run(
+                &[
+                    "--git-dir",
+                    self.bare_path(name).to_str().unwrap(),
+                    "rev-parse",
+                    rev,
+                ],
+                None,
+            )
             .expect("run git");
         out.ensure_success().expect("git rev-parse failed");
         out.stdout_str().trim().to_string()
@@ -245,7 +287,9 @@ impl Env {
             req = req.bearer_auth(token);
         }
         if let Some(session) = session {
-            req = req.header(HDR_SESSION, &session.id).header(HDR_SECRET, &session.secret);
+            req = req
+                .header(HDR_SESSION, &session.id)
+                .header(HDR_SECRET, &session.secret);
         }
         if let Some(body) = body {
             req = req.json(&body);
@@ -264,7 +308,11 @@ impl Env {
         let resp = self.send(method, url, Some(token), session, body).await;
         let status = resp.status().as_u16();
         let text = resp.text().await.unwrap();
-        let value = if text.is_empty() { Value::Null } else { serde_json::from_str(&text).unwrap_or(Value::String(text)) };
+        let value = if text.is_empty() {
+            Value::Null
+        } else {
+            serde_json::from_str(&text).unwrap_or(Value::String(text))
+        };
         (status, value)
     }
 

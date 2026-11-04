@@ -14,6 +14,7 @@ use crate::error::AppError;
 use crate::AppState;
 
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct AddDependencyBody {
     /// Client-chosen idempotency key, unique per acting session or user.
     pub client_request_id: String,
@@ -24,6 +25,7 @@ pub struct AddDependencyBody {
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct RemoveDependencyBody {
     pub client_request_id: String,
     pub expected_graph_version: i64,
@@ -68,7 +70,7 @@ pub async fn add_dependency(
     State(state): State<AppState>,
     Path((owner, name, id)): Path<(String, String, String)>,
     headers: HeaderMap,
-    Json(body): Json<AddDependencyBody>,
+    super::collab_json::CollabJson(body): super::collab_json::CollabJson<AddDependencyBody>,
 ) -> Result<(StatusCode, Json<svc::AddResult>), AppError> {
     let (repo, user_id) = require_collab_write(&state, &headers, &owner, &name).await?;
     let actor = write_actor(&state, &headers, repo.id, user_id).await?;
@@ -117,7 +119,7 @@ pub async fn remove_dependency(
     State(state): State<AppState>,
     Path((owner, name, id, depends_on_id)): Path<(String, String, String, String)>,
     headers: HeaderMap,
-    Json(body): Json<RemoveDependencyBody>,
+    super::collab_json::CollabJson(body): super::collab_json::CollabJson<RemoveDependencyBody>,
 ) -> Result<Json<svc::RemoveResult>, AppError> {
     let (repo, user_id) = require_collab_write(&state, &headers, &owner, &name).await?;
     // Authenticates the session when headers are present, like every write.

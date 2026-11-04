@@ -165,8 +165,9 @@ fn referenced_schemas(value: &Value, doc: &Value, seen: &mut BTreeSet<String>) {
 fn write_request_schemas_declare_that_unknown_fields_are_rejected() {
     let doc = openapi();
     let mut checked = 0;
+    let mut violations = Vec::new();
     for (method, path) in registry_operations() {
-        if !["POST", "PUT", "PATCH"].contains(&method.as_str()) {
+        if !["POST", "PUT", "PATCH", "DELETE"].contains(&method.as_str()) {
             continue;
         }
         let body = &doc["paths"][path.as_str()][method.to_lowercase()]["requestBody"];
@@ -175,17 +176,19 @@ fn write_request_schemas_declare_that_unknown_fields_are_rejected() {
         }
         let mut names = BTreeSet::new();
         referenced_schemas(body, &doc, &mut names);
-        assert!(!names.is_empty(), "{method} {path}: request body has no named schema");
+        if names.is_empty() {
+            violations.push(format!("{method} {path}: request body has no named schema"));
+            continue;
+        }
         for name in names {
-            assert_eq!(
-                doc["components"]["schemas"][name.as_str()]["additionalProperties"],
-                json!(false),
-                "{method} {path}: request schema `{name}` must be #[serde(deny_unknown_fields)]"
-            );
+            if doc["components"]["schemas"][name.as_str()]["additionalProperties"] != json!(false) {
+                violations.push(format!("{method} {path}: request schema `{name}` must be #[serde(deny_unknown_fields)]"));
+            }
             checked += 1;
         }
     }
     assert!(checked >= 10, "expected to inspect the write schemas, saw {checked}");
+    assert!(violations.is_empty(), "request schema violations:\n{}", violations.join("\n"));
 }
 
 #[test]
@@ -216,6 +219,7 @@ fn every_mcp_tool_is_owned_by_a_capability_and_maps_to_a_rest_operation() {
         .map(|(m, p)| (m, normalize(&p)))
         .collect();
 
+    let mut violations = Vec::new();
     for row in TOOL_ROUTES {
         let path = rest_path(row);
         let key = (row.method.to_string(), normalize(&path));
@@ -253,7 +257,9 @@ fn every_mcp_tool_is_owned_by_a_capability_and_maps_to_a_rest_operation() {
             })
             .unwrap_or_default();
         for q in row.query {
-            assert!(params.contains(*q), "{}: query parameter `{q}` is not in OpenAPI for {rest} (has {params:?})", row.tool);
+            if !params.contains(*q) {
+                violations.push(format!("{}: query parameter `{q}` is not in OpenAPI for {rest} (has {params:?})", row.tool));
+            }
         }
         if row.body.is_empty() {
             continue;
@@ -267,13 +273,12 @@ fn every_mcp_tool_is_owned_by_a_capability_and_maps_to_a_rest_operation() {
             .unwrap_or(top);
         let props = &doc["components"]["schemas"][top.as_str()]["properties"];
         for field in row.body {
-            assert!(
-                !props[*field].is_null(),
-                "{}: body property `{field}` is not in request schema `{top}` of {} {rest} — the server would answer UNKNOWN_FIELD",
-                row.tool, row.method
-            );
+            if props[*field].is_null() {
+                violations.push(format!("{}: body property `{field}` is not in request schema `{top}` of {} {rest}", row.tool, row.method));
+            }
         }
     }
+    assert!(violations.is_empty(), "MCP/OpenAPI violations:\n{}", violations.join("\n"));
 }
 
 // ─────────────────────────── discovery over HTTP ───────────────────────────
@@ -286,9 +291,13 @@ async fn probe_methods_allowed(env: &Env, method: &str, path: &str) -> String {
     let path = path
         .replace("{owner}", &env.owner)
         .replace("{name}", &env.repo)
-        .replace("{id}", if path.starts_with("/admin") { "1" } else { UUID });
+        .replace("{id}", if path.starts_with("/admin") { "1" } else { UUID })
+        .replace("{depends_on_id}", UUID)
+        .replace("{group_id}", UUID)
+        .replace("{link_id}", UUID)
+        .replace("{message_id}", UUID);
     let resp = reqwest::Client::new()
-        .delete(format!("{}/api/v1{path}", env.base))
+        .request(Method::TRACE, format!("{}/api/v1{path}", env.base))
         .bearer_auth(&env.owner_token)
         .send()
         .await
@@ -296,7 +305,7 @@ async fn probe_methods_allowed(env: &Env, method: &str, path: &str) -> String {
     assert_eq!(
         resp.status(),
         405,
-        "{method} {path} is advertised but the server has no route there (DELETE probe answered {})",
+        "{method} {path} is advertised but the server has no route there (TRACE probe answered {})",
         resp.status()
     );
     resp.headers().get("allow").map(|v| v.to_str().unwrap().to_string()).unwrap_or_default()
@@ -434,7 +443,7 @@ async fn m10_an_old_client_reads_responses_that_carry_newer_optional_fields() {
     // Capabilities: strict-minimum reader.
     let resp = env.send(Method::GET, &instance_url(&env), Some(&env.owner_token), None, None).await;
     let caps: OldClientCapabilities = resp.json().await.unwrap();
-    assert_eq!(caps.contract_version, "1.0");
+    assert_eq!(caps.contract_version, registry::contract_version());
     assert!(caps.capabilities.iter().any(|c| c.name == "tasks" && c.status == "stable"));
 
     // A response with fields the old client never heard of still parses.
@@ -623,6 +632,37 @@ async fn m10_unknown_write_fields_are_rejected_by_every_write_endpoint() {
         &env, Method::POST, &format!("/tasks/{tid}/work-packages"), None,
         json!({"client_package_id": "w1", "goal": "g"}),
     ).await;
+}
+
+#[tokio::test]
+async fn m10_new_write_schemas_reject_unknown_fields_over_http() {
+    let env = Env::new().await;
+    let session = env.session(&env.owner_token, "A").await;
+    let (_, task) = env.json(Method::POST, &env.url("/tasks"), &env.owner_token, Some(&session), Some(json!({"title": "t"}))).await;
+    let tid = task["id"].as_str().unwrap();
+    let template = json!({"client_template_id":"x", "name":"n", "title_pattern":"t", "goal":"g"});
+    for (method, path, body) in [
+        (Method::POST, format!("/tasks/{tid}/dependencies"), json!({"client_request_id":"x", "depends_on_task_id":UUID, "expected_graph_version":0})),
+        (Method::DELETE, format!("/tasks/{tid}/dependencies/{UUID}"), json!({"client_request_id":"x", "expected_graph_version":0})),
+        (Method::DELETE, format!("/groups/{UUID}/links/{UUID}"), json!({"client_request_id":"x", "expected_group_version":1})),
+        (Method::POST, format!("/tasks/{tid}/decisions"), json!({"client_decision_id":"x", "title":"t", "rationale":"r"})),
+        (Method::POST, "/templates".into(), template),
+        (Method::POST, format!("/templates/{UUID}/versions"), json!({"client_version_id":"x", "expected_version":1, "title_pattern":"t", "goal":"g"})),
+        (Method::PUT, format!("/sessions/{}/declaration", session.id), json!({"expected_version":0})),
+        (Method::PUT, format!("/tasks/{tid}/budgets"), json!({"expected_version":0,"unit":"USD","source":"invoice","amount":"1","sampling_period":"day"})),
+        (Method::POST, "/groups".into(), json!({"client_request_id":"x","title":"t"})),
+        (Method::PUT, "/escalation-settings".into(), json!({"expected_version":0,"enabled":false,"blocked_after_secs":3600,"question_after_secs":3600,"handoff_after_secs":3600,"repeat_after_secs":0})),
+    ] {
+        assert_unknown_field_rejected(&env, method, &path, Some(&session), body).await;
+    }
+    for (path, body) in [
+        ("/templates".to_string(), json!({"client_template_id":"x","name":"n","title_pattern":"t","goal":"g","checklist":[{"text":"t","unexpected":true}]})),
+        ("/escalation-settings".to_string(), json!({"expected_version":0,"enabled":false,"blocked_after_secs":3600,"question_after_secs":3600,"handoff_after_secs":3600,"repeat_after_secs":0,"quiet_hours":{"start_minute":10,"end_minute":20,"unexpected":true}})),
+    ] {
+        let method = if path == "/templates" { Method::POST } else { Method::PUT };
+        let (status, resp) = env.json(method, &env.url(&path), &env.owner_token, Some(&session), Some(body)).await;
+        assert_eq!((status, resp["error"]["code"].as_str(), resp["error"]["details"]["field"].as_str()), (400, Some("UNKNOWN_FIELD"), Some("unexpected")), "{path}: {resp}");
+    }
 }
 
 #[tokio::test]

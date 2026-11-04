@@ -63,6 +63,30 @@ pub const TOOL_ROUTES: &[ToolRoute] = &[
     t("collab_list_work_packages", "GET", "/tasks/{task_id}/work-packages", &["limit", "cursor"], &[]),
     t("collab_get_work_package", "GET", "/work-packages/{package_id}", &[], &[]),
     t("collab_get_completion_status", "GET", "/tasks/{task_id}/completion-status", &[], &[]),
+    t("collab_get_dependencies", "GET", "/tasks/{task_id}/dependencies", &[], &[]),
+    t("collab_add_dependency", "POST", "/tasks/{task_id}/dependencies", &[], &["client_request_id", "depends_on_task_id", "expected_graph_version"]),
+    t("collab_remove_dependency", "DELETE", "/tasks/{task_id}/dependencies/{depends_on_task_id}", &[], &["client_request_id", "expected_graph_version"]),
+    t("collab_create_decision", "POST", "/tasks/{task_id}/decisions", &[], &["client_decision_id", "title", "rationale", "question_id", "answer_id", "context"]),
+    t("collab_list_decisions", "GET", "/tasks/{task_id}/decisions", &["limit", "cursor"], &[]),
+    t("collab_get_decision", "GET", "/decisions/{decision_id}", &[], &[]),
+    t("collab_change_decision", "POST", "/decisions/{decision_id}/changes", &[], &["client_change_id", "kind", "replacement_decision_id", "reason"]),
+    t("collab_create_group", "POST", "/groups", &[], &["title", "description", "client_request_id"]),
+    t("collab_get_group", "GET", "/groups/{group_id}", &["limit"], &[]),
+    t("collab_add_group_link", "POST", "/groups/{group_id}/links", &[], &["client_request_id", "target_repo_id", "target_task_id", "commit_sha", "expected_group_version"]),
+    t("collab_list_group_links", "GET", "/groups/{group_id}/links", &["limit", "cursor"], &[]),
+    t("collab_remove_group_link", "DELETE", "/groups/{group_id}/links/{link_id}", &[], &["client_request_id", "expected_group_version"]),
+    t("collab_create_template", "POST", "/templates", &[], &["name", "title_pattern", "goal", "deliverables", "checklist", "client_template_id"]),
+    t("collab_create_template", "POST", "/templates/{template_id}/versions", &[], &["title_pattern", "goal", "deliverables", "checklist", "expected_version", "client_version_id"]),
+    t("collab_list_templates", "GET", "/templates", &["limit", "cursor"], &[]),
+    t("collab_get_template", "GET", "/templates/{template_id}", &["version"], &[]),
+    t("collab_task_from_template", "POST", "/tasks/from-template", &[], &["template_id", "version", "params", "notes", "owner_session_id", "branch", "paths", "rules_ref", "client_task_id"]),
+    t("collab_declare_capabilities", "PUT", "/sessions/{session_id}/declaration", &["stale_after_seconds"], &["expected_version", "tools", "can_run_tests", "network", "network_notes", "notes"]),
+    t("collab_get_declaration", "GET", "/sessions/{session_id}/declaration", &["stale_after_seconds"], &[]),
+    t("collab_get_declaration", "GET", "/declarations", &["stale_after_seconds", "limit", "cursor"], &[]),
+    t("collab_set_budget", "PUT", "/tasks/{task_id}/budgets", &[], &["expected_version", "unit", "source", "amount", "alert_at", "sampling_period"]),
+    t("collab_report_usage", "POST", "/tasks/{task_id}/usage", &[], &["client_usage_id", "unit", "source", "amount", "period_start", "period_end"]),
+    t("collab_get_budget", "GET", "/tasks/{task_id}/budget", &[], &[]),
+    t("collab_get_budget", "GET", "/tasks/{task_id}/usage", &["unit", "source", "limit", "cursor"], &[]),
 ];
 
 /// The full REST path (relative to `/api/v1`) of a row, in router notation.
@@ -83,6 +107,7 @@ mod tests {
         match key {
             k if k.ends_with("version") || k.ends_with("seq") || k.ends_with("number") => json!(1),
             "recipient" => json!({"kind": "repo_writers"}),
+            "target_repo_id" | "version" | "stale_after_seconds" => json!(1),
             _ => json!("x"),
         }
     }
@@ -102,9 +127,9 @@ mod tests {
 
     #[test]
     fn table_covers_exactly_the_advertised_tools() {
-        let table: Vec<_> = TOOL_ROUTES.iter().map(|r| r.tool).collect();
-        let names: Vec<_> = TOOL_NAMES.to_vec();
-        assert_eq!(table, names, "TOOL_ROUTES must list every TOOL_NAMES entry, in the same order");
+        let table: BTreeSet<_> = TOOL_ROUTES.iter().map(|r| r.tool).collect();
+        let names: BTreeSet<_> = TOOL_NAMES.iter().copied().collect();
+        assert_eq!(table, names, "TOOL_ROUTES must list exactly the TOOL_NAMES entries");
     }
 
     #[test]
@@ -114,9 +139,12 @@ mod tests {
             let mut args = Map::new();
             args.insert("owner".into(), json!("o"));
             args.insert("repo".into(), json!("r"));
-            for key in ["task_id", "handoff_id", "question_id", "package_id"] {
+            for key in ["task_id", "handoff_id", "question_id", "package_id", "decision_id", "group_id", "link_id", "depends_on_task_id"] {
                 args.insert(key.into(), json!(UUID));
             }
+            if row.path.contains("{template_id}") { args.insert("template_id".into(), json!(UUID)); }
+            if row.tool == "collab_get_declaration" && row.path.contains("{session_id}") { args.insert("session_id".into(), json!(UUID)); }
+            if row.tool == "collab_get_budget" && row.path.ends_with("/usage") { args.insert("list_usage".into(), json!(true)); }
             for key in row.query.iter().chain(row.body) {
                 args.insert((*key).into(), sample_value(key));
             }

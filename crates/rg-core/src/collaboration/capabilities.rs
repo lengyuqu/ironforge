@@ -28,7 +28,7 @@ use serde::Serialize;
 /// and new optional enum values bump the minor; removals, semantic changes and
 /// new required request fields need a new major (or a new endpoint).
 pub const CONTRACT_MAJOR: u32 = 1;
-pub const CONTRACT_MINOR: u32 = 0;
+pub const CONTRACT_MINOR: u32 = 1;
 
 pub fn contract_version() -> String {
     format!("{CONTRACT_MAJOR}.{CONTRACT_MINOR}")
@@ -193,6 +193,71 @@ pub const REGISTRY: &[Capability] = &[
         r("GET", "/repos/{owner}/{name}/collaboration/deletion-impact", RepoAdmin),
         r("GET", "/admin/users/{id}/collaboration-impact", SiteAdmin),
     ]},
+    Capability { name: "dependencies", version: "1.0", status: Stable,
+        mcp_tools: &["collab_get_dependencies", "collab_add_dependency", "collab_remove_dependency"], routes: &[
+        r("GET", "/repos/{owner}/{name}/collaboration/tasks/{id}/dependencies", CollabRead),
+        r("POST", "/repos/{owner}/{name}/collaboration/tasks/{id}/dependencies", RepoWrite),
+        r("DELETE", "/repos/{owner}/{name}/collaboration/tasks/{id}/dependencies/{depends_on_id}", RepoWrite),
+    ]},
+    Capability { name: "decisions", version: "1.0", status: Stable,
+        mcp_tools: &["collab_create_decision", "collab_list_decisions", "collab_get_decision", "collab_change_decision"], routes: &[
+        r("GET", "/repos/{owner}/{name}/collaboration/tasks/{id}/decisions", CollabRead),
+        r("POST", "/repos/{owner}/{name}/collaboration/tasks/{id}/decisions", RepoWrite),
+        r("GET", "/repos/{owner}/{name}/collaboration/decisions/{id}", CollabRead),
+        r("POST", "/repos/{owner}/{name}/collaboration/decisions/{id}/changes", RepoWrite),
+    ]},
+    Capability { name: "groups", version: "1.0", status: Stable,
+        mcp_tools: &["collab_create_group", "collab_get_group", "collab_add_group_link", "collab_list_group_links", "collab_remove_group_link"], routes: &[
+        r("POST", "/repos/{owner}/{name}/collaboration/groups", RepoWrite),
+        r("GET", "/repos/{owner}/{name}/collaboration/groups/{group_id}", CollabRead),
+        r("GET", "/repos/{owner}/{name}/collaboration/groups/{group_id}/links", CollabRead),
+        r("POST", "/repos/{owner}/{name}/collaboration/groups/{group_id}/links", RepoWrite),
+        r("DELETE", "/repos/{owner}/{name}/collaboration/groups/{group_id}/links/{link_id}", RepoWrite),
+    ]},
+    Capability { name: "health", version: "1.0", status: Stable,
+        mcp_tools: &[], routes: &[
+        r("GET", "/repos/{owner}/{name}/collaboration/health", RepoAdmin),
+        r("GET", "/repos/{owner}/{name}/collaboration/health/tasks", RepoAdmin),
+        r("POST", "/repos/{owner}/{name}/collaboration/health/baseline", RepoAdmin),
+    ]},
+    Capability { name: "templates", version: "1.0", status: Stable,
+        mcp_tools: &["collab_create_template", "collab_list_templates", "collab_get_template", "collab_task_from_template"], routes: &[
+        r("GET", "/repos/{owner}/{name}/collaboration/templates", CollabRead),
+        r("POST", "/repos/{owner}/{name}/collaboration/templates", RepoAdmin),
+        r("GET", "/repos/{owner}/{name}/collaboration/templates/{id}", CollabRead),
+        r("POST", "/repos/{owner}/{name}/collaboration/templates/{id}/versions", RepoAdmin),
+        r("POST", "/repos/{owner}/{name}/collaboration/tasks/from-template", RepoWriteSession),
+        r("GET", "/repos/{owner}/{name}/collaboration/tasks/{id}/template", CollabRead),
+    ]},
+    Capability { name: "declarations", version: "1.0", status: Stable,
+        mcp_tools: &["collab_declare_capabilities", "collab_get_declaration"], routes: &[
+        r("GET", "/repos/{owner}/{name}/collaboration/sessions/{id}/declaration", CollabRead),
+        r("PUT", "/repos/{owner}/{name}/collaboration/sessions/{id}/declaration", RepoWriteSession),
+        r("GET", "/repos/{owner}/{name}/collaboration/declarations", CollabRead),
+    ]},
+    Capability { name: "budgets", version: "1.0", status: Stable,
+        mcp_tools: &["collab_set_budget", "collab_report_usage", "collab_get_budget"], routes: &[
+        r("PUT", "/repos/{owner}/{name}/collaboration/tasks/{id}/budgets", RepoWrite),
+        r("GET", "/repos/{owner}/{name}/collaboration/tasks/{id}/budget", CollabRead),
+        r("GET", "/repos/{owner}/{name}/collaboration/tasks/{id}/usage", CollabRead),
+        r("POST", "/repos/{owner}/{name}/collaboration/tasks/{id}/usage", RepoWrite),
+    ]},
+    Capability { name: "notices", version: "1.0", status: Stable, mcp_tools: &[], routes: &[
+        r("GET", "/repos/{owner}/{name}/collaboration/notices", CollabReadSession),
+        r("POST", "/repos/{owner}/{name}/collaboration/notices/{id}/ack", CollabReadSession),
+        r("POST", "/repos/{owner}/{name}/collaboration/tasks/{id}/messages/{message_id}/read-receipt", RepoWriteSession),
+        r("GET", "/repos/{owner}/{name}/collaboration/tasks/{id}/messages/{message_id}/delivery", CollabReadSession),
+    ]},
+    Capability { name: "escalation_settings", version: "1.0", status: Stable, mcp_tools: &[], routes: &[
+        r("GET", "/repos/{owner}/{name}/collaboration/escalation-settings", CollabRead),
+        r("PUT", "/repos/{owner}/{name}/collaboration/escalation-settings", RepoAdmin),
+    ]},
+    Capability { name: "diagnostics", version: "1.0", status: Stable, mcp_tools: &[], routes: &[
+        r("GET", "/repos/{owner}/{name}/collaboration/diagnostics", CollabRead),
+    ]},
+    Capability { name: "search", version: "1.0", status: Stable, mcp_tools: &[], routes: &[
+        r("GET", "/repos/{owner}/{name}/collaboration/search", CollabRead),
+    ]},
     // ↑ append new capabilities above this line ↑
 ];
 
@@ -218,7 +283,6 @@ pub fn client_is_compatible(client: &str) -> bool {
         return false;
     };
     match (major.parse::<u32>(), minor.parse::<u32>()) {
-        #[allow(clippy::absurd_extreme_comparisons)] // CONTRACT_MINOR is 0 today and will grow
         (Ok(major), Ok(minor)) => major == CONTRACT_MAJOR && minor <= CONTRACT_MINOR,
         _ => false,
     }
@@ -293,7 +357,8 @@ mod tests {
     #[test]
     fn compatibility_rule_is_same_major_and_not_newer() {
         assert!(client_is_compatible("1.0"));
-        assert!(!client_is_compatible("1.1"));
+        assert!(client_is_compatible("1.1"));
+        assert!(!client_is_compatible("1.2"));
         assert!(!client_is_compatible("2.0"));
         assert!(!client_is_compatible("1"));
         assert!(!client_is_compatible("1.0.0"));

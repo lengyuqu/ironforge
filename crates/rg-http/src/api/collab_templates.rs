@@ -25,6 +25,7 @@ use crate::error::AppError;
 use crate::AppState;
 
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ChecklistItemBody {
     /// One line, at most 256 bytes.
     pub text: String,
@@ -37,7 +38,7 @@ fn default_true() -> bool {
     true
 }
 
-#[derive(Debug, Deserialize, ToSchema)]
+#[derive(Debug)]
 pub struct TemplateContentBody {
     /// Task title with `{name}` placeholders (A-Za-z0-9_, at most 32); at most
     /// 200 characters once rendered. Other braces are rejected.
@@ -45,11 +46,9 @@ pub struct TemplateContentBody {
     /// 1–2048 bytes.
     pub goal: String,
     /// At most 20 single-line entries.
-    #[serde(default)]
     pub deliverables: Vec<String>,
     /// Acceptance checklist, at most 30 entries. Text only: not tracked, not
     /// evidence.
-    #[serde(default)]
     pub checklist: Vec<ChecklistItemBody>,
 }
 
@@ -69,27 +68,38 @@ impl From<TemplateContentBody> for Content {
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CreateTemplateRequest {
     /// Idempotency key, unique per creating account.
     pub client_template_id: String,
     /// 1–100 characters, unique in the repository.
     pub name: String,
-    #[serde(flatten)]
-    pub content: TemplateContentBody,
+    pub title_pattern: String,
+    pub goal: String,
+    #[serde(default)]
+    pub deliverables: Vec<String>,
+    #[serde(default)]
+    pub checklist: Vec<ChecklistItemBody>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct NewTemplateVersionRequest {
     /// Idempotency key, unique per creating account.
     pub client_version_id: String,
     /// The template's `latest_version` the editor saw; a stale value is a
     /// `VERSION_CONFLICT`.
     pub expected_version: i64,
-    #[serde(flatten)]
-    pub content: TemplateContentBody,
+    pub title_pattern: String,
+    pub goal: String,
+    #[serde(default)]
+    pub deliverables: Vec<String>,
+    #[serde(default)]
+    pub checklist: Vec<ChecklistItemBody>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct FromTemplateRequest {
     /// Idempotency key, unique per creating session.
     pub client_task_id: String,
@@ -121,6 +131,7 @@ pub struct FromTemplateResponse {
 }
 
 #[derive(Debug, Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct TemplateVersionQuery {
     /// Version to read; default the latest.
     pub version: Option<i64>,
@@ -163,7 +174,7 @@ pub async fn create_template(
     State(state): State<AppState>,
     Path((owner, name)): Path<(String, String)>,
     headers: HeaderMap,
-    Json(req): Json<CreateTemplateRequest>,
+    super::collab_json::CollabJson(req): super::collab_json::CollabJson<CreateTemplateRequest>,
 ) -> Result<(StatusCode, Json<svc::TemplateView>), AppError> {
     let (repo, user_id) = require_template_admin(&state, &headers, &owner, &name).await?;
     let created = svc::create(
@@ -173,7 +184,12 @@ pub async fn create_template(
         svc::NewTemplate {
             client_template_id: req.client_template_id,
             name: req.name,
-            content: req.content.into(),
+            content: TemplateContentBody {
+                title_pattern: req.title_pattern,
+                goal: req.goal,
+                deliverables: req.deliverables,
+                checklist: req.checklist,
+            }.into(),
         },
         Utc::now(),
     )
@@ -201,7 +217,7 @@ pub async fn new_template_version(
     State(state): State<AppState>,
     Path((owner, name, id)): Path<(String, String, String)>,
     headers: HeaderMap,
-    Json(req): Json<NewTemplateVersionRequest>,
+    super::collab_json::CollabJson(req): super::collab_json::CollabJson<NewTemplateVersionRequest>,
 ) -> Result<(StatusCode, Json<svc::TemplateView>), AppError> {
     let (repo, user_id) = require_template_admin(&state, &headers, &owner, &name).await?;
     let created = svc::new_version(
@@ -212,7 +228,12 @@ pub async fn new_template_version(
         svc::NewVersion {
             client_version_id: req.client_version_id,
             expected_version: req.expected_version,
-            content: req.content.into(),
+            content: TemplateContentBody {
+                title_pattern: req.title_pattern,
+                goal: req.goal,
+                deliverables: req.deliverables,
+                checklist: req.checklist,
+            }.into(),
         },
         Utc::now(),
     )
@@ -289,7 +310,7 @@ pub async fn create_task_from_template(
     State(state): State<AppState>,
     Path((owner, name)): Path<(String, String)>,
     headers: HeaderMap,
-    Json(req): Json<FromTemplateRequest>,
+    super::collab_json::CollabJson(req): super::collab_json::CollabJson<FromTemplateRequest>,
 ) -> Result<(StatusCode, Json<FromTemplateResponse>), AppError> {
     let (repo, user_id) = require_collab_write(&state, &headers, &owner, &name).await?;
     let actor = acting_session(&state, &headers, repo.id, user_id).await?;

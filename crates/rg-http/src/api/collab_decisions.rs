@@ -22,6 +22,7 @@ use crate::error::AppError;
 use crate::AppState;
 
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct DecisionContextBody {
     /// Must equal the task's current version when given; defaults to it.
     pub task_version: Option<i64>,
@@ -31,6 +32,7 @@ pub struct DecisionContextBody {
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CreateDecisionRequest {
     /// Idempotency key, unique per writing session or user.
     pub client_decision_id: String,
@@ -47,6 +49,7 @@ pub struct CreateDecisionRequest {
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ChangeDecisionRequest {
     /// Idempotency key, unique per writing session or user.
     pub client_change_id: String,
@@ -101,7 +104,7 @@ pub async fn create_decision(
     State(state): State<AppState>,
     Path((owner, name, id)): Path<(String, String, String)>,
     headers: HeaderMap,
-    Json(req): Json<CreateDecisionRequest>,
+    super::collab_json::CollabJson(req): super::collab_json::CollabJson<CreateDecisionRequest>,
 ) -> Result<(StatusCode, Json<svc::DecisionView>), AppError> {
     let (repo, user_id) = require_collab_write(&state, &headers, &owner, &name).await?;
     let actor = write_actor(&state, &headers, repo.id, user_id).await?;
@@ -212,7 +215,7 @@ pub async fn change_decision(
     State(state): State<AppState>,
     Path((owner, name, id)): Path<(String, String, String)>,
     headers: HeaderMap,
-    Json(req): Json<ChangeDecisionRequest>,
+    super::collab_json::CollabJson(req): super::collab_json::CollabJson<ChangeDecisionRequest>,
 ) -> Result<(StatusCode, Json<svc::DecisionView>), AppError> {
     let (repo, user_id) = require_collab_write(&state, &headers, &owner, &name).await?;
     let actor = write_actor(&state, &headers, repo.id, user_id).await?;

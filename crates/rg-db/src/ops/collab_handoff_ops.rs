@@ -7,6 +7,7 @@ use sea_orm::*;
 
 use super::collab_metric_ops::{self, event_type};
 use super::collab_task_ops::CasOutcome;
+use super::collab_notice_ops::{self, NewNotice};
 use crate::entities::collab_handoff::{
     self, ActiveModel, Entity as HandoffEntity, Model as Handoff,
 };
@@ -35,6 +36,19 @@ pub async fn create_idempotent(
     from_session_id: &str,
     client_handoff_id: &str,
 ) -> Result<CreateOutcome> {
+    create_idempotent_with_notices(db, model, from_session_id, client_handoff_id, &[]).await
+}
+
+/// [`create_idempotent`] that also writes `notices` in the handoff's
+/// transaction (none for a replay). The insert is the transaction's first
+/// statement; the replay lookup runs before it (CLAUDE.md pitfall 21).
+pub async fn create_idempotent_with_notices(
+    db: &DatabaseConnection,
+    model: ActiveModel,
+    from_session_id: &str,
+    client_handoff_id: &str,
+    notices: &[NewNotice],
+) -> Result<CreateOutcome> {
     if let Some(existing) = find_by_client_id(db, from_session_id, client_handoff_id).await? {
         return Ok(CreateOutcome::Existing(existing));
     }
@@ -43,6 +57,7 @@ pub async fn create_idempotent(
         Ok(created) => {
             collab_metric_ops::record_handoff(&txn, &created, event_type::HANDOFF_CREATED, None, created.created_at)
                 .await?;
+            collab_notice_ops::insert_all(&txn, notices).await?;
             txn.commit().await.context("db: commit handoff create")?;
             Ok(created)
         }
@@ -55,6 +70,7 @@ pub async fn create_idempotent(
     match inserted {
         Ok(created) => Ok(CreateOutcome::Created(created)),
         Err(err) if matches!(err.sql_err(), Some(SqlErr::UniqueConstraintViolation(_))) => {
+            // The transaction was rolled back before reading the winner.
             let existing = find_by_client_id(db, from_session_id, client_handoff_id)
                 .await?
                 .context("db: handoff idempotency key vanished after conflict")?;

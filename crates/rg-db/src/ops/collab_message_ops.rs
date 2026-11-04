@@ -9,6 +9,7 @@ use crate::entities::collab_message::{
     self, ActiveModel, Entity as MessageEntity, Model as Message,
 };
 use crate::entities::collab_task;
+use super::collab_notice_ops::{self, NewNotice};
 
 /// Everything needed to append a message; the server assigns `id` and `seq`.
 #[derive(Debug, Clone)]
@@ -49,6 +50,16 @@ pub enum AppendOutcome {
 ///
 /// Returns `None` when the task does not exist in `repo_id`.
 pub async fn append(db: &DatabaseConnection, new: NewMessage) -> Result<Option<AppendOutcome>> {
+    append_with_notices(db, new, &[]).await
+}
+
+/// [`append`] that also writes `notices` in the message's transaction: they
+/// exist iff the message was created (a replayed send writes none).
+pub async fn append_with_notices(
+    db: &DatabaseConnection,
+    new: NewMessage,
+    notices: &[NewNotice],
+) -> Result<Option<AppendOutcome>> {
     let txn = db.begin().await.context("db: begin append message")?;
 
     let locked = collab_task::Entity::update_many()
@@ -102,6 +113,7 @@ pub async fn append(db: &DatabaseConnection, new: NewMessage) -> Result<Option<A
     .insert(&txn)
     .await
     .context("db: insert collab message")?;
+    collab_notice_ops::insert_all(&txn, notices).await?;
 
     txn.commit().await.context("db: commit append message")?;
     Ok(Some(AppendOutcome::Created(inserted)))
@@ -149,4 +161,22 @@ pub async fn list_after<C: ConnectionTrait>(
         .all(db)
         .await
         .context("db: list collab messages")
+}
+
+/// The earliest message of `task_id` that replies directly (`reply_to_id`) to
+/// `message_id` and was written by `author_session_id`.
+pub async fn first_reply_by<C: ConnectionTrait>(
+    db: &C,
+    task_id: &str,
+    message_id: &str,
+    author_session_id: &str,
+) -> Result<Option<Message>> {
+    MessageEntity::find()
+        .filter(collab_message::Column::TaskId.eq(task_id))
+        .filter(collab_message::Column::ReplyToId.eq(message_id))
+        .filter(collab_message::Column::AuthorSessionId.eq(author_session_id))
+        .order_by_asc(collab_message::Column::Seq)
+        .one(db)
+        .await
+        .context("db: find direct reply")
 }

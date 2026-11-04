@@ -50,6 +50,7 @@ pub async fn session_inbox(
     let (repo, user_id) = require_collab_read(&state, &headers, &owner, &name).await?;
     let since = parse_since(query.since.as_deref())?;
     let session = acting_session(&state, &headers, repo.id, user_id).await?;
+    super::collab_escalation::evaluate_lazily(&state, &repo, &session).await;
     let inbox = svc::for_session(
         &state.db,
         repo.id,

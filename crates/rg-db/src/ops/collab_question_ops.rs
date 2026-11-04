@@ -7,6 +7,7 @@ use sea_orm::*;
 
 use super::collab_metric_ops::{self, event_type};
 use super::collab_task_ops::CasOutcome;
+use super::collab_notice_ops::{self, NewNotice};
 use crate::entities::collab_answer::{self, Entity as AnswerEntity, Model as Answer};
 use crate::entities::collab_question::{
     self, ActiveModel, Entity as QuestionEntity, Model as Question,
@@ -57,6 +58,20 @@ pub async fn create_idempotent(
     creator_id: &str,
     client_question_id: &str,
 ) -> Result<CreateOutcome> {
+    create_idempotent_with_notices(db, model, creator_kind, creator_id, client_question_id, &[])
+        .await
+}
+
+/// [`create_idempotent`] that also writes `notices` in the question's
+/// transaction (none for a replay).
+pub async fn create_idempotent_with_notices(
+    db: &DatabaseConnection,
+    model: ActiveModel,
+    creator_kind: &str,
+    creator_id: &str,
+    client_question_id: &str,
+    notices: &[NewNotice],
+) -> Result<CreateOutcome> {
     if let Some(existing) =
         find_by_client_id(db, creator_kind, creator_id, client_question_id).await?
     {
@@ -67,6 +82,7 @@ pub async fn create_idempotent(
         Ok(created) => {
             collab_metric_ops::record_question(&txn, &created, event_type::QUESTION_OPENED, None, created.created_at)
                 .await?;
+            collab_notice_ops::insert_all(&txn, notices).await?;
             txn.commit().await.context("db: commit question create")?;
             Ok(created)
         }
@@ -195,6 +211,20 @@ pub async fn answer_cas(
     answer: collab_answer::ActiveModel,
     now: DateTime<Utc>,
 ) -> Result<AnswerOutcome> {
+    answer_cas_with_notices(db, repo_id, question_id, expected_version, answer, now, &[]).await
+}
+
+/// [`answer_cas`] that also writes `notices` in the answering transaction, so
+/// only the winner of an answer race emits them.
+pub async fn answer_cas_with_notices(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    question_id: &str,
+    expected_version: i64,
+    answer: collab_answer::ActiveModel,
+    now: DateTime<Utc>,
+    notices: &[NewNotice],
+) -> Result<AnswerOutcome> {
     let txn = db.begin().await.context("db: begin answer")?;
     let res = QuestionEntity::update_many()
         .col_expr(collab_question::Column::Status, Expr::value(status::ANSWERED))
@@ -222,6 +252,7 @@ pub async fn answer_cas(
     let answer = answer.insert(&txn).await.context("db: insert answer")?;
     collab_metric_ops::record_question(&txn, &current, event_type::QUESTION_ANSWERED, Some(status::OPEN), now)
         .await?;
+    collab_notice_ops::insert_all(&txn, notices).await?;
     txn.commit().await.context("db: commit answer")?;
     Ok(AnswerOutcome::Answered {
         question: current,
