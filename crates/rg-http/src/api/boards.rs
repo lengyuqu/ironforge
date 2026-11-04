@@ -295,8 +295,10 @@ pub async fn create_column(
         Err(e) => return e.into_response(),
     };
 
-    match rg_core::board::service::create_column(&state.db, repo.id, board_id, body.name, body.color)
-        .await
+    match rg_core::board::service::create_column(
+        &state.db, repo.id, board_id, body.name, body.color,
+    )
+    .await
     {
         Ok(column) => (StatusCode::CREATED, Json(serde_json::json!(column))).into_response(),
         Err(e) => AppError::from(e).into_response(),
@@ -537,8 +539,7 @@ pub async fn reorder_cards(
         Err(e) => return e.into_response(),
     };
 
-    match rg_core::board::service::reorder_cards(&state.db, repo.id, board_id, body.positions)
-        .await
+    match rg_core::board::service::reorder_cards(&state.db, repo.id, board_id, body.positions).await
     {
         Ok(()) => (StatusCode::OK, Json(serde_json::json!({"status": "ok"}))).into_response(),
         Err(e) => AppError::from(e).into_response(),

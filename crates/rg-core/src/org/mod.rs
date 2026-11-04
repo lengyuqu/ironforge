@@ -83,13 +83,19 @@ pub async fn update_org(
 }
 
 /// Delete an organization (only owner can do this).
-pub async fn delete_org(db: &DatabaseConnection, id: i64, requesting_user_id: i64) -> CoreResult<()> {
+pub async fn delete_org(
+    db: &DatabaseConnection,
+    id: i64,
+    requesting_user_id: i64,
+) -> CoreResult<()> {
     let org = org_ops::get_org(db, id)
         .await?
         .ok_or_else(|| CoreError::not_found("organization not found"))?;
 
     if org.owner_id != requesting_user_id {
-        return Err(CoreError::forbidden("only the organization owner can delete it"));
+        return Err(CoreError::forbidden(
+            "only the organization owner can delete it",
+        ));
     }
 
     Ok(org_ops::delete_org(db, id).await?)
@@ -180,7 +186,11 @@ pub async fn find_org_member(
 }
 
 /// Check if a user is a member of a team.
-pub async fn is_team_member(db: &DatabaseConnection, team_id: i64, user_id: i64) -> CoreResult<bool> {
+pub async fn is_team_member(
+    db: &DatabaseConnection,
+    team_id: i64,
+    user_id: i64,
+) -> CoreResult<bool> {
     Ok(org_ops::is_team_member(db, team_id, user_id).await?)
 }
 
@@ -318,15 +328,11 @@ pub async fn get_team(
     Ok(org_ops::get_team(db, id).await?)
 }
 
-
 /// List the repositories a team is explicitly mapped to.
 ///
 /// An empty list means the team is not restricted and keeps the historical
 /// org-wide access.
-pub async fn list_team_repositories(
-    db: &DatabaseConnection,
-    team_id: i64,
-) -> CoreResult<Vec<i64>> {
+pub async fn list_team_repositories(db: &DatabaseConnection, team_id: i64) -> CoreResult<Vec<i64>> {
     Ok(org_ops::list_team_repositories(db, team_id)
         .await?
         .into_iter()
@@ -466,7 +472,10 @@ mod tests {
     fn core_error_display_carries_semantics() {
         assert_eq!(CoreError::forbidden("x").to_string(), "forbidden: x");
         assert_eq!(CoreError::not_found("x").to_string(), "x");
-        assert_eq!(CoreError::invalid_input("x").to_string(), "invalid input: x");
+        assert_eq!(
+            CoreError::invalid_input("x").to_string(),
+            "invalid input: x"
+        );
         assert_eq!(CoreError::conflict("x").to_string(), "conflict: x");
     }
 }

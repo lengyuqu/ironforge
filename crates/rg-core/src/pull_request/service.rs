@@ -33,7 +33,9 @@ pub async fn create_pr(
         return Err(CoreError::InvalidInput("PR title cannot be empty".into()));
     }
     if head_branch == base_branch {
-        return Err(CoreError::InvalidInput("head and base branches cannot be the same".into()));
+        return Err(CoreError::InvalidInput(
+            "head and base branches cannot be the same".into(),
+        ));
     }
 
     // Milestone must exist and belong to the target repo (A4).
@@ -181,16 +183,17 @@ pub async fn resolve_head_ref(
 
     // Different namespace — this is a fork PR. Look for the fork there (a user's
     // personal repository, or an organization's), under the target's name.
-    let fork_repo = crate::repo::service::find_repo_by_owner_name(db, head_owner, &target_repo.name)
-        .await?
-        // The head named in the request body does not resolve: a client error,
-        // not an internal failure.
-        .ok_or_else(|| {
-            CoreError::invalid_input(format!(
-                "no repository '{}/{}' found for head owner",
-                head_owner, target_repo.name
-            ))
-        })?;
+    let fork_repo =
+        crate::repo::service::find_repo_by_owner_name(db, head_owner, &target_repo.name)
+            .await?
+            // The head named in the request body does not resolve: a client error,
+            // not an internal failure.
+            .ok_or_else(|| {
+                CoreError::invalid_input(format!(
+                    "no repository '{}/{}' found for head owner",
+                    head_owner, target_repo.name
+                ))
+            })?;
 
     // Verify it's actually a fork of the target
     if fork_repo.origin_repo_id != Some(target_repo_id) && fork_repo.id != target_repo_id {
@@ -503,17 +506,12 @@ pub async fn compute_diff(
                 rg_git::ops::copy_objects_from_source(&fetch_source, &fetch_tip, &fetch_dir)
             })
             .await
-            .map_err(|error| {
-                CoreError::internal(format!("fork fetch task failed: {error}"))
-            })?;
+            .map_err(|error| CoreError::internal(format!("fork fetch task failed: {error}")))?;
             match fetched_tip {
                 Ok(tip) => {
-                    if let Err(error) = rg_git::ops::update_ref(
-                        &base_repo_path,
-                        &local_ref,
-                        &tip,
-                        "fork fetch",
-                    ) {
+                    if let Err(error) =
+                        rg_git::ops::update_ref(&base_repo_path, &local_ref, &tip, "fork fetch")
+                    {
                         tracing::warn!("failed to update fork ref (non-fatal): {error}");
                     }
                 }
@@ -552,9 +550,8 @@ fn compute_same_repo_diff(repo_path: &std::path::Path, pr: &PullRequest) -> Core
     )?;
 
     // Unified diff patch via gix blob-diff（与 `git diff` 字节级对拍通过，见 gix_patch.rs）
-    let patch_bytes =
-        super::gix_patch::unified_patch(repo_path, &pr.base_branch, &pr.head_branch)
-            .map_err(CoreError::internal)?;
+    let patch_bytes = super::gix_patch::unified_patch(repo_path, &pr.base_branch, &pr.head_branch)
+        .map_err(CoreError::internal)?;
     let patch_text = String::from_utf8_lossy(&patch_bytes);
 
     let mut files = files_changed;
@@ -1202,15 +1199,12 @@ async fn merge_claimed_pr(
                 rg_git::ops::copy_objects_from_source(&fetch_source, &fetch_tip, &fetch_dir)
             })
             .await
-            .map_err(|error| {
-                CoreError::internal(format!("fork fetch task failed: {error}"))
-            })?;
+            .map_err(|error| CoreError::internal(format!("fork fetch task failed: {error}")))?;
             match fetched_tip {
                 Ok(tip) => {
-                    rg_git::ops::update_ref(&repo_path, &local_ref, &tip, "fork fetch")
-                        .map_err(|error| {
-                            CoreError::internal(format!("failed to update fork ref: {error}"))
-                        })?;
+                    rg_git::ops::update_ref(&repo_path, &local_ref, &tip, "fork fetch").map_err(
+                        |error| CoreError::internal(format!("failed to update fork ref: {error}")),
+                    )?;
                 }
                 Err(error) => {
                     return Err(CoreError::internal(format!(
@@ -1298,16 +1292,18 @@ fn merge_from_ref(
             );
             gix_squash_merge(repo_path, merge_ref, &squash_msg)
         }
-        MergeStrategy::Rebase => match rg_git::ops::rebase_merge(repo_path, &pr.base_branch, merge_ref) {
-            Ok(rg_git::ops::RebaseOutcome::Rebased(sha)) => Ok(sha),
-            Ok(rg_git::ops::RebaseOutcome::Conflict(message)) => {
-                Err(CoreError::conflict(format!("rebase merge failed: {message}")))
+        MergeStrategy::Rebase => {
+            match rg_git::ops::rebase_merge(repo_path, &pr.base_branch, merge_ref) {
+                Ok(rg_git::ops::RebaseOutcome::Rebased(sha)) => Ok(sha),
+                Ok(rg_git::ops::RebaseOutcome::Conflict(message)) => Err(CoreError::conflict(
+                    format!("rebase merge failed: {message}"),
+                )),
+                Ok(rg_git::ops::RebaseOutcome::BaseAdvanced) => Err(CoreError::Conflict(
+                    "base branch advanced while rebasing".to_string(),
+                )),
+                Err(error) => Err(CoreError::internal(format!("rebase merge failed: {error}"))),
             }
-            Ok(rg_git::ops::RebaseOutcome::BaseAdvanced) => Err(CoreError::Conflict(
-                "base branch advanced while rebasing".to_string(),
-            )),
-            Err(error) => Err(CoreError::internal(format!("rebase merge failed: {error}"))),
-        },
+        }
     }
 }
 
@@ -1361,7 +1357,9 @@ async fn update_pr_merged(
         }),
     )
     .await?;
-    txn.commit().await.context("db: commit PR merge transaction")?;
+    txn.commit()
+        .await
+        .context("db: commit PR merge transaction")?;
 
     // Trigger pull_request.merged webhook (outside the transaction on purpose)
     let merge_payload = serde_json::json!({
@@ -1400,9 +1398,9 @@ fn do_squash_merge(repo_path: &std::path::Path, pr: &PullRequest) -> CoreResult<
 fn do_rebase_merge(repo_path: &std::path::Path, pr: &PullRequest) -> CoreResult<String> {
     match rg_git::ops::rebase_merge(repo_path, &pr.base_branch, &pr.head_branch) {
         Ok(rg_git::ops::RebaseOutcome::Rebased(sha)) => Ok(sha),
-        Ok(rg_git::ops::RebaseOutcome::Conflict(message)) => {
-            Err(CoreError::conflict(format!("rebase merge failed: {message}")))
-        }
+        Ok(rg_git::ops::RebaseOutcome::Conflict(message)) => Err(CoreError::conflict(format!(
+            "rebase merge failed: {message}"
+        ))),
         Ok(rg_git::ops::RebaseOutcome::BaseAdvanced) => Err(CoreError::Conflict(
             "base branch advanced while rebasing".to_string(),
         )),
@@ -1444,7 +1442,12 @@ fn gix_set_head_to_branch_with_repo(repo: &gix::Repository, branch: &str) -> Cor
         name: head_name,
         deref: false,
     })
-    .map_err(|e| CoreError::internal(format!("failed to set HEAD to refs/heads/{}: {}", branch, e)))?;
+    .map_err(|e| {
+        CoreError::internal(format!(
+            "failed to set HEAD to refs/heads/{}: {}",
+            branch, e
+        ))
+    })?;
 
     Ok(())
 }
@@ -1571,7 +1574,11 @@ fn commit_as_server(
 
 /// Perform a `--no-ff` merge using gix merge_commits API.
 /// Creates a merge commit with two parents (current HEAD + `head_ref`).
-fn gix_merge_no_ff(repo_path: &std::path::Path, head_ref: &str, message: &str) -> CoreResult<String> {
+fn gix_merge_no_ff(
+    repo_path: &std::path::Path,
+    head_ref: &str,
+    message: &str,
+) -> CoreResult<String> {
     let repo = gix::open(repo_path)
         .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
 
@@ -1598,7 +1605,11 @@ fn gix_merge_no_ff(repo_path: &std::path::Path, head_ref: &str, message: &str) -
 }
 
 /// Perform a squash merge: merge commits, then create a single-parent commit.
-fn gix_squash_merge(repo_path: &std::path::Path, head_ref: &str, message: &str) -> CoreResult<String> {
+fn gix_squash_merge(
+    repo_path: &std::path::Path,
+    head_ref: &str,
+    message: &str,
+) -> CoreResult<String> {
     let repo = gix::open(repo_path)
         .with_context(|| format!("failed to open repository: {:?}", repo_path))?;
 

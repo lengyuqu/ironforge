@@ -890,8 +890,6 @@ pub async fn remove_team_member(
     }
 }
 
-
-
 /// Request body for replacing a team repository mapping.
 #[derive(Deserialize)]
 pub struct SetTeamRepositoriesRequest {
@@ -996,7 +994,11 @@ fn org_error(error: rg_core::error::CoreError) -> AppError {
 ///
 /// The team routes are nested under `/orgs/{name}/teams/{team_id}`; ignoring
 /// `name` would let a caller reach another org's team through the wrong path.
-async fn require_team_in_org(state: &AppState, org_name: &str, team_id: i64) -> Result<(), AppError> {
+async fn require_team_in_org(
+    state: &AppState,
+    org_name: &str,
+    team_id: i64,
+) -> Result<(), AppError> {
     let org = rg_core::org::get_org_by_name(&state.db, org_name)
         .await
         .map_err(AppError::from)?

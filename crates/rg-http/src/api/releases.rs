@@ -254,8 +254,9 @@ pub async fn get_release_by_tag(
 
     match rg_db::ops::release_ops::find_by_repo_and_tag(&state.db, repo.id, &tag).await {
         Ok(Some(release)) => (StatusCode::OK, Json(serde_json::json!(release))).into_response(),
-        Ok(None) => AppError::not_found(format!("release with tag '{tag}' not found"))
-            .into_response(),
+        Ok(None) => {
+            AppError::not_found(format!("release with tag '{tag}' not found")).into_response()
+        }
         Err(e) => {
             tracing::error!(%e, "handler error");
             AppError::from(e).into_response()

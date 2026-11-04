@@ -94,10 +94,7 @@ async fn test_list_boards() {
 
     let client = reqwest::Client::new();
     let resp = client
-        .get(format!(
-            "{}/api/v1/repos/{}/{}/boards",
-            base, owner, repo
-        ))
+        .get(format!("{}/api/v1/repos/{}/{}/boards", base, owner, repo))
         .send()
         .await
         .unwrap();
@@ -304,10 +301,7 @@ async fn test_delete_board() {
 
     // Board list should now be empty
     let boards: serde_json::Value = client
-        .get(format!(
-            "{}/api/v1/repos/{}/{}/boards",
-            base, owner, repo
-        ))
+        .get(format!("{}/api/v1/repos/{}/{}/boards", base, owner, repo))
         .send()
         .await
         .unwrap()

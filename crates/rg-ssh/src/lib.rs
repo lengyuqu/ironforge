@@ -617,7 +617,6 @@ impl Handler for SshHandler {
     }
 }
 
-
 fn tag_protection_rejected_refs(
     protections: Vec<rg_db::entities::protected_tag::Model>,
     actor_id: Option<i64>,

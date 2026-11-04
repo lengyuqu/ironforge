@@ -215,7 +215,10 @@ mod tests {
 
     async fn db_with_repo() -> (DatabaseConnection, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
-        let url = format!("sqlite://{}?mode=rwc", dir.path().join("labels.db").display());
+        let url = format!(
+            "sqlite://{}?mode=rwc",
+            dir.path().join("labels.db").display()
+        );
         let db = sea_orm::Database::connect(sea_orm::ConnectOptions::new(url))
             .await
             .unwrap();

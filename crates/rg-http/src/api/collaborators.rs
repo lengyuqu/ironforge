@@ -90,11 +90,10 @@ pub async fn add_collaborator(
     headers: HeaderMap,
     Json(req): Json<AddCollaboratorRequest>,
 ) -> impl IntoResponse {
-    let (_repo_model, _user_id) =
-        match require_write(&state, &headers, &owner, &repo).await {
-            Ok(r) => r,
-            Err(e) => return e.into_response(),
-        };
+    let (_repo_model, _user_id) = match require_write(&state, &headers, &owner, &repo).await {
+        Ok(r) => r,
+        Err(e) => return e.into_response(),
+    };
 
     let user_id = match resolve_collaborator_user_id(&state.db, &req).await {
         Ok(user_id) => user_id,
@@ -181,11 +180,10 @@ pub async fn update_permission(
     headers: HeaderMap,
     Json(req): Json<UpdatePermissionRequest>,
 ) -> impl IntoResponse {
-    let (_repo_model, _user_id) =
-        match require_write(&state, &headers, &owner, &repo).await {
-            Ok(r) => r,
-            Err(e) => return e.into_response(),
-        };
+    let (_repo_model, _user_id) = match require_write(&state, &headers, &owner, &repo).await {
+        Ok(r) => r,
+        Err(e) => return e.into_response(),
+    };
 
     match rg_core::collaborator::service::update_permission(
         &state.db,
@@ -224,11 +222,10 @@ pub async fn remove_collaborator(
     Path((owner, repo, user_id)): Path<(String, String, i64)>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    let (_repo_model, _user_id) =
-        match require_write(&state, &headers, &owner, &repo).await {
-            Ok(r) => r,
-            Err(e) => return e.into_response(),
-        };
+    let (_repo_model, _user_id) = match require_write(&state, &headers, &owner, &repo).await {
+        Ok(r) => r,
+        Err(e) => return e.into_response(),
+    };
 
     match rg_core::collaborator::service::remove_collaborator(&state.db, &owner, &repo, user_id)
         .await

@@ -349,7 +349,11 @@ async fn external_ci_webhook_requires_write_access() {
 
     // Anonymous callers cannot publish statuses.
     let anon = client.post(&url).json(&payload).send().await.unwrap();
-    assert_eq!(anon.status(), 401, "anonymous webhook call must be rejected");
+    assert_eq!(
+        anon.status(),
+        401,
+        "anonymous webhook call must be rejected"
+    );
 
     // A logged-in non-collaborator cannot either.
     let other = client

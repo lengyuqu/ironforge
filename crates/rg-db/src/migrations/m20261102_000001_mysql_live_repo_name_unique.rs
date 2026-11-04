@@ -124,9 +124,7 @@ impl MigrationTrait for Migration {
 /// Stop, listing them, if two live repositories already share a name in one
 /// namespace; creating the indexes would fail on them anyway, and a readable
 /// list is what the operator needs to resolve it.
-async fn reject_existing_duplicates(
-    connection: &impl ConnectionTrait,
-) -> Result<(), DbErr> {
+async fn reject_existing_duplicates(connection: &impl ConnectionTrait) -> Result<(), DbErr> {
     let mut problems = Vec::new();
     for (label, sql) in [
         (

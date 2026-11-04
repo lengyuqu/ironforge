@@ -111,7 +111,14 @@ fn assert_sanitised_500(res: &(StatusCode, Value, String)) {
     assert_eq!(*status, StatusCode::INTERNAL_SERVER_ERROR, "body: {text}");
     assert_eq!(json["error"]["message"], "Internal server error", "{text}");
     let lower = text.to_lowercase();
-    for needle in ["no such table", "sqlite", "select ", "insert ", "db:", "constraint"] {
+    for needle in [
+        "no such table",
+        "sqlite",
+        "select ",
+        "insert ",
+        "db:",
+        "constraint",
+    ] {
         assert!(!lower.contains(needle), "500 body leaks '{needle}': {text}");
     }
 }
@@ -259,7 +266,12 @@ async fn issue_endpoints_map_errors_to_honest_statuses() {
     );
     // 401: anonymous write
     assert_status(
-        &patch(w.url(&format!("/issues/{number}")), None, json!({"title": "t"})).await,
+        &patch(
+            w.url(&format!("/issues/{number}")),
+            None,
+            json!({"title": "t"}),
+        )
+        .await,
         StatusCode::UNAUTHORIZED,
     );
 }
@@ -269,12 +281,8 @@ async fn issue_cannot_reference_a_milestone_of_another_repository() {
     let w = world().await;
     let o = Some(w.owner_token.as_str());
     create_repo(&w.base, &w.owner_token, "second").await;
-    let (status, ms, text) = post(
-        w.url_in("second", "/milestones"),
-        o,
-        json!({"title": "v1"}),
-    )
-    .await;
+    let (status, ms, text) =
+        post(w.url_in("second", "/milestones"), o, json!({"title": "v1"})).await;
     assert_eq!(status, StatusCode::CREATED, "{text}");
     let ms_id = ms["id"].as_i64().unwrap();
 
@@ -348,7 +356,12 @@ async fn milestone_writes_map_errors_and_hide_internal_failures() {
         StatusCode::NOT_FOUND,
     );
     assert_status(
-        &post(w.url("/milestones"), Some(&w.other_token), json!({"title": "t"})).await,
+        &post(
+            w.url("/milestones"),
+            Some(&w.other_token),
+            json!({"title": "t"}),
+        )
+        .await,
         StatusCode::FORBIDDEN,
     );
     assert_status(
@@ -471,11 +484,21 @@ async fn label_endpoints_map_errors_to_honest_statuses() {
         StatusCode::BAD_REQUEST,
     );
     assert_status(
-        &post(w.url("/labels"), o, json!({"name": " ", "color": "#ffffff"})).await,
+        &post(
+            w.url("/labels"),
+            o,
+            json!({"name": " ", "color": "#ffffff"}),
+        )
+        .await,
         StatusCode::BAD_REQUEST,
     );
     assert_status(
-        &patch(w.url(&format!("/labels/{bug_id}")), o, json!({"color": "nope"})).await,
+        &patch(
+            w.url(&format!("/labels/{bug_id}")),
+            o,
+            json!({"color": "nope"}),
+        )
+        .await,
         StatusCode::BAD_REQUEST,
     );
 
@@ -509,20 +532,25 @@ async fn label_endpoints_map_errors_to_honest_statuses() {
     );
 
     // 404: used to be 400 (update) / 204 (delete)
-    assert_status(
-        &get(w.url("/labels/9999"), o).await,
-        StatusCode::NOT_FOUND,
-    );
+    assert_status(&get(w.url("/labels/9999"), o).await, StatusCode::NOT_FOUND);
     assert_status(
         &patch(w.url("/labels/9999"), o, json!({"name": "z"})).await,
         StatusCode::NOT_FOUND,
     );
-    assert_status(&delete(w.url("/labels/9999"), o).await, StatusCode::NOT_FOUND);
+    assert_status(
+        &delete(w.url("/labels/9999"), o).await,
+        StatusCode::NOT_FOUND,
+    );
 
     // 403 / 401
     let other = Some(w.other_token.as_str());
     assert_status(
-        &post(w.url("/labels"), other, json!({"name": "q", "color": "#000000"})).await,
+        &post(
+            w.url("/labels"),
+            other,
+            json!({"name": "q", "color": "#000000"}),
+        )
+        .await,
         StatusCode::FORBIDDEN,
     );
     assert_status(
@@ -557,7 +585,12 @@ async fn label_id_from_another_repository_is_not_found() {
 
     // Addressed through the wrong repository the label does not exist ...
     assert_status(
-        &patch(w.url(&format!("/labels/{id}")), o, json!({"name": "hijacked"})).await,
+        &patch(
+            w.url(&format!("/labels/{id}")),
+            o,
+            json!({"name": "hijacked"}),
+        )
+        .await,
         StatusCode::NOT_FOUND,
     );
     assert_status(
@@ -577,7 +610,12 @@ async fn label_database_failure_is_a_sanitised_500() {
     w.drop_table("labels").await;
     // used to be 400
     assert_sanitised_500(
-        &post(w.url("/labels"), o, json!({"name": "bug", "color": "#ff0000"})).await,
+        &post(
+            w.url("/labels"),
+            o,
+            json!({"name": "bug", "color": "#ff0000"}),
+        )
+        .await,
     );
     assert_sanitised_500(&get(w.url("/labels"), o).await);
 }
@@ -603,10 +641,18 @@ async fn time_tracking_maps_errors_to_honest_statuses() {
     );
     // 404
     assert_status(
-        &post(w.url("/issues/9999/time"), o, json!({"duration_minutes": 5})).await,
+        &post(
+            w.url("/issues/9999/time"),
+            o,
+            json!({"duration_minutes": 5}),
+        )
+        .await,
         StatusCode::NOT_FOUND,
     );
-    assert_status(&get(w.url("/issues/9999/time"), o).await, StatusCode::NOT_FOUND);
+    assert_status(
+        &get(w.url("/issues/9999/time"), o).await,
+        StatusCode::NOT_FOUND,
+    );
     // 403
     assert_status(
         &post(
@@ -700,7 +746,12 @@ async fn board_endpoints_map_errors_to_honest_statuses() {
         StatusCode::BAD_REQUEST,
     );
     assert_status(
-        &post(w.url(&format!("/boards/{board}/columns")), o, json!({"name": ""})).await,
+        &post(
+            w.url(&format!("/boards/{board}/columns")),
+            o,
+            json!({"name": ""}),
+        )
+        .await,
         StatusCode::BAD_REQUEST,
     );
     assert_status(
@@ -714,7 +765,10 @@ async fn board_endpoints_map_errors_to_honest_statuses() {
         &patch(w.url("/boards/9999"), o, json!({"name": "x"})).await,
         StatusCode::NOT_FOUND,
     );
-    assert_status(&delete(w.url("/boards/9999"), o).await, StatusCode::NOT_FOUND);
+    assert_status(
+        &delete(w.url("/boards/9999"), o).await,
+        StatusCode::NOT_FOUND,
+    );
     assert_status(
         &post(w.url("/boards/9999/columns"), o, json!({"name": "x"})).await,
         StatusCode::NOT_FOUND,
@@ -846,7 +900,8 @@ async fn board_ids_from_another_repository_are_not_found_and_untouched() {
 
     // Mallory has write access to "mine" only.
     let (mboard, mcols) = {
-        let (status, board, text) = post(murl("/boards"), Some(&mtoken), json!({"name": "m"})).await;
+        let (status, board, text) =
+            post(murl("/boards"), Some(&mtoken), json!({"name": "m"})).await;
         assert_eq!(status, StatusCode::CREATED, "{text}");
         let id = board["id"].as_i64().unwrap();
         let (_, full, _) = get(murl(&format!("/boards/{id}")), Some(&mtoken)).await;
@@ -861,12 +916,23 @@ async fn board_ids_from_another_repository_are_not_found_and_untouched() {
     let m = Some(mtoken.as_str());
 
     // Victim board addressed through Mallory's repository.
-    assert_status(&get(murl(&format!("/boards/{vboard}")), m).await, StatusCode::NOT_FOUND);
     assert_status(
-        &patch(murl(&format!("/boards/{vboard}")), m, json!({"name": "pwned"})).await,
+        &get(murl(&format!("/boards/{vboard}")), m).await,
         StatusCode::NOT_FOUND,
     );
-    assert_status(&delete(murl(&format!("/boards/{vboard}")), m).await, StatusCode::NOT_FOUND);
+    assert_status(
+        &patch(
+            murl(&format!("/boards/{vboard}")),
+            m,
+            json!({"name": "pwned"}),
+        )
+        .await,
+        StatusCode::NOT_FOUND,
+    );
+    assert_status(
+        &delete(murl(&format!("/boards/{vboard}")), m).await,
+        StatusCode::NOT_FOUND,
+    );
     assert_status(
         &patch(
             murl(&format!("/boards/{vboard}/columns/{}", vcols[0])),
@@ -958,7 +1024,8 @@ async fn board_card_cannot_link_an_issue_of_another_repository() {
     let w = world().await;
     let o = Some(w.owner_token.as_str());
     create_repo(&w.base, &w.owner_token, "second").await;
-    let (issue_id, _) = create_issue(&w.base, &w.owner_token, &w.owner, "second", "elsewhere").await;
+    let (issue_id, _) =
+        create_issue(&w.base, &w.owner_token, &w.owner, "second", "elsewhere").await;
     let (own_issue, _) = create_issue(&w.base, &w.owner_token, &w.owner, &w.repo, "here").await;
     let (board, cols) = new_board(&w, &w.repo, &w.owner_token).await;
 
@@ -1027,7 +1094,12 @@ async fn attachment_endpoints_map_errors_to_honest_statuses() {
 
     // 400: empty file, disallowed type, missing field
     assert_status(
-        &upload(assets.clone(), &w.owner_token, upload_form("empty.txt", b"")).await,
+        &upload(
+            assets.clone(),
+            &w.owner_token,
+            upload_form("empty.txt", b""),
+        )
+        .await,
         StatusCode::BAD_REQUEST,
     );
     assert_status(
@@ -1053,8 +1125,14 @@ async fn attachment_endpoints_map_errors_to_honest_statuses() {
         .await,
         StatusCode::NOT_FOUND,
     );
-    assert_status(&get(format!("{assets}/9999"), o).await, StatusCode::NOT_FOUND);
-    assert_status(&delete(format!("{assets}/9999"), o).await, StatusCode::NOT_FOUND);
+    assert_status(
+        &get(format!("{assets}/9999"), o).await,
+        StatusCode::NOT_FOUND,
+    );
+    assert_status(
+        &delete(format!("{assets}/9999"), o).await,
+        StatusCode::NOT_FOUND,
+    );
     // 403: reader who is neither the issue author nor a writer
     assert_status(
         &upload(assets.clone(), &w.other_token, upload_form("a.txt", b"x")).await,

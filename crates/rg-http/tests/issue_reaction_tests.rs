@@ -14,14 +14,23 @@ async fn issue_reactions_round_trip_uniqueness_and_aggregation() {
     let client = reqwest::Client::new();
 
     let _repo_id = create_repo(&base, &owner_token, "react-repo").await;
-    let (_issue_id, number) = create_issue(&base, &owner_token, "react_owner", "react-repo", "bug")
-        .await;
-    let reactions_url = format!("{base}/api/v1/repos/react_owner/react-repo/issues/{number}/reactions");
+    let (_issue_id, number) =
+        create_issue(&base, &owner_token, "react_owner", "react-repo", "bug").await;
+    let reactions_url =
+        format!("{base}/api/v1/repos/react_owner/react-repo/issues/{number}/reactions");
 
     // Anonymous can read reactions on a public repo.
     let anon_list = client.get(&reactions_url).send().await.unwrap();
     assert_eq!(anon_list.status(), 200);
-    assert_eq!(anon_list.json::<serde_json::Value>().await.unwrap().as_array().map(Vec::len), Some(0));
+    assert_eq!(
+        anon_list
+            .json::<serde_json::Value>()
+            .await
+            .unwrap()
+            .as_array()
+            .map(Vec::len),
+        Some(0)
+    );
 
     // Anonymous cannot react.
     let anon_react = client
@@ -82,12 +91,11 @@ async fn issue_reactions_round_trip_uniqueness_and_aggregation() {
         .unwrap();
     assert_eq!(plus_one["count"], 2);
     assert_eq!(plus_one["reacted_by_me"], true);
-    assert!(
-        body.as_array()
-            .unwrap()
-            .iter()
-            .any(|s| s["content"] == "heart" && s["count"] == 1)
-    );
+    assert!(body
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|s| s["content"] == "heart" && s["count"] == 1));
 
     // Stranger viewer sees reacted_by_me only for their own +1.
     let stranger_view = client
@@ -146,7 +154,9 @@ async fn issue_reactions_round_trip_uniqueness_and_aggregation() {
 
     // Unknown issue returns 404.
     let missing = client
-        .get(format!("{base}/api/v1/repos/react_owner/react-repo/issues/999/reactions"))
+        .get(format!(
+            "{base}/api/v1/repos/react_owner/react-repo/issues/999/reactions"
+        ))
         .send()
         .await
         .unwrap();
@@ -163,8 +173,8 @@ async fn comment_reactions_round_trip_and_cleanup() {
     let client = reqwest::Client::new();
 
     let _repo_id = create_repo(&base, &owner_token, "creact-repo").await;
-    let (_issue_id, number) = create_issue(&base, &owner_token, "creact_owner", "creact-repo", "bug")
-        .await;
+    let (_issue_id, number) =
+        create_issue(&base, &owner_token, "creact_owner", "creact-repo", "bug").await;
 
     let comment = client
         .post(format!(
@@ -210,21 +220,29 @@ async fn comment_reactions_round_trip_and_cleanup() {
 
     // Unknown comment returns 404.
     let missing = client
-        .get(format!("{base}/api/v1/repos/creact_owner/creact-repo/issues/comments/999999/reactions"))
+        .get(format!(
+            "{base}/api/v1/repos/creact_owner/creact-repo/issues/comments/999999/reactions"
+        ))
         .send()
         .await
         .unwrap();
     assert_eq!(missing.status(), 404);
 
     // Deleting the comment also removes its reactions (transactional cleanup).
-    rg_core::issue::delete_comment(&db, comment_id).await.unwrap();
+    rg_core::issue::delete_comment(&db, comment_id)
+        .await
+        .unwrap();
     use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
     let rows = rg_db::entities::reactions::Entity::find()
         .filter(rg_db::entities::reactions::Column::CommentId.eq(comment_id))
         .all(&db)
         .await
         .unwrap();
-    assert_eq!(rows.len(), 0, "comment reactions must be deleted with the comment");
+    assert_eq!(
+        rows.len(),
+        0,
+        "comment reactions must be deleted with the comment"
+    );
 }
 
 #[tokio::test]
@@ -244,18 +262,28 @@ async fn private_repo_reactions_require_read_access() {
         .await
         .unwrap();
     assert_eq!(resp.status(), 201);
-    let (_issue_id, number) =
-        create_issue(&base, &owner_token, "priv_react_owner", "priv-react-repo", "secret").await;
-    let url = format!(
-        "{base}/api/v1/repos/priv_react_owner/priv-react-repo/issues/{number}/reactions"
-    );
+    let (_issue_id, number) = create_issue(
+        &base,
+        &owner_token,
+        "priv_react_owner",
+        "priv-react-repo",
+        "secret",
+    )
+    .await;
+    let url =
+        format!("{base}/api/v1/repos/priv_react_owner/priv-react-repo/issues/{number}/reactions");
 
     // Anonymous listing a private repo requires authentication.
     let anon = client.get(&url).send().await.unwrap();
     assert_eq!(anon.status(), 401);
 
     // Authenticated stranger without access is forbidden.
-    let stranger = client.get(&url).bearer_auth(&stranger_token).send().await.unwrap();
+    let stranger = client
+        .get(&url)
+        .bearer_auth(&stranger_token)
+        .send()
+        .await
+        .unwrap();
     assert_eq!(stranger.status(), 403);
 
     // Stranger cannot react either.
@@ -282,15 +310,29 @@ async fn private_repo_reactions_require_read_access() {
 #[tokio::test]
 async fn reactions_notify_author_but_not_the_reactor() {
     let (base, db) = spawn_test_app_with_db().await;
-    let (owner_token, owner_id) =
-        register_full(&base, "notify_react_owner", "notify_react_owner@example.com").await;
-    let (stranger_token, stranger_id) =
-        register_full(&base, "notify_react_other", "notify_react_other@example.com").await;
+    let (owner_token, owner_id) = register_full(
+        &base,
+        "notify_react_owner",
+        "notify_react_owner@example.com",
+    )
+    .await;
+    let (stranger_token, stranger_id) = register_full(
+        &base,
+        "notify_react_other",
+        "notify_react_other@example.com",
+    )
+    .await;
     let client = reqwest::Client::new();
 
     let _repo_id = create_repo(&base, &owner_token, "notify-react-repo").await;
-    let (_issue_id, number) =
-        create_issue(&base, &owner_token, "notify_react_owner", "notify-react-repo", "bug").await;
+    let (_issue_id, number) = create_issue(
+        &base,
+        &owner_token,
+        "notify_react_owner",
+        "notify-react-repo",
+        "bug",
+    )
+    .await;
     let url = format!(
         "{base}/api/v1/repos/notify_react_owner/notify-react-repo/issues/{number}/reactions"
     );
@@ -305,11 +347,10 @@ async fn reactions_notify_author_but_not_the_reactor() {
         .unwrap();
     assert_eq!(react.status(), 201);
 
-    let owner_notifications = rg_db::ops::notification_ops::list_notifications(
-        &db, owner_id, false,
-    )
-    .await
-    .unwrap();
+    let owner_notifications =
+        rg_db::ops::notification_ops::list_notifications(&db, owner_id, false)
+            .await
+            .unwrap();
     assert!(
         owner_notifications
             .iter()
@@ -317,11 +358,10 @@ async fn reactions_notify_author_but_not_the_reactor() {
         "issue author must be notified about the reaction"
     );
 
-    let stranger_notifications = rg_db::ops::notification_ops::list_notifications(
-        &db, stranger_id, false,
-    )
-    .await
-    .unwrap();
+    let stranger_notifications =
+        rg_db::ops::notification_ops::list_notifications(&db, stranger_id, false)
+            .await
+            .unwrap();
     assert!(
         !stranger_notifications
             .iter()
@@ -338,11 +378,10 @@ async fn reactions_notify_author_but_not_the_reactor() {
         .await
         .unwrap();
     assert_eq!(self_react.status(), 201);
-    let owner_notifications = rg_db::ops::notification_ops::list_notifications(
-        &db, owner_id, false,
-    )
-    .await
-    .unwrap();
+    let owner_notifications =
+        rg_db::ops::notification_ops::list_notifications(&db, owner_id, false)
+            .await
+            .unwrap();
     assert_eq!(
         owner_notifications
             .iter()

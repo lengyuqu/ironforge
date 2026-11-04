@@ -105,27 +105,21 @@ async fn websocket_connections_are_counted() {
 
     // Seed a pipeline → stage → job so the job-log socket has something to
     // attach to.
-    let pipeline =
-        rg_db::ops::pipeline_ops::create_pipeline(&db, repo_id, "deadbeef", "main", "push", Some(user_id))
-            .await
-            .expect("pipeline");
+    let pipeline = rg_db::ops::pipeline_ops::create_pipeline(
+        &db,
+        repo_id,
+        "deadbeef",
+        "main",
+        "push",
+        Some(user_id),
+    )
+    .await
+    .expect("pipeline");
     let stage = rg_db::ops::pipeline_ops::create_stage(&db, pipeline.id, "build", 1)
         .await
         .expect("stage");
     let job = rg_db::ops::pipeline_ops::create_job(
-        &db,
-        stage.id,
-        "build",
-        "echo hi",
-        None,
-        None,
-        None,
-        None,
-        None,
-        false,
-        None,
-        None,
-        None,
+        &db, stage.id, "build", "echo hi", None, None, None, None, None, false, None, None, None,
     )
     .await
     .expect("job");
@@ -152,8 +146,7 @@ async fn websocket_connections_are_counted() {
     );
     // The gauge must be back to zero once the socket closed.
     let active_zero = metrics.lines().any(|line| {
-        line.starts_with("ws_active_connections{channel=\"job_log\"}")
-            && line.ends_with(" 0")
+        line.starts_with("ws_active_connections{channel=\"job_log\"}") && line.ends_with(" 0")
     });
     assert!(
         active_zero,
