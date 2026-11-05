@@ -1,6 +1,6 @@
 # CNB pipelines. CNB is the development upstream (CLAUDE.md, "仓库分工与推送顺序"),
-# so this file carries every gate of .github/workflows/regression.yml plus the
-# collaboration suites on PostgreSQL and MySQL. GitHub Actions stays the
+# so this file carries every gate of .github/workflows/regression.yml except the
+# PostgreSQL/MySQL smoke jobs (see below). GitHub Actions stays the
 # release-time check only; its free minutes are scarce.
 #
 # Gate map (GitHub job -> CNB pipeline):
@@ -8,8 +8,10 @@
 #   rust-tests               -> rust-tests
 #   security-audit           -> security-audit
 #   git-protocol             -> git-protocol
-#   postgres-smoke           -> postgres   (also runs the rg-db / rg-http collab_* suites)
-#   mysql-smoke              -> mysql      (same)
+#   postgres-smoke, mysql-smoke -> not run in CNB. Run them locally with
+#                               scripts/ci-db-tests.sh postgres|mysql (needs Docker)
+#                               when a change touches SQL, migrations or the
+#                               collaboration store; every-commit runs are not worth it.
 #   frontend                 -> frontend
 #   deploy-config            -> deploy-config
 #
@@ -79,26 +81,6 @@
     - name: HTTP and SSH protocol matrix
       script: IRONFORGE_BIN="$PWD/target/debug/ironforge" scripts/git-protocol-e2e.sh
 
-.postgres: &postgres
-  <<: *rust-setup
-  name: postgres
-  services:
-    - docker
-  stages:
-    - *apt-deps
-    - name: PostgreSQL 17 suites
-      script: scripts/ci-db-tests.sh postgres
-
-.mysql: &mysql
-  <<: *rust-setup
-  name: mysql
-  services:
-    - docker
-  stages:
-    - *apt-deps
-    - name: MySQL 8.4 suites
-      script: scripts/ci-db-tests.sh mysql
-
 .frontend: &frontend
   name: frontend
   docker:
@@ -144,8 +126,6 @@ main:
     - *rust-tests
     - *security-audit
     - *git-protocol
-    - *postgres
-    - *mysql
     - *frontend
     - *deploy-config
   pull_request: *all-gates
