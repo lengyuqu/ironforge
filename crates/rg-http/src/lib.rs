@@ -1181,6 +1181,26 @@ fn build_routes(
             get(api::collab_overlaps::get_overlaps),
         )
         .route(
+            "/repos/{owner}/{name}/collaboration/tasks/{id}/completion-conditions",
+            get(api::collab_conditions::get_conditions).put(api::collab_conditions::put_conditions),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/tasks/{id}/completion-conditions/versions",
+            get(api::collab_conditions::list_versions),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/tasks/{id}/completion-conditions/{condition_id}/confirmations",
+            post(api::collab_conditions::confirm_condition),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/tasks/{id}/completion-status/snapshots",
+            get(api::collab_conditions::list_snapshots).post(api::collab_conditions::create_snapshot),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/tasks/{id}/completion-status/snapshots/{snapshot_id}",
+            get(api::collab_conditions::get_snapshot),
+        )
+        .route(
             "/repos/{owner}/{name}/collaboration/tasks/{id}/context",
             get(api::collab_context::get_context),
         )

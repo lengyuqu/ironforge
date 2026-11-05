@@ -559,6 +559,20 @@ pub const TOOL_ROUTES: &[ToolRoute] = &[
         &[],
     ),
     t(
+        "collab_get_completion_conditions",
+        "GET",
+        "/tasks/{task_id}/completion-conditions",
+        &[],
+        &[],
+    ),
+    t(
+        "collab_set_completion_conditions",
+        "PUT",
+        "/tasks/{task_id}/completion-conditions",
+        &[],
+        &["client_request_id", "expected_version", "conditions"],
+    ),
+    t(
         "collab_get_context",
         "GET",
         "/tasks/{task_id}/context",
@@ -599,6 +613,7 @@ mod tests {
         match key {
             k if k.ends_with("version") || k.ends_with("seq") || k.ends_with("number") => json!(1),
             "recipient" => json!({"kind": "repo_writers"}),
+            "conditions" => json!([{"type": "manual_confirmation"}]),
             "target_repo_id" | "version" | "stale_after_seconds" => json!(1),
             _ => json!("x"),
         }

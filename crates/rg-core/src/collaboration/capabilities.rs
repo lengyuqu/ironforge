@@ -403,6 +403,52 @@ pub const REGISTRY: &[Capability] = &[
         )],
     },
     Capability {
+        name: "completion_conditions",
+        version: "1.0",
+        status: Stable,
+        mcp_tools: &[
+            "collab_get_completion_conditions",
+            "collab_set_completion_conditions",
+        ],
+        routes: &[
+            r(
+                "GET",
+                "/repos/{owner}/{name}/collaboration/tasks/{id}/completion-conditions",
+                CollabRead,
+            ),
+            r(
+                "PUT",
+                "/repos/{owner}/{name}/collaboration/tasks/{id}/completion-conditions",
+                RepoWrite,
+            ),
+            r(
+                "GET",
+                "/repos/{owner}/{name}/collaboration/tasks/{id}/completion-conditions/versions",
+                CollabRead,
+            ),
+            r(
+                "POST",
+                "/repos/{owner}/{name}/collaboration/tasks/{id}/completion-conditions/{condition_id}/confirmations",
+                RepoWrite,
+            ),
+            r(
+                "GET",
+                "/repos/{owner}/{name}/collaboration/tasks/{id}/completion-status/snapshots",
+                CollabRead,
+            ),
+            r(
+                "POST",
+                "/repos/{owner}/{name}/collaboration/tasks/{id}/completion-status/snapshots",
+                RepoWrite,
+            ),
+            r(
+                "GET",
+                "/repos/{owner}/{name}/collaboration/tasks/{id}/completion-status/snapshots/{snapshot_id}",
+                CollabRead,
+            ),
+        ],
+    },
+    Capability {
         name: "deletion_impact",
         version: "1.0",
         status: Stable,

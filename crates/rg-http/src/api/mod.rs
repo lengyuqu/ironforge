@@ -16,6 +16,7 @@ pub mod ci_secrets;
 pub mod collab;
 pub mod collab_budgets;
 pub mod collab_capabilities;
+pub mod collab_conditions;
 pub mod collab_context;
 pub mod collab_decisions;
 pub mod collab_declarations;

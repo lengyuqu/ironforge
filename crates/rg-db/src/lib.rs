@@ -1001,7 +1001,7 @@ mod soft_delete_tests {
         // `m20261015_000002` partial-unique-index anchor — add 1 here whenever
         // a migration is appended, or this assertion silently stops testing
         // the intended window.
-        migrations::Migrator::down(&db, Some(17))
+        migrations::Migrator::down(&db, Some(18))
             .await
             .expect("downgrade");
         assert_eq!(scalar(&db, "SELECT COUNT(*) FROM repo_stars").await, 1);
