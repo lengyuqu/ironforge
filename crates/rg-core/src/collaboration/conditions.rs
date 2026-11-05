@@ -716,6 +716,9 @@ pub struct SnapshotView {
     /// The evaluation exactly as recorded then; it is never recomputed.
     pub result: Value,
     pub immutable: bool,
+    /// True when `client_request_id` had already created this snapshot and
+    /// nothing new was stored.
+    pub replayed: bool,
 }
 
 fn summary(row: &snap_entity::Model) -> SnapshotSummary {
@@ -737,9 +740,19 @@ pub async fn record_snapshot(
     repo_id: i64,
     task_id: &str,
     actor: &Actor,
+    client_request_id: Option<&str>,
     branch_head: Option<String>,
     now: DateTime<Utc>,
 ) -> CollabResult<SnapshotView> {
+    if let Some(key) = client_request_id {
+        validation::client_key("client_request_id", key)?;
+        // A retry returns the snapshot the key already made, before anything is
+        // evaluated or counted against the cap.
+        let task = task::find(db, repo_id, task_id).await?;
+        if let Some(row) = ops::find_snapshot_by_request(db, &task.id, key).await? {
+            return snapshot_view(&row, true);
+        }
+    }
     let status = completion::evaluate(db, repo_id, task_id, branch_head, now).await?;
     let stored = ops::count_snapshots(db, &status.task_id).await?;
     if stored >= MAX_SNAPSHOTS_PER_TASK {
@@ -772,14 +785,31 @@ pub async fn record_snapshot(
             result_json: Set(result.to_string()),
             actor_kind: Set(actor.kind.to_string()),
             actor_id: Set(actor.id.clone()),
+            client_request_id: Set(client_request_id.map(str::to_string)),
             created_at: Set(super::creation_timestamp(db, now)),
         },
+        &status.task_id,
+        client_request_id,
     )
     .await?;
+    match row {
+        InsertOutcome::Inserted(row) => snapshot_view(&row, false),
+        InsertOutcome::Replay(row) => snapshot_view(&row, true),
+        InsertOutcome::VersionTaken => Err(CollabError::Internal(anyhow::anyhow!(
+            "snapshot insert reported a version conflict"
+        ))),
+    }
+}
+
+/// The stored evaluation as a response; the result is read back, never recomputed.
+fn snapshot_view(row: &snap_entity::Model, replayed: bool) -> CollabResult<SnapshotView> {
+    let result =
+        serde_json::from_str(&row.result_json).map_err(|e| CollabError::Internal(e.into()))?;
     Ok(SnapshotView {
-        summary: summary(&row),
+        summary: summary(row),
         result,
         immutable: true,
+        replayed,
     })
 }
 
@@ -812,12 +842,7 @@ pub async fn get_snapshot(
         None
     }
     .ok_or_else(|| CollabError::not_found("snapshot not found"))?;
-    Ok(SnapshotView {
-        result: serde_json::from_str(&row.result_json)
-            .map_err(|e| CollabError::Internal(e.into()))?,
-        summary: summary(&row),
-        immutable: true,
-    })
+    snapshot_view(&row, false)
 }
 
 #[cfg(test)]

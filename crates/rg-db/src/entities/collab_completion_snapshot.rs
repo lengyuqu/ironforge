@@ -17,6 +17,8 @@ pub struct Model {
     pub result_json: String,
     pub actor_kind: String,
     pub actor_id: String,
+    /// Optional client idempotency key, unique per task (older rows: none).
+    pub client_request_id: Option<String>,
     pub created_at: DateTimeUtc,
 }
 

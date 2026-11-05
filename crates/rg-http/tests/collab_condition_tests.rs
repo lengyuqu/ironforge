@@ -718,3 +718,91 @@ async fn snapshots_per_task_are_capped() {
         .await;
     assert_eq!(code, 201, "{body}");
 }
+
+#[tokio::test]
+async fn snapshot_requests_with_a_key_are_idempotent() {
+    let env = Env::new().await;
+    let a = env.session(&env.owner_token, "A").await;
+    let tid = new_task(&env, &a, json!({})).await;
+    let base = env.url(&format!("/tasks/{tid}/completion-status/snapshots"));
+    let post = |key: &str| {
+        let url = format!("{base}?client_request_id={key}");
+        let env = &env;
+        async move {
+            env.json(Method::POST, &url, &env.owner_token, None, None)
+                .await
+        }
+    };
+
+    let (code, first) = post("snap-1").await;
+    assert_eq!(code, 201, "{first}");
+    assert_eq!(first["replayed"], false);
+    let id = first["id"].as_str().unwrap().to_string();
+
+    // A retry returns the same snapshot, stores nothing, and says so.
+    let (code, again) = post("snap-1").await;
+    assert_eq!(code, 200, "{again}");
+    assert_eq!(again["id"], id.as_str());
+    assert_eq!(again["replayed"], true);
+    assert_eq!(again["result"], first["result"]);
+
+    // Another key is another snapshot; a key-less request still works.
+    let (code, second) = post("snap-2").await;
+    assert_eq!(code, 201, "{second}");
+    assert_ne!(second["id"], id.as_str());
+    let (code, keyless) = env
+        .json(Method::POST, &base, &env.owner_token, None, None)
+        .await;
+    assert_eq!(code, 201, "{keyless}");
+    assert_eq!(keyless["replayed"], false);
+    let (_, list) = env
+        .json(Method::GET, &base, &env.owner_token, None, None)
+        .await;
+    assert_eq!(list["items"].as_array().unwrap().len(), 3, "{list}");
+
+    // Bad keys are refused by name, and the same key on another task is independent.
+    let (code, _) = post("has%20space").await;
+    assert_eq!(code, 400);
+    let other = new_task(&env, &a, json!({})).await;
+    let (code, body) = env
+        .json(
+            Method::POST,
+            &env.url(&format!(
+                "/tasks/{other}/completion-status/snapshots?client_request_id=snap-1"
+            )),
+            &env.owner_token,
+            None,
+            None,
+        )
+        .await;
+    assert_eq!(code, 201, "{body}");
+    assert_ne!(body["id"], id.as_str());
+}
+
+#[tokio::test]
+async fn racing_snapshot_requests_with_one_key_store_one_snapshot() {
+    let env = Env::new().await;
+    let a = env.session(&env.owner_token, "A").await;
+    let tid = new_task(&env, &a, json!({})).await;
+    let url = env.url(&format!(
+        "/tasks/{tid}/completion-status/snapshots?client_request_id=race"
+    ));
+    let results = futures::future::join_all((0..6).map(|_| {
+        let env = &env;
+        let url = url.clone();
+        async move {
+            env.json(Method::POST, &url, &env.owner_token, None, None)
+                .await
+        }
+    }))
+    .await;
+    let created = results.iter().filter(|(c, _)| *c == 201).count();
+    let replayed = results.iter().filter(|(c, _)| *c == 200).count();
+    assert_eq!(created, 1, "{results:?}");
+    assert_eq!(created + replayed, 6, "{results:?}");
+    let ids: std::collections::HashSet<_> = results
+        .iter()
+        .map(|(_, b)| b["id"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(ids.len(), 1, "every racer sees the same snapshot");
+}

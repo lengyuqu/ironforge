@@ -158,11 +158,40 @@ pub async fn count_snapshots<C: ConnectionTrait>(db: &C, task_id: &str) -> Resul
         .context("db: count snapshots")
 }
 
+pub async fn find_snapshot_by_request<C: ConnectionTrait>(
+    db: &C,
+    task_id: &str,
+    client_request_id: &str,
+) -> Result<Option<Snapshot>> {
+    SnapEntity::find()
+        .filter(snaps::Column::TaskId.eq(task_id))
+        .filter(snaps::Column::ClientRequestId.eq(client_request_id))
+        .one(db)
+        .await
+        .context("db: find snapshot by request id")
+}
+
+/// Insert a snapshot; with a `client_request_id`, a lost race or a retry returns
+/// the snapshot that already owns the key.
 pub async fn insert_snapshot(
     db: &DatabaseConnection,
     model: snaps::ActiveModel,
-) -> Result<Snapshot> {
-    model.insert(db).await.context("db: insert snapshot")
+    task_id: &str,
+    client_request_id: Option<&str>,
+) -> Result<InsertOutcome<Snapshot>> {
+    match model.insert(db).await {
+        Ok(row) => Ok(InsertOutcome::Inserted(row)),
+        Err(err) if is_unique(&err) => {
+            let Some(key) = client_request_id else {
+                return Err(err).context("db: snapshot unique violation without a key");
+            };
+            match find_snapshot_by_request(db, task_id, key).await? {
+                Some(row) => Ok(InsertOutcome::Replay(row)),
+                None => Err(err).context("db: snapshot unique violation without owner"),
+            }
+        }
+        Err(err) => Err(err).context("db: insert snapshot"),
+    }
 }
 
 /// Newest snapshots of a task first.

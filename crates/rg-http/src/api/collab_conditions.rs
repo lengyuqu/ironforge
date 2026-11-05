@@ -208,29 +208,54 @@ pub async fn confirm_condition(
     Ok((status, Json(created)))
 }
 
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
+pub struct CreateSnapshotQuery {
+    /// Optional idempotency key (1-128 of `[A-Za-z0-9._:-]`), unique per task.
+    /// Retrying with the same key returns the snapshot it already made.
+    pub client_request_id: Option<String>,
+}
+
 #[utoipa::path(
     post,
     path = "/repos/{owner}/{name}/collaboration/tasks/{id}/completion-status/snapshots",
     tag = "Collaboration",
-    params(("owner" = String, Path), ("name" = String, Path), ("id" = String, Path)),
+    params(("owner" = String, Path), ("name" = String, Path), ("id" = String, Path), CreateSnapshotQuery),
     responses(
         (status = 201, description = "The evaluation now, stored unchanged as an immutable snapshot", body = serde_json::Value),
+        (status = 200, description = "client_request_id already created a snapshot: that snapshot is returned (replayed: true), nothing new is stored", body = serde_json::Value),
+        (status = 400, description = "Invalid client_request_id"),
         (status = 403, description = "Write access denied or invalid session credentials"),
-        (status = 404, description = "No such task in this repository")
+        (status = 404, description = "No such task in this repository"),
+        (status = 409, description = "SNAPSHOT_LIMIT_REACHED (details.limit/stored)")
     )
 )]
 pub async fn create_snapshot(
     State(state): State<AppState>,
     Path((owner, name, id)): Path<(String, String, String)>,
+    Query(query): Query<CreateSnapshotQuery>,
     headers: HeaderMap,
 ) -> Result<(StatusCode, Json<svc::SnapshotView>), AppError> {
     let (repo, user_id) = require_collab_write(&state, &headers, &owner, &name).await?;
     let actor = write_actor(&state, &headers, repo.id, user_id).await?;
     let row = task::find(&state.db, repo.id, &id).await?;
     let head = observed_branch_head(&state, &owner, &name, row.branch.as_deref()).await;
-    let snapshot =
-        svc::record_snapshot(&state.db, repo.id, &row.id, &actor, head, Utc::now()).await?;
-    Ok((StatusCode::CREATED, Json(snapshot)))
+    let snapshot = svc::record_snapshot(
+        &state.db,
+        repo.id,
+        &row.id,
+        &actor,
+        query.client_request_id.as_deref(),
+        head,
+        Utc::now(),
+    )
+    .await?;
+    let status = if snapshot.replayed {
+        StatusCode::OK
+    } else {
+        StatusCode::CREATED
+    };
+    Ok((status, Json(snapshot)))
 }
 
 #[derive(Debug, Deserialize, utoipa::IntoParams)]
