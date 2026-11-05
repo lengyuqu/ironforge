@@ -175,8 +175,11 @@ async fn diagnostics_reports_unconfirmed_then_receipt_without_changing_it() {
         201
     );
     let (_, after) = env.json(Method::GET, &url, &reader, None, None).await;
+    // The statements embed "N s ago"; two requests can straddle a second
+    // boundary, so compare with the elapsed seconds masked.
     assert_eq!(
-        before["findings"], after["findings"],
+        without_ages(&before["findings"]),
+        without_ages(&after["findings"]),
         "receipt changes must not be observable by a repository reader"
     );
     let (_, delivery) = env
@@ -329,5 +332,42 @@ async fn done_tasks_never_suggest_immediate_claim() {
                 .unwrap()
                 .contains("reopened"));
         }
+    }
+}
+
+/// Replace every "<digits> s ago" with "<N> s ago" in a JSON value.
+fn without_ages(value: &serde_json::Value) -> serde_json::Value {
+    fn mask(text: &str) -> String {
+        let mut out = String::with_capacity(text.len());
+        let mut digits = String::new();
+        let mut rest = text.chars().peekable();
+        while let Some(c) = rest.next() {
+            if c.is_ascii_digit() {
+                digits.push(c);
+                continue;
+            }
+            if !digits.is_empty() {
+                let mut tail: String = rest.clone().take(6).collect();
+                tail.insert(0, c);
+                out.push_str(if tail.starts_with(" s ago") {
+                    "<N>"
+                } else {
+                    &digits
+                });
+                digits.clear();
+            }
+            out.push(c);
+        }
+        out.push_str(&digits);
+        out
+    }
+    match value {
+        serde_json::Value::String(s) => serde_json::Value::String(mask(s)),
+        serde_json::Value::Array(a) => a.iter().map(without_ages).collect(),
+        serde_json::Value::Object(o) => o
+            .iter()
+            .map(|(k, v)| (k.clone(), without_ages(v)))
+            .collect(),
+        other => other.clone(),
     }
 }
