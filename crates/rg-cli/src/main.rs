@@ -1063,6 +1063,8 @@ struct QuiesceReport {
     sessions_ended: u64,
     reset_tokens_deleted: u64,
     jobs_abandoned: u64,
+    /// Pending/running CI pipelines cancelled (their stages and jobs are failed).
+    pipelines_cancelled: u64,
     /// Access tokens present in the restored database. They are NOT touched:
     /// the backup cannot tell which ones were revoked after it was taken.
     access_tokens_restored: u64,
@@ -1084,6 +1086,10 @@ impl QuiesceReport {
             self.jobs_abandoned
         );
         println!(
+            "  pending/running CI pipelines cancelled: {}",
+            self.pipelines_cancelled
+        );
+        println!(
             "  access tokens restored UNCHANGED: {} - any token revoked after this backup is \
              valid again; review or rotate them",
             self.access_tokens_restored
@@ -1100,6 +1106,8 @@ impl QuiesceReport {
 /// * queued `webhook.deliver` / `email.send` jobs are marked `dead` instead of
 ///   run: they may already have been delivered from the live instance, and a
 ///   second delivery cannot be taken back;
+/// * pending/running CI pipelines are cancelled and their stages/jobs failed, so a
+///   restored runner does not re-run work (deploys included) that already ran;
 /// * access tokens are only counted - revoking all of them would break every
 ///   integration, and the backup cannot say which were revoked later.
 ///
@@ -1154,6 +1162,30 @@ async fn quiesce_restored_database(db_url: &str) -> anyhow::Result<QuiesceReport
             .await
             .context("abandoning queued outbound jobs")?
             .rows_affected();
+    }
+    if has_table("pipelines").await? {
+        // A restored runner would otherwise pick up (and re-run) work the live
+        // instance already did, including deploy jobs. Same statements as
+        // deploy/post-restore-quiesce.sql (a test keeps them in step).
+        report.pipelines_cancelled = db
+            .execute(sql(
+                "UPDATE pipelines SET status = 'canceled', finished_at = CURRENT_TIMESTAMP \
+                 WHERE status IN ('pending','running')"
+                    .to_string(),
+            ))
+            .await
+            .context("cancelling CI pipelines")?
+            .rows_affected();
+        for table in ["pipeline_stages", "pipeline_jobs"] {
+            if has_table(table).await? {
+                db.execute(sql(format!(
+                    "UPDATE {table} SET status = 'failed', finished_at = CURRENT_TIMESTAMP \
+                     WHERE status IN ('pending','running')"
+                )))
+                .await
+                .with_context(|| format!("failing {table}"))?;
+            }
+        }
     }
     if has_table("access_tokens").await? {
         let rows = db
@@ -2647,16 +2679,18 @@ mod backup_verify_tests {
         assert!(err.contains("newer IronForge"), "{err}");
     }
 
-    #[tokio::test]
-    async fn quiesce_ends_sessions_and_abandons_only_queued_outbound_jobs() {
+    /// A migrated SQLite database full of state that a restore must quiesce.
+    /// Returns the temp dir (keep it alive), the URL and the seeding time.
+    async fn seed_stale_state(tag: &str) -> (Dir, String, chrono::DateTime<chrono::Utc>) {
         use chrono::{Duration, Utc};
         use rg_db::entities::{
-            access_token, agent_session, background_job, password_reset_token, repository,
+            access_token, agent_session, background_job, password_reset_token, pipeline,
+            pipeline_job, pipeline_stage, repository,
         };
         use rg_db::ops::{repo_ops, user_ops};
-        use rg_db::sea_orm::{ActiveModelTrait, EntityTrait, NotSet, Set};
+        use rg_db::sea_orm::{ActiveModelTrait, NotSet, Set};
 
-        let dir = Dir::new("quiesce");
+        let dir = Dir::new(tag);
         let path = dir.0.join("restored.db");
         let url = format!("sqlite://{}?mode=rwc", path.display());
         let db = rg_db::connect(&url).await.unwrap();
@@ -2754,7 +2788,74 @@ mod backup_verify_tests {
             .await
             .unwrap();
         }
+        let naive = now.naive_utc();
+        for (pstatus, label) in [("running", "live"), ("success", "done")] {
+            let p = pipeline::ActiveModel {
+                id: NotSet,
+                repo_id: Set(repo.id),
+                commit_sha: Set(format!("{label:0<40}")),
+                ref_name: Set("refs/heads/main".into()),
+                status: Set(pstatus.into()),
+                trigger_type: Set("push".into()),
+                triggered_by: Set(None),
+                started_at: Set(Some(naive)),
+                finished_at: Set(None),
+                created_at: Set(naive),
+            }
+            .insert(&db)
+            .await
+            .unwrap();
+            let stage = pipeline_stage::ActiveModel {
+                id: NotSet,
+                pipeline_id: Set(p.id),
+                name: Set("build".into()),
+                stage_order: Set(0),
+                status: Set(pstatus.into()),
+                started_at: Set(Some(naive)),
+                finished_at: Set(None),
+            }
+            .insert(&db)
+            .await
+            .unwrap();
+            pipeline_job::ActiveModel {
+                id: NotSet,
+                stage_id: Set(stage.id),
+                runner_id: Set(None),
+                name: Set("deploy".into()),
+                image: Set(None),
+                script: Set("true".into()),
+                variables: Set(None),
+                cache_key: Set(None),
+                cache_paths: Set(None),
+                allow_failure: Set(false),
+                timeout_seconds: Set(None),
+                when_condition: Set("on_success".into()),
+                if_condition: Set(None),
+                environment_id: Set(None),
+                environment_name: Set(None),
+                status: Set(pstatus.into()),
+                exit_code: Set(None),
+                log: Set(None),
+                started_at: Set(Some(naive)),
+                finished_at: Set(None),
+                updated_at: Set(None),
+                tags: Set(None),
+            }
+            .insert(&db)
+            .await
+            .unwrap();
+        }
         drop(db);
+        (dir, url, now)
+    }
+
+    #[tokio::test]
+    async fn quiesce_ends_sessions_and_abandons_only_queued_outbound_jobs() {
+        use rg_db::entities::{
+            agent_session, background_job, pipeline, pipeline_job, pipeline_stage,
+        };
+        use rg_db::sea_orm::EntityTrait;
+        let (_dir, url, now) = seed_stale_state("quiesce").await;
 
         let report = quiesce_restored_database(&url).await.unwrap();
         assert_eq!(
@@ -2763,6 +2864,7 @@ mod backup_verify_tests {
                 sessions_ended: 1,
                 reset_tokens_deleted: 1,
                 jobs_abandoned: 2,
+                pipelines_cancelled: 1,
                 access_tokens_restored: 2,
             }
         );
@@ -2770,6 +2872,7 @@ mod backup_verify_tests {
         let again = quiesce_restored_database(&url).await.unwrap();
         assert_eq!(again.sessions_ended, 0);
         assert_eq!(again.jobs_abandoned, 0);
+        assert_eq!(again.pipelines_cancelled, 0);
 
         // The rows still read back through the entities (timestamps stay parseable).
         let db = rg_db::connect(&url).await.unwrap();
@@ -2798,6 +2901,67 @@ mod backup_verify_tests {
             .last_error
             .as_deref()
             .is_some_and(|e| e.contains("abandoned at restore"))));
+        // The live pipeline is cancelled with its stage and job failed; a finished
+        // one is left alone.
+        let pipes = pipeline::Entity::find().all(&db).await.unwrap();
+        assert_eq!(pipes.iter().filter(|p| p.status == "canceled").count(), 1);
+        assert_eq!(pipes.iter().filter(|p| p.status == "success").count(), 1);
+        assert!(pipes
+            .iter()
+            .filter(|p| p.status == "canceled")
+            .all(|p| p.finished_at.is_some()));
+        let stages = pipeline_stage::Entity::find().all(&db).await.unwrap();
+        assert_eq!(stages.iter().filter(|x| x.status == "failed").count(), 1);
+        assert_eq!(stages.iter().filter(|x| x.status == "success").count(), 1);
+        let pjobs = pipeline_job::Entity::find().all(&db).await.unwrap();
+        assert_eq!(pjobs.iter().filter(|x| x.status == "failed").count(), 1);
+        assert_eq!(pjobs.iter().filter(|x| x.status == "success").count(), 1);
+    }
+
+    /// `deploy/post-restore-quiesce.sql` (what PostgreSQL/MySQL operators run) must
+    /// leave the same state as the SQLite CLI path.
+    #[tokio::test]
+    async fn the_quiesce_sql_file_matches_the_cli_path() {
+        use rg_db::sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+        let snapshot = |url: String| async move {
+            let db = rg_db::connect(&url).await.unwrap();
+            let mut out = Vec::new();
+            for q in [
+                "SELECT status FROM pipelines ORDER BY id",
+                "SELECT status FROM pipeline_stages ORDER BY id",
+                "SELECT status FROM pipeline_jobs ORDER BY id",
+                "SELECT task_type || ':' || status FROM background_jobs ORDER BY id",
+                "SELECT id || ':' || (ended_at IS NOT NULL) FROM agent_sessions ORDER BY id",
+                "SELECT COUNT(*) FROM password_reset_tokens",
+            ] {
+                let rows = db
+                    .query_all(Statement::from_string(
+                        DatabaseBackend::Sqlite,
+                        q.to_string(),
+                    ))
+                    .await
+                    .unwrap();
+                out.push(
+                    rows.iter()
+                        .map(|r| {
+                            r.try_get_by_index::<String>(0).unwrap_or_else(|_| {
+                                r.try_get_by_index::<i64>(0).unwrap().to_string()
+                            })
+                        })
+                        .collect::<Vec<_>>(),
+                );
+            }
+            out
+        };
+        let (_d1, via_cli, _) = seed_stale_state("quiesce-sql-cli").await;
+        quiesce_restored_database(&via_cli).await.unwrap();
+        let (_d2, via_sql, _) = seed_stale_state("quiesce-sql-file").await;
+        let db = rg_db::connect(&via_sql).await.unwrap();
+        db.execute_unprepared(include_str!("../../../deploy/post-restore-quiesce.sql"))
+            .await
+            .unwrap();
+        drop(db);
+        assert_eq!(snapshot(via_cli).await, snapshot(via_sql).await);
     }
 
     #[tokio::test]

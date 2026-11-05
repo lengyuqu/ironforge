@@ -11,12 +11,12 @@
 #   3. every table has the same row count and the same content checksum in both;
 #   4. `ironforge migrate` against the restored database finds nothing to do and
 #      the migration history is identical.
+#   5. deploy/post-restore-quiesce.sql applies cleanly to the restored database and
+#      leaves no live session, reset token, queued webhook/e-mail job or running CI.
 # What it does NOT prove: Git repositories and blob storage (copy them with
 # the file backup), server start-up on the restored database, point-in-time
-# recovery, or anything about credentials/outbound jobs - run the SQLite
-# `collab-e2e.py --scenario restore` for the CLI-side quiesce behaviour, which
-# has no PostgreSQL/MySQL equivalent yet: after a restore, end collaboration
-# sessions and review queued jobs and access tokens by hand (deploy/README.md).
+# recovery, or anything about personal access tokens / SSH keys (untouched by
+# design; review them by hand, see deploy/README.md).
 #
 # Needs Docker. Uses host networking like scripts/ci-db-tests.sh, so stop any
 # local PostgreSQL/MySQL on 5432/3306 first.
@@ -116,4 +116,17 @@ hist_a="$(echo "SELECT version FROM seaql_migrations ORDER BY version" | sql iro
 hist_b="$(echo "SELECT version FROM seaql_migrations ORDER BY version" | sql ironforge_restored)"
 [ "$hist_a" = "$hist_b" ] || { echo "migration history differs after migrate" >&2; exit 1; }
 echo "migration history identical ($(echo "$hist_a" | wc -l | tr -d ' ') migrations)"
+
+# 5. The post-restore quiesce (deploy/post-restore-quiesce.sql) applies cleanly and
+#    leaves nothing live behind. The populated database has un-ended sessions, so
+#    the "before" count makes the check meaningful.
+live_sessions() { echo "SELECT COUNT(*) FROM agent_sessions WHERE ended_at IS NULL" | sql ironforge_restored; }
+before="$(live_sessions)"
+[ "$before" -gt 0 ] || { echo "drill is too weak: no live session to quiesce" >&2; exit 1; }
+sql ironforge_restored < deploy/post-restore-quiesce.sql >/dev/null
+after="$(live_sessions)"
+[ "$after" = "0" ] || { echo "quiesce left $after live sessions" >&2; exit 1; }
+left="$(echo "SELECT (SELECT COUNT(*) FROM password_reset_tokens) + (SELECT COUNT(*) FROM pipelines WHERE status IN ('pending','running')) + (SELECT COUNT(*) FROM pipeline_jobs WHERE status IN ('pending','running')) + (SELECT COUNT(*) FROM background_jobs WHERE status IN ('pending','running') AND task_type IN ('webhook.deliver','email.send'))" | sql ironforge_restored)"
+[ "$left" = "0" ] || { echo "quiesce left $left live rows" >&2; exit 1; }
+echo "post-restore quiesce: $before live sessions ended, nothing live left"
 echo "$backend dump/restore drill passed"
