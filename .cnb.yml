@@ -21,9 +21,9 @@
     image: rust:1
     # Node-local build caches shared by all pipelines of this repository.
     volumes:
-      - cargo-registry:/root/.cargo/registry
-      - cargo-git:/root/.cargo/git
-      - cargo-target:./target
+      - cargo-registry:/root/.cargo/registry:copy-on-write
+      - cargo-git:/root/.cargo/git:copy-on-write
+      - cargo-target:./target:copy-on-write
   env:
     CARGO_INCREMENTAL: "0"
 
