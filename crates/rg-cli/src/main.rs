@@ -664,6 +664,178 @@ fn remove_sqlite_sidecar_files(db_path: &std::path::Path) -> anyhow::Result<()> 
 /// ```
 const BACKUP_FORMAT_VERSION: u64 = 1;
 
+/// Per-file SHA-256 list written next to the manifest (`sha256sum` format, paths
+/// relative to the backup directory, `/`-separated). Everything in the backup
+/// except the manifest and this file is listed.
+const CHECKSUMS_FILE: &str = "checksums.sha256";
+
+fn sha256_hex(path: &std::path::Path) -> anyhow::Result<String> {
+    use sha2::{Digest, Sha256};
+    use std::io::Read;
+    let mut file =
+        std::fs::File::open(path).with_context(|| format!("failed to open {}", path.display()))?;
+    let mut hasher = Sha256::new();
+    let mut buf = vec![0u8; 1 << 20];
+    loop {
+        let n = file.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Ok(hex::encode(hasher.finalize()))
+}
+
+/// Every regular file under `root` except the manifest and the checksum list,
+/// as `/`-separated relative paths, sorted.
+fn backup_payload_files(root: &std::path::Path) -> anyhow::Result<Vec<String>> {
+    let mut found = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir)
+            .with_context(|| format!("failed to read directory {}", dir.display()))?
+        {
+            let entry = entry?;
+            if entry.file_type()?.is_dir() {
+                stack.push(entry.path());
+                continue;
+            }
+            let rel = entry
+                .path()
+                .strip_prefix(root)?
+                .components()
+                .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                .collect::<Vec<_>>()
+                .join("/");
+            if rel != "manifest.json" && rel != CHECKSUMS_FILE {
+                found.push(rel);
+            }
+        }
+    }
+    found.sort();
+    Ok(found)
+}
+
+fn write_backup_checksums(root: &std::path::Path) -> anyhow::Result<usize> {
+    let files = backup_payload_files(root)?;
+    let mut text = String::new();
+    for rel in &files {
+        text.push_str(&format!("{}  {rel}\n", sha256_hex(&root.join(rel))?));
+    }
+    std::fs::write(root.join(CHECKSUMS_FILE), text)?;
+    Ok(files.len())
+}
+
+/// Run `PRAGMA integrity_check` on a copy of a SQLite file and make sure every
+/// migration it recorded is known to this binary. Works on a temporary copy so
+/// the backup itself is never opened for writing.
+async fn verify_sqlite_file(path: &std::path::Path) -> anyhow::Result<()> {
+    use rg_db::sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+    let tmp = std::env::temp_dir().join(format!(
+        "ironforge-verify-{}-{}.db",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    ));
+    std::fs::copy(path, &tmp)
+        .with_context(|| format!("failed to copy {} for verification", path.display()))?;
+    let result = async {
+        let url = format!("sqlite://{}?mode=rw", tmp.display());
+        let db = rg_db::connect(&url)
+            .await
+            .context("the database file in the backup cannot be opened")?;
+        let rows = db
+            .query_all(Statement::from_string(
+                DatabaseBackend::Sqlite,
+                "PRAGMA integrity_check".to_string(),
+            ))
+            .await
+            .context("the database file in the backup failed its integrity check")?;
+        let verdicts: Vec<String> = rows
+            .iter()
+            .filter_map(|r| r.try_get_by_index::<String>(0).ok())
+            .collect();
+        if verdicts != ["ok"] {
+            anyhow::bail!(
+                "the database file in the backup is damaged (integrity_check: {})",
+                verdicts.join("; ")
+            );
+        }
+        let recorded = db
+            .query_all(Statement::from_string(
+                DatabaseBackend::Sqlite,
+                "SELECT version FROM seaql_migrations".to_string(),
+            ))
+            .await
+            .context("the backup database has no migration history")?;
+        let known = rg_db::known_migration_names();
+        let unknown: Vec<String> = recorded
+            .iter()
+            .filter_map(|r| r.try_get_by_index::<String>(0).ok())
+            .filter(|name| !known.contains(name))
+            .collect();
+        if !unknown.is_empty() {
+            anyhow::bail!(
+                "the backup was written by a newer IronForge (unknown migrations: {}); \
+                 upgrade this binary before restoring",
+                unknown.join(", ")
+            );
+        }
+        anyhow::Ok(())
+    }
+    .await;
+    for suffix in ["", "-wal", "-shm"] {
+        let _ = std::fs::remove_file(format!("{}{suffix}", tmp.display()));
+    }
+    result
+}
+
+/// Check a whole backup directory BEFORE any restore write: manifest, every
+/// file's checksum (and that nothing unlisted is present), and the database's
+/// integrity and schema compatibility. A backup from before checksums existed
+/// is still accepted, with a warning that its files could not be verified.
+async fn verify_backup(input: &std::path::Path) -> anyhow::Result<()> {
+    let list_path = input.join(CHECKSUMS_FILE);
+    if list_path.is_file() {
+        let listed = std::fs::read_to_string(&list_path)?;
+        let mut expected = std::collections::BTreeMap::new();
+        for line in listed.lines().filter(|l| !l.trim().is_empty()) {
+            let (digest, rel) = line
+                .split_once("  ")
+                .ok_or_else(|| anyhow::anyhow!("malformed line in {CHECKSUMS_FILE}: {line}"))?;
+            expected.insert(rel.to_string(), digest.to_string());
+        }
+        let present = backup_payload_files(input)?;
+        for rel in &present {
+            if !expected.contains_key(rel) {
+                anyhow::bail!("backup contains a file that is not in {CHECKSUMS_FILE}: {rel}");
+            }
+        }
+        for (rel, digest) in &expected {
+            let path = input.join(rel);
+            if !path.is_file() {
+                anyhow::bail!("backup is missing a file listed in {CHECKSUMS_FILE}: {rel}");
+            }
+            if &sha256_hex(&path)? != digest {
+                anyhow::bail!("backup file is damaged (checksum mismatch): {rel}");
+            }
+        }
+        println!("Verified {} files against {CHECKSUMS_FILE}", expected.len());
+    } else {
+        eprintln!(
+            "warning: this backup has no {CHECKSUMS_FILE} (taken by an older version); \
+             its files could not be verified for corruption"
+        );
+    }
+    let db_file = input.join("ironforge.db");
+    if !db_file.is_file() {
+        anyhow::bail!("backup is missing the database file: {}", db_file.display());
+    }
+    verify_sqlite_file(&db_file).await
+}
+
 /// Create a full-instance backup. The database snapshot and file copy are
 /// sequential — the server must be stopped for a consistent backup.
 async fn backup_instance(
@@ -737,7 +909,10 @@ async fn backup_instance(
         config_name = Some(name.to_string());
     }
 
-    // 5. Manifest
+    // 5. Checksums of everything copied, then the manifest.
+    let checksummed = write_backup_checksums(output)?;
+    tracing::info!(files = checksummed, "backup checksums written");
+
     let manifest = serde_json::json!({
         "format_version": BACKUP_FORMAT_VERSION,
         "created_at": chrono::Utc::now().to_rfc3339(),
@@ -747,6 +922,7 @@ async fn backup_instance(
             "repo_root": true,
             "audit_archive": includes_audit,
             "config": config_name,
+            "checksums": CHECKSUMS_FILE,
         },
     });
     std::fs::write(
@@ -1104,7 +1280,11 @@ async fn main() -> anyhow::Result<()> {
                 .with_target(false)
                 .init();
 
-            restore_sqlite_db(&db_url, &PathBuf::from(input), force)?;
+            let input = PathBuf::from(input);
+            if input.is_file() {
+                verify_sqlite_file(&input).await?;
+            }
+            restore_sqlite_db(&db_url, &input, force)?;
         }
 
         Commands::Backup {
@@ -1147,8 +1327,15 @@ async fn main() -> anyhow::Result<()> {
                 .with_target(false)
                 .init();
 
+            // Everything is checked before the first write, so a damaged or
+            // incompatible backup never replaces a working instance.
+            let input_path = std::path::Path::new(&input);
+            if !input_path.is_dir() {
+                anyhow::bail!("backup directory does not exist: {}", input_path.display());
+            }
+            verify_backup(input_path).await?;
             restore_instance(
-                std::path::Path::new(&input),
+                input_path,
                 &db_url,
                 std::path::Path::new(&repo_root),
                 std::path::Path::new(&audit_archive_dir),
@@ -2206,5 +2393,121 @@ mod config_tests {
         assert_eq!(config.audit.archive_after_days, Some(90));
         assert_eq!(config.audit.interval_minutes, Some(60));
         assert_eq!(config.audit.batch_size, Some(1_000));
+    }
+}
+
+#[cfg(test)]
+mod backup_verify_tests {
+    use super::*;
+
+    struct Dir(PathBuf);
+    impl Dir {
+        fn new(tag: &str) -> Self {
+            let path = std::env::temp_dir().join(format!(
+                "ironforge-backup-test-{tag}-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            std::fs::create_dir_all(&path).unwrap();
+            Dir(path)
+        }
+    }
+    impl Drop for Dir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// A backup directory with a real migrated database and one data file.
+    async fn sample_backup(dir: &Dir) -> PathBuf {
+        let backup = dir.0.join("backup");
+        std::fs::create_dir_all(backup.join("data")).unwrap();
+        std::fs::write(backup.join("data/repo.txt"), b"object bytes").unwrap();
+        let url = format!(
+            "sqlite://{}?mode=rwc",
+            backup.join("ironforge.db").display()
+        );
+        let db = rg_db::connect(&url).await.unwrap();
+        rg_db::run_migrations(&db).await.unwrap();
+        drop(db);
+        std::fs::write(backup.join("manifest.json"), br#"{"format_version":1}"#).unwrap();
+        write_backup_checksums(&backup).unwrap();
+        backup
+    }
+
+    #[tokio::test]
+    async fn an_intact_backup_verifies() {
+        let dir = Dir::new("ok");
+        let backup = sample_backup(&dir).await;
+        verify_backup(&backup).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_changed_missing_or_extra_file_is_refused() {
+        let dir = Dir::new("tamper");
+        let backup = sample_backup(&dir).await;
+        std::fs::write(backup.join("data/repo.txt"), b"object bytez").unwrap();
+        let err = verify_backup(&backup).await.unwrap_err().to_string();
+        assert!(err.contains("checksum mismatch"), "{err}");
+
+        write_backup_checksums(&backup).unwrap();
+        std::fs::write(backup.join("data/extra.txt"), b"x").unwrap();
+        let err = verify_backup(&backup).await.unwrap_err().to_string();
+        assert!(err.contains("not in checksums"), "{err}");
+
+        std::fs::remove_file(backup.join("data/extra.txt")).unwrap();
+        std::fs::remove_file(backup.join("data/repo.txt")).unwrap();
+        let err = verify_backup(&backup).await.unwrap_err().to_string();
+        assert!(err.contains("missing a file"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn a_backup_without_checksums_is_accepted_but_a_damaged_database_is_not() {
+        let dir = Dir::new("legacy");
+        let backup = sample_backup(&dir).await;
+        std::fs::remove_file(backup.join(CHECKSUMS_FILE)).unwrap();
+        verify_backup(&backup).await.unwrap();
+
+        let db = backup.join("ironforge.db");
+        let mut bytes = std::fs::read(&db).unwrap();
+        let mid = bytes.len() / 2;
+        let end = mid + 4096.min(bytes.len() - mid);
+        for b in &mut bytes[mid..end] {
+            *b = 0xA5;
+        }
+        std::fs::write(&db, bytes).unwrap();
+        assert!(verify_backup(&backup).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn a_database_from_a_newer_schema_is_refused() {
+        let dir = Dir::new("newer");
+        let backup = sample_backup(&dir).await;
+        let url = format!("sqlite://{}?mode=rw", backup.join("ironforge.db").display());
+        let db = rg_db::connect(&url).await.unwrap();
+        {
+            use rg_db::sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+            db.execute(Statement::from_string(
+                DatabaseBackend::Sqlite,
+                "INSERT INTO seaql_migrations (version, applied_at) VALUES ('m29990101_000001_future', 0)"
+                    .to_string(),
+            ))
+            .await
+            .unwrap();
+            // Fold the write-ahead log into the file: a backup is one plain file.
+            db.execute(Statement::from_string(
+                DatabaseBackend::Sqlite,
+                "PRAGMA wal_checkpoint(TRUNCATE)".to_string(),
+            ))
+            .await
+            .unwrap();
+        }
+        drop(db);
+        write_backup_checksums(&backup).unwrap();
+        let err = verify_backup(&backup).await.unwrap_err().to_string();
+        assert!(err.contains("newer IronForge"), "{err}");
     }
 }

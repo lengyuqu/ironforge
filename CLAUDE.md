@@ -16,6 +16,16 @@
 
 ## 关键约定
 
+### 仓库分工与推送顺序
+
+> **来源**：项目负责人约定（2026-11-05）。此约定取代此前以 git233 为开发主仓库的约定。
+
+- **CNB（`cnb`）**：开发主仓库。开发阶段以 CNB 为主要上游，代码的开发、集成和验证优先在 CNB 完成。
+- **git233（`origin`）**：自建私人仓库。CNB 完成相应开发工作后，再将需要同步的提交推送到 git233。
+- **GitHub（`github`）**：公开发布仓库。准备发布时，在 CNB 完成开发工作后，才推送到 GitHub 并进行 GitHub CI；日常开发不为同步而推送 GitHub。
+- 同步前检查目标分支和远端状态，保持提交历史一致，禁止强制推送。各仓库同步结果和 CI 结果分别核验；推送成功不代表 CI 通过或发布完成。
+- 这些名称是当前检出的远端配置；执行前仍需核实实际远端和分支。此约定不自动修改 Git 已配置的跟踪上游，拉取或推送时应明确选择目标。
+
 ### Agent 生命周期护栏
 
 > ⚠️ **所有 AI Agent 执行变更操作前必须阅读 [`.ai/guardrails.md`](.ai/guardrails.md)**
@@ -146,6 +156,7 @@ Phase 1~21 全部完成。核心能力：
 | 协作收件箱已读标记 | 迁移 `m20261105_000002` + `rg-core/src/collaboration/inbox.rs` + `rg-db/src/ops/collab_inbox_read_ops.rs` + `rg-http/src/api/collab_inbox.rs` + MCP `collab_mark_inbox_read` | `collab_inbox_reads(repo_id, actor_kind, actor_id, item_key, observed_version, read_at)` 复合主键；`PUT …/inbox/read`（会话）与 `PUT …/inbox/user/read`（用户门，需写权限）接 `{item_key, observed_version}`。收件箱每项新增 `object_version`/`read_state`/`last_read_version`/`last_read_at`。只有**当前在该 actor 收件箱里**的项能标记（否则统一 404）；`observed_version` 超过记录当前版本返回 400；标记只增不减、幂等，并发收敛到最大值；记录出现更新版本即重新未读。只表达阅读，不改任何问题/交接/任务状态。证据见 [agent-collaboration-inbox-reads-verification-2026-11.md](ironforge-docs/architecture/agent-collaboration-inbox-reads-verification-2026-11.md) |
 | 协作 O04 自定义完成条件 | 迁移 `m20261105_000003` + `rg-core/src/collaboration/conditions.rs` + `rg-db/src/ops/collab_completion_ops.rs` + `rg-http/src/api/collab_conditions.rs` + MCP `collab_{get,set}_completion_conditions` | 仅展示，**不**阻止/改变任务。`…/tasks/{id}/completion-conditions` GET/PUT（`client_request_id`+`expected_version`，每次写入下一个**不可变版本**，唯一键 `(task_id,version)` 仲裁并发，败者 409 `VERSION_CONFLICT`）、`…/versions` 历史、`…/{condition_id}/confirmations`（用户门，`manual_confirmation`，绑定当时分支头，分支移动即 stale，不是合并审批）、`…/completion-status/snapshots`（POST 把当前评估原样存档，GET 取回不重算）。四种类型：`question_answered`/`work_package_present`/`ci_passed_for_commit`/`manual_confirmation`；`completion-status` 新增 `defined`，有定义时由它决定 `declared_done_without_evidence`，原 `conditions`（推导项）不变。未做强制模式（需单独评审）。证据见 [agent-collaboration-completion-conditions-verification-2026-11.md](ironforge-docs/architecture/agent-collaboration-completion-conditions-verification-2026-11.md) |
 | 协作 P1 双客户端闭环（U06/N14） | `scripts/collab-e2e.py --scenario p1` | 真实服务 + 真实 `ironforge-mcp`（A/C）+ 纯 HTTP 客户端（B）+ 真实 Git 仓库，覆盖路径预警、依赖、消息送达、依赖完成通知、决定、收件箱已读、完成条件与快照、崩溃后新客户端用上下文包恢复；仅 SQLite、单机、非真实模型、手工入口（不在 CI）。证据与未覆盖项见 [agent-collaboration-p1-e2e-verification-2026-11.md](ironforge-docs/architecture/agent-collaboration-p1-e2e-verification-2026-11.md) |
+| 协作 O03b 备份/恢复演练 | `scripts/collab-e2e.py --scenario restore` + `rg-cli` 的 `backup`/`restore`（`checksums.sha256` 与恢复前校验） | 真实全量备份 → 隔离目录恢复 → 第二个实例逐视图对比协作数据（27 个视图）、真实 Git 对象可读且 `git fsck` 干净。`restore` 现在在**第一次写入之前**校验：清单与格式版本、逐文件 SHA-256（且不得有清单外文件）、数据库 `PRAGMA integrity_check`、数据库记录的迁移须全部被当前二进制认识；失败时现有实例不被改动。无 `checksums.sha256` 的旧备份仍可恢复但会警告。仅 SQLite；PostgreSQL/MySQL 须用原生 dump 工具，未演练。证据与未覆盖项见 [agent-collaboration-restore-drill-2026-11.md](ironforge-docs/architecture/agent-collaboration-restore-drill-2026-11.md) |
 | 协作契约 X01 | `rg-core/src/collaboration/{capabilities,compat}.rs` + `rg-http/src/api/collab_{capabilities,json}.rs` + `rg-mcp/src/collab_contract.rs` + `rg-http/tests/collab_contract_tests.rs` | `GET /api/v1/collaboration/capabilities` 与仓库级 `…/collaboration/capabilities`（静态注册表，只广告实际存在的能力）；契约 `major.minor`；协作写请求 `deny_unknown_fields`（400 `UNKNOWN_FIELD`，非 422）；安全关键枚举未知值 fail closed（`UNKNOWN_ENUM_VALUE`）；路由/OpenAPI/注册表/MCP 工具表防漂移测试。新增协作路由或 MCP 工具必须同步登记注册表。证据见 [agent-collaboration-contract-verification-2026-11.md](ironforge-docs/architecture/agent-collaboration-contract-verification-2026-11.md) |
 | 协作运维 O06–O08 | 迁移 `m20261104_000008` + `rg-core/src/collaboration/{template,declaration,budget}.rs` + `rg-http/src/api/collab_{templates,declarations,budgets}.rs` | 任务模板（管理员维护、不可变版本、任务固定版本+快照）、会话能力声明（自报、过期标记、`authorization: none`）、任务预算与用量（unit/source 必填、不跨单位求和、缺失=unknown、仅信息性不暂停）。MCP 新增 9 个工具。证据见 [agent-collaboration-ops-verification-2026-11.md](ironforge-docs/architecture/agent-collaboration-ops-verification-2026-11.md) |
 

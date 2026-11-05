@@ -115,6 +115,26 @@ docker compose run --rm ironforge restore-db \
 docker compose up -d ironforge
 ```
 
+### Full-instance backup, verification and restore (SQLite)
+
+`ironforge backup` copies the database snapshot, the repository root and the
+audit archive into one directory and writes `checksums.sha256` (per-file SHA-256,
+`sha256sum` format) next to `manifest.json`. Stop the server first: the database
+snapshot and the file copy are taken one after the other.
+
+`ironforge restore` verifies the whole backup **before it writes anything**: the
+manifest and format version, every file against `checksums.sha256` (and that no
+unlisted file is present), the database's `PRAGMA integrity_check`, and that every
+migration the database recorded is known to the restoring binary. A damaged,
+incomplete or newer-schema backup is refused and the target instance is left as
+it was. A backup taken before checksums existed is accepted with a warning that its
+files could not be verified. The restore does not change who may log in: login
+tokens, personal access tokens and session secrets that were valid before the
+backup are valid on the restored instance (given the same signing secret).
+
+Practise a restore into a throw-away directory before you need one:
+`python3 scripts/collab-e2e.py --scenario restore`.
+
 ### Ports
 | Port | Protocol |
 |------|----------|
