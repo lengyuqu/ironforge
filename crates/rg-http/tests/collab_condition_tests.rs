@@ -682,3 +682,39 @@ async fn racing_definitions_with_one_expected_version_leave_exactly_one_winner()
         .await;
     assert_eq!(versions["items"].as_array().unwrap().len(), 1);
 }
+
+#[tokio::test]
+async fn snapshots_per_task_are_capped() {
+    let env = Env::new().await;
+    let a = env.session(&env.owner_token, "A").await;
+    let tid = new_task(&env, &a, json!({})).await;
+    let snaps = env.url(&format!("/tasks/{tid}/completion-status/snapshots"));
+    for i in 0..200 {
+        let (code, body) = env
+            .json(Method::POST, &snaps, &env.owner_token, None, None)
+            .await;
+        assert_eq!(code, 201, "snapshot {i}: {body}");
+    }
+    let (code, body) = env
+        .json(Method::POST, &snaps, &env.owner_token, None, None)
+        .await;
+    assert_eq!(code, 409, "{body}");
+    assert_eq!(body["error"]["code"], "SNAPSHOT_LIMIT_REACHED", "{body}");
+    assert_eq!(body["error"]["details"]["limit"], 200);
+    // Existing snapshots stay readable, and another task is unaffected.
+    let (code, list) = env
+        .json(Method::GET, &snaps, &env.owner_token, None, None)
+        .await;
+    assert_eq!(code, 200, "{list}");
+    let other = new_task(&env, &a, json!({})).await;
+    let (code, body) = env
+        .json(
+            Method::POST,
+            &env.url(&format!("/tasks/{other}/completion-status/snapshots")),
+            &env.owner_token,
+            None,
+            None,
+        )
+        .await;
+    assert_eq!(code, 201, "{body}");
+}

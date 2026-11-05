@@ -46,6 +46,11 @@ pub const MAX_CONDITIONS: usize = 20;
 pub const MAX_LABEL_CHARS: usize = 200;
 pub const MAX_NOTE_BYTES: usize = 1000;
 pub const MAX_LISTED: u64 = 100;
+/// Snapshots are immutable and never deleted, so one task may keep only this
+/// many. The check is count-then-insert (not atomic): concurrent callers can
+/// overshoot by the number of racing requests, which is acceptable for a
+/// storage guard. At the cap the caller gets `SNAPSHOT_LIMIT_REACHED`.
+pub const MAX_SNAPSHOTS_PER_TASK: u64 = 200;
 
 pub const QUESTION_ANSWERED: &str = "question_answered";
 pub const WORK_PACKAGE_PRESENT: &str = "work_package_present";
@@ -736,6 +741,16 @@ pub async fn record_snapshot(
     now: DateTime<Utc>,
 ) -> CollabResult<SnapshotView> {
     let status = completion::evaluate(db, repo_id, task_id, branch_head, now).await?;
+    let stored = ops::count_snapshots(db, &status.task_id).await?;
+    if stored >= MAX_SNAPSHOTS_PER_TASK {
+        return Err(CollabError::CodedConflict {
+            code: "SNAPSHOT_LIMIT_REACHED",
+            message: format!(
+                "this task already has {stored} evaluation snapshots (limit {MAX_SNAPSHOTS_PER_TASK}); read an existing one instead"
+            ),
+            details: Some(serde_json::json!({ "limit": MAX_SNAPSHOTS_PER_TASK, "stored": stored })),
+        });
+    }
     let result = serde_json::to_value(&status).map_err(|e| CollabError::Internal(e.into()))?;
     let overall = status
         .defined
