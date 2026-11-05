@@ -23,6 +23,7 @@
 - **CNB（`cnb`）**：开发主仓库。开发阶段以 CNB 为主要上游，代码的开发、集成和验证优先在 CNB 完成。
 - **git233（`origin`）**：自建私人仓库。CNB 完成相应开发工作后，再将需要同步的提交推送到 git233。
 - **GitHub（`github`）**：公开发布仓库。准备发布时，在 CNB 完成开发工作后，才推送到 GitHub 并进行 GitHub CI；日常开发不为同步而推送 GitHub。
+- **CNB 流水线（`.cnb.yml`）承载全部日常验证**（2026-11-05，因 GitHub 免费 CI 额度紧张）：`main`/`feat/**` 的 push 和对 `main` 的 PR 会并行跑 8 条流水线——`lint`（rustfmt + clippy `-D warnings`）、`rust-tests`（`cargo check --workspace --tests`、`cargo test --workspace`、全新库迁移冒烟）、`security-audit`（`cargo audit`）、`git-protocol`（HTTP/SSH 协议矩阵）、`postgres` 与 `mysql`（`scripts/ci-db-tests.sh`：rg-core 冒烟 + 全部 rg-db 与 rg-http `collab_*` 测试，每个测试目标一个全新库）、`frontend`（svelte-check、vitest、build、i18n 键检查）、`deploy-config`（compose 校验）。查看用 `cnb build get-build-logs` / `get-build-status`。**未覆盖**：`docker-image.yml`（镜像发布）、`collab-e2e.py` 各场景、浏览器烟测；这些仍需手动。
 - 同步前检查目标分支和远端状态，保持提交历史一致，禁止强制推送。各仓库同步结果和 CI 结果分别核验；推送成功不代表 CI 通过或发布完成。
 - 这些名称是当前检出的远端配置；执行前仍需核实实际远端和分支。此约定不自动修改 Git 已配置的跟踪上游，拉取或推送时应明确选择目标。
 
