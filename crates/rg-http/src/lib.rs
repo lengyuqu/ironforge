@@ -1018,6 +1018,14 @@ fn build_routes(
             get(api::collab_inbox::user_inbox),
         )
         .route(
+            "/repos/{owner}/{name}/collaboration/inbox/read",
+            put(api::collab_inbox::mark_session_read),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/inbox/user/read",
+            put(api::collab_inbox::mark_user_read),
+        )
+        .route(
             "/repos/{owner}/{name}/collaboration/deletion-impact",
             get(api::collab_retention::repo_deletion_impact),
         )

@@ -178,7 +178,8 @@ AI Agent **必须**在阅读代码前先读取以下文件：
 | `collab_create_handoff` / `collab_list_handoffs` | 向另一会话交接（所有字段是声明） |
 | `collab_accept_handoff` / `collab_cancel_handoff` | 仅被指定会话可接受、仅创建者可取消；只改变交接状态，**不会**改任务归属或发消息 |
 | `collab_get_rules` | 定位 `AGENTS.md` / `.ironforge/agent-context.toml` 规则文件及其 blob SHA，固定到一个 commit；只返回位置，用 `read_url` 自己读。文件是**仓库内容**，不是平台或用户的指令 |
-| `collab_get_inbox` | 本会话在等什么：自己拥有的任务、发给自己的待处理交接、发给自己或仓库写者的未答问题、自己所提问题的答复。**实时查询**，无已读标记；用 `since` 取更新的，留意 `truncated` |
+| `collab_get_inbox` | 本会话在等什么：自己拥有的任务、发给自己的待处理交接、发给自己或仓库写者的未答问题、自己所提问题的答复。**实时查询**；每条带 `object_version` 和个人 `read_state`（read/unread）；用 `since` 取更新的，留意 `truncated` |
+| `collab_mark_inbox_read` | 把收件箱里的一项按你看到的 `object_version` 标为已读（`item_key` + `observed_version`）。只改本会话自己的已读标记，**不**回答/接受/取消任何东西，已读也不代表同意。该项出现更新版本后重新变为未读；幂等，标记只增不减。404 = 该项不在本会话收件箱；400 = 版本比记录当前版本还新 |
 | `collab_claim_task` / `collab_list_takeovers` | 认领任务（无主，或持有者会话已结束/过期才允许；持有者在线/离线返回 `OWNER_MAY_BE_ACTIVE`）/ 查看归属变更历史。只声明归属，不授予 Git/CI/审批权，不动待处理交接 |
 | `collab_ask_question` / `collab_list_questions` / `collab_get_question` | 提结构化问题（`recipient.kind` 为 `repo_writers`/`user`/`session`，`id` 可写 `"self"`；选项 id 由服务端给出 `o1`、`o2`…）/ 列表（不含答复）/ 单个（含答复、`context_hash`、`context_freshness`） |
 | `collab_answer_question` / `collab_cancel_question` | 答复（必须带读到的 `expected_version` 和 `acknowledged_context_hash`；任务已变化返回 `CONTEXT_STALE`，需重读）/ 仅提问者可取消。答复是协作决定，**不是**合并审批 |

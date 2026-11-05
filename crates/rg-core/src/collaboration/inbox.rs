@@ -2,17 +2,22 @@
 //!
 //! The inbox is a *live projection* of the authoritative records (owned tasks,
 //! pending handoffs, open and answered questions), computed on every request.
-//! It is not a snapshot and has no read marks: an item disappears when its
-//! record stops being actionable, and clients that want "only new" pass
-//! `since`. Items only locate records; read the record before acting on it.
+//! It is not a snapshot: an item disappears when its record stops being
+//! actionable, and clients that want "only new" pass `since`. Items only locate
+//! records; read the record before acting on it.
+//!
+//! Each item also carries the caller's *personal read mark* (`read_state`). A
+//! mark names the object version that was read; a newer version of the same
+//! object is unread again. Marks only express reading: they never answer,
+//! accept, cancel or close anything, and they are not shared between actors.
 
 use chrono::{DateTime, Utc};
-use rg_db::ops::{collab_handoff_ops, collab_question_ops, collab_task_ops};
+use rg_db::ops::{collab_handoff_ops, collab_inbox_read_ops, collab_question_ops, collab_task_ops};
 use sea_orm::{ColumnTrait, Condition, DatabaseConnection};
 use serde::Serialize;
 
-use super::error::CollabResult;
-use super::{Actor, ORIGIN_USER_CONTENT};
+use super::error::{CollabError, CollabResult};
+use super::{validation, Actor, ORIGIN_USER_CONTENT};
 use rg_db::entities::collab_question;
 
 pub const ASSIGNED_TASK: &str = "assigned_task";
@@ -32,6 +37,14 @@ pub struct InboxItem {
     pub occurred_at: DateTime<Utc>,
     /// Current state of the record (task status, handoff status, ...).
     pub state: String,
+    /// The record's version now; `observed_version` of a read mark refers to it.
+    pub object_version: i64,
+    /// `read` when the caller marked this version (or a newer one) as read,
+    /// otherwise `unread`. Reading never changes the record or its state.
+    pub read_state: &'static str,
+    /// Highest version the caller marked as read, when it ever did.
+    pub last_read_version: Option<i64>,
+    pub last_read_at: Option<DateTime<Utc>>,
     /// Title or summary text written by a client.
     pub title: String,
     pub origin: &'static str,
@@ -43,7 +56,8 @@ pub struct Inbox {
     pub as_of: DateTime<Utc>,
     /// More items matched than `limit`; narrow with `since` or work the list down.
     pub truncated: bool,
-    /// Always `live_query`: no snapshot, no cursor, no read marks.
+    /// Always `live_query`: no snapshot and no cursor. Read marks are the
+    /// caller's own and are looked up on every request.
     pub consistency: &'static str,
 }
 
@@ -53,6 +67,7 @@ fn item(
     object_id: String,
     occurred_at: DateTime<Utc>,
     state: String,
+    object_version: i64,
     title: String,
 ) -> InboxItem {
     InboxItem {
@@ -62,6 +77,10 @@ fn item(
         object_id,
         occurred_at,
         state,
+        object_version,
+        read_state: "unread",
+        last_read_version: None,
+        last_read_at: None,
         title,
         origin: ORIGIN_USER_CONTENT,
     }
@@ -97,7 +116,7 @@ fn question_item(q: collab_question::Model) -> InboxItem {
     } else {
         (QUESTION_ANSWER, q.updated_at)
     };
-    item(kind, q.task_id, q.id, at, q.status, q.title)
+    item(kind, q.task_id, q.id, at, q.status, q.version, q.title)
 }
 
 /// What is waiting for one session: tasks it owns, handoffs addressed to it,
@@ -120,6 +139,7 @@ pub async fn for_session(
             t.id,
             t.updated_at,
             t.status,
+            t.version,
             t.title,
         ));
     }
@@ -130,6 +150,7 @@ pub async fn for_session(
             h.id,
             h.created_at,
             h.status,
+            h.version,
             h.summary,
         ));
     }
@@ -156,7 +177,13 @@ pub async fn for_session(
     {
         items.push(question_item(q));
     }
-    Ok(finish(items, since, limit, now))
+    annotate(
+        db,
+        repo_id,
+        &Actor::session(session_id),
+        finish(items, since, limit, now),
+    )
+    .await
 }
 
 /// What is waiting for the signed-in account's user door: open questions
@@ -194,7 +221,143 @@ pub async fn for_user(
     {
         items.push(question_item(q));
     }
-    Ok(finish(items, since, limit, now))
+    annotate(db, repo_id, &me, finish(items, since, limit, now)).await
+}
+
+/// Fill in the caller's read marks.
+async fn annotate(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    actor: &Actor,
+    mut inbox: Inbox,
+) -> CollabResult<Inbox> {
+    let keys: Vec<String> = inbox.items.iter().map(|i| i.item_key.clone()).collect();
+    let marks =
+        collab_inbox_read_ops::list_for_keys(db, repo_id, actor.kind, &actor.id, &keys).await?;
+    for item in &mut inbox.items {
+        if let Some(mark) = marks.iter().find(|m| m.item_key == item.item_key) {
+            item.last_read_version = Some(mark.observed_version);
+            item.last_read_at = Some(mark.read_at);
+            if mark.observed_version >= item.object_version {
+                item.read_state = "read";
+            }
+        }
+    }
+    Ok(inbox)
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct ReadMark {
+    pub item_key: String,
+    /// Highest version marked as read after this call.
+    pub observed_version: i64,
+    /// The record's version now.
+    pub current_version: i64,
+    /// `read` when the mark covers the current version.
+    pub read_state: &'static str,
+    pub read_at: DateTime<Utc>,
+}
+
+const NOT_IN_INBOX: &str = "inbox item not found";
+
+fn addressed_to(q: &collab_question::Model, actor: &Actor) -> bool {
+    let me = |kind: &str, id: &str| kind == actor.kind && id == actor.id;
+    match q.recipient_kind.as_str() {
+        "repo_writers" => !me(&q.creator_kind, &q.creator_id),
+        kind => q.recipient_id.as_deref().is_some_and(|id| me(kind, id)),
+    }
+}
+
+/// The version of the record behind `item_key`, if that item is in `actor`'s
+/// inbox right now. Everything else reads as absent, so a mark is no way to
+/// probe other actors' records.
+async fn current_version(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    actor: &Actor,
+    item_key: &str,
+) -> CollabResult<i64> {
+    let absent = || CollabError::not_found(NOT_IN_INBOX);
+    let (kind, id) = item_key.split_once(':').ok_or_else(absent)?;
+    if !validation::is_uuid(id) {
+        return Err(absent());
+    }
+    match kind {
+        ASSIGNED_TASK if actor.kind == "session" => {
+            let t = collab_task_ops::find_in_repo(db, repo_id, id)
+                .await?
+                .ok_or_else(absent)?;
+            (t.owner_session_id.as_deref() == Some(actor.id.as_str()) && t.status != "done")
+                .then_some(t.version)
+                .ok_or_else(absent)
+        }
+        PENDING_HANDOFF if actor.kind == "session" => {
+            let h = collab_handoff_ops::find_in_repo(db, repo_id, id)
+                .await?
+                .ok_or_else(absent)?;
+            (h.to_session_id == actor.id && h.status == "pending")
+                .then_some(h.version)
+                .ok_or_else(absent)
+        }
+        OPEN_QUESTION | QUESTION_ANSWER => {
+            let q = collab_question_ops::find_in_repo(db, repo_id, id)
+                .await?
+                .ok_or_else(absent)?;
+            let visible = if kind == OPEN_QUESTION {
+                q.status == "open" && addressed_to(&q, actor)
+            } else {
+                q.status == "answered" && q.creator_kind == actor.kind && q.creator_id == actor.id
+            };
+            visible.then_some(q.version).ok_or_else(absent)
+        }
+        _ => Err(absent()),
+    }
+}
+
+/// Mark the object version `observed_version` of an inbox item as read by
+/// `actor`. Only an item currently in the actor's inbox can be marked, and only
+/// up to the record's current version: a newer version stays unread, a version
+/// that does not exist yet is refused. Marking is monotonic and idempotent.
+pub async fn mark_read(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    actor: &Actor,
+    item_key: &str,
+    observed_version: i64,
+    now: DateTime<Utc>,
+) -> CollabResult<ReadMark> {
+    if observed_version < 1 {
+        return Err(CollabError::bad_request(
+            "observed_version must be at least 1",
+        ));
+    }
+    let current = current_version(db, repo_id, actor, item_key).await?;
+    if observed_version > current {
+        return Err(CollabError::bad_request(
+            "observed_version is newer than the item's current version",
+        ));
+    }
+    let mark = collab_inbox_read_ops::raise(
+        db,
+        repo_id,
+        actor.kind,
+        &actor.id,
+        item_key,
+        observed_version,
+        now,
+    )
+    .await?;
+    Ok(ReadMark {
+        item_key: mark.item_key,
+        observed_version: mark.observed_version,
+        current_version: current,
+        read_state: if mark.observed_version >= current {
+            "read"
+        } else {
+            "unread"
+        },
+        read_at: mark.read_at,
+    })
 }
 
 #[cfg(test)]
@@ -211,6 +374,7 @@ mod tests {
             key.into(),
             t,
             "open".into(),
+            1,
             "x".into(),
         )
     }

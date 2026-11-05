@@ -14,6 +14,7 @@ pub mod collab_dependency_ops;
 pub mod collab_escalation_ops;
 pub mod collab_group_ops;
 pub mod collab_handoff_ops;
+pub mod collab_inbox_read_ops;
 pub mod collab_message_ops;
 pub mod collab_metric_ops;
 pub mod collab_notice_ops;

@@ -57,7 +57,7 @@ pub async fn advance(
         });
     }
 
-    for _ in 0..3 {
+    for _ in 0..8 {
         let updated = ReadEntity::update_many()
             .col_expr(collab_read::Column::LastReadSeq, Expr::value(seq))
             .col_expr(collab_read::Column::UpdatedAt, Expr::value(now))
@@ -70,9 +70,12 @@ pub async fn advance(
         if updated.rows_affected > 0 {
             break;
         }
-        if get(db, task_id, session_id).await?.is_some() {
-            // Row exists and is already >= seq.
-            break;
+        if let Some(stored) = get(db, task_id, session_id).await? {
+            if stored.last_read_seq >= seq {
+                break;
+            }
+            // A lower watermark appeared after our UPDATE found no row: retry.
+            continue;
         }
         // A plain insert whose unique violation means "someone else created the
         // row first"; `INSERT .. ON CONFLICT DO NOTHING` is not portable to MySQL.

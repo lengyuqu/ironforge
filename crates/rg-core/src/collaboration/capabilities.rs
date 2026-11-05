@@ -367,7 +367,7 @@ pub const REGISTRY: &[Capability] = &[
         name: "inbox",
         version: "1.0",
         status: Stable,
-        mcp_tools: &["collab_get_inbox"],
+        mcp_tools: &["collab_get_inbox", "collab_mark_inbox_read"],
         routes: &[
             r(
                 "GET",
@@ -377,6 +377,16 @@ pub const REGISTRY: &[Capability] = &[
             r(
                 "GET",
                 "/repos/{owner}/{name}/collaboration/inbox/user",
+                RepoWrite,
+            ),
+            r(
+                "PUT",
+                "/repos/{owner}/{name}/collaboration/inbox/read",
+                CollabReadSession,
+            ),
+            r(
+                "PUT",
+                "/repos/{owner}/{name}/collaboration/inbox/user/read",
                 RepoWrite,
             ),
         ],

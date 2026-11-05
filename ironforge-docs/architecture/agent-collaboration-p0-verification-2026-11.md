@@ -15,7 +15,7 @@
 | 工作包按 revision 降序 | 按 `revision` 降序，游标携带 revision | 最初用 `(created_at,id)`，MySQL 秒精度下同秒并列、UUID 决定顺序，2026-11-04 在 MySQL 实测暴露后改为 revision（同任务内唯一且递增） |
 | O03a | 删除影响**只读计数**（仓库 / 账号）+ 备份覆盖盘点（§4） | 不执行删除、不执行恢复 |
 
-**未做**：Web UI、`inbox_reads`、依赖图 / 决定 / 回执 / 通知（P1）、P2、O03b 隔离恢复演练、O02 总览、O04 自定义条件与强制模式、`paths_declared_at`。
+**未做**：Web UI、（`inbox_reads` 已于 2026-11-05 补上，见 [inbox-reads 记录](agent-collaboration-inbox-reads-verification-2026-11.md)）、依赖图 / 决定 / 回执 / 通知（P1）、P2、O03b 隔离恢复演练、O02 总览、O04 自定义条件与强制模式、`paths_declared_at`。
 
 ## 2. 实现证据（文件 / 接口）
 

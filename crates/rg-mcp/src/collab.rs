@@ -298,7 +298,7 @@ struct Plan {
 }
 
 /// Which tools exist, in the order they are advertised.
-pub const TOOL_NAMES: [&str; 56] = [
+pub const TOOL_NAMES: [&str; 57] = [
     "collab_start_session",
     "collab_list_sessions",
     "collab_heartbeat",
@@ -355,6 +355,7 @@ pub const TOOL_NAMES: [&str; 56] = [
     "collab_get_overlaps",
     "collab_get_diagnostics",
     "collab_get_context",
+    "collab_mark_inbox_read",
 ];
 
 /// What a tool will send, for the REST/MCP contract test (`collab_contract`).
@@ -562,6 +563,11 @@ fn plan(name: &str, args: &Value, own_session: Option<&str>) -> Result<Plan, Too
             Method::GET,
             format!("/inbox{}", query(args, &["since", "limit"])),
             None,
+        ),
+        "collab_mark_inbox_read" => with_session(
+            Method::PUT,
+            "/inbox/read".to_string(),
+            Some(Value::Object(pick(args, &["item_key", "observed_version"]))),
         ),
         "collab_claim_task" => {
             let mut body = pick(
@@ -1317,7 +1323,7 @@ pub fn tool_definitions() -> Vec<Value> {
                 "ref": {"type": "string", "maxLength": 255, "description": "Branch, tag or commit; default HEAD."},
                 "path": {"type": "string", "maxLength": 1024, "description": "Repository-relative file or directory; default the root."}
             }), &[])),
-        def("collab_get_inbox", format!("What is waiting for this session: tasks it owns, pending handoffs to it, open questions addressed to it or to repository writers, and answers to its own questions. A live query: no read marks; pass since (RFC 3339) to see only newer items, and check truncated.{untrusted}"),
+        def("collab_get_inbox", format!("What is waiting for this session: tasks it owns, pending handoffs to it, open questions addressed to it or to repository writers, and answers to its own questions. A live query: pass since (RFC 3339) to see only newer items, and check truncated. Each item has object_version and a personal read_state (read | unread); mark items with collab_mark_inbox_read.{untrusted}"),
             schema(json!({"since": {"type": "string", "description": "RFC 3339 time."}, "limit": limit()}), &[])),
         def("collab_claim_task", format!("Claim a task for this session. Refused while the current owner session is online or merely offline (OWNER_MAY_BE_ACTIVE); allowed for an unowned task or an owner that ended or expired. Declares ownership only: no Git, CI or approval rights, and pending handoffs are untouched. Reuse client_takeover_id when retrying.{untrusted}"),
             schema(json!({
@@ -1537,6 +1543,8 @@ pub fn tool_definitions() -> Vec<Value> {
             schema(json!({"task_id": task_id(), "session_id": {"type": "string", "minLength": 1, "maxLength": 64}}), &[])),
         def("collab_get_context", format!("Get a byte-budgeted bundle to pick a task up again: the task, open questions, active decisions, pending handoffs, latest work packages, dependencies, path overlaps and recent messages, in that priority. Records are returned verbatim, never summarised. Each section is a separate live query (no cross-section snapshot); head_sha is an independent observation of the declared branch. When max_bytes (default 32768, 4096-262144) is exceeded, lower-priority items are dropped and listed in truncation; follow each section's continue_with to read the rest. Over-long fields are cut and listed. A 400 BUDGET_TOO_SMALL means even the task alone does not fit.{untrusted}"),
             schema(json!({"task_id": task_id(), "max_bytes": {"type": "integer", "minimum": 4096, "maximum": 262144}, "sections": {"type": "string", "maxLength": 200, "description": "Comma-separated subset of questions, decisions, handoffs, work_packages, dependencies, overlaps, messages."}}), &["task_id"])),
+        def("collab_mark_inbox_read", "Mark an inbox item as read by this session at the object_version you saw. Only this session's own read mark changes: the question, handoff or task is not answered, accepted or touched, and reading is not agreement. A newer version of the item shows as unread again; marking is idempotent and never lowers an earlier mark. 404 means the item is not in this session's inbox; 400 means observed_version is newer than the record.".into(),
+            schema(json!({"item_key": {"type": "string", "minLength": 3, "maxLength": 100}, "observed_version": {"type": "integer", "minimum": 1}}), &["item_key", "observed_version"])),
     ]
 }
 

@@ -183,6 +183,13 @@ pub const TOOL_ROUTES: &[ToolRoute] = &[
         &[],
     ),
     t(
+        "collab_mark_inbox_read",
+        "PUT",
+        "/inbox/read",
+        &[],
+        &["item_key", "observed_version"],
+    ),
+    t(
         "collab_claim_task",
         "POST",
         "/tasks/{task_id}/takeovers",
