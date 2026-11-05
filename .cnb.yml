@@ -15,8 +15,8 @@
 #   frontend                 -> frontend
 #   deploy-config            -> deploy-config
 #
-# Each list item is an independent pipeline and runs in parallel. They run on
-# every push to main or feat/** and on pull requests into main.
+# Each list item is an independent pipeline and runs in parallel. See the
+# trigger section at the bottom: only `lint` is automatic.
 
 .rust-setup: &rust-setup
   docker:
@@ -120,15 +120,27 @@
     - name: validate observability compose
       script: docker compose -f deploy/docker-compose.observability.yml config >/tmp/ironforge-compose-observability.yml
 
+# Automatic: only the cheap `lint` gate (rustfmt + clippy) on push and PR.
+# The full gate set is MANUAL: it takes ~20 minutes and should be started on
+# purpose, e.g. before merging a PR:
+#   cnb build start-build --repo zdzso/ironforge --branch <branch> --event api_trigger
+# or from the repository page (custom button / web_trigger).
 main:
-  push: &all-gates
+  push:
+    - *lint
+  pull_request:
+    - *lint
+  api_trigger: &all-gates
     - *lint
     - *rust-tests
     - *security-audit
     - *git-protocol
     - *frontend
     - *deploy-config
-  pull_request: *all-gates
+  web_trigger: *all-gates
 
 feat/**:
-  push: *all-gates
+  push:
+    - *lint
+  api_trigger: *all-gates
+  web_trigger: *all-gates
