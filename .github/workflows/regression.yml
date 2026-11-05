@@ -1,9 +1,17 @@
 name: Regression
 
-# GitHub is the release-time check only (its free minutes are scarce): day-to-day
-# validation runs on CNB (.cnb.yml). So no `pull_request` trigger; a push to
-# main or a manual run from the Actions tab starts it.
+# Where this runs:
+#   * git233 (Gitea Actions) is the day-to-day CI: CNB's runner quota is used up
+#     and GitHub's free minutes are scarce. Its runners reach crates.io and
+#     docker.gitea.com but not GitHub or Docker Hub, which the jobs below account
+#     for (vendored Swagger UI; `vars.POSTGRES_IMAGE` / `vars.MYSQL_IMAGE`; an
+#     unreachable advisory database is a warning there).
+#   * GitHub is the release-time check only: the repository is pushed there when
+#     releasing, so `pull_request` never fires on GitHub in practice.
 on:
+  pull_request:
+    branches:
+      - main
   push:
     branches:
       - main
@@ -102,7 +110,21 @@ jobs:
         run: cargo install cargo-audit --locked
 
       - name: Security audit
-        run: cargo audit
+        shell: bash
+        run: |
+          # The advisory database lives on GitHub. A runner that cannot reach it
+          # (git233's) cannot audit: say so loudly instead of failing every run,
+          # but only off GitHub - on GitHub an unreachable database is a failure.
+          set +e
+          cargo audit 2>&1 | tee audit.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ] \
+             && grep -q "couldn't fetch advisory database" audit.log \
+             && [ "${GITHUB_SERVER_URL}" != "https://github.com" ]; then
+            echo "::warning::advisory database unreachable from this runner - the audit did NOT run"
+            exit 0
+          fi
+          exit $status
 
   git-protocol:
     name: Real Git client protocol matrix
@@ -137,7 +159,9 @@ jobs:
     timeout-minutes: 20
     services:
       postgres:
-        image: postgres:17
+        # Docker Hub is unreachable from git233's runners: set the repository
+        # variable POSTGRES_IMAGE to a mirror there; GitHub uses the default.
+        image: ${{ vars.POSTGRES_IMAGE || 'postgres:17' }}
         env:
           POSTGRES_USER: ironforge
           POSTGRES_PASSWORD: ironforge
@@ -170,7 +194,7 @@ jobs:
     timeout-minutes: 20
     services:
       mysql:
-        image: mysql:8.4
+        image: ${{ vars.MYSQL_IMAGE || 'mysql:8.4' }}
         env:
           MYSQL_ROOT_PASSWORD: root
           MYSQL_DATABASE: ironforge
