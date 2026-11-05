@@ -179,9 +179,14 @@ async fn check_params(
         QUESTION_ANSWERED => {
             only_keys(&params, &["question_id"], kind)?;
             let id = str_param(&params, "question_id")?;
-            let q = question::find(db, repo_id, id).await.map_err(|_| {
-                CollabError::bad_request("question_id must be a question of this task")
-            })?;
+            let q = question::find(db, repo_id, id)
+                .await
+                .map_err(|err| match err {
+                    CollabError::NotFound(_) => {
+                        CollabError::bad_request("question_id must be a question of this task")
+                    }
+                    other => other,
+                })?;
             if q.task_id != task_id {
                 return Err(CollabError::bad_request(
                     "question_id must be a question of this task",
@@ -369,7 +374,7 @@ pub async fn set_conditions(
         actor_id: Set(actor.id.clone()),
         client_request_id: Set(input.client_request_id.clone()),
         payload_hash: Set(request_hash.clone()),
-        created_at: Set(now),
+        created_at: Set(super::creation_timestamp(db, now)),
     };
     match ops::insert_set(db, model, &task.id, &input.client_request_id).await? {
         InsertOutcome::Inserted(row) => Ok(SetCreated {
@@ -489,7 +494,7 @@ pub async fn confirm(
         actor_user_id: Set(user_id),
         client_request_id: Set(input.client_request_id.clone()),
         payload_hash: Set(request_hash.clone()),
-        created_at: Set(now),
+        created_at: Set(super::creation_timestamp(db, now)),
     };
     match ops::insert_confirmation(db, model, &task.id, &input.client_request_id).await? {
         InsertOutcome::Inserted(row) => Ok(ConfirmationCreated {
@@ -500,9 +505,10 @@ pub async fn confirm(
             confirmation: confirmation_view(row),
             replayed: true,
         }),
-        InsertOutcome::Replay(_) | InsertOutcome::VersionTaken => {
-            Err(CollabError::IdempotencyKeyReused)
-        }
+        InsertOutcome::Replay(_) => Err(CollabError::IdempotencyKeyReused),
+        InsertOutcome::VersionTaken => Err(CollabError::Internal(anyhow::anyhow!(
+            "confirmation insert reported a version conflict"
+        ))),
     }
 }
 
@@ -751,7 +757,7 @@ pub async fn record_snapshot(
             result_json: Set(result.to_string()),
             actor_kind: Set(actor.kind.to_string()),
             actor_id: Set(actor.id.clone()),
-            created_at: Set(now),
+            created_at: Set(super::creation_timestamp(db, now)),
         },
     )
     .await?;

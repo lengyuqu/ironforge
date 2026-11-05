@@ -270,7 +270,12 @@ fn envelope(
                     drafts.iter().any(|d| {
                         d.section.name == cut.section
                             && d.section.items.iter().any(|item| {
-                                item.get("id").and_then(Value::as_str) == Some(&cut.object_id)
+                                // Items without an id (dependencies, overlaps) cannot
+                                // be matched one by one: keep the record while the
+                                // section still has any.
+                                cut.object_id.is_empty()
+                                    || item.get("id").and_then(Value::as_str)
+                                        == Some(&cut.object_id)
                             })
                     })
                 })
