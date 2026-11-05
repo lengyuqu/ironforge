@@ -230,6 +230,73 @@ export interface CompletionStatus {
   declared_done_without_evidence: boolean;
   observed_branch_head: string | null;
   evaluated_at: string;
+  /** The conditions someone defined for this task, judged now; null when none are defined. */
+  defined: DefinedStatus | null;
+}
+
+/** `question_answered` | `work_package_present` | `ci_passed_for_commit` | `manual_confirmation` (a newer server may add more). */
+export interface DefinedConditionSpec {
+  id: string;
+  type: string;
+  label: string;
+  params: Record<string, unknown>;
+  introduced_in_version: number;
+  created_by_kind: string;
+  created_by_id: string;
+}
+
+export interface ConfirmationView {
+  id: string;
+  task_id: string;
+  condition_id: string;
+  condition_set_version: number;
+  /** The task version and branch head the confirmer was looking at. */
+  task_version: number;
+  head_sha: string | null;
+  note: string;
+  /** The confirming account; not proof that a person (rather than a client under it) acted. */
+  confirmed_by_user_id: number;
+  created_at: string;
+  origin: string;
+}
+
+export interface DefinedCondition extends DefinedConditionSpec {
+  /** `satisfied` | `unsatisfied` | `stale` | `unknown` */
+  status: string;
+  detail: string;
+  evidence: { pipeline_id: number; status: string | null; commit_sha: string | null }[];
+  confirmation: ConfirmationView | null;
+}
+
+export interface DefinedStatus {
+  condition_set_version: number;
+  conditions: DefinedCondition[];
+  /** `all_satisfied` | `unsatisfied` | `incomplete` */
+  overall: string;
+}
+
+export interface ConfirmationCreated {
+  confirmation: ConfirmationView;
+  replayed: boolean;
+}
+
+export interface SnapshotSummary {
+  id: string;
+  task_id: string;
+  /** 0 = no defined conditions. */
+  condition_set_version: number;
+  task_version: number;
+  overall: string;
+  recorded_by_kind: string;
+  recorded_by_id: string;
+  created_at: string;
+}
+
+/** The evaluation exactly as recorded then; it is never recomputed. */
+export interface SnapshotView extends SnapshotSummary {
+  result: CompletionStatus;
+  immutable: boolean;
+  replayed: boolean;
 }
 
 export interface PathOverlap {
@@ -421,6 +488,40 @@ export const collaboration = {
       method: 'POST',
       body: JSON.stringify({ expected_version: expectedVersion }),
     }),
+
+  /** Confirm a `manual_confirmation` condition with the signed-in account (needs write access). Not a merge approval. */
+  confirmCondition: (
+    owner: string,
+    repo: string,
+    taskId: string,
+    conditionId: string,
+    input: { client_request_id: string; note?: string },
+  ) =>
+    request<ConfirmationCreated>(
+      `${base(owner, repo)}/tasks/${encodeURIComponent(taskId)}/completion-conditions/${encodeURIComponent(conditionId)}/confirmations`,
+      { method: 'POST', body: JSON.stringify(input) },
+    ),
+
+  /** Newest first; no cursor (at most `limit`). */
+  listSnapshots: (owner: string, repo: string, taskId: string, opts: { limit?: number } = {}) =>
+    request<{ items: SnapshotSummary[] }>(
+      `${base(owner, repo)}/tasks/${encodeURIComponent(taskId)}/completion-status/snapshots${qs({ limit: opts.limit })}`,
+    ),
+
+  getSnapshot: (owner: string, repo: string, taskId: string, snapshotId: string) =>
+    request<SnapshotView>(
+      `${base(owner, repo)}/tasks/${encodeURIComponent(taskId)}/completion-status/snapshots/${encodeURIComponent(snapshotId)}`,
+    ),
+
+  /**
+   * Store the current evaluation unchanged as a snapshot. With a `client_request_id`
+   * a retry returns the snapshot that key already made.
+   */
+  createSnapshot: (owner: string, repo: string, taskId: string, clientRequestId: string) =>
+    request<SnapshotView>(
+      `${base(owner, repo)}/tasks/${encodeURIComponent(taskId)}/completion-status/snapshots${qs({ client_request_id: clientRequestId })}`,
+      { method: 'POST' },
+    ),
 
   /** Questions waiting for the signed-in account. Needs write access (403 otherwise). */
   userInbox: (owner: string, repo: string, opts: { limit?: number } = {}) =>

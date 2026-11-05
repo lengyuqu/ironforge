@@ -32,6 +32,7 @@
   import SectionCard from '$lib/components/collaboration/SectionCard.svelte';
   import StatusBadge from '$lib/components/collaboration/StatusBadge.svelte';
   import QuestionCard from '$lib/components/collaboration/QuestionCard.svelte';
+  import ConditionsCard from '$lib/components/collaboration/ConditionsCard.svelte';
 
   const t = createT();
 
@@ -368,6 +369,12 @@
         {#if completion.observed_branch_head}
           <p class="muted">{t('collab.completion.head')}: <code>{shortId(completion.observed_branch_head)}</code></p>
         {/if}
+      {/if}
+    </SectionCard>
+
+    <SectionCard title={t('collab.conditions.title')} note={t('collab.conditions.note')}>
+      {#if completion}
+        <ConditionsCard {owner} {repo} {taskId} defined={completion.defined} onChanged={loadCompletion} />
       {/if}
     </SectionCard>
 
