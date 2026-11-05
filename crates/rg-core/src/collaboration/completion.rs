@@ -44,8 +44,13 @@ pub struct CompletionStatus {
     pub task_version: i64,
     /// The task's own status field: a claim by whoever set it.
     pub declared_status: String,
+    /// Conditions derived from existing records (the original, fixed set).
     pub conditions: Vec<ConditionStatus>,
-    /// `all_satisfied` | `unsatisfied` | `incomplete` (some condition is stale
+    /// The conditions someone defined for this task, evaluated now; `None`
+    /// when the task has none. When present they decide
+    /// `declared_done_without_evidence`.
+    pub defined: Option<super::conditions::DefinedStatus>,
+    /// Over the derived `conditions` only. `all_satisfied` | `unsatisfied` | `incomplete` (some condition is stale
     /// or unknown, none unsatisfied).
     pub overall: &'static str,
     /// The task says `done` while the evidence does not support it.
@@ -65,7 +70,7 @@ fn condition(id: &'static str, status: &'static str, detail: impl Into<String>) 
     }
 }
 
-fn ci_condition(
+pub(crate) fn ci_condition(
     commit: Option<&str>,
     pipelines: &[rg_db::entities::pipeline::Model],
     branch_head: Option<&str>,
@@ -221,10 +226,15 @@ pub async fn evaluate(
 
     let conditions = vec![questions, package, ci];
     let overall = overall_of(&conditions);
+    let defined =
+        super::conditions::evaluate_defined(db, repo_id, &task, branch_head.as_deref(), now)
+            .await?;
+    let judged_overall = defined.as_ref().map_or(overall, |d| d.overall);
     Ok(CompletionStatus {
         task_id: task.id,
         task_version: task.version,
-        declared_done_without_evidence: task.status == "done" && overall != "all_satisfied",
+        declared_done_without_evidence: task.status == "done" && judged_overall != "all_satisfied",
+        defined,
         declared_status: task.status,
         conditions,
         overall,

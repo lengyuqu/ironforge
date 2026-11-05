@@ -1017,3 +1017,90 @@ async fn n09_expired_target_cancel_then_new_handoff_leaves_an_explainable_trail(
         .iter()
         .any(|item| item["id"] == h2["id"] && item["status"] == "pending"));
 }
+
+async fn owned_task(env: &Env, owner: &Sess) -> String {
+    let (status, task) = env
+        .json(
+            Method::POST,
+            &env.url("/tasks"),
+            &env.owner_token,
+            Some(owner),
+            Some(json!({"title": "task", "owner_session_id": owner.id})),
+        )
+        .await;
+    assert_eq!(status, 201, "{task}");
+    task["id"].as_str().unwrap().to_string()
+}
+
+async fn set_status(env: &Env, who: &Sess, task: &str, version: i64, status: &str) {
+    let (code, body) = env
+        .json(
+            Method::PATCH,
+            &env.url(&format!("/tasks/{task}")),
+            &env.owner_token,
+            Some(who),
+            Some(json!({"expected_version": version, "status": status})),
+        )
+        .await;
+    assert_eq!(code, 200, "{body}");
+}
+
+/// Declaring a dependency done tells the owner of each unfinished task that
+/// waits on it, once per finish, in the same transaction as the status change.
+#[tokio::test]
+async fn u01_finishing_a_dependency_notifies_the_waiting_owner_once_per_finish() {
+    let env = Env::new().await;
+    let a = env.session(&env.owner_token, "A").await;
+    let b = env.session(&env.owner_token, "B").await;
+    let c = env.session(&env.owner_token, "C").await;
+    let blocker = owned_task(&env, &a).await;
+    let waiting = owned_task(&env, &b).await;
+    let finished = owned_task(&env, &c).await;
+    // `waiting` and `finished` both wait on `blocker`; `finished` is already done.
+    for (n, dependent) in [&waiting, &finished].into_iter().enumerate() {
+        let (code, body) = env
+            .json(
+                Method::POST,
+                &env.url(&format!("/tasks/{dependent}/dependencies")),
+                &env.owner_token,
+                None,
+                Some(json!({
+                    "client_request_id": format!("dep{n}"),
+                    "depends_on_task_id": blocker,
+                    "expected_graph_version": n as i64,
+                })),
+            )
+            .await;
+        assert_eq!(code, 201, "{body}");
+    }
+    set_status(&env, &c, &finished, 1, "done").await;
+    assert!(
+        notices(&env, &b, "").await.is_empty(),
+        "nothing finished yet"
+    );
+
+    set_status(&env, &a, &blocker, 1, "done").await;
+    let waiting_notices = notices(&env, &b, "").await;
+    assert_eq!(kinds(&waiting_notices), ["dependency_finished"]);
+    let n = &waiting_notices[0];
+    assert_eq!(n["task_id"], waiting);
+    assert_eq!(n["source_type"], "dependency");
+    assert_eq!(n["source_id"], blocker);
+    assert_eq!(n["hint"]["dependency_task_id"], blocker);
+    assert_eq!(n["hint"]["dependent_task_id"], waiting);
+    assert_eq!(n["authority"], "hint");
+    // The finisher and the already-done dependent are not told.
+    assert!(notices(&env, &a, "").await.is_empty());
+    assert!(notices(&env, &c, "?state=all").await.is_empty());
+
+    // Re-asserting the same status is not a new finish: no second notice.
+    set_status(&env, &a, &blocker, 2, "done").await;
+    assert_eq!(notices(&env, &b, "?state=all").await.len(), 1);
+
+    // Reopening and finishing again is a new event and gets a new notice.
+    set_status(&env, &a, &blocker, 3, "in_progress").await;
+    set_status(&env, &a, &blocker, 4, "done").await;
+    let all = notices(&env, &b, "?state=all").await;
+    assert_eq!(all.len(), 2, "{all:?}");
+    assert_ne!(all[0]["generation"], all[1]["generation"]);
+}

@@ -367,7 +367,7 @@ pub const REGISTRY: &[Capability] = &[
         name: "inbox",
         version: "1.0",
         status: Stable,
-        mcp_tools: &["collab_get_inbox"],
+        mcp_tools: &["collab_get_inbox", "collab_mark_inbox_read"],
         routes: &[
             r(
                 "GET",
@@ -377,6 +377,16 @@ pub const REGISTRY: &[Capability] = &[
             r(
                 "GET",
                 "/repos/{owner}/{name}/collaboration/inbox/user",
+                RepoWrite,
+            ),
+            r(
+                "PUT",
+                "/repos/{owner}/{name}/collaboration/inbox/read",
+                CollabReadSession,
+            ),
+            r(
+                "PUT",
+                "/repos/{owner}/{name}/collaboration/inbox/user/read",
                 RepoWrite,
             ),
         ],
@@ -391,6 +401,52 @@ pub const REGISTRY: &[Capability] = &[
             "/repos/{owner}/{name}/collaboration/tasks/{id}/completion-status",
             CollabRead,
         )],
+    },
+    Capability {
+        name: "completion_conditions",
+        version: "1.0",
+        status: Stable,
+        mcp_tools: &[
+            "collab_get_completion_conditions",
+            "collab_set_completion_conditions",
+        ],
+        routes: &[
+            r(
+                "GET",
+                "/repos/{owner}/{name}/collaboration/tasks/{id}/completion-conditions",
+                CollabRead,
+            ),
+            r(
+                "PUT",
+                "/repos/{owner}/{name}/collaboration/tasks/{id}/completion-conditions",
+                RepoWrite,
+            ),
+            r(
+                "GET",
+                "/repos/{owner}/{name}/collaboration/tasks/{id}/completion-conditions/versions",
+                CollabRead,
+            ),
+            r(
+                "POST",
+                "/repos/{owner}/{name}/collaboration/tasks/{id}/completion-conditions/{condition_id}/confirmations",
+                RepoWrite,
+            ),
+            r(
+                "GET",
+                "/repos/{owner}/{name}/collaboration/tasks/{id}/completion-status/snapshots",
+                CollabRead,
+            ),
+            r(
+                "POST",
+                "/repos/{owner}/{name}/collaboration/tasks/{id}/completion-status/snapshots",
+                RepoWrite,
+            ),
+            r(
+                "GET",
+                "/repos/{owner}/{name}/collaboration/tasks/{id}/completion-status/snapshots/{snapshot_id}",
+                CollabRead,
+            ),
+        ],
     },
     Capability {
         name: "deletion_impact",
@@ -678,10 +734,43 @@ pub const REGISTRY: &[Capability] = &[
         ],
     },
     Capability {
-        name: "diagnostics",
+        name: "overview",
         version: "1.0",
         status: Stable,
         mcp_tools: &[],
+        routes: &[r(
+            "GET",
+            "/repos/{owner}/{name}/collaboration/overview",
+            CollabRead,
+        )],
+    },
+    Capability {
+        name: "context_pack",
+        version: "1.0",
+        status: Stable,
+        mcp_tools: &["collab_get_context"],
+        routes: &[r(
+            "GET",
+            "/repos/{owner}/{name}/collaboration/tasks/{id}/context",
+            CollabRead,
+        )],
+    },
+    Capability {
+        name: "overlaps",
+        version: "1.0",
+        status: Stable,
+        mcp_tools: &["collab_get_overlaps"],
+        routes: &[r(
+            "GET",
+            "/repos/{owner}/{name}/collaboration/tasks/{id}/overlaps",
+            CollabRead,
+        )],
+    },
+    Capability {
+        name: "diagnostics",
+        version: "1.0",
+        status: Stable,
+        mcp_tools: &["collab_get_diagnostics"],
         routes: &[r(
             "GET",
             "/repos/{owner}/{name}/collaboration/diagnostics",

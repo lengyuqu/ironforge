@@ -1018,6 +1018,14 @@ fn build_routes(
             get(api::collab_inbox::user_inbox),
         )
         .route(
+            "/repos/{owner}/{name}/collaboration/inbox/read",
+            put(api::collab_inbox::mark_session_read),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/inbox/user/read",
+            put(api::collab_inbox::mark_user_read),
+        )
+        .route(
             "/repos/{owner}/{name}/collaboration/deletion-impact",
             get(api::collab_retention::repo_deletion_impact),
         )
@@ -1167,6 +1175,38 @@ fn build_routes(
         .route(
             "/repos/{owner}/{name}/collaboration/escalation-settings",
             get(api::collab_escalation::get_settings).put(api::collab_escalation::put_settings),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/tasks/{id}/overlaps",
+            get(api::collab_overlaps::get_overlaps),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/tasks/{id}/completion-conditions",
+            get(api::collab_conditions::get_conditions).put(api::collab_conditions::put_conditions),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/tasks/{id}/completion-conditions/versions",
+            get(api::collab_conditions::list_versions),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/tasks/{id}/completion-conditions/{condition_id}/confirmations",
+            post(api::collab_conditions::confirm_condition),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/tasks/{id}/completion-status/snapshots",
+            get(api::collab_conditions::list_snapshots).post(api::collab_conditions::create_snapshot),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/tasks/{id}/completion-status/snapshots/{snapshot_id}",
+            get(api::collab_conditions::get_snapshot),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/tasks/{id}/context",
+            get(api::collab_context::get_context),
+        )
+        .route(
+            "/repos/{owner}/{name}/collaboration/overview",
+            get(api::collab_overview::get_overview),
         )
         .route(
             "/repos/{owner}/{name}/collaboration/diagnostics",

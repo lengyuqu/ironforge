@@ -298,7 +298,7 @@ struct Plan {
 }
 
 /// Which tools exist, in the order they are advertised.
-pub const TOOL_NAMES: [&str; 53] = [
+pub const TOOL_NAMES: [&str; 59] = [
     "collab_start_session",
     "collab_list_sessions",
     "collab_heartbeat",
@@ -352,6 +352,12 @@ pub const TOOL_NAMES: [&str; 53] = [
     "collab_ack_notice",
     "collab_confirm_receipt",
     "collab_get_delivery",
+    "collab_get_overlaps",
+    "collab_get_diagnostics",
+    "collab_get_context",
+    "collab_get_completion_conditions",
+    "collab_set_completion_conditions",
+    "collab_mark_inbox_read",
 ];
 
 /// What a tool will send, for the REST/MCP contract test (`collab_contract`).
@@ -560,6 +566,11 @@ fn plan(name: &str, args: &Value, own_session: Option<&str>) -> Result<Plan, Too
             format!("/inbox{}", query(args, &["since", "limit"])),
             None,
         ),
+        "collab_mark_inbox_read" => with_session(
+            Method::PUT,
+            "/inbox/read".to_string(),
+            Some(Value::Object(pick(args, &["item_key", "observed_version"]))),
+        ),
         "collab_claim_task" => {
             let mut body = pick(
                 args,
@@ -683,6 +694,28 @@ fn plan(name: &str, args: &Value, own_session: Option<&str>) -> Result<Plan, Too
             "/tasks/{}/completion-status",
             id_arg(args, "task_id")?
         )),
+        "collab_get_completion_conditions" => get(format!(
+            "/tasks/{}/completion-conditions",
+            id_arg(args, "task_id")?
+        )),
+        "collab_set_completion_conditions" => {
+            require_str(args, "client_request_id")?;
+            if !args.get("conditions").is_some_and(Value::is_array) {
+                return Err(invalid("conditions is required and must be an array"));
+            }
+            let mut body = pick(
+                args,
+                &["client_request_id", "expected_version", "conditions"],
+            );
+            if int_arg(args, "expected_version", false)?.is_none() {
+                body.insert("expected_version".into(), json!(0));
+            }
+            with_session(
+                Method::PUT,
+                format!("/tasks/{}/completion-conditions", id_arg(args, "task_id")?),
+                Some(Value::Object(body)),
+            )
+        }
         "collab_get_dependencies" => {
             get(format!("/tasks/{}/dependencies", id_arg(args, "task_id")?))
         }
@@ -1030,6 +1063,20 @@ fn plan(name: &str, args: &Value, own_session: Option<&str>) -> Result<Plan, Too
                 None,
             )
         }
+        "collab_get_overlaps" => get(format!(
+            "/tasks/{}/overlaps{}",
+            id_arg(args, "task_id")?,
+            query(args, &["limit", "cursor"])
+        )),
+        "collab_get_diagnostics" => get(format!(
+            "/diagnostics{}",
+            query(args, &["task_id", "session_id"])
+        )),
+        "collab_get_context" => get(format!(
+            "/tasks/{}/context{}",
+            id_arg(args, "task_id")?,
+            query(args, &["max_bytes", "sections"])
+        )),
         "collab_get_budget" => {
             let task = id_arg(args, "task_id")?;
             if args.get("list_usage").and_then(Value::as_bool) == Some(true) {
@@ -1300,7 +1347,7 @@ pub fn tool_definitions() -> Vec<Value> {
                 "ref": {"type": "string", "maxLength": 255, "description": "Branch, tag or commit; default HEAD."},
                 "path": {"type": "string", "maxLength": 1024, "description": "Repository-relative file or directory; default the root."}
             }), &[])),
-        def("collab_get_inbox", format!("What is waiting for this session: tasks it owns, pending handoffs to it, open questions addressed to it or to repository writers, and answers to its own questions. A live query: no read marks; pass since (RFC 3339) to see only newer items, and check truncated.{untrusted}"),
+        def("collab_get_inbox", format!("What is waiting for this session: tasks it owns, pending handoffs to it, open questions addressed to it or to repository writers, and answers to its own questions. A live query: pass since (RFC 3339) to see only newer items, and check truncated. Each item has object_version and a personal read_state (read | unread); mark items with collab_mark_inbox_read.{untrusted}"),
             schema(json!({"since": {"type": "string", "description": "RFC 3339 time."}, "limit": limit()}), &[])),
         def("collab_claim_task", format!("Claim a task for this session. Refused while the current owner session is online or merely offline (OWNER_MAY_BE_ACTIVE); allowed for an unowned task or an owner that ended or expired. Declares ownership only: no Git, CI or approval rights, and pending handoffs are untouched. Reuse client_takeover_id when retrying.{untrusted}"),
             schema(json!({
@@ -1514,6 +1561,28 @@ pub fn tool_definitions() -> Vec<Value> {
             schema(json!({"task_id": task_id(), "message_id": {"type": "string", "minLength": 1, "maxLength": 64}}), &["task_id", "message_id"])),
         def("collab_get_delivery", format!("Get delivery state for a message authored by this session. saved means stored, unknown means no confirmation (not unread), read is the target's confirmation, and replied is a direct reply, not agreement. The read watermark is independent.{untrusted}"),
             schema(json!({"task_id": task_id(), "message_id": {"type": "string", "minLength": 1, "maxLength": 64}}), &["task_id", "message_id"])),
+        def("collab_get_overlaps", format!("List other unfinished tasks whose declared paths overlap this task's (equal, or one a directory prefix of the other). A hint, not a lock: it never blocks writes, and tasks that declared no paths or declarations that no longer match the real changes are invisible. confidence is declaration_stale when the other task's paths were declared more than 24 hours ago or at an unknown time. A page may be short and still carry next_cursor; keep following it.{untrusted}"),
+            schema(json!({"task_id": task_id(), "limit": limit(), "cursor": {"type": "string"}}), &["task_id"])),
+        def("collab_get_diagnostics", format!("Explain why a task or session looks stuck. Pass exactly one of task_id and session_id. Each finding carries its source and whether it is established or unknown; not_covered lists what was not checked. A diagnosis is read-only evidence for a human or agent to act on, never an authorization.{untrusted}"),
+            schema(json!({"task_id": task_id(), "session_id": {"type": "string", "minLength": 1, "maxLength": 64}}), &[])),
+        def("collab_get_context", format!("Get a byte-budgeted bundle to pick a task up again: the task, open questions, active decisions, pending handoffs, latest work packages, dependencies, path overlaps and recent messages, in that priority. Records are returned verbatim, never summarised. Each section is a separate live query (no cross-section snapshot); head_sha is an independent observation of the declared branch. When max_bytes (default 32768, 4096-262144) is exceeded, lower-priority items are dropped and listed in truncation; follow each section's continue_with to read the rest. Over-long fields are cut and listed. A 400 BUDGET_TOO_SMALL means even the task alone does not fit.{untrusted}"),
+            schema(json!({"task_id": task_id(), "max_bytes": {"type": "integer", "minimum": 4096, "maximum": 262144}, "sections": {"type": "string", "maxLength": 200, "description": "Comma-separated subset of questions, decisions, handoffs, work_packages, dependencies, overlaps, messages."}}), &["task_id"])),
+        def("collab_get_completion_conditions", format!("Get the completion conditions someone defined for a task (version 0 = none). Conditions are display only: they show what platform records can support, never block or change the task, and a task's own done is still just a declaration. Evaluate them with collab_get_completion_status.{untrusted}"),
+            schema(json!({"task_id": task_id()}), &["task_id"])),
+        def("collab_set_completion_conditions", format!("Replace a task's completion conditions with a new immutable version (display only; nothing is enforced). Send the complete list, at most 20; keep an existing condition's identity by sending its id, and omit id to add one. Types: question_answered {{question_id}}, work_package_present {{work_package_id}}, ci_passed_for_commit {{commit_sha}}, manual_confirmation {{}} (only a signed-in account confirms it, through the user interface, and that is not a merge approval). Pass expected_version = the version you last read (0 if none); a concurrent edit returns VERSION_CONFLICT with the current version.{untrusted}"),
+            schema(json!({
+                "task_id": task_id(),
+                "client_request_id": {"type": "string", "minLength": 1, "maxLength": 128},
+                "expected_version": {"type": "integer", "minimum": 0},
+                "conditions": {"type": "array", "maxItems": 20, "items": {"type": "object", "properties": {
+                    "id": {"type": "string"},
+                    "type": {"type": "string", "enum": ["question_answered", "work_package_present", "ci_passed_for_commit", "manual_confirmation"]},
+                    "label": {"type": "string", "maxLength": 200},
+                    "params": {"type": "object"}
+                }, "required": ["type"], "additionalProperties": false}}
+            }), &["task_id", "client_request_id", "conditions"])),
+        def("collab_mark_inbox_read", "Mark an inbox item as read by this session at the object_version you saw. Only this session's own read mark changes: the question, handoff or task is not answered, accepted or touched, and reading is not agreement. A newer version of the item shows as unread again; marking is idempotent and never lowers an earlier mark. 404 means the item is not in this session's inbox; 400 means observed_version is newer than the record.".into(),
+            schema(json!({"item_key": {"type": "string", "minLength": 3, "maxLength": 100}, "observed_version": {"type": "integer", "minimum": 1}}), &["item_key", "observed_version"])),
     ]
 }
 

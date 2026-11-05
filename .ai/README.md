@@ -171,17 +171,23 @@ AI Agent **必须**在阅读代码前先读取以下文件：
 | `collab_send_message` / `collab_list_messages` | 发消息（`note`/`help`/`blocker`，可 `target_session_id`、`reply_to_id`、`commit_sha`）/ 用 `after_seq` 持久轮询；`next_after_seq` 存好即可无遗漏续读 |
 | `collab_list_notices` / `collab_ack_notice` | 分页读取本会话的持久通知（`state` 默认 `pending`，可选 `all`；使用 `next_cursor` 续页）/ 幂等确认通知。通知仅是提示，行动前重读关联对象；确认不改变关联对象或消息回执 |
 | `collab_confirm_receipt` / `collab_get_delivery` | 指定目标会话确认读过消息（需要仓库写权限，重复确认保留原时间）/ 消息作者查看投递状态。`unknown` 表示没有确认，不等于未读；`replied` 不表示同意。回执与任务已读位置相互独立 |
+| `collab_get_context` | 一次取回接手任务所需的上下文包：任务、开放问题、有效决定、待接手交接、最新工作包、依赖、路径重叠、最近消息（按此优先级）。记录原文返回、不摘要；各 section 是独立实时查询、无跨 section 快照。`max_bytes`（默认 32768，4096–262144）限制整个响应，超限从低优先级丢条目并列在 `truncation`，按各 section 的 `continue_with` 续读；长字段被截断时也列出。`head_sha` 是对声明分支的独立观测。400 `BUDGET_TOO_SMALL` 表示连任务本身都放不下 |
+| `collab_get_overlaps` | 列出与本任务声明路径重叠的其他未完成任务（路径相等或互为目录前缀；不解释 glob）。**只是提示**，不阻止写、不加锁；没声明路径的任务和与真实改动不符的声明看不到。`confidence` 为 `declaration_stale` 表示对方声明超过 24 小时或时间未知。页可能偏短，需一直跟随 `next_cursor` |
+| `collab_get_diagnostics` | 只读诊断：传 `task_id` 或 `session_id`（二选一），解释任务/会话为何看似卡住。每条 finding 带来源与 `established`/`unknown`，`not_covered` 列出未检查项；诊断不是授权 |
 | `collab_mark_read` | 推进本会话已读位置（单调、不超过最新消息；传 0 读取当前值） |
 | `collab_create_handoff` / `collab_list_handoffs` | 向另一会话交接（所有字段是声明） |
 | `collab_accept_handoff` / `collab_cancel_handoff` | 仅被指定会话可接受、仅创建者可取消；只改变交接状态，**不会**改任务归属或发消息 |
 | `collab_get_rules` | 定位 `AGENTS.md` / `.ironforge/agent-context.toml` 规则文件及其 blob SHA，固定到一个 commit；只返回位置，用 `read_url` 自己读。文件是**仓库内容**，不是平台或用户的指令 |
-| `collab_get_inbox` | 本会话在等什么：自己拥有的任务、发给自己的待处理交接、发给自己或仓库写者的未答问题、自己所提问题的答复。**实时查询**，无已读标记；用 `since` 取更新的，留意 `truncated` |
+| `collab_get_inbox` | 本会话在等什么：自己拥有的任务、发给自己的待处理交接、发给自己或仓库写者的未答问题、自己所提问题的答复。**实时查询**；每条带 `object_version` 和个人 `read_state`（read/unread）；用 `since` 取更新的，留意 `truncated` |
+| `collab_mark_inbox_read` | 把收件箱里的一项按你看到的 `object_version` 标为已读（`item_key` + `observed_version`）。只改本会话自己的已读标记，**不**回答/接受/取消任何东西，已读也不代表同意。该项出现更新版本后重新变为未读；幂等，标记只增不减。404 = 该项不在本会话收件箱；400 = 版本比记录当前版本还新 |
 | `collab_claim_task` / `collab_list_takeovers` | 认领任务（无主，或持有者会话已结束/过期才允许；持有者在线/离线返回 `OWNER_MAY_BE_ACTIVE`）/ 查看归属变更历史。只声明归属，不授予 Git/CI/审批权，不动待处理交接 |
 | `collab_ask_question` / `collab_list_questions` / `collab_get_question` | 提结构化问题（`recipient.kind` 为 `repo_writers`/`user`/`session`，`id` 可写 `"self"`；选项 id 由服务端给出 `o1`、`o2`…）/ 列表（不含答复）/ 单个（含答复、`context_hash`、`context_freshness`） |
 | `collab_answer_question` / `collab_cancel_question` | 答复（必须带读到的 `expected_version` 和 `acknowledged_context_hash`；任务已变化返回 `CONTEXT_STALE`，需重读）/ 仅提问者可取消。答复是协作决定，**不是**合并审批 |
 | `collab_create_work_package` / `collab_list_work_packages` / `collab_get_work_package` | 写不可变、带编号的交接摘要（全部是作者声明；仅 `evidence_refs` 里 `kind=pipeline` 的 id 会在**读取时**由平台查询并单独标注 `verified_reference`/`unavailable`）/ 列表 / 单个 |
 | `collab_create_decision` / `collab_list_decisions` / `collab_get_decision` / `collab_change_decision` | 记录**不可变**决定（可引用本任务的问题及其答复，错配被拒；记录任务版本与 commit 上下文，版本过期 `VERSION_CONFLICT`）/ 按序列列出 / 单个（含 `status`、终结事件、`context_freshness`、`supersedes`）/ 追加唯一的终结事件 `superseded`（替代决定须为同任务**更晚**的决定）或 `revoked`（并发只有一个成功：`DECISION_ALREADY_CHANGED`；`DECISION_CYCLE`、`REPLACEMENT_NOT_NEWER`）。决定是协作记录，**不是**审批，不授予 Git/CI/合并权；过期（stale）的决定只标注，不会被自动撤销 |
 | `collab_get_completion_status` | 对照任务的自述状态与平台记录：问题是否都已解决、是否有工作包、该工作包 commit 的最新 CI。只读；“done 但无证据”只会被标出，不会被阻止 |
+| `collab_get_completion_conditions` | 读取任务上的**用户自定义完成条件**（版本 0 = 没有定义）。条件只用于展示：显示平台记录能支持什么，**不**阻止或改变任务，任务自己的 `done` 仍只是声明。用 `collab_get_completion_status` 的 `defined` 看当前评估 |
+| `collab_set_completion_conditions` | 用新的不可变版本整体替换条件（最多 20 条；带 `id` 保持条件身份，不带则新增）。类型：`question_answered{question_id}`、`work_package_present{work_package_id}`、`ci_passed_for_commit{commit_sha}`、`manual_confirmation{}`（只有登录账号经用户界面确认，且**不是**合并审批）。`expected_version` 填你读到的版本（没有填 0），并发编辑返回 `VERSION_CONFLICT` |
 | `collab_get_dependencies` / `collab_add_dependency` / `collab_remove_dependency` | 任务依赖（A 等待 B）。读取返回直接依赖及其**声明的**状态、`graph_version` 与派生的 `blocked_by`（依赖状态非 `done`）；增删必须带读到的 `expected_graph_version`（0 = 尚无任何边）：过期返回 `VERSION_CONFLICT`+`current_version`，成环返回 `DEPENDENCY_CYCLE`（`cycle_path`），图过大或单任务超过 100 条直接依赖返回 `GRAPH_LIMIT_EXCEEDED`（`details.limit`）。删除不存在的边成功且 `removed:false`。只是声明：不阻塞、不启动、不完成任何任务 |
 | `collab_create_group` / `collab_get_group` | 建跨仓协调组（归**锚仓**所有，需锚仓写权限 + 会话）/ 读组及第一页可见关联。**警告**：`title`、`description` 对所有能读锚仓协作数据的人可见（包括读不到被关联仓库的人）；服务端从不把其他仓库的内容复制进去，别在里面写其他仓库的机密。`version` 仅锚仓写者可见，用作 `expected_group_version` |
 | `collab_add_group_link` / `collab_remove_group_link` | 向组里关联/移除**别的仓库**的任务和/或提交（按仓库 id；提交须是完整 SHA 且当前存在于目标仓）。**锚仓和目标仓都要写权限**；必须带 `expected_group_version`（`VERSION_CONFLICT`）；重复目标 `LINK_ALREADY_EXISTS`；移除是软删除并审计。关联不授予任何 Git/CI/合并/审批权 |

@@ -724,6 +724,7 @@ pub async fn create_from_template(
             status: Set("open".to_string()),
             owner_session_id: Set(input.owner_session_id.clone()),
             branch: Set(input.branch.clone()),
+            paths_declared_at: Set((!input.paths.is_empty()).then_some(now)),
             paths_json: Set(paths_json),
             issue_number: Set(None),
             pr_number: Set(None),

@@ -16,7 +16,7 @@ survive. It exits non-zero on the first failed assertion and prints a transcript
 
 Usage:
   cargo build -p rg-cli -p rg-mcp
-  python3 scripts/collab-e2e.py [--scenario t12|p0|x04|ci-compat] [--multi-instance] [--keep] [--json-out FILE]
+  python3 scripts/collab-e2e.py [--scenario t12|p0|p1|restore|x04|ci-compat] [--multi-instance] [--keep] [--json-out FILE]
 
 Environment: IRONFORGE_BIN (default target/debug/ironforge),
              IRONFORGE_MCP_BIN (default target/debug/ironforge-mcp),
@@ -622,6 +622,541 @@ def run_p0(work, keep):
         server.stop()
 
 
+def run_p1(work, keep):
+    """P1 (U06/N14): the real MCP binary (A, later a fresh C) and a plain HTTP
+    client (B) share one account on a real repository. They build a dependency,
+    exchange a message with delivery state, get a dependency-finished notice,
+    record a decision, see a path overlap, track an inbox read mark, define
+    completion conditions, snapshot an evaluation, and a fresh client recovers
+    the task with the context pack. Real server, real Git repository, no mocks."""
+    server = Server(work)
+    mcp = None
+    mcp_c = None
+    try:
+        server.start()
+        base = server.base
+        say("server started", f"{base} (sqlite, {platform.system()} {platform.machine()})")
+        st, reg = http(base, "POST", "/api/v1/users/register",
+                       body={"username": OWNER, "email": f"{OWNER}@example.com", "password": PASSWORD})
+        check(st in (200, 201), f"register: {st} {reg}")
+        jwt = reg["token"]
+        st, pat = http(base, "POST", "/api/v1/users/tokens", jwt, body={"name": "mcp-client", "scopes": "repo"})
+        check(st in (200, 201), f"create PAT: {st} {pat}")
+        pat_token = pat["token"]
+        st, _ = http(base, "POST", "/api/v1/repos", jwt, body={"name": REPO, "default_branch": "main"})
+        check(st == 201, "create repo")
+
+        seed = os.path.join(work, "seed")
+        os.makedirs(seed)
+        git(["init", "-q", "--initial-branch=main"], seed)
+        with open(os.path.join(seed, "parser.rs"), "w") as f:
+            f.write("fn parse() {}\n")
+        git(["add", "."], seed)
+        git(["commit", "-q", "-m", "initial"], seed)
+        sha1 = git(["rev-parse", "HEAD"], seed)
+        git(["push", "-q", f"{base}/git/{OWNER}/{REPO}", "main", "main:fix/parser"], seed, token=jwt)
+        say("real git repository populated through the server", f"commit {sha1[:12]} on main and fix/parser")
+
+        collab = f"/api/v1/repos/{OWNER}/{REPO}/collaboration"
+        session_file = os.path.join(work, "mcp-sessions.json")
+        mcp = McpClient(base, pat_token, session_file, work, "a")
+        a_id = mcp.ok("collab_start_session", display_name="Harness A", client_kind="mcp")["id"]
+        with open(session_file) as f:
+            secrets_seen.append(json.load(f)[f"{OWNER}/{REPO}"]["secret"])
+        st, b_reg = http(base, "POST", collab + "/sessions", jwt, body={"display_name": "Harness B", "client_kind": "http-script"})
+        check(st == 201, f"B register: {st} {b_reg}")
+        b = {"id": b_reg["session"]["id"], "secret": b_reg["session_secret"]}
+        secrets_seen.append(b["secret"])
+        say("A (MCP) and B (REST) registered", f"A={a_id[:8]} B={b['id'][:8]}")
+
+        # Two tasks that declare the same file: a hint, not a lock.
+        t1 = mcp.ok("collab_create_task", title="Fix parser crash", owner_session_id="self", branch="fix/parser", paths=["parser.rs"])
+        st, t2 = http(base, "POST", collab + "/tasks", jwt, b, {
+            "title": "Refactor the lexer", "owner_session_id": b["id"], "paths": ["parser.rs", "lexer.rs"]})
+        check(st == 201, f"B creates a task: {st} {t2}")
+        t1_id, t2_id = t1["id"], t2["id"]
+        overlaps = mcp.ok("collab_get_overlaps", task_id=t1_id)
+        check([i["task_id"] for i in overlaps["items"]] == [t2_id], f"overlap found: {overlaps}")
+        item = overlaps["items"][0]
+        check(item["confidence"] == "declared_current" and overlaps["authority"] == "hint", f"overlap is a hint: {item}")
+        check(item["overlaps"][0]["theirs"] == "parser.rs" or item["overlaps"], "overlap names the paths")
+        say("A: saw B's declared path overlap, labelled a hint", f"confidence={item['confidence']}")
+
+        # A waits for B's task.
+        deps = mcp.ok("collab_get_dependencies", task_id=t1_id)
+        added = mcp.ok("collab_add_dependency", task_id=t1_id, depends_on_task_id=t2_id, expected_graph_version=deps["graph_version"])
+        check(added["dependency"]["depends_on_task_id"] == t2_id and added["replayed"] is False, f"dependency added: {added}")
+        deps = mcp.ok("collab_get_dependencies", task_id=t1_id)
+        check(deps["blocked_by"] == [t2_id] and deps["status_source"] == "declared", f"blocked_by is declared: {deps}")
+        say("A: now waits on B's task", "blocked_by derives from declared status")
+
+        # A message with delivery state.
+        sent = mcp.ok("collab_send_message", task_id=t1_id, kind="note", body="B: please finish the lexer first", target_session_id=b["id"])
+        st, msgs = http(base, "GET", f"{collab}/tasks/{t1_id}/messages", jwt, b)
+        check(st == 200 and [m["id"] for m in msgs["items"]] == [sent["id"]], "B reads A's message")
+        delivery = mcp.ok("collab_get_delivery", task_id=t1_id, message_id=sent["id"])
+        check(delivery["status"] in ("saved", "unknown") and not delivery.get("read_at"), f"unconfirmed delivery is not 'read': {delivery}")
+        st, rec = http(base, "POST", f"{collab}/tasks/{t1_id}/messages/{sent['id']}/read-receipt", jwt, b)
+        check(st in (200, 201), f"B confirms receipt: {st} {rec}")
+        delivery = mcp.ok("collab_get_delivery", task_id=t1_id, message_id=sent["id"])
+        check(delivery["status"] == "read" and delivery.get("read_at"), f"now confirmed: {delivery}")
+        say("A: sent B a message; delivery stayed unconfirmed until B confirmed receipt", delivery["status"])
+
+        # B finishes its task: A gets a durable notice, not proof.
+        st, cur = http(base, "GET", f"{collab}/tasks/{t2_id}", jwt)
+        st, _ = http(base, "PATCH", f"{collab}/tasks/{t2_id}", jwt, b, {"expected_version": cur["version"], "status": "done"})
+        check(st == 200, "B declares its task done")
+        notices = mcp.ok("collab_list_notices")
+        finished = [n for n in notices["items"] if n["kind"] == "dependency_finished"]
+        check(len(finished) == 1, f"one dependency_finished notice: {notices}")
+        check(finished[0].get("hint", finished[0]).get("dependency_task_id", t2_id) == t2_id, "the notice names the finished task")
+        acked = mcp.ok("collab_ack_notice", notice_id=finished[0]["id"])
+        say("A: got a dependency_finished notice and acknowledged it", "a hint to re-read, not evidence of completion")
+
+        # A records a decision on the task.
+        decision = mcp.ok("collab_create_decision", task_id=t1_id, title="Keep the cache in SQLite", rationale="Single binary, no extra service.")
+        listed = mcp.ok("collab_list_decisions", task_id=t1_id)
+        check([d["id"] for d in listed["items"]] == [decision["id"]] and listed["items"][0]["status"] == "active", f"decision: {listed}")
+        say("A: recorded a decision", decision["id"][:8])
+
+        # The inbox keeps a personal read mark per object version.
+        inbox = mcp.ok("collab_get_inbox")
+        mine = [i for i in inbox["items"] if i["item_key"] == f"assigned_task:{t1_id}"]
+        check(len(mine) == 1 and mine[0]["read_state"] == "unread", f"unread assigned task: {inbox}")
+        marked = mcp.ok("collab_mark_inbox_read", item_key=mine[0]["item_key"], observed_version=mine[0]["object_version"])
+        check(marked["read_state"] == "read", f"marked: {marked}")
+        st, cur1 = http(base, "GET", f"{collab}/tasks/{t1_id}", jwt)
+        st, _ = http(base, "PATCH", f"{collab}/tasks/{t1_id}", jwt, b, {"expected_version": cur1["version"], "status": "in_progress"})
+        check(st == 200, "B (as a peer) updates A's task")
+        inbox = mcp.ok("collab_get_inbox")
+        mine = [i for i in inbox["items"] if i["item_key"] == f"assigned_task:{t1_id}"][0]
+        check(mine["read_state"] == "unread" and mine["last_read_version"] == marked["observed_version"], f"newer version is unread again: {mine}")
+        say("A: read mark held for one version; a newer version showed unread again")
+
+        # Completion conditions: shown next to A's claim, never enforced.
+        conds = mcp.ok("collab_set_completion_conditions", task_id=t1_id, client_request_id="a-conds-1", expected_version=0, conditions=[
+            {"type": "manual_confirmation", "label": "Maintainer looked at it"},
+            {"type": "ci_passed_for_commit", "label": "CI on the branch head", "params": {"commit_sha": sha1}}])
+        check(conds["set"]["version"] == 1, f"conditions stored: {conds}")
+        cur_def = mcp.ok("collab_get_completion_conditions", task_id=t1_id)
+        manual_id = [c["id"] for c in cur_def["conditions"] if c["type"] == "manual_confirmation"][0]
+        st, cur1 = http(base, "GET", f"{collab}/tasks/{t1_id}", jwt)
+        st, done = http(base, "PATCH", f"{collab}/tasks/{t1_id}", jwt, b, {"expected_version": cur1["version"], "status": "done"})
+        check(st == 200, f"marking done is never blocked by conditions: {st} {done}")
+        comp = mcp.ok("collab_get_completion_status", task_id=t1_id)
+        statuses = {c["type"]: c["status"] for c in comp["defined"]["conditions"]}
+        check(statuses == {"manual_confirmation": "unsatisfied", "ci_passed_for_commit": "unknown"}, f"defined conditions: {statuses}")
+        check(comp["declared_done_without_evidence"] is True, "done without evidence is flagged")
+        st, snap = http(base, "POST", f"{collab}/tasks/{t1_id}/completion-status/snapshots", jwt)
+        check(st == 201 and snap["overall"] == "unsatisfied" and snap["immutable"] is True, f"snapshot: {st} {snap}")
+        st, conf = http(base, "POST", f"{collab}/tasks/{t1_id}/completion-conditions/{manual_id}/confirmations", jwt, None,
+                        {"client_request_id": "user-confirm-1", "note": "reviewed the diff"})
+        check(st == 201, f"user confirms: {st} {conf}")
+        comp = mcp.ok("collab_get_completion_status", task_id=t1_id)
+        statuses = {c["type"]: c["status"] for c in comp["defined"]["conditions"]}
+        check(statuses["manual_confirmation"] == "satisfied" and statuses["ci_passed_for_commit"] == "unknown", f"after confirmation: {statuses}")
+        check(comp["defined"]["overall"] == "incomplete", "unknown CI keeps the whole from being 'satisfied'")
+        st, stored = http(base, "GET", f"{collab}/tasks/{t1_id}/completion-status/snapshots/{snap['id']}", jwt)
+        check(st == 200 and stored["result"] == snap["result"], "the snapshot still shows the evaluation as it was")
+        say("conditions shown, never enforced; the snapshot kept the earlier evaluation", "manual satisfied, CI unknown")
+
+        # A crashes; B pushes another commit; a fresh client recovers from records.
+        mcp.crash()
+        mcp = None
+        say("A: MCP process killed (crash)")
+        with open(os.path.join(seed, "parser.rs"), "w") as f:
+            f.write("fn parse() { /* empty input handled */ }\n")
+        git(["commit", "-q", "-am", "handle empty input"], seed)
+        sha2 = git(["rev-parse", "HEAD"], seed)
+        git(["push", "-q", f"{base}/git/{OWNER}/{REPO}", "main:fix/parser"], seed, token=jwt)
+        for i in range(12):
+            st, _ = http(base, "POST", f"{collab}/tasks/{t1_id}/messages", jwt, b, {
+                "client_message_id": f"b-note-{i}", "kind": "note", "body": f"progress note {i}: " + "x" * 1400})
+            check(st == 201, "B writes a long progress note")
+
+        mcp_c = McpClient(base, pat_token, os.path.join(work, "mcp-sessions-c.json"), work, "c")
+        c_start = mcp_c.ok("collab_start_session", display_name="Harness C", client_kind="mcp")
+        with open(os.path.join(work, "mcp-sessions-c.json")) as f:
+            secrets_seen.append(json.load(f)[f"{OWNER}/{REPO}"]["secret"])
+        pack = mcp_c.ok("collab_get_context", task_id=t1_id)
+        names = [s["name"] for s in pack["sections"]]
+        check(names[0] == "task" and names[1:] == ["questions", "decisions", "handoffs", "work_packages", "dependencies", "overlaps", "messages"], f"sections: {names}")
+        by = {s["name"]: s for s in pack["sections"]}
+        check([d["id"] for d in by["decisions"]["items"]] == [decision["id"]], "C sees A's decision")
+        check([d["depends_on_task_id"] for d in by["dependencies"]["items"]] == [t2_id], f"C sees the dependency: {by['dependencies']}")
+        # B declared its task done earlier, so its paths no longer raise a warning.
+        check(by["overlaps"]["items"] == [], f"a finished task raises no overlap: {by['overlaps']}")
+        check(pack["git"]["status"] == "observed" and pack["head_sha"] == sha2, f"head observed independently: {pack['git']}")
+        check(pack["consistency"] == {"db": "per_section_live_query", "git": "independent"}, "the pack says it is not a snapshot")
+        small = mcp_c.ok("collab_get_context", task_id=t1_id, max_bytes=8192, sections="decisions,messages")
+        cut = [c for c in small["truncation"]["sections"] if c["section"] == "messages"]
+        check(cut and cut[0]["omitted_items"] > 0 and cut[0]["reason"] == "byte_budget", f"budget cut is listed: {small['truncation']}")
+        check([s["name"] for s in small["sections"]] == ["task", "decisions", "messages"], "requested sections only")
+        newest = max(m["seq"] for m in by["messages"]["items"])
+        check(newest >= 13, f"the newest messages are the ones kept: {newest}")
+        say("C (fresh MCP client) recovered the task from the context pack alone", f"head {sha2[:12]}; small budget cut {cut[0]['omitted_items']} messages and said so")
+
+        mcp_c.close()
+        mcp_c = None
+        sizes = scan_for_secrets(server, work)
+        say("no session secret in the server log or MCP process logs", sizes)
+        say("P1 scenario complete")
+        return {"tasks": [t1_id, t2_id], "commits": [sha1, sha2], "sessions": {"A": a_id, "B": b["id"], "C": c_start["id"]},
+                "decision": decision["id"], "snapshot": snap["id"]}
+    finally:
+        for client in (mcp, mcp_c):
+            if client is not None:
+                try:
+                    client.crash()
+                except Exception:
+                    pass
+        server.stop()
+
+
+# ── O03b: backup, isolated restore and failed-restore safety ─────────
+
+VOLATILE = {"as_of", "evaluated_at", "observed_at", "captured_at", "resolved_at", "request_id"}
+
+
+def normalize(value):
+    """Drop fields that legitimately differ between two reads of the same data."""
+    if isinstance(value, dict):
+        return {k: normalize(v) for k, v in value.items() if k not in VOLATILE}
+    if isinstance(value, list):
+        return [normalize(v) for v in value]
+    return value
+
+
+def sha256_file(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def tree_digest(root):
+    """A digest of every file (relative path, content) under root; '' if absent."""
+    if not os.path.isdir(root):
+        return ""
+    h = hashlib.sha256()
+    for base, dirs, files in os.walk(root):
+        dirs.sort()
+        for name in sorted(files):
+            full = os.path.join(base, name)
+            h.update(os.path.relpath(full, root).encode())
+            h.update(sha256_file(full).encode())
+    return h.hexdigest()
+
+
+def cli(*args, check_ok=None):
+    """Run the real ironforge CLI; returns (exit code, combined output)."""
+    proc = subprocess.run([SERVER_BIN, *args], capture_output=True, text=True, env=dict(os.environ, RUST_LOG="warn"))
+    out = proc.stdout + proc.stderr
+    if check_ok is not None:
+        check((proc.returncode == 0) == check_ok, f"ironforge {' '.join(args[:1])} exit={proc.returncode}: {out[-600:]}")
+    return proc.returncode, out
+
+
+def write_checksums(backup_dir):
+    """Recompute checksums.sha256 for a backup directory (test helper for
+    building a *consistent* backup that has been altered on purpose)."""
+    lines = []
+    for base, dirs, files in os.walk(backup_dir):
+        dirs.sort()
+        for name in sorted(files):
+            full = os.path.join(base, name)
+            rel = os.path.relpath(full, backup_dir)
+            if rel in ("manifest.json", "checksums.sha256"):
+                continue
+            lines.append(f"{sha256_file(full)}  {rel}")
+    with open(os.path.join(backup_dir, "checksums.sha256"), "w") as f:
+        f.write("\n".join(sorted(lines, key=lambda l: l.split("  ", 1)[1])) + "\n")
+
+
+def run_restore(work, keep):
+    """O03b: populate a real instance with cross-table collaboration data, take
+    the real full-instance backup, restore it into an isolated second instance,
+    compare everything through the API, and show that damaged or incompatible
+    backups are refused without touching an existing instance."""
+    import sqlite3
+    src = os.path.join(work, "src")
+    os.makedirs(src)
+    server = Server(src, label="source")
+    restored = None
+    mcp = None
+    try:
+        server.start()
+        base = server.base
+        say("source instance started", f"{base} (sqlite, {platform.system()} {platform.machine()})")
+        st, reg = http(base, "POST", "/api/v1/users/register",
+                       body={"username": OWNER, "email": f"{OWNER}@example.com", "password": PASSWORD})
+        check(st in (200, 201), f"register: {st} {reg}")
+        jwt = reg["token"]
+        st, pat = http(base, "POST", "/api/v1/users/tokens", jwt, body={"name": "mcp-client", "scopes": "repo"})
+        check(st in (200, 201), f"PAT: {st} {pat}")
+        pat_token = pat["token"]
+        st, _ = http(base, "POST", "/api/v1/repos", jwt, body={"name": REPO, "default_branch": "main"})
+        check(st == 201, "create repo")
+        seed = os.path.join(src, "seed")
+        os.makedirs(seed)
+        git(["init", "-q", "--initial-branch=main"], seed)
+        with open(os.path.join(seed, "parser.rs"), "w") as f:
+            f.write("fn parse() {}\n")
+        git(["add", "."], seed)
+        git(["commit", "-q", "-m", "initial"], seed)
+        sha1 = git(["rev-parse", "HEAD"], seed)
+        with open(os.path.join(seed, "parser.rs"), "w") as f:
+            f.write("fn parse() { /* handled */ }\n")
+        git(["commit", "-q", "-am", "handle empty input"], seed)
+        sha2 = git(["rev-parse", "HEAD"], seed)
+        git(["push", "-q", f"{base}/git/{OWNER}/{REPO}", "main", "main:fix/parser"], seed, token=jwt)
+        collab = f"/api/v1/repos/{OWNER}/{REPO}/collaboration"
+
+        session_file = os.path.join(src, "mcp-sessions.json")
+        mcp = McpClient(base, pat_token, session_file, src, "a")
+        a_id = mcp.ok("collab_start_session", display_name="Harness A", client_kind="mcp")["id"]
+        with open(session_file) as f:
+            a_secret = json.load(f)[f"{OWNER}/{REPO}"]["secret"]
+        secrets_seen.append(a_secret)
+        st, b_reg = http(base, "POST", collab + "/sessions", jwt, body={"display_name": "Harness B", "client_kind": "http-script"})
+        check(st == 201, f"B register: {st}")
+        b = {"id": b_reg["session"]["id"], "secret": b_reg["session_secret"]}
+        secrets_seen.append(b["secret"])
+
+        # Cross-table data: tasks, ordered messages, handoff, question+answer,
+        # decision, dependency, work package with a real commit, conditions,
+        # confirmation, snapshot, inbox read mark, notice.
+        t1 = mcp.ok("collab_create_task", title="Fix parser crash", owner_session_id="self", branch="fix/parser", paths=["parser.rs"])
+        st, t2 = http(base, "POST", collab + "/tasks", jwt, b, {"title": "Refactor the lexer", "owner_session_id": b["id"], "paths": ["lexer.rs"]})
+        check(st == 201, f"task 2: {st}")
+        t1_id, t2_id = t1["id"], t2["id"]
+        for i in range(5):
+            mcp.ok("collab_send_message", task_id=t1_id, kind="note", body=f"note {i}: 日本語 ✓ " + "y" * 200)
+        deps = mcp.ok("collab_get_dependencies", task_id=t1_id)
+        mcp.ok("collab_add_dependency", task_id=t1_id, depends_on_task_id=t2_id, expected_graph_version=deps["graph_version"])
+        st, q = http(base, "POST", f"{collab}/tasks/{t1_id}/questions", jwt, b, {
+            "client_question_id": "q-1", "recipient": {"kind": "repo_writers"}, "title": "SQLite or PostgreSQL?",
+            "body": "Which database for the cache?", "options": ["sqlite", "postgresql"], "context": {"head_sha": sha2}})
+        check(st == 201, f"question: {st} {q}")
+        st, qq = http(base, "GET", f"{collab}/questions/{q['id']}", jwt)
+        st, ans = http(base, "POST", f"{collab}/questions/{q['id']}/answer", jwt, None, {
+            "client_answer_id": "ans-1", "expected_version": qq["version"], "option_id": "o1", "acknowledged_context_hash": qq["context_hash"]})
+        check(st == 200, f"answer: {st} {ans}")
+        st, ho = http(base, "POST", f"{collab}/tasks/{t1_id}/handoffs", jwt, b, {
+            "client_handoff_id": "h-1", "to_session_id": a_id, "summary": "Parser fix is pushed", "completed": "empty input handled",
+            "next_steps": "add a regression test", "blockers": "", "commit_sha": sha2, "evidence": ["note:tests pass locally"]})
+        check(st == 201, f"handoff: {st} {ho}")
+        mcp.ok("collab_create_decision", task_id=t1_id, title="Keep the cache in SQLite", rationale="Single binary.")
+        st, wp = http(base, "POST", f"{collab}/tasks/{t1_id}/work-packages", jwt, b, {
+            "client_package_id": "wp-1", "goal": "Fix the parser crash", "scope": "parser.rs", "commit_sha": sha2,
+            "completed": ["empty input handled"], "open_items": [], "next_steps": ["regression test"],
+            "evidence_refs": [{"kind": "commit", "reference": sha2}]})
+        check(st == 201, f"work package: {st} {wp}")
+        mcp.ok("collab_set_completion_conditions", task_id=t1_id, client_request_id="conds-1", expected_version=0, conditions=[
+            {"type": "manual_confirmation", "label": "Maintainer looked"}, {"type": "ci_passed_for_commit", "params": {"commit_sha": sha2}}])
+        cur = mcp.ok("collab_get_completion_conditions", task_id=t1_id)
+        manual_id = [c["id"] for c in cur["conditions"] if c["type"] == "manual_confirmation"][0]
+        st, snap = http(base, "POST", f"{collab}/tasks/{t1_id}/completion-status/snapshots", jwt)
+        check(st == 201, f"snapshot: {st}")
+        st, _ = http(base, "POST", f"{collab}/tasks/{t1_id}/completion-conditions/{manual_id}/confirmations", jwt, None, {"client_request_id": "cf-1", "note": "ok"})
+        check(st == 201, "confirmation")
+        inbox = mcp.ok("collab_get_inbox")
+        mine = [i for i in inbox["items"] if i["type"] == "pending_handoff"]
+        check(mine, f"A has a pending handoff in its inbox: {inbox}")
+        mcp.ok("collab_mark_inbox_read", item_key=mine[0]["item_key"], observed_version=mine[0]["object_version"])
+        st, cur2 = http(base, "GET", f"{collab}/tasks/{t2_id}", jwt)
+        st, _ = http(base, "PATCH", f"{collab}/tasks/{t2_id}", jwt, b, {"expected_version": cur2["version"], "status": "done"})
+        check(st == 200, "dependency finished (creates a notice for A)")
+        say("source populated", "2 tasks, 5 messages, dependency, question+answer, handoff, decision, package, conditions, confirmation, snapshot, read mark, notice")
+
+        def capture(url_base, token, sess_b, a_session_headers):
+            """Fingerprint of the collaboration data, read through the API."""
+            out = {}
+            def get(path, session=None):
+                st, body = http(url_base, "GET", collab + path, token, session)
+                check(st == 200, f"GET {path}: {st} {body}")
+                return normalize(body)
+            out["tasks"] = get("/tasks?limit=100")
+            for tid in (t1_id, t2_id):
+                out[f"task:{tid}"] = get(f"/tasks/{tid}")
+                out[f"messages:{tid}"] = get(f"/tasks/{tid}/messages?limit=100")
+                out[f"handoffs:{tid}"] = get(f"/tasks/{tid}/handoffs")
+                out[f"questions:{tid}"] = get(f"/tasks/{tid}/questions")
+                out[f"decisions:{tid}"] = get(f"/tasks/{tid}/decisions")
+                out[f"packages:{tid}"] = get(f"/tasks/{tid}/work-packages")
+                out[f"dependencies:{tid}"] = get(f"/tasks/{tid}/dependencies")
+                out[f"conditions:{tid}"] = get(f"/tasks/{tid}/completion-conditions")
+                out[f"versions:{tid}"] = get(f"/tasks/{tid}/completion-conditions/versions")
+                out[f"snapshots:{tid}"] = get(f"/tasks/{tid}/completion-status/snapshots")
+            out["question"] = get(f"/questions/{q['id']}")
+            out["snapshot"] = get(f"/tasks/{t1_id}/completion-status/snapshots/{snap['id']}")
+            out["completion"] = get(f"/tasks/{t1_id}/completion-status")
+            out["inbox:A"] = get("/inbox", a_session_headers)
+            out["notices:A"] = get("/notices", a_session_headers)
+            out["inbox:user"] = get("/inbox/user")
+            return out
+
+        a_session = {"id": a_id, "secret": a_secret}
+        before = capture(base, jwt, b, a_session)
+        check(len(before["messages:" + t1_id]["items"]) == 5, "5 messages stored")
+        check(any(n["kind"] == "dependency_finished" for n in before["notices:A"]["items"]), "the notice exists before the backup")
+        mcp.close()
+        mcp = None
+        server.stop()
+        say("source server stopped for a consistent backup")
+
+        # ── backup ──
+        backup = os.path.join(work, "backup")
+        db_url = f"sqlite://{src}/ironforge.db?mode=rwc"
+        cli("backup", "--db-url", db_url, "--repo-root", os.path.join(src, "repos"),
+            "--audit-archive-dir", os.path.join(src, "no-audit"), backup, check_ok=True)
+        manifest = json.load(open(os.path.join(backup, "manifest.json")))
+        check(manifest["format_version"] >= 1 and manifest["includes"]["database"], f"manifest: {manifest}")
+        check(os.path.isfile(os.path.join(backup, "checksums.sha256")), "the backup carries checksums.sha256")
+        for needle_name, needle in [("session secret A", a_secret), ("session secret B", b["secret"]),
+                                    ("PAT", pat_token), ("JWT signing secret", JWT_SECRET)]:
+            for base_dir, _dirs, files in os.walk(backup):
+                for name in files:
+                    with open(os.path.join(base_dir, name), "rb") as f:
+                        check(needle.encode() not in f.read(), f"{needle_name} appears in the backup file {name}")
+        say("backup taken; no session secret, PAT or JWT secret in any backup file", f"created_at {manifest['created_at']}")
+
+        # ── isolated restore ──
+        dst = os.path.join(work, "restored")
+        os.makedirs(dst)
+        cli("restore", "--db-url", f"sqlite://{dst}/ironforge.db?mode=rwc", "--repo-root", os.path.join(dst, "repos"),
+            "--audit-archive-dir", os.path.join(dst, "audit"), backup, check_ok=True)
+        cli("migrate", "--db-url", f"sqlite://{dst}/ironforge.db?mode=rwc", check_ok=True)
+        # No SMTP, webhook target, runner or mirror is configured on the drill
+        # instance: it has no outbound channel to suppress or trigger.
+        restored = Server(dst, label="restored")
+        restored.start()
+        say("isolated restored instance started on other ports/paths", restored.base)
+        after = capture(restored.base, jwt, b, a_session)
+        check(sorted(before) == sorted(after), "same set of captured views")
+        for key in sorted(before):
+            check(before[key] == after[key], f"restored data differs in {key}:\n before={json.dumps(before[key], sort_keys=True)[:700]}\n after ={json.dumps(after[key], sort_keys=True)[:700]}")
+        seqs = [m["seq"] for m in after["messages:" + t1_id]["items"]]
+        check(seqs == sorted(seqs) == [1, 2, 3, 4, 5], f"message order preserved: {seqs}")
+        say("every collaboration view is identical after restore", f"{len(before)} views compared")
+
+        repo_dir = os.path.join(dst, "repos", OWNER, f"{REPO}.git")
+        for sha in (sha1, sha2):
+            kind = subprocess.run(["git", "--git-dir", repo_dir, "cat-file", "-t", sha], capture_output=True, text=True)
+            check(kind.stdout.strip() == "commit", f"commit {sha[:12]} is readable in the restored repository: {kind.stderr}")
+        head = subprocess.run(["git", "--git-dir", repo_dir, "rev-parse", "refs/heads/fix/parser"], capture_output=True, text=True).stdout.strip()
+        check(head == sha2, "the task branch points at the same commit")
+        fsck = subprocess.run(["git", "--git-dir", repo_dir, "fsck", "--no-progress"], capture_output=True, text=True)
+        check(fsck.returncode == 0, f"git fsck on the restored repository: {fsck.stderr[-300:]}")
+        comp = after["completion"]
+        check(comp["observed_branch_head"] == sha2, "the restored platform observes the same branch head")
+        say("real Git objects restored", f"{sha1[:12]}, {sha2[:12]} readable; branch head matches; git fsck clean")
+
+        # Credentials after a restore are a policy fact worth stating, not hiding.
+        st, who = http(restored.base, "GET", collab + "/inbox", jwt, a_session)
+        old_session_works = st == 200
+        st2, _ = http(restored.base, "GET", "/api/v1/users/me", jwt)
+        old_jwt_works = st2 == 200
+        say("credentials after restore (observed)", f"old session secret valid={old_session_works}; old login token valid={old_jwt_works}; same signing secret configured")
+        restored.stop()
+
+        # ── failed restores must not touch a live instance ──
+        live = os.path.join(work, "live")
+        os.makedirs(live)
+        live_url = f"sqlite://{live}/ironforge.db?mode=rwc"
+        cli("restore", "--db-url", live_url, "--repo-root", os.path.join(live, "repos"),
+            "--audit-archive-dir", os.path.join(live, "audit"), backup, check_ok=True)
+        def live_state():
+            return (sha256_file(os.path.join(live, "ironforge.db")), tree_digest(os.path.join(live, "repos")))
+        pristine = live_state()
+
+        def refuse(label, bad_backup, expect_text=None, force=True):
+            args = ["restore", "--db-url", live_url, "--repo-root", os.path.join(live, "repos"),
+                    "--audit-archive-dir", os.path.join(live, "audit")]
+            if force:
+                args.append("--force")
+            code, out = cli(*args, bad_backup)
+            check(code != 0, f"{label}: restore must fail, but exited 0: {out[-300:]}")
+            check(live_state() == pristine, f"{label}: the existing instance was modified by a failed restore")
+            if expect_text:
+                check(expect_text in out, f"{label}: expected {expect_text!r} in: {out[-400:]}")
+            say(f"refused: {label}", "existing database and repositories unchanged")
+
+        def copy_backup(name):
+            path = os.path.join(work, name)
+            shutil.copytree(backup, path)
+            return path
+
+        bad = copy_backup("bad-db")
+        with open(os.path.join(bad, "ironforge.db"), "r+b") as f:
+            f.seek(os.path.getsize(os.path.join(bad, "ironforge.db")) // 2)
+            f.write(os.urandom(8192))
+        refuse("database file damaged (checksum)", bad, "checksum")
+
+        bad = copy_backup("bad-db-consistent")
+        with open(os.path.join(bad, "ironforge.db"), "r+b") as f:
+            f.seek(os.path.getsize(os.path.join(bad, "ironforge.db")) // 2)
+            f.write(os.urandom(8192))
+        write_checksums(bad)  # checksums match: only the database check can catch it
+        refuse("database file damaged but checksums consistent (integrity check)", bad)
+
+        bad = copy_backup("bad-git")
+        objects = [os.path.join(b_, n) for b_, _d, fs in os.walk(os.path.join(bad, "data", OWNER, f"{REPO}.git", "objects")) for n in fs]
+        victim = sorted(objects, key=os.path.getsize)[-1]
+        with open(victim, "r+b") as f:
+            f.seek(os.path.getsize(victim) // 2)
+            byte = f.read(1)
+            f.seek(-1, 1)
+            f.write(bytes([byte[0] ^ 0xFF]))
+        refuse("a Git object file damaged", bad, "checksum")
+
+        bad = copy_backup("bad-missing")
+        os.remove(os.path.join(bad, "ironforge.db"))
+        refuse("database file missing", bad)
+
+        bad = copy_backup("bad-format")
+        m = json.load(open(os.path.join(bad, "manifest.json")))
+        m["format_version"] = 99
+        json.dump(m, open(os.path.join(bad, "manifest.json"), "w"))
+        refuse("backup format newer than this binary", bad, "newer")
+
+        bad = copy_backup("bad-schema")
+        con = sqlite3.connect(os.path.join(bad, "ironforge.db"))
+        con.execute("INSERT INTO seaql_migrations (version, applied_at) VALUES ('m29990101_000001_from_the_future', 0)")
+        con.commit()
+        con.close()
+        write_checksums(bad)  # a consistent backup, but from a newer schema
+        refuse("backup from a newer schema than this binary knows", bad, "newer")
+
+        code, out = cli("restore", "--db-url", live_url, "--repo-root", os.path.join(live, "repos"),
+                        "--audit-archive-dir", os.path.join(live, "audit"), backup)
+        check(code != 0 and live_state() == pristine, "restoring over an existing instance without --force is refused")
+        say("refused: target exists and --force was not given", "unchanged")
+
+        old = copy_backup("old-format")
+        os.remove(os.path.join(old, "checksums.sha256"))
+        code, out = cli("restore", "--db-url", f"sqlite://{work}/old/ironforge.db?mode=rwc", "--repo-root", os.path.join(work, "old", "repos"),
+                        "--audit-archive-dir", os.path.join(work, "old", "audit"), old)
+        check(code == 0 and "checksum" in out.lower(), f"a backup from before checksums restores with a warning: {out[-300:]}")
+        say("accepted with a warning: older backup without checksums", "integrity could not be verified")
+
+        sizes = scan_for_secrets(server, work, restored)
+        say("no session secret in any server or MCP log (source and restored)", sizes)
+        say("O03b drill complete")
+        return {"commits": [sha1, sha2], "backup_created_at": manifest["created_at"], "views_compared": len(before),
+                "old_session_valid_after_restore": old_session_works, "old_login_token_valid_after_restore": old_jwt_works}
+    finally:
+        if mcp is not None:
+            try:
+                mcp.crash()
+            except Exception:
+                pass
+        for srv in (server, restored):
+            if srv is not None:
+                srv.stop()
+
+
 def run_x04(work, keep, db_url=None, multi_instance=False):
     """X04/M12: real MCP and REST clients, two private Git repositories (X02)."""
     server = Server(work, db_url)
@@ -933,8 +1468,8 @@ def run_ci_compat(work, keep, db_url=None):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--scenario", choices=["t12", "p0", "x04", "ci-compat"], default="t12",
-                        help="t12: first-version flow; p0: P15; x04: two-client P2; ci-compat: protected CI approval")
+    parser.add_argument("--scenario", choices=["t12", "p0", "p1", "restore", "x04", "ci-compat"], default="t12",
+                        help="t12: first-version flow; p0: P15; p1: P1 features; restore: O03b backup/restore drill; x04: two-client P2; ci-compat: protected CI approval")
     parser.add_argument("--keep", action="store_true", help="keep the work directory")
     parser.add_argument("--multi-instance", action="store_true", help="X04: run two independent servers sharing the test DB and repository directory")
     parser.add_argument("--json-out", help="write a JSON summary with environment info")
@@ -955,7 +1490,7 @@ def main():
         elif args.scenario == "ci-compat":
             summary = run_ci_compat(work, args.keep, db_url)
         else:
-            summary = {"t12": run, "p0": run_p0}[args.scenario](work, args.keep)
+            summary = {"t12": run, "p0": run_p0, "p1": run_p1, "restore": run_restore}[args.scenario](work, args.keep)
         status = 0
         if args.json_out:
             def sh(*cmd):

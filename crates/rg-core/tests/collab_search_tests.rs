@@ -42,6 +42,7 @@ async fn search_is_scoped_paginated_live_and_cursor_bound() {
             owner_session_id: Set(None),
             branch: Set(None),
             paths_json: Set("[]".into()),
+            paths_declared_at: Set(None),
             issue_number: Set(None),
             pr_number: Set(None),
             version: Set(1),

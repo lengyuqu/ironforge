@@ -158,6 +158,15 @@ pub async fn connect(db_url: &str) -> Result<DatabaseConnection> {
     .await
 }
 
+/// Names of every migration this build knows, oldest first. A database that
+/// recorded a migration not in this list was written by a newer build.
+pub fn known_migration_names() -> Vec<String> {
+    migrations::Migrator::migrations()
+        .iter()
+        .map(|m| m.name().to_string())
+        .collect()
+}
+
 /// Connect with configurable connect/idle timeouts and the default pool size.
 pub async fn connect_with_timeouts(
     db_url: &str,
@@ -1001,7 +1010,7 @@ mod soft_delete_tests {
         // `m20261015_000002` partial-unique-index anchor — add 1 here whenever
         // a migration is appended, or this assertion silently stops testing
         // the intended window.
-        migrations::Migrator::down(&db, Some(15))
+        migrations::Migrator::down(&db, Some(18))
             .await
             .expect("downgrade");
         assert_eq!(scalar(&db, "SELECT COUNT(*) FROM repo_stars").await, 1);

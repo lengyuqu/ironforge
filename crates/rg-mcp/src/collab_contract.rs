@@ -183,6 +183,13 @@ pub const TOOL_ROUTES: &[ToolRoute] = &[
         &[],
     ),
     t(
+        "collab_mark_inbox_read",
+        "PUT",
+        "/inbox/read",
+        &[],
+        &["item_key", "observed_version"],
+    ),
+    t(
         "collab_claim_task",
         "POST",
         "/tasks/{task_id}/takeovers",
@@ -551,6 +558,41 @@ pub const TOOL_ROUTES: &[ToolRoute] = &[
         &[],
         &[],
     ),
+    t(
+        "collab_get_completion_conditions",
+        "GET",
+        "/tasks/{task_id}/completion-conditions",
+        &[],
+        &[],
+    ),
+    t(
+        "collab_set_completion_conditions",
+        "PUT",
+        "/tasks/{task_id}/completion-conditions",
+        &[],
+        &["client_request_id", "expected_version", "conditions"],
+    ),
+    t(
+        "collab_get_context",
+        "GET",
+        "/tasks/{task_id}/context",
+        &["max_bytes", "sections"],
+        &[],
+    ),
+    t(
+        "collab_get_overlaps",
+        "GET",
+        "/tasks/{task_id}/overlaps",
+        &["limit", "cursor"],
+        &[],
+    ),
+    t(
+        "collab_get_diagnostics",
+        "GET",
+        "/diagnostics",
+        &["task_id", "session_id"],
+        &[],
+    ),
 ];
 
 /// The full REST path (relative to `/api/v1`) of a row, in router notation.
@@ -571,6 +613,7 @@ mod tests {
         match key {
             k if k.ends_with("version") || k.ends_with("seq") || k.ends_with("number") => json!(1),
             "recipient" => json!({"kind": "repo_writers"}),
+            "conditions" => json!([{"type": "manual_confirmation"}]),
             "target_repo_id" | "version" | "stale_after_seconds" => json!(1),
             _ => json!("x"),
         }

@@ -66,6 +66,8 @@ pub struct TaskResponse {
     pub owner_session_id: Option<String>,
     pub branch: Option<String>,
     pub paths: Vec<String>,
+    /// When `paths` were last declared (not `updated_at`); null = unknown.
+    pub paths_declared_at: Option<DateTime<Utc>>,
     pub issue_number: Option<i64>,
     pub pr_number: Option<i64>,
     /// Send back as `expected_version` when updating.
@@ -88,6 +90,7 @@ impl From<svc::TaskView> for TaskResponse {
             owner_session_id: v.owner_session_id,
             branch: v.branch,
             paths: v.paths,
+            paths_declared_at: v.paths_declared_at,
             issue_number: v.issue_number,
             pr_number: v.pr_number,
             version: v.version,

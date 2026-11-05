@@ -19,6 +19,9 @@ pub struct Model {
     pub branch: Option<String>,
     /// JSON array of declared repository-relative paths.
     pub paths_json: String,
+    /// When `paths_json` was last declared; `None` = never declared or unknown
+    /// (rows from before this column existed). Not `updated_at`.
+    pub paths_declared_at: Option<DateTimeUtc>,
     pub issue_number: Option<i64>,
     pub pr_number: Option<i64>,
     pub version: i64,
