@@ -552,6 +552,13 @@ pub const TOOL_ROUTES: &[ToolRoute] = &[
         &[],
     ),
     t(
+        "collab_get_context",
+        "GET",
+        "/tasks/{task_id}/context",
+        &["max_bytes", "sections"],
+        &[],
+    ),
+    t(
         "collab_get_overlaps",
         "GET",
         "/tasks/{task_id}/overlaps",

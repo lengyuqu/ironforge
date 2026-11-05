@@ -298,7 +298,7 @@ struct Plan {
 }
 
 /// Which tools exist, in the order they are advertised.
-pub const TOOL_NAMES: [&str; 55] = [
+pub const TOOL_NAMES: [&str; 56] = [
     "collab_start_session",
     "collab_list_sessions",
     "collab_heartbeat",
@@ -354,6 +354,7 @@ pub const TOOL_NAMES: [&str; 55] = [
     "collab_get_delivery",
     "collab_get_overlaps",
     "collab_get_diagnostics",
+    "collab_get_context",
 ];
 
 /// What a tool will send, for the REST/MCP contract test (`collab_contract`).
@@ -1041,6 +1042,11 @@ fn plan(name: &str, args: &Value, own_session: Option<&str>) -> Result<Plan, Too
             "/diagnostics{}",
             query(args, &["task_id", "session_id"])
         )),
+        "collab_get_context" => get(format!(
+            "/tasks/{}/context{}",
+            id_arg(args, "task_id")?,
+            query(args, &["max_bytes", "sections"])
+        )),
         "collab_get_budget" => {
             let task = id_arg(args, "task_id")?;
             if args.get("list_usage").and_then(Value::as_bool) == Some(true) {
@@ -1529,6 +1535,8 @@ pub fn tool_definitions() -> Vec<Value> {
             schema(json!({"task_id": task_id(), "limit": limit(), "cursor": {"type": "string"}}), &["task_id"])),
         def("collab_get_diagnostics", format!("Explain why a task or session looks stuck. Pass exactly one of task_id and session_id. Each finding carries its source and whether it is established or unknown; not_covered lists what was not checked. A diagnosis is read-only evidence for a human or agent to act on, never an authorization.{untrusted}"),
             schema(json!({"task_id": task_id(), "session_id": {"type": "string", "minLength": 1, "maxLength": 64}}), &[])),
+        def("collab_get_context", format!("Get a byte-budgeted bundle to pick a task up again: the task, open questions, active decisions, pending handoffs, latest work packages, dependencies, path overlaps and recent messages, in that priority. Records are returned verbatim, never summarised. Each section is a separate live query (no cross-section snapshot); head_sha is an independent observation of the declared branch. When max_bytes (default 32768, 4096-262144) is exceeded, lower-priority items are dropped and listed in truncation; follow each section's continue_with to read the rest. Over-long fields are cut and listed. A 400 BUDGET_TOO_SMALL means even the task alone does not fit.{untrusted}"),
+            schema(json!({"task_id": task_id(), "max_bytes": {"type": "integer", "minimum": 4096, "maximum": 262144}, "sections": {"type": "string", "maxLength": 200, "description": "Comma-separated subset of questions, decisions, handoffs, work_packages, dependencies, overlaps, messages."}}), &["task_id"])),
     ]
 }
 

@@ -252,6 +252,7 @@ pub struct PaginatedRepoResponse {
         crate::api::collab_escalation::get_settings,
         crate::api::collab_escalation::put_settings,
         crate::api::collab_diagnostics::get_diagnostics,
+        crate::api::collab_context::get_context,
         crate::api::collab_overlaps::get_overlaps,
         crate::api::collab_overview::get_overview,
         crate::api::ci::play_job,

@@ -689,6 +689,17 @@ pub const REGISTRY: &[Capability] = &[
         )],
     },
     Capability {
+        name: "context_pack",
+        version: "1.0",
+        status: Stable,
+        mcp_tools: &["collab_get_context"],
+        routes: &[r(
+            "GET",
+            "/repos/{owner}/{name}/collaboration/tasks/{id}/context",
+            CollabRead,
+        )],
+    },
+    Capability {
         name: "overlaps",
         version: "1.0",
         status: Stable,

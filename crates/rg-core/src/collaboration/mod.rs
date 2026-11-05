@@ -14,6 +14,7 @@ pub mod capabilities;
 pub mod ci_evidence;
 pub mod compat;
 pub mod completion;
+pub mod context;
 pub mod cursor;
 pub mod decision;
 pub mod declaration;

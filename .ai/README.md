@@ -171,6 +171,7 @@ AI Agent **必须**在阅读代码前先读取以下文件：
 | `collab_send_message` / `collab_list_messages` | 发消息（`note`/`help`/`blocker`，可 `target_session_id`、`reply_to_id`、`commit_sha`）/ 用 `after_seq` 持久轮询；`next_after_seq` 存好即可无遗漏续读 |
 | `collab_list_notices` / `collab_ack_notice` | 分页读取本会话的持久通知（`state` 默认 `pending`，可选 `all`；使用 `next_cursor` 续页）/ 幂等确认通知。通知仅是提示，行动前重读关联对象；确认不改变关联对象或消息回执 |
 | `collab_confirm_receipt` / `collab_get_delivery` | 指定目标会话确认读过消息（需要仓库写权限，重复确认保留原时间）/ 消息作者查看投递状态。`unknown` 表示没有确认，不等于未读；`replied` 不表示同意。回执与任务已读位置相互独立 |
+| `collab_get_context` | 一次取回接手任务所需的上下文包：任务、开放问题、有效决定、待接手交接、最新工作包、依赖、路径重叠、最近消息（按此优先级）。记录原文返回、不摘要；各 section 是独立实时查询、无跨 section 快照。`max_bytes`（默认 32768，4096–262144）限制整个响应，超限从低优先级丢条目并列在 `truncation`，按各 section 的 `continue_with` 续读；长字段被截断时也列出。`head_sha` 是对声明分支的独立观测。400 `BUDGET_TOO_SMALL` 表示连任务本身都放不下 |
 | `collab_get_overlaps` | 列出与本任务声明路径重叠的其他未完成任务（路径相等或互为目录前缀；不解释 glob）。**只是提示**，不阻止写、不加锁；没声明路径的任务和与真实改动不符的声明看不到。`confidence` 为 `declaration_stale` 表示对方声明超过 24 小时或时间未知。页可能偏短，需一直跟随 `next_cursor` |
 | `collab_get_diagnostics` | 只读诊断：传 `task_id` 或 `session_id`（二选一），解释任务/会话为何看似卡住。每条 finding 带来源与 `established`/`unknown`，`not_covered` 列出未检查项；诊断不是授权 |
 | `collab_mark_read` | 推进本会话已读位置（单调、不超过最新消息；传 0 读取当前值） |
