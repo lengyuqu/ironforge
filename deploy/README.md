@@ -128,9 +128,17 @@ unlisted file is present), the database's `PRAGMA integrity_check`, and that eve
 migration the database recorded is known to the restoring binary. A damaged,
 incomplete or newer-schema backup is refused and the target instance is left as
 it was. A backup taken before checksums existed is accepted with a warning that its
-files could not be verified. The restore does not change who may log in: login
-tokens, personal access tokens and session secrets that were valid before the
-backup are valid on the restored instance (given the same signing secret).
+files could not be verified.
+
+A restored database is a snapshot of the past, so after the restore both
+`ironforge restore` and `ironforge restore-db` **quiesce** it (skip with
+`--keep-live-state`): all collaboration sessions are ended (clients register new
+ones), password-reset tokens are deleted, and queued `webhook.deliver` /
+`email.send` jobs are marked `dead` (they may already have gone out from the live
+instance). The command prints what it changed. Login tokens depend on the signing
+secret in your configuration, so they stay valid; **personal access tokens are
+restored unchanged** and the backup cannot say which were revoked after it was
+taken - review or rotate them after a restore.
 
 Practise a restore into a throw-away directory before you need one:
 `python3 scripts/collab-e2e.py --scenario restore`.
