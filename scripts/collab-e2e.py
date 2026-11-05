@@ -16,7 +16,7 @@ survive. It exits non-zero on the first failed assertion and prints a transcript
 
 Usage:
   cargo build -p rg-cli -p rg-mcp
-  python3 scripts/collab-e2e.py [--scenario t12|p0|x04|ci-compat] [--multi-instance] [--keep] [--json-out FILE]
+  python3 scripts/collab-e2e.py [--scenario t12|p0|p1|x04|ci-compat] [--multi-instance] [--keep] [--json-out FILE]
 
 Environment: IRONFORGE_BIN (default target/debug/ironforge),
              IRONFORGE_MCP_BIN (default target/debug/ironforge-mcp),
@@ -622,6 +622,197 @@ def run_p0(work, keep):
         server.stop()
 
 
+def run_p1(work, keep):
+    """P1 (U06/N14): the real MCP binary (A, later a fresh C) and a plain HTTP
+    client (B) share one account on a real repository. They build a dependency,
+    exchange a message with delivery state, get a dependency-finished notice,
+    record a decision, see a path overlap, track an inbox read mark, define
+    completion conditions, snapshot an evaluation, and a fresh client recovers
+    the task with the context pack. Real server, real Git repository, no mocks."""
+    server = Server(work)
+    mcp = None
+    mcp_c = None
+    try:
+        server.start()
+        base = server.base
+        say("server started", f"{base} (sqlite, {platform.system()} {platform.machine()})")
+        st, reg = http(base, "POST", "/api/v1/users/register",
+                       body={"username": OWNER, "email": f"{OWNER}@example.com", "password": PASSWORD})
+        check(st in (200, 201), f"register: {st} {reg}")
+        jwt = reg["token"]
+        st, pat = http(base, "POST", "/api/v1/users/tokens", jwt, body={"name": "mcp-client", "scopes": "repo"})
+        check(st in (200, 201), f"create PAT: {st} {pat}")
+        pat_token = pat["token"]
+        st, _ = http(base, "POST", "/api/v1/repos", jwt, body={"name": REPO, "default_branch": "main"})
+        check(st == 201, "create repo")
+
+        seed = os.path.join(work, "seed")
+        os.makedirs(seed)
+        git(["init", "-q", "--initial-branch=main"], seed)
+        with open(os.path.join(seed, "parser.rs"), "w") as f:
+            f.write("fn parse() {}\n")
+        git(["add", "."], seed)
+        git(["commit", "-q", "-m", "initial"], seed)
+        sha1 = git(["rev-parse", "HEAD"], seed)
+        git(["push", "-q", f"{base}/git/{OWNER}/{REPO}", "main", "main:fix/parser"], seed, token=jwt)
+        say("real git repository populated through the server", f"commit {sha1[:12]} on main and fix/parser")
+
+        collab = f"/api/v1/repos/{OWNER}/{REPO}/collaboration"
+        session_file = os.path.join(work, "mcp-sessions.json")
+        mcp = McpClient(base, pat_token, session_file, work, "a")
+        a_id = mcp.ok("collab_start_session", display_name="Harness A", client_kind="mcp")["id"]
+        with open(session_file) as f:
+            secrets_seen.append(json.load(f)[f"{OWNER}/{REPO}"]["secret"])
+        st, b_reg = http(base, "POST", collab + "/sessions", jwt, body={"display_name": "Harness B", "client_kind": "http-script"})
+        check(st == 201, f"B register: {st} {b_reg}")
+        b = {"id": b_reg["session"]["id"], "secret": b_reg["session_secret"]}
+        secrets_seen.append(b["secret"])
+        say("A (MCP) and B (REST) registered", f"A={a_id[:8]} B={b['id'][:8]}")
+
+        # Two tasks that declare the same file: a hint, not a lock.
+        t1 = mcp.ok("collab_create_task", title="Fix parser crash", owner_session_id="self", branch="fix/parser", paths=["parser.rs"])
+        st, t2 = http(base, "POST", collab + "/tasks", jwt, b, {
+            "title": "Refactor the lexer", "owner_session_id": b["id"], "paths": ["parser.rs", "lexer.rs"]})
+        check(st == 201, f"B creates a task: {st} {t2}")
+        t1_id, t2_id = t1["id"], t2["id"]
+        overlaps = mcp.ok("collab_get_overlaps", task_id=t1_id)
+        check([i["task_id"] for i in overlaps["items"]] == [t2_id], f"overlap found: {overlaps}")
+        item = overlaps["items"][0]
+        check(item["confidence"] == "declared_current" and overlaps["authority"] == "hint", f"overlap is a hint: {item}")
+        check(item["overlaps"][0]["theirs"] == "parser.rs" or item["overlaps"], "overlap names the paths")
+        say("A: saw B's declared path overlap, labelled a hint", f"confidence={item['confidence']}")
+
+        # A waits for B's task.
+        deps = mcp.ok("collab_get_dependencies", task_id=t1_id)
+        added = mcp.ok("collab_add_dependency", task_id=t1_id, depends_on_task_id=t2_id, expected_graph_version=deps["graph_version"])
+        check(added["dependency"]["depends_on_task_id"] == t2_id and added["replayed"] is False, f"dependency added: {added}")
+        deps = mcp.ok("collab_get_dependencies", task_id=t1_id)
+        check(deps["blocked_by"] == [t2_id] and deps["status_source"] == "declared", f"blocked_by is declared: {deps}")
+        say("A: now waits on B's task", "blocked_by derives from declared status")
+
+        # A message with delivery state.
+        sent = mcp.ok("collab_send_message", task_id=t1_id, kind="note", body="B: please finish the lexer first", target_session_id=b["id"])
+        st, msgs = http(base, "GET", f"{collab}/tasks/{t1_id}/messages", jwt, b)
+        check(st == 200 and [m["id"] for m in msgs["items"]] == [sent["id"]], "B reads A's message")
+        delivery = mcp.ok("collab_get_delivery", task_id=t1_id, message_id=sent["id"])
+        check(delivery["status"] in ("saved", "unknown") and not delivery.get("read_at"), f"unconfirmed delivery is not 'read': {delivery}")
+        st, rec = http(base, "POST", f"{collab}/tasks/{t1_id}/messages/{sent['id']}/read-receipt", jwt, b)
+        check(st in (200, 201), f"B confirms receipt: {st} {rec}")
+        delivery = mcp.ok("collab_get_delivery", task_id=t1_id, message_id=sent["id"])
+        check(delivery["status"] == "read" and delivery.get("read_at"), f"now confirmed: {delivery}")
+        say("A: sent B a message; delivery stayed unconfirmed until B confirmed receipt", delivery["status"])
+
+        # B finishes its task: A gets a durable notice, not proof.
+        st, cur = http(base, "GET", f"{collab}/tasks/{t2_id}", jwt)
+        st, _ = http(base, "PATCH", f"{collab}/tasks/{t2_id}", jwt, b, {"expected_version": cur["version"], "status": "done"})
+        check(st == 200, "B declares its task done")
+        notices = mcp.ok("collab_list_notices")
+        finished = [n for n in notices["items"] if n["kind"] == "dependency_finished"]
+        check(len(finished) == 1, f"one dependency_finished notice: {notices}")
+        check(finished[0].get("hint", finished[0]).get("dependency_task_id", t2_id) == t2_id, "the notice names the finished task")
+        acked = mcp.ok("collab_ack_notice", notice_id=finished[0]["id"])
+        say("A: got a dependency_finished notice and acknowledged it", "a hint to re-read, not evidence of completion")
+
+        # A records a decision on the task.
+        decision = mcp.ok("collab_create_decision", task_id=t1_id, title="Keep the cache in SQLite", rationale="Single binary, no extra service.")
+        listed = mcp.ok("collab_list_decisions", task_id=t1_id)
+        check([d["id"] for d in listed["items"]] == [decision["id"]] and listed["items"][0]["status"] == "active", f"decision: {listed}")
+        say("A: recorded a decision", decision["id"][:8])
+
+        # The inbox keeps a personal read mark per object version.
+        inbox = mcp.ok("collab_get_inbox")
+        mine = [i for i in inbox["items"] if i["item_key"] == f"assigned_task:{t1_id}"]
+        check(len(mine) == 1 and mine[0]["read_state"] == "unread", f"unread assigned task: {inbox}")
+        marked = mcp.ok("collab_mark_inbox_read", item_key=mine[0]["item_key"], observed_version=mine[0]["object_version"])
+        check(marked["read_state"] == "read", f"marked: {marked}")
+        st, cur1 = http(base, "GET", f"{collab}/tasks/{t1_id}", jwt)
+        st, _ = http(base, "PATCH", f"{collab}/tasks/{t1_id}", jwt, b, {"expected_version": cur1["version"], "status": "in_progress"})
+        check(st == 200, "B (as a peer) updates A's task")
+        inbox = mcp.ok("collab_get_inbox")
+        mine = [i for i in inbox["items"] if i["item_key"] == f"assigned_task:{t1_id}"][0]
+        check(mine["read_state"] == "unread" and mine["last_read_version"] == marked["observed_version"], f"newer version is unread again: {mine}")
+        say("A: read mark held for one version; a newer version showed unread again")
+
+        # Completion conditions: shown next to A's claim, never enforced.
+        conds = mcp.ok("collab_set_completion_conditions", task_id=t1_id, client_request_id="a-conds-1", expected_version=0, conditions=[
+            {"type": "manual_confirmation", "label": "Maintainer looked at it"},
+            {"type": "ci_passed_for_commit", "label": "CI on the branch head", "params": {"commit_sha": sha1}}])
+        check(conds["set"]["version"] == 1, f"conditions stored: {conds}")
+        cur_def = mcp.ok("collab_get_completion_conditions", task_id=t1_id)
+        manual_id = [c["id"] for c in cur_def["conditions"] if c["type"] == "manual_confirmation"][0]
+        st, cur1 = http(base, "GET", f"{collab}/tasks/{t1_id}", jwt)
+        st, done = http(base, "PATCH", f"{collab}/tasks/{t1_id}", jwt, b, {"expected_version": cur1["version"], "status": "done"})
+        check(st == 200, f"marking done is never blocked by conditions: {st} {done}")
+        comp = mcp.ok("collab_get_completion_status", task_id=t1_id)
+        statuses = {c["type"]: c["status"] for c in comp["defined"]["conditions"]}
+        check(statuses == {"manual_confirmation": "unsatisfied", "ci_passed_for_commit": "unknown"}, f"defined conditions: {statuses}")
+        check(comp["declared_done_without_evidence"] is True, "done without evidence is flagged")
+        st, snap = http(base, "POST", f"{collab}/tasks/{t1_id}/completion-status/snapshots", jwt)
+        check(st == 201 and snap["overall"] == "unsatisfied" and snap["immutable"] is True, f"snapshot: {st} {snap}")
+        st, conf = http(base, "POST", f"{collab}/tasks/{t1_id}/completion-conditions/{manual_id}/confirmations", jwt, None,
+                        {"client_request_id": "user-confirm-1", "note": "reviewed the diff"})
+        check(st == 201, f"user confirms: {st} {conf}")
+        comp = mcp.ok("collab_get_completion_status", task_id=t1_id)
+        statuses = {c["type"]: c["status"] for c in comp["defined"]["conditions"]}
+        check(statuses["manual_confirmation"] == "satisfied" and statuses["ci_passed_for_commit"] == "unknown", f"after confirmation: {statuses}")
+        check(comp["defined"]["overall"] == "incomplete", "unknown CI keeps the whole from being 'satisfied'")
+        st, stored = http(base, "GET", f"{collab}/tasks/{t1_id}/completion-status/snapshots/{snap['id']}", jwt)
+        check(st == 200 and stored["result"] == snap["result"], "the snapshot still shows the evaluation as it was")
+        say("conditions shown, never enforced; the snapshot kept the earlier evaluation", "manual satisfied, CI unknown")
+
+        # A crashes; B pushes another commit; a fresh client recovers from records.
+        mcp.crash()
+        mcp = None
+        say("A: MCP process killed (crash)")
+        with open(os.path.join(seed, "parser.rs"), "w") as f:
+            f.write("fn parse() { /* empty input handled */ }\n")
+        git(["commit", "-q", "-am", "handle empty input"], seed)
+        sha2 = git(["rev-parse", "HEAD"], seed)
+        git(["push", "-q", f"{base}/git/{OWNER}/{REPO}", "main:fix/parser"], seed, token=jwt)
+        for i in range(12):
+            st, _ = http(base, "POST", f"{collab}/tasks/{t1_id}/messages", jwt, b, {
+                "client_message_id": f"b-note-{i}", "kind": "note", "body": f"progress note {i}: " + "x" * 1400})
+            check(st == 201, "B writes a long progress note")
+
+        mcp_c = McpClient(base, pat_token, os.path.join(work, "mcp-sessions-c.json"), work, "c")
+        c_start = mcp_c.ok("collab_start_session", display_name="Harness C", client_kind="mcp")
+        with open(os.path.join(work, "mcp-sessions-c.json")) as f:
+            secrets_seen.append(json.load(f)[f"{OWNER}/{REPO}"]["secret"])
+        pack = mcp_c.ok("collab_get_context", task_id=t1_id)
+        names = [s["name"] for s in pack["sections"]]
+        check(names[0] == "task" and names[1:] == ["questions", "decisions", "handoffs", "work_packages", "dependencies", "overlaps", "messages"], f"sections: {names}")
+        by = {s["name"]: s for s in pack["sections"]}
+        check([d["id"] for d in by["decisions"]["items"]] == [decision["id"]], "C sees A's decision")
+        check([d["depends_on_task_id"] for d in by["dependencies"]["items"]] == [t2_id], f"C sees the dependency: {by['dependencies']}")
+        # B declared its task done earlier, so its paths no longer raise a warning.
+        check(by["overlaps"]["items"] == [], f"a finished task raises no overlap: {by['overlaps']}")
+        check(pack["git"]["status"] == "observed" and pack["head_sha"] == sha2, f"head observed independently: {pack['git']}")
+        check(pack["consistency"] == {"db": "per_section_live_query", "git": "independent"}, "the pack says it is not a snapshot")
+        small = mcp_c.ok("collab_get_context", task_id=t1_id, max_bytes=8192, sections="decisions,messages")
+        cut = [c for c in small["truncation"]["sections"] if c["section"] == "messages"]
+        check(cut and cut[0]["omitted_items"] > 0 and cut[0]["reason"] == "byte_budget", f"budget cut is listed: {small['truncation']}")
+        check([s["name"] for s in small["sections"]] == ["task", "decisions", "messages"], "requested sections only")
+        newest = max(m["seq"] for m in by["messages"]["items"])
+        check(newest >= 13, f"the newest messages are the ones kept: {newest}")
+        say("C (fresh MCP client) recovered the task from the context pack alone", f"head {sha2[:12]}; small budget cut {cut[0]['omitted_items']} messages and said so")
+
+        mcp_c.close()
+        mcp_c = None
+        sizes = scan_for_secrets(server, work)
+        say("no session secret in the server log or MCP process logs", sizes)
+        say("P1 scenario complete")
+        return {"tasks": [t1_id, t2_id], "commits": [sha1, sha2], "sessions": {"A": a_id, "B": b["id"], "C": c_start["id"]},
+                "decision": decision["id"], "snapshot": snap["id"]}
+    finally:
+        for client in (mcp, mcp_c):
+            if client is not None:
+                try:
+                    client.crash()
+                except Exception:
+                    pass
+        server.stop()
+
+
 def run_x04(work, keep, db_url=None, multi_instance=False):
     """X04/M12: real MCP and REST clients, two private Git repositories (X02)."""
     server = Server(work, db_url)
@@ -933,8 +1124,8 @@ def run_ci_compat(work, keep, db_url=None):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--scenario", choices=["t12", "p0", "x04", "ci-compat"], default="t12",
-                        help="t12: first-version flow; p0: P15; x04: two-client P2; ci-compat: protected CI approval")
+    parser.add_argument("--scenario", choices=["t12", "p0", "p1", "x04", "ci-compat"], default="t12",
+                        help="t12: first-version flow; p0: P15; p1: P1 features; x04: two-client P2; ci-compat: protected CI approval")
     parser.add_argument("--keep", action="store_true", help="keep the work directory")
     parser.add_argument("--multi-instance", action="store_true", help="X04: run two independent servers sharing the test DB and repository directory")
     parser.add_argument("--json-out", help="write a JSON summary with environment info")
@@ -955,7 +1146,7 @@ def main():
         elif args.scenario == "ci-compat":
             summary = run_ci_compat(work, args.keep, db_url)
         else:
-            summary = {"t12": run, "p0": run_p0}[args.scenario](work, args.keep)
+            summary = {"t12": run, "p0": run_p0, "p1": run_p1}[args.scenario](work, args.keep)
         status = 0
         if args.json_out:
             def sh(*cmd):
