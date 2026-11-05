@@ -428,7 +428,11 @@ mkdir -p "${WORK_DIR}/tls-repos"
   >"${WORK_DIR}/server-tls.log" 2>&1 &
 TLS_SERVER_PID=$!
 tls_curl() {
-  curl -fsS --max-time 5 --cacert "${TLS_FIXTURES}/ec.crt" \
+  # `--noproxy '*'`: the test host name is a made-up .invalid name that only
+  # `--resolve` maps to 127.0.0.1. no_proxy matches names, not the resolved
+  # address, so on a runner with https_proxy set curl would hand the name to the
+  # proxy, which cannot resolve it (git233's runners: connection reset).
+  curl -fsS --noproxy '*' --max-time 5 --cacert "${TLS_FIXTURES}/ec.crt" \
     --resolve "${TLS_HOST}:${TLS_HTTP_PORT}:127.0.0.1" "$@"
 }
 for _ in $(seq 1 120); do
