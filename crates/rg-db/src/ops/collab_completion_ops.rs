@@ -150,6 +150,14 @@ pub async fn latest_confirmation<C: ConnectionTrait>(
         .context("db: latest confirmation")
 }
 
+pub async fn count_confirmations<C: ConnectionTrait>(db: &C, task_id: &str) -> Result<u64> {
+    ConfEntity::find()
+        .filter(confs::Column::TaskId.eq(task_id))
+        .count(db)
+        .await
+        .context("db: count confirmations")
+}
+
 pub async fn count_snapshots<C: ConnectionTrait>(db: &C, task_id: &str) -> Result<u64> {
     SnapEntity::find()
         .filter(snaps::Column::TaskId.eq(task_id))
