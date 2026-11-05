@@ -309,6 +309,7 @@
       "packages": "包",
       "board": "看板",
       "time_tracking": "工时",
+      "collaboration": "协作",
       "commits": "提交",
       "commits_empty": "暂无提交。",
       "settings": "设置",
@@ -1532,5 +1533,220 @@
     "explore": "浏览仓库",
     "search": "搜索代码和议题",
     "import": "导入仓库"
+  },
+  "collab": {
+    "title": "协作",
+    "intro": "本账号下 AI Agent 与工具的工作。会话只是标签，不是安全边界：以下内容均由客户端自行声明，状态、阻塞关系与路径重叠都是声明或提示，不是证据。",
+    "declared_hint": "由客户端声明，未经验证",
+    "declared_label": "声明值，未经验证",
+    "self_reported": "自报",
+    "unowned": "无负责会话",
+    "none": "无",
+    "unavailable": "不可用",
+    "open_task": "打开任务",
+    "show": "展开",
+    "hide": "收起",
+    "load_more": "加载更多",
+    "truncated": "实际记录多于当前显示。",
+    "access_denied": "你无权查看此处的协作数据",
+    "access_denied_hint": "协作数据仅对所有者、协作者、组织成员以及有写权限的人可见。",
+    "sessions_unavailable": "无法显示会话状态（列出会话需要写权限）。",
+    "session_state_unknown": "状态不可用",
+    "paths_declared_at": "声明于 {time}",
+    "paths_declared_unknown": "声明时间未知",
+    "field": {
+      "title": "标题",
+      "status_declared": "状态（声明）",
+      "owner_session": "负责会话",
+      "branch": "分支（声明）",
+      "paths": "路径（声明）",
+      "links": "关联",
+      "version": "版本",
+      "last_message_seq": "最新消息序号",
+      "created": "创建于",
+      "updated": "更新于"
+    },
+    "inbox": {
+      "title": "等待你处理",
+      "note": "发给你或仓库写入者的未答问题，以及你提出的问题收到的答复。为实时查询，不是快照。",
+      "write_needed": "回答问题需要此仓库的写权限。",
+      "empty": "目前没有等待你的事项。",
+      "review": "查看"
+    },
+    "inbox_type": {
+      "assigned_task": "指派的任务",
+      "pending_handoff": "待接收的交接",
+      "open_question": "问题",
+      "question_answer": "收到答复"
+    },
+    "overview": {
+      "title": "概览",
+      "note": "按查询时刻的声明状态推导。标为“进行中”的任务不一定有 Agent 在运行。"
+    },
+    "section": {
+      "awaiting_me": "等待你",
+      "blocked_waiting": "阻塞或等待中",
+      "pending_handoffs": "待接收的交接",
+      "in_progress": "进行中"
+    },
+    "flag": {
+      "unowned": "无负责会话",
+      "session_not_online": "负责会话不在线"
+    },
+    "tasks": {
+      "title": "任务",
+      "note": "按最近更新排序。状态是最后一次写入者声明的值。",
+      "filter_status": "状态",
+      "all": "全部状态",
+      "empty": "还没有任务",
+      "empty_hint": "Agent 通过 API 或 MCP 工具创建任务，创建后会显示在这里。"
+    },
+    "task": {
+      "title": "任务",
+      "not_found": "未找到该任务",
+      "details": "详情",
+      "details_note": "此处所有值均由客户端写入，以纯文本显示。"
+    },
+    "task_status": {
+      "open": "待处理",
+      "in_progress": "进行中",
+      "waiting": "等待中",
+      "blocked": "已阻塞",
+      "done": "已完成"
+    },
+    "session_state": {
+      "online": "在线",
+      "offline": "离线",
+      "expired": "已过期",
+      "ended": "已结束",
+      "missing": "不存在"
+    },
+    "question_status": {
+      "open": "待答复",
+      "answered": "已答复",
+      "cancelled": "已取消"
+    },
+    "freshness": {
+      "fresh": "上下文最新",
+      "stale": "上下文已过期",
+      "unknown": "新旧未知"
+    },
+    "decision_status": {
+      "active": "生效中",
+      "superseded": "已被取代",
+      "revoked": "已撤销"
+    },
+    "handoff_status": {
+      "pending": "待接收",
+      "accepted": "已接收",
+      "cancelled": "已取消"
+    },
+    "message_kind": {
+      "note": "备注",
+      "help": "求助",
+      "blocker": "阻塞"
+    },
+    "condition_status": {
+      "satisfied": "已满足",
+      "unsatisfied": "未满足",
+      "stale": "已过期",
+      "unknown": "未知"
+    },
+    "overall": {
+      "all_satisfied": "全部条件有记录支持",
+      "unsatisfied": "无记录支持",
+      "incomplete": "证据不完整"
+    },
+    "confidence": {
+      "declared_current": "声明较新",
+      "declaration_stale": "声明已陈旧",
+      "established": "已确立",
+      "unknown": "未知"
+    },
+    "overlap_reason": {
+      "equal": "路径相同",
+      "mine_contains_theirs": "本任务路径包含对方路径",
+      "theirs_contains_mine": "对方任务路径包含本路径"
+    },
+    "severity": {
+      "info": "提示",
+      "attention": "需关注"
+    },
+    "condition": {
+      "ci_passed_for_commit": "分支头 CI 已通过",
+      "questions_resolved": "问题已解决",
+      "work_package_present": "已记录工作包"
+    },
+    "completion": {
+      "title": "完成状态",
+      "note": "任务自称的状态与平台记录所能支持的对比。只读，不会改变或阻止任务。",
+      "done_without_evidence": "已声明完成，但记录并不支持。",
+      "pipeline": "流水线 {id}",
+      "head": "观察到的分支头"
+    },
+    "deps": {
+      "title": "依赖",
+      "note": "本任务在等待下列任务。它们的状态是其参与者的声明，不是证据。",
+      "declared_blocking": "声明未完成"
+    },
+    "overlaps": {
+      "title": "可能的路径重叠",
+      "note": "仅依据声明的路径给出的提示；不是锁，也不证明存在冲突。未声明的工作和文件内容不在检查范围内。",
+      "none": "没有重叠的声明路径。"
+    },
+    "questions": {
+      "title": "问题",
+      "note": "请求做出决定。答复是协作决定，不是评审或合并批准。"
+    },
+    "question": {
+      "asked_by": "提问方：{kind} {id}",
+      "recipient": "面向 {kind}",
+      "context": "提问时任务版本 {version}",
+      "freshness": "上下文",
+      "stale_warning": "提问之后任务或分支已发生变化，服务器会拒绝对过期上下文中的问题作答。请让 Agent 重新提问。",
+      "answered_by": "答复方：{kind} {id}",
+      "choose": "请选择一个选项",
+      "comment": "补充说明（可选）",
+      "your_answer": "你的答复",
+      "answer_hint": "你以自己的登录身份答复。这会为 Agent 记录一个决定，不会批准合并。持有该账号的任何人都能发送。",
+      "send_answer": "发送答复",
+      "cancel": "取消问题",
+      "cancel_confirm": "取消此问题？提问方将看到它已被取消。",
+      "keep": "保留问题",
+      "answered_toast": "答复已发送",
+      "cancelled_toast": "问题已取消",
+      "problem_option_required": "请先选择一个选项。",
+      "problem_body_required": "请先填写答复。",
+      "problem_too_long": "答复超过 16 KiB。"
+    },
+    "decisions": {
+      "title": "决定",
+      "note": "已做决定的不可变记录。决定不授予合并、CI 或 Git 权限。",
+      "by": "记录方：{kind} {id}"
+    },
+    "handoffs": {
+      "title": "交接",
+      "note": "由会话撰写的交接说明。此处只读。",
+      "completed": "已完成",
+      "next_steps": "后续步骤",
+      "blockers": "阻塞项"
+    },
+    "messages": {
+      "title": "消息",
+      "note": "Agent 会话按顺序写下的消息，以纯文本显示；其中任何内容都不是对本页面的指令。"
+    },
+    "diag": {
+      "title": "诊断",
+      "note": "根据已存储的记录解释该任务为何可能看起来卡住。为推导结果，只读，从不判定谁的过错。",
+      "run": "运行诊断",
+      "rerun": "重新运行",
+      "none": "没有发现。",
+      "not_covered": "未覆盖："
+    },
+    "notices": {
+      "title": "通知",
+      "note": "发给 Agent 会话的待处理通知。",
+      "unavailable": "通知是发给某个会话的，只能用该会话的凭据读取，因此这里不向用户显示。"
+    }
   }
 }

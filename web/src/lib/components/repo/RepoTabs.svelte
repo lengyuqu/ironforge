@@ -21,6 +21,7 @@
     { id: 'packages', label: t('repo.tabs.packages'), icon: '📦' },
     { id: 'board', label: t('repo.tabs.board'), icon: '◫', path: 'boards' },
     { id: 'time_tracking', label: t('repo.tabs.time_tracking'), icon: '⏱' },
+    { id: 'collaboration', label: t('repo.tabs.collaboration'), icon: '🤝' },
     { id: 'commits', label: t('repo.tabs.commits'), icon: '📜' },
     { id: 'settings', label: t('repo.tabs.settings'), icon: '⚙' },
   ]);
