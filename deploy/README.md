@@ -140,6 +140,13 @@ secret in your configuration, so they stay valid; **personal access tokens are
 restored unchanged** and the backup cannot say which were revoked after it was
 taken - review or rotate them after a restore.
 
+PostgreSQL and MySQL are backed up with their own tools (`pg_dump -Fc`,
+`mysqldump --single-transaction --routines --triggers`); the CLI refuses them.
+`scripts/db-restore-drill.sh postgres|mysql` rehearses that dump/restore round
+trip in Docker. The quiesce step above does not exist for these backends: after a
+restore, end collaboration sessions and review queued jobs and access tokens by
+hand.
+
 Practise a restore into a throw-away directory before you need one:
 `python3 scripts/collab-e2e.py --scenario restore`.
 

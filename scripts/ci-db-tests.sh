@@ -23,13 +23,17 @@ case "$backend" in
   *) echo "unknown backend: $backend" >&2; exit 2 ;;
 esac
 
+# Linux can share the host network; Docker Desktop (macOS/Windows) cannot, so
+# there the port is published instead. Either way the tests reach 127.0.0.1:$port.
+if [ "$(uname -s)" = "Linux" ]; then net=(--network host); else net=(-p "${port}:${port}"); fi
+
 cleanup() { docker rm -f "$name" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 cleanup
 
 case "$backend" in
   postgres)
-    docker run -d --name "$name" --network host \
+    docker run -d --name "$name" "${net[@]}" \
       -e POSTGRES_USER=ironforge -e POSTGRES_PASSWORD=ironforge -e POSTGRES_DB=ironforge \
       postgres:17 -p "$port" >/dev/null
     ready() { docker exec "$name" pg_isready -U ironforge -d ironforge -p "$port" >/dev/null 2>&1; }
@@ -42,7 +46,7 @@ case "$backend" in
   mysql)
     # The FTS migration creates triggers; with binary logging on (the 8.4
     # default) a non-SUPER user needs log_bin_trust_function_creators.
-    docker run -d --name "$name" --network host \
+    docker run -d --name "$name" "${net[@]}" \
       -e MYSQL_ROOT_PASSWORD=root -e MYSQL_DATABASE=ironforge \
       -e MYSQL_USER=ironforge -e MYSQL_PASSWORD=ironforge \
       mysql:8.4 --port="$port" --log-bin-trust-function-creators=1 >/dev/null
