@@ -38,7 +38,7 @@
 
 ## 没有被证明的
 
-- **只有 SQLite**。`ironforge backup` 对 PostgreSQL/MySQL 明确拒绝（需 `pg_dump`/`mysqldump`），那条链路**未演练**。
+- **CLI 备份只有 SQLite**。`ironforge backup` 对 PostgreSQL/MySQL 明确拒绝，运维用 `pg_dump`/`mysqldump`。2026-11-05 起有 `scripts/db-restore-drill.sh postgres|mysql`（需要 Docker）演练这条链路：用真实测试目标（`collab_condition_tests`）写入数据 → 原生工具转储 → 恢复到第二个库 → 逐表比较行数与内容校验（PostgreSQL 用 `md5(string_agg(行文本))`，MySQL 用 `CHECKSUM TABLE`）→ 对恢复库跑 `ironforge migrate` 必须无待执行迁移且迁移历史一致。实测（PostgreSQL 17、MySQL 8.4，本机 Docker）：103 张表一致（18 张有数据）、93 条迁移历史一致。**没覆盖**：Git 仓库与 Blob 存储（仍靠文件备份）、在恢复库上启动服务、时间点恢复、以及 CLI 侧的恢复后收敛（这两个后端没有）——恢复后需手工结束协作会话、复核排队作业和访问令牌。
 - 备份不是原子的：数据库快照和文件复制先后进行，必须先停服务；仍未提供一致性检测之外的在线一致备份。
 - 校验和防的是**备份目录在存放中的损坏或篡改**，不能证明备份时数据库与 Git 的内容彼此一致；也不防有人同时改文件和 `checksums.sha256`。
 - 单机、单次时间点；没有给出 RPO/RTO 目标（需要更多真实演练再定）。
