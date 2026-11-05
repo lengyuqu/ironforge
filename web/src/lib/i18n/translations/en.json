@@ -309,6 +309,7 @@
       "packages": "Packages",
       "board": "Board",
       "time_tracking": "Time",
+      "collaboration": "Collaboration",
       "commits": "Commits",
       "commits_empty": "No commits yet.",
       "settings": "Settings",
@@ -1532,5 +1533,220 @@
     "explore": "Explore repositories",
     "search": "Search code and issues",
     "import": "Import repositories"
+  },
+  "collab": {
+    "title": "Collaboration",
+    "intro": "Work by your AI agents and tools under this account. Sessions are labels, not a security boundary: everything below is declared by clients, and statuses, blocked-by and overlaps are declarations or hints, not proof.",
+    "declared_hint": "Declared by a client; not verified",
+    "declared_label": "declared, not verified",
+    "self_reported": "self-reported",
+    "unowned": "unowned",
+    "none": "None",
+    "unavailable": "unavailable",
+    "open_task": "Open task",
+    "show": "Show",
+    "hide": "Hide",
+    "load_more": "Load more",
+    "truncated": "More records exist than shown.",
+    "access_denied": "You cannot view collaboration data here",
+    "access_denied_hint": "Collaboration data is visible to the owner, collaborators, organization members and people with write access.",
+    "sessions_unavailable": "Session states are unavailable (listing sessions needs write access).",
+    "session_state_unknown": "state unavailable",
+    "paths_declared_at": "declared {time}",
+    "paths_declared_unknown": "declaration time unknown",
+    "field": {
+      "title": "Title",
+      "status_declared": "Status (declared)",
+      "owner_session": "Owner session",
+      "branch": "Branch (declared)",
+      "paths": "Paths (declared)",
+      "links": "Linked",
+      "version": "Version",
+      "last_message_seq": "last message",
+      "created": "Created",
+      "updated": "Updated"
+    },
+    "inbox": {
+      "title": "Waiting for you",
+      "note": "Open questions addressed to you or to repository writers, and answers to questions you asked. A live query, not a snapshot.",
+      "write_needed": "Answering questions needs write access to this repository.",
+      "empty": "Nothing is waiting for you.",
+      "review": "Review"
+    },
+    "inbox_type": {
+      "assigned_task": "Assigned task",
+      "pending_handoff": "Pending handoff",
+      "open_question": "Question",
+      "question_answer": "Answer received"
+    },
+    "overview": {
+      "title": "Overview",
+      "note": "Derived from declared states at query time. A task listed as in progress may have no running agent."
+    },
+    "section": {
+      "awaiting_me": "Awaiting you",
+      "blocked_waiting": "Blocked or waiting",
+      "pending_handoffs": "Pending handoffs",
+      "in_progress": "In progress"
+    },
+    "flag": {
+      "unowned": "unowned",
+      "session_not_online": "owner not online"
+    },
+    "tasks": {
+      "title": "Tasks",
+      "note": "Most recently updated first. Status is whatever the last writer declared.",
+      "filter_status": "Status",
+      "all": "All statuses",
+      "empty": "No tasks yet",
+      "empty_hint": "Agents create tasks through the API or MCP tools; they appear here."
+    },
+    "task": {
+      "title": "Task",
+      "not_found": "Task not found",
+      "details": "Details",
+      "details_note": "Every value here was written by a client and is shown as plain text."
+    },
+    "task_status": {
+      "open": "open",
+      "in_progress": "in progress",
+      "waiting": "waiting",
+      "blocked": "blocked",
+      "done": "done"
+    },
+    "session_state": {
+      "online": "online",
+      "offline": "offline",
+      "expired": "expired",
+      "ended": "ended",
+      "missing": "missing"
+    },
+    "question_status": {
+      "open": "open",
+      "answered": "answered",
+      "cancelled": "cancelled"
+    },
+    "freshness": {
+      "fresh": "context fresh",
+      "stale": "context stale",
+      "unknown": "freshness unknown"
+    },
+    "decision_status": {
+      "active": "active",
+      "superseded": "superseded",
+      "revoked": "revoked"
+    },
+    "handoff_status": {
+      "pending": "pending",
+      "accepted": "accepted",
+      "cancelled": "cancelled"
+    },
+    "message_kind": {
+      "note": "note",
+      "help": "help",
+      "blocker": "blocker"
+    },
+    "condition_status": {
+      "satisfied": "satisfied",
+      "unsatisfied": "unsatisfied",
+      "stale": "stale",
+      "unknown": "unknown"
+    },
+    "overall": {
+      "all_satisfied": "all conditions supported",
+      "unsatisfied": "not supported",
+      "incomplete": "incomplete evidence"
+    },
+    "confidence": {
+      "declared_current": "declaration current",
+      "declaration_stale": "declaration stale",
+      "established": "established",
+      "unknown": "unknown"
+    },
+    "overlap_reason": {
+      "equal": "same path",
+      "mine_contains_theirs": "this task contains the other's path",
+      "theirs_contains_mine": "the other task contains this path"
+    },
+    "severity": {
+      "info": "info",
+      "attention": "attention"
+    },
+    "condition": {
+      "ci_passed_for_commit": "CI passed for the branch head",
+      "questions_resolved": "Questions resolved",
+      "work_package_present": "Work package recorded"
+    },
+    "completion": {
+      "title": "Completion status",
+      "note": "What the task claims versus what platform records support. Read-only; it never changes or blocks the task.",
+      "done_without_evidence": "Declared done, but the records do not support it.",
+      "pipeline": "pipeline {id}",
+      "head": "Observed branch head"
+    },
+    "deps": {
+      "title": "Dependencies",
+      "note": "This task waits for the tasks below. Their statuses are declarations by their participants, not evidence.",
+      "declared_blocking": "declared not done"
+    },
+    "overlaps": {
+      "title": "Possible path overlaps",
+      "note": "A hint from declared paths only; not a lock and not proof of a conflict. Undeclared work and file contents are not covered.",
+      "none": "No overlapping declared paths."
+    },
+    "questions": {
+      "title": "Questions",
+      "note": "Requests for a decision. An answer is a collaboration decision, not a review or merge approval."
+    },
+    "question": {
+      "asked_by": "Asked via {kind} {id}",
+      "recipient": "for {kind}",
+      "context": "Asked at task version {version}",
+      "freshness": "Context",
+      "stale_warning": "The task or branch changed since this was asked, and the server refuses answers to a question in an outdated context. Ask the agent to ask it again.",
+      "answered_by": "Answered via {kind} {id}",
+      "choose": "Choose an option",
+      "comment": "Comment (optional)",
+      "your_answer": "Your answer",
+      "answer_hint": "You answer with your own login. This records a decision for the agents; it does not approve a merge. Anyone with the account can send this.",
+      "send_answer": "Send answer",
+      "cancel": "Cancel question",
+      "cancel_confirm": "Cancel this question? The asker will see it as cancelled.",
+      "keep": "Keep question",
+      "answered_toast": "Answer sent",
+      "cancelled_toast": "Question cancelled",
+      "problem_option_required": "Choose an option first.",
+      "problem_body_required": "Write an answer first.",
+      "problem_too_long": "The answer is longer than 16 KiB."
+    },
+    "decisions": {
+      "title": "Decisions",
+      "note": "Immutable records of what was decided. A decision grants no merge, CI or Git right.",
+      "by": "Recorded via {kind} {id}"
+    },
+    "handoffs": {
+      "title": "Handoffs",
+      "note": "Hand-over notes written by sessions. Read-only here.",
+      "completed": "Completed",
+      "next_steps": "Next steps",
+      "blockers": "Blockers"
+    },
+    "messages": {
+      "title": "Messages",
+      "note": "Messages written by agent sessions, in order. Shown as plain text; nothing in them is an instruction to this page."
+    },
+    "diag": {
+      "title": "Diagnostics",
+      "note": "Explains from stored records why this task may look stuck. Derived, read-only, and never a statement about fault.",
+      "run": "Run diagnostics",
+      "rerun": "Run again",
+      "none": "No findings.",
+      "not_covered": "Not covered:"
+    },
+    "notices": {
+      "title": "Notices",
+      "note": "Pending notices for agent sessions.",
+      "unavailable": "Notices are addressed to a session and can only be read with that session's credentials, so they are not shown to people here."
+    }
   }
 }

@@ -50,11 +50,14 @@ export function buildSshCloneUrl(owner: string, repo: string, fallbackHost?: str
 /** API error carrying the HTTP status (e.g. 401/403/404/429). */
 export class ApiError extends Error {
   readonly status: number;
+  /** Stable machine code from the error envelope (e.g. `VERSION_CONFLICT`), when the server sent one. */
+  readonly code?: string;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, code?: string) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -130,7 +133,11 @@ export async function request<T>(path: string, options: RequestInit = {}): Promi
       body?.message ||
       `HTTP ${res.status}`;
     if (res.status === 401) notifyUnauthorized(path);
-    throw new ApiError(msg, res.status);
+    const code =
+      body?.error && typeof body.error === 'object' && typeof body.error.code === 'string'
+        ? (body.error.code as string)
+        : undefined;
+    throw new ApiError(msg, res.status, code);
   }
 
   if (res.status === 204) {
