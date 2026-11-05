@@ -135,7 +135,8 @@ A restored database is a snapshot of the past, so after the restore both
 `--keep-live-state`): all collaboration sessions are ended (clients register new
 ones), password-reset tokens are deleted, and queued `webhook.deliver` /
 `email.send` jobs are marked `dead` (they may already have gone out from the live
-instance). The command prints what it changed. Login tokens depend on the signing
+instance), and pending/running CI pipelines are cancelled so a restored runner
+does not re-run work (deploys included). The command prints what it changed. Login tokens depend on the signing
 secret in your configuration, so they stay valid; **personal access tokens are
 restored unchanged** and the backup cannot say which were revoked after it was
 taken - review or rotate them after a restore.
@@ -144,8 +145,12 @@ PostgreSQL and MySQL are backed up with their own tools (`pg_dump -Fc`,
 `mysqldump --single-transaction --routines --triggers`); the CLI refuses them.
 `scripts/db-restore-drill.sh postgres|mysql` rehearses that dump/restore round
 trip in Docker. The quiesce step above does not exist for these backends: after a
-restore, end collaboration sessions and review queued jobs and access tokens by
-hand.
+restore, run `deploy/post-restore-quiesce.sql` (after `ironforge migrate`, before
+starting the server). It applies the same policy as the SQLite CLI: it ends
+collaboration sessions, deletes password-reset tokens, marks queued webhook/e-mail
+jobs dead and cancels running CI. Personal access tokens, SSH/deploy keys, runner
+registrations, mirror credentials and the merge queue are left alone: review them
+by hand. The drill applies the file and checks that nothing live remains.
 
 Practise a restore into a throw-away directory before you need one:
 `python3 scripts/collab-e2e.py --scenario restore`.

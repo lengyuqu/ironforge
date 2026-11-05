@@ -51,6 +51,12 @@ pub const MAX_LISTED: u64 = 100;
 /// overshoot by the number of racing requests, which is acceptable for a
 /// storage guard. At the cap the caller gets `SNAPSHOT_LIMIT_REACHED`.
 pub const MAX_SNAPSHOTS_PER_TASK: u64 = 200;
+/// Condition-set versions are immutable and never deleted either: a task keeps
+/// at most this many (the next write after version N fails with
+/// `CONDITION_VERSION_LIMIT_REACHED`; the version check is exact, not a race).
+pub const MAX_SET_VERSIONS_PER_TASK: i64 = 200;
+/// Manual confirmations per task (count-then-insert, like the snapshot cap).
+pub const MAX_CONFIRMATIONS_PER_TASK: u64 = 200;
 
 pub const QUESTION_ANSWERED: &str = "question_answered";
 pub const WORK_PACKAGE_PRESENT: &str = "work_package_present";
@@ -316,6 +322,15 @@ pub async fn set_conditions(
     if input.expected_version != current_version {
         return Err(CollabError::VersionConflict { current_version });
     }
+    if current_version >= MAX_SET_VERSIONS_PER_TASK {
+        return Err(CollabError::CodedConflict {
+            code: "CONDITION_VERSION_LIMIT_REACHED",
+            message: format!(
+                "this task already has {current_version} condition-set versions (limit {MAX_SET_VERSIONS_PER_TASK})"
+            ),
+            details: Some(json!({ "limit": MAX_SET_VERSIONS_PER_TASK, "version": current_version })),
+        });
+    }
     let previous: Vec<Condition> = match &current {
         Some(row) => serde_json::from_str(&row.conditions_json)
             .map_err(|e| CollabError::Internal(e.into()))?,
@@ -487,6 +502,16 @@ pub async fn confirm(
             "no manual_confirmation condition with this id in the current definition",
         ));
     };
+    let stored = ops::count_confirmations(db, &task.id).await?;
+    if stored >= MAX_CONFIRMATIONS_PER_TASK {
+        return Err(CollabError::CodedConflict {
+            code: "CONFIRMATION_LIMIT_REACHED",
+            message: format!(
+                "this task already has {stored} confirmations (limit {MAX_CONFIRMATIONS_PER_TASK})"
+            ),
+            details: Some(json!({ "limit": MAX_CONFIRMATIONS_PER_TASK, "stored": stored })),
+        });
+    }
     let model = conf_entity::ActiveModel {
         id: Set(uuid::Uuid::new_v4().to_string()),
         repo_id: Set(repo_id),
