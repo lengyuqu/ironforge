@@ -1773,6 +1773,16 @@
       "snapshot_recorded": "已记录快照。",
       "snapshot_replayed": "该快照已存在。",
       "stored_as_recorded": "当时的原样记录，不会重新计算。"
+    },
+    "nav": {
+      "label": "协作分区",
+      "home": "任务",
+      "groups": "协作组",
+      "health": "健康指标",
+      "templates": "模板",
+      "search": "搜索",
+      "rules": "规则",
+      "settings": "设置"
     }
   }
 }

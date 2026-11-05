@@ -1773,6 +1773,16 @@
       "snapshot_recorded": "Snapshot recorded.",
       "snapshot_replayed": "That snapshot already existed.",
       "stored_as_recorded": "As recorded then; not recomputed."
+    },
+    "nav": {
+      "label": "Collaboration sections",
+      "home": "Tasks",
+      "groups": "Groups",
+      "health": "Health",
+      "templates": "Templates",
+      "search": "Search",
+      "rules": "Rules",
+      "settings": "Settings"
     }
   }
 }

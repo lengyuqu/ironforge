@@ -23,6 +23,7 @@
   import SectionCard from '$lib/components/collaboration/SectionCard.svelte';
   import StatusBadge from '$lib/components/collaboration/StatusBadge.svelte';
   import QuestionCard from '$lib/components/collaboration/QuestionCard.svelte';
+  import CollabNav from '$lib/components/collaboration/CollabNav.svelte';
 
   const t = createT();
 
@@ -146,6 +147,7 @@
 
 <div class="page-container">
   <RepoHeader {owner} {repo} activeTab="collaboration" />
+  <CollabNav {owner} {repo} current="home" />
 
   <div class="page-header">
     <h1>{t('collab.title')}</h1>
