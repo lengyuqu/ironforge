@@ -1,13 +1,29 @@
-# CNB pipelines — a trial mirror of the gates in scripts/check.sh and
-# .github/workflows/regression.yml. GitHub Actions stays the reference CI;
-# this file only runs the Rust gates on CNB (no PostgreSQL/MySQL, git-protocol
-# matrix, security audit or frontend jobs yet).
+# CNB pipelines. CNB is the development upstream (CLAUDE.md, "仓库分工与推送顺序"),
+# so this file carries every gate of .github/workflows/regression.yml plus the
+# collaboration suites on PostgreSQL and MySQL. GitHub Actions stays the
+# release-time check only; its free minutes are scarce.
 #
-# Each list item is an independent pipeline and runs in parallel.
+# Gate map (GitHub job -> CNB pipeline):
+#   clippy (+rustfmt)        -> lint
+#   rust-tests               -> rust-tests
+#   security-audit           -> security-audit
+#   git-protocol             -> git-protocol
+#   postgres-smoke           -> postgres   (also runs the rg-db / rg-http collab_* suites)
+#   mysql-smoke              -> mysql      (same)
+#   frontend                 -> frontend
+#   deploy-config            -> deploy-config
+#
+# Each list item is an independent pipeline and runs in parallel. They run on
+# every push to main or feat/** and on pull requests into main.
 
 .rust-setup: &rust-setup
   docker:
     image: rust:1
+    # Node-local build caches shared by all pipelines of this repository.
+    volumes:
+      - cargo-registry:/root/.cargo/registry:copy-on-write
+      - cargo-git:/root/.cargo/git:copy-on-write
+      - cargo-target:./target:copy-on-write
   env:
     CARGO_INCREMENTAL: "0"
 
@@ -17,46 +33,122 @@
     apt-get update
     apt-get install -y --no-install-recommends pkg-config libssl-dev libsqlite3-dev git
 
-main:
-  push:
-    - name: lint
-      <<: *rust-setup
-      stages:
-        - *apt-deps
-        - name: rustfmt and clippy components
-          script: rustup component add rustfmt clippy
-        - name: cargo fmt --check
-          script: cargo fmt --all --check
-        - name: clippy (deny warnings)
-          script: cargo clippy --workspace --all-targets -- -D warnings
+.lint: &lint
+  <<: *rust-setup
+  name: lint
+  stages:
+    - *apt-deps
+    - name: rustfmt and clippy components
+      script: rustup component add rustfmt clippy
+    - name: cargo fmt --check
+      script: cargo fmt --all --check
+    - name: clippy (deny warnings)
+      script: cargo clippy --workspace --all-targets -- -D warnings
 
-    - name: test
-      <<: *rust-setup
-      stages:
-        - *apt-deps
-        - name: rg-core and rg-http tests
-          script: cargo test -p rg-core -p rg-http
-        - name: fresh DB migration smoke
-          script: cargo run -p rg-cli -- migrate --db-url "sqlite:///tmp/ironforge-cnb-migration.db?mode=rwc"
+.rust-tests: &rust-tests
+  <<: *rust-setup
+  name: rust-tests
+  stages:
+    - *apt-deps
+    - name: workspace tests compile
+      script: cargo check --workspace --tests
+    - name: workspace tests
+      script: cargo test --workspace
+    - name: fresh DB migration smoke
+      script: cargo run -p rg-cli -- migrate --db-url "sqlite:///tmp/ironforge-cnb-migration.db?mode=rwc"
+
+.security-audit: &security-audit
+  <<: *rust-setup
+  name: security-audit
+  stages:
+    - name: install cargo-audit
+      script: cargo install cargo-audit --locked
+    - name: cargo audit
+      script: cargo audit
+
+.git-protocol: &git-protocol
+  <<: *rust-setup
+  name: git-protocol
+  stages:
+    - name: system dependencies
+      script: |
+        apt-get update
+        apt-get install -y --no-install-recommends pkg-config libssl-dev libsqlite3-dev git openssh-client openssl curl python3
+    - name: build IronForge
+      script: cargo build -p rg-cli
+    - name: HTTP and SSH protocol matrix
+      script: IRONFORGE_BIN="$PWD/target/debug/ironforge" scripts/git-protocol-e2e.sh
+
+.postgres: &postgres
+  <<: *rust-setup
+  name: postgres
+  services:
+    - docker
+  stages:
+    - *apt-deps
+    - name: PostgreSQL 17 suites
+      script: scripts/ci-db-tests.sh postgres
+
+.mysql: &mysql
+  <<: *rust-setup
+  name: mysql
+  services:
+    - docker
+  stages:
+    - *apt-deps
+    - name: MySQL 8.4 suites
+      script: scripts/ci-db-tests.sh mysql
+
+.frontend: &frontend
+  name: frontend
+  docker:
+    image: node:22
+  stages:
+    - name: install pnpm
+      script: npm install -g pnpm@11
+    - name: install dependencies
+      script: cd web && pnpm install --frozen-lockfile
+    # svelte-check and the build are the primary signals; the i18n contract
+    # check runs last so it cannot hide them.
+    - name: svelte check
+      script: cd web && pnpm run check
+    - name: unit tests (vitest)
+      script: cd web && pnpm run test
+    - name: build
+      script: cd web && pnpm run build
+    - name: i18n key contract check
+      script: node scripts/i18n-key-check.mjs
+
+.deploy-config: &deploy-config
+  name: deploy-config
+  services:
+    - docker
+  docker:
+    image: docker:cli
+  stages:
+    - name: tools
+      script: apk add --no-cache openssl
+    - name: validate main compose
+      script: |
+        cp deploy/.env.example deploy/.env
+        secret="$(openssl rand -hex 32)"
+        sed -i "s/^IRONFORGE_JWT_SECRET=.*/IRONFORGE_JWT_SECRET=${secret}/" deploy/.env
+        docker compose -f deploy/docker-compose.yml config >/tmp/ironforge-compose-main.yml
+        rm -f deploy/.env
+    - name: validate observability compose
+      script: docker compose -f deploy/docker-compose.observability.yml config >/tmp/ironforge-compose-observability.yml
+
+main:
+  push: &all-gates
+    - *lint
+    - *rust-tests
+    - *security-audit
+    - *git-protocol
+    - *postgres
+    - *mysql
+    - *frontend
+    - *deploy-config
+  pull_request: *all-gates
 
 feat/**:
-  push:
-    - name: lint
-      <<: *rust-setup
-      stages:
-        - *apt-deps
-        - name: rustfmt and clippy components
-          script: rustup component add rustfmt clippy
-        - name: cargo fmt --check
-          script: cargo fmt --all --check
-        - name: clippy (deny warnings)
-          script: cargo clippy --workspace --all-targets -- -D warnings
-
-    - name: test
-      <<: *rust-setup
-      stages:
-        - *apt-deps
-        - name: rg-core and rg-http tests
-          script: cargo test -p rg-core -p rg-http
-        - name: fresh DB migration smoke
-          script: cargo run -p rg-cli -- migrate --db-url "sqlite:///tmp/ironforge-cnb-migration.db?mode=rwc"
+  push: *all-gates
