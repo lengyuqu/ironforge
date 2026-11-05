@@ -29,7 +29,7 @@
 - **策略决定（2026-11-05）：保持仅展示，不做强制。** 理由：条件的输入（Agent 的 `done`、会话、自报状态）都是声明，不是证据，让声明充当闸门要么形同虚设要么把任务卡死；强制还需要管理员覆盖路径、审计、故障时的 fail-open/closed 取舍和旧客户端兼容，这些没有真实使用数据支撑。重新评估的前提：`ci_passed_for_commit` / `manual_confirmation` 这类有外部证据的条件在真实仓库里稳定使用一段时间，并有明确的人工覆盖入口。到那时再单独评审，不在本功能里顺带加开关。
 - **设计里的 `PUT` 同时带“任务期望版本”**：这里只用条件集自己的 `expected_version`。条件与任务版本的关系体现在各条件的评估上（如问题上下文随任务版本变 stale），不把任务版本写进定义。
 - **确认不进 MCP**：同账号 Agent 不应能替“授权账号”自我确认；该口只在用户门。
-- 每个任务最多保留 200 个快照（`MAX_SNAPSHOTS_PER_TASK`，快照不可变、不删除），满了返回 409 `SNAPSHOT_LIMIT_REACHED`（`details.limit/stored`）。检查是先计数再插入，并发请求可能略微超出，只是存储护栏，不是配额；`POST …/snapshots?client_request_id=…` 带键时幂等（迁移 `m20261105_000004`，`(task_id, client_request_id)` 唯一；重试返回同一快照，状态 200、`replayed: true`，不占上限；并发同键只存一个）；不带键仍每次新建。条件集版本和确认记录尚无上限（版本写入要求 `expected_version`，确认按 `client_request_id` 幂等，实际增长受调用方节奏限制）。
+- 每个任务最多保留 200 个快照（`MAX_SNAPSHOTS_PER_TASK`，快照不可变、不删除），满了返回 409 `SNAPSHOT_LIMIT_REACHED`（`details.limit/stored`）。检查是先计数再插入，并发请求可能略微超出，只是存储护栏，不是配额；`POST …/snapshots?client_request_id=…` 带键时幂等（迁移 `m20261105_000004`，`(task_id, client_request_id)` 唯一；重试返回同一快照，状态 200、`replayed: true`，不占上限；并发同键只存一个）；不带键仍每次新建。条件集版本每任务最多 200 个（`MAX_SET_VERSIONS_PER_TASK`，已有 200 版时再写返回 409 `CONDITION_VERSION_LIMIT_REACHED`；版本检查是精确的，`VERSION_CONFLICT` 优先于上限，已落地写入的重试仍是回放），确认记录每任务最多 200 条（`MAX_CONFIRMATIONS_PER_TASK`，409 `CONFIRMATION_LIMIT_REACHED`；先计数再插入，并发可能略超；回放不占上限）。200 是存储护栏，不是配额，实际使用没有数据支撑，按需调整常量。
 - 快照列表无游标（最新在前、最多 100 条）；同一秒内的快照顺序不保证（MySQL 整秒精度，见 CLAUDE.md 第 23 条）。
 - 没有“检查名称”（设计提到 `ci_passed_for_commit` 可带检查名）：平台 pipeline 记录没有逐检查名，未虚构该字段。
 - 无 Web UI。
@@ -39,7 +39,7 @@
 | 层级 | 结论 |
 |---|---|
 | 单元 | ✅ `rg-core` `collaboration::conditions`：参数闭合、`overall` 不把 unknown/stale 当作满足 |
-| 任务验证（SQLite） | ✅ `cargo test -p rg-http --test collab_condition_tests`：12 项（9 项连跑 3 遍通过，快照上限与幂等 3 项另跑）（无定义时只有推导评估；版本/幂等/冲突/历史；非法定义逐项 400；问题与工作包随上下文变 stale；CI 绑定确切 commit 并随分支移动变 stale；确认的显式、幂等与分支绑定；快照原样保留；读写权限；6 路并发写同一 `expected_version` 恰好 1 个成功；快照上限 200 与跨任务隔离；快照带键幂等；6 路并发同键只存 1 个） |
+| 任务验证（SQLite） | ✅ `cargo test -p rg-http --test collab_condition_tests`：14 项（9 项连跑 3 遍通过，快照上限/幂等与版本、确认上限另跑）（无定义时只有推导评估；版本/幂等/冲突/历史；非法定义逐项 400；问题与工作包随上下文变 stale；CI 绑定确切 commit 并随分支移动变 stale；确认的显式、幂等与分支绑定；快照原样保留；读写权限；6 路并发写同一 `expected_version` 恰好 1 个成功；快照上限 200 与跨任务隔离；快照带键幂等；6 路并发同键只存 1 个） |
 | PostgreSQL 17 / MySQL 8.4（HTTP 层） | ✅ 全新库上同样 8 项通过，并发竞争项各连跑 3 遍通过（本机 Docker，迁移含复合外键也在两库上建表成功） |
 | 防漂移 | ✅ `collab_contract_tests`、`rg-mcp` 测试（新增 `completion_conditions` 能力与两个 MCP 工具已登记） |
 | 迁移回滚窗口 | ✅ `rg-db` `soft_delete_tests` 窗口 17 → 18 |

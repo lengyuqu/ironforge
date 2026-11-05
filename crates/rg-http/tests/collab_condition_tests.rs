@@ -806,3 +806,72 @@ async fn racing_snapshot_requests_with_one_key_store_one_snapshot() {
         .collect();
     assert_eq!(ids.len(), 1, "every racer sees the same snapshot");
 }
+
+#[tokio::test]
+async fn condition_versions_per_task_are_capped_exactly() {
+    let env = Env::new().await;
+    let a = env.session(&env.owner_token, "A").await;
+    let tid = new_task(&env, &a, json!({})).await;
+    let one = json!([{"type": "manual_confirmation"}]);
+    for v in 0..200 {
+        let (code, body) = put(&env, &tid, def(&format!("v-{v}"), v, one.clone())).await;
+        assert_eq!(code, 201, "version {}: {body}", v + 1);
+    }
+    let (code, body) = put(&env, &tid, def("v-200", 200, one.clone())).await;
+    assert_eq!(code, 409, "{body}");
+    assert_eq!(body["error"]["code"], "CONDITION_VERSION_LIMIT_REACHED");
+    assert_eq!(body["error"]["details"]["limit"], 200);
+    // A retry of an accepted write is still a replay, and the stale-version error
+    // keeps priority over the cap for a client with an out-of-date version.
+    let (code, replay) = put(&env, &tid, def("v-199", 199, one.clone())).await;
+    assert_eq!(code, 200, "{replay}");
+    let (code, stale) = put(&env, &tid, def("v-x", 5, one)).await;
+    assert_eq!(code, 409);
+    assert_eq!(stale["error"]["code"], "VERSION_CONFLICT", "{stale}");
+}
+
+#[tokio::test]
+async fn confirmations_per_task_are_capped_and_replays_do_not_count() {
+    let env = Env::new().await;
+    let a = env.session(&env.owner_token, "A").await;
+    let tid = new_task(&env, &a, json!({})).await;
+    let (_, v1) = put(
+        &env,
+        &tid,
+        def("d-1", 0, json!([{"type": "manual_confirmation"}])),
+    )
+    .await;
+    let mc = v1["set"]["conditions"][0]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let url = env.url(&format!(
+        "/tasks/{tid}/completion-conditions/{mc}/confirmations"
+    ));
+    let confirm = |key: String| {
+        let (env, url) = (&env, url.clone());
+        async move {
+            env.json(
+                Method::POST,
+                &url,
+                &env.owner_token,
+                None,
+                Some(json!({"client_request_id": key})),
+            )
+            .await
+        }
+    };
+    for i in 0..200 {
+        let (code, body) = confirm(format!("c-{i}")).await;
+        assert_eq!(code, 201, "confirmation {i}: {body}");
+    }
+    let (code, body) = confirm("c-200".to_string()).await;
+    assert_eq!(code, 409, "{body}");
+    assert_eq!(
+        body["error"]["code"], "CONFIRMATION_LIMIT_REACHED",
+        "{body}"
+    );
+    // A retry of one that landed is still a replay at the cap.
+    let (code, replay) = confirm("c-7".to_string()).await;
+    assert_eq!(code, 200, "{replay}");
+}
