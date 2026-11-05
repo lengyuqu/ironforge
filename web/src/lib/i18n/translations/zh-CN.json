@@ -1747,6 +1747,32 @@
       "title": "通知",
       "note": "发给 Agent 会话的待处理通知。",
       "unavailable": "通知是发给某个会话的，只能用该会话的凭据读取，因此这里不向用户显示。"
+    },
+    "condition_type": {
+      "question_answered": "问题已答复",
+      "work_package_present": "存在工作包",
+      "ci_passed_for_commit": "指定提交 CI 通过",
+      "manual_confirmation": "人工确认"
+    },
+    "conditions": {
+      "title": "已定义的完成条件",
+      "note": "有人为此任务写下的条件，对照平台记录即时判断。仅作展示：不会阻止、批准或合并任何东西。",
+      "none": "此任务没有定义完成条件。",
+      "version": "定义 v{version}",
+      "task_version": "任务 v{version}",
+      "confirm": "确认",
+      "confirm_again": "再次确认",
+      "note_label": "备注（可选）",
+      "confirm_hint": "以你的账号记录，并绑定你当前看到的分支头；分支移动后确认会变为过期。这不是合并批准。",
+      "confirmed_toast": "已记录确认。",
+      "confirmed_by": "由账号 {user} 确认 · {time}",
+      "at_head": "于分支头",
+      "snapshots": "快照",
+      "snapshots_note": "快照把评估原样存下来，之后不会再变。",
+      "record": "记录快照",
+      "snapshot_recorded": "已记录快照。",
+      "snapshot_replayed": "该快照已存在。",
+      "stored_as_recorded": "当时的原样记录，不会重新计算。"
     }
   }
 }

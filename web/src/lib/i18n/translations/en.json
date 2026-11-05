@@ -1747,6 +1747,32 @@
       "title": "Notices",
       "note": "Pending notices for agent sessions.",
       "unavailable": "Notices are addressed to a session and can only be read with that session's credentials, so they are not shown to people here."
+    },
+    "condition_type": {
+      "question_answered": "Question answered",
+      "work_package_present": "Work package present",
+      "ci_passed_for_commit": "CI passed for commit",
+      "manual_confirmation": "Manual confirmation"
+    },
+    "conditions": {
+      "title": "Defined completion conditions",
+      "note": "Conditions someone wrote down for this task, judged against platform records now. Display only: they never block, approve or merge anything.",
+      "none": "No completion conditions are defined for this task.",
+      "version": "definition v{version}",
+      "task_version": "task v{version}",
+      "confirm": "Confirm",
+      "confirm_again": "Confirm again",
+      "note_label": "Note (optional)",
+      "confirm_hint": "Recorded with your account at the branch head you are looking at. If the branch moves, the confirmation becomes stale. This is not a merge approval.",
+      "confirmed_toast": "Confirmation recorded.",
+      "confirmed_by": "Confirmed by account {user} · {time}",
+      "at_head": "at head",
+      "snapshots": "Snapshots",
+      "snapshots_note": "A snapshot stores the evaluation exactly as it is now and never changes afterwards.",
+      "record": "Record snapshot",
+      "snapshot_recorded": "Snapshot recorded.",
+      "snapshot_replayed": "That snapshot already existed.",
+      "stored_as_recorded": "As recorded then; not recomputed."
     }
   }
 }

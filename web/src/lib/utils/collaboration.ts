@@ -84,4 +84,5 @@ export const KNOWN = {
   flag: ['unowned', 'session_not_online'],
   severity: ['info', 'attention'],
   condition: ['ci_passed_for_commit', 'questions_resolved', 'work_package_present'],
+  conditionType: ['question_answered', 'work_package_present', 'ci_passed_for_commit', 'manual_confirmation'],
 } as const;
