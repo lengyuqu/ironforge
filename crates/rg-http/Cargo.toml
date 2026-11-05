@@ -29,7 +29,9 @@ hmac = { workspace = true }
 tokio-rustls = { workspace = true }
 axum-server = { workspace = true }
 utoipa = { workspace = true }
-utoipa-swagger-ui = "8"
+# `vendored`: use the Swagger UI bundled in the crate instead of downloading it from
+# GitHub at build time (the build fails on runners that cannot reach GitHub).
+utoipa-swagger-ui = { version = "8", features = ["vendored"] }
 uuid = { workspace = true }
 rand = { workspace = true }
 base64 = { workspace = true }

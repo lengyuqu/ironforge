@@ -444,6 +444,12 @@ for _ in $(seq 1 120); do
 done
 if ! tls_curl "https://${TLS_HOST}:${TLS_HTTP_PORT}/health" | grep -q '"status":"ok"'; then
   echo "HTTPS: /health did not answer over a verified TLS connection" >&2
+  echo "--- TLS server alive: $(kill -0 "${TLS_SERVER_PID}" 2>/dev/null && echo yes || echo no); port ${TLS_HTTP_PORT}" >&2
+  { ss -ltnp 2>/dev/null || netstat -ltn 2>/dev/null; } | grep -E ":(${TLS_HTTP_PORT}|${TLS_SSH_PORT}|${HTTP_PORT}|${SSH_PORT}) " >&2 || true
+  echo "--- TLS server log (last 60 lines)" >&2
+  tail -60 "${WORK_DIR}/server-tls.log" >&2 || true
+  echo "--- one verbose attempt" >&2
+  tls_curl -v "https://${TLS_HOST}:${TLS_HTTP_PORT}/health" >&2 || true
   kill "${TLS_SERVER_PID}" 2>/dev/null || true
   exit 1
 fi
