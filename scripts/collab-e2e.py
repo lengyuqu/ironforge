@@ -1026,7 +1026,7 @@ def run_restore(work, keep):
         dst = os.path.join(work, "restored")
         os.makedirs(dst)
         cli("restore", "--db-url", f"sqlite://{dst}/ironforge.db?mode=rwc", "--repo-root", os.path.join(dst, "repos"),
-            "--audit-archive-dir", os.path.join(dst, "audit"), backup, check_ok=True)
+            "--audit-archive-dir", os.path.join(dst, "audit"), "--keep-live-state", backup, check_ok=True)
         cli("migrate", "--db-url", f"sqlite://{dst}/ironforge.db?mode=rwc", check_ok=True)
         # No SMTP, webhook target, runner or mirror is configured on the drill
         # instance: it has no outbound channel to suppress or trigger.
@@ -1058,8 +1058,23 @@ def run_restore(work, keep):
         old_session_works = st == 200
         st2, _ = http(restored.base, "GET", "/api/v1/users/me", jwt)
         old_jwt_works = st2 == 200
-        say("credentials after restore (observed)", f"old session secret valid={old_session_works}; old login token valid={old_jwt_works}; same signing secret configured")
+        say("credentials after a --keep-live-state restore (observed)", f"old session secret valid={old_session_works}; old login token valid={old_jwt_works}; same signing secret configured")
         restored.stop()
+
+        # ── default restore quiesces: old session secrets stop working ──
+        qdst = os.path.join(work, "restored-quiesced")
+        os.makedirs(qdst)
+        _, qtext = cli("restore", "--db-url", f"sqlite://{qdst}/ironforge.db?mode=rwc", "--repo-root", os.path.join(qdst, "repos"),
+                   "--audit-archive-dir", os.path.join(qdst, "audit"), backup, check_ok=True)
+        check("collaboration sessions ended" in qtext, f"the restore reports the quiesce step: {qtext[-400:]}")
+        cli("migrate", "--db-url", f"sqlite://{qdst}/ironforge.db?mode=rwc", check_ok=True)
+        qserver = Server(qdst, label="restored-quiesced")
+        qserver.start()
+        st, _ = http(qserver.base, "GET", collab + "/inbox", jwt, a_session)
+        check(st != 200, f"a session secret from before the restore is refused after a default restore (got {st})")
+        st2, _ = http(qserver.base, "GET", "/api/v1/users/me", jwt)
+        say("default restore quiesces", f"old session secret refused (HTTP {st}); old login token still valid={st2 == 200} (signing secret is configuration, not data)")
+        qserver.stop()
 
         # ── failed restores must not touch a live instance ──
         live = os.path.join(work, "live")

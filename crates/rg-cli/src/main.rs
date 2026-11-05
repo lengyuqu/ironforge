@@ -206,6 +206,10 @@ enum Commands {
         /// Overwrite existing target DB and sidecar WAL/SHM files.
         #[arg(long, default_value_t = false)]
         force: bool,
+
+        /// Skip the post-restore quiesce step (see `restore --help`).
+        #[arg(long, default_value_t = false)]
+        keep_live_state: bool,
     },
 
     /// Create a full-instance backup (OPS-501): database, git repositories,
@@ -263,6 +267,14 @@ enum Commands {
         /// Overwrite existing files at the restore targets.
         #[arg(long, default_value_t = false)]
         force: bool,
+
+        /// Skip the post-restore quiesce step. By default a restore ends all
+        /// collaboration sessions, deletes password-reset tokens and abandons
+        /// queued webhook/e-mail jobs, because the restored state is older
+        /// than the world and those would act on it (or repeat effects that
+        /// already happened).
+        #[arg(long, default_value_t = false)]
+        keep_live_state: bool,
     },
 
     /// Create a new bare repository (no DB record — for quick testing)
@@ -1045,6 +1057,117 @@ fn restore_instance(
     Ok(())
 }
 
+/// What the post-restore quiesce step changed.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct QuiesceReport {
+    sessions_ended: u64,
+    reset_tokens_deleted: u64,
+    jobs_abandoned: u64,
+    /// Access tokens present in the restored database. They are NOT touched:
+    /// the backup cannot tell which ones were revoked after it was taken.
+    access_tokens_restored: u64,
+}
+
+impl QuiesceReport {
+    fn print(&self) {
+        println!("Post-restore quiesce (the restored state is older than the world):");
+        println!(
+            "  collaboration sessions ended : {} (clients must register new sessions)",
+            self.sessions_ended
+        );
+        println!(
+            "  password-reset tokens deleted: {}",
+            self.reset_tokens_deleted
+        );
+        println!(
+            "  queued webhook/e-mail jobs abandoned (marked dead, last_error says why): {}",
+            self.jobs_abandoned
+        );
+        println!(
+            "  access tokens restored UNCHANGED: {} - any token revoked after this backup is \
+             valid again; review or rotate them",
+            self.access_tokens_restored
+        );
+    }
+}
+
+/// Make a freshly restored database safe to start: it is a snapshot of the
+/// past, so anything that would act on stale state is stopped.
+///
+/// * collaboration sessions are ended (they are labels clients can re-create,
+///   and a restored secret may belong to a session that was ended since);
+/// * password-reset tokens are deleted (short-lived, cheap to re-request);
+/// * queued `webhook.deliver` / `email.send` jobs are marked `dead` instead of
+///   run: they may already have been delivered from the live instance, and a
+///   second delivery cannot be taken back;
+/// * access tokens are only counted - revoking all of them would break every
+///   integration, and the backup cannot say which were revoked later.
+///
+/// Tables a (possibly older) backup does not have are skipped.
+async fn quiesce_restored_database(db_url: &str) -> anyhow::Result<QuiesceReport> {
+    use rg_db::sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+    let path = sqlite_db_path_from_url(db_url)?;
+    let db = rg_db::connect(&format!("sqlite://{}?mode=rw", path.display()))
+        .await
+        .context("cannot open the restored database to quiesce it")?;
+    let sql = |q: String| Statement::from_string(DatabaseBackend::Sqlite, q);
+    let has_table = |name: &'static str| {
+        let db = &db;
+        async move {
+            let rows = db
+                .query_all(Statement::from_string(
+                    DatabaseBackend::Sqlite,
+                    format!("SELECT 1 FROM sqlite_master WHERE type='table' AND name='{name}'"),
+                ))
+                .await?;
+            anyhow::Ok(!rows.is_empty())
+        }
+    };
+    let now = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    let mut report = QuiesceReport::default();
+
+    if has_table("agent_sessions").await? {
+        report.sessions_ended = db
+            .execute(sql(format!(
+                "UPDATE agent_sessions SET ended_at = '{now}' WHERE ended_at IS NULL"
+            )))
+            .await
+            .context("ending collaboration sessions")?
+            .rows_affected();
+    }
+    if has_table("password_reset_tokens").await? {
+        report.reset_tokens_deleted = db
+            .execute(sql("DELETE FROM password_reset_tokens".to_string()))
+            .await
+            .context("deleting password-reset tokens")?
+            .rows_affected();
+    }
+    if has_table("background_jobs").await? {
+        report.jobs_abandoned = db
+            .execute(sql(format!(
+                "UPDATE background_jobs SET status = 'dead', locked_by = NULL, locked_at = NULL, \
+                 last_error = 'abandoned at restore: may already have been delivered', \
+                 updated_at = '{now}' \
+                 WHERE status IN ('pending','running') \
+                 AND task_type IN ('webhook.deliver','email.send')"
+            )))
+            .await
+            .context("abandoning queued outbound jobs")?
+            .rows_affected();
+    }
+    if has_table("access_tokens").await? {
+        let rows = db
+            .query_all(sql("SELECT COUNT(*) FROM access_tokens".to_string()))
+            .await?;
+        report.access_tokens_restored = rows
+            .first()
+            .and_then(|r| r.try_get_by_index::<i64>(0).ok())
+            .unwrap_or(0)
+            .max(0) as u64;
+    }
+    Ok(report)
+}
+
 /// Recursively copy a directory tree. Returns the number of files copied.
 /// Symlinks are followed (content is copied).
 fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path) -> anyhow::Result<u64> {
@@ -1272,6 +1395,7 @@ async fn main() -> anyhow::Result<()> {
             db_url,
             input,
             force,
+            keep_live_state,
         } => {
             tracing_subscriber::fmt()
                 .with_env_filter(
@@ -1285,6 +1409,11 @@ async fn main() -> anyhow::Result<()> {
                 verify_sqlite_file(&input).await?;
             }
             restore_sqlite_db(&db_url, &input, force)?;
+            if keep_live_state {
+                println!("Skipped the post-restore quiesce step (--keep-live-state).");
+            } else {
+                quiesce_restored_database(&db_url).await?.print();
+            }
         }
 
         Commands::Backup {
@@ -1319,6 +1448,7 @@ async fn main() -> anyhow::Result<()> {
             audit_archive_dir,
             input,
             force,
+            keep_live_state,
         } => {
             tracing_subscriber::fmt()
                 .with_env_filter(
@@ -1341,6 +1471,12 @@ async fn main() -> anyhow::Result<()> {
                 std::path::Path::new(&audit_archive_dir),
                 force,
             )?;
+            if keep_live_state {
+                println!("Skipped the post-restore quiesce step (--keep-live-state).");
+            } else {
+                let report = quiesce_restored_database(&db_url).await?;
+                report.print();
+            }
         }
 
         Commands::CreateRepo {
@@ -2509,5 +2645,169 @@ mod backup_verify_tests {
         write_backup_checksums(&backup).unwrap();
         let err = verify_backup(&backup).await.unwrap_err().to_string();
         assert!(err.contains("newer IronForge"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn quiesce_ends_sessions_and_abandons_only_queued_outbound_jobs() {
+        use chrono::{Duration, Utc};
+        use rg_db::entities::{
+            access_token, agent_session, background_job, password_reset_token, repository,
+        };
+        use rg_db::ops::{repo_ops, user_ops};
+        use rg_db::sea_orm::{ActiveModelTrait, EntityTrait, NotSet, Set};
+
+        let dir = Dir::new("quiesce");
+        let path = dir.0.join("restored.db");
+        let url = format!("sqlite://{}?mode=rwc", path.display());
+        let db = rg_db::connect(&url).await.unwrap();
+        rg_db::run_migrations(&db).await.unwrap();
+        let now = Utc::now();
+        let user = user_ops::create_user(&db, "q1", "q1@example.invalid", "x", "Q")
+            .await
+            .unwrap();
+        let repo = repo_ops::create(
+            &db,
+            repository::ActiveModel {
+                id: NotSet,
+                owner_id: Set(user.id),
+                name: Set("r".into()),
+                description: Set(None),
+                is_private: Set(false),
+                default_branch: Set("main".into()),
+                fork_id: Set(None),
+                stars_count: Set(0),
+                forks_count: Set(0),
+                org_id: Set(None),
+                created_at: Set(now),
+                updated_at: Set(now),
+                deleted_at: Set(None),
+                origin_repo_id: Set(None),
+            },
+        )
+        .await
+        .unwrap();
+        let ended_before = now - Duration::hours(1);
+        for (id, ended) in [("live", None), ("done", Some(ended_before))] {
+            agent_session::ActiveModel {
+                id: Set(id.into()),
+                repo_id: Set(repo.id),
+                user_id: Set(user.id),
+                secret_hash: Set("h".into()),
+                display_name: Set(id.into()),
+                client_kind: Set("test".into()),
+                created_at: Set(now),
+                last_seen_at: Set(now),
+                expires_at: Set(now + Duration::hours(8)),
+                ended_at: Set(ended),
+            }
+            .insert(&db)
+            .await
+            .unwrap();
+        }
+        password_reset_token::ActiveModel {
+            id: NotSet,
+            user_id: Set(user.id),
+            token_hash: Set("t".into()),
+            expires_at: Set(now + Duration::hours(1)),
+            used: Set(false),
+            created_at: Set(now),
+        }
+        .insert(&db)
+        .await
+        .unwrap();
+        for name in ["a", "b"] {
+            access_token::ActiveModel {
+                id: NotSet,
+                user_id: Set(user.id),
+                name: Set(name.into()),
+                token_hash: Set(format!("h-{name}")),
+                scopes: Set("repo".into()),
+                expires_at: Set(None),
+                last_used_at: Set(None),
+                created_at: Set(now),
+            }
+            .insert(&db)
+            .await
+            .unwrap();
+        }
+        for (kind, status) in [
+            ("webhook.deliver", "pending"),
+            ("email.send", "running"),
+            ("email.send", "succeeded"),
+            ("mirror.sync", "pending"),
+        ] {
+            background_job::ActiveModel {
+                id: NotSet,
+                task_type: Set(kind.into()),
+                payload: Set("{}".into()),
+                status: Set(status.into()),
+                attempts: Set(0),
+                max_attempts: Set(3),
+                run_at: Set(now),
+                locked_by: Set(None),
+                locked_at: Set(None),
+                last_error: Set(None),
+                created_at: Set(now),
+                updated_at: Set(now),
+            }
+            .insert(&db)
+            .await
+            .unwrap();
+        }
+        drop(db);
+
+        let report = quiesce_restored_database(&url).await.unwrap();
+        assert_eq!(
+            report,
+            QuiesceReport {
+                sessions_ended: 1,
+                reset_tokens_deleted: 1,
+                jobs_abandoned: 2,
+                access_tokens_restored: 2,
+            }
+        );
+        // A second run finds nothing left to change.
+        let again = quiesce_restored_database(&url).await.unwrap();
+        assert_eq!(again.sessions_ended, 0);
+        assert_eq!(again.jobs_abandoned, 0);
+
+        // The rows still read back through the entities (timestamps stay parseable).
+        let db = rg_db::connect(&url).await.unwrap();
+        let sessions = agent_session::Entity::find().all(&db).await.unwrap();
+        assert!(sessions.iter().all(|s| s.ended_at.is_some()));
+        let done = sessions.iter().find(|s| s.id == "done").unwrap();
+        assert!(
+            done.ended_at.unwrap() < now,
+            "already-ended session kept its time"
+        );
+        let jobs = background_job::Entity::find().all(&db).await.unwrap();
+        let by = |kind: &str, st: &str| {
+            jobs.iter()
+                .filter(|j| j.task_type == kind && j.status == st)
+                .count()
+        };
+        assert_eq!(by("webhook.deliver", "dead"), 1);
+        assert_eq!(by("email.send", "dead"), 1);
+        assert_eq!(by("email.send", "succeeded"), 1);
+        assert_eq!(
+            by("mirror.sync", "pending"),
+            1,
+            "other task types are untouched"
+        );
+        assert!(jobs.iter().filter(|j| j.status == "dead").all(|j| j
+            .last_error
+            .as_deref()
+            .is_some_and(|e| e.contains("abandoned at restore"))));
+    }
+
+    #[tokio::test]
+    async fn quiesce_tolerates_a_database_without_the_newer_tables() {
+        let dir = Dir::new("quiesce-old");
+        let path = dir.0.join("old.db");
+        let url = format!("sqlite://{}?mode=rwc", path.display());
+        let db = rg_db::connect(&url).await.unwrap();
+        drop(db);
+        let report = quiesce_restored_database(&url).await.unwrap();
+        assert_eq!(report, QuiesceReport::default());
     }
 }
