@@ -52,12 +52,15 @@ export class ApiError extends Error {
   readonly status: number;
   /** Stable machine code from the error envelope (e.g. `VERSION_CONFLICT`), when the server sent one. */
   readonly code?: string;
+  /** Structured `error.details` from the envelope, when the server sent any. Treat as untrusted data. */
+  readonly details?: unknown;
 
-  constructor(message: string, status: number, code?: string) {
+  constructor(message: string, status: number, code?: string, details?: unknown) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.code = code;
+    this.details = details;
   }
 }
 
@@ -137,7 +140,11 @@ export async function request<T>(path: string, options: RequestInit = {}): Promi
       body?.error && typeof body.error === 'object' && typeof body.error.code === 'string'
         ? (body.error.code as string)
         : undefined;
-    throw new ApiError(msg, res.status, code);
+    const details =
+      body?.error && typeof body.error === 'object' && body.error.details !== undefined
+        ? body.error.details
+        : undefined;
+    throw new ApiError(msg, res.status, code, details);
   }
 
   if (res.status === 204) {
