@@ -167,12 +167,21 @@ pub async fn list_revisions(
     Ok(wiki_revision_ops::list_by_page(db, page.id).await?)
 }
 
-/// Get a specific revision's content.
+/// Get a revision only when it belongs to the named page in this repository.
+/// Missing pages and revisions, including revisions from another page or
+/// repository, all return None to avoid exposing their existence.
 pub async fn get_revision(
     db: &DatabaseConnection,
+    repo_id: i64,
+    title: &str,
     revision_id: i64,
 ) -> CoreResult<Option<wiki_revision::Model>> {
-    Ok(wiki_revision_ops::find_by_id(db, revision_id).await?)
+    let Some(page) = wiki_page_ops::find_by_repo_and_title(db, repo_id, title).await? else {
+        return Ok(None);
+    };
+    Ok(wiki_revision_ops::find_by_id(db, revision_id)
+        .await?
+        .filter(|revision| revision.wiki_page_id == page.id))
 }
 
 /// Delete a wiki page.

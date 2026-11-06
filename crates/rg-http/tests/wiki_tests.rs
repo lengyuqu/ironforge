@@ -248,6 +248,107 @@ async fn test_wiki_get_specific_revision() {
 }
 
 #[tokio::test]
+async fn test_revision_must_belong_to_authorized_repository_and_page() {
+    let base = spawn_test_app().await;
+    common::register_bootstrap_admin(&base).await;
+    let owner_token = register_user(&base, "wikiauthor", "wikiauthor@example.com", PW).await;
+    let visitor_token = register_user(&base, "wikivisitor", "wikivisitor@example.com", PW).await;
+    let client = reqwest::Client::new();
+    for (token, name) in [(&owner_token, "private"), (&visitor_token, "own")] {
+        let response = client
+            .post(format!("{base}/api/v1/repos"))
+            .bearer_auth(token)
+            .json(&serde_json::json!({"name":name,"is_private":true}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 201);
+    }
+    let private = format!("{base}/api/v1/repos/wikiauthor/private/wiki");
+    let visitor = format!("{base}/api/v1/repos/wikivisitor/own/wiki");
+    for (root, token, title, text) in [
+        (&private, &owner_token, "Secret", "private old content"),
+        (&private, &owner_token, "Other", "same repo other page"),
+        (&visitor, &visitor_token, "Own", "visitor page"),
+    ] {
+        let response = client
+            .post(root)
+            .bearer_auth(token)
+            .json(&serde_json::json!({"title":title,"content":text}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 201);
+    }
+    assert_eq!(
+        client
+            .patch(format!("{private}/Secret"))
+            .bearer_auth(&owner_token)
+            .json(&serde_json::json!({"content":"private new content"}))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    let revisions: serde_json::Value = client
+        .get(format!("{private}/Secret/history"))
+        .bearer_auth(&owner_token)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let id = revisions[0]["id"].as_i64().unwrap();
+    let response = client
+        .get(format!("{private}/Secret/revisions/{id}"))
+        .bearer_auth(&owner_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    assert_eq!(
+        response.json::<serde_json::Value>().await.unwrap()["content"],
+        "private old content"
+    );
+    for (url, token) in [
+        (format!("{visitor}/Own/revisions/{id}"), &visitor_token),
+        (format!("{visitor}/Missing/revisions/{id}"), &visitor_token),
+        (format!("{private}/Other/revisions/{id}"), &owner_token),
+        (format!("{private}/Missing/revisions/{id}"), &owner_token),
+        (
+            format!("{private}/Secret/revisions/{}", i64::MAX),
+            &owner_token,
+        ),
+    ] {
+        let response = client.get(url).bearer_auth(token).send().await.unwrap();
+        assert_eq!(response.status(), 404);
+        assert!(!response
+            .text()
+            .await
+            .unwrap()
+            .contains("private old content"));
+    }
+    let response = client
+        .get(format!("{private}/Secret/revisions/{id}"))
+        .bearer_auth(&visitor_token)
+        .send()
+        .await
+        .unwrap();
+    assert!([
+        reqwest::StatusCode::FORBIDDEN,
+        reqwest::StatusCode::NOT_FOUND
+    ]
+    .contains(&response.status()));
+    assert!(!response
+        .text()
+        .await
+        .unwrap()
+        .contains("private old content"));
+}
+
+#[tokio::test]
 async fn test_wiki_delete_page() {
     let (base, token, owner, repo) = setup("6").await;
     let client = reqwest::Client::new();

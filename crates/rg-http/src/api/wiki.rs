@@ -351,15 +351,15 @@ pub async fn list_revisions(
 )]
 pub async fn get_revision(
     State(state): State<AppState>,
-    Path((owner, repo, _title, rev_id)): Path<(String, String, String, i64)>,
+    Path((owner, repo, title, rev_id)): Path<(String, String, String, i64)>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    let _repo = match require_read(&state, &headers, &owner, &repo).await {
+    let repo = match require_read(&state, &headers, &owner, &repo).await {
         Ok(r) => r,
         Err(e) => return e.into_response(),
     };
 
-    match rg_core::wiki::service::get_revision(&state.db, rev_id).await {
+    match rg_core::wiki::service::get_revision(&state.db, repo.id, &title, rev_id).await {
         Ok(Some(rev)) => (StatusCode::OK, Json(serde_json::json!(rev))).into_response(),
         Ok(None) => AppError::not_found("revision not found").into_response(),
         Err(e) => AppError::from(e).into_response(),
