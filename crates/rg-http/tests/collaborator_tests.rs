@@ -1,6 +1,65 @@
 mod common;
 
-use common::{create_repo, register_full, spawn_test_app};
+use common::{
+    create_repo, register_bootstrap_admin, register_full, spawn_test_app, spawn_test_app_with_db,
+};
+
+#[tokio::test]
+async fn updating_permission_persists_and_invalidates_write_access() {
+    let (base, db) = spawn_test_app_with_db().await;
+    register_bootstrap_admin(&base).await;
+    let (owner_token, _) = register_full(&base, "perm_owner", "perm_owner@example.com").await;
+    let (_, user_id) = register_full(&base, "perm_user", "perm_user@example.com").await;
+    create_repo(&base, &owner_token, "perm_repo").await;
+    let client = reqwest::Client::new();
+    let url = format!("{base}/api/v1/repos/perm_owner/perm_repo/collaborators");
+    let added = client
+        .post(&url)
+        .bearer_auth(&owner_token)
+        .json(&serde_json::json!({"user_id": user_id, "permission": "read"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(added.status(), 201);
+    let id = added.json::<serde_json::Value>().await.unwrap()["id"]
+        .as_i64()
+        .unwrap();
+
+    for (permission, can_write) in [("write", true), ("admin", true), ("read", false)] {
+        // Populate the cache before every change, including before revocation.
+        let before =
+            rg_core::repo::service::can_write(&db, "perm_owner", "perm_repo", Some(user_id))
+                .await
+                .unwrap();
+        let response = client
+            .patch(format!("{url}/{id}"))
+            .bearer_auth(&owner_token)
+            .json(&serde_json::json!({"permission": permission}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        assert_eq!(
+            response.json::<serde_json::Value>().await.unwrap()["permission"],
+            permission
+        );
+        let list = client
+            .get(&url)
+            .bearer_auth(&owner_token)
+            .send()
+            .await
+            .unwrap();
+        let rows = list.json::<Vec<serde_json::Value>>().await.unwrap();
+        assert_eq!(rows[0]["permission"], permission);
+        assert_eq!(
+            rg_core::repo::service::can_write(&db, "perm_owner", "perm_repo", Some(user_id))
+                .await
+                .unwrap(),
+            can_write,
+            "previous access: {before}"
+        );
+    }
+}
 
 #[tokio::test]
 async fn add_collaborator_accepts_username_and_email() {
