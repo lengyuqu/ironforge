@@ -62,7 +62,7 @@ jobs:
   rust-tests:
     name: Rust tests and migration smoke
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -78,9 +78,10 @@ jobs:
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: Check workspace tests compile
-        run: cargo check --workspace --tests
-
+      # No separate `cargo check --workspace --tests`: it compiled everything
+      # once for metadata only (about 6 minutes in the logs) and `cargo test`
+      # then compiled it again. A compile error fails the test step just as well,
+      # and the clippy job already type-checks every target.
       # rg-http is part of the workspace, so it runs here once. A separate
       # `cargo test -p rg-http` step used to run it a second time and, with the
       # growth of the integration suites, pushed the job past its time limit.
@@ -173,8 +174,6 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
-    env:
-      IRONFORGE_TEST_DATABASE_URL: postgres://ironforge:ironforge@127.0.0.1:5432/ironforge
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -184,6 +183,16 @@ jobs:
 
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
+
+      # On GitHub the job runs on the VM and the service is published on
+      # 127.0.0.1. On Gitea Actions the job runs in a container on the service's
+      # network and the service is reached by its name; 127.0.0.1 times out.
+      - name: Locate the database service
+        run: |
+          host=127.0.0.1
+          if getent hosts postgres >/dev/null 2>&1; then host=postgres; fi
+          echo "IRONFORGE_TEST_DATABASE_URL=postgres://ironforge:ironforge@${host}:5432/ironforge" >> "$GITHUB_ENV"
+          echo "database host: ${host}"
 
       - name: Run PostgreSQL runtime smoke
         run: cargo test -p rg-core --test multi_backend_smoke -- --ignored --nocapture
@@ -207,8 +216,6 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 30
-    env:
-      IRONFORGE_TEST_DATABASE_URL: mysql://ironforge:ironforge@127.0.0.1:3306/ironforge
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -223,8 +230,22 @@ jobs:
       # 8.4 default) the server refuses that for a non-SUPER user (error 1419)
       # unless log_bin_trust_function_creators is set. Production MySQL needs
       # the same setting, or a migration user with SUPER.
+      # Host: see the PostgreSQL job. The runner image has no `mysql` client.
+      - name: Locate the database service
+        run: |
+          host=127.0.0.1
+          if getent hosts mysql >/dev/null 2>&1; then host=mysql; fi
+          echo "MYSQL_HOST=${host}" >> "$GITHUB_ENV"
+          echo "IRONFORGE_TEST_DATABASE_URL=mysql://ironforge:ironforge@${host}:3306/ironforge" >> "$GITHUB_ENV"
+          echo "database host: ${host}"
+
+      - name: Install the MySQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mysql-client-core-8.0
+
       - name: Allow trigger creation with binary logging
-        run: mysql -h 127.0.0.1 -P 3306 -uroot -proot -e "SET GLOBAL log_bin_trust_function_creators = 1"
+        run: mysql -h "${MYSQL_HOST}" -P 3306 -uroot -proot -e "SET GLOBAL log_bin_trust_function_creators = 1"
 
       - name: Run MySQL runtime smoke
         run: cargo test -p rg-core --test multi_backend_smoke -- --ignored --nocapture
