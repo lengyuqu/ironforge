@@ -97,4 +97,66 @@ describe('NotificationList.svelte', () => {
     await fireEvent.click(screen.getByText('notifications.mark_read'));
     await waitFor(() => expect(onError).toHaveBeenCalledWith('boom'));
   });
+
+  it('links a collaboration question to the repository collaboration page', () => {
+    renderList({
+      items: [
+        makeItem({
+          id: 7,
+          event_type: 'collab_question',
+          title: 'Keep SQLite?',
+          repo: 'alice/demo',
+          body: 'English body for API clients',
+        }),
+      ],
+    });
+    // The heading and hint are the client's own wording around the agent's title.
+    expect(screen.getByText('Keep SQLite?')).toBeInTheDocument();
+    expect(screen.getByText('notifications.collab_question_type')).toBeInTheDocument();
+    expect(screen.getByText('notifications.collab_question_hint')).toBeInTheDocument();
+    expect(screen.queryByText('English body for API clients')).toBeNull();
+    expect(screen.getByRole('link', { name: 'notifications.open' })).toHaveAttribute(
+      'href',
+      '/alice/demo/collaboration',
+    );
+    expect(document.querySelector('.notif-icon')?.textContent).toBe('💬');
+  });
+
+  it('offers no link when the repository is not readable any more', () => {
+    renderList({
+      items: [
+        makeItem({ event_type: 'collab_question', title: '(no longer available)', body: null, repo: null }),
+      ],
+    });
+    expect(screen.queryByRole('link', { name: 'notifications.open' })).toBeNull();
+  });
+
+  it('shows a hostile title as text, not markup', () => {
+    const hostile = '<img src=x onerror="window.__n=1">';
+    renderList({ items: [makeItem({ event_type: 'collab_question', title: hostile, repo: 'alice/demo' })] });
+    expect(screen.getByText(hostile)).toBeInTheDocument();
+    expect(document.querySelector('.notif-list img')).toBeNull();
+  });
+
+  it('words a blocked-task notification in the client and links to the collaboration page', () => {
+    renderList({
+      items: [
+        makeItem({
+          event_type: 'collab_task_blocked',
+          title: 'Fix parser crash',
+          repo: 'alice/demo',
+          body: 'English body for API clients',
+        }),
+      ],
+    });
+    expect(screen.getByText('Fix parser crash')).toBeInTheDocument();
+    expect(screen.getByText('notifications.collab_task_blocked_type')).toBeInTheDocument();
+    expect(screen.getByText('notifications.collab_task_blocked_hint')).toBeInTheDocument();
+    expect(screen.queryByText('English body for API clients')).toBeNull();
+    expect(document.querySelector('.notif-icon')?.textContent).toBe('⛔');
+    expect(screen.getByRole('link', { name: 'notifications.open' })).toHaveAttribute(
+      'href',
+      '/alice/demo/collaboration',
+    );
+  });
 });

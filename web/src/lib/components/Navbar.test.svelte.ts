@@ -6,8 +6,10 @@ import { resolve } from 'node:path';
 const authLogin = vi.fn();
 const authMe = vi.fn();
 const authLogout = vi.fn();
+const unreadCount = vi.fn();
 
 vi.mock('$lib/api/client.svelte', () => ({
+  notifications: { unreadCount: (...a: unknown[]) => unreadCount(...a) },
   auth: {
     login: (...a: unknown[]) => authLogin(...a),
     me: (...a: unknown[]) => authMe(...a),
@@ -28,6 +30,7 @@ vi.mock('$lib/i18n', () => ({
 // The real auth store is used; its state is driven through the mocked
 // API layer via login()/logout().
 import { login, logout } from '$lib/stores/auth.svelte';
+import { setUnreadCount } from '$lib/stores/unread.svelte';
 
 import Navbar from './Navbar.svelte';
 
@@ -42,6 +45,8 @@ describe('Navbar.svelte', () => {
       is_admin: false,
     });
     authLogout.mockReset().mockResolvedValue(undefined);
+    unreadCount.mockReset().mockResolvedValue({ unread_count: 0 });
+    setUnreadCount(0);
     await logout();
     // Drop the call made while resetting state — tests count their own.
     authLogout.mockClear();
@@ -67,6 +72,29 @@ describe('Navbar.svelte', () => {
     expect(document.querySelector('.avatar')?.textContent?.trim()).toBe('A');
     // No admin link for regular users.
     expect(screen.queryByText('nav.admin_panel')).not.toBeInTheDocument();
+  });
+
+  it('shows how many notifications are unread next to the bell, and nothing when there are none', async () => {
+    unreadCount.mockResolvedValue({ unread_count: 3 });
+    render(Navbar);
+    await login('alice', 'pw');
+    expect((await screen.findByTestId('unread-badge')).textContent).toBe('3');
+    expect(screen.getByLabelText(/nav\.notifications/)).toHaveAttribute('href', '/notifications');
+
+    unreadCount.mockResolvedValue({ unread_count: 250 });
+    setUnreadCount(250);
+    await waitFor(() => expect(screen.getByTestId('unread-badge').textContent).toBe('99+'));
+
+    setUnreadCount(0);
+    await waitFor(() => expect(screen.queryByTestId('unread-badge')).toBeNull());
+  });
+
+  it('keeps working when the unread count cannot be fetched', async () => {
+    unreadCount.mockRejectedValue(new Error('offline'));
+    render(Navbar);
+    await login('alice', 'pw');
+    await waitFor(() => expect(screen.getByText('alice')).toBeInTheDocument());
+    expect(screen.queryByTestId('unread-badge')).toBeNull();
   });
 
   it('routes searches, keeping the query when present', async () => {

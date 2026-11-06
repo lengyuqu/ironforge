@@ -32,6 +32,9 @@
     'tag.created',
     'tag.deleted',
     'milestone.closed',
+    // Declared by agent clients; the receiver gets ids, titles and a link, not bodies.
+    'collab.question.asked',
+    'collab.task.blocked',
   ];
 
   let url = $state('');

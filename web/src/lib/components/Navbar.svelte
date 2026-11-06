@@ -4,10 +4,20 @@
   import { locale, createT, type Locale } from '$lib/i18n';
   import Dropdown from './Dropdown.svelte';
   import BrandMark from './BrandMark.svelte';
+  import { getUnreadCount, refreshUnreadCount } from '$lib/stores/unread.svelte';
 
   const t = createT();
 
   let search = $state('');
+  let unread = $derived(getUnreadCount());
+
+  // Keep the unread badge fresh while signed in; the page also refreshes it.
+  $effect(() => {
+    if (!isLoggedIn()) return;
+    void refreshUnreadCount(getUser()?.id);
+    const timer = setInterval(() => void refreshUnreadCount(getUser()?.id), 60_000);
+    return () => clearInterval(timer);
+  });
 
   function handleLogout() {
     logout();
@@ -71,7 +81,16 @@
 
     <div class="navbar-right">
       {#if isLoggedIn()}
-        <a href="/notifications" class="nav-link">{t('nav.notifications')}</a>
+        <a
+          href="/notifications"
+          class="nav-link"
+          aria-label={unread > 0
+            ? `${t('nav.notifications')} (${t('nav.unread_count', { count: unread })})`
+            : undefined}
+        >
+          {t('nav.notifications')}
+          {#if unread > 0}<span class="unread-badge" data-testid="unread-badge">{unread > 99 ? '99+' : unread}</span>{/if}
+        </a>
         <a href="/orgs" class="nav-link">{t('nav.organizations')}</a>
         <a href="/imports" class="nav-link">{t('nav.imports', 'Imports')}</a>
 
@@ -186,6 +205,20 @@
     padding: 5px 8px;
     border-radius: 6px;
     line-height: 1.2;
+  }
+
+  .unread-badge {
+    display: inline-block;
+    min-width: 1.2em;
+    padding: 0 0.4em;
+    margin-left: 0.3em;
+    border-radius: 999px;
+    background: var(--accent);
+    color: #fff;
+    font-size: 0.7rem;
+    font-weight: 700;
+    line-height: 1.5;
+    text-align: center;
   }
 
   .nav-link:hover {

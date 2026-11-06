@@ -27,6 +27,25 @@ pub async fn create_notification(
     model.insert(db).await.context("db: create notification")
 }
 
+/// Whether the user already has an unread notification of this type with exactly
+/// this body. Used to avoid piling up the same nudge while it is still unread.
+pub async fn has_unread_with_body(
+    db: &DatabaseConnection,
+    user_id: i64,
+    event_type: &str,
+    body: &str,
+) -> Result<bool> {
+    let row = notification::Entity::find()
+        .filter(notification::Column::UserId.eq(user_id))
+        .filter(notification::Column::EventType.eq(event_type))
+        .filter(notification::Column::IsRead.eq(false))
+        .filter(notification::Column::Body.eq(body))
+        .one(db)
+        .await
+        .context("db: find unread notification by body")?;
+    Ok(row.is_some())
+}
+
 /// List notifications for a user.
 pub async fn list_notifications(
     db: &DatabaseConnection,

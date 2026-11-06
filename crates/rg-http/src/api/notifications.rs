@@ -20,8 +20,56 @@ struct NotificationResponse {
     title: String,
     body: Option<String>,
     repo_id: Option<i64>,
+    /// `owner/name` of the repository, only when it still exists and the
+    /// caller can read it. Lets a client link to the repository.
+    repo: Option<String>,
     is_read: bool,
     created_at: String,
+}
+
+/// Event types written by the collaboration feature. Their text comes from
+/// agent clients, so it is hidden once the reader may no longer see the
+/// repository it was about.
+fn is_collab_event(event_type: &str) -> bool {
+    event_type.starts_with("collab_")
+}
+
+/// `owner/name` for each repository id the caller can read right now.
+/// Repositories that are gone or not readable are simply absent.
+async fn readable_repo_names(
+    state: &AppState,
+    user_id: i64,
+    ids: &std::collections::HashSet<i64>,
+) -> std::collections::HashMap<i64, String> {
+    let mut out = std::collections::HashMap::new();
+    for &id in ids {
+        let Ok(Some(repo)) = rg_db::ops::repo_ops::find_by_id(&state.db, id).await else {
+            continue;
+        };
+        rg_core::repo::service::invalidate_perm_cache_user(repo.id, user_id);
+        if !matches!(
+            rg_core::repo::service::can_read_repo(&state.db, &repo, Some(user_id)).await,
+            Ok(true)
+        ) {
+            continue;
+        }
+        let owner = match repo.org_id {
+            Some(org_id) => rg_db::ops::org_ops::get_org(&state.db, org_id)
+                .await
+                .ok()
+                .flatten()
+                .map(|o| o.name),
+            None => rg_db::ops::user_ops::find_by_id(&state.db, repo.owner_id)
+                .await
+                .ok()
+                .flatten()
+                .map(|u| u.username),
+        };
+        if let Some(owner) = owner {
+            out.insert(id, format!("{owner}/{}", repo.name));
+        }
+    }
+    out
 }
 
 #[derive(Deserialize)]
@@ -70,17 +118,29 @@ pub async fn list_notifications(
     .await
     {
         Ok((notifications, total)) => {
+            let ids: std::collections::HashSet<i64> =
+                notifications.iter().filter_map(|n| n.repo_id).collect();
+            let names = readable_repo_names(&state, user_id, &ids).await;
             let resp: Vec<NotificationResponse> = notifications
                 .into_iter()
-                .map(|n| NotificationResponse {
-                    id: n.id,
-                    user_id: n.user_id,
-                    event_type: n.event_type,
-                    title: n.title,
-                    body: n.body,
-                    repo_id: n.repo_id,
-                    is_read: n.is_read,
-                    created_at: n.created_at.to_string(),
+                .map(|n| {
+                    let repo = n.repo_id.and_then(|id| names.get(&id).cloned());
+                    let hidden = is_collab_event(&n.event_type) && repo.is_none();
+                    NotificationResponse {
+                        id: n.id,
+                        user_id: n.user_id,
+                        event_type: n.event_type,
+                        title: if hidden {
+                            "(no longer available)".to_string()
+                        } else {
+                            n.title
+                        },
+                        body: if hidden { None } else { n.body },
+                        repo_id: n.repo_id,
+                        repo,
+                        is_read: n.is_read,
+                        created_at: n.created_at.to_string(),
+                    }
                 })
                 .collect();
             Json(PaginatedResponse::new(resp, &pagination, total as u64)).into_response()

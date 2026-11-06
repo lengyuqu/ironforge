@@ -10,6 +10,7 @@
   import { getUser, isLoggedIn } from '$lib/stores/auth.svelte';
   import NotificationList from '$lib/components/notifications/NotificationList.svelte';
   import { createT } from '$lib/i18n';
+  import { setUnreadCount } from '$lib/stores/unread.svelte';
 
   const t = createT();
 
@@ -27,6 +28,7 @@
       notifs = (await notifications.list(userId, filterUnread)).data;
       const countData = await notifications.unreadCount(userId);
       unreadCount = countData.unread_count || 0;
+      setUnreadCount(unreadCount);
     } catch (e) {
       error = (e as Error).message || t('errors.load_failed');
     } finally {
@@ -48,7 +50,11 @@
     if (!isLoggedIn()) return;
     const ws = connectNotificationWebSocket(
       (event) => {
-        if (event.event_type === 'push' || event.event_type === 'ci_triggered') {
+        if (
+          event.event_type === 'push' ||
+          event.event_type === 'ci_triggered' ||
+          event.event_type.startsWith('collab_')
+        ) {
           unreadCount++;
           load();
         }

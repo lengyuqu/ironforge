@@ -519,7 +519,7 @@ struct AuditConfig {
     batch_size: Option<u64>,
 }
 
-#[derive(Debug, serde::Deserialize, Default)]
+#[derive(Debug, serde::Deserialize)]
 struct TimeoutConfig {
     /// CI job timeout in seconds (default: 3600 = 1 hour).
     #[serde(default = "default_job_timeout")]
@@ -533,6 +533,21 @@ struct TimeoutConfig {
     /// Database idle timeout in seconds (default: 600).
     #[serde(default = "default_db_idle_timeout")]
     db_idle_secs: u64,
+}
+
+// `#[serde(default)]` on a whole `[timeouts]` section falls back to `Default`,
+// not to the per-field defaults above, so this must spell them out: a derived
+// `Default` made a config file with no `[timeouts]` section mean 0-second
+// database and job timeouts (the server could not even connect to its database).
+impl Default for TimeoutConfig {
+    fn default() -> Self {
+        Self {
+            job_secs: default_job_timeout(),
+            git_cmd_secs: default_git_timeout(),
+            db_connect_secs: default_db_connect_timeout(),
+            db_idle_secs: default_db_idle_timeout(),
+        }
+    }
 }
 
 fn default_job_timeout() -> u64 {
@@ -2561,6 +2576,22 @@ mod config_tests {
         assert_eq!(config.audit.archive_after_days, Some(90));
         assert_eq!(config.audit.interval_minutes, Some(60));
         assert_eq!(config.audit.batch_size, Some(1_000));
+    }
+
+    /// A config file that says nothing about timeouts must not zero them: the
+    /// database connect timeout of 0 seconds made the server fail to start.
+    #[test]
+    fn a_config_without_a_timeouts_section_keeps_the_default_timeouts() {
+        let config: ConfigFile =
+            toml::from_str("external_url = \"https://git.example\"\n").unwrap();
+        assert_eq!(config.timeouts.job_secs, 3600);
+        assert_eq!(config.timeouts.git_cmd_secs, 120);
+        assert_eq!(config.timeouts.db_connect_secs, 10);
+        assert_eq!(config.timeouts.db_idle_secs, 600);
+
+        let partial: ConfigFile = toml::from_str("[timeouts]\njob_secs = 5\n").unwrap();
+        assert_eq!(partial.timeouts.job_secs, 5);
+        assert_eq!(partial.timeouts.db_connect_secs, 10);
     }
 }
 

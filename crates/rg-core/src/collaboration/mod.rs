@@ -27,6 +27,7 @@ pub mod escalation;
 pub mod group;
 pub mod handoff;
 pub mod health;
+pub mod human_notify;
 pub mod inbox;
 pub mod message;
 pub mod notice;
@@ -43,6 +44,7 @@ pub mod takeover;
 pub mod task;
 pub mod template;
 pub mod validation;
+pub mod webhook_events;
 pub mod work_package;
 
 pub use error::{CollabError, CollabResult};
