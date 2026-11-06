@@ -249,7 +249,7 @@
   .declared, .verified { margin-top: 8px; padding: 8px 12px; border-radius: var(--radius); }
   .declared { border: 1px dashed var(--border); background: var(--bg-primary); }
   .verified { border: 1px solid var(--green-dim); background: var(--bg-primary); }
-  dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 6px 0 0; font-size: 13px; }
+  dl { display: grid; grid-template-columns: fit-content(55%) minmax(0, 1fr); overflow-wrap: anywhere; gap: 4px 14px; margin: 6px 0 0; font-size: 13px; }
   dt { color: var(--text-secondary); }
   dd { margin: 0; min-width: 0; }
   .items { margin: 0; padding-left: 16px; list-style: disc; }

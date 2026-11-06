@@ -130,7 +130,7 @@
   .auth { font-size: 11px; padding: 0 6px; border: 1px dashed var(--border); border-radius: 4px; color: var(--text-muted); }
   .stale { font-size: 12px; color: var(--yellow, #d29922); font-weight: 600; }
   .when { margin-left: auto; font-size: 12px; color: var(--text-muted); }
-  .kv { display: grid; grid-template-columns: max-content 1fr; gap: 2px 14px; margin: 6px 0 0; font-size: 13px; }
+  .kv { display: grid; grid-template-columns: fit-content(55%) minmax(0, 1fr); overflow-wrap: anywhere; gap: 2px 14px; margin: 6px 0 0; font-size: 13px; }
   dt { color: var(--text-secondary); }
   dd { margin: 0; min-width: 0; }
   .note { color: var(--text-secondary); }

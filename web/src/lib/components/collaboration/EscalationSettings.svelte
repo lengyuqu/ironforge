@@ -199,7 +199,7 @@
 </SectionCard>
 
 <style>
-  .kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 0 0 12px; font-size: 13px; }
+  .kv { display: grid; grid-template-columns: fit-content(55%) minmax(0, 1fr); overflow-wrap: anywhere; gap: 4px 16px; margin: 0 0 12px; font-size: 13px; }
   dt { color: var(--text-secondary); font-weight: 600; }
   dd { margin: 0; }
   .info { margin: 0 0 10px; padding: 8px 12px; border-left: 3px solid var(--yellow, #d29922); background: var(--bg-secondary); font-size: 13px; }

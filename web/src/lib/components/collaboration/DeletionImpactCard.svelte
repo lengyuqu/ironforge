@@ -99,7 +99,7 @@
   th { text-align: left; color: var(--text-secondary); padding: 4px 12px 4px 0; border-bottom: 1px solid var(--border); }
   td { padding: 4px 12px 4px 0; border-bottom: 1px solid var(--border-light); }
   .num { text-align: right; font-variant-numeric: tabular-nums; }
-  .kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 0; font-size: 13px; }
+  .kv { display: grid; grid-template-columns: fit-content(55%) minmax(0, 1fr); overflow-wrap: anywhere; gap: 4px 16px; margin: 0; font-size: 13px; }
   dt { color: var(--text-secondary); font-weight: 600; }
   dd { margin: 0; }
 </style>

@@ -41,7 +41,7 @@
 </dl>
 
 <style>
-  .tc { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 8px 0; font-size: 13px; }
+  .tc { display: grid; grid-template-columns: fit-content(55%) minmax(0, 1fr); overflow-wrap: anywhere; gap: 6px 16px; margin: 8px 0; font-size: 13px; }
   dt { color: var(--text-secondary); font-weight: 600; }
   dd { margin: 0; min-width: 0; }
   ul { margin: 0; padding-left: 18px; }
