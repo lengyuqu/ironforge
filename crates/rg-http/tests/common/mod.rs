@@ -27,6 +27,39 @@ impl rg_core::ci::CiTrigger for NoopCiEngine {
     }
 }
 
+/// A migrated SQLite file, built once per test process and copied for every test.
+///
+/// Running all migrations (hundreds of `CREATE TABLE` / index / trigger
+/// statements) used to cost every test about a second, and it does not get
+/// faster with more threads: SQLite parses DDL under a process-wide allocator
+/// mutex, so concurrent tests queue behind each other. Copying a finished file
+/// is a few milliseconds and parallelises.
+static MIGRATED_TEMPLATE: tokio::sync::OnceCell<(tempfile::TempDir, std::path::PathBuf)> =
+    tokio::sync::OnceCell::const_new();
+
+async fn migrated_template() -> &'static std::path::Path {
+    use sea_orm::{ConnectOptions, ConnectionTrait, Database};
+    let (_, path) = MIGRATED_TEMPLATE
+        .get_or_init(|| async {
+            let dir = tempfile::tempdir().expect("failed to create template dir");
+            let path = dir.path().join("template.db");
+            let mut opt = ConnectOptions::new(format!("sqlite://{}?mode=rwc", path.display()));
+            opt.max_connections(1)
+                .min_connections(1)
+                .connect_timeout(std::time::Duration::from_secs(5));
+            let db = Database::connect(opt).await.expect("failed to connect");
+            rg_db::run_migrations(&db).await.expect("migration failed");
+            // Fold the write-ahead log into the file so copying the file is enough.
+            db.execute_unprepared("PRAGMA wal_checkpoint(TRUNCATE)")
+                .await
+                .expect("checkpoint failed");
+            db.close().await.expect("close failed");
+            (dir, path)
+        })
+        .await;
+    path
+}
+
 /// Create a temporary file-based SQLite database with all migrations applied.
 pub async fn setup_test_db() -> (rg_db::DatabaseConnection, tempfile::TempDir) {
     use sea_orm::{ConnectOptions, Database};
@@ -34,15 +67,18 @@ pub async fn setup_test_db() -> (rg_db::DatabaseConnection, tempfile::TempDir) {
     // Webhook/mirror tests deliver to loopback receivers; the outbound URL
     // guard must let them through (scheme allowlists still apply).
     std::env::set_var("IRONFORGE_ALLOW_LOCAL_OUTBOUND", "1");
+    let template = migrated_template().await;
     let dir = tempfile::tempdir().expect("failed to create temp dir");
     let db_path = dir.path().join("test.db");
+    std::fs::copy(template, &db_path).expect("failed to copy the migrated template");
     let db_url = format!("sqlite://{}?mode=rwc", db_path.display());
     let mut opt = ConnectOptions::new(db_url);
     opt.max_connections(2)
         .min_connections(1)
         .connect_timeout(Duration::from_secs(5));
+    // No migration run here: the template was migrated by this very process, so
+    // the copy has exactly the schema the code expects.
     let db = Database::connect(opt).await.expect("failed to connect");
-    rg_db::run_migrations(&db).await.expect("migration failed");
     (db, dir)
 }
 
