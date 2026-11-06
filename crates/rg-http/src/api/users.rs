@@ -460,6 +460,10 @@ pub struct CreateTokenRequest {
     pub name: String,
     pub scopes: Option<String>,
     pub expires_at: Option<String>,
+    /// Limit the token to these repositories (`owner/name`). Omit for no limit.
+    /// A limited token may only carry repository scopes.
+    #[serde(default)]
+    pub repos: Option<Vec<String>>,
 }
 
 #[derive(serde::Serialize, ToSchema)]
@@ -467,6 +471,9 @@ pub struct AccessTokenResponse {
     pub id: i64,
     pub name: String,
     pub scopes: String,
+    /// The repositories the token is limited to; absent when it has no limit.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub repos: Option<Vec<String>>,
     pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
     pub last_used_at: Option<chrono::DateTime<chrono::Utc>>,
     pub created_at: chrono::DateTime<chrono::Utc>,
@@ -521,6 +528,10 @@ pub async fn list_tokens(State(state): State<AppState>, headers: HeaderMap) -> i
                     id: token.id,
                     name: token.name,
                     scopes: token.scopes,
+                    repos: token
+                        .repo_allowlist
+                        .as_deref()
+                        .map(rg_core::auth::pat_scope::parse_repo_allowlist),
                     expires_at: token.expires_at,
                     last_used_at: token.last_used_at,
                     created_at: token.created_at,
@@ -568,6 +579,25 @@ pub async fn create_token(
         Ok(scopes) => scopes,
         Err(e) => return AppError::from(e).into_response(),
     };
+    // A token limited to some repositories is an agent-style token: it may only
+    // carry repository scopes, so it can never mint another token or reach the
+    // account and administration APIs.
+    let repo_allowlist = match body.repos.as_deref() {
+        None => None,
+        Some(repos) => {
+            if scopes.split(',').any(|scope| !scope.starts_with("repo")) {
+                return AppError::bad_request(
+                    "a token limited to repositories may only have repository scopes (repo, repo:write, repo:collab, repo:read)"
+                        .to_string(),
+                )
+                .into_response();
+            }
+            match rg_core::auth::pat_scope::normalize_repo_allowlist(repos) {
+                Ok(json) => Some(json),
+                Err(e) => return AppError::from(e).into_response(),
+            }
+        }
+    };
     let expires_at = body
         .expires_at
         .as_deref()
@@ -581,6 +611,7 @@ pub async fn create_token(
         token_hash: sea_orm::Set(token_hash),
         scopes: sea_orm::Set(scopes),
         expires_at: sea_orm::Set(expires_at),
+        repo_allowlist: sea_orm::Set(repo_allowlist),
         last_used_at: sea_orm::Set(None),
         created_at: sea_orm::Set(now),
     };
@@ -592,6 +623,10 @@ pub async fn create_token(
                 "name": token.name,
                 "token": raw_token,
                 "scopes": token.scopes,
+                "repos": token
+                    .repo_allowlist
+                    .as_deref()
+                    .map(rg_core::auth::pat_scope::parse_repo_allowlist),
                 "expires_at": token.expires_at,
                 "created_at": token.created_at,
             })),

@@ -73,7 +73,14 @@
           {#each tokenList as token (token.id)}
             <tr>
               <td>{token.name}</td>
-              <td><code>{token.scopes}</code></td>
+              <td>
+                <code>{token.scopes}</code>
+                {#if token.repos && token.repos.length}
+                  <div class="token-repos">
+                    {t('settings.tokens.repos_only', 'Only')}: <code>{token.repos.join(', ')}</code>
+                  </div>
+                {/if}
+              </td>
               <td>{formatDate(token.created_at)}</td>
               <td>{formatDate(token.last_used_at)}</td>
               <td>{formatDate(token.expires_at)}</td>
@@ -129,4 +136,5 @@
   .actions {
     text-align: right;
   }
+.token-repos { margin-top: 0.25rem; font-size: 0.8rem; color: var(--text-secondary); overflow-wrap: anywhere; }
 </style>

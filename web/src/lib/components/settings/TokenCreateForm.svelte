@@ -15,6 +15,7 @@
 
   let name = $state('');
   let scopes = $state('repo');
+  let repos = $state('');
   let expiresAt = $state('');
   let creating = $state(false);
   let error = $state('');
@@ -25,6 +26,14 @@
     if (!expiresAt) return undefined;
     const parsed = new Date(`${expiresAt}T23:59:59`);
     return Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString();
+  }
+
+  /** `owner/name` entries separated by commas or whitespace. */
+  function repoList(): string[] {
+    return repos
+      .split(/[\s,]+/)
+      .map((r) => r.trim())
+      .filter(Boolean);
   }
 
   async function createToken(event: SubmitEvent) {
@@ -39,10 +48,14 @@
       error = '';
       newToken = '';
       copied = false;
-      const created = await tokens.create(name.trim(), scopes.trim() || 'repo', expiresAtIso());
+      const limit = repoList();
+      const created = limit.length
+        ? await tokens.create(name.trim(), scopes.trim() || 'repo', expiresAtIso(), limit)
+        : await tokens.create(name.trim(), scopes.trim() || 'repo', expiresAtIso());
       newToken = created.token;
       name = '';
       scopes = 'repo';
+      repos = '';
       expiresAt = '';
       await onCreated();
     } catch (err) {
@@ -89,6 +102,10 @@
       <input bind:value={scopes} placeholder="repo" disabled={creating} />
     </label>
     <label>
+      {t('settings.tokens.repos_label', 'Repositories (optional)')}
+      <input bind:value={repos} placeholder="owner/name, owner/other" disabled={creating} />
+    </label>
+    <label>
       {t('settings.tokens.expires_label', 'Expires')}
       <input type="date" bind:value={expiresAt} disabled={creating} />
     </label>
@@ -97,6 +114,7 @@
     </button>
   </form>
   <p class="scopes-hint">{t('settings.tokens.scopes_label', 'Scopes')}: {t('settings.tokens.scopes_hint')}</p>
+  <p class="scopes-hint">{t('settings.tokens.repos_label', 'Repositories (optional)')}: {t('settings.tokens.repos_hint')}</p>
 </section>
 
 <style>

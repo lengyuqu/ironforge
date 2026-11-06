@@ -104,4 +104,16 @@ describe('TokenList.svelte', () => {
     await fireEvent.click(screen.getByText('Revoke'));
     await waitFor(() => expect(screen.getByText('denied')).toBeInTheDocument());
   });
+
+  it('shows which repositories a limited token is restricted to, and nothing for an unlimited one', () => {
+    renderList({
+      tokenList: [
+        makeToken({ id: 1, name: 'limited', scopes: 'repo:collab', repos: ['alice/demo', 'bob/zeta'] }),
+        makeToken({ id: 2, name: 'free', scopes: 'repo' }),
+      ],
+    });
+    const rows = document.querySelectorAll('tbody tr');
+    expect(rows[0].textContent).toContain('alice/demo, bob/zeta');
+    expect(rows[1].querySelector('.token-repos')).toBeNull();
+  });
 });

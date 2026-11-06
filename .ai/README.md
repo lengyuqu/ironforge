@@ -18,7 +18,9 @@ IRONFORGE_URL=http://localhost:8080 IRONFORGE_PAT=<token> ironforge-mcp
 # SSE transport 当前未实现；不要使用 --sse 作为可用模式
 ```
 
-> **给 agent 发令牌时用最小 scope**（2026-11-06）：`repo:read` 只读（含 `git clone`）；`repo:collab` 在此之上可写协作区（会话/任务/问题等），改不了代码、Issue、PR；`repo:write` 在此之上可做其余全部写入和 `git push`；`repo` 是历史的全量仓库 scope，包含以上全部（旧令牌不变）。账号用户自己的仓库权限仍然叠加在上面。仍**不能**限制到某个仓库或分支（见 [验证记录](../ironforge-docs/architecture/agent-token-scopes-verification-2026-11.md)）。
+> **给 agent 发令牌时用最小 scope**（2026-11-06）：`repo:read` 只读（含 `git clone`）；`repo:collab` 在此之上可写协作区（会话/任务/问题等），改不了代码、Issue、PR；`repo:write` 在此之上可做其余全部写入和 `git push`；`repo` 是历史的全量仓库 scope，包含以上全部（旧令牌不变）。账号用户自己的仓库权限仍然叠加在上面（见 [验证记录](../ironforge-docs/architecture/agent-token-scopes-verification-2026-11.md)）。
+>
+> 创建令牌时可加 `repos: ["owner/name", …]` 把它限制到这些仓库（只能带仓库类 scope）：其余仓库、仓库列表/搜索/组织、跨仓路由都会被拒绝；因此 MCP 的 `list_repos` 对这种令牌不可用。**仍不能**限制可写的分支（见 [白名单验证记录](../ironforge-docs/architecture/agent-token-repo-allowlist-verification-2026-11.md)）。
 
 **Claude Code / Cline 配置**（`~/.claude/mcp.json` 或项目 `.claude/mcp.json`）：
 

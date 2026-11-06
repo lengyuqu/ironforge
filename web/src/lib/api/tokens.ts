@@ -5,6 +5,8 @@ export interface AccessToken {
   id: number;
   name: string;
   scopes: string;
+  /** `owner/name` list the token is limited to; absent when it has no limit. */
+  repos?: string[];
   expires_at?: string | null;
   last_used_at?: string | null;
   created_at: string;
@@ -16,6 +18,7 @@ export interface CreatedToken {
   name: string;
   token: string;
   scopes: string;
+  repos?: string[] | null;
   expires_at?: string;
   created_at: string;
 }
@@ -23,10 +26,10 @@ export interface CreatedToken {
 export const tokens = {
   list: () =>
     request<AccessToken[]>('/users/tokens'),
-  create: (name: string, scopes?: string, expires_at?: string) =>
+  create: (name: string, scopes?: string, expires_at?: string, repos?: string[]) =>
     request<CreatedToken>('/users/tokens', {
       method: 'POST',
-      body: JSON.stringify({ name, scopes, expires_at }),
+      body: JSON.stringify({ name, scopes, expires_at, ...(repos && repos.length ? { repos } : {}) }),
     }),
   delete: (id: number) =>
     request<void>(`/users/tokens/${id}`, { method: 'DELETE' }),

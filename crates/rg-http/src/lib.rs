@@ -1990,11 +1990,18 @@ async fn resolve_pat(
 /// ended in a catch-all `Some("repo")`, so any new or unlisted route silently
 /// became reachable by a `repo`-scoped token — including endpoints whose
 /// handlers do not independently enforce user/admin rights.
+/// The request path as the scope table and the repository allow-list see it:
+/// without the `/api/v1` prefix (Axum exposes either form depending on the
+/// router layer) and without a query string.
+fn normalized_api_path(path: &str) -> &str {
+    let path = path.strip_prefix("/api/v1").unwrap_or(path);
+    path.split('?').next().unwrap_or(path)
+}
+
 fn required_pat_scope(method: &axum::http::Method, path: &str) -> Option<&'static str> {
     // Axum may expose either the original URI or the path with the nested
     // `/api/v1` prefix stripped, depending on which router layer is running.
-    let path = path.strip_prefix("/api/v1").unwrap_or(path);
-    let path = path.split('?').next().unwrap_or(path);
+    let path = normalized_api_path(path);
 
     // Public docs and health checks need no credential at all. The docs routes
     // are mounted at the root, so check the raw form too.
@@ -2083,7 +2090,7 @@ async fn pat_auth_middleware(
     next: axum::middleware::Next,
 ) -> Response {
     let required_scope = required_pat_scope(req.method(), req.uri().path());
-    match pat_to_bearer_jwt(&state, req.headers(), required_scope).await {
+    match pat_to_bearer_jwt(&state, req.headers(), required_scope, req.uri().path()).await {
         Ok(Some(jwt)) => {
             if let Ok(value) = format!("Bearer {jwt}").parse() {
                 req.headers_mut().insert(header::AUTHORIZATION, value);
@@ -2104,6 +2111,7 @@ async fn pat_to_bearer_jwt(
     state: &AppState,
     headers: &axum::http::HeaderMap,
     required_scope: Option<&str>,
+    request_path: &str,
 ) -> Result<Option<String>, ()> {
     let Some(auth) = headers
         .get(header::AUTHORIZATION)
@@ -2154,6 +2162,20 @@ async fn pat_to_bearer_jwt(
                 crate::metrics::clients::pat_auth("scope_denied");
                 return Err(());
             }
+            // A token limited to some repositories may only enter the repository
+            // API for those, and nothing else that needs a scope.
+            if let (Some(stored), Some(scope)) = (pat.repo_allowlist.as_deref(), required_scope) {
+                let allow = rg_core::auth::pat_scope::parse_repo_allowlist(stored);
+                let inside = scope.starts_with("repo")
+                    && rg_core::auth::pat_scope::path_in_allowlist(
+                        normalized_api_path(request_path),
+                        &allow,
+                    );
+                if !inside {
+                    crate::metrics::clients::pat_auth("repo_denied");
+                    return Err(());
+                }
+            }
             let Some(user) = rg_db::ops::user_ops::find_by_id(&state.db, pat.user_id)
                 .await
                 .ok()
@@ -2187,10 +2209,27 @@ async fn pat_to_bearer_jwt(
 /// Resolve a PAT to an actor id, requiring `required` (a repository scope such
 /// as `repo:read` for a fetch or `repo:write` for a push) and an active owner
 /// account (#5: deactivated accounts lose PAT access too).
-pub(crate) async fn pat_actor(db: &DatabaseConnection, token: &str, required: &str) -> Option<i64> {
+///
+/// `repo` is the `(owner, name)` the request is for, when it is known. A token
+/// limited to some repositories is refused unless that repository is on its
+/// list; with no repository to check (a job-id addressed stream) it is refused.
+pub(crate) async fn pat_actor(
+    db: &DatabaseConnection,
+    token: &str,
+    required: &str,
+    repo: Option<(&str, &str)>,
+) -> Option<i64> {
     let pat = resolve_pat(db, token).await?;
     if !rg_core::auth::pat_scope::has_scope(&pat.scopes, required) {
         return None;
+    }
+    if let Some(stored) = pat.repo_allowlist.as_deref() {
+        let allow = rg_core::auth::pat_scope::parse_repo_allowlist(stored);
+        match repo {
+            Some((owner, name))
+                if rg_core::auth::pat_scope::repo_in_allowlist(owner, name, &allow) => {}
+            _ => return None,
+        }
     }
     let user = rg_db::ops::user_ops::find_by_id(db, pat.user_id)
         .await
@@ -2209,6 +2248,7 @@ async fn extract_actor_id(
     headers: &axum::http::HeaderMap,
     jwt_secret: &str,
     required_scope: &str,
+    repo: (&str, &str),
 ) -> Option<i64> {
     let auth_str = headers.get(header::AUTHORIZATION)?.to_str().ok()?;
 
@@ -2218,7 +2258,7 @@ async fn extract_actor_id(
             // #5: enforce token_version revocation on git-over-HTTP too.
             return api::auth::validate_session(db, &claims).await;
         }
-        return pat_actor(db, token, required_scope).await;
+        return pat_actor(db, token, required_scope, Some(repo)).await;
     }
 
     if let Some(encoded) = auth_str.strip_prefix("Basic ") {
@@ -2241,7 +2281,7 @@ async fn extract_actor_id(
                 }
                 continue;
             }
-            if let Some(user_id) = pat_actor(db, candidate, required_scope).await {
+            if let Some(user_id) = pat_actor(db, candidate, required_scope, Some(repo)).await {
                 return Some(user_id);
             }
         }
@@ -2374,6 +2414,7 @@ async fn handle_info_refs(
         } else {
             "repo:read"
         },
+        (&owner, &repo),
     )
     .await;
 
@@ -2599,7 +2640,14 @@ async fn handle_git_upload_pack(
     }
 
     // Check read access
-    let actor_id = extract_actor_id(&state.db, &headers, &state.jwt_secret, "repo:read").await;
+    let actor_id = extract_actor_id(
+        &state.db,
+        &headers,
+        &state.jwt_secret,
+        "repo:read",
+        (&owner, &repo),
+    )
+    .await;
     if let Err(resp) = check_git_access(&state.db, &owner, &repo, actor_id, false).await {
         return (resp.0, resp.1, Body::from(resp.2)).into_response();
     }
@@ -2772,7 +2820,14 @@ async fn handle_git_receive_pack(
     }
 
     // Check write access
-    let actor_id = extract_actor_id(&state.db, &headers, &state.jwt_secret, "repo:write").await;
+    let actor_id = extract_actor_id(
+        &state.db,
+        &headers,
+        &state.jwt_secret,
+        "repo:write",
+        (&owner, &repo),
+    )
+    .await;
     if let Err(resp) = check_git_access(&state.db, &owner, &repo, actor_id, true).await {
         return (resp.0, resp.1, Body::from(resp.2));
     }
