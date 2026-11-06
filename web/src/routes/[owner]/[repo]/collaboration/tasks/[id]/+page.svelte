@@ -32,6 +32,14 @@
   import SectionCard from '$lib/components/collaboration/SectionCard.svelte';
   import StatusBadge from '$lib/components/collaboration/StatusBadge.svelte';
   import QuestionCard from '$lib/components/collaboration/QuestionCard.svelte';
+  import ConditionsCard from '$lib/components/collaboration/ConditionsCard.svelte';
+  import NewQuestionForm from '$lib/components/collaboration/NewQuestionForm.svelte';
+  import DecisionPanel from '$lib/components/collaboration/DecisionPanel.svelte';
+  import WorkPackagesCard from '$lib/components/collaboration/WorkPackagesCard.svelte';
+  import DependenciesEditor from '$lib/components/collaboration/DependenciesEditor.svelte';
+  import ReassignForm from '$lib/components/collaboration/ReassignForm.svelte';
+  import TakeoversCard from '$lib/components/collaboration/TakeoversCard.svelte';
+  import BudgetCard from '$lib/components/collaboration/BudgetCard.svelte';
 
   const t = createT();
 
@@ -91,6 +99,15 @@
       else taskError = msg(e);
     } finally {
       taskLoading = false;
+    }
+  }
+
+  /** Re-read the task without the loading state, so the sections below keep their form state. */
+  async function refreshTask() {
+    try {
+      task = await collaboration.getTask(owner, repo, taskId);
+    } catch (e) {
+      taskError = msg(e);
     }
   }
 
@@ -326,6 +343,14 @@
       {#if task.description}<div class="body">{task.description}</div>{/if}
     </SectionCard>
 
+    <SectionCard title={t('collab_relations.reassign.title')} note={t('collab_relations.reassign.note')}>
+      <ReassignForm {owner} {repo} {task} onChanged={refreshTask} />
+    </SectionCard>
+
+    <SectionCard title={t('collab_relations.takeovers.title')} note={t('collab_relations.takeovers.note')}>
+      <TakeoversCard {owner} {repo} {taskId} refreshKey={task.version} {sessionLabel} />
+    </SectionCard>
+
     <SectionCard title={t('collab.completion.title')} note={t('collab.completion.note')} error={completionError}>
       {#if completion}
         <p class="row">
@@ -371,23 +396,15 @@
       {/if}
     </SectionCard>
 
+    <SectionCard title={t('collab.conditions.title')} note={t('collab.conditions.note')}>
+      {#if completion}
+        <ConditionsCard {owner} {repo} {taskId} defined={completion.defined} onChanged={loadCompletion} />
+      {/if}
+    </SectionCard>
+
     <SectionCard title={t('collab.deps.title')} note={t('collab.deps.note')} error={depsError}>
       {#if deps}
-        {#if deps.dependencies.length === 0}
-          <p class="muted">{t('collab.none')}</p>
-        {:else}
-          <ul class="list">
-            {#each deps.dependencies as d (d.depends_on_task_id)}
-              <li class="row">
-                <a class="grow text" href={taskHref(d.depends_on_task_id)}>{d.title}</a>
-                <StatusBadge value={d.status} prefix="collab.task_status" known={KNOWN.taskStatus} good={['done']} title={t('collab.declared_hint')} />
-                {#if deps.blocked_by.includes(d.depends_on_task_id)}
-                  <span class="warn">{t('collab.deps.declared_blocking')}</span>
-                {/if}
-              </li>
-            {/each}
-          </ul>
-        {/if}
+        <DependenciesEditor {owner} {repo} {taskId} {deps} onChanged={loadDeps} />
       {/if}
     </SectionCard>
 
@@ -473,6 +490,10 @@
       {/if}
     </SectionCard>
 
+    <SectionCard title={t('collab_decisions.question.ask')}>
+      <NewQuestionForm {owner} {repo} {taskId} taskVersion={task.version} sessions={sessions ? [...sessions.values()] : []} onCreated={onQuestionChanged} />
+    </SectionCard>
+
     <SectionCard
       title={t('collab.decisions.title')}
       note={t('collab.decisions.note')}
@@ -508,6 +529,10 @@
       {/if}
     </SectionCard>
 
+    <SectionCard title={t('collab_decisions.panel.title')}>
+      <DecisionPanel {owner} {repo} {taskId} taskVersion={task.version} {decisions} {questions} onChanged={loadDecisions} />
+    </SectionCard>
+
     <SectionCard
       title={t('collab.handoffs.title')}
       note={t('collab.handoffs.note')}
@@ -540,6 +565,10 @@
       {/if}
     </SectionCard>
 
+    <SectionCard title={t('collab_decisions.wp.title')} note={t('collab_decisions.wp.note')}>
+      <WorkPackagesCard {owner} {repo} {taskId} />
+    </SectionCard>
+
     <SectionCard
       title={t('collab.messages.title')}
       note={t('collab.messages.note')}
@@ -568,6 +597,10 @@
       {#if messagesMore}
         <Button size="sm" disabled={messagesLoading} onclick={() => loadMessages(true)}>{t('collab.load_more')}</Button>
       {/if}
+    </SectionCard>
+
+    <SectionCard title={t('collab_relations.budget.title')} note={t('collab_relations.budget.note')}>
+      <BudgetCard {owner} {repo} {taskId} />
     </SectionCard>
 
     <SectionCard title={t('collab.diag.title')} note={t('collab.diag.note')} error={diagnosisError} loading={diagnosisLoading}>
