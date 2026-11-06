@@ -105,14 +105,14 @@ pub async fn update_permission(
     validate_permission(&permission)?;
 
     let repo = resolve_repo(db, owner, repo_name).await?;
-    let mut collab = repo_collaborator_ops::find_by_id(db, collaborator_id)
+    let collab = repo_collaborator_ops::find_by_id(db, collaborator_id)
         .await?
         .filter(|collab| collab.repo_id == repo.id)
         .ok_or_else(|| CoreError::not_found("collaborator not found"))?;
 
     let (repo_id, user_id) = (collab.repo_id, collab.user_id);
-    collab.permission = permission;
-    let active: repo_collaborator::ActiveModel = collab.into();
+    let mut active: repo_collaborator::ActiveModel = collab.into();
+    active.permission = Set(permission);
     let updated = repo_collaborator_ops::update(db, active).await?;
     crate::repo::service::invalidate_perm_cache_user(repo_id, user_id);
     Ok(updated)
