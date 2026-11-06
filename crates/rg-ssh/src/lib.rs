@@ -567,6 +567,10 @@ impl Handler for SshHandler {
                                     &mut stream,
                                     rejected_refs,
                                     require_signed_refs,
+                                    // SSH authenticates with keys and passwords,
+                                    // never with an access token, so there is no
+                                    // branch limit to apply.
+                                    None,
                                 ),
                             )
                             .await

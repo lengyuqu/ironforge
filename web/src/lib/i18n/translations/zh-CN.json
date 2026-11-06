@@ -1174,7 +1174,10 @@
       "scopes_hint": "repo:read（只读）· repo:collab（读 + 协作区写入，适合 agent）· repo:write（读 + 全部写入、git push）· repo（仓库内全部）· user · admin。用逗号分隔。",
       "repos_label": "仓库（可选）",
       "repos_hint": "owner/name，用逗号分隔。令牌只能访问这些仓库，并且只能带仓库类 scope。留空表示不限制。",
-      "repos_only": "仅限"
+      "repos_only": "仅限",
+      "refs_label": "分支（可选）",
+      "refs_hint": "分支名，用逗号分隔；* 匹配任意字符（如 agent/*）。令牌只能推送这些分支，不能推 tag；其他写操作仅限 Issue、PR（创建、评论、评审）和协作，不能合并或编辑文件。需要先填上面的仓库。留空表示不限制。",
+      "refs_only": "分支"
     },
     "confirm_delete_label_title": "确认删除",
     "label_name_required": "请输入标签名称",

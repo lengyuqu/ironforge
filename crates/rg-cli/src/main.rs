@@ -2789,6 +2789,7 @@ mod backup_verify_tests {
                 scopes: Set("repo".into()),
                 expires_at: Set(None),
                 repo_allowlist: Set(None),
+                ref_allowlist: Set(None),
                 last_used_at: Set(None),
                 created_at: Set(now),
             }

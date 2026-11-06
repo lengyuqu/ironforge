@@ -75,12 +75,19 @@ pub async fn handle_receive_pack_stream_with_rejections<S>(
     stream: &mut S,
     rejected_refs: Vec<(String, String)>,
     require_signed_refs: Vec<String>,
+    writable_refs: Option<Vec<String>>,
 ) -> Result<Vec<RefUpdate>>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
-    do_receive_pack_stream_with_rejections(repo_path, stream, rejected_refs, require_signed_refs)
-        .await
+    do_receive_pack_stream_with_rejections(
+        repo_path,
+        stream,
+        rejected_refs,
+        require_signed_refs,
+        writable_refs,
+    )
+    .await
 }
 
 /// Handle receive-pack for HTTP mode where ref advertisement is already sent.
@@ -108,6 +115,7 @@ pub async fn handle_receive_pack_http_with_rejections<R, W>(
     mut writer: W,
     rejected_refs: Vec<(String, String)>,
     require_signed_refs: Vec<String>,
+    writable_refs: Option<Vec<String>>,
 ) -> Result<Vec<RefUpdate>>
 where
     R: AsyncRead + Unpin,
@@ -115,9 +123,14 @@ where
 {
     let mut reader = BufReader::new(reader);
 
-    let results =
-        process_push_with_rejections(repo_path, &mut reader, &rejected_refs, &require_signed_refs)
-            .await?;
+    let results = process_push_with_rejections(
+        repo_path,
+        &mut reader,
+        &rejected_refs,
+        &require_signed_refs,
+        writable_refs.as_deref(),
+    )
+    .await?;
     send_response(&mut writer, &results).await?;
     Ok(results)
 }
@@ -150,6 +163,7 @@ async fn do_receive_pack_stream_with_rejections<S>(
     stream: &mut S,
     rejected_refs: Vec<(String, String)>,
     require_signed_refs: Vec<String>,
+    writable_refs: Option<Vec<String>>,
 ) -> Result<Vec<RefUpdate>>
 where
     S: AsyncRead + AsyncWrite + Unpin,
@@ -163,8 +177,14 @@ where
 
     let results = {
         let mut reader = BufReader::new(&mut *stream);
-        process_push_with_rejections(repo_path, &mut reader, &rejected_refs, &require_signed_refs)
-            .await?
+        process_push_with_rejections(
+            repo_path,
+            &mut reader,
+            &rejected_refs,
+            &require_signed_refs,
+            writable_refs.as_deref(),
+        )
+        .await?
     };
 
     send_response(stream, &results).await?;
@@ -255,7 +275,7 @@ async fn process_push<R: AsyncRead + Unpin>(
     repo_path: &Path,
     reader: &mut BufReader<R>,
 ) -> Result<Vec<RefUpdate>> {
-    process_push_with_rejections(repo_path, reader, &[], &[]).await
+    process_push_with_rejections(repo_path, reader, &[], &[], None).await
 }
 
 async fn process_push_with_rejections<R>(
@@ -263,6 +283,7 @@ async fn process_push_with_rejections<R>(
     reader: &mut BufReader<R>,
     rejected_refs: &[(String, String)],
     require_signed_refs: &[String],
+    writable_refs: Option<&[String]>,
 ) -> Result<Vec<RefUpdate>>
 where
     R: AsyncRead + Unpin,
@@ -349,6 +370,20 @@ where
         {
             update.status = "error".to_string();
             update.message = message.clone();
+            continue;
+        }
+
+        // A credential limited to some refs may write only those: everything
+        // else, tags and the other namespaces included, is refused. An empty
+        // list therefore refuses every update.
+        if let Some(writable) = writable_refs {
+            if !writable
+                .iter()
+                .any(|pattern| ref_matches_rejection_pattern(&update.refname, pattern))
+            {
+                update.status = "error".to_string();
+                update.message = "this access token may not write to this ref".to_string();
+            }
         }
     }
 

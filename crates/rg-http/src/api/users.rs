@@ -464,6 +464,10 @@ pub struct CreateTokenRequest {
     /// A limited token may only carry repository scopes.
     #[serde(default)]
     pub repos: Option<Vec<String>>,
+    /// Limit the branches the token may write to (patterns such as `agent/*`).
+    /// Needs `repos`. Omit for no limit.
+    #[serde(default)]
+    pub refs: Option<Vec<String>>,
 }
 
 #[derive(serde::Serialize, ToSchema)]
@@ -474,6 +478,9 @@ pub struct AccessTokenResponse {
     /// The repositories the token is limited to; absent when it has no limit.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub repos: Option<Vec<String>>,
+    /// The branch patterns the token may write; absent when it has no limit.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refs: Option<Vec<String>>,
     pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
     pub last_used_at: Option<chrono::DateTime<chrono::Utc>>,
     pub created_at: chrono::DateTime<chrono::Utc>,
@@ -532,6 +539,10 @@ pub async fn list_tokens(State(state): State<AppState>, headers: HeaderMap) -> i
                         .repo_allowlist
                         .as_deref()
                         .map(rg_core::auth::pat_scope::parse_repo_allowlist),
+                    refs: token
+                        .ref_allowlist
+                        .as_deref()
+                        .map(rg_core::auth::pat_scope::parse_ref_allowlist),
                     expires_at: token.expires_at,
                     last_used_at: token.last_used_at,
                     created_at: token.created_at,
@@ -598,6 +609,24 @@ pub async fn create_token(
             }
         }
     };
+    // A branch limit only means something inside a repository limit, and it keeps
+    // the same repository-scope-only rule.
+    let ref_allowlist = match body.refs.as_deref() {
+        None => None,
+        Some(refs) => {
+            if repo_allowlist.is_none() {
+                return AppError::bad_request(
+                    "refs needs repos: a token limited to branches must also be limited to repositories"
+                        .to_string(),
+                )
+                .into_response();
+            }
+            match rg_core::auth::pat_scope::normalize_ref_allowlist(refs) {
+                Ok(json) => Some(json),
+                Err(e) => return AppError::from(e).into_response(),
+            }
+        }
+    };
     let expires_at = body
         .expires_at
         .as_deref()
@@ -612,6 +641,7 @@ pub async fn create_token(
         scopes: sea_orm::Set(scopes),
         expires_at: sea_orm::Set(expires_at),
         repo_allowlist: sea_orm::Set(repo_allowlist),
+        ref_allowlist: sea_orm::Set(ref_allowlist),
         last_used_at: sea_orm::Set(None),
         created_at: sea_orm::Set(now),
     };
@@ -627,6 +657,10 @@ pub async fn create_token(
                     .repo_allowlist
                     .as_deref()
                     .map(rg_core::auth::pat_scope::parse_repo_allowlist),
+                "refs": token
+                    .ref_allowlist
+                    .as_deref()
+                    .map(rg_core::auth::pat_scope::parse_ref_allowlist),
                 "expires_at": token.expires_at,
                 "created_at": token.created_at,
             })),

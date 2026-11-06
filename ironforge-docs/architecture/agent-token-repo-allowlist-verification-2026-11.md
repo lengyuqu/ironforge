@@ -1,7 +1,7 @@
 # Agent 令牌：仓库白名单（验证记录，2026-11-06）
 
 > **状态**：已实现，SQLite 全量验证，PostgreSQL/MySQL 只验证了迁移 ｜ **可信度**：确认（附运行证据）｜ **来源**：仓库代码 + 本次运行
-> 接 [agent-token-scopes-verification-2026-11.md](agent-token-scopes-verification-2026-11.md)（scope 阶梯）。设计见 [harness 原生化设计](harness-native-design-2026-11.md) §4.4。**可写分支前缀、令牌身份贯穿到下游、审计里的令牌身份没有做。**
+> 接 [agent-token-scopes-verification-2026-11.md](agent-token-scopes-verification-2026-11.md)（scope 阶梯）。设计见 [harness 原生化设计](harness-native-design-2026-11.md) §4.4。**令牌身份贯穿到下游、审计里的令牌身份没有做；可写分支限制见 [agent-token-ref-allowlist-verification-2026-11.md](agent-token-ref-allowlist-verification-2026-11.md)。**
 
 ## 做了什么
 
@@ -19,7 +19,7 @@
 ## 它**不**做什么（重要）
 
 - **只限制路径所指的仓库**。请求体里引用其他仓库的路由，只有上面列出的几条被显式拒绝；新增这类路由时必须同步加入 `path_in_allowlist` 的拒绝表，否则受限令牌可借它触及名单外的仓库（只要令牌主人对那个仓库有权限）。
-- **不限制分支/ref**：名单内的仓库里，令牌仍可推任何分支（受其 scope 和主人权限约束）。
+- **仓库白名单本身不限制分支/ref**：名单内的仓库里，令牌仍可推任何分支（受其 scope 和主人权限约束）。要限制分支，创建令牌时再带 `refs`，见 [agent-token-ref-allowlist-verification-2026-11.md](agent-token-ref-allowlist-verification-2026-11.md)。
 - 令牌仍被换成**完整身份的 JWT**，限制只在中间件和 git 入口这一层；绕过 PAT 中间件的入口不受限（已知入口 REST、git over HTTP、CI 日志 WebSocket 均已覆盖，SSH 不使用 PAT）。
 - 受限令牌不能列仓库（`/repos/{owner}` 和 `/repos/explore` 都在名单外），所以 MCP 的 `list_repos` 对它会被拒绝（读写 `owner/repo` 的工具正常）。
 - 审计日志里仍没有令牌身份（要有，需要把令牌身份带到下游）。

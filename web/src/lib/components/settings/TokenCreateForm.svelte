@@ -16,6 +16,7 @@
   let name = $state('');
   let scopes = $state('repo');
   let repos = $state('');
+  let refs = $state('');
   let expiresAt = $state('');
   let creating = $state(false);
   let error = $state('');
@@ -36,6 +37,14 @@
       .filter(Boolean);
   }
 
+  /** Branch patterns separated by commas or whitespace. */
+  function refList(): string[] {
+    return refs
+      .split(/[\s,]+/)
+      .map((r) => r.trim())
+      .filter(Boolean);
+  }
+
   async function createToken(event: SubmitEvent) {
     event.preventDefault();
     if (!name.trim()) {
@@ -49,13 +58,18 @@
       newToken = '';
       copied = false;
       const limit = repoList();
-      const created = limit.length
-        ? await tokens.create(name.trim(), scopes.trim() || 'repo', expiresAtIso(), limit)
-        : await tokens.create(name.trim(), scopes.trim() || 'repo', expiresAtIso());
+      const branches = refList();
+      const scopeValue = scopes.trim() || 'repo';
+      const created = branches.length
+        ? await tokens.create(name.trim(), scopeValue, expiresAtIso(), limit, branches)
+        : limit.length
+          ? await tokens.create(name.trim(), scopeValue, expiresAtIso(), limit)
+          : await tokens.create(name.trim(), scopeValue, expiresAtIso());
       newToken = created.token;
       name = '';
       scopes = 'repo';
       repos = '';
+      refs = '';
       expiresAt = '';
       await onCreated();
     } catch (err) {
@@ -106,6 +120,10 @@
       <input bind:value={repos} placeholder="owner/name, owner/other" disabled={creating} />
     </label>
     <label>
+      {t('settings.tokens.refs_label', 'Branches (optional)')}
+      <input bind:value={refs} placeholder="agent/*" disabled={creating} />
+    </label>
+    <label>
       {t('settings.tokens.expires_label', 'Expires')}
       <input type="date" bind:value={expiresAt} disabled={creating} />
     </label>
@@ -115,6 +133,7 @@
   </form>
   <p class="scopes-hint">{t('settings.tokens.scopes_label', 'Scopes')}: {t('settings.tokens.scopes_hint')}</p>
   <p class="scopes-hint">{t('settings.tokens.repos_label', 'Repositories (optional)')}: {t('settings.tokens.repos_hint')}</p>
+  <p class="scopes-hint">{t('settings.tokens.refs_label', 'Branches (optional)')}: {t('settings.tokens.refs_hint')}</p>
 </section>
 
 <style>
@@ -124,7 +143,9 @@
 
   .create-form {
     display: grid;
-    grid-template-columns: minmax(180px, 1.2fr) minmax(140px, 0.8fr) minmax(150px, 0.8fr) auto;
+    grid-template-columns:
+      minmax(180px, 1.2fr) minmax(140px, 0.8fr) minmax(150px, 0.8fr) minmax(130px, 0.7fr)
+      auto;
     align-items: end;
     gap: 12px;
   }

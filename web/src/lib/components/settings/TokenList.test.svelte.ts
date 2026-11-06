@@ -116,4 +116,22 @@ describe('TokenList.svelte', () => {
     expect(rows[0].textContent).toContain('alice/demo, bob/zeta');
     expect(rows[1].querySelector('.token-repos')).toBeNull();
   });
+  it('shows which branches a limited token may write', () => {
+    renderList({
+      tokenList: [
+        makeToken({
+          id: 1,
+          name: 'agent',
+          scopes: 'repo:write',
+          repos: ['alice/demo'],
+          refs: ['agent/*', 'bots/*'],
+        }),
+        makeToken({ id: 2, name: 'repo-only', scopes: 'repo:write', repos: ['alice/demo'] }),
+      ],
+    });
+    const rows = document.querySelectorAll('tbody tr');
+    expect(rows[0].textContent).toContain('Branches: agent/*, bots/*');
+    // A token limited to repositories only does not claim a branch limit.
+    expect(rows[1].textContent).not.toContain('Branches');
+  });
 });
