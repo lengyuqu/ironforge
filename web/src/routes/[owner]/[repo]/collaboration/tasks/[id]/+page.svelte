@@ -33,6 +33,9 @@
   import StatusBadge from '$lib/components/collaboration/StatusBadge.svelte';
   import QuestionCard from '$lib/components/collaboration/QuestionCard.svelte';
   import ConditionsCard from '$lib/components/collaboration/ConditionsCard.svelte';
+  import NewQuestionForm from '$lib/components/collaboration/NewQuestionForm.svelte';
+  import DecisionPanel from '$lib/components/collaboration/DecisionPanel.svelte';
+  import WorkPackagesCard from '$lib/components/collaboration/WorkPackagesCard.svelte';
 
   const t = createT();
 
@@ -480,6 +483,10 @@
       {/if}
     </SectionCard>
 
+    <SectionCard title={t('collab_decisions.question.ask')}>
+      <NewQuestionForm {owner} {repo} {taskId} taskVersion={task.version} sessions={sessions ? [...sessions.values()] : []} onCreated={onQuestionChanged} />
+    </SectionCard>
+
     <SectionCard
       title={t('collab.decisions.title')}
       note={t('collab.decisions.note')}
@@ -515,6 +522,10 @@
       {/if}
     </SectionCard>
 
+    <SectionCard title={t('collab_decisions.panel.title')}>
+      <DecisionPanel {owner} {repo} {taskId} taskVersion={task.version} {decisions} {questions} onChanged={loadDecisions} />
+    </SectionCard>
+
     <SectionCard
       title={t('collab.handoffs.title')}
       note={t('collab.handoffs.note')}
@@ -545,6 +556,10 @@
       {#if handoffsCursor}
         <Button size="sm" disabled={handoffsLoading} onclick={() => loadHandoffs(true)}>{t('collab.load_more')}</Button>
       {/if}
+    </SectionCard>
+
+    <SectionCard title={t('collab_decisions.wp.title')} note={t('collab_decisions.wp.note')}>
+      <WorkPackagesCard {owner} {repo} {taskId} />
     </SectionCard>
 
     <SectionCard
