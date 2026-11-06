@@ -396,3 +396,81 @@ async fn a_merge_can_be_dry_run_and_pinned_to_the_reviewed_head() {
     let (status, _) = merge(json!({"strategy": "merge"}), None).await;
     assert_eq!(status, StatusCode::CONFLICT);
 }
+
+/// A branch that does not exist yet starts from the default branch, so the file
+/// checks must look there: an existing file can be updated on a new branch, and
+/// "create" of a file that already exists is refused, as on an existing branch.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_new_branch_is_checked_against_the_default_branch() {
+    let f = Fixture::new("newbranch_user").await;
+    let main_tip = f.tip("main").expect("main exists");
+
+    let blob = f
+        .client
+        .get(f.url("/blob/README.md?ref=main"))
+        .bearer_auth(&f.jwt)
+        .send()
+        .await
+        .unwrap()
+        .json::<Value>()
+        .await
+        .unwrap()["sha"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    // "Create" of a file that main already has: refused, nothing created.
+    let (status, v) = f
+        .post(
+            "README.md",
+            json!({"branch": "agent/new", "message": "m", "content": "x\n"}),
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{v}");
+    assert_eq!(f.tip("agent/new"), None);
+
+    // The wrong blob sha is a conflict, an unknown file is not found.
+    let (status, _) = f
+        .post(
+            "README.md",
+            json!({"branch": "agent/new", "message": "m", "content": "x\n", "sha": "0".repeat(40)}),
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    let (status, _) = f
+        .post(
+            "missing.md",
+            json!({"branch": "agent/new", "message": "m", "content": "x\n", "sha": blob}),
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    // Updating it with its real blob sha works, in a dry run and for real, and the
+    // branch starts from main.
+    let (status, v) = f
+        .post(
+            "README.md",
+            json!({"branch": "agent/new", "message": "edit", "content": "edited\n",
+                   "sha": blob, "dry_run": true}),
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{v}");
+    assert_eq!(v["would"][0]["creates_branch"], json!(true));
+    assert_eq!(v["would"][1]["blob_before"], json!(blob));
+    assert_eq!(f.tip("agent/new"), None, "a dry run creates no branch");
+    let (status, v) = f
+        .post(
+            "README.md",
+            json!({"branch": "agent/new", "message": "edit", "content": "edited\n", "sha": blob}),
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{v}");
+    let new_tip = f.tip("agent/new").expect("branch created");
+    assert_ne!(new_tip, main_tip);
+    assert_eq!(f.tip("main"), Some(main_tip), "main is untouched");
+}

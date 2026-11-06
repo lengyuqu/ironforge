@@ -42,7 +42,7 @@ IronForge 已有一个 CLI——`ironforge` 二进制（`crates/rg-cli/src/main.
 | CI 接口为 `pipelines`：列表/详情/cancel/retry、`jobs/{job_id}`（响应含 `log` 字段）、approve/rerun/play | `rg-http/src/api/ci.rs` |
 | Release 资产上传：原始 body + `Content-Disposition` 或 `x-asset-filename` 头；下载带 `x-checksum-sha256` | `rg-http/src/api/releases.rs::upload_asset` |
 | **WebSocket `/ws/job/{job_id}` 只认 JWT，不认 PAT** | `rg-http/src/ws.rs`（`jwt::validate_token`） |
-| **服务端不写 `refs/pull/<n>/head`** | `rg-core/src/pull_request/`、`rg-git/src` 中无生产代码写该 ref |
+| ~~**服务端不写 `refs/pull/<n>/head`**~~ **过期（2026-11-07 核实）**：同仓 PR 创建与推送到 head 分支时会写，fork PR 不写 | `rg-http/src/api/pulls.rs::create_pr`、`rg-http/src/lib.rs::post_push_hooks`；`pr_export_tests` 验证 |
 
 | Issue 列表支持 `state` / `labels` / `assignee` 过滤 | `rg-http/src/api/issues.rs::ListQuery` |
 | 建仓请求体含 `name / description / is_private / org / auto_init / default_branch` | `rg-http/src/api/repos.rs::CreateRepoRequest` |
@@ -193,7 +193,7 @@ git_protocol = "https"   # 或 ssh
 
 ### 7.2 无 `refs/pull/<n>/head`
 
-`pr checkout` 只能从 PR 元数据取 head 仓库与分支再 fetch；head 分支删除或 fork 已删除后就无法 checkout。是否在服务端维护 `refs/pull/<n>/head`（Gitea/GitHub 均有）应单独立项评估，CLI 届时切换实现。
+`pr checkout` 只能从 PR 元数据取 head 仓库与分支再 fetch；head 分支删除或 fork 已删除后就无法 checkout。**更新（2026-11-07）**：服务端已为同仓 PR 维护 `refs/pull/<n>/head`（创建与每次推送、REST 文件提交时更新，分支删除后仍在），CLI 对同仓 PR 可以切换到它；fork PR 仍没有这个 ref。
 
 ### 7.3 Release 无按 tag 查询接口
 

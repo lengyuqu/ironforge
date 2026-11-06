@@ -189,6 +189,31 @@ pub async fn list_auto_merge_for_head_commit(
         .context("db: list auto-merge PRs for head commit")
 }
 
+/// Open pull requests in `repo_id` from `head_branch` into `base_branch`; for a
+/// fork pull request `head_repo_id` is the fork, otherwise `None`.
+pub async fn find_open_by_branches(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    head_branch: &str,
+    base_branch: &str,
+    head_repo_id: Option<i64>,
+) -> Result<Vec<PullRequest>> {
+    let mut query = PrEntity::find()
+        .filter(pull_request::Column::RepoId.eq(repo_id))
+        .filter(pull_request::Column::HeadBranch.eq(head_branch))
+        .filter(pull_request::Column::BaseBranch.eq(base_branch))
+        .filter(pull_request::Column::State.eq("open"));
+    query = match head_repo_id {
+        Some(id) => query.filter(pull_request::Column::HeadRepoId.eq(id)),
+        None => query.filter(pull_request::Column::HeadRepoId.is_null()),
+    };
+    query
+        .order_by_asc(pull_request::Column::Number)
+        .all(db)
+        .await
+        .context("db: find open PRs by branches")
+}
+
 pub async fn list_open_for_head_commit(
     db: &DatabaseConnection,
     source_repo_id: i64,

@@ -1171,7 +1171,7 @@ async fn resolve_and_check_write_access(
 
 /// Whether the caller asked for a dry run: the `dry_run` field or the
 /// `X-Dry-Run: 1` (or `true`) header.
-fn dry_run_requested(headers: &HeaderMap, flag: Option<bool>) -> bool {
+pub(crate) fn dry_run_requested(headers: &HeaderMap, flag: Option<bool>) -> bool {
     flag.unwrap_or(false)
         || headers
             .get("x-dry-run")
@@ -1193,6 +1193,31 @@ fn file_commit_error(error: rg_core::repo::service::FileCommitError) -> AppError
         ),
         E::Core(core) => AppError::from(core),
     }
+}
+
+/// A file commit made through the API moved `branch`; give it the same effects
+/// as a push (pull-request heads, CI, webhooks, the event log). Skipped when the
+/// new commit could not be resolved.
+fn announce_branch_move(
+    state: &AppState,
+    owner: &str,
+    repo: &str,
+    repo_path: std::path::PathBuf,
+    branch: &str,
+    old_sha: Option<String>,
+    new_sha: &str,
+) {
+    if new_sha.is_empty() {
+        return;
+    }
+    let update = rg_git::protocol::receive_pack::RefUpdate {
+        old_sha: old_sha.unwrap_or_else(|| "0".repeat(40)),
+        new_sha: new_sha.to_string(),
+        refname: format!("refs/heads/{branch}"),
+        status: "ok".to_string(),
+        message: String::new(),
+    };
+    crate::spawn_post_push_hooks(state, owner, repo, repo_path, vec![update]);
 }
 
 /// The body of a dry-run answer: what the real call would do.
@@ -1304,9 +1329,11 @@ pub async fn create_or_update_file(
             )),
         )
             .into_response(),
-        Ok(_) => {
+        Ok(report) => {
             // Get the new commit SHA
             let repo_path = state.repo_root.join(format!("{}/{}.git", owner, repo));
+            let hook_repo_path = repo_path.clone();
+            let hook_branch = branch.clone();
             let new_sha = run_blocking(move || get_latest_commit_sha(&repo_path, &branch))
                 .await
                 .unwrap_or_else(|e| {
@@ -1314,6 +1341,31 @@ pub async fn create_or_update_file(
                     tracing::warn!(error = %e, "could not resolve new commit sha after write");
                     String::new()
                 });
+            announce_branch_move(
+                &state,
+                &owner,
+                &repo,
+                hook_repo_path,
+                &hook_branch,
+                report.tip_before.clone(),
+                &new_sha,
+            );
+            crate::api::audit::record_write(
+                &state.db,
+                user.id,
+                "repo.file_commit",
+                "repo",
+                Some(repo_model.id),
+                &format!("{owner}/{repo}"),
+                &headers,
+                serde_json::json!({
+                    "branch": hook_branch,
+                    "path": path,
+                    "commit_sha": new_sha,
+                    "before": report.tip_before,
+                }),
+            )
+            .await;
 
             (
                 StatusCode::OK,
@@ -1408,9 +1460,11 @@ pub async fn delete_file(
             Json(file_commit_dry_run_body(&report, "delete", &path)),
         )
             .into_response(),
-        Ok(_) => {
+        Ok(report) => {
             // Get the new commit SHA
             let repo_path = state.repo_root.join(format!("{}/{}.git", owner, repo));
+            let hook_repo_path = repo_path.clone();
+            let hook_branch = branch.clone();
             let new_sha = run_blocking(move || get_latest_commit_sha(&repo_path, &branch))
                 .await
                 .unwrap_or_else(|e| {
@@ -1418,6 +1472,31 @@ pub async fn delete_file(
                     tracing::warn!(error = %e, "could not resolve new commit sha after write");
                     String::new()
                 });
+            announce_branch_move(
+                &state,
+                &owner,
+                &repo,
+                hook_repo_path,
+                &hook_branch,
+                report.tip_before.clone(),
+                &new_sha,
+            );
+            crate::api::audit::record_write(
+                &state.db,
+                user.id,
+                "repo.file_delete",
+                "repo",
+                Some(repo_model.id),
+                &format!("{owner}/{repo}"),
+                &headers,
+                serde_json::json!({
+                    "branch": hook_branch,
+                    "path": path,
+                    "commit_sha": new_sha,
+                    "before": report.tip_before,
+                }),
+            )
+            .await;
 
             (
                 StatusCode::OK,

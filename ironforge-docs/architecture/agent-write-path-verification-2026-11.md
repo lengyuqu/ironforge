@@ -88,8 +88,8 @@
 
 ## 它**不**做什么
 
-- **PR `export` 与 `refs/pull/<n>/head` 没有做**：前者依赖后者才能在分支被删后仍取得 head；后者要写 `refs/pull` 命名空间，会和 mirror 的 `+refs/*:refs/*` 同步现状及对象保活（gc）互相影响，设计文档"待决问题 6"要求先单独评估，所以没有在这次动。
-- **创建 PR 没有 dry-run**，评论/分支创建/删除也没有；覆盖范围只有文件提交与 PR 合并。
+- **本文写成时没有做、之后已补的**：PR `export`、创建 PR 的 dry-run、`refs/pull` 的评估（结论：同仓 PR 早已写 `refs/pull/<n>/head`，设计文档里"服务端不写"是过期的）、REST 文件提交不触发推送钩子的缺口、审计覆盖，见 [agent-gaps-verification-2026-11.md](agent-gaps-verification-2026-11.md)。
+- 评论/分支创建/删除没有 dry-run；dry-run 覆盖文件提交、PR 合并与（后补的）创建 PR。
 - `expected_head_sha` 非原子（见上）；`dry_run` 不预测冲突、webhook、CI 触发、通知。
 - 审计只覆盖已有的审计点；审计里的令牌 id 靠内部请求头，只对挂在 PAT 中间件之后的路由可信。
 - 分支受限令牌的 REST 写仍只有白名单里的路由；`apply suggestion`、`merge` 等不对它们开放。
@@ -112,6 +112,6 @@
 ## 未覆盖
 
 - PostgreSQL/MySQL 只跑了下面"后端验证"里列的四个测试目标；`rg-http` 的其余套件仍只在 SQLite 上跑。
-- `wait_pipeline` 的成功路径只在 stub 里验证；真实服务里没有 CI runner，只验证了 404。
+- `wait_pipeline` 的成功路径本文写成时只在 stub 里验证；之后用真实服务 + 主机执行的 CI 验证过成功与失败两条路径，见 [agent-gaps-verification-2026-11.md](agent-gaps-verification-2026-11.md)。
 - CI 未看。
 - 并发：`expected_sha` 的"检查后被推进"分支靠 `commit_tree_edits` 的 `TipAdvanced` 返回，没有为它单独写竞态测试。

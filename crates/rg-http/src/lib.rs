@@ -847,6 +847,10 @@ fn build_routes(
                 .delete(api::attachments::delete_review_comment_attachment),
         )
         .route(
+            "/repos/{owner}/{name}/pulls/{number}/export",
+            get(api::pr_export::export_pr),
+        )
+        .route(
             "/repos/{owner}/{name}/pulls/{number}/diff",
             get(api::pulls::get_diff),
         )
@@ -3051,41 +3055,7 @@ async fn handle_git_receive_pack(
             let output = reader_task.await.unwrap_or_default();
 
             // ── Post-push hooks: trigger CI + Webhook ───────────────
-            let db = state.db.clone();
-            let repo_path_clone = repo_path.clone();
-            let repo_root = state.repo_root.clone();
-            let owner_clone = owner.clone();
-            let repo_clone = repo.clone();
-            let docker_enabled = state.docker_enabled;
-            let external_runners = state.external_runners;
-            let allow_host_execution = state.allow_host_execution;
-            let jwt_secret = state.jwt_secret.clone();
-            let hub = state.notification_hub.clone();
-            let smtp = state.smtp_config.clone();
-            let ci_engine = state.ci_engine.clone();
-            let external_url = state.external_url.clone();
-
-            tokio::spawn(async move {
-                post_push_hooks(
-                    &PostPushParams {
-                        db: &db,
-                        repo_path: &repo_path_clone,
-                        repo_root: &repo_root,
-                        owner: &owner_clone,
-                        repo_name: &repo_clone,
-                        docker_enabled,
-                        external_runners,
-                        allow_host_execution,
-                        jwt_secret: &jwt_secret,
-                        notification_hub: &hub,
-                        smtp_config: &smtp,
-                        ci_engine: &*ci_engine,
-                        external_url: external_url.as_deref(),
-                    },
-                    &ref_updates,
-                )
-                .await;
-            });
+            spawn_post_push_hooks(&state, &owner, &repo, repo_path.clone(), ref_updates);
 
             (
                 StatusCode::OK,
@@ -3118,6 +3088,53 @@ async fn handle_git_receive_pack(
             )
         }
     }
+}
+
+/// Run the post-push hooks (PR head sync, CI, webhooks, event log) for ref
+/// updates that were already applied, in a background task. A push over git and a
+/// file commit through the REST API both end here, so a branch moved either way
+/// has the same effects.
+pub(crate) fn spawn_post_push_hooks(
+    state: &AppState,
+    owner: &str,
+    repo: &str,
+    repo_path: std::path::PathBuf,
+    ref_updates: Vec<rg_git::protocol::receive_pack::RefUpdate>,
+) {
+    let db = state.db.clone();
+    let repo_root = state.repo_root.clone();
+    let owner = owner.to_string();
+    let repo = repo.to_string();
+    let docker_enabled = state.docker_enabled;
+    let external_runners = state.external_runners;
+    let allow_host_execution = state.allow_host_execution;
+    let jwt_secret = state.jwt_secret.clone();
+    let hub = state.notification_hub.clone();
+    let smtp = state.smtp_config.clone();
+    let ci_engine = state.ci_engine.clone();
+    let external_url = state.external_url.clone();
+
+    tokio::spawn(async move {
+        post_push_hooks(
+            &PostPushParams {
+                db: &db,
+                repo_path: &repo_path,
+                repo_root: &repo_root,
+                owner: &owner,
+                repo_name: &repo,
+                docker_enabled,
+                external_runners,
+                allow_host_execution,
+                jwt_secret: &jwt_secret,
+                notification_hub: &hub,
+                smtp_config: &smtp,
+                ci_engine: &*ci_engine,
+                external_url: external_url.as_deref(),
+            },
+            &ref_updates,
+        )
+        .await;
+    });
 }
 
 /// Parameters for post-push hooks.
