@@ -74,3 +74,12 @@ describe('request() 401 handling', () => {
     expect((err as ApiError).status).toBe(403);
   });
 });
+
+describe('ApiError details', () => {
+  it('keeps the structured error.details from the envelope', async () => {
+    const { ApiError } = await import('./_base.svelte');
+    const e = new ApiError('cycle', 409, 'DEPENDENCY_CYCLE', { path: ['a', 'b', 'a'] });
+    expect(e.details).toEqual({ path: ['a', 'b', 'a'] });
+    expect(new ApiError('x', 500).details).toBeUndefined();
+  });
+});
