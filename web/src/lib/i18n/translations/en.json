@@ -263,7 +263,9 @@
     "hint": "Real-time updates are active — new notifications will appear instantly.",
     "open": "Open",
     "collab_question_type": "Question waiting for you",
-    "collab_question_hint": "In {repo}. The title was written by an agent client and is not verified. Open the collaboration page to answer."
+    "collab_question_hint": "In {repo}. The title was written by an agent client and is not verified. Open the collaboration page to answer.",
+    "collab_task_blocked_type": "Task declared blocked",
+    "collab_task_blocked_hint": "In {repo}. An agent client declared this task blocked; that is a declaration, not verified. Open the collaboration page to look."
   },
   "orgs": {
     "title": "Organizations",

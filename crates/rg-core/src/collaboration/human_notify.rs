@@ -23,14 +23,18 @@
 //!   instance.
 
 use rg_db::entities::repository;
-use rg_db::ops::{org_ops, repo_collaborator_ops, user_ops};
+use rg_db::ops::{agent_session_ops, notification_ops, org_ops, repo_collaborator_ops, user_ops};
 use sea_orm::DatabaseConnection;
 
 use super::question::{QuestionView, RECIPIENT_REPO_WRITERS, RECIPIENT_USER};
+use super::task::TaskView;
 use crate::repo::service::{can_read_repo, can_write_repo, invalidate_perm_cache_user};
 
 /// `notifications.event_type` of a question that is waiting for a person.
 pub const EVENT_QUESTION_ASKED: &str = "collab_question";
+
+/// `notifications.event_type` of a task its own session declared blocked.
+pub const EVENT_TASK_BLOCKED: &str = "collab_task_blocked";
 
 /// Most people notified for one question. A repository with more writers than
 /// this still gets the question in everyone's "waiting for you" list; only the
@@ -166,6 +170,80 @@ pub async fn question_asked(
         }
     }
     notified
+}
+
+/// Tell the account behind a task's owner session that the task was just
+/// declared `blocked`.
+///
+/// Who: only the account that owns the task's owner session, not every writer.
+/// Sessions of one account all belong to the same person, so this is "your agent
+/// is stuck", and it stays quiet in a repository with many writers.
+///
+/// When: the caller invokes this only on a real transition into `blocked`, not
+/// when a blocked task is updated again. While the earlier notification about
+/// the same task is still unread, a new one is not added, so a task that flaps
+/// between states does not fill the bell.
+///
+/// The status is a declaration by a client; nothing here says the task is
+/// really stuck.
+pub async fn task_blocked(
+    db: &DatabaseConnection,
+    repo: &repository::Model,
+    repo_full_name: &str,
+    task: &TaskView,
+) -> Vec<Notified> {
+    let Some(session_id) = task.owner_session_id.as_deref() else {
+        return Vec::new();
+    };
+    let session = match agent_session_ops::find_in_repo(db, repo.id, session_id).await {
+        Ok(Some(session)) => session,
+        Ok(None) => return Vec::new(),
+        Err(err) => {
+            tracing::warn!(task = %task.id, "collab notify: could not load the owner session: {err:#}");
+            return Vec::new();
+        }
+    };
+    let user_id = session.user_id;
+    invalidate_perm_cache_user(repo.id, user_id);
+    match can_read_repo(db, repo, Some(user_id)).await {
+        Ok(true) => {}
+        Ok(false) => return Vec::new(),
+        Err(err) => {
+            tracing::warn!(task = %task.id, "collab notify: permission check failed: {err:#}");
+            return Vec::new();
+        }
+    }
+    let body = format!(
+        "In {repo_full_name}, task {}. A client declared it blocked; that is a declaration, not verified. Open the repository's collaboration page to look.",
+        task.id
+    );
+    match notification_ops::has_unread_with_body(db, user_id, EVENT_TASK_BLOCKED, &body).await {
+        Ok(false) => {}
+        Ok(true) => return Vec::new(),
+        Err(err) => {
+            tracing::warn!(task = %task.id, "collab notify: duplicate check failed: {err:#}");
+            return Vec::new();
+        }
+    }
+    match crate::notification::notify(
+        db,
+        user_id,
+        EVENT_TASK_BLOCKED,
+        &truncate_chars(&task.title, MAX_TITLE_CHARS),
+        Some(&body),
+        Some(repo.id),
+    )
+    .await
+    {
+        Ok(row) => vec![Notified {
+            user_id,
+            notification_id: row.id,
+        }],
+        Err(err) => {
+            tracing::warn!(task = %task.id, "collab notify: could not store notification: {err}");
+            Vec::new()
+        }
+    }
 }
 
 #[cfg(test)]

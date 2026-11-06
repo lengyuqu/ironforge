@@ -269,3 +269,162 @@ async fn a_hostile_title_is_stored_and_returned_as_plain_text() {
         .unwrap()
         .contains(hostile));
 }
+
+// ---------------------------------------------------------------- blocked task
+
+fn blocked_for(items: &[Value]) -> Vec<&Value> {
+    items
+        .iter()
+        .filter(|n| n["event_type"] == "collab_task_blocked")
+        .collect()
+}
+
+/// A task owned by `s`, so its account is the one to tell.
+async fn owned_task(env: &Env, s: &Sess) -> String {
+    let (status, task) = env
+        .json(
+            Method::POST,
+            &env.url("/tasks"),
+            &env.owner_token,
+            Some(s),
+            Some(json!({"title": "owned task", "owner_session_id": s.id})),
+        )
+        .await;
+    assert_eq!(status, 201, "{task}");
+    task["id"].as_str().unwrap().to_string()
+}
+
+async fn set_status(
+    env: &Env,
+    s: &Sess,
+    token: &str,
+    task: &str,
+    version: i64,
+    status: &str,
+) -> (u16, Value) {
+    env.json(
+        Method::PATCH,
+        &env.url(&format!("/tasks/{task}")),
+        token,
+        Some(s),
+        Some(json!({"expected_version": version, "status": status})),
+    )
+    .await
+}
+
+#[tokio::test]
+async fn declaring_a_task_blocked_tells_only_the_account_that_owns_it() {
+    let env = Env::new().await;
+    let (bob_token, bob_id) = env.user("bob").await;
+    env.add_collaborator(bob_id, "write").await;
+    // Bob's agent owns the task; the repository owner has write access too.
+    let bob_session = env.session(&bob_token, "bob-agent").await;
+    let (status, task) = env
+        .json(
+            Method::POST,
+            &env.url("/tasks"),
+            &bob_token,
+            Some(&bob_session),
+            Some(json!({"title": "Port the lexer", "owner_session_id": bob_session.id})),
+        )
+        .await;
+    assert_eq!(status, 201, "{task}");
+    let id = task["id"].as_str().unwrap();
+
+    let (status, t) = set_status(&env, &bob_session, &bob_token, id, 1, "in_progress").await;
+    assert_eq!(status, 200, "{t}");
+    assert!(
+        blocked_for(&bell(&env, &bob_token).await).is_empty(),
+        "not blocked yet"
+    );
+
+    let (status, t) = set_status(&env, &bob_session, &bob_token, id, 2, "blocked").await;
+    assert_eq!(status, 200, "{t}");
+    let bob = bell(&env, &bob_token).await;
+    let n = blocked_for(&bob);
+    assert_eq!(n.len(), 1, "{bob:?}");
+    assert_eq!(n[0]["title"], "Port the lexer");
+    assert_eq!(n[0]["repo"], format!("{}/{}", env.owner, env.repo));
+    assert!(n[0]["body"].as_str().unwrap().contains(id));
+    assert!(
+        blocked_for(&bell(&env, &env.owner_token).await).is_empty(),
+        "the repository owner is not told about someone else's agent"
+    );
+}
+
+#[tokio::test]
+async fn only_a_move_into_blocked_notifies_and_an_unread_one_is_not_repeated() {
+    let env = Env::new().await;
+    let s = env.session(&env.owner_token, "agent").await;
+    let task = owned_task(&env, &s).await; // version 1, open
+    let t = &env.owner_token;
+
+    // open -> blocked notifies.
+    assert_eq!(set_status(&env, &s, t, &task, 1, "blocked").await.0, 200);
+    assert_eq!(blocked_for(&bell(&env, t).await).len(), 1);
+
+    // blocked -> blocked (another field changed) is not a transition.
+    let (status, _) = env
+        .json(
+            Method::PATCH,
+            &env.url(&format!("/tasks/{task}")),
+            t,
+            Some(&s),
+            Some(json!({"expected_version": 2, "status": "blocked", "branch": "fix/x"})),
+        )
+        .await;
+    assert_eq!(status, 200);
+    assert_eq!(blocked_for(&bell(&env, t).await).len(), 1);
+
+    // Flapping while the first one is still unread adds nothing.
+    assert_eq!(
+        set_status(&env, &s, t, &task, 3, "in_progress").await.0,
+        200
+    );
+    assert_eq!(set_status(&env, &s, t, &task, 4, "blocked").await.0, 200);
+    assert_eq!(blocked_for(&bell(&env, t).await).len(), 1);
+
+    // Once it was read, the next time it gets stuck is news again.
+    let first = bell(&env, t).await;
+    let id = blocked_for(&first)[0]["id"].as_i64().unwrap();
+    let resp = reqwest::Client::new()
+        .post(format!("{}/api/v1/notifications/{id}/read", env.base))
+        .bearer_auth(t)
+        .send()
+        .await
+        .unwrap();
+    assert!(resp.status().is_success());
+    assert_eq!(set_status(&env, &s, t, &task, 5, "waiting").await.0, 200);
+    assert_eq!(set_status(&env, &s, t, &task, 6, "blocked").await.0, 200);
+    assert_eq!(blocked_for(&bell(&env, t).await).len(), 2);
+}
+
+#[tokio::test]
+async fn a_rejected_update_and_other_statuses_notify_nobody() {
+    let env = Env::new().await;
+    let s = env.session(&env.owner_token, "agent").await;
+    let task = owned_task(&env, &s).await;
+    let t = &env.owner_token;
+
+    // A stale version is refused, so nothing became blocked.
+    let (status, _) = set_status(&env, &s, t, &task, 99, "blocked").await;
+    assert_eq!(status, 409);
+    for (v, st) in [(1, "waiting"), (2, "done")] {
+        assert_eq!(set_status(&env, &s, t, &task, v, st).await.0, 200);
+    }
+    assert!(blocked_for(&bell(&env, t).await).is_empty());
+}
+
+#[tokio::test]
+async fn a_task_nobody_owns_has_nobody_to_tell() {
+    let env = Env::new().await;
+    let s = env.session(&env.owner_token, "agent").await;
+    let task = new_task(&env, &s).await; // no owner session
+    assert_eq!(
+        set_status(&env, &s, &env.owner_token, &task, 1, "blocked")
+            .await
+            .0,
+        200
+    );
+    assert!(blocked_for(&bell(&env, &env.owner_token).await).is_empty());
+}

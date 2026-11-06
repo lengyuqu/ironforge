@@ -234,6 +234,17 @@ pub async fn update_task(
     let (repo, user_id) = require_collab_write(&state, &headers, &owner, &name).await?;
     let _actor = acting_session(&state, &headers, repo.id, user_id).await?;
     require_known::<TaskStatus>("status", req.status.as_deref())?;
+    // Only a move *into* blocked is worth a nudge. The write below is a
+    // compare-and-set on `expected_version`, so if this read is at that version
+    // its status is exactly the one being replaced; otherwise the write fails.
+    let was_blocked = if req.status.as_deref() == Some("blocked") {
+        svc::get(&state.db, repo.id, &id)
+            .await
+            .map(|before| before.status == "blocked")
+            .unwrap_or(true)
+    } else {
+        true
+    };
     let task = svc::update(
         &state.db,
         repo.id,
@@ -252,6 +263,28 @@ pub async fn update_task(
         Utc::now(),
     )
     .await?;
+    if task.status == "blocked" && !was_blocked {
+        let repo_full_name = format!("{owner}/{name}");
+        for n in rg_core::collaboration::human_notify::task_blocked(
+            &state.db,
+            &repo,
+            &repo_full_name,
+            &task,
+        )
+        .await
+        {
+            crate::ws::push_notification(
+                &state.notification_hub,
+                n.user_id,
+                rg_core::collaboration::human_notify::EVENT_TASK_BLOCKED,
+                serde_json::json!({
+                    "notification_id": n.notification_id,
+                    "repo": repo_full_name,
+                    "task_id": task.id,
+                }),
+            );
+        }
+    }
     Ok(Json(task.into()))
 }
 

@@ -263,7 +263,9 @@
     "hint": "实时更新已启用——新通知将即时显示。",
     "open": "打开",
     "collab_question_type": "有问题等你回答",
-    "collab_question_hint": "在 {repo}。标题由 agent 客户端写入，未经核实。打开协作页回答。"
+    "collab_question_hint": "在 {repo}。标题由 agent 客户端写入，未经核实。打开协作页回答。",
+    "collab_task_blocked_type": "任务被声明为阻塞",
+    "collab_task_blocked_hint": "在 {repo}。某个 agent 客户端把这个任务声明为阻塞，这只是声明，未经核实。打开协作页查看。"
   },
   "orgs": {
     "title": "组织",

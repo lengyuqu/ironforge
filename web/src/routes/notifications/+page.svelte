@@ -53,7 +53,7 @@
         if (
           event.event_type === 'push' ||
           event.event_type === 'ci_triggered' ||
-          event.event_type === 'collab_question'
+          event.event_type.startsWith('collab_')
         ) {
           unreadCount++;
           load();

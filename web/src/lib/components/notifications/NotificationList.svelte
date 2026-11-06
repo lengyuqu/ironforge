@@ -30,17 +30,25 @@
       case 'review': return '👀';
       case 'pipeline': return '🔧';
       case 'collab_question': return '💬';
+      case 'collab_task_blocked': return '⛔';
       default: return '🔔';
     }
   }
 
   /** Where to go to act on a notification, when it points at something. */
   function targetOf(item: NotificationItem): string | null {
-    if (item.event_type === 'collab_question' && item.repo) {
+    if (item.event_type.startsWith('collab_') && item.repo) {
       return `/${item.repo}/collaboration`;
     }
     return null;
   }
+
+  // Collaboration notifications carry the agent-written title and a fixed English
+  // body for API clients; the web client wraps the title in its own wording.
+  const COLLAB_TEXT: Record<string, { type: string; hint: string }> = {
+    collab_question: { type: 'notifications.collab_question_type', hint: 'notifications.collab_question_hint' },
+    collab_task_blocked: { type: 'notifications.collab_task_blocked_type', hint: 'notifications.collab_task_blocked_hint' },
+  };
 
   async function markRead(item: NotificationItem) {
     try {
@@ -66,15 +74,15 @@
         <div class="notif-icon">{eventIcon(notif.event_type)}</div>
         <div class="notif-content">
           <div class="notif-title">{notif.title}</div>
-          {#if notif.event_type === 'collab_question'}
+          {#if COLLAB_TEXT[notif.event_type]}
             {#if notif.repo}
-              <div class="notif-body">{t('notifications.collab_question_hint', { repo: notif.repo })}</div>
+              <div class="notif-body">{t(COLLAB_TEXT[notif.event_type].hint, { repo: notif.repo })}</div>
             {/if}
           {:else if notif.body}
             <div class="notif-body">{notif.body}</div>
           {/if}
           <div class="notif-meta">
-            <span class="notif-type">{notif.event_type === 'collab_question' ? t('notifications.collab_question_type') : notif.event_type}</span>
+            <span class="notif-type">{COLLAB_TEXT[notif.event_type] ? t(COLLAB_TEXT[notif.event_type].type) : notif.event_type}</span>
             {#if targetOf(notif)}
               <a class="notif-open" href={targetOf(notif)}>{t('notifications.open')}</a>
             {/if}

@@ -137,4 +137,26 @@ describe('NotificationList.svelte', () => {
     expect(screen.getByText(hostile)).toBeInTheDocument();
     expect(document.querySelector('.notif-list img')).toBeNull();
   });
+
+  it('words a blocked-task notification in the client and links to the collaboration page', () => {
+    renderList({
+      items: [
+        makeItem({
+          event_type: 'collab_task_blocked',
+          title: 'Fix parser crash',
+          repo: 'alice/demo',
+          body: 'English body for API clients',
+        }),
+      ],
+    });
+    expect(screen.getByText('Fix parser crash')).toBeInTheDocument();
+    expect(screen.getByText('notifications.collab_task_blocked_type')).toBeInTheDocument();
+    expect(screen.getByText('notifications.collab_task_blocked_hint')).toBeInTheDocument();
+    expect(screen.queryByText('English body for API clients')).toBeNull();
+    expect(document.querySelector('.notif-icon')?.textContent).toBe('⛔');
+    expect(screen.getByRole('link', { name: 'notifications.open' })).toHaveAttribute(
+      'href',
+      '/alice/demo/collaboration',
+    );
+  });
 });
