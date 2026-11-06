@@ -125,6 +125,13 @@ fn api() -> Handler {
                 "path": "src/main.rs", "sha": "abc", "size": 12,
                 "content": "fn main() {}\n", "encoding": "utf-8", "is_binary": false
             })),
+            "/api/v1/repos/alice/demo/blob/big.txt" => {
+                let content: String = (1..=2500).map(|n| format!("line {n}\n")).collect();
+                json_ok(json!({
+                    "path": "big.txt", "sha": "bbb", "size": content.len(),
+                    "content": content, "encoding": "utf-8", "is_binary": false
+                }))
+            }
             "/api/v1/repos/alice/demo/blob/logo.png" => json_ok(json!({
                 "path": "logo.png", "sha": "def", "size": 2048,
                 "content": "AAAA", "encoding": "base64", "is_binary": true
@@ -269,6 +276,47 @@ fn read_file_asks_the_blob_route_and_returns_just_the_text() {
     assert_eq!(
         stub.paths().last().unwrap(),
         "GET /api/v1/repos/alice/demo/blob/src/main.rs?ref=v1.0"
+    );
+}
+
+#[test]
+fn a_long_file_is_returned_in_a_window_that_says_where_to_continue() {
+    let stub = Stub::spawn(api());
+    let mut mcp = Mcp::start(&stub.url);
+    let (err, text) = mcp.tool(
+        "read_file",
+        json!({"owner": "alice", "repo": "demo", "path": "big.txt"}),
+    );
+    assert!(!err, "{text}");
+    assert!(text.starts_with("line 1\nline 2\n"));
+    assert!(text.contains("line 2000\n"));
+    assert!(!text.contains("line 2001\n"));
+    assert!(
+        text.ends_with(
+            "[lines 1-2000 of 2500; call read_file again with start_line=2001 to continue]"
+        ),
+        "{text}"
+    );
+
+    // Continuing reaches the end and says so; max_lines cannot exceed the cap.
+    let (err, text) = mcp.tool(
+        "read_file",
+        json!({"owner": "alice", "repo": "demo", "path": "big.txt", "start_line": 2001, "max_lines": 99999}),
+    );
+    assert!(!err, "{text}");
+    assert!(
+        text.starts_with("line 2001\n") && text.ends_with("[lines 2001-2500 of 2500; end of file]"),
+        "{text}"
+    );
+
+    // Bad window arguments are reported, not ignored.
+    let (err, text) = mcp.tool(
+        "read_file",
+        json!({"owner": "alice", "repo": "demo", "path": "big.txt", "start_line": 0}),
+    );
+    assert!(
+        err && text.contains("start_line must be a positive integer"),
+        "{text}"
     );
 }
 

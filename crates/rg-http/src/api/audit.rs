@@ -314,6 +314,41 @@ pub async fn get_audit_log(
     }))
 }
 
+/// Internal request header the PAT middleware sets to the id of the personal
+/// access token a request was made with. The middleware removes any value a
+/// client sent before it decides whether to set one, so it can be trusted by
+/// anything running behind that middleware.
+pub(crate) const ACCESS_TOKEN_ID_HEADER: &str = "x-ironforge-access-token-id";
+
+/// Add the id of the personal access token the request was made with, if any,
+/// to an audit entry's `details` as `access_token_id`.
+///
+/// An entry made with an ordinary login is returned unchanged. Details that are
+/// not a JSON object are kept under `detail` so the token id never replaces them.
+pub(crate) fn with_access_token(
+    headers: &HeaderMap,
+    details: Option<serde_json::Value>,
+) -> Option<serde_json::Value> {
+    let Some(token_id) = headers
+        .get(ACCESS_TOKEN_ID_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<i64>().ok())
+    else {
+        return details;
+    };
+    let mut object = match details {
+        None => serde_json::Map::new(),
+        Some(serde_json::Value::Object(map)) => map,
+        Some(other) => {
+            let mut map = serde_json::Map::new();
+            map.insert("detail".to_string(), other);
+            map
+        }
+    };
+    object.insert("access_token_id".to_string(), serde_json::json!(token_id));
+    Some(serde_json::Value::Object(object))
+}
+
 /// Extract client IP and User-Agent from request headers.
 pub(crate) fn extract_ip_and_ua(headers: &HeaderMap) -> (Option<String>, Option<String>) {
     use axum::http::header;
@@ -342,8 +377,38 @@ pub(crate) fn extract_ip_and_ua(headers: &HeaderMap) -> (Option<String>, Option<
 
 #[cfg(test)]
 mod tests {
-    use super::extract_ip_and_ua;
+    use super::{extract_ip_and_ua, with_access_token, ACCESS_TOKEN_ID_HEADER};
     use axum::http::{HeaderMap, HeaderValue};
+    use serde_json::json;
+
+    #[test]
+    fn the_access_token_id_is_added_to_audit_details_without_replacing_them() {
+        let none = HeaderMap::new();
+        assert_eq!(with_access_token(&none, None), None);
+        assert_eq!(
+            with_access_token(&none, Some(json!({"a": 1}))),
+            Some(json!({"a": 1}))
+        );
+
+        let mut headers = HeaderMap::new();
+        headers.insert(ACCESS_TOKEN_ID_HEADER, HeaderValue::from_static("42"));
+        assert_eq!(
+            with_access_token(&headers, None),
+            Some(json!({"access_token_id": 42}))
+        );
+        assert_eq!(
+            with_access_token(&headers, Some(json!({"a": 1}))),
+            Some(json!({"a": 1, "access_token_id": 42}))
+        );
+        assert_eq!(
+            with_access_token(&headers, Some(json!("text"))),
+            Some(json!({"detail": "text", "access_token_id": 42}))
+        );
+        // A claimed id the server did not set cannot be anything but a number.
+        let mut bad = HeaderMap::new();
+        bad.insert(ACCESS_TOKEN_ID_HEADER, HeaderValue::from_static("x"));
+        assert_eq!(with_access_token(&bad, None), None);
+    }
 
     #[test]
     fn login_metadata_rejects_fake_ips_and_bounds_user_agents() {

@@ -56,6 +56,7 @@ pub mod pulls;
 pub mod releases;
 pub(crate) mod repo_access;
 pub mod repo_content;
+pub mod repo_events;
 pub mod repos;
 pub mod reviews;
 pub mod runners;

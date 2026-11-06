@@ -121,6 +121,14 @@ pub struct CreateOrUpdateFileRequest {
     /// Blob SHA of the file being updated (required for updates, omit for creates)
     #[serde(default)]
     pub sha: Option<String>,
+    /// The commit the branch must be at. If the branch has moved, nothing is
+    /// written and the answer is 409 with `reason: "REF_ADVANCED"`.
+    #[serde(default)]
+    pub expected_sha: Option<String>,
+    /// Check everything and report what would happen without writing. The
+    /// `X-Dry-Run: 1` header means the same.
+    #[serde(default)]
+    pub dry_run: Option<bool>,
 }
 
 /// Query parameters for deleting a file.
@@ -133,6 +141,12 @@ pub struct DeleteFileQuery {
     pub message: String,
     /// Blob SHA of the file (required to prevent accidental deletes)
     pub sha: String,
+    /// The commit the branch must be at; see [`CreateOrUpdateFileRequest`].
+    #[serde(default)]
+    pub expected_sha: Option<String>,
+    /// Report what would happen without deleting. `X-Dry-Run: 1` means the same.
+    #[serde(default)]
+    pub dry_run: Option<bool>,
 }
 
 /// Response for file creation/update/deletion.
@@ -1155,6 +1169,58 @@ async fn resolve_and_check_write_access(
 
 // ── File creation/update/delete handlers ──────────────────────────
 
+/// Whether the caller asked for a dry run: the `dry_run` field or the
+/// `X-Dry-Run: 1` (or `true`) header.
+fn dry_run_requested(headers: &HeaderMap, flag: Option<bool>) -> bool {
+    flag.unwrap_or(false)
+        || headers
+            .get("x-dry-run")
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| matches!(v.trim(), "1" | "true"))
+}
+
+/// Turn a file-commit failure into the REST error: a moved branch is a 409 with
+/// `reason: REF_ADVANCED` and the current tip in `details`.
+fn file_commit_error(error: rg_core::repo::service::FileCommitError) -> AppError {
+    use rg_core::repo::service::FileCommitError as E;
+    match error {
+        E::RefAdvanced { current, expected } => AppError::conflict_because(
+            "REF_ADVANCED",
+            true,
+            "the branch moved; it is no longer at the expected commit",
+            serde_json::json!({ "current_sha": current, "expected_sha": expected }),
+            "re-read the branch, check the new commits, and retry with expected_sha set to current_sha",
+        ),
+        E::Core(core) => AppError::from(core),
+    }
+}
+
+/// The body of a dry-run answer: what the real call would do.
+fn file_commit_dry_run_body(
+    report: &rg_core::repo::service::FileCommitReport,
+    operation: &str,
+    path: &str,
+) -> serde_json::Value {
+    serde_json::json!({
+        "dry_run": true,
+        "would": [
+            {
+                "effect": "ref_update",
+                "ref": format!("refs/heads/{}", report.branch),
+                "old": report.tip_before,
+                "creates_branch": report.tip_before.is_none(),
+            },
+            {
+                "effect": "file",
+                "operation": operation,
+                "path": path,
+                "blob_before": report.blob_before,
+            },
+        ],
+        "not_evaluated": ["webhook", "ci_trigger", "notification"],
+    })
+}
+
 /// Create or update a file in a repository.
 /// POST /api/v1/repos/:owner/:name/contents/:path
 #[utoipa::path(
@@ -1193,9 +1259,18 @@ pub async fn create_or_update_file(
         };
 
     let branch = req.branch.unwrap_or(repo_model.default_branch.clone());
+    if let Some(claims) = extract_bearer_claims(&headers, &state.jwt_secret) {
+        if let Err(e) =
+            crate::api::auth::ensure_token_may_write_branch(&state.db, &claims, &branch).await
+        {
+            return e.into_response();
+        }
+    }
+
+    let dry_run = dry_run_requested(&headers, req.dry_run);
 
     // Call business logic
-    match rg_core::repo::service::create_or_update_file(
+    match rg_core::repo::service::create_or_update_file_with(
         &state.db,
         repo_model.id,
         &owner,
@@ -1209,9 +1284,26 @@ pub async fn create_or_update_file(
         &user.email,
         &state.repo_root,
         Some(user.id),
+        rg_core::repo::service::FileCommitOptions {
+            expected_tip: req.expected_sha.as_deref(),
+            dry_run,
+        },
     )
     .await
     {
+        Ok(report) if report.dry_run => (
+            StatusCode::OK,
+            Json(file_commit_dry_run_body(
+                &report,
+                if req.sha.is_some() {
+                    "update"
+                } else {
+                    "create"
+                },
+                &path,
+            )),
+        )
+            .into_response(),
         Ok(_) => {
             // Get the new commit SHA
             let repo_path = state.repo_root.join(format!("{}/{}.git", owner, repo));
@@ -1238,7 +1330,7 @@ pub async fn create_or_update_file(
             // Preserve semantic categories (Forbidden → 403, Conflict → 409,
             // NotFound → 404) instead of collapsing everything to 400, so
             // branch-protection rejections surface as 403.
-            AppError::from(e).into_response()
+            file_commit_error(e).into_response()
         }
     }
 }
@@ -1280,9 +1372,18 @@ pub async fn delete_file(
         };
 
     let branch = params.branch.unwrap_or(repo_model.default_branch.clone());
+    if let Some(claims) = extract_bearer_claims(&headers, &state.jwt_secret) {
+        if let Err(e) =
+            crate::api::auth::ensure_token_may_write_branch(&state.db, &claims, &branch).await
+        {
+            return e.into_response();
+        }
+    }
+
+    let dry_run = dry_run_requested(&headers, params.dry_run);
 
     // Call business logic
-    match rg_core::repo::service::delete_file(
+    match rg_core::repo::service::delete_file_with(
         &state.db,
         repo_model.id,
         &owner,
@@ -1295,9 +1396,18 @@ pub async fn delete_file(
         &user.email,
         &state.repo_root,
         Some(user.id),
+        rg_core::repo::service::FileCommitOptions {
+            expected_tip: params.expected_sha.as_deref(),
+            dry_run,
+        },
     )
     .await
     {
+        Ok(report) if report.dry_run => (
+            StatusCode::OK,
+            Json(file_commit_dry_run_body(&report, "delete", &path)),
+        )
+            .into_response(),
         Ok(_) => {
             // Get the new commit SHA
             let repo_path = state.repo_root.join(format!("{}/{}.git", owner, repo));
@@ -1323,7 +1433,7 @@ pub async fn delete_file(
         Err(e) => {
             // See `create_or_update_file`: keep the semantic status code so
             // branch-protection rejections are 403, not 400.
-            AppError::from(e).into_response()
+            file_commit_error(e).into_response()
         }
     }
 }

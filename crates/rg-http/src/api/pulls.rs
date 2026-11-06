@@ -49,6 +49,16 @@ pub struct UpdatePrRequest {
 pub struct MergePrRequest {
     /// merge / squash / rebase
     pub strategy: String,
+    /// The head commit the caller reviewed. If the head branch has moved since,
+    /// nothing is merged and the answer is 409 with `reason: "REF_ADVANCED"`.
+    /// The check happens just before the merge starts; a push landing in the
+    /// instants between the check and the merge is not caught.
+    #[serde(default)]
+    pub expected_head_sha: Option<String>,
+    /// Run the checks and report what would be merged, merging nothing.
+    /// `X-Dry-Run: 1` means the same.
+    #[serde(default)]
+    pub dry_run: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -445,6 +455,57 @@ pub async fn merge_pr(
         return AppError::from(e).into_response();
     }
 
+    let dry_run = req.dry_run.unwrap_or(false)
+        || headers
+            .get("x-dry-run")
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| matches!(v.trim(), "1" | "true"));
+    let head_now =
+        match rg_core::pull_request::live_head_sha(&state.db, &state.repo_root, &owner, &repo, &pr)
+            .await
+        {
+            Ok(sha) => sha,
+            Err(e) => return AppError::from(e).into_response(),
+        };
+    if let Some(expected) = req.expected_head_sha.as_deref() {
+        if head_now.as_deref() != Some(expected) {
+            return AppError::conflict_because(
+                "REF_ADVANCED",
+                true,
+                "the pull request's head branch moved; it is no longer at the expected commit",
+                serde_json::json!({ "current_sha": head_now, "expected_sha": expected }),
+                "re-read the pull request, review the new commits, and retry with expected_head_sha set to current_sha",
+            )
+            .into_response();
+        }
+    }
+    if pr.state != "open" {
+        return AppError::conflict(format!(
+            "cannot merge a PR that is not in 'open' state (current: {})",
+            pr.state
+        ))
+        .into_response();
+    }
+    if dry_run {
+        return (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "dry_run": true,
+                "would": [{
+                    "effect": "merge",
+                    "strategy": strategy_name(&req.strategy),
+                    "base": pr.base_branch,
+                    "head": pr.head_branch,
+                    "head_sha": head_now,
+                }],
+                // Draft, state and branch protection were checked above; whether
+                // the branches merge cleanly is only found out by merging.
+                "not_evaluated": ["conflicts", "webhook", "ci_trigger", "notification"],
+            })),
+        )
+            .into_response();
+    }
+
     match rg_core::pull_request::merge_pr(
         &state.db,
         &state.repo_root,
@@ -457,6 +518,16 @@ pub async fn merge_pr(
     {
         Ok(result) => (StatusCode::OK, Json(result)).into_response(),
         Err(e) => AppError::from(e).into_response(),
+    }
+}
+
+/// The strategy as the caller wrote it, trimmed to a known name for echoing back.
+fn strategy_name(raw: &str) -> &str {
+    match raw.trim() {
+        "merge" => "merge",
+        "squash" => "squash",
+        "rebase" => "rebase",
+        _ => "unknown",
     }
 }
 

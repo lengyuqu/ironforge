@@ -27,6 +27,12 @@ pub struct Claims {
     /// matching the column default) so existing sessions survive deploys.
     #[serde(default)]
     pub ver: i64,
+    /// Id of the personal access token this session was minted from. Present
+    /// only on the short-lived sessions the PAT middleware swaps in for a
+    /// token; ordinary logins carry none. Handlers use it to look the token's
+    /// limits up again (and to refuse a token that has since been revoked).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tid: Option<i64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -54,6 +60,19 @@ pub fn generate_token(
     ttl_days: i64,
     token_version: i64,
 ) -> CoreResult<String> {
+    generate_token_for(user_id, username, secret, ttl_days, token_version, None)
+}
+
+/// Like [`generate_token`], recording the personal access token the session is
+/// minted from in the `tid` claim.
+pub fn generate_token_for(
+    user_id: i64,
+    username: &str,
+    secret: &str,
+    ttl_days: i64,
+    token_version: i64,
+    access_token_id: Option<i64>,
+) -> CoreResult<String> {
     let now = Utc::now();
     let exp = now + Duration::days(ttl_days);
     let claims = Claims {
@@ -64,6 +83,7 @@ pub fn generate_token(
         iss: Some("ironforge".to_string()),
         aud: Some("ironforge-user".to_string()),
         ver: token_version,
+        tid: access_token_id,
     };
     encode(
         &Header::default(),
@@ -200,6 +220,15 @@ mod tests {
 
         let session = generate_token(42, "alice", "secret", 7, 0).unwrap();
         assert!(validate_mfa_challenge(&session, "secret").is_none());
+    }
+
+    #[test]
+    fn access_token_id_round_trips_and_is_absent_for_ordinary_sessions() {
+        let secret = "key";
+        let plain = generate_token(7, "carol", secret, 7, 0).unwrap();
+        assert_eq!(validate_token(&plain, secret).unwrap().tid, None);
+        let minted = generate_token_for(7, "carol", secret, 1, 0, Some(42)).unwrap();
+        assert_eq!(validate_token(&minted, secret).unwrap().tid, Some(42));
     }
 
     #[test]

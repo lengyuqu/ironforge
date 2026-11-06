@@ -270,7 +270,9 @@ async fn audit(
         resource_name: sea_orm::Set(None),
         ip_address: sea_orm::Set(ip_address),
         user_agent: sea_orm::Set(user_agent),
-        details: sea_orm::Set(Some(details.to_string())),
+        details: sea_orm::Set(
+            crate::api::audit::with_access_token(headers, Some(details)).map(|v| v.to_string()),
+        ),
         created_at: sea_orm::Set(Utc::now()),
     };
     if let Err(e) = rg_db::ops::audit_log_ops::insert(&state.db, entry).await {
