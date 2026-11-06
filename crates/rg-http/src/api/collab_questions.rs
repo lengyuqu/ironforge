@@ -155,6 +155,30 @@ pub async fn create_question(
     let status = if created.replayed {
         StatusCode::OK
     } else {
+        // Tell the people it is addressed to. Only for a question that was
+        // really created now (a replay is not news), after it was committed,
+        // and best effort: nothing here can fail the request.
+        let repo_full_name = format!("{owner}/{name}");
+        for n in rg_core::collaboration::human_notify::question_asked(
+            &state.db,
+            &repo,
+            &repo_full_name,
+            &created.question,
+        )
+        .await
+        {
+            crate::ws::push_notification(
+                &state.notification_hub,
+                n.user_id,
+                rg_core::collaboration::human_notify::EVENT_QUESTION_ASKED,
+                serde_json::json!({
+                    "notification_id": n.notification_id,
+                    "repo": repo_full_name,
+                    "task_id": created.question.task_id,
+                    "question_id": created.question.id,
+                }),
+            );
+        }
         StatusCode::CREATED
     };
     Ok((status, Json(created.question)))

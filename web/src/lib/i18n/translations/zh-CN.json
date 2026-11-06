@@ -65,7 +65,8 @@
     "chinese": "中文",
     "security": "安全",
     "ssh_keys": "SSH 密钥",
-    "access_tokens": "访问令牌"
+    "access_tokens": "访问令牌",
+    "unread_count": "{count} 条未读"
   },
   "ssh_keys": {
     "title": "SSH 密钥",
@@ -259,7 +260,10 @@
     "mark_all_read": "全部标为已读",
     "mark_read": "标为已读",
     "empty": "暂无通知",
-    "hint": "实时更新已启用——新通知将即时显示。"
+    "hint": "实时更新已启用——新通知将即时显示。",
+    "open": "打开",
+    "collab_question_type": "有问题等你回答",
+    "collab_question_hint": "在 {repo}。标题由 agent 客户端写入，未经核实。打开协作页回答。"
   },
   "orgs": {
     "title": "组织",

@@ -29,8 +29,17 @@
       case 'pr': case 'pull_request': return '🔀';
       case 'review': return '👀';
       case 'pipeline': return '🔧';
+      case 'collab_question': return '💬';
       default: return '🔔';
     }
+  }
+
+  /** Where to go to act on a notification, when it points at something. */
+  function targetOf(item: NotificationItem): string | null {
+    if (item.event_type === 'collab_question' && item.repo) {
+      return `/${item.repo}/collaboration`;
+    }
+    return null;
   }
 
   async function markRead(item: NotificationItem) {
@@ -57,9 +66,18 @@
         <div class="notif-icon">{eventIcon(notif.event_type)}</div>
         <div class="notif-content">
           <div class="notif-title">{notif.title}</div>
-          {#if notif.body}<div class="notif-body">{notif.body}</div>{/if}
+          {#if notif.event_type === 'collab_question'}
+            {#if notif.repo}
+              <div class="notif-body">{t('notifications.collab_question_hint', { repo: notif.repo })}</div>
+            {/if}
+          {:else if notif.body}
+            <div class="notif-body">{notif.body}</div>
+          {/if}
           <div class="notif-meta">
-            <span class="notif-type">{notif.event_type}</span>
+            <span class="notif-type">{notif.event_type === 'collab_question' ? t('notifications.collab_question_type') : notif.event_type}</span>
+            {#if targetOf(notif)}
+              <a class="notif-open" href={targetOf(notif)}>{t('notifications.open')}</a>
+            {/if}
             <span class="notif-time">{formatDateTime(notif.created_at)}</span>
           </div>
         </div>
@@ -135,6 +153,7 @@
   }
 
   .notif-time { color: var(--text-secondary); }
+  .notif-open { color: var(--accent); }
 
   .notif-actions { flex-shrink: 0; }
 </style>

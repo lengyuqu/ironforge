@@ -4,11 +4,13 @@ import { request, qs, type PaginatedResponse } from './_base.svelte';
 export interface NotificationItem {
   id: number;
   user_id: number;
-  /** push / ci_triggered / issue / pr / review / pipeline ... */
+  /** push / ci_triggered / issue / pr / review / pipeline / collab_question ... */
   event_type: string;
   title: string;
   body: string | null;
   repo_id: number | null;
+  /** `owner/name`, only when the repository exists and the caller can read it. */
+  repo?: string | null;
   is_read: boolean;
   created_at: string;
 }

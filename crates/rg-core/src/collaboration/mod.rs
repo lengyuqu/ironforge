@@ -27,6 +27,7 @@ pub mod escalation;
 pub mod group;
 pub mod handoff;
 pub mod health;
+pub mod human_notify;
 pub mod inbox;
 pub mod message;
 pub mod notice;
