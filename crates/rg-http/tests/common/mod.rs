@@ -100,9 +100,18 @@ pub async fn spawn_test_app() -> String {
 /// to manipulate data directly (e.g. promoting admin users).
 #[allow(dead_code)]
 pub async fn spawn_test_app_with_db() -> (String, rg_db::DatabaseConnection) {
+    let (base, db, _) = spawn_test_app_with_root().await;
+    (base, db)
+}
+
+/// Like [`spawn_test_app_with_db`], also returning the directory that holds the
+/// bare repositories, for tests that need to look at (or alter) git directly.
+#[allow(dead_code)]
+pub async fn spawn_test_app_with_root() -> (String, rg_db::DatabaseConnection, std::path::PathBuf) {
     let (db, dir) = setup_test_db().await;
     let repo_root = dir.path().join("repos");
     std::fs::create_dir_all(&repo_root).ok();
+    let root_for_caller = repo_root.clone();
     let state = build_test_app_state(db.clone(), repo_root);
     let app = rg_http::create_router_for_test(state);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -113,7 +122,7 @@ pub async fn spawn_test_app_with_db() -> (String, rg_db::DatabaseConnection) {
         axum::serve(listener, app).await.unwrap();
     });
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-    (base_url, db)
+    (base_url, db, root_for_caller)
 }
 
 /// Like [`spawn_test_app_with_db`], but on the PostgreSQL or MySQL database
@@ -122,8 +131,17 @@ pub async fn spawn_test_app_with_db() -> (String, rg_db::DatabaseConnection) {
 /// fresh database and give each test its own account names). SQLite otherwise.
 #[allow(dead_code)]
 pub async fn spawn_test_app_on_env_db() -> (String, rg_db::DatabaseConnection) {
+    let (base, db, _) = spawn_test_app_on_env_db_with_root().await;
+    (base, db)
+}
+
+/// [`spawn_test_app_on_env_db`], also returning the directory that holds the
+/// bare repositories.
+#[allow(dead_code)]
+pub async fn spawn_test_app_on_env_db_with_root(
+) -> (String, rg_db::DatabaseConnection, std::path::PathBuf) {
     let Ok(url) = std::env::var("IRONFORGE_TEST_DATABASE_URL") else {
-        return spawn_test_app_with_db().await;
+        return spawn_test_app_with_root().await;
     };
     static SETUP: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
     let _guard = SETUP.lock().await;
@@ -135,6 +153,7 @@ pub async fn spawn_test_app_on_env_db() -> (String, rg_db::DatabaseConnection) {
     let dir = tempfile::tempdir().expect("failed to create temp dir");
     let repo_root = dir.path().join("repos");
     std::fs::create_dir_all(&repo_root).ok();
+    let root_for_caller = repo_root.clone();
     let state = build_test_app_state(db.clone(), repo_root);
     let app = rg_http::create_router_for_test(state);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -144,7 +163,7 @@ pub async fn spawn_test_app_on_env_db() -> (String, rg_db::DatabaseConnection) {
         axum::serve(listener, app).await.unwrap();
     });
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-    (base_url, db)
+    (base_url, db, root_for_caller)
 }
 
 pub async fn register_user(base: &str, username: &str, email: &str, password: &str) -> String {

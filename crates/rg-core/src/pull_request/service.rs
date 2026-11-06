@@ -11,24 +11,32 @@ use rg_db::ops::{pull_request_ops, user_ops};
 
 // ── PR CRUD ─────────────────────────────────────────────────────────────
 
-/// Create a new pull request.
-///
-/// If `head_repo_id` is provided, this is a fork PR (cross-repository).
-/// The `head_branch` should contain just the branch name (not `owner:branch` format).
+/// What opening a pull request would do, found by running the same checks and
+/// lookups as [`create_pr`] without writing anything.
+#[derive(Debug, Clone)]
+pub struct PrPlan {
+    /// The number the pull request would get (taken at this moment; a concurrent
+    /// creation can claim it first).
+    pub number: i64,
+    pub head_sha: Option<String>,
+    pub base_sha: Option<String>,
+    /// Open pull requests already going from this head into this base.
+    pub existing_open: Vec<i64>,
+}
+
+/// Validate a pull request and resolve what it would point at. Errors are the
+/// ones [`create_pr`] returns for the same input.
 #[allow(clippy::too_many_arguments)]
-pub async fn create_pr(
+pub async fn plan_pr(
     db: &DatabaseConnection,
     repo_root: &std::path::Path,
     repo_id: i64,
-    author_id: i64,
-    title: String,
-    body: Option<String>,
-    head_branch: String,
-    base_branch: String,
+    title: &str,
+    head_branch: &str,
+    base_branch: &str,
     head_repo_id: Option<i64>,
-    is_draft: bool,
     milestone_id: Option<i64>,
-) -> CoreResult<PullRequest> {
+) -> CoreResult<PrPlan> {
     if title.trim().is_empty() {
         return Err(CoreError::InvalidInput("PR title cannot be empty".into()));
     }
@@ -72,15 +80,71 @@ pub async fn create_pr(
         let head_namespace = repository_namespace(db, &head_repo).await?;
         let head_path = repo_root.join(format!("{head_namespace}/{}.git", head_repo.name));
         if head_path.exists() {
-            get_ref_sha(&head_path, &head_branch).ok()
+            get_ref_sha(&head_path, head_branch).ok()
         } else {
             None
         }
     } else if target_path.exists() {
-        get_ref_sha(&target_path, &head_branch).ok()
+        get_ref_sha(&target_path, head_branch).ok()
     } else {
         None
     };
+    let base_sha = if target_path.exists() {
+        get_ref_sha(&target_path, base_branch).ok()
+    } else {
+        None
+    };
+    let existing_open = pull_request_ops::find_open_by_branches(
+        db,
+        repo_id,
+        head_branch,
+        base_branch,
+        head_repo_id,
+    )
+    .await?
+    .into_iter()
+    .map(|pr| pr.number)
+    .collect();
+
+    Ok(PrPlan {
+        number,
+        head_sha,
+        base_sha,
+        existing_open,
+    })
+}
+
+/// Create a new pull request.
+///
+/// If `head_repo_id` is provided, this is a fork PR (cross-repository).
+/// The `head_branch` should contain just the branch name (not `owner:branch` format).
+#[allow(clippy::too_many_arguments)]
+pub async fn create_pr(
+    db: &DatabaseConnection,
+    repo_root: &std::path::Path,
+    repo_id: i64,
+    author_id: i64,
+    title: String,
+    body: Option<String>,
+    head_branch: String,
+    base_branch: String,
+    head_repo_id: Option<i64>,
+    is_draft: bool,
+    milestone_id: Option<i64>,
+) -> CoreResult<PullRequest> {
+    let plan = plan_pr(
+        db,
+        repo_root,
+        repo_id,
+        &title,
+        &head_branch,
+        &base_branch,
+        head_repo_id,
+        milestone_id,
+    )
+    .await?;
+    let number = plan.number;
+    let head_sha = plan.head_sha;
 
     let model = pull_request::ActiveModel {
         id: sea_orm::NotSet,

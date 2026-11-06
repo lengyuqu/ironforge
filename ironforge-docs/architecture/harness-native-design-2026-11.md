@@ -47,7 +47,7 @@
 | 引用乐观锁在部分路径已存在：`ExistingMustMatch`（`rg-git/src/ops.rs` 两处）；rebase 有 `RebaseOutcome::BaseAdvanced`；但通用 `update_ref` / `delete_ref` 用 `PreviousValue::Any` | `crates/rg-git/src/ops.rs` |
 | Merge Queue 路由已存在（列表 / 入队 / 取消） | `crates/rg-http/src/lib.rs:838-842` |
 | CI 已有 OIDC：JWKS + audience-bound 短时 token，可作为会话身份机制的参照 | `lib.rs:976-980`、`CLAUDE.md`「CI OIDC」 |
-| 服务端不写 `refs/pull/<n>/head` | 引自 CLI 文档 §2 |
+| ~~服务端不写 `refs/pull/<n>/head`~~ **过期（2026-11-07 核实）**：同仓 PR 创建时（`api/pulls.rs::create_pr`）和推送到 head 分支时（`lib.rs::post_push_hooks`）都会写；fork PR 不写 | 引自 CLI 文档 §2；核实见 [agent-gaps-verification-2026-11.md](agent-gaps-verification-2026-11.md) |
 
 ---
 
@@ -231,7 +231,7 @@ Agent 通常没有公网入口，无法收 webhook。
 
 > **顺序说明**：写 tool 不先于凭据约束开放。否则 Agent 会拿着用户的完整 `repo` PAT 去写，是倒退的安全姿态。
 
-**实施状态更新（2026-11-06）**：H3（令牌 scope 阶梯、仓库白名单、分支白名单、令牌身份进会话、审计里的令牌 id、受限令牌不能批准）、H4（`expected_sha`/`expected_head_sha`、文件提交与合并的 `dry_run`、错误体 `reason`/`retryable`/`hint`、`Idempotency-Key`）、H5（MCP `commit_file`/`delete_file`/`create_pr`/`list_pipelines`/`wait_pipeline`/`wait_repo_events`，**没有**合并/入队工具）和 H6 的事件日志与长轮询已实现，证据见 [agent-write-path-verification-2026-11.md](agent-write-path-verification-2026-11.md) 及其前置文档。`get_pr_context`（4.2-3，服务端 `ai/.../pulls/{n}/context` + MCP 工具，不含 mergeable 与分支保护结果）也已实现。**仍未做**：创建 PR 等的 dry-run、`refs/pull/<n>/head`、PR `export`、streamable-HTTP 传输、SSE。
+**实施状态更新（2026-11-06）**：H3（令牌 scope 阶梯、仓库白名单、分支白名单、令牌身份进会话、审计里的令牌 id、受限令牌不能批准）、H4（`expected_sha`/`expected_head_sha`、文件提交与合并的 `dry_run`、错误体 `reason`/`retryable`/`hint`、`Idempotency-Key`）、H5（MCP `commit_file`/`delete_file`/`create_pr`/`list_pipelines`/`wait_pipeline`/`wait_repo_events`，**没有**合并/入队工具）和 H6 的事件日志与长轮询已实现，证据见 [agent-write-path-verification-2026-11.md](agent-write-path-verification-2026-11.md) 及其前置文档。`get_pr_context`（4.2-3，服务端 `ai/.../pulls/{n}/context` + MCP 工具，不含 mergeable 与分支保护结果）也已实现。**仍未做**：streamable-HTTP 传输、SSE、fork PR 的 `refs/pull` 锚点。（2026-11-07 补完：创建 PR 的 dry-run、PR `export`、`refs/pull` 评估与测试、REST 文件提交触发推送钩子，见 [agent-gaps-verification-2026-11.md](agent-gaps-verification-2026-11.md)。）
 
 **实施状态（2026-11-04）**：H0、H1 已在工作区实现（未提交）。运行验证：`ci_feedback` 单元测试 17 项、`ci_feedback_tests` 集成测试 14 项、`ai_tree_search_tests` 集成测试 8 项通过；`cargo test -p rg-http` 全量 72 个测试目标、376 项通过、0 失败；`rustfmt --check` 与 `cargo clippy -p rg-http --all-targets` 对改动文件无告警。仅验证了 `rg-http` crate（任务分支工作区），未跑其他 crate 的测试，也未对真实实例做过手工运行验证。H2 起未开始。
 
@@ -297,5 +297,5 @@ H1、H2 互不依赖，可并行。H3 是 H4、H5 的前置。
 3. **批准规则的粒度**：「agent 批准不计数」是全局固定，还是仓库可配？本文按固定处理。
 4. **事件保留与量级**：`repo_events` 7 天是否足够；高活跃仓库的写入放大需要压测。
 5. **`budget` 的 token 估算**：先用 `chars/4`，是否引入分词器依赖？倾向不引入，并在响应里返回实际字符数。
-6. **`refs/pull` 的 gc 与镜像**：写入该命名空间对 mirror 同步（`+refs/*:refs/*` 的现状限制，见 `CLAUDE.md` 技术债）与对象保活的影响，需在 H6 前单独评估。
+6. **`refs/pull` 的 gc 与镜像**：**已评估（2026-11-07）**。服务端没有 gc/repack，对象不会被回收；mirror 的 `remote update --prune` 会把镜像仓库里本地写入的 `refs/pull/*` 当作上游没有的 ref 删掉（与所有本地 ref 同样处理，镜像仓库本就以上游为准）。结论与证据见 [agent-gaps-verification-2026-11.md](agent-gaps-verification-2026-11.md)。
 7. **是否需要显式沙箱**：本文以「`agent/*` 分支 + TTL 清理」代替服务端沙箱工作区。若出现「无需推送即可在服务端试跑 CI」的需求，再单独立项。

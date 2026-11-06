@@ -349,6 +349,22 @@ pub async fn submit_review(
     .await
     {
         Ok(review) => {
+            crate::api::audit::record_write(
+                &state.db,
+                user_id,
+                "pull_request.review",
+                "pull_request",
+                Some(review.pr_id),
+                &format!("{owner}/{repo}#{number}"),
+                &headers,
+                serde_json::json!({
+                    "number": number,
+                    "review_id": review.id,
+                    "action": review.action,
+                    "commit_id": review.commit_id,
+                }),
+            )
+            .await;
             if should_attempt_auto_merge {
                 match rg_core::pull_request::try_auto_merge(
                     &state.db,

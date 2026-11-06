@@ -28,6 +28,10 @@ pub struct CreatePrRequest {
     /// Milestone to attach to the new PR (A4). Must belong to the target repo.
     #[serde(default)]
     pub milestone_id: Option<i64>,
+    /// Run the checks and report what would be created, writing nothing (also
+    /// the `X-Dry-Run: 1` header).
+    #[serde(default)]
+    pub dry_run: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -233,6 +237,44 @@ pub async fn create_pr(
 
     match rg_core::pull_request::resolve_head_ref(&state.db, repo_id, &req.head).await {
         Ok((head_branch, head_repo_id)) => {
+            if crate::api::repo_content::dry_run_requested(&headers, req.dry_run) {
+                return match rg_core::pull_request::plan_pr(
+                    &state.db,
+                    &state.repo_root,
+                    repo_id,
+                    &title,
+                    &head_branch,
+                    &req.base,
+                    head_repo_id,
+                    req.milestone_id,
+                )
+                .await
+                {
+                    Ok(plan) => (
+                        StatusCode::OK,
+                        Json(serde_json::json!({
+                            "dry_run": true,
+                            "would": [{
+                                "effect": "pull_request_create",
+                                "number": plan.number,
+                                "head_branch": head_branch,
+                                "head_repo_id": head_repo_id,
+                                "head_sha": plan.head_sha,
+                                "base_branch": req.base,
+                                "base_sha": plan.base_sha,
+                                "draft": req.draft,
+                                "publishes_pull_ref": head_repo_id.is_none() && plan.head_sha.is_some(),
+                            }],
+                            "head_branch_found": plan.head_sha.is_some(),
+                            "base_branch_found": plan.base_sha.is_some(),
+                            "existing_open_pull_requests": plan.existing_open,
+                            "not_evaluated": ["webhook", "notification", "codeowner_review_requests"],
+                        })),
+                    )
+                        .into_response(),
+                    Err(e) => AppError::from(e).into_response(),
+                };
+            }
             match rg_core::pull_request::create_pr(
                 &state.db,
                 &state.repo_root,
@@ -249,6 +291,23 @@ pub async fn create_pr(
             .await
             {
                 Ok(pr) => {
+                    crate::api::audit::record_write(
+                        &state.db,
+                        user_id,
+                        "pull_request.create",
+                        "pull_request",
+                        Some(pr.id),
+                        &format!("{owner}/{repo}#{}", pr.number),
+                        &headers,
+                        serde_json::json!({
+                            "number": pr.number,
+                            "head_branch": pr.head_branch,
+                            "base_branch": pr.base_branch,
+                            "head_sha": pr.head_sha,
+                            "draft": pr.is_draft,
+                        }),
+                    )
+                    .await;
                     // Publish refs/pull/<n>/head for same-repo PRs so checkout
                     // works without the head branch (fork PRs keep their head
                     // branch in the fork; client falls back to fetching it).
@@ -426,7 +485,7 @@ pub async fn merge_pr(
     headers: axum::http::HeaderMap,
     Json(req): Json<MergePrRequest>,
 ) -> impl IntoResponse {
-    let (repo_model, _actor_id) = match require_write(&state, &headers, &owner, &repo).await {
+    let (repo_model, actor_id) = match require_write(&state, &headers, &owner, &repo).await {
         Ok(access) => access,
         Err(e) => return e.into_response(),
     };
@@ -516,7 +575,24 @@ pub async fn merge_pr(
     )
     .await
     {
-        Ok(result) => (StatusCode::OK, Json(result)).into_response(),
+        Ok(result) => {
+            crate::api::audit::record_write(
+                &state.db,
+                actor_id,
+                "pull_request.merge",
+                "pull_request",
+                None,
+                &format!("{owner}/{repo}#{number}"),
+                &headers,
+                serde_json::json!({
+                    "number": number,
+                    "strategy": result.strategy,
+                    "merge_commit_sha": result.merge_commit_sha,
+                }),
+            )
+            .await;
+            (StatusCode::OK, Json(result)).into_response()
+        }
         Err(e) => AppError::from(e).into_response(),
     }
 }

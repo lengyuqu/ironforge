@@ -2,19 +2,27 @@
 # Database-backed Rust tests against a throw-away PostgreSQL or MySQL server
 # started with Docker (used by the CNB pipelines; works anywhere Docker runs).
 #
-#   scripts/ci-db-tests.sh postgres|mysql
+#   scripts/ci-db-tests.sh postgres|mysql [all|agent]
+#
+# `agent` runs only the agent write-path targets (step 4); `all` (default) runs
+# everything.
 #
 # What it runs, mirroring .github/workflows/regression.yml and adding the
 # collaboration suites that the SQLite-only runs cannot judge:
 #   1. the backend smoke test (migrations, CRUD, FTS) in rg-core;
 #   2. every rg-db collab_* store/migration test;
-#   3. every rg-http collab_* HTTP test.
+#   3. every rg-http collab_* HTTP test;
+#   4. the rg-http agent write-path targets that honour IRONFORGE_TEST_DATABASE_URL
+#      (token limits, file commits, idempotency keys, event log, PR context and
+#      export). Other rg-http targets always use SQLite and are not run here.
 # Each test target gets a FRESH database: several HTTP tests create "the first
 # user" (an admin), so a database shared between targets makes later ones fail
 # for reasons that have nothing to do with the code (CLAUDE.md, pitfall 23).
 set -euo pipefail
 
-backend="${1:?usage: $0 postgres|mysql}"
+backend="${1:?usage: $0 postgres|mysql [all|agent]}"
+suite="${2:-all}"
+case "$suite" in all|agent) ;; *) echo "unknown suite: $suite" >&2; exit 2 ;; esac
 name="ironforge-ci-${backend}"
 port=""
 case "$backend" in
@@ -75,15 +83,23 @@ run() {
   "$@"
 }
 
-run cargo test -p rg-core --test multi_backend_smoke -- --ignored --nocapture
+if [ "$suite" = all ]; then
+  run cargo test -p rg-core --test multi_backend_smoke -- --ignored --nocapture
 
-for f in crates/rg-db/tests/collab_*.rs; do
-  t="$(basename "$f" .rs)"
-  run cargo test -p rg-db --test "$t"
-done
+  for f in crates/rg-db/tests/collab_*.rs; do
+    t="$(basename "$f" .rs)"
+    run cargo test -p rg-db --test "$t"
+  done
 
-for f in crates/rg-http/tests/collab_*_tests.rs; do
-  t="$(basename "$f" .rs)"
+  for f in crates/rg-http/tests/collab_*_tests.rs; do
+    t="$(basename "$f" .rs)"
+    run cargo test -p rg-http --test "$t"
+  done
+fi
+
+# Every target that calls `spawn_test_app_on_env_db` (see tests/common/mod.rs).
+for t in pat_ref_allowlist_tests file_commit_semantics_tests idempotency_tests \
+         repo_events_tests pr_context_tests pr_export_tests; do
   run cargo test -p rg-http --test "$t"
 done
-echo "all $backend suites passed"
+echo "$suite $backend suites passed"

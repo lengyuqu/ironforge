@@ -314,6 +314,47 @@ pub async fn get_audit_log(
     }))
 }
 
+/// Write one audit entry for `user_id` (fire-and-forget: a failure is logged and
+/// never fails the request). The IP, user agent and, for a request made with a
+/// personal access token, `access_token_id` are taken from `headers`.
+///
+/// The entries made by the agent-facing write paths (file commits, pull request
+/// create / merge / review) use this; older call sites keep their own copies.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn record_write(
+    db: &sea_orm::DatabaseConnection,
+    user_id: i64,
+    action: &str,
+    resource_type: &str,
+    resource_id: Option<i64>,
+    resource_name: &str,
+    headers: &HeaderMap,
+    details: serde_json::Value,
+) {
+    let username = rg_db::ops::user_ops::find_by_id(db, user_id)
+        .await
+        .ok()
+        .flatten()
+        .map(|user| user.username);
+    let (ip_address, user_agent) = extract_ip_and_ua(headers);
+    let entry = rg_db::entities::audit_log::ActiveModel {
+        id: sea_orm::NotSet,
+        user_id: sea_orm::Set(Some(user_id)),
+        username: sea_orm::Set(username),
+        action: sea_orm::Set(action.to_string()),
+        resource_type: sea_orm::Set(Some(resource_type.to_string())),
+        resource_id: sea_orm::Set(resource_id),
+        resource_name: sea_orm::Set(Some(resource_name.to_string())),
+        ip_address: sea_orm::Set(ip_address),
+        user_agent: sea_orm::Set(user_agent),
+        details: sea_orm::Set(with_access_token(headers, Some(details)).map(|v| v.to_string())),
+        created_at: sea_orm::Set(chrono::Utc::now()),
+    };
+    if let Err(e) = rg_db::ops::audit_log_ops::insert(db, entry).await {
+        tracing::error!(error = %e, "failed to record audit log");
+    }
+}
+
 /// Internal request header the PAT middleware sets to the id of the personal
 /// access token a request was made with. The middleware removes any value a
 /// client sent before it decides whether to set one, so it can be trusted by

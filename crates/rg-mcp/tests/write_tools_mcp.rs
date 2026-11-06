@@ -130,6 +130,10 @@ fn api() -> Handler {
                 200,
                 json!({"data": [{"id": 9, "status": "running"}]}).to_string(),
             ),
+            ("GET", "/api/v1/repos/alice/demo/pulls/3/export") => (
+                200,
+                json!({"format": "ironforge.pull_request_export", "format_version": 1}).to_string(),
+            ),
             ("GET", "/api/v1/ai/repos/alice/demo/pulls/3/context") => (
                 200,
                 json!({"pull_request": {"number": 3}, "truncated": []}).to_string(),
@@ -528,4 +532,38 @@ fn get_pr_context_asks_the_ai_route_with_a_checked_budget() {
         assert!(err);
     }
     assert_eq!(stub.count(), before, "bad arguments send no request");
+}
+
+#[test]
+fn create_pr_can_be_checked_first_and_a_pr_can_be_exported() {
+    let stub = Stub::spawn(api());
+    let mut mcp = Mcp::start(&stub.url);
+
+    let (err, text) = mcp.tool(
+        "create_pr",
+        json!({"owner": "alice", "repo": "demo", "title": "Fix", "head": "agent/x",
+               "base": "main", "dry_run": true}),
+    );
+    assert!(!err, "{text}");
+    let body: Value = serde_json::from_str(&stub.last().body).unwrap();
+    assert_eq!(body["dry_run"], true);
+
+    // Without the flag the body carries none.
+    mcp.tool(
+        "create_pr",
+        json!({"owner": "alice", "repo": "demo", "title": "Fix", "head": "h", "base": "main"}),
+    );
+    let body: Value = serde_json::from_str(&stub.last().body).unwrap();
+    assert!(body.get("dry_run").is_none());
+
+    let (err, text) = mcp.tool(
+        "export_pr",
+        json!({"owner": "alice", "repo": "demo", "number": 3}),
+    );
+    assert!(!err, "{text}");
+    assert_eq!(
+        serde_json::from_str::<Value>(&text).unwrap()["format_version"],
+        1
+    );
+    assert_eq!(stub.last().path, "/api/v1/repos/alice/demo/pulls/3/export");
 }

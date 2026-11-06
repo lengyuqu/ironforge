@@ -1779,10 +1779,24 @@ pub async fn create_or_update_file_with(
         return Err(missing_repo_storage(&repo_path).into());
     }
 
+    // A branch that does not exist yet is created from the default HEAD when the
+    // commit is written, so until then the file checks look at HEAD: updating an
+    // existing file on a new branch works, and "create" of a file that already
+    // exists there is refused instead of silently overwriting it.
+    let lookup_ref = if rg_git::ops::try_rev_parse(&repo_path, &format!("refs/heads/{branch}"))
+        .ok()
+        .flatten()
+        .is_some()
+    {
+        branch.to_string()
+    } else {
+        "HEAD".to_string()
+    };
+
     // Verify the file SHA if this is an update (not a create)
     if let Some(expected_sha) = sha {
         // Check if the file exists and its current SHA matches
-        let current_sha = get_file_sha(&repo_path, branch, file_path)?;
+        let current_sha = get_file_sha(&repo_path, &lookup_ref, file_path)?;
         if current_sha.is_none() {
             return Err(FileCommitError::Core(CoreError::not_found(format!(
                 "file does not exist: {}",
@@ -1799,7 +1813,7 @@ pub async fn create_or_update_file_with(
         }
     } else {
         // This is a create operation - check if file already exists
-        let current_sha = get_file_sha(&repo_path, branch, file_path)?;
+        let current_sha = get_file_sha(&repo_path, &lookup_ref, file_path)?;
         if current_sha.is_some() {
             return Err(FileCommitError::Core(CoreError::conflict(format!(
                 "file already exists: {} (use update with sha)",
@@ -1809,7 +1823,7 @@ pub async fn create_or_update_file_with(
     }
 
     let tip_before = check_expected_tip(&repo_path, branch, options.expected_tip)?;
-    let blob_before = get_file_sha(&repo_path, branch, file_path)?;
+    let blob_before = get_file_sha(&repo_path, &lookup_ref, file_path)?;
     if options.dry_run {
         return Ok(FileCommitReport {
             dry_run: true,

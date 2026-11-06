@@ -53,6 +53,7 @@ pub mod mirrors;
 pub mod notifications;
 pub mod orgs;
 pub mod packages;
+pub mod pr_export;
 pub mod pulls;
 pub mod releases;
 pub(crate) mod repo_access;
