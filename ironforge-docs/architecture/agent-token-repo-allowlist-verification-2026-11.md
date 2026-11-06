@@ -21,7 +21,7 @@
 - **只限制路径所指的仓库**。请求体里引用其他仓库的路由，只有上面列出的几条被显式拒绝；新增这类路由时必须同步加入 `path_in_allowlist` 的拒绝表，否则受限令牌可借它触及名单外的仓库（只要令牌主人对那个仓库有权限）。
 - **不限制分支/ref**：名单内的仓库里，令牌仍可推任何分支（受其 scope 和主人权限约束）。
 - 令牌仍被换成**完整身份的 JWT**，限制只在中间件和 git 入口这一层；绕过 PAT 中间件的入口不受限（已知入口 REST、git over HTTP、CI 日志 WebSocket 均已覆盖，SSH 不使用 PAT）。
-- 受限令牌不能调用 `GET /repos`，所以 MCP 的 `list_repos` 对它会被拒绝（读写 `owner/repo` 的工具正常）。
+- 受限令牌不能列仓库（`/repos/{owner}` 和 `/repos/explore` 都在名单外），所以 MCP 的 `list_repos` 对它会被拒绝（读写 `owner/repo` 的工具正常）。
 - 审计日志里仍没有令牌身份（要有，需要把令牌身份带到下游）。
 
 ## 证据
@@ -33,10 +33,9 @@
 | 运行验证（真实服务 + 真实 `ironforge-mcp`，SQLite） | 令牌 `scopes=repo:collab`、`repos=[collab-e2e/pair-work]`，同一用户另有私有仓库 `secret-repo`。名单内仓库：`collab_start_session`、`collab_create_task` 成功；名单外仓库：`collab_start_session` 被 403 `personal access token scope denied`，`read_file` 被 403；`list_repos` 被 403；直接 REST：名单内仓库 `GET` 200、名单外 403、用该令牌签发 `admin` 令牌 403 |
 | 入口排查 | 令牌只在 `resolve_pat`（`rg-http/src/lib.rs`）一处按哈希解析，其调用方只有三处——REST 中间件（`api_v1` 与文档路由）、git over HTTP 的三个处理函数、CI 日志 WebSocket——都已执行 scope 与白名单。OCI 的 `/v2/token` 只接受用户名+密码，OCI 的 Bearer 只接受用户 JWT 和 OCI 令牌，**不接受 PAT**，所以没有绕过；LFS、包注册表在 `api_v1` 下，受同一中间件约束（LFS 的 `POST …/lfs/objects/batch` 在下载时也是 POST，只读令牌因此不能批量下载 LFS，这是按方法判定"宁可拒绝"的已知代价） |
 
-### 运行验证中发现的无关旧问题（未修改）
+### 运行验证中发现的无关旧问题
 
-- MCP 的 `read_dir` 请求 `/repos/{o}/{n}/tree/{ref}?path=`，而 REST 路由是 `/repos/{o}/{n}/tree`（`ref`、`path` 作查询参数），请求落到前端的兜底页，**返回 200 的 HTML**；MCP 的 `read_file` 对同一仓库得到 405。两者与令牌无关（`rg-mcp` 本次没有改动）。
-- MCP 读类工具把失败放进正常结果（文本以 `Error:` 开头，`isError` 为假），调用方不检查文本就会把失败当成功。
+MCP 的 `read_dir` 请求了不存在的路由（落到前端兜底页，返回 200 的 HTML）、`read_file` 得到 405、`list_repos` 请求了不存在的 `GET /repos`，读类工具还把失败放进正常结果。这些与令牌无关，已在随后的修复中处理，见 [mcp-read-tools-verification-2026-11.md](mcp-read-tools-verification-2026-11.md)。
 
 ## 未覆盖
 

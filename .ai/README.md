@@ -139,11 +139,13 @@ AI Agent **必须**在阅读代码前先读取以下文件：
 
 | Tool | 说明 |
 |------|------|
-| `list_repos` | 列出当前 token 可访问的仓库 |
-| `read_file` | 读取仓库文件内容 |
-| `read_dir` | 列出仓库目录内容 |
+| `list_repos` | 给 `owner` 时列出该所有者对调用者可见的仓库；不给时列出公开仓库（explore） |
+| `read_file` | 读取仓库文本文件内容（只返回文本；二进制文件报错；`ref` 省略为默认分支） |
+| `read_dir` | 列出仓库目录内容（返回 JSON `entries`；`ref` 省略为默认分支） |
 | `get_issue` | 获取单个 Issue 详情 |
 | `get_pr` | 获取单个 Pull Request 详情 |
+
+读类工具的失败（被拒绝、不存在、参数不合法、API 返回的不是 JSON）以 `isError: true` 返回，文本以 `Error:` 开头；`owner`/`repo` 只允许 `[A-Za-z0-9._-]`，路径各段单独做百分号编码，含 `..` 的路径被拒绝，不合法的参数不会发出任何请求。
 
 可读取的 Resources：
 
