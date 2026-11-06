@@ -113,4 +113,22 @@ describe('WebhookForm.svelte', () => {
 
     await waitFor(() => expect(toastError).toHaveBeenCalledWith('bad host'));
   });
+
+  it('offers the collaboration events and sends the ones that are ticked', async () => {
+    webhookCreate.mockResolvedValue({});
+    renderForm();
+
+    fireEvent.input(screen.getByLabelText('Payload URL'), {
+      target: { value: 'https://hooks.example/cb' },
+    });
+    await fireEvent.click(screen.getByLabelText('collab.question.asked'));
+    await fireEvent.click(screen.getByLabelText('collab.task.blocked'));
+    await fireEvent.submit(
+      screen.getByRole('button', { name: 'Add webhook' }).closest('form')!
+    );
+
+    await waitFor(() => expect(webhookCreate).toHaveBeenCalled());
+    const events = webhookCreate.mock.calls.at(-1)![2].events as string[];
+    expect(events).toEqual(expect.arrayContaining(['push', 'collab.question.asked', 'collab.task.blocked']));
+  });
 });

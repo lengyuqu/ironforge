@@ -44,6 +44,7 @@ pub mod takeover;
 pub mod task;
 pub mod template;
 pub mod validation;
+pub mod webhook_events;
 pub mod work_package;
 
 pub use error::{CollabError, CollabResult};

@@ -265,6 +265,14 @@ pub async fn update_task(
     .await?;
     if task.status == "blocked" && !was_blocked {
         let repo_full_name = format!("{owner}/{name}");
+        rg_core::collaboration::webhook_events::task_blocked(
+            &state.db,
+            repo.id,
+            &repo_full_name,
+            state.external_url.as_deref(),
+            &task,
+        )
+        .await;
         for n in rg_core::collaboration::human_notify::task_blocked(
             &state.db,
             &repo,

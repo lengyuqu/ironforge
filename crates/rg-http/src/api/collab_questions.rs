@@ -179,6 +179,14 @@ pub async fn create_question(
                 }),
             );
         }
+        rg_core::collaboration::webhook_events::question_asked(
+            &state.db,
+            repo.id,
+            &repo_full_name,
+            state.external_url.as_deref(),
+            &created.question,
+        )
+        .await;
         StatusCode::CREATED
     };
     Ok((status, Json(created.question)))
