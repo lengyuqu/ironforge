@@ -62,7 +62,7 @@ jobs:
   rust-tests:
     name: Rust tests and migration smoke
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -81,9 +81,9 @@ jobs:
       - name: Check workspace tests compile
         run: cargo check --workspace --tests
 
-      - name: Run HTTP integration tests
-        run: cargo test -p rg-http -- --nocapture
-
+      # rg-http is part of the workspace, so it runs here once. A separate
+      # `cargo test -p rg-http` step used to run it a second time and, with the
+      # growth of the integration suites, pushed the job past its time limit.
       - name: Run workspace tests
         run: cargo test --workspace -- --nocapture
 
