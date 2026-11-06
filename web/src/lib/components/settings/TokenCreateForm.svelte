@@ -96,6 +96,7 @@
       {creating ? t('settings.tokens.creating', 'Creating...') : t('settings.tokens.create', 'Create')}
     </button>
   </form>
+  <p class="scopes-hint">{t('settings.tokens.scopes_label', 'Scopes')}: {t('settings.tokens.scopes_hint')}</p>
 </section>
 
 <style>
@@ -156,4 +157,5 @@
       grid-template-columns: 1fr;
     }
   }
+.scopes-hint { margin: 0.5rem 0 0; font-size: 0.8rem; color: var(--text-secondary); }
 </style>

@@ -1170,7 +1170,8 @@
       "revoking": "吊销中...",
       "revoke": "吊销",
       "title": "访问令牌",
-      "subtitle": "管理用于 HTTP Git、API 客户端与自动化的个人令牌。"
+      "subtitle": "管理用于 HTTP Git、API 客户端与自动化的个人令牌。",
+      "scopes_hint": "repo:read（只读）· repo:collab（读 + 协作区写入，适合 agent）· repo:write（读 + 全部写入、git push）· repo（仓库内全部）· user · admin。用逗号分隔。"
     },
     "confirm_delete_label_title": "确认删除",
     "label_name_required": "请输入标签名称",
