@@ -15,6 +15,8 @@ pub struct Model {
     /// Comma-separated scopes: "repo,user,admin"
     pub scopes: String,
     pub expires_at: Option<DateTimeUtc>,
+    /// JSON array of `owner/name` the token may touch; `NULL` = no limit.
+    pub repo_allowlist: Option<String>,
     pub last_used_at: Option<DateTimeUtc>,
     pub created_at: DateTimeUtc,
 }

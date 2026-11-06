@@ -375,7 +375,7 @@ pub async fn ws_job_log_handler(
             Some(claims) => crate::api::auth::validate_session(&state.db, &claims).await,
             // A PAT is not a JWT: resolve it directly so `ifg ci logs --follow`
             // can stream without minting a session first.
-            None => crate::pat_actor(&state.db, t, "repo:read").await,
+            None => crate::pat_actor(&state.db, t, "repo:read", None).await,
         },
         None => None,
     };

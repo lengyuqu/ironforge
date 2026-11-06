@@ -91,6 +91,7 @@ pub mod m20261105_000001_add_collab_task_paths_declared_at;
 pub mod m20261105_000002_create_collab_inbox_reads;
 pub mod m20261105_000003_create_collab_completion_conditions;
 pub mod m20261105_000004_add_collab_snapshot_request_id;
+pub mod m20261106_000001_add_access_token_repo_allowlist;
 
 use sea_orm_migration::prelude::*;
 
@@ -195,6 +196,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261105_000002_create_collab_inbox_reads::Migration),
             Box::new(m20261105_000003_create_collab_completion_conditions::Migration),
             Box::new(m20261105_000004_add_collab_snapshot_request_id::Migration),
+            Box::new(m20261106_000001_add_access_token_repo_allowlist::Migration),
         ]
     }
 }

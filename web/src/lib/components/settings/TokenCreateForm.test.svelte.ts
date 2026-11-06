@@ -98,4 +98,26 @@ describe('TokenCreateForm.svelte', () => {
     await waitFor(() => expect(screen.getByText('quota exceeded')).toBeInTheDocument());
     expect(screen.queryByText('tok_plain_123')).not.toBeInTheDocument();
   });
+
+  it('sends a repository limit as a clean list, and nothing when the field is empty', async () => {
+    renderForm();
+    fireEvent.input(screen.getByLabelText('Name'), { target: { value: 'agent' } });
+    fireEvent.input(screen.getByLabelText('Scopes'), { target: { value: 'repo:collab' } });
+    fireEvent.input(screen.getByLabelText('Repositories (optional)'), {
+      target: { value: ' alice/demo,  bob/zeta alice/demo ' },
+    });
+    await fireEvent.submit(screen.getByText('Create').closest('form')!);
+    await waitFor(() => expect(tokensCreate).toHaveBeenCalledTimes(1));
+    const call = tokensCreate.mock.calls[0];
+    expect(call[1]).toBe('repo:collab');
+    // Empty entries and whitespace are dropped; ordering and duplicates are the server's concern.
+    expect(call[3]).toEqual(['alice/demo', 'bob/zeta', 'alice/demo']);
+
+    // A second token without a limit passes no fourth argument at all.
+    tokensCreate.mockClear();
+    fireEvent.input(screen.getByLabelText('Name'), { target: { value: 'plain' } });
+    await fireEvent.submit(screen.getByText('Create').closest('form')!);
+    await waitFor(() => expect(tokensCreate).toHaveBeenCalledTimes(1));
+    expect(tokensCreate.mock.calls[0]).toHaveLength(3);
+  });
 });

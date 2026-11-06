@@ -1171,7 +1171,10 @@
       "revoke": "吊销",
       "title": "访问令牌",
       "subtitle": "管理用于 HTTP Git、API 客户端与自动化的个人令牌。",
-      "scopes_hint": "repo:read（只读）· repo:collab（读 + 协作区写入，适合 agent）· repo:write（读 + 全部写入、git push）· repo（仓库内全部）· user · admin。用逗号分隔。"
+      "scopes_hint": "repo:read（只读）· repo:collab（读 + 协作区写入，适合 agent）· repo:write（读 + 全部写入、git push）· repo（仓库内全部）· user · admin。用逗号分隔。",
+      "repos_label": "仓库（可选）",
+      "repos_hint": "owner/name，用逗号分隔。令牌只能访问这些仓库，并且只能带仓库类 scope。留空表示不限制。",
+      "repos_only": "仅限"
     },
     "confirm_delete_label_title": "确认删除",
     "label_name_required": "请输入标签名称",
