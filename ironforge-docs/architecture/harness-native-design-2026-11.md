@@ -231,7 +231,7 @@ Agent 通常没有公网入口，无法收 webhook。
 
 > **顺序说明**：写 tool 不先于凭据约束开放。否则 Agent 会拿着用户的完整 `repo` PAT 去写，是倒退的安全姿态。
 
-**实施状态更新（2026-11-06）**：H3（令牌 scope 阶梯、仓库白名单、分支白名单、令牌身份进会话、审计里的令牌 id、受限令牌不能批准）、H4（`expected_sha`/`expected_head_sha`、文件提交与合并的 `dry_run`、错误体 `reason`/`retryable`/`hint`、`Idempotency-Key`）、H5（MCP `commit_file`/`delete_file`/`create_pr`/`list_pipelines`/`wait_pipeline`/`wait_repo_events`，**没有**合并/入队工具）和 H6 的事件日志与长轮询已实现，证据见 [agent-write-path-verification-2026-11.md](agent-write-path-verification-2026-11.md) 及其前置文档。**仍未做**：创建 PR 等的 dry-run、`refs/pull/<n>/head`、PR `export`、`get_pr_context` 聚合上下文、streamable-HTTP 传输、SSE。
+**实施状态更新（2026-11-06）**：H3（令牌 scope 阶梯、仓库白名单、分支白名单、令牌身份进会话、审计里的令牌 id、受限令牌不能批准）、H4（`expected_sha`/`expected_head_sha`、文件提交与合并的 `dry_run`、错误体 `reason`/`retryable`/`hint`、`Idempotency-Key`）、H5（MCP `commit_file`/`delete_file`/`create_pr`/`list_pipelines`/`wait_pipeline`/`wait_repo_events`，**没有**合并/入队工具）和 H6 的事件日志与长轮询已实现，证据见 [agent-write-path-verification-2026-11.md](agent-write-path-verification-2026-11.md) 及其前置文档。`get_pr_context`（4.2-3，服务端 `ai/.../pulls/{n}/context` + MCP 工具，不含 mergeable 与分支保护结果）也已实现。**仍未做**：创建 PR 等的 dry-run、`refs/pull/<n>/head`、PR `export`、streamable-HTTP 传输、SSE。
 
 **实施状态（2026-11-04）**：H0、H1 已在工作区实现（未提交）。运行验证：`ci_feedback` 单元测试 17 项、`ci_feedback_tests` 集成测试 14 项、`ai_tree_search_tests` 集成测试 8 项通过；`cargo test -p rg-http` 全量 72 个测试目标、376 项通过、0 失败；`rustfmt --check` 与 `cargo clippy -p rg-http --all-targets` 对改动文件无告警。仅验证了 `rg-http` crate（任务分支工作区），未跑其他 crate 的测试，也未对真实实例做过手工运行验证。H2 起未开始。
 

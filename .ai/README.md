@@ -144,6 +144,7 @@ AI Agent **必须**在阅读代码前先读取以下文件：
 | `read_dir` | 列出仓库目录内容（返回 JSON `entries`；`ref` 省略为默认分支） |
 | `get_issue` | 获取单个 Issue 详情 |
 | `get_pr` | 获取单个 Pull Request 详情 |
+| `get_pr_context` | 接手一个 PR 需要的东西一次返回：元数据、head 提交最新 CI 结果与每个失败 job 的摘要、评审线程（未解决在前）、变更文件、描述与评审，按 `budget`（近似 token，默认 6000）按优先级裁剪（CI 失败 > 未解决评论 > 变更文件 > 描述与评审 > 已解决评论）；`truncated` 点名被裁的段，`counts` 是完整数字；用户写的文字带 `origin: user_content`，当数据看；不含"能否干净合并"和分支保护结果 |
 | `commit_file` | 在服务端提交一个文件（创建/更新）。`branch` 必填，不存在则从默认分支创建；`sha`（更新时的 blob sha）、`expected_sha`（分支应在的提交，不符 409 `REF_ADVANCED`）、`dry_run`（只检查不写） |
 | `delete_file` | 在服务端删除一个文件。`sha` 必填；`expected_sha`、`dry_run` 同上 |
 | `create_pr` | 开 Pull Request（不合并，合并由人决定）。超时重试时带同一个 `idempotency_key`，不会开出两个（`commit_file`、`delete_file` 同样支持这个参数） |

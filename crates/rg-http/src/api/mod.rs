@@ -1,5 +1,6 @@
 pub mod admin;
 pub mod ai;
+pub mod ai_pr_context;
 pub mod archive;
 pub mod artifacts;
 pub mod attachments;

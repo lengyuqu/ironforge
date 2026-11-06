@@ -1741,6 +1741,10 @@ fn build_routes(
             "/ai/repos/{owner}/{name}/index",
             post(api::ai::ai_index_repository),
         )
+        .route(
+            "/ai/repos/{owner}/{name}/pulls/{number}/context",
+            get(api::ai_pr_context::pr_context),
+        )
         // WebSocket
         .route("/ws/notifications", get(ws::ws_notifications_handler))
         .route("/ws/job/{job_id}", get(ws::ws_job_log_handler));

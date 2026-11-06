@@ -182,6 +182,7 @@ pub struct PaginatedRepoResponse {
         crate::api::ci_feedback::get_job_log,
         crate::api::ci_feedback::wait_pipeline,
         crate::api::repo_events::list_events,
+        crate::api::ai_pr_context::pr_context,
         // Collaboration
         crate::api::collab_search::search,
         crate::api::collab_sessions::create_session,

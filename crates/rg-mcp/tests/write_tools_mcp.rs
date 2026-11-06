@@ -130,6 +130,10 @@ fn api() -> Handler {
                 200,
                 json!({"data": [{"id": 9, "status": "running"}]}).to_string(),
             ),
+            ("GET", "/api/v1/ai/repos/alice/demo/pulls/3/context") => (
+                200,
+                json!({"pull_request": {"number": 3}, "truncated": []}).to_string(),
+            ),
             ("GET", "/api/v1/repos/alice/demo/events") => (
                 200,
                 json!({"events": [{"id": 8, "type": "issue.opened"}], "next_cursor": 8,
@@ -220,6 +224,7 @@ fn the_write_tools_are_advertised_with_their_required_arguments() {
         ("list_pipelines", vec!["owner", "repo"]),
         ("wait_pipeline", vec!["owner", "repo", "pipeline_id"]),
         ("wait_repo_events", vec!["owner", "repo"]),
+        ("get_pr_context", vec!["owner", "repo", "number"]),
     ] {
         let schema = &find(name)["inputSchema"];
         let got: Vec<&str> = schema["required"]
@@ -488,4 +493,39 @@ fn an_idempotency_key_is_sent_as_the_header_and_checked_first() {
         assert!(err && text.contains("idempotency_key must be"), "{text}");
     }
     assert_eq!(stub.count(), before);
+}
+
+#[test]
+fn get_pr_context_asks_the_ai_route_with_a_checked_budget() {
+    let stub = Stub::spawn(api());
+    let mut mcp = Mcp::start(&stub.url);
+    let (err, text) = mcp.tool(
+        "get_pr_context",
+        json!({"owner": "alice", "repo": "demo", "number": 3}),
+    );
+    assert!(!err && text.contains("\"number\": 3"), "{text}");
+    assert_eq!(
+        stub.last().path,
+        "/api/v1/ai/repos/alice/demo/pulls/3/context"
+    );
+
+    let (err, _) = mcp.tool(
+        "get_pr_context",
+        json!({"owner": "alice", "repo": "demo", "number": 3, "budget": 2000}),
+    );
+    assert!(!err);
+    assert_eq!(
+        stub.last().path,
+        "/api/v1/ai/repos/alice/demo/pulls/3/context?budget=2000"
+    );
+    let before = stub.count();
+    for args in [
+        json!({"owner": "alice", "repo": "demo", "number": 3, "budget": 10}),
+        json!({"owner": "alice", "repo": "demo", "number": 3, "budget": 60000}),
+        json!({"owner": "alice", "repo": "demo", "number": 0}),
+    ] {
+        let (err, _) = mcp.tool("get_pr_context", args);
+        assert!(err);
+    }
+    assert_eq!(stub.count(), before, "bad arguments send no request");
 }
