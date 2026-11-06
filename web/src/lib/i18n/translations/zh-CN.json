@@ -2044,5 +2044,208 @@
       "USAGE_LIMIT_REACHED": "本任务的用量记录数量已达上限。",
       "IDEMPOTENCY_KEY_REUSED": "该请求键已被用于另一个不同的请求。"
     }
+  },
+  "collab_groups": {
+    "title": "协作组",
+    "intro": "协作组把多个仓库里的任务和提交关联在一起，它隶属于当前仓库（锚仓）。你在组里看到的内容仅限于你有权查看的部分；这里不授予任何 Git、CI、合并或审批权限。",
+    "no_list_note": "服务端没有“列出仓库所有协作组”的接口。你可以按组 id 打开，或从本浏览器创建/打开过的组里进入。这不是全部协作组的列表。",
+    "sharing_warning": "标题和描述对所有能读取本仓库协作数据的人可见，包括无权读取被关联仓库的人。请勿在这里写其他仓库的机密细节。",
+    "conflict": "该组在你加载之后发生了变化，已重新加载。请确认当前关联后再试。",
+    "detail": {
+      "title": "协作组",
+      "back": "协作组",
+      "created": "由 {who} 创建于 {time}",
+      "declared": "文字由创建者填写",
+      "no_description": "没有描述。",
+      "version": "组版本 {version}。修改关联时必须带上该版本。",
+      "read_only": "你可以查看该组，但不能修改其关联：这需要本仓库的写权限。",
+      "not_found": "本仓库中没有这个协作组",
+      "not_found_hint": "id 可能有误，或该组属于其他仓库。"
+    },
+    "create": {
+      "title": "创建协作组",
+      "note": "需要本仓库的写权限，本仓库将成为该组的锚仓。",
+      "title_label": "标题",
+      "description_label": "描述（可选）",
+      "submit": "创建协作组",
+      "write_needed": "创建协作组需要本仓库的写权限。",
+      "title_required": "必须填写标题。",
+      "title_too_long": "标题过长（最多 200 个字符）。",
+      "description_too_long": "描述过长（最多 16 KiB）。"
+    },
+    "open": {
+      "title": "打开协作组",
+      "id_label": "组 id",
+      "button": "打开"
+    },
+    "remembered": {
+      "title": "本浏览器打开过的组",
+      "note": "仅记在本浏览器里，方便再次找到。不是全部协作组的列表。",
+      "empty": "暂无记录。",
+      "forget": "忘记"
+    },
+    "links": {
+      "title": "关联",
+      "note": "只显示你有权查看的关联。每一页都会按你当前的权限重新检查，所以一页可能比请求的短，但后面仍有内容。",
+      "empty": "没有可显示的关联。",
+      "load_more": "加载更多",
+      "as_of": "检查时间：{time}",
+      "task": "任务",
+      "commit": "提交",
+      "added": "由 {who} 添加于 {time}",
+      "remove": "移除",
+      "remove_confirm_title": "移除这条关联？",
+      "remove_confirm_message": "该关联将从组里移除，它指向的任务或提交不会被改动。这需要本仓库和被关联仓库的写权限。",
+      "removed_toast": "关联已移除。"
+    },
+    "commit_state": {
+      "available": "可读取",
+      "unavailable": "当前不可读取"
+    },
+    "add": {
+      "title": "添加关联",
+      "note": "关联另一个仓库的任务和/或提交。",
+      "target_label": "目标仓库",
+      "target_hint": "格式 owner/name。会先查询出它的 id；组按 id 引用仓库。",
+      "task_label": "任务 id（可选）",
+      "commit_label": "完整提交 id（可选）",
+      "need_one_hint": "请填写任务 id、提交 id，或两者。",
+      "submit": "添加关联",
+      "write_both": "需要本仓库和目标仓库的写权限。",
+      "added_toast": "关联已添加。",
+      "repo_not_found": "没有找到该仓库，或你无权查看。",
+      "target_invalid": "请按 owner/name 填写目标仓库。",
+      "need_one": "请填写任务 id 或提交 id。",
+      "sha_invalid": "提交 id 必须是完整的 40 或 64 位十六进制。"
+    }
+  },
+  "collab_health": {
+    "title": "协作健康",
+    "intro": "本仓库有多少工作处于阻塞、等待或未回答状态。仅仓库管理员可见。数字来自平台事件日志；它们是信号，不是对任何人的评判，这里也不会对会话或 Agent 排名。",
+    "admins_only": "仅管理员可见",
+    "admins_only_hint": "协作健康只向本仓库的管理员显示。",
+    "signed_out": "需要登录",
+    "signed_out_hint": "请以仓库管理员身份登录后查看协作健康。",
+    "window": {
+      "label": "时间窗口",
+      "days": "最近 {days} 天"
+    },
+    "coverage": {
+      "title": "覆盖范围",
+      "note": "覆盖起点之前的内容不被度量。那段时间是“未知”，不是 0。",
+      "range": "窗口",
+      "start": "度量起点",
+      "none": "目前还没有任何记录。",
+      "baseline": "观察基线",
+      "baseline_none": "尚未建立",
+      "computed": "计算时间",
+      "version": "指标版本 {version}",
+      "partial_banner": "部分数字不完整或未知：窗口早于第一条记录，或部分对象还没有事件记录。请把不完整的数字当作下限。"
+    },
+    "metrics": {
+      "title": "指标",
+      "note": "任务状态由设置它的一方自行声明；平台只记录每次变化的时间。"
+    },
+    "metric": {
+      "blocked_tasks": "阻塞中的任务",
+      "blocked_duration": "阻塞耗时",
+      "handoff_waiting": "等待中的交接",
+      "open_questions": "未回答的问题",
+      "stale_path_claims": "过期的路径声明"
+    },
+    "status": {
+      "complete": "完整",
+      "partial": "不完整",
+      "unknown": "未知"
+    },
+    "source": {
+      "user_content": "自报状态",
+      "platform_event": "平台事件"
+    },
+    "source_hint": "谁为这些数值担保。时间戳始终来自平台。",
+    "unknown": "未知",
+    "lower_bound": "至少这些数值（下限）。",
+    "reason": {
+      "NO_EVENTS_BEFORE_WINDOW_END": "窗口结束前没有任何记录",
+      "PATH_DECLARED_AT_NOT_RECORDED": "声明时间未被记录"
+    },
+    "value": {
+      "blocked_at_to": "窗口结束时阻塞",
+      "entered_blocked_in_window": "窗口内进入阻塞",
+      "entered_blocked_events": "进入阻塞次数",
+      "unknown_state_tasks": "状态未知的任务",
+      "blocked_seconds": "阻塞总时长",
+      "intervals": "阻塞区间数",
+      "tasks": "任务数",
+      "left_censored_tasks": "起点即观察起点（任务）",
+      "right_censored_tasks": "结束时仍阻塞（任务）",
+      "covered_from": "度量起点",
+      "waiting_seconds": "等待总时长",
+      "measured_handoffs": "已度量的交接",
+      "accepted_in_window": "窗口内已接受",
+      "cancelled_in_window": "窗口内已取消",
+      "open_at_to": "窗口结束时未结",
+      "left_censored_handoffs": "起点即观察起点",
+      "right_censored_handoffs": "结束时仍在等待",
+      "unobserved_pending_handoffs": "待处理但尚未观察到",
+      "open_wait_seconds_at_to": "未结项的等待时长",
+      "wait_seconds_in_window": "窗口内等待时长",
+      "answered_in_window": "窗口内已回答",
+      "left_censored_questions": "起点即观察起点",
+      "right_censored_questions": "结束时仍未回答",
+      "unobserved_open_questions": "未回答但尚未观察到"
+    },
+    "no_ranking": "这些数字描述的是仓库的工作，不是人或 Agent。没有排名，也没有按会话的视图。",
+    "drill_metric": {
+      "blocked_at_to": "结束时阻塞的任务",
+      "entered_blocked": "进入过阻塞的任务",
+      "blocked_duration": "有阻塞耗时的任务",
+      "handoff_waiting": "交接",
+      "open_questions": "未回答的问题",
+      "unknown_state": "状态未知的任务"
+    },
+    "drill": {
+      "title": "相关任务：{metric}",
+      "note": "按任务 id 排序，不按严重程度或时长。标题和状态由其作者填写。",
+      "empty": "该数字下没有任务。",
+      "close": "关闭"
+    },
+    "quality": {
+      "title": "数据质量",
+      "note": "这些数字无法完整使用的记录。受影响的数字请按不完整理解。",
+      "unknown_state_tasks": "状态未知的任务",
+      "inconsistent_tasks": "事件相互矛盾的任务",
+      "unobserved_pending_handoffs": "未观察到的待处理交接",
+      "handoffs_closed_before_coverage": "覆盖起点前已关闭的交接",
+      "handoffs_missing_start": "缺少起始事件的交接",
+      "unobserved_open_questions": "未观察到的未回答问题",
+      "questions_closed_before_coverage": "覆盖起点前已关闭的问题",
+      "questions_missing_start": "缺少起始事件的问题",
+      "negative_intervals": "已排除的区间（结束早于开始）"
+    },
+    "baseline": {
+      "title": "观察基线",
+      "note": "一次性操作，针对早于事件日志存在的对象。",
+      "explain": "把没有任何事件记录的任务、待处理交接和未回答问题的当前状态记为“此刻观察到”。它们从此刻起被度量，绝不会被当作更早就处于该状态。已有事件的对象不受影响，重复执行也不会再为它们新增记录。",
+      "already": "观察基线已在 {time} 建立。",
+      "button": "建立观察基线",
+      "confirm_title": "建立观察基线？",
+      "confirm_message": "这会为每个没有事件的任务、待处理交接和未回答问题写入观察事件。该操作不能撤销，只应执行一次。这些对象的数字从现在开始计算。",
+      "confirm_button": "建立基线",
+      "done": "基线已于 {time} 记录。",
+      "added": "新增：{tasks} 个任务，{handoffs} 个交接，{questions} 个问题。",
+      "existed": "此前已存在基线"
+    },
+    "note": {
+      "declared_status": "任务状态由客户端自行声明；平台只记录每次变化的时间。",
+      "unknown_state_tasks": "没有任何事件记录的任务状态未知，不被计入。建立观察基线后，它们从那一刻起被计入。",
+      "window_before_coverage": "窗口早于第一条记录，只度量被覆盖的部分。",
+      "clipped_intervals": "区间会被截到窗口内；结束时仍未结束的区间截到窗口末尾。",
+      "handoff_waiting": "等待时长是从创建到被接受或取消（待处理的算到窗口末尾），并截到窗口内。",
+      "accepted_not_done": "“已接受”表示接收方接手了交接，不代表工作已完成。",
+      "question_open": "问题从创建起一直未结，直到被回答或取消；谁回答并不证明是某个具体的人。",
+      "baseline_start_only": "仅表示观察起点：对象从此刻起被度量，绝不会被当作更早就处于该状态。"
+    },
+    "none_recorded": "暂无记录"
   }
 }

@@ -2044,5 +2044,208 @@
       "USAGE_LIMIT_REACHED": "This task already has the maximum number of usage records.",
       "IDEMPOTENCY_KEY_REUSED": "This request key was already used for a different request."
     }
+  },
+  "collab_groups": {
+    "title": "Coordination groups",
+    "intro": "A coordination group ties together tasks and commits across several repositories. It belongs to this repository (its anchor). What you see in a group is limited to what you are allowed to see; nothing here grants Git, CI, merge or approval rights.",
+    "no_list_note": "The server has no endpoint that lists a repository's groups. You can open a group by its id, or from the groups this browser created or opened. This is not a list of all groups.",
+    "sharing_warning": "Title and description are readable by everyone who can read this repository's collaboration data, including people who cannot read the linked repositories. Do not put confidential details of other repositories here.",
+    "conflict": "The group changed since you loaded it, so it was reloaded. Check the current links, then try again.",
+    "detail": {
+      "title": "Group",
+      "back": "Groups",
+      "created": "Created by {who} on {time}",
+      "declared": "text written by its creator",
+      "no_description": "No description.",
+      "version": "Group version {version}. Link changes must name this version.",
+      "read_only": "You can read this group but cannot change its links: that needs write access to this repository.",
+      "not_found": "No such group in this repository",
+      "not_found_hint": "The id may be wrong, or the group belongs to another repository."
+    },
+    "create": {
+      "title": "Create a group",
+      "note": "Needs write access to this repository, which becomes the group's anchor.",
+      "title_label": "Title",
+      "description_label": "Description (optional)",
+      "submit": "Create group",
+      "write_needed": "Creating a group needs write access to this repository.",
+      "title_required": "A title is required.",
+      "title_too_long": "The title is too long (200 characters at most).",
+      "description_too_long": "The description is too long (16 KiB at most)."
+    },
+    "open": {
+      "title": "Open a group",
+      "id_label": "Group id",
+      "button": "Open"
+    },
+    "remembered": {
+      "title": "Opened on this browser",
+      "note": "Remembered only in this browser to make groups easy to find again. Not a list of all groups.",
+      "empty": "Nothing remembered yet.",
+      "forget": "Forget"
+    },
+    "links": {
+      "title": "Links",
+      "note": "Only links you are allowed to see are shown. Every page is checked against your current permissions, so a page can be short while more follow.",
+      "empty": "No links to show.",
+      "load_more": "Load more",
+      "as_of": "Checked at {time}",
+      "task": "Task",
+      "commit": "Commit",
+      "added": "Added by {who} on {time}",
+      "remove": "Remove",
+      "remove_confirm_title": "Remove this link?",
+      "remove_confirm_message": "The link is removed from the group. The task or commit it points to is not changed. This needs write access to this repository and to the linked one.",
+      "removed_toast": "Link removed."
+    },
+    "commit_state": {
+      "available": "available",
+      "unavailable": "unavailable now"
+    },
+    "add": {
+      "title": "Add a link",
+      "note": "Link a task and/or a commit of another repository.",
+      "target_label": "Target repository",
+      "target_hint": "owner/name. It is looked up to find its id; the group refers to repositories by id.",
+      "task_label": "Task id (optional)",
+      "commit_label": "Full commit id (optional)",
+      "need_one_hint": "Give a task id, a commit id, or both.",
+      "submit": "Add link",
+      "write_both": "Needs write access to this repository and to the target repository.",
+      "added_toast": "Link added.",
+      "repo_not_found": "That repository was not found, or you cannot see it.",
+      "target_invalid": "Enter the target as owner/name.",
+      "need_one": "Give a task id or a commit id.",
+      "sha_invalid": "The commit id must be the full 40 or 64 hex digits."
+    }
+  },
+  "collab_health": {
+    "title": "Collaboration health",
+    "intro": "How much work sits blocked, waiting or unanswered in this repository. Visible to repository admins only. Figures are measured from a platform event log; they are signals, not a verdict on anyone, and nothing here ranks sessions or agents.",
+    "admins_only": "Admins only",
+    "admins_only_hint": "Collaboration health is shown only to administrators of this repository.",
+    "signed_out": "Sign in required",
+    "signed_out_hint": "Sign in as a repository administrator to see collaboration health.",
+    "window": {
+      "label": "Window",
+      "days": "Last {days} days"
+    },
+    "coverage": {
+      "title": "Coverage",
+      "note": "Nothing before the coverage start is measured. Such time is unknown, not zero.",
+      "range": "Window",
+      "start": "Measured since",
+      "none": "Nothing has been recorded yet.",
+      "baseline": "Observation baseline",
+      "baseline_none": "none taken",
+      "computed": "Computed",
+      "version": "metric version {version}",
+      "partial_banner": "Some figures are partial or unknown: the window starts before the first recorded event, or some objects have no recorded events yet. Read partial figures as lower bounds."
+    },
+    "metrics": {
+      "title": "Metrics",
+      "note": "Task status is declared by whoever set it; only the time of each change is recorded by the platform."
+    },
+    "metric": {
+      "blocked_tasks": "Blocked tasks",
+      "blocked_duration": "Time spent blocked",
+      "handoff_waiting": "Handoffs waiting",
+      "open_questions": "Open questions",
+      "stale_path_claims": "Stale path claims"
+    },
+    "status": {
+      "complete": "complete",
+      "partial": "partial",
+      "unknown": "unknown"
+    },
+    "source": {
+      "user_content": "self-reported status",
+      "platform_event": "platform events"
+    },
+    "source_hint": "Who vouches for the values. Timestamps always come from the platform.",
+    "unknown": "Unknown",
+    "lower_bound": "At least these values (a lower bound).",
+    "reason": {
+      "NO_EVENTS_BEFORE_WINDOW_END": "nothing was recorded before the end of the window",
+      "PATH_DECLARED_AT_NOT_RECORDED": "declaration time is not recorded"
+    },
+    "value": {
+      "blocked_at_to": "Blocked at end of window",
+      "entered_blocked_in_window": "Entered blocked in window",
+      "entered_blocked_events": "Times entered blocked",
+      "unknown_state_tasks": "Tasks with unknown state",
+      "blocked_seconds": "Total blocked time",
+      "intervals": "Blocked intervals",
+      "tasks": "Tasks",
+      "left_censored_tasks": "Start is observation start (tasks)",
+      "right_censored_tasks": "Still blocked at end (tasks)",
+      "covered_from": "Measured from",
+      "waiting_seconds": "Total waiting time",
+      "measured_handoffs": "Handoffs measured",
+      "accepted_in_window": "Accepted in window",
+      "cancelled_in_window": "Cancelled in window",
+      "open_at_to": "Open at end of window",
+      "left_censored_handoffs": "Start is observation start",
+      "right_censored_handoffs": "Still waiting at end",
+      "unobserved_pending_handoffs": "Pending, not yet observed",
+      "open_wait_seconds_at_to": "Waiting time of open ones",
+      "wait_seconds_in_window": "Waiting time in window",
+      "answered_in_window": "Answered in window",
+      "left_censored_questions": "Start is observation start",
+      "right_censored_questions": "Still open at end",
+      "unobserved_open_questions": "Open, not yet observed"
+    },
+    "no_ranking": "These figures describe the repository's work, not people or agents. There is no ranking or per-session view.",
+    "drill_metric": {
+      "blocked_at_to": "Tasks blocked at end",
+      "entered_blocked": "Tasks that entered blocked",
+      "blocked_duration": "Tasks with blocked time",
+      "handoff_waiting": "Handoffs",
+      "open_questions": "Open questions",
+      "unknown_state": "Tasks with unknown state"
+    },
+    "drill": {
+      "title": "Tasks behind: {metric}",
+      "note": "Ordered by task id, not by severity or duration. Titles and statuses are written by their authors.",
+      "empty": "No tasks for this figure.",
+      "close": "Close"
+    },
+    "quality": {
+      "title": "Data quality",
+      "note": "Records the figures could not fully use. Read the affected figures as partial.",
+      "unknown_state_tasks": "Tasks with unknown state",
+      "inconsistent_tasks": "Tasks with contradictory events",
+      "unobserved_pending_handoffs": "Pending handoffs not observed",
+      "handoffs_closed_before_coverage": "Handoffs closed before coverage",
+      "handoffs_missing_start": "Handoffs without a start event",
+      "unobserved_open_questions": "Open questions not observed",
+      "questions_closed_before_coverage": "Questions closed before coverage",
+      "questions_missing_start": "Questions without a start event",
+      "negative_intervals": "Intervals excluded (end before start)"
+    },
+    "baseline": {
+      "title": "Observation baseline",
+      "note": "One-time, for objects that predate the event log.",
+      "explain": "Records the current state of tasks, pending handoffs and open questions that have no recorded event as \"observed now\". They are measured from this moment on, never as having been in that state earlier. Objects that already have events are left alone, and repeating it adds nothing for them.",
+      "already": "A baseline was already taken at {time}.",
+      "button": "Take observation baseline",
+      "confirm_title": "Take the observation baseline?",
+      "confirm_message": "This writes observation events for every task, pending handoff and open question that has none. It cannot be undone and is meant to be done once. Figures for those objects start now.",
+      "confirm_button": "Take baseline",
+      "done": "Baseline recorded at {time}.",
+      "added": "Added: {tasks} tasks, {handoffs} handoffs, {questions} questions.",
+      "existed": "a baseline already existed"
+    },
+    "note": {
+      "declared_status": "Task status is declared by clients; only the time of each change is recorded by the platform.",
+      "unknown_state_tasks": "Tasks without any recorded event have an unknown state and are not counted. Take an observation baseline to include them from that moment on.",
+      "window_before_coverage": "The window starts before the first recorded event; only the covered part is measured.",
+      "clipped_intervals": "Intervals are clipped to the window; one still open at the end is cut at the end.",
+      "handoff_waiting": "Waiting is the time from creation to accept or cancel (pending ones: up to the end of the window), clipped to the window.",
+      "accepted_not_done": "Accepted means the recipient took the handoff over; it says nothing about the work being done.",
+      "question_open": "A question is open from creation until it is answered or cancelled; who answered is not evidence of a particular person.",
+      "baseline_start_only": "Observation start only: objects are measured from this time on, never as having been in their state earlier."
+    },
+    "none_recorded": "none recorded"
   }
 }
