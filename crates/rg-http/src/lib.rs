@@ -1990,7 +1990,7 @@ async fn resolve_pat(
 /// ended in a catch-all `Some("repo")`, so any new or unlisted route silently
 /// became reachable by a `repo`-scoped token — including endpoints whose
 /// handlers do not independently enforce user/admin rights.
-fn required_pat_scope(path: &str) -> Option<&'static str> {
+fn required_pat_scope(method: &axum::http::Method, path: &str) -> Option<&'static str> {
     // Axum may expose either the original URI or the path with the nested
     // `/api/v1` prefix stripped, depending on which router layer is running.
     let path = path.strip_prefix("/api/v1").unwrap_or(path);
@@ -2030,7 +2030,7 @@ fn required_pat_scope(path: &str) -> Option<&'static str> {
         "/ws",
     ];
     if REPO_SCOPED.iter().any(|prefix| path.starts_with(prefix)) {
-        return Some("repo");
+        return Some(repo_scope_for(method, path));
     }
 
     // Runner job traffic authenticates with a runner token, not a PAT, and is
@@ -2041,6 +2041,34 @@ fn required_pat_scope(path: &str) -> Option<&'static str> {
 
     // Fail closed: a PAT must not reach an unrecognised route by default.
     Some("admin")
+}
+
+/// The repository scope a request needs: reading takes `repo:read`, writing the
+/// collaboration area of a repository takes `repo:collab`, and every other write
+/// takes `repo:write`. A token with the historical `repo` scope satisfies all
+/// three, so existing tokens keep working unchanged.
+///
+/// "Read" is decided by the HTTP method alone, so a `POST` that only reads is
+/// treated as a write: the check fails closed.
+fn repo_scope_for(method: &axum::http::Method, path: &str) -> &'static str {
+    use axum::http::Method;
+    if matches!(*method, Method::GET | Method::HEAD | Method::OPTIONS) {
+        return "repo:read";
+    }
+    // `/repos/{owner}/{name}/collaboration` and anything below it.
+    let mut parts = path.trim_start_matches('/').splitn(4, '/');
+    let is_collab = parts.next() == Some("repos")
+        && parts.next().is_some_and(|owner| !owner.is_empty())
+        && parts.next().is_some_and(|name| !name.is_empty())
+        && parts.next().is_some_and(|rest| {
+            (rest == "collaboration" || rest.starts_with("collaboration/"))
+                && !rest.split('/').any(|seg| seg == ".." || seg == ".")
+        });
+    if is_collab {
+        "repo:collab"
+    } else {
+        "repo:write"
+    }
 }
 
 /// Axum middleware: translate a valid Personal Access Token into an equivalent
@@ -2054,7 +2082,7 @@ async fn pat_auth_middleware(
     mut req: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> Response {
-    let required_scope = required_pat_scope(req.uri().path());
+    let required_scope = required_pat_scope(req.method(), req.uri().path());
     match pat_to_bearer_jwt(&state, req.headers(), required_scope).await {
         Ok(Some(jwt)) => {
             if let Ok(value) = format!("Bearer {jwt}").parse() {
@@ -2156,11 +2184,12 @@ async fn pat_to_bearer_jwt(
     Ok(None)
 }
 
-/// Resolve a PAT to an actor id, requiring the `repo` scope and an active
-/// owner account (#5: deactivated accounts lose PAT access too).
-pub(crate) async fn pat_actor(db: &DatabaseConnection, token: &str) -> Option<i64> {
+/// Resolve a PAT to an actor id, requiring `required` (a repository scope such
+/// as `repo:read` for a fetch or `repo:write` for a push) and an active owner
+/// account (#5: deactivated accounts lose PAT access too).
+pub(crate) async fn pat_actor(db: &DatabaseConnection, token: &str, required: &str) -> Option<i64> {
     let pat = resolve_pat(db, token).await?;
-    if !rg_core::auth::pat_scope::has_scope(&pat.scopes, "repo") {
+    if !rg_core::auth::pat_scope::has_scope(&pat.scopes, required) {
         return None;
     }
     let user = rg_db::ops::user_ops::find_by_id(db, pat.user_id)
@@ -2179,6 +2208,7 @@ async fn extract_actor_id(
     db: &DatabaseConnection,
     headers: &axum::http::HeaderMap,
     jwt_secret: &str,
+    required_scope: &str,
 ) -> Option<i64> {
     let auth_str = headers.get(header::AUTHORIZATION)?.to_str().ok()?;
 
@@ -2188,7 +2218,7 @@ async fn extract_actor_id(
             // #5: enforce token_version revocation on git-over-HTTP too.
             return api::auth::validate_session(db, &claims).await;
         }
-        return pat_actor(db, token).await;
+        return pat_actor(db, token, required_scope).await;
     }
 
     if let Some(encoded) = auth_str.strip_prefix("Basic ") {
@@ -2211,7 +2241,7 @@ async fn extract_actor_id(
                 }
                 continue;
             }
-            if let Some(user_id) = pat_actor(db, candidate).await {
+            if let Some(user_id) = pat_actor(db, candidate, required_scope).await {
                 return Some(user_id);
             }
         }
@@ -2334,8 +2364,18 @@ async fn handle_info_refs(
     }
 
     // Extract actor from auth header
-    let actor_id = extract_actor_id(&state.db, &headers, &state.jwt_secret).await;
     let require_write = service == "git-receive-pack";
+    let actor_id = extract_actor_id(
+        &state.db,
+        &headers,
+        &state.jwt_secret,
+        if require_write {
+            "repo:write"
+        } else {
+            "repo:read"
+        },
+    )
+    .await;
 
     // Check access
     if let Err(resp) = check_git_access(&state.db, &owner, &repo, actor_id, require_write).await {
@@ -2559,7 +2599,7 @@ async fn handle_git_upload_pack(
     }
 
     // Check read access
-    let actor_id = extract_actor_id(&state.db, &headers, &state.jwt_secret).await;
+    let actor_id = extract_actor_id(&state.db, &headers, &state.jwt_secret, "repo:read").await;
     if let Err(resp) = check_git_access(&state.db, &owner, &repo, actor_id, false).await {
         return (resp.0, resp.1, Body::from(resp.2)).into_response();
     }
@@ -2732,7 +2772,7 @@ async fn handle_git_receive_pack(
     }
 
     // Check write access
-    let actor_id = extract_actor_id(&state.db, &headers, &state.jwt_secret).await;
+    let actor_id = extract_actor_id(&state.db, &headers, &state.jwt_secret, "repo:write").await;
     if let Err(resp) = check_git_access(&state.db, &owner, &repo, actor_id, true).await {
         return (resp.0, resp.1, Body::from(resp.2));
     }
@@ -3473,40 +3513,119 @@ async fn run_runner_watchdog(db: DatabaseConnection) {
 #[cfg(test)]
 mod pat_scope_tests {
     use super::required_pat_scope;
+    use axum::http::Method;
+
+    fn get(path: &str) -> Option<&'static str> {
+        required_pat_scope(&Method::GET, path)
+    }
+
+    fn post(path: &str) -> Option<&'static str> {
+        required_pat_scope(&Method::POST, path)
+    }
 
     #[test]
     fn maps_known_families() {
-        assert_eq!(required_pat_scope("/api/v1/users/me"), Some("user"));
-        assert_eq!(required_pat_scope("/api/v1/notifications"), Some("user"));
-        assert_eq!(required_pat_scope("/api/v1/auth/sso/x"), Some("user"));
-        assert_eq!(required_pat_scope("/api/v1/ws/notifications"), Some("user"));
-        assert_eq!(required_pat_scope("/api/v1/repos/o/r"), Some("repo"));
-        assert_eq!(required_pat_scope("/api/v1/orgs/x/teams"), Some("repo"));
-        assert_eq!(required_pat_scope("/api/v1/ci/pipelines"), Some("repo"));
-        assert_eq!(required_pat_scope("/api/v1/search"), Some("repo"));
-        assert_eq!(required_pat_scope("/api/v1/admin/users"), Some("admin"));
-        assert_eq!(
-            required_pat_scope("/api/v1/runners/register"),
-            Some("admin")
-        );
-        assert_eq!(required_pat_scope("/api/v1/api-docs"), None);
+        assert_eq!(get("/api/v1/users/me"), Some("user"));
+        assert_eq!(get("/api/v1/notifications"), Some("user"));
+        assert_eq!(get("/api/v1/auth/sso/x"), Some("user"));
+        assert_eq!(get("/api/v1/ws/notifications"), Some("user"));
+        assert_eq!(get("/api/v1/repos/o/r"), Some("repo:read"));
+        assert_eq!(get("/api/v1/orgs/x/teams"), Some("repo:read"));
+        assert_eq!(get("/api/v1/ci/pipelines"), Some("repo:read"));
+        assert_eq!(get("/api/v1/search"), Some("repo:read"));
+        assert_eq!(get("/api/v1/admin/users"), Some("admin"));
+        assert_eq!(get("/api/v1/runners/register"), Some("admin"));
+        assert_eq!(get("/api/v1/api-docs"), None);
+    }
+
+    #[test]
+    fn user_and_admin_families_do_not_depend_on_the_method() {
+        assert_eq!(post("/api/v1/users/tokens"), Some("user"));
+        assert_eq!(post("/api/v1/notifications/1/read"), Some("user"));
+        assert_eq!(post("/api/v1/admin/users"), Some("admin"));
+        assert_eq!(post("/api/v1/runners/register"), Some("admin"));
+    }
+
+    #[test]
+    fn repository_reads_and_writes_need_different_scopes() {
+        for method in [Method::GET, Method::HEAD, Method::OPTIONS] {
+            assert_eq!(
+                required_pat_scope(&method, "/api/v1/repos/o/r/issues"),
+                Some("repo:read"),
+                "{method}"
+            );
+        }
+        for method in [Method::POST, Method::PUT, Method::PATCH, Method::DELETE] {
+            assert_eq!(
+                required_pat_scope(&method, "/api/v1/repos/o/r/issues"),
+                Some("repo:write"),
+                "{method}"
+            );
+            assert_eq!(
+                required_pat_scope(&method, "/api/v1/repos"),
+                Some("repo:write")
+            );
+            assert_eq!(
+                required_pat_scope(&method, "/api/v1/orgs/x"),
+                Some("repo:write")
+            );
+            assert_eq!(
+                required_pat_scope(&method, "/api/v1/ci/pipelines"),
+                Some("repo:write")
+            );
+        }
+    }
+
+    #[test]
+    fn collaboration_writes_need_only_the_collab_scope() {
+        for path in [
+            "/api/v1/repos/o/r/collaboration",
+            "/api/v1/repos/o/r/collaboration/sessions",
+            "/api/v1/repos/o/r/collaboration/tasks/abc/questions",
+            "/repos/o/r/collaboration/tasks",
+            "/api/v1/repos/o/r/collaboration/tasks?limit=5",
+        ] {
+            assert_eq!(post(path), Some("repo:collab"), "{path}");
+            assert_eq!(get(path), Some("repo:read"), "{path}");
+        }
+    }
+
+    #[test]
+    fn near_misses_of_the_collaboration_path_are_ordinary_writes() {
+        for path in [
+            // A repository that happens to be called "collaboration".
+            "/api/v1/repos/o/collaboration/issues",
+            "/api/v1/repos/o/collaboration",
+            // Prefix lookalikes and traversal.
+            "/api/v1/repos/o/r/collaborationx",
+            "/api/v1/repos/o/r/collaboration/../issues",
+            "/api/v1/repos/o/r/collaboration/./x/../../issues",
+            "/api/v1/repos/o//collaboration/tasks",
+            "/api/v1/repos//r/collaboration/tasks",
+            // Other repository areas.
+            "/api/v1/repos/o/r/issues/collaboration",
+            "/api/v1/orgs/o/r/collaboration/tasks",
+        ] {
+            assert_eq!(post(path), Some("repo:write"), "{path}");
+        }
     }
 
     #[test]
     fn strips_prefix_and_query() {
         // The middleware sees both prefixed and stripped forms, and paths may
         // carry a query string.
-        assert_eq!(required_pat_scope("/users/me"), Some("user"));
-        assert_eq!(required_pat_scope("/repos?page=1"), Some("repo"));
-        assert_eq!(required_pat_scope("/api/v1/repos?page=1"), Some("repo"));
+        assert_eq!(get("/users/me"), Some("user"));
+        assert_eq!(get("/repos?page=1"), Some("repo:read"));
+        assert_eq!(get("/api/v1/repos?page=1"), Some("repo:read"));
     }
 
     /// Regression: an unrecognised route used to fall through to `repo`. A new
     /// endpoint must not become reachable by a `repo`-scoped token by default.
     #[test]
     fn unknown_routes_fail_closed() {
-        assert_eq!(required_pat_scope("/api/v1/brand-new"), Some("admin"));
-        assert_eq!(required_pat_scope("/brand-new"), Some("admin"));
+        assert_eq!(get("/api/v1/brand-new"), Some("admin"));
+        assert_eq!(get("/brand-new"), Some("admin"));
+        assert_eq!(post("/api/v1/brand-new"), Some("admin"));
     }
 }
 

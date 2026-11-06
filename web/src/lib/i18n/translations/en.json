@@ -1170,7 +1170,8 @@
       "revoking": "Revoking...",
       "revoke": "Revoke",
       "title": "Access Tokens",
-      "subtitle": "Manage personal tokens for Git over HTTP, API clients, and automation."
+      "subtitle": "Manage personal tokens for Git over HTTP, API clients, and automation.",
+      "scopes_hint": "repo:read (read only) · repo:collab (read + collaboration writes, for agents) · repo:write (read + all writes, git push) · repo (everything in repositories) · user · admin. Separate with commas."
     },
     "confirm_delete_label_title": "Confirm Delete",
     "label_name_required": "Label name is required",
