@@ -1,5 +1,6 @@
 pub mod admin;
 pub mod ai;
+pub mod ai_pr_context;
 pub mod archive;
 pub mod artifacts;
 pub mod attachments;
@@ -56,6 +57,7 @@ pub mod pulls;
 pub mod releases;
 pub(crate) mod repo_access;
 pub mod repo_content;
+pub mod repo_events;
 pub mod repos;
 pub mod reviews;
 pub mod runners;

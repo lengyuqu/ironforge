@@ -95,6 +95,79 @@ pub(crate) fn extract_bearer_claims(headers: &HeaderMap, jwt_secret: &str) -> Op
     rg_core::auth::jwt::validate_token(token, jwt_secret)
 }
 
+/// The personal access token a session was minted from, if it was minted from
+/// one. `Ok(None)` is an ordinary login. A token that has since been revoked, has
+/// expired, or belongs to someone else is an error, not "no token": deleting a
+/// token also ends the sessions it already minted.
+async fn session_access_token(
+    db: &sea_orm::DatabaseConnection,
+    claims: &Claims,
+) -> Result<Option<rg_db::entities::access_token::Model>, crate::error::AppError> {
+    use crate::error::AppError;
+    let Some(token_id) = claims.tid else {
+        return Ok(None);
+    };
+    let token = rg_db::ops::token_ops::find_by_id(db, token_id)
+        .await
+        .ok()
+        .flatten();
+    let Some(token) = token else {
+        return Err(AppError::forbidden("access token is no longer valid"));
+    };
+    let expired = token
+        .expires_at
+        .is_some_and(|expires_at| expires_at < chrono::Utc::now());
+    if expired || token.user_id.to_string() != claims.sub {
+        return Err(AppError::forbidden("access token is no longer valid"));
+    }
+    Ok(Some(token))
+}
+
+/// Hold a request to the branch limit of the personal access token it came
+/// from.
+///
+/// The PAT middleware swaps a token for a session JWT that carries the token's
+/// id (`tid`); a handler that moves a branch calls this with the branch it is
+/// about to write. A session without `tid` (an ordinary login) is not limited,
+/// and neither is a token with no branch limit.
+pub(crate) async fn ensure_token_may_write_branch(
+    db: &sea_orm::DatabaseConnection,
+    claims: &Claims,
+    branch: &str,
+) -> Result<(), crate::error::AppError> {
+    use crate::error::AppError;
+    let Some(token) = session_access_token(db, claims).await? else {
+        return Ok(());
+    };
+    let Some(stored) = token.ref_allowlist.as_deref() else {
+        return Ok(());
+    };
+    let allow = rg_core::auth::pat_scope::parse_ref_allowlist(stored);
+    if rg_core::auth::pat_scope::ref_in_allowlist(&format!("refs/heads/{branch}"), &allow) {
+        Ok(())
+    } else {
+        Err(AppError::forbidden(
+            "this access token may not write to this branch",
+        ))
+    }
+}
+
+/// A token limited to some branches is an agent's token, and an agent's
+/// approval must not satisfy a review requirement, so it may comment and ask for
+/// changes but not approve. A person (an ordinary login, or a token with no
+/// branch limit) may.
+pub(crate) async fn ensure_session_may_approve(
+    db: &sea_orm::DatabaseConnection,
+    claims: &Claims,
+) -> Result<(), crate::error::AppError> {
+    match session_access_token(db, claims).await? {
+        Some(token) if token.ref_allowlist.is_some() => Err(crate::error::AppError::forbidden(
+            "an access token limited to some branches may not approve a pull request",
+        )),
+        _ => Ok(()),
+    }
+}
+
 /// Extract a CI job token and verify it has the required scope for the target repo.
 ///
 /// Returns the job token claims if valid and authorized. Returns None if the token

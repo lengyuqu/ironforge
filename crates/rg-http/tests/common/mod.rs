@@ -116,6 +116,37 @@ pub async fn spawn_test_app_with_db() -> (String, rg_db::DatabaseConnection) {
     (base_url, db)
 }
 
+/// Like [`spawn_test_app_with_db`], but on the PostgreSQL or MySQL database
+/// named by `IRONFORGE_TEST_DATABASE_URL` when it is set (migrated, shared
+/// between the tests of one process, never reset: start each test target on a
+/// fresh database and give each test its own account names). SQLite otherwise.
+#[allow(dead_code)]
+pub async fn spawn_test_app_on_env_db() -> (String, rg_db::DatabaseConnection) {
+    let Ok(url) = std::env::var("IRONFORGE_TEST_DATABASE_URL") else {
+        return spawn_test_app_with_db().await;
+    };
+    static SETUP: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    let _guard = SETUP.lock().await;
+    std::env::set_var("IRONFORGE_ALLOW_LOCAL_OUTBOUND", "1");
+    let db = rg_db::connect_with_pool(&url, 20, 60, 16)
+        .await
+        .expect("connect");
+    rg_db::run_migrations(&db).await.expect("migrate");
+    let dir = tempfile::tempdir().expect("failed to create temp dir");
+    let repo_root = dir.path().join("repos");
+    std::fs::create_dir_all(&repo_root).ok();
+    let state = build_test_app_state(db.clone(), repo_root);
+    let app = rg_http::create_router_for_test(state);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base_url = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(async move {
+        let _dir = dir;
+        axum::serve(listener, app).await.unwrap();
+    });
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    (base_url, db)
+}
+
 pub async fn register_user(base: &str, username: &str, email: &str, password: &str) -> String {
     let client = reqwest::Client::new();
     let resp = client

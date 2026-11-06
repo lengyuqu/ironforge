@@ -233,101 +233,10 @@ pub async fn handle_git_upload_pack_v2(
     }
 }
 
-/// Handle POST /git/{owner}/{repo}/git-receive-pack
-/// For Protocol V2 push operations.
-pub async fn handle_git_receive_pack_v2(
-    State(state): State<AppState>,
-    Path((owner, repo)): Path<(String, String)>,
-    headers: HeaderMap,
-    body: axum::body::Bytes,
-) -> impl IntoResponse {
-    // Check if client wants V2
-    if !wants_protocol_v2(&headers) {
-        return (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({
-                "error": "Protocol V2 not requested"
-            })),
-        )
-            .into_response();
-    }
-
-    // H-02: Validate owner/repo before constructing repository path
-    if let Err(e) = rg_core::platform::validate_repo_path(&owner) {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": e.to_string()
-            })),
-        )
-            .into_response();
-    }
-    if let Err(e) = rg_core::platform::validate_repo_path(&repo) {
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": e.to_string()
-            })),
-        )
-            .into_response();
-    }
-
-    // Build repo path
-    let repo_path = state.repo_root.join(&owner).join(format!("{}.git", repo));
-
-    if !repo_path.exists() {
-        return (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({
-                "error": "Repository not found"
-            })),
-        )
-            .into_response();
-    }
-
-    // For receive-pack over V2, we still use the V1 receive-pack logic
-    // because V2's fetch command is primarily for clone/fetch, not push
-    // The push negotiation in V2 still uses similar mechanisms
-    let (reader, mut writer) = tokio::io::duplex(body.len() + 4096);
-
-    if let Err(e) = writer.write_all(&body).await {
-        tracing::error!(error = %e, "Failed to write request body");
-        return (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": "Bad request"})),
-        )
-            .into_response();
-    }
-    drop(writer);
-
-    let mut response_buf = Vec::new();
-
-    match rg_git::protocol::receive_pack::handle_receive_pack_http(
-        &repo_path,
-        reader,
-        &mut response_buf,
-    )
-    .await
-    {
-        Ok(_ref_updates) => {
-            let body = String::from_utf8(response_buf).unwrap_or_default();
-            (
-                StatusCode::OK,
-                [("Content-Type", "application/x-git-receive-pack-result")],
-                body,
-            )
-                .into_response()
-        }
-        Err(e) => {
-            tracing::error!(error = %e, "V2 receive-pack failed");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({"error": e.to_string()})),
-            )
-                .into_response()
-        }
-    }
-}
+// There is deliberately no V2 receive-pack handler here. A push is served by
+// the V1 `handle_receive_pack` in `lib.rs`, which applies branch protection,
+// token scopes and branch limits; a second push entry point without those checks
+// would bypass them all.
 
 #[cfg(test)]
 mod tests {

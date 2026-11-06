@@ -69,7 +69,24 @@ impl ApiClient {
         session: Option<(&str, &str)>,
         body: Option<&serde_json::Value>,
     ) -> crate::Result<(u16, String)> {
+        self.send_json_keyed(method, path, session, body, None)
+            .await
+    }
+
+    /// [`Self::send_json`] with an `Idempotency-Key` header, so a retried create
+    /// returns the first response instead of creating a second object.
+    pub async fn send_json_keyed(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+        session: Option<(&str, &str)>,
+        body: Option<&serde_json::Value>,
+        idempotency_key: Option<&str>,
+    ) -> crate::Result<(u16, String)> {
         let mut request = self.inner.request(method, self.url(path));
+        if let Some(key) = idempotency_key {
+            request = request.header("idempotency-key", key);
+        }
         if let Some((id, secret)) = session {
             let mut secret_value =
                 reqwest::header::HeaderValue::from_str(secret).map_err(|_| {

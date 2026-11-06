@@ -11,6 +11,7 @@ pub mod api;
 pub mod body_reader;
 pub mod error;
 pub mod git_v2;
+pub mod idempotency;
 pub mod instance;
 pub mod metrics;
 pub mod middleware;
@@ -242,6 +243,26 @@ pub async fn run(config: HttpServerConfig) -> Result<()> {
 
     let app = create_router(state.clone(), rate_limiter.clone());
 
+    tokio::spawn(rg_core::task_supervisor::supervise(
+        "repo_events.cleanup",
+        {
+            let state = state.clone();
+            move || {
+                let state = state.clone();
+                async move { api::repo_events::run_cleanup_loop(state).await }
+            }
+        },
+    ));
+    tokio::spawn(rg_core::task_supervisor::supervise(
+        "idempotency.cleanup",
+        {
+            let state = state.clone();
+            move || {
+                let state = state.clone();
+                async move { idempotency::run_cleanup_loop(state).await }
+            }
+        },
+    ));
     tokio::spawn(rg_core::task_supervisor::supervise(
         "ci.retention_cleanup",
         {
@@ -963,6 +984,10 @@ fn build_routes(
         .route(
             "/repos/{owner}/{name}/pipelines/{id}/wait",
             get(api::ci_feedback::wait_pipeline),
+        )
+        .route(
+            "/repos/{owner}/{name}/events",
+            get(api::repo_events::list_events),
         )
         // Same-account multi-agent collaboration
         .route(
@@ -1716,10 +1741,21 @@ fn build_routes(
             "/ai/repos/{owner}/{name}/index",
             post(api::ai::ai_index_repository),
         )
+        .route(
+            "/ai/repos/{owner}/{name}/pulls/{number}/context",
+            get(api::ai_pr_context::pr_context),
+        )
         // WebSocket
         .route("/ws/notifications", get(ws::ws_notifications_handler))
         .route("/ws/job/{job_id}", get(ws::ws_job_log_handler));
 
+    // `Idempotency-Key`: replay the first response to a retried create request.
+    // Added before the PAT layer so it sits inside it: by then a token has been
+    // turned into a session and the token id is stamped on the request.
+    let api_v1 = api_v1.layer(axum::middleware::from_fn_with_state(
+        state.clone(),
+        idempotency::idempotency_middleware,
+    ));
     // Accept Personal Access Tokens on the REST API by translating them to a
     // Bearer JWT before the (JWT-only) handlers run.
     let api_v1 = api_v1.layer(axum::middleware::from_fn_with_state(
@@ -2089,6 +2125,9 @@ async fn pat_auth_middleware(
     mut req: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> Response {
+    // The token id header is ours alone: drop whatever the client sent, then set
+    // it only when this request is made with a personal access token.
+    req.headers_mut().remove(api::audit::ACCESS_TOKEN_ID_HEADER);
     let required_scope = required_pat_scope(req.method(), req.uri().path());
     match pat_to_bearer_jwt(
         &state,
@@ -2100,6 +2139,14 @@ async fn pat_auth_middleware(
     .await
     {
         Ok(Some(jwt)) => {
+            if let Some(token_id) =
+                rg_core::auth::jwt::validate_token(&jwt, &state.jwt_secret).and_then(|c| c.tid)
+            {
+                if let Ok(value) = token_id.to_string().parse() {
+                    req.headers_mut()
+                        .insert(api::audit::ACCESS_TOKEN_ID_HEADER, value);
+                }
+            }
             if let Ok(value) = format!("Bearer {jwt}").parse() {
                 req.headers_mut().insert(header::AUTHORIZATION, value);
             }
@@ -2215,12 +2262,13 @@ async fn pat_to_bearer_jwt(
                 crate::metrics::clients::pat_auth("inactive_owner");
                 continue;
             }
-            if let Ok(jwt) = rg_core::auth::jwt::generate_token(
+            if let Ok(jwt) = rg_core::auth::jwt::generate_token_for(
                 user.id,
                 &user.username,
                 &state.jwt_secret,
                 1,
                 user.token_version,
+                Some(pat.id),
             ) {
                 crate::metrics::clients::pat_auth("ok");
                 return Ok(Some(jwt));

@@ -1176,7 +1176,7 @@
       "repos_hint": "owner/name, separated by commas. The token can then only reach those repositories, and only with repository scopes. Leave empty for no limit.",
       "repos_only": "Only",
       "refs_label": "Branches (optional)",
-      "refs_hint": "Branch names, separated by commas; * matches any run of characters (for example agent/*). The token can then only push those branches, never tags, and its other writes are limited to issues, pull requests (open, comment, review) and collaboration; it cannot merge or edit files. Needs repositories above. Leave empty for no limit.",
+      "refs_hint": "Branch names, separated by commas; * matches any run of characters (for example agent/*). The token can then only push or commit to those branches, never tags, and its other writes are limited to issues, pull requests (open, comment, review without approving) and collaboration; it cannot merge or approve. Needs repositories above. Leave empty for no limit.",
       "refs_only": "Branches"
     },
     "confirm_delete_label_title": "Confirm Delete",

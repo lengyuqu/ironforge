@@ -329,6 +329,13 @@ pub async fn submit_review(
         .into_response();
     }
     let should_attempt_auto_merge = action.as_str() == "approve";
+    if should_attempt_auto_merge {
+        if let Some(claims) = crate::api::auth::extract_bearer_claims(&headers, &state.jwt_secret) {
+            if let Err(e) = crate::api::auth::ensure_session_may_approve(&state.db, &claims).await {
+                return e.into_response();
+            }
+        }
+    }
 
     match rg_core::review::service::submit_review(
         &state.db,

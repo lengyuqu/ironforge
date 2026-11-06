@@ -26,6 +26,17 @@ pub struct ErrorBody {
     /// `{"current_version": 3}` on `VERSION_CONFLICT`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub details: Option<serde_json::Value>,
+    /// Stable, finer-grained cause inside `code` (e.g. `REF_ADVANCED` under
+    /// `CONFLICT`). Clients branch on this instead of parsing `message`. Present
+    /// only on the errors that have one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<&'static str>,
+    /// Whether repeating the request after re-reading state can succeed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retryable: Option<bool>,
+    /// One sentence on what to do next, for a client that cannot guess.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hint: Option<String>,
 }
 
 /// Unified application error type for all HTTP handlers.
@@ -55,6 +66,9 @@ pub enum AppError {
         code: &'static str,
         message: String,
         details: Option<serde_json::Value>,
+        reason: Option<&'static str>,
+        retryable: Option<bool>,
+        hint: Option<String>,
     },
 }
 
@@ -105,9 +119,15 @@ impl IntoResponse for AppError {
             other => other.to_string(),
         };
 
-        let details = match &self {
-            Self::Coded { details, .. } => details.clone(),
-            _ => None,
+        let (details, reason, retryable, hint) = match &self {
+            Self::Coded {
+                details,
+                reason,
+                retryable,
+                hint,
+                ..
+            } => (details.clone(), *reason, *retryable, hint.clone()),
+            _ => (None, None, None, None),
         };
         let body = ErrorResponse {
             error: ErrorBody {
@@ -115,6 +135,9 @@ impl IntoResponse for AppError {
                 message: sanitized_message,
                 request_id: None,
                 details,
+                reason,
+                retryable,
+                hint,
             },
         };
         (status, axum::Json(body)).into_response()
@@ -211,7 +234,45 @@ impl AppError {
             code,
             message: msg.to_string(),
             details: None,
+            reason: None,
+            retryable: None,
+            hint: None,
         }
+    }
+
+    /// Attach a stable `reason`, whether a retry can help, and a hint to a
+    /// [`AppError::Coded`] (no-op otherwise).
+    pub fn with_reason(
+        mut self,
+        why: &'static str,
+        can_retry: bool,
+        advice: impl std::fmt::Display,
+    ) -> Self {
+        if let Self::Coded {
+            reason,
+            retryable,
+            hint,
+            ..
+        } = &mut self
+        {
+            *reason = Some(why);
+            *retryable = Some(can_retry);
+            *hint = Some(advice.to_string());
+        }
+        self
+    }
+
+    /// A 409 whose `code` stays the coarse `CONFLICT` and whose `reason` says why.
+    pub fn conflict_because(
+        reason: &'static str,
+        retryable: bool,
+        msg: impl std::fmt::Display,
+        details: serde_json::Value,
+        hint: impl std::fmt::Display,
+    ) -> Self {
+        Self::coded(StatusCode::CONFLICT, "CONFLICT", msg)
+            .with_details(details)
+            .with_reason(reason, retryable, hint)
     }
 
     /// Attach structured `details` to a [`AppError::Coded`] (no-op otherwise).

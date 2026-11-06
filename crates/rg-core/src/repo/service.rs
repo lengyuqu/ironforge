@@ -1614,6 +1614,81 @@ fn validate_repo_file_path(file_path: &str) -> CoreResult<()> {
     Ok(())
 }
 
+/// Options for a server-side file commit beyond the file itself.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct FileCommitOptions<'a> {
+    /// The tip the branch must be at. A different tip fails with
+    /// [`FileCommitError::RefAdvanced`] instead of committing on top of work the
+    /// caller has not seen. A branch that does not exist counts as a different
+    /// tip.
+    pub expected_tip: Option<&'a str>,
+    /// Run every check and report what would happen, changing nothing.
+    pub dry_run: bool,
+}
+
+/// What a file commit did, or (for a dry run) would do.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileCommitReport {
+    /// `true` when nothing was written.
+    pub dry_run: bool,
+    pub branch: String,
+    /// The branch tip before the commit; `None` when the branch does not exist
+    /// yet and the commit would create it from the default branch.
+    pub tip_before: Option<String>,
+    /// Blob of the file before the change; `None` for a file being created.
+    pub blob_before: Option<String>,
+}
+
+/// Why a file commit failed. Everything but [`Self::RefAdvanced`] is an
+/// ordinary domain error.
+#[derive(Debug)]
+pub enum FileCommitError {
+    /// The branch is not at `expected`; it is at `current` (`None`: missing).
+    RefAdvanced {
+        current: Option<String>,
+        expected: String,
+    },
+    Core(CoreError),
+}
+
+impl From<CoreError> for FileCommitError {
+    fn from(error: CoreError) -> Self {
+        Self::Core(error)
+    }
+}
+
+impl From<FileCommitError> for CoreError {
+    fn from(error: FileCommitError) -> Self {
+        match error {
+            FileCommitError::Core(core) => core,
+            FileCommitError::RefAdvanced { current, expected } => CoreError::conflict(format!(
+                "branch is at {current:?}, not at the expected {expected}"
+            )),
+        }
+    }
+}
+
+/// Fail with `RefAdvanced` unless the branch is at the expected tip. Returns the
+/// current tip (`None` when the branch does not exist).
+fn check_expected_tip(
+    repo_path: &std::path::Path,
+    branch: &str,
+    expected: Option<&str>,
+) -> Result<Option<String>, FileCommitError> {
+    let tip = rg_git::ops::try_rev_parse(repo_path, &format!("refs/heads/{branch}"))
+        .ok()
+        .flatten();
+    if let Some(expected) = expected {
+        if tip.as_deref() != Some(expected) {
+            return Err(FileCommitError::RefAdvanced {
+                current: tip,
+                expected: expected.to_string(),
+            });
+        }
+    }
+    Ok(tip)
+}
+
 /// Create or update a file in a repository.
 ///
 /// This function:
@@ -1645,6 +1720,49 @@ pub async fn create_or_update_file(
     repo_root: &std::path::Path,
     actor_id: Option<i64>,
 ) -> CoreResult<()> {
+    create_or_update_file_with(
+        db,
+        repo_id,
+        owner,
+        repo_name,
+        file_path,
+        content,
+        message,
+        branch,
+        sha,
+        author_name,
+        author_email,
+        repo_root,
+        actor_id,
+        FileCommitOptions::default(),
+    )
+    .await
+    .map(|_| ())
+    .map_err(CoreError::from)
+}
+
+/// [`create_or_update_file`] with an expected branch tip and a dry-run mode.
+///
+/// A dry run does the same validation, protection check, existence check and
+/// blob-sha check as a real commit, in the same order, and stops before it
+/// creates the branch or writes anything.
+#[allow(clippy::too_many_arguments)]
+pub async fn create_or_update_file_with(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    owner: &str,
+    repo_name: &str,
+    file_path: &str,
+    content: &str,
+    message: &str,
+    branch: &str,
+    sha: Option<&str>,
+    author_name: &str,
+    author_email: &str,
+    repo_root: &std::path::Path,
+    actor_id: Option<i64>,
+    options: FileCommitOptions<'_>,
+) -> Result<FileCommitReport, FileCommitError> {
     validate_branch_name(branch)?;
     validate_repo_file_path(file_path)?;
 
@@ -1658,7 +1776,7 @@ pub async fn create_or_update_file(
     let repo_path = repo_root.join(format!("{}/{}.git", owner, repo_name));
 
     if !repo_path.exists() {
-        return Err(missing_repo_storage(&repo_path));
+        return Err(missing_repo_storage(&repo_path).into());
     }
 
     // Verify the file SHA if this is an update (not a create)
@@ -1666,37 +1784,46 @@ pub async fn create_or_update_file(
         // Check if the file exists and its current SHA matches
         let current_sha = get_file_sha(&repo_path, branch, file_path)?;
         if current_sha.is_none() {
-            return Err(CoreError::not_found(format!(
+            return Err(FileCommitError::Core(CoreError::not_found(format!(
                 "file does not exist: {}",
                 file_path
-            )));
+            ))));
         }
         if let Some(current) = current_sha {
             if current != expected_sha {
-                return Err(CoreError::conflict(format!(
+                return Err(FileCommitError::Core(CoreError::conflict(format!(
                     "file SHA mismatch: expected {}, got {}",
                     expected_sha, current
-                )));
+                ))));
             }
         }
     } else {
         // This is a create operation - check if file already exists
         let current_sha = get_file_sha(&repo_path, branch, file_path)?;
         if current_sha.is_some() {
-            return Err(CoreError::conflict(format!(
+            return Err(FileCommitError::Core(CoreError::conflict(format!(
                 "file already exists: {} (use update with sha)",
                 file_path
-            )));
+            ))));
         }
+    }
+
+    let tip_before = check_expected_tip(&repo_path, branch, options.expected_tip)?;
+    let blob_before = get_file_sha(&repo_path, branch, file_path)?;
+    if options.dry_run {
+        return Ok(FileCommitReport {
+            dry_run: true,
+            branch: branch.to_string(),
+            tip_before,
+            blob_before,
+        });
     }
 
     // gix-native direct commit — replaces the clone/add/commit/push
     // worktree chain (and its temp directory) entirely. The branch ref is
     // snapshotted before the write so a concurrent advance is rejected
     // (equivalent to the old fast-forward push guard).
-    let mut tip_snapshot = rg_git::ops::try_rev_parse(&repo_path, &format!("refs/heads/{branch}"))
-        .ok()
-        .flatten();
+    let mut tip_snapshot = tip_before.clone();
     if tip_snapshot.is_none() {
         // Mirror the old `checkout -b` fallback for repos where the branch
         // does not exist yet: branch from the current default HEAD.
@@ -1745,9 +1872,17 @@ pub async fn create_or_update_file(
     match outcome {
         rg_git::ops::CommitTreeOutcome::Committed(_) => {}
         rg_git::ops::CommitTreeOutcome::TipAdvanced { actual } => {
-            return Err(CoreError::conflict(format!(
-                "branch head changed while committing (now at {actual:?})"
-            )));
+            // The branch moved between the check above and the write. When the
+            // caller named a tip, say so with the same typed error.
+            return Err(match options.expected_tip {
+                Some(expected) => FileCommitError::RefAdvanced {
+                    current: actual,
+                    expected: expected.to_string(),
+                },
+                None => FileCommitError::Core(CoreError::conflict(format!(
+                    "branch head changed while committing (now at {actual:?})"
+                ))),
+            });
         }
     }
 
@@ -1758,7 +1893,12 @@ pub async fn create_or_update_file(
         "file created/updated successfully"
     );
 
-    Ok(())
+    Ok(FileCommitReport {
+        dry_run: false,
+        branch: branch.to_string(),
+        tip_before,
+        blob_before,
+    })
 }
 
 #[derive(Debug, Clone)]
@@ -1866,6 +2006,44 @@ pub async fn delete_file(
     repo_root: &std::path::Path,
     actor_id: Option<i64>,
 ) -> CoreResult<()> {
+    delete_file_with(
+        db,
+        repo_id,
+        owner,
+        repo_name,
+        file_path,
+        message,
+        branch,
+        sha,
+        author_name,
+        author_email,
+        repo_root,
+        actor_id,
+        FileCommitOptions::default(),
+    )
+    .await
+    .map(|_| ())
+    .map_err(CoreError::from)
+}
+
+/// [`delete_file`] with an expected branch tip and a dry-run mode; see
+/// [`create_or_update_file_with`].
+#[allow(clippy::too_many_arguments)]
+pub async fn delete_file_with(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    owner: &str,
+    repo_name: &str,
+    file_path: &str,
+    message: &str,
+    branch: &str,
+    sha: &str,
+    author_name: &str,
+    author_email: &str,
+    repo_root: &std::path::Path,
+    actor_id: Option<i64>,
+    options: FileCommitOptions<'_>,
+) -> Result<FileCommitReport, FileCommitError> {
     validate_branch_name(branch)?;
     validate_repo_file_path(file_path)?;
 
@@ -1878,30 +2056,38 @@ pub async fn delete_file(
     let repo_path = repo_root.join(format!("{}/{}.git", owner, repo_name));
 
     if !repo_path.exists() {
-        return Err(missing_repo_storage(&repo_path));
+        return Err(missing_repo_storage(&repo_path).into());
     }
 
     // Verify the file SHA to prevent accidental deletes
     let current_sha = get_file_sha(&repo_path, branch, file_path)?;
     if current_sha.is_none() {
-        return Err(CoreError::not_found(format!(
+        return Err(FileCommitError::Core(CoreError::not_found(format!(
             "file does not exist: {}",
             file_path
-        )));
+        ))));
     }
     if let Some(current) = current_sha {
         if current != sha {
-            return Err(CoreError::conflict(format!(
+            return Err(FileCommitError::Core(CoreError::conflict(format!(
                 "file SHA mismatch: expected {}, got {}",
                 sha, current
-            )));
+            ))));
         }
     }
 
+    let tip_before = check_expected_tip(&repo_path, branch, options.expected_tip)?;
+    if options.dry_run {
+        return Ok(FileCommitReport {
+            dry_run: true,
+            branch: branch.to_string(),
+            tip_before,
+            blob_before: Some(sha.to_string()),
+        });
+    }
+
     // gix-native direct commit — replaces the clone/rm/commit/push chain.
-    let tip_snapshot = rg_git::ops::try_rev_parse(&repo_path, &format!("refs/heads/{branch}"))
-        .ok()
-        .flatten();
+    let tip_snapshot = tip_before.clone();
     let repo_dir = repo_path.clone();
     let branch_owned = branch.to_string();
     let file_path_owned = file_path.to_string();
@@ -1928,9 +2114,15 @@ pub async fn delete_file(
     match outcome {
         rg_git::ops::CommitTreeOutcome::Committed(_) => {}
         rg_git::ops::CommitTreeOutcome::TipAdvanced { actual } => {
-            return Err(CoreError::conflict(format!(
-                "branch head changed while deleting (now at {actual:?})"
-            )));
+            return Err(match options.expected_tip {
+                Some(expected) => FileCommitError::RefAdvanced {
+                    current: actual,
+                    expected: expected.to_string(),
+                },
+                None => FileCommitError::Core(CoreError::conflict(format!(
+                    "branch head changed while deleting (now at {actual:?})"
+                ))),
+            });
         }
     }
 
@@ -1941,7 +2133,12 @@ pub async fn delete_file(
         "file deleted successfully"
     );
 
-    Ok(())
+    Ok(FileCommitReport {
+        dry_run: false,
+        branch: branch.to_string(),
+        tip_before,
+        blob_before: Some(sha.to_string()),
+    })
 }
 
 /// Get the blob SHA of a file at a given ref, or `None` when the ref or the

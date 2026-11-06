@@ -76,7 +76,9 @@ async fn record_audit(
         resource_name: sea_orm::Set(resource_name.map(|s| s.to_string())),
         ip_address: sea_orm::Set(ip_address),
         user_agent: sea_orm::Set(user_agent),
-        details: sea_orm::Set(details.map(|v| v.to_string())),
+        details: sea_orm::Set(
+            crate::api::audit::with_access_token(headers, details).map(|v| v.to_string()),
+        ),
         created_at: sea_orm::Set(chrono::Utc::now()),
     };
 

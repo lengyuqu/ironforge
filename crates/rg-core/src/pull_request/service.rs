@@ -1159,6 +1159,39 @@ pub async fn merge_pr(
     result
 }
 
+/// The commit the pull request's head branch is at right now (`None` when the
+/// branch no longer exists), read from the repository that holds it: the fork
+/// for a fork PR, otherwise the target repository. This is the live tip, which
+/// can be ahead of the stored `head_sha` until the next sync.
+pub async fn live_head_sha(
+    db: &DatabaseConnection,
+    repo_root: &std::path::Path,
+    owner: &str,
+    repo_name: &str,
+    pr: &PullRequest,
+) -> CoreResult<Option<String>> {
+    let head_path = match pr.head_repo_id {
+        Some(head_repo_id) => {
+            let head_repo = repo_entity::Entity::find_by_id(head_repo_id)
+                .one(db)
+                .await
+                .context("failed to find head repository")?
+                .context("head repository not found")?;
+            let namespace = repository_namespace(db, &head_repo).await?;
+            repo_root.join(format!("{}/{}.git", namespace, head_repo.name))
+        }
+        None => repo_root.join(format!("{}/{}.git", owner, repo_name)),
+    };
+    if !head_path.exists() {
+        return Ok(None);
+    }
+    Ok(
+        rg_git::ops::try_rev_parse(&head_path, &format!("refs/heads/{}", pr.head_branch))
+            .ok()
+            .flatten(),
+    )
+}
+
 async fn merge_claimed_pr(
     db: &DatabaseConnection,
     repo_root: &std::path::Path,

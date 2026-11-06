@@ -5,7 +5,7 @@
 //! move a branch. A token without the limit is unchanged.
 
 mod common;
-use common::{register_user, spawn_test_app};
+use common::{register_user, spawn_test_app_on_env_db};
 
 use reqwest::{Client, Method, StatusCode};
 use serde_json::{json, Value};
@@ -41,7 +41,7 @@ fn git(args: &[&str], cwd: Option<&Path>) -> String {
 
 #[tokio::test]
 async fn the_branch_limit_is_validated_when_the_token_is_created() {
-    let base = spawn_test_app().await;
+    let base = spawn_test_app_on_env_db().await.0;
     let jwt = register_user(&base, "refs_valid", "refs-valid@example.com", PW).await;
     let repos = json!(["refs_valid/demo"]);
 
@@ -120,7 +120,7 @@ async fn the_branch_limit_is_validated_when_the_token_is_created() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_push_may_only_update_the_listed_branches() {
-    let base = spawn_test_app().await;
+    let base = spawn_test_app_on_env_db().await.0;
     let owner = "refs_push";
     let jwt = register_user(&base, owner, "refs-push@example.com", PW).await;
     let client = Client::new();
@@ -247,7 +247,7 @@ async fn a_push_may_only_update_the_listed_branches() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_limited_tokens_rest_writes_cannot_move_a_branch() {
-    let base = spawn_test_app().await;
+    let base = spawn_test_app_on_env_db().await.0;
     let owner = "refs_rest";
     let jwt = register_user(&base, owner, "refs-rest@example.com", PW).await;
     let client = Client::new();
@@ -352,16 +352,16 @@ async fn a_limited_tokens_rest_writes_cannot_move_a_branch() {
         (
             Method::POST,
             "/contents/new.txt".to_string(),
-            Some(json!({"branch": "agent/one", "message": "m", "content": "hello\n"})),
+            Some(json!({"branch": "main", "message": "m", "content": "hello\n"})),
         ),
         (
             Method::POST,
             "/contents/new.txt".to_string(),
-            Some(json!({"branch": "main", "message": "m", "content": "hello\n"})),
+            Some(json!({"branch": "agentx/one", "message": "m", "content": "hello\n"})),
         ),
         (
             Method::DELETE,
-            "/contents/a.txt?branch=agent/one&message=m&sha=0000000000000000000000000000000000000000".to_string(),
+            "/contents/README.md?branch=main&message=m&sha=0000000000000000000000000000000000000000".to_string(),
             None,
         ),
         (Method::POST, "/pulls/1/merge".to_string(), Some(json!({}))),
@@ -392,6 +392,37 @@ async fn a_limited_tokens_rest_writes_cannot_move_a_branch() {
     // Nothing above changed a branch.
     let heads = git(&["ls-remote", &remote], None);
     assert!(!heads.contains("new.txt"));
+
+    // A file edit on a listed branch is allowed: the handler holds the branch to
+    // the token's own limit.
+    let resp = send(
+        Method::POST,
+        api("/contents/agent-note.txt"),
+        limited.clone(),
+        Some(json!({"branch": "agent/one", "message": "note", "content": "hello\n"})),
+    )
+    .await;
+    assert!(
+        resp.status().is_success(),
+        "limited token edits a file on a listed branch: {} {}",
+        resp.status(),
+        resp.text().await.unwrap()
+    );
+    // A delete on a listed branch gets past the limit (it then fails on the
+    // wrong blob sha, which is not a 403).
+    let resp = send(
+        Method::DELETE,
+        api("/contents/a.txt?branch=agent/one&message=m&sha=0000000000000000000000000000000000000000"),
+        limited.clone(),
+        None,
+    )
+    .await;
+    assert_ne!(
+        resp.status(),
+        StatusCode::FORBIDDEN,
+        "{}",
+        resp.text().await.unwrap()
+    );
     let branches: Value = send(Method::GET, api("/branches"), jwt.clone(), None)
         .await
         .json()
@@ -422,9 +453,79 @@ async fn a_limited_tokens_rest_writes_cannot_move_a_branch() {
     );
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_revoked_token_cannot_keep_using_the_session_it_minted() {
+    let base = spawn_test_app_on_env_db().await.0;
+    let owner = "refs_revoked";
+    let jwt = register_user(&base, owner, "refs-revoked@example.com", PW).await;
+    let client = Client::new();
+    assert_eq!(
+        client
+            .post(format!("{base}/api/v1/repos"))
+            .bearer_auth(&jwt)
+            .json(&json!({"name": "work", "auto_init": true, "is_private": true}))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        201
+    );
+    let (_, created) = make_token(
+        &base,
+        &jwt,
+        json!({"name": "agent", "scopes": "repo:write", "repos": [format!("{owner}/work")],
+               "refs": ["agent/*"]}),
+    )
+    .await;
+    let token_id = created["id"].as_i64().unwrap();
+
+    // The session the middleware would mint for this token.
+    let claims = rg_core::auth::jwt::validate_token(&jwt, "test-secret-key").unwrap();
+    let user_id: i64 = claims.sub.parse().unwrap();
+    let minted = rg_core::auth::jwt::generate_token_for(
+        user_id,
+        owner,
+        "test-secret-key",
+        1,
+        claims.ver,
+        Some(token_id),
+    )
+    .unwrap();
+
+    let url = format!("{base}/api/v1/repos/{owner}/work/contents/x.txt");
+    let edit = |branch: &'static str| {
+        let client = client.clone();
+        let url = url.clone();
+        let minted = minted.clone();
+        async move {
+            client
+                .post(url)
+                .bearer_auth(minted)
+                .json(&json!({"branch": branch, "message": "m", "content": "x\n"}))
+                .send()
+                .await
+                .unwrap()
+                .status()
+        }
+    };
+    // While the token exists, the limit applies to the session it minted.
+    assert_eq!(edit("main").await, StatusCode::FORBIDDEN);
+
+    // Deleting the token ends the sessions it minted: even a branch the token
+    // used to cover is now refused.
+    let resp = client
+        .delete(format!("{base}/api/v1/users/tokens/{token_id}"))
+        .bearer_auth(&jwt)
+        .send()
+        .await
+        .unwrap();
+    assert!(resp.status().is_success(), "{}", resp.status());
+    assert_eq!(edit("agent/anything").await, StatusCode::FORBIDDEN);
+}
+
 #[tokio::test]
 async fn a_token_without_a_branch_limit_behaves_as_before() {
-    let base = spawn_test_app().await;
+    let base = spawn_test_app_on_env_db().await.0;
     let owner = "refs_plain";
     let jwt = register_user(&base, owner, "refs-plain@example.com", PW).await;
     let client = Client::new();
@@ -465,4 +566,190 @@ async fn a_token_without_a_branch_limit_behaves_as_before() {
         );
         // Each token writes its own file so the second is not a conflict.
     }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_audit_entry_names_the_access_token_that_made_the_request() {
+    use rg_db::sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+    let (base, db) = spawn_test_app_on_env_db().await;
+    let jwt = register_user(&base, "audit_tok", "audit-tok@example.com", PW).await;
+    let client = Client::new();
+    let (status, created) =
+        make_token(&base, &jwt, json!({"name": "ci-bot", "scopes": "repo"})).await;
+    assert_eq!(status, StatusCode::CREATED);
+    let token_id = created["id"].as_i64().unwrap();
+    let pat = created["token"].as_str().unwrap().to_string();
+
+    let create = |name: &'static str, bearer: String, extra: Option<&'static str>| {
+        let client = client.clone();
+        let url = format!("{base}/api/v1/repos");
+        async move {
+            let mut req = client
+                .post(url)
+                .bearer_auth(bearer)
+                .json(&json!({"name": name, "is_private": true}));
+            if let Some(forged) = extra {
+                req = req.header("x-ironforge-access-token-id", forged);
+            }
+            req.send().await.unwrap().status()
+        }
+    };
+    // Made with the token: the entry carries its id.
+    assert_eq!(
+        create("via-token", pat.clone(), None).await,
+        StatusCode::CREATED
+    );
+    // Made with an ordinary login, claiming a token id: nothing is recorded, the
+    // client cannot name a token.
+    assert_eq!(
+        create("via-login", jwt.clone(), Some("999")).await,
+        StatusCode::CREATED
+    );
+    // Made with the token and a forged id: the real one wins.
+    assert_eq!(
+        create("via-token-forged", pat.clone(), Some("999")).await,
+        StatusCode::CREATED
+    );
+
+    let details_of = |resource_name: String| {
+        let db = db.clone();
+        async move {
+            let row = rg_db::entities::audit_log::Entity::find()
+                .filter(rg_db::entities::audit_log::Column::Action.eq("repo.create"))
+                .filter(rg_db::entities::audit_log::Column::ResourceName.eq(resource_name))
+                .one(&db)
+                .await
+                .unwrap()
+                .expect("audit entry");
+            serde_json::from_str::<Value>(&row.details.unwrap()).unwrap()
+        }
+    };
+    assert_eq!(
+        details_of("audit_tok/via-token".into()).await["access_token_id"],
+        json!(token_id)
+    );
+    assert!(details_of("audit_tok/via-login".into())
+        .await
+        .get("access_token_id")
+        .is_none());
+    assert_eq!(
+        details_of("audit_tok/via-token-forged".into()).await["access_token_id"],
+        json!(token_id)
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_branch_limited_token_cannot_approve_a_pull_request() {
+    let base = spawn_test_app_on_env_db().await.0;
+    let owner = "appr_owner";
+    let owner_jwt = register_user(&base, owner, "appr-owner@example.com", PW).await;
+    let reviewer = "appr_reviewer";
+    let reviewer_jwt = register_user(&base, reviewer, "appr-reviewer@example.com", PW).await;
+    let client = Client::new();
+    assert_eq!(
+        client
+            .post(format!("{base}/api/v1/repos"))
+            .bearer_auth(&owner_jwt)
+            .json(&json!({"name": "work", "auto_init": true, "is_private": false}))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        201
+    );
+
+    // A branch for a pull request, pushed with an unlimited owner token.
+    let (_, owner_pat) =
+        make_token(&base, &owner_jwt, json!({"name": "push", "scopes": "repo"})).await;
+    let remote = base.replacen(
+        "http://",
+        &format!("http://{owner}:{}@", owner_pat["token"].as_str().unwrap()),
+        1,
+    ) + &format!("/{owner}/work.git");
+    let wt = tempfile::tempdir().unwrap();
+    let path = wt.path();
+    git(&["clone", &remote, &path.to_string_lossy()], None);
+    git(&["config", "user.name", "Owner"], Some(path));
+    git(&["config", "user.email", "owner@example.com"], Some(path));
+    std::fs::write(path.join("a.txt"), "change\n").unwrap();
+    git(&["add", "a.txt"], Some(path));
+    git(&["commit", "-m", "work"], Some(path));
+    git(&["push", "origin", "HEAD:refs/heads/feature"], Some(path));
+    let resp = client
+        .post(format!("{base}/api/v1/repos/{owner}/work/pulls"))
+        .bearer_auth(&owner_jwt)
+        .json(&json!({"title": "work", "head": "feature", "base": "main"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 201, "{}", resp.text().await.unwrap());
+
+    // The reviewer's tokens: one limited to a branch (an agent's), one not.
+    let repos = json!([format!("{owner}/work")]);
+    let (_, agent) = make_token(
+        &base,
+        &reviewer_jwt,
+        json!({"name": "agent", "scopes": "repo:write", "repos": repos, "refs": ["agent/*"]}),
+    )
+    .await;
+    let (_, plain) = make_token(
+        &base,
+        &reviewer_jwt,
+        json!({"name": "plain", "scopes": "repo:write", "repos": repos}),
+    )
+    .await;
+    let review = |bearer: String, action: &'static str| {
+        let client = client.clone();
+        let url = format!("{base}/api/v1/repos/{owner}/work/pulls/1/reviews");
+        async move {
+            client
+                .post(url)
+                .bearer_auth(bearer)
+                .json(&json!({"action": action, "body": "reviewed"}))
+                .send()
+                .await
+                .unwrap()
+        }
+    };
+    let agent = agent["token"].as_str().unwrap().to_string();
+    let plain = plain["token"].as_str().unwrap().to_string();
+
+    // The agent may comment and ask for changes, never approve.
+    let resp = review(agent.clone(), "approve").await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::FORBIDDEN,
+        "{}",
+        resp.text().await.unwrap()
+    );
+    let resp = review(agent.clone(), "comment").await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::CREATED,
+        "{}",
+        resp.text().await.unwrap()
+    );
+    let resp = review(agent.clone(), "request_changes").await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::CREATED,
+        "{}",
+        resp.text().await.unwrap()
+    );
+
+    // The same person, signed in or with an unlimited token, may approve.
+    let resp = review(plain, "approve").await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::CREATED,
+        "{}",
+        resp.text().await.unwrap()
+    );
+    let resp = review(reviewer_jwt.clone(), "approve").await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::CREATED,
+        "{}",
+        resp.text().await.unwrap()
+    );
 }

@@ -134,6 +134,11 @@ pub async fn trigger_event(
     event: &str,
     payload: &Value,
 ) -> Result<()> {
+    // Every event is also appended to the repository's event log, for
+    // subscribers that cannot receive a webhook. Best effort: it never blocks or
+    // fails the webhook.
+    record_repo_event(db, repo_id, event, payload).await;
+
     let hooks = webhook_ops::list_active_by_repo_and_event(db, repo_id, event).await?;
 
     for hook in hooks {
@@ -213,6 +218,24 @@ pub async fn trigger_event(
     }
 
     Ok(())
+}
+
+/// Largest payload kept in the event log. A bigger one is replaced by a stub
+/// saying so, so the log stays small and a reader knows to fetch the object.
+const MAX_EVENT_PAYLOAD_BYTES: usize = 16 * 1024;
+
+async fn record_repo_event(db: &DatabaseConnection, repo_id: i64, event: &str, payload: &Value) {
+    let text = serde_json::to_string(payload).unwrap_or_default();
+    let stored = if text.len() <= MAX_EVENT_PAYLOAD_BYTES {
+        text
+    } else {
+        serde_json::json!({ "truncated": true, "original_bytes": text.len() }).to_string()
+    };
+    let event: String = event.chars().take(64).collect();
+    if let Err(error) = rg_db::ops::repo_event_ops::append(db, repo_id, &event, Some(&stored)).await
+    {
+        tracing::warn!(repo_id, %event, %error, "failed to record a repository event");
+    }
 }
 
 /// Shared HTTP client for webhook deliveries.

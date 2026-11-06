@@ -24,14 +24,14 @@
 ## 它**不**做什么（重要）
 
 - **不限制读**：clone/fetch、读文件、读 PR 都照常。
-- **不是按分支的服务端提交**：受限令牌不能用 REST 的文件编辑（`contents`），哪怕目标是 `agent/*`。要做 `commit_files` 这类工具，需要把令牌身份带进 JWT，再让 `check_direct_commit_allowed` 按分支检查——这是下一步，没有做。
-- **评审不受限**：受限令牌可以提交评审（包括批准）。令牌属于某个账号，评审以该账号名义产生；批准是否算数由现有分支保护规则决定，本次没有改。如果要让 Agent 的批准不计入必需批准数（设计文档 §4.4.3 的 `human_approval_required`），是单独的工作。
+- ~~**不是按分支的服务端提交**~~ **已由后续工作改变**：令牌身份现在带进会话 JWT，受限令牌可以用 `contents` 写名单内的分支；见 [agent-write-path-verification-2026-11.md](agent-write-path-verification-2026-11.md)。本文其余部分描述的是本次（分支白名单）提交时的状态。
+- ~~**评审不受限**~~ **已改变**：受限令牌现在不能批准 PR（评论和 `request_changes` 仍可用），见上面的文档。
 - **PR 本身可以由受限令牌创建、编辑、评论**，但 PR 的 head 分支是否在名单内不检查（创建 PR 不移动 ref）。
 - 仍然用完整身份的 JWT 访问下游，限制只在中间件和 git 入口这一层；SSH 不使用令牌，所以不受此限制。
-- 审计日志里仍没有令牌身份。
+- ~~审计日志里仍没有令牌身份。~~ 已有审计点现在带 `access_token_id`，见上面的文档。
 - 新增会移动 ref 的 REST 路由不需要改限制代码（默认被拒）；新增想让受限令牌用的写路由则必须加进 `ref_limited_write_allowed`。
 
-### 顺带发现（未改）
+### 顺带发现（已处理：该函数已删除，见 [agent-write-path-verification-2026-11.md](agent-write-path-verification-2026-11.md)）
 
 `rg-http/src/git_v2.rs::handle_git_receive_pack_v2` 调用的是不带任何拒绝规则的 `handle_receive_pack_http`，既不检查分支保护，也不检查令牌范围。它**没有挂到任何路由上**（全仓库只有定义），所以现在没有影响；但一旦被接到路由，它就是绕过分支保护和这套限制的入口。建议删除它，或接入前改成和 `handle_receive_pack` 同样的检查。
 
@@ -46,7 +46,7 @@
 
 ## 未覆盖
 
-- PostgreSQL/MySQL 没有跑 PAT 的 HTTP 测试，也没有跑这次的迁移。
+- PostgreSQL/MySQL：本文提交时没有跑；后续在两个真实后端上跑过 `pat_ref_allowlist_tests` 并核对了迁移，见 [agent-write-path-verification-2026-11.md](agent-write-path-verification-2026-11.md)。
 - 没有跑 `scripts/git-protocol-e2e.sh`、浏览器里点一遍令牌表单。
 - SSH 不使用令牌，所以没有测。
 - CI 未看。

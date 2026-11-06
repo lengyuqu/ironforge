@@ -283,14 +283,17 @@ pub fn ref_in_allowlist(refname: &str, allow: &[String]) -> bool {
 /// Whether a REST **write** may be made by a token that is limited to some
 /// branches.
 ///
-/// Such a token cannot be held to a branch inside the REST handlers, which do not
-/// know which token made the request, so it may only make the writes that cannot
-/// move a branch or tag: the collaboration area, issues, and creating,
-/// commenting on and reviewing pull requests. Everything else (file edits,
-/// merging, applying suggestions, releases, wiki, LFS, CI triggers, commit
-/// statuses, webhooks, settings, ...) is refused, and so is any route added
-/// later until it is listed here. To get a change merged, push a permitted branch
-/// and open a pull request for a person to merge.
+/// A generic REST handler cannot tell which token made a request, so such a
+/// token may only make the writes that cannot move a branch or tag: the
+/// collaboration area, issues, and creating, commenting on and reviewing pull
+/// requests. The one exception is the file-edit route (`contents/**`): its
+/// handlers read the token id from the session (`tid`) and hold the target
+/// branch to the token's own limit. Everything else (merging, applying
+/// suggestions, releases, wiki, LFS, CI triggers, commit statuses, webhooks,
+/// settings, ...) is refused, and so is any route added later until it is listed
+/// here **and** its handler checks the branch. To get a change merged, push a
+/// permitted branch (or commit to one) and open a pull request for a person to
+/// merge.
 ///
 /// `path` is the request path without the `/api/v1` prefix and without a query.
 pub fn ref_limited_write_allowed(path: &str) -> bool {
@@ -315,6 +318,9 @@ pub fn ref_limited_write_allowed(path: &str) -> bool {
             | ["pulls", _, "reviews"]
             | ["pulls", _, "reviewers"]
             | ["pulls", _, "reviewers", _]
+            // The handlers check the branch against the token's own limit
+            // (`ensure_token_may_write_branch`), so these are safe to open.
+            | ["contents", _, ..]
     )
 }
 
@@ -591,17 +597,20 @@ mod tests {
             "/repos/a/b/pulls/3/reviews",
             "/repos/a/b/pulls/3/reviewers",
             "/repos/a/b/pulls/3/reviewers/alice",
+            // Server-side commits: the handler checks the branch itself.
+            "/repos/a/b/contents/src/main.rs",
+            "/repos/a/b/contents/x",
         ] {
             assert!(ref_limited_write_allowed(path), "{path}");
         }
         for path in [
             // Moves a branch or tag.
-            "/repos/a/b/contents/src/main.rs",
             "/repos/a/b/pulls/3/merge",
             "/repos/a/b/pulls/3/auto-merge",
             "/repos/a/b/pulls/3/merge-queue",
             "/repos/a/b/pulls/3/comments/9/suggestion/apply",
             "/repos/a/b/pulls/3/suggestions/apply",
+            "/repos/a/b/contents",
             "/repos/a/b/releases",
             "/repos/a/b/wiki",
             "/repos/a/b/mirror/sync",
