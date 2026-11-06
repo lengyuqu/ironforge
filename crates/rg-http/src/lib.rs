@@ -2090,7 +2090,15 @@ async fn pat_auth_middleware(
     next: axum::middleware::Next,
 ) -> Response {
     let required_scope = required_pat_scope(req.method(), req.uri().path());
-    match pat_to_bearer_jwt(&state, req.headers(), required_scope, req.uri().path()).await {
+    match pat_to_bearer_jwt(
+        &state,
+        req.headers(),
+        required_scope,
+        req.method(),
+        req.uri().path(),
+    )
+    .await
+    {
         Ok(Some(jwt)) => {
             if let Ok(value) = format!("Bearer {jwt}").parse() {
                 req.headers_mut().insert(header::AUTHORIZATION, value);
@@ -2111,6 +2119,7 @@ async fn pat_to_bearer_jwt(
     state: &AppState,
     headers: &axum::http::HeaderMap,
     required_scope: Option<&str>,
+    method: &axum::http::Method,
     request_path: &str,
 ) -> Result<Option<String>, ()> {
     let Some(auth) = headers
@@ -2176,6 +2185,22 @@ async fn pat_to_bearer_jwt(
                     return Err(());
                 }
             }
+            // A token limited to some branches cannot be held to a branch inside
+            // the REST handlers (they do not know which token made the request),
+            // so its writes are limited to the ones that cannot move a ref.
+            if let (Some(_), Some(scope)) = (pat.ref_allowlist.as_deref(), required_scope) {
+                use axum::http::Method;
+                let is_read = matches!(*method, Method::GET | Method::HEAD | Method::OPTIONS);
+                let permitted = is_read
+                    || (scope.starts_with("repo")
+                        && rg_core::auth::pat_scope::ref_limited_write_allowed(
+                            normalized_api_path(request_path),
+                        ));
+                if !permitted {
+                    crate::metrics::clients::pat_auth("ref_denied");
+                    return Err(());
+                }
+            }
             let Some(user) = rg_db::ops::user_ops::find_by_id(&state.db, pat.user_id)
                 .await
                 .ok()
@@ -2219,6 +2244,25 @@ pub(crate) async fn pat_actor(
     required: &str,
     repo: Option<(&str, &str)>,
 ) -> Option<i64> {
+    pat_git_actor(db, token, required, repo)
+        .await
+        .map(|actor| actor.user_id)
+}
+
+/// A git-over-HTTP caller: the account, and the branches it may write when the
+/// credential is a token limited to some (`None` = no limit).
+pub(crate) struct GitActor {
+    pub user_id: i64,
+    pub writable_refs: Option<Vec<String>>,
+}
+
+/// [`pat_actor`], keeping the token's branch limit.
+pub(crate) async fn pat_git_actor(
+    db: &DatabaseConnection,
+    token: &str,
+    required: &str,
+    repo: Option<(&str, &str)>,
+) -> Option<GitActor> {
     let pat = resolve_pat(db, token).await?;
     if !rg_core::auth::pat_scope::has_scope(&pat.scopes, required) {
         return None;
@@ -2234,7 +2278,13 @@ pub(crate) async fn pat_actor(
     let user = rg_db::ops::user_ops::find_by_id(db, pat.user_id)
         .await
         .ok()??;
-    user.is_active.then_some(pat.user_id)
+    user.is_active.then(|| GitActor {
+        user_id: pat.user_id,
+        writable_refs: pat
+            .ref_allowlist
+            .as_deref()
+            .map(rg_core::auth::pat_scope::parse_ref_allowlist),
+    })
 }
 
 /// Extract the authenticated user id from a git-over-HTTP request.
@@ -2250,15 +2300,34 @@ async fn extract_actor_id(
     required_scope: &str,
     repo: (&str, &str),
 ) -> Option<i64> {
+    extract_git_actor(db, headers, jwt_secret, required_scope, repo)
+        .await
+        .map(|actor| actor.user_id)
+}
+
+/// [`extract_actor_id`], keeping the credential's branch limit. A session JWT has
+/// none.
+async fn extract_git_actor(
+    db: &DatabaseConnection,
+    headers: &axum::http::HeaderMap,
+    jwt_secret: &str,
+    required_scope: &str,
+    repo: (&str, &str),
+) -> Option<GitActor> {
     let auth_str = headers.get(header::AUTHORIZATION)?.to_str().ok()?;
 
     if let Some(token) = auth_str.strip_prefix("Bearer ") {
         // JWT session token first, then fall back to a PAT.
         if let Some(claims) = rg_core::auth::jwt::validate_token(token, jwt_secret) {
             // #5: enforce token_version revocation on git-over-HTTP too.
-            return api::auth::validate_session(db, &claims).await;
+            return api::auth::validate_session(db, &claims)
+                .await
+                .map(|user_id| GitActor {
+                    user_id,
+                    writable_refs: None,
+                });
         }
-        return pat_actor(db, token, required_scope, Some(repo)).await;
+        return pat_git_actor(db, token, required_scope, Some(repo)).await;
     }
 
     if let Some(encoded) = auth_str.strip_prefix("Basic ") {
@@ -2277,12 +2346,15 @@ async fn extract_actor_id(
             if let Some(claims) = rg_core::auth::jwt::validate_token(candidate, jwt_secret) {
                 // #5: enforce token_version revocation on git-over-HTTP too.
                 if let Some(user_id) = api::auth::validate_session(db, &claims).await {
-                    return Some(user_id);
+                    return Some(GitActor {
+                        user_id,
+                        writable_refs: None,
+                    });
                 }
                 continue;
             }
-            if let Some(user_id) = pat_actor(db, candidate, required_scope, Some(repo)).await {
-                return Some(user_id);
+            if let Some(actor) = pat_git_actor(db, candidate, required_scope, Some(repo)).await {
+                return Some(actor);
             }
         }
     }
@@ -2820,7 +2892,7 @@ async fn handle_git_receive_pack(
     }
 
     // Check write access
-    let actor_id = extract_actor_id(
+    let git_actor = extract_git_actor(
         &state.db,
         &headers,
         &state.jwt_secret,
@@ -2828,6 +2900,11 @@ async fn handle_git_receive_pack(
         (&owner, &repo),
     )
     .await;
+    let actor_id = git_actor.as_ref().map(|actor| actor.user_id);
+    // The branches a limited token may write, as full refs; `None` = no limit.
+    let writable_refs = git_actor
+        .and_then(|actor| actor.writable_refs)
+        .map(|allow| rg_core::auth::pat_scope::ref_allowlist_full_patterns(&allow));
     if let Err(resp) = check_git_access(&state.db, &owner, &repo, actor_id, true).await {
         return (resp.0, resp.1, Body::from(resp.2));
     }
@@ -2914,6 +2991,7 @@ async fn handle_git_receive_pack(
             &mut buf_writer,
             rejected_refs,
             require_signed_refs,
+            writable_refs,
         ),
     )
     .await;

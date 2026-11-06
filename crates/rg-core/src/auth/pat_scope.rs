@@ -190,6 +190,134 @@ pub fn path_in_allowlist(path: &str, allow: &[String]) -> bool {
     )
 }
 
+// ── Branch allow-list ──────────────────────────────────────────────────
+
+/// Most branch patterns one token may be limited to.
+pub const MAX_ALLOWLIST_REFS: usize = 20;
+
+/// Longest branch pattern accepted.
+const MAX_REF_PATTERN_CHARS: usize = 200;
+
+/// Validate requested branch patterns and return the JSON text to store.
+///
+/// A pattern is a branch name where `*` matches any run of characters (the same
+/// wildcard branch protection uses), e.g. `agent/*`. It must start with a
+/// literal character, so `*` alone cannot widen the limit to every branch, and
+/// it may only use letters, digits and `- _ . / *`. Empty segments, `.`/`..`
+/// segments, a leading or trailing `/`, and a trailing `.lock` or `.` are
+/// refused, as git itself would refuse such branch names.
+///
+/// The list is de-duplicated and sorted so the stored form is canonical. An
+/// empty list is refused: "may write nothing" is almost certainly a mistake, and
+/// the way to say "no limit" is to omit the field.
+pub fn normalize_ref_allowlist(refs: &[String]) -> CoreResult<String> {
+    if refs.is_empty() {
+        return Err(CoreError::InvalidInput(
+            "refs must list at least one branch pattern; omit it for an unrestricted token".into(),
+        ));
+    }
+    let mut out: Vec<String> = Vec::new();
+    for entry in refs {
+        let pattern = entry.trim();
+        let bad = |why: &str| {
+            CoreError::InvalidInput(format!("branch pattern '{pattern}' is not valid: {why}"))
+        };
+        if pattern.is_empty() || pattern.len() > MAX_REF_PATTERN_CHARS {
+            return Err(bad("must be 1-200 characters"));
+        }
+        if !pattern
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '/' | '*'))
+        {
+            return Err(bad("use only letters, digits and - _ . / *"));
+        }
+        if pattern.starts_with('*') || pattern.starts_with('/') || pattern.starts_with('-') {
+            return Err(bad("must start with a letter, digit, '_' or '.'"));
+        }
+        if pattern.ends_with('/') || pattern.ends_with('.') || pattern.ends_with(".lock") {
+            return Err(bad("must not end with '/', '.' or '.lock'"));
+        }
+        if pattern
+            .split('/')
+            .any(|segment| segment.is_empty() || segment == "." || segment == "..")
+            || pattern.contains("..")
+        {
+            return Err(bad("must not contain empty, '.' or '..' segments"));
+        }
+        out.push(pattern.to_string());
+    }
+    out.sort();
+    out.dedup();
+    if out.len() > MAX_ALLOWLIST_REFS {
+        return Err(CoreError::InvalidInput(format!(
+            "a token can be limited to at most {MAX_ALLOWLIST_REFS} branch patterns"
+        )));
+    }
+    serde_json::to_string(&out).map_err(|e| CoreError::internal(e.to_string()))
+}
+
+/// Read a stored branch allow-list. Anything that does not parse becomes the
+/// empty list, which allows no branch: a damaged limit must not turn into "no
+/// limit".
+pub fn parse_ref_allowlist(stored: &str) -> Vec<String> {
+    serde_json::from_str::<Vec<String>>(stored).unwrap_or_default()
+}
+
+/// The full-ref patterns (`refs/heads/<pattern>`) a push may touch. Anything
+/// else, including every tag, is outside the limit.
+pub fn ref_allowlist_full_patterns(allow: &[String]) -> Vec<String> {
+    allow
+        .iter()
+        .map(|pattern| format!("refs/heads/{pattern}"))
+        .collect()
+}
+
+/// Whether the full ref `refname` (`refs/heads/agent/x`) is writable under the
+/// allow-list.
+pub fn ref_in_allowlist(refname: &str, allow: &[String]) -> bool {
+    ref_allowlist_full_patterns(allow)
+        .iter()
+        .any(|pattern| crate::branch_protection::service::ref_matches_pattern(refname, pattern))
+}
+
+/// Whether a REST **write** may be made by a token that is limited to some
+/// branches.
+///
+/// Such a token cannot be held to a branch inside the REST handlers, which do not
+/// know which token made the request, so it may only make the writes that cannot
+/// move a branch or tag: the collaboration area, issues, and creating,
+/// commenting on and reviewing pull requests. Everything else (file edits,
+/// merging, applying suggestions, releases, wiki, LFS, CI triggers, commit
+/// statuses, webhooks, settings, ...) is refused, and so is any route added
+/// later until it is listed here. To get a change merged, push a permitted branch
+/// and open a pull request for a person to merge.
+///
+/// `path` is the request path without the `/api/v1` prefix and without a query.
+pub fn ref_limited_write_allowed(path: &str) -> bool {
+    let segments: Vec<&str> = path.trim_start_matches('/').split('/').collect();
+    if segments
+        .iter()
+        .any(|s| s.is_empty() || *s == "." || *s == "..")
+    {
+        return false;
+    }
+    let ["repos", _owner, _name, rest @ ..] = segments.as_slice() else {
+        return false;
+    };
+    matches!(
+        rest,
+        ["collaboration", ..]
+            | ["issues", ..]
+            | ["pulls"]
+            | ["pulls", _]
+            | ["pulls", _, "comments"]
+            | ["pulls", _, "comments", _, "resolution"]
+            | ["pulls", _, "reviews"]
+            | ["pulls", _, "reviewers"]
+            | ["pulls", _, "reviewers", _]
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -359,5 +487,150 @@ mod tests {
             "/repos/alice/demo/collaboration/groupsx",
             &allow
         ));
+    }
+    #[test]
+    fn branch_patterns_are_validated_and_canonical() {
+        let ok = normalize_ref_allowlist(&[
+            "bots/*".into(),
+            " agent/* ".into(),
+            "agent/*".into(),
+            "release-1.2".into(),
+        ])
+        .unwrap();
+        assert_eq!(ok, r#"["agent/*","bots/*","release-1.2"]"#);
+        for bad in [
+            vec![],
+            vec!["".to_string()],
+            vec!["*".to_string()],
+            vec!["*/x".to_string()],
+            vec!["/agent".to_string()],
+            vec!["agent/".to_string()],
+            vec!["-agent".to_string()],
+            vec!["agent//x".to_string()],
+            vec!["agent/../main".to_string()],
+            vec!["agent/./x".to_string()],
+            vec!["a..b".to_string()],
+            vec!["agent.lock".to_string()],
+            vec!["agent.".to_string()],
+            vec!["agent x".to_string()],
+            vec!["agent\\x".to_string()],
+            vec!["agent/x\u{0}".to_string()],
+            vec!["agent/{a,b}".to_string()],
+            vec!["agent/?".to_string()],
+            vec!["agent/[a]".to_string()],
+            vec!["refs/heads/agent".to_string(), "".to_string()],
+            vec!["a".repeat(MAX_REF_PATTERN_CHARS + 1)],
+        ] {
+            assert!(normalize_ref_allowlist(&bad).is_err(), "{bad:?}");
+        }
+        let many: Vec<String> = (0..=MAX_ALLOWLIST_REFS)
+            .map(|i| format!("b{i}/*"))
+            .collect();
+        assert!(normalize_ref_allowlist(&many).is_err());
+        assert!(normalize_ref_allowlist(&many[..MAX_ALLOWLIST_REFS]).is_ok());
+    }
+
+    #[test]
+    fn a_damaged_stored_branch_list_allows_no_branch() {
+        assert_eq!(
+            parse_ref_allowlist(r#"["agent/*"]"#),
+            vec!["agent/*".to_string()]
+        );
+        for broken in ["", "null", "{}", "not json", r#"["agent/*""#, "42"] {
+            let allow = parse_ref_allowlist(broken);
+            assert!(allow.is_empty(), "{broken:?}");
+            assert!(!ref_in_allowlist("refs/heads/agent/x", &allow));
+        }
+    }
+
+    #[test]
+    fn only_listed_branches_are_writable_and_never_tags() {
+        let allow = vec!["agent/*".to_string(), "bots/fixed".to_string()];
+        for refname in [
+            "refs/heads/agent/x",
+            "refs/heads/agent/a/b",
+            "refs/heads/bots/fixed",
+        ] {
+            assert!(ref_in_allowlist(refname, &allow), "{refname}");
+        }
+        for refname in [
+            "refs/heads/main",
+            "refs/heads/agent",
+            "refs/heads/agentx/y",
+            "refs/heads/xagent/y",
+            "refs/heads/bots/fixed2",
+            "refs/heads/bots",
+            "refs/tags/agent/x",
+            "refs/tags/v1",
+            "refs/pull/1/head",
+            "refs/remotes/agent/x",
+            "agent/x",
+            "HEAD",
+            "",
+        ] {
+            assert!(!ref_in_allowlist(refname, &allow), "{refname}");
+        }
+        assert_eq!(
+            ref_allowlist_full_patterns(&allow),
+            vec!["refs/heads/agent/*", "refs/heads/bots/fixed"]
+        );
+    }
+
+    #[test]
+    fn a_branch_limited_token_may_only_make_writes_that_cannot_move_a_branch() {
+        for path in [
+            "/repos/a/b/collaboration/tasks",
+            "/repos/a/b/collaboration/sessions/1/heartbeat",
+            "/repos/a/b/issues",
+            "/repos/a/b/issues/3",
+            "/repos/a/b/issues/3/comments",
+            "/repos/a/b/pulls",
+            "/repos/a/b/pulls/3",
+            "/repos/a/b/pulls/3/comments",
+            "/repos/a/b/pulls/3/comments/9/resolution",
+            "/repos/a/b/pulls/3/reviews",
+            "/repos/a/b/pulls/3/reviewers",
+            "/repos/a/b/pulls/3/reviewers/alice",
+        ] {
+            assert!(ref_limited_write_allowed(path), "{path}");
+        }
+        for path in [
+            // Moves a branch or tag.
+            "/repos/a/b/contents/src/main.rs",
+            "/repos/a/b/pulls/3/merge",
+            "/repos/a/b/pulls/3/auto-merge",
+            "/repos/a/b/pulls/3/merge-queue",
+            "/repos/a/b/pulls/3/comments/9/suggestion/apply",
+            "/repos/a/b/pulls/3/suggestions/apply",
+            "/repos/a/b/releases",
+            "/repos/a/b/wiki",
+            "/repos/a/b/mirror/sync",
+            // Can satisfy or trigger gates, or change settings.
+            "/repos/a/b/statuses/abc",
+            "/repos/a/b/pipelines",
+            "/repos/a/b/pulls/3/reviews/1/dismiss",
+            "/repos/a/b/branches/protection",
+            "/repos/a/b/hooks",
+            "/repos/a/b/collaborators",
+            "/repos/a/b/lfs/objects/batch",
+            "/repos/a/b/fork",
+            "/repos/a/b",
+            "/ai/repos/a/b/index",
+            // Not the repository family, or malformed.
+            "/users/tokens",
+            "/repos",
+            "/repos/a/b",
+            "/repos/a/b/",
+            "/repos/a/b/issues/../contents/x",
+            "/repos/a/b/./issues",
+            "/repos//b/issues",
+            "",
+        ] {
+            assert!(!ref_limited_write_allowed(path), "{path}");
+        }
+        // Near misses of the permitted prefixes.
+        assert!(!ref_limited_write_allowed("/repos/a/b/issuesx"));
+        assert!(!ref_limited_write_allowed("/repos/a/b/collaborationx/y"));
+        assert!(!ref_limited_write_allowed("/repos/a/b/pulls/3/commentsx"));
     }
 }

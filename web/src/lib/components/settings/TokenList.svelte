@@ -80,6 +80,11 @@
                     {t('settings.tokens.repos_only', 'Only')}: <code>{token.repos.join(', ')}</code>
                   </div>
                 {/if}
+                {#if token.refs && token.refs.length}
+                  <div class="token-repos">
+                    {t('settings.tokens.refs_only', 'Branches')}: <code>{token.refs.join(', ')}</code>
+                  </div>
+                {/if}
               </td>
               <td>{formatDate(token.created_at)}</td>
               <td>{formatDate(token.last_used_at)}</td>

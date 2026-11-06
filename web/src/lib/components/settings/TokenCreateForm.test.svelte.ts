@@ -120,4 +120,30 @@ describe('TokenCreateForm.svelte', () => {
     await waitFor(() => expect(tokensCreate).toHaveBeenCalledTimes(1));
     expect(tokensCreate.mock.calls[0]).toHaveLength(3);
   });
+  it('sends a branch limit with the repositories, and leaves it out when the field is empty', async () => {
+    renderForm();
+    fireEvent.input(screen.getByLabelText('Name'), { target: { value: 'agent' } });
+    fireEvent.input(screen.getByLabelText('Scopes'), { target: { value: 'repo:write' } });
+    fireEvent.input(screen.getByLabelText('Repositories (optional)'), {
+      target: { value: 'alice/demo' },
+    });
+    fireEvent.input(screen.getByLabelText('Branches (optional)'), {
+      target: { value: ' agent/*,  bots/* ' },
+    });
+    await fireEvent.submit(screen.getByText('Create').closest('form')!);
+    await waitFor(() => expect(tokensCreate).toHaveBeenCalledTimes(1));
+    const call = tokensCreate.mock.calls[0];
+    expect(call[3]).toEqual(['alice/demo']);
+    expect(call[4]).toEqual(['agent/*', 'bots/*']);
+
+    // Without branches the fifth argument is not passed at all.
+    tokensCreate.mockClear();
+    fireEvent.input(screen.getByLabelText('Name'), { target: { value: 'repo-only' } });
+    fireEvent.input(screen.getByLabelText('Repositories (optional)'), {
+      target: { value: 'alice/demo' },
+    });
+    await fireEvent.submit(screen.getByText('Create').closest('form')!);
+    await waitFor(() => expect(tokensCreate).toHaveBeenCalledTimes(1));
+    expect(tokensCreate.mock.calls[0]).toHaveLength(4);
+  });
 });
