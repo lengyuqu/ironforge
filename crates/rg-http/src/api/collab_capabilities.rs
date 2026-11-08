@@ -66,6 +66,10 @@ pub struct CapabilitiesResponse {
     /// `major.minor`. Same major = compatible; a higher minor only adds optional things.
     pub contract_version: String,
     pub server_version: String,
+    /// Source commit supplied at build time, or null when unavailable.
+    pub build_commit: Option<String>,
+    /// True for a modified checkout; null when the build source is unknown.
+    pub build_dirty: Option<bool>,
     pub capabilities: Vec<CapabilityEntry>,
     pub limits: serde_json::Value,
     pub auth_modes: Vec<AuthMode>,
@@ -93,6 +97,8 @@ fn instance_response() -> CapabilitiesResponse {
     CapabilitiesResponse {
         contract_version: registry::contract_version(),
         server_version: env!("CARGO_PKG_VERSION").to_string(),
+        build_commit: match env!("IRONFORGE_BUILD_COMMIT") { "" => None, value => Some(value.to_owned()) },
+        build_dirty: env!("IRONFORGE_BUILD_DIRTY").parse().ok(),
         capabilities: registry::all()
             .iter()
             .map(|c| CapabilityEntry {
