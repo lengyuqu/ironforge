@@ -116,6 +116,7 @@ pub async fn list_pages(
         (status = 401, description = "Unauthorized", body = crate::error::ErrorResponse),
         (status = 403, description = "Forbidden", body = crate::error::ErrorResponse),
         (status = 404, description = "Not found", body = crate::error::ErrorResponse),
+        (status = 409, description = "Page changed during read; retry", body = crate::error::ErrorResponse),
     ),
 )]
 pub async fn get_page(
@@ -154,6 +155,8 @@ pub async fn get_page(
         (status = 401, description = "Unauthorized", body = crate::error::ErrorResponse),
         (status = 403, description = "Forbidden", body = crate::error::ErrorResponse),
         (status = 409, description = "Page already exists", body = crate::error::ErrorResponse),
+        (status = 415, description = "Expected application/json content type"),
+        (status = 422, description = "Missing or malformed request fields"),
     ),
 )]
 pub async fn create_page(
@@ -230,6 +233,7 @@ pub async fn create_page(
         (status = 403, description = "Forbidden", body = crate::error::ErrorResponse),
         (status = 404, description = "Not found", body = crate::error::ErrorResponse),
         (status = 409, description = "Version conflict; reload page", body = crate::error::ErrorResponse),
+        (status = 415, description = "Expected application/json content type"),
         (status = 422, description = "Missing or invalid request fields"),
     ),
 )]

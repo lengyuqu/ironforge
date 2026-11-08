@@ -445,6 +445,7 @@ fn set_default_head(path: &std::path::Path, old: &str, new: &str) -> Result<(), 
         (status = 403, description = "Repository administrator required", body = crate::error::ErrorResponse),
         (status = 404, description = "Repository not found", body = crate::error::ErrorResponse),
         (status = 409, description = "Settings changed; reload", body = crate::error::ErrorResponse),
+        (status = 415, description = "Expected application/json content type"),
         (status = 422, description = "Missing or malformed request fields")
     )
 )]

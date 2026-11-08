@@ -450,6 +450,8 @@ pub async fn create_pr(
         (status = 403, description = "Forbidden", body = crate::error::ErrorResponse),
         (status = 404, description = "Not found", body = crate::error::ErrorResponse),
         (status = 409, description = "Conflict", body = crate::error::ErrorResponse),
+        (status = 415, description = "Expected application/json content type"),
+        (status = 422, description = "Malformed request fields"),
     ),
 )]
 pub async fn update_pr(
