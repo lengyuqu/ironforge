@@ -388,6 +388,11 @@ async fn m11_capability_list_is_exactly_what_the_server_serves() {
         .unwrap()
         .iter()
         .any(|v| v == "wiki.concurrent_update.v1"));
+    assert!(body["api_capabilities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|v| v == "repo.settings.patch.v1"));
     let dirty = body.get("build_dirty").expect("build_dirty field");
     assert!(dirty.is_null() || dirty.is_boolean());
 
