@@ -472,3 +472,63 @@ async fn simultaneous_wiki_edits_require_a_current_version() {
         422
     );
 }
+
+#[tokio::test]
+async fn legacy_out_of_order_revision_numbers_advance_from_the_maximum() {
+    let (base, db) = common::spawn_test_app_on_env_db().await;
+    let token = register_user(&base, "wiki_legacy_owner", "wiki_legacy@example.com", PW).await;
+    create_repo(&base, &token, "legacy").await;
+    let client = reqwest::Client::new();
+    let root = format!("{base}/api/v1/repos/wiki_legacy_owner/legacy/wiki");
+    let created: serde_json::Value = client
+        .post(&root)
+        .bearer_auth(&token)
+        .json(&serde_json::json!({"title":"Home", "content":"current"}))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let page_id = created["id"].as_i64().unwrap();
+    for number in [5, 3] {
+        rg_db::ops::wiki_revision_ops::create(
+            &db,
+            rg_db::entities::wiki_revision::ActiveModel {
+                id: sea_orm::NotSet,
+                wiki_page_id: sea_orm::Set(page_id),
+                content: sea_orm::Set(format!("old {number}")),
+                message: sea_orm::Set(None),
+                author_id: sea_orm::Set(None),
+                version: sea_orm::Set(number),
+                created_at: sea_orm::Set(chrono::Utc::now()),
+            },
+        )
+        .await
+        .unwrap();
+    }
+    let page = format!("{root}/Home");
+    let version = version(&client, &page, &token).await;
+    assert_eq!(
+        client
+            .patch(&page)
+            .bearer_auth(&token)
+            .json(&serde_json::json!({"content":"new", "expected_version":version}))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    let history: serde_json::Value = client
+        .get(format!("{page}/history"))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(history[0]["version"], 6);
+    assert_eq!(history[0]["content"], "current");
+}

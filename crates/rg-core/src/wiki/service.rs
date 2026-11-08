@@ -181,7 +181,15 @@ pub async fn update_page(
             "wiki version changed; reload before saving",
         ));
     }
-    let version = latest
+    // Legacy concurrent edits could insert versions out of order. The newest
+    // row id is the generation token, but the display version must advance
+    // from the largest existing version rather than from that row's value.
+    let max_revision = wiki_revision::Entity::find()
+        .filter(wiki_revision::Column::WikiPageId.eq(existing.id))
+        .order_by_desc(wiki_revision::Column::Version)
+        .one(&txn)
+        .await?;
+    let version = max_revision
         .as_ref()
         .map_or(0, |r| r.version)
         .checked_add(1)
