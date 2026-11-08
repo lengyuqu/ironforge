@@ -528,6 +528,16 @@ async fn update_repo_settings_inner(
         .await
         .map_err(AppError::from)?
         .ok_or_else(|| AppError::not_found("repository not found"))?;
+    // The route and administrator were resolved before the lock. A concurrent
+    // transfer or rename must not let the old route modify the new owner's repo.
+    if current.owner_id != repo.owner_id
+        || current.org_id != repo.org_id
+        || current.name != repo.name
+    {
+        return Err(AppError::conflict(
+            "repository identity changed; resolve it again",
+        ));
+    }
     if body.expected_version != settings_version(&current) {
         return Err(AppError::conflict(
             "repository settings changed; reload before saving",
