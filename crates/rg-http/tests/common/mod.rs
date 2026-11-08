@@ -27,37 +27,112 @@ impl rg_core::ci::CiTrigger for NoopCiEngine {
     }
 }
 
-/// A migrated SQLite file, built once per test process and copied for every test.
+/// A migrated SQLite file, shared by every test of every test binary.
 ///
 /// Running all migrations (hundreds of `CREATE TABLE` / index / trigger
-/// statements) used to cost every test about a second, and it does not get
-/// faster with more threads: SQLite parses DDL under a process-wide allocator
-/// mutex, so concurrent tests queue behind each other. Copying a finished file
-/// is a few milliseconds and parallelises.
-static MIGRATED_TEMPLATE: tokio::sync::OnceCell<(tempfile::TempDir, std::path::PathBuf)> =
+/// statements) costs several seconds on a CI runner, and it does not get faster
+/// with more threads: SQLite parses DDL under a process-wide allocator mutex, so
+/// concurrent tests queue behind each other. Copying a finished file is a few
+/// milliseconds and parallelises.
+///
+/// Each test file is its own process, so a per-process template still paid the
+/// full migration cost about a hundred times per `cargo test --workspace`
+/// (9 to 13 seconds even for a binary with a single test). The template is
+/// therefore kept in the temp directory under a key derived from the contents of
+/// `rg-db/src`: the first process builds it, every later process just finds it.
+/// Editing a migration changes the key, so a stale schema cannot be picked up.
+static MIGRATED_TEMPLATE: tokio::sync::OnceCell<std::path::PathBuf> =
     tokio::sync::OnceCell::const_new();
 
-async fn migrated_template() -> &'static std::path::Path {
+/// Hash of everything under `rg-db/src` (paths and contents, sorted): the schema
+/// is defined there, so any change to it yields a new template.
+fn schema_key() -> String {
+    use sha2::{Digest, Sha256};
+
+    fn collect(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                collect(&path, out);
+            } else if path.extension().is_some_and(|ext| ext == "rs") {
+                out.push(path);
+            }
+        }
+    }
+
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../rg-db/src");
+    let mut files = Vec::new();
+    collect(&root, &mut files);
+    files.sort();
+    let mut hasher = Sha256::new();
+    for file in &files {
+        let relative = file.strip_prefix(&root).unwrap_or(file);
+        hasher.update(relative.to_string_lossy().as_bytes());
+        hasher.update([0]);
+        hasher.update(std::fs::read(file).unwrap_or_default());
+        hasher.update([0]);
+    }
+    let digest = hasher.finalize();
+    digest[..8].iter().map(|b| format!("{b:02x}")).collect()
+}
+
+async fn build_template(path: &std::path::Path) {
     use sea_orm::{ConnectOptions, ConnectionTrait, Database};
-    let (_, path) = MIGRATED_TEMPLATE
+    // Build next to the final name and rename into place: a reader never sees a
+    // half-written file, and two processes that race both produce the same
+    // content, so whichever rename lands last is fine.
+    let building = path.with_extension(format!("building-{}", std::process::id()));
+    let _ = std::fs::remove_file(&building);
+    let mut opt = ConnectOptions::new(format!("sqlite://{}?mode=rwc", building.display()));
+    opt.max_connections(1)
+        .min_connections(1)
+        .connect_timeout(std::time::Duration::from_secs(5));
+    let db = Database::connect(opt).await.expect("failed to connect");
+    rg_db::run_migrations(&db).await.expect("migration failed");
+    // Fold the write-ahead log into the file so copying the file is enough.
+    db.execute_unprepared("PRAGMA wal_checkpoint(TRUNCATE)")
+        .await
+        .expect("checkpoint failed");
+    db.close().await.expect("close failed");
+    for suffix in ["-wal", "-shm"] {
+        let mut sidecar = building.clone().into_os_string();
+        sidecar.push(suffix);
+        let _ = std::fs::remove_file(sidecar);
+    }
+    std::fs::rename(&building, path).expect("failed to publish the migrated template");
+}
+
+async fn migrated_template() -> &'static std::path::Path {
+    MIGRATED_TEMPLATE
         .get_or_init(|| async {
-            let dir = tempfile::tempdir().expect("failed to create template dir");
-            let path = dir.path().join("template.db");
-            let mut opt = ConnectOptions::new(format!("sqlite://{}?mode=rwc", path.display()));
-            opt.max_connections(1)
-                .min_connections(1)
-                .connect_timeout(std::time::Duration::from_secs(5));
-            let db = Database::connect(opt).await.expect("failed to connect");
-            rg_db::run_migrations(&db).await.expect("migration failed");
-            // Fold the write-ahead log into the file so copying the file is enough.
-            db.execute_unprepared("PRAGMA wal_checkpoint(TRUNCATE)")
-                .await
-                .expect("checkpoint failed");
-            db.close().await.expect("close failed");
-            (dir, path)
+            let dir = std::env::temp_dir();
+            let path = dir.join(format!("ironforge-test-template-{}.db", schema_key()));
+            if !path.exists() {
+                build_template(&path).await;
+                // Templates of older schemas are only litter; keep recent ones in
+                // case another checkout is running tests at the same time.
+                if let Ok(entries) = std::fs::read_dir(&dir) {
+                    for entry in entries.flatten() {
+                        let name = entry.file_name();
+                        let name = name.to_string_lossy();
+                        let old = entry
+                            .metadata()
+                            .and_then(|m| m.modified())
+                            .ok()
+                            .and_then(|t| t.elapsed().ok())
+                            .is_some_and(|age| age > std::time::Duration::from_secs(24 * 3600));
+                        if name.starts_with("ironforge-test-template-") && old {
+                            let _ = std::fs::remove_file(entry.path());
+                        }
+                    }
+                }
+            }
+            path
         })
-        .await;
-    path
+        .await
 }
 
 /// Create a temporary file-based SQLite database with all migrations applied.
