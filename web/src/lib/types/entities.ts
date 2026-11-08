@@ -186,6 +186,7 @@ export interface BlobContent {
 
 export interface WikiPage {
   id: number;
+  version: string;
   title: string;
   content: string;
   message: string | null;

@@ -39,7 +39,7 @@ where
 /// Deserialize a tri-state String field (PATCH semantics):
 /// absent → `None` (leave untouched), JSON `null` → `Some(None)` (clear),
 /// string → `Some(Some(s))` (set).
-fn de_clearable_str<'de, D>(d: D) -> Result<Option<Option<String>>, D::Error>
+pub(crate) fn de_clearable_str<'de, D>(d: D) -> Result<Option<Option<String>>, D::Error>
 where
     D: serde::de::Deserializer<'de>,
 {

@@ -721,7 +721,7 @@ fn build_routes(
         .route("/repos/templates/labels", get(api::repos::list_label_sets))
         .route("/repos/explore", get(api::repos::explore))
         .route("/repos/{owner}", get(api::repos::list_repos))
-        .route("/repos/{owner}/{name}", get(api::repos::get_repo))
+        .route("/repos/{owner}/{name}", get(api::repos::get_repo).patch(api::repos::update_repo_settings))
         // Milestones (before issues to avoid routing conflicts)
         .route(
             "/repos/{owner}/{name}/milestones",

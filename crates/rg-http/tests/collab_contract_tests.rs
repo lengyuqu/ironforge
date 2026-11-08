@@ -383,6 +383,11 @@ async fn m11_capability_list_is_exactly_what_the_server_serves() {
                 |s| matches!(s.len(), 40 | 64) && s.bytes().all(|b| b.is_ascii_hexdigit())
             )
     );
+    assert!(body["api_capabilities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|v| v == "wiki.concurrent_update.v1"));
     let dirty = body.get("build_dirty").expect("build_dirty field");
     assert!(dirty.is_null() || dirty.is_boolean());
 

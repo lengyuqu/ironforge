@@ -15,6 +15,21 @@ use common::{create_repo, register_user, spawn_test_app};
 
 const PW: &str = "Qz7$wRtm";
 
+async fn version(client: &reqwest::Client, url: &str, token: &str) -> String {
+    client
+        .get(url)
+        .bearer_auth(token)
+        .send()
+        .await
+        .unwrap()
+        .json::<serde_json::Value>()
+        .await
+        .unwrap()["version"]
+        .as_str()
+        .unwrap()
+        .to_string()
+}
+
 async fn setup(suffix: &str) -> (String, String, String, String) {
     let base = spawn_test_app().await;
     let owner = format!("wikiuser{suffix}");
@@ -103,7 +118,7 @@ async fn test_wiki_update_page() {
             base, owner, repo
         ))
         .bearer_auth(&token)
-        .json(&serde_json::json!({"content": "v2", "message": "Updated guide"}))
+        .json(&serde_json::json!({"content": "v2", "expected_version": version(&client, &format!("{}/api/v1/repos/{}/{}/wiki/Guide", base, owner, repo), &token).await, "message": "Updated guide"}))
         .send()
         .await
         .unwrap();
@@ -150,7 +165,7 @@ async fn test_wiki_revision_history() {
             base, owner, repo
         ))
         .bearer_auth(&token)
-        .json(&serde_json::json!({"content": "v2 content", "message": "second"}))
+        .json(&serde_json::json!({"content": "v2 content", "expected_version": version(&client, &format!("{}/api/v1/repos/{}/{}/wiki/Changelog", base, owner, repo), &token).await, "message": "second"}))
         .send()
         .await
         .unwrap();
@@ -177,7 +192,7 @@ async fn test_wiki_revision_history() {
             base, owner, repo
         ))
         .bearer_auth(&token)
-        .json(&serde_json::json!({"content": "v3 content", "message": "third"}))
+        .json(&serde_json::json!({"content": "v3 content", "expected_version": version(&client, &format!("{}/api/v1/repos/{}/{}/wiki/Changelog", base, owner, repo), &token).await, "message": "third"}))
         .send()
         .await
         .unwrap();
@@ -213,7 +228,7 @@ async fn test_wiki_get_specific_revision() {
             base, owner, repo
         ))
         .bearer_auth(&token)
-        .json(&serde_json::json!({"content": "updated text"}))
+        .json(&serde_json::json!({"content": "updated text", "expected_version": version(&client, &format!("{}/api/v1/repos/{}/{}/wiki/Notes", base, owner, repo), &token).await}))
         .send()
         .await
         .unwrap();
@@ -284,7 +299,7 @@ async fn test_revision_must_belong_to_authorized_repository_and_page() {
         client
             .patch(format!("{private}/Secret"))
             .bearer_auth(&owner_token)
-            .json(&serde_json::json!({"content":"private new content"}))
+            .json(&serde_json::json!({"content":"private new content", "expected_version": version(&client, &format!("{private}/Secret"), &owner_token).await}))
             .send()
             .await
             .unwrap()
@@ -386,4 +401,74 @@ async fn test_wiki_delete_page() {
         .await
         .unwrap();
     assert_eq!(resp.status(), 404);
+}
+
+#[tokio::test]
+async fn simultaneous_wiki_edits_require_a_current_version() {
+    let (base, _db) = common::spawn_test_app_on_env_db().await;
+    let owner = "wiki_race_owner".to_string();
+    let repo = "wiki_race_repo".to_string();
+    let token = register_user(&base, &owner, "wiki_race@example.com", PW).await;
+    create_repo(&base, &token, &repo).await;
+    let client = reqwest::Client::new();
+    let root = format!("{base}/api/v1/repos/{owner}/{repo}/wiki");
+    let created: serde_json::Value = client
+        .post(&root)
+        .bearer_auth(&token)
+        .json(&serde_json::json!({"title":"Race","content":"original"}))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let page = format!("{root}/Race");
+    let old_version = created["version"].as_str().unwrap();
+    let a = client
+        .patch(&page)
+        .bearer_auth(&token)
+        .json(&serde_json::json!({"content":"first", "expected_version":old_version}))
+        .send();
+    let b = client
+        .patch(&page)
+        .bearer_auth(&token)
+        .json(&serde_json::json!({"content":"second", "expected_version":old_version}))
+        .send();
+    let (a, b) = tokio::join!(a, b);
+    let mut statuses = [a.unwrap().status().as_u16(), b.unwrap().status().as_u16()];
+    statuses.sort();
+    assert_eq!(statuses, [200, 409]);
+    let current: serde_json::Value = client
+        .get(&page)
+        .bearer_auth(&token)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_ne!(current["version"], old_version);
+    assert!(["first", "second"].contains(&current["content"].as_str().unwrap()));
+    let history: serde_json::Value = client
+        .get(format!("{page}/history"))
+        .bearer_auth(&token)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(history.as_array().unwrap().len(), 1);
+    assert_eq!(history[0]["content"], "original");
+    assert_eq!(
+        client
+            .patch(&page)
+            .bearer_auth(&token)
+            .json(&serde_json::json!({"content":"missing version"}))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        422
+    );
 }

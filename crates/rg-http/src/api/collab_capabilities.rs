@@ -70,6 +70,8 @@ pub struct CapabilitiesResponse {
     pub build_commit: Option<String>,
     /// True for a modified checkout; null when the build source is unknown.
     pub build_dirty: Option<bool>,
+    /// Versioned, instance-wide REST behaviors; unknown names may be ignored.
+    pub api_capabilities: Vec<String>,
     pub capabilities: Vec<CapabilityEntry>,
     pub limits: serde_json::Value,
     pub auth_modes: Vec<AuthMode>,
@@ -99,6 +101,7 @@ fn instance_response() -> CapabilitiesResponse {
         server_version: env!("CARGO_PKG_VERSION").to_string(),
         build_commit: match env!("IRONFORGE_BUILD_COMMIT") { "" => None, value => Some(value.to_owned()) },
         build_dirty: env!("IRONFORGE_BUILD_DIRTY").parse().ok(),
+        api_capabilities: vec!["wiki.revision_scope.v1".into(), "wiki.concurrent_update.v1".into(), "ci.default_branch.v1".into()],
         capabilities: registry::all()
             .iter()
             .map(|c| CapabilityEntry {

@@ -11,6 +11,7 @@
     repo,
     title,
     initialContent,
+    initialVersion,
     onSaved,
     onCancel,
   }: {
@@ -18,6 +19,7 @@
     repo: string;
     title: string;
     initialContent: string;
+    initialVersion: string;
     onSaved: () => void | Promise<void>;
     onCancel: () => void;
   } = $props();
@@ -28,7 +30,7 @@
   async function handleSave() {
     saving = true;
     try {
-      await wiki.update(owner, repo, title, editContent);
+      await wiki.update(owner, repo, title, editContent, initialVersion);
       toast.success(t('wiki.save') || 'Saved');
       await onSaved();
     } catch (e) {

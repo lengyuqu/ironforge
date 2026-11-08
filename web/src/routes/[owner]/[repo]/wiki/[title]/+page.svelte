@@ -131,13 +131,14 @@
         </div>
 
         {#if showHistory}
-          <WikiHistoryPanel {owner} {repo} {title} onRestored={loadPage} />
+          <WikiHistoryPanel {owner} {repo} {title} currentVersion={wikiPage.version} onRestored={loadPage} />
         {:else if editing}
           <WikiEditPanel
             {owner}
             {repo}
             {title}
             initialContent={wikiPage.content}
+            initialVersion={wikiPage.version}
             onSaved={() => { editing = false; loadPage(); }}
             onCancel={() => editing = false}
           />

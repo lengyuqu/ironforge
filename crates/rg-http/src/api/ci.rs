@@ -75,6 +75,14 @@ struct StageWithJobsResponse {
     jobs: Vec<JobResponse>,
 }
 
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct TriggerPipelineResponse {
+    pub id: i64,
+    pub status: String,
+    pub commit_sha: String,
+    pub ref_name: String,
+}
+
 #[derive(Deserialize, utoipa::ToSchema)]
 pub struct TriggerPipelineRequest {
     ref_name: Option<String>,
@@ -444,9 +452,12 @@ pub async fn play_job(
     ),
     request_body(content = TriggerPipelineRequest),
     responses(
-        (status = 201, description = "Created", body = serde_json::Value),
-        (status = 400, description = "Bad request", body = serde_json::Value),
-        (status = 401, description = "Unauthorized", body = serde_json::Value),
+        (status = 201, description = "Created", body = TriggerPipelineResponse),
+        (status = 400, description = "Bad request", body = crate::error::ErrorResponse),
+        (status = 401, description = "Unauthorized", body = crate::error::ErrorResponse),
+        (status = 403, description = "Forbidden", body = crate::error::ErrorResponse),
+        (status = 404, description = "Repository not found", body = crate::error::ErrorResponse),
+        (status = 409, description = "Conflict", body = crate::error::ErrorResponse),
     ),
 )]
 pub async fn trigger_pipeline(
@@ -515,12 +526,12 @@ pub async fn trigger_pipeline(
     {
         Ok(pipeline_id) => (
             StatusCode::CREATED,
-            Json(serde_json::json!({
-                "id": pipeline_id,
-                "status": "pending",
-                "commit_sha": commit_sha,
-                "ref_name": ref_name,
-            })),
+            Json(TriggerPipelineResponse {
+                id: pipeline_id,
+                status: "pending".into(),
+                commit_sha,
+                ref_name,
+            }),
         )
             .into_response(),
         Err(e) => engine_error(e).into_response(),
@@ -856,7 +867,7 @@ fn missing_repo_storage(repo: &rg_db::entities::repository::Model) -> AppError {
 // Repo resolution + read/write authorization is centralized in
 // [`crate::api::repo_access`] (`require_read` / `require_write`).
 
-async fn resolve_repo_storage_owner(
+pub(crate) async fn resolve_repo_storage_owner(
     state: &AppState,
     repo: &rg_db::entities::repository::Model,
     route_owner: &str,

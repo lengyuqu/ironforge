@@ -37,6 +37,7 @@ describe('WikiEditPanel.svelte', () => {
       owner: 'alice',
       repo: 'demo',
       title: 'Home',
+      initialVersion: '1:2',
       initialContent: 'old content',
       onSaved,
       onCancel,
@@ -47,7 +48,7 @@ describe('WikiEditPanel.svelte', () => {
     await fireEvent.input(textarea, { target: { value: 'new content' } });
 
     await fireEvent.click(screen.getByText('wiki.save'));
-    await waitFor(() => expect(wikiUpdate).toHaveBeenCalledWith('alice', 'demo', 'Home', 'new content'));
+    await waitFor(() => expect(wikiUpdate).toHaveBeenCalledWith('alice', 'demo', 'Home', 'new content', '1:2'));
     await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
     expect(toastSuccess).toHaveBeenCalledTimes(1);
   });
@@ -59,6 +60,7 @@ describe('WikiEditPanel.svelte', () => {
       owner: 'alice',
       repo: 'demo',
       title: 'Home',
+      initialVersion: '1:2',
       initialContent: 'x',
       onSaved,
       onCancel: () => {},
@@ -76,6 +78,7 @@ describe('WikiEditPanel.svelte', () => {
       owner: 'alice',
       repo: 'demo',
       title: 'Home',
+      initialVersion: '1:2',
       initialContent: 'x',
       onSaved: () => {},
       onCancel,

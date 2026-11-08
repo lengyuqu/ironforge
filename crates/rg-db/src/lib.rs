@@ -1242,3 +1242,17 @@ mod runner_token_migration_tests {
         }
     }
 }
+
+/// SQLite may return BUSY immediately for a deferred write transaction even
+/// with a busy timeout. Only retry before any application mutation has run.
+pub fn is_sqlite_busy(error: &sea_orm::DbErr) -> bool {
+    match error {
+        sea_orm::DbErr::Exec(sea_orm::RuntimeErr::SqlxError(sea_orm::sqlx::Error::Database(
+            db,
+        ))) => db
+            .code()
+            .and_then(|c| c.parse::<u32>().ok())
+            .is_some_and(|c| c & 0xff == 5),
+        _ => false,
+    }
+}
