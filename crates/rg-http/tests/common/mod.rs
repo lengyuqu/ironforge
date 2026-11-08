@@ -62,8 +62,6 @@ async fn migrated_template() -> &'static std::path::Path {
 
 /// Create a temporary file-based SQLite database with all migrations applied.
 pub async fn setup_test_db() -> (rg_db::DatabaseConnection, tempfile::TempDir) {
-    use sea_orm::{ConnectOptions, Database};
-    use std::time::Duration;
     // Webhook/mirror tests deliver to loopback receivers; the outbound URL
     // guard must let them through (scheme allowlists still apply).
     std::env::set_var("IRONFORGE_ALLOW_LOCAL_OUTBOUND", "1");
@@ -72,13 +70,12 @@ pub async fn setup_test_db() -> (rg_db::DatabaseConnection, tempfile::TempDir) {
     let db_path = dir.path().join("test.db");
     std::fs::copy(template, &db_path).expect("failed to copy the migrated template");
     let db_url = format!("sqlite://{}?mode=rwc", db_path.display());
-    let mut opt = ConnectOptions::new(db_url);
-    opt.max_connections(2)
-        .min_connections(1)
-        .connect_timeout(Duration::from_secs(5));
     // No migration run here: the template was migrated by this very process, so
-    // the copy has exactly the schema the code expects.
-    let db = Database::connect(opt).await.expect("failed to connect");
+    // the copy has exactly the schema the code expects. Connect the way the
+    // server does (WAL, busy timeout), not with sqlx's bare defaults.
+    let db = rg_db::connect_with_pool(&db_url, 5, 60, 2)
+        .await
+        .expect("failed to connect");
     (db, dir)
 }
 
