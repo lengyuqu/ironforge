@@ -12,20 +12,20 @@ use crate::AppState;
 
 // ── Request / Response types ──────────────────────────────────────────────
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct CreateWikiPageRequest {
     pub title: String,
     pub content: String,
     pub message: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct UpdateWikiPageRequest {
     pub content: String,
     pub message: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct WikiPageResponse {
     pub id: i64,
     pub title: String,
@@ -140,9 +140,9 @@ pub async fn get_page(
         ("owner" = String, Path, description = "owner"),
         ("name" = String, Path, description = "name"),
     ),
-    request_body(content = serde_json::Value),
+    request_body(content = CreateWikiPageRequest),
     responses(
-        (status = 201, description = "Created", body = serde_json::Value),
+        (status = 201, description = "Created", body = WikiPageResponse),
         (status = 400, description = "Bad request", body = serde_json::Value),
         (status = 401, description = "Unauthorized", body = serde_json::Value),
         (status = 403, description = "Forbidden", body = serde_json::Value),
@@ -211,7 +211,7 @@ pub async fn create_page(
         ("name" = String, Path, description = "name"),
         ("title" = String, Path, description = "title"),
     ),
-    request_body(content = serde_json::Value),
+    request_body(content = UpdateWikiPageRequest),
     responses(
         (status = 200, description = "Updated", body = serde_json::Value),
         (status = 401, description = "Unauthorized", body = serde_json::Value),

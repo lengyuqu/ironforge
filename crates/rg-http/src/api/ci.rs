@@ -75,7 +75,7 @@ struct StageWithJobsResponse {
     jobs: Vec<JobResponse>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct TriggerPipelineRequest {
     ref_name: Option<String>,
 }
@@ -442,7 +442,7 @@ pub async fn play_job(
         ("owner" = String, Path, description = "owner"),
         ("name" = String, Path, description = "name"),
     ),
-    request_body(content = serde_json::Value),
+    request_body(content = TriggerPipelineRequest),
     responses(
         (status = 201, description = "Created", body = serde_json::Value),
         (status = 400, description = "Bad request", body = serde_json::Value),
@@ -484,7 +484,7 @@ pub async fn trigger_pipeline(
     // Resolve HEAD commit SHA
     let ref_name = body
         .ref_name
-        .unwrap_or_else(|| "refs/heads/main".to_string());
+        .unwrap_or_else(|| format!("refs/heads/{}", repo.default_branch));
     let commit_sha = match resolve_commit_sha(&repo_path, &ref_name) {
         Some(sha) => sha,
         None => return AppError::bad_request("cannot resolve commit SHA for ref").into_response(),

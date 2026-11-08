@@ -437,6 +437,11 @@ pub struct PaginatedRepoResponse {
     ),
     components(
         schemas(
+            crate::api::ci::TriggerPipelineRequest,
+            crate::api::wiki::CreateWikiPageRequest,
+            crate::api::wiki::UpdateWikiPageRequest,
+            crate::api::wiki::WikiPageResponse,
+            crate::api::pulls::UpdatePrRequest,
             crate::api::collab_sessions::CreateSessionRequest,
             crate::api::collab_sessions::CreateSessionResponse,
             crate::api::collab_sessions::SessionResponse,

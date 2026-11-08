@@ -217,3 +217,59 @@ fn every_registered_handler_is_mounted_in_the_router() {
          (the docs advertise endpoints that do not exist): {missing:?}"
     );
 }
+
+#[test]
+fn client_request_schemas_expose_fields_and_required_properties() {
+    let spec: serde_json::Value = serde_json::from_str(&rg_http::openapi::openapi_spec()).unwrap();
+    for (path, method, schema, fields, required) in [
+        (
+            "/repos/{owner}/{name}/wiki",
+            "post",
+            "CreateWikiPageRequest",
+            &["title", "content", "message"][..],
+            &["title", "content"][..],
+        ),
+        (
+            "/repos/{owner}/{name}/wiki/{title}",
+            "patch",
+            "UpdateWikiPageRequest",
+            &["content", "message"][..],
+            &["content"][..],
+        ),
+        (
+            "/repos/{owner}/{name}/pulls/{number}",
+            "patch",
+            "UpdatePrRequest",
+            &["title", "body", "state", "draft", "milestone_id"][..],
+            &[][..],
+        ),
+        (
+            "/repos/{owner}/{name}/pipelines",
+            "post",
+            "TriggerPipelineRequest",
+            &["ref_name"][..],
+            &[][..],
+        ),
+    ] {
+        let request =
+            &spec["paths"][path][method]["requestBody"]["content"]["application/json"]["schema"];
+        assert_eq!(request["$ref"], format!("#/components/schemas/{schema}"));
+        let definition = &spec["components"]["schemas"][schema];
+        for field in fields {
+            assert!(
+                definition["properties"].get(*field).is_some(),
+                "{schema} missing {field}"
+            );
+        }
+        let actual = definition["required"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        for field in required {
+            assert!(
+                actual.contains(&serde_json::json!(field)),
+                "{schema} must require {field}"
+            );
+        }
+    }
+}

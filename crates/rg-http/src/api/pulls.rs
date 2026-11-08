@@ -34,7 +34,7 @@ pub struct CreatePrRequest {
     pub dry_run: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct UpdatePrRequest {
     #[serde(default)]
     pub title: Option<String>,
@@ -380,7 +380,7 @@ pub async fn create_pr(
         ("name" = String, Path, description = "name"),
         ("number" = i64, Path, description = "number"),
     ),
-    request_body(content = serde_json::Value),
+    request_body(content = UpdatePrRequest),
     responses(
         (status = 200, description = "Updated", body = serde_json::Value),
         (status = 401, description = "Unauthorized", body = serde_json::Value),
