@@ -10,37 +10,46 @@ name: Regression
 #     releasing, so `pull_request` never fires on GitHub in practice.
 #
 # How much runs:
+#   * Full runs are manual. Nothing starts a full run by itself: there is no
+#     `push` trigger (a merge to main used to repeat the pull request's whole run
+#     on almost the same tree) and no nightly schedule. When a change is big
+#     enough to warrant it, start the workflow by hand (`workflow_dispatch`;
+#     `tea actions workflows dispatch regression.yml --ref <branch> --repo
+#     aicodeing/ironforge`): that runs every job and `cargo test --workspace`.
 #   * Pull requests run a scoped set. The `changes` job (scripts/ci-changes.py)
 #     classifies the files changed against the merge base: docs only -> nothing;
-#     web/ only -> the frontend job; changes confined to rg-ci / rg-ssh /
-#     rg-runner / rg-cli / rg-ci-isolation / rg-http / rg-mcp -> clippy and the
-#     tests of those crates and of the crates that depend on them (read from
-#     the Cargo manifests).
-#   * Everything runs on `push` to main, `workflow_dispatch` and the nightly
-#     schedule, and on a pull request that touches rg-core / rg-db / rg-git,
-#     Cargo.toml / Cargo.lock, .github/, scripts/, deploy/ or any file the
-#     script does not recognise. If the script cannot work out the scope it
-#     says so (`::warning::`) and runs everything. Jobs the scope leaves out
-#     are skipped, not green-by-default steps.
+#     web/ only -> the frontend job; changes in crates -> clippy for the
+#     workspace and the tests of those crates and of the crates that depend on
+#     them (read from the Cargo manifests); Cargo.toml / Cargo.lock, .github/,
+#     scripts/, deploy/ or a file the script does not recognise -> every crate.
+#     The heavy rg-http integration suite is part of a pull request's run only
+#     when a file of rg-http itself changed; otherwise a notice says it was left
+#     out. If the script cannot work out the scope it says so (`::warning::`) and
+#     runs everything. Jobs the scope leaves out are skipped, not green-by-default
+#     steps.
+#   * A new push to a pull request cancels that pull request's run that is still
+#     going (`concurrency`); manual runs are never cancelled this way.
 on:
   pull_request:
     branches:
       - main
-  push:
-    branches:
-      - main
   workflow_dispatch:
-  schedule:
-    # Nightly full run (Gitea Actions; the `changes` job skips it on GitHub).
-    - cron: "17 3 * * *"
+
+concurrency:
+  group: regression-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
 
 # Runners are pinned to a concrete image instead of `ubuntu-latest`: GitHub is
 # moving that label to Ubuntu 26, and a toolchain/OS change should arrive as a
 # reviewed commit rather than as a surprise red build. Move the pin on purpose.
 # The JavaScript actions below are on majors that run on Node 24 (the earlier
 # ones ran on Node 20, which GitHub is retiring).
+#
+# Debug info is cut to line tables: backtraces keep file and line, but compiling
+# and linking ~130 test binaries gets cheaper and the cache gets smaller.
 env:
   CARGO_INCREMENTAL: "0"
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
 
 jobs:
   # Works out what the other jobs need to run (see the header comment). It is
@@ -49,15 +58,13 @@ jobs:
     name: Decide the test scope
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    # A scheduled run on GitHub would spend the scarce free minutes for nothing:
-    # the nightly run belongs to git233. Skipping this job skips the rest.
-    if: github.event_name != 'schedule' || github.server_url != 'https://github.com'
     outputs:
       full: ${{ steps.scope.outputs.full }}
       rust: ${{ steps.scope.outputs.rust }}
       frontend: ${{ steps.scope.outputs.frontend }}
       db_smoke: ${{ steps.scope.outputs.db_smoke }}
       git_protocol: ${{ steps.scope.outputs.git_protocol }}
+      deploy: ${{ steps.scope.outputs.deploy }}
       packages: ${{ steps.scope.outputs.packages }}
     steps:
       - name: Checkout (full history, to find the merge base)
@@ -88,6 +95,7 @@ jobs:
               echo "frontend=true"
               echo "db_smoke=true"
               echo "git_protocol=true"
+              echo "deploy=true"
               echo "packages="
             } >> "$GITHUB_OUTPUT"
           fi
@@ -158,6 +166,10 @@ jobs:
       - name: Install Rust (retry)
         if: steps.rust.outcome != 'success'
         run: scripts/ci-install-rust.sh
+
+      # Faster linking; falls back to the default linker if mold is unavailable.
+      - name: Use the mold linker
+        run: scripts/ci-fast-link.sh
 
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
@@ -253,6 +265,10 @@ jobs:
         if: steps.rust.outcome != 'success'
         run: scripts/ci-install-rust.sh
 
+      # Faster linking; falls back to the default linker if mold is unavailable.
+      - name: Use the mold linker
+        run: scripts/ci-fast-link.sh
+
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
 
@@ -298,6 +314,10 @@ jobs:
       - name: Install Rust (retry)
         if: steps.rust.outcome != 'success'
         run: scripts/ci-install-rust.sh
+
+      # Faster linking; falls back to the default linker if mold is unavailable.
+      - name: Use the mold linker
+        run: scripts/ci-fast-link.sh
 
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
@@ -348,6 +368,10 @@ jobs:
       - name: Install Rust (retry)
         if: steps.rust.outcome != 'success'
         run: scripts/ci-install-rust.sh
+
+      # Faster linking; falls back to the default linker if mold is unavailable.
+      - name: Use the mold linker
+        run: scripts/ci-fast-link.sh
 
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
@@ -421,7 +445,7 @@ jobs:
     name: Docker compose config
     needs: changes
     # deploy/ is on the full-run list, so this runs exactly when it could change.
-    if: needs.changes.outputs.full == 'true'
+    if: needs.changes.outputs.full == 'true' || needs.changes.outputs.deploy == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
