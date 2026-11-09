@@ -1,22 +1,29 @@
 //! `ironforge-mcp` – MCP server entry point.
 //!
 //! # Transports
-//! - **stdio** – run as subprocess of an AI agent.
+//! - **stdio** (default) – run as subprocess of an AI agent. The token is the
+//!   process's own `IRONFORGE_PAT`.
+//! - **streamable HTTP** (`--http [ADDR]`, default `127.0.0.1:8765`, or
+//!   `IRONFORGE_MCP_LISTEN`) – for agents on another machine. Every connection
+//!   brings its own `Authorization: Bearer <token>`; `IRONFORGE_PAT` is not used.
+//!   See `rg_mcp::remote` and `ironforge-docs/architecture/mcp-remote-verification-2026-11.md`.
 //!
-//! HTTP SSE transport is not implemented yet. Passing `--sse` exits with an
-//! error instead of silently starting a partial server.
+//! The legacy HTTP+SSE transport (`--sse`) is not implemented.
 //!
 //! # Environment
-//! | Variable        | Default                 | Notes                     |
-//! |-----------------|-------------------------|---------------------------|
-//! | `IRONFORGE_URL` | `http://localhost:8080` | IronForge API base       |
-//! | `IRONFORGE_PAT` | _(none)_              | Bearer token for API auth |
+//! | Variable                       | Default                 | Notes                          |
+//! |--------------------------------|-------------------------|--------------------------------|
+//! | `IRONFORGE_URL`                | `http://localhost:8080` | IronForge API base             |
+//! | `IRONFORGE_PAT`                | _(none)_                | stdio only: Bearer token       |
+//! | `IRONFORGE_MCP_LISTEN`         | `127.0.0.1:8765`        | `--http` bind address          |
+//! | `IRONFORGE_MCP_ALLOWED_ORIGINS`| _(none)_                | `--http`: browser origins      |
 
 use std::io::{self, BufRead, BufWriter, Write};
 use std::io::{stdin, stdout};
 
 // Pull everything from the library crate.
 use rg_mcp::protocol::*;
+use rg_mcp::server::dispatch;
 use rg_mcp::AppState;
 
 // ── stdio main loop ─────────────────────────────────────────────
@@ -67,39 +74,57 @@ fn write_json<W: Write>(w: &mut W, resp: &JsonRpcResponse) -> io::Result<()> {
     Ok(())
 }
 
-fn dispatch(state: &AppState, req: &JsonRpcRequest) -> JsonRpcResponse {
-    match req.method.as_str() {
-        "initialize" => handle_initialize(state, req),
-        "notifications/initialized" => make_success(req.id.clone(), serde_json::json!({})),
-        "tools/list" => rg_mcp::tools::list_tools(state, req),
-        "tools/call" => rg_mcp::tools::call_tool(state, req),
-        "resources/list" => rg_mcp::resources::list_resources(state, req),
-        "resources/read" => rg_mcp::resources::read_resource(state, req),
-        "notifications/cancelled" => make_success(req.id.clone(), serde_json::json!({})),
-        _ => make_error(
-            req.id.clone(),
-            -32601,
-            &format!("method not found: {}", req.method),
-        ),
-    }
+fn init_logging() {
+    // 日志打到 stderr，不污染 stdio JSON-RPC 通道
+    let _ = tracing_subscriber::fmt()
+        .with_writer(io::stderr)
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .try_init();
 }
 
-fn handle_initialize(_state: &AppState, req: &JsonRpcRequest) -> JsonRpcResponse {
-    let result = serde_json::json!({
-        "protocolVersion": "2024-11-05",
-        "serverInfo": {
-            "name": "ironforge-mcp",
-            "version": "0.1.0"
-        },
-        "capabilities": {
-            "tools": { "listChanged": true },
-            "resources": { "subscribe": false, "listChanged": true }
-        }
-    });
-    make_success(req.id.clone(), result)
+/// `--http` takes an optional address as the next argument.
+fn http_listen_address(args: &[String]) -> Option<String> {
+    let at = args.iter().position(|a| a == "--http")?;
+    let next = args.get(at + 1).filter(|a| !a.starts_with("--")).cloned();
+    Some(
+        next.or_else(|| std::env::var("IRONFORGE_MCP_LISTEN").ok())
+            .filter(|a| !a.is_empty())
+            .unwrap_or_else(|| "127.0.0.1:8765".to_string()),
+    )
 }
 
 fn main() -> anyhow::Result<()> {
+    let args: Vec<String> = std::env::args().collect();
+
+    if args.iter().any(|a| a == "--sse") {
+        anyhow::bail!(
+            "the legacy HTTP+SSE transport is not implemented; use stdio (no flag) or --http (streamable HTTP)"
+        );
+    }
+
+    if let Some(address) = http_listen_address(&args) {
+        init_logging();
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()?;
+        return runtime.block_on(async move {
+            let cfg = rg_mcp::remote::RemoteConfig::from_env();
+            if std::env::var("IRONFORGE_PAT").is_ok_and(|p| !p.is_empty()) {
+                tracing::warn!("IRONFORGE_PAT is ignored in --http mode: each client sends its own token");
+            }
+            let listener = tokio::net::TcpListener::bind(&address).await?;
+            let local = listener.local_addr()?;
+            if !local.ip().is_loopback() {
+                tracing::warn!(
+                    "listening on {local} without TLS: tokens travel in clear text unless a reverse proxy in front terminates TLS"
+                );
+            }
+            tracing::info!("ironforge-mcp streamable HTTP on http://{local}/mcp -> {}", cfg.api_base);
+            rg_mcp::remote::serve(listener, cfg).await?;
+            Ok(())
+        });
+    }
+
     // Tools/resources are dispatched synchronously but perform async reqwest
     // calls via `Handle::current().block_on(...)`. Create and enter a runtime
     // for the whole stdio loop so those handlers never panic due to a missing
@@ -110,20 +135,9 @@ fn main() -> anyhow::Result<()> {
         .build()?;
     let _runtime_guard = runtime.enter();
 
-    // 日志打到 stderr，不污染 stdio JSON-RPC 通道
-    let _ = tracing_subscriber::fmt()
-        .with_writer(io::stderr)
-        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .try_init();
+    init_logging();
 
     let app_state = AppState::from_env()?;
-
-    if std::env::args().any(|a| a == "--sse") {
-        anyhow::bail!(
-            "SSE transport is not implemented; use stdio by running ironforge-mcp without --sse"
-        );
-    }
-
     run_stdio(&app_state)?;
     Ok(())
 }

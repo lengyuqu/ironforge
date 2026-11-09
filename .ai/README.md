@@ -15,8 +15,22 @@ IronForge 内置 **MCP Server**（`rg-mcp` crate，二进制 `ironforge-mcp`）�
 # 启动 MCP Server（stdio 模式，直接对接 AI 工具）
 IRONFORGE_URL=http://localhost:8080 IRONFORGE_PAT=<token> ironforge-mcp
 
-# SSE transport 当前未实现；不要使用 --sse 作为可用模式
+# 远程 agent（不在服务所在机器上）：streamable HTTP，每个连接用自己的令牌
+IRONFORGE_URL=http://127.0.0.1:8080 ironforge-mcp --http 127.0.0.1:8765   # 端点 POST /mcp
+
+# 旧版 HTTP+SSE 传输未实现；--sse 会报错退出
 ```
+
+**远程（streamable HTTP）配置**：客户端把 `Authorization: Bearer <token>` 放在请求头里（`IRONFORGE_PAT` 在 `--http` 下不使用）：
+
+```json
+{ "mcpServers": { "ironforge": {
+    "type": "http",
+    "url": "https://mcp.example.com/mcp",
+    "headers": { "Authorization": "Bearer <token>" } } } }
+```
+
+远程入口不持有凭据，只把你的令牌原样转给服务端 REST，所以令牌的 scope、`repos`、`refs` 限制与直接调 REST 完全一样。会话绑定令牌；TLS 与按 IP 限流在反向代理做，代理须对 `/mcp` 关闭缓冲、读超时 ≥ 75 秒（`wait_*` 长轮询最长 55 秒）；单实例，重启后客户端重新 `initialize`。细节、限制与未验证项见 [验证记录](../ironforge-docs/architecture/mcp-remote-verification-2026-11.md)。
 
 > **给 agent 发令牌时用最小 scope**（2026-11-06）：`repo:read` 只读（含 `git clone`）；`repo:collab` 在此之上可写协作区（会话/任务/问题等），改不了代码、Issue、PR；`repo:write` 在此之上可做其余全部写入和 `git push`；`repo` 是历史的全量仓库 scope，包含以上全部（旧令牌不变）。账号用户自己的仓库权限仍然叠加在上面（见 [验证记录](../ironforge-docs/architecture/agent-token-scopes-verification-2026-11.md)）。
 >

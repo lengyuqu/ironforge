@@ -4,17 +4,20 @@
 //! MCP (Model Context Protocol) server that exposes IronForge
 //! repository data as Tools and Resources to AI agents.
 //!
-//! Supported transport:
-//! - **stdio**: run as a subprocess of an MCP-capable agent.
-//!
-//! HTTP SSE transport is intentionally not advertised until implemented.
+//! Supported transports:
+//! - **stdio**: run as a subprocess of an MCP-capable agent (`ironforge-mcp`).
+//! - **streamable HTTP**: `ironforge-mcp --http`, for agents that are not on the
+//!   machine of the server (see [`remote`]). The legacy HTTP+SSE transport is
+//!   not implemented.
 
 pub mod client;
 pub mod collab;
 pub mod collab_contract;
 pub mod error;
 pub mod protocol;
+pub mod remote;
 pub mod resources;
+pub mod server;
 pub mod tools;
 
 // Re-export for convenience
@@ -60,8 +63,13 @@ impl AppState {
         }
         // unwrap is acceptable here — build() only fails if native TLS is
         // entirely unavailable, which means the system is fundamentally broken
+        //
+        // The longest legitimate call is a `wait_*` long poll of 55 s, so two
+        // minutes only ends a server that has stopped answering: without it a
+        // hung upstream would hold a (remote-transport) call slot forever.
         reqwest::Client::builder()
             .default_headers(headers)
+            .timeout(std::time::Duration::from_secs(120))
             .build()
             .expect("reqwest::Client::build() failed: no native TLS backend available")
     }

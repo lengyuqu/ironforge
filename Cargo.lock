@@ -4993,9 +4993,12 @@ name = "rg-mcp"
 version = "0.2.0"
 dependencies = [
  "anyhow",
+ "axum",
+ "futures",
  "reqwest",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
