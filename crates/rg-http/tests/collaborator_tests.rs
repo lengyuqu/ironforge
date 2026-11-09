@@ -123,3 +123,136 @@ async fn add_collaborator_accepts_username_and_email() {
     assert!(ids.contains(&alice_id));
     assert!(ids.contains(&bob_id));
 }
+
+#[tokio::test]
+async fn only_repository_admins_can_manage_collaborators() {
+    let base = spawn_test_app().await;
+    register_bootstrap_admin(&base).await;
+    let (owner, _) = register_full(&base, "policy_owner", "policy_owner@example.com").await;
+    let (writer, writer_id) =
+        register_full(&base, "policy_writer", "policy_writer@example.com").await;
+    let (admin, admin_id) = register_full(&base, "policy_admin", "policy_admin@example.com").await;
+    let (_, target_id) = register_full(&base, "policy_target", "policy_target@example.com").await;
+    create_repo(&base, &owner, "policy_repo").await;
+    let client = reqwest::Client::new();
+    let url = format!("{base}/api/v1/repos/policy_owner/policy_repo/collaborators");
+    let add =
+        |user_id, permission| serde_json::json!({"user_id": user_id, "permission": permission});
+    for (id, permission) in [
+        (writer_id, "write"),
+        (admin_id, "admin"),
+        (target_id, "read"),
+    ] {
+        assert_eq!(
+            client
+                .post(&url)
+                .bearer_auth(&owner)
+                .json(&add(id, permission))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            201
+        );
+    }
+    let list: Vec<serde_json::Value> = client
+        .get(&url)
+        .bearer_auth(&owner)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let admin_row_id = list.iter().find(|row| row["user_id"] == admin_id).unwrap()["id"]
+        .as_i64()
+        .unwrap();
+    let row_id = list.iter().find(|row| row["user_id"] == target_id).unwrap()["id"]
+        .as_i64()
+        .unwrap();
+    assert_eq!(
+        client
+            .post(&url)
+            .bearer_auth(&writer)
+            .json(&add(writer_id, "admin"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        403
+    );
+    assert_eq!(
+        client
+            .patch(format!("{url}/{row_id}"))
+            .bearer_auth(&writer)
+            .json(&serde_json::json!({"permission":"admin"}))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        403
+    );
+    assert_eq!(
+        client
+            .delete(format!("{url}/{target_id}"))
+            .bearer_auth(&writer)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        403
+    );
+    assert_eq!(
+        client
+            .patch(format!("{url}/{row_id}"))
+            .bearer_auth(&admin)
+            .json(&serde_json::json!({"permission":"write"}))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    assert_eq!(
+        client
+            .delete(format!("{url}/{target_id}"))
+            .bearer_auth(&admin)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        204
+    );
+    assert_eq!(
+        client
+            .post(&url)
+            .bearer_auth(&admin)
+            .json(&add(target_id, "read"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        201
+    );
+    assert_eq!(
+        client
+            .patch(format!("{url}/{admin_row_id}"))
+            .bearer_auth(&owner)
+            .json(&serde_json::json!({"permission": "write"}))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    assert_eq!(
+        client
+            .delete(format!("{url}/{target_id}"))
+            .bearer_auth(&admin)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        403
+    );
+}

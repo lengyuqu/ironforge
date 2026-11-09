@@ -65,6 +65,10 @@ RUN for crate in rg-core rg-git rg-ssh rg-http rg-db rg-ci rg-ci-isolation; do \
 RUN cargo build --release
 
 # 2d. Copy actual source, touch to force rebuild, and compile
+# Set these build arguments from the exact checked-out source. Empty means unknown.
+ARG IRONFORGE_BUILD_COMMIT=""
+ARG IRONFORGE_BUILD_DIRTY=""
+ENV IRONFORGE_BUILD_COMMIT=$IRONFORGE_BUILD_COMMIT IRONFORGE_BUILD_DIRTY=$IRONFORGE_BUILD_DIRTY
 COPY crates/ crates/
 RUN touch crates/rg-cli/src/main.rs \
     crates/rg-mcp/src/main.rs \

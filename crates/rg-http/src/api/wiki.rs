@@ -12,22 +12,26 @@ use crate::AppState;
 
 // ── Request / Response types ──────────────────────────────────────────────
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct CreateWikiPageRequest {
     pub title: String,
     pub content: String,
     pub message: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct UpdateWikiPageRequest {
+    /// Opaque version returned by the most recent page read.
+    pub expected_version: String,
     pub content: String,
     pub message: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct WikiPageResponse {
     pub id: i64,
+    /// Opaque version to send with a subsequent update.
+    pub version: String,
     pub title: String,
     pub content: String,
     pub message: Option<String>,
@@ -43,9 +47,10 @@ pub struct WikiPageSummary {
     pub updated_at: String,
 }
 
-fn page_to_response(p: &rg_db::entities::wiki_page::Model) -> WikiPageResponse {
+fn page_to_response(p: &rg_db::entities::wiki_page::Model, version: String) -> WikiPageResponse {
     WikiPageResponse {
         id: p.id,
+        version,
         title: p.title.clone(),
         content: p.content.clone(),
         message: p.message.clone(),
@@ -107,8 +112,11 @@ pub async fn list_pages(
         ("title" = String, Path, description = "title"),
     ),
     responses(
-        (status = 200, description = "Success", body = serde_json::Value),
-        (status = 401, description = "Unauthorized", body = serde_json::Value),
+        (status = 200, description = "Success", body = WikiPageResponse),
+        (status = 401, description = "Unauthorized", body = crate::error::ErrorResponse),
+        (status = 403, description = "Forbidden", body = crate::error::ErrorResponse),
+        (status = 404, description = "Not found", body = crate::error::ErrorResponse),
+        (status = 409, description = "Page changed during read; retry", body = crate::error::ErrorResponse),
     ),
 )]
 pub async fn get_page(
@@ -121,10 +129,10 @@ pub async fn get_page(
         Err(e) => return e.into_response(),
     };
 
-    match rg_core::wiki::service::get_page(&state.db, repo.id, &title).await {
-        Ok(Some(page)) => (
+    match rg_core::wiki::service::get_page_with_version(&state.db, repo.id, &title).await {
+        Ok(Some((page, version))) => (
             StatusCode::OK,
-            Json(serde_json::json!(page_to_response(&page))),
+            Json(serde_json::json!(page_to_response(&page, version))),
         )
             .into_response(),
         Ok(None) => AppError::not_found("page not found").into_response(),
@@ -140,12 +148,15 @@ pub async fn get_page(
         ("owner" = String, Path, description = "owner"),
         ("name" = String, Path, description = "name"),
     ),
-    request_body(content = serde_json::Value),
+    request_body(content = CreateWikiPageRequest),
     responses(
-        (status = 201, description = "Created", body = serde_json::Value),
-        (status = 400, description = "Bad request", body = serde_json::Value),
-        (status = 401, description = "Unauthorized", body = serde_json::Value),
-        (status = 403, description = "Forbidden", body = serde_json::Value),
+        (status = 201, description = "Created", body = WikiPageResponse),
+        (status = 400, description = "Bad request", body = crate::error::ErrorResponse),
+        (status = 401, description = "Unauthorized", body = crate::error::ErrorResponse),
+        (status = 403, description = "Forbidden", body = crate::error::ErrorResponse),
+        (status = 409, description = "Page already exists", body = crate::error::ErrorResponse),
+        (status = 415, description = "Expected application/json content type"),
+        (status = 422, description = "Missing or malformed request fields"),
     ),
 )]
 pub async fn create_page(
@@ -195,7 +206,10 @@ pub async fn create_page(
     {
         Ok(page) => (
             StatusCode::CREATED,
-            Json(serde_json::json!(page_to_response(&page))),
+            Json(serde_json::json!(page_to_response(
+                &page,
+                format!("{}:0", page.id)
+            ))),
         )
             .into_response(),
         Err(e) => AppError::from(e).into_response(),
@@ -211,11 +225,16 @@ pub async fn create_page(
         ("name" = String, Path, description = "name"),
         ("title" = String, Path, description = "title"),
     ),
-    request_body(content = serde_json::Value),
+    request_body(content = UpdateWikiPageRequest),
     responses(
-        (status = 200, description = "Updated", body = serde_json::Value),
-        (status = 401, description = "Unauthorized", body = serde_json::Value),
-        (status = 403, description = "Forbidden", body = serde_json::Value),
+        (status = 200, description = "Updated", body = WikiPageResponse),
+        (status = 400, description = "Invalid input", body = crate::error::ErrorResponse),
+        (status = 401, description = "Unauthorized", body = crate::error::ErrorResponse),
+        (status = 403, description = "Forbidden", body = crate::error::ErrorResponse),
+        (status = 404, description = "Not found", body = crate::error::ErrorResponse),
+        (status = 409, description = "Version conflict; reload page", body = crate::error::ErrorResponse),
+        (status = 415, description = "Expected application/json content type"),
+        (status = 422, description = "Missing or invalid request fields"),
     ),
 )]
 pub async fn update_page(
@@ -252,12 +271,13 @@ pub async fn update_page(
         &content,
         body.message.as_deref(),
         Some(user_id),
+        &body.expected_version,
     )
     .await
     {
-        Ok(page) => (
+        Ok((page, version)) => (
             StatusCode::OK,
-            Json(serde_json::json!(page_to_response(&page))),
+            Json(serde_json::json!(page_to_response(&page, version))),
         )
             .into_response(),
         Err(e) => AppError::from(e).into_response(),

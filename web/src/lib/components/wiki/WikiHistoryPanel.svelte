@@ -13,11 +13,13 @@
     owner,
     repo,
     title,
+    currentVersion,
     onRestored,
   }: {
     owner: string;
     repo: string;
     title: string;
+    currentVersion: string;
     onRestored: () => void | Promise<void>;
   } = $props();
 
@@ -63,7 +65,7 @@
     if (!(await confirmDialog({ variant: 'danger', message: t('confirm.wiki_restore', { version: rev.version }) }))) return;
     restoring = true;
     try {
-      await wiki.update(owner, repo, title, viewingRevision?.content ?? rev.content);
+      await wiki.update(owner, repo, title, viewingRevision?.content ?? rev.content, currentVersion);
       toast.success(`Version ${rev.version} restored`);
       viewingRevision = null;
       await onRestored();

@@ -11,10 +11,10 @@ export const wiki = {
       method: 'POST',
       body: JSON.stringify({ title, content, message }),
     }),
-  update: (owner: string, repo: string, title: string, content: string, message?: string) =>
+  update: (owner: string, repo: string, title: string, content: string, expectedVersion: string, message?: string) =>
     request<WikiPage>(`/repos/${owner}/${repo}/wiki/${encodeURIComponent(title)}`, {
       method: 'PATCH',
-      body: JSON.stringify({ content, message }),
+      body: JSON.stringify({ content, message, expected_version: expectedVersion }),
     }),
   remove: (owner: string, repo: string, title: string) =>
     request<{ message: string }>(`/repos/${owner}/${repo}/wiki/${encodeURIComponent(title)}`, {

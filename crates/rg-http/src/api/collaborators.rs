@@ -6,7 +6,7 @@ use axum::response::IntoResponse;
 use axum::Json;
 use serde::Deserialize;
 
-use crate::api::repo_access::{require_read, require_write};
+use crate::api::repo_access::{require_admin, require_read};
 use crate::error::AppError;
 use crate::AppState;
 use rg_core::error::{CoreError, CoreResult};
@@ -90,7 +90,7 @@ pub async fn add_collaborator(
     headers: HeaderMap,
     Json(req): Json<AddCollaboratorRequest>,
 ) -> impl IntoResponse {
-    let (_repo_model, _user_id) = match require_write(&state, &headers, &owner, &repo).await {
+    let (_repo_model, _user_id) = match require_admin(&state, &headers, &owner, &repo).await {
         Ok(r) => r,
         Err(e) => return e.into_response(),
     };
@@ -180,7 +180,7 @@ pub async fn update_permission(
     headers: HeaderMap,
     Json(req): Json<UpdatePermissionRequest>,
 ) -> impl IntoResponse {
-    let (_repo_model, _user_id) = match require_write(&state, &headers, &owner, &repo).await {
+    let (_repo_model, _user_id) = match require_admin(&state, &headers, &owner, &repo).await {
         Ok(r) => r,
         Err(e) => return e.into_response(),
     };
@@ -222,7 +222,7 @@ pub async fn remove_collaborator(
     Path((owner, repo, user_id)): Path<(String, String, i64)>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    let (_repo_model, _user_id) = match require_write(&state, &headers, &owner, &repo).await {
+    let (_repo_model, _user_id) = match require_admin(&state, &headers, &owner, &repo).await {
         Ok(r) => r,
         Err(e) => return e.into_response(),
     };

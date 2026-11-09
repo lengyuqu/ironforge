@@ -67,6 +67,7 @@ describe('WikiHistoryPanel.svelte', () => {
       owner: 'alice',
       repo: 'demo',
       title: 'Home',
+      currentVersion: '1:2',
       onRestored: () => {},
     });
 
@@ -82,6 +83,7 @@ describe('WikiHistoryPanel.svelte', () => {
       owner: 'alice',
       repo: 'demo',
       title: 'Home',
+      currentVersion: '1:2',
       onRestored: () => {},
     });
 
@@ -96,6 +98,7 @@ describe('WikiHistoryPanel.svelte', () => {
       owner: 'alice',
       repo: 'demo',
       title: 'Home',
+      currentVersion: '1:2',
       onRestored: () => {},
     });
 
@@ -110,7 +113,7 @@ describe('WikiHistoryPanel.svelte', () => {
   it('restores the viewing revision after confirmation', async () => {
     wikiRevision.mockResolvedValue({ ...rev, content: '# full v3' });
     const onRestored = vi.fn();
-    render(WikiHistoryPanel, { owner: 'alice', repo: 'demo', title: 'Home', onRestored });
+    render(WikiHistoryPanel, { owner: 'alice', repo: 'demo', title: 'Home', currentVersion: '1:2', onRestored });
 
     await screen.findByText('v3');
     await fireEvent.click(screen.getByText('fix typo'));
@@ -118,7 +121,7 @@ describe('WikiHistoryPanel.svelte', () => {
 
     await fireEvent.click(screen.getByText('wiki.restore_version'));
     await waitFor(() =>
-      expect(wikiUpdate).toHaveBeenCalledWith('alice', 'demo', 'Home', '# full v3')
+      expect(wikiUpdate).toHaveBeenCalledWith('alice', 'demo', 'Home', '# full v3', '1:2')
     );
     await waitFor(() => expect(onRestored).toHaveBeenCalledTimes(1));
     expect(toastSuccess).toHaveBeenCalledWith('Version 3 restored');

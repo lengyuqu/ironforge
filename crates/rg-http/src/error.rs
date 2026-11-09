@@ -8,12 +8,12 @@ use axum::response::{IntoResponse, Response};
 use serde::Serialize;
 
 /// Structured error response body.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct ErrorResponse {
     pub error: ErrorBody,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct ErrorBody {
     /// Machine-readable error code, e.g. "NOT_FOUND", "BAD_REQUEST".
     pub code: &'static str,

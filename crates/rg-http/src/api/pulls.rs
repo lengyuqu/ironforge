@@ -34,7 +34,69 @@ pub struct CreatePrRequest {
     pub dry_run: Option<bool>,
 }
 
-#[derive(Deserialize)]
+/// Response returned when a pull request is updated.
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct UpdatedPrResponse {
+    pub id: i64,
+    pub repo_id: i64,
+    pub number: i64,
+    pub title: String,
+    pub body: Option<String>,
+    pub state: String,
+    pub is_draft: bool,
+    pub auto_merge_enabled: bool,
+    pub auto_merge_strategy: Option<String>,
+    pub auto_merge_enabled_by_id: Option<i64>,
+    pub auto_merge_enabled_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub author_id: i64,
+    pub reviewer_id: Option<i64>,
+    pub head_branch: String,
+    pub base_branch: String,
+    pub head_sha: Option<String>,
+    pub merge_strategy: Option<String>,
+    pub merge_commit_sha: Option<String>,
+    pub head_repo_id: Option<i64>,
+    pub milestone_id: Option<i64>,
+    pub labels: Option<String>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+    pub closed_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub merged_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+impl From<rg_db::entities::pull_request::Model> for UpdatedPrResponse {
+    fn from(pr: rg_db::entities::pull_request::Model) -> Self {
+        Self {
+            id: pr.id,
+            repo_id: pr.repo_id,
+            number: pr.number,
+            title: pr.title,
+            body: pr.body,
+            state: pr.state,
+            is_draft: pr.is_draft,
+            auto_merge_enabled: pr.auto_merge_enabled,
+            auto_merge_strategy: pr.auto_merge_strategy,
+            auto_merge_enabled_by_id: pr.auto_merge_enabled_by_id,
+            auto_merge_enabled_at: pr.auto_merge_enabled_at,
+            author_id: pr.author_id,
+            reviewer_id: pr.reviewer_id,
+            head_branch: pr.head_branch,
+            base_branch: pr.base_branch,
+            head_sha: pr.head_sha,
+            merge_strategy: pr.merge_strategy,
+            merge_commit_sha: pr.merge_commit_sha,
+            head_repo_id: pr.head_repo_id,
+            milestone_id: pr.milestone_id,
+            labels: pr.labels,
+            created_at: pr.created_at,
+            updated_at: pr.updated_at,
+            closed_at: pr.closed_at,
+            merged_at: pr.merged_at,
+        }
+    }
+}
+
+#[derive(Deserialize, utoipa::ToSchema)]
 pub struct UpdatePrRequest {
     #[serde(default)]
     pub title: Option<String>,
@@ -380,10 +442,16 @@ pub async fn create_pr(
         ("name" = String, Path, description = "name"),
         ("number" = i64, Path, description = "number"),
     ),
-    request_body(content = serde_json::Value),
+    request_body(content = UpdatePrRequest),
     responses(
-        (status = 200, description = "Updated", body = serde_json::Value),
-        (status = 401, description = "Unauthorized", body = serde_json::Value),
+        (status = 200, description = "Updated", body = UpdatedPrResponse),
+        (status = 400, description = "Invalid input", body = crate::error::ErrorResponse),
+        (status = 401, description = "Unauthorized", body = crate::error::ErrorResponse),
+        (status = 403, description = "Forbidden", body = crate::error::ErrorResponse),
+        (status = 404, description = "Not found", body = crate::error::ErrorResponse),
+        (status = 409, description = "Conflict", body = crate::error::ErrorResponse),
+        (status = 415, description = "Expected application/json content type"),
+        (status = 422, description = "Malformed request fields"),
     ),
 )]
 pub async fn update_pr(
@@ -427,7 +495,7 @@ pub async fn update_pr(
     )
     .await
     {
-        Ok(pr) => (StatusCode::OK, Json(pr)).into_response(),
+        Ok(pr) => (StatusCode::OK, Json(UpdatedPrResponse::from(pr))).into_response(),
         Err(e) => AppError::from(e).into_response(),
     }
 }

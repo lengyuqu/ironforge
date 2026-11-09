@@ -109,6 +109,8 @@ pub struct RepoResponse {
     pub origin_repo_id: Option<i64>,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
+    /// Opaque version of the editable settings, present on repository reads.
+    pub settings_version: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deleted_at: Option<chrono::DateTime<chrono::Utc>>,
 }
@@ -356,9 +358,235 @@ pub async fn get_repo(
     Path((owner, name)): Path<(String, String)>,
 ) -> impl IntoResponse {
     match require_read(&state, &headers, &owner, &name).await {
-        Ok(repo) => (StatusCode::OK, Json(serde_json::json!(repo))).into_response(),
+        Ok(repo) => (StatusCode::OK, Json(repo_with_settings_version(&repo))).into_response(),
         Err(e) => e.into_response(),
     }
+}
+
+/// Settings use a representation-based token. A client must resend the token
+/// from GET; changing settings away and back produces the same token.
+fn settings_version(repo: &rg_db::entities::repository::Model) -> String {
+    use sha2::{Digest, Sha256};
+    let value = serde_json::json!([
+        repo.id,
+        repo.description,
+        repo.is_private,
+        repo.default_branch
+    ]);
+    hex::encode(Sha256::digest(value.to_string().as_bytes()))
+}
+
+fn repo_with_settings_version(repo: &rg_db::entities::repository::Model) -> serde_json::Value {
+    let mut value = serde_json::json!(repo);
+    value["settings_version"] = serde_json::json!(settings_version(repo));
+    value
+}
+
+#[derive(Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct UpdateRepoSettingsRequest {
+    /// Token from the repository GET response.
+    pub expected_version: String,
+    /// Omit to leave unchanged, null to clear.
+    #[serde(default, deserialize_with = "super::issues::de_clearable_str")]
+    pub description: Option<Option<String>>,
+    pub is_private: Option<bool>,
+    /// Existing Git branch to use as the default.
+    pub default_branch: Option<String>,
+}
+
+/// Change the bare repository's symbolic HEAD. Return an error if its current
+/// target does not match the database, so an external change is not overwritten.
+fn set_default_head(path: &std::path::Path, old: &str, new: &str) -> Result<(), String> {
+    use gix::refs::transaction::{Change, LogChange, PreviousValue, RefEdit, RefLog};
+    let branch_ref = format!("refs/heads/{new}");
+    let branch: gix::refs::FullName = branch_ref
+        .clone()
+        .try_into()
+        .map_err(|_| "invalid branch name".to_string())?;
+    let repo = gix::open(path).map_err(|_| "repository storage is unavailable".to_string())?;
+    if repo.rev_parse_single(branch_ref.as_str()).is_err() {
+        return Err("default branch does not exist".into());
+    }
+    let current = std::fs::read_to_string(path.join("HEAD"))
+        .map_err(|_| "cannot read repository HEAD".to_string())?;
+    if current.trim() != format!("ref: refs/heads/{old}") {
+        return Err("repository HEAD differs from the configured default branch".into());
+    }
+    let head: gix::refs::FullName = "HEAD".try_into().map_err(|_| "invalid HEAD".to_string())?;
+    let previous: gix::refs::FullName = format!("refs/heads/{old}")
+        .try_into()
+        .map_err(|_| "invalid existing default branch".to_string())?;
+    repo.edit_reference(RefEdit {
+        change: Change::Update {
+            log: LogChange {
+                mode: RefLog::AndReference,
+                force_create_reflog: false,
+                message: "update default branch".into(),
+            },
+            expected: PreviousValue::MustExistAndMatch(gix::refs::Target::Symbolic(previous)),
+            new: gix::refs::Target::Symbolic(branch),
+        },
+        name: head,
+        deref: false,
+    })
+    .map_err(|_| "cannot update repository HEAD".to_string())?;
+    Ok(())
+}
+
+#[utoipa::path(
+    patch, path = "/repos/{owner}/{name}", tag = "Repositories",
+    params(("owner" = String, Path), ("name" = String, Path)),
+    request_body = UpdateRepoSettingsRequest,
+    responses(
+        (status = 200, description = "Updated settings", body = RepoResponse),
+        (status = 400, description = "Invalid input or branch", body = crate::error::ErrorResponse),
+        (status = 401, description = "Authentication required", body = crate::error::ErrorResponse),
+        (status = 403, description = "Repository administrator required", body = crate::error::ErrorResponse),
+        (status = 404, description = "Repository not found", body = crate::error::ErrorResponse),
+        (status = 409, description = "Settings changed; reload", body = crate::error::ErrorResponse),
+        (status = 415, description = "Expected application/json content type"),
+        (status = 422, description = "Missing or malformed request fields")
+    )
+)]
+pub async fn update_repo_settings(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((owner, name)): Path<(String, String)>,
+    Json(body): Json<UpdateRepoSettingsRequest>,
+) -> impl IntoResponse {
+    match update_repo_settings_inner(&state, &headers, &owner, &name, body).await {
+        Ok(repo) => (StatusCode::OK, Json(repo_with_settings_version(&repo))).into_response(),
+        Err(err) => err.into_response(),
+    }
+}
+
+async fn update_repo_settings_inner(
+    state: &AppState,
+    headers: &HeaderMap,
+    owner: &str,
+    name: &str,
+    body: UpdateRepoSettingsRequest,
+) -> Result<rg_db::entities::repository::Model, AppError> {
+    use rg_db::entities::repository;
+    use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, TransactionTrait};
+    let (repo, _) = require_admin(state, headers, owner, name).await?;
+    if let Some(Some(description)) = &body.description {
+        super::validation::validate_length(
+            description,
+            super::validation::MAX_BODY_LEN,
+            "description",
+        )?;
+        super::validation::reject_control_chars(description, "description")?;
+    }
+    if let Some(branch) = &body.default_branch {
+        super::validation::validate_length(
+            branch,
+            super::validation::MAX_BRANCH_NAME_LEN,
+            "default_branch",
+        )?;
+        if branch.is_empty()
+            || gix::refs::FullName::try_from(format!("refs/heads/{branch}")).is_err()
+        {
+            return Err(AppError::bad_request("invalid default branch"));
+        }
+    }
+    let storage_owner = super::ci::resolve_repo_storage_owner(state, &repo, owner).await?;
+    rg_core::platform::validate_repo_path(&storage_owner)
+        .map_err(|e| AppError::bad_request(e.to_string()))?;
+    rg_core::platform::validate_repo_path(name)
+        .map_err(|e| AppError::bad_request(e.to_string()))?;
+    let path = state.repo_root.join(format!("{storage_owner}/{name}.git"));
+    // A retry is safe here: the lock statement has not changed a value or
+    // performed any external action, and a failed transaction is rolled back.
+    let txn = {
+        let mut attempts = 0;
+        loop {
+            let txn = state.db.begin().await.map_err(AppError::from)?;
+            let locked = repository::Entity::update_many()
+                .col_expr(
+                    repository::Column::Id,
+                    sea_orm::sea_query::Expr::col(repository::Column::Id).into(),
+                )
+                .filter(repository::Column::Id.eq(repo.id))
+                .filter(repository::Column::DeletedAt.is_null())
+                .exec(&txn)
+                .await;
+            match locked {
+                Ok(_) => break txn,
+                Err(error) if rg_db::is_sqlite_busy(&error) && attempts < 50 => {
+                    txn.rollback().await.map_err(AppError::from)?;
+                    attempts += 1;
+                    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                }
+                Err(error) => return Err(AppError::from(error)),
+            }
+        }
+    };
+    let current = repository::Entity::find_by_id(repo.id)
+        .filter(repository::Column::DeletedAt.is_null())
+        .one(&txn)
+        .await
+        .map_err(AppError::from)?
+        .ok_or_else(|| AppError::not_found("repository not found"))?;
+    // The route and administrator were resolved before the lock. A concurrent
+    // transfer or rename must not let the old route modify the new owner's repo.
+    if current.owner_id != repo.owner_id
+        || current.org_id != repo.org_id
+        || current.name != repo.name
+    {
+        return Err(AppError::conflict(
+            "repository identity changed; resolve it again",
+        ));
+    }
+    if body.expected_version != settings_version(&current) {
+        return Err(AppError::conflict(
+            "repository settings changed; reload before saving",
+        ));
+    }
+    let old_branch = current.default_branch.clone();
+    let new_branch = body
+        .default_branch
+        .clone()
+        .unwrap_or_else(|| old_branch.clone());
+    let mut active: repository::ActiveModel = current.into();
+    if let Some(description) = body.description {
+        active.description = sea_orm::Set(description);
+    }
+    if let Some(private) = body.is_private {
+        active.is_private = sea_orm::Set(private);
+    }
+    active.default_branch = sea_orm::Set(new_branch.clone());
+    active.updated_at = sea_orm::Set(chrono::Utc::now());
+    let updated = active.update(&txn).await.map_err(AppError::from)?;
+    if new_branch != old_branch {
+        let path2 = path.clone();
+        let old2 = old_branch.clone();
+        let new2 = new_branch.clone();
+        tokio::task::spawn_blocking(move || set_default_head(&path2, &old2, &new2))
+            .await
+            .map_err(|_| AppError::internal("default branch task failed"))?
+            .map_err(AppError::bad_request)?;
+    }
+    if let Err(error) = txn.commit().await {
+        if new_branch != old_branch {
+            let path2 = path.clone();
+            let old2 = old_branch.clone();
+            let new2 = new_branch.clone();
+            if !matches!(
+                tokio::task::spawn_blocking(move || set_default_head(&path2, &new2, &old2)).await,
+                Ok(Ok(()))
+            ) {
+                tracing::error!(
+                    repo_id = repo.id,
+                    "failed to roll back HEAD after settings commit failed"
+                );
+            }
+        }
+        return Err(AppError::from(error));
+    }
+    rg_core::repo::service::invalidate_perm_cache_repo(repo.id);
+    Ok(updated)
 }
 
 // ── Star/Watch/Delete handlers ───────────────────────────────────────────────

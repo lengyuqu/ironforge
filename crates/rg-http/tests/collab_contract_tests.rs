@@ -374,6 +374,27 @@ async fn m11_capability_list_is_exactly_what_the_server_serves() {
             == 2
     );
     assert!(!body["server_version"].as_str().unwrap().is_empty());
+    // Provenance is never guessed: builders must supply a valid commit and
+    // dirty flag; absent values remain JSON null.
+    let commit = body.get("build_commit").expect("build_commit field");
+    assert!(
+        commit.is_null()
+            || commit.as_str().is_some_and(
+                |s| matches!(s.len(), 40 | 64) && s.bytes().all(|b| b.is_ascii_hexdigit())
+            )
+    );
+    assert!(body["api_capabilities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|v| v == "wiki.concurrent_update.v1"));
+    assert!(body["api_capabilities"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|v| v == "repo.settings.patch.v1"));
+    let dirty = body.get("build_dirty").expect("build_dirty field");
+    assert!(dirty.is_null() || dirty.is_boolean());
 
     // Names and versions are the registry, nothing invented, nothing omitted.
     let advertised: BTreeSet<String> = body["capabilities"]

@@ -217,3 +217,128 @@ fn every_registered_handler_is_mounted_in_the_router() {
          (the docs advertise endpoints that do not exist): {missing:?}"
     );
 }
+
+#[test]
+fn client_request_schemas_expose_fields_and_required_properties() {
+    let spec: serde_json::Value = serde_json::from_str(&rg_http::openapi::openapi_spec()).unwrap();
+    for (path, method, schema, fields, required) in [
+        (
+            "/repos/{owner}/{name}",
+            "patch",
+            "UpdateRepoSettingsRequest",
+            &[
+                "expected_version",
+                "description",
+                "is_private",
+                "default_branch",
+            ][..],
+            &["expected_version"][..],
+        ),
+        (
+            "/repos/{owner}/{name}/wiki",
+            "post",
+            "CreateWikiPageRequest",
+            &["title", "content", "message"][..],
+            &["title", "content"][..],
+        ),
+        (
+            "/repos/{owner}/{name}/wiki/{title}",
+            "patch",
+            "UpdateWikiPageRequest",
+            &["content", "message", "expected_version"][..],
+            &["content", "expected_version"][..],
+        ),
+        (
+            "/repos/{owner}/{name}/pulls/{number}",
+            "patch",
+            "UpdatePrRequest",
+            &["title", "body", "state", "draft", "milestone_id"][..],
+            &[][..],
+        ),
+        (
+            "/repos/{owner}/{name}/pipelines",
+            "post",
+            "TriggerPipelineRequest",
+            &["ref_name"][..],
+            &[][..],
+        ),
+    ] {
+        let request =
+            &spec["paths"][path][method]["requestBody"]["content"]["application/json"]["schema"];
+        assert_eq!(request["$ref"], format!("#/components/schemas/{schema}"));
+        let definition = &spec["components"]["schemas"][schema];
+        for field in fields {
+            assert!(
+                definition["properties"].get(*field).is_some(),
+                "{schema} missing {field}"
+            );
+        }
+        let actual = definition["required"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        for field in required {
+            assert!(
+                actual.contains(&serde_json::json!(field)),
+                "{schema} must require {field}"
+            );
+        }
+    }
+}
+
+#[test]
+fn client_responses_expose_typed_success_and_error_contracts() {
+    let spec: serde_json::Value = serde_json::from_str(&rg_http::openapi::openapi_spec()).unwrap();
+    for (path, method, status, schema, fields) in [
+        (
+            "/repos/{owner}/{name}/wiki/{title}",
+            "get",
+            "200",
+            "WikiPageResponse",
+            &["id", "title", "content", "version"][..],
+        ),
+        (
+            "/repos/{owner}/{name}/wiki/{title}",
+            "patch",
+            "409",
+            "ErrorResponse",
+            &["error"][..],
+        ),
+        (
+            "/repos/{owner}/{name}/pulls/{number}",
+            "patch",
+            "200",
+            "UpdatedPrResponse",
+            &["id", "repo_id", "number", "title", "state", "is_draft"][..],
+        ),
+        (
+            "/repos/{owner}/{name}/pipelines",
+            "post",
+            "201",
+            "TriggerPipelineResponse",
+            &["id", "status", "commit_sha", "ref_name"][..],
+        ),
+        (
+            "/repos/{owner}/{name}",
+            "patch",
+            "409",
+            "ErrorResponse",
+            &["error"][..],
+        ),
+    ] {
+        let response = &spec["paths"][path][method]["responses"][status]["content"]
+            ["application/json"]["schema"];
+        assert_eq!(response["$ref"], format!("#/components/schemas/{schema}"));
+        for field in fields {
+            assert!(
+                spec["components"]["schemas"][schema]["properties"]
+                    .get(*field)
+                    .is_some(),
+                "{schema} missing {field}"
+            );
+        }
+    }
+    let error = &spec["components"]["schemas"]["ErrorBody"]["properties"];
+    assert!(error.get("code").is_some());
+    assert!(error.get("message").is_some());
+}
