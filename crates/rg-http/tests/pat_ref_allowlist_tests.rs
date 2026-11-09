@@ -119,7 +119,7 @@ async fn the_branch_limit_is_validated_when_the_token_is_created() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_push_may_only_update_the_listed_branches() {
+async fn a_push_may_only_update_or_delete_the_listed_branches() {
     let base = spawn_test_app_on_env_db().await.0;
     let owner = "refs_push";
     let jwt = register_user(&base, owner, "refs-push@example.com", PW).await;
@@ -243,6 +243,53 @@ async fn a_push_may_only_update_the_listed_branches() {
     );
     assert!(ok, "unlimited token pushes main: {err}");
     assert!(heads(&jwt).contains(&format!("{local}\trefs/heads/main")));
+
+    // A deletion is a write to the same ref, so it follows the same limit: the
+    // unlimited token may create a branch outside it ...
+    let (ok, err) = git_try(
+        &["push", &remote(&unlimited), "HEAD:refs/heads/other/keep"],
+        Some(path),
+    );
+    assert!(ok, "unlimited token creates other/keep: {err}");
+
+    // ... the limited one may not delete it,
+    let (ok, err) = git_try(
+        &["push", &remote(&limited), "--delete", "other/keep"],
+        Some(path),
+    );
+    assert!(!ok, "deleting outside the limit must be refused: {err}");
+    assert!(
+        err.contains("may not write to this ref"),
+        "the deletion is refused by the same branch limit: {err}"
+    );
+    assert!(
+        heads(&jwt).contains("refs/heads/other/keep"),
+        "the refused deletion must leave the branch alone"
+    );
+
+    // nor the default branch,
+    let (ok, err) = git_try(&["push", &remote(&limited), "--delete", "main"], Some(path));
+    assert!(
+        !ok,
+        "deleting the default branch through a limited token is refused: {err}"
+    );
+    assert!(err.contains("may not write to this ref"), "{err}");
+    assert!(
+        heads(&jwt).contains(&format!("{local}\trefs/heads/main")),
+        "the default branch must survive"
+    );
+
+    // and a branch inside the limit is deleted.
+    let (ok, err) = git_try(
+        &["push", &remote(&limited), "--delete", "agent/one"],
+        Some(path),
+    );
+    assert!(ok, "deleting agent/one: {err}");
+    let listing = heads(&jwt);
+    assert!(
+        !listing.contains("refs/heads/agent/one"),
+        "agent/one must be gone:\n{listing}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

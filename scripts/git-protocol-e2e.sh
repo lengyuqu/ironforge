@@ -428,6 +428,19 @@ if git_ssh 1 ls-remote --heads "${SSH_REPO}" delete-over-ssh | grep -q delete-ov
   exit 1
 fi
 
+# Both deletions left an audit row: the same action the REST endpoint writes,
+# with `via` saying which transport it came through. (The e2e user is the first
+# registered one, so it may read /admin/audit/logs.)
+AUDIT_ECHO="$(curl -fsS -H "Authorization: Bearer ${TOKEN}" \
+  "${HTTP_BASE}/api/v1/admin/audit/logs?action=repo.branch_delete&per_page=50")"
+for want in '"via":"git_push"' '"via":"git_ssh"' '"delete-over-http"' '"delete-over-ssh"'; do
+  if ! printf '%s' "${AUDIT_ECHO}" | grep -q -- "${want}"; then
+    echo "delete: the audit log is missing ${want}:" >&2
+    printf '%s\n' "${AUDIT_ECHO}" >&2
+    exit 1
+  fi
+done
+
 # The default branch is refused, and the client is told why.
 if git_http 1 -C "${WORK_DIR}/seed" push -q "${HTTP_REPO}" --delete main 2>"${WORK_DIR}/delete-main.out"; then
   echo "delete: deleting the default branch over HTTP must fail" >&2
