@@ -401,6 +401,82 @@ fi
 git -C "${WORK_DIR}/http-combine" cat-file -e "${HTTP_COMBINE_PAYLOAD_OID}"
 test -f "${WORK_DIR}/http-combine/payload.txt"
 
+# ── git push --delete ──────────────────────────────────────────────────
+# The deletion goes through the same guard as DELETE /repos/{o}/{n}/branches/
+# {x}: token branch limits, the default branch, protection rules and open pull
+# requests. Refusals come back per ref in report-status, which the client shows
+# as `remote: <reason>`.
+echo "delete: git push --delete runs the branch policy (HTTP and SSH)"
+
+# A branch pushed over HTTP can be deleted over HTTP.
+git_http 1 -C "${WORK_DIR}/seed" push -q "${HTTP_REPO}" main:refs/heads/delete-over-http
+if ! git_http 1 ls-remote --heads "${HTTP_REPO}" delete-over-http | grep -q delete-over-http; then
+  echo "delete: the branch to delete was not created" >&2
+  exit 1
+fi
+git_http 1 -C "${WORK_DIR}/seed" push -q "${HTTP_REPO}" --delete delete-over-http
+if git_http 1 ls-remote --heads "${HTTP_REPO}" delete-over-http | grep -q delete-over-http; then
+  echo "delete: HTTP push --delete left the branch behind" >&2
+  exit 1
+fi
+
+# ... and the same over SSH.
+git_ssh 1 -C "${WORK_DIR}/seed" push -q "${SSH_REPO}" main:refs/heads/delete-over-ssh
+git_ssh 1 -C "${WORK_DIR}/seed" push -q "${SSH_REPO}" --delete delete-over-ssh
+if git_ssh 1 ls-remote --heads "${SSH_REPO}" delete-over-ssh | grep -q delete-over-ssh; then
+  echo "delete: SSH push --delete left the branch behind" >&2
+  exit 1
+fi
+
+# The default branch is refused, and the client is told why.
+if git_http 1 -C "${WORK_DIR}/seed" push -q "${HTTP_REPO}" --delete main 2>"${WORK_DIR}/delete-main.out"; then
+  echo "delete: deleting the default branch over HTTP must fail" >&2
+  exit 1
+fi
+if ! grep -q "default branch" "${WORK_DIR}/delete-main.out"; then
+  echo "delete: the refusal did not explain that this is the default branch:" >&2
+  cat "${WORK_DIR}/delete-main.out" >&2
+  exit 1
+fi
+if git_http 1 ls-remote --heads "${HTTP_REPO}" main | grep -q main; then
+  :
+else
+  echo "delete: the default branch disappeared" >&2
+  exit 1
+fi
+
+# A protected branch is refused too (the rule is created over the REST API with
+# the same token the push uses).
+git_http 1 -C "${WORK_DIR}/seed" push -q "${HTTP_REPO}" main:refs/heads/release/keep
+if ! curl -fsS -X POST -H "Authorization: Bearer ${TOKEN}" -H 'Content-Type: application/json' \
+  -d '{"branch_name": "release/keep"}' \
+  "${HTTP_BASE}/api/v1/repos/${USERNAME}/${REPO_NAME}/branches/protection" >/dev/null; then
+  echo "delete: could not create the branch protection rule" >&2
+  exit 1
+fi
+if git_http 1 -C "${WORK_DIR}/seed" push -q "${HTTP_REPO}" --delete release/keep 2>"${WORK_DIR}/delete-protected.out"; then
+  echo "delete: deleting a protected branch must fail" >&2
+  exit 1
+fi
+if ! grep -q "protected" "${WORK_DIR}/delete-protected.out"; then
+  echo "delete: the refusal did not mention the protection rule:" >&2
+  cat "${WORK_DIR}/delete-protected.out" >&2
+  exit 1
+fi
+
+# Tags keep their own rules: deleting one through the branch path is refused.
+git_http 1 -C "${WORK_DIR}/seed" tag delete-me-tag
+git_http 1 -C "${WORK_DIR}/seed" push -q "${HTTP_REPO}" delete-me-tag
+if git_http 1 -C "${WORK_DIR}/seed" push -q "${HTTP_REPO}" --delete delete-me-tag 2>"${WORK_DIR}/delete-tag.out"; then
+  echo "delete: deleting a tag over the branch path must fail" >&2
+  exit 1
+fi
+if ! grep -q "only branches can be deleted" "${WORK_DIR}/delete-tag.out"; then
+  echo "delete: the tag refusal did not say why:" >&2
+  cat "${WORK_DIR}/delete-tag.out" >&2
+  exit 1
+fi
+
 # HTTPS: a second instance serving a throwaway certificate generated for this
 # run (the same generator the `load_tls_config` unit tests use). This is the only
 # place the real binary is started in TLS mode, which is where a missing rustls
@@ -474,3 +550,4 @@ echo "  SSH V2: clone/fetch"
 echo "  shallow/deepen: HTTP clone/deepen/unshallow/exclude/since and SSH clone"
 echo "  partial clone filter: HTTP blob:none, SSH tree:0, HTTP combine:object:type=tree+blob:none with lazy fetch"
 echo "  HTTPS: server starts with a PEM certificate and answers over verified TLS"
+echo "  delete: git push --delete over HTTP and SSH, default/protected/tag refusals"

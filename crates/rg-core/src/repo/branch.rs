@@ -40,6 +40,32 @@ pub enum DeleteBranchError {
     Other(anyhow::Error),
 }
 
+/// A short, client-facing reason for a refused deletion.
+///
+/// Used by the REST handler, the HTTP push path and the SSH push path so all
+/// three answer with the same sentence; `git push --delete` shows it verbatim as
+/// the `ng <ref> <reason>` line.
+pub fn delete_branch_message(error: &DeleteBranchError) -> String {
+    match error {
+        DeleteBranchError::InvalidName(message) => message.clone(),
+        DeleteBranchError::NotFound => "no such branch".to_string(),
+        DeleteBranchError::DefaultBranch => "the default branch cannot be deleted".to_string(),
+        DeleteBranchError::Protected(pattern) => {
+            format!("the branch is protected by rule {pattern}")
+        }
+        DeleteBranchError::OpenPullRequests(prs) => {
+            format!("{} open pull request(s) still use this branch", prs.len())
+        }
+        DeleteBranchError::RefAdvanced { current, .. } => {
+            format!("the branch is now at {current}")
+        }
+        DeleteBranchError::Other(error) => {
+            tracing::warn!(%error, "deleting a branch failed");
+            "the branch could not be deleted".to_string()
+        }
+    }
+}
+
 impl From<anyhow::Error> for DeleteBranchError {
     fn from(error: anyhow::Error) -> Self {
         Self::Other(error)

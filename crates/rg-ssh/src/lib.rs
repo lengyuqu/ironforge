@@ -484,6 +484,8 @@ impl Handler for SshHandler {
                     self.authenticated_identity
                         .as_ref()
                         .and_then(AuthenticatedIdentity::user_id),
+                    repo,
+                    db.clone(),
                 ))
             } else {
                 None
@@ -543,7 +545,7 @@ impl Handler for SshHandler {
                     .await
                     .map(|_| ()),
                     "git-receive-pack" => {
-                        if let Some((protection_rules, tag_protection_rules, actor_id)) =
+                        if let Some((protection_rules, tag_protection_rules, actor_id, repo, db)) =
                             receive_pack_context
                         {
                             // Same shared rule semantics as the HTTP push path.
@@ -560,6 +562,50 @@ impl Handler for SshHandler {
                                 tag_protection_rules,
                                 actor_id,
                             ));
+                            // `git push --delete` over SSH runs the same
+                            // policy as the REST endpoint. There is no access
+                            // token here, so no branch limit and no
+                            // `access_token_id` to audit -- the deletion is
+                            // recorded in the log, not in the audit table.
+                            let on_delete = {
+                                let db = db.clone();
+                                let repo = repo.clone();
+                                let repo_path = repo_full_path.clone();
+                                move |refname: String| -> std::pin::Pin<
+                                    Box<
+                                        dyn std::future::Future<Output = Result<(), String>> + Send,
+                                    >,
+                                > {
+                                    let db = db.clone();
+                                    let repo = repo.clone();
+                                    let repo_path = repo_path.clone();
+                                    Box::pin(async move {
+                                        let branch = refname
+                                            .strip_prefix("refs/heads/")
+                                            .unwrap_or(&refname)
+                                            .to_string();
+                                        match rg_core::repo::branch::delete_branch(
+                                            &db, &repo, &repo_path, &branch, None, false,
+                                        )
+                                        .await
+                                        {
+                                            Ok(report) => {
+                                                tracing::info!(
+                                                    branch = %report.branch,
+                                                    sha = %report.sha,
+                                                    "branch deleted by an SSH push"
+                                                );
+                                                Ok(())
+                                            }
+                                            Err(error) => {
+                                                Err(rg_core::repo::branch::delete_branch_message(
+                                                    &error,
+                                                ))
+                                            }
+                                        }
+                                    })
+                                }
+                            };
                             with_deadline(
                                 deadline,
                                 handle_receive_pack_stream_with_rejections(
@@ -571,6 +617,7 @@ impl Handler for SshHandler {
                                     // never with an access token, so there is no
                                     // branch limit to apply.
                                     None,
+                                    Some(&on_delete),
                                 ),
                             )
                             .await

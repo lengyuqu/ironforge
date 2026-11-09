@@ -13,6 +13,21 @@ use crate::pkt_line::{read_pkt_line, write_flush, write_pkt_line, PktLine};
 use crate::sideband;
 
 /// Result of processing a push for a single ref update.
+/// Deletes one branch, or explains why it must not be deleted.
+///
+/// `rg-git` has no database, so the policy (default branch, protection rules,
+/// open pull requests, a token's branch limit) lives with the caller: it passes
+/// a guard that runs the same checks as `DELETE /repos/{o}/{n}/branches/{x}`.
+/// `Ok(())` means the ref is gone; `Err(reason)` becomes the report-status
+/// message the client sees.
+pub type BranchDeleter<'a> = dyn Fn(
+        String,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + 'a>>
+    + Send
+    + Sync
+    + 'a;
+
+/// Result of processing a push for a single ref update.
 #[derive(Clone, Debug)]
 pub struct RefUpdate {
     pub old_sha: String,
@@ -76,6 +91,7 @@ pub async fn handle_receive_pack_stream_with_rejections<S>(
     rejected_refs: Vec<(String, String)>,
     require_signed_refs: Vec<String>,
     writable_refs: Option<Vec<String>>,
+    on_delete: Option<&BranchDeleter<'_>>,
 ) -> Result<Vec<RefUpdate>>
 where
     S: AsyncRead + AsyncWrite + Unpin,
@@ -86,6 +102,7 @@ where
         rejected_refs,
         require_signed_refs,
         writable_refs,
+        on_delete,
     )
     .await
 }
@@ -116,6 +133,7 @@ pub async fn handle_receive_pack_http_with_rejections<R, W>(
     rejected_refs: Vec<(String, String)>,
     require_signed_refs: Vec<String>,
     writable_refs: Option<Vec<String>>,
+    on_delete: Option<&BranchDeleter<'_>>,
 ) -> Result<Vec<RefUpdate>>
 where
     R: AsyncRead + Unpin,
@@ -129,6 +147,7 @@ where
         &rejected_refs,
         &require_signed_refs,
         writable_refs.as_deref(),
+        on_delete,
     )
     .await?;
     send_response(&mut writer, &results).await?;
@@ -164,6 +183,7 @@ async fn do_receive_pack_stream_with_rejections<S>(
     rejected_refs: Vec<(String, String)>,
     require_signed_refs: Vec<String>,
     writable_refs: Option<Vec<String>>,
+    on_delete: Option<&BranchDeleter<'_>>,
 ) -> Result<Vec<RefUpdate>>
 where
     S: AsyncRead + AsyncWrite + Unpin,
@@ -183,6 +203,7 @@ where
             &rejected_refs,
             &require_signed_refs,
             writable_refs.as_deref(),
+            on_delete,
         )
         .await?
     };
@@ -255,7 +276,10 @@ fn build_ref_advertisement(ref_list: &[(String, String)], _service: &str) -> Vec
     // - agent: server identification
     // NOTE: We do NOT advertise atomic (all-or-nothing ref updates) because
     // we process refs sequentially.
-    let caps = "report-status report-status-v2 side-band-64k agent=ironforge/0.1";
+    // `delete-refs` is what tells the client `push --delete` is allowed; without
+    // it git refuses client-side ("remote does not support deleting refs") and
+    // never sends the command at all.
+    let caps = "report-status report-status-v2 delete-refs side-band-64k agent=ironforge/0.1";
 
     if let Some((sha, refname)) = ref_list.first() {
         let line = format!("{} {}\0{}", sha, refname, caps);
@@ -275,7 +299,7 @@ async fn process_push<R: AsyncRead + Unpin>(
     repo_path: &Path,
     reader: &mut BufReader<R>,
 ) -> Result<Vec<RefUpdate>> {
-    process_push_with_rejections(repo_path, reader, &[], &[], None).await
+    process_push_with_rejections(repo_path, reader, &[], &[], None, None).await
 }
 
 async fn process_push_with_rejections<R>(
@@ -284,6 +308,7 @@ async fn process_push_with_rejections<R>(
     rejected_refs: &[(String, String)],
     require_signed_refs: &[String],
     writable_refs: Option<&[String]>,
+    on_delete: Option<&BranchDeleter<'_>>,
 ) -> Result<Vec<RefUpdate>>
 where
     R: AsyncRead + Unpin,
@@ -316,6 +341,35 @@ where
                     line
                 };
 
+                // Git has two spellings for a deletion: `<old> 0000… <ref>` when
+                // it knows the old value, and `:<ref>` when it does not (it omits
+                // both ids). The second one used to fall through the
+                // three-column check and be dropped, so the client got an empty
+                // report-status and reported "remote rejected" with no reason.
+                if let Some(refname) = clean_line.strip_prefix(':') {
+                    let refname = refname.trim().to_string();
+                    if refname.is_empty() {
+                        continue;
+                    }
+                    tracing::info!(refname = %refname, "Receive-pack: delete command (abbreviated form)");
+                    let (status, message) = if refname.starts_with("refs/heads/") {
+                        ("ok".to_string(), String::new())
+                    } else {
+                        (
+                            "error".to_string(),
+                            "only branches can be deleted".to_string(),
+                        )
+                    };
+                    updates.push(RefUpdate {
+                        old_sha: String::new(),
+                        new_sha: "0".repeat(40),
+                        refname,
+                        status,
+                        message,
+                    });
+                    continue;
+                }
+
                 let parts: Vec<&str> = clean_line.split_whitespace().collect();
                 if parts.len() < 3 {
                     continue;
@@ -332,14 +386,25 @@ where
                     "Receive-pack: update command"
                 );
 
-                // Skip null SHA (delete) for now
+                // A null new SHA is a deletion. Only branches can be deleted:
+                // tags and the other namespaces keep their own rules and stay
+                // refused. The caller's guard runs the rest of the policy, so
+                // the command is queued as `ok` and decided at apply time.
                 if new_sha.starts_with("0000000") {
+                    let (status, message) = if refname.starts_with("refs/heads/") {
+                        ("ok".to_string(), String::new())
+                    } else {
+                        (
+                            "error".to_string(),
+                            "only branches can be deleted".to_string(),
+                        )
+                    };
                     updates.push(RefUpdate {
                         old_sha,
                         new_sha,
                         refname,
-                        status: "error".to_string(),
-                        message: "deletion not supported".to_string(),
+                        status,
+                        message,
                     });
                     continue;
                 }
@@ -387,30 +452,56 @@ where
         }
     }
 
+    // A null new SHA means "delete this ref"; it carries no pack data.
+    let is_delete = |update: &RefUpdate| update.new_sha.starts_with("0000000");
+    let has_content_updates = updates
+        .iter()
+        .any(|update| update.status == "ok" && !is_delete(update));
+
     if !updates.iter().any(|update| update.status == "ok") {
         drain_pack(reader).await?;
         return Ok(updates);
     }
 
-    // Receive the pack bytes, then index them gix-natively. This replaces
-    // `git index-pack --fix-thin --stdin` including thin-pack completion:
-    // delta bases missing from the pack are looked up in the repository's
-    // object database before indexing.
-    let mut pack_data = Vec::new();
-    reader.read_to_end(&mut pack_data).await?;
-    let pack_bytes = pack_data.len();
-    let repo_dir = repo_path.to_path_buf();
-    tokio::task::spawn_blocking(move || crate::ops::index_pack_bytes(&repo_dir, &pack_data))
-        .await
-        .map_err(|error| anyhow::anyhow!("index-pack task failed: {error}"))?
-        .map_err(|error| anyhow::anyhow!("git index-pack failed: {error}"))?;
-    tracing::debug!(pack_bytes, "pack indexed");
+    if has_content_updates {
+        // Receive the pack bytes, then index them gix-natively. This replaces
+        // `git index-pack --fix-thin --stdin` including thin-pack completion:
+        // delta bases missing from the pack are looked up in the repository's
+        // object database before indexing.
+        let mut pack_data = Vec::new();
+        reader.read_to_end(&mut pack_data).await?;
+        let pack_bytes = pack_data.len();
+        let repo_dir = repo_path.to_path_buf();
+        tokio::task::spawn_blocking(move || crate::ops::index_pack_bytes(&repo_dir, &pack_data))
+            .await
+            .map_err(|error| anyhow::anyhow!("index-pack task failed: {error}"))?
+            .map_err(|error| anyhow::anyhow!("git index-pack failed: {error}"))?;
+        tracing::debug!(pack_bytes, "pack indexed");
 
-    enforce_signed_commit_policies(repo_path, &mut updates, require_signed_refs);
+        enforce_signed_commit_policies(repo_path, &mut updates, require_signed_refs);
+    }
 
-    // Update the refs
+    // Update the refs. Deletions go through the caller's guard, which applies
+    // the same policy as `DELETE /repos/{o}/{n}/branches/{x}`.
     for update in &mut updates {
         if update.status != "ok" {
+            continue;
+        }
+        if is_delete(update) {
+            match on_delete {
+                Some(guard) => match guard(update.refname.clone()).await {
+                    Ok(()) => update.message = "deleted".to_string(),
+                    Err(reason) => {
+                        update.status = "error".to_string();
+                        update.message = reason;
+                    }
+                },
+                None => {
+                    update.status = "error".to_string();
+                    update.message =
+                        "deleting branches is not supported on this transport".to_string();
+                }
+            }
             continue;
         }
         match update_ref(repo_path, &update.refname, &update.new_sha) {
@@ -455,6 +546,7 @@ fn enforce_signed_commit_policies(
 
     for update in updates.iter_mut().filter(|update| {
         update.status == "ok"
+            && !update.new_sha.starts_with("0000000")
             && patterns
                 .iter()
                 .any(|pattern| ref_matches_rejection_pattern(&update.refname, pattern))
