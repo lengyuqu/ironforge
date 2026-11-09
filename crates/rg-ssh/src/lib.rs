@@ -486,6 +486,7 @@ impl Handler for SshHandler {
                         .and_then(AuthenticatedIdentity::user_id),
                     repo,
                     db.clone(),
+                    owner,
                 ))
             } else {
                 None
@@ -545,8 +546,14 @@ impl Handler for SshHandler {
                     .await
                     .map(|_| ()),
                     "git-receive-pack" => {
-                        if let Some((protection_rules, tag_protection_rules, actor_id, repo, db)) =
-                            receive_pack_context
+                        if let Some((
+                            protection_rules,
+                            tag_protection_rules,
+                            actor_id,
+                            repo,
+                            db,
+                            owner,
+                        )) = receive_pack_context
                         {
                             // Same shared rule semantics as the HTTP push path.
                             let require_signed_refs =
@@ -571,6 +578,7 @@ impl Handler for SshHandler {
                                 let db = db.clone();
                                 let repo = repo.clone();
                                 let repo_path = repo_full_path.clone();
+                                let repo_label = format!("{}/{}", owner, repo.name);
                                 move |refname: String| -> std::pin::Pin<
                                     Box<
                                         dyn std::future::Future<Output = Result<(), String>> + Send,
@@ -579,6 +587,7 @@ impl Handler for SshHandler {
                                     let db = db.clone();
                                     let repo = repo.clone();
                                     let repo_path = repo_path.clone();
+                                    let repo_label = repo_label.clone();
                                     Box::pin(async move {
                                         let branch = refname
                                             .strip_prefix("refs/heads/")
@@ -595,6 +604,44 @@ impl Handler for SshHandler {
                                                     sha = %report.sha,
                                                     "branch deleted by an SSH push"
                                                 );
+                                                // Same audit action as REST and
+                                                // the HTTP push. SSH carries no
+                                                // access token, so there is no
+                                                // `access_token_id` to add.
+                                                if let Some(user_id) = actor_id {
+                                                    let username =
+                                                        rg_db::ops::user_ops::find_by_id(
+                                                            &db, user_id,
+                                                        )
+                                                        .await
+                                                        .ok()
+                                                        .flatten()
+                                                        .map(|user| user.username);
+                                                    // Fire-and-forget, like the
+                                                    // REST and HTTP push paths;
+                                                    // SSH carries no access
+                                                    // token, so there is no
+                                                    // `access_token_id`.
+                                                    let details = serde_json::json!({
+                                                        "branch": report.branch,
+                                                        "sha": report.sha,
+                                                        "via": "git_ssh",
+                                                    })
+                                                    .to_string();
+                                                    rg_core::audit::record(
+                                                        &db,
+                                                        Some(user_id),
+                                                        username.as_deref(),
+                                                        "repo.branch_delete",
+                                                        Some("repo"),
+                                                        Some(repo.id),
+                                                        Some(&repo_label),
+                                                        None,
+                                                        None,
+                                                        Some(&details),
+                                                    )
+                                                    .await;
+                                                }
                                                 Ok(())
                                             }
                                             Err(error) => {
