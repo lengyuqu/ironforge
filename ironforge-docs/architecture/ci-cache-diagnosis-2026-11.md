@@ -84,15 +84,28 @@
 
 ## 四、给 runner 负责人的检查清单（fnos / zos 各一遍）
 
-需要登录机器才能回答，**以下都是待确认项，不是结论**：
+**2026-11-09 业主已确认：fnos 与 zos 的缓存是各自独立的**（不是日志推断）。上面第 1 条因此从「待确认」变成「已知」：两台各存一份，同一个 job 被调度到哪台就只能命中哪台的那份。剩下的待确认项：
 
-1. `act_runner` 的 `config.yaml` 里的 `cache:` 段：`host`、`port`、`dir` 各是什么。默认是每台 runner 进程自己起一个缓存服务、落在本地目录 —— 这与「fnos 命中不了 zos 的缓存」一致，但要看到配置才算证实。
-2. 缓存目录的磁盘：`du -sh <cache.dir>`、`df -h <cache.dir>`，以及该目录是否在 tmpfs / docker volume / 会自动清理的卷上。fnos 是 NAS，注意卷配额。
-3. `act_runner` 自己的日志（不是 job 日志）里有没有缓存写入失败：`no space left on device`、`quota`、`context canceled`、`unexpected EOF` 之类；尤其是保存 500 MB 以上归档的那个时刻。
-4. 有没有 cron / systemd timer 在清 `~/.cache/actcache`（或配置的 `cache.dir`）；清理周期是多久。
-5. 缓存目录里是否残留大量 `.tar.zst` 临时文件（保存中断的痕迹）。
-6. 两台 runner 能否指向**同一个**缓存服务（同一 `host`/`port`），或者 Gitea 28.3.0 这套实例是否本来就该由服务端承载 action 缓存。这一条**没有查到**，需要按部署文档确认，不要按猜测改。
-7. runner 的 label 是否可按机器拆分。如果能把 clippy / rust-tests 这类重活固定到同一台，命中率立刻翻倍；但这是调度的长期取舍（单点风险），要先确认 label 配置存在再谈。
+1. 缓存目录的磁盘：`du -sh <cache.dir>`、`df -h <cache.dir>`，以及该目录是否在 tmpfs / docker volume / 会自动清理的卷上。fnos 是 NAS，注意卷配额。
+2. `act_runner` 自己的日志（不是 job 日志）里有没有缓存写入失败：`no space left on device`、`quota`、`context canceled`、`unexpected EOF` 之类；尤其是保存 500 MB 以上归档的那个时刻。
+3. 有没有 cron / systemd timer 在清 `~/.cache/actcache`（或配置的 `cache.dir`）；清理周期是多久。
+4. 缓存目录里是否残留大量 `.tar.zst` 临时文件（保存中断的痕迹）。
+5. `config.yaml` 的 `cache:` 段具体值（`host`/`port`/`dir`）：给下面方案 A/B 提供依据。
+6. Gitea 28.3.0 这套实例本身是否承载 action 缓存（服务端侧），还是完全由 runner 各自承担。**没有查到**，按部署文档确认，不要按猜测改。
+
+## 四之二、两条路，选一条
+
+缓存独立这件事定下来之后，能做的只有三种，按代价从低到高：
+
+| 方案 | 做法 | 代价 | 效果 |
+|---|---|---|---|
+| **B. 把重活钉到一台** | 给其中一台 runner 追加一个 label（比如 `fnos`），`clippy` / `rust-tests` / `*-smoke` 改成 `runs-on: [ubuntu-24.04, fnos]` | runner 侧加一个 label（一条注册参数或界面操作）+ 三行 workflow；单点风险（那台挂了这些 job 排队） | 命中率从「看运气」变成「基本稳定」；不需要新服务 |
+| **A. 两台共用一个缓存** | 起一个共用的缓存服务，两台 runner 的 `cache:` 指过去（自建，不引第三方托管） | 多一个要运维的服务 + 可用性要求 | 命中率 ~100%，且扩容到第三台也不用改 |
+| C. 接受 50% 命中 | 什么都不改，只靠超时放宽让冷 run 跑完 | 冷 run 最长 60/90 分钟 | 绿，但慢；lockfile 一动就是两台各冷一次 |
+
+**建议先做 B**：改动面最小、可回退、不需要新组件；等 CI 变快、确认收益后再考虑 A。C 是兜底，已经被本 PR 的超时改动覆盖了一部分。
+
+B 的前置事实：目前两个 job 的 `runs-on` 都只写了 `ubuntu-24.04`，Gitea 返回的 labels 也是这一条，所以现在**没法从 workflow 侧区分**这两台 —— 必须先在 runner 上把机器自己的 label 加上，workflow 才有东西可钉。
 
 ## 五、未覆盖与不确定
 
