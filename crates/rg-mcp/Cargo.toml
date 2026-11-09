@@ -23,6 +23,11 @@ uuid = { workspace = true }
 # HTTP client (call IronForge REST API)
 reqwest = { workspace = true }
 
+# Streamable-HTTP transport (`ironforge-mcp --http`)
+axum = { workspace = true }
+futures = { workspace = true }
+sha2 = { workspace = true }
+
 # Error handling
 anyhow = { workspace = true }
 thiserror = { workspace = true }
