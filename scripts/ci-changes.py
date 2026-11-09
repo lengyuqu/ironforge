@@ -9,20 +9,27 @@ only. Prints `key=value` lines (also appended to $GITHUB_OUTPUT when set):
   frontend       true  -> the frontend job runs
   db_smoke       true  -> the PostgreSQL / MySQL smoke jobs run
   git_protocol   true  -> the real Git client protocol matrix runs
-  packages       "-p a -p b" for `cargo test` when full is false, else empty
+  deploy         true  -> the Docker compose check runs
+  packages       cargo test arguments when full is false: "-p a -p b", or
+                 "--workspace --exclude rg-http"; empty when full is true
   reason         one line saying why
 
 Rules (see classify()):
-  * push / workflow_dispatch / schedule, or anything that goes wrong while
-    working the answer out        -> full (a warning is printed in the second
-    case): the script fails closed.
-  * pull requests: the files changed against the merge base are classified.
-    Docs only -> nothing. web/ only -> frontend only. Changes confined to
-    crates that rg-core / rg-db / rg-git do not feed (rg-ci, rg-ssh, rg-runner,
-    rg-cli, rg-ci-isolation, rg-http, rg-mcp) -> those crates plus everything
+  * A full run happens only on `workflow_dispatch` (the owner starts it by hand
+    when a change is big enough to warrant it). Pushes and nightly schedules
+    are no longer triggers; if one reaches this script anyway it is treated as
+    a full run, and so is anything that goes wrong while working out the
+    answer (a warning is printed): the script fails closed.
+  * Pull requests: the files changed against the merge base are classified.
+    Docs only -> nothing. web/ only -> the frontend only. Changes in crates ->
+    clippy for the workspace and the tests of those crates and of everything
     that depends on them, found from the Cargo manifests (no hard-coded
-    graph). rg-core / rg-db / rg-git, migrations, Cargo.toml / Cargo.lock,
-    .github/, scripts/, deploy/ and any file not recognised -> full.
+    graph). Cargo.toml / Cargo.lock, .github/, scripts/, deploy/ and any file
+    not recognised -> every crate's tests.
+  * rg-http holds the heaviest integration suite (about 13 of the 24 minutes of
+    a full Rust job), so a pull request runs it only when a file of rg-http
+    itself changed. When it is merely downstream of the change it is left out
+    and a notice says so; start the workflow by hand to run it.
 
 Usage:
   ci-changes.py --event pull_request --base origin/main      # real run
@@ -40,12 +47,16 @@ try:
 except ImportError:  # Python < 3.11: fall back to `cargo metadata`
     tomllib = None
 
-# Crates whose change can alter the behaviour of nearly everything: no scoping.
-CORE_CRATES = {"rg-core", "rg-db", "rg-git"}
-# Top-level paths whose change always means a full run.
-FULL_PREFIXES = (".github/", "scripts/", "deploy/")
-FULL_FILES = {"Cargo.toml", "Cargo.lock", "rust-toolchain", "rust-toolchain.toml"}
-FULL_DIRS = (".cargo/",)
+# The crate with the heavy integration suite: tested on a pull request only when
+# its own files changed.
+HEAVY_CRATE = "rg-http"
+# Crates that hold the database code: a change there also runs the PostgreSQL and
+# MySQL smoke jobs.
+DB_CRATES = {"rg-core", "rg-db"}
+# Top-level paths and files that can affect every crate.
+WORKSPACE_PREFIXES = (".github/", "scripts/", "deploy/", ".cargo/")
+WORKSPACE_FILES = {"Cargo.toml", "Cargo.lock", "rust-toolchain", "rust-toolchain.toml"}
+CARGO_FILES = {"Cargo.toml", "Cargo.lock"}
 # Paths with no effect on any job.
 DOC_PREFIXES = ("ironforge-docs/", "docs/", ".ai/")
 DOC_SUFFIXES = (".md",)
@@ -144,27 +155,30 @@ def reverse_closure(graph, seeds):
 def full(reason):
     return {
         "full": True, "rust": True, "frontend": True, "db_smoke": True,
-        "git_protocol": True, "packages": [], "reason": reason,
+        "git_protocol": True, "deploy": True, "packages": [], "workspace_wide": False,
+        "skipped_heavy": False, "reason": reason,
     }
 
 
 def classify(files, graph):
-    """Map the changed files to what must run. Anything unclear -> full."""
+    """Map the changed files to what a pull request runs. Anything unclear is
+    treated as touching the whole workspace (never silently as nothing)."""
     if not files:
-        return full("no changed files found (treated as unknown)")
+        return {**full("no changed files"), "full": False, "rust": False, "frontend": False,
+                "db_smoke": False, "git_protocol": False, "deploy": False}
     dir_to_name = {directory: name for name, (directory, _) in graph.items()}
-    crates, web, unknown = set(), False, []
+    crates, web, wide, deploy, cargo_files, unknown = set(), False, False, False, False, []
     for path in files:
         path = path.replace("\\", "/")
-        if path.startswith(FULL_PREFIXES) or path.startswith(FULL_DIRS) or path in FULL_FILES:
-            return full(f"{path} affects every job")
         crate = next(
             (name for directory, name in dir_to_name.items() if path.startswith(directory + "/")),
             None,
         )
-        if crate:
-            if crate in CORE_CRATES:
-                return full(f"{path} is in {crate}, which most crates depend on")
+        if path.startswith(WORKSPACE_PREFIXES) or path in WORKSPACE_FILES:
+            wide = True
+            deploy = deploy or path.startswith((".github/", "deploy/"))
+            cargo_files = cargo_files or path in CARGO_FILES
+        elif crate:
             crates.add(crate)
         elif path.startswith("web/"):
             web = True
@@ -172,31 +186,42 @@ def classify(files, graph):
             continue
         else:
             unknown.append(path)
-    if unknown:
-        return full(f"unclassified path {unknown[0]} (and {len(unknown) - 1} more)" if len(unknown) > 1
-                    else f"unclassified path {unknown[0]}")
-    affected = reverse_closure(graph, crates) if crates else set()
-    if any(name in CORE_CRATES for name in affected):  # cannot happen, kept as a guard
-        return full("a core crate is affected")
+            wide = True
+    affected = set(graph) if wide else reverse_closure(graph, crates)
+    heavy_changed = HEAVY_CRATE in crates
+    tested = sorted(affected - (set() if heavy_changed else {HEAVY_CRATE}))
+    skipped_heavy = HEAVY_CRATE in affected and not heavy_changed
+    if not affected:
+        packages = []
+    elif wide:
+        packages = ["--workspace"] + ([] if heavy_changed else ["--exclude", HEAVY_CRATE])
+    else:
+        packages = [arg for name in tested for arg in ("-p", name)]
     parts = []
-    if affected:
+    if wide:
+        what = f"unclassified path {unknown[0]}" if unknown else "workspace-wide files"
+        parts.append(f"{what} -> every crate")
+    elif crates:
         parts.append("crates " + ", ".join(sorted(crates)))
     if web:
         parts.append("web/")
     if not parts:
         parts.append("docs only")
+    if affected:
+        parts.append("test " + ", ".join(tested))
+    if skipped_heavy:
+        parts.append(f"{HEAVY_CRATE} integration tests NOT run (start the workflow by hand to run them)")
     return {
         "full": False,
         "rust": bool(affected),
         "frontend": web,
-        # The database smoke tests live in rg-core, which is a core crate, so a
-        # scoped run never needs them; the Git protocol matrix runs the whole
-        # binary, so it runs whenever rg-cli is in the affected set.
-        "db_smoke": False,
+        "db_smoke": bool(crates & DB_CRATES) or cargo_files,
         "git_protocol": "rg-cli" in affected,
-        "packages": sorted(affected),
-        "reason": "; ".join(parts)
-        + (f" -> test {', '.join(sorted(affected))}" if affected else ""),
+        "deploy": deploy,
+        "packages": packages,
+        "workspace_wide": wide,
+        "skipped_heavy": skipped_heavy,
+        "reason": "; ".join(parts),
     }
 
 
@@ -229,7 +254,8 @@ def render(result):
         f"frontend={flag(result['frontend'])}",
         f"db_smoke={flag(result['db_smoke'])}",
         f"git_protocol={flag(result['git_protocol'])}",
-        "packages=" + " ".join(f"-p {name}" for name in result["packages"]),
+        f"deploy={flag(result['deploy'])}",
+        "packages=" + " ".join(result["packages"]),
         "reason=" + result["reason"].replace("\n", " "),
     ]
 
@@ -248,24 +274,39 @@ def self_test(root):
         (["README.md", "ironforge-docs/x.md", ".ai/y.md"], dict(full=False, rust=False, frontend=False, packages=[])),
         (["web/src/a.svelte"], dict(full=False, rust=False, frontend=True, packages=[])),
         (["web/src/a.svelte", "CLAUDE.md"], dict(full=False, rust=False, frontend=True, packages=[])),
-        (["crates/rg-http/src/lib.rs"], dict(full=False, rust=True, packages=["rg-cli", "rg-http"])),
-        (["crates/rg-mcp/src/lib.rs"], dict(full=False, rust=True, packages=["rg-cli", "rg-http", "rg-mcp"])),
-        (["crates/rg-ssh/src/lib.rs"], dict(full=False, rust=True, packages=["rg-cli", "rg-ssh"])),
-        (["crates/rg-runner/src/main.rs"], dict(full=False, rust=True, packages=["rg-runner"])),
-        (["crates/rg-ci-isolation/src/lib.rs"], dict(full=False, rust=True,
-                                                    packages=["rg-ci", "rg-ci-isolation", "rg-cli", "rg-runner"])),
+        # rg-http itself changed: its integration suite runs
+        (["crates/rg-http/src/lib.rs"], dict(full=False, rust=True, packages=["-p", "rg-cli", "-p", "rg-http"],
+                                            skipped_heavy=False)),
+        # rg-mcp feeds rg-http, but rg-http's own files did not change: left out
+        (["crates/rg-mcp/src/lib.rs"], dict(full=False, rust=True, packages=["-p", "rg-cli", "-p", "rg-mcp"],
+                                           skipped_heavy=True)),
+        (["crates/rg-ssh/src/lib.rs"], dict(full=False, rust=True, packages=["-p", "rg-cli", "-p", "rg-ssh"],
+                                           skipped_heavy=False)),
+        (["crates/rg-runner/src/main.rs"], dict(full=False, rust=True, packages=["-p", "rg-runner"])),
+        (["crates/rg-ci-isolation/src/lib.rs"], dict(full=False, rust=True, packages=[
+            "-p", "rg-ci", "-p", "rg-ci-isolation", "-p", "rg-cli", "-p", "rg-runner"], skipped_heavy=False)),
         (["crates/rg-http/README.md"], dict(full=False, rust=True)),
-        (["crates/rg-core/src/lib.rs"], dict(full=True)),
-        (["crates/rg-db/src/migration/x.rs"], dict(full=True)),
-        (["crates/rg-git/src/lib.rs"], dict(full=True)),
-        (["Cargo.lock"], dict(full=True)),
+        # core crates: everything downstream, minus rg-http, plus the database smoke jobs
+        (["crates/rg-core/src/lib.rs"], dict(full=False, rust=True, db_smoke=True, git_protocol=True,
+                                            skipped_heavy=True)),
+        (["crates/rg-db/src/migration/x.rs"], dict(full=False, rust=True, db_smoke=True)),
+        (["crates/rg-git/src/lib.rs"], dict(full=False, rust=True, db_smoke=False, git_protocol=True)),
+        # workspace-wide files: every crate except rg-http
+        (["Cargo.lock"], dict(full=False, rust=True, db_smoke=True, deploy=False,
+                             packages=["--workspace", "--exclude", "rg-http"])),
         (["crates/rg-http/Cargo.toml", "web/a.ts"], dict(full=False, rust=True, frontend=True)),
-        (["scripts/ci-db-tests.sh"], dict(full=True)),
-        (["deploy/docker-compose.yml"], dict(full=True)),
-        ([".github/workflows/regression.yml"], dict(full=True)),
-        (["something-new/at-the-root.txt"], dict(full=True)),
-        (["docs-only.md", "unknown.bin"], dict(full=True)),
-        ([], dict(full=True)),
+        (["scripts/ci-db-tests.sh"], dict(full=False, rust=True, deploy=False,
+                                         packages=["--workspace", "--exclude", "rg-http"])),
+        (["deploy/docker-compose.yml"], dict(full=False, rust=True, deploy=True)),
+        ([".github/workflows/regression.yml"], dict(full=False, rust=True, deploy=True,
+                                                   packages=["--workspace", "--exclude", "rg-http"])),
+        (["something-new/at-the-root.txt"], dict(full=False, rust=True,
+                                                packages=["--workspace", "--exclude", "rg-http"])),
+        (["docs-only.md", "unknown.bin"], dict(full=False, rust=True)),
+        # rg-http changed AND something workspace-wide: the whole workspace, heavy suite included
+        (["crates/rg-http/src/lib.rs", "Cargo.lock"], dict(full=False, rust=True, packages=["--workspace"],
+                                                           skipped_heavy=False)),
+        ([], dict(full=False, rust=False, frontend=False, packages=[])),
     ]
     for files, expect in cases:
         got = classify(files, graph)
@@ -273,6 +314,7 @@ def self_test(root):
             assert got[key] == value, f"{files}: {key} = {got[key]!r}, expected {value!r}"
     # rg-cli is in a scoped set only through its dependencies, and so is the protocol matrix
     assert classify(["crates/rg-http/src/lib.rs"], graph)["git_protocol"] is True
+    assert full("x")["full"] is True and full("x")["packages"] == []
     assert classify(["crates/rg-runner/src/main.rs"], graph)["git_protocol"] is False
     assert decide("push", None, root)["full"] is True
     assert decide("workflow_dispatch", None, root)["full"] is True
@@ -304,6 +346,9 @@ def main():
                         args.base, root, args.files, args.head)
     lines = render(result)
     print("\n".join(lines))
+    if result.get("skipped_heavy"):
+        print(f"::notice::{HEAVY_CRATE} integration tests are not part of this run; "
+              "start the workflow by hand (workflow_dispatch) to run them")
     target = os.environ.get("GITHUB_OUTPUT")
     if target:
         with open(target, "a", encoding="utf-8") as fh:
