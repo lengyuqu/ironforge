@@ -57,6 +57,13 @@ concurrency:
 # 12:15:45->12:45:51 for a 30 minute limit) and none of them saved a cache.
 # Raising the ceilings is a stopgap: the real fix is one cache shared by both
 # runners, which lives on the runner machines, not here.
+#
+# Until then, the five Rust jobs that lean on a warm cache take their runner from
+# `vars.CI_HEAVY_RUNNER` and fall back to `ubuntu-24.04`: the two runners keep
+# separate caches (confirmed by the owner on 2026-11-09), so a job that bounces
+# between them misses half the time by construction. Set the variable to the
+# label of one machine once that machine has a label of its own and those jobs
+# stop bouncing; leave it unset and nothing changes from before.
 env:
   CARGO_INCREMENTAL: "0"
   CARGO_PROFILE_DEV_DEBUG: line-tables-only
@@ -118,7 +125,7 @@ jobs:
     name: Clippy (deny warnings)
     needs: changes
     if: needs.changes.outputs.rust == 'true'
-    runs-on: ubuntu-24.04
+    runs-on: ${{ vars.CI_HEAVY_RUNNER || 'ubuntu-24.04' }}
     timeout-minutes: 60
     steps:
       - name: Checkout
@@ -159,7 +166,7 @@ jobs:
     name: Rust tests and migration smoke
     needs: changes
     if: needs.changes.outputs.rust == 'true'
-    runs-on: ubuntu-24.04
+    runs-on: ${{ vars.CI_HEAVY_RUNNER || 'ubuntu-24.04' }}
     timeout-minutes: 90
     steps:
       - name: Checkout
@@ -257,7 +264,7 @@ jobs:
     name: Real Git client protocol matrix
     needs: changes
     if: needs.changes.outputs.git_protocol == 'true'
-    runs-on: ubuntu-24.04
+    runs-on: ${{ vars.CI_HEAVY_RUNNER || 'ubuntu-24.04' }}
     timeout-minutes: 45
     steps:
       - name: Checkout
@@ -294,7 +301,7 @@ jobs:
     name: PostgreSQL migration, CRUD and FTS smoke
     needs: changes
     if: needs.changes.outputs.db_smoke == 'true'
-    runs-on: ubuntu-24.04
+    runs-on: ${{ vars.CI_HEAVY_RUNNER || 'ubuntu-24.04' }}
     timeout-minutes: 45
     services:
       postgres:
@@ -349,7 +356,7 @@ jobs:
     name: MySQL migration, CRUD and FTS smoke
     needs: changes
     if: needs.changes.outputs.db_smoke == 'true'
-    runs-on: ubuntu-24.04
+    runs-on: ${{ vars.CI_HEAVY_RUNNER || 'ubuntu-24.04' }}
     timeout-minutes: 45
     services:
       mysql:

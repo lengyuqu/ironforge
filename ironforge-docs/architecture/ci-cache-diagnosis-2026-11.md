@@ -107,6 +107,16 @@
 
 B 的前置事实：目前两个 job 的 `runs-on` 都只写了 `ubuntu-24.04`，Gitea 返回的 labels 也是这一条，所以现在**没法从 workflow 侧区分**这两台 —— 必须先在 runner 上把机器自己的 label 加上，workflow 才有东西可钉。
 
+B 的开关已经装好（本 PR 的第二部分）：`clippy` / `rust-tests` / `git-protocol` / `postgres-smoke` / `mysql-smoke` 五个 job 的 `runs-on` 改成
+
+```yaml
+runs-on: ${{ vars.CI_HEAVY_RUNNER || 'ubuntu-24.04' }}
+```
+
+- 变量**不设**时求值成 `ubuntu-24.04`，与改动前完全一致（本仓库已经在用它同一套 `vars.X || 'default'` 形式给镜像用）。
+- 某台 runner 有了自己的 label 之后，把 `CI_HEAVY_RUNNER` 设为那个 label，这五个 job 就只落那一台，缓存命中从「看运气」变成稳定。
+- 回退：删掉变量即回到今天的行为，不需要改代码。
+
 ## 五、未覆盖与不确定
 
 - **没法在本机验证**：以上全部来自 git233 的 job 日志与仓库内 workflow，没有登录过 fnos/zos，没有看过 runner 的 `config.yaml`、磁盘和它自己的日志。runner 侧的成因是「与日志一致的解释」，还不是「看到的配置」。
