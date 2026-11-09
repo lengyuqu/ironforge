@@ -47,6 +47,16 @@ concurrency:
 #
 # Debug info is cut to line tables: backtraces keep file and line, but compiling
 # and linking ~130 test binaries gets cheaper and the cache gets smaller.
+#
+# Timeouts assume a COLD run (see the `Cache Cargo` steps). git233 has two
+# runners (fnos/zos) and each keeps its own action cache, so a job that bounces
+# to the other runner compiles from scratch; a job that dies at its ceiling
+# never reaches the post-job save and the next run is cold again. On 2026-11-09
+# every red job in runs 1713/1714 died exactly at its `timeout-minutes`
+# (`context deadline exceeded`, e.g. clippy 10:51:50->11:21:53 and
+# 12:15:45->12:45:51 for a 30 minute limit) and none of them saved a cache.
+# Raising the ceilings is a stopgap: the real fix is one cache shared by both
+# runners, which lives on the runner machines, not here.
 env:
   CARGO_INCREMENTAL: "0"
   CARGO_PROFILE_DEV_DEBUG: line-tables-only
@@ -109,7 +119,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -150,7 +160,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 90
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -206,7 +216,7 @@ jobs:
     # Only a changed Cargo.lock changes the answer, and that is a full run.
     if: needs.changes.outputs.full == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -248,7 +258,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.git_protocol == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -285,7 +295,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.db_smoke == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 45
     services:
       postgres:
         # Docker Hub is unreachable from git233's runners: set the repository
@@ -340,7 +350,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.db_smoke == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 45
     services:
       mysql:
         image: ${{ vars.MYSQL_IMAGE || 'mysql:8.4' }}
