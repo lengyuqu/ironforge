@@ -10,6 +10,7 @@ use sea_orm::sea_query::Expr;
 use sea_orm::*;
 
 use crate::entities::collab_handoff::{self, Entity as HandoffEntity};
+use crate::entities::collab_health_baseline::{self, Entity as BaselineEntity};
 use crate::entities::collab_metric_event::{
     self, ActiveModel, Entity as EventEntity, Model as Event,
 };
@@ -117,18 +118,58 @@ pub async fn first_occurred_at<C: ConnectionTrait>(
 }
 
 /// Time of the observation baseline, if one was taken.
+///
+/// The earlier of the recorded baseline row and the first baseline event: the row
+/// exists for every baseline taken since it was introduced, the events for every
+/// baseline that had an object to observe (including those taken before the row
+/// existed).
 pub async fn baseline_taken_at<C: ConnectionTrait>(
     db: &C,
     repo_id: i64,
 ) -> Result<Option<DateTime<Utc>>> {
-    Ok(EventEntity::find()
+    let from_event = EventEntity::find()
         .filter(collab_metric_event::Column::RepoId.eq(repo_id))
         .filter(collab_metric_event::Column::SourceType.eq(source_type::BASELINE))
         .order_by_asc(collab_metric_event::Column::OccurredAt)
         .one(db)
         .await
         .context("db: baseline metric event")?
-        .map(|e| e.occurred_at))
+        .map(|e| e.occurred_at);
+    let from_row = BaselineEntity::find_by_id(repo_id)
+        .one(db)
+        .await
+        .context("db: baseline row")?
+        .map(|row| row.taken_at);
+    Ok(match (from_event, from_row) {
+        (Some(a), Some(b)) => Some(a.min(b)),
+        (a, b) => a.or(b),
+    })
+}
+
+/// Remember that the baseline was taken at `now`, unless it already was.
+///
+/// A plain insert whose unique-key failure means "someone else got there first":
+/// `ON CONFLICT DO NOTHING` is not usable on MySQL (see CLAUDE.md, pitfall 19).
+async fn record_baseline_row<C: ConnectionTrait>(
+    db: &C,
+    repo_id: i64,
+    now: DateTime<Utc>,
+) -> Result<()> {
+    use sea_orm::{ActiveModelTrait, SqlErr};
+    if BaselineEntity::find_by_id(repo_id).one(db).await?.is_some() {
+        return Ok(());
+    }
+    let row = collab_health_baseline::ActiveModel {
+        repo_id: Set(repo_id),
+        taken_at: Set(now),
+    };
+    match row.insert(db).await {
+        Ok(_) => Ok(()),
+        Err(error) if matches!(error.sql_err(), Some(SqlErr::UniqueConstraintViolation(_))) => {
+            Ok(())
+        }
+        Err(error) => Err(error).context("db: record baseline row"),
+    }
 }
 
 /// Events strictly before `before`, oldest first. `None` = more than
@@ -441,6 +482,11 @@ pub async fn take_baseline(
         }
         txn.commit().await.context("db: commit question baseline")?;
     }
+
+    // The baseline is taken even when no object needed an observation. Without a
+    // row of its own, such a call left no trace and the page kept saying "not
+    // established" right after it succeeded.
+    record_baseline_row(db, repo_id, now).await?;
     Ok(counts)
 }
 
