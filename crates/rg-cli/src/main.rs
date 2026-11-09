@@ -180,6 +180,33 @@ enum Commands {
         db_url: String,
     },
 
+    /// Re-publish `refs/pull/<n>/head` where it is missing or stale.
+    ///
+    /// Pull requests opened before the ref existed have no anchor until their
+    /// head branch is pushed again; for a fork pull request that may never
+    /// happen. Writes nothing but the ref, and is safe to re-run.
+    RepairPullRefs {
+        /// Database URL (sqlite://, postgres://, or mysql://)
+        #[arg(long, default_value = "sqlite://./ironforge.db?mode=rwc")]
+        db_url: String,
+
+        /// Root directory for git repositories
+        #[arg(long, default_value = "./repos")]
+        repo_root: String,
+
+        /// Only this repository (owner/name); every repository otherwise
+        #[arg(long)]
+        repo: Option<String>,
+
+        /// Also repair merged and closed pull requests
+        #[arg(long, default_value_t = false)]
+        include_closed: bool,
+
+        /// Print what would change without writing anything
+        #[arg(long, default_value_t = false)]
+        dry_run: bool,
+    },
+
     /// Create a consistent SQLite database backup.
     BackupDb {
         /// SQLite database URL (e.g. sqlite://./ironforge.db?mode=rwc)
@@ -579,6 +606,12 @@ fn parse_rate_limit_trusted_proxies(values: &[String]) -> anyhow::Result<Vec<IpA
                 .with_context(|| format!("invalid rate_limit trusted proxy IP: {value}"))
         })
         .collect()
+}
+
+/// First seven characters of a commit id, for human-readable output.
+fn short_sha(sha: &str) -> &str {
+    let end = sha.len().min(7);
+    sha.get(..end).unwrap_or(sha)
 }
 
 async fn backup_sqlite_db(db_url: &str, output: &PathBuf, force: bool) -> anyhow::Result<()> {
@@ -1421,6 +1454,87 @@ async fn main() -> anyhow::Result<()> {
             rg_db::rebuild_fts_indexes(&db).await?;
 
             tracing::info!("Full-text search indexes refreshed successfully ✅");
+        }
+
+        Commands::RepairPullRefs {
+            db_url,
+            repo_root,
+            repo,
+            include_closed,
+            dry_run,
+        } => {
+            tracing_subscriber::fmt()
+                .with_env_filter(
+                    EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+                )
+                .with_target(false)
+                .init();
+
+            tracing::info!(
+                "Connecting to database: {}",
+                rg_db::redact_database_url(&db_url)
+            );
+            let db = rg_db::connect(&db_url).await?;
+            let (owner, repo_name) = match repo.as_deref() {
+                Some(spec) => match spec.split_once('/') {
+                    Some((owner, name)) if !owner.is_empty() && !name.is_empty() => {
+                        (Some(owner.to_string()), Some(name.to_string()))
+                    }
+                    _ => anyhow::bail!("--repo takes the form owner/name"),
+                },
+                None => (None, None),
+            };
+            let options = rg_core::pull_request::RepairOptions {
+                owner,
+                repo_name,
+                include_closed,
+                dry_run,
+            };
+            let report = rg_core::pull_request::repair_pull_refs(
+                &db,
+                std::path::Path::new(&repo_root),
+                &options,
+            )
+            .await?;
+
+            let verb = if dry_run { "would repair" } else { "repaired" };
+            println!(
+                "scanned {} pull request(s): {} already current, {} {}, {} skipped",
+                report.scanned,
+                report.current,
+                report.actions().len(),
+                verb,
+                report.skipped.len()
+            );
+            for action in report.actions() {
+                let previous = match action.previous.as_deref() {
+                    Some(sha) => format!("was {}", short_sha(sha)),
+                    None => "was missing".to_string(),
+                };
+                println!(
+                    "  {} {}#{} refs/pull/{}/head -> {} ({}, {}{})",
+                    if dry_run { "would repair" } else { "repaired" },
+                    action.repo,
+                    action.number,
+                    action.number,
+                    short_sha(&action.head_sha),
+                    previous,
+                    action.kind(),
+                    if action.is_fork { ", fork" } else { "" }
+                );
+            }
+            for skip in &report.skipped {
+                match skip.number {
+                    Some(number) => println!("  skipped {}#{}: {}", skip.repo, number, skip.reason),
+                    None => println!("  skipped {}: {}", skip.repo, skip.reason),
+                }
+            }
+            println!(
+                "note: the base commit recorded at pull-request open \
+                 (anchors.base_sha_when_opened) is not backfilled -- it was never \
+                 stored for older pull requests, and guessing it would invent an \
+                 anchor that was not there."
+            );
         }
 
         Commands::BackupDb {
