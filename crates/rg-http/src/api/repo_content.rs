@@ -574,6 +574,168 @@ pub async fn list_branches(
     }
 }
 
+/// Query of `DELETE /repos/:owner/:name/branches/*branch`.
+#[derive(Debug, serde::Deserialize, utoipa::IntoParams)]
+pub struct DeleteBranchQuery {
+    /// Delete only while the branch is still at this commit (409 `REF_ADVANCED`
+    /// otherwise), so a stale "this is merged" decision cannot discard new work.
+    #[serde(default)]
+    pub expected_sha: Option<String>,
+    /// Run every check and report what would be deleted. `X-Dry-Run: 1` means the same.
+    #[serde(default)]
+    pub dry_run: Option<bool>,
+}
+
+/// Turn a refused branch delete into the REST error, with a stable `reason`.
+fn delete_branch_error(error: rg_core::repo::branch::DeleteBranchError) -> AppError {
+    use rg_core::repo::branch::DeleteBranchError as E;
+    match error {
+        E::InvalidName(message) => AppError::bad_request(message),
+        E::NotFound => AppError::not_found("branch not found"),
+        E::DefaultBranch => AppError::conflict_because(
+            "DEFAULT_BRANCH",
+            false,
+            "the default branch cannot be deleted",
+            serde_json::json!({}),
+            "change the repository's default branch first",
+        ),
+        E::Protected(pattern) => AppError::conflict_because(
+            "BRANCH_PROTECTED",
+            false,
+            "a branch protection rule covers this branch",
+            serde_json::json!({ "rule": pattern }),
+            "remove or relax the branch protection rule first",
+        ),
+        E::OpenPullRequests(prs) => AppError::conflict_because(
+            "OPEN_PULL_REQUESTS",
+            false,
+            "open pull requests still use this branch",
+            serde_json::json!({
+                "pull_requests": prs
+                    .iter()
+                    .map(|(repo_id, number)| serde_json::json!({ "repo_id": repo_id, "number": number }))
+                    .collect::<Vec<_>>(),
+            }),
+            "merge or close those pull requests, then delete the branch",
+        ),
+        E::RefAdvanced { current, expected } => AppError::conflict_because(
+            "REF_ADVANCED",
+            true,
+            "the branch moved; it is no longer at the expected commit",
+            serde_json::json!({ "current_sha": current, "expected_sha": expected }),
+            "re-read the branch, check the new commits, and retry with expected_sha set to current_sha",
+        ),
+        E::Other(error) => AppError::from(rg_core::error::CoreError::from(error)),
+    }
+}
+
+/// Delete a branch.
+/// DELETE /api/v1/repos/:owner/:name/branches/*branch
+///
+/// Refuses the default branch, a branch covered by a protection rule, and a
+/// branch an open pull request uses. Merged and closed pull requests keep
+/// `refs/pull/<n>/head`, so they survive the branch. A token limited to some
+/// branches may delete only branches inside its limit.
+#[utoipa::path(
+    delete,
+    path = "/repos/{owner}/{name}/branches/{branch}",
+    tag = "Repository Content",
+    params(
+        ("owner" = String, Path, description = "owner"),
+        ("name" = String, Path, description = "name"),
+        ("branch" = String, Path, description = "branch name (may contain slashes)"),
+        DeleteBranchQuery,
+    ),
+    responses(
+        (status = 200, description = "Deleted (or, with dry_run, what would be deleted)", body = serde_json::Value),
+        (status = 401, description = "Unauthorized", body = serde_json::Value),
+        (status = 403, description = "Forbidden", body = serde_json::Value),
+        (status = 404, description = "No such branch", body = serde_json::Value),
+        (status = 409, description = "Refused: default or protected branch, open pull requests, or the branch moved", body = serde_json::Value),
+    ),
+)]
+pub async fn delete_branch(
+    State(state): State<AppState>,
+    Path((owner, repo, branch)): Path<(String, String, String)>,
+    headers: HeaderMap,
+    Query(params): Query<DeleteBranchQuery>,
+) -> impl IntoResponse {
+    if let Err(e) = validate_owner_repo(&owner, &repo) {
+        return e.into_response();
+    }
+    let (repo_model, user) =
+        match resolve_and_check_write_access(&state, &headers, &owner, &repo).await {
+            Ok(r) => r,
+            Err(e) => return e.into_response(),
+        };
+    // The same branch limit as a file commit: a token limited to some branches
+    // may only delete branches inside its limit.
+    if let Some(claims) = extract_bearer_claims(&headers, &state.jwt_secret) {
+        if let Err(e) =
+            crate::api::auth::ensure_token_may_write_branch(&state.db, &claims, &branch).await
+        {
+            return e.into_response();
+        }
+    }
+    let repo_path = match existing_repo_path(&state, &owner, &repo) {
+        Ok(p) => p,
+        Err(e) => return e.into_response(),
+    };
+    let dry_run = dry_run_requested(&headers, params.dry_run);
+
+    let report = match rg_core::repo::branch::delete_branch(
+        &state.db,
+        &repo_model,
+        &repo_path,
+        &branch,
+        params.expected_sha.as_deref(),
+        dry_run,
+    )
+    .await
+    {
+        Ok(report) => report,
+        Err(e) => return delete_branch_error(e).into_response(),
+    };
+
+    if report.dry_run {
+        return (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "dry_run": true,
+                "would_delete": { "branch": report.branch, "sha": report.sha },
+            })),
+        )
+            .into_response();
+    }
+
+    crate::api::audit::record_write(
+        &state.db,
+        user.id,
+        "repo.branch_delete",
+        "repo",
+        Some(repo_model.id),
+        &format!("{owner}/{repo}"),
+        &headers,
+        serde_json::json!({ "branch": report.branch, "sha": report.sha }),
+    )
+    .await;
+    if let Err(error) =
+        rg_core::webhook::service::trigger_branch_deleted(&state.db, repo_model.id, &report.branch)
+            .await
+    {
+        tracing::warn!(%error, "branch.deleted webhook failed");
+    }
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "deleted": true,
+            "branch": report.branch,
+            "sha": report.sha,
+        })),
+    )
+        .into_response()
+}
+
 /// List tags.
 /// GET /api/v1/repos/:owner/:name/tags
 #[utoipa::path(

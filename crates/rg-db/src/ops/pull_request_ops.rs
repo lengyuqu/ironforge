@@ -114,6 +114,39 @@ fn head_repository_condition(source_repo_id: i64) -> Condition {
         .add(pull_request::Column::HeadRepoId.eq(source_repo_id))
 }
 
+/// Open pull requests that depend on `branch` of repository `repo_id`: those
+/// whose head is that branch (in this repository, or in a fork whose source is
+/// this repository) and those that target it as their base. A branch with such a
+/// pull request must not be deleted out from under it.
+pub async fn list_open_using_branch(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    branch: &str,
+) -> Result<Vec<PullRequest>> {
+    let as_head = PrEntity::find()
+        .filter(head_repository_condition(repo_id))
+        .filter(pull_request::Column::HeadBranch.eq(branch))
+        .filter(pull_request::Column::State.eq("open"))
+        .all(db)
+        .await
+        .context("db: find open PRs headed at branch")?;
+    let as_base = PrEntity::find()
+        .filter(pull_request::Column::RepoId.eq(repo_id))
+        .filter(pull_request::Column::BaseBranch.eq(branch))
+        .filter(pull_request::Column::State.eq("open"))
+        .all(db)
+        .await
+        .context("db: find open PRs based on branch")?;
+    let mut all = as_head;
+    for pr in as_base {
+        if !all.iter().any(|existing| existing.id == pr.id) {
+            all.push(pr);
+        }
+    }
+    all.sort_by_key(|pr| (pr.repo_id, pr.number));
+    Ok(all)
+}
+
 /// Refresh open PR head SHAs after a branch push, including fork PRs whose
 /// source repository is the pushed repository.
 pub async fn update_open_head_sha(
