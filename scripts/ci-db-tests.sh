@@ -99,7 +99,8 @@ fi
 
 # Every target that calls `spawn_test_app_on_env_db` (see tests/common/mod.rs).
 for t in pat_ref_allowlist_tests file_commit_semantics_tests idempotency_tests \
-         repo_events_tests pr_context_tests pr_export_tests; do
+         repo_events_tests pr_context_tests pr_export_tests branch_delete_tests \
+         fork_pr_ref_tests; do
   run cargo test -p rg-http --test "$t"
 done
 echo "$suite $backend suites passed"

@@ -123,6 +123,35 @@ pub fn delete_ref(repo_path: &Path, ref_name: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Delete a reference only if it still points at `expected_sha`.
+///
+/// The compare-and-swap form of [`delete_ref`]: when the ref moved (or is gone)
+/// between the caller's read and this call, nothing is deleted and the error says
+/// so. Without this a client that decided "this branch is merged, delete it" on a
+/// stale tip could throw away newer commits.
+pub fn delete_ref_if(repo_path: &Path, ref_name: &str, expected_sha: &str) -> anyhow::Result<()> {
+    use gix::refs::transaction::{Change, PreviousValue, RefEdit, RefLog};
+    use gix::refs::Target;
+
+    let repo = open_repo(repo_path)?;
+    let full_name: gix::refs::FullName = ref_name
+        .try_into()
+        .map_err(|e| anyhow::anyhow!("invalid ref name '{ref_name}': {e}"))?;
+    let expected = gix::hash::ObjectId::from_hex(expected_sha.as_bytes())
+        .map_err(|e| anyhow::anyhow!("invalid sha '{expected_sha}': {e}"))?;
+
+    repo.edit_reference(RefEdit {
+        change: Change::Delete {
+            expected: PreviousValue::MustExistAndMatch(Target::Object(expected)),
+            log: RefLog::AndReference,
+        },
+        name: full_name,
+        deref: false,
+    })
+    .with_context(|| format!("failed to delete ref '{ref_name}' (it moved or no longer exists)"))?;
+    Ok(())
+}
+
 /// Outcome of [`rebase_merge`].
 #[derive(Debug)]
 pub enum RebaseOutcome {

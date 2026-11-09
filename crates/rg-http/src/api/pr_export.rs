@@ -7,13 +7,15 @@
 //! repository's own CI to judge it).
 //!
 //! What it does and does not promise:
-//! - Anchors: `refs/pull/<n>/head` is written for pull requests whose head branch
-//!   is in the same repository, and it survives deleting the branch. A fork pull
-//!   request has no such ref in this repository (`head_ref` is `null`); its head
-//!   commit is only reachable while the fork keeps it.
-//! - The base commit when the pull request was opened is not stored. For a merged
-//!   pull request `base_sha_at_merge` (first parent of the merge commit) is the
-//!   best available; for an open one `base_tip_sha` is the base branch tip now.
+//! - Anchors: `refs/pull/<n>/head` is written for every pull request (a fork pull
+//!   request's objects are copied into this repository first), and it survives
+//!   deleting the head branch. Pull requests opened before fork pull requests got
+//!   the ref have `head_ref: null` until their head is next pushed.
+//! - The base commit when the pull request was opened (`base_sha_when_opened`) is
+//!   read from its immutable "opened" event; pull requests opened before it was
+//!   recorded have `null` and list it under `not_stored`. For a merged pull request
+//!   `base_sha_at_merge` (first parent of the merge commit) is also given; for an
+//!   open one `base_tip_sha` is the base branch tip now.
 //! - Review and CI data are live reads, not a snapshot. Log text is not included,
 //!   only each job's status and exit code.
 //! - Text written by users is marked `origin: "user_content"`.
@@ -92,6 +94,24 @@ pub async fn export_pr(
             .flatten()
     });
 
+    // The base branch tip when the pull request was opened, from its immutable
+    // "opened" event. Pull requests opened before it was recorded have none.
+    let base_sha_when_opened = rg_db::ops::pr_event_ops::list_by_pr(&state.db, pr.id)
+        .await
+        .ok()
+        .and_then(|events| {
+            events
+                .into_iter()
+                .find(|event| event.event_type == "pull_request_opened")
+        })
+        .and_then(|event| serde_json::from_str::<Value>(&event.metadata).ok())
+        .and_then(|metadata| {
+            metadata
+                .get("base_sha")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        });
+
     let (body, body_cut) = clip(pr.body.as_deref().unwrap_or(""));
     let (title, _) = clip(&pr.title);
     let pull_request = json!({
@@ -120,7 +140,13 @@ pub async fn export_pr(
         "head_branch_sha": live_head,
         "base_tip_sha": base_tip_sha,
         "base_sha_at_merge": base_sha_at_merge,
-        "not_stored": ["base_sha_when_opened"],
+        "base_sha_when_opened": base_sha_when_opened,
+        // Pull requests opened before the base was recorded have no value.
+        "not_stored": if base_sha_when_opened.is_none() {
+            json!(["base_sha_when_opened"])
+        } else {
+            json!([])
+        },
     });
 
     let reviews =

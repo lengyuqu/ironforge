@@ -145,6 +145,9 @@ pub async fn create_pr(
     .await?;
     let number = plan.number;
     let head_sha = plan.head_sha;
+    // The base branch tip when the pull request is opened: the point a replay or
+    // an evaluation needs. Kept in the immutable "opened" event, not a column.
+    let base_sha = plan.base_sha;
 
     let model = pull_request::ActiveModel {
         id: sea_orm::NotSet,
@@ -187,6 +190,8 @@ pub async fn create_pr(
             "head_sha": pr.head_sha,
             "head_branch": pr.head_branch,
             "base_branch": pr.base_branch,
+            "base_sha": base_sha,
+            "head_repo_id": pr.head_repo_id,
             "draft": pr.is_draft
         }),
     )
@@ -1254,6 +1259,52 @@ pub async fn live_head_sha(
             .ok()
             .flatten(),
     )
+}
+
+/// Publish `refs/pull/<number>/head` for `pr` in the repository the pull request
+/// targets, pointing at `head_sha`.
+///
+/// For a fork pull request the head branch lives in the fork, so its objects are
+/// copied into the target repository first; otherwise the ref would dangle (or,
+/// as it once did, be written into the fork under the target's pull-request
+/// number). The ref keeps the head reachable after the head branch is deleted.
+pub async fn publish_head_ref(
+    db: &DatabaseConnection,
+    repo_root: &std::path::Path,
+    pr: &PullRequest,
+    head_sha: &str,
+) -> CoreResult<()> {
+    let target = repo_entity::Entity::find_by_id(pr.repo_id)
+        .one(db)
+        .await
+        .context("failed to find target repository")?
+        .context("target repository not found")?;
+    let namespace = repository_namespace(db, &target).await?;
+    let target_path = repo_root.join(format!("{}/{}.git", namespace, target.name));
+    let fork_source = match pr.head_repo_id {
+        Some(head_repo_id) => {
+            let head_repo = repo_entity::Entity::find_by_id(head_repo_id)
+                .one(db)
+                .await
+                .context("failed to find head repository")?
+                .context("head repository not found")?;
+            let namespace = repository_namespace(db, &head_repo).await?;
+            Some(repo_root.join(format!("{}/{}.git", namespace, head_repo.name)))
+        }
+        None => None,
+    };
+    let refname = format!("refs/pull/{}/head", pr.number);
+    let sha = head_sha.to_string();
+    tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+        if let Some(source) = fork_source {
+            rg_git::ops::copy_objects_from_source(&source, &sha, &target_path)?;
+        }
+        rg_git::ops::update_ref(&target_path, &refname, &sha, "pull request head")
+    })
+    .await
+    .map_err(|error| anyhow::anyhow!("publishing the pull-request head was interrupted: {error}"))?
+    .map_err(CoreError::from)?;
+    Ok(())
 }
 
 async fn merge_claimed_pr(

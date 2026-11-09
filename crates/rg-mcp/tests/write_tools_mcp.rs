@@ -136,6 +136,9 @@ fn api() -> Handler {
             ("DELETE", "/api/v1/repos/alice/demo/contents/old.txt") => {
                 (200, json!({"success": true}).to_string())
             }
+            ("DELETE", "/api/v1/repos/alice/demo/branches/agent/x") => {
+                (200, json!({"dry_run": true}).to_string())
+            }
             ("POST", "/api/v1/repos/alice/demo/pulls") => {
                 (201, json!({"number": 4, "state": "open"}).to_string())
             }
@@ -272,6 +275,7 @@ fn the_write_tools_are_advertised_with_their_required_arguments() {
             "delete_file",
             vec!["owner", "repo", "path", "message", "branch", "sha"],
         ),
+        ("delete_branch", vec!["owner", "repo", "branch"]),
         ("create_pr", vec!["owner", "repo", "title", "head", "base"]),
         ("list_pipelines", vec!["owner", "repo"]),
         ("wait_pipeline", vec!["owner", "repo", "pipeline_id"]),
@@ -288,7 +292,7 @@ fn the_write_tools_are_advertised_with_their_required_arguments() {
         assert_eq!(got, required, "{name}");
     }
     // The file tools offer the safety arguments.
-    for name in ["commit_file", "delete_file"] {
+    for name in ["commit_file", "delete_file", "delete_branch"] {
         let props = &find(name)["inputSchema"]["properties"];
         assert!(
             props.get("expected_sha").is_some() && props.get("dry_run").is_some(),
@@ -390,6 +394,16 @@ fn arguments_are_checked_before_any_request_is_made() {
             "sha is required",
         ),
         (
+            "delete_branch",
+            json!({"owner": "alice", "repo": "demo"}),
+            "branch is required",
+        ),
+        (
+            "delete_branch",
+            json!({"owner": "alice", "repo": "demo", "branch": "a/../b"}),
+            "must not contain",
+        ),
+        (
             "create_pr",
             json!({"owner": "alice", "repo": "demo", "title": " ", "head": "h", "base": "b"}),
             "title is required",
@@ -427,6 +441,18 @@ fn delete_pr_and_pipeline_tools_use_their_routes() {
     assert_eq!(
         sent.path,
         "/api/v1/repos/alice/demo/contents/old.txt?branch=agent%2Fx&message=rm%20it&sha=blob9&expected_sha=tip9&dry_run=true"
+    );
+
+    let (err, text) = mcp.tool(
+        "delete_branch",
+        json!({"owner": "alice", "repo": "demo", "branch": "agent/x", "expected_sha": "tip9", "dry_run": true}),
+    );
+    assert!(!err, "{text}");
+    let sent = stub.last();
+    assert_eq!(sent.method, "DELETE");
+    assert_eq!(
+        sent.path,
+        "/api/v1/repos/alice/demo/branches/agent/x?expected_sha=tip9&dry_run=true"
     );
 
     let (err, text) = mcp.tool(

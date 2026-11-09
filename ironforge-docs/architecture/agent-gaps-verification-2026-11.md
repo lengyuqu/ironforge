@@ -2,6 +2,8 @@
 
 > 接 [agent-write-path-verification-2026-11.md](agent-write-path-verification-2026-11.md)。那一篇的"未做"清单里有一部分靠核实发现并不成立，另有两个真缺口是在补的过程中被测试揪出来的。**邮件通知偏好与 CI 按负责人安排留到最后，本文不涉及。**
 
+> **后续（2026-11-09）**：本文「未做」里的 fork PR 的 `refs/pull`、PR 开时的 base 提交、删除分支已补，见 [agent-branch-fork-verification-2026-11.md](agent-branch-fork-verification-2026-11.md)；下文关于这三项「没有」的说法以那一篇为准。
+
 ## 一、先说核实结果（和之前文档不一致的地方）
 
 | 之前的说法 | 核实结果 |

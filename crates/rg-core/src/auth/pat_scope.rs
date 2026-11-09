@@ -321,6 +321,12 @@ pub fn ref_limited_write_allowed(path: &str) -> bool {
             // The handlers check the branch against the token's own limit
             // (`ensure_token_may_write_branch`), so these are safe to open.
             | ["contents", _, ..]
+    ) || matches!(
+        // Deleting a branch (`DELETE branches/<name>`): the handler checks the
+        // branch against the token's limit. `branches/protection/**` is the
+        // protection-rule settings and stays refused.
+        rest,
+        ["branches", first, ..] if *first != "protection"
     )
 }
 
@@ -600,6 +606,9 @@ mod tests {
             // Server-side commits: the handler checks the branch itself.
             "/repos/a/b/contents/src/main.rs",
             "/repos/a/b/contents/x",
+            // Branch delete: the handler checks the branch limit.
+            "/repos/a/b/branches/feature",
+            "/repos/a/b/branches/agent/pass",
         ] {
             assert!(ref_limited_write_allowed(path), "{path}");
         }
@@ -619,6 +628,8 @@ mod tests {
             "/repos/a/b/pipelines",
             "/repos/a/b/pulls/3/reviews/1/dismiss",
             "/repos/a/b/branches/protection",
+            "/repos/a/b/branches/protection/7",
+            "/repos/a/b/branches",
             "/repos/a/b/hooks",
             "/repos/a/b/collaborators",
             "/repos/a/b/lfs/objects/batch",

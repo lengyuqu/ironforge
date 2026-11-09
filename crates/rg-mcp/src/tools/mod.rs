@@ -147,6 +147,21 @@ pub fn list_tools(_state: &AppState, req: &JsonRpcRequest) -> JsonRpcResponse {
             }
         },
         {
+            "name": "delete_branch",
+            "description": "Delete a branch on the server, e.g. a head branch after its pull request was merged. The server refuses the default branch, a branch a protection rule covers, and a branch an open pull request still uses, and says which. Merged and closed pull requests keep their head (refs/pull/<n>/head), so deleting the branch does not lose them. 'expected_sha' deletes only while the branch is still at that commit (otherwise REF_ADVANCED with the current commit); 'dry_run' runs every check and deletes nothing. A token limited to some branches may delete only branches inside its limit.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "owner": { "type": "string", "description": "Repository owner" },
+                    "repo":  { "type": "string", "description": "Repository name" },
+                    "branch": { "type": "string", "description": "Branch to delete (may contain slashes, e.g. agent/pass)" },
+                    "expected_sha": { "type": "string", "description": "Delete only if the branch is still at this commit" },
+                    "dry_run": { "type": "boolean", "description": "Check and report only; delete nothing" }
+                },
+                "required": ["owner", "repo", "branch"]
+            }
+        },
+        {
             "name": "create_pr",
             "description": "Open a pull request from a branch into a base branch. It does not merge anything; a person decides whether to merge. Pass dry_run=true to run the checks and see what would be created (the number, the head and base commits, any open pull request already between the same branches) without opening anything. Pass idempotency_key and reuse it when retrying after a timeout, so you do not open two.",
             "inputSchema": {
@@ -260,6 +275,7 @@ pub fn call_tool(state: &AppState, req: &JsonRpcRequest) -> JsonRpcResponse {
         "export_pr" => tool_export_pr(state, &args),
         "commit_file" => tool_commit_file(state, &args),
         "delete_file" => tool_delete_file(state, &args),
+        "delete_branch" => tool_delete_branch(state, &args),
         "create_pr" => tool_create_pr(state, &args),
         "list_pipelines" => tool_list_pipelines(state, &args),
         "wait_pipeline" => tool_wait_pipeline(state, &args),
@@ -707,6 +723,33 @@ fn tool_delete_file(state: &AppState, args: &Value) -> ToolResult {
         &format!("/repos/{owner}/{repo}/contents/{path}{q}"),
         None,
         idempotency_key_arg(args)?,
+    )
+}
+
+fn tool_delete_branch(state: &AppState, args: &Value) -> ToolResult {
+    let owner = name_arg(args, "owner")?;
+    let repo = name_arg(args, "repo")?;
+    let branch = repo_path_arg(args, "branch", true)?;
+    let dry_run = if flag_arg(args, "dry_run")? {
+        "true"
+    } else {
+        ""
+    };
+    let q = query(&[
+        (
+            "expected_sha",
+            optional_text(args, "expected_sha").unwrap_or(""),
+        ),
+        ("dry_run", dry_run),
+    ]);
+    // No idempotency key: a repeated delete is answered with "not found", which
+    // is already a clear outcome, and the server accepts keys only on creating calls.
+    send_write(
+        state,
+        reqwest::Method::DELETE,
+        &format!("/repos/{owner}/{repo}/branches/{branch}{q}"),
+        None,
+        None,
     )
 }
 

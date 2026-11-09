@@ -325,7 +325,7 @@ pub async fn create_pr(
                                 "base_branch": req.base,
                                 "base_sha": plan.base_sha,
                                 "draft": req.draft,
-                                "publishes_pull_ref": head_repo_id.is_none() && plan.head_sha.is_some(),
+                                "publishes_pull_ref": plan.head_sha.is_some(),
                             }],
                             "head_branch_found": plan.head_sha.is_some(),
                             "base_branch_found": plan.base_sha.is_some(),
@@ -370,21 +370,20 @@ pub async fn create_pr(
                         }),
                     )
                     .await;
-                    // Publish refs/pull/<n>/head for same-repo PRs so checkout
-                    // works without the head branch (fork PRs keep their head
-                    // branch in the fork; client falls back to fetching it).
-                    if pr.head_repo_id.is_none() {
-                        if let Some(head_sha) = pr.head_sha.as_deref() {
-                            let repo_path = state.repo_root.join(format!("{owner}/{repo}.git"));
-                            let refname = format!("refs/pull/{}/head", pr.number);
-                            if let Err(error) = rg_git::ops::update_ref(
-                                &repo_path,
-                                &refname,
-                                head_sha,
-                                "pull request opened",
-                            ) {
-                                tracing::warn!(%error, %refname, "could not publish pull-request head ref");
-                            }
+                    // Publish refs/pull/<n>/head so checkout works without the head
+                    // branch. For a fork pull request the fork's objects are copied
+                    // into this repository first. A failure here is logged, not
+                    // fatal: the pull request exists and the next push repeats it.
+                    if let Some(head_sha) = pr.head_sha.as_deref() {
+                        if let Err(error) = rg_core::pull_request::publish_head_ref(
+                            &state.db,
+                            &state.repo_root,
+                            &pr,
+                            head_sha,
+                        )
+                        .await
+                        {
+                            tracing::warn!(%error, number = pr.number, "could not publish pull-request head ref");
                         }
                     }
                     // CODEOWNERS is advisory: a malformed/missing file or an

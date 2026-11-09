@@ -1348,6 +1348,12 @@ fn build_routes(
             "/repos/{owner}/{name}/branches",
             get(api::repo_content::list_branches),
         )
+        // A static `branches/protection...` route wins over this catch-all, so a
+        // branch literally named `protection/...` cannot be deleted this way.
+        .route(
+            "/repos/{owner}/{name}/branches/{*branch}",
+            axum::routing::delete(api::repo_content::delete_branch),
+        )
         .route(
             "/repos/{owner}/{name}/tags",
             get(api::repo_content::list_tags),
@@ -3239,15 +3245,19 @@ async fn post_push_hooks(
                         // Mirror the pushed head into refs/pull/<n>/head so
                         // `git fetch <url> refs/pull/<n>/head` works and keeps
                         // working after the head branch is deleted.
+                        // (For a fork pull request the pushed repository is the
+                        // fork: the ref belongs in the target repository, which
+                        // `publish_head_ref` copies the objects into.)
                         for pr in &prs {
-                            let refname = format!("refs/pull/{}/head", pr.number);
-                            if let Err(error) = rg_git::ops::update_ref(
-                                repo_path,
-                                &refname,
+                            if let Err(error) = rg_core::pull_request::publish_head_ref(
+                                db,
+                                repo_root,
+                                pr,
                                 &update.new_sha,
-                                "pull request head (push)",
-                            ) {
-                                tracing::warn!(%error, %refname, "could not update pull-request head ref");
+                            )
+                            .await
+                            {
+                                tracing::warn!(%error, number = pr.number, "could not update pull-request head ref");
                             }
                         }
                         if let Err(error) = rg_core::pull_request::try_auto_merges_for_head_commit(
