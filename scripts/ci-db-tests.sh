@@ -11,10 +11,14 @@
 # collaboration suites that the SQLite-only runs cannot judge:
 #   1. the backend smoke test (migrations, CRUD, FTS) in rg-core;
 #   2. every rg-db collab_* store/migration test;
-#   3. every rg-http collab_* HTTP test;
+#   3. every rg-http collab_* HTTP test (these reach the real backend through
+#      `collab_common::Env`, which reads IRONFORGE_TEST_DATABASE_URL too — so
+#      collab_health_tests is covered here and deliberately not repeated in 4);
 #   4. the rg-http agent write-path targets that honour IRONFORGE_TEST_DATABASE_URL
 #      (token limits, file commits, idempotency keys, event log, PR context and
-#      export). Other rg-http targets always use SQLite and are not run here.
+#      export, branch deletion, fork PR refs, pinned-head merges, repo settings,
+#      wiki). Other rg-http targets always use SQLite and are not run here;
+#      `grep -l spawn_test_app_on_env_db crates/rg-http/tests/*.rs` is the list.
 # Each test target gets a FRESH database: several HTTP tests create "the first
 # user" (an admin), so a database shared between targets makes later ones fail
 # for reasons that have nothing to do with the code (CLAUDE.md, pitfall 23).
@@ -100,7 +104,7 @@ fi
 # Every target that calls `spawn_test_app_on_env_db` (see tests/common/mod.rs).
 for t in pat_ref_allowlist_tests file_commit_semantics_tests idempotency_tests \
          repo_events_tests pr_context_tests pr_export_tests branch_delete_tests \
-         fork_pr_ref_tests; do
+         fork_pr_ref_tests merge_pinned_head_tests repo_settings_tests wiki_tests repair_pull_refs_tests; do
   run cargo test -p rg-http --test "$t"
 done
 echo "$suite $backend suites passed"
