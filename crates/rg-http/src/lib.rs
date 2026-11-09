@@ -2637,7 +2637,9 @@ fn build_info_refs(repo_path: &std::path::Path, service: &str) -> Result<String>
     let caps = if service == "git-upload-pack" {
         "multi_ack_detailed no-done side-band-64k thin-pack ofs-delta agent=ironforge/0.1"
     } else {
-        "report-status report-status-v2 side-band-64k agent=ironforge/0.1"
+        // `delete-refs` is what allows `git push --delete`; SSH advertises it
+        // through the same list in rg-git.
+        "report-status report-status-v2 delete-refs side-band-64k agent=ironforge/0.1"
     };
 
     if let Some((sha, refname)) = ref_list.first() {
@@ -3041,6 +3043,71 @@ async fn handle_git_receive_pack(
     let mut rejected_refs =
         rg_core::branch_protection::service::direct_push_rejections(&protection_rules, actor_id);
     rejected_refs.extend(tag_protection_rejected_refs(tag_protection_rules, actor_id));
+    // `git push --delete` runs the same policy as
+    // `DELETE /repos/{o}/{n}/branches/{x}`: the branch limit, the default
+    // branch, protection rules and open pull requests. The guard owns the
+    // deletion (it is the same service call) and returns the reason the client
+    // sees in report-status.
+    let on_delete = {
+        let repo_label = format!("{owner}/{repo}");
+        let db = state.db.clone();
+        let repo = repo_model.clone();
+        let repo_path = repo_path.clone();
+        let headers = headers.clone();
+        let actor = actor_id;
+        move |refname: String| -> std::pin::Pin<
+                Box<dyn std::future::Future<Output = Result<(), String>> + Send>,
+            > {
+                let db = db.clone();
+                let repo = repo.clone();
+                let repo_path = repo_path.clone();
+                let headers = headers.clone();
+                let repo_label = repo_label.clone();
+                Box::pin(async move {
+                    let branch = refname
+                        .strip_prefix("refs/heads/")
+                        .unwrap_or(&refname)
+                        .to_string();
+                    match rg_core::repo::branch::delete_branch(
+                        &db, &repo, &repo_path, &branch, None, false,
+                    )
+                    .await
+                    {
+                        Ok(report) => {
+                            if let Some(user_id) = actor {
+                                crate::api::audit::record_write(
+                                    &db,
+                                    user_id,
+                                    "repo.branch_delete",
+                                    "repo",
+                                    Some(repo.id),
+                                    &repo_label,
+                                    &headers,
+                                    serde_json::json!({
+                                        "branch": report.branch,
+                                        "sha": report.sha,
+                                        "via": "git_push",
+                                    }),
+                                )
+                                .await;
+                            }
+                            if let Err(error) = rg_core::webhook::service::trigger_branch_deleted(
+                                &db,
+                                repo.id,
+                                &report.branch,
+                            )
+                            .await
+                            {
+                                tracing::warn!(%error, "branch.deleted webhook failed");
+                            }
+                            Ok(())
+                        }
+                        Err(error) => Err(rg_core::repo::branch::delete_branch_message(&error)),
+                    }
+                })
+            }
+    };
+
     let push_result = tokio::time::timeout(
         git_stream_timeout(),
         rg_git::protocol::receive_pack::handle_receive_pack_http_with_rejections(
@@ -3050,6 +3117,7 @@ async fn handle_git_receive_pack(
             rejected_refs,
             require_signed_refs,
             writable_refs,
+            Some(&on_delete),
         ),
     )
     .await;
