@@ -1170,6 +1170,41 @@ pub struct MergeResult {
     pub strategy: String,
 }
 
+/// Why a merge that was pinned to an expected head commit did not happen.
+#[derive(Debug)]
+pub enum MergeError {
+    /// The head branch is at `current` (`None`: gone), not at the commit the
+    /// caller reviewed. Nothing was merged.
+    HeadMoved {
+        current: Option<String>,
+        expected: String,
+    },
+    Core(CoreError),
+}
+
+impl From<CoreError> for MergeError {
+    fn from(error: CoreError) -> Self {
+        Self::Core(error)
+    }
+}
+
+impl From<anyhow::Error> for MergeError {
+    fn from(error: anyhow::Error) -> Self {
+        Self::Core(CoreError::from(error))
+    }
+}
+
+impl From<MergeError> for CoreError {
+    fn from(error: MergeError) -> Self {
+        match error {
+            MergeError::Core(core) => core,
+            MergeError::HeadMoved { current, expected } => CoreError::Conflict(format!(
+                "the head branch is at {current:?}, not at the expected {expected}"
+            )),
+        }
+    }
+}
+
 /// Merge a pull request using the specified strategy.
 /// Supports cross-repository (fork) PRs by fetching the head branch first.
 ///
@@ -1183,6 +1218,27 @@ pub async fn merge_pr(
     number: i64,
     strategy: MergeStrategy,
 ) -> CoreResult<MergeResult> {
+    merge_pr_expecting_head(db, repo_root, owner, repo_name, number, strategy, None)
+        .await
+        .map_err(CoreError::from)
+}
+
+/// [`merge_pr`], optionally pinned to the head commit the caller reviewed.
+///
+/// With `expected_head`, the merge is built from exactly that commit, and it only
+/// happens if the head branch is still there: the check and the merge read the
+/// same commit id, so a push that lands after the caller's own check cannot make
+/// the server merge something the caller never saw (it fails with
+/// [`MergeError::HeadMoved`] instead).
+pub async fn merge_pr_expecting_head(
+    db: &DatabaseConnection,
+    repo_root: &std::path::Path,
+    owner: &str,
+    repo_name: &str,
+    number: i64,
+    strategy: MergeStrategy,
+    expected_head: Option<&str>,
+) -> Result<MergeResult, MergeError> {
     let mut pr = get_pr(db, owner, repo_name, number).await?;
 
     if pr.state == "merging"
@@ -1200,21 +1256,29 @@ pub async fn merge_pr(
         return Err(CoreError::Conflict(format!(
             "cannot merge a PR that is not in 'open' state (current: {})",
             pr.state
-        )));
+        ))
+        .into());
     }
     if pr.is_draft {
-        return Err(CoreError::Conflict(
-            "draft pull requests cannot be merged".into(),
-        ));
+        return Err(CoreError::Conflict("draft pull requests cannot be merged".into()).into());
     }
 
     if !pull_request_ops::claim_merge(db, pr.id).await? {
-        return Err(CoreError::Conflict(
-            "another merge attempt is already in progress".into(),
-        ));
+        return Err(
+            CoreError::Conflict("another merge attempt is already in progress".into()).into(),
+        );
     }
 
-    let result = merge_claimed_pr(db, repo_root, owner, repo_name, pr.clone(), strategy).await;
+    let result = merge_claimed_pr(
+        db,
+        repo_root,
+        owner,
+        repo_name,
+        pr.clone(),
+        strategy,
+        expected_head,
+    )
+    .await;
     if result.is_err() {
         if let Err(error) = pull_request_ops::restore_merge_claim(db, pr.id).await {
             tracing::error!(pr_id = pr.id, %error, "failed to restore PR merge state");
@@ -1263,13 +1327,15 @@ async fn merge_claimed_pr(
     repo_name: &str,
     pr: PullRequest,
     strategy: MergeStrategy,
-) -> CoreResult<MergeResult> {
+    expected_head: Option<&str>,
+) -> Result<MergeResult, MergeError> {
     let repo_path = repo_root.join(format!("{}/{}.git", owner, repo_name));
     if !repo_path.exists() {
         return Err(CoreError::internal(format!(
             "repository path does not exist: {:?}",
             repo_path
-        )));
+        ))
+        .into());
     }
 
     // For fork PRs, fetch head branch into target repo
@@ -1299,6 +1365,16 @@ async fn merge_claimed_pr(
             .map_err(|error| CoreError::internal(format!("fork fetch task failed: {error}")))?;
             match fetched_tip {
                 Ok(tip) => {
+                    // The merge below is built from this ref, i.e. from `tip`, so
+                    // checking it here is checking what gets merged.
+                    if let Some(expected) = expected_head {
+                        if tip != expected {
+                            return Err(MergeError::HeadMoved {
+                                current: Some(tip),
+                                expected: expected.to_string(),
+                            });
+                        }
+                    }
                     rg_git::ops::update_ref(&repo_path, &local_ref, &tip, "fork fetch").map_err(
                         |error| CoreError::internal(format!("failed to update fork ref: {error}")),
                     )?;
@@ -1306,7 +1382,8 @@ async fn merge_claimed_pr(
                 Err(error) => {
                     return Err(CoreError::internal(format!(
                         "failed to fetch fork branch: {error}"
-                    )));
+                    ))
+                    .into());
                 }
             }
 
@@ -1328,32 +1405,50 @@ async fn merge_claimed_pr(
                 .map_err(|e| CoreError::internal(format!("spawn_blocking task failed: {}", e)))??
             };
 
-            return update_pr_merged(db, pr, merge_commit_sha, strategy).await;
+            return Ok(update_pr_merged(db, pr, merge_commit_sha, strategy).await?);
         }
     }
 
     // Same-repo merge — offload gix merge operations to spawn_blocking
+    let expected = expected_head.map(str::to_string);
     let merge_commit_sha = {
         let repo_path = repo_path.clone();
         let pr = pr.clone();
-        tokio::task::spawn_blocking(move || -> CoreResult<String> {
+        tokio::task::spawn_blocking(move || -> Result<String, MergeError> {
+            // Pinned to a reviewed commit: the head must still be exactly there,
+            // and the merge is then built from that commit id, not from the branch
+            // name, so a push that lands a moment later is not merged either.
+            if let Some(expected) = expected {
+                let current = rg_git::ops::try_rev_parse(
+                    &repo_path,
+                    &format!("refs/heads/{}", pr.head_branch),
+                )
+                .map_err(CoreError::from)?;
+                if current.as_deref() != Some(expected.as_str()) {
+                    return Err(MergeError::HeadMoved { current, expected });
+                }
+                if matches!(strategy, MergeStrategy::Rebase) {
+                    ensure_branch_exists(&repo_path, &pr.base_branch, "base")?;
+                }
+                return Ok(merge_from_ref(&repo_path, &pr, &expected, strategy)?);
+            }
             // The head branch may have been deleted after the PR was opened;
             // that is a state conflict, not a server fault.
             ensure_branch_exists(&repo_path, &pr.head_branch, "head")?;
             if matches!(strategy, MergeStrategy::Rebase) {
                 ensure_branch_exists(&repo_path, &pr.base_branch, "base")?;
             }
-            match strategy {
+            Ok(match strategy {
                 MergeStrategy::Merge => do_merge_commit(&repo_path, &pr),
                 MergeStrategy::Squash => do_squash_merge(&repo_path, &pr),
                 MergeStrategy::Rebase => do_rebase_merge(&repo_path, &pr),
-            }
+            }?)
         })
         .await
         .map_err(|e| CoreError::internal(format!("spawn_blocking task failed: {}", e)))??
     };
 
-    update_pr_merged(db, pr, merge_commit_sha, strategy).await
+    Ok(update_pr_merged(db, pr, merge_commit_sha, strategy).await?)
 }
 
 /// Fail with a state conflict when `refs/heads/<branch>` no longer exists.

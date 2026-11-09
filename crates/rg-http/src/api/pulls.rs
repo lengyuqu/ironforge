@@ -633,13 +633,17 @@ pub async fn merge_pr(
             .into_response();
     }
 
-    match rg_core::pull_request::merge_pr(
+    // The check above is only a quick answer: a push can land after it. The merge
+    // itself is pinned to the same commit, so it merges exactly what was reviewed
+    // or does not happen.
+    match rg_core::pull_request::merge_pr_expecting_head(
         &state.db,
         &state.repo_root,
         &owner,
         &repo,
         number,
         strategy,
+        req.expected_head_sha.as_deref(),
     )
     .await
     {
@@ -661,7 +665,17 @@ pub async fn merge_pr(
             .await;
             (StatusCode::OK, Json(result)).into_response()
         }
-        Err(e) => AppError::from(e).into_response(),
+        Err(rg_core::pull_request::MergeError::HeadMoved { current, expected }) => {
+            AppError::conflict_because(
+                "REF_ADVANCED",
+                true,
+                "the pull request's head branch moved; it is no longer at the expected commit",
+                serde_json::json!({ "current_sha": current, "expected_sha": expected }),
+                "re-read the pull request, review the new commits, and retry with expected_head_sha set to current_sha",
+            )
+            .into_response()
+        }
+        Err(rg_core::pull_request::MergeError::Core(e)) => AppError::from(e).into_response(),
     }
 }
 
