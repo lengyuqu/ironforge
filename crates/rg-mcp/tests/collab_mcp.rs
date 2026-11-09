@@ -138,6 +138,20 @@ fn happy_handler() -> Handler {
 
 // ── MCP client over stdio ───────────────────────────────────────────
 
+/// How long one JSON-RPC round trip may take before the child is killed.
+///
+/// This file runs its tests in parallel (21 of them), each with its own
+/// `ironforge-mcp` child, on a two-core CI runner; 60 seconds was not enough
+/// there -- four tests timed out at exactly 60s while the other 17 passed.
+/// Override with `IRONFORGE_MCP_TEST_TIMEOUT_SECS` when bisecting.
+fn reply_timeout() -> std::time::Duration {
+    let secs = std::env::var("IRONFORGE_MCP_TEST_TIMEOUT_SECS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(180);
+    std::time::Duration::from_secs(secs)
+}
+
 struct Mcp {
     child: Child,
     reader: BufReader<std::process::ChildStdout>,
@@ -179,7 +193,7 @@ impl Mcp {
         let pid = self.child.id();
         let watchdog = std::thread::spawn(move || {
             if matches!(
-                watch.recv_timeout(std::time::Duration::from_secs(60)),
+                watch.recv_timeout(reply_timeout()),
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout)
             ) {
                 let _ = Command::new("kill").arg("-9").arg(pid.to_string()).status();
@@ -207,7 +221,11 @@ impl Mcp {
                 .collect();
             panic!(
                 "ironforge-mcp gave no answer to `{method}` (request id {id}, {}); its stderr ends with:\n{tail}",
-                if killed { "no reply within 60s, killed" } else { "stdout closed" },
+                if killed {
+                    "no reply within the timeout, killed".to_string()
+                } else {
+                    "stdout closed".to_string()
+                },
             );
         }
         let resp: Value =
