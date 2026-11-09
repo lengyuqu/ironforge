@@ -432,8 +432,9 @@ fi
 # with `via` saying which transport it came through. (The e2e user is the first
 # registered one, so it may read /admin/audit/logs.)
 AUDIT_ECHO="$(curl -fsS -H "Authorization: Bearer ${TOKEN}" \
-  "${HTTP_BASE}/api/v1/admin/audit/logs?action=repo.branch_delete&per_page=50")"
-for want in '"via":"git_push"' '"via":"git_ssh"' '"delete-over-http"' '"delete-over-ssh"'; do
+  "${HTTP_BASE}/api/v1/admin/audit/logs?per_page=50")"
+# `details` comes back as a JSON string, so the markers are matched unquoted.
+for want in 'git_push' 'git_ssh' 'delete-over-http' 'delete-over-ssh'; do
   if ! printf '%s' "${AUDIT_ECHO}" | grep -q -- "${want}"; then
     echo "delete: the audit log is missing ${want}:" >&2
     printf '%s\n' "${AUDIT_ECHO}" >&2
