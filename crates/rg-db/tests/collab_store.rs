@@ -545,17 +545,24 @@ async fn concurrent_appends_are_visible_in_sequence_order_without_gaps() {
     let poller = tokio::spawn(async move {
         let mut cursor = 0i64;
         let mut seen = Vec::new();
-        let mut idle = 0;
+        // Patience is a wall-clock budget, not a loop count: six writers
+        // contending for the same SQLite write lock can take a while between
+        // commits, and counting empty polls turned that into a flake on a busy
+        // runner ("poller starved at cursor 76") while saying nothing useful.
+        let mut idle_since = std::time::Instant::now();
         while cursor < total {
             let page = collab_message_ops::list_after(&*poll_db, &poll_task, cursor, 7)
                 .await
                 .unwrap();
             if page.is_empty() {
-                idle += 1;
-                assert!(idle < 20_000, "poller starved at cursor {cursor}");
-                tokio::task::yield_now().await;
+                assert!(
+                    idle_since.elapsed() < std::time::Duration::from_secs(60),
+                    "no message became visible for 60s at cursor {cursor}"
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
                 continue;
             }
+            idle_since = std::time::Instant::now();
             for (i, m) in page.iter().enumerate() {
                 // Contiguity is the commit-order property: a gap here would mean a
                 // lower seq committed after a higher one became visible.

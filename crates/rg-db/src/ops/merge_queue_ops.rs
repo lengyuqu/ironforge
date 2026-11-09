@@ -159,6 +159,34 @@ pub async fn claim(db: &DatabaseConnection, entry_id: i64) -> Result<bool> {
     Ok(result.rows_affected == 1)
 }
 
+/// Put a claimed entry back in the queue without recording a failure.
+///
+/// Used when the work the entry was built on is no longer current -- the head
+/// branch moved after the entry was evaluated. Nothing failed; the next push
+/// re-evaluates it.
+pub async fn release(db: &DatabaseConnection, entry_id: i64) -> Result<bool> {
+    let now = Utc::now();
+    let result = QueueEntity::update_many()
+        .col_expr(
+            merge_queue_entry::Column::Status,
+            sea_orm::sea_query::Expr::value("queued"),
+        )
+        .col_expr(
+            merge_queue_entry::Column::StartedAt,
+            sea_orm::sea_query::Expr::value(Option::<chrono::DateTime<chrono::Utc>>::None),
+        )
+        .col_expr(
+            merge_queue_entry::Column::UpdatedAt,
+            sea_orm::sea_query::Expr::value(now),
+        )
+        .filter(merge_queue_entry::Column::Id.eq(entry_id))
+        .filter(merge_queue_entry::Column::Status.eq("running"))
+        .exec(db)
+        .await
+        .context("db: release merge-queue entry")?;
+    Ok(result.rows_affected == 1)
+}
+
 pub async fn finish<C: ConnectionTrait>(
     db: &C,
     entry_id: i64,

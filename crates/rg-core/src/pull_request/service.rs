@@ -1077,7 +1077,27 @@ pub async fn try_auto_merge(
     repo_name: &str,
     number: i64,
 ) -> CoreResult<AutoMergeOutcome> {
+    try_auto_merge_pinned(db, repo_root, owner, repo_name, number, None).await
+}
+
+/// [`try_auto_merge`], pinned to the head commit the caller evaluated.
+///
+/// Without `expected_head` the head recorded on the pull request at the moment
+/// the protection rules were checked is used, so the merge is built from the
+/// commit those rules were satisfied by -- not from whatever the branch points
+/// at when the merge finally runs.
+async fn try_auto_merge_pinned(
+    db: &DatabaseConnection,
+    repo_root: &std::path::Path,
+    owner: &str,
+    repo_name: &str,
+    number: i64,
+    expected_head: Option<&str>,
+) -> CoreResult<AutoMergeOutcome> {
     let pr = get_pr(db, owner, repo_name, number).await?;
+    let evaluated_head = expected_head
+        .map(str::to_string)
+        .or_else(|| pr.head_sha.clone());
     if !pr.auto_merge_enabled {
         return Ok(AutoMergeOutcome {
             status: "disabled".into(),
@@ -1126,9 +1146,41 @@ pub async fn try_auto_merge(
             merge: None,
         });
     }
-    let merge = match merge_pr(db, repo_root, owner, repo_name, number, strategy).await {
+    let merge = match merge_pr_expecting_head(
+        db,
+        repo_root,
+        owner,
+        repo_name,
+        number,
+        strategy,
+        evaluated_head.as_deref(),
+    )
+    .await
+    {
         Ok(merge) => merge,
-        Err(error) => {
+        // The branch moved after the rules were checked: not a failure, just
+        // not this commit. Auto-merge stays enabled and the next push
+        // re-evaluates it.
+        Err(MergeError::HeadMoved { current, expected }) => {
+            if let Err(restore_error) = pull_request_ops::restore_auto_merge(db, pr.id).await {
+                tracing::error!(pr_id = pr.id, %restore_error, "failed to restore auto-merge after a moved head");
+            }
+            tracing::info!(
+                pr_id = pr.id,
+                ?current,
+                %expected,
+                "auto-merge skipped: the head branch moved after it was evaluated"
+            );
+            return Ok(AutoMergeOutcome {
+                status: "pending".into(),
+                reason: Some(
+                    "the head branch moved after the merge was evaluated; it will be re-evaluated on the next push"
+                        .into(),
+                ),
+                merge: None,
+            });
+        }
+        Err(MergeError::Core(error)) => {
             if let Err(restore_error) = pull_request_ops::restore_auto_merge(db, pr.id).await {
                 tracing::error!(pr_id = pr.id, %restore_error, "failed to restore auto-merge after merge error");
             }
@@ -1160,7 +1212,16 @@ pub async fn try_auto_merges_for_head_commit(
             .context("failed to find auto-merge target repository")?
             .context("auto-merge target repository not found")?;
         let namespace = repository_namespace(db, &repository).await?;
-        match try_auto_merge(db, repo_root, &namespace, &repository.name, pr.number).await {
+        match try_auto_merge_pinned(
+            db,
+            repo_root,
+            &namespace,
+            &repository.name,
+            pr.number,
+            Some(commit_sha),
+        )
+        .await
+        {
             Ok(outcome) => outcomes.push(outcome),
             Err(error) => tracing::warn!(pr_id = pr.id, %error, "automatic merge attempt failed"),
         }

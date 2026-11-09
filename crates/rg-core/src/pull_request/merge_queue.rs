@@ -321,13 +321,20 @@ async fn process_repository_inner(
         }
 
         let strategy = MergeStrategy::parse(&entry.strategy)?;
-        match service::merge_pr(
+        // The commit this entry was evaluated against: the merge group's head
+        // when CI built one, otherwise the head recorded on the pull request.
+        let evaluated_head = entry
+            .merge_group_head_sha
+            .clone()
+            .or_else(|| pr.head_sha.clone());
+        match service::merge_pr_expecting_head(
             db,
             repo_root,
             &namespace,
             &repository.name,
             pr.number,
             strategy,
+            evaluated_head.as_deref(),
         )
         .await
         {
@@ -335,7 +342,22 @@ async fn process_repository_inner(
                 finish_entry(db, repo_root, &entry, "merged", None).await?;
                 result.merged.push(pr.id);
             }
-            Err(error) => {
+            // The head moved after the entry was evaluated: not a failure. Put
+            // the entry back in the queue and let the next push re-evaluate it.
+            Err(service::MergeError::HeadMoved { current, expected }) => {
+                tracing::info!(
+                    pr_id = pr.id,
+                    ?current,
+                    %expected,
+                    "merge queue skipped a moved head; the entry goes back to the queue"
+                );
+                merge_queue_ops::release(db, entry.id).await?;
+                merge_queue_ops::clear_merge_group(db, entry.id).await?;
+                result.waiting_reason =
+                    Some("the head branch moved after the entry was evaluated".into());
+                break;
+            }
+            Err(service::MergeError::Core(error)) => {
                 // The reason is persisted and shown on the PR timeline, so it
                 // must never carry internal detail (paths, driver text).
                 let reason = match &error {
