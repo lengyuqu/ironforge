@@ -26,6 +26,7 @@ pub mod collab_delivery_receipt;
 pub mod collab_dependency_graph;
 pub mod collab_escalation_setting;
 pub mod collab_handoff;
+pub mod collab_health_baseline;
 pub mod collab_inbox_read;
 pub mod collab_message;
 pub mod collab_metric_event;

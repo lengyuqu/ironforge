@@ -806,6 +806,70 @@ async fn m08_data_from_before_the_feature_is_unknown_until_a_baseline_and_never_
 }
 
 #[tokio::test]
+async fn m08_a_baseline_with_nothing_to_observe_is_still_a_baseline() {
+    // An empty repository: the call has no object to record an observation on.
+    // It must still count as taken - the page used to say "not established"
+    // right after a successful call.
+    let env = Env::new().await;
+    let before = health_ok(&env, "").await;
+    assert_eq!(before["baseline"]["taken_at"], Value::Null);
+    assert_eq!(before["coverage_start"], Value::Null);
+
+    let (status, report) = env
+        .json(
+            Method::POST,
+            &env.url("/health/baseline"),
+            &env.owner_token,
+            None,
+            None,
+        )
+        .await;
+    assert_eq!(status, 200, "{report}");
+    assert_eq!(
+        report["added"],
+        json!({"tasks": 0, "handoffs": 0, "questions": 0})
+    );
+    assert_eq!(report["existed_before"], false);
+
+    let after = health_ok(&env, "").await;
+    assert!(
+        after["baseline"]["taken_at"].is_string(),
+        "the baseline was taken, the report must say so: {after}"
+    );
+    // Coverage still starts with the first recorded event: the baseline only says
+    // the observation began, it does not invent a start for metrics.
+    assert_eq!(after["coverage_start"], Value::Null, "{after}");
+
+    // Repeating adds neither observations nor a second baseline row.
+    let (_, again) = env
+        .json(
+            Method::POST,
+            &env.url("/health/baseline"),
+            &env.owner_token,
+            None,
+            None,
+        )
+        .await;
+    assert_eq!(again["existed_before"], true);
+    // (A repository has one row, however often the baseline is taken. Count this
+    // repository's: PostgreSQL / MySQL runs share one database between tests.)
+    use rg_db::sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
+    assert_eq!(
+        rg_db::entities::collab_health_baseline::Entity::find()
+            .filter(rg_db::entities::collab_health_baseline::Column::RepoId.eq(env.repo_id))
+            .count(&env.db)
+            .await
+            .unwrap(),
+        1,
+        "one baseline row, however often it is taken"
+    );
+    assert_eq!(
+        health_ok(&env, "").await["baseline"]["taken_at"],
+        after["baseline"]["taken_at"]
+    );
+}
+
+#[tokio::test]
 async fn m08_pending_handoffs_and_open_questions_from_before_the_feature_are_partial_until_baselined(
 ) {
     let env = Env::new().await;
