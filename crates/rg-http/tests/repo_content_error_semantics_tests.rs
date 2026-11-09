@@ -584,7 +584,11 @@ async fn wiki_classifies_errors() {
 
     // Not found.
     let (st, body) = app
-        .patch(&format!("{w}/Missing"), &owner, json!({"content": "x"}))
+        .patch(
+            &format!("{w}/Missing"),
+            &owner,
+            json!({"content": "x", "expected_version": "0:0"}),
+        )
         .await;
     assert_eq!(st, 404, "{body}");
     let (st, body) = app.delete(&format!("{w}/Missing"), &owner).await;
@@ -631,7 +635,11 @@ async fn wiki_database_failure_is_sanitised_500() {
         .await;
     assert_sanitised_500(&app, st, &body);
     let (st, body) = app
-        .patch(&format!("{w}/Home"), &owner, json!({"content": "x"}))
+        .patch(
+            &format!("{w}/Home"),
+            &owner,
+            json!({"content": "x", "expected_version": "0:0"}),
+        )
         .await;
     assert_sanitised_500(&app, st, &body);
     let (st, body) = app.delete(&format!("{w}/Home"), &owner).await;
