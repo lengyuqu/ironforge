@@ -242,6 +242,19 @@ const GIT_TRANSPORT_LOCKDOWN: [&str; 6] = [
 ];
 
 fn run_git_clone_mirror(url: &str, path: &Path) -> Result<()> {
+    clone_mirror_with(url, path, &GIT_TRANSPORT_LOCKDOWN)
+}
+
+fn run_git_remote_update(path: &Path) -> Result<()> {
+    fetch_with(path, &GIT_TRANSPORT_LOCKDOWN)
+}
+
+/// `git clone --mirror`, then narrow the mirror to branches and tags.
+///
+/// The lockdown is a parameter so the tests can drive the same code with the
+/// local `file` transport allowed (production always passes
+/// [`GIT_TRANSPORT_LOCKDOWN`]; the guard itself is tested in `net_guard`).
+fn clone_mirror_with(url: &str, path: &Path, lockdown: &[&str]) -> Result<()> {
     let parent = path
         .parent()
         .ok_or_else(|| anyhow::anyhow!("invalid path: no parent directory"))?;
@@ -251,17 +264,182 @@ fn run_git_clone_mirror(url: &str, path: &Path) -> Result<()> {
         .as_ref()
         .map_err(|e| anyhow::anyhow!("{}", e))?;
     let path_str = path.to_string_lossy();
-    let mut args: Vec<&str> = GIT_TRANSPORT_LOCKDOWN.to_vec();
+    let mut args: Vec<&str> = lockdown.to_vec();
     args.extend(["clone", "--mirror", url, &path_str]);
-    git.run_or_bail(&args, None).context("git clone --mirror")
+    git.run_or_bail(&args, None).context("git clone --mirror")?;
+    adopt_heads_and_tags(path, lockdown)
 }
 
-fn run_git_remote_update(path: &Path) -> Result<()> {
+/// What a mirror carries: branches and tags, nothing else.
+///
+/// `refs/pull/*` is deliberately outside: that namespace belongs to this
+/// instance (`publish_head_ref` writes `refs/pull/<n>/head` here), so a sync
+/// must neither prune it nor import the upstream's.
+const MIRROR_REFSPECS: [&str; 2] = ["+refs/heads/*:refs/heads/*", "+refs/tags/*:refs/tags/*"];
+
+/// Narrow a fresh `clone --mirror` to [`MIRROR_REFSPECS`].
+///
+/// Two things have to go: the wildcard fetch refspec `+refs/*:refs/*` that
+/// `--mirror` writes (it is what made `remote update --prune` delete anything
+/// the upstream did not have, `refs/pull/*` included), and whatever the clone
+/// did import outside those namespaces -- notably the upstream's own
+/// `refs/pull/*`, which would collide by number with the pull requests of this
+/// instance.
+fn adopt_heads_and_tags(path: &Path, lockdown: &[&str]) -> Result<()> {
     let git = global_gateway()
         .as_ref()
         .map_err(|e| anyhow::anyhow!("{}", e))?;
-    let mut args: Vec<&str> = GIT_TRANSPORT_LOCKDOWN.to_vec();
-    args.extend(["remote", "update", "--prune"]);
+
+    let mut replace = lockdown.to_vec();
+    replace.extend([
+        "config",
+        "--replace-all",
+        "remote.origin.fetch",
+        MIRROR_REFSPECS[0],
+    ]);
+    git.run_or_bail(&replace, Some(path))
+        .context("narrow remote.origin.fetch")?;
+
+    let mut add = lockdown.to_vec();
+    add.extend(["config", "--add", "remote.origin.fetch", MIRROR_REFSPECS[1]]);
+    git.run_or_bail(&add, Some(path))
+        .context("narrow remote.origin.fetch")?;
+
+    let mut list = lockdown.to_vec();
+    list.extend(["for-each-ref", "--format=%(refname)", "refs/pull/"]);
+    let imported = git.run(&list, Some(path)).context("list refs/pull")?;
+    imported.ensure_success().context("list refs/pull")?;
+    for refname in imported
+        .stdout_str()
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
+        let mut delete = lockdown.to_vec();
+        delete.extend(["update-ref", "-d", refname]);
+        git.run_or_bail(&delete, Some(path))
+            .with_context(|| format!("drop imported {refname}"))?;
+    }
+    Ok(())
+}
+
+/// The `git fetch` a sync runs: branches and tags, pruned, and nothing else.
+fn fetch_with(path: &Path, lockdown: &[&str]) -> Result<()> {
+    let git = global_gateway()
+        .as_ref()
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let mut args: Vec<&str> = lockdown.to_vec();
+    args.extend(["fetch", "--prune", "origin"]);
+    args.extend(MIRROR_REFSPECS);
     git.run_or_bail(&args, Some(path))
-        .context("git remote update")
+        .context("git fetch --prune origin (branches and tags)")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Run git in `cwd` with no transport lockdown, so the test can use a
+    /// local upstream. Returns stdout.
+    fn git(args: &[&str], cwd: &Path) -> String {
+        let gateway = global_gateway().as_ref().expect("git gateway");
+        let out = gateway.run(args, Some(cwd)).expect("git runs");
+        out.ensure_success().expect("git succeeds");
+        out.stdout_str().trim().to_string()
+    }
+
+    fn init_upstream(path: &Path) {
+        std::fs::create_dir_all(path).expect("mkdir");
+        let gateway = global_gateway().as_ref().expect("git gateway");
+        let path_str = path.to_string_lossy().to_string();
+        gateway
+            .run(&["init", "--bare", &path_str], None)
+            .expect("git init")
+            .ensure_success()
+            .expect("bare init");
+
+        let work = path.with_extension("work");
+        std::fs::create_dir_all(&work).expect("mkdir work");
+        let work_str = work.to_string_lossy().to_string();
+        gateway
+            .run(&["init", &work_str], None)
+            .expect("git init work")
+            .ensure_success()
+            .expect("work init");
+        git(&["config", "user.email", "test@example.com"], &work);
+        git(&["config", "user.name", "test"], &work);
+        std::fs::write(work.join("file.txt"), "one\n").expect("write");
+        git(&["add", "file.txt"], &work);
+        git(&["commit", "-m", "one"], &work);
+        git(&["branch", "-M", "main"], &work);
+        git(&["tag", "v1"], &work);
+        git(
+            &["push", &path_str, "main", "v1", "main:refs/heads/feat"],
+            &work,
+        );
+        std::fs::remove_dir_all(&work).ok();
+    }
+
+    fn refs(repo: &Path) -> Vec<String> {
+        let out = git(&["for-each-ref", "--format=%(refname)"], repo);
+        out.lines().map(str::to_string).collect()
+    }
+
+    #[test]
+    fn a_sync_keeps_the_pull_refs_this_instance_wrote() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let upstream = tmp.path().join("upstream.git");
+        init_upstream(&upstream);
+        let mirror = tmp.path().join("mirror.git");
+        clone_mirror_with(&upstream.to_string_lossy(), &mirror, &[]).expect("clone");
+
+        // This instance writes refs/pull/<n>/head here (publish_head_ref).
+        let head = git(&["rev-parse", "refs/heads/main"], &mirror);
+        git(&["update-ref", "refs/pull/1/head", &head], &mirror);
+
+        // Upstream moves on: a branch is renamed, another deleted, a tag added
+        // and one removed. Done on the bare upstream directly -- a working copy
+        // would depend on `init.defaultBranch`, which is not `main` everywhere.
+        let tip = git(&["rev-parse", "refs/heads/feat"], &upstream);
+        git(&["update-ref", "refs/heads/feat2", &tip], &upstream);
+        git(&["update-ref", "-d", "refs/heads/feat"], &upstream);
+        git(&["tag", "v2", &tip], &upstream);
+        git(&["tag", "-d", "v1"], &upstream);
+
+        fetch_with(&mirror, &[]).expect("sync");
+
+        let after = refs(&mirror);
+        assert_eq!(
+            after,
+            vec![
+                "refs/heads/feat2".to_string(),
+                "refs/heads/main".to_string(),
+                "refs/pull/1/head".to_string(),
+                "refs/tags/v2".to_string(),
+            ]
+        );
+        assert_eq!(git(&["rev-parse", "refs/pull/1/head"], &mirror), head);
+    }
+
+    #[test]
+    fn a_clone_does_not_import_the_upstreams_pull_refs() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let upstream = tmp.path().join("upstream.git");
+        init_upstream(&upstream);
+        // The upstream service publishes pull-request refs of its own.
+        let head = git(&["rev-parse", "refs/heads/main"], &upstream);
+        git(&["update-ref", "refs/pull/9/head", &head], &upstream);
+
+        let mirror = tmp.path().join("mirror.git");
+        clone_mirror_with(&upstream.to_string_lossy(), &mirror, &[]).expect("clone");
+
+        assert!(
+            !refs(&mirror).iter().any(|r| r.starts_with("refs/pull/")),
+            "the clone must not adopt the upstream's pull refs: {:?}",
+            refs(&mirror)
+        );
+        // ... and they must not come back on the next sync either.
+        fetch_with(&mirror, &[]).expect("sync");
+        assert!(!refs(&mirror).iter().any(|r| r.starts_with("refs/pull/")));
+    }
 }
