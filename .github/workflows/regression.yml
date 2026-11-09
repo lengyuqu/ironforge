@@ -8,6 +8,20 @@ name: Regression
 #     unreachable advisory database is a warning there).
 #   * GitHub is the release-time check only: the repository is pushed there when
 #     releasing, so `pull_request` never fires on GitHub in practice.
+#
+# How much runs:
+#   * Pull requests run a scoped set. The `changes` job (scripts/ci-changes.py)
+#     classifies the files changed against the merge base: docs only -> nothing;
+#     web/ only -> the frontend job; changes confined to rg-ci / rg-ssh /
+#     rg-runner / rg-cli / rg-ci-isolation / rg-http / rg-mcp -> clippy and the
+#     tests of those crates and of the crates that depend on them (read from
+#     the Cargo manifests).
+#   * Everything runs on `push` to main, `workflow_dispatch` and the nightly
+#     schedule, and on a pull request that touches rg-core / rg-db / rg-git,
+#     Cargo.toml / Cargo.lock, .github/, scripts/, deploy/ or any file the
+#     script does not recognise. If the script cannot work out the scope it
+#     says so (`::warning::`) and runs everything. Jobs the scope leaves out
+#     are skipped, not green-by-default steps.
 on:
   pull_request:
     branches:
@@ -16,6 +30,9 @@ on:
     branches:
       - main
   workflow_dispatch:
+  schedule:
+    # Nightly full run (Gitea Actions; the `changes` job skips it on GitHub).
+    - cron: "17 3 * * *"
 
 # Runners are pinned to a concrete image instead of `ubuntu-latest`: GitHub is
 # moving that label to Ubuntu 26, and a toolchain/OS change should arrive as a
@@ -26,12 +43,63 @@ env:
   CARGO_INCREMENTAL: "0"
 
 jobs:
+  # Works out what the other jobs need to run (see the header comment). It is
+  # cheap: a checkout and a stdlib-only Python script, no toolchain.
+  changes:
+    name: Decide the test scope
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # A scheduled run on GitHub would spend the scarce free minutes for nothing:
+    # the nightly run belongs to git233. Skipping this job skips the rest.
+    if: github.event_name != 'schedule' || github.server_url != 'https://github.com'
+    outputs:
+      full: ${{ steps.scope.outputs.full }}
+      rust: ${{ steps.scope.outputs.rust }}
+      frontend: ${{ steps.scope.outputs.frontend }}
+      db_smoke: ${{ steps.scope.outputs.db_smoke }}
+      git_protocol: ${{ steps.scope.outputs.git_protocol }}
+      packages: ${{ steps.scope.outputs.packages }}
+    steps:
+      - name: Checkout (full history, to find the merge base)
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Classify the change
+        id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          base=""
+          if [ "$EVENT_NAME" = "pull_request" ] && [ -n "$BASE_REF" ]; then
+            git fetch --no-tags origin "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}" \
+              || echo "::warning::could not fetch ${BASE_REF}; the scope falls back to everything"
+            base="origin/${BASE_REF}"
+          fi
+          command -v python3 >/dev/null 2>&1 \
+            || { sudo apt-get update && sudo apt-get install -y python3; } || true
+          # Fail closed: if the script cannot run at all, run everything.
+          if ! python3 scripts/ci-changes.py --event "$EVENT_NAME" --base "$base"; then
+            echo "::warning::scripts/ci-changes.py failed; running everything"
+            {
+              echo "full=true"
+              echo "rust=true"
+              echo "frontend=true"
+              echo "db_smoke=true"
+              echo "git_protocol=true"
+              echo "packages="
+            } >> "$GITHUB_OUTPUT"
+          fi
+
   # Gates are split into separate jobs on purpose. When several gates live in
   # one job, a failure in an early step makes GitHub skip the remaining steps —
   # a red clippy used to hide every Rust test result, and a red i18n check hid
   # `svelte-check` and the frontend build.
   clippy:
     name: Clippy (deny warnings)
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -56,11 +124,15 @@ jobs:
       - name: Formatting (rustfmt)
         run: cargo fmt --all --check
 
+      # Always the whole workspace, even for a scoped run: it takes minutes, and
+      # a lint in an untouched crate that a changed one now trips is still red.
       - name: Clippy (deny warnings)
         run: cargo clippy --workspace --all-targets -- -D warnings
 
   rust-tests:
     name: Rust tests and migration smoke
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -85,8 +157,19 @@ jobs:
       # rg-http is part of the workspace, so it runs here once. A separate
       # `cargo test -p rg-http` step used to run it a second time and, with the
       # growth of the integration suites, pushed the job past its time limit.
+      # A full run tests the workspace; a scoped pull request tests the changed
+      # crates and the ones that depend on them (`packages` is `-p a -p b`).
       - name: Run workspace tests
-        run: cargo test --workspace -- --nocapture
+        env:
+          FULL: ${{ needs.changes.outputs.full }}
+          PACKAGES: ${{ needs.changes.outputs.packages }}
+        run: |
+          if [ "$FULL" = "true" ] || [ -z "$PACKAGES" ]; then
+            cargo test --workspace -- --nocapture
+          else
+            echo "scoped run: ${PACKAGES}"
+            cargo test ${PACKAGES} -- --nocapture
+          fi
 
       - name: Fresh DB migration smoke
         run: |
@@ -95,6 +178,9 @@ jobs:
 
   security-audit:
     name: Security audit
+    needs: changes
+    # Only a changed Cargo.lock changes the answer, and that is a full run.
+    if: needs.changes.outputs.full == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -129,6 +215,8 @@ jobs:
 
   git-protocol:
     name: Real Git client protocol matrix
+    needs: changes
+    if: needs.changes.outputs.git_protocol == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -156,6 +244,8 @@ jobs:
 
   postgres-smoke:
     name: PostgreSQL migration, CRUD and FTS smoke
+    needs: changes
+    if: needs.changes.outputs.db_smoke == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     services:
@@ -199,6 +289,8 @@ jobs:
 
   mysql-smoke:
     name: MySQL migration, CRUD and FTS smoke
+    needs: changes
+    if: needs.changes.outputs.db_smoke == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     services:
@@ -252,6 +344,8 @@ jobs:
 
   frontend:
     name: Frontend check and build
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     defaults:
@@ -293,6 +387,9 @@ jobs:
 
   deploy-config:
     name: Docker compose config
+    needs: changes
+    # deploy/ is on the full-run list, so this runs exactly when it could change.
+    if: needs.changes.outputs.full == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
