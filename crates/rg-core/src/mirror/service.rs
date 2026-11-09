@@ -398,27 +398,13 @@ mod tests {
         git(&["update-ref", "refs/pull/1/head", &head], &mirror);
 
         // Upstream moves on: a branch is renamed, another deleted, a tag added
-        // and one removed.
-        let work = tmp.path().join("work2");
-        std::fs::create_dir_all(&work).expect("mkdir");
-        git(&["init", &work.to_string_lossy()], &work);
-        git(&["config", "user.email", "test@example.com"], &work);
-        git(&["config", "user.name", "test"], &work);
-        git(&["pull", &upstream.to_string_lossy(), "main"], &work);
-        git(
-            &["push", &upstream.to_string_lossy(), "main:refs/heads/feat2"],
-            &work,
-        );
-        git(
-            &["push", &upstream.to_string_lossy(), ":refs/heads/feat"],
-            &work,
-        );
-        git(&["tag", "v2"], &work);
-        git(&["push", &upstream.to_string_lossy(), "v2"], &work);
-        git(
-            &["push", &upstream.to_string_lossy(), ":refs/tags/v1"],
-            &work,
-        );
+        // and one removed. Done on the bare upstream directly -- a working copy
+        // would depend on `init.defaultBranch`, which is not `main` everywhere.
+        let tip = git(&["rev-parse", "refs/heads/feat"], &upstream);
+        git(&["update-ref", "refs/heads/feat2", &tip], &upstream);
+        git(&["update-ref", "-d", "refs/heads/feat"], &upstream);
+        git(&["tag", "v2", &tip], &upstream);
+        git(&["tag", "-d", "v1"], &upstream);
 
         fetch_with(&mirror, &[]).expect("sync");
 
