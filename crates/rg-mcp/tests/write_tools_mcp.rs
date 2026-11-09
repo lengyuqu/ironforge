@@ -36,9 +36,15 @@ impl Stub {
         let url = format!("http://{}", listener.local_addr().unwrap());
         let requests = Arc::new(Mutex::new(Vec::new()));
         let log = requests.clone();
+        // One thread per connection: a connection that never sends a request
+        // (a client that connected and went quiet) must not stop the stub from
+        // answering everyone else.
+        let handler = Arc::new(handler);
         std::thread::spawn(move || {
             for stream in listener.incoming().flatten() {
-                serve(stream, &handler, &log);
+                let handler = handler.clone();
+                let log = log.clone();
+                std::thread::spawn(move || serve(stream, &handler, &log));
             }
         });
         Stub { url, requests }
@@ -54,6 +60,9 @@ impl Stub {
 }
 
 fn serve(stream: TcpStream, handler: &Handler, log: &Arc<Mutex<Vec<Req>>>) {
+    // A peer that stops talking is dropped after a while instead of holding the
+    // connection (and, before, the whole stub) forever.
+    let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(20)));
     let mut reader = BufReader::new(stream.try_clone().unwrap());
     let mut line = String::new();
     if reader.read_line(&mut line).unwrap_or(0) == 0 {
@@ -67,7 +76,9 @@ fn serve(stream: TcpStream, handler: &Handler, log: &Arc<Mutex<Vec<Req>>>) {
     let mut headers = HashMap::new();
     loop {
         let mut h = String::new();
-        reader.read_line(&mut h).unwrap();
+        if reader.read_line(&mut h).unwrap_or(0) == 0 {
+            return;
+        }
         let h = h.trim_end();
         if h.is_empty() {
             break;
@@ -81,7 +92,9 @@ fn serve(stream: TcpStream, handler: &Handler, log: &Arc<Mutex<Vec<Req>>>) {
         .and_then(|v| v.parse().ok())
         .unwrap_or(0);
     let mut raw = vec![0u8; len];
-    reader.read_exact(&mut raw).unwrap();
+    if reader.read_exact(&mut raw).is_err() {
+        return;
+    }
     let req = Req {
         method,
         path,
@@ -185,8 +198,43 @@ impl Mcp {
         let stdin = self.child.stdin.as_mut().unwrap();
         writeln!(stdin, "{line}").unwrap();
         stdin.flush().unwrap();
+        // If the server never answers, fail with what it said instead of
+        // hanging until the CI job's own deadline.
+        let (done, watch) = std::sync::mpsc::channel::<()>();
+        let pid = self.child.id();
+        let watchdog = std::thread::spawn(move || {
+            if matches!(
+                watch.recv_timeout(std::time::Duration::from_secs(60)),
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+            ) {
+                let _ = Command::new("kill").arg("-9").arg(pid.to_string()).status();
+                true
+            } else {
+                false
+            }
+        });
         let mut out = String::new();
-        self.reader.read_line(&mut out).unwrap();
+        let read = self.reader.read_line(&mut out);
+        drop(done);
+        let killed = watchdog.join().unwrap_or(false);
+        if killed || read.map(|n| n == 0).unwrap_or(true) {
+            let mut stderr = String::new();
+            if let Some(mut err) = self.child.stderr.take() {
+                let _ = err.read_to_string(&mut stderr);
+            }
+            let tail: String = stderr
+                .chars()
+                .rev()
+                .take(4000)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect();
+            panic!(
+                "ironforge-mcp gave no answer to `{method}` (request id {id}, {}); its stderr ends with:\n{tail}",
+                if killed { "no reply within 60s, killed" } else { "stdout closed" },
+            );
+        }
         serde_json::from_str(&out).unwrap_or_else(|_| panic!("bad response {out:?}"))
     }
 

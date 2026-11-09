@@ -107,14 +107,22 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y pkg-config libssl-dev libsqlite3-dev git
+        run: scripts/ci-apt-install.sh pkg-config libssl-dev libsqlite3-dev git
 
+      # The action downloads from static.rust-lang.org, which the git233 runners
+      # reach only intermittently. When it fails, install again with retries; the
+      # `!= 'success'` condition also fires if a runner does not report the
+      # outcome, and the script is harmless when the toolchain is already there.
       - name: Install Rust
+        id: rust
+        continue-on-error: true
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
+
+      - name: Install Rust (retry)
+        if: steps.rust.outcome != 'success'
+        run: scripts/ci-install-rust.sh clippy,rustfmt
 
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
@@ -140,12 +148,16 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y pkg-config libssl-dev libsqlite3-dev git
+        run: scripts/ci-apt-install.sh pkg-config libssl-dev libsqlite3-dev git
 
       - name: Install Rust
+        id: rust
+        continue-on-error: true
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Rust (retry)
+        if: steps.rust.outcome != 'success'
+        run: scripts/ci-install-rust.sh
 
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
@@ -188,7 +200,13 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Install Rust
+        id: rust
+        continue-on-error: true
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Rust (retry)
+        if: steps.rust.outcome != 'success'
+        run: scripts/ci-install-rust.sh
 
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
@@ -224,12 +242,16 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y pkg-config libssl-dev libsqlite3-dev git openssh-client curl python3
+        run: scripts/ci-apt-install.sh pkg-config libssl-dev libsqlite3-dev git openssh-client curl python3
 
       - name: Install Rust
+        id: rust
+        continue-on-error: true
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Rust (retry)
+        if: steps.rust.outcome != 'success'
+        run: scripts/ci-install-rust.sh
 
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
@@ -269,7 +291,13 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Install Rust
+        id: rust
+        continue-on-error: true
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Rust (retry)
+        if: steps.rust.outcome != 'success'
+        run: scripts/ci-install-rust.sh
 
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
@@ -313,7 +341,13 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Install Rust
+        id: rust
+        continue-on-error: true
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Rust (retry)
+        if: steps.rust.outcome != 'success'
+        run: scripts/ci-install-rust.sh
 
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
@@ -332,9 +366,7 @@ jobs:
           echo "database host: ${host}"
 
       - name: Install the MySQL client
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y mysql-client-core-8.0
+        run: scripts/ci-apt-install.sh mysql-client-core-8.0
 
       - name: Allow trigger creation with binary logging
         run: mysql -h "${MYSQL_HOST}" -P 3306 -uroot -proot -e "SET GLOBAL log_bin_trust_function_creators = 1"
