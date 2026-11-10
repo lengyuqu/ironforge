@@ -38,6 +38,17 @@
 
 ## 批次索引
 
+### batch#3(issue #26) · 2026-11-11 · rg-core repo/webhook 服务层
+
+- 开批：`2026-11-10T19:52:01Z`（issue 创建即触发，正文结尾 `@CodeBuddy`，标题已绑定 `[opt-round] batch#3(issue #26)`）
+- 基线提交：`df6a3c0`（cnb/main HEAD，2026-11-11；本机 main 检出同点、工作区干净，**无需 worktree**，直接本地记账）
+- 范围：`crates/rg-core/src/{repo,webhook}` 4 个 .rs 共 4015 行（`repo/service.rs` 2803 / `webhook/service.rs` 561 / `repo/templates.rs` 476 / `repo/branch.rs` 175；两个 `mod.rs` 仅声明；`repo/templates/` 数据文件 `include_str!` 内嵌、不在范围）。行数以 `git show df6a3c0:<path> | wc -l` 统计
+- 引导问题 4 条：P1 `redeliver` 经 `trigger_event` 打给**所有**匹配 hook 而非原 webhook（`webhook/service.rs:380-397`，`:392` 调用点）；P2 `deliver_retry_job` 不检查 `hook.active`（`:308`，`:319-325`）；P2 webhook `secret` 明文入库、与 CI secret 加密口径不一致（`:65`/`:109`）；P3 `update_webhook` 无法区分「未提供」与「清空」secret（`:109`）
+- 反向清单回灌：**不成立 21 条全量回灌**（batch#1/#2 累计）+ 对方已撤回 4 项 + 我方自证推翻 4 项，均注明「不要重复提」
+- 已知空档新增：`password.rs`/`rg-http/src/oci.rs`/`auth/oci_token.rs` 旧行号已因 PR #21/#24 作废不得引用；agent 模块不在本批范围
+- NPC 首扫：**等待中**（消费者补记，生产者不等首扫）
+- 6 轮进度：**0 / 6**
+
 ### batch#2(issue #12) · 2026-11-10 · rg-core auth 凭据链路
 
 - 开批：`2026-11-10T13:12:45Z`（issue 创建即触发，正文结尾 `@CodeBuddy`；NPC 流水线 `cnb-gc6-1k72pdras` 已 pending，platform status 自述 SHA `2191cba`，与本批基线一致）
