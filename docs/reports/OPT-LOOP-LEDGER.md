@@ -47,7 +47,7 @@
 - 反向清单回灌：**不成立 21 条全量回灌**（batch#1/#2 累计）+ 对方已撤回 4 项 + 我方自证推翻 4 项，均注明「不要重复提」
 - 已知空档新增：`password.rs`/`rg-http/src/oci.rs`/`auth/oci_token.rs` 旧行号已因 PR #21/#24 作废不得引用；agent 模块不在本批范围
 - NPC 首扫：`2120244997269143552`，`2026-11-10T19:59:34Z`（开批后 7 min 33 s；`author.is_npc=true`，首行 `## 第 1 轮 · batch#3 只读审查`，自述基线 `df6a3c0`）
-- 6 轮进度：**1 / 6**（第 1 轮收尾已发）
+- 6 轮进度：**2 / 6**（第 2 轮收尾已发；第 1 轮 `2120252808799633408` / 第 2 轮见末行）
 
 ### consume 1 / 6（batch#3）
 
@@ -78,6 +78,51 @@
 
 **它的质量盘点**：8 条正文指摘里 7 条全对（含 4 条种子全部命中，且 S-1 的判据链补强是它自己找到的），唯一走偏的是 N-4 的放大推理。本轮**不需要**像 batch#2 那样反复纠正行号——`df6a3c0` 声明 + 每条带 `git show` 输出的做法有效，建议后续批次继续要求。
 
+### consume 2 / 6（batch#3）
+
+- 输入：`2120254111684665344`（`2026-11-10T20:35:47Z`，首行 `## 第 2 轮 · batch#3 复核（只读）`）：① 对我方 7 处改动判 7 成立 / 0 事实错（非指摘，记「确认」）；② 断言强度 3 条；③ 新事实 3 条；④ 只读路径写锁专题；⑤ 台账可复现性 3 条；⑥ 请求 6 条
+- 判定：**成立 6 / 部分成立 3 / 不成立 2 / 确认 1**（13 条编号输入；另有 ⑥ 的 6 条请求，见回帖第 4 段）
+- 环境修正：它自述「本机没有 cargo」并要我确认。实测本机 `command -v cargo` = `/Users/yuqu/.cargo/bin/cargo`（`cargo 1.99.1`），`sea-orm-1.1.20` 源码在 `~/.cargo/registry/src/rsproxy.cn-e3de039b2554c837/` ⇒ 它「无法复算」的两条我都能复算（见 ③-C、⑤-2）
+- 工作基线：**`BASE=7137ff9`**（`cnb/main` HEAD；本地 HEAD 同点、工作区干净、**零漂移**，无需重取行号）
+- 改前基线：`scripts/check.sh --quick` **通过（2 s，热缓存，EXIT=0）**
+- 改动：**`dc3fb9e`**（L1，4 文件 4+/4−，**零行号漂移**：`repo/service.rs` 2803→2803、`webhook/service.rs` 561→561、`access.rs` 42→42、`p0-system-design.md` 644→644）
+- 改后验证：`scripts/check.sh --quick` **通过（65 s，EXIT=0）**
+- 回帖：见批次索引末行
+
+| # | 输入指摘 | 判定 | 证据 / 处置 |
+|---|---|---|---|
+| ① | 我方 `0f6c54a` 的 7 处改动「零事实错」，判 7/0 | **确认** | 非指摘。本章其余条目才是本轮输入 |
+| ②-1 | `repo/service.rs:852` 只说「no enum check」，没说后果；应改成「`none` 也照发 push/PR 通知」 | **部分成立**（事实链成立，措辞错） | 「后果没写」成立：`api/repos.rs:768` 的 `PUT /watch` 只要 `require_authenticated_read`（不要求 write）、`:807` 的 `DELETE` 写死 `"not_watching"`、`repo_watch_ops.rs:65-68` 只改状态**不删行**、`notification/mod.rs:115-121` 只跳作者。但它给的两个行号错（`repo_watch_ops.rs:31`/`:39` 实为 `:29`/`:37`），且**它建议的措辞被它自己的 ③-B 证伪**（push/PR 的 watcher 通知零调用者）——按字面改就是写进一条新的假话。已按真实路径改写，只提 `milestone.closed` |
+| ②-2 | `p0-system-design.md:125` 是同列自相矛盾的「本轮唯一事实性错」，空着的「约束」格才是证据位 | **部分成立**（定性错，改法对） | 该行文字与实现一致（`repo_watch_ops.rs:29`/`:37` 逐字落库；迁移 `m20260508_000001:89-94` 只有 `.string().not_null().default(...)`，**无 CHECK**）⇒ 不是事实错误，「直接对立」是读法问题。但「约束列空着 = 信息缺失」成立，已把「无 CHECK」写进约束列（1 行→1 行，表格行数与文档 644 行不变） |
+| ②-3 | `webhook/service.rs:29` 应写明「裸 `issues` 永不命中 `issue.opened`」 | **成立** | `webhook_ops.rs:43` = `Column::Events.contains(event)`；`column.rs:237-243` 生成 `LIKE '%x%'`；13 个事件全名两两互不为子串 ⇒ 全名场景只「欠」不「误」。已补进注释（1 行→1 行） |
+| ③-A | `list_watchers` 有 `ORDER BY updated_at DESC` + `limit 1000` ⇒ 活跃 watcher 挤掉长期订阅者 | **成立**（后果强度未验证，它自己也标了） | `repo_watch_ops.rs:79` `.order_by_desc(UpdatedAt)`、`:83-88` 的 `.offset(offset).limit(limit)`；`notification/mod.rs:103` 写死传 `(repo_id, 0, 1000)`。已并入 B3-6 |
+| ③-B | `notify_watchers_push`/`notify_watchers_pr` 零调用者 ⇒ B3-6 泄漏面只有 `milestone.closed`，P1 应下调 | **成立**，但**不是新事实** | `grep -rn` 各 1 命中且都是定义行（`repo/service.rs:1590`、`pull_request/service.rs:295`）；唯一活 fan-out 是 `issue/service.rs:488`（`:472` 注释 `milestone.closed` + `:477` 的 webhook）。台账已知项：`ironforge-docs/architecture/agent-draft-refs-ttl-design-2026-11.md:168` 早已记「`notify_watchers_push` 全仓库无调用」——它漏了 PR 那条，也没接到 B3-6 的量级上。B3-6 已据此 **P1→P2** 并限定泄漏面 |
+| ③-C | `events` 的 LIKE 是「只欠不误」单向失效；并要求我把 `sea-orm column.rs` 原文贴进台账 | **成立** | 原文已留档（见下「证据留档」）。它自述无法复算，本机有 registry 源码，可复算 |
+| ④ | 撤回自己上轮 N-4 的定级；`human_notify.rs:114` 是循环内写锁（上界 500），非 N 次论只对 `escalation` 成立 | **部分成立** | 成立：`human_notify.rs:107` `.take(MAX_CANDIDATES)`（`:46` = 500），`:114` 在循环内；`:42` 的 50 只让 `out.len()` 提前 break，不限制 invalidate 次数。不成立：「**14 处生产调用**」实为 **13**（它把 `repo/service.rs:2717` 的测试算进去，又漏了 `human_notify.rs:207`）；「**101 处** `require_collab_read|write`」实为 **73 处调用点**（39 read + 34 write、24 文件） |
+| ④-2 | `access.rs:17` 的「per call」对 `require_collab_write` 不成立，应限定主语 | **不成立** | 见「判定不成立」第 24 条 |
+| ④-3 | `perm_cache_disabled()` 在 `check_perm_cache:97-99` 短路 ⇒ 测试环境不付这个锁，14 处调用才没在 CI 里炸 | **不成立** | 见「判定不成立」第 23 条 |
+| ⑤-1 | `deliver_retry_job` 应写明「一次失败重试 5 次、退避 30 s→1 h 封顶」 | **成立** | `background_jobs/mod.rs:35` `DEFAULT_MAX_ATTEMPTS: i32 = 5`；`:36` 注释 `30s * 2^(n-1), capped at 1 hour`；`:37` `BACKOFF_BASE_SECS = 30`、`:38` `BACKOFF_CAP_SECS = 3600`。行号全对 |
+| ⑤-2 | `ironforge_webhook_deliveries_total` 只在 HTTP `redeliver` 打点（`api/webhooks.rs:280`/`:288`），`trigger_event`/`deliver_retry_job` 一次都不打；`deploy/README.md:239` 写成「Webhook deliveries」 | **成立** | emit 点只有 `api/webhooks.rs:280`/`:288`（`recorder::webhook_delivery`），注册在 `metrics.rs:455-465`，`DELIVER`/重试路径无调用。`deploy/README.md:239` 文案属实但口径漏了「仅手动重投」。**`deploy/` 是禁区：只报告，不改** |
+| ⑤-3 | 反向清单里两行都标 `2.`，`grep '^2\.'` 命中两条 | **成立** | 22 条编号只到 21。已重排为连续唯一的 `1..22` 并在清单头加编号勘误 |
+
+**证据留档（sea-orm 1.1.20，`src/entity/column.rs:237-243`，供换机复算）**
+
+```rust
+fn contains<T>(&self, s: T) -> SimpleExpr
+where
+    T: Into<String>,
+{
+    let pattern = format!("%{}%", s.into());
+    Expr::col((self.entity_name(), *self)).like(pattern)
+}
+```
+
+**本轮自查新事实（它未提）**
+
+- **F3-2**：`invalidate_perm_cache_user`（`repo/service.rs:120-124`）**不受** `IRONFORGE_DISABLE_PERM_CACHE` 约束 —— `:121` 无条件 `perm_cache().write()`，只有 `check_perm_cache`（`:96-99`）与 `set_perm_cache`（`:107-110`）在读 `perm_cache_disabled()`。所以「关掉缓存即可免掉写锁」是假的安全感：多实例部署按注释开了 `IRONFORGE_DISABLE_PERM_CACHE=1` 之后，每次 `require_collab_read` 仍然拿两次全局写锁（`api/collab.rs:184` + `access.rs:23`），只是不再读它。这条与 B3-9 同处，但对决策更关键：禁用缓存**省的是读**、不是写。
+
+**它的质量盘点**：本轮它把靶子从「复核我方措辞」转到「新事实 + 设计层」，13 条编号输入里 6 条成立、3 条部分成立、2 条不成立、1 条是对我方改动的确认；两处硬伤都是「自己的两条发现互相打脸」：②-1 建议的措辞被 ③-B 证伪；④ 的「14 处」与它自己表里只列的 12 行不一致（真值 13）。**新规律**：它给出的「替代措辞」不能直接落盘 —— 局部事实往往对，但拼成一句话时的因果链会越过它另一条发现。凡它给整句替换，必须先拿本轮其它条目交叉验一遍。
+
 ### 待拍板（batch#3，本流程不动 main）
 
 | # | 级别 | 事项 | 为什么不在本流程做 |
@@ -87,10 +132,10 @@
 | B3-3 | P2 | webhook `secret` 明文入库（`:65`/`:109`，迁移 `:125` 裸 string） | 改 schema + 存量重加密；且与 B2-5 的 `derive_key` 议题耦合（换 KDF 会作废既有密文） |
 | B3-4 | P3 | `update_webhook` 无法表达「清空 secret」（`:109`） | 需要三方状态（缺省 / 置空 / 改值），改 API 契约 + 前端表单 |
 | B3-5 | P1 | `set_watch` 零枚举校验（`repo/service.rs:852-860`、`api/repos.rs:596-598`） | 加校验会拒绝现状合法客户端（前端入参就是裸 `string`），属 API 契约变更 |
-| B3-6 | P1 | `list_watchers` 不过滤状态（`repo_watch_ops.rs:71-88` → `notification/mod.rs:103`），取消订阅仍然收到通知 | 改通知语义；顺带要对账存量 `not_watching` 行是否需要清理 |
+| B3-6 | P2（第 2 轮由 P1 下调） | `list_watchers` 不过滤状态（`repo_watch_ops.rs:71-88` → `notification/mod.rs:103`）。**第 2 轮限定**：`notify_watchers_push`（`repo/service.rs:1590`）/ `notify_watchers_pr`（`pull_request/service.rs:295`）**零调用者**，全仓唯一活的 fan-out 是 `issue/service.rs:488`（milestone 关闭）⇒ 现状泄漏面只有 `milestone.closed` 一条，不是 push/PR。另同源问题：`list_watchers` 带 `.order_by_desc(UpdatedAt)`（`:79`）且 `notification/mod.rs:103` 写死 `limit 1000` ⇒ >1000 watch 行的仓库只通知「最近改过 watch 状态」的 1000 人，刚点 watch 的人会挤掉长期订阅者（线上是否存在该量级未验证） | 改通知语义；顺带要对账存量 `not_watching` 行是否需要清理；接线 push/PR 通知与「按状态过滤」「去截断」必须一起做，否则一接就把两个缺陷同时放大 |
 | B3-7 | **P0** | LICENSE 模板截断：`apache-2.0` 557 词 / `gpl-3.0` 512 / `mpl-2.0` 1101，条款正文被 `...` 取代 | 换成官方全文是产品内容 + 法律责任变更（要决定是否附带 NOTICE、是否保留摘要版），且会改变所有新建仓库的初始 commit |
 | B3-8 | P2 | `CreateWebhookRequest.events` 无枚举校验 + 注释示例误导（F3-1） | 加白名单会拒绝存量非法值；需先决定宽松（忽略未知）还是严格（400） |
-| B3-9 | P3 | 只读判定里拿全局 perm-cache 写锁（`access.rs:23` → `repo/service.rs:120-124`），且 `api/collab.rs:184`+`:185` 重复清两次 | 权限缓存语义变更（记忆化有效，非 N 次；但热路径写锁是真成本，需先定 TTL/失效策略） |
+| B3-9 | P3 | 只读判定里拿全局 perm-cache 写锁（`access.rs:23` → `repo/service.rs:120-124`）。**第 2 轮补全**：`invalidate_perm_cache_user` 全仓 **13 处生产调用**（`human_notify.rs:207` 亦在；`repo/service.rs:2717` 是测试），其中 `require_collab_read` 每个请求**必然清两次**（`api/collab.rs:184` 先清，`:185` → `access.rs:23` 再清）；`human_notify.rs:107` 的候选循环内也清，上界 `MAX_CANDIDATES = 500`（`:46`）；`escalation.rs:283` 有 `contains_key` 记忆化，**不**构成 N 次。注意 `perm_cache_disabled()` **不**保护 `invalidate_perm_cache_user`（`repo/service.rs:120-124` 无守卫），只有 `check_perm_cache`（`:96-99`）/`set_perm_cache`（`:107-110`）短路 | 权限缓存语义变更（热路径写锁是真成本，需先定 TTL/失效策略；`require_collab_*` 共 73 处调用点、24 文件） |
 
 ### batch#2(issue #12) · 2026-11-10 · rg-core auth 凭据链路
 
@@ -521,42 +566,50 @@ git -c protocol.version=2 clone --depth=1 ...
 
 ### 判定不成立（原文保留，请勿重复提）
 
+> **编号勘误（2026-11-11 batch#3 第 2 轮）**：本条清单原为 22 条、但编号只到 `21`（`ofs-delta` 与 `--depth` 两条都标 `2.`，会让 `grep '^2\.'` 命中两条）。现已重排为 `1..22` **连续唯一**。旧记录里「判定不成立 第 N 条」当 `N ≥ 3` 时需 **+1** 才是当前编号；批次索引里写的「不成立 21 条全量回灌」是当时的计数口径，实际条数为 **22**。
+
 1. 「V1 upload-pack 未收到 NUL 时会漏掉 connection 级 capability，但 flush 与 `# service=` 行上的 capability 不一致……能力协商靠「客户端好心多打一个空格」才成立，缺它则 clone/fetch 失败，而不是降级。」—— 反证：`upload_pack.rs:205-224` 的 Form A/Form B 分支覆盖了协议允许的两种形态；git 的 capability 只出现在第一个 `want` 行，客户端要么声明 `side-band-64k`（走 sideband），要么不声明（服务端裸发 packfile 属合规降级）。`scripts/git-protocol-e2e.sh:172-190` 的 `protocol.version=1` HTTP push/clone/fetch 用例长期为绿，是该路径可用的直接证据。**以下已核实为不成立，不要重复提。**
 
 2. 「V1 + `--depth` 会真实发送 `deepen 2`，客户端把全量 pack 当浅克隆收下」—— 反证：本服务 V1 广告不含 `shallow`，客户端在发任何 `want` 之前即 `fatal: Server does not support shallow clients`（本地实例实测，trace 无 `want`/`deepen`）；V2 对照 `--depth=1` 正常。NPC 的 trace 含 `upload-pack> shallow <oid>`，该行本服务从不产生，故其服务端不是 IronForge。
 
-2. 「`ofs-delta` 标 ✅ 站不住，`iter_from_counts` 这条路径根本产不出 OFS_DELTA」—— 反证：gix-pack 0.77 `src/data/output/entry/mod.rs:185` 把 `DeltaRef { object_index }` 直接映射为 `data::entry::Header::OfsDelta`（`:84` 另有 `OfsDelta { base_distance }` 写出分支）；`allow_thin_pack` 的文档（`iter_from_counts.rs:382-391`）只约束「base 不在本 pack 里」的 delta。`allow_thin_pack: false` 不等于「不产 OFS_DELTA」。
+3. 「`ofs-delta` 标 ✅ 站不住，`iter_from_counts` 这条路径根本产不出 OFS_DELTA」—— 反证：gix-pack 0.77 `src/data/output/entry/mod.rs:185` 把 `DeltaRef { object_index }` 直接映射为 `data::entry::Header::OfsDelta`（`:84` 另有 `OfsDelta { base_distance }` 写出分支）；`allow_thin_pack` 的文档（`iter_from_counts.rs:382-391`）只约束「base 不在本 pack 里」的 delta。`allow_thin_pack: false` 不等于「不产 OFS_DELTA」。
 
-3. 「`sideband.rs:25` 应为 `:22`」「`pkt_line.rs:59` 应为 `:61-62`」—— **NPC 已于第 4 轮撤回**。反证：`sideband.rs:25` 正是 `writer.flush().await?;`（22 是 `payload.extend_from_slice(chunk)`）；`pkt_line.rs:59` 是 `write_pkt_line` 的函数定义，引用它正是为了说明该函数不调用 flush（61-62 是长度检查，与命题无关）。
+4. 「`sideband.rs:25` 应为 `:22`」「`pkt_line.rs:59` 应为 `:61-62`」—— **NPC 已于第 4 轮撤回**。反证：`sideband.rs:25` 正是 `writer.flush().await?;`（22 是 `payload.extend_from_slice(chunk)`）；`pkt_line.rs:59` 是 `write_pkt_line` 的函数定义，引用它正是为了说明该函数不调用 flush（61-62 是长度检查，与命题无关）。
 
 以下 5 条由 **batch#2 第 1 轮 NPC 自行判定不成立**，消费者逐条复核后确认其判定正确，一并锁死：
 
-4. 「`validate_mfa_challenge` 用 `Validation::default()` ⇒ 有 alg 混淆余量 / 缺 iss/aud 即缺陷」—— **不成立**。jsonwebtoken 9.3.1（`Cargo.lock:3512-3513`）的 `~/.cargo/registry/.../jsonwebtoken-9.3.1/src/validation.rs:164-167` 把 `Default` 钉成 `Algorithm::HS256`、`:115` 强制 `exp` 存在、`:120` `leeway: 60`、`:124` `validate_exp: true`；且 `jwt.rs:47-49` 的域分离密钥已阻断与普通会话串用。
-5. 「`pat_scope` 的 `*` 能跨 `/` 是缺陷」—— **不成立**。`pat_scope.rs:559-567` 的用例把 `refs/heads/agent/x` 与 `refs/heads/agent/a/b` 一并断言为允许，`agent/*` 覆盖子路径是刻意语义。
-6. 「`has_scope` 层级漏了 `repo:collab → repo:write`」—— **不成立**。文档表 `pat_scope.rs:10-15` 写明 collab 是「the above, plus write the collaboration area」，不含 `repo:write`。
-7. 「`ldap.rs` 的 RFC 4515 转义不全」—— **不成立**。`ldap.rs:32-48` 覆盖 `\0 ( ) * \` 全部五个必备字符与所有非 ASCII（转 `\xx`）。
-8. 「SSO CSRF state 用弱随机」—— **不成立**。`rg-core/src/auth/sso.rs:87-91` 是 `rand::thread_rng()`（ChaCha12 CSPRNG）+ `Alphanumeric` ×32 ≈ 190 bit，且 `rg-http/src/api/sso.rs:381-392` 有签名 cookie 双向比对。
+5. 「`validate_mfa_challenge` 用 `Validation::default()` ⇒ 有 alg 混淆余量 / 缺 iss/aud 即缺陷」—— **不成立**。jsonwebtoken 9.3.1（`Cargo.lock:3512-3513`）的 `~/.cargo/registry/.../jsonwebtoken-9.3.1/src/validation.rs:164-167` 把 `Default` 钉成 `Algorithm::HS256`、`:115` 强制 `exp` 存在、`:120` `leeway: 60`、`:124` `validate_exp: true`；且 `jwt.rs:47-49` 的域分离密钥已阻断与普通会话串用。
+6. 「`pat_scope` 的 `*` 能跨 `/` 是缺陷」—— **不成立**。`pat_scope.rs:559-567` 的用例把 `refs/heads/agent/x` 与 `refs/heads/agent/a/b` 一并断言为允许，`agent/*` 覆盖子路径是刻意语义。
+7. 「`has_scope` 层级漏了 `repo:collab → repo:write`」—— **不成立**。文档表 `pat_scope.rs:10-15` 写明 collab 是「the above, plus write the collaboration area」，不含 `repo:write`。
+8. 「`ldap.rs` 的 RFC 4515 转义不全」—— **不成立**。`ldap.rs:32-48` 覆盖 `\0 ( ) * \` 全部五个必备字符与所有非 ASCII（转 `\xx`）。
+9. 「SSO CSRF state 用弱随机」—— **不成立**。`rg-core/src/auth/sso.rs:87-91` 是 `rand::thread_rng()`（ChaCha12 CSPRNG）+ `Alphanumeric` ×32 ≈ 190 bit，且 `rg-http/src/api/sso.rs:381-392` 有签名 cookie 双向比对。
 
 以下 5 条由 **batch#2 第 2 轮**判定不成立（两份 NPC 复核各占，均经复算否证），一并锁死：
 
-9. 「`oci.rs:73` 的 "it has no callers" **holds**（成立）」—— **不成立**。`grep -rn check_repo_access crates/` 有 6 处 `assert!` 调用（`oci_token.rs:321 :329 :353 :360 :367 :375`）+ 2 处测试函数名（`:318` `:339`）。准确说法是 "no **production** callers"，本轮已按此改写。
-10. 「`password.rs` 词表里 8 条含数字/`-` 的条目（`abc123`/`trustno1`/`password1`/`password123`/`ec2-user`/`admin123`/`root123`/`test123`）**永远匹配不上**」—— **不成立**。`abc123`、`trustno1`、`ec2-user` 原样输入会被 `:241` 的整串精确匹配拦下（逐条复算）。正确表述：这 8 条在 `:237` 前导段分支下不可达，只能靠 `:241` 命中。
-11. 「`ssh_key.rs` 注释里的 `...TKA_7j9...` 吃掉了 `q`，是不可比对的假串」—— **不成立**。`'TKA_7j9' in url` 为 `True`；该片段两端是省略号，本就是子串。
-12. 「`ssh_key.rs:143` 的 docstring 只提 `/`，`+` 出现在 body 的 index 21」—— **不成立（双向错）**。当时文本为 `:142-143`「contains both `/` and `+`」；且 `std[21]` 是 `m`，全串**无** `+`。附带结论（我方错，已修）：见下「我方已自证推翻」。
-13. 「`mask_values` 的 `str::replace` 会把同一串的 base64url 变形也遮掉」—— **不成立**。`str::replace` 是字面量子串替换，遮 `TKA/7j9` 不影响 `TKA_7j9`。
-14. 「B2-6 的后果不是漏遮，而是 secret 在 CI 里消失」／「密文 19+ 字符 ⇒ 2 字节 secret 会被意外遮住」—— **两条均不成立**。`mask_values` 只吃**解密后明文**（`api/runners.rs:796`→`:537`、`rg-ci/src/runner.rs:754`→`:528`），密文从不进入；短明文唯一后果是不被遮蔽。
+10. 「`oci.rs:73` 的 "it has no callers" **holds**（成立）」—— **不成立**。`grep -rn check_repo_access crates/` 有 6 处 `assert!` 调用（`oci_token.rs:321 :329 :353 :360 :367 :375`）+ 2 处测试函数名（`:318` `:339`）。准确说法是 "no **production** callers"，本轮已按此改写。
+11. 「`password.rs` 词表里 8 条含数字/`-` 的条目（`abc123`/`trustno1`/`password1`/`password123`/`ec2-user`/`admin123`/`root123`/`test123`）**永远匹配不上**」—— **不成立**。`abc123`、`trustno1`、`ec2-user` 原样输入会被 `:241` 的整串精确匹配拦下（逐条复算）。正确表述：这 8 条在 `:237` 前导段分支下不可达，只能靠 `:241` 命中。
+12. 「`ssh_key.rs` 注释里的 `...TKA_7j9...` 吃掉了 `q`，是不可比对的假串」—— **不成立**。`'TKA_7j9' in url` 为 `True`；该片段两端是省略号，本就是子串。
+13. 「`ssh_key.rs:143` 的 docstring 只提 `/`，`+` 出现在 body 的 index 21」—— **不成立（双向错）**。当时文本为 `:142-143`「contains both `/` and `+`」；且 `std[21]` 是 `m`，全串**无** `+`。附带结论（我方错，已修）：见下「我方已自证推翻」。
+14. 「`mask_values` 的 `str::replace` 会把同一串的 base64url 变形也遮掉」—— **不成立**。`str::replace` 是字面量子串替换，遮 `TKA/7j9` 不影响 `TKA_7j9`。
+15. 「B2-6 的后果不是漏遮，而是 secret 在 CI 里消失」／「密文 19+ 字符 ⇒ 2 字节 secret 会被意外遮住」—— **两条均不成立**。`mask_values` 只吃**解密后明文**（`api/runners.rs:796`→`:537`、`rg-ci/src/runner.rs:754`→`:528`），密文从不进入；短明文唯一后果是不被遮蔽。
 
-15. 「`password.rs:192` 把边界写成「4 个 CJK 字符」是错的，应该是「3 个」」—— **不成立**。`strict()` 是 `min_length: 12`（`password.rs:171`），判定在 `:193` `if password.len() < self.min_length`：3 个 CJK = **9 字节** → `9 < 12` 成立 → `TooShort`（过不了）；4 个 CJK = 12 字节 → 条件为假 → 通过。对方自己的句子也承认「3-char CJK fails at the 9-vs-12 boundary」，与其改法自相矛盾。正确写法是「4 个、只是刚好过线（no margin）」。**已核实为不成立，不要重复提。**
+16. 「`password.rs:192` 把边界写成「4 个 CJK 字符」是错的，应该是「3 个」」—— **不成立**。`strict()` 是 `min_length: 12`（`password.rs:171`），判定在 `:193` `if password.len() < self.min_length`：3 个 CJK = **9 字节** → `9 < 12` 成立 → `TooShort`（过不了）；4 个 CJK = 12 字节 → 条件为假 → 通过。对方自己的句子也承认「3-char CJK fails at the 9-vs-12 boundary」，与其改法自相矛盾。正确写法是「4 个、只是刚好过线（no margin）」。**已核实为不成立，不要重复提。**
 
-16. 「`registry-auth-visibility-verification-2026-11.md` 的 `:23` **漏了签发侧 `:298`/`:311` 两个调用点**」—— **不成立**（该文的计数口径问题成立，见第 5 轮 #4）。同一篇的 `:27` 已单列签发侧：`:297` `has_action("pull")` → `:298-304` `can_read_repo`、`:309-321` push 走 `can_write_repo`，与 `:23` 的「这条链」互为补充。所谓「漏」是把「`:23` 只讲校验侧」读成了「全文只讲两处」。第 5 轮已重写该文，把「校验侧 3 处 / 签发侧 2 处 / 供 5 处」写死，此后不该再出现计数争议。**第 6 轮更正**：那次「3 + 2 = 5」本身就是错的（漏了 Bearer 复查 `:159`/`:164`），真值是「校验侧 5 + 签发侧 2 = 7」，见下「我方已自证推翻」表。
+17. 「`registry-auth-visibility-verification-2026-11.md` 的 `:23` **漏了签发侧 `:298`/`:311` 两个调用点**」—— **不成立**（该文的计数口径问题成立，见第 5 轮 #4）。同一篇的 `:27` 已单列签发侧：`:297` `has_action("pull")` → `:298-304` `can_read_repo`、`:309-321` push 走 `can_write_repo`，与 `:23` 的「这条链」互为补充。所谓「漏」是把「`:23` 只讲校验侧」读成了「全文只讲两处」。第 5 轮已重写该文，把「校验侧 3 处 / 签发侧 2 处 / 供 5 处」写死，此后不该再出现计数争议。**第 6 轮更正**：那次「3 + 2 = 5」本身就是错的（漏了 Bearer 复查 `:159`/`:164`），真值是「校验侧 5 + 签发侧 2 = 7」，见下「我方已自证推翻」表。
 
 以下 5 条由 **batch#2 第 6 轮**判定不成立（逐条 `sed` 复核），一并锁死：
 
-17. 「`crates/rg-http/src/lib.rs:520-555` 这个区间**不是** `build_v2_routes`；`:521-533` 是 `upload_body_limit` 与 `upload_routes`，`:555` 已经是空行/下一个函数之前，应为 `:520-554`」—— **不成立**。`sed -n '520p'` = `fn build_v2_routes(state: &AppState) -> Router<AppState> {`，`sed -n '555p'` = `}`（该函数的闭括号），`:556` 才是空行。引用整个函数（含首尾括号）不是错误；它连「`:555` 是空行」都错一行。
-18. 「registry 文档 `:141-144` / `:146-148` 被写成包含在 `:157-172` 内，应把 `:157-172` 改成 `:149-174`」—— **不成立**。两句分处不同小节（`:13` 复查点、`:29` 为何需要 `uid`），都是全路径 `crates/rg-http/src/oci.rs:...`，不存在包含关系；`:157-172` 打出 `let allowed = match required_action {` … `};`，正是「再查一次可见性」的判定块。
-19. 「`registry:catalog:*` 的第 3 项『校验侧永不匹配』论据是空的，因为 `repository:alice/private-img:pull` 这张票照样能查 `alice/private-img`」—— **不成立**。`matches_repo`（`oci_token.rs:123-125`）硬编码 `scope_type == "repository"`，**catalog 类型**的票对任何 `{owner}/{repo}` 恒为 false；它举的是另一种票，证不了 item 3 为空。其真实关切（别让读者低估枚举风险）已并入 item 3 的一句限定。
-20. 「README `:31` 说被删的那行是『指向 `docs/` 的死链』属于指错表名——它既没指 `docs/`，也不构成死链，只是重复条目」—— **不成立**。被删行在 `a94839b:ironforge-docs/README.md` 的 `:30`，所在表标题是 `## 设计文档（\`docs/\`）`（`:21`），表内裸文件名按标题前缀解析为 `docs/project-audit-2026-06.md`，该路径不存在（`ls docs/*.md | grep -c project-audit` = 0）——「死链」与「重复」两种性质同时成立，已把两者都写进该行。
-21. 「README `:52` 是全表唯一一个在描述里双写状态的条目」—— **不成立**。状态只出现在末尾括注（`（**已修复**，PR #24）`），与其余行同构；「修复前后对照」「三项巧合」描述的是文章内容（本文确有对应两节），不是状态。
+18. 「`crates/rg-http/src/lib.rs:520-555` 这个区间**不是** `build_v2_routes`；`:521-533` 是 `upload_body_limit` 与 `upload_routes`，`:555` 已经是空行/下一个函数之前，应为 `:520-554`」—— **不成立**。`sed -n '520p'` = `fn build_v2_routes(state: &AppState) -> Router<AppState> {`，`sed -n '555p'` = `}`（该函数的闭括号），`:556` 才是空行。引用整个函数（含首尾括号）不是错误；它连「`:555` 是空行」都错一行。
+19. 「registry 文档 `:141-144` / `:146-148` 被写成包含在 `:157-172` 内，应把 `:157-172` 改成 `:149-174`」—— **不成立**。两句分处不同小节（`:13` 复查点、`:29` 为何需要 `uid`），都是全路径 `crates/rg-http/src/oci.rs:...`，不存在包含关系；`:157-172` 打出 `let allowed = match required_action {` … `};`，正是「再查一次可见性」的判定块。
+20. 「`registry:catalog:*` 的第 3 项『校验侧永不匹配』论据是空的，因为 `repository:alice/private-img:pull` 这张票照样能查 `alice/private-img`」—— **不成立**。`matches_repo`（`oci_token.rs:123-125`）硬编码 `scope_type == "repository"`，**catalog 类型**的票对任何 `{owner}/{repo}` 恒为 false；它举的是另一种票，证不了 item 3 为空。其真实关切（别让读者低估枚举风险）已并入 item 3 的一句限定。
+21. 「README `:31` 说被删的那行是『指向 `docs/` 的死链』属于指错表名——它既没指 `docs/`，也不构成死链，只是重复条目」—— **不成立**。被删行在 `a94839b:ironforge-docs/README.md` 的 `:30`，所在表标题是 `## 设计文档（\`docs/\`）`（`:21`），表内裸文件名按标题前缀解析为 `docs/project-audit-2026-06.md`，该路径不存在（`ls docs/*.md | grep -c project-audit` = 0）——「死链」与「重复」两种性质同时成立，已把两者都写进该行。
+22. 「README `:52` 是全表唯一一个在描述里双写状态的条目」—— **不成立**。状态只出现在末尾括注（`（**已修复**，PR #24）`），与其余行同构；「修复前后对照」「三项巧合」描述的是文章内容（本文确有对应两节），不是状态。
+
+以下 2 条由 **batch#3 第 2 轮**判定不成立（逐条 `sed` 复核），一并锁死：
+
+23. 「`perm_cache_disabled()`（`repo/service.rs:75-83`）在 `check_perm_cache` 入口短路（`:97-99`），**测试环境不付这个锁** —— 这是为什么 13/14 处调用一直没在 CI 里炸」—— **不成立**。`invalidate_perm_cache_user`（`repo/service.rs:120-124`）**没有** `perm_cache_disabled()` 守卫：`:121` 无条件 `perm_cache().write().unwrap_or_else(...)`。短路只发生在读侧 `check_perm_cache`（`:96-99`）与写侧 `set_perm_cache`（`:107-110`）。⇒ 缓存禁用与否，每处 invalidate 调用都真的拿一次全局写锁；「测试环境不付」是假的安全感（见 F3-2）。**已核实为不成立，不要重复提。**
+
+24. 「`access.rs:17` 的『at the price of a global perm-cache write lock **per call**』对 `require_collab_write`（`api/collab.rs:211`）不成立，因为那条路径走 `can_write_repo`、不经过 `is_collab_member`，所以注释应当限定主语」—— **不成立**。`access.rs:15-17` 是本文件 `is_collab_member`（`:18`）的 doc，主语就是本函数本身，从未覆盖 `require_collab_write`；后者在 `api/collab.rs:202`，`:211` 自己先清一次、`:212` 直接 `can_write_repo`，不进入 `access.rs:23`。它陈述的事实（write 路径不经过 `is_collab_member`）成立，但由它推出的「注释需要限定主语」无从谈起 —— 句子本来就没越界。**已核实为不成立，不要重复提。**
 
 
 
