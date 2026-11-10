@@ -156,3 +156,16 @@ feat/**:
     - *lint
   api_trigger: *all-gates
   web_trigger: *all-gates
+
+# `auto/**` is where agent work lands (branch whitelist tokens are scoped to
+# `auto/*`). It gets the same automatic `lint` gate on both push and
+# pull_request: without the `pull_request` entry a PR from such a branch has no
+# automatic check at all, and its PR status is reported as a failure even
+# though no pipeline was scheduled for it.
+auto/**:
+  push:
+    - *lint
+  pull_request:
+    - *lint
+  api_trigger: *all-gates
+  web_trigger: *all-gates

@@ -21,7 +21,9 @@ Rules (see classify()):
     a full run, and so is anything that goes wrong while working out the
     answer (a warning is printed): the script fails closed.
   * Pull requests: the files changed against the merge base are classified.
-    Docs only -> nothing. web/ only -> the frontend only. Changes in crates ->
+    Docs only -> nothing, and so is a `.cnb.yml`-only change (CNB's own
+    workflow file; GitHub never reads it, and an agent branch edits it next to
+    its docs). web/ only -> the frontend only. Changes in crates ->
     clippy for the workspace and the tests of those crates and of everything
     that depends on them, found from the Cargo manifests (no hard-coded
     graph). Cargo.toml / Cargo.lock, .github/, scripts/, deploy/ and any file
@@ -60,6 +62,11 @@ CARGO_FILES = {"Cargo.toml", "Cargo.lock"}
 # Paths with no effect on any job.
 DOC_PREFIXES = ("ironforge-docs/", "docs/", ".ai/")
 DOC_SUFFIXES = (".md",)
+# CI configuration that this workflow must ignore. `.cnb.yml` drives CNB only
+# (the development upstream) and .github/ drives this workflow, so a `.cnb.yml`
+# edit is not a code change: without this entry it is unclassified, and an
+# unclassified path runs every crate.
+CI_ONLY_FILES = {".cnb.yml"}
 
 
 def sh(*args):
@@ -184,6 +191,8 @@ def classify(files, graph):
             web = True
         elif path.startswith(DOC_PREFIXES) or ("/" not in path and path.endswith(DOC_SUFFIXES)):
             continue
+        elif path in CI_ONLY_FILES:
+            continue
         else:
             unknown.append(path)
             wide = True
@@ -272,6 +281,10 @@ def self_test(root):
             assert via_cargo == graph, "Cargo.toml parsing and `cargo metadata` disagree"
     cases = [
         (["README.md", "ironforge-docs/x.md", ".ai/y.md"], dict(full=False, rust=False, frontend=False, packages=[])),
+        # CNB's own workflow file: GitHub never reads it, and a docs pull request
+        # that also edits it stays a docs pull request
+        ([".cnb.yml", "ironforge-docs/x.md"], dict(full=False, rust=False, frontend=False, deploy=False,
+                                                    packages=[])),
         (["web/src/a.svelte"], dict(full=False, rust=False, frontend=True, packages=[])),
         (["web/src/a.svelte", "CLAUDE.md"], dict(full=False, rust=False, frontend=True, packages=[])),
         # rg-http itself changed: its integration suite runs
