@@ -48,7 +48,7 @@
 - 反向清单回灌：判定不成立 4 条（含撤回的 sideband/pkt_line 行号争议）+ 对方已撤回 4 项 + 第 6 轮行号错项 5 条
 - **新增要求**（第 1 批收敛建议落地）：每条结论必须附自证形式（`sed`/`grep` 输出或实测），不接受纯断言
 - NPC 首条分析：**已到**，`2026-11-10T13:16:43Z`（延迟 4 min 24 s；自述基线 `2191cba`，与开批记录一致）
-- 6 轮进度：**1 / 6**
+- 6 轮进度：**2 / 6**
 - **基线漂移（本轮发现，后续各轮必须知道）**：`cnb/main` 在开批后被 `origin/main` 的 PR #47 `feat/agent-principals` 推进到 `2ffe7e8`（新增 `rg-core/src/agent.rs`、`rg-http/src/api/agents.rs`、迁移 `m20261110_000001`）。`git diff 2191cba 2ffe7e8 -- crates/rg-core/src/auth/` **为空**，故本批 10 个文件的行号基准未变；但 `user/service.rs`（+34）与 `rg-http/src/api/users.rs`（+66）变了，凡引用调用方行号必须按新树重取
 
 ### consume 1 / 6（batch#2）
@@ -96,7 +96,37 @@ POST /api/v1/users/register {"...", "password":"!Password1"}   → HTTP 201 {"us
 
 **本轮学到的**：NPC 这次的行号准确率明显高于前批（F2 三处全中、P1-1/P1-2/P2-3 全中），错项集中在 **P2-3（`:303`→`:302`、`:343`→`:336`）、F1（`:146-149`→`:141-144`）、F5（文件级）**。它在 P2-4 主动推翻我方引导问题的前提并给出 crate 源码行号，这是三批以来第一次「反向纠正生产者」——说明引导问题本身也要接受核实，不能默认成立。
 
+### consume 2 / 6（batch#2）
 
+- 输入：**两条** NPC 复核同时到达——`2120154085314682880`（`13:58:19Z`，中文）与 `2120154599913840640`（`14:00:21Z`，英文），均针对 `0bc7385`。取并集处理（两份内容互补，且有一处**互相矛盾**，见 #1）。
+- 判定：**成立 6 / 部分成立 1 / 不成立 5 / 已过期 1**；其中 #9 是「对方指摘不成立、但触发了我的真错」的转向项。
+- 工作基线：`BASE=d4de32b`（`cnb/main` HEAD，本地无落后，未发生漂移）。改前 `scripts/check.sh --quick` **85 s 通过**。
+- 改动：**`210f338`**（L1，纯注释，9 insertions / 9 deletions，**零行号漂移**）：`crates/rg-core/src/auth/ssh_key.rs`、`password.rs`、`encryption.rs`、`crates/rg-http/src/oci.rs`。
+- 验证：改后 `scripts/check.sh --quick` **54 s 通过**；`cargo test -p rg-core --lib auth::ssh_key` → **4 passed**（含 `fingerprint_matches_openssh_base64_not_base64url`）。
+- 回帖：见本轮 `## 第 2 轮收尾`。
+
+| # | 指摘（合并两份复核） | 判定 | 处置 / 证据 |
+|---|---|---|---|
+| 1 | `oci.rs:73` 写 "it has no callers" 是事实错误，实有 **8 处** test 调用方 | **成立（结论）/ 计数错** | `grep -rn check_repo_access crates/`：定义 `oci_token.rs:204` + **6 处 `assert!` 调用**（`:321 :329 :353 :360 :367 :375`）+ 2 处测试函数名（`:318` `:339`），零生产调用。故"8 处调用方"错，但"no callers"确实该改。已改为 **no production callers** |
+| 2 | `oci.rs:73` "a scope token carries no user id" 不精确，`OciTokenClaims` 有 `sub` | **成立** | `oci_token.rs:47` = `pub sub: String,`，其文档注释为「Subject — username (or `anonymous`)」。已改为「identifies its subject by username (`sub`), not by user_id」 |
+| 3 | `password.rs:229` 的绝对句「starts with a digit or a symbol is **never** checked against the list」过头 | **成立** | 复算：`123456` 前导段为空 → `:237` 跳过，但 `:241` 整串命中 → **拦**。原句把「本分支不查」写成「永不检查」。已改为「slips past that branch; the whole-string check below still catches exact list entries such as `123456`」 |
+| 4 | `password.rs:232` 「Strip trailing digits and special chars」与代码相反，且与 `:229` 自相矛盾 | **成立（两方都提）** | `:233-236` 是 `take_while(is_ascii_alphabetic)`＝取**前导**字母段，不是剥尾部。已改写为「Take the leading alphabetic run, so `password1!` and `password!!!` both reduce to `password`」 |
+| 5 | `password.rs:232` 「那句本身就是错的」（含举例） | **部分成立** | 机制描述错（成立），但举例 `password1!` / `password!!!` 实际**都拦得住**（复算 `stripped="password"` ∈ 48 词表 → `:237` 命中）。不能连例子一起否 |
+| 6 | 词表里 8 条含数字/`-` 的条目（`abc123`/`trustno1`/`password1`/`password123`/`ec2-user`/`admin123`/`root123`/`test123`）「**永远匹配不上**」 | **不成立** | 复算：`abc123`→`:241` 整串命中 **拦**；`trustno1`、`ec2-user` 同。准确表述是「这 8 条在 `:237` 前导段分支下不可达，只能靠 `:241` 原样输入命中」 |
+| 7 | `ssh_key.rs` 注释里 `...TKA_7j9...` 「吃掉了 `q`」，是假的参照串 | **不成立** | `'TKA_7j9' in url` → **True**。该串两端都是省略号，是子串片段而非全串；`TKA_7j9q` 里 `TKA_7j9` 确实连续存在 |
+| 8 | `ssh_key.rs:143` docstring 「只提 `/`，`+` 在 body 的 index 21」 | **不成立（双向错）** | ①当时文本是 `:142-143` 的 `the digest contains both \`/\` and \`+\``，明写 both；②`std[21]` 是 `m`，且 **全串无 `+`**。两条子断言都反了 |
+| 9 | ↑ 但它指的方向（docstring 与向量不符）命中真问题 | **成立（转向，我方错）** | 独立复算：`std = uh6xDCBClTKA/7j9qTAuVmcAbusr4NwgLrWjafhfMM4`，`'+' in std == False`，`'/'` 在 **index 12**（`idx of differ=[12]`）。故**我上轮写的 "both `/` and `+`" 是假的**。已改为「contains `/` at index 12 and no `+`」 |
+| 10 | `mask_values` 用 `str::replace`，会把同一串的 **base64url 变形**也遮掉（`TKA/7j9` ⊂ 密文 ⇒ `TKA_7j9` 同遮） | **不成立** | `str::replace` 是**字面量子串**替换，遮 `TKA/7j9` 不会碰 `TKA_7j9`。把「子串匹配」推成「变体匹配」是错的 |
+| 11 | B2-6 的真实后果不是「漏遮」而是「**secret 在 CI 里消失**」 | **不成立** | `mask_values` 收的是**解密后明文**（`api/runners.rs:796` `decrypt` → `:809` 收集 → `:537` 传入；`rg-ci/src/runner.rs:754` `decrypt` → `:758` push → `:528`/`:535`）。1–3 字节明文只是**不被遮蔽**，既不消失也不会让调用失败 |
+| 12 | 「库内密文恒 19+ 字符 ⇒ 2 字节 secret 会被**意外遮住**」 | **不成立** | 同上根因：密文从不进入 `mask_values`。两方在同一点上各自推错方向，故 B2-6 原描述（漏遮）保持 |
+| 13 | B2-1 修法比较：`strip-all`（剥全部非字母）会让 `Welcome1!x` **回退** | **成立** | 复算：现状 `stripped="welcome"` ∈ 词表 → **拦**；剥全部非字母得 `welcomex` ∉ 词表 → **PASS**。这是唯一一处 B 比现状差的地方 |
+| 14 | `ssh_key.rs:9` 「byte-identical to `ssh-keygen -l -E sha256`」把断言对象说混 | **成立** | `ssh-keygen` 打整行（`<bits> SHA256:<fp> user@host (TYPE)`），本函数只回 `SHA256:<fp>`。已改为「matches the `SHA256:<digest>` field … (that command prints a whole line; this returns only the field)」 |
+| 15 | `encryption.rs:57` 点名 `api/ci_secrets.rs` 会让文档随第二个写入点过期；`ci_secret_ops::upsert` 自身无长度校验 | **成立（建议级）** | 已核：`upsert`（`ci_secret_ops.rs:25` 起）全程无长度判断。注释补「`ci_secret_ops::upsert` itself does not validate」，并补上「`secrets` 必须是解密明文」这一契约（正是 #11/#12 双方都误判的那一点） |
+| 16 | 「HEAD 是 `1f45242` 不是 `df68a0d`」 | **已过期** | 现 HEAD = `d4de32b`（其后又有 `d4de32b` 一次 ledger 修订）。本轮 BASE 已按 `d4de32b` 声明 |
+
+**本轮学到的（第三批的新形态）**：这轮出现了**两条 NPC 复核互相打脸**——中文那条说 `oci.rs:73` 的 "no callers" 是事实错误，英文那条说 "it has no callers" **holds**；中文那条说 docstring 漏了 `+`，英文那条说 `+` 在 index 21。两边都错，且错法相反。**结论：同一轮的多份复核不能取其一，必须并集后再各自核实**；对方彼此的矛盾恰恰是最省力的定位器（本轮 #9 就是靠这个矛盾挖出我自己的错）。
+
+另一个可复用的判据：**凡涉及 `mask_values` / 长度门槛的结论，先确认入参是明文还是密文**。两方都在这上面翻车（一个说「密文 19+ 字符所以会被意外遮」，一个说「解不出来所以 secret 消失」），而真相是它只吃明文。
 
 ### batch#1(issue #11) · 2026-11-10 · git 协议文档与实现一致性
 
@@ -279,12 +309,12 @@ git -c protocol.version=2 clone --depth=1 ...
 
 > 编号独立于上一批的 #1–#11，避免跨批引用串号。全部为「改代码」类，故只记录不实施。
 
-1. **B2-1 `reject_common` 对「前导非字母」的密码整段失效**（P1，实测复现）：`crates/rg-core/src/auth/password.rs:233-237` 的 `take_while` 只取前导字母段，`1Password1!` / `!Password1` / `0Admin123!` 全部 HTTP 201 注册成功，只有 `Password1!` 被拦。修法二选一：①取**最长**字母段再比对；②先剥离所有非字母字符再比对。影响面只在校验点（存量密码不受影响）：`crates/rg-core/src/user/service.rs:166`（注册）与 `:755`（重置）。
+1. **B2-1 `reject_common` 对「前导非字母」的密码整段失效**（P1，实测复现）：`crates/rg-core/src/auth/password.rs:233-237` 的 `take_while` 只取前导字母段，`1Password1!` / `!Password1` / `0Admin123!` 全部 HTTP 201 注册成功，只有 `Password1!` 被拦。修法二选一：①取**最长**字母段再比对；②先剥离所有非字母字符再比对。影响面只在校验点（存量密码不受影响）：`crates/rg-core/src/user/service.rs:166`（注册）与 `:755`（重置）。**第 2 轮定稿建议：选 ①（最长字母段）**。依据（逐条复算，非沙盘估算）：方案 ② 在 `Welcome1!x` 上会**丢覆盖**——现状 `stripped="welcome"` 命中词表被拦，剥全部非字母得 `welcomex` 不命中 ⇒ 放行；方案 ① 在该组及 `1Password1!`/`!Password1` 上均为「只扩大、不缩小」。若仍选 ②，必须补 `Welcome1!x` 回归用例。另注：`Passw0rd!` 在现状/①/②下**全部放行**（`stripped="passw"`），l33t 归一化超出本项范围。
 2. **B2-2 `TooCommon` 把明文密码回显进响应体**（P1，实测复现）：`password.rs:69-73` 的 `Display` 带 `pwd`，经 `user/service.rs:169`/`:758` 的 `e.to_string()` 与 `rg-http/src/error.rs:171`→`:114-120`（H-05 只脱敏 `InternalError`）出现在未鉴权 `POST /users/register` 的 400 响应体。最小修法：`TooCommon` 不再携带值（`Display` 改为固定文案），调用方零改动。**附带核查项**：其余把用户输入拼进 `Display` 的错误变体应一并清点。
 3. **B2-3 TOTP 无重放保护**（P2，代码事实）：`totp.rs:37`/`:51` 是纯函数，`api/mfa.rs:327` 也不记录已用码；`challenge` cookie 5 min TTL（`jwt.rs:125`）远大于 30 s 步长，同一码可重复换 JWT。需「已用码」存储（带 TTL 的表或内存 LRU）⇒ 存储/schema 改动。
 4. **B2-4 `check_repo_access` 是可见性盲的死函数**（P2→P3）：`oci_token.rs:204-217` 无令牌即 `return required_action == "pull"`，完全无视仓库公开性；全仓零生产调用（唯一「调用方」`rg-http/src/oci.rs:198` 把返回值 `let _ =` 丢弃）。建议删除，或改成接收 `can_read_repo` 回调的签名。本轮已把 `oci.rs:73` 那句「caller should use check_repo_access」的误导注释改掉。
 5. **B2-5 `derive_key` 是裸 SHA-256 且与 JWT 共用 secret**（P3，事实）：`encryption.rs:12-19` 单轮 `Sha256(jwt_secret)`。换 HKDF/加盐会让 `TOTP secret`、`SSO refresh token`、`CI secret` 的全部既有密文失效 ⇒ 数据迁移级改动，不建议在本流程内做；若要做，先写重加密迁移（读旧键 → 写新键 → 双键过渡）。
-6. **B2-6 `mask_values` 的 4 字节下限无兜底**（P3）：`encryption.rs:62` 对短值静默不遮蔽；生产唯一写入点 `api/ci_secrets.rs:94` 由 `:86` 强制 4..=65536，但 `ci_secret_ops::upsert` 自身无校验（`rg-ci/src/runner.rs:1522` 只是 `#[cfg(test)]`，模块起于 `:1121`）。建议把长度校验下沉到 ops 层。
+6. **B2-6 `mask_values` 的 4 字节下限无兜底**（P3）：`encryption.rs:62` 对短值静默不遮蔽；生产唯一写入点 `api/ci_secrets.rs:94` 由 `:86` 强制 4..=65536，但 `ci_secret_ops::upsert` 自身无校验（`rg-ci/src/runner.rs:1522` 是 `#[cfg(test)]`，模块起于 `:1121`）。建议把长度校验下沉到 ops 层。**第 2 轮修正（重要）**：`mask_values` 的入参是**解密后的明文**（`api/runners.rs:796` `decrypt`→`:809` 收集→`:537` 传入；`rg-ci/src/runner.rs:754` `decrypt`→`:758` push→`:528`/`:535`），**密文从不进入该函数**。故「<4 字节入参 ⇒ 漏遮」是唯一后果：既不会「被意外遮住」（NPC 英文复核的说法），也不会「secret 在 CI 里消失」（中文复核的说法），两种替代描述均不成立。
 7. **B2-7 SSO CSRF `expected` 原文入 warn 日志**（P3）：`rg-http/src/api/sso.rs:386-390`；另，失败路径 `:391` 直接 return、不清 state cookie（只有两条成功路径 `:521-522`、`:543-544` 清）。建议日志只留长度/前缀。
 8. **B2-8 登录时序泄露账号存在性**（P2，未实测）：`user/service.rs:232` 对不存在的用户提前 return，跳过 `:246` 的 Argon2；同文件 `forgot_password` 已有 H-5 拉平（`:654`/`:662` 各 `sleep(100ms)`）。修法：对不存在用户也跑一次固定 dummy hash 的校验。（行号基准 `2ffe7e8`；PR #47 之后 `:238-241` 另有 agent 账户分支，等价返回 `INVALID_CREDENTIALS`）
 9. **B2-9 `iat`/`nbf` 从不校验**（P3，无利用路径）：`jwt.rs:139` 用 `Validation::default()`；jsonwebtoken 的 `ClaimsForValidation` 无 `iat` 字段、`validate_nbf` 默认 `false`，但仓内无签发 `nbf` 的路径。只记录，不建议加自定义校验。
@@ -307,6 +337,23 @@ git -c protocol.version=2 clone --depth=1 ...
 6. 「`has_scope` 层级漏了 `repo:collab → repo:write`」—— **不成立**。文档表 `pat_scope.rs:10-15` 写明 collab 是「the above, plus write the collaboration area」，不含 `repo:write`。
 7. 「`ldap.rs` 的 RFC 4515 转义不全」—— **不成立**。`ldap.rs:32-48` 覆盖 `\0 ( ) * \` 全部五个必备字符与所有非 ASCII（转 `\xx`）。
 8. 「SSO CSRF state 用弱随机」—— **不成立**。`rg-core/src/auth/sso.rs:87-91` 是 `rand::thread_rng()`（ChaCha12 CSPRNG）+ `Alphanumeric` ×32 ≈ 190 bit，且 `rg-http/src/api/sso.rs:381-392` 有签名 cookie 双向比对。
+
+以下 5 条由 **batch#2 第 2 轮**判定不成立（两份 NPC 复核各占，均经复算否证），一并锁死：
+
+9. 「`oci.rs:73` 的 "it has no callers" **holds**（成立）」—— **不成立**。`grep -rn check_repo_access crates/` 有 6 处 `assert!` 调用（`oci_token.rs:321 :329 :353 :360 :367 :375`）+ 2 处测试函数名（`:318` `:339`）。准确说法是 "no **production** callers"，本轮已按此改写。
+10. 「`password.rs` 词表里 8 条含数字/`-` 的条目（`abc123`/`trustno1`/`password1`/`password123`/`ec2-user`/`admin123`/`root123`/`test123`）**永远匹配不上**」—— **不成立**。`abc123`、`trustno1`、`ec2-user` 原样输入会被 `:241` 的整串精确匹配拦下（逐条复算）。正确表述：这 8 条在 `:237` 前导段分支下不可达，只能靠 `:241` 命中。
+11. 「`ssh_key.rs` 注释里的 `...TKA_7j9...` 吃掉了 `q`，是不可比对的假串」—— **不成立**。`'TKA_7j9' in url` 为 `True`；该片段两端是省略号，本就是子串。
+12. 「`ssh_key.rs:143` 的 docstring 只提 `/`，`+` 出现在 body 的 index 21」—— **不成立（双向错）**。当时文本为 `:142-143`「contains both `/` and `+`」；且 `std[21]` 是 `m`，全串**无** `+`。附带结论（我方错，已修）：见下「我方已自证推翻」。
+13. 「`mask_values` 的 `str::replace` 会把同一串的 base64url 变形也遮掉」—— **不成立**。`str::replace` 是字面量子串替换，遮 `TKA/7j9` 不影响 `TKA_7j9`。
+14. 「B2-6 的后果不是漏遮，而是 secret 在 CI 里消失」／「密文 19+ 字符 ⇒ 2 字节 secret 会被意外遮住」—— **两条均不成立**。`mask_values` 只吃**解密后明文**（`api/runners.rs:796`→`:537`、`rg-ci/src/runner.rs:754`→`:528`），密文从不进入；短明文唯一后果是不被遮蔽。
+
+### 我方已自证推翻（勿当结论引用）
+
+| 我上轮写的 | 实际 | 处置 |
+|---|---|---|
+| `ssh_key.rs` 注释「the digest contains **both** `/` and `+`」 | 复算 `std = uh6xDCBClTKA/7j9qTAuVmcAbusr4NwgLrWjafhfMM4`：`+` **不存在**，`/` 在 index 12 | 第 2 轮已改为「contains `/` at index 12 and no `+`」（`210f338`） |
+| `ssh_key.rs:9`「byte-identical to `ssh-keygen -l -E sha256`」 | `ssh-keygen` 输出整行，本函数只回 `SHA256:<fp>` 字段 | 已改为「matches the `SHA256:<digest>` field」 |
+| `encryption.rs:57` 未说明 `mask_values` 的入参形态 | 它是**明文**，且 `ci_secret_ops::upsert` 自身不校验长度 | 已在同一条注释里写明两点 |
 
 ### 对方已撤回（勿再作为争议点）
 
