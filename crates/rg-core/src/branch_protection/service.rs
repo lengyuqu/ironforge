@@ -454,7 +454,7 @@ pub async fn check_merge_allowed(
             .await?
             .ok_or_else(|| CoreError::not_found("pull request not found"))?;
         let approval_count =
-            pr_review_ops::count_current_approvals(db, pr_id, pr.head_sha.as_deref()).await?;
+            pr_review_ops::count_current_human_approvals(db, pr_id, pr.head_sha.as_deref()).await?;
         if approval_count < required {
             return Err(CoreError::forbidden(format!(
                 "merging into protected branch '{}' requires at least {} approval(s), got {}",

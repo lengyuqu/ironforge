@@ -21,11 +21,18 @@
 .rust-setup: &rust-setup
   docker:
     image: rust:1
-    # Node-local build caches shared by all pipelines of this repository.
+    # Node-local build caches shared by all pipelines of this repository. All
+    # three are copy-on-write *volumes*, so they stay out of the snapshot taken
+    # when a pipeline starts: `cargo-target` used to be bound to `./target` in
+    # the workspace, which made every pipeline freeze ~1.2G of build output
+    # before running a single command and is a large part of why the root
+    # group's CPU quota ran out (`Root Group's events CPU core-hours are
+    # insufficient for pre-freezing`, 2026-11-10). Keep caches out of the
+    # workspace, here and anywhere else in this file.
     volumes:
       - cargo-registry:/root/.cargo/registry:copy-on-write
       - cargo-git:/root/.cargo/git:copy-on-write
-      - cargo-target:./target:copy-on-write
+      - cargo-target:/workspace/target:copy-on-write
   env:
     CARGO_INCREMENTAL: "0"
 
@@ -45,7 +52,12 @@
     - name: cargo fmt --check
       script: cargo fmt --all --check
     - name: clippy (deny warnings)
-      script: cargo clippy --workspace --all-targets -- -D warnings
+      # `--locked` only verifies that the manifests and Cargo.lock agree, and
+      # building third-party crates is most of this pipeline's compile time and
+      # disk. The lint answer for our code does not depend on them; the GitHub
+      # `lint` job still runs `cargo clippy --workspace --all-targets -D
+      # warnings` in full before a release.
+      script: cargo clippy --workspace --all-targets --locked --offline -- -D warnings
 
 .rust-tests: &rust-tests
   <<: *rust-setup

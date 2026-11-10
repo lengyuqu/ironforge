@@ -77,14 +77,25 @@ async fn validate_request(state: &AppState, body: &EnvironmentRequest) -> Result
         ));
     }
     for user_id in unique {
-        if rg_db::ops::user_ops::find_by_id(&state.db, user_id)
+        match rg_db::ops::user_ops::find_by_id(&state.db, user_id)
             .await
             .map_err(AppError::internal)?
-            .is_none()
         {
-            return Err(AppError::bad_request(format!(
-                "approver user {user_id} does not exist"
-            )));
+            // Releasing a protected environment is a person's act, for the same
+            // reason approving a pull request is: the approval count is a gate.
+            // An agent could be listed here and its approval released the job,
+            // though `can_admin_repo` keeps agents away from the admin shortcut.
+            Some(user) if rg_core::agent::is_agent(&user) => {
+                return Err(AppError::bad_request(format!(
+                    "user {user_id} is an agent; an environment approver has to be a person"
+                )));
+            }
+            Some(_) => {}
+            None => {
+                return Err(AppError::bad_request(format!(
+                    "approver user {user_id} does not exist"
+                )));
+            }
         }
     }
     Ok(())
@@ -270,6 +281,26 @@ pub async fn approve(
         };
     if !is_admin && !allowed.contains(&actor_id) {
         return AppError::forbidden("user is not an allowed environment approver").into_response();
+    }
+    // A list written before the rule existed (or by hand) can still name an
+    // agent, and the count is the gate: refuse here too, not only where the
+    // list is written.
+    let approving_account = match rg_db::ops::user_ops::find_by_id(&state.db, actor_id).await {
+        Ok(user) => user.is_some_and(|user| !rg_core::agent::is_agent(&user)),
+        Err(error) => return AppError::internal(error).into_response(),
+    };
+    if !approving_account {
+        return AppError::coded(
+            axum::http::StatusCode::FORBIDDEN,
+            "FORBIDDEN",
+            "this account may not approve a protected environment",
+        )
+        .with_reason(
+            crate::api::auth::AGENT_MAY_NOT_APPROVE,
+            false,
+            "an environment approval has to come from a person",
+        )
+        .into_response();
     }
     match rg_db::ops::ci_environment_ops::add_approval(&state.db, job_id, environment.id, actor_id)
         .await

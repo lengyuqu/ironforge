@@ -541,3 +541,651 @@ async fn an_owner_with_agents_cannot_be_deleted() {
         .unwrap()
         .is_some());
 }
+
+// ── Approving is a human act (§3.4, T20-1 … T20-9) ────────────────────
+//
+// The gate used to look at the *shape* of the credential — a token limited to
+// some branches could not approve — so an agent's token with no branch limit
+// approved freely, its owner's pull request included, and the approval counted
+// towards the required approvals. It now looks at the account type, which no
+// credential disguises, and the approval count only counts people.
+
+mod gate {
+    use super::*;
+    use common::spawn_test_app_with_root;
+    use sea_orm::Set;
+
+    const OWNER: &str = "gate_alice";
+    const REVIEWER: &str = "gate_bob";
+
+    fn git(args: &[&str], cwd: Option<&std::path::Path>) -> String {
+        let gateway = rg_git::cli_gateway::global_gateway().as_ref().unwrap();
+        let out = gateway.run(args, cwd).unwrap();
+        out.ensure_success().unwrap();
+        out.stdout_str().trim().to_string()
+    }
+
+    /// A person, two agents of theirs, and pull requests in a repository whose
+    /// `main` requires one approval.
+    struct Gate {
+        _exclusive: tokio::sync::MutexGuard<'static, ()>,
+        base: String,
+        db: rg_db::DatabaseConnection,
+        owner: String,
+        owner_id: i64,
+        reviewer: String,
+        agent_id: i64,
+        /// The agent's token with no branch limit: the shape the old gate let through.
+        token: String,
+        /// The agent's token limited to one branch: the shape the old gate refused.
+        limited_token: String,
+        /// An agent's token with the default shape (`repo:write`, no limits).
+        default_token: String,
+        /// An agent's token with no repository or branch limit either.
+        ci_token: String,
+        /// Opened by the owner.
+        owner_pr: i64,
+        /// Opened by `REVIEWER`.
+        other_pr: i64,
+        /// Opened by the owner's other agent.
+        sibling_agent_pr: i64,
+    }
+
+    impl Gate {
+        fn url(&self, path: &str) -> String {
+            format!("{}/api/v1{path}", self.base)
+        }
+
+        async fn send(
+            &self,
+            method: reqwest::Method,
+            path: &str,
+            auth: &str,
+            body: Value,
+        ) -> (StatusCode, Value) {
+            let resp = Client::new()
+                .request(method, self.url(path))
+                .bearer_auth(auth)
+                .json(&body)
+                .send()
+                .await
+                .unwrap();
+            let status = resp.status();
+            (status, resp.json().await.unwrap_or(Value::Null))
+        }
+
+        async fn post(&self, path: &str, auth: &str, body: Value) -> (StatusCode, Value) {
+            self.send(reqwest::Method::POST, path, auth, body).await
+        }
+
+        async fn review(&self, pr: i64, auth: &str, action: &str) -> (StatusCode, Value) {
+            self.post(
+                &format!("/repos/{OWNER}/work/pulls/{pr}/reviews"),
+                auth,
+                json!({ "action": action, "body": action }),
+            )
+            .await
+        }
+
+        async fn merge(&self, pr: i64, auth: &str) -> (StatusCode, Value) {
+            self.post(
+                &format!("/repos/{OWNER}/work/pulls/{pr}/merge"),
+                auth,
+                json!({ "strategy": "merge" }),
+            )
+            .await
+        }
+
+        /// How many approvals the branch protection rule sees.
+        async fn counted_approvals(&self, pr_id: i64) -> i64 {
+            let pr = rg_db::entities::pull_request::Entity::find_by_id(pr_id)
+                .one(&self.db)
+                .await
+                .unwrap()
+                .unwrap();
+            rg_db::ops::pr_review_ops::count_current_human_approvals(
+                &self.db,
+                pr_id,
+                pr.head_sha.as_deref(),
+            )
+            .await
+            .unwrap()
+        }
+
+        /// Record an approval directly, the way an import or a stale row would:
+        /// these tests are about the count, not about the API gate.
+        async fn approve_in_db(&self, pr_id: i64, reviewer_id: i64) {
+            let pr = rg_db::entities::pull_request::Entity::find_by_id(pr_id)
+                .one(&self.db)
+                .await
+                .unwrap()
+                .unwrap();
+            rg_db::ops::pr_review_ops::create(
+                &self.db,
+                rg_db::entities::pr_review::ActiveModel {
+                    id: sea_orm::NotSet,
+                    pr_id: Set(pr.id),
+                    repo_id: Set(pr.repo_id),
+                    reviewer_id: Set(reviewer_id),
+                    action: Set("approve".to_string()),
+                    body: Set(None),
+                    commit_id: Set(pr.head_sha.clone()),
+                    created_at: Set(chrono::Utc::now()),
+                },
+            )
+            .await
+            .unwrap();
+        }
+    }
+
+    async fn gate() -> Gate {
+        // Same discipline as the tests above: one at a time, from an empty
+        // permission cache, because that cache is process-wide.
+        let exclusive = ONE_AT_A_TIME.lock().await;
+        rg_core::repo::service::invalidate_perm_cache_all();
+        let (base, db, repo_root) = spawn_test_app_with_root().await;
+
+        // The first account is the administrator; these two are ordinary.
+        register_user(&base, "gate_root", "gate_root@example.com", PASSWORD).await;
+        let (owner, owner_id) = register_full(&base, OWNER, "gate_alice@example.com").await;
+        let reviewer = register_user(&base, REVIEWER, "gate_bob@example.com", PASSWORD).await;
+
+        // A repository with a real `main` and three branches one commit ahead,
+        // so creating the pull requests and merging one of them both work.
+        let resp = Client::new()
+            .post(format!("{base}/api/v1/repos"))
+            .bearer_auth(&owner)
+            .json(&json!({ "name": "work", "is_private": true, "auto_init": true }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 201, "create repo: {:?}", resp.text().await);
+        let bare = repo_root.join(format!("{OWNER}/work.git"));
+        let work = tempfile::tempdir().unwrap();
+        let work = work.path();
+        git(&["clone", bare.to_string_lossy().as_ref(), "."], Some(work));
+        git(&["config", "user.name", "Gate"], Some(work));
+        git(&["config", "user.email", "gate@example.com"], Some(work));
+        // The unrelated signing settings of whoever runs the tests must not
+        // reach this fixture.
+        git(&["config", "commit.gpgsign", "false"], Some(work));
+        git(&["checkout", "main"], Some(work));
+        std::fs::write(work.join("value.txt"), "1\n").unwrap();
+        git(&["add", "."], Some(work));
+        git(&["commit", "-m", "base"], Some(work));
+        for branch in ["feature", "other", "sibling"] {
+            git(&["checkout", "main"], Some(work));
+            git(&["checkout", "-b", branch], Some(work));
+            std::fs::write(work.join("value.txt"), format!("{branch}\n")).unwrap();
+            git(&["commit", "-am", branch], Some(work));
+        }
+        git(
+            &["push", "origin", "main", "feature", "other", "sibling"],
+            Some(work),
+        );
+
+        // Two agents of the same person, and one token each.
+        let mut agents = Vec::new();
+        for name in ["bot", "helper"] {
+            let (status, body) = {
+                let resp = Client::new()
+                    .post(format!("{base}/api/v1/agents"))
+                    .bearer_auth(&owner)
+                    .json(&json!({ "name": name }))
+                    .send()
+                    .await
+                    .unwrap();
+                (resp.status(), resp.json::<Value>().await.unwrap())
+            };
+            assert_eq!(status, 201, "create agent {name}: {body}");
+            let username = body["username"].as_str().unwrap().to_string();
+            let id = body["id"].as_i64().unwrap();
+            let token = |name: &str, extra: Value| {
+                let mut body = json!({ "name": name });
+                for (key, value) in extra.as_object().unwrap() {
+                    body[key] = value.clone();
+                }
+                body
+            };
+            let issue = |body: Value| {
+                let client = Client::new();
+                let url = format!("{base}/api/v1/agents/{username}/tokens");
+                let jwt = owner.clone();
+                async move {
+                    let resp = client
+                        .post(url)
+                        .bearer_auth(jwt)
+                        .json(&body)
+                        .send()
+                        .await
+                        .unwrap();
+                    let status = resp.status();
+                    let body: Value = resp.json().await.unwrap();
+                    assert_eq!(status, 201, "issue token: {body}");
+                    body["token"].as_str().unwrap().to_string()
+                }
+            };
+            let default_shape = issue(token("default", json!({ "scopes": "repo:write" }))).await;
+            let unlimited = issue(token("unlimited", json!({}))).await;
+            let limited = issue(token(
+                "limited",
+                json!({ "repos": [format!("{OWNER}/work")], "refs": ["agent/*"] }),
+            ))
+            .await;
+            let ci = issue(token("ci", json!({ "scopes": "repo,repo:write" }))).await;
+            agents.push((username, id, unlimited, limited, ci, default_shape));
+        }
+        let (agent, agent_id, token, limited_token, ci_token, default_token) = agents[0].clone();
+        let (sibling, _, sibling_token, _, _, _) = agents[1].clone();
+
+        let create_pr = |auth: String, head: &str| {
+            let client = Client::new();
+            let url = format!("{base}/api/v1/repos/{OWNER}/work/pulls");
+            let head = head.to_string();
+            async move {
+                let resp = client
+                    .post(url)
+                    .bearer_auth(auth)
+                    .json(&json!({ "title": &head, "head": head, "base": "main" }))
+                    .send()
+                    .await
+                    .unwrap();
+                let status = resp.status();
+                let body: Value = resp.json().await.unwrap();
+                assert_eq!(status, 201, "open a PR from {head}: {body}");
+                body["id"].as_i64().unwrap()
+            }
+        };
+        // Both agents need write access to review on the repository, and the
+        // reviewer needs read access to review a pull request the owner opened.
+        // (Opening a PR needs write, which is why `other` is opened by the
+        // owner: only its author decides what T20-1, T20-2 and T20-9 mean.)
+        for username in [&agent, &sibling, &REVIEWER.to_string()] {
+            let (status, body) = {
+                let resp = Client::new()
+                    .post(format!("{base}/api/v1/repos/{OWNER}/work/collaborators"))
+                    .bearer_auth(&owner)
+                    .json(&json!({ "username": username, "permission": "write" }))
+                    .send()
+                    .await
+                    .unwrap();
+                (resp.status(), resp.json::<Value>().await.unwrap())
+            };
+            assert!(
+                status.is_success(),
+                "grant write to {username}: {status} {body}"
+            );
+        }
+
+        let owner_pr = create_pr(owner.clone(), "feature").await;
+        let other_pr = create_pr(owner.clone(), "other").await;
+        let sibling_agent_pr = create_pr(sibling_token.clone(), "sibling").await;
+
+        let resp = Client::new()
+            .post(format!(
+                "{base}/api/v1/repos/{OWNER}/work/branches/protection"
+            ))
+            .bearer_auth(&owner)
+            .json(&json!({
+                "branch_name": "main",
+                "require_approval": true,
+                "required_approvals": 1
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 201, "protect main: {:?}", resp.text().await);
+
+        // `other` is the reviewer's pull request: its author is the person who
+        // must approve, so the "not your own PR" check is not what this fixture
+        // is testing.
+        let reviewer_id = rg_db::ops::user_ops::find_by_username(&db, REVIEWER)
+            .await
+            .unwrap()
+            .unwrap()
+            .id;
+        rg_db::entities::pull_request::Entity::update_many()
+            .col_expr(
+                rg_db::entities::pull_request::Column::AuthorId,
+                sea_orm::sea_query::Expr::value(reviewer_id),
+            )
+            .filter(rg_db::entities::pull_request::Column::Id.eq(other_pr))
+            .exec(&db)
+            .await
+            .unwrap();
+
+        Gate {
+            _exclusive: exclusive,
+            base,
+            db,
+            owner,
+            owner_id,
+            reviewer,
+            agent_id,
+            token,
+            limited_token,
+            ci_token,
+            default_token,
+            owner_pr,
+            other_pr,
+            sibling_agent_pr,
+        }
+    }
+
+    /// The API path of an absolute URL: everything from `/repos/...` on.
+    fn request_path(url: &str) -> &str {
+        let start = url.find("/api/v1").expect("an API URL") + "/api/v1".len();
+        &url[start..]
+    }
+
+    fn reason_of(body: &Value) -> (&str, Option<&str>) {
+        (
+            body["error"]["code"].as_str().unwrap_or_default(),
+            body["error"]["reason"].as_str(),
+        )
+    }
+
+    fn assert_agent_refused(status: StatusCode, body: &Value) {
+        assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+        assert_eq!(
+            reason_of(body),
+            ("FORBIDDEN", Some("AGENT_MAY_NOT_APPROVE")),
+            "{body}"
+        );
+    }
+
+    /// T20-1: the hole itself — an agent token with no branch limit approving.
+    #[tokio::test]
+    async fn t20_1_an_agent_token_without_a_branch_limit_cannot_approve() {
+        let g = gate().await;
+        let (status, body) = g.review(g.other_pr, &g.token, "approve").await;
+        assert_agent_refused(status, &body);
+        assert_eq!(g.counted_approvals(g.other_pr).await, 0);
+    }
+
+    /// T20-2: the rule the old gate did have — a branch-limited token — still holds.
+    #[tokio::test]
+    async fn t20_2_an_agent_token_with_a_branch_limit_cannot_approve() {
+        let g = gate().await;
+        let (status, body) = g.review(g.other_pr, &g.limited_token, "approve").await;
+        assert_agent_refused(status, &body);
+        assert_eq!(g.counted_approvals(g.other_pr).await, 0);
+    }
+
+    /// T20-3: what made the hole a security bug — an agent approving its own
+    /// owner's pull request, which the "not your own PR" check cannot catch
+    /// because the author is the person and the reviewer is the agent.
+    #[tokio::test]
+    async fn t20_3_an_agent_cannot_approve_its_owners_pull_request() {
+        let g = gate().await;
+        let (status, body) = g.review(g.owner_pr, &g.token, "approve").await;
+        assert_agent_refused(status, &body);
+        assert_eq!(g.counted_approvals(g.owner_pr).await, 0);
+        // The owner cannot merge on the strength of it either.
+        let (status, body) = g.merge(g.owner_pr, &g.owner).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    }
+
+    /// T20-4: one of the person's agents approving another one's pull request.
+    #[tokio::test]
+    async fn t20_4_an_agent_cannot_approve_a_sibling_agents_pull_request() {
+        let g = gate().await;
+        let (status, body) = g.review(g.sibling_agent_pr, &g.token, "approve").await;
+        assert_agent_refused(status, &body);
+        assert_eq!(g.counted_approvals(g.sibling_agent_pr).await, 0);
+    }
+
+    /// T20-5: only approving is a human act. Talking is still allowed.
+    #[tokio::test]
+    async fn t20_5_an_agent_may_comment_and_request_changes() {
+        let g = gate().await;
+        for action in ["comment", "request_changes"] {
+            let (status, body) = g.review(g.owner_pr, &g.token, action).await;
+            assert_eq!(status, StatusCode::CREATED, "{action}: {body}");
+        }
+        // Neither of those counts as an approval.
+        assert_eq!(g.counted_approvals(g.owner_pr).await, 0);
+    }
+
+    /// T20-6: the gate no longer depends on the request carrying a Bearer
+    /// token, so a person's cookie session is judged too — and allowed.
+    #[tokio::test]
+    async fn t20_6_a_person_approving_with_a_cookie_session_is_allowed() {
+        let g = gate().await;
+        let resp = Client::new()
+            .post(g.url("/users/login"))
+            .json(&json!({ "login": REVIEWER, "password": PASSWORD }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200, "login");
+        let cookie = resp
+            .headers()
+            .get("set-cookie")
+            .unwrap_or_else(|| panic!("login must set a session cookie"))
+            .to_str()
+            .unwrap()
+            .split(';')
+            .next()
+            .unwrap()
+            .to_string();
+        let resp = Client::new()
+            .post(g.url(&format!("/repos/{OWNER}/work/pulls/{}/reviews", g.owner_pr)))
+            .header(reqwest::header::COOKIE, cookie)
+            .json(&json!({ "action": "approve", "body": "looks right" }))
+            .send()
+            .await
+            .unwrap();
+        let status = resp.status();
+        let body: Value = resp.json().await.unwrap();
+        assert_eq!(status, StatusCode::CREATED, "{body}");
+        assert_eq!(g.counted_approvals(g.owner_pr).await, 1);
+    }
+
+    /// T20-7: an agent's approval in the table does not satisfy the rule.
+    #[tokio::test]
+    async fn t20_7_an_agent_approval_does_not_satisfy_the_approval_rule() {
+        let g = gate().await;
+        g.approve_in_db(g.owner_pr, g.agent_id).await;
+        assert_eq!(g.counted_approvals(g.owner_pr).await, 0);
+        let (status, body) = g.merge(g.owner_pr, &g.owner).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+        let message = body["error"]["message"].as_str().unwrap_or_default();
+        assert!(message.contains("requires at least 1 approval"), "{body}");
+    }
+
+    /// T20-8: a person approving their own agent's pull request is allowed and
+    /// counts — the account type, not the relationship, decides.
+    #[tokio::test]
+    async fn t20_8_the_owner_approving_an_agents_pull_request_counts() {
+        let g = gate().await;
+        let (status, body) = g.review(g.sibling_agent_pr, &g.owner, "approve").await;
+        assert_eq!(status, StatusCode::CREATED, "{body}");
+        assert_eq!(g.counted_approvals(g.sibling_agent_pr).await, 1);
+        let (status, body) = g.merge(g.sibling_agent_pr, &g.owner).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+    }
+
+    /// T20-9: an agent's approval next to a person's does not raise the count.
+    #[tokio::test]
+    async fn t20_9_an_agent_approval_does_not_add_to_a_persons() {
+        let g = gate().await;
+        let (status, body) = g.review(g.owner_pr, &g.reviewer, "approve").await;
+        assert_eq!(status, StatusCode::CREATED, "{body}");
+        g.approve_in_db(g.owner_pr, g.agent_id).await;
+        assert_eq!(g.counted_approvals(g.owner_pr).await, 1);
+    }
+
+    // ── The same gate on a protected CI environment ───────────────────
+    //
+    // Releasing a protected environment is decided by a count of approvals, so
+    // it is a person's act for exactly the reason a pull request approval is.
+    // The approver list accepted any account id and nothing looked at the
+    // account type when the approval was counted, so listing one's own agent
+    // made it the only voice the gate needed. (`can_admin_repo` is false for an
+    // agent, so it is the list, not the administrator shortcut, that let it in.)
+
+    impl Gate {
+        /// A protected environment `production` needing one approval, with a job
+        /// paused on it. Returns the approval URL and the environment row.
+        async fn environment_awaiting_approval(
+            &self,
+        ) -> (String, rg_db::entities::ci_environment::Model) {
+            let (status, body) = self
+                .post(
+                    &format!("/repos/{OWNER}/work/actions/environments"),
+                    &self.owner,
+                    json!({
+                        "name": "production",
+                        "protected": true,
+                        "required_approvals": 1,
+                        "allowed_approver_ids": [],
+                    }),
+                )
+                .await;
+            assert_eq!(status, StatusCode::CREATED, "{body}");
+            let environment =
+                rg_db::ops::ci_environment_ops::find_by_id(&self.db, body["id"].as_i64().unwrap())
+                    .await
+                    .unwrap()
+                    .unwrap();
+            let pipeline = rg_db::ops::pipeline_ops::create_pipeline(
+                &self.db,
+                environment.repo_id,
+                "abcdefabcdefabcdefabcdefabcdefabcdefabcd",
+                "refs/heads/main",
+                "push",
+                None,
+            )
+            .await
+            .unwrap();
+            let stage = rg_db::ops::pipeline_ops::create_stage(&self.db, pipeline.id, "deploy", 0)
+                .await
+                .unwrap();
+            let job = rg_db::ops::pipeline_ops::create_job(
+                &self.db,
+                stage.id,
+                "production",
+                "echo deploy",
+                None,
+                None,
+                None,
+                None,
+                None,
+                false,
+                None,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+            rg_db::ops::ci_environment_ops::attach_job(
+                &self.db,
+                job.id,
+                Some(&environment),
+                "production",
+            )
+            .await
+            .unwrap();
+            assert!(
+                rg_db::ops::pipeline_ops::try_pause_stage_at_manual(&self.db, stage.id)
+                    .await
+                    .unwrap()
+            );
+            let url = self.url(&format!(
+                "/repos/{OWNER}/work/pipelines/{}/jobs/{}/approve",
+                pipeline.id, job.id
+            ));
+            (url, environment)
+        }
+    }
+
+    /// T20-10: an agent cannot be named as an approver at all.
+    #[tokio::test]
+    async fn t20_10_an_agent_cannot_be_listed_as_an_environment_approver() {
+        let g = gate().await;
+        let (status, body) = g
+            .post(
+                &format!("/repos/{OWNER}/work/actions/environments"),
+                &g.owner,
+                json!({
+                    "name": "production",
+                    "protected": true,
+                    "required_approvals": 1,
+                    "allowed_approver_ids": [g.agent_id],
+                }),
+            )
+            .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert!(
+            body["error"]["message"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("agent"),
+            "{body}"
+        );
+    }
+
+    /// T20-11: a list written before the rule (or by hand) can still name one,
+    /// and the count is what releases the job: the approval is refused there too.
+    #[tokio::test]
+    async fn t20_11_an_agent_named_in_an_old_list_still_cannot_release() {
+        let g = gate().await;
+        let (url, environment) = g.environment_awaiting_approval().await;
+        let mut active: rg_db::entities::ci_environment::ActiveModel = environment.clone().into();
+        active.allowed_approver_ids = Set(Some(json!([g.agent_id]).to_string()));
+        rg_db::ops::ci_environment_ops::update(&g.db, active)
+            .await
+            .unwrap();
+
+        // Whatever the token's shape, the release is refused. Which gate answers
+        // first depends on the credential (a `repo:write` token is turned away by
+        // the scope middleware before the handler runs), so this asserts the
+        // outcome rather than the reason; the account-type check is what keeps
+        // the answer right for a token that does reach the handler.
+        for token in [&g.default_token, &g.ci_token] {
+            let (status, body) = g.post(request_path(&url), token, json!({})).await;
+            assert_eq!(
+                status,
+                StatusCode::FORBIDDEN,
+                "the approval must be refused: {body}"
+            );
+        }
+
+        // Nothing was released and nothing was recorded as an approval.
+        let job_id: i64 = url
+            .rsplit('/')
+            .nth(1)
+            .unwrap()
+            .parse()
+            .expect("job id in the approval URL");
+        assert_eq!(
+            rg_db::ops::ci_environment_ops::count_approvals(&g.db, job_id)
+                .await
+                .unwrap(),
+            0
+        );
+
+        // The check must not turn the endpoint into a "no": a person the list
+        // names still releases the job.
+        use sea_orm::EntityTrait;
+        rg_db::entities::ci_environment::Entity::update_many()
+            .col_expr(
+                rg_db::entities::ci_environment::Column::AllowedApproverIds,
+                sea_orm::sea_query::Expr::value(json!([g.owner_id]).to_string()),
+            )
+            .filter(rg_db::entities::ci_environment::Column::Id.eq(environment.id))
+            .exec(&g.db)
+            .await
+            .unwrap();
+        let (status, body) = g.post(request_path(&url), &g.owner, json!({})).await;
+
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(
+            rg_db::ops::ci_environment_ops::count_approvals(&g.db, job_id)
+                .await
+                .unwrap(),
+            1
+        );
+    }
+}

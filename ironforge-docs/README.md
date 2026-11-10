@@ -48,6 +48,7 @@
 | `agent-collaboration-implementation-roadmap-2026-11.md` | 多 Agent 协作首版、P0–P2 实施依赖、任务拆分与验收门槛（Proposed） |
 | `agent-collaboration-operability-requirements-2026-11.md` | 规则入口、用户总览、保留恢复与完成条件的需求与验收（Proposed） |
 | `agent-draft-refs-ttl-design-2026-11.md` | Agent 草稿命名空间：`refs/heads/agent/<id>/*` 的 TTL、通知抑制、自动清理设计细化（Proposed，未实现） |
+| `registry-auth-visibility-verification-2026-11.md` | OCI 票据校验侧不看仓库可见性：分支链路、撤销滞后窗口（60/300 s）与未验证项 |
 
 ---
 

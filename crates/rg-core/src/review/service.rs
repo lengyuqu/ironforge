@@ -630,7 +630,8 @@ pub async fn check_approval_status(
         .one(db)
         .await?
         .ok_or_else(|| CoreError::not_found("pull request not found"))?;
-    let count = pr_review_ops::count_current_approvals(db, pr_id, pr.head_sha.as_deref()).await?;
+    let count =
+        pr_review_ops::count_current_human_approvals(db, pr_id, pr.head_sha.as_deref()).await?;
     Ok(count >= required_approvals)
 }
 

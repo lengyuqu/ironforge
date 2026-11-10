@@ -6,7 +6,7 @@ use base64::Engine as _;
 /// Compute the SHA-256 fingerprint from an OpenSSH public key string.
 ///
 /// Input format: `"ssh-ed25519 AAAA... comment"`
-/// Output: `"SHA256:base64url..."` (matches `ssh-keygen -l -E sha256`)
+/// Output: `"SHA256:" + standard base64 (no padding)` — matches the `SHA256:<digest>` field of `ssh-keygen -l -E sha256` (that command prints a whole line; this returns only the field). The alphabet is standard base64, not base64url — see the encoder at the bottom of this file.
 pub fn fingerprint_from_openssh(pubkey: &str) -> CoreResult<String> {
     if pubkey.contains('\r') || pubkey.contains('\n') {
         return Err(CoreError::InvalidInput(
@@ -64,7 +64,7 @@ pub fn fingerprint_from_openssh(pubkey: &str) -> CoreResult<String> {
     // SHA-256 hash
     let digest = sha256(&raw);
 
-    // base64url without padding (standard SSH fingerprint format)
+    // Standard base64 (not base64url) without padding — the OpenSSH fingerprint alphabet
     let encoded = base64_encode_nopad(&digest);
     Ok(format!("SHA256:{}", encoded))
 }
@@ -136,5 +136,26 @@ mod tests {
                 "{key}"
             );
         }
+    }
+
+    /// Fingerprint of the key below; its `SHA256:<digest>` field matches what
+    /// `ssh-keygen -l -E sha256` prints for this key. The digest contains `/` at
+    /// index 12 and no `+`, which still pins the *standard* base64 alphabet — a
+    /// base64url encoder would print
+    /// `SHA256:uh6xDCBClTKA_7j9qTAuVmcAbusr4NwgLrWjafhfMM4` instead (that `/`
+    /// becomes `_`) and fail this assertion.
+    ///
+    /// The expected value was cross-computed from the key blob by decoding it,
+    /// hashing with SHA-256, and encoding with the standard alphabet — not copied
+    /// from `ssh-keygen` output, so it does not depend on that tool being present.
+    const ALPHABET_SENSITIVE_KEY: &str =
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIC7pCHxwJJFfvz0rCrwU3xiR0dDuanGFh7JCWaTSXiy2 optloop1";
+
+    #[test]
+    fn fingerprint_matches_openssh_base64_not_base64url() {
+        assert_eq!(
+            fingerprint_from_openssh(ALPHABET_SENSITIVE_KEY).unwrap(),
+            "SHA256:uh6xDCBClTKA/7j9qTAuVmcAbusr4NwgLrWjafhfMM4"
+        );
     }
 }

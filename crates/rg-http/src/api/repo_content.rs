@@ -204,7 +204,7 @@ pub struct GpgSignature {
 // ── Handlers ──────────────────────────────────────────────────────────
 
 /// H-02: validate owner/repo before they are used to build a repository path.
-fn validate_owner_repo(owner: &str, repo: &str) -> Result<(), AppError> {
+pub(crate) fn validate_owner_repo(owner: &str, repo: &str) -> Result<(), AppError> {
     rg_core::platform::validate_repo_path(owner)
         .and_then(|()| rg_core::platform::validate_repo_path(repo))
         .map_err(|e| AppError::bad_request(e.to_string()))
@@ -1290,7 +1290,7 @@ fn verify_commit_signature(repo_path: &std::path::Path, sha: &str) -> CoreResult
 // ── Write access helper ─────────────────────────────────────────────
 /// Resolve a repo by owner/name and enforce write access.
 /// Returns the repo model. User must have write permission (owner, collaborator with write/admin, or org member with write).
-async fn resolve_and_check_write_access(
+pub(crate) async fn resolve_and_check_write_access(
     state: &AppState,
     headers: &HeaderMap,
     owner: &str,
@@ -1360,7 +1360,7 @@ fn file_commit_error(error: rg_core::repo::service::FileCommitError) -> AppError
 /// A file commit made through the API moved `branch`; give it the same effects
 /// as a push (pull-request heads, CI, webhooks, the event log). Skipped when the
 /// new commit could not be resolved.
-fn announce_branch_move(
+pub(crate) fn announce_branch_move(
     state: &AppState,
     owner: &str,
     repo: &str,
@@ -1680,7 +1680,10 @@ pub async fn delete_file(
 }
 
 /// Get the latest commit SHA on a branch.
-fn get_latest_commit_sha(repo_path: &std::path::Path, branch: &str) -> CoreResult<String> {
+pub(crate) fn get_latest_commit_sha(
+    repo_path: &std::path::Path,
+    branch: &str,
+) -> CoreResult<String> {
     let repo = open_repo(repo_path)?;
 
     let reference = format!("refs/heads/{}", branch);

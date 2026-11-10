@@ -321,6 +321,9 @@ pub fn ref_limited_write_allowed(path: &str) -> bool {
             // The handlers check the branch against the token's own limit
             // (`ensure_token_may_write_branch`), so these are safe to open.
             | ["contents", _, ..]
+            // `POST commits` (one commit for many edits) names its branch in the
+            // body and the handler holds it to the token's limit the same way.
+            | ["commits"]
     ) || matches!(
         // Deleting a branch (`DELETE branches/<name>`): the handler checks the
         // branch against the token's limit. `branches/protection/**` is the

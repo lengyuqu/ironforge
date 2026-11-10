@@ -330,10 +330,14 @@ pub async fn submit_review(
     }
     let should_attempt_auto_merge = action.as_str() == "approve";
     if should_attempt_auto_merge {
-        if let Some(claims) = crate::api::auth::extract_bearer_claims(&headers, &state.jwt_secret) {
-            if let Err(e) = crate::api::auth::ensure_session_may_approve(&state.db, &claims).await {
-                return e.into_response();
-            }
+        // The gate is decided by the account type, so it runs for cookie
+        // sessions too; the claims (when the session came from a token) only
+        // add the branch-limit rule.
+        let claims = crate::api::auth::extract_bearer_claims(&headers, &state.jwt_secret);
+        if let Err(e) =
+            crate::api::auth::ensure_reviewer_may_approve(&state.db, user_id, claims.as_ref()).await
+        {
+            return e.into_response();
         }
     }
 

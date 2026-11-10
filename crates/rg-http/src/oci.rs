@@ -70,7 +70,7 @@ fn extract_user(headers: &HeaderMap, jwt_secret: &str) -> Option<i64> {
     // Try OCI Bearer token (sub is username)
     if let Some(_claims) = validate_oci_token(token, jwt_secret) {
         // OCI token doesn't directly carry user_id
-        // Return 0 as sentinel (caller should use check_repo_access for authZ)
+        // Return 0 as sentinel: a scope token identifies its subject by username (`sub`), not by user_id. Do not treat 0 as a real user, and do not use `auth::oci_token::check_repo_access` for authZ — it has no production caller (only tests), and its anonymous branch returns `pull` without looking at repository visibility.
         return Some(0);
     }
 
@@ -132,14 +132,45 @@ async fn check_access(
         .and_then(|v| v.strip_prefix("Bearer "))
         .and_then(|token| validate_oci_token(token, &state.jwt_secret))
     {
-        if let Some(scope_str) = claims.scope {
-            for single_scope in scope_str.split_whitespace() {
-                if let Some(parsed) = ParsedScope::parse(single_scope) {
-                    if parsed.matches_repo(owner, repo) && parsed.has_action(required_action) {
-                        return Ok((true, None));
-                    }
+        // The scope was computed at issuance from the repository's visibility
+        // *at that moment*. Re-check it against the current row before
+        // honouring it: a repo that flips to private must not stay reachable
+        // for the rest of the token's TTL just because it was public when the
+        // token was minted.
+        //
+        // `uid` is what makes that re-check possible — `sub` is a username,
+        // which `can_read_repo` cannot use. Tokens minted before `uid` existed
+        // decode with `None` and are therefore evaluated as anonymous, so they
+        // keep working for public repos only.
+        //
+        // Do NOT "fix" this by calling `can_read_repo(.., None)` unconditionally:
+        // that asks "is this repo public?", which would 403 every legitimate
+        // private-repo CI push.
+        let scope_grants = claims.scope.as_deref().is_some_and(|scope_str| {
+            scope_str.split_whitespace().any(|single_scope| {
+                ParsedScope::parse(single_scope).is_some_and(|parsed| {
+                    parsed.matches_repo(owner, repo) && parsed.has_action(required_action)
+                })
+            })
+        });
+        if scope_grants {
+            let allowed = match required_action {
+                "pull" => {
+                    rg_core::repo::service::can_read_repo(&state.db, &repo_model, claims.uid)
+                        .await?
                 }
-            }
+                "push" => match claims.uid {
+                    Some(uid) => {
+                        rg_core::repo::service::can_write_repo(&state.db, &repo_model, Some(uid))
+                            .await?
+                    }
+                    // An anonymous token never carries push, and there is no
+                    // identity to re-check against.
+                    None => false,
+                },
+                _ => false,
+            };
+            return Ok((allowed, allowed.then_some(claims.uid).flatten()));
         }
     }
 
@@ -338,9 +369,18 @@ pub async fn get_token(
 
     let granted_scope = granted_scopes.join(" ");
 
-    // Generate token (TTL: 300s for normal, 60s for anonymous)
+    // Generate token (TTL: 300s for normal, 60s for anonymous).
+    //
+    // The numeric user id rides along so the verifier can re-check visibility
+    // later; `username` alone is not something `can_read_repo` accepts.
     let ttl = if username == "anonymous" { 60 } else { 300 };
-    let token = match generate_oci_token(&username, &granted_scope, &state.jwt_secret, ttl) {
+    let token = match generate_oci_token(
+        &username,
+        authenticated_user_id,
+        &granted_scope,
+        &state.jwt_secret,
+        ttl,
+    ) {
         Ok(t) => t,
         Err(e) => {
             tracing::error!("Failed to generate OCI token: {}", e);
