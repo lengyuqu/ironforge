@@ -243,6 +243,16 @@ Form B **不是**协议允许的第二种形态，是解析器对畸形输入的
 - partial-clone：**V1 不协商 filter**（`upload_pack.rs:373` 注释「V1 has no shallow/partial-clone negotiation here」，shallow/partial 都按空处理）；**V2 支持**——广告串含 `fetch=shallow filter`（`v2.rs:48`），解析 `filter <spec>` 后交给 `ops::pack_for_wants_filtered`（`v2.rs:546`、`ops.rs:952`）
 - **懒取回（promisor）**：`filter blob:none` 克隆之后，客户端补对象时直接 `want <blob-sha>` / `want <tree-sha>`。这类 want **不走进历史遍历**，按 `extra_inputs` 原样打包（`ops.rs:949-950` 的函数注释），否则「want 一个 blob」会被当成想拉全部历史。单测断言 pack 里恰好 1 个对象（`ops.rs:1816` 的 `lazy fetch under {spec}`），e2e 在真客户端上断言 trace 出现 `want <blob>`（`scripts/git-protocol-e2e.sh:341-346`）
 
+#### `pack_for_wants*` 三层的稳定性：由调用点决定，不是设计决定
+
+| 层 | 生产调用 | 测试调用 | 稳定性 |
+|---|---|---|---|
+| `pack_for_wants`（`ops.rs:919`） | `upload_pack.rs:374`（V1） | `upload_pack.rs:461/462/502`、`ops.rs:1604/1609/1886` | **稳定**，V1 全量/增量都走它 |
+| `pack_for_wants_filtered`（`ops.rs:952`） | `v2.rs:1176`（V2；`shallow_mode` 来自 `v2.rs:1171` 的 `shallow_update.is_some()`，filter 由 `filter <spec>` 解析得来） | `ops.rs:1775/1814` | **稳定**，V2 shallow + partial-clone 都走它 |
+| `pack_for_wants_opts`（`ops.rs:930`） | **无**——唯一非测试调用者是 `pack_for_wants` 自己（`ops.rs:925`），且写死 `false` | `ops.rs:1875`（全仓唯一传 `true` 的地方） | **测试缝，勿作为 API 依赖** |
+
+`pack_for_wants_opts` 只做一件事：把 `filter` 传 `None` 后转给 `filtered`。它的 `shallow_mode: true` 分支在生产不可达——V1 把边界硬编码成 `&[]`（`upload_pack.rs:373-374`），V2 绕过 `opts` 直连 `filtered`（`v2.rs:1176`）。这与本节前面「V1 客户端在发 `want` 之前就拒绝 shallow」（`:170-178`）是同一件事的两面：正因为 V1 走不到 shallow，中间这层才永远是 `false`。将来若给 V1 补 shallow 支持，这层才会复活——届时要么让它真正承接 V1，要么把测试改调 `filtered` 后删掉它。
+
 ---
 
 ## 4. git-receive-pack（push）
@@ -293,7 +303,9 @@ lookup 补全（等价 `--fix-thin`），pack + idx 落盘 `objects/pack` 后移
 >
 > 注意 **thin delta ≠ OFS_DELTA**：`allow_thin_pack: false` 关掉的是「base 不在本 pack 里」的 delta，OFS_DELTA（base 在同 pack 内、用偏移量表示）照常产出——`DeltaRef` 直接映射成 `OfsDelta` 头（gix-pack `data/output/entry/mod.rs:185`）。这也是 §3 里 `ofs-delta` 判 ✅ 的依据。
 >
-> 两者在 gix 里是**两条代码路径**，不只是两个概念：出站 `iter_from_counts` → `EntriesToBytesIter`（`data/input/entries_to_bytes.rs:14`），入站补 thin base 走 `Bundle::write_to_directory` 的 `Some(lookup)` 分支 → `LookupRefDeltaObjectsIter`（`bundle/write/mod.rs:104`）。`allow_thin_pack` 只作用在出站那条，`pack_offset_to_oid` 是它真正的形参名——语义是 OID 解析器，不是「允许 delta」的开关。
+> 两者在 gix 里确实是两套代码，但**分界不在类型名上**，别看错方向：`EntriesToBytesIter` 是**入站**链路的环，不是出站标志物。它是 `input::Entry` 的编码器（定义 `data/input/entries_to_bytes.rs:14`），全 crate 唯一的新建点是 `bundle/write/mod.rs:111`，就在 `LookupRefDeltaObjectsIter`（同文件 `:100`）之后——即入站补完 thin base 再回写成字节。出站写 pack 用的是另一个类型 `output::bytes::FromEntriesIter`（`ops.rs:843` 构造，定义 `data/output/bytes.rs:10`），它吃的是 `output::Entry`。
+>
+> 可靠的分界在**选项层**：`allow_thin_pack` 全 crate 只有一个读取点——`data/output/entry/iter_from_counts.rs:189` 的 `allow_thin_pack.then_some(...)`，决定要不要构造 OID 解析闭包。`pack_offset_to_oid`（`data/output/entry/mod.rs:65`）就是那个闭包的形参名，语义是 OID 解析器，不是「允许 delta」的开关。入站那侧根本不读这个选项。
 
 ### Report-Status 响应格式（关键！）
 
