@@ -103,7 +103,7 @@ POST /api/v1/users/register {"...", "password":"!Password1"}   → HTTP 201 {"us
 - 工作基线：`BASE=d4de32b`（`cnb/main` HEAD，本地无落后，未发生漂移）。改前 `scripts/check.sh --quick` **85 s 通过**。
 - 改动：**`210f338`**（L1，纯注释，9 insertions / 9 deletions，**零行号漂移**）：`crates/rg-core/src/auth/ssh_key.rs`、`password.rs`、`encryption.rs`、`crates/rg-http/src/oci.rs`。
 - 验证：改后 `scripts/check.sh --quick` **54 s 通过**；`cargo test -p rg-core --lib auth::ssh_key` → **4 passed**（含 `fingerprint_matches_openssh_base64_not_base64url`）。
-- 回帖：见本轮 `## 第 2 轮收尾`。
+- 回帖：`2120167289906434048`，`2026-11-10T14:50:47Z`，首行 `## 第 2 轮收尾`（回读校验 C=2，无重复投递；下一轮 K=3）。发帖前按新规矩先数了一次首行，确认 C=1 才发。
 
 | # | 指摘（合并两份复核） | 判定 | 处置 / 证据 |
 |---|---|---|---|
