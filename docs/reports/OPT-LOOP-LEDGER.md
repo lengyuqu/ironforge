@@ -47,8 +47,53 @@
 - 已知空档（写进正文）：TOTP SHA1 为 RFC 6238 标准；JWT HS256+7d 为已知设计；`feat/agent-principals` 分支（agent 账户，本机未推送）不在基线内；LDAP/SSO 宽松错误处理为刻意决策；待拍板 #1–#11 属第 1 批范围
 - 反向清单回灌：判定不成立 4 条（含撤回的 sideband/pkt_line 行号争议）+ 对方已撤回 4 项 + 第 6 轮行号错项 5 条
 - **新增要求**（第 1 批收敛建议落地）：每条结论必须附自证形式（`sed`/`grep` 输出或实测），不接受纯断言
-- NPC 首条分析：**等待中**（消费者补记，生产者不等首扫——协议 F16）
-- 6 轮进度：**0 / 6**
+- NPC 首条分析：**已到**，`2026-11-10T13:16:43Z`（延迟 4 min 24 s；自述基线 `2191cba`，与开批记录一致）
+- 6 轮进度：**1 / 6**
+- **基线漂移（本轮发现，后续各轮必须知道）**：`cnb/main` 在开批后被 `origin/main` 的 PR #47 `feat/agent-principals` 推进到 `2ffe7e8`（新增 `rg-core/src/agent.rs`、`rg-http/src/api/agents.rs`、迁移 `m20261110_000001`）。`git diff 2191cba 2ffe7e8 -- crates/rg-core/src/auth/` **为空**，故本批 10 个文件的行号基准未变；但 `user/service.rs`（+34）与 `rg-http/src/api/users.rs`（+66）变了，凡引用调用方行号必须按新树重取
+
+### consume 1 / 6（batch#2）
+
+- 判定：**成立 6 / 部分成立 2 / 不成立 0**；另有 2 条 NPC 单列的「推测」：1 条事实成立但范围外（登录时序）、1 条不采纳（`SystemTime::unwrap` 行号错）
+- 工作基线：`2e0425d` → 快进到 **`2ffe7e8`**（`cnb/main` 已被 PR #47 推进，见上「基线漂移」）；改前 `scripts/check.sh --quick` 通过（55 s）在 `2ffe7e8` 上跑
+- 改动：**`0bc7385`**（L1，注释 3 处纠正 + 1 处误导性注释改写 + 1 条断言强化测试）：`crates/rg-core/src/auth/ssh_key.rs`、`password.rs`、`encryption.rs`、`crates/rg-http/src/oci.rs`
+- 验证：改后 `scripts/check.sh --quick` 通过（77 s）；新测试 `cargo test -p rg-core --lib auth::ssh_key` → **4 passed**；**零行号漂移**（4 处均 1 行→1 行，新测试追加在文件末尾 `:141-154`）
+- **本轮首次做运行时取证**（不再只读代码）：上一批 6 轮的经验是「NPC 行号常偏、语义多对」，但 P1 级结论必须落成可复现观测
+
+```bash
+# 复用第 4 轮的配方（本机 target/release/ironforge 为 02:56 构建，auth/ 与本轮基线同版本）
+./target/release/ironforge serve --repo-root /tmp/ift2/repos --http-addr 127.0.0.1:18141 \
+  --jwt-secret optloop-dev-secret --db-url "sqlite:////tmp/ift2/t.db?mode=rwc" &
+# A 命中词表 → 400，且响应体回显明文
+POST /api/v1/users/register {"username":"p1a","email":"p1a@example.com","password":"Password1!"}
+ → HTTP 400 {"error":{"code":"BAD_REQUEST","message":"password 'Password1!' is too common — please choose a stronger one",...}}
+# B 前导数字 → 201 注册成功（绕过 COMMON_PASSWORDS）
+POST /api/v1/users/register {"..." ,"password":"1Password1!"}  → HTTP 201 {"user_id":1,...}
+# C 前导符号 → 201
+POST /api/v1/users/register {"...", "password":"!Password1"}   → HTTP 201 {"user_id":2,...}
+```
+
+| # | NPC 第 1 轮指摘 | 判定 | 处置 / 证据 |
+|---|---|---|---|
+| P1-1 | `take_while` 只取前导字母，`!stripped.is_empty()` 使之对非字母开头的密码整段失效 | **成立** | 代码：`password.rs:235` = `.take_while(\|c\| c.is_ascii_alphabetic())`，`:237` = `if !stripped.is_empty() && …`；实测 B/C 两条 201 即为绕过证据；`stripped` 用源码词表（48 条）复算：`Password1!→"password"`（拦）、`1Password1!→""`、`!Password1→""`（均放行）。修法属 L2（B2-1） |
+| P1-2 | `TooCommon` 把明文密码写进 `Display`，最终进入 HTTP 响应体 | **成立** | 实测 A 的 400 响应体原文含 `password 'Password1!'`。链路五跳逐段核对：`password.rs:69-73` Display 带 `pwd` → `user/service.rs:169`（注册）/`:758`（重置）`e.to_string()` → `rg-http/src/error.rs:171` `InvalidInput→BadRequest(msg)` → 同文件 `:114-120` H-05 只脱敏 `InternalError` → `:132-143` 把 `sanitized_message` 原样塞进 JSON body；`api/users.rs:179` 为注册的 `Err(e)` 分支。修法属 L2（B2-2） |
+| P2-3 | TOTP `verify_code` 无状态，调用方也无已用码记录 ⇒ 同码可重复换 JWT | **成立** | `totp.rs:37` 签名无 in/out 的消费态、`:51` 就是 `check_current(code)`；`api/mfa.rs:327` 同；对照 backup code 分支 `:303` 走 `verify_and_consume`（说明是漏了而非设计）；`mfa.rs:343` 直接签 JWT，`:375-379` 只清 cookie（服务端无消费记录）。**未实测重放**（需先开 MFA），只到代码事实。修法需存储 ⇒ L2（B2-3） |
+| P2-4 | 引导问题「`Validation::default()` 无 iss/aud 是缺陷」前提不成立；真实余量是 `iat` 从不校验 | **成立（纠正正确）** | 直接读 crate 源码：`Cargo.lock:3512-3513` = jsonwebtoken `9.3.1`；`~/.cargo/registry/.../jsonwebtoken-9.3.1/src/validation.rs:164-167` `default() = new(Algorithm::HS256)`、`:115` `required_claims.insert("exp")`、`:120` `leeway: 60`、`:124` `validate_exp: true`；`ClaimsForValidation`（`:186` 起）无 `iat` 字段。域分离 `jwt.rs:47-49` 已足够防串用。**结论：`jwt.rs:139` 不是缺陷**，`iat`/`nbf` 只作余量记录（B2-9） |
+| F1 | `check_repo_access` 无令牌即放行 pull，完全无视仓库是否公开 | **成立，但比它说的更死** | `oci_token.rs:204` 定义、`:213-215` 即 `None => return required_action == "pull"`；`grep -rn check_repo_access` 全仓只有定义 + 4 处 test（`:318`/`:339` 两个用例），**零生产调用**。补充它没查到的：唯一「调用方」`rg-http/src/oci.rs:198` 是 `let _ = extract_user(...)`，返回值被丢弃 —— 连哨兵都没人用；真实鉴权在 `:146-149` 走 `can_read_repo`。修法（删函数/改签名）属 L2（B2-4） |
+| F2 | `ssh_key.rs:9`/`:67` 说 base64**url**，`:84` 用标准表 —— 实现对它错 | **成立** | 三处行号**全部精确**（少见；指改前文本，改后 `:9`/`:67` 已是新文案、`:84` 未动）。判据：自建含 `/` 的判别向量 `ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIC7pCHxwJJFfvz0rCrwU3xiR0dDuanGFh7JCWaTSXiy2`，`ssh-keygen -l -E sha256` = `SHA256:uh6xDCBClTKA/7j9qTAuVmcAbusr4NwgLrWjafhfMM4`，base64url 版本为 `…TKA_7j9…`。**已修**（注释）+ **已固化**（新增测试，见 `0bc7385`） |
+| F3 | `encryption.rs:12-19` `derive_key` 是裸 SHA-256，且与 JWT 会话共用 `jwt_secret` | **成立（事实）** | `:12-19` 全文即单轮 `Sha256`；调用点 `mfa.rs:318`、`ci_secrets.rs:89` 均传 `state.jwt_secret`。**不采纳为「本批缺陷」**：换 KDF/域分离会作废全部既有密文（TOTP secret / SSO refresh token / CI secret 都要重加密）⇒ L2（B2-5），优先级低于 B2-1/2 |
+| F4 | `mask_values` 的 `len >= 4` 过滤是「静默不遮蔽」 | **部分成立** | 机制成立（`encryption.rs:62`）。但「正常来源都 ≥4」这条也对，且我补了它的盲点：生产写入点**只有一个** `api/ci_secrets.rs:94`，其 `:86` 强制 4..=65536；`rg-ci/src/runner.rs:1522` 是 `#[cfg(test)]`（模块起于 `:1121`）内的写入。真实缺口在 `ci_secret_ops::upsert` 本身无长度校验（未来调用方绕过 API 即静默漏）⇒ 只作防御加固，进 L2（B2-6），本轮已在 `encryption.rs:57` 文档化 |
+| F5 | `sso.rs:387` 把 CSRF `expected` 原文写进 warn 日志 | **部分成立（文件错）** | 内容对、文件错：`:387` 那行在 **`crates/rg-http/src/api/sso.rs`** 的 CSRF 校验 match 分支内（`:381-392`），而 `crates/rg-core/src/auth/sso.rs:387` 是 `resolve_oidc_endpoints`。另纠一处：`state` 并非「`:372-379` 已一次性消费」，真正清 cookie 在 `:521-522` 与 `:543-544`（两条成功路径），失败路径 `:391` 直接 return、cookie 不清。泄露面确实小（state 与单个浏览器会话绑定）⇒ 只记 L2（B2-7） |
+
+**推测项处置（只核实、不改）**：
+
+| NPC 推测 | 核实结果 |
+|---|---|
+| 登录时序泄露账号存在性（`user/service.rs:224` 提前 return，跳过 `:234` 的 Argon2；`forgot_password` 有 H-5 拉平） | **事实成立**，但**行号是旧基准**：合并后 `:232` = `None => return Err(CoreError::forbidden(INVALID_CREDENTIALS))`，`:246` 才做 `verify_password`（Argon2）；`forgot_password` 的归一化在 `:654`/`:662`（各 `sleep(100ms)`）。另注：`2ffe7e8` 起 `:238-241` 新增 agent 账户「无密码但答案与错密码一致」的分支。它自认范围外、我也不做实测 ⇒ 进 L2（B2-8），不写进正文指摘 |
+| `oci_token.rs:150-158` `SystemTime` + `.unwrap()` | **不采纳**（它自己也说不可达）。另：行号错，真值 `:132-135`（`:150` 是 claims 结构收尾） |
+
+**本轮学到的**：NPC 这次的行号准确率明显高于前批（F2 三处全中、P1-1/P1-2/P2-3 全中），错项集中在 **P2-3（`:303`→`:302`、`:343`→`:336`）、F1（`:146-149`→`:141-144`）、F5（文件级）**。它在 P2-4 主动推翻我方引导问题的前提并给出 crate 源码行号，这是三批以来第一次「反向纠正生产者」——说明引导问题本身也要接受核实，不能默认成立。
+
+
 
 ### batch#1(issue #11) · 2026-11-10 · git 协议文档与实现一致性
 
@@ -227,6 +272,21 @@ git -c protocol.version=2 clone --depth=1 ...
 
 11. **防回归守卫的第三种旁路**（第 6 轮写入，并入 #8）：`test_no_raw_git_command_in_crates` 在 `cli_gateway.rs:386` 对**整个文件** `continue`，因此 `:272` 方法体里的 `tokio::process::Command::new("git")` 连白名单都没过（它是「允许位置」但不被校验）。加上 #8 的运行时程序名与别名（`use std::process::Command as C; C::new("git")`），共四种绕过形态。措辞建议：**字面量守卫只能防手滑，不能当安全边界**。另：`platform/mod.rs:13` 只 re-export 了 `execute_script`，`execute_command`（`process.rs:51`）连导出都没有、全仓零调用 —— 两者都零生产使用，**直接删比加守卫便宜**。
 
+### 待拍板（batch#2，本流程不动 main）
+
+> 编号独立于上一批的 #1–#11，避免跨批引用串号。全部为「改代码」类，故只记录不实施。
+
+1. **B2-1 `reject_common` 对「前导非字母」的密码整段失效**（P1，实测复现）：`crates/rg-core/src/auth/password.rs:233-237` 的 `take_while` 只取前导字母段，`1Password1!` / `!Password1` / `0Admin123!` 全部 HTTP 201 注册成功，只有 `Password1!` 被拦。修法二选一：①取**最长**字母段再比对；②先剥离所有非字母字符再比对。影响面只在校验点（存量密码不受影响）：`crates/rg-core/src/user/service.rs:166`（注册）与 `:755`（重置）。
+2. **B2-2 `TooCommon` 把明文密码回显进响应体**（P1，实测复现）：`password.rs:69-73` 的 `Display` 带 `pwd`，经 `user/service.rs:169`/`:758` 的 `e.to_string()` 与 `rg-http/src/error.rs:171`→`:114-120`（H-05 只脱敏 `InternalError`）出现在未鉴权 `POST /users/register` 的 400 响应体。最小修法：`TooCommon` 不再携带值（`Display` 改为固定文案），调用方零改动。**附带核查项**：其余把用户输入拼进 `Display` 的错误变体应一并清点。
+3. **B2-3 TOTP 无重放保护**（P2，代码事实）：`totp.rs:37`/`:51` 是纯函数，`api/mfa.rs:327` 也不记录已用码；`challenge` cookie 5 min TTL（`jwt.rs:125`）远大于 30 s 步长，同一码可重复换 JWT。需「已用码」存储（带 TTL 的表或内存 LRU）⇒ 存储/schema 改动。
+4. **B2-4 `check_repo_access` 是可见性盲的死函数**（P2→P3）：`oci_token.rs:204-217` 无令牌即 `return required_action == "pull"`，完全无视仓库公开性；全仓零生产调用（唯一「调用方」`rg-http/src/oci.rs:198` 把返回值 `let _ =` 丢弃）。建议删除，或改成接收 `can_read_repo` 回调的签名。本轮已把 `oci.rs:73` 那句「caller should use check_repo_access」的误导注释改掉。
+5. **B2-5 `derive_key` 是裸 SHA-256 且与 JWT 共用 secret**（P3，事实）：`encryption.rs:12-19` 单轮 `Sha256(jwt_secret)`。换 HKDF/加盐会让 `TOTP secret`、`SSO refresh token`、`CI secret` 的全部既有密文失效 ⇒ 数据迁移级改动，不建议在本流程内做；若要做，先写重加密迁移（读旧键 → 写新键 → 双键过渡）。
+6. **B2-6 `mask_values` 的 4 字节下限无兜底**（P3）：`encryption.rs:62` 对短值静默不遮蔽；生产唯一写入点 `api/ci_secrets.rs:94` 由 `:86` 强制 4..=65536，但 `ci_secret_ops::upsert` 自身无校验（`rg-ci/src/runner.rs:1522` 只是 `#[cfg(test)]`，模块起于 `:1121`）。建议把长度校验下沉到 ops 层。
+7. **B2-7 SSO CSRF `expected` 原文入 warn 日志**（P3）：`rg-http/src/api/sso.rs:386-390`；另，失败路径 `:391` 直接 return、不清 state cookie（只有两条成功路径 `:521-522`、`:543-544` 清）。建议日志只留长度/前缀。
+8. **B2-8 登录时序泄露账号存在性**（P2，未实测）：`user/service.rs:232` 对不存在的用户提前 return，跳过 `:246` 的 Argon2；同文件 `forgot_password` 已有 H-5 拉平（`:654`/`:662` 各 `sleep(100ms)`）。修法：对不存在用户也跑一次固定 dummy hash 的校验。（行号基准 `2ffe7e8`；PR #47 之后 `:238-241` 另有 agent 账户分支，等价返回 `INVALID_CREDENTIALS`）
+9. **B2-9 `iat`/`nbf` 从不校验**（P3，无利用路径）：`jwt.rs:139` 用 `Validation::default()`；jsonwebtoken 的 `ClaimsForValidation` 无 `iat` 字段、`validate_nbf` 默认 `false`，但仓内无签发 `nbf` 的路径。只记录，不建议加自定义校验。
+10. **B2-10 `extract_user` 的哨兵 0 与丢弃调用**（P3）：`rg-http/src/oci.rs:61-78` 在 OCI token 分支返回 `Some(0)`，唯一调用点 `:198` 丢弃返回值，`api_version_check` 恒 401 —— 要么删函数，要么让它真参与鉴权。
+
 ### 判定不成立（原文保留，请勿重复提）
 
 1. 「V1 upload-pack 未收到 NUL 时会漏掉 connection 级 capability，但 flush 与 `# service=` 行上的 capability 不一致……能力协商靠「客户端好心多打一个空格」才成立，缺它则 clone/fetch 失败，而不是降级。」—— 反证：`upload_pack.rs:205-224` 的 Form A/Form B 分支覆盖了协议允许的两种形态；git 的 capability 只出现在第一个 `want` 行，客户端要么声明 `side-band-64k`（走 sideband），要么不声明（服务端裸发 packfile 属合规降级）。`scripts/git-protocol-e2e.sh:172-190` 的 `protocol.version=1` HTTP push/clone/fetch 用例长期为绿，是该路径可用的直接证据。**以下已核实为不成立，不要重复提。**
@@ -236,6 +296,14 @@ git -c protocol.version=2 clone --depth=1 ...
 2. 「`ofs-delta` 标 ✅ 站不住，`iter_from_counts` 这条路径根本产不出 OFS_DELTA」—— 反证：gix-pack 0.77 `src/data/output/entry/mod.rs:185` 把 `DeltaRef { object_index }` 直接映射为 `data::entry::Header::OfsDelta`（`:84` 另有 `OfsDelta { base_distance }` 写出分支）；`allow_thin_pack` 的文档（`iter_from_counts.rs:382-391`）只约束「base 不在本 pack 里」的 delta。`allow_thin_pack: false` 不等于「不产 OFS_DELTA」。
 
 3. 「`sideband.rs:25` 应为 `:22`」「`pkt_line.rs:59` 应为 `:61-62`」—— **NPC 已于第 4 轮撤回**。反证：`sideband.rs:25` 正是 `writer.flush().await?;`（22 是 `payload.extend_from_slice(chunk)`）；`pkt_line.rs:59` 是 `write_pkt_line` 的函数定义，引用它正是为了说明该函数不调用 flush（61-62 是长度检查，与命题无关）。
+
+以下 5 条由 **batch#2 第 1 轮 NPC 自行判定不成立**，消费者逐条复核后确认其判定正确，一并锁死：
+
+4. 「`validate_mfa_challenge` 用 `Validation::default()` ⇒ 有 alg 混淆余量 / 缺 iss/aud 即缺陷」—— **不成立**。jsonwebtoken 9.3.1（`Cargo.lock:3512-3513`）的 `~/.cargo/registry/.../jsonwebtoken-9.3.1/src/validation.rs:164-167` 把 `Default` 钉成 `Algorithm::HS256`、`:115` 强制 `exp` 存在、`:120` `leeway: 60`、`:124` `validate_exp: true`；且 `jwt.rs:47-49` 的域分离密钥已阻断与普通会话串用。
+5. 「`pat_scope` 的 `*` 能跨 `/` 是缺陷」—— **不成立**。`pat_scope.rs:559-567` 的用例把 `refs/heads/agent/x` 与 `refs/heads/agent/a/b` 一并断言为允许，`agent/*` 覆盖子路径是刻意语义。
+6. 「`has_scope` 层级漏了 `repo:collab → repo:write`」—— **不成立**。文档表 `pat_scope.rs:10-15` 写明 collab 是「the above, plus write the collaboration area」，不含 `repo:write`。
+7. 「`ldap.rs` 的 RFC 4515 转义不全」—— **不成立**。`ldap.rs:32-48` 覆盖 `\0 ( ) * \` 全部五个必备字符与所有非 ASCII（转 `\xx`）。
+8. 「SSO CSRF state 用弱随机」—— **不成立**。`rg-core/src/auth/sso.rs:87-91` 是 `rand::thread_rng()`（ChaCha12 CSPRNG）+ `Alphanumeric` ×32 ≈ 190 bit，且 `rg-http/src/api/sso.rs:381-392` 有签名 cookie 双向比对。
 
 ### 对方已撤回（勿再作为争议点）
 
