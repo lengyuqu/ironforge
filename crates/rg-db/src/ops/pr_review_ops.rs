@@ -4,6 +4,10 @@ use anyhow::{Context, Result};
 use sea_orm::*;
 
 use crate::entities::pr_review::{self, ActiveModel, Entity as ReviewEntity, Model as PrReview};
+use crate::entities::user;
+
+/// `users.kind` of a person. An agent is `"agent"`; see `rg_core::agent`.
+const KIND_HUMAN: &str = "human";
 
 /// Find a review by ID.
 pub async fn find_by_id(db: &DatabaseConnection, id: i64) -> Result<Option<PrReview>> {
@@ -40,12 +44,17 @@ pub async fn list_by_pr_and_reviewer(
 
 /// Count approvals for a PR.
 pub async fn count_approvals(db: &DatabaseConnection, pr_id: i64) -> Result<i64> {
-    count_current_approvals(db, pr_id, None).await
+    count_current_human_approvals(db, pr_id, None).await
 }
 
-/// Count at most one latest approval per reviewer for the current head commit.
+/// Count at most one latest approval per reviewer for the current head commit,
+/// counting people only.
+///
 /// A later `request_changes` from the same reviewer supersedes their approval.
-pub async fn count_current_approvals(
+/// Reviews left by an agent are ignored: approving is a human act, so an
+/// agent's approval never satisfies a review requirement, even when the agent
+/// is not the author (its owner's PR included).
+pub async fn count_current_human_approvals(
     db: &DatabaseConnection,
     pr_id: i64,
     head_sha: Option<&str>,
@@ -57,8 +66,8 @@ pub async fn count_current_approvals(
             latest.insert(review.reviewer_id, review);
         }
     }
-    Ok(latest
-        .values()
+    let current: Vec<PrReview> = latest
+        .into_values()
         .filter(|review| {
             review.action == "approve"
                 && match head_sha {
@@ -66,6 +75,25 @@ pub async fn count_current_approvals(
                     None => review.commit_id.is_none(),
                 }
         })
+        .collect();
+    if current.is_empty() {
+        return Ok(0);
+    }
+
+    let reviewer_ids: Vec<i64> = current.iter().map(|review| review.reviewer_id).collect();
+    let humans: Vec<i64> = user::Entity::find()
+        .filter(user::Column::Id.is_in(reviewer_ids))
+        .filter(user::Column::Kind.eq(KIND_HUMAN))
+        .all(db)
+        .await
+        .context("db: list human reviewers")?
+        .into_iter()
+        .map(|model| model.id)
+        .collect();
+
+    Ok(current
+        .iter()
+        .filter(|review| humans.contains(&review.reviewer_id))
         .count() as i64)
 }
 
