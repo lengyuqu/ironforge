@@ -49,7 +49,8 @@
 - NPC 第 3 轮复核：**已到**，`2026-11-10T09:41:46Z`（延迟 2 min 16 s）
 - NPC 第 4 轮复核：**已到**，`2026-11-10T09:51:47Z`（延迟 5 min 20 s）
 - NPC 第 5 轮复核：**已到**，`2026-11-10T10:22:30Z`（延迟 28 min 15 s——它本轮自己 `cargo build --release` 花了 23 m 28 s，延迟首次突破 20 min 46 s 的 p100）
-- 6 轮进度：5 / 6
+- NPC 第 6 轮复核：**已到**，`2026-11-10T10:56:50Z`（延迟 3 min 38 s，回到基线；本轮它沙箱**无 Rust 工具链**，只做静态核对，并主动声明该限制）
+- 6 轮进度：**6 / 6（跑满）**，收批
 
 ### consume 1 / 6
 
@@ -161,6 +162,35 @@ git -c protocol.version=2 clone --depth=1 ...
 
 **方法论（第三次同类）**：NPC 连续三轮出现「结论方向对、行号错 1–4 行」的模式（本轮 `ops.rs:841`→`843`、`bundle/write/mod.rs:104` 判「对」→实际 `:100`、`process.rs:47`→`:51`、`:13`→`:15`）。因此**不能因为它的行号错就驳回整条**，也不能因为它说「对」就放过——必须自己 `sed -n` 打出那一行，看它是否真的承载了命题。本轮第 2 条正是「它的结论对、它的行号错、我的行号也错」三者叠加。
 
+### consume 6 / 6
+
+- 判定：**成立 6 / 部分成立 2 / 不成立 0**（另有对方主动撤回 1 条自己的第一稿结论）
+- 动作：L1 `docs/git-protocol.md` + `cli_gateway.rs` 注释 + `ops.rs` 文档注释，提交 `18b7807`；L2 新增 1 条、补强 3 条
+- 验证：`BASE=66127b5`；`scripts/check.sh --quick` 改前 **2 s**（热）、改后 **50 s** 通过。**行号不变**：`ops.rs` 只改 2 行内容（原 2 行 → 2 行），`cli_gateway.rs` 4 行 → 4 行，故全仓既有 `path:line` 引用无漂移（第 5 轮踩过这个坑）
+- 回帖：见下（本轮回帖 ID 记入下次运行的起点）
+- 本批 6/6 跑满，收尾后置 `closed` + `BATCH_COMPLETE`
+
+| # | NPC 第 6 轮指摘 | 判定 | 处置 |
+|---|---|---|---|
+| 1 | §4 `:308` 写「`allow_thin_pack` 全 crate 只有一个**读取点**」，主语混了：IronForge 侧只有写点 | **成立** | `grep -rn allow_thin_pack --include=*.rs .` 全仓 **1 命中**＝`ops.rs:833` 的 `allow_thin_pack: false,`（写死）。已改写为「IronForge 侧没有读取点，只有写点 `ops.rs:833`；唯一读取点在 gix `iter_from_counts.rs:189`」 |
+| 2 | §4 `:302` 的「等价 `--fix-thin`」在 IronForge 侧没有证据，`:1056` 只证明传了 `Some(lookup)` | **成立** | `ops.rs:1056` 确为 `Some(repo.objects.clone()),`；「等价」唯一背书是 `receive_pack.rs:467-470` 的注释；`grep -nE '\bthin\b|thin-pack|--thin' scripts/git-protocol-e2e.sh` **0 命中**（32 个 git 用例里无 thin push）。已加「证据等级」段，标明未验证 + 补齐方式 |
+| 3 | §4 `:306` 把「入站补完 thin base」和「回写成字节」压成因果 | **成立** | `EntriesToBytesIter` 属 `Bundle::write`（`unpack-objects` 风格），IronForge 入站实际是 `index_pack_bytes` → `Bundle::write_to_directory`（`ops.rs:1040-1064`，`sed` 验过全程无该类型）。已拆成两句 |
+| 4 | §8 `:589`/`:638` 把 V2 广告串写成 `fetch=shallow`，实际 `fetch=shallow filter` | **成立（线格式级）** | `v2.rs:48` = `"fetch=shallow filter"`；`:1199` 断言 `contains("filter")`。两处图示/code block 已改（§3 正文 `:244` 本来是对的，属内部自相矛盾） |
+| 5 | 表漏 `upload_pack.rs:371` 的 `pack_universe` 空 want 回退，使「V1 全量/增量都走它」失效 | **成立** | `sed -n '370p;371p'` = `if wants_owned.is_empty() {` / `return crate::ops::pack_universe(&repo_dir);`。表拆成两行：`pack_for_wants` 只接 V1 增量，新增 `pack_universe` 行 |
+| 6 | 「`pack_universe` 至少 3 个测试调用点：`ops.rs:1600`、`upload_pack.rs:424`、`ops.rs:1710`」 | **部分成立** | `grep -rn pack_universe` 全量：测试调用点只有 `ops.rs:1600`。`upload_pack.rs:424` 是测试的 **doc 注释**里提到名字（「previously called `pack_universe`」），不是调用；`ops.rs:1710` 在 `object_filter_falls_back…` 测试内，**没有** `pack_universe`。漏项本身成立、数量错 |
+| 7 | `pack_universe` 有第二个生产调用者 `fork_repo`，`ops.rs:859` 文档只写 initial-clone | **成立** | `crates/rg-core/src/repo/service.rs:1241` = `let pack = rg_git::ops::pack_universe(&source_dir)`，下接 `index_pack_bytes(target)`。文档 §3 全量打包那条 + `ops.rs:857-858` 注释都补了「第二个调用方是非协议路径，shallow/filter/haves 不适用」 |
+| 8 | `cli_gateway.rs:258`「全 workspace 只有这一处出现 `spawn_async`」 | **成立** | `grep -rn spawn_async`：代码 3 处（`:12`/`:257`/`:262`）+ 文档多处。已改为「只有这一处**定义**（文件头 `//!` 另有一处提及）」 |
+| 9 | `:259-260`「两个方向都走 gix 原生（出站 `iter_from_counts`，入站 `pack_for_wants*` / `index_pack_bytes`）」入站写错 | **成立（我错）** | `pack_for_wants*` 是**出站**（`ops.rs:919/952` 产出 client 要的 pack），入站只有 `index_pack_bytes`（`:1040`）。已改成「出站 `pack_for_wants*` / `iter_from_counts`，入站只有 `index_pack_bytes`」。这是第 5 轮方向错误的镜像：同一个方向词换了个位置又写反一次 |
+| 10 | `:261`「删掉比留着一个被模块文档宣传的死 API 更好」描述的是已消灭的状态 | **成立** | 模块文档 `:12-14` 已如实标注「当前全仓无调用方」，不再宣传。已改写 |
+| 11 | `spawn_async` 方法体有裸 `Command::new("git")`，守卫 `:379` 整文件 skip | **部分成立** | 结论成立：`cli_gateway.rs:272` 是 `tokio::process::Command::new("git")`。但行号两处偏：skip 判定在 **`:386`**（`:379` 是 `.filter_map(|e| e.ok())`），裸调用在 **`:272`**（不是 `:270`）。机制已并入 L2 #8 |
+| 12 | 守卫的两个字面量 `:396`/`:397`，且别名可绕（`use std::process::Command as C`） | **成立** | `sed` 打出正是这两行。别名/变量程序名绕过的结论也成立 → L2 #8 补强 |
+| 13 | `rg_core::platform` 只 re-export 了 `execute_script`，`execute_command` 连 re-export 都没有 | **成立** | `platform/mod.rs:13` = `pub use process::execute_script;`（仅此一条 process 项）。`execute_command`（`process.rs:51`）全仓零调用、连导出都没有 → 并进 L2 #8 |
+| 14 | `pack_for_wants_unshallow_sends_full_history` 该从 `opts` 搬到 `filtered` | **成立** | `ops.rs:1865` 函数、`:1875` 调 `pack_for_wants_opts`；`ops.rs:998-1005` 的 `hidden`：`shallow_mode && boundaries 空 → Vec::new()`（不按 haves 剪），该语义在 V2 unshallow（`v2.rs:1171`→`:1176` `filtered`）是活的。搬测试 = L2 #9 补强 |
+| 15 | (d) `0004` 空 pkt-line 让 `read_command_request` 永不返回 | **成立（代码事实），未实测** | `pkt_line.rs:129-131` 空 payload → `Data(vec![])`；`v2.rs:458-473` 中该行 `trim_end_matches('\n')` 成空串，capability 阶段两个分支都不命中（`strip_prefix("command=")` 假、`!line.is_empty()` 假）→ 丢弃继续循环，只有 `Flush` 才 break。`v2.rs:438` 是 `loop`。列 L2 #10，优先级高于 #5 |
+| 16 | 它自己的第一稿「`skip_until_flush` 在 EOF 时空转」 | 对方撤回 | 记入「对方已撤回」表 |
+
+**方法论（第四次同类，本批收敛出的结论）**：NPC 第 6 轮自身质量最高（它明确声明「沙箱无 Rust 工具链、gix 源码不在，凡 gix 内部断言只到注释层」，并把两条降级为线索），但它仍有 **5 处行号偏 1–2 行**（`:258`→`:257`、`:259-260`→`:258-259`、`:261`→`:260`、`:379`→`:386`、`:270`→`:272`）。反过来，我这一轮被抓到的 3 处（`:308` 主语、`:259-260` 方向、`:260` 时态）全是**语义层**错误，不是行号。结论：**行号错归它，语义错归我**——两套校验都得做，机械核对治不了语义错。
+
 ### 反向清单勘误（结论不变，理由替换）
 
 第 1 条仍判**不成立**，但理由从「协议允许的两种 want 形态都已覆盖」改为：
@@ -179,7 +209,11 @@ git -c protocol.version=2 clone --depth=1 ...
 6. **`cli_gateway.rs` 的 `spawn_async` 零调用**：`crates/rg-git/src/cli_gateway.rs:257-280` 定义了但全仓无调用方，模块文档 `:6` 却在宣传它；防回归测试 `test_no_raw_git_command_in_crates` 只管 `Command::new("git")`，守不住这种死 API。
 7. **`ops.rs:933-936` 的懒取回路径没进文档**：want 直接给 blob/tree 时按 `extra_inputs` 原样打包、不走进 history walk（promisor 懒取回），`ops.rs:1772-1820` 有测试（`lazy fetch under {spec}` 断言 pack 恰好 1 个对象），e2e `:340-348` 在真客户端上跑过。**已于第 1 轮补进文档**（§3 懒取回那条），当前代码引用是 `ops.rs:949-950`（本行原写的 `:933-936` 是旧行号，已过期）。
 8. **防回归守卫抓不到运行时程序名**（第 5 轮写入）：`test_no_raw_git_command_in_crates`（`cli_gateway.rs:370`）只做两个字面量匹配（`:396-397`），而 `crates/rg-core/src/platform/process.rs:51` 的 `execute_command(program, args)` 程序名是运行时变量、`:15` 的 `execute_script` 直接 `sh -c`，两者都可绕过。当前 `execute_command` **零调用点**（仅 `:49` doc 示例写着 `execute_command("git", …)`），`execute_script` 仅 `:229` 一处测试调用 —— 故为潜在缺口。两个方向：①测试把 `execute_command(` / `execute_script(` 也纳入扫描 + 白名单；②给 `execute_command` 加 `#[doc(hidden)]` 并禁止 `rg-git` 外使用，把 git 调用强制收进网关。要动测试逻辑，属 L2。
-9. **`pack_for_wants_opts` 是生产不可达的测试缝**（第 5 轮写入）：`ops.rs:930` 只被 `pack_for_wants`（`:925`，写死 `false`）与一个测试（`:1875`）调用，`shallow_mode: true` 在生产走不到。选项：删掉它、把测试改调 `filtered`（三层压两层），或留着并在文档里标非稳定（**文档侧已标**，见 §3）。删代码属 L2。
+9. **`pack_for_wants_opts` 是生产不可达的测试缝**（第 5 轮写入）：`ops.rs:930` 只被 `pack_for_wants`（`:925`，写死 `false`）与一个测试（`:1875`）调用，`shallow_mode: true` 在生产走不到。选项：删掉它、把测试改调 `filtered`（三层压两层），或留着并在文档里标非稳定（**文档侧已标**，见 §3）。删代码属 L2。**第 6 轮补强**：`ops.rs:1865` 的 `pack_for_wants_unshallow_sends_full_history` 该搬去调 `pack_for_wants_filtered`（它钉的语义——`pack_for_wants*` 在 `shallow_mode && boundaries 空` 时不按 haves 剪（`ops.rs:998-1005`）——在 V2 unshallow 路径上是活的，只是入口挑错了），搬完 `opts` 就零调用点，可无风险删除。
+
+10. **`0004` 空 pkt-line 让 V2 命令循环空转**（第 6 轮写入，**优先级高于 #5**）：`pkt_line.rs:129-131` 把长度 4 解析成 `PktLine::Data(Vec::new())`；`v2.rs:458-473` 把它 `trim_end_matches('\n')` 成空串，capability 阶段 `strip_prefix("command=")` 与 `!line.is_empty()` 都不命中 → 静默丢弃 → `v2.rs:438` 的 `loop` 继续读，只有 `Flush`/`ResponseEnd`/EOF 才退出。即「一个全 `0004` 的输入流会让 `read_command_request` 永不返回」，纯 CPU 空转、连接不释放，靠 `git_stream_timeout()` 收尾。**未实测**（无 runtime 验证 `0004` 能否被真实客户端发出、HTTP duplex 是否先超时）；NPC 建议单开一轮。修法方向：`0004` 在 capability 阶段计为畸形输入并 `bail!`，或设空行计数上限。
+
+11. **防回归守卫的第三种旁路**（第 6 轮写入，并入 #8）：`test_no_raw_git_command_in_crates` 在 `cli_gateway.rs:386` 对**整个文件** `continue`，因此 `:272` 方法体里的 `tokio::process::Command::new("git")` 连白名单都没过（它是「允许位置」但不被校验）。加上 #8 的运行时程序名与别名（`use std::process::Command as C; C::new("git")`），共四种绕过形态。措辞建议：**字面量守卫只能防手滑，不能当安全边界**。另：`platform/mod.rs:13` 只 re-export 了 `execute_script`，`execute_command`（`process.rs:51`）连导出都没有、全仓零调用 —— 两者都零生产使用，**直接删比加守卫便宜**。
 
 ### 判定不成立（原文保留，请勿重复提）
 
@@ -200,6 +234,17 @@ git -c protocol.version=2 clone --depth=1 ...
 | 「V1 + `--depth` 会发 `deepen`，全量包被当浅克隆收下」 | 它 `cargo build --release` 后实测三组对照：V1+depth exit 128 `fatal: Server does not support shallow clients`、V1 无 depth ✅、V2+depth ✅ 且 `.git/shallow` 写入。补测 `fetch --deepen=2` 同样失败。原话「你第 1 条复核请求我给不了反证」 |
 | 「`ofs-delta` 标 ✅ 站不住」 | 「撤回，`mod.rs:185` 行号精确」 |
 | 「`sideband.rs:25` / `pkt_line.rs:59` 引错」 | 「撤回」（第 4 轮已撤，第 5 轮重申） |
+| 「`skip_until_flush` 在 EOF 时空转」 | 第 6 轮它自己撤回：「`skip_until_flush` 只认字面 `Flush`，而 `read_pkt_line` 在 EOF 时返回的正是 `Flush`，所以它会正常退出。洞在 `read_command_request` 对 `0004` 空行的处理上」 |
+
+### 第 6 轮记下的对方错项（部分成立里的错处，勿当结论引用）
+
+| 它说的 | 实际 |
+|---|---|
+| `pack_universe` 有 3 个测试调用点 | 只有 `ops.rs:1600`；`upload_pack.rs:424` 是测试 doc 注释、`ops.rs:1710` 是 filter 测试 |
+| 守卫在 `:379` 整文件 skip | skip 判定在 `:386`（`:379` 是 `filter_map`） |
+| `spawn_async` 方法体裸 git 在 `:270` | 在 `:272` |
+| `cli_gateway` 注释三处在 `:258` / `:259-260` / `:261` | 在 `:257` / `:258-259` / `:260` |
+| ack 扫描 `gix::open().ok()` 在 `v2.rs:806` | 在 `:805`（`:806` 是 `let mut acked = Vec::new();`） |
 
 ---
 
@@ -226,7 +271,7 @@ git -c protocol.version=2 clone --depth=1 ...
 
 1. **CNB main 无分支保护**：F15（评审者越权直推）在本仓拦不住。协议 v0.3 也只给「发现 + 保留」的处置，没有恢复独立性的机制。
 2. **NPC 流水线是否吃 CNB Runner 额度未验证**：CLAUDE.md:26 记录 Runner 额度已耗尽、CI 已迁 git233。若共享额度，定时任务跑到某天会集体失败。
-3. **批次上限 6 轮尚未跑满**：目前 5/6。但第 5 轮的产出质量**回升**了：它自己装了 Rust 工具链做实测复现（`cargo build --release` 23 m 28 s），抓到一条我方真实的事实错误（类型方向写反）。结论：边际收益不按轮次线性衰减，取决于它是否肯构建 —— 值得跑满 6 轮再判。
+3. **批次上限 6 轮已跑满**（本批 6/6，issue 置 `closed` + `BATCH_COMPLETE`）。**收敛判定**：边际收益确实不按轮次线性衰减 —— 第 5 轮（它自装工具链做实测）与第 6 轮（它自己声明沙箱无工具链、只到注释层，但准确指出我方 6 处语义错：`:308` 主语、`:259-260` 方向、`:260` 时态、`:302` 证据等级、`:306` 因果、§8 线格式）都产出了真事实错误。**关键变量是「它肯不肯构建 / 肯不肯自证」**，不是轮次。下一批建议：仍设 6 轮，但把「必须给出自证形式（`sed`/`grep` 输出或实测）」写进触发语。
 4. **NPC 自举环境会推高延迟到 28 min**（第 5 轮，n=5 破 p100 20 min 46 s）。若继续挂每小时任务，等待窗口应按 ≥30 min 预留，否则那一轮会被误判「等待超时」。
 
 ---
