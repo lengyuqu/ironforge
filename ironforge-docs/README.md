@@ -47,6 +47,7 @@
 | `multi-agent-collaboration-verification-2026-11.md` | 协作首版 C01–C06 / T01–T12 的分层验证证据、环境与未验证项 |
 | `agent-collaboration-implementation-roadmap-2026-11.md` | 多 Agent 协作首版、P0–P2 实施依赖、任务拆分与验收门槛（Proposed） |
 | `agent-collaboration-operability-requirements-2026-11.md` | 规则入口、用户总览、保留恢复与完成条件的需求与验收（Proposed） |
+| `agent-draft-refs-ttl-design-2026-11.md` | Agent 草稿命名空间：`refs/heads/agent/<id>/*` 的 TTL、通知抑制、自动清理设计细化（Proposed，未实现） |
 
 ---
 
