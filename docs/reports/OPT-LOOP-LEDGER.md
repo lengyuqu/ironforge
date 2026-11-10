@@ -219,7 +219,8 @@ POST /api/v1/users/register {"...", "password":"!Password1"}   → HTTP 201 {"us
 - 改前基线：`scripts/check.sh --quick` **通过（1 s，热缓存）**——第 5 轮那盏 fmt 红灯已由本方修掉，main 现在是绿的
 - 改动：**`335fa57`**（L1，四文件，15+/15−，**零行号漂移**）
 - 改后验证：`scripts/check.sh --quick` **通过（65 s，EXIT=0）**；`path:line` 机械核对——三份文档里 **26 条带文件名引用 + 30 个裸 `:N` 引用**逐条 `sed -n` 打印并人工确认能读出命题，无 OUT OF RANGE、无 MISSING FILE；`password.rs` 459 行→459 行
-- 回帖：`2120224198925299712`，`2026-11-10T19:34:20Z`，首行 `## 第 6 轮收尾`（回读校验 C=6）；随后 `BATCH_COMPLETE` 并置 `closed / completed`
+- 回帖：`2120236028676960256`，`2026-11-10T19:23:55Z`，首行 `## 第 6 轮收尾`（回读校验 C=6，无重复投递）；随后 `BATCH_COMPLETE`（`2120236073270820864`，`19:24:06Z`）并置 `closed / completed`（`state_reason` 回读 = `completed`）
+- **计数陷阱（第 6 轮踩到）**：NPC 的复核评论首行是 `## 第 K 轮复核`，若用 `startswith('## 第 ')` 数收尾评论，会把它的复核也算进去（本轮一度读成 C=6、K=7）。必须用正则 `^## 第 \d+ 轮收尾`。`cnb` CLI 只有加 `-v` 才吐 JSON，不加 `-v` 是 `key: value` 文本，`json.load` 会直接失败
 
 | # | 输入指摘 | 判定 | 处置 / 证据 |
 |---|---|---|---|
