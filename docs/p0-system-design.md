@@ -122,7 +122,7 @@ Entity (rg-db/src/entities/*.rs)
 | id | BIGINT | PK, AUTO_INCREMENT | |
 | user_id | BIGINT | NOT NULL, FK → users.id | |
 | repo_id | BIGINT | NOT NULL, FK → repositories.id | |
-| watch_state | VARCHAR(20) | NOT NULL, DEFAULT 'not_watching' | `not_watching` / `watching` / `ignoring`（服务层不校验枚举，任意字符串可落库） |
+| watch_state | VARCHAR(20) | NOT NULL, DEFAULT 'not_watching'，**无 CHECK** | `not_watching` / `watching` / `ignoring`；服务层不校验，任意字符串（如 `none`）可落库，`list_watchers` 也不按它过滤 |
 | created_at | TIMESTAMP WITH TIMEZONE | NOT NULL, DEFAULT now() | |
 | updated_at | TIMESTAMP WITH TIMEZONE | NOT NULL, DEFAULT now() | |
 

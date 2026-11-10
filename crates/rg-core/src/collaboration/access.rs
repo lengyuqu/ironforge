@@ -14,7 +14,7 @@ use super::error::{CollabError, CollabResult};
 
 /// Whether `user_id` is in the working group of `repo`. Decided from the
 /// database, not the 30s process-local permission cache, so a revocation takes
-/// effect on the very next call — at the price of a global perm-cache write lock per call.
+/// effect on the very next call — at the price of a global perm-cache write lock per call (`require_collab_read` pays it twice per request: its own clear, then this one).
 pub async fn is_collab_member(
     db: &DatabaseConnection,
     repo: &repository::Model,

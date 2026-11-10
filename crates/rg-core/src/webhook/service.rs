@@ -26,7 +26,7 @@ pub struct CreateWebhookRequest {
     pub content_type: Option<String>, // "json" (default) or "form"
     pub secret: Option<String>,
     pub active: Option<bool>,
-    pub events: Vec<String>, // e.g. ["push", "issue.opened"] — 全名带点，匹配用 LIKE 子串
+    pub events: Vec<String>, // e.g. ["push", "issue.opened"] — 全名带点，匹配用 LIKE 子串：裸 "issues" 永不命中 "issue.opened"（钩子静默死亡），全名下反向不会误触发
 }
 
 #[derive(Debug, Serialize, Deserialize)]
