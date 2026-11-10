@@ -187,6 +187,71 @@ async fn login_keeps_credential_failures_indistinguishable_and_sanitises_storage
     assert_sanitised_500(status, &body);
 }
 
+/// Argon2 dominates `/login`, so an unknown username that skips hashing answers
+/// measurably faster than a wrong password. That is the last enumeration signal
+/// left once the status and body match (which the test above pins).
+///
+/// Every account is probed **once**: repeated failures trip the lockout, after
+/// which responses drop to sub-millisecond regardless of whether the account
+/// exists, and the comparison would silently measure the lockout instead.
+///
+/// Deliberately a magnitude check, not a tight one — CI timing is noisy.
+#[tokio::test]
+async fn login_spends_the_same_hashing_work_for_unknown_accounts() {
+    async fn one_attempt(c: &reqwest::Client, url: &str, login: &str) -> f64 {
+        let started = std::time::Instant::now();
+        let resp = c
+            .post(url)
+            .json(&json!({"login": login, "password": "Wrong#pass1"}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 401, "expected a credential failure");
+        started.elapsed().as_secs_f64() * 1000.0
+    }
+
+    fn median(mut v: Vec<f64>) -> f64 {
+        v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        v[v.len() / 2]
+    }
+
+    let (base, _db) = spawn_test_app_with_db().await;
+    let c = client();
+    let url = format!("{base}/api/v1/users/login");
+
+    // Distinct accounts, one wrong password each — no lockout.
+    let mut known = Vec::new();
+    for i in 0..3 {
+        let name = format!("timinguser{i}");
+        register_full(&base, &name, &format!("{name}@example.com")).await;
+        known.push(one_attempt(&c, &url, &name).await);
+    }
+    let mut unknown = Vec::new();
+    for i in 0..3 {
+        unknown.push(one_attempt(&c, &url, &format!("nobody-timing-{i}")).await);
+    }
+
+    let known = median(known);
+    let unknown = median(unknown);
+
+    // If hashing is unusually cheap here the ratio is dominated by noise, so
+    // skip rather than flake.
+    if known < 2.0 {
+        eprintln!(
+            "skipping timing assertion: wrong-password median {known:.2} ms is too low to be \
+             dominated by hashing"
+        );
+        return;
+    }
+
+    assert!(
+        unknown > known * 0.5,
+        "an unknown account must not answer faster than a wrong password: \
+         unknown={unknown:.2} ms, wrong-password={known:.2} ms (ratio {:.2})",
+        unknown / known
+    );
+}
+
 #[tokio::test]
 async fn reset_password_classifies_token_and_password_errors() {
     use sha2::Digest;
