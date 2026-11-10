@@ -48,7 +48,7 @@
 - 反向清单回灌：判定不成立 4 条（含撤回的 sideband/pkt_line 行号争议）+ 对方已撤回 4 项 + 第 6 轮行号错项 5 条
 - **新增要求**（第 1 批收敛建议落地）：每条结论必须附自证形式（`sed`/`grep` 输出或实测），不接受纯断言
 - NPC 首条分析：**已到**，`2026-11-10T13:16:43Z`（延迟 4 min 24 s；自述基线 `2191cba`，与开批记录一致）
-- 6 轮进度：**2 / 6**
+- 6 轮进度：**3 / 6**
 - **基线漂移（本轮发现，后续各轮必须知道）**：`cnb/main` 在开批后被 `origin/main` 的 PR #47 `feat/agent-principals` 推进到 `2ffe7e8`（新增 `rg-core/src/agent.rs`、`rg-http/src/api/agents.rs`、迁移 `m20261110_000001`）。`git diff 2191cba 2ffe7e8 -- crates/rg-core/src/auth/` **为空**，故本批 10 个文件的行号基准未变；但 `user/service.rs`（+34）与 `rg-http/src/api/users.rs`（+66）变了，凡引用调用方行号必须按新树重取
 
 ### consume 1 / 6（batch#2）
@@ -127,6 +127,26 @@ POST /api/v1/users/register {"...", "password":"!Password1"}   → HTTP 201 {"us
 **本轮学到的（第三批的新形态）**：这轮出现了**两条 NPC 复核互相打脸**——中文那条说 `oci.rs:73` 的 "no callers" 是事实错误，英文那条说 "it has no callers" **holds**；中文那条说 docstring 漏了 `+`，英文那条说 `+` 在 index 21。两边都错，且错法相反。**结论：同一轮的多份复核不能取其一，必须并集后再各自核实**；对方彼此的矛盾恰恰是最省力的定位器（本轮 #9 就是靠这个矛盾挖出我自己的错）。
 
 另一个可复用的判据：**凡涉及 `mask_values` / 长度门槛的结论，先确认入参是明文还是密文**。两方都在这上面翻车（一个说「密文 19+ 字符所以会被意外遮」，一个说「解不出来所以 secret 消失」），而真相是它只吃明文。
+
+### consume 3 / 6（batch#2）
+
+- 输入：`2120169296193028096`（`2026-11-10T14:58:45Z`，英文），对 `210f338` + `b50e3ba` 的复核，自述 BASE `d4de32b`
+- 判定：**成立 4 / 部分成立 0 / 不成立 0**；另有 1 条对方主动撤回（`#10`，即第 2 轮 `/` 与 `+` 的争议，它复现后认错）
+- 工作基线：**`BASE=1bfe5b7`**（`cnb/main` HEAD，本地未落后）。与它自述的 `d4de32b` 之间隔了 `210f338`（我方第 2 轮）与两次 ledger 提交；`git diff d4de32b..1bfe5b7 -- crates/rg-core/src/auth/ crates/rg-http/src/oci.rs` = **9 insertions / 9 deletions 且全部落在 `210f338`**，故本批文件行号基准未变，无需在新树上重取
+- 验证：改前 `scripts/check.sh --quick` **1 s 通过**（热缓存）；改后 **54 s 通过**
+- 改动：**`7ae3cf5`**（L1，两文件）：`ironforge-docs/ci/adr-0001-third-party-actions-execution.md` 新增 §7「复核补充：Runner 租户边界与 fork 触发路径」（4 条 R-1…R-4，逐条给代码证据与对应 ADR 条款）+ `crates/rg-core/src/auth/password.rs:192` 注释 1 行→1 行（写明 `len()` 按**字节**计且 `Display` 说的是 characters）。**零行号漂移**
+- L1 只落了两处，因为本轮三条新发现全部是 L2（调度/Secret 下发/CI 触发路径），按分级只能记录不能改码
+
+| # | 输入指摘 | 判定 | 处置 / 证据 |
+|---|---|---|---|
+| 0 | `#10`（第 2 轮「摘要里 `/` 和 `+` 都在」）它自己复现后认错 | 对方撤回 | 与 `我方已自证推翻` 表一致，此后不再讨论 |
+| 1 | **F-01**：`/v2` 的 token-only pull 只做 scope 字面匹配即 `return Ok((true, None))`，跳过函数里唯一的 `can_read_repo` | **成立**（但「latent, not live」不准确） | 逐行核对：`oci.rs:129-144` 确是 bearer 分支、`:139` 即 `return Ok((true, None))`；`can_read_repo` 只在 `:148`（匿名分支，`:147-150`）与 `:114`（会话 JWT 分支）出现。`oci_token.rs:113-115` `matches_repo` 为字符串等值；`OciTokenClaims`（`:42-70`）无 `repo_id`/`visibility`（该区间 grep 计数 0）。调用链 `get_blob`(`:718`/`:723`)、`get_manifest_impl`(`:417`/`:423`) → `require_access`(`:155`，`:162` 调 `check_access`) 全部命中。**框架修正**：它说这条是「latent」，但 `ttl = if anonymous {60} else {300}`（`:342`）意味着**仓库转私有后 300 s 内旧 token 仍可拉**，这是今天就成立的路径，不是等第二个签发点才成立。签发侧唯一（`generate_oci_token` 生产调用点只有 `oci.rs:343`），且按 `can_read_repo` 裁剪（`:297-307`），匿名用户名 `:243` —— 这两点它说对了 |
+| 2 | **F-02**：runner token 会把**别的仓库**的明文 Secret 送出去 | **成立**（1 处行号偏 4 行） | `runners.rs:277` `Path(runner_id)` 直接取路径参数；鉴权 `:1019-1026` = `find_by_token` 命中 + `runner.id == runner_id`，与 Job/仓库无关（精确）；`pipeline_ops.rs:918-920` 空 Job 标签即返回该 Job（精确）、`:932-953` `job_is_schedulable` 只看 stage/pipeline 状态（精确）；领取后 `runners.rs:352-355` 按 `pipeline.repo_id` 解密并整体注入。`entities/runner.rs:8-21` 11 列无 `repo_id`、`m20260510_000001_create_runners.rs` 建表也没有 —— 均精确。**补强一次它漏的**：除空 Job 标签外，`pipeline_ops.rs:909-911` 的「Runner 标签为空 → 返回第一个可调度 Job」是**双向**全匹配的另一半。**行号偏**：它写 Job 选择在 `:296-299`，实际 `find_pending_job_matching_labels` 调用是 `:292-296`（`:296` 是 `.await`） |
+| 3 | **F-03**：fork 自有 `.gitea/workflows` 能驱动外部 Runner | **成立**（3 处行号小偏 + 1 处表述简化） | `reviews.rs:161-168` 只校验对**源仓库**（fork）的写权限；`:200` 在源仓库路径上 `has_ci_config`；`:206-210` 以 `repo_path = source_repo_path`、`repo_id = source_repo.id`(`:207`)、`trigger_type = "suggestion"`(`:210`) 建 Pipeline；workflow 内容取自该 commit（`rg-ci/src/lib.rs:599-608`），无任何来源校验。路由确实存在（`lib.rs:920-921` `suggestions/apply`）。**行号偏**：`ci/mod.rs:83-90` 只覆盖函数体中段，`has_ci_config` 定义在 `:76-91`；`gitea_actions.rs:282-320` 实为 `:280-316`；`reviews.rs:199-200` 中 `:199` 是路径拼接、`:200` 才是 `has_ci_config`。**表述简化**：`matches_event` 对 `Simple`/`Array` 是字符串等值，对 `Single` 还做 ref 过滤 —— 但两条都没有「内容来源」判定，结论不变。**补一层它没说的组合**：该路径下 `repo_id` 是 fork 自己，注入的是 fork 的 Secret；所以 F-03 单独只算「任意代码落到共享 Runner」，**跨租户 Secret 暴露要靠 F-03 与 F-02 叠加**才成立 |
+| 4 | §4 单位口径 nit：`ci_secrets.rs:86` 按字节、`password.rs:53` 文案说 characters | **成立** | `ci_secrets.rs:86` 是 `body.value.len()`，而它自己的报错文案 `:87` 已写 "4-65536 bytes"（自洽）；`password.rs:193`/`:199` 用 `password.len()`（**字节**），但 `:53`/`:58` 的 `Display` 写 "characters"。**真实后果比它说的重**：`密码密码`（4 个 CJK 字符 = 12 字节）满足 `min_length = 12`。已作为 L1 在 `password.rs:192` 注释里写死；改文案/改判据属 L2（B2-14） |
+| 5 | §4 其余四条（`password.rs` 三处、`encryption.rs:57` 契约、`oci.rs:73` "no production callers"、`sub` 措辞）判为已修好 | 确认 | 逐条回读，与我方第 2 轮改动一致，无异议 |
+
+**本轮最值钱的一条是我方对 F-01 的框架修正**：它把「scope 命中即放行」定为「latent, not live」，理由是「今天的 token 只带公开仓 scope」。但 token 是 5 分钟票据，`ttl=300`（`:342`）——**仓库在票据有效期内转私有**就是现成的窗口，不需要等第二个签发点。这类「latent/live」判定必须把票据 TTL 一起算进去。
 
 ### batch#1(issue #11) · 2026-11-10 · git 协议文档与实现一致性
 
@@ -319,6 +339,10 @@ git -c protocol.version=2 clone --depth=1 ...
 8. **B2-8 登录时序泄露账号存在性**（P2，未实测）：`user/service.rs:232` 对不存在的用户提前 return，跳过 `:246` 的 Argon2；同文件 `forgot_password` 已有 H-5 拉平（`:654`/`:662` 各 `sleep(100ms)`）。修法：对不存在用户也跑一次固定 dummy hash 的校验。（行号基准 `2ffe7e8`；PR #47 之后 `:238-241` 另有 agent 账户分支，等价返回 `INVALID_CREDENTIALS`）
 9. **B2-9 `iat`/`nbf` 从不校验**（P3，无利用路径）：`jwt.rs:139` 用 `Validation::default()`；jsonwebtoken 的 `ClaimsForValidation` 无 `iat` 字段、`validate_nbf` 默认 `false`，但仓内无签发 `nbf` 的路径。只记录，不建议加自定义校验。
 10. **B2-10 `extract_user` 的哨兵 0 与丢弃调用**（P3）：`rg-http/src/oci.rs:61-78` 在 OCI token 分支返回 `Some(0)`，唯一调用点 `:198` 丢弃返回值，`api_version_check` 恒 401 —— 要么删函数，要么让它真参与鉴权。
+11. **B2-11 OCI scope 票据的校验侧不看仓库可见性**（第 3 轮写入，P2，与 B2-4 同根）：`crates/rg-http/src/oci.rs:129-144` 只要 token 里的 scope 与 `{owner}/{repo}` 字面相等且含动作就 `return Ok((true, None))`（`:139`），**跳过**函数里唯一的 `can_read_repo`（`:147-150` 只在无 token 分支）。`OciTokenClaims`（`oci_token.rs:42-70`）无 `repo_id`/`visibility`，`matches_repo`（`:113-115`）是字符串等值。签发侧当前是唯一且正确的（`oci.rs:343` 唯一生产调用点，按 `can_read_repo` 裁剪 `:297-307`），所以**现状后果是「仓库在票据有效期内（`ttl` = 300 s 认证 / 60 s 匿名，`:342`）转私有后旧 token 仍可拉」**，而不是任意拉取。修法与 B2-4 合并处理：校验侧补一次 `can_read_repo`，或把 `check_repo_access` 改成回调式签名。
+12. **B2-12 Runner 没有租户维度，且空标签双向全匹配**（第 3 轮写入，**P1，跨租户**）：`runners` 表无 `repo_id`（`crates/rg-db/src/entities/runner.rs:8-21`；建表迁移 `crates/rg-db/src/migrations/m20260510_000001_create_runners.rs` 同样没有），调度只看标签与 stage 状态（`crates/rg-db/src/ops/pipeline_ops.rs:909-911` Runner 无标签→领任意 Job、`:918-920` Job 无标签→给任意 Runner、`:932-953` 只判 stage/pipeline 状态），Runner 鉴权只校验「token 哈希命中某行且该行 id == 路径 id」（`crates/rg-http/src/api/runners.rs:1019-1026`）。因此任一被管理员批准注册的 Runner（`runners.rs:153-156` `require_admin`）会领到**别的仓库**的待调度 Job，并按 `pipeline.repo_id`（`:352-355`）拿到该仓库**全部** Secret 的明文。ADR-0001 §1 第 5 行原本只承认「外部 Runner 会接收（本仓）解密值」，跨仓这一层是 2026-11-10 新确认的，已补进 ADR §7 R-1/R-2。修法：给 `runners` 加仓库/组织归属并让调度按归属过滤 ⇒ schema 改动。
+13. **B2-13 suggestion 触发让 fork 内容在共享 Runner 上跑，无需审批**（第 3 轮写入，P2）：`crates/rg-http/src/api/reviews.rs:161-168` 只要求对 PR 源仓库（fork）有写权限，`:200` 就在源仓库路径上查 `.gitea/workflows`，`:206-210` 以 `repo_id = source_repo.id`(`:207`)、`trigger_type = "suggestion"`(`:210`) 起 Pipeline，workflow 内容取自该 commit（`crates/rg-ci/src/lib.rs:599-608`）且无任何来源校验。ADR §2.7.4 的「fork PR 需维护者批准」只覆盖 base 仓库上的 PR 事件，对这条路径没有落点（ADR §7 R-3）。单独看只算「任意代码落到共享 Runner」，与 B2-12 叠加才是跨租户 Secret 暴露。
+14. **B2-14 密码长度按字节计、文案按字符说**（第 3 轮写入，P3）：`crates/rg-core/src/auth/password.rs:193`/`:199` 用 `password.len()`（字节），而 `:53`/`:58` 的 `Display` 写 "characters"。后果双向：`密码密码`（4 CJK 字符 = 12 B）满足 `min_length = 12`；长 CJK 密码会被 `max_length` 误拒且报出「got 60」而用户只输了 20 字。修法二选一——判据改 `chars().count()`（改变校验语义）或文案改 bytes（改变对外文案）。本轮只落注释（`7ae3cf5`）。
 
 ### 判定不成立（原文保留，请勿重复提）
 
