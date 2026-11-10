@@ -193,7 +193,7 @@ POST /api/v1/users/register {"...", "password":"!Password1"}   → HTTP 201 {"us
   - `crates/rg-core/src/auth/password.rs`（`TooCommon` docstring 改为与实现一致：「第一个字母段」而非「首尾都剥离」；长度注释补 `got` 无单位的口径）
   - `crates/rg-core/src/auth/password.rs` **另行 `cargo fmt --all`**（29+/17−，纯格式化，零语义）
 - 验证（改后）：`scripts/check.sh --quick` **通过（110 s，EXIT=0）**；`cargo test -p rg-http --test oci_permission_tests oci_token_goes_stale_when_repo_turns_private` → **1 passed / 0 failed**（1.01 s），即 B2-11 的撤销滞后在修复后不再复现（运行时观测，不只是读代码）
-- 回帖：`PENDING`，首行 `## 第 5 轮收尾`（C=5；发帖后回填 id）
+- 回帖：`2120219018882617344`，`2026-11-10T18:16:20Z`，首行 `## 第 5 轮收尾`（回读校验 C=5，无重复投递；下一轮 K=6）
 
 | # | 输入指摘 | 判定 | 处置 / 证据 |
 |---|---|---|---|
