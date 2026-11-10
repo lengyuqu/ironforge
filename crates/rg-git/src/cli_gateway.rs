@@ -9,7 +9,9 @@
 //!   timeout, and missing git
 //! - **Tracing** — every invocation is wrapped in a `tracing::span`
 //! - **Convenience** — automatic `-C <repo_path>` when a repo path is given
-//! - **Async pipe support** — `spawn()` for pack-objects / index-pack streaming
+//! - **Async pipe support** — `spawn_async()`，但**当前全仓无调用方**：出站走 gix 原生
+//!   `ops::*` 的 `iter_from_counts`，入站走 `ops::index_pack_bytes`，都不经 CLI 网关。
+//!   别据这条模块文档就以为异步流式调用在用。
 
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
@@ -252,7 +254,10 @@ impl GitCommandGateway {
 
     /// Spawn an async git command with piped stdin/stdout/stderr.
     ///
-    /// Used for pack-objects, index-pack, etc. where data is streamed.
+    /// **Currently unused**: 全 workspace 只有这一处出现 `spawn_async`，连测试都没有。
+    /// 原先这里写「used for pack-objects, index-pack」，在 gix 化之后已不成立——两个方向
+    /// 都走 gix 原生（出站 `iter_from_counts`，入站 `pack_for_wants*` / `index_pack_bytes`）。
+    /// 若长期无人调用，删掉比留着一个被模块文档宣传的死 API 更好。
     /// Callers should use `tokio::time::timeout()` around the I/O loop.
     pub async fn spawn_async(
         &self,
