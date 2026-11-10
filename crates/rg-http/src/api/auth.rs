@@ -152,6 +152,9 @@ pub(crate) async fn ensure_token_may_write_branch(
     }
 }
 
+/// Stable `reason` of the refusal an agent gets when it tries to approve.
+pub(crate) const AGENT_MAY_NOT_APPROVE: &str = "AGENT_MAY_NOT_APPROVE";
+
 /// Approving is a human act. An agent's approval never satisfies a review
 /// requirement, whatever shape its credential is: a token with no branch limit
 /// is still an agent's token when the account behind it is an agent.
@@ -165,12 +168,11 @@ pub(crate) async fn ensure_reviewer_may_approve(
     claims: Option<&Claims>,
 ) -> Result<(), crate::error::AppError> {
     use crate::error::AppError;
-    let Some(user) = rg_db::ops::user_ops::find_by_id(db, user_id)
-        .await
-        .map_err(AppError::from)?
-    else {
-        return Err(AppError::forbidden("no such account"));
-    };
+    // An unreadable account must not read as "not an agent": that is exactly
+    // the failure being closed here. Propagate the database error instead.
+    let user = rg_db::ops::user_ops::find_by_id(db, user_id)
+        .await?
+        .ok_or_else(|| AppError::forbidden("no such account"))?;
     if rg_core::agent::is_agent(&user) {
         return Err(AppError::coded(
             axum::http::StatusCode::FORBIDDEN,
@@ -178,7 +180,7 @@ pub(crate) async fn ensure_reviewer_may_approve(
             "an agent may not approve a pull request",
         )
         .with_reason(
-            "AGENT_MAY_NOT_APPROVE",
+            AGENT_MAY_NOT_APPROVE,
             false,
             "ask a person to review and approve",
         ));
