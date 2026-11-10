@@ -226,10 +226,10 @@ impl PasswordValidator {
             }
         }
 
-        // Common password check: only the leading alphabetic run is compared, so a password that starts with a digit or a symbol is never checked against the list
+        // Common password check: only the leading alphabetic run is compared against the list, so a password like `1Password1!` slips past that branch; the whole-string check below still catches exact list entries such as `123456`
         if self.reject_common {
             let lower = password.to_lowercase();
-            // Strip trailing digits and special chars to catch patterns like "password1!" or "password!!!"
+            // Take the leading alphabetic run, so "password1!" and "password!!!" both reduce to "password"
             let stripped: String = lower
                 .chars()
                 .take_while(|c| c.is_ascii_alphabetic())

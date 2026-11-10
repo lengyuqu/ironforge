@@ -70,7 +70,7 @@ fn extract_user(headers: &HeaderMap, jwt_secret: &str) -> Option<i64> {
     // Try OCI Bearer token (sub is username)
     if let Some(_claims) = validate_oci_token(token, jwt_secret) {
         // OCI token doesn't directly carry user_id
-        // Return 0 as sentinel: a scope token carries no user id. Do not treat 0 as a real user, and do not use `auth::oci_token::check_repo_access` for authZ — it has no callers and ignores repo visibility.
+        // Return 0 as sentinel: a scope token identifies its subject by username (`sub`), not by user_id. Do not treat 0 as a real user, and do not use `auth::oci_token::check_repo_access` for authZ — it has no production callers and ignores repo visibility.
         return Some(0);
     }
 
