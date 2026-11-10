@@ -572,12 +572,17 @@ mod gate {
         base: String,
         db: rg_db::DatabaseConnection,
         owner: String,
+        owner_id: i64,
         reviewer: String,
         agent_id: i64,
         /// The agent's token with no branch limit: the shape the old gate let through.
         token: String,
         /// The agent's token limited to one branch: the shape the old gate refused.
         limited_token: String,
+        /// An agent's token with the default shape (`repo:write`, no limits).
+        default_token: String,
+        /// An agent's token with no repository or branch limit either.
+        ci_token: String,
         /// Opened by the owner.
         owner_pr: i64,
         /// Opened by `REVIEWER`.
@@ -682,7 +687,7 @@ mod gate {
 
         // The first account is the administrator; these two are ordinary.
         register_user(&base, "gate_root", "gate_root@example.com", PASSWORD).await;
-        let (owner, _) = register_full(&base, OWNER, "gate_alice@example.com").await;
+        let (owner, owner_id) = register_full(&base, OWNER, "gate_alice@example.com").await;
         let reviewer = register_user(&base, REVIEWER, "gate_bob@example.com", PASSWORD).await;
 
         // A repository with a real `main` and three branches one commit ahead,
@@ -760,16 +765,18 @@ mod gate {
                     body["token"].as_str().unwrap().to_string()
                 }
             };
+            let default_shape = issue(token("default", json!({ "scopes": "repo:write" }))).await;
             let unlimited = issue(token("unlimited", json!({}))).await;
             let limited = issue(token(
                 "limited",
                 json!({ "repos": [format!("{OWNER}/work")], "refs": ["agent/*"] }),
             ))
             .await;
-            agents.push((username, id, unlimited, limited));
+            let ci = issue(token("ci", json!({ "scopes": "repo,repo:write" }))).await;
+            agents.push((username, id, unlimited, limited, ci, default_shape));
         }
-        let (agent, agent_id, token, limited_token) = agents[0].clone();
-        let (sibling, _, sibling_token, _) = agents[1].clone();
+        let (agent, agent_id, token, limited_token, ci_token, default_token) = agents[0].clone();
+        let (sibling, _, sibling_token, _, _, _) = agents[1].clone();
 
         let create_pr = |auth: String, head: &str| {
             let client = Client::new();
@@ -852,14 +859,23 @@ mod gate {
             base,
             db,
             owner,
+            owner_id,
             reviewer,
             agent_id,
             token,
             limited_token,
+            ci_token,
+            default_token,
             owner_pr,
             other_pr,
             sibling_agent_pr,
         }
+    }
+
+    /// The API path of an absolute URL: everything from `/repos/...` on.
+    fn request_path(url: &str) -> &str {
+        let start = url.find("/api/v1").expect("an API URL") + "/api/v1".len();
+        &url[start..]
     }
 
     fn reason_of(body: &Value) -> (&str, Option<&str>) {
@@ -998,5 +1014,178 @@ mod gate {
         assert_eq!(status, StatusCode::CREATED, "{body}");
         g.approve_in_db(g.owner_pr, g.agent_id).await;
         assert_eq!(g.counted_approvals(g.owner_pr).await, 1);
+    }
+
+    // ── The same gate on a protected CI environment ───────────────────
+    //
+    // Releasing a protected environment is decided by a count of approvals, so
+    // it is a person's act for exactly the reason a pull request approval is.
+    // The approver list accepted any account id and nothing looked at the
+    // account type when the approval was counted, so listing one's own agent
+    // made it the only voice the gate needed. (`can_admin_repo` is false for an
+    // agent, so it is the list, not the administrator shortcut, that let it in.)
+
+    impl Gate {
+        /// A protected environment `production` needing one approval, with a job
+        /// paused on it. Returns the approval URL and the environment row.
+        async fn environment_awaiting_approval(
+            &self,
+        ) -> (String, rg_db::entities::ci_environment::Model) {
+            let (status, body) = self
+                .post(
+                    &format!("/repos/{OWNER}/work/actions/environments"),
+                    &self.owner,
+                    json!({
+                        "name": "production",
+                        "protected": true,
+                        "required_approvals": 1,
+                        "allowed_approver_ids": [],
+                    }),
+                )
+                .await;
+            assert_eq!(status, StatusCode::CREATED, "{body}");
+            let environment =
+                rg_db::ops::ci_environment_ops::find_by_id(&self.db, body["id"].as_i64().unwrap())
+                    .await
+                    .unwrap()
+                    .unwrap();
+            let pipeline = rg_db::ops::pipeline_ops::create_pipeline(
+                &self.db,
+                environment.repo_id,
+                "abcdefabcdefabcdefabcdefabcdefabcdefabcd",
+                "refs/heads/main",
+                "push",
+                None,
+            )
+            .await
+            .unwrap();
+            let stage = rg_db::ops::pipeline_ops::create_stage(&self.db, pipeline.id, "deploy", 0)
+                .await
+                .unwrap();
+            let job = rg_db::ops::pipeline_ops::create_job(
+                &self.db,
+                stage.id,
+                "production",
+                "echo deploy",
+                None,
+                None,
+                None,
+                None,
+                None,
+                false,
+                None,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+            rg_db::ops::ci_environment_ops::attach_job(
+                &self.db,
+                job.id,
+                Some(&environment),
+                "production",
+            )
+            .await
+            .unwrap();
+            assert!(
+                rg_db::ops::pipeline_ops::try_pause_stage_at_manual(&self.db, stage.id)
+                    .await
+                    .unwrap()
+            );
+            let url = self.url(&format!(
+                "/repos/{OWNER}/work/pipelines/{}/jobs/{}/approve",
+                pipeline.id, job.id
+            ));
+            (url, environment)
+        }
+    }
+
+    /// T20-10: an agent cannot be named as an approver at all.
+    #[tokio::test]
+    async fn t20_10_an_agent_cannot_be_listed_as_an_environment_approver() {
+        let g = gate().await;
+        let (status, body) = g
+            .post(
+                &format!("/repos/{OWNER}/work/actions/environments"),
+                &g.owner,
+                json!({
+                    "name": "production",
+                    "protected": true,
+                    "required_approvals": 1,
+                    "allowed_approver_ids": [g.agent_id],
+                }),
+            )
+            .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert!(
+            body["error"]["message"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("agent"),
+            "{body}"
+        );
+    }
+
+    /// T20-11: a list written before the rule (or by hand) can still name one,
+    /// and the count is what releases the job: the approval is refused there too.
+    #[tokio::test]
+    async fn t20_11_an_agent_named_in_an_old_list_still_cannot_release() {
+        let g = gate().await;
+        let (url, environment) = g.environment_awaiting_approval().await;
+        let mut active: rg_db::entities::ci_environment::ActiveModel = environment.clone().into();
+        active.allowed_approver_ids = Set(Some(json!([g.agent_id]).to_string()));
+        rg_db::ops::ci_environment_ops::update(&g.db, active)
+            .await
+            .unwrap();
+
+        // Whatever the token's shape, the release is refused. Which gate answers
+        // first depends on the credential (a `repo:write` token is turned away by
+        // the scope middleware before the handler runs), so this asserts the
+        // outcome rather than the reason; the account-type check is what keeps
+        // the answer right for a token that does reach the handler.
+        for token in [&g.default_token, &g.ci_token] {
+            let (status, body) = g.post(request_path(&url), token, json!({})).await;
+            assert_eq!(
+                status,
+                StatusCode::FORBIDDEN,
+                "the approval must be refused: {body}"
+            );
+        }
+
+        // Nothing was released and nothing was recorded as an approval.
+        let job_id: i64 = url
+            .rsplit('/')
+            .nth(1)
+            .unwrap()
+            .parse()
+            .expect("job id in the approval URL");
+        assert_eq!(
+            rg_db::ops::ci_environment_ops::count_approvals(&g.db, job_id)
+                .await
+                .unwrap(),
+            0
+        );
+
+        // The check must not turn the endpoint into a "no": a person the list
+        // names still releases the job.
+        use sea_orm::EntityTrait;
+        rg_db::entities::ci_environment::Entity::update_many()
+            .col_expr(
+                rg_db::entities::ci_environment::Column::AllowedApproverIds,
+                sea_orm::sea_query::Expr::value(json!([g.owner_id]).to_string()),
+            )
+            .filter(rg_db::entities::ci_environment::Column::Id.eq(environment.id))
+            .exec(&g.db)
+            .await
+            .unwrap();
+        let (status, body) = g.post(request_path(&url), &g.owner, json!({})).await;
+
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(
+            rg_db::ops::ci_environment_ops::count_approvals(&g.db, job_id)
+                .await
+                .unwrap(),
+            1
+        );
     }
 }
