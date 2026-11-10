@@ -167,7 +167,15 @@ SSH 模式省略 `GET /info/refs` 步骤，直接通过 exec_request 建立双�
 
 - `done` 或 flush 之后**不再排空 stdin**（`upload_pack.rs:46` 读完 want/have 直接发 NAK + pack）。push 侧相反：没有可应用的更新时会 `drain_pack()`（`receive_pack.rs:462`、`:620`）。
 - `read_pkt_line` 把 `UnexpectedEof` **折叠成 `PktLine::Flush`**（`pkt_line.rs:108-111`）。两者叠加的后果是：客户端半途断开在服务端看来等于「正常结束协商」，`wants` 为空时直接写一个 flush 就 `Ok(())`（`upload_pack.rs:48-51`），不会报错。排查「客户端没收到 pack 但服务端日志无异常」时要先想到这条。
-- **V1 没有 shallow 语义**：want/have 循环只认 `want` / `have` / `done`，其余行一律当未知行丢弃（`upload_pack.rs:246` 的 `Unknown want/have line, ignoring`）；整个文件对 `shallow` / `deepen` 没有任何解析。因此 **V1 即使收到 `deepen` 也只会全量打包**。真实客户端会不会在 V1 上发 `deepen` 未单独验证：e2e 的 `--depth=2` 用例固定用 V2（`scripts/git-protocol-e2e.sh:280-282`），V1 + depth 的组合不在覆盖内。
+- **V1 上 `--depth` 直接失败，不是静默全量**（2026-11-10 实测）：解析层只认 `want` / `have` / `done`，其余行当未知行丢弃（`upload_pack.rs:246`），且两侧广告串都不含 `shallow` 能力。实测 `git -c protocol.version=1 clone --depth=1` 的结果是客户端在发出任何 `want` 之前就放弃：
+
+  ```
+  fatal: Server does not support shallow clients
+  ```
+
+  trace 里只有 ref 广告，没有 `want`、没有 `deepen`——所以「V1 收到 deepen 会打成全量包」这个假设的前提（客户端会发 deepen）不成立。同一仓库 `protocol.version=2` 下 `--depth=1` 正常，提交数 1、`.git/shallow` 写入边界（对照见 `scripts/git-protocol-e2e.sh:280-282`，shallow 只在 V2 上被测过）。
+  
+  > 若将来把 `shallow` 加进 V1 广告串，这条结论立刻失效：客户端会真的发 `deepen`，而服务端不解析、也不回 `shallow` 行，那时才会出现「全量 pack 被当浅克隆收下」。改广告串前先补解析与 `shallow` 响应。
 
 ### 引用广告格式
 
@@ -284,6 +292,8 @@ lookup 补全（等价 `--fix-thin`），pack + idx 落盘 `objects/pack` 后移
 > **方向要分清**：`--fix-thin` 只在**收**的一侧有意义。我们**发**出去的 pack 从不含 thin delta——`ops.rs:833` 的 `iter_from_counts` 选项写死 `allow_thin_pack: false`；补全发生在 `index_pack_bytes` 调用 `Bundle::write_to_directory` 时传入 `Some(repo.objects.clone())` 作为缺失 base 的查询源（`ops.rs:1056`）。
 >
 > 注意 **thin delta ≠ OFS_DELTA**：`allow_thin_pack: false` 关掉的是「base 不在本 pack 里」的 delta，OFS_DELTA（base 在同 pack 内、用偏移量表示）照常产出——`DeltaRef` 直接映射成 `OfsDelta` 头（gix-pack `data/output/entry/mod.rs:185`）。这也是 §3 里 `ofs-delta` 判 ✅ 的依据。
+>
+> 两者在 gix 里是**两条代码路径**，不只是两个概念：出站 `iter_from_counts` → `EntriesToBytesIter`（`data/input/entries_to_bytes.rs:14`），入站补 thin base 走 `Bundle::write_to_directory` 的 `Some(lookup)` 分支 → `LookupRefDeltaObjectsIter`（`bundle/write/mod.rs:104`）。`allow_thin_pack` 只作用在出站那条，`pack_offset_to_oid` 是它真正的形参名——语义是 OID 解析器，不是「允许 delta」的开关。
 
 ### Report-Status 响应格式（关键！）
 
@@ -407,7 +417,7 @@ send_response(stream, &results).await?;
 
 ### 路由结构
 
-同一组 Git Smart HTTP 路由注册了**两遍**（`crates/rg-http/src/lib.rs:441` 根级、`:581` 的 `build_routes` 内）：
+同一组 Git Smart HTTP 路由注册了**两遍**（根级三条在 `crates/rg-http/src/lib.rs:458-466`；`:454` 的 `.nest("/git", git_routes)` 产生别名；`:581` 是 `build_routes` 里那份定义）：
 
 ```
 # ① 根级：git 客户端的标准形式，必须有
