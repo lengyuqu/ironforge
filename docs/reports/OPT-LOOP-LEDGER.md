@@ -46,8 +46,51 @@
 - 引导问题 4 条：P1 `redeliver` 经 `trigger_event` 打给**所有**匹配 hook 而非原 webhook（`webhook/service.rs:380-397`，`:392` 调用点）；P2 `deliver_retry_job` 不检查 `hook.active`（`:308`，`:319-325`）；P2 webhook `secret` 明文入库、与 CI secret 加密口径不一致（`:65`/`:109`）；P3 `update_webhook` 无法区分「未提供」与「清空」secret（`:109`）
 - 反向清单回灌：**不成立 21 条全量回灌**（batch#1/#2 累计）+ 对方已撤回 4 项 + 我方自证推翻 4 项，均注明「不要重复提」
 - 已知空档新增：`password.rs`/`rg-http/src/oci.rs`/`auth/oci_token.rs` 旧行号已因 PR #21/#24 作废不得引用；agent 模块不在本批范围
-- NPC 首扫：**等待中**（消费者补记，生产者不等首扫）
-- 6 轮进度：**0 / 6**
+- NPC 首扫：`2120244997269143552`，`2026-11-10T19:59:34Z`（开批后 7 min 33 s；`author.is_npc=true`，首行 `## 第 1 轮 · batch#3 只读审查`，自述基线 `df6a3c0`）
+- 6 轮进度：**1 / 6**（第 1 轮收尾已发）
+
+### consume 1 / 6（batch#3）
+
+- 输入：`2120244997269143552`（`19:59:34Z`，只读审查）：种子 4 条 + 新发现 4 条 + 推测 6 条
+- 判定：**成立 7 / 部分成立 1 / 不成立 0**（8 条正文指摘）；6 条推测单列不计分
+- 工作基线：**`BASE=70494e2`**（`cnb/main` HEAD）。issue 声明的 `df6a3c0` 之后只有一次 `docs(opt-loop): open batch#3` 提交；`git diff df6a3c0..70494e2 -- crates/rg-core/src/repo crates/rg-core/src/webhook` **输出为空** ⇒ 本批 4 文件的**行号基准未漂**，它的 `df6a3c0:` 引用可直接在本树复用
+- 改前基线：`scripts/check.sh --quick` **通过（2 s，热缓存，EXIT=0）**
+- 改动：**`ROUND_SHA`**（L1，5 文件 7+/7−，**零行号漂移**：`webhook/service.rs` 561→561、`repo/service.rs` 2803→2803、`collaboration/access.rs` 42→42、`docs/p0-prd.md` 315→315、`docs/p0-system-design.md` 644→644）
+- 改后验证：`scripts/check.sh --quick` **通过（62 s，EXIT=0）**
+- 回帖：`REPLY_ID`（首行 `## 第 1 轮收尾`，回读校验 C=1）
+
+| # | 输入指摘 | 判定 | 证据 / 处置 |
+|---|---|---|---|
+| S-1 | `redeliver` 经 `trigger_event` 打给该 repo 所有匹配 event 的 active hook，不是原 webhook（`:392` 调用点，`:394` 只用 `hook.repo_id`） | **成立** | `sed -n '380,397p'` = `find_delivery_by_id` → `find_by_id(delivery.webhook_id)`（`:385`）→ `trigger_event(db, hook.repo_id, …)`（`:392-397`），`hook.id` 全程未参与；`grep -n "X-Hub\|X-GitHub\|trace_id"` 仅命中 `:295`（只有签名头，无 delivery id 头），`:396` 解析失败照发 `Value::Null`。**行号全对** |
+| S-2 | `deliver_retry_job` 不检查 `hook.active`（`:308`，`:319-325`） | **成立** | `:319` 确为 `let hook = match webhook_ops::find_by_id(db, webhook_id).await? {`；`:308-361` 全文无 `active`，只取 `hook.url`/`content_type`/`secret` 后直接 `deliver()` |
+| S-3 | webhook `secret` 明文入库（`:65`/`:109`），与 CI secret 加密口径不一致 | **成立** | `:65` = `secret: sea_orm::Set(req.secret.clone()),`；`:109` = `… req.secret.clone().or_else(|| existing.secret.clone())`；迁移 `m20260424_000006:125` = `.col(ColumnDef::new(Webhooks::Secret).string().null())`（裸 string，无加密封装）。对照 `encryption.rs` 的 AES-256-GCM 只服务 TOTP/SSO/CI secret |
+| S-4 | `update_webhook` 无法区分「未提供」与「清空」secret | **成立** | `UpdateWebhookRequest.secret: Option<String>`（`:36`）在 serde 下「字段缺省」与「显式 `null`」同为 `None`，再由 `:109` 的 `or_else(existing)` 保旧值 ⇒ `{"secret": null}` 是空操作 |
+| N-1 | LICENSE 模板是条款被截断的摘要，非全文（`apache-2.0`/`gpl-3.0`/`mpl-2.0`） | **成立**（一处夸大） | 实测词数：`apache-2.0.txt` 557 / `gpl-3.0.txt` 512 / `mpl-2.0.txt` 1101；`mit.txt` 168、`bsd-2/3-clause` 192/223、`unlicense` 197 均为全文。`apache-2.0.txt:48` = `   3. Grant of Patent License...`（正文被 `...` 取代）；`gpl-3.0.txt:52` = `  7. Additional Terms...`。**夸大处**：它说「GPLv3 第 7~17 条只有标题」，实际 §15/§16 有 3–5 行缩写正文，只有 §7–§14、§17 是标题 + `...`。零覆盖属实：`templates.rs:453-458` 只断言 `mit`/`gpl-3.0` 两个 key 存在 |
+| N-2 | `set_watch` 不校验状态枚举，任意字符串落库（`repo/service.rs:852-860` + `api/repos.rs:596-598`） | **成立**（handler 行号偏 1） | `:852-860` 即 `set_watch`，函数体只有一句 `repo_watch_ops::set_watch_state(...)`；`WatchRequest.state: String`（`api/repos.rs:596-598`，逐行核对一致）；`repo_watch_ops.rs:29`/`:37` 两处 `Set(state.to_string())`；迁移 `m20260508_000001_create_repo_stars_watches.rs:90-94` 是 `.string().not_null().default("not_watching")`，**无 CHECK**。**偏差**：它写的 handler `:772-776` 起始是空行，实际透传在 `:773`。前端 `web/src/lib/api/repos.ts:173` 的三态联合类型确实被服务端破坏（`:171` 的入参是裸 `state: string`） |
+| N-3 | `list_watchers` 不过滤 `watch_state`，`ignoring`/`not_watching` 照发通知 | **成立** | `repo_watch_ops.rs:71-88` 只有 `.filter(RepoId.eq(repo_id))`；唯一消费点 `notification/mod.rs:103`，循环 `:115-122` 只跳过作者、不看状态；`remove_watch`（`:65-68`）只是 `set_watch_state(..., "not_watching")`，**行不删** |
+| N-4 | `is_collab_member` 在只读判定里做全域写锁 invalidate，且批量循环每轮一次 | **部分成立** | 前半成立：`access.rs:23` 确实调 `invalidate_perm_cache_user`，其实现 `repo/service.rs:120-124` 是 `perm_cache().write()`（全局写锁），调用点在读路径（`api/collab.rs:185`/`:197`、`collab_groups.rs:159`、`diagnostics.rs:182`、`escalation.rs:284`），`api/collab.rs:184` + `:185` 确实同一请求连清两次。**后半不成立**：`escalation.rs:283` 是 `if !self.access.contains_key(&session.user_id) { … }`，记忆化**生效**，不存在「每轮一次」。另 `collab_groups.rs` 的行号是 `:159`（它写 `:196`，那是 `writable()`） |
+
+**本轮自查新事实（它未提，我方在核实 N-2 时挖到）**
+
+- **F3-1**：`CreateWebhookRequest.events` 的注释示例是 `// e.g. ["push", "issues"]`（`webhook/service.rs:29` 改前原文），而 `trigger_event` 全部用带点全名（`issue.opened` `pull_request.merged` `release.created` …，`:418-560`），前端 `web/WebhookForm.svelte:22-27` 也发全名。`Column::Events.contains(event)` 经 sea-orm 1.1.20 `entity/column.rs:237-243` 编译成 `LIKE '%<event>%'` ⇒ 照注释示例建 `["issues"]` 的 hook **永不触发**（`"issues"` 不是 `"issue.opened"` 的子串），且 API 对 event 名零校验 —— 静默死 hook。已把该注释改成 `["push", "issue.opened"]`；**加校验属 L2**（会拒绝存量非法值），见 B3-8。
+
+**部分成立里的错处（勿当结论引用）**：N-4 的「记忆化分支仍会调一次 `is_collab_member`」不成立（`escalation.rs:283` 有 `contains_key` 守卫）；`collab_groups.rs:196` 应为 `:159`；`api/repos.rs:772-776` 应为 `:773`。
+
+**它的质量盘点**：8 条正文指摘里 7 条全对（含 4 条种子全部命中，且 S-1 的判据链补强是它自己找到的），唯一走偏的是 N-4 的放大推理。本轮**不需要**像 batch#2 那样反复纠正行号——`df6a3c0` 声明 + 每条带 `git show` 输出的做法有效，建议后续批次继续要求。
+
+### 待拍板（batch#3，本流程不动 main）
+
+| # | 级别 | 事项 | 为什么不在本流程做 |
+|---|---|---|---|
+| B3-1 | P1 | `redeliver` 扇出到全 repo 的所有 active hook，而非原 hook（`webhook/service.rs:380-397`）；`:396` 解析失败把 body 换成 `null` 照发；无 delivery id 头（`:295` 只有签名头） | 改的是投递语义 + 需要 `trigger_event` 增加 target 参数或直连 `deliver()`，影响 13 个事件的所有调用点 |
+| B3-2 | P2 | `deliver_retry_job` 不读 `active`，停用后积压重试继续投（`:308-361`） | 同上，队列语义变更 |
+| B3-3 | P2 | webhook `secret` 明文入库（`:65`/`:109`，迁移 `:125` 裸 string） | 改 schema + 存量重加密；且与 B2-5 的 `derive_key` 议题耦合（换 KDF 会作废既有密文） |
+| B3-4 | P3 | `update_webhook` 无法表达「清空 secret」（`:109`） | 需要三方状态（缺省 / 置空 / 改值），改 API 契约 + 前端表单 |
+| B3-5 | P1 | `set_watch` 零枚举校验（`repo/service.rs:852-860`、`api/repos.rs:596-598`） | 加校验会拒绝现状合法客户端（前端入参就是裸 `string`），属 API 契约变更 |
+| B3-6 | P1 | `list_watchers` 不过滤状态（`repo_watch_ops.rs:71-88` → `notification/mod.rs:103`），取消订阅仍然收到通知 | 改通知语义；顺带要对账存量 `not_watching` 行是否需要清理 |
+| B3-7 | **P0** | LICENSE 模板截断：`apache-2.0` 557 词 / `gpl-3.0` 512 / `mpl-2.0` 1101，条款正文被 `...` 取代 | 换成官方全文是产品内容 + 法律责任变更（要决定是否附带 NOTICE、是否保留摘要版），且会改变所有新建仓库的初始 commit |
+| B3-8 | P2 | `CreateWebhookRequest.events` 无枚举校验 + 注释示例误导（F3-1） | 加白名单会拒绝存量非法值；需先决定宽松（忽略未知）还是严格（400） |
+| B3-9 | P3 | 只读判定里拿全局 perm-cache 写锁（`access.rs:23` → `repo/service.rs:120-124`），且 `api/collab.rs:184`+`:185` 重复清两次 | 权限缓存语义变更（记忆化有效，非 N 次；但热路径写锁是真成本，需先定 TTL/失效策略） |
 
 ### batch#2(issue #12) · 2026-11-10 · rg-core auth 凭据链路
 
