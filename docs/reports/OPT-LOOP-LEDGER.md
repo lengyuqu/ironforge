@@ -52,7 +52,7 @@
 - 判定：**成立 4 / 部分成立 1 / 不成立 1**（另有 1 条推测经代码核实后升级为待验证项）
 - 动作：L1 文档 `91686a9`；L2 写入本文件「待拍板」
 - 验证：`scripts/check.sh --quick` 通过（115 s）；`BASE=5624605`、`B=0`（文档改动，无 test binary 受影响）
-- 回帖：见 issue #11 第 1 轮收尾
+- 回帖：`2120086860385902592`，`2026-11-10T09:31:11Z`，首行 `## 第 1 轮收尾`（回读校验通过）
 
 逐条判定：
 
@@ -83,6 +83,18 @@
 ### 判定不成立（原文保留，请勿重复提）
 
 1. 「V1 upload-pack 未收到 NUL 时会漏掉 connection 级 capability，但 flush 与 `# service=` 行上的 capability 不一致……能力协商靠「客户端好心多打一个空格」才成立，缺它则 clone/fetch 失败，而不是降级。」—— 反证：`upload_pack.rs:205-224` 的 Form A/Form B 分支覆盖了协议允许的两种形态；git 的 capability 只出现在第一个 `want` 行，客户端要么声明 `side-band-64k`（走 sideband），要么不声明（服务端裸发 packfile 属合规降级）。`scripts/git-protocol-e2e.sh:172-190` 的 `protocol.version=1` HTTP push/clone/fetch 用例长期为绿，是该路径可用的直接证据。**以下已核实为不成立，不要重复提。**
+
+---
+
+## 冷启动验证（协议 §8 第 4 步的三个门槛）
+
+| 门槛 | 状态 | 证据 |
+|---|---|---|
+| NPC 真的回了 | 通过 | 首扫 `09:25:24Z`，`author.is_npc=true`，自述已核对基线 `5624605`；延迟 **3 min 43 s** |
+| 轮次标记可数（进度可重建） | 通过 | `cnb issues list-issue-comments … \| grep -oE '## 第 [0-9]+ 轮收尾' \| wc -l` = 1，下一轮从 2 续跑 |
+| 回帖的 `@CodeBuddy` 触发下一轮 | 待确认 | 回帖 `09:31:11Z`，等待中 |
+
+三项全过才把生产者 / 消费者挂上 automation。当前不挂。
 
 ---
 
