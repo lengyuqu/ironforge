@@ -47,7 +47,7 @@
 - 反向清单回灌：**不成立 21 条全量回灌**（batch#1/#2 累计）+ 对方已撤回 4 项 + 我方自证推翻 4 项，均注明「不要重复提」
 - 已知空档新增：`password.rs`/`rg-http/src/oci.rs`/`auth/oci_token.rs` 旧行号已因 PR #21/#24 作废不得引用；agent 模块不在本批范围
 - NPC 首扫：`2120244997269143552`，`2026-11-10T19:59:34Z`（开批后 7 min 33 s；`author.is_npc=true`，首行 `## 第 1 轮 · batch#3 只读审查`，自述基线 `df6a3c0`）
-- 6 轮进度：**3 / 6**（第 3 轮收尾 `2120286421721202688`（`22:44:10Z`，回读校验 C=3，无重复投递）；第 2 轮 `2120269785404440576`；第 1 轮 `2120252808799633408`）
+- 6 轮进度：**4 / 6**（第 4 轮收尾待发；第 3 轮 `2120286421721202688`（`22:44:10Z`，回读校验 C=3，无重复投递）；第 2 轮 `2120269785404440576`；第 1 轮 `2120252808799633408`）
 
 ### consume 1 / 6（batch#3）
 
@@ -154,6 +154,33 @@ where
 
 **它的质量盘点**：本轮它把上一轮判死的两条自己撤了（23/24），并主动补了 `grep` 复算，态度是六轮里最好的一次；8 条编号指摘里 4 条全对（②-2 的 `"*"` 是真正的新坑，F3-4 的行号全对）。两处走偏都在**放大链**：①-A 把「写侧仍付锁」推到「只增不减 → 读到已撤销项」（插入路径根本不存在），F3-3 把「按 user 记忆化」推到「跨 session 放行」（判据本就是 user 级）。**规律复现**：它给「后果放大」时，先找那个数据结构的**唯一写入口**（这里是 `:113`）和缓存键的**语义层级**（这里是 user 而非 session），两步都能否掉大半。
 
+### consume 4 / 6（batch#3）
+
+- 输入：`2120286763926077440`（`2026-11-10T22:45:32Z`，首行 `## 第 3 轮复核 · 只读 · HEAD \`dab3431\``）：3 条指摘（① `repo/service.rs` 的 `no stale entry can exist` 应收窄 ② `access.rs:17` 的 `per call` 不成立于早退路径 ③ `webhook/service.rs:29` 的「13」应改为全部投递值）+ 5 条确认（F3-5 / F3-6 / B3-10 / B3-6 措辞 / B3-9）+ 台账计数复核
+- 判定：**成立 1（③ 的方向，它给的计数仍错）/ 不成立 2（①②）/ 确认 5**；另我方自认 1 项措辞退化（`:66` 丢了 pub/sub 半句，它未列为指摘）
+- 环境：它自述 `cargo not on PATH`（`~/.cargo/bin`、`/usr/local/cargo` 均无）⇒ 编译类结论由我方出；本机改前 `scripts/check.sh --quick` **2 s**、改后 **62 s**，均 EXIT=0
+- 工作基线：**`BASE=4b867a0`**（`cnb/main` HEAD，本地同点、工作区干净、`git log HEAD..cnb/main` 为空）⇒ issue 声明的 `df6a3c0` 之后只有本流程自己的改动；本轮再核 `repo/service.rs` 2803 / `webhook/service.rs` 561 / `access.rs` 42 行均未变 ⇒ **零行号漂移**
+- 改动：**`8e4188d`**（L1，2 文件 2+/2−，零行号漂移）
+
+| # | 输入指摘 | 判定 | 证据 / 处置 |
+|---|---|---|---|
+| ① | `repo/service.rs:64-65` 的 `no stale entry can exist` 无条件，压过原文的 `cross-instance` 限定；「先以 flag 未设启动并预热、之后才设 flag ⇒ 旧允许项永久驻留」，应改成 `nothing reads it` | **不成立** | 三步否证。**(1) 场景不可构造**：`perm_cache_disabled()`（`:75-83`）是 `static DISABLED: OnceLock<bool>`，而每条写入路径都先过它 —— `set_perm_cache` 的 `:108 if perm_cache_disabled() { return; }` 在 `:113 cache.insert` **之前** ⇒ flag 在**第一次插入之前**就冻结；`grep -rn set_var crates/` 无 `IRONFORGE_DISABLE_PERM_CACHE`（只有测试改 `HOME`/`IRONFORGE_ALLOW_LOCAL_OUTBOUND`）⇒ 运行期改不动，compose/env 改动必须重启进程 ⇒ 新进程 map 为空 ⇒ **不存在「已预热又带旧项」的进程状态**。**(2) 「没有任何路径会清它」为假**：`invalidate_perm_cache_user`（`:120-124`）无 `perm_cache_disabled()` 守卫，`api/collab.rs:184` 与 `access.rs:23` 每个协作请求各调一次；`invalidate_perm_cache_repo`（`:128-133`）/`invalidate_perm_cache_all`（`:137-142`）同理 ⇒ 旧项在该 user 的下一个请求上就被删。**(3) 它的替代措辞更弱**：`nothing reads it` 把 `:63` 已写明的 `nothing populates` 一起抹掉。维持原文，见反向清单第 26 条 |
+| ② | `access.rs:17` 的 `per call` 不准：owner 早退（`:24-26`）与 org 成员早退（`:34-37`）时「一次锁都不付」 | **不成立** | `:23` 是函数体**第一条语句**：`sed -n '18,26p'` = `pub async fn is_collab_member(` → `) -> CollabResult<bool> {` → `:23 crate::repo::service::invalidate_perm_cache_user(repo.id, user_id);` → `:24 if repo.owner_id == user_id {`。锁在**早退之前**，owner / org 早退路径照付一次 ⇒ `per call` 字面准确（`is_collab_member` 每调一次 = 1 次写锁；`require_collab_read` 另有 `api/collab.rs:184` 的前置清理 = 2 次）。见反向清单第 27 条 |
+| ③ | `webhook/service.rs:29` 的「13 个事件名」低于真实投递值，应按 `trigger_event` 全部调用点写死 | **部分成立** | **成立**：`13` 确为低估，且 `collab.*` 走同一函数 —— `collaboration/webhook_events.rs:95` 调 `crate::webhook::service::trigger_event` ⇒ `webhook_ops.rs:43` 的 `Column::Events.contains`（`LIKE '%…%'`）同样覆盖它们。**不成立部分**：它给的总数 **15 也错**，真值 **16 = 14 repo + 2 collab**（`grep -rhn 'trigger_event(db, repo_id, "'` 去重后 14 项 + `webhook_events.rs:30`/`:32` 两个常量；它自己的枚举逐项数是 14 项却写成 13，再加 2 得 16）。已按 16 改注释，见 F3-7 |
+| 确认 1 | F3-5（三个写侧入口全裸）成立 | **确认** | 与 `grep -rn perm_cache_disabled crates/` = `:75` 定义 / `:97` / `:108` 三处一致 |
+| 确认 2 | F3-6 结论成立、理由要换 | **确认（理由按我方更强的一支）** | 见 ① 第 (1) 步：`OnceLock` 在**首次插入前**冻结，比它说的「启动即读」更强；它补的「单实例启动后改 flag 就漏」仍不可构造 |
+| 确认 3 | B3-10 行号与 P3 定级 | **确认** | 与我方记录逐行一致 |
+| 确认 4 | B3-6 是「1000 **行**」而非「1000 人」，且 `notify_watchers` 不按 `watch_state` 跳过 | **确认（前半第 2 轮已判，后半非新事实）** | 后半即 batch#3 第 1 轮 N-3，早已写进 B3-6；`notification/mod.rs:115-121` 只跳过作者 |
+| 确认 5 | 台账 `^(\d+)\. ` = 25 条、编号 `1..25` 连续唯一 | **确认** | 清单段 `awk '/^[0-9]+\. /'` 输出 1..25 连续 |
+| 自查 1 | `:66` 结尾删掉原文的 pub/sub 半句是措辞退化 | **成立（我方自认）** | 共享缓存与失效总线是两条不同的替代路径；已恢复为 `until a shared cache or a pub/sub invalidation bus replaces it`（1 行→1 行） |
+
+**本轮自查新事实（它未提，或它提的形状不对）**
+
+- **F3-7**：`trigger_event` 的**全部**投递值 = **16**，无一含 `*`：14 个 repo 事件（`push`、`release.created|deleted`、`branch.created|deleted`、`tag.created|deleted`、`issue.opened|closed|comment`、`pull_request.opened|closed|merged`、`milestone.closed`）+ 2 个 collab 事件（`collab.question.asked`/`collab.task.blocked`，`webhook_events.rs:30`/`:32`）。第 1 轮注释与我方台账里的「13」**都少算 1**（漏在 repo 那 14 项里）。**教训：这类计数必须用去重命令产出，不能靠肉眼数枚举。**
+- **F3-8**（收窄我方 F3-1 的措辞）：webhook 创建**不是「零校验」** —— `api/webhooks.rs:83-85` 拦空数组，`webhook/service.rs:55` 直接 `req.events.join(",")`，**无字符集、无白名单**；但仓库另一处**已有** `valid_event_name`（`api/repo_events.rs:57-63`，限 `[a-z0-9._-]`、≤64 字节），只用于 repo_events 的 `types` 查询参数。⇒ B3-8 应写成「webhook API 只有非空校验；字符集校验器已存在，可直接复用」，L2 的落地也可拆成「先复用字符集校验（低风险）+ 再定白名单（会拒存量）」两步。
+
+**它的质量盘点**：本轮 3 条指摘 0 条全对 —— ①② 都在**同一条注释上做减法**（把已成立的事实改弱），③ 方向对但计数错。规律更新：上一批它靠「放大后果」出错，本批转为**「收窄措辞」出错**，且收窄方向一致地偏向「把无条件事实改成有条件的弱命题」。否证这两条的通用手法是**看锁/校验相对于早退分支的语句位置**（`:23` 在 `:24` 之前）与**看 OnceLock / 环境变量的可写性**（运行期无法翻转）。它对 5 条确认项的复算全部准确，`awk`/`grep` 自证形式保持，行号零偏差。
+
 ### 待拍板（batch#3，本流程不动 main）
 
 | # | 级别 | 事项 | 为什么不在本流程做 |
@@ -165,7 +192,8 @@ where
 | B3-5 | P1 | `set_watch` 零枚举校验（`repo/service.rs:852-860`、`api/repos.rs:596-598`） | 加校验会拒绝现状合法客户端（前端入参就是裸 `string`），属 API 契约变更 |
 | B3-6 | P2（第 2 轮由 P1 下调） | `list_watchers` 不过滤状态（`repo_watch_ops.rs:71-88` → `notification/mod.rs:103`）。**第 2 轮限定**：`notify_watchers_push`（`repo/service.rs:1590`）/ `notify_watchers_pr`（`pull_request/service.rs:295`）**零调用者**，全仓唯一活的 fan-out 是 `issue/service.rs:488`（milestone 关闭）⇒ 现状泄漏面只有 `milestone.closed` 一条，不是 push/PR。另同源问题：`list_watchers` 带 `.order_by_desc(UpdatedAt)`（`:79`）且 `notification/mod.rs:103` 写死 `limit 1000` ⇒ >1000 watch 行的仓库只覆盖 `updated_at` 最新的 1000 **行**（`grep -rn list_watchers crates/` 只有 `notification/mod.rs:103` 一处调用，`repo_watch_ops.rs:71-88` 也不按 `watch_state` 过滤，故含 `not_watching` 行），刚改过 watch 状态的行会挤掉长期订阅者（线上是否存在该量级未验证） | 改通知语义；顺带要对账存量 `not_watching` 行是否需要清理；接线 push/PR 通知与「按状态过滤」「去截断」必须一起做，否则一接就把两个缺陷同时放大 |
 | B3-7 | **P0** | LICENSE 模板截断：`apache-2.0` 557 词 / `gpl-3.0` 512 / `mpl-2.0` 1101，条款正文被 `...` 取代 | 换成官方全文是产品内容 + 法律责任变更（要决定是否附带 NOTICE、是否保留摘要版），且会改变所有新建仓库的初始 commit |
-| B3-8 | P2 | `CreateWebhookRequest.events` 无枚举校验 + 注释示例误导（F3-1） | 加白名单会拒绝存量非法值；需先决定宽松（忽略未知）还是严格（400） |
+| B3-8 | P2 | `CreateWebhookRequest.events` 无枚举校验 + 注释示例误导（F3-1）。**第 4 轮收窄**：不是「零校验」—— `api/webhooks.rs:83-85` 只拦空数组，`webhook/service.rs:55` 直接 `req.events.join(",")`；但 `api/repo_events.rs:57-63` 已有 `valid_event_name`（`[a-z0-9._-]`、≤64 字节），可直接复用到 webhook 创建 | 加白名单会拒绝存量非法值；需先决定宽松（忽略未知）还是严格（400）。可拆两步：先复用字符集校验（低风险），再定白名单 |
+| B3-11 | P3 | `trigger_event` 共 16 个投递值（14 repo + 2 collab，F3-7），`webhook_ops.rs:43` 是 `LIKE '%<触发的event>%'` ⇒ 误触发方向是**「触发的名字是别人订阅名的子串」**：若将来触发一个前缀名（如裸 `pull_request`），订阅 `pull_request.merged` 的钩子会收到它。现状 16 个名两两**零子串关系**（脚本校验 `e in s` 对数 = 0），故无事故；反方向（新增 `push.mirror` 触发，订阅 `push` 的钩子）**不会**误触发，因为 `LIKE` 左值是存进去的短名 | 要改成结构化存储（JSON 列 / 关联表）或精确相等匹配，属 schema 或查询语义变更 |
 | B3-9 | P3 | 只读判定里拿全局 perm-cache 写锁（`access.rs:23` → `repo/service.rs:120-124`）。**第 2 轮补全**：`invalidate_perm_cache_user` 全仓 **13 处生产调用**（`human_notify.rs:207` 亦在；`repo/service.rs:2717` 是测试），其中 `require_collab_read` 每个请求**必然清两次**（`api/collab.rs:184` 先清，`:185` → `access.rs:23` 再清）；`human_notify.rs:107` 的候选循环内也清，上界 `MAX_CANDIDATES = 500`（`:46`）；`escalation.rs:283` 有按 `user_id` 的 `contains_key` 记忆化 ⇒ 每 `evaluate` 的锁数 = 候选里不同 user 数，**但候选上界是 600**（`gather` 三处 `CANDIDATE_LIMIT`=200：`:439`/`:457`/`:488`），不是 200；同一 user 多 session 不会各付一次锁（`:283` 缓存的是 user 对 repo 的权限，与 session 无关，不是「跨 session 放行」）。注意 `perm_cache_disabled()` **不**保护 `invalidate_perm_cache_user`（`repo/service.rs:120-124` 无守卫），只有 `check_perm_cache`（`:96-99`）/`set_perm_cache`（`:107-110`）短路 | 权限缓存语义变更（热路径写锁是真成本，需先定 TTL/失效策略；`require_collab_*` 共 73 处调用点、24 文件） |
 | B3-10 | P3 | `redeliver` 借道 `trigger_event`（`webhook/service.rs:392-398`）⇒ 一次手动重投既在 `repo_events` 再插一行（`:140` → `:227-239` `repo_event_ops::append`），又向该 repo **全部** active hook 真实扇出一次（`:142`）；而 `ironforge_webhook_deliveries_total` 只记手动那一次（`api/webhooks.rs:280`/`:288`），扇出与日志都不计数 | 先要定义「重投算不算一次投递」，再改计数口径 + 事件日志去重；与 B3-1 同一段代码，须一起改 |
 
@@ -648,6 +676,12 @@ git -c protocol.version=2 clone --depth=1 ...
 
 25. 「`escalation.rs:283` 的 `contains_key` 记忆化，实质是「用 session-A 的权限判定放行 session-B 的提醒」，等于跨 session 越权」—— **不成立**。被缓存的判据是 `is_collab_member(db, repo, session.user_id)`（`escalation.rs:284`），即 **user 对 repo** 的权限，与 session 无关；`may_notify` 在取缓存之前已单独校验 session 存在与 `state_of` ∈ {online, offline}（`:277-282`）。同一 user 的两个 session 权限不可能不同 ⇒ 不存在「放行」。同轮它附带的「修掉它会变成 N 次写锁」是对假想方案的推断，不作为缺陷判定；真值是「每 `evaluate` 的锁数 = 候选里不同 user 数，候选上界 600（`gather` 三处 `CANDIDATE_LIMIT`）」。**已核实为不成立，不要重复提。**
 
+以下 2 条由 **batch#3 第 4 轮**判定不成立（逐条 `sed`/`grep` 复核），一并锁死：
+
+26. 「`repo/service.rs:64-65` 的 `no stale entry can exist` 无条件写死，场景是「实例先以 flag 未设启动并预热，之后才设 `IRONFORGE_DISABLE_PERM_CACHE=1`」⇒ 旧允许项永久驻留、谁碰不到它，应改为 `nothing reads it`」—— **不成立**。`perm_cache_disabled()`（`:75-83`）是 `static DISABLED: OnceLock<bool>`，而**每条写入路径都先过它**：`set_perm_cache` 的 `:108` 守卫在 `:113 cache.insert` 之前 ⇒ flag 在第一次插入前即冻结；`grep -rn set_var crates/` 无此 key（只有测试改 `HOME`/`IRONFORGE_ALLOW_LOCAL_OUTBOUND`）⇒ 运行期翻不了，改 env 必须重启进程，新进程 map 为空 ⇒ 该状态不存在。另它的「没有任何路径会清它」也假：`invalidate_perm_cache_user`（`:120-124`）无守卫且每个协作请求走两次（`api/collab.rs:184`、`access.rs:23`）。且 `nothing reads it` 会把 `:63` 已写明的 `nothing populates` 抹掉，比现状更弱。**已核实为不成立，不要重复提。**
+
+27. 「`access.rs:17` 的 `per call` 不成立，因为 owner 早退（`:24-26`）与 org 成员早退（`:34-37`）时一次锁都不付」—— **不成立**。`:23 invalidate_perm_cache_user` 是函数体**第一条语句**，在 `:24` 的 owner 判断**之前** ⇒ 所有早退路径照付一次全局写锁；`per call` 字面准确（本函数 1 次，`require_collab_read` 因 `api/collab.rs:184` 的前置清理共 2 次）。它与已撤回的第 24 条是同一条注释上的第二次尝试（第一次改主语、这次改计数），两次都被否。**已核实为不成立，不要重复提。**
+
 ### 我方已自证推翻（勿当结论引用）
 
 | 我上轮写的 | 实际 | 处置 |
@@ -656,6 +690,8 @@ git -c protocol.version=2 clone --depth=1 ...
 | `ssh_key.rs:9`「byte-identical to `ssh-keygen -l -E sha256`」 | `ssh-keygen` 输出整行，本函数只回 `SHA256:<fp>` 字段 | 已改为「matches the `SHA256:<digest>` field」 |
 | `encryption.rs:57` 未说明 `mask_values` 的入参形态 | 它是**明文**，且 `ci_secret_ops::upsert` 自身不校验长度 | 已在同一条注释里写明两点 |
 | registry 文档「`oci.rs` 全文件共 **5 处**权限查询——校验侧 3 处 / 签发侧 2 处」（第 5 轮写死） | `grep -n 'can_read_repo\|can_write_repo' crates/rg-http/src/oci.rs` = 11 命中，其中 **7 处是调用**：`:114` `:118` `:159` `:164` `:179` `:329` `:342`（另 4 处是注释 `:82`/`:142`/`:146`/`:375`）。第 5 轮漏了 PR #24 新增的 Bearer 复查 `:159`/`:164` | 第 6 轮改正为「7 处 = 校验侧 5 + 签发侧 2」，并列出不计入的 `:152`/`:328`/`:340`（`335fa57`） |
+| `webhook/service.rs:29` 注释「13 个事件名无一含 `*`」、台账 F3-1「13 个事件全名」（第 1 轮写） | 去重命令 `grep -rhn 'trigger_event(db, repo_id, "' \| sort -u` = **14** 个 repo 投递名；加 2 个 collab 常量 = **16**（F3-7），无一含 `*` | 第 4 轮改为「16 = 14 repo + 2 collab」（`8e4188d`）；计数一律用去重命令产出，不肉眼数枚举 |
+| 台账 F3-1「API 对 event 名零校验」（第 1 轮写） | `api/webhooks.rs:83-85` 拦空数组；`api/repo_events.rs:57-63` 已有 `valid_event_name`（字符集 + 长度），只是没用到 webhook 创建 | 第 4 轮在 B3-8 收窄为「webhook API 只有非空校验，字符集校验器已存在可复用」（F3-8） |
 
 ### 对方已撤回（勿再作为争议点）
 
