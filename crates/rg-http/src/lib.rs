@@ -1380,6 +1380,11 @@ fn build_routes(
             "/repos/{owner}/{name}/commits/{sha}/signature",
             get(api::repo_content::get_commit_signature),
         )
+        // Many file edits in one commit
+        .route(
+            "/repos/{owner}/{name}/commits",
+            post(api::repo_commits::create_commit),
+        )
         // File creation/update/deletion
         .route(
             "/repos/{owner}/{name}/contents/{*path}",

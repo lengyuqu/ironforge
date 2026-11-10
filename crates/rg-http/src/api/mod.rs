@@ -58,6 +58,7 @@ pub mod pr_export;
 pub mod pulls;
 pub mod releases;
 pub(crate) mod repo_access;
+pub mod repo_commits;
 pub mod repo_content;
 pub mod repo_events;
 pub mod repos;

@@ -58,9 +58,9 @@ pub fn valid_key(key: &str) -> bool {
 
 /// Whether a request path (without the `/api/v1` prefix) may use an idempotency
 /// key: creating a repository, or writing under one of a repository's
-/// issues / pull requests / contents / releases / labels / milestones /
-/// branches / wiki. Everything else, in particular anything that returns a token
-/// or a secret, is out.
+/// issues / pull requests / contents / commits / releases / labels /
+/// milestones / branches / wiki. Everything else, in particular anything that
+/// returns a token or a secret, is out.
 pub fn idempotency_supported(path: &str) -> bool {
     let segments: Vec<&str> = path.trim_start_matches('/').split('/').collect();
     if segments
@@ -79,6 +79,7 @@ pub fn idempotency_supported(path: &str) -> bool {
                 "issues"
                     | "pulls"
                     | "contents"
+                    | "commits"
                     | "releases"
                     | "labels"
                     | "milestones"
