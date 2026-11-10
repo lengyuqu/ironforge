@@ -47,7 +47,7 @@
 - 反向清单回灌：**不成立 21 条全量回灌**（batch#1/#2 累计）+ 对方已撤回 4 项 + 我方自证推翻 4 项，均注明「不要重复提」
 - 已知空档新增：`password.rs`/`rg-http/src/oci.rs`/`auth/oci_token.rs` 旧行号已因 PR #21/#24 作废不得引用；agent 模块不在本批范围
 - NPC 首扫：`2120244997269143552`，`2026-11-10T19:59:34Z`（开批后 7 min 33 s；`author.is_npc=true`，首行 `## 第 1 轮 · batch#3 只读审查`，自述基线 `df6a3c0`）
-- 6 轮进度：**2 / 6**（第 2 轮收尾 `2120269785404440576` 已发；第 1 轮 `2120252808799633408`）
+- 6 轮进度：**3 / 6**（第 3 轮收尾 `PENDING`；第 2 轮 `2120269785404440576`；第 1 轮 `2120252808799633408`）
 
 ### consume 1 / 6（batch#3）
 
@@ -123,6 +123,37 @@ where
 
 **它的质量盘点**：本轮它把靶子从「复核我方措辞」转到「新事实 + 设计层」，13 条编号输入里 6 条成立、3 条部分成立、2 条不成立、1 条是对我方改动的确认；两处硬伤都是「自己的两条发现互相打脸」：②-1 建议的措辞被 ③-B 证伪；④ 的「14 处」与它自己表里只列的 12 行不一致（真值 13）。**新规律**：它给出的「替代措辞」不能直接落盘 —— 局部事实往往对，但拼成一句话时的因果链会越过它另一条发现。凡它给整句替换，必须先拿本轮其它条目交叉验一遍。
 
+### consume 3 / 6（batch#3）
+
+- 输入：`2120270296044191744`（`2026-11-10T21:40:05Z`，首行 `## 第 3 轮复核 · 只读 · HEAD \`8bafd5f\``）：① 自行撤回反向清单 23/24 并附两条新错值；② 复核我方 `dc3fb9e` 四处；③ 新事实 2 条（F3-3 / F3-4）；④ 台账层 2 条；⑤ 未复算声明 3 条
+- 判定：**成立 4 / 部分成立 3 / 不成立 2（子命题）/ 确认 2**（8 条编号指摘 + 2 条确认）；另有 2 项它自行撤回
+- 环境：它自述沙箱无 cargo（`./scripts/check.sh --quick` → `line 37: cargo: command not found`，EXIT=127），故本轮一切编译类结论由我方出；本机改前 `--quick` **1 s**、改后 **72 s**，均 EXIT=0
+- 工作基线：**`BASE=0d52ab4`**（`cnb/main` HEAD，本地同点、工作区干净）。issue 声明 `df6a3c0`，`git diff df6a3c0..0d52ab4 -- crates/rg-core/src/{repo,webhook,collaboration} docs/p0-system-design.md` 只有本流程自己前两轮的改动（4 文件 6+/6−）⇒ **零行号漂移**（`repo/service.rs` 2803 / `webhook/service.rs` 561 / `access.rs` 42 / `p0-system-design.md` 644 均未变）
+- 改动：**`ebf14f9`**（L1，3 文件 6+/6−，零行号漂移）+ 本轮 ledger
+- 改后验证：`scripts/check.sh --quick` **通过（72 s，EXIT=0）**
+- 回帖：`PENDING`
+
+| # | 输入指摘 | 判定 | 证据 / 处置 |
+|---|---|---|---|
+| ①-A | `repo/service.rs:62-65` 的 mitigation 注释「bypassed entirely」字面为假：禁用态下 `invalidate` 照写、`set_perm_cache` 早退 ⇒ map「只增不减」，运行期切 flag 的实例会读到已撤销的允许项 | **部分成立** | **成立部分**：`grep -rn perm_cache_disabled crates/` = `:75` 定义 / `:97`（`check_perm_cache`）/ `:108`（`set_perm_cache`），**无第四处**；`invalidate_perm_cache_user`（`:120-124`）`:121` 无条件 `perm_cache().write()` ⇒ 禁用态下这次写锁服务的是一个没人写、没人读的 map，`:63` 的「entirely」确实没区分读/写侧。**不成立部分**：`grep -n "cache.insert" repo/service.rs` 只有 `:113`（在 `set_perm_cache` 内，`:108` 已早退）⇒ 禁用态下**没有插入路径**，map 只减不增（`:121`/`:129-133` 全是删除），「只增不减」方向错；`perm_cache_disabled()`（`:75-83`）是 `static DISABLED: OnceLock<bool>`，首次调用即冻结，**运行期改环境变量无效** ⇒「先收过 invalidate 就会读到已撤销允许项」的场景构造不出来。**处置**：按成立的半边改注释（`:63-66` 4 行→4 行），不加它那两段推论 |
+| ①-B | `access.rs:17` 的括注把「`require_collab_write` 付 0 次锁」当成了事实，应写成 read 付 2 次 / write 付 1 次 | **部分成立** | **成立部分**：`api/collab.rs:202` `require_collab_write` 在 `:211` 先 `invalidate_perm_cache_user`，`:212` 直接 `can_write_repo`（不进 `access.rs:23`）⇒ write 付 1 次、read 付 2 次，差额真实。**不成立部分**：原句只量化 read（"pays it twice per request"），全句未对 write 的次数做任何断言，「把付零当事实」是它的读法。**处置**：括注补 write 付 1 次（1 行→1 行） |
+| ②-1 | 我方 `repo/service.rs:852` 的改法「成立且措辞准确」 | **确认** | 非指摘。复核一致 |
+| ②-2 | `webhook/service.rs:29` 的 events 注释漏了通配 `"*"` 也是裸串 ⇒ 填 `"*"` 的钩子同样静默死亡 | **成立** | `grep -rn '"\*"' crates/rg-core/src/webhook/` **零命中（exit=1）**；13 个事件全名两两互不为子串且无一含 `*` ⇒ `Column::Events.contains("*")` 永不命中。已写进同一行注释（1 行→1 行） |
+| ②-4 | `p0-system-design.md:125`「成立，零错误」 | **确认** | `m20260508_000001_create_repo_stars_watches.rs:90-95` 只有 `.string().not_null().default(...)`，无 CHECK；`repo_watch_ops.rs:29`/`:37` 两处 `Set(state.to_string())`。一致 |
+| ③ F3-3 | `escalation.rs` 的记忆化是「重复候选互相遮蔽」，且是**用 session-A 的权限放行 session-B 的提醒**；候选上限是 600 而非 200 | **部分成立** | **成立部分**：`gather`（`:428-518`）候选粒度确为 **session**（`owner_session_id`、`question.creator_id\|recipient_id`、`handoff.from_session_id`）；`CANDIDATE_LIMIT`（`:45` = 200）在 `:439`/`:457`/`:488` 三处使用（它写 `:497`，那里是 `(None, false) => None,`） ⇒ 单次 `evaluate` 候选上界 **600**；dedupe 唯一键 `uq_collab_notices_dedupe` = `(recipient_session_id, kind, source_type, source_id, generation)`（迁移 `m20261104_000005_create_collab_notices.rs:192-198`），`insert_if_new`（`collab_notice_ops.rs:84-92`）只在唯一冲突时返回 `false` ⇒ 同 user 多 session 确实各得一条。**不成立部分**：「跨 session 放行」—— 被缓存的是 `is_collab_member(db, repo, session.user_id)`（`escalation.rs:284`），判据是 **user 对 repo** 的权限，与 session 无关，同 user 的两个 session 不可能得出不同结论；`may_notify` 在取缓存前已单独校验 session 存在与 `state_of` ∈ {online, offline}（`:277-282`）⇒ 缓存没有越过任何 session 级闸门，见反向清单第 25 条。**处置**：把 B3-9 的「不构成 N 次」改为「锁数 = 候选里不同 user 数，候选上界 600」 |
+| ③ F3-4 | `redeliver` 借道 `trigger_event`：一次手动重投既在 `repo_events` 再插一行，又向全部 active hook 真实扇出；而 `ironforge_webhook_deliveries_total` 只记手动那次 | **成立**（L2） | `redeliver`（`:380-401`）`:392-398` 调 `trigger_event(db, hook.repo_id, &delivery.event, …)`；`trigger_event` `:140` 先 `record_repo_event` → `:235` `repo_event_ops::append`（`:227-239` 函数体），`:142` 再 `list_active_by_repo_and_event` 扇出。行号全对（它写 `:142-149`，扇出起点即 `:142`）。**处置**：不动代码，新立 **B3-10**（P3） |
+| ④-1 | 反向清单 `:594` 的 `15.` 与 `:596` 的 `16.` 之间夹了空行，`grep -A1 '^15\. '` 取不到下一项 | **成立** | `sed -n '594,596p'` 确认 `:595` 为空行，主清单其余条目之间无空行。**处置**：删除该空行（`:596` 起全文上移 1 行） |
+| ④-2 | B3-6 的「只通知最近改过 watch 状态的 1000 人」应收紧为「1000 **行**（含 `not_watching`）」 | **成立** | `grep -rn list_watchers crates/` = `notification/mod.rs:103`（唯一调用）+ `repo_watch_ops.rs:71`（定义）；`repo_watch_ops.rs:71-88` 只有 `.filter(RepoId.eq(repo_id))` + `order_by_desc(UpdatedAt)`，**不按 `watch_state` 过滤**。**处置**：改 B3-6 措辞 |
+| ①-撤回 23 | 它撤回「`perm_cache_disabled()` 短路保护了 13 处调用」 | **确认撤回**（我方原判维持） | 已记入「对方已撤回」表；反向清单第 23 条保留 |
+| ①-撤回 24 | 它撤回「`access.rs:17` 的 `per call` 要限定主语」 | **确认撤回**（我方原判维持） | 同上；第 24 条保留 |
+
+**本轮自查新事实（它未提）**
+
+- **F3-5**：`invalidate_perm_cache_repo`（`repo/service.rs:128-133`）与 `invalidate_perm_cache_all`（`:137-142`）同样**不受** `perm_cache_disabled()` 约束 —— 全仓 `perm_cache_disabled` 只有 `:75` 定义 / `:97` / `:108` 三处命中。即「禁用缓存」对**三个写侧入口全部无效**，只在读侧（`check_perm_cache`）与写回（`set_perm_cache`）短路。这一点比 F3-2 的「一处」更完整：禁用态下每次 `require_collab_read` 仍付 2 次全局写锁、每次仓库级失效再付 1 次。
+- **F3-6**：`repo/service.rs:63` 原文的「no stale cross-instance entry can exist」在**单实例 + 运行期改 flag** 的语境下是成立的（`OnceLock` 冻结），但在**每实例各自启动时读 flag** 的多实例语境下才是它的本意；两个语境都无 stale 读，故该句结论本身不错，错的只是「entirely」漏掉了写侧成本。本轮注释按此改。
+
+**它的质量盘点**：本轮它把上一轮判死的两条自己撤了（23/24），并主动补了 `grep` 复算，态度是六轮里最好的一次；8 条编号指摘里 4 条全对（②-2 的 `"*"` 是真正的新坑，F3-4 的行号全对）。两处走偏都在**放大链**：①-A 把「写侧仍付锁」推到「只增不减 → 读到已撤销项」（插入路径根本不存在），F3-3 把「按 user 记忆化」推到「跨 session 放行」（判据本就是 user 级）。**规律复现**：它给「后果放大」时，先找那个数据结构的**唯一写入口**（这里是 `:113`）和缓存键的**语义层级**（这里是 user 而非 session），两步都能否掉大半。
+
 ### 待拍板（batch#3，本流程不动 main）
 
 | # | 级别 | 事项 | 为什么不在本流程做 |
@@ -132,10 +163,11 @@ where
 | B3-3 | P2 | webhook `secret` 明文入库（`:65`/`:109`，迁移 `:125` 裸 string） | 改 schema + 存量重加密；且与 B2-5 的 `derive_key` 议题耦合（换 KDF 会作废既有密文） |
 | B3-4 | P3 | `update_webhook` 无法表达「清空 secret」（`:109`） | 需要三方状态（缺省 / 置空 / 改值），改 API 契约 + 前端表单 |
 | B3-5 | P1 | `set_watch` 零枚举校验（`repo/service.rs:852-860`、`api/repos.rs:596-598`） | 加校验会拒绝现状合法客户端（前端入参就是裸 `string`），属 API 契约变更 |
-| B3-6 | P2（第 2 轮由 P1 下调） | `list_watchers` 不过滤状态（`repo_watch_ops.rs:71-88` → `notification/mod.rs:103`）。**第 2 轮限定**：`notify_watchers_push`（`repo/service.rs:1590`）/ `notify_watchers_pr`（`pull_request/service.rs:295`）**零调用者**，全仓唯一活的 fan-out 是 `issue/service.rs:488`（milestone 关闭）⇒ 现状泄漏面只有 `milestone.closed` 一条，不是 push/PR。另同源问题：`list_watchers` 带 `.order_by_desc(UpdatedAt)`（`:79`）且 `notification/mod.rs:103` 写死 `limit 1000` ⇒ >1000 watch 行的仓库只通知「最近改过 watch 状态」的 1000 人，刚点 watch 的人会挤掉长期订阅者（线上是否存在该量级未验证） | 改通知语义；顺带要对账存量 `not_watching` 行是否需要清理；接线 push/PR 通知与「按状态过滤」「去截断」必须一起做，否则一接就把两个缺陷同时放大 |
+| B3-6 | P2（第 2 轮由 P1 下调） | `list_watchers` 不过滤状态（`repo_watch_ops.rs:71-88` → `notification/mod.rs:103`）。**第 2 轮限定**：`notify_watchers_push`（`repo/service.rs:1590`）/ `notify_watchers_pr`（`pull_request/service.rs:295`）**零调用者**，全仓唯一活的 fan-out 是 `issue/service.rs:488`（milestone 关闭）⇒ 现状泄漏面只有 `milestone.closed` 一条，不是 push/PR。另同源问题：`list_watchers` 带 `.order_by_desc(UpdatedAt)`（`:79`）且 `notification/mod.rs:103` 写死 `limit 1000` ⇒ >1000 watch 行的仓库只覆盖 `updated_at` 最新的 1000 **行**（`grep -rn list_watchers crates/` 只有 `notification/mod.rs:103` 一处调用，`repo_watch_ops.rs:71-88` 也不按 `watch_state` 过滤，故含 `not_watching` 行），刚改过 watch 状态的行会挤掉长期订阅者（线上是否存在该量级未验证） | 改通知语义；顺带要对账存量 `not_watching` 行是否需要清理；接线 push/PR 通知与「按状态过滤」「去截断」必须一起做，否则一接就把两个缺陷同时放大 |
 | B3-7 | **P0** | LICENSE 模板截断：`apache-2.0` 557 词 / `gpl-3.0` 512 / `mpl-2.0` 1101，条款正文被 `...` 取代 | 换成官方全文是产品内容 + 法律责任变更（要决定是否附带 NOTICE、是否保留摘要版），且会改变所有新建仓库的初始 commit |
 | B3-8 | P2 | `CreateWebhookRequest.events` 无枚举校验 + 注释示例误导（F3-1） | 加白名单会拒绝存量非法值；需先决定宽松（忽略未知）还是严格（400） |
-| B3-9 | P3 | 只读判定里拿全局 perm-cache 写锁（`access.rs:23` → `repo/service.rs:120-124`）。**第 2 轮补全**：`invalidate_perm_cache_user` 全仓 **13 处生产调用**（`human_notify.rs:207` 亦在；`repo/service.rs:2717` 是测试），其中 `require_collab_read` 每个请求**必然清两次**（`api/collab.rs:184` 先清，`:185` → `access.rs:23` 再清）；`human_notify.rs:107` 的候选循环内也清，上界 `MAX_CANDIDATES = 500`（`:46`）；`escalation.rs:283` 有 `contains_key` 记忆化，**不**构成 N 次。注意 `perm_cache_disabled()` **不**保护 `invalidate_perm_cache_user`（`repo/service.rs:120-124` 无守卫），只有 `check_perm_cache`（`:96-99`）/`set_perm_cache`（`:107-110`）短路 | 权限缓存语义变更（热路径写锁是真成本，需先定 TTL/失效策略；`require_collab_*` 共 73 处调用点、24 文件） |
+| B3-9 | P3 | 只读判定里拿全局 perm-cache 写锁（`access.rs:23` → `repo/service.rs:120-124`）。**第 2 轮补全**：`invalidate_perm_cache_user` 全仓 **13 处生产调用**（`human_notify.rs:207` 亦在；`repo/service.rs:2717` 是测试），其中 `require_collab_read` 每个请求**必然清两次**（`api/collab.rs:184` 先清，`:185` → `access.rs:23` 再清）；`human_notify.rs:107` 的候选循环内也清，上界 `MAX_CANDIDATES = 500`（`:46`）；`escalation.rs:283` 有按 `user_id` 的 `contains_key` 记忆化 ⇒ 每 `evaluate` 的锁数 = 候选里不同 user 数，**但候选上界是 600**（`gather` 三处 `CANDIDATE_LIMIT`=200：`:439`/`:457`/`:488`），不是 200；同一 user 多 session 不会各付一次锁（`:283` 缓存的是 user 对 repo 的权限，与 session 无关，不是「跨 session 放行」）。注意 `perm_cache_disabled()` **不**保护 `invalidate_perm_cache_user`（`repo/service.rs:120-124` 无守卫），只有 `check_perm_cache`（`:96-99`）/`set_perm_cache`（`:107-110`）短路 | 权限缓存语义变更（热路径写锁是真成本，需先定 TTL/失效策略；`require_collab_*` 共 73 处调用点、24 文件） |
+| B3-10 | P3 | `redeliver` 借道 `trigger_event`（`webhook/service.rs:392-398`）⇒ 一次手动重投既在 `repo_events` 再插一行（`:140` → `:227-239` `repo_event_ops::append`），又向该 repo **全部** active hook 真实扇出一次（`:142`）；而 `ironforge_webhook_deliveries_total` 只记手动那一次（`api/webhooks.rs:280`/`:288`），扇出与日志都不计数 | 先要定义「重投算不算一次投递」，再改计数口径 + 事件日志去重；与 B3-1 同一段代码，须一起改 |
 
 ### batch#2(issue #12) · 2026-11-10 · rg-core auth 凭据链路
 
@@ -592,7 +624,6 @@ git -c protocol.version=2 clone --depth=1 ...
 13. 「`ssh_key.rs:143` 的 docstring 只提 `/`，`+` 出现在 body 的 index 21」—— **不成立（双向错）**。当时文本为 `:142-143`「contains both `/` and `+`」；且 `std[21]` 是 `m`，全串**无** `+`。附带结论（我方错，已修）：见下「我方已自证推翻」。
 14. 「`mask_values` 的 `str::replace` 会把同一串的 base64url 变形也遮掉」—— **不成立**。`str::replace` 是字面量子串替换，遮 `TKA/7j9` 不影响 `TKA_7j9`。
 15. 「B2-6 的后果不是漏遮，而是 secret 在 CI 里消失」／「密文 19+ 字符 ⇒ 2 字节 secret 会被意外遮住」—— **两条均不成立**。`mask_values` 只吃**解密后明文**（`api/runners.rs:796`→`:537`、`rg-ci/src/runner.rs:754`→`:528`），密文从不进入；短明文唯一后果是不被遮蔽。
-
 16. 「`password.rs:192` 把边界写成「4 个 CJK 字符」是错的，应该是「3 个」」—— **不成立**。`strict()` 是 `min_length: 12`（`password.rs:171`），判定在 `:193` `if password.len() < self.min_length`：3 个 CJK = **9 字节** → `9 < 12` 成立 → `TooShort`（过不了）；4 个 CJK = 12 字节 → 条件为假 → 通过。对方自己的句子也承认「3-char CJK fails at the 9-vs-12 boundary」，与其改法自相矛盾。正确写法是「4 个、只是刚好过线（no margin）」。**已核实为不成立，不要重复提。**
 
 17. 「`registry-auth-visibility-verification-2026-11.md` 的 `:23` **漏了签发侧 `:298`/`:311` 两个调用点**」—— **不成立**（该文的计数口径问题成立，见第 5 轮 #4）。同一篇的 `:27` 已单列签发侧：`:297` `has_action("pull")` → `:298-304` `can_read_repo`、`:309-321` push 走 `can_write_repo`，与 `:23` 的「这条链」互为补充。所谓「漏」是把「`:23` 只讲校验侧」读成了「全文只讲两处」。第 5 轮已重写该文，把「校验侧 3 处 / 签发侧 2 处 / 供 5 处」写死，此后不该再出现计数争议。**第 6 轮更正**：那次「3 + 2 = 5」本身就是错的（漏了 Bearer 复查 `:159`/`:164`），真值是「校验侧 5 + 签发侧 2 = 7」，见下「我方已自证推翻」表。
@@ -613,6 +644,10 @@ git -c protocol.version=2 clone --depth=1 ...
 
 
 
+以下 1 条由 **batch#3 第 3 轮**判定不成立（子命题，逐条 `sed` 复核），一并锁死：
+
+25. 「`escalation.rs:283` 的 `contains_key` 记忆化，实质是「用 session-A 的权限判定放行 session-B 的提醒」，等于跨 session 越权」—— **不成立**。被缓存的判据是 `is_collab_member(db, repo, session.user_id)`（`escalation.rs:284`），即 **user 对 repo** 的权限，与 session 无关；`may_notify` 在取缓存之前已单独校验 session 存在与 `state_of` ∈ {online, offline}（`:277-282`）。同一 user 的两个 session 权限不可能不同 ⇒ 不存在「放行」。同轮它附带的「修掉它会变成 N 次写锁」是对假想方案的推断，不作为缺陷判定；真值是「每 `evaluate` 的锁数 = 候选里不同 user 数，候选上界 600（`gather` 三处 `CANDIDATE_LIMIT`）」。**已核实为不成立，不要重复提。**
+
 ### 我方已自证推翻（勿当结论引用）
 
 | 我上轮写的 | 实际 | 处置 |
@@ -632,6 +667,8 @@ git -c protocol.version=2 clone --depth=1 ...
 | 「`ofs-delta` 标 ✅ 站不住」 | 「撤回，`mod.rs:185` 行号精确」 |
 | 「`sideband.rs:25` / `pkt_line.rs:59` 引错」 | 「撤回」（第 4 轮已撤，第 5 轮重申） |
 | 「`skip_until_flush` 在 EOF 时空转」 | 第 6 轮它自己撤回：「`skip_until_flush` 只认字面 `Flush`，而 `read_pkt_line` 在 EOF 时返回的正是 `Flush`，所以它会正常退出。洞在 `read_command_request` 对 `0004` 空行的处理上」 |
+| 反向清单 **23**（`perm_cache_disabled()` 短路保护了 13 处调用） | 第 3 轮（batch#3）自行撤回：「我撤回，你判对，且我漏了一处守卫位置」，并复算 `grep -rn perm_cache_disabled` = `:75` 定义 / `:97` / `:108`，**无第四处** |
+| 反向清单 **24**（`access.rs:17` 的 `per call` 要限定主语） | 第 3 轮（batch#3）自行撤回：「我也撤回」。但其撤回理由里混入一条错的（说括注把 write 付零写成事实），见「部分成立里的错处」 |
 
 ### 第 6 轮记下的对方错项（部分成立里的错处，勿当结论引用）
 
