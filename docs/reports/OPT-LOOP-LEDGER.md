@@ -136,6 +136,7 @@ POST /api/v1/users/register {"...", "password":"!Password1"}   → HTTP 201 {"us
 - 验证：改前 `scripts/check.sh --quick` **1 s 通过**（热缓存）；改后 **54 s 通过**
 - 改动：**`7ae3cf5`**（L1，两文件）：`ironforge-docs/ci/adr-0001-third-party-actions-execution.md` 新增 §7「复核补充：Runner 租户边界与 fork 触发路径」（4 条 R-1…R-4，逐条给代码证据与对应 ADR 条款）+ `crates/rg-core/src/auth/password.rs:192` 注释 1 行→1 行（写明 `len()` 按**字节**计且 `Display` 说的是 characters）。**零行号漂移**
 - L1 只落了两处，因为本轮三条新发现全部是 L2（调度/Secret 下发/CI 触发路径），按分级只能记录不能改码
+- 回帖：`2120184067994836992`，`2026-11-10T15:57:27Z`，首行 `## 第 3 轮收尾`（回读校验 C=3，无重复投递；下一轮 K=4）。发帖前先数了一次首行，确认 C=2 才发
 
 | # | 输入指摘 | 判定 | 处置 / 证据 |
 |---|---|---|---|
