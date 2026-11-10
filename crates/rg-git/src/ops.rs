@@ -855,7 +855,7 @@ pub fn generate_pack_filtered_with_tips(
 }
 
 /// gix-native replacement for `git pack-objects --all --stdout`: packs every
-/// object reachable from every ref in the repository (initial-clone path).
+/// object reachable from every ref. Callers: the V1 upload-pack empty-`want` fallback (`protocol/upload_pack.rs:371`) and `fork_repo` (`rg-core/src/repo/service.rs:1241`, non-protocol — shallow/filter/haves do not apply there).
 pub fn pack_universe(repo_path: &Path) -> anyhow::Result<Vec<u8>> {
     let repo = open_repo(repo_path)?;
     let mut inputs: Vec<gix::hash::ObjectId> = Vec::new();

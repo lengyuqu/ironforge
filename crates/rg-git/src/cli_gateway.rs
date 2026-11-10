@@ -254,10 +254,10 @@ impl GitCommandGateway {
 
     /// Spawn an async git command with piped stdin/stdout/stderr.
     ///
-    /// **Currently unused**: 全 workspace 只有这一处出现 `spawn_async`，连测试都没有。
-    /// 原先这里写「used for pack-objects, index-pack」，在 gix 化之后已不成立——两个方向
-    /// 都走 gix 原生（出站 `iter_from_counts`，入站 `pack_for_wants*` / `index_pack_bytes`）。
-    /// 若长期无人调用，删掉比留着一个被模块文档宣传的死 API 更好。
+    /// **Currently unused**: 全 workspace 只有这一处**定义** `spawn_async`（文件头
+    /// `//!` 模块文档另有一处提及），没有调用方也没有测试。原先这里写「used for pack-objects,
+    /// index-pack」，gix 化之后已不成立——出站是 `pack_for_wants*` / `iter_from_counts`，
+    /// 入站只有 `index_pack_bytes`，两者都不经网关。删掉比留着更干净。
     /// Callers should use `tokio::time::timeout()` around the I/O loop.
     pub async fn spawn_async(
         &self,
