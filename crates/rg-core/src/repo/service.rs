@@ -63,7 +63,7 @@ pub struct CreateRepoOptions {
 //   Reads then bypass the cache entirely (nothing populates or reads it), so
 //   authorization is always decided from the database and no stale entry can
 //   exist — invalidation still takes the global write lock, it just has nothing
-//   to purge. Trades throughput for correctness until a shared cache replaces it.
+//   to purge. Trades throughput for correctness until a shared cache or a pub/sub invalidation bus replaces it.
 
 const PERM_CACHE_TTL: Duration = Duration::from_secs(30);
 
