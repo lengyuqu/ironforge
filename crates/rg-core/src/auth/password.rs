@@ -41,7 +41,14 @@ pub enum PasswordError {
     NoDigit,
     NoSpecialChar,
     ContainsWhitespace,
-    TooCommon(String),
+    /// The password, once its leading and trailing non-letter characters are
+    /// stripped, is exactly one of [`COMMON_PASSWORDS`].
+    ///
+    /// Deliberately carries **no payload**: this error is rendered verbatim
+    /// into the `POST /users/register` 400 response body, so keeping the
+    /// plaintext here would echo the submitted password back to the caller
+    /// (and to anything that logs the response).
+    TooCommon,
     ContainsUsername,
 }
 
@@ -66,10 +73,9 @@ impl std::fmt::Display for PasswordError {
                 "password must contain at least one special character (!@#$%^&*...)"
             ),
             Self::ContainsWhitespace => write!(f, "password must not contain whitespace"),
-            Self::TooCommon(pwd) => write!(
+            Self::TooCommon => write!(
                 f,
-                "password '{}' is too common — please choose a stronger one",
-                pwd
+                "password is too common — please choose a stronger one"
             ),
             Self::ContainsUsername => write!(f, "password must not contain the username"),
         }
@@ -226,20 +232,34 @@ impl PasswordValidator {
             }
         }
 
-        // Common password check: only the leading alphabetic run is compared against the list, so a password like `1Password1!` slips past that branch; the whole-string check below still catches exact list entries such as `123456`
+        // Common password check. The candidate is the password's first letter
+        // run, with any leading digits/symbols skipped first — `1Password1!`
+        // and `!Password` must be compared as `password`, not as "" .
+        //
+        // Two tempting alternatives are both wrong here:
+        //   * stripping *both* ends (`trim_matches`) turns `Welcome1!x` from a
+        //     hit into a pass, because the trailing `x` stops the trim and the
+        //     interior `1!` is never removed — a silent coverage regression;
+        //   * taking the *longest* letter run rejects `Str0ng!Pass` by matching
+        //     its trailing `pass`, which is a new false positive.
+        // Skipping the prefix and keeping the first run changes exactly one
+        // thing versus the old code: the run is no longer forced to start at
+        // byte 0. Nothing that matched before stops matching.
         if self.reject_common {
             let lower = password.to_lowercase();
-            // Take the leading alphabetic run, so "password1!" and "password!!!" both reduce to "password"
-            let stripped: String = lower
+            let core: String = lower
+                .trim_start_matches(|c: char| !c.is_ascii_alphabetic())
                 .chars()
                 .take_while(|c| c.is_ascii_alphabetic())
                 .collect();
-            if !stripped.is_empty() && COMMON_PASSWORDS.iter().any(|p| stripped == *p) {
-                return Err(PasswordError::TooCommon(password.to_string()));
+            if !core.is_empty() && COMMON_PASSWORDS.contains(&core.as_str()) {
+                return Err(PasswordError::TooCommon);
             }
-            // Also check exact match for short common passwords like "123456"
-            if COMMON_PASSWORDS.iter().any(|p| lower == *p) {
-                return Err(PasswordError::TooCommon(password.to_string()));
+            // The entries that are not pure letters ("abc123", "password1",
+            // "ec2-user", and the all-digit ones) can never equal a letter-only
+            // candidate, so they still need the whole-string branch.
+            if COMMON_PASSWORDS.contains(&lower.as_str()) {
+                return Err(PasswordError::TooCommon);
             }
         }
 
@@ -292,24 +312,87 @@ mod tests {
         // Common passwords with proper char classes should still be rejected
         assert!(matches!(
             v.validate("Password1!"),
-            Err(PasswordError::TooCommon(_))
+            Err(PasswordError::TooCommon)
         ));
         assert!(matches!(
             v.validate("Admin123!"),
-            Err(PasswordError::TooCommon(_))
+            Err(PasswordError::TooCommon)
         ));
         assert!(matches!(
             v.validate("Qwerty1!"),
-            Err(PasswordError::TooCommon(_))
+            Err(PasswordError::TooCommon)
         ));
         assert!(matches!(
             v.validate("Welcome1!"),
-            Err(PasswordError::TooCommon(_))
+            Err(PasswordError::TooCommon)
         ));
         assert!(matches!(
             v.validate("Test123!"),
-            Err(PasswordError::TooCommon(_))
+            Err(PasswordError::TooCommon)
         ));
+    }
+
+    /// Regression: the check used to take only the *leading* alphabetic run, so
+    /// any password starting with a digit or a symbol skipped the lookup
+    /// entirely while still passing every character-class rule.
+    ///
+    /// These inputs were confirmed to register successfully over HTTP before
+    /// the fix (`POST /api/v1/users/register` → 201); they must now be rejected.
+    #[test]
+    fn test_password_common_word_not_bypassed_by_prefix_decoration() {
+        let v = PasswordValidator::default();
+        for pwd in [
+            "1Password1!",  // leading digit
+            "!Password1",   // leading symbol
+            "0Admin123!",   // leading digit
+            "1Qwerty1!",    // leading digit
+            "_Welcome1!",   // leading underscore
+            "Admin@123",    // trailing symbol+digits
+            // Boundary case from the review: a listed word up front, then a
+            // suffix that ends in a letter. Stripping both ends (or the whole
+            // interior) would reduce this to `welcome1!x` / `welcomex` and let
+            // it through — a regression against the pre-fix behaviour, which
+            // caught it via the leading run.
+            "Welcome1!x",
+            "1Welcome1!x",  // same, with the prefix hole also closed
+        ] {
+            assert!(
+                matches!(v.validate(pwd), Err(PasswordError::TooCommon)),
+                "{pwd:?} must be rejected as too common"
+            );
+        }
+    }
+
+    /// Regression: the candidate is the *first* letter run, so interior digits
+    /// and symbols must not be eaten. A "longest letter run" scan would reject
+    /// `Str0ng!Pass` by matching its trailing `pass`.
+    #[test]
+    fn test_password_common_word_check_leaves_interior_intact() {
+        let v = PasswordValidator::default();
+        for pwd in ["Str0ng!Pass", "Good!Pass1", "MyPassw0rd!2026", "Tr0ub4dor&3"] {
+            assert!(
+                v.validate(pwd).is_ok(),
+                "{pwd:?} must stay accepted — its digits/symbols are interior or trailing"
+            );
+        }
+    }
+
+    /// The error is rendered verbatim into the register endpoint's 400 body, so
+    /// it must never carry the submitted password.
+    #[test]
+    fn test_too_common_display_does_not_echo_password() {
+        let v = PasswordValidator::default();
+        let submitted = "1Password1!";
+        let err = v.validate(submitted).unwrap_err();
+        let rendered = err.to_string();
+        assert!(
+            !rendered.contains(submitted) && !rendered.contains("Password1!"),
+            "Display must not echo the submitted password, got: {rendered}"
+        );
+        assert!(
+            rendered.contains("too common"),
+            "message should still say why, got: {rendered}"
+        );
     }
 
     #[test]
