@@ -1,6 +1,6 @@
 # Git 协议实现细节
 
-> 本文档记录 IronForge 实现 Git Smart Protocol V1 过程中的关键技术细节、协议规范和踩坑经验。
+> 本文档记录 IronForge 实现 Git Smart Protocol（V1 与 V2）过程中的关键技术细节、协议规范和踩坑经验。
 > 适合需要维护或扩展 `rg-git` crate 的开发者阅读。
 
 ---
@@ -14,37 +14,28 @@
 5. [SSH 传输层（russh）](#5-ssh-传输层russh)
 6. [HTTP 传输层（Axum）](#6-http-传输层axum)
 7. [踩坑记录](#7-踩坑记录)
+8. [Git Smart Protocol V2](#8-git-smart-protocol-v2)
 
 ---
 
 ## 1. pkt-line 协议格式
 
-### V2 新增的 Packet 类型
-
-Protocol V2 引入了两种新的特殊 packet：
-
-| Packet | 十六进制 | 说明 |
-|--------|----------|------|
-| Flush | `0000` | 结束当前阶段（与 V1 相同） |
-| Delimiter | `0001` | 分隔消息的不同部分（V2 新增） |
-| Response-End | `0002` | 无状态连接中响应的结束（V2 新增） |
-
-### V1 pkt-line 格式
+### 格式
 
 ```
 <4 hex digits of total length><payload>
 ```
 
 - 4 字节长度头用十六进制表示，**包含自身 4 字节**
-- 所以 payload 最大长度为 `0xffff - 4 = 65531` 字节
-- `0000` 是 flush packet
+- 理论 payload 上限为 `0xffff - 4 = 65531` 字节
+- 实现限制到 **65516 字节**（`pkt_line::MAX_PKT_LINE_LEN`，`crates/rg-git/src/pkt_line.rs:12`）；超长会直接 `bail!`，不截断
+- `0000` 是 flush packet，表示当前"阶段"结束
 
 ### 示例
 
 ```
 # "hello\n"（6字节 payload）→ 总长 10
 000ahello\n
-
 
 # Flush packet
 0000
@@ -56,36 +47,28 @@ Protocol V2 引入了两种新的特殊 packet：
 0002
 ```
 
-pkt-line 是 Git 协议的基础传输单元。
+### 特殊 Packet（V2）
 
-### 格式
+Protocol V2 引入了两种新的特殊 packet：
 
-```
-<4 hex digits of total length><payload>
-```
-
-- 4 字节长度头用十六进制表示，**包含自身 4 字节**
-- 所以 payload 最大长度为 `0xffff - 4 = 65531` 字节（实践中通常限制到 65516）
-- `0000` 是 flush packet，表示当前"阶段"结束
-
-### 示例
-
-```
-# "hello\n"（6字节 payload）→ 总长 10
-000ahello\n
-
-# Flush packet
-0000
-```
+| Packet | 十六进制 | 说明 |
+|--------|----------|------|
+| Flush | `0000` | 结束当前阶段（与 V1 相同） |
+| Delimiter | `0001` | 分隔消息的不同部分（V2 新增） |
+| Response-End | `0002` | 无状态连接中响应的结束（V2 新增） |
 
 ### 实现位置
 
 `crates/rg-git/src/pkt_line.rs`
 
-关键函数：
-- `read_pkt_line(reader: &mut BufReader<R>)` — 读一个 pkt-line
+`PktLine` 枚举的四个变体与上表一一对应：`Data(Vec<u8>)` / `Flush` / `Delim` / `ResponseEnd`。
+
+关键函数（均为自由函数，泛型 `AsyncRead`/`AsyncWrite`，不限定 `BufReader`）：
+- `read_pkt_line<R: AsyncRead + Unpin>(reader: &mut R)` — 读一个 pkt-line
+- `read_pkt_lines_until_flush` — 读到 flush 为止
 - `write_pkt_line(writer, pkt)` — 写一个 pkt-line
 - `write_flush(writer)` — 写 `0000`
+- `PktLine::text(&str)` — 构造文本包，**缺 `\n` 时自动补**（长度按补后的字节数算）
 
 ### ⚠️ 常见错误
 
@@ -135,12 +118,14 @@ sideband-64k 允许服务端在同一个连接上发送多种类型的数据：
 
 sideband flush (`0000`) 表示整个 sideband 流结束。客户端收到后停止读取 sideband 数据。
 
+**谁负责 flush**：`write_pkt_line` 与 `write_flush` 都**不**调用 `flush()`，写下去就返回（`pkt_line.rs:59`、`:88`）。只有 `write_sideband_data` 在末尾显式 `writer.flush()`（`sideband.rs:25`）；`write_sideband_progress` / `write_sideband_error` / `write_sideband_flush` 都不 flush（`sideband.rs:30`、`:41`、`:52`）。因此调用方在收尾处需自己 flush 一次，否则最后一帧可能停在缓冲区里。
+
 ### 实现位置
 
 `crates/rg-git/src/sideband.rs`
 
 关键函数：
-- `write_sideband_data(writer, data)` — 发 band-1 数据（自动分块）
+- `write_sideband_data(writer, data)` — 发 band-1 数据（按 `SIDEBAND_MAX = 65515` 自动分块，收尾 flush）
 - `write_sideband_progress(writer, message)` — 发 band-2 进度
 - `write_sideband_error(writer, message)` — 发 band-3 错误
 - `write_sideband_flush(writer)` — 发 sideband flush `0000`
@@ -178,6 +163,11 @@ Client                          Server
 
 SSH 模式省略 `GET /info/refs` 步骤，直接通过 exec_request 建立双向 stream。
 
+**协商后的输入侧**（文档以前没写，但影响正确性判断）：
+
+- `done` 或 flush 之后**不再排空 stdin**（`upload_pack.rs:46` 读完 want/have 直接发 NAK + pack）。push 侧相反：没有可应用的更新时会 `drain_pack()`（`receive_pack.rs:462`、`:620`）。
+- `read_pkt_line` 把 `UnexpectedEof` **折叠成 `PktLine::Flush`**（`pkt_line.rs:107-111`）。两者叠加的后果是：客户端半途断开在服务端看来等于「正常结束协商」，`wants` 为空时直接写一个 flush 就 `Ok(())`（`upload_pack.rs:48-51`），不会报错。排查「客户端没收到 pack 但服务端日志无异常」时要先想到这条。
+
 ### 引用广告格式
 
 ```
@@ -187,13 +177,17 @@ SSH 模式省略 `GET /info/refs` 步骤，直接通过 exec_request 建立双�
 <flush: 0000>
 ```
 
-### Capabilities（我们广告的）
+空仓库分支会发一行伪 ref：`0000000000000000000000000000000000000000 capabilities^{}<service>\0<caps>`（`upload_pack.rs:332-335`）。git 只识别名字**恰好**是 `capabilities^{}` 的伪 ref，本实现把服务名拼在了花括号后面，客户端因此可能收不到 capability 列表（低危：空仓库无对象可协商）。此点尚未在客户端侧实测，记为待验证。
+
+### Capabilities（SSH 侧 `rg-git` 广告的）
 
 ```
 side-band-64k ofs-delta agent=ironforge/0.1
 ```
 
-> 注意：我们**不广告** `multi_ack` / `multi_ack_detailed` / `no-done`，因为目前只实现了简单的 NAK → packfile 流程。
+> SSH 侧的协商只实现简单的 `NAK → packfile` 流程，因此**不广告** `multi_ack` / `multi_ack_detailed` / `no-done`（`crates/rg-git/src/protocol/upload_pack.rs:324` 有对应注释，`NAK` 在 53/91/135 行发送）。
+>
+> ⚠️ **已知不一致（待拍板）**：HTTP 的旧 V1 广告串 `crates/rg-http/src/lib.rs:2638` 仍写着 `multi_ack_detailed no-done thin-pack ofs-delta`，与本节的 SSH 侧和协商实现都不符。客户端默认走 V2 时不经过这条路径，但 `protocol.version=0/1` 的 HTTP 客户端会据此协商多 ACK。收缩广告串还是补实现，属协议决策，不在文档修复范围内。
 
 ### want/have 格式的两种形式
 
@@ -219,7 +213,7 @@ want <sha1> side-band-64k ofs-delta\n
 - **增量打包**（fetch 协商）：`pack_for_wants` — wants/haves 预解析（tag 剥离），
   haves 作为 `with_hidden` 排除；shallow 请求以边界提交替代 haves 并用
   `TreeContents` 补齐边界树内容，等价 `--shallow <sha>` revs 语义
-- partial-clone filter 暂不支持（warn 后发送全量 pack，协议恒正确）
+- partial-clone：**V1 不协商 filter**（`upload_pack.rs:373` 注释「V1 has no shallow/partial-clone negotiation here」，shallow/partial 都按空处理）；**V2 支持**——广告串含 `fetch=shallow filter`（`v2.rs:48`），解析 `filter <spec>` 后交给 `ops::pack_for_wants_filtered`（`v2.rs:546`、`ops.rs:952`）
 
 ---
 
@@ -257,7 +251,8 @@ Client                          Server
 
 特殊 SHA：
 - `old_sha` 全为 0：创建新 ref
-- `new_sha` 全为 0：删除 ref（IronForge Phase 1 暂不支持）
+- `new_sha` 全为 0：删除 ref。**只允许删 `refs/heads/*`**，tag 等其它命名空间一律 `ng ... only branches can be deleted`（`receive_pack.rs:389`）
+- 删除不带 pack 数据，命令本身直接按 `ok` 入队，真正的策略判定在 apply 阶段由调用方传入的 `BranchDeleter` 守卫完成（默认分支、保护规则、开放 PR、token 分支上限，与 `DELETE /repos/{o}/{n}/branches/{x}` 同一套检查），见 `receive_pack.rs:16-20`
 
 ### Thin Pack 处理
 
@@ -265,6 +260,8 @@ Client                          Server
 已 gix 化（`ops::index_pack_bytes`）：pack 字节缓冲后经
 `gix_pack Bundle::write_to_directory` 摄取，thin delta base 从目标仓库对象库
 lookup 补全（等价 `--fix-thin`），pack + idx 落盘 `objects/pack` 后移除 `.keep`。
+
+> **方向要分清**：`--fix-thin` 只在**收**的一侧有意义。我们**发**出去的 pack 从不含 thin delta——`ops.rs:833` 的 `iter_from_counts` 选项写死 `allow_thin_pack: false`；补全发生在 `index_pack_bytes` 调用 `Bundle::write_to_directory` 时传入 `Some(repo.objects.clone())` 作为缺失 base 的查询源（`ops.rs:1053`）。
 
 ### Report-Status 响应格式（关键！）
 
@@ -307,11 +304,13 @@ sideband::write_sideband_data(writer, &report_buf).await?;
 sideband::write_sideband_flush(writer).await?;
 ```
 
-### Capabilities（我们广告的）
+### Capabilities（SSH 与 HTTP 一致）
 
 ```
-report-status report-status-v2 side-band-64k agent=ironforge/0.1
+report-status report-status-v2 delete-refs side-band-64k agent=ironforge/0.1
 ```
+
+> `delete-refs` 缺了就 `git push --delete` 会被客户端拒绝在本地（`receive_pack.rs:279` 有注释；HTTP 侧 `rg-http/src/lib.rs:2642` 同串）。
 
 ---
 
@@ -386,16 +385,23 @@ send_response(stream, &results).await?;
 
 ### 路由结构
 
-```
-Router::nest("/git", ...)
-├── GET  /{owner}/{repo}/info/refs
-├── POST /{owner}/{repo}/git-upload-pack
-└── POST /{owner}/{repo}/git-receive-pack
+同一组 Git Smart HTTP 路由注册了**两遍**（`rg-http/src/lib.rs:441`、`:579`）：
 
-GET /health
+```
+# ① 根级：git 客户端的标准形式，必须有
+GET  /{owner}/{repo}/info/refs
+POST /{owner}/{repo}/git-upload-pack
+POST /{owner}/{repo}/git-receive-pack
+
+# ② /git 前缀：兼容别名，由 .nest("/git", git_routes) 挂上
+GET  /git/{owner}/{repo}/info/refs
+POST /git/{owner}/{repo}/git-upload-pack
+POST /git/{owner}/{repo}/git-receive-pack
+
+GET  /health
 ```
 
-> **注意**：完整 URL 是 `/git/<owner>/<repo>/...`，不是 `/<owner>/<repo>/...`
+> 两个前缀都能用，但**根级才是 git 客户端实际请求的形式**（`/{owner}/{repo}.git/info/refs`，`.git` 后缀由 handler 剥离）。只挂 `/git` 会让客户端拿到 SPA fallback 的 HTML，报 `fatal: not a valid ref`。`scripts/git-protocol-e2e.sh:103` 用的是带 `/git` 前缀的别名。
 
 ### Pipe 桥接模式
 
@@ -454,9 +460,9 @@ Content-Type 响应头必须正确设置（见 CLAUDE.md 踩坑 #6）。
 
 ### 坑 3：receive-pack 响应 `bad line length character: unpa`
 
-**现象**：客户端收到 sideband flush `0000` 后停止读取，后续发送的 plain pkt-lines 被客户端忽略，导致 `fatal: the remote end hung up unexpectedly`。  
-**原因**：误以为正确格式是"先发 sideband flush，再发 plain pkt-lines"——实际上客户端在收到 sideband flush 后就认为响应结束了。  
-**修复**：通过 `GIT_TRACE_PACKET=1` 对真实 git-receive-pack 抓包，发现 report-status 必须整体在 sideband flush **之前**以 band-1 发送。
+**现象**：`fatal: bad line length character: unpa`；或换一种客户端状态表现为 `fatal: the remote end hung up unexpectedly`。
+**原因**：与坑 2 同源（report-status 没有整体走 band-1），只是错位的位置不同——先发 sideband flush `0000` 再发 plain pkt-lines 时，客户端已把 sideband 流判为结束：仍在读的路径把 `unpa` 当长度头（`bad line length character`），已停读的路径则表现为 hang up。两个报错不是两个 bug，具体报哪个取决于客户端读到错位字节的时机。
+**修复**：report-status 必须在 sideband flush **之前**整体作为 band-1 发出（与坑 2 同一条修复；正确顺序见 §4 的 `send_response()`）。
 
 ### 坑 4：SSH 数据丢失（russh stream.shutdown() 时机）
 
@@ -644,4 +650,4 @@ done\n
 - [Git HTTP Backend](https://git-scm.com/docs/git-http-backend)
 - [Git Smart HTTP Transfer Protocols](https://git-scm.com/docs/http-protocol)
 - [russh 文档](https://docs.rs/russh/)
-- [gitoxide (gix)](https://github.com/Byron/gitoxide) — 已完成全量迁移：除 mirror 同步（`git clone --mirror` / `git remote update` 经 CLI 网关，带 transport lockdown）外，生产路径 git 操作 100% gix 原生（见 `gix-migration-assessment.md`）
+- [gitoxide (gix)](https://github.com/Byron/gitoxide) — 生产路径仅剩 1 处 CLI：mirror 同步的 `git clone --mirror`（首次）与 `git fetch --prune origin` + 两条显式 refspec（后续），经 `GitCommandGateway` 并带 transport lockdown，见 `crates/rg-core/src/mirror/service.rs:244`、`:327`。其余热路径已 100% gix 原生（含 rebase 与 pack 生成的 gix 自研实现），评估见 `gix-migration-assessment.md`
