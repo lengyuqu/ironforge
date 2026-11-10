@@ -843,6 +843,20 @@ async fn import_github_issue(
     Ok(())
 }
 
+/// Whether the importer mapped a review's author onto an agent account.
+/// Failures are logged and answered with `false`: an unreadable user row must
+/// not abort an import.
+async fn reviewer_is_agent(db: &DatabaseConnection, user_id: i64) -> bool {
+    match rg_db::ops::user_ops::find_by_id(db, user_id).await {
+        Ok(Some(user)) => crate::agent::is_agent(&user),
+        Ok(None) => false,
+        Err(e) => {
+            tracing::warn!(user_id, "could not read importing reviewer: {e}");
+            false
+        }
+    }
+}
+
 async fn import_github_pr(
     db: &DatabaseConnection,
     repo_id: i64,
@@ -950,6 +964,16 @@ async fn import_github_pr(
             "DISMISSED" => "dismiss",
             _ => "comment",
         };
+        if action == "approve" && reviewer_is_agent(db, reviewer_id).await {
+            // The approval count only counts people, so this row would sit in
+            // the timeline and change nothing. Say so instead of letting it
+            // look like it counted.
+            tracing::warn!(
+                pr = pr.number,
+                reviewer_id,
+                "imported approval from an agent; it will not count towards the required approvals"
+            );
+        }
 
         let rv = rg_db::entities::pr_review::ActiveModel {
             id: sea_orm::NotSet,

@@ -152,20 +152,48 @@ pub(crate) async fn ensure_token_may_write_branch(
     }
 }
 
-/// A token limited to some branches is an agent's token, and an agent's
-/// approval must not satisfy a review requirement, so it may comment and ask for
-/// changes but not approve. A person (an ordinary login, or a token with no
-/// branch limit) may.
-pub(crate) async fn ensure_session_may_approve(
+/// Approving is a human act. An agent's approval never satisfies a review
+/// requirement, whatever shape its credential is: a token with no branch limit
+/// is still an agent's token when the account behind it is an agent.
+///
+/// The account type decides; the branch limit of the token the session came
+/// from is kept as a second gate, so a branch-limited token still cannot
+/// approve even for a person.
+pub(crate) async fn ensure_reviewer_may_approve(
     db: &sea_orm::DatabaseConnection,
-    claims: &Claims,
+    user_id: i64,
+    claims: Option<&Claims>,
 ) -> Result<(), crate::error::AppError> {
-    match session_access_token(db, claims).await? {
-        Some(token) if token.ref_allowlist.is_some() => Err(crate::error::AppError::forbidden(
-            "an access token limited to some branches may not approve a pull request",
-        )),
-        _ => Ok(()),
+    use crate::error::AppError;
+    let Some(user) = rg_db::ops::user_ops::find_by_id(db, user_id)
+        .await
+        .map_err(AppError::from)?
+    else {
+        return Err(AppError::forbidden("no such account"));
+    };
+    if rg_core::agent::is_agent(&user) {
+        return Err(AppError::coded(
+            axum::http::StatusCode::FORBIDDEN,
+            "FORBIDDEN",
+            "an agent may not approve a pull request",
+        )
+        .with_reason(
+            "AGENT_MAY_NOT_APPROVE",
+            false,
+            "ask a person to review and approve",
+        ));
     }
+    if let Some(claims) = claims {
+        if session_access_token(db, claims)
+            .await?
+            .is_some_and(|token| token.ref_allowlist.is_some())
+        {
+            return Err(AppError::forbidden(
+                "an access token limited to some branches may not approve a pull request",
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Extract a CI job token and verify it has the required scope for the target repo.
