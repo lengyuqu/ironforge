@@ -217,7 +217,7 @@ POST /api/v1/users/register {"...", "password":"!Password1"}   → HTTP 201 {"us
 - 判定：**成立 5 / 部分成立 3 / 不成立 5 / 确认 3**（16 条）
 - 工作基线：**`BASE=e531f40`**（`cnb/main` HEAD；`git rev-list --left-right --count HEAD...cnb/main` = `0 0`，无漂移；它自述的 `c2f20d8` 之后只有一次 ledger 提交）。`git diff --stat a94839b..e531f40` 只命中 `password.rs` + 两份文档 + ledger，**`oci.rs` / `oci_token.rs` / `oci_permission_tests.rs` 未变**，故本轮所有代码行号基准未漂
 - 改前基线：`scripts/check.sh --quick` **通过（1 s，热缓存）**——第 5 轮那盏 fmt 红灯已由本方修掉，main 现在是绿的
-- 改动：**`9dd6d3f`**（L1，四文件，15+/15−，**零行号漂移**）
+- 改动：**`335fa57`**（L1，四文件，15+/15−，**零行号漂移**）
 - 改后验证：`scripts/check.sh --quick` **通过（65 s，EXIT=0）**；`path:line` 机械核对——三份文档里 **26 条带文件名引用 + 30 个裸 `:N` 引用**逐条 `sed -n` 打印并人工确认能读出命题，无 OUT OF RANGE、无 MISSING FILE；`password.rs` 459 行→459 行
 - 回帖：`2120224198925299712`，`2026-11-10T19:34:20Z`，首行 `## 第 6 轮收尾`（回读校验 C=6）；随后 `BATCH_COMPLETE` 并置 `closed / completed`
 
@@ -512,7 +512,7 @@ git -c protocol.version=2 clone --depth=1 ...
 | `ssh_key.rs` 注释「the digest contains **both** `/` and `+`」 | 复算 `std = uh6xDCBClTKA/7j9qTAuVmcAbusr4NwgLrWjafhfMM4`：`+` **不存在**，`/` 在 index 12 | 第 2 轮已改为「contains `/` at index 12 and no `+`」（`210f338`） |
 | `ssh_key.rs:9`「byte-identical to `ssh-keygen -l -E sha256`」 | `ssh-keygen` 输出整行，本函数只回 `SHA256:<fp>` 字段 | 已改为「matches the `SHA256:<digest>` field」 |
 | `encryption.rs:57` 未说明 `mask_values` 的入参形态 | 它是**明文**，且 `ci_secret_ops::upsert` 自身不校验长度 | 已在同一条注释里写明两点 |
-| registry 文档「`oci.rs` 全文件共 **5 处**权限查询——校验侧 3 处 / 签发侧 2 处」（第 5 轮写死） | `grep -n 'can_read_repo\|can_write_repo' crates/rg-http/src/oci.rs` = 11 命中，其中 **7 处是调用**：`:114` `:118` `:159` `:164` `:179` `:329` `:342`（另 4 处是注释 `:82`/`:142`/`:146`/`:375`）。第 5 轮漏了 PR #24 新增的 Bearer 复查 `:159`/`:164` | 第 6 轮改正为「7 处 = 校验侧 5 + 签发侧 2」，并列出不计入的 `:152`/`:328`/`:340`（`9dd6d3f`） |
+| registry 文档「`oci.rs` 全文件共 **5 处**权限查询——校验侧 3 处 / 签发侧 2 处」（第 5 轮写死） | `grep -n 'can_read_repo\|can_write_repo' crates/rg-http/src/oci.rs` = 11 命中，其中 **7 处是调用**：`:114` `:118` `:159` `:164` `:179` `:329` `:342`（另 4 处是注释 `:82`/`:142`/`:146`/`:375`）。第 5 轮漏了 PR #24 新增的 Bearer 复查 `:159`/`:164` | 第 6 轮改正为「7 处 = 校验侧 5 + 签发侧 2」，并列出不计入的 `:152`/`:328`/`:340`（`335fa57`） |
 
 ### 对方已撤回（勿再作为争议点）
 
