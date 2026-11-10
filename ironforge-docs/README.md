@@ -27,7 +27,8 @@
 | `p0-completion-plan.md` | P0 完善方案（剩余缺口） |
 | `git-protocol.md` | Git 协议实现细节与踩坑 |
 | `ai-agent-integration.md` | AI Agent 集成方案（MCP + REST + prompt） |
-| `project-audit-2026-06.md` | 项目审计与进度报告（已移至 `testing/`） |
+
+> `project-audit-2026-06.md` 已移入 `ironforge-docs/testing/`，只在下面「测试与审计」表里索引一次（原先这里还留着一行指向 `docs/` 的死链，该文件在 `docs/` 下已不存在）。
 
 ---
 
@@ -48,7 +49,7 @@
 | `agent-collaboration-implementation-roadmap-2026-11.md` | 多 Agent 协作首版、P0–P2 实施依赖、任务拆分与验收门槛（Proposed） |
 | `agent-collaboration-operability-requirements-2026-11.md` | 规则入口、用户总览、保留恢复与完成条件的需求与验收（Proposed） |
 | `agent-draft-refs-ttl-design-2026-11.md` | Agent 草稿命名空间：`refs/heads/agent/<id>/*` 的 TTL、通知抑制、自动清理设计细化（Proposed，未实现） |
-| `registry-auth-visibility-verification-2026-11.md` | OCI 票据校验侧不看仓库可见性：分支链路、撤销滞后窗口（60/300 s）与未验证项 |
+| `registry-auth-visibility-verification-2026-11.md` | OCI 票据校验侧与可见性：修复前后对照、`registry:catalog:*` 的三项巧合、证据与仍未做（**已修复**，PR #24） |
 
 ---
 

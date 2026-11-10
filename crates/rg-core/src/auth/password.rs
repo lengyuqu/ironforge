@@ -34,15 +34,21 @@ pub fn verify_password(password: &str, hash: &str) -> CoreResult<bool> {
 /// Password validation error.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PasswordError {
-    TooShort { min: usize, got: usize },
-    TooLong { max: usize, got: usize },
+    TooShort {
+        min: usize,
+        got: usize,
+    },
+    TooLong {
+        max: usize,
+        got: usize,
+    },
     NoUppercase,
     NoLowercase,
     NoDigit,
     NoSpecialChar,
     ContainsWhitespace,
-    /// The password, once its leading and trailing non-letter characters are
-    /// stripped, is exactly one of [`COMMON_PASSWORDS`].
+    /// The password's first letter run — after skipping any leading non-letter
+    /// characters — is exactly one of [`COMMON_PASSWORDS`] (or the whole string is).
     ///
     /// Deliberately carries **no payload**: this error is rendered verbatim
     /// into the `POST /users/register` 400 response body, so keeping the
@@ -73,10 +79,7 @@ impl std::fmt::Display for PasswordError {
                 "password must contain at least one special character (!@#$%^&*...)"
             ),
             Self::ContainsWhitespace => write!(f, "password must not contain whitespace"),
-            Self::TooCommon => write!(
-                f,
-                "password is too common — please choose a stronger one"
-            ),
+            Self::TooCommon => write!(f, "password is too common — please choose a stronger one"),
             Self::ContainsUsername => write!(f, "password must not contain the username"),
         }
     }
@@ -195,7 +198,11 @@ impl PasswordValidator {
 
     /// Validate a password. Returns Ok(()) on success, Err on failure.
     pub fn validate(&self, password: &str) -> Result<(), PasswordError> {
-        // Length checks — `len()` counts BYTES: 4 CJK chars (12 B) only just clear min_length 12, 43 (129 B) overshoot max_length 128; Display says "characters"
+        // Length checks — `len()` counts BYTES: 4 CJK chars (12 B) only just clear
+        // min_length 12, 43 (129 B) overshoot max_length 128. `Display` calls min/max
+        // "characters" but `got` is this byte count printed with no unit, so a user who
+        // counts 43 characters sees "at most 128 characters (got 129)" and cannot
+        // reconcile the two numbers.
         if password.len() < self.min_length {
             return Err(PasswordError::TooShort {
                 min: self.min_length,
@@ -342,19 +349,19 @@ mod tests {
     fn test_password_common_word_not_bypassed_by_prefix_decoration() {
         let v = PasswordValidator::default();
         for pwd in [
-            "1Password1!",  // leading digit
-            "!Password1",   // leading symbol
-            "0Admin123!",   // leading digit
-            "1Qwerty1!",    // leading digit
-            "_Welcome1!",   // leading underscore
-            "Admin@123",    // trailing symbol+digits
+            "1Password1!", // leading digit
+            "!Password1",  // leading symbol
+            "0Admin123!",  // leading digit
+            "1Qwerty1!",   // leading digit
+            "_Welcome1!",  // leading underscore
+            "Admin@123",   // trailing symbol+digits
             // Boundary case from the review: a listed word up front, then a
             // suffix that ends in a letter. Stripping both ends (or the whole
             // interior) would reduce this to `welcome1!x` / `welcomex` and let
             // it through — a regression against the pre-fix behaviour, which
             // caught it via the leading run.
             "Welcome1!x",
-            "1Welcome1!x",  // same, with the prefix hole also closed
+            "1Welcome1!x", // same, with the prefix hole also closed
         ] {
             assert!(
                 matches!(v.validate(pwd), Err(PasswordError::TooCommon)),
@@ -369,7 +376,12 @@ mod tests {
     #[test]
     fn test_password_common_word_check_leaves_interior_intact() {
         let v = PasswordValidator::default();
-        for pwd in ["Str0ng!Pass", "Good!Pass1", "MyPassw0rd!2026", "Tr0ub4dor&3"] {
+        for pwd in [
+            "Str0ng!Pass",
+            "Good!Pass1",
+            "MyPassw0rd!2026",
+            "Tr0ub4dor&3",
+        ] {
             assert!(
                 v.validate(pwd).is_ok(),
                 "{pwd:?} must stay accepted — its digits/symbols are interior or trailing"
