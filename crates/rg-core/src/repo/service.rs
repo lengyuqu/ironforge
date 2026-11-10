@@ -849,7 +849,7 @@ pub async fn list_stargazers(
     Ok(rg_db::ops::repo_star_ops::list_stargazers(db, repo_id, offset, limit).await?)
 }
 
-/// Set watch state for a repo. Returns new watch_state.
+/// Set watch state for a repo. Returns new watch_state. `state` is written verbatim — no enum check.
 pub async fn set_watch(
     db: &DatabaseConnection,
     user_id: i64,

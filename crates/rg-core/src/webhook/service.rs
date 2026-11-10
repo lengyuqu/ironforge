@@ -26,7 +26,7 @@ pub struct CreateWebhookRequest {
     pub content_type: Option<String>, // "json" (default) or "form"
     pub secret: Option<String>,
     pub active: Option<bool>,
-    pub events: Vec<String>, // e.g. ["push", "issues"]
+    pub events: Vec<String>, // e.g. ["push", "issue.opened"] — 全名带点，匹配用 LIKE 子串
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -304,7 +304,7 @@ async fn deliver(
 /// Payload: `{ "webhook_id", "event", "payload" }`. Transport failures return
 /// `Err` so the queue reschedules with backoff; every attempt is recorded in
 /// `webhook_deliveries`. A webhook deleted after the retry was scheduled is
-/// treated as resolved (Ok).
+/// treated as resolved (Ok); a hook that is only `active = false` is still delivered to.
 pub async fn deliver_retry_job(db: &DatabaseConnection, payload: &Value) -> Result<()> {
     let webhook_id = payload["webhook_id"]
         .as_i64()
@@ -376,7 +376,7 @@ pub async fn get_delivery(
     Ok(webhook_ops::find_delivery_by_id(db, id).await?)
 }
 
-/// Redeliver a webhook (re-post the original payload).
+/// Redeliver a delivery: replays its payload via `trigger_event`, so the event reaches every active hook of the repo, not only the original one.
 pub async fn redeliver(db: &DatabaseConnection, delivery_id: i64) -> CoreResult<()> {
     let delivery = webhook_ops::find_delivery_by_id(db, delivery_id)
         .await?

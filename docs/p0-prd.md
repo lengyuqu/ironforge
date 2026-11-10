@@ -225,7 +225,7 @@
 
 | 功能 | 说明 | 交付物 |
 |------|------|--------|
-| Star/Watch 仓库 | stars_count 累加，watch 状态三态（none/watching/ignoring） | API + 前端组件 |
+| Star/Watch 仓库 | stars_count 累加，watch 状态三态（not_watching/watching/ignoring） | API + 前端组件 |
 | 仓库删除 | 软删除 + Git 数据清理 | API (`DELETE /repos/:owner/:name`) |
 | Releases/Tags | 创建/编辑/删除 Release，关联 Tag 列表 | API + 前端 Releases 页面 |
 
