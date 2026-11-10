@@ -166,7 +166,8 @@ SSH 模式省略 `GET /info/refs` 步骤，直接通过 exec_request 建立双�
 **协商后的输入侧**（文档以前没写，但影响正确性判断）：
 
 - `done` 或 flush 之后**不再排空 stdin**（`upload_pack.rs:46` 读完 want/have 直接发 NAK + pack）。push 侧相反：没有可应用的更新时会 `drain_pack()`（`receive_pack.rs:462`、`:620`）。
-- `read_pkt_line` 把 `UnexpectedEof` **折叠成 `PktLine::Flush`**（`pkt_line.rs:107-111`）。两者叠加的后果是：客户端半途断开在服务端看来等于「正常结束协商」，`wants` 为空时直接写一个 flush 就 `Ok(())`（`upload_pack.rs:48-51`），不会报错。排查「客户端没收到 pack 但服务端日志无异常」时要先想到这条。
+- `read_pkt_line` 把 `UnexpectedEof` **折叠成 `PktLine::Flush`**（`pkt_line.rs:108-111`）。两者叠加的后果是：客户端半途断开在服务端看来等于「正常结束协商」，`wants` 为空时直接写一个 flush 就 `Ok(())`（`upload_pack.rs:48-51`），不会报错。排查「客户端没收到 pack 但服务端日志无异常」时要先想到这条。
+- **V1 没有 shallow 语义**：want/have 循环只认 `want` / `have` / `done`，其余行一律当未知行丢弃（`upload_pack.rs:246` 的 `Unknown want/have line, ignoring`）；整个文件里 `shallow` / `deepen` 只出现在 `:373` 那句注释里。两侧广告串也都不含 `shallow` 能力，所以按协议客户端不会在 V1 上发起 `--depth`（客户端侧行为未实测）。
 
 ### 引用广告格式
 
@@ -186,8 +187,26 @@ side-band-64k ofs-delta agent=ironforge/0.1
 ```
 
 > SSH 侧的协商只实现简单的 `NAK → packfile` 流程，因此**不广告** `multi_ack` / `multi_ack_detailed` / `no-done`（`crates/rg-git/src/protocol/upload_pack.rs:324` 有对应注释，`NAK` 在 53/91/135 行发送）。
->
-> ⚠️ **已知不一致（待拍板）**：HTTP 的旧 V1 广告串 `crates/rg-http/src/lib.rs:2638` 仍写着 `multi_ack_detailed no-done thin-pack ofs-delta`，与本节的 SSH 侧和协商实现都不符。客户端默认走 V2 时不经过这条路径，但 `protocol.version=0/1` 的 HTTP 客户端会据此协商多 ACK。收缩广告串还是补实现，属协议决策，不在文档修复范围内。
+
+### HTTP 与 SSH 的 capability 分叉（已知不一致，待拍板）
+
+HTTP 的 V1 广告串（`crates/rg-http/src/lib.rs:2638`）实际是：
+
+```
+multi_ack_detailed no-done side-band-64k thin-pack ofs-delta agent=ironforge/0.1
+```
+
+逐项对照：
+
+| capability | SSH V1 | HTTP V1 | 服务端真的实现了吗 |
+|---|---|---|---|
+| `side-band-64k` | 广告 | 广告 | ✅ 两侧都走 band-1 |
+| `ofs-delta` | 广告 | 广告 | ✅ |
+| `thin-pack` | 不广告 | **广告** | ⚠️ 发出去的 pack 从不 thin（`ops.rs:833` `allow_thin_pack: false`） |
+| `multi_ack_detailed` | 不广告 | **广告** | ❌ 只有单发 `NAK`，没有任何 ACK 分支 |
+| `no-done` | 不广告 | **广告** | ❌ 无 `ACK ready`；客户端据此可以不发 `done` 直接等，永远等不到 |
+
+即：SSH 侧「只广告实现的」，HTTP 的 V1 串里混进了三个空头能力。客户端默认走 V2 不经过这条路径，`protocol.version=0/1` 的 HTTP 客户端才会命中。收缩广告串还是补实现，属协议决策（L2），不在文档侧决定。
 
 ### want/have 格式的两种形式
 
@@ -261,7 +280,7 @@ Client                          Server
 `gix_pack Bundle::write_to_directory` 摄取，thin delta base 从目标仓库对象库
 lookup 补全（等价 `--fix-thin`），pack + idx 落盘 `objects/pack` 后移除 `.keep`。
 
-> **方向要分清**：`--fix-thin` 只在**收**的一侧有意义。我们**发**出去的 pack 从不含 thin delta——`ops.rs:833` 的 `iter_from_counts` 选项写死 `allow_thin_pack: false`；补全发生在 `index_pack_bytes` 调用 `Bundle::write_to_directory` 时传入 `Some(repo.objects.clone())` 作为缺失 base 的查询源（`ops.rs:1053`）。
+> **方向要分清**：`--fix-thin` 只在**收**的一侧有意义。我们**发**出去的 pack 从不含 thin delta——`ops.rs:833` 的 `iter_from_counts` 选项写死 `allow_thin_pack: false`；补全发生在 `index_pack_bytes` 调用 `Bundle::write_to_directory` 时传入 `Some(repo.objects.clone())` 作为缺失 base 的查询源（`ops.rs:1055`）。
 
 ### Report-Status 响应格式（关键！）
 
@@ -310,7 +329,7 @@ sideband::write_sideband_flush(writer).await?;
 report-status report-status-v2 delete-refs side-band-64k agent=ironforge/0.1
 ```
 
-> `delete-refs` 缺了就 `git push --delete` 会被客户端拒绝在本地（`receive_pack.rs:279` 有注释；HTTP 侧 `rg-http/src/lib.rs:2642` 同串）。
+> `delete-refs` 缺了就 `git push --delete` 会被客户端拒绝在本地（`receive_pack.rs:279` 有注释；HTTP 侧 `crates/rg-http/src/lib.rs:2642` 同串）。
 
 ---
 
@@ -385,7 +404,7 @@ send_response(stream, &results).await?;
 
 ### 路由结构
 
-同一组 Git Smart HTTP 路由注册了**两遍**（`rg-http/src/lib.rs:441`、`:579`）：
+同一组 Git Smart HTTP 路由注册了**两遍**（`crates/rg-http/src/lib.rs:441` 根级、`:581` 的 `build_routes` 内）：
 
 ```
 # ① 根级：git 客户端的标准形式，必须有
