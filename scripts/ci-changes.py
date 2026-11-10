@@ -62,10 +62,10 @@ CARGO_FILES = {"Cargo.toml", "Cargo.lock"}
 # Paths with no effect on any job.
 DOC_PREFIXES = ("ironforge-docs/", "docs/", ".ai/")
 DOC_SUFFIXES = (".md",)
-# CI configuration that GitHub never reads. `.cnb.yml` drives CNB only, so a
-# change to it (or a docs-only pull request that carries a `.cnb.yml` edit, like
-# an agent branch adding its own lint gate there) must not start this workflow:
-# the file is unclassified otherwise, and an unclassified path runs every crate.
+# CI configuration that this workflow must ignore. `.cnb.yml` drives CNB only
+# (the development upstream) and .github/ drives this workflow, so a `.cnb.yml`
+# edit is not a code change: without this entry it is unclassified, and an
+# unclassified path runs every crate.
 CI_ONLY_FILES = {".cnb.yml"}
 
 

@@ -142,8 +142,6 @@ main:
 feat/**:
   push:
     - *lint
-  pull_request:
-    - *lint
   api_trigger: *all-gates
   web_trigger: *all-gates
 
