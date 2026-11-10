@@ -1178,6 +1178,7 @@ pub fn copy_objects_from_source(
 
 /// A single path-level edit applied to the tip tree of a branch, replacing
 /// the previous `clone` → `add`/`rm` → `commit` → `push` CLI chains.
+#[derive(Debug, Clone)]
 pub enum TreeEdit {
     /// Create or replace a file. When `expected_blob_sha` is given the
     /// current blob must match (optimistic concurrency).
@@ -1188,6 +1189,65 @@ pub enum TreeEdit {
     },
     /// Remove an existing file.
     RemoveFile { path: String },
+    /// Move a file (`git mv`), keeping its content and mode. The source may be
+    /// any existing entry in the tree; the destination must not exist.
+    MoveFile { from: String, to: String },
+}
+
+impl TreeEdit {
+    /// The paths this edit writes to.
+    pub fn written_paths(&self) -> impl Iterator<Item = &str> {
+        let (first, second) = match self {
+            TreeEdit::SetFile { path, .. } | TreeEdit::RemoveFile { path } => {
+                (Some(path.as_str()), None)
+            }
+            TreeEdit::MoveFile { from, to } => (Some(from.as_str()), Some(to.as_str())),
+        };
+        first.into_iter().chain(second)
+    }
+
+    /// Reject a batch whose edits would land on the same path twice, or would
+    /// read a path another edit writes.
+    ///
+    /// A single commit cannot express "remove a.txt then set a.txt" — the tree
+    /// only holds the end state — so a batch that overlaps itself is refused
+    /// rather than applied in an order the caller did not ask for.
+    pub fn validate_batch(edits: &[TreeEdit]) -> anyhow::Result<()> {
+        use std::collections::HashMap;
+
+        // Destinations: each may be claimed once.
+        let mut destination: HashMap<&str, usize> = HashMap::new();
+        for (index, edit) in edits.iter().enumerate() {
+            let target = match edit {
+                TreeEdit::SetFile { path, .. } => path.as_str(),
+                TreeEdit::RemoveFile { path } => path.as_str(),
+                TreeEdit::MoveFile { to, .. } => to.as_str(),
+            };
+            if let Some(previous) = destination.insert(target, index) {
+                bail!(
+                    "edits #{} and #{} both write to '{target}'",
+                    previous + 1,
+                    index + 1
+                );
+            }
+        }
+        // Sources: a path cannot be written and read in the same commit.
+        for (index, edit) in edits.iter().enumerate() {
+            let TreeEdit::MoveFile { from, .. } = edit else {
+                continue;
+            };
+            if destination
+                .get(from.as_str())
+                .is_some_and(|at| *at != index)
+            {
+                bail!(
+                    "edit #{} moves '{from}', which the same batch writes to",
+                    index + 1
+                );
+            }
+        }
+        Ok(())
+    }
 }
 
 /// Outcome of [`commit_tree_edits`].
@@ -1198,6 +1258,267 @@ pub enum CommitTreeOutcome {
     /// The branch ref is no longer at the expected tip (concurrent advance);
     /// carries the actual tip when it could be resolved.
     TipAdvanced { actual: Option<String> },
+}
+
+/// Look up a path in `tip_tree` (`None` for a branch with no commits yet).
+fn lookup_in_tree(
+    tip_tree: &Option<gix::Tree<'_>>,
+    path: &str,
+    tip_display: &str,
+) -> anyhow::Result<Option<gix::ObjectId>> {
+    let Some(tree) = tip_tree else {
+        return Ok(None);
+    };
+    Ok(tree
+        .lookup_entry_by_path(path)
+        .with_context(|| format!("failed to look up '{path}' in tree of {tip_display}"))?
+        .map(|entry| entry.id().detach()))
+}
+
+/// Check every edit against the tip tree, writing no objects: a missing file to
+/// update or remove, a file that already exists at a create destination, a
+/// stale `expected_blob_sha`, an unreadable move source, a destination that is
+/// already taken, a symlink in the way.
+///
+/// [`commit_tree_edits`] runs this before it writes anything, and
+/// [`plan_tree_edits`] exposes it on its own so a dry run can report without
+/// touching the object database.
+pub fn validate_tree_edits(
+    repo_path: &Path,
+    branch: &str,
+    expected_tip: Option<&str>,
+    edits: &[TreeEdit],
+    create_branch_if_missing: bool,
+) -> anyhow::Result<()> {
+    let repo = open_repo(repo_path)?;
+    TreeEdit::validate_batch(edits)?;
+    let tip = resolve_tip(&repo, branch, expected_tip, create_branch_if_missing)?;
+    let tip_tree = find_tip_tree(&repo, tip)?;
+    let tip_display = display_tip(tip);
+    for (index, edit) in edits.iter().enumerate() {
+        check_edit(&repo, &tip_tree, &tip_display, edit)
+            .with_context(|| format!("edit #{}", index + 1))?;
+    }
+    Ok(())
+}
+
+/// The result of [`plan_tree_edits`]: the tree the edits would produce and the
+/// commit it would sit on. Nothing has been written.
+#[derive(Debug, Clone)]
+pub struct TreeEditPlan {
+    /// Tree id the batch would commit.
+    pub tree: String,
+    /// Tip the commit would have as a parent; `None` for the first commit.
+    pub parent: Option<String>,
+}
+
+/// Build the tree a batch of edits would produce, without writing the commit or
+/// moving any ref. The edited tree object itself has to be written (there is no
+/// in-memory tree type to hand back), but a dry run's tree is unreferenced and
+/// is collected by the next `git gc`.
+pub fn plan_tree_edits(
+    repo_path: &Path,
+    branch: &str,
+    expected_tip: Option<&str>,
+    edits: &[TreeEdit],
+    create_branch_if_missing: bool,
+) -> anyhow::Result<TreeEditPlan> {
+    let repo = open_repo(repo_path)?;
+    TreeEdit::validate_batch(edits)?;
+    let tip = resolve_tip(&repo, branch, expected_tip, create_branch_if_missing)?;
+    let tip_tree = find_tip_tree(&repo, tip)?;
+    let tip_display = display_tip(tip);
+    let new_tree = edit_tree(&repo, &tip_tree, &tip_display, edits)?;
+    Ok(TreeEditPlan {
+        tree: new_tree.to_string(),
+        parent: tip.map(|tip| tip.to_string()),
+    })
+}
+
+/// The current commit `branch` points at, or `None` when the branch does not
+/// exist. `expected_tip`, when given, must match — otherwise the branch moved
+/// and the caller's read is stale.
+///
+/// Comparison is on parsed ids, so hex case differences cannot spuriously
+/// report an advance; an unparseable expected tip defers to the ref-transaction
+/// guard in [`commit_tree_edits`].
+fn resolve_tip(
+    repo: &gix::Repository,
+    branch: &str,
+    expected_tip: Option<&str>,
+    create_branch_if_missing: bool,
+) -> anyhow::Result<Option<gix::hash::ObjectId>> {
+    let tip = match repo.rev_parse_single(format!("refs/heads/{branch}").as_str()) {
+        Ok(id) => Some(id.detach()),
+        Err(_) => None,
+    };
+    match (tip, expected_tip) {
+        (Some(actual), Some(expected))
+            if actual != gix::hash::ObjectId::from_hex(expected.as_bytes()).unwrap_or(actual) =>
+        {
+            // Reported by the caller as `TipAdvanced`; see `commit_tree_edits`.
+            bail!("branch '{branch}' is at {actual}, not at the expected {expected}");
+        }
+        // Fresh branch on an empty repository: commit with no parent and
+        // create the ref (guarded by MustNotExist).
+        (None, None) if create_branch_if_missing => {}
+        (None, _) => bail!("branch '{branch}' not found"),
+        _ => {}
+    }
+    Ok(tip)
+}
+
+/// Read the tree of a branch tip, if there is one.
+fn find_tip_tree<'repo>(
+    repo: &'repo gix::Repository,
+    tip: Option<gix::hash::ObjectId>,
+) -> anyhow::Result<Option<gix::Tree<'repo>>> {
+    let Some(tip) = tip else {
+        return Ok(None);
+    };
+    Ok(Some(repo.find_object(tip)?.peel_to_tree().with_context(
+        || format!("failed to read tree of branch tip {tip}"),
+    )?))
+}
+
+fn display_tip(tip: Option<gix::hash::ObjectId>) -> String {
+    tip.map(|tip| tip.to_string())
+        .unwrap_or_else(|| "<new branch>".to_string())
+}
+
+/// Verify one edit against the tip tree without writing objects.
+fn check_edit(
+    repo: &gix::Repository,
+    tip_tree: &Option<gix::Tree<'_>>,
+    tip_display: &str,
+    edit: &TreeEdit,
+) -> anyhow::Result<()> {
+    match edit {
+        TreeEdit::SetFile {
+            path,
+            expected_blob_sha,
+            ..
+        } => {
+            let existing = lookup_in_tree(tip_tree, path, tip_display)?;
+            match (existing, expected_blob_sha) {
+                (None, Some(_)) => bail!("file {path} is missing at HEAD"),
+                (Some(oid), Some(expected)) => {
+                    let actual = oid.to_string();
+                    if actual != *expected {
+                        bail!("file SHA mismatch for {path}: expected {expected}, got {actual}");
+                    }
+                }
+                // (None, None): plain create, nothing to verify.
+                // (Some, None): the caller replaces the file wholesale.
+                _ => {}
+            }
+            // A symlink is stored as a blob holding its target; writing file
+            // content over it would silently turn the link into a plain file.
+            if let Some(tree) = tip_tree {
+                if let Some(entry) = tree.lookup_entry_by_path(path)? {
+                    if entry.mode().is_link() {
+                        bail!("refusing to update symlink path: {path}");
+                    }
+                }
+            }
+            Ok(())
+        }
+        TreeEdit::RemoveFile { path } => {
+            if lookup_in_tree(tip_tree, path, tip_display)?.is_none() {
+                bail!("file {path} does not exist at HEAD");
+            }
+            Ok(())
+        }
+        TreeEdit::MoveFile { from, to } => {
+            let Some(source) = lookup_in_tree(tip_tree, from, tip_display)? else {
+                bail!("cannot move '{from}': it does not exist at HEAD");
+            };
+            if lookup_in_tree(tip_tree, to, tip_display)?.is_some() {
+                bail!("cannot move '{from}' to '{to}': the destination already exists");
+            }
+            // Fail on a source that cannot be read into the destination tree
+            // (e.g. a submodule, which has no blob) before writing anything.
+            repo.find_object(source)
+                .with_context(|| format!("failed to read object moved from '{from}'"))?;
+            Ok(())
+        }
+    }
+}
+
+/// Apply the edits to the tip tree and write the resulting tree object.
+fn edit_tree(
+    repo: &gix::Repository,
+    tip_tree: &Option<gix::Tree<'_>>,
+    tip_display: &str,
+    edits: &[TreeEdit],
+) -> anyhow::Result<gix::hash::ObjectId> {
+    use gix::objs::tree::EntryKind;
+
+    let base_tree_id = match tip_tree {
+        Some(tree) => tree.id().detach(),
+        None => gix::hash::ObjectId::empty_tree(repo.object_hash()),
+    };
+    let mut editor = repo.edit_tree(base_tree_id)?;
+    for edit in edits {
+        match edit {
+            TreeEdit::SetFile { path, content, .. } => {
+                let blob = repo.write_blob(content.as_slice())?;
+                editor
+                    .upsert(path.as_str(), EntryKind::Blob, blob.detach())
+                    .with_context(|| format!("failed to stage '{path}'"))?;
+            }
+            TreeEdit::RemoveFile { path } => {
+                editor
+                    .remove(path.as_str())
+                    .with_context(|| format!("failed to remove '{path}'"))?;
+            }
+            TreeEdit::MoveFile { from, to } => {
+                let moved = move_entry(tip_tree, tip_display, from)
+                    .with_context(|| format!("failed to move '{from}' to '{to}'"))?;
+                editor
+                    .upsert(to.as_str(), moved.mode, moved.oid)
+                    .with_context(|| format!("failed to stage '{to}'"))?;
+                editor
+                    .remove(from.as_str())
+                    .with_context(|| format!("failed to remove '{from}'"))?;
+            }
+        }
+    }
+    editor
+        .write()
+        .map(|id| id.detach())
+        .map_err(|error| anyhow::anyhow!("failed to write edited tree: {error}"))
+}
+
+/// A tree entry carried over by a move.
+struct MovedEntry {
+    mode: gix::objs::tree::EntryKind,
+    oid: gix::hash::ObjectId,
+}
+
+/// The entry a move carries over: the id and git mode of `from`.
+///
+/// Read from the tip tree, so a move preserves the exact object (content and
+/// mode, including an executable bit) without re-hashing it. `git mv` never
+/// carries a move of a file the same batch created, which
+/// [`TreeEdit::validate_batch`] enforces, so the tip tree is the only place the
+/// source can come from.
+fn move_entry(
+    tip_tree: &Option<gix::Tree<'_>>,
+    tip_display: &str,
+    from: &str,
+) -> anyhow::Result<MovedEntry> {
+    let Some(tree) = tip_tree else {
+        bail!("cannot move '{from}': the branch has no commits");
+    };
+    let entry = tree
+        .lookup_entry_by_path(from)
+        .with_context(|| format!("failed to look up '{from}' in tree of {tip_display}"))?
+        .ok_or_else(|| anyhow::anyhow!("cannot move '{from}': it does not exist at HEAD"))?;
+    Ok(MovedEntry {
+        mode: entry.mode().kind(),
+        oid: entry.id().detach(),
+    })
 }
 
 /// Commit direct tree edits onto a bare repository branch — the pure-gix
@@ -1219,114 +1540,39 @@ pub fn commit_tree_edits(
     author_email: &str,
     create_branch_if_missing: bool,
 ) -> anyhow::Result<CommitTreeOutcome> {
-    use gix::objs::tree::EntryKind;
     use gix::refs::transaction::{Change, LogChange, PreviousValue, RefEdit, RefLog};
 
     let repo = open_repo(repo_path)?;
     let branch_ref: gix::refs::FullName = format!("refs/heads/{branch}")
         .try_into()
         .map_err(|error| anyhow::anyhow!("invalid branch ref: {error}"))?;
-    let tip = match repo.rev_parse_single(format!("refs/heads/{branch}").as_str()) {
-        Ok(id) => Some(id.detach()),
-        Err(_) => None,
-    };
-    match (tip, expected_tip) {
-        // Compare parsed ids so hex case differences cannot spuriously
-        // report an advance; an unparseable expected tip defers to the
-        // ref-transaction guard below.
-        (Some(actual), Some(expected))
-            if actual != gix::hash::ObjectId::from_hex(expected.as_bytes()).unwrap_or(actual) =>
-        {
-            return Ok(CommitTreeOutcome::TipAdvanced {
-                actual: Some(actual.to_string()),
-            });
-        }
-        // Fresh branch on an empty repository: commit with no parent and
-        // create the ref (guarded by MustNotExist below).
-        (None, None) if create_branch_if_missing => {}
-        (None, _) => bail!("branch '{branch}' not found"),
-        _ => {}
-    }
-
-    let tip_display = tip
-        .map(|tip| tip.to_string())
-        .unwrap_or_else(|| "<new branch>".to_string());
-    let tip_tree = match tip {
-        Some(tip) => Some(
-            repo.find_object(tip)?
-                .peel_to_tree()
-                .with_context(|| format!("failed to read tree of branch tip {tip}"))?,
-        ),
-        None => None,
-    };
-    let base_tree_id = match &tip_tree {
-        Some(tree) => tree.id().detach(),
-        None => gix::hash::ObjectId::empty_tree(repo.object_hash()),
-    };
-    let mut editor = repo.edit_tree(base_tree_id)?;
-
-    for edit in edits {
-        match edit {
-            TreeEdit::SetFile {
-                path,
-                content,
-                expected_blob_sha,
-            } => {
-                let entry = match &tip_tree {
-                    Some(tree) => tree.lookup_entry_by_path(path).with_context(|| {
-                        format!("failed to look up '{path}' in tree of {tip_display}")
-                    })?,
-                    None => None,
-                };
-                match (entry, expected_blob_sha) {
-                    (None, Some(_)) => {
-                        bail!("file {path} is missing at HEAD");
-                    }
-                    (Some(entry), _) => {
-                        if entry.mode().is_link() {
-                            bail!("refusing to update symlink path: {path}");
-                        }
-                        if let Some(expected) = expected_blob_sha {
-                            let actual = entry.id().to_string();
-                            if actual != *expected {
-                                bail!(
-                                    "file SHA mismatch for {path}: expected {expected}, got {actual}"
-                                );
-                            }
-                        }
-                    }
-                    // (None, None): plain create, nothing to verify.
-                    (None, None) => {}
-                }
-                let blob = repo.write_blob(content.as_slice())?;
-                editor
-                    .upsert(path.as_str(), EntryKind::Blob, blob.detach())
-                    .with_context(|| format!("failed to stage '{path}'"))?;
+    TreeEdit::validate_batch(edits)?;
+    let tip = match resolve_tip(&repo, branch, expected_tip, create_branch_if_missing) {
+        Ok(tip) => tip,
+        // The branch moved between the caller's read and this call: report it as
+        // an advance (with the tip it is at now) rather than as a plain failure,
+        // so the caller can answer 409 and the client can retry.
+        Err(error) => {
+            let current = repo
+                .rev_parse_single(format!("refs/heads/{branch}").as_str())
+                .ok()
+                .map(|id| id.detach().to_string());
+            if expected_tip.is_some() {
+                return Ok(CommitTreeOutcome::TipAdvanced { actual: current });
             }
-            TreeEdit::RemoveFile { path } => {
-                let exists = match &tip_tree {
-                    Some(tree) => tree
-                        .lookup_entry_by_path(path)
-                        .with_context(|| {
-                            format!("failed to look up '{path}' in tree of {tip_display}")
-                        })?
-                        .is_some(),
-                    None => false,
-                };
-                if !exists {
-                    bail!("file {path} does not exist at HEAD");
-                }
-                editor
-                    .remove(path.as_str())
-                    .with_context(|| format!("failed to remove '{path}'"))?;
-            }
+            return Err(error);
         }
-    }
+    };
 
-    let new_tree = editor
-        .write()
-        .map_err(|error| anyhow::anyhow!("failed to write edited tree: {error}"))?
-        .detach();
+    let tip_tree = find_tip_tree(&repo, tip)?;
+    let tip_display = display_tip(tip);
+    // Every edit is checked against the tip tree before the first object is
+    // written, so a batch that fails at edit N leaves no blobs behind.
+    for (index, edit) in edits.iter().enumerate() {
+        check_edit(&repo, &tip_tree, &tip_display, edit)
+            .with_context(|| format!("edit #{}", index + 1))?;
+    }
+    let new_tree = edit_tree(&repo, &tip_tree, &tip_display, edits)?;
 
     let now = gix::date::Time::now_utc();
     let stamp = format!("{} +0000", now.seconds);

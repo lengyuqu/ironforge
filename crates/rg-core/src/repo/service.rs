@@ -2204,6 +2204,483 @@ pub async fn delete_file_with(
     })
 }
 
+// ── Batch file commit ────────────────────────────────────────────────
+
+/// One path-level change inside a [`commit_batch`] call.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BatchEdit {
+    /// Create or replace a file. `expected_blob_sha`: some = update (the blob
+    /// must still match), none = create (the path must be free).
+    Create { path: String, content: String },
+    Update {
+        path: String,
+        content: String,
+        expected_blob_sha: String,
+    },
+    Delete {
+        path: String,
+        expected_blob_sha: String,
+    },
+    /// Move a file, keeping its content and mode. `expected_blob_sha` pins the
+    /// content the caller last saw.
+    Move {
+        from: String,
+        to: String,
+        expected_blob_sha: String,
+    },
+}
+
+impl BatchEdit {
+    /// The path this edit writes to.
+    pub fn target(&self) -> &str {
+        match self {
+            BatchEdit::Create { path, .. }
+            | BatchEdit::Update { path, .. }
+            | BatchEdit::Delete { path, .. } => path,
+            BatchEdit::Move { to, .. } => to,
+        }
+    }
+
+    /// The path this edit reads. For a move the source, otherwise the target.
+    fn source(&self) -> &str {
+        match self {
+            BatchEdit::Move { from, .. } => from,
+            other => other.target(),
+        }
+    }
+
+    fn is_remove(&self) -> bool {
+        matches!(self, BatchEdit::Delete { .. })
+    }
+}
+
+/// What a batch commit checks: everything, or nothing if `dry_run`.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct BatchCommitOptions<'a> {
+    /// The tip the branch must be at. **Not** defaulted to HEAD: a batch is for
+    /// agents replaying a plan, and an unpinned batch would silently commit on
+    /// top of whatever landed meanwhile. A branch that does not exist counts as
+    /// a different tip.
+    pub expected_tip: &'a str,
+    /// Check and report, write nothing.
+    pub dry_run: bool,
+}
+
+/// What a batch commit did, or (for a dry run) would do.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BatchCommitReport {
+    pub dry_run: bool,
+    pub branch: String,
+    /// The branch tip before the commit.
+    pub tip_before: String,
+    /// The single commit carrying every edit; `None` for a dry run.
+    pub commit_sha: Option<String>,
+    /// One entry per edit, in request order: the operation, the paths, and the
+    /// blob the path held before (`None` when the path was free or is being
+    /// deleted).
+    pub files: Vec<BatchCommitFile>,
+}
+
+/// One edit as it was applied (or would be).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BatchCommitFile {
+    /// `create` | `update` | `delete` | `move`.
+    pub operation: &'static str,
+    /// `None` for an edit that only has one path.
+    pub from: Option<String>,
+    pub path: String,
+    pub blob_before: Option<String>,
+}
+
+/// Why a batch commit failed. Everything but the two typed variants is an
+/// ordinary domain error.
+#[derive(Debug)]
+pub enum BatchCommitError {
+    /// The branch is not at `expected`; it is at `current` (`None`: missing).
+    RefAdvanced {
+        current: Option<String>,
+        expected: String,
+    },
+    /// The edits contradict each other.
+    PathConflict {
+        reason: String,
+    },
+    Core(CoreError),
+}
+
+impl From<CoreError> for BatchCommitError {
+    fn from(error: CoreError) -> Self {
+        // A ref that moved during the write is the same answer as one that had
+        // already moved when the batch was checked.
+        if let CoreError::Conflict(message) = &error {
+            if let Some((current, expected)) = message
+                .strip_prefix(REF_ADVANCED_TAG)
+                .and_then(|rest| rest.split_once('\u{1}'))
+            {
+                return Self::RefAdvanced {
+                    current: (!current.is_empty()).then(|| current.to_string()),
+                    expected: expected.to_string(),
+                };
+            }
+        }
+        Self::Core(error)
+    }
+}
+
+impl From<BatchCommitError> for CoreError {
+    fn from(error: BatchCommitError) -> Self {
+        match error {
+            BatchCommitError::Core(core) => core,
+            BatchCommitError::PathConflict { reason } => CoreError::conflict(reason),
+            BatchCommitError::RefAdvanced { current, expected } => CoreError::conflict(format!(
+                "{REF_ADVANCED_TAG}{}{MOVE_SEP}{expected}",
+                current.unwrap_or_default()
+            )),
+        }
+    }
+}
+
+/// Marks a conflict message as a moved branch, so [`BatchCommitError`] can
+/// recognise it after it has been through `CoreError`. Not part of the API
+/// contract: the HTTP layer turns it into `reason: REF_ADVANCED`.
+const REF_ADVANCED_TAG: &str = "\u{1}ref-advanced\u{1}";
+const MOVE_SEP: char = '\u{1}';
+
+/// Commit a set of file edits to one branch as **one** commit, or as none.
+///
+/// Every edit is checked before the first object is written: the branch tip,
+/// each blob sha the caller pinned, path validity and the edits' consistency
+/// with each other. Then a single commit is built and the branch is moved once,
+/// guarded on the tip read at the start. A failure at any step leaves the
+/// branch exactly where it was — that is the whole point of a batch, and it is
+/// what a caller replaying an agent's plan relies on.
+///
+/// A `move` whose destinations overlap its sources is refused as
+/// `PathConflict` rather than ordered: a tree edit batch has no ordering the
+/// caller could rely on, so "a→b, b→a" is reported instead of guessed at.
+#[allow(clippy::too_many_arguments)]
+pub async fn commit_batch(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    owner: &str,
+    repo_name: &str,
+    branch: &str,
+    edits: &[BatchEdit],
+    message: &str,
+    author_name: &str,
+    author_email: &str,
+    repo_root: &std::path::Path,
+    actor_id: Option<i64>,
+    options: BatchCommitOptions<'_>,
+) -> Result<BatchCommitReport, BatchCommitError> {
+    validate_branch_name(branch)?;
+    if edits.is_empty() {
+        return Err(CoreError::invalid_input("at least one edit is required").into());
+    }
+    if message.trim().is_empty() {
+        return Err(CoreError::invalid_input("commit message is required").into());
+    }
+    for edit in edits {
+        validate_repo_file_path(edit.target())?;
+        if let BatchEdit::Move { from, .. } = edit {
+            validate_repo_file_path(from)?;
+        }
+    }
+    check_batch_consistency(edits)?;
+
+    // Same permission surface as the single-file route: a batch must not become
+    // the way around `require_pr` / `require_signed_commits`.
+    crate::branch_protection::service::check_direct_commit_allowed(db, repo_id, branch, actor_id)
+        .await
+        .map_err(direct_commit_error)?;
+
+    let repo_path = repo_root.join(format!("{}/{}.git", owner, repo_name));
+    if !repo_path.exists() {
+        return Err(missing_repo_storage(&repo_path).into());
+    }
+
+    // No fallback to HEAD: a batch names the tip it is based on, and a branch
+    // that does not exist is a stale plan, not a request to create it from
+    // HEAD. (The single-file route keeps its HEAD fallback for compatibility.)
+    let tip_before = rg_git::ops::try_rev_parse(&repo_path, &format!("refs/heads/{branch}"))
+        .ok()
+        .flatten()
+        .ok_or_else(|| BatchCommitError::RefAdvanced {
+            current: None,
+            expected: options.expected_tip.to_string(),
+        })?;
+    if tip_before != options.expected_tip {
+        return Err(BatchCommitError::RefAdvanced {
+            current: Some(tip_before),
+            expected: options.expected_tip.to_string(),
+        });
+    }
+
+    // Resolve each edit against the tip into a git-level tree edit, recording
+    // the blob the path held so the report (and a dry run) can name it.
+    let repo_dir = repo_path.clone();
+    let tip_for_plan = tip_before.clone();
+    let branch_for_plan = branch.to_string();
+    let plan_edits = edits.to_vec();
+    let planned = tokio::task::spawn_blocking(move || -> Result<_, BatchCommitError> {
+        let mut tree_edits = Vec::with_capacity(plan_edits.len());
+        let mut files = Vec::with_capacity(plan_edits.len());
+        for edit in &plan_edits {
+            let tree_edit = match edit {
+                BatchEdit::Create { path, content } => {
+                    if blob_sha(&repo_dir, &tip_for_plan, path)?.is_some() {
+                        return Err(CoreError::conflict(format!(
+                            "file already exists: {path} (use update with sha)"
+                        ))
+                        .into());
+                    }
+                    rg_git::ops::TreeEdit::SetFile {
+                        path: path.clone(),
+                        content: content.as_bytes().to_vec(),
+                        expected_blob_sha: None,
+                    }
+                }
+                BatchEdit::Update {
+                    path,
+                    content,
+                    expected_blob_sha,
+                } => {
+                    let current = blob_sha(&repo_dir, &tip_for_plan, path)?;
+                    match current {
+                        None => {
+                            return Err(CoreError::not_found(format!(
+                                "file does not exist: {path}"
+                            ))
+                            .into())
+                        }
+                        Some(actual) if actual != *expected_blob_sha => {
+                            return Err(CoreError::conflict(format!(
+                                "file SHA mismatch for {path}: expected {expected_blob_sha}, got {actual}"
+                            ))
+                            .into())
+                        }
+                        Some(_) => {}
+                    }
+                    rg_git::ops::TreeEdit::SetFile {
+                        path: path.clone(),
+                        content: content.as_bytes().to_vec(),
+                        expected_blob_sha: Some(expected_blob_sha.clone()),
+                    }
+                }
+                BatchEdit::Delete {
+                    path,
+                    expected_blob_sha,
+                } => {
+                    let current = blob_sha(&repo_dir, &tip_for_plan, path)?;
+                    match current {
+                        None => {
+                            return Err(CoreError::not_found(format!(
+                                "file does not exist: {path}"
+                            ))
+                            .into())
+                        }
+                        Some(actual) if actual != *expected_blob_sha => {
+                            return Err(CoreError::conflict(format!(
+                                "file SHA mismatch for {path}: expected {expected_blob_sha}, got {actual}"
+                            ))
+                            .into())
+                        }
+                        Some(_) => {}
+                    }
+                    rg_git::ops::TreeEdit::RemoveFile { path: path.clone() }
+                }
+                BatchEdit::Move {
+                    from,
+                    to,
+                    expected_blob_sha,
+                } => {
+                    let Some(source) = blob_sha(&repo_dir, &tip_for_plan, from)? else {
+                        return Err(CoreError::not_found(format!(
+                            "file does not exist: {from}"
+                        ))
+                        .into());
+                    };
+                    if source != *expected_blob_sha {
+                        return Err(CoreError::conflict(format!(
+                            "file SHA mismatch for {from}: expected {expected_blob_sha}, got {source}"
+                        ))
+                        .into());
+                    }
+                    if blob_sha(&repo_dir, &tip_for_plan, to)?.is_some() {
+                        return Err(CoreError::conflict(format!(
+                            "file already exists: {to} (a move does not overwrite)"
+                        ))
+                        .into());
+                    }
+                    rg_git::ops::TreeEdit::MoveFile {
+                        from: from.clone(),
+                        to: to.clone(),
+                    }
+                }
+            };
+            files.push(BatchCommitFile {
+                operation: edit.operation(),
+                from: match edit {
+                    BatchEdit::Move { from, .. } => Some(from.clone()),
+                    _ => None,
+                },
+                path: edit.target().to_string(),
+                blob_before: if edit.is_remove() {
+                    None
+                } else {
+                    blob_sha(&repo_dir, &tip_for_plan, edit.source())?
+                },
+            });
+            tree_edits.push(tree_edit);
+        }
+
+        if options.dry_run {
+            // Check the batch against the tree the way a real commit would, so a
+            // dry run fails wherever the real call would, but do not write the
+            // commit or move the ref.
+            rg_git::ops::validate_tree_edits(
+                &repo_dir,
+                &branch_for_plan,
+                Some(&tip_for_plan),
+                &tree_edits,
+                false,
+            )
+            .map_err(|error| CoreError::conflict(error.to_string()))?;
+        }
+        Ok((tree_edits, files))
+    })
+    .await
+    .map_err(|error| CoreError::internal(format!("batch commit plan task failed: {error}")))??;
+
+    let (tree_edits, files) = planned;
+    if options.dry_run {
+        return Ok(BatchCommitReport {
+            dry_run: true,
+            branch: branch.to_string(),
+            tip_before,
+            commit_sha: None,
+            files,
+        });
+    }
+
+    // merge + object writes are real CPU work; keep them off the async workers.
+    let repo_dir = repo_path.clone();
+    let branch_owned = branch.to_string();
+    let tip_snapshot = tip_before.clone();
+    let message_owned = message.to_string();
+    let author_name_owned = author_name.to_string();
+    let author_email_owned = author_email.to_string();
+    let outcome = tokio::task::spawn_blocking(move || {
+        rg_git::ops::commit_tree_edits(
+            &repo_dir,
+            &branch_owned,
+            Some(&tip_snapshot),
+            &tree_edits,
+            &message_owned,
+            &author_name_owned,
+            &author_email_owned,
+            false,
+        )
+    })
+    .await
+    .map_err(|error| CoreError::internal(format!("batch commit task failed: {error}")))?
+    .map_err(|error| BatchCommitError::Core(CoreError::conflict(error.to_string())))?;
+
+    let commit_sha = match outcome {
+        rg_git::ops::CommitTreeOutcome::Committed(sha) => sha,
+        rg_git::ops::CommitTreeOutcome::TipAdvanced { actual } => {
+            return Err(BatchCommitError::RefAdvanced {
+                current: actual,
+                expected: options.expected_tip.to_string(),
+            })
+        }
+    };
+
+    tracing::info!(
+        repo = %repo_name,
+        branch = %branch,
+        files = files.len(),
+        commit = %commit_sha,
+        "batch file commit written"
+    );
+
+    Ok(BatchCommitReport {
+        dry_run: false,
+        branch: branch.to_string(),
+        tip_before,
+        commit_sha: Some(commit_sha),
+        files,
+    })
+}
+
+impl BatchEdit {
+    /// The operation name reported for this edit.
+    fn operation(&self) -> &'static str {
+        match self {
+            BatchEdit::Create { .. } => "create",
+            BatchEdit::Update { .. } => "update",
+            BatchEdit::Delete { .. } => "delete",
+            BatchEdit::Move { .. } => "move",
+        }
+    }
+}
+
+/// The blob sha at `path` in the tree of `tip`, or `None` when the path is free.
+fn blob_sha(repo_path: &std::path::Path, tip: &str, path: &str) -> CoreResult<Option<String>> {
+    let repo = gix::open(repo_path).map_err(|error| {
+        CoreError::internal(format!(
+            "failed to open repository {}: {error}",
+            repo_path.display()
+        ))
+    })?;
+    let commit = repo
+        .rev_parse_single(tip)
+        .map_err(|error| CoreError::internal(format!("failed to resolve {tip}: {error}")))?
+        .object()
+        .map_err(|error| CoreError::internal(format!("failed to read {tip}: {error}")))?
+        .peel_to_tree()
+        .map_err(|error| CoreError::internal(format!("failed to peel {tip} to a tree: {error}")))?;
+    Ok(commit
+        .lookup_entry_by_path(path)
+        .map_err(|error| CoreError::internal(format!("failed to look up {path}: {error}")))?
+        .map(|entry| entry.id().to_string()))
+}
+
+/// Reject a batch that contradicts itself: two edits writing the same path, or
+/// a move whose source another edit also writes.
+///
+/// A chain (`a→b`, `b→c`) is rejected too: the batch is one commit, so a caller
+/// that wants a rename chain must express it as the end state. Cycle detection
+/// is deliberately just a set intersection — no attempt is made to order the
+/// edits.
+fn check_batch_consistency(edits: &[BatchEdit]) -> CoreResult<()> {
+    let mut targets: HashMap<&str, usize> = HashMap::new();
+    for (index, edit) in edits.iter().enumerate() {
+        if let Some(previous) = targets.insert(edit.target(), index) {
+            return Err(CoreError::conflict(format!(
+                "edits #{} and #{} both write to '{}'",
+                previous + 1,
+                index + 1,
+                edit.target()
+            )));
+        }
+    }
+    // A path cannot be moved away and written in the same commit: which one
+    // wins would depend on an order the caller was never promised.
+    for (index, edit) in edits.iter().enumerate() {
+        if let BatchEdit::Move { from, to, .. } = edit {
+            if let Some(at) = targets.get(from.as_str()) {
+                return Err(CoreError::conflict(format!(
+                    "PATH_CONFLICT: edit #{} moves '{from}' to '{to}' while edit #{} also writes '{from}'",
+                    index + 1,
+                    at + 1
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Get the blob SHA of a file at a given ref, or `None` when the ref or the
 /// path does not exist. Failing to open the repository is an internal error.
 fn get_file_sha(
