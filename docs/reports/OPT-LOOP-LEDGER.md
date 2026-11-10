@@ -38,6 +38,18 @@
 
 ## 批次索引
 
+### batch#2(issue #12) · 2026-11-10 · rg-core auth 凭据链路
+
+- 开批：`2026-11-10T13:12:45Z`（issue 创建即触发，正文结尾 `@CodeBuddy`；NPC 流水线 `cnb-gc6-1k72pdras` 已 pending，platform status 自述 SHA `2191cba`，与本批基线一致）
+- 基线提交：`2191cba`（cnb/main HEAD，2026-11-10）
+- 范围：`crates/rg-core/src/auth/` 10 文件共 2946 行（pat_scope 656 / sso 512 / oci_token 395 / password 364 / jwt 244 / ldap 240 / ci_token 203 / ssh_key 140 / totp 109 / encryption 83；排除 `mod.rs` 12 行与 `ci_oidc.rs` 146 行）。行数以 `git show 2191cba:<path> | wc -l` 统计，非工作区版本
+- 引导问题 4 条：P1 常见密码检测 `take_while` 前导字母剥离可绕过（`password.rs:235`）；P1 `TooCommon` 把明文密码写进 `Display`（`password.rs:69-72`）；P2 `verify_code` 无重放记录、调用方是否拦截待核（`totp.rs:37`/`:51`）；P2 `validate_mfa_challenge` 用 `Validation::default()` 无 iss/aud（`jwt.rs:135-139`）
+- 已知空档（写进正文）：TOTP SHA1 为 RFC 6238 标准；JWT HS256+7d 为已知设计；`feat/agent-principals` 分支（agent 账户，本机未推送）不在基线内；LDAP/SSO 宽松错误处理为刻意决策；待拍板 #1–#11 属第 1 批范围
+- 反向清单回灌：判定不成立 4 条（含撤回的 sideband/pkt_line 行号争议）+ 对方已撤回 4 项 + 第 6 轮行号错项 5 条
+- **新增要求**（第 1 批收敛建议落地）：每条结论必须附自证形式（`sed`/`grep` 输出或实测），不接受纯断言
+- NPC 首条分析：**等待中**（消费者补记，生产者不等首扫——协议 F16）
+- 6 轮进度：**0 / 6**
+
 ### batch#1(issue #11) · 2026-11-10 · git 协议文档与实现一致性
 
 - 开批：`2026-11-10T09:21:41Z`（issue 创建即触发，未额外交触发评论）
