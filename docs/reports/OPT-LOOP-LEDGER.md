@@ -57,6 +57,8 @@
 - 工作基线：`2e0425d` → 快进到 **`2ffe7e8`**（`cnb/main` 已被 PR #47 推进，见上「基线漂移」）；改前 `scripts/check.sh --quick` 通过（55 s）在 `2ffe7e8` 上跑
 - 改动：**`0bc7385`**（L1，注释 3 处纠正 + 1 处补全 + 1 处误导性注释改写 + 1 条断言强化测试）：`crates/rg-core/src/auth/ssh_key.rs`、`password.rs`、`encryption.rs`、`crates/rg-http/src/oci.rs`
 - 验证：改后 `scripts/check.sh --quick` 通过（77 s）；新测试 `cargo test -p rg-core --lib auth::ssh_key` → **4 passed**；**零行号漂移**（4 处均 1 行→1 行，新测试追加在文件末尾 `:141-154`）
+- 回帖：`2120153592488157184`，`2026-11-10T13:56:21Z`，首行 `## 第 1 轮收尾`（回读校验 C=1，下一轮 K=2）
+- **事故（本轮典型）**：改动与 ledger 已提交推送（`0bc7385`→`85aad5b`→`df68a0d`），但进程在发回帖前死亡，留下孤儿锁 `/tmp/ironforge-opt-loop.lock`（owner pid `78599` 已不存在，automation 日志无本次运行记录）。**手工会话补发回帖并清锁**。教训：`trap` 跨不了 Bash 调用，锁必须放在「最后一次工具调用」里删；进程被杀时无法保证，下一轮抢锁前必须先 `kill -0` 验活并强制清锁，否则会永久阻塞
 - **本轮首次做运行时取证**（不再只读代码）：上一批 6 轮的经验是「NPC 行号常偏、语义多对」，但 P1 级结论必须落成可复现观测
 
 ```bash
