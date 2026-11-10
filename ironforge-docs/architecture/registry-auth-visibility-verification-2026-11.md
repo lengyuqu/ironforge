@@ -1,6 +1,6 @@
 # Registry（OCI）鉴权：票据校验侧看仓库可见性（验证记录，2026-11-11）
 
-> **状态**：**已修复**（`43e3092`，PR #24 合入 `9b6bdde`）｜ **可信度**：确认（代码逐行核对 + 仓内 in-process 回归测试存在）｜ **本文行号基准**：`cnb/main` `a94839b`
+> **状态**：**已修复**（`43e3092`，PR #24 合入 `9b6bdde`）｜ **可信度**：确认（代码逐行核对 + 仓内 in-process 回归测试存在）｜ **本文行号基准**：`cnb/main` `a94839b`；第 6 轮在 `e531f40` 上复核，`oci.rs` / `oci_token.rs` / `oci_permission_tests.rs` 自 `a94839b` 起未变（`git diff --stat a94839b..e531f40` 只命中 `password.rs` 与本目录两份文档），行号仍成立
 > 台账条目：`docs/reports/OPT-LOOP-LEDGER.md` 待拍板 **B2-11**（已关闭）。
 > 本文从 [ADR-0001](../ci/adr-0001-third-party-actions-execution.md) §7 移出：那条 ADR 冻结的是 CI Runner 与第三方 Actions 的边界，OCI 可见性没有对应验收条款，留在 §7 只能靠「有人记得」关闭。
 >
@@ -22,7 +22,7 @@
 | OCI Bearer | `:128-175` | scope 匹配 `:149-155` **之后**，`:159` `can_read_repo(.., claims.uid)` / `:164` `can_write_repo` | 是（修复后） |
 | 匿名 | `:177-181` | `:179` `can_read_repo(.., None)` | 是 |
 
-计数口径（上一版在这里被复核抓到过两次）：`oci.rs` 全文件共 **5 处**权限查询——校验侧 3 处（`:114` / `:118` / `:179`）、签发侧 2 处（`:329` / `:342`）。只说「两处」会被读者当成全文件计数，故此处把「`can_read_repo` 几处」与「权限查询几处」分开写。
+计数口径（上一版在这里被复核抓到过两次，第 6 轮自查又抓出一次少算）：`oci.rs` 全文件共 **7 处** `can_read_repo` / `can_write_repo` 调用——校验侧 5 处（`:114` / `:118` / `:159` / `:164` / `:179`）、签发侧 2 处（`:329` / `:342`）。上一版写「5 处」是把 Bearer 分支修复后新增的 `:159` / `:164` 漏掉了。**本计数只含这两个函数的调用**：`:152` 的 `matches_repo` + `has_action`、签发侧 `:328` / `:340` 的 `has_action` 属票据授权面判定，不计入。核对命令 `grep -n 'can_read_repo\|can_write_repo' crates/rg-http/src/oci.rs` 命中 11 行，其中 7 行是调用、4 行是注释（`:82` / `:142` / `:146` / `:375`）。
 
 `:152` 的 `matches_repo` 仍是字符串等值（`crates/rg-core/src/auth/oci_token.rs:123-125`：`self.scope_type == "repository" && self.name == format!("{}/{}", owner, repo)`），票据里没有任何仓库 id 或可见性字段——`OciTokenClaims`（同文件 `:42-80`）只有 `iss/sub/aud/exp/iat/nbf/jti/scope/uid` 九个字段，其中 `uid`（`:74`）就是修复新增的复查凭据。
 
@@ -35,11 +35,11 @@
 
 ## `registry:catalog:*`：签得出、用不上，但靠三件巧合
 
-该 scope 不是「未核」，是核完了——三项互相独立的实现共同兜住了它，任一项变动就会被用来枚举私有仓库列表：
+该 scope 不是「未核」，是核完了——三项**互相独立**的实现**偶然**叠加，才使今天无法利用；拆掉任意一项，它就是「枚举全部私有仓库名」的现成入口，所以这里的「不可利用」是**巧合的当前值**，不是防御设计的结果：
 
-1. **无消费方**：`/v2` 路由（`crates/rg-http/src/lib.rs:520-555`）只有 `api_version_check` / `get_token` / `tags/list` / `manifests` / `blobs` / `blobs/uploads`，**没有 `_catalog` 端点**。目录默认不可访问，与 Phase 22-D 不做全量枚举的取向一致。
+1. **当前没有消费方**（「没接」，不是「拒绝」）：`/v2` 路由（`crates/rg-http/src/lib.rs:520-555`，即 `build_v2_routes` 整体）只有 `api_version_check` / `get_token` / `tags/list` / `manifests` / `blobs` / `blobs/uploads`，**没有 `_catalog` 端点**——今天没有任何路由能把它换成内容。
 2. **签发侧零仓库门**：`oci.rs:362-366` 只判 `scope_type == "registry" && name == "catalog" && authenticated_user_id.is_some()`，任何登录用户拿 Basic Auth 换 `registry:catalog:*` 必成功，票据 `scope` 字段会带上它。
-3. **校验侧永不匹配**：`:152` 要求 `parsed.matches_repo(owner, repo)`，而 `matches_repo`（`oci_token.rs:123-125`）硬编码 `scope_type == "repository"`，`catalog` 类型恒为 false。
+3. **校验侧永不匹配**：`:152` 要求 `parsed.matches_repo(owner, repo)`，而 `matches_repo`（`oci_token.rs:123-125`）硬编码 `scope_type == "repository"`，`catalog` 类型恒为 false。注意这不等于「catalog 票据有一点点用」——它对**任何**仓库端点都是 false，即这张票在仓库链路上完全无效；catalog 的残余风险只有一项，且是**枚举可用性**（补上 `_catalog` 路由即可枚举私有仓库名），不是「能读到某个具体仓库」。
 
 另有一处放大：`api_version_check`（`oci.rs:227-245`）**无条件**对匿名请求广告 `scope="registry:catalog:*"`（`:240`），等于主动引导客户端去申请一个用不上的 scope。
 

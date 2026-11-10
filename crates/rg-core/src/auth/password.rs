@@ -198,11 +198,11 @@ impl PasswordValidator {
 
     /// Validate a password. Returns Ok(()) on success, Err on failure.
     pub fn validate(&self, password: &str) -> Result<(), PasswordError> {
-        // Length checks — `len()` counts BYTES: 4 CJK chars (12 B) only just clear
-        // min_length 12, 43 (129 B) overshoot max_length 128. `Display` calls min/max
-        // "characters" but `got` is this byte count printed with no unit, so a user who
-        // counts 43 characters sees "at most 128 characters (got 129)" and cannot
-        // reconcile the two numbers.
+        // Length checks — `len()` counts BYTES: 4 CJK chars are 12 B and `12 < 12`
+        // is false, so they pass min_length 12 with zero margin (3 CJK = 9 B fails);
+        // 43 CJK chars are 129 B and overshoot max_length 128. `Display` calls
+        // min/max "characters" but `got` is this byte count with no unit, so a user
+        // counting 43 characters sees "at most 128 characters (got 129)" — unmatchable.
         if password.len() < self.min_length {
             return Err(PasswordError::TooShort {
                 min: self.min_length,

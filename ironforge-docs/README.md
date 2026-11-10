@@ -28,7 +28,7 @@
 | `git-protocol.md` | Git 协议实现细节与踩坑 |
 | `ai-agent-integration.md` | AI Agent 集成方案（MCP + REST + prompt） |
 
-> `project-audit-2026-06.md` 已移入 `ironforge-docs/testing/`，只在下面「测试与审计」表里索引一次（原先这里还留着一行指向 `docs/` 的死链，该文件在 `docs/` 下已不存在）。
+> `project-audit-2026-06.md` 已移入 `ironforge-docs/testing/`，只在下面「测试与审计」表里索引一次。原先这张表里还留着一行同名条目，它同时是两件事：**重复**（同一文件已由下表 `:105` 索引）和**解不出**（本表标题是「设计文档（`docs/`）」，按此前缀落到 `docs/project-audit-2026-06.md`，该路径不存在）。
 
 ---
 
@@ -126,7 +126,7 @@
 1. 新增能力先更新 `architecture/project-architecture-2026-07.md` 与 `frontend-backend-structure-2026-07.md`，风险项进入 `architecture-followups-2026-07.md`。
 2. 过程性分析草稿完成后归档到 `archive/`，保持活跃文档集精简。
 3. 分析报告命名带日期（`*-2026-07-03.md`），便于识别时效。
-4. 两份历史审计保留在 `testing/` 以反映演进，不合并。
+4. 同一文件在本页只索引一次：`project-audit-2026-06.md` 曾同时出现在「设计文档」表与「测试与审计」表，重复行已删；审计与测试指南的保留说明只写在上表 `:108`。
 
 ---
 
