@@ -488,6 +488,27 @@ pub struct AccessTokenResponse {
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
+impl From<rg_db::entities::access_token::Model> for AccessTokenResponse {
+    fn from(token: rg_db::entities::access_token::Model) -> Self {
+        Self {
+            id: token.id,
+            name: token.name,
+            scopes: token.scopes,
+            repos: token
+                .repo_allowlist
+                .as_deref()
+                .map(rg_core::auth::pat_scope::parse_repo_allowlist),
+            refs: token
+                .ref_allowlist
+                .as_deref()
+                .map(rg_core::auth::pat_scope::parse_ref_allowlist),
+            expires_at: token.expires_at,
+            last_used_at: token.last_used_at,
+            created_at: token.created_at,
+        }
+    }
+}
+
 /// Generate an opaque Personal Access Token with 256 bits of OS entropy.
 ///
 /// Security note: this deliberately has **no** timestamp component and **no**
@@ -531,25 +552,7 @@ pub async fn list_tokens(State(state): State<AppState>, headers: HeaderMap) -> i
 
     match rg_db::ops::token_ops::list_by_user(&state.db, user_id).await {
         Ok(tokens) => {
-            let tokens: Vec<AccessTokenResponse> = tokens
-                .into_iter()
-                .map(|token| AccessTokenResponse {
-                    id: token.id,
-                    name: token.name,
-                    scopes: token.scopes,
-                    repos: token
-                        .repo_allowlist
-                        .as_deref()
-                        .map(rg_core::auth::pat_scope::parse_repo_allowlist),
-                    refs: token
-                        .ref_allowlist
-                        .as_deref()
-                        .map(rg_core::auth::pat_scope::parse_ref_allowlist),
-                    expires_at: token.expires_at,
-                    last_used_at: token.last_used_at,
-                    created_at: token.created_at,
-                })
-                .collect();
+            let tokens: Vec<AccessTokenResponse> = tokens.into_iter().map(Into::into).collect();
 
             (StatusCode::OK, Json(tokens)).into_response()
         }
@@ -580,18 +583,41 @@ pub async fn create_token(
             return AppError::unauthorized("authentication required".to_string()).into_response();
         }
     };
+    // An agent's tokens come from its owner (`POST /agents/{username}/tokens`).
+    // Its own tokens cannot reach this route (no `user` scope); this is the
+    // second lock.
+    if let Err(e) = rg_core::agent::ensure_human(&state.db, user_id).await {
+        return AppError::from(e).into_response();
+    }
+    issue_token(&state, user_id, body, false).await
+}
 
+/// Create a personal access token for `user_id` and answer with it (the only
+/// time the secret is shown). `for_agent` holds the token to repository scopes
+/// and defaults it to `repo:write` instead of the historical full `repo`.
+pub(crate) async fn issue_token(
+    state: &AppState,
+    user_id: i64,
+    body: CreateTokenRequest,
+    for_agent: bool,
+) -> axum::response::Response {
     if body.name.trim().is_empty() {
         return AppError::bad_request("token name cannot be empty".to_string()).into_response();
     }
     let raw_token = generate_token();
     let token_hash = hash_token(&raw_token);
+    let default_scopes = if for_agent { "repo:write" } else { "repo" };
     let scopes = match rg_core::auth::pat_scope::normalize_scopes(
-        body.scopes.as_deref().unwrap_or("repo"),
+        body.scopes.as_deref().unwrap_or(default_scopes),
     ) {
         Ok(scopes) => scopes,
         Err(e) => return AppError::from(e).into_response(),
     };
+    if for_agent {
+        if let Err(e) = rg_core::agent::validate_agent_token_scopes(&scopes) {
+            return AppError::from(e).into_response();
+        }
+    }
     // A token limited to some repositories is an agent-style token: it may only
     // carry repository scopes, so it can never mint another token or reach the
     // account and administration APIs.

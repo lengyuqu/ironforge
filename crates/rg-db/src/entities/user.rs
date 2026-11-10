@@ -48,6 +48,12 @@ pub struct Model {
     /// bumping it invalidates all previously issued tokens (#5).
     pub token_version: i64,
 
+    /// `human` or `agent`. See `rg_core::agent`.
+    pub kind: String,
+    /// The person an agent belongs to. `None` for people.
+    pub owner_user_id: Option<i64>,
+    pub agent_description: Option<String>,
+
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,
     pub deleted_at: Option<DateTimeUtc>,

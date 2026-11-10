@@ -1,4 +1,5 @@
 pub mod admin;
+pub mod agents;
 pub mod ai;
 pub mod ai_pr_context;
 pub mod archive;
