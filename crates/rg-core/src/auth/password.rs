@@ -189,7 +189,7 @@ impl PasswordValidator {
 
     /// Validate a password. Returns Ok(()) on success, Err on failure.
     pub fn validate(&self, password: &str) -> Result<(), PasswordError> {
-        // Length checks — `len()` counts BYTES, so 4 CJK characters already clear min_length 12; the Display text says "characters"
+        // Length checks — `len()` counts BYTES: 4 CJK chars (12 B) only just clear min_length 12, 43 (129 B) overshoot max_length 128; Display says "characters"
         if password.len() < self.min_length {
             return Err(PasswordError::TooShort {
                 min: self.min_length,

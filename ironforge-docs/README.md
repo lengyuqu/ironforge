@@ -47,6 +47,7 @@
 | `multi-agent-collaboration-verification-2026-11.md` | 协作首版 C01–C06 / T01–T12 的分层验证证据、环境与未验证项 |
 | `agent-collaboration-implementation-roadmap-2026-11.md` | 多 Agent 协作首版、P0–P2 实施依赖、任务拆分与验收门槛（Proposed） |
 | `agent-collaboration-operability-requirements-2026-11.md` | 规则入口、用户总览、保留恢复与完成条件的需求与验收（Proposed） |
+| `registry-auth-visibility-verification-2026-11.md` | OCI 票据校验侧不看仓库可见性：分支链路、撤销滞后窗口（60/300 s）与未验证项 |
 
 ---
 
