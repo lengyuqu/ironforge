@@ -63,6 +63,16 @@ pub struct OciTokenClaims {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub jti: Option<String>,
 
+    /// Numeric id of the user the token was minted for, if any.
+    ///
+    /// `sub` carries a username, which is neither stable nor sufficient to
+    /// re-check authorization: the verifier needs an id it can pass to
+    /// `can_read_repo`/`can_write_repo`. Tokens issued before this field
+    /// existed simply lack it (`None`), and then the verifier treats them as
+    /// anonymous — which is why they stop working for repos that are private.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub uid: Option<i64>,
+
     /// Space-separated scope strings.
     /// Example: `"repository:alice/myapp:pull,push registry:catalog:*"`.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -121,10 +131,14 @@ impl ParsedScope {
 /// - `scope`: Space-separated scope strings (e.g., `"repository:alice/hello:pull,push"`).
 /// - `secret`: The JWT signing secret (same as `jwt_secret`).
 /// - `ttl_secs`: Token time-to-live in seconds (recommended: 300 = 5 min).
+/// - `uid`: Numeric id of the authenticated user, or `None` for an anonymous
+///   token. The verifier re-checks repository visibility against this id, so a
+///   token minted while a repo was public stops working once it turns private.
 ///
 /// Returns the serialized JWT string.
 pub fn generate_oci_token(
     username: &str,
+    uid: Option<i64>,
     scope: &str,
     secret: &str,
     ttl_secs: u64,
@@ -142,6 +156,7 @@ pub fn generate_oci_token(
         exp: now + ttl_secs as usize,
         nbf: None,
         jti: None,
+        uid,
         scope: if scope.is_empty() {
             None
         } else {
@@ -260,6 +275,7 @@ mod tests {
     fn test_generate_and_validate_token() {
         let token = generate_oci_token(
             "alice",
+            Some(7),
             "repository:alice/hello:pull,push",
             TEST_SECRET,
             300,
@@ -281,8 +297,14 @@ mod tests {
 
     #[test]
     fn test_validate_wrong_secret() {
-        let token =
-            generate_oci_token("alice", "repository:alice/hello:pull", TEST_SECRET, 300).unwrap();
+        let token = generate_oci_token(
+            "alice",
+            Some(7),
+            "repository:alice/hello:pull",
+            TEST_SECRET,
+            300,
+        )
+        .unwrap();
         let wrong_secret = "wrong-secret";
         let result = validate_oci_token(&token, wrong_secret);
         assert!(result.is_none());
@@ -339,6 +361,7 @@ mod tests {
     fn test_check_repo_access_with_token() {
         let token = generate_oci_token(
             "alice",
+            Some(7),
             "repository:alice/hello:pull,push",
             TEST_SECRET,
             300,
@@ -391,5 +414,72 @@ mod tests {
         assert!(www.contains(r#"realm="https://example.com/v2/auth/token""#));
         assert!(www.contains(r#"service="registry""#));
         assert!(www.contains("scope="));
+    }
+
+    /// The token must carry the numeric user id, because the verifier re-checks
+    /// repository visibility and `can_read_repo` cannot take a username.
+    #[test]
+    fn test_token_carries_numeric_uid() {
+        let token = generate_oci_token(
+            "alice",
+            Some(7),
+            "repository:alice/hello:pull",
+            TEST_SECRET,
+            300,
+        )
+        .unwrap();
+        let claims = validate_oci_token(&token, TEST_SECRET).unwrap();
+        assert_eq!(claims.sub, "alice");
+        assert_eq!(claims.uid, Some(7));
+    }
+
+    #[test]
+    fn test_anonymous_token_has_no_uid() {
+        let token = generate_oci_token(
+            "anonymous",
+            None,
+            "repository:alice/hello:pull",
+            TEST_SECRET,
+            60,
+        )
+        .unwrap();
+        let claims = validate_oci_token(&token, TEST_SECRET).unwrap();
+        assert_eq!(claims.sub, "anonymous");
+        assert_eq!(claims.uid, None);
+    }
+
+    /// Tokens minted before `uid` existed must still decode, with `uid: None`.
+    /// They then get evaluated as anonymous, which is the intended downgrade —
+    /// otherwise every in-flight token would start failing validation outright.
+    #[test]
+    fn test_token_without_uid_claim_still_validates() {
+        use jsonwebtoken::{encode, EncodingKey, Header};
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as usize;
+        // Hand-built payload with no `uid` key at all.
+        let legacy = serde_json::json!({
+            "iss": "ironforge",
+            "sub": "alice",
+            "aud": "ironforge-registry",
+            "iat": now,
+            "exp": now + 300,
+            "scope": "repository:alice/hello:pull",
+        });
+        let token = encode(
+            &Header::default(),
+            &legacy,
+            &EncodingKey::from_secret(TEST_SECRET.as_bytes()),
+        )
+        .unwrap();
+
+        let claims = validate_oci_token(&token, TEST_SECRET).unwrap();
+        assert_eq!(claims.sub, "alice");
+        assert_eq!(
+            claims.uid, None,
+            "a token without `uid` must decode as anonymous, not fail"
+        );
     }
 }
