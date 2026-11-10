@@ -6,7 +6,7 @@ use base64::Engine as _;
 /// Compute the SHA-256 fingerprint from an OpenSSH public key string.
 ///
 /// Input format: `"ssh-ed25519 AAAA... comment"`
-/// Output: `"SHA256:base64url..."` (matches `ssh-keygen -l -E sha256`)
+/// Output: `"SHA256:" + standard base64 (no padding)` — byte-identical to `ssh-keygen -l -E sha256`
 pub fn fingerprint_from_openssh(pubkey: &str) -> CoreResult<String> {
     if pubkey.contains('\r') || pubkey.contains('\n') {
         return Err(CoreError::InvalidInput(
@@ -64,7 +64,7 @@ pub fn fingerprint_from_openssh(pubkey: &str) -> CoreResult<String> {
     // SHA-256 hash
     let digest = sha256(&raw);
 
-    // base64url without padding (standard SSH fingerprint format)
+    // Standard base64 (not base64url) without padding — the OpenSSH fingerprint alphabet
     let encoded = base64_encode_nopad(&digest);
     Ok(format!("SHA256:{}", encoded))
 }
@@ -136,5 +136,20 @@ mod tests {
                 "{key}"
             );
         }
+    }
+
+    /// Fingerprint of the key below, as printed by
+    /// `ssh-keygen -l -E sha256 -f <(echo "$KEY")`: the digest contains both `/`
+    /// and `+`, so this pins the *standard* base64 alphabet. A base64url encoder
+    /// would yield `...TKA_7j9...` here and fail this assertion.
+    const ALPHABET_SENSITIVE_KEY: &str =
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIC7pCHxwJJFfvz0rCrwU3xiR0dDuanGFh7JCWaTSXiy2 optloop1";
+
+    #[test]
+    fn fingerprint_matches_openssh_base64_not_base64url() {
+        assert_eq!(
+            fingerprint_from_openssh(ALPHABET_SENSITIVE_KEY).unwrap(),
+            "SHA256:uh6xDCBClTKA/7j9qTAuVmcAbusr4NwgLrWjafhfMM4"
+        );
     }
 }

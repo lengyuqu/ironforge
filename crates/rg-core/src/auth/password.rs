@@ -226,7 +226,7 @@ impl PasswordValidator {
             }
         }
 
-        // Common password check (case-insensitive, with number/special suffix tolerance)
+        // Common password check: only the leading alphabetic run is compared, so a password that starts with a digit or a symbol is never checked against the list
         if self.reject_common {
             let lower = password.to_lowercase();
             // Strip trailing digits and special chars to catch patterns like "password1!" or "password!!!"

@@ -54,7 +54,7 @@ pub fn decrypt(encoded: &str, key: &[u8; 32]) -> CoreResult<String> {
     String::from_utf8(plaintext).map_err(|e| CoreError::internal(format!("invalid UTF-8: {}", e)))
 }
 
-/// Replace sensitive values in output before it is persisted or streamed.
+/// Replace sensitive values in output before it is persisted or streamed. Values shorter than 4 bytes are skipped silently, so callers must reject short secrets at input time (`api/ci_secrets.rs` does: 4..=65536 bytes).
 pub fn mask_values(input: &str, secrets: &[String]) -> String {
     let mut masked = input.to_owned();
     let mut values = secrets
