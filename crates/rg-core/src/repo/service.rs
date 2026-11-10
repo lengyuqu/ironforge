@@ -60,10 +60,10 @@ pub struct CreateRepoOptions {
 //      30s until B's local TTL expires.
 //
 //   Mitigation for (2): set `IRONFORGE_DISABLE_PERM_CACHE=1` on every instance.
-//   The cache is then bypassed entirely, so authorization is always decided
-//   from the database and no stale cross-instance entry can exist. This trades
-//   throughput for correctness and is the safe choice until a shared cache or a
-//   pub/sub invalidation bus replaces the local map.
+//   Reads then bypass the cache entirely (nothing populates or reads it), so
+//   authorization is always decided from the database and no stale entry can
+//   exist — invalidation still takes the global write lock, it just has nothing
+//   to purge. Trades throughput for correctness until a shared cache replaces it.
 
 const PERM_CACHE_TTL: Duration = Duration::from_secs(30);
 
