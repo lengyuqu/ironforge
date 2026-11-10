@@ -179,6 +179,38 @@ POST /api/v1/users/register {"...", "password":"!Password1"}   → HTTP 201 {"us
 2. **第一次出现「不针对内容、针对放置位置」的复核**（#7），且它引用的是**我方自己写的免责词**（「精神上」）当证据。结论：文档里每写一个软化词（「精神上」「大致」「原则上」），都会在下一轮被当作自证。要么给出对应条款，要么不放进那张表。
 3. 它的行号质量本轮回归到高水位：R-1/R-3/R-4 共 12 个子行号**零错**，只有 `:902`→`:903` 一处偏 1。相较第 3 轮（偏 2–4 行）明显收敛。
 
+### consume 5 / 6（batch#2）
+
+- 输入：`2120201628006371328`（`2026-11-10T17:07:14Z`），对 `3be1fa0` + `613f196` 的复核，自述本地与 `origin/main` 均为 `613f196`
+- 判定：**成立 3 / 部分成立 1 / 确认 2**；其中 ①③b 各带一条我方真错，②其中一条是我方**语义**错（不是行号）
+- 工作基线：**`BASE=a94839b`**，不是它自述的 `613f196`。**本轮发生本批最大一次漂移**：`cnb/main` 在它复核后约 1 小时被 4 个 PR 合入推进——PR #21（`c74bc25`，B2-1+B2-2）、PR #22、PR #23、PR #24（`9b6bdde`，B2-11）、外加 #20。`git diff 613f196..a94839b` 触及本批文件：`password.rs` +117、`oci.rs` +60、`oci_token.rs` +94、`ssh_key.rs` +10、`ironforge-docs/README.md` +1。按协议在新树上重取全部行号
+- **B2-1 / B2-2 / B2-11 已修复合入**（详见下「并行修复观察」更新），故本轮不是「继续挑错」而是「把已修的事实固化进权威文档」：registry 验证文档从「未修复」整篇重写为「已修复 + 最新行号 + 新增 catalog 一节」
+- 验证：改前 `scripts/check.sh --quick` **失败（EXIT=1，1.2 s）**——`cargo fmt --all --check` 在 `crates/rg-core/src/auth/password.rs` 上有 5 处未格式化（PR #21 引入），脚本在第一步就退出，clippy 从未运行。这是 **main 上的既有红灯，不是本轮引入**
+- 改动：**`0a20205`**（L1 + 一处机械 fmt，见下）：
+  - `ironforge-docs/architecture/registry-auth-visibility-verification-2026-11.md`（整篇重写，状态改「已修复」）
+  - `ironforge-docs/ci/adr-0001-third-party-actions-execution.md`（§7 preamble 基准改 `a94839b`；R-1 补 grep 依据；R-2 拆掉非因果句；R-4 交叉引用标注已修复）
+  - `ironforge-docs/README.md`（`:51` 描述改「已修复」；删掉指向 `docs/project-audit-2026-06.md` 的死行——该文件只在 `ironforge-docs/testing/` 存在，且 `:104` 已索引过一次）
+  - `crates/rg-core/src/auth/password.rs`（`TooCommon` docstring 改为与实现一致：「第一个字母段」而非「首尾都剥离」；长度注释补 `got` 无单位的口径）
+  - `crates/rg-core/src/auth/password.rs` **另行 `cargo fmt --all`**（29+/17−，纯格式化，零语义）
+- 验证（改后）：`scripts/check.sh --quick` **通过（110 s，EXIT=0）**；`cargo test -p rg-http --test oci_permission_tests oci_token_goes_stale_when_repo_turns_private` → **1 passed / 0 failed**（1.01 s），即 B2-11 的撤销滞后在修复后不再复现（运行时观测，不只是读代码）
+- 回帖：`PENDING`，首行 `## 第 5 轮收尾`（C=5；发帖后回填 id）
+
+| # | 输入指摘 | 判定 | 处置 / 证据 |
+|---|---|---|---|
+| 1 | `password.rs:186-205` 的两个数字对、`only just` 措辞对；但尾句 `Display says "characters"` 不准——`Display` 只对 `min`/`max` 说 characters，`got` 是字节且**不标单位** | **成立** | 复算：`min_length: 12`（`:180`，旧树 `:177`）、判定 `:206`；`max_length: 128`（`:160`）、判定 `:212`。4 CJK = 12 B 过、43 = 129 B 拒，两个方向都对。`Display` 两支文案在 `:60`/`:65`，模板是 `"at most {} characters (got {})"`——`got` 确无单位且填的是 `password.len()`（`:209`/`:215`）。已改为「用户数 43 个字看到 `got 129`，无从对账」。**行号全偏**：它给的 `:171`/`:151`/`:193`/`:199` 是 `613f196` 的值，`a94839b` 上是 `:180`/`:160`/`:206`/`:212` |
+| 2 | R-2 里「`:903` 的 `labels_lower` 在循环外无条件构建，**故两个分支永远都在生效**」两句无因果关系；`:903` 只服务 `:922-925` 的 tag 交集，`:909-911` 与 `:918-920` 读的是两个 `is_empty()`；且循环外构建是**正确**写法 | **成立（我方语义错）** | 逐行读 `pipeline_ops.rs:895-928`：`:903` 在 `:905` 的 `for` 之前；`:909` `runner_labels.is_empty()`、`:918` `job_tags.is_empty()` 各自直接 `return Ok(Some(job))`；`labels_lower` 唯一读点是 `:924`。已按它的建议拆成两句，并明写「不是缺陷证据」 |
+| 3 | §7 软化词已清零 | **确认** | `grep -nE '精神上\|大致\|原则上\|基本\|大体\|相当于\|可视作\|即视为\|算是'` → 零命中 |
+| 4 | 新文档 `:23` 说「可见性只被查两次」，但 `oci.rs` 全文件有 **5 处**权限查询（`:114`/`:118`/`:148`/`:298`/`:311`），读者按「两次」去数会对不上；「函数内共有两处调用」的口径只算了 `can_read_repo`，没算 `:118` 的 `can_write_repo` | **部分成立** | 计数在其基准树上**精确**（`git show 613f196:crates/rg-http/src/oci.rs \| grep -n` → 114/118/148/298/311）。但「漏了第四、第五个调用点」不成立：同一篇 `:27` 已单列签发侧 `get_token` 的 `:298-304`/`:309-321`，`:23` 那句限定语是「这条链」。**口径该改是成立的**——`check_access` 内是 3 处权限查询（2 处 `can_read_repo` + 1 处 `can_write_repo`）。已在重写版分列「校验侧 3 处 / 签发侧 2 处」 |
+| 5 | `registry:catalog:*` 应从「未验证」升为独立指摘（P2）：无 `_catalog` 路由 + 签发侧零仓库门 + 校验侧 `matches_repo` 恒不匹配；且 `api_version_check` 无条件对匿名广告该 scope | **成立（三项全中）** | 逐条实测（`a94839b`）：①`build_v2_routes`（`lib.rs:520-555`）无 `_catalog`；②`oci.rs:362-366` 只判 `scope_type=="registry" && name=="catalog" && authenticated_user_id.is_some()`；③`oci_token.rs:123-125` 硬编码 `scope_type == "repository"`；④`oci.rs:240` 在 `api_version_check`（`:227-245`）里无条件写死 `registry:catalog:*`。**行号偏 1–2 行**（它给 `:331-336`/`:209`/`oci_token.rs:114`，实际 `:362-366`/`:240`/`:123-125`，`:114` 是旧树）。已写进文档并立 **B2-15** |
+| 6 | README 新增行成立；「目录一一对应」不是该表契约（architecture/ 下大量文件不在索引内）；另 `:30` 的 `project-audit-2026-06.md` 标「已移至 testing/」却同时出现在 `:104`，属重复索引 | **成立** | 新增行确实存在且标题吻合。`ls ironforge-docs/architecture/*.md \| wc -l` = **64**，索引行 **14**（它说 63/13，各偏 1）——「不是穷举表」结论不变。`:30` 更糟：`docs/project-audit-2026-06.md` **不存在**，是死链，且 `:104` 已索引同一文件。已删死行 + 加一句说明 |
+| 7 | 托它核的：`m20261015_000004_hash_runner_tokens.rs` 是建表后唯一动过 `runners` 的迁移，且是纯数据 | **成立** | `grep -rl runners crates/rg-db/src/migrations/` = 4 文件（含 `mod.rs`）。`m20260712_000003` 的 `runners` 只在 `:1` 的 `//!` 注释里、两处 `alter_table` 都只对 `PipelineJobs`；`m20261015_000004` 的 `grep -c alter_table` = **0**，只有 `:61` `SELECT id, token FROM runners` 与 `:80` `UPDATE runners SET token`。`entities/runner.rs:8-21` 11 列、`grep -c repo_id` = 0。已把 grep 依据写进 R-1（**它建议的「6 个文件」数字是错的，实测 4 个**） |
+
+**本轮最值钱的一条不是它给的，是漂移本身**：它复核的 `613f196` 在 1 小时后被 4 个 PR 推进到 `a94839b`，其中三个 PR 正好修掉本批台账里的 B2-1 / B2-2 / B2-11。**如果不查 `cnb/main` 就先动手，本轮会把「已修复的缺陷」当成待办继续讨论，并引用一整批过期行号**。这是第 4 轮记的「开工先对齐远端」第二次生效，代价从「重取行号」升级为「整篇结论作废」。
+
+**main 上存在 fmt 红灯（新发现，非本轮引入）**：`scripts/check.sh --quick` 在 `a94839b` 上 **EXIT=1**，原因是 `cargo fmt --all --check` 对 `crates/rg-core/src/auth/password.rs` 报 5 处差异（`:34`/`:73`/`:342`/`:354`/`:369`，PR #21 引入）。脚本第一步就退出，**clippy 与前序检查一次都没跑过**——意味着那批合并后的 main 从未通过过自己的质量门。处置：本轮以 `cargo fmt --all` 修为（29+/17−，纯机械、零语义），改后 `--quick` 通过（110 s）。**这不在 L1 字面范围内，属例外，理由写在回帖第②段**：不修则本流程后续每一轮的「改前基线」都是红的，协议第 6 步无法执行。
+
+**B2-1 / B2-2 的另一处遗留（已顺手修）**：PR #21 把 `TooCommon` 的 docstring 写成「leading and trailing non-letter characters are stripped」，而实现是「跳过前导非字母、取第一个字母段」（`:250-254`），文档自己 `:240-242` 还明确说「两端都剥是错的」。同一个文件里两处自相矛盾，已改 docstring 与实现对齐。
+
 ### batch#1(issue #11) · 2026-11-10 · git 协议文档与实现一致性
 
 - 开批：`2026-11-10T09:21:41Z`（issue 创建即触发，未额外交触发评论）
@@ -360,8 +392,8 @@ git -c protocol.version=2 clone --depth=1 ...
 
 > 编号独立于上一批的 #1–#11，避免跨批引用串号。全部为「改代码」类，故只记录不实施。
 
-1. **B2-1 `reject_common` 对「前导非字母」的密码整段失效**（P1，实测复现）：`crates/rg-core/src/auth/password.rs:233-237` 的 `take_while` 只取前导字母段，`1Password1!` / `!Password1` / `0Admin123!` 全部 HTTP 201 注册成功，只有 `Password1!` 被拦。修法二选一：①取**最长**字母段再比对；②先剥离所有非字母字符再比对。影响面只在校验点（存量密码不受影响）：`crates/rg-core/src/user/service.rs:166`（注册）与 `:755`（重置）。**第 2 轮定稿建议：选 ①（最长字母段）**。依据（逐条复算，非沙盘估算）：方案 ② 在 `Welcome1!x` 上会**丢覆盖**——现状 `stripped="welcome"` 命中词表被拦，剥全部非字母得 `welcomex` 不命中 ⇒ 放行；方案 ① 在该组及 `1Password1!`/`!Password1` 上均为「只扩大、不缩小」。若仍选 ②，必须补 `Welcome1!x` 回归用例。另注：`Passw0rd!` 在现状/①/②下**全部放行**（`stripped="passw"`），l33t 归一化超出本项范围。
-2. **B2-2 `TooCommon` 把明文密码回显进响应体**（P1，实测复现）：`password.rs:69-73` 的 `Display` 带 `pwd`，经 `user/service.rs:169`/`:758` 的 `e.to_string()` 与 `rg-http/src/error.rs:171`→`:114-120`（H-05 只脱敏 `InternalError`）出现在未鉴权 `POST /users/register` 的 400 响应体。最小修法：`TooCommon` 不再携带值（`Display` 改为固定文案），调用方零改动。**附带核查项**：其余把用户输入拼进 `Display` 的错误变体应一并清点。
+1. ✅ **已修（PR #21 `c74bc25`，2026-11-11）** ~~**B2-1 `reject_common` 对「前导非字母」的密码整段失效**~~（P1，实测复现）：`crates/rg-core/src/auth/password.rs:233-237` 的 `take_while` 只取前导字母段，`1Password1!` / `!Password1` / `0Admin123!` 全部 HTTP 201 注册成功，只有 `Password1!` 被拦。修法二选一：①取**最长**字母段再比对；②先剥离所有非字母字符再比对。影响面只在校验点（存量密码不受影响）：`crates/rg-core/src/user/service.rs:166`（注册）与 `:755`（重置）。**第 2 轮定稿建议：选 ①（最长字母段）**。依据（逐条复算，非沙盘估算）：方案 ② 在 `Welcome1!x` 上会**丢覆盖**——现状 `stripped="welcome"` 命中词表被拦，剥全部非字母得 `welcomex` 不命中 ⇒ 放行；方案 ① 在该组及 `1Password1!`/`!Password1` 上均为「只扩大、不缩小」。若仍选 ②，必须补 `Welcome1!x` 回归用例。另注：`Passw0rd!` 在现状/①/②下**全部放行**（`stripped="passw"`），l33t 归一化超出本项范围。**实际落地方案**：不是 ① 也不是 ②，而是「跳过前导非字母 + 取随后第一个字母段」（`password.rs:255-262`：`:257-261` 构造 `core`，`:262` 比对），等价于 ① 在「前导段为空」情形下的修正，旧覆盖一条不丢。回归用例 `:349` `test_password_common_word_not_bypassed_by_prefix_decoration`（含 `:363` 的 `Welcome1!x`）+ `:377` `test_password_common_word_check_leaves_interior_intact`（含 `:380` 的 `Str0ng!Pass`），两侧都钉住。
+2. ✅ **已修（PR #21 `c74bc25`，2026-11-11）** ~~**B2-2 `TooCommon` 把明文密码回显进响应体**~~（P1，实测复现）：`password.rs:69-73` 的 `Display` 带 `pwd`，经 `user/service.rs:169`/`:758` 的 `e.to_string()` 与 `rg-http/src/error.rs:171`→`:114-120`（H-05 只脱敏 `InternalError`）出现在未鉴权 `POST /users/register` 的 400 响应体。最小修法：`TooCommon` 不再携带值（`Display` 改为固定文案），调用方零改动。**附带核查项**：其余把用户输入拼进 `Display` 的错误变体应一并清点。**落地情况**：`TooCommon` 已改为无载荷变体（`password.rs:57`），`Display` 走固定文案（`:82`），docstring（`:50-56`）明写「carries no payload……would echo the submitted password back to the caller」。附带核查项的答案：`PasswordError` 除 `TooCommon` 外只有 `TooShort`/`TooLong` 带 `min`/`max`/`got` 三个 `usize`（`:37-44`），其余变体全无载荷——即用户输入现在不进任何 `Display`。
 3. **B2-3 TOTP 无重放保护**（P2，代码事实）：`totp.rs:37`/`:51` 是纯函数，`api/mfa.rs:327` 也不记录已用码；`challenge` cookie 5 min TTL（`jwt.rs:125`）远大于 30 s 步长，同一码可重复换 JWT。需「已用码」存储（带 TTL 的表或内存 LRU）⇒ 存储/schema 改动。
 4. **B2-4 `check_repo_access` 是可见性盲的死函数**（P2→P3）：`oci_token.rs:204-217` 无令牌即 `return required_action == "pull"`，完全无视仓库公开性；全仓零生产调用（唯一「调用方」`rg-http/src/oci.rs:198` 把返回值 `let _ =` 丢弃）。建议删除，或改成接收 `can_read_repo` 回调的签名。本轮已把 `oci.rs:73` 那句「caller should use check_repo_access」的误导注释改掉。
 5. **B2-5 `derive_key` 是裸 SHA-256 且与 JWT 共用 secret**（P3，事实）：`encryption.rs:12-19` 单轮 `Sha256(jwt_secret)`。换 HKDF/加盐会让 `TOTP secret`、`SSO refresh token`、`CI secret` 的全部既有密文失效 ⇒ 数据迁移级改动，不建议在本流程内做；若要做，先写重加密迁移（读旧键 → 写新键 → 双键过渡）。
@@ -370,10 +402,12 @@ git -c protocol.version=2 clone --depth=1 ...
 8. **B2-8 登录时序泄露账号存在性**（P2，未实测）：`user/service.rs:232` 对不存在的用户提前 return，跳过 `:246` 的 Argon2；同文件 `forgot_password` 已有 H-5 拉平（`:654`/`:662` 各 `sleep(100ms)`）。修法：对不存在用户也跑一次固定 dummy hash 的校验。（行号基准 `2ffe7e8`；PR #47 之后 `:238-241` 另有 agent 账户分支，等价返回 `INVALID_CREDENTIALS`）
 9. **B2-9 `iat`/`nbf` 从不校验**（P3，无利用路径）：`jwt.rs:139` 用 `Validation::default()`；jsonwebtoken 的 `ClaimsForValidation` 无 `iat` 字段、`validate_nbf` 默认 `false`，但仓内无签发 `nbf` 的路径。只记录，不建议加自定义校验。
 10. **B2-10 `extract_user` 的哨兵 0 与丢弃调用**（P3）：`rg-http/src/oci.rs:61-78` 在 OCI token 分支返回 `Some(0)`，唯一调用点 `:198` 丢弃返回值，`api_version_check` 恒 401 —— 要么删函数，要么让它真参与鉴权。
-11. **B2-11 OCI scope 票据的校验侧不看仓库可见性**（第 3 轮写入，P2，与 B2-4 同根）：`crates/rg-http/src/oci.rs:129-144` 只要 token 里的 scope 与 `{owner}/{repo}` 字面相等且含动作就 `return Ok((true, None))`（`:139`），**跳过**函数里唯一的 `can_read_repo`（`:147-150` 只在无 token 分支）。`OciTokenClaims`（`oci_token.rs:42-70`）无 `repo_id`/`visibility`，`matches_repo`（`:113-115`）是字符串等值。签发侧当前是唯一且正确的（`oci.rs:343` 唯一生产调用点，按 `can_read_repo` 裁剪 `:297-307`），所以**现状后果是「仓库在票据有效期内（`ttl` = 300 s 认证 / 60 s 匿名，`:342`）转私有后旧 token 仍可拉」**，而不是任意拉取。修法与 B2-4 合并处理：校验侧补一次 `can_read_repo`，或把 `check_repo_access` 改成回调式签名。
+11. ✅ **已修（PR #24 `9b6bdde` / `43e3092`，2026-11-11）** ~~**B2-11 OCI scope 票据的校验侧不看仓库可见性**~~（第 3 轮写入，P2，与 B2-4 同根）：`crates/rg-http/src/oci.rs:129-144` 只要 token 里的 scope 与 `{owner}/{repo}` 字面相等且含动作就 `return Ok((true, None))`（`:139`），**跳过**函数里唯一的 `can_read_repo`（`:147-150` 只在无 token 分支）。`OciTokenClaims`（`oci_token.rs:42-70`）无 `repo_id`/`visibility`，`matches_repo`（`:113-115`）是字符串等值。签发侧当前是唯一且正确的（`oci.rs:343` 唯一生产调用点，按 `can_read_repo` 裁剪 `:297-307`），所以**现状后果是「仓库在票据有效期内（`ttl` = 300 s 认证 / 60 s 匿名，`:342`）转私有后旧 token 仍可拉」**，而不是任意拉取。修法与 B2-4 合并处理：校验侧补一次 `can_read_repo`，或把 `check_repo_access` 改成回调式签名。**实际落地**：走了第一条（校验侧补查），关键是给 `OciTokenClaims` 加 `uid: Option<i64>`（`oci_token.rs:74`）——`can_read_repo` 只吃 `Option<i64>`，没有 `uid` 时「补查」在数据上做不到，这也是本条拖了三轮的结构性原因。现 Bearer 分支为 `oci.rs:128-175`，`:159`（pull）/`:164`（push）各查一次，匿名单据 `:169` 直接判否，旧票据按匿名处理（`:141-144`）。运行证据：`oci_permission_tests.rs:135` 已由本流程实测通过（1 passed）。详见 `ironforge-docs/architecture/registry-auth-visibility-verification-2026-11.md`（已整篇重写为「已修复」版）。**B2-4 未修**：`check_repo_access` 仍在 `oci_token.rs:219`、仍零生产调用。
 12. **B2-12 Runner 没有租户维度，且空标签双向全匹配**（第 3 轮写入，**P1，跨租户**）：`runners` 表无 `repo_id`（`crates/rg-db/src/entities/runner.rs:8-21`；建表迁移 `crates/rg-db/src/migrations/m20260510_000001_create_runners.rs` 同样没有），调度只看标签与 stage 状态（`crates/rg-db/src/ops/pipeline_ops.rs:909-911` Runner 无标签→领任意 Job、`:918-920` Job 无标签→给任意 Runner、`:932-953` 只判 stage/pipeline 状态），Runner 鉴权只校验「token 哈希命中某行且该行 id == 路径 id」（`crates/rg-http/src/api/runners.rs:1019-1026`）。因此任一被管理员批准注册的 Runner（`runners.rs:153-156` `require_admin`）会领到**别的仓库**的待调度 Job，并按 `pipeline.repo_id`（`:352-355`）拿到该仓库**全部** Secret 的明文。ADR-0001 §1 第 5 行原本只承认「外部 Runner 会接收（本仓）解密值」，跨仓这一层是 2026-11-10 新确认的，已补进 ADR §7 R-1/R-2。修法：给 `runners` 加仓库/组织归属并让调度按归属过滤 ⇒ schema 改动。
 13. **B2-13 suggestion 触发让 fork 内容在共享 Runner 上跑，无需审批**（第 3 轮写入，P2）：`crates/rg-http/src/api/reviews.rs:161-168` 只要求对 PR 源仓库（fork）有写权限，`:200` 就在源仓库路径上查 `.gitea/workflows`，`:206-210` 以 `repo_id = source_repo.id`(`:207`)、`trigger_type = "suggestion"`(`:210`) 起 Pipeline，workflow 内容取自该 commit（`crates/rg-ci/src/lib.rs:599-608`）且无任何来源校验。ADR §2.7.4 的「fork PR 需维护者批准」只覆盖 base 仓库上的 PR 事件，对这条路径没有落点（ADR §7 R-3）。单独看只算「任意代码落到共享 Runner」，与 B2-12 叠加才是跨租户 Secret 暴露。
-14. **B2-14 密码长度按字节计、文案按字符说**（第 3 轮写入，P3）：`crates/rg-core/src/auth/password.rs:193`/`:199` 用 `password.len()`（字节），而 `:53`/`:58` 的 `Display` 写 "characters"。后果双向：`密码密码`（4 CJK 字符 = 12 B）满足 `min_length = 12`；长 CJK 密码会被 `max_length` 误拒且报出「got 60」而用户只输了 20 字。修法二选一——判据改 `chars().count()`（改变校验语义）或文案改 bytes（改变对外文案）。本轮只落注释（`7ae3cf5`）。
+14. **B2-14 密码长度按字节计、文案按字符说**（第 3 轮写入，P3）：`crates/rg-core/src/auth/password.rs:193`/`:199` 用 `password.len()`（字节），而 `:53`/`:58` 的 `Display` 写 "characters"。后果双向：`密码密码`（4 CJK 字符 = 12 B）满足 `min_length = 12`；长 CJK 密码会被 `max_length` 误拒且报出「got 60」而用户只输了 20 字。修法二选一——判据改 `chars().count()`（改变校验语义）或文案改 bytes（改变对外文案）。本轮只落注释（`7ae3cf5`）。**第 5 轮补充**：PR #21 合入后行号重取为 `:206`/`:212`（`len()` 判定）、`:66`/`:71`（`Display` 模板）；`got` 那一半更麻烦——模板是 `"at least {} characters (got {})"`，`min`/`max` 标了 characters、`got` 是字节且**不标单位**，用户数 43 个 CJK 看到 `at most 128 characters (got 129)` 无从对账。注释已在 `:201-205` 写死这一半。
+
+15. **B2-15 `registry:catalog:*` 是「签得出、用不上」，安全性靠三项巧合**（第 5 轮写入，P2）：`crates/rg-http/src/oci.rs:362-366` 的签发分支只判 `scope_type == "registry" && name == "catalog" && authenticated_user_id.is_some()`，**零仓库门**——任何登录用户换这个 scope 必成功；但 `matches_repo`（`crates/rg-core/src/auth/oci_token.rs:123-125`）硬编码 `scope_type == "repository"`，所以 `:152` 的校验对它恒为 false；同时 `build_v2_routes`（`crates/rg-http/src/lib.rs:520-555`）**根本没有 `_catalog` 端点**。三项任一变动（加 catalog 路由 / 放宽 `matches_repo` / 签发侧改成带仓库参数）就会变成「枚举全部私有仓库名」。放大项：`api_version_check`（`oci.rs:227-245`）在 `:240` **无条件**对匿名请求广告 `registry:catalog:*`，等于主动引导客户端申请这个用不上的 scope。建议：要么删掉 catalog 分支与广告串，要么补 `_catalog` 端点时同步加租户过滤。**改代码，属 L2**；本轮只把结论固化进 `ironforge-docs/architecture/registry-auth-visibility-verification-2026-11.md`。
 
 **B2-11 表述勘误（第 4 轮写入）**：本条原写「跳过函数里**唯一**的 `can_read_repo`（`:147-150` 只在无 token 分支）」，不准确。`crates/rg-http/src/oci.rs` 的 `check_access`（`:86` 起）内共有两处 `can_read_repo`：`:114`（会话 JWT 的 pull，配 `:118` 的 `can_write_repo`）与 `:148`（匿名）。准确表述是「**Bearer 分支（`:128-144`）一处都不查**，会话 JWT 与匿名分支都查」。实质结论（Bearer 只做 scope 字面匹配、`matches_repo` 为字符串等值）不变。详细链路已迁到 `ironforge-docs/architecture/registry-auth-visibility-verification-2026-11.md`。
 
@@ -385,6 +419,15 @@ git -c protocol.version=2 clone --depth=1 ...
 | `fix/password-strength-bypass` | `79c6b62` | `fix(auth): close the common-password bypass and stop echoing the password` | **B2-1 + B2-2** | `rg-core/src/auth/password.rs`（+117 段）、`rg-core/src/auth/ssh_key.rs`、`rg-http/src/oci.rs`（2 行） |
 
 含义：①这两条一旦合入 main，`password.rs` / `oci.rs` / `ssh_key.rs` 的行号基准全部改变，凡引用这三个文件的行号必须重取；②`registry-auth-visibility-verification-2026-11.md` 的结论会被 `43e3092` 修掉，合并后应把该文状态从「未修复」改为「已修复」并补运行证据；③本流程仍**不动**这两个分支（L2 只记录，实现由分支侧跑）。
+
+**2026-11-11 更新（第 5 轮）：两个分支都已合入，第 ① ② 两项的预案已执行。**
+
+| 分支 | 合入提交 | 覆盖条目 | 状态 |
+|---|---|---|---|
+| `fix/password-strength-bypass` | PR #21 → `c74bc25` | **B2-1 + B2-2** | 已修。`reject_common` 改成「跳过前导非字母 + 取第一个字母段」（`password.rs:250-254`，即本轮推荐的方案 ①）；`TooCommon` 已改为无载荷变体 |
+| `fix/oci-token-visibility` | PR #24 → `9b6bdde` | **B2-11** | 已修。`OciTokenClaims` 新增 `uid`（`oci_token.rs:74`），Bearer 分支在 scope 命中后补 `can_read_repo(.., claims.uid)`（`oci.rs:159`）/ `can_write_repo`（`:164`） |
+
+连带的行号后果（**后续轮次必读**）：`password.rs` 全部行号 +6～+13（`min_length: 12` 从 `:177`→`:180`、长度判定从 `:199`→`:206`）；`oci.rs` +60 行（`check_access` 的 Bearer 分支从 `:128-144` 扩到 `:128-175`）；`oci_token.rs` +94 行（`matches_repo` 从 `:114`→`:124`、`check_repo_access` 从 `:219`）。凡旧轮次记录里这三个文件的行号，**一律作废，不得当证据引用**。
 
 ### 判定不成立（原文保留，请勿重复提）
 
@@ -414,6 +457,8 @@ git -c protocol.version=2 clone --depth=1 ...
 14. 「B2-6 的后果不是漏遮，而是 secret 在 CI 里消失」／「密文 19+ 字符 ⇒ 2 字节 secret 会被意外遮住」—— **两条均不成立**。`mask_values` 只吃**解密后明文**（`api/runners.rs:796`→`:537`、`rg-ci/src/runner.rs:754`→`:528`），密文从不进入；短明文唯一后果是不被遮蔽。
 
 15. 「`password.rs:192` 把边界写成「4 个 CJK 字符」是错的，应该是「3 个」」—— **不成立**。`strict()` 是 `min_length: 12`（`password.rs:171`），判定在 `:193` `if password.len() < self.min_length`：3 个 CJK = **9 字节** → `9 < 12` 成立 → `TooShort`（过不了）；4 个 CJK = 12 字节 → 条件为假 → 通过。对方自己的句子也承认「3-char CJK fails at the 9-vs-12 boundary」，与其改法自相矛盾。正确写法是「4 个、只是刚好过线（no margin）」。**已核实为不成立，不要重复提。**
+
+16. 「`registry-auth-visibility-verification-2026-11.md` 的 `:23` **漏了签发侧 `:298`/`:311` 两个调用点**」—— **不成立**（该文的计数口径问题成立，见第 5 轮 #4）。同一篇的 `:27` 已单列签发侧：`:297` `has_action("pull")` → `:298-304` `can_read_repo`、`:309-321` push 走 `can_write_repo`，与 `:23` 的「这条链」互为补充。所谓「漏」是把「`:23` 只讲校验侧」读成了「全文只讲两处」。第 5 轮已重写该文，把「校验侧 3 处 / 签发侧 2 处 / 供 5 处」写死，此后不该再出现计数争议。
 
 ### 我方已自证推翻（勿当结论引用）
 
