@@ -167,7 +167,7 @@ SSH 模式省略 `GET /info/refs` 步骤，直接通过 exec_request 建立双�
 
 - `done` 或 flush 之后**不再排空 stdin**（`upload_pack.rs:46` 读完 want/have 直接发 NAK + pack）。push 侧相反：没有可应用的更新时会 `drain_pack()`（`receive_pack.rs:462`、`:620`）。
 - `read_pkt_line` 把 `UnexpectedEof` **折叠成 `PktLine::Flush`**（`pkt_line.rs:108-111`）。两者叠加的后果是：客户端半途断开在服务端看来等于「正常结束协商」，`wants` 为空时直接写一个 flush 就 `Ok(())`（`upload_pack.rs:48-51`），不会报错。排查「客户端没收到 pack 但服务端日志无异常」时要先想到这条。
-- **V1 没有 shallow 语义**：want/have 循环只认 `want` / `have` / `done`，其余行一律当未知行丢弃（`upload_pack.rs:246` 的 `Unknown want/have line, ignoring`）；整个文件里 `shallow` / `deepen` 只出现在 `:373` 那句注释里。两侧广告串也都不含 `shallow` 能力，所以按协议客户端不会在 V1 上发起 `--depth`（客户端侧行为未实测）。
+- **V1 没有 shallow 语义**：want/have 循环只认 `want` / `have` / `done`，其余行一律当未知行丢弃（`upload_pack.rs:246` 的 `Unknown want/have line, ignoring`）；整个文件对 `shallow` / `deepen` 没有任何解析。因此 **V1 即使收到 `deepen` 也只会全量打包**。真实客户端会不会在 V1 上发 `deepen` 未单独验证：e2e 的 `--depth=2` 用例固定用 V2（`scripts/git-protocol-e2e.sh:280-282`），V1 + depth 的组合不在覆盖内。
 
 ### 引用广告格式
 
@@ -196,33 +196,33 @@ HTTP 的 V1 广告串（`crates/rg-http/src/lib.rs:2638`）实际是：
 multi_ack_detailed no-done side-band-64k thin-pack ofs-delta agent=ironforge/0.1
 ```
 
-逐项对照：
+逐项对照（分三档：空头 / 广告了但主动降级 / 两侧一致）：
 
-| capability | SSH V1 | HTTP V1 | 服务端真的实现了吗 |
+| capability | SSH V1 | HTTP V1 | 服务端行为 |
 |---|---|---|---|
 | `side-band-64k` | 广告 | 广告 | ✅ 两侧都走 band-1 |
-| `ofs-delta` | 广告 | 广告 | ✅ |
-| `thin-pack` | 不广告 | **广告** | ⚠️ 发出去的 pack 从不 thin（`ops.rs:833` `allow_thin_pack: false`） |
-| `multi_ack_detailed` | 不广告 | **广告** | ❌ 只有单发 `NAK`，没有任何 ACK 分支 |
-| `no-done` | 不广告 | **广告** | ❌ 无 `ACK ready`；客户端据此可以不发 `done` 直接等，永远等不到 |
+| `ofs-delta` | 广告 | 广告 | ✅ 写出端会产 OFS_DELTA：`DeltaRef` 直接映射成 `OfsDelta` 头（gix-pack `data/output/entry/mod.rs:185`）。`allow_thin_pack: false` 只影响「base 不在本 pack 里」的 delta，不关掉 OFS_DELTA |
+| `thin-pack` | 不广告 | **广告** | ⚠️ **降级而非空头**：客户端据此会请求 thin pack，服务端永远给非 thin pack（`ops.rs:833`）。非 thin 是合法 pack，能收，只是丢掉了客户端想要的带宽优化 |
+| `multi_ack_detailed` | 不广告 | **广告** | ❌ 空头：只有单发 `NAK`（`upload_pack.rs:54`），没有任何 ACK 分支 |
+| `no-done` | 不广告 | **广告** | ❌ 空头：只在 `multi_ack_detailed` 同时协商时才生效；本实现收首个输入包就回一个裸 `NAK`，此后不再发协商包。客户端会一直发 `have` 直到等到 `ACK … ready`，等不到（时序为源码推导，未实测复现） |
 
-即：SSH 侧「只广告实现的」，HTTP 的 V1 串里混进了三个空头能力。客户端默认走 V2 不经过这条路径，`protocol.version=0/1` 的 HTTP 客户端才会命中。收缩广告串还是补实现，属协议决策（L2），不在文档侧决定。
+即：HTTP 的 V1 串里混了两个空头（`multi_ack_detailed`、`no-done`）和一个「广告了但主动降级」（`thin-pack`）。SSH 侧三个都不广告。客户端默认走 V2 不经过这条路径，`protocol.version=0/1` 的 HTTP 客户端才会命中。收缩广告串还是补实现，属协议决策（L2），不在文档侧决定。
 
-### want/have 格式的两种形式
+### want/have 行：Form A 是协议形态，Form B 是宽松解析
 
-实践中 macOS git 客户端发送两种形式，都必须支持：
-
-**Form A**（NUL 分隔 capabilities）：
+**Form A**（协议形态，capability 只出现在**第一个** want 行、`\0` 之后）：
 ```
 want <sha1>\0side-band-64k ofs-delta\n
 ```
 
-**Form B**（空格分隔，macOS git 常见）：
+**Form B**（首行用空格而非 `\0` 分隔）：
 ```
 want <sha1> side-band-64k ofs-delta\n
 ```
 
-实现：先检查是否含 `\0`，有则 Form A；否则检查第 46 位（`"want " + 40字符SHA + 空格`）。
+Form B **不是**协议允许的第二种形态，是解析器对畸形输入的容忍：`upload_pack.rs:214-221` 对任何 `want ` 行都做 `split_once(' ')`，所以第 2、3 行带上空格内容同样会被当作 capability 吃下去。真实 git 的 `send_fetch_request` 对 V0 固定发 `<want>\0<caps>`，Form B 更可能来自旧版 JGit / libgit2（来源未经取证，勿当作事实引用）。
+
+解析顺序：先看是否含 `\0`（有则 Form A），否则 `strip_prefix("want ")` 后 `split_once(' ')`——**不是**「检查第 46 位」。
 
 ### Pack 生成
 
@@ -233,6 +233,7 @@ want <sha1> side-band-64k ofs-delta\n
   haves 作为 `with_hidden` 排除；shallow 请求以边界提交替代 haves 并用
   `TreeContents` 补齐边界树内容，等价 `--shallow <sha>` revs 语义
 - partial-clone：**V1 不协商 filter**（`upload_pack.rs:373` 注释「V1 has no shallow/partial-clone negotiation here」，shallow/partial 都按空处理）；**V2 支持**——广告串含 `fetch=shallow filter`（`v2.rs:48`），解析 `filter <spec>` 后交给 `ops::pack_for_wants_filtered`（`v2.rs:546`、`ops.rs:952`）
+- **懒取回（promisor）**：`filter blob:none` 克隆之后，客户端补对象时直接 `want <blob-sha>` / `want <tree-sha>`。这类 want **不走进历史遍历**，按 `extra_inputs` 原样打包（`ops.rs:949-950` 的函数注释），否则「want 一个 blob」会被当成想拉全部历史。单测断言 pack 里恰好 1 个对象（`ops.rs:1816` 的 `lazy fetch under {spec}`），e2e 在真客户端上断言 trace 出现 `want <blob>`（`scripts/git-protocol-e2e.sh:341-346`）
 
 ---
 
@@ -280,7 +281,9 @@ Client                          Server
 `gix_pack Bundle::write_to_directory` 摄取，thin delta base 从目标仓库对象库
 lookup 补全（等价 `--fix-thin`），pack + idx 落盘 `objects/pack` 后移除 `.keep`。
 
-> **方向要分清**：`--fix-thin` 只在**收**的一侧有意义。我们**发**出去的 pack 从不含 thin delta——`ops.rs:833` 的 `iter_from_counts` 选项写死 `allow_thin_pack: false`；补全发生在 `index_pack_bytes` 调用 `Bundle::write_to_directory` 时传入 `Some(repo.objects.clone())` 作为缺失 base 的查询源（`ops.rs:1055`）。
+> **方向要分清**：`--fix-thin` 只在**收**的一侧有意义。我们**发**出去的 pack 从不含 thin delta——`ops.rs:833` 的 `iter_from_counts` 选项写死 `allow_thin_pack: false`；补全发生在 `index_pack_bytes` 调用 `Bundle::write_to_directory` 时传入 `Some(repo.objects.clone())` 作为缺失 base 的查询源（`ops.rs:1056`）。
+>
+> 注意 **thin delta ≠ OFS_DELTA**：`allow_thin_pack: false` 关掉的是「base 不在本 pack 里」的 delta，OFS_DELTA（base 在同 pack 内、用偏移量表示）照常产出——`DeltaRef` 直接映射成 `OfsDelta` 头（gix-pack `data/output/entry/mod.rs:185`）。这也是 §3 里 `ofs-delta` 判 ✅ 的依据。
 
 ### Report-Status 响应格式（关键！）
 
