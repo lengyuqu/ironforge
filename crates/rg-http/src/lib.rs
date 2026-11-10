@@ -671,6 +671,23 @@ fn build_routes(
             get(api::users::list_tokens).post(api::users::create_token),
         )
         .route("/users/tokens/{id}", delete(api::users::delete_token))
+        // Agent accounts owned by the caller
+        .route(
+            "/agents",
+            get(api::agents::list_agents).post(api::agents::create_agent),
+        )
+        .route(
+            "/agents/{username}",
+            get(api::agents::get_agent).patch(api::agents::update_agent),
+        )
+        .route(
+            "/agents/{username}/tokens",
+            get(api::agents::list_agent_tokens).post(api::agents::create_agent_token),
+        )
+        .route(
+            "/agents/{username}/tokens/{id}",
+            delete(api::agents::delete_agent_token),
+        )
         // SSH keys
         .route(
             "/users/ssh-keys",
@@ -2063,6 +2080,8 @@ fn required_pat_scope(method: &axum::http::Method, path: &str) -> Option<&'stati
 
     // The authenticated user's own account, notifications and session.
     if path.starts_with("/users")
+        || path == "/agents"
+        || path.starts_with("/agents/")
         || path.starts_with("/notifications")
         || path.starts_with("/auth")
         || path == "/ws/notifications"

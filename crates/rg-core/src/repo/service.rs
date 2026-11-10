@@ -225,9 +225,47 @@ pub async fn can_read_repo(
         }
         None => false,
     };
+    let (result, cacheable) = apply_owner_cap(db, repo, actor_id, result, false).await?;
 
-    set_perm_cache(repo.id, actor_id, false, result);
+    if cacheable {
+        set_perm_cache(repo.id, actor_id, false, result);
+    }
     Ok(result)
+}
+
+/// Apply the owner cap to an actor whose own grant has just been computed.
+///
+/// A person is not capped. An agent may do what it was granted **and** its
+/// owner can currently do; with no usable owner it can do nothing.
+///
+/// Returns `(allowed, cacheable)`. An agent's "yes" is never cached: the owner's
+/// half is looked up on every call (through the owner's own cache entry), so
+/// taking a repository away from the owner takes it away from the agent exactly
+/// as fast as from the owner — the existing invalidation calls name the owner,
+/// not the agent.
+async fn apply_owner_cap(
+    db: &DatabaseConnection,
+    repo: &rg_db::entities::repository::Model,
+    actor_id: Option<i64>,
+    own_grant: bool,
+    for_write: bool,
+) -> CoreResult<(bool, bool)> {
+    let (Some(actor_id), true) = (actor_id, own_grant) else {
+        return Ok((own_grant, true));
+    };
+    match crate::agent::owner_cap(db, actor_id).await? {
+        crate::agent::OwnerCap::None => Ok((true, true)),
+        crate::agent::OwnerCap::Denied => Ok((false, false)),
+        crate::agent::OwnerCap::Owner(owner_id) => {
+            // The owner is a person, so this does not recurse further.
+            let owner_can = if for_write {
+                Box::pin(can_write_repo(db, repo, Some(owner_id))).await?
+            } else {
+                Box::pin(can_read_repo(db, repo, Some(owner_id))).await?
+            };
+            Ok((owner_can, false))
+        }
+    }
 }
 
 /// Check whether `actor_id` (None = anonymous) can read `owner/repo`.
@@ -298,8 +336,11 @@ pub async fn can_write_repo(
         }
         None => false,
     };
+    let (result, cacheable) = apply_owner_cap(db, repo, actor_id, result, true).await?;
 
-    set_perm_cache(repo.id, actor_id, true, result);
+    if cacheable {
+        set_perm_cache(repo.id, actor_id, true, result);
+    }
     Ok(result)
 }
 
@@ -312,6 +353,10 @@ pub async fn can_admin_repo(
     let Some(actor_id) = actor_id else {
         return Ok(false);
     };
+    // An agent never administers a repository, whatever it was granted.
+    if crate::agent::owner_cap(db, actor_id).await? != crate::agent::OwnerCap::None {
+        return Ok(false);
+    }
     if actor_id == repo.owner_id {
         return Ok(true);
     }
@@ -440,6 +485,8 @@ pub async fn create_repo_with_opts(
     let default_branch = opts.default_branch.as_deref().unwrap_or("main");
     let owner_id = opts.owner_id;
     let name = &opts.name;
+    // Agents own nothing: a repository belongs to a person or an organization.
+    crate::agent::ensure_human(db, owner_id).await?;
 
     // Validate repo name (prevents path traversal via repo name)
     crate::validate_repo_name(name)
@@ -1116,9 +1163,8 @@ pub async fn fork_repo(
         return Err(CoreError::forbidden("cannot read private repository"));
     }
 
-    let forker = user_ops::find_by_id(db, user_id)
-        .await?
-        .ok_or_else(|| CoreError::not_found("user not found"))?;
+    // Agents own nothing, forks included.
+    let forker = crate::agent::ensure_human(db, user_id).await?;
 
     if repo_ops::find_by_owner_and_name(db, user_id, repo_name)
         .await?
@@ -1342,6 +1388,9 @@ pub async fn transfer_repo(
     }
 
     let (new_owner_id, new_org_id, new_owner_name) = resolve_owner(db, new_owner).await?;
+    // Neither end of a transfer may be an agent: agents own nothing.
+    crate::agent::ensure_human(db, user_id).await?;
+    crate::agent::ensure_human(db, new_owner_id).await?;
 
     // Who may move a repository *into* the destination. A transfer lands data
     // and a name in someone else's namespace, so it needs the destination's

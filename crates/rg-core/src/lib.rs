@@ -13,6 +13,7 @@
 //! - **Infrastructure**: search, lfs, email, audit, platform
 
 // ── Identity & Auth ─────────────────────────────────
+pub mod agent;
 pub mod attachment;
 pub mod auth;
 pub mod org;
@@ -74,6 +75,14 @@ pub fn validate_username(username: &str) -> CoreResult<()> {
                 c
             )));
         }
+    }
+    // Users and organizations share the owner namespace, and `<owner>-agent-<name>`
+    // is how agent accounts are named: an organization with such a name could
+    // be shadowed by (or mistaken for) someone's agent.
+    if agent::is_reserved_username(username) {
+        return Err(CoreError::InvalidInput(
+            "name must not contain '-agent-' (reserved for agent accounts)".into(),
+        ));
     }
     Ok(())
 }
