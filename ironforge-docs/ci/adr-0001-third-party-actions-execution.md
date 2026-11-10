@@ -169,3 +169,14 @@ Action 源码由 Runner 控制面在 Job 启动前解析和获取，不因 Actio
 本决策优先保护 IronForge 控制面和部署主机，代价是初期兼容范围小于 Gitea `act_runner`。需要网络、Docker socket、自定义宿主工具或未知 runtime 的 Action 将继续失败，直到有显式能力和隔离设计。
 
 `CI-200` 完成后，矩阵中的“Gitea Actions YAML 有限适配”仍为 `PARTIAL`、得分不变；只有 `CI-206` 与 `CI-208` 完成真实第三方 Action 执行和兼容回归后，才重新评分。
+
+## 7. 复核补充：Runner 租户边界与 fork 触发路径（2026-11-10）
+
+本 ADR 冻结的是**目标**边界，不是现状。以下四条由 2026-11-10 对 `cnb/main`（`1bfe5b7`）的静态复核确认，全部落在 §2.5 / §2.7 尚未完成的项目上。`CI-204` / `CI-206` 验收时须逐条关闭；关闭前，文档、发行说明和对外说明都不得声称这些边界已经生效。
+
+| # | 现状事实 | 代码证据 | 对应条目 |
+|---|---|---|---|
+| R-1 | `runners` 是**实例级**对象，表里没有任何租户/仓库列；调度器只按 Job 标签与 stage 状态选 Job，从不看 Job 归属仓库 | `crates/rg-db/src/entities/runner.rs:8-21`（11 列，无 `repo_id`）；`crates/rg-db/src/migrations/m20260510_000001_create_runners.rs`（建表同样无 `repo_id`）；`crates/rg-db/src/ops/pipeline_ops.rs:932-953`（`job_is_schedulable` 只看 stage/pipeline 状态） | §2.5 最后一条、§2.7.1 |
+| R-2 | 标签为空时**双向**全匹配：Runner 无标签即领任意 Job（`pipeline_ops.rs:909-911`），Job 无标签即分给任意 Runner（`:918-920`）。领取后按该 Job 的 `repo_id` 解密并整体注入该仓库全部 Secret（`crates/rg-http/src/api/runners.rs:352-355`）；Runner 侧鉴权只校验「token 哈希命中某行且该行 id == 路径 id」（`:1019-1026`），不校验它与 Job 的关系 | 同左 | §2.7.1 |
+| R-3 | 评审建议应用（`POST /repos/{owner}/{name}/pulls/{number}/suggestions/apply`）在 **PR 源仓库**（fork）上以建议提交触发 CI：`crates/rg-http/src/api/reviews.rs:161-168` 只要求对源仓库有写权限，`:200` 在源仓库路径上查 `.gitea/workflows`，`:206-210` 以 `repo_id = source_repo.id`、`trigger_type = "suggestion"` 建 Pipeline，workflow 内容取自该 commit（`crates/rg-ci/src/lib.rs:599-608`）。§2.7.4 的「维护者批准」只约束 base 仓库上的 PR 事件，对这条路径没有落点 | 同左 | §2.7.4、§2.5 |
+| R-4 | **本 ADR 之外**（Registry 鉴权），但因同属“实例级信任”一并记：OCI Bearer token 的校验侧不看仓库可见性——scope 字面匹配即放行（`crates/rg-http/src/oci.rs:129-144`），只有无 token 分支才查 `can_read_repo`（`:147-150`）。签发侧确有过滤（`:231` 签发、`:297-307` 按 `can_read_repo` 裁剪），故现状后果是「仓库转私有后 ≤5 分钟内（`ttl = 300`，`:342`）旧 token 仍可拉」，而非任意拉取 | `oci.rs:129-144`、`:147-150`、`:231`、`:297-307`、`:342` | §2.7.5 的最小授权原则（精神上） |
