@@ -98,6 +98,12 @@ pub async fn create_ssh_key(
         Err(error) => return error.into_response(),
     };
 
+    // Agents do not use SSH: a push over SSH carries no token, so a token's
+    // branch limit could not be applied to it.
+    if let Err(error) = rg_core::agent::ensure_human(&state.db, user_id).await {
+        return AppError::from(error).into_response();
+    }
+
     let title = body.title.trim();
     if title.is_empty() {
         return AppError::bad_request("SSH key title cannot be empty").into_response();

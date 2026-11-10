@@ -111,6 +111,14 @@ pub fn validate_username(username: &str) -> CoreResult<()> {
         ));
     }
 
+    // `<owner>-agent-<name>` is how agent accounts are named; a person or an
+    // organization with such a name would read as someone's agent.
+    if crate::agent::is_reserved_username(username) {
+        return Err(CoreError::invalid_input(
+            "username must not contain '-agent-' (reserved for agent accounts)",
+        ));
+    }
+
     Ok(())
 }
 
@@ -226,6 +234,10 @@ pub async fn login(
 
     if !user.is_active {
         return Err(CoreError::forbidden("account is disabled"));
+    }
+    // An agent has no password; answer exactly like a wrong one.
+    if crate::agent::is_agent(&user) {
+        return Err(CoreError::forbidden(INVALID_CREDENTIALS));
     }
 
     // A stored hash that cannot be parsed is a data problem, but surfacing it
@@ -586,8 +598,13 @@ pub async fn update_user_admin(
     // `user_ops::update_by_id` reports a missing row as a plain error, which is
     // indistinguishable from a storage failure; look the user up first so a
     // missing target is a 404.
-    if user_ops::find_by_id(db, target_user_id).await?.is_none() {
+    let Some(target) = user_ops::find_by_id(db, target_user_id).await? else {
         return Err(CoreError::not_found("user not found"));
+    };
+    if is_admin == Some(true) && crate::agent::is_agent(&target) {
+        return Err(CoreError::invalid_input(
+            "an agent account cannot be an administrator",
+        ));
     }
     let updated =
         user_ops::update_by_id(db, target_user_id, display_name, bio, is_admin, is_active).await?;
@@ -598,6 +615,15 @@ pub async fn update_user_admin(
 pub async fn delete_user(db: &DatabaseConnection, user_id: i64) -> CoreResult<()> {
     if user_ops::find_by_id(db, user_id).await?.is_none() {
         return Err(CoreError::not_found("user not found"));
+    }
+    // Deleting an account is a hard delete that cascades. Its agents would be
+    // left ownerless (and so powerless) while what they wrote stayed attributed
+    // to them; make the administrator deal with them first.
+    let agents = user_ops::count_agents_by_owner(db, user_id).await?;
+    if agents > 0 {
+        return Err(CoreError::conflict(format!(
+            "this account owns {agents} agent account(s); delete them first"
+        )));
     }
     user_ops::delete_by_id(db, user_id).await?;
     Ok(())
@@ -631,7 +657,7 @@ pub async fn forgot_password(
     };
 
     // Only local users can reset via email (LDAP/OAuth users use their provider)
-    if user.auth_provider != "local" {
+    if user.auth_provider != "local" || crate::agent::is_agent(&user) {
         // H-5: Same delay as the "not found" path to prevent timing-based enumeration
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         return Ok(());
@@ -721,6 +747,10 @@ pub async fn reset_password(
     let user = user_ops::find_by_id(db, token.user_id)
         .await?
         .ok_or_else(|| CoreError::invalid_input("invalid or expired reset token"))?;
+    // An agent never gets a password, whatever token is presented.
+    if crate::agent::is_agent(&user) {
+        return Err(CoreError::invalid_input("invalid or expired reset token"));
+    }
 
     let password_validator = password::PasswordValidator::standard();
     password_validator

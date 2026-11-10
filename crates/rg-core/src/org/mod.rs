@@ -20,6 +20,8 @@ pub async fn create_org(
 ) -> CoreResult<rg_db::entities::organization::Model> {
     // Validate org name (same rules as username)
     crate::validate_username(name)?;
+    // Agents own nothing, organizations included.
+    crate::agent::ensure_human(db, owner_id).await?;
 
     // Check visibility
     if visibility != "public" && visibility != "private" {

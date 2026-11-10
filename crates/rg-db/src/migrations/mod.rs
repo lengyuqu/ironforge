@@ -96,6 +96,7 @@ pub mod m20261106_000002_add_access_token_ref_allowlist;
 pub mod m20261106_000003_create_idempotency_keys;
 pub mod m20261106_000004_create_repo_events;
 pub mod m20261109_000001_create_collab_health_baselines;
+pub mod m20261110_000001_add_user_kind_and_owner;
 
 use sea_orm_migration::prelude::*;
 
@@ -205,6 +206,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20261106_000003_create_idempotency_keys::Migration),
             Box::new(m20261106_000004_create_repo_events::Migration),
             Box::new(m20261109_000001_create_collab_health_baselines::Migration),
+            Box::new(m20261110_000001_add_user_kind_and_owner::Migration),
         ]
     }
 }

@@ -774,15 +774,20 @@ async fn find_or_create_sso_user(
         .await
         .map_err(|_| AppError::internal("database error"))?
     {
+        // An identity provider can never sign in as an agent, whatever e-mail
+        // it asserts.
+        if rg_core::agent::is_agent(&existing) {
+            return Err(AppError::forbidden("this account cannot sign in"));
+        }
         existing.id
     } else {
-        // Create new user
-        let username = generate_unique_username(db, &user_info.provider_username)
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to generate username: {}", e);
-                AppError::internal("failed to generate username")
-            })?;
+        // Create new user. `-agent-` is the agent namespace: a person must not
+        // land in it because of what their provider calls them.
+        let base = user_info.provider_username.replace("-agent-", "_agent_");
+        let username = generate_unique_username(db, &base).await.map_err(|e| {
+            tracing::error!("Failed to generate username: {}", e);
+            AppError::internal("failed to generate username")
+        })?;
 
         rg_db::ops::user_ops::create_user(
             db,

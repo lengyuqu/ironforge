@@ -651,22 +651,36 @@ mod soft_delete_tests {
     use super::*;
     use sea_orm::{ActiveModelTrait, ConnectionTrait, DatabaseBackend, Statement};
 
+    /// Insert a user with plain SQL. Some tests here run on a schema migrated
+    /// only part of the way, where the `user` entity (which names every current
+    /// column) cannot be used.
     async fn owner(db: &DatabaseConnection, name: &str) -> i64 {
-        crate::entities::user::ActiveModel {
-            username: sea_orm::Set(name.to_string()),
-            email: sea_orm::Set(format!("{name}@example.com")),
-            password_hash: sea_orm::Set("unused".to_string()),
-            display_name: sea_orm::Set(Some(name.to_string())),
-            is_admin: sea_orm::Set(false),
-            is_active: sea_orm::Set(true),
-            created_at: sea_orm::Set(chrono::Utc::now()),
-            updated_at: sea_orm::Set(chrono::Utc::now()),
-            ..Default::default()
-        }
-        .insert(db)
+        let now = chrono::Utc::now().to_rfc3339();
+        db.execute(Statement::from_sql_and_values(
+            DatabaseBackend::Sqlite,
+            "INSERT INTO users \
+             (username, email, password_hash, display_name, is_admin, is_active, created_at, updated_at) \
+             VALUES (?, ?, 'unused', ?, 0, 1, ?, ?)",
+            [
+                name.into(),
+                format!("{name}@example.com").into(),
+                name.into(),
+                now.clone().into(),
+                now.into(),
+            ],
+        ))
         .await
-        .expect("insert user")
-        .id
+        .expect("insert user");
+        db.query_one(Statement::from_sql_and_values(
+            DatabaseBackend::Sqlite,
+            "SELECT id FROM users WHERE username = ?",
+            [name.into()],
+        ))
+        .await
+        .expect("select user")
+        .expect("user row")
+        .try_get_by_index::<i64>(0)
+        .expect("user id")
     }
 
     async fn repository(db: &DatabaseConnection, owner_id: i64, name: &str) -> i64 {
@@ -1010,7 +1024,7 @@ mod soft_delete_tests {
         // `m20261015_000002` partial-unique-index anchor — add 1 here whenever
         // a migration is appended, or this assertion silently stops testing
         // the intended window.
-        migrations::Migrator::down(&db, Some(24))
+        migrations::Migrator::down(&db, Some(25))
             .await
             .expect("downgrade");
         assert_eq!(scalar(&db, "SELECT COUNT(*) FROM repo_stars").await, 1);

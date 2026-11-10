@@ -199,6 +199,9 @@ pub async fn create_user(
         login_attempts: Set(0),
         locked_until: Set(None),
         token_version: Set(0),
+        kind: Set("human".into()),
+        owner_user_id: Set(None),
+        agent_description: Set(None),
         created_at: Set(now),
         updated_at: Set(now),
         deleted_at: Set(None),
@@ -241,6 +244,9 @@ pub async fn create_ldap_user(
             login_attempts: Set(0),
             locked_until: Set(None),
             token_version: Set(0),
+            kind: Set("human".into()),
+            owner_user_id: Set(None),
+            agent_description: Set(None),
             created_at: Set(now),
             updated_at: Set(now),
             deleted_at: Set(None),
@@ -432,4 +438,96 @@ pub async fn bump_token_version(db: &DatabaseConnection, user_id: i64) -> Result
         anyhow::bail!("user {} not found", user_id);
     }
     Ok(())
+}
+
+/// Create an agent account owned by `owner_user_id`.
+///
+/// The row has no usable password (`password_hash` is not a hash, so every
+/// verification fails) and `auth_provider = "agent"`, which no login path
+/// accepts. It is never an administrator.
+pub async fn create_agent(
+    db: &DatabaseConnection,
+    username: &str,
+    email: &str,
+    owner_user_id: i64,
+    description: Option<&str>,
+) -> Result<User> {
+    let now = chrono::Utc::now();
+    let model = user::ActiveModel {
+        id: NotSet,
+        username: Set(username.to_string()),
+        email: Set(email.to_string()),
+        password_hash: Set("!".into()),
+        display_name: Set(None),
+        avatar_url: Set(None),
+        bio: Set(None),
+        is_admin: Set(false),
+        is_active: Set(true),
+        auth_provider: Set("agent".into()),
+        ldap_dn: Set(None),
+        ldap_uid: Set(None),
+        ldap_provider_id: Set(None),
+        totp_secret: Set(None),
+        mfa_enabled: Set(false),
+        mfa_type: Set(None),
+        backup_codes: Set(None),
+        last_login_at: Set(None),
+        login_attempts: Set(0),
+        locked_until: Set(None),
+        token_version: Set(0),
+        kind: Set("agent".into()),
+        owner_user_id: Set(Some(owner_user_id)),
+        agent_description: Set(description.map(str::to_string)),
+        created_at: Set(now),
+        updated_at: Set(now),
+        deleted_at: Set(None),
+    };
+    create(db, model).await
+}
+
+/// The agents `owner_user_id` owns, oldest first.
+pub async fn list_agents_by_owner(
+    db: &DatabaseConnection,
+    owner_user_id: i64,
+) -> Result<Vec<User>> {
+    UserEntity::find()
+        .filter(user::Column::Kind.eq("agent"))
+        .filter(user::Column::OwnerUserId.eq(owner_user_id))
+        .order_by_asc(user::Column::Id)
+        .all(db)
+        .await
+        .context("db: list agents by owner")
+}
+
+/// How many agents `owner_user_id` owns (active or not).
+pub async fn count_agents_by_owner(db: &DatabaseConnection, owner_user_id: i64) -> Result<u64> {
+    UserEntity::find()
+        .filter(user::Column::Kind.eq("agent"))
+        .filter(user::Column::OwnerUserId.eq(owner_user_id))
+        .count(db)
+        .await
+        .context("db: count agents by owner")
+}
+
+/// Set an agent's description and/or active flag. `None` leaves a field alone.
+pub async fn update_agent(
+    db: &DatabaseConnection,
+    agent_id: i64,
+    description: Option<Option<String>>,
+    is_active: Option<bool>,
+) -> Result<User> {
+    let mut update = UserEntity::update_many()
+        .col_expr(user::Column::UpdatedAt, Expr::value(chrono::Utc::now()))
+        .filter(user::Column::Id.eq(agent_id))
+        .filter(user::Column::Kind.eq("agent"));
+    if let Some(description) = description {
+        update = update.col_expr(user::Column::AgentDescription, Expr::value(description));
+    }
+    if let Some(is_active) = is_active {
+        update = update.col_expr(user::Column::IsActive, Expr::value(is_active));
+    }
+    update.exec(db).await.context("db: update agent")?;
+    find_by_id(db, agent_id)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("agent {} not found", agent_id))
 }

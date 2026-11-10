@@ -346,6 +346,14 @@ impl Handler for SshHandler {
         };
 
         match rg_db::ops::user_ops::find_by_username(db, username).await {
+            // An agent has no password and never signs in over SSH.
+            Ok(Some(user)) if rg_core::agent::is_agent(&user) => {
+                tracing::warn!(username, "SSH password auth rejected: agent account");
+                Ok(Auth::Reject {
+                    proceed_with_methods: None,
+                    partial_success: false,
+                })
+            }
             Ok(Some(user)) => {
                 match rg_core::auth::password::verify_password(password, &user.password_hash) {
                     Ok(true) => {
