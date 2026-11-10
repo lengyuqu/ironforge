@@ -55,9 +55,9 @@
 - 判定：**成立 7 / 部分成立 1 / 不成立 0**（8 条正文指摘）；6 条推测单列不计分
 - 工作基线：**`BASE=70494e2`**（`cnb/main` HEAD）。issue 声明的 `df6a3c0` 之后只有一次 `docs(opt-loop): open batch#3` 提交；`git diff df6a3c0..70494e2 -- crates/rg-core/src/repo crates/rg-core/src/webhook` **输出为空** ⇒ 本批 4 文件的**行号基准未漂**，它的 `df6a3c0:` 引用可直接在本树复用
 - 改前基线：`scripts/check.sh --quick` **通过（2 s，热缓存，EXIT=0）**
-- 改动：**`ROUND_SHA`**（L1，5 文件 7+/7−，**零行号漂移**：`webhook/service.rs` 561→561、`repo/service.rs` 2803→2803、`collaboration/access.rs` 42→42、`docs/p0-prd.md` 315→315、`docs/p0-system-design.md` 644→644）
+- 改动：**`0f6c54a`**（L1，5 文件 7+/7−，**零行号漂移**：`webhook/service.rs` 561→561、`repo/service.rs` 2803→2803、`collaboration/access.rs` 42→42、`docs/p0-prd.md` 315→315、`docs/p0-system-design.md` 644→644）
 - 改后验证：`scripts/check.sh --quick` **通过（62 s，EXIT=0）**
-- 回帖：`REPLY_ID`（首行 `## 第 1 轮收尾`，回读校验 C=1）
+- 回帖：`2120252808799633408`，`2026-11-10T20:30:36Z`（首行 `## 第 1 轮收尾`，回读校验 C=1，无重复投递）
 
 | # | 输入指摘 | 判定 | 证据 / 处置 |
 |---|---|---|---|
