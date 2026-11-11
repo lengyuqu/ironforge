@@ -224,21 +224,25 @@ fn www_authenticate(realm: &str, service: &str, scope: &str) -> String {
 /// `GET /v2/` — API version check.
 /// Docker clients call this first to verify the registry is available.
 /// Returns 401 with WWW-Authenticate if authentication is required.
+///
+/// The challenge carries **no** `scope`: there is no `_catalog` endpoint, so
+/// advertising `registry:catalog:*` only told every client to ask for a scope
+/// the server would then hand out and never accept.
 pub async fn api_version_check(State(state): State<AppState>, headers: HeaderMap) -> Response {
     // Return 401 to trigger Docker auth flow
     let _ = extract_user(&headers, &state.jwt_secret);
 
     let realm = format!("{}/v2/token", get_base_url(&headers));
     let service = "ironforge-registry";
+    // Bound to a local: taking `.as_str()` of a temporary would leave the
+    // header pointing at a dropped String by the time `into_response` copies it.
+    let challenge = www_authenticate(&realm, service, "");
 
     (
         StatusCode::UNAUTHORIZED,
         [
             (DOCKER_API_VERSION, API_VERSION),
-            (
-                header::WWW_AUTHENTICATE,
-                www_authenticate(&realm, service, "registry:catalog:*").as_str(),
-            ),
+            (header::WWW_AUTHENTICATE, challenge.as_str()),
         ],
     )
         .into_response()
@@ -359,12 +363,15 @@ pub async fn get_token(
                     allowed_actions.join(",")
                 ));
             }
-        } else if parsed.scope_type == "registry"
-            && parsed.name == "catalog"
-            && authenticated_user_id.is_some()
-        {
-            granted_scopes.push(scope_part.to_string());
         }
+        // `registry:catalog:*` is deliberately not granted. There is no
+        // `_catalog` endpoint to serve it, the verifier never matches it
+        // (`ParsedScope::matches_repo` only accepts `repository` scopes), and
+        // the issuance branch here used to accept it from *any* authenticated
+        // user with no repository gate at all. Three independent accidents were
+        // the only thing keeping it harmless; dropping the branch removes the
+        // first of them, so adding a `_catalog` route later cannot quietly turn
+        // into "enumerate every private repository name".
     }
 
     let granted_scope = granted_scopes.join(" ");
