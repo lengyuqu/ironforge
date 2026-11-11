@@ -38,6 +38,18 @@
 
 ## 批次索引
 
+### batch#5(issue #31) · 2026-11-11 · rg-ci 引擎（runner/condition/gitea_actions）
+
+- 开批：`2026-11-11T09:46:31Z`（issue 创建即触发，正文结尾 `@CodeBuddy`，标题已绑定 `[opt-round] batch#5(issue #31)`）
+- 基线提交：`d32421e`（cnb/main HEAD，2026-11-11；本机 main 检出同点、工作区干净，直接本地记账，无需 worktree）
+- 范围：`crates/rg-ci/src/` 5 文件共 4860 行（runner 1857 / gitea_actions 1297 / lib 1065 / config 326 / condition 315）。行数以 `git show d32421e:<path> | wc -l` 统计
+- 选靶说明：候选顺序首位 `crates/rg-db/src/migrations/` 全量 15209 行/100+ 文件，无法在 ≤10 文件且 ≤5000 行内切成连贯子集，改选下一候选 rg-ci
+- 引导问题 4 条：P2 并发组算而不用（`lib.rs:136-158` group 只进日志/409 文案，互斥取消实际按 `find_active_pipelines_by_ref` 的 ref_name 判定，`pipeline_ops.rs:1315-1340`）；P2 Docker 路径超时不杀进程（`runner.rs:687-697` docker Command 无 kill_on_drop，对照本地 `:561`/`:576`；容器名 `:651` 重跑冲突）；P3 step env 未加引号拼 `export k=v`（`gitea_actions.rs:463`）；P3 PR branches 过滤用 default_branch 近似 + step 条件求值错误被 `unwrap_or(false)` 静默吞（`gitea_actions.rs:301-311` / `:420`，与 native 路径 `lib.rs:242-252` 的 `?` 传播不一致）
+- 反向清单回灌：**不成立 38 条全量**（batch#1–#4 累计，含 batch#4 第 6 轮新增 36–38）+ 我方自证推翻 8 项 + 对方已撤回 6 项 + 对方错项 5 条 + batch#4 第 1 轮错项 4 条，均注明「不要重复提」
+- 上一批遗留回读（协议 §6.2 开批前三步）：batch#4 批后复核评论 `2120444501616406528`（`2026-11-11T09:12:19Z`，关批后 +49 s）——第 6 轮 7 项复核全部通过、无异议，36–38 不再重提，B4-1..B4-8 维持 L2；一条行数口径备注（我方记 1055 / 它实测 1056，末行换行计数差异）——本批起台账行数统一以 `wc -l` 输出为准
+- NPC 首扫：等待中（由消费者补记；生产者不等首扫——F16）
+- 6 轮进度：**0 / 6**
+
 ### batch#4(issue #27) · 2026-11-11 · rg-http issue/PR/review API 层
 
 - 开批：`2026-11-11T02:43:08Z`（issue 创建即触发，正文结尾 `@CodeBuddy`，标题已绑定 `[opt-round] batch#4(issue #27)`）
