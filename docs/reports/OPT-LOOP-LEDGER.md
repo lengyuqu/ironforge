@@ -38,6 +38,18 @@
 
 ## 批次索引
 
+### batch#4(issue #27) · 2026-11-11 · rg-http issue/PR/review API 层
+
+- 开批：`2026-11-11T02:43:08Z`（issue 创建即触发，正文结尾 `@CodeBuddy`，标题已绑定 `[opt-round] batch#4(issue #27)`）
+- 基线提交：`b7a0ab2`（cnb/main HEAD，2026-11-11；本机 main 检出同点、工作区干净，直接本地记账，无需 worktree）
+- 范围：`crates/rg-http/src/api/` 4 文件共 4086 行（issues 1681 / reviews 1261 / pulls 902 / labels 242）。行数以 `git show b7a0ab2:<path> | wc -l` 统计
+- 引导问题 4 条：P2 死校验 `validate_optional_text(...).ok()` 丢弃 Err 共 4 处（`issues.rs:531-536`/`:653-658`、`labels.rs:143-148`、`pulls.rs:293-298`）；P2 `update_issue` 鉴权前取值（`issues.rs:603-606` 在 `:635` can_read 之前调 `get_issue`，404/403 可区分私有仓 issue 存在性）；P3 label 颜色 create/update 双口径（3 位 hex 创建 201、更新 400，`labels.rs:139-142` vs `rg-core/src/label/service.rs:92-99`）；P3 列表页 assignee N+1（`issues.rs:1176`，milestone 已批量、assignee 未）
+- 反向清单回灌：**不成立 33 条全量**（batch#1/#2/#3 累计，含 batch#3 第 2–6 轮新增的 23–33）+ 我方自证推翻 8 项 + 对方已撤回 6 项 + 对方错项 5 条，均注明「不要重复提」
+- 已知空档新增：issue 创建只需读权限为刻意设计（`issues.rs:500-504` 注释，ISSUE-105）；`pulls.rs:627-629` dry_run 不评 conflicts 为注释自述的已知语义
+- 凭据事故（下次照做）：开批前 `git fetch cnb` 报 Repository Not Found；第 9 次配方（`username=oauth2` 灌 keychain）**覆盖不中**——keychain 实际条目 `username=cnb`，须以 `username=cnb` 覆盖 `git credential approve` 才恢复
+- NPC 首扫：等待中（生产者不等首扫，按 F16 由消费者补记）
+- 6 轮进度：0 / 6
+
 ### batch#3(issue #26) · 2026-11-11 · rg-core repo/webhook 服务层
 
 - 开批：`2026-11-10T19:52:01Z`（issue 创建即触发，正文结尾 `@CodeBuddy`，标题已绑定 `[opt-round] batch#3(issue #26)`）
@@ -47,7 +59,7 @@
 - 反向清单回灌：**不成立 21 条全量回灌**（batch#1/#2 累计）+ 对方已撤回 4 项 + 我方自证推翻 4 项，均注明「不要重复提」
 - 已知空档新增：`password.rs`/`rg-http/src/oci.rs`/`auth/oci_token.rs` 旧行号已因 PR #21/#24 作废不得引用；agent 模块不在本批范围
 - NPC 首扫：`2120244997269143552`，`2026-11-10T19:59:34Z`（开批后 7 min 33 s；`author.is_npc=true`，首行 `## 第 1 轮 · batch#3 只读审查`，自述基线 `df6a3c0`）
-- 6 轮进度：**5 / 6**（第 5 轮收尾 `2120324543901237248`（`2026-11-11T01:15:39Z`，回读校验 C=5，无重复投递）；第 4 轮 `2120303038425378816`（`23:50:12Z`，C=4）；第 3 轮 `2120286421721202688`（`22:44:10Z`，C=3）；第 2 轮 `2120269785404440576`；第 1 轮 `2120252808799633408`）
+- 6 轮进度：**6 / 6（已收批；issue #26 于 `2026-11-11T02:36:58Z` close，state_reason=completed；本行原记 5/6，由生产者开批 batch#4 时按平台终态补正）**（第 5 轮收尾 `2120324543901237248`（`2026-11-11T01:15:39Z`，回读校验 C=5，无重复投递）；第 4 轮 `2120303038425378816`（`23:50:12Z`，C=4）；第 3 轮 `2120286421721202688`（`22:44:10Z`，C=3）；第 2 轮 `2120269785404440576`；第 1 轮 `2120252808799633408`）
 
 ### consume 1 / 6（batch#3）
 
