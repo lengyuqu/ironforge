@@ -49,7 +49,8 @@
 - 上一批遗留回读（协议 §6.2 开批前三步）：batch#4 批后复核评论 `2120444501616406528`（`2026-11-11T09:12:19Z`，关批后 +49 s）——第 6 轮 7 项复核全部通过、无异议，36–38 不再重提，B4-1..B4-8 维持 L2；一条行数口径备注（我方记 1055 / 它实测 1056，末行换行计数差异）——本批起台账行数统一以 `wc -l` 输出为准
 - NPC 首扫：`2120454308016586752`，`2026-11-11T09:51:17Z`（开批后 4 min 46 s；首行 `@cnb.biewen(别问) ## batch#5 第 1 轮 · rg-ci 引擎只读审查`，自述基线 `d32421e` 且逐文件核过行数 1857/1297/1065/326/315）
 - NPC 第 2 轮复核：`2120465837906632704`，`2026-11-11T10:37:06Z`（首行 `@cnb.biewen(别问) batch#5 第 2 轮。先说环境：本机无 cargo…`，自述复核 `6b9a907`，自报 `check.sh --quick` EXIT=0 于 `10:36:22Z` 的 Linux 机）
-- 6 轮进度：**2 / 6**（第 1 轮见文末 `consume 1 / 6（batch#5）` 节，第 2 轮见文末 `consume 2 / 6（batch#5）` 节）
+- NPC 第 3 轮复核：`2120479451631763456`，`2026-11-11T11:31:12Z`（首行 `## 第 3 轮复核`；两个提交复核通过，主诉求是 B5-10 的机制/优先级订正 + 4 处行号订正，其中 2 处是它自订、1 处指我方 `validate_repo_name` 区间、1 处仅记录；本机无 cargo，未跑验证）
+- 6 轮进度：**3 / 6**（第 1 轮见文末 `consume 1 / 6（batch#5）` 节，第 2 轮见文末 `consume 2 / 6（batch#5）` 节，第 3 轮见文末 `consume 3 / 6（batch#5）` 节）
 
 ### batch#4(issue #27) · 2026-11-11 · rg-http issue/PR/review API 层
 
@@ -942,7 +943,7 @@ git -c protocol.version=2 clone --depth=1 ...
 
 ## 判定不成立（原文保留，请勿重复提）
 
-见上文同名小节（本清单已累计 **1..40** 条；36–38 见文末 `consume 6 / 6（batch#4）` 节，39–40 见文末 `consume 1 / 6（batch#5）` 节）。本行原为开批时的占位「（暂无）」，已失效并就地订正，勿再当「无任何不成立条目」读
+见上文同名小节（本清单已累计 **1..43** 条；36–38 见文末 `consume 6 / 6（batch#4）` 节，39–40 见文末 `consume 1 / 6（batch#5）` 节，41 见 `consume 2 / 6（batch#5）` 节，42–43 见 `consume 3 / 6（batch#5）` 节）。本行原为开批时的占位「（暂无）」，已失效并就地订正，勿再当「无任何不成立条目」读
 
 ---
 
@@ -1216,3 +1217,71 @@ on:\n  workflow_dispatch:\n    inputs:\n      x:..."   | push=false workflow_dis
 **改动 SHA**：`f2dd6d2`（1 文件 1+/1−），推 `cnb` 单 remote。
 
 **回帖**：`2120478680609624064`（`2026-11-11T11:28:08Z`），回读 **C=2**（首行 `## 第 2 轮收尾`、末行 `@CodeBuddy`、正文 19872 字符、平台侧仅 2 条收尾无重复投递）。
+
+### consume 3 / 6（batch#5）· 追加于文末（只为零行号漂移，勿移入上文）
+
+- 输入：NPC 第 3 轮复核 `2120479451631763456`（`2026-11-11T11:31:12Z`），晚于我方第 2 轮收尾（`11:28:08Z`）⇒ 有新复核。C=2（正则 `^## 第 \d+ 轮收尾` 命中 2 条，非补记）⇒ K=3。
+- 基线：`BASE=ff68f5a`（`cnb/main` = 本机 HEAD，`git ls-remote cnb refs/heads/main` 同点）。它自述复核 `8c9518d` 并指出 main 已到 `857f9bf`；复跑 `git diff --stat 8c9518d 857f9bf -- crates/` **为空**（只 +2 行台账）⇒ 源文件同一，行号基准零漂移。五文件行数指纹 **1857 / 1297 / 1065 / 326 / 315** 全等。
+- 判定汇总：**成立 5 / 部分成立 5 / 不成立 3 / 确认 3**；另我方探针新增 1 条机制事实（`#[serde(default)]` 对 `Option` 是空操作，见下）。
+- 读法约定：下表 `:<n>` 指 `ff68f5a` 上那 5 个源文件（或注明文件）的行号，只用于指认被判定对象；本节内部定位一律用小节名 / 条目号（审计口径第 4 条）。
+
+判定表：
+
+| # | 它说的 | 判定 | 证据 |
+|---|---|---|---|
+| ①-1 | `f2dd6d2` / `8c9518d` 两提交复核通过；`runner.rs:16` = 146 字符 | **成立** | 复跑 `git show 8c9518d:crates/rg-ci/src/runner.rs \| sed -n '16p' \| wc -c` = **147**（146 + 换行），与它同 |
+| ①-2 | `git diff f9b8d5a 8c9518d --stat` = 2 文件 72+/2−，「被删行只有 1 行」，其余全是尾部追加 | **部分成立** | `git diff f9b8d5a 8c9518d --stat` 确为 `2 files changed, 72 insertions(+), 2 deletions(-)`；但删除是 **2 行**：台账进度行 1 行 + `runner.rs` 注释改写的那 1 行（它的 `2 +-` 就是这行）。「只有 1 行删除」漏了 `runner.rs` |
+| ①-3 | `git diff --stat 8c9518d 857f9bf -- crates/` 为空，行号在两树上同样有效 | **成立** | 复跑为空 |
+| ①-4 | 我方第 2 轮判定表「`\| ` 开头的行 13 行」，与声明的 15 条对不上，成因是我方 grep 口径 | **不成立** | 实测 `awk` 计数：表头 + 15 个数据行 = **16** 行匹配 `^\| `（`grep -c '^| '` 同值；命令见反向清单第 42 条，按小节名锚定、不用绝对行号）。13 是它自己少数 2 行，与「空 `#` 格子」无关（本表每行都有 `#` 值）。**已核实为不成立，不要重复提。** |
+| ②-a | 让 null 与缺失不可区分的不是 `Option`，而是 `:58` 缺 `#[serde(default)]` ⇒ serde 的 missing_field Option 特化；serde 本身能区分二者 | **部分成立** | 「缺失侧走 `missing_field` 的 Option 特化」成立；但「serde 本身能区分」「缺 `default` 是成因」被探针否掉：加 `#[serde(default)]` 后四种输入的 `is_some()` 与不加**完全相同**（见下「探针」）。唯一能区分的做法是它给的另一半——`deserialize_with = "deserialize_present_yaml"`（`:64-65` 的 `workflow_call` 就是这么做的） |
+| ②-b | 后果更严重：`try_read_gitea_workflows` 返回 `Ok(CiConfig { jobs: {} })`，`lib.rs:568` 见 `Ok` 即 return ⇒ 整目录哑火，且会让同目录其它正确 workflow 一起不执行 | **不成立** | `:703-705` 是 `if all_jobs.is_empty() { anyhow::bail!("no matching workflows found in .gitea/workflows/") }` ⇒ **空 config 永不作为 `Ok` 返回**；`:568` 的 `if let Ok` 因此走的是 `Err` 分支（这正是 B5-1）。`continue` 在 `:657` 是**逐文件**，一个文件不匹配不影响其它文件，`:647` 的循环继续 ⇒「一起不执行」也不成立。真实后果是回落 native 后报 `no CI config found (.gitea/workflows/*.yml or .ironforge-ci.yml)`（`:574-580`），即**文案错**而不是静默空跑。**已核实为不成立，不要重复提。** |
+| ②-c | 两个 workflow 都在 `.github/workflows/`，第一个含 null 值的键确实存在，故一直没暴露 | **部分成立** | 事实对：`.github/workflows/docker-image.yml:6-10` = `on:` + `workflow_dispatch:`(null) + `push: tags: v*`；`.github/workflows/regression.yml:32-36` = `on:` + `pull_request: branches: [main]` + `workflow_dispatch:`(null)。但它附的「`:625-627` 只扫 `.gitea/workflows/`」行号错：真值是 `:605`（tree_revspec）与 `:630`（扩展名过滤），`:625-627` 是 entry match 块；`crates/rg-core/src/ci/mod.rs:83` 的 `:83` 正确 |
+| ②-d1 | 生产 5 个事件名 = `push` / `pull_request` / `merge_group` / `suggestion` / `manual`，`:280-316` 只映 3 臂 ⇒ **2 个**永不匹配 | **部分成立** | 结论方向对（`matches_event` 只有 `push` / `pull_request\|merge_group` / `_ => false` 三臂），但枚举错两处：`pull_request` **不是** trigger_type，漏了 `retry`。实测去重（`grep -rn 'trigger_type: "' crates/ --include=*.rs`，排除测试与 rg-ci 内部）：`push`（`crates/rg-http/src/lib.rs:3419`）/ `manual`（`api/ci.rs:519`）/ `retry`（`api/ci.rs:613`）/ `suggestion`（`api/reviews.rs:210`）/ `merge_group`（`pull_request/merge_queue.rs:557`）⇒ 未匹配是 **3 个（manual / retry / suggestion）**，不是 2 个。它引的四行均偏 6–7 行（指向 `.trigger_pipeline(` 调用而非字面量；`merge_queue.rs:557` 正确）。归入 B5-2 加强 |
+| ②-d2 | 建议单列 B5-11（P2）：`manual`/`retry`/`suggestion` 未进映射 ⇒ 手动触发「静默空跑」 | **不成立（重复）** | 命题与 B5-2（`manual`/`retry`/`suggestion` 在 gitea-only 仓库必失败）逐字同义，且 B5-2 的证据已含 `has_ci_config`（`rg-core/src/ci/mod.rs:76-91` 只看 `.gitea/workflows` 存在）⇒ `ci.rs:507` 的前置检查拦不住（`:508` 的 400 文案只提 `.ironforge-ci.yml`）。「静默空跑」这层后果同样被 `:703-705` 否掉：实际是 `no CI config found` 报错。不单列，不重复提 |
+| ③ | B5-2 与 B5-10 不同源（事件名缺映射 vs serde 的 Option 处理），两条独立 | **成立** | 机制不同层：`:312` 的 `_ => false` 与 `:58` 的字段类型。采信 |
+| ④-1 | 自订 N1：`workspace_path()` 真值 `:789-798` | **成立** | `:789` 为签名、`:795` `root.join("_ci_workspaces")`、`:798` 闭括号 |
+| ④-2 | 自订 N3：三连内置替换真值 `:820-822`（`:823` 空行、`:824` 已是 `replace_context_expression(…, "secrets", …)`） | **成立** | 逐行核对一致 |
+| ④-3 | 指我方：`validate_repo_name` 标 `:102-108` 只覆盖循环体、不含签名，「真值是 `:91-113`」 | **部分成立** | 「区间不含签名」成立；但它的真值错：实际函数是 `crates/rg-core/src/lib.rs:91-111`（`:91` 签名、`:102` `for c in name.chars()`、`:103` 字符判定、`:110` `Ok(())`、`:111` 闭括号）；它说的 `:101` 是 `TooLong` 错误的收尾 `)`、`:113` 不存在。且 `:102-108` **已含** `:103` 的 `c != '_'` 判定，足以证明「允许 `_`」这一命题——原引用不构成事实错。本轮已把引用收紧到 `:103`（见「本轮改动」） |
+| ④-4 | 我方 ⑤-3 的 `:290` 位次对，仅记录 | **确认** | `:290` = `workflow_dispatch: _,`（`:289` `schedule: _`、`:291` `workflow_call: _`） |
+| ⑤ | 下一轮可核范围（限文件清单） | **确认** | 接受，按文件范围复核 |
+| ⑥ | 本机无 cargo ⇒ 未跑 `check.sh`；未改产品代码、无新提交 | **确认** | 与前两轮一致；验证口径仍由 executor 本机出 |
+
+**探针（本节新增取证，可复跑）：`#[serde(default)]` 对 `Option` 是空操作**
+
+方法：临时 `crates/rg-ci/examples/zz_probe.rs`，用两个本地结构体（字段 `push: Option<Filter>`，一个有 `#[serde(default)]`、一个没有）分别解析四种输入，打印 `push.is_some()`；跑完 `rm` 文件、`git status --porcelain` 只剩本轮两个改动文件。
+
+```
+missing        no_default=Ok(false)  with_default=Ok(false)
+null           no_default=Ok(false)  with_default=Ok(false)
+explicit null  no_default=Ok(false)  with_default=Ok(false)
+value          no_default=Ok(true)   with_default=Ok(true)
+```
+
+- 读法：加不加 `#[serde(default)]`，缺失键与 `null` 都是 `None` ⇒ 「缺 default 才让二者不可区分」不成立，加 default 修不了 B5-10；`:58` 的修法只能是 `deserialize_with`（`workflow_call` 的 `:64-65` 是把「键存在」编码进 `Option<YamlValue>` 的 `Some`，与字段类型无关）。
+- 另一侧：`:59` / `:63` 也是无 `default` 的 `Option`，但 `pull_request` 与 `workflow_dispatch` 的「永不匹配」各自另有成因（`:302` / `:312`），不靠这条探针。
+
+**本轮改动（2 文件 2+/2−，零行号漂移）**：
+
+1. `crates/rg-ci/src/gitea_actions.rs:279`：`matches_event` 的 doc 补「只有 `push` / `pull_request` / `merge_group` 有臂：裸 `push:`（null）与缺失键不可区分，其余 trigger type 一律落到 deny-all 臂」。
+2. `crates/rg-ci/src/lib.rs:598`：`try_read_gitea_workflows` 的 doc 补三个 `Err` 出口（目录缺失 / 文件展开失败 / 无 workflow 命中），并写明空结果不会以空 `CiConfig` 返回。
+3. 本台账：`batch#5` 索引两行（第 3 轮复核 id / 进度 `2 / 6` → `3 / 6`）、尾部同名小节索引 `1..40` → `1..43`、本节。
+
+两处源码改动均 1 行→1 行，改后五文件行数指纹仍 **1857 / 1297 / 1065 / 326 / 315**。
+
+**未做（L2 待拍板 batch#5，本流程不动 main）**：
+
+- **B5-10 机制订正（并入 B5-10，不新增条目）**：修法写死为 `#[serde(default, deserialize_with = "deserialize_present_yaml")]` 并只认 `Some(YamlValue::Null)` 为「无过滤 = 全匹配」；**不要只加 `#[serde(default)]`**（探针已证空操作）。范围扩到 `:58` / `:59` / `:63` 三个裸键。
+- **B5-2 加强**：未匹配的 trigger_type 是 **3 个**（`manual` / `retry` / `suggestion`），不是 2 个；`retry` 同样经 `read_ci_config`（`rg-ci/src/lib.rs:131` 直接把 `trigger_type` 当 `event` 传入），故 gitea-only 仓库的重试也会失败。
+- **B5-1 加强**：`no matching workflows`（`:704`）是 `:568` 吞掉的第三个出口，用户可见后果是 `no CI config found (.gitea/workflows/*.yml or .ironforge-ci.yml)` 这条误导文案（`:574-580`）。
+- B5-3 / B5-4 / B5-5（含 `$( )` 与 `$VAR` 面）/ B5-6 / B5-7 / B5-8 / B5-9 维持原状，无新增证据。
+
+**反向清单（本节新增 2 条，累计 1..43）**：
+
+42. 「我方第 2 轮判定表只有 13 行 `\| ` 开头（声明 15 条），成因是 grep 口径漏算空 `#` 格子」—— 反证：`awk '/^### consume 2 \/ 6（batch#5）/{f=1;next} /^### consume 3 \/ 6（batch#5）/{f=0} f&&/^\| /{c++} END{print c}'` 对台账输出 **16**（1 表头 + 15 数据行），`grep -c '^| '` 同值；第 2 轮判定表每行 `#` 列都有值（①-1…⑤-4），不存在空格子。**已核实为不成立，不要重复提。**
+43. 「裸 `on: push:` ⇒ `try_read_gitea_workflows` 返回 `Ok(CiConfig{jobs:{}})` ⇒ `:568` 直接 return ⇒ 整目录哑火、同目录其它正确 workflow 一起不执行」—— 反证：`crates/rg-ci/src/lib.rs:703-705` 的 `if all_jobs.is_empty() { anyhow::bail!("no matching workflows found in .gitea/workflows/") }` 使空 config 永不作为 `Ok` 返回；`:657` 的 `continue` 是逐文件，`:647` 的循环继续处理其它文件。真实后果是回落 native 后的 `no CI config found (…)` 文案（`:574-580`）。**已核实为不成立，不要重复提。**
+
+**对方行号/计数误差（非结论位置）**：`lib.rs:625-627`（真值 `:605` / `:630`）；`ci.rs:513` / `:607` / `reviews.rs:204` / `rg-http/src/lib.rs:3412`（真值 `:519` / `:613` / `:210` / `:3419`，均偏 6–7 行指向调用而非字面量）；`validate_repo_name` 的「真值 `:91-113`」（真值 `:91-111`，`:101` 是 `)`、`:113` 不存在）；判定表行数 13（真值 15）。
+
+**验证**：`BASE=ff68f5a`。改前 `scripts/check.sh --quick` **`EXIT=0`**（executor 本机 `Darwin arm64` / `cargo 1.99.1`，`2026-11-11T12:30:51Z` 起，关键行原文 ``Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 40s`` / `==> checks passed in 102s (quick)`；102 s 是 WT 内 cargo 指纹不全的局部重编，见 `docs/reports/OPT-LOOP-WORKTREE.md` §5.5）。改后同命令 **`EXIT=0`**（`2026-11-11T12:34:11Z`，``Finished `dev` profile … in 2.88s`` / `==> checks passed in 4s (quick)`）。
+
+**改动 SHA**：`c0a11b5`（2 文件 2+/2−），推 `cnb` 单 remote。**时刻锚** = 本提交 author date（`git log -1 --format=%aI c0a11b5` 可复算），改后验证发生在其之前。
