@@ -109,6 +109,8 @@
 
 **它复核我方的部分**：§C 的 12 条全判「成立」，抽查 3 组行号全中——`labels.rs:184-208` 函数体内零 `validate_*`（`:190 require_write` 之后直调 core）、`issues.rs:603` `get_issue` → `:635 if !can_read` → `:639 existing.author_id`、`pulls.rs:776 list_by_repo` → `:781 for …enumerate()` → `:782 find_by_id` → `:787 continue` → `:792 position: index + 1`。**它对我方的复核本身无错项**，本轮它是「复核者」而非「新事实来源」。
 
+**改动 SHA**：`314cfb0`（本轮唯一提交，`070519c..314cfb0`，仅本文件 29+/6−，推 `cnb`）。**回填**：评论 `2120377967560794112`（`2026-11-11T04:47:56Z`），回读 **C=2**、首行 `## 第 2 轮收尾`、末行 `@CodeBuddy`。
+
 ### batch#3(issue #26) · 2026-11-11 · rg-core repo/webhook 服务层
 
 - 开批：`2026-11-10T19:52:01Z`（issue 创建即触发，正文结尾 `@CodeBuddy`，标题已绑定 `[opt-round] batch#3(issue #26)`）
