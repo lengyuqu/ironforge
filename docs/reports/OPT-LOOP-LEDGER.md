@@ -1716,7 +1716,7 @@ on: {push: {}, unknown_key: 1}    event=manual            parse=Ok  matches=fals
 - 判定：**成立 8 / 部分成立 6 / 不成立 4**（另我方自查成立 1）。
 - 动作：L1 ①`crates/rg-core/src/auth/pat_scope.rs` 文档注释 10 行→10 行改成「三族放行」口径（原写「The one exception is the file-edit route」，与 `:325`/`:328`/`:334` 的实现不符）；②新增 `ironforge-docs/architecture/route-metadata-registry-2026-11.md`（核实清单 + P0–P3 落点 + L2 边界）；③`ironforge-docs/README.md` 索引 +1 行。
 - 验证：`scripts/check.sh --quick` 改前 **209 s `EXIT=0`**（`Finished \`dev\` profile [unoptimized + debuginfo] target(s) in 3m 28s` / `checks passed in 209s (quick)`）→ 改后 **77 s `EXIT=0`**（`Finished \`dev\` profile [unoptimized + debuginfo] target(s) in 1m 15s` / `checks passed in 77s (quick)`）。executor 本机 `Darwin arm64` / `cargo 1.99.1`；复算环境无 cargo 时本项不可验。
-- 回帖：`PENDING`｜首行 `## 本轮收尾`（不占批次 C）。
+- 回帖：`2120589349254234112`（`2026-11-11T18:47:54Z`，8233 字符）｜首行 `## 本轮收尾`（不占批次 C），发后回读首行与 55 条编号均独立成行。
 - issue 状态：保持 open（本单无验收标准，关单要人拍板）。
 
 判定表（NPC 分析 `2120148552465694720` 的编号小节逐条）：
@@ -1757,4 +1757,4 @@ on: {push: {}, unknown_key: 1}    event=manual            parse=Ok  matches=fals
 52. 「`REGISTRY` 有 30 个 capability、78 条路由」——实测 **27 / 75**（`grep -c '^    Capability {'`、`grep -c '^\s\+r('`，REGISTRY 段）。它自己的基线 `cba96ba` 上也是 27/75。
 53. 「全站 298 个 `.route()`」——实测 **342**（`crates/` 全仓），其中 `rg-http/src/lib.rs` **323**；`cba96ba` 上是 **320**。
 54. 「298 × 4 = 1200 个判断点」——实测 **300**（75×4）/ **150**（75×2）。分母错，结论（成本高）仍成立，但量级差 4 倍。
-55. 建议代码块里的 `／/ ↓ 新增` 是全角斜杠（U+FF0F），照抄**编译不过**；引用它的任何片段前先换成 `//`。
+55. 「建议代码块里的 `／/ ↓ 新增` 能照抄」—— **不成立**：那是全角斜杠（U+FF0F），照抄编译不过；引用它的任何片段前先换成 `//`。
