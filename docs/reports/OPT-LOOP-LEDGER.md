@@ -1863,4 +1863,5 @@ on: {push: {}, unknown_key: 1}    event=manual            parse=Ok  matches=fals
 
 **验证**：`BASE=2043fb3`。改前 `scripts/check.sh --quick` **`EXIT=0`**（executor 本机 `Darwin arm64` / `cargo 1.99.1` / `2026-11-11T20:44:49Z` 起 **76 s**，``Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 15s`` / `==> checks passed in 76s (quick)`）。改后同命令见本节的回填提交（同一 WT、同一 `CARGO_TARGET_DIR`）。
 
-**改动 SHA**：`（回填填写）`。**回帖**：`（回填填写）`。
+**改动 SHA**：`1c0a87e`（2 文件 `47+/5−`），推 `cnb` 单 remote（`2043fb3..1c0a87e  HEAD -> main`）；合流后 `git merge-base --is-ancestor 1c0a87e cnb/main` 通过，主工作区 `merge --ff-only` 到 `1c0a87e`、`status --porcelain` 0 行。**时刻锚** = 本提交 author date（`git log -1 --format=%aI 1c0a87e`）。
+**回帖**：`2120619579549306880`（`2026-11-11T20:48:01Z`，回读首行 `## 本轮收尾`、末段 `@CodeBuddy`、19945 字符、60 条编号独立成行）。首行 `## 本轮收尾`（**不带轮次号**，不占批次 C）。issue 状态**保持 open**。改后验证见上文（`20:47:11Z` 起 2 s，在回帖之前）。
