@@ -24,6 +24,9 @@ ignore = [
   # (9.0.2) still builds with zip 3; the first one on zip 9 is 10.0.2, which
   # needs utoipa 6, a separate migration. Remove when utoipa-swagger-ui is
   # upgraded to >= 10.0.2.
+  # Until then keep that copy at zip 2.4.2 in Cargo.lock: a plain `cargo update`
+  # moves it to 2.6.1, whose API change breaks utoipa-swagger-ui 8.1.0's build
+  # script. Re-pin with `cargo update -p zip@2.6.1 --precise 2.4.2`.
   "RUSTSEC-2026-0367",
   "RUSTSEC-2026-0368",
   "RUSTSEC-2026-0369",
