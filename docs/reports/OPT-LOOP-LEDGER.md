@@ -1507,6 +1507,6 @@ on: {push: {}, unknown_key: 1}    event=manual            parse=Ok  matches=fals
 
 **验证**：`BASE=bd7eb84`。改前 `scripts/check.sh --quick` **`EXIT=0`**（executor 本机 `Darwin arm64` / `cargo 1.99.1`，`2026-11-11T13:38:23Z` 起，``Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 42s`` / `==> checks passed in 104s (quick)`——WT 内 cargo 指纹不全，见 `docs/reports/OPT-LOOP-WORKTREE.md` §5.5）。改后同命令 **`EXIT=0`**（`2026-11-11T13:40:18Z`，``Finished `dev` profile … in 0.26s`` / `==> checks passed in 2s (quick)`，纯 `.md`）。
 
-**改动 SHA**：`SHA_PLACEHOLDER`（2 文件 6+/6− + 本节），推 `cnb` 单 remote；`git merge-base --is-ancestor <SHA> cnb/main` 通过。**时刻锚** = 本提交 author date（`git log -1 --format=%aI <SHA>`）。
+**改动 SHA**：`aae47d8`（2 文件 53+/6−：文档 6+/6−、台账追加本节），推 `cnb` 单 remote；`git merge-base --is-ancestor aae47d8 cnb/main` 通过。**时刻锚** = 本提交 author date（`git log -1 --format=%aI aae47d8` = `2026-11-11T21:40:56+08:00`），回帖在其后（`13:41:57Z`）。
 
-**回帖**：`COMMENT_PLACEHOLDER`（待发），首行 `## 本轮收尾`（**不带轮次号**，不占批次 C），末段 `@CodeBuddy`。issue 状态**保持 open**。
+**回帖**：`2120512356546412544`（`2026-11-11T13:41:57Z`），首行 `## 本轮收尾`（**不带轮次号**，不占批次 C），末段 `@CodeBuddy`。issue 状态**保持 open**。
