@@ -1925,3 +1925,62 @@ on: {push: {}, unknown_key: 1}    event=manual            parse=Ok  matches=fals
 - **自证两处误差**：①覆盖边界写「`record_write` 12 个调用点 … `lib.rs` 1」——真值 **11**，`grep -rn 'record_write(' crates/` 的 12 行里含 `api/audit.rs:324` 的定义行，`rg-http/src/lib.rs` 一条调用都没有（4+3+2+1+1 = 11）。已改。②测试段把起手写成「`up(None)` 迁满 99 条后回滚」，漏了 `:926-929` 的 `up(Some(74))`——`up(None)` 是场景内那一句（`:960`），真正**先**发生的是按名字算出的 `before = position("m20261015_000001") + 1` = 74。已补全三步（`up(Some(74))` → `up(None)` → `down(25)` 回到 74），并写明「别顺手改起始点，它钉的是名字不是序号」。**第 61 条结论不变**：窗口 = 99 − 74 = 25。
 - **复核方三项请求的答复**：①设计文档 T23 段（`:288-322`）的「覆盖边界」与 `:292` 的「代表谁要 join `users.owner_user_id` 才知道」**互不矛盾**（前者说写入侧谁填这列、后者说查询侧现在为什么绕不开 join）；②`crates/rg-db/src/lib.rs:1022-1027` 改后的「anchor itself plus every migration after it」与 `down(25)` 理解**一致**（99 起手 − 25 = 74）；③反向清单第 61 条**维持不成立**，复核方亦未反驳探针数据，只要求确认。
 - **本轮无新增反向清单条目**（累计仍 1..61）；第 2 轮不占批次 C，issue #33 保持 open。
+
+---
+
+### 单发轮 · issue #15 · 2026-11-12（第 1 次进入；修正上一轮选靶口径）
+
+protocol=v0.11
+
+- 选靶：open **17 条全 MANUAL**（`[opt-round]` **0** 条 ⇒ 第二段无对象）。平台侧 `^## 本轮收尾` 计数：**#14 = 3**、**#33 = 1**、其余 15 条（#15–#19、#34–#43）= **0**。按协议 **§5.2.1** 排序键 `(消费次数 asc, 编号 asc)` ⇒ **#15**（统一事件总线）。
+  - **修正上一轮的算术**：`单发轮 · issue #33` 节写「其余 16 条（#15–#19、#33–#43）= 0 … 取零消费里编号最小的 #33」——#15 < #33，该结论与它自己的数据矛盾。本轮按同一排序键取 **#15**；#16/#18 有已开 PR（#23/#20）在跑，仍按协议先清最小的未消费项。
+  - 与任务书的键冲突（`priority` 全空会退化回 #14 第 10 次）沿用上一轮处理：以 §5.2.1 为准，在此声明。
+- 让位判据：`cnb/main` tip `8d107d8`（`2026-11-12T05:58:43+08`，距开工 **60 min**）；`git worktree list` 另 8 个 WT 最新 mtime `2026-11-12 02:25`、`status --porcelain` 全 0 行；锁 `mkdir` 一次成功、无 owner 残留 ⇒ 无并发写者。
+- **外部推进（§5 判据 5，第 15 笔）**：`8d107d8` 作者 `cnb.biewen <…@noreply.cnb.cool>`，由 NPC 在 issue #33 回帖 `2120637424500916224` 自述「已修（`8d107d8`）」⇒ 越权直推。处置：遍历 diff（`crates/rg-db/src/lib.rs` 7 行、设计文档 6 行、台账 10 行）**只订正我方 #33 两项事实**（`record_write` 调用点 12→11；`down` 测试起手链补 `up(Some(74))`），**第 61 条结论未改**、无「改判」⇒ 不 revert；本轮基线改用 `8d107d8` 并重跑（见下验证）。
+- 基线：`BASE=8d107d8`；本批涉及文件行数指纹（`wc -l`）：`webhook/service.rs` **561**、`repo_event_ops.rs` **104**、`repo_events.rs` **255**、`ws.rs` **633**、`server.rs`（rg-mcp）**…**、`pull_request/service.rs` **2000**、`harness-integrated-roadmap-2026-11.md` **158**，与 `git show 8d107d8:` 同 ⇒ 零漂移。
+- 判定汇总：NPC 8 项事实 + 3 项设计建议 → **成立 6 / 部分成立 2 / 不成立 1 / 设计建议 1（不判真假，登记 L2）**。
+
+判定表（`:<n>` 均指 `8d107d8` 树；全部 `sed -n '<l>p'` 打印核对过）：
+
+| # | 它说的 | 判定 | 证据与处置 |
+|---|---|---|---|
+| 1 | `trigger_event` 一个函数同时做三件事（写日志 → 查 webhook → spawn 投递），"三条路"应修正为「一条入口 + 两个旁路」 | **成立**（行号偏 13 行） | 真值 `crates/rg-core/src/webhook/service.rs:131`（`:118` 落在 `update_webhook` 的 events 组装里）；`:140 record_repo_event` → `:142 list_active_by_repo_and_event` → 之后 `tokio::spawn`。**补它没说的**：另有 **13** 个 `trigger_*` 助手（`:409`–`:551`）全部只调 `trigger_event(db, repo_id, …)`（`grep -c` = 13）⇒ 入口是 1 个函数 + 13 个命名糖 |
+| 2 | 三个消费者形态不同：webhook 至少一次 / 长轮询读已提交行 / WS `broadcast(256)` 至多一次 / MCP 无 subscribe | **成立** | `ws.rs:28 const NOTIFICATION_CHANNEL_CAPACITY: usize = 256;`；`repo_events.rs:162` 走 `list_after`、`:186` 标 `payload_origin: "user_content"`；`rg-mcp/src/server.rs:20-21` 只 `resources/list`+`resources/read`，`initialize` 回 `"resources": {"subscribe": false}`（`:41`）；WS 发布点只 4 处（`rg-http/src/lib.rs:3440`/`:3579`、`collab_tasks.rs:284`、`collab_questions.rs:170`） |
+| 3 | 「尽力而为」比文档更弱：事件日志在业务事务提交后才写，失败只 warn | **成立**（一处行号偏 1） | `issue/service.rs:56 begin` → **`:59 commit`**（它写 `:56-58` 提交）→ `:70 trigger_issue_opened`；`pull_request/service.rs:1649 begin` → `:1666 commit` → `:1668` 注释 `outside the transaction on purpose`；`record_repo_event`（`webhook/service.rs:227`）失败仅 `tracing::warn!`（`:238-239`），全文件唯一调用点是 `:140` |
+| 4 | 双写已在产生分叉：`push` 走 webhook+WS 但不写 notifications；`issue.opened` 只写 webhook 不写 WS；`collab.question.asked` 走 webhook 而 `collab_question` 走通知+WS | **部分成立**（前两例成立，第三例不成立） | 前两例成立：`notify_watchers_push` 定义 `rg-core/src/repo/service.rs:1590`、全仓零调用者；`lib.rs:3579` 推 WS `"push"`；`issue/service.rs:70` 只触发 webhook。**第三例不成立**：`collab_questions.rs` 同一 handler 顺序做三件事——`:162` 通知、`:170` WS、`:182` webhook；`collab_tasks.rs:268` webhook / `:276` 通知 / `:284` WS ⇒ 分叉不在消费者归属，而在同一件事三套命名。**已核实为不成立，不要重复提（反向清单 62）** |
+| 5 | 障碍 1：`rg_db::ops::*` 签名**一律** `&DatabaseConnection`，要改成 `&impl ConnectionTrait`，约 **30–50** 个函数签名 | **不成立** | 实测按函数签名切分（非按行 grep）：`crates/rg-db/src/ops/*.rs` 共 **615** 个 `pub async fn`，其中 **117** 个已泛型 `C: ConnectionTrait`、**498** 个仍写死 `&DatabaseConnection`。且事务**已经**能穿进 ops：`pull_request/service.rs:1650 pull_request_ops::update(&txn, …)`、`:1651 pr_event_ops::record(&txn, …)`。⇒ E0 的真实规模是「收敛 498 处 + 改 6 个事件入库点」，把量级写成 30–50 低估一个数量级。**已核实为不成立，不要重复提（反向清单 63）** |
+| 6 | 障碍 2：有些事件没有业务事务可依附（git push 是 ref 更新 + 后续 hook） | **成立** | `rg-http/src/lib.rs:3504` 即 `// 2. Trigger push webhook` 段起点，其前的 ref 更新不经过 DB 事务；结合第 3 条 ⇒ 崩溃窗口内「ref 已更新、事件未入队」可达 |
+| 7 | 障碍 3：`repo_events.id` 自增、长轮询按 `id > since` 读；自增分配顺序 ≠ 提交顺序，一旦搬进事务就会永久漏事件 | **成立** | `crates/rg-db/src/ops/repo_event_ops.rs:8-22` `append` 用 `id: NotSet` 自增、签名 `&DatabaseConnection`；`:52` `list_after` 走 `id > since`；`repo_events.rs:43` 只校验 `since >= 0`。**补充**：今天之所以没踩，是因为 append 不在业务事务里——这属于「侥幸」而非「设计」 |
+| 8 | ⚠️ `webhook_ops.rs:43` 的 `Column::Events.contains(event)` 是 LIKE 子串匹配，`push` 会命中 `prepush` 之类 | **部分成立** | 行号真值 **`:44`**（`:43` 是 `Active.eq(true)`）；`contains` 编译成 `events LIKE '%<投递名>%'`，左值是落库的订阅串。方向对（订阅串被当子串匹配），但**当前 16 个投递名里没有任何一个是别的订阅名的子串**，构造不出它举的例子；已知真实缺陷是反方向那条——订阅写简称 `["issues"]` 永不命中 `issues.opened`（反向清单 32 已锁死不可重提，此处只作机制说明）。改匹配语义动 `webhook_ops` 契约 ⇒ L2（R15-7） |
+| 9 | 3.1 信封 / 3.2 `event_outbox` 表 / 3.3 四类消费者接法 / 3.4 scope / 3.5 用 outbox 做失效广播 | **设计建议，不判真假** | 已逐条读；其中 `CLAUDE.md:185`「多实例部署的进程内状态」与它引用的三处（权限缓存 30s TTL、限流桶逐实例、实例设置不传播）**对得上**。方案本体改 schema/契约 ⇒ 全部落 L2（R15-1…R15-6），本轮不落代码 |
+
+**本轮改动**（4 文件：1 新文档 + 2 处指针 + 台账；**零代码改动**）：
+
+1. 新增 `ironforge-docs/architecture/event-bus-current-state-2026-11.md`（**84 行**）：现状核实（入口/消费者/事务边界/游标/分叉）+ 三处订正（ops 层 615-117-498、collab 三写同路径、两处行号）+ 六个待拍板决策点（R15-1…R15-6）。所有 `path:line` 逐个 `sed -n` 打印核对过；`server.rs` 的 `subscribe: false` 首次写错成 `:44`（真值 `:41`），自查后订正。
+2. `ironforge-docs/architecture/harness-integrated-roadmap-2026-11.md` §4.5 末追加空行 + 1 段指针（共 2 行，指向新文档并声明「本文只写目标语义」）。
+3. `ironforge-docs/README.md` 架构表单行新增该文档索引（1 行）。
+4. 本台账。
+
+**新立待拍板（L2，本流程不动 main）**：
+
+- **R15-1（P2）** 事件表与信封：新建 `event_outbox`（`scope_level/owner_id/repo_id/actor/occurred_at/user_content`）还是扩 `repo_events`；`repo_events` 退化为 Repo scope 视图需一个保留周期。锚点 `repo_event_ops.rs:8-22`。
+- **R15-2（P2）** 乱序提交定序：`id_hi` 双列（提交后才填、`NULL` 未定序）vs 事务级串行化（SQLite 无 `GET_LOCK`，跨后端不成立）。读端 `list_after` 与 `next_cursor` 语义随之改变。
+- **R15-3（P2）** ops 层收敛：**498** 处 `&DatabaseConnection` → `C: ConnectionTrait` 的批次与顺序（建议先 `audit`/`notification_ops`/`repo_event_ops` 三处）。规模见判定表第 5 条。
+- **R15-4（P2）** 无业务事务的事件（git push `lib.rs:3504`、CI 触发）走 `operations` 预插 + 对账，还是先接受「尽力而为」并写进文档。
+- **R15-5（P2）** scope 模型：一条事件一行 scope（跨 scope 复制）vs 单 scope 字段 + join；实例流是否会成为越权读口子（须实时鉴权，不缓存）。
+- **R15-6（P3）** SSE 与 MCP `resources/subscribe` 的顺序（依赖 R15-2；`rg-mcp/src/server.rs:41` 现为 `false`）。
+- **R15-7（P3）** `webhook_ops.rs:44` 的 LIKE 匹配语义：改逗号包裹匹配或独立关联表（动 `webhook_ops` 契约 + 既有订阅串迁移）。
+
+**验证**：`BASE=8d107d8`。
+- 改前 `scripts/check.sh --quick` **`EXIT=0`**（executor 本机 `Darwin arm64` / `cargo 1.99.1` / 起 `2026-11-11T23:01:46Z`，**104 s**，原文 ``Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 42s`` / `==> checks passed in 104s (quick)`）。
+- 改后同命令见下方「改动 SHA」段（同一 WT、同一 `CARGO_TARGET_DIR`）。
+
+**反向清单（本节新增 2 条：62、63，累计 1..63）**：
+
+62. 「`collab.question.asked` 走 webhook、而 `collab_question` 走通知+WS —— 同一件事三种命名、三处代码（双写分叉第三例）」—— **不成立**：`crates/rg-http/src/api/collab_questions.rs` 的同一个 handler 顺序做三件事（`:162` `human_notify::question_asked`、`:170` `ws::push_notification`、`:182` `webhook_events::question_asked`）；`collab_tasks.rs` 同形（`:268` webhook、`:276` 通知、`:284` WS）。分叉不是「消费者归属不同」，而是同一件事被三套命名各自实现。**已核实为不成立，不要重复提。**
+
+63. 「`rg_db::ops::*` 的签名一律是 `&DatabaseConnection`，要改成 `&impl ConnectionTrait`，工作量约 30–50 个函数签名（E0 的硬阻塞）」—— **不成立**：615 个 ops 函数里 **117** 个已是 `C: ConnectionTrait` 泛型，**498** 个仍写死 `&DatabaseConnection`；且事务已能穿进 ops（`pull_request/service.rs:1650`/`:1651` 传 `&txn`）。E0 不是从零放宽，而是收敛 498 处 + 改 6 个事件入库点。**已核实为不成立，不要重复提。**
+
+**对方误差（非结论位置，勿当结论引用）**：①`trigger_event` 标 `:118`（真值 `:131`）；②`issue/service.rs:56-58` 说「提交 txn」（真值 `:56 begin`、`:59 commit`）；③`webhook_ops.rs:43`（真值 `:44`）；④`rg-mcp` 只说「无 `subscribe`」而没写 `initialize` 里显式 `subscribe: false`（`server.rs:41`）。
+
+**改动 SHA / 回帖（回填）**：见本文件末尾回填行。

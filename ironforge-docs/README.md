@@ -44,6 +44,7 @@
 | `client-cli-design-2026-11.md` | 用户侧 API 客户端 CLI（`ifg`）设计草案（Proposed） |
 | `harness-native-design-2026-11.md` | 面向 AI Agent/Harness 的接口、凭据策略与事件设计草案（Proposed） |
 | `harness-integrated-roadmap-2026-11.md` | Codex 建议与 Claude 方案对照、整合优先级、实施依赖与验收矩阵（Proposed） |
+| `event-bus-current-state-2026-11.md` | 事件总线现状核实：入口/消费者/事务边界/游标实测，三处误读订正，六个待拍板决策点 |
 | `multi-agent-collaboration-design-2026-11.md` | 同账号多 Agent 协作首版：接口、数据模型、实施任务与验收（已实施，§9 记录偏差） |
 | `multi-agent-collaboration-verification-2026-11.md` | 协作首版 C01–C06 / T01–T12 的分层验证证据、环境与未验证项 |
 | `agent-collaboration-implementation-roadmap-2026-11.md` | 多 Agent 协作首版、P0–P2 实施依赖、任务拆分与验收门槛（Proposed） |
