@@ -1285,3 +1285,5 @@ value          no_default=Ok(true)   with_default=Ok(true)
 **验证**：`BASE=ff68f5a`。改前 `scripts/check.sh --quick` **`EXIT=0`**（executor 本机 `Darwin arm64` / `cargo 1.99.1`，`2026-11-11T12:30:51Z` 起，关键行原文 ``Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 40s`` / `==> checks passed in 102s (quick)`；102 s 是 WT 内 cargo 指纹不全的局部重编，见 `docs/reports/OPT-LOOP-WORKTREE.md` §5.5）。改后同命令 **`EXIT=0`**（`2026-11-11T12:34:11Z`，``Finished `dev` profile … in 2.88s`` / `==> checks passed in 4s (quick)`）。
 
 **改动 SHA**：`c0a11b5`（2 文件 2+/2−），推 `cnb` 单 remote。**时刻锚** = 本提交 author date（`git log -1 --format=%aI c0a11b5` 可复算），改后验证发生在其之前。
+
+**回帖**：`2120495801389465600`（`2026-11-11T12:36:10Z`），回读 **C=3**（首行 `## 第 3 轮收尾`、末行 `@CodeBuddy`、正文 20598 字符、平台侧仅 1 条 K=3 收尾，无重复投递）。
