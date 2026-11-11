@@ -1214,3 +1214,5 @@ on:\n  workflow_dispatch:\n    inputs:\n      x:..."   | push=false workflow_dis
 **验证**：`BASE=f9b8d5a`。改前 `scripts/check.sh --quick` **`EXIT=0`**（executor 本机 `Darwin arm64` / `cargo 1.99.1`，`2026-11-11T11:23Z` 后，关键行原文 `==> cargo fmt --all --check` / ``Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.24s`` / `==> checks passed in 2s (quick)`）。改后同命令 **`EXIT=0`**（`Finished `dev` profile … in 2.78s` / `==> checks passed in 4s (quick)`，rg-ci + rg-cli 因注释变更重编译）。
 
 **改动 SHA**：`f2dd6d2`（1 文件 1+/1−），推 `cnb` 单 remote。
+
+**回帖**：`2120478680609624064`（`2026-11-11T11:28:08Z`），回读 **C=2**（首行 `## 第 2 轮收尾`、末行 `@CodeBuddy`、正文 19872 字符、平台侧仅 2 条收尾无重复投递）。
