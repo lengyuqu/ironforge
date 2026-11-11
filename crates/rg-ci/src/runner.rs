@@ -13,7 +13,7 @@
 //!   `--allow-host-execution`): its script is repository content, so running it
 //!   on the host is code execution as the server user.
 //! - Local execution sanitizes the environment to avoid leaking sensitive vars.
-//! - On timeout the local child is killed; the `docker run` child is not (`kill_on_drop` unset).
+//! - On timeout the local child is killed; the `docker run` child is not (`kill_on_drop` unset), so its named container keeps running afterwards.
 
 use anyhow::{Context, Result};
 use sea_orm::DatabaseConnection;
