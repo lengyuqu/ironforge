@@ -55,7 +55,7 @@
 |---|---|---|---|
 | capability 数 | 30 | **27** | `grep -c '^    Capability {'`（REGISTRY 段） |
 | 注册路由数 | 78 | **82** | 括号匹配计数（`r(` 起点逐个匹配到闭合 `)`）；`grep -c '^\s\+r('` 只得 **75**，漏 7 处 `routes: &[r(` |
-| 不同路径数 | 无 | **65** | 82 条路由按 `path` 去重；差额 17 = 17 个「同路径多方法」族 |
+| 不同路径数 | 无 | **65** | 82 条路由按 `path` 去重；差额 17 = 17 个「同路径多方法」族。**不要用行首计数**：`grep -c '^\s\+r('` 只得 75 条路由 / 58 个路径（差 7 处 `routes: &[r(` 内联形；`:159`/`:160` 的路径还是 `const SESSIONS`，行内无字面量） |
 | 全站 `.route()` | 298 | **342**（`rg-http/src/lib.rs` 单独 **323**；它自己的基线 `cba96ba` 上是 320） | `grep -rn '\.route(' --include=*.rs crates/ \| wc -l` |
 | 「1200 个判断点」（298×4） | 1192 | **328**（82×4）；只做 P0 是 **164**（82×2） | 同上 |
 | `path_in_allowlist` 位置 | `pat_scope.rs:293` | **`:174`**，拒绝表 `:189`；`:293` 落在 `ref_limited_write_allowed` 的文档注释里 | `grep -n '^pub fn path_in_allowlist'` |
@@ -69,7 +69,7 @@
 
 ## 4. 一次到位的成本
 
-「全站唯一清单 + 未声明即拒绝」要求 `required_pat_scope` 的每一族都在表里：git、OCI、WebSocket、runners、metrics、`/health`、`/api-docs`。半张表比现状更危险——`required_pat_scope` 的未知前缀兜底是 `admin`（`crates/rg-http/src/lib.rs:2127`），漏登记 `GET /health` 就是全员 403。
+「全站唯一清单 + 未声明即拒绝」要求 `required_pat_scope` 的每一族都在表里：git、OCI、WebSocket、runners、metrics、`/health`、`/api-docs`。危险的是**缺省填真值**的半张表——漏登记一族就按那个真值放行或拒绝，与今天的 fail-closed 兜底同构（`crates/rg-http/src/lib.rs:2127` 的兜底是 `admin`，能撞上它的是**未知前缀**；`/api-docs`、`/health`、`/metrics` 在 `:2083-2084` 就先 `return None`，根本走不到兜底）；缺省填 `PatScope::Undeclared` 哨兵并回落前缀表时，半张表与今天逐字相同（§5.1 第 2 条）。
 
 按 241 条新增路由 × 4 个字段，是 **964** 个判断点；即使只做 P0（2 个字段）也是 482 个。这不是一次 PR 的体量，也不该由一个只有文档权限的流程来改。
 
@@ -78,7 +78,7 @@
 | 阶段 | 内容 | 消费方 | 前置条件 | 本流程是否做 |
 |---|---|---|---|---|
 | **P0** | `Route` 加 `pat_scope` + `response_secret`；`REGISTRY` 仍只管 `/collaboration/**` | `idempotency_supported` 改查表；`required_pat_scope` 对 `/collaboration/**` 改查表，其余族保持前缀表 | **82** 处 `r(...)` 调用点补齐，**或**改用哨兵缺省回落前缀表（§5.1）；两条派生路径的等价性测试 | 否（L2） |
-| **P1** | 加 `x_repo_ref`，替掉 `path_in_allowlist` 的四个拒绝模式 | `repo:read`/`repo:write` 判定前的跨仓引用检查 | 三条请求体字段名与 `serde` 键集合对齐测试 | 否（L2） |
+| **P1** | 加 `x_repo_ref`，替掉 `path_in_allowlist` 的四个拒绝模式（`:183-184` 两族共用同一张拒绝表；今天只有 `/repos/**` 族可达这四个模式——`/ai/repos/**` 的 7 条路由无 fork/transfer，连 `collaboration/groups` 也没有） | `repo:read`/`repo:write` 判定前的跨仓引用检查 | 三条请求体字段名与 `serde` 键集合对齐测试 | 否（L2） |
 | **P2** | 加 `ref_effect`，替掉 `ref_limited_write_allowed` | 分支白名单收窄 | `contents`/`commits`/`branches` 三族的 handler 调用点全在案（今天 4 处，§2②）；`scripts/agent-e2e-remote.py` 的分支白名单用例回归 | 否（L2，安全关键） |
 | **P3** | `Capability.routes` 派生自全站 `REGISTRY`，打开「未声明即拒绝」 | 全站 PAT scope | 241 条路由全部登记 | 否（L2） |
 
