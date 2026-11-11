@@ -1413,3 +1413,7 @@ on: {push: {}, unknown_key: 1}    event=manual            parse=Ok  matches=fals
 45. 「batch#5 的第 4 轮节没有被「6 轮进度」指针收录（它引 `:66`）」—— 反证：`docs/reports/OPT-LOOP-LEDGER.md:53` 的 batch#5 进度行在 `ba78f72` 已改为 `**4 / 6**（各轮见文末 \`consume <K> / 6（batch#5）\` 节…）`；它引的 `:66` 属 batch#4 索引块，那条指针指向 `consume <K> / 6（batch#4）` 是正确行为。**已核实为不成立，不要重复提。**
 
 **验证**：`BASE=953946c`。改前即上一轮改后的同一棵树（`EXIT=0`，`checks passed in 4s`）；本轮改后 `scripts/check.sh --quick` **`EXIT=0`**（executor 本机 `Darwin arm64` / `cargo 1.99.1`，``Finished `dev` profile … in 2.71s`` / `==> checks passed in 4s (quick)`）。五文件行数合计仍 **4860**。
+
+**改动 SHA**：`b5a5b7b`（2 文件 31+/2−，源码仅 `lib.rs:598` 一行），推 `cnb` 单 remote。**时刻锚** = 本提交 author date（`git log -1 --format=%aI b5a5b7b`）。
+
+**回帖**：`2120502406373859328`（`2026-11-11T13:02:25Z`），首行 `## 第 5 轮收尾`、末行 `@CodeBuddy`、4900 字符；回读 K 集合 `{1,2,3,4,5}`、C=5，无重复投递。
