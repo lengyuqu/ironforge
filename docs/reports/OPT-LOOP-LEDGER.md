@@ -52,7 +52,7 @@
 
 ### consume 1 / 6（batch#4）
 
-- 收尾：K=1（回读 C=1；评论 id 与准确时间见本节末「回填」行）。BASE **`8c24c44`**（issue 声明 `b7a0ab2`；`git diff b7a0ab2..cnb/main -- crates/rg-http/src/api/` **空** ⇒ 零漂移，4 文件行数 1681/1261/902/242 与题述一致）
+- 收尾：`2026-11-11T03:42:43Z`，评论 `2120361552162230272`，K=1（回读 C=1，结尾 `@CodeBuddy` 独占末行）。BASE **`8c24c44`**（issue 声明 `b7a0ab2`；`git diff b7a0ab2..cnb/main -- crates/rg-http/src/api/` **空** ⇒ 零漂移，4 文件行数 1681/1261/902/242 与题述一致）
 - 验证：`scripts/check.sh --quick` 改前 **2 s EXIT=0** → 改后 **57 s EXIT=0**
 - 改动：`ef067be`（`crates/rg-http/src/api/validation.rs` 2 处注释，2+/2−，**行号零漂移**：`:49` 与 `:76-77`），推 `cnb`（`8c24c44..ef067be`）
 
@@ -86,7 +86,7 @@
 7. **B4-7（P3）** `list_requested_reviewers`（`reviews.rs:1029`）静默丢弃指向已删用户的请求，`request_reviewer`（`:1076`）同情形显式 404 ⇒ 同一数据两种口径。
 8. **B4-8（P3）** 缺超长 body 回归测试（`rg-http/tests/` 无 issue/PR body > 65536 用例）——这是 B4-1/B4-4 能长期存在的直接原因。
 
-**回填**：待回帖后补评论 id 与时间。
+**回填**：`2120361552162230272`（`2026-11-11T03:42:43Z`），回读 C=1。
 
 ### batch#3(issue #26) · 2026-11-11 · rg-core repo/webhook 服务层
 
