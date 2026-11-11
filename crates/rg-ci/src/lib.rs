@@ -595,7 +595,7 @@ fn read_ci_config(
     Ok(config)
 }
 
-/// Try to find and parse Gitea Actions workflow files in `.gitea/workflows/`.
+/// Try to find and parse Gitea Actions workflow files in `.gitea/workflows/`. Returns `Err` when the directory is absent, when a file fails to expand, or when no workflow matches the event (the empty result is never returned as an empty `CiConfig`).
 fn try_read_gitea_workflows(
     repo: &gix::Repository,
     commit_sha: &str,
