@@ -1614,7 +1614,7 @@ on: {push: {}, unknown_key: 1}    event=manual            parse=Ok  matches=fals
 - 选靶：MANUAL 七条（#13/#14/#15/#16/#17/#18/#19）里唯一带 `priority` 的（`P1`），其余为空 ⇒ 命中。最新评论 `2120530726020870144`（`2026-11-11T14:54:57Z`，`author.is_npc = true`，首行「## 复核回帖 · SHA `3490816`」）**晚于**我方上一条收尾 `2120530521410142208`（`14:54:08Z`）⇒ 有新 NPC 回复，不触发「跳过」。批次段仍无对象（open 7 条全 MANUAL，无 `[opt-round]`；batch#5 / issue #31 已 `closed/completed`）。
 - 让位判据：`git ls-remote cnb refs/heads/main` = `f822d50`，与本地 main 同点，且该提交是**我方上一轮的回填提交**（`docs(opt-loop): 回填单发轮 #13 四次消费的 SHA 与回帖 id`）；其余 6 个 worktree 最新 mtime `2026-11-11 15:19:47`（开工前 36 min）、`status --porcelain` 全 0 行；锁 `mkdir` 一次成功、无 owner 残留 ⇒ 无并发写者。
 - 基线：`BASE=f822d50`（零漂移）。WT `issue-13-manual`、分支 `opt/issue-13-manual-20261111`。
-- 判定汇总：**成立 6 / 部分成立 1 / 不成立 0**（其中 2 条为我方自查成立：归属虚假、清单指引腐坏）。本轮它未开新靶，6 条指摘里 4 条是对我方上一轮改动的复核确认。
+- 判定汇总：**成立 6 / 部分成立 1 / 不成立 0**，另我方自查成立 2 条（归属虚假、清单指引腐坏）。本轮它未开新靶，6 条指摘里 4 条是对我方上一轮改动的复核确认。
 
 判定表（`:<n>` 均指 `f822d50` 树）：
 
@@ -1632,7 +1632,7 @@ on: {push: {}, unknown_key: 1}    event=manual            parse=Ok  matches=fals
 
 **本轮改动**（4 处，全 L1 `.md`；前 3 处 1 行 → 1 行，零行号漂移）：
 
-1. `ironforge-docs/architecture/agent-principals-design-and-roadmap-2026-11.md:216`：换算链补「`2ce6d94` 时点 114」。**1 行 → 1 行，文档仍 666 行。**
+1. `ironforge-docs/architecture/agent-principals-design-and-roadmap-2026-11.md:216`：换算链补「`2ce6d94` 时点 114」。**1 行 → 1 行，该行 622→639 字符，文档仍 666 行。**
 2. `docs/reports/OPT-LOOP-LEDGER.md` 反向清单第 **46** 条：「输出三行 remote」→「输出三个 remote、六个 `fetch`/`push` 行」。**1 行 → 1 行，编号与条数不变。**
 3. 同台账「判定不成立」指引行：`1..45` → `1..48`，补「46–48 见文末 `### 单发轮 · issue #13 · 2026-11-11` 各节」。**1 行 → 1 行。**
 4. 本节（新增）。
@@ -1646,8 +1646,8 @@ on: {push: {}, unknown_key: 1}    event=manual            parse=Ok  matches=fals
 
 **对方误差（非结论位置，勿当结论引用）**：①「本轮改动」三条与「`check.sh --quick` 改后 `EXIT=0`」均非它所为（`3490816..cnb/main` 零外部提交、其容器无 `cargo`）；②它把自家容器的 remote 拓扑当我方树的事实（第 46 条已记，第三度复发）；③它引台账「`2ce6d94` 锚」时未注意该行已由我方 `3490816` 改写。
 
-**验证**：`BASE=f822d50`。改前 `scripts/check.sh --quick` **`EXIT=0`**（executor 本机 `Darwin arm64` / `cargo 1.99.1` / `2026-11-11T15:57:05Z` 起，``Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 15s`` / `==> checks passed in 76s (quick)`——WT 内 cargo 指纹不全，见 `docs/reports/OPT-LOOP-WORKTREE.md` §5.5）。改后同命令 **`EXIT=0`**（见下）。
+**验证**：`BASE=f822d50`。改前 `scripts/check.sh --quick` **`EXIT=0`**（executor 本机 `Darwin arm64` / `cargo 1.99.1` / `2026-11-11T15:57:05Z` 起，``Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 15s`` / `==> checks passed in 76s (quick)`——WT 内 cargo 指纹不全，见 `docs/reports/OPT-LOOP-WORKTREE.md` §5.5）。改后同命令 **`EXIT=0`**（`2026-11-11T15:59:11Z` 起，``Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.24s`` / `==> checks passed in 2s (quick)`）。
 
-**改动 SHA**：待回填。推 `cnb` 单 remote；合流后 `git merge-base --is-ancestor <SHA> cnb/main` 通过。**时刻锚** = 本提交 author date（`git log -1 --format=%aI <SHA>` 可复算）。
+**改动 SHA**：`4bc2039`（2 文件 `48+/3−`，全 `.md`）。推 `cnb` 单 remote（`f822d50..4bc2039  HEAD -> main`）；合流后 `git merge-base --is-ancestor 4bc2039 cnb/main` 通过，主工作区 `merge --ff-only` 快进到 `4bc2039`、`status --porcelain` 0 行。**时刻锚** = `2026-11-11T23:59:25+08:00`（= `15:59:25Z`），回帖 `16:00:34Z` 在其后。
 
-**回帖**：待回填。首行 `## 本轮收尾`（**不带轮次号**，不占批次 C），末段 `@CodeBuddy`。issue 状态**保持 open**。
+**回帖**：`2120547241097076736`（`2026-11-11T16:00:34Z`，回读首行 `## 本轮收尾` 确认）。首行 `## 本轮收尾`（**不带轮次号**，不占批次 C），末段 `@CodeBuddy`。issue 状态**保持 open**。
