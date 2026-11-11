@@ -528,12 +528,13 @@ pub async fn create_issue(
         Ok(t) => t,
         Err(e) => return e.into_response(),
     };
-    super::validation::validate_optional_text(
+    if let Err(e) = super::validation::validate_optional_text(
         &req.body,
         super::validation::MAX_BODY_LEN,
         "issue body",
-    )
-    .ok();
+    ) {
+        return e.into_response();
+    }
 
     match rg_core::issue::create_issue(
         &state.db,
@@ -650,12 +651,13 @@ pub async fn update_issue(
             return e.into_response();
         }
     }
-    super::validation::validate_optional_text(
+    if let Err(e) = super::validation::validate_optional_text(
         &req.body,
         super::validation::MAX_BODY_LEN,
         "issue body",
-    )
-    .ok();
+    ) {
+        return e.into_response();
+    }
 
     match rg_core::issue::update_issue(
         &state.db,

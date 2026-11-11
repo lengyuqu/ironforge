@@ -187,12 +187,13 @@ pub async fn create_page(
         Ok(c) => c,
         Err(e) => return e.into_response(),
     };
-    super::validation::validate_optional_text(
+    if let Err(e) = super::validation::validate_optional_text(
         &body.message,
         super::validation::MAX_COMMIT_MSG_LEN,
         "commit message",
-    )
-    .ok();
+    ) {
+        return e.into_response();
+    }
 
     match rg_core::wiki::service::create_page(
         &state.db,
@@ -257,12 +258,13 @@ pub async fn update_page(
         Ok(c) => c,
         Err(e) => return e.into_response(),
     };
-    super::validation::validate_optional_text(
+    if let Err(e) = super::validation::validate_optional_text(
         &body.message,
         super::validation::MAX_COMMIT_MSG_LEN,
         "commit message",
-    )
-    .ok();
+    ) {
+        return e.into_response();
+    }
 
     match rg_core::wiki::service::update_page(
         &state.db,

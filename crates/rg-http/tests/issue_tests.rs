@@ -349,3 +349,112 @@ async fn test_update_and_delete_milestone() {
         resp.status()
     );
 }
+
+// ── Length bounds ────────────────────────────────────────────────────────────
+
+/// B4-1 / B4-8: the documented optional-text bounds used to be inert. Every
+/// call site ended in `.ok()`, so an oversized body was silently accepted and
+/// stored; the only effective ceiling was axum's default 2 MiB request limit.
+///
+/// The contract now: exactly at the bound is accepted, one byte over is 400 —
+/// on both the create and the update path.
+#[tokio::test]
+async fn oversized_optional_text_is_rejected_not_silently_accepted() {
+    let (base, token, owner, repo) = setup("len").await;
+    let client = reqwest::Client::new();
+    let issues = format!("{base}/api/v1/repos/{owner}/{repo}/issues");
+    let limit = rg_http::api::validation::MAX_BODY_LEN;
+
+    let resp = client
+        .post(&issues)
+        .bearer_auth(&token)
+        .json(&serde_json::json!({"title": "at limit", "body": "a".repeat(limit)}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        201,
+        "a body of exactly MAX_BODY_LEN must still be accepted"
+    );
+
+    let resp = client
+        .post(&issues)
+        .bearer_auth(&token)
+        .json(&serde_json::json!({"title": "over limit", "body": "a".repeat(limit + 1)}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        400,
+        "a body one byte over MAX_BODY_LEN must be rejected, not stored"
+    );
+
+    let resp = client
+        .post(&issues)
+        .bearer_auth(&token)
+        .json(&serde_json::json!({"title": "update target"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 201);
+    let created: serde_json::Value = resp.json().await.unwrap();
+    let number = created["number"].as_i64().expect("issue number");
+
+    let resp = client
+        .patch(format!("{issues}/{number}"))
+        .bearer_auth(&token)
+        .json(&serde_json::json!({"body": "a".repeat(limit + 1)}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        400,
+        "PATCH must reject an oversized body as well"
+    );
+}
+
+/// The label description bound (255) was inert for the same reason.
+#[tokio::test]
+async fn oversized_label_description_is_rejected() {
+    let (base, token, owner, repo) = setup("lenlbl").await;
+    let client = reqwest::Client::new();
+    let labels = format!("{base}/api/v1/repos/{owner}/{repo}/labels");
+    let limit = rg_http::api::validation::MAX_LABEL_DESC_LEN;
+
+    let resp = client
+        .post(&labels)
+        .bearer_auth(&token)
+        .json(&serde_json::json!({
+            "name": "ok-desc",
+            "color": "#ff5500",
+            "description": "a".repeat(limit),
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        201,
+        "description of exactly the bound is fine"
+    );
+
+    let resp = client
+        .post(&labels)
+        .bearer_auth(&token)
+        .json(&serde_json::json!({
+            "name": "long-desc",
+            "color": "#ff5500",
+            "description": "a".repeat(limit + 1),
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        400,
+        "description one byte over MAX_LABEL_DESC_LEN must be rejected"
+    );
+}
