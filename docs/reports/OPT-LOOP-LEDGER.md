@@ -48,7 +48,7 @@
 - 已知空档新增：issue 创建只需读权限为刻意设计（`issues.rs:500-504` 注释，ISSUE-105）；`pulls.rs:627-629` dry_run 不评 conflicts 为注释自述的已知语义
 - 凭据事故（下次照做）：开批前 `git fetch cnb` 报 Repository Not Found；第 9 次配方（`username=oauth2` 灌 keychain）**覆盖不中**——keychain 实际条目 `username=cnb`，须以 `username=cnb` 覆盖 `git credential approve` 才恢复
 - NPC 首扫：`2120347578683269120`，`2026-11-11T02:47:11Z`（开批后 4 min 03 s；`author.is_npc=true`，首行 `@cnb.biewen(别问) batch#4 只读审查完成`，自述基线 `b7a0ab2` 并逐文件核过行数）
-- 6 轮进度：**1 / 6**（第 1 轮收尾见下节）
+- 6 轮进度：**2 / 6**（第 1 轮收尾 `2120361552162230272`、第 2 轮见下 `consume 2 / 6` 节）
 
 ### consume 1 / 6（batch#4）
 
@@ -77,9 +77,9 @@
 
 **新立待拍板（batch#4，本流程不动 main）**：
 
-1. **B4-1（P2）** 6 处 `validate_optional_text(...).ok()` 丢弃 Err：`issues.rs:531`/`:653`、`labels.rs:143`、`pulls.rs:293`、`wiki.rs:190`/`:260`。后果：`MAX_BODY_LEN` 65536 / `MAX_LABEL_DESC_LEN` 255 / `MAX_COMMIT_MSG_LEN` 8192 全部不生效，唯一实际上限是 axum 默认 2 MiB（`axum-core-0.5.6/src/ext_traits/request.rs:319`），且 core 无兜底。修法改响应码（超长从「静默接受」变 400）⇒ OpenAPI/前端契约 ⇒ L2。**本轮只在 `validation.rs:49` 文档化，未改行为。**
+1. **B4-1（P2）** **6 处调用 / 3 个常量 / 6 个失效上限**：`issues.rs:531`（`MAX_BODY_LEN`，实参 `:533`）、`issues.rs:653`（`MAX_BODY_LEN`，`:655`）、`pulls.rs:293`（`MAX_BODY_LEN`，`:295`）、`labels.rs:143`（`MAX_LABEL_DESC_LEN`，`:145`）、`wiki.rs:190`/`:260`（`MAX_COMMIT_MSG_LEN`，`:192`/`:262`），六处全部以 `.ok()` 收尾。后果：`MAX_BODY_LEN` 65536 / `MAX_LABEL_DESC_LEN` 255 / `MAX_COMMIT_MSG_LEN` 8192 全部不生效，唯一实际上限是 axum 默认 2 MiB（`axum-core-0.5.6/src/ext_traits/request.rs:319`），且 core 无兜底。修法改响应码（超长从「静默接受」变 400）⇒ OpenAPI/前端契约 ⇒ L2。**本轮只在 `validation.rs:49` 文档化，未改行为。**
 2. **B4-2（P2）** `update_issue`（`issues.rs:603`）鉴权前取 issue ⇒ 私有库 404/403 oracle。修法把取 issue 移到 `:635` 之后（`existing` 仅 `:639` 用）⇒ 错误码语义变化 ⇒ L2。
-3. **B4-3（P3）** `validate_color` 接受集合 ⊋ core 接受集合：3 位 hex 端到端恒 400（`labels.rs:139` → `label/service.rs:47`/`:92-99`）。二选一：`validate_color` 收窄到 6 位，或 core 展开 3 位。前者改 API 接受面、后者改 core 语义 ⇒ L2。本轮仅订正 `validation.rs:76-77` 注释。
+3. **B4-3（P3）** `validate_color` 接受集合 ⊋ core 接受集合：3 位 hex 端到端恒 400（`labels.rs:139` → `label/service.rs:47`/`:92-99`）。二选一：`validate_color` 收窄到 6 位，或 core 展开 3 位。前者改 API 接受面、后者改 core 语义 ⇒ L2。本轮仅订正 `validation.rs:76-77` 注释。**附（第 2 轮 NPC F-1 成立）**：`:83` 的 400 文案仍写 `"color must be a 3 or 6 digit hex code (e.g. #ff5500)"`，对 3 位值永不成立；改文案属**用户可见响应体**（前端可能直显、OpenAPI 示例同步）⇒ 与本条一并待拍板，不在 L1 单独改。
 4. **B4-4（P2）** `update_pr`（`pulls.rs:456-500`）零正文校验，core `pull_request/service.rs:376-378` 直存 ⇒ PATCH 可写任意长度 PR body（F1）。补校验改响应码 ⇒ L2。
 5. **B4-5（P3）** 列表 assignee 1+N（`issues.rs:1176` + `assignees.rs:91-99`），`rg-db` 缺 assignee 批量函数；`issues_with_authors` 四个分支（`:333`/`:365`/`:406`/`:429`）全受影响。属性能与 ops 层新增 ⇒ L2。
 6. **B4-6（P3）** `merge_queue` 列表逐条 `find_by_id`（`pulls.rs:782`，`:787` 跳过后 `position: index + 1` 留空档）。
@@ -87,6 +87,27 @@
 8. **B4-8（P3）** 缺超长 body 回归测试（`rg-http/tests/` 无 issue/PR body > 65536 用例）——这是 B4-1/B4-4 能长期存在的直接原因。
 
 **回填**：`2120361552162230272`（`2026-11-11T03:42:43Z`），回读 C=1。
+
+### consume 2 / 6（batch#4）
+
+- 输入：NPC 复核 `2120361953641005056`（`2026-11-11T03:44:18Z`，首行 `@cnb.biewen(别问) Review of ...`）——晚于我方第 1 轮收尾（`03:42:43Z`）⇒ **有新复核**，K=2
+- 本机 `BASE=070519c`；`git fetch cnb` 后 `HEAD...cnb/main` = `0 0`（零漂移）；改前 `scripts/check.sh --quick` **2 s EXIT=0**（`host=Mac` / `uname -sm` = `Darwin arm64` / `cargo 1.99.1` @ `/Users/yuqu/.cargo/bin/cargo`；clippy 段 `Finished dev profile … in 0.26s` = 热缓存指纹命中）
+- 改动：**仅台账**（无源码、无 `docs/` 正文改动）——本轮 8 条输入里有 4 条落在台账自身的行号引用与计数口径上
+
+判定表：
+
+| # | 它说的 | 判定 | 证据与处置 |
+|---|---|---|---|
+| D-1 | 台账批次索引的 ④-3 行（它报 `:152`）「见『判定不成立』第 **23** 条」指错，真值应是第 **31** 条 | **不成立** | 它报的 `:152` 是 ④-2 所在行，④-3 紧随其后。④-3 原文：`perm_cache_disabled() 在 check_perm_cache:97-99 短路 ⇒ 测试环境不付这个锁，14 处调用才没在 CI 里炸`；反向清单第 23 条逐字同命题（`perm_cache_disabled()` 入口短路 →「13/14 处调用一直没在 CI 里炸」）⇒ 引用正确。它说的「第 23 条是跨 session 数据混用」实为第 **25** 条（`escalation.rs:283` `contains_key` 记忆化）；第 31 条讲 `require_collab_read` 每请求清 2 次 / 台账 B3-9 没写，与本行无关。**已核实为不成立，不要重复提（见反向清单 35）** |
+| D-1 附 | 「反向清单内部有三连空行，按空行计数会漂移」 | **成立（唯一有效部分）** | 按 `$0==""` 累计扫该清单全段，命中「第 24 条 → 下一段 preamble」之间的三连空行（`run=2` / `run=3` 两次命中）⇒ 确有其事，已压成单空行。它据此推「清单不可机械计数」不成立：`grep -c '^[0-9]\+\. '` 只认行首编号，与空行无关 |
+| D-2 | B4-1 称 6 处却只列 3 个常量「读起来像不匹配」；并称真值是 **7 个失效上限 / 5 个不同常量** | **部分成立**（表述可改，两个数字都错） | `grep -rn 'validate_optional_text(' crates/` = **6 调用点**（`issues.rs:531`/`:653`、`labels.rs:143`、`pulls.rs:293`、`wiki.rs:190`/`:260`）+ 1 定义；实参逐个打印：`MAX_BODY_LEN` ×3（`issues.rs:533`/`:655`、`pulls.rs:295`）、`MAX_LABEL_DESC_LEN` ×1（`labels.rs:145`）、`MAX_COMMIT_MSG_LEN` ×2（`wiki.rs:192`/`:262`）⇒ **3 个常量**、每处只吃一个 `max`（`validation.rs:50-62`）⇒ **6 个失效上限**，不是 7；常量不是 5。已把 B4-1 首句改为「6 处调用 / 3 个常量 / 6 个失效上限」并列出对应关系 |
+| E-1 | 「行号零漂移」只是半句；`validation.rs:49` 现为 **144 列** | **成立**（其括注自相矛盾） | `awk 'NR==49{print length($0)}'` = **144**；`find . -maxdepth 3 -name '*rustfmt*'` 空、`Cargo.toml`/`.cargo/` 无 `[rustfmt]` ⇒ `wrap_comments` 是 rustfmt **默认 false**，fmt 关不会折它。它自称「`awk 'length>140'` 只命中两条 `// ──` banner」与命令本身矛盾：同命令共三行（`:9`=180 / `:21`=198 / `:49`=144），第三行就是被讨论的这一行。处置：台账记「零漂移 ≠ 格式洁净」，今后不把行数不变当格式证据；**不重排该行**（同文件 198/180 列先例，reflow 反而制造行号漂移） |
+| E-2 | 无法复现 `check.sh --quick` 的 EXIT=0（容器无 cargo），且 2 s→57 s 对「只改两行注释」不合常理 | **部分成立**（补环境口径成立；「不可复现」不成立） | 本机有 cargo：`/Users/yuqu/.cargo/bin/cargo` = **1.99.1**（`Darwin arm64`，host `Mac`）。2 s 可复现且可解释：热 `target/` 下 clippy 走指纹判定，本轮实测 `Finished … in 0.26s`、整脚本 **2 s EXIT=0**；改注释后 `rg-http` 及下游重编 ⇒ 57 s，量级自洽。另「本 workspace 只有一个 remote `origin`=cnb.cool」是**它容器**的事实：本仓 `git remote -v` = `cnb`(cnb.cool) / `github` / `origin`(git233) 三条 |
+| F-1 | `validation.rs:83` 的运行时文案仍承诺「3 or 6 digit」，而 3 位端到端必 400 | **成立，本轮不改** | `:83` = `"color must be a 3 or 6 digit hex code (e.g. #ff5500)"`；`:81` 放行 `len()==3 \|\| len()==6`，core `label/service.rs:47`（create）/`:93`（update）要求 `starts_with('#') && len()==7` ⇒ `#f55` 两次都 400。改它动的是**用户可见响应体文案** ⇒ 落 OpenAPI/前端契约面，记入 B4-3 待拍板，不在 L1 |
+| F-2 | 台账「运行要点 · F3-12」条引 `check.sh` 的 `:45-49`，其中 `:49` 是空行 | **成立**（且同句 `:38-39` 也错） | `awk` 打 `scripts/check.sh:32-56`：`:36 step "cargo fmt --all --check"` / `:37 cargo fmt …` / `:44 if [ "$mode" != "quick" ]` / `:45 step` / `:46 cargo test` / `:47 elapsed` / `:48 fi` / `:49` **空行** / `:50 if [ "$mode" = "full" ]`。已改为 `:36-37` 与 `:44-48`（跳过的是 `:45-47`） |
+| F-3 | `sed … \| grep -c validate` 返回 `0` 且 EXIT=1，别把 0 读成命令失败 | **成立（口径补充）** | `grep -c` 语义：零命中即退出码 1、stdout 仍为 `0`。台账 B4-4 的「= **0**」结论不受影响 |
+
+**它复核我方的部分**：§C 的 12 条全判「成立」，抽查 3 组行号全中——`labels.rs:184-208` 函数体内零 `validate_*`（`:190 require_write` 之后直调 core）、`issues.rs:603` `get_issue` → `:635 if !can_read` → `:639 existing.author_id`、`pulls.rs:776 list_by_repo` → `:781 for …enumerate()` → `:782 find_by_id` → `:787 continue` → `:792 position: index + 1`。**它对我方的复核本身无错项**，本轮它是「复核者」而非「新事实来源」。
 
 ### batch#3(issue #26) · 2026-11-11 · rg-core repo/webhook 服务层
 
@@ -259,7 +280,7 @@ where
 - **F3-9**（LIKE 通配符，**第 6 轮订正方向**）：`webhook_ops.rs:43` 的 `Column::Events.contains(event)` 在 sea-orm 1.1.20 里编译成 `events LIKE '%<event>%'` —— **左值是落库的订阅串，模式串是触发的 event 名**。所以通配符风险在**投递名**一侧：投递名里的 `_`/`%` 会被当 SQL 通配符（语句无 `ESCAPE`）。实测：`select 'issue.opened' like '%issue_opened%'` = **1**（若投递名写成 `issue_opened`，订阅 `issue.opened` 的钩子会收到）、`select 'pull.request.merged' like '%pull_request.merged%'` = **1**、`select 'pullXrequest.merged' like '%pull_request.merged%'` = **1** ⇒ 16 个投递值里 **3 个含 `_`**（`pull_request.closed|merged|opened`）**已经在模式串里**，只是尚无订阅串与它们差一个字符，故今天无事故（潜在而非现发）。**反方向（订阅名带通配符）是安全的**：订阅串是左值、按字面比较 —— `select '%' like '%push%'` = **0**、`select '_' like '%push%'` = **0**（第 5 轮本条写的「订阅 `%` 匹配全部 16 个值」是把方向读反了，见「我方已自证推翻」）。⇒ B3-11 的「反方向不会误触发」在**订阅侧是对的**，需要限定的是**投递侧**。
 - **F3-10**（纠正 N-2 第 2 条）：`valid_event_name`（`api/repo_events.rs:57-63`）的字符集 `is_ascii_lowercase() \| is_ascii_digit() \| matches!(b, b'.' \| b'_' \| b'-')` **拒收 `*`**（0x2A 不属任何一支）⇒ 「复用它会放行 `*`」为假，实际效果相反。
 - **F3-11**：公开仓的 `repo_events` 匿名可读（`repo/service.rs:201-203` + `api/repo_events.rs:119`），而 `trigger_event:140` 无条件把 `collab.*` 也写进去、payload 含 `user_content.title` ⇒ 协作问题标题外泄到公开事件流。**新 L2 = B3-12。**
-- **F3-12**：`scripts/check.sh` 的三种模式**都**先跑 `cargo fmt --all --check`（`:38-39`）；`--quick` 只省 `cargo test`（`:45-49`）。别再把它当 fmt 盲区引用。
+- **F3-12**：`scripts/check.sh` 的三种模式**都**先跑 `cargo fmt --all --check`（`:36-37`）；`--quick` 只省 `cargo test`（`:44-48` 这个 if 块，实际跳过的是 `:45-47`）。别再把它当 fmt 盲区引用。
 
 **它的质量盘点**：7 条输入 3 条主命题全对（①②③），4 条新发现里 1 条全对（N-1）、2 条半对（N-2 的第 2 子命题错、N-3 的标题自相矛盾）、1 条对（N-4）。**本批新形态：它开始用「你的验证不覆盖」来否定我方结论**（`check.sh` 不含 fmt），而这条只需 `sed -n '38,42p' scripts/check.sh` 就能否掉——**凡它质疑验证口径，先读验证脚本本身**。N-2 的错法与上一批同源：把「校验存在」读成「校验的有效性」，但方向反了（以为会放行，实际会拒收）。N-3 是它第一次**在指摘标题与自己的证据之间自相矛盾**（标题说没有行、证据里 `:140` 无条件写入）——这类不必找反例，读它自己的输出即可判。
 
@@ -778,8 +799,6 @@ git -c protocol.version=2 clone --depth=1 ...
 
 24. 「`access.rs:17` 的『at the price of a global perm-cache write lock **per call**』对 `require_collab_write`（`api/collab.rs:211`）不成立，因为那条路径走 `can_write_repo`、不经过 `is_collab_member`，所以注释应当限定主语」—— **不成立**。`access.rs:15-17` 是本文件 `is_collab_member`（`:18`）的 doc，主语就是本函数本身，从未覆盖 `require_collab_write`；后者在 `api/collab.rs:202`，`:211` 自己先清一次、`:212` 直接 `can_write_repo`，不进入 `access.rs:23`。它陈述的事实（write 路径不经过 `is_collab_member`）成立，但由它推出的「注释需要限定主语」无从谈起 —— 句子本来就没越界。**已核实为不成立，不要重复提。**
 
-
-
 以下 1 条由 **batch#3 第 3 轮**判定不成立（子命题，逐条 `sed` 复核），一并锁死：
 
 25. 「`escalation.rs:283` 的 `contains_key` 记忆化，实质是「用 session-A 的权限判定放行 session-B 的提醒」，等于跨 session 越权」—— **不成立**。被缓存的判据是 `is_collab_member(db, repo, session.user_id)`（`escalation.rs:284`），即 **user 对 repo** 的权限，与 session 无关；`may_notify` 在取缓存之前已单独校验 session 存在与 `state_of` ∈ {online, offline}（`:277-282`）。同一 user 的两个 session 权限不可能不同 ⇒ 不存在「放行」。同轮它附带的「修掉它会变成 N 次写锁」是对假想方案的推断，不作为缺陷判定；真值是「每 `evaluate` 的锁数 = 候选里不同 user 数，候选上界 600（`gather` 三处 `CANDIDATE_LIMIT`）」。**已核实为不成立，不要重复提。**
@@ -809,6 +828,10 @@ git -c protocol.version=2 clone --depth=1 ...
 以下 1 条由 **batch#4 第 1 轮**判定不成立（子命题，逐条 `sed` 复核），一并锁死：
 
 34. 「`request_reviewer`（`reviews.rs:1062-1072`）用 `find_by_username` **能定位到软删用户**，所以 `list_requested_reviewers` 的 `continue` 与它构成口径不一致」—— **不成立**。`:1074-1078` 的 matcher 是 `Ok(Some(user)) if user.is_active && user.deleted_at.is_none() => user` / `Ok(_) => return AppError::not_found("reviewer not found")` ⇒ 软删或停用的 reviewer 在**请求侧**同样定位不到，直接 404；两边对「已删用户」的可见性一致。真实的不一致只剩「列表静默省略 vs 请求显式 404」这一层（已并入 B4-7），不是「一边能定位一边不能」。另它给的区间 `:1062-1072` 不含 `find_by_username`（真值 `:1074`）。**这一子命题已核实为不成立，不要重复提。**
+
+以下 1 条由 **batch#4 第 2 轮**判定不成立（逐条 `sed` 复核），一并锁死：
+
+35. 「台账 `:152` 的 ④-3 行把『`perm_cache_disabled()` 在 `check_perm_cache:97-99` 短路 ⇒ 测试环境不付这个锁』的出处标成『判定不成立』第 **23** 条，但第 23 条讲的是跨 session 数据混用，真值应是第 **31** 条」—— **不成立**。它报的 `:152` 是 ④-2，④-3 紧随其后；④-3 的命题与反向清单第 23 条逐字同源（同为 `perm_cache_disabled()` 在 `check_perm_cache` 入口短路、「13/14 处调用没在 CI 里炸」）；它说的「跨 session」是第 **25** 条（`escalation.rs:283` `contains_key` 记忆化），第 **31** 条讲 `require_collab_read` 每请求清 2 次与台账 B3-9，与本行无关。**已核实为不成立，不要重复提。**（它附带命中的真事实——清单第 24 条与下一段 preamble 之间的三连空行——已单独修掉，见 `consume 2 / 6` 表 D-1 附）
 
 ### 我方已自证推翻（勿当结论引用）
 
