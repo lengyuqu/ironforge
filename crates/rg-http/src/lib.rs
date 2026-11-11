@@ -467,6 +467,12 @@ fn build_router(state: AppState, rate_limiter: rate_limit::RateLimiter) -> Route
         .layer(git_body_limit)
         .nest("/api/v1", api_v1)
         .nest("/v2", v2_routes)
+        // `nest("/v2", ..)` does not answer the trailing-slash form, which is
+        // exactly what a Docker client probes first (`GET /v2/`). Without this
+        // route the request falls through to the docs-auth layer and comes back
+        // as 401 "api docs requires authentication" with a bare `Bearer`
+        // challenge — no realm, so the client cannot even start the token flow.
+        .route("/v2/", get(oci::api_version_check))
         .route("/health", get(health))
         .route("/metrics", get(metrics::metrics_handler))
         .merge(docs_routes)
@@ -1828,6 +1834,7 @@ fn build_test_router(state: AppState) -> Router {
         )
         .nest("/api/v1", api_v1)
         .nest("/v2", v2_routes)
+        .route("/v2/", get(oci::api_version_check))
         .merge(docs_routes)
         .route("/health", get(health))
         .route("/metrics", get(metrics::metrics_handler))

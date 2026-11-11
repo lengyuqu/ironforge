@@ -215,3 +215,54 @@ async fn oci_token_still_works_for_private_repo_with_access() {
         "authz must pass for the owner (404 = authorized, image simply absent)"
     );
 }
+
+/// The `/v2/` challenge must not advertise a scope the registry cannot serve.
+/// It used to say `registry:catalog:*` while `build_v2_routes` has no `_catalog`
+/// endpoint at all — the advert was the only thing telling clients to ask for it.
+#[tokio::test]
+async fn version_check_challenge_advertises_no_scope() {
+    let (base, _db) = spawn_test_app_with_db().await;
+    let resp = reqwest::Client::new()
+        .get(format!("{}/v2/", base))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 401);
+    let challenge = resp
+        .headers()
+        .get(reqwest::header::WWW_AUTHENTICATE)
+        .expect("challenge header must be present")
+        .to_str()
+        .unwrap()
+        .to_string();
+
+    assert!(
+        challenge.contains("realm=") && challenge.contains("service="),
+        "must still be a usable Bearer challenge: {challenge}"
+    );
+    assert!(
+        !challenge.contains("scope"),
+        "no scope should be advertised — there is no catalog endpoint: {challenge}"
+    );
+}
+
+/// `registry:catalog:*` is not granted. It used to be handed to any
+/// authenticated user with no repository gate, because three independent
+/// accidents (no route, verifier only matches `repository`, no catalog listing)
+/// kept it harmless. Dropping the grant removes the first one.
+#[tokio::test]
+async fn catalog_scope_is_not_granted() {
+    let (base, _db) = spawn_test_app_with_db().await;
+    register_full(&base, "catalog_user", "catalog_user@example.com").await;
+
+    let claims = request_oci_token(
+        &base,
+        "registry:catalog:*",
+        Some(basic_auth("catalog_user", "Qz7$wRtm")),
+    )
+    .await;
+    assert_eq!(
+        claims.scope, None,
+        "registry:catalog:* must not be granted — nothing serves it"
+    );
+}

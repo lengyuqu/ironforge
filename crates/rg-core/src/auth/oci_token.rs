@@ -22,9 +22,13 @@
 //!
 //! | Scope String | Meaning |
 //! |-------------|---------|
-//! | `registry:catalog:*` | Access to catalog listing |
 //! | `repository:<owner>/<repo>:pull` | Read access to repo |
 //! | `repository:<owner>/<repo>:push` | Write access to repo |
+//!
+//! `registry:catalog:*` is **not** issued. The parser still recognises the
+//! shape so the token endpoint can report it as unsupported rather than
+//! silently misreading it, but no grant is produced: there is no `_catalog`
+//! endpoint, and the verifier only matches `repository` scopes.
 //!
 //! ## Token Endpoint
 //!
@@ -74,7 +78,7 @@ pub struct OciTokenClaims {
     pub uid: Option<i64>,
 
     /// Space-separated scope strings.
-    /// Example: `"repository:alice/myapp:pull,push registry:catalog:*"`.
+    /// Example: `"repository:alice/myapp:pull,push"`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scope: Option<String>,
 }
@@ -83,7 +87,7 @@ pub struct OciTokenClaims {
 ///
 /// Scope format: `<type>:<name>:<actions>`
 /// - `repository:owner/repo:pull,push`
-/// - `registry:catalog:*`
+/// - `registry:catalog:*` — parsed, but never granted by the token endpoint
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParsedScope {
     pub scope_type: String,       // "repository" | "registry"
@@ -250,11 +254,18 @@ pub fn check_repo_access(
 
 /// Build the `WWW-Authenticate` header value for OCI Distribution auth.
 ///
+/// `scope` is optional in the OCI distribution spec, and the initial `/v2/`
+/// probe does not need one. Pass `""` to omit it — advertising a scope the
+/// server cannot serve only invites clients to request it.
+///
 /// Example:
 /// ```text
 /// Bearer realm="https://registry.example.com/v2/auth/token",service="registry",scope="repository:alice/hello:pull,push"
 /// ```
 pub fn build_www_authenticate(realm: &str, service: &str, scope: &str) -> String {
+    if scope.is_empty() {
+        return format!(r#"Bearer realm="{}",service="{}""#, realm, service);
+    }
     // URL-encode the parameters
     let scope_encoded = urlencoding::encode(scope);
     format!(
@@ -414,6 +425,19 @@ mod tests {
         assert!(www.contains(r#"realm="https://example.com/v2/auth/token""#));
         assert!(www.contains(r#"service="registry""#));
         assert!(www.contains("scope="));
+    }
+
+    /// An empty scope must be omitted entirely, not rendered as `scope=""`.
+    /// The `/v2/` probe passes `""` because the registry has no `_catalog`
+    /// endpoint to offer.
+    #[test]
+    fn test_build_www_authenticate_without_scope() {
+        let www = build_www_authenticate("https://example.com/v2/auth/token", "registry", "");
+        assert_eq!(
+            www,
+            r#"Bearer realm="https://example.com/v2/auth/token",service="registry""#
+        );
+        assert!(!www.contains("scope"));
     }
 
     /// The token must carry the numeric user id, because the verifier re-checks
