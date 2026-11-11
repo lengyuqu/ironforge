@@ -67,6 +67,18 @@ rm -rf /tmp/ironforge-opt-loop.lock
 
 `worktree remove` **不用** `--force`；`branch -d` **不用** `-D`。先验祖先再删，否则可能删掉未合流的分支。
 
+## 5.5 本仓 smoke（2026-11-11 首次实测）
+
+| 项 | 结果 |
+|---|---|
+| `git worktree add -q $WT -b $BR cnb/main` | 成功，分支起点 `7be9a77` |
+| `web/node_modules` symlink + WT 私有 `info/exclude` | `git status --porcelain` = **0 行**（不出现的 `?? node_modules` 就是这条 exclude 起的作用） |
+| WT 内 `check.sh --quick`（`CARGO_TARGET_DIR` 指主工作区 target） | **104 s，EXIT=0** |
+| 主工作区同命令（热缓存） | 2 s —— **差距是 wt 内 cargo 指纹不全导致的局部重编**，共享 target 已把代价从「全量 20 min」压到 2 分钟级 |
+| `worktree remove`（无 `--force`）/ `branch -d` | 均成功，残留 `opt/*` 分支 0 |
+
+> 结论：可用。每轮多花约 100 s 编译，换来主工作区不被并发写者污染——比一次 `git add -A` 误提交便宜得多。
+
 ## 6. 与锁的关系（正交，不能互相替代）
 
 | 机制 | 解决什么 | 本仓实现 |
