@@ -1287,3 +1287,40 @@ value          no_default=Ok(true)   with_default=Ok(true)
 **改动 SHA**：`c0a11b5`（2 文件 2+/2−），推 `cnb` 单 remote。**时刻锚** = 本提交 author date（`git log -1 --format=%aI c0a11b5` 可复算），改后验证发生在其之前。
 
 **回帖**：`2120495801389465600`（`2026-11-11T12:36:10Z`），回读 **C=3**（首行 `## 第 3 轮收尾`、末行 `@CodeBuddy`、正文 20598 字符、平台侧仅 1 条 K=3 收尾，无重复投递）。
+
+### 单发轮 · issue #13 · 2026-11-11
+
+- 选靶：非 `[opt-round]` 的 open issue 里编号最小（MANUAL = #13/#14/#15/#16/#17/#18/#19）。#13 最新评论 `2120182459575742464`（`2026-11-10T15:51:04Z`，NPC 分析），首行非 `## 本轮收尾` ⇒ 未被消费过；题面 `[design]` 但靶子是**文档与代码事实的对齐**，本机可做。**不占批次 C**（批次 #31 的 K 计数与本轮无关）。
+- 基线：`BASE=fc8e46d`（`cnb/main` tip 与 `git ls-remote cnb refs/heads/main` 同点，零漂移）。被改文件的 `wc -l` 指纹：`ironforge-docs/architecture/agent-principals-design-and-roadmap-2026-11.md` **658 → 666**、`CLAUDE.md` **480 → 480**（1 行→1 行）。
+- 判定汇总：**成立 4 / 部分成立 1 / 不成立 0**，另我方自查 1 条新事实（`CLAUDE.md` 同源过期，F10 的第二个出口）。
+
+判定表（`:<n>` 指 `fc8e46d` 上的文件行号）：
+
+| # | 它说的 | 判定 | 证据 |
+|---|---|---|---|
+| ① | §3.5 说从 `feat/agent-principals`（`cba96ba`）切，「实际该分支相对 main 只多一份文档，没有额外代码」 | **部分成立** | 「基线说法过期」成立：`git merge-base --is-ancestor cba96ba cnb/main` → 是祖先；`git rev-list --count cnb/main..cba96ba` = **0**、反向 106 ⇒ 该分支已是 main 祖先，不再「多一份文档」。文档本身随 PR #47 进 main：`git ls-tree cnb/main -- ironforge-docs/architecture/agent-principals-design-and-roadmap-2026-11.md` 命中。它说的「只多一份文档」是**修前**形态（`git show 979caab:` 与 main 版同文件属同一血缘），不是当前事实 |
+| ② | §3.3(b) 的 `find_also_related` join 写法与落地不同：落地是「先取候选评审，再一条 `users` 查询」 | **成立** | `crates/rg-db/src/ops/pr_review_ops.rs:57-104`：`list_by_pr`（1 次）→ `HashMap` 按 `reviewer_id` 留最新 → 只留当前 head 的 `approve` → `user::Entity::find().filter(Id.is_in(ids)).filter(Kind.eq("human"))`（1 次）→ 按人类集合计数。全文件 `grep -c find_also_related` = **0** |
+| ③ | §3.3 没提 `AppError::forbidden` 不带 `reason`，而 §3.4 的 T20-1 要求断言 `reason`；落地用 `coded(..).with_reason(..)` | **成立** | `auth.rs:156` 是常量 `AGENT_MAY_NOT_APPROVE`；`auth.rs:176-186` 是 `AppError::coded(StatusCode::FORBIDDEN, "FORBIDDEN", …).with_reason(AGENT_MAY_NOT_APPROVE, false, "ask a person to review and approve")`。文档原文只有一句条件式脚注（「若 `with_reason` 只在 `coded(..)` 上可用，则…」），未写成既成事实。附带核到第二处差别：`ok_or_else` 对「查不到账号」返回 403 而非放行（`auth.rs:173-175`） |
+| ④ | T20-11 断言的是结果（403）而非「哪道门」；默认 `repo:write` 令牌被更早的 scope 中间件拒掉，移除新门测试仍通过 | **成立** | `crates/rg-http/tests/agent_principal_tests.rs:1141-1143` 的注释原文即此意（「a `repo:write` token is turned away by the scope middleware before the handler runs, so this asserts the outcome rather than the reason」）。它对自身测试强度的自述与我方读码一致 |
+| ⑤ | 新发现：受保护 CI 环境的批准门同病（`ci_environments.rs` 写名单只看 id 存在；`approve` 判 `is_admin \|\| allowed.contains`） | **成立，且已在 main** | `ci_environments.rs:88` = `Some(user) if rg_core::agent::is_agent(&user) =>` 返回 400；`:289` = `is_some_and(\|user\| !rg_core::agent::is_agent(&user))` ⇒ 403 + `AGENT_MAY_NOT_APPROVE`。对应测试 T20-10 / T20-11 已存在（`agent_principal_tests.rs:1105` / `:1132`）。⇒ 本轮无需改代码，缺的是**文档 §3.4 只列到 T20-9** |
+| ⑥ | （我方自查，F10 第二个出口）`CLAUDE.md` 仍写「未做（第二期）：… agent 批准不计数」与「`agent_principal_tests`（8 项）」 | **成立** | `CLAUDE.md:166` 同一行内含这两处过期断言；`grep -c '#\[tokio::test\]' crates/rg-http/tests/agent_principal_tests.rs` = **19**（8 旧 + T20-1…T20-11） |
+
+**本轮改动（2 文件 26+/18−，文档与代码注释；`CLAUDE.md` 1 行→1 行零漂移）**：
+
+1. `ironforge-docs/architecture/agent-principals-design-and-roadmap-2026-11.md`（658→666）：状态行改为「第一期已合 main（PR #47 `063e6eb`）+ P0 已落地（PR #22 `0fe75a5`）」；§2 标题「未合 main」→「已合 main」；§2.5 的 P0 行标已修并补环境批准门；§3 标题标已修 + 一段「§3.1/§3.2 是修前记录、行号属历史形态」的阅读提示（`reviews.rs:325-341`、`auth.rs:165`）；§3.3(a) 的脚注改写为落地形态（`coded().with_reason()` + 查不到账号即 403）；§3.3(b) 把 `find_also_related` 草图换成实际两段查询并订正调用点行号（`branch_protection/service.rs:457`、`review/service.rs:634`）；§3.4 补 T20-10 / T20-11 两行 + 两条限定说明（由来、T20-11 断言强度有限）；§3.5 改为「已执行」并写清无窗口期的兑现方式；头部 `[§3](#…)` 锚点随标题改名一并去掉（否则死链）。
+2. `CLAUDE.md:166`（480→480，1 行→1 行）：把「未做（第二期）… agent 批准不计数」改为「已修（PR #22）…」并列出 `ensure_reviewer_may_approve` / `count_current_human_approvals` / 环境名单同批修；测试项数「8 项」→「19 项」。
+3. 本台账：本节 + 下方 3 条 L2。
+
+**未做（L2，登记于本节、不并入上文旧表以避免行号漂移）**：
+
+- **M13-1（P3）** `pr_review_ops.rs:46` 的 `count_approvals` 现无生产调用点（`grep -rn 'pr_review_ops::count_approvals' crates/` = **0**；`count_approvals(` 的 7 处命中全是 `ci_environment_ops` 的同名函数、它的 1 处 handler 与 4 处测试调用，外加两个定义），却以「count approvals」为名**静默只数人类**——将来有人要「全部批准数」会踩空。二选一：删除，或改名 `count_current_human_approvals_legacy` 并标注。改名/删除是公开 `ops` 面 ⇒ L2。
+- **M13-2（P2）** T20-11 无法单独证明 `ci_environments.rs:289` 的账号类型判定（scope 中间件先拦）。要把这层强度补回来，得构造一个**能走到 handler** 的凭证形态（或对判权函数做单元级测试）⇒ 测试语义变更 ⇒ L2。
+- **M13-3（P3）** 同一「agent 不得批准」判据现在有两份实现（`auth.rs:176` 与 `ci_environments.rs:289`），文案与 `with_reason` 参数各写一遍，无共享 helper。抽 `ensure_human_approver(db, user_id, what)` 属重构 ⇒ L2。
+
+**反向清单（本节新增 0 条，**不成立 0**；累计仍 1..43）**：本轮 4 条指摘全部成立或部分成立，原文保留在上表，无需新增防重放条目。
+
+**验证**：`BASE=fc8e46d`。改前 `scripts/check.sh --quick` **`EXIT=0`**（executor 本机 `Darwin arm64` / `cargo 1.99.1`，`2026-11-11T12:51:54Z` 完成，原文 ``Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 40s`` / `==> checks passed in 102s (quick)`）。改后同命令 **`EXIT=0`**（`2026-11-11T12:53:18Z` 起，``Finished `dev` profile … in 0.23s`` / `==> checks passed in 2s (quick)`——本轮只动 `.md`，无 `.rs` 变化，故为热缓存指纹命中）。
+
+**改动 SHA**：见下方回填行。**时刻锚** = 本提交 author date（`git log -1 --format=%aI <sha>` 可复算）。
+
+**回帖**：回填行见本节末尾。

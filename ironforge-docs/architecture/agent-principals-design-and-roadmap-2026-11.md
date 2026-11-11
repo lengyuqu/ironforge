@@ -1,7 +1,7 @@
 # Agent 主体身份与 agent 友好化路线图（v2 细化版，2026-11-10）
 
-> **状态**：第一期已实现并在 SQLite 上验证（分支 `feat/agent-principals`，未合 main）；第二期与路线图**未开工**
-> **本版性质**：v1 的细化 + 更正。v1 中标为"推测"的判断已逐条读码核实，**发现 10 处需要更正**，其中 1 处是安全缺口（[§3](#3-p0批准门失效必须先修)）。v1 原文：`git show 979caab:ironforge-docs/architecture/agent-principals-design-and-roadmap-2026-11.md`
+> **状态**：第一期已合 main（PR #47，merge `063e6eb`；`feat/agent-principals` 现为 main 祖先，`git rev-list --count cnb/main..cnb/feat/agent-principals` = 0）；§3 的 P0 已落地（PR #22，`0fe75a5`）；第二期与路线图**未开工**
+> **本版性质**：v1 的细化 + 更正。v1 中标为"推测"的判断已逐条读码核实，**发现 10 处需要更正**，其中 1 处是安全缺口（§3）。v1 原文：`git show 979caab:ironforge-docs/architecture/agent-principals-design-and-roadmap-2026-11.md`
 > **可信度**：第一期为"实现 + 单元测试"级；第二期与路线图为**设计**，触点带 `文件:行`，未写一行实现代码
 > **阅读顺序**：§0 变更摘要 → §2 现状（含不变量）→ §3 P0 → §4 第二期任务卡 → §5 路线图任务卡 → §6 批次与依赖。动手前读 §7
 
@@ -36,7 +36,7 @@ IronForge 的目标是 agent 友好、可自部署的 Git 服务端。现有 age
 
 ---
 
-## 2. 第一期现状（分支 `feat/agent-principals`，未合 main）
+## 2. 第一期现状（分支 `feat/agent-principals`，已合 main）
 
 ### 2.1 数据模型
 
@@ -91,7 +91,7 @@ agent **就是 `users` 里的一行**，没有单独的表。原因：一百来�
 
 | 级别 | 缺口 | 处置 |
 |---|---|---|
-| **P0** | agent 可批准 PR（不带 `refs` 的 agent 令牌）；批准计数不过滤账号类型 | §3，合 main 前必修 |
+| **P0** | agent 可批准 PR（不带 `refs` 的 agent 令牌）；批准计数不过滤账号类型 | §3，**已修**（PR #22 `0fe75a5`）+ 同一缺口的第二处：CI 受保护环境的批准人名单（`ci_environments.rs:88`/`:289`）同批修 |
 | P1 | 协作用户门不区分 `kind`；审计无 `on_behalf_of`；通知不认 agent；提交作者是 agent 的 `.invalid` uuid 邮箱 | §4 T22–T25 |
 | P1 | `path_in_allowlist` 对名单内仓库的新路由默认放行 | §5 R1 |
 | P2 | 绕过 `can_*_repo` 的判权点（直接查协作者表/组织成员表）**未逐一排查**；起点 `grep -rn 'repo_collaborator_ops::get_permission\|is_org_member\|find_org_member' crates` | 排进 R1 验收项 |
@@ -101,7 +101,9 @@ agent **就是 `users` 里的一行**，没有单独的表。原因：一百来�
 
 ---
 
-## 3. P0：批准门失效（必须先修）
+## 3. P0：批准门失效（已修，PR #22 `0fe75a5`）
+
+> **阅读提示**：§3.1/§3.2 是**修前**的记录，其中的代码段与行号属历史形态——`ensure_session_may_approve` 已不存在，批准路径的判权段现为 `reviews.rs:325-341`（`:305` 是 `submit_review` 的签名行，判权段在其后），门函数在 `auth.rs:165`（原记 `:155`，那是修前位置）。§3.3 起是**已落地的形态**。
 
 ### 3.1 缺口
 
@@ -168,22 +170,22 @@ if should_attempt_auto_merge {
 }
 ```
 
-> 若 `AppError::with_reason` 只在 `coded(..)` 构造的实例上可用，则改用 `AppError::coded(StatusCode::FORBIDDEN, "FORBIDDEN", "...")` + `.with_reason("AGENT_MAY_NOT_APPROVE", false, "ask a person to approve")`，把稳定码留给客户端。
+> **落地形态（与上面的草稿有两处差别）**：①`AppError::forbidden` 不带 `reason`，而 T20-1 要断言 `reason`，所以实际用的是 `AppError::coded(StatusCode::FORBIDDEN, "FORBIDDEN", …)` + `.with_reason(AGENT_MAY_NOT_APPROVE, false, "ask a person to review and approve")`，稳定码由 `auth.rs:156` 的常量提供；②查不到账号时 `ok_or_else` 直接返回 403 而不是放行——「读不出账号」不能读成「不是 agent」，那正是本节要关掉的那条路。
 
-**(b) 批准计数只算人类**（`rg-db/src/ops/pr_review_ops.rs:48`）
+**(b) 批准计数只算人类**（`rg-db/src/ops/pr_review_ops.rs:57`）
 
-保留现有语义（按 reviewer 去重、只看当前 `head_sha`、`request_changes` 覆盖 `approve`），增加 `users.kind = 'human'` 过滤：
+保留现有语义（按 reviewer 去重、只看当前 `head_sha`、`request_changes` 覆盖 `approve`），增加 `users.kind = 'human'` 过滤。**落地形态不是 `find_also_related`**：先 `list_by_pr` 取全量评审、在内存里按 reviewer 留最新一条、只留当前 head 的 `approve`，再对这批 reviewer id 发**一条** `users` 查询（`Id.is_in(ids)` + `Kind.eq("human")`），最后按人类集合过滤计数——即 2 次查询，不随 reviewer 数增长，也不引入 join（`pr_review_ops.rs:57-104`）：
 
 ```rust
-pr_review::Entity::find()
-    .filter(pr_review::Column::PrId.eq(pr_id))
-    .find_also_related(user::Entity)          // reviewer_id -> users.id
-    .order_by_asc(pr_review::Column::CreatedAt)
-    // ……沿用"每个 reviewer 只留最新一条 + 只算当前 head"逻辑
-    // ……最后 filter: reviewer.kind == "human"
+let reviews = list_by_pr(db, pr_id).await?;          // 1 次
+// ……HashMap 按 reviewer_id 留最新一条 + 只算当前 head 的 approve
+let humans: Vec<i64> = user::Entity::find()          // 1 次，IN 查询
+    .filter(user::Column::Id.is_in(reviewer_ids))
+    .filter(user::Column::Kind.eq(KIND_HUMAN))
+    .all(db).await?…;
 ```
 
-函数改名 `count_current_human_approvals`，两个调用点同步：`branch_protection/service.rs:449`、`review/service.rs:624`（后者当前无调用方，一并改名或删）。**不加开关**；等真有人要"agent 批准也计数"再加分支保护列 `count_agent_approvals`。
+函数改名 `count_current_human_approvals`，调用点同步：`branch_protection/service.rs:457`、`review/service.rs:634`。旧的 `count_approvals`（`pr_review_ops.rs:46`）**保留为委托别名**（`count_current_human_approvals(db, pr_id, None)`），本仓已无生产调用点，但它是 `rg-db` 的公开 `ops` 入口。**不加开关**；等真有人要"agent 批准也计数"再加分支保护列 `count_agent_approvals`。
 
 **(c) 导入路径**：`import/service.rs:938-969` 直接写 `pr_reviews`，把源平台的 `"APPROVED"` 落成 `"approve"`，绕过 (a)。(b) 已在计数层过滤，这里不额外拦截；只在导入时对解析成 agent 的 reviewer 打 warn 日志，避免"导入了却不计数"无人知晓。
 
@@ -202,10 +204,16 @@ pr_review::Entity::find()
 | T20-7 | agent approve 后分支保护仍要求 1 个批准 | 合并 403 |
 | T20-8 | 所有者 approve 自己 agent 的 PR | 允许，计入必需数 → 合并成功 |
 | T20-9 | 人类批准 + agent 批准并存 | 计数 = 1 |
+| T20-10 | 把 agent 写进受保护环境的批准人名单 | 400（`ci_environments.rs:88`） |
+| T20-11 | 规则生效前就写在名单里的 agent（或手工塞进库）去 release | 403，`count_approvals` = 0，且名单换成人后同一端点仍放行 |
 
-### 3.5 落地顺序
+> **T20-10 / T20-11 的由来**：§3 只覆盖 PR 批准，同一份代码里还有一道同样失效的门——CI 受保护环境。写名单时（`ci_environments.rs:88`）只校验 id 存在，`approve` 的判权是 `is_admin || allowed.contains(actor_id)`，而 agent 的 `can_admin_repo` 恒 false ⇒ 只要进名单，它的批准就让 `count_approvals` 达标并放行（`:289` 是计数前的第二道判定，兜住规则生效前写下的名单）。
+>
+> **T20-11 断言的强度有限**：agent 用默认 `repo:write` 令牌打这个端点时，**更早的 scope 中间件**先返回 403，所以这条测试断言的是**结果**（403 + 计数 0 + 人名在册时放行），不是「哪道门挡的」。把 `:289` 的账号类型判定去掉，T20-11 仍会通过——这不代表该判定无效（有令牌形态能走到 handler），但它没有被这条测试单独证明。
 
-单独分支 `fix/agent-approval-gate`，从 `feat/agent-principals` 切出（依赖第一期的 `is_agent` 与 `kind` 列）。**若第一期先合 main，本修复必须同批合入**，不能留窗口期。
+### 3.5 落地顺序（已执行）
+
+单独分支 `fix/agent-approval-gate`，从 `cba96ba` 切出（依赖第一期的 `is_agent` 与 `kind` 列）；PR #22 已合入 main，`0fe75a5` 是落地提交。原文的约束「**若第一期先合 main，本修复必须同批合入**，不能留窗口期」按实际情况兑现为：第一期由 PR #47（`063e6eb`）合入，本修复在 PR #22 同批跟上，`cba96ba` 现为 main 的祖先（独有提交 0），无窗口期。
 
 ---
 
