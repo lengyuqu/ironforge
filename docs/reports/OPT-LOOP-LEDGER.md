@@ -1380,3 +1380,7 @@ on: {push: {}, unknown_key: 1}    event=manual            parse=Ok  matches=fals
 **对方行号/计数误差（非结论位置）**：`rg-core/src/yaml.rs:38`（真值 `:33`，`:38` 是 `WriteError` 文档行）；`lib.rs:598` 的「5 个出口」（真值 **7**，`:608`/`:610`/`:613`/`:615`/`:662`/`:665`/`:704`）。
 
 **验证**：`BASE=7c1e6bc`。改前 `scripts/check.sh --quick` **`EXIT=0`**（executor 本机 `Darwin arm64` / `cargo 1.99.1`，`2026-11-11T12:56:54Z` 完成，``Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 39s`` / `==> checks passed in 101s (quick)`——WT 内 cargo 指纹不全，见 `docs/reports/OPT-LOOP-WORKTREE.md` §5.5）。改后同命令 **`EXIT=0`**（`2026-11-11T13:02Z` 前后，``Finished `dev` profile … in 2.88s`` / `==> checks passed in 4s (quick)`）。
+
+**改动 SHA**：`ba78f72`（3 文件 59+/3−），推 `cnb` 单 remote；`git merge-base --is-ancestor ba78f72 cnb/main` 通过。**时刻锚** = 本提交 author date（`git log -1 --format=%aI ba78f72`）。
+
+**回帖**：`2120501604276129792`（`2026-11-11T12:59:14Z`），首行 `## 第 4 轮收尾`、末行 `@CodeBuddy`（独占末段）、6517 字符；回读 K 集合 `{1,2,3,4}`、C=4，无重复投递。
