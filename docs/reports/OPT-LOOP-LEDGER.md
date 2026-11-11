@@ -945,7 +945,7 @@ git -c protocol.version=2 clone --depth=1 ...
 
 ## 反向清单索引（编号总数与去处；清单实体不在本节）
 
-清单实体在上文 `## 批次索引` 块内的 `### 判定不成立` 小节，本节只维护编号总数与去处（本清单已累计 **1..55** 条；36–38 见 `consume 6 / 6（batch#4）` 节，39–40 见 `consume 1 / 6（batch#5）` 节，41 见 `consume 2 / 6（batch#5）` 节，42–43 见 `consume 3 / 6（batch#5）` 节，44 见 `consume 4 / 6（batch#5）` 节，45–46 见 `consume 5 / 6（batch#5）` 节（46 由「单发轮 #13 三次消费」轮写入、物理落在该节末，勿去那一节找正文），47–49 见 `单发轮 · issue #13 · 2026-11-11（第 4 次消费）` 节，50–51 见 `单发轮 · issue #13 · 2026-11-11（第 6 次消费）` 节，52–55 见 `单发轮 · issue #14 · 2026-11-12` 节）。本行原为开批时的占位「（暂无）」，已失效并就地订正，勿再当「无任何不成立条目」读
+清单实体在上文 `## 批次索引` 块内的 `### 判定不成立` 小节，本节只维护编号总数与去处（本清单已累计 **1..58** 条；36–38 见 `consume 6 / 6（batch#4）` 节，39–40 见 `consume 1 / 6（batch#5）` 节，41 见 `consume 2 / 6（batch#5）` 节，42–43 见 `consume 3 / 6（batch#5）` 节，44 见 `consume 4 / 6（batch#5）` 节，45–46 见 `consume 5 / 6（batch#5）` 节（46 由「单发轮 #13 三次消费」轮写入、物理落在该节末，勿去那一节找正文），47–49 见 `单发轮 · issue #13 · 2026-11-11（第 4 次消费）` 节，50–51 见 `单发轮 · issue #13 · 2026-11-11（第 6 次消费）` 节，52–55 见 `单发轮 · issue #14 · 2026-11-12` 节（第 7 次消费），56–58 见本节（第 8 次消费））。本行原为开批时的占位「（暂无）」，已失效并就地订正，勿再当「无任何不成立条目」读
 
 ---
 
@@ -1754,7 +1754,71 @@ on: {push: {}, unknown_key: 1}    event=manual            parse=Ok  matches=fals
 
 **本节新立反向清单（52–55，判定不成立，勿重复提）**
 
-52. 「`REGISTRY` 有 30 个 capability、78 条路由」——实测 **27 / 75**（`grep -c '^    Capability {'`、`grep -c '^\s\+r('`，REGISTRY 段）。它自己的基线 `cba96ba` 上也是 27/75。
+52. 「`REGISTRY` 有 30 个 capability、78 条路由」——实测 **27 / 82**（capability 用 `grep -c '^    Capability {'`；路由必须括号匹配计数，理由是 2026-11-12 订正：原写 75，`grep -c '^\s\+r('` 漏掉 7 处 `routes: &[r(` 内联单路由）。它自己的基线 `cba96ba` 上也是 27 / 82。
 53. 「全站 298 个 `.route()`」——实测 **342**（`crates/` 全仓），其中 `rg-http/src/lib.rs` **323**；`cba96ba` 上是 **320**。
-54. 「298 × 4 = 1200 个判断点」——实测 **300**（75×4）/ **150**（75×2）。分母错，结论（成本高）仍成立，但量级差 4 倍。
+54. 「298 × 4 = 1200 个判断点」——实测 **328**（82×4）/ **164**（82×2）（2026-11-12 订正：原写 300 / 150 用的是错分母 75）。分母错，结论（成本高）仍成立，但量级差 4 倍。
 55. 「建议代码块里的 `／/ ↓ 新增` 能照抄」—— **不成立**：那是全角斜杠（U+FF0F），照抄编译不过；引用它的任何片段前先换成 `//`。
+
+---
+
+### 单发轮 · issue #14 · 2026-11-12（第 8 次消费：它复核我方上一轮，并和我方一起复现了「75 条路由」的错口径）
+
+- 选靶：open 16 条全 MANUAL、`priority` 全空、无 `[hold]` ⇒ 取编号最小 **#14**；最新评论 `2120589836842086400`（`2026-11-11T18:49:50Z`，`author.is_npc = true`，首行 `@cnb.biewen(别问) 复核已做…`）**晚于**我方上一条收尾 `2120589349254234112`（`18:47:54Z`）⇒ 有新 NPC 回复，不触发「跳过」。批次段无对象（open 列表 `[opt-round]` **0** 条）。
+- 让位判据：`git ls-remote cnb refs/heads/main` = `f302658` = 我方上一轮回填提交（author `yuqu`，`2026-11-12T02:48:03+08:00`，距今 47 min）；其余 8 个 worktree 最新 mtime `2026-11-12T02:25:36`（开工前 ~70 min）；锁 `mkdir` 一次成功、无 owner 残留 ⇒ 无并发写者。
+- 基线：`BASE=f302658`（零漂移：`crates/rg-core/src/collaboration/capabilities.rs` 自 `75d8231` 起无提交，`rg-http/src/lib.rs` 仍 4045 行）。
+- 判定汇总：**成立 11 / 部分成立 2 / 不成立 4**，另我方自查成立 3——其中自查第 1 条是本轮最大产出：**`REGISTRY` 路由真值 82 条，不是 75 条**（`grep -c '^\s\+r('` = 75 漏掉 7 处 `routes: &[r(`）。
+
+判定表（`:<n>` 均指 `f302658` 树）：
+
+| # | 它说的 | 判定 | 证据 |
+|---|---|---|---|
+| 1 | `repo_content.rs:675` 是 `delete_branch`（`:657` 起）的调用点，不是 `contents/**` 的 handler | **成立** | `grep -n 'pub async fn delete_branch'` = `:657`；`:675` = `crate::api::auth::ensure_token_may_write_branch(...)`，在 `delete_branch` 体内。它自称「上轮说四处都服务 contents 是错口径」——那条错口径不在我方文档里：我方 §2② 原文就写「`:675`（删分支）」 |
+| 2 | `:323-324` 两行注释同时罩 `contents` 与 `commits`，排版像只罩 `contents` | **成立（可读性，非缺陷）** | `sed -n '323,328p'`：`:323-324` = `// The handlers check the branch …` / `// (…) so these are safe to open.`，紧跟 `:325` `["contents", _, ..]`，`:326-327` 又为 `commits` 单列一遍 ⇒ 读者容易只读成 contents。它自己也写了「注释没错」。**不改代码**（`commits` 已单独成注，再改会增加重复） |
+| 3 | `["branches", first, ..]` 是变长模式；路由 `branches/{*branch}` 是 catch-all（`lib.rs:1377`），静态 `branches/protection`（`:1328`）优先 | **成立** | `sed -n '1326,1332p'` 与 `:1375,1380p` 逐行命中；`ref_limited_write_allowed` 的 `:334` 守卫 `*first != "protection"` |
+| 4 | `ref_limited_write_allowed` 自身不看 method，读/写由调用方 `is_read` 短路 | **成立** | 签名 `pub fn ref_limited_write_allowed(path: &str) -> bool`（`pat_scope.rs:301`）；调用侧 `:2281` `let is_read = matches!(*method, GET\|HEAD\|OPTIONS)`、`:2283` `let permitted = is_read \|\| …` |
+| 5 | §1 表格 12 条 `path:line` 全部解析；`idempotency.rs:64` 的真实路径是 `crates/rg-http/src/idempotency.rs`，文档写对了 | **成立** | `grep -n 'pub fn idempotency_supported'` = `:64`（树内唯一命中，位于 `crates/rg-http/src/idempotency.rs`）；我方文档 §1 该行写的就是 `crates/rg-http/src/idempotency.rs:64` |
+| 6 | §3 计数表 6 个数字全部复现（27 / 75 / 58 / 342 / 323 / 320） | **部分成立** | 27 / 342 / 323 / 320 四个成立；**75 与 58 不成立**——它们与我方同源同错（见反向 57）。真值 82 / 65 |
+| 7 | 27 个 capability 里有 **7 个 0 路由**（`rules` / `completion_status` / `overview` / `context_pack` / `overlaps` / `diagnostics` / `search`） | **不成立** | 27 个 capability **全部**至少 1 条路由，0 个空表。它列的 `diagnostics`（`capabilities.rs:774-778`）与 `search`（`:785-789`）各有 1 条 `GET`，只是写成 `routes: &[r(` 的内联形（见反向 56） |
+| 8 | 58 vs 75 的主因不是 `SESSIONS`，是 `tasks`/`groups`/`templates` 这些同路径多方法族 | **成立（我方归因过窄，本轮已改）** | `SESSIONS` 在 REGISTRY 只出现 2 次（`:159`/`:160`，常量定义 `:130`）；82 条路由去重后 65 个路径，**17 个族各占 2 条**（`sessions`/`tasks`/`tasks/{id}`/`…/messages`/`…/handoffs`/… 共 17 组），SESSIONS 只占其中 1 组 |
+| 9 | `pat_scope` 不能由 `Access` 派生：`Access` 是能力原子，`required_pat_scope` 判读写靠 HTTP method | **成立** | `lib.rs:2135` 注释原话「"Read" is decided by the HTTP method alone, so a `POST` that only reads is treated as a write」；`repo_scope_for`（`:2137-2156`）只按 method 分三档；`Access::atoms()`（`capabilities.rs:68-79`）是 7 个原子 |
+| 10 | 例证：`POST /collaboration/search` 这类会与 `from_access` 分叉 | **不成立（例子错，命题对）** | `capabilities.rs:785-789` = `r("GET", "/repos/{owner}/{name}/collaboration/search", CollabRead)`，是 **GET**。真分叉实例是 `PUT …/collaboration/inbox/read`（`:382`，`CollabReadSession`）与 `POST …/collaboration/notices/{id}/ack`（`:701`，同）。见反向 58 |
+| 11 | 「哨兵缺省 + 回落前缀表 ⇒ 一处不改也行为不变」；「半张表更危险」只在缺省填真值时成立 | **成立（本轮已按其结论写进文档 §5.1）** | `required_pat_scope` 的回落路径确实存在：`REPO_SCOPED` 常量 + 短路 `:2106-2118`、兜底 `admin` `:2127`；`Undeclared` 缺省时查表不命中 ⇒ 走同一前缀表 ⇒ 行为逐字不变 |
+| 12 | 75 处 `r(...)` 里 **0 处是单行**、75 处都是多行 | **不成立** | 4 处单行：`capabilities.rs:140`（`r("GET", "/collaboration/capabilities", Account)`）、`:159`、`:160`、`:462` |
+| 13 | 文档 §2① 说 `path_in_allowlist` 只认 `["repos", owner, name, rest..]`，实际 `:184` 有第二族 `["ai","repos",…]` | **不成立（误归属）** | `grep -n '\["repos"' ironforge-docs/architecture/route-metadata-registry-2026-11.md` = **0 命中**；§2① 全文（`sed -n '26,33p'`）无 allow-list 族断言。第二族确实存在（`pat_scope.rs:183-184`），但本仓书面记录在 `pat_scope.rs:163-165` 的文档注释里，那里本来就写了 `/repos/…` **与** `/ai/repos/…` 两族 |
+| 14 | `/ai/repos` 下 7 条路由无 `fork`/`transfer` ⇒ 四个拒绝模式在 ai 族不可达 | **成立** | `lib.rs:1765-1783` 逐条：`summary` / `issues` / `prs` / `tree` / `search/code` / `index` / `pulls/{number}/context` = 7 条，无 fork、无 transfer |
+| 15 | A15「或 404 无出处」成立；`repo_scope_for` 只返三个 scope，无 404 分支 | **成立（它给的区间终点偏 4 行）** | `:2137-2156` 逐行只有 `repo:read` / `repo:collab` / `repo:write` 三出口；`:2158` 已是 `pat_auth_middleware` 的文档注释 |
+| 16 | A8/A9 的四处调用点 `:675` / `:1451` / `:1591` / `repo_commits.rs:166` | **成立** | `grep -rn 'ensure_token_may_write_branch'`（去掉定义行与 `use` 行）= 四条，行号逐字相同 |
+| 17 | `CollabReadSession` 带 `session_credentials` 原子，引 `:61` / `:73` | **部分成立（命题对，行号错）** | 真值 `:72` = `Self::CollabReadSession => &["repo_collab_read", "session_credentials"]`；`:61` 是 `RepoAdmin`、`:73` 是 `RepoWrite` |
+
+**我方自查（成立 3，全部本轮修）**：
+
+| # | 自查项 | 判定 | 证据与处置 |
+|---|---|---|---|
+| 自查-1 | 上一版把 `REGISTRY` 写成 27 capability / **75** 路由 / **58** 路径 / 新增 **248** 声明 | **成立（真错）** | 括号匹配计数 = **82 / 65**；`grep -c '^\s\+r('` 漏 7 处 `routes: &[r(` 内联单路由（`:271`/`:399`/`:741`/`:752`/`:763`/`:774`/`:785`）。已在文档 §0/§1/§3/§4/§5 全部按 82 重算（248→241、300/150→328/164、992/496→964/482） |
+| 自查-2 | §3 末句把 58 vs 75 的差额主要归因给 `const SESSIONS` | **成立（归因过窄）** | 17 个去重差额全是「同路径多方法」族，SESSIONS 只占 1 组；已改写并标注「上一版归因过窄」 |
+| 自查-3 | §4「半张表比现状更危险」把「缺省=未声明」与「缺省=某个真值」混为一谈 | **成立** | 已在新 §5.1 第 2 条把两种缺省分开：只有后者才更危险；前者（`PatScope::Undeclared`）行为与今天逐字相同 |
+
+**本轮改动**（3 文件 + 本节；`crates/` 只动 1 行文档注释，零行为变化）：
+
+1. `ironforge-docs/architecture/route-metadata-registry-2026-11.md`（**100 → 108 行**）：§0 计数订正为 27 / 82 / 65 并写明漏计口径；§1 末句 75 → 82；§3 表「注册路由数 75→82（判据改括号匹配）」+ 新增「不同路径 65」行 + 判断点 300/150→328/164 + 覆盖率行 75→82；§3 末段 SESSIONS 归因订正；§2② 补「不看 method / 只认 `repos` 族」；§4 248→241、992/496→964/482；§5 P0 前置条件 75→82 且新增 **§5.1「P0 的两个前置约束」**；§6 新增第 5 条（R14-4）。
+2. `crates/rg-core/src/auth/pat_scope.rs`（**661 → 661 行**，`ref_limited_write_allowed` 仍 `:301`）：`:300` 文档注释 **1 行 → 1 行**，补「调用方必须已知是写，本函数不看 method」。
+3. `docs/reports/OPT-LOOP-LEDGER.md`：反向条目 **52**（27/75 → 27/82，附口径说明）与 **54**（300/150 → 328/164）各 **1 行 → 1 行**就地订正；索引行 `1..55` → `1..58` 并补 56–58 去处；本节。
+
+**未做（L2，待拍板）**：
+
+- **R14-1（P2）** 维持待拍板。本轮只把它缺的两个前置约束写进文档 §5.1（`pat_scope` 必须逐条显式标注、不能由 `Access` 派生；缺省只能是 `PatScope::Undeclared` 哨兵并回落现有前缀表），**未动 `Route` 结构、未改任何路由行为**。
+- **新立 R14-4（P3）** 两表族集不一致：`path_in_allowlist` 认 `["repos", …]` 与 `["ai","repos", …]`（`pat_scope.rs:183-184`），`ref_limited_write_allowed` 只认前者（`:309` 的 `let-else`）⇒ 带 `ref_allowlist` 的 token 对 `POST /ai/repos/{owner}/{name}/index`（`lib.rs:1779-1781`）恒拒。fail-closed，但与另一张表的接受面不对称；统一任一方向都改 PAT 拒绝面 ⇒ L2。
+- 未动它提的 `:323-324` 注释排版（`commits` 已有独立注释，再合并会增加重复），也未动 `branches/{*branch}` 与 `branches/protection` 的路由优先级（现状守卫与路由一致）。
+
+**反向清单（本节新增 3 条，累计 1..58）**：
+
+56. 「27 个 capability 里 7 个是 0 路由：`rules` / `completion_status` / `overview` / `context_pack` / `overlaps` / `diagnostics` / `search`」—— 反证：27 个 capability **全部** ≥1 条路由，空表数为 **0**；`diagnostics`（`capabilities.rs:774-778`）与 `search`（`:785-789`）各有 1 条 `GET`。这 7 个之所以被算成空，是因为它们的 `routes` 写成 `routes: &[r(`（共 7 处：`:271`/`:399`/`:741`/`:752`/`:763`/`:774`/`:785`），任何只认 `^ +r\(` 的计数法都数不到。**已核实为不成立，不要重复提。**
+57. 「§3 计数表的 6 个数字全部复现（capability 27 / 路由 75 / 路径 58 / 全仓 342 / lib.rs 323 / `cba96ba` 320）」—— 部分不成立：27 / 342 / 323 / 320 成立，**75 与 58 不成立**，真值 **82 / 65**（同 56 的漏计口径，我方上一版也错，本轮已改）。**口径已订正，请勿再以 75/58 为前提做任何推论。**
+58. 「`POST /collaboration/search` 这类路由会与 `PatScope::from_access` 分叉」—— 例子不成立：`/repos/{owner}/{name}/collaboration/search` 注册的是 **GET**（`capabilities.rs:785-789`）。分叉本身真实存在，实例是 `PUT …/collaboration/inbox/read`（`:382`）与 `POST …/collaboration/notices/{id}/ack`（`:701`），两条都是 `CollabReadSession` 而 method 判据把它们算写。**例子勿再重复提；命题已并入文档 §5.1。**
+
+**对方误差（非结论位置，勿当结论引用）**：①它把「我方上一轮报的 75/58」当成事实复现，未察觉两级同源漏计（它自述「6 个数字全部复现」）；②`repo_scope_for` 标 `:2137-2160`（真值 `:2137-2156`）；③`CollabReadSession` 的 `session_credentials` 原子标 `:61`/`:73`（真值 `:72`）。
+
+**验证**：`BASE=f302658`。改前 `scripts/check.sh --quick` **`EXIT=0`**（executor 本机 `Darwin arm64` / `cargo 1.99.1` / `2026-11-11T19:35:09Z` 起 164 s，``Finished `dev` profile [unoptimized + debuginfo] target(s) in 2m 41s`` / `==> checks passed in 164s (quick)`——WT 内 cargo 指纹不全，见 `docs/reports/OPT-LOOP-WORKTREE.md` §5.5）。改后同命令 **`EXIT=0`**（`2026-11-11T19:39:28Z` 起 68 s，``Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 6s`` / `==> checks passed in 68s (quick)`）。
+
+**改动 SHA**：（回填见下条）
+**回帖**：（回填见下条）

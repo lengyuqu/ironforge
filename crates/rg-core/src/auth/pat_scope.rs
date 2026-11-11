@@ -297,7 +297,7 @@ pub fn ref_in_allowlist(refname: &str, allow: &[String]) -> bool {
 /// change merged, push a permitted branch (or commit to one) and open a pull
 /// request for a person to merge.
 ///
-/// `path` is the request path without the `/api/v1` prefix and without a query.
+/// `path` is the request path without the `/api/v1` prefix and without a query; the caller must already know it is a write — this function never looks at the method.
 pub fn ref_limited_write_allowed(path: &str) -> bool {
     let segments: Vec<&str> = path.trim_start_matches('/').split('/').collect();
     if segments
