@@ -1983,4 +1983,4 @@ protocol=v0.11
 
 **对方误差（非结论位置，勿当结论引用）**：①`trigger_event` 标 `:118`（真值 `:131`）；②`issue/service.rs:56-58` 说「提交 txn」（真值 `:56 begin`、`:59 commit`）；③`webhook_ops.rs:43`（真值 `:44`）；④`rg-mcp` 只说「无 `subscribe`」而没写 `initialize` 里显式 `subscribe: false`（`server.rs:41`）。
 
-**改动 SHA / 回帖（回填）**：见本文件末尾回填行。
+**改动 SHA / 回帖（回填）**：`ad4e1dd`（4 文件 `146+/0−`），推 `cnb` 单 remote（`8d107d8..ad4e1dd  HEAD -> main`）；合流后 `git merge-base --is-ancestor ad4e1dd cnb/main` 通过（`cnb/main` = `ad4e1dd`），主工作区 `merge --ff-only` 到 `ad4e1dd`、`status --porcelain` 0 行。**改后验证**：`scripts/check.sh --quick` `EXIT=0` **1 s**（``Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.24s`` / `==> checks passed in 1s (quick)`）。**时刻锚** = `git log -1 --format=%aI ad4e1dd`。**回帖** `2120654435842945024`（`2026-11-11T23:06:32Z`，回读首行 `## 本轮收尾`、第 2 行 `protocol=v0.11`、末段独立成段 `@CodeBuddy`、26053 字符、反向清单 63 条编号独立成行）。issue #15 **保持 open**（单发轮不 close）。
