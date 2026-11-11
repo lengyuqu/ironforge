@@ -213,7 +213,7 @@ let humans: Vec<i64> = user::Entity::find()          // 1 次，IN 查询
 
 ### 3.5 落地顺序（已执行）
 
-单独分支 `fix/agent-approval-gate`，从 `cba96ba` 切出（依赖第一期的 `is_agent` 与 `kind` 列）；PR #22 已合入 main，`0fe75a5` 是落地提交。原文的约束「**若第一期先合 main，本修复必须同批合入**，不能留窗口期」按实际情况兑现为：第一期由 PR #47（`063e6eb`）合入，本修复在 PR #22 同批跟上，`cba96ba` 现为 main 的祖先（独有提交 0），无窗口期。**分支 ref 本身也已废弃**：tip `c882d40` 同样没有独有提交（`main..c882d40` = 0），但**落后 main 112 个提交**（`bd7eb84` 时点，现算 `git rev-list --count c882d40..main`）——一个只看名字的人会以为它还能切上去干活，实际要重新从 main 切分支。
+单独分支 `fix/agent-approval-gate`，从 `cba96ba` 切出（依赖第一期的 `is_agent` 与 `kind` 列）；PR #22 已合入 main，`0fe75a5` 是落地提交。原文的约束「**若第一期先合 main，本修复必须同批合入**，不能留窗口期」按实际情况兑现为：第一期由 PR #47（`063e6eb`）合入，本修复在 PR #22 同批跟上，`cba96ba` 现为 main 的祖先（独有提交 0），无窗口期。**分支 ref 本身也已废弃**：tip `c882d40` 同样没有独有提交（`<你会话里的 main ref>..c882d40` = 0），但**落后 main 112 个提交**（`bd7eb84` 时点；现算 `git rev-list --count c882d40..cnb/main`，把 `cnb/main` 换成你会话里的 main ref——**该数只增不减**，以后读到的必然 ≥ 112，不是谁算错）——一个只看名字的人会以为它还能切上去干活，实际要重新从 main 切分支。同批还有两条同型僵尸 ref（无独有提交）：`fix/oci-token-visibility`（`43e3092`，落后 89）、`fix/password-strength-bypass`（`79c6b62`，落后 89）。
 
 ---
 

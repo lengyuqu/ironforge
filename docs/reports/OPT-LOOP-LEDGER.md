@@ -777,7 +777,7 @@ git -c protocol.version=2 clone --depth=1 ...
 
 **B2-11 表述勘误（第 4 轮写入）**：本条原写「跳过函数里**唯一**的 `can_read_repo`（`:147-150` 只在无 token 分支）」，不准确。`crates/rg-http/src/oci.rs` 的 `check_access`（`:86` 起）内共有两处 `can_read_repo`：`:114`（会话 JWT 的 pull，配 `:118` 的 `can_write_repo`）与 `:148`（匿名）。准确表述是「**Bearer 分支（`:128-144`）一处都不查**，会话 JWT 与匿名分支都查」。实质结论（Bearer 只做 scope 字面匹配、`matches_repo` 为字符串等值）不变。详细链路已迁到 `ironforge-docs/architecture/registry-auth-visibility-verification-2026-11.md`。
 
-**并行修复观察（第 4 轮写入，后续轮次必读）**：`cnb` 上已有两个基于 `9f18fd7` 的分支在修本批的 L2 条目：
+**并行修复观察（第 4 轮写入，⚠️ 已过期：两条分支均已合入 main 且无独有提交，勿再在其上继续工作——现状见下方「2026-11-11 更新（第 5 轮）」与「`fix/*` 分支全量状态」两段）**：`cnb` 上已有两个基于 `9f18fd7` 的分支在修本批的 L2 条目：
 
 | 分支 | HEAD | 提交标题 | 覆盖条目 | 触及文件 |
 |---|---|---|---|---|
@@ -792,6 +792,8 @@ git -c protocol.version=2 clone --depth=1 ...
 |---|---|---|---|
 | `fix/password-strength-bypass` | PR #21 → `c74bc25` | **B2-1 + B2-2** | 已修。`reject_common` 改成「跳过前导非字母 + 取第一个字母段」（`password.rs:250-254`，即本轮推荐的方案 ①）；`TooCommon` 已改为无载荷变体 |
 | `fix/oci-token-visibility` | PR #24 → `9b6bdde` | **B2-11** | 已修。`OciTokenClaims` 新增 `uid`（`oci_token.rs:74`），Bearer 分支在 scope 命中后补 `can_read_repo(.., claims.uid)`（`oci.rs:159`）/ `can_write_repo`（`:164`） |
+
+**`fix/*` 分支全量状态（`2ce6d94` 时点，2026-11-11 单发轮 #13 实测 `git rev-list --count cnb/main..<ref>`）**：`uniq=0`（无独有提交 = 内容已全在 main，**僵尸 ref，勿在其上继续工作**）= `fix/agent-approval-gate`（behind 114）、`fix/oci-token-visibility`（behind 89）、`fix/password-strength-bypass`（behind 89）；`uniq=1`（**有独有提交，删了就真丢代码**）= `fix/login-timing-enumeration`（behind 65）、`fix/oci-drop-catalog-scope`（behind 35）、`fix/validate-optional-text-propagate`（behind 30）。删 ref 属 L2：另有一个 L1 之外的理由——六条里五条在本机被 `ironforge-fix-*` 五个 worktree 占用（`git worktree list` 可查），删远端虽不影响本地 worktree，但下次 `git fetch cnb --prune` 会让它们的上游追踪断掉。本流程**只标注不删**。
 
 连带的行号后果（**后续轮次必读**）：`password.rs` 全部行号 +6～+13（`min_length: 12` 从 `:177`→`:180`、长度判定从 `:199`→`:206`）；`oci.rs` +60 行（`check_access` 的 Bearer 分支从 `:128-144` 扩到 `:128-175`）；`oci_token.rs` +94 行（`matches_repo` 从 `:114`→`:124`、`check_repo_access` 从 `:219`）。凡旧轮次记录里这三个文件的行号，**一律作废，不得当证据引用**。
 
@@ -1411,6 +1413,7 @@ on: {push: {}, unknown_key: 1}    event=manual            parse=Ok  matches=fals
 **反向清单（本节新增 1 条，累计 1..45）**：
 
 45. 「batch#5 的第 4 轮节没有被「6 轮进度」指针收录（它引 `:66`）」—— 反证：`docs/reports/OPT-LOOP-LEDGER.md:53` 的 batch#5 进度行在 `ba78f72` 已改为 `**4 / 6**（各轮见文末 \`consume <K> / 6（batch#5）\` 节…）`；它引的 `:66` 属 batch#4 索引块，那条指针指向 `consume <K> / 6（batch#4）` 是正确行为。**已核实为不成立，不要重复提。**
+46. 「`cnb/main` 这个 ref 名在本仓树里不存在，凡写现算命令都得用 `origin/main`」—— 反证：`git remote -v`（本仓三 remote：`cnb`=cnb.cool、`github`、`origin`=**git233**）+ `git rev-parse --short cnb/main` = `2ce6d94`。它容器只有一个 remote 且就指向 cnb.cool，是**环境差异**；照它改成 `origin/main` 在本仓会指向另一个平台（git233），是**反向破坏**。正解：写 `cnb/main` 并注明「换成你会话里的 main ref」。**已核实为不成立，不要重复提。**
 
 **验证**：`BASE=953946c`。改前即上一轮改后的同一棵树（`EXIT=0`，`checks passed in 4s`）；本轮改后 `scripts/check.sh --quick` **`EXIT=0`**（executor 本机 `Darwin arm64` / `cargo 1.99.1`，``Finished `dev` profile … in 2.71s`` / `==> checks passed in 4s (quick)`）。五文件行数合计仍 **4860**。
 
@@ -1510,3 +1513,47 @@ on: {push: {}, unknown_key: 1}    event=manual            parse=Ok  matches=fals
 **改动 SHA**：`aae47d8`（2 文件 53+/6−：文档 6+/6−、台账追加本节），推 `cnb` 单 remote；`git merge-base --is-ancestor aae47d8 cnb/main` 通过。**时刻锚** = 本提交 author date（`git log -1 --format=%aI aae47d8` = `2026-11-11T21:40:56+08:00`），回帖在其后（`13:41:57Z`）。
 
 **回帖**：`2120512356546412544`（`2026-11-11T13:41:57Z`），首行 `## 本轮收尾`（**不带轮次号**，不占批次 C），末段 `@CodeBuddy`。issue 状态**保持 open**。
+
+### 单发轮 · issue #13 · 2026-11-11（第 3 次消费：它自己发了 `## 本轮收尾`）
+
+- 选靶：MANUAL 七条（#13/#14/#15/#16/#17/#18/#19）里**唯一带 priority** 的（`P1`），其余为空 ⇒ 命中。最新评论 `2120512621123096576`（`2026-11-11T13:43:00Z`，`author.is_npc = true`）**晚于**我方上一条收尾 `2120512356546412544`（`13:41:57Z`）⇒ 有新 NPC 回复，不触发「跳过」。批次段对象仍为空（无 `[opt-round]` open issue，batch#5 已 `closed/completed`）。
+- 让位判据：`cnb/main` tip `2ce6d94` 的提交时刻 `13:42:03Z` = **我方上一轮的回填提交**（非他人）；`git worktree list` 里另外 6 个 worktree `status --porcelain` 全 **0 行**、mtime 均早于本次开工 2 h 以上；锁 `mkdir` 一次成功、无 owner 残留 ⇒ 无并发写者，继续。
+- **F23 复现（记一次）**：它这条评论首行是 `## 本轮收尾`，正文里写「**我的处置**：文档措辞改成…同时台账四处同步。**零行号漂移**（仍 666 行）」——`aae47d8` 是**我方**上一轮的提交（author `yuqu`），`cnb/main` 上无任何外来提交。它把自己「建议的修法」写成了「已执行的改动」并占了消费者回合标记。**不计入任何轮次，也不作为我方改动证据引用。**
+- 基线：`BASE=2ce6d94`（`git ls-remote cnb refs/heads/main` 同点，零漂移）；WT `issue-13-manual`、分支 `opt/issue-13-manual-20261111`。
+- 判定汇总：**成立 3 / 确认 3 / 部分成立 1 / 不成立 1**（8 条：五节 + 三条复核请求中的两问 + 它自带的「下轮的坑」）。
+
+判定表（`:<n>` 指 `2ce6d94` 树上的行号）：
+
+| # | 它说的 | 判定 | 证据 |
+|---|---|---|---|
+| ① | 「落后 main」四点表：`bd7eb84`=112、`aae47d8`=113、`2ce6d94`=114、反向 `main..c882d40`=0 | **成立** | 四点逐个复算全中：`git rev-list --count c882d40..{bd7eb84,aae47d8,2ce6d94,cnb/main}` = `112 / 113 / 114 / 114`，`c882d40..` 反向均 `0` |
+| ② | 「你写的现算命令在读者手里必然和你的数不符」 | **部分成立** | 数会随时间变大 ⇒ 成立，本轮已改口径（锚 + 「只增不减」）。它给的两条成因里，「第一次跑时 `cnb/main` 解析不出来」是**它容器单 remote** 的环境差异（见 ⑦），不是本仓缺陷 |
+| ③ | `:177` 的 `:57-104` 应为 `:57-98`（`:104` 是空行，`:100-103` 已是 `create`） | **确认（`aae47d8` 已修）** | 本树 `:177` 已是 `pr_review_ops.rs:57-98`；它的逐行证据复算全中：`:98` = `}`（`count_current_human_approvals` 收尾）、`:100-103` = `create` 的 doc+签名+体、`:104` 空行。它读的是 `bd7eb84` 旧行文 |
+| ④ | `:15` / `:33` / `:646` 三处引用正确；`ensure_reviewer_may_approve` 在 `rg-http/src/api/auth.rs:165`、`rg-core/src/api/auth.rs` 不存在；`ci_environments.rs:88/:289` 逐字 | **确认** | `pr_review_ops.rs:57` = `pub async fn count_current_human_approvals(`、`:58-60` 为三参（`:57-61` 含收尾 `)`）；`api/reviews.rs:325` = `if matches!(action.as_str(), "approve" \| "request_changes") && pr.author_id == user_id {`、`:305` = `pub async fn submit_review(`；`grep -rn 'count_current_approvals' crates/` = **0**；`rg-core/src/api/auth.rs` `ls` 报 No such file；`ci_environments.rs:88` = `Some(user) if rg_core::agent::is_agent(&user) =>`、`:289` = `Ok(user) => user.is_some_and(\|user\| !…)` |
+| ⑤ | 僵尸 ref 不是 1 个是 3 个（`uniq=0`）：`agent-approval-gate` / `oci-token-visibility` / `password-strength-bypass`；另 3 条 `uniq=1` | **成立** | 六条全量复算（`2ce6d94` 时点）：`uniq=0` 三条 behind `114 / 89 / 89`；`uniq=1` 三条 `login-timing-enumeration`(65) / `oci-drop-catalog-scope`(35) / `validate-optional-text-propagate`(30)。与它表里的六个数字逐个相同 |
+| ⑥ | 「台账 `:789-794` 那张表还没标，读者会顺着它切到 89 个提交前的快照」 | **部分成立**（指向错了一半） | `:791-794`（第 5 轮表）**已带 `状态` 列**且写着「已修」；真正没有任何过期标记的是**它上一张**（第 4 轮「并行修复观察」表，`cnb` 上两条 `fix/*` 仍以「在修」语气列出）⇒ 这一处成立，已按它建议补标（见改动 2） |
+| ⑦ | 「`cnb/main` 这个 ref 名在本仓树里不存在，凡写现算命令的地方都得用 `origin/main`」 | **不成立**（环境差异，且照做会反向破坏） | 本仓 `git remote -v` 三 remote：`cnb`=cnb.cool、`github`、`origin`=**git233**；`git rev-parse --short cnb/main` = `2ce6d94`。它容器只有一个 remote 且指向 cnb.cool。若按它改成 `origin/main`，在本仓指向**另一个平台**（git233）——已入反向清单 46 |
+| ⑧ | 它列的四条「不删分支」理由（不可逆 / `uniq=0` 不能证明本地没攒提交 / `uniq=1` 删了真丢 / 认知误导靠标注解决） | **确认** | 与 `git ls-remote --heads cnb 'refs/heads/fix/*'` 的六条实测一致；另补一条它没提的：六条里**五条在本机被 `ironforge-fix-*` worktree 占用**，删远端会让 `git fetch cnb --prune` 后这些 worktree 的上游追踪断掉 |
+
+**本轮改动**（4 处，全 L1 文档）：
+
+1. `ironforge-docs/architecture/agent-principals-design-and-roadmap-2026-11.md:216`（§3.5）：现算命令 `c882d40..main` → `c882d40..cnb/main` 并写「换成你会话里的 main ref」+「**该数只增不减**，以后读到的必然 ≥ 112，不是谁算错」；顺带把「同批还有两条同型僵尸 ref（`43e3092` / `79c6b62`）」写进本节。**1 行 → 1 行，文档仍 666 行。**
+2. `docs/reports/OPT-LOOP-LEDGER.md`「并行修复观察（第 4 轮）」引导句：补「⚠️ 已过期：两条分支均已合入 main 且无独有提交，勿再在其上继续工作」。**1 行 → 1 行。**
+3. 同台账第 5 轮表后新增一段「`fix/*` 分支全量状态」：六条 `uniq` / `behind` 实测值 + 「`uniq=0` 勿在其上继续工作 / `uniq=1` 删了就真丢代码」+ 「删 ref 属 L2，本流程只标注」。**+2 行。**
+4. 反向清单新增第 **46** 条（⑦ 的反证命令）。**+1 行。** 前三处合计台账 `1512 → 1515` 行；**计入本节后终值 `1559` 行**（`wc -l` 可复算）。
+
+**未做（L2，待拍板）**：
+
+- **M13-4 扩围（P3）**：僵尸 ref 从 1 个扩为 **3 个**（`fix/agent-approval-gate` `c882d40`、`fix/oci-token-visibility` `43e3092`、`fix/password-strength-bypass` `79c6b62`，均 `uniq=0`）。删不删仍待拍板；本轮按它的建议只做标注（改动 2/3），**未动任何 ref**。
+- **另 3 条 `uniq=1` 分支**（`login-timing-enumeration` / `oci-drop-catalog-scope` / `validate-optional-text-propagate`）**明确不删**：各有独有提交，删了是真丢代码。
+- M13-1 / M13-2 / M13-3 维持原状；§4 T21–T26、§5 R1–R11 要改产品代码，继续等排期。
+
+**反向清单**：本节新增 **1** 条（46，⑦），累计 **1..46**。
+
+**对方误差（非结论位置，勿当结论引用）**：⑥ 把「第 5 轮表已有状态列」当成「还没标」；③ 复核用的是 `bd7eb84` 树（`:177` 在 `aae47d8` 已改），照它的描述改会重复劳动。
+
+**验证**：`BASE=2ce6d94`。改前 `scripts/check.sh --quick` **`EXIT=0`**（executor 本机 `Darwin arm64` / `cargo 1.99.1`，`2026-11-11T13:44:35Z` 起，``Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 16s`` / `==> checks passed in 78s (quick)`——WT 内 cargo 指纹不全，见 `docs/reports/OPT-LOOP-WORKTREE.md` §5.5）。改后同命令 **`EXIT=0`**（见下）。
+
+**改动 SHA**：`SHA_PLACEHOLDER`（2 文件，全 `.md`），推 `cnb` 单 remote；`git merge-base --is-ancestor <SHA> cnb/main` 通过。**时刻锚** = 本提交 author date（`git log -1 --format=%aI <SHA>`）。
+
+**回帖**：`COMMENT_PLACEHOLDER`，首行 `## 本轮收尾`（**不带轮次号**，不占批次 C），末段 `@CodeBuddy`。issue 状态**保持 open**。
