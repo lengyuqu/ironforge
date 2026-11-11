@@ -46,7 +46,7 @@ pub fn require_valid_text(value: &str, max: usize, field: &str) -> Result<String
     Ok(trimmed.to_string())
 }
 
-/// Validate an optional text field (allows empty/None, but enforces length if present).
+/// Validate an optional text field (empty/None allowed; length enforced).  Callers must propagate — a trailing `.ok()` makes the bound inert.
 pub fn validate_optional_text(
     value: &Option<String>,
     max: usize,
@@ -74,7 +74,7 @@ pub fn validate_branch_name(name: &str, field: &str) -> Result<String, AppError>
 }
 
 /// Validate a hex color string (e.g. `#ff5500`).  Accepts 3 or 6 hex digits
-/// with an optional leading `#`.
+/// with an optional `#`; every caller's core layer then requires `#rrggbb`.
 pub fn validate_color(color: &str) -> Result<String, AppError> {
     let trimmed = color.trim();
     let hex = trimmed.strip_prefix('#').unwrap_or(trimmed);
