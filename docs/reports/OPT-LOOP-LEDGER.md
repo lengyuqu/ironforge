@@ -1463,3 +1463,50 @@ on: {push: {}, unknown_key: 1}    event=manual            parse=Ok  matches=fals
 - 去向：**已解决**（口径固化进本节；下一批不再引用「三处」这个旧值）。
 - **它自己的行号偏差（勿当结论引用）**：① 它在第五节列的出口行写成 `:631`/`:652`/`:658`/`:662`/`:665`/`:704`，真值是 `:608`/`:610`/`:613`/`:615`/`:662`/`:665`/`:704`（它把前四个整体偏了 +23 左右）；「7 行」这个结论对。⑥ 里「`:1331`×2」的说法也错——`:1331` 那一行确有多次出现（`grep -o` 4 次），但独立行数是 4 行，第 4 行是 `:1401` 不是第二个 `:1331`。
 - **本节的自我一致性检查**：`grep -c '7c1e6bc' docs/reports/OPT-LOOP-LEDGER.md` 现在 = 6（`:1331`/`:1334`/`:1382`/`:1401`/`:1434`/本节），**新增的这一行也引用了该串** —— 这正是 ⑥ 说的引述污染，故本节不写「共 N 行」，只写相对时点的差量。
+
+### 单发轮 · issue #13 · 2026-11-11（第 2 次消费：NPC `## 复核结果` 回执）
+
+- 选靶：MANUAL（#13/#14/#15/#16/#17/#18/#19）里**唯一带 priority 的**（`P1`），其余为空 ⇒ 按 `P0>P1>…` 规则命中。最新评论 `2120500822160072704`（`2026-11-11T12:56:07Z`，首行 `## 复核结果`，非 `## 本轮收尾`）⇒ 上一轮改动已被复核、**未消费过**。批次段对象为空（batch#5 已 `closed/completed`，无 `[opt-round]`），本轮只跑第一段。
+- 基线：`BASE=bd7eb84`（`git ls-remote cnb refs/heads/main` 同点，零漂移）；WT `issue-13-manual` 分支 `opt/issue-13-manual-20261111`。
+- 判定汇总：**成立 3 / 部分成立 2 / 确认 3 / 时点差 1**，另**我方自查 4 处文档引用错**（它未提）。
+
+判定表（`:<n>` 指 `bd7eb84` 上的文件行号）：
+
+| # | 它说的 | 判定 | 证据 |
+|---|---|---|---|
+| ① | 三个区间「两端都对」：`reviews.rs:325-341`、`auth.rs:165`、`pr_review_ops.rs:57-104` | **部分成立**（前两个对，第三个终点错） | `reviews.rs:325` = `if matches!(action.as_str(), "approve" \| "request_changes") && pr.author_id == user_id {`，`:341` = 判权段的 `}`、`:342` 是 `should_attempt_auto_merge` 的 `}`；`:305` = `pub async fn submit_review(` ✓。`crates/rg-http/src/api/auth.rs:165` = `pub(crate) async fn ensure_reviewer_may_approve(` ✓（注意路径是 `rg-http/src/api/auth.rs`，不是 `rg-core`）。**`:104` 不是收尾 `}`**：函数实到 `:98`，`:100-103` 已是 `create` 的 doc + 签名，`:104` 是空行 |
+| ② | 调用点 `branch_protection/service.rs:457`、`review/service.rs:634` 都是 `count_current_human_approvals(db, pr_id, pr.head_sha.as_deref())` | **成立** | 两行逐字相同，`sed -n` 直接读出 |
+| ③ | `CLAUDE.md:166` 三句（`ensure_reviewer_may_approve` / `count_current_human_approvals` / 环境名单同批修）+「19 项」 | **成立** | `CLAUDE.md:166` 同一行内含三句；`grep -c '#\[tokio::test\]' crates/rg-http/tests/agent_principal_tests.rs` = **19**；`CLAUDE.md` 仍 480 行 |
+| ④ | ⑤「已在 main」的判断无误：`ci_environments.rs:88` 写名单 400、`:289` release 前 403 | **确认** | `:88` = `Some(user) if rg_core::agent::is_agent(&user) =>`；`:289` = `Ok(user) => user.is_some_and(\|user\| !rg_core::agent::is_agent(&user)),`；测试名 `agent_principal_tests.rs:1105` = `t20_10_an_agent_cannot_be_listed_as_an_environment_approver`、`:1132` = `t20_11_an_agent_named_in_an_old_list_still_cannot_release` |
+| ⑤ | 新发现：`fix/agent-approval-gate`（`c882d40`）没跟进 main，「落后 105」 | **部分成立**（僵尸 ref 成立，数字是它的快照） | `git rev-list --count cnb/main..c882d40` = **0**（无独有提交）、`c882d40..cnb/main` = **112**（本树 `bd7eb84` 现算；它写 105 是它自己 main 更旧）。性质判断成立：该 ref 名字活着、内容已整体含在 main |
+| ⑥ | 行数指纹 `658 → 666` / `CLAUDE.md 480 → 480`、死链 `grep '\[§3\](#' = 0`、`fbb17f2` 是 main 祖先 | **确认** | 本树 `wc -l` = **666** / **480**；`grep -c '\[§3\](#'` = **0**；`git merge-base --is-ancestor fbb17f2 cnb/main` 返回 0 |
+| ⑦ | 「本地 `main` 比 `origin/main` 超前 1 个提交，是两段式写入的正常形态」 | **时点差，不构成缺陷** | 它看的 `8d5ff26` 已随后续提交进 main；本树 `HEAD` = `cnb/main` = `bd7eb84`（`git rev-parse` 两值相同）⇒ 无超前 |
+| ⑧ | （我方自查）文档 `:15` 行把函数写成 `count_current_approvals` 并标「**未实现**」 | **成立** | `grep -rn 'count_current_approvals' crates/` = **0 命中**（真名 `count_approvals`，`pr_review_ops.rs:46`）；且 §3 已标已修 ⇒ 与 §0 的「未实现」自相矛盾 |
+| ⑨ | （我方自查）文档 `:33` 把自批检查标成 `api/reviews.rs:328` | **成立** | 真值 `:325`；`:328` 是那句 400 的**文案字符串** |
+| ⑩ | （我方自查）文档 `:192` 把 `latest` 去重标成 `pr_review_ops.rs:56` | **成立** | 真值 `:63-68`（`HashMap` + `matches!(action, "approve" \| "request_changes")` 的循环）；`:56` 是 doc 注释末行 |
+| ⑪ | （我方自查）附录 B 复现命令 `grep -rn "count_current_approvals" crates` 恒返回空 | **成立** | 改名为 `count_current_human_approvals` 后该串全仓 0 命中 ⇒ 复现配方失效 |
+
+**本轮改动（文档 1 文件 6+/6−，零行号漂移：666 行不变；另有本台账追加本节）**——全部 L1 文档措辞：
+
+1. `ironforge-docs/architecture/agent-principals-design-and-roadmap-2026-11.md:216`（§3.5）：补「分支 ref 本身也已废弃」——tip `c882d40` 无独有提交、**落后 main 112 个提交**（`bd7eb84` 时点，现算命令一并写出），并点明「要重新从 main 切分支」的后果。
+2. 同文件 `:177`（§3.3(b)）：区间 `pr_review_ops.rs:57-104` → `:57-98`（它本轮把 `:104` 判为「收尾 `}`」，实为空行）。
+3. 同文件 `:15`（§0 第 2 行）：函数名 `count_current_approvals` → `count_approvals`、行号 `:48` → `:46`、状态「未实现」→「v2 时点未实现，现已修」并补现名 `count_current_human_approvals`（`:57`）。
+4. 同文件 `:33`：`api/reviews.rs:328` → `:325`。
+5. 同文件 `:192`：`pr_review_ops.rs:56` → `:63-68`。
+6. 同文件 `:646`（附录 B）：复现命令改为「`count_current_human_approvals` 或 `count_approvals`」两个名字并查，否则恒空。
+7. 本台账：本节 + 下方 M13-4。
+
+**未做（L2，本流程不动 main）**：
+
+- **M13-4（P3，本轮新立，按它建议归档）** `fix/agent-approval-gate` 是**无独有提交、落后 main 112** 的僵尸 ref（`c882d40`）。二选一：删远端分支，或保留但标注废弃。删 ref 不可逆且会影响他人 clone 上的 `origin/` 追踪 ⇒ L2。**本轮只把「已废弃、勿在其上继续工作」写进文档 §3.5（L1）**；「删不删」待拍板。
+- M13-1 / M13-2 / M13-3 维持原状（它在末段也认同留在 L2）。
+
+**反向清单**：本节新增 **0** 条，累计仍 **1..45**。它本轮全部是复核回执 + 1 条新发现，无「被我方否掉的指摘」。
+
+**对方行号/计数误差（非结论位置，勿当结论引用）**：`pr_review_ops.rs:57-104` 的终点（真值 `:98`，`:104` 空行）；`c882d40` 落后数 105（本树 **112**，差 7 是它 main 更旧）。
+
+**验证**：`BASE=bd7eb84`。改前 `scripts/check.sh --quick` **`EXIT=0`**（executor 本机 `Darwin arm64` / `cargo 1.99.1`，`2026-11-11T13:38:23Z` 起，``Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 42s`` / `==> checks passed in 104s (quick)`——WT 内 cargo 指纹不全，见 `docs/reports/OPT-LOOP-WORKTREE.md` §5.5）。改后同命令 **`EXIT=0`**（`2026-11-11T13:40:18Z`，``Finished `dev` profile … in 0.26s`` / `==> checks passed in 2s (quick)`，纯 `.md`）。
+
+**改动 SHA**：`SHA_PLACEHOLDER`（2 文件 6+/6− + 本节），推 `cnb` 单 remote；`git merge-base --is-ancestor <SHA> cnb/main` 通过。**时刻锚** = 本提交 author date（`git log -1 --format=%aI <SHA>`）。
+
+**回帖**：`COMMENT_PLACEHOLDER`（待发），首行 `## 本轮收尾`（**不带轮次号**，不占批次 C），末段 `@CodeBuddy`。issue 状态**保持 open**。

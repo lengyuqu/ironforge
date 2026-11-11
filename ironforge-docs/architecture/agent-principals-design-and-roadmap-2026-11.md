@@ -12,7 +12,7 @@
 | # | v1 的说法 | 核实结果 | 影响 |
 |---|---|---|---|
 | 1 | agent 不能批准 PR，靠 `ensure_session_may_approve` | **不成立**。该函数判的是"令牌是否带分支白名单"（`ref_allowlist.is_some()`），与 `users.kind` 无关；且只在请求带 Bearer 时调用。**agent 只要签发时不传 `refs`，就能批准任何非自己的 PR——包括其所有者的 PR** | 升级为 P0，见 §3 |
-| 2 | agent 的批准"默认不计入"必需批准数 | **未实现**。`count_current_approvals`（`pr_review_ops.rs:48`）不区分账号类型 | §3 一并实现 |
+| 2 | agent 的批准"默认不计入"必需批准数 | **v2 时点未实现，现已修**。原 `count_approvals`（`pr_review_ops.rs:46`）不区分账号类型，现为 `count_current_human_approvals`（`:57`）只数人类 | §3 已落地 |
 | 3 | 协作用"有没有会话头"区分人与 agent，agent 不带头就能冒充人 | **部分成立**：确实只按头判断，但全仓 `collab*.rs` 无任何 `kind` 判断，agent 走用户门并不"冒充"，只是被记为 `Actor::user`。真正的问题是语义被写成"人" | §4 T22 |
 | 4 | `required_pat_scope` 漏登记即越权 | **不成立**。它是前缀判定函数（不是表），默认返回 `admin`，**fail-closed**（`lib.rs:2043-2052` 注释明确说旧版 catch-all 才是漏洞，已修）。真实风险变成：`path_in_allowlist` 对名单内仓库的新路由**默认放行**（fail-open），且没有"所有路由都登记了 scope"的守卫测试 | §5 R1 改写 |
 | 5 | 事件日志"尽力而为写入" | **准确**，但比 v1 更弱：`repo_events` 写入在 `spawn_post_push_hooks` 派生的任务里、业务提交之后，失败只 `tracing::warn`；webhook 无 schema 版本、无事件头，接收方 5xx **不重试**（只有传输错误入队） | §5 R3 补事实 |
@@ -30,7 +30,7 @@ IronForge 的目标是 agent 友好、可自部署的 Git 服务端。现有 age
 
 - `access_tokens`、`ssh_keys`、`agent_sessions`、`audit_log` 全部只挂 `user_id`；
 - PAT 换出的是令牌所有者的完整会话 JWT，只多一个 `tid`；
-- 评审的自批检查是 `pr.author_id == user_id`（`api/reviews.rs:328`），agent 借人的账号开 PR 就会把这个人锁在批准之外。
+- 评审的自批检查是 `pr.author_id == user_id`（`api/reviews.rs:325`），agent 借人的账号开 PR 就会把这个人锁在批准之外。
 
 第一期把"agent 是谁、代表谁、最多能做什么"建成一等概念。第二期要让"agent 做的事"在评审、审计、通知、提交历史里都能被正确归因。路线图解决的是更外层的 agent 写作体验。
 
@@ -174,7 +174,7 @@ if should_attempt_auto_merge {
 
 **(b) 批准计数只算人类**（`rg-db/src/ops/pr_review_ops.rs:57`）
 
-保留现有语义（按 reviewer 去重、只看当前 `head_sha`、`request_changes` 覆盖 `approve`），增加 `users.kind = 'human'` 过滤。**落地形态不是 `find_also_related`**：先 `list_by_pr` 取全量评审、在内存里按 reviewer 留最新一条、只留当前 head 的 `approve`，再对这批 reviewer id 发**一条** `users` 查询（`Id.is_in(ids)` + `Kind.eq("human")`），最后按人类集合过滤计数——即 2 次查询，不随 reviewer 数增长，也不引入 join（`pr_review_ops.rs:57-104`）：
+保留现有语义（按 reviewer 去重、只看当前 `head_sha`、`request_changes` 覆盖 `approve`），增加 `users.kind = 'human'` 过滤。**落地形态不是 `find_also_related`**：先 `list_by_pr` 取全量评审、在内存里按 reviewer 留最新一条、只留当前 head 的 `approve`，再对这批 reviewer id 发**一条** `users` 查询（`Id.is_in(ids)` + `Kind.eq("human")`），最后按人类集合过滤计数——即 2 次查询，不随 reviewer 数增长，也不引入 join（`pr_review_ops.rs:57-98`）：
 
 ```rust
 let reviews = list_by_pr(db, pr_id).await?;          // 1 次
@@ -189,7 +189,7 @@ let humans: Vec<i64> = user::Entity::find()          // 1 次，IN 查询
 
 **(c) 导入路径**：`import/service.rs:938-969` 直接写 `pr_reviews`，把源平台的 `"APPROVED"` 落成 `"approve"`，绕过 (a)。(b) 已在计数层过滤，这里不额外拦截；只在导入时对解析成 agent 的 reviewer 打 warn 日志，避免"导入了却不计数"无人知晓。
 
-**(d) 不动 `dismiss`**：现有 `dismiss` 既不覆盖也不删除已计批准（`pr_review_ops.rs:56` 只把 `approve`/`request_changes` 放进 `latest`）。这是既有行为，改它属于另一件事。
+**(d) 不动 `dismiss`**：现有 `dismiss` 既不覆盖也不删除已计批准（`pr_review_ops.rs:63-68` 只把 `approve`/`request_changes` 放进 `latest`）。这是既有行为，改它属于另一件事。
 
 ### 3.4 测试（追加到 `crates/rg-http/tests/agent_principal_tests.rs`）
 
@@ -213,7 +213,7 @@ let humans: Vec<i64> = user::Entity::find()          // 1 次，IN 查询
 
 ### 3.5 落地顺序（已执行）
 
-单独分支 `fix/agent-approval-gate`，从 `cba96ba` 切出（依赖第一期的 `is_agent` 与 `kind` 列）；PR #22 已合入 main，`0fe75a5` 是落地提交。原文的约束「**若第一期先合 main，本修复必须同批合入**，不能留窗口期」按实际情况兑现为：第一期由 PR #47（`063e6eb`）合入，本修复在 PR #22 同批跟上，`cba96ba` 现为 main 的祖先（独有提交 0），无窗口期。
+单独分支 `fix/agent-approval-gate`，从 `cba96ba` 切出（依赖第一期的 `is_agent` 与 `kind` 列）；PR #22 已合入 main，`0fe75a5` 是落地提交。原文的约束「**若第一期先合 main，本修复必须同批合入**，不能留窗口期」按实际情况兑现为：第一期由 PR #47（`063e6eb`）合入，本修复在 PR #22 同批跟上，`cba96ba` 现为 main 的祖先（独有提交 0），无窗口期。**分支 ref 本身也已废弃**：tip `c882d40` 同样没有独有提交（`main..c882d40` = 0），但**落后 main 112 个提交**（`bd7eb84` 时点，现算 `git rev-list --count c882d40..main`）——一个只看名字的人会以为它还能切上去干活，实际要重新从 main 切分支。
 
 ---
 
@@ -643,7 +643,7 @@ graph LR
 ```bash
 # 批准门
 grep -n "ensure_session_may_approve\|ref_allowlist" crates/rg-http/src/api/auth.rs crates/rg-http/src/api/reviews.rs
-grep -rn "count_current_approvals" crates
+grep -rn "count_current_human_approvals\|count_approvals" crates
 
 # 路由元数据
 grep -n "fn required_pat_scope\|fn repo_scope_for\|fn normalized_api_path" crates/rg-http/src/lib.rs
