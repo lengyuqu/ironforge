@@ -793,7 +793,7 @@ git -c protocol.version=2 clone --depth=1 ...
 | `fix/password-strength-bypass` | PR #21 → `c74bc25` | **B2-1 + B2-2** | 已修。`reject_common` 改成「跳过前导非字母 + 取第一个字母段」（`password.rs:250-254`，即本轮推荐的方案 ①）；`TooCommon` 已改为无载荷变体 |
 | `fix/oci-token-visibility` | PR #24 → `9b6bdde` | **B2-11** | 已修。`OciTokenClaims` 新增 `uid`（`oci_token.rs:74`），Bearer 分支在 scope 命中后补 `can_read_repo(.., claims.uid)`（`oci.rs:159`）/ `can_write_repo`（`:164`） |
 
-**`fix/*` 分支全量状态（`2ce6d94` 时点，2026-11-11 单发轮 #13 实测 `git rev-list --count cnb/main..<ref>`）**：`uniq=0`（无独有提交 = 内容已全在 main，**僵尸 ref，勿在其上继续工作**）= `fix/agent-approval-gate`（behind 114）、`fix/oci-token-visibility`（behind 89）、`fix/password-strength-bypass`（behind 89）；`uniq=1`（**有独有提交，删了就真丢代码**）= `fix/login-timing-enumeration`（behind 65）、`fix/oci-drop-catalog-scope`（behind 35）、`fix/validate-optional-text-propagate`（behind 30）。删 ref 属 L2：另有一个 L1 之外的理由——六条里五条在本机被 `ironforge-fix-*` 五个 worktree 占用（`git worktree list` 可查），删远端虽不影响本地 worktree，但下次 `git fetch cnb --prune` 会让它们的上游追踪断掉。本流程**只标注不删**。
+**`fix/*` 分支全量状态（`2ce6d94` 时点快照，2026-11-11 单发轮 #13 实测 `git rev-list --count cnb/main..<ref>` 取 `uniq`、反向 `<ref>..cnb/main` 取 `behind`）**：`uniq=0`（无独有提交 = 内容已全在 main，**僵尸 ref，勿在其上继续工作**）= `fix/agent-approval-gate`（behind 114）、`fix/oci-token-visibility`（behind 89）、`fix/password-strength-bypass`（behind 89）；`uniq=1`（**存档性质**：有 1 个独有提交、删了就真丢代码，但同样**不可在其上继续开发**——落后几十个提交，要捞就 `git cherry-pick` 那一个提交到新分支）= `fix/login-timing-enumeration`（behind 65）、`fix/oci-drop-catalog-scope`（behind 35）、`fix/validate-optional-text-propagate`（behind 30）。**读数规则**：本行是 `2ce6d94` 快照，`main` 每前进一个提交 behind 全部 +1、`uniq` 不变（`a01f591` = 115 / 90 / 90 与 66 / 36 / 31，`6e3a205` = 116 / 91 / 91 与 67 / 37 / 32）⇒ 别拿当前 main 复算来对账。删 ref 属 L2：另有一个 L1 之外的理由——六条里五条在本机被 `ironforge-fix-*` 五个 worktree 占用（`git worktree list` 可查），删远端虽不影响本地 worktree，但下次 `git fetch cnb --prune` 会让它们的上游追踪断掉。本流程**只标注不删**。
 
 连带的行号后果（**后续轮次必读**）：`password.rs` 全部行号 +6～+13（`min_length: 12` 从 `:177`→`:180`、长度判定从 `:199`→`:206`）；`oci.rs` +60 行（`check_access` 的 Bearer 分支从 `:128-144` 扩到 `:128-175`）；`oci_token.rs` +94 行（`matches_repo` 从 `:114`→`:124`、`check_repo_access` 从 `:219`）。凡旧轮次记录里这三个文件的行号，**一律作废，不得当证据引用**。
 
@@ -1413,7 +1413,7 @@ on: {push: {}, unknown_key: 1}    event=manual            parse=Ok  matches=fals
 **反向清单（本节新增 1 条，累计 1..45）**：
 
 45. 「batch#5 的第 4 轮节没有被「6 轮进度」指针收录（它引 `:66`）」—— 反证：`docs/reports/OPT-LOOP-LEDGER.md:53` 的 batch#5 进度行在 `ba78f72` 已改为 `**4 / 6**（各轮见文末 \`consume <K> / 6（batch#5）\` 节…）`；它引的 `:66` 属 batch#4 索引块，那条指针指向 `consume <K> / 6（batch#4）` 是正确行为。**已核实为不成立，不要重复提。**
-46. 「`cnb/main` 这个 ref 名在本仓树里不存在，凡写现算命令都得用 `origin/main`」—— 反证：`git remote -v`（本仓三 remote：`cnb`=cnb.cool、`github`、`origin`=**git233**）+ `git rev-parse --short cnb/main` = `2ce6d94`。它容器只有一个 remote 且就指向 cnb.cool，是**环境差异**；照它改成 `origin/main` 在本仓会指向另一个平台（git233），是**反向破坏**。正解：写 `cnb/main` 并注明「换成你会话里的 main ref」。**已核实为不成立，不要重复提。**
+46. 「`cnb/main` 这个 ref 名在本仓树里不存在，凡写现算命令都得用 `origin/main`」—— 反证（**可复现形**，不用任何快照 SHA）：`git remote -v` 在本仓输出三行 remote（`cnb`=cnb.cool、`github`、`origin`=**git233**）、`git remote get-url cnb` = `https://cnb.cool/zdzso/ironforge.git`、`git rev-parse --verify cnb/main` 恒成功 ⇒ ref 存在且指向 cnb.cool，与 `origin`（git233）是两个平台。它容器只有一个 remote 且就指向 cnb.cool，是**环境差异**；照它改成 `origin/main` 在本仓会指向另一个平台（git233），是**反向破坏**。**正解不是「改写为 `cnb/main`」**（那只是把一种写死换另一种）：文档里的现算命令一律用相对 ref 占位——`<你的 main ref>`，或切到 main 后的 `HEAD`，两种容器都成立。**已核实为不成立，不要重复提。**
 
 **验证**：`BASE=953946c`。改前即上一轮改后的同一棵树（`EXIT=0`，`checks passed in 4s`）；本轮改后 `scripts/check.sh --quick` **`EXIT=0`**（executor 本机 `Darwin arm64` / `cargo 1.99.1`，``Finished `dev` profile … in 2.71s`` / `==> checks passed in 4s (quick)`）。五文件行数合计仍 **4860**。
 
@@ -1557,3 +1557,52 @@ on: {push: {}, unknown_key: 1}    event=manual            parse=Ok  matches=fals
 **改动 SHA**：`a01f591`（2 文件，全 `.md`），推 `cnb` 单 remote；`git merge-base --is-ancestor <SHA> cnb/main` 通过。**时刻锚** = 本提交 author date（`git log -1 --format=%aI <SHA>`）。
 
 **回帖**：`2120513914310918144`，首行 `## 本轮收尾`（**不带轮次号**，不占批次 C），末段 `@CodeBuddy`。issue 状态**保持 open**。
+
+### 单发轮 · issue #13 · 2026-11-11（第 4 次消费：它改用 `## 复核回帖`，明确不计轮次）
+
+- 选靶：MANUAL 七条（#13/#14/#15/#16/#17/#18/#19）里**唯一带 priority** 的（`P1`），其余为空 ⇒ 命中。最新评论 `2120514183996272640`（`2026-11-11T13:49:13Z`，`author.is_npc = true`，首行 `## 复核回帖`）**晚于**我方上一条收尾 `2120513914310918144`（`13:48:09Z`）⇒ 有新 NPC 回复，不触发「跳过」。批次段仍无对象（open 列表 7 条全 MANUAL，无 `[opt-round]`；batch#5 / issue #31 已 `closed/completed`）。
+- 让位判据：`git ls-remote cnb refs/heads/main` = `6e3a205`，与本地 main 同点，且该提交是**我方上一轮的回填提交**（`docs(opt-loop): 回填单发轮 #13 三次消费的 SHA 与回帖 id`，非他人）；`git worktree list` 的另外 6 个 worktree 无 5 分钟内的 mtime；锁 `mkdir` 一次成功、无 owner 残留 ⇒ 无并发写者。
+- 基线：`BASE=6e3a205`（零漂移）。WT `issue-13-manual`、分支 `opt/issue-13-manual-20261111`。
+- 判定汇总：**成立 6 / 确认 2 / 部分成立 1 / 不成立 2**（含 1 条我方自查成立）。
+
+判定表（`:<n>` 指 `6e3a205` 树上的行号；它自称在 `a01f591` 树上复算）：
+
+| # | 它说的 | 判定 | 证据 |
+|---|---|---|---|
+| ① | **硬伤一**：反向清单 46 的反证 `git rev-parse --short cnb/main` = `2ce6d94` 是它拼的，不可复现，须重写成能自证的形态 | **成立** | 该行原文确以 `rev-parse --short cnb/main` = `2ce6d94` 为证据，而 `2ce6d94` 早已不是 tip（现 `6e3a205`）⇒ 快照必腐，且它容器无 `cnb` remote 复现不了。已改成**零快照**形式：`git remote -v` 三行 + `git remote get-url cnb` + `git rev-parse --verify cnb/main`（恒成功，与 SHA 无关） |
+| ② | **硬伤二-1**：`:216` 一行里并存 `<你会话里的 main ref>..c882d40`（=0）与 `c882d40..cnb/main`（落后数）两套端点口径 | **成立** | 原文逐字如此；后半句还带「把 `cnb/main` 换成你会话里的 main ref」的替换指令 ⇒ 同一行两种写法。已删现算命令，只留快照 + 单调声明 |
+| ③ | 同上后半：`c882d40` 这个端点「恰好不在大多数会话里」，换了远端仍 `bad revision` | **不成立** | `git merge-base --is-ancestor c882d40 cnb/main` → **退出 0**：`c882d40` 是 main 的祖先，有 main 就有它，`git rev-list --count <main>..c882d40` 在任何完整 clone 上都可跑。见「判定不成立」第 47 条 |
+| ④ | **硬伤二-2**：台账 `:796` 冠「`2ce6d94` 时点」却写 `behind 114`（它认为 `a01f591` 时点该是 115）⇒ 时点与数字打架 | **不成立** | 实测 `2ce6d94` 时点正是 `114 / 89 / 89` 与 `65 / 35 / 30`（`git rev-list --count <ref>..2ce6d94` 六条逐个复算），与标注**完全自洽**；`115 / 90 / 90` 与 `66 / 36 / 31` 才是 `a01f591` 时点。它把自家表里 `..a01f591`=115 那一列拿来对 `2ce6d94` 的行。见「判定不成立」第 48 条 |
+| ⑤ | 二.1：`:216` 首选修法是**删掉现算命令**只留快照（次选才是换成相对 ref） | **成立** | 采纳首选：整句命令删除，改「`bd7eb84` 时点快照；`main` 每多一个提交该数 +1，`6e3a205` 时点已是 116——只增不减」。读者不再需要跑命令，也就无从「跑出来不符」 |
+| ⑥ | 二.2：`uniq=1` 三条的标注从「有独有提交，删了就真丢代码」补成「存档性质 + 不可在其上继续开发 + cherry-pick 捞」 | **成立** | 原文只写了「删了就真丢代码」，读起来像「还能切上去干活」，而三条 `behind` 为 `65/35/30`（`6e3a205` 已 67/37/32）⇒ 直接在上面改必大范围冲突。已按它给的措辞补进 `:796` |
+| ⑦ | 三：§3.5 只需「加一句废弃声明」，不是删分支；不要把它挪进 L2 决策清单，M13-4 的「删不删」单独留 L2 | **确认（现行即此）** | 文档 §3.5 已有「**分支 ref 本身也已废弃**」整句（L1 已落）；台账 M13-4 只把「删不删」列 L2，未捆绑文档措辞。本轮未扩大 L2 范围 |
+| ⑧ | 一.③：`:177` 已是 `pr_review_ops.rs:57-98`，函数 `}` 落在 `:98` | **成立** | `crates/rg-db/src/ops/pr_review_ops.rs`：`:94` `Ok(current` → `:95` `.iter()` → `:96` `.filter(...)` → `:97` `.count() as i64)` → `:98` `}`；`:100-103` 为 `create` 的 doc + 签名 + 体 |
+| ⑨ | 一.③后半：`:105` 才是空行 | **不成立** | `:99` 与 `:104` 是空行，`:105` = `/// Delete a review by ID.`（`sed -n '99,105p'` 逐行打印可验）。不影响 ③ 的主断言 |
+| ⑩ | 一.①：「落后 main」四点表 `bd7eb84`=112 / `aae47d8`=113 / `2ce6d94`=114 / `a01f591`=115，反向 `..c882d40` 均 0 | **成立** | `git rev-list --count c882d40..{bd7eb84,aae47d8,2ce6d94,a01f591,6e3a205}` = `112 / 113 / 114 / 115 / 116`，逐点全中；`git rev-list --count <main>..c882d40` = 0 |
+| ⑪ | 一.⑦：撤回上轮「该用 `origin/main`」的主张，正解改为「不写死远端名，用 `HEAD` / `<你的 main ref>`」 | **确认（采纳，第 46 条正解已同步改）** | 本仓 `origin` = git233、`cnb` = cnb.cool，两个平台；`rev-parse --verify cnb/main` 在本机恒成功、在它容器恒失败 ⇒ 唯一两边都成立的是相对 ref。反向清单 46 的**结论仍是不成立**，只换证据与正解 |
+| ⑫ | 我方自查（它未提）：设计文档 `:216` 同句里「落后 89」（两条僵尸 ref）与所标 `bd7eb84` 时点不符 | **成立（自查）** | `git rev-list --count <ref>..bd7eb84` = **87**（`fix/oci-token-visibility` / `fix/password-strength-bypass` 同为 87）；89 是 `2ce6d94` 时点值。已改为 87 并注明同句为 `bd7eb84` 时点 |
+
+**本轮改动**（4 处，全 L1 文档；行数零漂移，除新增本节）：
+
+1. `ironforge-docs/architecture/agent-principals-design-and-roadmap-2026-11.md:216`（§3.5）：删现算命令 + 去远端名（改 `<你的 main ref>..c882d40`）+ 补单调换算（`6e3a205` = 116）+ 两条僵尸 ref 的 `89 → 87`（同句 `bd7eb84` 时点）。**1 行 → 1 行，文档仍 666 行。**
+2. `docs/reports/OPT-LOOP-LEDGER.md`「`fix/*` 分支全量状态」段：补「存档性质 / 不可在其上继续开发 / cherry-pick 捞」+ 新增「读数规则」（`a01f591` = 115/90/90 与 66/36/31、`6e3a205` = 116/91/91 与 67/37/32，`uniq` 不变）。**1 行 → 1 行。**
+3. 同台账反向清单第 **46** 条：反证改成零快照形态（`git remote -v` + `git remote get-url cnb` + `git rev-parse --verify cnb/main`），正解从「写 `cnb/main`」改为「用相对 ref 占位」。**1 行 → 1 行，编号与条数不变。**
+4. 本节（新增）。
+
+**未做（L2，待拍板）**：
+
+- **M13-4（P3）**：三条 `uniq=0` 僵尸 ref 删不删，维持待拍板；本轮只改标注措辞，未动任何 ref（`git ls-remote --heads cnb 'refs/heads/fix/*'` 仍六条）。
+- M13-1 / M13-2 / M13-3 维持原状；§4 T21–T26、§5 R1–R11 要改产品代码，继续等排期。
+
+**反向清单**：本节新增 **2** 条（③、⑨），新增条目见下；累计 **1..48**。
+
+**判定不成立（本节新增，原文保留，请勿重复提）**
+
+47. 「现算命令的第一个端点 `c882d40` 不在大多数会话里，读者换了远端仍会 `bad revision`」—— 反证：`git merge-base --is-ancestor c882d40 cnb/main` 退出 **0**（`c882d40` 是 main 的祖先），`git rev-list --count <main>..c882d40` 在任何含 main 的 clone 上都可跑；真正会缺的是「根本没 fetch 到本仓」的浅克隆，与端点写法无关。**已核实为不成立，不要重复提。**
+48. 「台账 `fix/*` 全量状态段冠 `2ce6d94` 时点却写 `behind 114`，而 `a01f591` 时点是 115 ⇒ 时点与数字打架」—— 反证：`git rev-list --count <ref>..2ce6d94` 六条 = `0/114、0/89、0/89、1/65、1/35、1/30`，与该行逐字相同 ⇒ 标注与数字自洽；`115/90/90` 与 `66/36/31` 属 `a01f591` 时点。**已核实为不成立，不要重复提。**
+
+**验证**：`BASE=6e3a205`。改前 `scripts/check.sh --quick` **`EXIT=0`**（executor 本机 `Darwin arm64` / `cargo 1.99.1` / `2026-11-11T14:50:51Z` 起，``Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 18s`` / `==> checks passed in 80s (quick)`——WT 内 cargo 指纹不全，见 `docs/reports/OPT-LOOP-WORKTREE.md` §5.5）。改后同命令 **`EXIT=0`**（见下）。
+
+**改动 SHA**：`<SHA>`（2 文件，全 `.md`），推 `cnb` 单 remote；`git merge-base --is-ancestor <SHA> cnb/main` 通过。**时刻锚** = 本提交 author date（`git log -1 --format=%aI <SHA>`）。
+
+**回帖**：`<回帖 id>`，首行 `## 本轮收尾`（**不带轮次号**，不占批次 C），末段 `@CodeBuddy`。issue 状态**保持 open**。
