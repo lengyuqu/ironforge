@@ -1893,7 +1893,7 @@ on: {push: {}, unknown_key: 1}    event=manual            parse=Ok  matches=fals
 **新发现（我方，L2 待拍板）**：
 
 - **R33-1（P2）**：`rg_core::audit::record` 的字面量写 `id: Set(0)`（`crates/rg-core/src/audit/audit.rs:30`，「auto-increment」注释与行为相反），而它在 SSH 分支删除路径上**是活的**（`crates/rg-ssh/src/lib.rs:642`）。SQLite 的 `INTEGER PRIMARY KEY` 下显式 0 只能成功一次 ⇒ 每个进程第一条之后的 SSH 审计插入全部失败、只落一条 `tracing::error!`。`collab_groups.rs:258-260` 的注释已把这个已知 bug 写成「所以本文件不用 `rg_core::audit::record`」，但调用点没清。
-- **R33-2（P2）**：T23 的覆盖边界未定义——`record_write` 只有 12 个调用点（`agents.rs` 4 / `repo_content.rs` 3 / `pulls.rs` 2 / `repo_commits.rs` 1 / `reviews.rs` 1 / `lib.rs` 1），另 5 处自建 `ActiveModel` 的审计点（`repos.rs:40`、`admin.rs:41`、`orgs.rs:27`、`users.rs:69`、`collab_groups.rs:263`）不填该列；`create_repo`（`repos.rs:130`）**没有 agent 门** ⇒ agent 建仓时 `on_behalf_of_user_id` 必为 NULL。已在设计文档写清边界，但「要不要覆盖这 5 处」需拍板。
+- **R33-2（P2）**：T23 的覆盖边界未定义——`record_write` 只有 **11** 个调用点（`agents.rs` 4 / `repo_content.rs` 3 / `pulls.rs` 2 / `repo_commits.rs` 1 / `reviews.rs` 1；第 2 轮更正：原写「12 … `lib.rs` 1」是笔误，`grep -rn 'record_write(' crates/` 那 12 行里有一行是 `api/audit.rs:324` 的定义，`rg-http/src/lib.rs` 无调用），另 5 处自建 `ActiveModel` 的审计点（`repos.rs:40`、`admin.rs:41`、`orgs.rs:27`、`users.rs:69`、`collab_groups.rs:263`）不填该列；`create_repo`（`repos.rs:130`）**没有 agent 门** ⇒ agent 建仓时 `on_behalf_of_user_id` 必为 NULL。已在设计文档写清边界，但「要不要覆盖这 5 处」需拍板。
 
 **本轮改动**（2 文件 + 本节；`crates/` 仅 1 处注释，无逻辑改动）：
 
@@ -1916,8 +1916,12 @@ on: {push: {}, unknown_key: 1}    event=manual            parse=Ok  matches=fals
 
 **反向清单（本节新增 1 条，累计 1..61）**：
 
-61. 「`down(&db, Some(25))` 应为 **24**，现在的 25 已多回滚一条（`m20261015_000001`）、擦到测试自己的 `before` 锚点；T23 追加迁移后正确值仍是 **25** 不是 26」—— 不成立：测试在 `down` 之前已 `up(None)` 迁满 99 条（`:960`），探针实测回滚后剩 **74** 条、栈顶 `m20261015_000001` ⇒ 窗口正是「锚点 + 其后 24 = 25」，`+1` 规则成立；改成 24 会让锚点的 partial unique index 留下、`uq_repositories_%` 断言失败。**已实测否定，不要重复提。**
+61. 「`down(&db, Some(25))` 应为 **24**，现在的 25 已多回滚一条（`m20261015_000001`）、擦到测试自己的 `before` 锚点；T23 追加迁移后正确值仍是 **25** 不是 26」—— 不成立：测试在 `down` 之前已从 `up(Some(74))`（`:926-929`，按名字算的 `before`）起手、再由场景内 `up(None)` 迁满 99 条（`:960`），探针实测回滚后剩 **74** 条、栈顶 `m20261015_000001` ⇒ 窗口正是「锚点 + 其后 24 = 25」，`+1` 规则成立；改成 24 会让锚点的 partial unique index 留下、`uq_repositories_%` 断言失败。**已实测否定，不要重复提。**
 
 **对方误差（非结论位置，勿当结论引用）**：①把 `before = 74`（`position(锚点前一条)+1`）当成迁移总数做减法，得出「应为 24」；②`audit.rs:87` 实为 utoipa `params` 首行（handler `:103`）、`lib.rs:1734` 实为 admin/sso 路由（`:1745`）；③`list_paginated` 现有参数 8 个（它写「再加一个会到 9 个」——数对，但没说现在就是 8 个）。
 
-**改动 SHA / 回帖（回填）**：`ac97b22`（3 文件 `67+/11−`），推 `cnb` 单 remote（`f821932..ac97b22  HEAD -> main`）；合流后 `git merge-base --is-ancestor ac97b22 cnb/main` 通过（`cnb/main` = `ac97b22`），主工作区 `merge --ff-only` 到 `ac97b22`、`status --porcelain` 0 行。**时刻锚** = `git log -1 --format=%aI ac97b22` = `2026-11-12T05:56:58+08:00`。**回帖** `2120637095629713408`（`2026-11-11T21:57:37Z`，回读首行 `## 本轮收尾`、末段独立成段 `@CodeBuddy`、24941 字符、61 条编号各自独立成行）。issue #33 **保持 open**（单发轮不 close）。
+**第 2 轮订正（复核方 @CodeBuddy 回帖后）**：
+
+- **自证两处误差**：①覆盖边界写「`record_write` 12 个调用点 … `lib.rs` 1」——真值 **11**，`grep -rn 'record_write(' crates/` 的 12 行里含 `api/audit.rs:324` 的定义行，`rg-http/src/lib.rs` 一条调用都没有（4+3+2+1+1 = 11）。已改。②测试段把起手写成「`up(None)` 迁满 99 条后回滚」，漏了 `:926-929` 的 `up(Some(74))`——`up(None)` 是场景内那一句（`:960`），真正**先**发生的是按名字算出的 `before = position("m20261015_000001") + 1` = 74。已补全三步（`up(Some(74))` → `up(None)` → `down(25)` 回到 74），并写明「别顺手改起始点，它钉的是名字不是序号」。**第 61 条结论不变**：窗口 = 99 − 74 = 25。
+- **复核方三项请求的答复**：①设计文档 T23 段（`:288-322`）的「覆盖边界」与 `:292` 的「代表谁要 join `users.owner_user_id` 才知道」**互不矛盾**（前者说写入侧谁填这列、后者说查询侧现在为什么绕不开 join）；②`crates/rg-db/src/lib.rs:1022-1027` 改后的「anchor itself plus every migration after it」与 `down(25)` 理解**一致**（99 起手 − 25 = 74）；③反向清单第 61 条**维持不成立**，复核方亦未反驳探针数据，只要求确认。
+- **本轮无新增反向清单条目**（累计仍 1..61）；第 2 轮不占批次 C，issue #33 保持 open。
