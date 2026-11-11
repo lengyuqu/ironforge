@@ -47,8 +47,8 @@
 - 引导问题 4 条：P2 并发组算而不用（`lib.rs:136-158` group 只进日志/409 文案，互斥取消实际按 `find_active_pipelines_by_ref` 的 ref_name 判定，`pipeline_ops.rs:1315-1340`）；P2 Docker 路径超时不杀进程（`runner.rs:687-697` docker Command 无 kill_on_drop，对照本地 `:561`/`:576`；容器名 `:651` 重跑冲突）；P3 step env 未加引号拼 `export k=v`（`gitea_actions.rs:463`）；P3 PR branches 过滤用 default_branch 近似 + step 条件求值错误被 `unwrap_or(false)` 静默吞（`gitea_actions.rs:301-311` / `:420`，与 native 路径 `lib.rs:242-252` 的 `?` 传播不一致）
 - 反向清单回灌：**不成立 38 条全量**（batch#1–#4 累计，含 batch#4 第 6 轮新增 36–38）+ 我方自证推翻 8 项 + 对方已撤回 6 项 + 对方错项 5 条 + batch#4 第 1 轮错项 4 条，均注明「不要重复提」
 - 上一批遗留回读（协议 §6.2 开批前三步）：batch#4 批后复核评论 `2120444501616406528`（`2026-11-11T09:12:19Z`，关批后 +49 s）——第 6 轮 7 项复核全部通过、无异议，36–38 不再重提，B4-1..B4-8 维持 L2；一条行数口径备注（我方记 1055 / 它实测 1056，末行换行计数差异）——本批起台账行数统一以 `wc -l` 输出为准
-- NPC 首扫：等待中（由消费者补记；生产者不等首扫——F16）
-- 6 轮进度：**0 / 6**
+- NPC 首扫：`2120454308016586752`，`2026-11-11T09:51:17Z`（开批后 4 min 46 s；首行 `@cnb.biewen(别问) ## batch#5 第 1 轮 · rg-ci 引擎只读审查`，自述基线 `d32421e` 且逐文件核过行数 1857/1297/1065/326/315）
+- 6 轮进度：**1 / 6**（第 1 轮见文末 `consume 1 / 6（batch#5）` 节）
 
 ### batch#4(issue #27) · 2026-11-11 · rg-http issue/PR/review API 层
 
@@ -941,7 +941,7 @@ git -c protocol.version=2 clone --depth=1 ...
 
 ## 判定不成立（原文保留，请勿重复提）
 
-见上文同名小节（本清单已累计 **1..38** 条；36–38 见文末 `consume 6 / 6（batch#4）` 节）。本行原为开批时的占位「（暂无）」，已失效并就地订正，勿再当「无任何不成立条目」读
+见上文同名小节（本清单已累计 **1..40** 条；36–38 见文末 `consume 6 / 6（batch#4）` 节，39–40 见文末 `consume 1 / 6（batch#5）` 节）。本行原为开批时的占位「（暂无）」，已失效并就地订正，勿再当「无任何不成立条目」读
 
 ---
 
@@ -1068,3 +1068,79 @@ git -c protocol.version=2 clone --depth=1 ...
 **改动 SHA**：`d4dfb51`（本文件 48+/6−，1014 → 1055 行；五处 1 行→1 行原地替换 + `:51`/`:932` 两处原地替换 + 本节追加），推 `cnb` 单 remote `61c9f9b..d4dfb51`。**改后验证**：`scripts/check.sh --quick` **`EXIT=0`**（executor 本机 `Mac` / `cargo 1.99.1`，`2026-11-11T09:10:13Z` → `09:10:15Z`，关键行原文 ``Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.25s`` / `==> checks passed in 2s (quick)`）；**时刻锚** = 本提交 author date `2026-11-11T17:10:19+08:00`（= `09:10:19Z`，`git log -1 --format=%aI d4dfb51` 可复算），两条验证均发生在其之前。
 
 **回填**：本轮收尾评论 `2120444257281421312`（`2026-11-11T09:11:21Z`），回读 **C=6**（本批 6/6 收批）、首行 `## 第 6 轮收尾`、末行 `@CodeBuddy`、正文 18493 字符；`BATCH_COMPLETE` 评论 `2120444299035713536`（`2026-11-11T09:11:31Z`），issue #27 已置 `closed/completed`。
+
+### consume 1 / 6（batch#5）· 追加于文末（只为零行号漂移，勿移入上文）
+
+- 输入：NPC 首扫 `2120454308016586752`（`2026-11-11T09:51:17Z`）。C=0（正则 `^## 第 \d+ 轮收尾` 无命中）⇒ K=1，非补记。
+- 基线：`BASE=e49ce4a`（`cnb/main` = 本机 HEAD，`git rev-list --left-right --count HEAD...cnb/main` = `0 0`）。它钉的 `d32421e` 与之只差 `docs/reports/OPT-LOOP-LEDGER.md`（开批 +12 行，单文件）⇒ 本批 5 个源文件零漂移，行数指纹 **1857 / 1297 / 1065 / 326 / 315** 全等，它给的行号可直接复用。
+- 判定汇总：**成立 6 / 部分成立 1 / 子命题不成立 3 / 我方自证推翻 2**。其误差全落在非结论位置（4 处，见本节末「对方行号/计数误差」）。
+- 读法约定：下表 `:<n>` 一律指 `e49ce4a` 上那 5 个文件的行号，只用于**指认被判定对象**；本节内部定位一律用小节名 / 条目号（审计口径第 4 条）。
+
+判定表：
+
+| # | 它说的 | 判定 | 证据 |
+|---|---|---|---|
+| Q1 | 并发组算而不用：group 只进日志与 409 文案，互斥与取消实际按 `ref_name` 判定 | **成立** | `grep -n group crates/rg-ci/src/lib.rs` 实测 **6 行**命中（`:136` `:137` `:144` `:145` `:156` `:158`；它自报「5 处」却同时贴出 6 行——计数错、结论不变）；`:139` 判据源 `find_active_pipelines_by_ref(db, repo_id, ref_name)`，该函数在 `crates/rg-db/src/ops/pipeline_ops.rs:1315-1343`（它写 `:1315-1340`；函数体到 `:1342`、闭括号 `:1343`），过滤条件只有 `repo_id` + `ref_name` + 4 个活跃状态；`resolve_concurrency_group`（`pipeline_ops.rs:1392-1397`）纯字符串替换、不写库不入查询；取消走 `cancel_pipeline_chain(db, p.id)`（`:149`）不带 group。**它补充的「`${{ branch }}` 等于没实现」成立**：该值唯一落点是 `:144` 的 tracing 与 `:158` 的 409 文案 |
+| Q2 | Docker 路径未设 `kill_on_drop`，超时不杀子进程 | **成立**（其「重名必然」不成立，见反向清单 39） | `grep -n kill_on_drop crates/rg-ci/src/runner.rs` = `:561` / `:576` 仅两处（均在 `run_job_local`）；docker 侧 `Command::new("docker")` 在 `:687-688`、`.output()` 在 `:694-697`、无 `kill_on_drop`；超时包装 `tokio::time::timeout` 在 `:505-515`，靠 drop future 生效 ⇒ 容器与 `docker run` 进程继续跑；容器名 `format!("ironforge-job-{job_id}")` 在 `:651` 为确定性命名；`--rm` 参数在 **`:656`**（它写 `:653`，那是注释行）。模块头 `:16` 的原句本轮已改 |
+| Q3 | `gitea_actions.rs:463` 的 `export k=v` 未做 shell 引号 | **成立（我方机制描述错，已按其订正记账）** | `sed -n '463p'` = `script.push(format!("export {}={}", k, expanded));`；`substitute_expr`（`:803-836`）只做文本替换、无转义。`sh` 实测：`export A=hello world` ⇒ `A=hello` 且 **`world` 未执行**（`export` 后续词按变量名处理）⇒ 我方 issue 的「执行 `world`」不成立；`;` / `&&` / `|` / `#` 为真注入（`|` 还会把 `A` 变空）；**换行 = 无条件新脚本行**，不需要任何元字符 |
+| Q4-a | `pull_request` 的 base_ref 用 `default_branch` 近似 | **成立但不可达** | 去重命令 `grep -rhn 'trigger_type: "' crates/ --include=*.rs \| grep -o '"[a-z_]*"' \| sort \| uniq -c` = `manual` / `merge_group` / `push`×4 / `retry` / `suggestion` —— **无 `pull_request`** ⇒ `gitea_actions.rs:301` 的 PR 一侧在生产环境走不到 |
+| Q4-b | 该分支真实受害者是 `merge_group` | **部分成立**（底层缺陷成立；它给的例子不成立，见反向清单 40） | 见「实测」小节：`on: merge_group:` **永不匹配**（`WorkflowTriggerSingle`（`:57-66`）没有 `merge_group` 字段、也未 `deny_unknown_fields` ⇒ 该键被 serde 静默丢弃 ⇒ 走 `:308` 的 `else { false }`）；只有 workflow 声明 `pull_request:` 时 `:306` 才生效，而此时过滤基准恒为 `default_branch` |
+| Q4-c | `unwrap_or(false)` 静默吞错，与 native 路径的 `?` 口径不一致 | **不成立（我方引导问题前提错，采纳其反证）** | `:420` 确为 `unwrap_or(false)`，但 `:264` 的 `supported_condition` 先跑 `condition::validate_condition`（`condition.rs:41-55`），其接受集（`github` 四键 / `env.<valid_key>` / `matrix.<valid_key>`）⊇ `evaluate_condition`（`:57-64`：命中 context 或 `env.`/`matrix.` 前缀即 `Some("")`）；`actions_condition_context`（`:783-795`）恒插 `github.ref` / `github.ref_name` / `github.event_name` / `github.sha` ⇒ validate 通过后 `Err` 不可达；唯一生产调用点 `lib.rs:677` 在 `:664-665` 的 validate 之后 |
+| B5-1 | `lib.rs:568` 把 gitea 路径的**所有**错误当「不存在」吞掉 | **成立（P1）** | `sed -n '568p'` = `if let Ok(config) = try_read_gitea_workflows(...)`；三个真实失败出口 `:662`（expand）/ `:665`（`validate_supported_actions`）/ `:704`（`no matching workflows`），另有 `:647-654` 单文件 parse 错只 `tracing::debug!` + `continue`；`:575-580` 的兜底文案「no CI config found (.gitea/workflows/*.yml or .ironforge-ci.yml)」在 gitea 配置写坏时自相矛盾。**它未提的补强**：`crates/rg-http/src/api/ci.rs:508` 的前置校验文案是「no .ironforge-ci.yml found」——只提 native 文件名 |
+| B5-2 | `manual` / `retry` / `suggestion` 触发在 gitea-only 仓库必失败 | **成立（比它说的更强）** | `matches_event`（`:280-316`）只认 `push` / `pull_request` / `merge_group`，其余 `_ => false`（`:312`）；实测 `on: workflow_dispatch:` 对 `manual` 返回 **false** ⇒ **即便 workflow 正确声明了 `workflow_dispatch` 也匹配不上**（`:290` 把该字段 destructure 成 `_` 丢弃）；`has_ci_config`（`crates/rg-core/src/ci/mod.rs:76-91`）只看 `.gitea/workflows` 目录**存在**即 true（`:84`）⇒ 不会被 `ci.rs:507` 提前拦掉 |
+
+实测（本节唯一新增取证，可复跑）：
+
+- 方法：临时 integration test 直接调 `GiteaWorkflow::parse` + `matches_event(event, ref, "main")`，跑完即删，`git status --porcelain` 为空（未进任何提交）。
+- 输出原样：
+
+```
+ON="merge_group:"                                EVENT=merge_group REF=refs/merge-queue/17 => matches=false
+ON="merge_group:\n    branches: [main]"          EVENT=merge_group REF=refs/merge-queue/17 => matches=false
+ON="merge_group:\n    branches: ['release/*']"   EVENT=merge_group REF=refs/merge-queue/17 => matches=false
+ON="pull_request:\n    branches: [main]"         EVENT=merge_group REF=refs/merge-queue/17 => matches=true
+ON="pull_request:\n    branches: ['release/*']"  EVENT=merge_group REF=refs/merge-queue/17 => matches=false
+ON="workflow_dispatch:"                          EVENT=manual        REF=refs/heads/main      => matches=false
+ON="push:\n    branches: [main]"                 EVENT=push          REF=refs/heads/main      => matches=true
+```
+
+- 读法：`merge_group:` 三行全 false ⇒ 该 trigger **键根本不被解析**；`pull_request:` 两行证明 `:306` 只在声明 PR 过滤器时才生效，且判定基准恒为 `default_branch`。这条同时否掉对方「`branches: ['main']` 会匹配」的例子（反向清单 40）。
+
+**本轮改动（4 文件 7+/7−，零行号漂移）**：
+
+1. `runner.rs:16`：`On timeout the child process is killed (not just abandoned).` → `On timeout the local child is killed; the docker run child is not (kill_on_drop unset).`（原句对 Docker 作业是假话）
+2. `config.rs:14-15`：删「Pipelines with the same group will be serialized」与「Supports template variables」，改为「按 **ref** 强制、跨 ref 从不串行；模板只进日志文本」（原两句在生产环境都不成立）
+3. `gitea_actions.rs:303-305`：删「For pull_request events … base branch is conveyed via default_branch」，改为「生产环境只有 `merge_group` 到达本分支，其 ref 是 `refs/merge-queue/<id>`，过滤恒按 `default_branch` 判定」
+4. `lib.rs:554`：`2. .ironforge-ci.yml (native format)` 补一句「第一步的错误被吞，坏的 Gitea workflow 静默回落到这里」
+5. 本台账：`batch#5` 索引两行（首扫 id / 进度 1/6）、尾部同名小节索引 `1..38` → `1..40`、本节
+
+四项均为 1 行→1 行（第 2 项 2 行→2 行、第 3 项 3 行→3 行），改后 5 文件行数指纹仍 **1857 / 1297 / 1065 / 326 / 315**，与 issue 声明的基准逐项一致。
+
+**未做（L2 待拍板 batch#5，本流程不动 main）**：
+
+- **B5-1**（P1）`lib.rs:568` 吞掉 gitea 路径三类错误 → 只应把「目录不存在」（`:608`）当 fallthrough，其余 `Err` 直接 `return Err(e)`；连带 `api/ci.rs:508` 的文案只提 `.ironforge-ci.yml`。
+- **B5-2**（P1）`matches_event` 缺 `manual` / `retry` / `suggestion`，且 `workflow_dispatch`（`:63` 解析、`:290` 丢弃）无映射 ⇒ gitea-only 仓库的手动触发与重试必失败。
+- **B5-3**（P2）并发组算而不用：`find_active_pipelines_by_ref` 需增加 group 维度（DB 查询改动）。
+- **B5-4**（P2）docker 路径补 `kill_on_drop(true)`；超时后还需显式 `docker kill` / `rm`，否则容器占资源到自行退出。
+- **B5-5**（P2）`gitea_actions.rs:463` 的 `export k=v` 需 `sh_quote`，或改 `env K=V sh -c`；换行注入等价于新脚本行。
+- **B5-6**（P2）`WorkflowTriggerSingle` 增 `merge_group` 字段（并考虑 `deny_unknown_fields` 以暴露未知 trigger 键）；merge queue 的 `branches` 过滤应以实际目标分支为基准，而非 `default_branch`。
+
+**反向清单（本节新增 2 条，累计 1..40）**：
+
+39. 「同一个 job 重跑时 `docker run --name ironforge-job-{job_id}` 会因容器重名直接失败——『这条不是「可能」，是必然』」—— 反证：retry 端点走 `trigger_pipeline` 建**新** pipeline（`crates/rg-http/src/api/ci.rs:613`），job 由 `create_job`（`crates/rg-db/src/ops/pipeline_ops.rs:381`）每次 INSERT 新行 ⇒ 新 job_id ⇒ 容器名不同；启动恢复只 `mark_job_timeout`（`crates/rg-http/src/lib.rs:3596-3638`）不重跑 ⇒ 当前无「同 job 重跑」路径。真实后果只剩「超时容器继续占宿主资源」。底层缺陷（`kill_on_drop` 缺失）本身**成立**，见 B5-4，两件事分开记。**已核实为不成立，不要重复提。**
+40. 「`on: merge_group:` 带 `branches: ['main']` 时会匹配 ⇒ `default_branch` 近似是 merge_queue 的真实受害者」—— 反证：实测 `on: merge_group:` 与 `on: merge_group: branches:[main]` 对 `matches_event("merge_group", "refs/merge-queue/17", "main")` 均返回 **false**（`WorkflowTriggerSingle`（`gitea_actions.rs:57-66`）无 `merge_group` 字段且未 `deny_unknown_fields` ⇒ 键被 serde 丢弃 ⇒ `:308` 的 `else { false }`）。该行只在 workflow 声明 `pull_request:` 时生效（实测 true），而此时过滤基准恒为 `default_branch`。**已核实为不成立，不要重复提。**
+
+**我方已自证推翻（本节 2 项，勿当结论引用）**：
+
+| 我方原文 | 实际 | 处置 |
+|---|---|---|
+| issue 引导问题 3 的机制：「`export FOO=hello world` 会被拆成 `export FOO=hello` + **执行 `world`**」 | `sh` 实测 `$A` = `hello`、`world` **未**执行 | 采纳对方订正：真注入面是 `;` / `&&` / `|` / `#` 与**换行**（换行 = 无条件新脚本行），空格只是静默截断。缺陷本身仍成立（B5-5） |
+| issue 引导问题 4 后半：「`unwrap_or(false)` 静默吞错，与 `lib.rs:242-252` 的 `?` 口径不一致」 | validate 接受集 ⊇ evaluate（`condition.rs:41-55` / `:57-64`），且上下文恒插四键（`:783-795`）⇒ validate 之后 `Err` 不可达 | 判**不成立**，不立 L2。口径不一致只剩 API 契约层（`to_ci_config` 是 `pub`），不是可观测缺陷 |
+
+**对方行号/计数误差（非结论位置，逐条列出以便下轮它自查）**：`config.rs:16`（真值 `:15`，`:16` 是 `pub group: String,`）；`--rm` 说在 `:653`（真值 `:656`，`:653` 是注释行）；`pipeline_ops.rs:1315-1340`（真值 `:1315-1343`）；`grep -n group` 自报 5 处（真值 6 行）。
+
+**验证**：`BASE=e49ce4a`。改前 `scripts/check.sh --quick` **`EXIT=0`**（executor 本机 `Mac` / `cargo 1.99.1`，`2026-11-11T10:13:06Z`，关键行原文 `==> cargo fmt --all --check` / ``Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.88s`` / `==> checks passed in 2s (quick)`）。改后同命令见下方改动 SHA 行。
+
+**改动 SHA**：`a668b5e`（4 文件 7+/7−，5 文件行数指纹不变），推 `cnb` 单 remote。**改后验证**：`scripts/check.sh --quick` **`EXIT=0`**（executor 本机，关键行原文 ``Finished `dev` profile [unoptimized + debuginfo] target(s) in 23.99s`` / `==> checks passed in 25s (quick)`；25 s 来自 rg-ci 因注释变更重编译，热缓存口径见参数表）；**时刻锚** = 本提交 author date `2026-11-11T18:19:13+08:00`（= `10:19:13Z`，`git log -1 --format=%aI a668b5e` 可复算），改后验证发生在其之前。
+
+**回帖**：待回填
