@@ -945,7 +945,7 @@ git -c protocol.version=2 clone --depth=1 ...
 
 ## 反向清单索引（编号总数与去处；清单实体不在本节）
 
-清单实体在上文 `## 批次索引` 块内的 `### 判定不成立` 小节，本节只维护编号总数与去处（本清单已累计 **1..60** 条；36–38 见 `consume 6 / 6（batch#4）` 节，39–40 见 `consume 1 / 6（batch#5）` 节，41 见 `consume 2 / 6（batch#5）` 节，42–43 见 `consume 3 / 6（batch#5）` 节，44 见 `consume 4 / 6（batch#5）` 节，45–46 见 `consume 5 / 6（batch#5）` 节（46 由「单发轮 #13 三次消费」轮写入、物理落在该节末，勿去那一节找正文），47–49 见 `单发轮 · issue #13 · 2026-11-11（第 4 次消费）` 节，50–51 见 `单发轮 · issue #13 · 2026-11-11（第 6 次消费）` 节，52–55 见 `单发轮 · issue #14 · 2026-11-12` 节（第 7 次消费），56–58 见 `单发轮 · issue #14 · 2026-11-12（第 8 次消费…）` 节，59–60 见 `…（第 9 次消费…）` 节——原写「见本节」是从索引行自身出发的错指针，本轮就地订正）。本行原为开批时的占位「（暂无）」，已失效并就地订正，勿再当「无任何不成立条目」读
+清单实体在上文 `## 批次索引` 块内的 `### 判定不成立` 小节，本节只维护编号总数与去处（本清单已累计 **1..61** 条；36–38 见 `consume 6 / 6（batch#4）` 节，39–40 见 `consume 1 / 6（batch#5）` 节，41 见 `consume 2 / 6（batch#5）` 节，42–43 见 `consume 3 / 6（batch#5）` 节，44 见 `consume 4 / 6（batch#5）` 节，45–46 见 `consume 5 / 6（batch#5）` 节（46 由「单发轮 #13 三次消费」轮写入、物理落在该节末，勿去那一节找正文），47–49 见 `单发轮 · issue #13 · 2026-11-11（第 4 次消费）` 节，50–51 见 `单发轮 · issue #13 · 2026-11-11（第 6 次消费）` 节，52–55 见 `单发轮 · issue #14 · 2026-11-12` 节（第 7 次消费），56–58 见 `单发轮 · issue #14 · 2026-11-12（第 8 次消费…）` 节，59–60 见 `…（第 9 次消费…）` 节（原写「见本节」是从索引行自身出发的错指针，已就地订正），61 见 `单发轮 · issue #33 · 2026-11-12` 节）。本行原为开批时的占位「（暂无）」，已失效并就地订正，勿再当「无任何不成立条目」读
 
 ---
 
@@ -1865,3 +1865,57 @@ on: {push: {}, unknown_key: 1}    event=manual            parse=Ok  matches=fals
 
 **改动 SHA**：`1c0a87e`（2 文件 `47+/5−`），推 `cnb` 单 remote（`2043fb3..1c0a87e  HEAD -> main`）；合流后 `git merge-base --is-ancestor 1c0a87e cnb/main` 通过，主工作区 `merge --ff-only` 到 `1c0a87e`、`status --porcelain` 0 行。**时刻锚** = 本提交 author date（`git log -1 --format=%aI 1c0a87e`）。
 **回帖**：`2120619579549306880`（`2026-11-11T20:48:01Z`，回读首行 `## 本轮收尾`、末段 `@CodeBuddy`、19945 字符、60 条编号独立成行）。首行 `## 本轮收尾`（**不带轮次号**，不占批次 C）。issue 状态**保持 open**。改后验证见上文（`20:47:11Z` 起 2 s，在回帖之前）。
+
+---
+
+### 单发轮 · issue #33 · 2026-11-12（第 1 次进入；选靶键从 priority 改为消费次数，见下）
+
+- 选靶：open **17 条全 MANUAL**（`[opt-round]` **0** 条 ⇒ 第二段无对象）。平台侧 `^## 本轮收尾` 计数（`re.match(r'^## 本轮收尾', body)`）：仅 **#14 = 3**，其余 16 条（#15–#19、#33–#43）= **0**。按协议 **§5.2.1** 的排序键 `(消费次数 asc, 编号 asc)` 取零消费里编号最小的 **#33**（T23 审计 `on_behalf_of_user_id`）。
+  - **与任务书冲突，按协议处理并在此声明**：任务书写「先 priority（P0>P1>P2>P3>空）、同级编号最小」；本次 17 条 `priority` **全空** ⇒ 该键退化为纯编号，会再次选中 **#14**（第 10 次进入）。这正是 §5.2.1 实测到的饥饿正反馈（7 h 46 m 内 9 个单发轮全落在 #13/#14）。§5.2.1 属 §5.2、协议正文已升 v0.11，故以消费次数为主键。
+- 无 NPC 分析（`comment_count = 0`）：`2026-11-11T21:50:15Z` 发首扫请求（第二人称、限定只读、明确禁止写 `## 本轮收尾` 标记）→ NPC **70 s** 后回（`21:51:25Z`，9122 字符，自述基线 `f821932`、`git status --porcelain` 空），无需走 60 s × 5 轮询窗。
+- 让位判据：`cnb/main` = `f821932` = 我方上一轮回填（`2026-11-12 04:48 +08`，距开工 61 min）；`git worktree list` 另 8 个 WT 最新 mtime `2026-11-12 02:25`（距开工 3 h 24 m）、`status --porcelain` 全 0 行；锁 `mkdir` 一次成功、无 owner 残留 ⇒ 无并发写者。
+- 基线：`BASE=f821932`，零漂移（`crates/rg-http/src/api/audit.rs` 470 行、`crates/rg-db/src/lib.rs` 1272 行、`migrations/mod.rs` 注册 **99** 条，与 `git show f821932:` 同）。
+- 判定汇总：NPC 8 项 → **成立 5 / 部分成立 2 / 不成立 1**；另我方新增 L2 **2** 项。
+
+判定表（`:<n>` 均指 `f821932` 树；全部 `sed -n '<l>p'` 打印核对过）：
+
+| # | 它说的 | 判定 | 证据与处置 |
+|---|---|---|---|
+| 1 | `record_write` 签名/10 字段/fire-and-forget 成立；`user_agent` 在正文清单里被漏写 | **成立** | `:324` = `pub(crate) async fn record_write(`、`:340-352` = `ActiveModel{…}` 十字段全中、`:353-355` 失败仅 `tracing::error!`。补一句：正文用「…」收尾，设计文档 `:292` 早已列全 10 个字段 ⇒ 「漏写」只对 issue 正文成立，不算缺陷 |
+| 2 | `with_access_token` 把 `access_token_id` 塞进 `details` 顶层，键名 `access_token_id` | **成立** | `:389` = `object.insert("access_token_id".to_string(), serde_json::json!(token_id));`；非对象 details 降级到 `detail`（`:381-385`）、`None` 新建对象（`:375-381`） |
+| 3 | `record_write` 为取 `username` 已查 `find_by_id`，改 match 后零额外查询；需新增 `rg_core` 依赖 | **成立** | `:334-338` 即那条查询（闭包 `.map(\|user\| user.username)` 丢弃整行，需改写但不加 SQL）；`:3-13` 的 `use` 里确无 `rg_core` |
+| 4 | `audit_log::ActiveModel {` 全仓 **10 处**（9 生产 + 1 测试），正文「不止一处」低估 | **成立** | `grep -rn "audit_log::ActiveModel" --include=*.rs crates/ \| wc -l` = **10**，逐条：`api/audit.rs:340`、`api/orgs.rs:27`、`api/users.rs:69`、`api/repos.rs:40`、`api/admin.rs:41`、`api/collab_groups.rs:263`、`rg-core/audit/audit.rs:30`、`rg-core/audit/service.rs:33`、`rg-core/audit/archiver.rs:180`、`rg-http/tests/admin_sso_audit_tests.rs:371`。9 生产 + 1 测试，与它的清单逐条一致 |
+| 5 | 「N 随新增迁移 +1」**不成立**：当前 25 ≠ 应有的 24、已差 1；`down(25)` 会多回滚一条（`m20261015_000001`）擦到 `before` 锚点；T23 加迁移后正确值是 **25** 不是 26 | **不成立** | 探针实测（临时 `eprintln!` 插在 `down` 之后 + `cargo test -p rg-db upgrade_keeps_child_rows -- --nocapture`，跑完 `git checkout` 复原、`status --porcelain` 0 行）：`PROBE applied_left=74`、`PROBE top3_after_down=["m20261015_000001_rename_mirror_plural", "m20260907_000001_add_users_token_version", …]`、`test result: ok. 1 passed`。⇒ 回滚窗口 = 注册表 idx 74..98 = **锚点 + 其后 24 = 25**，**值正确**。它漏读 `:960` 的 `up(None)`：测试先 `up(Some(74))` 停在锚点前，再迁满 99 条才 `down`。按它的 24 会让锚点的 partial unique index 留在库里、`uq_repositories_%` 断言从 `== 0` 变失败 |
+| 6 | `GET /admin/audit/logs` 现 7 个 query 参数、`user_id` 在、`user_agent` 存了但不回显；加列需同步 `AuditLogQuery`/`AuditLogEntry`/`list_paginated`/utoipa | **部分成立** | 参数与响应体、`list_paginated`（`rg-db/src/ops/audit_log_ops.rs:16-25`，现有 **8** 个参数 ⇒ 加一个到 9）、utoipa `params`（`:89-97`）全部核对成立；**但它给的行号 `audit.rs:87` 是 utoipa 注释内的 `params` 首行，handler 在 `:103`；`lib.rs:1734` 是 admin/sso 路由，`/admin/audit/logs` 在 `:1745`** ⇒ 行号两条全偏 |
+| A | agent 的 `owner_user_id` 来自 `users` 表自身，配合 `find_by_id` + `is_agent` 取 | **成立** | `crates/rg-db/src/entities/user.rs:54` = `pub owner_user_id: Option<i64>,`；`rg-core/src/agent.rs:48-50` = `is_agent` 判 `kind == KIND_AGENT`；迁移注释（`m20261110_000001`）写明「无外键，`delete_user` 拒绝删除仍拥有 agent 的人」 |
+| B | 「agent 动作但 owner 已删」无成文约定，按 `delete_user` 拒绝逻辑 + 审计快照惯例推得「写入时快照、不回填」 | **确认**（它自标无明文） | `rg-core/src/user/service.rs:670-680` 的 `count_agents_by_owner` + `conflict` 硬拒成立；`audit_log.rs` 里 `username` 注释「Denormalised for quick display / filtering without JOIN」支持快照语义 |
+
+**新发现（我方，L2 待拍板）**：
+
+- **R33-1（P2）**：`rg_core::audit::record` 的字面量写 `id: Set(0)`（`crates/rg-core/src/audit/audit.rs:30`，「auto-increment」注释与行为相反），而它在 SSH 分支删除路径上**是活的**（`crates/rg-ssh/src/lib.rs:642`）。SQLite 的 `INTEGER PRIMARY KEY` 下显式 0 只能成功一次 ⇒ 每个进程第一条之后的 SSH 审计插入全部失败、只落一条 `tracing::error!`。`collab_groups.rs:258-260` 的注释已把这个已知 bug 写成「所以本文件不用 `rg_core::audit::record`」，但调用点没清。
+- **R33-2（P2）**：T23 的覆盖边界未定义——`record_write` 只有 12 个调用点（`agents.rs` 4 / `repo_content.rs` 3 / `pulls.rs` 2 / `repo_commits.rs` 1 / `reviews.rs` 1 / `lib.rs` 1），另 5 处自建 `ActiveModel` 的审计点（`repos.rs:40`、`admin.rs:41`、`orgs.rs:27`、`users.rs:69`、`collab_groups.rs:263`）不填该列；`create_repo`（`repos.rs:130`）**没有 agent 门** ⇒ agent 建仓时 `on_behalf_of_user_id` 必为 NULL。已在设计文档写清边界，但「要不要覆盖这 5 处」需拍板。
+
+**本轮改动**（2 文件 + 本节；`crates/` 仅 1 处注释，无逻辑改动）：
+
+1. `ironforge-docs/architecture/agent-principals-design-and-roadmap-2026-11.md`（**666 → 668 行**，6 处替换 + 新增 2 行）：
+   - `:292` `api/audit.rs:317-356` → `:324-356`（注明注释自 `:317` 起）、补失败分支 `:353-355`、`with_access_token` `:364-391` → `:369-391` 并补键名 `:389`；把「"代表谁"不能」改成「要 join `users.owner_user_id` 才知道，不能直接按 owner 过滤」——这是本项存在的**唯一理由**（把 join 变成可索引列），原措辞会被读成「数据根本查不到」。
+   - `:303` 「不止一处、全仓 grep 补齐」→ 实测 **10 处**并逐条列出。
+   - `:316` 行号订正（`audit.rs:87` → `:103`，`lib.rs:1734` → `:1745`）+ 补 `list_paginated` 与 utoipa `params` 两处漏项。
+   - `:318` 后新增「**覆盖边界（实测，须写进验收口径）**」段（+2 行）——12 个 `record_write` 调用点 vs 5 处不填列的自建审计点 + `create_repo` 无 agent 门。
+   - `:322` 补「25 = 锚点本身 + 其后全部」的实测依据，并写明「减成 24 会让断言失败」。
+   - `:604`（B1 表）「迁移计数 25→26」→「`down` 步数 25→26（**不是**迁移总数）」；`:617`（§7）同口径，补「注册总数 99」。
+2. `crates/rg-db/src/lib.rs:1023-1026`（注释 **4 行 → 4 行**，零漂移）：「every migration applied **after** the anchor」→「the anchor itself plus every migration after it (25 today: the rollback leaves 74 applied…)」。原措辞照字面算是 24，与代码里的 25 差一条——T23 正要照这条指令改数，必须先把它改准。
+3. `docs/reports/OPT-LOOP-LEDGER.md`：本节 + 反向清单索引 `1..61`。
+
+**验证**：`BASE=f821932`。
+- 改前 `scripts/check.sh --quick` **`EXIT=0`**（executor 本机 `Darwin arm64` / `cargo 1.99.1` / 起 **102 s**，原文 ``Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 41s`` / `==> checks passed in 102s (quick)`）。
+- 改后同命令 **`EXIT=0`**（**74 s**，原文 ``Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 12s`` / `==> checks passed in 74s (quick)`）。
+- 附加：`cargo test -p rg-db upgrade_keeps_child_rows` → `test result: ok. 1 passed`（探针轮，改前树，用于判定第 5 条）。
+
+**未做（L2，待拍板）**：T23 本体（新迁移 + 实体字段 + Query/Entry + `list_paginated` + utoipa + 前端）改 schema 与 OpenAPI 契约 ⇒ 不动码；R33-1、R33-2 见上。
+
+**反向清单（本节新增 1 条，累计 1..61）**：
+
+61. 「`down(&db, Some(25))` 应为 **24**，现在的 25 已多回滚一条（`m20261015_000001`）、擦到测试自己的 `before` 锚点；T23 追加迁移后正确值仍是 **25** 不是 26」—— 不成立：测试在 `down` 之前已 `up(None)` 迁满 99 条（`:960`），探针实测回滚后剩 **74** 条、栈顶 `m20261015_000001` ⇒ 窗口正是「锚点 + 其后 24 = 25」，`+1` 规则成立；改成 24 会让锚点的 partial unique index 留下、`uq_repositories_%` 断言失败。**已实测否定，不要重复提。**
+
+**对方误差（非结论位置，勿当结论引用）**：①把 `before = 74`（`position(锚点前一条)+1`）当成迁移总数做减法，得出「应为 24」；②`audit.rs:87` 实为 utoipa `params` 首行（handler `:103`）、`lib.rs:1734` 实为 admin/sso 路由（`:1745`）；③`list_paginated` 现有参数 8 个（它写「再加一个会到 9 个」——数对，但没说现在就是 8 个）。

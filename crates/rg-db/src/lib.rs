@@ -1020,10 +1020,10 @@ mod soft_delete_tests {
         // `down` path rebuilds the table too) and restore the full unique
         // constraint; re-applying must then succeed again.
         //
-        // The count must cover every migration applied after the
-        // `m20261015_000002` partial-unique-index anchor — add 1 here whenever
-        // a migration is appended, or this assertion silently stops testing
-        // the intended window.
+        // The count covers the `m20261015_000002` partial-unique-index anchor
+        // itself plus every migration after it (25 today: the rollback leaves
+        // 74 applied, top-most `m20261015_000001`); add 1 whenever one is
+        // appended, or this assertion silently stops testing that window.
         migrations::Migrator::down(&db, Some(25))
             .await
             .expect("downgrade");

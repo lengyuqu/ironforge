@@ -289,7 +289,7 @@ pub(crate) async fn write_actor(
 
 **目标**：审计能回答"这条是哪个 agent 代表谁做的"，且可索引。
 
-**现状（核实）**：`api/audit.rs:317-356` 的 `record_write` 写 `user_id / username / action / resource_type / resource_id / resource_name / ip_address / user_agent / details / created_at`，**fire-and-forget**（失败只 `tracing::error!`）。`with_access_token`（:364-391）把 `access_token_id` 塞进 `details`，所以"用了哪把令牌"可查，"代表谁"不能。
+**现状（核实）**：`api/audit.rs:324-356`（文档注释自 `:317` 起）的 `record_write` 写 `user_id / username / action / resource_type / resource_id / resource_name / ip_address / user_agent / details / created_at`，**fire-and-forget**（失败只 `tracing::error!`，`:353-355`）。`with_access_token`（`:369-391`）把 `access_token_id` 塞进 `details`（键名 `:389`），所以"用了哪把令牌"可查；"代表谁"要 join `users.owner_user_id` 才知道，**不能直接按 owner 过滤**——本项就是把这次 join 变成一个可索引的列。
 
 **数据模型**：
 
@@ -300,7 +300,7 @@ on_behalf_of_user_id: BIGINT NULL   // 仅 agent 动作填写；人类动作为 
 idx_audit_log_on_behalf_of: (on_behalf_of_user_id, id DESC)
 ```
 
-`audit_log` 实体加字段（可选 `Relation::OnBehalfOfUser`，纯查询用）。注意 `audit_log::ActiveModel { .. }` 字面量不止 `record_write` 一处，全仓 grep 补齐。
+`audit_log` 实体加字段（可选 `Relation::OnBehalfOfUser`，纯查询用）。`audit_log::ActiveModel { .. }` 字面量**实测 10 处**，加字段后全部编译失败、一处都漏不掉：`api/audit.rs:340`、`api/orgs.rs:27`、`api/users.rs:69`、`api/repos.rs:40`、`api/admin.rs:41`、`api/collab_groups.rs:263`、`rg-core/src/audit/audit.rs:30`、`rg-core/src/audit/service.rs:33`、`rg-core/src/audit/archiver.rs:180`、`rg-http/tests/admin_sso_audit_tests.rs:371`。
 
 **实现**：`record_write` 为取 `username` 已经查了 `find_by_id`，**复用这一行，零额外查询**：
 
@@ -313,11 +313,13 @@ let (username, on_behalf_of) = match &actor {
 };
 ```
 
-**查询面**：`GET /admin/audit/logs`（`audit.rs:87`，`lib.rs:1734`）的查询参数与响应体加 `on_behalf_of_user_id`；保留 `user_id`（"这个 agent 做了什么"）与新增 `on_behalf_of`（"这个人的 agent 都做了什么"）。
+**查询面**：`GET /admin/audit/logs`（handler `audit.rs:103`，路由 `lib.rs:1745`）的查询参数与响应体加 `on_behalf_of_user_id`；除现有 7 个 query 参数（`audit.rs:16-26`）与 `AuditLogEntry`（`:29-40`）外，还必须同步 `audit_log_ops::list_paginated`（`rg-db/src/ops/audit_log_ops.rs:16-25`，加一个参数会到 9 个）与 utoipa `params`（`audit.rs:89-97`）。保留 `user_id`（"这个 agent 做了什么"）与新增 `on_behalf_of`（"这个人的 agent 都做了什么"）。
+
+**覆盖边界（实测，须写进验收口径）**：`record_write` 有 12 个调用点（`agents.rs` 4 / `repo_content.rs` 3 / `pulls.rs` 2 / `repo_commits.rs` 1 / `reviews.rs` 1 / `lib.rs` 1），但另 5 个自建 `ActiveModel` 的审计点（`repos.rs:40`、`admin.rs:41`、`orgs.rs:27`、`users.rs:69`、`collab_groups.rs:263`）不会填这一列；其中 `create_repo`（`repos.rs:130`）**没有 agent 门**，agent 建仓时该列必为 NULL。要么把这 5 处一并改，要么在文档里明说"只覆盖 agent 写路径"。
 
 **不做**：不把 `on_behalf_of` 塞 `details`（JSON 无法索引，v1 已定，正确）；不回填历史行（NULL = 非 agent 或未知）。
 
-**测试**：agent 写 → 两列正确；人类写 → NULL；账号删除后审计行仍可读（无外键）；迁移幂等（重放不报错）；`rg-db/src/lib.rs` 的 `upgrade_keeps_child_rows_triggers_and_foreign_keys` 里 `Migrator::down(&db, Some(N))` 从 **25 改 26**。
+**测试**：agent 写 → 两列正确；人类写 → NULL；账号删除后审计行仍可读（无外键）；迁移幂等（重放不报错）；`rg-db/src/lib.rs` 的 `upgrade_keeps_child_rows_triggers_and_foreign_keys` 里 `Migrator::down(&db, Some(N))` 从 **25 改 26**——这个 25 覆盖的是**锚点本身 + 其后全部**（`up(None)` 迁满 99 条后回滚，实测剩 74 条、栈顶 `m20261015_000001`），所以尾部追加一条必须 +1，减成 24 会让锚点的 partial unique index 留在库里、断言当场失败。
 
 **规模** M（0.5 天）。
 
@@ -599,7 +601,7 @@ graph LR
 | 批次 | 内容 | 并行度 | 合入条件 |
 |---|---|---|---|
 | **B0** | §3 P0 | 单线，半天 | 9 条测试全绿；**不得晚于第一期合 main** |
-| **B1** | T23 / T24 / T25 | 3 个 worktree 并行（互不触同一文件） | clippy 干净；迁移计数 25→26；跨后端跑 T23 的 SQL |
+| **B1** | T23 / T24 / T25 | 3 个 worktree 并行（互不触同一文件） | clippy 干净；`down` 步数 25→26（**不是**迁移总数）；跨后端跑 T23 的 SQL |
 | **B2** | T22 / T26 | 2 线并行 | T22 覆盖 15 个调用点；T26 只做四处并 bump `CONTRACT_MINOR` |
 | **B3** | R1 | 单线，独立分支 | 两个守卫测试上线；现有行为零变化 |
 | **B4** | R4 → R5 → R6 → R7 | 串行（同一片写路径） | 每项各自验收；R4 先做，为后三项提供"一次多文件"基础 |
@@ -612,7 +614,7 @@ graph LR
 ## 7. 给接手 agent 的工作约定
 
 - 先读 [`.ai/guardrails.md`](../../.ai/guardrails.md)：新增迁移、改认证与权限逻辑都是 🟠 CONFIRM，需项目负责人确认。
-- 迁移：显式表名（不要用 `#[derive(Iden)]` 的单数默认，CLAUDE.md 第 13 条）、`has_column` 守卫、`down` 为空时 `up` 必须幂等；`rg-db/src/lib.rs` 的 `upgrade_keeps_child_rows_triggers_and_foreign_keys` 里 `Migrator::down(&db, Some(N))` 随新增迁移 +1（第一期已 24→25，T23 改 26）。
+- 迁移：显式表名（不要用 `#[derive(Iden)]` 的单数默认，CLAUDE.md 第 13 条）、`has_column` 守卫、`down` 为空时 `up` 必须幂等；`rg-db/src/lib.rs` 的 `upgrade_keeps_child_rows_triggers_and_foreign_keys` 里 `Migrator::down(&db, Some(N))` 的 N 是**回滚步数**、不是迁移总数（锚点 `m20261015_000002` 是注册表第 75 条，覆盖锚点及其后共 25 条；`Migrator` 注册总数 99），尾部追加一条即 +1（第一期 24→25，T23 改 26）。
 - 新增 `users` 实体字段时，`user_ops.rs` 所有 `user::ActiveModel { .. }` 字面量要补齐；`audit_log::ActiveModel` 同理。迁移测试在"只迁移一半"的库上必须用原生 SQL，不能用实体。
 - 跨后端：新 SQL 用 `IRONFORGE_TEST_DATABASE_URL` 在 PG / MySQL 各跑一遍（CLAUDE.md 第 19、23 条）。**§3 的计数过滤与 T23 的 join 都属此类。**
 - 权限缓存是进程级的，写测试注意跨测试碰撞（参考 `agent_principal_tests.rs` 的 `ONE_AT_A_TIME` 与开头清缓存）。
