@@ -524,7 +524,7 @@ Wiki 使用数据库存储（非 Git 仓库后端），支持：
 
 - **WebSocket 通知**：按用户隔离的通知 channel + Job 日志按 `job_id` 隔离 channel
 - **邮件通知**：SMTP（lettre）+ HTML 模板
-- **审计日志**：`audit!` 宏 fire-and-forget + 90 天 NDJSON.zst 归档
+- **审计日志**：HTTP 与 SSH 写入路径 + 默认 90 天 NDJSON.zst 归档
 
 ---
 

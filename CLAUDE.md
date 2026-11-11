@@ -124,7 +124,7 @@ Phase 1~21 全部完成。核心能力：
 | WebSocket | `rg-http/src/ws.rs` | 通知按用户隔离，Job 日志按 job_id 隔离 |
 | 邮件通知 | `rg-core/src/email/mod.rs` | SMTP（lettre）+ HTML 模板 |
 | Package Registry | `rg-core/src/package_registry/` | 10 种适配器 + OCI Distribution Spec v1.0 |
-| 审计日志 | `rg-core/src/audit/` | audit! 宏 + 90 天归档（NDJSON.zst） |
+| 审计日志 | `rg-core/src/audit/` | 审计记录 + 默认 90 天归档（NDJSON.zst） |
 | Mirror | `rg-core/src/mirror/` | 仓库镜像同步（git CLI 经网关执行，transport lockdown + net_guard URL 校验；唯一生产 CLI 例外） |
 | Board | `rg-core/src/board/` | 看板管理（Board/Column/Card） |
 | Time Tracking | `rg-core/src/time_tracking/` | 工时追踪 |
