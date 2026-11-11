@@ -290,12 +290,13 @@ pub async fn create_pr(
         Ok(t) => t,
         Err(e) => return e.into_response(),
     };
-    super::validation::validate_optional_text(
+    if let Err(e) = super::validation::validate_optional_text(
         &req.body,
         super::validation::MAX_BODY_LEN,
         "PR body",
-    )
-    .ok();
+    ) {
+        return e.into_response();
+    }
 
     match rg_core::pull_request::resolve_head_ref(&state.db, repo_id, &req.head).await {
         Ok((head_branch, head_repo_id)) => {

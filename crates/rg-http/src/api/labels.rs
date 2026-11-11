@@ -140,12 +140,13 @@ pub async fn create_label(
         Ok(c) => c,
         Err(e) => return e.into_response(),
     };
-    super::validation::validate_optional_text(
+    if let Err(e) = super::validation::validate_optional_text(
         &body.description,
         super::validation::MAX_LABEL_DESC_LEN,
         "label description",
-    )
-    .ok();
+    ) {
+        return e.into_response();
+    }
 
     match rg_core::label::service::create_label(
         &state.db,
