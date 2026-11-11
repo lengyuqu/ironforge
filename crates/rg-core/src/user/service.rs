@@ -210,6 +210,17 @@ pub async fn register(
     })
 }
 
+/// A fixed PHC hash used to spend the same Argon2 work when there is nothing to
+/// verify against. Computed once per process.
+///
+/// Nothing user-supplied is ever compared to this value; only the *cost* of
+/// verifying against it matters. That cost is what keeps `/login` from
+/// answering faster for accounts that do not exist.
+static DUMMY_PASSWORD_HASH: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    password::hash_password("!no-user-matches-this-placeholder")
+        .expect("dummy password hash must be computable")
+});
+
 /// Authenticate a user by username/password. Returns a JWT on success.
 ///
 /// Credential failures are [`CoreError::Forbidden`] (see [`INVALID_CREDENTIALS`]);
@@ -227,9 +238,47 @@ pub async fn login(
         user_ops::find_by_username(db, username_or_email).await?
     };
 
-    let user = match user {
-        Some(u) => u,
-        None => return Err(CoreError::forbidden(INVALID_CREDENTIALS)),
+    // Hash verification runs on **every** path, including the ones that are
+    // going to be rejected for some other reason, because Argon2 dominates the
+    // response time:
+    //
+    //   - an unknown username used to return before hashing, so "does this
+    //     account exist?" was measurable by clocking the endpoint;
+    //   - a disabled account and an agent account did the same, which leaked
+    //     their existence the same way.
+    //
+    // Now the cost is paid first and the verdict is decided afterwards, so all
+    // four failure modes (unknown / disabled / agent / wrong password) look the
+    // same from the outside. `forgot_password` already normalises its timing
+    // this way (H-5); this is the counterpart that was missing.
+    let verified = match user.as_ref() {
+        // Agents have no password to check. Spend the same work, then fall
+        // through to the rejection below — and don't try to parse their
+        // (empty) hash, which would only log a misleading data error.
+        Some(u) if crate::agent::is_agent(u) => {
+            let _ = password::verify_password(plaintext_password, &DUMMY_PASSWORD_HASH);
+            false
+        }
+        Some(u) => match password::verify_password(plaintext_password, &u.password_hash) {
+            Ok(verified) => verified,
+            Err(error) => {
+                // A stored hash that cannot be parsed is a data problem, but
+                // surfacing it as a different status than "wrong password"
+                // would reveal that the account exists. Log it for operators
+                // and answer like any other failure.
+                tracing::error!(user_id = u.id, %error, "stored password hash could not be verified");
+                false
+            }
+        },
+        None => {
+            // Intentional: spend the work, discard the answer.
+            let _ = password::verify_password(plaintext_password, &DUMMY_PASSWORD_HASH);
+            false
+        }
+    };
+
+    let Some(user) = user else {
+        return Err(CoreError::forbidden(INVALID_CREDENTIALS));
     };
 
     if !user.is_active {
@@ -239,17 +288,6 @@ pub async fn login(
     if crate::agent::is_agent(&user) {
         return Err(CoreError::forbidden(INVALID_CREDENTIALS));
     }
-
-    // A stored hash that cannot be parsed is a data problem, but surfacing it
-    // as a different status than "wrong password" would reveal that the
-    // account exists. Log it for operators and answer like any other failure.
-    let verified = match password::verify_password(plaintext_password, &user.password_hash) {
-        Ok(verified) => verified,
-        Err(error) => {
-            tracing::error!(user_id = user.id, %error, "stored password hash could not be verified");
-            false
-        }
-    };
     if !verified {
         return Err(CoreError::forbidden(INVALID_CREDENTIALS));
     }
@@ -337,6 +375,7 @@ async fn login_via_ldap(
     } else if existing.is_some() && providers.len() != 1 {
         return Err(CoreError::forbidden(INVALID_CREDENTIALS));
     }
+    let providers_configured = !providers.is_empty();
     for provider in providers {
         let config = match ldap_config_from_provider(&provider, jwt_secret) {
             Ok(config) => config,
@@ -387,6 +426,18 @@ async fn login_via_ldap(
             method: LoginMethod::Ldap,
         });
     }
+    // Nothing to ask: either the directory is not configured, or the account
+    // does not exist and no enabled provider can vouch for it. Either way this
+    // path used to answer in well under a millisecond, while a wrong password
+    // against a local account burns a full Argon2 verification. That gap is a
+    // username oracle, so pay the same cost before failing.
+    //
+    // Only when no provider was available at all: if one *was* tried, the
+    // round-trip to the directory already dominates the response time.
+    if !providers_configured {
+        let _ = password::verify_password(plaintext_password, &DUMMY_PASSWORD_HASH);
+    }
+
     Err(CoreError::forbidden(INVALID_CREDENTIALS))
 }
 
