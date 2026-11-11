@@ -272,8 +272,11 @@ impl Handler for SshHandler {
     async fn auth_publickey(
         &mut self,
         _user: &str,
-        public_key: &russh::keys::PublicKey,
+        verified: russh::server::VerifiedPublicKey<'_>,
     ) -> Result<Auth, Self::Error> {
+        // russh 0.65 only calls this after the signature has been verified and
+        // key ownership confirmed; the key itself is `verified.public_key`.
+        let public_key = verified.public_key;
         let Some(db) = &self.shared.db else {
             // Phase 1 compat: no DB, accept all
             return Ok(Auth::Accept);

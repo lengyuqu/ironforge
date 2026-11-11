@@ -84,7 +84,7 @@ Phase 1~21 全部完成。核心能力：
 | 领域 | 模块 | 说明 |
 |------|------|------|
 | Git 协议 | `rg-git` | V1/V2、pkt-line、sideband、upload-pack、receive-pack（gix 原生，CLI 网关仅测试用） |
-| SSH 服务 | `rg-ssh` | russh 0.64，公钥/密码认证，Deploy Key |
+| SSH 服务 | `rg-ssh` | russh 0.65，公钥/密码认证，Deploy Key |
 | HTTP 服务 | `rg-http` | Axum 0.8，REST + Git Smart HTTP + OCI + WebSocket + OpenAPI + SPA |
 | 业务逻辑 | `rg-core` | auth/user/repo/issue/pr/wiki/lfs/webhook/review/branch_protection/collaborator/org/notification/email/package_registry/mirror/board/time_tracking/import/audit/search/code_indexer |
 | 数据库 | `rg-db` | SeaORM 1.1 + SQLite/PostgreSQL/MySQL，自动迁移 |
@@ -103,7 +103,7 @@ Phase 1~21 全部完成。核心能力：
 | Git Protocol V2 | `rg-git/src/protocol/v2.rs` | ls-refs/fetch/object-info；shallow/deepen/partial-clone |
 | V2 HTTP 集成 | `rg-http/src/git_v2.rs` | Git-Protocol: version=2 header 检测 |
 | CLI 网关（测试 + mirror） | `rg-git/src/cli_gateway.rs` | git CLI 网关已从协议生产路径退役；现仅测试造数据与 mirror 同步（唯一生产例外）使用；防回归守卫 |
-| SSH 服务端 | `rg-ssh/src/lib.rs` | russh 0.64，公钥/密码认证查 DB |
+| SSH 服务端 | `rg-ssh/src/lib.rs` | russh 0.65，公钥/密码认证查 DB |
 | HTTP 服务端 | `rg-http/src/lib.rs` | Axum 0.8，Git 协议鉴权 + 分支保护 + SvelteKit 静态资源 |
 | REST API | `rg-http/src/api/` | 30+ API 模块，142 个 OpenAPI 注解 |
 | 用户认证 | `rg-core/src/auth/` | argon2 + JWT HS256 + LDAP + SSO(OIDC) + TOTP MFA |
@@ -325,12 +325,13 @@ FTS5 的 `INSERT INTO fts_table(fts_table, rowid, ...) VALUES('delete', ...)` �
 - **回滚（down）为空实现时 `up` 必须幂等**：否则 `Migrator::down()` 后再 `up()` 报 `duplicate column name`
 - 给 `AppState` 新增字段时，**必须**同步更新 `crates/rg-http/tests/common/mod.rs::build_test_app_state`
 
-### 15. russh 0.64 的通道开启是两阶段握手 ⚠️
+### 15. russh 0.64 起的通道开启是两阶段握手 ⚠️
 
 `Handler::channel_open_session` 签名变为 `(channel, reply: ChannelOpenHandle, session) -> Result<(), Error>`（原为 `-> Result<bool, Error>`）。
 
 - **必须显式 `reply.accept().await`**；丢弃 handle 会自动回 `AdministrativelyProhibited`，**拒绝所有会话**
 - 编译能过但 SSH 全废，只能靠端到端验证（`scripts/git-protocol-e2e.sh` 的 SSH V1/V2 clone+push 步骤）
+- 0.65 起 `Handler::auth_publickey` 收 `server::VerifiedPublicKey<'_>`（公钥在 `.public_key`，客户端实际用的签名算法在 `.algorithm`），`auth_publickey_offered` 收 `PublicKeyOffer`；签名类型不匹配是编译错误，不会静默失效
 - 附带：`PrivateKey::random` 需要 rand_core 0.10 的 `CryptoRng`，rand 0.8 的 `OsRng` 不再满足；用 `rand::rng()`，故 `rg-ssh` 单独依赖 rand 0.10
 
 ### 16. gix 0.90 的破坏性变更清单
@@ -406,7 +407,7 @@ axum            = "0.8"
 axum-server     = "0.8"      # features: tls-rustls；bind_rustls 对地址类型泛型，需标注 SocketAddr
 tower           = "0.5"
 tower-http      = "0.6"      # features: cors, trace, fs
-russh           = "0.64"   # 通道开启为两阶段：必须 accept ChannelOpenHandle
+russh           = "0.65"   # 通道开启为两阶段：必须 accept ChannelOpenHandle；auth_publickey 收 VerifiedPublicKey
 sea-orm         = "1.1"      # features: sqlx-sqlite, runtime-tokio-rustls, macros
 clap            = "4"        # features: derive
 tokio           = "1"        # features: full
