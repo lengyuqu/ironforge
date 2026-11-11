@@ -300,9 +300,9 @@ impl GiteaWorkflow {
                     }
                     "pull_request" | "merge_group" => {
                         if let Some(filter) = pull_request {
-                            // For pull_request events, GitHub/Gitea `branches` filters
-                            // apply to the PR's base (target) branch, not the head ref.
-                            // The base branch is conveyed via `default_branch`.
+                            // `branches` filters target the base branch, not the head ref.
+                            // In production only `merge_group` reaches this arm, and its
+                            // ref is `refs/merge-queue/<id>`, so this collapses to `default_branch`.
                             let base_ref = format!("refs/heads/{default_branch}");
                             ref_matches_filter(&base_ref, filter, default_branch)
                         } else {

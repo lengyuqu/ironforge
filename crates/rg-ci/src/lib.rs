@@ -551,7 +551,7 @@ fn expand_matrix(job_name: &str, config: &config::JobConfig) -> Result<Vec<Matri
 ///
 /// Tries formats in order:
 /// 1. `.gitea/workflows/*.yml` (Gitea Actions format)
-/// 2. `.ironforge-ci.yml` (native format)
+/// 2. `.ironforge-ci.yml` (native format) — errors in step 1 are swallowed, so a broken Gitea workflow silently falls through to here.
 ///
 /// For Gitea Actions workflows, multiple files are merged into a single `CiConfig`.
 /// Jobs from different workflow files are placed in separate stages.

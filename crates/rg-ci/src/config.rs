@@ -11,8 +11,8 @@ use std::collections::HashMap;
 /// group will be cancelled before the new one starts.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConcurrencyConfig {
-    /// Concurrency group name. Pipelines with the same group will be serialized.
-    /// Supports template variables: ${{ ref }}, ${{ branch }}
+    /// Concurrency group name. Enforced per **ref**, not per group — pipelines on
+    /// different refs never serialize. `${{ ref }}` / `${{ branch }}` only reach log text.
     pub group: String,
 
     /// If true, cancel any in-progress pipeline in the same group
