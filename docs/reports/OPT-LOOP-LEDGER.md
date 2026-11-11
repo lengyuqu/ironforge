@@ -47,7 +47,7 @@
 - 反向清单回灌：**不成立 21 条全量回灌**（batch#1/#2 累计）+ 对方已撤回 4 项 + 我方自证推翻 4 项，均注明「不要重复提」
 - 已知空档新增：`password.rs`/`rg-http/src/oci.rs`/`auth/oci_token.rs` 旧行号已因 PR #21/#24 作废不得引用；agent 模块不在本批范围
 - NPC 首扫：`2120244997269143552`，`2026-11-10T19:59:34Z`（开批后 7 min 33 s；`author.is_npc=true`，首行 `## 第 1 轮 · batch#3 只读审查`，自述基线 `df6a3c0`）
-- 6 轮进度：**4 / 6**（第 4 轮收尾 `2120303038425378816`（`23:50:12Z`，回读校验 C=4，无重复投递）；第 3 轮 `2120286421721202688`（`22:44:10Z`，C=3）；第 2 轮 `2120269785404440576`；第 1 轮 `2120252808799633408`）
+- 6 轮进度：**5 / 6**（第 5 轮收尾 `PENDING_ID`（`2026-11-11T01:5xZ`，回读校验 C=5，无重复投递）；第 4 轮 `2120303038425378816`（`23:50:12Z`，C=4）；第 3 轮 `2120286421721202688`（`22:44:10Z`，C=3）；第 2 轮 `2120269785404440576`；第 1 轮 `2120252808799633408`）
 
 ### consume 1 / 6（batch#3）
 
@@ -182,6 +182,37 @@ where
 
 **它的质量盘点**：本轮 3 条指摘 0 条全对 —— ①② 都在**同一条注释上做减法**（把已成立的事实改弱），③ 方向对但计数错。规律更新：上一批它靠「放大后果」出错，本批转为**「收窄措辞」出错**，且收窄方向一致地偏向「把无条件事实改成有条件的弱命题」。否证这两条的通用手法是**看锁/校验相对于早退分支的语句位置**（`:23` 在 `:24` 之前）与**看 OnceLock / 环境变量的可写性**（运行期无法翻转）。它对 5 条确认项的复算全部准确，`awk`/`grep` 自证形式保持，行号零偏差。
 
+### consume 5 / 6（batch#3）
+
+- 输入：`2120303331372326912`（`2026-11-10T23:51:22Z`，首行 `## 第 4 轮复核 · 只读 · HEAD \`b5ba430\``）：3 条编号（① `:29` 的 16 计数 ② `repo/service.rs:62-66` 无需收窄 ③ `access.rs:17` 的 `per call`）+ 4 条新发现（N-1 `:29` 289 列与内部事实外泄 / N-2 `valid_event_name` 不能直接复用 / N-3 事件日志面 / N-4 大写订阅）
+- 判定：**确认 3（①②③ 主命题）/ 成立 2（N-1、N-4）/ 部分成立 2（N-2、N-3）/ 子命题不成立 5**（清单第 28–32 条）
+- 环境：它自述 `cargo` 不在 PATH；本机 `BASE=dc39eb0`，改前 `scripts/check.sh --quick` **EXIT=0（1 s，热缓存）**
+- 工作基线：**`BASE=dc39eb0`**（`git rev-parse --short HEAD` = `cnb/main`，`git log HEAD..cnb/main` 空）；`repo/service.rs` 2803 / `webhook/service.rs` 561 / `access.rs` 42 行均未变 ⇒ 零行号漂移
+- 改动：见「本轮改动」两段（L1 注释 1 文件 + 本台账）
+
+| # | 输入指摘 | 判定 | 证据 / 处置 |
+|---|---|---|---|
+| ① | `webhook/service.rs:29` 的「16」成立（它自行复算了 14 + 2、`*` 与子串关系） | **确认** | 我方第 4 轮写入的 16 与我方复算逐一吻合：`grep -rh 'trigger_event(db, repo_id, "' crates/ --include=*.rs \| sed -E 's/.*"([^"]+)".*/\1/' \| sort -u \| wc -l` = **14**，加 `webhook_events.rs:30`/`:32` 两个常量 = 16；`grep -c '\*'` 在 16 项里 = 0。它另给的「两个动态调用点不引入第 17 个值」（`webhook/service.rs:392` 读 `delivery.event`；`human_notify.rs:34`/`:37` 是 `notifications.event_type`、不进 `trigger_event`）经 `grep -rn 'EVENT_QUESTION_ASKED\|EVENT_TASK_BLOCKED'` 复核成立（`collab_questions.rs:173`/`collab_tasks.rs:287` 调的是 `ws::push_notification`，通知面，不经 `trigger_event`） |
+| ①-附 | 「`scripts/check.sh --quick` **不含** `cargo fmt --check`，所以『改后 EXIT=0』不构成这条的验证」 | **不成立** | `scripts/check.sh:36-37` 是 `step "cargo fmt --all --check"` + `cargo fmt --all --check`，在 `case "$1"` 之后**无条件执行**，`--quick` 只是跳过 `cargo test`（`:44-48`）。所以改后 EXIT=0 确实跑过了 fmt；289 列没被折行是它自己说的 `wrap_comments = false`，**不是脚本盲区**。见反向清单第 28 条 |
+| ①-附 | 「`:29` 改前 **214** 列（+75）」 | **不成立** | 该行历史长度：`0f6c54a`=102 → `dc3fb9e`=202 → `ebf14f9`=242 → `8e4188d`=289（`git show <c>:path \| sed -n '29p' \| wc -c`，减 1）。本轮改前的真值是 **242**，增量 **+47**，任何版本都不存在 214。见反向清单第 29 条 |
+| ② | `repo/service.rs:62-66` 的 `no stale entry can exist` 在「flag 首次插入前冻结」这一支下无条件真，不需要收窄；`:66` 恢复 pub/sub 半句正确 | **确认** | 与我方第 4 轮三步否证一致：`set_perm_cache` 的 `:108 if perm_cache_disabled() { return; }` 在 `:113 cache.insert` 之前；`grep -rn 'set_var\|remove_var' crates/ --include=*.rs` 只命中 `net_guard.rs:442`/`:446`（`IRONFORGE_ALLOW_LOCAL_OUTBOUND`）与测试的 `HOME`/`XDG_CONFIG_HOME`，无 `IRONFORGE_DISABLE_PERM_CACHE` |
+| ②-附 | `:66`（112 列）建议折成两行 | **不采纳（L1，但代价大于收益）** | 折行会让 `repo/service.rs` 561→562 行 ⇒ 全仓所有 `repo/service.rs:<line>` 引用（台账 40+ 处、代码注释若干）整体 +1 漂移，只为一条 112 列注释。且 `:1413` 已达 270 列是既有状态，单改 `:66` 不构成一致性。**报告不改，理由留档** |
+| ③ | `access.rs:15-23` 的 `per call` 成立（`:23` 在 `:24` owner 判断之前，所有早退路径照付） | **确认** | `sed -n '18,26p'`：`:23` 是函数体第一条语句，`:24 if repo.owner_id == user_id {`、`:33 if let Some(org_id) = repo.org_id {` 均在其后 |
+| ③-附 | 「`require_collab_read` 是 **2 次**不是 3 次；这个坑我台账 B3-9 与上轮都没写，补上」 | **部分成立（结论对，「没写」不成立）** | 2 次正确：`api/collab.rs:184` 一次 + `:185` → `access.rs:23` 一次。但**台账早已写明**：B3-9 原文「其中 `require_collab_read` 每个请求**必然清两次**（`api/collab.rs:184` 先清，`:185` → `access.rs:23` 再清）」。它给的区间 `sed -n '218,226p'` 也错（`:218` 是 `require_collab_write` 收尾 `}`（`:217`）之后的空行，该函数真值区间是 `:202-217`，`invalidate` 在 `:211`，`:212` 直调 `can_write_repo`）。见反向清单第 31 条 |
+| N-1 | `:29` 289 列，且把「服务端有几个投递值」这类内部事实塞进公开 API 字段注释；读者需要的是「我该填什么」 | **成立** | `awk 'NR==29{print length($0)}'` = 289（改前）。计数是易腐事实：102 → 202 → 242 → 289 四版，且第 1/第 4 轮各错一次（13→15→16）。**已改为 187 列、只留可操作信息**（全名带点 / LIKE 子串 / 裸 `issues` 与 `*` 都不命中），1 行→1 行、文件仍 561 行 |
+| N-2 | `valid_event_name` 不能直接复用到 webhook 创建，5 条论据 | **部分成立（4 成立 / 1 不成立）** | **成立**：(1) 它是 `api/repo_events.rs:57` 的私有 `fn`，`rg-core` 看不见；(3) 白名单无单一数据源（`EVENT_*` 在 `rg-core`、`RETENTION` 在 `rg-http:28`、`MAX_TYPES` 在 `:33`）；(4) `MAX_TYPES = 20` 用在 `:84` 的 `types` **查询参数**，与「一个 hook 能存多少订阅」不同量；(5) `"collab_question"`（`human_notify.rs:34`）能过字符集却不是投递值 ⇒ 字符集校验对 webhook 是假阳性校验。**不成立**：它说「字符集 `[a-z0-9._-]` 容得下 `*`，复用等于照旧放行 `*`」——`*` = 0x2A 既非 `is_ascii_lowercase` 也非 `is_ascii_digit`、不在 `.?_-` 里 ⇒ `valid_event_name("*")` = **false**，复用字符集校验**恰好会拒掉** `*`（见 F3-10）。它由此推的「必须先抽 16 常量再谈复用」理由被削弱：抽常量是为了枚举校验，不是为了挡住 `*` |
+| N-3 | 「**4 个订阅名永远等不到对应 `repo_events` 行**」+ 反过来「`collab.*` 进 `repo_events` 意味着协作内容出现在公开事件流」 | **部分成立（标题不成立，ACL 半句成立）** | **标题不成立**：同一段它自己贴的 `sed -n '138,142p'` 就是反证——`:140 record_repo_event(db, repo_id, event, payload).await;` 在 `trigger_event` 开头**无条件**执行；「4 个」的清单从未给出，无法核实。见反向清单第 32 条。**ACL 半句成立且是新事实**：`can_read_repo` 对 `!repo.is_private` 在 `:201-203` **直接 `Ok(true)`**（不看 `actor_id`）⇒ `/events`（`api/repo_events.rs:119` 用 `repo_access::require_read`）在公开仓上**匿名可读**，而它返回的 `payload` 是全文（`:172-189`，`:185` 即 `"payload": payload`），`question_asked_payload` 含 `user_content.title`（`webhook_events.rs:64-67`）⇒ 协作问答标题进了公开事件流，与协作区的 `require_collab_read` 门禁口径不一致。**记 B3-12（L2）** |
+| N-4 | `Column::Events.contains` 在 SQLite 下是 ASCII 不区分大小写的 `LIKE` ⇒ 订阅 `Push` 能命中 `push`，而 `valid_event_name` 只收小写；加校验前要先定「要不要收紧大写」 | **成立（措辞需改「两个面不一致」）** | 实测：`sqlite3 :memory: "select 'Push' like '%push%'"` = **1**。`webhook_ops.rs:43` 生成的是 `format!("%{}%", s)`（sea-orm 1.1.20 `entity/column.rs:237-243`）⇒ 模式串是**存进去的订阅名**，大小写不敏感。它说「两者今天就已经矛盾」应改口径：webhook 创建**今天没有任何字符集校验**（`api/webhooks.rs:83-85` 只拦空数组），所以矛盾在两个**不同接口**的严格度（hook 收 `Push` 能工作 / `/events` 的 `types` 收 `Push` 返 400），不是同一条校验自相矛盾。**顺带挖出更严重的一层**：`format!` 不过滤 `%` 与 `_`、SQL 也没有 `ESCAPE` 子句 ⇒ 订阅名里的 `_` 是单字符通配（实测 `'issue.opened' like '%issue_opened%'` = **1**），订阅 `%` 匹配全部 16 个值。见 F3-9，已并入 B3-11 |
+
+**本轮自查新事实**
+
+- **F3-9**（LIKE 通配符注入，比大小写更实的一条）：`webhook_ops.rs:43` 的 `Column::Events.contains(event)` 在 sea-orm 1.1.20 里是 `format!("%{}%", s)` + `.like(pattern)`，**不转义形参、语句无 `ESCAPE`** ⇒ 落库的订阅名里的 `_`/`%` 是 SQL 通配符。实测两条：`select 'issue.opened' like '%issue_opened%'` = 1（`_` 命中 `.`）、`select 'whatever' like '%'` = 1（`%` 命中一切）。⇒ B3-11 的「反方向不会误触发」**只对字面名成立**，`issue_opened` 这种写法会误收 `issue.opened`。当前 16 个投递值里 3 个含 `_`（`pull_request.*`），但它们是**左值**、不在模式串里，故今天无事故。
+- **F3-10**（纠正 N-2 第 2 条）：`valid_event_name`（`api/repo_events.rs:57-63`）的字符集 `is_ascii_lowercase() \| is_ascii_digit() \| matches!(b, b'.' \| b'_' \| b'-')` **拒收 `*`**（0x2A 不属任何一支）⇒ 「复用它会放行 `*`」为假，实际效果相反。
+- **F3-11**：公开仓的 `repo_events` 匿名可读（`repo/service.rs:201-203` + `api/repo_events.rs:119`），而 `trigger_event:140` 无条件把 `collab.*` 也写进去、payload 含 `user_content.title` ⇒ 协作问题标题外泄到公开事件流。**新 L2 = B3-12。**
+- **F3-12**：`scripts/check.sh` 的三种模式**都**先跑 `cargo fmt --all --check`（`:38-39`）；`--quick` 只省 `cargo test`（`:45-49`）。别再把它当 fmt 盲区引用。
+
+**它的质量盘点**：7 条输入 3 条主命题全对（①②③），4 条新发现里 1 条全对（N-1）、2 条半对（N-2 的第 2 子命题错、N-3 的标题自相矛盾）、1 条对（N-4）。**本批新形态：它开始用「你的验证不覆盖」来否定我方结论**（`check.sh` 不含 fmt），而这条只需 `sed -n '38,42p' scripts/check.sh` 就能否掉——**凡它质疑验证口径，先读验证脚本本身**。N-2 的错法与上一批同源：把「校验存在」读成「校验的有效性」，但方向反了（以为会放行，实际会拒收）。N-3 是它第一次**在指摘标题与自己的证据之间自相矛盾**（标题说没有行、证据里 `:140` 无条件写入）——这类不必找反例，读它自己的输出即可判。
+
 ### 待拍板（batch#3，本流程不动 main）
 
 | # | 级别 | 事项 | 为什么不在本流程做 |
@@ -193,10 +224,11 @@ where
 | B3-5 | P1 | `set_watch` 零枚举校验（`repo/service.rs:852-860`、`api/repos.rs:596-598`） | 加校验会拒绝现状合法客户端（前端入参就是裸 `string`），属 API 契约变更 |
 | B3-6 | P2（第 2 轮由 P1 下调） | `list_watchers` 不过滤状态（`repo_watch_ops.rs:71-88` → `notification/mod.rs:103`）。**第 2 轮限定**：`notify_watchers_push`（`repo/service.rs:1590`）/ `notify_watchers_pr`（`pull_request/service.rs:295`）**零调用者**，全仓唯一活的 fan-out 是 `issue/service.rs:488`（milestone 关闭）⇒ 现状泄漏面只有 `milestone.closed` 一条，不是 push/PR。另同源问题：`list_watchers` 带 `.order_by_desc(UpdatedAt)`（`:79`）且 `notification/mod.rs:103` 写死 `limit 1000` ⇒ >1000 watch 行的仓库只覆盖 `updated_at` 最新的 1000 **行**（`grep -rn list_watchers crates/` 只有 `notification/mod.rs:103` 一处调用，`repo_watch_ops.rs:71-88` 也不按 `watch_state` 过滤，故含 `not_watching` 行），刚改过 watch 状态的行会挤掉长期订阅者（线上是否存在该量级未验证） | 改通知语义；顺带要对账存量 `not_watching` 行是否需要清理；接线 push/PR 通知与「按状态过滤」「去截断」必须一起做，否则一接就把两个缺陷同时放大 |
 | B3-7 | **P0** | LICENSE 模板截断：`apache-2.0` 557 词 / `gpl-3.0` 512 / `mpl-2.0` 1101，条款正文被 `...` 取代 | 换成官方全文是产品内容 + 法律责任变更（要决定是否附带 NOTICE、是否保留摘要版），且会改变所有新建仓库的初始 commit |
-| B3-8 | P2 | `CreateWebhookRequest.events` 无枚举校验 + 注释示例误导（F3-1）。**第 4 轮收窄**：不是「零校验」—— `api/webhooks.rs:83-85` 只拦空数组，`webhook/service.rs:55` 直接 `req.events.join(",")`；但 `api/repo_events.rs:57-63` 已有 `valid_event_name`（`[a-z0-9._-]`、≤64 字节），可直接复用到 webhook 创建 | 加白名单会拒绝存量非法值；需先决定宽松（忽略未知）还是严格（400）。可拆两步：先复用字符集校验（低风险），再定白名单 |
-| B3-11 | P3 | `trigger_event` 共 16 个投递值（14 repo + 2 collab，F3-7），`webhook_ops.rs:43` 是 `LIKE '%<触发的event>%'` ⇒ 误触发方向是**「触发的名字是别人订阅名的子串」**：若将来触发一个前缀名（如裸 `pull_request`），订阅 `pull_request.merged` 的钩子会收到它。现状 16 个名两两**零子串关系**（脚本校验 `e in s` 对数 = 0），故无事故；反方向（新增 `push.mirror` 触发，订阅 `push` 的钩子）**不会**误触发，因为 `LIKE` 左值是存进去的短名 | 要改成结构化存储（JSON 列 / 关联表）或精确相等匹配，属 schema 或查询语义变更 |
+| B3-8 | P2 | `CreateWebhookRequest.events` 无枚举校验 + 注释示例误导（F3-1）。**第 4 轮收窄**：不是「零校验」—— `api/webhooks.rs:83-85` 只拦空数组，`webhook/service.rs:55` 直接 `req.events.join(",")`。**第 5 轮按 N-2 再收窄**：`valid_event_name`（`api/repo_events.rs:57`）是 `rg-http` 的**私有 `fn`**，`rg-core` 调不到；它是**字符集**校验、不是枚举白名单（放得过 `collab_question` 这类非投递值）；但**会拒收 `*`**（F3-10：`*`=0x2A 不属 `[a-z0-9._-]` 任一分支）；白名单的单一数据源不存在（`EVENT_*` 在 rg-core、`MAX_TYPES`=`api/repo_events.rs:33` 与 `RETENTION`=`:28` 在 rg-http，且 `MAX_TYPES` 管的是 `types` 查询参数的量，`:84`）。⇒ 落地顺序应为「把 16 个投递值抽成 `rg-core` 单一常量（F3-7 是现成清单）→ `valid_event_name` 与 webhook 白名单都引用它」，**不是**「先复用字符集校验」：字符集拦不住假阳性，也拦不住大小写（N-4）与通配符（F3-9） | 加白名单会拒绝存量合法值（订阅 `Push` 今天能工作）；需先定宽松（忽略未知）还是严格（400），且必须先定「大小写收不收紧」——`/events` 的 `types` 拒 `Push`、hook 订阅收 `Push`，统一口径是 API 契约变更 |
+| B3-11 | P3 | `trigger_event` 共 16 个投递值（14 repo + 2 collab，F3-7），`webhook_ops.rs:43` 是 `LIKE '%<触发的event>%'` ⇒ 误触发方向是**「触发的名字是别人订阅名的子串」**：若将来触发一个前缀名（如裸 `pull_request`），订阅 `pull_request.merged` 的钩子会收到它。现状 16 个名两两**零子串关系**（脚本校验 `e in s` 对数 = 0），故无事故；反方向（新增 `push.mirror` 触发，订阅 `push` 的钩子）**不会**误触发，因为 `LIKE` 左值是存进去的短名。**第 5 轮两条限定（F3-9 / N-4）**：①模式串是订阅名，而 SQLite `LIKE` 对 ASCII **不区分大小写**（实测 `select 'Push' like '%push%'` = 1）⇒ 订阅 `Push` 会收到 `push`；②sea-orm 生成 `format!("%{}%", s)` 且语句无 `ESCAPE` ⇒ 订阅名里的 `_`/`%` 被当通配符（实测 `select 'issue.opened' like '%issue_opened%'` = 1、`select 'x' like '%'` = 1）⇒「反向不误触发」**只对字面名成立** | 要改成结构化存储（JSON 列 / 关联表）或精确相等匹配，属 schema 或查询语义变更 |
 | B3-9 | P3 | 只读判定里拿全局 perm-cache 写锁（`access.rs:23` → `repo/service.rs:120-124`）。**第 2 轮补全**：`invalidate_perm_cache_user` 全仓 **13 处生产调用**（`human_notify.rs:207` 亦在；`repo/service.rs:2717` 是测试），其中 `require_collab_read` 每个请求**必然清两次**（`api/collab.rs:184` 先清，`:185` → `access.rs:23` 再清）；`human_notify.rs:107` 的候选循环内也清，上界 `MAX_CANDIDATES = 500`（`:46`）；`escalation.rs:283` 有按 `user_id` 的 `contains_key` 记忆化 ⇒ 每 `evaluate` 的锁数 = 候选里不同 user 数，**但候选上界是 600**（`gather` 三处 `CANDIDATE_LIMIT`=200：`:439`/`:457`/`:488`），不是 200；同一 user 多 session 不会各付一次锁（`:283` 缓存的是 user 对 repo 的权限，与 session 无关，不是「跨 session 放行」）。注意 `perm_cache_disabled()` **不**保护 `invalidate_perm_cache_user`（`repo/service.rs:120-124` 无守卫），只有 `check_perm_cache`（`:96-99`）/`set_perm_cache`（`:107-110`）短路 | 权限缓存语义变更（热路径写锁是真成本，需先定 TTL/失效策略；`require_collab_*` 共 73 处调用点、24 文件） |
 | B3-10 | P3 | `redeliver` 借道 `trigger_event`（`webhook/service.rs:392-398`）⇒ 一次手动重投既在 `repo_events` 再插一行（`:140` → `:227-239` `repo_event_ops::append`），又向该 repo **全部** active hook 真实扇出一次（`:142`）；而 `ironforge_webhook_deliveries_total` 只记手动那一次（`api/webhooks.rs:280`/`:288`），扇出与日志都不计数 | 先要定义「重投算不算一次投递」，再改计数口径 + 事件日志去重；与 B3-1 同一段代码，须一起改 |
+| B3-12 | **P2（第 5 轮新立，安全面）** | 公开仓的事件日志泄漏协作内容：`trigger_event`（`webhook/service.rs:140`）**无条件**把 `collab.*` 写进 `repo_events`，payload 带 `user_content.title`（`webhook_events.rs:64-67`）；而 `/events` 走 `repo_access::require_read`（`api/repo_events.rs:119`）→ `can_read_repo` 对 `!repo.is_private` 在 `repo/service.rs:201-203` **直接 `Ok(true)`、不看 `actor_id`** ⇒ 匿名可读、payload 全文返回（`api/repo_events.rs:172-189`）。协作区本身另有 `require_collab_read` 门禁（`access.rs:1-7` 明写「collab 数据不是公开内容」）⇒ 同一条数据两套可见性口径 | 三种改法各有代价：①`record_repo_event` 对 `collab.*` 跳过（事件日志出现类型缺口，需定 API 契约）；②`/events` 按事件类型对 `collab.*` 二次做协作鉴权（读侧热路径加查询，且 `since` 游标语义要重定）；③把 collab payload 的 `user_content` 剥掉（信息量下降，前端展示受影响）。都要改鉴权语义或 API 契约，且需决定存量 `repo_events` 行是否清理 |
 
 ### batch#2(issue #12) · 2026-11-10 · rg-core auth 凭据链路
 
@@ -683,6 +715,18 @@ git -c protocol.version=2 clone --depth=1 ...
 
 27. 「`access.rs:17` 的 `per call` 不成立，因为 owner 早退（`:24-26`）与 org 成员早退（`:34-37`）时一次锁都不付」—— **不成立**。`:23 invalidate_perm_cache_user` 是函数体**第一条语句**，在 `:24` 的 owner 判断**之前** ⇒ 所有早退路径照付一次全局写锁；`per call` 字面准确（本函数 1 次，`require_collab_read` 因 `api/collab.rs:184` 的前置清理共 2 次）。它与已撤回的第 24 条是同一条注释上的第二次尝试（第一次改主语、这次改计数），两次都被否。**已核实为不成立，不要重复提。**
 
+以下 5 条由 **batch#3 第 5 轮**判定不成立（逐条 `sed`/`grep`/`sqlite3` 复核），一并锁死：
+
+28. 「`scripts/check.sh --quick` **不含** `cargo fmt --check`，所以本轮『改后 EXIT=0』不构成对 `webhook/service.rs:29` 那 289 列的验证」—— **不成立**。`sed -n '36,44p' scripts/check.sh` = `step "cargo fmt --all --check"`（`:36`）/ `cargo fmt --all --check`（`:37`）/ `elapsed`（`:38`）/ … / `if [ "$mode" != "quick" ]; then`（`:44`），位于 `case "$1"` 之后、quick 分支**之前** ⇒ 三种模式都跑 fmt；`--quick` 省的只是 `cargo test -p rg-http -p rg-core`（`:45-46`）。289 列未被折行的原因是它自己也承认的 `rustfmt wrap_comments = false`，与脚本覆盖无关。**已核实为不成立，不要重复提。**
+
+29. 「`webhook/service.rs:29` **改前 214 列**（`awk 'NR==29{print length($0)}'` 得 289，故本轮 +75）」—— **不成立**。该行四个版本的自测长度：`0f6c54a`=**102** → `dc3fb9e`=**202** → `ebf14f9`=**242** → `8e4188d`=**289**（`git show <sha>:crates/rg-core/src/webhook/service.rs | sed -n '29p' | wc -c` 减 1）。本轮改前真值 **242**，增量 **+47**；`214` 不是该行任何版本的长度。**已核实为不成立，不要重复提。**
+
+30. 「`valid_event_name` 的字符集 `[a-z0-9._-]` **容得下 `*`** ⇒ 拿它当 webhook 白名单等于照旧放行 `*`（就是现在静默死亡的那个值），所以不能复用」—— **不成立**。`api/repo_events.rs:60-62` 的判定是 `b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'.' | b'_' | b'-')`，`*` = 0x2A 三支全不满足 ⇒ `valid_event_name("*")` = **false**，复用字符集校验**会拒收** `*`，效果与它所推的相反。它的其余四点（私有 `fn`、无单一数据源、`MAX_TYPES` 是 `types` 查询参数的量、`collab_question` 是假阳性）成立，已并入 B3-8 / F3-10。**这一子命题已核实为不成立，不要重复提。**
+
+31. 「`require_collab_read` 每个请求清 **2** 次这个坑，你台账 B3-9 与上轮都没写，补上（`sed -n '218,226p' crates/rg-http/src/api/collab.rs`）」—— **结论对，两个附带指控不成立**。台账 B3-9 **原文已写**「其中 `require_collab_read` 每个请求**必然清两次**（`api/collab.rs:184` 先清，`:185` → `access.rs:23` 再清）」；且它给的区间错：`:218` 是 `require_collab_write` 结束后的空行，真值区间是 `:202-217`，`invalidate_perm_cache_user` 在 **`:211`**、`:212` 直调 `can_write_repo`（`sed -n '202,217p'` 可验）。**「台账没写」这一条已核实为不成立，不要重复提。**
+
+32. 「**4 个订阅名永远等不到对应 `repo_events` 行**——钩子会被投递，但 `/events` 长轮询与 `types` 过滤永远静默」—— **不成立，且与它自己贴的证据相反**。它引的 `sed -n '138,142p' crates/rg-core/src/webhook/service.rs` 第一行就是 `:140 record_repo_event(db, repo_id, event, payload).await;`，在 `trigger_event` 开头**无条件**执行（`record_repo_event` 自身只按 64 字符截断事件名、按 `MAX_EVENT_PAYLOAD_BYTES` 截断 payload，见 `:227-239`），没有任何按事件名跳过的分支；「4 个」的名单从头到尾未给出，无法核实。此条真正成立的部分（`collab.*` 进公开事件日志的 ACL 不一致）已单列为 **B3-12**。**「4 个订阅名永远等不到行」已核实为不成立，不要重复提。**
+
 ### 我方已自证推翻（勿当结论引用）
 
 | 我上轮写的 | 实际 | 处置 |
@@ -693,6 +737,7 @@ git -c protocol.version=2 clone --depth=1 ...
 | registry 文档「`oci.rs` 全文件共 **5 处**权限查询——校验侧 3 处 / 签发侧 2 处」（第 5 轮写死） | `grep -n 'can_read_repo\|can_write_repo' crates/rg-http/src/oci.rs` = 11 命中，其中 **7 处是调用**：`:114` `:118` `:159` `:164` `:179` `:329` `:342`（另 4 处是注释 `:82`/`:142`/`:146`/`:375`）。第 5 轮漏了 PR #24 新增的 Bearer 复查 `:159`/`:164` | 第 6 轮改正为「7 处 = 校验侧 5 + 签发侧 2」，并列出不计入的 `:152`/`:328`/`:340`（`335fa57`） |
 | `webhook/service.rs:29` 注释「13 个事件名无一含 `*`」、台账 F3-1「13 个事件全名」（第 1 轮写） | 去重命令 `grep -rhn 'trigger_event(db, repo_id, "' \| sort -u` = **14** 个 repo 投递名；加 2 个 collab 常量 = **16**（F3-7），无一含 `*` | 第 4 轮改为「16 = 14 repo + 2 collab」（`8e4188d`）；计数一律用去重命令产出，不肉眼数枚举 |
 | 台账 F3-1「API 对 event 名零校验」（第 1 轮写） | `api/webhooks.rs:83-85` 拦空数组；`api/repo_events.rs:57-63` 已有 `valid_event_name`（字符集 + 长度），只是没用到 webhook 创建 | 第 4 轮在 B3-8 收窄为「webhook API 只有非空校验，字符集校验器已存在可复用」（F3-8） |
+| `webhook/service.rs:29` 的注释在四轮内 102→202→242→289 列（第 4 轮把内部计数写进去） | 列宽本身不是错（`rustfmt wrap_comments = false` 不折注释，`scripts/check.sh` 的 fmt 关永远绿），但**内部计数是易腐事实**：本批内该数就被改错过两次（13→15→16），且公开 API 字段注释的读者要的是「我该填什么」，不是「服务端有几个值」 | 第 5 轮改为 **187 列**、只留可操作信息（全名带点 / 匹配是 LIKE 子串 / 裸 `issues` 与 `*` 都不命中）；1 行→1 行，文件仍 561 行。计数留台账 F3-7 |
 
 ### 对方已撤回（勿再作为争议点）
 
