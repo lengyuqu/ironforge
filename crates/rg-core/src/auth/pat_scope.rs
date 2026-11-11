@@ -286,14 +286,16 @@ pub fn ref_in_allowlist(refname: &str, allow: &[String]) -> bool {
 /// A generic REST handler cannot tell which token made a request, so such a
 /// token may only make the writes that cannot move a branch or tag: the
 /// collaboration area, issues, and creating, commenting on and reviewing pull
-/// requests. The one exception is the file-edit route (`contents/**`): its
-/// handlers read the token id from the session (`tid`) and hold the target
-/// branch to the token's own limit. Everything else (merging, applying
-/// suggestions, releases, wiki, LFS, CI triggers, commit statuses, webhooks,
-/// settings, ...) is refused, and so is any route added later until it is listed
-/// here **and** its handler checks the branch. To get a change merged, push a
-/// permitted branch (or commit to one) and open a pull request for a person to
-/// merge.
+/// requests. Three ref-moving families are opened anyway, because their handlers
+/// read the token id from the session (`tid`) and hold the target ref to the
+/// token's own limit (`ensure_token_may_write_branch`): file edits
+/// (`contents/**`), batch commits (`POST commits`), and branch deletion
+/// (`DELETE branches/<name>`, never `branches/protection/**`). Everything else
+/// (merging, applying suggestions, releases, wiki, LFS, CI triggers, commit
+/// statuses, webhooks, settings, ...) is refused, and so is any route added
+/// later until it is listed here **and** its handler checks the branch. To get a
+/// change merged, push a permitted branch (or commit to one) and open a pull
+/// request for a person to merge.
 ///
 /// `path` is the request path without the `/api/v1` prefix and without a query.
 pub fn ref_limited_write_allowed(path: &str) -> bool {

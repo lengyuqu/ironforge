@@ -945,7 +945,7 @@ git -c protocol.version=2 clone --depth=1 ...
 
 ## 反向清单索引（编号总数与去处；清单实体不在本节）
 
-清单实体在上文 `## 批次索引` 块内的 `### 判定不成立` 小节，本节只维护编号总数与去处（本清单已累计 **1..51** 条；36–38 见 `consume 6 / 6（batch#4）` 节，39–40 见 `consume 1 / 6（batch#5）` 节，41 见 `consume 2 / 6（batch#5）` 节，42–43 见 `consume 3 / 6（batch#5）` 节，44 见 `consume 4 / 6（batch#5）` 节，45–46 见 `consume 5 / 6（batch#5）` 节（46 由「单发轮 #13 三次消费」轮写入、物理落在该节末，勿去那一节找正文），47–49 见 `单发轮 · issue #13 · 2026-11-11（第 4 次消费）` 节，50–51 见 `单发轮 · issue #13 · 2026-11-11（第 6 次消费）` 节）。本行原为开批时的占位「（暂无）」，已失效并就地订正，勿再当「无任何不成立条目」读
+清单实体在上文 `## 批次索引` 块内的 `### 判定不成立` 小节，本节只维护编号总数与去处（本清单已累计 **1..55** 条；36–38 见 `consume 6 / 6（batch#4）` 节，39–40 见 `consume 1 / 6（batch#5）` 节，41 见 `consume 2 / 6（batch#5）` 节，42–43 见 `consume 3 / 6（batch#5）` 节，44 见 `consume 4 / 6（batch#5）` 节，45–46 见 `consume 5 / 6（batch#5）` 节（46 由「单发轮 #13 三次消费」轮写入、物理落在该节末，勿去那一节找正文），47–49 见 `单发轮 · issue #13 · 2026-11-11（第 4 次消费）` 节，50–51 见 `单发轮 · issue #13 · 2026-11-11（第 6 次消费）` 节，52–55 见 `单发轮 · issue #14 · 2026-11-12` 节）。本行原为开批时的占位「（暂无）」，已失效并就地订正，勿再当「无任何不成立条目」读
 
 ---
 
@@ -1706,3 +1706,55 @@ on: {push: {}, unknown_key: 1}    event=manual            parse=Ok  matches=fals
 **改动 SHA**：`c113d97`（2 文件 `61+/6−`，全 `.md`），推 `cnb` 单 remote（`76974a5..c113d97  HEAD -> main`）；合流后 `git merge-base --is-ancestor c113d97 cnb/main` 通过，主工作区 `merge --ff-only` 快进到 `c113d97`、`status --porcelain` 0 行。**时刻锚** = 本提交 author date（`git log -1 --format=%aI c113d97` = `2026-11-12T01:06:50+08:00` = `2026-11-11T17:06:50Z`），回帖 `17:07:48Z` 在其后。
 
 **回帖**：`2120564159803736064`（`2026-11-11T17:07:48Z`，回读首行 `## 本轮收尾`、末段 `@CodeBuddy`、7854 字符确认）。首行 `## 本轮收尾`（**不带轮次号**，不占批次 C），issue 状态**保持 open**。
+
+---
+
+### 单发轮 · issue #14 · 2026-11-12
+
+- 选靶：open 列表 16 条**全为 MANUAL**（`#43`/`#42`/`#41`/`#40`/`#39`/`#38`/`#37`/`#36`/`#35`/`#34`/`#33`/`#19`/`#18`/`#17`/`#16`/`#15`/`#14`，`[opt-round]` 0 条），`priority` 全空、无 `[hold]` ⇒ 取编号最小 **#14**。最新评论 `2120148552465694720`（`2026-11-10T13:36:20Z`，NPC 分析，4910 字符），非收尾帖 ⇒ 消费。
+- 基线：`BASE=75d8231`（`2026-11-12T02:33:03+08:00`；比上轮 `ddf1fd5` 多 13 个提交：B2-8/B2-15/B4-1 修复 + russh/openssl/web 依赖）。本单**不改业务逻辑**。
+- 判定：**成立 8 / 部分成立 6 / 不成立 4**（另我方自查成立 1）。
+- 动作：L1 ①`crates/rg-core/src/auth/pat_scope.rs` 文档注释 10 行→10 行改成「三族放行」口径（原写「The one exception is the file-edit route」，与 `:325`/`:328`/`:334` 的实现不符）；②新增 `ironforge-docs/architecture/route-metadata-registry-2026-11.md`（核实清单 + P0–P3 落点 + L2 边界）；③`ironforge-docs/README.md` 索引 +1 行。
+- 验证：`scripts/check.sh --quick` 改前 **209 s `EXIT=0`**（`Finished \`dev\` profile [unoptimized + debuginfo] target(s) in 3m 28s` / `checks passed in 209s (quick)`）→ 改后 **77 s `EXIT=0`**（`Finished \`dev\` profile [unoptimized + debuginfo] target(s) in 1m 15s` / `checks passed in 77s (quick)`）。executor 本机 `Darwin arm64` / `cargo 1.99.1`；复算环境无 cargo 时本项不可验。
+- 回帖：`PENDING`｜首行 `## 本轮收尾`（不占批次 C）。
+- issue 状态：保持 open（本单无验收标准，关单要人拍板）。
+
+判定表（NPC 分析 `2120148552465694720` 的编号小节逐条）：
+
+| # | 它说的 | 判定 | 证据（除注明外均在本轮 `BASE=75d8231`，`sed -n` 打印过） |
+|---|---|---|---|
+| A1 | 五张表是三种东西；`required_pat_scope`/`repo_scope_for` 在 `rg-http/src/lib.rs:2064/2125` | **部分成立**（结论对，行号偏 12） | 真值 `:2076` = `fn required_pat_scope(method: &axum::http::Method, path: &str) -> Option<&'static str> {`、`:2137` = `fn repo_scope_for(...)`；它引的 `:2064` 落在该函数的文档注释里 |
+| A2 | `path_in_allowlist` 的拒绝表在 `pat_scope.rs:293` | **部分成立**（表在，行号错 119） | 真值：fn `:174`、拒绝模式 `:189` = `["fork", ..] \| ["forks", ..] \| ["transfer", ..] \| ["collaboration", "groups", ..]`；`:293` 在 `ref_limited_write_allowed` 的文档注释里 |
+| A3 | `ref_limited_write_allowed` 在 `:300` | **部分成立**（偏 1） | 改前 `:299`，本轮注释 +2 行后 `:301` |
+| A4 | `idempotency_supported` 在 `idempotency.rs:64` | **成立** | `:64` 原文即 `pub fn idempotency_supported(path: &str) -> bool {` |
+| A5 | `REGISTRY` 的 `Route` 已有 method+path+access 三件套 | **成立** | `capabilities.rs:84-88`；构造器是 `const fn r(...)`（`:90-96`），`&'static` 表 |
+| A6 | 「30 个 capability、78 条路由」 | **不成立（计数）** | `grep -c '^    Capability {'`（REGISTRY 段）= **27**；`grep -c '^\s\+r('` = **75**。见反向清单 52 |
+| A7 | 「`REGISTRY` 只覆盖 `/collaboration/**`（78 条 / 全站 298 个 `.route()`）」 | **前半成立 / 后半不成立** | 75 条路径**全部**含 `/collaboration`（逐条列举）；全仓 `.route(` = **342**，`rg-http/src/lib.rs` 单独 **323**，它自己的基线 `cba96ba` 上是 **320**。见反向清单 53 |
+| A8 | 「声明能消掉表达式展开，消不掉人类判断」 | **成立** | 放行与否取决于 handler 是否调 `ensure_token_may_write_branch`（`api/repo_content.rs:675`/`:1451`/`:1591`、`api/repo_commits.rs:166`），声明写错编译不报 |
+| A9 | 「`contents/**` 能进是因为 handler 有 `ensure_token_may_write_branch`」 | **成立** | 同上四处调用点；`ref_limited_write_allowed` 的 `contents` 分支在 `:325` |
+| A10 | （隐含前提）「只有 `contents/**` 一个例外」 | **我方自查成立**（缺陷在我方注释，不在它） | `crates/rg-core/src/auth/pat_scope.rs:289`（**`75d8231` 时点**）原文 "The one exception is the file-edit route (`contents/**`)"，而实现 `:325`/`:328`/`:334` 已是 `contents` + `POST commits` + `DELETE branches/<name>` 三族 ⇒ 本轮改注释 |
+| A11 | 「未声明即拒绝只覆盖层面 B，层面 A 靠 `matches!` 自然拒绝」 | **部分成立** | 失败方向它说对了，但「层面 A 没被覆盖」不成立：三张表今天都 fail closed —— `path_in_allowlist` 不在名单即 `false`（`:174-191`）、`ref_limited_write_allowed` 不在 `:312-335` 即 `false`、`required_pat_scope` 未知前缀给 `Some("admin")`（`crates/rg-http/src/lib.rs:2127`，注释 "Fail closed: a PAT must not reach an unrecognised route by default"） |
+| A12 | `idempotency_supported` 的元数据要的是「响应是否有秘密」 | **成立** | `idempotency.rs:59-63` 文档原文 "Everything else, in particular anything that returns a token or a secret, is out" |
+| A13 | 建议的 `Route` 代码块 | **不成立（可编译性）** | 块内写 `／/ ↓ 新增`（U+FF0F 全角斜杠），照抄编译不过。见反向清单 55 |
+| A14 | 「298 条 × 4 字段 = 1200 个判断点」 | **不成立** | 真值 **300**（75×4）；只做 P0 是 **150**（75×2）。见反向清单 54 |
+| A15 | 「`repo_scope_for` 可整体删掉，只留『路径不在表里 → 404 或 admin』，保持现有行为」 | **部分成立** | 兜底只有 `admin` 一条（`crates/rg-http/src/lib.rs:2127`），代码里没有 404 分支 ⇒「或 404」无出处；「保持现有行为」只在 admin 分支成立 |
+| A16 | `collab_contract_tests.rs` 的 `normalize()` 可复用 | **成立** | `crates/rg-http/tests/collab_contract_tests.rs:30` = `fn normalize(path: &str) -> String {`，注释写 `{x}` → `{}` |
+| A17 | `openapi.rs` 是手写 `paths(...)` 宏列表 | **成立** | `crates/rg-http/src/openapi.rs:29` = `paths(` |
+| A18 | P0 = 只扩 `pat_scope` + `response_secret`，风险最小 | **部分成立** | 方向对，但漏了前置成本：`Route` 由 `const fn r(...)` 构造（`capabilities.rs:90-96`），加字段要改 **75 处**调用点，不是纯增量 |
+
+**我方自查（本轮真错 1 处）**：A10 —— `ref_limited_write_allowed` 的文档注释停在「只有一个例外」，而 `48f03a7`（批量提交）与删分支路由早已让第三、第四族进来。已在 L1 内改成三族口径，行数 10→10。
+
+**L2 待拍板（编号续 batch#3 表，物理在本节——中间插入会推后其后所有绝对行号，故不搬进那张表）**
+
+| # | 级别 | 事项 | 为什么不在本流程做 |
+|---|---|---|---|
+| R14-1 | P2 | `Route` 加 `pat_scope` + `response_secret` 两个字段（`capabilities.rs:84-88`），`idempotency_supported`（`idempotency.rs:64`）与 `/collaboration/**` 的 `required_pat_scope`（`crates/rg-http/src/lib.rs:2076`）改查表；`REGISTRY` 仍只管 75 条 | 动 `pub` 结构 + 鉴权取值路径；且 75 处 `r(...)` 调用点要一次性补齐，否则半张表比现状更危险（未知前缀兜底是 `admin`） |
+| R14-2 | P2 | 加 `x_repo_ref`，替掉 `path_in_allowlist` 的四个拒绝模式（`pat_scope.rs:189`） | 直接改 PAT 拒绝面；字段名与 `serde` 键集合要靠测试守，属鉴权语义变更 |
+| R14-3 | P3 | 「全站唯一 `REGISTRY` + 未声明即拒绝」 | 需新增 **248** 条路由声明（323 − 75），且 `pat_scope` 必须一次补全；另需 OpenAPI `x-ironforge-*` 扩展，属前端与客户端契约 |
+
+**本节新立反向清单（52–55，判定不成立，勿重复提）**
+
+52. 「`REGISTRY` 有 30 个 capability、78 条路由」——实测 **27 / 75**（`grep -c '^    Capability {'`、`grep -c '^\s\+r('`，REGISTRY 段）。它自己的基线 `cba96ba` 上也是 27/75。
+53. 「全站 298 个 `.route()`」——实测 **342**（`crates/` 全仓），其中 `rg-http/src/lib.rs` **323**；`cba96ba` 上是 **320**。
+54. 「298 × 4 = 1200 个判断点」——实测 **300**（75×4）/ **150**（75×2）。分母错，结论（成本高）仍成立，但量级差 4 倍。
+55. 建议代码块里的 `／/ ↓ 新增` 是全角斜杠（U+FF0F），照抄**编译不过**；引用它的任何片段前先换成 `//`。

@@ -50,6 +50,7 @@
 | `agent-collaboration-operability-requirements-2026-11.md` | 规则入口、用户总览、保留恢复与完成条件的需求与验收（Proposed） |
 | `agent-draft-refs-ttl-design-2026-11.md` | Agent 草稿命名空间：`refs/heads/agent/<id>/*` 的 TTL、通知抑制、自动清理设计细化（Proposed，未实现） |
 | `registry-auth-visibility-verification-2026-11.md` | OCI 票据校验侧与可见性：修复前后对照、`registry:catalog:*` 的三项巧合、证据与仍未做（**已修复**，PR #24） |
+| `route-metadata-registry-2026-11.md` | 路由元数据注册表（issue #14）：五张表的真实位置与规模、三个隐含假设的裁决、P0–P3 落点与 L2 边界（Proposed） |
 
 ---
 
