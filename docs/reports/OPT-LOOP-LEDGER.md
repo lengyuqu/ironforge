@@ -1919,3 +1919,5 @@ on: {push: {}, unknown_key: 1}    event=manual            parse=Ok  matches=fals
 61. 「`down(&db, Some(25))` 应为 **24**，现在的 25 已多回滚一条（`m20261015_000001`）、擦到测试自己的 `before` 锚点；T23 追加迁移后正确值仍是 **25** 不是 26」—— 不成立：测试在 `down` 之前已 `up(None)` 迁满 99 条（`:960`），探针实测回滚后剩 **74** 条、栈顶 `m20261015_000001` ⇒ 窗口正是「锚点 + 其后 24 = 25」，`+1` 规则成立；改成 24 会让锚点的 partial unique index 留下、`uq_repositories_%` 断言失败。**已实测否定，不要重复提。**
 
 **对方误差（非结论位置，勿当结论引用）**：①把 `before = 74`（`position(锚点前一条)+1`）当成迁移总数做减法，得出「应为 24」；②`audit.rs:87` 实为 utoipa `params` 首行（handler `:103`）、`lib.rs:1734` 实为 admin/sso 路由（`:1745`）；③`list_paginated` 现有参数 8 个（它写「再加一个会到 9 个」——数对，但没说现在就是 8 个）。
+
+**改动 SHA / 回帖（回填）**：`ac97b22`（3 文件 `67+/11−`），推 `cnb` 单 remote（`f821932..ac97b22  HEAD -> main`）；合流后 `git merge-base --is-ancestor ac97b22 cnb/main` 通过（`cnb/main` = `ac97b22`），主工作区 `merge --ff-only` 到 `ac97b22`、`status --porcelain` 0 行。**时刻锚** = `git log -1 --format=%aI ac97b22` = `2026-11-12T05:56:58+08:00`。**回帖** `2120637095629713408`（`2026-11-11T21:57:37Z`，回读首行 `## 本轮收尾`、末段独立成段 `@CodeBuddy`、24941 字符、61 条编号各自独立成行）。issue #33 **保持 open**（单发轮不 close）。
