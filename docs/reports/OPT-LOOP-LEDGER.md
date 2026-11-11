@@ -1143,4 +1143,4 @@ ON="push:\n    branches: [main]"                 EVENT=push          REF=refs/he
 
 **改动 SHA**：`a668b5e`（4 文件 7+/7−，5 文件行数指纹不变），推 `cnb` 单 remote。**改后验证**：`scripts/check.sh --quick` **`EXIT=0`**（executor 本机，关键行原文 ``Finished `dev` profile [unoptimized + debuginfo] target(s) in 23.99s`` / `==> checks passed in 25s (quick)`；25 s 来自 rg-ci 因注释变更重编译，热缓存口径见参数表）；**时刻锚** = 本提交 author date `2026-11-11T18:19:13+08:00`（= `10:19:13Z`，`git log -1 --format=%aI a668b5e` 可复算），改后验证发生在其之前。
 
-**回帖**：待回填
+**回帖**：`2120461940857147392`（`2026-11-11T10:21:37Z`），回读 **C=1**（首行 `## 第 1 轮收尾`、末行 `@CodeBuddy`、正文 22121 字符、平台侧仅此 1 条收尾无重复投递）。
