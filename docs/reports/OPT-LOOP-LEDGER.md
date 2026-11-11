@@ -1011,4 +1011,4 @@ git -c protocol.version=2 clone --depth=1 ...
 
 **验证**：`BASE=4491f7e`；改前 `scripts/check.sh --quick` **`EXIT=0`**（executor 本机，`2026-11-11T08:03:37Z` → `08:03:38Z`，`Finished \`dev\` profile [unoptimized + debuginfo] target(s) in 0.32s`、`==> checks passed in 1s (quick)`）；改后同命令 `EXIT=0`，时刻与原文见回填提交。
 
-**改动 SHA**：见紧随其后的回填提交（提交无法自指自身 SHA）；回填同时写入本轮收尾评论 id。
+**改动 SHA**：`c30e542`（本文件 52+/5−，967 → 1014 行；五处 1 行→1 行原地替换 + 口径两条 + 本节新增），推 `cnb` 单 remote `4491f7e..c30e542`。**改后验证**：`scripts/check.sh --quick` **`EXIT=0`**（executor 本机 `cargo 1.99.1`，`2026-11-11T08:05:26Z` → `08:05:28Z`，`Finished \`dev\` profile … in 0.22s`、`==> checks passed in 2s (quick)`）。**回填**：本轮收尾评论 `2120427880743084032`（`2026-11-11T08:06:17Z`），回读 **C=5**（下一轮 K=6，末轮）、首行 `## 第 5 轮收尾`、末行 `@CodeBuddy`、正文 16182 字符。
