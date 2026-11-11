@@ -48,7 +48,8 @@
 - 反向清单回灌：**不成立 38 条全量**（batch#1–#4 累计，含 batch#4 第 6 轮新增 36–38）+ 我方自证推翻 8 项 + 对方已撤回 6 项 + 对方错项 5 条 + batch#4 第 1 轮错项 4 条，均注明「不要重复提」
 - 上一批遗留回读（协议 §6.2 开批前三步）：batch#4 批后复核评论 `2120444501616406528`（`2026-11-11T09:12:19Z`，关批后 +49 s）——第 6 轮 7 项复核全部通过、无异议，36–38 不再重提，B4-1..B4-8 维持 L2；一条行数口径备注（我方记 1055 / 它实测 1056，末行换行计数差异）——本批起台账行数统一以 `wc -l` 输出为准
 - NPC 首扫：`2120454308016586752`，`2026-11-11T09:51:17Z`（开批后 4 min 46 s；首行 `@cnb.biewen(别问) ## batch#5 第 1 轮 · rg-ci 引擎只读审查`，自述基线 `d32421e` 且逐文件核过行数 1857/1297/1065/326/315）
-- 6 轮进度：**1 / 6**（第 1 轮见文末 `consume 1 / 6（batch#5）` 节）
+- NPC 第 2 轮复核：`2120465837906632704`，`2026-11-11T10:37:06Z`（首行 `@cnb.biewen(别问) batch#5 第 2 轮。先说环境：本机无 cargo…`，自述复核 `6b9a907`，自报 `check.sh --quick` EXIT=0 于 `10:36:22Z` 的 Linux 机）
+- 6 轮进度：**2 / 6**（第 1 轮见文末 `consume 1 / 6（batch#5）` 节，第 2 轮见文末 `consume 2 / 6（batch#5）` 节）
 
 ### batch#4(issue #27) · 2026-11-11 · rg-http issue/PR/review API 层
 
@@ -1144,3 +1145,72 @@ ON="push:\n    branches: [main]"                 EVENT=push          REF=refs/he
 **改动 SHA**：`a668b5e`（4 文件 7+/7−，5 文件行数指纹不变），推 `cnb` 单 remote。**改后验证**：`scripts/check.sh --quick` **`EXIT=0`**（executor 本机，关键行原文 ``Finished `dev` profile [unoptimized + debuginfo] target(s) in 23.99s`` / `==> checks passed in 25s (quick)`；25 s 来自 rg-ci 因注释变更重编译，热缓存口径见参数表）；**时刻锚** = 本提交 author date `2026-11-11T18:19:13+08:00`（= `10:19:13Z`，`git log -1 --format=%aI a668b5e` 可复算），改后验证发生在其之前。
 
 **回帖**：`2120461940857147392`（`2026-11-11T10:21:37Z`），回读 **C=1**（首行 `## 第 1 轮收尾`、末行 `@CodeBuddy`、正文 22121 字符、平台侧仅此 1 条收尾无重复投递）。
+
+### consume 2 / 6（batch#5）· 追加于文末（只为零行号漂移，勿移入上文）
+
+- 输入：NPC 第 2 轮复核 `2120465837906632704`（`2026-11-11T10:37:06Z`），晚于我方第 1 轮收尾（`10:21:37Z`）⇒ 有新复核。C=1（正则 `^## 第 \d+ 轮收尾` 仅命中我方收尾那条）⇒ K=2。
+- 基线：`BASE=f9b8d5a`（`cnb/main` = 本机 HEAD，`git rev-list --left-right --count HEAD...cnb/main` = `0 0`）。它自述复核 `6b9a907`；`git diff --stat 6b9a907 f9b8d5a -- crates/` **为空** ⇒ 两树源文件同一，行号基准零漂移。本批 5 文件行数指纹 **1857 / 1297 / 1065 / 326 / 315** 全等。
+- 判定汇总：**确认 7 / 成立 3 / 部分成立 2 / 成立但非缺陷 1 / 不可验 1 / 子命题不成立 1**；另我方探针新增 1 条 P1（B5-10，它未提）。
+- 读法约定：下表 `:<n>` 指 `f9b8d5a` 上那 5 个源文件（或注明文件）的行号，只用于指认被判定对象；本节内部定位一律用小节名 / 条目号（审计口径第 4 条）。
+
+判定表：
+
+| # | 它说的 | 判定 | 证据 |
+|---|---|---|---|
+| ①-1 | `runner.rs:16` 原文逐字 | **确认** | `sed -n '16p'` 与它引句逐字同（改前 97 字符，改后见「本轮改动」） |
+| ①-2 | `config.rs:14-15` | **确认** | 两行逐字同：`Enforced per **ref**, not per group` / `different refs never serialize. … only reach log text.` |
+| ①-3 | `gitea_actions.rs:303-305` | **确认** | 三行逐字同（`branches` filters target the base branch… / In production only `merge_group`… / ref is `refs/merge-queue/<id>`…) |
+| ①-4 | `lib.rs:554` | **确认** | 逐字同：`2. `.ironforge-ci.yml` (native format) — errors in step 1 are swallowed…` |
+| ②-39/40 | 它给反证：39 / 40 维持「不成立」 | **确认** | 它的探针与我方第 1 轮实测逐行一致（`merge_group:` 三形态全 false；`pull_request: branches: [main]` 时 `merge_group` 为 true，与反向清单 40 的表述同源）。39 的补充事实（`--rm` 在正常退出时清容器）成立，不改变判定 |
+| ③N1 | 工作区路径与仓库路径是兄弟目录，`_ci_workspaces` / `_ci_cache` 是合法 owner 名 | **部分成立** | 成立部分：`workspace_path()`（`runner.rs:789-798`，`:795` 为 `root.join("_ci_workspaces")`）确返 `<repo_root>/_ci_workspaces/<repo_id>/<pipeline_id>`；`_ci_workspaces` 不在保留名单——`validate_username`（`crates/rg-core/src/lib.rs:71-78` 字符集）只额外查 `-agent-`（`crates/rg-core/src/agent.rs:53-55`），`validate_repo_name`（`:102-108`）允许 `_`；`_ci_cache` 三处同根成立（`runner.rs:914` / `crates/rg-http/src/api/runners.rs:777` / `crates/rg-http/src/api/ci_retention.rs:103`）。不成立部分见反向清单 41 |
+| ③N2 | `repo_root=/` ⇒ `cache_root=/_ci_cache` | **成立但非缺陷** | 字面成立（`ci_retention.rs:103` 的 `state.repo_root.join("_ci_cache")`）；但 `repo_root=/` 本身就把仓库铺到 `/` 下，属误配，无独立处置 |
+| ③N3 | `export k=v` 还有 `$` / `$()` 面（不只空白截断） | **成立（归入 B5-5 加强）** | `sh` 实测：`export A=$(id -u)` ⇒ `$A`=`501`（**命令替换被执行**）；`$VAR` 静默展开。`:463` 为 `export {}={}` 无引号，`substitute_expr`（`:803-836`）只做 `String::replace`。换行注入本轮亦复测（`touch` 落地） |
+| ③N4 | `actions/cache@` 只取 `step.with`，不取 `step.env` | **成立（P3）** | 两个输入取自 `step.with.get("path")` / `step.with.get("key")`（`:431-432`）；`:441` 的 `substitute_expr(key, name, &self.env, &job_vars)` 入参只有 workflow / job 两级（签名 `:803-808`），step.env 不参与 ⇒ 用 step 级 env 写 `with: key: ${{ env.X }}` 不解析；key 落 `lib.rs:234` 的 `cache_key` |
+| ③N5 | `runner.rs:16` 可以更准（超时后容器仍在跑） | **部分成立** | `--rm`（`:656`）+ 确定性容器名（`:651`）事实对；原句只到「`docker run` 子进程不被杀」，未讲容器后果 ⇒ 已改写 |
+| ④ | 它 3 条自我订正（撤回 `unwrap_or(false)` 缺陷 / `grep -n group` 应为 6 行 / `config.rs:16`→`:15`） | **确认** | 与我方第 1 轮判定逐条一致，无需再动 |
+| ⑤-1 | 去重命令 `grep -rn 'join("_ci_workspaces")\|join("_ci_cache")'` = 4 行 | **确认** | 复跑同命令 = 4 行，路径与行号全同（`runner.rs:795` / `:914` / `ci_retention.rs:103` / `runners.rs:777`） |
+| ⑤-2 | `grep -rn 'export {}'` = 1 行、`sh_quote\|shell_quote` = 0 行 | **确认** | 复跑一致 |
+| ⑤-3 | `matches_event` 连事件名 `workflow_dispatch` 都不认 | **确认（算 B5-2 加强，不单列）** | 探针：`on:` + `workflow_dispatch:` ⇒ `workflow_dispatch=false`；机制 `:312` 的 `_ => false`，该字段在 `:290` 被 destructure 成 `_` 丢弃 |
+| ⑤-4 | crash 探针：checkout 丢、注册在时 `prepare_workspace` 二次仍 Ok | **不可验（采信，不入结论）** | 未复跑其探针；它自己标「checkout 在、注册被手删」待核，维持待核 |
+
+**我方探针新增（B5-10，P1）：`on:` 下的裸键永不匹配**
+
+方法同第 1 轮（临时 example 直调 `GiteaWorkflow::parse` + `matches_event`，跑完删，`git status --porcelain` 为空）。输出原样：
+
+```
+on: push                                                | push=true  workflow_dispatch=false manual=false
+on: [push, pull_request]                                | push=true  workflow_dispatch=false manual=false
+on:\n  push:                                            | push=false workflow_dispatch=false manual=false
+on:\n  push:\n    branches: [main]                      | push=true  workflow_dispatch=false manual=false
+on:\n  workflow_dispatch:                               | push=false workflow_dispatch=false manual=false
+on:\n  workflow_dispatch:\n    inputs:\n      x:..."   | push=false workflow_dispatch=false manual=false
+```
+
+- 机制：`pub push: Option<EventFilter>`（`gitea_actions.rs:58`）把 `push: null` 反序列化成 `None`，与「键缺失」**不可区分** ⇒ `:294-299` 走 `else { false }`。
+- 语义：GHA / Gitea 里 `on:` + 裸 `push:`（无子键）合法，含义是「全部分支都触发」。本仓对它的处理是 **静默永不触发**，比 B5-2 更常见（B5-2 是事件名缺映射，本条是 null 值与缺失不可区分）。
+- 它本轮未提这一条；与 B5-2 同源但独立成条。
+
+**本轮改动（1 文件 1+/1−，零行号漂移）**：
+
+1. `crates/rg-ci/src/runner.rs:16`：`… the \`docker run\` child is not (\`kill_on_drop\` unset).` → 同句尾补 `, so its named container keeps running afterwards.`（1 行→1 行，97→146 字符）。依据 N5。
+2. 本台账：`batch#5` 索引区（新增它第 2 轮复核 id 一行、进度 `1 / 6` → `2 / 6`）+ 本节。
+
+改后 5 文件行数指纹仍 **1857 / 1297 / 1065 / 326 / 315**（`runner.rs` 1 行→1 行）。
+
+**未做（L2 待拍板 batch#5，本流程不动 main）**：
+
+- **B5-7**（P3）`_ci_workspaces` / `_ci_cache` 未被保留：要么在 `validate_username` / `validate_repo_name` 加保留名单，要么把 CI 基路径移出 `<repo_root>`（改路径基址属部署契约）。现状风险是「owner 名为 `_ci_workspaces` 时，其目录与全实例 CI 工作区混居」，**不是**删仓库（见反向清单 41）。
+- **B5-8**（P3）cache 归档路径在三处各算一遍（`runner.rs:914` / `runners.rs:777` / `ci_retention.rs:103` 的根），应抽公共函数；否则任一侧改动会让另一侧留孤儿归档。
+- **B5-9**（P3）`actions/cache@` 不吃 step.env：`substitute_expr` 需支持 step 层 env，或文档化「step 级 env 不参与 with 表达式」。
+- **B5-10**（P1）裸 `on:` + `push:` 永不匹配：`Option<EventFilter>` 需按 `workflow_call` 的做法（`:64-65` 的 `#[serde(default, deserialize_with = "deserialize_present_yaml")]`）区分 null 与缺失，把 null 视为「无过滤 = 全匹配」。
+- **B5-5 加强**（P2）注入面补两项：`$( )` 命令替换与 `$VAR` 展开（实测已入判定表 N3 行）。
+
+**反向清单（本节新增 1 条，累计 1..41）**：
+
+41. 「N1 的后果②：crash 之后 `prepare_workspace` 的 `std::fs::remove_dir_all(&workspace)` 删的是 `_ci_workspaces` owner 目录下的**合法仓库目录**」—— 反证：仓库目录构造恒为 `<repo_root>/<owner>/<name>.git`（`crates/rg-core/src/repo/service.rs:522`，同类 9 处全带 `.git`），而 `workspace_path()`（`crates/rg-ci/src/runner.rs:789-798`）返回 `<repo_root>/_ci_workspaces/<repo_id>/<pipeline_id>`；被删的是 `<repo_id>/<pipeline_id>` 两级纯数字目录，叶名一侧恒带 `.git`、另一侧是数字 ⇒ 两者永不相等，命中不了任何仓库目录。**已核实为不成立，不要重复提。**
+
+**对方行号/区间误差（非结论位置）**：N1 标 `runner.rs:800-809`，该区间实为 `prepare_workspace` 的文档注释 + 签名（真值 `:789-798`，`:800-809` 是 `/// Materialise …` 到 `.await?`）；N3 的 `substitute_expr` 三个内置替换实为 `:820-822`（它标 `:820-824`，`:823` 是空行、`:824` 已是 `secrets` 分支）。
+
+**验证**：`BASE=f9b8d5a`。改前 `scripts/check.sh --quick` **`EXIT=0`**（executor 本机 `Darwin arm64` / `cargo 1.99.1`，`2026-11-11T11:23Z` 后，关键行原文 `==> cargo fmt --all --check` / ``Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.24s`` / `==> checks passed in 2s (quick)`）。改后同命令 **`EXIT=0`**（`Finished `dev` profile … in 2.78s` / `==> checks passed in 4s (quick)`，rg-ci + rg-cli 因注释变更重编译）。
+
+**改动 SHA**：`f2dd6d2`（1 文件 1+/1−），推 `cnb` 单 remote。
