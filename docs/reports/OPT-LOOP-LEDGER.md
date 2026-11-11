@@ -1053,4 +1053,4 @@ git -c protocol.version=2 clone --depth=1 ...
 
 **验证**：`BASE=61c9f9b`；改前 `scripts/check.sh --quick` **`EXIT=0`**（executor 本机 `Mac` / `cargo 1.99.1`，`2026-11-11T09:09:05Z` → `09:09:08Z`，关键行原文 `==> cargo clippy --workspace --all-targets -D warnings` / ``Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.99s`` / `==> checks passed in 3s (quick)`）。改后同命令见下方改动 SHA 行。
 
-**改动 SHA**：`<待回填>`（本文件：五处 1 行→1 行原地替换 + `:51`/`:932` 两处 + 本节追加），推 `cnb` 单 remote。
+**改动 SHA**：`d4dfb51`（本文件 48+/6−，1014 → 1055 行；五处 1 行→1 行原地替换 + `:51`/`:932` 两处原地替换 + 本节追加），推 `cnb` 单 remote `61c9f9b..d4dfb51`。**改后验证**：`scripts/check.sh --quick` **`EXIT=0`**（executor 本机 `Mac` / `cargo 1.99.1`，`2026-11-11T09:10:13Z` → `09:10:15Z`，关键行原文 ``Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.25s`` / `==> checks passed in 2s (quick)`）；**时刻锚** = 本提交 author date `2026-11-11T17:10:19+08:00`（= `09:10:19Z`，`git log -1 --format=%aI d4dfb51` 可复算），两条验证均发生在其之前。
