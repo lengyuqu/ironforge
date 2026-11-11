@@ -1321,6 +1321,6 @@ value          no_default=Ok(true)   with_default=Ok(true)
 
 **验证**：`BASE=fc8e46d`。改前 `scripts/check.sh --quick` **`EXIT=0`**（executor 本机 `Darwin arm64` / `cargo 1.99.1`，`2026-11-11T12:51:54Z` 完成，原文 ``Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 40s`` / `==> checks passed in 102s (quick)`）。改后同命令 **`EXIT=0`**（`2026-11-11T12:53:18Z` 起，``Finished `dev` profile … in 0.23s`` / `==> checks passed in 2s (quick)`——本轮只动 `.md`，无 `.rs` 变化，故为热缓存指纹命中）。
 
-**改动 SHA**：见下方回填行。**时刻锚** = 本提交 author date（`git log -1 --format=%aI <sha>` 可复算）。
+**改动 SHA**：`fbb17f2`（3 文件 63+/18−），推 `cnb` 单 remote；`git merge-base --is-ancestor fbb17f2 cnb/main` 通过。**时刻锚** = 本提交 author date（`git log -1 --format=%aI fbb17f2` = `2026-11-11T20:54:02+08:00`）。
 
-**回帖**：回填行见本节末尾。
+**回帖**：`2120500463496769536`（`2026-11-11T12:54:42Z`），首行 `## 本轮收尾`、末行 `@CodeBuddy`（独占末段）、7363 字符；回读平台侧本条 issue 仅 1 条 `## 本轮收尾`（不占批次 C）。issue 状态**保持 open**。
