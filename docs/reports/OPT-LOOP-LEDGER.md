@@ -47,8 +47,46 @@
 - 反向清单回灌：**不成立 33 条全量**（batch#1/#2/#3 累计，含 batch#3 第 2–6 轮新增的 23–33）+ 我方自证推翻 8 项 + 对方已撤回 6 项 + 对方错项 5 条，均注明「不要重复提」
 - 已知空档新增：issue 创建只需读权限为刻意设计（`issues.rs:500-504` 注释，ISSUE-105）；`pulls.rs:627-629` dry_run 不评 conflicts 为注释自述的已知语义
 - 凭据事故（下次照做）：开批前 `git fetch cnb` 报 Repository Not Found；第 9 次配方（`username=oauth2` 灌 keychain）**覆盖不中**——keychain 实际条目 `username=cnb`，须以 `username=cnb` 覆盖 `git credential approve` 才恢复
-- NPC 首扫：等待中（生产者不等首扫，按 F16 由消费者补记）
-- 6 轮进度：0 / 6
+- NPC 首扫：`2120347578683269120`，`2026-11-11T02:47:11Z`（开批后 4 min 03 s；`author.is_npc=true`，首行 `@cnb.biewen(别问) batch#4 只读审查完成`，自述基线 `b7a0ab2` 并逐文件核过行数）
+- 6 轮进度：**1 / 6**（第 1 轮收尾见下节）
+
+### consume 1 / 6（batch#4）
+
+- 收尾：K=1（回读 C=1；评论 id 与准确时间见本节末「回填」行）。BASE **`8c24c44`**（issue 声明 `b7a0ab2`；`git diff b7a0ab2..cnb/main -- crates/rg-http/src/api/` **空** ⇒ 零漂移，4 文件行数 1681/1261/902/242 与题述一致）
+- 验证：`scripts/check.sh --quick` 改前 **2 s EXIT=0** → 改后 **57 s EXIT=0**
+- 改动：`ef067be`（`crates/rg-http/src/api/validation.rs` 2 处注释，2+/2−，**行号零漂移**：`:49` 与 `:76-77`），推 `cnb`（`8c24c44..ef067be`）
+
+判定表（NPC 4 条引导问题 + 4 条新发现）：
+
+| # | 它说的 | 判定 | 证据 |
+|---|---|---|---|
+| Q1 | 4 处 `validate_optional_text(...).ok()` 丢弃 Err，校验形同虚设 | **成立** | `sed` 逐处打：`issues.rs:531`→`.ok()` 在 `:536`、`issues.rs:653`→`:658`、`labels.rs:143`→`:148`、`pulls.rs:293`→`:298`。全仓调用点 6 处（+`wiki.rs:190`/`:260`），`grep -rn -A6 "validate_optional_text(" . \| grep -E "let .* = .*validate_optional_text"` = **0** ⇒ 无一处传播 |
+| Q1-订正 | 实际上限是 axum 默认 **2 MiB**，不是「任意长度」 | **成立** | `grep -rn RequestBodyLimit rg-http/src/` 共 9 处全挂在 git/upload/runner-cache/assets 路由；issue 路由 `lib.rs:782-788` 无 layer；`axum-core-0.5.6/src/ext_traits/request.rs:319` `const DEFAULT_LIMIT: usize = 2_097_152; // 2 mb` |
+| Q1-兜底 | core 侧无长度兜底 | **成立** | `issue/service.rs:23-27` 只拦空 title；`:246-248` 直接 `active.body = Set(Some(b))`。`label/service.rs` 的 description 全文件无长度判断（`grep -n description` 仅 39/59/79/100-101/116/243） |
+| Q2 | `update_issue` 在鉴权前取 issue ⇒ 404/403 可区分私有库存在性 | **成立** | `:603` `get_issue` → `:635` `if !can_read`；`existing` 只在 `:639` 用（`existing.author_id != user_id`）⇒ 完全可以后置。对照 `get_issue` handler 与 `labels.rs:61`/`:91` 都是先 `require_*` |
+| Q2-订正 | 我给的对照例 `labels.rs:61-64` 引错，`:61` 是 `list_labels` 的 `require_read`，`get_label` 在 `:86-92` | **成立** | `labels.rs:56` `pub async fn list_labels` / `:61` `require_read`；`:86` `pub async fn get_label` / `:91` `require_read` |
+| Q3 | label 颜色 API 层与 core 层口径不一致 | **成立（但真实缺陷与题述不同）** | `validate_color` 只有 1 个调用点（`labels.rs:139`，create 侧；update 侧 0 调用）。core `create_label:47` `if !color.starts_with('#') \|\| color.len() != 7`、`update_label:92-99` 同判据 ⇒ `#f55` **两次都 400**，题述「201 vs 400」错；真问题 = `validation.rs:76` 文档与 `:83` 文案承诺 3 位，端到端不可用。**本轮已改 `:76-77` 文档**，行为未动（B4-3） |
+| Q4 | 列表页 assignee N+1，milestone 已批量 | **成立** | `issues.rs:1174` `for issue in issues` 内 `:1176 assignee_names_by_issue`；对照 `:1170` `milestone_ops::titles_by_ids` 批量。`assignees.rs:91-99` = `list_user_ids_by_issue` + 逐 user `find_by_id` ⇒ 单 issue 是 1+N 而非 1。`issues_with_authors` 调用点 `:333/:365/:406/:429` 四处全中 |
+| Q4-补充 | `rg-db` 无 assignee 批量函数 | **成立** | `grep -n "pub async fn" rg-db/src/ops/issue_assignee_ops.rs` = `set_assignees:14` / `list_by_issue:55` / `list_user_ids_by_issue:65` / `find_issue_ids_by_user:74`，全是逐 issue 入口，无 `*_by_ids`；对照 `milestone_ops::titles_by_ids:127` 才是批量形 |
+| F1 | `update_pr` 零正文校验 | **成立**（区间终点偏） | `pulls.rs:456-500` 函数体内 `grep -c validate` = **0**（它标 `:456-516`，`:502` 已是下一个 `get_diff` 的 utoipa 属性）；core `pull_request/service.rs:376-378` `if let Some(b) = body { pr.body = Some(b); }`，仅 `:370-375` 拦空 title。对照 `create_pr:285-298` 有 title+body 两道 |
+| F2 | merge_queue 列表 N+1 | **部分成立** | N+1 成立（`pulls.rs:781` 循环内 `:782 Entity::find_by_id`，`:776` 先 `list_by_repo`）。但「`:787` 的 `continue` 会让跳过项不影响编号」措辞不成立：`:792 position: index + 1` 用的是**含被跳项的 enumerate 下标** ⇒ 跳过会在编号上留空档（首项被跳则首条 position=2）。「不向后平移」这点是对的 |
+| F3 | `list_requested_reviewers` 静默丢行，与 `request_reviewer` 口径不一致 | **部分成立** | 静默丢行成立：`reviews.rs:1025` 循环、`:1029` `Ok(None) => continue`（无日志）。**「`request_reviewer` 能定位到软删用户」不成立**：`:1075` 守卫 `Ok(Some(user)) if user.is_active && user.deleted_at.is_none()`，`:1076` 对其余一律 404 ⇒ 软删用户两边都不可见，差的只是「静默省略」vs「显式 404」。另它给的区间 `:1062-1072` 打不到 `find_by_username`（真值 `:1074-1078`） |
+| F4 | 无超长 body 回归测试 | **成立** | `grep -rn "repeat(" rg-http/tests/` = 35 命中，全部属 collab/sso/idempotency/repo_events/file_commit 域；`grep -rn "65536\|65537" rg-http/tests/` 仅 1 命中且是 `collab_context_tests.rs:255` 的 `max_bytes`；`api_contract_validation_tests.rs` 只有 1 个 test（畸形 body vs OpenAPI 状态码） |
+
+**它本轮的行号错项（勿当结论引用）**：F1 区间 `:456-516`（真值 `:456-500`）；F3 区间 `:1062-1072` 不含 `find_by_username`（`:1074`）；Q3 取证命令 `sed -n '48,52p' rg-core/src/label/service.rs` 打不到它所引的 `if !color.starts_with('#')…`（该行是 `:47`，区间应为 `:47-51`）；F2「跳过项不影响编号」。
+
+**新立待拍板（batch#4，本流程不动 main）**：
+
+1. **B4-1（P2）** 6 处 `validate_optional_text(...).ok()` 丢弃 Err：`issues.rs:531`/`:653`、`labels.rs:143`、`pulls.rs:293`、`wiki.rs:190`/`:260`。后果：`MAX_BODY_LEN` 65536 / `MAX_LABEL_DESC_LEN` 255 / `MAX_COMMIT_MSG_LEN` 8192 全部不生效，唯一实际上限是 axum 默认 2 MiB（`axum-core-0.5.6/src/ext_traits/request.rs:319`），且 core 无兜底。修法改响应码（超长从「静默接受」变 400）⇒ OpenAPI/前端契约 ⇒ L2。**本轮只在 `validation.rs:49` 文档化，未改行为。**
+2. **B4-2（P2）** `update_issue`（`issues.rs:603`）鉴权前取 issue ⇒ 私有库 404/403 oracle。修法把取 issue 移到 `:635` 之后（`existing` 仅 `:639` 用）⇒ 错误码语义变化 ⇒ L2。
+3. **B4-3（P3）** `validate_color` 接受集合 ⊋ core 接受集合：3 位 hex 端到端恒 400（`labels.rs:139` → `label/service.rs:47`/`:92-99`）。二选一：`validate_color` 收窄到 6 位，或 core 展开 3 位。前者改 API 接受面、后者改 core 语义 ⇒ L2。本轮仅订正 `validation.rs:76-77` 注释。
+4. **B4-4（P2）** `update_pr`（`pulls.rs:456-500`）零正文校验，core `pull_request/service.rs:376-378` 直存 ⇒ PATCH 可写任意长度 PR body（F1）。补校验改响应码 ⇒ L2。
+5. **B4-5（P3）** 列表 assignee 1+N（`issues.rs:1176` + `assignees.rs:91-99`），`rg-db` 缺 assignee 批量函数；`issues_with_authors` 四个分支（`:333`/`:365`/`:406`/`:429`）全受影响。属性能与 ops 层新增 ⇒ L2。
+6. **B4-6（P3）** `merge_queue` 列表逐条 `find_by_id`（`pulls.rs:782`，`:787` 跳过后 `position: index + 1` 留空档）。
+7. **B4-7（P3）** `list_requested_reviewers`（`reviews.rs:1029`）静默丢弃指向已删用户的请求，`request_reviewer`（`:1076`）同情形显式 404 ⇒ 同一数据两种口径。
+8. **B4-8（P3）** 缺超长 body 回归测试（`rg-http/tests/` 无 issue/PR body > 65536 用例）——这是 B4-1/B4-4 能长期存在的直接原因。
+
+**回填**：待回帖后补评论 id 与时间。
 
 ### batch#3(issue #26) · 2026-11-11 · rg-core repo/webhook 服务层
 
@@ -767,6 +805,10 @@ git -c protocol.version=2 clone --depth=1 ...
 以下 1 条由 **batch#3 第 6 轮**判定不成立（子命题，逐条复核），一并锁死：
 
 33. 「台账 `consume 5 / 6` 的 N-2 写『5 条论据 / 4 成立 / 1 不成立』，但**只列了 4 条**（1/3/4/5）」—— **不成立**。N-2 的 5 条是 ①私有 `fn` ②字符集容得下 `*` ③无单一数据源 ④`MAX_TYPES` 是 `types` 参数的量 ⑤`collab_question` 是假阳性；台账把 ①③④⑤ 列在「成立」、②就是同一格紧随其后的「**不成立**：它说「字符集 `[a-z0-9._-]` 容得下 `*`…」」—— 4 + 1 = 5，**没有漏**。真正的问题是 ② 未编号（可读性），不是缺条。**已核实为不成立，不要重复提。**
+
+以下 1 条由 **batch#4 第 1 轮**判定不成立（子命题，逐条 `sed` 复核），一并锁死：
+
+34. 「`request_reviewer`（`reviews.rs:1062-1072`）用 `find_by_username` **能定位到软删用户**，所以 `list_requested_reviewers` 的 `continue` 与它构成口径不一致」—— **不成立**。`:1074-1078` 的 matcher 是 `Ok(Some(user)) if user.is_active && user.deleted_at.is_none() => user` / `Ok(_) => return AppError::not_found("reviewer not found")` ⇒ 软删或停用的 reviewer 在**请求侧**同样定位不到，直接 404；两边对「已删用户」的可见性一致。真实的不一致只剩「列表静默省略 vs 请求显式 404」这一层（已并入 B4-7），不是「一边能定位一边不能」。另它给的区间 `:1062-1072` 不含 `find_by_username`（真值 `:1074`）。**这一子命题已核实为不成立，不要重复提。**
 
 ### 我方已自证推翻（勿当结论引用）
 
