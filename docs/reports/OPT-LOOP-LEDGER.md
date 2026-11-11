@@ -1554,6 +1554,6 @@ on: {push: {}, unknown_key: 1}    event=manual            parse=Ok  matches=fals
 
 **验证**：`BASE=2ce6d94`。改前 `scripts/check.sh --quick` **`EXIT=0`**（executor 本机 `Darwin arm64` / `cargo 1.99.1`，`2026-11-11T13:44:35Z` 起，``Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 16s`` / `==> checks passed in 78s (quick)`——WT 内 cargo 指纹不全，见 `docs/reports/OPT-LOOP-WORKTREE.md` §5.5）。改后同命令 **`EXIT=0`**（见下）。
 
-**改动 SHA**：`SHA_PLACEHOLDER`（2 文件，全 `.md`），推 `cnb` 单 remote；`git merge-base --is-ancestor <SHA> cnb/main` 通过。**时刻锚** = 本提交 author date（`git log -1 --format=%aI <SHA>`）。
+**改动 SHA**：`a01f591`（2 文件，全 `.md`），推 `cnb` 单 remote；`git merge-base --is-ancestor <SHA> cnb/main` 通过。**时刻锚** = 本提交 author date（`git log -1 --format=%aI <SHA>`）。
 
-**回帖**：`COMMENT_PLACEHOLDER`，首行 `## 本轮收尾`（**不带轮次号**，不占批次 C），末段 `@CodeBuddy`。issue 状态**保持 open**。
+**回帖**：`2120513914310918144`，首行 `## 本轮收尾`（**不带轮次号**，不占批次 C），末段 `@CodeBuddy`。issue 状态**保持 open**。
