@@ -26,7 +26,7 @@ pub struct CreateWebhookRequest {
     pub content_type: Option<String>, // "json" (default) or "form"
     pub secret: Option<String>,
     pub active: Option<bool>,
-    pub events: Vec<String>, // e.g. ["push", "issue.opened"] — full names with a dot; matching is a LIKE substring, so a bare "issues" or "*" matches nothing and the hook dies silently
+    pub events: Vec<String>, // e.g. ["push", "issue.opened"] — full names with a dot; matching is a case-insensitive LIKE substring of the delivered name, so a bare "issues" or "*" matches nothing and the hook dies silently
 }
 
 #[derive(Debug, Serialize, Deserialize)]
