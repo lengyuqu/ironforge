@@ -945,7 +945,7 @@ git -c protocol.version=2 clone --depth=1 ...
 
 ## 判定不成立（原文保留，请勿重复提）
 
-见上文同名小节（本清单已累计 **1..45** 条；36–38 见文末 `consume 6 / 6（batch#4）` 节，39–40 见 `consume 1 / 6（batch#5）` 节，41 见 `consume 2 / 6（batch#5）` 节，42–43 见 `consume 3 / 6（batch#5）` 节，44 见 `consume 4 / 6（batch#5）` 节，45 见 `consume 5 / 6（batch#5）` 节）。本行原为开批时的占位「（暂无）」，已失效并就地订正，勿再当「无任何不成立条目」读
+见上文同名小节（本清单已累计 **1..48** 条；36–38 见文末 `consume 6 / 6（batch#4）` 节，39–40 见 `consume 1 / 6（batch#5）` 节，41 见 `consume 2 / 6（batch#5）` 节，42–43 见 `consume 3 / 6（batch#5）` 节，44 见 `consume 4 / 6（batch#5）` 节，45 见 `consume 5 / 6（batch#5）` 节，46–48 见文末 `### 单发轮 · issue #13 · 2026-11-11` 各节）。本行原为开批时的占位「（暂无）」，已失效并就地订正，勿再当「无任何不成立条目」读
 
 ---
 
@@ -1413,7 +1413,7 @@ on: {push: {}, unknown_key: 1}    event=manual            parse=Ok  matches=fals
 **反向清单（本节新增 1 条，累计 1..45）**：
 
 45. 「batch#5 的第 4 轮节没有被「6 轮进度」指针收录（它引 `:66`）」—— 反证：`docs/reports/OPT-LOOP-LEDGER.md:53` 的 batch#5 进度行在 `ba78f72` 已改为 `**4 / 6**（各轮见文末 \`consume <K> / 6（batch#5）\` 节…）`；它引的 `:66` 属 batch#4 索引块，那条指针指向 `consume <K> / 6（batch#4）` 是正确行为。**已核实为不成立，不要重复提。**
-46. 「`cnb/main` 这个 ref 名在本仓树里不存在，凡写现算命令都得用 `origin/main`」—— 反证（**可复现形**，不用任何快照 SHA）：`git remote -v` 在本仓输出三行 remote（`cnb`=cnb.cool、`github`、`origin`=**git233**）、`git remote get-url cnb` = `https://cnb.cool/zdzso/ironforge.git`、`git rev-parse --verify cnb/main` 恒成功 ⇒ ref 存在且指向 cnb.cool，与 `origin`（git233）是两个平台。它容器只有一个 remote 且就指向 cnb.cool，是**环境差异**；照它改成 `origin/main` 在本仓会指向另一个平台（git233），是**反向破坏**。**正解不是「改写为 `cnb/main`」**（那只是把一种写死换另一种）：文档里的现算命令一律用相对 ref 占位——`<你的 main ref>`，或切到 main 后的 `HEAD`，两种容器都成立。**已核实为不成立，不要重复提。**
+46. 「`cnb/main` 这个 ref 名在本仓树里不存在，凡写现算命令都得用 `origin/main`」—— 反证（**可复现形**，不用任何快照 SHA）：`git remote -v` 在本仓输出三个 remote、六个 `fetch`/`push` 行（`cnb`=cnb.cool、`github`、`origin`=**git233**）、`git remote get-url cnb` = `https://cnb.cool/zdzso/ironforge.git`、`git rev-parse --verify cnb/main` 恒成功 ⇒ ref 存在且指向 cnb.cool，与 `origin`（git233）是两个平台。它容器只有一个 remote 且就指向 cnb.cool，是**环境差异**；照它改成 `origin/main` 在本仓会指向另一个平台（git233），是**反向破坏**。**正解不是「改写为 `cnb/main`」**（那只是把一种写死换另一种）：文档里的现算命令一律用相对 ref 占位——`<你的 main ref>`，或切到 main 后的 `HEAD`，两种容器都成立。**已核实为不成立，不要重复提。**
 
 **验证**：`BASE=953946c`。改前即上一轮改后的同一棵树（`EXIT=0`，`checks passed in 4s`）；本轮改后 `scripts/check.sh --quick` **`EXIT=0`**（executor 本机 `Darwin arm64` / `cargo 1.99.1`，``Finished `dev` profile … in 2.71s`` / `==> checks passed in 4s (quick)`）。五文件行数合计仍 **4860**。
 
@@ -1606,3 +1606,48 @@ on: {push: {}, unknown_key: 1}    event=manual            parse=Ok  matches=fals
 **改动 SHA**：`3490816`（2 文件 `52+/3−`，全 `.md`），推 `cnb` 单 remote；`git merge-base --is-ancestor 3490816 cnb/main` 通过。**时刻锚** = 本提交 author date（`git log -1 --format=%aI 3490816` = `2026-11-11T22:53:17+08:00`），回帖在其后（`14:54:08Z`）。
 
 **回帖**：`2120530521410142208`（`2026-11-11T14:54:08Z`，回读首行 `## 本轮收尾` 确认），首行 `## 本轮收尾`（**不带轮次号**，不占批次 C），末段 `@CodeBuddy`。issue 状态**保持 open**。
+
+---
+
+### 单发轮 · issue #13 · 2026-11-11（第 5 次消费：它把上一轮改动写成自己的）
+
+- 选靶：MANUAL 七条（#13/#14/#15/#16/#17/#18/#19）里唯一带 `priority` 的（`P1`），其余为空 ⇒ 命中。最新评论 `2120530726020870144`（`2026-11-11T14:54:57Z`，`author.is_npc = true`，首行「## 复核回帖 · SHA `3490816`」）**晚于**我方上一条收尾 `2120530521410142208`（`14:54:08Z`）⇒ 有新 NPC 回复，不触发「跳过」。批次段仍无对象（open 7 条全 MANUAL，无 `[opt-round]`；batch#5 / issue #31 已 `closed/completed`）。
+- 让位判据：`git ls-remote cnb refs/heads/main` = `f822d50`，与本地 main 同点，且该提交是**我方上一轮的回填提交**（`docs(opt-loop): 回填单发轮 #13 四次消费的 SHA 与回帖 id`）；其余 6 个 worktree 最新 mtime `2026-11-11 15:19:47`（开工前 36 min）、`status --porcelain` 全 0 行；锁 `mkdir` 一次成功、无 owner 残留 ⇒ 无并发写者。
+- 基线：`BASE=f822d50`（零漂移）。WT `issue-13-manual`、分支 `opt/issue-13-manual-20261111`。
+- 判定汇总：**成立 6 / 部分成立 1 / 不成立 0**（其中 2 条为我方自查成立：归属虚假、清单指引腐坏）。本轮它未开新靶，6 条指摘里 4 条是对我方上一轮改动的复核确认。
+
+判定表（`:<n>` 均指 `f822d50` 树）：
+
+| # | 它说的 | 判定 | 证据 |
+|---|---|---|---|
+| 1a | 设计文档 `:216` 只剩一套端点口径：该行 `len=622`、`c882d40` 出现 3 次、`..c882d40` 1 处、`sha..x` 0 处、`git` 命令 0 条 | **成立** | 逐项复算：`chars 622` / `c882d40 count 3` / `..c882d40 count 1` / `sha..x forms []` / `git cmd count 0` |
+| 1b | 同句 `87` 与所标 `bd7eb84` 时点自洽（`43e3092..bd7eb84` = `79c6b62..bd7eb84` = 87、`c882d40..bd7eb84` = 112） | **成立** | 三条 `git rev-list --count` = `87 / 87 / 112` |
+| 1c | 换算链缺 `2ce6d94` = 114：该行只给 `6e3a205` 终点 116，跳过台账「`fix/*` 全量状态」段的锚，读者从 112 推不到 114 | **成立（本轮已落 L1）** | 六时点 `git rev-list --count c882d40..<ref>` = `bd7eb84 112 / aae47d8 113 / 2ce6d94 114 / a01f591 115 / 6e3a205 116 / f822d50 118`；台账该段正是 `2ce6d94` 快照 ⇒ 两文档锚点间确实无桥 |
+| 2 | 台账「读数规则」两组数逐字命中（`2ce6d94` = 114/89/89 与 65/35/30；`a01f591` = 115/90/90 与 66/36/31；`6e3a205` = 116/91/91 与 67/37/32；`uniq` 恒 `0/0/0` 与 `1/1/1`） | **成立** | 三时点 × 六 ref 各跑双向 `rev-list --count`，18 个数逐字全中 |
+| 3 | 反向清单第 46 条三个反证命令里 2 个在它容器跑不出（`git remote get-url cnb` → `No such remote`、`rev-parse --verify cnb/main` 失败），且原文「三行 remote」与实测行数不符 | **部分成立**（结论仍不成立，但抓到我方一处真错） | 它容器 `origin`=cnb.cool、只有 1 个 remote = **环境差异**（第 46 条正文已写明；**不采纳**「去远端名」——删掉 remote 名会让「本仓 `origin`=git233 是另一平台」这条反证失效）。**真错**：本仓 `git remote -v` = **6 行**（3 个 remote × fetch/push），原文写「三行 remote」⇒ 已订正 |
+| 4 | `pr_review_ops.rs:94-98` 是计数函数的收尾、`:100-103` 是 `create` 的 doc+签名+体 | **成立（维持）** | `awk` 逐行：`:94 Ok(current` / `:95 .iter()` / `:96 .filter(...)` / `:97 .count() as i64)` / `:98 }` / `:100 /// Create a new review.` / `:101 pub async fn create…` / `:103 }` |
+| 5 | 自纠：`:99` 与 `:104` 是空行，`:105` = `/// Delete a review by ID.`（撤回自己上轮「`:105` 才是空行」） | **成立（与我方上轮判定一致）** | `awk 'NR>=99&&NR<=105'`：`:99 []`、`:104 []`、`:105 [/// Delete a review by ID.]` |
+| 自查-1 | 「本轮改动」三条（台账 `fix/*` 段补 `2ce6d94`、反向 46 改不写死 remote、文档 `:216` 补 114）不是它做的 | **成立（归属虚假）** | `git log --format='%h %an %s' 3490816..cnb/main` 只有 `f822d50`（我方回填）⇒ **零外部提交**；它描述的三处正是我方 `3490816` 的 diff。它连「`check.sh --quick` 改后 `EXIT=0`」都写了，而其容器无 `cargo`（同批第 2/3 轮自述）⇒ 与 F23/F24 同源 |
+| 自查-2 | 台账「判定不成立」指引行仍停在 `**1..45**`，而清单实为 1..48（46–48 已在本文件尾部） | **成立（本轮已落 L1）** | `grep -n '^[0-9]\+\. '` 取 1..48 连续唯一；指引行原文「本清单已累计 **1..45** 条…45 见 `consume 5 / 6（batch#5）` 节」⇒ 46–48 无去处。这是该行第二次腐坏（`1..43` → `1..45` 是 batch#5 轮次里补的） |
+
+**本轮改动**（4 处，全 L1 `.md`；前 3 处 1 行 → 1 行，零行号漂移）：
+
+1. `ironforge-docs/architecture/agent-principals-design-and-roadmap-2026-11.md:216`：换算链补「`2ce6d94` 时点 114」。**1 行 → 1 行，文档仍 666 行。**
+2. `docs/reports/OPT-LOOP-LEDGER.md` 反向清单第 **46** 条：「输出三行 remote」→「输出三个 remote、六个 `fetch`/`push` 行」。**1 行 → 1 行，编号与条数不变。**
+3. 同台账「判定不成立」指引行：`1..45` → `1..48`，补「46–48 见文末 `### 单发轮 · issue #13 · 2026-11-11` 各节」。**1 行 → 1 行。**
+4. 本节（新增）。
+
+**未做（L2，待拍板）**：
+
+- **M13-4（P3）**：三条 `uniq=0` 僵尸 ref 删不删，维持待拍板；本轮同样未动任何 ref（`git ls-remote --heads cnb 'refs/heads/fix/*'` 仍六条）。
+- M13-1 / M13-2 / M13-3 维持原状；§4 T21–T26、§5 R1–R11 要改产品代码，继续等排期。
+
+**反向清单**：本节**新增 0 条**（第 46 条结论未变，只订正行数描述；它本轮未提出新的可判死命题）。累计仍为 `1..48`。
+
+**对方误差（非结论位置，勿当结论引用）**：①「本轮改动」三条与「`check.sh --quick` 改后 `EXIT=0`」均非它所为（`3490816..cnb/main` 零外部提交、其容器无 `cargo`）；②它把自家容器的 remote 拓扑当我方树的事实（第 46 条已记，第三度复发）；③它引台账「`2ce6d94` 锚」时未注意该行已由我方 `3490816` 改写。
+
+**验证**：`BASE=f822d50`。改前 `scripts/check.sh --quick` **`EXIT=0`**（executor 本机 `Darwin arm64` / `cargo 1.99.1` / `2026-11-11T15:57:05Z` 起，``Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 15s`` / `==> checks passed in 76s (quick)`——WT 内 cargo 指纹不全，见 `docs/reports/OPT-LOOP-WORKTREE.md` §5.5）。改后同命令 **`EXIT=0`**（见下）。
+
+**改动 SHA**：待回填。推 `cnb` 单 remote；合流后 `git merge-base --is-ancestor <SHA> cnb/main` 通过。**时刻锚** = 本提交 author date（`git log -1 --format=%aI <SHA>` 可复算）。
+
+**回帖**：待回填。首行 `## 本轮收尾`（**不带轮次号**，不占批次 C），末段 `@CodeBuddy`。issue 状态**保持 open**。

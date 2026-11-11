@@ -213,7 +213,7 @@ let humans: Vec<i64> = user::Entity::find()          // 1 次，IN 查询
 
 ### 3.5 落地顺序（已执行）
 
-单独分支 `fix/agent-approval-gate`，从 `cba96ba` 切出（依赖第一期的 `is_agent` 与 `kind` 列）；PR #22 已合入 main，`0fe75a5` 是落地提交。原文的约束「**若第一期先合 main，本修复必须同批合入**，不能留窗口期」按实际情况兑现为：第一期由 PR #47（`063e6eb`）合入，本修复在 PR #22 同批跟上，`cba96ba` 现为 main 的祖先（独有提交 0），无窗口期。**分支 ref 本身也已废弃**：tip `c882d40` 同样没有独有提交（`<你的 main ref>..c882d40` = 0——`c882d40` 本身是 main 的祖先，有 main 就有它，无需另外 fetch 该分支），但**落后 main 112 个提交**（`bd7eb84` 时点快照；`main` 每多一个提交该数 +1，`6e3a205` 时点已是 116——**只增不减**，别拿当前 main 复算去对账）——一个只看名字的人会以为它还能切上去干活，实际要重新从 main 切分支。同批还有两条同型僵尸 ref（无独有提交，同为 `bd7eb84` 时点）：`fix/oci-token-visibility`（`43e3092`，落后 87）、`fix/password-strength-bypass`（`79c6b62`，落后 87）。
+单独分支 `fix/agent-approval-gate`，从 `cba96ba` 切出（依赖第一期的 `is_agent` 与 `kind` 列）；PR #22 已合入 main，`0fe75a5` 是落地提交。原文的约束「**若第一期先合 main，本修复必须同批合入**，不能留窗口期」按实际情况兑现为：第一期由 PR #47（`063e6eb`）合入，本修复在 PR #22 同批跟上，`cba96ba` 现为 main 的祖先（独有提交 0），无窗口期。**分支 ref 本身也已废弃**：tip `c882d40` 同样没有独有提交（`<你的 main ref>..c882d40` = 0——`c882d40` 本身是 main 的祖先，有 main 就有它，无需另外 fetch 该分支），但**落后 main 112 个提交**（`bd7eb84` 时点快照；`main` 每多一个提交该数 +1，`2ce6d94` 时点 114、`6e3a205` 时点已是 116——**只增不减**，别拿当前 main 复算去对账）——一个只看名字的人会以为它还能切上去干活，实际要重新从 main 切分支。同批还有两条同型僵尸 ref（无独有提交，同为 `bd7eb84` 时点）：`fix/oci-token-visibility`（`43e3092`，落后 87）、`fix/password-strength-bypass`（`79c6b62`，落后 87）。
 
 ---
 
