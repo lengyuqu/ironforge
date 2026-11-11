@@ -50,7 +50,7 @@
 - NPC 首扫：`2120454308016586752`，`2026-11-11T09:51:17Z`（开批后 4 min 46 s；首行 `@cnb.biewen(别问) ## batch#5 第 1 轮 · rg-ci 引擎只读审查`，自述基线 `d32421e` 且逐文件核过行数 1857/1297/1065/326/315）
 - NPC 第 2 轮复核：`2120465837906632704`，`2026-11-11T10:37:06Z`（首行 `@cnb.biewen(别问) batch#5 第 2 轮。先说环境：本机无 cargo…`，自述复核 `6b9a907`，自报 `check.sh --quick` EXIT=0 于 `10:36:22Z` 的 Linux 机）
 - NPC 第 3 轮复核：`2120479451631763456`，`2026-11-11T11:31:12Z`（首行 `## 第 3 轮复核`；两个提交复核通过，主诉求是 B5-10 的机制/优先级订正 + 4 处行号订正，其中 2 处是它自订、1 处指我方 `validate_repo_name` 区间、1 处仅记录；本机无 cargo，未跑验证）
-- 6 轮进度：**3 / 6**（第 1 轮见文末 `consume 1 / 6（batch#5）` 节，第 2 轮见文末 `consume 2 / 6（batch#5）` 节，第 3 轮见文末 `consume 3 / 6（batch#5）` 节）
+- 6 轮进度：**4 / 6**（各轮见文末 `consume <K> / 6（batch#5）` 节；第 1–3 轮在前，第 4 轮在文件末尾）
 
 ### batch#4(issue #27) · 2026-11-11 · rg-http issue/PR/review API 层
 
@@ -1324,3 +1324,59 @@ value          no_default=Ok(true)   with_default=Ok(true)
 **改动 SHA**：`fbb17f2`（3 文件 63+/18−），推 `cnb` 单 remote；`git merge-base --is-ancestor fbb17f2 cnb/main` 通过。**时刻锚** = 本提交 author date（`git log -1 --format=%aI fbb17f2` = `2026-11-11T20:54:02+08:00`）。
 
 **回帖**：`2120500463496769536`（`2026-11-11T12:54:42Z`），首行 `## 本轮收尾`、末行 `@CodeBuddy`（独占末段）、7363 字符；回读平台侧本条 issue 仅 1 条 `## 本轮收尾`（不占批次 C）。issue 状态**保持 open**。
+
+### consume 4 / 6（batch#5）· 追加于文末（只为零行号漂移，勿移入上文）
+
+- 输入：NPC `## 第 4 轮 · 复核结果` `2120496198405476352`（`2026-11-11T12:37:45Z`），晚于我方第 3 轮收尾（`12:36:10Z`）⇒ 有新复核。正则 `^## 第 \d+ 轮收尾` 命中 **3** 条（K∈{1,2,3}）⇒ **C=3，本轮 K=4**。它首行写的是 `## 第 4 轮 · 复核结果`，**不**匹配收尾正则，未被我方计数。
+- 基线：`BASE=7c1e6bc`。`fc8e46d..7c1e6bc` 的 4 个文件全是 `.md`（单发轮 #13 的 `fbb17f2`/`7c1e6bc` + 并发写者 `8d5ff26` 改 `OPT-LOOP-MANUAL-QUEUE.md`）⇒ `git diff --stat fc8e46d 7c1e6bc -- crates/ web/` **为空**，五文件行数指纹 **1857 / 1297 / 1065 / 326 / 315** 全等，旧行号继续有效。并发写者的那一笔（`8d5ff26`，作者 `yuqu`，`20:54:24+08`）只改手工队列选靶规则，与本批文件无交集，不按 F15 处置。
+- 判定汇总：**确认 3 / 成立 3 / 部分成立 1 / 不成立 1**（6 条编号输入），另我方探针新增 1 条矩阵事实 + 1 条计数订正（它报「5 个出口」，真值 7）。
+
+判定表（`:<n>` 指 `7c1e6bc` 上的 `crates/rg-ci/src/*.rs`）：
+
+| # | 它说的 | 判定 | 证据 |
+|---|---|---|---|
+| ①-1 | Q1：`gitea_actions.rs:279` 改后与代码事实一致（三个事件名逐个有臂；裸 `push:` 与缺失不可区分；其余落 deny-all） | **确认** | `:280` 签名、`:293-313` 的 match 三臂 + `:312` 的 `_ => false` 均在；`:63` 的 `workflow_dispatch` 与 `:62` 的 `schedule` 是裸 `Option`、`:64` 的 `workflow_call` 才带 `deserialize_with`。**但本轮改成更窄的表述（见改动 2）**：`Simple`/`Array` 两个 variant 是按字面名匹配，故「every other trigger type falls to the deny-all arm」这句过宽 |
+| ①-2 | Q2：`lib.rs:598` 的 doc「三个 `Err` 出口」错，**实为 5 个**（漏 `:610`/`:613`/`:615`/`:665`） | **部分成立** | 「doc 只覆盖三类、漏 4 处」成立；**它报的 5 个不对，真值 7 个**：`awk 'NR>=599 && NR<=712' crates/rg-ci/src/lib.rs \| grep -n '?;\|bail!'` 输出 7 行 ⇒ `:608`（树项缺失）/`:610`（`object_id.object()?` 无 `map_err`）/`:613`（不是 tree）/`:615`（取默认分支）/`:662`（展开失败）/`:665`（不支持的 action）/`:704`（无 workflow 命中）。已按**类别**而非条数重写 doc，避免再被数错 |
+| ② | 探针结论接受；但「台账里若写成『加 default 后 missing 与 null 仍不可区分』会被读成反向」，要求补一句「加与不加四行相同」 | **不成立（台账已是该口径）** | 台账探针节的读法行原文：「加不加 `#[serde(default)]`，缺失键与 `null` 都是 `None` ⇒ 「缺 default 才让二者不可区分」不成立，加 default 修不了 B5-10」——正是它要的口径，无「加 default 后仍不可区分」的写法。**已核实为不成立，不要重复提（见反向清单 44）** |
+| ②附 | `YamlValue` = `serde_json::Value`（它标 `rg-core/src/yaml.rs:38`），`Some(YamlValue::Null)` 可达 ⇒ 加 `deserialize_with` 但不改 `:295`/`:302` 判断等于没修 | **成立（行号偏 5）** | `crates/rg-core/src/yaml.rs:33` = `pub use serde_json::Value;`（`:38` 是 `WriteError` 的文档行）；`Cargo.toml:55` `serde-saphyr = "2"`。`YamlValue::Null` 确实是可达值 ⇒ B5-10 的修法必须同时改判定，已记入 B5-10 加强 |
+| ③ | 台账 `1..43` 全量、无重号 | **确认** | 复算 `^(\d+)\. ` 共 **43** 条，range 1..43，无重号无缺号 |
+| ④ N4-1 | `retry` 的第二处失效面：`trigger_type` 也进 `job_condition_context` ⇒ gitea-only 仓在 retry 下 `if: github.event_name == 'push'` 类条件一律为假；`has_ci_config` 只看目录存在，拦不住 | **成立** | `lib.rs:131` 把 `trigger_type` 当 `event` 传给 `read_ci_config`；`:247` 把它继续传进 `job_condition_context`，`:467` 映射成 `("github.event_name", event)`。⇒ 并入 **B5-2**（不单列条目，按其请求） |
+| ④ N4-2 | (b) 「every other trigger type falls to the deny-all arm」过宽：`Simple`/`Array` 是字面量直比，`on: manual` / `on: [manual]` 能匹配；(a) 裸 `workflow_dispatch:` / `schedule:` 是「压根不匹配」而不是「不可区分」 | **(b) 成立；(a) 部分成立** | 探针实测（`crates/rg-ci/examples/zz_probe.rs`，跑完即删）：`on: manual` → `matches(manual)` = **true**；`on: [manual]` = **true**；`on: {push:}` → `matches(push)` = **false**；`on: {workflow_dispatch:}` → `matches(workflow_dispatch)` = **false**；`on: {schedule:}` = **false**。(a) 的「更严重」判断对，但 doc 原句「其余 trigger type 一律落 deny-all 臂」在**单键形态内**并未失实，缺的是「单键形态」这个限定 ⇒ 判部分成立 |
+| ⑤ | 三条请求：补 `lib.rs:598` 出口、校台账措辞、N4-1 并入 B5-2 且 N4-2 由我方拍板 | **已执行** | 出口已按类别重写（不写条数，从根上避开计数争议）；台账措辞经复核**已是正确方向**（见 ②）；N4-1 已并入 B5-2；N4-2 见改动 2 |
+
+**探针矩阵（本节新增取证，可复跑）**：临时 `crates/rg-ci/examples/zz_probe.rs` 直调 `GiteaWorkflow::parse` + `matches_event("refs/heads/main","main")`，`cargo run -q --example zz_probe -p rg-ci` 输出 7 行，跑完 `rm`，`git status --porcelain` 只剩本轮 2 个改动文件。
+
+```
+on: push                          event=push              parse=Ok  matches=true
+on: manual (simple)               event=manual            parse=Ok  matches=true
+on: [manual] (array)              event=manual            parse=Ok  matches=true
+on: {push:} (bare push)           event=push              parse=Ok  matches=false
+on: {workflow_dispatch:}          event=workflow_dispatch parse=Ok  matches=false
+on: {schedule:}                   event=schedule          parse=Ok  matches=false
+on: {push: {}, unknown_key: 1}    event=manual            parse=Ok  matches=false
+```
+
+- 读法：`matches_event` 的语义在 `WorkflowTriggers` **三个 variant** 上是分裂的——`Simple`/`Array` 按字面名直比（任何名字都能命中），只有 `Single` 形态受三臂限制。doc 若只写「只有三个事件名有臂」，会让人误以为 `on: manual` 也不匹配。
+- 另一侧：`on: {workflow_dispatch:}` 即使 event 名相同也 false ⇒ 这是 B5-10 的同一根因（裸键 = null ⇒ `None`），不是新条目。
+
+**本轮改动（2 文件 2+/2−，零行号漂移）**：
+
+1. `crates/rg-ci/src/lib.rs:598`：`try_read_gitea_workflows` 的 doc 由「三类出口」改为按**类别**列全 7 处——树项缺失或不是 tree、对象读不出、默认分支取不到、文件展开失败或不支持的 action、无 workflow 命中——并重申空 job 集不会以空 `CiConfig` 返回。**不写条数、不写行号**，避免再沦为计数争议。
+2. `crates/rg-ci/src/gitea_actions.rs:279`：`matches_event` 的 doc 加两个限定——`Simple`/`Array` 按字面名直比（任何名字都能命中），「三臂 + deny-all」只适用**单键形态**；并写明裸 `workflow_dispatch:`/`schedule:` 被解构丢弃、永不匹配。
+3. 本台账：本节 + B5-2 / B5-10 的两条加强。
+
+两处均 1 行→1 行（`:598` 与 `:279`），改后五文件行数指纹仍 **1857 / 1297 / 1065 / 326 / 315**。
+
+**未做（L2 待拍板 batch#5，本流程不动 main）**：
+
+- **B5-2 加强（并入原条）**：`retry` 的第二处失效面——`trigger_type` 同时作为 `event` 进入 `job_condition_context`（`lib.rs:247` → `:467` 的 `github.event_name`），所以 gitea-only 仓库在 retry 下即使有臂可匹配，`if: github.event_name == 'push'` 类条件也一律为假。未匹配事件名仍为 3 个（`manual` / `retry` / `suggestion`）。
+- **B5-10 加强（并入原条）**：`YamlValue` = `serde_json::Value`（`rg-core/src/yaml.rs:33`），`Some(YamlValue::Null)` 可达 ⇒ 只加 `deserialize_with` 而不改 `:295`/`:302` 的判定等于没修；修法必须同时把「`Null` = 无过滤 = 全匹配」显式写进 `matches_event`。
+- B5-1 / B5-3 … B5-9 维持原状，本轮无新增证据。
+
+**反向清单（本节新增 1 条，累计 1..44）**：
+
+44. 「台账里写了『加 `#[serde(default)]` 后 missing 与 null 仍不可区分』，因果方向反了，需补『加与不加四行相同』」—— 反证：台账探针节读法行原文即「加不加 `#[serde(default)]`，缺失键与 `null` 都是 `None` ⇒「缺 default 才让二者不可区分」不成立，加 default 修不了 B5-10」，已含「加与不加相同」这一层，无反向措辞。**已核实为不成立，不要重复提。**
+
+**对方行号/计数误差（非结论位置）**：`rg-core/src/yaml.rs:38`（真值 `:33`，`:38` 是 `WriteError` 文档行）；`lib.rs:598` 的「5 个出口」（真值 **7**，`:608`/`:610`/`:613`/`:615`/`:662`/`:665`/`:704`）。
+
+**验证**：`BASE=7c1e6bc`。改前 `scripts/check.sh --quick` **`EXIT=0`**（executor 本机 `Darwin arm64` / `cargo 1.99.1`，`2026-11-11T12:56:54Z` 完成，``Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 39s`` / `==> checks passed in 101s (quick)`——WT 内 cargo 指纹不全，见 `docs/reports/OPT-LOOP-WORKTREE.md` §5.5）。改后同命令 **`EXIT=0`**（`2026-11-11T13:02Z` 前后，``Finished `dev` profile … in 2.88s`` / `==> checks passed in 4s (quick)`）。

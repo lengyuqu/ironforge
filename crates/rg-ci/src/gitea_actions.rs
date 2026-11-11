@@ -276,7 +276,7 @@ impl GiteaWorkflow {
         }
     }
 
-    /// Check if this workflow should be triggered for the given event and ref. Only `push`, `pull_request` and `merge_group` have arms: a bare `push:` (null) is indistinguishable from a missing key, and every other trigger type falls to the deny-all arm.
+    /// Check if this workflow should be triggered for the given event and ref. The simple (`on: push`) and array (`on: [push]`) forms compare the event name literally, so any name can match there. Only the single-key form has arms — `push`, `pull_request`, `merge_group`; in that form a bare `push:` (null) is indistinguishable from a missing key, every other trigger type falls to the deny-all arm, and the bare `workflow_dispatch:` / `schedule:` keys are destructured away, so they never match.
     pub fn matches_event(&self, event: &str, ref_name: &str, default_branch: &str) -> bool {
         match &self.on {
             WorkflowTriggers::Simple(name) => name.as_str() == event,
