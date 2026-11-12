@@ -9,7 +9,7 @@ use serde::Deserialize;
 use utoipa::ToSchema;
 
 use super::collab::{
-    acting_session, cursor_key, require_collab_read, require_collab_write, ListQuery,
+    acting_session, cursor_key, ensure_person, require_collab_read, require_collab_write, ListQuery,
 };
 use super::collab_json::CollabJson;
 use crate::error::AppError;
@@ -106,6 +106,16 @@ pub async fn reassign_task(
     CollabJson(body): CollabJson<ReassignBody>,
 ) -> Result<(StatusCode, Json<svc::TakeoverResult>), AppError> {
     let (repo, user_id) = require_collab_write(&state, &headers, &owner, &name).await?;
+    // A reassignment is a person taking a task from one session and giving it
+    // to another. An agent moves work by claiming a task for its own session.
+    ensure_person(
+        &state,
+        user_id,
+        "AGENT_MAY_NOT_REASSIGN",
+        "an agent may not reassign a task",
+        "claim the task for your own session, or ask a person to reassign it",
+    )
+    .await?;
     let to = body.to_session_id.clone();
     let req = svc::TakeoverRequest {
         client_takeover_id: body.client_takeover_id,

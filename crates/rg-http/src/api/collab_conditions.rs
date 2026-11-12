@@ -10,7 +10,9 @@ use rg_core::collaboration::{conditions as svc, task};
 use serde::Deserialize;
 use utoipa::ToSchema;
 
-use super::collab::{observed_branch_head, require_collab_read, require_collab_write, write_actor};
+use super::collab::{
+    ensure_person, observed_branch_head, require_collab_read, require_collab_write, write_actor,
+};
 use super::collab_json::CollabJson;
 use crate::error::AppError;
 use crate::AppState;
@@ -181,9 +183,18 @@ pub async fn confirm_condition(
     headers: HeaderMap,
     CollabJson(req): CollabJson<ConfirmRequest>,
 ) -> Result<(StatusCode, Json<svc::ConfirmationCreated>), AppError> {
-    // An explicit confirmation by an authorised account (the user door). It is
-    // a collaboration record, not a merge approval.
+    // An explicit confirmation by an authorised person (the user door). It is
+    // a collaboration record, not a merge approval. An agent never confirms, even
+    // through a session of its own: the confirmation is a person's statement.
     let (repo, user_id) = require_collab_write(&state, &headers, &owner, &name).await?;
+    ensure_person(
+        &state,
+        user_id,
+        "AGENT_MAY_NOT_CONFIRM",
+        "an agent may not confirm a completion condition",
+        "ask a person to confirm it",
+    )
+    .await?;
     let row = task::find(&state.db, repo.id, &id).await?;
     let head = observed_branch_head(&state, &owner, &name, row.branch.as_deref()).await;
     let created = svc::confirm(
