@@ -2216,4 +2216,4 @@ protocol=v0.12
 - **producer-stall**：`[opt-round]` 最近一批 `#31` 的 `closed_at` = `2026-11-11T13:09:01Z`，至本轮取证（`2026-11-12T06:40Z`）已 **17 h 31 m** 零新批（协议 §11 风险 10 的 180 min 与 6 h 阈值均已越过）⇒ 生产者两条 automation 需人工查；消费者无写权限，只记不改。第二段因此**无对象**（不是「队列为空」——手工队列仍剩 16 条）。
 - **回填**：改动 SHA 与回帖 id 见本节末「改动 SHA / 回帖（回填）」段。issue #36 **保持 open**（单发轮不 close）。
 
-**改动 SHA / 回帖（回填）**：待填（本轮提交后回写）。
+**改动 SHA / 回帖（回填）**：`b2ffdc9`（4 文件 `136+/6−`，**零代码行为改动**：`crates/` 一行未动）；推 `cnb` 单 remote（`6d47c28..b2ffdc9  HEAD -> main`）；`merge-base --is-ancestor` 通过，主工作区 `merge --ff-only` 到 `b2ffdc9`、`status --porcelain` 0 行。**改后验证**：`scripts/check.sh --quick` `EXIT=0` **2 s**（`==> checks passed in 2s (quick)`）；改前 **125 s** `EXIT=0`（`Finished dev profile [unoptimized + debuginfo] target(s) in 2m 03s`）。**时刻锚** = `git log -1 --format=%aI b2ffdc9` = `2026-11-12T14:39:51+08:00`。**回帖** `2120768788965523456`（`2026-11-12T06:40:55Z`，33055 字符；回读首行 `## 本轮收尾`、次行 `protocol=v0.12`、末行独立 `@CodeBuddy`、反向清单 78 条编号独立成行且 1..78 连续无缺；发帖前后该 issue 的 `## 本轮收尾` 计数 0 → 1，无重复投递）。**首扫请求** `2120766935095750656`（`06:33:33Z`），`60 s × 5` 超时未回，按正文推进。**推票坑（第三次复现）**：`git push` 必须用 `username=cnb`（`oauth2` 报 `Repository Not Found`）。
