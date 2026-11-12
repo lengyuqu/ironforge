@@ -85,6 +85,11 @@ pub struct Route {
     pub method: &'static str,
     pub path: &'static str,
     pub access: Access,
+    /// Whether the route can name or reach a repository other than the one in
+    /// its path (a request-body or stored cross-repository reference). A token
+    /// limited to some repositories is refused such routes; see
+    /// `rg_core::auth::route_meta`. Set it with [`x`], not [`r`].
+    pub other_repos: bool,
 }
 
 const fn r(method: &'static str, path: &'static str, access: Access) -> Route {
@@ -92,6 +97,18 @@ const fn r(method: &'static str, path: &'static str, access: Access) -> Route {
         method,
         path,
         access,
+        other_repos: false,
+    }
+}
+
+/// Like [`r`], for a route that can reach another repository than the one in
+/// its path (the coordination groups' `target_repo_id`).
+const fn x(method: &'static str, path: &'static str, access: Access) -> Route {
+    Route {
+        method,
+        path,
+        access,
+        other_repos: true,
     }
 }
 
@@ -534,27 +551,27 @@ pub const REGISTRY: &[Capability] = &[
             "collab_remove_group_link",
         ],
         routes: &[
-            r(
+            x(
                 "POST",
                 "/repos/{owner}/{name}/collaboration/groups",
                 RepoWrite,
             ),
-            r(
+            x(
                 "GET",
                 "/repos/{owner}/{name}/collaboration/groups/{group_id}",
                 CollabRead,
             ),
-            r(
+            x(
                 "GET",
                 "/repos/{owner}/{name}/collaboration/groups/{group_id}/links",
                 CollabRead,
             ),
-            r(
+            x(
                 "POST",
                 "/repos/{owner}/{name}/collaboration/groups/{group_id}/links",
                 RepoWrite,
             ),
-            r(
+            x(
                 "DELETE",
                 "/repos/{owner}/{name}/collaboration/groups/{group_id}/links/{link_id}",
                 RepoWrite,
