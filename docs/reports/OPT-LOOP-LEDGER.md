@@ -945,7 +945,7 @@ git -c protocol.version=2 clone --depth=1 ...
 
 ## 反向清单索引（编号总数与去处；清单实体不在本节）
 
-清单实体在上文 `## 批次索引` 块内的 `### 判定不成立` 小节，本节只维护编号总数与去处（本清单已累计 **1..71** 条；36–38 见 `consume 6 / 6（batch#4）` 节，39–40 见 `consume 1 / 6（batch#5）` 节，41 见 `consume 2 / 6（batch#5）` 节，42–43 见 `consume 3 / 6（batch#5）` 节，44 见 `consume 4 / 6（batch#5）` 节，45–46 见 `consume 5 / 6（batch#5）` 节（46 由「单发轮 #13 三次消费」轮写入、物理落在该节末，勿去那一节找正文），47–49 见 `单发轮 · issue #13 · 2026-11-11（第 4 次消费）` 节，50–51 见 `单发轮 · issue #13 · 2026-11-11（第 6 次消费）` 节，52–55 见 `单发轮 · issue #14 · 2026-11-12` 节（第 7 次消费），56–58 见 `单发轮 · issue #14 · 2026-11-12（第 8 次消费…）` 节，59–60 见 `…（第 9 次消费…）` 节（原写「见本节」是从索引行自身出发的错指针，已就地订正），61 见 `单发轮 · issue #33 · 2026-11-12` 节，62–63 见 `单发轮 · issue #15 · 2026-11-12` 节，64–65 见 `单发轮 · issue #16 · 2026-11-12` 节，66–68 见 `单发轮 · issue #17 · 2026-11-12` 节，69–70 见 `单发轮 · issue #18 · 2026-11-12` 节，71 见 `单发轮 · issue #19 · 2026-11-12（第 1 次进入…）` 节）。本行原为开批时的占位「（暂无）」，已失效并就地订正，勿再当「无任何不成立条目」读
+清单实体在上文 `## 批次索引` 块内的 `### 判定不成立` 小节，本节只维护编号总数与去处（本清单已累计 **1..83** 条；36–38 见 `consume 6 / 6（batch#4）` 节，39–40 见 `consume 1 / 6（batch#5）` 节，41 见 `consume 2 / 6（batch#5）` 节，42–43 见 `consume 3 / 6（batch#5）` 节，44 见 `consume 4 / 6（batch#5）` 节，45–46 见 `consume 5 / 6（batch#5）` 节（46 由「单发轮 #13 三次消费」轮写入、物理落在该节末，勿去那一节找正文），47–49 见 `单发轮 · issue #13 · 2026-11-11（第 4 次消费）` 节，50–51 见 `单发轮 · issue #13 · 2026-11-11（第 6 次消费）` 节，52–55 见 `单发轮 · issue #14 · 2026-11-12` 节（第 7 次消费），56–58 见 `单发轮 · issue #14 · 2026-11-12（第 8 次消费…）` 节，59–60 见 `…（第 9 次消费…）` 节（原写「见本节」是从索引行自身出发的错指针，已就地订正），61 见 `单发轮 · issue #33 · 2026-11-12` 节，62–63 见 `单发轮 · issue #15 · 2026-11-12` 节，64–65 见 `单发轮 · issue #16 · 2026-11-12` 节，66–68 见 `单发轮 · issue #17 · 2026-11-12` 节，69–70 见 `单发轮 · issue #18 · 2026-11-12` 节，71 见 `单发轮 · issue #19 · 2026-11-12（第 1 次进入…）` 节，72–73 见 `单发轮 · issue #34 · 2026-11-12` 节，74 见 `单发轮 · issue #35 · 2026-11-12` 节，75–78 见 `单发轮 · issue #36 · 2026-11-12（第 1 次进入…）` 节，79–83 见 `单发轮 · issue #37 · 2026-11-12（第 1 次进入…）` 节）。本行原为开批时的占位「（暂无）」，已失效并就地订正，勿再当「无任何不成立条目」读
 
 ---
 
@@ -2221,3 +2221,30 @@ protocol=v0.12
 - **回填**：改动 SHA 与回帖 id 见本节末「改动 SHA / 回帖（回填）」段。issue #36 **保持 open**（单发轮不 close）。
 
 **改动 SHA / 回帖（回填）**：`b2ffdc9`（4 文件 `136+/6−`，**零代码行为改动**：`crates/` 一行未动）；推 `cnb` 单 remote（`6d47c28..b2ffdc9  HEAD -> main`）；`merge-base --is-ancestor` 通过，主工作区 `merge --ff-only` 到 `b2ffdc9`、`status --porcelain` 0 行。**改后验证**：`scripts/check.sh --quick` `EXIT=0` **2 s**（`==> checks passed in 2s (quick)`）；改前 **125 s** `EXIT=0`（`Finished dev profile [unoptimized + debuginfo] target(s) in 2m 03s`）。**时刻锚** = `git log -1 --format=%aI b2ffdc9` = `2026-11-12T14:39:51+08:00`。**回帖** `2120768788965523456`（`2026-11-12T06:40:55Z`，33055 字符；回读首行 `## 本轮收尾`、次行 `protocol=v0.12`、末行独立 `@CodeBuddy`、反向清单 78 条编号独立成行且 1..78 连续无缺；发帖前后该 issue 的 `## 本轮收尾` 计数 0 → 1，无重复投递）。**首扫请求** `2120766935095750656`（`06:33:33Z`），`60 s × 5` 超时未回，按正文推进。**推票坑（第三次复现）**：`git push` 必须用 `username=cnb`（`oauth2` 报 `Repository Not Found`）。
+
+### 单发轮 · issue #37 · 2026-11-12（第 1 次进入；`[opt-round]` open = 0 ⇒ 第二段无对象）
+
+protocol=v0.12
+
+- **选靶依据**：17 条 open 全 MANUAL、`priority` 全空（任务书优先键在本仓恒失效，按协议 §5.2.1 用「消费次数 asc, 编号 asc」）。平台侧 `^## 本轮收尾` 计数：`#14`–`#19`/`#33`–`#36` 均 ≥1，**`#37`–`#43` = 0** ⇒ 零消费里编号最小的 **#37**（T26 API 响应携带主体类型）。
+- **无 NPC 分析 ⇒ 先发只读首扫请求**：评论 `2120819625133764608`（`2026-11-12T10:02:56Z`），限定「你是评审者、只读、不写收尾标记、未跑就标未跑、行号以 `a41c9b2` 为准」+ 8 条待核断言。`60 s × 5` 到 `10:07:56Z` 平台上仍只有我方一条 ⇒ 按 issue 正文 + 设计文档 §4 T26 推进，不重复发。
+- **形态**：功能/设计题，本体是 L2（OpenAPI 与前端契约，且可能需要响应 DTO）⇒ 产出 = 现状核实文档 + 设计文档 4 处 1→1 订正 + 台账，**零代码行为改动**。
+- **BASE** `a41c9b2`（`HEAD` 与 `cnb/main` 同 SHA；`ls-remote` tip 停在 `06:58Z`，距取证 3 h；`opt-worktrees` 为空、其余 8 个 worktree mtime 均早于本轮 ⇒ 无并发写者）。改前 `scripts/check.sh --quick` **126 s `EXIT=0`**（`Finished dev profile [unoptimized + debuginfo] target(s) in 2m 05s` / `==> checks passed in 126s (quick)`）。
+- **判定分布**：22 条断言 = **成立 11 / 部分成立 5 / 不成立 5 / 不可验 1**。全表见 `ironforge-docs/architecture/actor-identity-response-verification-2026-11.md` §1。
+- **最贵的一条（N17）**：设计第 3 步「capabilities 新增 `actors.identity`（routes 指向上述四处）」**有硬阻塞**——`collab_contract_tests.rs:79` 的采集过滤器只收 `path.contains("collaboration")`，而 `registry_operations()`（`:103-109`）取全部 REGISTRY 路由，`:116-134` 断言两侧差集为空 ⇒ 往 REGISTRY 写 PR/评审/评论/审计路由必使 `stale` 非空。该步实为「改防漂移测试口径」，不是「加一条能力」。
+- **第二处产出（N13–N15）**：四处落地点的字段名 **3 处写错**。PR 只有 `author_id: i64`（`entities/pull_request.rs:27`，详情 `pulls.rs:229` 直接 `json!(pr)`）、评审只有 `PrReview.reviewer_id`（`entities/pr_review.rs:16`，`reviewer` 仅存在于事件 payload `reviews.rs:1116`/`:1182`）、评论字段叫 `author` 且是 `Option<String>`（`issues.rs:286`）⇒ 前三条是**新增**嵌套对象，不是扩已有字段。唯一具名落点是审计 `AuditLogEntry`（`audit.rs:29-40`，带 `ToSchema`）。
+- **第三处产出（F1/F2，两份材料都没有）**：`api_capabilities` 是本仓既有的「加法变更宣告」通道——`api/collab_capabilities.rs:104` 有四个 `.v1` 旗标，`collab_contract_tests.rs:386-395` 逐条断言 ⇒ 宣告 `actors.identity.v1` 只需 1 行 + 1 条断言，绕开 N17 的路由冲突。这是设计未写的第三条路（R37-1）。
+- **第四处产出（N20 方向反了）**：风险说「多个 handler 用 `json!` 拼响应」——四处里只有 PR 详情 1 处 `json!`（`pulls.rs:229`）；真障碍是 PR **直接序列化 DB 实体**，加展示字段要么后置 enrich（详情有 fork 先例 `pulls.rs:230-237`），要么引 DTO 并换掉 `PaginatedResponse<PullRequest>` 的元素类型（`:195`）。
+- **新 L2**：**R37-1**（P1 宣告通道裁决：`api_capabilities` 旗标 vs 新建 Capability）· **R37-2**（P1 PR 响应 DTO 路线：enrich vs 具名 schema）· **R37-3**（P2 `ActorRef` 与 `TimelineActor`（`reviews.rs:75-78`）/`AgentInfo`（`agent.rs:91-99`）合并，否则同一页面两种 actor 形状）· **R37-4**（P2 评论 `author` 改对象是**破坏性改名**，与「只增不改名」冲突 ⇒ 需 `author_ref` 或升 MAJOR）· **R37-5**（P3 审计 `username` 快照 vs 现查口径）· **R37-6**（P3 `on_behalf_of` 依赖未落地）。
+- **改动（WT 内 commit）**：新建 `ironforge-docs/architecture/actor-identity-response-verification-2026-11.md`（22 条判定 + 四处形状表 + 三条宣告路径 + F1–F5 + R37-1…R37-6 + 复核命令）；`agent-principals-design-and-roadmap-2026-11.md` 4 处 1→1（现状 / 方案 2 / 方案 3 / 风险，文件仍 **668 行**）；`ironforge-docs/README.md` +1 行索引；本台账。
+- **反向清单 79–83**；清单累计 **1..83**（其中 72–73 由「单发轮 #34」节写入、74 由「单发轮 #35」节写入、75–78 由「单发轮 #36」节写入，物理均在各节末）。
+79. 「PR 详情/列表有 `author` 字段，只需加 kind/owner」—— **不成立**：`pull_requests` 只有 `author_id: i64`（`entities/pull_request.rs:27`）；`grep -rn '"author"' crates/rg-http/src/` 唯一命中是提交历史的 `CommitEntry.author`（`repo_content.rs:183`，git 作者名，与账号无关）；前端同样只读 `author_id`（`web/src/lib/types/entities.ts:57`）。
+80. 「评审列表有 `reviewer` 字段」—— **不成立**：`list_reviews` 直接返回 `Vec<PrReview>`（`reviews.rs:281-283`），实体只有 `reviewer_id: i64`（`entities/pr_review.rs:16`）；`reviewer` 只出现在事件/时间线 metadata（`reviews.rs:729`/`:1116`/`:1182`），值是用户名字符串。
+81. 「评论列表有 `user` 字段」—— **不成立**：字段名是 `author`，类型 `Option<String>`（`issues.rs:283-287`），`author_name()` 只查 username（`:1124-1140`）；`grep -rn '"user":' crates/rg-http/src/api/` = 0 命中。
+82. 「多个 handler 直接返回 `serde_json::Value`（`json!` 拼的），类型系统帮不上忙」—— **不成立**：四处里仅 PR 详情 1 处 `json!`；评论 `CommentResponse`、审计 `AuditLogEntry` 是具名结构体，评审是实体 ⇒ 类型系统全程在场，真障碍是「实体直出」。
+83. 「T23/T25 已落地，可直接给 `ActorRef` 填 `on_behalf_of`」—— **不成立**：`on_behalf_of` 全仓仅 `agent.rs:23` 一处 doc 注释（无列、无字段、无写入）；`commit_identity` 0 命中，提交身份仍原样传 `user.username`/`user.email`。
+- **producer-stall**：`[opt-round]` 最近一批 `#31` 的 `closed_at` = `2026-11-11T13:09:01Z`，至本轮取证（`2026-11-12T10:02Z`）已 **20 h 53 m** 零新批（协议 §11 风险 10 的 6 h 阈值已超 3.4 倍）⇒ 生产者两条 automation 需人工查，消费者无写权限只记账。
+- **下靶**：零消费剩 `#38`–`#43`（6 条，`comment_count` 全 0）；按（次数 asc, 编号 asc）下一靶 **#38**（「推送时密钥扫描 R7」，`comment_count` = 0 ⇒ 先发只读首扫 + `60 s × 5`，超时按正文推进）。
+- **回填**：改动 SHA 与回帖 id 见本节末「改动 SHA / 回帖（回填）」段。issue #37 **保持 open**（单发轮不 close）。
+
+**改动 SHA / 回帖（回填）**：见文末回填段。

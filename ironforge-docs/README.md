@@ -59,6 +59,7 @@
 | `collab-user-door-verification-2026-11.md` | 协作用户门与 agent 门（issue #34）的现状核实：13 条断言（8 成立 / 3 部分 / 2 不成立）、**用户门有 3 个 `Actor::user` 构造点**（只改 `write_actor` 漏 `mark_user_read`）、§2.3 条 9 是唯一未落地的不变量、方案引用的 `is_agent_account` 不存在、`can_write_repo` 已查过一次 users、R34-1…R34-6 待拍板 |
 | `agent-notify-routing-verification-2026-11.md` | 通知改派给 agent 所有者（issue #35，T24）的现状核实：19 条断言（9 现状全成立 / 4 部分 / 1 不成立）、**`owner_cap:249` 已含 agent→所有者规则**（新函数应薄封装）、`task_blocked` 现状无 fallback、通知路径不发信且 `.invalid` 已被三道闸挡住、另有 **4 处**通知生产点仍直发 agent、R35-1…R35-5 待拍板 |
 | `commit-identity-verification-2026-11.md` | 提交作者与推送者归因（issue #36，T25）的现状核实：23 条断言（12 成立 / 6 部分 / 5 不成立）、**提交入口是三处不是两处**（批量提交 `repo_commits.rs:174` 被漏）、**`git push` 没有任何审计行**、`repo_events` 无主体列（`pushed_by` 只能进 payload）、`spawn_post_push_hooks` 无 actor 参数、T23 未落地使 `on_behalf_of` 断言 blocked、R36-1…R36-6 待拍板 |
+| `actor-identity-response-verification-2026-11.md` | 响应携带主体类型（issue #37，T26）的现状核实：22 条断言（11 成立 / 5 部分 / 5 不成立 / 1 不可验）、**四处落地点的字段名 3 处写错**（PR 只有 `author_id`、评审只有 `reviewer_id`、评论叫 `author` 且是字符串）、**REGISTRY 只收 `/…collaboration…` 路由**（`collab_contract_tests.rs:79`）⇒ 加 `actors.identity` 会直接撞红防漂移测试、`api_capabilities` 是现成的最小宣告通道、R37-1…R37-6 待拍板 |
 
 ---
 

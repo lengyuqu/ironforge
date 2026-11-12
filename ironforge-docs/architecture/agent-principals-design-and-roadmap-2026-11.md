@@ -387,16 +387,16 @@ pub async fn accountable_user(db: &DatabaseConnection, user_id: i64) -> CoreResu
 
 **目标**：客户端一眼看出"这个作者是人还是 agent、代表谁"，不必再查 `/agents`。
 
-**现状（核实）**：`collaboration/capabilities.rs` 是 `pub const REGISTRY: &[Capability]`，**27 个能力 / 82 条路由**，append-only 手工维护，有防漂移测试（`collab_contract_tests.rs:116/136/399`）；`CONTRACT_MAJOR/MINOR = 1/1`（:30-31）。响应视图在 `api/collab_capabilities.rs:24-37`（`CapabilityEntry`）+ `:105-119` 映射，`#[derive(ToSchema)]` 自动进 OpenAPI。
+**现状（核实于 2026-11-12，基线 `a41c9b2`）**：`collaboration/capabilities.rs` 是 `pub const REGISTRY: &[Capability]`，**27 个能力 / 82 条路由 / 65 个不同路径**，append-only 手工维护，有防漂移测试（`collab_contract_tests.rs:116`、`:136`，`:399` 在 `:354` 起的能力列表测试内）；`CONTRACT_MAJOR/MINOR = 1/1`（`capabilities.rs:30-31`）。响应视图在 `api/collab_capabilities.rs:24-36`（`CapabilityEntry`，**不含 routes**）+ `:105-118` 映射，`#[derive(ToSchema)]` 自动进 OpenAPI；四处落地点的**现有字段名与本方案不一致**，见 `actor-identity-response-verification-2026-11.md` §1 N13–N16。
 
 **方案（收窄，只做四处）**：
 
 1. `rg-core::agent` 新增 `ActorRef { id, username, kind, owner_id, owner_username }`（平铺，不嵌套，避免递归类型）。
-2. 落地范围：**PR 详情/列表的 `author`、评审列表的 `reviewer`、评论列表的 `user`、`/admin/audit/logs` 的行**。其余端点按需，不铺开。
-3. capabilities 新增 `actors.identity`（routes 指向上述四处），`CONTRACT_MINOR` 1 → 2；同步 `collab_contract_tests` 断言。
+2. 落地范围：**PR 详情/列表的 `author`、评审列表的 `reviewer`、评论列表的 `user`、`/admin/audit/logs` 的行**。其余端点按需，不铺开。**（核实：这四个名字里只有 `reviewer` 存在，且只是事件 payload 里的用户名字符串；PR 是 `author_id: i64`（`entities/pull_request.rs:27`）、评审是 `PrReview.reviewer_id`（`entities/pr_review.rs:16`）、评论是 `CommentResponse.author: Option<String>`（`api/issues.rs:286`）、审计是 `AuditLogEntry.user_id + username`（`api/audit.rs:29-40`）—— 前三条是**新增**嵌套对象，不是扩字段。）**
+3. capabilities 新增 `actors.identity`（routes 指向上述四处），`CONTRACT_MINOR` 1 → 2；同步 `collab_contract_tests` 断言。**（核实：REGISTRY 只容纳 `/…collaboration…` 路由——`collab_contract_tests.rs:79` 的采集过滤器只收该子串，`:116` 的 `stale` 断言会因四组非 collaboration 路由直接变红 ⇒ 本步实为「改防漂移测试口径」；最小替代通道是本仓既有的 `api_capabilities` 旗标，见核实文档 §3。）**
 4. 字段**只增不改名**，前端不改也能跑。
 
-**风险**：多个 handler 直接返回 `serde_json::Value`（`json!` 拼的），类型系统帮不上忙，只能靠测试卡形状。这是本项价值最低、面积最大的一项，**排最后，可延到第三期**。**规模** L（1–2 天）。
+**风险**：多个 handler 直接返回 `serde_json::Value`（`json!` 拼的），类型系统帮不上忙，只能靠测试卡形状。**（核实：四处里只有 PR 详情一处 `json!`（`pulls.rs:229`），评论/审计/评审都是具名结构体；真障碍是反的——PR 详情与列表**直接序列化 DB 实体**，加展示字段要么后置 enrich（详情已有 fork 先例 `pulls.rs:230-237`），要么引 DTO 并换掉 `PaginatedResponse<PullRequest>` 的元素类型（`pulls.rs:195`）。）** 这是本项价值最低、面积最大的一项，**排最后，可延到第三期**。**规模** L（1–2 天）。
 
 ---
 
