@@ -17,6 +17,11 @@
 //! * a name in `rg_mcp::collab::TOOL_NAMES` is not owned by exactly one
 //!   capability, or has no row in `rg_mcp::collab_contract::TOOL_ROUTES`.
 //!
+//! Each route here is also the PAT-restriction declaration of its route
+//! (`rg_core::auth::route_meta`): collaboration scope, no ref movement, no
+//! idempotency key. Declare a route with [`x`] instead of [`r`] when it can
+//! reach a repository other than the one in its path.
+//!
 //! Only list what exists in the build: the registry is what clients are told
 //! they may rely on. A new *optional* field or capability bumps
 //! [`CONTRACT_MINOR`]; removing or changing meaning needs a new major or a new
