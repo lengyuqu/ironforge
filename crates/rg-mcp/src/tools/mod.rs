@@ -128,6 +128,40 @@ pub fn list_tools(_state: &AppState, req: &JsonRpcRequest) -> JsonRpcResponse {
             }
         },
         {
+            "name": "commit_files",
+            "description": "Change many files with ONE commit (so one CI run) on an existing branch, on the server (no clone or push). Either every change lands in the single commit or the branch does not move; use this instead of calling commit_file or delete_file once per file. 'branch' and 'expected_sha' are both required: the branch must exist and be at expected_sha (the commit you last saw it at), otherwise the call is refused with reason REF_ADVANCED and the current commit, and nothing is written; a branch is never created here (create it first with commit_file). Each entry of 'files' has an 'operation': create {path, content} (the path must not exist), update {path, content, sha} (sha = the file's current blob sha), delete {path, sha}, move {from, to, sha} (keeps content and mode; sha = blob sha of 'from'). A path may appear in only one entry, and a move's source cannot also be written: otherwise PATH_CONFLICT (state a rename chain as its end state). Pass dry_run=true to run every check and see what would happen without writing anything. A token limited to some branches can only write those branches. The answer lists the one commit_sha and, per file, the blob it held before.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "owner": { "type": "string", "description": "Repository owner" },
+                    "repo":  { "type": "string", "description": "Repository name" },
+                    "branch": { "type": "string", "description": "Existing branch to commit to" },
+                    "expected_sha": { "type": "string", "description": "Commit the branch must currently be at (required)" },
+                    "message": { "type": "string", "description": "Commit message" },
+                    "files": {
+                        "type": "array",
+                        "minItems": 1,
+                        "description": "The file changes, applied together as one commit",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "operation": { "type": "string", "enum": ["create", "update", "delete", "move"] },
+                                "path": { "type": "string", "description": "File path (create, update, delete)" },
+                                "content": { "type": "string", "description": "The whole new file content, UTF-8 text (create, update)" },
+                                "sha": { "type": "string", "description": "Current blob sha of the file (update, delete, move)" },
+                                "from": { "type": "string", "description": "Source path (move)" },
+                                "to": { "type": "string", "description": "Destination path (move)" }
+                            },
+                            "required": ["operation"]
+                        }
+                    },
+                    "dry_run": { "type": "boolean", "description": "Check and report only; write nothing" },
+                    "idempotency_key": { "type": "string", "description": "A string you choose and reuse when retrying this exact call: the server then returns the first response instead of committing twice. Use a new key for a different call." }
+                },
+                "required": ["owner", "repo", "branch", "expected_sha", "message", "files"]
+            }
+        },
+        {
             "name": "delete_file",
             "description": "Delete one file with a commit on a branch, on the server. 'sha' is the file's current blob sha (required, so a stale delete is refused). 'expected_sha' and 'dry_run' work as in commit_file.",
             "inputSchema": {
@@ -274,6 +308,7 @@ pub fn call_tool(state: &AppState, req: &JsonRpcRequest) -> JsonRpcResponse {
         "get_pr_context" => tool_get_pr_context(state, &args),
         "export_pr" => tool_export_pr(state, &args),
         "commit_file" => tool_commit_file(state, &args),
+        "commit_files" => tool_commit_files(state, &args),
         "delete_file" => tool_delete_file(state, &args),
         "delete_branch" => tool_delete_branch(state, &args),
         "create_pr" => tool_create_pr(state, &args),
@@ -693,6 +728,89 @@ fn text_arg_allow_empty<'a>(args: &'a Value, key: &str) -> Result<&'a str, Strin
     args.get(key)
         .and_then(|v| v.as_str())
         .ok_or_else(|| format!("{key} is required"))
+}
+
+/// Which fields each `commit_files` operation takes: `(required, allowed)`.
+/// Anything else in an entry is refused rather than dropped, so a misspelt field
+/// (`blob_sha` for `sha`) cannot silently turn an update into something weaker.
+fn batch_operation_fields(
+    operation: &str,
+) -> Option<(&'static [&'static str], &'static [&'static str])> {
+    match operation {
+        "create" => Some((&["path", "content"], &["path", "content"])),
+        "update" => Some((&["path", "content", "sha"], &["path", "content", "sha"])),
+        "delete" => Some((&["path", "sha"], &["path", "sha"])),
+        "move" => Some((&["from", "to", "sha"], &["from", "to", "sha"])),
+        _ => None,
+    }
+}
+
+/// Check one entry of `commit_files`' `files` and return it unchanged.
+fn batch_file_entry(index: usize, entry: &Value) -> Result<Value, String> {
+    let at = format!("files[{index}]");
+    let Some(object) = entry.as_object() else {
+        return Err(format!("{at} must be an object"));
+    };
+    let operation = object
+        .get("operation")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| format!("{at}.operation is required"))?;
+    let Some((required, allowed)) = batch_operation_fields(operation) else {
+        return Err(format!(
+            "{at}.operation must be one of create, update, delete, move (got '{operation}')"
+        ));
+    };
+    for key in object.keys() {
+        if key != "operation" && !allowed.contains(&key.as_str()) {
+            return Err(format!(
+                "{at}: '{key}' is not a field of a {operation} entry (allowed: {})",
+                allowed.join(", ")
+            ));
+        }
+    }
+    for key in required {
+        match object.get(*key) {
+            Some(Value::String(v)) if *key == "content" || !v.trim().is_empty() => {}
+            Some(Value::String(_)) | None => {
+                return Err(format!("{at}.{key} is required for {operation}"))
+            }
+            Some(_) => return Err(format!("{at}.{key} must be a string")),
+        }
+    }
+    Ok(entry.clone())
+}
+
+fn tool_commit_files(state: &AppState, args: &Value) -> ToolResult {
+    let owner = name_arg(args, "owner")?;
+    let repo = name_arg(args, "repo")?;
+    let files = match args.get("files") {
+        Some(Value::Array(list)) if !list.is_empty() => list,
+        Some(Value::Array(_)) | None => return Err("files must hold at least one entry".into()),
+        Some(_) => return Err("files must be an array".into()),
+    };
+    let files = files
+        .iter()
+        .enumerate()
+        .map(|(i, entry)| batch_file_entry(i, entry))
+        .collect::<Result<Vec<_>, _>>()?;
+    // `branch` and `expected_sha` are both required: the server does not fall
+    // back to HEAD for a batch, and neither does this tool.
+    let mut body = serde_json::json!({
+        "branch": text_arg(args, "branch")?,
+        "expected_sha": text_arg(args, "expected_sha")?,
+        "message": text_arg(args, "message")?,
+        "files": files,
+    });
+    if flag_arg(args, "dry_run")? {
+        body["dry_run"] = Value::Bool(true);
+    }
+    send_write(
+        state,
+        reqwest::Method::POST,
+        &format!("/repos/{owner}/{repo}/commits"),
+        Some(&body),
+        idempotency_key_arg(args)?,
+    )
 }
 
 fn tool_delete_file(state: &AppState, args: &Value) -> ToolResult {
