@@ -4,7 +4,7 @@
 > 提供踩坑记录、依赖版本速查、常见错误排查和实现现状清单。
 > 轻量概览见 [AGENT.md](AGENT.md)；完整文档索引见 [ironforge-docs/README.md](ironforge-docs/README.md)。
 
-> **状态**：维护中 ｜ **可信度**：确认 ｜ **来源**：仓库代码 / 文档 / 运行结果 ｜ **最后更新**：2026-11-02
+> **状态**：维护中 ｜ **可信度**：确认 ｜ **来源**：仓库代码 / 文档 / 运行结果 ｜ **最后更新**：2026-11-12
 
 ---
 
@@ -18,14 +18,23 @@
 
 ### 仓库分工与推送顺序
 
-> **来源**：项目负责人约定（2026-11-05）。此约定取代此前以 git233 为开发主仓库的约定。
+> **来源**：项目负责人约定（2026-11-12）。此约定取代此前两版：2026-11-05 之前的"CNB 优先"，以及 2026-11-10 的"以 git233 为开发主仓库"。
 
-- **CNB（`cnb`）**：开发主仓库。开发阶段以 CNB 为主要上游，代码的开发、集成和验证优先在 CNB 完成。
-- **git233（`origin`）**：自建私人仓库。CNB 完成相应开发工作后，再将需要同步的提交推送到 git233。
+- **CNB（`cnb`）**：开发主仓库。代码的开发、PR、合并、Issue 都在 CNB 完成；操作用 `cnb` CLI，`git push/fetch` 需要 `-c credential.helper= -c credential.helper='!cnb git-credential'`。
+- **git233**：**不再是开发仓库，本检出已移除 `origin` 远端**（2026-11-12）。项目负责人已在 git233 的 `zdzso` 组织下镜像了 CNB 的 `zdzso` 项目；移除前已核实 git233 的 `main` 是 CNB `main` 的祖先，唯一独有的 `chore/cargo-update-in-range`（Rust 依赖范围内升级，本机测试通过，**未合并进 `main`**）已作为分支推到 CNB。不要再添加 git233 远端或向它推送；镜像由负责人侧维护，`tea` 命令不再适用。
 - **GitHub（`github`）**：公开发布仓库。准备发布时，在 CNB 完成开发工作后，才推送到 GitHub 并进行 GitHub CI；日常开发不为同步而推送 GitHub。
-- **CI 现在跑在 git233 的 Gitea Actions 上**（2026-11-06，项目负责人：CNB 的 Runner 用量也耗尽了，只能用 Gitea 的）。工作流就是 `.github/workflows/regression.yml`（Gitea 兼容读取），触发：对 `main` 的 PR 与 `workflow_dispatch`。**全量只手动触发**（2026-11-09，项目负责人：每次提交都跑全量成本太高；改动足够大时由负责人要求手动跑）：没有 push 到 `main` 的触发，也没有夜间定时；合并后 main 没有自动 CI。**PR 的测试范围**——`changes` job（`scripts/ci-changes.py`，纯标准库，`--self-test` 可本地自检）按与合并基点的差异分类：只改文档 → 什么都不跑；只改 `web/` → 只跑前端；改了 crate → 整个 workspace 的 clippy 加这些 crate 及依赖它们的 crate 的测试（从 Cargo 清单读依赖，不写死）；`Cargo.toml`/`Cargo.lock`、`.github/`、`scripts/`、`deploy/` 或脚本不认识的文件 → 所有 crate 的测试。**`rg-http` 的集成测试（最重的一块）只在 `rg-http` 自己的文件变了时才在 PR 上跑**，其余情况被略过并给出 notice，要跑就手动触发全量。脚本算不出范围时告警并跑全量（失败即关闭）。同一 PR 有新推送时旧 run 被 `concurrency` 取消。CI 里 `CARGO_PROFILE_DEV_DEBUG=line-tables-only`，并尽量用 mold 链接（`scripts/ci-fast-link.sh`，装不上或试链接失败就用默认链接器）。范围外的 job 是 skipped，不是绿勾；**未在 git233 上实跑验证前，不要把这些 job 设为必需检查**。验证一个分支：推到 `origin` 后开 PR（`tea pulls create --repo aicodeing/ironforge …`），或手动 `tea actions workflows dispatch regression.yml --ref <分支> --repo aicodeing/ironforge`；看结果用 `tea api /repos/aicodeing/ironforge/actions/runs`、`…/runs/<id>/jobs`、`…/jobs/<job_id>/logs`。网络类步骤（apt 安装、Rust 工具链下载）经 `scripts/ci-retry.sh`/`ci-apt-install.sh`/`ci-install-rust.sh` 带重试，`dtolnay/rust-toolchain` 失败时用 `ci-install-rust.sh` 再装一次（`continue-on-error` + `steps.rust.outcome != 'success'`；**未在 git233 实跑验证**）。`rg-mcp` 的测试夹具（`collab_mcp`/`read_tools_mcp`/`write_tools_mcp`）的桩服务按连接起线程并带读超时，`rpc` 超过 60 秒无回应会杀掉子进程并带 stderr 失败，不再卡到 job 超时。Runner（fnos/zos）能访问 crates.io、npm、docker.gitea.com，GitHub 只是不稳定，**Docker Hub 直连不通**：PostgreSQL/MySQL 冒烟的服务镜像读仓库变量 `POSTGRES_IMAGE`/`MYSQL_IMAGE`（未设置时拉不到镜像，这两个 job 会失败；设置哪个镜像站由负责人决定，不要自行指向第三方镜像站）；Swagger UI 已 vendored；`cargo audit` 取不到漏洞库时在非 GitHub 环境降为警告（**审计没有运行**）。GitHub 仍只在发布时推送。`.cnb.yml` 保留（CNB 额度恢复后可用；push 只自动跑 `lint`，全量 6 条流水线手动触发 `cnb build start-build … --event api_trigger`），数据库套件仍在本地跑 `scripts/ci-db-tests.sh postgres|mysql`。**未覆盖**：`docker-image.yml`（镜像发布）、`collab-e2e.py` 各场景、浏览器烟测，这些仍需手动。
+- **CI：当前没有可用的运行环境**（2026-11-12）。CNB 的 Runner 额度此前耗尽，git233 的 Gitea Actions 也不再是开发仓库的 CI；项目负责人将为 CNB 配置可用的 CI 服务，配置好之前以及配置后未实跑验证前，按以下规则处理：
+  - 合并前在本机跑相关测试，汇报时如实写明"未经 CI"；不要把"CI 通过"写成已验证事实。
+  - 不要把任何 CI job 设为必需检查；PostgreSQL/MySQL 套件仍在本地跑 `scripts/ci-db-tests.sh postgres|mysql`。
+  - **未覆盖**（本来就没有自动化）：`docker-image.yml`（镜像发布）、`collab-e2e.py` 各场景、浏览器烟测。
+- **仓库里已有的 CI 资产**（接入新 CI 服务时复用；它们是在 git233 Gitea Actions 上设计和调试的，**换环境后未验证**）：
+  - `.github/workflows/regression.yml`：触发为对 `main` 的 PR 与 `workflow_dispatch`，没有 push 触发也没有定时；全量只手动触发（项目负责人 2026-11-09：每次提交都跑全量成本太高）。
+  - 测试范围由 `scripts/ci-changes.py`（纯标准库，`--self-test` 可本地自检）按与合并基点的差异分类：只改文档 → 什么都不跑；只改 `web/` → 只跑前端；改了 crate → 整个 workspace 的 clippy 加这些 crate 及依赖它们的 crate 的测试（从 Cargo 清单读依赖，不写死）；`Cargo.toml`/`Cargo.lock`、`.github/`、`scripts/`、`deploy/` 或脚本不认识的文件 → 所有 crate 的测试。`rg-http` 的集成测试（最重的一块）只在 `rg-http` 自己的文件变了时才在 PR 上跑。脚本算不出范围时告警并跑全量（失败即关闭）。
+  - 其余：同一 PR 新推送时旧 run 被 `concurrency` 取消；`CARGO_PROFILE_DEV_DEBUG=line-tables-only`，并尽量用 mold 链接（`scripts/ci-fast-link.sh`，失败就用默认链接器）；网络类步骤经 `scripts/ci-retry.sh`/`ci-apt-install.sh`/`ci-install-rust.sh` 带重试；`rg-mcp` 的测试夹具（`collab_mcp`/`read_tools_mcp`/`write_tools_mcp`）的桩服务按连接起线程并带读超时，`rpc` 超过 60 秒无回应会杀掉子进程并带 stderr 失败；Swagger UI 已 vendored；`cargo audit` 取不到漏洞库时在非 GitHub 环境降为警告（**此时审计没有运行**）。
+  - 范围外的 job 是 skipped，不是绿勾。PostgreSQL/MySQL 冒烟的服务镜像读仓库变量 `POSTGRES_IMAGE`/`MYSQL_IMAGE`（git233 的 Runner 直连不了 Docker Hub，新环境需重新确认；设置哪个镜像站由负责人决定，不要自行指向第三方镜像站）。
+  - `.cnb.yml` 保留（CNB 有可用 Runner 后使用；push 只自动跑 `lint`，全量 6 条流水线手动触发 `cnb build start-build … --event api_trigger`）。注释和 `regression.yml` 里提到 git233 的地方描述的是当时的环境，接入新 CI 时一并更新。
 - 同步前检查目标分支和远端状态，保持提交历史一致，禁止强制推送。各仓库同步结果和 CI 结果分别核验；推送成功不代表 CI 通过或发布完成。
-- 这些名称是当前检出的远端配置；执行前仍需核实实际远端和分支。此约定不自动修改 Git 已配置的跟踪上游，拉取或推送时应明确选择目标。
+- 这些名称是当前检出的远端配置（现为 `cnb`、`github`）；执行前仍需核实实际远端和分支。此约定不自动修改 Git 已配置的跟踪上游，拉取或推送时应明确选择目标。
 
 ### Agent 生命周期护栏
 
