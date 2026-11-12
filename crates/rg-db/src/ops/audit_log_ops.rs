@@ -18,6 +18,7 @@ pub async fn list_paginated(
     page: u64,
     page_size: u64,
     user_id: Option<i64>,
+    on_behalf_of_user_id: Option<i64>,
     action: Option<&str>,
     resource_type: Option<&str>,
     start_time: Option<chrono::DateTime<chrono::Utc>>,
@@ -27,6 +28,9 @@ pub async fn list_paginated(
 
     if let Some(uid) = user_id {
         query = query.filter(Column::UserId.eq(uid));
+    }
+    if let Some(owner) = on_behalf_of_user_id {
+        query = query.filter(Column::OnBehalfOfUserId.eq(owner));
     }
     if let Some(act) = action {
         query = query.filter(Column::Action.eq(act));

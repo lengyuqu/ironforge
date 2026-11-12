@@ -19,6 +19,7 @@ pub struct AuditLogQuery {
     #[serde(default, alias = "page_size")]
     per_page: Option<u64>,
     user_id: Option<i64>,
+    on_behalf_of_user_id: Option<i64>,
     action: Option<String>,
     resource_type: Option<String>,
     start_time: Option<String>, // ISO 8601
@@ -30,6 +31,9 @@ pub struct AuditLogEntry {
     id: i64,
     user_id: Option<i64>,
     username: Option<String>,
+    /// For an action by an agent, the person who owns that agent; null for a
+    /// person's own action and for rows written before this field existed.
+    on_behalf_of_user_id: Option<i64>,
     action: String,
     resource_type: Option<String>,
     resource_id: Option<i64>,
@@ -89,7 +93,8 @@ pub struct LoginAttemptResponse {
     params(
         ("page" = Option<u64>, Query, description = "Page number (1-based, default 1)"),
         ("per_page" = Option<u64>, Query, description = "Items per page (1-100, default 20)"),
-        ("user_id" = Option<i64>, Query, description = "Filter by user ID"),
+        ("user_id" = Option<i64>, Query, description = "Filter by user ID (the acting account, which may be an agent)"),
+        ("on_behalf_of_user_id" = Option<i64>, Query, description = "Filter by the person an agent acted for (the agent's owner)"),
         ("action" = Option<String>, Query, description = "Filter by action"),
         ("resource_type" = Option<String>, Query, description = "Filter by resource type"),
         ("start_time" = Option<String>, Query, description = "Filter after start time (ISO 8601)"),
@@ -129,6 +134,7 @@ pub async fn list_audit_logs(
         page_index,
         per_page,
         q.user_id,
+        q.on_behalf_of_user_id,
         q.action.as_deref(),
         q.resource_type.as_deref(),
         start_time,
@@ -146,6 +152,7 @@ pub async fn list_audit_logs(
             id: m.id,
             user_id: m.user_id,
             username: m.username,
+            on_behalf_of_user_id: m.on_behalf_of_user_id,
             action: m.action,
             resource_type: m.resource_type,
             resource_id: m.resource_id,
@@ -304,6 +311,7 @@ pub async fn get_audit_log(
         id: log.id,
         user_id: log.user_id,
         username: log.username,
+        on_behalf_of_user_id: log.on_behalf_of_user_id,
         action: log.action,
         resource_type: log.resource_type,
         resource_id: log.resource_id,
@@ -331,16 +339,24 @@ pub(crate) async fn record_write(
     headers: &HeaderMap,
     details: serde_json::Value,
 ) {
-    let username = rg_db::ops::user_ops::find_by_id(db, user_id)
+    // One lookup serves both columns: an agent's entry also names its owner.
+    let actor = rg_db::ops::user_ops::find_by_id(db, user_id)
         .await
         .ok()
-        .flatten()
-        .map(|user| user.username);
+        .flatten();
+    let (username, on_behalf_of_user_id) = match &actor {
+        Some(user) if rg_core::agent::is_agent(user) => {
+            (Some(user.username.clone()), user.owner_user_id)
+        }
+        Some(user) => (Some(user.username.clone()), None),
+        None => (None, None),
+    };
     let (ip_address, user_agent) = extract_ip_and_ua(headers);
     let entry = rg_db::entities::audit_log::ActiveModel {
         id: sea_orm::NotSet,
         user_id: sea_orm::Set(Some(user_id)),
         username: sea_orm::Set(username),
+        on_behalf_of_user_id: sea_orm::Set(on_behalf_of_user_id),
         action: sea_orm::Set(action.to_string()),
         resource_type: sea_orm::Set(Some(resource_type.to_string())),
         resource_id: sea_orm::Set(resource_id),

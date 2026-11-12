@@ -31,6 +31,7 @@ pub async fn record(
         id: Set(0), // auto-increment
         user_id: Set(user_id),
         username: Set(username.map(str::to_string)),
+        on_behalf_of_user_id: Set(None),
         action: Set(action.to_string()),
         resource_type: Set(resource_type.map(str::to_string)),
         resource_id: Set(resource_id),

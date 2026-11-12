@@ -372,6 +372,7 @@ async fn admin_audit_list_and_get_log() {
             id: ActiveValue::NotSet,
             user_id: Set(Some(admin_id)),
             username: Set(Some("auditor".to_string())),
+            on_behalf_of_user_id: Set(None),
             action: Set("admin.sso.create".to_string()),
             resource_type: Set(Some("sso_provider".to_string())),
             resource_id: Set(Some(99)),

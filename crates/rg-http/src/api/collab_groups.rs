@@ -264,6 +264,7 @@ async fn audit(
         id: sea_orm::NotSet,
         user_id: sea_orm::Set(Some(user_id)),
         username: sea_orm::Set(None),
+        on_behalf_of_user_id: sea_orm::Set(None),
         action: sea_orm::Set(action.to_string()),
         resource_type: sea_orm::Set(Some("collab_group".to_string())),
         resource_id: sea_orm::Set(Some(anchor_repo_id)),
