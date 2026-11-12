@@ -41,6 +41,7 @@ async fn record_audit(
         id: sea_orm::NotSet,
         user_id: sea_orm::Set(Some(user_id)),
         username: sea_orm::Set(Some(username.to_string())),
+        on_behalf_of_user_id: sea_orm::Set(None),
         action: sea_orm::Set(action.to_string()),
         resource_type: sea_orm::Set(resource_type.map(|s| s.to_string())),
         resource_id: sea_orm::Set(resource_id),
