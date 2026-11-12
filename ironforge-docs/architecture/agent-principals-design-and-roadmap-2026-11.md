@@ -72,7 +72,7 @@ agent **就是 `users` 里的一行**，没有单独的表。原因：一百来�
 6. **停用 agent** = 令牌被拒 + 已换出的会话立即失效；重新启用后同一令牌恢复；停用状态下不能签发新令牌（409）。
 7. 别人的 agent 与不存在的 agent 对调用者一律 404；`/agents` 只有人类能调用。
 8. **评审：agent 一律不能批准**（v2 新增，来源 §3）。批准权由**账号类型**决定，不由令牌形态决定；所有者可以批准自己 agent 的 PR，且**计入**必需批准数。
-9. **协作写入：agent 必须带 collab session**（v2 新增，来源 T22）。用户门是"人 / CLI 替人说话"的入口，agent 不得使用。
+9. **协作写入：agent 必须带 collab session**（v2 新增，来源 T22）。用户门是"人 / CLI 替人说话"的入口，agent 不得使用。**本条当前未强制**：`write_actor` 不读 `users.kind`，落地清单与漏网点见 §4 T22。
 
 ### 2.4 验证证据（v1 原样保留）
 
@@ -254,7 +254,7 @@ if headers.contains_key(HEADER_SESSION) || headers.contains_key(HEADER_SESSION_S
 
 `Actor { kind: &'static str }` 取值只有 `"session"` / `"user"`（`rg-core/src/collaboration/mod.rs:72-94`）。全仓 `collab*.rs` **零处** `users.kind` 判断。`write_actor` 有 15 个调用点，分布在 `collab_budgets` / `conditions` / `decisions` / `dependencies` / `groups` / `questions` / `work_packages` 七个文件。
 
-**方案**：`else` 分支前查一次账号类型，agent 直接 403。
+**方案**：`else` 分支前查一次账号类型，agent 直接 403；拒绝要带机器可读 reason（`AppError::coded(FORBIDDEN, "FORBIDDEN", …).with_reason(AGENT_MUST_USE_SESSION, …)`，写法照 `api/auth.rs::ensure_reviewer_may_approve`），`ensure_human` 只有自由文本、拿不到稳定 reason。
 
 ```rust
 pub(crate) async fn write_actor(
@@ -264,7 +264,7 @@ pub(crate) async fn write_actor(
         let session = acting_session(state, headers, repo_id, user_id).await?;
         return Ok(rg_core::collaboration::Actor::session(session.id));
     }
-    if crate::api::repo_access::is_agent_account(&state.db, user_id).await? {
+    if rg_core::agent::is_agent(&rg_db::ops::user_ops::find_by_id(&state.db, user_id).await?.ok_or_else(|| AppError::forbidden("no such account"))?) {
         return Err(AppError::forbidden(
             "an agent must act through a collaboration session, not the user door"));
     }

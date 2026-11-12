@@ -93,7 +93,7 @@ pub(crate) async fn commit_exists(
 
 /// The actor of a write: the authenticated session when session headers are
 /// sent, otherwise the signed-in account through its "user door" (a UI or CLI).
-/// Both act under one account; neither proves who or what is behind them.
+/// Nothing here reads `users.kind`: an agent is not refused the user door yet.
 pub(crate) async fn write_actor(
     state: &AppState,
     headers: &HeaderMap,
