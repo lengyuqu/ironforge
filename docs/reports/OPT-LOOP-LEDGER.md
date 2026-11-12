@@ -2119,5 +2119,6 @@ protocol=v0.12
 - **反向清单 71**；清单累计 **1..71**。
 71. 「受保护分支合并『谁能批 = 审批人 / 写权限』」（issue #19 方案 §一 第三行）—— **不成立**：`crates/rg-http/src/api/reviews.rs:312` 的 `submit_review` 只有 `require_authenticated_read`，读权限即可投 approve；`crates/rg-db/src/entities/protected_branch.rs` 无审批人列（`:30` 的 `allowed_push_user_ids` 只约束推送）。**勿再以「现状已是写权限门槛」为前提推演抽象收益。**
 - **回填**：改动 SHA 与回帖 id 见本节末「改动 SHA / 回帖（回填）」。issue #19 **保持 open**（单发轮不 close）。**第二段**：`[opt-round]` open = **0** ⇒ 无对象（非「队列为空」——手工队列仍剩 16 条）。
+- **producer-stall**：`[opt-round]` 最近一批 `#31` 的 `closed_at` = `2026-11-11T13:09:01Z`，至本轮取证（`2026-11-12T04:26Z`）已 **15 h 17 m** 零新批（协议 §11 风险 10 的 180 min 阈值早已越过、6 h 阈值也越过）⇒ 生产者侧两条 automation 需人工查；消费者侧无写权限，只记不改。
 
 **改动 SHA / 回帖（回填）**：`832cd27`（4 文件 `144+/2−`，**零代码行为改动**：`crates/` 只有 `human_notify.rs:22-23` 一处文档注释 2 行→2 行）；推 `cnb` 单 remote（`94743ca..832cd27  HEAD -> main`）；`merge-base --is-ancestor` 通过，主工作区 `merge --ff-only` 到 `832cd27`、`status --porcelain` 0 行。**改后验证**：`scripts/check.sh --quick` `EXIT=0` **68 s**（`Finished dev profile [unoptimized + debuginfo] target(s) in 1m 06s` / `==> checks passed in 68s (quick)`）；改前 **99 s** `EXIT=0`。**时刻锚** = `git log -1 --format=%aI 832cd27` = `2026-11-12T12:19:00+08:00`。**回帖** `2120733390440669184`（`2026-11-12T04:24Z` 前后，18696 字节；回读首行 `## 本轮收尾`、次行 `protocol=v0.12`、末行独立 `@CodeBuddy`、反向清单 71 条编号独立成行；发帖前后 `本轮收尾` 计数 0 → 1，无重复投递）。
