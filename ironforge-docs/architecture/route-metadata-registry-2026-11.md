@@ -1,6 +1,6 @@
 # 路由元数据注册表：现状核实与分阶段落点（Proposed）
 
-> 答复 issue #14「路由元数据注册表」。核实基线 `75d8231`（2026-11-12），全部行号由 `sed -n` / `grep -n` 逐条打印过。**2026-11-13 状态更新：R1 已落地**（`0b05502` = PR #55；phase 1 `eb1736f` + phase 2 `4d34e69`）——`required_pat_scope`、`path_in_allowlist` 的拒绝表、`ref_limited_write_allowed` 已改由 `crates/rg-core/src/auth/route_meta.rs` 派生，`repo_scope_for` 已删除，`Route` 新增 `other_repos` 字段与 `x()` 构造器；**下文 §2③ / §4 / §5 / §5.1 的「今天」兜底与行号是 `1c0a87e` 之前的历史快照**，读现状以 `route_meta.rs:600-760` 为准（§3 计数口径与 §4 兜底锚点已就地更新）。
+> 答复 issue #14「路由元数据注册表」。核实基线 `75d8231`（2026-11-12），全部行号由 `sed -n` / `grep -n` 逐条打印过。**2026-11-13 状态更新：R1 已落地**（`0b05502` = PR #55；phase 1 `eb1736f` + phase 2 `4d34e69`）——`required_pat_scope`、`path_in_allowlist` 的拒绝表、`ref_limited_write_allowed` 已改由 `crates/rg-core/src/auth/route_meta.rs` 派生，`repo_scope_for` 已删除，`Route` 新增 `other_repos` 字段与 `x()` 构造器；**下文 §1 / §2③ / §3 / §4 / §5 / §5.1 的行号一律是历史快照**（§1 表脚标 `75d8231`、§3 表脚标 `1c0a87e`；§3 计数口径与 §4 兜底锚点已就地更新），读现状以 `route_meta.rs:600-760` 与 `lib.rs:2079` 为准；**`repo_scope_for` 在现状已删除**（全仓仅 `rg-http/tests/route_metadata_tests.rs:41` 一句注释），表中出现该符号只能按历史快照读。
 > 本文只写**核实过的事实**与**可执行的落点**；凡是改鉴权语义、改 OpenAPI 契约、加路由字段的部分一律停在 L2（见 §6），不在本流程落地。
 
 ## 0. 结论
@@ -13,7 +13,7 @@
 
 | 表 | 代码位置（本基线） | 真正的判定维度 | 能否由 method+path 派生 |
 |---|---|---|---|
-| `required_pat_scope` / `repo_scope_for` | `crates/rg-http/src/lib.rs:2076` / `:2137` | 读 vs 写、`/collaboration/**` 写走 `repo:collab` | 能（前缀族表 `:2106-2127`） |
+| `required_pat_scope` / `repo_scope_for` | `crates/rg-http/src/lib.rs:2076` / `:2137`（**R1 后：`required_pat_scope` 在 `:2079`，`repo_scope_for` 已删除**，前缀族表迁 `route_meta.rs:704-751`） | 读 vs 写、`/collaboration/**` 写走 `repo:collab` | 能（前缀族表 `:2106-2127`） |
 | `path_in_allowlist` 的拒绝表 | `crates/rg-core/src/auth/pat_scope.rs:174`，拒绝模式在 `:189` | **请求体里是否引用别的仓库** | **不能**：同一条路由换个体就换结论 |
 | `ref_limited_write_allowed` | 同上 `:301`，放行集合 `:312-335` | 操作会不会移动 ref **且** handler 自己查分支 | **不能**：后半句是代码事实 |
 | `idempotency_supported` | `crates/rg-http/src/idempotency.rs:64` | 响应里是否含令牌/秘密 + 是否创建型 | 能（但只能人工审出「有没有秘密」） |
@@ -45,7 +45,7 @@
 **③ 「未声明即拒绝能防漂移」——部分成立，且这一层今天已经在生效。**
 - `path_in_allowlist`：路径不在名单内仓库下、或命中拒绝模式 → `false`（`:174-191`）。
 - `ref_limited_write_allowed`：不落在 `:312-335` 的 `matches!` 里 → `false`。
-- `required_pat_scope`：未知前缀 → `Some("admin")`（`crates/rg-http/src/lib.rs:2127`，「Fail closed: a PAT must not reach an unrecognised route by default」）。
+- `required_pat_scope`：未知前缀 → `Some("admin")`（R1 后落在 `crates/rg-core/src/auth/route_meta.rs:750`（`family_scope` 末行，原 `lib.rs:2127`），`/api-docs`、`/health`、`/metrics` 在 `:706` 先 `return None`；「Fail closed: a PAT must not reach an unrecognised route by default」）。
 
 所以「忘记登记」的后果是**被拒**，不是被放行。真正会漏的是：某条路由**已经登记**，但它的 handler 后来改了、不再检查分支。这类漂移靠 `ref_effect` 字段也发现不了，只能靠测试把「登记的放行集合」与「实际调用 `ensure_token_may_write_branch` 的路由」对齐（§7）。
 
@@ -55,12 +55,12 @@
 |---|---|---|---|
 | capability 数 | 30 | **27** | `grep -c '^    Capability {'`（REGISTRY 段） |
 | 注册路由数 | 78 | **82** | 括号匹配计数（`r(` 起点逐个匹配到闭合 `)`）；`grep -c '^\s\+r('` 只得 **75**，漏 7 处 `routes: &[r(` |
-| 不同路径数 | 无 | **65** | 82 条路由按 `path` 去重；差额 17 = 17 个「同路径多方法」族。**不要用行首计数**：本基线 `grep -c '^\s\+r('` 只得 75（**现状 70**——R1 把 5 条跨仓路由改成 `x(` 构造器，`capabilities.rs:559`/`:564`/`:569`/`:574`/`:579`）⇒ 82 = 75 或 70 行首 `r(` + 7 处 `routes: &[r(` 内联形 + 0 或 5 处 `x(`（现状三口径去重后分别是 54 / 7 / 4 个路径，合计 65）；`:159`/`:160` 的路径仍是 `const SESSIONS`，行内无字面量 |
+| 不同路径数 | 无 | **65** | 82 条路由按 `path` 去重；差额 17 = 17 个「同路径多方法」族。**不要用行首计数**：本基线 `grep -c '^\s\+r('` 只得 75（**现状 70**——R1 把 5 条跨仓路由改成 `x(` 构造器，`capabilities.rs:559`/`:564`/`:569`/`:574`/`:579`）⇒ 两套并列读法都等于 82：`1c0a87e` = 行首 `r(` **75** + `routes: &[r(` 内联 **7** + `x(` **0**；现状 = 行首 `r(` **70** + 内联 **7** + `x(` **5**（现状三口径去重后分别是 54 / 7 / 4 个路径，两两交集为空，合计 65）；`:159`/`:160` 的路径仍是 `const SESSIONS`，行内无字面量 |
 | 全站 `.route()` | 298 | **342**（`rg-http/src/lib.rs` 单独 **323**；它自己的基线 `cba96ba` 上是 320） | `grep -rn '\.route(' --include=*.rs crates/ \| wc -l` |
 | 「1200 个判断点」（298×4） | 1192 | **328**（82×4）；只做 P0 是 **164**（82×2） | 同上 |
 | `path_in_allowlist` 位置 | `pat_scope.rs:293` | **`:174`**，拒绝表 `:189`；`:293` 落在 `ref_limited_write_allowed` 的文档注释里 | `grep -n '^pub fn path_in_allowlist'` |
 | `ref_limited_write_allowed` 位置 | `:300` | **`:299`** | `grep -n '^pub fn ref_limited_write_allowed'` |
-| `required_pat_scope` / `repo_scope_for` | `lib.rs:2064` / `:2125` | **`crates/rg-http/src/lib.rs:2076`** / **`:2137`** | `grep -n 'fn required_pat_scope\|fn repo_scope_for'` |
+| `required_pat_scope` / `repo_scope_for` | `lib.rs:2064` / `:2125` | **`crates/rg-http/src/lib.rs:2076`** / **`:2137`**（R1 后 `required_pat_scope` 在 `:2079`；**`repo_scope_for` 已删除**） | `grep -n 'fn required_pat_scope'`；`grep -rn 'fn repo_scope_for' crates/` = **0** |
 | `idempotency_supported` | `idempotency.rs:64` | `:64` ✅ | 原文即 `pub fn idempotency_supported(path: &str) -> bool {` |
 | `REGISTRY` 覆盖范围 | 只覆盖 `/collaboration/**` | ✅ 82 条路径全部含 `/collaboration` | 逐条列举 |
 | 建议的 `Route` 代码块 | `／/ ↓ 新增` | 全角斜杠，**编译不过** | 复制进 `rustc` 即报错 |
