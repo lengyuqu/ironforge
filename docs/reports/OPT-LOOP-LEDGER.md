@@ -2175,3 +2175,45 @@ protocol=v0.12
 - **回填**：改动 SHA 与回帖 id 见本节末「改动 SHA / 回帖（回填）」段。issue #35 **保持 open**（单发轮不 close）。
 
 **改动 SHA / 回帖（回填）**：`a41b327`（5 文件 `113+/9−`，**零代码行为改动**：`crates/` 只有 `human_notify.rs` 两处注释、文件仍 259 行）；推 `cnb` 单 remote（`721ab16..a41b327  HEAD -> main`）；`merge-base --is-ancestor` 通过，主工作区 `merge --ff-only` 到 `a41b327`、`status --porcelain` 0 行。**改后验证**：`scripts/check.sh --quick` `EXIT=0` **70 s**（`Finished dev profile [unoptimized + debuginfo] target(s) in 1m 08s` / `==> checks passed in 70s (quick)`）；改前 **104 s** `EXIT=0`（`Finished … in 1m 42s`）。**时刻锚** = `git log -1 --format=%aI a41b327` = `2026-11-12T14:00:29+08:00`。**回帖** `2120758766785159168`（`2026-11-12T06:01:06Z`，46412 字节；回读首行 `## 本轮收尾`、次行 `protocol=v0.12`、末行独立 `@CodeBuddy`、反向清单 74 条编号独立成行且 1..74 连续无缺；发帖前后该 issue 的 `## 本轮收尾` 计数 0 → 1，无重复投递）。**首扫请求** `2120756694840922112`（`05:52:52Z`），`60 s × 5` 超时未回，按正文推进。**推票坑（第二次复现）**：`git push` 用 `username=oauth2` 报 `Repository Not Found`，同一 token 换 `username=cnb` 即成功。
+
+### 单发轮 · issue #36 · 2026-11-12（第 1 次进入；`[opt-round]` open = 0 ⇒ 第二段无对象）
+
+protocol=v0.12
+
+- **选靶依据**：17 条 open 全 MANUAL、`priority` 全空（任务书优先键失效，按协议 §5.2.1 用「消费次数 asc, 编号 asc」）。平台侧 `^## 本轮收尾` 计数（锚点 `body: "## 本轮收尾`）：`#14`=3、`#15`/`#16`/`#17`/`#18`/`#19`/`#33`/`#34`/`#35` 各 1，其余 8 条（`#36`–`#43`）**0** ⇒ 零消费里编号最小的 **#36**（`提交作者与推送者归因（T25）`，`comment_count` = 0）。`#19`/`#34`/`#35` 末条是本流程收尾（判据 A，等复核）⇒ 跳过。
+- **无 NPC 分析 ⇒ 先发只读首扫请求**：评论 `2120766935095750656`（`2026-11-12T06:33:33Z`），第二人称限定「你是评审者、只读、不写收尾标记、未跑就标未跑、行号以 `6d47c28` 为准」，并附 6 条待核断言。`60 s × 5` 到 `06:38:33Z` 平台上仍只有我方一条 ⇒ **按 issue 正文推进，不重复发**（协议 §5.2「#26–#29 的准备缺口」）。
+- **形态**：靶子是设计摘要（T25 提交作者与推送者归因）⇒ 本体是 L2（新函数 + 三个调用点 + push payload/审计面），本轮产出 = 核实现状断言 + 订正设计文档 6 行 + 新核实文档 + 登记 L2，**零代码行为改动**。
+- **BASE** `6d47c28`（`HEAD` 与 `cnb/main` 同 SHA、`ls-remote` 一致；另 8 个 worktree 15 min 内零新文件 ⇒ 无并发写者）。改前 `scripts/check.sh --quick` **125 s EXIT=0**（`Finished dev profile [unoptimized + debuginfo] target(s) in 2m 03s` / `==> checks passed in 125s (quick)`）。
+- **判定分布**：23 条现状断言 = **成立 12 / 部分成立 6 / 不成立 5**。全表见 `ironforge-docs/architecture/commit-identity-verification-2026-11.md` §2。
+
+| # | 它说的 | 判定 | 证据 |
+|---|---|---|---|
+| N1 | `repo_content.rs:1460-1478` 把 `&user.username`/`&user.email` 传给 `create_or_update_file_with` | **成立**（区间短 2 行） | `:1470`/`:1471` 是那两个实参；调用 `:1460` 起、参数表 `:1480` 的 `)` 收口 |
+| N3 | 后者到 `ops.rs:1333` 用同一 signature 作 author 和 committer | **部分成立** | 语义成立（`:1579-1585` 构造一个 `signature`，`:1587` = `new_commit_as(signature, signature, …)`）；**行号错**：`:1333` 是 `plan_tree_edits` 返回结构里的 `tree: new_tree.to_string(),` |
+| N4 | 零 `kind` 分支 | **成立** | `ops.rs` 的 16 处 `kind` 全是 `gix::object::Kind` 或 `entry.mode().kind()`（`:74`/`:612`/`:683`/`:983`/`:1168`/`:1519`），无 `users.kind`/`is_agent` |
+| N6 | 「分支未合并，无存量需回填」 | **不成立** | 同文件 `:39` 标题即「第一期现状（分支 `feat/agent-principals`，**已合 main**）」；`m20261110_000001`、`agent.rs`、`api/agents.rs` 全在树里 |
+| N9 | 「`repo_content.rs` 两个调用点（:1460、删除 :1571）」 | **不成立** | 三处：`:1460`、`:1600`（`delete_file_with`）、`api/repo_commits.rs:174`（`commit_batch`）；`:1571` 是 handler `delete_file` 的**声明** |
+| N10 | 归因靠审计（T23） | **部分成立** | `audit_log.rs` 的 `on_behalf_of` **0 命中**；全仓唯一命中是 `agent.rs:23` 的 doc 注释 ⇒ T23 未落地 |
+| N13 | `spawn_post_push_hooks`（`lib.rs:3190`） | **部分成立** | 真值 `:3202`；`:3190` = `StatusCode::GATEWAY_TIMEOUT,` |
+| N14 | 它写的 `repo_events` payload 带推送者 id | **不成立** | payload（`lib.rs:3505-3513`）键只有 `ref/before/after/repository`；`PostPushParams`（`:3246-3260`）无 actor 字段 |
+| N15 | 审计行带推送者 id | **不成立** | `record_write` 全仓 12 处无一在 push 路径；`"repo.push"` 0 命中；push 内唯一审计是分支删除（`lib.rs:3108`） |
+| N16 | 「缺则补 `pushed_by`」 | **成立（要改签名）** | 推送者 id 调用点已有（`:3109` 的 `if let Some(user_id) = actor`）⇒ 透传可行，但 `spawn_post_push_hooks`/`PostPushParams` 签名变更属 L2 |
+| N19 | 测试断言 `on_behalf_of = owner` | **部分成立** | `user_id = agent` 今天可断言（`:1515-1518`）；`on_behalf_of` blocked-by-T23 |
+| N22 | 完成口径「新 SQL 跨后端跑一次」 | **部分成立** | 基建在（`tests/common/mod.rs:251`、`collab_common/mod.rs:37`、`rg-core/tests/multi_backend_smoke.rs`），但本方案零新 SQL ⇒ 无对象 |
+
+- **最贵的一条（N9/F1）**：提交入口是**三处**不是两处。`2026-11-11` 合入的批量提交（issue #16 的落地）在 `api/repo_commits.rs:174` 走 `commit_batch(..., &user.username, &user.email, ...)`（`:185-186`），而设计文档快照早于它。按原文只改 `repo_content.rs`，agent 走 `POST …/commits` 仍会写出 `agent-<uuid>@agents.invalid`。**判据（可复用）**：判「改提交身份要动几处」数**服务端 commit 入口**（`create_or_update_file_with` / `delete_file_with` / `commit_batch`）的调用点，别数字段出现在哪些文件。
+- **第二处产出（F2/F3）**：「谁推的可查」今天**完全不存在**，不是补字段：① push 无任何审计行（`record_write` 12 处无 push，`"repo.push"` 0 命中）；② payload 无推送者；③ `repo_events` 表无主体列（`entities/repo_event.rs:9-17` 只有 `id/repo_id/event_type/payload/created_at`）⇒ 塞 payload 等于放弃按主体筛选，与 T23 已定的「不塞 `details`（JSON 无法索引）」同一条原则相抵。**判据**：判「某事件带不带某主体」三层查——表有没有列 → payload 有没有键 → 有没有审计行；三层全缺时「确认已有」是假命题。
+- **第三处产出（F4）**：服务端 merge/replay 的 committer 硬编码 `IronForge <noreply@ironforge.local>`（`ops.rs:309-313`），author 保留原提交者（`:378-389`）⇒ agent 的 PR 被服务端合并时 git 层看不出「谁点的合并」。不在 T25 范围，另开题（R36-6）。
+- **好消息（F5）**：`agent_principal_tests.rs:290` 只断言 `ends_with("@agents.invalid")`，不锁 `agent-<uuid>` 前缀 ⇒ 派生方案不破现有测试，只需补 author 断言。
+- **新 L2**：**R36-1**（P2，落地范围＝三处入口 + `commit_identity` 复用 `is_agent`，别写第 4 份 agent 判定）；**R36-2**（P2，`pushed_by` 落点：payload / 新审计 action `repo.push` / `repo_events` 加 `actor_id` 列 —— 三者取舍）；**R36-3**（**P1**，「谁推的可查」是新能力而非补字段，不能按 S（2–3 小时）估）；**R36-4**（P3，存量 agent 回填裁决；本机 `ironforge.db` 未迁移到 `m20261110_000001`，`select … where kind='agent'` 报 `no such column` ⇒ 无法用本机库证明存量）；**R36-5**（P3，注册侧不拒 `.invalid` 域，`user/service.rs:602` 只校验 local/domain 非空 ⇒ 理论上可先占字面地址使 `create_agent` 409）；**R36-6**（P3，merge/rebase committer 固定 `IronForge`，合并者归因另开题）。
+- **改动（WT 内 commit）**：新建 `ironforge-docs/architecture/commit-identity-verification-2026-11.md`（23 条判定 + F1–F6 + R36-1…R36-6 + 复核命令）；`agent-principals-design-and-roadmap-2026-11.md` **6 处各 1 行 → 1 行**（`:371` 的 `ops.rs:1333`→`:1579-1587` 与区间 `1478`→`1480`、`:375` 的「分支未合并」→「已合 main + 不回填历史 commit」、`:376` 两处调用点→三处、`:377` 补「T23 未落地 + REST 三处写有审计行」、`:378` 补 `lib.rs:3202`/`PostPushParams` 无 actor/push 无审计行/actor 可用、`:380` 测试改 blocked-by-T23），文件仍 **668 行**、行号零漂移；`ironforge-docs/README.md` 索引 +1 行。**零代码行为改动**。
+- **反向清单 75–78**；清单累计 **1..78**。
+75. 「分支未合并，无存量需回填（若已合则只在提交时派生）」（设计文档 §4 T25 方案 1）—— **不成立**：同文件 §2 标题即「第一期现状（分支 `feat/agent-principals`，已合 main）」，迁移 `m20261110_000001` 与 `rg-core/src/agent.rs` 都在树里。**勿再以「未合并、无存量」为前提跳过回填裁决**（存量为「无」要有生产库证据，本机库未迁移）。
+76. 「`repo_content.rs` 的两个调用点就是全部提交入口（创建/更新 :1460、删除 :1571）」（设计文档 §4 T25 方案 2）—— **不成立**：`api/repo_commits.rs:174` 的 `commit_batch` 是第三个入口（`:185-186` 同样传 `&user.username`/`&user.email`），而 `:1571` 是 handler 声明、调用在 `:1600`。反证：`grep -rn "commit_batch(\|create_or_update_file_with(\|delete_file_with(" crates/rg-http/src/api/`。
+77. 「`spawn_post_push_hooks` 写的 `repo_events` payload 带推送者 id」—— **不成立**：payload（`lib.rs:3505-3513`）只有 `ref/before/after/repository`，`PostPushParams`（`:3246-3260`）无 actor 字段。反证：`sed -n '3505,3514p;3246,3260p' crates/rg-http/src/lib.rs`。
+78. 「审计行带推送者 id（push 已有审计）」—— **不成立**：`audit::record_write` 全仓 12 处无一在 push 路径，`"repo.push"` 0 命中；push 内唯一审计是分支删除（`lib.rs:3108`）。反证：`grep -rn '"repo.push"' crates/ ; grep -c 'audit::record_write(' -r crates/ | grep -v ':0'`。
+- **terminate**：`2 · 剩余未闭合项全部登记为 L2（R36-1…R36-6）待人工拍板`。按任务书**单发轮不 close**，留人工按判据 2 关闭。
+- **producer-stall**：`[opt-round]` 最近一批 `#31` 的 `closed_at` = `2026-11-11T13:09:01Z`，至本轮取证（`2026-11-12T06:40Z`）已 **17 h 31 m** 零新批（协议 §11 风险 10 的 180 min 与 6 h 阈值均已越过）⇒ 生产者两条 automation 需人工查；消费者无写权限，只记不改。第二段因此**无对象**（不是「队列为空」——手工队列仍剩 16 条）。
+- **回填**：改动 SHA 与回帖 id 见本节末「改动 SHA / 回帖（回填）」段。issue #36 **保持 open**（单发轮不 close）。
+
+**改动 SHA / 回帖（回填）**：待填（本轮提交后回写）。

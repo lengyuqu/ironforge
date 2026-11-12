@@ -368,16 +368,16 @@ pub async fn accountable_user(db: &DatabaseConnection, user_id: i64) -> CoreResu
 
 **目标**：agent 的提交在 `git log` 里显示为 agent，且能看出代表谁。
 
-**现状（核实）**：`repo_content.rs:1460-1478` 把 `&user.username` / `&user.email` 直接传给 `create_or_update_file_with`（`repo/service.rs:1799`），后者到 `rg-git/src/ops.rs:1333` 用同一 signature 作为 **author 和 committer**。**零 `kind` 分支**。agent 的 `email` 是 `agent-<uuid>@agents.invalid`（uuid 不可读、不稳定）。
+**现状（核实）**：`repo_content.rs:1460-1480` 把 `&user.username` / `&user.email` 直接传给 `create_or_update_file_with`（`repo/service.rs:1799`），后者到 `rg-git/src/ops.rs:1579-1587` 用同一 signature 作为 **author 和 committer**（`new_commit_as(signature, signature, …)`）。**零 `kind` 分支**。agent 的 `email` 是 `agent-<uuid>@agents.invalid`（`agent.rs:169`，uuid 不可读、不稳定）。
 
 **方案**：
 
-1. 邮箱改为**由用户名派生**：`agent.rs` 创建时写 `format!("{username}@agents.invalid")`，即 `alice-agent-bot@agents.invalid`。分支未合并，无存量需回填；若已合并则只在提交时派生，不动库。
-2. 新增 `rg_core::agent::commit_identity(user) -> (String, String)`：agent → `(username, "<username>@agents.invalid")`；人类 → `(username, email)`。`repo_content.rs` 两个调用点（创建/更新 :1460、删除 :1571）改用它。
-3. **不加 `Co-authored-by` trailer**（默认噪音大于收益）；归因靠审计（T23）+ 仓库事件。
-4. **git push**：作者字段由客户端控制，服务端改不了也不该改（影响签名与校验）。只保证"谁推的"可查：确认 `spawn_post_push_hooks`（`lib.rs:3190`）写的 `repo_events` payload 与审计行带推送者 id；缺则补 `pushed_by`。
+1. 邮箱改为**由用户名派生**：`agent.rs` 创建时写 `format!("{username}@agents.invalid")`，即 `alice-agent-bot@agents.invalid`。**分支已合 main**（§2 标题即「已合 main」，迁移 `m20261110_000001` 在树里）⇒ 只在提交时派生，不动库、不回填历史 commit；存量 agent 行数待生产库确认（R36-4）。
+2. 新增 `rg_core::agent::commit_identity(user) -> (String, String)`（复用 `is_agent`，`agent.rs:48`）：agent → `(username, "<username>@agents.invalid")`；人类 → `(username, email)`。调用点是**三处**，不是两处：`repo_content.rs:1460`、`repo_content.rs:1600`，以及批量提交 `api/repo_commits.rs:174`（`commit_batch`）。
+3. **不加 `Co-authored-by` trailer**（默认噪音大于收益）；归因靠审计（T23，**未落地**：`audit_log` 无 `on_behalf_of_user_id` 列）+ 仓库事件（REST 三处写已有 `repo.file_commit` / `repo.file_delete` / `repo.batch_commit` 审计行）。
+4. **git push**：作者字段由客户端控制，服务端改不了也不该改（影响签名与校验）。只保证"谁推的"可查：现状**不具备**——`spawn_post_push_hooks`（`lib.rs:3202`）的 `PostPushParams` 无 actor 字段、push payload（`lib.rs:3505-3513`）只有 ref/before/after/repository、push 路径**没有任何审计行**；推送者 id 在调用点已有（`lib.rs:3109` 的 `actor`），补 `pushed_by` 需改签名（R36-2 / R36-3）。
 
-**测试**：agent REST 提交 → `git log --format=%an <%ae>` 为 agent 名与派生邮箱；人类提交不变；audit 行 `user_id = agent`、`on_behalf_of = owner`；push 事件带推送者。
+**测试**：agent REST 提交（单文件与批量提交两条路由都要覆盖）→ `git log --format=%an <%ae>` 为 agent 名与派生邮箱；人类提交不变；audit 行 `user_id = agent` 今天即可断言，`on_behalf_of = owner` **blocked-by-T23**；push 事件带推送者需先落地 R36-2。
 
 **规模** S（2–3 小时）。
 
