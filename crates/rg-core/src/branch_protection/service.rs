@@ -423,7 +423,7 @@ pub async fn check_direct_commit_allowed(
     Ok(())
 }
 
-/// Check if a PR merge is allowed under branch protection rules.
+/// Check if a PR merge is allowed. `require_status_check` with a null or unparsable `required_status_checks` checks nothing, so the merge passes — fail open (R17-1).
 pub async fn check_merge_allowed(
     db: &DatabaseConnection,
     repo_id: i64,

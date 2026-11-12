@@ -507,7 +507,7 @@ enum TreeEdit { SetFile { path, content, expected_blob_sha }, RemoveFile { path 
 
 #### R5 可合并性与冲突详情
 
-**核实现状**：`ai_pr_context.rs:386` 确有 `"not_evaluated": ["mergeable", "branch_protection"]`；`merge_pr`（`pulls.rs:549`）只检查 draft / 保护 / 状态 / `expected_head_sha` 就直接合，**无冲突预检**；`pulls.rs:627-629` 的 dry-run 注释直说"冲突只有真合才知道"。`merge_trees` 是 gix API（`rg-git/src/ops.rs:350`，用于 rebase），合并路径用 `merge_commits`（`pull_request/service.rs:1943`）。
+**核实现状**：`ai_pr_context.rs:386` 确有 `"not_evaluated": ["mergeable", "branch_protection"]`；`merge_pr` handler（`pulls.rs:550`）只检查 draft / 保护 / 状态 / `expected_head_sha` 就直接合，**无冲突预检**（状态在 handler `:609` 与 core `service.rs:1321` 各查一次）；`pulls.rs:628-629` 的 dry-run 注释直说"冲突只有真合才知道"。`merge_trees` 是 gix API（`rg-git/src/ops.rs:351`，用于 rebase 重放），合并路径用 `merge_commits`（`pull_request/service.rs:1943`）。端点与字段以 `merge-readiness-current-state-2026-11.md` §6 的裁决为准（本段的 `/mergeability` 与之冲突）。
 
 **方案**：`GET /repos/{o}/{r}/pulls/{n}/mergeability` 返回
 

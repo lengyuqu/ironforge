@@ -945,7 +945,7 @@ git -c protocol.version=2 clone --depth=1 ...
 
 ## 反向清单索引（编号总数与去处；清单实体不在本节）
 
-清单实体在上文 `## 批次索引` 块内的 `### 判定不成立` 小节，本节只维护编号总数与去处（本清单已累计 **1..65** 条；36–38 见 `consume 6 / 6（batch#4）` 节，39–40 见 `consume 1 / 6（batch#5）` 节，41 见 `consume 2 / 6（batch#5）` 节，42–43 见 `consume 3 / 6（batch#5）` 节，44 见 `consume 4 / 6（batch#5）` 节，45–46 见 `consume 5 / 6（batch#5）` 节（46 由「单发轮 #13 三次消费」轮写入、物理落在该节末，勿去那一节找正文），47–49 见 `单发轮 · issue #13 · 2026-11-11（第 4 次消费）` 节，50–51 见 `单发轮 · issue #13 · 2026-11-11（第 6 次消费）` 节，52–55 见 `单发轮 · issue #14 · 2026-11-12` 节（第 7 次消费），56–58 见 `单发轮 · issue #14 · 2026-11-12（第 8 次消费…）` 节，59–60 见 `…（第 9 次消费…）` 节（原写「见本节」是从索引行自身出发的错指针，已就地订正），61 见 `单发轮 · issue #33 · 2026-11-12` 节，62–63 见 `单发轮 · issue #15 · 2026-11-12` 节，64–65 见 `单发轮 · issue #16 · 2026-11-12` 节）。本行原为开批时的占位「（暂无）」，已失效并就地订正，勿再当「无任何不成立条目」读
+清单实体在上文 `## 批次索引` 块内的 `### 判定不成立` 小节，本节只维护编号总数与去处（本清单已累计 **1..68** 条；36–38 见 `consume 6 / 6（batch#4）` 节，39–40 见 `consume 1 / 6（batch#5）` 节，41 见 `consume 2 / 6（batch#5）` 节，42–43 见 `consume 3 / 6（batch#5）` 节，44 见 `consume 4 / 6（batch#5）` 节，45–46 见 `consume 5 / 6（batch#5）` 节（46 由「单发轮 #13 三次消费」轮写入、物理落在该节末，勿去那一节找正文），47–49 见 `单发轮 · issue #13 · 2026-11-11（第 4 次消费）` 节，50–51 见 `单发轮 · issue #13 · 2026-11-11（第 6 次消费）` 节，52–55 见 `单发轮 · issue #14 · 2026-11-12` 节（第 7 次消费），56–58 见 `单发轮 · issue #14 · 2026-11-12（第 8 次消费…）` 节，59–60 见 `…（第 9 次消费…）` 节（原写「见本节」是从索引行自身出发的错指针，已就地订正），61 见 `单发轮 · issue #33 · 2026-11-12` 节，62–63 见 `单发轮 · issue #15 · 2026-11-12` 节，64–65 见 `单发轮 · issue #16 · 2026-11-12` 节，66–68 见 `单发轮 · issue #17 · 2026-11-12` 节）。本行原为开批时的占位「（暂无）」，已失效并就地订正，勿再当「无任何不成立条目」读
 
 ---
 
@@ -2032,3 +2032,33 @@ protocol=v0.11
 **对方误差（非结论位置，勿当结论引用）**：①`ops.rs:1181`（`TreeEdit`）/`:1212`（`commit_tree_edits`）在它读的 `2ffe7e8` 树上**全对**——实施后变 `:1182`/`:1533`，这是插行不是错；②`repo/service.rs:1963`（`update_files_in_commit`）在 `2ffe7e8` 树上也是 **`:1980`**，偏 17 行；③`repo_content.rs:1408/1546`（contents 写两 handler）真值 **`:1431`/`:1571`**，偏 23/25；④`pulls.rs:56 附近`（`MergePrRequest`）真值 **`:115`**。
 
 **改动 SHA / 回帖（回填）**：`25fec59`（4 文件 `128+/4−`，**零代码**）；推 `cnb` 单 remote（`6aaf77f..25fec59  HEAD -> main`）；`merge-base --is-ancestor 25fec59 cnb/main` 通过，主工作区 `merge --ff-only` 到 `25fec59`、`status --porcelain` 0 行。**改后验证**：`scripts/check.sh --quick` `EXIT=0` **2 s**（`==> checks passed in 2s (quick)`）；**原子性实证**（本机实跑）：`cargo test -p rg-http --test batch_commit_tests` = `10 passed; 0 failed; 0 ignored`（编译 `1m 01s`、运行 `1.08s`）。**时刻锚** = `git log -1 --format=%aI 25fec59`。**回帖** `2120676176526991360`（`2026-11-12T00:32:55Z`，13687 字符；回读首行 `## 本轮收尾`、次段 `protocol=v0.11`、末段独立 `@CodeBuddy`、反向清单 65 条编号独立成行）。issue #16 **保持 open**（单发轮不 close）。**第二段**：open 17 条里 `[opt-round]` = **0** ⇒ 无对象，本段不跑（非「队列为空」——手工队列仍有 16 条待清）。。
+
+### 单发轮 · issue #17 · 2026-11-12（第 1 次进入；`[opt-round]` 仍 0 ⇒ 第二段无对象）
+
+- **选靶依据**：17 条 open 全 MANUAL，`priority` 全空（任务书的优先键失效，按协议 §5.2.1 用「消费次数 asc, 编号 asc」）。平台侧 `^## 本轮收尾` 计数：`#14`=3、`#15`=1、`#16`=1、`#33`=1，其余（`#17`/`#18`/`#19`/`#34`–`#43`）**0** ⇒ 零消费里编号最小的 **#17**。`pulls list-pulls --state open` = **0 条**（`#16`/`#18` 曾有的 PR #23/#20 已不在），无「已开工」冲突。`#17` 的 `comment_count` = 1（NPC 细化方案 `2120150507300745216`，15403 字符），不需要首扫请求。
+- **形态**：靶子是**设计题**（`GET …/merge-readiness` + `POST …/update-branch` + 冲突区块）⇒ 本体是 L2（新端点、OpenAPI、权限语义），本轮产出 = 核实现状 + 订正文档/一处注释 + 登记 L2，**零代码行为改动**。
+- **BASE** `ae11e36`（`HEAD...cnb/main` = `0 0`，零漂移）。改前 `scripts/check.sh --quick` **117 s EXIT=0**（`==> checks passed in 117s (quick)`）。
+- **判定分布**：NPC 33 条现状断言 = **成立 20 / 部分成立 10 / 不成立 3**，另 1 条术语订正（`consistency: "live"` 应为既有词表 `per_section_live_read`）。
+
+判定表（只列关键 7 条，全表见 `ironforge-docs/architecture/merge-readiness-current-state-2026-11.md` §2）：
+
+| # | 它说的 | 判定 | 证据 |
+|---|---|---|---|
+| N3 | 前置校验分散在 `pulls::merge_pr`（draft / 状态 / 保护 / `expected_head_sha`）与 `check_merge_allowed`（签名 / 批准数 / CI） | **成立** | handler `pulls.rs:556` `require_write` / `:571` draft / `:609` 状态 / `:574` 保护 / `:597` 期望 head；保护三类在 `branch_protection/service.rs:427`。**我方一度误判它错**（以为状态只在 core `service.rs:1321`），`awk` 打 `pulls.rs:609` 后当场改回——状态是**查两次**，不是「不在 handler」 |
+| N7 | `count_current_approvals` 以 `commit_id == head_sha` 过滤 | **部分成立** | 函数名是 `pr_review_ops::count_current_human_approvals`（`rg-db/src/ops/pr_review_ops.rs:57`）；`commit_id == Some(head_sha)`（`:74`）成立，但它漏了两条决定性语义：每 reviewer **只取最后一条**（`:62-68`，后到的 `request_changes` 顶掉 `approve`）、**只算 `kind = human`**（`:84-86`） |
+| N8 | `require_status_check=true` 但 `required_status_checks` 为 null 时「只要求整体 success」 | **不成立** | `branch_protection/service.rs:467-469` 是三层层进：`require_status_check` → `Some(json)` → `if let Ok(Vec<String>)`。null 直接跳过、**什么都不查**，连「整体 success」都不要 ⇒ 与「坏 JSON 放行」（N9，成立）并列构成**两个静默放行口** |
+| N13 | `content_merge()` / `Resolution::Conflict`；括注「`CompleteWithAutoResolvedConflict` 是有 marker 但已自解」 | **部分成立** | API 名与返回值对（`gix-merge-0.23.0/src/tree/mod.rs:297`/`:420`）；括注**错**：该变体原文是 "complete and **free of conflict markers**"（`src/blob/mod.rs:22-25`），带 marker 的只有 `Conflict` |
+| N14 | `ResolutionFailure` 变体直接映射 `kind`，列 5 个 | **部分成立** | enum 共 **11** 个变体（`src/tree/mod.rs:367-413`），它只覆盖 5；且它 §2 的 `kind` 七值里 `mode`、`add_add` **无任何变体产出**（模式冲突并入 `type_mismatch` 族），`unsupported` 只由 `Unknown` 产出 |
+| N15 | 区块用「冲突时写进对象库的 marker blob」，不重新 diff | **成立** | gix-merge 树合并通过 `write_blob_to_odb` 落库（`src/tree/function/resolve.rs:35`、`:77`）。**这条按常识猜会判错**：`tree::Outcome` 的文档写「unwritten」（指**树**），blob 是写了的 |
+| N19 | `blob > 1 MiB` 的阈值「和 blame 的阈值一致」 | **不成立** | 本仓 blame（`rg-git/src/blame.rs`）无任何 size 上限常量；全仓 `1024 * 1024` 命中只有 issue 模板 / 附件 / 幂等缓存 / HTTP body limit |
+
+- **最贵的一条错**：N8 + N9 合并看，`require_status_check=true` 在「`required_status_checks` 为 null」与「JSON 坏了」两种配置下**都是放行**。它只报了后一种，且把前一种说成「只要求整体 success」——按它的说法去实现 readiness，会把一个「根本不查」的仓报成「查了但不全」，agent 侧会以为 CI 门在生效。
+- **发现的结构性冲突（本仓首次记）**：同一功能有**两份互相冲突的设计**——`ironforge-docs/architecture/agent-principals-design-and-roadmap-2026-11.md` §R5 用 `GET …/mergeability` + `{path,hunks}`/`{rule,ok,code}`/`{pending,failed}`，issue #17 用 `GET …/merge-readiness` + 机器码 + blocks。两者都未实现，但文档已经把两个端点名写死 ⇒ 谁先实现另一个就成死文档（R17-2）。
+- **改动（本流程在 WT 内 commit）**：新建 `ironforge-docs/architecture/merge-readiness-current-state-2026-11.md`（核实报告，33 条逐条 + 11 变体映射 + 端点冲突 + R17-1…R17-7）；`rg-core/src/branch_protection/service.rs:426` 文档行 1→1 改写（写明 null/坏 JSON 的 fail open，**零行号漂移**，文件仍 657 行）；`agent-principals-design-and-roadmap-2026-11.md:510` 1→1 订正行号（`:549`→`:550`、`:627-629`→`:628-629`、`:350`→`:351`）并指向 §6 裁决（文件仍 668 行）；`ironforge-docs/README.md` 索引 +1 行。
+- **新 L2（待拍板）**：**R17-1**（P1，`required_status_checks` 的两个静默放行口：readiness 报 `UNKNOWN` + 合并改 fail closed 会改变既有仓库合并行为）；**R17-2**（P1，端点/字段以哪份文档为准）；**R17-3**（P2，readiness 审批结论必须复用 `count_current_human_approvals`，否则与 `pulls.rs:574`/`service.rs:1115`/`merge_queue.rs:267` 三处漂移）；**R17-4**（P2，`kind` 补到 9 值 + `mode` 另读 `entries()`）；**R17-5**（P2，新增 `update_ref_if`，`PreviousValue::ExistingMustMatch`；`delete_ref_if:132` 用的是 `MustExistAndMatch`，不能直接抄）；**R17-6**（P2，fork PR 的 `update-branch` 要往他人仓库分支写，写权归属未定义）；**R17-7**（P3，`spawn_post_push_hooks` 是 `pub(crate)`（`rg-http/src/lib.rs:3202`），`update_branch` 若落 core 则 CI/webhook 静默不发）。
+- **反向清单 66–68**（三条不成立，见下）；清单累计 **1..68**。
+66. 「`require_status_check=true` 但 `required_status_checks` 为 null 时只要求整体 success」（issue #17 方案 §3 机器码表 + §九-1 两处）—— **不成立**：`branch_protection/service.rs:467-469` 三层层进，null 直接跳过、**不做任何判定**。真值是「两个静默放行口」：null 与坏 JSON。**已按现树核实，勿再以「整体 success」为前提做推论。**
+67. 「`blob > 1 MiB` 的 content 阈值和 blame 的阈值一致」（§四 上限段）—— **不成立**：本仓 blame（`rg-git/src/blame.rs`）无任何 size 上限；`1024 * 1024` 在本仓的命中全部属 issue 模板（`issue_template.rs:8`）、附件（`attachment.rs:12-13`）、幂等缓存（`idempotency.rs:45`/`:48`）、HTTP body limit（`lib.rs:528`/`:619`/`:823`）。阈值本身可自定，但不能称「与 blame 一致」。
+68. 「不登记 capability 注册表的话，`collab_contract_tests` 的防漂移测试会要求登记」（§七「不要碰的」段）—— **不成立**：`rg-http/tests/collab_contract_tests.rs:47-85` 的 `registered_collab_routes()` 在 `:79` 明确 `if !path.contains("collaboration") { continue; }`，新 pull 路由根本不在采集范围。结论（别塞进协作能力表）仍对，**理由错**。
+- **可复用判据（下轮直接用）**：① 判「某判定是否 fail open」不能只看有没有 `if let Ok`——要数**从字段到判定一共几层 `if`**，每一层 `Option`/`Result` 都是一次静默放行；本轮就是靠这个抓出 N8。② 判「gix 的合并产物是否落库」别信 `Outcome` 的 "unwritten"（那只说**树**），去搜 `write_blob_to_odb` 回调（`tree/function/resolve.rs:35`）。③ 判「契约测试会不会强制登记」得读它的**采集过滤器**，不能只看测试名（`collab_contract_tests.rs:79`）。
+- **回填**：改动 SHA 与回帖 id 见本节末「改动 SHA / 回帖（回填）」。issue #17 **保持 open**（单发轮不 close）。**第二段**：`[opt-round]` open = **0** ⇒ 无对象（非「队列为空」——手工队列仍剩 15 条）。
