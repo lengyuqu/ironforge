@@ -256,3 +256,87 @@ async fn only_repository_admins_can_manage_collaborators() {
         403
     );
 }
+
+/// Issue #43: updating addresses the collaborator row id, removing addresses the
+/// user id. Whatever the address, a target that is not a collaborator of this
+/// repository must be reported as 404 — never as success.
+#[tokio::test]
+async fn changing_or_removing_a_missing_collaborator_is_not_found() {
+    let (base, _db) = spawn_test_app_with_db().await;
+    register_bootstrap_admin(&base).await;
+    let (owner_token, _) = register_full(&base, "miss_owner", "miss_owner@example.com").await;
+    let (_, member_id) = register_full(&base, "miss_member", "miss_member@example.com").await;
+    let (_, bystander_id) =
+        register_full(&base, "miss_bystander", "miss_bystander@example.com").await;
+    create_repo(&base, &owner_token, "miss_repo").await;
+    let client = reqwest::Client::new();
+    let url = format!("{base}/api/v1/repos/miss_owner/miss_repo/collaborators");
+
+    let added = client
+        .post(&url)
+        .bearer_auth(&owner_token)
+        .json(&serde_json::json!({"user_id": member_id, "permission": "write"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(added.status(), 201);
+    let row_id = added.json::<serde_json::Value>().await.unwrap()["id"]
+        .as_i64()
+        .unwrap();
+
+    // Removing a user who is not a collaborator.
+    let response = client
+        .delete(format!("{url}/{bystander_id}"))
+        .bearer_auth(&owner_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 404, "bystander is not a collaborator");
+    // A user id that does not exist at all.
+    let response = client
+        .delete(format!("{url}/999999"))
+        .bearer_auth(&owner_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 404);
+    // Changing a collaborator row that does not exist.
+    let response = client
+        .patch(format!("{url}/999999"))
+        .bearer_auth(&owner_token)
+        .json(&serde_json::json!({"permission": "read"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 404);
+
+    // None of the misses touched the real collaborator.
+    let rows = client
+        .get(&url)
+        .bearer_auth(&owner_token)
+        .send()
+        .await
+        .unwrap()
+        .json::<Vec<serde_json::Value>>()
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0]["id"].as_i64(), Some(row_id));
+    assert_eq!(rows[0]["permission"], "write");
+
+    // The real removal succeeds once, then the same request is a miss.
+    let response = client
+        .delete(format!("{url}/{member_id}"))
+        .bearer_auth(&owner_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 204);
+    let response = client
+        .delete(format!("{url}/{member_id}"))
+        .bearer_auth(&owner_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 404, "already removed");
+}

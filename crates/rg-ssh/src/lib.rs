@@ -292,6 +292,18 @@ impl Handler for SshHandler {
 
         match rg_db::ops::ssh_key_ops::find_by_fingerprint(db, &fp_str).await {
             Ok(Some(key)) => {
+                // The key proves who the caller is, not that the account may
+                // still sign in: refuse a deactivated or deleted owner.
+                if !user_may_sign_in(db, key.user_id).await {
+                    tracing::warn!(
+                        user_id = key.user_id,
+                        "SSH pubkey auth rejected: account disabled"
+                    );
+                    return Ok(Auth::Reject {
+                        proceed_with_methods: None,
+                        partial_success: false,
+                    });
+                }
                 self.authenticated_identity = Some(AuthenticatedIdentity::User(key.user_id));
                 if let Err(error) = rg_db::ops::ssh_key_ops::touch_last_used(db, key.id).await {
                     tracing::warn!(key_id = key.id, error = %error, "failed to update SSH key usage time");
@@ -352,6 +364,15 @@ impl Handler for SshHandler {
             // An agent has no password and never signs in over SSH.
             Ok(Some(user)) if rg_core::agent::is_agent(&user) => {
                 tracing::warn!(username, "SSH password auth rejected: agent account");
+                Ok(Auth::Reject {
+                    proceed_with_methods: None,
+                    partial_success: false,
+                })
+            }
+            // A deactivated or deleted account is refused before its password
+            // is even checked, like `user::service::login` does (issue #43).
+            Ok(Some(user)) if !account_may_sign_in(&user) => {
+                tracing::warn!(username, "SSH password auth rejected: account disabled");
                 Ok(Auth::Reject {
                     proceed_with_methods: None,
                     partial_success: false,
@@ -797,6 +818,25 @@ fn parse_repo_owner_name(repo_path: &str) -> Result<(String, String)> {
     Ok((owner.to_string(), repo_name.to_string()))
 }
 
+/// Whether `user` may sign in at all: active and not deleted. An account that
+/// fails this has no SSH access, whatever credential it presents.
+fn account_may_sign_in(user: &rg_db::entities::user::Model) -> bool {
+    user.is_active && user.deleted_at.is_none()
+}
+
+/// [`account_may_sign_in`] for an id. Fails closed: a missing row or a database
+/// error means the account may not sign in.
+async fn user_may_sign_in(db: &DatabaseConnection, user_id: i64) -> bool {
+    match rg_db::ops::user_ops::find_by_id(db, user_id).await {
+        Ok(Some(user)) => account_may_sign_in(&user),
+        Ok(None) => false,
+        Err(error) => {
+            tracing::error!(user_id, %error, "DB error while checking the account state");
+            false
+        }
+    }
+}
+
 async fn authorize_git_service(
     db: &DatabaseConnection,
     service: &str,
@@ -808,6 +848,14 @@ async fn authorize_git_service(
     let repo = rg_core::repo::service::find_repo_by_owner_name(db, &owner, &repo_name)
         .await?
         .ok_or_else(|| anyhow::anyhow!("repository not found"))?;
+
+    // Authentication happened when the connection opened; the account may have
+    // been deactivated since, so check again for every git command.
+    if let AuthenticatedIdentity::User(actor_id) = identity {
+        if !user_may_sign_in(db, *actor_id).await {
+            anyhow::bail!("account is disabled");
+        }
+    }
 
     let allowed = match identity {
         AuthenticatedIdentity::User(actor_id) => match service {

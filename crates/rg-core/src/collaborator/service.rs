@@ -118,7 +118,11 @@ pub async fn update_permission(
     Ok(updated)
 }
 
-/// Remove a collaborator from a repo.
+/// Remove a collaborator from a repo, addressed by **user id** (unlike
+/// [`update_permission`], which takes the collaborator row id).
+///
+/// A user who is not a collaborator of this repository is reported as not found,
+/// so passing the wrong id never looks like a successful removal.
 pub async fn remove_collaborator(
     db: &DatabaseConnection,
     owner: &str,
@@ -126,7 +130,10 @@ pub async fn remove_collaborator(
     user_id: i64,
 ) -> CoreResult<()> {
     let repo = resolve_repo(db, owner, repo_name).await?;
-    repo_collaborator_ops::delete_by_repo_and_user(db, repo.id, user_id).await?;
+    let removed = repo_collaborator_ops::delete_by_repo_and_user(db, repo.id, user_id).await?;
+    if removed == 0 {
+        return Err(CoreError::not_found("collaborator not found"));
+    }
     crate::repo::service::invalidate_perm_cache_user(repo.id, user_id);
     Ok(())
 }
