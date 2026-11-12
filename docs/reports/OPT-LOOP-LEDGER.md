@@ -2420,6 +2420,6 @@ protocol=v0.13
 101. 「§3 判据：行首 `grep -c '^\s\+r('` 只得 75 条路由 / 58 个路径，差 7 处内联形」（我方 2026-11-12 写入）—— **不成立（R1 后过期）**：真值 **70 / 54**；82 = 70 行首 + 7 内联 + **5 处 `x(`**（`capabilities.rs:559`/`:564`/`:569`/`:574`/`:579`）。**已就地订正，勿再引 75/58。**
 102. 「台账索引行累计 1..83」—— **不成立（我方真错）**：实有 **1..98**（现 1..102），84–98 从未进去处表。已补齐。
 
-**验证**：`BASE=b79458b`（`HEAD` = `cnb/main` = `ls-remote` tip，`status --porcelain` 0 行）。改前 `scripts/check.sh --quick` **`EXIT=0`**（executor 本机 `Darwin arm64` / `cargo 1.99.1` / `2026-11-12T22:30Z` 起 **124 s**，``Finished `dev` profile [unoptimized + debuginfo] target(s) in 2m 02s`` / `==> checks passed in 124s (quick)`）。改后同命令结果见本节末回填。**复算环境无 `cargo` 时不可验。**
+**验证**：`BASE=b79458b`（`HEAD` = `cnb/main` = `ls-remote` tip，`status --porcelain` 0 行）。改前 `scripts/check.sh --quick` **`EXIT=0`**（executor 本机 `Darwin arm64` / `cargo 1.99.1` / `2026-11-12T22:30Z` 起 **124 s**，``Finished `dev` profile [unoptimized + debuginfo] target(s) in 2m 02s`` / `==> checks passed in 124s (quick)`）。改后同命令 `EXIT=0` **1 s**（``Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.24s`` / `==> checks passed in 1s (quick)`）。**复算环境无 `cargo` 时不可验。**
 
-**改动 SHA / 回帖（回填）**：见本节末尾回填提交。
+**改动 SHA / 回帖（回填）**：`18909d0`（2 文件 `65+/6−`；`crates/` 零行）。推 `cnb` 单 remote：`b79458b..18909d0`（`HEAD -> main`）；`merge-base --is-ancestor HEAD cnb/main` 通过，主工作区 `merge --ff-only` 到 `18909d0`、`status --porcelain` 0 行。时刻锚 = `git log -1 --format=%aI 18909d0`。**回帖** `2121009217485090816`（`2026-11-12T22:36:18Z`）；回读首行 `## 本轮收尾`、次行 `protocol=v0.13 · prompt=ironforge-consumer-v4`、末段独立 `@CodeBuddy`、反向 99–102 独立成行；该 issue 的 `## 本轮收尾` 计数 **3 → 4**，无重复投递。issue **保持 open**（本体是 R14-1 / R14-4 等 L2，单发轮只核实与登记）。
