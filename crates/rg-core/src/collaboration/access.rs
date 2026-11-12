@@ -21,6 +21,23 @@ pub async fn is_collab_member(
     user_id: i64,
 ) -> CollabResult<bool> {
     crate::repo::service::invalidate_perm_cache_user(repo.id, user_id);
+    // An agent is in the working group only if its owner is too: the checks
+    // below read the collaborator and organization tables directly, which
+    // would otherwise bypass the owner cap that `can_read_repo`/`can_write_repo`
+    // apply.
+    match crate::agent::owner_cap(db, user_id)
+        .await
+        .map_err(|e| CollabError::Internal(anyhow::anyhow!("{e}")))?
+    {
+        crate::agent::OwnerCap::None => {}
+        crate::agent::OwnerCap::Denied => return Ok(false),
+        crate::agent::OwnerCap::Owner(owner_id) => {
+            // The owner is a person, so this recurses at most once.
+            if !Box::pin(is_collab_member(db, repo, owner_id)).await? {
+                return Ok(false);
+            }
+        }
+    }
     if repo.owner_id == user_id {
         return Ok(true);
     }

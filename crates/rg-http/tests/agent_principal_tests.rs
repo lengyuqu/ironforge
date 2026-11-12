@@ -470,6 +470,226 @@ async fn an_agent_never_administers_a_repository() {
     assert!(w.can_read("alice/mine", &w.alice).await);
 }
 
+// ── Owner cap at the judgment points that do not go through `can_*_repo` ──
+//
+// Audit of issue #42: the collaborator table and the organization member table
+// are also read directly. Each of these tests puts the *agent* in a place its
+// owner is not in, and expects the agent to get nothing from it.
+
+/// Create an organization and return nothing; `jwt` becomes its owner.
+async fn make_org(w: &World, jwt: &str, name: &str) {
+    let (status, body) = w
+        .post(
+            "/orgs",
+            jwt,
+            json!({ "name": name, "visibility": "private" }),
+        )
+        .await;
+    assert_eq!(status, 201, "create org {name}: {body}");
+}
+
+async fn add_org_member(w: &World, jwt: &str, org: &str, user_id: i64, role: &str) {
+    let (status, body) = w
+        .post(
+            &format!("/orgs/{org}/members"),
+            jwt,
+            json!({ "user_id": user_id, "role": role }),
+        )
+        .await;
+    assert!(
+        status.is_success(),
+        "add {user_id} to {org}: {status} {body}"
+    );
+}
+
+#[tokio::test]
+async fn an_agent_in_an_org_its_owner_is_not_in_sees_nothing_of_it() {
+    let w = world().await;
+    let (agent, agent_id) = w.agent(&w.alice, "ci").await;
+    let token = w.agent_token(&w.alice, &agent, Some("repo")).await;
+
+    // Bob's private org, with a private repository, lists the agent as admin.
+    make_org(&w, &w.bob, "acme").await;
+    let (status, body) = w
+        .post(
+            "/repos",
+            &w.bob,
+            json!({ "name": "secret", "is_private": true, "org": "acme", "auto_init": true }),
+        )
+        .await;
+    assert_eq!(status, 201, "create org repo: {body}");
+    add_org_member(&w, &w.bob, "acme", agent_id, "admin").await;
+
+    // Alice, the agent's owner, is not a member: the agent sees none of it.
+    let (status, _) = w.get("/orgs/acme", &token).await;
+    assert!(!status.is_success(), "org page: {status}");
+    let (status, _) = w.get("/orgs/acme/members", &token).await;
+    assert!(!status.is_success(), "member list: {status}");
+    let (status, _) = w.get("/orgs/acme/teams", &token).await;
+    assert!(!status.is_success(), "team list: {status}");
+    let (status, mine) = w.get("/orgs", &token).await;
+    assert_eq!(status, 200);
+    assert!(!mine.to_string().contains("acme"), "org list: {mine}");
+    let (status, repos) = w.get("/repos/acme", &token).await;
+    assert_eq!(status, 200);
+    assert!(
+        !repos.to_string().contains("secret"),
+        "org repo list shows a private repo: {repos}"
+    );
+    assert!(!w.can_read("acme/secret", &token).await);
+
+    // Control: the same read by a person who is in the org works.
+    let (status, repos) = w.get("/repos/acme", &w.bob).await;
+    assert_eq!(status, 200);
+    assert!(repos.to_string().contains("secret"), "{repos}");
+
+    // Once the owner is a member the agent gets what its own role gives it …
+    add_org_member(&w, &w.bob, "acme", w.alice_id, "member").await;
+    let (status, body) = w.get("/orgs/acme", &token).await;
+    assert_eq!(status, 200, "{body}");
+    let (_, mine) = w.get("/orgs", &token).await;
+    assert!(mine.to_string().contains("acme"), "org list: {mine}");
+    let (_, repos) = w.get("/repos/acme", &token).await;
+    assert!(repos.to_string().contains("secret"), "{repos}");
+    assert!(w.can_read("acme/secret", &token).await);
+}
+
+#[tokio::test]
+async fn an_agent_with_an_org_admin_role_still_does_not_administer_the_org() {
+    let w = world().await;
+    let (agent, agent_id) = w.agent(&w.alice, "ci").await;
+    let token = w.agent_token(&w.alice, &agent, Some("repo")).await;
+
+    // Both the owner and the agent are admins of the organization.
+    make_org(&w, &w.bob, "acme").await;
+    add_org_member(&w, &w.bob, "acme", agent_id, "admin").await;
+    add_org_member(&w, &w.bob, "acme", w.alice_id, "admin").await;
+
+    // Whatever the role says, the agent cannot change membership or teams.
+    let carol = register_user(&w.base, "carol", "carol@example.com", PASSWORD).await;
+    let (_, me) = w.get("/users/me", &carol).await;
+    let carol_id = me["id"].as_i64().unwrap();
+    let (status, _) = w
+        .post(
+            "/orgs/acme/members",
+            &token,
+            json!({ "user_id": carol_id, "role": "member" }),
+        )
+        .await;
+    assert_eq!(status, 403, "add member as agent");
+    let (status, _) = w
+        .post(
+            "/orgs/acme/teams",
+            &token,
+            json!({ "name": "x", "permission": "write" }),
+        )
+        .await;
+    assert_eq!(status, 403, "create team as agent");
+    assert!(
+        !rg_core::org::can_admin_org(&w.db, 1, agent_id)
+            .await
+            .unwrap(),
+        "service-level answer"
+    );
+
+    // Control: its owner, the same role, can.
+    let (status, body) = w
+        .post(
+            "/orgs/acme/members",
+            &w.alice,
+            json!({ "user_id": carol_id, "role": "member" }),
+        )
+        .await;
+    assert!(status.is_success(), "owner adds a member: {status} {body}");
+}
+
+#[tokio::test]
+async fn an_agent_is_in_a_collaboration_group_only_if_its_owner_is() {
+    let w = world().await;
+    let (agent, agent_id) = w.agent(&w.alice, "ci").await;
+    let token = w.agent_token(&w.alice, &agent, Some("repo")).await;
+
+    // A public repository: readable by all, but collaboration data is not.
+    let (status, body) = w
+        .post(
+            "/repos",
+            &w.bob,
+            json!({ "name": "pub", "is_private": false, "auto_init": true }),
+        )
+        .await;
+    assert_eq!(status, 201, "create repo: {body}");
+    w.grant(&w.bob, "bob/pub", &agent, "read").await;
+
+    let tasks = "/repos/bob/pub/collaboration/tasks";
+    // The agent is a collaborator, its owner is nobody here.
+    let (status, _) = w.get(tasks, &token).await;
+    assert_eq!(status, 403, "agent with no owner grant");
+    let repo = rg_core::repo::service::find_repo_by_owner_name(&w.db, "bob", "pub")
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        !rg_core::collaboration::access::is_collab_member(&w.db, &repo, agent_id)
+            .await
+            .unwrap()
+    );
+    // Control: a person with the same single grant is in.
+    let (status, _) = w.get(tasks, &w.bob).await;
+    assert_eq!(status, 200);
+
+    // The owner joins: now the agent's own grant decides.
+    w.grant(&w.bob, "bob/pub", "alice", "read").await;
+    let (status, _) = w.get(tasks, &token).await;
+    assert_eq!(status, 200, "owner and agent are both collaborators");
+    assert!(
+        rg_core::collaboration::access::is_collab_member(&w.db, &repo, agent_id)
+            .await
+            .unwrap()
+    );
+}
+
+#[tokio::test]
+async fn the_effective_permission_of_an_agent_is_capped_by_its_owner() {
+    use rg_core::collaborator::service::get_effective_permission as effective;
+    let w = world().await;
+    let (agent, agent_id) = w.agent(&w.alice, "ci").await;
+    w.private_repo(&w.bob, "theirs").await;
+    let agent_row = w.grant(&w.bob, "bob/theirs", &agent, "admin").await;
+
+    // The owner has nothing: neither does the agent.
+    assert_eq!(
+        effective(&w.db, "bob", "theirs", agent_id).await.unwrap(),
+        None
+    );
+    // The owner reads: the agent reads.
+    let alice_row = w.grant(&w.bob, "bob/theirs", "alice", "read").await;
+    assert_eq!(
+        effective(&w.db, "bob", "theirs", agent_id)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some("read")
+    );
+    // The owner administers: the agent still does not.
+    w.regrant(&w.bob, "bob/theirs", alice_row, "admin").await;
+    assert_eq!(
+        effective(&w.db, "bob", "theirs", agent_id)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some("write")
+    );
+    // A person is not capped.
+    assert_eq!(
+        effective(&w.db, "bob", "theirs", w.alice_id)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some("admin")
+    );
+    let _ = agent_row;
+}
+
 #[tokio::test]
 async fn deactivating_an_agent_or_its_owner_stops_it_at_once() {
     let w = world().await;
