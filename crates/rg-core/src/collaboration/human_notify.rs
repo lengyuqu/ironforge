@@ -19,15 +19,24 @@
 //!   sentence naming the repository and task. The title is written
 //!   by a client and is shown as plain text; the question body is not copied
 //!   into the notification.
+//! * An agent is never a recipient. A candidate that is an agent is replaced by
+//!   the person accountable for it ([`crate::agent::accountable_user`]) before
+//!   anything else; when there is no such person (owner missing, disabled) the
+//!   candidate is dropped, never replaced by someone else. Mapping happens
+//!   before de-duplication and before the recipient cap, and the permission
+//!   check is made for the person who will actually be told.
 //! * There is no email. The outbound path is the repository webhook built in
 //!   `webhook_events`; nothing in this module reaches outside the instance.
+//!   Because recipients are always people, any future mail path that reuses
+//!   this list inherits that.
 
 use rg_db::entities::repository;
-use rg_db::ops::{agent_session_ops, notification_ops, org_ops, repo_collaborator_ops, user_ops};
+use rg_db::ops::{agent_session_ops, notification_ops, org_ops, repo_collaborator_ops};
 use sea_orm::DatabaseConnection;
 
 use super::question::{QuestionView, RECIPIENT_REPO_WRITERS, RECIPIENT_USER};
 use super::task::TaskView;
+use crate::agent::accountable_user;
 use crate::repo::service::{can_read_repo, can_write_repo, invalidate_perm_cache_user};
 
 /// `notifications.event_type` of a question that is waiting for a person.
@@ -65,7 +74,8 @@ fn truncate_chars(text: &str, max: usize) -> String {
 
 /// Who may be told about a question addressed to `recipient`, in a stable
 /// order and without duplicates. Permissions are checked here, not trusted from
-/// the question. An agent candidate stays itself: no owner mapping yet (T24).
+/// the question. Every candidate is first mapped to the person accountable for
+/// it (an agent becomes its owner); the result never contains an agent.
 async fn recipients(
     db: &DatabaseConnection,
     repo: &repository::Model,
@@ -82,12 +92,13 @@ async fn recipients(
             else {
                 return Ok(out);
             };
-            // A user id that does not exist, or that cannot read the repository,
-            // is told nothing: that would confirm the id and leak a title.
-            if user_ops::find_by_id(db, id).await?.is_some() {
-                invalidate_perm_cache_user(repo.id, id);
-                if can_read_repo(db, repo, Some(id)).await? {
-                    out.push(id);
+            // A user id that does not exist, is disabled, or cannot read the
+            // repository is told nothing: that would confirm the id and leak a
+            // title. An agent is told through its owner.
+            if let Some(person) = accountable_user(db, id).await? {
+                invalidate_perm_cache_user(repo.id, person);
+                if can_read_repo(db, repo, Some(person)).await? {
+                    out.push(person);
                 }
             }
         }
@@ -103,17 +114,26 @@ async fn recipients(
                     candidates.push(m.user_id);
                 }
             }
-            let mut seen = std::collections::HashSet::new();
+            let mut seen_candidates = std::collections::HashSet::new();
+            let mut seen_people = std::collections::HashSet::new();
             for id in candidates.into_iter().take(MAX_CANDIDATES) {
                 if out.len() >= MAX_RECIPIENTS_PER_QUESTION {
                     break;
                 }
-                if !seen.insert(id) {
+                if !seen_candidates.insert(id) {
                     continue;
                 }
-                invalidate_perm_cache_user(repo.id, id);
-                if can_write_repo(db, repo, Some(id)).await? {
-                    out.push(id);
+                // Map first, then de-duplicate: an owner and the agent of the
+                // same owner are one person and get one notification.
+                let Some(person) = accountable_user(db, id).await? else {
+                    continue;
+                };
+                if !seen_people.insert(person) {
+                    continue;
+                }
+                invalidate_perm_cache_user(repo.id, person);
+                if can_write_repo(db, repo, Some(person)).await? {
+                    out.push(person);
                 }
             }
         }
@@ -175,9 +195,11 @@ pub async fn question_asked(
 /// Tell the account behind a task's owner session that the task was just
 /// declared `blocked`.
 ///
-/// Who: only the account that owns the task's owner session, not every writer.
-/// It can be an agent and there is no owner mapping yet (T24), so the bell rings
-/// there; sessions of one account are one person: "your agent is stuck", quiet.
+/// Who: only the person accountable for the account that owns the task's owner
+/// session, not every writer. For an agent session that is the agent's owner
+/// ("your agent is stuck"); for a person it is themselves. When there is no
+/// such person (owner missing or disabled) nobody is told: there is deliberately
+/// no fallback to the repository writers, or a stuck agent would broadcast.
 ///
 /// When: the caller invokes this only on a real transition into `blocked`, not
 /// when a blocked task is updated again. While the earlier notification about
@@ -203,7 +225,14 @@ pub async fn task_blocked(
             return Vec::new();
         }
     };
-    let user_id = session.user_id;
+    let user_id = match accountable_user(db, session.user_id).await {
+        Ok(Some(person)) => person,
+        Ok(None) => return Vec::new(),
+        Err(err) => {
+            tracing::warn!(task = %task.id, "collab notify: could not resolve the accountable user: {err:#}");
+            return Vec::new();
+        }
+    };
     invalidate_perm_cache_user(repo.id, user_id);
     match can_read_repo(db, repo, Some(user_id)).await {
         Ok(true) => {}

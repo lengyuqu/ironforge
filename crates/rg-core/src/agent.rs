@@ -262,6 +262,32 @@ pub async fn owner_cap(db: &DatabaseConnection, actor_id: i64) -> CoreResult<Own
     }
 }
 
+// ---------------------------------------------------------------------------
+// T24: who to tell on behalf of an account (separate block, append-only)
+// ---------------------------------------------------------------------------
+
+/// The person accountable for `user_id`, i.e. who a notification meant for this
+/// account should reach: the owner of an agent, or the account itself for a
+/// person. `None` when there is nobody to tell: the account does not exist, is
+/// disabled, or is an agent whose owner is missing, disabled or not a person.
+///
+/// Same rule as [`owner_cap`] (an agent is held to its owner), so the two
+/// cannot disagree about who stands behind an agent. The result is never an
+/// agent, so it is safe to use as a recipient of anything that leaves the
+/// instance.
+pub async fn accountable_user(db: &DatabaseConnection, user_id: i64) -> CoreResult<Option<i64>> {
+    let Some(user) = user_ops::find_by_id(db, user_id).await? else {
+        return Ok(None);
+    };
+    if !is_agent(&user) {
+        return Ok(user.is_active.then_some(user.id));
+    }
+    match owner_cap(db, user_id).await? {
+        OwnerCap::Owner(owner_id) => Ok(Some(owner_id)),
+        OwnerCap::None | OwnerCap::Denied => Ok(None),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
