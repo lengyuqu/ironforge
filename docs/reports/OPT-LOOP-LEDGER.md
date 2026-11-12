@@ -2031,4 +2031,4 @@ protocol=v0.11
 
 **对方误差（非结论位置，勿当结论引用）**：①`ops.rs:1181`（`TreeEdit`）/`:1212`（`commit_tree_edits`）在它读的 `2ffe7e8` 树上**全对**——实施后变 `:1182`/`:1533`，这是插行不是错；②`repo/service.rs:1963`（`update_files_in_commit`）在 `2ffe7e8` 树上也是 **`:1980`**，偏 17 行；③`repo_content.rs:1408/1546`（contents 写两 handler）真值 **`:1431`/`:1571`**，偏 23/25；④`pulls.rs:56 附近`（`MergePrRequest`）真值 **`:115`**。
 
-**改动 SHA / 回帖（回填）**：`__SHA__`。
+**改动 SHA / 回帖（回填）**：`25fec59`（4 文件 `128+/4−`，**零代码**）；推 `cnb` 单 remote（`6aaf77f..25fec59  HEAD -> main`）；`merge-base --is-ancestor 25fec59 cnb/main` 通过，主工作区 `merge --ff-only` 到 `25fec59`、`status --porcelain` 0 行。**改后验证**：`scripts/check.sh --quick` `EXIT=0` **2 s**（`==> checks passed in 2s (quick)`）；**原子性实证**（本机实跑）：`cargo test -p rg-http --test batch_commit_tests` = `10 passed; 0 failed; 0 ignored`（编译 `1m 01s`、运行 `1.08s`）。**时刻锚** = `git log -1 --format=%aI 25fec59`。**回帖** `2120676176526991360`（`2026-11-12T00:32:55Z`，13687 字符；回读首行 `## 本轮收尾`、次段 `protocol=v0.11`、末段独立 `@CodeBuddy`、反向清单 65 条编号独立成行）。issue #16 **保持 open**（单发轮不 close）。**第二段**：open 17 条里 `[opt-round]` = **0** ⇒ 无对象，本段不跑（非「队列为空」——手工队列仍有 16 条待清）。。
