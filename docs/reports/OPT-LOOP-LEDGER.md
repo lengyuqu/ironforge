@@ -945,7 +945,7 @@ git -c protocol.version=2 clone --depth=1 ...
 
 ## 反向清单索引（编号总数与去处；清单实体不在本节）
 
-清单实体在上文 `## 批次索引` 块内的 `### 判定不成立` 小节，本节只维护编号总数与去处（本清单已累计 **1..61** 条；36–38 见 `consume 6 / 6（batch#4）` 节，39–40 见 `consume 1 / 6（batch#5）` 节，41 见 `consume 2 / 6（batch#5）` 节，42–43 见 `consume 3 / 6（batch#5）` 节，44 见 `consume 4 / 6（batch#5）` 节，45–46 见 `consume 5 / 6（batch#5）` 节（46 由「单发轮 #13 三次消费」轮写入、物理落在该节末，勿去那一节找正文），47–49 见 `单发轮 · issue #13 · 2026-11-11（第 4 次消费）` 节，50–51 见 `单发轮 · issue #13 · 2026-11-11（第 6 次消费）` 节，52–55 见 `单发轮 · issue #14 · 2026-11-12` 节（第 7 次消费），56–58 见 `单发轮 · issue #14 · 2026-11-12（第 8 次消费…）` 节，59–60 见 `…（第 9 次消费…）` 节（原写「见本节」是从索引行自身出发的错指针，已就地订正），61 见 `单发轮 · issue #33 · 2026-11-12` 节）。本行原为开批时的占位「（暂无）」，已失效并就地订正，勿再当「无任何不成立条目」读
+清单实体在上文 `## 批次索引` 块内的 `### 判定不成立` 小节，本节只维护编号总数与去处（本清单已累计 **1..65** 条；36–38 见 `consume 6 / 6（batch#4）` 节，39–40 见 `consume 1 / 6（batch#5）` 节，41 见 `consume 2 / 6（batch#5）` 节，42–43 见 `consume 3 / 6（batch#5）` 节，44 见 `consume 4 / 6（batch#5）` 节，45–46 见 `consume 5 / 6（batch#5）` 节（46 由「单发轮 #13 三次消费」轮写入、物理落在该节末，勿去那一节找正文），47–49 见 `单发轮 · issue #13 · 2026-11-11（第 4 次消费）` 节，50–51 见 `单发轮 · issue #13 · 2026-11-11（第 6 次消费）` 节，52–55 见 `单发轮 · issue #14 · 2026-11-12` 节（第 7 次消费），56–58 见 `单发轮 · issue #14 · 2026-11-12（第 8 次消费…）` 节，59–60 见 `…（第 9 次消费…）` 节（原写「见本节」是从索引行自身出发的错指针，已就地订正），61 见 `单发轮 · issue #33 · 2026-11-12` 节，62–63 见 `单发轮 · issue #15 · 2026-11-12` 节，64–65 见 `单发轮 · issue #16 · 2026-11-12` 节）。本行原为开批时的占位「（暂无）」，已失效并就地订正，勿再当「无任何不成立条目」读
 
 ---
 
@@ -1984,3 +1984,51 @@ protocol=v0.11
 **对方误差（非结论位置，勿当结论引用）**：①`trigger_event` 标 `:118`（真值 `:131`）；②`issue/service.rs:56-58` 说「提交 txn」（真值 `:56 begin`、`:59 commit`）；③`webhook_ops.rs:43`（真值 `:44`）；④`rg-mcp` 只说「无 `subscribe`」而没写 `initialize` 里显式 `subscribe: false`（`server.rs:41`）。
 
 **改动 SHA / 回帖（回填）**：`ad4e1dd`（4 文件 `146+/0−`），推 `cnb` 单 remote（`8d107d8..ad4e1dd  HEAD -> main`）；合流后 `git merge-base --is-ancestor ad4e1dd cnb/main` 通过（`cnb/main` = `ad4e1dd`），主工作区 `merge --ff-only` 到 `ad4e1dd`、`status --porcelain` 0 行。**改后验证**：`scripts/check.sh --quick` `EXIT=0` **1 s**（``Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.24s`` / `==> checks passed in 1s (quick)`）。**时刻锚** = `git log -1 --format=%aI ad4e1dd`。**回帖** `2120654435842945024`（`2026-11-11T23:06:32Z`，回读首行 `## 本轮收尾`、第 2 行 `protocol=v0.11`、末段独立成段 `@CodeBuddy`、26053 字符、反向清单 63 条编号独立成行）。issue #15 **保持 open**（单发轮不 close）。
+
+---
+
+### 单发轮 · issue #16 · 2026-11-12（第 1 次进入；靶子已落地，本轮形态＝验收核实）
+
+protocol=v0.11
+
+- 选靶：open **17 条全 MANUAL**（`[opt-round]` **0** ⇒ 第二段无对象）。平台侧 `^## 本轮收尾` 计数：**#14 = 3**、**#15 = 1**、**#33 = 1**、其余 14 条（#16–#19、#34–#43）= **0**。按 §5.2.1 排序键 `(消费次数 asc, 编号 asc)` ⇒ **#16**（多文件原子提交）。`priority` 仍全空，任务书的 priority 键会退化回 #14，沿用前两轮口径：以 §5.2.1 为准，在此声明。
+- 与上轮预判的差异：上轮记「#16/#18 有已开 PR（#23/#20）在跑」——**PR #23 已合入**：`git merge-base --is-ancestor 48f03a7 cnb/main` 退出 0、`cnb pulls list-pulls --state open` = **0 条**，`feat/batch-commit` 落后 main 0 提交。⇒ #16 的活不是评审设计，而是**核实它的实施回报**（评论 `2120166446301880320`）对 8 条验收条件与 6 处自述偏差是否属实。
+- 让位判据：`cnb/main` tip `6aaf77f`（`ls-remote` 与本地 `main` 同 SHA，作者时间 `2026-11-11T23:08Z`，距开工 >1 h）；`git worktree list` 另 8 个 WT `status --porcelain` 全 0 行、最新 mtime `2026-11-12 02:25`；锁 `mkdir` 一次成功、无 owner 残留 ⇒ 无并发写者。
+- 基线：`BASE=6aaf77f`（零漂移，`HEAD` 与 `cnb/main` 同 SHA）。改前 `scripts/check.sh --quick` **EXIT=0 / 99 s**（`Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 37s` / `==> checks passed in 99s (quick)`）。
+- 判定分布：**成立 16 / 不成立 2 / 不可验 1**。逐条证据见新增文档 `ironforge-docs/architecture/batch-commit-verification-2026-11.md` §2（八条验收条件）与 §3（六处自述偏差）；本节只记不成立项与新事实。
+
+**不成立（原文保留，已入反向清单 64/65）**
+
+| # | 它说的 | 判定 | 证据 |
+|---|---|---|---|
+| 1 | 「阶段 1-4 做完了」（实施回报首段） | **不成立** | 它自己的计划 §6 把阶段 4 定义为 **MCP `commit_files`**，issue 评论 2 也明令「只做你列的阶段 1-4」。实测 `grep -rc 'commit_files' crates/rg-mcp/` = **0**，`rg-mcp/src/tools/mod.rs` 工具表 14 项（`commit_file` `:111`、`delete_file` `:131`、`delete_branch` `:150`…）无此项；而它的「与方案有出入的 6 处」**没有**这一条 ⇒ 不是偏差，是漏报 |
+| 2 | 「`update_files_in_commit`（`service.rs:1963`）**没有任何调用方**（死代码）」（分析 §8 坑 2） | **不成立** | `grep -rn update_files_in_commit crates/` = 2 命中：定义 `repo/service.rs:1980` + **活调用** `review/service.rs:466`。它在实施回报偏差 1 已自行订正为「有 1 个活调用方」，行号 `:1963` 也偏（现 `:1980`） |
+
+**不可验**：CNB lint 流水线因组织 CPU 配额在 Prepare 阶段失败（它附的四个真实步骤全 `skipped`）。本机无法复核配额，亦无平台侧绿灯；本轮的编译/测试证据全部来自 executor 本机。
+
+**核实要点（成立一侧，摘要）**：交付面 10 文件 `1873+/91−` 与自述逐一对上；`check_direct_commit_allowed` 在批量路径（`repo/service.rs:2393`）；`spawn_blocking` 两处（`:2425`/`:2573`）；`idempotency.rs:82` 加 `"commits"`；`lib.rs:1391` 路由在 `:1396`（`contents/{*path}`）之前、恰 +5 行；`move` 成环与「同批写+move 同一路径」都 409 `PATH_CONFLICT`（`:2674`）；`dry_run` 确实写出无 ref 指向的 tree 对象（`ops.rs:1319` → `:1488 editor.write()`，它自述偏差 5 属实）。**原子性测试本机实跑**：`cargo test -p rg-http --test batch_commit_tests` → `10 passed; 0 failed`（1.08 s）。
+
+**新立待拍板（L2，本流程不动 main）**
+
+- **R16-1（P2）** MCP `commit_files`（阶段 4）未落地：`rg-mcp/src/tools/mod.rs` 需加第 15 个工具 + `:276` 附近 dispatch + 工具表/`tools/list` 测试同步；不入则 issue #16 的原始诉求（agent 一次改 N 文件＝一次 CI）对 MCP 客户端仍不成立。建议单独开 issue，勿塞进 T21/T22。
+- **R16-2（P3）** `idempotency_supported` 的匹配臂 `["repos", _, _, "commits", ..]` 带 `..`（`idempotency.rs:76-88`），连带把 `POST /repos/{o}/{n}/commits/{sha}/statuses`（`lib.rs:1474`）也纳入幂等键支持，此前该路径带头 400。行为无害但属未申报放宽；收窄成 `["repos", _, _, "commits"]` 即可。
+- **R16-3（P2）** `ref_limited_write_allowed` 的 `["commits"]`（`pat_scope.rs:328`）落在 T21 声明要动的三张表里。裁决：**保留**——准入条件（处理函数自己查分支）已满足（`repo_commits.rs:166`），不加则带 `ref_allowlist` 的令牌对主用户恒 403。给 T21 的约束是「改这三张表时不得删 `["commits"]`」，不是回退。
+
+**本轮改动**（4 文件；零代码改动）：
+
+1. 新增 `ironforge-docs/architecture/batch-commit-verification-2026-11.md`（交付面 / 八条验收条件 / 六处偏差 / 阶段 4 未做 / 表所有权 / P3 观察 / 验证环境 / 仍未做）。所有 `path:line` 逐个 `sed -n` 打印核对过；自查订正 3 处——`ops.rs` 写成 +414/−91（真值 +330/−84）、`repo_commits.rs:311-319`（真值 `:311` 起）、`idempotency.rs` 的 `:74-90`（真值 `:76-88`）。
+2. `CLAUDE.md` 单行（`ref_limited_write_allowed` / `idempotency_supported` 两处枚举已旧，且原文「文件编辑…一律 403」与 `contents/**` 早已放行的事实冲突）＋ 新增批量提交一段（含「MCP `commit_files` 未做」）。**行数 481 → 481，零漂移。**
+3. `ironforge-docs/README.md`：架构表新增该文档索引 1 行；同时把本文件内两处**自引用绝对行号**（`:105`、`:108`，前者在我插入前就已失准）改成小节名——同一份文件里插行就会推后自己，见审计口径第 4 条。
+4. 本台账（含反向清单索引 1..61 → **1..65**）。
+
+**验证**：`BASE=6aaf77f`，改前 `check.sh --quick` EXIT=0 / 99 s；改后同命令见下方回填段（同一 WT、同一 `CARGO_TARGET_DIR`）。
+
+**反向清单（本节新增 2 条：64、65，累计 1..65）**
+
+64. 「阶段 1-4 做完了」（issue #16 实施回报 `2120166446301880320` 首段）—— **不成立**：阶段 4 按它自己的计划 §6 是 MCP `commit_files`，`grep -rc 'commit_files' crates/rg-mcp/` = 0、工具表 14 项无此项，且「6 处出入」未列该项。**已核实为不成立，不要重复提。**
+
+65. 「`update_files_in_commit`（`repo/service.rs:1963`）没有任何调用方，是死代码」（同一 issue 的分析 §8 坑 2）—— **不成立**：活调用在 `review/service.rs:466`（review suggestion 应用路径），定义现于 `repo/service.rs:1980`。它已在实施回报偏差 1 自行订正，此处留档防复发。**已核实为不成立，不要重复提。**
+
+**对方误差（非结论位置，勿当结论引用）**：①`ops.rs:1181`（`TreeEdit`）/`:1212`（`commit_tree_edits`）在它读的 `2ffe7e8` 树上**全对**——实施后变 `:1182`/`:1533`，这是插行不是错；②`repo/service.rs:1963`（`update_files_in_commit`）在 `2ffe7e8` 树上也是 **`:1980`**，偏 17 行；③`repo_content.rs:1408/1546`（contents 写两 handler）真值 **`:1431`/`:1571`**，偏 23/25；④`pulls.rs:56 附近`（`MergePrRequest`）真值 **`:115`**。
+
+**改动 SHA / 回帖（回填）**：`__SHA__`。

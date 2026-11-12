@@ -28,7 +28,7 @@
 | `git-protocol.md` | Git 协议实现细节与踩坑 |
 | `ai-agent-integration.md` | AI Agent 集成方案（MCP + REST + prompt） |
 
-> `project-audit-2026-06.md` 已移入 `ironforge-docs/testing/`，只在下面「测试与审计」表里索引一次。原先这张表里还留着一行同名条目，它同时是两件事：**重复**（同一文件已由下表 `:105` 索引）和**解不出**（本表标题是「设计文档（`docs/`）」，按此前缀落到 `docs/project-audit-2026-06.md`，该路径不存在）。
+> `project-audit-2026-06.md` 已移入 `ironforge-docs/testing/`，只在下面「测试与审计」表里索引一次。原先这张表里还留着一行同名条目，它同时是两件事：**重复**（同一文件已由下面「测试与审计」表索引）和**解不出**（本表标题是「设计文档（`docs/`）」，按此前缀落到 `docs/project-audit-2026-06.md`，该路径不存在）。
 
 ---
 
@@ -52,6 +52,7 @@
 | `agent-draft-refs-ttl-design-2026-11.md` | Agent 草稿命名空间：`refs/heads/agent/<id>/*` 的 TTL、通知抑制、自动清理设计细化（Proposed，未实现） |
 | `registry-auth-visibility-verification-2026-11.md` | OCI 票据校验侧与可见性：修复前后对照、`registry:catalog:*` 的三项巧合、证据与仍未做（**已修复**，PR #24） |
 | `route-metadata-registry-2026-11.md` | 路由元数据注册表（issue #14）：五张表的真实位置与规模、三个隐含假设的裁决、P0–P3 落点与 L2 边界（Proposed） |
+| `batch-commit-verification-2026-11.md` | 批量提交（issue #16，`48f03a7`）：10 文件交付面、八条验收条件逐条证据、六处自述偏差核实、**MCP `commit_files` 阶段 4 未做**、`["commits"]` 与 T21 的表所有权 |
 
 ---
 
@@ -128,7 +129,7 @@
 1. 新增能力先更新 `architecture/project-architecture-2026-07.md` 与 `frontend-backend-structure-2026-07.md`，风险项进入 `architecture-followups-2026-07.md`。
 2. 过程性分析草稿完成后归档到 `archive/`，保持活跃文档集精简。
 3. 分析报告命名带日期（`*-2026-07-03.md`），便于识别时效。
-4. 同一文件在本页只索引一次：`project-audit-2026-06.md` 曾同时出现在「设计文档」表与「测试与审计」表，重复行已删；审计与测试指南的保留说明只写在上表 `:108`。
+4. 同一文件在本页只索引一次：`project-audit-2026-06.md` 曾同时出现在「设计文档」表与「测试与审计」表，重复行已删；审计与测试指南的保留说明只写在上文那条引用块里。
 
 ---
 
