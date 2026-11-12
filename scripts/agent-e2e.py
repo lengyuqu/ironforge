@@ -158,7 +158,94 @@ def run(work):
         check(sha_pass in shas and sha_fail in shas, f"push events missing: {shas}")
         say("wait_repo_events", f"{len(events['events'])} push events, both commits present")
 
-        # 6. The limited token cannot write main.
+        # 6. commit_files: one tool call is one commit and one CI run. The old
+        # path (one commit_file per file) is the control: N files, N commits, N runs.
+        def pipelines_for(branch):
+            listing = mcp.ok("list_pipelines", **coords)
+            rows = listing.get("data", listing) if isinstance(listing, dict) else listing
+            return [p for p in rows if str(p.get("ref_name", "")).endswith(branch)]
+
+        def branch_log(branch):
+            st, log = http(base, "GET", f"{api}/log?ref={branch}&limit=50", jwt)
+            check(st == 200, f"log {branch}: {st} {log}")
+            return [c.get("sha") or c.get("id") for c in log["commits"]]
+
+        loop_files = ["l1.txt", "l2.txt", "l3.txt", "l4.txt"]
+        for name in loop_files:
+            mcp.ok("commit_file", **coords, path=name, content=f"{name}\n",
+                   message=f"add {name}", branch="agent/loop")
+        wait_until("one pipeline per commit_file call", lambda: len(pipelines_for("agent/loop")) >= len(loop_files))
+        loop_commits = len(branch_log("agent/loop")) - len(branch_log("main"))
+        check(loop_commits == 4, f"control: 4 commit_file calls must make 4 commits, got {loop_commits}")
+        say("control", f"4 x commit_file -> {loop_commits} commits, {len(pipelines_for('agent/loop'))} pipelines")
+
+        for name in ("s1.txt", "s2.txt", "s3.txt"):
+            mcp.ok("commit_file", **coords, path=name, content=f"{name}\n",
+                   message=f"seed {name}", branch="agent/batch")
+        tip = branch_log("agent/batch")[0]
+        wait_until("seed pipelines", lambda: len(pipelines_for("agent/batch")) >= 3)
+        time.sleep(1.0)
+        runs_before = len(pipelines_for("agent/batch"))
+        blobs = {}
+        for name in ("s1.txt", "s2.txt", "s3.txt"):
+            st, blob = http(base, "GET", f"{api}/blob/{name}?ref=agent/batch", jwt)
+            check(st == 200 and blob.get("sha"), f"blob {name}: {st} {blob}")
+            blobs[name] = blob["sha"]
+
+        files = [
+            {"operation": "update", "path": "s1.txt", "content": "s1 changed\n", "sha": blobs["s1.txt"]},
+            {"operation": "delete", "path": "s2.txt", "sha": blobs["s2.txt"]},
+            {"operation": "move", "from": "s3.txt", "to": "moved/s3.txt", "sha": blobs["s3.txt"]},
+            {"operation": "create", "path": "new.txt", "content": "new\n"},
+        ]
+        # A missing expected_sha never reaches the server.
+        is_error, value = mcp.tool("commit_files", **coords, branch="agent/batch",
+                                   message="no tip", files=files)
+        check(is_error and "expected_sha is required" in str(value), f"expected_sha is required: {value}")
+        # A stale expected_sha is refused with the current commit and writes nothing.
+        is_error, value = mcp.tool("commit_files", **coords, branch="agent/batch", expected_sha="0" * 40,
+                                   message="stale", files=files)
+        check(is_error and "REF_ADVANCED" in str(value) and tip in str(value), f"stale tip: {value}")
+        check(branch_log("agent/batch")[0] == tip, "a refused batch must not move the branch")
+        # Dry run reports and writes nothing.
+        plan = mcp.ok("commit_files", **coords, branch="agent/batch", expected_sha=tip,
+                      message="plan", files=files, dry_run=True)
+        check(plan.get("dry_run") is True, f"dry run answer: {plan}")
+        check(branch_log("agent/batch")[0] == tip, "a dry run must not move the branch")
+
+        done = mcp.ok("commit_files", **coords, branch="agent/batch", expected_sha=tip,
+                      message="batch of four", files=files, idempotency_key="e2e-batch-1")
+        new_sha = done["commit_sha"]
+        replay = mcp.ok("commit_files", **coords, branch="agent/batch", expected_sha=tip,
+                        message="batch of four", files=files, idempotency_key="e2e-batch-1")
+        check(replay["commit_sha"] == new_sha, "a retried batch with the same key must replay")
+        log = branch_log("agent/batch")
+        check(log[0] == new_sha and log[1] == tip, f"exactly one new commit on top of {tip}: {log[:3]}")
+        st, moved = http(base, "GET", f"{api}/blob/moved/s3.txt?ref=agent/batch", jwt)
+        check(st == 200 and moved["content"] == "s3.txt\n", f"moved file: {st} {moved}")
+        for gone in ("s2.txt", "s3.txt"):
+            st, _ = http(base, "GET", f"{api}/blob/{gone}?ref=agent/batch", jwt)
+            check(st == 404, f"{gone} must be gone: {st}")
+
+        wait_until("a pipeline for the batch commit",
+                   lambda: any(p.get("commit_sha") == new_sha for p in pipelines_for("agent/batch")))
+        time.sleep(1.0)
+        runs_after = len(pipelines_for("agent/batch"))
+        check(runs_after - runs_before == 1, f"one commit_files call must trigger one CI run: {runs_before} -> {runs_after}")
+        pipeline_batch = next(p for p in pipelines_for("agent/batch") if p.get("commit_sha") == new_sha)
+        for _ in range(6):
+            result = mcp.ok("wait_pipeline", **coords, pipeline_id=pipeline_batch["id"], timeout=20)
+            if result.get("terminal"):
+                break
+        check(result.get("terminal") and "success" in str(result), f"batch pipeline: {result}")
+        # A limited token cannot batch-commit to main either.
+        main_sha = branch_log("main")[0]
+        is_error, value = mcp.tool("commit_files", **coords, branch="main", expected_sha=main_sha,
+                                   message="sneak", files=[{"operation": "create", "path": "x.txt", "content": "x"}])
+        check(is_error and "403" in str(value), f"a batch to main must be refused: {value}")
+        say("commit_files", f"4 changes (update/delete/move/create) -> 1 commit {new_sha[:12]}, 1 pipeline; stale/dry-run/main handled")
+
+        # 7. The limited token cannot write main.
         is_error, value = mcp.tool("commit_file", **coords, path="x.txt", content="x\n",
                                    message="sneak", branch="main")
         check(is_error and "403" in str(value), f"a write to main must be refused: {value}")

@@ -133,6 +133,24 @@ fn api() -> Handler {
                     )
                 }
             }
+            ("POST", "/api/v1/repos/alice/demo/commits") => {
+                let body: Value = serde_json::from_str(&req.body).unwrap_or(Value::Null);
+                if body["expected_sha"] == "stale" {
+                    (
+                        409,
+                        json!({"error": {"code": "CONFLICT", "reason": "REF_ADVANCED",
+                            "details": {"current_sha": "abc123", "expected_sha": "stale"}}})
+                        .to_string(),
+                    )
+                } else if body["dry_run"] == true {
+                    (200, json!({"dry_run": true, "would": []}).to_string())
+                } else {
+                    (
+                        200,
+                        json!({"dry_run": false, "commit_sha": "b47c4", "files": []}).to_string(),
+                    )
+                }
+            }
             ("DELETE", "/api/v1/repos/alice/demo/contents/old.txt") => {
                 (200, json!({"success": true}).to_string())
             }
@@ -272,6 +290,17 @@ fn the_write_tools_are_advertised_with_their_required_arguments() {
             vec!["owner", "repo", "path", "content", "message", "branch"],
         ),
         (
+            "commit_files",
+            vec![
+                "owner",
+                "repo",
+                "branch",
+                "expected_sha",
+                "message",
+                "files",
+            ],
+        ),
+        (
             "delete_file",
             vec!["owner", "repo", "path", "message", "branch", "sha"],
         ),
@@ -292,7 +321,12 @@ fn the_write_tools_are_advertised_with_their_required_arguments() {
         assert_eq!(got, required, "{name}");
     }
     // The file tools offer the safety arguments.
-    for name in ["commit_file", "delete_file", "delete_branch"] {
+    for name in [
+        "commit_file",
+        "commit_files",
+        "delete_file",
+        "delete_branch",
+    ] {
         let props = &find(name)["inputSchema"]["properties"];
         assert!(
             props.get("expected_sha").is_some() && props.get("dry_run").is_some(),
@@ -340,6 +374,163 @@ fn commit_file_sends_the_branch_and_the_safety_arguments() {
     let body: Value = serde_json::from_str(&stub.last().body).unwrap();
     assert_eq!(body["dry_run"], true);
     assert_eq!(body["content"], "");
+}
+
+#[test]
+fn commit_files_sends_one_request_with_every_change() {
+    let stub = Stub::spawn(api());
+    let mut mcp = Mcp::start(&stub.url);
+    let files = json!([
+        {"operation": "create", "path": "a.txt", "content": "a\n"},
+        {"operation": "update", "path": "b.txt", "content": "", "sha": "blobB"},
+        {"operation": "delete", "path": "c.txt", "sha": "blobC"},
+        {"operation": "move", "from": "d.txt", "to": "e/d.txt", "sha": "blobD"},
+    ]);
+    let before = stub.count();
+    let (err, text) = mcp.tool(
+        "commit_files",
+        json!({"owner": "alice", "repo": "demo", "branch": "agent/x", "expected_sha": "tip1",
+               "message": "four changes", "files": files, "idempotency_key": "k-1"}),
+    );
+    assert!(!err, "{text}");
+    assert_eq!(
+        serde_json::from_str::<Value>(&text).unwrap()["commit_sha"],
+        "b47c4"
+    );
+    // Four changes, one request: one commit, one CI run on the server.
+    assert_eq!(stub.count() - before, 1);
+    let sent = stub.last();
+    assert_eq!(sent.method, "POST");
+    assert_eq!(sent.path, "/api/v1/repos/alice/demo/commits");
+    assert_eq!(sent.idempotency_key.as_deref(), Some("k-1"));
+    let body: Value = serde_json::from_str(&sent.body).unwrap();
+    assert_eq!(body["branch"], "agent/x");
+    assert_eq!(body["expected_sha"], "tip1");
+    assert_eq!(body["message"], "four changes");
+    assert_eq!(body["files"], files);
+    assert!(body.get("dry_run").is_none());
+
+    let (err, text) = mcp.tool(
+        "commit_files",
+        json!({"owner": "alice", "repo": "demo", "branch": "agent/x", "expected_sha": "tip1",
+               "message": "m", "dry_run": true,
+               "files": [{"operation": "create", "path": "a.txt", "content": "a"}]}),
+    );
+    assert!(!err, "{text}");
+    assert_eq!(
+        serde_json::from_str::<Value>(&text).unwrap()["dry_run"],
+        true
+    );
+    let body: Value = serde_json::from_str(&stub.last().body).unwrap();
+    assert_eq!(body["dry_run"], true);
+}
+
+#[test]
+fn commit_files_refusals_keep_the_status_and_reason() {
+    let stub = Stub::spawn(api());
+    let mut mcp = Mcp::start(&stub.url);
+    let (err, text) = mcp.tool(
+        "commit_files",
+        json!({"owner": "alice", "repo": "demo", "branch": "main", "expected_sha": "stale",
+               "message": "m", "files": [{"operation": "create", "path": "a", "content": "x"}]}),
+    );
+    assert!(err);
+    assert!(text.starts_with("Error: HTTP 409"), "{text}");
+    assert!(
+        text.contains("REF_ADVANCED") && text.contains("abc123"),
+        "{text}"
+    );
+}
+
+#[test]
+fn commit_files_checks_its_arguments_before_any_request() {
+    let stub = Stub::spawn(api());
+    let mut mcp = Mcp::start(&stub.url);
+    let one = json!([{"operation": "create", "path": "a", "content": "x"}]);
+    for (args, wants) in [
+        // branch and expected_sha are both required: no fallback to HEAD.
+        (
+            json!({"owner": "alice", "repo": "demo", "expected_sha": "t", "message": "m", "files": one}),
+            "branch is required",
+        ),
+        (
+            json!({"owner": "alice", "repo": "demo", "branch": "b", "message": "m", "files": one}),
+            "expected_sha is required",
+        ),
+        (
+            json!({"owner": "alice", "repo": "demo", "branch": "b", "expected_sha": "t", "files": one}),
+            "message is required",
+        ),
+        (
+            json!({"owner": "alice", "repo": "demo", "branch": "b", "expected_sha": "t", "message": "m"}),
+            "files must hold at least one entry",
+        ),
+        (
+            json!({"owner": "alice", "repo": "demo", "branch": "b", "expected_sha": "t", "message": "m", "files": []}),
+            "files must hold at least one entry",
+        ),
+        (
+            json!({"owner": "alice", "repo": "demo", "branch": "b", "expected_sha": "t", "message": "m", "files": "a"}),
+            "files must be an array",
+        ),
+        (
+            json!({"owner": "alice", "repo": "demo", "branch": "b", "expected_sha": "t", "message": "m",
+                   "files": [{"operation": "copy", "path": "a"}]}),
+            "files[0].operation must be one of",
+        ),
+        (
+            json!({"owner": "alice", "repo": "demo", "branch": "b", "expected_sha": "t", "message": "m",
+                   "files": [{"path": "a", "content": "x"}]}),
+            "files[0].operation is required",
+        ),
+        // An update without the blob it replaces would be unguarded.
+        (
+            json!({"owner": "alice", "repo": "demo", "branch": "b", "expected_sha": "t", "message": "m",
+                   "files": [{"operation": "create", "path": "a", "content": "x"},
+                             {"operation": "update", "path": "b", "content": "x"}]}),
+            "files[1].sha is required for update",
+        ),
+        (
+            json!({"owner": "alice", "repo": "demo", "branch": "b", "expected_sha": "t", "message": "m",
+                   "files": [{"operation": "delete", "path": "a", "sha": ""}]}),
+            "files[0].sha is required for delete",
+        ),
+        (
+            json!({"owner": "alice", "repo": "demo", "branch": "b", "expected_sha": "t", "message": "m",
+                   "files": [{"operation": "move", "from": "a", "sha": "s"}]}),
+            "files[0].to is required for move",
+        ),
+        // A misspelt or foreign field is refused instead of dropped.
+        (
+            json!({"owner": "alice", "repo": "demo", "branch": "b", "expected_sha": "t", "message": "m",
+                   "files": [{"operation": "update", "path": "a", "content": "x", "blob_sha": "s"}]}),
+            "'blob_sha' is not a field of a update entry",
+        ),
+        (
+            json!({"owner": "alice", "repo": "demo", "branch": "b", "expected_sha": "t", "message": "m",
+                   "files": [{"operation": "delete", "path": "a", "sha": "s", "content": "x"}]}),
+            "'content' is not a field of a delete entry",
+        ),
+        (
+            json!({"owner": "alice", "repo": "demo", "branch": "b", "expected_sha": "t", "message": "m",
+                   "files": [{"operation": "create", "path": "a", "content": 5}]}),
+            "files[0].content must be a string",
+        ),
+        (
+            json!({"owner": "al/ice", "repo": "demo", "branch": "b", "expected_sha": "t", "message": "m", "files": one}),
+            "owner must be",
+        ),
+        (
+            json!({"owner": "alice", "repo": "demo", "branch": "b", "expected_sha": "t", "message": "m",
+                   "files": one, "dry_run": "yes"}),
+            "dry_run must be true or false",
+        ),
+    ] {
+        let (err, text) = mcp.tool("commit_files", args.clone());
+        assert!(err, "{args}");
+        assert!(text.contains(wants), "{args} -> {text}");
+    }
+    assert_eq!(stub.count(), 0, "nothing left the process");
 }
 
 #[test]
