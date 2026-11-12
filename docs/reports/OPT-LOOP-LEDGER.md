@@ -2247,4 +2247,4 @@ protocol=v0.12
 - **下靶**：零消费剩 `#38`–`#43`（6 条，`comment_count` 全 0）；按（次数 asc, 编号 asc）下一靶 **#38**（「推送时密钥扫描 R7」，`comment_count` = 0 ⇒ 先发只读首扫 + `60 s × 5`，超时按正文推进）。
 - **回填**：改动 SHA 与回帖 id 见本节末「改动 SHA / 回帖（回填）」段。issue #37 **保持 open**（单发轮不 close）。
 
-**改动 SHA / 回帖（回填）**：见文末回填段。
+**改动 SHA / 回帖（回填）**：`b8e8dad`（4 文件 `118+/5−`，**零代码行为改动**：`crates/` 一行未动；新文档 85 行、设计文档仍 668 行、README +1 行）；推 `cnb` 单 remote（`a41c9b2..b8e8dad  HEAD -> main`）；`merge-base --is-ancestor` 通过，主工作区 `merge --ff-only` 到 `b8e8dad`、`status --porcelain` 仅剩他人未提交的 `CLAUDE.md`（非本轮文件，未触碰）。**改后验证**：`scripts/check.sh --quick` `EXIT=0` **2 s**（`Finished dev profile [unoptimized + debuginfo] target(s) in 0.25s` / `==> checks passed in 2s (quick)`）；改前 **126 s** `EXIT=0`。**时刻锚** = `git log -1 --format=%aI b8e8dad` = `2026-11-12T18:10:03+08:00`。**回帖** `2120821563959189505`（`2026-11-12T10:10:38Z`；32723 字符；回读首行 `## 本轮收尾`、末行独立 `@CodeBuddy`、反向清单 83 条编号独立成行且 1..83 连续无缺；该 issue 的 `## 本轮收尾` 计数 0 → 1，无重复投递）。**首扫请求** `2120819625133764608`（`10:02:56Z`），`60 s × 5` 超时未回，按正文推进。**第二段无对象**：open 17 条里 `[opt-round]` = 0。
