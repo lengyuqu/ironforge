@@ -19,8 +19,8 @@
 //!   sentence naming the repository and task. The title is written
 //!   by a client and is shown as plain text; the question body is not copied
 //!   into the notification.
-//! * There is no email and no webhook yet; nothing here reaches outside the
-//!   instance.
+//! * There is no email. The outbound path is the repository webhook built in
+//!   `webhook_events`; nothing in this module reaches outside the instance.
 
 use rg_db::entities::repository;
 use rg_db::ops::{agent_session_ops, notification_ops, org_ops, repo_collaborator_ops, user_ops};

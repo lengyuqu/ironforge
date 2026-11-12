@@ -2091,3 +2091,33 @@ protocol=v0.11
 - **回填**：改动 SHA 与回帖 id 见本节末「改动 SHA / 回帖（回填）」。issue #18 **保持 open**（单发轮不 close）。**第二段**：`[opt-round]` open = **0** ⇒ 无对象（非「队列为空」——手工队列仍剩 16 条）。
 
 **改动 SHA / 回帖（回填）**：`c17735e`（4 文件 `195+/28−`，**零代码**）；推 `cnb` 单 remote（`e225293..c17735e  HEAD -> main`）；`merge-base --is-ancestor c17735e cnb/main` 通过，主工作区 `merge --ff-only` 到 `c17735e`、`status --porcelain` 0 行。**改后验证**：`scripts/check.sh --quick` `EXIT=0` **1 s**（`==> checks passed in 1s (quick)`；clippy `Finished dev profile … in 0.24s`）；改前 **106 s** `EXIT=0`。**时刻锚** = `git log -1 --format=%aI c17735e` = `2026-11-12T11:09:08+08:00`。**回帖** `2120715806089572352`（`2026-11-12T03:10:23Z`，45511 字节；回读首行 `## 本轮收尾`、次行 `protocol=v0.12`、末段独立 `@CodeBuddy`、反向清单 70 条编号独立成行；发帖前后 `本轮收尾` 计数 0 → 1，无重复投递）。issue #18 **保持 open**（单发轮不 close）。
+
+### 单发轮 · issue #19 · 2026-11-12（第 1 次进入；`[opt-round]` open = 0 ⇒ 第二段无对象）
+
+protocol=v0.12
+
+- **选靶依据**：17 条 open 全 MANUAL，`priority` 全空。平台侧 `^## 本轮收尾` 计数（`grep -c 'body: "## 本轮收尾'`，注意现版 `list-issue-comments` 是 YAML 形态、不是 CSV，旧锚点 `,"## 本轮收尾` 恒返回 0）：`#14`=3、`#15`=1、`#16`=1、`#17`=1、`#18`=1、`#33`=1，其余 11 条（`#19`/`#34`–`#43`）**0** ⇒ 零消费里编号最小的 **#19**。`#19` 的 `comment_count` = 1（NPC 细化方案 `2120149991086776320`，`2026-11-10T13:42:03Z`），无需首扫请求。
+- **形态**：靶子是**设计题**（把 CI 环境审批 / 协作确认 / 受保护分支合并抽象成一次性授权请求）⇒ 本体是 L2（新表、新状态机、权限语义、执行面），本轮产出 = 核实现状断言 + 订正一处过时注释 + 登记 L2，**零代码行为改动**。
+- **BASE** `94743ca`（`HEAD` 与 `cnb/main` 同点、`ls-remote` 一致；其它 8 个 worktree 40 min 内零 mtime 变化 ⇒ 无并发写者）。改前 `scripts/check.sh --quick` **99 s EXIT=0**（`Finished dev profile … in 1m 37s` / `==> checks passed in 99s (quick)`）。
+- **判定分布**：36 条现状断言 = **成立 27 / 部分成立 7 / 不成立 1 / 不可验 1**。全表见 `ironforge-docs/architecture/authorization-primitive-verification-2026-11.md` §2。
+
+| # | 它说的 | 判定 | 证据 |
+|---|---|---|---|
+| N12 | 受保护分支合并「谁能批 = 审批人 / 写权限」 | **不成立** | `api/reviews.rs:312` 的 `submit_review` 只过 `require_authenticated_read` ⇒ **任何能读仓库的登录账号都能投 approve**；`entities/protected_branch.rs` 全表无审批人列，`:30` 的 `allowed_push_user_ids` 管推送不管审批 |
+| N11 | 绑定 `pr.head_sha`（`pr_review_ops.count_current_approvals`） | 部分成立 | 绑定成立；**函数名不存在**——真名 `count_current_human_approvals`（`ops/pr_review_ops.rs:57`），`count_approvals` 是它的 `None` 包装（`:46`） |
+| N17 | 「head_sha 一变旧请求便自动失效」已是现状语义 | 部分成立 | 语义对（`:74-79` 按 `commit_id == head_sha` 过滤）；但这是**过滤**不是状态失效，没有 `expired` 记录、也没有任何东西通知批准人票废了 |
+| N21 | `protected_branches.allowed_push_user_ids` / 审批人 | 部分成立 | 字段在（`:30`），但「审批人」无字段；把它当审批人名单会静默改语义 |
+| N25 | 「agent 只能申请、永远拿不到 approve」是**新增**约束 | 部分成立（大半已实现） | CI 侧**已经**硬拒 agent（`api/ci_environments.rs:285-304`，`AGENT_MAY_NOT_APPROVE`）；PR 侧靠 human-only 计数（`ops/pr_review_ops.rs:57-77`）。缺的只有 agent 侧申请入口 |
+| N34 | 协作链路完全没有外发通道（引 `human_notify.rs`「There is no email and no webhook yet」） | 部分成立 | 引文逐字对（`:22`），但 **「no webhook」已过时**——`webhook_events.rs:30` + `api/collab_questions.rs:182` 已在投 `collab.question.asked`。注释本轮已订正 |
+| N36 | `send_html_notification` 模板尾句「已经够用」 | 部分成立 | 句子在（`email/mod.rs:106`）但**内容是错的**：它宣称「you have notifications enabled」，而系统没有这个开关（它自己在 N30 已证） |
+
+- **本轮最贵的一条错**：N12。它据此说「抽象只是把现有三份判定收进求值器」，真值是这个求值器一旦照抄，会把「能读仓库就能批合并」固化进新原语；要改写成写权限，那是**权限收紧**（现有仓库合并会突然 403），必须先拍板。**判据（可复用）**：判「谁能批某动作」不能读字段名（`allowed_push_user_ids` 看着像审批人名单），要读 handler 的第一道 `require_*`——本轮一条 `grep -n "require_authenticated_read" reviews.rs` 即定性。
+- **它自相矛盾处**：§一表格把协作通知写成「in-app + WS + webhook」，§四又引 `human_notify.rs` 的「no webhook yet」当证据。两句只可能有一句对；真值是 §一 对、注释过时（N34）。
+- **新发现（两份材料都没有）**：**F1** 自批守卫只在 HTTP 层（`api/reviews.rs:325`），core `review/service.rs:57-101` 的 `submit_review` 既不查权限也不查自批，只校验 `state == "open"` ⇒ 任何绕过 handler 的调用面（MCP、内部服务）都能自批。**F2** CI 通知邮件正文的 `<br/><br/>`（`crates/rg-http/src/lib.rs:3462`）被 `email/mod.rs:110` 的 `html_escape(message)` 转义 ⇒ 用户看到字面标签。**F3** `email/mod.rs:106` 的尾句为不存在的开关背书。**F4** `count_approvals`（传 `None`，只数 `commit_id IS NULL` 的审批）与合并门（传 `pr.head_sha`）不是同一口径。
+- **新 L2**：**R19-1**（P1，合并审批准入面：`api/reviews.rs:312` 读权限即可批，收紧属权限语义变更）；**R19-2**（P2，自批守卫下沉 core，F1）；**R19-3**（P2，`email/mod.rs:106` 尾句 + `:110` 转义吃掉 `<br/>`）；**R19-4**（P3，`count_approvals` 与 `count_current_human_approvals` 口径分叉，F4）；**R19-5**（P3，「agent 不得批准」应复用 `AGENT_MAY_NOT_APPROVE` + human-only 计数，不新造第三份判定）。
+- **改动（本流程在 WT 内 commit）**：新建 `ironforge-docs/architecture/authorization-primitive-verification-2026-11.md`（36 条判定表 + 三套机制对照 + 三条优先订正 + F1–F4 + R19-1…R19-5）；`crates/rg-core/src/collaboration/human_notify.rs:22-23` 注释 **2 行 → 2 行**（`no email and no webhook yet` → 「无邮件，外发走 `webhook_events`」），文件仍 **259 行**、行号零漂移；`ironforge-docs/README.md` 索引 +1 行。**零代码行为改动**。
+- **反向清单 71**；清单累计 **1..71**。
+71. 「受保护分支合并『谁能批 = 审批人 / 写权限』」（issue #19 方案 §一 第三行）—— **不成立**：`crates/rg-http/src/api/reviews.rs:312` 的 `submit_review` 只有 `require_authenticated_read`，读权限即可投 approve；`crates/rg-db/src/entities/protected_branch.rs` 无审批人列（`:30` 的 `allowed_push_user_ids` 只约束推送）。**勿再以「现状已是写权限门槛」为前提推演抽象收益。**
+- **回填**：改动 SHA 与回帖 id 见本节末「改动 SHA / 回帖（回填）」。issue #19 **保持 open**（单发轮不 close）。**第二段**：`[opt-round]` open = **0** ⇒ 无对象（非「队列为空」——手工队列仍剩 16 条）。
+
+**改动 SHA / 回帖（回填）**：待回填。

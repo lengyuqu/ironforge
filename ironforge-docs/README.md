@@ -55,6 +55,7 @@
 | `batch-commit-verification-2026-11.md` | 批量提交（issue #16，`48f03a7`）：10 文件交付面、八条验收条件逐条证据、六处自述偏差核实、**MCP `commit_files` 阶段 4 未做**、`["commits"]` 与 T21 的表所有权 |
 | `merge-readiness-current-state-2026-11.md` | 合并就绪与冲突详情（issue #17）：33 条现状断言逐条核实（20 成立 / 10 部分 / 3 不成立）、`ResolutionFailure` 11 变体全量映射、审批与状态检查的三处真值、`/mergeability` 与 `/merge-readiness` 的端点命名冲突、R17-1…R17-7 待拍板 |
 | `agent-draft-refs-ttl-verification-2026-11.md` | Agent 草稿命名空间（issue #18）的设计前提核实：25 条现状断言逐条证据（17 成立 / 6 部分 / 2 不成立）、**`refs/pull/*` 并非只读命名空间**、**CI secrets 不按 ref 过滤**、`branch.deleted` 双发、行号漂移表、R18-1…R18-6 待拍板 |
+| `authorization-primitive-verification-2026-11.md` | 通用审批原语（issue #19）的现状核实：36 条断言逐条证据（27 成立 / 7 部分 / 1 不成立 / 1 不可验）、**合并审批只需读权限**、**「agent 不得批准」已实现**、`human_notify` 的「no webhook」注释过时、CI 邮件 `<br/>` 被转义、R19-1…R19-5 待拍板 |
 
 ---
 
