@@ -2259,3 +2259,31 @@ protocol=v0.12
   （NPC 复核容器无 `cargo`（`command -v cargo` rc=127）⇒ 这两个数字**不可由第三方复算**，只能当执行侧自述；同类口径见协议「证据形态」条）
 - 回帖：2120837912609603584（2026-11-12T11:15:36Z）｜`## 本轮收尾`（不占 C）
 - issue 状态：保持 open
+
+### 单发轮 · issue #48 · 2026-11-13（第 1 次进入；`[opt-round]` open = 0 ⇒ 第二段无对象）
+
+protocol=v0.13
+
+- **选靶依据**：11 条 open 全 MANUAL；`priority` 只有 `#48` 是 P2、其余全空 ⇒ 按任务书「priority 优先」直接取 **#48**（`comment_count=0`）。平台侧 `^## 本轮收尾` 计数：`#14`=3、`#15`/`#17`/`#18`/`#19`/`#37` 各 1、`#38`–`#41`/`#48` = 0。
+- **无 NPC 分析 ⇒ 先发只读首扫请求**：评论 `2120957694004633600`（`2026-11-12T19:11:34Z`），限定「你是评审者、只读、不写收尾标记、未跑就标未跑、行号以 `94dc671` 为准」+ 8 条待核断言。`60 s × 5` 到 `19:16:34Z` 平台上仍只有我方一条 ⇒ 按 issue 正文 + `7271b87` 的两份新文档推进，不重复发。
+- **形态变了（本轮最重要的一件事）**：`main` 已从 `94dc671` 之前推进一大批（PR #49–#56 合入），#48 **不再是一条待开工 issue**：第 1 项（MCP `commit_files`）随 PR #54（`e7110e6` / 分支提交 `7271b87`）已落地，第 2 项（unified diff）已有决策文档，只剩第 3 项（cherry-pick / revert 端点）。所以本轮＝**核实实施回报 + 确认剩余项**，不是评审设计。
+- **BASE** `94dc671`（`HEAD` 与 `cnb/main` 同 SHA；`opt-worktrees` 为空，另有 7 个 `.claude/worktrees` 属他人并行分支、未触碰）。改前 `scripts/check.sh --quick` **110 s `EXIT=0`**（`Finished dev profile [unoptimized + debuginfo] target(s) in 1m 48s` / `==> checks passed in 110s (quick)`）。
+- **判定分布**：26 条断言 = **成立 15 / 部分成立 6 / 不成立 5**（其中 2 条「不成立」是**时点失效**，不是错误：正文写于 `2026-11-12T16:12Z`，早于 PR #54）。
+- **最贵的一条（D9 / R48-1）**：两份新文档把第 3 项没做的原因写成「与 #14 的路由注册表重构冲突」——**该阻塞已经不在了**。R1 已合 main（PR #55，`0b05502`），`rg-core/src/auth/route_meta.rs` 771 行，`rg-http/tests/route_metadata_tests.rs` 校验「注册了路由没登记 / 登记了没路由 / `.checked()` 路由没调 `ensure_token_may_write_branch`」三种漂移。**判据（可复用）**：判「某新路由能不能写」先读 `route_meta.rs` 头部「Adding a route」契约——移 ref 的写路由必须 `.checked()`，响应无秘密才 `.idem()`，漏登记是测试红灯而不是静默默认。本条已在本轮就地订正（两处 1→1 行）。
+- **第二处产出（.ai/README.md:182 / R48-4）**：工具表已经加了 `commit_files` 行，但**同一节底部的「哪些工具会写仓库」枚举没跟上**——原文只有 `commit_file`、`delete_file`、`create_pr`。这句话是读者判断「要不要带分支受限令牌」的唯一入口，漏掉 `commit_files`（写文件、走 `.checked()`）和 `delete_branch`（删 ref）会让 agent 以为它们是只读。已补两个名字（1→1 行）。
+- **第三处产出（可复用证据链）**：`commit_files` 的「一次调用 = 1 commit = 1 CI」**不是只有自述**——`scripts/agent-e2e.py:161-243` 带对照组（4 次 `commit_file` ⇒ 4 commit / 4 pipeline），批量侧断言 `runs_after - runs_before == 1` 并检查新 commit 的父是调用前 tip。但它是**手跑脚本、不在 CI**（`check.sh` 三种模式都不调它）。
+- **第四处产出（验收 2 是空口径）**：`tools/list` 的断言只查「按名字 + `required` 列表」（`write_tools_mcp.rs:281-336`），仓库里**没有**工具总数的断言（`grep -rn 'tools.len()\|tools).len\|tool_count' crates/rg-mcp/tests/*.rs crates/rg-mcp/src/*.rs` 输出为空）⇒ 正文要求的「工具表数量同步更新」无强制手段，`14 → 15` 只能靠人读。
+- **本轮自跑证据（executor 本机）**：`cargo test -p rg-mcp` = lib **17** / `collab_mcp` **21** / `read_tools_mcp` **10** / `write_tools_mcp` **12** 全 ok（60 passed / 0 failed），与验证文档自报的四个数字逐个相符。**复算环境无 cargo 时不可验**。
+- **新 L2**：**R48-1**（P1，第 3 项落地顺序：先 `route_meta::ROUTES` 两行 `.checked()`，再 handler；`revert`/`cherry-pick` 都要 `audit::record_write`，现 12 处无一在 `commits/{sha}/*`）· **R48-2**（P2，unified diff 需负责人拍板是否引入依赖；自研可仿本仓 `rg-core/src/pull_request/gix_patch.rs` 的 `parity_tests` 对拍 `git apply --check`）· **R48-3**（P2，`files` 无条数/字节上限，REST 与 MCP 都没有；应与补丁方案的 1 MiB / 200 文件上限一起定）· **R48-4**（P3，`.ai/README.md` 写工具枚举漏项，本轮已修）· **R48-5**（P3，无工具总数断言）· **R48-6**（P3，`commit_files` 不能建分支，新分支要先 `commit_file`——工具描述已写，但 issue 验收没提，属已知限制不是缺陷）。
+- **反向清单 84–89**；清单累计 **1..89**（84–89 物理在本节末）。
+84. 「`crates/rg-mcp/src/tools/mod.rs` 只有单文件 `commit_file`（`:111`）与 `delete_file`（`:131`）、工具表 14 项无批量项」—— **时点失效**：今天 15 项，`commit_files` 占 `:131`，`delete_file` 已被推到 `:165`。反证：`grep -n '"name": "' crates/rg-mcp/src/tools/mod.rs`。
+85. 「`BatchCommitRequest.files` 只接 `content` 字符串（`repo_commits.rs:34-66`）」—— **不成立**：`:33` 起是 `BatchCommitFileRequest`（create/update/delete/move 四变体 tagged enum），`BatchCommitRequest` 本体在 `:80`；「只接 content」在 `48f03a7` 之后即失效。
+86. 「issue #48 第 3 项与 #14 的路由注册表重构冲突，因此本会话没碰」（决策文档状态行与 §3 各一处）—— **不成立（本轮已订正）**：R1 已合 main（PR #55 / `0b05502`），阻塞变成「要在 `route_meta::ROUTES` 加两行」，不是「等它合并」。
+87. 「`gix_patch::unified_patch` 只会生成补丁」易被读成外部 crate —— **部分成立**：`gix-patch` 不在 `Cargo.lock`，`unified_patch` 是本仓模块 `crates/rg-core/src/pull_request/gix_patch.rs:36`；「只会生成、gix 无 apply」本身对（`~/.cargo/registry/.../gix-0.90.0/src/` 无 `pub fn apply`）。
+88. 「`.ai/README.md` 的写工具枚举＝`commit_file`、`delete_file`、`create_pr`」—— **不成立**：漏 `commit_files` 与 `delete_branch`，本轮已补（`sed -n '182p'`）。反证：工具表 15 项里 `commit_files`（`:131`）与 `delete_branch`（`:184`）都有写副作用。
+89. 「验收 2：`tools/list` 快照测试与工具表数量同步更新」—— **部分成立**：断言是按名字 + `required` 列表逐条查（`write_tools_mcp.rs:281-336`），**没有**总数断言；`14 → 15` 无机械校验。
+- **producer-stall 已解除**：`[opt-round]` 队列仍为 0，但本轮观察到生产者这一侧改走「PR 直推 + 文档沉淀」（PR #49–#56 一夜合入 8 个），队列形态从「issue 批次」变成「PR 批次」⇒ 第二段**依旧无对象**，不是生产者停摆。
+- **下靶**：零消费剩 `#38`–`#41`/`#48`（`comment_count` 全 0，其中 `#48` 本轮已 1 次）；按（次数 asc, 编号 asc）下一靶 **#38**（「推送时密钥扫描 R7」）。
+- **回填**：改动 SHA 与回帖 id 见本节末「改动 SHA / 回帖（回填）」段。issue #48 **保持 open**（第 3 项未做，单发轮不 close）。
+
+**改动 SHA**：`6075fbd`（2 文件 `4+/4−`，**零代码行为改动**：`crates/` 一行未动；`.ai/README.md` 1→1 行仍 276 行、决策文档 3 处各 1→1 仍 72 行 ⇒ 全仓 `path:line` 零漂移）。**改后验证**：`scripts/check.sh --quick` `EXIT=0` **2 s**（`Finished dev profile [unoptimized + debuginfo] target(s) in 0.32s` / `==> checks passed in 2s (quick)`）；改前 **110 s** `EXIT=0`。`cargo test -p rg-mcp` 60 passed（见上）。**时刻锚** = `git log -1 --format=%aI 6075fbd`。
