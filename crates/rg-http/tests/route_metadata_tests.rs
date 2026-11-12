@@ -564,3 +564,68 @@ fn a_route_declared_handler_checked_has_a_handler_that_checks_the_branch() {
         "expected the contents, commits and branch-delete handlers, found {checked}"
     );
 }
+
+// ── The live entry points the middleware calls ─────────────────────────
+
+/// The legacy `path_in_allowlist`, for a token limited to `o/n`.
+fn legacy_in_allowlist(path: &str) -> bool {
+    let segments: Vec<&str> = path.trim_start_matches('/').split('/').collect();
+    if segments
+        .iter()
+        .any(|s| s.is_empty() || *s == "." || *s == "..")
+    {
+        return false;
+    }
+    let listed = |owner: &str, name: &str| owner == "o" && name == "n";
+    let rest = match segments.as_slice() {
+        ["repos", owner, name, rest @ ..] if listed(owner, name) => rest,
+        ["ai", "repos", owner, name, rest @ ..] if listed(owner, name) => rest,
+        _ => return false,
+    };
+    !matches!(
+        rest,
+        ["fork", ..] | ["forks", ..] | ["transfer", ..] | ["collaboration", "groups", ..]
+    )
+}
+
+#[test]
+fn the_live_entry_points_agree_with_the_hand_written_tables() {
+    use rg_core::auth::pat_scope::{path_in_allowlist, ref_limited_write_allowed};
+    use rg_http::idempotency::idempotency_supported;
+
+    let allow = vec!["o/n".to_string()];
+    let routes: Vec<String> = registered_routes()
+        .iter()
+        .map(|r| sample(&r.path))
+        .collect();
+    for path in routes.iter().cloned().chain(probe_paths()) {
+        assert_eq!(
+            path_in_allowlist(&path, &allow),
+            legacy_in_allowlist(&path),
+            "path_in_allowlist({path:?})"
+        );
+        // Never looser; and equal on every registered route.
+        let live_ref = ref_limited_write_allowed(&path);
+        let live_idem = idempotency_supported(&path);
+        assert!(
+            !live_ref || legacy::branch_limited_write(&path),
+            "ref_limited_write_allowed({path:?}) is looser than before"
+        );
+        assert!(
+            !live_idem || legacy::idempotent(&path),
+            "idempotency_supported({path:?}) is looser than before"
+        );
+        if routes.contains(&path) {
+            assert_eq!(
+                live_ref,
+                legacy::branch_limited_write(&path),
+                "ref_limited_write_allowed({path:?})"
+            );
+            assert_eq!(
+                live_idem,
+                legacy::idempotent(&path),
+                "idempotency_supported({path:?})"
+            );
+        }
+    }
+}
