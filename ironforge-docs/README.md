@@ -54,6 +54,7 @@
 | `route-metadata-registry-2026-11.md` | 路由元数据注册表（issue #14）：五张表的真实位置与规模、三个隐含假设的裁决、P0–P3 落点与 L2 边界（Proposed） |
 | `batch-commit-verification-2026-11.md` | 批量提交（issue #16，`48f03a7`）：10 文件交付面、八条验收条件逐条证据、六处自述偏差核实、**MCP `commit_files` 阶段 4 未做**、`["commits"]` 与 T21 的表所有权 |
 | `merge-readiness-current-state-2026-11.md` | 合并就绪与冲突详情（issue #17）：33 条现状断言逐条核实（20 成立 / 10 部分 / 3 不成立）、`ResolutionFailure` 11 变体全量映射、审批与状态检查的三处真值、`/mergeability` 与 `/merge-readiness` 的端点命名冲突、R17-1…R17-7 待拍板 |
+| `agent-draft-refs-ttl-verification-2026-11.md` | Agent 草稿命名空间（issue #18）的设计前提核实：25 条现状断言逐条证据（17 成立 / 6 部分 / 2 不成立）、**`refs/pull/*` 并非只读命名空间**、**CI secrets 不按 ref 过滤**、`branch.deleted` 双发、行号漂移表、R18-1…R18-6 待拍板 |
 
 ---
 

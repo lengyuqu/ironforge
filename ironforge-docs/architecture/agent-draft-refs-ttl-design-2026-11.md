@@ -1,6 +1,6 @@
 # Agent 草稿命名空间（TTL）：设计细化（Proposed，2026-11-11）
 
-> **状态**：设计草案，**未实现** ｜ **可信度**：仓库代码事实为"确认"（附文件:行，但 2026-11-11 未在仓库内逐条复核）；git 协议行为与性能量级为 **推测**（未跑真实 git 客户端验证）｜ **来源**：本次通读 `crates/rg-git`、`crates/rg-http`、`crates/rg-ci`、`crates/rg-core/src/auth` 的结论
+> **状态**：设计草案，**未实现** ｜ **可信度**：仓库代码事实为"确认"（2026-11-12 已在 `e225293` 上逐条复核：25 条中 17 成立 / 6 部分成立 / 2 不成立，见 [agent-draft-refs-ttl-verification-2026-11.md](agent-draft-refs-ttl-verification-2026-11.md)）；git 协议行为与性能量级为 **推测**（未跑真实 git 客户端验证）｜ **来源**：本次通读 `crates/rg-git`、`crates/rg-http`、`crates/rg-ci`、`crates/rg-core/src/auth` 的结论
 > 议题：Issue #18 ——「给 agent 一个带 TTL 的草稿命名空间（如 `refs/agent/<id>/*`），推上去可跑 CI 但不开 PR、不触发通知，到期自动清理。这样分支白名单令牌能安全试错。」
 > 读法：先看 §1 边界与 §9 结论，再看 §3（隔离实现，最容易踩坑的一节）。
 
@@ -16,7 +16,7 @@
 
 **目标**：把 `refs/heads/agent/<id>/*` 这种"每 agent 独占的一段分支"变成带过期时间的草稿区——能推、**能跑 CI**、不产生面向人的通知、过期自动删。
 
-**非目标**：不做 PR 沙箱（`refs/pull/*` 已有且是只读镜像），不做 CI 脚本的人审门（那是另一件事：见 §8 风险 R3），不改 SSH 通道的令牌语义。
+**非目标**：不做 PR 沙箱（`refs/pull/*` 由服务端 `publish_head_ref` 写入；带 `ref_allowlist` 的令牌写不进它，无白名单的令牌可以——见 R18-1），不做 CI 脚本的人审门（那是另一件事：见 §8 风险 R3），不改 SSH 通道的令牌语义。
 
 ---
 
@@ -24,18 +24,18 @@
 
 | 事实 | 位置 | 影响 |
 |---|---|---|
-| 分支白名单只对 `refs/heads/<pattern>` 生效；tag 和其他命名空间一律拒绝 | `rg-core/src/auth/pat_scope.rs:266-275`（`ref_allowlist_full_patterns`） | 命名空间可以是"普通分支"或"独立命名空间"，两种都要显式处理（见 §4） |
-| 推送拒绝发生在读 pack 之前；一次推送内允许"部分成功" | `rg-git/src/protocol/receive_pack.rs:427-446` | 白名单外被拒后，pack 仍被 `drain_pack` 读掉再返回 → 用 `git push` 试错不会被卡住（好） |
-| 一条 ref 的失败**不会中止**后续 ref 的更新 | `receive_pack.rs:412`（命令先全标 `ok`）、`:486`（只跳过非 `ok`） | "不许往 main 推"的真实行为是：**该 ref 被拒，同批其他 ref 照常落地，push 退出码非 0**（见 §8 R1，这算一个现存瑕疵） |
-| 分支删除走 `on_delete` 守卫（open PR 占用、分支保护、默认分支都拒） | `rg-http/src/lib.rs:3070-3125` | 清理任务删草稿分支时必须**绕开**这个 REST/推送守卫，否则"分支上还挂着草稿 PR"就永远删不掉（见 §6.3） |
-| 推送后钩子：CI → `push` webhook → 分支事件 webhook → ws 通知 | `rg-http/src/lib.rs:3278-3575`（`post_push_hooks`；入口 `spawn_post_push_hooks` 在 `:3190`） | 通知抑制的三个注入点都在这里，且已有 `if update.status != "ok" { continue; }` 的前置过滤 |
-| 每次 `trigger_event` 都会同时写 `repo_events`（长轮询日志） | `rg-core/src/webhook/service.rs:131-142`、`:227-241` | 想"不触发通知但保留事件"，必须把载荷写入与 hook 投递拆开（见 §5.3） |
+| 分支白名单只对 `refs/heads/<pattern>` 生效；tag 和其他命名空间一律拒绝 | `rg-core/src/auth/pat_scope.rs:268-273`（`ref_allowlist_full_patterns`） | 命名空间可以是"普通分支"或"独立命名空间"，两种都要显式处理（见 §4） |
+| 推送拒绝发生在读 pack 之前；一次推送内允许"部分成功" | `rg-git/src/protocol/receive_pack.rs:427-453` | 白名单外被拒后，pack 仍被 `drain_pack` 读掉再返回 → 用 `git push` 试错不会被卡住（好） |
+| 一条 ref 的失败**不会中止**后续 ref 的更新 | `receive_pack.rs:412`（命令先全标 `ok`）、`:487`（只跳过非 `ok`） | "不许往 main 推"的真实行为是：**该 ref 被拒，同批其他 ref 照常落地，push 退出码非 0**（见 §8 R1，这算一个现存瑕疵） |
+| 分支删除走 `on_delete` 守卫（open PR 占用、分支保护、默认分支都拒） | `rg-http/src/lib.rs:3082-3140` | 清理任务删草稿分支时必须**绕开**这个 REST/推送守卫，否则"分支上还挂着草稿 PR"就永远删不掉（见 §6.3） |
+| 推送后钩子：CI → `push` webhook → 分支事件 webhook → ws 通知 | `rg-http/src/lib.rs:3290-3590`（`post_push_hooks`；入口 `spawn_post_push_hooks` 在 `:3202`） | 通知抑制的 3 个注入点在这里，且已有 `if update.status != "ok" { continue; }` 的前置过滤；**第 4 个不在这里**——删分支路径的 `trigger_branch_deleted` 在 `on_delete` 内（`:3125`），本函数过滤不到（R18-5） |
+| 每次 `trigger_event` 都会同时写 `repo_events`（长轮询日志） | `rg-core/src/webhook/service.rs:131-141`、`:227-239` | 想"不触发通知但保留事件"，必须把载荷写入与 hook 投递拆开（见 §5.3） |
 | CI 读取配置：先 `.gitea/workflows/*.yml`，再 `.ironforge-ci.yml`，**在触发时从该 commit 的树里读** | `rg-ci/src/lib.rs:558-596`（`read_ci_config`） | ✅ **可行性关键**：推送方可以自带 CI 配置，不需要先合并到 main |
-| Gitea 格式的 `on: push: branches:` 过滤器已实现（PR 事件过滤的是 base 分支） | `rg-ci/src/gitea_actions.rs:280-312`、`:698-730` | 每个草稿分支会被**所有** `on: push`（不带 branches 过滤）的工作流命中 → 需要 §5.2 的抑制开关 |
+| Gitea 格式的 `on: push: branches:` 过滤器已实现（PR 事件过滤的是 base 分支） | `rg-ci/src/gitea_actions.rs:280-312`、`:698-732` | 每个草稿分支会被**所有** `on: push`（不带 branches 过滤）的工作流命中 → 需要 §5.2 的抑制开关 |
 | 其余触发入口：手动 `POST .../actions/pipelines`、PR 评审请求 CI | `rg-http/src/api/ci.rs:465`、`api/reviews.rs:204` | 手动触发不受命名空间影响，天然可用 |
-| `refs/pull/<n>/head` 是内核级只读镜像，任何推送写 → 客户端 `push` 直接失败 | `rg-core/src/pull_request/service.rs:1389-1430`；白名单实现见 `pat_scope.rs:266-275` | "不许开 PR" 用 `refs/pull/` 天然成立，不需要新代码 |
-| 后台周期任务已有统一模式（`task_supervisor::supervise` + `run_cleanup_loop`，1h 轮询） | `rg-http/src/lib.rs:245-274`；`api/ci_retention.rs:170-200`；`api/repo_events.rs:214-230` | 清理任务照抄这个形状即可，不需要新的调度设施 |
-| 白名单模式支持 `*` 且 `*` 可跨 `/`；禁止以 `*` 开头 | `pat_scope.rs:211-262`（`normalize_ref_allowlist`） | `agent/a1/*` 已能表达"只允许 id 为 a1 这一段"；但"`owner/agent` 里 `*` 未展开的文件名"这类歧义要注意（§4.3） |
+| `refs/pull/<n>/head` 由 `publish_head_ref` 写入，是**普通 ref**：`rg-git` 里没有任何命名空间守卫，落地写入是 `PreviousValue::Any` | `rg-core/src/pull_request/service.rs:1389-1430`；写入 `receive_pack.rs:507` → `:631-647` | **"不许开 PR" 只对带 `ref_allowlist` 的令牌天然成立**（前缀恒 `refs/heads/`）；无白名单令牌可改写该 ref，需另加守卫（见 R18-1），**不能写"不需要新代码"** |
+| 后台周期任务已有统一模式（`task_supervisor::supervise` + `run_cleanup_loop`，1h 轮询） | `rg-http/src/lib.rs:246-275`；`api/ci_retention.rs:168-188`；`api/repo_events.rs:216-227` | 清理任务照抄这个形状即可，不需要新的调度设施 |
+| 白名单模式支持 `*` 且 `*` 可跨 `/`；禁止以 `*` 开头 | `pat_scope.rs:213-257`（`normalize_ref_allowlist`） | `agent/a1/*` 已能表达"只允许 id 为 a1 这一段"；但"`owner/agent` 里 `*` 未展开的文件名"这类歧义要注意（§4.3） |
 
 ---
 
@@ -51,9 +51,9 @@
 
 - 分支列表天然看不到（大多数实现只列 `refs/heads/` 与 `refs/tags/`），`refs/heads/*` 假设也碰不到它。
 - 代价（都要写代码）：
-  - `ref_allowlist_full_patterns` 目前固定加 `refs/heads/` 前缀（`pat_scope.rs:266-275`）→ 模式需扩展成"`heads:`/`agent:` 前缀语法"或按模式自身是否以 `refs/` 开头分流。
+  - `ref_allowlist_full_patterns` 目前固定加 `refs/heads/` 前缀（`pat_scope.rs:268-273`）→ 模式需扩展成"`heads:`/`agent:` 前缀语法"或按模式自身是否以 `refs/` 开头分流。
   - `receive_pack` 的删除分支只接受 `refs/heads/`（`receive_pack.rs:393-401`、`:355-362`）→ 需要同源放开。
-  - 清理任务用 `delete_ref`（`rg-git/src/ops.rs:106-124`）直接删即可，**没有** `on_delete` 守卫问题，反而更简单。
+  - 清理任务用 `delete_ref`（`rg-git/src/ops.rs:105-124`）直接删即可，**没有** `on_delete` 守卫问题，反而更简单。
 - **结论**：先用 B 落地（成本最低、风险最小），把 C 作为 B 的"隐藏度不够时"的后续项。本文后续以 B 为准，C 的差异单独标注。
 
 ### 3.3 命名建议
@@ -133,7 +133,7 @@ GET    /api/v1/repos/{owner}/{name}/agent-drafts          列出（owner/admin�
 
 ### 5.2 推送时
 
-在 `handle_receive_pack` 已有 `rejected_refs` 之外，新增一类"命名空间守卫"（同一个注入点，`rg-http/src/lib.rs:2960-3070` 组装 `rejected_refs`/`writable_refs` 的地方，`writable_refs` 在 `:2984`）：
+在 `handle_receive_pack` 已有 `rejected_refs` 之外，新增一类"命名空间守卫"（同一个注入点，`rg-http/src/lib.rs:2996-3076` 组装 `rejected_refs`/`writable_refs` 的地方，`writable_refs` 在 `:2996`）：
 
 | 情况 | 行为 |
 |---|---|
@@ -146,16 +146,16 @@ GET    /api/v1/repos/{owner}/{name}/agent-drafts          列出（owner/admin�
 
 ### 5.3 通知与事件抑制（三个注入点）
 
-`post_push_hooks`（`rg-http/src/lib.rs:3278`，逐 ref 循环从 `:3306` 起）里判断 `is_draft = namespace::lookup(ref).is_some_and(active)`，然后：
+`post_push_hooks`（`rg-http/src/lib.rs:3290`，逐 ref 循环从 `:3321` 起）里判断 `is_draft = namespace::lookup(ref).is_some_and(active)`，然后：
 
 | 触发点 | 现状 | 草稿区行为 |
 |---|---|---|
-| CI | `ci_engine.trigger_pipeline(... "push")` → 之后还会 `ws::push_notification(ci_triggered)` + SMTP 邮件（`lib.rs:3406-3495`） | **照常触发 CI**，但跳过 `ws` 通知与邮件 |
-| `push` webhook | `webhook::service::trigger_event(db, repo_id, "push", payload)`（`:3504`） | 默认**不投递**，但**仍写 `repo_events`**（见下） |
-| `branch.created` / `branch.deleted` webhook | `:3510-3552` | 不投递、不写事件 |
-| ws `push` 通知 | `:3566-3574` | 跳过 |
+| CI | `ci_engine.trigger_pipeline(... "push")` → 之后还会 `ws::push_notification(ci_triggered)` + SMTP 邮件（`lib.rs:3417-3495`） | **照常触发 CI**，但跳过 `ws` 通知与邮件 |
+| `push` webhook | `webhook::service::trigger_event(db, repo_id, "push", payload)`（`:3516`） | 默认**不投递**，但**仍写 `repo_events`**（见下） |
+| `branch.created` / `branch.deleted` webhook | `:3526-3548` | 不投递、不写事件 |
+| ws `push` 通知 | `:3579-3586` | 跳过 |
 
-**"仍写事件"需要一次小重构**：`trigger_event` 现在把"写 `repo_events`"和"投递 webhook"绑在一起（`rg-core/src/webhook/service.rs:131-142`）。拆成
+**"仍写事件"需要一次小重构**：`trigger_event` 现在把"写 `repo_events`"和"投递 webhook"绑在一起（`rg-core/src/webhook/service.rs:131-141`）。拆成
 
 ```rust
 pub async fn record_event(db, repo_id, event, payload) -> Result<()>;       // 仅日志
@@ -165,7 +165,7 @@ pub async fn trigger_event_quietly(db, repo_id, event, payload) -> Result<()>; /
 
 好处：agent 侧仍然能 `wait_repo_events` 等到自己的推送（`GET /repos/.../events`，`api/repo_events.rs`），只是人不会被 call 起来。前端"活动"页要不要隐藏草稿事件，留给 §7 的 `feed_visibility`。
 
-> ⚠️ 现存不一致（顺带记录）：`notify_watchers_push`（`rg-core/src/repo/service.rs:1590-1605`）定义了但**全仓库无调用**，所以"关注者收推送通知"这条路径今天其实没接线。草稿区设计不受它影响，但如果将来接线，要在那里加同一条过滤。
+> ⚠️ 现存不一致（顺带记录）：`notify_watchers_push`（`rg-core/src/repo/service.rs:1590-1606`）定义了但**全仓库无调用**，所以"关注者收推送通知"这条路径今天其实没接线。草稿区设计不受它影响，但如果将来接线，要在那里加同一条过滤。
 
 ### 5.4 TTL 语义
 
@@ -179,7 +179,7 @@ pub async fn trigger_event_quietly(db, repo_id, event, payload) -> Result<()>; /
 
 ### 6.1 后台任务形状
 
-照抄既有模式（`rg-http/src/lib.rs:245-274`）：
+照抄既有模式（`rg-http/src/lib.rs:246-275`）：
 
 ```rust
 tokio::spawn(rg_core::task_supervisor::supervise(
@@ -198,7 +198,7 @@ tokio::spawn(rg_core::task_supervisor::supervise(
 对每个待清前缀：
 
 1. 列出该前缀下的所有 ref（`gix::references().all()` + 前缀过滤，**不要用 `refs/heads/` 的"分支列表"接口**，见 C 方案差异）。
-2. 跳过仍被**未关闭 PR** 指向的 head 分支？——**不跳过**。草稿区不该开 PR（`refs/pull/` 天然只读）；但按 §8 R4，若确实存在同名 PR，删分支前先 `publish_head_ref` 固化 `refs/pull/<n>/head`，再从库里清掉记录（"强制关闸"），并写审计 `agent.draft.force_closed`。
+2. 跳过仍被**未关闭 PR** 指向的 head 分支？——**不跳过**。草稿区不该开 PR，但 `refs/pull/` **不是**只读的（见 R18-1），别把"天然"写进实现假设；按 §8 R4，若确实存在同名 PR，删分支前先 `publish_head_ref` 固化 `refs/pull/<n>/head`，再从库里清掉记录（"强制关闸"），并写审计 `agent.draft.force_closed`。
 3. 每个 ref 用 `rg_git::ops::delete_ref_if(path, ref, sha)`（CAS，`ops.rs:132-153`）删除：**绕开** `receive_pack` 的 `on_delete` 守卫（那个守卫的语义是"用户删分支"，清理不是用户行为）。
 4. 把 `pipeline_ids` 里记录的 pipeline 标 `cancel`（若还在 pending/running）——**不删日志/制品**，交给现有 retention 策略（`api/ci_retention.rs`）。
 5. 删除命名空间行；写审计 `agent.draft.cleanup`（`{prefix, deleted_refs, cancelled_pipelines}`）。
@@ -206,7 +206,7 @@ tokio::spawn(rg_core::task_supervisor::supervise(
 
 ### 6.3 为什么不能用"删分支 API"
 
-`rg-http/src/lib.rs:3070-3125` 的 `on_delete` 会拒绝：默认分支、受保护分支、**有 open PR 占用**。草稿分支在正常情况下三条都不命中，所以"顺手复用"看起来很划算——但一旦命中（agent 误开了 PR、或人给 `agent/42/*` 加了保护规则），清理就会**永久失败并每小时刷一次告警**。清理必须走 `delete_ref_if`，并且**显式记录**它绕开了守卫（这是这个设计里唯一"故意绕过护栏"的地方，审计必须留痕）。
+`rg-http/src/lib.rs:3082-3140` 的 `on_delete` 会拒绝：默认分支、受保护分支、**有 open PR 占用**。草稿分支在正常情况下三条都不命中，所以"顺手复用"看起来很划算——但一旦命中（agent 误开了 PR、或人给 `agent/42/*` 加了保护规则），清理就会**永久失败并每小时刷一次告警**。清理必须走 `delete_ref_if`，并且**显式记录**它绕开了守卫（这是这个设计里唯一"故意绕过护栏"的地方，审计必须留痕）。
 
 ---
 
@@ -229,9 +229,9 @@ tokio::spawn(rg_core::task_supervisor::supervise(
 |---|---|---|
 | R1 | 混合推送不会整体失败 | 一条 ref 失败不影响其他 ref 落地（§5.2）。想让"推到 main 失败"更醒目的代价是改造 `receive_pack` 的原子性，**不在本设计范围**，但要在文档里写清，别让用户以为"被拒了就啥都没推上去" |
 | R2 | 对象孤儿 | 被拒 ref 的 pack 仍会 `index-pack`（§5.2），草稿区高频试错会加快对象库增长。建议清理任务顺带记录 `objects/pack` 增长率；真正回收靠既有 `gc` |
-| R3 | **CI 脚本是人审盲区（最大风险）** | 草稿分支上的 CI 跑的是**推送方自带的** `.gitea/workflows/*.yml` / `.ironforge-ci.yml`（`rg-ci/src/lib.rs:131`）。凡是 agent 有 `repo:write` 且仓库开了 Docker runner 或（更糟）`allow_host_execution`，草稿区就等于"任意代码执行"通道，且**排除了人工 review 这一环**。需求方要的"能跑 CI"和这条是同一枚硬币。必须明写：草稿分支默认只允许 **容器内** 执行（忽略 `allow_host_execution`），job 超时用仓库级 `job_timeout_secs`（`AppState` 已有），secrets 不注入（`ci_secrets` 按 ref 过滤需要确认是否已有能力——**未验证**）。若仓库把 `allow_host_execution` 打开，草稿区应默认**拒绝触发 CI**并给出明确理由 |
+| R3 | **CI 脚本是人审盲区（最大风险）** | 草稿分支上的 CI 跑的是**推送方自带的** `.gitea/workflows/*.yml` / `.ironforge-ci.yml`（`rg-ci/src/lib.rs:131`）。凡是 agent 有 `repo:write` 且仓库开了 Docker runner 或（更糟）`allow_host_execution`，草稿区就等于"任意代码执行"通道，且**排除了人工 review 这一环**。需求方要的"能跑 CI"和这条是同一枚硬币。**注意量级：该通道今天就存在**（任意可写分支的推送都已触发 CI，`lib.rs:3418`），草稿区新增的是"不再有人被通知"⇒ 抑制通知前必须先关掉这个洞。必须明写：草稿分支默认只允许 **容器内** 执行（忽略 `allow_host_execution`，现由仓库开关直传 runner，无触发源判定），job 超时用仓库级 `job_timeout_secs`（`AppState` 已有），secrets 不注入（**已验证做不到**：`ci_secret` 只有 `repo_id`，注入点 `rg-ci/src/runner.rs:743-762` 一把全取无 ref 条件，见 R18-2）。若仓库把 `allow_host_execution` 打开，草稿区应默认**拒绝触发 CI**并给出明确理由 |
 | R4 | 已开 PR 的草稿分支 | 见 §6.2 第 2 步：固化 `refs/pull/<n>/head` 后强制关闸 |
-| R5 | 令牌与命名空间的授权重叠 | §5.1 用 `ensure_token_may_write_branch(prefix)` 保证两者一致；但 REST 的 `ref_limited_write_allowed`（`pat_scope.rs:299-330`）需要新增 `agent-drafts/**` 到白名单，否则 agent 令牌调不了这个 API（今天所有非白名单写路由默认 403） |
+| R5 | 令牌与命名空间的授权重叠 | §5.1 用 `ensure_token_may_write_branch(prefix)` 保证两者一致；但 REST 的 `ref_limited_write_allowed`（`pat_scope.rs:301-336`）需要新增 `agent-drafts/**` 到白名单，否则 agent 令牌调不了这个 API（今天所有非白名单写路由默认 403） |
 | R6 | `extend` 的滥用 | 累计不超过创建时 ttl 的 4 倍 |
 | R7 | SSH 通道 | 令牌不用于 SSH，SSH 推送不受 `ref_allowlist` 与命名空间限制（现有事实）。如果 SSH 的 agent 也要受约束，得另做（用户级 SSH key → 命名空间），**列为后续** |
 | R8 | 多后端的迁移 | PostgreSQL/MySQL 需各跑一次迁移与清理 SQL（`hard_delete_at` 的时间比较按后端写法），照 CLAUDE.md 的数据库约定走 |
