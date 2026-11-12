@@ -540,9 +540,9 @@ enum TreeEdit { SetFile { path, content, expected_blob_sha }, RemoveFile { path 
 
 #### R7 推送时密钥扫描
 
-**核实现状**：receive-pack 路径 `rg-git/src/protocol/receive_pack.rs:129` → `:305`（`:432` 拒绝、`:507` 改 ref）；REST 提交走 `create_or_update_file_with` → `commit_tree_edits`。**零扫描**：与 secret 相关三处（协作会话密钥 `secret.rs:13`、CI secret 加密表、路径脱敏 `redact.rs:90`）都不扫内容。拒绝是纯文本 report-status（`:680` `ng <ref> <message>`），不是 v1 说的 `reason`/`hint` JSON——后者是 REST 错误体（`error.rs:29-39`）。
+**核实现状**：receive-pack 路径 `rg-git/src/protocol/receive_pack.rs:129` → `:305`（`:432` 拒绝、`:481` 签名策略、`:507` 改 ref）；REST 提交走 `rg-core/src/repo/service.rs` 的**4 处** `commit_tree_edits`（`create_or_update_file_with:1799`→`:1917`、`update_files_in_commit:1980`→`:2034`、`delete_file_with:2095`→`:2161` 不产新 blob、`commit_batch:2362`→`:2574`）。**零扫描**：与 secret 相关三处（协作会话密钥 `secret.rs:13`、CI secret 加密表、路径脱敏 `redact.rs:90`）都不扫内容。拒绝是纯文本 report-status（`:680` `ng <ref> <message>`），不是 v1 说的 `reason`/`hint` JSON——后者是 REST 错误体（`rg-http/src/error.rs:61-74` 的 `AppError::Coded`；`CoreError`（`rg-core/src/error.rs:24-44`）无 code/reason 变体）。
 
-**方案**：`rg-core/src/secret_scan.rs`：规则集（云 AK、GitHub/GitLab PAT、私钥头、JWT、通用高熵）+ 允许列表（路径 glob、行内 `ironforge:allow-secret`）；只扫**新增 blob**，单文件 ≤1 MiB、单次 ≤200 文件，超限跳过并记 `repo_event`。命中 → push 侧 `ng <ref> secret detected in <path>:<rule>`；REST 侧 `reason = SECRET_DETECTED`。
+**方案**：`rg-git/src/secret_scan.rs`（**不能放 `rg-core`**：`rg-git` 不依赖 `rg-core`，扫描器必须能在 `receive_pack.rs:481` 与 `:486` 之间被调用，见同文件 `:18` 的 `BranchDeleter` 注释）：规则集（云 AK、GitHub/GitLab PAT、私钥头、JWT、通用高熵、**`ifs_` 前缀**）+ 允许列表（路径 glob、行内 `ironforge:allow-secret`）；只扫**新增 blob**，单文件 ≤1 MiB、单次 ≤200 文件，超限口径**待裁决**（整批跳过即 fail-open：一次推 201 个文件全不扫），事件由调用方写（`rg-git` 无 DB）。命中 → push 侧 `ng <ref> secret detected in <path>:<rule>`；REST 侧 `reason = SECRET_DETECTED`（需给 `CoreError` 加 coded 变体或 handler 映射到 `AppError::coded`）。
 
 **风险**：误报 → 默认"记事件 + 警告"而非硬拒，仅私钥头/已知高置信规则硬拒；性能 → 只扫增量。**规模** M（1–1.5 天）。
 
