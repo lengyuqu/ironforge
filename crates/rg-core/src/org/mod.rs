@@ -62,11 +62,28 @@ pub async fn get_org(
 }
 
 /// List organizations for a user.
+///
+/// An agent sees only the organizations it belongs to **and** its owner
+/// belongs to (the owner cap): membership alone must not show an agent an
+/// organization its owner cannot see.
 pub async fn list_user_orgs(
     db: &DatabaseConnection,
     user_id: i64,
 ) -> CoreResult<Vec<rg_db::entities::organization::Model>> {
-    Ok(org_ops::list_user_orgs(db, user_id).await?)
+    let orgs = org_ops::list_user_orgs(db, user_id).await?;
+    match crate::agent::owner_cap(db, user_id).await? {
+        crate::agent::OwnerCap::None => Ok(orgs),
+        crate::agent::OwnerCap::Denied => Ok(Vec::new()),
+        crate::agent::OwnerCap::Owner(owner_id) => {
+            let mut kept = Vec::with_capacity(orgs.len());
+            for org in orgs {
+                if org_ops::is_org_member(db, org.id, owner_id).await? {
+                    kept.push(org);
+                }
+            }
+            Ok(kept)
+        }
+    }
 }
 
 /// Update an organization. `actor_id` must be an org owner/admin.
@@ -174,8 +191,33 @@ pub async fn list_org_members(
 }
 
 /// Check if user is a member of the org.
+///
+/// This is the **raw** membership row. It is not an authorization answer for an
+/// agent: use [`is_effective_org_member`] when the result decides what the
+/// caller may see or do.
 pub async fn is_org_member(db: &DatabaseConnection, org_id: i64, user_id: i64) -> CoreResult<bool> {
     Ok(org_ops::is_org_member(db, org_id, user_id).await?)
+}
+
+/// Membership with the agent owner cap applied: an agent counts as a member
+/// only if its owner is one too (and the owner is an active person). A person
+/// is a member exactly when the row exists.
+pub async fn is_effective_org_member(
+    db: &DatabaseConnection,
+    org_id: i64,
+    user_id: i64,
+) -> CoreResult<bool> {
+    if !org_ops::is_org_member(db, org_id, user_id).await? {
+        return Ok(false);
+    }
+    match crate::agent::owner_cap(db, user_id).await? {
+        crate::agent::OwnerCap::None => Ok(true),
+        crate::agent::OwnerCap::Denied => Ok(false),
+        // The owner is a person, so this does not recurse further.
+        crate::agent::OwnerCap::Owner(owner_id) => {
+            Ok(org_ops::is_org_member(db, org_id, owner_id).await?)
+        }
+    }
 }
 
 /// Find a specific org member.
@@ -210,6 +252,13 @@ pub async fn can_admin_org(
     org_id: i64,
     actor_id: i64,
 ) -> CoreResult<bool> {
+    // An agent never administers an organization, whatever role it was given
+    // (the same rule as `can_admin_repo`): membership rows are written by org
+    // admins, and an admin role on an agent must not let it change who belongs
+    // to the org or which teams may write which repositories.
+    if crate::agent::owner_cap(db, actor_id).await? != crate::agent::OwnerCap::None {
+        return Ok(false);
+    }
     let Some(org) = org_ops::get_org(db, org_id).await? else {
         return Ok(false);
     };
@@ -241,7 +290,7 @@ pub async fn can_read_org(
         return Ok(true);
     }
     match actor_id {
-        Some(uid) => Ok(org_ops::is_org_member(db, org_id, uid).await?),
+        Some(uid) => is_effective_org_member(db, org_id, uid).await,
         None => Ok(false),
     }
 }

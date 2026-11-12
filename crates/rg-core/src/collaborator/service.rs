@@ -141,6 +141,10 @@ pub async fn remove_collaborator(
 /// Get the effective permission for a user on a repo.
 /// Takes into account: repo owner (admin) + collaborator permission.
 /// Returns: "admin" | "write" | "read" | None
+///
+/// An agent's answer is its own grant limited to what its owner has, and never
+/// above "write" (an agent does not administer repositories); with no usable
+/// owner it is `None`.
 pub async fn get_effective_permission(
     db: &DatabaseConnection,
     owner: &str,
@@ -148,13 +152,40 @@ pub async fn get_effective_permission(
     user_id: i64,
 ) -> CoreResult<Option<String>> {
     let repo = resolve_repo(db, owner, repo_name).await?;
+    let own = collaborator_permission(db, &repo, user_id).await?;
+    match crate::agent::owner_cap(db, user_id).await? {
+        crate::agent::OwnerCap::None => Ok(own),
+        crate::agent::OwnerCap::Denied => Ok(None),
+        crate::agent::OwnerCap::Owner(owner_id) => {
+            let owners = collaborator_permission(db, &repo, owner_id).await?;
+            let capped = [own, owners]
+                .into_iter()
+                .collect::<Option<Vec<_>>>()
+                .and_then(|both| both.into_iter().min_by_key(|p| permission_rank(p)));
+            // An agent never administers.
+            Ok(capped.map(|p| if p == "admin" { "write".to_string() } else { p }))
+        }
+    }
+}
 
+fn permission_rank(permission: &str) -> u8 {
+    match permission {
+        "admin" => 3,
+        "write" => 2,
+        "read" => 1,
+        _ => 0,
+    }
+}
+
+async fn collaborator_permission(
+    db: &DatabaseConnection,
+    repo: &rg_db::entities::repository::Model,
+    user_id: i64,
+) -> CoreResult<Option<String>> {
     // Owner always has admin
     if repo.owner_id == user_id {
         return Ok(Some("admin".to_string()));
     }
-
-    // Check collaborator
     Ok(repo_collaborator_ops::get_permission(db, repo.id, user_id).await?)
 }
 
