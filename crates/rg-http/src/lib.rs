@@ -2055,16 +2055,6 @@ async fn resolve_pat(
     Some(tok)
 }
 
-/// Scope required when a PAT is used for a REST request.
-///
-/// A scope only controls which API family the token may enter. Normal user,
-/// repository and administrator authorization is still enforced by handlers.
-///
-/// This table is **explicit and fail-closed**: every known prefix is mapped to a
-/// scope, and anything unrecognised requires `admin`. The previous version
-/// ended in a catch-all `Some("repo")`, so any new or unlisted route silently
-/// became reachable by a `repo`-scoped token — including endpoints whose
-/// handlers do not independently enforce user/admin rights.
 /// The request path as the scope table and the repository allow-list see it:
 /// without the `/api/v1` prefix (Axum exposes either form depending on the
 /// router layer) and without a query string.
@@ -2073,86 +2063,28 @@ fn normalized_api_path(path: &str) -> &str {
     path.split('?').next().unwrap_or(path)
 }
 
+/// Scope required when a PAT is used for a REST request.
+///
+/// A scope only controls which API family the token may enter. Normal user,
+/// repository and administrator authorization is still enforced by handlers.
+///
+/// The answer comes from the route metadata registry
+/// (`rg_core::auth::route_meta`): a registered route states its scope there, and
+/// a path that is not a registered route falls to the family defaults, where an
+/// unrecognised prefix requires `admin`. That is **fail-closed**: a PAT must not
+/// reach an unrecognised route by default. (An earlier version ended in a
+/// catch-all `Some("repo")`, so any new or unlisted route silently became
+/// reachable by a `repo`-scoped token.) A route registered without a
+/// declaration fails `rg-http/tests/route_metadata_tests.rs`.
 fn required_pat_scope(method: &axum::http::Method, path: &str) -> Option<&'static str> {
+    use axum::http::Method;
     // Axum may expose either the original URI or the path with the nested
     // `/api/v1` prefix stripped, depending on which router layer is running.
     let path = normalized_api_path(path);
-
-    // Public docs and health checks need no credential at all. The docs routes
-    // are mounted at the root, so check the raw form too.
-    if path.starts_with("/api-docs") || path == "/health" || path == "/metrics" {
-        return None;
-    }
-
-    // Administrator surfaces. Registering a runner also mints a credential, so
-    // it stays behind `admin` even though the route lives under /runners.
-    if path.starts_with("/admin") || path == "/runners/register" {
-        return Some("admin");
-    }
-
-    // The authenticated user's own account, notifications and session.
-    if path.starts_with("/users")
-        || path == "/agents"
-        || path.starts_with("/agents/")
-        || path.starts_with("/notifications")
-        || path.starts_with("/auth")
-        || path == "/ws/notifications"
-    {
-        return Some("user");
-    }
-
-    // Repository-scoped surfaces, including organization and CI routes that
-    // resolve a repository before acting.
-    const REPO_SCOPED: &[&str] = &[
-        "/repos",
-        "/orgs",
-        "/ci",
-        "/artifacts",
-        "/imports",
-        "/search",
-        "/ai",
-        "/ws",
-    ];
-    if REPO_SCOPED.iter().any(|prefix| path.starts_with(prefix)) {
-        return Some(repo_scope_for(method, path));
-    }
-
-    // Runner job traffic authenticates with a runner token, not a PAT, and is
-    // gated by `authenticate_runner`; anything else unknown needs `admin`.
-    if path.starts_with("/runners") {
-        return Some("admin");
-    }
-
-    // Fail closed: a PAT must not reach an unrecognised route by default.
-    Some("admin")
-}
-
-/// The repository scope a request needs: reading takes `repo:read`, writing the
-/// collaboration area of a repository takes `repo:collab`, and every other write
-/// takes `repo:write`. A token with the historical `repo` scope satisfies all
-/// three, so existing tokens keep working unchanged.
-///
-/// "Read" is decided by the HTTP method alone, so a `POST` that only reads is
-/// treated as a write: the check fails closed.
-fn repo_scope_for(method: &axum::http::Method, path: &str) -> &'static str {
-    use axum::http::Method;
-    if matches!(*method, Method::GET | Method::HEAD | Method::OPTIONS) {
-        return "repo:read";
-    }
-    // `/repos/{owner}/{name}/collaboration` and anything below it.
-    let mut parts = path.trim_start_matches('/').splitn(4, '/');
-    let is_collab = parts.next() == Some("repos")
-        && parts.next().is_some_and(|owner| !owner.is_empty())
-        && parts.next().is_some_and(|name| !name.is_empty())
-        && parts.next().is_some_and(|rest| {
-            (rest == "collaboration" || rest.starts_with("collaboration/"))
-                && !rest.split('/').any(|seg| seg == ".." || seg == ".")
-        });
-    if is_collab {
-        "repo:collab"
-    } else {
-        "repo:write"
-    }
+    // "Read" is decided by the HTTP method alone, so a `POST` that only reads is
+    // treated as a write: the check fails closed.
+    let is_read = matches!(*method, Method::GET | Method::HEAD | Method::OPTIONS);
+    rg_core::auth::route_meta::pat_scope_for(is_read, path)
 }
 
 /// Axum middleware: translate a valid Personal Access Token into an equivalent
@@ -3160,7 +3092,14 @@ async fn handle_git_receive_pack(
             let output = reader_task.await.unwrap_or_default();
 
             // ── Post-push hooks: trigger CI + Webhook ───────────────
-            spawn_post_push_hooks(&state, &owner, &repo, repo_path.clone(), ref_updates);
+            spawn_post_push_hooks(
+                &state,
+                &owner,
+                &repo,
+                repo_path.clone(),
+                ref_updates,
+                actor_id,
+            );
 
             (
                 StatusCode::OK,
@@ -3205,6 +3144,7 @@ pub(crate) fn spawn_post_push_hooks(
     repo: &str,
     repo_path: std::path::PathBuf,
     ref_updates: Vec<rg_git::protocol::receive_pack::RefUpdate>,
+    pushed_by: Option<i64>,
 ) {
     let db = state.db.clone();
     let repo_root = state.repo_root.clone();
@@ -3235,6 +3175,7 @@ pub(crate) fn spawn_post_push_hooks(
                 smtp_config: &smtp,
                 ci_engine: &*ci_engine,
                 external_url: external_url.as_deref(),
+                pushed_by,
             },
             &ref_updates,
         )
@@ -3257,6 +3198,10 @@ struct PostPushParams<'a> {
     smtp_config: &'a Option<rg_core::email::SmtpConfig>,
     ci_engine: &'a dyn rg_core::ci::CiTrigger,
     external_url: Option<&'a str>,
+    /// The account that moved the ref (git push credential or REST file commit).
+    /// Recorded in the push event so the actor stays traceable; the commit author
+    /// of a pushed commit is whatever the client wrote and is not rewritten.
+    pushed_by: Option<i64>,
 }
 
 fn tag_protection_rejected_refs(
@@ -3305,6 +3250,7 @@ async fn post_push_hooks(
         smtp_config,
         ci_engine,
         external_url,
+        pushed_by,
     } = params;
 
     // Find repo_id from DB
@@ -3506,6 +3452,7 @@ async fn post_push_hooks(
             "ref": update.refname,
             "before": update.old_sha,
             "after": update.new_sha,
+            "pushed_by": pushed_by,
             "repository": {
                 "owner": owner,
                 "name": repo_name,

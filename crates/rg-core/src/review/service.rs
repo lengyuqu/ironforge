@@ -463,6 +463,7 @@ pub async fn apply_suggestions(
     )
     .await?;
 
+    let (commit_name, commit_email) = crate::agent::commit_identity(actor);
     let commit_sha = crate::repo::service::update_files_in_commit(
         source_namespace,
         &source_repo.name,
@@ -470,8 +471,8 @@ pub async fn apply_suggestions(
         head_sha,
         &file_updates,
         &format!("Apply {} review suggestion(s)", comment_ids.len()),
-        &actor.username,
-        &actor.email,
+        &commit_name,
+        &commit_email,
         repo_root,
     )?;
     pull_request_ops::advance_open_head_sha(

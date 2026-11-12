@@ -1717,7 +1717,9 @@ on: {push: {}, unknown_key: 1}    event=manual            parse=Ok  matches=fals
 - 动作：L1 ①`crates/rg-core/src/auth/pat_scope.rs` 文档注释 10 行→10 行改成「三族放行」口径（原写「The one exception is the file-edit route」，与 `:325`/`:328`/`:334` 的实现不符）；②新增 `ironforge-docs/architecture/route-metadata-registry-2026-11.md`（核实清单 + P0–P3 落点 + L2 边界）；③`ironforge-docs/README.md` 索引 +1 行。
 - 验证：`scripts/check.sh --quick` 改前 **209 s `EXIT=0`**（`Finished \`dev\` profile [unoptimized + debuginfo] target(s) in 3m 28s` / `checks passed in 209s (quick)`）→ 改后 **77 s `EXIT=0`**（`Finished \`dev\` profile [unoptimized + debuginfo] target(s) in 1m 15s` / `checks passed in 77s (quick)`）。executor 本机 `Darwin arm64` / `cargo 1.99.1`；复算环境无 cargo 时本项不可验。
 - 回帖：`2120589349254234112`（`2026-11-11T18:47:54Z`，8233 字符）｜首行 `## 本轮收尾`（不占批次 C），发后回读首行与 55 条编号均独立成行。
-- issue 状态：保持 open（本单无验收标准，关单要人拍板）。
+- **复核（NPC `2120840753109712896`，`11:26:53Z`，查 `858fa44`）**：判「方向对、两处偏松」——①「per oid」应为 **per repo+oid**（`service.rs:211-212` 的 `lfs_root` 含 owner/repo）；②「share it」漏了**共享删除**（`service.rs:557`/`:562` 两处 `remove_file`）。**本轮回帖另有两处需订正**：③「无可用 CI」不准确——push 构建 `cnb-o6n-1k77nga83` **触发了**，`status=error` 卡在 `Prepare`，原文 `Root Group's events CPU-core-hours are insufficient for pre-freezing`，8 个 stage 全 skipped；④`check.sh --quick` 的 131 s→65 s 复算容器无 cargo，改按上一条口径标注。
+- 收口：注释改三行版（per repo+oid + 共享删除），见本节「改动 SHA / 回帖（回填）」
+- issue 状态：本轮收口后 **close**（harness 验证轮，证据已入 ⟪补充方案-跨工具适配与验收⟫ §6.1 存档与 CHANGELOG）（本单无验收标准，关单要人拍板）。
 
 判定表（NPC 分析 `2120148552465694720` 的编号小节逐条）：
 
@@ -2253,6 +2255,7 @@ protocol=v0.12
 - 选靶：[hold][harness-test]，最新评论 2120836458603773952（2026-11-12T11:09:49Z，NPC 首扫，Q1–Q5）
 - 判定：成立 2（Q1、Q3）/ 部分成立 3（Q2、Q4、Q5）/ 不成立 0
 - 动作：L1 `858fa44`（`lfs.rs:213` 注释 1→1）；L2 写入 L2-45-1…5（均未改代码）：①临时文件固定名 `.tmp_{oid}` 且截断写、失败不清理（`lfs.rs:214/426`，`service.rs:539-550`）；②上传不复核 SHA-256、`size` 不与实收字节对账（`service.rs:243`）；③无单对象/仓库配额，仅 10 GiB 路由层限额（`lib.rs:965`）；④私有仓库 404 先于 401 可枚举（`lfs.rs:181-186`、`repo/service.rs:169`），batch 对未登记 oid 整批 500（`service.rs:399-401`）；⑤batch 响应非 `application/vnd.git-lfs+json`、无 Range（`lfs.rs:148`）。④⑤为静态读码，未运行实测
-- 验证：BASE=fd2f07e，check.sh --quick 改前 EXIT 0 / 131 s，改后 EXIT 0 / 65 s
+- 验证：BASE=fd2f07e，**executor 本机** `check.sh --quick` 改前 EXIT 0 / 131 s、改后 EXIT 0 / 65 s
+  （NPC 复核容器无 `cargo`（`command -v cargo` rc=127）⇒ 这两个数字**不可由第三方复算**，只能当执行侧自述；同类口径见协议「证据形态」条）
 - 回帖：2120837912609603584（2026-11-12T11:15:36Z）｜`## 本轮收尾`（不占 C）
 - issue 状态：保持 open

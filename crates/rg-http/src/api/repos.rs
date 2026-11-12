@@ -41,6 +41,7 @@ async fn record_audit(
         id: sea_orm::NotSet,
         user_id: sea_orm::Set(Some(user_id)),
         username: sea_orm::Set(Some(username.to_string())),
+        on_behalf_of_user_id: sea_orm::Set(None),
         action: sea_orm::Set(action.to_string()),
         resource_type: sea_orm::Set(resource_type.map(|s| s.to_string())),
         resource_id: sea_orm::Set(resource_id),
@@ -309,7 +310,9 @@ pub async fn list_repos(
     {
         // Org members see all repos; others see only public repos
         let include_private = match actor_id {
-            Some(id) => rg_db::ops::org_ops::is_org_member(&state.db, org.id, id)
+            // Effective membership: an agent sees an org's private repos only
+            // if its owner could too.
+            Some(id) => rg_core::org::is_effective_org_member(&state.db, org.id, id)
                 .await
                 .unwrap_or(false),
             None => false,

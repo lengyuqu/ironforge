@@ -168,6 +168,7 @@ pub fn repo_in_allowlist(owner: &str, name: &str, allow: &[String]) -> bool {
 ///
 /// Inside a listed repository the routes that reach **other** repositories are
 /// also refused: forking, transfer, and cross-repository coordination groups.
+/// Which routes those are is declared in `route_meta` (`other_repos`), not here.
 ///
 /// `path` is the request path without the `/api/v1` prefix and without a query.
 /// An empty, `.` or `..` segment anywhere refuses the request.
@@ -179,15 +180,14 @@ pub fn path_in_allowlist(path: &str, allow: &[String]) -> bool {
     {
         return false;
     }
-    let rest = match segments.as_slice() {
-        ["repos", owner, name, rest @ ..] if repo_in_allowlist(owner, name, allow) => rest,
-        ["ai", "repos", owner, name, rest @ ..] if repo_in_allowlist(owner, name, allow) => rest,
+    match segments.as_slice() {
+        ["repos", owner, name, ..] | ["ai", "repos", owner, name, ..]
+            if repo_in_allowlist(owner, name, allow) => {}
         _ => return false,
-    };
-    !matches!(
-        rest,
-        ["fork", ..] | ["forks", ..] | ["transfer", ..] | ["collaboration", "groups", ..]
-    )
+    }
+    // Routes that declare they reach another repository are refused (see
+    // `route_meta::reaches_other_repos`).
+    !super::route_meta::reaches_other_repos(path)
 }
 
 // ── Branch allow-list ──────────────────────────────────────────────────
@@ -292,47 +292,20 @@ pub fn ref_in_allowlist(refname: &str, allow: &[String]) -> bool {
 /// (`contents/**`), batch commits (`POST commits`), and branch deletion
 /// (`DELETE branches/<name>`, never `branches/protection/**`). Everything else
 /// (merging, applying suggestions, releases, wiki, LFS, CI triggers, commit
-/// statuses, webhooks, settings, ...) is refused, and so is any route added
-/// later until it is listed here **and** its handler checks the branch. To get a
-/// change merged, push a permitted branch (or commit to one) and open a pull
-/// request for a person to merge.
+/// statuses, webhooks, settings, ...) is refused. To get a change merged, push a
+/// permitted branch (or commit to one) and open a pull request for a person to
+/// merge.
+///
+/// This is **derived** from the route declarations
+/// (`route_meta::BranchLimit`): a route is open to such a token only if it is
+/// declared `.open()` or `.checked()`, and a route that is not declared at all is
+/// refused. A route declared `.checked()` must have a handler that calls
+/// `ensure_token_may_write_branch`; `rg-http/tests/route_metadata_tests.rs`
+/// verifies that.
 ///
 /// `path` is the request path without the `/api/v1` prefix and without a query; the caller must already know it is a write — this function never looks at the method.
 pub fn ref_limited_write_allowed(path: &str) -> bool {
-    let segments: Vec<&str> = path.trim_start_matches('/').split('/').collect();
-    if segments
-        .iter()
-        .any(|s| s.is_empty() || *s == "." || *s == "..")
-    {
-        return false;
-    }
-    let ["repos", _owner, _name, rest @ ..] = segments.as_slice() else {
-        return false;
-    };
-    matches!(
-        rest,
-        ["collaboration", ..]
-            | ["issues", ..]
-            | ["pulls"]
-            | ["pulls", _]
-            | ["pulls", _, "comments"]
-            | ["pulls", _, "comments", _, "resolution"]
-            | ["pulls", _, "reviews"]
-            | ["pulls", _, "reviewers"]
-            | ["pulls", _, "reviewers", _]
-            // The handlers check the branch against the token's own limit
-            // (`ensure_token_may_write_branch`), so these are safe to open.
-            | ["contents", _, ..]
-            // `POST commits` (one commit for many edits) names its branch in the
-            // body and the handler holds it to the token's limit the same way.
-            | ["commits"]
-    ) || matches!(
-        // Deleting a branch (`DELETE branches/<name>`): the handler checks the
-        // branch against the token's limit. `branches/protection/**` is the
-        // protection-rule settings and stays refused.
-        rest,
-        ["branches", first, ..] if *first != "protection"
-    )
+    super::route_meta::branch_limited_write_allowed(path)
 }
 
 #[cfg(test)]

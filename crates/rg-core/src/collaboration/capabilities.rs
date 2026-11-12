@@ -17,6 +17,11 @@
 //! * a name in `rg_mcp::collab::TOOL_NAMES` is not owned by exactly one
 //!   capability, or has no row in `rg_mcp::collab_contract::TOOL_ROUTES`.
 //!
+//! Each route here is also the PAT-restriction declaration of its route
+//! (`rg_core::auth::route_meta`): collaboration scope, no ref movement, no
+//! idempotency key. Declare a route with [`x`] instead of [`r`] when it can
+//! reach a repository other than the one in its path.
+//!
 //! Only list what exists in the build: the registry is what clients are told
 //! they may rely on. A new *optional* field or capability bumps
 //! [`CONTRACT_MINOR`]; removing or changing meaning needs a new major or a new
@@ -85,6 +90,11 @@ pub struct Route {
     pub method: &'static str,
     pub path: &'static str,
     pub access: Access,
+    /// Whether the route can name or reach a repository other than the one in
+    /// its path (a request-body or stored cross-repository reference). A token
+    /// limited to some repositories is refused such routes; see
+    /// `rg_core::auth::route_meta`. Set it with [`x`], not [`r`].
+    pub other_repos: bool,
 }
 
 const fn r(method: &'static str, path: &'static str, access: Access) -> Route {
@@ -92,6 +102,18 @@ const fn r(method: &'static str, path: &'static str, access: Access) -> Route {
         method,
         path,
         access,
+        other_repos: false,
+    }
+}
+
+/// Like [`r`], for a route that can reach another repository than the one in
+/// its path (the coordination groups' `target_repo_id`).
+const fn x(method: &'static str, path: &'static str, access: Access) -> Route {
+    Route {
+        method,
+        path,
+        access,
+        other_repos: true,
     }
 }
 
@@ -534,27 +556,27 @@ pub const REGISTRY: &[Capability] = &[
             "collab_remove_group_link",
         ],
         routes: &[
-            r(
+            x(
                 "POST",
                 "/repos/{owner}/{name}/collaboration/groups",
                 RepoWrite,
             ),
-            r(
+            x(
                 "GET",
                 "/repos/{owner}/{name}/collaboration/groups/{group_id}",
                 CollabRead,
             ),
-            r(
+            x(
                 "GET",
                 "/repos/{owner}/{name}/collaboration/groups/{group_id}/links",
                 CollabRead,
             ),
-            r(
+            x(
                 "POST",
                 "/repos/{owner}/{name}/collaboration/groups/{group_id}/links",
                 RepoWrite,
             ),
-            r(
+            x(
                 "DELETE",
                 "/repos/{owner}/{name}/collaboration/groups/{group_id}/links/{link_id}",
                 RepoWrite,

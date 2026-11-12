@@ -210,7 +210,9 @@ pub async fn upload_object(
     let repo_id = repo_model.id;
     let lfs_root = rg_core::lfs::service::lfs_root(&state.repo_root, &owner, &repo);
 
-    // Stream body to temp file (fixed name per oid, truncating write: same-oid concurrent uploads share it; see #45)
+    // Stream body to temp file. The path is `.tmp_<oid>` under this repo's LFS root
+    // (`{repo_root}/{owner}.lfs/{repo}`), so it is unique per repo+oid, not globally:
+    // same-object concurrent uploads within one repo share the write *and* the cleanup.
     let temp_path = lfs_root.join(format!(".tmp_{}", oid));
     if let Some(parent) = temp_path.parent() {
         let _ = std::fs::create_dir_all(parent);

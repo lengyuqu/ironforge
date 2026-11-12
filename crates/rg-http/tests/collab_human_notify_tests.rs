@@ -428,3 +428,362 @@ async fn a_task_nobody_owns_has_nobody_to_tell() {
     );
     assert!(blocked_for(&bell(&env, &env.owner_token).await).is_empty());
 }
+
+// ------------------------------------------------------- agents (T24): the bell
+// rings for the person accountable for an agent, never for the agent itself.
+
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+
+/// A person `bob` (write collaborator) who owns an agent that is also a write
+/// collaborator and holds its own token.
+struct AgentSetup {
+    owner_token: String,
+    owner_id: i64,
+    agent_id: i64,
+    agent_token: String,
+}
+
+async fn agent_setup(env: &Env) -> AgentSetup {
+    let (owner_token, owner_id) = env.user("bob").await;
+    env.add_collaborator(owner_id, "write").await;
+    let (status, agent) = env
+        .json(
+            Method::POST,
+            &format!("{}/api/v1/agents", env.base),
+            &owner_token,
+            None,
+            Some(json!({"name": "ci"})),
+        )
+        .await;
+    assert_eq!(status, 201, "{agent}");
+    let agent_id = agent["id"].as_i64().unwrap();
+    let username = agent["username"].as_str().unwrap();
+    let (status, token) = env
+        .json(
+            Method::POST,
+            &format!("{}/api/v1/agents/{username}/tokens", env.base),
+            &owner_token,
+            None,
+            Some(json!({"name": "t"})),
+        )
+        .await;
+    assert_eq!(status, 201, "{token}");
+    env.add_collaborator(agent_id, "write").await;
+    AgentSetup {
+        owner_token,
+        owner_id,
+        agent_id,
+        agent_token: token["token"].as_str().unwrap().to_string(),
+    }
+}
+
+/// Collaboration notifications stored for `user_id`, straight from the table
+/// (an agent token cannot read the bell, and must not need to).
+async fn collab_rows(env: &Env, user_id: i64) -> Vec<rg_db::entities::notification::Model> {
+    use rg_db::entities::notification::{Column, Entity};
+    Entity::find()
+        .filter(Column::UserId.eq(user_id))
+        .filter(Column::EventType.like("collab_%"))
+        .all(&env.db)
+        .await
+        .unwrap()
+}
+
+/// Guard: no collaboration notification of any kind is stored for any agent
+/// account. Every recipient is a person, so nothing can reach an agent's
+/// `@agents.invalid` address through a path that reuses the recipient list.
+async fn assert_no_agent_was_notified(env: &Env) {
+    use rg_db::entities::user;
+    let agents: Vec<i64> = user::Entity::find()
+        .filter(user::Column::Kind.eq("agent"))
+        .all(&env.db)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|u| u.id)
+        .collect();
+    for id in agents {
+        assert!(
+            collab_rows(env, id).await.is_empty(),
+            "agent {id} must never be a recipient"
+        );
+    }
+}
+
+async fn deactivate(env: &Env, user_id: i64) {
+    rg_db::ops::user_ops::update_by_id(&env.db, user_id, None, None, None, Some(false))
+        .await
+        .unwrap();
+    rg_core::repo::service::invalidate_perm_cache_all();
+}
+
+#[tokio::test]
+async fn a_question_addressed_to_an_agent_reaches_its_owner_not_the_agent() {
+    let env = Env::new().await;
+    let a = agent_setup(&env).await;
+    let s = env.session(&env.owner_token, "human-side").await;
+    let task = new_task(&env, &s).await;
+
+    let (status, q) = ask(
+        &env,
+        &s,
+        &task,
+        "q-agent",
+        json!({"kind": "user", "id": a.agent_id.to_string()}),
+        "Can you take this?",
+    )
+    .await;
+    assert_eq!(status, 201, "{q}");
+
+    let bob = bell(&env, &a.owner_token).await;
+    assert_eq!(questions(&bob).len(), 1, "{bob:?}");
+    assert!(collab_rows(&env, a.agent_id).await.is_empty());
+    assert!(questions(&bell(&env, &env.owner_token).await).is_empty());
+    assert_no_agent_was_notified(&env).await;
+}
+
+#[tokio::test]
+async fn a_question_asked_by_an_agent_to_the_writers_tells_people_only_and_once() {
+    let env = Env::new().await;
+    let a = agent_setup(&env).await;
+    // Both the owner and the agent are in the writers list.
+    let s = env.session(&a.agent_token, "the-agent").await;
+    let task = {
+        let (status, task) = env
+            .json(
+                Method::POST,
+                &env.url("/tasks"),
+                &a.agent_token,
+                Some(&s),
+                Some(json!({"title": "agent task"})),
+            )
+            .await;
+        assert_eq!(status, 201, "{task}");
+        task["id"].as_str().unwrap().to_string()
+    };
+    let (status, q) = env
+        .json(
+            Method::POST,
+            &env.url(&format!("/tasks/{task}/questions")),
+            &a.agent_token,
+            Some(&s),
+            Some(json!({
+                "client_question_id": "q-w",
+                "recipient": {"kind": "repo_writers"},
+                "title": "Which database?",
+                "body": "b",
+            })),
+        )
+        .await;
+    assert_eq!(status, 201, "{q}");
+
+    assert_eq!(
+        questions(&bell(&env, &a.owner_token).await).len(),
+        1,
+        "owner and agent are one person: one notification"
+    );
+    assert_eq!(
+        questions(&bell(&env, &env.owner_token).await).len(),
+        1,
+        "the repository owner is a writer too"
+    );
+    assert!(collab_rows(&env, a.agent_id).await.is_empty());
+    assert_no_agent_was_notified(&env).await;
+}
+
+#[tokio::test]
+async fn an_agent_in_the_writers_list_does_not_take_a_slot_from_its_owner_twice() {
+    // The agent is the only candidate that maps to its owner here: the owner is
+    // not itself a collaborator. Mapping happens before de-duplication, so the
+    // owner still gets exactly one.
+    let env = Env::new().await;
+    let (owner_token, owner_id) = env.user("carol").await;
+    env.add_collaborator(owner_id, "write").await;
+    let a = {
+        // reuse the helper's steps but without a second human collaborator row
+        let (status, agent) = env
+            .json(
+                Method::POST,
+                &format!("{}/api/v1/agents", env.base),
+                &owner_token,
+                None,
+                Some(json!({"name": "x"})),
+            )
+            .await;
+        assert_eq!(status, 201, "{agent}");
+        agent["id"].as_i64().unwrap()
+    };
+    env.add_collaborator(a, "write").await;
+    let s = env.session(&env.owner_token, "human-side").await;
+    let task = new_task(&env, &s).await;
+    let (status, _) = ask(
+        &env,
+        &s,
+        &task,
+        "q-dup",
+        json!({"kind": "repo_writers"}),
+        "Dup?",
+    )
+    .await;
+    assert_eq!(status, 201);
+    assert_eq!(questions(&bell(&env, &owner_token).await).len(), 1);
+    assert!(collab_rows(&env, a).await.is_empty());
+    assert_no_agent_was_notified(&env).await;
+}
+
+#[tokio::test]
+async fn a_blocked_task_of_an_agent_session_tells_the_owner() {
+    let env = Env::new().await;
+    let a = agent_setup(&env).await;
+    let s = env.session(&a.agent_token, "the-agent").await;
+    let (status, task) = env
+        .json(
+            Method::POST,
+            &env.url("/tasks"),
+            &a.agent_token,
+            Some(&s),
+            Some(json!({"title": "Port the parser", "owner_session_id": s.id})),
+        )
+        .await;
+    assert_eq!(status, 201, "{task}");
+    let id = task["id"].as_str().unwrap();
+    assert_eq!(
+        set_status(&env, &s, &a.agent_token, id, 1, "blocked")
+            .await
+            .0,
+        200
+    );
+
+    let bob = bell(&env, &a.owner_token).await;
+    let n = blocked_for(&bob);
+    assert_eq!(n.len(), 1, "{bob:?}");
+    assert_eq!(n[0]["title"], "Port the parser");
+    assert!(
+        blocked_for(&bell(&env, &env.owner_token).await).is_empty(),
+        "no broadcast to the repository writers"
+    );
+    assert!(collab_rows(&env, a.agent_id).await.is_empty());
+    assert_no_agent_was_notified(&env).await;
+}
+
+#[tokio::test]
+async fn nobody_is_told_when_the_owner_of_an_agent_is_disabled_and_nothing_fails() {
+    let env = Env::new().await;
+    let a = agent_setup(&env).await;
+    // The agent owns a task through its own session, registered while its owner
+    // was still active.
+    let agent_session = env.session(&a.agent_token, "the-agent").await;
+    let (status, task) = env
+        .json(
+            Method::POST,
+            &env.url("/tasks"),
+            &a.agent_token,
+            Some(&agent_session),
+            Some(json!({"title": "agent task", "owner_session_id": agent_session.id})),
+        )
+        .await;
+    assert_eq!(status, 201, "{task}");
+    let task_id = task["id"].as_str().unwrap().to_string();
+
+    deactivate(&env, a.owner_id).await;
+
+    // A question to the agent: created, nobody told.
+    let s = env.session(&env.owner_token, "human-side").await;
+    let qtask = new_task(&env, &s).await;
+    let (status, _) = ask(
+        &env,
+        &s,
+        &qtask,
+        "q-gone",
+        json!({"kind": "user", "id": a.agent_id.to_string()}),
+        "Anyone?",
+    )
+    .await;
+    assert_eq!(status, 201);
+    // To the writers: the repository owner is told, the disabled owner and its
+    // agent are not.
+    let (status, _) = ask(
+        &env,
+        &s,
+        &qtask,
+        "q-writers",
+        json!({"kind": "repo_writers"}),
+        "Writers?",
+    )
+    .await;
+    assert_eq!(status, 201);
+    assert_eq!(
+        questions(&bell(&env, &env.owner_token).await).len(),
+        1,
+        "only the repository owner is told about the writers question"
+    );
+    assert!(collab_rows(&env, a.owner_id).await.is_empty());
+
+    // The repository owner declares the agent's task blocked: no fallback to
+    // anyone else.
+    let (status, body) = set_status(&env, &s, &env.owner_token, &task_id, 1, "blocked").await;
+    assert_eq!(status, 200, "{body}");
+    assert!(blocked_for(&bell(&env, &env.owner_token).await).is_empty());
+    assert!(collab_rows(&env, a.owner_id).await.is_empty());
+    assert_no_agent_was_notified(&env).await;
+}
+
+#[tokio::test]
+async fn a_deactivated_person_is_not_told_but_other_people_are_unaffected() {
+    let env = Env::new().await;
+    let (gone_token, gone_id) = env.user("gone").await;
+    let (kept_token, kept_id) = env.user("kept").await;
+    env.add_collaborator(gone_id, "write").await;
+    env.add_collaborator(kept_id, "write").await;
+    deactivate(&env, gone_id).await;
+
+    let s = env.session(&env.owner_token, "human-side").await;
+    let task = new_task(&env, &s).await;
+    for (key, recipient) in [
+        ("q1", json!({"kind": "user", "id": gone_id.to_string()})),
+        ("q2", json!({"kind": "user", "id": kept_id.to_string()})),
+        ("q3", json!({"kind": "repo_writers"})),
+    ] {
+        assert_eq!(ask(&env, &s, &task, key, recipient, "t").await.0, 201);
+    }
+    assert!(collab_rows(&env, gone_id).await.is_empty());
+    let _ = gone_token;
+    assert_eq!(questions(&bell(&env, &kept_token).await).len(), 2);
+    assert_eq!(questions(&bell(&env, &env.owner_token).await).len(), 1);
+}
+
+#[tokio::test]
+async fn accountable_user_maps_agents_to_active_people_only() {
+    let env = Env::new().await;
+    let a = agent_setup(&env).await;
+    async fn at(env: &Env, id: i64) -> Option<i64> {
+        rg_core::agent::accountable_user(&env.db, id).await.unwrap()
+    }
+    assert_eq!(
+        at(&env, a.owner_id).await,
+        Some(a.owner_id),
+        "a person is themself"
+    );
+    assert_eq!(
+        at(&env, a.agent_id).await,
+        Some(a.owner_id),
+        "an agent is its owner"
+    );
+    assert_eq!(
+        at(&env, 99_999_999).await,
+        None,
+        "an unknown account is nobody"
+    );
+
+    deactivate(&env, a.owner_id).await;
+    assert_eq!(
+        at(&env, a.owner_id).await,
+        None,
+        "a disabled person is nobody"
+    );
+    assert_eq!(
+        at(&env, a.agent_id).await,
+        None,
+        "an agent whose owner is disabled has nobody behind it"
+    );
+}

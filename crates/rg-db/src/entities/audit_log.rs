@@ -31,6 +31,11 @@ pub struct Model {
     pub user_agent: Option<String>,
     /// Free-form JSON or text with additional context (e.g. changed fields).
     pub details: Option<String>,
+    /// For an action by an agent, the person who owns that agent
+    /// (`users.owner_user_id`); `NULL` for a person's own action, a system
+    /// action, and every row written before this column existed. No foreign
+    /// key: the row outlives the account it names.
+    pub on_behalf_of_user_id: Option<i64>,
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 

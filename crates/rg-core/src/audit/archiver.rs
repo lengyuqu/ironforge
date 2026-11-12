@@ -181,6 +181,7 @@ mod tests {
                     id: NotSet,
                     user_id: Set(None),
                     username: Set(None),
+                    on_behalf_of_user_id: Set(None),
                     action: Set(action.to_string()),
                     resource_type: Set(None),
                     resource_id: Set(None),
