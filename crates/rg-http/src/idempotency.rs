@@ -61,33 +61,13 @@ pub fn valid_key(key: &str) -> bool {
 /// issues / pull requests / contents / commits / releases / labels /
 /// milestones / branches / wiki. Everything else, in particular anything that
 /// returns a token or a secret, is out.
+///
+/// Derived from the route declarations (`rg_core::auth::route_meta`, `.idem()`):
+/// a route accepts a key only if it is declared replayable, and a path that is
+/// not a declared route does not. Declare `.idem()` only for a response that
+/// carries no token or secret, because the response is stored.
 pub fn idempotency_supported(path: &str) -> bool {
-    let segments: Vec<&str> = path.trim_start_matches('/').split('/').collect();
-    if segments
-        .iter()
-        .any(|s| s.is_empty() || *s == "." || *s == "..")
-    {
-        return false;
-    }
-    matches!(
-        segments.as_slice(),
-        ["repos"]
-            | [
-                "repos",
-                _,
-                _,
-                "issues"
-                    | "pulls"
-                    | "contents"
-                    | "commits"
-                    | "releases"
-                    | "labels"
-                    | "milestones"
-                    | "branches"
-                    | "wiki",
-                ..
-            ]
-    )
+    rg_core::auth::route_meta::idempotency_replayable(path)
 }
 
 fn fingerprint(method: &Method, target: &str, dry_run: &str, body: &[u8]) -> String {
