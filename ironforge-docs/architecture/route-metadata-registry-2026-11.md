@@ -1,6 +1,6 @@
 # 路由元数据注册表：现状核实与分阶段落点（Proposed）
 
-> 答复 issue #14「路由元数据注册表」。核实基线 `75d8231`（2026-11-12），全部行号由 `sed -n` / `grep -n` 逐条打印过。
+> 答复 issue #14「路由元数据注册表」。核实基线 `75d8231`（2026-11-12），全部行号由 `sed -n` / `grep -n` 逐条打印过。**2026-11-13 状态更新：R1 已落地**（`0b05502` = PR #55；phase 1 `eb1736f` + phase 2 `4d34e69`）——`required_pat_scope`、`path_in_allowlist` 的拒绝表、`ref_limited_write_allowed` 已改由 `crates/rg-core/src/auth/route_meta.rs` 派生，`repo_scope_for` 已删除，`Route` 新增 `other_repos` 字段与 `x()` 构造器；**下文 §2③ / §4 / §5 / §5.1 的「今天」兜底与行号是 `1c0a87e` 之前的历史快照**，读现状以 `route_meta.rs:600-760` 为准（§3 计数口径与 §4 兜底锚点已就地更新）。
 > 本文只写**核实过的事实**与**可执行的落点**；凡是改鉴权语义、改 OpenAPI 契约、加路由字段的部分一律停在 L2（见 §6），不在本流程落地。
 
 ## 0. 结论
@@ -55,7 +55,7 @@
 |---|---|---|---|
 | capability 数 | 30 | **27** | `grep -c '^    Capability {'`（REGISTRY 段） |
 | 注册路由数 | 78 | **82** | 括号匹配计数（`r(` 起点逐个匹配到闭合 `)`）；`grep -c '^\s\+r('` 只得 **75**，漏 7 处 `routes: &[r(` |
-| 不同路径数 | 无 | **65** | 82 条路由按 `path` 去重；差额 17 = 17 个「同路径多方法」族。**不要用行首计数**：`grep -c '^\s\+r('` 只得 75 条路由 / 58 个路径（差 7 处 `routes: &[r(` 内联形；`:159`/`:160` 的路径还是 `const SESSIONS`，行内无字面量） |
+| 不同路径数 | 无 | **65** | 82 条路由按 `path` 去重；差额 17 = 17 个「同路径多方法」族。**不要用行首计数**：本基线 `grep -c '^\s\+r('` 只得 75（**现状 70**——R1 把 5 条跨仓路由改成 `x(` 构造器，`capabilities.rs:559`/`:564`/`:569`/`:574`/`:579`）⇒ 82 = 75 或 70 行首 `r(` + 7 处 `routes: &[r(` 内联形 + 0 或 5 处 `x(`（现状三口径去重后分别是 54 / 7 / 4 个路径，合计 65）；`:159`/`:160` 的路径仍是 `const SESSIONS`，行内无字面量 |
 | 全站 `.route()` | 298 | **342**（`rg-http/src/lib.rs` 单独 **323**；它自己的基线 `cba96ba` 上是 320） | `grep -rn '\.route(' --include=*.rs crates/ \| wc -l` |
 | 「1200 个判断点」（298×4） | 1192 | **328**（82×4）；只做 P0 是 **164**（82×2） | 同上 |
 | `path_in_allowlist` 位置 | `pat_scope.rs:293` | **`:174`**，拒绝表 `:189`；`:293` 落在 `ref_limited_write_allowed` 的文档注释里 | `grep -n '^pub fn path_in_allowlist'` |
@@ -69,7 +69,7 @@
 
 ## 4. 一次到位的成本
 
-「全站唯一清单 + 未声明即拒绝」要求 `required_pat_scope` 的每一族都在表里：git、OCI、WebSocket、runners、metrics、`/health`、`/api-docs`。危险的是**缺省填真值**的半张表——漏登记一族就按那个真值放行或拒绝，与今天的 fail-closed 兜底同构（`crates/rg-http/src/lib.rs:2127` 的兜底是 `admin`，能撞上它的是**未知前缀**；`/api-docs`、`/health`、`/metrics` 在 `:2083-2084` 就先 `return None`，根本走不到兜底）；缺省填 `PatScope::Undeclared` 哨兵并回落前缀表时，半张表与今天逐字相同（§5.1 第 2 条）。
+「全站唯一清单 + 未声明即拒绝」要求 `required_pat_scope` 的每一族都在表里：git、OCI、WebSocket、runners、metrics、`/health`、`/api-docs`。危险的是**缺省填真值**的半张表——漏登记一族就按那个真值放行或拒绝，与今天的 fail-closed 兜底同构（兜底是 `admin`——R1 后落在 `crates/rg-core/src/auth/route_meta.rs:750`（`family_scope` 末行，原 `lib.rs:2127`），能撞上它的是**未知前缀**；`/api-docs`、`/health`、`/metrics` 在 `route_meta.rs:706` 就先 `return None`，根本走不到兜底）；缺省填 `PatScope::Undeclared` 哨兵并回落前缀表时，半张表与今天逐字相同（§5.1 第 2 条）。
 
 按 241 条新增路由 × 4 个字段，是 **964** 个判断点；即使只做 P0（2 个字段）也是 482 个。这不是一次 PR 的体量，也不该由一个只有文档权限的流程来改。
 
