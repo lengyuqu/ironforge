@@ -172,6 +172,7 @@ async fn resolve_collaborator_user_id(
         (status = 200, description = "Updated", body = serde_json::Value),
         (status = 401, description = "Unauthorized", body = serde_json::Value),
         (status = 403, description = "Forbidden", body = serde_json::Value),
+        (status = 404, description = "No such collaborator row in this repository", body = serde_json::Value),
     ),
 )]
 pub async fn update_permission(
@@ -215,6 +216,7 @@ pub async fn update_permission(
         (status = 400, description = "Bad request", body = serde_json::Value),
         (status = 401, description = "Unauthorized", body = serde_json::Value),
         (status = 403, description = "Forbidden", body = serde_json::Value),
+        (status = 404, description = "The user is not a collaborator of this repository", body = serde_json::Value),
     ),
 )]
 pub async fn remove_collaborator(
