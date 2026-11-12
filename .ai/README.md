@@ -179,7 +179,7 @@ AI Agent **必须**在阅读代码前先读取以下文件：
 | `file://{owner}/{name}/{path}` | 文件内容 |
 | `issue://{owner}/{name}/{number}` | Issue 详情 |
 
-`read_file`、`read_dir`、`get_issue`、`get_pr`、`get_pr_context`、`export_pr`、`list_repos`、`list_pipelines`、`wait_pipeline`、`wait_repo_events` 是只读的。`commit_file`、`delete_file`、`create_pr` 会写仓库，受令牌 scope 与（若有）仓库/分支限制约束：用带 `refs: ["agent/*"]` 的令牌时只能写 `agent/*` 分支，也不能合并或批准 PR——Agent 的流程是"提交到 `agent/*` → 开 PR → 等 CI → 由人合并"。没有合并工具。失败以 `isError: true` 返回 `HTTP <状态>: <API 错误体>`，其中的 `reason`/`details.current_sha` 可据以重试。下节的**协作工具**只写协作记录。
+`read_file`、`read_dir`、`get_issue`、`get_pr`、`get_pr_context`、`export_pr`、`list_repos`、`list_pipelines`、`wait_pipeline`、`wait_repo_events` 是只读的。`commit_file`、`commit_files`、`delete_file`、`delete_branch`、`create_pr` 会写仓库，受令牌 scope 与（若有）仓库/分支限制约束：用带 `refs: ["agent/*"]` 的令牌时只能写 `agent/*` 分支，也不能合并或批准 PR——Agent 的流程是"提交到 `agent/*` → 开 PR → 等 CI → 由人合并"。没有合并工具。失败以 `isError: true` 返回 `HTTP <状态>: <API 错误体>`，其中的 `reason`/`details.current_sha` 可据以重试。下节的**协作工具**只写协作记录。
 
 ---
 
