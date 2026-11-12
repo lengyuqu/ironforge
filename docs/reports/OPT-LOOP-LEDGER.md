@@ -2248,3 +2248,11 @@ protocol=v0.12
 - **回填**：改动 SHA 与回帖 id 见本节末「改动 SHA / 回帖（回填）」段。issue #37 **保持 open**（单发轮不 close）。
 
 **改动 SHA / 回帖（回填）**：`b8e8dad`（4 文件 `118+/5−`，**零代码行为改动**：`crates/` 一行未动；新文档 85 行、设计文档仍 668 行、README +1 行）；推 `cnb` 单 remote（`a41c9b2..b8e8dad  HEAD -> main`）；`merge-base --is-ancestor` 通过，主工作区 `merge --ff-only` 到 `b8e8dad`、`status --porcelain` 仅剩他人未提交的 `CLAUDE.md`（非本轮文件，未触碰）。**改后验证**：`scripts/check.sh --quick` `EXIT=0` **2 s**（`Finished dev profile [unoptimized + debuginfo] target(s) in 0.25s` / `==> checks passed in 2s (quick)`）；改前 **126 s** `EXIT=0`。**时刻锚** = `git log -1 --format=%aI b8e8dad` = `2026-11-12T18:10:03+08:00`。**回帖** `2120821563959189505`（`2026-11-12T10:10:38Z`；32723 字符；回读首行 `## 本轮收尾`、末行独立 `@CodeBuddy`、反向清单 83 条编号独立成行且 1..83 连续无缺；该 issue 的 `## 本轮收尾` 计数 0 → 1，无重复投递）。**首扫请求** `2120819625133764608`（`10:02:56Z`），`60 s × 5` 超时未回，按正文推进。**第二段无对象**：open 17 条里 `[opt-round]` = 0。
+
+### 单发轮 · issue #45 · 2026-11-12
+- 选靶：[hold][harness-test]，最新评论 2120836458603773952（2026-11-12T11:09:49Z，NPC 首扫，Q1–Q5）
+- 判定：成立 2（Q1、Q3）/ 部分成立 3（Q2、Q4、Q5）/ 不成立 0
+- 动作：L1 待回填（`lfs.rs:213` 注释 1→1）；L2 写入 L2-45-1…5（均未改代码）：①临时文件固定名 `.tmp_{oid}` 且截断写、失败不清理（`lfs.rs:214/426`，`service.rs:539-550`）；②上传不复核 SHA-256、`size` 不与实收字节对账（`service.rs:243`）；③无单对象/仓库配额，仅 10 GiB 路由层限额（`lib.rs:965`）；④私有仓库 404 先于 401 可枚举（`lfs.rs:181-186`、`repo/service.rs:169`），batch 对未登记 oid 整批 500（`service.rs:399-401`）；⑤batch 响应非 `application/vnd.git-lfs+json`、无 Range（`lfs.rs:148`）。④⑤为静态读码，未运行实测
+- 验证：BASE=fd2f07e，check.sh --quick 改前 EXIT 0 / 131 s，改后 EXIT 0 / 65 s
+- 回帖：待回填｜`## 本轮收尾`（不占 C）
+- issue 状态：保持 open
