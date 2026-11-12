@@ -72,7 +72,7 @@ agent **就是 `users` 里的一行**，没有单独的表。原因：一百来�
 6. **停用 agent** = 令牌被拒 + 已换出的会话立即失效；重新启用后同一令牌恢复；停用状态下不能签发新令牌（409）。
 7. 别人的 agent 与不存在的 agent 对调用者一律 404；`/agents` 只有人类能调用。
 8. **评审：agent 一律不能批准**（v2 新增，来源 §3）。批准权由**账号类型**决定，不由令牌形态决定；所有者可以批准自己 agent 的 PR，且**计入**必需批准数。
-9. **协作写入：agent 必须带 collab session**（v2 新增，来源 T22）。用户门是"人 / CLI 替人说话"的入口，agent 不得使用。**本条当前未强制**：`write_actor` 不读 `users.kind`，落地清单与漏网点见 §4 T22。
+9. **协作写入：agent 必须带 collab session**（v2 新增，来源 T22）。用户门是"人 / CLI 替人说话"的入口，agent 不得使用。**本条已强制（issue #34，2026-11-12）**：`write_actor` 在无会话头时查账号类型，agent 得 403，`reason = AGENT_MUST_USE_SESSION`；`confirm_condition`（`AGENT_MAY_NOT_CONFIRM`，带会话也不行）与 `reassign_task`（`AGENT_MAY_NOT_REASSIGN`）同样只允许人。**例外**：`PUT …/inbox/user/read`（`mark_user_read`）按 T22 原方案保留，agent 仍可调用——它只写"已读"标记、不改任何问题/交接/任务状态；是否也收紧是待裁决项（R34-2）。读不受限。证据见 [collab-agent-gate-verification-2026-11.md](collab-agent-gate-verification-2026-11.md)。
 
 ### 2.4 验证证据（v1 原样保留）
 
@@ -224,7 +224,7 @@ let humans: Vec<i64> = user::Entity::find()          // 1 次，IN 查询
 | ID | 任务 | 触点文件数 | 规模 | 依赖 |
 |---|---|---|---|---|
 | T21 | 评审规则 | 4 | S | 第一期 |
-| T22 | 协作用户门要求 `kind = human` | 9 | M | 第一期 |
+| T22 | 协作用户门要求 `kind = human` | 9 | M | 第一期（✅ 2026-11-12，issue #34；`mark_user_read` 保留为例外） |
 | T23 | 审计 `on_behalf_of_user_id` | 6 | M | 第一期 |
 | T24 | 通知改派给所有者 | 3 | M | 无 |
 | T25 | 提交作者与推送者归因 | 3 | S | 第一期 |

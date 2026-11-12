@@ -8,7 +8,7 @@
 //! request, (3) for session-bound actions, the session id + secret headers.
 //! A session is a label under the account, not an isolation boundary.
 
-use axum::http::HeaderMap;
+use axum::http::{HeaderMap, StatusCode};
 use serde::Deserialize;
 
 use crate::api::repo_access::resolve_repo;
@@ -91,9 +91,37 @@ pub(crate) async fn commit_exists(
     .map_err(AppError::internal)
 }
 
+/// Stable `reason` of the refusal an agent gets when it writes without a session.
+pub(crate) const AGENT_MUST_USE_SESSION: &str = "AGENT_MUST_USE_SESSION";
+
+/// Refuse `user_id` when it is an agent account, with a stable `reason`.
+///
+/// The "user door" speaks for a person; an agent that wants to write must go
+/// through a collaboration session so the record names the session, not the
+/// account. An unreadable or missing account is refused too: failing to see the
+/// account type must not read as "a person".
+pub(crate) async fn ensure_person(
+    state: &AppState,
+    user_id: i64,
+    reason: &'static str,
+    message: &'static str,
+    advice: &'static str,
+) -> Result<(), AppError> {
+    let user = rg_db::ops::user_ops::find_by_id(&state.db, user_id)
+        .await?
+        .ok_or_else(|| AppError::forbidden("no such account"))?;
+    if rg_core::agent::is_agent(&user) {
+        return Err(AppError::coded(StatusCode::FORBIDDEN, "FORBIDDEN", message)
+            .with_reason(reason, false, advice));
+    }
+    Ok(())
+}
+
 /// The actor of a write: the authenticated session when session headers are
 /// sent, otherwise the signed-in account through its "user door" (a UI or CLI).
-/// Nothing here reads `users.kind`: an agent is not refused the user door yet.
+///
+/// The user door serves people only: an agent account without session headers
+/// is refused with [`AGENT_MUST_USE_SESSION`]. Reading is not gated here.
 pub(crate) async fn write_actor(
     state: &AppState,
     headers: &HeaderMap,
@@ -104,6 +132,14 @@ pub(crate) async fn write_actor(
         let session = acting_session(state, headers, repo_id, user_id).await?;
         Ok(rg_core::collaboration::Actor::session(session.id))
     } else {
+        ensure_person(
+            state,
+            user_id,
+            AGENT_MUST_USE_SESSION,
+            "an agent must write collaboration data through its own session",
+            "register a collaboration session and send its id and secret in the session headers",
+        )
+        .await?;
         Ok(rg_core::collaboration::Actor::user(user_id))
     }
 }
