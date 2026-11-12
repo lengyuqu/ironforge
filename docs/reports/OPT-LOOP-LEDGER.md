@@ -2288,6 +2288,28 @@ protocol=v0.13
 
 - **NPC 首扫回复（`2120958578398777344`，`2026-11-12T19:15:05Z`）已逐条复算**：其 12 条断言 **成立 11 / 部分成立 1**（唯一偏差是函数名笔误 `rebore_skips_already_applied_commits`，真值 `rebase_skips_already_applied_commits()` 在 `ops.rs:1726`；它的 `#[cfg(test)] = :1630`、`batch_commit_tests` 10 个 `#[tokio::test(flavor=…)]`、`audit.rs:332` 定义 + 12 调用点、`ensure_token_may_write_branch` 4 调用点、`BatchEdit` `service.rs:2211`、`repo_commits.rs:226` 的 `details` 五个键、`collab_mcp.rs:323` 只有 `names.contains` 全部复现）。**它自报无 `cargo`（`sh: 1: cargo: not found`）⇒ 它的「未跑验证」自述可信，编译类结论仍由我方出。**
 - **它补出两条我方漏掉的计数（已采信并回填本节）**：① `list_tools` 在 `mod.rs:263` 追加 `crate::collab::tool_definitions()` ⇒ `tools/list` 实际返回 **74 项**（15 非协作 + 59 协作），本节写的「15 项」只是字面量表、不是对客户端可见的工具数；② `grep -rn 'commit_files' crates/rg-mcp/` 真值 **14**（我一度口算成 12，`head -20` 截断所致）。
-- **它的一处结论比正文更硬**：`.ai/guardrails.md` 里 `cherry-pick`/`revert` 零命中 ⇒ #48 正文那句「按 🟠 CONFIRM 处理」是**正文自己的判读**，不是护栏原文；判读本身有据（撞 `:102` 认证 /`:104` 权限校验 /`:105` 分支保护 三条 🟠），但写成「护栏里写着」会让人去找不存在的规则 ⇒ 与本节反向清单 88 同一类（文档枚举与实际不一致）。
+- **它的一处结论比正文更硬**：`.ai/guardrails.md` 里 `cherry-pick`/`revert` 零命中 ⇒ #48 正文那句「按 🟠 CONFIRM 处理」是**正文自己的判读**，不是护栏原文；判读本身有据（撞 `:102` 认证 /`:104` 权限校验 /`:118` 分支保护 三条 🟠；**本节原写 `:105`，第 2 次进入轮订正，见反向清单 92**），但写成「护栏里写着」会让人去找不存在的规则 ⇒ 与本节反向清单 88 同一类（文档枚举与实际不一致）。
 **改动 SHA**：`6075fbd`（2 文件 `4+/4−`，**零代码行为改动**：`crates/` 一行未动；`.ai/README.md` 1→1 行仍 276 行、决策文档 3 处各 1→1 仍 72 行 ⇒ 全仓 `path:line` 零漂移）。**改后验证**：`scripts/check.sh --quick` `EXIT=0` **2 s**（`Finished dev profile [unoptimized + debuginfo] target(s) in 0.32s` / `==> checks passed in 2s (quick)`）；改前 **110 s** `EXIT=0`。`cargo test -p rg-mcp` 60 passed（见上）。**时刻锚** = `git log -1 --format=%aI 6075fbd`。
 **回帖**：`2120959167748845568`（`2026-11-12T19:17:25Z`）；回读首行 `## 本轮收尾`、次行 `protocol=v0.13 · prompt=ironforge-consumer-v4`、末行独立 `@CodeBuddy`、反向清单 89 条编号独立成行且 1..89 连续无缺；该 issue 的 `## 本轮收尾` 计数 **0 → 1**，无重复投递。**先发后修一次**：初版把 NPC 首扫时间写成 `19:13:58Z`（凭 3m35s 时长反推，未读 `created_at`），实测 `19:15:05Z` ⇒ 已 `patch-issue-comment` 改正并同步本节。**教训：引用平台评论时间别反推，`list-issue-comments` 的 `created_at` 逐条读。**
+
+
+### 单发轮 · issue #48 · 2026-11-13（第 2 次进入：核实 NPC 首扫 + 复核自己上一轮的两处订正）
+
+protocol=v0.13。靶 #48（唯一有 `priority`=P2；本轮起 `comment_count=1`，等于 NPC 首扫 `2120958578398777344`）。
+
+- **N-C 分类（两个不同的东西）**：NPC **没写任何文件**（自报无 `cargo`，只做只读首扫）；本轮复核对象 `7271b87` 是 PR #54 的分支提交，作者 `yuqu`，已含于 `94dc671`。我方上一轮的 `6075fbd`/`6edb407`/`cd58bc8` 在它之后，**本轮才第一次被复核**。
+- **判定分布**：38 条 = 成立 26 / 部分成立 7 / 不成立 5（A 组 13、B 组 13、C 组 NPC 12）。
+- **本轮最贵的一条（R48-7，P1，订正我自己上一轮给的落地指导）**：决策文档原文（我上一轮写的）说「第 3 项先在 `route_meta::ROUTES` 加两行（移 ref ⇒ `.checked()`）」。**`.checked()` 不是自选的**：`rg-http/tests/route_metadata_tests.rs:365-394` 要求每条已注册路由的四个判定逐条等于旧表 oracle（`mod legacy`，`:27-162`）。`legacy::branch_limited_write` 只认精确的 `["commits"]`（`:127`）、`legacy::idempotent` 认 `commits` 前缀（`:145-159`）⇒ 落在 `commits/{sha}/` 下的 cherry-pick / revert **必得 `BranchLimit::Refused` + `.idem()`**；想要 `.checked()`（让受限令牌能 cherry-pick）或想拒幂等键，必须同时改 oracle，那是显式决定。已在决策文档 `:4`/`:71` 就地订正（2 文件外的 1 文件、2 行 1→1）。
+- **第二处（R48-8，P2）**：验证文档 `mcp-commit-files-verification-2026-11.md:21` 写「17 种坏参数」，**真值 16**。`commit_files_checks_its_arguments_before_any_request`（`write_tools_mcp.rs:446-534`）的 case 数是 `json!({` 与期望串各 **16**（`7271b87`/`94dc671`/`HEAD` 三个时点同值）。括号里枚举的 16 项能一一对上，数字多算了 1。
+- **第三处（R48-9，P3，我方上一轮文字的自伤）**：上一轮把「cherry-pick/revert 撞护栏 🟠」的第三条写成 `guardrails.md:105`，**`:105` 是「添加/修改密码哈希参数」**，分支保护在 **`:118`**（`94dc671` 与 `HEAD` 同）。判读（撞 :102 认证 / :104 权限校验 / :118 分支保护，三条 🟠）依然成立，只有行号错。
+- **`.ai/README.md:182` 复核结论：成立**。`commit_files` 走 `POST /repos/{o}/{n}/commits`（`route_meta.rs:345` `.checked().idem()`）、`delete_branch` 走 `branches/{*branch}`（`:340-342` `.checked().idem()`），两者都写仓库、都受分支限制 ⇒ 该算「会写仓库」。同节 `:163`/`:165` 的工具说明也已各自写全，无第三处需补。
+- **`route_metadata_tests` 是否真的强制新路由登记：是**，且是三向：`:320-350` 双向（注册了没登记 / 登记了没路由，`:335-344` 的失败文案原文就写着「Add a row」）、`:535-566` `.checked()` 必须 handler 真调 `ensure_token_may_write_branch`、`:352-362` 已注册路由不许落到家族默认。**注意 `GUARDS` 不是后门**：`declared_patterns()`（`route_meta.rs:622-640`）把 GUARDS 过滤掉，登记不到 `declared_set`，绕不过第一条。
+- **反向清单 90–92**（见下）。清单累计 1..92。
+- **未跑**：本容器 `command -v cargo` 为空 ⇒ `check.sh`/`cargo test` 全部未复算，A13 与「60 passed」只能记自述。
+- **靶状态**：第 3 项（cherry-pick / revert 端点）仍是唯一实质工作量，零行代码；unified diff 需负责人就 `diffy` 依赖（`guardrails:107` 🟡）拍板。issue #48 保持 open。
+
+90. 「`commit_files_checks_its_arguments_before_any_request` 覆盖 **17** 种坏参数」（验证文档 `:21`）—— **不成立**：真值 **16**。反证：`awk` 数该函数体内 `json!({` 与期望串各 16（`write_tools_mcp.rs:450-528`），`7271b87`/`94dc671`/`HEAD` 三点同值；括号列出的 16 项逐条可指。**已核实，勿再引 17。**
+91. 「第 3 项只需在 `route_meta::ROUTES` 加两行、移 ref 就用 `.checked()`」（决策文档 `:4`/`:71`，我方上一轮自撰）—— **不成立**：`route_metadata_tests.rs:365-394` 的 oracle 等值断言把 `commits/{sha}/*` 钉成 `Refused` + `.idem()`（`legacy::branch_limited_write:127` 只认 `["commits"]`；`legacy::idempotent:145-159` 认前缀）。**`.checked()` 需要改 oracle，是显式决定。已就地订正。**
+92. 「cherry-pick/revert 判读有据的三条护栏行号是 `:102`/`:104`/`:105`」（我方上一轮回帖）—— **不成立**：`:105` 是「添加/修改密码哈希参数」，分支保护在 **`:118`**。判读成立、行号错一条。
+
+**改动 SHA**：本轮 1 个提交，3 文件（两份文档各 1 行 1→1、台账追加），`crates/` 零行改动 ⇒ 全仓 `path:line` 零漂移（`.ai/README.md` 仍 276 行、两份文档仍 72/30 行）。**BASE** `cd58bc8`（= 上一轮 HEAD = `origin/main`）；**未跑验证**（本容器无 `cargo`），只做了逐条静态复算。

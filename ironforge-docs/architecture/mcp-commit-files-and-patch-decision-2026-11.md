@@ -1,7 +1,7 @@
 # MCP `commit_files` 与 unified diff 输入（决策记录，2026-11-13）
 
 > **状态**：`commit_files` 已实现并合入 main（PR #54）；unified diff 输入**只有设计，未实现** ｜ **可信度**：确认（实现与运行证据）/ 推测（patch 设计，未写码）｜ **来源**：CNB issue #48 第 1、2 项、仓库代码
-> 范围：issue #48 第 3 项（cherry-pick / revert 端点）本会话**未做**；它要新增路由，而 #14 的 R1 路由注册表已合入 main（PR #55，`0b05502`），新增路由须在 `rg_core::auth::route_meta::ROUTES` 登记（移 ref 用 `.checked()`），否则 `route_metadata_tests` 失败。
+> 范围：issue #48 第 3 项（cherry-pick / revert 端点）本会话**未做**；它要新增路由，而 #14 的 R1 路由注册表已合入 main（PR #55，`0b05502`），新增路由须在 `rg_core::auth::route_meta::ROUTES` 登记，否则 `route_metadata_tests` 失败——但登记值不是自选的，它被两张旧表钉死，见 §3（移 ref ≠ `.checked()`）。
 
 ## 1. `commit_files`（已做）
 
@@ -68,5 +68,5 @@
 
 ## 3. 未做
 
-- issue #48 第 3 项（cherry-pick / revert 端点）：要加路由；#14 的 R1 注册表**已合入 main**（PR #55，`0b05502`），原先的阻塞已解除 —— 先在 `route_meta::ROUTES` 加两行（移 ref ⇒ `.checked()`）再写 handler，本会话没碰。
+- issue #48 第 3 项（cherry-pick / revert 端点）：要加路由；#14 的 R1 注册表**已合入 main**（PR #55，`0b05502`），原先的阻塞已解除 —— 先在 `route_meta::ROUTES` 加两行再写 handler。**那两行的四个值不是自选的**：`route_metadata_tests::the_derived_decisions_equal_the_hand_written_tables_on_every_registered_route`（`:365-394`）要求每条已注册路由的四个判定逐条等于旧表 oracle（`mod legacy`）。落在 `commits/{sha}/` 下的新路由因此必得 `BranchLimit::Refused`（旧表只认精确的 `["commits"]`，`:127`）**且** 必得 `.idem()`（旧表按 `commits` 前缀认，`:145-159`）；若要把 `.checked()`（让分支受限令牌能 cherry-pick）或拒绝幂等键，得同时改那个 oracle，属显式决定而不是加两行。本会话没碰。
 - unified diff 输入：只有上面的设计，没有代码。
