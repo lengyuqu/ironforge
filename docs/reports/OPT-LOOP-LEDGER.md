@@ -2333,3 +2333,5 @@ protocol=v0.13。靶 #48（11 条 open 里唯一 `priority`=P2；`comment_count`
 
 93. 「`audit::record_write` 现 13 处调用」—— **不成立**：**12** 处调用。反证：`grep -rn 'audit::record_write' crates/ | wc -l` = 12；13 是 `grep -rn record_write crates/`（含 `audit.rs` 里的定义）。
 94. 「本节 BASE `cd58bc8`（= 上一轮 HEAD = `origin/main`）」—— **不成立**：`22e196c` 的父提交是 `35b17b9`（`git log -1 --format='%h %p' 22e196c`），`cd58bc8` 是它往上第二个。
+
+**改动 SHA / 回帖（回填）**：`b5fd891`（2 文件 `23+/3−`，`crates/` 零行）；推送 `22e196c..b5fd891` 快进，主工作区 `merge --ff-only` 至同 SHA。验证（executor 本机）：改前 `check.sh --quick` `EXIT=0` 87 s（`Finished … in 1m 25s`）、改后 `EXIT=0` 1 s（`Finished … in 0.24s`）；另 `cargo test -p rg-http --test route_metadata_tests` 9 passed / 0 failed（编译 67 s）。**复算环境无 `cargo` 时不可验**。回帖 `2120974835932127232`（`2026-11-12T20:19:41Z`），首行 `## 本轮收尾`，该 issue 的 `## 本轮收尾` 计数 1 → 2（单发轮每轮一条，不占批次 C；`[opt-round]` open = 0 ⇒ 第二段无对象）。
