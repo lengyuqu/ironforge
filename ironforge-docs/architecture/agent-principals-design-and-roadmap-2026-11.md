@@ -1,8 +1,8 @@
 # Agent 主体身份与 agent 友好化路线图（v2 细化版，2026-11-10）
 
-> **状态**：第一期已合 main（PR #47，merge `063e6eb`；`feat/agent-principals` 现为 main 祖先，`git rev-list --count cnb/main..cnb/feat/agent-principals` = 0）；§3 的 P0 已落地（PR #22，`0fe75a5`）；第二期与路线图**未开工**
+> **状态**：第一期已合 main（PR #47，merge `063e6eb`；`feat/agent-principals` 现为 main 祖先，`git rev-list --count cnb/main..cnb/feat/agent-principals` = 0）；§3 的 P0 已落地（PR #22，`0fe75a5`）；第二期 T22–T25 与 issue #42 已实现并合并（PR #49–#53），R1 已实现并合并（PR #55）（2026-11-13，本机验证，未经 CI，**均已合并进 main**）；T21、T26 与 R2–R11 未开工
 > **本版性质**：v1 的细化 + 更正。v1 中标为"推测"的判断已逐条读码核实，**发现 10 处需要更正**，其中 1 处是安全缺口（§3）。v1 原文：`git show 979caab:ironforge-docs/architecture/agent-principals-design-and-roadmap-2026-11.md`
-> **可信度**：第一期为"实现 + 单元测试"级；第二期与路线图为**设计**，触点带 `文件:行`，未写一行实现代码
+> **可信度**：第一期为"实现 + 单元测试"级；第二期与路线图为**设计**，触点带 `文件:行`，其中 T22–T25、R1 已有实现（见各卡状态行），其余未写实现代码
 > **阅读顺序**：§0 变更摘要 → §2 现状（含不变量）→ §3 P0 → §4 第二期任务卡 → §5 路线图任务卡 → §6 批次与依赖。动手前读 §7
 
 ---
@@ -92,9 +92,9 @@ agent **就是 `users` 里的一行**，没有单独的表。原因：一百来�
 | 级别 | 缺口 | 处置 |
 |---|---|---|
 | **P0** | agent 可批准 PR（不带 `refs` 的 agent 令牌）；批准计数不过滤账号类型 | §3，**已修**（PR #22 `0fe75a5`）+ 同一缺口的第二处：CI 受保护环境的批准人名单（`ci_environments.rs:88`/`:289`）同批修 |
-| P1 | 协作用户门不区分 `kind`；审计无 `on_behalf_of`；通知不认 agent；提交作者是 agent 的 `.invalid` uuid 邮箱 | §4 T22–T25 |
-| P1 | `path_in_allowlist` 对名单内仓库的新路由默认放行 | §5 R1 |
-| P2 | 绕过 `can_*_repo` 的判权点（直接查协作者表/组织成员表）**未逐一排查**；起点 `grep -rn 'repo_collaborator_ops::get_permission\|is_org_member\|find_org_member' crates` | 排进 R1 验收项 |
+| P1 | 协作用户门不区分 `kind`；审计无 `on_behalf_of`；通知不认 agent；提交作者是 agent 的 `.invalid` uuid 邮箱 | §4 T22–T25（已实现并合并：PR #49 / #50 / #51 / #52，2026-11-13，未经 CI） |
+| P1 | `path_in_allowlist` 对名单内仓库的新路由默认放行 | §5 R1（已实现并合并：PR #55；未注册路径对分支受限令牌与幂等键改为拒绝，scope 的“未声明即拒绝”未做） |
+| P2 | 绕过 `can_*_repo` 的判权点（直接查协作者表/组织成员表）**未逐一排查**；起点 `grep -rn 'repo_collaborator_ops::get_permission\|is_org_member\|find_org_member' crates` | **已排查并修**（issue #42，PR #53 已合并）：`is_collab_member`、`can_admin_org`、`can_read_org`、`list_user_orgs`、`repos::list_repos`、`get_effective_permission`；未决：`org_ops` SQL 仅在调用方层面复核，`add_org_member` 是否禁止给 agent `admin/owner` 角色 |
 | P2 | `MAX_AGENTS_PER_OWNER = 50` 是拍脑袋值 | 观察，不做 |
 | P2 | agent 的 `.invalid` 邮箱是否会被邮件路径发信 —— **已核实为否**（CI 通知取 `repo.owner_id`，而 `create_repo` 有 `ensure_human`；密码重置 `:711` 拒 agent） | 结案，不加收件人过滤 |
 | P2 | 旧问题、与本期无关：SSH 密码不检查 `is_active`；协作者接口改权限按协作者行 id、删除按用户 id 寻址，删错 id 也返回成功 | 单独 issue，不混进来 |
@@ -224,10 +224,10 @@ let humans: Vec<i64> = user::Entity::find()          // 1 次，IN 查询
 | ID | 任务 | 触点文件数 | 规模 | 依赖 |
 |---|---|---|---|---|
 | T21 | 评审规则 | 4 | S | 第一期 |
-| T22 | 协作用户门要求 `kind = human` | 9 | M | 第一期（✅ 2026-11-12，issue #34；`mark_user_read` 保留为例外） |
-| T23 | 审计 `on_behalf_of_user_id` | 6 | M | 第一期 |
-| T24 | 通知改派给所有者 | 3 | M | 无 |
-| T25 | 提交作者与推送者归因 | 3 | S | 第一期 |
+| T22 | 协作用户门要求 `kind = human` | 9 | M | 第一期（✅ 2026-11-12，issue #34，PR #49 已合并；`mark_user_read` 保留为例外） |
+| T23 | 审计 `on_behalf_of_user_id` | 6 | M | 第一期（✅ 实现 2026-11-13，issue #33，PR #50 已合并） |
+| T24 | 通知改派给所有者 | 3 | M | 无（✅ 实现 2026-11-13，issue #35，PR #51 已合并） |
+| T25 | 提交作者与推送者归因 | 3 | S | 第一期（✅ 实现 2026-11-13，issue #36，PR #52 已合并） |
 | T26 | 响应携带主体类型 | 8 | L | T23/T25 |
 
 ---
@@ -287,6 +287,8 @@ pub(crate) async fn write_actor(
 
 ### T23 审计 `on_behalf_of_user_id`
 
+> **状态（2026-11-13）**：已实现，PR #50（已合并），本机验证、未经 CI；`audit_on_behalf_of_tests` 在 SQLite、PostgreSQL 17、MySQL 8.4 各跑过一次。迁移 `m20261110_000002`，`Migrator::down` 步数 25→26。覆盖边界：只有走 `record_write` 的写路径填该列，另有 5 处自建 `ActiveModel` 的审计点（`repos.rs`/`admin.rs`/`orgs.rs`/`users.rs`/`collab_groups.rs`）写 NULL。证据：[agent-audit-on-behalf-of-verification-2026-11.md](agent-audit-on-behalf-of-verification-2026-11.md)。
+
 **目标**：审计能回答"这条是哪个 agent 代表谁做的"，且可索引。
 
 **现状（核实）**：`api/audit.rs:324-356`（文档注释自 `:317` 起）的 `record_write` 写 `user_id / username / action / resource_type / resource_id / resource_name / ip_address / user_agent / details / created_at`，**fire-and-forget**（失败只 `tracing::error!`，`:353-355`）。`with_access_token`（`:369-391`）把 `access_token_id` 塞进 `details`（键名 `:389`），所以"用了哪把令牌"可查；"代表谁"要 join `users.owner_user_id` 才知道，**不能直接按 owner 过滤**——本项就是把这次 join 变成一个可索引的列。
@@ -327,6 +329,8 @@ let (username, on_behalf_of) = match &actor {
 
 ### T24 通知改派给所有者
 
+> **状态（2026-11-13）**：已实现，PR #51（已合并），未经 CI；`collab_human_notify_tests` 三库跑过。新增 `agent::accountable_user`（agent → 在用状态的人类所有者），`recipients()` 先映射、再去重、再封顶，`task_blocked` 不再回退到仓库写者。证据：[agent-notify-owner-verification-2026-11.md](agent-notify-owner-verification-2026-11.md)。
+
 **目标**：agent 卡住或被问到时，铃铛响在**人**那边，而不是 agent 的空账号。
 
 **现状（核实）**：`collaboration/human_notify.rs`
@@ -365,6 +369,8 @@ pub async fn accountable_user(db: &DatabaseConnection, user_id: i64) -> CoreResu
 ---
 
 ### T25 提交作者与推送者归因
+
+> **状态（2026-11-13）**：已实现，PR #52（已合并），仅 SQLite，未经 CI。与下文方案的差异：REST 提交入口是**四处**（contents 创建/更新、contents 删除、批量提交、应用评审建议）；push 事件载荷（`repo_events` + webhook）已带 `pushed_by`，覆盖 git push 与 REST 提交，push 路径仍无审计行；已推送提交的作者不改写；审计 `on_behalf_of` 的断言现在可补（T23，PR #50 已合并）。证据：[agent-commit-identity-verification-2026-11.md](agent-commit-identity-verification-2026-11.md)。
 
 **目标**：agent 的提交在 `git log` 里显示为 agent，且能看出代表谁。
 
@@ -407,6 +413,8 @@ pub async fn accountable_user(db: &DatabaseConnection, user_id: i64) -> CoreResu
 ### 5.1 第一梯队
 
 #### R1 路由元数据注册表
+
+> **状态（2026-11-13）**：阶段 1+2 已实现，PR #55（已合并），仅 SQLite，无迁移，未经 CI。与下文方案的差异：注册表在 `rg_core::auth::route_meta`（不在 `rg-http`），229 条 `ROUTES` + 1 条 `GUARDS` 行（`branches/protection/{*rest}`），82 条协作路由由 `capabilities::REGISTRY` 派生（`Route` 新增 `other_repos`）；已注册路由的判定与旧表逐条一致（旧表留作测试对照）；未注册路径对分支受限令牌与幂等键由“通配放行”变为拒绝，scope 仍按旧家族默认。守卫 `route_metadata_tests` 9 项（含 4754 条路径探测，以及 `.checked()` 路由必须调用 `ensure_token_may_write_branch`）。**未做**：`/repos`、`/orgs`、`/ci` 家族“未声明即拒绝”的 scope（会改 `pat_scope_tests` 钉死的断言，待决定）、OpenAPI `x-ironforge-*`、请求体跨仓字段对齐。观察到的旧行为：全局 `GET /api/v1/collaboration/capabilities` 在 PAT 下需 `admin` scope。证据：[route-metadata-registry-verification-2026-11.md](route-metadata-registry-verification-2026-11.md)。
 
 **核实现状**
 
@@ -601,9 +609,9 @@ graph LR
 | 批次 | 内容 | 并行度 | 合入条件 |
 |---|---|---|---|
 | **B0** | §3 P0 | 单线，半天 | 9 条测试全绿；**不得晚于第一期合 main** |
-| **B1** | T23 / T24 / T25 | 3 个 worktree 并行（互不触同一文件） | clippy 干净；`down` 步数 25→26（**不是**迁移总数）；跨后端跑 T23 的 SQL |
-| **B2** | T22 / T26 | 2 线并行 | T22 覆盖 15 个调用点；T26 只做四处并 bump `CONTRACT_MINOR` |
-| **B3** | R1 | 单线，独立分支 | 两个守卫测试上线；现有行为零变化 |
+| **B1** | T23 / T24 / T25（✅ PR #50 / #51 / #52，已合并） | 3 个 worktree 并行（互不触同一文件） | clippy 干净；`down` 步数 25→26（**不是**迁移总数）；跨后端跑 T23 的 SQL |
+| **B2** | T22（✅ PR #49，已合并）/ T26（未开工，T23/T25/R1 已合并，可开工） | 2 线并行 | T22 覆盖 15 个调用点；T26 只做四处并 bump `CONTRACT_MINOR` |
+| **B3** | R1（✅ PR #55，已合并） | 单线，独立分支 | 两个守卫测试上线；现有行为零变化 |
 | **B4** | R4 → R5 → R6 → R7 | 串行（同一片写路径） | 每项各自验收；R4 先做，为后三项提供"一次多文件"基础 |
 | **B5** | R3 → R8 → R9 → R10 → R11 | 按需 | R3 的 P1 可提前到任意时刻 |
 
@@ -618,7 +626,7 @@ graph LR
 - 新增 `users` 实体字段时，`user_ops.rs` 所有 `user::ActiveModel { .. }` 字面量要补齐；`audit_log::ActiveModel` 同理。迁移测试在"只迁移一半"的库上必须用原生 SQL，不能用实体。
 - 跨后端：新 SQL 用 `IRONFORGE_TEST_DATABASE_URL` 在 PG / MySQL 各跑一遍（CLAUDE.md 第 19、23 条）。**§3 的计数过滤与 T23 的 join 都属此类。**
 - 权限缓存是进程级的，写测试注意跨测试碰撞（参考 `agent_principal_tests.rs` 的 `ONE_AT_A_TIME` 与开头清缓存）。
-- 新增路由：`#[utoipa::path]` + `openapi.rs::paths` + `lib.rs::build_routes` 三处手写，各有守卫（`openapi_registration_tests.rs:60/193`），但**没有任何测试校验 scope 登记**——R1 之前靠人眼。
+- 新增路由：`#[utoipa::path]` + `openapi.rs::paths` + `lib.rs::build_routes` 三处手写，各有守卫（`openapi_registration_tests.rs:60/193`），但**没有任何测试校验 scope 登记**——R1 之前靠人眼。R1（PR #55，已合并）另有一步：每条路由还要在 `rg_core::auth::route_meta::ROUTES`（协作路由在 `capabilities::REGISTRY`）声明，`route_metadata_tests` 校验两边不漂移，漏登记测试失败。
 - 新增 MCP 工具：三处同步（`rg-mcp/src/collab.rs::TOOL_NAMES`、`rg-mcp/src/collab_contract.rs::TOOL_ROUTES`、capabilities 的 `mcp_tools`）。
 - §5 的现状判断已逐条读码核实（带 `文件:行`），但那是 **2026-11-10 的快照**；动手前确认函数名没被重命名。
 - 本文档 v2 原地覆盖 v1；行号以 `feat/agent-principals` 的 `979caab` 为准，合 main 后可能偏移。
