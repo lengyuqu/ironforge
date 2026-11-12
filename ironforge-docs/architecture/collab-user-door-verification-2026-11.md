@@ -15,7 +15,7 @@
 | 2 | `api/collab_inbox.rs:166`（`mark_user_read`，`PUT …/inbox/user/read`） | 直接构造 `Actor::user(user_id)` | **否**——绕过 `write_actor`，且它是写（写一条 read-mark 行） |
 | 3 | `rg-core/src/collaboration/inbox.rs:199`（`for_user`，收件箱读路径） | `Actor::user(user_id)`，只用于拼查询条件 | 否（只读，无需拦） |
 
-另有一处不经过 `Actor` 的写：`rg-core/src/collaboration/takeover.rs:291-303` 的 `reassign` 把 actor 记成 `user_id.to_string()`（`api/collab_takeovers.rs:116` 调它），同样不经 `write_actor`。
+另有一处不经过 `Actor` 的写：`rg-core/src/collaboration/takeover.rs:291-319` 的 `reassign` 把 actor 记成 `user_id.to_string()`（`:302`）并写死 `Mover { actor_kind: "user" }`（`:303-305`），调用点是 `api/collab_takeovers.rs:116`，同样不经 `write_actor`。
 
 ## 2. 逐条判定表
 
@@ -33,7 +33,7 @@
 | N10 | "每次协作写多一次 `users` 查询，可忽略"（设计文档 §4 T22 要点 4） | 成立（但可省） | 计数对：`write_actor` 一次写调一次。可省：`require_collab_write`（`collab.rs:211-212`）→ `can_write_repo` → `repo/service.rs:339` `apply_owner_cap` → `:256 owner_cap` 已经 `find_by_id(actor)` 一次，且 `OwnerCap::Owner(_)` 本身就是"这是 agent"的判据 ⇒ 再查是同一请求内的第二次 |
 | N11 | "要缓存就加短 TTL 的 `kind` 缓存，不要塞进权限缓存（不变量 4）" | 成立 | §2.3 条 4（本文件同目录设计文档 `:70`）原文即"agent 的判权结果不进 30 秒权限缓存"；`apply_owner_cap` 对 agent 返回 `cacheable=false`（`:266`） |
 | N12 | "依赖 B1（T23/T24/T25）先落地"（issue 正文首段） | **不成立** | `on_behalf_of` 全仓仅 1 处，是 `rg-core/src/agent.rs:23` 的 doc 注释（"Not covered here (later phases): … an `on_behalf_of` audit column"）；`rg-db/src/entities/audit_log.rs` 无该列（列为 id/user_id/username/action/resource_*/ip_address/user_agent/details/created_at）⇒ B1 三条一条未落 |
-| N13 | 测试 5 条可直接写（agent 无会话头写 → 403、带会话头 → 200、人类 → 200、`confirm_condition` → 403、agent 读 → 200） | 部分成立 | 断言可执行，但没有现成夹具：`agent_principal_tests.rs`（900+ 行）`grep -c collaboration` = **0**；14 个 `collab_*_tests.rs` 里 `create_agent` / `kind: Set("agent")` **0 命中** ⇒ "agent × 协作"目前没有任何测试，需自建 agent 账号 + PAT 夹具 |
+| N13 | 测试 5 条可直接写（agent 无会话头写 → 403、带会话头 → 200、人类 → 200、`confirm_condition` → 403、agent 读 → 200） | 部分成立 | 断言可执行，但没有现成夹具：`agent_principal_tests.rs`（**1191 行**）`grep -ci collaboration` = **0**；**24 个** `collab_*_tests.rs` 里 `create_agent` / `kind: Set("agent")` **0 命中** ⇒ "agent × 协作"目前没有任何测试，需自建 agent 账号 + PAT 夹具 |
 
 ## 3. 两份材料都没写的新事实
 
@@ -50,7 +50,7 @@
 |---|---|---|
 | R34-1 | P1 | T22 落地本身：写侧权限收紧，agent 无 collab session 时协作写 403。改的是认证/权限语义 ⇒ L2 |
 | R34-2 | P2 | `mark_user_read`（`collab_inbox.rs:166`）是否纳入"用户门只服务人类"。纳入 = 改行为；不纳入 = 在 §2.3 条 9 写明例外（"read-mark 允许 agent 写"），否则该条不可执行 |
-| R34-3 | P2 | `reassign`（`takeover.rs:291-303`）记 actor 用 `user_id` 字符串而非 `Actor`，落地条 9 时需一并裁决（是否也要求 session） |
+| R34-3 | P2 | `reassign`（`takeover.rs:291-319`，actor 在 `:302-305`）记 actor 用 `user_id` 字符串而非 `Actor`，落地条 9 时需一并裁决（是否也要求 session） |
 | R34-4 | P2 | 稳定 reason：新增 `AGENT_MUST_USE_SESSION` 走 `with_reason`；`ensure_human` 是否补一个通用 reason（否则"agent 被拒"在协作区不可机读） |
 | R34-5 | P3 | 设计文档 §4 T22 引用不存在的 `is_agent_account`（本轮已按现树 API 订正 1 行） |
 | R34-6 | P3 | 声明依赖 B1（T23/T24/T25）未落地（N12）⇒ T22 排期应后置，或先做 T23 的审计列 |
