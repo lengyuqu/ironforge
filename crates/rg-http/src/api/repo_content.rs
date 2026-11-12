@@ -1360,6 +1360,7 @@ fn file_commit_error(error: rg_core::repo::service::FileCommitError) -> AppError
 /// A file commit made through the API moved `branch`; give it the same effects
 /// as a push (pull-request heads, CI, webhooks, the event log). Skipped when the
 /// new commit could not be resolved.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn announce_branch_move(
     state: &AppState,
     owner: &str,
@@ -1368,6 +1369,7 @@ pub(crate) fn announce_branch_move(
     branch: &str,
     old_sha: Option<String>,
     new_sha: &str,
+    pushed_by: i64,
 ) {
     if new_sha.is_empty() {
         return;
@@ -1379,7 +1381,7 @@ pub(crate) fn announce_branch_move(
         status: "ok".to_string(),
         message: String::new(),
     };
-    crate::spawn_post_push_hooks(state, owner, repo, repo_path, vec![update]);
+    crate::spawn_post_push_hooks(state, owner, repo, repo_path, vec![update], Some(pushed_by));
 }
 
 /// The body of a dry-run answer: what the real call would do.
@@ -1456,6 +1458,8 @@ pub async fn create_or_update_file(
 
     let dry_run = dry_run_requested(&headers, req.dry_run);
 
+    let (commit_name, commit_email) = rg_core::agent::commit_identity(&user);
+
     // Call business logic
     match rg_core::repo::service::create_or_update_file_with(
         &state.db,
@@ -1467,8 +1471,8 @@ pub async fn create_or_update_file(
         &req.message,
         &branch,
         req.sha.as_deref(),
-        &user.username,
-        &user.email,
+        &commit_name,
+        &commit_email,
         &state.repo_root,
         Some(user.id),
         rg_core::repo::service::FileCommitOptions {
@@ -1511,6 +1515,7 @@ pub async fn create_or_update_file(
                 &hook_branch,
                 report.tip_before.clone(),
                 &new_sha,
+                user.id,
             );
             crate::api::audit::record_write(
                 &state.db,
@@ -1596,6 +1601,8 @@ pub async fn delete_file(
 
     let dry_run = dry_run_requested(&headers, params.dry_run);
 
+    let (commit_name, commit_email) = rg_core::agent::commit_identity(&user);
+
     // Call business logic
     match rg_core::repo::service::delete_file_with(
         &state.db,
@@ -1606,8 +1613,8 @@ pub async fn delete_file(
         &params.message,
         &branch,
         &params.sha,
-        &user.username,
-        &user.email,
+        &commit_name,
+        &commit_email,
         &state.repo_root,
         Some(user.id),
         rg_core::repo::service::FileCommitOptions {
@@ -1642,6 +1649,7 @@ pub async fn delete_file(
                 &hook_branch,
                 report.tip_before.clone(),
                 &new_sha,
+                user.id,
             );
             crate::api::audit::record_write(
                 &state.db,

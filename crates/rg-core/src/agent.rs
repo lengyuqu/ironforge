@@ -330,3 +330,87 @@ mod tests {
         assert!(validate_agent_token_scopes("admin").is_err());
     }
 }
+
+// ---------------------------------------------------------------------------
+// T25: commit identity (appended block; independent of the sections above)
+// ---------------------------------------------------------------------------
+
+/// The `(name, email)` pair written as author and committer when IronForge
+/// itself creates a commit for `user` (REST file commit, delete, batch commit,
+/// applied review suggestions).
+///
+/// Humans keep their stored email. An agent's stored email is a random
+/// `agent-<uuid>@agents.invalid`, which says nothing in `git log`; its commit
+/// email is derived from the username instead, so `git log` shows
+/// `alice-agent-bot <alice-agent-bot@agents.invalid>` and the owner is readable
+/// from the name. Derived at commit time only: nothing is stored or backfilled.
+/// No `Co-authored-by` trailer is added.
+pub fn commit_identity(user: &User) -> (String, String) {
+    if is_agent(user) {
+        (
+            user.username.clone(),
+            format!("{}@agents.invalid", user.username),
+        )
+    } else {
+        (user.username.clone(), user.email.clone())
+    }
+}
+
+#[cfg(test)]
+mod commit_identity_tests {
+    use super::*;
+
+    fn user(kind: &str, username: &str, email: &str) -> User {
+        let now = chrono::Utc::now();
+        User {
+            id: 1,
+            username: username.into(),
+            email: email.into(),
+            password_hash: String::new(),
+            display_name: None,
+            avatar_url: None,
+            bio: None,
+            is_admin: false,
+            is_active: true,
+            auth_provider: "local".into(),
+            ldap_dn: None,
+            ldap_uid: None,
+            ldap_provider_id: None,
+            totp_secret: None,
+            mfa_enabled: false,
+            mfa_type: None,
+            backup_codes: None,
+            last_login_at: None,
+            login_attempts: 0,
+            locked_until: None,
+            token_version: 0,
+            kind: kind.into(),
+            owner_user_id: None,
+            agent_description: None,
+            created_at: now,
+            updated_at: now,
+            deleted_at: None,
+        }
+    }
+
+    #[test]
+    fn an_agent_commits_under_its_username_and_a_derived_address() {
+        let agent = user(KIND_AGENT, "alice-agent-bot", "agent-1234@agents.invalid");
+        assert_eq!(
+            commit_identity(&agent),
+            (
+                "alice-agent-bot".to_string(),
+                "alice-agent-bot@agents.invalid".to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn a_person_keeps_the_stored_email() {
+        let human = user("human", "alice", "alice@example.com");
+        assert_eq!(
+            commit_identity(&human),
+            ("alice".to_string(), "alice@example.com".to_string())
+        );
+    }
+}

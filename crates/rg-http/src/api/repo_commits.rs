@@ -171,6 +171,8 @@ pub async fn create_commit(
     let edits: Vec<BatchEdit> = req.files.into_iter().map(|f| f.into_edit()).collect();
     let dry_run = dry_run_requested(&headers, req.dry_run);
 
+    let (commit_name, commit_email) = rg_core::agent::commit_identity(&user);
+
     match rg_core::repo::service::commit_batch(
         &state.db,
         repo_model.id,
@@ -179,8 +181,8 @@ pub async fn create_commit(
         &req.branch,
         &edits,
         &req.message,
-        &user.username,
-        &user.email,
+        &commit_name,
+        &commit_email,
         &state.repo_root,
         Some(user.id),
         BatchCommitOptions {
@@ -219,6 +221,7 @@ pub async fn create_commit(
                 &report.branch,
                 Some(report.tip_before.clone()),
                 &new_sha,
+                user.id,
             );
             crate::api::audit::record_write(
                 &state.db,
