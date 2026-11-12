@@ -3,7 +3,7 @@
 > 对象：issue #34「协作用户门要求 kind = human（T22）」正文 + 设计文档 `agent-principals-design-and-roadmap-2026-11.md` §2.3 条 9 / §4 T22（本 issue 的正文是它 §4 的摘要）。
 > 基线：`fa57f3a`（`cnb/main`，2026-11-12）。本文件只核**它对现状的断言**，方案取向记在 §4。
 > 判定口径：`成立` = 断言与现树逐字相符；`部分成立` = 主命题成立但名字/范围/机制有偏差；`不成立` = 现树给出相反事实。
-> 汇总：**13 条 → 成立 8 / 部分成立 3 / 不成立 2**，另有 6 条两份材料都没写的新事实（§3）。
+> 汇总：**13 条 → 成立 8 / 部分成立 3 / 不成立 2**，另有 7 条两份材料都没写的新事实（§3）。
 
 ## 1. 三个"用户门"构造点（行号按 `fa57f3a`）
 
@@ -43,12 +43,20 @@
 - **F4 不变量 9 是 §2.3 里唯一未落地的一条**：条 1（无人类入口）、2（令牌只有仓库 scope）、3（owner cap）、4（不进缓存）、5（`ensure_human`）、6（停用即失效）、7（他人 agent 一律 404）、8（agent 不得批准）都有对应实现或测试，只有条 9 没有任何拦截代码。它却以"改动时必须保持"的形态列出，读文档的人会以为已落地。
 - **F5 拒绝口径已分叉**：`AGENT_MAY_NOT_APPROVE` 走 `AppError::coded(...).with_reason(...)`（`api/auth.rs:165-186`），`ensure_human` 只有自由文本 `CoreError::forbidden("an agent account may not do this; ask its owner")`（`agent.rs:126-136`）。方案让 `confirm_condition` 用 `ensure_human`，同一类拒绝在协作区就拿不到机器可读 reason。
 - **F6 模板写不是漏网**：`create_template` / `new_template_version`（`collab_templates.rs:176` / `:224`）走 `require_template_admin`（`:145-157` → `can_admin_repo`），而 `can_admin_repo` 在 `repo/service.rs:356-359` 已经"agent 永不管理仓库"⇒ agent 被挡在门外，与不变量 9 一致。
+- **F7 漏网点已穷举：落地只需碰 4 处，没有第五处**。34 个 handler 过 `require_collab_write`，其中 **15 个**调 `write_actor`（会话校验在它里面），另 **19 个**不调；这 19 个里 **13 个**自己做会话凭据校验（`acting_session` / `creds_for_path` / `session_creds`），只剩 **6 个**完全没有会话凭据处理：
+  - `confirm_condition`（`collab_conditions.rs:178`，POST **写**）
+  - `mark_user_read`（`collab_inbox.rs:156`，PUT **写**）
+  - `reassign_task`（`collab_takeovers.rs:102`，POST **写**；`:116` 调 `svc::reassign`，actor 落成 `user_id` 字符串）
+  - `create_session`（`collab_sessions.rs:84`，POST，**刻意豁免**：它本身就是签发会话的入口，拦住等于 agent 永远进不来）
+  - `user_inbox`（`collab_inbox.rs:79`，GET 读）
+  - `list_sessions`（`collab_sessions.rs:124`，GET 读；用 `require_collab_write` 是为了只让写者看到仓库的会话列表，但不读会话凭据）
+  ⇒ 「agent 用用户门写协作数据」的改动点恰好 **4 个**：`write_actor`（一处覆盖 15 个 handler）+ `confirm_condition` + `mark_user_read` + `reassign_task`。T22 的完成口径可以据此写成「这 4 处都拦到，`create_session` / `user_inbox` 保持放行」，可验证、也不会漏第五处。
 
 ## 4. 待拍板（本流程不动代码）
 
 | 编号 | 级别 | 事项 |
 |---|---|---|
-| R34-1 | P1 | T22 落地本身：写侧权限收紧，agent 无 collab session 时协作写 403。改的是认证/权限语义 ⇒ L2 |
+| R34-1 | P1 | T22 落地本身：写侧权限收紧，agent 无 collab session 时协作写 403。改的是认证/权限语义 ⇒ L2。改动规模已由 F7 定死：4 个位置（`write_actor` + `confirm_condition` + `mark_user_read` + `reassign_task`） |
 | R34-2 | P2 | `mark_user_read`（`collab_inbox.rs:166`）是否纳入"用户门只服务人类"。纳入 = 改行为；不纳入 = 在 §2.3 条 9 写明例外（"read-mark 允许 agent 写"），否则该条不可执行 |
 | R34-3 | P2 | `reassign`（`takeover.rs:291-319`，actor 在 `:302-305`）记 actor 用 `user_id` 字符串而非 `Actor`，落地条 9 时需一并裁决（是否也要求 session） |
 | R34-4 | P2 | 稳定 reason：新增 `AGENT_MUST_USE_SESSION` 走 `with_reason`；`ensure_human` 是否补一个通用 reason（否则"agent 被拒"在协作区不可机读） |
