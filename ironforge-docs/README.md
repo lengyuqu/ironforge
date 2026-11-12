@@ -57,6 +57,7 @@
 | `agent-draft-refs-ttl-verification-2026-11.md` | Agent 草稿命名空间（issue #18）的设计前提核实：25 条现状断言逐条证据（17 成立 / 6 部分 / 2 不成立）、**`refs/pull/*` 并非只读命名空间**、**CI secrets 不按 ref 过滤**、`branch.deleted` 双发、行号漂移表、R18-1…R18-6 待拍板 |
 | `authorization-primitive-verification-2026-11.md` | 通用审批原语（issue #19）的现状核实：36 条断言逐条证据（27 成立 / 7 部分 / 1 不成立 / 1 不可验）、**合并审批只需读权限**、**「agent 不得批准」已实现**、`human_notify` 的「no webhook」注释过时、CI 邮件 `<br/>` 被转义、R19-1…R19-5 待拍板 |
 | `collab-user-door-verification-2026-11.md` | 协作用户门与 agent 门（issue #34）的现状核实：13 条断言（8 成立 / 3 部分 / 2 不成立）、**用户门有 3 个 `Actor::user` 构造点**（只改 `write_actor` 漏 `mark_user_read`）、§2.3 条 9 是唯一未落地的不变量、方案引用的 `is_agent_account` 不存在、`can_write_repo` 已查过一次 users、R34-1…R34-6 待拍板 |
+| `agent-notify-routing-verification-2026-11.md` | 通知改派给 agent 所有者（issue #35，T24）的现状核实：19 条断言（9 现状全成立 / 4 部分 / 1 不成立）、**`owner_cap:249` 已含 agent→所有者规则**（新函数应薄封装）、`task_blocked` 现状无 fallback、通知路径不发信且 `.invalid` 已被三道闸挡住、另有 **4 处**通知生产点仍直发 agent、R35-1…R35-5 待拍板 |
 
 ---
 

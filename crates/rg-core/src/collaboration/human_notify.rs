@@ -65,7 +65,7 @@ fn truncate_chars(text: &str, max: usize) -> String {
 
 /// Who may be told about a question addressed to `recipient`, in a stable
 /// order and without duplicates. Permissions are checked here, not trusted from
-/// the question.
+/// the question. An agent candidate stays itself: no owner mapping yet (T24).
 async fn recipients(
     db: &DatabaseConnection,
     repo: &repository::Model,
@@ -176,8 +176,8 @@ pub async fn question_asked(
 /// declared `blocked`.
 ///
 /// Who: only the account that owns the task's owner session, not every writer.
-/// Sessions of one account all belong to the same person, so this is "your agent
-/// is stuck", and it stays quiet in a repository with many writers.
+/// It can be an agent and there is no owner mapping yet (T24), so the bell rings
+/// there; sessions of one account are one person: "your agent is stuck", quiet.
 ///
 /// When: the caller invokes this only on a real transition into `blocked`, not
 /// when a blocked task is updated again. While the earlier notification about

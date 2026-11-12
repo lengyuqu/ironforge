@@ -2141,3 +2141,35 @@ protocol=v0.12
 - **回填**：改动 SHA 与回帖 id 见本节末「改动 SHA / 回帖（回填）」段。issue #34 **保持 open**（单发轮不 close）。
 
 **改动 SHA / 回帖（回填）**：`f3ee3fd`（5 文件 `86+/4−`，**零代码行为改动**）；推 `cnb` 单 remote（`fa57f3a..f3ee3fd  HEAD -> main`）；`merge-base --is-ancestor` 通过，主工作区 `merge --ff-only` 到 `f3ee3fd`、`status --porcelain` 0 行。**改后验证**：`scripts/check.sh --quick` `EXIT=0` **63 s**（`Finished dev profile [unoptimized + debuginfo] target(s) in 1m 02s` / `==> checks passed in 63s (quick)`）；改前 **99 s** `EXIT=0`。**时刻锚** = `git log -1 --format=%aI f3ee3fd` = `2026-11-12T13:29:25+08:00`。**回帖** `2120750974015787008`（`2026-11-12T05:30:08Z`，47001 字节；回读首行 `## 本轮收尾`、次行 `protocol=v0.12`、末段独立 `@CodeBuddy`、反向清单 73 条编号独立成行；发帖前后该 issue 的 `## 本轮收尾` 计数 0 → 1，无重复投递）。**推票坑（新，影响每次推送）**：`git push` 用 `username=oauth2` 会报 `Repository Not Found`，同一 token 换 `username=cnb` 才成功（`git fetch` 两种都行）。
+
+### 单发轮 · issue #35 · 2026-11-12（第 1 次进入；`[opt-round]` open = 0 ⇒ 第二段无对象）
+
+protocol=v0.12
+
+- **选靶依据**：17 条 open 全 MANUAL、`priority` 全空（任务书优先键失效，按协议 §5.2.1 用「消费次数 asc, 编号 asc」）。平台侧 `^## 本轮收尾` 计数（YAML 锚点 `body: "## 本轮收尾`）：`#14`=3、`#15`=1、`#16`=1、`#17`=1、`#18`=1、`#19`=1、`#33`=1、`#34`=1，其余 9 条（`#35`–`#43`）**0** ⇒ 零消费里编号最小的 **#35**（`通知改派给 agent 的所有者（T24）`，`comment_count` = 0）。
+- **无 NPC 分析 ⇒ 先发只读首扫请求**：评论 `2120756694840922112`（`2026-11-12T05:52:52Z`），第二人称限定「你是评审者、只读、不写收尾标记、未跑就标未跑、别复用文档快照行号」。`60 s × 5` 到 `05:57:52Z` 平台上仍只有我方这一条（`list-issue-comments --sort -created --page-size 5` 只回 1 条，`本轮收尾` 计数 0）⇒ **按 issue 正文推进，不重复发**（协议 §5.2「#26–#29 的准备缺口」）。
+- **形态**：靶子是设计摘要（T24 通知改派）⇒ 本体是 L2（新函数 + 通知语义 + 可能扩到 4 处通知面），本轮产出 = 核实现状断言 + 订正设计文档 6 行 + 两处注释补「未映射」事实 + 登记 L2，**零代码行为改动**。
+- **BASE** `721ab16`（`HEAD` 与 `cnb/main` 同 SHA、`ls-remote` 一致；另 8 个 worktree mtime 最新 `2026-11-12 02:25`、`ironforge-opt-worktrees` 的 13:30 是上轮自己清理 ⇒ 无并发写者）。改前 `scripts/check.sh --quick` **104 s EXIT=0**（`Finished dev profile [unoptimized + debuginfo] target(s) in 1m 42s` / `==> checks passed in 104s (quick)`）。
+- **判定分布**：19 条断言 = **成立 13 / 部分成立 5 / 不成立 1**。全表见 `ironforge-docs/architecture/agent-notify-routing-verification-2026-11.md` §2。
+
+| # | 它说的 | 判定 | 证据 |
+|---|---|---|---|
+| N5 | `recipients()` 与整个模块**无任何 agent 判断** | **成立** | `grep -nE 'is_agent\|users\.kind\|kind *= *"agent"' human_notify.rs` = **0**；`agent` 只出现在注释与 `agent_session_ops` |
+| N7 | agent 用自己令牌建会话时 `session.user_id` 就是 agent | **成立** | `collab_sessions.rs:90` 取 `require_collab_write` 的 actor、`:94` 直接交给 `svc::create`；`collab.rs:202-217` 只查 `can_write_repo`，无 kind 门 |
+| N8 | 人类永远看不到「你的 agent 卡住了」 | **成立** | 收件人恒为 `session.user_id`（`human_notify.rs:206`）；`owner_user_id` 在通知链路 **0 消费点**（全仓除 `agent.rs`/`entities`/`migrations`/`user_ops.rs`） |
+| P1 | 新增 `accountable_user(db, user_id) -> Option<i64>` | **部分成立** | 函数不存在（`grep accountable_user crates/` = 0），但语义 2/3 已在 `agent.rs:249-262` 的 `owner_cap`（`None`/`Owner(须 active 且非 agent)`/`Denied`）；缺的只是 human 分支的 `is_active`，而 `:250` 已读过该行 |
+| P3 | `task_blocked`「不要 fallback 到 `repo_writers`，否则会广播」 | **部分成立** | 现状**没有任何 fallback**：`:195-197`/`:199-201`/`:208-210`/`:211-214`/`:220-227` 五个分支全部 `return Vec::new()` ⇒ 风险在现树不存在，只能当预防性约束 |
+| P5 | 给映射后收件人加 `kind=human && email NOT LIKE '%@agents.invalid'` 能关闭 `.invalid` 未核实项 | **不成立** | 该路径不发信（`notification::notify:9-20` 只写库；模块内 `lettre / send_mail / smtp` 0 命中）⇒ 过滤零效果。真实发信口三处且都已挡：`lib.rs:3465` CI 取 `repo_owner_id`，而 `repo/service.rs:489` 的 `create_repo` 有 `ensure_human`（fork `:1167`、转移 `:1392-1393`）；`lib.rs:3678` 是重试 worker，只由 `:3486`/`user/service.rs:763` 入队；`user/service.rs:745` 密码重置在 `:711` 拒 agent |
+| T1 | 五条测试可写 | **部分成立** | `collab_human_notify_tests.rs` 有 430 行 / 9 个现成用例，但其 `collab_common` **无** agent 夹具（文件内 `agent` 0 命中）；能造 agent 的 `World`（`agent()`/`agent_token()`/`grant()`）在 `agent_principal_tests.rs:36-180`；全仓 `tests/` 内 `rg_core::agent::create_agent` 0 命中 |
+| D2 | 新 SQL 至少跨后端跑一次（PG/MySQL） | **部分成立** | 能力在（`Cargo.toml:43` sea-orm 带 `sqlx-postgres/mysql`、`rg-db/src/lib.rs:74-84` 有分支、`rg-core/tests/multi_backend_smoke.rs` 存在），但 T24 **不新增 SQL** ⇒ 该条无对象 |
+
+- **最贵的一条错（P5）**：它把「关闭 `.invalid` 发信」寄托在收件人过滤上，而通知路径根本不发信。真值是三道闸（`ensure_human` 守 `repository.owner_id`、密码重置 `:711` 拒 agent、重试队列只有两个入队点）把 `.invalid` 关死 ⇒ 设计文档 §2.5 的 P2 未核实项**今天可以结案为「否」**，而且不需要写任何过滤代码。**判据（可复用）**：判「某类收件人会不会收到邮件」，别读收件人构造处，去数**发信函数**的调用点（本轮 `send_html_notification` 全仓 3 处）并逐个看收件人从哪来。
+- **第二处产出（F1，两份材料都没有）**：铃铛面不止 `human_notify`。另有 **4 处**按 user id 直发：`notification/mod.rs:122`（`notify_watchers`）、`issue/reactions.rs:29`/`:97`、`issue/assignees.rs:52`。⇒ T24 只改正文那两处时，「铃铛响在人那边」只在**被问**与**卡住**两个场景成立；agent 被指派、被回复、watch 仓库时仍会自己响铃（R35-2）。
+- **第三处产出（F3）**：`accountable_user` 应薄封装 `owner_cap`。`owner_cap:249-262` 已写完「agent → 所有者（存在、启用、非 agent），否则拒绝」，独立重写就是本仓的**第 4 份** agent 判定（前三份：`AGENT_MAY_NOT_APPROVE`、`can_admin_repo` 的 `owner_cap != None`、`ensure_human`），与本流程 R19-5 的既有结论冲突。
+- **第四处产出（F5）**：`recipients()` 现状对每个候选都 `invalidate_perm_cache_user` + `can_write_repo`（`:114-115`），而 agent 的 `can_write_repo` 会递归到所有者（`apply_owner_cap` → `can_write_repo(owner)`）⇒ 映射（纯读）应放在权限查之前，否则 500 个候选里的每个 agent 都多付一次 owner 权限链。
+- **新 L2**：**R35-1**（P2，T24 落地＝新能力，且 `accountable_user` 必须薄封装 `owner_cap`）；**R35-2**（P2，范围裁决：只改两处 vs 连 watchers/评论/指派一起改，后者会把「agent 的 watch」变成「所有者的 watch」）；**R35-3**（P3，`.invalid` 未核实项结案为「否」，并撤掉原方案的收件人过滤）；**R35-4**（P3，测试落点：给 `collab_common` 加 agent 助手或落到 `agent_principal_tests.rs` 的 `World`，不要第三套夹具）；**R35-5**（P3，映射/去重/权限查的顺序与 `MAX_CANDIDATES=500` 在映射后的意义）。
+- **改动（WT 内 commit）**：新建 `ironforge-docs/architecture/agent-notify-routing-verification-2026-11.md`（19 条判定 + F1–F5 + R35-1…R35-5 + 复核命令）；`crates/rg-core/src/collaboration/human_notify.rs` **两处注释各 1→1 / 3→3 行**（`recipients()` 补「agent 候选不映射」、`task_blocked` 的 Who 段写明收件人可能是 agent），文件仍 **259 行**、`:69`/`:131`/`:189` 三个函数行号零漂移；`agent-principals-design-and-roadmap-2026-11.md` **6 处各 1 行 → 1 行**（§2.5 的 P2 行结案、方案 lead 补 `owner_cap` 复用、`recipients()` 补去重顺序、`task_blocked` 补「现状无 fallback」、邮件守卫改写为三处发信口的真值、测试段落补夹具位置），文件仍 **668 行**；`ironforge-docs/README.md` 索引 +1 行。**零代码行为改动**（`crates/` 只有 2 行注释）。
+- **反向清单 74**；清单累计 **1..74**。
+74. 「给映射后的收件人加 `kind = human` 且 `email NOT LIKE '%@agents.invalid'` 的过滤，就能关闭『agent 的 `.invalid` 邮箱是否会被邮件路径发信』这个未核实项」（issue #35 方案·邮件守卫 / 设计文档 §4 T24）—— **不成立**：通知路径不发信（`notification::notify` 只写库，`human_notify.rs`/`notification/` 内 `lettre|send_mail|smtp` 0 命中），过滤零效果；真实发信口三处且都已被 `ensure_human`（`repo/service.rs:489`）、密码重置 `:711` 的 agent 拒绝、重试队列的两个入队点挡住。**勿再以「通知路径会发邮件」为前提设计守卫。**
+- **producer-stall**：`[opt-round]` 最近一批 `#31` 的 `closed_at` = `2026-11-11T13:09:01Z`，至本轮取证（`2026-11-12T05:56Z`）已 **16 h 47 m** 零新批（协议 §11 风险 10 的 180 min 与 6 h 阈值均已越过）⇒ 生产者两条 automation 需人工查；消费者无写权限，只记不改。第二段因此**无对象**（不是「队列为空」——手工队列仍剩 16 条）。
+- **回填**：改动 SHA 与回帖 id 见本节末「改动 SHA / 回帖（回填）」段。issue #35 **保持 open**（单发轮不 close）。

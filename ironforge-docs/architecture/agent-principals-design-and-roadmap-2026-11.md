@@ -96,7 +96,7 @@ agent **就是 `users` 里的一行**，没有单独的表。原因：一百来�
 | P1 | `path_in_allowlist` 对名单内仓库的新路由默认放行 | §5 R1 |
 | P2 | 绕过 `can_*_repo` 的判权点（直接查协作者表/组织成员表）**未逐一排查**；起点 `grep -rn 'repo_collaborator_ops::get_permission\|is_org_member\|find_org_member' crates` | 排进 R1 验收项 |
 | P2 | `MAX_AGENTS_PER_OWNER = 50` 是拍脑袋值 | 观察，不做 |
-| P2 | agent 的 `.invalid` 邮箱是否会被邮件路径发信**未核实** | T24 附守卫测试 |
+| P2 | agent 的 `.invalid` 邮箱是否会被邮件路径发信 —— **已核实为否**（CI 通知取 `repo.owner_id`，而 `create_repo` 有 `ensure_human`；密码重置 `:711` 拒 agent） | 结案，不加收件人过滤 |
 | P2 | 旧问题、与本期无关：SSH 密码不检查 `is_active`；协作者接口改权限按协作者行 id、删除按用户 id 寻址，删错 id 也返回成功 | 单独 issue，不混进来 |
 
 ---
@@ -335,7 +335,7 @@ let (username, on_behalf_of) = match &actor {
 - `task_blocked`（:189-247）：由 `task.owner_session_id` → `agent_session_ops::find_in_repo` → **`session.user_id`** 收件。agent 用自己令牌建会话时该 id 就是 agent → **人类永远看不到"你的 agent 卡住了"**。
 - 调用点只有两处：`collab_questions.rs:162`、`collab_tasks.rs:276`。
 
-**方案**：加一个可问责账号解析，所有收件人出口统一走它。
+**方案**：加一个可问责账号解析，所有收件人出口统一走它（**应薄封装 `agent::owner_cap:249-262`**，同一规则已在那里，否则第 4 份 agent 判定）。
 
 ```rust
 // rg-core/src/agent.rs
@@ -354,11 +354,11 @@ pub async fn accountable_user(db: &DatabaseConnection, user_id: i64) -> CoreResu
 }
 ```
 
-- `recipients()`：候选逐个过 `accountable_user`，**映射后去重**（owner 与 agent 同时是候选时只留一个），再套 50 上限。
-- `task_blocked`：`session.user_id` 过 `accountable_user`；`None` 则不发（不要 fallback 到 `repo_writers`，否则 agent 卡住会广播）。
-- **邮件守卫**：先 `grep -rn 'lettre\|send_mail\|smtp' crates/rg-core crates/rg-http` 确认通知路径是否发信；对映射后的收件人过滤 `kind = human` **且** `email NOT LIKE '%@agents.invalid'`，并加守卫测试断言"任何收件人都不是 agent"。
+- `recipients()`：候选逐个过 `accountable_user`，**映射后去重**（owner 与 agent 同时是候选时只留一个），再套 50 上限；现去重按候选 id 发生在映射前（`:106-113`），且权限查应挪到映射之后（映射是纯读，`can_write_repo` 对 agent 会递归到所有者）。
+- `task_blocked`：`session.user_id` 过 `accountable_user`；`None` 则不发（不要 fallback 到 `repo_writers`，否则 agent 卡住会广播；**现状没有任何 fallback**——`:195-227` 五个分支全部 return 空，这条是预防性约束）。
+- **邮件守卫**：通知路径**不发信**（`notification::notify` 只写库；`human_notify.rs`/`notification/` 内 `lettre|send_mail|smtp` 0 命中）。真实发信口三处且都已挡住：CI `rg-http/src/lib.rs:3465` 取 `repo_owner_id`，而 `create_repo:489` 有 `ensure_human` ⇒ 仓库所有者恒为人类；`:3678` 是重试 worker，只由 `:3486` 与 `user/service.rs:763` 入队；密码重置 `:745` 在 `:711` 拒 agent。⇒ **不需要**给收件人加 `kind=human`/邮箱过滤（该路径零效果）。
 
-**测试**：问题发给 agent → 所有者收到、agent 未收到；`task_blocked` 于 agent 会话 → 所有者收到；owner 被停用 → 无人收到且不报错；owner 与 agent 都在 `repo_writers` → 只收一条；人类收件人行为不变。
+**测试**：问题发给 agent → 所有者收到、agent 未收到；`task_blocked` 于 agent 会话 → 所有者收到；owner 被停用 → 无人收到且不报错；owner 与 agent 都在 `repo_writers` → 只收一条；人类收件人行为不变（落点：`collab_human_notify_tests.rs` 有 9 个现成用例但**无** agent 夹具；能造 agent 的 `World` 在 `agent_principal_tests.rs`，需先补助手）。
 
 **规模** M（0.5–1 天）。
 
