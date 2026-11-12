@@ -3160,7 +3160,14 @@ async fn handle_git_receive_pack(
             let output = reader_task.await.unwrap_or_default();
 
             // ── Post-push hooks: trigger CI + Webhook ───────────────
-            spawn_post_push_hooks(&state, &owner, &repo, repo_path.clone(), ref_updates);
+            spawn_post_push_hooks(
+                &state,
+                &owner,
+                &repo,
+                repo_path.clone(),
+                ref_updates,
+                actor_id,
+            );
 
             (
                 StatusCode::OK,
@@ -3205,6 +3212,7 @@ pub(crate) fn spawn_post_push_hooks(
     repo: &str,
     repo_path: std::path::PathBuf,
     ref_updates: Vec<rg_git::protocol::receive_pack::RefUpdate>,
+    pushed_by: Option<i64>,
 ) {
     let db = state.db.clone();
     let repo_root = state.repo_root.clone();
@@ -3235,6 +3243,7 @@ pub(crate) fn spawn_post_push_hooks(
                 smtp_config: &smtp,
                 ci_engine: &*ci_engine,
                 external_url: external_url.as_deref(),
+                pushed_by,
             },
             &ref_updates,
         )
@@ -3257,6 +3266,10 @@ struct PostPushParams<'a> {
     smtp_config: &'a Option<rg_core::email::SmtpConfig>,
     ci_engine: &'a dyn rg_core::ci::CiTrigger,
     external_url: Option<&'a str>,
+    /// The account that moved the ref (git push credential or REST file commit).
+    /// Recorded in the push event so the actor stays traceable; the commit author
+    /// of a pushed commit is whatever the client wrote and is not rewritten.
+    pushed_by: Option<i64>,
 }
 
 fn tag_protection_rejected_refs(
@@ -3305,6 +3318,7 @@ async fn post_push_hooks(
         smtp_config,
         ci_engine,
         external_url,
+        pushed_by,
     } = params;
 
     // Find repo_id from DB
@@ -3506,6 +3520,7 @@ async fn post_push_hooks(
             "ref": update.refname,
             "before": update.old_sha,
             "after": update.new_sha,
+            "pushed_by": pushed_by,
             "repository": {
                 "owner": owner,
                 "name": repo_name,
