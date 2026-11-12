@@ -2252,7 +2252,7 @@ protocol=v0.12
 ### 单发轮 · issue #45 · 2026-11-12
 - 选靶：[hold][harness-test]，最新评论 2120836458603773952（2026-11-12T11:09:49Z，NPC 首扫，Q1–Q5）
 - 判定：成立 2（Q1、Q3）/ 部分成立 3（Q2、Q4、Q5）/ 不成立 0
-- 动作：L1 待回填（`lfs.rs:213` 注释 1→1）；L2 写入 L2-45-1…5（均未改代码）：①临时文件固定名 `.tmp_{oid}` 且截断写、失败不清理（`lfs.rs:214/426`，`service.rs:539-550`）；②上传不复核 SHA-256、`size` 不与实收字节对账（`service.rs:243`）；③无单对象/仓库配额，仅 10 GiB 路由层限额（`lib.rs:965`）；④私有仓库 404 先于 401 可枚举（`lfs.rs:181-186`、`repo/service.rs:169`），batch 对未登记 oid 整批 500（`service.rs:399-401`）；⑤batch 响应非 `application/vnd.git-lfs+json`、无 Range（`lfs.rs:148`）。④⑤为静态读码，未运行实测
+- 动作：L1 `858fa44`（`lfs.rs:213` 注释 1→1）；L2 写入 L2-45-1…5（均未改代码）：①临时文件固定名 `.tmp_{oid}` 且截断写、失败不清理（`lfs.rs:214/426`，`service.rs:539-550`）；②上传不复核 SHA-256、`size` 不与实收字节对账（`service.rs:243`）；③无单对象/仓库配额，仅 10 GiB 路由层限额（`lib.rs:965`）；④私有仓库 404 先于 401 可枚举（`lfs.rs:181-186`、`repo/service.rs:169`），batch 对未登记 oid 整批 500（`service.rs:399-401`）；⑤batch 响应非 `application/vnd.git-lfs+json`、无 Range（`lfs.rs:148`）。④⑤为静态读码，未运行实测
 - 验证：BASE=fd2f07e，check.sh --quick 改前 EXIT 0 / 131 s，改后 EXIT 0 / 65 s
-- 回帖：待回填｜`## 本轮收尾`（不占 C）
+- 回帖：2120837912609603584（2026-11-12T11:15:36Z）｜`## 本轮收尾`（不占 C）
 - issue 状态：保持 open
