@@ -2445,3 +2445,5 @@ protocol=v0.13
 **反向清单（本节新增 1 条，累计 1..103）**：
 
 103. 「文档 `:58` 的『82 = 70 行首 `r(` + 7 内联 + 5 个 `x(`』算术不闭合，实际 70 + 7 = 77 ≠ 82」—— **不成立**：70 + 7 + 5 = **82**，作者把 +5 丢了；该行两套并列读法（`1c0a87e` 75 + 7 + 0、现状 70 + 7 + 5）都等于 82。复算：`grep -c '^\s\+r('` = 70、`routes: &\[r(` = 7、`^\s\+x(` = 5；括号解析 82 路由 / 65 路径 / 17 多命中族；三口径 54 / 7 / 4 两两交集为空、并集 65。**已核实，勿再提。**
+
+**改动 SHA / 回帖（回填）**：`a1f23a5`（2 文件 `29+/7−`；`crates/` 零行 ⇒ 全仓 `path:line` 零漂移）。推 `cnb` 单 remote：`c410fc5..a1f23a5`；`merge-base --is-ancestor HEAD cnb/main` 通过，主工作区 `merge --ff-only` 到 `a1f23a5`、`status --porcelain` 0 行。时刻锚 = `git log -1 --format=%aI a1f23a5`。**改后验证**（executor 本机 `Darwin arm64` / `cargo 1.99.1`）：`scripts/check.sh --quick` `EXIT=0` **1 s**（`Finished dev profile [unoptimized + debuginfo] target(s) in 0.25s` / `==> checks passed in 1s (quick)`）；改前 **87 s** `EXIT=0`。**复算环境无 `cargo` 时不可验。** **回帖** `2121026108907782144`（`2026-11-12T23:43:25Z`）；回读首行 `## 本轮收尾`、次行 `protocol=v0.13 · prompt=ironforge-consumer-v4`、末行独立 `@CodeBuddy`、判定表 14 行、反向 99–103 独立成行；该 issue 的 `## 本轮收尾` 计数 **4 → 5**，无重复投递。**`a1f23a5` 尚未被 NPC 复核**（它上一条钉 `18909d0`）。issue **保持 open**。
