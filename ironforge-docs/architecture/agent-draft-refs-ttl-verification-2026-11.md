@@ -1,6 +1,6 @@
 # Agent 草稿命名空间（TTL）：设计前提核实（2026-11-12）
 
-> **状态**：核实记录（**不是**实现）｜ **对象**：issue #18 的 NPC 细化回帖（`2120150626892935168`，2987 字符）+ 其落地文档 `ironforge-docs/architecture/agent-draft-refs-ttl-design-2026-11.md`（PR #20 已合并，259 行）｜ **基线**：`e225293`（`cnb/main`，`HEAD...cnb/main` = `0 0`）
+> **状态**：核实记录（**不是**实现）｜ **对象**：issue #18 的 NPC 细化回帖（`2120150626892935168`，2987 字符）+ 其落地文档 `ironforge-docs/architecture/agent-draft-refs-ttl-design-2026-11.md`（PR #20 已合并，258 行 —— `wc -l` 与 `awk END{print NR}` 同为 258；旧写 259 是 `split('\n')` 把末行换行当空串的口径，已订正）｜ **基线**：`e225293`（`cnb/main`，`HEAD...cnb/main` = `0 0`）
 > **读法**：先看 §3 两条不成立（它们改变设计结论），再看 §6 待拍板。§2 是全量判定表，§4 只是行号账。
 
 ---
@@ -54,7 +54,7 @@
 | D16 | R7：令牌不用于 SSH，SSH 推送不受 `ref_allowlist` 限制 | **成立** | `grep -rn 'ref_allowlist' crates/rg-ssh/src/` = **0** 命中 |
 | D17 | §5.3 顺带记录：`notify_watchers_push` 定义但全仓无调用 | **成立** | `grep -rn 'notify_watchers_push' crates/` = 1 命中，即定义 `repo/service.rs:1590-1606` |
 
-> 另核 8 条不与设计结论耦合的小项（未入表）：`ops.rs:106-124` 的 `delete_ref`（实 `:105-124`）、迁移文件 `m20261106_000004_create_repo_events.rs`（存在于 `crates/rg-db/src/migrations/`，注意目录是复数）、`job_timeout_secs` 在 `AppState`（`lib.rs:148`/`:185`）、`allow_host_execution` 在 `PostPushParams`（`lib.rs:3302`）。全部成立。
+> 另核 8 条不与设计结论耦合的小项（未入表）：`ops.rs:106-124` 的 `delete_ref`（实 `:105-124`）、迁移文件 `m20261106_000004_create_repo_events.rs`（存在于 `crates/rg-db/src/migrations/`，注意目录是复数）、`job_timeout_secs` 在 `AppState`（`lib.rs:148`/`:185`）、`allow_host_execution` 在 `PostPushParams`（`lib.rs:3195`，R1 前是 `:3302`）。全部成立。
 
 ---
 
@@ -67,7 +67,7 @@
 **现树事实**：
 
 - `grep -rn 'refs/pull' crates/rg-git/src/` = **0 命中**。`rg-git` 里没有任何针对该命名空间的判定。
-- `receive_pack` 的 ref 名不做命名空间白名单：拒绝只有两路 —— `rejected_refs`（`lib.rs:3074-3076`，来自分支保护与 tag 保护，模式恒为 `refs/heads/...`）与 `writable_refs`（`:2996-2998`，`None` = 不限制）。两者都不命中 `refs/pull/1/head`。
+- `receive_pack` 的 ref 名不做命名空间白名单：拒绝只有两路 —— `rejected_refs`（`lib.rs:3006-3008`，两半来源：分支保护那一半恒 `refs/heads/`（`branch_protection/service.rs:256`），tag 保护那一半恒 `refs/tags/`（`lib.rs:3223`）；原写「模式恒为 `refs/heads/...`」只对前一半成立，两半都不命中 `refs/pull/`）与 `writable_refs`（`:2928-2930`，`None` = 不限制）。两者都不命中 `refs/pull/1/head`。
 - 落地写入是 `receive_pack.rs:507` 的 `update_ref(...)`，其实现 `:631-647` 用 `PreviousValue::Any`（`:641`）——「无条件 set，等同 `git update-ref`」，注释自己写着。
 
 ⇒ **无 `ref_allowlist` 的令牌可以直接把 `refs/pull/<n>/head` 指向任意已存在于对象库的 commit**（推一个新 commit 也行，pack 已 index）。`refs/pull/*` 由 `publish_head_ref`（`pull_request/service.rs:1396`）写入，是**普通 ref**，不是伪 ref。
@@ -81,12 +81,12 @@
 **现树事实**：
 
 - `crates/rg-db/src/entities/ci_secret.rs:9` 只有 `repo_id`，没有 branch/ref/tag 列。
-- 注入点 `rg-ci/src/runner.rs:743-762`：`if self.repo_id > 0` → `ci_secret_ops::list_by_repo(&self.db, self.repo_id)` → 逐条 `decrypt` → `env.insert(secret.name, value)`。**没有任何 ref/分支条件**，也没有「仅默认分支」的默认收紧。
-- `allow_host_execution` 同样**无触发源判定**：`lib.rs:3430` 原样从仓库配置传入 → `rg-ci/src/lib.rs:402` `runner.set_allow_host_execution(...)`。`validate_execution_semantics`（`rg-ci/src/lib.rs:416`）只校验 `when`/`timeout`/`environment`/`condition`，不看执行面。
+- 注入点 `rg-ci/src/runner.rs:743-762`：`if self.repo_id > 0` → `ci_secret_ops::list_by_repo(&self.db, self.repo_id)` → 逐条 `decrypt` → `env.insert(secret.name, value)`。**没有任何 ref/分支条件**，也没有「仅默认分支」的默认收紧。**这是两处注入之一**：外部 runner 的 `GET /runners/{id}/jobs/poll` 把同一个 `list_by_repo` 的结果直接塞进 job 的 `variables`（`rg-http/src/api/runners.rs:352-356`，取数函数 `:787-793`），而 `external_runners=true` 时内置 runner 压根不启动（`rg-ci/src/lib.rs:308`）⇒ 只堵 `runner.rs` 无效（R18-7）。
+- `allow_host_execution` 同样**无触发源判定**：`lib.rs:3376` 原样从 `state.allow_host_execution` 传入（`:3155` 取、`:232` 由**实例配置** `[ci].allow_host_execution` 装载；`repositories` 表没有这一列，见 R18-9）→ `rg-ci/src/lib.rs:402` `runner.set_allow_host_execution(...)`。原写「从仓库配置传入」是错的。`validate_execution_semantics`（`rg-ci/src/lib.rs:416`）只校验 `when`/`timeout`/`environment`/`condition`，不看执行面。
 
 ⇒ 「不注入 secrets」不是配置项、是**待实现的代码**。设计若按 S1–S6 顺序推进，S3（推送守卫）先落地而 secrets 过滤没做，草稿区就已经把全仓 secrets 交给推送方自带的脚本。
 
-**同时这条也修正了 R3 的量级判断**：该风险**今天就存在**——任意 `repo:write` 令牌推到 `agent/x` 分支已经会触发 CI（`lib.rs:3418`）、拿全部 secrets、按仓库开关决定是否宿主机执行。草稿区**不新增**这条通道，它新增的是「不再有人被通知」。这句话应写进 R3，否则会把存量缺陷记成新设计的副产品，导致「不做草稿区就安全」的错觉。
+**同时这条也修正了 R3 的量级判断**：该风险**今天就存在**——任意 `repo:write` 令牌推到 `agent/x` 分支已经会触发 CI（`lib.rs:3364`）、拿全部 secrets、按实例开关决定是否宿主机执行。草稿区**不新增**这条通道，它新增的是「不再有人被通知」。这句话应写进 R3，否则会把存量缺陷记成新设计的副产品，导致「不做草稿区就安全」的错觉。
 
 ---
 
@@ -105,18 +105,28 @@
 | `rg-git/src/ops.rs` | `:106-124` / `:132-153` | `:105-124` / `:132-153` | −1 / 0 |
 | `rg-ci/src/lib.rs` | `:131` / `:558-596` | `:131` / `:558-596` | 0 |
 
-`rg-http/src/lib.rs` 是唯一系统性偏 12 行的文件（`on_delete` 之前插过一段注释与 handler 改动），凡引用它的区间都不能按旧值复用。**结论：文档里的行号已就地订正（1 行 → 1 行，259 行不变）。**
+`rg-http/src/lib.rs` 是唯一系统性偏 12 行的文件（`on_delete` 之前插过一段注释与 handler 改动），凡引用它的区间都不能按旧值复用。**结论：文档里的行号已就地订正（1 行 → 1 行，258 行不变；旧写 259 见文件头订正说明）。**
+
+### 4.1 R1 之后（当前 `cnb/main`）的再漂移
+
+`eb1736f` / `4d34e69`（R1 路由元数据注册表）重写了 `lib.rs` 的路由与鉴权装配段，上表的 `lib.rs` 列与设计文档里的 `lib.rs` 行号**同时作废**：`c17735e..45ed54c` 上该文件 `34+/87−`，`on_delete` 之前整体下移 **68** 行、`post_push_hooks` 尾部下移 **53** 行，**不是统一偏移**，不能加减法复用。已逐行打印核实的新锚点（BASE `45ed54c`）：`writable_refs` `:2928`、`rejected_refs` `:3006-3008`、`on_delete` 闭包 `:3014-3072`（内含 `:3057` 的 `trigger_branch_deleted`）、`spawn_post_push_hooks` 定义 `:3141`／唯一调用点 `:3095`、`post_push_hooks` `:3235-3537`、`status != "ok"` `:3268-3270`、`refs/tags/` 模式 `:3223`、`has_ci_config` `:3364`、CI 段 `:3364-3448`、`trigger_event(push)` `:3463`、分支事件 `:3469-3496`、ws 通知 `:3526-3534`、`TriggerPipelineParams` 收 `allow_host_execution` `:3376`。
+
+`pat_scope.rs` 只改了一处但对本文两条结论有关：`ref_limited_write_allowed` 从 32 行 `matches!` 表（`:301-336`）缩成对 `route_meta::branch_limited_write_allowed` 的**一行转发**（`:307-309`）⇒ 「往白名单里加 `agent-drafts`」这个修法不再成立，改成「把路由声明进注册表」（见 R18-4）。其余被引文件（`receive_pack.rs` / `webhook/service.rs` / `ops.rs` / `repo/branch.rs` / `ci_retention.rs` / `repo_events.rs` / `gitea_actions.rs` / `rg-ci` / `rg-cli` / `api/runners.rs` / `entities/*`）自 `e225293` 起零改动，本表行号仍有效。
+
+§2 表里含 `lib.rs` 锚点的行（P4 / P6 / D4 / D5 / D11）保留的是 `e225293` 口径的**历史判定**，现状按上一段换算，其中最容易误用的是三个：P4 的六个锚点现状为 `:3235` 定义 / `:3268-3270` 过滤 / `:3364-3448` CI / `:3463` push webhook / `:3469-3496` 分支事件 / `:3526-3534` ws；P6 与 D4 的 `on_delete` 现状为 `:3014-3072`（旧写的 `:3102` 调 `delete_branch` 现状在 `:3046`）。
 
 ---
 
-## 5. 新发现：`git push --delete` 会发两次 `branch.deleted`
+## 5. 新发现：`git push --delete` 会发两次分支事件（真 `deleted` 或假 `created`）
 
 不在 NPC 的两份材料里，本轮读 `on_delete` 时撞到：
 
-- `lib.rs:3125` —— `on_delete` 守卫内部，`delete_branch` 成功后调 `trigger_branch_deleted`（推送删除走这里）。
-- `lib.rs:3541` —— `post_push_hooks` 里 `new_sha` 全 0 的分支再次调 `trigger_branch_deleted`。
+- `lib.rs:3057` —— `on_delete` 守卫内部，`delete_branch` 成功后调 `trigger_branch_deleted`（推送删除走这里）。
+- `lib.rs:3488` —— `post_push_hooks` 里 `new_sha` 全 0 的分支再次调 `trigger_branch_deleted`。
 
-`spawn_post_push_hooks(..., ref_updates)`（`lib.rs:3163`）拿到的是**同一份** ref 更新（删除项 `status = "ok"`，`new_sha` = 40 个 0），`post_push_hooks` 的 `status != "ok"` 过滤放行 ⇒ **一次 `git push --delete` 投递两条 `branch.deleted`**。REST `DELETE /branches/{x}` 走的是第三个调用点（`repo_content.rs:723`），不受影响。
+`spawn_post_push_hooks(..., ref_updates)`（`lib.rs:3095` 调用、`:3141` 定义）拿到的是**同一份** ref 更新（删除项 `status = "ok"`，`new_sha` = 40 个 0），`post_push_hooks` 的 `status != "ok"` 过滤放行 ⇒ **一次 `git push --delete` 投递两条 `branch.deleted`**。REST `DELETE /branches/{x}` 走的是第三个调用点（`repo_content.rs:723`），不受影响。
+
+**这条要按两种删除形态分开写（R18-8，2026-11-13 补）**：`post_push_hooks` 的分支事件判断**先看 `old_sha` 再看 `new_sha`**（`:3469-3496`：`old_sha` 空/全 0 → `branch.created`，`else if new_sha` 空/全 0 → `branch.deleted`）。客户端报得出旧值时（`<old> 0000… <ref>`）才是上面的双 `deleted`；客户端不知道旧值时有两条路径都落进「旧值为空/全 0」——`~/.git` 无该 remote-tracking ref 的老 git 发 `<0…0> <0…0> <ref>`，以及 `:<ref>` 简写（`receive_pack.rs:349-366` 显式写 `old_sha: String::new()`）——此时 `on_delete` 仍会删成功并投**一条真的 `branch.deleted`**（`:3057`），而 `post_push_hooks` 再投**一条假的 `branch.created`**（`:3475`）。所以两种形态都是两条事件，差别只在第二条是真 `deleted` 还是假 `created`；原 §5 写的「一次删除投两条 `deleted`」只覆盖第一种。
 
 这与草稿设计直接相关：§5.3 声称「通知抑制的三个注入点全在 `post_push_hooks` 一处」。**实际是四处**——删分支路径的 `trigger_branch_deleted` 在 `on_delete` 里，`post_push_hooks` 的过滤加不到它。按现文档实现，草稿分支被 agent 用 `git push --delete` 删掉时仍会投递一条 `branch.deleted` webhook。
 
@@ -125,11 +135,15 @@
 ## 6. 新立待拍板（L2，本流程不动代码）
 
 - **R18-1（P1）`receive_pack` 无命名空间守卫**。`refs/pull/*`、`refs/notes/*`、任意 `refs/*` 都能被无 `ref_allowlist` 的令牌改写（`receive_pack.rs:507` → `:631-647` 的 `PreviousValue::Any`）。修法二选一：①在 `receive_pack` 只接受 `refs/heads/` + `refs/tags/`，其余 `ng`；②显式对 `refs/pull/` 返回「只读镜像」。这条同时是草稿设计 §6.2 的前提，**裁决前不要以「天然只读」写实现**。
-- **R18-2（P1）CI secrets 无 ref 过滤**（`rg-ci/src/runner.rs:743-762`）。草稿设计以「不注入 secrets」为安全前提，现状做不到。建议按「默认分支 / 受保护分支 / 其它」三档做 `ci_secret` 的可见范围列，或至少在非默认分支上默认不注入并在文档写明。**在它之前，草稿区不该开 CI**。
-- **R18-3（P2）`allow_host_execution` 无触发源判定**（`lib.rs:3430` → `rg-ci/src/lib.rs:402`）。裁决点：草稿分支是否强制 `allow_host_execution=false`，以及是否顺手对「非默认分支 + 非保护分支」一并收紧。
-- **R18-4（P2）`ref_limited_write_allowed` 缺 `agent-drafts`**（`pat_scope.rs:301-336`）。与 T21 的三张表耦合，增补时须协调（参考 `["commits"]` 的处置：准入条件由 handler 自查分支，不因 T21 移除）。
-- **R18-5（P2）`branch.deleted` 双发**（§5）。修法：`post_push_hooks` 跳过删除项的分支事件，或 `on_delete` 不再发、统一由 `post_push_hooks` 发（后者要求删除项也进 `ref_updates`，现状已进）。属 webhook 语义变更，需拍板。
-- **R18-6（P3）`spawn_post_push_hooks` 是 `pub(crate)`**（`lib.rs:3202`）。若清理任务放在 `rg-core`（设计 §6.1 的 `rg_core::task_supervisor::supervise` + `api::agent_drafts::run_cleanup_loop` 属 `rg-http`，这条不触发；但 S5 若下沉到 core 就会撞同一堵墙，同 R17-7）。
+- **R18-2（P1）CI secrets 无 ref 过滤**（两处注入点，见 R18-7）。草稿设计以「不注入 secrets」为安全前提，现状做不到。建议按「默认分支 / 受保护分支 / 其它」三档做 `ci_secret` 的可见范围列，或至少在非默认分支上默认不注入并在文档写明。**在它之前，草稿区不该开 CI**。
+- **R18-3（P2）`allow_host_execution` 无触发源判定**（`lib.rs:3376` 传入 → `rg-ci/src/lib.rs:402`；值来自 `state.allow_host_execution`，`:3155` 取、`:232` 从实例配置装载 —— **不是仓库配置**，`repositories` 表无此列）。裁决点：草稿分支是否强制 `allow_host_execution=false`，以及是否顺手对「非默认分支 + 非保护分支」一并收紧。落点只能是 per-pipeline 参数（`TriggerPipelineParams`）。
+- **R18-4（P2）`ref_limited_write_allowed` 缺 `agent-drafts`**（`pat_scope.rs:307-309`）。**R1 后机制变了**：该函数已缩成对 `route_meta::branch_limited_write_allowed` 的一行转发，白名单不再是一张 `matches!` 表 ⇒ 修法从「往表里加一段」变成「把 `agent-drafts` 的路由声明进注册表（未声明的写路由默认拒）」。与 T21 的三张表耦合，增补时须协调（参考 `["commits"]` 的处置：准入条件由 handler 自查分支，不因 T21 移除）。
+- **R18-5（P2）`branch.deleted` 双发**（§5）。修法：`post_push_hooks` 跳过删除项的分支事件，或 `on_delete` 不再发、统一由 `post_push_hooks` 发（后者要求删除项也进 `ref_updates`，现状已进）。**修的时候要连 R18-8 的「假 `branch.created`」一起修**：只去掉 `on_delete` 那一发，旧值缺失的删除仍会投一条 `created`。属 webhook 语义变更，需拍板。
+- **R18-6（P3）`spawn_post_push_hooks` 是 `pub(crate)`**（`lib.rs:3141`）。若清理任务放在 `rg-core`（设计 §6.1 的 `rg_core::task_supervisor::supervise` + `api::agent_drafts::run_cleanup_loop` 属 `rg-http`，这条不触发；但 S5 若下沉到 core 就会撞同一堵墙，同 R17-7）。
+- **R18-7（P1，补 R18-2）secrets 有两个注入点，且 `external_runners=true` 时内置 runner 那条根本不跑**。①`rg-ci/src/runner.rs:747` 的 `ci_secret_ops::list_by_repo(&self.db, self.repo_id)`（内置 runner）；②`rg-http/src/api/runners.rs:352-356` 在 `poll_job`（`:275`）里把 `decrypted_repo_secrets`（`:787-793`，同一个 `list_by_repo`）直接塞进该 job 的 `variables`；③日志遮蔽在 `:537`（`mask_values`）。而 `rg-ci/src/lib.rs:308` 的 `if !external_runners { spawn_internal_runner(...) }` ⇒ 开了外部 runner 时只改 `runner.rs` 等于没堵，且 secrets 被送到**本进程之外**的机器上。裁决口与 R18-2 同一个（secrets 可见范围），合并登记。
+- **R18-8（P2，修正 §5）删除事件的第二种形态是「假 `branch.created`」**（详见 §5 末段）。两种形态都是两条事件，但第二条的身份不同：客户端报得出旧值 → 两条 `branch.deleted`；旧值为空/全 0（`:<ref>` 简写或老 git 不知道旧值）→ 真 `deleted` + 假 `created`。裁决口与 R18-5 同一个。
+- **R18-9（P3，措辞级但会误导裁决）`allow_host_execution` 与 `job_timeout_secs` 都不是「仓库级」**。前者 `rg-cli/src/main.rs:2280-2284` 从 `[ci].allow_host_execution` 解析、经 `AppState`（`lib.rs:137`/`:232`）到 `:3155`；后者 `main.rs:2349` 从 `[timeouts].job_secs` 解析、`AppState` `lib.rs:148`/`:240`。`grep -rn 'allow_host_execution\|job_timeout_secs' crates/rg-db/src/` = **0** 命中、`entities/repository.rs` 的 `host|docker` = 0 ⇒ 仓库配置这一层不存在。设计 `:232` 与本文件 `:85` 的「仓库开关 / 仓库级 / 仓库配置」措辞已按此订正，裁决点因此从「仓库开关」变为「per-pipeline 参数」。
+- **R18-10（P3，文档账）设计文档的非 `lib.rs` 锚点已随本轮重钉，但 `§2 :36` 之外的历史锚点说明与「基线 `e225293`」这层关系只在本文件 §4.1 写清**：设计文档头部仍只写「2026-11-12 已在 `e225293` 上逐条复核」，读者拿旧 SHA 对不上当前树时容易误判为错号。下次动设计文档时把它改成「行号已按 `45ed54c` 重钉，历史复核仍在 `e225293`」。
 
 ---
 
