@@ -34,6 +34,11 @@ pub struct AuditLogEntry {
     /// For an action by an agent, the person who owns that agent; null for a
     /// person's own action and for rows written before this field existed.
     on_behalf_of_user_id: Option<i64>,
+    /// Who `user_id` is now: person or agent, and an agent's owner. Null when
+    /// the row has no user or the account was deleted. `username` above is the
+    /// name recorded when the row was written; this is the live account.
+    #[schema(value_type = Option<crate::api::actor_ref::ActorRefSchema>)]
+    user_ref: Option<rg_core::agent::ActorRef>,
     action: String,
     resource_type: Option<String>,
     resource_id: Option<i64>,
@@ -146,6 +151,7 @@ pub async fn list_audit_logs(
         AppError::internal("database error")
     })?;
 
+    let actors = super::actor_ref::actor_map(&state, logs.iter().filter_map(|m| m.user_id)).await;
     let logs = logs
         .into_iter()
         .map(|m| AuditLogEntry {
@@ -153,6 +159,7 @@ pub async fn list_audit_logs(
             user_id: m.user_id,
             username: m.username,
             on_behalf_of_user_id: m.on_behalf_of_user_id,
+            user_ref: m.user_id.and_then(|id| actors.get(&id).cloned()),
             action: m.action,
             resource_type: m.resource_type,
             resource_id: m.resource_id,
@@ -307,11 +314,13 @@ pub async fn get_audit_log(
         })?
         .ok_or_else(|| AppError::not_found("audit log not found"))?;
 
+    let actors = super::actor_ref::actor_map(&state, log.user_id).await;
     Ok(Json(AuditLogEntry {
         id: log.id,
         user_id: log.user_id,
         username: log.username,
         on_behalf_of_user_id: log.on_behalf_of_user_id,
+        user_ref: log.user_id.and_then(|id| actors.get(&id).cloned()),
         action: log.action,
         resource_type: log.resource_type,
         resource_id: log.resource_id,

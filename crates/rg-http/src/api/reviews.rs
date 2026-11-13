@@ -279,7 +279,13 @@ pub async fn list_reviews(
     }
 
     match rg_core::review::service::list_reviews(&state.db, &owner, &repo, number).await {
-        Ok(reviews) => (StatusCode::OK, Json(reviews)).into_response(),
+        Ok(reviews) => {
+            // T26: `reviewer_id` is unchanged; `reviewer_ref` says who that is.
+            let reviews =
+                super::actor_ref::annotate(&state, reviews, "reviewer_ref", |r| r.reviewer_id)
+                    .await;
+            (StatusCode::OK, Json(reviews)).into_response()
+        }
         Err(e) => AppError::from(e).into_response(),
     }
 }

@@ -288,6 +288,83 @@ pub async fn accountable_user(db: &DatabaseConnection, user_id: i64) -> CoreResu
     }
 }
 
+// ---------------------------------------------------------------------------
+// T26: who an account is, for API responses (separate block, append-only)
+// ---------------------------------------------------------------------------
+
+/// Who an account in an API response is: a person or an agent, and for an agent
+/// the person behind it. Flat on purpose (no nested owner object), so the type
+/// is not recursive and a client reads one level.
+///
+/// `owner_id` / `owner_username` are `null` for a person. For an agent,
+/// `owner_id` is `users.owner_user_id` as stored; `owner_username` is `null`
+/// only when that owner row no longer exists.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct ActorRef {
+    pub id: i64,
+    pub username: String,
+    pub kind: &'static str,
+    pub owner_id: Option<i64>,
+    pub owner_username: Option<String>,
+}
+
+/// The [`ActorRef`] of every id in `ids` that still exists, in two queries at
+/// most (the accounts, then the owners of the agents among them) however many
+/// ids there are. Ids of deleted accounts are absent: callers render `null`.
+pub async fn resolve_actors(
+    db: &DatabaseConnection,
+    ids: impl IntoIterator<Item = i64>,
+) -> CoreResult<std::collections::HashMap<i64, ActorRef>> {
+    let mut wanted: Vec<i64> = ids.into_iter().collect();
+    wanted.sort_unstable();
+    wanted.dedup();
+    if wanted.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+    let users = user_ops::find_by_ids(db, &wanted).await?;
+    let mut owner_ids: Vec<i64> = users
+        .iter()
+        .filter(|user| is_agent(user))
+        .filter_map(|user| user.owner_user_id)
+        .collect();
+    owner_ids.sort_unstable();
+    owner_ids.dedup();
+    let owner_names: std::collections::HashMap<i64, String> = if owner_ids.is_empty() {
+        std::collections::HashMap::new()
+    } else {
+        user_ops::find_by_ids(db, &owner_ids)
+            .await?
+            .into_iter()
+            .map(|owner| (owner.id, owner.username))
+            .collect()
+    };
+    Ok(users
+        .into_iter()
+        .map(|user| {
+            let actor = if is_agent(&user) {
+                ActorRef {
+                    id: user.id,
+                    owner_username: user
+                        .owner_user_id
+                        .and_then(|owner_id| owner_names.get(&owner_id).cloned()),
+                    owner_id: user.owner_user_id,
+                    username: user.username,
+                    kind: KIND_AGENT,
+                }
+            } else {
+                ActorRef {
+                    id: user.id,
+                    username: user.username,
+                    kind: KIND_HUMAN,
+                    owner_id: None,
+                    owner_username: None,
+                }
+            };
+            (actor.id, actor)
+        })
+        .collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -412,5 +489,102 @@ mod commit_identity_tests {
             commit_identity(&human),
             ("alice".to_string(), "alice@example.com".to_string())
         );
+    }
+}
+
+#[cfg(test)]
+mod actor_ref_tests {
+    use super::*;
+
+    async fn memory_db() -> DatabaseConnection {
+        let db = rg_db::connect("sqlite::memory:").await.unwrap();
+        rg_db::run_migrations(&db).await.unwrap();
+        db
+    }
+
+    async fn person(db: &DatabaseConnection, name: &str) -> User {
+        user_ops::create_user(db, name, &format!("{name}@example.com"), "", "")
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_person_resolves_without_an_owner_and_an_agent_with_one() {
+        let db = memory_db().await;
+        let alice = person(&db, "alice").await;
+        let bot = create_agent(&db, alice.id, "bot", None).await.unwrap();
+
+        let refs = resolve_actors(&db, [alice.id, bot.id]).await.unwrap();
+        assert_eq!(
+            refs[&alice.id],
+            ActorRef {
+                id: alice.id,
+                username: "alice".into(),
+                kind: "human",
+                owner_id: None,
+                owner_username: None,
+            }
+        );
+        assert_eq!(
+            refs[&bot.id],
+            ActorRef {
+                id: bot.id,
+                username: "alice-agent-bot".into(),
+                kind: "agent",
+                owner_id: Some(alice.id),
+                owner_username: Some("alice".into()),
+            }
+        );
+        // Flat on the wire: one level, owner as two plain fields.
+        let wire = serde_json::to_value(&refs[&bot.id]).unwrap();
+        assert_eq!(wire["owner_id"], alice.id);
+        assert_eq!(wire["owner_username"], "alice");
+        assert!(wire["owner_username"].is_string());
+    }
+
+    #[tokio::test]
+    async fn unknown_ids_are_absent_and_an_agent_whose_owner_is_gone_keeps_its_owner_id() {
+        let db = memory_db().await;
+        let alice = person(&db, "alice").await;
+        let bot = create_agent(&db, alice.id, "bot", None).await.unwrap();
+        user_ops::delete_by_id(&db, alice.id).await.unwrap();
+
+        let refs = resolve_actors(&db, [bot.id, 987_654]).await.unwrap();
+        assert!(!refs.contains_key(&987_654));
+        assert_eq!(refs[&bot.id].owner_id, Some(alice.id));
+        assert_eq!(refs[&bot.id].owner_username, None);
+        assert!(resolve_actors(&db, []).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn resolving_many_actors_takes_two_queries_not_one_per_actor() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        let mut db = memory_db().await;
+        let mut ids = Vec::new();
+        for owner in ["o1", "o2", "o3"] {
+            let owner = person(&db, owner).await;
+            ids.push(owner.id);
+            for n in 0..10 {
+                ids.push(
+                    create_agent(&db, owner.id, &format!("a{n}"), None)
+                        .await
+                        .unwrap()
+                        .id,
+                );
+            }
+        }
+        // Repeat ids: still deduplicated.
+        ids.extend(ids.clone());
+
+        let queries = Arc::new(AtomicUsize::new(0));
+        let counter = queries.clone();
+        db.set_metric_callback(move |_| {
+            counter.fetch_add(1, Ordering::SeqCst);
+        });
+        let refs = resolve_actors(&db, ids).await.unwrap();
+        assert_eq!(refs.len(), 33);
+        assert_eq!(queries.load(Ordering::SeqCst), 2);
     }
 }

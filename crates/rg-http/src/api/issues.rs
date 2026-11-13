@@ -284,6 +284,9 @@ pub struct CommentResponse {
     #[serde(flatten)]
     pub comment: rg_db::entities::issue_comment::Model,
     pub author: Option<String>,
+    /// T26: who wrote it (person or agent, and an agent's owner). `null` when
+    /// the account no longer exists. Additive: `author` is unchanged.
+    pub author_ref: Option<rg_core::agent::ActorRef>,
 }
 
 // ── Issue handlers ──────────────────────────────────────────────────────
@@ -1207,7 +1210,15 @@ async fn comment_with_author(
 ) -> CommentResponse {
     let mut cache = HashMap::new();
     let author = author_name(db, &mut cache, comment.author_id).await;
-    CommentResponse { comment, author }
+    let author_ref = rg_core::agent::resolve_actors(db, [comment.author_id])
+        .await
+        .ok()
+        .and_then(|mut map| map.remove(&comment.author_id));
+    CommentResponse {
+        comment,
+        author,
+        author_ref,
+    }
 }
 
 async fn comments_with_authors(
@@ -1215,10 +1226,19 @@ async fn comments_with_authors(
     comments: Vec<rg_db::entities::issue_comment::Model>,
 ) -> Vec<CommentResponse> {
     let mut cache = HashMap::new();
+    // T26: one batch for the whole list (a failed lookup renders `null`).
+    let actors = rg_core::agent::resolve_actors(db, comments.iter().map(|c| c.author_id))
+        .await
+        .unwrap_or_default();
     let mut responses = Vec::with_capacity(comments.len());
     for comment in comments {
         let author = author_name(db, &mut cache, comment.author_id).await;
-        responses.push(CommentResponse { comment, author });
+        let author_ref = actors.get(&comment.author_id).cloned();
+        responses.push(CommentResponse {
+            comment,
+            author,
+            author_ref,
+        });
     }
     responses
 }

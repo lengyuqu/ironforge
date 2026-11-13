@@ -531,3 +531,18 @@ pub async fn update_agent(
         .await?
         .ok_or_else(|| anyhow::anyhow!("agent {} not found", agent_id))
 }
+
+/// Users by id, in one query per 500 ids (no N+1 for a page of rows). Ids that
+/// do not exist are simply absent from the result.
+pub async fn find_by_ids(db: &DatabaseConnection, ids: &[i64]) -> Result<Vec<User>> {
+    let mut found = Vec::with_capacity(ids.len());
+    for chunk in ids.chunks(500) {
+        let mut rows = UserEntity::find()
+            .filter(user::Column::Id.is_in(chunk.iter().copied()))
+            .all(db)
+            .await
+            .context("db: find users by ids")?;
+        found.append(&mut rows);
+    }
+    Ok(found)
+}

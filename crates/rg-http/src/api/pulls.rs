@@ -190,11 +190,16 @@ pub async fn list_prs(
     )
     .await
     {
-        Ok((data, total)) => (
-            StatusCode::OK,
-            Json(PaginatedResponse::new(data, &pagination, total as u64)),
-        )
-            .into_response(),
+        Ok((data, total)) => {
+            // T26: one batch lookup for the whole page; `author_id` is unchanged.
+            let data =
+                super::actor_ref::annotate(&state, data, "author_ref", |pr| pr.author_id).await;
+            (
+                StatusCode::OK,
+                Json(PaginatedResponse::new(data, &pagination, total as u64)),
+            )
+                .into_response()
+        }
         Err(e) => AppError::from(e).into_response(),
     }
 }
@@ -243,6 +248,10 @@ pub async fn get_pr(
                     }
                 }
             }
+            // T26: who opened it (person or agent, and for an agent its owner).
+            // New key: `author` is already a string on the client's type.
+            let actors = super::actor_ref::actor_map(&state, [pr.author_id]).await;
+            body["author_ref"] = serde_json::json!(actors.get(&pr.author_id));
             (StatusCode::OK, Json(body)).into_response()
         }
         Err(e) => AppError::from(e).into_response(),
