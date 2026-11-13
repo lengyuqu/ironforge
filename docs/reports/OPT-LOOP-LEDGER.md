@@ -2040,7 +2040,7 @@ protocol=v0.11
 - **选靶依据**：17 条 open 全 MANUAL，`priority` 全空（任务书的优先键失效，按协议 §5.2.1 用「消费次数 asc, 编号 asc」）。平台侧 `^## 本轮收尾` 计数：`#14`=3、`#15`=1、`#16`=1、`#33`=1，其余（`#17`/`#18`/`#19`/`#34`–`#43`）**0** ⇒ 零消费里编号最小的 **#17**。`pulls list-pulls --state open` = **0 条**（`#16`/`#18` 曾有的 PR #23/#20 已不在），无「已开工」冲突。`#17` 的 `comment_count` = 1（NPC 细化方案 `2120150507300745216`，15403 字符），不需要首扫请求。
 - **形态**：靶子是**设计题**（`GET …/merge-readiness` + `POST …/update-branch` + 冲突区块）⇒ 本体是 L2（新端点、OpenAPI、权限语义），本轮产出 = 核实现状 + 订正文档/一处注释 + 登记 L2，**零代码行为改动**。
 - **BASE** `ae11e36`（`HEAD...cnb/main` = `0 0`，零漂移）。改前 `scripts/check.sh --quick` **117 s EXIT=0**（`==> checks passed in 117s (quick)`）。
-- **判定分布**：NPC 33 条现状断言 = **成立 20 / 部分成立 10 / 不成立 3**，另 1 条术语订正（`consistency: "live"` 应为既有词表 `per_section_live_read`）。
+- **判定分布**：NPC 33 条现状断言 = **成立 20 / 部分成立 10 / 不成立 3**，另 1 条术语订正（`consistency: "live"` 应为既有词表 `per_section_live_read`）。**第 2 次进入轮翻案后：成立 21 / 部分成立 10 / 不成立 2**（N19 改判成立，见本节 N19 行与第 2 次进入轮小节）。
 
 判定表（只列关键 7 条，全表见 `ironforge-docs/architecture/merge-readiness-current-state-2026-11.md` §2）：
 
@@ -2052,15 +2052,15 @@ protocol=v0.11
 | N13 | `content_merge()` / `Resolution::Conflict`；括注「`CompleteWithAutoResolvedConflict` 是有 marker 但已自解」 | **部分成立** | API 名与返回值对（`gix-merge-0.23.0/src/tree/mod.rs:297`/`:420`）；括注**错**：该变体原文是 "complete and **free of conflict markers**"（`src/blob/mod.rs:22-25`），带 marker 的只有 `Conflict` |
 | N14 | `ResolutionFailure` 变体直接映射 `kind`，列 5 个 | **部分成立** | enum 共 **11** 个变体（`src/tree/mod.rs:367-413`），它只覆盖 5；且它 §2 的 `kind` 七值里 `mode`、`add_add` **无任何变体产出**（模式冲突并入 `type_mismatch` 族），`unsupported` 只由 `Unknown` 产出 |
 | N15 | 区块用「冲突时写进对象库的 marker blob」，不重新 diff | **成立** | gix-merge 树合并通过 `write_blob_to_odb` 落库（`src/tree/function/resolve.rs:35`、`:77`）。**这条按常识猜会判错**：`tree::Outcome` 的文档写「unwritten」（指**树**），blob 是写了的 |
-| N19 | `blob > 1 MiB` 的阈值「和 blame 的阈值一致」 | **不成立** | 本仓 blame（`rg-git/src/blame.rs`）无任何 size 上限常量；全仓 `1024 * 1024` 命中只有 issue 模板 / 附件 / 幂等缓存 / HTTP body limit |
+| N19 | `blob > 1 MiB` 的阈值「和 blame 的阈值一致」 | **成立（第 2 次进入轮翻案；原判不成立是我方漏读）** | `crates/rg-git/src/blame.rs:16` = `pub const MAX_BLAME_BYTES: usize = 1024 * 1024;`、`:90` = `if blob.data.len() > MAX_BLAME_BYTES {`（`:91-94` 返 `TooLarge`）、`:14-15` 文档自述 "Files larger than this are refused"。两棵树（`0a9a7dd` / `649a814`）`git grep -n '1024 \* 1024' -- crates/` 都是 **20** 行，`blame.rs:16` 在其中 |
 
 - **最贵的一条错**：N8 + N9 合并看，`require_status_check=true` 在「`required_status_checks` 为 null」与「JSON 坏了」两种配置下**都是放行**。它只报了后一种，且把前一种说成「只要求整体 success」——按它的说法去实现 readiness，会把一个「根本不查」的仓报成「查了但不全」，agent 侧会以为 CI 门在生效。
 - **发现的结构性冲突（本仓首次记）**：同一功能有**两份互相冲突的设计**——`ironforge-docs/architecture/agent-principals-design-and-roadmap-2026-11.md` §R5 用 `GET …/mergeability` + `{path,hunks}`/`{rule,ok,code}`/`{pending,failed}`，issue #17 用 `GET …/merge-readiness` + 机器码 + blocks。两者都未实现，但文档已经把两个端点名写死 ⇒ 谁先实现另一个就成死文档（R17-2）。
 - **改动（本流程在 WT 内 commit）**：新建 `ironforge-docs/architecture/merge-readiness-current-state-2026-11.md`（核实报告，33 条逐条 + 11 变体映射 + 端点冲突 + R17-1…R17-7）；`rg-core/src/branch_protection/service.rs:426` 文档行 1→1 改写（写明 null/坏 JSON 的 fail open，**零行号漂移**，文件仍 657 行）；`agent-principals-design-and-roadmap-2026-11.md:510` 1→1 订正行号（`:549`→`:550`、`:627-629`→`:628-629`、`:350`→`:351`）并指向 §6 裁决（文件仍 668 行）；`ironforge-docs/README.md` 索引 +1 行。
 - **新 L2（待拍板）**：**R17-1**（P1，`required_status_checks` 的两个静默放行口：readiness 报 `UNKNOWN` + 合并改 fail closed 会改变既有仓库合并行为）；**R17-2**（P1，端点/字段以哪份文档为准）；**R17-3**（P2，readiness 审批结论必须复用 `count_current_human_approvals`，否则与 `pulls.rs:574`/`service.rs:1115`/`merge_queue.rs:267` 三处漂移）；**R17-4**（P2，`kind` 补到 9 值 + `mode` 另读 `entries()`）；**R17-5**（P2，新增 `update_ref_if`，`PreviousValue::ExistingMustMatch`；`delete_ref_if:132` 用的是 `MustExistAndMatch`，不能直接抄）；**R17-6**（P2，fork PR 的 `update-branch` 要往他人仓库分支写，写权归属未定义）；**R17-7**（P3，`spawn_post_push_hooks` 是 `pub(crate)`（`rg-http/src/lib.rs:3202`），`update_branch` 若落 core 则 CI/webhook 静默不发）。
-- **反向清单 66–68**（三条不成立，见下）；清单累计 **1..68**。
+- **反向清单 66–68**（三条不成立，见下）；清单累计 **1..68**。**其中 67 已于第 2 次进入轮作废（翻案为成立），实际仍有效的是 66 / 68；编号不回收、不重排。**
 66. 「`require_status_check=true` 但 `required_status_checks` 为 null 时只要求整体 success」（issue #17 方案 §3 机器码表 + §九-1 两处）—— **不成立**：`branch_protection/service.rs:467-469` 三层层进，null 直接跳过、**不做任何判定**。真值是「两个静默放行口」：null 与坏 JSON。**已按现树核实，勿再以「整体 success」为前提做推论。**
-67. 「`blob > 1 MiB` 的 content 阈值和 blame 的阈值一致」（§四 上限段）—— **不成立**：本仓 blame（`rg-git/src/blame.rs`）无任何 size 上限；`1024 * 1024` 在本仓的命中全部属 issue 模板（`issue_template.rs:8`）、附件（`attachment.rs:12-13`）、幂等缓存（`idempotency.rs:45`/`:48`）、HTTP body limit（`lib.rs:528`/`:619`/`:823`）。阈值本身可自定，但不能称「与 blame 一致」。
+67. 「`blob > 1 MiB` 的 content 阈值和 blame 的阈值一致」（§四 上限段）—— **本条已作废（第 2 次进入轮翻案为成立）**：`crates/rg-git/src/blame.rs:16` 就是 `pub const MAX_BLAME_BYTES: usize = 1024 * 1024;`，`:90` 真在用它拒文件。原文「无任何 size 上限 / `1024 * 1024` 命中全在 issue 模板·附件·幂等缓存·HTTP body limit」两句都错——`git grep -n '1024 \* 1024' -- crates/` 得 **20** 行，`blame.rs:16` 是第一屏就有的那行。**勿再以本条为前提做推论。**
 68. 「不登记 capability 注册表的话，`collab_contract_tests` 的防漂移测试会要求登记」（§七「不要碰的」段）—— **不成立**：`rg-http/tests/collab_contract_tests.rs:47-85` 的 `registered_collab_routes()` 在 `:79` 明确 `if !path.contains("collaboration") { continue; }`，新 pull 路由根本不在采集范围。结论（别塞进协作能力表）仍对，**理由错**。
 - **可复用判据（下轮直接用）**：① 判「某判定是否 fail open」不能只看有没有 `if let Ok`——要数**从字段到判定一共几层 `if`**，每一层 `Option`/`Result` 都是一次静默放行；本轮就是靠这个抓出 N8。② 判「gix 的合并产物是否落库」别信 `Outcome` 的 "unwritten"（那只说**树**），去搜 `write_blob_to_odb` 回调（`tree/function/resolve.rs:35`）。③ 判「契约测试会不会强制登记」得读它的**采集过滤器**，不能只看测试名（`collab_contract_tests.rs:79`）。
 - **回填**：改动 SHA 与回帖 id 见本节末「改动 SHA / 回帖（回填）」。issue #17 **保持 open**（单发轮不 close）。**第二段**：`[opt-round]` open = **0** ⇒ 无对象（非「队列为空」——手工队列仍剩 15 条）。
@@ -2477,3 +2477,64 @@ protocol=v0.13
 106. 「`webhook_ops.rs:44` = `Column::Events.contains(event)`、`:43` = `Active.eq(true)`」（同上 §4 表格打 ✅；**本文上一版同错**）—— **不成立（双方同错）**：真值 `:42` = `.filter(Column::Active.eq(true))`、`:43` = `.filter(Column::Events.contains(event))`、`:44` = `.all(db)`；`8d107d8` 与 `6396b65` 两棵树逐行相同（`git diff` 空）。**原始分析里的 `:43` 本来就是对的，是我上一版改错了。**
 
 **改动 SHA / 回帖（回填）**：`e65395b`（2 文件 `55+/16−`；`crates/` 零行 ⇒ 源码 `path:line` 零漂移）。推 `cnb` 单 remote：`6396b65..e65395b HEAD -> main`；`merge-base --is-ancestor HEAD cnb/main` 通过，主工作区 `merge --ff-only`、`status --porcelain` 0 行。**改后验证**（executor 本机 `Darwin arm64` / `cargo 1.99.1`）：`scripts/check.sh --quick` `EXIT=0` **1 s**（``Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.24s`` / `==> checks passed in 1s (quick)`）。**复算环境无 `cargo` 时不可验。** **回帖** `2121043581786841088`（`2026-11-13T00:52:51Z`）；回读首行 `## 本轮收尾`、次行 `protocol=v0.13 · prompt=ironforge-consumer-v4`、末段独立 `@CodeBuddy`、反向 104–106 独立成行；该 issue 的 `## 本轮收尾` 计数 **1 → 2**，无重复投递。issue **保持 open**（本体是 R15-1…R15-9 的 L2 决策）。
+
+### 单发轮 · issue #17 · 2026-11-13（第 2 次进入：消费它钉 `0a9a7dd` 的复核；唯一实质反对成立 —— N19 翻案）
+
+protocol=v0.13
+
+- **选靶**：11 条 open **全 MANUAL**（`[opt-round]` = 0 ⇒ 第二段无对象，连续第 6 次）。`#14`（`23:43:25Z`）/`#15`（`00:52:51Z`）/`#19`（`04:20:16Z`）/`#38`（`21:28:39Z`）/`#48`（`20:19:41Z`）最新评论是我方 `## 本轮收尾` ⇒ 等待复核，跳过；`#39`–`#41` `comment_count=0`；`#17`/`#18`/`#37` 最新评论是**未消费的 NPC 复核**。`priority` 只有 `#48`=P2（它正等待）⇒ 其余全空，按「priority 空 → 编号最小」取 **#17**。
+- **输入**：`2120698622797856768`（`2026-11-12T02:02:07Z`），它自报钉 `0a9a7dd`。我方上一条收尾 `2120698283860324352`（`02:00:46Z`）在其前 **1 分 21 秒** ⇒ 未消费。
+- **判定分布**：26 条 = **成立 23 / 部分成立 3 / 不成立 0**；另**我方自查真错 3 处**（S1–S3）、未修 1 处（S4）、漂移登记 1 处（S5）。
+- **BASE** `649a814`（`HEAD` = `cnb/main` = `ls-remote` tip，`status --porcelain` 0 行）。改前 `scripts/check.sh --quick` **109 s `EXIT=0`**（``Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 47s`` / `==> checks passed in 109s (quick)`）——WT 内首次编译口径。
+- **合流判定（协议第 8 步 A 支）**：复核目标 `0a9a7dd` **已是 `cnb/main` 祖先**（`merge-base --is-ancestor` 退出 0），main 在它之后又走了 5 个文档提交（`e65395b`/`6396b65`/…/`649a814`）⇒ **不推旧提交**，在当前 `cnb/main` 上独立核验后另提新 commit。
+
+判定表（26 条，按它的小节；`path:line` 未标「基线」者为现状值）：
+
+| # | 它说的 | 判定 | 证据 |
+|---|---|---|---|
+| A1 | `service.rs:426` 那句 fail-open 描述准确、不用改；`:467-469` 三层 `if` 包住全部判定，三层之外只有 `:538 Ok(())`；`Err` 分支无日志（`:534-535` 是两个闭括号） | **成立** | 逐行打印全中：`:426` 就是我方上一轮写的注释行、`:467 if protection.require_status_check`、`:468 if let Some(checks_json)`、`:469 if let Ok(...)`、`:534`/`:535` 两个 `}`、`:538 Ok(())` |
+| A2 | 精度补丁：`required_status_checks` 解析成功但 `head_sha` 为空时 `:477-484` 会 `forbidden("no CI pipeline found")` | **成立** | `:477` `let head_sha = match pr.and_then(\|p\| p.head_sha)`、`:480-483` `return Err(CoreError::forbidden(format!("branch '{}' requires status checks but no CI pipeline found for PR {}", …)))`。全文比它引的多几个词，结论一致 |
+| A3 | `grep -rn 'ResolutionFailure' crates/` = 0 命中，所以 §3 它核不了 | **成立** | `grep -rn 'ResolutionFailure' crates/ \| wc -l` = **0**；该符号只活在文档与 `~/.cargo/registry/.../gix-merge-0.23.0` |
+| A4 | `add_add` 的产出来源整篇没交代（`mode` 已有半句） | **成立** | 原文只写「add/add 无独立变体」，没写它从哪来。本轮已补：普通 add/add 走 `Resolution::Conflict`（base 位 `None`），两个 `AddAdd` 变体分别被限定在子模块（`tree/mod.rs:371-373`）与类型冲突（`:397-403`） |
+| A5 | `per_section_live_read`（`ai_pr_context.rs:387`）是 `/context` 的 `consistency` 字段值，拿它当端点命名判据是把两个词表硬接 | **成立（我方真错）** | `ai_pr_context.rs:386-387`：`:386` 是 `not_evaluated`、`:387` 是 `"consistency": "per_section_live_read"`。我方上一轮回帖第 85 行确实写「请就『与 `/context` 既有词表 `per_section_live_read` 一致』这个口径给出你的选择」⇒ 判据本身站不住，已在台账自曝 |
+| A6 | 端点应按**载荷结构**选 `/merge-readiness`（`mergeability` 是 bool 味名词，承载不了 gates+机器码+actions） | **成立（建议）** | 纯设计论证，无可核实对象；与本文档 §6「两者都未实现可自由选、但不能都写进文档」同向 |
+| A7 | 若选 `/merge-readiness`，`agent-principals-design-and-roadmap-2026-11.md` §R5 的 `/mergeability` 必须一起改或标废弃 | **部分成立** | 该段末尾（`:518`）**已**写明「端点与字段以本文件 §6 的裁决为准（本段的 `/mergeability` 与之冲突）」，但紧接着的 `:520` 仍写 `**方案**：`GET /repos/{o}/{r}/pulls/{n}/mergeability`` ⇒ 有标注、无废弃。已写进 R17-2 验收条件 |
+| A8 | R17-1 应拆成 a（可观测性）/ b（fail closed），直接 fail closed 会拒掉一批现在能合的仓库 | **成立** | 拆法合理且与我方 §4 第 2 条同向；已落成 R17-1a / R17-1b 两行 |
+| A9 | 第一步是在 `:534-535` 两个闭括号前各加一条 `tracing::warn!`，零行为改动 | **成立** | 位置精确（`:534`/`:535` 是三层 `if` 的两个收尾 `}`），且 rg-core 已依赖 `tracing` |
+| A10 | N21 的 `spawn_blocking` 真实行号是 `:415` 与 `:463`，`:441` 落在 `finish_entry` 的 match 分支 | **成立** | `merge_queue.rs:415 tokio::task::spawn_blocking(move \|\| {`、`:463 let group_sha = tokio::task::spawn_blocking({`、`:441 "merge-group pipeline #{} is {}",` |
+| A11 | 文件真路径是 `crates/rg-core/src/pull_request/merge_queue.rs`，读者照 `merge_queue.rs` 找不到 | **成立** | 该文件确在 `crates/rg-core/src/pull_request/`；本文档 §1 与 N21 都只写了文件名 |
+| A12 | N27 的 `pat_scope.rs:301` 是 fn、`:299` 是 doc 段 | **成立** | 基线树 `:301 pub fn ref_limited_write_allowed(path: &str) -> bool {`；现状 `:307`（`:305` 是 doc 行） |
+| A13 | N28 那个 `not_evaluated` 是 **4 项**不是 1 项，`webhook`/`ci_trigger`/`notification` 三项要不要跟进文档没写 | **部分成立** | 4 项为真（`pulls.rs:630 = "not_evaluated": ["conflicts", "webhook", "ci_trigger", "notification"],`）；但它说的位置是「§1 表」，实际本文件 §1 没有 `not_evaluated` 行，记录在 §2 的 N28。已补写 4 项口径进 N28 |
+| A14 | N30：`:841` 是注释、`:842` 是 `.route(`、`:843` 才是路径 | **成立** | `:841 // Pull Requests`、`:842 .route(`、`:843 "/repos/{owner}/{name}/pulls",` |
+| A15 | N26：`spawn_post_push_hooks` 在基线 `:3202`、`pub(crate)`；现有 2 个调用点全在 `rg-http`（`repo_content.rs:1382`、`lib.rs:3163`），core 零调用 | **成立（行号均按 `0a9a7dd` 命中；现状漂移见 S5）** | 基线 `:3202 pub(crate) fn spawn_post_push_hooks(`、`:3163 spawn_post_push_hooks(&state, &owner, &repo, repo_path.clone(), ref_updates);`、`api/repo_content.rs:1382 crate::spawn_post_push_hooks(state, owner, repo, repo_path, vec![update]);`；`grep -rn spawn_post_push_hooks crates/` 现状 4 命中 = 1 定义 + 1 调用（`lib.rs:3095`）+ 1 调用（`repo_content.rs:1384`）+ 1 处 `crate::` 前缀同一条 |
+| A16 | N23：`ops.rs:145`/`:426`/`:1591` 三处 `PreviousValue` | **成立** | `:145 PreviousValue::MustExistAndMatch(...)`、`:426 PreviousValue::ExistingMustMatch(gix::refs::Target::Object(expected_old))`、`:1591 Some(tip) => PreviousValue::ExistingMustMatch(...)` |
+| A17 | **必须反对的一条**：N19 / §8 第 2 条 —— blame **有** 1 MiB 上限，`MAX_BLAME_BYTES` 在 `blame.rs:16`、`:90` 在用 | **成立（我方真错，已翻案）** | `crates/rg-git/src/blame.rs:16 pub const MAX_BLAME_BYTES: usize = 1024 * 1024;`、`:90 if blob.data.len() > MAX_BLAME_BYTES {`、`:91-94` 返 `TooLarge`、`:14-15` 文档「Files larger than this are refused」。`git show 0a9a7dd:crates/rg-git/src/blame.rs` 逐行相同；`bee3c14`（2026-10-21）引入，早于 `0a9a7dd` ⇒ 不是新代码 |
+| A18 | 连带影响：§2 N19 行、§8 第 2 条、反向清单 67 全要改；33 条分布变 21 / 10 / 2 | **成立** | 三处已改（§8 改「两条」+ 翻案段、反向 67 标作废、分布改 21/10/2）；算术复算 20+1=21、3−1=2 |
+| A19 | 它复跑 `grep '1024 * 1024'` 得 **19** 处命中 | **部分成立** | 真值 **20** 行：`git grep -n '1024 \* 1024' -- crates/` 在 `0a9a7dd` 与 `649a814` 两棵树都是 20。它的结论（第一屏就有 `blame.rs:16`）不受影响 |
+| A20 | N1：`return Err` 在 `:1967-1973`，两个调用点 `:1896`/`:1927` 写成 `_conflicts` | **成立** | `:1896 let (merged_tree_id, _conflicts) =`（`:1897` 才是函数调用）、`:1927` 同形；本文档原写 `:1897`/`:1928` 是调用行，它给的绑定行更准 |
+| A21 | N7：`pr_review_ops.rs:57`、每 reviewer 最后一条 `:63-67`、`commit_id` 双向匹配 `:73-76`、human-only `:84-86` | **部分成立** | `:57 pub async fn count_current_human_approvals(` ✓、`:73-76` match 双向 ✓、`:84-86` 三行 `user::Entity::find()` + `KIND_HUMAN` ✓；但 `:63-67` 少了 `for` 循环的收尾 `}`（真值 `:63-68`） |
+| A22 | N22：`error.rs:266` + `pulls.rs:599-605` 传 `current_sha`/`expected_sha` | **成立** | `:266 pub fn conflict_because(`；`pulls.rs:599-605` 是 `AppError::conflict_because("REF_ADVANCED", true, …, json!({"current_sha":…, "expected_sha":…}), …)` |
+| A23 | N29：`error.rs:170` `CoreError::Conflict(msg) => Self::Conflict(msg)` | **成立** | 逐字命中（`:166` 是 `fn from`、`:167` 是 `match e`） |
+| A24 | N33：合并路径走 `merge_commits`（`service.rs:1963`）、`merge_trees` 只在 `ops.rs:351` 的 rebase 循环里 | **成立** | `:1963 .merge_commits(our_commit, their_commit, labels, options)`；`rg-git/src/ops.rs:351 .merge_trees(` |
+| A25 | N31：`collab_contract_tests.rs:79` 的 `if !path.contains("collaboration") { continue; }` | **成立** | `:79 if !path.contains("collaboration") {`、`:80 continue;` |
+| A26 | 「`check.sh --quick` 含 fmt」：`scripts/check.sh:36-37` 在 `case` 之后、`quick` 分支之前 | **成立** | `:15-27` 是 `case`，`:36 step "cargo fmt --all --check"`、`:37 cargo fmt --all --check`、`:44 if [ "$mode" != "quick" ]` |
+
+**我方自查（S1–S5）**：
+
+| # | 自查项 | 判定 | 处置 |
+|---|---|---|---|
+| S1 | N19 判「不成立」 | **成立（真错）** | 已翻案为成立；`blame.rs:16` 一直在，是我漏读 `grep` 结果。文档 §2 / §8 / 分布三处 + 台账本节 N19 行 + 反向 67 全部就地改 |
+| S2 | N26 括注「`:3190` 是上一个函数的 `}`」 | **成立（真错，基线树即假）** | `git show 0a9a7dd:crates/rg-http/src/lib.rs \| awk 'NR==3190'` = `StatusCode::GATEWAY_TIMEOUT,`（`:3189` 起的元组内）；上一函数真正在 `:3196` 收 `}`、`:3198` 起是 doc。已改为 `:3196` / `:3198`（现状 `:3135` / `:3137`） |
+| S3 | 上一轮回帖第 85 行把 `per_section_live_read` 当端点命名判据 | **成立（真错）** | 同 A5；该口径作废，端点裁决改按载荷结构（A6）与 §6 |
+| S4 | `ironforge-docs/README.md` 索引行仍写「20 成立 / 10 部分 / 3 不成立」 | **成立（未修）** | 本轮改动文件数已到上限（文档 + 台账 = 2），已写进文档 §9「同轮未修」，下轮 L1 订正 |
+| S5 | 锚点漂移：`lib.rs` 4045 → 3992 行、`pat_scope.rs` +6 | **成立（已登记）** | `:3202`→`:3141`、`:3163`→`:3095`、`repo_content.rs:1382`→`:1384`、`pat_scope.rs:301`→`:307`；已写进文档头部「现状漂移」行 |
+
+- **新 L2**：**R17-8**（P3，`pulls.rs:630` 的 `not_evaluated` 共 4 项，readiness 若继承得先定 `webhook`/`ci_trigger`/`notification` 三项要不要跟进——它会决定 readiness 自身 `not_evaluated` 的长度）· **R17-9**（P3，`ironforge-docs/README.md` 索引计数与本文档 §2 分布已分叉，需一次同步，别只改一边）· **R17-1 → R17-1a / R17-1b**（P1，拆成「可观测性」与「行为变更 + 灰度」；`tracing::warn!` 落点 `service.rs:534-535`）· **R17-2 状态更新**（P1，补验收条件：选 `/merge-readiness` 则 §R5 的 `/mergeability` 必须改或标废弃；现状 `:518` 有标注、`:520` 无废弃）。
+- **未做**：未改任何代码（`crates/` **零行**，未动 `Route`、未动合并行为、未动 PAT 拒绝面）；未实测冲突提取（`write_blob_to_odb` 落库结论仍来自 gix 源码，不是跑出来的）；未改 `agent-principals-design-and-roadmap-2026-11.md`（R17-2 的废弃动作属 L2 决策）；未修 S4 那行 README。
+- **反向清单**：**本节无新增**（26 条里 0 条不成立）。累计仍 **1..106**；但 **67 已于本节作废**（翻案为成立），编号不回收、不重排。
+- **复核请求（限定文件）**：`ironforge-docs/architecture/merge-readiness-current-state-2026-11.md` 的头部「现状漂移」行、§2 的 N19/N26/N27/N28 四行、§3 的两段源码取证、§7 的 R17-1a/R17-1b/R17-2/R17-7、§8 的「两条 + 已翻案」段；以及本台账本节与 67 号条目。请特别复算：`crates/rg-git/src/blame.rs:16`/`:90`、`crates/rg-http/src/lib.rs:3141`/`:3135`/`:3095`、`crates/rg-core/src/auth/pat_scope.rs:307`。
+- **验证**：见本节末「改动 SHA / 回帖（回填）」。
+
+**改动 SHA / 回帖（回填）**：见下一条回填提交。
+
+
