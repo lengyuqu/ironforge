@@ -2,9 +2,9 @@
 
 > **对象**：issue #17 的 NPC 细化方案（评论 `2120150507300745216`，`2026-11-10T13:44:06Z`，15403 字符，首行 `## @cnb.biewen(别问) Issue #17 细化方案：合并就绪诊断 + 更新分支`）。
 > **BASE**：`ae11e36`（`cnb/main`，2026-11-12T01:52Z 拉取，`git rev-list --left-right --count HEAD...cnb/main` = `0 0`）。
-> **方法**：每条断言在 BASE 树上用 `awk 'NR==n'` / `sed -n` 打印原文；gix API 断言对照 `~/.cargo/registry/src/rsproxy.cn-*/gix-merge-0.23.0`、`gix-0.84.0` 源码。
+> **方法**：每条断言在 BASE 树上用 `awk 'NR==n'` / `sed -n` 打印原文；gix API 断言对照 `~/.cargo/registry/src/rsproxy.cn-*/gix-merge-0.23.0`、`gix-0.90.0` 源码（第 4 次进入轮订正：`Cargo.lock` 在 `ae11e36` / `0a9a7dd` / HEAD 三棵树都是 `gix 0.90.0`，`gix-merge` 是 `0.23.0`；registry 里另存的 `gix-0.84.0` 目录是 `72d0ce8` 时代的旧快照，勿再引用）。
 > **结论**：方案主体可用（冲突数据确实不用新原语）；**33 条现状断言：成立 21 / 部分成立 10 / 不成立 2**（N19 于第 2 次进入轮翻案改判成立，见 §8 末段）。真正卡住落地的不是代码，是三处**判定语义**（§4）和一处**端点命名冲突**（§6）。
-> **现状漂移（第 2 次进入轮复取，`649a814`）**：本文所有 `path:line` 按 `ae11e36` 树取值。`rg-http/src/lib.rs` 由 4045 行减到 3992 行 ⇒ `spawn_post_push_hooks` 定义 `:3202`→`:3141`、push handler 调用点 `:3163`→`:3095`、`repo_content.rs:1382`→`:1384`；`auth/pat_scope.rs` 的 `ref_limited_write_allowed` `:301`→`:307`（文档行 `:299`→`:305`）。**其余被引文件与 `ae11e36` 逐行相同的说法已于第 3 次进入轮收紧**：两处例外都不由本节改动产生 —— `branch_protection/service.rs:426` 是本流程 `0a9a7dd`（第 1 次进入轮）改的 1 行注释，行号不变、文本已换；`api/repo_commits.rs` 由 `cf6943d`（提交身份特性）改 `5+/2−`，本文未引用。`git diff ae11e36..HEAD --stat` 逐文件可复算。
+> **现状漂移（第 2 次进入轮复取，`649a814`）**：本文所有 `path:line` 按 `ae11e36` 树取值。`rg-http/src/lib.rs` 由 4045 行减到 3992 行 ⇒ `spawn_post_push_hooks` 定义 `:3202`→`:3141`、push handler 调用点 `:3163`→`:3095`、`repo_content.rs:1382`→`:1384`；`auth/pat_scope.rs` 的 `ref_limited_write_allowed` `:301`→`:307`（文档行 `:299`→`:305`）。**其余被引文件与 `ae11e36` 逐行相同的说法已于第 3 次进入轮收紧**：两处例外都不由本节改动产生 —— `branch_protection/service.rs:426` 是本流程 `0a9a7dd`（第 1 次进入轮）改的 1 行注释，行号不变、文本已换；`api/repo_commits.rs` 由 `cf6943d`（提交身份特性）改 `5+/2−`，本文别处未引用它的行号（原写「本文未引用」，而该句本身就在引用它，措辞已订正）。`git diff ae11e36..HEAD --stat` 逐文件可复算。
 
 ---
 
@@ -21,7 +21,7 @@
 | 合并计算 | `service.rs:1943` `gix_merge_commits_to_tree` | 返回 `(tree_id, Vec<gix::merge::tree::Conflict>)`；**有冲突就丢向量换成文本** |
 | 失败响应 | `pulls.rs:678` `MergeError::Core(e) => AppError::from(e)` | 409 `CONFLICT` + message `"merge conflict detected: N files with conflicts"`，**无 `reason` / `retryable` / `hint` / `details`** |
 
-`check_merge_allowed` 的**三个生产调用点**（readiness 若另写一套判定，必然与这三处漂移）：`pulls.rs:574`（合并执行）、`service.rs:1115`（auto-merge 可用性）、`crates/rg-core/src/pull_request/merge_queue.rs:267`（合并队列准入；本文件给全路径 —— 本仓多个 crate 下都有同名 `service.rs`，只写文件名的锚点读者定不到唯一位置）。
+`check_merge_allowed` 的**三个生产调用点**（readiness 若另写一套判定，必然与这三处漂移）：`pulls.rs:574`（合并执行）、`service.rs:1115`（auto-merge 可用性）、`crates/rg-core/src/pull_request/merge_queue.rs:267`（合并队列准入；本文件给全路径 —— 理由是 `crates/rg-core` 一个 crate 内就有 **19** 个同名 `service.rs` 分属不同模块（`git ls-files '*service.rs'` = 19，`cut -d/ -f2 | sort -u` = 1），只写文件名的锚点读者定不到唯一位置；第 4 次进入轮订正：原写「本仓多个 crate 下都有同名 `service.rs`」，实测只跨 1 个 crate）。
 
 **「状态」查两次**：handler 的 `:609` 覆盖 dry-run 与真合并两条路，core 的 `merge_pr_expecting_head`（`service.rs:1321`）再查一次（防止 PR 在 handler 校验后被并发改动）。NPC 把 draft / 状态 / 保护 / `expected_head_sha` 都归到 `pulls::merge_pr` 名下（§2 N3）——**这条是准确的**；`check_merge_allowed` 内部那三类（签名 / 批准数 / CI）才是另一层。
 
@@ -47,9 +47,9 @@
 | N16 | `changes_in_resolution()` 取左右条目 | **成立** | `tree/mod.rs:271` |
 | N17 | `emit_body` 用同一条管线（`InternedInput` + `diff_with_slider_heuristics` + `UnifiedDiff` + `ContextSize::symmetrical(3)`） | **成立** | `gix_patch.rs:305` / `:309` / `:314`（入口 `:285`） |
 | N18 | 复用 `gix_patch::parity_tests` 的 fixture | **成立** | `gix_patch.rs:446` `mod parity_tests`，`:708` 有「fixture 必须出现在参考 diff 里」的断言 |
-| N19 | `blob > 1 MiB` 的 content 阈值「和 blame 的阈值一致」 | **成立（第 2 次进入轮翻案）** | `rg-git/src/blame.rs:16` = `pub const MAX_BLAME_BYTES: usize = 1024 * 1024;`，`:90` = `if blob.data.len() > MAX_BLAME_BYTES {` 真在拒（`:91-94` 返 `TooLarge`），`:14-15` 的文档自述「Files larger than this are refused」。上一版判「不成立」是漏读这一行：`git grep -n '1024 \* 1024'` 在 `0a9a7dd` 与 `649a814` 两棵树都是 **20** 行命中，`blame.rs:16` 就在其中 |
+| N19 | `blob > 1 MiB` 的 content 阈值「和 blame 的阈值一致」 | **成立（第 2 次进入轮翻案）** | `rg-git/src/blame.rs:16` = `pub const MAX_BLAME_BYTES: usize = 1024 * 1024;`，`:90` = `if blob.data.len() > MAX_BLAME_BYTES {` 真在拒（`:91-94` 返 `TooLarge`），`:14-15` 的文档自述「Files larger than this are refused」。上一版判「不成立」是漏读这一行：`git grep -n '1024 \* 1024' -- crates/` 在 `0a9a7dd` 与 `649a814` 两棵树都是 **20** 行命中，`blame.rs:16` 就在其中（第 4 次进入轮补 scope：不带 `-- crates/` 时 `0a9a7dd` 是 **32** 行 / **18** 文件、HEAD 是 **36** 行，「20 行 / 10 文件」只在 `crates/` 口径下成立） |
 | N20 | 二进制判定用 `Operation::SourceOrDestinationIsBinary` | **成立** | `gix_patch.rs:316` |
-| N21 | `crates/rg-core/src/pull_request/merge_queue.rs:441` 已有 `spawn_blocking` 先例 | **部分成立** | 先例在，但行号是 `:415` 与 `:463`；`:441` 落在 `finish_entry` 的 match 分支里 |
+| N21 | `crates/rg-core/src/pull_request/merge_queue.rs:441` 已有 `spawn_blocking` 先例 | **部分成立** | 先例在，但行号是 `:415` 与 `:463`；`:441`（`"merge-group pipeline #{} is {}"`）在 `ensure_merge_group_ci`（fn 头 `:387`）内、`:432` 那个 `match pipeline.status.as_str()` 的分支里 —— `finish_entry` 是 `:120-151`、函数体内 `match` 计数 **0**，它只是 `:435` 在该分支里**被调用**（第 4 次进入轮订正：原写「`:441` 落在 `finish_entry` 的 match 分支里」，两处都错） |
 | N22 | `update-branch` 的 409 复用 `AppError::conflict_because`，`details.current_sha` 已有 | **成立** | `error.rs:266`；`pulls.rs:599-605` 与 `:669-675` 等 5 处已在传 `current_sha`/`expected_sha` |
 | N23 | `rg_git::ops::update_ref` 是 `PreviousValue::Any` 不能直接用；抄 `delete_ref_if` 的写法 | **部分成立** | `ops.rs:98` 确为 `Any`；但 `delete_ref_if`（`:132`）用的是 `MustExistAndMatch`（`:145`），真正同款是 `:426` 与 `:1591` 的 `ExistingMustMatch` |
 | N24 | 存在 `SERVER_COMMIT_NAME` / `SERVER_COMMIT_EMAIL` | **成立** | `service.rs:1857-1858`（`IronForge` / `noreply@ironforge.local`），`commit_as_server` 用它（`:1859`） |

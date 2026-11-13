@@ -2501,7 +2501,7 @@ protocol=v0.13
 | A7 | 若选 `/merge-readiness`，`agent-principals-design-and-roadmap-2026-11.md` §R5 的 `/mergeability` 必须一起改或标废弃 | **部分成立** | 该段末尾（`:518`）**已**写明「端点与字段以本文件 §6 的裁决为准（本段的 `/mergeability` 与之冲突）」，但紧接着的 `:520` 仍写 `**方案**：`GET /repos/{o}/{r}/pulls/{n}/mergeability`` ⇒ 有标注、无废弃。已写进 R17-2 验收条件 |
 | A8 | R17-1 应拆成 a（可观测性）/ b（fail closed），直接 fail closed 会拒掉一批现在能合的仓库 | **成立** | 拆法合理且与我方 §4 第 2 条同向；已落成 R17-1a / R17-1b 两行 |
 | A9 | 第一步是在 `:534-535` 两个闭括号前各加一条 `tracing::warn!`，零行为改动 | **成立** | 位置精确（`:534`/`:535` 是三层 `if` 的两个收尾 `}`），且 rg-core 已依赖 `tracing` |
-| A10 | N21 的 `spawn_blocking` 真实行号是 `:415` 与 `:463`，`:441` 落在 `finish_entry` 的 match 分支 | **成立** | `merge_queue.rs:415 tokio::task::spawn_blocking(move \|\| {`、`:463 let group_sha = tokio::task::spawn_blocking({`、`:441 "merge-group pipeline #{} is {}",` |
+| A10 | N21 的 `spawn_blocking` 真实行号是 `:415` 与 `:463`，`:441` 落在 `finish_entry` 的 match 分支 | **成立（理由句第 4 次进入轮订正）** | `merge_queue.rs:415 tokio::task::spawn_blocking(move \|\| {`、`:463 let group_sha = tokio::task::spawn_blocking({`、`:441 "merge-group pipeline #{} is {}",` 三行全中。**但「落在 `finish_entry` 的 match 分支」是错的**：`:441` 在 `ensure_merge_group_ci`（fn 头 `:387`）内、`:432 match pipeline.status.as_str()` 的分支里；`finish_entry` 是 `:120-151`、体内 `match` 计数 **0**，它只是 `:435` 在该分支里被调用（F2） |
 | A11 | 文件真路径是 `crates/rg-core/src/pull_request/merge_queue.rs`，读者照 `merge_queue.rs` 找不到 | **成立** | 该文件确在 `crates/rg-core/src/pull_request/`；本文档 §1 与 N21 都只写了文件名 |
 | A12 | N27 的 `pat_scope.rs:301` 是 fn、`:299` 是 doc 段 | **成立** | 基线树 `:301 pub fn ref_limited_write_allowed(path: &str) -> bool {`；现状 `:307`（`:305` 是 doc 行） |
 | A13 | N28 那个 `not_evaluated` 是 **4 项**不是 1 项，`webhook`/`ci_trigger`/`notification` 三项要不要跟进文档没写 | **部分成立** | 4 项为真（`pulls.rs:630 = "not_evaluated": ["conflicts", "webhook", "ci_trigger", "notification"],`）；但它说的位置是「§1 表」，实际本文件 §1 没有 `not_evaluated` 行，记录在 §2 的 N28。已补写 4 项口径进 N28 |
@@ -2557,7 +2557,7 @@ protocol=v0.13
 | C2 | `lib.rs:3141` / `:3135` / `:3095` 三处（定义 / 上一函数收 `}` / 调用点） | **成立** | `:3141 pub(crate) fn spawn_post_push_hooks(`、`:3135 }`、`:3095 spawn_post_push_hooks(` |
 | C3 | 基线 `0a9a7dd` 的 `:3202` / `:3196` / `:3163` 逐字命中；`:3190` 确是 `StatusCode::GATEWAY_TIMEOUT,`、`:3189` 是 `(` | **成立** | `git show 0a9a7dd:crates/rg-http/src/lib.rs` 逐行打；S2 的自曝成立 |
 | C4 | `pat_scope.rs:307` 是 fn、`:305` 是 `///`；基线 `:301` / `:299` 同形 | **成立** | 四行全中 |
-| C5 | `git grep -c '1024 \* 1024'` 口径 = **10 个文件**、`-n` 口径 = **20 行**，两棵树同；故 A19 的「真值 20」成立 | **成立** | `git grep -n … \| wc -l` = **20**、`git grep -c … \| wc -l` = **10**，`ae11e36` 亦 20 |
+| C5 | `git grep -c '1024 \* 1024'` 口径 = **10 个文件**、`-n` 口径 = **20 行**，两棵树同；故 A19 的「真值 20」成立 | **成立（第 4 次进入轮补 scope）** | `git grep -n '1024 \* 1024' -- crates/ \| wc -l` = **20**、`-c … -- crates/ \| wc -l` = **10**，`ae11e36` 亦 20。**原写漏了 `-- crates/`**：不带 scope 时 `0a9a7dd` = **32** 行 / **18** 文件、HEAD = **36** 行（F5①） |
 | C6 | `lib.rs` 4045 → 3992、`pat_scope.rs` 661 → 634，漂移行三处映射全对 | **成立** | `git show ae11e36:<path> \| wc -l` 对 `wc -l` 四个数字全中 |
 | S1 | 头部「现状漂移」行五个 `→` 全对（另见 E6） | **成立** | 五处逐一打 |
 | S2 | §2 N19 行（翻案理由 + 四段取证 + 20 行命中） | **成立** | 与 C1/C5 同源 |
@@ -2602,8 +2602,9 @@ protocol=v0.13
 
 ### 审计口径补充（第 3 次进入轮立，R17-10 / R17-11，两条都是本轮自己踩出来的）
 
-8. **判定分布只许由判定表机械复算，不许手写**（R17-10）：写完表跑一次按判定列计数的 `awk`，把输出贴进分布行旁边。本轮 23/3/0 是手写，真值 22/4/0 —— 同一句错还扩散到提交信息与回帖两处。命令模板（已在全台账上实测；先 `sed 's/\\|/ESC/g'` 消掉单元格内的转义竖线，再 `tr -d '*'` 去粗体，最后截断 `（…）` 注记）：
-   `awk -F'|' '/^\| [A-Z][0-9]+ \|/ {print $4}' <file> | sed 's/\\|/ESC/g' | tr -d '*' | sed -E 's/（.*//; s/^ +| +$//g' | sort | uniq -c`
+8. **判定分布只许由判定表机械复算，不许手写**（R17-10）：写完表跑一次按判定列计数的 `awk`，把输出贴进分布行旁边。本轮 23/3/0 是手写，真值 22/4/0 —— 同一句错还扩散到提交信息与回帖两处。命令模板（已在全台账上实测；先 `sed 's/\\|/ESC/g'` 消掉单元格内的转义竖线，再 `tr -d '*'` 去粗体，最后截断 `（…）` 注记）。**第 4 次进入轮订正（F1，P1）：`sed` 必须在 `awk` 之前**——下面是原文（`awk` 先），按字面执行会把带 `\|` 的行切错列（本节 30 行表照抄得 23 成立、`sed` 提前才是 24；全台账 99 vs 100，只差 1 行）：
+   ~~`awk -F'|' '/^\| [A-Z][0-9]+ \|/ {print $4}' <file> | sed 's/\\|/ESC/g' | tr -d '*' | sed -E 's/（.*//; s/^ +| +$//g' | sort | uniq -c`~~
+   `sed 's/\\|/ESC/g' <file> | awk -F'|' '/^\| [A-Z][0-9]+ \|/ {print $4}' | tr -d '*' | sed -E 's/（.*//; s/^ +| +$//g' | sort | uniq -c`
 9. **「判成立」≠「已落稿」**（R17-11）：判定表写「成立」而正文锚点没改，是独立一类错（本轮 E2 / E3 两条）。收尾前对「成立且需改正文」的行逐个 `grep` 回正文，确认**旧行号已消失**；只验「新行号存在」不够。
 
 ### 单发轮 · issue #14 · 2026-11-13（第 12 次进入：消费它钉 `a1f23a5` 的复核；7 处指定核实 5 成立 + 2 处自曝，N1–N3 都是「同一份文件给出两套真值」）
@@ -2657,3 +2658,41 @@ protocol=v0.13
 - **验证**：见本节末「改动 SHA / 回帖（回填）」。
 
 **改动 SHA / 回帖（回填）**：`023ae5b`（2 文件 `66+/16−`；`crates/` 零行 ⇒ 源码 `path:line` 零漂移；本文档仍 **108** 行、台账 2607 → 2657 行）。推 `cnb` 单 remote：`7fda0c7..023ae5b  HEAD -> main`；`merge-base --is-ancestor HEAD cnb/main` 通过，主工作区 `merge --ff-only` 到 `023ae5b`、`status --porcelain` 0 行。**改后验证**（executor 本机 `Darwin arm64` / `cargo 1.99.1`）：`scripts/check.sh --quick` `EXIT=0` **2 s**（``Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.24s`` / `==> checks passed in 2s (quick)`）；改前 **110 s** `EXIT=0`（``Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 48s``）。**复算环境无 `cargo` 时不可验。** 时刻锚 = `git log -1 --format=%aI 023ae5b` = `2026-11-13T12:36:50+08:00`。**回帖** `2121100080353562624`（`2026-11-13T04:37:21Z`，6029 字符）；回读首行 `## 本轮收尾`、次行 `protocol=v0.13 · prompt=ironforge-consumer-v4`、末非空行独立 `@CodeBuddy`、判定表 17 行连续无缺；该 issue 的 `## 本轮收尾` 计数 **5 → 6**，无重复投递。issue **保持 open**（本体是 R14-1…R14-12 的 L2 决策）。
+
+### 单发轮 · issue #17 · 2026-11-13（第 4 次进入：消费它钉 `0279881` 的复核；F1–F5 五条全成立，F1 踩的正是本流程自己写的计数命令）
+
+protocol=v0.13
+
+- **选靶**：11 条 open **全 MANUAL**（`[opt-round]` = 0 ⇒ 第二段无对象，连续第 9 次）。`#48`（`2026-11-12T20:19:41Z`）/`#38`（`21:28:40Z`）/`#19`（`11-12T04:20:16Z`）/`#15`（`11-13T00:52:51Z`）/`#14`（`04:37:22Z`）最新评论是我方 `## 本轮收尾` ⇒ 等待复核，跳过；`#39`–`#41` `comment_count=0`；`#18`/`#37` 也有未消费复核但编号更大。`#17` 现在最新是**未消费 NPC 复核** `2121090129426071552`（`2026-11-13T03:57:49Z`，在我方上一条收尾 `2121082735560171520`（`03:28:26Z`）之后 **29 分钟**）⇒ 编号最小可处理 = **#17**（第 4 次进入）。
+- **输入**：`2121090129426071552`（3622 字符，首行 `@cnb.biewen(别问) 复核 0279881（+ 7fda0c7 回填）。三条指定复算全中；E1–E6 我逐条回打原文…`）。它自报容器 `command -v cargo` = 127、remote 名为 `origin`。它**认领了上轮两处**（「3 条未落稿」数错、`4059a68` 那句自相矛盾），并新增 F1–F5，全部指向**文档/台账自身**而非产品结论。
+- **判定分布**：5 条 = **成立 5**（用订正后的 `sed | awk` 口径机械复算，见下表）。
+- **BASE** `847da3e`（`HEAD` = `cnb/main` = `git log --oneline -1 cnb/main` 同点，`status --porcelain` 0 行）。改前 `scripts/check.sh --quick` **113 s `EXIT=0`**（``Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 51s`` / `==> checks passed in 113s (quick)`）。
+- **合流判定（协议第 8 步 A 支）**：复核目标是 `0279881`，`git merge-base --is-ancestor 0279881 cnb/main` 退出 0（其后 main 只有 `7fda0c7`/`023ae5b`/`847da3e` 三个纯文档/台账提交）⇒ **不推旧提交**，在当前 `cnb/main` 上独立核验后另提新 commit。
+
+判定表（5 条；`path:line` 均指 BASE `847da3e`；文档均指 `ironforge-docs/architecture/merge-readiness-current-state-2026-11.md`）：
+
+| # | 它说的 | 判定 | 证据与处置 |
+|---|---|---|---|
+| F1 | 台账「审计口径」第 8 条文字说「先 `sed`」，紧跟的命令行却把 `sed` 放在 `awk` **之后**；照抄会把带 `\|` 的行切错列，本轮 30 行表得 23 成立、`sed` 提前才是 24 | **成立（P1）** | 原文（审计口径第 8 条的文字行与其下一行命令）逐字如此。实测（第 3 次进入节 `2542-2602`，33 行含 T1–T3）：`awk` 先 = 成立 26 / 部分 3 / 确认 2 / `1 wc -l`= 3 / 1 子命题不成立；`sed` 先 = 成立 27，只差 1 行且正是 E4 那行（`grep -ro \| wc -l`）。去掉 T1–T3 三条 ⇒ **23 vs 24**，与它完全一致。全台账同测：99 vs 100（只差 1 行）。已把模板改成 `sed <file> \| awk …`，原文保留删除线并注明 |
+| F2 | 文档 `:52` 与台账 A10 行写「`:441` 落在 `finish_entry` 的 match 分支」两处都错：`:441` 在 `ensure_merge_group_ci`（fn `:387`）里、`match` 在 `:432`；`finish_entry` 是 `:120-151`、体内 `match` 计数 0，只是 `:435` 被执行 | **成立（P2）** | 逐条打：`grep -n 'fn ensure_merge_group_ci\|fn finish_entry'` = `:387` / `:120`；`awk 'NR>=120&&NR<=152' \| grep -c match` = **0**；`:432 return Ok(match pipeline.status.as_str() {`、`:435 finish_entry(`、`:441 "merge-group pipeline #{} is {}",`。文档 `:52` 与台账 A10 两处均已改，并保留「原写……是错的」订正说明 |
+| F3 | 文档 `:24` 的理由「本仓多个 crate 下都有同名 `service.rs`」不成立：`git ls-files '*service.rs'` = 19，全在一个 crate | **成立（P2）** | `git ls-files '*service.rs' \| wc -l` = **19**；`cut -d/ -f2 \| sort -u` = **1 行 `rg-core`**。`git ls-files '*service.rs'` 无一路径以 `crates/rg-<other>/` 开头。已把理由改成「`crates/rg-core` 一个 crate 内就有 19 个同名 `service.rs` 分属不同模块」 |
+| F4 | 文档 `:5` 写「对照 `gix-0.84.0` 源码」与树的 lock 不符，`Cargo.lock` 是 `gix 0.90.0` | **成立（P3）** | `git show ae11e36:Cargo.lock` / `0a9a7dd:Cargo.lock` / HEAD 三棵树的 `name = "gix"` 下一行都是 `version = "0.90.0"`；`gix-merge` = `0.23.0`（与文档一致）。registry 里确实同时存有 `gix-0.84.0` 目录 ⇒ 是旧快照。已改 `0.90.0` 并注明 0.84.0 勿再引用 |
+| F5 | 两处口径：①`:50` 的 `git grep -n '1024 \* 1024'` 没带 `-- crates/`，无 scope 时 `0a9a7dd` = 32 行 / 18 文件、HEAD = 36 行，「20 行 / 10 文件」只在 `crates/` 口径成立（台账 A19 写了 scope、C5 与文档 `:50` 没写）；②`:7` 的「本文未引用」自身就在引用该文件 | **成立（P3）** | ①`git grep -n '1024 \* 1024' 0a9a7dd \| wc -l` = **32**、`-c … \| wc -l` = **18**；同命令 HEAD = **36** / 18；带 `-- crates/` 时 `0a9a7dd` 与 `649a814` 都是 **20**、`-c` 口径 **10**。文档 `:50` 与台账 C5 均已补 scope 与无 scope 真值 ②`:7` 原文确实在句子里点名该文件 ⇒ 改为「本文别处未引用它的行号」 |
+
+**我方自查（T1–T4）**：
+
+| # | 自查项 | 判定 | 处置 |
+|---|---|---|---|
+| T1 | 计数命令写反（F1 同源，是我写的而不是它写的） | **成立（真错，P1）** | 台账「审计口径」第 8 条：模板改 `sed` 前置，原命令留删除线；并写明照抄的偏差量（30 行表 23 vs 24、全台账 99 vs 100） |
+| T2 | 台账 A10 行理由句错（F2 的源头在我方第 3 次进入轮的 A10 判定） | **成立** | 已改，判定列标注「理由句第 4 次进入轮订正」 |
+| T3 | 台账 C5 行漏 scope（与文档 `:50` 同源） | **成立** | 已补 `-- crates/` 与 32/18/36 三个无 scope 真值 |
+| T4 | 第 3 次进入轮「判成立但未落稿」是否又复发（审计口径第 9 条） | **成立（本轮零复发）** | 对 5 条改了正文的项逐个 `grep` 回读：`grep -c '落在 `finish_entry` 的 match 分支'` 文档 = 1、台账 A10 = 1，两处命中**都在「原写……是错的」订正说明里**（引旧文而不再主张）；`grep -c '本仓多个 crate 下都有同名'` = 1 同为订正说明；`grep -c 'gix-0.84.0` 源码'` = **0** |
+
+- **新 L2**：**R17-12**（P3，流程项：**审计口径第 9 条的 `grep` 判据要区分「旧句已消失」与「旧句只活在订正说明里」**——本轮两处命中都是后者，若按「计数必须为 0」机械判会被自己判成没落稿；建议判据改成「`grep -n` 打印后逐行看上下文是否带『原写/是错的/已订正』」）· **R17-9 维持**（P3，`ironforge-docs/README.md:56` 仍写「20 成立 / 10 部分 / 3 不成立」，与 §2 的 21 / 10 / 2 分叉；本轮改动文件数到上限 2，连续第 3 轮未修）。
+- **未做**：未改任何代码（`crates/` **零行**）；未修 `ironforge-docs/README.md:56`（R17-9，文件数上限）；未动 R17-1a/R17-1b/R17-2/R17-8 的 L2 决策；未整表重钉 gix 版本引用（只改方法行的版本字符串，未重核 0.84→0.90 是否影响既有 gix-merge 锚点——`gix-merge` 仍是 `0.23.0`，§2/§3 的锚点在 0.23.0 上有效）。
+- **反向清单**：**本节无新增**（5 条全成立，无产品结论被推翻）。累计仍 **1..106**，索引行 `1..106` 与实体数 `grep -c '^[0-9]\+\. 「'` = **106** 一致。
+- **复核请求（限定文件）**：`ironforge-docs/architecture/merge-readiness-current-state-2026-11.md` 的 `:5`（gix `0.90.0` + 旧快照说明）、`:7`（「本文别处未引用」）、`:24`（19 个 `service.rs` 同 crate）、`:50`（`-- crates/` + 32/18/36）、`:52`（`:441` 在 `ensure_merge_group_ci` / `:432` match / `finish_entry` `:120-151` 且 0 match）；以及本台账「审计口径」第 8 条（命令已 `sed` 前置）、第 3 次进入节判定表的 A10 行与 C5 行（按行标找，本节不写绝对行号）。请特别复算：`awk 'NR>=120&&NR<=152' crates/rg-core/src/pull_request/merge_queue.rs | grep -c match`（应为 0）、`git ls-files '*service.rs' | cut -d/ -f2 | sort -u`（应只有 `crates/rg-core`）、`git grep -n '1024 \* 1024' 0a9a7dd | wc -l`（应为 32）、`grep -A1 '^name = "gix"$' <ae11e36 的 Cargo.lock>`（应为 `0.90.0`）。
+- **验证**：见本节末「改动 SHA / 回帖（回填）」。
+
+**改动 SHA / 回帖（回填）**：待填。
+
