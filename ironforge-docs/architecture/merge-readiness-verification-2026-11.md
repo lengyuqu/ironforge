@@ -55,7 +55,26 @@
 
 ## 命令与结果
 
-（本节在全部命令跑完后填写，见下方「结果」。）
+全部**未经 CI**，本机跑；每条都是在本分支最终代码上（SQLite 全量跑完之后只改过两个测试文件，那两个目标另行重跑，见下）。
+
+| 命令 | 数据库 | 结果 |
+|------|--------|------|
+| `cargo clippy --workspace --all-targets -- -D warnings` | — | 干净（exit 0） |
+| `cargo test -p rg-git` | — | 76 passed / 0 failed / 2 ignored |
+| `cargo test -p rg-core` | SQLite | 282 passed / 0 failed / 6 ignored |
+| `cargo test -p rg-http` | SQLite | 796 passed / 0 failed / 2 ignored |
+| `cargo test -p rg-db` | SQLite | 61 passed / 0 failed / 1 ignored |
+| `cargo test -p rg-http --test merge_readiness_tests --test update_branch_tests`（修测试后重跑） | SQLite | 14 + 11 passed |
+| `scripts/ci-db-tests.sh postgres agent`（PostgreSQL 17，15 个目标，含上面两个新目标与 `pr_context_tests`/`merge_pinned_head_tests`/`auto_merge_pinned_head_tests`） | PostgreSQL 17 | 86 passed / 0 failed |
+| `scripts/ci-db-tests.sh mysql agent`（同 15 个目标） | MySQL 8.4 | 86 passed / 0 failed |
+
+`openapi_registration_tests`、`openapi_docs_auth_tests`、`route_metadata_tests`、`pat_scope_ladder_tests`、`pr_context_tests` 都在上面的全量里并单独跑过。
+
+**第一次跑 PG/MySQL 有 4 个失败，都是我新测试的写法问题，不是产品代码**：`update_branch_tests` 里按动作全局数审计行，在 PG 上同目标的测试共用一个库，被别的测试的行污染（改为按 `resource_name = <owner>/work#1` 过滤）；`merge_readiness_tests` 里同一提交在同一秒建多条流水线，MySQL 秒精度让「最新流水线」并列（CLAUDE.md 踩坑 23，测试里每条流水线之间等 1.1 秒）。修后两库全绿。
+
+**新增 SQL：无。** `pr_review_ops::current_human_approver_ids` 只是把 `count_current_human_approvals` 里原有的两条查询（列评审、筛人类账号）原样挪成返回 id 列表的函数，计数取其长度；`branch_protection/service.rs` 的 `check_merge_allowed` 现在调用 `merge_gates`，读库语句不变。PG/MySQL 仍照上表跑了，是因为合并门控与这两个新端点都经由这些查询。`scripts/ci-db-tests.sh` 的清单已追加 `merge_readiness_tests update_branch_tests`（只追加两个目标名）。
+
+**`merge_pr` 现有行为：无变化。** 错误文本、状态码、校验顺序（草稿→保护→head 已前进→非 open）不变；核心 `merge_pr_expecting_head` 的「非 open→草稿」顺序也不变。证据：上述既有合并目标（`pr_permission_tests`、`merge_pinned_head_tests`、`pr_merge_strategy_tests`、`merge_queue_ci_tests`、`auto_merge_pinned_head_tests`、`branch_protection_contents_tests`）未改一行测试即通过；新增的 `merge_readiness_tests` 逐门控断言「预览的 `detail` == 真实合并的 `error.message`」。唯一被改的既有测试断言是 `pr_context_tests` 对 `/context` 的 `not_evaluated` 文案（任务第 3 项要求）。
 
 ## 没做 / 未决
 
