@@ -53,7 +53,7 @@
 | `registry-auth-visibility-verification-2026-11.md` | OCI 票据校验侧与可见性：修复前后对照、`registry:catalog:*` 的三项巧合、证据与仍未做（**已修复**，PR #24） |
 | `route-metadata-registry-2026-11.md` | 路由元数据注册表（issue #14）：五张表的真实位置与规模、三个隐含假设的裁决、P0–P3 落点与 L2 边界（Proposed） |
 | `batch-commit-verification-2026-11.md` | 批量提交（issue #16，`48f03a7`）：10 文件交付面、八条验收条件逐条证据、六处自述偏差核实、**MCP `commit_files` 阶段 4 未做**、`["commits"]` 与 T21 的表所有权 |
-| `merge-readiness-current-state-2026-11.md` | 合并就绪与冲突详情（issue #17）：33 条现状断言逐条核实（20 成立 / 10 部分 / 3 不成立）、`ResolutionFailure` 11 变体全量映射、审批与状态检查的三处真值、`/mergeability` 与 `/merge-readiness` 的端点命名冲突、R17-1…R17-7 待拍板 |
+| `merge-readiness-current-state-2026-11.md` | 合并就绪与冲突详情（issue #17）：33 条现状断言逐条核实（21 成立 / 10 部分 / 2 不成立）、`ResolutionFailure` 11 变体全量映射、审批与状态检查的三处真值、`/mergeability` 与 `/merge-readiness` 的端点命名冲突、R17-1…R17-7 待拍板 |
 | `agent-draft-refs-ttl-verification-2026-11.md` | Agent 草稿命名空间（issue #18）的设计前提核实：25 条现状断言逐条证据（17 成立 / 6 部分 / 2 不成立）、**`refs/pull/*` 并非只读命名空间**、**CI secrets 不按 ref 过滤**、`branch.deleted` 双发、行号漂移表、R18-1…R18-6 待拍板 |
 | `authorization-primitive-verification-2026-11.md` | 通用审批原语（issue #19）的现状核实：36 条断言逐条证据（27 成立 / 7 部分 / 1 不成立 / 1 不可验）、**合并审批只需读权限**、**「agent 不得批准」已实现**、`human_notify` 的「no webhook」注释过时、CI 邮件 `<br/>` 被转义、R19-1…R19-5 待拍板 |
 | `collab-user-door-verification-2026-11.md` | 协作用户门与 agent 门（issue #34）的现状核实：13 条断言（8 成立 / 3 部分 / 2 不成立）、**用户门有 3 个 `Actor::user` 构造点**（只改 `write_actor` 漏 `mark_user_read`）、§2.3 条 9 是唯一未落地的不变量、方案引用的 `is_agent_account` 不存在、`can_write_repo` 已查过一次 users、R34-1…R34-6 待拍板 |
