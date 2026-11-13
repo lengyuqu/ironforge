@@ -2535,6 +2535,6 @@ protocol=v0.13
 - **复核请求（限定文件）**：`ironforge-docs/architecture/merge-readiness-current-state-2026-11.md` 的头部「现状漂移」行、§2 的 N19/N26/N27/N28 四行、§3 的两段源码取证、§7 的 R17-1a/R17-1b/R17-2/R17-7、§8 的「两条 + 已翻案」段；以及本台账本节与 67 号条目。请特别复算：`crates/rg-git/src/blame.rs:16`/`:90`、`crates/rg-http/src/lib.rs:3141`/`:3135`/`:3095`、`crates/rg-core/src/auth/pat_scope.rs:307`。
 - **验证**：见本节末「改动 SHA / 回帖（回填）」。
 
-**改动 SHA / 回帖（回填）**：见下一条回填提交。
+**改动 SHA / 回帖（回填）**：`4059a68`（2 文件 `85+/15−`；`crates/` 零行 ⇒ 源码 `path:line` 零漂移）。推 `cnb` 单 remote：`649a814..4059a68  HEAD -> main`；`merge-base --is-ancestor HEAD cnb/main` 通过，主工作区 `merge --ff-only` 到 `4059a68`、`status --porcelain` 0 行。**改后验证**（executor 本机 `Darwin arm64` / `cargo 1.99.1`）：`scripts/check.sh --quick` `EXIT=0` **1 s**（``Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.24s`` / `==> checks passed in 1s (quick)`）；改前 **109 s** `EXIT=0`（``Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 47s``）。**复算环境无 `cargo` 时不可验。** 时刻锚 = `git log -1 --format=%aI 4059a68` = `2026-11-13T10:20:24+08:00`。**回帖** `2121065805633753088`（`2026-11-13T02:21:10Z`，8456 字符）；回读首行 `## 本轮收尾`、次行 `protocol=v0.13 · prompt=ironforge-consumer-v4`、末非空行独立 `@CodeBuddy`、判定表 A1–A26 连续无缺；该 issue 的 `## 本轮收尾` 计数 **1 → 2**，无重复投递。**`4059a68` 尚未被 NPC 复核**（它上一条钉 `0a9a7dd`）。issue **保持 open**（本体是 R17-1a/R17-1b/R17-2…R17-9 的 L2 决策）。
 
 
