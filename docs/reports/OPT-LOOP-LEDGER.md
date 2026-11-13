@@ -2484,7 +2484,7 @@ protocol=v0.13
 
 - **选靶**：11 条 open **全 MANUAL**（`[opt-round]` = 0 ⇒ 第二段无对象，连续第 6 次）。`#14`（`23:43:25Z`）/`#15`（`00:52:51Z`）/`#19`（`04:20:16Z`）/`#38`（`21:28:39Z`）/`#48`（`20:19:41Z`）最新评论是我方 `## 本轮收尾` ⇒ 等待复核，跳过；`#39`–`#41` `comment_count=0`；`#17`/`#18`/`#37` 最新评论是**未消费的 NPC 复核**。`priority` 只有 `#48`=P2（它正等待）⇒ 其余全空，按「priority 空 → 编号最小」取 **#17**。
 - **输入**：`2120698622797856768`（`2026-11-12T02:02:07Z`），它自报钉 `0a9a7dd`。我方上一条收尾 `2120698283860324352`（`02:00:46Z`）在其前 **1 分 21 秒** ⇒ 未消费。
-- **判定分布**：26 条 = **成立 23 / 部分成立 3 / 不成立 0**；另**我方自查真错 3 处**（S1–S3）、未修 1 处（S4）、漂移登记 1 处（S5）。
+- **判定分布**：26 条 = **成立 22 / 部分成立 4 / 不成立 0**（**本节原文误记 23 / 3 / 0，已于第 3 次进入轮按表复算订正**：部分成立的四条是 A7 / A13 / A19 / A21）；另**我方自查真错 3 处**（S1–S3）、未修 1 处（S4）、漂移登记 1 处（S5）。
 - **BASE** `649a814`（`HEAD` = `cnb/main` = `ls-remote` tip，`status --porcelain` 0 行）。改前 `scripts/check.sh --quick` **109 s `EXIT=0`**（``Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 47s`` / `==> checks passed in 109s (quick)`）——WT 内首次编译口径。
 - **合流判定（协议第 8 步 A 支）**：复核目标 `0a9a7dd` **已是 `cnb/main` 祖先**（`merge-base --is-ancestor` 退出 0），main 在它之后又走了 5 个文档提交（`e65395b`/`6396b65`/…/`649a814`）⇒ **不推旧提交**，在当前 `cnb/main` 上独立核验后另提新 commit。
 
@@ -2506,7 +2506,7 @@ protocol=v0.13
 | A12 | N27 的 `pat_scope.rs:301` 是 fn、`:299` 是 doc 段 | **成立** | 基线树 `:301 pub fn ref_limited_write_allowed(path: &str) -> bool {`；现状 `:307`（`:305` 是 doc 行） |
 | A13 | N28 那个 `not_evaluated` 是 **4 项**不是 1 项，`webhook`/`ci_trigger`/`notification` 三项要不要跟进文档没写 | **部分成立** | 4 项为真（`pulls.rs:630 = "not_evaluated": ["conflicts", "webhook", "ci_trigger", "notification"],`）；但它说的位置是「§1 表」，实际本文件 §1 没有 `not_evaluated` 行，记录在 §2 的 N28。已补写 4 项口径进 N28 |
 | A14 | N30：`:841` 是注释、`:842` 是 `.route(`、`:843` 才是路径 | **成立** | `:841 // Pull Requests`、`:842 .route(`、`:843 "/repos/{owner}/{name}/pulls",` |
-| A15 | N26：`spawn_post_push_hooks` 在基线 `:3202`、`pub(crate)`；现有 2 个调用点全在 `rg-http`（`repo_content.rs:1382`、`lib.rs:3163`），core 零调用 | **成立（行号均按 `0a9a7dd` 命中；现状漂移见 S5）** | 基线 `:3202 pub(crate) fn spawn_post_push_hooks(`、`:3163 spawn_post_push_hooks(&state, &owner, &repo, repo_path.clone(), ref_updates);`、`api/repo_content.rs:1382 crate::spawn_post_push_hooks(state, owner, repo, repo_path, vec![update]);`；`grep -rn spawn_post_push_hooks crates/` 现状 4 命中 = 1 定义 + 1 调用（`lib.rs:3095`）+ 1 调用（`repo_content.rs:1384`）+ 1 处 `crate::` 前缀同一条 |
+| A15 | N26：`spawn_post_push_hooks` 在基线 `:3202`、`pub(crate)`；现有 2 个调用点全在 `rg-http`（`repo_content.rs:1382`、`lib.rs:3163`），core 零调用 | **成立（行号均按 `0a9a7dd` 命中；现状漂移见 S5）** | 基线 `:3202 pub(crate) fn spawn_post_push_hooks(`、`:3163 spawn_post_push_hooks(&state, &owner, &repo, repo_path.clone(), ref_updates);`、`api/repo_content.rs:1382 crate::spawn_post_push_hooks(state, owner, repo, repo_path, vec![update]);`；`grep -rn spawn_post_push_hooks crates/` 现状 **3** 命中 = 1 定义（`:3141`）+ 1 调用（`:3095`）+ 1 调用（`repo_content.rs:1384`，该行行首就是 `crate::` 前缀，**不是第四条**；原文记「4 命中」是重复计一次） |
 | A16 | N23：`ops.rs:145`/`:426`/`:1591` 三处 `PreviousValue` | **成立** | `:145 PreviousValue::MustExistAndMatch(...)`、`:426 PreviousValue::ExistingMustMatch(gix::refs::Target::Object(expected_old))`、`:1591 Some(tip) => PreviousValue::ExistingMustMatch(...)` |
 | A17 | **必须反对的一条**：N19 / §8 第 2 条 —— blame **有** 1 MiB 上限，`MAX_BLAME_BYTES` 在 `blame.rs:16`、`:90` 在用 | **成立（我方真错，已翻案）** | `crates/rg-git/src/blame.rs:16 pub const MAX_BLAME_BYTES: usize = 1024 * 1024;`、`:90 if blob.data.len() > MAX_BLAME_BYTES {`、`:91-94` 返 `TooLarge`、`:14-15` 文档「Files larger than this are refused」。`git show 0a9a7dd:crates/rg-git/src/blame.rs` 逐行相同；`bee3c14`（2026-10-21）引入，早于 `0a9a7dd` ⇒ 不是新代码 |
 | A18 | 连带影响：§2 N19 行、§8 第 2 条、反向清单 67 全要改；33 条分布变 21 / 10 / 2 | **成立** | 三处已改（§8 改「两条」+ 翻案段、反向 67 标作废、分布改 21/10/2）；算术复算 20+1=21、3−1=2 |
@@ -2538,3 +2538,70 @@ protocol=v0.13
 **改动 SHA / 回帖（回填）**：`4059a68`（2 文件 `85+/15−`；`crates/` 零行 ⇒ 源码 `path:line` 零漂移）。推 `cnb` 单 remote：`649a814..4059a68  HEAD -> main`；`merge-base --is-ancestor HEAD cnb/main` 通过，主工作区 `merge --ff-only` 到 `4059a68`、`status --porcelain` 0 行。**改后验证**（executor 本机 `Darwin arm64` / `cargo 1.99.1`）：`scripts/check.sh --quick` `EXIT=0` **1 s**（``Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.24s`` / `==> checks passed in 1s (quick)`）；改前 **109 s** `EXIT=0`（``Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 47s``）。**复算环境无 `cargo` 时不可验。** 时刻锚 = `git log -1 --format=%aI 4059a68` = `2026-11-13T10:20:24+08:00`。**回帖** `2121065805633753088`（`2026-11-13T02:21:10Z`，8456 字符）；回读首行 `## 本轮收尾`、次行 `protocol=v0.13 · prompt=ironforge-consumer-v4`、末非空行独立 `@CodeBuddy`、判定表 A1–A26 连续无缺；该 issue 的 `## 本轮收尾` 计数 **1 → 2**，无重复投递。**`4059a68` 尚未被 NPC 复核**（它上一条钉 `0a9a7dd`）。issue **保持 open**（本体是 R17-1a/R17-1b/R17-2…R17-9 的 L2 决策）。
 
 
+
+### 单发轮 · issue #17 · 2026-11-13（第 3 次进入：消费它钉 `4059a68` 的复核；E1 —— 我的判定分布与自己的表不符，同一句错在三处）
+
+protocol=v0.13
+
+- **选靶**：11 条 open **仍全 MANUAL**（`[opt-round]` = 0 ⇒ 第二段无对象，连续第 7 次）。`#14`（`23:43:25Z`）/`#15`（`00:52:51Z`）/`#19`（`04:20:16Z`）/`#38`（`21:28:39Z`）/`#48`（`20:19:41Z`）最新评论是我方 `## 本轮收尾` ⇒ 等待复核，跳过；`#39`–`#41` `comment_count=0`。有**未消费 NPC 复核**的是 `#17`（`02:38:24Z`，就在我方收尾后 17 分钟）/`#18`（`11-12T04:15:52Z`）/`#37`（`11-12T10:24:43Z`）。`priority` 只有 `#48`=P2（正等待）⇒ 其余全空，按「priority 空 → 编号最小」取 **#17**。
+- **输入**：`2121070144716746752`（`2026-11-13T02:38:24Z`，4257 字符，首行 `@cnb.biewen(别问) 复核 `4059a68``）。它自报**本机无 toolchain**、`check.sh --quick` 的读数「只记录、无法复现」。
+- **判定分布**：**30 条 = 成立 24 / 部分成立 3 / 子命题不成立 1 / 确认 2**（表行 C1–C6 / S1–S13 / E1–E6 / D1–D5 机械计数，见下）；另**我方真错 1 类 3 处**（E1）＋**判成立但没落稿 2 条**（E2 / E3）＋小订正 3 处（E4–E6）。
+- **BASE** `35bbb4f`（`HEAD` = `cnb/main` = `ls-remote` tip，`status --porcelain` 0 行；它是 `4059a68` 的回填提交，`4059a68..35bbb4f` 只动台账）。改前 `scripts/check.sh --quick` **88 s `EXIT=0`**（``Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 26s`` / `==> checks passed in 88s (quick)`）—— WT 内首次编译口径。
+- **合流判定（协议第 8 步 A 支）**：复核目标 `4059a68` 已是 `cnb/main` 祖先（`merge-base --is-ancestor` 退出 0），main 在其后只有 `35bbb4f` 一个回填提交 ⇒ 不推旧提交，在当前 `cnb/main` 上独立核验后另提新 commit。
+
+判定表（30 条；`path:line` 未标「基线」者为现状值）：
+
+| # | 它说的 | 判定 | 证据 |
+|---|---|---|---|
+| C1 | `blame.rs:16` / `:90` / `:14-15` 三行原文（`MAX_BLAME_BYTES = 1024 * 1024`、`if blob.data.len() > MAX_BLAME_BYTES {`、文档「Files larger than this are refused」） | **成立** | 逐行 `awk 'NR==n'` 全中；N19 翻案的证据链完整 |
+| C2 | `lib.rs:3141` / `:3135` / `:3095` 三处（定义 / 上一函数收 `}` / 调用点） | **成立** | `:3141 pub(crate) fn spawn_post_push_hooks(`、`:3135 }`、`:3095 spawn_post_push_hooks(` |
+| C3 | 基线 `0a9a7dd` 的 `:3202` / `:3196` / `:3163` 逐字命中；`:3190` 确是 `StatusCode::GATEWAY_TIMEOUT,`、`:3189` 是 `(` | **成立** | `git show 0a9a7dd:crates/rg-http/src/lib.rs` 逐行打；S2 的自曝成立 |
+| C4 | `pat_scope.rs:307` 是 fn、`:305` 是 `///`；基线 `:301` / `:299` 同形 | **成立** | 四行全中 |
+| C5 | `git grep -c '1024 \* 1024'` 口径 = **10 个文件**、`-n` 口径 = **20 行**，两棵树同；故 A19 的「真值 20」成立 | **成立** | `git grep -n … \| wc -l` = **20**、`git grep -c … \| wc -l` = **10**，`ae11e36` 亦 20 |
+| C6 | `lib.rs` 4045 → 3992、`pat_scope.rs` 661 → 634，漂移行三处映射全对 | **成立** | `git show ae11e36:<path> \| wc -l` 对 `wc -l` 四个数字全中 |
+| S1 | 头部「现状漂移」行五个 `→` 全对（另见 E6） | **成立** | 五处逐一打 |
+| S2 | §2 N19 行（翻案理由 + 四段取证 + 20 行命中） | **成立** | 与 C1/C5 同源 |
+| S3 | §2 N26 行（`:3190` 是元组内、`:3196` 收 `}`、`:3198` 起 doc） | **成立** | 与 C2/C3 同源 |
+| S4 | §2 N27 行（`:301` fn / `:299` doc；现状 `:307` / `:305`） | **成立** | 与 C4 同源 |
+| S5 | §2 N28 行（`pulls.rs:630` 确为 4 项，`:628-629` 是那两行注释） | **成立** | `:628`/`:629` 两行注释 + `:630 "not_evaluated": ["conflicts", "webhook", "ci_trigger", "notification"],` |
+| S6 | §3 第 1 段 11 变体行号（`:370/:373/:375/:377/:382/:393/:399/:406/:408/:410/:413`），它自己下载 `gix-merge-0.23.0` 逐行对过 | **成立** | 11 行全中（`SubmoduleMerge`/`SubmoduleAddAdd`/…/`Unknown`） |
+| S7 | §3 第 2 段（`:371-373` 子模块限定、`:397-403` 类型冲突限定；普通 add/add 走 base=`None` + 内容合并 ⇒ `Resolution::Conflict`） | **成立** | 两段原文与 `tree/mod.rs:161` 一致 |
+| S8 | §7 R17-1a / R17-1b（`:534`/`:535` 是两个收尾 `}`、`:538 Ok(())`） | **成立** | 逐行打 |
+| S9 | §7 R17-2 验收条件（`agent-principals…:518` 有标注、`:520` 无废弃） | **成立** | 两行原文 |
+| S10 | §7 R17-7（`pub(crate)` + 2 个调用点全在 `rg-http`，core 零命中） | **成立** | `grep -rn spawn_post_push_hooks crates/` = 3 行（定义 + 2 调用），core 侧 0 |
+| S11 | §8「两条 + 已翻案」编号顺移与 §2 / 分布自洽 | **成立** | 段内三条编号连续、与 21/10/2 自洽 |
+| S12 | 台账本节 + 反向 67：作废改写带证据、编号未回收 ✅，但**判定分布算错**（见 E1） | **部分成立** | 前半全对；分布行原文「成立 23 / 部分成立 3 / 不成立 0」与同节 26 行表不符 |
+| S13 | 文档 §2 的 33 条分布 21 / 10 / 2（20 + 1 翻案 = 21、3 − 1 = 2） | **成立** | 与 §2 各行判定列复算一致 |
+| E1 | 台账本节写「26 条 = 23 / 3 / 0」，而同节 26 行表是 **22 / 4 / 0**；部分成立的四条是 A7 / A13 / A19 / A21；同一句错在**三处**（台账分布行、提交信息、回帖 §一 开头） | **成立（我方真错）** | 脚本按判定列复算：26 行里「部分成立」= A7、A13、A19、A21 共 **4** ⇒ 成立 **22**。三处全在：台账分布行、`git log -1 --format=%s 4059a68`、回帖 `2121065805633753088` |
+| E2 | A20 判「成立」但 §2 N1 行**没改**，仍写「两个调用点（`:1897` / `:1928`）」，真值绑定行是 `:1896` / `:1927` | **成立（判成立未落稿）** | `sed -n '32p'` 原文仍是 `:1897` / `:1928`；`service.rs:1896 let (merged_tree_id, _conflicts) =`、`:1897` 才是调用行，`:1927` / `:1928` 同形 |
+| E3 | A11 判「成立」但文档里 `grep -c 'pull_request/merge_queue'` = **0**，§1 仍写 `merge_queue.rs:267`、N21 仍写 `merge_queue.rs:441` | **成立（判成立未落稿）** | `grep -c` = 0；两处裸文件名；真文件在 `crates/rg-core/src/pull_request/merge_queue.rs` |
+| E4 | 台账 A15 证据「现状 **4** 命中 = 1 定义 + 2 调用 + 1 处 `crate::` 前缀同一条」重复计一次，`grep -ro \| wc -l` = **3** | **成立** | `grep -ro 'spawn_post_push_hooks' crates/ \| wc -l` = **3**；`-rn` 三行（`:3141` 定义、`:3095` 调用、`repo_content.rs:1384` 调用）。此行首即 `crate::`，不是第四条 |
+| E5 | §3 与 N13 引「`blob/mod.rs:22-25` 原文…」多包一行：`:22-24` 是变体文档、`:25` 是变体名 `CompleteWithAutoResolvedConflict,`；后句 `:26-27` 同理（`:26` 文档、`:27` 变体名 `Conflict,`） | **成立** | `awk 'NR>=15 && NR<=32'` 打出 `:22-24` 三行文档、`:25` 变体名、`:26` 文档、`:27` 变体名 |
+| E6 | 「其余被引文件与 `ae11e36` 逐行相同」这句偏宽：`branch_protection/service.rs` 改了 1 行（`:426` 那句注释），`api/repo_commits.rs` 也有 `5+/2−` | **部分成立（结论对、归因错）** | 句子确实偏宽（两句都改过）；但**都不由 `4059a68` 产生**：`git show --stat 4059a68` = 2 文件（台账 + 本文档），`crates/` 零行；`service.rs:426` 来自 `0a9a7dd`（第 1 次进入轮），`repo_commits.rs` 来自 `cf6943d`。它把「本流程历史轮」记成了「本轮」 |
+| D1 | 「核心翻案（N19）、N26 自曝、R17-1 拆分、R17-2 验收条件、§3 两段取证全部站得住，这次没找到新的不成立」 | **确认** | 与本节自查一致（本轮 0 条产品结论被推翻） |
+| D2 | 「要动手的只有 E1（3 处同改）与 E2 / E3，加上 E4–E6 三处小订正」 | **成立** | 五个项全在，处置与它建议一致 |
+| D3 | 「`4059a68` **尚未被我复核过**这句话仍然成立」 | **部分成立** | 该句在它**本条评论里已作废**——它紧接着写「我这次复核的就是 `4059a68`」。文档 / 台账若保留「尚未复核」即为过期表述：`4059a68` 已被它本轮复核（E1–E6 即对其所提），本轮新提交见本节末 SHA，那一笔才是「待复核」的 |
+| D4 | 「我没跑 `cargo`（本容器无 toolchain），你的 `EXIT=0` 我只记录、无法复现」 | **确认**（环境声明，采信） | 与 `~/.cargo` 空、容器无 toolchain 的既往自述一致；本项在复算环境无 `cargo` 时**不可验**，不表述为公共可复算事实 |
+| D5 | 开头「另有 **3** 条判『成立』的事项没落稿」 | **子命题不成立** | 它自己 §四 只列 **E2 / E3** 两条（「E2 / E3 是同一个模式」）⇒ 真值 **2**，无第三条。属它自己的加法/枚举错，不影响 E1–E6 结论 |
+
+**我方自查（T1–T3）**：
+
+| # | 自查项 | 判定 | 处置 |
+|---|---|---|---|
+| T1 | 判定分布 23/3/0 | **成立（真错，E1）** | 26 行表复算 22/4/0。台账分布行已就地订正并注明原文；提交信息 `4059a68` **不可改**（已在台账登记该事实）；回帖 `2121065805633753088` 已 `patch-issue-comment` 订正该数字 |
+| T2 | A20 / A11 判「成立」但正文未改 | **成立（E2 / E3）** | §2 N1 改 `:1896` / `:1927`（并补 `:1968` 判空 / `:1969` 只 warn / `:1970-1973` `return Err` 的真实分层）；§1 与 N21 的 `merge_queue.rs` 补全路径 |
+| T3 | A15 证据「4 命中」 | **成立（E4）** | 改成 3 命中并写明 `crate::` 是同一条的前缀、不是第四条 |
+
+- **新 L2**：**R17-9 维持**（P3，`ironforge-docs/README.md:56` 仍写「20 成立 / 10 部分 / 3 不成立」，与文档 §2 的 21 / 10 / 2 分叉；本轮文件数到上限 2，未修，下轮 L1 直接订正）· **R17-10**（P3，流程项：**判定分布必须由判定表机械复算**，不许手写——本轮 E1 就是这么错的；建议固定一句 `awk` 按判定列计数，写进台账「审计口径」）· **R17-11**（P3，流程项：**判「成立」≠ 已落稿**，需对「成立且需改正文」的行锚点逐个 `grep` 回正文确认旧行号已消失——E2 / E3 就是漏这一步）。
+- **未做**：未改任何代码（`crates/` **零行**，未动 `Route`、合并行为、`check_merge_allowed`）；未修 `ironforge-docs/README.md:56`（R17-9，文件数到上限）；未把 R17-1b 的 fail-closed 行为落地（L2）；未实测冲突提取（`write_blob_to_odb` 落库结论仍来自 gix 源码）。
+- **反向清单**：**本节无新增**（30 条里 0 条产品结论不成立；D5 那条是它自己的枚举错，记在判定表而不入反向清单）。累计仍 **1..106**，67 号已于第 2 次进入轮作废（编号不回收）。
+- **复核请求（限定文件）**：`ironforge-docs/architecture/merge-readiness-current-state-2026-11.md` 的 `:7`（收紧后的「逐行相同」句）、`:24`（`merge_queue` 全路径）、`:32`（N1 的 `:1896`/`:1927` 与 `:1968-1973` 分层）、`:44`（N13 的 `:22-24`）、`:52`（N21 全路径）、`:87`（`:22-24` 与 `:26`）；以及本台账本节与上一节已订正的分布行、A15 证据行。请特别复算：`git show --stat 4059a68`（应只有 2 文件）、`grep -ro 'spawn_post_push_hooks' crates/ | wc -l`（应为 3）、`grep -c 'pull_request/merge_queue' <文档>`（现应为 2）。
+- **验证**：见本节末「改动 SHA / 回帖（回填）」。
+
+**改动 SHA / 回帖（回填）**：`PLACEHOLDER_SHA`（2 文件 `?+ / ?−`；`crates/` 零行 ⇒ 源码 `path:line` 零漂移；文档仍 136 行）。**改后验证**（executor 本机 `Darwin arm64` / `cargo 1.99.1`）：`scripts/check.sh --quick` `EXIT=0`；改前 **88 s** `EXIT=0`。**复算环境无 `cargo` 时不可验。** 回帖 `PLACEHOLDER_CID`。
+
+### 审计口径补充（第 3 次进入轮立，R17-10 / R17-11，两条都是本轮自己踩出来的）
+
+8. **判定分布只许由判定表机械复算，不许手写**（R17-10）：写完表跑一次按判定列计数的 `awk`，把输出贴进分布行旁边。本轮 23/3/0 是手写，真值 22/4/0 —— 同一句错还扩散到提交信息与回帖两处。命令模板（已在全台账上实测；先 `sed 's/\\|/ESC/g'` 消掉单元格内的转义竖线，再 `tr -d '*'` 去粗体，最后截断 `（…）` 注记）：
+   `awk -F'|' '/^\| [A-Z][0-9]+ \|/ {print $4}' <file> | sed 's/\\|/ESC/g' | tr -d '*' | sed -E 's/（.*//; s/^ +| +$//g' | sort | uniq -c`
+9. **「判成立」≠「已落稿」**（R17-11）：判定表写「成立」而正文锚点没改，是独立一类错（本轮 E2 / E3 两条）。收尾前对「成立且需改正文」的行逐个 `grep` 回正文，确认**旧行号已消失**；只验「新行号存在」不够。

@@ -4,7 +4,7 @@
 > **BASE**：`ae11e36`（`cnb/main`，2026-11-12T01:52Z 拉取，`git rev-list --left-right --count HEAD...cnb/main` = `0 0`）。
 > **方法**：每条断言在 BASE 树上用 `awk 'NR==n'` / `sed -n` 打印原文；gix API 断言对照 `~/.cargo/registry/src/rsproxy.cn-*/gix-merge-0.23.0`、`gix-0.84.0` 源码。
 > **结论**：方案主体可用（冲突数据确实不用新原语）；**33 条现状断言：成立 21 / 部分成立 10 / 不成立 2**（N19 于第 2 次进入轮翻案改判成立，见 §8 末段）。真正卡住落地的不是代码，是三处**判定语义**（§4）和一处**端点命名冲突**（§6）。
-> **现状漂移（第 2 次进入轮复取，`649a814`）**：本文所有 `path:line` 按 `ae11e36` 树取值。`rg-http/src/lib.rs` 由 4045 行减到 3992 行 ⇒ `spawn_post_push_hooks` 定义 `:3202`→`:3141`、push handler 调用点 `:3163`→`:3095`、`repo_content.rs:1382`→`:1384`；`auth/pat_scope.rs` 的 `ref_limited_write_allowed` `:301`→`:307`（文档行 `:299`→`:305`）。其余被引文件与 `ae11e36` 逐行相同。
+> **现状漂移（第 2 次进入轮复取，`649a814`）**：本文所有 `path:line` 按 `ae11e36` 树取值。`rg-http/src/lib.rs` 由 4045 行减到 3992 行 ⇒ `spawn_post_push_hooks` 定义 `:3202`→`:3141`、push handler 调用点 `:3163`→`:3095`、`repo_content.rs:1382`→`:1384`；`auth/pat_scope.rs` 的 `ref_limited_write_allowed` `:301`→`:307`（文档行 `:299`→`:305`）。**其余被引文件与 `ae11e36` 逐行相同的说法已于第 3 次进入轮收紧**：两处例外都不由本节改动产生 —— `branch_protection/service.rs:426` 是本流程 `0a9a7dd`（第 1 次进入轮）改的 1 行注释，行号不变、文本已换；`api/repo_commits.rs` 由 `cf6943d`（提交身份特性）改 `5+/2−`，本文未引用。`git diff ae11e36..HEAD --stat` 逐文件可复算。
 
 ---
 
@@ -21,7 +21,7 @@
 | 合并计算 | `service.rs:1943` `gix_merge_commits_to_tree` | 返回 `(tree_id, Vec<gix::merge::tree::Conflict>)`；**有冲突就丢向量换成文本** |
 | 失败响应 | `pulls.rs:678` `MergeError::Core(e) => AppError::from(e)` | 409 `CONFLICT` + message `"merge conflict detected: N files with conflicts"`，**无 `reason` / `retryable` / `hint` / `details`** |
 
-`check_merge_allowed` 的**三个生产调用点**（readiness 若另写一套判定，必然与这三处漂移）：`pulls.rs:574`（合并执行）、`service.rs:1115`（auto-merge 可用性）、`merge_queue.rs:267`（合并队列准入）。
+`check_merge_allowed` 的**三个生产调用点**（readiness 若另写一套判定，必然与这三处漂移）：`pulls.rs:574`（合并执行）、`service.rs:1115`（auto-merge 可用性）、`crates/rg-core/src/pull_request/merge_queue.rs:267`（合并队列准入；本文件给全路径 —— 本仓多个 crate 下都有同名 `service.rs`，只写文件名的锚点读者定不到唯一位置）。
 
 **「状态」查两次**：handler 的 `:609` 覆盖 dry-run 与真合并两条路，core 的 `merge_pr_expecting_head`（`service.rs:1321`）再查一次（防止 PR 在 handler 校验后被并发改动）。NPC 把 draft / 状态 / 保护 / `expected_head_sha` 都归到 `pulls::merge_pr` 名下（§2 N3）——**这条是准确的**；`check_merge_allowed` 内部那三类（签名 / 批准数 / CI）才是另一层。
 
@@ -29,7 +29,7 @@
 
 | # | 它说的 | 判定 | 证据 |
 |---|---|---|---|
-| N1 | `gix_merge_commits_to_tree`（`service.rs:1943`）遇 `conflicts` 非空就 `CoreError::Conflict("merge conflict detected: N files")`，文件与区块全丢 | **成立** | `:1967` 取 `outcome.tree_merge.conflicts`、`:1968-1973` 直接 `return Err`；返回类型本来就带 `Vec<Conflict>`，两个调用点（`:1897` / `:1928`）都写成 `_conflicts` |
+| N1 | `gix_merge_commits_to_tree`（`service.rs:1943`）遇 `conflicts` 非空就 `CoreError::Conflict("merge conflict detected: N files")`，文件与区块全丢 | **成立** | `:1967` 取 `outcome.tree_merge.conflicts`、`:1968` 判空、`:1969` 只 `tracing::warn!`、`:1970-1973` 才 `return Err`；返回类型本来就带 `Vec<Conflict>`，两个调用点（`:1896` / `:1927`）都写成 `_conflicts`（`:1897` / `:1928` 才是被调函数那行） |
 | N2 | `live_head_sha` / `update_ref` / `unified_patch` 都有，不需要新原语 | **成立** | `service.rs:1360`、`rg-git/src/ops.rs:85`、`pull_request/gix_patch.rs:36` |
 | N3 | 前置校验分散在 `pulls::merge_pr`（draft / 状态 / 保护 / `expected_head_sha`）与 `check_merge_allowed`（签名 / 批准数 / CI） | **成立** | draft `:571`、状态 `:609`、保护 `:574`、`expected_head_sha` `:597` 全在 handler；签名/批准数/CI 在 `check_merge_allowed`。唯一要收窄的是「没有机器码」：`REF_ADVANCED` 已是机器码，纯文本只覆盖保护类判定 |
 | N4 | `/context` 的 `not_evaluated` = `["mergeable","branch_protection"]`，在 `ai_pr_context.rs:386` | **成立** | 行号精确；同行 `:387` 是 `"consistency": "per_section_live_read"` |
@@ -41,7 +41,7 @@
 | N10 | `SIGNED_COMMITS_REQUIRED` 永远过不去 | **成立** | `:442-446` 无条件 `forbidden`，文案自陈「server-side PR merge commits are not signed」 |
 | N11 | `repo.merge_commits(...)` → `outcome.tree_merge.conflicts: Vec<Conflict>` | **成立** | `service.rs:1962-1964` |
 | N12 | `Conflict::entries()` → `[Option<ConflictIndexEntry>; 3]`，别直接读字段 | **成立** | `gix-merge-0.23.0/src/tree/mod.rs:166` 字段 + `:165` 文档「access it through `Self::entries()`」 |
-| N13 | `content_merge()` → `Option<ContentMerge>`，`Resolution::Conflict` 才是真冲突；括注「`CompleteWithAutoResolvedConflict` 是有 marker 但已自解」 | **部分成立** | API 名与返回值成立（`:297`、`:420-425`、`blob/mod.rs:19-28`）；括注**错**：该变体原文是 "complete and **free of conflict markers**"（`blob/mod.rs:22-25`），带 marker 的只有 `Resolution::Conflict` |
+| N13 | `content_merge()` → `Option<ContentMerge>`，`Resolution::Conflict` 才是真冲突；括注「`CompleteWithAutoResolvedConflict` 是有 marker 但已自解」 | **部分成立** | API 名与返回值成立（`:297`、`:420-425`、`blob/mod.rs:19-28`）；括注**错**：该变体原文是 "complete and **free of conflict markers**"（`blob/mod.rs:22-24`，`:25` 是变体名本身），带 marker 的只有 `Resolution::Conflict` |
 | N14 | `Err(ResolutionFailure)` 变体直接映射 `kind`，列 5 个变体 | **部分成立** | 5 个变体名都存在；但 enum 共 **11** 个变体（`:367-413`），未覆盖 6 个；且 §2 的 `kind` 七值里 `mode`、`add_add` 无任何变体产出，`unsupported` 只由 `Unknown` 产出 |
 | N15 | 区块用「冲突时写进对象库的 marker blob」，不重新 diff | **成立** | gix-merge 树合并通过 `write_blob_to_odb` 回调落库：`tree/function/resolve.rs:35` 与 `:77`（"newly merged blobs through `write_blob_to_odb`"）。**这条如果按常识猜就会判错**——`tree::Outcome` 的文档说树是 "unwritten"，但 blob 是写了的 |
 | N16 | `changes_in_resolution()` 取左右条目 | **成立** | `tree/mod.rs:271` |
@@ -49,7 +49,7 @@
 | N18 | 复用 `gix_patch::parity_tests` 的 fixture | **成立** | `gix_patch.rs:446` `mod parity_tests`，`:708` 有「fixture 必须出现在参考 diff 里」的断言 |
 | N19 | `blob > 1 MiB` 的 content 阈值「和 blame 的阈值一致」 | **成立（第 2 次进入轮翻案）** | `rg-git/src/blame.rs:16` = `pub const MAX_BLAME_BYTES: usize = 1024 * 1024;`，`:90` = `if blob.data.len() > MAX_BLAME_BYTES {` 真在拒（`:91-94` 返 `TooLarge`），`:14-15` 的文档自述「Files larger than this are refused」。上一版判「不成立」是漏读这一行：`git grep -n '1024 \* 1024'` 在 `0a9a7dd` 与 `649a814` 两棵树都是 **20** 行命中，`blame.rs:16` 就在其中 |
 | N20 | 二进制判定用 `Operation::SourceOrDestinationIsBinary` | **成立** | `gix_patch.rs:316` |
-| N21 | `merge_queue.rs:441` 已有 `spawn_blocking` 先例 | **部分成立** | 先例在，但行号是 `:415` 与 `:463`；`:441` 落在 `finish_entry` 的 match 分支里 |
+| N21 | `crates/rg-core/src/pull_request/merge_queue.rs:441` 已有 `spawn_blocking` 先例 | **部分成立** | 先例在，但行号是 `:415` 与 `:463`；`:441` 落在 `finish_entry` 的 match 分支里 |
 | N22 | `update-branch` 的 409 复用 `AppError::conflict_because`，`details.current_sha` 已有 | **成立** | `error.rs:266`；`pulls.rs:599-605` 与 `:669-675` 等 5 处已在传 `current_sha`/`expected_sha` |
 | N23 | `rg_git::ops::update_ref` 是 `PreviousValue::Any` 不能直接用；抄 `delete_ref_if` 的写法 | **部分成立** | `ops.rs:98` 确为 `Any`；但 `delete_ref_if`（`:132`）用的是 `MustExistAndMatch`（`:145`），真正同款是 `:426` 与 `:1591` 的 `ExistingMustMatch` |
 | N24 | 存在 `SERVER_COMMIT_NAME` / `SERVER_COMMIT_EMAIL` | **成立** | `service.rs:1857-1858`（`IronForge` / `noreply@ironforge.local`），`commit_as_server` 用它（`:1859`） |
@@ -84,7 +84,7 @@
 
 ⇒ 它 §2 JSON 里的 `mode` 与 `add_add` 两个枚举值**没有任何变体产出**（模式冲突在此 enum 里被并入 `type_mismatch` 族，add/add 无独立变体）；`mode` 只能来自 `Conflict::entries()` 的 mode 位比较，得另写一层，不能只看 `resolution`。
 
-**源码取证（第 2 次进入轮补，回应复核要求「把 gix 源码 `sed -n` 原文贴进文档」）**：`sed -n '367,413p' gix-merge-0.23.0/src/tree/mod.rs` 共 **11** 个变体，逐条行号 —— `:370 SubmoduleMerge`、`:373 SubmoduleAddAdd`、`:375 OursRenamedTheirsRenamedToSameLocation`、`:377 OursRenamedTheirsRenamedDifferently`、`:382 OursModifiedTheirsDirectoryThenOursRenamed`、`:393 OursDirectoryTheirsNonDirectoryTheirsRenamed`、`:399 OursAddedTheirsAddedTypeMismatch`、`:406 OursModifiedTheirsRenamedTypeMismatch`、`:408 OursDeletedTheirsRenamed`、`:410 OursModifiedTheirsDeleted`、`:413 Unknown`；`Conflict::entries` 的三位注释在 `:161-163`（`entries[0] => Base`）、`:166` 是字段、`:165` 要求走 `Self::entries()`。`blob/mod.rs:22-25` 原文「Conflicts were resolved automatically, even thought the result is complete / and free of conflict markers. / This can only be the case for text-file content merges.」，`:26-27` 才是 `A conflict is still present in the form of conflict markers.` ⇒ 本节 N13 的括注订正得到原文支持。
+**源码取证（第 2 次进入轮补，回应复核要求「把 gix 源码 `sed -n` 原文贴进文档」）**：`sed -n '367,413p' gix-merge-0.23.0/src/tree/mod.rs` 共 **11** 个变体，逐条行号 —— `:370 SubmoduleMerge`、`:373 SubmoduleAddAdd`、`:375 OursRenamedTheirsRenamedToSameLocation`、`:377 OursRenamedTheirsRenamedDifferently`、`:382 OursModifiedTheirsDirectoryThenOursRenamed`、`:393 OursDirectoryTheirsNonDirectoryTheirsRenamed`、`:399 OursAddedTheirsAddedTypeMismatch`、`:406 OursModifiedTheirsRenamedTypeMismatch`、`:408 OursDeletedTheirsRenamed`、`:410 OursModifiedTheirsDeleted`、`:413 Unknown`；`Conflict::entries` 的三位注释在 `:161-163`（`entries[0] => Base`）、`:166` 是字段、`:165` 要求走 `Self::entries()`。`blob/mod.rs:22-24` 原文「Conflicts were resolved automatically, even thought the result is complete / and free of conflict markers. / This can only be the case for text-file content merges.」（`:25` 是变体名 `CompleteWithAutoResolvedConflict,`），`:26` 才是 `A conflict is still present in the form of conflict markers.`（`:27` 是变体名 `Conflict,`）⇒ 本节 N13 的括注订正得到原文支持。
 
 **`add_add` 的产出来源（本轮补，原文此前整篇没交代）**：普通文件 add/add **不来自** `ResolutionFailure` —— 两个 `AddAdd` 变体都被限定住：`:371-373` 原文「added different **submodule** commits at the same path」，`:397-403` 原文「was added (or renamed into place) with a different **mode** than theirs, e.g. blob and symlink」。普通 add/add 是一次内容合并：base 位为 `None`（`tree/mod.rs:161`）+ 两侧同路径不同内容 ⇒ `content_merge()` 给 `Resolution::Conflict`。所以 `add_add` 与 `mode` 同属「读 `entries()` 判出来」的一层，**不能只看 `Err` 变体，也不能只看 `resolution`**。
 
