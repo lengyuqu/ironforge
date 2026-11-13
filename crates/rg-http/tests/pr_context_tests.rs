@@ -205,10 +205,22 @@ async fn the_context_has_ci_threads_files_and_marks_user_text() {
     assert_eq!(v["counts"]["unresolved_comments"], 1);
     assert_eq!(v["counts"]["resolved_comments"], 1);
 
-    assert!(v["not_evaluated"]
+    // Each not-evaluated item names the endpoint that does evaluate it.
+    let not_evaluated: Vec<&str> = v["not_evaluated"]
         .as_array()
         .unwrap()
-        .contains(&json!("mergeable")));
+        .iter()
+        .map(|item| item.as_str().unwrap())
+        .collect();
+    for what in ["mergeable", "branch_protection"] {
+        assert!(
+            not_evaluated
+                .iter()
+                .any(|item| item.starts_with(&format!("{what} ← GET "))
+                    && item.ends_with("/pulls/1/merge-readiness")),
+            "{what} must point at the merge-readiness endpoint: {not_evaluated:?}"
+        );
+    }
     assert!(v["diff_url"].as_str().unwrap().ends_with("/pulls/1/diff"));
     assert_eq!(v["truncated"], json!([]));
     assert_eq!(v["budget"]["requested_tokens"], 6000);
