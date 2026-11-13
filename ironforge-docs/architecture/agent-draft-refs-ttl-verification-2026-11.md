@@ -1,6 +1,6 @@
 # Agent 草稿命名空间（TTL）：设计前提核实（2026-11-12）
 
-> **状态**：核实记录（**不是**实现）｜ **对象**：issue #18 的 NPC 细化回帖（`2120150626892935168`，2987 字符）+ 其落地文档 `ironforge-docs/architecture/agent-draft-refs-ttl-design-2026-11.md`（PR #20 已合并，258 行 —— `wc -l` 与 `awk END{print NR}` 同为 258；旧写 259 是 `split('\n')` 把末行换行当空串的口径，已订正）｜ **基线**：`e225293`（`cnb/main`，`HEAD...cnb/main` = `0 0`）
+> **状态**：核实记录（**不是**实现）｜ **对象**：issue #18 的 NPC 细化回帖（`2120150626892935168`，2987 字符）+ 其落地文档 `ironforge-docs/architecture/agent-draft-refs-ttl-design-2026-11.md`（PR #20 已合并，258 行 —— `wc -l` 与 `awk END{print NR}` 同为 258；旧写 259 是 `split('\n')` 把末行换行当空串的口径，已订正）｜ **基线**：`e225293`（首轮核实时 `HEAD...cnb/main` = `0 0`；该口径已过期 —— `19396b9` 上 `e225293..cnb/main` = **76** 个提交，行号以 §4.1 的 `45ed54c` 锚点为准）
 > **读法**：先看 §3 两条不成立（它们改变设计结论），再看 §6 待拍板。§2 是全量判定表，§4 只是行号账。
 
 ---
@@ -67,7 +67,7 @@
 **现树事实**：
 
 - `grep -rn 'refs/pull' crates/rg-git/src/` = **0 命中**。`rg-git` 里没有任何针对该命名空间的判定。
-- `receive_pack` 的 ref 名不做命名空间白名单：拒绝只有两路 —— `rejected_refs`（`lib.rs:3006-3008`，两半来源：分支保护那一半恒 `refs/heads/`（`branch_protection/service.rs:256`），tag 保护那一半恒 `refs/tags/`（`lib.rs:3223`）；原写「模式恒为 `refs/heads/...`」只对前一半成立，两半都不命中 `refs/pull/`）与 `writable_refs`（`:2928-2930`，`None` = 不限制）。两者都不命中 `refs/pull/1/head`。
+- `receive_pack` 的 ref 名不做命名空间白名单：拒写/写限共**四路** —— `rejected_refs`（`lib.rs:3006-3008`，两半来源：分支保护那一半恒 `refs/heads/`（`branch_protection/service.rs:256`），tag 保护那一半恒 `refs/tags/`（`lib.rs:3223`）；原写「模式恒为 `refs/heads/...`」只对前一半成立，两半都不命中 `refs/pull/`）、`writable_refs`（`:2928-2930`，`None` = 不限制）、`enforce_signed_commit_policies`（`receive_pack.rs:481` 调用 / `:521` 定义；pattern 来自 `signed_commit_required_patterns`（`branch_protection/service.rs:316`）→ `protection_ref_pattern` 仍只出 `refs/heads/`）与 `on_delete` 守卫（`receive_pack.rs:491`），另 `:393-400` 有一条「删除只认 `refs/heads/`」。**原写「拒绝只有两路」漏了后两路**（结论不变：四路的模式源都只出 `refs/heads/` / `refs/tags/`，无一命中 `refs/pull/1/head`）。
 - 落地写入是 `receive_pack.rs:507` 的 `update_ref(...)`，其实现 `:631-647` 用 `PreviousValue::Any`（`:641`）——「无条件 set，等同 `git update-ref`」，注释自己写着。
 
 ⇒ **无 `ref_allowlist` 的令牌可以直接把 `refs/pull/<n>/head` 指向任意已存在于对象库的 commit**（推一个新 commit 也行，pack 已 index）。`refs/pull/*` 由 `publish_head_ref`（`pull_request/service.rs:1396`）写入，是**普通 ref**，不是伪 ref。
@@ -109,11 +109,11 @@
 
 ### 4.1 R1 之后（当前 `cnb/main`）的再漂移
 
-`eb1736f` / `4d34e69`（R1 路由元数据注册表）重写了 `lib.rs` 的路由与鉴权装配段，上表的 `lib.rs` 列与设计文档里的 `lib.rs` 行号**同时作废**：`c17735e..45ed54c` 上该文件 `34+/87−`，`on_delete` 之前整体下移 **68** 行、`post_push_hooks` 尾部下移 **53** 行，**不是统一偏移**，不能加减法复用。已逐行打印核实的新锚点（BASE `45ed54c`）：`writable_refs` `:2928`、`rejected_refs` `:3006-3008`、`on_delete` 闭包 `:3014-3072`（内含 `:3057` 的 `trigger_branch_deleted`）、`spawn_post_push_hooks` 定义 `:3141`／唯一调用点 `:3095`、`post_push_hooks` `:3235-3537`、`status != "ok"` `:3268-3270`、`refs/tags/` 模式 `:3223`、`has_ci_config` `:3364`、CI 段 `:3364-3448`、`trigger_event(push)` `:3463`、分支事件 `:3469-3496`、ws 通知 `:3526-3534`、`TriggerPipelineParams` 收 `allow_host_execution` `:3376`。
+`eb1736f` / `4d34e69`（R1 路由元数据注册表）重写了 `lib.rs` 的路由与鉴权装配段，上表的 `lib.rs` 列与设计文档里的 `lib.rs` 行号**同时作废**：`c17735e..45ed54c` 上该文件 `34+/87−`，`on_delete` 之前整体上移 **68** 行（行号减小）、`post_push_hooks` 尾部上移 **53** 行，**不是统一偏移**，不能加减法复用。已逐行打印核实的新锚点（BASE `45ed54c`）：`writable_refs` `:2928`、`rejected_refs` `:3006-3008`、`on_delete` 闭包 `:3014-3072`（内含 `:3057` 的 `trigger_branch_deleted`）、`spawn_post_push_hooks` 定义 `:3141`／唯一调用点 `:3095`、`post_push_hooks` `:3235-3537`、`status != "ok"` `:3268-3270`、`refs/tags/` 模式 `:3223`、`has_ci_config` `:3364`、CI 段 `:3364-3448`、`trigger_event(push)` `:3463`、分支事件 `:3469-3496`、ws 通知 `:3526-3534`、`TriggerPipelineParams` 收 `allow_host_execution` `:3376`。
 
-`pat_scope.rs` 只改了一处但对本文两条结论有关：`ref_limited_write_allowed` 从 32 行 `matches!` 表（`:301-336`）缩成对 `route_meta::branch_limited_write_allowed` 的**一行转发**（`:307-309`）⇒ 「往白名单里加 `agent-drafts`」这个修法不再成立，改成「把路由声明进注册表」（见 R18-4）。其余被引文件（`receive_pack.rs` / `webhook/service.rs` / `ops.rs` / `repo/branch.rs` / `ci_retention.rs` / `repo_events.rs` / `gitea_actions.rs` / `rg-ci` / `rg-cli` / `api/runners.rs` / `entities/*`）自 `e225293` 起零改动，本表行号仍有效。
+`pat_scope.rs` 只改了一处但对本文两条结论有关：`ref_limited_write_allowed` 从 `matches!` 表（`:301-336`，36 行 —— 原写「32 行」复算不出，已删该前缀）缩成对 `route_meta::branch_limited_write_allowed` 的**一行转发**（`:307-309`）⇒ 「往白名单里加 `agent-drafts`」这个修法不再成立，改成「把路由声明进注册表」（见 R18-4）。其余被引文件（`receive_pack.rs` / `webhook/service.rs` / `ops.rs` / `repo/branch.rs` / `ci_retention.rs` / `repo_events.rs` / `gitea_actions.rs` / `rg-ci` / `rg-cli` / `api/runners.rs` / `entities/ci_secret.rs`）自 `e225293` 起零改动，本表行号仍有效（原写 `entities/*` 过宽：`entities/audit_log.rs` 被 `cc42dac` 改过 `5/0`，不在本文引用面）。
 
-§2 表里含 `lib.rs` 锚点的行（P4 / P6 / D4 / D5 / D11）保留的是 `e225293` 口径的**历史判定**，现状按上一段换算，其中最容易误用的是三个：P4 的六个锚点现状为 `:3235` 定义 / `:3268-3270` 过滤 / `:3364-3448` CI / `:3463` push webhook / `:3469-3496` 分支事件 / `:3526-3534` ws；P6 与 D4 的 `on_delete` 现状为 `:3014-3072`（旧写的 `:3102` 调 `delete_branch` 现状在 `:3046`）。
+§2 表里含 `lib.rs` 锚点的行（P4 / P6 / D4 / D5 / D11）保留的是 `e225293` 口径的**历史判定**，现状按上一段换算，其中最容易误用的是三个：P4 的六个锚点现状为 `:3235` 定义 / `:3268-3270` 过滤 / `:3364-3448` CI / `:3463` push webhook / `:3469-3496` 分支事件 / `:3526-3534` ws；P6 与 D4 的 `on_delete` 现状为 `:3014-3072`（旧写的 `:3102` 调 `delete_branch` 现状在 `:3034` —— 原写 `:3046` 是 `record_write` 的参数行 `Some(repo.id),`，差 12 行，已订正）。
 
 ---
 
@@ -149,7 +149,7 @@
 
 ## 7. 验证口径
 
-- 基线 `e225293`（`git rev-parse --short HEAD`；`HEAD...cnb/main` = `0 0`，零漂移）。
+- 历史基线 `e225293`（首轮核实时 `HEAD...cnb/main` = `0 0`）；当前锚点口径 `45ed54c`（见 §4.1）。`19396b9` 上 `e225293..cnb/main` = **76** 个提交，旧写的「零漂移」按字面已不成立。
 - `scripts/check.sh --quick` 改前 `EXIT=0` / `106 s`（`==> checks passed in 106s (quick)`），宿主 `Darwin arm64`、`/Users/yuqu/.cargo/bin/cargo`。
 - 本轮**零代码行为改动**：本文 + 设计文档行号/结论订正 + `ironforge-docs/README.md` 索引 + 台账。`crates/` 下无一字节变化。
 - 每条 `path:line` 均以 `sed -n '<n>p'` 打印后人工确认「那一行能读出你要它证明的东西」，不只确认行存在。

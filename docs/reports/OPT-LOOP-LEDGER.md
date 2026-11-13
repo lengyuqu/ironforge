@@ -2719,14 +2719,14 @@ protocol=v0.13
 | B1 | R18-7：secrets 有**两个**注入点，且 `external_runners=true` 时内置 runner 那条不跑 | **成立**（第三点锚点笔误） | `runners.rs:352-356` 把 `decrypted_repo_secrets` 塞进 job `variables`、取数 `:787-793`（同一个 `list_by_repo`）；`rg-ci/src/lib.rs:308` = `if !external_runners {`；遮蔽在 **`:537`**（`mask_values`），它把遮蔽点也写成 `:793`，属笔误不影响结论 |
 | B2 | R18-8：另一种删除形态投的是「**一条**假 `branch.created`」 | **部分成立** | 假 `created` 成立：`post_push_hooks` 分支事件**先判 `old_sha`**（`:3469-3496`），旧值空/全 0 走 `:3475` 的 `trigger_branch_created`。但**不是一条**：`on_delete` 已先投一条真 `deleted`（`:3057`），且 `delete_branch(..., None, false)` 不做 CAS ⇒ 两种形态都是**两条**事件，差在第二条是真 `deleted` 还是假 `created`。已把 §5 与 R18-8 改成两形态表述 |
 | B3 | R18-9：`allow_host_execution` 与 `job_timeout_secs` 都不是「仓库级」 | **成立** | `rg-cli/src/main.rs:2280-2284`（`[ci].allow_host_execution`）、`:2349`（`[timeouts].job_secs`）；`AppState` `lib.rs:137`/`:232`/`:148`/`:240`；`grep -rn 'allow_host_execution\|job_timeout_secs' crates/rg-db/src/` = **0**；`entities/repository.rs` 的 `host\|docker` = **0** |
-| C1 | 设计 `:31` 四处锚点在 `c17735e` 上全中（`:3290` / `:3590` / `:3202` / `:3321-3324` / `:3125`） | **成立** | 逐行打 `c17735e`：`:3290` `async fn post_push_hooks(`、`:3590` 收尾 `}`、`:3202` `spawn_post_push_hooks`、`:3125` `trigger_branch_deleted`、`:3418` `has_ci_config` 全中；**R1 后整体下移**⇒ 已重钉 `:3235-3537`/`:3141`/`:3268-3270`/`:3057`（过滤起点真值 `:3268`，它沿用了文档的 `:3321` 起点口径，差 1 行） |
+| C1 | 设计 `:31` 四处锚点在 `c17735e` 上全中（`:3290` / `:3590` / `:3202` / `:3321-3324` / `:3125`） | **成立** | 逐行打 `c17735e`：`:3290` `async fn post_push_hooks(`、`:3590` 收尾 `}`、`:3202` `spawn_post_push_hooks`、`:3125` `trigger_branch_deleted`、`:3418` `has_ci_config` 全中；**R1 后整体上移（行号减小）**⇒ 已重钉 `:3235-3537`/`:3141`/`:3268-3270`/`:3057`（过滤起点真值 `:3268`，它沿用了文档的 `:3321` 起点口径，差 1 行） |
 | C2 | 设计 `:36` 的 `service.rs:1389-1430` 终点该是 `:1433` | **成立** | `publish_head_ref` doc `:1389`、`fn` `:1396`、收尾 `}` `:1433`；`:1430` 是 `map_err(...)`、`:1432` 是 `Ok(())`。已改 `:1389-1433` 并注明三段 |
 | C3 | 设计 `:201` 与 §3.1 一致、无需改 | **成立** | 该行原文「`refs/pull/` **不是**只读的（见 R18-1），别把『天然』写进实现假设」，与 §3.1 同向 |
 | C4 | 设计 `:232` 成立，但该行的订正自身引入了新错 | **成立** | `c17735e` 的 `:3418` 确为 `ci_engine.has_ci_config(...)`（现状 `:3364`）；同段「现由**仓库开关**直传 runner」「仓库级 `job_timeout_secs`」即 R18-9 的两处错，已改写为实例级 + 两处注入点 + per-pipeline 落点 |
 | C5 | 验证 `:3` 写 259 行、`:108` 写 258 行，同文件两数打架，真值 258 | **成立** | `git show c17735e:<设计文档> \| wc -l` = **258**、`awk 'END{print NR}'` = **258**、`bytes endswith 0a` 为真；259 来自 `split('\n')` 把末尾换行当空串。已在 `:3` 写 258 并注明口径、`:108` 同步 |
 | D1 | 台账 #18 节「25 条 = 成立 17 / 部分成立 6 / 不成立 2」成立 | **成立** | 按审计口径第 8 条（`sed` 前置）复算验证文档 §2：**17 / 6 / 2**，行数 **25**，与判定表逐行一致 |
 | D2 | 台账 #18 节「27 行 1→1 订正（行号 23 行 + 内容 4 行：`refs/pull` 前提两处、`post_push_hooks` 注入点一处、R3 一处）」 | **不成立（我方真错）** | `difflib` 逐行分类 `e225293..c17735e` 的 27 行 = **21 行纯行号**（去数字后逐字相同）+ **6 行含文字改动**（`:3`/`:19`/`:31`/`:36`/`:201`/`:232`）；`refs/pull` 前提是**三处**（`:19` §1 非目标、`:36` §2 表行、`:201` §6.2 步 2），不是两处。`numstat` = 27/27、`wc -l` = 258 不变。反向清单 **+107** |
-| E1 | 只读 `c17735e` 四文件、未改文件、未 push；`check.sh --quick` 在本容器不可验 | **确认**（环境声明，采信） | `git log --format='%h %an' c17735e..45ed54c` 的 68 个提交作者全为 `yuqu`；本机 `cargo 1.99.1` 的 `EXIT=0` 只当执行侧自述，**复算环境无 `cargo` 时不可验**，不表述为公共可复算事实 |
+| E1 | 只读 `c17735e` 四文件、未改文件、未 push；`check.sh --quick` 在本容器不可验 | **确认**（环境声明，采信） | `git log --format='%an' c17735e..45ed54c \| sort \| uniq -c` = **53 `yuqu` + 15 `cnb.biewen`**（15 条为 PR 合并 / 台账回填，无一条来自复核方；原写「68 个提交作者全为 `yuqu`」是更强的假命题，第 3 次进入轮订正）；本机 `cargo 1.99.1` 的 `EXIT=0` 只当执行侧自述，**复算环境无 `cargo` 时不可验**，不表述为公共可复算事实 |
 
 **我方自查（T1–T6，全部成立并已落稿）**：
 
@@ -2783,3 +2783,48 @@ protocol=v0.13
 - **验证**：见本节末「改动 SHA / 回帖（回填）」。
 
 **改动 SHA / 回帖（回填）**：`d2a6524`（2 文件 `40+/5−`；`crates/` 零行 ⇒ 源码 `path:line` 零漂移；README 仍 **149** 行、台账 **2748** → **2783** 行（本回填再 +2 ⇒ **2785**））。推 `cnb` 单 remote：`9d912b6..d2a6524  HEAD -> main`；`merge-base --is-ancestor HEAD cnb/main` 通过，主工作区 `merge --ff-only` 到 `d2a6524`、`status --porcelain` 0 行。**改后验证**（executor 本机 `Darwin arm64` / `cargo 1.99.1`）：`scripts/check.sh --quick` `EXIT=0` **2 s**（``Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.27s`` / `==> checks passed in 2s (quick)`）；改前 **132 s** `EXIT=0`（``Finished `dev` profile [unoptimized + debuginfo] target(s) in 2m 10s`` / `==> checks passed in 132s (quick)`）。**复算环境无 `cargo` 时不可验。** 时刻锚 = `git log -1 --format=%aI d2a6524` = `2026-11-13T14:41:40+08:00`。**回帖** `2121131565815095296`（`2026-11-13T06:42:28Z`，**6640** 字节）；回读首行 `## 本轮收尾`、次行 `protocol=v0.13 · prompt=ironforge-consumer-v4`、末非空行独立 `@CodeBuddy`、判定表 N1–R9 五行连续无缺；该 issue 的 `## 本轮收尾` 计数 **4 → 5**、评论总数 9 → 10，无重复投递。issue **保持 open**（本体是 R17-1a/R17-1b、R17-2、R17-8…R17-14 的 L2 决策）。
+
+### 单发轮 · issue #18 · 2026-11-13（第 3 次进入：消费它钉 `098105f` 的复核；15 条 = 成立 14 / 部分成立 1，F1 是我方错号、G2 是我方假命题）
+
+protocol=v0.13
+
+- **选靶**：11 条 open **全 MANUAL**（`[opt-round]` = 0 ⇒ 第二段无对象，连续第 12 次）。`#48`（P2，`2026-11-12T20:19:41Z`）/`#38`（`21:28:39Z`）/`#19`（`11-12T04:20:16Z`）/`#15`（`11-13T00:52:51Z`）/`#14`（`04:37:22Z`）/`#17`（`06:42:28Z`）最新评论是我方 `## 本轮收尾` ⇒ 等待复核，跳过；`#39`–`#41` `comment_count=0`。可处理剩 `#18`（未消费 NPC 复核 `2121126612442730496`，`2026-11-13T06:22:47Z`，在我方上一条收尾 `2121120778828574720`（`05:59:36Z`）之后 **23 分钟**）与 `#37`（`11-12T10:24:43Z` 只读首扫）⇒ 同级编号最小取 **#18**（第 3 次进入）。
+- **输入**：`2121126612442730496`（4473 字符，首行 `@cnb.biewen(别问) 复核钉在 **098105f**（HEAD = origin/main = 098105f，工作区干净，无 cargo）`）。它自报只有 `origin` remote；本仓无 `origin`（`git remote -v` = `cnb` + `github`）⇒ 环境差异，不入反向清单。
+- **判定分布**：15 条 = **成立 14 / 部分成立 1**（判定表按审计口径第 8 条 `sed` 前置模板机械复算；本节另有 T1–T4 四行自查，全成立，合计 19 行 —— 分布只取主判定表的 A–Z 非 T 桶）。
+- **BASE** `19396b9`（`HEAD` = `cnb/main` = `ls-remote` tip，`status --porcelain` 0 行）。改前 `scripts/check.sh --quick` **192 s `EXIT=0`**（``Finished `dev` profile [unoptimized + debuginfo] target(s) in 3m 11s`` / `==> checks passed in 192s (quick)`）——WT 内首次编译口径。
+- **合流判定（协议第 8 步 A 支）**：复核目标 `098105f` 已是 `cnb/main` 祖先（`merge-base --is-ancestor` 退出 0），其后 main 追加 `6a7d352`/`e7a5521`/`9d912b6`/`d2a6524`/`19396b9` 五个**纯文档/台账**提交（`git diff --numstat 45ed54c 098105f -- crates/` = 0 行，其后再无 `crates/` 改动）⇒ **不推旧提交**，在当前 `cnb/main` 上独立核验后另提新 commit。
+
+判定表（15 条；`path:line` 均指 BASE `19396b9`；文档指 `ironforge-docs/architecture/agent-draft-refs-ttl-verification-2026-11.md`）：
+
+| # | 它说的 | 判定 | 证据与处置 |
+|---|---|---|---|
+| Q1 | `fn ref_limited_write_allowed` 在 `pat_scope.rs:307`，`:308` 唯一一行转发、`:309` `}` | **成立** | `grep -n` = `307:`；`sed -n '307,309p'` 三行逐字命中（`super::route_meta::branch_limited_write_allowed(path)` 仅 `:308` 一处） |
+| Q2 | `lib.rs:3469` 先 `refs/heads/` 前缀，`:3470-3472` 判 `old_sha` 空/全 0 → `created`，`:3483-3485` 才判 `new_sha` 全 0 → `deleted` | **成立** | `sed -n '3469,3472p'` = `if let Some(branch_name) = update.refname.strip_prefix("refs/heads/") {` / `if update.old_sha.is_empty()` / `\|\| update.old_sha == "000…0"` / `{`；`sed -n '3483,3485p'` = `} else if update.new_sha.is_empty()` … ⇒ 「先 old 后 new」 |
+| Q3 | `allow_host_execution` / `job_timeout_secs` 在 `crates/rg-db/src/` 零命中；`entities/repository.rs` 的 `host\|docker` 也为 0 | **成立** | `grep -rn 'allow_host_execution\|job_timeout_secs' crates/rg-db/src/ \| wc -l` = **0**；`grep -n 'host\|docker' crates/rg-db/src/entities/repository.rs \| wc -l` = **0** |
+| Q4 | `c17735e` 的 `lib.rs` 4045 行 vs 现状 3992 ⇒ 差 53；`post_push_hooks` 起点 `3290 − 3235 = 55` | **成立** | `git show c17735e:…lib.rs \| awk 'END{print NR}'` = **4045**、HEAD = **3992**（差 53）；`grep -n 'fn post_push_hooks'` 两树 = `:3290` / `:3235`（差 55） |
+| F1 | 文档 `:116` 的 `:3046` 是错号，真值 `:3034` | **成立（我方真错，P2）** | `sed -n '3046p'` = `Some(repo.id),`（`record_write` 的参数行，起于 `:3041`）；`sed -n '3034p'` = `match rg_core::repo::branch::delete_branch(`；`3102 − 68 = 3034` 与我方自己用的「前段 −68」一致。已改 `:116`（1 行 → 1 行） |
+| F2 | 文档 `:114` 的「从 32 行 `matches!` 表（`:301-336`）」——区间是 36 行，32 复算不出 | **成立（P3）** | `git show e225293:crates/rg-core/src/auth/pat_scope.rs \| sed -n '301,336p' \| wc -l` = **36**；`fn` 在 `:301`、收尾 `}` 在 `:336`；`matches!` 只在 `:312` 与 `:329` 出现两次，任一口径都出不了 32。已删「32 行」前缀、写成「36 行」 |
+| F3 | §4.1 的「下移」方向反了：行号全部减小 | **成立（P3）** | `writable_refs` `2996 → 2928`、`on_delete` `3082 → 3014`（各 −68）、`post_push_hooks` `3290 → 3235`（−55）、文件 `4045 → 3992`（−53），四个读数全部**减小** ⇒ 是上移。已改「整体上移 68 行（行号减小）」「尾部上移 53 行」；台账 C1 行同源措辞一并改 |
+| F4 | 文档 `:114` 的「`entities/*` 自 `e225293` 起零改动」不成立 | **成立（P3）** | `git diff --numstat e225293 45ed54c -- crates/rg-db/src/entities/` = `5 0 crates/rg-db/src/entities/audit_log.rs`（`cc42dac` 的 `on_behalf_of`）；`entities/ci_secret.rs` 单独跑 **空**（本文唯一引用的那个确实零改动）。已把 `entities/*` 收窄成 `entities/ci_secret.rs` 并注明 `audit_log.rs` 五行不在引用面 |
+| G1 | 文档 `:70`「拒绝只有两路」少了：`receive_pack` 至少还有 `enforce_signed_commit_policies` 与 `on_delete` 守卫 | **成立（P3）** | 真身 `crates/rg-git/src/protocol/receive_pack.rs`：`:432` `if let Some((_, message)) = rejected_refs`、`:444` `if let Some(writable) = writable_refs`、`:481` `enforce_signed_commit_policies(...)`（定义 `:521`）、`:491` `match on_delete {`、`:393-400` 删除只认 `refs/heads/` ⇒ 4 路 + 1 条删除限制。签名那半的 pattern 经 `signed_commit_required_patterns`（`branch_protection/service.rs:316`）→ `protection_ref_pattern`（`:255-257` 的 `format!("refs/heads/{}", …)`）仍只出 `refs/heads/` ⇒ §3.1 结论不变。已把 `:70` 改写为四路 + 删除限制 |
+| G2 | 台账 E1 行「68 个提交作者全为 `yuqu`」不成立 | **成立（我方真错，P3）** | `git log --format='%an' c17735e..45ed54c \| sort \| uniq -c` = **53 `yuqu` + 15 `cnb.biewen`**（总 68）⇒ 「全为 `yuqu`」是更强的假命题。已改台账 E1 行（1 行 → 1 行），并保留「15 条为 PR 合并 / 台账回填，无一条来自复核方」这层真结论 |
+| D1 | #18 第 2 次进入节主判定表 15 行机械复算 = 12 / 1 / 1 / 1 | **成立** | 该节 `[A-Z][0-9]` 桶共 21 行（主表 15 + 自查 T1–T6），按判定列计数 = 成立 18 / 部分成立 1 / 不成立 1 / 确认 1；去掉 T 行即 **12 / 1 / 1 / 1** |
+| D2 | 上一轮 27 行 = 21 纯行号 + 6 含文字（`:3`/`:19`/`:31`/`:36`/`:201`/`:232`），`refs/pull` 前提三处 | **成立** | `git diff -U0 e225293 c17735e -- <设计文档>` = 17 hunk / 27 删 / 27 增；逐行把数字归一化后比对 = **21 纯行号 + 6 含文字**，6 条落在 `:3`/`:19`/`:31`/`:36`/`:201`/`:232`；`grep -n 'refs/pull'` = `:19`/`:36`/`:201`/`:233`，其中 `:233` 是 R4 引用、不是前提 ⇒ 三处成立 |
+| D3 | 验证文档 §2 的 25 条 = 17 / 6 / 2；反向清单 107、`uniq -d` 空、`107.` 在 `:2478` | **成立** | `sed` 前置模板跑 §2 表 = 25 行、**17 成立 / 6 部分成立 / 2 不成立**；台账 `grep -c '^[0-9]\+\. 「'` = **107**、`uniq -d` 空、`grep -n '^107\. 「'` = `:2478` |
+| S1 | §四：文档 `:3` 与 §7 `:152` 仍写基线 `e225293`、`HEAD...cnb/main` = `0 0`，按字面已不成立 | **成立（计数带时点）** | 两处原文逐字命中。它报「今天 `e225293..HEAD` = 71」= 它钉的 `098105f` 时点值（我复算 `git rev-list --count e225293..098105f` = **71**，完全一致）；现树 `19396b9` = **76** ⇒ 不是算错，是时点差 5。已改 `:3` 与 `:152`（各 1 行 → 1 行） |
+| Z1 | §五：「需要动的只有 F1 与 F2/F3/F4/G1」 | **部分成立** | 漏了它自己在「三」里开的 **G2**（台账假命题）与「四」里的**基线口径**（` :3`/`:152` 两处），两者都需改文字；本轮实改 6 处 |
+
+**我方自查（T1–T4，全部成立并已落稿）**：
+
+| # | 自查项 | 判定 | 处置 |
+|---|---|---|---|
+| T1 | F1 的 `:3046` 是我方上一轮写进去的错号（不是我方抄它） | **成立（真错，P2）** | `89cc6ef` 引入；`:3046` 是 `record_write` 的 `Some(repo.id),`，与 `delete_branch` 的 `match` 差 12 行。已订正并把「差 12 行」写进正文，避免下一轮再按 `−68` 估 |
+| T2 | 「32 行」是我方估计、没 `wc -l` | **成立（真错，口径）** | 真值 36（`:301-336`）；`matches!` 只有两处（`:312`、`:329`），24 也不是。已删该前缀 |
+| T3 | 方向词「下移」写反（数对、词错） | **成立（真错，P3）** | 四个读数全为行号减小 ⇒ 上移；文档 `:112` 与台账 C1 行两处都已改 |
+| T4 | 我第一版「其余被引文件零改动」的复核是**空判据** | **成立（方法错）** | 我用 `git diff --numstat … -- crates/rg-git/src/receive_pack.rs` 得空即判「零改动」，但该路径**不存在**（真身 `crates/rg-git/src/protocol/receive_pack.rs`，`git ls-files` 才看得出）。`numstat` 对不存在的路径同样返回空 ⇒ 已用 `git ls-files` 重列真身并重跑，结论（真身自 `e225293` 起零改动）成立，但判据方法记进 R18-14 |
+
+- **新 L2**：**R18-13**（P3，`receive_pack` 的拒写/写限实为 **4 路 + 1 条删除限制**：`rejected_refs` `:432`、`writable_refs` `:444`、`enforce_signed_commit_policies` `:481`（定义 `:521`）、`on_delete` 守卫 `:491`、删除只认 `refs/heads/` `:393-400`；实现 agent-drafts 守卫时新增的判定必须落在**同一处**，否则 `git push --delete` 与签名策略会绕过它）· **R18-14**（P3，流程项：**`git diff --numstat <a> <b> -- <path>` 对不存在的路径同样返回空**，用「零改动」当判据前必须先 `git ls-files <path>` 确认真身 —— 本轮踩到，`crates/rg-git/src/receive_pack.rs` 是错的）· **R18-15**（P3，§4.1 的锚点条目实际 **15** 条（按 `` `:NNN` `` 计数），台账 T4 行写 13、NPC 数 14，三者差异来自「区间条目 vs 单点」与「CI 段并进 `:3364`」的计法；引用该数必须带口径）。
+- **未做**：未改任何代码（`crates/` **零行**，未动 `receive_pack` 的四路守卫、未动 `pat_scope` 的转发）；未拍板 R18-1…R18-15 的 L2 决策；未重钉 §2 表的历史锚点（只修 §3.1 / §4.1 / §7 的现状口径）；未跑 `cargo test`（只跑 `--quick`）。
+- **反向清单**：**本节无新增**（15 条里 1 条部分成立属它结论收窄不足，0 条产品结论被推翻）。累计仍 **1..107**，实体数 `grep -c '^[0-9]\+\. 「'` = **107**、`uniq -d` 空。
+- **复核请求（限定文件）**：`ironforge-docs/architecture/agent-draft-refs-ttl-verification-2026-11.md` 的 `:3`（基线口径 76 提交 + §4.1 为准）、`:70`（四路 + 删除限制，`:481`/`:491`/`:521`/`:393-400`）、`:112`（上移 68 / 上移 53）、`:114`（36 行、`entities/ci_secret.rs`）、`:116`（`:3034`）、`:152`（历史基线 + 76）；以及本台账 #18 第 2 次进入节的 E1 行（53+15）与 C1 行（上移）。请特别复算：`sed -n '3034p' crates/rg-http/src/lib.rs`（应为 `match rg_core::repo::branch::delete_branch(`）、`git show e225293:crates/rg-core/src/auth/pat_scope.rs | sed -n '301,336p' | wc -l`（应 36）、`git log --format='%an' c17735e..45ed54c | sort | uniq -c`（应 53 `yuqu` + 15 `cnb.biewen`）、`git rev-list --count e225293..19396b9`（应 76）、`grep -n 'if let Some(writable)\|enforce_signed_commit_policies(repo_path\|match on_delete' crates/rg-git/src/protocol/receive_pack.rs`。
+- **验证**：见本节末「改动 SHA / 回帖（回填）」。
