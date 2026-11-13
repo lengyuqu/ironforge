@@ -1391,6 +1391,15 @@ fn build_routes(
             "/repos/{owner}/{name}/commits",
             post(api::repo_commits::create_commit),
         )
+        // Apply or undo one existing commit on a branch
+        .route(
+            "/repos/{owner}/{name}/commits/{sha}/cherry-pick",
+            post(api::repo_pick::cherry_pick_commit),
+        )
+        .route(
+            "/repos/{owner}/{name}/commits/{sha}/revert",
+            post(api::repo_pick::revert_commit),
+        )
         // File creation/update/deletion
         .route(
             "/repos/{owner}/{name}/contents/{*path}",

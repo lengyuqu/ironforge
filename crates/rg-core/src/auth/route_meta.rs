@@ -343,6 +343,12 @@ pub const ROUTES: &[RouteMeta] = &[
     repo("/repos/{owner}/{name}/tags"),
     repo("/repos/{owner}/{name}/commits/{sha}/signature").idem(),
     repo("/repos/{owner}/{name}/commits").checked().idem(),
+    repo("/repos/{owner}/{name}/commits/{sha}/cherry-pick")
+        .checked()
+        .idem(),
+    repo("/repos/{owner}/{name}/commits/{sha}/revert")
+        .checked()
+        .idem(),
     repo("/repos/{owner}/{name}/contents/{*path}")
         .checked()
         .idem(),

@@ -125,6 +125,10 @@ mod legacy {
                 | ["pulls", _, "reviewers", _]
                 | ["contents", _, ..]
                 | ["commits"]
+                // Added with the cherry-pick / revert routes: their handlers
+                // check the branch themselves (`.checked()`).
+                | ["commits", _, "cherry-pick"]
+                | ["commits", _, "revert"]
         ) || matches!(
             rest,
             ["branches", first, ..] if *first != "protection"
