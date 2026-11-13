@@ -1,13 +1,12 @@
 //! Branch protection service — protected branches + required status checks.
 
 use chrono::Utc;
-use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
+use sea_orm::{DatabaseConnection, Set};
 
 use rg_db::entities::protected_branch::{self, Model as ProtectedBranch};
-use rg_db::entities::pull_request;
-use rg_db::ops::{pipeline_ops, pr_review_ops, protected_branch_ops};
+use rg_db::ops::protected_branch_ops;
 
-use crate::error::{CoreContext, CoreError, CoreResult};
+use crate::error::{CoreError, CoreResult};
 
 /// Create a branch protection rule.
 #[allow(clippy::too_many_arguments)]
@@ -424,118 +423,22 @@ pub async fn check_direct_commit_allowed(
 }
 
 /// Check if a PR merge is allowed. `require_status_check` with a null or unparsable `required_status_checks` checks nothing, so the merge passes — fail open (R17-1).
+///
+/// The rules themselves live in [`super::merge_gates`], shared with the
+/// merge-readiness preview; this returns the first refusal they give, with the
+/// wording the merge has always used.
 pub async fn check_merge_allowed(
     db: &DatabaseConnection,
     repo_id: i64,
     target_branch: &str,
     pr_id: i64,
 ) -> CoreResult<()> {
-    // Use the same matcher as the push and direct-commit paths so a wildcard
-    // rule (e.g. `release/*`) protects merges too.
-    let rules = protected_branch_ops::list_by_repo(db, repo_id).await?;
-    let refname = format!("refs/heads/{target_branch}");
-
-    let Some(protection) = rules.iter().find(|rule| rule_matches_ref(rule, &refname)) else {
-        return Ok(());
-    };
-
-    if protection.require_signed_commits {
-        return Err(CoreError::forbidden(format!(
-            "branch '{}' requires cryptographically signed commits; server-side PR merge commits are not signed, so create and push a signed commit with an allowed identity",
-            target_branch
-        )));
+    let evaluation =
+        super::merge_gates::evaluate_protection(db, repo_id, target_branch, pr_id, true).await?;
+    match evaluation.refusal {
+        Some(message) => Err(CoreError::forbidden(message)),
+        None => Ok(()),
     }
-
-    // Check required approvals
-    if protection.require_approval {
-        let required = protection.required_approvals.unwrap_or(1);
-        let pr = pull_request::Entity::find_by_id(pr_id)
-            .one(db)
-            .await?
-            .ok_or_else(|| CoreError::not_found("pull request not found"))?;
-        let approval_count =
-            pr_review_ops::count_current_human_approvals(db, pr_id, pr.head_sha.as_deref()).await?;
-        if approval_count < required {
-            return Err(CoreError::forbidden(format!(
-                "merging into protected branch '{}' requires at least {} approval(s), got {}",
-                target_branch, required, approval_count
-            )));
-        }
-    }
-
-    // Check required status checks
-    if protection.require_status_check {
-        if let Some(checks_json) = &protection.required_status_checks {
-            if let Ok(required_checks) = serde_json::from_str::<Vec<String>>(checks_json) {
-                // Find the PR to get its head commit SHA
-                let pr = pull_request::Entity::find()
-                    .filter(pull_request::Column::Id.eq(pr_id))
-                    .one(db)
-                    .await
-                    .context("db: find PR for status check")?;
-
-                let head_sha = match pr.and_then(|p| p.head_sha) {
-                    Some(s) if !s.is_empty() => s,
-                    _ => {
-                        return Err(CoreError::forbidden(format!(
-                            "branch '{}' requires status checks but no CI pipeline found for PR {}",
-                            target_branch, pr_id
-                        )));
-                    }
-                };
-
-                // Find the latest pipeline for this commit
-                let pipeline =
-                    pipeline_ops::find_latest_by_repo_and_commit(db, repo_id, &head_sha).await?;
-
-                match pipeline {
-                    None => {
-                        return Err(CoreError::forbidden(format!(
-                            "branch '{}' requires status checks to pass, but no CI pipeline has run for commit {}",
-                            target_branch,
-                            &head_sha[..8.min(head_sha.len())]
-                        )));
-                    }
-                    Some(p) if p.status != "success" => {
-                        return Err(CoreError::forbidden(format!(
-                            "branch '{}' requires all status checks to pass, but pipeline #{} is {}",
-                            target_branch, p.id, p.status
-                        )));
-                    }
-                    Some(p) => {
-                        // All pipeline jobs must have passed — check job names match required list
-                        let jobs = pipeline_ops::list_jobs_by_pipeline(db, p.id).await?;
-                        let passed_jobs: std::collections::HashSet<_> = jobs
-                            .iter()
-                            .filter(|j| j.status == "success")
-                            .map(|j| j.name.clone())
-                            .collect();
-
-                        let missing: Vec<_> = required_checks
-                            .iter()
-                            .filter(|name| !passed_jobs.contains(*name))
-                            .collect();
-
-                        if !missing.is_empty() {
-                            return Err(CoreError::forbidden(format!(
-                                "branch '{}' requires status checks {:?} to pass, but {:?} are missing or failed",
-                                target_branch, required_checks, missing
-                            )));
-                        }
-
-                        tracing::info!(
-                            branch = %target_branch,
-                            pipeline_id = %p.id,
-                            checks = ?required_checks,
-                            "Branch protection: all status checks passed"
-                        );
-                    }
-                }
-            }
-        }
-    }
-
-    Ok(())
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────

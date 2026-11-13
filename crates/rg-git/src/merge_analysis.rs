@@ -172,11 +172,11 @@ pub struct ConflictEntry {
 /// The conflicts of a merge.
 #[derive(Debug, Clone)]
 pub struct ConflictReport {
-    /// Every conflicting path `gix` reported.
+    /// Every conflicting path `gix` reported (the whole merge, not this page).
     pub total_files: usize,
-    /// The first [`MAX_CONFLICT_FILES`] of them, in path order.
+    /// Up to [`MAX_CONFLICT_FILES`] of them, in path order, after `after_path`.
     pub files: Vec<ConflictEntry>,
-    /// `total_files` is more than `files.len()`.
+    /// More paths follow the last one listed.
     pub files_truncated: bool,
 }
 
@@ -215,11 +215,17 @@ fn parse_oid(sha: &str) -> anyhow::Result<gix::hash::ObjectId> {
 /// Moves no ref. With `write_tree` a clean merge also writes its tree into the
 /// object database and returns its id (needed to build a merge commit);
 /// without it nothing but the objects `gix` creates on the way is written.
+///
+/// A conflicting merge lists at most [`MAX_CONFLICT_FILES`] paths, in path
+/// order. `after_path` starts the list after that path (exclusive), so a caller
+/// can walk a large conflict page by page: pass the last path of the previous
+/// page. The counts always describe the whole merge.
 pub fn analyze_merge(
     repo_path: &Path,
     base_sha: &str,
     head_sha: &str,
     write_tree: bool,
+    after_path: Option<&str>,
 ) -> anyhow::Result<MergeAnalysis> {
     use gix::merge::blob::builtin_driver::text::Labels;
 
@@ -270,7 +276,7 @@ pub fn analyze_merge(
         });
     }
 
-    let report = build_report(&repo, &outcome.tree_merge.conflicts);
+    let report = build_report(&repo, &outcome.tree_merge.conflicts, after_path);
     Ok(MergeAnalysis {
         merge_base,
         verdict: MergeVerdict::Conflicts(report),
@@ -280,15 +286,25 @@ pub fn analyze_merge(
 fn build_report(
     repo: &gix::Repository,
     conflicts: &[gix::merge::tree::Conflict],
+    after_path: Option<&str>,
 ) -> ConflictReport {
-    let mut entries: Vec<ConflictEntry> = conflicts
+    // Order and window by path first; only the listed window is opened.
+    let mut ordered: Vec<(String, &gix::merge::tree::Conflict)> = conflicts
         .iter()
-        .map(|c| describe_conflict(repo, c))
+        .map(|c| (c.changes_in_resolution().0.location().to_string(), c))
         .collect();
-    entries.sort_by(|a, b| a.path.cmp(&b.path));
-    let total_files = entries.len();
-    let files_truncated = total_files > MAX_CONFLICT_FILES;
-    entries.truncate(MAX_CONFLICT_FILES);
+    ordered.sort_by(|a, b| a.0.cmp(&b.0));
+    let total_files = ordered.len();
+    let remaining: Vec<_> = ordered
+        .into_iter()
+        .filter(|(path, _)| after_path.is_none_or(|after| path.as_str() > after))
+        .collect();
+    let files_truncated = remaining.len() > MAX_CONFLICT_FILES;
+    let mut entries: Vec<ConflictEntry> = remaining
+        .into_iter()
+        .take(MAX_CONFLICT_FILES)
+        .map(|(_, conflict)| describe_conflict(repo, conflict))
+        .collect();
 
     // One budget for every excerpt in the report.
     let mut budget = MAX_TOTAL_EXCERPT_BYTES;
@@ -686,14 +702,14 @@ mod tests {
         commit(&git, dir, "c.txt", "c\n", "c");
         let (base, head) = (sha(&git, dir, "main"), sha(&git, dir, "feature"));
 
-        let without = analyze_merge(dir, &base, &head, false).unwrap();
+        let without = analyze_merge(dir, &base, &head, false, None).unwrap();
         assert!(matches!(
             without.verdict,
             MergeVerdict::Clean { tree: None }
         ));
         assert!(without.merge_base.is_some());
 
-        let with = analyze_merge(dir, &base, &head, true).unwrap();
+        let with = analyze_merge(dir, &base, &head, true, None).unwrap();
         let MergeVerdict::Clean { tree: Some(tree) } = with.verdict else {
             panic!("expected a written tree");
         };
@@ -719,7 +735,7 @@ mod tests {
         commit(&git, dir, "f.txt", "top\nbase side\nbottom\n", "main");
         let (base, head) = (sha(&git, dir, "main"), sha(&git, dir, "feature"));
 
-        let analysis = analyze_merge(dir, &base, &head, false).unwrap();
+        let analysis = analyze_merge(dir, &base, &head, false, None).unwrap();
         let report = conflicts(&analysis);
         assert_eq!(report.total_files, 1);
         assert!(!report.files_truncated);
@@ -752,7 +768,7 @@ mod tests {
         run_git(&git, &["commit", "-m", "delete"], dir);
         let (base, head) = (sha(&git, dir, "main"), sha(&git, dir, "feature"));
 
-        let analysis = analyze_merge(dir, &base, &head, false).unwrap();
+        let analysis = analyze_merge(dir, &base, &head, false, None).unwrap();
         let report = conflicts(&analysis);
         let file = &report.files[0];
         assert_eq!(file.path, "gone.txt");
@@ -774,7 +790,7 @@ mod tests {
         commit(&git, dir, "new.txt", "from base\n", "base adds");
         let (base, head) = (sha(&git, dir, "main"), sha(&git, dir, "feature"));
 
-        let analysis = analyze_merge(dir, &base, &head, false).unwrap();
+        let analysis = analyze_merge(dir, &base, &head, false, None).unwrap();
         let file = &conflicts(&analysis).files[0];
         assert_eq!(file.path, "new.txt");
         assert_eq!(file.kind, ConflictKind::AddAdd);
@@ -794,7 +810,7 @@ mod tests {
         commit(&git, dir, "thing/inner.txt", "in a dir\n", "base: dir");
         let (base, head) = (sha(&git, dir, "main"), sha(&git, dir, "feature"));
 
-        let analysis = analyze_merge(dir, &base, &head, false).unwrap();
+        let analysis = analyze_merge(dir, &base, &head, false, None).unwrap();
         let report = conflicts(&analysis);
         assert!(
             report
@@ -825,7 +841,7 @@ mod tests {
         run_git(&git, &["commit", "-m", "base rename"], dir);
         let (base, head) = (sha(&git, dir, "main"), sha(&git, dir, "feature"));
 
-        let analysis = analyze_merge(dir, &base, &head, false).unwrap();
+        let analysis = analyze_merge(dir, &base, &head, false, None).unwrap();
         let report = conflicts(&analysis);
         assert!(
             report
@@ -852,7 +868,7 @@ mod tests {
         run_git(&git, &["commit", "-am", "base"], dir);
         let (base, head) = (sha(&git, dir, "main"), sha(&git, dir, "feature"));
 
-        let analysis = analyze_merge(dir, &base, &head, false).unwrap();
+        let analysis = analyze_merge(dir, &base, &head, false, None).unwrap();
         let file = &conflicts(&analysis).files[0];
         assert_eq!(file.path, "bin.dat");
         assert!(!file.content_available);
@@ -886,12 +902,54 @@ mod tests {
         run_git(&git, &["commit", "-am", "main"], dir);
         let (base, head) = (sha(&git, dir, "main"), sha(&git, dir, "feature"));
 
-        let analysis = analyze_merge(dir, &base, &head, false).unwrap();
+        let analysis = analyze_merge(dir, &base, &head, false, None).unwrap();
         let report = conflicts(&analysis);
         assert_eq!(report.total_files, total);
         assert_eq!(report.files.len(), MAX_CONFLICT_FILES);
         assert!(report.files_truncated);
         assert_eq!(report.files[0].path, "f000.txt");
+    }
+
+    #[test]
+    fn after_path_walks_a_large_conflict_page_by_page() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
+        let git = init_repo(dir);
+        let total = MAX_CONFLICT_FILES + 5;
+        for i in 0..total {
+            std::fs::write(dir.join(format!("f{i:03}.txt")), "base\n").unwrap();
+        }
+        run_git(&git, &["add", "-A"], dir);
+        run_git(&git, &["commit", "-m", "base"], dir);
+        run_git(&git, &["checkout", "-b", "feature"], dir);
+        for i in 0..total {
+            std::fs::write(dir.join(format!("f{i:03}.txt")), "head\n").unwrap();
+        }
+        run_git(&git, &["commit", "-am", "head"], dir);
+        run_git(&git, &["checkout", "main"], dir);
+        for i in 0..total {
+            std::fs::write(dir.join(format!("f{i:03}.txt")), "main\n").unwrap();
+        }
+        run_git(&git, &["commit", "-am", "main"], dir);
+        let (base, head) = (sha(&git, dir, "main"), sha(&git, dir, "feature"));
+
+        let first = analyze_merge(dir, &base, &head, false, None).unwrap();
+        let first = conflicts(&first);
+        let last = first.files.last().unwrap().path.clone();
+        assert!(first.files_truncated);
+
+        let second = analyze_merge(dir, &base, &head, false, Some(&last)).unwrap();
+        let second = conflicts(&second);
+        assert_eq!(
+            second.total_files, total,
+            "the count describes the whole merge"
+        );
+        assert_eq!(second.files.len(), 5);
+        assert!(!second.files_truncated);
+        assert_eq!(
+            second.files[0].path,
+            format!("f{:03}.txt", MAX_CONFLICT_FILES)
+        );
     }
 
     #[test]
@@ -905,7 +963,7 @@ mod tests {
         commit(&git, dir, "z.txt", "z\n", "z");
         let (base, head) = (sha(&git, dir, "main"), sha(&git, dir, "other"));
 
-        let analysis = analyze_merge(dir, &base, &head, false).unwrap();
+        let analysis = analyze_merge(dir, &base, &head, false, None).unwrap();
         assert!(analysis.merge_base.is_none());
         assert!(matches!(analysis.verdict, MergeVerdict::NoMergeBase));
     }
@@ -922,7 +980,7 @@ mod tests {
         commit(&git, dir, "f.txt", "main\n", "main");
         let before = git_out(&git, &["for-each-ref"], dir);
         let (base, head) = (sha(&git, dir, "main"), sha(&git, dir, "feature"));
-        analyze_merge(dir, &base, &head, true).unwrap();
+        analyze_merge(dir, &base, &head, true, None).unwrap();
         assert_eq!(git_out(&git, &["for-each-ref"], dir), before);
     }
 
@@ -971,7 +1029,7 @@ mod tests {
         run_git(&git, &["checkout", "main"], dir);
         commit(&git, dir, "c.txt", "c\n", "c");
         let (base, head) = (sha(&git, dir, "main"), sha(&git, dir, "feature"));
-        let analysis = analyze_merge(dir, &base, &head, true).unwrap();
+        let analysis = analyze_merge(dir, &base, &head, true, None).unwrap();
         let MergeVerdict::Clean { tree: Some(tree) } = analysis.verdict else {
             panic!("clean merge expected");
         };
