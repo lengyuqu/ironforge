@@ -153,6 +153,9 @@ impl World {
     /// A pipeline for `sha` with the given `(job name, job status)` pairs.
     async fn pipeline(&self, sha: &str, pipeline_status: &str, jobs: &[(&str, &str)]) -> i64 {
         use rg_db::ops::pipeline_ops as ops;
+        // "Latest pipeline for the commit" orders by `created_at`; MySQL keeps whole
+        // seconds, so two pipelines made in one second would tie (CLAUDE.md, pitfall 23).
+        tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
         let pipeline = ops::create_pipeline(
             &self.db,
             self.repo_id,

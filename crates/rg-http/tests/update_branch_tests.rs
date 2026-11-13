@@ -167,6 +167,20 @@ impl World {
         (head, base)
     }
 
+    /// This world's update-branch audit entries. Filtered by resource: on
+    /// PostgreSQL/MySQL every test of a target shares one database.
+    async fn audit_rows(&self) -> Vec<rg_db::entities::audit_log::Model> {
+        rg_db::entities::audit_log::Entity::find()
+            .filter(rg_db::entities::audit_log::Column::Action.eq("pull_request.update_branch"))
+            .filter(
+                rg_db::entities::audit_log::Column::ResourceName
+                    .eq(format!("{}/work#1", self.owner)),
+            )
+            .all(&self.db)
+            .await
+            .unwrap()
+    }
+
     fn parents(&self, commit: &str) -> Vec<String> {
         let gateway = rg_git::cli_gateway::global_gateway().as_ref().unwrap();
         let out = gateway
@@ -244,11 +258,7 @@ async fn updating_merges_the_base_into_the_head_and_announces_it_like_a_push() {
     assert!(pushed, "no push event for the update");
 
     // Audited with what moved.
-    let rows = rg_db::entities::audit_log::Entity::find()
-        .filter(rg_db::entities::audit_log::Column::Action.eq("pull_request.update_branch"))
-        .all(&w.db)
-        .await
-        .unwrap();
+    let rows = w.audit_rows().await;
     assert_eq!(rows.len(), 1);
     let details = rows[0].details.clone().unwrap_or_default();
     assert!(
@@ -284,11 +294,7 @@ async fn a_second_call_on_the_new_head_is_a_no_op_and_the_old_head_is_stale() {
     assert_eq!(v["created_commits"], 0);
     assert_eq!(v["head_sha_after"], json!(merged));
     assert_eq!(w.rev("refs/heads/agent/x"), Some(merged.clone()));
-    let rows = rg_db::entities::audit_log::Entity::find()
-        .filter(rg_db::entities::audit_log::Column::Action.eq("pull_request.update_branch"))
-        .all(&w.db)
-        .await
-        .unwrap();
+    let rows = w.audit_rows().await;
     assert_eq!(rows.len(), 1);
 
     // The commit the first call was based on is not the head any more.
@@ -399,11 +405,7 @@ async fn a_dry_run_reports_and_writes_nothing() {
         w.rev("refs/pull/1/head"),
     );
     assert_eq!(before, after);
-    let rows = rg_db::entities::audit_log::Entity::find()
-        .filter(rg_db::entities::audit_log::Column::Action.eq("pull_request.update_branch"))
-        .all(&w.db)
-        .await
-        .unwrap();
+    let rows = w.audit_rows().await;
     assert!(rows.is_empty(), "a dry run is not audited as a write");
 }
 
@@ -595,11 +597,7 @@ async fn an_agent_updates_the_branch_under_its_own_name() {
     );
 
     // The audit entry names the agent's owner.
-    let rows = rg_db::entities::audit_log::Entity::find()
-        .filter(rg_db::entities::audit_log::Column::Action.eq("pull_request.update_branch"))
-        .all(&w.db)
-        .await
-        .unwrap();
+    let rows = w.audit_rows().await;
     assert_eq!(rows.len(), 1);
     assert!(rows[0].on_behalf_of_user_id.is_some());
 }
