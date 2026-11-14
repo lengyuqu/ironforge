@@ -93,6 +93,15 @@ impl CoreError {
             message: msg.into(),
         }
     }
+
+    /// Create an error carrying a stable machine-readable `code`.
+    pub fn coded(status: u16, code: &'static str, msg: impl Into<String>) -> Self {
+        CoreError::Coded {
+            status,
+            code,
+            message: msg.into(),
+        }
+    }
 }
 
 // Convenience: convert anyhow::Error directly into CoreError::Internal.
@@ -185,6 +194,10 @@ mod anyhow_round_trip_tests {
                 CoreError::secret_detected("secret detected in key.pem"),
                 "Coded",
             ),
+            (
+                CoreError::coded(409, "SOME_CODE", "typed conflict"),
+                "Coded",
+            ),
         ] {
             let back: CoreError = through_anyhow(original).unwrap_err().into();
             let kind = match back {
@@ -192,10 +205,35 @@ mod anyhow_round_trip_tests {
                 CoreError::Forbidden(_) => "Forbidden",
                 CoreError::Conflict(_) => "Conflict",
                 CoreError::InvalidInput(_) => "InvalidInput",
-                CoreError::Internal(_) => "Internal",
                 CoreError::Coded { .. } => "Coded",
+                CoreError::Internal(_) => "Internal",
             };
             assert_eq!(kind, check);
+        }
+    }
+
+    /// The code, status and message survive the anyhow trip unchanged: that is
+    /// what lets a service raise a coded failure and the HTTP layer keep it.
+    #[test]
+    fn coded_fields_survive_a_trip_through_anyhow() {
+        let back: CoreError = through_anyhow(CoreError::coded(
+            409,
+            "CI_QUOTA_MINUTES",
+            "daily minutes exhausted",
+        ))
+        .unwrap_err()
+        .into();
+        match back {
+            CoreError::Coded {
+                status,
+                code,
+                message,
+            } => {
+                assert_eq!(status, 409);
+                assert_eq!(code, "CI_QUOTA_MINUTES");
+                assert_eq!(message, "daily minutes exhausted");
+            }
+            other => panic!("expected Coded, got {other:?}"),
         }
     }
 

@@ -3088,6 +3088,10 @@ async fn handle_git_receive_pack(
             }
     };
 
+    // Secret-scan audit events are emitted by `rg-git` while this push is being
+    // processed; register the task so they come back here instead of being lost.
+    let mut secret_scan_audit = SecretScanAudit::begin();
+
     let push_result = tokio::time::timeout(
         git_stream_timeout(),
         rg_git::protocol::receive_pack::handle_receive_pack_http_with_rejections(
@@ -3101,6 +3105,12 @@ async fn handle_git_receive_pack(
         ),
     )
     .await;
+
+    let secret_scan_events = secret_scan_audit
+        .as_mut()
+        .map(SecretScanAudit::drain)
+        .unwrap_or_default();
+    drop(secret_scan_audit);
 
     match push_result {
         Ok(Ok(ref_updates)) => {
@@ -3116,6 +3126,7 @@ async fn handle_git_receive_pack(
                 repo_path.clone(),
                 ref_updates,
                 actor_id,
+                secret_scan_events,
             );
 
             (
@@ -3151,6 +3162,121 @@ async fn handle_git_receive_pack(
     }
 }
 
+/// Secret-scan audit events come from `rg-git`, which has no database: its
+/// scanner reports through a process-wide sink, and the caller persists them
+/// (`docs/plans/T04-plan.md` §9 left exactly this gap for the push path).
+///
+/// The sink is one global callback shared by every push, while the audit rows
+/// need the repository of the push that produced the event. Events are
+/// therefore routed back to the receive-pack task that is scanning them —
+/// `tokio::task::try_id()` inside the (synchronous) callback is that same task.
+/// Events arriving with no registered task are dropped rather than attributed
+/// to the wrong repository.
+type SecretScanSinks = std::sync::Mutex<
+    std::collections::HashMap<
+        tokio::task::Id,
+        tokio::sync::mpsc::UnboundedSender<rg_git::secret_scan::AuditEvent>,
+    >,
+>;
+
+fn secret_scan_sinks() -> &'static SecretScanSinks {
+    static SINKS: std::sync::OnceLock<SecretScanSinks> = std::sync::OnceLock::new();
+    SINKS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
+fn install_secret_scan_sink() {
+    static INSTALLED: std::sync::Once = std::sync::Once::new();
+    INSTALLED.call_once(|| {
+        rg_git::secret_scan::set_audit_sink(std::sync::Arc::new(
+            |event: &rg_git::secret_scan::AuditEvent| {
+                let Some(task) = tokio::task::try_id() else {
+                    return;
+                };
+                let sinks = secret_scan_sinks()
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner());
+                if let Some(sender) = sinks.get(&task) {
+                    let _ = sender.send(event.clone());
+                }
+            },
+        ));
+    });
+}
+
+/// The audit events of the current receive-pack call. Dropping it unregisters
+/// the task, so an aborted or panicking push cannot leak its slot.
+struct SecretScanAudit {
+    task: tokio::task::Id,
+    receiver: tokio::sync::mpsc::UnboundedReceiver<rg_git::secret_scan::AuditEvent>,
+}
+
+impl SecretScanAudit {
+    /// `None` outside a tokio task (the scanner then has no task to route to).
+    fn begin() -> Option<Self> {
+        let task = tokio::task::try_id()?;
+        install_secret_scan_sink();
+        let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+        secret_scan_sinks()
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .insert(task, sender);
+        Some(Self { task, receiver })
+    }
+
+    fn drain(&mut self) -> Vec<rg_git::secret_scan::AuditEvent> {
+        let mut events = Vec::new();
+        while let Ok(event) = self.receiver.try_recv() {
+            events.push(event);
+        }
+        events
+    }
+}
+
+impl Drop for SecretScanAudit {
+    fn drop(&mut self) {
+        secret_scan_sinks()
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .remove(&self.task);
+    }
+}
+
+/// Persist the secret-scan events of one push. The details carry the ref, path,
+/// rule name and counters only — never the matched text.
+async fn record_secret_scan_events(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    repo_label: &str,
+    actor_id: Option<i64>,
+    events: &[rg_git::secret_scan::AuditEvent],
+) {
+    for event in events {
+        let details = serde_json::json!({
+            "via": "git_push",
+            "ref": event.refname,
+            "path": event.path,
+            "rule": event.rule.map(|rule| rule.name()),
+            "files": event.files,
+            "reason": event.reason,
+        })
+        .to_string();
+        let action = format!("repo.{}", event.kind.name());
+        rg_core::audit::record(
+            db,
+            actor_id,
+            None,
+            &action,
+            Some("repo"),
+            Some(repo_id),
+            Some(repo_label),
+            None,
+            None,
+            Some(&details),
+        )
+        .await;
+    }
+}
+
 /// Run the post-push hooks (PR head sync, CI, webhooks, event log) for ref
 /// updates that were already applied, in a background task. A push over git and a
 /// file commit through the REST API both end here, so a branch moved either way
@@ -3162,6 +3288,7 @@ pub(crate) fn spawn_post_push_hooks(
     repo_path: std::path::PathBuf,
     ref_updates: Vec<rg_git::protocol::receive_pack::RefUpdate>,
     pushed_by: Option<i64>,
+    secret_scan_events: Vec<rg_git::secret_scan::AuditEvent>,
 ) {
     let db = state.db.clone();
     let repo_root = state.repo_root.clone();
@@ -3193,6 +3320,7 @@ pub(crate) fn spawn_post_push_hooks(
                 ci_engine: &*ci_engine,
                 external_url: external_url.as_deref(),
                 pushed_by,
+                secret_scan_events: &secret_scan_events,
             },
             &ref_updates,
         )
@@ -3219,6 +3347,9 @@ struct PostPushParams<'a> {
     /// Recorded in the push event so the actor stays traceable; the commit author
     /// of a pushed commit is whatever the client wrote and is not rewritten.
     pushed_by: Option<i64>,
+    /// Secret-scan audit events produced by the receive-pack call that moved
+    /// these refs (`rg-git` cannot write them itself).
+    secret_scan_events: &'a [rg_git::secret_scan::AuditEvent],
 }
 
 fn tag_protection_rejected_refs(
@@ -3268,6 +3399,7 @@ async fn post_push_hooks(
         ci_engine,
         external_url,
         pushed_by,
+        secret_scan_events: _,
     } = params;
 
     // Find repo_id from DB
@@ -3280,6 +3412,19 @@ async fn post_push_hooks(
             return;
         }
     };
+
+    // Secret-scan audit trail for the push that just moved these refs (T04's
+    // scanner reported it through a sink because `rg-git` has no database).
+    if !params.secret_scan_events.is_empty() {
+        record_secret_scan_events(
+            db,
+            repo_id,
+            &format!("{owner}/{repo_name}"),
+            *pushed_by,
+            params.secret_scan_events,
+        )
+        .await;
+    }
 
     for update in ref_updates {
         if update.status != "ok" {
@@ -3387,7 +3532,11 @@ async fn post_push_hooks(
                     commit_sha: &update.new_sha,
                     ref_name: &update.refname,
                     trigger_type: "push",
-                    triggered_by: None,
+                    // The pusher (git credential or REST file commit). `None`
+                    // when the push carries no account (deleted user, anonymous
+                    // or internal push): such triggers are neither limited nor
+                    // counted by the agent quota (`rg_ci::quota`).
+                    triggered_by: *pushed_by,
                     docker_enabled: *docker_enabled,
                     external_runners: *external_runners,
                     allow_host_execution: *allow_host_execution,

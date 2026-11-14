@@ -32,6 +32,7 @@
 pub mod condition;
 pub mod config;
 pub mod gitea_actions;
+pub mod quota;
 pub mod runner;
 
 use anyhow::{Context, Result};
@@ -131,6 +132,11 @@ pub async fn trigger_pipeline(params: TriggerPipelineParams<'_>) -> Result<i64> 
     let config = read_ci_config(repo_path, commit_sha, ref_name, trigger_type)?;
     validate_execution_semantics(&config)?;
 
+    // 1b. Quota (R10): agents are limited per repository before any row is
+    // created. Human subjects and subject-less triggers (the push hook passes
+    // `triggered_by: None`) are not limited.
+    quota::enforce(db, repo_id, triggered_by).await?;
+
     // 2. Concurrency control
     if let Some(ref concurrency) = config.concurrency {
         let group =
@@ -174,6 +180,11 @@ pub async fn trigger_pipeline(params: TriggerPipelineParams<'_>) -> Result<i64> 
     .await?;
 
     let pipeline_id = pipeline.id;
+
+    // Keep the concurrency gauge accurate for the duration of the run.
+    if let Err(error) = quota::record_active_pipelines(db, repo_id, triggered_by).await {
+        tracing::warn!(%error, "failed to record CI concurrency gauge");
+    }
 
     // 4. Create stages
     let stage_names = config.stages.as_ref().cloned().unwrap_or_default();
@@ -289,6 +300,9 @@ pub async fn trigger_pipeline(params: TriggerPipelineParams<'_>) -> Result<i64> 
         .await?
         .is_some_and(|pipeline| pipeline.status == "success")
     {
+        // The pipeline finished without a runner (every job was skipped), so
+        // this is its only terminal-state accounting point.
+        record_usage(db, pipeline_id).await;
         evaluate_initial_success(
             db,
             repo_path,
@@ -332,6 +346,14 @@ pub async fn trigger_pipeline(params: TriggerPipelineParams<'_>) -> Result<i64> 
     }
 
     Ok(pipeline_id)
+}
+
+/// Record the usage of a finished pipeline, logging instead of failing: the
+/// accounting must never turn a completed pipeline into an error.
+async fn record_usage(db: &sea_orm::DatabaseConnection, pipeline_id: i64) {
+    if let Err(error) = quota::record_finished_pipeline(db, pipeline_id).await {
+        tracing::warn!(pipeline_id, %error, "failed to record CI usage");
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -388,6 +410,7 @@ fn spawn_internal_runner(
     external_url: Option<&str>,
 ) {
     let db_clone = db.clone();
+    let accounting_db = db.clone();
     let repo_path_owned = repo_path.to_path_buf();
     let jwt_secret_owned = jwt_secret.map(str::to_string);
     let oidc_token_url =
@@ -410,6 +433,10 @@ fn spawn_internal_runner(
         if let Err(error) = runner.run().await {
             tracing::error!(pipeline_id, %error, "pipeline runner error");
         }
+        // The pipeline is terminal by now (the runner marks it itself, even on
+        // failure). If this is skipped — a panic, say — the next trigger of this
+        // repository recomputes the same period, so nothing is lost.
+        record_usage(&accounting_db, pipeline_id).await;
     });
 }
 

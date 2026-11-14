@@ -96,6 +96,7 @@ pub mod team;
 pub mod team_member;
 pub mod team_repository;
 pub mod time_entry;
+pub mod usage_counter;
 pub mod user;
 pub mod webhook;
 pub mod webhook_delivery;
