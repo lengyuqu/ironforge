@@ -1,3 +1,4 @@
+pub mod actor_ref;
 pub mod admin;
 pub mod agents;
 pub mod ai;

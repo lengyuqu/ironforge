@@ -504,6 +504,7 @@ pub struct PaginatedRepoResponse {
             crate::api::webhooks_external::ExternalCiWebhook,
             crate::api::webhooks_external::ExternalCiResponse,
             crate::api::audit::AuditLogEntry,
+            crate::api::actor_ref::ActorRefSchema,
             crate::api::audit::AuditLogResponse,
             crate::api::audit::LoginAttemptEntry,
             crate::api::audit::LoginAttemptResponse,
