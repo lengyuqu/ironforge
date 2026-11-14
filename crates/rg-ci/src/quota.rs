@@ -114,8 +114,11 @@ fn is_terminal(status: &str) -> bool {
     TERMINAL_STATUSES.contains(&status)
 }
 
-fn conflict(code: &str, message: String) -> anyhow::Error {
-    anyhow::Error::new(CoreError::conflict(format!("{code}: {message}")))
+/// HTTP status of both quota rejections.
+const QUOTA_STATUS: u16 = 409;
+
+fn quota_error(code: &'static str, message: String) -> anyhow::Error {
+    anyhow::Error::new(CoreError::coded(QUOTA_STATUS, code, message))
 }
 
 /// Enforce the CI quota for a trigger, refreshing the stored counters first.
@@ -140,7 +143,7 @@ pub async fn enforce(
     let snapshot = refresh(db, subject_id, repo_id, period).await?;
 
     if snapshot.active_pipelines >= MAX_CONCURRENT_PIPELINES_PER_REPO {
-        return Err(conflict(
+        return Err(quota_error(
             CODE_CONCURRENCY,
             format!(
                 "agent {subject_id} already has {} active pipeline(s) on repository {repo_id}; \
@@ -150,7 +153,7 @@ pub async fn enforce(
         ));
     }
     if snapshot.minutes >= DAILY_MINUTES_PER_REPO {
-        return Err(conflict(
+        return Err(quota_error(
             CODE_MINUTES,
             format!(
                 "agent {subject_id} has used {} CI minute(s) on repository {repo_id} on {period}; \
@@ -442,6 +445,49 @@ mod tests {
     use super::*;
     use sea_orm::{NotSet, Set};
 
+    /// `(status, code)` of a coded `CoreError`, panicking on any other shape.
+    fn coded_parts(error: &anyhow::Error) -> (u16, &'static str) {
+        match error.downcast_ref::<CoreError>() {
+            Some(CoreError::Coded { status, code, .. }) => (*status, code),
+            other => panic!("expected CoreError::Coded, got {other:?}"),
+        }
+    }
+
+    /// A real git repository at a commit with a valid `.ironforge-ci.yml`, so
+    /// `trigger_pipeline` can read it.
+    fn ci_repo(dir: &std::path::Path) -> (std::path::PathBuf, String) {
+        std::fs::write(
+            dir.join(".ironforge-ci.yml"),
+            "stages: [build]\nbuild:\n  stage: build\n  script: [echo ok]\n",
+        )
+        .unwrap();
+        let git = rg_git::cli_gateway::global_gateway().as_ref().unwrap();
+        assert!(git.run(&["init"], Some(dir)).unwrap().success());
+        assert!(git
+            .run(&["config", "user.name", "CI"], Some(dir))
+            .unwrap()
+            .success());
+        assert!(git
+            .run(&["config", "user.email", "ci@example.com"], Some(dir))
+            .unwrap()
+            .success());
+        assert!(git
+            .run(&["add", ".ironforge-ci.yml"], Some(dir))
+            .unwrap()
+            .success());
+        assert!(git
+            .run(&["commit", "-m", "ci"], Some(dir))
+            .unwrap()
+            .success());
+        let sha = git
+            .run(&["rev-parse", "HEAD"], Some(dir))
+            .unwrap()
+            .stdout_str()
+            .trim()
+            .to_owned();
+        (dir.to_path_buf(), sha)
+    }
+
     async fn test_db() -> (tempfile::TempDir, DatabaseConnection) {
         let dir = tempfile::tempdir().expect("tempdir");
         let url = format!(
@@ -612,13 +658,10 @@ mod tests {
             .unwrap();
         }
         let error = enforce(&db, repo_id, Some(subject)).await.unwrap_err();
-        assert!(matches!(
-            error.downcast_ref::<CoreError>(),
-            Some(CoreError::Conflict(_))
-        ));
-        assert!(
-            error.to_string().contains(CODE_CONCURRENCY),
-            "message must carry the stable code: {error}"
+        assert_eq!(
+            coded_parts(&error),
+            (409, CODE_CONCURRENCY),
+            "a quota rejection must carry its own code and status: {error}"
         );
 
         // The gauge recorded at check time is the live count.
@@ -657,7 +700,11 @@ mod tests {
         );
 
         let error = enforce(&db, repo_id, Some(subject)).await.unwrap_err();
-        assert!(error.to_string().contains(CODE_MINUTES), "{error}");
+        assert_eq!(
+            coded_parts(&error),
+            (409, CODE_MINUTES),
+            "a quota rejection must carry its own code and status: {error}"
+        );
 
         // Recording the same pipeline again does not double the total.
         for pipeline in rg_db::ops::pipeline_ops::list_pipelines_by_repo(&db, repo_id)
@@ -683,6 +730,104 @@ mod tests {
             2,
             "one ci_minutes row and one ci_concurrent_pipelines row"
         );
+    }
+
+    /// The push path (`rg-http`'s post-push hook) now passes the pusher, so a
+    /// push-triggered pipeline of an agent is rejected exactly like a manual
+    /// one, while a person's push still goes through.
+    #[tokio::test]
+    async fn push_triggered_pipelines_are_gated_for_agents_only() {
+        let (_dir, db) = test_db().await;
+        let owner = user(&db, "owner-push").await;
+        let subject = agent(&db, "owner-push-agent", owner).await;
+        let repo_id = repo(&db, owner, "quota-push").await;
+
+        let work = tempfile::tempdir().unwrap();
+        let (repo_path, sha) = ci_repo(work.path());
+
+        // Fill the agent's concurrency slots with finished-outside-CI rows.
+        for _ in 0..MAX_CONCURRENT_PIPELINES_PER_REPO {
+            rg_db::ops::pipeline_ops::create_pipeline(
+                &db,
+                repo_id,
+                "deadbeef",
+                "refs/heads/main",
+                "push",
+                Some(subject),
+            )
+            .await
+            .unwrap();
+        }
+        let before = rg_db::ops::pipeline_ops::list_pipelines_by_repo(&db, repo_id)
+            .await
+            .unwrap()
+            .len();
+
+        let error = crate::trigger_pipeline(rg_core::ci::TriggerPipelineParams {
+            db: &db,
+            repo_path: &repo_path,
+            repo_id,
+            commit_sha: &sha,
+            ref_name: "refs/heads/main",
+            trigger_type: "push",
+            triggered_by: Some(subject),
+            docker_enabled: false,
+            external_runners: true,
+            allow_host_execution: true,
+            jwt_secret: Some("secret"),
+            external_url: None,
+        })
+        .await
+        .expect_err("an over-quota agent push must be rejected");
+        assert_eq!(
+            coded_parts(&error),
+            (409, CODE_CONCURRENCY),
+            "push-triggered quota rejection: {error}"
+        );
+        assert_eq!(
+            rg_db::ops::pipeline_ops::list_pipelines_by_repo(&db, repo_id)
+                .await
+                .unwrap()
+                .len(),
+            before,
+            "a rejected trigger must not create a pipeline row"
+        );
+
+        // A person in the same shape is not limited and gets a pipeline.
+        for _ in 0..MAX_CONCURRENT_PIPELINES_PER_REPO {
+            rg_db::ops::pipeline_ops::create_pipeline(
+                &db,
+                repo_id,
+                "deadbeef",
+                "refs/heads/main",
+                "push",
+                Some(owner),
+            )
+            .await
+            .unwrap();
+        }
+        let pipeline_id = crate::trigger_pipeline(rg_core::ci::TriggerPipelineParams {
+            db: &db,
+            repo_path: &repo_path,
+            repo_id,
+            commit_sha: &sha,
+            ref_name: "refs/heads/main",
+            trigger_type: "push",
+            triggered_by: Some(owner),
+            docker_enabled: false,
+            external_runners: true,
+            allow_host_execution: true,
+            jwt_secret: Some("secret"),
+            external_url: None,
+        })
+        .await
+        .expect("a human push is never limited");
+        let pipeline = rg_db::ops::pipeline_ops::get_pipeline(&db, pipeline_id)
+            .await
+            .unwrap()
+            .expect("pipeline exists");
+        assert_eq!(pipeline.triggered_by, Some(owner));
+        assert_eq!(pipeline.trigger_type, "push");
     }
 
     #[tokio::test]

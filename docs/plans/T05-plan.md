@@ -12,6 +12,7 @@
 3. `trigger_pipeline` 在**创建 pipeline 之前**校验：并发超限 / 当日分钟超限 → 409（`CoreError::Conflict`），message 以稳定码开头。
 4. pipeline 进入终态时按 `pipeline_jobs.started_at` / `finished_at` 记账；同一 pipeline 重复记账不叠加。
 5. 只对 `users.kind = "agent"` 生效；人类不受限。
+6. 承接 T04 遗留（§6.1）：push 侧密钥扫描的 `AuditEvent` 通过 `set_audit_sink` 落 `audit_log`。
 
 **不做（明确留出）**
 
@@ -86,45 +87,64 @@ pipeline 进入终态有多条互不相同的路径：内部 runner（`runner.rs
 
 - 放在配置校验之后，保证「CI 配置非法」仍先返回 400，不改变既有错误优先级。
 - `enforce` 先重算两个 metric 并落库，再用**实时活跃计数**判并发（gauge 只是落库快照），用落库分钟数判当日额度。
-- 只对 `users.kind = "agent"` 生效：`triggered_by` 为空（push hook）、查不到用户、或 `kind != "agent"` 时直接放行且不写任何行。人类账号在升级后不会被误伤。
+- 只对 `users.kind = "agent"` 生效：`triggered_by` 为空（账号已删 / 匿名或内部 push）、查不到用户、或 `kind != "agent"` 时直接放行且不写任何行。人类账号在升级后不会被误伤。
 
-### 5.1 409 稳定码的真实形态（与任务书的一处偏差）
+### 5.1 409 + 精确稳定码
 
-任务书要求 409 + 稳定码 `CI_QUOTA_CONCURRENCY` / `CI_QUOTA_MINUTES`。已核实 HTTP 映射：`trigger_pipeline` 的错误经 `rg-http/src/api/ci.rs::engine_error` 处理，它只把 `anyhow` 里的 `CoreError` 还原成 `AppError`，**不保留自定义 code**；响应体 `error.code` 只能由 `AppError::Coded` 产出，而 `AppError::Coded` 不在这条调用链上。
+`error.code` 精确等于 `CI_QUOTA_CONCURRENCY` / `CI_QUOTA_MINUTES`，不是 message 前缀。
 
-在不改 `rg-http` / `rg-core` 错误映射的前提下，落地形态是：
+通用变体 `CoreError::Coded { status: u16, code: &'static str, message }` 由 T04（R7 密钥扫描）先一步在主分支引入并在用（`SECRET_DETECTED`）。本任务**复用它，不新增第二个变体**：
 
-- HTTP 状态：**409**（`CoreError::Conflict` → `AppError::Conflict` → `CONFLICT`）；
-- 响应体 `error.message`：以 `CI_QUOTA_CONCURRENCY: ...` / `CI_QUOTA_MINUTES: ...` 开头，作为稳定标识；
-- `error.code`：`CONFLICT`（粗粒度）。
+- 补 `CoreError::coded(status, code, msg)` 通用构造函数，避免每个调用点手写结构体；
+- `rg-http/src/error.rs` 的 `From<CoreError> for AppError` 把它转成 `AppError::Coded`，`engine_error()` 只做 downcast，因此 `error.code` 直接是稳定码；
+- 单测：`rg-core` 里 `Coded` 字段经 anyhow 往返不变；`rg-http` 里 `AppError::from(CoreError::coded(409, "CI_QUOTA_CONCURRENCY", ..))` 的 `status()`/`code()` 精确；
+- 没有为两个码各加枚举成员，也没有改既有变体的语义；`api/ci.rs` 一行未动。
 
-要让 `error.code` 精确等于两个稳定码，需要在 `rg-core::error::CoreError` 增加带 code 的变体并让 `engine_error` 认识它，或让 `rg-http/src/api/ci.rs` 识别 CI 配额错误——两者都超出 T05 的禁改/owned 范围，列为后续任务。
+**变基说明**：T04 合并（`d62d1c3`）后本分支已 rebase 到最新 `main`。冲突只出现在 `rg-core/src/error.rs`（两边都加了同一个 `Coded` 变体）与 `merge_queue.rs` 的穷尽匹配；解决方式是保留 T04 的变体定义与分支注释，本任务的提交收窄为「`coded()` 构造函数 + 两端测试」，`merge_queue.rs` 最终与主分支完全一致。
 
-## 6. 覆盖面与已知缺口
+## 6. 覆盖面：push 也受限
 
-**缺口（必须知道）**：唯一真实 push 触发点 `crates/rg-http/src/lib.rs:3390` 传 `triggered_by: None`。`triggered_by` 是 CI 引擎唯一能拿到的主体标识，所以：
+`triggered_by` 是 CI 引擎唯一能拿到的主体标识。原先唯一真实 push 触发点传 `None`，配额对 agent 的 `git push` 完全无效——这正是 agent 最该被拦的场景，所以已修：
 
-- git push 触发的 pipeline **既不限流也不计数**（没有主体可归属）；
-- 配额实际作用于：`POST /repos/{o}/{r}/pipelines`（manual）、retry、review 触发、merge queue（`merge_queue.rs:551` 传 `enqueued_by_id`）。
+- `crates/rg-http/src/lib.rs` 的 post-push 触发段改为 `triggered_by: *pushed_by`（`PostPushParams.pushed_by` 早已由 git push 的 `actor_id` 和 REST 文件提交的 actor 填好）；
+- pusher 解析不出时 `pushed_by` 为 `None`（账号已删、匿名/系统内部 push、无凭据的 ref 更新）→ 不限流、不计数；
+- 只改了这一个调用点与其所需参数传递，未碰同文件的路由注册段（`build_routes`），未增删任何路由。
 
-这符合任务书「若实现上难以区分，先说明并降级」的口径。开启 push 配额需要 push hook 把认证 pusher 传进来（`rg-http/src/lib.rs` post-push 段），属禁改路径，列为后续任务。
+现在配额覆盖：git push、REST 文件提交（同一 post-push hook）、`POST /pipelines`（manual）、retry、review 触发、merge queue（`enqueued_by_id`）。
+
+### 6.1 承接 T04 遗留：push 侧密钥扫描审计落库
+
+T04 的扫描器在 push 侧无法写库（`rg-git` 无 DB），已就位 `AuditEvent` + `set_audit_sink()` + 结构化日志，但没人调用 sink（`docs/plans/T04-plan.md` §9 遗留）。本任务在**同一段** post-push 代码里接上：
+
+- sink 是进程级单例，而审计行需要知道事件属于哪个仓库。实现用 `tokio::task::try_id()` 把事件路由回**正在扫描的那个 receive-pack 任务**：`crates/rg-http/src/lib.rs` 在 push 前 `SecretScanAudit::begin()` 注册带 `mpsc` 的任务槽，push 结束后 `drain()` 取出事件并注销（`Drop` 兜底，取消/ panic 也不会泄漏槽位）；没有注册任务的事件直接丢弃，**不会归错仓库**。
+- 事件随 `spawn_post_push_hooks` 进入后台任务，在解析出 `repo_id` 后用 `rg_core::audit::record` 落 `audit_log`：action 为 `repo.secret_scan_rejected` / `repo.secret_scan_findings` / `repo.secret_scan_skipped`，`resource_type = "repo"`，`resource_name = owner/name`，`details` 只含 `via=git_push`、ref、path、rule、files、reason，**绝不含命中的文本**。
+- REST 文件提交路径（`api/repo_content.rs`）已有自己的审计，传空事件列表，不重复记录。
+- 局限：审计写入在后台任务，push 响应不等待；进程在写入前崩溃会丢该行（事件同时已进 `tracing::warn`）。
 
 ## 7. 测试
 
-`crates/rg-ci/src/quota.rs`（单元 + SQLite 集成，5 项）：
+`crates/rg-ci/src/quota.rs`（单元 + SQLite 集成，6 项）：
 
 - 分钟取整边界（0 / 负数 / 1s / 60s / 61s / 1h）；
 - 人类与无主体触发不限流且不写行；
-- agent 并发到 4 条 → 409 且 message 含 `CI_QUOTA_CONCURRENCY`，gauge 落库为 4；
-- 3 × 40 分钟 → 120 分钟撞线报 `CI_QUOTA_MINUTES`；重复记账仍是 120；`(subject, repo)` 只有 2 行（两个 metric）；
-- pending / 他人 pipeline 不计费。
+- agent 并发到 4 条 → `CoreError::Coded { status: 409, code: CI_QUOTA_CONCURRENCY }`，gauge 落库为 4；
+- 3 × 40 分钟 → 120 分钟撞线 → `Coded { 409, CI_QUOTA_MINUTES }`；重复记账仍是 120；`(subject, repo)` 只有 2 行；
+- pending / 他人 pipeline 不计费；
+- **`push_triggered_pipelines_are_gated_for_agents_only`**：真实 git 仓库 + 合法 `.ironforge-ci.yml`，以 `trigger_type = "push"` 触发——超配额的 agent 得到 `409 CI_QUOTA_CONCURRENCY` 且不建 pipeline 行；同样情形的人类成功建行（`triggered_by`/`trigger_type` 回读确认）。
 
-`crates/rg-ci/tests/quota_backends.rs`（跨后端，1 项，读 `IRONFORGE_TEST_DATABASE_URL`）：在 SQLite / PostgreSQL / MySQL 跑同一套「重复记账幂等 + 双闸门 + 人类不记账 + gauge 为实时值」。
+`crates/rg-http/tests/secret_scan_push_audit_tests.rs`（1 项）：真实 `git push`（agent 凭证）携带阻塞级 cloud access key → push 被拒，`audit_log` 出现 `repo.secret_scan_rejected`，`resource_id` 是该仓库、`details.via = git_push`、`path/rule/ref` 正确，且 details 不含命中文本。
+
+`crates/rg-http/tests/ci_quota_push_tests.rs`（1 项）：用记录型 `CiTrigger` 替换引擎，agent 通过 contents API 提交文件（与 git push 同一个 post-push hook）→ 引擎收到 `trigger_type = "push"`、`triggered_by = Some(agent_id)`；owner 提交 → `Some(owner_id)`。这条钉住「push 把 pusher 传进引擎」的接线；「超配额被拒 409」由上面 rg-ci 的测试覆盖（`rg-http` 不能依赖 `rg-ci`，`Cargo.*` 冻结）。
+
+`crates/rg-ci/tests/quota_backends.rs`（跨后端，1 项，读 `IRONFORGE_TEST_DATABASE_URL`）：在 SQLite / PostgreSQL / MySQL 跑同一套「重复记账幂等 + 双闸门（`Coded` code 断言）+ 人类不记账 + gauge 为实时值」。
 
 `crates/rg-db/src/migrations/m20261114_000001_create_usage_counters.rs`（2 项）：
 
 - 三种方言 DDL 都含 `usage_counters` 与唯一索引名，且不含单数表名；
 - up → down → up：表被真正删除并可重建、唯一索引回来。
+
+`rg-core/src/error.rs`（2 项）：`Coded` 分类与字段经 anyhow 往返不变。
+`rg-http/src/error.rs`（1 项新增）：`Coded` → `AppError` 的 `status()/code()` 精确。
 
 既有守卫：`rg_db::soft_delete_tests::upgrade_keeps_child_rows_triggers_and_foreign_keys` 覆盖 `Migrator::down(&db, Some(27))` 的回滚窗口，已通过。
 
@@ -140,16 +160,28 @@ running 15 tests   ... test result: ok. 15 passed; 0 failed; ...
 running 1 test     ... test result: ok. 1 passed; 0 failed; ...
 
 $ cargo test -p rg-ci
-running 44 tests   ... test result: ok. 44 passed; 0 failed; ...
+running 45 tests   ... test result: ok. 45 passed; 0 failed; ...
 running 1 test     ... test result: ok. 1 passed; 0 failed; ...      (tests/quota_backends.rs, SQLite)
 
 $ cargo clippy --workspace --all-targets -- -D warnings
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.10s   （零警告）
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 12.26s   （零警告）
 
 $ scripts/check.sh --quick
-==> cargo fmt --all --check              (2s)
+==> cargo fmt --all --check              (1s)
 ==> cargo clippy --workspace --all-targets -D warnings   (0s)
-==> checks passed in 2s (quick)
+==> checks passed in 1s (quick)
+```
+
+额外跑（改动涉及 rg-http / rg-core，不在验收命令内）：
+
+```
+$ cargo test -p rg-http --lib
+running 105 tests  ... test result: ok. 105 passed
+$ cargo test -p rg-git --lib secret_scan
+running 28 tests   ... test result: ok. 27 passed; 1 ignored
+
+$ cargo test -p rg-http --test ci_quota_push_tests --test file_commit_semantics_tests     --test agent_principal_tests --test ci_default_branch_tests --test error_semantics_accounts_tests
+23 / 1 / 1 / 14 / 5 项，全部 ok
 ```
 
 单跑回滚守卫：
@@ -162,18 +194,18 @@ test result: ok. 1 passed
 
 ## 9. 跨后端实测（PostgreSQL 17 / MySQL 8.4）
 
-临时容器（`postgres:17`、`mysql:8.4`，跑完已删除），同一份 `tests/quota_backends.rs`：
+临时容器（`postgres:17`、`mysql:8.4`，跑完已删除），同一份 `tests/quota_backends.rs`。错误码改成 `CoreError::Coded` 之后**重新跑过一遍**：
 
 ```
 $ IRONFORGE_TEST_DATABASE_URL=postgres://ironforge:ironforge@127.0.0.1:55432/ironforge \
     cargo test -p rg-ci --test quota_backends -- --nocapture
 quota counters verified on Postgres
-test result: ok. 1 passed; 0 failed; finished in 0.17s
+test result: ok. 1 passed; 0 failed; finished in 0.52s
 
 $ IRONFORGE_TEST_DATABASE_URL=mysql://root:ironforge@127.0.0.1:53306/ironforge \
     cargo test -p rg-ci --test quota_backends -- --nocapture
 quota counters verified on MySql
-test result: ok. 1 passed; 0 failed; finished in 2.67s
+test result: ok. 1 passed; 0 failed; finished in 2.48s
 ```
 
 MySQL 8.4 上唯一索引与排序规则（`SHOW CREATE TABLE` / `information_schema` 实测）：
@@ -209,9 +241,11 @@ PostgreSQL 17 侧结构：`bigint` / `date` / `timestamp with time zone`，唯�
 
 | 风险 | 影响 | 处置 |
 | --- | --- | --- |
-| push 触发无主体（`triggered_by: None`） | agent 的 git push 不受配额约束，也不计数 | 如实记录；需要改 `rg-http/src/lib.rs` post-push 段（禁改），列为后续任务 |
-| `error.code` 只能是 `CONFLICT` | 客户端无法只靠 `error.code` 分支 | message 前缀稳定；后续给 `CoreError` 加带 code 的变体 |
+| 无主体的 push（`pushed_by = None`：账号已删、匿名/内部 push） | 这类触发不受配额约束，也不计数 | 与任务书「难以区分则降级」一致；有主体的 push 全部受限，plan §6 列明分支 |
+| post-push hook 在后台任务里跑 | 409 不会回给 push 的 HTTP 响应；表现是「pipeline 没被创建」 | 引擎层拒绝并留 warn 日志；不改变 push 本身成功的事实（ref 已更新） |
 | 外部 runner / 取消路径延迟记账 | 计数在下一次触发时才准确 | 决策点必定先重算，配额判定不受影响 |
 | `seconds_for_day` 会遍历该 agent 在该仓库的全部历史 pipeline | 极端长寿命仓库的触发成本随历史线性增长 | 最小闭环可接受；后续可加 `finished_at` 索引/日表，或按 `created_at >= day_start - 1d` 预筛 |
 | MySQL `TIMESTAMP` 2038 上限 | `updated_at` 仅观察用 | 与既有表一致，不阻塞 |
 | 迁移不可逆风险 | `down` 必须正确 | 三个方言 DDL 单测 + 「up→down→up」单测 + `Some(27)` 回滚守卫实测通过 |
+| 扫描审计在后台任务里写 | 进程在写入前崩溃会丢该行 | 事件同时由 `rg-git` 以 `tracing::warn` 记录；DB 行是审计增强不是唯一凭据 |
+| sink 是进程级单例 | 并发 push 若不做路由会归错仓库 | 用 `tokio::task::try_id()` 路由回扫描任务；未注册任务的事件丢弃而不误归属，plan §6.1 写明 |

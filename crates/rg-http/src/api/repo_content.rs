@@ -1381,7 +1381,17 @@ pub(crate) fn announce_branch_move(
         status: "ok".to_string(),
         message: String::new(),
     };
-    crate::spawn_post_push_hooks(state, owner, repo, repo_path, vec![update], Some(pushed_by));
+    // The REST path audits secret scans itself (`scan_commit_content`), so no
+    // push-side events are forwarded here.
+    crate::spawn_post_push_hooks(
+        state,
+        owner,
+        repo,
+        repo_path,
+        vec![update],
+        Some(pushed_by),
+        Vec::new(),
+    );
 }
 
 /// The body of a dry-run answer: what the real call would do.

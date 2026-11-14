@@ -22,6 +22,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use rg_ci::quota;
+use rg_core::error::CoreError;
 use rg_db::sea_orm::{ConnectionTrait, NotSet, Set};
 use rg_db::DatabaseConnection;
 
@@ -52,6 +53,14 @@ fn unique(prefix: &str) -> String {
         .unwrap_or(0);
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
     format!("{prefix}{}{}{}", std::process::id() % 100_000, nanos, n)
+}
+
+/// `(status, code)` of a coded `CoreError`, panicking on any other shape.
+fn coded(error: &anyhow::Error) -> (u16, &'static str) {
+    match error.downcast_ref::<CoreError>() {
+        Some(CoreError::Coded { status, code, .. }) => (*status, code),
+        other => panic!("expected CoreError::Coded, got {other:?}"),
+    }
 }
 
 fn backend_name(db: &DatabaseConnection) -> String {
@@ -179,10 +188,10 @@ async fn counters_and_gates_agree_on_every_backend() {
     let error = quota::enforce(&db, repo_id, Some(subject))
         .await
         .expect_err("the daily limit must reject the next trigger");
-    assert!(
-        error.to_string().contains(quota::CODE_MINUTES),
-        "[{backend}] expected {}: {error}",
-        quota::CODE_MINUTES
+    assert_eq!(
+        coded(&error),
+        (409, quota::CODE_MINUTES),
+        "[{backend}] a quota rejection must carry its own code and status: {error}"
     );
 
     // Concurrency gate on a second agent of the same repository.
@@ -202,10 +211,10 @@ async fn counters_and_gates_agree_on_every_backend() {
     let error = quota::enforce(&db, repo_id, Some(concurrent))
         .await
         .expect_err("the concurrency limit must reject the next trigger");
-    assert!(
-        error.to_string().contains(quota::CODE_CONCURRENCY),
-        "[{backend}] expected {}: {error}",
-        quota::CODE_CONCURRENCY
+    assert_eq!(
+        coded(&error),
+        (409, quota::CODE_CONCURRENCY),
+        "[{backend}] a quota rejection must carry its own code and status: {error}"
     );
     assert_eq!(
         quota::counter_value(
