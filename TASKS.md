@@ -72,6 +72,7 @@ git push -u cnb HEAD
 | T06 | [#19] 通用审批原语 · 步骤1（表+状态机+求值器）+ 修 PR 评审越权 | completed | t06-authorization | none | `tasks/T06.md` |
 | T08 | [#62] 接受 unified diff 的提交端点（apply-patch） | completed | t08-apply-patch | none | `tasks/T08.md` |
 | T07 | [#19·步骤3修正版] PR 头部漂移：旧票失效事件化 + 门禁阻断 | completed | t07-head-drift | none | `tasks/T07.md` |
+| T09 | [#39] 代码智能·结构化大纲（抽取层，不含端点） | in_progress | t09-outline | none | `tasks/T09.md` |
 
 ## Pre-Claim Checks
 
