@@ -67,8 +67,8 @@ git push -u cnb HEAD
 | T01 | [#60] PR 合并写到 `base_branch` 而非仓库 `HEAD` | completed | t01-merge-target | none | `tasks/T01.md` |
 | T02 | [#48] MCP 写工具集补 cherry-pick / revert / unified diff | completed | t02-mcp-tools | none | `tasks/T02.md` |
 | T03 | [#15] R3-P1 事件信封与投递头 | completed | t03-event-envelope | none | `tasks/T03.md` |
-| T04 | [#38] R7 推送时密钥扫描 | available | unassigned | none | `tasks/T04.md` |
-| T05 | [#40] R10 配额与用量（最小闭环） | available | unassigned | none | `tasks/T05.md` |
+| T04 | [#38] R7 推送时密钥扫描 | completed | t04-secret-scan | none | `tasks/T04.md` |
+| T05 | [#40] R10 配额与用量（最小闭环） | completed | t05-ci-quota | none | `tasks/T05.md` |
 
 ## Pre-Claim Checks
 
