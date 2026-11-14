@@ -15,6 +15,10 @@ use std::sync::{Arc, Mutex};
 
 use serde_json::{json, Value};
 
+/// The full commit id the stub branch is at, and one it has moved past.
+const TIP: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const STALE: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
 #[derive(Clone, Debug)]
 struct Req {
     method: String,
@@ -182,9 +186,60 @@ fn api() -> Handler {
                 200,
                 json!({"terminal": true, "timed_out": false, "status": "failed"}).to_string(),
             ),
+            ("POST", "/api/v1/repos/alice/demo/commits/abc1234/cherry-pick") => {
+                pick_answer(req, "cherry_pick")
+            }
+            ("POST", "/api/v1/repos/alice/demo/commits/abc1234/revert") => {
+                pick_answer(req, "revert")
+            }
+            ("POST", "/api/v1/repos/alice/demo/commits/deadbeef/cherry-pick") => {
+                merge_conflict(req, "cherry_pick")
+            }
+            ("POST", "/api/v1/repos/alice/demo/commits/deadbeef/revert") => {
+                merge_conflict(req, "revert")
+            }
             _ => (404, json!({"error": {"code": "NOT_FOUND"}}).to_string()),
         }
     })
+}
+
+/// The answer a cherry-pick or revert route gives: a stale `expected_sha` is a
+/// 409 `REF_ADVANCED`, `dry_run` writes nothing, anything else lands.
+fn pick_answer(req: &Req, operation: &str) -> (u16, String) {
+    let body: Value = serde_json::from_str(&req.body).unwrap_or(Value::Null);
+    if body["expected_sha"] == STALE {
+        return (
+            409,
+            json!({"error": {"code": "CONFLICT", "reason": "REF_ADVANCED",
+                "details": {"current_sha": TIP, "expected_sha": STALE}}})
+            .to_string(),
+        );
+    }
+    if body["dry_run"] == true {
+        return (
+            200,
+            json!({"dry_run": true, "operation": operation, "would": []}).to_string(),
+        );
+    }
+    (
+        200,
+        json!({"dry_run": false, "operation": operation, "branch": body["branch"],
+               "tip_before": TIP, "commit_sha": "c0ffee", "source_sha": "abc1234"})
+        .to_string(),
+    )
+}
+
+fn merge_conflict(req: &Req, operation: &str) -> (u16, String) {
+    let body: Value = serde_json::from_str(&req.body).unwrap_or(Value::Null);
+    (
+        409,
+        json!({"error": {"code": "CONFLICT", "reason": "MERGE_CONFLICT",
+            "message": "the change does not apply cleanly",
+            "details": {"operation": operation, "source_sha": "deadbeef",
+                        "tip_sha": TIP, "paths": ["src/main.rs"],
+                        "expected_sha": body["expected_sha"]}}})
+        .to_string(),
+    )
 }
 
 struct Mcp {
@@ -304,6 +359,14 @@ fn the_write_tools_are_advertised_with_their_required_arguments() {
             "delete_file",
             vec!["owner", "repo", "path", "message", "branch", "sha"],
         ),
+        (
+            "cherry_pick_commit",
+            vec!["owner", "repo", "sha", "branch", "expected_sha"],
+        ),
+        (
+            "revert_commit",
+            vec!["owner", "repo", "sha", "branch", "expected_sha"],
+        ),
         ("delete_branch", vec!["owner", "repo", "branch"]),
         ("create_pr", vec!["owner", "repo", "title", "head", "base"]),
         ("list_pipelines", vec!["owner", "repo"]),
@@ -326,12 +389,20 @@ fn the_write_tools_are_advertised_with_their_required_arguments() {
         "commit_files",
         "delete_file",
         "delete_branch",
+        "cherry_pick_commit",
+        "revert_commit",
     ] {
         let props = &find(name)["inputSchema"]["properties"];
         assert!(
             props.get("expected_sha").is_some() && props.get("dry_run").is_some(),
             "{name}"
         );
+    }
+    // A pick takes a mainline for merge commits and is replayable.
+    for name in ["cherry_pick_commit", "revert_commit"] {
+        let props = &find(name)["inputSchema"]["properties"];
+        assert_eq!(props["mainline"]["minimum"], 1, "{name}");
+        assert!(props.get("idempotency_key").is_some(), "{name}");
     }
 }
 
@@ -831,4 +902,186 @@ fn create_pr_can_be_checked_first_and_a_pr_can_be_exported() {
         1
     );
     assert_eq!(stub.last().path, "/api/v1/repos/alice/demo/pulls/3/export");
+}
+
+#[test]
+fn cherry_pick_commit_sends_the_route_and_the_guarded_body() {
+    let stub = Stub::spawn(api());
+    let mut mcp = Mcp::start(&stub.url);
+
+    let (err, text) = mcp.tool(
+        "cherry_pick_commit",
+        json!({"owner": "alice", "repo": "demo", "sha": "abc1234", "branch": "agent/x",
+               "expected_sha": TIP, "message": "bring the fix", "idempotency_key": "pick-1"}),
+    );
+    assert!(!err, "{text}");
+    assert_eq!(
+        serde_json::from_str::<Value>(&text).unwrap()["operation"],
+        "cherry_pick"
+    );
+    let sent = stub.last();
+    assert_eq!(sent.method, "POST");
+    assert_eq!(
+        sent.path,
+        "/api/v1/repos/alice/demo/commits/abc1234/cherry-pick"
+    );
+    assert_eq!(sent.idempotency_key.as_deref(), Some("pick-1"));
+    let body: Value = serde_json::from_str(&sent.body).unwrap();
+    assert_eq!(body["branch"], "agent/x");
+    assert_eq!(body["expected_sha"], TIP);
+    assert_eq!(body["message"], "bring the fix");
+    // Not asked for: neither is sent, and the key stays in the header.
+    assert!(body.get("mainline").is_none());
+    assert!(body.get("dry_run").is_none());
+    assert!(body.get("idempotency_key").is_none());
+}
+
+#[test]
+fn revert_commit_uses_its_route_and_passes_mainline_and_dry_run() {
+    let stub = Stub::spawn(api());
+    let mut mcp = Mcp::start(&stub.url);
+
+    let (err, text) = mcp.tool(
+        "revert_commit",
+        json!({"owner": "alice", "repo": "demo", "sha": "abc1234", "branch": "agent/x",
+               "expected_sha": TIP, "mainline": 2, "dry_run": true}),
+    );
+    assert!(!err, "{text}");
+    let answer: Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(answer["operation"], "revert");
+    assert_eq!(answer["dry_run"], true);
+    let sent = stub.last();
+    assert_eq!(sent.method, "POST");
+    assert_eq!(sent.path, "/api/v1/repos/alice/demo/commits/abc1234/revert");
+    let body: Value = serde_json::from_str(&sent.body).unwrap();
+    assert_eq!(body["branch"], "agent/x");
+    assert_eq!(body["expected_sha"], TIP);
+    assert_eq!(body["mainline"], 2);
+    assert_eq!(body["dry_run"], true);
+    assert!(body.get("message").is_none());
+}
+
+#[test]
+fn pick_refusals_keep_the_status_and_the_details() {
+    let stub = Stub::spawn(api());
+    let mut mcp = Mcp::start(&stub.url);
+
+    let (err, text) = mcp.tool(
+        "cherry_pick_commit",
+        json!({"owner": "alice", "repo": "demo", "sha": "deadbeef", "branch": "agent/x",
+               "expected_sha": TIP}),
+    );
+    assert!(err);
+    assert!(text.starts_with("Error: HTTP 409"), "{text}");
+    assert!(
+        text.contains("MERGE_CONFLICT") && text.contains("src/main.rs"),
+        "{text}"
+    );
+
+    // A branch that moved is refused with the commit it is at now.
+    let (err, text) = mcp.tool(
+        "revert_commit",
+        json!({"owner": "alice", "repo": "demo", "sha": "abc1234", "branch": "agent/x",
+               "expected_sha": STALE}),
+    );
+    assert!(err);
+    assert!(text.starts_with("Error: HTTP 409"), "{text}");
+    assert!(
+        text.contains("REF_ADVANCED") && text.contains(TIP),
+        "{text}"
+    );
+}
+
+#[test]
+fn pick_tools_check_their_arguments_before_any_request() {
+    let stub = Stub::spawn(api());
+    let mut mcp = Mcp::start(&stub.url);
+    let base = json!({"owner": "alice", "repo": "demo", "sha": "abc1234", "branch": "agent/x",
+                      "expected_sha": TIP});
+    let cases = [
+        // The commit to apply is required and is a plain hex id, never a revspec.
+        (
+            json!({"owner": "alice", "repo": "demo", "branch": "b", "expected_sha": TIP}),
+            "sha is required",
+        ),
+        (
+            json!({"owner": "alice", "repo": "demo", "sha": "HEAD~1", "branch": "b",
+                "expected_sha": TIP}),
+            "sha must be a hex commit id of 4-64 characters",
+        ),
+        (
+            json!({"owner": "alice", "repo": "demo", "sha": "abc", "branch": "b",
+                "expected_sha": TIP}),
+            "sha must be a hex commit id of 4-64 characters",
+        ),
+        (
+            json!({"owner": "alice", "repo": "demo", "sha": "../../x", "branch": "b",
+                "expected_sha": TIP}),
+            "sha must be a hex commit id of 4-64 characters",
+        ),
+        // branch has no default and is never created here.
+        (
+            json!({"owner": "alice", "repo": "demo", "sha": "abc1234", "expected_sha": TIP}),
+            "branch is required",
+        ),
+        // expected_sha is required and must be the full id the branch is at.
+        (
+            json!({"owner": "alice", "repo": "demo", "sha": "abc1234", "branch": "b"}),
+            "expected_sha is required",
+        ),
+        (
+            json!({"owner": "alice", "repo": "demo", "sha": "abc1234", "branch": "b",
+                "expected_sha": "abc1234"}),
+            "expected_sha must be a full commit id",
+        ),
+        (
+            json!({"owner": "alice", "repo": "demo", "sha": "abc1234", "branch": "b",
+                "expected_sha": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"}),
+            "expected_sha must be a full commit id",
+        ),
+        // mainline is a 1-based parent number.
+        (
+            json!({"owner": "alice", "repo": "demo", "sha": "abc1234", "branch": "b",
+                "expected_sha": TIP, "mainline": 0}),
+            "mainline must be a positive integer",
+        ),
+        (
+            json!({"owner": "alice", "repo": "demo", "sha": "abc1234", "branch": "b",
+                "expected_sha": TIP, "mainline": "2"}),
+            "mainline must be a positive integer",
+        ),
+        // A blank message is refused by the server; say so before sending.
+        (
+            json!({"owner": "alice", "repo": "demo", "sha": "abc1234", "branch": "b",
+                "expected_sha": TIP, "message": "   "}),
+            "message must not be blank",
+        ),
+        (
+            json!({"owner": "alice", "repo": "demo", "sha": "abc1234", "branch": "b",
+                "expected_sha": TIP, "dry_run": "yes"}),
+            "dry_run must be true or false",
+        ),
+        (
+            json!({"owner": "al/ice", "repo": "demo", "sha": "abc1234", "branch": "b",
+                "expected_sha": TIP}),
+            "owner must be",
+        ),
+        (
+            json!({"owner": "alice", "repo": "demo", "sha": "abc1234", "branch": "b",
+                "expected_sha": TIP, "idempotency_key": "has space"}),
+            "idempotency_key must be",
+        ),
+    ];
+    for name in ["cherry_pick_commit", "revert_commit"] {
+        for (args, wants) in &cases {
+            let (err, text) = mcp.tool(name, args.clone());
+            assert!(err, "{name}: {args}");
+            assert!(text.contains(wants), "{name}: {args} -> {text}");
+        }
+        // The valid shape is accepted: this is the only case that leaves the process.
+        let (err, text) = mcp.tool(name, base.clone());
+        assert!(!err, "{name}: {text}");
+    }
+    // Exactly the two valid calls reached the stub.
+    assert_eq!(stub.count(), 2, "bad arguments send no request");
 }
