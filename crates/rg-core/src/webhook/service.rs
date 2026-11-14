@@ -16,6 +16,7 @@ use rg_db::entities::webhook;
 use rg_db::entities::webhook_delivery;
 use rg_db::ops::webhook_ops;
 
+use crate::agent::ActorRef;
 use crate::error::{CoreError, CoreResult};
 
 // ── API types ─────────────────────────────────────────────────────────────
@@ -125,19 +126,153 @@ pub async fn delete_webhook(db: &DatabaseConnection, id: i64) -> CoreResult<()> 
     Ok(webhook_ops::delete_webhook_by_id(db, id).await?)
 }
 
+// ── Event envelope ────────────────────────────────────────────────────────
+
+/// Version of the [`EventEnvelope`] wrapper. A consumer that sees a higher
+/// number must not assume it understands anything beyond `data`.
+pub const EVENT_SCHEMA_VERSION: u32 = 1;
+
+/// Header carrying the event kind (`push`, `pull_request.opened`, …).
+pub const HEADER_EVENT: &str = "X-IronForge-Event";
+/// Header carrying the delivery id, also recorded in `webhook_deliveries`.
+pub const HEADER_DELIVERY: &str = "X-IronForge-Delivery";
+
+/// The outer shape every repository event is published in: one envelope, the
+/// business payload untouched under `data`.
+///
+/// The envelope is what a consumer subscribes to — it can dispatch on `kind`,
+/// deduplicate on `id` (the same id is used for the event log and every webhook
+/// delivery of that event), and tell an agent's action from a person's through
+/// `actor`. `data` is byte-for-byte what the event carried before the envelope
+/// existed, so an existing receiver that reads the fields it knows keeps
+/// working: it only has to look one level deeper.
+///
+/// `actor` is `null` when the event names no account (for example a
+/// collaboration declaration, or a payload written before actor ids were
+/// carried).
+#[derive(Debug, Clone, Serialize)]
+pub struct EventEnvelope {
+    pub schema: u32,
+    pub id: uuid::Uuid,
+    pub kind: String,
+    pub at: chrono::DateTime<Utc>,
+    pub repo_id: i64,
+    pub actor: Option<ActorRef>,
+    pub data: Value,
+}
+
+impl EventEnvelope {
+    /// Wrap `data` as a new event of `kind`. The caller builds it once so the
+    /// event log, the headers and every delivery share one id and timestamp.
+    pub fn new(repo_id: i64, kind: &str, actor: Option<ActorRef>, data: Value) -> Self {
+        Self {
+            schema: EVENT_SCHEMA_VERSION,
+            id: uuid::Uuid::new_v4(),
+            kind: kind.to_string(),
+            at: Utc::now(),
+            repo_id,
+            actor,
+            data,
+        }
+    }
+
+    pub fn to_value(self) -> Value {
+        serde_json::to_value(self).unwrap_or(Value::Null)
+    }
+}
+
+/// Does this JSON value already carry an envelope? Readers use it to accept
+/// rows written both before and after the envelope existed, and redelivery uses
+/// it to avoid wrapping a stored payload twice.
+///
+/// Accepts any `schema >= 1`, so a future version is still unwrapped rather
+/// than mistaken for a legacy payload.
+pub fn looks_like_envelope(value: &Value) -> bool {
+    value
+        .get("schema")
+        .and_then(Value::as_u64)
+        .is_some_and(|v| v >= 1)
+        && value.get("id").and_then(Value::as_str).is_some()
+        && value.get("kind").and_then(Value::as_str).is_some()
+        && value.get("data").is_some()
+}
+
+/// Payload keys that name the account that caused an event, in the order they
+/// are tried. Event payloads are assembled by the calling service, so this is
+/// the only actor information available without changing every call site.
+const ACTOR_ID_KEYS: [&str; 3] = ["actor_id", "author_id", "pushed_by"];
+
+/// Keys under which a payload nests the object it describes, so the account can
+/// be read from the object itself (`pull_request.author_id`, `issue.author_id`,
+/// …). Tried only when the top level names no account.
+const ACTOR_CONTAINERS: [&str; 6] = [
+    "actor",
+    "pull_request",
+    "issue",
+    "release",
+    "milestone",
+    "comment",
+];
+
+fn id_in(value: &Value) -> Option<i64> {
+    ACTOR_ID_KEYS
+        .iter()
+        .find_map(|key| value.get(*key).and_then(Value::as_i64))
+}
+
+/// The account id an event names, at the top level or one level down.
+fn actor_id(payload: &Value) -> Option<i64> {
+    id_in(payload).or_else(|| {
+        ACTOR_CONTAINERS
+            .iter()
+            .find_map(|key| payload.get(*key).and_then(id_in))
+    })
+}
+
+/// The actor of an event, when its payload names one. Best effort: a lookup
+/// failure leaves `actor` null instead of failing the delivery.
+async fn event_actor(db: &DatabaseConnection, payload: &Value) -> Option<ActorRef> {
+    let id = actor_id(payload)?;
+    match crate::agent::resolve_actors(db, [id]).await {
+        Ok(mut actors) => actors.remove(&id),
+        Err(error) => {
+            tracing::warn!(actor_id = id, %error, "could not resolve a webhook event actor");
+            None
+        }
+    }
+}
+
 // ── Event dispatch ────────────────────────────────────────────────────────
 
 /// Trigger a webhook event: find matching webhooks and deliver payloads.
+///
+/// `payload` is the business payload; it is published untouched under the
+/// envelope's `data`.
 pub async fn trigger_event(
     db: &DatabaseConnection,
     repo_id: i64,
     event: &str,
     payload: &Value,
 ) -> Result<()> {
+    let actor = event_actor(db, payload).await;
+    let envelope = EventEnvelope::new(repo_id, event, actor, payload.clone());
+    dispatch(db, repo_id, event, envelope.to_value()).await
+}
+
+/// Publish one already-built envelope: append it to the event log, then deliver
+/// it to every active hook of the repository.
+async fn dispatch(
+    db: &DatabaseConnection,
+    repo_id: i64,
+    event: &str,
+    envelope: Value,
+) -> Result<()> {
+    let body = serde_json::to_string(&envelope).unwrap_or_default();
+
     // Every event is also appended to the repository's event log, for
     // subscribers that cannot receive a webhook. Best effort: it never blocks or
     // fails the webhook.
-    record_repo_event(db, repo_id, event, payload).await;
+    record_repo_event(db, repo_id, event, &body).await;
 
     let hooks = webhook_ops::list_active_by_repo_and_event(db, repo_id, event).await?;
 
@@ -146,7 +281,7 @@ pub async fn trigger_event(
         let db_clone = db.clone();
         let hook_id = hook.id;
         let event_str = event.to_string();
-        let payload_str = serde_json::to_string(payload).unwrap_or_default();
+        let body = body.clone();
         let url = hook.url.clone();
         let content_type = hook.content_type.clone();
         let secret = hook.secret.clone();
@@ -155,9 +290,32 @@ pub async fn trigger_event(
             let delivery_id = uuid::Uuid::new_v4().to_string();
             let start = std::time::Instant::now();
 
-            let (status, response_body) = match deliver(&url, &content_type, &secret, &payload_str)
-                .await
+            let (status, response_body) = match deliver(
+                &url,
+                &content_type,
+                &secret,
+                &body,
+                &event_str,
+                &delivery_id,
+            )
+            .await
             {
+                Ok(resp_status) if retryable_status(resp_status) => {
+                    // The receiver is asking for another attempt. A 5xx or 429
+                    // is "come back later", not a delivered event: queue the
+                    // same durable retry a transport failure queues.
+                    tracing::warn!(
+                        webhook_id = hook_id,
+                        event = %event_str,
+                        http_status = resp_status,
+                        "webhook receiver asked for a retry"
+                    );
+                    enqueue_retry(&db_clone, hook_id, &event_str, &body).await;
+                    (
+                        Some(resp_status),
+                        Some(format!("retryable receiver status {resp_status}")),
+                    )
+                }
                 Ok(resp_status) => {
                     tracing::info!(
                         webhook_id = hook_id,
@@ -174,25 +332,7 @@ pub async fn trigger_event(
                         error = %e,
                         "webhook delivery failed"
                     );
-                    // QUEUE-001: schedule a durable retry for transport
-                    // failures; the background worker redelivers with
-                    // backoff and records each attempt.
-                    let queue = crate::background_jobs::BackgroundJobQueue::new(db_clone.clone());
-                    let retry_payload = serde_json::json!({
-                        "webhook_id": hook_id,
-                        "event": event_str,
-                        "payload": payload_str,
-                    });
-                    if let Err(retry_err) = queue
-                        .enqueue(crate::background_jobs::TASK_WEBHOOK_DELIVER, &retry_payload)
-                        .await
-                    {
-                        tracing::error!(
-                            webhook_id = hook_id,
-                            error = %retry_err,
-                            "failed to enqueue webhook delivery retry"
-                        );
-                    }
+                    enqueue_retry(&db_clone, hook_id, &event_str, &body).await;
                     (None, Some(format!("delivery error: {:#}", e)))
                 }
             };
@@ -205,7 +345,7 @@ pub async fn trigger_event(
                 event: sea_orm::Set(event_str),
                 delivery_id: sea_orm::Set(delivery_id),
                 response_status: sea_orm::Set(status),
-                request_payload: sea_orm::Set(Some(payload_str)),
+                request_payload: sea_orm::Set(Some(body)),
                 response_body: sea_orm::Set(response_body),
                 duration_ms: sea_orm::Set(Some(duration_ms)),
                 created_at: sea_orm::Set(Utc::now()),
@@ -220,14 +360,44 @@ pub async fn trigger_event(
     Ok(())
 }
 
+/// Queue a durable retry (QUEUE-001): the background worker redelivers with
+/// backoff and records every attempt. Used for transport failures and for
+/// receiver statuses that ask for another attempt.
+async fn enqueue_retry(db: &DatabaseConnection, hook_id: i64, event: &str, body: &str) {
+    let queue = crate::background_jobs::BackgroundJobQueue::new(db.clone());
+    let retry_payload = serde_json::json!({
+        "webhook_id": hook_id,
+        "event": event,
+        "payload": body,
+    });
+    if let Err(retry_err) = queue
+        .enqueue(crate::background_jobs::TASK_WEBHOOK_DELIVER, &retry_payload)
+        .await
+    {
+        tracing::error!(
+            webhook_id = hook_id,
+            error = %retry_err,
+            "failed to enqueue webhook delivery retry"
+        );
+    }
+}
+
+/// Does a receiver status ask for another attempt?
+///
+/// 429 and 5xx are transient by definition. 2xx–4xx are a final answer: a 4xx
+/// means the receiver rejected this payload, and sending it again unchanged
+/// cannot change that.
+fn retryable_status(status: i32) -> bool {
+    status == 429 || (500..=599).contains(&status)
+}
+
 /// Largest payload kept in the event log. A bigger one is replaced by a stub
 /// saying so, so the log stays small and a reader knows to fetch the object.
 const MAX_EVENT_PAYLOAD_BYTES: usize = 16 * 1024;
 
-async fn record_repo_event(db: &DatabaseConnection, repo_id: i64, event: &str, payload: &Value) {
-    let text = serde_json::to_string(payload).unwrap_or_default();
+async fn record_repo_event(db: &DatabaseConnection, repo_id: i64, event: &str, text: &str) {
     let stored = if text.len() <= MAX_EVENT_PAYLOAD_BYTES {
-        text
+        text.to_string()
     } else {
         serde_json::json!({ "truncated": true, "original_bytes": text.len() }).to_string()
     };
@@ -254,11 +424,17 @@ static HTTP_CLIENT: std::sync::LazyLock<Option<reqwest::Client>> = std::sync::La
 });
 
 /// Deliver a webhook payload via HTTP POST.
+///
+/// Every request carries the envelope kind and the delivery id as headers, so a
+/// receiver can route and deduplicate without parsing the body, and can match a
+/// request to the delivery recorded for it.
 async fn deliver(
     url: &str,
     content_type: &str,
     secret: &Option<String>,
     payload: &str,
+    event: &str,
+    delivery_id: &str,
 ) -> Result<i32> {
     // Re-validate immediately before sending: covers legacy rows created
     // before the URL guard existed and narrows the DNS-rebinding window
@@ -271,7 +447,10 @@ async fn deliver(
     let client = HTTP_CLIENT
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("failed to initialise webhook HTTP client"))?;
-    let mut builder = client.post(url);
+    let mut builder = client
+        .post(url)
+        .header(HEADER_EVENT, event)
+        .header(HEADER_DELIVERY, delivery_id);
 
     if content_type == "form" {
         builder = builder
@@ -301,8 +480,9 @@ async fn deliver(
 
 /// Execute one queued webhook delivery (QUEUE-001 `webhook.deliver` handler).
 ///
-/// Payload: `{ "webhook_id", "event", "payload" }`. Transport failures return
-/// `Err` so the queue reschedules with backoff; every attempt is recorded in
+/// Payload: `{ "webhook_id", "event", "payload" }`. Transport failures and
+/// receiver statuses that ask for another attempt (429, 5xx) return `Err` so the
+/// queue reschedules with backoff; every attempt is recorded in
 /// `webhook_deliveries`. A webhook deleted after the retry was scheduled is
 /// treated as resolved (Ok); a hook that is only `active = false` is still delivered to.
 pub async fn deliver_retry_job(db: &DatabaseConnection, payload: &Value) -> Result<()> {
@@ -326,19 +506,39 @@ pub async fn deliver_retry_job(db: &DatabaseConnection, payload: &Value) -> Resu
 
     let delivery_id = uuid::Uuid::new_v4().to_string();
     let start = std::time::Instant::now();
-    let (status, response_body) =
-        match deliver(&hook.url, &hook.content_type, &hook.secret, body).await {
-            Ok(resp_status) => {
-                tracing::info!(
-                    webhook_id,
-                    event = %event,
-                    http_status = resp_status,
-                    "webhook redelivery succeeded"
-                );
-                (Some(resp_status), None::<String>)
-            }
-            Err(e) => (None, Some(format!("delivery error: {:#}", e))),
-        };
+    let (status, response_body) = match deliver(
+        &hook.url,
+        &hook.content_type,
+        &hook.secret,
+        body,
+        event,
+        &delivery_id,
+    )
+    .await
+    {
+        Ok(resp_status) if retryable_status(resp_status) => {
+            tracing::warn!(
+                webhook_id,
+                event = %event,
+                http_status = resp_status,
+                "webhook redelivery: receiver asked for another attempt"
+            );
+            (
+                Some(resp_status),
+                Some(format!("retryable receiver status {resp_status}")),
+            )
+        }
+        Ok(resp_status) => {
+            tracing::info!(
+                webhook_id,
+                event = %event,
+                http_status = resp_status,
+                "webhook redelivery succeeded"
+            );
+            (Some(resp_status), None::<String>)
+        }
+        Err(e) => (None, Some(format!("delivery error: {:#}", e))),
+    };
 
     let duration_ms = start.elapsed().as_millis() as i64;
     let delivery_model = webhook_delivery::ActiveModel {
@@ -376,7 +576,7 @@ pub async fn get_delivery(
     Ok(webhook_ops::find_delivery_by_id(db, id).await?)
 }
 
-/// Redeliver a delivery: replays its payload via `trigger_event`, so the event reaches every active hook of the repo, not only the original one.
+/// Redeliver a delivery: replays its payload via the event dispatcher, so the event reaches every active hook of the repo, not only the original one. The stored envelope, including its id, is reused; a delivery recorded before the envelope existed is wrapped once.
 pub async fn redeliver(db: &DatabaseConnection, delivery_id: i64) -> CoreResult<()> {
     let delivery = webhook_ops::find_delivery_by_id(db, delivery_id)
         .await?
@@ -387,16 +587,19 @@ pub async fn redeliver(db: &DatabaseConnection, delivery_id: i64) -> CoreResult<
         .ok_or_else(|| CoreError::not_found("webhook not found"))?;
 
     let payload = delivery.request_payload.clone().unwrap_or_default();
+    let stored = serde_json::from_str::<Value>(&payload).unwrap_or(Value::Null);
+    // A replayed event must keep its identity: the same envelope id reaches
+    // every hook, so a receiver that deduplicates on it does not see the
+    // original and the replay as two events.
+    let envelope = if looks_like_envelope(&stored) {
+        stored
+    } else {
+        let actor = event_actor(db, &stored).await;
+        EventEnvelope::new(hook.repo_id, &delivery.event, actor, stored).to_value()
+    };
 
     // Fire and record a new delivery
-    if let Err(e) = trigger_event(
-        db,
-        hook.repo_id,
-        &delivery.event,
-        &serde_json::from_str(&payload).unwrap_or(Value::Null),
-    )
-    .await
-    {
+    if let Err(e) = dispatch(db, hook.repo_id, &delivery.event, envelope).await {
         tracing::warn!("Failed to redeliver webhook event: {e}");
     }
 
@@ -558,4 +761,71 @@ pub async fn trigger_milestone_closed(
         "milestone": milestone,
     });
     trigger_event(db, repo_id, "milestone.closed", &payload).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A payload is only treated as an envelope when every marker is present, so
+    /// a business payload is never silently replaced by its `data`.
+    #[test]
+    fn a_legacy_payload_is_not_mistaken_for_an_envelope() {
+        assert!(!looks_like_envelope(&serde_json::json!({
+            "ref": "refs/heads/main",
+            "after": "abc",
+        })));
+        // A business payload that happens to use one of the key names is still
+        // not an envelope.
+        assert!(!looks_like_envelope(&serde_json::json!({ "kind": "push" })));
+        // Every marker is required: a payload missing `data` is not an envelope.
+        assert!(!looks_like_envelope(&serde_json::json!({
+            "schema": 1,
+            "id": "x",
+            "kind": "push",
+        })));
+
+        let envelope =
+            EventEnvelope::new(7, "push", None, serde_json::json!({ "after": "abc" })).to_value();
+        assert!(looks_like_envelope(&envelope));
+        assert_eq!(envelope["schema"], EVENT_SCHEMA_VERSION);
+
+        // A future schema version is still recognised, so a reader unwraps it
+        // instead of treating it as a legacy payload.
+        let mut future = envelope;
+        future["schema"] = serde_json::json!(99);
+        assert!(looks_like_envelope(&future));
+    }
+
+    #[test]
+    fn only_a_receiver_asking_for_another_attempt_is_retried() {
+        for transient in [429, 500, 502, 503, 599] {
+            assert!(retryable_status(transient), "{transient}");
+        }
+        for final_answer in [200, 201, 204, 301, 400, 401, 403, 404, 409, 422] {
+            assert!(!retryable_status(final_answer), "{final_answer}");
+        }
+    }
+
+    #[test]
+    fn an_actor_is_found_at_the_top_level_and_one_level_down() {
+        // push: the pushing account sits at the top level.
+        assert_eq!(
+            actor_id(&serde_json::json!({ "pushed_by": 4, "after": "abc" })),
+            Some(4)
+        );
+        // pull_request / issue / release nest the object they describe.
+        assert_eq!(
+            actor_id(&serde_json::json!({
+                "event": "pull_request.opened",
+                "pull_request": { "number": 1, "author_id": 5 },
+            })),
+            Some(5)
+        );
+        // No account named: null rather than a fabricated actor.
+        assert_eq!(
+            actor_id(&serde_json::json!({ "event": "tag.created", "ref": "v1" })),
+            None
+        );
+    }
 }
