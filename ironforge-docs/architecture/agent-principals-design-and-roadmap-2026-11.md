@@ -1,6 +1,6 @@
 # Agent 主体身份与 agent 友好化路线图（v2 细化版，2026-11-10）
 
-> **状态**：第一期已合 main（PR #47，merge `063e6eb`；`feat/agent-principals` 现为 main 祖先，`git rev-list --count cnb/main..cnb/feat/agent-principals` = 0）；§3 的 P0 已落地（PR #22，`0fe75a5`）；第二期 T22–T25 与 issue #42 已实现并合并（PR #49–#53），R1 已实现并合并（PR #55）（2026-11-13，本机验证，未经 CI，**均已合并进 main**）；T21、T26 与 R2–R11 未开工
+> **状态**：第一期已合 main（PR #47，merge `063e6eb`；`feat/agent-principals` 现为 main 祖先，`git rev-list --count cnb/main..cnb/feat/agent-principals` = 0）；§3 的 P0 已落地（PR #22，`0fe75a5`）；第二期 T22–T25 与 issue #42 已实现并合并（PR #49–#53），R1 已实现并合并（PR #55），T26 已实现并合并（PR #57），#48 第 3 项 cherry-pick/revert 与 #17 合并就绪/更新分支（对应 R5）已合并（PR #58、#59）（2026-11-13，本机验证，未经 CI，**均已合并进 main**）；T21、R3、R6–R11 未开工
 > **本版性质**：v1 的细化 + 更正。v1 中标为"推测"的判断已逐条读码核实，**发现 10 处需要更正**，其中 1 处是安全缺口（§3）。v1 原文：`git show 979caab:ironforge-docs/architecture/agent-principals-design-and-roadmap-2026-11.md`
 > **可信度**：第一期为"实现 + 单元测试"级；第二期与路线图为**设计**，触点带 `文件:行`，其中 T22–T25、R1 已有实现（见各卡状态行），其余未写实现代码
 > **阅读顺序**：§0 变更摘要 → §2 现状（含不变量）→ §3 P0 → §4 第二期任务卡 → §5 路线图任务卡 → §6 批次与依赖。动手前读 §7
@@ -228,7 +228,7 @@ let humans: Vec<i64> = user::Entity::find()          // 1 次，IN 查询
 | T23 | 审计 `on_behalf_of_user_id` | 6 | M | 第一期（✅ 实现 2026-11-13，issue #33，PR #50 已合并） |
 | T24 | 通知改派给所有者 | 3 | M | 无（✅ 实现 2026-11-13，issue #35，PR #51 已合并） |
 | T25 | 提交作者与推送者归因 | 3 | S | 第一期（✅ 实现 2026-11-13，issue #36，PR #52 已合并） |
-| T26 | 响应携带主体类型 | 8 | L | T23/T25 |
+| T26 | 响应携带主体类型 | 8 | L | T23/T25（✅ 实现 2026-11-13，issue #37，PR #57 已合并） |
 
 ---
 
@@ -391,6 +391,8 @@ pub async fn accountable_user(db: &DatabaseConnection, user_id: i64) -> CoreResu
 
 ### T26 响应携带主体类型
 
+> **状态（2026-11-13）**：已实现并合并，PR #57，仅 SQLite，未经 CI。与下文方案的差异：新增 `*_ref` 键（`author_ref`/`reviewer_ref`/`user_ref`），**不**替换 `author`/`reviewer`/`user`（前端类型是字符串）；能力发现用 `api_capabilities` 旗标 `actors.ref.v1`，**没有**进 `capabilities::REGISTRY`，`CONTRACT_MINOR` 不 bump（这条取代下文第 3 步）；批量解析至多 2 条查询。未做：创建 PR 响应、评审时间线、代码行评论、issue 列表/详情、`/users/me` 的 `kind`、前端。证据：[t26-actor-ref-verification-2026-11.md](t26-actor-ref-verification-2026-11.md)。
+
 **目标**：客户端一眼看出"这个作者是人还是 agent、代表谁"，不必再查 `/agents`。
 
 **现状（核实于 2026-11-12，基线 `a41c9b2`）**：`collaboration/capabilities.rs` 是 `pub const REGISTRY: &[Capability]`，**27 个能力 / 82 条路由 / 65 个不同路径**，append-only 手工维护，有防漂移测试（`collab_contract_tests.rs:116`、`:136`，`:399` 在 `:354` 起的能力列表测试内）；`CONTRACT_MAJOR/MINOR = 1/1`（`capabilities.rs:30-31`）。响应视图在 `api/collab_capabilities.rs:24-36`（`CapabilityEntry`，**不含 routes**）+ `:105-118` 映射，`#[derive(ToSchema)]` 自动进 OpenAPI；四处落地点的**现有字段名与本方案不一致**，见 `actor-identity-response-verification-2026-11.md` §1 N13–N16。
@@ -515,6 +517,8 @@ enum TreeEdit { SetFile { path, content, expected_blob_sha }, RemoveFile { path 
 
 #### R5 可合并性与冲突详情
 
+> **状态（2026-11-13）**：对应 issue #17，已实现并合并，PR #59（`merge-readiness` 与 `update-branch`，合并前置校验收敛为共用的 `merge_gates`），SQLite/PostgreSQL 17/MySQL 8.4 均跑过，未经 CI。未决与疑似缺陷（含 issue #60：PR 合并可能写到仓库 `HEAD` 而非 base 分支）见 [merge-readiness-verification-2026-11.md](merge-readiness-verification-2026-11.md)。
+
 **核实现状**：`ai_pr_context.rs:386` 确有 `"not_evaluated": ["mergeable", "branch_protection"]`；`merge_pr` handler（`pulls.rs:550`）只检查 draft / 保护 / 状态 / `expected_head_sha` 就直接合，**无冲突预检**（状态在 handler `:609` 与 core `service.rs:1321` 各查一次）；`pulls.rs:628-629` 的 dry-run 注释直说"冲突只有真合才知道"。`merge_trees` 是 gix API（`rg-git/src/ops.rs:351`，用于 rebase 重放），合并路径用 `merge_commits`（`pull_request/service.rs:1943`）。端点与字段以 `merge-readiness-current-state-2026-11.md` §6 的裁决为准（本段的 `/mergeability` 与之冲突）。
 
 **方案**：`GET /repos/{o}/{r}/pulls/{n}/mergeability` 返回
@@ -610,7 +614,7 @@ graph LR
 |---|---|---|---|
 | **B0** | §3 P0 | 单线，半天 | 9 条测试全绿；**不得晚于第一期合 main** |
 | **B1** | T23 / T24 / T25（✅ PR #50 / #51 / #52，已合并） | 3 个 worktree 并行（互不触同一文件） | clippy 干净；`down` 步数 25→26（**不是**迁移总数）；跨后端跑 T23 的 SQL |
-| **B2** | T22（✅ PR #49，已合并）/ T26（未开工，T23/T25/R1 已合并，可开工） | 2 线并行 | T22 覆盖 15 个调用点；T26 只做四处并 bump `CONTRACT_MINOR` |
+| **B2** | T22（✅ PR #49，已合并）/ T26（✅ PR #57，已合并） | 2 线并行 | T22 覆盖 15 个调用点；T26 只做四处，**未** bump `CONTRACT_MINOR`（见 T26 卡） |
 | **B3** | R1（✅ PR #55，已合并） | 单线，独立分支 | 两个守卫测试上线；现有行为零变化 |
 | **B4** | R4 → R5 → R6 → R7 | 串行（同一片写路径） | 每项各自验收；R4 先做，为后三项提供"一次多文件"基础 |
 | **B5** | R3 → R8 → R9 → R10 → R11 | 按需 | R3 的 P1 可提前到任意时刻 |
