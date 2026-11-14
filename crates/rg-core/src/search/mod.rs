@@ -3,5 +3,6 @@
 pub mod code_indexer;
 pub mod dialect;
 pub mod indexer;
+pub mod map;
 pub mod outline;
 pub mod service;

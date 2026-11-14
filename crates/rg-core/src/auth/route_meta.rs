@@ -457,6 +457,7 @@ pub const ROUTES: &[RouteMeta] = &[
     repo("/ai/repos/{owner}/{name}/issues"),
     repo("/ai/repos/{owner}/{name}/prs"),
     repo("/ai/repos/{owner}/{name}/tree"),
+    repo("/ai/repos/{owner}/{name}/map"),
     repo("/ai/repos/{owner}/{name}/search/code"),
     repo("/ai/repos/{owner}/{name}/index"),
     repo("/ai/repos/{owner}/{name}/pulls/{number}/context"),
