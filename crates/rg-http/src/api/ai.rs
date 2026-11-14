@@ -15,6 +15,8 @@ use utoipa::ToSchema;
 use crate::api::repo_access;
 use crate::error::AppError;
 use crate::AppState;
+use rg_core::search::map;
+use rg_core::search::outline::{extract_outline, Language};
 use sea_orm::{ConnectionTrait, Statement};
 
 // ── Response types ───────────────────────────────────
@@ -461,6 +463,317 @@ pub async fn ai_repo_tree(
     })
     .await?;
     Ok((StatusCode::OK, Json(listing)))
+}
+
+// ── Repository map ──────────────────────────────────
+//
+// `GET /ai/repos/{owner}/{name}/map` walks the tree at `ref`, parses every
+// source blob with the T09 outline extractor and hands the result to
+// `rg_core::search::map::build`, which trims it to the token budget. Nothing is
+// persisted: this is a live parse of the requested commit.
+
+/// Query params for the map endpoint.
+#[derive(Deserialize)]
+pub struct MapQuery {
+    #[serde(default)]
+    pub r#ref: Option<String>,
+    #[serde(default)]
+    pub path: Option<String>,
+    /// Parsed by hand so a non-numeric value produces `INVALID_BUDGET` instead
+    /// of axum's generic query rejection.
+    #[serde(default)]
+    pub budget: Option<String>,
+}
+
+/// Upper bound on outline parsing threads inside one blocking task. Parsing is
+/// CPU-bound; more threads than this only adds contention.
+const MAP_PARSE_THREADS: usize = 8;
+
+fn parse_budget(raw: Option<&str>) -> Result<usize, AppError> {
+    let Some(raw) = raw else {
+        return Ok(map::DEFAULT_BUDGET);
+    };
+    let invalid = || {
+        AppError::coded(
+            StatusCode::BAD_REQUEST,
+            "INVALID_BUDGET",
+            format!(
+                "budget must be an integer between {} and {}",
+                map::MIN_BUDGET,
+                map::MAX_BUDGET
+            ),
+        )
+    };
+    let value: usize = raw.trim().parse().map_err(|_| invalid())?;
+    if !(map::MIN_BUDGET..=map::MAX_BUDGET).contains(&value) {
+        return Err(invalid());
+    }
+    Ok(value)
+}
+
+/// A source blob found while walking the tree.
+struct SourceBlob {
+    path: String,
+    oid: gix::ObjectId,
+}
+
+/// Walk `tree_id` under `prefix`, collecting source files and reporting
+/// everything else as `unsupported language`.
+///
+/// Symlinks and submodules are pointers, not source files, so they are left out
+/// silently instead of claiming they have an unsupported language.
+fn collect_source_blobs(
+    repo: &gix::Repository,
+    tree_id: gix::ObjectId,
+    prefix: &str,
+    out: &mut Vec<SourceBlob>,
+    skipped: &mut Vec<map::MapSkipped>,
+) -> rg_core::error::CoreResult<()> {
+    use rg_core::error::CoreError;
+
+    let tree = repo
+        .find_tree(tree_id)
+        .map_err(|e| CoreError::internal(format!("failed to read tree: {e}")))?;
+    for entry in tree.iter() {
+        let entry = entry.map_err(|e| CoreError::internal(format!("corrupt tree entry: {e}")))?;
+        let name = entry.filename().to_string();
+        let path = if prefix.is_empty() {
+            name
+        } else {
+            format!("{prefix}/{name}")
+        };
+        let oid = entry.oid().to_owned();
+        if entry.mode().is_tree() {
+            collect_source_blobs(repo, oid, &path, out, skipped)?;
+        } else if entry.mode().is_blob() {
+            if !Language::from_path(&path).is_supported() {
+                skipped.push(map::MapSkipped::new(
+                    path,
+                    map::SkipReason::UnsupportedLanguage,
+                ));
+                continue;
+            }
+            let size = repo.find_header(oid).map(|h| h.size()).unwrap_or(u64::MAX);
+            // Rejecting oversized blobs here keeps them out of the parse queue
+            // (and out of the MAX_FILES admission) without reading them.
+            if size > rg_core::search::outline::MAX_FILE_BYTES as u64 {
+                skipped.push(map::MapSkipped::new(path, map::SkipReason::TooLarge));
+                continue;
+            }
+            out.push(SourceBlob { path, oid });
+        }
+    }
+    Ok(())
+}
+
+#[derive(Default)]
+struct ParseOutput {
+    files: Vec<map::MappedFile>,
+    skipped: Vec<map::MapSkipped>,
+}
+
+fn read_source(repo: &gix::Repository, blob: &SourceBlob) -> Result<String, map::SkipReason> {
+    let object = repo
+        .find_object(blob.oid)
+        .map_err(|_| map::SkipReason::Unreadable)?;
+    let blob = object
+        .try_into_blob()
+        .map_err(|_| map::SkipReason::Unreadable)?;
+    if blob.data.len() > rg_core::search::outline::MAX_FILE_BYTES {
+        return Err(map::SkipReason::TooLarge);
+    }
+    if blob.data.contains(&0) {
+        return Err(map::SkipReason::Binary);
+    }
+    std::str::from_utf8(&blob.data)
+        .map(|source| source.to_string())
+        .map_err(|_| map::SkipReason::Unreadable)
+}
+
+fn parse_chunk(repo_path: &std::path::Path, chunk: Vec<SourceBlob>) -> ParseOutput {
+    let mut out = ParseOutput::default();
+    let repo = match crate::api::repo_content::open_repo(repo_path) {
+        Ok(repo) => repo,
+        Err(_) => {
+            out.skipped.extend(
+                chunk
+                    .into_iter()
+                    .map(|blob| map::MapSkipped::new(blob.path, map::SkipReason::Unreadable)),
+            );
+            return out;
+        }
+    };
+    for blob in chunk {
+        match read_source(&repo, &blob) {
+            Ok(source) => out.files.push(map::MappedFile {
+                path: blob.path.clone(),
+                outline: extract_outline(&blob.path, &source),
+            }),
+            Err(reason) => out.skipped.push(map::MapSkipped::new(blob.path, reason)),
+        }
+    }
+    out
+}
+
+/// Parse every blob, with at most [`MAP_PARSE_THREADS`] workers. Each worker
+/// opens the repository once; results keep the input order.
+fn parse_blobs(repo_path: &std::path::Path, blobs: Vec<SourceBlob>) -> ParseOutput {
+    if blobs.is_empty() {
+        return ParseOutput::default();
+    }
+    let threads = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4)
+        .min(MAP_PARSE_THREADS)
+        .min(blobs.len());
+    let chunk_size = blobs.len().div_ceil(threads).max(1);
+
+    let mut chunks: Vec<Vec<SourceBlob>> = Vec::new();
+    let mut rest = blobs;
+    while !rest.is_empty() {
+        let tail = rest.split_off(chunk_size.min(rest.len()));
+        chunks.push(rest);
+        rest = tail;
+    }
+
+    let mut out = ParseOutput::default();
+    let results: Vec<ParseOutput> = std::thread::scope(|scope| {
+        let handles: Vec<_> = chunks
+            .into_iter()
+            .map(|chunk| scope.spawn(move || parse_chunk(repo_path, chunk)))
+            .collect();
+        handles
+            .into_iter()
+            .map(|handle| handle.join().expect("outline parse worker panicked"))
+            .collect()
+    });
+    for part in results {
+        out.files.extend(part.files);
+        out.skipped.extend(part.skipped);
+    }
+    out
+}
+
+fn build_repo_map_blocking(
+    repo_path: &std::path::Path,
+    git_ref: &str,
+    sub_path: &str,
+    budget: usize,
+) -> rg_core::error::CoreResult<map::RepoMap> {
+    use rg_core::error::CoreError;
+
+    let repo = crate::api::repo_content::open_repo(repo_path)?;
+    let commit_id = match repo.rev_parse_single(git_ref) {
+        Ok(id) => id.detach(),
+        // A repository with no commits has an unborn HEAD: a valid, empty map.
+        Err(_) if crate::api::repo_content::is_empty_repo(repo_path) => {
+            return Ok(map::build(git_ref, None, Vec::new(), Vec::new(), budget));
+        }
+        Err(e) => {
+            tracing::debug!(error = %e, git_ref, "map ref did not resolve");
+            return Err(CoreError::coded(
+                404,
+                "REF_NOT_FOUND",
+                format!("ref '{git_ref}' not found"),
+            ));
+        }
+    };
+    let commit = repo
+        .find_commit(commit_id)
+        .map_err(|e| CoreError::internal(format!("failed to find commit: {e}")))?;
+    let mut tree_id = commit
+        .tree_id()
+        .map_err(|e| CoreError::internal(format!("failed to read commit tree: {e}")))?
+        .detach();
+
+    for component in sub_path.split('/').filter(|c| !c.is_empty()) {
+        let tree = repo
+            .find_tree(tree_id)
+            .map_err(|e| CoreError::internal(format!("failed to read tree: {e}")))?;
+        tree_id = tree
+            .iter()
+            .filter_map(|entry| entry.ok())
+            .find(|entry| entry.filename() == component && entry.mode().is_tree())
+            .map(|entry| entry.oid().to_owned())
+            .ok_or_else(|| CoreError::not_found(format!("path not found: {sub_path}")))?;
+    }
+
+    let mut blobs = Vec::new();
+    let mut skipped = Vec::new();
+    collect_source_blobs(
+        &repo,
+        tree_id,
+        sub_path.trim_matches('/'),
+        &mut blobs,
+        &mut skipped,
+    )?;
+
+    // Deterministic admission: the first MAX_FILES paths sorted by path.
+    blobs.sort_by(|a, b| a.path.cmp(&b.path));
+    if blobs.len() > map::MAX_FILES {
+        for blob in blobs.split_off(map::MAX_FILES) {
+            skipped.push(map::MapSkipped::new(
+                blob.path,
+                map::SkipReason::TooManyFiles,
+            ));
+        }
+    }
+
+    let parsed = parse_blobs(repo_path, blobs);
+    skipped.extend(parsed.skipped);
+
+    Ok(map::build(
+        git_ref,
+        Some(commit_id.to_string()),
+        parsed.files,
+        skipped,
+        budget,
+    ))
+}
+
+/// GET /api/v1/ai/repos/{owner}/{name}/map
+#[utoipa::path(
+    get,
+    path = "/api/v1/ai/repos/{owner}/{name}/map",
+    params(
+        ("owner" = String, Path, description = "Repository owner"),
+        ("name" = String, Path, description = "Repository name"),
+        ("ref" = Option<String>, Query, description = "Branch/tag/SHA (default: default branch)"),
+        ("path" = Option<String>, Query, description = "Subdirectory to map (default: repository root)"),
+        ("budget" = Option<usize>, Query, description = "Token budget (default 4000, 64..=32000); non-numeric or out of range is 400 INVALID_BUDGET"),
+    ),
+    responses(
+        (status = 200, description = "Budget-trimmed repository map. `directories` rolls up source files per directory; `files` lists every mapped file ranked by structural importance, with `items_omitted: true` when its items did not fit; `skipped` names each excluded path and why (`unsupported language`, `too many files`, `file too large`, `binary content`, `unreadable`, `parse error`, `budget`). `estimated_tokens` is ceil(json_chars / 4) over this body and never exceeds `budget`; `truncated` is true only when content was dropped for budget reasons. Svelte files carry a `notice` because only their <script> blocks are parsed.", body = serde_json::Value),
+        (status = 400, description = "INVALID_BUDGET"),
+        (status = 404, description = "Repository, ref (REF_NOT_FOUND) or path not found"),
+    ),
+    tag = "ai",
+)]
+pub async fn ai_repo_map(
+    State(state): State<AppState>,
+    Path((owner, name)): Path<(String, String)>,
+    headers: HeaderMap,
+    Query(params): Query<MapQuery>,
+) -> Result<(StatusCode, Json<map::RepoMap>), AppError> {
+    let repo = repo_access::require_read(&state, &headers, &owner, &name).await?;
+    let budget = parse_budget(params.budget.as_deref())?;
+    let git_ref = params.r#ref.unwrap_or_else(|| repo.default_branch.clone());
+    let sub_path = params
+        .path
+        .unwrap_or_default()
+        .trim_matches('/')
+        .to_string();
+
+    let repo_path = state.repo_root.join(format!("{}/{}.git", owner, name));
+    if !repo_path.exists() {
+        return Err(AppError::not_found("repository not found on disk"));
+    }
+
+    let map = crate::api::repo_content::run_blocking(move || {
+        build_repo_map_blocking(&repo_path, &git_ref, &sub_path, budget)
+    })
+    .await?;
+    Ok((StatusCode::OK, Json(map)))
 }
 
 /// Code search result for AI API

@@ -1799,6 +1799,7 @@ fn build_routes(
         )
         .route("/ai/repos/{owner}/{name}/prs", get(api::ai::ai_list_prs))
         .route("/ai/repos/{owner}/{name}/tree", get(api::ai::ai_repo_tree))
+        .route("/ai/repos/{owner}/{name}/map", get(api::ai::ai_repo_map))
         .route(
             "/ai/repos/{owner}/{name}/search/code",
             get(api::ai::ai_search_code),
